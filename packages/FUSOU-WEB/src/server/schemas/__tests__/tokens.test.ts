@@ -57,6 +57,12 @@ describe("quest tree upload token schema", () => {
         schema_version: Number.MAX_SAFE_INTEGER + 1,
       }).success,
     ).toBe(false);
+    expect(
+      QuestTreeUploadTokenPayloadSchema.safeParse({
+        ...basePayload,
+        declared_size: 5 * 1024 * 1024 + 1,
+      }).success,
+    ).toBe(false);
   });
 });
 

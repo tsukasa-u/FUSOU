@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { MAX_QUEST_TREE_UPLOAD_BYTES } from "../constants";
 import { PublicIdSchema } from "./public-id";
 
 const SignedTokenBaseSchema = z
@@ -20,6 +21,16 @@ const PositiveIntegerClaimSchema = z.preprocess(
   z.number().int().positive().safe(),
 );
 
+const QuestTreeDeclaredSizeClaimSchema = z.preprocess(
+  parseNumericClaim,
+  z
+    .number()
+    .int()
+    .positive()
+    .safe()
+    .max(MAX_QUEST_TREE_UPLOAD_BYTES),
+);
+
 const IntegerClaimSchema = z.preprocess(
   parseNumericClaim,
   z.number().int().safe(),
@@ -37,7 +48,7 @@ export const UploadTokenPayloadSchema = SignedTokenBaseSchema.extend({
 export const QuestTreeUploadTokenPayloadSchema =
   SignedTokenBaseSchema.extend({
     content_hash: z.string().min(1),
-    declared_size: PositiveIntegerClaimSchema,
+    declared_size: QuestTreeDeclaredSizeClaimSchema,
     dataset_id: PublicIdSchema,
     request_id: z.string().min(1),
     event_type: z.string().min(1),

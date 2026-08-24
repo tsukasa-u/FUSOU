@@ -9,7 +9,7 @@ import {
   timingSafeEqual,
   validateDatasetTokenSecret,
   validateDatasetTokenWithConstraints,
-  validateJWT,
+  resolveDatasetTokenRevocationConfig,
   validateTokenPayloadWithSchema,
   verifySignedToken,
   safeWaitUntil,
@@ -18,6 +18,7 @@ import {
   getLatestMasterPeriodTag,
   validateCachedPeriodTag,
 } from "../utils/period-tags";
+import { readBodyWithinLimit } from "../utils/upload";
 import { SokuSpeedTokenPayloadSchema } from "../schemas/tokens";
 import {
   LatestSokuSpeedPeriodRowSchema,
@@ -32,7 +33,8 @@ import {
 } from "../schemas/soku-speed";
 
 const SOKU_SPEED_COLLECTION_SWITCH_ENV = "SOKU_SPEED_COLLECTION_ENABLED";
-
+const SOKU_SPEED_MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
+const SOKU_SPEED_HANDSHAKE_MAX_BYTES = SOKU_SPEED_MAX_UPLOAD_BYTES + 64 * 1024;
 const app = new Hono<{ Bindings: Bindings }>();
 
 function cachedSokuSpeedResponse(cachedString: string): Response | null {
@@ -114,7 +116,6 @@ app.post("/ingest", async (c) => {
   const masterDb = c.env.MASTER_DATA_INDEX_DB;
   if (!masterDb)
     return c.json({ error: "MASTER_DATA_INDEX_DB not configured" }, 503);
-  // kill switch
   const env = createEnvContext(c);
   let collectionEnabled = false;
   try {
@@ -143,17 +144,24 @@ app.post("/ingest", async (c) => {
   }
   const uploadToken = c.req.header("X-Upload-Token");
   if (!uploadToken) {
-    const authHeader = c.req.header("Authorization");
-    const bearer = authHeader?.startsWith("Bearer ")
-      ? authHeader.slice(7).trim()
-      : null;
-    if (!bearer) return c.json({ error: "Unauthorized" }, 401);
-    const user = await validateJWT(bearer);
-    if (!user?.id)
-      return c.json({ error: "Invalid or expired JWT token" }, 401);
-    const handshakeBody = parseSokuSpeedIngestBody(
-      await c.req.json().catch(() => null),
+    const handshakeRead = await readBodyWithinLimit(
+      c.req.raw,
+      SOKU_SPEED_HANDSHAKE_MAX_BYTES,
     );
+    if (handshakeRead.kind === "too_large") {
+      return c.json({ error: "Request body exceeds maximum size" }, 413);
+    }
+    let rawHandshakeBody: unknown = null;
+    if (handshakeRead.kind === "ok") {
+      try {
+        rawHandshakeBody = JSON.parse(
+          new TextDecoder().decode(handshakeRead.data),
+        );
+      } catch {
+        rawHandshakeBody = null;
+      }
+    }
+    const handshakeBody = parseSokuSpeedIngestBody(rawHandshakeBody);
     const validated = validateSokuSpeedIngestBody(handshakeBody);
     if (!validated.ok) return c.json({ error: validated.error }, 400);
     const bodyPeriodTag = String(handshakeBody?.period_tag ?? "").trim();
@@ -171,7 +179,10 @@ app.post("/ingest", async (c) => {
       );
     }
     const bodyTableVersion = String(handshakeBody?.table_version ?? "").trim();
-    const latestMaster = await getLatestMasterPeriodTag(masterDb, c.env.DATA_LOADER_CACHE_KV);
+    const latestMaster = await getLatestMasterPeriodTag(
+      masterDb,
+      c.env.DATA_LOADER_CACHE_KV,
+    );
     if (!latestMaster) {
       return c.json({ error: "No master data available" }, 404);
     }
@@ -205,6 +216,7 @@ app.post("/ingest", async (c) => {
       token: datasetToken,
       secret: datasetTokenSecret,
       expectedDatasetId: validated.datasetId,
+      revocation: resolveDatasetTokenRevocationConfig(env),
     });
     if (!tokenValidation.ok) {
       return c.json(
@@ -218,6 +230,14 @@ app.post("/ingest", async (c) => {
     const declaredSize = Number(handshakeBody?.file_size ?? 0);
     if (!Number.isFinite(declaredSize) || declaredSize <= 0) {
       return c.json({ error: "file_size must be > 0" }, 400);
+    }
+    if (declaredSize > SOKU_SPEED_MAX_UPLOAD_BYTES) {
+      return c.json(
+        {
+          error: `file_size exceeds maximum allowed size (${SOKU_SPEED_MAX_UPLOAD_BYTES} bytes)`,
+        },
+        400,
+      );
     }
     const tokenTtl = Math.max(
       300,
@@ -251,13 +271,6 @@ app.post("/ingest", async (c) => {
       expiresAt: new Date(Date.now() + tokenTtl * 1000).toISOString(),
     });
   }
-  const authHeader = c.req.header("Authorization");
-  const bearer = authHeader?.startsWith("Bearer ")
-    ? authHeader.slice(7).trim()
-    : null;
-  if (!bearer) return c.json({ error: "Unauthorized" }, 401);
-  const user = await validateJWT(bearer);
-  if (!user?.id) return c.json({ error: "Invalid or expired JWT token" }, 401);
   const tokenPayload = await verifySignedToken(uploadToken, signingSecret);
   if (!tokenPayload)
     return c.json({ error: "Invalid or expired upload token" }, 401);
@@ -268,9 +281,20 @@ app.post("/ingest", async (c) => {
   if (!validated.valid) return c.json({ error: validated.error }, 400);
   const validatedPayload = validated.data;
   const contentHashHeader = c.req.header("content-hash");
-  const rawBody = await c.req.arrayBuffer().catch(() => null);
-  if (!rawBody) return c.json({ error: "Missing request body" }, 400);
-  const digest = await crypto.subtle.digest("SHA-256", rawBody);
+  const bodyRead = await readBodyWithinLimit(
+    c.req.raw,
+    SOKU_SPEED_MAX_UPLOAD_BYTES,
+  );
+  if (bodyRead.kind === "missing") {
+    return c.json({ error: "Missing request body" }, 400);
+  }
+  if (bodyRead.kind === "too_large") {
+    return c.json({ error: "Request body exceeds maximum size" }, 413);
+  }
+  const rawBody = bodyRead.data;
+  const digestInput = new ArrayBuffer(rawBody.byteLength);
+  new Uint8Array(digestInput).set(rawBody);
+  const digest = await crypto.subtle.digest("SHA-256", digestInput);
   const actualContentHash = Array.from(new Uint8Array(digest))
     .map((b) => b.toString(16).padStart(2, "0"))
     .join("");

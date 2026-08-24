@@ -3,7 +3,7 @@ import type { D1Database, KVNamespace, R2Bucket } from "@cloudflare/workers-type
 import { promisify } from "node:util";
 import { brotliDecompress } from "node:zlib";
 import type { Bindings } from "../types";
-import { CORS_HEADERS } from "../constants";
+import { CORS_HEADERS, MAX_UPLOAD_BYTES } from "../constants";
 import { createEnvContext, getEnv, timingSafeEqual, safeWaitUntil } from "../utils";
 import {
   getAllowedPeriodTagSet,
@@ -851,6 +851,7 @@ app.post("/upload", async (c) => {
     bucket,
     signingSecret,
     requireDatasetToken: true,
+    maxBodySize: MAX_UPLOAD_BYTES,
     preparationValidator: async (body, _user, authContext) => {
       const datasetIdFromToken =
         authContext.datasetToken?.dataset_id?.trim() ?? "";

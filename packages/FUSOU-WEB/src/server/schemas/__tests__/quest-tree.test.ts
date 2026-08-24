@@ -223,6 +223,32 @@ describe("QuestTreeIngestBodySchema", () => {
       QuestTreeIngestBodySchema.safeParse({ file_size: "not-a-number" })
         .success,
     ).toBe(false);
+    expect(
+      QuestTreeIngestBodySchema.safeParse({ file_size: 5 * 1024 * 1024 + 1 })
+        .success,
+    ).toBe(false);
+  });
+
+  it("bounds quest snapshot entries and strips unused fields", () => {
+    const oversizedTitle = QuestTreeIngestBodySchema.safeParse({
+      quests: [{ title: "x".repeat(513) }],
+    });
+    expect(oversizedTitle.success).toBe(false);
+
+    const tooManyQuests = QuestTreeIngestBodySchema.safeParse({
+      quests: Array.from({ length: 1001 }, () => ({})),
+    });
+    expect(tooManyQuests.success).toBe(false);
+
+    const result = QuestTreeIngestBodySchema.safeParse({
+      quests: [{ quest_id: 1, internal_field: "discarded" }],
+      internal_field: "discarded",
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data).not.toHaveProperty("internal_field");
+      expect(result.data.quests?.[0]).not.toHaveProperty("internal_field");
+    }
   });
 
   it("preserves validator error order and messages", () => {

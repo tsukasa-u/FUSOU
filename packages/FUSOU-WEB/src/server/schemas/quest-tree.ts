@@ -1,7 +1,11 @@
 import { z } from "zod";
+import { MAX_QUEST_TREE_UPLOAD_BYTES } from "../constants";
 import { PublicIdSchema } from "./public-id";
 
 const ALLOWED_EVENT_TYPES = new Set(["snapshot", "start", "stop", "complete"]);
+const MAX_QUEST_LIST_ENTRIES = 1000;
+const MAX_QUEST_TITLE_LENGTH = 512;
+const MAX_QUEST_DETAIL_LENGTH = 8192;
 
 function toInteger(value: unknown): number | undefined {
   if (typeof value === "number" && Number.isFinite(value)) {
@@ -21,20 +25,25 @@ const OptionalIntegerFieldSchema = z.preprocess(
 
 const OptionalTrimmedStringFieldSchema = z.preprocess(
   (value) => (value == null ? undefined : String(value).trim()),
-  z.string().optional(),
+  z.string().max(256).optional(),
 );
 
 const OptionalStringFieldSchema = z.preprocess(
   (value) => (typeof value === "string" ? value : undefined),
-  z.string().optional(),
+  z.string().max(MAX_QUEST_TITLE_LENGTH).optional(),
+);
+
+const OptionalQuestDetailSchema = z.preprocess(
+  (value) => (typeof value === "string" ? value : undefined),
+  z.string().max(MAX_QUEST_DETAIL_LENGTH).optional(),
 );
 
 const OptionalInputStringSchema = z.preprocess(
   (value) => (typeof value === "string" ? value.trim() : value),
-  z.string().optional(),
+  z.string().max(4096).optional(),
 );
 
-const OptionalPositiveIntegerInputSchema = z.preprocess(
+const OptionalQuestUploadSizeSchema = z.preprocess(
   (value) => {
     if (value == null || (typeof value === "string" && value.trim() === "")) {
       return undefined;
@@ -49,7 +58,12 @@ const OptionalPositiveIntegerInputSchema = z.preprocess(
       ? parsed
       : value;
   },
-  z.number().int().positive().optional(),
+  z
+    .number()
+    .int()
+    .positive()
+    .max(MAX_QUEST_TREE_UPLOAD_BYTES)
+    .optional(),
 );
 
 const QuestListEntrySchema = z.preprocess(
@@ -62,9 +76,9 @@ const QuestListEntrySchema = z.preprocess(
       category: OptionalIntegerFieldSchema,
       label_type: OptionalIntegerFieldSchema,
       title: OptionalStringFieldSchema,
-      detail: OptionalStringFieldSchema,
+      detail: OptionalQuestDetailSchema,
     })
-    .passthrough(),
+    .strip(),
 );
 
 export const QuestIngestEventIdRowSchema = z
@@ -174,12 +188,12 @@ export const QuestTreeIngestBodySchema = z
     quest_id: OptionalIntegerFieldSchema,
     quests: z.preprocess(
       (value) => (Array.isArray(value) ? value : []),
-      z.array(QuestListEntrySchema),
+      z.array(QuestListEntrySchema).max(MAX_QUEST_LIST_ENTRIES),
     ).optional(),
     content_hash: OptionalInputStringSchema,
-    file_size: OptionalPositiveIntegerInputSchema,
+    file_size: OptionalQuestUploadSizeSchema,
   })
-  .passthrough();
+  .strip();
 
 export const ValidatedQuestTreeIngestBodySchema =
   QuestTreeIngestBodySchema.superRefine((body, context) => {
