@@ -1,35 +1,13 @@
 /**
- * public_id sync utility using Supabase Realtime (v2 - Security enhanced version)
+ * public_id sync utility using the Worker pending-sync API (v2)
  *
  * Improvements:
  * - Enhanced error handling
  * - Prevention of duplicate Promise calls
  * - Channel duplication management
- * - Implementation of INSERT to pending_member_syncs
- * - RLS token verification
+ * - Implementation of pending-member sync creation
+ * - Server-side token verification and polling
  */
-
-import {
-  createClient,
-  RealtimeChannel,
-  SupabaseClient,
-} from "@supabase/supabase-js";
-import { getRequiredClientEnv } from "@/utils/clientEnv";
-
-// Lazy-initialized Supabase client (deferred to avoid errors during astro check)
-let _supabase: SupabaseClient | null = null;
-
-function getSupabase(): SupabaseClient {
-  if (_supabase) {
-    return _supabase;
-  }
-
-  const supabaseUrl = getRequiredClientEnv("PUBLIC_SUPABASE_URL");
-  const supabaseKey = getRequiredClientEnv("PUBLIC_SUPABASE_PUBLISHABLE_KEY");
-
-  _supabase = createClient(supabaseUrl, supabaseKey);
-  return _supabase;
-}
 
 /**
  * Public ID sync result
@@ -49,24 +27,10 @@ export interface PublicIdSyncResult {
 }
 
 /**
- * Realtime payload type
- */
-interface RealtimeSyncPayload {
-  id: string;
-  token: string;
-  public_id: string | null;
-  app_instance_id: string | null;
-  created_at: string;
-  expires_at: string;
-  synced_at: string | null;
-}
-
-/**
  * Active sync session management
  */
 interface ActiveSyncSession {
   token: string;
-  channelName: string;
   startTime: number;
   timeoutHandle: ReturnType<typeof setTimeout> | null;
   resolved: boolean;
@@ -81,11 +45,10 @@ const activeSessions = new Map<string, ActiveSyncSession>();
  *
  * Flow:
  * 1. Generate UUID v4 token
- * 2. INSERT into pending_member_syncs (this is important)
- * 3. Start Realtime channel subscription
- * 4. Launch Tauri app (fusou://sync?token=xxx)
- * 5. APP UPDATEs DB → Realtime notifies
- * 6. WEB receives data → In-page processing complete
+ * 2. Create a pending sync through the Worker
+ * 3. Launch Tauri app (fusou://sync?token=xxx)
+ * 4. APP completes the handoff through the Worker
+ * 5. WEB polls the Worker and receives the public UUID
  *
  * @param timeoutMs - Timeout duration (default 5000ms)
  * @returns Sync result
@@ -93,157 +56,111 @@ const activeSessions = new Map<string, ActiveSyncSession>();
 export async function syncPublicIdWithApp(
   timeoutMs: number = 5000,
 ): Promise<PublicIdSyncResult> {
-  const syncToken = crypto.randomUUID();
-  const channelName = `member-id-sync-${syncToken}`;
-  let channel: RealtimeChannel | null = null;
+  let syncToken: string | null = null;
   let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
-  let resolved = false;
 
   // Cleanup function
   const cleanup = async (reason: string) => {
-    console.debug(`[Realtime Sync v2] Cleanup: ${reason}`);
+    console.debug(`[Sync v2] Cleanup: ${reason}`);
 
     if (timeoutHandle) {
       clearTimeout(timeoutHandle);
       timeoutHandle = null;
     }
 
-    if (channel) {
-      try {
-        await getSupabase().removeChannel(channel);
-      } catch (error) {
-        console.error("[Realtime Sync v2] Channel cleanup error:", error);
-      }
-      channel = null;
-    }
-
-    activeSessions.delete(syncToken);
+    if (syncToken) activeSessions.delete(syncToken);
   };
 
   try {
-    // 1. INSERT into pending_member_syncs (Realtime cannot detect UPDATE without this)
-    const expiresAt = new Date(Date.now() + 5 * 60 * 1000).toISOString();
-
-    const { error: insertError } = await getSupabase()
-      .from("pending_member_syncs")
-      .insert({
-        token: syncToken,
-        expires_at: expiresAt,
-      });
-
-    if (insertError) {
+    const createResponse = await fetch("/api/auth/anonymous-sync/v2/pending", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+    });
+    if (!createResponse.ok) {
+      const errorBody = await createResponse.text().catch(() => "");
       console.error(
-        "[Realtime Sync v2] Failed to create sync record:",
-        insertError,
+        "[Sync v2] Failed to create sync record:",
+        createResponse.status,
       );
       return {
         success: false,
-        error: `Failed to create sync record: ${insertError.message}`,
+        error: `Failed to create sync record: ${errorBody || createResponse.statusText}`,
         reason: "network_error",
         retryable: true,
       };
     }
+    const created = (await createResponse.json()) as { token?: unknown };
+    if (typeof created.token !== "string" || created.token.length > 128) {
+      return { success: false, error: "Invalid sync response", reason: "security_error" };
+    }
+    syncToken = created.token;
 
-    console.debug("[Realtime Sync v2] Sync record created");
+    console.debug("[Sync v2] Sync record created");
 
-    // 2. Realtime channel subscription
-    channel = getSupabase().channel(channelName, {
-      config: {
-        broadcast: { self: false },
-      },
-    });
-
-    // 3. Wrap in Promise (wait for UPDATE + timeout)
     return new Promise<PublicIdSyncResult>((resolve) => {
-      // Session record
-      activeSessions.set(syncToken, {
-        token: syncToken,
-        channelName,
+      const currentToken = syncToken!;
+      const session: ActiveSyncSession = {
+        token: currentToken,
         startTime: Date.now(),
         timeoutHandle: null,
         resolved: false,
         resolve,
-      });
+      };
+      activeSessions.set(currentToken, session);
 
-      // UPDATE event handler
-      channel!.on<RealtimeSyncPayload>(
-        "postgres_changes",
-        {
-          event: "UPDATE",
-          schema: "public",
-          table: "pending_member_syncs",
-          filter: `token=eq.${syncToken}`,
-        },
-        (payload) => {
-          console.debug("[Realtime Sync v2] UPDATE received");
-
-          const data = payload.new;
-
-          // セキュリティ: token マッチング確認
-          if (data.token !== syncToken) {
-            console.error("[Realtime Sync v2] Token mismatch");
-            return;
-          }
-
-          // public_id と synced_at が設定されていれば成功
-          if (data.public_id && data.synced_at) {
-            if (resolved) {
-              console.warn(
-                "[Realtime Sync v2] Already resolved, ignoring duplicate",
-              );
+      const poll = async (): Promise<void> => {
+        if (session.resolved || !activeSessions.has(currentToken)) return;
+        try {
+          const response = await fetch(
+            `/api/auth/anonymous-sync/v2/pending/${encodeURIComponent(currentToken)}`,
+            { cache: "no-store" },
+          );
+          if (session.resolved || !activeSessions.has(currentToken)) return;
+          if (response.ok) {
+            const data = (await response.json()) as {
+              status?: unknown;
+              public_id?: unknown;
+            };
+            if (data.status === "completed" && typeof data.public_id === "string") {
+              session.resolved = true;
+              session.resolve = null;
+              await cleanup("sync_success");
+              resolve({ success: true, publicId: data.public_id });
               return;
             }
-
-            resolved = true;
-
-            console.log("[Realtime Sync v2] Sync successful");
-
-            cleanup("sync_success").catch(console.error);
-
-            resolve({
-              success: true,
-              publicId: data.public_id,
-            });
-          }
-        },
-      );
-
-      // Start channel subscription
-      channel!.subscribe((status) => {
-        console.debug("[Realtime Sync v2] Channel status:", status);
-
-        if (status === "SUBSCRIBED") {
-          // Launch Tauri app after successful channel subscription
-          const fusouUrl = `fusou://sync?token=${encodeURIComponent(syncToken)}`;
-
-          console.debug("[Realtime Sync v2] Launching Tauri app");
-
-          if (typeof window !== "undefined") {
-            window.location.href = fusouUrl;
-          }
-        } else if (status === "CHANNEL_ERROR") {
-          if (!resolved) {
-            resolved = true;
-            cleanup("channel_error").catch(console.error);
+          } else if (response.status === 410) {
+            session.resolved = true;
+            session.resolve = null;
+            await cleanup("sync_expired");
             resolve({
               success: false,
-              error: "Failed to subscribe to realtime channel",
-              reason: "other",
+              error: "Synchronization expired",
+              reason: "timeout",
               retryable: true,
             });
+            return;
           }
+        } catch (error) {
+          console.warn("[Sync v2] Poll failed:", error);
         }
-      });
+        if (!session.resolved && activeSessions.has(currentToken)) {
+          setTimeout(() => void poll(), 200);
+        }
+      };
 
-      // Timeout setting
+      const fusouUrl = `fusou://sync?token=${encodeURIComponent(currentToken)}`;
+      if (typeof window !== "undefined") window.location.href = fusouUrl;
+      void poll();
+
       timeoutHandle = setTimeout(() => {
-        if (resolved) {
+        if (session.resolved || !activeSessions.has(currentToken)) {
           return;
         }
 
-        resolved = true;
+        session.resolved = true;
+        session.resolve = null;
 
-        console.warn(`[Realtime Sync v2] Timed out after ${timeoutMs}ms`);
+        console.warn(`[Sync v2] Timed out after ${timeoutMs}ms`);
 
         cleanup("timeout").catch(console.error);
 
@@ -256,17 +173,13 @@ export async function syncPublicIdWithApp(
       }, timeoutMs);
 
       // Session update
-      const session = activeSessions.get(syncToken);
-      if (session) {
-        session.timeoutHandle = timeoutHandle;
-      }
+      session.timeoutHandle = timeoutHandle;
     });
   } catch (error) {
-    resolved = true;
     await cleanup("exception");
 
     const errorMessage = error instanceof Error ? error.message : String(error);
-    console.error("[Realtime Sync v2] Unexpected error:", errorMessage);
+    console.error("[Sync v2] Unexpected error:", errorMessage);
 
     return {
       success: false,
@@ -283,7 +196,7 @@ export async function syncPublicIdWithApp(
  */
 export async function cleanupAllRealtimeSessions(): Promise<void> {
   console.log(
-    `[Realtime Sync v2] Cleaning up ${activeSessions.size} session(s)`,
+    `[Sync v2] Cleaning up ${activeSessions.size} session(s)`,
   );
 
   for (const [token, session] of activeSessions.entries()) {
@@ -291,19 +204,16 @@ export async function cleanupAllRealtimeSessions(): Promise<void> {
       clearTimeout(session.timeoutHandle);
     }
 
-    const channel = getSupabase()
-      .getChannels()
-      .find((ch) => ch.topic === session.channelName);
-    if (channel) {
-      try {
-        await getSupabase().removeChannel(channel);
-      } catch (error) {
-        console.error(
-          "[Realtime Sync v2] Cleanup error for token",
-          token.substring(0, 8),
-          error,
-        );
-      }
+    if (!session.resolved) {
+      session.resolved = true;
+      const resolve = session.resolve;
+      session.resolve = null;
+      resolve?.({
+        success: false,
+        error: "Synchronization was cancelled",
+        reason: "app_error",
+        retryable: true,
+      });
     }
 
     activeSessions.delete(token);

@@ -1,9 +1,6 @@
 import { z } from "zod";
 
-const ApiMemberIdSchema = z.union([
-  z.number().int().positive(),
-  z.string().regex(/^\d+$/),
-]);
+const ApiMemberIdSchema = z.string().regex(/^[0-9]{1,16}$/);
 
 const NonEmptyStringSchema = z.string().min(1);
 const UuidV4Schema = z.string().uuid().refine(
@@ -69,10 +66,25 @@ export const UserDeviceRevokeTargetRowSchema = z
   })
   .passthrough();
 
+export const UserDeviceWebRevokeTargetRowSchema = z
+  .object({
+    public_id: UuidV4Schema,
+    revoked_at: z.string().nullable(),
+  })
+  .passthrough();
+
 export const RegisterRequestSchema = z
   .object({
     api_member_id: ApiMemberIdSchema,
     device_pub: NonEmptyStringSchema,
+    recovery: z
+      .object({
+        device_id: NonEmptyStringSchema,
+        nonce: NonEmptyStringSchema,
+        sig: NonEmptyStringSchema,
+      })
+      .strict()
+      .optional(),
   })
   .strict();
 
@@ -94,6 +106,13 @@ export const RevokeRequestSchema = z
     reason: z.string().nullable().optional(),
   })
   .passthrough();
+
+export const PendingSyncCompleteRequestSchema = z
+  .object({
+    dataset_token: z.string().min(1).max(4096),
+    app_instance_id: z.string().min(1).max(128),
+  })
+  .strict();
 
 export type RegisterRequest = z.infer<typeof RegisterRequestSchema>;
 export type RefreshRequest = z.infer<typeof RefreshRequestSchema>;

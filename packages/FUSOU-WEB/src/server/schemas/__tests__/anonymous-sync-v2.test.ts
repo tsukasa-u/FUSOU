@@ -47,12 +47,50 @@ describe("anonymous-sync registration schema", () => {
     ).toBe(true);
   });
 
+  it("rejects numeric member ids to avoid precision-changing coercion", () => {
+    expect(
+      RegisterRequestSchema.safeParse({
+        api_member_id: 12345,
+        device_pub: "base64-public-key",
+      }).success,
+    ).toBe(false);
+  });
+
   it("rejects the removed attestation field", () => {
     expect(
       RegisterRequestSchema.safeParse({
         api_member_id: "12345",
         device_pub: "base64-public-key",
         attestation: "legacy-proof",
+      }).success,
+    ).toBe(false);
+  });
+
+  it("accepts the proof-of-possession fields for server-reset recovery", () => {
+    expect(
+      RegisterRequestSchema.safeParse({
+        api_member_id: "12345",
+        device_pub: "base64-public-key",
+        recovery: {
+          device_id: "550e8400-e29b-41d4-a716-446655440000",
+          nonce: "a".repeat(64),
+          sig: "base64-signature",
+        },
+      }).success,
+    ).toBe(true);
+  });
+
+  it("rejects unknown fields inside the recovery proof", () => {
+    expect(
+      RegisterRequestSchema.safeParse({
+        api_member_id: "12345",
+        device_pub: "base64-public-key",
+        recovery: {
+          device_id: "550e8400-e29b-41d4-a716-446655440000",
+          nonce: "a".repeat(64),
+          sig: "base64-signature",
+          extra: "rejected",
+        },
       }).success,
     ).toBe(false);
   });

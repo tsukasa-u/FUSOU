@@ -92,32 +92,46 @@ const PublicIdRowsSchema = z
   .array();
 
 /**
- * Resolve the public_id linked to a given user_id.
+ * Resolve all public_ids linked to a given user_id.
  *
  * Uses Supabase REST API directly (service_role key) so it works
  * in contexts where a full Supabase JS client is not available.
  */
+export async function resolvePublicIdsForUser(
+  config: SupabaseRestConfig,
+  userId: string,
+): Promise<string[]> {
+  const userIdQuery = encodeURIComponent(userId);
+
+  for (const table of ["web_user_member_map", "user_member_map"]) {
+    const link = await supabaseRestRequest(config, table, {
+      query: `?user_id=eq.${userIdQuery}&select=public_id,updated_at&order=updated_at.desc`,
+    });
+    const parsedLink = PublicIdRowsSchema.safeParse(link);
+    if (!parsedLink.success) {
+      console.warn("[supabase-rest] invalid public id response", {
+        userId,
+        table,
+        error: parsedLink.error,
+      });
+      continue;
+    }
+
+    const publicIds = parsedLink.data.flatMap((row) =>
+      row.public_id ? [row.public_id.trim().toLowerCase()] : [],
+    );
+    if (publicIds.length > 0) {
+      return publicIds;
+    }
+  }
+
+  return [];
+}
+
 export async function resolvePublicIdForUser(
   config: SupabaseRestConfig,
   userId: string,
 ): Promise<string | null> {
-  const userIdQuery = encodeURIComponent(userId);
-
-  const link = await supabaseRestRequest(config, "user_member_map", {
-    query: `?user_id=eq.${userIdQuery}&select=public_id&limit=1`,
-  });
-  const parsedLink = PublicIdRowsSchema.safeParse(link);
-  if (!parsedLink.success) {
-    console.warn("[supabase-rest] invalid public id response", {
-      userId,
-      error: parsedLink.error,
-    });
-    return null;
-  }
-
-  if (parsedLink.data[0]?.public_id) {
-    return parsedLink.data[0].public_id.trim().toLowerCase();
-  }
-
-  return null;
+  const publicIds = await resolvePublicIdsForUser(config, userId);
+  return publicIds[0] ?? null;
 }

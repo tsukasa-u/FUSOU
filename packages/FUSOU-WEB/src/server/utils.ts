@@ -163,7 +163,9 @@ export async function verifySignedToken(
 ): Promise<Record<string, unknown> | null> {
   try {
     const secretKey = new TextEncoder().encode(secret);
-    const { payload } = await jwtVerify(token, secretKey);
+    const { payload } = await jwtVerify(token, secretKey, {
+      algorithms: ["HS256"],
+    });
     return payload as Record<string, unknown>;
   } catch {
     return null;
@@ -543,7 +545,10 @@ export function isValidPublicId(value: unknown): value is string {
 type PublicIdLookupQuery = {
   select(columns: string): {
     eq(column: string, value: string): {
-      maybeSingle(): PromiseLike<{ data: unknown; error: unknown }>;
+      order(
+        column: string,
+        options: { ascending: boolean },
+      ): PromiseLike<{ data: unknown; error: unknown }>;
     };
   };
 };
@@ -552,41 +557,69 @@ type MemberLookupClient = {
   from(table: string): unknown;
 };
 
+type PublicIdMappingSource = "web_mapping" | "canonical_mapping";
+
+function parsePublicIdRows(data: unknown): string[] {
+  const rows = Array.isArray(data) ? data : data === null ? [] : [data];
+  return rows.flatMap((row) => {
+    const record = asEnvRecord(row);
+    return isValidPublicId(record["public_id"])
+      ? [record["public_id"].trim().toLowerCase()]
+      : [];
+  });
+}
+
+export async function resolvePublicIdsForUser(options: {
+  supabaseAdmin: MemberLookupClient;
+  userId?: string;
+}): Promise<{
+  publicIds: string[];
+  source: PublicIdMappingSource | null;
+}> {
+  const { supabaseAdmin, userId } = options;
+  if (!userId) {
+    return { publicIds: [], source: null };
+  }
+
+  for (const [table, source] of [
+    ["web_user_member_map", "web_mapping"],
+    ["user_member_map", "canonical_mapping"],
+  ] as const) {
+    const mappingQuery = supabaseAdmin.from(table) as PublicIdLookupQuery;
+    const { data, error } = await mappingQuery
+      .select("public_id")
+      .eq("user_id", userId)
+      .order("updated_at", { ascending: false });
+
+    if (error) {
+      throw error;
+    }
+
+    const publicIds = parsePublicIdRows(data);
+    if (publicIds.length > 0) {
+      return { publicIds, source };
+    }
+  }
+
+  return { publicIds: [], source: null };
+}
+
 export async function resolvePublicIdForUser(options: {
   supabaseAdmin: MemberLookupClient;
   userId?: string;
 }): Promise<{
   publicId: string | null;
-  source: "canonical_owner" | null;
+  source: PublicIdMappingSource | null;
 }> {
-  const { supabaseAdmin, userId } = options;
-  if (!userId) {
-    return { publicId: null, source: null };
-  }
-
-  // Canonical owner mapping is the source of truth for user->dataset binding.
-  const memberLookupQuery = supabaseAdmin.from("user_member_map") as PublicIdLookupQuery;
-  const { data: canonicalMappingData, error: canonicalMappingError } =
-    await memberLookupQuery
-      .select("public_id")
-      .eq("user_id", userId)
-      .maybeSingle();
-
-  if (canonicalMappingError) {
-    throw canonicalMappingError;
-  }
-
-  const canonicalMapping = asEnvRecord(canonicalMappingData);
-  const publicId = isValidPublicId(canonicalMapping["public_id"])
-    ? canonicalMapping["public_id"].trim().toLowerCase()
-    : null;
-  return publicId
-    ? { publicId, source: "canonical_owner" }
-    : { publicId: null, source: null };
+  const resolved = await resolvePublicIdsForUser(options);
+  return {
+    publicId: resolved.publicIds[0] ?? null,
+    source: resolved.source,
+  };
 }
 
 /**
- * dataset_token を検証（匿名認証で発行された署名付きトークン）
+ * dataset_token を検証（署名、期限、dataset/device の整合性、失効状態）
  *
  * @param token dataset_token文字列
  * @param secret DATASET_TOKEN_SECRET
@@ -598,6 +631,7 @@ export async function validateDatasetToken(
 ): Promise<{
   dataset_id: string;
   user_id: string;
+  device_id: string;
 } | null> {
   try {
     if (!secret) {
@@ -614,12 +648,14 @@ export async function validateDatasetToken(
     if (payload["typ"] !== "dataset") return null;
     if (typeof payload["sub"] !== "string") return null;
     if (!isValidPublicId(payload["dataset_id"])) return null;
+    if (!isValidPublicId(payload["device_id"])) return null;
     if (payload["aud"] !== "fusou-upload") return null;
 
     // 有効期限確認（jose の verifySignedToken で exp は自動チェック済み）
     return {
       dataset_id: payload["dataset_id"].trim().toLowerCase(),
       user_id: payload["sub"],
+      device_id: payload["device_id"].trim().toLowerCase(),
     };
   } catch (error) {
     console.error("validateDatasetToken: Token verification failed:", error);
@@ -632,6 +668,10 @@ export interface DatasetTokenValidationOptions {
   secret: string | undefined;
   expectedDatasetId?: string;
   expectedUserId?: string;
+  revocation: {
+    supabaseUrl: string;
+    serviceRoleKey: string;
+  } | null;
 }
 
 export interface DatasetTokenValidationResult {
@@ -641,6 +681,18 @@ export interface DatasetTokenValidationResult {
   token?: {
     dataset_id: string;
     user_id: string;
+    device_id: string;
+  };
+}
+
+export function resolveDatasetTokenRevocationConfig(
+  ctx: EnvContext,
+): DatasetTokenValidationOptions["revocation"] {
+  const config = resolveSupabaseConfig(ctx);
+  if (!config.url || !config.serviceRoleKey) return null;
+  return {
+    supabaseUrl: config.url,
+    serviceRoleKey: config.serviceRoleKey,
   };
 }
 
@@ -656,7 +708,7 @@ export function resolveDatasetToken(
 export async function validateDatasetTokenWithConstraints(
   options: DatasetTokenValidationOptions,
 ): Promise<DatasetTokenValidationResult> {
-  const { token, secret, expectedDatasetId, expectedUserId } = options;
+  const { token, secret, expectedDatasetId, expectedUserId, revocation } = options;
 
   if (!token) {
     return { ok: false, status: 401, error: "dataset_token is required" };
@@ -664,7 +716,6 @@ export async function validateDatasetTokenWithConstraints(
   if (!secret) {
     return { ok: false, status: 500, error: "Server configuration error" };
   }
-
   const validated = await validateDatasetToken(token, secret);
   if (!validated) {
     return {
@@ -692,6 +743,37 @@ export async function validateDatasetTokenWithConstraints(
       status: 403,
       error: "dataset_token user does not match JWT user",
     };
+  }
+
+  if (!revocation) {
+    return { ok: false, status: 500, error: "Server configuration error" };
+  }
+
+  try {
+    const lookupUrl = new URL(`${revocation.supabaseUrl}/rest/v1/user_devices`);
+    lookupUrl.searchParams.set("select", "device_id");
+    lookupUrl.searchParams.set("device_id", `eq.${validated.device_id}`);
+    lookupUrl.searchParams.set("public_id", `eq.${validated.dataset_id}`);
+    lookupUrl.searchParams.set("canonical_user_id", `eq.${validated.user_id}`);
+    lookupUrl.searchParams.set("revoked_at", "is.null");
+    lookupUrl.searchParams.set("limit", "1");
+    const response = await fetch(lookupUrl, {
+      headers: {
+        apikey: revocation.serviceRoleKey,
+        Authorization: `Bearer ${revocation.serviceRoleKey}`,
+      },
+    });
+    if (!response.ok) {
+      console.error("validateDatasetToken: device revocation lookup failed", response.status);
+      return { ok: false, status: 500, error: "Server configuration error" };
+    }
+    const rows = await response.json();
+    if (!Array.isArray(rows) || rows.length !== 1) {
+      return { ok: false, status: 401, error: "Invalid or revoked dataset_token" };
+    }
+  } catch (error) {
+    console.error("validateDatasetToken: device revocation lookup failed", error);
+    return { ok: false, status: 500, error: "Server configuration error" };
   }
 
   return { ok: true, token: validated };

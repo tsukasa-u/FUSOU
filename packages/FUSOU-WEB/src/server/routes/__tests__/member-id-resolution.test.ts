@@ -1,18 +1,28 @@
 import { describe, expect, it } from "vitest";
-import { resolvePublicIdForUser } from "../../utils";
+import {
+  resolvePublicIdForUser,
+  resolvePublicIdsForUser,
+} from "../../utils";
 
 function createSupabaseAdminMock(options: {
+  webPublicId?: string | null;
+  webPublicIds?: string[];
   canonicalPublicId: string | null;
   error?: unknown;
 }) {
   return {
-    from: () => ({
+    from: (table: string) => ({
       select: () => ({
         eq: () => ({
-          maybeSingle: async () => ({
-            data: options.canonicalPublicId
-              ? { public_id: options.canonicalPublicId }
-              : null,
+          order: async () => ({
+            data:
+              table === "web_user_member_map"
+                ? (options.webPublicIds ??
+                    (options.webPublicId ? [options.webPublicId] : []))
+                    .map((public_id) => ({ public_id }))
+                : options.canonicalPublicId
+                  ? [{ public_id: options.canonicalPublicId }]
+                  : [],
             error: options.error ?? null,
           }),
         }),
@@ -22,7 +32,7 @@ function createSupabaseAdminMock(options: {
 }
 
 describe("resolvePublicIdForUser", () => {
-  it("returns the canonical owner mapping", async () => {
+  it("returns the canonical user-to-dataset mapping", async () => {
     const canonicalPublicId = "11111111-1111-4111-8111-111111111111";
 
     const resolved = await resolvePublicIdForUser({
@@ -34,7 +44,7 @@ describe("resolvePublicIdForUser", () => {
 
     expect(resolved).toEqual({
       publicId: canonicalPublicId,
-      source: "canonical_owner",
+      source: "canonical_mapping",
     });
   });
 
@@ -63,6 +73,41 @@ describe("resolvePublicIdForUser", () => {
     expect(resolved).toEqual({
       publicId: null,
       source: null,
+    });
+  });
+  it("returns the newest Web mapping for single-UUID callers", async () => {
+    const newestPublicId = "33333333-3333-4333-8333-333333333333";
+    const olderPublicId = "22222222-2222-4222-8222-222222222222";
+
+    const resolved = await resolvePublicIdForUser({
+      supabaseAdmin: createSupabaseAdminMock({
+        webPublicIds: [newestPublicId, olderPublicId],
+        canonicalPublicId: null,
+      }),
+      userId: "user-1",
+    });
+
+    expect(resolved).toEqual({
+      publicId: newestPublicId,
+      source: "web_mapping",
+    });
+  });
+
+  it("returns all Web mappings for multi-UUID callers", async () => {
+    const newestPublicId = "33333333-3333-4333-8333-333333333333";
+    const olderPublicId = "22222222-2222-4222-8222-222222222222";
+
+    const resolved = await resolvePublicIdsForUser({
+      supabaseAdmin: createSupabaseAdminMock({
+        webPublicIds: [newestPublicId, olderPublicId],
+        canonicalPublicId: null,
+      }),
+      userId: "user-1",
+    });
+
+    expect(resolved).toEqual({
+      publicIds: [newestPublicId, olderPublicId],
+      source: "web_mapping",
     });
   });
 });

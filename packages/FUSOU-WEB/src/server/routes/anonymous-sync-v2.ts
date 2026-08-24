@@ -1,21 +1,28 @@
 import { Hono } from "hono";
-import type { KVNamespace } from "@cloudflare/workers-types";
+import { setCookie } from "hono/cookie";
 import { SignJWT } from "jose";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import {
   firstSchemaError,
+  RevokeRequestSchema,
   RefreshRequestSchema,
   RegisterRequestSchema,
-  RevokeRequestSchema,
   UserMemberMapRowSchema,
-  UserDeviceInsertRowSchema,
-  UserDeviceLookupRowSchema,
   UserDeviceListRowSchema,
-  UserDeviceRefreshRowSchema,
+  UserDeviceLookupRowSchema,
   UserDeviceRevokeTargetRowSchema,
+  UserDeviceWebRevokeTargetRowSchema,
+  UserDeviceRefreshRowSchema,
+  PendingSyncCompleteRequestSchema,
   SupabaseAccessTokenUserSchema,
 } from "../schemas/anonymous-sync-v2";
-import { createEnvContext, getEnv, resolveSupabaseConfig } from "../utils";
+import {
+  createEnvContext,
+  getEnv,
+  resolvePublicIdsForUser,
+  resolveSupabaseConfig,
+  validateDatasetTokenWithConstraints,
+} from "../utils";
 import {
   CHALLENGE_BUCKET_SECONDS,
   encodeBytesToBase64,
@@ -31,6 +38,8 @@ const app = new Hono<{ Bindings: Bindings }>();
 const DATASET_TOKEN_TTL_SECONDS = 7 * 24 * 60 * 60;
 const REFRESH_RESULT_TTL_SECONDS = 300;
 const RATE_LIMIT_PER_HOUR = 20;
+const RATE_LIMIT_WINDOW_SECONDS = 60 * 60;
+const AUTH_BODY_MAX_BYTES = 64 * 1024;
 const NONCE_CLEANUP_RETENTION_MS = 30 * 60 * 1000;
 const NONCE_CLEANUP_INTERVAL_MS = 5 * 60 * 1000;
 const API_MEMBER_ID_PATTERN = /^[0-9]{1,16}$/;
@@ -39,19 +48,109 @@ const UUID_V4_PATTERN =
 
 let lastNonceCleanupAt = 0;
 
+type RequestBodyResult =
+  | { kind: "ok"; data: Uint8Array }
+  | { kind: "too_large" };
+
+export async function readRequestBodyWithinLimit(
+  request: Request,
+  maxBytes: number = AUTH_BODY_MAX_BYTES,
+): Promise<RequestBodyResult> {
+  const rawLength = request.headers.get("Content-Length");
+  if (rawLength !== null) {
+    const length = Number(rawLength);
+    if (!Number.isSafeInteger(length) || length < 0 || length > maxBytes) {
+      return { kind: "too_large" };
+    }
+  }
+
+  if (!request.body) return { kind: "ok", data: new Uint8Array() };
+  const reader = request.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let totalLength = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (!value) continue;
+      totalLength += value.byteLength;
+      if (totalLength > maxBytes) {
+        try {
+          await reader.cancel();
+        } catch {
+          // The request is already being rejected; cancellation is best effort.
+        }
+        return { kind: "too_large" };
+      }
+      chunks.push(value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+
+  const data = new Uint8Array(totalLength);
+  let offset = 0;
+  for (const chunk of chunks) {
+    data.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return { kind: "ok", data };
+}
+
+async function readJsonBodyWithinLimit(
+  request: Request,
+): Promise<
+  | { kind: "ok"; body: unknown }
+  | { kind: "invalid_json" }
+  | { kind: "too_large" }
+> {
+  const result = await readRequestBodyWithinLimit(request);
+  if (result.kind === "too_large") return result;
+  try {
+    return {
+      kind: "ok",
+      body: JSON.parse(new TextDecoder().decode(result.data)),
+    };
+  } catch {
+    return { kind: "invalid_json" };
+  }
+}
+
+function requestClientKey(c: {
+  req: { header: (name: string) => string | undefined };
+}): string {
+  return c.req.header("CF-Connecting-IP")?.trim() || "unknown";
+}
+
 type RateLimitContext = {
-  kv?: KVNamespace;
-  key: string;
+  supabaseAdmin: SupabaseClient;
+  keys: string[];
+  limit?: number;
+  windowSeconds?: number;
 };
 
 async function consumeRateLimit(ctx: RateLimitContext): Promise<boolean> {
-  if (!ctx.kv) return true;
-  const rateKey = `anon-sync-v2-rate:${ctx.key}`;
-  const raw = await ctx.kv.get(rateKey);
-  const parsed = raw ? parseInt(raw, 10) : 0;
-  const current = Number.isNaN(parsed) ? 0 : parsed;
-  if (current >= RATE_LIMIT_PER_HOUR) return false;
-  await ctx.kv.put(rateKey, String(current + 1), { expirationTtl: 3600 });
+  for (const key of ctx.keys) {
+    const digest = await crypto.subtle.digest(
+      "SHA-256",
+      new TextEncoder().encode(key),
+    );
+    const digestHex = Array.from(new Uint8Array(digest))
+      .map((byte) => byte.toString(16).padStart(2, "0"))
+      .join("");
+    const { data, error } = await ctx.supabaseAdmin.rpc(
+      "rpc_consume_anon_sync_rate_limit",
+      {
+        p_bucket_key: digestHex,
+        p_limit: ctx.limit ?? RATE_LIMIT_PER_HOUR,
+        p_window_seconds: ctx.windowSeconds ?? RATE_LIMIT_WINDOW_SECONDS,
+      },
+    );
+    if (error || data !== true) {
+      if (error) console.error("[anonymous-sync-v2] rate limit RPC failed:", error);
+      return false;
+    }
+  }
   return true;
 }
 
@@ -60,10 +159,6 @@ function maskPublicId(publicId: string): string {
 }
 
 function normalizeApiMemberId(value: unknown): string | null {
-  if (typeof value === "number" && Number.isInteger(value) && value > 0) {
-    const text = String(value);
-    return API_MEMBER_ID_PATTERN.test(text) ? text : null;
-  }
   if (typeof value === "string") {
     const trimmed = value.trim();
     return API_MEMBER_ID_PATTERN.test(trimmed) ? trimmed : null;
@@ -87,23 +182,14 @@ function normalizePubkey(value: unknown): {
   return { raw: bytes, base64: encodeBytesToBase64(bytes) };
 }
 
-function extractAccessToken(c: {
-  req: { header: (name: string) => string | undefined };
-}): string | null {
-  const authHeader = c.req.header("Authorization");
-  if (authHeader?.startsWith("Bearer ")) return authHeader.slice(7).trim();
-
-  const cookieHeader = c.req.header("Cookie");
-  if (!cookieHeader) return null;
-  const match = cookieHeader.match(
-    /(?:^|;\s*)(?:sb-access-token|__Secure-sb-access-token)=([^;]+)/,
-  );
-  if (!match?.[1]) return null;
-  try {
-    return decodeURIComponent(match[1]);
-  } catch {
-    return match[1];
+function storedPubkeyToBase64(value: string): string | null {
+  const hex = value.startsWith("\\x") ? value.slice(2) : value;
+  if (hex.length !== 64 || !/^[0-9a-fA-F]+$/.test(hex)) return null;
+  const bytes = new Uint8Array(32);
+  for (let index = 0; index < 32; index++) {
+    bytes[index] = parseInt(hex.slice(index * 2, index * 2 + 2), 16);
   }
+  return encodeBytesToBase64(bytes);
 }
 
 export function assertCsrfSafe(
@@ -134,11 +220,38 @@ export function assertCsrfSafe(
   }
 }
 
+type AccessTokenAuth = {
+  token: string;
+  fromCookie: boolean;
+};
+
+function extractAccessToken(c: {
+  req: { header: (name: string) => string | undefined };
+}): AccessTokenAuth | null {
+  const authorization = c.req.header("Authorization");
+  if (authorization?.startsWith("Bearer ")) {
+    const token = authorization.slice(7).trim();
+    return token ? { token, fromCookie: false } : null;
+  }
+
+  const cookieHeader = c.req.header("Cookie");
+  if (!cookieHeader) return null;
+  const match = cookieHeader.match(
+    /(?:^|;\s*)(?:sb-access-token|__Secure-sb-access-token)=([^;]+)/,
+  );
+  if (!match?.[1]) return null;
+  try {
+    return { token: decodeURIComponent(match[1]), fromCookie: true };
+  } catch {
+    return { token: match[1], fromCookie: true };
+  }
+}
+
 async function verifySupabaseAccessToken(options: {
   supabaseUrl: string;
   anonKey: string;
   accessToken: string;
-}): Promise<{ id: string; email?: string } | null> {
+}): Promise<{ id: string } | null> {
   try {
     const response = await fetch(`${options.supabaseUrl}/auth/v1/user`, {
       headers: {
@@ -147,18 +260,12 @@ async function verifySupabaseAccessToken(options: {
       },
     });
     if (!response.ok) return null;
-    const parsedUser = SupabaseAccessTokenUserSchema.safeParse(
+    const parsed = SupabaseAccessTokenUserSchema.safeParse(
       await response.json(),
     );
-    if (!parsedUser.success) return null;
-    return {
-      id: parsedUser.data.id,
-      ...(typeof parsedUser.data.email === "string"
-        ? { email: parsedUser.data.email }
-        : {}),
-    };
-  } catch (err) {
-    console.warn("[anonymous-sync-v2] verifySupabaseAccessToken failed:", err);
+    return parsed.success ? { id: parsed.data.id } : null;
+  } catch (error) {
+    console.warn("[anonymous-sync-v2] access token verification failed:", error);
     return null;
   }
 }
@@ -167,6 +274,7 @@ async function issueDatasetToken(options: {
   secret: string;
   canonicalUserId: string;
   publicId: string;
+  deviceId: string;
   now: number;
 }): Promise<{ token: string; expiresAt: number }> {
   const secretKey = new TextEncoder().encode(options.secret);
@@ -174,6 +282,7 @@ async function issueDatasetToken(options: {
   const token = await new SignJWT({
     sub: options.canonicalUserId,
     dataset_id: options.publicId,
+    device_id: options.deviceId,
     typ: "dataset",
     aud: "fusou-upload",
   })
@@ -297,13 +406,13 @@ async function ensureCanonicalUserForPublicId(options: {
     .eq("public_id", options.publicId)
     .maybeSingle();
   if (existing.error) {
-    console.error("[anonymous-sync-v2/register] public_id owner lookup failed:", existing.error);
+    console.error("[anonymous-sync-v2/register] public_id mapping lookup failed:", existing.error);
     return null;
   }
   if (existing.data) {
     const parsed = UserMemberMapRowSchema.safeParse(existing.data);
     if (!parsed.success) {
-      console.error("[anonymous-sync-v2/register] public_id owner shape invalid:", parsed.error);
+      console.error("[anonymous-sync-v2/register] public_id mapping shape invalid:", parsed.error);
       return null;
     }
     return parsed.data.user_id;
@@ -328,8 +437,18 @@ async function ensureCanonicalUserForPublicId(options: {
   if (!inserted.error) return sessionData.user.id;
 
   if (getErrorCode(inserted.error) !== "23505") {
-    console.error("[anonymous-sync-v2/register] public_id owner insert failed:", inserted.error);
+    console.error("[anonymous-sync-v2/register] public_id mapping insert failed:", inserted.error);
     return null;
+  }
+
+  const orphanCleanup = await options.supabaseAdmin.auth.admin.deleteUser(
+    sessionData.user.id,
+  );
+  if (orphanCleanup.error) {
+    console.warn(
+      "[anonymous-sync-v2/register] failed to remove anonymous user after mapping race:",
+      orphanCleanup.error,
+    );
   }
 
   const winner = await options.supabaseAdmin
@@ -338,7 +457,7 @@ async function ensureCanonicalUserForPublicId(options: {
     .eq("public_id", options.publicId)
     .maybeSingle();
   if (winner.error || !winner.data) {
-    console.error("[anonymous-sync-v2/register] public_id owner race recovery failed:", winner.error);
+    console.error("[anonymous-sync-v2/register] public_id mapping race recovery failed:", winner.error);
     return null;
   }
   const parsedWinner = UserMemberMapRowSchema.safeParse(winner.data);
@@ -349,12 +468,26 @@ async function consumeDeviceNonce(options: {
   supabaseAdmin: SupabaseClient;
   deviceId: string;
   nonce: string;
-  context: "refresh" | "revoke";
+  context: "register" | "refresh" | "revoke";
+  refreshResult?: {
+    token: string;
+    expiresAt: number;
+  };
 }): Promise<{ ok: true } | { ok: false; status: 401 | 500; error: string }> {
   const nowMs = Date.now();
+  const noncePayload = {
+    device_id: options.deviceId,
+    nonce: options.nonce,
+    ...(options.refreshResult
+      ? {
+          refresh_result_token: options.refreshResult.token,
+          refresh_result_expires_at: options.refreshResult.expiresAt,
+        }
+      : {}),
+  };
   const nonceInsert = await options.supabaseAdmin
     .from("anon_sync_nonce_consumptions")
-    .insert({ device_id: options.deviceId, nonce: options.nonce });
+    .insert(noncePayload);
 
   if (!nonceInsert.error) {
     if (nowMs - lastNonceCleanupAt >= NONCE_CLEANUP_INTERVAL_MS) {
@@ -382,22 +515,95 @@ async function consumeDeviceNonce(options: {
   return { ok: false, status: 500, error: "Server configuration error" };
 }
 
+async function readRefreshResultFromDatabase(
+  supabaseAdmin: SupabaseClient,
+  deviceId: string,
+  nonce: string,
+): Promise<RefreshCachedResult | null> {
+  try {
+    const result = await supabaseAdmin
+      .from("anon_sync_nonce_consumptions")
+      .select("refresh_result_token, refresh_result_expires_at")
+      .eq("device_id", deviceId)
+      .eq("nonce", nonce)
+      .maybeSingle();
+    if (result.error || !result.data) return null;
+
+    const row = result.data as {
+      refresh_result_token?: unknown;
+      refresh_result_expires_at?: unknown;
+    };
+    const expiresAt =
+      typeof row.refresh_result_expires_at === "number"
+        ? row.refresh_result_expires_at
+        : typeof row.refresh_result_expires_at === "string"
+          ? Number(row.refresh_result_expires_at)
+          : Number.NaN;
+    return parseRefreshCachedResult(
+      {
+        status: "ok",
+        device_id: deviceId,
+        dataset_token: row.refresh_result_token,
+        dataset_token_expires_at: expiresAt,
+      },
+      deviceId,
+    );
+  } catch (error) {
+    console.warn("[anonymous-sync-v2/refresh] result lookup failed:", error);
+    return null;
+  }
+}
+
+async function waitForRefreshResultFromDatabase(
+  supabaseAdmin: SupabaseClient,
+  deviceId: string,
+  nonce: string,
+): Promise<RefreshCachedResult | null> {
+  for (const delayMs of [0, 25, 75, 150]) {
+    if (delayMs > 0) {
+      await new Promise<void>((resolve) => setTimeout(resolve, delayMs));
+    }
+    const result = await readRefreshResultFromDatabase(
+      supabaseAdmin,
+      deviceId,
+      nonce,
+    );
+    if (result) return result;
+  }
+  return null;
+}
+
 app.post("/anonymous-sync/v2/register", async (c) => {
   try {
-    const rawBody = await c.req.json().catch(() => null);
-    if (rawBody === null) return c.json({ error: "invalid_json" }, 400);
+    const bodyResult = await readJsonBodyWithinLimit(c.req.raw);
+    if (bodyResult.kind === "too_large") return c.json({ error: "request_too_large" }, 413);
+    if (bodyResult.kind === "invalid_json") return c.json({ error: "invalid_json" }, 400);
+    const rawBody = bodyResult.body;
     const parsedBody = RegisterRequestSchema.safeParse(rawBody);
     if (!parsedBody.success) {
       return c.json({ error: firstSchemaError(parsedBody.error) }, 400);
     }
-
     const apiMemberId = normalizeApiMemberId(parsedBody.data.api_member_id);
     if (!apiMemberId) {
-      return c.json({ error: "api_member_id must be a positive integer (string or number)" }, 400);
+      return c.json({ error: "api_member_id must be 1..=16 ASCII digits" }, 400);
     }
     const pubkey = normalizePubkey(parsedBody.data.device_pub);
     if (!pubkey) {
       return c.json({ error: "device_pub must be base64-encoded Ed25519 raw 32 bytes" }, 400);
+    }
+
+    const recovery = parsedBody.data.recovery;
+    let recoveryDeviceId: string | null = null;
+    let recoveryNonce: string | null = null;
+    if (recovery) {
+      recoveryDeviceId = normalizeUuidV4(recovery.device_id);
+      recoveryNonce = recovery.nonce.trim().toLowerCase();
+      if (!recoveryDeviceId) {
+        return c.json({ error: "recovery.device_id must be a UUID v4" }, 400);
+      }
+      if (!/^[a-f0-9]{64}$/.test(recoveryNonce)) {
+        return c.json({ error: "recovery.nonce malformed" }, 400);
+      }
     }
 
     const base = resolveBaseConfig(c);
@@ -411,19 +617,71 @@ app.post("/anonymous-sync/v2/register", async (c) => {
       return c.json({ error: "Server configuration error" }, 500);
     }
 
+    const supabaseAdmin = createClient(base.config.supabaseUrl, base.config.serviceRoleKey);
     const rateOk = await consumeRateLimit({
-      ...(c.env.DATA_LOADER_CACHE_KV === undefined ? {} : { kv: c.env.DATA_LOADER_CACHE_KV }),
-      key: pubkey.base64,
+      supabaseAdmin,
+      keys: [
+        `register:ip:${requestClientKey(c)}`,
+        `register:pubkey:${pubkey.base64}`,
+        `register:member:${apiMemberId}`,
+      ],
     });
     if (!rateOk) return c.json({ error: "Too many requests" }, 429);
-
-    const supabaseAdmin = createClient(base.config.supabaseUrl, base.config.serviceRoleKey);
     const publicId = await resolvePublicId(
       supabaseAdmin,
-      "rpc_register_public_id",
+      recovery ? "rpc_get_registered_public_id" : "rpc_register_public_id",
       apiMemberId,
     );
     if (!publicId) return c.json({ error: "Failed to register public id" }, 500);
+
+    let recoveryCanonicalUserId: string | null = null;
+    if (recovery && recoveryDeviceId && recoveryNonce) {
+      const challengeSecret = resolveChallengeSecret(c);
+      if (!challengeSecret.ok) return c.json({ error: "Server configuration error" }, 500);
+
+      const recoveryDeviceRaw = await supabaseAdmin
+        .from("user_devices")
+        .select("canonical_user_id, public_id, device_pubkey, revoked_at")
+        .eq("device_id", recoveryDeviceId)
+        .maybeSingle();
+      if (recoveryDeviceRaw.error) return c.json({ error: "Database error" }, 500);
+      if (!recoveryDeviceRaw.data) {
+        return c.json({ error: "recovery_device_unknown" }, 401);
+      }
+      const recoveryDevice = UserDeviceRefreshRowSchema.safeParse(recoveryDeviceRaw.data);
+      if (!recoveryDevice.success) return c.json({ error: "Database error" }, 500);
+      if (recoveryDevice.data.revoked_at) {
+        return c.json({ error: "device_revoked" }, 409);
+      }
+      if (recoveryDevice.data.public_id !== publicId) {
+        return c.json({ error: "recovery_device_mismatch" }, 403);
+      }
+
+      const nonceValid = await verifyChallengeNonce(
+        challengeSecret.secret,
+        recoveryDeviceId,
+        recoveryNonce,
+      );
+      if (!nonceValid) return c.json({ error: "nonce_invalid_or_expired" }, 401);
+
+      const recoveryPublicKey = storedPubkeyToBase64(recoveryDevice.data.device_pubkey);
+      if (!recoveryPublicKey) return c.json({ error: "Database error" }, 500);
+      const signatureValid = await verifyDeviceSig({
+        publicKeyB64: recoveryPublicKey,
+        message: `register|${recoveryDeviceId}|${apiMemberId}|${recoveryNonce}`,
+        signatureB64: recovery.sig,
+      });
+      if (!signatureValid) return c.json({ error: "signature_invalid" }, 401);
+
+      const nonceConsume = await consumeDeviceNonce({
+        supabaseAdmin,
+        deviceId: recoveryDeviceId,
+        nonce: recoveryNonce,
+        context: "register",
+      });
+      if (!nonceConsume.ok) return c.json({ error: nonceConsume.error }, nonceConsume.status);
+      recoveryCanonicalUserId = recoveryDevice.data.canonical_user_id;
+    }
 
     const canonicalUserId = await ensureCanonicalUserForPublicId({
       supabaseAdmin,
@@ -432,69 +690,40 @@ app.post("/anonymous-sync/v2/register", async (c) => {
       publicId,
     });
     if (!canonicalUserId) return c.json({ error: "Failed to create mapping" }, 500);
+    if (recoveryCanonicalUserId && recoveryCanonicalUserId !== canonicalUserId) {
+      return c.json({ error: "recovery_device_mismatch" }, 403);
+    }
 
     const pubkeyHex = `\\x${Array.from(pubkey.raw)
       .map((byte) => byte.toString(16).padStart(2, "0"))
       .join("")}`;
-    const existingDeviceRaw = await supabaseAdmin
-      .from("user_devices")
-      .select("device_id, revoked_at")
-      .eq("public_id", publicId)
-      .eq("device_pubkey", pubkeyHex)
-      .maybeSingle();
-    if (existingDeviceRaw.error) {
-      console.error("[anonymous-sync-v2/register] device lookup failed:", existingDeviceRaw.error);
-      return c.json({ error: "Database error" }, 500);
-    }
-
-    let deviceId: string | null = null;
-    if (existingDeviceRaw.data) {
-      const parsedDevice = UserDeviceLookupRowSchema.safeParse(existingDeviceRaw.data);
-      if (!parsedDevice.success) return c.json({ error: "Database error" }, 500);
-      if (parsedDevice.data.revoked_at) return c.json({ error: "device_revoked" }, 409);
-      deviceId = normalizeUuidV4(parsedDevice.data.device_id);
-      if (!deviceId) return c.json({ error: "Database error" }, 500);
-      await supabaseAdmin
-        .from("user_devices")
-        .update({ last_seen_at: new Date().toISOString() })
-        .eq("device_id", deviceId);
-    } else {
-      const inserted = await supabaseAdmin
-        .from("user_devices")
-        .insert({
-          canonical_user_id: canonicalUserId,
-          public_id: publicId,
-          device_pubkey: pubkeyHex,
-        })
-        .select("device_id")
-        .single();
-      if (!inserted.error) {
-        const parsedInserted = UserDeviceInsertRowSchema.safeParse(inserted.data);
-        deviceId = parsedInserted.success ? normalizeUuidV4(parsedInserted.data.device_id) : null;
-      } else if (getErrorCode(inserted.error) === "23505") {
-        const winner = await supabaseAdmin
-          .from("user_devices")
-          .select("device_id, revoked_at")
-          .eq("public_id", publicId)
-          .eq("device_pubkey", pubkeyHex)
-          .maybeSingle();
-        const parsedWinner = UserDeviceLookupRowSchema.safeParse(winner.data);
-        if (winner.error || !parsedWinner.success || parsedWinner.data.revoked_at) {
-          return c.json({ error: parsedWinner.success && parsedWinner.data.revoked_at ? "device_revoked" : "Failed to register device" }, parsedWinner.success && parsedWinner.data.revoked_at ? 409 : 500);
-        }
-        deviceId = normalizeUuidV4(parsedWinner.data.device_id);
-      } else {
-        console.error("[anonymous-sync-v2/register] device insert failed:", inserted.error);
-        return c.json({ error: "Failed to register device" }, 500);
+    const deviceRegistration = await supabaseAdmin.rpc("rpc_register_user_device", {
+      p_public_id: publicId,
+      p_device_pubkey_hex: pubkeyHex.slice(2),
+    });
+    if (deviceRegistration.error) {
+      const message = (deviceRegistration.error as { message?: unknown }).message;
+      if (typeof message === "string" && message.includes("device_revoked")) {
+        return c.json({ error: "device_revoked" }, 409);
       }
-      if (!deviceId) return c.json({ error: "Failed to register device" }, 500);
+      if (typeof message === "string" && message.includes("device_limit_reached")) {
+        return c.json({ error: "device_limit_reached" }, 409);
+      }
+      console.error("[anonymous-sync-v2/register] device registration failed:", {
+        code: getErrorCode(deviceRegistration.error),
+        message,
+      });
+      return c.json({ error: "Failed to register device" }, 500);
     }
+    const deviceId = normalizeUuidV4(deviceRegistration.data);
+    if (!deviceId) return c.json({ error: "Failed to register device" }, 500);
 
     const now = Math.floor(Date.now() / 1000);
     const issued = await issueDatasetToken({
       secret: datasetSecret.secret,
       canonicalUserId,
       publicId,
+      deviceId,
       now,
     });
     console.log(`[anonymous-sync-v2/register] ok public_id=${maskPublicId(publicId)} device=${deviceId}`);
@@ -509,26 +738,195 @@ app.post("/anonymous-sync/v2/register", async (c) => {
   }
 });
 
+app.post("/anonymous-sync/v2/pending", async (c) => {
+  try {
+    const bodyResult = await readRequestBodyWithinLimit(c.req.raw);
+    if (bodyResult.kind === "too_large") return c.json({ error: "request_too_large" }, 413);
+    const base = resolveBaseConfig(c);
+    if (!base.ok) return c.json({ error: "Server configuration error" }, 500);
+    const token = crypto.randomUUID();
+    const expiresAt = new Date(Date.now() + 5 * 60 * 1000).toISOString();
+    const supabaseAdmin = createClient(base.config.supabaseUrl, base.config.serviceRoleKey);
+    const rateOk = await consumeRateLimit({
+      supabaseAdmin,
+      keys: [`pending:ip:${requestClientKey(c)}`],
+    });
+    if (!rateOk) return c.json({ error: "Too many requests" }, 429);
+    const cleanupResult = await supabaseAdmin
+      .from("pending_member_syncs")
+      .delete()
+      .lt("expires_at", new Date().toISOString());
+    if (cleanupResult.error) {
+      console.warn("[anonymous-sync-v2/pending] expired row cleanup failed", {
+        error: cleanupResult.error,
+      });
+    }
+    const { error } = await supabaseAdmin.from("pending_member_syncs").insert({
+      token,
+      expires_at: expiresAt,
+    });
+    if (error) {
+      console.error("[anonymous-sync-v2/pending] insert failed:", error);
+      return c.json({ error: "Database error" }, 500);
+    }
+    setCookie(c, "sb-pending-sync-token", token, {
+      path: "/",
+      httpOnly: true,
+      secure: import.meta.env.PROD,
+      sameSite: "lax",
+      maxAge: 5 * 60,
+    });
+    return c.json({ token, expires_at: expiresAt });
+  } catch (err) {
+    console.error("[anonymous-sync-v2/pending] unexpected error:", err);
+    return c.json({ error: "Internal server error" }, 500);
+  }
+});
+
+app.get("/anonymous-sync/v2/pending/:token", async (c) => {
+  try {
+    const token = normalizeUuidV4(c.req.param("token"));
+    if (!token) return c.json({ error: "invalid_sync_token" }, 400);
+    const base = resolveBaseConfig(c);
+    if (!base.ok) return c.json({ error: "Server configuration error" }, 500);
+
+    const supabaseAdmin = createClient(base.config.supabaseUrl, base.config.serviceRoleKey);
+    const rateOk = await consumeRateLimit({
+      supabaseAdmin,
+      keys: [`pending-poll:ip:${requestClientKey(c)}`],
+      limit: 180,
+      windowSeconds: 5 * 60,
+    });
+    if (!rateOk) return c.json({ error: "Too many requests" }, 429);
+    const { data, error } = await supabaseAdmin
+      .from("pending_member_syncs")
+      .select("public_id, expires_at, synced_at")
+      .eq("token", token)
+      .maybeSingle();
+    if (error) return c.json({ error: "Database error" }, 500);
+    if (!data) return c.json({ status: "expired" }, 410);
+    if (new Date(data.expires_at).getTime() <= Date.now()) {
+      await supabaseAdmin.from("pending_member_syncs").delete().eq("token", token);
+      return c.json({ status: "expired" }, 410);
+    }
+    if (!data.public_id || !data.synced_at) return c.json({ status: "pending" });
+    return c.json({ status: "completed", public_id: data.public_id });
+  } catch (err) {
+    console.error("[anonymous-sync-v2/pending/:token] unexpected error:", err);
+    return c.json({ error: "Internal server error" }, 500);
+  }
+});
+
+app.post("/anonymous-sync/v2/pending/:token/complete", async (c) => {
+  try {
+    const token = normalizeUuidV4(c.req.param("token"));
+    if (!token) return c.json({ error: "invalid_sync_token" }, 400);
+    const bodyResult = await readJsonBodyWithinLimit(c.req.raw);
+    if (bodyResult.kind === "too_large") return c.json({ error: "request_too_large" }, 413);
+    if (bodyResult.kind === "invalid_json") return c.json({ error: "invalid_json" }, 400);
+    const rawBody = bodyResult.body;
+    const parsedBody = PendingSyncCompleteRequestSchema.safeParse(rawBody);
+    if (!parsedBody.success) return c.json({ error: firstSchemaError(parsedBody.error) }, 400);
+
+    const base = resolveBaseConfig(c);
+    if (!base.ok) return c.json({ error: "Server configuration error" }, 500);
+    const supabaseAdmin = createClient(base.config.supabaseUrl, base.config.serviceRoleKey);
+    const rateOk = await consumeRateLimit({
+      supabaseAdmin,
+      keys: [`pending-complete:ip:${requestClientKey(c)}`],
+    });
+    if (!rateOk) return c.json({ error: "Too many requests" }, 429);
+    const datasetSecret = resolveDatasetTokenSecret(c);
+    if (!datasetSecret.ok) return c.json({ error: "Server configuration error" }, 500);
+    const tokenValidation = await validateDatasetTokenWithConstraints({
+      token: parsedBody.data.dataset_token,
+      secret: datasetSecret.secret,
+      revocation: {
+        supabaseUrl: base.config.supabaseUrl,
+        serviceRoleKey: base.config.serviceRoleKey,
+      },
+    });
+    if (!tokenValidation.ok || !tokenValidation.token) {
+      return c.json(
+        { error: tokenValidation.error ?? "Invalid or expired dataset_token" },
+        tokenValidation.status ?? 401,
+      );
+    }
+
+    const { data, error } = await supabaseAdmin
+      .from("pending_member_syncs")
+      .update({
+        public_id: tokenValidation.token.dataset_id,
+        app_instance_id: parsedBody.data.app_instance_id,
+        synced_at: new Date().toISOString(),
+      })
+      .eq("token", token)
+      .is("synced_at", null)
+      .is("public_id", null)
+      .gt("expires_at", new Date().toISOString())
+      .select("public_id, synced_at")
+      .maybeSingle();
+    if (error) return c.json({ error: "Database error" }, 500);
+    if (!data) {
+      const completed = await supabaseAdmin
+        .from("pending_member_syncs")
+        .select("public_id, expires_at, synced_at")
+        .eq("token", token)
+        .maybeSingle();
+      if (completed.error) return c.json({ error: "Database error" }, 500);
+      if (
+        completed.data &&
+        new Date(completed.data.expires_at).getTime() > Date.now() &&
+        completed.data.synced_at &&
+        completed.data.public_id === tokenValidation.token.dataset_id
+      ) {
+        return c.json({
+          status: "completed",
+          public_id: completed.data.public_id,
+        });
+      }
+      return c.json({ error: "sync_expired_or_completed" }, 409);
+    }
+    return c.json({ status: "completed", public_id: data.public_id });
+  } catch (err) {
+    console.error("[anonymous-sync-v2/pending/:token/complete] unexpected error:", err);
+    return c.json({ error: "Internal server error" }, 500);
+  }
+});
+
 app.get("/anonymous-sync/v2/devices", async (c) => {
   try {
-    const accessToken = extractAccessToken(c);
-    if (!accessToken) return c.json({ error: "unauthorized" }, 401);
+    const auth = extractAccessToken(c);
+    if (!auth) return c.json({ error: "unauthorized" }, 401);
     const base = resolveBaseConfig(c);
     if (!base.ok) return c.json({ error: "Server configuration error" }, 500);
     const user = await verifySupabaseAccessToken({
       supabaseUrl: base.config.supabaseUrl,
       anonKey: base.config.anonKey,
-      accessToken,
+      accessToken: auth.token,
     });
     if (!user) return c.json({ error: "invalid_token" }, 401);
 
     const includeRevokedQuery = c.req.query("include_revoked")?.toLowerCase();
-    const includeRevoked = includeRevokedQuery === "1" || includeRevokedQuery === "true";
-    const supabaseAdmin = createClient(base.config.supabaseUrl, base.config.serviceRoleKey);
+    const includeRevoked =
+      includeRevokedQuery === "1" || includeRevokedQuery === "true";
+    const supabaseAdmin = createClient(
+      base.config.supabaseUrl,
+      base.config.serviceRoleKey,
+    );
+    const ownership = await resolvePublicIdsForUser({
+      supabaseAdmin,
+      userId: user.id,
+    });
+    if (ownership.publicIds.length === 0) {
+      return c.json({ devices: [], include_revoked: includeRevoked });
+    }
     let query = supabaseAdmin
       .from("user_devices")
-      .select("device_id, public_id, created_at, last_seen_at, revoked_at, revoked_reason")
-      .eq("canonical_user_id", user.id)
+      .select(
+        "device_id, public_id, created_at, last_seen_at, revoked_at, revoked_reason",
+      )
+      .in("public_id", ownership.publicIds)
       .order("created_at", { ascending: false });
     if (!includeRevoked) query = query.is("revoked_at", null);
     const { data, error } = await query;
@@ -560,6 +958,26 @@ app.get("/anonymous-sync/v2/challenge", async (c) => {
     if (!base.ok) return c.json({ error: "Server configuration error" }, 500);
     const challengeSecret = resolveChallengeSecret(c);
     if (!challengeSecret.ok) return c.json({ error: "Server configuration error" }, 500);
+    const supabaseAdmin = createClient(base.config.supabaseUrl, base.config.serviceRoleKey);
+    const rateOk = await consumeRateLimit({
+      supabaseAdmin,
+      keys: [
+        `challenge:ip:${requestClientKey(c)}`,
+        `challenge:device:${deviceId}`,
+      ],
+    });
+    if (!rateOk) return c.json({ error: "Too many requests" }, 429);
+    const deviceRaw = await supabaseAdmin
+      .from("user_devices")
+      .select("device_id, revoked_at")
+      .eq("device_id", deviceId)
+      .maybeSingle();
+    if (deviceRaw.error) return c.json({ error: "Database error" }, 500);
+    const parsedDevice = UserDeviceLookupRowSchema.safeParse(deviceRaw.data);
+    if (!parsedDevice.success) {
+      return c.json({ error: deviceRaw.data ? "Database error" : "device_unknown" }, deviceRaw.data ? 500 : 404);
+    }
+    if (parsedDevice.data.revoked_at) return c.json({ error: "device_revoked" }, 409);
     const { nonce, expiresAt } = await issueChallengeNonce(challengeSecret.secret, deviceId);
     return c.json({ nonce, expires_at: expiresAt, window_seconds: CHALLENGE_BUCKET_SECONDS });
   } catch (err) {
@@ -575,17 +993,68 @@ type RefreshCachedResult = {
   dataset_token_expires_at: number;
 };
 
+function parseRefreshCachedResult(
+  value: unknown,
+  deviceId: string,
+): RefreshCachedResult | null {
+  if (value === null || typeof value !== "object") return null;
+  const result = value as Partial<RefreshCachedResult>;
+  if (
+    result.status !== "ok" ||
+    result.device_id !== deviceId ||
+    typeof result.dataset_token !== "string" ||
+    result.dataset_token.length === 0 ||
+    !Number.isSafeInteger(result.dataset_token_expires_at)
+  ) {
+    return null;
+  }
+  return result as RefreshCachedResult;
+}
+
+async function readRefreshCachedResult(
+  kv: NonNullable<Bindings["DATA_LOADER_CACHE_KV"]>,
+  cacheKey: string,
+  deviceId: string,
+): Promise<RefreshCachedResult | null> {
+  try {
+    return parseRefreshCachedResult(
+      await kv.get(cacheKey, { type: "json" }),
+      deviceId,
+    );
+  } catch (error) {
+    console.warn("[anonymous-sync-v2/refresh] cache read failed:", error);
+    return null;
+  }
+}
+
+async function waitForRefreshCachedResult(
+  kv: NonNullable<Bindings["DATA_LOADER_CACHE_KV"]>,
+  cacheKey: string,
+  deviceId: string,
+): Promise<RefreshCachedResult | null> {
+  for (const delayMs of [0, 25, 75, 150]) {
+    if (delayMs > 0) {
+      await new Promise<void>((resolve) => setTimeout(resolve, delayMs));
+    }
+    const result = await readRefreshCachedResult(kv, cacheKey, deviceId);
+    if (result) return result;
+  }
+  return null;
+}
+
 app.post("/anonymous-sync/v2/refresh", async (c) => {
   try {
-    const rawBody = await c.req.json().catch(() => null);
-    if (rawBody === null) return c.json({ error: "invalid_json" }, 400);
+    const bodyResult = await readJsonBodyWithinLimit(c.req.raw);
+    if (bodyResult.kind === "too_large") return c.json({ error: "request_too_large" }, 413);
+    if (bodyResult.kind === "invalid_json") return c.json({ error: "invalid_json" }, 400);
+    const rawBody = bodyResult.body;
     const parsedBody = RefreshRequestSchema.safeParse(rawBody);
     if (!parsedBody.success) return c.json({ error: firstSchemaError(parsedBody.error) }, 400);
     const body = parsedBody.data;
     const deviceId = normalizeUuidV4(body.device_id);
     const apiMemberId = normalizeApiMemberId(body.api_member_id);
     if (!deviceId) return c.json({ error: "device_id must be a UUID v4" }, 400);
-    if (!apiMemberId) return c.json({ error: "api_member_id must be a positive integer (string or number)" }, 400);
+    if (!apiMemberId) return c.json({ error: "api_member_id must be 1..=16 ASCII digits" }, 400);
     const nonce = body.nonce.trim().toLowerCase();
     if (!/^[a-f0-9]{64}$/.test(nonce)) return c.json({ error: "nonce malformed" }, 400);
 
@@ -595,10 +1064,18 @@ app.post("/anonymous-sync/v2/refresh", async (c) => {
     if (!challengeSecret.ok) return c.json({ error: "Server configuration error" }, 500);
     const datasetSecret = resolveDatasetTokenSecret(c);
     if (!datasetSecret.ok) return c.json({ error: "Server configuration error" }, 500);
+    const supabaseAdmin = createClient(base.config.supabaseUrl, base.config.serviceRoleKey);
+    const rateOk = await consumeRateLimit({
+      supabaseAdmin,
+      keys: [
+        `refresh:ip:${requestClientKey(c)}`,
+        `refresh:device:${deviceId}`,
+      ],
+    });
+    if (!rateOk) return c.json({ error: "Too many requests" }, 429);
     const nonceValid = await verifyChallengeNonce(challengeSecret.secret, deviceId, nonce);
     if (!nonceValid) return c.json({ error: "nonce_invalid_or_expired" }, 401);
 
-    const supabaseAdmin = createClient(base.config.supabaseUrl, base.config.serviceRoleKey);
     const deviceRaw = await supabaseAdmin
       .from("user_devices")
       .select("canonical_user_id, public_id, device_pubkey, revoked_at")
@@ -609,20 +1086,12 @@ app.post("/anonymous-sync/v2/refresh", async (c) => {
     const parsedDevice = UserDeviceRefreshRowSchema.safeParse(deviceRaw.data);
     if (!parsedDevice.success) return c.json({ error: "Database error" }, 500);
     const device = parsedDevice.data;
-    if (device.revoked_at) return c.json({ error: "device_unknown_or_revoked" }, 404);
+    if (device.revoked_at) return c.json({ error: "device_revoked" }, 409);
 
-    const hexBody = device.device_pubkey.startsWith("\\x")
-      ? device.device_pubkey.slice(2)
-      : device.device_pubkey;
-    if (hexBody.length !== 64 || !/^[0-9a-fA-F]+$/.test(hexBody)) {
-      return c.json({ error: "Internal server error" }, 500);
-    }
-    const publicKeyBytes = new Uint8Array(32);
-    for (let index = 0; index < 32; index++) {
-      publicKeyBytes[index] = parseInt(hexBody.slice(index * 2, index * 2 + 2), 16);
-    }
+    const publicKeyB64 = storedPubkeyToBase64(device.device_pubkey);
+    if (!publicKeyB64) return c.json({ error: "Internal server error" }, 500);
     const signatureValid = await verifyDeviceSig({
-      publicKeyB64: encodeBytesToBase64(publicKeyBytes),
+      publicKeyB64,
       message: nonce,
       signatureB64: body.sig,
     });
@@ -640,38 +1109,18 @@ app.post("/anonymous-sync/v2/refresh", async (c) => {
     const kv = c.env.DATA_LOADER_CACHE_KV;
     const cacheKey = `refresh-result:${deviceId}:${nonce}`;
     if (kv) {
-      const cached = await kv.get(cacheKey, { type: "json" });
-      if (cached && typeof cached === "object") {
-        const result = cached as Partial<RefreshCachedResult>;
-        if (
-          result.status === "ok" &&
-          result.device_id === deviceId &&
-          typeof result.dataset_token === "string" &&
-          typeof result.dataset_token_expires_at === "number"
-        ) {
-          return c.json(result as RefreshCachedResult);
-        }
+      const cached = await readRefreshCachedResult(kv, cacheKey, deviceId);
+      if (cached) {
+        return c.json(cached);
       }
     }
-
-    const nonceConsume = await consumeDeviceNonce({
-      supabaseAdmin,
-      deviceId,
-      nonce,
-      context: "refresh",
-    });
-    if (!nonceConsume.ok) return c.json({ error: nonceConsume.error }, nonceConsume.status);
-
-    await supabaseAdmin
-      .from("user_devices")
-      .update({ last_seen_at: new Date().toISOString() })
-      .eq("device_id", deviceId);
 
     const now = Math.floor(Date.now() / 1000);
     const issued = await issueDatasetToken({
       secret: datasetSecret.secret,
       canonicalUserId: device.canonical_user_id,
       publicId,
+      deviceId,
       now,
     });
     const result: RefreshCachedResult = {
@@ -680,10 +1129,46 @@ app.post("/anonymous-sync/v2/refresh", async (c) => {
       dataset_token: issued.token,
       dataset_token_expires_at: issued.expiresAt,
     };
+
+    const nonceConsume = await consumeDeviceNonce({
+      supabaseAdmin,
+      deviceId,
+      nonce,
+      context: "refresh",
+      refreshResult: {
+        token: result.dataset_token,
+        expiresAt: result.dataset_token_expires_at,
+      },
+    });
+    if (!nonceConsume.ok) {
+      if (nonceConsume.error === "nonce_already_used") {
+        const databaseResult = await waitForRefreshResultFromDatabase(
+          supabaseAdmin,
+          deviceId,
+          nonce,
+        );
+        if (databaseResult) return c.json(databaseResult);
+        if (kv) {
+          const cached = await waitForRefreshCachedResult(kv, cacheKey, deviceId);
+          if (cached) return c.json(cached);
+        }
+      }
+      return c.json({ error: nonceConsume.error }, nonceConsume.status);
+    }
+
+    await supabaseAdmin
+      .from("user_devices")
+      .update({ last_seen_at: new Date().toISOString() })
+      .eq("device_id", deviceId);
+
     if (kv) {
-      await kv.put(cacheKey, JSON.stringify(result), {
-        expirationTtl: REFRESH_RESULT_TTL_SECONDS,
-      });
+      try {
+        await kv.put(cacheKey, JSON.stringify(result), {
+          expirationTtl: REFRESH_RESULT_TTL_SECONDS,
+        });
+      } catch (error) {
+        console.warn("[anonymous-sync-v2/refresh] cache write failed:", error);
+      }
     }
     console.log(`[anonymous-sync-v2/refresh] ok device=${deviceId} public_id=${maskPublicId(publicId)}`);
     return c.json(result);
@@ -695,14 +1180,17 @@ app.post("/anonymous-sync/v2/refresh", async (c) => {
 
 app.post("/anonymous-sync/v2/revoke", async (c) => {
   try {
-    const rawBody = await c.req.json().catch(() => null);
-    if (rawBody === null) return c.json({ error: "invalid_json" }, 400);
-    const parsedBody = RevokeRequestSchema.safeParse(rawBody);
+    const bodyResult = await readJsonBodyWithinLimit(c.req.raw);
+    if (bodyResult.kind === "too_large") return c.json({ error: "request_too_large" }, 413);
+    if (bodyResult.kind === "invalid_json") return c.json({ error: "invalid_json" }, 400);
+    const parsedBody = RevokeRequestSchema.safeParse(bodyResult.body);
     if (!parsedBody.success) return c.json({ error: firstSchemaError(parsedBody.error) }, 400);
     const body = parsedBody.data;
     const deviceId = normalizeUuidV4(body.device_id);
     const targetDeviceId = normalizeUuidV4(body.target_device_id);
-    if (!deviceId || !targetDeviceId) return c.json({ error: "device_id and target_device_id must be UUID v4" }, 400);
+    if (!deviceId || !targetDeviceId) {
+      return c.json({ error: "device_id and target_device_id must be UUID v4" }, 400);
+    }
     const nonce = body.nonce.trim().toLowerCase();
     if (!/^[a-f0-9]{64}$/.test(nonce)) return c.json({ error: "nonce malformed" }, 400);
 
@@ -710,9 +1198,26 @@ app.post("/anonymous-sync/v2/revoke", async (c) => {
     if (!base.ok) return c.json({ error: "Server configuration error" }, 500);
     const challengeSecret = resolveChallengeSecret(c);
     if (!challengeSecret.ok) return c.json({ error: "Server configuration error" }, 500);
-    const nonceValid = await verifyChallengeNonce(challengeSecret.secret, deviceId, nonce);
+    const supabaseAdmin = createClient(
+      base.config.supabaseUrl,
+      base.config.serviceRoleKey,
+    );
+    const rateOk = await consumeRateLimit({
+      supabaseAdmin,
+      keys: [
+        `revoke:ip:${requestClientKey(c)}`,
+        `revoke:device:${deviceId}`,
+      ],
+    });
+    if (!rateOk) return c.json({ error: "Too many requests" }, 429);
+
+    const nonceValid = await verifyChallengeNonce(
+      challengeSecret.secret,
+      deviceId,
+      nonce,
+    );
     if (!nonceValid) return c.json({ error: "nonce_invalid_or_expired" }, 401);
-    const supabaseAdmin = createClient(base.config.supabaseUrl, base.config.serviceRoleKey);
+
     const callerRaw = await supabaseAdmin
       .from("user_devices")
       .select("canonical_user_id, public_id, device_pubkey, revoked_at")
@@ -724,21 +1229,16 @@ app.post("/anonymous-sync/v2/revoke", async (c) => {
     if (!callerParsed.success || callerParsed.data.revoked_at) {
       return c.json({ error: "device_unknown_or_revoked" }, 404);
     }
-    const caller = callerParsed.data;
-    const hexBody = caller.device_pubkey.startsWith("\\x")
-      ? caller.device_pubkey.slice(2)
-      : caller.device_pubkey;
-    if (hexBody.length !== 64 || !/^[0-9a-fA-F]+$/.test(hexBody)) return c.json({ error: "Internal server error" }, 500);
-    const publicKeyBytes = new Uint8Array(32);
-    for (let index = 0; index < 32; index++) {
-      publicKeyBytes[index] = parseInt(hexBody.slice(index * 2, index * 2 + 2), 16);
-    }
+
+    const publicKeyB64 = storedPubkeyToBase64(callerParsed.data.device_pubkey);
+    if (!publicKeyB64) return c.json({ error: "Internal server error" }, 500);
     const signatureValid = await verifyDeviceSig({
-      publicKeyB64: encodeBytesToBase64(publicKeyBytes),
+      publicKeyB64,
       message: `revoke|${deviceId}|${targetDeviceId}|${nonce}`,
       signatureB64: body.sig,
     });
     if (!signatureValid) return c.json({ error: "signature_invalid" }, 401);
+
     const nonceConsume = await consumeDeviceNonce({
       supabaseAdmin,
       deviceId,
@@ -756,16 +1256,21 @@ app.post("/anonymous-sync/v2/revoke", async (c) => {
     if (!targetRaw.data) return c.json({ error: "target_unknown" }, 404);
     const targetParsed = UserDeviceRevokeTargetRowSchema.safeParse(targetRaw.data);
     if (!targetParsed.success) return c.json({ error: "Database error" }, 500);
-    if (targetParsed.data.canonical_user_id !== caller.canonical_user_id) return c.json({ error: "forbidden" }, 403);
+    if (targetParsed.data.canonical_user_id !== callerParsed.data.canonical_user_id) {
+      return c.json({ error: "forbidden" }, 403);
+    }
     if (targetParsed.data.revoked_at) return new Response(null, { status: 204 });
-    const { error: updateError } = await supabaseAdmin
+
+    const updateResult = await supabaseAdmin
       .from("user_devices")
       .update({
         revoked_at: new Date().toISOString(),
         revoked_reason: body.reason?.trim().slice(0, 200) || "user_revoke",
       })
-      .eq("device_id", targetDeviceId);
-    if (updateError) return c.json({ error: "Failed to revoke device" }, 500);
+      .eq("device_id", targetDeviceId)
+      .eq("canonical_user_id", callerParsed.data.canonical_user_id)
+      .is("revoked_at", null);
+    if (updateResult.error) return c.json({ error: "Failed to revoke device" }, 500);
     return new Response(null, { status: 204 });
   } catch (err) {
     console.error("[anonymous-sync-v2/revoke] unexpected error:", err);
@@ -775,40 +1280,50 @@ app.post("/anonymous-sync/v2/revoke", async (c) => {
 
 app.delete("/anonymous-sync/v2/devices/:deviceId", async (c) => {
   try {
-    const accessToken = extractAccessToken(c);
-    if (!accessToken) return c.json({ error: "unauthorized" }, 401);
-    const hasCookieAuth = !c.req.header("Authorization")?.startsWith("Bearer ");
-    if (!assertCsrfSafe(c, hasCookieAuth)) return c.json({ error: "forbidden" }, 403);
+    const auth = extractAccessToken(c);
+    if (!auth) return c.json({ error: "unauthorized" }, 401);
+    if (!assertCsrfSafe(c, auth.fromCookie)) return c.json({ error: "forbidden" }, 403);
     const deviceId = normalizeUuidV4(c.req.param("deviceId"));
     if (!deviceId) return c.json({ error: "device_id must be a UUID v4" }, 400);
+
     const base = resolveBaseConfig(c);
     if (!base.ok) return c.json({ error: "Server configuration error" }, 500);
     const user = await verifySupabaseAccessToken({
       supabaseUrl: base.config.supabaseUrl,
       anonKey: base.config.anonKey,
-      accessToken,
+      accessToken: auth.token,
     });
     if (!user) return c.json({ error: "invalid_token" }, 401);
-    const supabaseAdmin = createClient(base.config.supabaseUrl, base.config.serviceRoleKey);
+
+    const supabaseAdmin = createClient(
+      base.config.supabaseUrl,
+      base.config.serviceRoleKey,
+    );
+    const ownership = await resolvePublicIdsForUser({
+      supabaseAdmin,
+      userId: user.id,
+    });
     const targetRaw = await supabaseAdmin
       .from("user_devices")
-      .select("canonical_user_id, revoked_at")
+      .select("public_id, revoked_at")
       .eq("device_id", deviceId)
       .maybeSingle();
     if (targetRaw.error) return c.json({ error: "Database error" }, 500);
     if (!targetRaw.data) return c.json({ error: "not_found" }, 404);
-    const targetParsed = UserDeviceRevokeTargetRowSchema.safeParse(targetRaw.data);
-    if (!targetParsed.success || targetParsed.data.canonical_user_id !== user.id) {
+    const targetParsed = UserDeviceWebRevokeTargetRowSchema.safeParse(targetRaw.data);
+    if (!targetParsed.success || !ownership.publicIds.includes(targetParsed.data.public_id)) {
       return c.json({ error: "not_found" }, 404);
     }
     if (targetParsed.data.revoked_at) return new Response(null, { status: 204 });
+
     const reason = c.req.query("reason")?.trim().slice(0, 200) || "user_revoke_from_web";
-    const { error: updateError } = await supabaseAdmin
+    const updateResult = await supabaseAdmin
       .from("user_devices")
       .update({ revoked_at: new Date().toISOString(), revoked_reason: reason })
       .eq("device_id", deviceId)
-      .eq("canonical_user_id", user.id);
-    if (updateError) return c.json({ error: "Failed to revoke device" }, 500);
+      .in("public_id", ownership.publicIds)
+      .is("revoked_at", null);
+    if (updateResult.error) return c.json({ error: "Failed to revoke device" }, 500);
     return new Response(null, { status: 204 });
   } catch (err) {
     console.error("[anonymous-sync-v2/devices/:id] unexpected error:", err);
