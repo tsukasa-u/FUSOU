@@ -2,7 +2,7 @@
 /**
  * Member ID Sync ボタンコンポーネント
  *
- * Tauri アプリとリアルタイムで member_id_hash を同期
+ * Tauri アプリとリアルタイムで public_id を同期
  * - ページ遷移なし
  * - Realtime 通知で即座に更新
  * - エラー時は詳細なメッセージ表示
@@ -10,13 +10,13 @@
 
 import { createSignal, onCleanup, onMount } from "solid-js";
 import {
-  syncMemberIdHashWithApp,
+  syncPublicIdWithApp,
   cleanupAllRealtimeSessions,
 } from "@/lib/realtime-sync";
 import { AlertMessage } from "@/components/common/solid/AlertMessage";
 
 interface MemberIdSyncButtonProps {
-  onSuccess?: (memberIdHash: string) => void;
+  onSuccess?: (publicId: string) => void;
   onError?: (error: string) => void;
   className?: string;
 }
@@ -27,7 +27,7 @@ export function MemberIdSyncButton(props: MemberIdSyncButtonProps) {
     type: "success" | "error" | null;
     message: string;
   }>({ type: null, message: "" });
-  const [memberIdHash, setMemberIdHash] = createSignal<string | null>(null);
+  const [publicId, setPublicId] = createSignal<string | null>(null);
 
   // ページ離脱時のクリーンアップ
   onMount(() => {
@@ -59,17 +59,17 @@ export function MemberIdSyncButton(props: MemberIdSyncButtonProps) {
     try {
       console.log("[MemberIdSyncButton] Starting sync...");
 
-      const result = await syncMemberIdHashWithApp(5000);
+      const result = await syncPublicIdWithApp(5000);
 
-      if (result.success && result.memberIdHash) {
-        setMemberIdHash(result.memberIdHash);
+      if (result.success && result.publicId) {
+        setPublicId(result.publicId);
         setSyncStatus({
           type: "success",
-          message: `✅ 同期成功: ${result.memberIdHash.substring(0, 8)}...`,
+          message: `✅ 同期成功: ${result.publicId.substring(0, 8)}...`,
         });
 
         // コールバック実行
-        props.onSuccess?.(result.memberIdHash);
+        props.onSuccess?.(result.publicId);
 
         // 3秒後にメッセージをクリア
         setTimeout(() => {
@@ -129,9 +129,9 @@ export function MemberIdSyncButton(props: MemberIdSyncButtonProps) {
         </AlertMessage>
       )}
 
-      {memberIdHash() && (
+      {publicId() && (
         <AlertMessage type="info" class="mt-2">
-          Member ID: {memberIdHash()}
+            Public ID: {publicId()}
         </AlertMessage>
       )}
     </div>

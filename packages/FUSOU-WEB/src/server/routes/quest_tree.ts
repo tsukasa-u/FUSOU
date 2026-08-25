@@ -1,7 +1,10 @@
 import { Hono, type Context } from "hono";
 import { z } from "zod";
 import type { Bindings, D1Database, D1Result } from "../types";
-import { CORS_HEADERS } from "../constants";
+import {
+  CORS_HEADERS,
+  MAX_QUEST_TREE_UPLOAD_BYTES,
+} from "../constants";
 import {
   createEnvContext,
   generateSignedToken,
@@ -11,7 +14,7 @@ import {
   timingSafeEqual,
   validateDatasetTokenSecret,
   validateDatasetTokenWithConstraints,
-  validateJWT,
+  resolveDatasetTokenRevocationConfig,
   validateTokenPayloadWithSchema,
   verifySignedToken,
   safeWaitUntil,
@@ -22,7 +25,9 @@ import {
   loadOrRefreshCanonicalSnapshot,
 } from "../utils/snapshot-cache";
 import { validateCachedPeriodTag } from "../utils/period-tags";
+import { readBodyWithinLimit } from "../utils/upload";
 import { QuestTreeUploadTokenPayloadSchema } from "../schemas/tokens";
+import { PublicIdSchema } from "../schemas/public-id";
 import {
   QuestCollectionSessionRowSchema,
   QuestIngestConflictRowSchema,
@@ -43,6 +48,9 @@ const app = new Hono<{ Bindings: Bindings }>();
 
 const GAP_THRESHOLD_MS = 30 * 60 * 1000;
 const RECENT_WINDOW_MS = 10 * 60 * 1000;
+const QUEST_TREE_HANDSHAKE_MAX_BYTES = MAX_QUEST_TREE_UPLOAD_BYTES + 64 * 1024;
+const QUEST_CHANGES_CACHE_CONTROL =
+  "public, max-age=60, stale-while-revalidate=300";
 
 const KV_SNAPSHOT_TTL_MS = 60 * 60 * 1000;
 
@@ -915,16 +923,23 @@ app.post("/ingest", async (c) => {
   const uploadToken = c.req.header("X-Upload-Token");
 
   if (!uploadToken) {
-    const authHeader = c.req.header("Authorization");
-    const bearer = authHeader?.startsWith("Bearer ")
-      ? authHeader.slice(7).trim()
-      : null;
-    if (!bearer) return c.json({ error: "Unauthorized" }, 401);
-    const user = await validateJWT(bearer);
-    if (!user?.id)
-      return c.json({ error: "Invalid or expired JWT token" }, 401);
-
-    const rawHandshakeBody = await c.req.json().catch(() => null);
+    const handshakeRead = await readBodyWithinLimit(
+      c.req.raw,
+      QUEST_TREE_HANDSHAKE_MAX_BYTES,
+    );
+    if (handshakeRead.kind === "too_large") {
+      return c.json({ error: "Request body exceeds maximum size" }, 413);
+    }
+    let rawHandshakeBody: unknown = null;
+    if (handshakeRead.kind === "ok") {
+      try {
+        rawHandshakeBody = JSON.parse(
+          new TextDecoder().decode(handshakeRead.data),
+        );
+      } catch {
+        rawHandshakeBody = null;
+      }
+    }
     const handshakeParsed = QuestTreeIngestBodySchema.safeParse(
       rawHandshakeBody,
     );
@@ -950,7 +965,7 @@ app.post("/ingest", async (c) => {
       );
     }
 
-    // Require dataset_token to prove ownership of dataset_id
+    // Require dataset_token possession and bind the request to its dataset_id.
     const datasetToken = resolveDatasetToken(
       c.req.header("X-Dataset-Token"),
       handshakeBody.dataset_token,
@@ -965,8 +980,9 @@ app.post("/ingest", async (c) => {
       token: datasetToken,
       secret: datasetTokenSecret,
       expectedDatasetId: validated.datasetId,
+      revocation: resolveDatasetTokenRevocationConfig(env),
       // expectedUserId は検証しない: 複数端末では端末ごとの匿名 user_id が異なるため。
-      // データ帰属は dataset_id (member_id_hash) の照合で担保する。
+      // データ帰属は dataset_id (public_id) の照合で担保する。
     });
     if (!tokenValidation.ok) {
       return c.json(
@@ -985,6 +1001,14 @@ app.post("/ingest", async (c) => {
     const declaredSize = handshakeBody.file_size ?? 0;
     if (declaredSize <= 0) {
       return c.json({ error: "file_size must be > 0" }, 400);
+    }
+    if (declaredSize > MAX_QUEST_TREE_UPLOAD_BYTES) {
+      return c.json(
+        {
+          error: `file_size exceeds maximum of ${MAX_QUEST_TREE_UPLOAD_BYTES} bytes`,
+        },
+        400,
+      );
     }
 
     const token = await generateSignedToken(
@@ -1017,14 +1041,6 @@ app.post("/ingest", async (c) => {
     });
   }
 
-  const authHeader = c.req.header("Authorization");
-  const bearer = authHeader?.startsWith("Bearer ")
-    ? authHeader.slice(7).trim()
-    : null;
-  if (!bearer) return c.json({ error: "Unauthorized" }, 401);
-  const user = await validateJWT(bearer);
-  if (!user?.id) return c.json({ error: "Invalid or expired JWT token" }, 401);
-
   const tokenPayload = await verifySignedToken(uploadToken, signingSecret);
   if (!tokenPayload)
     return c.json({ error: "Invalid or expired upload token" }, 401);
@@ -1043,9 +1059,17 @@ app.post("/ingest", async (c) => {
   // user_id 照合は行わない: upload token の user_id は dataset_token.sub（帰属者）であり
   // JWT user_id（端末固有）と一致しないことがある。JWT 有効性は上で確認済み。
 
-  const bodyStream = c.req.raw.body;
-  if (!bodyStream) return c.json({ error: "Upload payload is missing" }, 400);
-  const uploaded = new Uint8Array(await new Response(bodyStream).arrayBuffer());
+  const bodyResult = await readBodyWithinLimit(
+    c.req.raw,
+    MAX_QUEST_TREE_UPLOAD_BYTES,
+  );
+  if (bodyResult.kind === "missing") {
+    return c.json({ error: "Upload payload is missing" }, 400);
+  }
+  if (bodyResult.kind === "too_large") {
+    return c.json({ error: "request_too_large" }, 413);
+  }
+  const uploaded = bodyResult.data;
 
   const declaredSize = validatedPayload.declared_size;
   if (!Number.isFinite(declaredSize) || uploaded.byteLength !== declaredSize) {
@@ -1465,40 +1489,19 @@ app.get("/changes", async (c) => {
   const db = c.env.QUEST_INDEX_DB;
   if (!db) return c.json({ error: "QUEST_INDEX_DB not configured" }, 503);
 
-  const datasetId = (c.req.query("dataset_id") ?? "").trim();
+  const rawDatasetId = (c.req.query("dataset_id") ?? "").trim();
   const since = Math.max(0, toInt(c.req.query("since")) ?? 0);
 
-  if (!datasetId) {
-    return c.json({ error: "dataset_id query is required" }, 400);
+  const parsedDatasetId = PublicIdSchema.safeParse(rawDatasetId);
+  if (!parsedDatasetId.success) {
+    return c.json({ error: "dataset_id must be a UUID v4 public_id" }, 400);
   }
+  const datasetId = parsedDatasetId.data.toLowerCase();
 
-  // Require dataset_token to prove ownership of dataset_id
-  const env = createEnvContext(c);
-  const datasetToken = resolveDatasetToken(
-    c.req.header("X-Dataset-Token"),
-    c.req.query("dataset_token"),
-  );
-  const datasetTokenSecret = getEnv(env, "DATASET_TOKEN_SECRET");
-  // Validate secret length upfront
-  const secretValidation = validateDatasetTokenSecret(datasetTokenSecret);
-  if (!secretValidation.ok) {
-    return c.json({ error: secretValidation.error }, 500);
-  }
-  const tokenValidation = await validateDatasetTokenWithConstraints({
-    token: datasetToken,
-    secret: datasetTokenSecret,
-    expectedDatasetId: datasetId,
-  });
-  if (!tokenValidation.ok) {
-    return c.json(
-      { error: tokenValidation.error },
-      tokenValidation.status ?? 401,
-    );
-  }
-
+  // Quest history is public aggregate data scoped by opaque dataset UUID.
   const appearanceResult = await db
     .prepare(
-      `SELECT target_quest_id, appeared_at_ms, collection_session_id, is_bootstrap_unknown
+      `SELECT target_quest_id, appeared_at_ms, is_bootstrap_unknown
      FROM quest_appearance_events
      WHERE dataset_id = ? AND appeared_at_ms >= ?
      ORDER BY appeared_at_ms ASC
@@ -1515,7 +1518,7 @@ app.get("/changes", async (c) => {
 
   const stateResult = await db
     .prepare(
-      `SELECT quest_id, event_type, state_after, timestamp_ms, collection_session_id
+      `SELECT quest_id, event_type, state_after, timestamp_ms
      FROM quest_state_events
      WHERE dataset_id = ? AND timestamp_ms >= ?
      ORDER BY timestamp_ms ASC
@@ -1530,13 +1533,24 @@ app.get("/changes", async (c) => {
     return c.json({ error: "Invalid quest state rows" }, 500);
   }
 
-  return c.json({
+  const response = c.json({
     ok: true,
     dataset_id: datasetId,
     since,
-    appearances: parsedAppearances.data,
-    states: parsedStates.data,
+    appearances: parsedAppearances.data.map((row) => ({
+      target_quest_id: row.target_quest_id,
+      appeared_at_ms: row.appeared_at_ms,
+      is_bootstrap_unknown: row.is_bootstrap_unknown,
+    })),
+    states: parsedStates.data.map((row) => ({
+      quest_id: row.quest_id,
+      event_type: row.event_type,
+      state_after: row.state_after,
+      timestamp_ms: row.timestamp_ms,
+    })),
   });
+  response.headers.set("Cache-Control", QUEST_CHANGES_CACHE_CONTROL);
+  return response;
 });
 
 export default app;

@@ -1,12 +1,15 @@
 use crate::error::AuthError;
 use crate::storage::Storage;
 use crate::types::{DatasetToken, DatasetTokenStore, Session};
+use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use base64::Engine as _;
 use chrono::{DateTime, Duration, Utc};
 use reqwest::Client;
 use serde::Deserialize;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use tracing;
+use uuid::{Uuid, Variant};
 
 const SUPABASE_URL_EMBED: Option<&str> = option_env!("PUBLIC_SUPABASE_URL");
 const SUPABASE_PUBLISHABLE_KEY_EMBED: Option<&str> = option_env!("PUBLIC_SUPABASE_PUBLISHABLE_KEY");
@@ -44,6 +47,8 @@ pub struct AuthManager<S: Storage + 'static> {
     dataset_token_cache: Arc<Mutex<DatasetTokenStore>>,
     // file path for persistent dataset_token storage (optional)
     dataset_token_path: Arc<std::sync::Mutex<Option<std::path::PathBuf>>>,
+    // Current game member used to isolate dataset-token selection.
+    active_api_member_id: Arc<std::sync::Mutex<Option<String>>>,
 }
 
 impl<S: Storage> Clone for AuthManager<S> {
@@ -55,6 +60,7 @@ impl<S: Storage> Clone for AuthManager<S> {
             refresh_lock: self.refresh_lock.clone(),
             dataset_token_cache: self.dataset_token_cache.clone(),
             dataset_token_path: self.dataset_token_path.clone(),
+            active_api_member_id: self.active_api_member_id.clone(),
         }
     }
 }
@@ -68,6 +74,7 @@ impl<S: Storage> AuthManager<S> {
             refresh_lock: Arc::new(Mutex::new(())),
             dataset_token_cache: Arc::new(Mutex::new(DatasetTokenStore::default())),
             dataset_token_path: Arc::new(std::sync::Mutex::new(None)),
+            active_api_member_id: Arc::new(std::sync::Mutex::new(None)),
         }
     }
 
@@ -84,6 +91,7 @@ impl<S: Storage> AuthManager<S> {
             refresh_lock: Arc::new(Mutex::new(())),
             dataset_token_cache: Arc::new(Mutex::new(DatasetTokenStore::default())),
             dataset_token_path: Arc::new(std::sync::Mutex::new(dataset_token_path)),
+            active_api_member_id: Arc::new(std::sync::Mutex::new(None)),
         }
     }
 
@@ -94,7 +102,19 @@ impl<S: Storage> AuthManager<S> {
         }
     }
 
-    async fn read_dataset_token_store_from_disk(&self) -> Result<DatasetTokenStore, AuthError> {
+    /// Set the game member whose dataset token may be selected for uploads.
+    pub fn set_active_api_member_id(&self, api_member_id: Option<&str>) {
+        if let Ok(mut guard) = self.active_api_member_id.lock() {
+            *guard = api_member_id
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(str::to_string);
+        }
+    }
+
+    async fn read_dataset_token_store_from_disk(
+        &self,
+    ) -> Result<(DatasetTokenStore, bool), AuthError> {
         let path = self
             .dataset_token_path
             .lock()
@@ -102,28 +122,39 @@ impl<S: Storage> AuthManager<S> {
             .and_then(|guard| guard.clone());
 
         let Some(path) = path else {
-            return Ok(DatasetTokenStore::default());
+            return Ok((DatasetTokenStore::default(), false));
         };
 
         match tokio::fs::read_to_string(&path).await {
             Ok(s) => {
-                if let Ok(store) = serde_json::from_str::<DatasetTokenStore>(&s) {
-                    return Ok(store);
+                if let Ok(mut store) = serde_json::from_str::<DatasetTokenStore>(&s) {
+                    let original_len = store.tokens.len();
+                    store.tokens.retain(|dataset_id, token| {
+                        is_valid_public_id(dataset_id)
+                            && token.dataset_id.as_deref() == Some(dataset_id.as_str())
+                    });
+                    let dirty = store.tokens.len() != original_len;
+                    return Ok((store, dirty));
                 }
 
                 if let Ok(single) = serde_json::from_str::<DatasetToken>(&s) {
                     let mut store = DatasetTokenStore::default();
-                    if let Some(dataset_id) = single.dataset_id.clone() {
+                    if let Some(dataset_id) = single
+                        .dataset_id
+                        .clone()
+                        .filter(|dataset_id| is_valid_public_id(dataset_id))
+                    {
                         store.tokens.insert(dataset_id, single);
+                        return Ok((store, false));
                     }
-                    return Ok(store);
+                    return Ok((store, true));
                 }
 
-                Ok(DatasetTokenStore::default())
+                Ok((DatasetTokenStore::default(), false))
             }
             Err(e) => {
                 if e.kind() == std::io::ErrorKind::NotFound {
-                    Ok(DatasetTokenStore::default())
+                    Ok((DatasetTokenStore::default(), false))
                 } else {
                     Err(AuthError::Other(e.to_string()))
                 }
@@ -463,10 +494,28 @@ impl<S: Storage> AuthManager<S> {
 impl<S: Storage> AuthManager<S> {
     /// dataset_tokenを dataset_id 単位で保存する。
     pub async fn save_dataset_token(&self, token: &DatasetToken) -> Result<(), AuthError> {
-        let Some(dataset_id) = token.dataset_id.clone() else {
-            tracing::warn!("Skipping dataset_token persistence because dataset_id is missing");
-            return Ok(());
+        let Some(dataset_id) = token
+            .dataset_id
+            .clone()
+            .filter(|dataset_id| is_valid_public_id(dataset_id))
+        else {
+            return Err(AuthError::Other(
+                "dataset_token dataset_id must be a UUID v4 public_id".to_string(),
+            ));
         };
+
+        if let Some(active_member_id) = self
+            .active_api_member_id
+            .lock()
+            .ok()
+            .and_then(|guard| guard.clone())
+        {
+            if token.api_member_id.as_deref() != Some(active_member_id.as_str()) {
+                return Err(AuthError::Other(
+                    "dataset_token belongs to a different game member".to_string(),
+                ));
+            }
+        }
 
         let mut cache = self.dataset_token_cache.lock().await;
         cache.tokens.insert(dataset_id, token.clone());
@@ -492,88 +541,97 @@ impl<S: Storage> AuthManager<S> {
         Ok(())
     }
 
+    /// Remove tokens belonging to one game member while preserving tokens for other members.
+    /// Tokens without an owning member are removed because their ownership cannot be verified.
+    pub async fn clear_dataset_tokens_for_member(
+        &self,
+        api_member_id: &str,
+    ) -> Result<(), AuthError> {
+        let api_member_id = api_member_id.trim();
+        let mut cache = self.dataset_token_cache.lock().await;
+        cache.tokens.retain(|_, token| {
+            token
+                .api_member_id
+                .as_deref()
+                .is_some_and(|owner| owner != api_member_id)
+        });
+
+        if let Err(e) = self.persist_dataset_token_store(&cache).await {
+            tracing::warn!("Failed to persist member-scoped dataset_token cleanup: {}", e);
+        }
+
+        Ok(())
+    }
+
     /// 指定 dataset_id に紐づく dataset_token を読み込む。
     pub async fn load_dataset_token_for_dataset(
         &self,
         dataset_id: &str,
     ) -> Result<Option<DatasetToken>, AuthError> {
-        {
-            let cache = self.dataset_token_cache.lock().await;
-            if let Some(token) = cache.tokens.get(dataset_id) {
-                return Ok(Some(token.clone()));
-            }
-        }
-
-        let store = self.read_dataset_token_store_from_disk().await?;
-        if let Some(token) = store.tokens.get(dataset_id).cloned() {
-            let mut cache = self.dataset_token_cache.lock().await;
-            *cache = store;
-            return Ok(Some(token));
+        if !is_valid_public_id(dataset_id) {
+            return Ok(None);
         }
 
         let mut cache = self.dataset_token_cache.lock().await;
+        if let Some(token) = cache.tokens.get(dataset_id) {
+            return Ok(Some(token.clone()));
+        }
+
+        let (store, dirty) = self.read_dataset_token_store_from_disk().await?;
+        if dirty {
+            self.persist_dataset_token_store(&store).await?;
+        }
         *cache = store;
-        Ok(None)
+        Ok(cache.tokens.get(dataset_id).cloned())
     }
 
     /// Resolve the dataset_id to use for uploads.
     ///
     /// Priority:
-    /// 1. `preferred_dataset_id` when explicitly provided (used by retry paths to keep original ownership).
+    /// 1. `preferred_dataset_id` when explicitly provided (used by retry paths to keep the original dataset).
     /// 2. The non-expired dataset_id with the latest expiry in cache/disk store.
     pub async fn resolve_dataset_id_for_upload(
         &self,
         preferred_dataset_id: Option<&str>,
     ) -> Option<String> {
-        if let Some(preferred) = preferred_dataset_id
-            .map(str::trim)
-            .filter(|v| !v.is_empty())
-        {
-            return Some(preferred.to_string());
+        if let Some(preferred) = preferred_dataset_id.map(str::trim).filter(|v| !v.is_empty()) {
+            return is_valid_public_id(preferred).then(|| preferred.to_string());
         }
 
         let now = Utc::now();
+        let active_api_member_id = self
+            .active_api_member_id
+            .lock()
+            .ok()
+            .and_then(|guard| guard.clone());
 
-        {
-            let cache = self.dataset_token_cache.lock().await;
-            let mut best: Option<(String, DateTime<Utc>)> = None;
-            for (dataset_id, token) in cache.tokens.iter() {
-                if dataset_id.trim().is_empty() || token.expires_at <= now {
-                    continue;
-                }
-                let replace = match &best {
-                    Some((_, exp)) => token.expires_at > *exp,
-                    None => true,
-                };
-                if replace {
-                    best = Some((dataset_id.clone(), token.expires_at));
-                }
-            }
-            if let Some((dataset_id, _)) = best {
-                return Some(dataset_id);
-            }
+        let mut cache = self.dataset_token_cache.lock().await;
+        let find_best = |store: &DatasetTokenStore| {
+            store
+                .tokens
+                .iter()
+                .filter(|(dataset_id, token)| {
+                    is_valid_public_id(dataset_id)
+                        && token.dataset_id.as_deref() == Some(dataset_id.as_str())
+                        && active_api_member_id.as_deref().map_or(true, |member_id| {
+                            token.api_member_id.as_deref() == Some(member_id)
+                        })
+                        && token.expires_at > now
+                })
+                .max_by_key(|(_, token)| token.expires_at)
+                .map(|(dataset_id, _)| dataset_id.clone())
+        };
+
+        if let Some(dataset_id) = find_best(&cache) {
+            return Some(dataset_id);
         }
 
-        if let Ok(store) = self.read_dataset_token_store_from_disk().await {
-            let mut best: Option<(String, DateTime<Utc>)> = None;
-            for (dataset_id, token) in store.tokens.iter() {
-                if dataset_id.trim().is_empty() || token.expires_at <= now {
-                    continue;
-                }
-                let replace = match &best {
-                    Some((_, exp)) => token.expires_at > *exp,
-                    None => true,
-                };
-                if replace {
-                    best = Some((dataset_id.clone(), token.expires_at));
-                }
+        if let Ok((store, dirty)) = self.read_dataset_token_store_from_disk().await {
+            if dirty {
+                self.persist_dataset_token_store(&store).await.ok();
             }
-
-            if let Some((dataset_id, _)) = best {
-                let mut cache = self.dataset_token_cache.lock().await;
-                *cache = store;
-                return Some(dataset_id);
-            }
+            *cache = store;
+            return find_best(&cache);
         }
 
         None
@@ -581,16 +639,14 @@ impl<S: Storage> AuthManager<S> {
 }
 
 // ============================================================
-// v2 anonymous-sync (pepper + Ed25519 device key)
+// v2 anonymous-sync (random UUID public_id + Ed25519 device key)
 // ============================================================
 //
-// 旧 /anonymous-sync (v1) は salt をクライアントに埋め込んで member_id_hash を
-// 計算する設計だったが、salt 流出で任意の api_member_id から dataset_token を
-// 取得できる弱点があった。v2 では以下のように責務を再配置する:
-//   - サーバーは pepper (Wrangler secret) を保持し pid = HMAC(pepper, api_member_id) を
-//     内部で計算する。クライアントは生 api_member_id だけを TLS で送る。
+// 旧 /anonymous-sync (v1) は廃止済み。現行フローは UUID v4 public_id を利用する。
+// 現行v2ではサーバーが api_member_id の所有マッピングを一度だけ作成し、
+// クライアントは署名済み token の UUID v4 public_id を利用する:
 //   - クライアントは Ed25519 keypair を端末で生成・保管し、その公開鍵を register で
-//     登録する。以降の refresh/revoke は challenge nonce への署名で本人性を担保する。
+//     登録する。以降の refresh は challenge nonce への署名で端末鍵を確認する。
 //
 // 現在は v2 固定運用。クライアント側は `ensure_dataset_token_v2` を利用する。
 
@@ -600,7 +656,6 @@ use crate::device_key::DeviceKey;
 #[derive(Debug, Deserialize)]
 struct RegisterV2Response {
     device_id: String,
-    pid: String,
     dataset_token: String,
 }
 
@@ -617,13 +672,87 @@ struct ChallengeV2Response {
 #[derive(Debug, Deserialize)]
 struct RefreshV2Response {
     dataset_token: String,
-    pid: String,
-    /// 現行 pepper のバージョンタグ ("v1", "v2" ...)。
-    /// 直前の refresh と比較してローテーション検知に使う想定だが、
-    /// クライアントは旧値を保持していないので情報用ログ出力のみ。
-    #[serde(default)]
-    #[allow(dead_code)]
-    salt_version: Option<String>,
+}
+
+#[derive(Debug)]
+struct RegisterV2RecoveryProof {
+    device_id: String,
+    nonce: String,
+    sig: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct AnonymousSyncErrorResponse {
+    error: String,
+}
+
+fn classify_anonymous_sync_error(status: reqwest::StatusCode, body: &str) -> Option<AuthError> {
+    let parsed = serde_json::from_str::<AnonymousSyncErrorResponse>(body).ok()?;
+    match (status, parsed.error.as_str()) {
+        (reqwest::StatusCode::NOT_FOUND, "device_unknown_or_revoked" | "device_unknown") => {
+            Some(AuthError::DeviceUnknownOrRevoked)
+        }
+        (reqwest::StatusCode::CONFLICT, "device_revoked") => Some(AuthError::DeviceRevoked),
+        _ => None,
+    }
+}
+
+fn is_valid_public_id(value: &str) -> bool {
+    let Ok(uuid) = Uuid::parse_str(value.trim()) else {
+        return false;
+    };
+    uuid.get_version_num() == 4 && uuid.get_variant() == Variant::RFC4122
+}
+
+#[derive(Debug, Deserialize)]
+struct DatasetTokenClaims {
+    dataset_id: String,
+    device_id: String,
+    exp: i64,
+    typ: String,
+    aud: String,
+}
+
+fn parse_dataset_token_metadata(token: &str) -> Result<(String, String, DateTime<Utc>), AuthError> {
+    let mut segments = token.split('.');
+    let _header = segments.next();
+    let payload = segments.next().ok_or_else(|| {
+        AuthError::Other("dataset_token payload is missing".to_string())
+    })?;
+    let _signature = segments.next().ok_or_else(|| {
+        AuthError::Other("dataset_token signature is missing".to_string())
+    })?;
+    if segments.next().is_some() {
+        return Err(AuthError::Other("dataset_token has invalid JWT shape".to_string()));
+    }
+
+    let payload_bytes = URL_SAFE_NO_PAD
+        .decode(payload)
+        .map_err(|_| AuthError::Other("dataset_token payload is not base64url".to_string()))?;
+    let claims: DatasetTokenClaims = serde_json::from_slice(&payload_bytes)?;
+    if claims.typ != "dataset" || claims.aud != "fusou-upload" {
+        return Err(AuthError::Other("dataset_token claims are invalid".to_string()));
+    }
+
+    let uuid = Uuid::parse_str(claims.dataset_id.trim())
+        .map_err(|_| AuthError::Other("dataset_token dataset_id is not a UUID".to_string()))?;
+    if uuid.get_version_num() != 4 || uuid.get_variant() != Variant::RFC4122 {
+        return Err(AuthError::Other("dataset_token dataset_id is not a UUID v4".to_string()));
+    }
+
+    let device_uuid = Uuid::parse_str(claims.device_id.trim())
+        .map_err(|_| AuthError::Other("dataset_token device_id is not a UUID".to_string()))?;
+    if device_uuid.get_version_num() != 4 || device_uuid.get_variant() != Variant::RFC4122 {
+        return Err(AuthError::Other("dataset_token device_id is not a UUID v4".to_string()));
+    }
+
+    let expires_at = DateTime::from_timestamp(claims.exp, 0)
+        .ok_or_else(|| AuthError::Other("dataset_token exp is invalid".to_string()))?;
+    if expires_at <= Utc::now() {
+        return Err(AuthError::Other("dataset_token is expired".to_string()));
+    }
+
+    Ok((uuid.to_string(), device_uuid.to_string(), expires_at))
 }
 
 impl<S: Storage> AuthManager<S> {
@@ -636,14 +765,54 @@ impl<S: Storage> AuthManager<S> {
         api_member_id: &str,
         device_key: &mut DeviceKey,
     ) -> Result<DatasetToken, AuthError> {
+        self.register_device_v2_inner(api_member_id, device_key, false, None)
+            .await
+    }
+
+    async fn register_device_v2_after_server_reset(
+        &self,
+        api_member_id: &str,
+        device_key: &mut DeviceKey,
+    ) -> Result<DatasetToken, AuthError> {
+        let device_id = device_key.device_id().ok_or_else(|| {
+            AuthError::Other(
+                "anonymous-sync v2 recovery called before device was registered".to_string(),
+            )
+        })?;
+        let challenge = match self.fetch_challenge_v2(device_id).await {
+            Ok(challenge) => challenge,
+            Err(AuthError::DeviceUnknownOrRevoked) => {
+                // A deleted server row cannot produce a recovery nonce. The
+                // public member mapping still authenticates a fresh device
+                // registration, while revoked rows remain non-recoverable.
+                device_key.clear_device_id().await?;
+                return self.register_device_v2(api_member_id, device_key).await;
+            }
+            Err(error) => return Err(error),
+        };
+        let api_member_id = api_member_id.trim();
+        let message = format!(
+            "register|{}|{}|{}",
+            device_id, api_member_id, challenge.nonce
+        );
+        let recovery = RegisterV2RecoveryProof {
+            device_id: device_id.to_string(),
+            nonce: challenge.nonce,
+            sig: device_key.sign_b64(message.as_bytes()),
+        };
+        self.register_device_v2_inner(api_member_id, device_key, true, Some(recovery))
+            .await
+    }
+
+    async fn register_device_v2_inner(
+        &self,
+        api_member_id: &str,
+        device_key: &mut DeviceKey,
+        replace_existing_device_id: bool,
+        recovery: Option<RegisterV2RecoveryProof>,
+    ) -> Result<DatasetToken, AuthError> {
         let api_member_id = api_member_id.trim();
         validate_api_member_id(api_member_id)?;
-
-        // attestation = Ed25519(secret, "register|" + api_member_id)
-        // サーバーは受け取った device_pub で同じメッセージを検証し、
-        // 公開鍵が秘密鍵と整合していることを確認する。
-        let attestation_message = format!("register|{}", api_member_id);
-        let attestation_b64 = device_key.sign_b64(attestation_message.as_bytes());
 
         let url = configs::get_user_configs_for_app()
             .auth
@@ -652,11 +821,17 @@ impl<S: Storage> AuthManager<S> {
                 AuthError::Other("anonymous_sync_v2_register_endpoint not configured".to_string())
             })?;
 
-        let body = serde_json::json!({
+        let mut body = serde_json::json!({
             "api_member_id": api_member_id,
             "device_pub": device_key.public_key_b64(),
-            "attestation": attestation_b64,
         });
+        if let Some(recovery) = recovery {
+            body["recovery"] = serde_json::json!({
+                "device_id": recovery.device_id,
+                "nonce": recovery.nonce,
+                "sig": recovery.sig,
+            });
+        }
 
         let resp = self
             .client
@@ -674,6 +849,9 @@ impl<S: Storage> AuthManager<S> {
                 body = %masked_error_payload(&text),
                 "anonymous-sync v2 register failed"
             );
+            if let Some(error) = classify_anonymous_sync_error(status, &text) {
+                return Err(error);
+            }
             return Err(AuthError::RefreshFailed(format!(
                 "anonymous-sync v2 register failed: status {}",
                 status
@@ -681,9 +859,28 @@ impl<S: Storage> AuthManager<S> {
         }
 
         let parsed: RegisterV2Response = resp.json().await?;
+        if !is_valid_public_id(&parsed.device_id) {
+            return Err(AuthError::Other(
+                "anonymous-sync v2 register returned an invalid device_id".to_string(),
+            ));
+        }
 
-        // device_id を端末に確定書き込み。これ以降の refresh はこの値を使う。
-        device_key.set_device_id(parsed.device_id.clone()).await?;
+        let (dataset_id, token_device_id, expires_at) =
+            parse_dataset_token_metadata(&parsed.dataset_token)?;
+        if token_device_id != parsed.device_id {
+            return Err(AuthError::Other(
+                "anonymous-sync v2 register returned a mismatched device_id".to_string(),
+            ));
+        }
+
+        // Persist the device only after the complete response has passed validation.
+        if replace_existing_device_id {
+            device_key
+                .replace_device_id_after_server_reset(parsed.device_id.clone())
+                .await?;
+        } else {
+            device_key.set_device_id(parsed.device_id.clone()).await?;
+        }
 
         tracing::info!(
             device_id = %parsed.device_id,
@@ -692,10 +889,10 @@ impl<S: Storage> AuthManager<S> {
 
         Ok(DatasetToken {
             token: parsed.dataset_token,
-            // サーバー側 TTL (7 日) に合わせる。サーバーが返す exp と乖離しても
-            // クライアント側は 1 日前に refresh するので大きな問題にはならない。
-            expires_at: Utc::now() + Duration::days(7),
-            dataset_id: Some(parsed.pid),
+            expires_at,
+            dataset_id: Some(dataset_id),
+            api_member_id: None,
+            device_id: Some(token_device_id),
         })
     }
 
@@ -726,6 +923,9 @@ impl<S: Storage> AuthManager<S> {
                 body = %masked_error_payload(&text),
                 "anonymous-sync v2 challenge failed"
             );
+            if let Some(error) = classify_anonymous_sync_error(status, &text) {
+                return Err(error);
+            }
             return Err(AuthError::RefreshFailed(format!(
                 "anonymous-sync v2 challenge failed: status {}",
                 status
@@ -787,6 +987,9 @@ impl<S: Storage> AuthManager<S> {
                 body = %masked_error_payload(&text),
                 "anonymous-sync v2 refresh failed"
             );
+            if let Some(error) = classify_anonymous_sync_error(status, &text) {
+                return Err(error);
+            }
             return Err(AuthError::RefreshFailed(format!(
                 "anonymous-sync v2 refresh failed: status {}",
                 status
@@ -794,86 +997,21 @@ impl<S: Storage> AuthManager<S> {
         }
 
         let parsed: RefreshV2Response = resp.json().await?;
-
-        if let Some(version) = parsed.salt_version.as_deref() {
-            tracing::debug!(
-                device_id = %device_id,
-                salt_version = %version,
-                "anonymous-sync v2 refresh: dataset_token issued"
-            );
+        let (dataset_id, token_device_id, expires_at) =
+            parse_dataset_token_metadata(&parsed.dataset_token)?;
+        if token_device_id != device_id {
+            return Err(AuthError::Other(
+                "anonymous-sync v2 refresh returned a mismatched device_id".to_string(),
+            ));
         }
 
         Ok(DatasetToken {
             token: parsed.dataset_token,
-            expires_at: Utc::now() + Duration::days(7),
-            dataset_id: Some(parsed.pid),
+            expires_at,
+            dataset_id: Some(dataset_id),
+            api_member_id: None,
+            device_id: Some(token_device_id),
         })
-    }
-
-    /// 別の自端末から target_device_id を失効させる。
-    /// 端末紛失時の自己復旧用エンドポイント。サーバーは「同じ canonical_user_id 配下に
-    /// 属する別の有効な device からの操作」だけを受理する。
-    pub async fn revoke_device_v2(
-        &self,
-        target_device_id: &str,
-        device_key: &DeviceKey,
-        reason: Option<&str>,
-    ) -> Result<(), AuthError> {
-        let device_id = device_key.device_id().ok_or_else(|| {
-            AuthError::Other("revoke_device_v2 called before device is registered".to_string())
-        })?;
-        if target_device_id.trim().is_empty() {
-            return Err(AuthError::Other(
-                "revoke_device_v2: target_device_id must be non-empty".to_string(),
-            ));
-        }
-
-        let challenge = self.fetch_challenge_v2(device_id).await?;
-        // revoke メッセージ = "revoke|" + from_device_id + "|" + target_device_id + "|" + nonce
-        let message = format!(
-            "revoke|{}|{}|{}",
-            device_id, target_device_id, challenge.nonce
-        );
-        let sig_b64 = device_key.sign_b64(message.as_bytes());
-
-        let url = configs::get_user_configs_for_app()
-            .auth
-            .get_anonymous_sync_v2_revoke_endpoint()
-            .ok_or_else(|| {
-                AuthError::Other("anonymous_sync_v2_revoke_endpoint not configured".to_string())
-            })?;
-
-        let body = serde_json::json!({
-            "device_id": device_id,
-            "target_device_id": target_device_id,
-            "nonce": challenge.nonce,
-            "sig": sig_b64,
-            "reason": reason,
-        });
-
-        let resp = self
-            .client
-            .post(&url)
-            .header("apikey", &self.config.api_key)
-            .json(&body)
-            .send()
-            .await?;
-
-        if !resp.status().is_success() {
-            let status = resp.status();
-            let text = resp.text().await.unwrap_or_default();
-            tracing::warn!(
-                status = %status,
-                body = %masked_error_payload(&text),
-                "anonymous-sync v2 revoke failed"
-            );
-            return Err(AuthError::RefreshFailed(format!(
-                "anonymous-sync v2 revoke failed: status {}",
-                status
-            )));
-        }
-
-        Ok(())
     }
 
     /// v2 のメイン入口。
@@ -888,24 +1026,68 @@ impl<S: Storage> AuthManager<S> {
         let api_member_id = api_member_id.trim();
         validate_api_member_id(api_member_id)?;
 
+        let token_identity_mismatch = match current_token {
+            Some(token) => match parse_dataset_token_metadata(&token.token) {
+                Ok((dataset_id, token_device_id, _)) => {
+                    token.dataset_id.as_deref() != Some(dataset_id.as_str())
+                        || device_key.device_id() != Some(token_device_id.as_str())
+                        || token.api_member_id.as_deref() != Some(api_member_id)
+                }
+                Err(_) => true,
+            },
+            None => false,
+        };
         let needs_refresh = match current_token {
-            Some(token) => token.expires_at <= Utc::now() + Duration::days(1),
+            Some(token) => {
+                if token.expires_at <= Utc::now() + Duration::days(1) {
+                    true
+                } else {
+                    token_identity_mismatch
+                }
+            }
             None => true,
         };
         if !needs_refresh {
-            return Ok(current_token
+            let mut token = current_token
                 .expect("current_token is Some when needs_refresh is false")
-                .clone());
+                .clone();
+            if token.device_id.is_none() {
+                if let Ok((_, token_device_id, _)) = parse_dataset_token_metadata(&token.token) {
+                    token.device_id = Some(token_device_id);
+                }
+            }
+            return Ok(token);
         }
 
-        if device_key.device_id().is_none() {
+            if token_identity_mismatch && device_key.device_id().is_some() {
+                device_key.clear_device_id().await?;
+            }
+
+        let result = if device_key.device_id().is_none() {
             tracing::info!("anonymous-sync v2: device not registered, calling /v2/register");
             self.register_device_v2(api_member_id, device_key).await
         } else {
             tracing::info!("anonymous-sync v2: device already registered, calling /v2/refresh");
-            self.refresh_dataset_token_v2(api_member_id, device_key)
+            match self
+                .refresh_dataset_token_v2(api_member_id, device_key)
                 .await
-        }
+            {
+                Ok(token) => Ok(token),
+                Err(AuthError::DeviceUnknownOrRevoked) => {
+                    tracing::warn!(
+                        "anonymous-sync v2: stored device is unavailable; attempting signed-key re-registration"
+                    );
+                    self.register_device_v2_after_server_reset(api_member_id, device_key)
+                        .await
+                }
+                Err(error) => Err(error),
+            }
+        };
+
+        result.map(|mut token| {
+            token.api_member_id = Some(api_member_id.to_string());
+            token
+        })
     }
 }
 
@@ -923,4 +1105,108 @@ fn validate_api_member_id(value: &str) -> Result<(), AuthError> {
         ));
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn only_exact_unknown_or_revoked_refresh_response_is_recoverable() {
+        assert!(matches!(
+            classify_anonymous_sync_error(
+                reqwest::StatusCode::NOT_FOUND,
+                r#"{"error":"device_unknown_or_revoked"}"#,
+            ),
+            Some(AuthError::DeviceUnknownOrRevoked)
+        ));
+        assert!(classify_anonymous_sync_error(
+            reqwest::StatusCode::NOT_FOUND,
+            r#"{"error":"route_not_found"}"#,
+        )
+        .is_none());
+        assert!(matches!(
+            classify_anonymous_sync_error(
+                reqwest::StatusCode::NOT_FOUND,
+                r#"{"error":"device_unknown"}"#,
+            ),
+            Some(AuthError::DeviceUnknownOrRevoked)
+        ));
+        assert!(classify_anonymous_sync_error(
+            reqwest::StatusCode::INTERNAL_SERVER_ERROR,
+            r#"{"error":"device_unknown_or_revoked"}"#,
+        )
+        .is_none());
+    }
+
+    #[test]
+    fn revoked_registration_is_not_treated_as_recoverable() {
+        assert!(matches!(
+            classify_anonymous_sync_error(
+                reqwest::StatusCode::CONFLICT,
+                r#"{"error":"device_revoked"}"#,
+            ),
+            Some(AuthError::DeviceRevoked)
+        ));
+    }
+
+    #[tokio::test]
+    async fn member_scoped_cleanup_preserves_other_members_tokens() {
+        let manager = AuthManager::new(
+            AuthConfig {
+                supabase_url: "https://example.test".to_string(),
+                api_key: "test-key".to_string(),
+                refresh_path: "/auth/v1/token".to_string(),
+                refresh_margin_secs: 30,
+            },
+            Arc::new(crate::storage::InMemoryStorage::new()),
+        );
+        let member_a_dataset = "11111111-1111-4111-8111-111111111111".to_string();
+        let member_b_dataset = "22222222-2222-4222-8222-222222222222".to_string();
+        let unowned_dataset = "33333333-3333-4333-8333-333333333333".to_string();
+
+        {
+            let mut cache = manager.dataset_token_cache.lock().await;
+            cache.tokens.insert(
+                member_a_dataset.clone(),
+                DatasetToken {
+                    token: "member-a-token".to_string(),
+                    expires_at: Utc::now(),
+                    dataset_id: Some(member_a_dataset.clone()),
+                    api_member_id: Some("member-a".to_string()),
+                    device_id: None,
+                },
+            );
+            cache.tokens.insert(
+                member_b_dataset.clone(),
+                DatasetToken {
+                    token: "member-b-token".to_string(),
+                    expires_at: Utc::now(),
+                    dataset_id: Some(member_b_dataset.clone()),
+                    api_member_id: Some("member-b".to_string()),
+                    device_id: None,
+                },
+            );
+            cache.tokens.insert(
+                unowned_dataset.clone(),
+                DatasetToken {
+                    token: "unowned-token".to_string(),
+                    expires_at: Utc::now(),
+                    dataset_id: Some(unowned_dataset.clone()),
+                    api_member_id: None,
+                    device_id: None,
+                },
+            );
+        }
+
+        manager
+            .clear_dataset_tokens_for_member("member-a")
+            .await
+            .unwrap();
+
+        let cache = manager.dataset_token_cache.lock().await;
+        assert!(!cache.tokens.contains_key(&member_a_dataset));
+        assert!(cache.tokens.contains_key(&member_b_dataset));
+        assert!(!cache.tokens.contains_key(&unowned_dataset));
+    }
 }

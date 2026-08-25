@@ -21,7 +21,7 @@ import {
 import {
   getSupabaseRestConfig,
   supabaseRestRequest,
-  resolveMemberIdHashForUser,
+  resolvePublicIdForUser,
 } from "../utils/supabase-rest";
 
 const app = new Hono<{ Bindings: Bindings }>();
@@ -37,19 +37,6 @@ const API_KEY_LENGTH = 32;
 // Helper Functions
 // =============================================================================
 
-function jsonResponse(data: object, status = 200): Response {
-  return new Response(JSON.stringify(data), {
-    status,
-    headers: {
-      "Content-Type": "application/json",
-      ...CORS_HEADERS,
-    },
-  });
-}
-
-/**
- * Generate a secure random API key
- */
 function generateApiKey(): string {
   const bytes = new Uint8Array(API_KEY_LENGTH);
   crypto.getRandomValues(bytes);
@@ -58,6 +45,16 @@ function generateApiKey(): string {
     .replace(/\//g, "_")
     .replace(/=/g, "");
   return `${API_KEY_PREFIX}${base64}`;
+}
+
+function jsonResponse(data: object, status = 200): Response {
+  return new Response(JSON.stringify(data), {
+    status,
+    headers: {
+      "Content-Type": "application/json",
+      ...CORS_HEADERS,
+    },
+  });
 }
 
 /**
@@ -266,13 +263,9 @@ app.post("/", async (c) => {
     const currentKeysResponse = await supabaseRestRequest(
       config,
       "api_keys",
-      {
-        query: `?user_id=eq.${user.id}&select=id`,
-      },
+      { query: `?user_id=eq.${user.id}&select=id` },
     );
-    const parsedCurrentKeys = ApiKeyIdRowsSchema.safeParse(
-      currentKeysResponse,
-    );
+    const parsedCurrentKeys = ApiKeyIdRowsSchema.safeParse(currentKeysResponse);
     if (!parsedCurrentKeys.success) {
       console.error(
         "API key current keys response shape invalid:",
@@ -280,57 +273,36 @@ app.post("/", async (c) => {
       );
       return jsonResponse({ error: "Internal error" }, 500);
     }
-    const currentKeys = parsedCurrentKeys.data;
 
-    if (currentKeys.length >= 5) {
+    if (parsedCurrentKeys.data.length >= 5) {
+      return jsonResponse(
+        { error: "Limit exceeded", message: "You can create up to 5 API keys." },
+        403,
+      );
+    }
+
+    const linkedPublicId = await resolvePublicIdForUser(config, user.id);
+    if (!linkedPublicId) {
       return jsonResponse(
         {
-          error: "Limit exceeded",
-          message: "You can create up to 5 API keys.",
+          error: "MEMBER_NOT_LINKED",
+          message: "Link a game identifier before creating an API key.",
         },
         403,
       );
     }
 
-    // Verify Member ID linkage (Anti-Sybil)
-    try {
-      const linkedMemberIdHash = await resolveMemberIdHashForUser(
-        config,
-        user.id,
-      );
-
-      if (!linkedMemberIdHash) {
-        return jsonResponse(
-          {
-            error: "Game account verification required",
-            message:
-              "You must link your KanColle game account (Member ID) before creating API keys.",
-          },
-          403,
-        );
-      }
-    } catch (error) {
-      // If RPC fails (e.g. function not found or error), log specific warning but maybe allow fail-open or fail-closed?
-      // Safe bet is fail-closed for security features.
-      console.error("Member verification failed:", error);
-      return jsonResponse({ error: "Verification check failed" }, 500);
-    }
-
     const newKey = generateApiKey();
-    const result = await supabaseRestRequest(
-      config,
-      "api_keys",
-      {
-        method: "POST",
-        body: {
-          user_id: user.id,
-          key: newKey,
-          email: user.email,
-          is_active: true,
-        },
-        headers: { Prefer: "return=representation" },
+    const result = await supabaseRestRequest(config, "api_keys", {
+      method: "POST",
+      body: {
+        user_id: user.id,
+        key: newKey,
+        email: user.email,
+        is_active: true,
       },
-    );
+      headers: { Prefer: "return=representation" },
+    });
 
     const parsedResult = ApiKeyCreateRowsSchema.safeParse(result);
     if (!parsedResult.success) {
@@ -343,16 +315,16 @@ app.post("/", async (c) => {
       return jsonResponse({ error: "Failed to create API key" }, 500);
     }
 
-    // Return the full key only on creation (user must copy it now)
     return jsonResponse({
       success: true,
       api_key: {
         id: createdApiKey.id,
-        key: createdApiKey.key, // Full key shown only once
+        key: createdApiKey.key,
         email: user.email,
         message: "Copy this key now. It will not be shown again.",
       },
     });
+
   } catch (error) {
     console.error("API key create error:", error);
     return jsonResponse({ error: "Internal error" }, 500);

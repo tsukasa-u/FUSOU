@@ -43,27 +43,27 @@ const returnTo = validateInternalReturnPath(
   <AuthPageShell>
     <AuthPageHeader
       title="アカウント連携"
-      description="FUSOUアプリのゲームアカウントを、Webアカウントに連携します。"
+      description="FUSOU-APP のゲーム識別子を、Web アカウントに関連付けます。"
     />
 
     <AuthPageSection
       title="連携ステップ"
-      description="ゲームアカウントの同期、Googleアカウントの連携、完了確認の順に進みます。"
+      description="ゲーム識別子の同期、Google 認証、関連付け完了の順に進みます。"
     >
       <AuthLinkSteps />
     </AuthPageSection>
 
       <!-- Step Content -->
       <div class="rounded-lg border border-base-300 bg-base-100 p-6">
-        <!-- Step 1: Sync Game Account -->
+        <!-- Step 1: Sync game identifier -->
         <div id="step-1-content" class="step-content">
-          <h2 class="text-xl font-bold mb-3">ゲームアカウントを同期</h2>
+          <h2 class="text-xl font-bold mb-3">ゲーム識別子を同期</h2>
           <p class="text-sm text-base-content/70 mb-4 leading-relaxed">
-            FUSOUアプリを使ってゲームアカウントをこのWebアカウントに連携します。ゲームアカウントを識別する情報を取得します。
+            FUSOU-APP からゲームの `member_id` を受け取り、公開用のランダム UUID に置き換えて保存します。
           </p>
 
-          <AlertBox type="info" title="同期する前に" class="mb-4 text-sm">
-            ボタンを押してFUSOUアプリを開きます。アプリがゲームアカウントを自動的に検出します。
+          <AlertBox type="info" title="識別子の扱い" class="mb-4 text-sm">
+            これは Web アカウントと識別子を関連付ける処理であり、ゲームアカウントの厳密な本人確認を行うものではありません。
           </AlertBox>
 
           <button
@@ -89,7 +89,7 @@ const returnTo = validateInternalReturnPath(
 
           <div id="sync_success" class="hidden mb-4">
             <AlertBox type="success" title="同期しました" class="text-sm">
-              ゲームアカウントの同期が完了しました。
+              ゲーム識別子を同期しました。公開用 UUID として管理されます。
               <div id="member_id_display" class="mt-1 text-xs font-mono opacity-70"></div>
             </AlertBox>
           </div>
@@ -104,15 +104,15 @@ const returnTo = validateInternalReturnPath(
           </div>
         </div>
 
-        <!-- Step 2: Link Social Account -->
+        <!-- Step 2: Authenticate Web account -->
         <div id="step-2-content" class="step-content hidden">
-          <h2 class="text-xl font-bold mb-3">Googleアカウントを連携</h2>
+          <h2 class="text-xl font-bold mb-3">Googleアカウント認証</h2>
           <p class="text-sm text-base-content/70 mb-4">
-            Googleアカウントで認証し、ゲームアカウントとWebアカウントを連携します。複数の端末から同じデータを利用できます。
+            Google アカウントで認証し、同期したゲーム識別子を Web アカウントに関連付けます。
           </p>
 
           <AlertBox type="info" title="Google認証について" class="mb-4 text-sm">
-            下のボタンからGoogle認証を行うと、アカウントが自動的に連携されます。
+            Google 認証は Web アカウントの認証に使用します。ゲームアカウントの本人確認を意味しません。
           </AlertBox>
 
           <form action="/api/local_auth/signin" method="post" class="mb-4">
@@ -167,15 +167,15 @@ const returnTo = validateInternalReturnPath(
           </button>
         </div>
 
-        <!-- Step 3: Complete -->
+        <!-- Step 3: Association complete -->
         <div id="step-3-content" class="step-content hidden">
-          <h2 class="text-xl font-bold mb-3">連携が完了しました</h2>
+          <h2 class="text-xl font-bold mb-3">関連付けが完了しました</h2>
           <p class="text-sm text-base-content/70 mb-4">
-            ゲームアカウントとWebアカウントの連携が完了しました。複数の端末から同じアカウントを利用できます。
+            ゲーム識別子と Web アカウントの関連付けが完了しました。複数の端末から同じ dataset を利用できます。
           </p>
 
-          <AlertBox type="success" title="アカウント連携済み" class="mb-4 text-sm">
-            アカウントを利用できる状態になりました。
+          <AlertBox type="info" title="本人確認について" class="mb-4 text-sm">
+            この関連付けはゲームアカウントの厳密な本人確認ではありません。
           </AlertBox>
 
           <button
@@ -189,7 +189,7 @@ const returnTo = validateInternalReturnPath(
   </AuthPageShell>
 
   <script>
-    import { syncMemberIdHashWithApp } from "@/lib/realtime-sync";
+    import { syncPublicIdWithApp } from "@/lib/realtime-sync";
 
     // Type declaration for window.showStep
     declare global {
@@ -201,62 +201,9 @@ const returnTo = validateInternalReturnPath(
     const steps = ["1", "2", "3"];
     let currentStep = "1";
 
-    // Helper function to mask member_id_hash
-    function maskMemberIdHash(hash: string) {
-      if (!hash || hash.length < 8) return hash;
-      return hash.substring(0, 6) + "..." + hash.substring(hash.length - 4);
-    }
-
-    // Check URL query for member_id_hash
-    function checkUrlForMemberIdHash() {
-      if (!import.meta.env.DEV) {
-        return false;
-      }
-
-      const urlParams = new URLSearchParams(window.location.search);
-      const memberIdHash = urlParams.get("member_id_hash");
-
-      if (memberIdHash) {
-        // Remove member_id_hash from the URL immediately to prevent it from
-        // appearing in browser history or being logged by analytics/proxies.
-        const cleanParams = new URLSearchParams(window.location.search);
-        cleanParams.delete("member_id_hash");
-        const cleanSearch = cleanParams.toString();
-        const cleanUrl =
-          window.location.pathname +
-          (cleanSearch ? "?" + cleanSearch : "") +
-          window.location.hash;
-        window.history.replaceState(null, "", cleanUrl);
-
-        // Update UI
-        const syncButton = document.getElementById("sync_member_id_button");
-        const syncSuccess = document.getElementById("sync_success");
-        const memberIdDisplay = document.getElementById("member_id_display");
-
-        if (syncButton instanceof HTMLButtonElement) {
-          syncButton.classList.remove("btn-primary");
-          syncButton.classList.add("btn-success");
-          syncButton.textContent = "✓ Game Account Synced";
-          syncButton.disabled = true;
-        }
-
-        if (syncSuccess) {
-          syncSuccess.classList.remove("hidden");
-        }
-
-        if (memberIdDisplay) {
-          memberIdDisplay.textContent =
-            "Member ID: " + maskMemberIdHash(memberIdHash);
-        }
-
-        // Auto-advance to step 2
-        setTimeout(() => {
-          window.showStep("2");
-        }, 1000);
-
-        return true;
-      }
-      return false;
+    function maskPublicId(publicId: string) {
+      if (!publicId || publicId.length < 8) return publicId;
+      return publicId.substring(0, 6) + "..." + publicId.substring(publicId.length - 4);
     }
 
     function updateStepIndicators(step: string) {
@@ -447,7 +394,7 @@ const returnTo = validateInternalReturnPath(
       function setButtonSuccess(button: HTMLButtonElement) {
         button.replaceChildren(
           createButtonIcon("M5 13l4 4L19 7"),
-          document.createTextNode(" Game Account Synced"),
+          document.createTextNode(" Game Identifier Synced"),
         );
       }
 
@@ -495,9 +442,9 @@ const returnTo = validateInternalReturnPath(
           setButtonLoading(syncButton);
 
           try {
-            const result = await syncMemberIdHashWithApp(10000);
+            const result = await syncPublicIdWithApp(10000);
 
-            if (result.success && result.memberIdHash) {
+            if (result.success && result.publicId) {
               syncSuccess?.classList.remove("hidden");
               syncButton.classList.remove("btn-primary");
               syncButton.classList.add("btn-success");
@@ -506,12 +453,12 @@ const returnTo = validateInternalReturnPath(
                 syncButton.disabled = true;
               }
 
-              // Display masked member_id_hash
+              // Display the server-generated public ID.
               const memberIdDisplay =
                 document.getElementById("member_id_display");
               if (memberIdDisplay) {
                 memberIdDisplay.textContent =
-                  "Member ID: " + maskMemberIdHash(result.memberIdHash);
+                  "Public ID: " + maskPublicId(result.publicId);
               }
 
               // Auto-advance to step 2 after 2 seconds
@@ -554,11 +501,7 @@ const returnTo = validateInternalReturnPath(
       }
 
       // Initialize
-      const hasUrlMemberIdHash = checkUrlForMemberIdHash();
-
-      if (!hasUrlMemberIdHash) {
-        window.showStep("1");
-      }
+      window.showStep("1");
     });
   </script>
 </Layout>

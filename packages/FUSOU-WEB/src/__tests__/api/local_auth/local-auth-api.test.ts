@@ -9,7 +9,13 @@ const {
   mockSignInWithOAuth,
   mockExchangeCodeForSession,
   mockSelect,
-  mockFrom,
+  mockPendingMaybeSingle,
+  mockAssociationMaybeSingle,
+  mockAssociationUpsert,
+  mockPendingDelete,
+  mockAdminFrom,
+  mockCreateSupabaseServerClient,
+  mockCreateSupabaseAdminClient,
 } = vi.hoisted(() => {
   const mockValidateOriginDetailed = vi.fn();
   const mockValidateRedirectUrl = vi.fn();
@@ -27,8 +33,53 @@ const {
   const mockSignInWithOAuth = vi.fn();
   const mockExchangeCodeForSession = vi.fn();
   const mockSelect = vi.fn();
+  const mockPendingMaybeSingle = vi.fn();
+  const mockAssociationMaybeSingle = vi.fn();
+  const mockAssociationUpsert = vi.fn(() => ({
+    select: () => ({ maybeSingle: mockAssociationMaybeSingle }),
+  }));
+  const mockPendingDelete = vi.fn();
+  const mockCreateSupabaseServerClient = vi.fn(() => ({
+    auth: {
+      signInWithOAuth: mockSignInWithOAuth,
+      exchangeCodeForSession: mockExchangeCodeForSession,
+    },
+    from: mockFrom,
+  }));
+  const mockCreateSupabaseAdminClient = vi.fn(() => ({ from: mockAdminFrom }));
   const mockUpsert = vi.fn(() => ({ select: mockSelect }));
-  const mockFrom = vi.fn(() => ({ upsert: mockUpsert }));
+  const mockFrom = vi.fn((table: string) => {
+    if (table === "pending_member_syncs") {
+      return {
+        select: () => ({
+          eq: () => ({ maybeSingle: mockPendingMaybeSingle }),
+        }),
+        delete: () => ({ eq: mockPendingDelete }),
+      };
+    }
+    if (table === "web_user_member_map") {
+      return {
+        upsert: mockAssociationUpsert,
+      };
+    }
+    return { upsert: mockUpsert };
+  });
+  const mockAdminFrom = vi.fn((table: string) => {
+    if (table === "pending_member_syncs") {
+      return {
+        select: () => ({
+          eq: () => ({ maybeSingle: mockPendingMaybeSingle }),
+        }),
+        delete: () => ({ eq: mockPendingDelete }),
+      };
+    }
+    if (table === "web_user_member_map") {
+      return {
+        upsert: mockAssociationUpsert,
+      };
+    }
+    return { upsert: mockUpsert };
+  });
 
   return {
     mockValidateOriginDetailed,
@@ -38,8 +89,15 @@ const {
     mockSignInWithOAuth,
     mockExchangeCodeForSession,
     mockSelect,
+    mockPendingMaybeSingle,
+    mockAssociationMaybeSingle,
+    mockAssociationUpsert,
+    mockPendingDelete,
     mockUpsert,
     mockFrom,
+    mockAdminFrom,
+    mockCreateSupabaseServerClient,
+    mockCreateSupabaseAdminClient,
   };
 });
 
@@ -65,13 +123,8 @@ vi.mock("@/utils/security", () => ({
 }));
 
 vi.mock("@/lib/supabaseServer", () => ({
-  createSupabaseServerClient: vi.fn(() => ({
-    auth: {
-      signInWithOAuth: mockSignInWithOAuth,
-      exchangeCodeForSession: mockExchangeCodeForSession,
-    },
-    from: mockFrom,
-  })),
+  createSupabaseServerClient: mockCreateSupabaseServerClient,
+  createSupabaseAdminClient: mockCreateSupabaseAdminClient,
 }));
 
 import { POST as signInPost } from "@/pages/api/local_auth/signin";
@@ -138,6 +191,19 @@ describe("local_auth API handlers", () => {
       error: null,
     });
     mockSelect.mockResolvedValue({ error: null });
+    mockPendingMaybeSingle.mockResolvedValue({
+      data: {
+        public_id: "11111111-1111-4111-8111-111111111111",
+        expires_at: new Date(Date.now() + 60_000).toISOString(),
+        synced_at: new Date().toISOString(),
+      },
+      error: null,
+    });
+    mockAssociationMaybeSingle.mockResolvedValue({
+      data: { public_id: "11111111-1111-4111-8111-111111111111" },
+      error: null,
+    });
+    mockPendingDelete.mockResolvedValue({ error: null });
   });
 
   it("POST /api/local_auth/signin returns 500 when PUBLIC_SITE_URL is missing", async () => {
@@ -190,13 +256,74 @@ describe("local_auth API handlers", () => {
       expect.objectContaining({
         provider: "google",
         options: expect.objectContaining({
-          redirectTo:
-            "https://fusou.dev/api/local_auth/callback?app_origin=tauri&return_to=%2Fdashboard%2Fapi-keys",
+          redirectTo: expect.stringMatching(
+            /^https:\/\/fusou\.dev\/api\/local_auth\/callback\?app_origin=tauri&return_to=%2Fdashboard%2Fapi-keys&oauth_flow=[0-9a-f-]{36}$/,
+          ),
         }),
       }),
     );
+    expect(mockCreateSupabaseServerClient).toHaveBeenCalledWith(
+      cookies,
+      mockWorkersEnv,
+      expect.objectContaining({ storageKey: expect.stringMatching(/^sb-local-auth-/) }),
+    );
     expect(mockSignInWithOAuth).toHaveBeenCalledTimes(1);
     expect(cookies.set).toHaveBeenCalledWith(
+      "sb-local-provider",
+      "google",
+      expect.any(Object),
+    );
+  });
+
+  it("binds each local OAuth callback to its own pending sync and PKCE flow", async () => {
+    (mockWorkersEnv as Record<string, unknown>)["PUBLIC_SITE_URL"] =
+      "https://fusou.dev";
+
+    const firstCookies = createCookieJar({
+      "sb-pending-sync-token": "11111111-1111-4111-8111-111111111111",
+    });
+    const secondCookies = createCookieJar({
+      "sb-pending-sync-token": "22222222-2222-4222-8222-222222222222",
+    });
+    const request = (returnTo: string) =>
+      new Request("https://fusou.dev/api/local_auth/signin", {
+        method: "POST",
+        body: new URLSearchParams({ provider: "google", return_to: returnTo }),
+      });
+
+    await signInPost({
+      request: request("/dashboard"),
+      cookies: firstCookies,
+      redirect,
+    } as unknown as Parameters<typeof signInPost>[0]);
+    await signInPost({
+      request: request("/dashboard/api-keys"),
+      cookies: secondCookies,
+      redirect,
+    } as unknown as Parameters<typeof signInPost>[0]);
+
+    const firstRedirect = mockSignInWithOAuth.mock.calls[0]?.[0].options
+      .redirectTo as string;
+    const secondRedirect = mockSignInWithOAuth.mock.calls[1]?.[0].options
+      .redirectTo as string;
+    expect(firstRedirect).not.toContain("pending_sync_token=");
+    expect(secondRedirect).not.toContain("pending_sync_token=");
+    const firstFlowId = new URL(firstRedirect).searchParams.get("oauth_flow");
+    const secondFlowId = new URL(secondRedirect).searchParams.get("oauth_flow");
+    expect(firstFlowId).toMatch(/^[0-9a-f-]{36}$/);
+    expect(secondFlowId).toMatch(/^[0-9a-f-]{36}$/);
+    expect(firstCookies.set).toHaveBeenCalledWith(
+      `sb-pending-sync-token-${firstFlowId}`,
+      "11111111-1111-4111-8111-111111111111",
+      expect.any(Object),
+    );
+    expect(secondCookies.set).toHaveBeenCalledWith(
+      `sb-pending-sync-token-${secondFlowId}`,
+      "22222222-2222-4222-8222-222222222222",
+      expect.any(Object),
+    );
+    expect(firstRedirect).not.toBe(secondRedirect);
+    expect(firstCookies.set).toHaveBeenCalledWith(
       "sb-local-provider",
       "google",
       expect.any(Object),
@@ -276,6 +403,133 @@ describe("local_auth API handlers", () => {
       "provider-refresh-token",
       expect.any(Object),
     );
+    expect(res.headers.get("location")).toContain("association_error=1");
+  });
+
+  it("GET /api/local_auth/callback persists the completed Web association", async () => {
+    const cookies = createCookieJar({
+      "sb-local-provider": "google",
+      "sb-pending-sync-token": "22222222-2222-4222-8222-222222222222",
+    });
+    const res = await callbackGet({
+      url: new URL("https://fusou.dev/api/local_auth/callback?code=abc123"),
+      cookies,
+      redirect,
+    } as unknown as Parameters<typeof callbackGet>[0]);
+
+    expect(res.status).toBe(302);
+    expect(mockAdminFrom).toHaveBeenCalledWith("pending_member_syncs");
+    expect(mockAdminFrom).toHaveBeenCalledWith("web_user_member_map");
+    expect(mockCreateSupabaseAdminClient).toHaveBeenCalledWith(mockWorkersEnv);
+    expect(mockAssociationUpsert).toHaveBeenCalledWith(
+      {
+        user_id: "user-123",
+        public_id: "11111111-1111-4111-8111-111111111111",
+        updated_at: expect.any(String),
+      },
+      { onConflict: "user_id,public_id" },
+    );
+    expect(mockPendingDelete).toHaveBeenCalledWith(
+      "token",
+      "22222222-2222-4222-8222-222222222222",
+    );
+    expect(cookies.delete).toHaveBeenCalledWith("sb-pending-sync-token", {
+      path: "/",
+    });
+    expect(res.headers.get("location")).not.toContain("association_error=1");
+  });
+
+  it("keeps an uncompleted pending sync available when OAuth wins the race", async () => {
+    const cookies = createCookieJar({
+      "sb-local-provider": "google",
+      "sb-pending-sync-token": "22222222-2222-4222-8222-222222222222",
+    });
+    mockPendingMaybeSingle.mockResolvedValue({
+      data: {
+        public_id: null,
+        expires_at: new Date(Date.now() + 60_000).toISOString(),
+        synced_at: null,
+      },
+      error: null,
+    });
+
+    const res = await callbackGet({
+      url: new URL("https://fusou.dev/api/local_auth/callback?code=abc123"),
+      cookies,
+      redirect,
+    } as unknown as Parameters<typeof callbackGet>[0]);
+
+    expect(res.status).toBe(302);
+    expect(res.headers.get("location")).toContain("association_error=1");
+    expect(cookies.delete).not.toHaveBeenCalledWith("sb-pending-sync-token", {
+      path: "/",
+    });
+  });
+
+  it("does not fall back to another pending sync in a scoped OAuth flow", async () => {
+    const flowId = "33333333-3333-4333-8333-333333333333";
+    const cookies = createCookieJar({
+      "sb-local-provider": "google",
+      "sb-pending-sync-token": "22222222-2222-4222-8222-222222222222",
+    });
+    const res = await callbackGet({
+      url: new URL(
+        `https://fusou.dev/api/local_auth/callback?code=abc123&oauth_flow=${flowId}`,
+      ),
+      cookies,
+      redirect,
+    } as unknown as Parameters<typeof callbackGet>[0]);
+
+    expect(res.status).toBe(302);
+    expect(res.headers.get("location")).toContain("association_error=1");
+    expect(mockPendingMaybeSingle).not.toHaveBeenCalled();
+  });
+
+  it("keeps desktop callback credentials isolated per OAuth flow", async () => {
+    const flowId = "33333333-3333-4333-8333-333333333333";
+    const cookies = createCookieJar({
+      "sb-local-provider": "google",
+      [`sb-pending-sync-token-${flowId}`]:
+        "22222222-2222-4222-8222-222222222222",
+    });
+    const res = await callbackGet({
+      url: new URL(
+        `https://fusou.dev/api/local_auth/callback?code=abc123&app_origin=tauri&oauth_flow=${flowId}`,
+      ),
+      cookies,
+      redirect,
+    } as unknown as Parameters<typeof callbackGet>[0]);
+
+    expect(res.status).toBe(302);
+    expect(res.headers.get("location")).toContain(`oauth_flow=${flowId}`);
+    expect(cookies.set).toHaveBeenCalledWith(
+      `sb-local-access-token-${flowId}`,
+      "access-token",
+      expect.any(Object),
+    );
+  });
+
+  it("uses the flow-scoped pending sync cookie without a URL token", async () => {
+    const flowId = "33333333-3333-4333-8333-333333333333";
+    const cookies = createCookieJar({
+      "sb-local-provider": "google",
+      [`sb-pending-sync-token-${flowId}`]:
+        "22222222-2222-4222-8222-222222222222",
+    });
+    const res = await callbackGet({
+      url: new URL(
+        `https://fusou.dev/api/local_auth/callback?code=abc123&oauth_flow=${flowId}`,
+      ),
+      cookies,
+      redirect,
+    } as unknown as Parameters<typeof callbackGet>[0]);
+
+    expect(res.status).toBe(302);
+    expect(mockPendingMaybeSingle).toHaveBeenCalled();
+    expect(mockAssociationUpsert).toHaveBeenCalledWith(
+      expect.objectContaining({ user_id: "user-123" }),
+      { onConflict: "user_id,public_id" },
+    );
   });
 
   it("GET /api/local_auth/app-redirect falls back to signin when cookie is missing", async () => {
@@ -325,5 +579,27 @@ describe("local_auth API handlers", () => {
     expect(cookies.delete).toHaveBeenCalledWith("sb-app-redirect-url", {
       path: "/api/local_auth/app-redirect",
     });
+  });
+
+  it("GET /api/local_auth/app-redirect consumes the flow-scoped cookie", async () => {
+    const flowId = "33333333-3333-4333-8333-333333333333";
+    const redirectTarget = "fusou://auth?supabase_access_token=token";
+    const cookies = createCookieJar({
+      [`sb-app-redirect-url-${flowId}`]: redirectTarget,
+    });
+
+    const res = await appRedirectGet({
+      cookies,
+      url: new URL(
+        `https://fusou.dev/api/local_auth/app-redirect?oauth_flow=${flowId}`,
+      ),
+    } as unknown as Parameters<typeof appRedirectGet>[0]);
+
+    expect(res.status).toBe(302);
+    expect(res.headers.get("location")).toBe(redirectTarget);
+    expect(cookies.delete).toHaveBeenCalledWith(
+      `sb-app-redirect-url-${flowId}`,
+      { path: "/api/local_auth/app-redirect" },
+    );
   });
 });

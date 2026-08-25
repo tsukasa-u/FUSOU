@@ -3,6 +3,7 @@
 // ========================
 
 export const MAX_UPLOAD_BYTES = 200 * 1024 * 1024;
+export const MAX_QUEST_TREE_UPLOAD_BYTES = 5 * 1024 * 1024;
 export const MAX_BODY_SIZE = 2 * 1024 * 1024;
 export const CACHE_CONTROL = "public, max-age=31536000, immutable";
 

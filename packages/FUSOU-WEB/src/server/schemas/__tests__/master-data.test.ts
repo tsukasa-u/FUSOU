@@ -9,6 +9,7 @@ import {
   parseMasterDataTableOffsets,
   MasterDataNextRevisionRowSchema,
 } from "../master-data";
+import { MasterDataTokenPayloadSchema } from "../tokens";
 
 describe("Master data revision row schemas", () => {
   it("accepts dedupe and inserted revision rows", () => {
@@ -153,9 +154,42 @@ describe("MasterDataMetadataRowSchema", () => {
         "[{\"table_name\":\"mst_ship\",\"start\":0,\"end\":10}]",
       ),
     ).toEqual([{ table_name: "mst_ship", start: 0, end: 10 }]);
+    expect(
+      parseMasterDataTableOffsets(
+        "[{\"table_name\":\"mst_ship\",\"start\":0,\"end\":0}]",
+      ),
+    ).toEqual([{ table_name: "mst_ship", start: 0, end: 0 }]);
     expect(parseMasterDataJsonRecordsText("not-json")).toBeNull();
     expect(parseMasterDataJsonRecordsText("[{\"id\":1}]")).toEqual([
       { id: 1 },
     ]);
+  });
+});
+
+describe("MasterDataTokenPayloadSchema", () => {
+  const validPayload = {
+    user_id: "user-1",
+    record_id: 1,
+    period_tag: "2026-08-14",
+    table_version: "1.0",
+    period_revision: 1,
+    content_hash: "a".repeat(64),
+    table_offsets: "[]",
+    table_count: 1,
+  };
+
+  it("requires a positive declared size", () => {
+    expect(
+      MasterDataTokenPayloadSchema.safeParse({
+        ...validPayload,
+        declared_size: 1,
+      }).success,
+    ).toBe(true);
+    expect(
+      MasterDataTokenPayloadSchema.safeParse({
+        ...validPayload,
+        declared_size: 0,
+      }).success,
+    ).toBe(false);
   });
 });

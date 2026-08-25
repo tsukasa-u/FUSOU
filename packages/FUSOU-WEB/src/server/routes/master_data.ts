@@ -97,17 +97,6 @@ app.options(
  * 5. Cleanup job handles orphaned 'pending' records after timeout
  */
 app.post("/upload", async (c) => {
-  // [Bug Fix #2] Authentication check
-  const authHeader = c.req.header("Authorization");
-  const accessToken = extractBearer(authHeader);
-  if (!accessToken) {
-    return c.json({ error: "Missing Authorization bearer token" }, 401);
-  }
-  const supabaseUser = await validateJWT(accessToken);
-  if (!supabaseUser) {
-    return c.json({ error: "Unauthorized" }, 401);
-  }
-
   const env = createEnvContext(c);
   const bucket = env.runtime["MASTER_DATA_BUCKET"];
   const db = env.runtime["MASTER_DATA_INDEX_DB"];
@@ -126,6 +115,7 @@ app.post("/upload", async (c) => {
     bucket,
     signingSecret,
     requireDatasetToken: true,
+    allowEmptyBody: true,
     tokenTTL: 300, // 5 minutes is enough for ~240kB (no dynamic TTL needed)
     maxBodySize: MAX_UPLOAD_BYTES,
 
@@ -212,8 +202,12 @@ app.post("/upload", async (c) => {
       if (typeof fileSizeRaw === "number") {
         declaredSize = fileSizeRaw;
       } else if (typeof fileSizeRaw === "string") {
-        const parsed = parseInt(fileSizeRaw.trim(), 10);
-        if (isNaN(parsed)) {
+        const normalizedFileSize = fileSizeRaw.trim();
+        if (!normalizedFileSize) {
+          return c.json({ error: "file_size must be a valid number" }, 400);
+        }
+        const parsed = Number(normalizedFileSize);
+        if (!Number.isFinite(parsed)) {
           return c.json({ error: "file_size must be a valid number" }, 400);
         }
         declaredSize = parsed;
@@ -221,7 +215,11 @@ app.post("/upload", async (c) => {
         return c.json({ error: "file_size is required" }, 400);
       }
 
-      if (declaredSize <= 0 || declaredSize > MAX_UPLOAD_BYTES) {
+      if (
+        !Number.isSafeInteger(declaredSize) ||
+        declaredSize <= 0 ||
+        declaredSize > MAX_UPLOAD_BYTES
+      ) {
         return c.json(
           {
             error: `Invalid file size. Must be > 0 and <= ${MAX_UPLOAD_BYTES} bytes`,
@@ -622,7 +620,7 @@ app.post("/upload", async (c) => {
             const stmt = db.prepare(`
               UPDATE master_data_index
               SET upload_status = 'failed', r2_keys = NULL
-              WHERE id = ?
+              WHERE id = ? AND upload_status = 'pending'
             `);
             await stmt.bind(recordId).run();
           } catch (updateErr) {
@@ -682,6 +680,13 @@ app.post("/upload", async (c) => {
           );
 
           try {
+            const decodedRecords = parseMasterDataJsonRecords(
+              decodeAvroOcfToJson(tableData),
+            );
+            if (!decodedRecords) {
+              throw new Error("Decoded master data payload is not a record array");
+            }
+
             // Compute hash for this individual table for integrity verification
             const tableHashBuf = await crypto.subtle.digest(
               "SHA-256",
@@ -753,7 +758,7 @@ app.post("/upload", async (c) => {
               const stmt = db.prepare(`
                 UPDATE master_data_index
                 SET upload_status = 'failed', r2_keys = ?
-                WHERE id = ?
+                WHERE id = ? AND upload_status = 'pending'
               `);
               // [Bug Fix #4] Store failed cleanup keys so cleanup job can retry
               const r2KeysToStore =
@@ -795,7 +800,8 @@ app.post("/upload", async (c) => {
               .prepare(
                 `INSERT INTO master_data_tables 
                   (master_data_id, table_name, table_version, table_index, start_byte, end_byte, record_count, r2_key, content_hash, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(master_data_id, table_name) DO NOTHING`,
               )
               .bind(
                 recordId,
@@ -848,7 +854,7 @@ app.post("/upload", async (c) => {
             const failStmt = db.prepare(`
               UPDATE master_data_index
               SET upload_status = 'failed', r2_keys = ?
-              WHERE id = ?
+              WHERE id = ? AND upload_status = 'pending'
             `);
             await failStmt.bind(JSON.stringify(r2Keys), recordId).run();
           } catch (markFailErr) {
@@ -930,7 +936,7 @@ app.post("/upload", async (c) => {
           const stmt = db.prepare(`
             UPDATE master_data_index
             SET upload_status = 'failed', r2_keys = NULL
-            WHERE id = ?
+            WHERE id = ? AND upload_status = 'pending'
           `);
           await stmt.bind(recordId).run();
         } catch (updateErr) {

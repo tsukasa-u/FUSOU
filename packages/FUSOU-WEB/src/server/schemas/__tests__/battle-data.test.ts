@@ -67,7 +67,7 @@ describe("battle data schemas", () => {
       parseBattleBlockRows([
         {
           id: 1,
-          dataset_id: "dataset",
+          dataset_id: "00000000-0000-4000-8000-000000000002",
           start_byte: 128,
           length: 256,
           start_timestamp: 1_750_000_000_000,
@@ -87,7 +87,7 @@ describe("battle data schemas", () => {
       parseBattleBlockRows([
         {
           id: 1,
-          dataset_id: "dataset",
+          dataset_id: "00000000-0000-4000-8000-000000000002",
           start_byte: 128,
           length: "256",
           start_timestamp: 1_750_000_000_000,

@@ -82,7 +82,9 @@ pub async fn perform_snapshot_sync_app(
         .clone();
 
     // Build handshake request body via common helper (include dataset_id)
-    let Some(dataset_id) = manager.resolve_dataset_id_for_upload(None).await else {
+    let Some(dataset_id) =
+        crate::util::resolve_dataset_id_for_current_member(&manager).await
+    else {
         let msg = "dataset_id is not ready (no valid dataset_token)".to_string();
         tracing::warn!("{}", msg);
         return Err(msg);

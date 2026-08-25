@@ -1,7 +1,7 @@
 {
   "name": "fusou-web",
   "type": "module",
-  "version": "0.0.1",
+  "version": "0.5.0",
   "scripts": {
     "dev": "CLOUDFLARE_INCLUDE_PROCESS_ENV=true dotenvx run -fk ../.env.keys -f .env --verbose --overload -- astro dev",
     "dev:workers": "CLOUDFLARE_INCLUDE_PROCESS_ENV=true dotenvx run -fk ../.env.keys -f .env --verbose --overload -- wrangler dev",
@@ -66,7 +66,10 @@
     "audit:anon-sync-v1": "node scripts/audit-anon-sync-v1-usage.mjs",
     "audit:anon-sync-v1:json": "node scripts/audit-anon-sync-v1-usage.mjs --json",
     "check:cloudflare:required-secrets": "node scripts/check-cloudflare-required-secrets.mjs",
-    "manage-anon-sync-vault": "dotenvx run -fk ../.env.keys -f .env --overload -- node scripts/manage-anon-sync-vault.js"
+    "purge:d1-member-data": "node scripts/purge-d1-member-data.mjs --remote",
+    "purge:d1-member-data:apply": "node scripts/purge-d1-member-data.mjs --remote --apply",
+    "purge:r2-fleet-data": "node scripts/purge-r2-fleet-data.mjs --remote",
+    "purge:r2-fleet-data:apply": "node scripts/purge-r2-fleet-data.mjs --remote --apply"
   },
   "dependencies": {
     "@astrojs/cloudflare": "^14.1.4",

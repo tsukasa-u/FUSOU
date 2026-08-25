@@ -1,4 +1,6 @@
 import { z } from "zod";
+import { MAX_QUEST_TREE_UPLOAD_BYTES } from "../constants";
+import { PublicIdSchema } from "./public-id";
 
 const SignedTokenBaseSchema = z
   .object({
@@ -19,6 +21,16 @@ const PositiveIntegerClaimSchema = z.preprocess(
   z.number().int().positive().safe(),
 );
 
+const QuestTreeDeclaredSizeClaimSchema = z.preprocess(
+  parseNumericClaim,
+  z
+    .number()
+    .int()
+    .positive()
+    .safe()
+    .max(MAX_QUEST_TREE_UPLOAD_BYTES),
+);
+
 const IntegerClaimSchema = z.preprocess(
   parseNumericClaim,
   z.number().int().safe(),
@@ -27,7 +39,7 @@ const IntegerClaimSchema = z.preprocess(
 export const UploadTokenPayloadSchema = SignedTokenBaseSchema.extend({
   content_hash: z.string().min(1),
   declared_size: PositiveIntegerClaimSchema,
-  dataset_id: z.string().min(1),
+  dataset_id: PublicIdSchema,
   request_id: z.string().min(1),
   event_type: z.string().min(1),
   schema_version: IntegerClaimSchema,
@@ -36,8 +48,8 @@ export const UploadTokenPayloadSchema = SignedTokenBaseSchema.extend({
 export const QuestTreeUploadTokenPayloadSchema =
   SignedTokenBaseSchema.extend({
     content_hash: z.string().min(1),
-    declared_size: PositiveIntegerClaimSchema,
-    dataset_id: z.string().min(1),
+    declared_size: QuestTreeDeclaredSizeClaimSchema,
+    dataset_id: PublicIdSchema,
     request_id: z.string().min(1),
     event_type: z.string().min(1),
   });
@@ -64,7 +76,7 @@ export const AssetUploadTokenPayloadSchema = SignedTokenBaseSchema.extend({
 
 export const FleetSnapshotTokenPayloadSchema = SignedTokenBaseSchema.extend({
   tag: z.string().min(1),
-  dataset_id: z.string().min(1),
+  dataset_id: PublicIdSchema,
   content_hash: z.string().min(1),
 });
 
@@ -72,13 +84,13 @@ export const SokuSpeedTokenPayloadSchema = SignedTokenBaseSchema.extend({
   content_hash: z.string().min(1),
   declared_size: PositiveIntegerClaimSchema,
   request_id: z.string().optional(),
-  dataset_id: z.string().optional(),
+  dataset_id: PublicIdSchema.optional(),
   period_tag: z.string().optional(),
   table_version: z.string().optional(),
 });
 
 export const BattleDataTokenPayloadSchema = SignedTokenBaseSchema.extend({
-  dataset_id: z.string().min(1),
+  dataset_id: PublicIdSchema,
   table: z.string().min(1),
   period_tag: z.string().min(1),
   declared_size: PositiveIntegerClaimSchema,

@@ -18,7 +18,7 @@ function makeRegisterPayload() {
     file_size: 10,
     blocks: [
       {
-        dataset_id: "dataset-1",
+        dataset_id: "11111111-1111-4111-8111-111111111111",
         table_name: "battle",
         period_tag: "2026-08",
         start_byte: 0,

@@ -21,8 +21,7 @@ const EXPECT_500_ROUTES = new Set([
   "/500",
   "/dashboard",
   "/dashboard/api-keys",
-  // These pages require Supabase env in dev. Missing env should fail loudly.
-  "/account/conflict",
+  // This page requires Supabase env in dev. Missing env should fail loudly.
   "/auth/local/callback",
 ]);
 

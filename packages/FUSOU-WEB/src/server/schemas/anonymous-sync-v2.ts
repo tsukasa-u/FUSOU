@@ -1,53 +1,42 @@
 import { z } from "zod";
 
-const ApiMemberIdSchema = z.union([
-  z.number().int().positive(),
-  z.string().regex(/^\d+$/),
-]);
+const ApiMemberIdSchema = z.string().regex(/^[0-9]{1,16}$/);
 
 const NonEmptyStringSchema = z.string().min(1);
+const UuidV4Schema = z.string().uuid().refine(
+  (value) => {
+    const normalized = value.toLowerCase();
+    return normalized[14] === "4" && /^[89ab]$/.test(normalized[19] ?? "");
+  },
+  "expected a UUID v4",
+);
 
 export const UserMemberMapRowSchema = z
   .object({
     user_id: NonEmptyStringSchema,
-    member_id_hash: NonEmptyStringSchema,
-    salt_version: z.string().nullable().default(null),
-    recovery_id_hash: z.string().nullable().default(null),
-    recovery_version: z.string().nullable().default(null),
+    public_id: UuidV4Schema,
   })
   .passthrough();
 
 export type UserMemberMapRow = z.infer<typeof UserMemberMapRowSchema>;
 
-export const UserIdentityAnchorRowSchema = z
-  .object({
-    canonical_user_id: NonEmptyStringSchema,
-    recovery_id_hash: NonEmptyStringSchema,
-    recovery_version: z.string().nullable(),
-  })
-  .passthrough();
-
-export type UserIdentityAnchorRow = z.infer<
-  typeof UserIdentityAnchorRowSchema
->;
-
 export const UserDeviceLookupRowSchema = z
   .object({
-    device_id: NonEmptyStringSchema,
+    device_id: UuidV4Schema,
     revoked_at: z.string().nullable(),
   })
   .passthrough();
 
 export const UserDeviceInsertRowSchema = z
-  .object({ device_id: NonEmptyStringSchema })
+  .object({ device_id: UuidV4Schema })
   .passthrough();
 
 export type UserDeviceLookupRow = z.infer<typeof UserDeviceLookupRowSchema>;
 
 export const UserDeviceListRowSchema = z
   .object({
-    device_id: NonEmptyStringSchema,
-    pid: NonEmptyStringSchema,
+    device_id: UuidV4Schema,
+    public_id: UuidV4Schema,
     created_at: NonEmptyStringSchema,
     last_seen_at: z.string().nullable(),
     revoked_at: z.string().nullable(),
@@ -60,7 +49,7 @@ export type UserDeviceListRow = z.infer<typeof UserDeviceListRowSchema>;
 export const UserDeviceRefreshRowSchema = z
   .object({
     canonical_user_id: NonEmptyStringSchema,
-    pid: NonEmptyStringSchema,
+    public_id: UuidV4Schema,
     device_pubkey: NonEmptyStringSchema,
     revoked_at: z.string().nullable(),
   })
@@ -77,13 +66,27 @@ export const UserDeviceRevokeTargetRowSchema = z
   })
   .passthrough();
 
+export const UserDeviceWebRevokeTargetRowSchema = z
+  .object({
+    public_id: UuidV4Schema,
+    revoked_at: z.string().nullable(),
+  })
+  .passthrough();
+
 export const RegisterRequestSchema = z
   .object({
     api_member_id: ApiMemberIdSchema,
     device_pub: NonEmptyStringSchema,
-    attestation: NonEmptyStringSchema,
+    recovery: z
+      .object({
+        device_id: NonEmptyStringSchema,
+        nonce: NonEmptyStringSchema,
+        sig: NonEmptyStringSchema,
+      })
+      .strict()
+      .optional(),
   })
-  .passthrough();
+  .strict();
 
 export const RefreshRequestSchema = z
   .object({
@@ -103,6 +106,13 @@ export const RevokeRequestSchema = z
     reason: z.string().nullable().optional(),
   })
   .passthrough();
+
+export const PendingSyncCompleteRequestSchema = z
+  .object({
+    dataset_token: z.string().min(1).max(4096),
+    app_instance_id: z.string().min(1).max(128),
+  })
+  .strict();
 
 export type RegisterRequest = z.infer<typeof RegisterRequestSchema>;
 export type RefreshRequest = z.infer<typeof RefreshRequestSchema>;

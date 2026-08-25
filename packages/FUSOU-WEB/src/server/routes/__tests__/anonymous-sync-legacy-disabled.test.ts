@@ -10,7 +10,7 @@ describe("anonymous-sync legacy v1 endpoint", () => {
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ member_id_hash: "deadbeef" }),
+        body: JSON.stringify({}),
       },
     );
 

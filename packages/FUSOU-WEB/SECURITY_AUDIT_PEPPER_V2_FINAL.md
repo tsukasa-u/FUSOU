@@ -1,11 +1,13 @@
 <!-- markdownlint-disable -->
 
-# Security Audit Report: Anonymous Sync V2 Pepper Implementation
+> **Superseded.** This is a historical audit of the removed pepper/runtime implementation. Do not use it as an operational or security approval document. The current contract and cutover procedure are documented in `docs/operations/web/ANON_SYNC_V2_PEPPER_SUPABASE_RUNTIME_GUIDE.md` and `docs/operations/web/ANON_SYNC_V2_ROTATION_RUNBOOK.md`.
+
+# Historical Security Audit Report: Anonymous Sync V2 Pepper Implementation
 
 **Date**: 2026-05-20  
 **Scope**: FUSOU-WEB implementation of Vault-based pepper rotation  
 **Auditor**: GitHub Copilot  
-**Status**: ✅ **ALL CRITICAL BUGS FIXED** — Production Ready
+**Status**: **Superseded by the UUID `public_id` cutover**
 
 ---
 
@@ -333,15 +335,15 @@ const pepperResolved = await resolvePepperBundle({ ... });
 - RPC error handling: logs only error message (no internals leak)
 - **Verdict**: Comprehensive validation, no secret leakage
 
-### ✅ Finding #3: Register Handler Attestation
+### ✅ Finding #3: Register Handler Device Key Enrollment
 
-**Status**: CORRECTLY IMPLEMENTED  
+**Status**: ATTESTATION REMOVED
 **Evidence**:
 
-- Attestation verified before any DB operations
-- Device public key base64 validation (32 bytes)
-- Signature verification using Ed25519 (`verifyDeviceSig`)
-- **Verdict**: Authentication happens at appropriate layer
+- The register request accepts only `api_member_id` and the 32-byte device public key
+- Registration-time attestation proof and TPM/Secure Enclave trust-root lookup are no longer performed
+- Ed25519 signature verification remains on challenge-protected refresh and revoke operations
+- **Verdict**: The retired attestation data and proof path are absent; device challenge authentication remains scoped to post-registration operations
 
 ### ✅ Finding #4: Challenge Handler
 

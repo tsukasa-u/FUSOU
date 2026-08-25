@@ -126,7 +126,7 @@ describe("SokuSpeedIngestBodySchema", () => {
 
   it("accepts a valid snapshot with equipment", () => {
     const result = ValidatedSokuSpeedIngestBodySchema.safeParse({
-      dataset_id: "a".repeat(64),
+      dataset_id: "11111111-1111-4111-8111-111111111111",
       request_id: "request-1",
       payload_hash: "b".repeat(64),
       event_type: "snapshot",
@@ -147,7 +147,7 @@ describe("SokuSpeedIngestBodySchema", () => {
 
   it("preserves indexed ship validation messages", () => {
     const result = ValidatedSokuSpeedIngestBodySchema.safeParse({
-      dataset_id: "a".repeat(64),
+      dataset_id: "11111111-1111-4111-8111-111111111111",
       request_id: "request-1",
       payload_hash: "b".repeat(64),
       event_type: "snapshot",

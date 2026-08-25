@@ -12,18 +12,25 @@ import {
 } from "@/utils/security";
 import { createEnvContext, getEnv } from "@/server/utils";
 import { env as cfEnv } from "cloudflare:workers";
+import { isValidPublicId } from "@/server/utils";
 
 const cookies = Astro.cookies;
 const runtimeEnv = cfEnv as unknown as Record<string, unknown>;
 const supabase = createSupabaseServerClient(cookies, runtimeEnv);
+const oauthFlowParam = Astro.url.searchParams.get("oauth_flow");
+const oauthFlowId =
+  oauthFlowParam && isValidPublicId(oauthFlowParam) ? oauthFlowParam : null;
+const localCookieSuffix = oauthFlowId ? `-${oauthFlowId}` : "";
 
 // For local app flow: read from local auth tokens (sb-local-*)
 // These are set by /api/local_auth/callback
-const accessToken = cookies.get("sb-local-access-token");
-const refreshToken = cookies.get("sb-local-refresh-token");
-const providerRefreshToken = cookies.get("sb-local-provider-refresh-token");
+const accessToken = cookies.get(`sb-local-access-token${localCookieSuffix}`);
+const refreshToken = cookies.get(`sb-local-refresh-token${localCookieSuffix}`);
+const providerRefreshToken = cookies.get(
+  `sb-local-provider-refresh-token${localCookieSuffix}`,
+);
 const provider = cookies.get("sb-local-provider");
-const expiresAtCookie = cookies.get("sb-local-expires-at");
+const expiresAtCookie = cookies.get(`sb-local-expires-at${localCookieSuffix}`);
 
 // Get allowed origin using unified env API
 const envCtx = createEnvContext({ env: runtimeEnv });
@@ -38,7 +45,6 @@ function returnLabel(path: string): string {
   const pathname = new URL(path, Astro.url.origin).pathname;
   if (pathname === "/simulator") return "編成ページへ戻る";
   if (pathname === "/dashboard/api-keys") return "APIキー管理へ戻る";
-  if (pathname === "/account/conflict") return "アカウント競合ページへ戻る";
   if (pathname === "/dashboard") return "ダッシュボードへ戻る";
   return "連携元のページへ戻る";
 }
@@ -61,7 +67,11 @@ const isFromTauriApp =
 
 let error_message: string | null = null;
 let return_params: string | null = null;
-let set_session_error_flag: boolean = false;
+let set_session_error_flag: boolean =
+  Astro.url.searchParams.get("association_error") === "1";
+if (set_session_error_flag) {
+  error_message = "ゲーム識別子の関連付けを完了できませんでした。もう一度お試しください。";
+}
 let isDesktopApp: boolean = isFromTauriApp; // Flag to detect desktop app flow
 let app_return_url: string | null = null; // URL to return to app
 
@@ -111,16 +121,27 @@ if (refreshToken?.value && accessToken?.value) {
         // Desktop app detected - store the redirect URL in a short-lived cookie.
         if (isFromTauriApp) {
           isDesktopApp = true;
-          app_return_url = "/api/local_auth/app-redirect";
+          const appRedirectUrl = new URL(
+            "/api/local_auth/app-redirect",
+            Astro.url,
+          );
+          if (oauthFlowId) {
+            appRedirectUrl.searchParams.set("oauth_flow", oauthFlowId);
+          }
+          app_return_url = `${appRedirectUrl.pathname}${appRedirectUrl.search}`;
           // Store token URL in a 60-second, httpOnly, strict-SameSite cookie.
           // Only /api/local_auth/app-redirect can consume it (single-use).
-          cookies.set("sb-app-redirect-url", candidateHref, {
+          cookies.set(
+            `sb-app-redirect-url${localCookieSuffix}`,
+            candidateHref,
+            {
             path: "/api/local_auth/app-redirect",
             httpOnly: true,
             secure: import.meta.env.PROD,
             sameSite: "strict",
             maxAge: 60,
-          });
+            },
+          );
         }
       } else {
         console.error("Invalid return href rejected in local callback");
@@ -146,12 +167,12 @@ if (refreshToken?.value && accessToken?.value) {
 
 // Clean up local app tokens after they've been used
 // Prevents tokens from lingering in browser cookies
-cookies.delete("sb-local-access-token", { path: "/" });
-cookies.delete("sb-local-refresh-token", { path: "/" });
-cookies.delete("sb-local-provider-token", { path: "/" });
-cookies.delete("sb-local-provider-refresh-token", { path: "/" });
+cookies.delete(`sb-local-access-token${localCookieSuffix}`, { path: "/" });
+cookies.delete(`sb-local-refresh-token${localCookieSuffix}`, { path: "/" });
+cookies.delete(`sb-local-provider-token${localCookieSuffix}`, { path: "/" });
+cookies.delete(`sb-local-provider-refresh-token${localCookieSuffix}`, { path: "/" });
 cookies.delete("sb-local-provider", { path: "/" });
-cookies.delete("sb-local-expires-at", { path: "/" });
+cookies.delete(`sb-local-expires-at${localCookieSuffix}`, { path: "/" });
 ---
 
 <Layout title="Account Setup - Link Game to Social Account">
@@ -215,15 +236,15 @@ cookies.delete("sb-local-expires-at", { path: "/" });
           </div>
         </div>
 
-        <!-- Success State (Step 3) -->
+        <!-- Association state -->
         <div id="success-content" class="step-content hidden">
-          <h2 class="text-xl font-bold mb-3">連携が完了しました</h2>
+          <h2 class="text-xl font-bold mb-3">関連付けが完了しました</h2>
           <p class="text-sm text-base-content/70 mb-4">
-            ゲームアカウントとWebアカウントの連携が完了しました。複数の端末から同じアカウントを利用できます。
+            Google アカウントの認証とゲーム識別子の関連付けが完了しました。
           </p>
 
-          <AlertBox type="success" title="アカウント連携済み" class="mb-4 text-sm">
-            アカウントを利用できる状態になりました。
+          <AlertBox type="info" title="本人確認について" class="mb-4 text-sm">
+            この関連付けはゲームアカウントの厳密な本人確認ではありません。
           </AlertBox>
 
           {!isDesktopApp && (
@@ -246,6 +267,7 @@ cookies.delete("sb-local-expires-at", { path: "/" });
   data-error-message={error_message ?? ""}
   data-is-desktop-app={String(isDesktopApp)}
   data-has-app-redirect={String(!!app_return_url)}
+  data-app-redirect-url={app_return_url ?? ""}
 >
 </astro-data-callback>
 
@@ -257,6 +279,7 @@ cookies.delete("sb-local-expires-at", { path: "/" });
       const errorMessage = this.dataset["errorMessage"] || "";
       const isDesktopApp = this.dataset["isDesktopApp"] === "true";
       const hasAppRedirect = this.dataset["hasAppRedirect"] === "true";
+      const appRedirectUrl = this.dataset["appRedirectUrl"] || "/api/local_auth/app-redirect";
 
       window.addEventListener("DOMContentLoaded", () => {
         const errorContent = document.getElementById("error-content");
@@ -326,7 +349,7 @@ cookies.delete("sb-local-expires-at", { path: "/" });
           // so they are never exposed in JS scope.
           if (isDesktopApp && hasAppRedirect) {
             setTimeout(() => {
-              window.location.href = "/api/local_auth/app-redirect";
+              window.location.href = appRedirectUrl;
             }, 1500); // 1.5 second delay to show success message
           }
         }

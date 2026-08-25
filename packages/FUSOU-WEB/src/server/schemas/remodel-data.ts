@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { isValidPeriodTagDate } from "../utils/period-tags";
+import { PublicIdSchema } from "./public-id";
 
 export const RemodelMaxUpdatedAtRowSchema = z
   .object({ max_updated_at_ms: z.number().nullable().optional() })
@@ -199,6 +200,13 @@ export const ValidatedRemodelDataIngestBodySchema =
         message: "dataset_id is required",
       });
       return;
+    }
+    if (!PublicIdSchema.safeParse(datasetId).success) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["dataset_id"],
+        message: "dataset_id must be a UUID v4 public_id",
+      });
     }
     if (!requestId) {
       context.addIssue({

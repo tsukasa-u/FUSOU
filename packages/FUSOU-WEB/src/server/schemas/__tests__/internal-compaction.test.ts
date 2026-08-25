@@ -370,7 +370,7 @@ describe("RegisterOutputRequestSchema", () => {
       file_size: "300",
       blocks: [
         {
-          dataset_id: "battle",
+          dataset_id: "00000000-0000-4000-8000-000000000002",
           table_name: "battle",
           period_tag: "2026-01-01",
           start_byte: 0,
@@ -420,7 +420,7 @@ describe("RegisterOutputRequestSchema", () => {
     const result = RegisterOutputRequestSchema.safeParse({
       blocks: [
         {
-          dataset_id: "battle",
+          dataset_id: "00000000-0000-4000-8000-000000000002",
           table_name: "battle",
           period_tag: "2026-01-01",
           start_byte: -1,
@@ -438,7 +438,7 @@ describe("RegisterOutputRequestSchema", () => {
 
   it("rejects fractional, negative, and unsafe block values", () => {
     const baseBlock = {
-      dataset_id: "battle",
+      dataset_id: "00000000-0000-4000-8000-000000000002",
       table_name: "battle",
       period_tag: "2026-01-01",
       start_byte: 0,

@@ -33,11 +33,14 @@ try {
   return Astro.redirect("/auth/signin");
 }
 
-let memberMap: {
+type MemberMap = {
   linked?: boolean;
-  member_id_hash_masked?: string;
+  public_id_masked?: string;
   source?: string;
-} | null = null;
+};
+
+let memberMaps: MemberMap[] = [];
+let memberMap: MemberMap | null = null;
 function providerInitial(provider?: string): string {
   return (provider?.trim()?.charAt(0) || "?").toUpperCase();
 }
@@ -54,21 +57,19 @@ try {
 
   const memberMapData = (await memberMapResponse.json()) as {
     ok?: boolean;
-    linked?: boolean;
-    map?: {
-      linked?: boolean;
-      member_id_hash_masked?: string;
-      source?: string;
-    } | null;
-    error?: string;
+    map?: MemberMap | null;
+    maps?: MemberMap[];
   };
-  if (memberMapResponse.ok && memberMapData?.ok && memberMapData?.map?.linked) {
-    memberMap = memberMapData.map;
-  } else if (!memberMapResponse.ok) {
-    console.error("Member ID Check Failed:", memberMapData);
+  if (memberMapResponse.ok && memberMapData?.ok) {
+    memberMaps = Array.isArray(memberMapData.maps)
+      ? memberMapData.maps
+      : memberMapData.map
+        ? [memberMapData.map]
+        : [];
+    memberMap = memberMaps[0] ?? null;
   }
-} catch (e) {
-  console.error("Member ID Check Failed (Exception):", e);
+} catch (error) {
+  console.error("Member ID association check failed:", error);
 }
 
 if (!user) {
@@ -90,19 +91,19 @@ if (!user) {
       >
           <AlertBox type="info" title="Before using datasets" class="mb-5 text-sm">
             <ol class="list-decimal space-y-1 pl-5">
-              <li>Sync your game account with FUSOU-APP.</li>
-              <li>Authenticate with Google. FUSOU-APP linking and web sign-in will complete together.</li>
-              <li>Create an API key on this page and use it with fusou-datasets.</li>
+              <li>FUSOU-APP からゲーム識別子を同期します。</li>
+              <li>Google 認証で Web アカウントと識別子を関連付けます。</li>
+              <li>API key を作成して fusou-datasets から利用します。</li>
             </ol>
             <p class="mt-3 text-xs opacity-75">
-              If your game account is not linked, complete FUSOU-APP linking first.
+              公開データ上ではゲームの `member_id` をランダムな UUID に置き換えます。この関連付けは本人確認を意味しません。
             </p>
           </AlertBox>
       </AuthPageSection>
 
       <AuthPageSection
         title="アカウント情報"
-        description="サインイン中のアカウントとゲームアカウントの連携状態を確認します。"
+        description="サインイン中の Web アカウントとゲーム識別子の関連付けを表示します。"
         class="mt-6"
       >
         <div
@@ -124,9 +125,12 @@ if (!user) {
           </div>
 
           <div>
-            {
-              memberMap ? (
-                <div class="flex items-center gap-2 px-3 py-1.5 bg-success/10 border border-success rounded-md text-success text-sm font-semibold">
+            {memberMap ? (
+              <div>
+                <div
+                  class="flex items-center gap-2 px-3 py-1.5 bg-success/10 border border-success rounded-md text-success text-sm font-semibold"
+                  title="Pseudonymous game identifier is linked"
+                >
                   <svg
                     xmlns="http://www.w3.org/2000/svg"
                     class="size-4"
@@ -137,53 +141,54 @@ if (!user) {
                   >
                     <polyline points="20 6 9 17 4 12" />
                   </svg>
-                  Verified
+                  Identifiers linked ({memberMaps.length})
                 </div>
+                {memberMaps.length > 0 && (
+                  <ul class="mt-2 space-y-1 text-right text-xs font-mono opacity-70">
+                    {memberMaps.map((mapping) => (
+                      <li>{mapping.public_id_masked || "UUID unavailable"}</li>
+                    ))}
+                  </ul>
+                )}
+              </div>
               ) : (
-                <div
-                  class="flex items-center gap-2 px-3 py-1.5 bg-warning/10 border border-warning rounded-md text-warning text-sm font-semibold"
-                  title="Link Game Account"
+              <div
+                class="flex items-center gap-2 px-3 py-1.5 bg-warning/10 border border-warning rounded-md text-warning text-sm font-semibold"
+                title="Link a pseudonymous game identifier"
+              >
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  class="size-4"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
                 >
-                  <svg
-                    xmlns="http://www.w3.org/2000/svg"
-                    class="size-4"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="2"
-                  >
-                    <>
-                      <circle cx="12" cy="12" r="10" />
-                      <line x1="12" y1="8" x2="12" y2="12" />
-                      <line x1="12" y1="16" x2="12.01" y2="16" />
-                    </>
-                  </svg>
-                  Unverified
-                </div>
-              )
-            }
+                  <circle cx="12" cy="12" r="10" />
+                  <line x1="12" y1="8" x2="12" y2="12" />
+                  <line x1="12" y1="16" x2="12.01" y2="16" />
+                </svg>
+                Identifier not linked
+              </div>
+            )}
           </div>
         </div>
       </AuthPageSection>
 
-        {
-          !memberMap && (
-            <AuthPageSection
-              title="ゲームアカウントの連携"
-              description="APIキーを作成するには、先にゲームアカウントを連携してください。"
-              class="mt-6"
-            >
-              <AlertBox type="warning" title="Game Account Verification Required" class="text-sm">
-                <p>
-                  You must link your KanColle game account to create API keys.
-                </p>
-                <a href="/auth/local/signin?return_to=%2Fdashboard%2Fapi-keys" class="btn btn-sm btn-warning btn-outline mt-3">
-                  Link Account →
-                </a>
-              </AlertBox>
-            </AuthPageSection>
-          )
-        }
+        {!memberMap && (
+          <AuthPageSection
+            title="ゲーム識別子の関連付け"
+            description="API key を作成するには、先に FUSOU-APP とゲーム識別子を関連付けてください。"
+            class="mt-6"
+          >
+            <AlertBox type="warning" title="Game identifier required" class="text-sm">
+              <p>関連付けは公開用 UUID の管理に使用します。ゲームアカウントの本人確認ではありません。</p>
+              <a href="/auth/local/signin?return_to=%2Fdashboard%2Fapi-keys" class="btn btn-sm btn-warning btn-outline mt-3">
+                Link Identifier →
+              </a>
+            </AlertBox>
+          </AuthPageSection>
+        )}
 
       <AuthPageSection
         title="Resource Units (RU)"

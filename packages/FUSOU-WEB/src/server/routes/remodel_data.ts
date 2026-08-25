@@ -9,7 +9,7 @@ import {
   timingSafeEqual,
   validateDatasetTokenSecret,
   validateDatasetTokenWithConstraints,
-  validateJWT,
+  resolveDatasetTokenRevocationConfig,
   validateTokenPayloadWithSchema,
   verifySignedToken,
   safeWaitUntil,
@@ -22,6 +22,7 @@ import {
 import {
   validateCachedPeriodTag,
 } from "../utils/period-tags";
+import { readBodyWithinLimit } from "../utils/upload";
 import { UploadTokenPayloadSchema } from "../schemas/tokens";
 import {
   RemodelDataIngestBodySchema,
@@ -40,6 +41,9 @@ import {
 const REMODEL_COLLECTION_SWITCH_ENV = "REMODEL_DATA_COLLECTION_ENABLED";
 const KV_SNAPSHOT_TTL_MS = 60 * 60 * 1000;
 const KV_EXPIRATION_TTL_S = 7 * 24 * 60 * 60;
+const REMODEL_DATA_MAX_UPLOAD_BYTES = 5_000_000;
+const REMODEL_DATA_HANDSHAKE_MAX_BYTES =
+  REMODEL_DATA_MAX_UPLOAD_BYTES + 64 * 1024;
 
 const app = new Hono<{ Bindings: Bindings }>();
 
@@ -488,18 +492,24 @@ app.post("/ingest", async (c) => {
 
   // ── Stage 1: Handshake ─────────────────────────────────────────
   if (!uploadToken) {
-    const authHeader = c.req.header("Authorization");
-    const bearer = authHeader?.startsWith("Bearer ")
-      ? authHeader.slice(7).trim()
-      : null;
-    if (!bearer) return c.json({ error: "Unauthorized" }, 401);
-    const user = await validateJWT(bearer);
-    if (!user?.id)
-      return c.json({ error: "Invalid or expired JWT token" }, 401);
-
-    const handshakeBody = parseRemodelDataIngestBody(
-      await c.req.json().catch(() => null),
+    const handshakeRead = await readBodyWithinLimit(
+      c.req.raw,
+      REMODEL_DATA_HANDSHAKE_MAX_BYTES,
     );
+    if (handshakeRead.kind === "too_large") {
+      return c.json({ error: "Request body exceeds maximum size" }, 413);
+    }
+    let rawHandshakeBody: unknown = null;
+    if (handshakeRead.kind === "ok") {
+      try {
+        rawHandshakeBody = JSON.parse(
+          new TextDecoder().decode(handshakeRead.data),
+        );
+      } catch {
+        rawHandshakeBody = null;
+      }
+    }
+    const handshakeBody = parseRemodelDataIngestBody(rawHandshakeBody);
 
     const validated = validateIngestBody(handshakeBody);
     if (!validated.ok) return c.json({ error: validated.error }, 400);
@@ -515,7 +525,7 @@ app.post("/ingest", async (c) => {
       );
     }
 
-    // Require dataset_token to prove ownership of dataset_id
+    // Require dataset_token possession and bind the request to its dataset_id.
     const datasetToken = resolveDatasetToken(
       c.req.header("X-Dataset-Token"),
       (handshakeBody as Record<string, unknown>)?.["dataset_token"],
@@ -530,8 +540,9 @@ app.post("/ingest", async (c) => {
       token: datasetToken,
       secret: datasetTokenSecret,
       expectedDatasetId: validated.datasetId,
+      revocation: resolveDatasetTokenRevocationConfig(env),
       // expectedUserId は検証しない: 複数端末では端末ごとの匿名 user_id が異なるため。
-      // データ帰属は dataset_id (member_id_hash) の照合で担保する。
+      // データ帰属は dataset_id (public_id) の照合で担保する。
     });
     if (!tokenValidation.ok) {
       return c.json(
@@ -544,14 +555,15 @@ app.post("/ingest", async (c) => {
     const contentHash = String(handshakeBody?.["content_hash"] ?? "").trim();
     if (!contentHash) return c.json({ error: "content_hash is required" }, 400);
 
-    const MAX_UPLOAD_SIZE = 5_000_000; // 5 MB
     const declaredSize = Number(handshakeBody?.["file_size"] ?? 0);
     if (!Number.isFinite(declaredSize) || declaredSize <= 0) {
       return c.json({ error: "file_size must be > 0" }, 400);
     }
-    if (declaredSize > MAX_UPLOAD_SIZE) {
+    if (declaredSize > REMODEL_DATA_MAX_UPLOAD_BYTES) {
       return c.json(
-        { error: `file_size exceeds maximum of ${MAX_UPLOAD_SIZE} bytes` },
+        {
+          error: `file_size exceeds maximum of ${REMODEL_DATA_MAX_UPLOAD_BYTES} bytes`,
+        },
         400,
       );
     }
@@ -588,14 +600,6 @@ app.post("/ingest", async (c) => {
   }
 
   // ── Stage 2: Execution ─────────────────────────────────────────
-  const authHeader = c.req.header("Authorization");
-  const bearer = authHeader?.startsWith("Bearer ")
-    ? authHeader.slice(7).trim()
-    : null;
-  if (!bearer) return c.json({ error: "Unauthorized" }, 401);
-  const user = await validateJWT(bearer);
-  if (!user?.id) return c.json({ error: "Invalid or expired JWT token" }, 401);
-
   const tokenPayload = await verifySignedToken(uploadToken, signingSecret);
   if (!tokenPayload)
     return c.json({ error: "Invalid or expired upload token" }, 401);
@@ -615,9 +619,17 @@ app.post("/ingest", async (c) => {
   // JWT user_id（端末固有）と一致しないことがある。JWT 有効性は上で確認済み。
 
   // Read binary body
-  const bodyStream = c.req.raw.body;
-  if (!bodyStream) return c.json({ error: "Upload payload is missing" }, 400);
-  const uploaded = new Uint8Array(await new Response(bodyStream).arrayBuffer());
+  const bodyRead = await readBodyWithinLimit(
+    c.req.raw,
+    REMODEL_DATA_MAX_UPLOAD_BYTES,
+  );
+  if (bodyRead.kind === "missing") {
+    return c.json({ error: "Upload payload is missing" }, 400);
+  }
+  if (bodyRead.kind === "too_large") {
+    return c.json({ error: "Upload payload exceeds maximum size" }, 413);
+  }
+  const uploaded = bodyRead.data;
 
   // Size check
   const declaredSize = validatedPayload.declared_size;

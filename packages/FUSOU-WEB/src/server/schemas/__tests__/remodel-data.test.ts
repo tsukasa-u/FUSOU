@@ -12,7 +12,7 @@ import {
 } from "../remodel-data";
 
 const commonPayload = {
-  dataset_id: "dataset-1",
+  dataset_id: "00000000-0000-4000-8000-000000000001",
   request_id: "request-1",
   payload_hash: "a".repeat(64),
   schema_version: 1,
@@ -164,7 +164,7 @@ describe("remodel summary row parsers", () => {
 describe("RemodelDataIngestBodySchema", () => {
   it("accepts an object payload and preserves arbitrary fields", () => {
     const result = RemodelDataIngestBodySchema.safeParse({
-      dataset_id: "dataset-1",
+      dataset_id: "00000000-0000-4000-8000-000000000001",
       event_type: "slotlist",
       entries: [],
       extra_field: true,

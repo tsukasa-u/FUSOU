@@ -770,7 +770,7 @@ pub struct ConfigsAppAuth {
     anonymous_sync_v2_register_endpoint: Option<String>,
     anonymous_sync_v2_challenge_endpoint: Option<String>,
     anonymous_sync_v2_refresh_endpoint: Option<String>,
-    anonymous_sync_v2_revoke_endpoint: Option<String>,
+    anonymous_sync_v2_complete_endpoint: Option<String>,
 }
 
 impl ConfigsAppAuth {
@@ -830,13 +830,13 @@ impl ConfigsAppAuth {
         }
     }
 
-    pub fn get_anonymous_sync_v2_revoke_endpoint(&self) -> Option<String> {
-        match &self.anonymous_sync_v2_revoke_endpoint {
+    pub fn get_anonymous_sync_v2_complete_endpoint(&self) -> Option<String> {
+        match &self.anonymous_sync_v2_complete_endpoint {
             Some(v) if !v.trim().is_empty() => Some(v.trim().to_string()),
             _ => get_default_configs()
                 .app
                 .auth
-                .anonymous_sync_v2_revoke_endpoint
+                .anonymous_sync_v2_complete_endpoint
                 .as_ref()
                 .map(|s| s.trim().to_string()),
         }
@@ -1583,7 +1583,7 @@ mod tests {
             anonymous_sync_v2_register_endpoint: None,
             anonymous_sync_v2_challenge_endpoint: None,
             anonymous_sync_v2_refresh_endpoint: None,
-            anonymous_sync_v2_revoke_endpoint: None,
+            anonymous_sync_v2_complete_endpoint: None,
         };
 
         assert_eq!(

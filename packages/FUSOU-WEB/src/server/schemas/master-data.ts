@@ -56,7 +56,7 @@ export const MasterDataMetadataRowSchema = z
 export const MasterDataTableOffsetSchema = z.object({
   table_name: z.string().min(1),
   start: z.number().int().nonnegative(),
-  end: z.number().int().positive(),
+  end: z.number().int().nonnegative(),
 });
 
 export type MasterDataTableOffset = z.infer<typeof MasterDataTableOffsetSchema>;

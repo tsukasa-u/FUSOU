@@ -14,7 +14,7 @@ describe("quest tree upload token schema", () => {
         user_id: "user-1",
         content_hash: "hash-1",
         declared_size: 128,
-        dataset_id: "dataset-1",
+        dataset_id: "00000000-0000-4000-8000-000000000001",
         request_id: "request-1",
         event_type: "snapshot",
       }).success,
@@ -27,7 +27,7 @@ describe("quest tree upload token schema", () => {
         user_id: "user-1",
         content_hash: "hash-1",
         declared_size: 128,
-        dataset_id: "dataset-1",
+        dataset_id: "00000000-0000-4000-8000-000000000001",
         request_id: "request-1",
         event_type: "snapshot",
       }).success,
@@ -39,7 +39,7 @@ describe("quest tree upload token schema", () => {
       user_id: "user-1",
       content_hash: "hash-1",
       declared_size: 128,
-      dataset_id: "dataset-1",
+      dataset_id: "00000000-0000-4000-8000-000000000001",
       request_id: "request-1",
       event_type: "snapshot",
       schema_version: 1,
@@ -57,6 +57,12 @@ describe("quest tree upload token schema", () => {
         schema_version: Number.MAX_SAFE_INTEGER + 1,
       }).success,
     ).toBe(false);
+    expect(
+      QuestTreeUploadTokenPayloadSchema.safeParse({
+        ...basePayload,
+        declared_size: 5 * 1024 * 1024 + 1,
+      }).success,
+    ).toBe(false);
   });
 });
 
@@ -65,7 +71,7 @@ describe("battle data token schema", () => {
     expect(
       BattleDataTokenPayloadSchema.parse({
         user_id: "user",
-        dataset_id: "dataset",
+        dataset_id: "00000000-0000-4000-8000-000000000002",
         table: "battle",
         period_tag: "2026-06-26",
         declared_size: 128,
@@ -81,7 +87,7 @@ describe("battle data token schema", () => {
     expect(
       BattleDataTokenPayloadSchema.safeParse({
         user_id: "user",
-        dataset_id: "dataset",
+        dataset_id: "00000000-0000-4000-8000-000000000002",
         table: "battle",
         period_tag: "2026-06-26",
         declared_size: 128,
@@ -110,7 +116,7 @@ describe("shared two-stage upload token schemas", () => {
       FleetSnapshotTokenPayloadSchema.safeParse({
         user_id: "user",
         tag: "latest",
-        dataset_id: "dataset",
+        dataset_id: "00000000-0000-4000-8000-000000000002",
         content_hash: "hash",
       }).success,
     ).toBe(true);
@@ -131,7 +137,7 @@ describe("shared two-stage upload token schemas", () => {
       FleetSnapshotTokenPayloadSchema.safeParse({
         user_id: "user",
         tag: "latest",
-        dataset_id: "dataset",
+        dataset_id: "00000000-0000-4000-8000-000000000002",
       }).success,
     ).toBe(false);
   });
