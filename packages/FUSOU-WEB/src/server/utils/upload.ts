@@ -178,7 +178,7 @@ async function handlePreparation(
         error: bearerToken
           ? "Invalid or expired JWT token"
           : "Missing Authorization bearer token",
-        code: "AUTH_MISSING",
+        code: bearerToken ? "AUTH_INVALID" : "AUTH_MISSING",
       },
       401,
     );

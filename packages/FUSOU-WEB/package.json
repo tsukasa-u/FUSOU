@@ -1,7 +1,7 @@
 {
   "name": "fusou-web",
   "type": "module",
-  "version": "0.1.0",
+  "version": "0.5.0",
   "scripts": {
     "dev": "CLOUDFLARE_INCLUDE_PROCESS_ENV=true dotenvx run -fk ../.env.keys -f .env --verbose --overload -- astro dev",
     "dev:workers": "CLOUDFLARE_INCLUDE_PROCESS_ENV=true dotenvx run -fk ../.env.keys -f .env --verbose --overload -- wrangler dev",
