@@ -24,6 +24,20 @@ type PreviewManifestCacheEntry = {
   expiresAt: number;
 };
 
+function jsonRecordOf(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function stringRecordOf(value: unknown): Record<string, string> {
+  const record = jsonRecordOf(value);
+  if (!record) return {};
+  const result: Record<string, string> = {};
+  for (const [key, item] of Object.entries(record)) {
+    if (typeof item === "string") result[key] = item;
+  }
+  return result;
+}
+
 const previewNameCacheByKey = new Map<string, PreviewNameCacheEntry>();
 const previewManifestCacheByOrigin = new Map<
   string,
@@ -90,7 +104,7 @@ function resolveSelectionFromQuery(url: URL): Selection | null {
 }
 
 function buildTargetUrl(requestUrl: URL, selection: Selection): string {
-  const target = new URL("/simulator/details", requestUrl.origin);
+  const target = new URL("/simulator", requestUrl.origin);
   if (selection.kind === "ship") {
     target.searchParams.set("tab", "ship");
     target.searchParams.set("ship", String(selection.id));
@@ -122,21 +136,20 @@ async function getMasterNames(
     const res = await fetch(dataUrl.toString());
     if (!res.ok) return null;
 
-    const json = (await res.json()) as {
-      records?: Array<{
-        id?: number;
-        api_id?: number;
-        name?: string;
-        api_name?: string;
-      }>;
-    };
-
-    const row = json.records?.[0];
+    const rawJson = await res.json();
+    if (!jsonRecordOf(rawJson)) {
+      return null;
+    }
+    const records = rawJson["records"];
+    if (!Array.isArray(records)) return null;
+    const rawRow = records[0];
+    let row: Record<string, unknown> | null = null;
+    if (jsonRecordOf(rawRow)) row = rawRow;
     const name =
-      typeof row?.name === "string"
-        ? row.name
-        : typeof row?.api_name === "string"
-          ? row.api_name
+      typeof row?.["name"] === "string"
+        ? row["name"]
+        : typeof row?.["api_name"] === "string"
+          ? row["api_name"]
           : null;
 
     setPreviewNameCache(cacheKey, name);
@@ -165,13 +178,11 @@ async function getPreviewNameManifest(
       return { ships: {}, items: {} };
     }
 
-    const json = (await res.json()) as {
-      ships?: Record<string, string>;
-      items?: Record<string, string>;
-    };
+    const rawJson = await res.json();
+    const json = jsonRecordOf(rawJson) ? rawJson : null;
     const manifest = {
-      ships: json.ships ?? {},
-      items: json.items ?? {},
+      ships: stringRecordOf(json?.["ships"]),
+      items: stringRecordOf(json?.["items"]),
     };
     if (
       Object.keys(manifest.ships).length > 0 ||

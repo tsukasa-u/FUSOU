@@ -75,6 +75,7 @@ export interface CrossEffect {
   synergy: Record<string, number>;
   exclusive_group?: number;
   cancels_single?: boolean;
+  suppressed_components?: number[];
   placements?: SlotUsageSummary[];
 }
 
@@ -117,13 +118,14 @@ export interface CrossRule {
   cancels_single?: boolean;
   exclusive_group?: number;
   placements?: SlotUsageSummary[];
+  suppressed_components?: number[];
 }
 
 /** Base for triple/quad/penta/hexa rules. Combos are stored either as item_pool
  *  (when all C(|pool|, combo_size) are present — the dominant case), as
  *  fixed_items + free_pool (when some items appear in every combo), or as explicit
  *  combos for partial/irregular patterns. */
-interface MultiItemRule {
+export interface MultiItemRule {
   ships: number[];
   synergy: Record<string, number>;
   /** All C(item_pool.length, combo_size) combinations share this ships+synergy.
@@ -163,6 +165,7 @@ interface MultiItemRule {
   implicants?: number[][][];
   exclusive_group?: number;
   placements?: SlotUsageSummary[];
+  suppressed_components?: number[];
 }
 
 export interface TripleRule extends MultiItemRule {

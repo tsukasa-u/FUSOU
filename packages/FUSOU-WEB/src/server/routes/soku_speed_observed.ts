@@ -9,163 +9,104 @@ import {
   timingSafeEqual,
   validateDatasetTokenSecret,
   validateDatasetTokenWithConstraints,
-  validateJWT,
-  validateTokenPayload,
+  resolveDatasetTokenRevocationConfig,
+  validateTokenPayloadWithSchema,
   verifySignedToken,
   safeWaitUntil,
 } from "../utils";
 import {
   getLatestMasterPeriodTag,
-  isValidPeriodTagDate,
   validateCachedPeriodTag,
 } from "../utils/period-tags";
+import { readBodyWithinLimit } from "../utils/upload";
+import { SokuSpeedTokenPayloadSchema } from "../schemas/tokens";
+import {
+  LatestSokuSpeedPeriodRowSchema,
+  parseSokuSpeedObservationRows,
+  SokuSpeedIngestBodySchema,
+  SokuSpeedExslotSchema,
+  SokuSpeedSlotRowsSchema,
+  parseSokuSpeedUpgradeResponse,
+  ValidatedSokuSpeedIngestBodySchema,
+  type SokuSpeedIngestBody,
+  type ValidatedSokuSpeedIngestBody,
+} from "../schemas/soku-speed";
 
 const SOKU_SPEED_COLLECTION_SWITCH_ENV = "SOKU_SPEED_COLLECTION_ENABLED";
-
+const SOKU_SPEED_MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
+const SOKU_SPEED_HANDSHAKE_MAX_BYTES = SOKU_SPEED_MAX_UPLOAD_BYTES + 64 * 1024;
 const app = new Hono<{ Bindings: Bindings }>();
-interface SlotEntry {
-  slotitem_id: number;
-  locked: boolean;
-  level: number;
-  alv: number;
+
+function cachedSokuSpeedResponse(cachedString: string): Response | null {
+  try {
+    const parsed = parseSokuSpeedUpgradeResponse(JSON.parse(cachedString));
+    if (!parsed) return null;
+    return new Response(JSON.stringify(parsed), {
+      headers: {
+        "Content-Type": "application/json",
+        "Cache-Control": "public, max-age=3600, stale-while-revalidate=86400",
+        "X-FUSOU-Cache": "HIT",
+      },
+    });
+  } catch {
+    return null;
+  }
 }
-interface SokuSpeedShipEntry {
-  master_id: number;
-  lv: number;
-  soku_observed: number;
-  slots: SlotEntry[];
-  exslot?: SlotEntry | null;
+
+async function readCachedSokuSpeedResponse(
+  cacheKV: NonNullable<Bindings["DATA_LOADER_CACHE_KV"]>,
+  cacheKey: string,
+): Promise<Response | null> {
+  const cachedString = await cacheKV.get(cacheKey, "text");
+  if (!cachedString) return null;
+
+  const response = cachedSokuSpeedResponse(cachedString);
+  if (response) return response;
+
+  console.warn("[soku-speed] Invalid KV cache payload; deleting cache", {
+    cacheKey,
+  });
+  try {
+    await cacheKV.delete(cacheKey);
+  } catch (error) {
+    console.warn("[soku-speed] Failed to delete invalid KV cache", {
+      cacheKey,
+      error,
+    });
+  }
+  return null;
 }
-interface SokuSpeedIngestBody {
-  dataset_id?: unknown;
-  dataset_token?: unknown;
-  request_id?: unknown;
-  payload_hash?: unknown;
-  event_type?: unknown;
-  period_tag?: unknown;
-  table_version?: unknown;
-  ships?: unknown;
-  content_hash?: unknown;
-  file_size?: unknown;
-}
-function isValidInt(value: unknown): value is number {
-  return (
-    typeof value === "number" &&
-    Number.isFinite(value) &&
-    Number.isInteger(value)
-  );
+
+function parseSokuSpeedIngestBody(value: unknown): SokuSpeedIngestBody | null {
+  const result = SokuSpeedIngestBodySchema.safeParse(value);
+  return result.success ? result.data : null;
 }
 function validateSokuSpeedIngestBody(
   body: SokuSpeedIngestBody | null,
 ):
-  | { ok: true; datasetId: string; requestId: string; eventType: string }
+  | {
+      ok: true;
+      data: ValidatedSokuSpeedIngestBody;
+      datasetId: string;
+      requestId: string;
+      eventType: string;
+    }
   | { ok: false; error: string } {
   if (!body) return { ok: false, error: "Missing body" };
-  const datasetId = String(body.dataset_id ?? "").trim();
-  if (!datasetId) return { ok: false, error: "dataset_id is required" };
-  if (!/^[a-f0-9]{64}$/i.test(datasetId)) {
+  const parsed = ValidatedSokuSpeedIngestBodySchema.safeParse(body);
+  if (!parsed.success) {
     return {
       ok: false,
-      error: "dataset_id must be a 64-character SHA-256 hex string",
+      error: parsed.error.issues[0]?.message ?? "Invalid request body",
     };
   }
-  const requestId = String(body.request_id ?? "").trim();
-  if (!requestId) return { ok: false, error: "request_id is required" };
-  const payloadHash = String(body.payload_hash ?? "").trim();
-  if (!/^[a-f0-9]{64}$/i.test(payloadHash)) {
-    return {
-      ok: false,
-      error: "payload_hash must be a valid 64-char SHA-256 hex string",
-    };
-  }
-  const eventType = String(body.event_type ?? "").trim();
-  if (eventType !== "snapshot") {
-    return { ok: false, error: 'event_type must be "snapshot"' };
-  }
-  if (!body.period_tag || !isValidPeriodTagDate(String(body.period_tag))) {
-    return { ok: false, error: "Invalid period_tag (expected YYYY-MM-DD)" };
-  }
-  if (!body.table_version) {
-    return { ok: false, error: "table_version is required" };
-  }
-  if (!/^\d+\.\d+(?:\.\d+)?$/.test(String(body.table_version))) {
-    return {
-      ok: false,
-      error:
-        "table_version must be in MAJOR.MINOR or MAJOR.MINOR.PATCH format (e.g. '0.5.1')",
-    };
-  }
-  if (!Array.isArray(body.ships) || body.ships.length === 0) {
-    return {
-      ok: false,
-      error: "ships array is required and must not be empty",
-    };
-  }
-  for (const [index, ship] of (body.ships as unknown[]).entries()) {
-    const s = ship as Record<string, unknown>;
-    if (
-      !isValidInt(s.master_id) ||
-      !isValidInt(s.lv) ||
-      !isValidInt(s.soku_observed)
-    ) {
-      return { ok: false, error: `ships[${index}] has invalid numeric fields` };
-    }
-    if (![5, 10, 15, 20].includes(s.soku_observed as number)) {
-      return {
-        ok: false,
-        error: `ships[${index}].soku_observed must be one of 5, 10, 15, 20`,
-      };
-    }
-    if ((s.master_id as number) <= 0) {
-      return { ok: false, error: `ships[${index}].master_id must be > 0` };
-    }
-    if ((s.lv as number) < 1 || (s.lv as number) > 300) {
-      return {
-        ok: false,
-        error: `ships[${index}].lv must be between 1 and 300`,
-      };
-    }
-    if (
-      !Array.isArray(s.slots) ||
-      (s.slots as unknown[]).some((slot) => {
-        const sl = slot as Record<string, unknown>;
-        return (
-          !isValidInt(sl.slotitem_id) ||
-          (sl.slotitem_id as number) <= 0 ||
-          typeof sl.locked !== "boolean" ||
-          !isValidInt(sl.level) ||
-          !isValidInt(sl.alv)
-        );
-      })
-    ) {
-      return { ok: false, error: `ships[${index}].slots has invalid fields` };
-    }
-    if (s.exslot !== undefined && s.exslot !== null) {
-      const ex = s.exslot as Record<string, unknown>;
-      if (
-        !isValidInt(ex.slotitem_id) ||
-        (ex.slotitem_id as number) <= 0 ||
-        typeof ex.locked !== "boolean" ||
-        !isValidInt(ex.level) ||
-        !isValidInt(ex.alv)
-      ) {
-        return {
-          ok: false,
-          error: `ships[${index}].exslot has invalid fields`,
-        };
-      }
-    }
-    // At least one slot must be present (speed synergy requires equipment).
-    const hasSlots = (s.slots as unknown[]).length > 0;
-    const hasExslot = s.exslot !== undefined && s.exslot !== null;
-    if (!hasSlots && !hasExslot) {
-      return {
-        ok: false,
-        error: `ships[${index}] has no slots or exslot (speed synergy requires at least one item)`,
-      };
-    }
-  }
-  return { ok: true, datasetId, requestId, eventType };
+  return {
+    ok: true,
+    data: parsed.data,
+    datasetId: String(parsed.data.dataset_id ?? "").trim(),
+    requestId: String(parsed.data.request_id ?? "").trim(),
+    eventType: String(parsed.data.event_type ?? "").trim(),
+  };
 }
 
 app.post("/ingest", async (c) => {
@@ -175,7 +116,6 @@ app.post("/ingest", async (c) => {
   const masterDb = c.env.MASTER_DATA_INDEX_DB;
   if (!masterDb)
     return c.json({ error: "MASTER_DATA_INDEX_DB not configured" }, 503);
-  // kill switch
   const env = createEnvContext(c);
   let collectionEnabled = false;
   try {
@@ -204,17 +144,24 @@ app.post("/ingest", async (c) => {
   }
   const uploadToken = c.req.header("X-Upload-Token");
   if (!uploadToken) {
-    const authHeader = c.req.header("Authorization");
-    const bearer = authHeader?.startsWith("Bearer ")
-      ? authHeader.slice(7).trim()
-      : null;
-    if (!bearer) return c.json({ error: "Unauthorized" }, 401);
-    const user = await validateJWT(bearer);
-    if (!user?.id)
-      return c.json({ error: "Invalid or expired JWT token" }, 401);
-    const handshakeBody = (await c.req
-      .json()
-      .catch(() => null)) as SokuSpeedIngestBody | null;
+    const handshakeRead = await readBodyWithinLimit(
+      c.req.raw,
+      SOKU_SPEED_HANDSHAKE_MAX_BYTES,
+    );
+    if (handshakeRead.kind === "too_large") {
+      return c.json({ error: "Request body exceeds maximum size" }, 413);
+    }
+    let rawHandshakeBody: unknown = null;
+    if (handshakeRead.kind === "ok") {
+      try {
+        rawHandshakeBody = JSON.parse(
+          new TextDecoder().decode(handshakeRead.data),
+        );
+      } catch {
+        rawHandshakeBody = null;
+      }
+    }
+    const handshakeBody = parseSokuSpeedIngestBody(rawHandshakeBody);
     const validated = validateSokuSpeedIngestBody(handshakeBody);
     if (!validated.ok) return c.json({ error: validated.error }, 400);
     const bodyPeriodTag = String(handshakeBody?.period_tag ?? "").trim();
@@ -232,7 +179,10 @@ app.post("/ingest", async (c) => {
       );
     }
     const bodyTableVersion = String(handshakeBody?.table_version ?? "").trim();
-    const latestMaster = await getLatestMasterPeriodTag(masterDb, c.env.DATA_LOADER_CACHE_KV);
+    const latestMaster = await getLatestMasterPeriodTag(
+      masterDb,
+      c.env.DATA_LOADER_CACHE_KV,
+    );
     if (!latestMaster) {
       return c.json({ error: "No master data available" }, 404);
     }
@@ -266,6 +216,7 @@ app.post("/ingest", async (c) => {
       token: datasetToken,
       secret: datasetTokenSecret,
       expectedDatasetId: validated.datasetId,
+      revocation: resolveDatasetTokenRevocationConfig(env),
     });
     if (!tokenValidation.ok) {
       return c.json(
@@ -279,6 +230,14 @@ app.post("/ingest", async (c) => {
     const declaredSize = Number(handshakeBody?.file_size ?? 0);
     if (!Number.isFinite(declaredSize) || declaredSize <= 0) {
       return c.json({ error: "file_size must be > 0" }, 400);
+    }
+    if (declaredSize > SOKU_SPEED_MAX_UPLOAD_BYTES) {
+      return c.json(
+        {
+          error: `file_size exceeds maximum allowed size (${SOKU_SPEED_MAX_UPLOAD_BYTES} bytes)`,
+        },
+        400,
+      );
     }
     const tokenTtl = Math.max(
       300,
@@ -312,26 +271,34 @@ app.post("/ingest", async (c) => {
       expiresAt: new Date(Date.now() + tokenTtl * 1000).toISOString(),
     });
   }
-  const authHeader = c.req.header("Authorization");
-  const bearer = authHeader?.startsWith("Bearer ")
-    ? authHeader.slice(7).trim()
-    : null;
-  if (!bearer) return c.json({ error: "Unauthorized" }, 401);
-  const user = await validateJWT(bearer);
-  if (!user?.id) return c.json({ error: "Invalid or expired JWT token" }, 401);
   const tokenPayload = await verifySignedToken(uploadToken, signingSecret);
   if (!tokenPayload)
     return c.json({ error: "Invalid or expired upload token" }, 401);
-  const validated = validateTokenPayload(tokenPayload);
+  const validated = validateTokenPayloadWithSchema(
+    tokenPayload,
+    SokuSpeedTokenPayloadSchema,
+  );
   if (!validated.valid) return c.json({ error: validated.error }, 400);
+  const validatedPayload = validated.data;
   const contentHashHeader = c.req.header("content-hash");
-  const rawBody = await c.req.arrayBuffer().catch(() => null);
-  if (!rawBody) return c.json({ error: "Missing request body" }, 400);
-  const digest = await crypto.subtle.digest("SHA-256", rawBody);
+  const bodyRead = await readBodyWithinLimit(
+    c.req.raw,
+    SOKU_SPEED_MAX_UPLOAD_BYTES,
+  );
+  if (bodyRead.kind === "missing") {
+    return c.json({ error: "Missing request body" }, 400);
+  }
+  if (bodyRead.kind === "too_large") {
+    return c.json({ error: "Request body exceeds maximum size" }, 413);
+  }
+  const rawBody = bodyRead.data;
+  const digestInput = new ArrayBuffer(rawBody.byteLength);
+  new Uint8Array(digestInput).set(rawBody);
+  const digest = await crypto.subtle.digest("SHA-256", digestInput);
   const actualContentHash = Array.from(new Uint8Array(digest))
     .map((b) => b.toString(16).padStart(2, "0"))
     .join("");
-  if (!timingSafeEqual(actualContentHash, tokenPayload.content_hash ?? "")) {
+  if (!timingSafeEqual(actualContentHash, validatedPayload.content_hash)) {
     return c.json({ error: "content-hash mismatch" }, 400);
   }
   if (
@@ -340,37 +307,37 @@ app.post("/ingest", async (c) => {
   ) {
     return c.json({ error: "content-hash header mismatch" }, 400);
   }
-  if (rawBody.byteLength !== tokenPayload.declared_size) {
+  if (rawBody.byteLength !== validatedPayload.declared_size) {
     return c.json({ error: "file_size mismatch" }, 400);
   }
-  let body: SokuSpeedIngestBody;
+  let parsedBody: unknown;
   try {
-    body = JSON.parse(new TextDecoder().decode(rawBody)) as SokuSpeedIngestBody;
+    parsedBody = JSON.parse(new TextDecoder().decode(rawBody));
   } catch {
     return c.json({ error: "Invalid JSON body" }, 400);
   }
+  const body = parseSokuSpeedIngestBody(parsedBody);
+  if (!body) return c.json({ error: "Invalid JSON body" }, 400);
   const bodyValidated = validateSokuSpeedIngestBody(body);
   if (!bodyValidated.ok) return c.json({ error: bodyValidated.error }, 400);
+  const validatedBody = bodyValidated.data;
   if (
     !timingSafeEqual(
-      String(body.request_id ?? ""),
-      tokenPayload.request_id ?? "",
+      validatedBody.request_id,
+      validatedPayload.request_id ?? "",
     )
   ) {
     return c.json({ error: "request_id mismatch" }, 400);
   }
   if (
     !timingSafeEqual(
-      String(body.dataset_id ?? ""),
-      tokenPayload.dataset_id ?? "",
+      validatedBody.dataset_id,
+      validatedPayload.dataset_id ?? "",
     )
   ) {
     return c.json({ error: "dataset_id mismatch" }, 400);
   }
-  const { period_tag, table_version } = body as {
-    period_tag: string;
-    table_version: string;
-  };
+  const { period_tag, table_version } = validatedBody;
   const periodTagValidation = await validateCachedPeriodTag(c, period_tag, {
     cacheKV: c.env.DATA_LOADER_CACHE_KV,
   });
@@ -402,23 +369,23 @@ app.post("/ingest", async (c) => {
     );
   }
   if (
-    typeof tokenPayload.period_tag === "string" &&
-    !timingSafeEqual(tokenPayload.period_tag, period_tag)
+    typeof validatedPayload.period_tag === "string" &&
+    !timingSafeEqual(validatedPayload.period_tag, period_tag)
   ) {
     return c.json({ error: "period_tag mismatch" }, 400);
   }
   if (
-    typeof tokenPayload.table_version === "string" &&
-    !timingSafeEqual(tokenPayload.table_version, table_version)
+    typeof validatedPayload.table_version === "string" &&
+    !timingSafeEqual(validatedPayload.table_version, table_version)
   ) {
     return c.json({ error: "table_version mismatch" }, 400);
   }
-  const ships = body.ships as SokuSpeedShipEntry[];
+  const ships = validatedBody.ships;
   const nowSec = Math.floor(Date.now() / 1000);
   const stmts: ReturnType<D1Database["prepare"]>[] = [];
-  const requestId = String(body.request_id ?? "").trim();
-  const payloadHash = String(body.payload_hash ?? "").trim();
-  const datasetId = String(body.dataset_id ?? "").trim();
+  const requestId = validatedBody.request_id;
+  const payloadHash = validatedBody.payload_hash;
+  const datasetId = validatedBody.dataset_id;
   stmts.push(
     db
       .prepare(
@@ -474,37 +441,34 @@ app.post("/ingest", async (c) => {
               )
               .bind(period_tag, table_version)
               .all();
-            const rows = (result.results ?? []) as {
-              master_id: number;
-              soku_observed: number;
-              slots_json: string;
-              exslot_json: string | null;
-            }[];
+            const rows = parseSokuSpeedObservationRows(result.results);
             const byMaster = new Map<
               number,
               Map<string, { soku_observed: number; item_ids: number[] }>
             >();
             for (const row of rows) {
-              let slots: Array<{ slotitem_id: number }>;
+              let parsedSlots: unknown;
               try {
-                slots = JSON.parse(row.slots_json) as Array<{
-                  slotitem_id: number;
-                }>;
+                parsedSlots = JSON.parse(row.slots_json);
               } catch {
                 continue;
               }
+              const slotsResult = SokuSpeedSlotRowsSchema.safeParse(parsedSlots);
+              if (!slotsResult.success) continue;
               const itemIds: number[] = [];
-              for (const s of slots) {
+              for (const s of slotsResult.data) {
                 if (s.slotitem_id > 0) itemIds.push(s.slotitem_id);
               }
               if (row.exslot_json) {
+                let parsedExslot: unknown;
                 try {
-                  const ex = JSON.parse(row.exslot_json) as {
-                    slotitem_id: number;
-                  } | null;
-                  if (ex && ex.slotitem_id > 0) itemIds.push(ex.slotitem_id);
+                  parsedExslot = JSON.parse(row.exslot_json);
                 } catch {
-                  /* skip malformed */
+                  parsedExslot = null;
+                }
+                const exslotResult = SokuSpeedExslotSchema.safeParse(parsedExslot);
+                if (exslotResult.success && exslotResult.data) {
+                  itemIds.push(exslotResult.data.slotitem_id);
                 }
               }
               itemIds.sort((a, b) => a - b);
@@ -573,12 +537,6 @@ app.get("/speed-upgrade", async (c) => {
       400,
     );
   }
-  type ObsRow = {
-    master_id: number;
-    soku_observed: number;
-    slots_json: string;
-    exslot_json: string | null;
-  };
   let periodTag = requestedPeriodTag;
   let tableVersion = requestedTableVersion;
   const cacheKV = c.env.DATA_LOADER_CACHE_KV;
@@ -586,17 +544,11 @@ app.get("/speed-upgrade", async (c) => {
   if (!periodTag || !tableVersion) {
     if (cacheKV) {
       try {
-        const cachedString = await cacheKV.get("soku-speed-upgrade:v1:latest", "text");
-        if (cachedString) {
-          const response = new Response(cachedString, {
-            headers: {
-              "Content-Type": "application/json",
-              "Cache-Control": "public, max-age=3600, stale-while-revalidate=86400",
-              "X-FUSOU-Cache": "HIT",
-            }
-          });
-          return response;
-        }
+        const response = await readCachedSokuSpeedResponse(
+          cacheKV,
+          "soku-speed-upgrade:v1:latest",
+        );
+        if (response) return response;
       } catch (e) {
         console.warn("[soku-speed] KV latest cache read error:", e);
       }
@@ -604,14 +556,22 @@ app.get("/speed-upgrade", async (c) => {
 
     try {
       const masterDb = c.env.MASTER_DATA_INDEX_DB;
-      const latest = masterDb
-        ? (await getLatestMasterPeriodTag(masterDb, c.env.DATA_LOADER_CACHE_KV)) ??
-          ((await db
-            .prepare(
-              `SELECT period_tag, table_version               FROM soku_speed_observations               ORDER BY period_tag DESC, updated_at DESC               LIMIT 1`,
-            )
-            .first()) as { period_tag: string; table_version: string } | null)
+      const latestMasterPeriod = masterDb
+        ? await getLatestMasterPeriodTag(masterDb, c.env.DATA_LOADER_CACHE_KV)
         : null;
+      let latest = latestMasterPeriod;
+      if (!latest) {
+        const latestFallbackRow = await db
+          .prepare(
+            `SELECT period_tag, table_version               FROM soku_speed_observations               ORDER BY period_tag DESC, updated_at DESC               LIMIT 1`,
+          )
+          .first();
+        const parsedLatestFallbackRow =
+          LatestSokuSpeedPeriodRowSchema.safeParse(latestFallbackRow);
+        latest = parsedLatestFallbackRow.success
+          ? parsedLatestFallbackRow.data
+          : null;
+      }
       if (!latest) {
         const empty = c.json({
           ok: true,
@@ -639,22 +599,13 @@ app.get("/speed-upgrade", async (c) => {
 
   if (cacheKV) {
     try {
-      const cachedString = await cacheKV.get(cacheKey, "text");
-      if (cachedString) {
-        const response = new Response(cachedString, {
-          headers: {
-            "Content-Type": "application/json",
-            "Cache-Control": "public, max-age=3600, stale-while-revalidate=86400",
-            "X-FUSOU-Cache": "HIT",
-          }
-        });
-        return response;
-      }
+      const response = await readCachedSokuSpeedResponse(cacheKV, cacheKey);
+      if (response) return response;
     } catch (e) {
       console.warn("[soku-speed] KV cache read error:", e);
     }
   }
-  let rows: ObsRow[];
+  let rows: ReturnType<typeof parseSokuSpeedObservationRows>;
   try {
     const result = await db
       .prepare(
@@ -662,7 +613,7 @@ app.get("/speed-upgrade", async (c) => {
       )
       .bind(periodTag, tableVersion)
       .all();
-    rows = (result.results ?? []) as ObsRow[];
+    rows = parseSokuSpeedObservationRows(result.results);
   } catch (err) {
     const message = [
       String(err),
@@ -702,24 +653,28 @@ app.get("/speed-upgrade", async (c) => {
   }
   const byMaster = new Map<number, Map<string, AggEntry>>();
   for (const row of rows) {
-    let slots: Array<{ slotitem_id: number }>;
+    let parsedSlots: unknown;
     try {
-      slots = JSON.parse(row.slots_json) as Array<{ slotitem_id: number }>;
+      parsedSlots = JSON.parse(row.slots_json);
     } catch {
       continue;
     }
+    const slotsResult = SokuSpeedSlotRowsSchema.safeParse(parsedSlots);
+    if (!slotsResult.success) continue;
     const itemIds: number[] = [];
-    for (const s of slots) {
+    for (const s of slotsResult.data) {
       if (s.slotitem_id > 0) itemIds.push(s.slotitem_id);
     }
     if (row.exslot_json) {
+      let parsedExslot: unknown;
       try {
-        const ex = JSON.parse(row.exslot_json) as {
-          slotitem_id: number;
-        } | null;
-        if (ex && ex.slotitem_id > 0) itemIds.push(ex.slotitem_id);
+        parsedExslot = JSON.parse(row.exslot_json);
       } catch {
-        /* skip malformed exslot */
+        parsedExslot = null;
+      }
+      const exslotResult = SokuSpeedExslotSchema.safeParse(parsedExslot);
+      if (exslotResult.success && exslotResult.data) {
+        itemIds.push(exslotResult.data.slotitem_id);
       }
     }
     itemIds.sort((a, b) => a - b);

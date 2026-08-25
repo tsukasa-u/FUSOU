@@ -1,0 +1,21 @@
+---
+import Navigation from "@/components/common/astro/layout/Navigation.astro";
+
+interface Props {
+  width?: "compact" | "wide";
+  navigation?: boolean;
+}
+
+const { width = "wide", navigation = true } = Astro.props as Props;
+const maxWidth = width === "compact" ? "max-w-lg" : "max-w-2xl";
+const pageClasses = navigation
+  ? "min-h-screen bg-base-100 px-4 pb-12 pt-20"
+  : "flex min-h-screen items-center bg-base-100 px-4 py-12 sm:py-16";
+---
+
+{navigation && <Navigation />}
+<div class={pageClasses}>
+  <div class:list={["mx-auto flex w-full flex-col gap-6", maxWidth]}>
+    <slot />
+  </div>
+</div>

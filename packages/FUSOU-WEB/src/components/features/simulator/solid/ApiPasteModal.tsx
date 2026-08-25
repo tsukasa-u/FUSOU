@@ -25,10 +25,18 @@ export function ApiPasteModal() {
   const [requireStatus, setRequireStatus] = createSignal<{ msg: string; type: "info" | "success" | "error" }>({ msg: "", type: "info" });
   const [masterStatus, setMasterStatus] = createSignal<{ msg: string; type: "info" | "success" | "error" }>({ msg: "", type: "info" });
 
-  const tryParseJson = (raw: string, setter: (s: any) => void) => {
+  const tryParseJson = (
+    raw: string,
+    setter: (status: { msg: string; type: "info" | "success" | "error" }) => void,
+  ): Record<string, unknown> | null => {
     if (!raw.trim()) return null;
     try {
-      return JSON.parse(stripSvdataPrefix(raw));
+      const parsed: unknown = JSON.parse(stripSvdataPrefix(raw));
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+        setter({ msg: "JSONオブジェクトではありません", type: "error" });
+        return null;
+      }
+      return parsed as Record<string, unknown>;
     } catch {
       setter({ msg: "JSONのパースに失敗しました", type: "error" });
       return null;
@@ -50,7 +58,12 @@ export function ApiPasteModal() {
         loadMasterDataFromJson(convertGetDataToMasterData(masterJson), renderAll);
         setMasterStatus({ msg: "マスターデータを読み込みました", type: "success" });
         setMasterText("");
-      } else if (masterJson.mst_ships || masterJson.mst_slot_items || masterJson.ships || masterJson.items) {
+      } else if (
+        masterJson["mst_ships"] ||
+        masterJson["mst_slot_items"] ||
+        masterJson["ships"] ||
+        masterJson["items"]
+      ) {
         loadMasterDataFromJson(masterJson, renderAll);
         setMasterStatus({ msg: "マスターデータを読み込みました", type: "success" });
         setMasterText("");
@@ -66,8 +79,8 @@ export function ApiPasteModal() {
 
     if (portJson || reqJson) {
       let isSnapshotMode = true;
-      let pSnap: any = null;
-      let rSnap: any = null;
+      let pSnap: ReturnType<typeof convertPortToSnapshot> | null = null;
+      let rSnap: ReturnType<typeof convertRequireInfoToSnapshot> | null = null;
 
       if (portJson) {
         const kind = detectResponseKind(portJson);
@@ -96,12 +109,15 @@ export function ApiPasteModal() {
       }
 
       if (isSnapshotMode && (pSnap || rSnap)) {
-        const merged = mergeSnapshots(pSnap ?? {}, rSnap ?? {});
+        const merged = mergeSnapshots(
+          pSnap ?? { s3s: [], d8k: [] },
+          rSnap ?? { s8s: [] },
+        );
         applyFleetSnapshot(merged);
-        finalizePlaygroundLoad(true, true);
+        finalizePlaygroundLoad(true);
       } else if (!isSnapshotMode && portJson) {
         applyExportedFleet(portJson);
-        finalizePlaygroundLoad(hasSnapshotData(), true);
+        finalizePlaygroundLoad(hasSnapshotData());
       }
     }
 

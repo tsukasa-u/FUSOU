@@ -1,7 +1,12 @@
 /** @jsxImportSource solid-js */
-import { For, Show, createEffect, createMemo, createSignal } from "solid-js";
+import { For, Show, createEffect, createMemo, createSignal, onMount } from "solid-js";
 import type { SharedDashboardState } from "../../battles/solid/types";
 import { mapKeyOf, formatTimestamp } from "../../map-flow/solid/battle-map-flow/dataUtils";
+import type { BattleRecord } from "../../map-flow/solid/battle-map-flow/types";
+import {
+  battleResultOf as battleResultOfRecord,
+} from "../../map-flow/solid/battle-map-flow/recordParsers";
+import { firstJsonRecordOf } from "@/features/battles/payload-guards";
 import { bannerUrl } from "@/features/simulator/equip-calc";
 
 const WIN_RANK_BADGES: Record<string, string> = {
@@ -34,31 +39,27 @@ const AIR_SUPERIORITY_NAMES: Record<number, string> = {
   4: "制空権喪失",
 };
 
-function airSuperiorityLabelOf(battle: any): string {
-  const openingAir = Array.isArray(battle?.opening_air_attack)
-    ? battle.opening_air_attack[0]
-    : battle?.opening_air_attack;
-  if (!openingAir || typeof openingAir !== "object") {
-    return "";
-  }
+function airSuperiorityLabelOf(battle: BattleRecord): string {
+  const openingAir = firstJsonRecordOf(battle.opening_air_attack);
+  if (!openingAir) return "";
 
-  const fDamages = Array.isArray(openingAir.f_damages)
-    ? openingAir.f_damages
+  const fDamages = Array.isArray(openingAir["f_damages"])
+    ? openingAir["f_damages"]
     : [];
-  const eDamages = Array.isArray(openingAir.e_damages)
-    ? openingAir.e_damages
+  const eDamages = Array.isArray(openingAir["e_damages"])
+    ? openingAir["e_damages"]
     : [];
   const hasAnyAirDamage =
     fDamages.some((d: unknown) => (Number(d ?? 0) || 0) > 0) ||
     eDamages.some((d: unknown) => (Number(d ?? 0) || 0) > 0);
   const hasAnyAirSortie =
-    (Array.isArray(openingAir.f_plane_from) && openingAir.f_plane_from.length > 0) ||
-    (Array.isArray(openingAir.e_plane_from) && openingAir.e_plane_from.length > 0);
+    (Array.isArray(openingAir["f_plane_from"]) && openingAir["f_plane_from"].length > 0) ||
+    (Array.isArray(openingAir["e_plane_from"]) && openingAir["e_plane_from"].length > 0);
   if (!hasAnyAirDamage && !hasAnyAirSortie) {
     return "";
   }
 
-  const airSup = Number(openingAir.air_superiority);
+  const airSup = Number(openingAir["air_superiority"]);
   if (!Number.isFinite(airSup)) {
     return "";
   }
@@ -67,15 +68,33 @@ function airSuperiorityLabelOf(battle: any): string {
 
 const PAGE_SIZE = 50;
 
-function battleResultOf(b: any): { win_rank: string; drop_ship_id: number | null; drop_ship_name?: string | null } | null {
-  if (!b.battle_result || typeof b.battle_result !== "object") return null;
-  return b.battle_result;
+function battleResultOf(b: BattleRecord) {
+  return battleResultOfRecord(b);
 }
 
 export default function BattlesListPanel(props: { dashboardState: SharedDashboardState }) {
   const d = props.dashboardState;
   const [currentPage, setCurrentPage] = createSignal(0);
   const [viewMode, setViewMode] = createSignal<"list" | "map">("list");
+
+  onMount(() => {
+    const params = new URLSearchParams(window.location.search);
+    const initialMode = params.get("list_view");
+    if (initialMode === "map" || initialMode === "list") {
+      setViewMode(initialMode);
+    }
+  });
+
+  createEffect(() => {
+    const url = new URL(window.location.href);
+    const mode = viewMode();
+    if (mode === "map") {
+      url.searchParams.set("list_view", "map");
+    } else {
+      url.searchParams.delete("list_view");
+    }
+    window.history.replaceState({}, "", url.toString());
+  });
 
   const alphaCellLabel = (cellId: number): string => {
     if (!Number.isFinite(cellId) || cellId <= 0) return "-";
@@ -89,7 +108,7 @@ export default function BattlesListPanel(props: { dashboardState: SharedDashboar
     return label;
   };
 
-  const cellDisplayLabelOf = (b: any): string => {
+  const cellDisplayLabelOf = (b: BattleRecord): string => {
     const cellId = Number(b.cell_id ?? NaN);
     if (!Number.isFinite(cellId)) return "-";
     if (cellId === 0) return "港";
@@ -105,19 +124,20 @@ export default function BattlesListPanel(props: { dashboardState: SharedDashboar
   });
 
   const filteredBattles = createMemo(() => {
-    if (viewMode() === "list") {
-      return resultFilteredBattles();
-    }
+    let list = resultFilteredBattles();
     const selectedMap = d.mapFilter();
-    if (!selectedMap) return [];
-    return resultFilteredBattles().filter((b) => mapKeyOf(b) === selectedMap);
+    if (selectedMap) {
+      list = list.filter((b) => mapKeyOf(b) === selectedMap);
+    }
+    if (viewMode() === "map" && !selectedMap) return [];
+    return list;
   });
 
   const mapOverview = createMemo(() => {
     const mapStats = new Map<string, number>();
     for (const battle of resultFilteredBattles()) {
       const mapKey = mapKeyOf(battle);
-      if (!mapKey || mapKey === "-") continue;
+      if (!mapKey || mapKey === "-" || mapKey === "unknown") continue;
       mapStats.set(mapKey, (mapStats.get(mapKey) ?? 0) + 1);
     }
 
@@ -160,12 +180,21 @@ export default function BattlesListPanel(props: { dashboardState: SharedDashboar
     setCurrentPage(0);
   });
 
-  function moveToDetail(battle: any, fallbackIndex: number) {
+  function moveToDetail(battle: BattleRecord) {
+    const envUuid = String(battle.env_uuid ?? "").trim();
+    const battleIndex = Number(battle.index ?? Number.NaN);
+    const datasetId = String(battle["dataset_id"] ?? "").trim();
+    if (!envUuid || !Number.isFinite(battleIndex) || battleIndex < 0) {
+      window.alert("戦闘詳細を開くために必要な env_uuid または battle_index が不足しています。");
+      return;
+    }
     try {
       sessionStorage.setItem("battleDetail", JSON.stringify(battle));
     } catch {}
-    const detailId = battle.uuid || battle.env_uuid || String(fallbackIndex);
+    const detailId = envUuid;
     d.setSelectedDetailId(detailId);
+    d.setSelectedDatasetId(datasetId);
+    d.setSelectedBattleIndex(battleIndex);
     d.setActiveTab("detail");
   }
 
@@ -194,15 +223,14 @@ export default function BattlesListPanel(props: { dashboardState: SharedDashboar
               fallback={<tr><td colspan={8} class="text-center py-12 text-base-content/40">データがありません</td></tr>}
             >
               <For each={pagedBattles()}>
-                {(b, i) => {
+                {(b) => {
                   const result = battleResultOf(b);
                   const rank = result?.win_rank ?? "-";
                   const formation = b.f_formation ?? 0;
                   const airSupLabel = airSuperiorityLabelOf(b);
-                  const fallbackIdx = currentPage() * PAGE_SIZE + i();
 
                   return (
-                    <tr class="hover cursor-pointer" onClick={() => moveToDetail(b, fallbackIdx)}>
+                    <tr class="hover cursor-pointer" onClick={() => moveToDetail(b)}>
                       <td class="whitespace-nowrap">{formatTimestamp(b.timestamp)}</td>
                       <td>{mapKeyOf(b)}</td>
                       <td>{cellDisplayLabelOf(b)}</td>
@@ -228,7 +256,7 @@ export default function BattlesListPanel(props: { dashboardState: SharedDashboar
                       <td>
                         <button class="btn btn-ghost btn-xs" onClick={(e) => {
                           e.stopPropagation();
-                          moveToDetail(b, fallbackIdx);
+                          moveToDetail(b);
                         }}>詳細</button>
                       </td>
                     </tr>
@@ -257,7 +285,6 @@ export default function BattlesListPanel(props: { dashboardState: SharedDashboar
             onClick={() => {
               const next = viewMode() === "list" ? "map" : "list";
               setViewMode(next);
-              if (next === "list") d.setMapFilter("");
             }}
           >
             <div
@@ -288,7 +315,11 @@ export default function BattlesListPanel(props: { dashboardState: SharedDashboar
                     <For each={area.maps}>
                       {(mapInfo) => (
                         <button
-                          class="btn btn-outline h-auto py-2 flex flex-col items-center gap-1 hover:bg-base-200 hover:text-base-content hover:border-base-300"
+                          class={`btn h-auto py-2 flex flex-col items-center gap-1 hover:bg-base-200 hover:text-base-content hover:border-base-300 ${
+                            d.mapFilter() === mapInfo.mapKey
+                              ? "btn-primary"
+                              : "btn-outline"
+                          }`}
                           onClick={() => d.setMapFilter(mapInfo.mapKey)}
                         >
                           <div class="flex items-center gap-2">

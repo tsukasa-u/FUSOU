@@ -9,7 +9,7 @@ export const prerender = false;
 
 // --- SSR: Resolve access token from cookie session ---
 const cookies = Astro.cookies;
-const runtimeEnv = cfEnv as Record<string, any>;
+const runtimeEnv = cfEnv as unknown as Record<string, unknown>;
 
 let safeAccessToken: string | null = null;
 
@@ -44,7 +44,7 @@ const tabQuery = Astro.url.searchParams.get("tab") || "fleet";
     controls: [
       {
         sourceSelector: "#sim-tab-btn-ship",
-        description: "艦娘・装備の詳細カタログを別ページで確認します。",
+        description: "艦・装備の詳細カタログを別ページで確認します。",
         tone: "outline",
       },
       {
@@ -119,7 +119,10 @@ const tabQuery = Astro.url.searchParams.get("tab") || "fleet";
   </footer>
 </PageLayout>
 
-<script is:inline define:vars={{ accessToken: safeAccessToken, initialTab: tabQuery }}>
+<script
+  is:inline
+  define:vars={{ accessToken: safeAccessToken, initialTab: tabQuery }}
+>
   window.__fusouAccessToken = accessToken;
   window.__fusouInitialTab = initialTab;
 </script>
@@ -129,8 +132,13 @@ const tabQuery = Astro.url.searchParams.get("tab") || "fleet";
 
   const root = document.getElementById("simulator-tab-manager-root");
   if (root) {
-    const accessToken = (window as any).__fusouAccessToken ?? null;
-    const initialTab = (window as any).__fusouInitialTab ?? "fleet";
+    type FusouWindow = Window & {
+      __fusouAccessToken?: string | null;
+      __fusouInitialTab?: string;
+    };
+    const appWindow = window as FusouWindow;
+    const accessToken = appWindow.__fusouAccessToken ?? null;
+    const initialTab = appWindow.__fusouInitialTab ?? "fleet";
     mountSimulatorTabManager(root, initialTab, accessToken);
   }
 </script>

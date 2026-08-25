@@ -10,10 +10,18 @@ import { CORS_HEADERS } from "../constants";
 import { createEnvContext, getEnv } from "../utils";
 import { checkAndDeductRU } from "../utils/ru";
 import {
-  type SupabaseRestConfig,
+  ApiKeyCreateRowsSchema,
+  ApiKeyIdRowsSchema,
+  ApiKeyListRowsSchema,
+  SupabaseApiUserSchema,
+  TrustedDeviceIdRowsSchema,
+  TrustedDeviceListRowsSchema,
+  UpdateApiKeyRequestSchema,
+} from "../schemas/api-keys";
+import {
   getSupabaseRestConfig,
   supabaseRestRequest,
-  resolveMemberIdHashForUser,
+  resolvePublicIdForUser,
 } from "../utils/supabase-rest";
 
 const app = new Hono<{ Bindings: Bindings }>();
@@ -29,19 +37,6 @@ const API_KEY_LENGTH = 32;
 // Helper Functions
 // =============================================================================
 
-function jsonResponse(data: object, status = 200): Response {
-  return new Response(JSON.stringify(data), {
-    status,
-    headers: {
-      "Content-Type": "application/json",
-      ...CORS_HEADERS,
-    },
-  });
-}
-
-/**
- * Generate a secure random API key
- */
 function generateApiKey(): string {
   const bytes = new Uint8Array(API_KEY_LENGTH);
   crypto.getRandomValues(bytes);
@@ -50,6 +45,16 @@ function generateApiKey(): string {
     .replace(/\//g, "_")
     .replace(/=/g, "");
   return `${API_KEY_PREFIX}${base64}`;
+}
+
+function jsonResponse(data: object, status = 200): Response {
+  return new Response(JSON.stringify(data), {
+    status,
+    headers: {
+      "Content-Type": "application/json",
+      ...CORS_HEADERS,
+    },
+  });
 }
 
 /**
@@ -79,11 +84,13 @@ function extractAccessToken(c: {
     /(?:^|;\s*)(?:sb-access-token|__Secure-sb-access-token)=([^;]+)/,
   );
   if (!match) return null;
+  const token = match[1];
+  if (!token) return null;
 
   try {
-    return { token: decodeURIComponent(match[1]), fromCookie: true };
+    return { token: decodeURIComponent(token), fromCookie: true };
   } catch {
-    return { token: match[1], fromCookie: true };
+    return { token, fromCookie: true };
   }
 }
 
@@ -131,8 +138,8 @@ async function verifyAccessToken(
 
     if (!response.ok) return null;
 
-    const user = (await response.json()) as { id: string; email: string };
-    return user;
+    const parsedUser = SupabaseApiUserSchema.safeParse(await response.json());
+    return parsedUser.success ? parsedUser.data : null;
   } catch (err) {
     console.warn("[api_keys] verifyAccessToken failed:", err);
     return null;
@@ -167,7 +174,7 @@ app.get("/usage", async (c) => {
 
     // Get RU Status
     const env = createEnvContext(c);
-    const kv = env.runtime.DATA_LOADER_CACHE_KV;
+    const kv = env.runtime["DATA_LOADER_CACHE_KV"];
     let usage = {
       remaining: 1000,
       consumed: 0,
@@ -205,20 +212,20 @@ app.get("/", async (c) => {
       return jsonResponse({ error: "Invalid token" }, 401);
     }
 
-    const apiKeys = await supabaseRestRequest<
+    const apiKeysResponse = await supabaseRestRequest(
+      config,
+      "api_keys",
       {
-        id: string;
-        key: string;
-        email: string;
-        is_active: boolean;
-        created_at: string;
-        updated_at: string;
-      }[]
-    >(config, "api_keys", {
       query: `?user_id=eq.${user.id}&order=created_at.desc&select=id,key,email,is_active,created_at,updated_at`,
-    });
+      },
+    );
+    const parsedApiKeys = ApiKeyListRowsSchema.safeParse(apiKeysResponse);
+    if (!parsedApiKeys.success) {
+      console.error("API keys list response shape invalid:", parsedApiKeys.error);
+      return jsonResponse({ error: "Internal error" }, 500);
+    }
 
-    const maskedKeys = (apiKeys || []).map((k) => ({
+    const maskedKeys = parsedApiKeys.data.map((k) => ({
       id: k.id,
       key_masked: maskApiKey(k.key),
       email: k.email,
@@ -253,78 +260,71 @@ app.post("/", async (c) => {
       return jsonResponse({ error: "Invalid token" }, 401);
     }
 
-    const currentKeys = await supabaseRestRequest<{ id: string }[]>(
+    const currentKeysResponse = await supabaseRestRequest(
       config,
       "api_keys",
-      {
-        query: `?user_id=eq.${user.id}&select=id`,
-      },
+      { query: `?user_id=eq.${user.id}&select=id` },
     );
+    const parsedCurrentKeys = ApiKeyIdRowsSchema.safeParse(currentKeysResponse);
+    if (!parsedCurrentKeys.success) {
+      console.error(
+        "API key current keys response shape invalid:",
+        parsedCurrentKeys.error,
+      );
+      return jsonResponse({ error: "Internal error" }, 500);
+    }
 
-    if (currentKeys && currentKeys.length >= 5) {
+    if (parsedCurrentKeys.data.length >= 5) {
+      return jsonResponse(
+        { error: "Limit exceeded", message: "You can create up to 5 API keys." },
+        403,
+      );
+    }
+
+    const linkedPublicId = await resolvePublicIdForUser(config, user.id);
+    if (!linkedPublicId) {
       return jsonResponse(
         {
-          error: "Limit exceeded",
-          message: "You can create up to 5 API keys.",
+          error: "MEMBER_NOT_LINKED",
+          message: "Link a game identifier before creating an API key.",
         },
         403,
       );
     }
 
-    // Verify Member ID linkage (Anti-Sybil)
-    try {
-      const linkedMemberIdHash = await resolveMemberIdHashForUser(
-        config,
-        user.id,
-      );
+    const newKey = generateApiKey();
+    const result = await supabaseRestRequest(config, "api_keys", {
+      method: "POST",
+      body: {
+        user_id: user.id,
+        key: newKey,
+        email: user.email,
+        is_active: true,
+      },
+      headers: { Prefer: "return=representation" },
+    });
 
-      if (!linkedMemberIdHash) {
-        return jsonResponse(
-          {
-            error: "Game account verification required",
-            message:
-              "You must link your KanColle game account (Member ID) before creating API keys.",
-          },
-          403,
-        );
-      }
-    } catch (error) {
-      // If RPC fails (e.g. function not found or error), log specific warning but maybe allow fail-open or fail-closed?
-      // Safe bet is fail-closed for security features.
-      console.error("Member verification failed:", error);
-      return jsonResponse({ error: "Verification check failed" }, 500);
+    const parsedResult = ApiKeyCreateRowsSchema.safeParse(result);
+    if (!parsedResult.success) {
+      console.error("API key create response shape invalid:", parsedResult.error);
+      return jsonResponse({ error: "Internal error" }, 500);
     }
 
-    const newKey = generateApiKey();
-    const result = await supabaseRestRequest<{ id: string; key: string }[]>(
-      config,
-      "api_keys",
-      {
-        method: "POST",
-        body: {
-          user_id: user.id,
-          key: newKey,
-          email: user.email,
-          is_active: true,
-        },
-        headers: { Prefer: "return=representation" },
-      },
-    );
-
-    if (!result || result.length === 0) {
+    const createdApiKey = parsedResult.data[0];
+    if (!createdApiKey) {
       return jsonResponse({ error: "Failed to create API key" }, 500);
     }
 
-    // Return the full key only on creation (user must copy it now)
     return jsonResponse({
       success: true,
       api_key: {
-        id: result[0].id,
-        key: result[0].key, // Full key shown only once
+        id: createdApiKey.id,
+        key: createdApiKey.key,
         email: user.email,
         message: "Copy this key now. It will not be shown again.",
       },
     });
+
   } catch (error) {
     console.error("API key create error:", error);
     return jsonResponse({ error: "Internal error" }, 500);
@@ -352,12 +352,21 @@ app.delete("/:id", async (c) => {
     }
 
     // Verify the key exists and belongs to this user before deleting
-    const existing = await supabaseRestRequest<{ id: string }[]>(
+    const existingResponse = await supabaseRestRequest(
       config,
       "api_keys",
       { query: `?id=eq.${keyId}&user_id=eq.${user.id}&select=id` },
     );
-    if (!existing || existing.length === 0) {
+    const parsedExisting = ApiKeyIdRowsSchema.safeParse(existingResponse);
+    if (!parsedExisting.success) {
+      console.error(
+        "API key delete lookup response shape invalid:",
+        parsedExisting.error,
+      );
+      return jsonResponse({ error: "Internal error" }, 500);
+    }
+
+    if (parsedExisting.data.length === 0) {
       return jsonResponse({ error: "Not found" }, 404);
     }
 
@@ -388,12 +397,18 @@ app.patch("/:id", async (c) => {
   }
   const config = getSupabaseRestConfig(c);
 
-  let body: { is_active?: boolean } = {};
+  let rawBody: unknown;
   try {
-    body = await c.req.json();
+    rawBody = await c.req.json();
   } catch {
     return jsonResponse({ error: "Invalid body" }, 400);
   }
+
+  const parsedBody = UpdateApiKeyRequestSchema.safeParse(rawBody);
+  if (!parsedBody.success) {
+    return jsonResponse({ error: "Invalid body" }, 400);
+  }
+  const body = parsedBody.data;
 
   try {
     const user = await verifyAccessToken(config, auth.token);
@@ -402,19 +417,30 @@ app.patch("/:id", async (c) => {
     }
 
     const updateData: Record<string, unknown> = {};
-    if (body.is_active !== undefined) updateData.is_active = body.is_active;
+    if (body.is_active !== undefined) {
+      updateData["is_active"] = body.is_active;
+    }
 
     if (Object.keys(updateData).length === 0) {
       return jsonResponse({ error: "No fields to update" }, 400);
     }
 
     // Verify the key exists and belongs to this user before updating
-    const existing = await supabaseRestRequest<{ id: string }[]>(
+    const existingResponse = await supabaseRestRequest(
       config,
       "api_keys",
       { query: `?id=eq.${keyId}&user_id=eq.${user.id}&select=id` },
     );
-    if (!existing || existing.length === 0) {
+    const parsedExisting = ApiKeyIdRowsSchema.safeParse(existingResponse);
+    if (!parsedExisting.success) {
+      console.error(
+        "API key update lookup response shape invalid:",
+        parsedExisting.error,
+      );
+      return jsonResponse({ error: "Internal error" }, 500);
+    }
+
+    if (parsedExisting.data.length === 0) {
       return jsonResponse({ error: "Not found" }, 404);
     }
 
@@ -447,19 +473,22 @@ app.get("/devices", async (c) => {
       return jsonResponse({ error: "Invalid token" }, 401);
     }
 
-    const devices = await supabaseRestRequest<
+    const devicesResponse = await supabaseRestRequest(
+      config,
+      "trusted_devices",
       {
-        id: string;
-        client_id: string;
-        device_name: string | null;
-        created_at: string;
-        last_used_at: string | null;
-      }[]
-    >(config, "trusted_devices", {
-      query: `?user_id=eq.${user.id}&order=last_used_at.desc.nullslast&select=id,client_id,device_name,created_at,last_used_at`,
-    });
+        query: `?user_id=eq.${user.id}&order=last_used_at.desc.nullslast&select=id,client_id,device_name,created_at,last_used_at`,
+      },
+    );
+    const parsedDevices = TrustedDeviceListRowsSchema.safeParse(
+      devicesResponse,
+    );
+    if (!parsedDevices.success) {
+      console.error("Trusted devices response shape invalid:", parsedDevices.error);
+      return jsonResponse({ error: "Internal error" }, 500);
+    }
 
-    const maskedDevices = (devices || []).map((d) => ({
+    const maskedDevices = parsedDevices.data.map((d) => ({
       id: d.id,
       client_id_masked: `${d.client_id.slice(0, 8)}...`,
       device_name: d.device_name || "Unknown Device",
@@ -495,12 +524,23 @@ app.delete("/devices/:id", async (c) => {
     }
 
     // Verify the device exists and belongs to this user before revoking
-    const existing = await supabaseRestRequest<{ id: string }[]>(
+    const existingResponse = await supabaseRestRequest(
       config,
       "trusted_devices",
       { query: `?id=eq.${deviceId}&user_id=eq.${user.id}&select=id` },
     );
-    if (!existing || existing.length === 0) {
+    const parsedExisting = TrustedDeviceIdRowsSchema.safeParse(
+      existingResponse,
+    );
+    if (!parsedExisting.success) {
+      console.error(
+        "Trusted device revoke lookup response shape invalid:",
+        parsedExisting.error,
+      );
+      return jsonResponse({ error: "Internal error" }, 500);
+    }
+
+    if (parsedExisting.data.length === 0) {
       return jsonResponse({ error: "Not found" }, 404);
     }
 

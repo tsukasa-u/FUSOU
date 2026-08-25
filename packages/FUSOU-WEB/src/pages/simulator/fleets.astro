@@ -9,7 +9,7 @@ import { env as cfEnv } from "cloudflare:workers";
 export const prerender = false;
 
 const cookies = Astro.cookies;
-const runtimeEnv = cfEnv as Record<string, any>;
+const runtimeEnv = cfEnv as unknown as Record<string, unknown>;
 
 let safeAccessToken: string | null = null;
 
@@ -126,7 +126,8 @@ if (accessTokenCookie?.value && refreshTokenCookie?.value) {
 <script>
   import { mountFleetListPanel } from "@/components/features/simulator/solid/FleetListPanel";
 
-  const accessToken = (window as any).__fusouAccessToken ?? null;
+  type FusouWindow = Window & { __fusouAccessToken?: string | null };
+  const accessToken = (window as FusouWindow).__fusouAccessToken ?? null;
   const root = document.getElementById("fleet-list-body");
   if (root) {
     mountFleetListPanel(root, accessToken);

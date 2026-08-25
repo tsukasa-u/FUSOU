@@ -1,4 +1,5 @@
-import type { R2BucketBinding } from "../types";
+import { z } from "zod";
+import type { AppContext, R2BucketBinding } from "../types";
 import { SIGNED_URL_TTL_SECONDS } from "../constants";
 
 /**
@@ -11,12 +12,17 @@ import { SIGNED_URL_TTL_SECONDS } from "../constants";
  */
 
 export interface PrepareResult {
-  tokenPayload?: Record<string, any>;
-  fields?: Record<string, any>;
+  tokenPayload?: Record<string, unknown>;
+  fields?: Record<string, unknown>;
 }
 
 export interface ExecuteResult {
-  response: any; // Custom response data to return
+  response: Record<string, unknown>;
+}
+
+export interface UploadUser {
+  id: string;
+  payload?: Record<string, unknown>;
 }
 
 export interface UploadAuthContext {
@@ -29,19 +35,77 @@ export interface UploadAuthContext {
 export interface UploadConfig {
   bucket: R2BucketBinding;
   signingSecret: string;
+  tokenPayloadSchema?: z.ZodType<Record<string, unknown>>;
   tokenTTL?: number;
   maxBodySize?: number;
   requireDatasetToken?: boolean;
+  allowEmptyBody?: boolean;
   preparationValidator: (
-    body: any,
-    user: { id: string; [key: string]: any },
+    body: Record<string, unknown>,
+    user: UploadUser,
     authContext: UploadAuthContext,
   ) => Promise<PrepareResult | Response>;
   executionProcessor: (
-    tokenPayload: any,
+    tokenPayload: Record<string, unknown>,
     data: Uint8Array,
-    user: { id: string; [key: string]: any },
+    user: UploadUser,
   ) => Promise<ExecuteResult | Response>;
+}
+
+type ReadBodyResult =
+  | { kind: "ok"; data: Uint8Array }
+  | { kind: "missing" }
+  | { kind: "too_large" };
+
+export async function readBodyWithinLimit(
+  request: Request,
+  maxBodySize: number | undefined,
+): Promise<ReadBodyResult> {
+  if (maxBodySize === undefined) {
+    if (!request.body) return { kind: "missing" };
+    return { kind: "ok", data: new Uint8Array(await request.arrayBuffer()) };
+  }
+
+  const contentLength = request.headers.get("Content-Length");
+  if (contentLength !== null) {
+    const declaredLength = Number(contentLength);
+    if (
+      !Number.isSafeInteger(declaredLength) ||
+      declaredLength < 0 ||
+      declaredLength > maxBodySize
+    ) {
+      return { kind: "too_large" };
+    }
+  }
+
+  if (!request.body) return { kind: "missing" };
+  const reader = request.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let totalLength = 0;
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (!value) continue;
+      totalLength += value.byteLength;
+      if (totalLength > maxBodySize) {
+        await reader.cancel();
+        return { kind: "too_large" };
+      }
+      chunks.push(value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+
+  const data = new Uint8Array(new ArrayBuffer(totalLength));
+  let offset = 0;
+  for (const chunk of chunks) {
+    data.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return { kind: "ok", data };
 }
 
 function extractBearerToken(request: Request): string | null {
@@ -66,7 +130,7 @@ function extractBearerToken(request: Request): string | null {
  *   - Uploads to R2 bucket
  */
 export async function handleTwoStageUpload(
-  c: any,
+  c: AppContext,
   config: UploadConfig,
 ): Promise<Response> {
   const { bucket, signingSecret } = config;
@@ -89,32 +153,53 @@ export async function handleTwoStageUpload(
 }
 
 async function handlePreparation(
-  c: any,
+  c: AppContext,
   request: Request,
   url: URL,
   config: UploadConfig,
 ): Promise<Response> {
-  const { signingSecret, preparationValidator, tokenTTL, requireDatasetToken } =
+  const {
+    signingSecret,
+    preparationValidator,
+    tokenTTL,
+    requireDatasetToken,
+    maxBodySize,
+  } =
     config;
   const authContext: UploadAuthContext = {};
 
   const { validateJWT } = await import("../utils");
   const bearerToken = extractBearerToken(request);
-  if (!bearerToken) {
+  const supabaseUser = bearerToken ? await validateJWT(bearerToken) : null;
+
+  if (!supabaseUser && !requireDatasetToken) {
     return c.json(
-      { error: "Missing Authorization bearer token", code: "AUTH_MISSING" },
+      {
+        error: bearerToken
+          ? "Invalid or expired JWT token"
+          : "Missing Authorization bearer token",
+        code: bearerToken ? "AUTH_INVALID" : "AUTH_MISSING",
+      },
       401,
     );
   }
-  const supabaseUser = await validateJWT(bearerToken);
-  if (!supabaseUser) {
-    return c.json({ error: "Invalid or expired JWT token" }, 401);
-  }
 
-  // Parse body
-  let body: any;
+  const bodyResult = await readBodyWithinLimit(request, maxBodySize);
+  if (bodyResult.kind === "too_large") {
+    return c.json({ error: "request_too_large" }, 413);
+  }
+  if (bodyResult.kind === "missing") {
+    return c.json({ error: "Invalid JSON body" }, 400);
+  }
+  let body: Record<string, unknown>;
   try {
-    body = await request.json();
+    const parsedBody = z
+      .record(z.unknown())
+      .safeParse(JSON.parse(new TextDecoder().decode(bodyResult.data)));
+    if (!parsedBody.success) {
+      return c.json({ error: "Invalid JSON body" }, 400);
+    }
+    body = parsedBody.data;
   } catch {
     return c.json({ error: "Invalid JSON body" }, 400);
   }
@@ -125,21 +210,23 @@ async function handlePreparation(
       getEnv,
       resolveDatasetToken,
       validateDatasetTokenWithConstraints,
+      resolveDatasetTokenRevocationConfig,
     } = await import("../utils");
     const env = createEnvContext(c);
     const datasetToken = resolveDatasetToken(
       request.headers.get("X-Dataset-Token"),
-      body?.dataset_token,
+      body?.["dataset_token"],
     );
     const tokenValidation = await validateDatasetTokenWithConstraints({
       token: datasetToken,
       secret: getEnv(env, "DATASET_TOKEN_SECRET"),
+      revocation: resolveDatasetTokenRevocationConfig(env),
       // expectedUserId は検証しない: 複数端末では端末ごとの匿名 user_id が異なるため。
       // dataset_token.sub は最初にマッピングを作成した端末の user_id であり、
       // JWT user_id と一致することを要求するとマルチデバイスで 403 になる。
-      // データ帰属はdataset_id (member_id_hash) の照合で担保する。
+      // データ帰属は dataset_id (public_id) の照合で担保する。
     });
-    if (!tokenValidation.ok) {
+    if (!tokenValidation.ok || !tokenValidation.token) {
       return c.json(
         { error: tokenValidation.error },
         tokenValidation.status ?? 401,
@@ -150,9 +237,12 @@ async function handlePreparation(
 
   // actingUserId: dataset_token が存在する場合はその sub を使用（全端末で一貫した帰属者）。
   // そうでない場合は JWT user_id を使用。
-  const actingUserId = authContext.datasetToken?.user_id ?? supabaseUser.id;
+  const actingUserId = authContext.datasetToken?.user_id ?? supabaseUser?.id;
+  if (!actingUserId) {
+    return c.json({ error: "Invalid or expired JWT token" }, 401);
+  }
 
-  const actingUser = { id: actingUserId } as { id: string; [key: string]: any };
+  const actingUser: UploadUser = { id: actingUserId };
 
   // Run custom validation
   const validationResult = await preparationValidator(
@@ -177,10 +267,10 @@ async function handlePreparation(
 
   // If declared_size is provided in tokenPayload, calculate dynamic TTL
   if (
-    tokenPayload.declared_size &&
-    typeof tokenPayload.declared_size === "number"
+    tokenPayload["declared_size"] &&
+    typeof tokenPayload["declared_size"] === "number"
   ) {
-    const expectedSizeMB = tokenPayload.declared_size / (1024 * 1024);
+    const expectedSizeMB = tokenPayload["declared_size"] / (1024 * 1024);
     const estimatedSeconds = Math.ceil(expectedSizeMB * 30) + 300;
     effectiveTTL = Math.min(
       3600, // max 1 hour
@@ -223,25 +313,21 @@ async function handlePreparation(
 }
 
 async function handleExecution(
-  c: any,
+  c: AppContext,
   request: Request,
-  url: URL,
+  _url: URL,
   config: UploadConfig,
 ): Promise<Response> {
-  const { signingSecret, executionProcessor } = config;
+  const {
+    signingSecret,
+    executionProcessor,
+    tokenPayloadSchema,
+    maxBodySize,
+    allowEmptyBody,
+  } = config;
 
   const { verifySignedToken, validateJWT } = await import("../utils");
   const jwtToken = extractBearerToken(request);
-
-  if (!jwtToken) {
-    return c.json(
-      {
-        error: "Missing Authorization bearer token",
-        code: "AUTH_MISSING",
-      },
-      401,
-    );
-  }
 
   // Extract upload token from X-Upload-Token header
   const uploadToken = request.headers.get("X-Upload-Token");
@@ -257,47 +343,73 @@ async function handleExecution(
   }
 
   // Verify signed upload token
-  const tokenPayload = await verifySignedToken(uploadToken, signingSecret);
-  if (!tokenPayload) {
+  const rawTokenPayload = await verifySignedToken(uploadToken, signingSecret);
+  const tokenPayloadValidation = z
+    .record(z.unknown())
+    .safeParse(rawTokenPayload);
+  if (!tokenPayloadValidation.success) {
     return c.json({ error: "Invalid or expired upload token" }, 401);
   }
+  const rawTokenPayloadRecord = tokenPayloadValidation.data;
+  const typedTokenPayload = tokenPayloadSchema?.safeParse(rawTokenPayloadRecord);
+  if (typedTokenPayload && !typedTokenPayload.success) {
+    return c.json({ error: "Invalid token payload" }, 400);
+  }
+  const tokenPayload = typedTokenPayload?.success
+    ? typedTokenPayload.data
+    : rawTokenPayloadRecord;
 
-  const expectedHash = tokenPayload.content_hash;
-  const tokenUserId = tokenPayload.user_id;
+  const expectedHash =
+    typeof tokenPayload["content_hash"] === "string"
+      ? tokenPayload["content_hash"]
+      : "";
+  const tokenUserId =
+    typeof tokenPayload["user_id"] === "string" ? tokenPayload["user_id"] : "";
 
-  if (!expectedHash) {
+  if (!expectedHash || !tokenUserId) {
     return c.json({ error: "Invalid token payload" }, 400);
   }
 
   // JWT の有効性だけを検証する（正規通信の担保）。
   // upload token の user_id は dataset_token.sub（全端末共通の帰属者）であり、
   // JWT user_id（端末固有）と一致しないことがあるため user_id 照合は行わない。
-  const jwtValid = await validateJWT(jwtToken);
-  if (!jwtValid) {
-    console.warn(
-      `[Upload] JWT validation failed: token=${jwtToken.substring(0, 20)}...`,
-    );
+  const jwtValid = jwtToken ? await validateJWT(jwtToken) : null;
+  if (!jwtValid && !config.requireDatasetToken) {
+    console.warn("[Upload] JWT validation failed");
     return c.json(
       {
-        error: "Invalid or expired JWT token. Please refresh your session.",
+        error: jwtToken
+          ? "Invalid or expired JWT token. Please refresh your session."
+          : "Missing Authorization bearer token",
         code: "AUTH_EXPIRED",
       },
       401,
     );
   }
   // actingUser は upload token 内の user_id（dataset_token.sub）を使用する。
-  const actingUser = { id: tokenUserId } as { id: string; [key: string]: any };
+  const actingUser: UploadUser = { id: tokenUserId };
 
-  // Read body
-  const bodyStream = request.body;
-  if (!bodyStream) {
+  const bodyResult = await readBodyWithinLimit(request, maxBodySize);
+  if (bodyResult.kind === "missing") {
+    if (allowEmptyBody) {
+      const processingResult = await executionProcessor(
+        tokenPayload,
+        new Uint8Array(),
+        actingUser,
+      );
+      if (processingResult instanceof Response) {
+        return processingResult;
+      }
+      return c.json(processingResult.response);
+    }
     return c.json({ error: "Upload payload is missing" }, 400);
+  }
+  if (bodyResult.kind === "too_large") {
+    return c.json({ error: "request_too_large" }, 413);
   }
 
   try {
-    // Read body into memory for processing
-    const arrayBuf = await new Response(bodyStream).arrayBuffer();
-    const data = new Uint8Array(arrayBuf);
+    const data = bodyResult.data;
 
     // Hash verification is performed inside executionProcessor (e.g. master_data.ts)
     // where actual vs. token-embedded expected hash is compared.

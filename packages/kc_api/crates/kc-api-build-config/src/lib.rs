@@ -19,6 +19,7 @@ const SCHEMA_FEATURES: &[(&str, &str)] = &[
     ("schema_v0_4", "0.4.0"),
     ("schema_v0_5", "0.5.0"),
     ("schema_v0_5_1", "0.5.1"),
+    ("schema_v0_6_0", "0.6.0"),
 ];
 
 pub fn emit_epoch_cfg() {
@@ -222,6 +223,9 @@ fn parse_selected_epoch() -> SelectedEpoch {
 }
 
 fn parse_selected_schema() -> &'static str {
+    if env::var_os("CARGO_FEATURE_SCHEMA_V0_6_0").is_some() {
+        return "schema_v0_6_0";
+    }
     if env::var_os("CARGO_FEATURE_SCHEMA_V0_5_1").is_some() {
         return "schema_v0_5_1";
     }
@@ -232,5 +236,5 @@ fn parse_selected_schema() -> &'static str {
         return "schema_v0_4";
     }
 
-    panic!("Exactly one schema version feature must be selected (schema_v0_4, schema_v0_5, or schema_v0_5_1)");
+    panic!("Exactly one schema version feature must be selected (schema_v0_4, schema_v0_5, schema_v0_5_1, or schema_v0_6_0)");
 }

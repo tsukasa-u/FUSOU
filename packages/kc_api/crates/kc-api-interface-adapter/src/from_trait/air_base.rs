@@ -8,10 +8,10 @@ impl From<Vec<kcapi_main::api_get_member::mapinfo::ApiAirBase>> for InterfaceWra
     fn from(bases: Vec<kcapi_main::api_get_member::mapinfo::ApiAirBase>) -> Self {
         let mut base_list = HashMap::new();
         for base in bases {
-            base_list.insert(
-                ((base.api_area_id << 16) | base.api_rid).to_string(),
-                InterfaceWrapper::<AirBase>::from(base).unwrap(),
-            );
+            let base_id_key = ((base.api_area_id << 16) | base.api_rid).to_string();
+            let converted = InterfaceWrapper::<AirBase>::from(base).unwrap();
+
+            base_list.insert(base_id_key, converted);
         }
         Self(AirBases { bases: base_list })
     }

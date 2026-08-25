@@ -53,7 +53,7 @@ fn setup_deep_link(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error
     app.deep_link().register_all()?;
 
     app.deep_link().on_open_url(|event| {
-        tracing::info!("urls: {:?}", event.urls());
+        tracing::info!("deep-link event received (url_count={})", event.urls().len());
     });
     Ok(())
 }
@@ -501,8 +501,9 @@ fn setup_tray(
                         let auth_manager_clone = auth_manager.inner().clone();
 
                         tauri::async_runtime::spawn(async move {
-                            let mut has_dataset_token =
-                                manager.resolve_dataset_id_for_upload(None).await.is_some();
+                            let mut has_dataset_token = crate::util::resolve_dataset_id_for_current_member(&manager)
+                                .await
+                                .is_some();
 
                             if !has_dataset_token {
                                 tracing::warn!("Snapshot sync requires dataset token; trying background anonymous auth instead of opening browser.");
@@ -514,8 +515,7 @@ fn setup_tray(
                                         .unwrap_or_else(|e| e.into_inner())
                                         .clone()
                                 };
-                                has_dataset_token = refreshed_manager
-                                    .resolve_dataset_id_for_upload(None)
+                                has_dataset_token = crate::util::resolve_dataset_id_for_current_member(&refreshed_manager)
                                     .await
                                     .is_some();
 

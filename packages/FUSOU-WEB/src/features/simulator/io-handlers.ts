@@ -1,33 +1,21 @@
 // ── I/O event handlers: import, share, load from URL, fleet load ──
 
-import { renderAll } from "./airbase-renderer";
-import { loadMasterDataFromJson } from "./data-loader";
 import { applyFleetSnapshot, applyExportedFleet } from "./snapshot";
-import {
-  stripSvdataPrefix,
-  detectResponseKind,
-  convertPortToSnapshot,
-  convertRequireInfoToSnapshot,
-  convertGetDataToMasterData,
-  mergeSnapshots,
-} from "./api-response-parser";
 import type { FleetSlot } from "./types";
 import {
   addEntry,
-  upsertEntry,
-  removeEntry,
-  duplicateEntry,
   updateEntryData,
   getActive,
   setActive,
   clearActive,
-  toggleLock,
-  getWorkspace,
   type ViewerEntry,
 } from "./viewer-workspace";
-import { resolveShareInput } from "./share-resolver";
-import { decodePayloadBase64, pickNumericRecord } from "./payload-codec";
-import { setWorkspaceReadOnly } from "./simulator-mutations";
+import {
+  decodePayloadBase64,
+  isLikelySimulatorPayload,
+  jsonRecordOf,
+  pickNumericRecord,
+} from "./payload-codec";
 import {
   getAirBaseState,
   getCombinedFleetType,
@@ -35,33 +23,21 @@ import {
   getSnapshotShareState,
   hasSnapshotData,
 } from "./simulator-selectors";
+import { authFetch } from "@/utils/authFetch";
+import { z } from "zod";
 
-const _accessToken: string | null = (window as any).__fusouAccessToken ?? null;
+const _accessToken: string | null = window.__fusouAccessToken ?? null;
 
-function authHeaders(): HeadersInit {
-  if (!_accessToken) return {};
-  return { Authorization: `Bearer ${_accessToken}` };
-}
 
-export async function copyTextWithFallback(text: string): Promise<boolean> {
-  if (navigator.clipboard?.writeText) {
-    try {
-      await navigator.clipboard.writeText(text);
-      return true;
-    } catch {
-      return false;
-    }
-  }
-  return false;
-}
-
-type ShortenApiResponse = {
-  ok: boolean;
-  shortUrl?: string;
-  error?: string;
-  detail?: string;
-  status?: number;
-};
+const ShortenApiResponseSchema = z
+  .object({
+    ok: z.boolean(),
+    shortUrl: z.string().optional(),
+    error: z.string().optional(),
+    detail: z.string().optional(),
+    status: z.number().optional(),
+  })
+  .passthrough();
 
 export type ShareOptions = {
   includeAirBases: boolean;
@@ -70,11 +46,8 @@ export type ShareOptions = {
 };
 
 const SHARED_SNAPSHOT_SESSION_KEY = "__fusouSharedSnapshot";
-const WORKSPACE_MEMO_MAX_LENGTH = 300;
-const WORKSPACE_COLLAPSED_VISIBLE_COUNT = 6;
 let _isSnapshotPlayground = false;
 let _playgroundDraft: Record<string, unknown> | null = null;
-let _workspaceListExpanded = false;
 
 function encodePayloadBase64(payload: unknown): string {
   const json = JSON.stringify(payload);
@@ -123,7 +96,7 @@ function buildSharePayload(opts: ShareOptions) {
   };
 
   if (opts.includeAirBases) {
-    payload.airBases = getAirBaseState().map((base) => ({
+    payload["airBases"] = getAirBaseState().map((base) => ({
       equipIds: [...(base.equipIds ?? [null, null, null, null])],
       equipImprovement: [...(base.equipImprovement ?? [0, 0, 0, 0])],
       equipProficiency: [...(base.equipProficiency ?? [0, 0, 0, 0])],
@@ -135,29 +108,41 @@ function buildSharePayload(opts: ShareOptions) {
 
 export async function createShareUrl(opts: ShareOptions): Promise<string> {
   const payload = buildSharePayload(opts);
+  let snapshotPayload: Record<string, unknown> | undefined;
+
   if (opts.includeSnapshotData) {
-    const snapshotPayload = buildSnapshotPayloadForShare();
-    if (snapshotPayload.snapshotShips) {
-      payload.snapshotShips = snapshotPayload.snapshotShips;
-    }
-    if (snapshotPayload.snapshotSlotItems) {
-      payload.snapshotSlotItems = snapshotPayload.snapshotSlotItems;
+    const data = buildSnapshotPayloadForShare();
+    if (data.snapshotShips || data.snapshotSlotItems) {
+      snapshotPayload = {
+        ...(data.snapshotShips ? { snapshotShips: data.snapshotShips } : {}),
+        ...(data.snapshotSlotItems ? { snapshotSlotItems: data.snapshotSlotItems } : {})
+      };
     }
   }
 
   const base64Str = encodePayloadBase64(payload);
+  const shareUrl = `${window.location.origin}/share/data?data=${encodeURIComponent(base64Str)}`;
+  const requestBody: Record<string, unknown> = { url: shareUrl };
+
+  if (snapshotPayload) {
+    requestBody["snapshotPayload"] = snapshotPayload;
+  }
   
   const res = await fetch("/api/shorten", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ payload: base64Str }),
+    body: JSON.stringify(requestBody),
   });
 
   if (!res.ok) {
     throw new Error(`API error: ${res.status}`);
   }
 
-  const json = await res.json() as ShortenApiResponse;
+  const parsed = ShortenApiResponseSchema.safeParse(await res.json());
+  if (!parsed.success) {
+    throw new Error("Invalid shorten API response");
+  }
+  const json = parsed.data;
   if (!json.ok || !json.shortUrl) {
     throw new Error(json.error || "Failed to shorten URL");
   }
@@ -230,21 +215,26 @@ function applyPlaygroundDraftOrBlank(): void {
 
 export function finalizePlaygroundLoad(
   hasSnapshotDataBool: boolean = hasSnapshotData(),
-  rerender = false,
 ): void {
   clearActive();
   _playgroundDraft = buildCurrentPlaygroundPayload();
   setSnapshotPlaygroundMode(hasSnapshotDataBool);
+  setWorkspaceReadOnly(false);
 }
+
+import { setWorkspaceReadOnly } from "./simulator-mutations";
 
 export function activateWorkspaceEntry(
   entry: ViewerEntry,
   rememberPlayground = true,
+  savePrevious = true,
 ): void {
   const activeEntry = getActiveWorkspaceEntry();
 
   if (activeEntry && activeEntry.id !== entry.id) {
-    saveCurrentStateToEntry(activeEntry);
+    if (savePrevious) {
+      saveCurrentStateToEntry(activeEntry);
+    }
   } else if (!activeEntry && rememberPlayground) {
     rememberCurrentPlayground();
   }
@@ -252,6 +242,7 @@ export function activateWorkspaceEntry(
   setActive(entry.id);
   applyViewerEntry(entry);
   setSnapshotPlaygroundMode(false);
+  setWorkspaceReadOnly(entry.locked ?? false);
 }
 
 export function switchToPlayground(): void {
@@ -261,14 +252,16 @@ export function switchToPlayground(): void {
   }
   clearActive();
   applyPlaygroundDraftOrBlank();
+  setWorkspaceReadOnly(false);
 }
 
 
 function applyViewerEntry(entry: ViewerEntry): void {
+  if (!isLikelySimulatorPayload(entry.payload)) return;
   if (entry.payloadKind === "exportedFleet") {
-    applyExportedFleet(entry.payload as Record<string, unknown>);
+    applyExportedFleet(entry.payload);
   } else {
-    applyFleetSnapshot(entry.payload as Record<string, unknown>);
+    applyFleetSnapshot(entry.payload);
   }
 }
 
@@ -308,30 +301,11 @@ function saveActiveOwnDeckIfNeeded(): void {
   saveCurrentStateToEntry(activeEntry);
 }
 
-function getWorkspaceEntryById(id: string): ViewerEntry | null {
-  return getWorkspace().entries.find((entry) => entry.id === id) ?? null;
-}
 
 export function isSnapshotPlayground(): boolean { return _isSnapshotPlayground; }
 
 function setSnapshotPlaygroundMode(enabled: boolean): void {
   _isSnapshotPlayground = enabled;
-}
-
-function hasSnapshotLink(entry: ViewerEntry): boolean {
-  if (entry.payloadKind === "fleetSnapshot") return true;
-  const payload = entry.payload as Record<string, unknown>;
-  const snapshotShips = payload.snapshotShips;
-  const snapshotSlotItems = payload.snapshotSlotItems;
-  const hasShips =
-    !!snapshotShips &&
-    typeof snapshotShips === "object" &&
-    Object.keys(snapshotShips).length > 0;
-  const hasItems =
-    !!snapshotSlotItems &&
-    typeof snapshotSlotItems === "object" &&
-    Object.keys(snapshotSlotItems).length > 0;
-  return hasShips || hasItems;
 }
 
 export async function loadFromUrl(): Promise<ViewerEntry | null> {
@@ -343,10 +317,8 @@ export async function loadFromUrl(): Promise<ViewerEntry | null> {
       SHARED_SNAPSHOT_SESSION_KEY,
     );
     if (rawSnapshotPayload) {
-      const parsed = JSON.parse(rawSnapshotPayload);
-      if (parsed && typeof parsed === "object") {
-        sharedSnapshotPayload = parsed as Record<string, unknown>;
-      }
+      const parsed: unknown = JSON.parse(rawSnapshotPayload);
+      if (isLikelySimulatorPayload(parsed)) sharedSnapshotPayload = parsed;
       sessionStorage.removeItem(SHARED_SNAPSHOT_SESSION_KEY);
     }
   } catch {
@@ -357,17 +329,21 @@ export async function loadFromUrl(): Promise<ViewerEntry | null> {
   if (data) {
     try {
       const parsed = decodePayloadBase64(data);
-      if (parsed && typeof parsed === "object") {
-        const merged = parsed as Record<string, unknown>;
+      if (isLikelySimulatorPayload(parsed)) {
+        const merged = parsed;
         if (sharedSnapshotPayload) {
-          if (sharedSnapshotPayload.snapshotShips && !merged.snapshotShips) {
-            merged.snapshotShips = sharedSnapshotPayload.snapshotShips;
+          if (
+            sharedSnapshotPayload["snapshotShips"] &&
+            !merged["snapshotShips"]
+          ) {
+            merged["snapshotShips"] = sharedSnapshotPayload["snapshotShips"];
           }
           if (
-            sharedSnapshotPayload.snapshotSlotItems &&
-            !merged.snapshotSlotItems
+            sharedSnapshotPayload["snapshotSlotItems"] &&
+            !merged["snapshotSlotItems"]
           ) {
-            merged.snapshotSlotItems = sharedSnapshotPayload.snapshotSlotItems;
+            merged["snapshotSlotItems"] =
+              sharedSnapshotPayload["snapshotSlotItems"];
           }
         }
         applyExportedFleet(merged);
@@ -389,17 +365,14 @@ export async function loadFromUrl(): Promise<ViewerEntry | null> {
     }
 
     try {
-      const res = await fetch(
-        `/api/fleet/snapshot/${encodeURIComponent(fleetTag)}`,
-        { headers: authHeaders() },
+      const res = await authFetch(
+        `/api/fleet/snapshot/${encodeURIComponent(fleetTag)}`
       );
       if (res.ok) {
-        const payload = (await res.json()) as {
-          ok?: boolean;
-          snapshot?: Record<string, unknown>;
-        };
-        if (payload.snapshot) {
-          applyFleetSnapshot(payload.snapshot);
+        const payload: unknown = await res.json();
+        const snapshot = jsonRecordOf(payload)?.["snapshot"];
+        if (isLikelySimulatorPayload(snapshot)) {
+          applyFleetSnapshot(snapshot);
           _playgroundDraft = buildCurrentPlaygroundPayload();
           setSnapshotPlaygroundMode(true);
           clearActive();

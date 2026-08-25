@@ -63,12 +63,15 @@ export function statValueOrDash(value: number | null | undefined): string | numb
 export function formatSlotIndexes(indexes: number[]): string {
   if (indexes.length === 0) return "";
 
+  const firstIndex = indexes[0];
+  if (firstIndex === undefined) return "";
   const ranges: string[] = [];
-  let start = indexes[0];
-  let end = indexes[0];
+  let start = firstIndex;
+  let end = firstIndex;
 
   for (let i = 1; i < indexes.length; i += 1) {
     const value = indexes[i];
+    if (value === undefined) continue;
     if (value === end + 1) {
       end = value;
       continue;

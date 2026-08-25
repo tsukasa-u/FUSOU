@@ -14,6 +14,12 @@ pub enum AuthError {
     #[error("refresh failed: {0}")]
     RefreshFailed(String),
 
+    #[error("anonymous-sync device is unknown or revoked")]
+    DeviceUnknownOrRevoked,
+
+    #[error("anonymous-sync device is revoked")]
+    DeviceRevoked,
+
     #[error("re-authentication required: {0}")]
     RequireReauth(String),
 

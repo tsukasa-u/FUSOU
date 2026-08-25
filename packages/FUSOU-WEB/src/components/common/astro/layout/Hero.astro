@@ -1,18 +1,26 @@
 ---
-import HeroImg from "@/assets/hero_bg.webp";
 const year = new Date().getFullYear();
 ---
 
 <div class="relative">
-  <section
-    class="hero min-h-screen overflow-hidden bg-cover bg-center"
-    style={"background-image: url('" + HeroImg.src + "');"}
-  >
+  <section class="hero min-h-screen overflow-hidden bg-base-100 relative">
+    <!-- Background Ambient Glows -->
+    <div class="absolute inset-0 w-full h-full z-0 pointer-events-none">
+      <div class="absolute -top-[20%] -left-[10%] w-[70vw] h-[70vw] rounded-full bg-primary/15 blur-[120px] mix-blend-normal"></div>
+      <div class="absolute -bottom-[20%] -right-[10%] w-[60vw] h-[60vw] rounded-full bg-secondary/15 blur-[100px] mix-blend-normal"></div>
+      <div class="absolute top-[20%] left-[30%] w-[50vw] h-[50vw] rounded-full bg-accent/10 blur-[120px] mix-blend-normal"></div>
+    </div>
+    <!-- Grid Pattern Overlay -->
+    <div class="absolute inset-0 z-0 pointer-events-none bg-[linear-gradient(to_right,currentColor_1px,transparent_1px),linear-gradient(to_bottom,currentColor_1px,transparent_1px)] bg-[size:32px_32px] opacity-[0.03]"></div>
+
     <div
       class="hero-content relative z-10 text-center flex flex-col gap-0 w-full max-w-4xl px-4 pt-24 pb-10 sm:pt-28"
     >
       <div class="mb-10">
-        <h1 class="mb-4 text-5xl font-bold">FUSOU</h1>
+        <div class="flex items-center justify-center gap-4 mb-4 pr-8 md:pr-12">
+          <img src="/favicon.svg" alt="FUSOU Logo" class="w-12 h-12 md:w-14 md:h-14 drop-shadow-md" />
+          <h1 class="text-5xl font-bold">FUSOU</h1>
+        </div>
         <p class="text-lg text-base-content/80 max-w-xl mx-auto">
           艦これの戦闘ログの収集・可視化，および編成シミュレータ・詳細データ閲覧アプリケーションです。
         </p>

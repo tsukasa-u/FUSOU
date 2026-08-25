@@ -12,7 +12,7 @@ export type MstEquipLimitExslot = { ship_id: number, equip: Array<number>, };
 
 export type MstEquipLimitExslots = { mst_equip_limit_exslots: { [key in number]?: MstEquipLimitExslot }, };
 
-export type MstEquipShip = { ship_id: number, equip_type: { [key in string]?: Array<number> | null }, };
+export type MstEquipShip = { ship_id: number, equip_type: Array<number>, };
 
 export type MstEquipShips = { mst_equip_ships: { [key in number]?: MstEquipShip }, };
 

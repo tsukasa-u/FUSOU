@@ -1,35 +1,11 @@
 /** @jsxImportSource react */
 import { memo } from "react";
-import { Handle, Position, type NodeProps } from "@xyflow/react";
+import { Handle, Position, type Node, type NodeProps } from "@xyflow/react";
+import type { EndpointNodeData } from "./schemaGraphTypes";
+export type { EndpointField, EndpointNodeData } from "./schemaGraphTypes";
 
-export interface EndpointField {
-  name: string;
-  type: string;
-  /** Feature variant diff status */
-  diffStatus?: "added" | "removed" | "changed" | null;
-  diffDetail?: {
-    feature: string;
-    withFeature: string | null;
-    withoutFeature: string | null;
-  };
-}
-
-export interface EndpointNodeData {
-  structName: string;
-  fields: EndpointField[];
-  isReq: boolean;
-  isRes: boolean;
-  isDataType: boolean;
-  /** Feature variant diff status for the struct */
-  diffStatus?: "added" | "removed" | "changed" | null;
-  /** ノード選択時の関係タイプ */
-  relationType?: "selected" | "ancestor" | "descendant" | null;
-  /** 関係の深さ (1=直接, 2=孫, ...) */
-  relationDepth?: number;
-}
-
-function EndpointNode({ data, id }: NodeProps) {
-  const d = data as unknown as EndpointNodeData;
+function EndpointNode({ data, id }: NodeProps<Node<EndpointNodeData>>) {
+  const d = data;
 
   const headerBg = d.isReq ? "bg-info" : d.isRes ? "bg-success" : "bg-neutral";
 

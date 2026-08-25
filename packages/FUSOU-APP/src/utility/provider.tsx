@@ -771,7 +771,7 @@ export function useAirBasesBattles() {
 
 type DebugApiContextType = string[][];
 
-const DebugApiContext =
+export const DebugApiContext =
   createContext<
     (DebugApiContextType | SetStoreFunction<DebugApiContextType>)[]
   >();

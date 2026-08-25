@@ -8,11 +8,11 @@ import type {
 } from "../../../utility/get_data_set";
 import type { DeckShipIds } from "../../../utility/battles";
 import {
-  WrapEnemyShipHPComponent,
-  WrapNumberedEnemyShipComponent,
-  WrapNumberedSupportShipComponent,
-  WrapSupportShipHPComponent,
-} from "../wrap_web_component";
+  ConnectedEnemyShipHP,
+  ConnectedNumberedEnemyShip,
+  ConnectedNumberedSupportShip,
+  ConnectedSupportShipHP,
+} from "../connected_components";
 
 import "../../../css/battle_table_common.css";
 import { DamageCommonComponent } from "../dmg";
@@ -59,7 +59,7 @@ export function NightSupportAttackComponent(props: NightSupportAttackProps) {
                   <div class="h-px" />
                 </Show>
                 <div class="flex flex-nowrap">
-                  <WrapNumberedSupportShipComponent
+                  <ConnectedNumberedSupportShip
                     ship_idx={idx()}
                     support_deck_id={night_support_deck_id()}
                     deck_ship_id={props.deck_ship_id}
@@ -84,7 +84,7 @@ export function NightSupportAttackComponent(props: NightSupportAttackProps) {
                 <Show when={idx() > 0}>
                   <div class="h-px" />
                 </Show>
-                <WrapSupportShipHPComponent
+                <ConnectedSupportShipHP
                   deck_ship_id={props.deck_ship_id}
                   idx={idx()}
                   support_deck_id={night_support_deck_id()}
@@ -108,7 +108,7 @@ export function NightSupportAttackComponent(props: NightSupportAttackProps) {
                 <div class="h-px" />
               </Show>
               <div class="flex flex-nowrap">
-                <WrapNumberedEnemyShipComponent
+                <ConnectedNumberedEnemyShip
                   ship_idx={idx()}
                   battle_selected={props.battle_selected}
                   store_data_set_param_ship={props.store_data_set_param_ship}
@@ -141,7 +141,7 @@ export function NightSupportAttackComponent(props: NightSupportAttackProps) {
               <Show when={idx() > 0}>
                 <div class="h-px" />
               </Show>
-              <WrapEnemyShipHPComponent
+              <ConnectedEnemyShipHP
                 idx={idx()}
                 store_data_set_param_ship={props.store_data_set_param_ship}
                 e_now_hps={

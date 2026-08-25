@@ -258,7 +258,6 @@ results.push(test('Concatenate all supported tables with correct offsets', () =>
 
 log('\n=== Test Results ===\n', 'blue');
 
-const passed = results.filter(r => r).length;
 const failed = results.filter(r => !r).length;
 const total = results.length;
 

@@ -1,8 +1,19 @@
 /** @jsxImportSource solid-js */
 import { For, Show } from "solid-js";
 import type { JSX } from "solid-js";
-import type { ShipInfo, BattleFleets } from "@/features/battles/types";
-import { getDamageState, hpFillClass } from "@/features/battles/helpers";
+import type {
+  BattleFleets,
+  MstSlotItemRecord,
+  ShipInfo,
+} from "@/features/battles/types";
+import {
+  averageNullableNumbers,
+  formatNullableNumber,
+  getDamageState,
+  hpFillClass,
+  sumNullableNumbers,
+} from "@/features/battles/helpers";
+import { nullableNumberArray } from "@/features/battles/payload-guards";
 import { getWeaponIconCaches } from "@/features/battles/data-service";
 import { isSafeImageUrl } from "@/utils/security";
 
@@ -62,56 +73,55 @@ export function shipSlotLabel(idx: number): string {
 export function maxHpForShip(
   side: "friend" | "enemy",
   idx: number,
-  fallbackHp: number,
+  fallbackHp: number | null,
   fleets: BattleFleets | null,
-): number {
+): number | null {
   const ship =
     (side === "friend" ? fleets?.friendlyShips : fleets?.enemyShips)?.[idx] ??
     null;
-  return Number(ship?.maxhp ?? fallbackHp ?? 0) || 0;
+  return ship?.maxhp ?? fallbackHp;
 }
 
 export function getRowHpSnapshot(
   row: Record<string, unknown>,
   side: "friend" | "enemy",
-): unknown[] {
+): Array<number | null> {
+  const normalizeHpArray = (raw: unknown): Array<number | null> =>
+    nullableNumberArray(raw);
+
   if (side === "friend") {
-    return Array.isArray(row?.f_now_hps)
-      ? (row.f_now_hps as unknown[])
-      : Array.isArray(row?.f_nowhps)
-        ? (row.f_nowhps as unknown[])
-        : [];
+    return normalizeHpArray(row?.["f_now_hps"] ?? row?.["f_nowhps"]);
   }
-  return Array.isArray(row?.e_now_hps)
-    ? (row.e_now_hps as unknown[])
-    : Array.isArray(row?.e_nowhps)
-      ? (row.e_nowhps as unknown[])
-      : [];
+  return normalizeHpArray(row?.["e_now_hps"] ?? row?.["e_nowhps"]);
 }
 
 export function slotItemMeta(
   slotItemId: unknown,
-  mstSlotItemById: Map<number, Record<string, unknown>> | null,
+  mstSlotItemById: Map<number, MstSlotItemRecord> | null,
 ): { name: string; iconType: number | null } {
   const id = Number(slotItemId ?? 0);
   if (!Number.isFinite(id) || id <= 0) {
     return { name: "", iconType: null };
   }
   const mst = mstSlotItemById?.get?.(id);
-  if (!mst) return { name: "", iconType: null };
+  if (!mst) return { name: `装備#${id}`, iconType: null };
   const iconType =
-    Array.isArray(mst.type) && (mst.type as unknown[]).length >= 4
-      ? Number((mst.type as unknown[])[3] ?? 0) || null
+    mst.type && mst.type.length >= 4
+      ? Number(mst.type[3] ?? 0) || null
       : null;
-  return { name: String(mst.name ?? ""), iconType };
+  return { name: mst.name ?? "", iconType };
 }
 
-function normalizeSlotIds(slotIds: unknown[]): number[] {
+function normalizeSlotIds(
+  slotIds: unknown[],
+  options?: { preserveDuplicates?: boolean },
+): number[] {
   const flat = slotIds.flatMap((id) => {
-    if (Array.isArray(id)) return normalizeSlotIds(id);
+    if (Array.isArray(id)) return normalizeSlotIds(id, options);
     const n = Number(id ?? 0);
     return Number.isFinite(n) && n > 0 ? [n] : [];
   });
+  if (options?.preserveDuplicates) return flat;
   return [...new Set(flat)];
 }
 
@@ -196,10 +206,15 @@ export function EquipmentBadge(props: {
 
 export function EquipmentBadgesFromSlotIds(props: {
   slotIds: unknown[];
-  mstSlotItemById: Map<number, Record<string, unknown>> | null;
+  mstSlotItemById: Map<number, MstSlotItemRecord> | null;
+  preserveDuplicates?: boolean;
 }): JSX.Element {
   const items = () =>
-    normalizeSlotIds(props.slotIds ?? [])
+    normalizeSlotIds(props.slotIds ?? [], {
+      ...(props.preserveDuplicates === undefined
+        ? {}
+        : { preserveDuplicates: props.preserveDuplicates }),
+    })
       .map((id) => slotItemMeta(id, props.mstSlotItemById))
       .filter((m) => m.name);
   return (
@@ -212,15 +227,19 @@ export function EquipmentBadgesFromSlotIds(props: {
 }
 
 export function InlineHpMeter(props: {
-  current: number;
-  max: number;
+  current: number | null;
+  max: number | null;
   class?: string;
 }): JSX.Element {
-  const safeCurrent = () => Number(props.current ?? 0) || 0;
-  const safeMax = () => Number(props.max ?? props.current ?? 0) || 0;
+  const safeCurrent = () => formatNullableNumber(props.current);
+  const safeMax = () => formatNullableNumber(props.max);
+  const currentNumber = () => Number(props.current);
+  const maxNumber = () => Number(props.max);
   const pct = () =>
-    safeMax() > 0
-      ? Math.max(0, Math.min(100, (safeCurrent() / safeMax()) * 100))
+    Number.isFinite(currentNumber()) &&
+    Number.isFinite(maxNumber()) &&
+    maxNumber() > 0
+      ? Math.max(0, Math.min(100, (currentNumber() / maxNumber()) * 100))
       : 0;
   return (
     <span class={`inline-flex items-center gap-1 ${props.class ?? ""}`}>
@@ -238,14 +257,18 @@ export function InlineHpMeter(props: {
 }
 
 export function CompactHpBadge(props: {
-  current: number;
-  max: number;
+  current: number | null;
+  max: number | null;
 }): JSX.Element {
-  const safeCurrent = () => Number(props.current ?? 0) || 0;
-  const safeMax = () => Number(props.max ?? props.current ?? 0) || 0;
+  const safeCurrent = () => formatNullableNumber(props.current);
+  const safeMax = () => formatNullableNumber(props.max);
+  const currentNumber = () => Number(props.current);
+  const maxNumber = () => Number(props.max);
   const pct = () =>
-    safeMax() > 0
-      ? Math.max(0, Math.min(100, (safeCurrent() / safeMax()) * 100))
+    Number.isFinite(currentNumber()) &&
+    Number.isFinite(maxNumber()) &&
+    maxNumber() > 0
+      ? Math.max(0, Math.min(100, (currentNumber() / maxNumber()) * 100))
       : 0;
   const state = () => getDamageState(props.current, props.max);
   return (
@@ -267,12 +290,14 @@ export function CompactHpBadge(props: {
 }
 
 export function HPBar(props: {
-  current: number;
-  max: number;
+  current: number | null;
+  max: number | null;
   label?: string;
 }): JSX.Element {
   const pct = () =>
-    props.max > 0 ? Math.max(0, (props.current / props.max) * 100) : 0;
+    props.current !== null && props.max !== null && props.max > 0
+      ? Math.max(0, (props.current / props.max) * 100)
+      : 0;
   const color = () => {
     const p = pct();
     if (p <= 25) return "bg-error";
@@ -292,20 +317,29 @@ export function HPBar(props: {
         />
       </div>
       <span class="text-[11px] font-mono text-base-content/70 w-14 text-right">
-        {props.current}/{props.max}
+        {formatNullableNumber(props.current)}/{formatNullableNumber(props.max)}
       </span>
     </div>
   );
 }
 
-export function ShipIndexBadge(props: { idx: number }): JSX.Element {
+export function ShipIndexBadge(props: {
+  idx: number;
+  side: "friend" | "enemy";
+}): JSX.Element {
   return (
-    <span class="badge badge-ghost badge-sm">{shipSlotLabel(props.idx)}</span>
+    <span
+      class={`badge badge-ghost badge-sm font-semibold ${
+        props.side === "enemy" ? "text-error" : "text-info"
+      }`}
+    >
+      {shipSlotLabel(props.idx)}
+    </span>
   );
 }
 
 export function OutcomeBadges(props: {
-  damage: number;
+  damage: number | null;
   crit: boolean;
   protect: boolean;
   sunk: boolean;
@@ -314,12 +348,17 @@ export function OutcomeBadges(props: {
   return (
     <>
       <Show
-        when={props.damage > 0}
-        fallback={<span class="badge badge-neutral badge-sm">MISS</span>}
+        when={props.damage !== null}
+        fallback={<span class="badge badge-ghost badge-sm">ダメージ不明</span>}
       >
-        <span class="badge badge-outline badge-sm font-mono">
-          -{props.damage}
-        </span>
+        <Show
+          when={(props.damage ?? 0) > 0}
+          fallback={<span class="badge badge-neutral badge-sm">MISS</span>}
+        >
+          <span class="badge badge-outline badge-sm font-mono">
+            -{props.damage ?? 0}
+          </span>
+        </Show>
       </Show>
       <Show when={props.crit}>
         <span class="badge badge-error badge-sm">Critical</span>
@@ -347,15 +386,14 @@ export function PhaseParticipant(props: {
   name: string;
   side: "friend" | "enemy";
   idx: number;
-  hpCurrent: number;
-  hpMax: number;
+  hpCurrent: number | null;
+  hpMax: number | null;
 }): JSX.Element {
-  const tone = () => (props.side === "enemy" ? "text-error" : "text-info");
   return (
     <div class="min-w-0 rounded bg-base-100 px-2 py-1 border border-base-300">
       <div class="mb-1 flex items-center gap-1.5">
-        <ShipIndexBadge idx={props.idx} />
-        <div class={`truncate text-xs font-semibold ${tone()}`}>
+        <ShipIndexBadge idx={props.idx} side={props.side} />
+        <div class="truncate text-xs font-semibold text-base-content/70">
           {props.name}
         </div>
       </div>
@@ -386,13 +424,8 @@ export function FleetSummary(props: {
   ships: ShipInfo[];
   sideLabel: string;
 }): JSX.Element {
-  const totalNow = () =>
-    props.ships.reduce((s, ship) => s + (Number(ship.nowhp ?? 0) || 0), 0);
-  const totalMax = () =>
-    props.ships.reduce(
-      (s, ship) => s + (Number(ship.maxhp ?? ship.nowhp ?? 0) || 0),
-      0,
-    );
+  const totalNow = () => sumNullableNumbers(props.ships.map((ship) => ship.nowhp));
+  const totalMax = () => sumNullableNumbers(props.ships.map((ship) => ship.maxhp));
   const taiha = () =>
     props.ships.filter(
       (ship) => getDamageState(ship.nowhp, ship.maxhp).label === "大破",
@@ -401,23 +434,17 @@ export function FleetSummary(props: {
     props.ships.filter(
       (ship) => getDamageState(ship.nowhp, ship.maxhp).label === "中破",
     ).length;
-  const avgLevel = () => {
-    const total = props.ships.reduce(
-      (s, ship) => s + (Number(ship.level ?? 0) || 0),
-      0,
-    );
-    return Math.round(total / props.ships.length);
-  };
+  const avgLevel = () => averageNullableNumbers(props.ships.map((ship) => ship.level));
   return (
     <div class="mb-2 flex flex-wrap gap-2 text-[11px]">
       <span class="badge badge-outline">
         {props.sideLabel} {props.ships.length}隻
       </span>
       <span class="badge badge-outline">
-        総HP {totalNow()}/{totalMax()}
+        総HP {formatNullableNumber(totalNow())}/{formatNullableNumber(totalMax())}
       </span>
       <span class="badge badge-outline">
-        平均Lv {Number.isFinite(avgLevel()) ? avgLevel() : "-"}
+        平均Lv {formatNullableNumber(avgLevel())}
       </span>
       <Show when={taiha() > 0}>
         <span class="badge badge-error badge-outline">大破 {taiha()}</span>

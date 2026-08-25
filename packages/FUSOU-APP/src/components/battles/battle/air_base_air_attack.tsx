@@ -4,13 +4,14 @@ import type { AirBaseAirAttack, Battle } from "@ipc-bindings/battle";
 import { useAirBasesBattles } from "../../../utility/provider";
 import IconShield from "../../../icons/shield";
 import type { DataSetParamShip } from "../../../utility/get_data_set";
+import { AirStateComponent } from "../shared/air_state.tsx";
 import { SpriteMotionCounts } from "../shared/sprite_motion_counts";
 import {
-  WrapCIMstEquipComponent,
-  WrapEnemyShipHPComponent,
-  WrapNumberedEnemyShipComponent,
-  WrapOwnPlaneEquipComponent,
-} from "../wrap_web_component";
+  ConnectedCIMstEquip,
+  ConnectedEnemyShipHP,
+  ConnectedNumberedEnemyShip,
+  ConnectedOwnPlaneEquip,
+} from "../connected_components";
 import { DamageCommonComponent } from "../dmg";
 
 interface AirDamageProps {
@@ -22,18 +23,26 @@ interface AirDamageProps {
 export function AirBaseAirAttackComponent(props: AirDamageProps) {
   const [air_bases] = useAirBasesBattles();
 
+  const air_base_attacks = createMemo<AirBaseAirAttack[]>(() => {
+    const raw_attacks = props.battle_selected()?.air_base_air_attacks as
+      | AirBaseAirAttack[]
+      | { attacks?: AirBaseAirAttack[] }
+      | undefined;
+    if (!raw_attacks) return [];
+    if (Array.isArray(raw_attacks)) return raw_attacks;
+    if (Array.isArray(raw_attacks.attacks)) return raw_attacks.attacks;
+    return [];
+  });
+
   const show_air_attack = createMemo<boolean>(() => {
     if (!props.battle_selected()) return false;
-    if (!props.battle_selected()?.air_base_air_attacks) return false;
-    return true;
+    return air_base_attacks().length > 0;
   });
 
   const show_damage = createMemo<boolean[][]>(() => {
     const show_damage: boolean[][] = [];
     if (!show_air_attack()) return show_damage;
-    props
-      .battle_selected()
-      ?.air_base_air_attacks?.attacks.forEach((attack, attack_idx) => {
+    air_base_attacks().forEach((attack, attack_idx) => {
         show_damage.push(new Array(12).fill(false));
         if (attack.e_damage.bak_flag) {
           attack.e_damage.bak_flag.forEach((flag, idx) => {
@@ -60,7 +69,7 @@ export function AirBaseAirAttackComponent(props: AirDamageProps) {
             when={f_touch_plane > 0}
             fallback={<div class="w-6 text-center">_</div>}
           >
-            <WrapCIMstEquipComponent e_flag={false} si={f_touch_plane} />
+            <ConnectedCIMstEquip e_flag={false} si={f_touch_plane} />
           </Show>
         </div>
         <div class="w-3 text-center">/</div>
@@ -69,7 +78,7 @@ export function AirBaseAirAttackComponent(props: AirDamageProps) {
             when={e_touch_plane > 0}
             fallback={<div class="w-6 text-center">_</div>}
           >
-            <WrapCIMstEquipComponent e_flag={true} si={e_touch_plane} />
+            <ConnectedCIMstEquip e_flag={true} si={e_touch_plane} />
           </Show>
         </div>
       </>
@@ -77,8 +86,9 @@ export function AirBaseAirAttackComponent(props: AirDamageProps) {
   };
 
   const attacker_planes = (attack: AirBaseAirAttack) => {
+    const base_id = Number(attack.base_id ?? 0);
     const f_plane_list = air_bases.bases[
-      (props.area_id << 16) | attack.base_id
+      (props.area_id << 16) | base_id
     ]?.plane_info.filter((palne) => palne.slotid != 0);
     return (
       <td>
@@ -90,7 +100,7 @@ export function AirBaseAirAttackComponent(props: AirDamageProps) {
                   <Show when={idx() > 0}>
                     <div class="h-px" />
                   </Show>
-                  <WrapOwnPlaneEquipComponent si={plane.slotid} />
+                  <ConnectedOwnPlaneEquip si={plane.slotid} />
                 </Show>
               </>
             )}
@@ -115,7 +125,7 @@ export function AirBaseAirAttackComponent(props: AirDamageProps) {
                     <div class="h-px" />
                   </Show>
                   <div class="flex flex-nowrap">
-                    <WrapNumberedEnemyShipComponent
+                    <ConnectedNumberedEnemyShip
                       store_data_set_param_ship={
                         props.store_data_set_param_ship
                       }
@@ -151,7 +161,7 @@ export function AirBaseAirAttackComponent(props: AirDamageProps) {
                   <Show when={idx() > 0}>
                     <div class="h-px" />
                   </Show>
-                  <WrapEnemyShipHPComponent
+                  <ConnectedEnemyShipHP
                     e_now_hps={attack.e_damage.now_hps}
                     idx={idx()}
                     store_data_set_param_ship={props.store_data_set_param_ship}
@@ -214,11 +224,12 @@ export function AirBaseAirAttackComponent(props: AirDamageProps) {
               </thead>
               <tbody>
                 <For
-                  each={props.battle_selected()?.air_base_air_attacks?.attacks}
+                  each={air_base_attacks()}
                 >
                   {(attack, attack_idx) => (
                     <>
                       <div class="flex flex-nowrap pl-2 items-center text-xs">
+                        <AirStateComponent air_state={attack.air_superiority} />
                         {display_touch(attack)}
                         {display_sprite_counts(attack)}
                       </div>

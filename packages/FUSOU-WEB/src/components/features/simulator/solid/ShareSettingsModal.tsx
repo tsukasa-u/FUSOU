@@ -1,7 +1,8 @@
 /* @jsxImportSource solid-js */
 import { createSignal, createEffect } from "solid-js";
 import { useStore } from "@nanostores/solid";
-import { createShareUrl, copyTextWithFallback } from "@/features/simulator/io-handlers";
+import { createShareUrl } from "@/features/simulator/io-handlers";
+import { copyToClipboard } from "@/utils/clipboard";
 import { hasSnapshotData } from "@/features/simulator/simulator-selectors";
 import { simulatorDisplayRevision } from "@/features/simulator/state";
 
@@ -13,7 +14,8 @@ export function ShareSettingsModal() {
   const [includeAirbase, setIncludeAirbase] = createSignal(true);
   const [includeDetailedStats, setIncludeDetailedStats] = createSignal(true);
   const [includeSnapshot, setIncludeSnapshot] = createSignal(false);
-  const [sharing, setSharing] = createSignal(false);
+  const [shareStatus, setShareStatus] = createSignal<"idle" | "loading" | "success" | "error">("idle");
+  const [errorMessage, setErrorMessage] = createSignal("");
 
   const snapshotAvailable = () => {
     displayRev(); // Track
@@ -27,25 +29,30 @@ export function ShareSettingsModal() {
   });
 
   const handleShare = async () => {
-    setSharing(true);
+    setShareStatus("loading");
+    setErrorMessage("");
     try {
       const url = await createShareUrl({
         includeAirBases: includeAirbase(),
         includeDetailedStats: includeDetailedStats(),
         includeSnapshotData: includeSnapshot(),
       });
-      const copied = await copyTextWithFallback(url);
+      const copied = await copyToClipboard(url);
       if (copied) {
-        shareSettingsModalRef.current?.close();
-        alert("共有URLをクリップボードにコピーしました");
+        setShareStatus("success");
+        setTimeout(() => {
+          shareSettingsModalRef.current?.close();
+          setShareStatus("idle");
+        }, 1500);
       } else {
-        shareSettingsModalRef.current?.close();
+        setShareStatus("error");
         window.prompt("自動コピーに失敗しました。以下を手動でコピーしてください:", url);
       }
-    } catch (e: any) {
-      alert(e.message || "共有URLの生成に失敗しました");
-    } finally {
-      setSharing(false);
+    } catch (e: unknown) {
+      setShareStatus("error");
+      setErrorMessage(
+        e instanceof Error ? e.message : "共有URLの生成に失敗しました",
+      );
     }
   };
 
@@ -95,17 +102,42 @@ export function ShareSettingsModal() {
           </div>
         </div>
 
+        {errorMessage() && (
+          <div class="mt-4 text-xs text-error">
+            {errorMessage()}
+          </div>
+        )}
+
         <div class="modal-action mt-6">
-          <button type="button" class="btn btn-primary btn-sm" disabled={sharing()} onClick={handleShare}>
-            {sharing() ? "生成中..." : "URLをコピーして共有"}
+          <button 
+            type="button" 
+            class={`btn btn-sm w-48 ${shareStatus() === "success" ? "btn-success" : shareStatus() === "error" ? "btn-error" : "btn-primary"}`}
+            disabled={shareStatus() === "loading"} 
+            onClick={handleShare}
+          >
+            {shareStatus() === "loading" ? (
+              <>
+                <span class="loading loading-spinner loading-xs"></span>
+                生成中...
+              </>
+            ) : shareStatus() === "success" ? (
+              <>
+                <svg xmlns="http://www.w3.org/2000/svg" class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                コピー完了
+              </>
+            ) : shareStatus() === "error" ? (
+              "生成失敗"
+            ) : (
+              "URLをコピーして共有"
+            )}
           </button>
           <form method="dialog">
-            <button class="btn btn-ghost btn-sm" disabled={sharing()}>キャンセル</button>
+            <button class="btn btn-ghost btn-sm" disabled={shareStatus() === "loading"}>キャンセル</button>
           </form>
         </div>
       </div>
       <form method="dialog" class="modal-backdrop">
-        <button disabled={sharing()}>close</button>
+        <button disabled={shareStatus() === "loading"}>close</button>
       </form>
     </dialog>
   );

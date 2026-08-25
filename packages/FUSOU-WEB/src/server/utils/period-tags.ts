@@ -1,4 +1,10 @@
+import type { KVNamespace } from "@cloudflare/workers-types";
 import type { Bindings, D1Database } from "../types";
+import {
+  LatestMasterPeriodRowSchema,
+  PeriodTagCacheSchema,
+  PeriodTagRowsSchema,
+} from "../schemas/period-tags";
 
 type SupabaseRestConfigLike = {
   url: string;
@@ -8,6 +14,14 @@ type SupabaseRestConfigLike = {
 const PERIOD_TAG_CACHE_LIST_KEY = "data_loader:period_tags:list";
 const PERIOD_TAG_CACHE_LIST_TTL = 300;
 const PERIOD_TAG_FETCH_LIMIT = 200;
+
+function parsePeriodTagRows(value: unknown): Array<{ tag: string | null }> {
+  const parsed = PeriodTagRowsSchema.safeParse(value);
+  if (!parsed.success) {
+    throw new Error("Invalid period tag response");
+  }
+  return parsed.data;
+}
 
 export function isValidPeriodTagDate(value: string): boolean {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
@@ -50,7 +64,7 @@ async function fetchAllowedPeriodTagsFromSupabase(
     throw new Error(`Failed to fetch period tags: ${response.status}`);
   }
 
-  const rows = (await response.json()) as Array<{ tag: string | null }>;
+  const rows = parsePeriodTagRows(await response.json());
   return rows
     .map((row) => toTokyoPeriodTag(row.tag))
     .filter((tag): tag is string => Boolean(tag));
@@ -62,13 +76,10 @@ async function readCachedPeriodTags(
 ): Promise<string[] | null> {
   try {
     const cached = await cacheKV.get(PERIOD_TAG_CACHE_LIST_KEY, "json");
-    if (
-      cached &&
-      typeof cached === "object" &&
-      Array.isArray((cached as { tags?: unknown[] }).tags)
-    ) {
-      const tags = ((cached as { tags: unknown[] }).tags ?? [])
-        .map((value) => (typeof value === "string" ? value.trim() : ""))
+    const parsed = PeriodTagCacheSchema.safeParse(cached);
+    if (parsed.success) {
+      const tags = parsed.data.tags
+        .map((value) => value.trim())
         .filter((value) => isValidPeriodTagDate(value));
       if (tags.length > 0) {
         return tags.slice(0, limit);
@@ -116,7 +127,7 @@ async function checkPeriodTagExistsInSupabase(
     throw new Error(`Failed to verify period tag: ${response.status}`);
   }
 
-  const rows = (await response.json()) as Array<{ tag: string | null }>;
+  const rows = parsePeriodTagRows(await response.json());
   return Array.isArray(rows) && rows.length > 0;
 }
 
@@ -127,9 +138,9 @@ export function formatPeriodTagAsTokyoRfc3339(periodTag: string): string {
 export async function listAllowedPeriodTags(
   c: { env: Bindings },
   options?: {
-    cacheKV?: KVNamespace;
+    cacheKV?: KVNamespace | undefined;
     limit?: number;
-    supabaseConfig?: SupabaseRestConfigLike;
+    supabaseConfig?: SupabaseRestConfigLike | undefined;
   },
 ): Promise<string[]> {
   const limit = Math.max(1, options?.limit ?? 200);
@@ -167,7 +178,10 @@ export async function listAllowedPeriodTags(
 
 export async function getLatestAllowedPeriodTag(
   c: { env: Bindings },
-  options?: { cacheKV?: KVNamespace; supabaseConfig?: SupabaseRestConfigLike },
+  options?: {
+    cacheKV?: KVNamespace | undefined;
+    supabaseConfig?: SupabaseRestConfigLike | undefined;
+  },
 ): Promise<string | null> {
   const tags = await listAllowedPeriodTags(c, {
     cacheKV: options?.cacheKV,
@@ -179,13 +193,17 @@ export async function getLatestAllowedPeriodTag(
 
 export async function getLatestAllowedPeriodTagWithSource(
   c: { env: Bindings },
-  options?: { cacheKV?: KVNamespace; supabaseConfig?: SupabaseRestConfigLike },
+  options?: {
+    cacheKV?: KVNamespace | undefined;
+    supabaseConfig?: SupabaseRestConfigLike | undefined;
+  },
 ): Promise<{ tag: string | null; cached: boolean }> {
   const cacheKV = options?.cacheKV;
   if (cacheKV) {
     const cached = await readCachedPeriodTags(cacheKV, 1);
-    if (cached && cached.length > 0) {
-      return { tag: cached[0], cached: true };
+    const cachedTag = cached?.[0];
+    if (cachedTag !== undefined) {
+      return { tag: cachedTag, cached: true };
     }
   }
 
@@ -212,8 +230,8 @@ export async function validateCachedPeriodTag(
   periodTag: string,
   options?: {
     fieldName?: string;
-    cacheKV?: KVNamespace;
-    supabaseConfig?: SupabaseRestConfigLike;
+    cacheKV?: KVNamespace | undefined;
+    supabaseConfig?: SupabaseRestConfigLike | undefined;
   },
 ): Promise<{ ok: true } | { ok: false; status: 400 | 503; error: string }> {
   const fieldName = options?.fieldName ?? "period_tag";
@@ -289,19 +307,24 @@ export async function getLatestMasterPeriodTag(
   if (kv) {
     try {
       const cached = await kv.get(cacheKey, "json");
-      if (cached) return cached as { period_tag: string; table_version: string };
+      const parsedCached = LatestMasterPeriodRowSchema.safeParse(cached);
+      if (parsedCached.success) return parsedCached.data;
     } catch (e) {
       console.warn("[period-tags] failed to read from kv for latest master period", e);
     }
   }
 
-  const latestMasterData = (await db
+  const latestMasterDataResult = await db
     .prepare(
       `SELECT period_tag, table_version FROM master_data_index WHERE upload_status = 'completed' ORDER BY completed_at DESC, period_revision DESC LIMIT 1`,
     )
-    .first()) as { period_tag: string; table_version: string } | null;
+    .first();
+  const parsedLatestMasterData =
+    LatestMasterPeriodRowSchema.safeParse(latestMasterDataResult);
+  if (!parsedLatestMasterData.success) return null;
+  const latestMasterData = parsedLatestMasterData.data;
 
-  if (latestMasterData?.period_tag) {
+  if (latestMasterData.period_tag) {
     if (kv) {
       try {
         await kv.put(cacheKey, JSON.stringify(latestMasterData), { expirationTtl: 300 });

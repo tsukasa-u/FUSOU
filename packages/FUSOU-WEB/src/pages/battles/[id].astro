@@ -1,7 +1,4 @@
 ---
 export const prerender = false;
-const { id } = Astro.params;
-const queryParams = Astro.url.search;
-const newUrl = `/battles?tab=detail&detail_id=${id}${queryParams ? '&' + queryParams.substring(1) : ''}`;
-return Astro.redirect(newUrl);
+return Astro.redirect(`/battles?tab=detail&detail_id=${Astro.params.id}${Astro.url.search ? '&' + Astro.url.search.substring(1) : ''}`);
 ---

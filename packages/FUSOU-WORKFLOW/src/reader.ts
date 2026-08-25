@@ -26,9 +26,16 @@ import {
   getAvroHeaderLengthFromPrefix,
   parseDeflateAvroBlock,
   parseNullAvroBlock,
-} from "./avro-manual";
-import { computeSchemaFingerprint } from "./avro-manual";
+} from "@fusou/compaction-core";
+import { computeSchemaFingerprint } from "./avro-builders.js";
 import { fetchHotData as fetchTursoHotData, BufferLogRecord } from "./db";
+import {
+  AvroSchemaSchema,
+  FingerprintVersionMapSchema,
+  JsonRecordSchema,
+} from "./schemas";
+import type { FingerprintVersionMap } from "./schemas";
+import { toUint8Array } from "./utils/binary";
 
 // Bundled fingerprints — kept in sync via: pnpm --filter fusou-workflow run generate:all
 // This import is resolved at build time, so no manual env var setup is needed.
@@ -95,53 +102,48 @@ interface BlockIndex {
   compression_codec: string | null;
 }
 
+type JsonRecord = Record<string, unknown>;
+
+function validateRecords(records: unknown[]): JsonRecord[] {
+  return records.flatMap((record) => {
+    const parsed = JsonRecordSchema.safeParse(record);
+    return parsed.success ? [parsed.data] : [];
+  });
+}
+
+function recordTimestamp(record: JsonRecord): number {
+  const timestamp = record["timestamp"];
+  return typeof timestamp === "number" && Number.isFinite(timestamp)
+    ? timestamp
+    : 0;
+}
+
 /**
  * Fetch Hot data from Turso buffer tables.
  *
  * FIXED: Hot data contains Avro OCF binary, not JSON text.
  * Must deserialize using Avro parser.
  */
-async function fetchHotData(env: Env, params: QueryParams): Promise<any[]> {
+async function fetchHotData(env: Env, params: QueryParams): Promise<JsonRecord[]> {
   const includeProcessing = await shouldIncludeProcessingTable(env);
   const { rows } = await fetchTursoHotData(env, {
     dataset_id: params.dataset_id,
     table_name: params.table_name,
-    from: params.from,
-    to: params.to,
-    table_version: params.table_version,
     includeProcessing,
+    ...(params.from !== undefined ? { from: params.from } : {}),
+    ...(params.to !== undefined ? { to: params.to } : {}),
+    ...(params.table_version !== undefined
+      ? { table_version: params.table_version }
+      : {}),
   });
 
   // FIXED: Deserialize Avro OCF binary data (not JSON text)
-  const allRecords: any[] = [];
+  const allRecords: JsonRecord[] = [];
 
   for (const row of rows) {
     // Convert to Uint8Array for Avro parsing
     // FIXED: Properly handle all cases including Uint8Array views with byteOffset
-    let data: Uint8Array;
-    if (row.data instanceof ArrayBuffer) {
-      data = new Uint8Array(row.data);
-    } else if (row.data instanceof Uint8Array) {
-      data = row.data;
-    } else {
-      // Fallback: try to get underlying buffer with proper offset handling
-      const anyData = row.data as any;
-      if (
-        anyData.buffer &&
-        typeof anyData.byteOffset === "number" &&
-        typeof anyData.byteLength === "number"
-      ) {
-        // It's a typed array view - copy to avoid offset issues
-        data = new Uint8Array(
-          anyData.buffer.slice(
-            anyData.byteOffset,
-            anyData.byteOffset + anyData.byteLength,
-          ),
-        );
-      } else {
-        data = new Uint8Array(anyData.buffer || anyData);
-      }
-    }
+    const data = toUint8Array(row.data);
 
     try {
       // Parse Avro OCF header to get schema and codec info
@@ -160,11 +162,11 @@ async function fetchHotData(env: Env, params: QueryParams): Promise<any[]> {
       if (codec === "deflate") {
         // FIXED: Parse ALL deflate-compressed blocks (not just the first one)
         const records = await parseAllDeflateAvroBlocks(header, body);
-        allRecords.push(...records);
+        allRecords.push(...validateRecords(records));
       } else {
         // FIXED: Parse ALL uncompressed blocks (not just the first one)
         const records = parseAllNullAvroBlocks(header, body);
-        allRecords.push(...records);
+        allRecords.push(...validateRecords(records));
       }
     } catch (err) {
       console.error(
@@ -198,7 +200,7 @@ async function fetchColdIndexes(
     WHERE bi.dataset_id = ? AND bi.table_name = ?
   `;
 
-  const bindings: any[] = [dataset_id, table_name];
+  const bindings: Array<string | number> = [dataset_id, table_name];
 
   // Filter by table_version if specified
   if (table_version !== undefined) {
@@ -319,38 +321,31 @@ async function parseSchemaFingerprintFromHeader(
     }
     if (endBrace === -1) return { fingerprint: null, namespace: null };
     const schemaJson = text.slice(startBrace, endBrace + 1);
-    const schema = JSON.parse(schemaJson);
+    const parsedSchema = AvroSchemaSchema.safeParse(JSON.parse(schemaJson) as unknown);
+    if (!parsedSchema.success) return { fingerprint: null, namespace: null };
     const fp = await computeSchemaFingerprint(schemaJson);
-    const ns = typeof schema.namespace === "string" ? schema.namespace : null;
+    const ns = parsedSchema.data.namespace ?? null;
     return { fingerprint: fp, namespace: ns };
   } catch {
     return { fingerprint: null, namespace: null };
   }
 }
 
-type FingerprintEntry = string | string[];
-type FingerprintTableMap = Record<string, FingerprintEntry>;
-interface FingerprintVersionEntry {
-  tables: FingerprintTableMap;
-}
-type FingerprintVersionMap = Record<string, FingerprintVersionEntry>;
-
 function loadSchemaFingerprintMap(env: Env): FingerprintVersionMap {
   // Priority: env var override > bundled fingerprints.json
   if (env.TABLE_FINGERPRINTS_JSON) {
     try {
-      const parsed = JSON.parse(env.TABLE_FINGERPRINTS_JSON);
-      if (typeof parsed === "object" && parsed !== null)
-        return parsed as FingerprintVersionMap;
+      const parsed = FingerprintVersionMapSchema.safeParse(
+        JSON.parse(env.TABLE_FINGERPRINTS_JSON) as unknown,
+      );
+      if (parsed.success) return parsed.data;
     } catch {
       // Fall through to bundled
     }
   }
   // Use bundled fingerprints (imported at build time from configs/fingerprints.json)
-  if (bundledFingerprints && typeof bundledFingerprints === "object") {
-    return bundledFingerprints as unknown as FingerprintVersionMap;
-  }
-  return {};
+  const parsedBundled = FingerprintVersionMapSchema.safeParse(bundledFingerprints);
+  return parsedBundled.success ? parsedBundled.data : {};
 }
 
 async function validateHeaderTableVersion(
@@ -385,7 +380,7 @@ async function validateHeaderTableVersion(
 async function deserializeAvroBlock(
   header: Uint8Array,
   dataBlock: Uint8Array,
-): Promise<any[]> {
+): Promise<unknown[]> {
   const codec = detectCompressionCodec(header);
   if (codec === "deflate") {
     // FIXED: Use multi-block parser for deflate codec
@@ -405,7 +400,7 @@ async function fetchColdData(
   indexes: BlockIndex[],
   allowedFingerprints: FingerprintVersionMap,
   tableName: string,
-): Promise<any[]> {
+): Promise<JsonRecord[]> {
   if (indexes.length === 0) return [];
 
   // Group by file to cache headers
@@ -418,7 +413,7 @@ async function fetchColdData(
   }
 
   // Fetch all blocks in parallel
-  const allRecords: any[] = [];
+  const allRecords: JsonRecord[] = [];
 
   for (const [filePath, blocks] of fileGroups.entries()) {
     // Fetch header once per file
@@ -462,29 +457,32 @@ async function fetchColdData(
     );
     const parsedBlocks = await Promise.all(parsePromises);
     for (const recs of parsedBlocks) {
-      allRecords.push(...recs);
+      allRecords.push(...validateRecords(recs));
     }
   }
 
   return allRecords;
 }
 
-function mergeAndDeduplicate(hotRecords: any[], coldRecords: any[]): any[] {
+function mergeAndDeduplicate(
+  hotRecords: JsonRecord[],
+  coldRecords: JsonRecord[],
+): JsonRecord[] {
   // Combine
   const combined = [...coldRecords, ...hotRecords];
 
   // Sort by timestamp
-  combined.sort((a, b) => (a.timestamp ?? 0) - (b.timestamp ?? 0));
+  combined.sort((a, b) => recordTimestamp(a) - recordTimestamp(b));
 
   // Deduplicate by content hash (not just timestamp)
   // This prevents losing records with same timestamp but different content
   const seen = new Set<string>();
-  const deduplicated: any[] = [];
+  const deduplicated: JsonRecord[] = [];
 
   for (const record of combined) {
     // Create a simple hash from record content
     // In production, use a proper hash function (e.g., SHA-256)
-    const hash = JSON.stringify(record);
+    const hash = JSON.stringify(record) ?? "";
     if (!seen.has(hash)) {
       seen.add(hash);
       deduplicated.push(record);
@@ -508,16 +506,16 @@ export async function handleRead(
   const params: QueryParams = {
     dataset_id: url.searchParams.get("dataset_id") ?? "",
     table_name: url.searchParams.get("table_name") ?? "",
-    from:
-      fromRaw != null && Number.isFinite(Number(fromRaw))
-        ? Number(fromRaw)
-        : undefined,
-    to:
-      toRaw != null && Number.isFinite(Number(toRaw))
-        ? Number(toRaw)
-        : undefined,
     format: url.searchParams.get("format") ?? "json",
-    table_version: url.searchParams.get("table_version") ?? undefined,
+    ...(fromRaw != null && Number.isFinite(Number(fromRaw))
+      ? { from: Number(fromRaw) }
+      : {}),
+    ...(toRaw != null && Number.isFinite(Number(toRaw))
+      ? { to: Number(toRaw) }
+      : {}),
+    ...(url.searchParams.get("table_version") != null
+      ? { table_version: url.searchParams.get("table_version")! }
+      : {}),
   };
 
   if (!params.dataset_id || !params.table_name) {
@@ -556,7 +554,11 @@ export async function handleRead(
       }
 
       // Group by file_path; choose the first group
-      const filePath = indexes[0].file_path;
+      const firstIndex = indexes[0];
+      if (firstIndex === undefined) {
+        return new Response("Not Found", { status: 404 });
+      }
+      const filePath = firstIndex.file_path;
       const blocks = indexes.filter((i) => i.file_path === filePath);
       const header = await fetchAvroHeader(env.BATTLE_DATA_BUCKET, filePath);
       const { readable, writable } = new TransformStream<

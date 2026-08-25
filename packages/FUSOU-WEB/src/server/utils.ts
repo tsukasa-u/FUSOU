@@ -3,6 +3,11 @@ import type { Context } from "hono";
 import { env as cfEnv } from "cloudflare:workers";
 import { DEFAULT_ALLOWED_EXTENSIONS } from "./constants";
 import type { Bindings } from "./types";
+import { PublicIdSchema } from "./schemas/public-id";
+import { z } from "zod";
+
+type TokenPayloadSchema = z.ZodType<Record<string, unknown>>;
+type RuntimeBindings = Bindings & Record<string, unknown>;
 
 const SUPABASE_URL_KEYS = ["PUBLIC_SUPABASE_URL", "SUPABASE_URL"] as const;
 const SUPABASE_SERVICE_ROLE_KEYS = [
@@ -14,6 +19,20 @@ const SUPABASE_PUBLISHABLE_KEYS = [
   "PUBLIC_SUPABASE_ANON_KEY",
   "SUPABASE_ANON_KEY",
 ] as const;
+
+function asEnvRecord(value: unknown): Record<string, unknown> {
+  return value !== null && typeof value === "object"
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+function extractRuntimeEnv(source: unknown): Record<string, unknown> {
+  const sourceRecord = asEnvRecord(source);
+  const outerEnv = sourceRecord["env"] ?? source;
+  const outerEnvRecord = asEnvRecord(outerEnv);
+  const runtimeEnv = outerEnvRecord["env"] ?? outerEnv;
+  return asEnvRecord(runtimeEnv);
+}
 
 function firstResolvedEnv(
   ctx: EnvContext,
@@ -36,9 +55,9 @@ function firstResolvedEnv(
  */
 export interface EnvContext {
   /** ランタイム環境変数（Cloudflare Workers/Pages） */
-  readonly runtime: Record<string, any>;
+  readonly runtime: RuntimeBindings;
   /** ビルド時環境変数 */
-  readonly buildtime: Record<string, any>;
+  readonly buildtime: Record<string, string | undefined>;
   /** 開発環境かどうか */
   readonly isDev: boolean;
 }
@@ -47,17 +66,17 @@ export interface EnvContext {
  * Honoコンテキストから統一環境変数コンテキストを生成
  */
 export function createEnvContext(
-  c: Pick<Context, "env"> | { env?: any },
+  c: Pick<Context, "env"> | { env?: unknown },
 ): EnvContext {
-  const contextEnv = ((c as any)?.env as any)?.env || (c as any)?.env || {};
+  const contextEnv = extractRuntimeEnv(c);
   const isDev = import.meta.env.DEV;
 
   return {
     runtime: {
-      ...(cfEnv as unknown as Record<string, any>),
+      ...(cfEnv as unknown as Record<string, unknown>),
       ...contextEnv,
-    },
-    buildtime: import.meta.env as Record<string, any>,
+    } as RuntimeBindings,
+    buildtime: import.meta.env as Record<string, string | undefined>,
     isDev,
   };
 }
@@ -68,12 +87,16 @@ export function createEnvContext(
  */
 export function getEnv(ctx: EnvContext, key: string): string | undefined {
   const runtimeValue = ctx.runtime[key];
-  if (runtimeValue && !String(runtimeValue).startsWith("encrypted:")) {
+  if (
+    typeof runtimeValue === "string" &&
+    runtimeValue &&
+    !runtimeValue.startsWith("encrypted:")
+  ) {
     return runtimeValue;
   }
 
   if (ctx.isDev && typeof process !== "undefined") {
-    const processValue = (process.env as any)[key];
+    const processValue = process.env[key];
     if (processValue) return processValue;
   }
 
@@ -84,14 +107,14 @@ export function getEnv(ctx: EnvContext, key: string): string | undefined {
     buildtimeValue.startsWith("encrypted:")
   ) {
     if (typeof process !== "undefined") {
-      const processValue = (process.env as any)[key];
+      const processValue = process.env[key];
       if (processValue) return processValue;
     }
     // 暗号化文字列をそのまま返さない
     return undefined;
   }
 
-  return buildtimeValue;
+  return typeof buildtimeValue === "string" ? buildtimeValue : undefined;
 }
 
 /** 環境変数が設定されているか確認 */
@@ -121,7 +144,7 @@ export function parseStrictBoolean(
 
 /** 署名付きトークンを生成 */
 export async function generateSignedToken(
-  payload: Record<string, any>,
+  payload: Record<string, unknown>,
   secret: string,
   expiresInSeconds: number,
 ): Promise<string> {
@@ -137,11 +160,13 @@ export async function generateSignedToken(
 export async function verifySignedToken(
   token: string,
   secret: string,
-): Promise<Record<string, any> | null> {
+): Promise<Record<string, unknown> | null> {
   try {
     const secretKey = new TextEncoder().encode(secret);
-    const { payload } = await jwtVerify(token, secretKey);
-    return payload as Record<string, any>;
+    const { payload } = await jwtVerify(token, secretKey, {
+      algorithms: ["HS256"],
+    });
+    return payload as Record<string, unknown>;
   } catch {
     return null;
   }
@@ -174,11 +199,11 @@ export function validateDatasetTokenSecret(secret: string | undefined): {
  */
 export function getEnvValue(
   key: string,
-  runtimeEnv: Record<string, any> = {},
+  runtimeEnv: Record<string, unknown> = {},
 ): string | undefined {
   const ctx: EnvContext = {
-    runtime: runtimeEnv,
-    buildtime: import.meta.env as Record<string, any>,
+    runtime: runtimeEnv as RuntimeBindings,
+    buildtime: import.meta.env as Record<string, string | undefined>,
     isDev: import.meta.env.DEV,
   };
   return getEnv(ctx, key);
@@ -203,11 +228,11 @@ export function resolveSupabaseConfig(ctx: EnvContext): SupabaseConfig {
  * @deprecated Use createEnvContext() + resolveSupabaseConfig() instead
  */
 export function resolveSupabaseConfigLegacy(
-  runtimeEnv: Record<string, any> = {},
+  runtimeEnv: Record<string, unknown> = {},
 ): SupabaseConfig {
   const ctx: EnvContext = {
-    runtime: runtimeEnv,
-    buildtime: import.meta.env as Record<string, any>,
+    runtime: runtimeEnv as RuntimeBindings,
+    buildtime: import.meta.env as Record<string, string | undefined>,
     isDev: import.meta.env.DEV,
   };
   return resolveSupabaseConfig(ctx);
@@ -218,33 +243,40 @@ export function resolveSupabaseConfigLegacy(
  * @deprecated Use createEnvContext() instead for unified environment access
  */
 export function getRuntimeEnv(
-  c: Pick<Context, "env"> | { env?: any },
-): Record<string, any> {
-  return ((c as any)?.env as any)?.env || (c as any)?.env || {};
+  c: Pick<Context, "env"> | { env?: unknown },
+): Record<string, unknown> {
+  return extractRuntimeEnv(c);
 }
 
 /** Cloudflare runtime環境変数からBindingsオブジェクトを構築 */
 export function injectEnv(_locals?: unknown): Bindings {
   const ctx: EnvContext = {
-    runtime: (cfEnv as unknown as Record<string, any>) ?? {},
-    buildtime: import.meta.env as Record<string, any>,
+    runtime: (cfEnv as unknown as RuntimeBindings) ?? {},
+    buildtime: import.meta.env as Record<string, string | undefined>,
     isDev: import.meta.env.DEV,
+  };
+  const optionalSecrets = {
+    questTree: getEnv(ctx, "QUEST_TREE_SIGNING_SECRET"),
+    shipGrowth: getEnv(ctx, "SHIP_GROWTH_SIGNING_SECRET"),
+    remodelData: getEnv(ctx, "REMODEL_DATA_SIGNING_SECRET"),
+    battleDataSignedUrl: getEnv(ctx, "BATTLE_DATA_SIGNED_URL_SECRET"),
+    resend: getEnv(ctx, "RESEND_API_KEY"),
   };
 
   return {
-    ASSETS_BUCKET: ctx.runtime.ASSETS_BUCKET!,
-    ASSET_SYNC_BUCKET: ctx.runtime.ASSET_SYNC_BUCKET!,
-    ASSET_INDEX_DB: ctx.runtime.ASSET_INDEX_DB!,
-    BATTLE_INDEX_DB: ctx.runtime.BATTLE_INDEX_DB!,
-    QUEST_INDEX_DB: ctx.runtime.QUEST_INDEX_DB!,
-    FLEET_SNAPSHOT_BUCKET: ctx.runtime.FLEET_SNAPSHOT_BUCKET!,
-    BATTLE_DATA_BUCKET: ctx.runtime.BATTLE_DATA_BUCKET!,
-    MASTER_DATA_BUCKET: ctx.runtime.MASTER_DATA_BUCKET!,
-    SHIP_GROWTH_ARCHIVE_BUCKET: ctx.runtime.SHIP_GROWTH_ARCHIVE_BUCKET!,
-    MASTER_DATA_INDEX_DB: ctx.runtime.MASTER_DATA_INDEX_DB!,
-    SHIP_GROWTH_DB: ctx.runtime.SHIP_GROWTH_DB!,
-    SOKU_SPEED_OBSERVED_DB: ctx.runtime.SOKU_SPEED_OBSERVED_DB!,
-    REMODEL_INDEX_DB: ctx.runtime.REMODEL_INDEX_DB!,
+    ASSETS_BUCKET: ctx.runtime["ASSETS_BUCKET"]!,
+    ASSET_SYNC_BUCKET: ctx.runtime["ASSET_SYNC_BUCKET"]!,
+    ASSET_INDEX_DB: ctx.runtime["ASSET_INDEX_DB"]!,
+    BATTLE_INDEX_DB: ctx.runtime["BATTLE_INDEX_DB"]!,
+    QUEST_INDEX_DB: ctx.runtime["QUEST_INDEX_DB"]!,
+    FLEET_SNAPSHOT_BUCKET: ctx.runtime["FLEET_SNAPSHOT_BUCKET"]!,
+    BATTLE_DATA_BUCKET: ctx.runtime["BATTLE_DATA_BUCKET"]!,
+    MASTER_DATA_BUCKET: ctx.runtime["MASTER_DATA_BUCKET"]!,
+    SHIP_GROWTH_ARCHIVE_BUCKET: ctx.runtime["SHIP_GROWTH_ARCHIVE_BUCKET"]!,
+    MASTER_DATA_INDEX_DB: ctx.runtime["MASTER_DATA_INDEX_DB"]!,
+    SHIP_GROWTH_DB: ctx.runtime["SHIP_GROWTH_DB"]!,
+    SOKU_SPEED_OBSERVED_DB: ctx.runtime["SOKU_SPEED_OBSERVED_DB"]!,
+    REMODEL_INDEX_DB: ctx.runtime["REMODEL_INDEX_DB"]!,
     ASSET_BASE_URL: getEnv(ctx, "ASSET_BASE_URL")!,
     // PUBLIC_SITE_URL_PRODUCTION: getEnv(ctx, "PUBLIC_SITE_URL_PRODUCTION")!,
     PUBLIC_SUPABASE_URL: getEnv(ctx, "PUBLIC_SUPABASE_URL")!,
@@ -260,17 +292,27 @@ export function injectEnv(_locals?: unknown): Bindings {
     )!,
     BATTLE_DATA_SIGNING_SECRET: getEnv(ctx, "BATTLE_DATA_SIGNING_SECRET")!,
     MASTER_DATA_SIGNING_SECRET: getEnv(ctx, "MASTER_DATA_SIGNING_SECRET")!,
-    QUEST_TREE_SIGNING_SECRET: getEnv(ctx, "QUEST_TREE_SIGNING_SECRET"),
-    SHIP_GROWTH_SIGNING_SECRET: getEnv(ctx, "SHIP_GROWTH_SIGNING_SECRET"),
-    REMODEL_DATA_SIGNING_SECRET: getEnv(ctx, "REMODEL_DATA_SIGNING_SECRET"),
-    BATTLE_DATA_SIGNED_URL_SECRET: getEnv(ctx, "BATTLE_DATA_SIGNED_URL_SECRET"),
+    ...(optionalSecrets.questTree === undefined
+      ? {}
+      : { QUEST_TREE_SIGNING_SECRET: optionalSecrets.questTree }),
+    ...(optionalSecrets.shipGrowth === undefined
+      ? {}
+      : { SHIP_GROWTH_SIGNING_SECRET: optionalSecrets.shipGrowth }),
+    ...(optionalSecrets.remodelData === undefined
+      ? {}
+      : { REMODEL_DATA_SIGNING_SECRET: optionalSecrets.remodelData }),
+    ...(optionalSecrets.battleDataSignedUrl === undefined
+      ? {}
+      : { BATTLE_DATA_SIGNED_URL_SECRET: optionalSecrets.battleDataSignedUrl }),
     DATASET_TOKEN_SECRET: getEnv(ctx, "DATASET_TOKEN_SECRET")!,
     CHALLENGE_HMAC_SECRET: getEnv(ctx, "CHALLENGE_HMAC_SECRET")!,
-    RESEND_API_KEY: getEnv(ctx, "RESEND_API_KEY"),
-    COMPACTION_QUEUE: ctx.runtime.COMPACTION_QUEUE!,
-    COMPACTION_DLQ: ctx.runtime.COMPACTION_DLQ!,
-    COMPACTION_WORKFLOW: ctx.runtime.COMPACTION_WORKFLOW!,
-    SHORTENER_SERVICE: ctx.runtime.SHORTENER_SERVICE,
+    ...(optionalSecrets.resend === undefined
+      ? {}
+      : { RESEND_API_KEY: optionalSecrets.resend }),
+    COMPACTION_QUEUE: ctx.runtime["COMPACTION_QUEUE"]!,
+    COMPACTION_DLQ: ctx.runtime["COMPACTION_DLQ"]!,
+    COMPACTION_WORKFLOW: ctx.runtime["COMPACTION_WORKFLOW"]!,
+    SHORTENER_SERVICE: ctx.runtime["SHORTENER_SERVICE"]!,
   };
 }
 
@@ -282,7 +324,9 @@ export function injectEnv(_locals?: unknown): Bindings {
  * Hono の c.executionCtx に安全にアクセスする
  * Hono の仕様により、Execution Context が提供されていない状態で c.executionCtx を読むと例外が発生するため
  */
-export function safeGetExecutionCtx(c: any): any | undefined {
+export function safeGetExecutionCtx(
+  c: Pick<Context, "executionCtx">,
+): Pick<Context, "executionCtx">["executionCtx"] | undefined {
   try {
     return c.executionCtx;
   } catch {
@@ -293,7 +337,10 @@ export function safeGetExecutionCtx(c: any): any | undefined {
 /**
  * バックグラウンドタスクを安全にスケジュールする
  */
-export function safeWaitUntil(c: any, promise: Promise<unknown>): void {
+export function safeWaitUntil(
+  c: Pick<Context, "executionCtx">,
+  promise: Promise<unknown>,
+): void {
   const ctx = safeGetExecutionCtx(c);
   if (ctx && typeof ctx.waitUntil === "function") {
     ctx.waitUntil(promise);
@@ -310,7 +357,7 @@ export function extractBearer(
 ): string | null {
   if (!header) return null;
   const [scheme, ...rest] = header.trim().split(/\s+/);
-  if (!rest.length || scheme.toLowerCase() !== "bearer") return null;
+  if (!scheme || !rest.length || scheme.toLowerCase() !== "bearer") return null;
   return rest.join(" ");
 }
 
@@ -419,7 +466,7 @@ export function sanitizeFileName(input: string | null): string | null {
 // that getEnv() refuses to return, leaving SUPABASE_URL=null and all JWT validation
 // failing with 401.
 function createGlobalEnvContext(): EnvContext {
-  return createEnvContext({ env: cfEnv as any });
+  return createEnvContext({ env: cfEnv as Record<string, unknown> });
 }
 
 function getCurrentSupabaseUrl(): string | null {
@@ -460,7 +507,7 @@ function getJWKS() {
 export async function validateJWT(token: string): Promise<{
   id?: string;
   email?: string;
-  payload?: Record<string, any>;
+  payload?: Record<string, unknown>;
 } | null> {
   try {
     const { url: supabaseUrl, jwks } = getJWKS();
@@ -477,10 +524,13 @@ export async function validateJWT(token: string): Promise<{
       clockTolerance: 30, // Allow 30 seconds of clock skew
     });
 
+    const id = typeof payload["sub"] === "string" ? payload["sub"] : undefined;
+    const email =
+      typeof payload["email"] === "string" ? payload["email"] : undefined;
     return {
-      id: typeof payload.sub === "string" ? payload.sub : undefined,
-      email: typeof payload.email === "string" ? payload.email : undefined,
-      payload: payload as Record<string, any>,
+      ...(id === undefined ? {} : { id }),
+      ...(email === undefined ? {} : { email }),
+      payload: payload as Record<string, unknown>,
     };
   } catch (error) {
     console.error("validateJWT: JWT verification failed:", error);
@@ -488,100 +538,88 @@ export async function validateJWT(token: string): Promise<{
   }
 }
 
-function isValidMemberIdHash(value: unknown): value is string {
-  return (
-    typeof value === "string" &&
-    /^[a-f0-9]{64}$/.test(value.trim().toLowerCase())
-  );
+export function isValidPublicId(value: unknown): value is string {
+  return typeof value === "string" && PublicIdSchema.safeParse(value.trim()).success;
 }
 
-export function extractMemberIdHashFromJwtPayload(
-  payload?: Record<string, any>,
-): string | null {
-  const candidates = [
-    payload?.member_id_hash,
-    payload?.user_metadata?.member_id_hash,
-    payload?.app_metadata?.member_id_hash,
-  ];
+type PublicIdLookupQuery = {
+  select(columns: string): {
+    eq(column: string, value: string): {
+      order(
+        column: string,
+        options: { ascending: boolean },
+      ): PromiseLike<{ data: unknown; error: unknown }>;
+    };
+  };
+};
 
-  for (const candidate of candidates) {
-    if (isValidMemberIdHash(candidate)) {
-      return candidate.trim().toLowerCase();
-    }
-  }
+type MemberLookupClient = {
+  from(table: string): unknown;
+};
 
-  return null;
+type PublicIdMappingSource = "web_mapping" | "canonical_mapping";
+
+function parsePublicIdRows(data: unknown): string[] {
+  const rows = Array.isArray(data) ? data : data === null ? [] : [data];
+  return rows.flatMap((row) => {
+    const record = asEnvRecord(row);
+    return isValidPublicId(record["public_id"])
+      ? [record["public_id"].trim().toLowerCase()]
+      : [];
+  });
 }
 
-export async function resolveLinkedMemberIdHashForUser(options: {
-  supabaseAdmin: any;
+export async function resolvePublicIdsForUser(options: {
+  supabaseAdmin: MemberLookupClient;
   userId?: string;
-  jwtPayload?: Record<string, any>;
 }): Promise<{
-  memberIdHash: string | null;
-  source: "jwt_metadata" | "canonical_owner" | null;
+  publicIds: string[];
+  source: PublicIdMappingSource | null;
 }> {
-  const { supabaseAdmin, userId, jwtPayload } = options;
-
-  const fromJwtMetadata = extractMemberIdHashFromJwtPayload(jwtPayload);
+  const { supabaseAdmin, userId } = options;
   if (!userId) {
-    if (fromJwtMetadata) {
-      return { memberIdHash: fromJwtMetadata, source: "jwt_metadata" };
-    }
-    return { memberIdHash: null, source: null };
+    return { publicIds: [], source: null };
   }
 
-  // Canonical owner mapping is the source of truth for user->dataset binding.
-  const { data: canonicalMapping, error: canonicalMappingError } =
-    await supabaseAdmin
-      .from("user_member_map")
-      .select("member_id_hash")
+  for (const [table, source] of [
+    ["web_user_member_map", "web_mapping"],
+    ["user_member_map", "canonical_mapping"],
+  ] as const) {
+    const mappingQuery = supabaseAdmin.from(table) as PublicIdLookupQuery;
+    const { data, error } = await mappingQuery
+      .select("public_id")
       .eq("user_id", userId)
-      .maybeSingle();
+      .order("updated_at", { ascending: false });
 
-  if (canonicalMappingError) {
-    throw canonicalMappingError;
-  }
-
-  const fromCanonicalOwner = isValidMemberIdHash(
-    canonicalMapping?.member_id_hash,
-  )
-    ? canonicalMapping.member_id_hash.trim().toLowerCase()
-    : null;
-
-  if (fromJwtMetadata) {
-    if (!fromCanonicalOwner) {
-      console.warn(
-        "resolveLinkedMemberIdHashForUser: ignoring unverified JWT member_id_hash (no canonical mapping)",
-        {
-          user_id: userId,
-        },
-      );
-      return { memberIdHash: null, source: null };
+    if (error) {
+      throw error;
     }
 
-    if (fromJwtMetadata !== fromCanonicalOwner) {
-      console.warn(
-        "resolveLinkedMemberIdHashForUser: JWT member_id_hash mismatch; falling back to canonical mapping",
-        {
-          user_id: userId,
-        },
-      );
-      return { memberIdHash: fromCanonicalOwner, source: "canonical_owner" };
+    const publicIds = parsePublicIdRows(data);
+    if (publicIds.length > 0) {
+      return { publicIds, source };
     }
-
-    return { memberIdHash: fromCanonicalOwner, source: "jwt_metadata" };
   }
 
-  if (fromCanonicalOwner) {
-    return { memberIdHash: fromCanonicalOwner, source: "canonical_owner" };
-  }
+  return { publicIds: [], source: null };
+}
 
-  return { memberIdHash: null, source: null };
+export async function resolvePublicIdForUser(options: {
+  supabaseAdmin: MemberLookupClient;
+  userId?: string;
+}): Promise<{
+  publicId: string | null;
+  source: PublicIdMappingSource | null;
+}> {
+  const resolved = await resolvePublicIdsForUser(options);
+  return {
+    publicId: resolved.publicIds[0] ?? null,
+    source: resolved.source,
+  };
 }
 
 /**
- * dataset_token を検証（匿名認証で発行された署名付きトークン）
+ * dataset_token を検証（署名、期限、dataset/device の整合性、失効状態）
  *
  * @param token dataset_token文字列
  * @param secret DATASET_TOKEN_SECRET
@@ -593,6 +631,7 @@ export async function validateDatasetToken(
 ): Promise<{
   dataset_id: string;
   user_id: string;
+  device_id: string;
 } | null> {
   try {
     if (!secret) {
@@ -606,15 +645,17 @@ export async function validateDatasetToken(
     if (!payload) return null;
 
     // 必須フィールド検証
-    if (payload.typ !== "dataset") return null;
-    if (typeof payload.sub !== "string") return null;
-    if (typeof payload.dataset_id !== "string") return null;
-    if (payload.aud !== "fusou-upload") return null;
+    if (payload["typ"] !== "dataset") return null;
+    if (typeof payload["sub"] !== "string") return null;
+    if (!isValidPublicId(payload["dataset_id"])) return null;
+    if (!isValidPublicId(payload["device_id"])) return null;
+    if (payload["aud"] !== "fusou-upload") return null;
 
     // 有効期限確認（jose の verifySignedToken で exp は自動チェック済み）
     return {
-      dataset_id: payload.dataset_id,
-      user_id: payload.sub,
+      dataset_id: payload["dataset_id"].trim().toLowerCase(),
+      user_id: payload["sub"],
+      device_id: payload["device_id"].trim().toLowerCase(),
     };
   } catch (error) {
     console.error("validateDatasetToken: Token verification failed:", error);
@@ -627,6 +668,10 @@ export interface DatasetTokenValidationOptions {
   secret: string | undefined;
   expectedDatasetId?: string;
   expectedUserId?: string;
+  revocation: {
+    supabaseUrl: string;
+    serviceRoleKey: string;
+  } | null;
 }
 
 export interface DatasetTokenValidationResult {
@@ -636,6 +681,18 @@ export interface DatasetTokenValidationResult {
   token?: {
     dataset_id: string;
     user_id: string;
+    device_id: string;
+  };
+}
+
+export function resolveDatasetTokenRevocationConfig(
+  ctx: EnvContext,
+): DatasetTokenValidationOptions["revocation"] {
+  const config = resolveSupabaseConfig(ctx);
+  if (!config.url || !config.serviceRoleKey) return null;
+  return {
+    supabaseUrl: config.url,
+    serviceRoleKey: config.serviceRoleKey,
   };
 }
 
@@ -651,7 +708,7 @@ export function resolveDatasetToken(
 export async function validateDatasetTokenWithConstraints(
   options: DatasetTokenValidationOptions,
 ): Promise<DatasetTokenValidationResult> {
-  const { token, secret, expectedDatasetId, expectedUserId } = options;
+  const { token, secret, expectedDatasetId, expectedUserId, revocation } = options;
 
   if (!token) {
     return { ok: false, status: 401, error: "dataset_token is required" };
@@ -659,7 +716,6 @@ export async function validateDatasetTokenWithConstraints(
   if (!secret) {
     return { ok: false, status: 500, error: "Server configuration error" };
   }
-
   const validated = await validateDatasetToken(token, secret);
   if (!validated) {
     return {
@@ -672,7 +728,7 @@ export async function validateDatasetTokenWithConstraints(
   if (
     typeof expectedDatasetId === "string" &&
     expectedDatasetId.trim() &&
-    validated.dataset_id !== expectedDatasetId.trim()
+    validated.dataset_id !== expectedDatasetId.trim().toLowerCase()
   ) {
     return { ok: false, status: 403, error: "dataset_id does not match token" };
   }
@@ -687,6 +743,37 @@ export async function validateDatasetTokenWithConstraints(
       status: 403,
       error: "dataset_token user does not match JWT user",
     };
+  }
+
+  if (!revocation) {
+    return { ok: false, status: 500, error: "Server configuration error" };
+  }
+
+  try {
+    const lookupUrl = new URL(`${revocation.supabaseUrl}/rest/v1/user_devices`);
+    lookupUrl.searchParams.set("select", "device_id");
+    lookupUrl.searchParams.set("device_id", `eq.${validated.device_id}`);
+    lookupUrl.searchParams.set("public_id", `eq.${validated.dataset_id}`);
+    lookupUrl.searchParams.set("canonical_user_id", `eq.${validated.user_id}`);
+    lookupUrl.searchParams.set("revoked_at", "is.null");
+    lookupUrl.searchParams.set("limit", "1");
+    const response = await fetch(lookupUrl, {
+      headers: {
+        apikey: revocation.serviceRoleKey,
+        Authorization: `Bearer ${revocation.serviceRoleKey}`,
+      },
+    });
+    if (!response.ok) {
+      console.error("validateDatasetToken: device revocation lookup failed", response.status);
+      return { ok: false, status: 500, error: "Server configuration error" };
+    }
+    const rows = await response.json();
+    if (!Array.isArray(rows) || rows.length !== 1) {
+      return { ok: false, status: 401, error: "Invalid or revoked dataset_token" };
+    }
+  } catch (error) {
+    console.error("validateDatasetToken: device revocation lookup failed", error);
+    return { ok: false, status: 500, error: "Server configuration error" };
   }
 
   return { ok: true, token: validated };
@@ -724,7 +811,7 @@ export function parseSize(value: string | undefined): number | null {
  * Cloudflare R2 は S3 互換なので、S3署名でアクセス可能
  */
 export async function generateR2SignedUrl(
-  _bucket: any, // R2BucketBinding
+  _bucket: unknown,
   key: string,
   _expiresInSeconds: number = 3600, // デフォルト1時間
 ): Promise<string> {
@@ -820,14 +907,15 @@ export async function verifyR2SignedUrl(
     if (!payload) return false;
 
     // キーの一致確認
-    if (payload.key !== key) return false;
+    if (payload["key"] !== key) return false;
 
     // アクション確認
-    if (payload.action !== "read") return false;
+    if (payload["action"] !== "read") return false;
 
     // 有効期限確認
     const now = Math.floor(Date.now() / 1000);
-    if (payload.exp && payload.exp < now) return false;
+    if (typeof payload["exp"] === "number" && payload["exp"] < now)
+      return false;
 
     return true;
   } catch (error) {
@@ -845,7 +933,7 @@ export async function verifyR2SignedUrl(
  * @returns バイナリデータ（ArrayBuffer）
  */
 export async function readR2Binary(
-  bucket: any,
+  bucket: Pick<Bindings["ASSETS_BUCKET"], "get">,
   key: string,
 ): Promise<ArrayBuffer> {
   const obj = await bucket.get(key);
@@ -864,14 +952,16 @@ export async function readR2Binary(
  * @param metadata オプションのメタデータ
  */
 export async function writeR2Binary(
-  bucket: any,
+  bucket: Pick<Bindings["ASSETS_BUCKET"], "put">,
   key: string,
   data: ArrayBuffer | Uint8Array,
   metadata?: Record<string, string>,
 ): Promise<void> {
-  await bucket.put(key, data, {
-    customMetadata: metadata,
-  });
+  await bucket.put(
+    key,
+    data,
+    metadata === undefined ? {} : { customMetadata: metadata },
+  );
 }
 
 /**
@@ -882,7 +972,13 @@ export async function writeR2Binary(
  * @returns メタデータ（size, contentType, lastModified）
  */
 export async function getR2ObjectMetadata(
-  bucket: any,
+  bucket: {
+    head(key: string): Promise<{
+      size?: number;
+      contentType?: string;
+      uploaded?: Date;
+    } | null>;
+  },
   key: string,
 ): Promise<{ size: number; contentType: string; lastModified: Date } | null> {
   try {
@@ -904,21 +1000,70 @@ export async function getR2ObjectMetadata(
  *
  * @param payload トークンペイロード
  * @param requiredFields 必須フィールド名のリスト
- * @returns { valid: boolean, error?: string, data?: any }
+ * @returns 検証成功時は型付きのトークンデータ、失敗時はエラー
  */
 export function validateTokenPayload(
-  payload: any,
-  requiredFields: string[] = [],
-): { valid: boolean; error?: string; data?: any } {
-  if (!payload || typeof payload !== "object") {
+  payload: unknown,
+  requiredFields?: readonly string[],
+):
+  | { valid: true; data: Record<string, unknown> }
+  | { valid: false; error: string } {
+  return validateTokenPayloadWithSchema(
+    payload,
+    z
+      .object({
+        user_id: z.string().min(1),
+        expectedFileSize: z.number().positive().nullable().optional(),
+      })
+      .passthrough(),
+    requiredFields ?? [],
+  );
+}
+
+export function validateTokenPayloadWithSchema<T extends TokenPayloadSchema>(
+  payload: unknown,
+  schema: T,
+):
+  | { valid: true; data: z.infer<T> }
+  | { valid: false; error: string };
+export function validateTokenPayloadWithSchema(
+  payload: unknown,
+  schema: TokenPayloadSchema,
+  requiredFields: readonly string[],
+):
+  | { valid: true; data: Record<string, unknown> }
+  | { valid: false; error: string };
+export function validateTokenPayloadWithSchema(
+  payload: unknown,
+  schema: TokenPayloadSchema,
+  requiredFields: readonly string[] = [],
+):
+  | { valid: true; data: Record<string, unknown> }
+  | { valid: false; error: string } {
+  const parsed = schema.safeParse(payload);
+
+  if (!parsed.success) {
+    if (
+      !payload ||
+      typeof payload !== "object" ||
+      Array.isArray(payload)
+    ) {
+      return {
+        valid: false,
+        error: "Token payload must be a non-null object",
+      };
+    }
+
     return {
       valid: false,
-      error: "Token payload must be a non-null object",
+      error: "Token payload does not satisfy the required schema",
     };
   }
 
+  const data = parsed.data;
+
   // Check for required fields
-  const missingFields = requiredFields.filter((field) => !(field in payload));
+  const missingFields = requiredFields.filter((field) => !(field in data));
   if (missingFields.length > 0) {
     return {
       valid: false,
@@ -926,29 +1071,8 @@ export function validateTokenPayload(
     };
   }
 
-  // Validate user_id is present and is string
-  if (!payload.user_id || typeof payload.user_id !== "string") {
-    return {
-      valid: false,
-      error: "Token payload must have user_id as string",
-    };
-  }
-
-  // Validate expectedFileSize if present (should be number)
-  if ("expectedFileSize" in payload && payload.expectedFileSize !== null) {
-    if (
-      typeof payload.expectedFileSize !== "number" ||
-      payload.expectedFileSize <= 0
-    ) {
-      return {
-        valid: false,
-        error: "expectedFileSize must be a positive number if provided",
-      };
-    }
-  }
-
   return {
     valid: true,
-    data: payload,
+    data,
   };
 }

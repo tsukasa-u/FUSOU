@@ -81,6 +81,8 @@ pub struct OwnShip {
     #[cfg(schema_since = "0.5.0")]
     pub lucky: Option<i32>,             // 運
     pub sally_area: Option<i32>,
+    #[cfg(schema_since = "0.6.0")]
+    pub sortie_tag_id: Option<i32>,
     pub sp_effect_items: Option<Vec<i32>>,
 }
 
@@ -242,6 +244,8 @@ impl OwnShip {
             #[cfg(schema_since = "0.5.0")]
             lucky: ship.lucky.clone().map(|values| values[0] as i32),
             sally_area: ship.sally_area.map(|value| value as i32),
+            #[cfg(schema_since = "0.6.0")]
+            sortie_tag_id: ship.sortie_tag_id.map(|value| value as i32),
             sp_effect_items: ship
                 .sp_effect_items
                 .clone()

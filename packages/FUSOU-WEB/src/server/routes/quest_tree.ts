@@ -1,6 +1,10 @@
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
+import { z } from "zod";
 import type { Bindings, D1Database, D1Result } from "../types";
-import { CORS_HEADERS } from "../constants";
+import {
+  CORS_HEADERS,
+  MAX_QUEST_TREE_UPLOAD_BYTES,
+} from "../constants";
 import {
   createEnvContext,
   generateSignedToken,
@@ -10,8 +14,8 @@ import {
   timingSafeEqual,
   validateDatasetTokenSecret,
   validateDatasetTokenWithConstraints,
-  validateJWT,
-  validateTokenPayload,
+  resolveDatasetTokenRevocationConfig,
+  validateTokenPayloadWithSchema,
   verifySignedToken,
   safeWaitUntil,
   safeGetExecutionCtx,
@@ -21,18 +25,42 @@ import {
   loadOrRefreshCanonicalSnapshot,
 } from "../utils/snapshot-cache";
 import { validateCachedPeriodTag } from "../utils/period-tags";
+import { readBodyWithinLimit } from "../utils/upload";
+import { QuestTreeUploadTokenPayloadSchema } from "../schemas/tokens";
+import { PublicIdSchema } from "../schemas/public-id";
+import {
+  QuestCollectionSessionRowSchema,
+  QuestIngestConflictRowSchema,
+  QuestIngestEventIdRowSchema,
+  QuestAppearanceEventRowSchema,
+  QuestRuleRowsSchema,
+  QuestRuleUpdatedRowSchema,
+  QuestSnapshotPageRowSchema,
+  QuestStateEventRowSchema,
+  QuestTreeIngestBodySchema,
+  ValidatedQuestTreeIngestBodySchema,
+  type QuestListEntry,
+  type QuestRuleRow,
+  type QuestTreeIngestBody,
+} from "../schemas/quest-tree";
 
 const app = new Hono<{ Bindings: Bindings }>();
 
-const ALLOWED_EVENT_TYPES = new Set(["snapshot", "start", "stop", "complete"]);
-
 const GAP_THRESHOLD_MS = 30 * 60 * 1000;
 const RECENT_WINDOW_MS = 10 * 60 * 1000;
-const MIN_OBS_SINGLE = 8;
-const MIN_OBS_PAIR = 6;
-const MIN_CONF_SINGLE = 0.55;
-const MIN_CONF_PAIR = 0.65;
+const QUEST_TREE_HANDSHAKE_MAX_BYTES = MAX_QUEST_TREE_UPLOAD_BYTES + 64 * 1024;
+const QUEST_CHANGES_CACHE_CONTROL =
+  "public, max-age=60, stale-while-revalidate=300";
+
 const KV_SNAPSHOT_TTL_MS = 60 * 60 * 1000;
+
+function parseQuestRuleRowsStrict(value: unknown): QuestRuleRow[] {
+  const parsed = QuestRuleRowsSchema.safeParse(value);
+  if (!parsed.success) {
+    throw new Error("Invalid quest rule rows");
+  }
+  return parsed.data;
+}
 const KV_EXPIRATION_TTL_S = 7 * 24 * 60 * 60;
 
 const QUEST_TREE_COLLECTION_SWITCH_ENV =
@@ -43,44 +71,7 @@ app.options(
   (_c) => new Response(null, { status: 204, headers: CORS_HEADERS }),
 );
 
-type QuestListEntry = {
-  quest_id: number;
-  type?: number;
-  category?: number;
-  label_type?: number;
-  title?: string;
-  detail?: string;
-};
-
-type IngestBody = {
-  dataset_id?: string;
-  request_id?: string;
-  payload_hash?: string;
-  event_type?: string;
-  timestamp_ms?: number;
-  period_tag?: string;
-  table_version?: string;
-  page_no?: number;
-  quest_id?: number;
-  quests?: QuestListEntry[];
-};
-
-type QuestRuleRow = {
-  rule_id: string;
-  target_quest_id: number;
-  prereq_set_json: string;
-  set_size: number;
-  class: string;
-  support: number;
-  confidence: number;
-  lift: number;
-  score: number;
-  period_tag: string;
-  table_version: string;
-  is_primary: number;
-  quality_tier: string;
-  updated_at_ms: number;
-};
+type IngestBody = QuestTreeIngestBody;
 
 type RulesSnapshot = {
   period_tag: string;
@@ -100,29 +91,33 @@ type GraphSnapshot = {
   db_synced_at: number;
 };
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
 function isRulesSnapshot(v: unknown): v is RulesSnapshot {
-  if (!v || typeof v !== "object") return false;
-  const s = v as Record<string, unknown>;
+  if (!isRecord(v)) return false;
+  const s = v;
   return (
-    typeof s.period_tag === "string" &&
-    typeof s.table_version === "string" &&
-    typeof s.target_quest_id === "number" &&
-    typeof s.include_low === "boolean" &&
-    Array.isArray(s.rows) &&
-    typeof s.refreshed_at === "number" &&
-    typeof s.db_synced_at === "number"
+    typeof s["period_tag"] === "string" &&
+    typeof s["table_version"] === "string" &&
+    typeof s["target_quest_id"] === "number" &&
+    typeof s["include_low"] === "boolean" &&
+    Array.isArray(s["rows"]) &&
+    typeof s["refreshed_at"] === "number" &&
+    typeof s["db_synced_at"] === "number"
   );
 }
 
 function isGraphSnapshot(v: unknown): v is GraphSnapshot {
-  if (!v || typeof v !== "object") return false;
-  const s = v as Record<string, unknown>;
+  if (!isRecord(v)) return false;
+  const s = v;
   return (
-    typeof s.period_tag === "string" &&
-    typeof s.table_version === "string" &&
-    Array.isArray(s.rows) &&
-    typeof s.refreshed_at === "number" &&
-    typeof s.db_synced_at === "number"
+    typeof s["period_tag"] === "string" &&
+    typeof s["table_version"] === "string" &&
+    Array.isArray(s["rows"]) &&
+    typeof s["refreshed_at"] === "number" &&
+    typeof s["db_synced_at"] === "number"
   );
 }
 
@@ -152,7 +147,7 @@ async function invalidateQuestTreeCaches(
 }
 
 function scheduleQuestTreeTask(
-  c: any,
+  c: Context<{ Bindings: Bindings }>,
   task: Promise<unknown>,
 ): void {
   safeWaitUntil(c, task);
@@ -183,11 +178,18 @@ function isQuestTreeCollectionEnabled(
   return parseStrictBoolean(raw, QUEST_TREE_COLLECTION_SWITCH_ENV);
 }
 
-function parseJsonArray<T>(raw: unknown): T[] {
+function parseJsonArray<T>(
+  raw: unknown,
+  parseItem: (value: unknown) => T | null,
+): T[] {
   if (!raw || typeof raw !== "string") return [];
   try {
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? (parsed as T[]) : [];
+    const parsed: unknown = JSON.parse(raw);
+    return Array.isArray(parsed)
+      ? parsed
+          .map(parseItem)
+          .filter((value): value is T => value !== null)
+      : [];
   } catch {
     return [];
   }
@@ -217,25 +219,22 @@ function validateIngestBody(body: IngestBody | null):
   | { ok: false; error: string } {
   if (!body) return { ok: false, error: "Invalid JSON body" };
 
-  const datasetId = (body.dataset_id ?? "").trim();
-  const requestId = (body.request_id ?? "").trim();
-  const payloadHash = (body.payload_hash ?? "").trim();
-  const eventType = (body.event_type ?? "").trim();
-  const periodTag = (body.period_tag ?? "").trim();
-  const tableVersion = (body.table_version ?? "").trim();
-  const atMs = toInt(body.timestamp_ms) ?? nowMs();
-
-  if (!datasetId) return { ok: false, error: "dataset_id is required" };
-  if (!requestId) return { ok: false, error: "request_id is required" };
-  if (!payloadHash) return { ok: false, error: "payload_hash is required" };
-  if (!ALLOWED_EVENT_TYPES.has(eventType)) {
+  const parsed = ValidatedQuestTreeIngestBodySchema.safeParse(body);
+  if (!parsed.success) {
     return {
       ok: false,
-      error: "event_type must be one of: snapshot, start, stop, complete",
+      error: parsed.error.issues[0]?.message ?? "Invalid JSON body",
     };
   }
-  if (!periodTag) return { ok: false, error: "period_tag is required" };
-  if (!tableVersion) return { ok: false, error: "table_version is required" };
+
+  const parsedBody = parsed.data;
+  const datasetId = parsedBody.dataset_id ?? "";
+  const requestId = parsedBody.request_id ?? "";
+  const payloadHash = parsedBody.payload_hash ?? "";
+  const eventType = parsedBody.event_type ?? "";
+  const periodTag = parsedBody.period_tag ?? "";
+  const tableVersion = parsedBody.table_version ?? "";
+  const atMs = parsedBody.timestamp_ms ?? nowMs();
 
   return {
     ok: true,
@@ -265,21 +264,28 @@ async function ingestQuestBody(db: D1Database, body: IngestBody) {
     atMs,
   } = validated;
 
-  const existing = (await db
+  const existingResult = await db
     .prepare(
       `SELECT id FROM quest_ingest_events WHERE request_id = ? AND payload_hash = ? LIMIT 1`,
     )
     .bind(requestId, payloadHash)
-    .first<D1Result>()) as { id?: number } | null;
+    .first<D1Result>();
+  const parsedExisting = QuestIngestEventIdRowSchema.safeParse(existingResult);
+  if (!parsedExisting.success) {
+    return {
+      status: 500,
+      body: { error: "Invalid quest ingest lookup response" },
+    };
+  }
 
-  if (existing?.id) {
+  if (parsedExisting.data?.id) {
     return {
       status: 200,
       body: { ok: true, idempotent: true, message: "already ingested" },
     };
   }
 
-  const sameRequestDifferentPayload = (await db
+  const conflictResult = await db
     .prepare(
       `SELECT id, payload_hash
        FROM quest_ingest_events
@@ -287,11 +293,18 @@ async function ingestQuestBody(db: D1Database, body: IngestBody) {
        LIMIT 1`,
     )
     .bind(requestId)
-    .first<D1Result>()) as { id?: number; payload_hash?: string } | null;
+    .first<D1Result>();
+  const parsedConflict = QuestIngestConflictRowSchema.safeParse(conflictResult);
+  if (!parsedConflict.success) {
+    return {
+      status: 500,
+      body: { error: "Invalid quest conflict lookup response" },
+    };
+  }
 
   if (
-    sameRequestDifferentPayload?.id &&
-    sameRequestDifferentPayload.payload_hash !== payloadHash
+    parsedConflict.data?.id &&
+    parsedConflict.data.payload_hash !== payloadHash
   ) {
     return {
       status: 409,
@@ -299,7 +312,7 @@ async function ingestQuestBody(db: D1Database, body: IngestBody) {
         error: "request_id conflict",
         message: "Same request_id already exists with different payload_hash",
         existing_request_id: requestId,
-        existing_payload_hash: sameRequestDifferentPayload.payload_hash ?? null,
+        existing_payload_hash: parsedConflict.data.payload_hash,
       },
     };
   }
@@ -456,12 +469,12 @@ async function upsertQuestMasterEntries(
   }
 }
 
-async function getOrCreateSession(
+export async function getOrCreateSession(
   db: D1Database,
   datasetId: string,
   atMs: number,
 ): Promise<{ sessionId: string; isNew: boolean; bootstrapCompleted: boolean }> {
-  const latest = (await db
+  const latestResult = await db
     .prepare(
       `SELECT collection_session_id, ended_at_ms, bootstrap_completed_at_ms
        FROM quest_collection_sessions
@@ -470,11 +483,12 @@ async function getOrCreateSession(
        LIMIT 1`,
     )
     .bind(datasetId)
-    .first<D1Result>()) as {
-    collection_session_id?: string;
-    ended_at_ms?: number | null;
-    bootstrap_completed_at_ms?: number | null;
-  } | null;
+    .first<D1Result>();
+  const parsedLatest = QuestCollectionSessionRowSchema.safeParse(latestResult);
+  if (!parsedLatest.success) {
+    throw new Error("Invalid quest collection session lookup response");
+  }
+  const latest = parsedLatest.data;
 
   const latestSessionId = latest?.collection_session_id ?? null;
   const latestEndedAt = toInt(latest?.ended_at_ms) ?? null;
@@ -528,25 +542,37 @@ async function getOrCreateSession(
   // INSERT OR IGNORE returns rows_written = 0 when UNIQUE(dataset_id, started_at_ms) fires,
   // meaning a concurrent request already inserted a session for this exact millisecond.
   // Re-query to get the canonical (winning) session so both requests converge on the same row.
-  const effectiveSessionId =
-    (insertResult.meta?.rows_written ?? 1) === 0
-      ? ((
-          (await db
-            .prepare(
-              `SELECT collection_session_id FROM quest_collection_sessions
-               WHERE dataset_id = ? AND started_at_ms = ?`,
-            )
-            .bind(datasetId, atMs)
-            .first<{ collection_session_id: string }>()) as {
-            collection_session_id?: string;
-          } | null
-        )?.collection_session_id ?? sessionId)
-      : sessionId;
+  const inserted = (insertResult.meta?.rows_written ?? 1) > 0;
+  let effectiveSessionId = sessionId;
+  let effectiveBootstrapCompleted = false;
+  if (!inserted) {
+    const concurrentSessionResult = await db
+      .prepare(
+        `SELECT collection_session_id, ended_at_ms, bootstrap_completed_at_ms
+         FROM quest_collection_sessions
+         WHERE dataset_id = ? AND started_at_ms = ?`,
+      )
+      .bind(datasetId, atMs)
+      .first<D1Result>();
+    const parsedConcurrentSession = QuestCollectionSessionRowSchema.safeParse(
+      concurrentSessionResult,
+    );
+    if (!parsedConcurrentSession.success) {
+      throw new Error("Invalid concurrent quest session lookup response");
+    }
+    const concurrentSession = parsedConcurrentSession.data;
+    if (!concurrentSession) {
+      throw new Error("Concurrent quest collection session was not found");
+    }
+    effectiveSessionId = concurrentSession.collection_session_id;
+    effectiveBootstrapCompleted =
+      concurrentSession.bootstrap_completed_at_ms != null;
+  }
 
   return {
     sessionId: effectiveSessionId,
-    isNew: true,
-    bootstrapCompleted: false,
+    isNew: inserted,
+    bootstrapCompleted: inserted ? false : effectiveBootstrapCompleted,
   };
 }
 
@@ -554,15 +580,16 @@ async function markBootstrapCompleted(
   db: D1Database,
   sessionId: string,
   atMs: number,
-): Promise<void> {
-  await db
+): Promise<boolean> {
+  const result = await db
     .prepare(
       `UPDATE quest_collection_sessions
        SET bootstrap_completed_at_ms = ?, ended_at_ms = ?
-       WHERE collection_session_id = ?`,
+       WHERE collection_session_id = ? AND bootstrap_completed_at_ms IS NULL`,
     )
     .bind(atMs, atMs, sessionId)
     .run();
+  return Number(result.meta?.changes ?? 1) > 0;
 }
 
 function toVisibleQuestIds(quests: QuestListEntry[]): number[] {
@@ -584,55 +611,6 @@ function setDiff(next: number[], prev: number[]): number[] {
   return diff;
 }
 
-async function upsertQuestStateLatest(
-  db: D1Database,
-  params: {
-    datasetId: string;
-    questId: number;
-    sessionId: string;
-    state: string;
-    eventType: string;
-    atMs: number;
-    periodTag: string;
-    tableVersion: string;
-    isClaimed: number;
-  },
-): Promise<void> {
-  await db
-    .prepare(
-      `INSERT INTO quest_state_latest (
-         dataset_id,
-         quest_id,
-         collection_session_id,
-         state,
-         updated_at_ms,
-         last_event_type,
-         period_tag,
-         table_version,
-         is_claimed
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-       ON CONFLICT(dataset_id, quest_id) DO UPDATE SET
-         collection_session_id = excluded.collection_session_id,
-         state = excluded.state,
-         updated_at_ms = excluded.updated_at_ms,
-         last_event_type = excluded.last_event_type,
-         period_tag = excluded.period_tag,
-         table_version = excluded.table_version,
-         is_claimed = excluded.is_claimed`,
-    )
-    .bind(
-      params.datasetId,
-      params.questId,
-      params.sessionId,
-      params.state,
-      params.atMs,
-      params.eventType,
-      params.periodTag,
-      params.tableVersion,
-      params.isClaimed,
-    )
-    .run();
-}
 
 async function enqueueTask(
   db: D1Database,
@@ -729,21 +707,23 @@ async function processIngestEvents(
     );
     const visibleQuestIds = toVisibleQuestIds(quests);
 
-    const previousSnapshots = ((
-      await db
-        .prepare(
-          `SELECT page_no, visible_quest_ids_json
-         FROM questlist_snapshots
-         WHERE dataset_id = ?
-           AND collection_session_id = ?
-         ORDER BY captured_at_ms DESC`,
-        )
-        .bind(params.datasetId, params.sessionId)
-        .all<{ page_no: number; visible_quest_ids_json?: string }>()
-    ).results ?? []) as Array<{
-      page_no: number;
-      visible_quest_ids_json?: string;
-    }>;
+    const previousSnapshotsResult = await db
+      .prepare(
+        `SELECT page_no, visible_quest_ids_json
+       FROM questlist_snapshots
+       WHERE dataset_id = ?
+         AND collection_session_id = ?
+       ORDER BY captured_at_ms DESC`,
+      )
+      .bind(params.datasetId, params.sessionId)
+      .all();
+    const parsedPreviousSnapshots = QuestSnapshotPageRowSchema.array().safeParse(
+      previousSnapshotsResult.results ?? [],
+    );
+    if (!parsedPreviousSnapshots.success) {
+      throw new Error("Invalid quest snapshot page rows");
+    }
+    const previousSnapshots = parsedPreviousSnapshots.data;
 
     const latestByPage = new Map<number, number[]>();
     for (const snap of previousSnapshots) {
@@ -751,7 +731,7 @@ async function processIngestEvents(
       if (page == null || latestByPage.has(page)) continue;
       latestByPage.set(
         page,
-        parseJsonArray<number>(snap.visible_quest_ids_json),
+        parseJsonArray(snap.visible_quest_ids_json, toInt),
       );
     }
 
@@ -792,8 +772,11 @@ async function processIngestEvents(
       .run();
 
     if (!params.isBootstrapCompleted) {
-      await markBootstrapCompleted(db, params.sessionId, params.atMs);
-      bootstrapNowCompleted = true;
+      bootstrapNowCompleted = await markBootstrapCompleted(
+        db,
+        params.sessionId,
+        params.atMs,
+      );
     } else {
       const appeared = setDiff(visibleQuestIds, [...previousGlobalVisible]);
       if (appeared.length > 0) {
@@ -940,21 +923,33 @@ app.post("/ingest", async (c) => {
   const uploadToken = c.req.header("X-Upload-Token");
 
   if (!uploadToken) {
-    const authHeader = c.req.header("Authorization");
-    const bearer = authHeader?.startsWith("Bearer ")
-      ? authHeader.slice(7).trim()
-      : null;
-    if (!bearer) return c.json({ error: "Unauthorized" }, 401);
-    const user = await validateJWT(bearer);
-    if (!user?.id)
-      return c.json({ error: "Invalid or expired JWT token" }, 401);
-
-    const handshakeBody = (await c.req.json().catch(() => null)) as
-      | (IngestBody & {
-          content_hash?: string;
-          file_size?: number | string;
-        })
-      | null;
+    const handshakeRead = await readBodyWithinLimit(
+      c.req.raw,
+      QUEST_TREE_HANDSHAKE_MAX_BYTES,
+    );
+    if (handshakeRead.kind === "too_large") {
+      return c.json({ error: "Request body exceeds maximum size" }, 413);
+    }
+    let rawHandshakeBody: unknown = null;
+    if (handshakeRead.kind === "ok") {
+      try {
+        rawHandshakeBody = JSON.parse(
+          new TextDecoder().decode(handshakeRead.data),
+        );
+      } catch {
+        rawHandshakeBody = null;
+      }
+    }
+    const handshakeParsed = QuestTreeIngestBodySchema.safeParse(
+      rawHandshakeBody,
+    );
+    if (!handshakeParsed.success) {
+      return c.json({ error: "Invalid JSON body" }, 400);
+    }
+    const handshakeBody = {
+      ...handshakeParsed.data,
+      quests: handshakeParsed.data.quests ?? [],
+    };
 
     const validated = validateIngestBody(handshakeBody);
     if (!validated.ok) return c.json({ error: validated.error }, 400);
@@ -970,10 +965,10 @@ app.post("/ingest", async (c) => {
       );
     }
 
-    // Require dataset_token to prove ownership of dataset_id
+    // Require dataset_token possession and bind the request to its dataset_id.
     const datasetToken = resolveDatasetToken(
       c.req.header("X-Dataset-Token"),
-      (handshakeBody as Record<string, unknown>)?.dataset_token,
+      handshakeBody.dataset_token,
     );
     const datasetTokenSecret = getEnv(env, "DATASET_TOKEN_SECRET");
     // Validate secret length upfront
@@ -985,8 +980,9 @@ app.post("/ingest", async (c) => {
       token: datasetToken,
       secret: datasetTokenSecret,
       expectedDatasetId: validated.datasetId,
+      revocation: resolveDatasetTokenRevocationConfig(env),
       // expectedUserId は検証しない: 複数端末では端末ごとの匿名 user_id が異なるため。
-      // データ帰属は dataset_id (member_id_hash) の照合で担保する。
+      // データ帰属は dataset_id (public_id) の照合で担保する。
     });
     if (!tokenValidation.ok) {
       return c.json(
@@ -997,14 +993,22 @@ app.post("/ingest", async (c) => {
     // dataset_token.sub を actingUserId として使う（全端末で一貫した帰属者）
     const actingUserId = tokenValidation.token!.user_id;
 
-    const contentHash = (handshakeBody?.content_hash ?? "").toString().trim();
+    const contentHash = handshakeBody.content_hash ?? "";
     if (!contentHash) {
       return c.json({ error: "content_hash is required" }, 400);
     }
 
-    const declaredSize = Number(handshakeBody?.file_size ?? 0);
-    if (!Number.isFinite(declaredSize) || declaredSize <= 0) {
+    const declaredSize = handshakeBody.file_size ?? 0;
+    if (declaredSize <= 0) {
       return c.json({ error: "file_size must be > 0" }, 400);
+    }
+    if (declaredSize > MAX_QUEST_TREE_UPLOAD_BYTES) {
+      return c.json(
+        {
+          error: `file_size exceeds maximum of ${MAX_QUEST_TREE_UPLOAD_BYTES} bytes`,
+        },
+        400,
+      );
     }
 
     const token = await generateSignedToken(
@@ -1037,39 +1041,37 @@ app.post("/ingest", async (c) => {
     });
   }
 
-  const authHeader = c.req.header("Authorization");
-  const bearer = authHeader?.startsWith("Bearer ")
-    ? authHeader.slice(7).trim()
-    : null;
-  if (!bearer) return c.json({ error: "Unauthorized" }, 401);
-  const user = await validateJWT(bearer);
-  if (!user?.id) return c.json({ error: "Invalid or expired JWT token" }, 401);
-
   const tokenPayload = await verifySignedToken(uploadToken, signingSecret);
   if (!tokenPayload)
     return c.json({ error: "Invalid or expired upload token" }, 401);
 
-  const payloadValidation = validateTokenPayload(tokenPayload, [
-    "content_hash",
-    "declared_size",
-    "dataset_id",
-    "request_id",
-    "event_type",
-  ]);
+  const payloadValidation = validateTokenPayloadWithSchema(
+    tokenPayload,
+    QuestTreeUploadTokenPayloadSchema,
+  );
   if (!payloadValidation.valid) {
     return c.json(
       { error: payloadValidation.error ?? "Invalid upload token payload" },
       400,
     );
   }
+  const validatedPayload = payloadValidation.data;
   // user_id 照合は行わない: upload token の user_id は dataset_token.sub（帰属者）であり
   // JWT user_id（端末固有）と一致しないことがある。JWT 有効性は上で確認済み。
 
-  const bodyStream = c.req.raw.body;
-  if (!bodyStream) return c.json({ error: "Upload payload is missing" }, 400);
-  const uploaded = new Uint8Array(await new Response(bodyStream).arrayBuffer());
+  const bodyResult = await readBodyWithinLimit(
+    c.req.raw,
+    MAX_QUEST_TREE_UPLOAD_BYTES,
+  );
+  if (bodyResult.kind === "missing") {
+    return c.json({ error: "Upload payload is missing" }, 400);
+  }
+  if (bodyResult.kind === "too_large") {
+    return c.json({ error: "request_too_large" }, 413);
+  }
+  const uploaded = bodyResult.data;
 
-  const declaredSize = Number(tokenPayload.declared_size);
+  const declaredSize = validatedPayload.declared_size;
   if (!Number.isFinite(declaredSize) || uploaded.byteLength !== declaredSize) {
     return c.json(
       {
@@ -1082,7 +1084,7 @@ app.post("/ingest", async (c) => {
   }
 
   const actualHash = await sha256Hex(uploaded);
-  const expectedHash = String(tokenPayload.content_hash ?? "").toLowerCase();
+  const expectedHash = validatedPayload.content_hash.toLowerCase();
   if (!timingSafeEqual(actualHash.toLowerCase(), expectedHash)) {
     return c.json(
       {
@@ -1092,16 +1094,25 @@ app.post("/ingest", async (c) => {
     );
   }
 
-  const body = (() => {
+  const rawBody = (() => {
     try {
-      return JSON.parse(new TextDecoder().decode(uploaded)) as IngestBody;
+      const parsed: unknown = JSON.parse(new TextDecoder().decode(uploaded));
+      return parsed;
     } catch {
       return null;
     }
   })();
-  if (!body) {
+  if (rawBody === null) {
     return c.json({ error: "Invalid JSON upload payload" }, 400);
   }
+  const bodyParsed = QuestTreeIngestBodySchema.safeParse(rawBody);
+  if (!bodyParsed.success) {
+    return c.json({ error: "Invalid JSON upload payload" }, 400);
+  }
+  const body = {
+    ...bodyParsed.data,
+    quests: bodyParsed.data.quests ?? [],
+  };
   const verified = validateIngestBody(body);
   if (!verified.ok) return c.json({ error: verified.error }, 400);
   const periodTagValidation = await validateCachedPeriodTag(
@@ -1117,9 +1128,9 @@ app.post("/ingest", async (c) => {
   }
 
   if (
-    verified.datasetId !== String(tokenPayload.dataset_id) ||
-    verified.requestId !== String(tokenPayload.request_id) ||
-    verified.eventType !== String(tokenPayload.event_type)
+    verified.datasetId !== validatedPayload.dataset_id ||
+    verified.requestId !== validatedPayload.request_id ||
+    verified.eventType !== validatedPayload.event_type
   ) {
     return c.json(
       { error: "Upload payload does not match upload token claims" },
@@ -1189,20 +1200,25 @@ app.get("/rules", async (c) => {
     probeWhenFresh: true,
     isValidSnapshot: isRulesSnapshot,
     refreshFromDelta: async (cached) => {
-      const changedRows = ((
-        await db
-          .prepare(
-            `SELECT updated_at_ms
-             FROM quest_rule_edges
-             WHERE target_quest_id = ?
-               AND period_tag = ?
-               AND table_version = ?
-               AND updated_at_ms > ?
-             ORDER BY updated_at_ms DESC`,
-          )
-          .bind(target, periodTag, tableVersion, cached.db_synced_at)
-          .all()
-      ).results ?? []) as Array<{ updated_at_ms: number }>;
+      const changedRowsResult = await db
+        .prepare(
+          `SELECT updated_at_ms
+           FROM quest_rule_edges
+           WHERE target_quest_id = ?
+             AND period_tag = ?
+             AND table_version = ?
+             AND updated_at_ms > ?
+           ORDER BY updated_at_ms DESC`,
+        )
+        .bind(target, periodTag, tableVersion, cached.db_synced_at)
+        .all();
+      const parsedChangedRows = z
+        .array(z.object({ updated_at_ms: z.number().finite() }).passthrough())
+        .safeParse(changedRowsResult.results ?? []);
+      if (!parsedChangedRows.success) {
+        throw new Error("Invalid quest rule change rows");
+      }
+      const changedRows = parsedChangedRows.data;
 
       if (changedRows.length === 0) {
         return {
@@ -1216,20 +1232,22 @@ app.get("/rules", async (c) => {
 
       // Re-load the full current view for this target when anything changed.
       // This avoids stale rows when a rule's quality_tier transitions to/from low.
-      const rows = ((
-        await db
-          .prepare(
-            `SELECT rule_id, target_quest_id, prereq_set_json, set_size, class, support, confidence, lift, score, period_tag, table_version, is_primary, quality_tier, updated_at_ms
-             FROM quest_rule_edges
-             WHERE target_quest_id = ?
-               AND period_tag = ?
-               AND table_version = ?
-               AND (? = 1 OR quality_tier != 'low')
-             ORDER BY is_primary DESC, score DESC`,
-          )
-          .bind(target, periodTag, tableVersion, includeLow ? 1 : 0)
-          .all()
-      ).results ?? []) as QuestRuleRow[];
+      const rows = parseQuestRuleRowsStrict(
+        (
+          await db
+            .prepare(
+              `SELECT rule_id, target_quest_id, prereq_set_json, set_size, class, support, confidence, lift, score, period_tag, table_version, is_primary, quality_tier, updated_at_ms
+               FROM quest_rule_edges
+               WHERE target_quest_id = ?
+                 AND period_tag = ?
+                 AND table_version = ?
+                 AND (? = 1 OR quality_tier != 'low')
+               ORDER BY is_primary DESC, score DESC`,
+            )
+            .bind(target, periodTag, tableVersion, includeLow ? 1 : 0)
+            .all()
+        ).results ?? [],
+      );
 
       const maxUpdatedAt = changedRows.reduce(
         (max, row) => Math.max(max, Number(row.updated_at_ms) || 0),
@@ -1247,20 +1265,22 @@ app.get("/rules", async (c) => {
       };
     },
     loadFull: async () => {
-      const rows = ((
-        await db
-          .prepare(
-            `SELECT rule_id, target_quest_id, prereq_set_json, set_size, class, support, confidence, lift, score, period_tag, table_version, is_primary, quality_tier, updated_at_ms
-             FROM quest_rule_edges
-             WHERE target_quest_id = ?
-               AND period_tag = ?
-               AND table_version = ?
-               AND (? = 1 OR quality_tier != 'low')
-             ORDER BY is_primary DESC, score DESC`,
-          )
-          .bind(target, periodTag, tableVersion, includeLow ? 1 : 0)
-          .all()
-      ).results ?? []) as QuestRuleRow[];
+      const rows = parseQuestRuleRowsStrict(
+        (
+          await db
+            .prepare(
+              `SELECT rule_id, target_quest_id, prereq_set_json, set_size, class, support, confidence, lift, score, period_tag, table_version, is_primary, quality_tier, updated_at_ms
+               FROM quest_rule_edges
+               WHERE target_quest_id = ?
+                 AND period_tag = ?
+                 AND table_version = ?
+                 AND (? = 1 OR quality_tier != 'low')
+               ORDER BY is_primary DESC, score DESC`,
+            )
+            .bind(target, periodTag, tableVersion, includeLow ? 1 : 0)
+            .all()
+        ).results ?? [],
+      );
 
       const maxUpdatedAt = rows.reduce(
         (max, row) => Math.max(max, Number(row.updated_at_ms) || 0),
@@ -1312,21 +1332,23 @@ app.get("/graph", async (c) => {
     probeWhenFresh: true,
     isValidSnapshot: isGraphSnapshot,
     refreshFromDelta: async (cached) => {
-      const changedTargets = ((
-        await db
-          .prepare(
-            `SELECT DISTINCT target_quest_id, updated_at_ms
-             FROM quest_rule_edges
-             WHERE period_tag = ?
-               AND table_version = ?
-               AND updated_at_ms > ?`,
-          )
-          .bind(periodTag, tableVersion, cached.db_synced_at)
-          .all()
-      ).results ?? []) as Array<{
-        target_quest_id: number;
-        updated_at_ms: number;
-      }>;
+      const changedTargetsResult = await db
+        .prepare(
+          `SELECT DISTINCT target_quest_id, updated_at_ms
+           FROM quest_rule_edges
+           WHERE period_tag = ?
+             AND table_version = ?
+             AND updated_at_ms > ?`,
+        )
+        .bind(periodTag, tableVersion, cached.db_synced_at)
+        .all();
+      const parsedChangedTargets = z
+        .array(QuestRuleUpdatedRowSchema)
+        .safeParse(changedTargetsResult.results ?? []);
+      if (!parsedChangedTargets.success) {
+        throw new Error("Invalid quest rule target change rows");
+      }
+      const changedTargets = parsedChangedTargets.data;
 
       if (changedTargets.length === 0) {
         return {
@@ -1352,20 +1374,22 @@ app.get("/graph", async (c) => {
           if (row.target_quest_id === target) rowsByRuleId.delete(ruleId);
         }
 
-        const currentPrimaryRows = ((
-          await db
-            .prepare(
-              `SELECT rule_id, target_quest_id, prereq_set_json, set_size, class, support, confidence, lift, score, period_tag, table_version, is_primary, quality_tier, updated_at_ms
-               FROM quest_rule_edges
-               WHERE period_tag = ?
-                 AND table_version = ?
-                 AND target_quest_id = ?
-                 AND is_primary = 1
-               ORDER BY score DESC`,
-            )
-            .bind(periodTag, tableVersion, target)
-            .all()
-        ).results ?? []) as QuestRuleRow[];
+        const currentPrimaryRows = parseQuestRuleRowsStrict(
+          (
+            await db
+              .prepare(
+                `SELECT rule_id, target_quest_id, prereq_set_json, set_size, class, support, confidence, lift, score, period_tag, table_version, is_primary, quality_tier, updated_at_ms
+                 FROM quest_rule_edges
+                 WHERE period_tag = ?
+                   AND table_version = ?
+                   AND target_quest_id = ?
+                   AND is_primary = 1
+                 ORDER BY score DESC`,
+              )
+              .bind(periodTag, tableVersion, target)
+              .all()
+          ).results ?? [],
+        );
 
         for (const row of currentPrimaryRows) {
           rowsByRuleId.set(row.rule_id, row);
@@ -1390,19 +1414,21 @@ app.get("/graph", async (c) => {
       };
     },
     loadFull: async () => {
-      const rows = ((
-        await db
-          .prepare(
-            `SELECT rule_id, target_quest_id, prereq_set_json, set_size, class, support, confidence, lift, score, period_tag, table_version, is_primary, quality_tier, updated_at_ms
-             FROM quest_rule_edges
-             WHERE period_tag = ?
-               AND table_version = ?
-               AND is_primary = 1
-             ORDER BY score DESC`,
-          )
-          .bind(periodTag, tableVersion)
-          .all()
-      ).results ?? []) as QuestRuleRow[];
+      const rows = parseQuestRuleRowsStrict(
+        (
+          await db
+            .prepare(
+              `SELECT rule_id, target_quest_id, prereq_set_json, set_size, class, support, confidence, lift, score, period_tag, table_version, is_primary, quality_tier, updated_at_ms
+               FROM quest_rule_edges
+               WHERE period_tag = ?
+                 AND table_version = ?
+                 AND is_primary = 1
+               ORDER BY score DESC`,
+            )
+            .bind(periodTag, tableVersion)
+            .all()
+        ).results ?? [],
+      );
 
       const maxUpdatedAt = rows.reduce(
         (max, row) => Math.max(max, Number(row.updated_at_ms) || 0),
@@ -1430,9 +1456,7 @@ app.get("/graph", async (c) => {
   for (const row of snapshot.rows) {
     const target = toInt(row.target_quest_id);
     if (target == null) continue;
-    const prereqs = parseJsonArray<number>(row.prereq_set_json)
-      .map((v) => toInt(v))
-      .filter((v): v is number => v != null);
+    const prereqs = parseJsonArray(row.prereq_set_json, toInt);
 
     nodes.add(target);
     for (const from of prereqs) {
@@ -1465,76 +1489,68 @@ app.get("/changes", async (c) => {
   const db = c.env.QUEST_INDEX_DB;
   if (!db) return c.json({ error: "QUEST_INDEX_DB not configured" }, 503);
 
-  const datasetId = (c.req.query("dataset_id") ?? "").trim();
+  const rawDatasetId = (c.req.query("dataset_id") ?? "").trim();
   const since = Math.max(0, toInt(c.req.query("since")) ?? 0);
 
-  if (!datasetId) {
-    return c.json({ error: "dataset_id query is required" }, 400);
+  const parsedDatasetId = PublicIdSchema.safeParse(rawDatasetId);
+  if (!parsedDatasetId.success) {
+    return c.json({ error: "dataset_id must be a UUID v4 public_id" }, 400);
+  }
+  const datasetId = parsedDatasetId.data.toLowerCase();
+
+  // Quest history is public aggregate data scoped by opaque dataset UUID.
+  const appearanceResult = await db
+    .prepare(
+      `SELECT target_quest_id, appeared_at_ms, is_bootstrap_unknown
+     FROM quest_appearance_events
+     WHERE dataset_id = ? AND appeared_at_ms >= ?
+     ORDER BY appeared_at_ms ASC
+     LIMIT 500`,
+    )
+    .bind(datasetId, since)
+    .all();
+  const parsedAppearances = z
+    .array(QuestAppearanceEventRowSchema)
+    .safeParse(appearanceResult.results ?? []);
+  if (!parsedAppearances.success) {
+    return c.json({ error: "Invalid quest appearance rows" }, 500);
   }
 
-  // Require dataset_token to prove ownership of dataset_id
-  const env = createEnvContext(c);
-  const datasetToken = resolveDatasetToken(
-    c.req.header("X-Dataset-Token"),
-    c.req.query("dataset_token"),
-  );
-  const datasetTokenSecret = getEnv(env, "DATASET_TOKEN_SECRET");
-  // Validate secret length upfront
-  const secretValidation = validateDatasetTokenSecret(datasetTokenSecret);
-  if (!secretValidation.ok) {
-    return c.json({ error: secretValidation.error }, 500);
-  }
-  const tokenValidation = await validateDatasetTokenWithConstraints({
-    token: datasetToken,
-    secret: datasetTokenSecret,
-    expectedDatasetId: datasetId,
-  });
-  if (!tokenValidation.ok) {
-    return c.json(
-      { error: tokenValidation.error },
-      tokenValidation.status ?? 401,
-    );
+  const stateResult = await db
+    .prepare(
+      `SELECT quest_id, event_type, state_after, timestamp_ms
+     FROM quest_state_events
+     WHERE dataset_id = ? AND timestamp_ms >= ?
+     ORDER BY timestamp_ms ASC
+     LIMIT 500`,
+    )
+    .bind(datasetId, since)
+    .all();
+  const parsedStates = z
+    .array(QuestStateEventRowSchema)
+    .safeParse(stateResult.results ?? []);
+  if (!parsedStates.success) {
+    return c.json({ error: "Invalid quest state rows" }, 500);
   }
 
-  const appearances = ((
-    await db
-      .prepare(
-        `SELECT target_quest_id, appeared_at_ms, collection_session_id, is_bootstrap_unknown
-       FROM quest_appearance_events
-       WHERE dataset_id = ? AND appeared_at_ms >= ?
-       ORDER BY appeared_at_ms ASC
-       LIMIT 500`,
-      )
-      .bind(datasetId, since)
-      .all()
-  ).results ?? []) as Array<{
-    target_quest_id: number;
-    appeared_at_ms: number;
-    collection_session_id: string;
-    is_bootstrap_unknown: number;
-  }>;
-
-  const states =
-    (
-      await db
-        .prepare(
-          `SELECT quest_id, event_type, state_after, timestamp_ms, collection_session_id
-       FROM quest_state_events
-       WHERE dataset_id = ? AND timestamp_ms >= ?
-       ORDER BY timestamp_ms ASC
-       LIMIT 500`,
-        )
-        .bind(datasetId, since)
-        .all()
-    ).results ?? [];
-
-  return c.json({
+  const response = c.json({
     ok: true,
     dataset_id: datasetId,
     since,
-    appearances,
-    states,
+    appearances: parsedAppearances.data.map((row) => ({
+      target_quest_id: row.target_quest_id,
+      appeared_at_ms: row.appeared_at_ms,
+      is_bootstrap_unknown: row.is_bootstrap_unknown,
+    })),
+    states: parsedStates.data.map((row) => ({
+      quest_id: row.quest_id,
+      event_type: row.event_type,
+      state_after: row.state_after,
+      timestamp_ms: row.timestamp_ms,
+    })),
   });
+  response.headers.set("Cache-Control", QUEST_CHANGES_CACHE_CONTROL);
+  return response;
 });
 
 export default app;

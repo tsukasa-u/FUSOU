@@ -80,7 +80,7 @@ function table(rows) {
 
 // ── ship_growth ─────────────────────────────────────────────────────
 async function checkShipGrowth() {
-  section("ship_growth（艦娘成長データ）");
+  section("ship_growth（艦成長データ）");
   const db = DB.ship_growth;
 
   try {

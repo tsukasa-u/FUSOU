@@ -139,7 +139,7 @@ pnpm --dir packages/FUSOU-WEB run sync:banners
 
 実行後は Astro dev server を再起動すること。
 
-## 4.4 装備シナジー検出データの手動アップロード
+## 4.4 装備シナジー検出データのアップロード（手動実行時）
 
 この処理は `pnpm --dir packages/FUSOU-WEB run deploy` には含まれないため、対象期間を更新したときは別途実行する。
 
@@ -149,58 +149,43 @@ pnpm --dir packages/FUSOU-WEB run sync:banners
 - `equip_synergy_detector` のロジック更新で `slot_item_effects.json` が変わった。
 - シナジー manifest を更新しないと本番が古い組み合わせデータを参照する。
 
-### 4.4.2 dry-run（必須）
+### 4.4.2 ローカル・開発環境への生成とアップロード（基本）
+
+最新の `period-tag` を自動検出して生成し、ローカル・開発環境（development）へアップロードします。
 
 ```bash
 cd packages/equip_synergy_detector
-pnpm scan:upload:dry -- --period-tag <YYYY-MM-DD>
+pnpm run generate:latest
 ```
 
-### 4.4.3 本番アップロード
+特定の `period-tag` を指定する場合:
 
 ```bash
 cd packages/equip_synergy_detector
-pnpm scan:upload -- --period-tag <YYYY-MM-DD>
+pnpm run generate:latest -- --period-tag <YYYY-MM-DD>
 ```
 
-### 4.4.4 ローカル開発環境(エミュレータ)へのアップロード
+### 4.4.3 生成のみ（アップロードなし）
 
 ```bash
 cd packages/equip_synergy_detector
-pnpm scan:upload -- --period-tag <YYYY-MM-DD> --env development
+pnpm run generate:latest:noupload
+```
+
+### 4.4.4 本番環境へのアップロード（既存の生成済みデータを使用）
+
+本番環境（production）へのアップロードは、すでに生成済みのJSONデータがある前提で以下のコマンドを実行します。
+
+```bash
+cd packages/equip_synergy_detector
+pnpm run upload:remote
 ```
 
 同一データによるスキップ（409 Duplicate）を無視して強制的にアップロード日時を最新にする場合:
 
 ```bash
 cd packages/equip_synergy_detector
-pnpm scan:upload -- --period-tag <YYYY-MM-DD> --env development --force
-```
-
-### 4.4.5 計算済み JSON を使う場合 (スキャン・再計算をスキップ)
-
-本番環境向け:
-```bash
-cd packages/equip_synergy_detector
-pnpm upload:only -- --period-tag <YYYY-MM-DD>
-```
-
-本番環境向け（強制上書き）:
-```bash
-cd packages/equip_synergy_detector
-pnpm upload:only:force -- --period-tag <YYYY-MM-DD>
-```
-
-ローカル開発環境向け:
-```bash
-cd packages/equip_synergy_detector
-pnpm upload:local -- --period-tag <YYYY-MM-DD>
-```
-
-ローカル開発環境向け（強制上書き）:
-```bash
-cd packages/equip_synergy_detector
-pnpm upload:local -- --period-tag <YYYY-MM-DD> --force
+pnpm run upload:remote:force
 ```
 
 ### 4.4.6 必須前提
@@ -209,7 +194,7 @@ pnpm upload:local -- --period-tag <YYYY-MM-DD> --force
 - `packages/FUSOU-WEB/.env` と `packages/.env.keys` が解読可能な状態であること。
 - `ADMIN_TOKEN` と `MASTER_DATA_BUCKET_NAME` が解決できること。
 - production 向けは `PUBLIC_SITE_URL_PRODUCTION` が解決できること。
-- `scan:upload` を使う場合は `packages/FUSOU-PROXY-DATA/<period-tag>/` 配下に `kcs2/js/main.js` と `kcsapi/*@api_start2@getData*` があること。
+- `generate:latest` 等を使う場合は `packages/FUSOU-PROXY-DATA/<period-tag>/` 配下に `kcs2/js/main.js` と `kcsapi/*@api_start2@getData*` があること。
 
 ---
 
@@ -393,10 +378,10 @@ pnpm --dir packages/FUSOU-APP run tauri build
 | WEB 本番反映                             | `pnpm --dir packages/FUSOU-WEB run deploy`                                                                                                                                                                                                                                                                  |
 | WEB ローカル実データ（最小）             | `pnpm --dir packages/FUSOU-WEB run seed:master-data`                                                                                                                                                                                                                                                        |
 | WEB ローカル実データ（フル）             | `seed:master-data:all`, `seed:assets`, `seed:fleet-data -- --all`, `seed:battle-data`, `seed:ship-growth-data`                                                                                                                                                                                              |
-| WEB シナジー period 更新                 | `cd packages/equip_synergy_detector && pnpm scan:upload -- --period-tag <YYYY-MM-DD>`                                                                                                                                                                                                                       |
+| WEB シナジー period 更新                 | `cd packages/equip_synergy_detector && pnpm run generate:latest` （本番反映時は `pnpm run upload:remote`）                                                                                                                                                                                                                       |
 | Rust interface 構造体変更（TS 連動あり） | `cd packages/kc_api && just export-ts`                                                                                                                                                                                                                                                                      |
 | schema/fingerprint 連動変更              | `pnpm --dir packages/FUSOU-WORKFLOW run generate:schemas`                                                                                                                                                                                                                                                   |
-| 匿名同期ローテーション                   | `pnpm --dir packages/FUSOU-WEB run manage-anon-sync-vault -- rotate-pepper --target-version v<N>`（dry-run）と `rotate-recovery`（dry-run）を確認し、各コマンドに `--confirm` を付けて適用。secret は環境変数必須（未設定は fail-fast）。詳細は `docs/operations/web/ANON_SYNC_V2_ROTATION_RUNBOOK.md` §4.2 |
+| 匿名同期 UUID cutover                    | `purge:r2-fleet-data` と `purge:d1-member-data` の remote inventory、Supabase UUID cutover migration のみ apply、postflight を実行。D1/R2 は保持する。詳細は `docs/operations/web/ANON_SYNC_V2_ROTATION_RUNBOOK.md` |
 | Workflow 本番反映                        | `pnpm --dir packages/FUSOU-WORKFLOW run test && pnpm --dir packages/FUSOU-WORKFLOW run deploy`                                                                                                                                                                                                              |
 | Workflow スキーマ反映あり                | `pnpm --dir packages/FUSOU-WORKFLOW run schema:remote && pnpm --dir packages/FUSOU-WORKFLOW run deploy`                                                                                                                                                                                                     |
 | APP タグ付き公開リリース                 | `GitHub Actions: publish_and_create_version_tag を workflow_dispatch`                                                                                                                                                                                                                                       |
@@ -455,63 +440,23 @@ pnpm --dir packages/FUSOU-APP run tauri build
 - [ ] 対象 ingest への POST が 200/204 系で受理され、503 でなくなったことを確認する。
 - [ ] 任意: `pnpm --dir packages/FUSOU-WEB run check:experimental-data` を実行し、本番 D1 に新しい行が積み上がり始めたことを確認する（`--remote` で本番 D1 を参照する診断スクリプト）。
 
-### 11.3 ソルト（pepper）ローテーション
+### 11.3 匿名同期 UUID public_id cutover
 
-この章の詳細手順は `docs/operations/web/ANON_SYNC_V2_ROTATION_RUNBOOK.md` を正とする。Worker は Vault から RPC 経由で pepper/recovery を取得するため、ローテーションは `manage-anon-sync-vault` スクリプト（内部で Supabase RPC を呼び出す）で実行し、再デプロイは不要である。
-
-誤操作を減らすため、運用コマンドは `manage-anon-sync-vault`（bootstrap / rotate / finalize）に一本化する。
-
-安全注意:
-
-- `manage-anon-sync-vault` は `--secret` / `--service-role-key` 引数を受け付けない。機密は必ず環境変数で渡す。
-- `bootstrap-*` は `--initial-version v<N>` の明示指定が必須。
-- `--secret-env <ENV_NAME>` を明示指定した場合、対象環境変数が未設定だと CLI は fail-fast で停止する（自動生成へフォールバックしない）。
-- refresh/revoke の nonce 消費は DB テーブルで原子的に確定し、アプリ側が 30 分より古い行を定期クリーンアップする。
-- シークレットごとの保存場所・更新手段・参照経路は `docs/operations/web/ANON_SYNC_V2_ROTATION_RUNBOOK.md` の「3.1.1 シークレット管理マップ」を正とする。
+詳細手順は `docs/operations/web/ANON_SYNC_V2_ROTATION_RUNBOOK.md` を正とする。これは旧 pepper/PID の rotation ではなく、member-owned data と旧 Vault secret を削除する一回限りの破壊的 cutover である。
 
 チェック項目（実行順）:
 
-フェーズ A: 事前確認
-
-- [ ] Supabase に `20260520000000_anon_sync_pepper_vault_runtime.sql` と `20260520010000_anon_sync_pepper_rotation_rpc.sql` が適用済みであることを確認する。
-- [ ] Supabase に `20260521000000_anon_sync_recovery_hmac_runtime.sql` が適用済みであることを確認する。
-- [ ] Supabase に `20260521010000_anon_sync_vault_ops_rpc.sql` が適用済みであることを確認する。
-- [ ] Supabase に `20260522000000_anon_sync_nonce_consumptions.sql` が適用済みであることを確認する（refresh nonce の同時実行再利用を防ぐため）。
-- [ ] Supabase に `20260523000000_anon_sync_vault_rpc_acl_hardening.sql` が適用済みであることを確認する（Vault RPC の EXECUTE 権限を service_role 限定にするため）。
-- [ ] `ANON_SYNC_PEPPER_SECRET` が設定済みであることを確認する（未設定は fail-fast）。
-- [ ] `ANON_SYNC_RECOVERY_SECRET` が設定済みであることを確認する（未設定は fail-fast）。
-- [ ] `ANON_SYNC_PEPPER_SECRET` を設定する場合は、それが「今回の新しい pepper 値」であり、`DATASET_TOKEN_SECRET` / `CHALLENGE_HMAC_SECRET` ではないことを確認する。
-- [ ] `pnpm --dir packages/FUSOU-WEB run manage-anon-sync-vault -- status --json` を実行し、現在状態を記録する。
-- [ ] Supabase で次を実行し、`anon_can_exec_* = false` / `auth_can_exec_* = false` / `service_can_exec_* = true` を確認する: `SELECT has_function_privilege('anon', 'public.get_anon_sync_pepper_bundle()', 'EXECUTE') AS anon_can_exec_pepper_bundle, has_function_privilege('authenticated', 'public.get_anon_sync_pepper_bundle()', 'EXECUTE') AS auth_can_exec_pepper_bundle, has_function_privilege('service_role', 'public.get_anon_sync_pepper_bundle()', 'EXECUTE') AS service_can_exec_pepper_bundle, has_function_privilege('anon', 'public.get_anon_sync_recovery_bundle()', 'EXECUTE') AS anon_can_exec_recovery_bundle, has_function_privilege('authenticated', 'public.get_anon_sync_recovery_bundle()', 'EXECUTE') AS auth_can_exec_recovery_bundle, has_function_privilege('service_role', 'public.get_anon_sync_recovery_bundle()', 'EXECUTE') AS service_can_exec_recovery_bundle;`
-
-フェーズ B: 初期化（runtime が空の環境のみ）
-
-- [ ] `status --json` で `pepper.runtime` または `recovery.runtime` が `null` の場合、初期化が必要と判定する。
-- [ ] dry-run を実行する: `pnpm --dir packages/FUSOU-WEB run manage-anon-sync-vault -- bootstrap-pepper --initial-version v1 --json`
-- [ ] dry-run を実行する: `pnpm --dir packages/FUSOU-WEB run manage-anon-sync-vault -- bootstrap-recovery --initial-version v1 --json`
-- [ ] 実適用を実行する: `pnpm --dir packages/FUSOU-WEB run manage-anon-sync-vault -- bootstrap-pepper --initial-version v1 --confirm --json`
-- [ ] 実適用を実行する: `pnpm --dir packages/FUSOU-WEB run manage-anon-sync-vault -- bootstrap-recovery --initial-version v1 --confirm --json`
-- [ ] 再度 `status --json` を実行し、`ok: true` と `current_version = v1` / `accept_versions = ["v1"]` を確認する。
-
-フェーズ C: ローテーション（例: v2 へ）
-
-- [ ] dry-run を実行する: `pnpm --dir packages/FUSOU-WEB run manage-anon-sync-vault -- rotate-pepper --target-version v2 --json`
-- [ ] dry-run を実行する: `pnpm --dir packages/FUSOU-WEB run manage-anon-sync-vault -- rotate-recovery --target-version v2 --json`
-- [ ] preflight の `current_version` / `target_version` / `planned_accept_versions` / `planned_version_epoch` を確認する。
-- [ ] 実適用を実行する: `pnpm --dir packages/FUSOU-WEB run manage-anon-sync-vault -- rotate-pepper --target-version v2 --confirm --json`
-- [ ] 実適用を実行する: `pnpm --dir packages/FUSOU-WEB run manage-anon-sync-vault -- rotate-recovery --target-version v2 --confirm --json`
-- [ ] `status --json` で `new_current_version = v2` 相当（`runtime.current_version = v2`）を確認する。
-
-フェーズ D: 収束確認と finalize
-
-- [ ] `user_member_map` の `salt_version` 分布と `member_id_hash_rotations` の増分を確認する。
-- [ ] `recovery_relink_audit` に異常な `rejected` が急増していないことを確認する。
-- [ ] finalize の dry-run を実行する: `pnpm --dir packages/FUSOU-WEB run manage-anon-sync-vault -- finalize-pepper --keep-version v2 --retire-others --json`
-- [ ] finalize の dry-run を実行する: `pnpm --dir packages/FUSOU-WEB run manage-anon-sync-vault -- finalize-recovery --keep-version v2 --retire-others --json`
-- [ ] 実適用を実行する: `pnpm --dir packages/FUSOU-WEB run manage-anon-sync-vault -- finalize-pepper --keep-version v2 --retire-others --confirm --json`
-- [ ] 実適用を実行する: `pnpm --dir packages/FUSOU-WEB run manage-anon-sync-vault -- finalize-recovery --keep-version v2 --retire-others --confirm --json`
-- [ ] 最終 `status --json` で `accept_versions = ["v2"]` を確認する。
-- [ ] 保持期間後に Vault UI で旧世代 secret (`anon_sync_pepper_v1`) を削除する。
+- [ ] UUID-only の Worker / APP を用意し、fleet write と registration/refresh を凍結する。
+- [ ] バックアップ / export のアクセス制限、保存期限、破棄担当を記録する。
+- [ ] Vault の対象 secret 名を値なしで count-only 確認する。
+- [ ] `pnpm --dir packages/FUSOU-WEB run purge:r2-fleet-data` を実行し、固定 `dev-kc-fleets/fleets/` の件数を inventory する。R2 object は保持する。
+- [ ] `pnpm --dir packages/FUSOU-WEB run purge:d1-member-data` を実行し、固定 D1 database の table / row / column を inventory する。D1 data は保持する。
+- [ ] inventory の結果と保持範囲が承認内容と一致することを確認する。
+- [ ] R2/D1 の `--apply` は実行しない。
+- [ ] `supabase db push --linked --dry-run` の結果を確認し、明示承認後に migration を適用する。
+- [ ] `auth.users` / `kc_period_tag` が保持され、legacy table/function/policy/publication と versioned legacy Vault secret の残数が 0 であることを確認する。
+- [ ] UUID registration/refresh、旧 token 拒否、ownership collision、fleet upload/download、Realtime payload、通常ログインの smoke test を実行する。
+- [ ] smoke test 後に freeze を解除し、実行者、承認者、UTC 時刻、件数、未検証項目を記録する。
 
 ### 11.4 APP タグ付き公開
 

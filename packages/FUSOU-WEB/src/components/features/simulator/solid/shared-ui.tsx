@@ -89,7 +89,7 @@ export function LazyRender(props: { children: JSX.Element }) {
   onMount(() => {
     const observer = new IntersectionObserver(
       (entries) => {
-        if (entries[0].isIntersecting) {
+        if (entries[0]?.isIntersecting) {
           setIsVisible(true);
           observer.disconnect();
         }
@@ -128,7 +128,7 @@ export function ProgressiveGrid<T>(props: {
   onMount(() => {
     const observer = new IntersectionObserver(
       (entries) => {
-        if (entries[0].isIntersecting) {
+        if (entries[0]?.isIntersecting) {
           setLimit((l) => l + 40);
         }
       },
@@ -519,12 +519,29 @@ export function EquipListRow(props: {
 export function EquipSlotGroup(props: {
   slotItems: MstSlotItemData[];
   onOpenEquip: (id: number) => void;
-  currentEquipId?: number;
+  currentEquipId?: number | undefined;
+  suppressedComponents?: number[] | undefined;
 }) {
   const [expanded, setExpanded] = createSignal(false);
+  
+  const renderItemName = (equip: MstSlotItemData) => {
+    const isSuppressed = props.suppressedComponents?.includes(equip.id);
+    return (
+      <span class="inline-flex items-center gap-0.5">
+        <span class="truncate">{equip.name}</span>
+        <Show when={isSuppressed}>
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" class="w-3.5 h-3.5 text-error shrink-0">
+            <title>他装備の影響によりシナジーが低下しています</title>
+            <path fill-rule="evenodd" d="M8 2a.75.75 0 0 1 .75.75v8.69l3.22-3.22a.75.75 0 1 1 1.06 1.06l-4.5 4.5a.75.75 0 0 1-1.06 0l-4.5-4.5a.75.75 0 0 1 1.06-1.06l3.22 3.22V2.75A.75.75 0 0 1 8 2Z" clip-rule="evenodd" />
+          </svg>
+        </Show>
+      </span>
+    );
+  };
 
   if (props.slotItems.length === 1) {
     const equip = props.slotItems[0];
+    if (!equip) return null;
     return (
       <span class="inline-flex items-center gap-1 min-w-0 border border-base-300 bg-base-200/30 rounded-md px-1.5 py-0.5">
         <span class="inline-flex w-5 h-5 items-center justify-center rounded bg-base-300/50 shrink-0">
@@ -537,7 +554,7 @@ export function EquipSlotGroup(props: {
           onClick={() => props.onOpenEquip(equip.id)}
           title={equip.name}
         >
-          {equip.name}
+          {renderItemName(equip)}
         </button>
       </span>
     );
@@ -564,7 +581,7 @@ export function EquipSlotGroup(props: {
                 onClick={() => props.onOpenEquip(equip.id)}
                 title={equip.name}
               >
-                {equip.name}
+                {renderItemName(equip)}
               </button>
             </>
           )}
@@ -575,11 +592,14 @@ export function EquipSlotGroup(props: {
 
   if (iconGroups.length === 1) {
     const group = iconGroups[0];
+    if (!group) return null;
+    const firstEquip = group[0];
+    if (!firstEquip) return null;
     const threshold = 4;
     return (
       <span class="inline-flex flex-wrap items-center gap-1 min-w-0 border border-base-300 bg-base-200/30 rounded-md px-1.5 py-0.5">
         <span class="inline-flex w-5 h-5 items-center justify-center rounded bg-base-300/50 shrink-0">
-          <WeaponIcon iconNum={group[0].type?.[3] ?? 0} />
+          <WeaponIcon iconNum={firstEquip.type?.[3] ?? 0} />
         </span>
         <span class="inline-flex flex-wrap items-center gap-1 min-w-0">
           {renderGroup(group, threshold)}
@@ -600,6 +620,8 @@ export function EquipSlotGroup(props: {
     <span class="inline-flex flex-wrap items-center gap-1 min-w-0 border border-base-300 bg-base-200/30 rounded-md px-1.5 py-1">
       <For each={iconGroups}>
         {(group, idx) => {
+          const firstEquip = group[0];
+          if (!firstEquip) return null;
           const threshold = 3;
           return (
             <>
@@ -608,7 +630,7 @@ export function EquipSlotGroup(props: {
               )}
               <span class="inline-flex flex-wrap items-center gap-1 min-w-0 border border-base-300/50 bg-base-100 rounded px-1.5 py-0.5 shadow-sm">
                 <span class="inline-flex w-4 h-4 items-center justify-center rounded bg-base-200/70 shrink-0">
-                  <WeaponIcon iconNum={group[0].type?.[3] ?? 0} />
+                  <WeaponIcon iconNum={firstEquip.type?.[3] ?? 0} />
                 </span>
                 <span class="inline-flex flex-wrap items-center gap-0.5 min-w-0">
                   {renderGroup(group, threshold)}
@@ -649,12 +671,12 @@ export function MultiEntryDisplay(props: {
                   slotItems={[equip]}
                   currentEquipId={props.currentEquipId}
                   onOpenEquip={props.onOpenEquip}
+                  suppressedComponents={(props.entry as MultiComboEntry).suppressed_components}
                 />
               </>
             )}
           </For>
         </div>
-        <SlotUsageBadges placements={(props.entry as MultiComboEntry).placements} />
         <SynergyStatInline stats={(props.entry as MultiComboEntry).netStats} />
       </Show>
 
@@ -675,6 +697,7 @@ export function MultiEntryDisplay(props: {
                         slotItems={group}
                         currentEquipId={props.currentEquipId}
                         onOpenEquip={props.onOpenEquip}
+                        suppressedComponents={(props.entry as MultiPoolEntry).suppressed_components}
                       />
                     </>
                   )}
@@ -699,6 +722,7 @@ export function MultiEntryDisplay(props: {
                     slotItems={fixed}
                     currentEquipId={props.currentEquipId}
                     onOpenEquip={props.onOpenEquip}
+                    suppressedComponents={(props.entry as MultiPoolEntry).suppressed_components}
                   />
                   <span class="text-base-content/40">+</span>
                   <span class="text-[10px] text-info font-bold shrink-0">
@@ -708,13 +732,13 @@ export function MultiEntryDisplay(props: {
                     slotItems={free}
                     currentEquipId={props.currentEquipId}
                     onOpenEquip={props.onOpenEquip}
+                    suppressedComponents={(props.entry as MultiPoolEntry).suppressed_components}
                   />
                 </>
               );
             })()}
           </Show>
         </div>
-        <SlotUsageBadges placements={(props.entry as MultiPoolEntry).placements} />
         <SynergyStatInline stats={(props.entry as MultiPoolEntry).correction} />
       </Show>
 
@@ -732,7 +756,7 @@ export function MultiEntryDisplay(props: {
             const pools = (props.entry as MultiCategoryEntry).pools;
             const grouped = new Map<
               string,
-              { pool: (typeof pools)[0]; count: number }
+              { pool: MstSlotItemData[]; count: number }
             >();
             for (const p of pools) {
               const k = p.map((i) => i.id).join(",");
@@ -763,6 +787,7 @@ export function MultiEntryDisplay(props: {
                           slotItems={pool}
                           currentEquipId={props.currentEquipId}
                           onOpenEquip={props.onOpenEquip}
+                          suppressedComponents={(props.entry as MultiCategoryEntry).suppressed_components}
                         />
                       </span>
                     </>
@@ -771,7 +796,12 @@ export function MultiEntryDisplay(props: {
               );
             }
 
-            const fixedItems = fixedGroups.flatMap((g) => Array.from({ length: g.count }, () => g.pool[0]));
+            const fixedItems = fixedGroups.flatMap((g) => {
+              const firstItem = g.pool[0];
+              return firstItem
+                ? Array.from({ length: g.count }, () => firstItem)
+                : [];
+            });
             return (
               <>
                 <span class="text-[10px] text-warning font-bold shrink-0">
@@ -781,6 +811,7 @@ export function MultiEntryDisplay(props: {
                   slotItems={fixedItems}
                   currentEquipId={props.currentEquipId}
                   onOpenEquip={props.onOpenEquip}
+                  suppressedComponents={(props.entry as MultiCategoryEntry).suppressed_components}
                 />
                 <For each={variableGroups}>
                   {(group) => (
@@ -793,6 +824,7 @@ export function MultiEntryDisplay(props: {
                         slotItems={group.pool}
                         currentEquipId={props.currentEquipId}
                         onOpenEquip={props.onOpenEquip}
+                        suppressedComponents={(props.entry as MultiCategoryEntry).suppressed_components}
                       />
                     </>
                   )}
@@ -801,7 +833,6 @@ export function MultiEntryDisplay(props: {
             );
           })()}
         </div>
-        <SlotUsageBadges placements={(props.entry as MultiCategoryEntry).placements} />
         <SynergyStatInline
           stats={(props.entry as MultiCategoryEntry).correction}
         />
@@ -815,7 +846,7 @@ export function MultiEntryDisplay(props: {
                 .groupedPools;
               const grouped = new Map<
                 string,
-                { pool: (typeof pools)[0]; count: number }
+                { pool: MstSlotItemData[]; count: number }
               >();
               for (const p of pools) {
                 const k = p.map((i) => i.id).join(",");

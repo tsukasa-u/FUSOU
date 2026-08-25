@@ -91,6 +91,10 @@ function isCacheableResponse(response: Response): boolean {
   return true;
 }
 
+function isJsonRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
 function shouldCacheResponseBody(url: string, bodyText: string): boolean {
   try {
     const parsed =
@@ -101,16 +105,17 @@ function shouldCacheResponseBody(url: string, bodyText: string): boolean {
       return true;
     }
 
-    const payload = JSON.parse(bodyText) as {
-      count?: unknown;
-      records?: unknown;
-    };
-    const count = Number(payload?.count ?? Number.NaN);
+    const payload: unknown = JSON.parse(bodyText);
+    if (!isJsonRecord(payload)) return true;
+    const countValue = payload["count"];
+    const count =
+      typeof countValue === "number" ? countValue : Number.NaN;
     if (Number.isFinite(count)) {
       return count > 0;
     }
-    if (Array.isArray(payload?.records)) {
-      return payload.records.length > 0;
+    const records = payload["records"];
+    if (Array.isArray(records)) {
+      return records.length > 0;
     }
   } catch {
     return true;
@@ -166,13 +171,14 @@ function buildResponse(entry: CacheEntry): Response {
  * @param init   Optional RequestInit (only `signal` is forwarded for abort support)
  * @param ttlMs  Cache TTL in milliseconds (default 600 000)
  */
-export function cachedFetch(
+export async function cachedFetch(
   url: string,
   init?: RequestInit,
   ttlMs: number = DEFAULT_TTL_MS,
 ): Promise<Response> {
   if (!isCacheableRequest(url, init)) {
-    return fetch(url, init);
+    const directInit: RequestInit = { ...init, cache: "no-store" };
+    return fetch(url, directInit);
   }
 
   const cacheKey = buildCacheKey(url, init);
@@ -180,26 +186,24 @@ export function cachedFetch(
   // Check local cache first
   const cached = responseCache.get(cacheKey);
   if (cached && Date.now() - cached.storedAt < ttlMs) {
-    return Promise.resolve(buildResponse(cached));
+    return buildResponse(cached);
   }
 
   // Return existing in-flight request if available
   const inflight = inflightRequests.get(cacheKey);
   if (inflight) {
     // Clone so each consumer can independently read the body
-    return inflight.then(
-      (res) => {
-        // Re-check cache (the in-flight may have populated it)
-        const freshCached = responseCache.get(cacheKey);
-        if (freshCached && Date.now() - freshCached.storedAt < ttlMs) {
-          return buildResponse(freshCached);
-        }
-        return res.clone();
-      },
-      (err) => {
-        throw err;
-      },
-    );
+    try {
+      await inflight;
+    } catch {
+      // ignore; handled below
+    }
+    // Re-check cache (the in-flight may have populated it)
+    const freshCached = responseCache.get(cacheKey);
+    if (freshCached && Date.now() - freshCached.storedAt < ttlMs) {
+      return buildResponse(freshCached);
+    }
+    return (await inflight).clone();
   }
 
   // Make the actual request
@@ -264,7 +268,7 @@ export function cachedFetch(
     );
   }
 
-  return promise.then((res) => res.clone());
+  return (await promise).clone();
 }
 
 /** Clear the entire fetch cache (e.g. on logout or manual refresh). */

@@ -40,7 +40,7 @@ function resolveBaseUrl(raw: string | undefined): URL {
     return parseRequiredBaseUrl(raw);
   }
 
-  if (process.env.CI) {
+  if (process.env["CI"]) {
     throw new Error(
       "PLAYWRIGHT_BASE_URL is required in CI (example: http://127.0.0.1:4401).",
     );
@@ -67,25 +67,26 @@ function parsePositiveInt(value: string | undefined, fallback: number): number {
   return parsed;
 }
 
-const baseUrl = resolveBaseUrl(process.env.PLAYWRIGHT_BASE_URL);
-const readinessPath = process.env.PLAYWRIGHT_READINESS_PATH ?? "/simulator";
+const baseUrl = resolveBaseUrl(process.env["PLAYWRIGHT_BASE_URL"]);
+const readinessPath =
+  process.env["PLAYWRIGHT_READINESS_PATH"] ?? "/simulator";
 const reuseExistingServer = parseBoolean(
-  process.env.PLAYWRIGHT_REUSE_SERVER,
-  !process.env.CI,
+  process.env["PLAYWRIGHT_REUSE_SERVER"],
+  !process.env["CI"],
 );
 const webServerCommand =
-  process.env.PLAYWRIGHT_WEB_SERVER_COMMAND ??
+  process.env["PLAYWRIGHT_WEB_SERVER_COMMAND"] ??
   `pnpm exec astro dev --host ${baseUrl.hostname} --port ${baseUrl.port} --strict-port`;
 const webServerReadyUrl = new URL(readinessPath, baseUrl.origin).toString();
 const webServerTimeoutMs = parsePositiveInt(
-  process.env.PLAYWRIGHT_WEB_SERVER_TIMEOUT_MS,
+  process.env["PLAYWRIGHT_WEB_SERVER_TIMEOUT_MS"],
   300_000,
 );
 
 export default defineConfig({
   testDir: "./e2e",
   fullyParallel: false,
-  retries: process.env.CI ? 2 : 1,
+  retries: process.env["CI"] ? 2 : 1,
   timeout: 60_000,
   expect: {
     timeout: 10_000,

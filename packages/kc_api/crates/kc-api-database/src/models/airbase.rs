@@ -27,6 +27,8 @@ pub type PlaneInfoId = Uuid;
 pub struct AirBase {
     pub env_uuid: EnvInfoId,
     pub uuid: AirBaseId,
+    #[cfg(schema_since = "0.6.0")]
+    pub base_no: Option<i32>,
     pub action_kind: i32,
     pub distance: i32,
     pub plane_info: Option<PlaneInfoId>,
@@ -39,7 +41,11 @@ impl AirBase {
         data: kc_api_interface::air_base::AirBase,
         table: &mut PortTable,
         env_uuid: EnvInfoId,
+        base_no: Option<i64>,
     ) -> Option<()> {
+        #[cfg(not(schema_since = "0.6.0"))]
+        let _ = base_no;
+
         let new_plane_info = Uuid::new_v7(ts);
         let result = data
             .plane_info
@@ -64,6 +70,8 @@ impl AirBase {
         let new_air_base = AirBase {
             env_uuid,
             uuid,
+            #[cfg(schema_since = "0.6.0")]
+            base_no: base_no.map(|value| value as i32),
             action_kind: data.action_kind as i32,
             distance: data.distance as i32,
             plane_info: new_plane_info_wrap,

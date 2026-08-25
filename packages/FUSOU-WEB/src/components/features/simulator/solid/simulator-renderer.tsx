@@ -7,12 +7,10 @@ import {
   createEffect,
   createMemo,
   createSignal,
-  useContext,
   type JSX,
 } from "solid-js";
 import { createStore, reconcile } from "solid-js/store";
 import { useStore } from "@nanostores/solid";
-import { render } from "solid-js/web";
 import { WeaponIcon } from "@/components/features/simulator/solid/shared-ui";
 import type {
   AirBaseSlot,
@@ -29,6 +27,7 @@ import {
   cardUrl,
   computeEquipBonuses,
   computeEquipSum,
+  computeSuppressedEquipIds,
 } from "@/features/simulator/equip-calc";
 import { cachedFetch } from "@/utils/fetchCache";
 import { openShipModal } from "@/features/simulator/ship-modal";
@@ -62,29 +61,23 @@ import {
 import {
   getAirBaseState,
   getFleetState,
-  getSokuSpeedData,
-  getSpriteSheetMeta,
-  getWeaponIconFrame,
   getVisibleAirbaseCount,
   getMasterShip,
   getMasterSlotItem,
   isWorkspaceReadOnly,
 } from "@/features/simulator/simulator-selectors";
 import type {
-  ShipGrowthSummary,
-  ShipGrowthCaps,
   NormalizedShipGrowthCaps,
-  ShipGrowthBoundRow,
-  ShipGrowthBoundsResponse,
 } from "@/features/simulator/ship-growth-utils";
 import {
+  ShipGrowthBoundsResponseSchema,
+  ShipGrowthSummaryResponseSchema,
   normalizeShipGrowthCaps,
   deriveShipGrowthCapsFromBounds,
   mergeShipGrowthCaps,
   needsStatFallback,
 } from "@/features/simulator/ship-growth-utils";
 
-let mounted = false;
 const FLEET_SLOT_INDEXES = [0, 1, 2, 3, 4, 5] as const;
 const FLEET_EQUIP_SLOT_INDEXES = [0, 1, 2, 3, 4] as const;
 const AIRBASE_INDEXES = [0, 1, 2] as const;
@@ -105,7 +98,9 @@ async function getLatestShipGrowthPeriod(): Promise<{
   shipGrowthPeriodPromise = (async () => {
     const res = await cachedFetch("/api/ship-growth/summary");
     if (!res.ok) return null;
-    const json = (await res.json()) as ShipGrowthSummary;
+    const parsed = ShipGrowthSummaryResponseSchema.safeParse(await res.json());
+    if (!parsed.success || !parsed.data.ok) return null;
+    const json = parsed.data;
     const latest = json.periods?.[0];
     return latest
       ? { period_tag: latest.period_tag, table_version: latest.table_version }
@@ -132,10 +127,14 @@ async function getShipGrowthCaps(
       shipGrowthCapsCache.set(masterId, null);
       return null;
     }
-    const boundsJson = (await boundsRes.json()) as {
-      caps?: ShipGrowthCaps[];
-      bounds?: ShipGrowthBoundRow[];
-    };
+    const parsed = ShipGrowthBoundsResponseSchema.safeParse(
+      await boundsRes.json(),
+    );
+    if (!parsed.success || !parsed.data.ok) {
+      shipGrowthCapsCache.set(masterId, null);
+      return null;
+    }
+    const boundsJson = parsed.data;
     const capFromCaps = normalizeShipGrowthCaps(
       (boundsJson.caps ?? []).find((row) => row.master_id === masterId) ?? null,
     );
@@ -306,11 +305,6 @@ interface ShipCardContextValue {
 
 const ShipCardContext = createContext<ShipCardContextValue>();
 
-function useShipCardContext(): ShipCardContextValue {
-  const ctx = useContext(ShipCardContext);
-  if (!ctx) throw new Error("ShipCardContext is not available");
-  return ctx;
-}
 
 function getLiveFleet(fleetIndex: 1 | 2 | 3 | 4): FleetSlot[] {
   const fleets = getFleetState();
@@ -324,11 +318,19 @@ function getLiveFleet(fleetIndex: 1 | 2 | 3 | 4): FleetSlot[] {
 }
 
 function getLiveFleetSlot(fleetIndex: 1 | 2 | 3 | 4, idx: number): FleetSlot {
-  return getLiveFleet(fleetIndex)[idx];
+  const slot = getLiveFleet(fleetIndex)[idx];
+  if (!slot) {
+    throw new Error(`Fleet slot ${fleetIndex}:${idx} is unavailable`);
+  }
+  return slot;
 }
 
 function getLiveAirBase(index: number): AirBaseSlot {
-  return getAirBaseState()[index];
+  const base = getAirBaseState()[index];
+  if (!base) {
+    throw new Error(`Air base ${index} is unavailable`);
+  }
+  return base;
 }
 
 function applyShipSelectionAt(
@@ -592,20 +594,28 @@ function ShipCard(props: {
           )
         : {};
     const equipSums = computeEquipSum(slot.equipIds, slot.exSlotId);
+    const suppressedEquipIds =
+      slot.shipId != null
+        ? computeSuppressedEquipIds(
+            slot.shipId,
+            slot.equipIds,
+            slot.exSlotId
+          )
+        : new Set<number>();
 
     const leftStats: StatDef[] = [
       ["耐久", "taik", s.taik?.[0] ?? null, s.taik?.[1] ?? null, true],
       [
         "装甲",
         "souk",
-        ist?.souk ?? s.souk?.[0] ?? null,
-        s.souk?.[1] ?? null,
+        ist?.["souk"] ?? s["souk"]?.[0] ?? null,
+        s["souk"]?.[1] ?? null,
         true,
       ],
       [
         "回避",
         "kaih",
-        ist?.kaih ?? null,
+        ist?.["kaih"] ?? null,
         null,
         true,
         shipGrowthCap()?.kaihi_max ?? null,
@@ -625,36 +635,36 @@ function ShipCard(props: {
       [
         "火力",
         "houg",
-        ist?.houg ?? s.houg?.[0] ?? null,
-        s.houg?.[1] ?? null,
+        ist?.["houg"] ?? s["houg"]?.[0] ?? null,
+        s["houg"]?.[1] ?? null,
         true,
       ],
       [
         "雷装",
         "raig",
-        ist?.raig ?? s.raig?.[0] ?? null,
-        s.raig?.[1] ?? null,
+        ist?.["raig"] ?? s["raig"]?.[0] ?? null,
+        s["raig"]?.[1] ?? null,
         true,
       ],
       [
         "対空",
         "tyku",
-        ist?.tyku ?? s.tyku?.[0] ?? null,
-        s.tyku?.[1] ?? null,
+        ist?.["tyku"] ?? s["tyku"]?.[0] ?? null,
+        s["tyku"]?.[1] ?? null,
         true,
       ],
       [
         "対潜",
         "tais",
-        ist?.tais ?? s.tais?.[0] ?? null,
-        s.tais?.[1] ?? null,
+        ist?.["tais"] ?? s["tais"]?.[0] ?? null,
+        s["tais"]?.[1] ?? null,
         true,
         shipGrowthCap()?.taisen_max ?? null,
       ],
       [
         "索敵",
         "saku",
-        ist?.saku ?? null,
+        ist?.["saku"] ?? null,
         null,
         true,
         shipGrowthCap()?.sakuteki_max ?? null,
@@ -662,8 +672,8 @@ function ShipCard(props: {
       [
         "運",
         "luck",
-        ist?.luck ?? s.luck?.[0] ?? null,
-        s.luck?.[1] ?? null,
+        ist?.["luck"] ?? s["luck"]?.[0] ?? null,
+        s["luck"]?.[1] ?? null,
         true,
       ],
     ];
@@ -676,6 +686,7 @@ function ShipCard(props: {
       rightStats,
       equipBonuses,
       equipSums,
+      suppressedEquipIds,
       statOverrides: slot.statOverrides ?? ({} as StatOverrides),
     };
   });
@@ -722,12 +733,6 @@ function ShipCard(props: {
           const NON_EDITABLE_KEYS = new Set(["maxeq", "soku", "leng"]);
           const ZERO_FLOOR_STAT_KEYS = new Set(["tais", "kaih", "saku"]);
           const isEnemyShip = (d.slot.shipId ?? 0) >= 1500;
-
-          const editableStats = createMemo(() => {
-            return [...d.leftStats, ...d.rightStats].filter(
-              (st) => st[4] && !NON_EDITABLE_KEYS.has(st[1]),
-            );
-          });
 
           const openBulkEdit = () => {
             if (isReadOnly()) return;
@@ -952,7 +957,7 @@ function ShipCard(props: {
                           style={
                             {
                               background: `linear-gradient(to right, var(--color-primary) 0%, var(--color-primary) ${pct()}%, var(--color-base-300) ${pct()}%, var(--color-base-300) 100%)`,
-                            } as any
+                            }
                           }
                           onInput={(e) => {
                             const next = Number(
@@ -1016,6 +1021,7 @@ function ShipCard(props: {
                     onLoad={() => setCardImageUnavailable(false)}
                     onError={() => setCardImageUnavailable(true)}
                     onClick={() => {
+                      if (isReadOnly()) return;
                       const currentShipId = liveSlot().shipId;
                       setShipModalTargetForFleet(props.fleetIndex, props.idx);
                       openShipModal(currentShipId, (selection) => {
@@ -1045,6 +1051,7 @@ function ShipCard(props: {
                   <div
                     class="group/shiphead flex items-center gap-1.5 px-2 py-1 border-b border-base-200/60 cursor-pointer"
                     onClick={() => {
+                      if (isReadOnly()) return;
                       const currentShipId = liveSlot().shipId;
                       setShipModalTargetForFleet(props.fleetIndex, props.idx);
                       openShipModal(currentShipId, (selection) => {
@@ -1080,6 +1087,7 @@ function ShipCard(props: {
                       title="諸元を一括編集"
                       onClick={(e) => {
                         e.stopPropagation();
+                        if (isReadOnly()) return;
                         openBulkEdit();
                       }}
                     >
@@ -1123,7 +1131,7 @@ function ShipCard(props: {
                             onMouseLeave={() => setRowHovered(false)}
                             onClick={() => {
                               if (!isActive) return;
-                              const current = liveSlot().equipIds[i];
+                              const current = liveSlot().equipIds[i] ?? null;
                               if (isReadOnly() && current == null) return;
                               setEquipModalTargetForFleet(
                                 props.fleetIndex,
@@ -1156,9 +1164,17 @@ function ShipCard(props: {
                             )}
 
                             <span
-                              class={`truncate flex-1 leading-tight ${equip ? "text-base-content/80" : "text-base-content/15"}`}
+                              class={`truncate flex-1 leading-tight inline-flex items-center gap-0.5 ${equip ? "text-base-content/80" : "text-base-content/15"}`}
                             >
-                              {isActive ? (equip?.name ?? "—") : ""}
+                              <span class="truncate">
+                                {isActive ? (equip?.name ?? "—") : ""}
+                              </span>
+                              <Show when={equip && d.suppressedEquipIds.has(equip.id)}>
+                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" class="w-3.5 h-3.5 text-error shrink-0">
+                                  <title>他装備の影響によりシナジーが低下しています</title>
+                                  <path fill-rule="evenodd" d="M8 2a.75.75 0 0 1 .75.75v8.69l3.22-3.22a.75.75 0 1 1 1.06 1.06l-4.5 4.5a.75.75 0 0 1-1.06 0l-4.5-4.5a.75.75 0 0 1 1.06-1.06l3.22 3.22V2.75A.75.75 0 0 1 8 2Z" clip-rule="evenodd" />
+                                </svg>
+                              </Show>
                             </span>
 
                             <span class="ml-auto grid grid-cols-[2em_2.5em_1.25rem] items-center justify-items-end gap-0.5 shrink-0">
@@ -1204,6 +1220,7 @@ function ShipCard(props: {
                                   title="装備を外す"
                                   onClick={(e) => {
                                     e.stopPropagation();
+                                    if (isReadOnly()) return;
                                     setFleetEquip(liveSlot(), i, null);
                                   }}
                                 >
@@ -1257,12 +1274,23 @@ function ShipCard(props: {
                       ></div>
                     )}
                     <span
-                      class={`truncate flex-1 leading-tight ${d.slot.exSlotId != null ? "text-base-content/80" : "text-base-content/15"}`}
+                      class={`truncate flex-1 leading-tight inline-flex items-center gap-0.5 ${
+                        getMasterSlotItem(d.slot.exSlotId!)
+                          ? "text-base-content/80"
+                          : "text-base-content/15"
+                      }`}
                     >
-                      {d.slot.exSlotId != null
-                        ? (getMasterSlotItem(d.slot.exSlotId!)?.name ??
-                          "補強増設")
-                        : "補強増設"}
+                      <span class="truncate">
+                        {d.slot.exSlotId != null
+                          ? (getMasterSlotItem(d.slot.exSlotId!)?.name ?? "補強増設")
+                          : "補強増設"}
+                      </span>
+                      <Show when={d.slot.exSlotId != null && d.suppressedEquipIds.has(d.slot.exSlotId!)}>
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" class="w-3.5 h-3.5 text-error shrink-0">
+                          <title>他装備の影響によりシナジーが低下しています</title>
+                          <path fill-rule="evenodd" d="M8 2a.75.75 0 0 1 .75.75v8.69l3.22-3.22a.75.75 0 1 1 1.06 1.06l-4.5 4.5a.75.75 0 0 1-1.06 0l-4.5-4.5a.75.75 0 0 1 1.06-1.06l3.22 3.22V2.75A.75.75 0 0 1 8 2Z" clip-rule="evenodd" />
+                        </svg>
+                      </Show>
                     </span>
                     <span class="ml-auto grid grid-cols-[2em_2.5em_1.25rem] items-center justify-items-end gap-0.5 shrink-0">
                       <span class="inline-block w-[2em]" />
@@ -1289,6 +1317,7 @@ function ShipCard(props: {
                           title="補強増設装備を外す"
                           onClick={(e) => {
                             e.stopPropagation();
+                            if (isReadOnly()) return;
                             setFleetExslotEquip(liveSlot(), null);
                           }}
                         >
@@ -1303,6 +1332,7 @@ function ShipCard(props: {
                   <div class="grid grid-cols-[5.9rem_0.25rem_5.9rem] gap-x-0 gap-y-0 px-1.5 py-0 text-[10px] border-t border-base-200/50 leading-none w-fit">
                     {d.leftStats.map((ls, r) => {
                       const rs = d.rightStats[r];
+                      if (!rs) return null;
                       return (
                         <>
                           <StatCell
@@ -1483,7 +1513,7 @@ function AirBaseCard(props: { index: number }): JSX.Element {
                 onMouseEnter={() => setRowHovered(true)}
                 onMouseLeave={() => setRowHovered(false)}
                 onClick={() => {
-                  const current = getLiveAirBase(props.index).equipIds[i];
+                  const current = getLiveAirBase(props.index).equipIds[i] ?? null;
                   if (isReadOnly() && current == null) return;
                   setEquipModalTargetForAirBase(props.index, i);
                   openEquipModal(current, (selection) => {
@@ -1556,6 +1586,7 @@ function AirBaseCard(props: { index: number }): JSX.Element {
                       title="装備を外す"
                       onClick={(e) => {
                         e.stopPropagation();
+                        if (isReadOnly()) return;
                         setAirBaseEquip(getLiveAirBase(props.index), i, null);
                       }}
                     >

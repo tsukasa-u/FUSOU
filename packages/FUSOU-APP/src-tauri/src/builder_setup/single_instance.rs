@@ -2,7 +2,7 @@ use fusou_auth::{AuthManager, FileStorage};
 use serde_json::json;
 use std::sync::{Arc, Mutex};
 use tauri::{Manager, Url};
-use uuid::Uuid;
+use uuid::{Uuid, Variant};
 
 pub fn single_instance_init(app: &tauri::AppHandle, argv: Vec<String>) {
     // Initialization code for single instance
@@ -12,15 +12,15 @@ pub fn single_instance_init(app: &tauri::AppHandle, argv: Vec<String>) {
             Err(e) => {
                 tracing::warn!("single instance received invalid url argument: {}", e);
                 // Invalid deeplink should not stop window restore/focus flow.
-                goto_restore_window(app, &argv);
+                goto_restore_window(app);
                 return;
             }
         };
 
-        // Check if this is a Realtime-based member_id_hash sync request
+        // Check if this is a Worker-backed public_id sync request
         // fusou://sync?token=xxx
         if url.scheme() == "fusou" && url.host_str() == Some("sync") {
-            handle_realtime_member_id_sync(&url, app);
+            handle_public_id_sync(&url, app);
             return;
         }
 
@@ -28,10 +28,10 @@ pub fn single_instance_init(app: &tauri::AppHandle, argv: Vec<String>) {
         // Deep-link parsing is maintained for compatibility with existing flows.
     }
 
-    goto_restore_window(app, &argv);
+    goto_restore_window(app);
 }
 
-fn goto_restore_window(app: &tauri::AppHandle, argv: &[String]) {
+fn goto_restore_window(app: &tauri::AppHandle) {
     let singleton_window = match app.get_webview_window("main") {
         Some(window) => window,
         None => {
@@ -65,21 +65,19 @@ fn goto_restore_window(app: &tauri::AppHandle, argv: &[String]) {
         }
     }
 
-    tracing::debug!("single instance arg: {:?}", argv.get(1));
 }
 
 /// Handle fusou://sync?token=xxx
 ///
-/// Realtime-based member_id_hash sync handler
+/// Worker-backed public_id sync handler
 ///
 /// Flow:
 /// 1. WEB generates passphrase token and launches fusou://sync?token=xxx
 /// 2. APP reaches here
-/// 3. APP loads member_id_hash
-/// 4. Updates pending_member_syncs table in Supabase
-/// 5. Realtime automatically notifies WEB
-/// 6. WEB processes data in-page (no navigation)
-fn handle_realtime_member_id_sync(url: &Url, app: &tauri::AppHandle) {
+/// 3. APP loads public_id from AuthManager
+/// 4. Completes the pending handoff through the Worker
+/// 5. WEB polls the Worker and receives the public UUID
+fn handle_public_id_sync(url: &Url, app: &tauri::AppHandle) {
     // 1. Extract token
     let token = match url
         .query_pairs()
@@ -88,12 +86,23 @@ fn handle_realtime_member_id_sync(url: &Url, app: &tauri::AppHandle) {
     {
         Some(t) => t,
         None => {
-            tracing::warn!("[Realtime Sync] fusou://sync called without token parameter");
+            tracing::warn!("[Public ID Sync] fusou://sync called without token parameter");
+            return;
+        }
+    };
+    let token = match Uuid::parse_str(&token) {
+        Ok(parsed)
+            if parsed.get_version_num() == 4 && parsed.get_variant() == Variant::RFC4122 =>
+        {
+            parsed.to_string()
+        }
+        _ => {
+            tracing::warn!("[Worker Sync] fusou://sync token is not a UUID v4");
             return;
         }
     };
 
-    tracing::info!("[Realtime Sync] Received sync request");
+    tracing::info!("[Worker Sync] Received sync request");
 
     // 2. Generate APP instance ID (for handling multiple APP instances on same machine)
     let app_instance_id = get_or_create_app_instance_id();
@@ -101,70 +110,50 @@ fn handle_realtime_member_id_sync(url: &Url, app: &tauri::AppHandle) {
 
     // 3. Execute Supabase update in async task
     tauri::async_runtime::spawn(async move {
-        match handle_realtime_sync_async(&token, &app_instance_id, &app_handle).await {
+        match handle_public_id_sync_async(&token, &app_instance_id, &app_handle).await {
             Ok(_) => {
-                tracing::info!("[Realtime Sync] Successfully synced");
+                tracing::info!("[Public ID Sync] Successfully synced");
             }
             Err(e) => {
-                tracing::error!("[Realtime Sync] Failed to sync: {}", e);
+                tracing::error!("[Public ID Sync] Failed to sync: {}", e);
             }
         }
     });
 }
 
-/// Async: Load member_id_hash and save to Supabase (with retry functionality)
-async fn handle_realtime_sync_async(
+/// Async: complete the Worker-managed sync handoff (with retry functionality)
+async fn handle_public_id_sync_async(
     token: &str,
     app_instance_id: &str,
     app: &tauri::AppHandle,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    // 1. Load member_id_hash: prefer AuthManager dataset_id (v2), then legacy fallback.
-    let member_id_hash = resolve_member_id_hash_for_sync(app)
+    // The AuthManager token is the sole source for the current public_id.
+    let (_public_id, dataset_token) = resolve_dataset_token_for_sync(app)
         .await
         .map_err(|e| -> Box<dyn std::error::Error + Send + Sync> { e.into() })?;
 
-    tracing::info!("[Realtime Sync] Loaded member_id_hash");
+    tracing::info!("[Public ID Sync] Loaded public_id");
 
-    // 2. Get Supabase configuration (with clear error messages)
-    // Try compile-time embedded values first (set via option_env! during build with dotenvx),
-    // then fall back to runtime env vars (available when running via dotenvx directly).
-    let supabase_url = option_env!("PUBLIC_SUPABASE_URL")
-        .map(|s| s.to_string())
-        .or_else(|| std::env::var("SUPABASE_URL").ok())
-        .or_else(|| std::env::var("PUBLIC_SUPABASE_URL").ok())
-        .ok_or("Environment variable SUPABASE_URL or PUBLIC_SUPABASE_URL is not set (compile-time or runtime)")?;
+    let complete_endpoint = configs::get_user_configs_for_app()
+        .auth
+        .get_anonymous_sync_v2_complete_endpoint()
+        .ok_or("anonymous_sync_v2_complete_endpoint not configured")?
+        .replace("{token}", token);
 
-    // Support multiple variable names for API key (ANON_KEY for legacy, PUBLISHABLE_KEY for new)
-    let supabase_anon_key = option_env!("PUBLIC_SUPABASE_PUBLISHABLE_KEY")
-        .map(|s| s.to_string())
-        .or_else(|| std::env::var("SUPABASE_ANON_KEY").ok())
-        .or_else(|| std::env::var("PUBLIC_SUPABASE_ANON_KEY").ok())
-        .or_else(|| std::env::var("PUBLIC_SUPABASE_PUBLISHABLE_KEY").ok())
-        .ok_or("Environment variable SUPABASE_ANON_KEY, PUBLIC_SUPABASE_ANON_KEY, or PUBLIC_SUPABASE_PUBLISHABLE_KEY is not set (compile-time or runtime)")?;
-
-    if supabase_url.trim().is_empty() {
-        return Err("SUPABASE_URL is set but empty".into());
-    }
-    if supabase_anon_key.trim().is_empty() {
-        return Err("SUPABASE_ANON_KEY/PUBLISHABLE_KEY is set but empty".into());
-    }
-
-    // 3. Update Supabase with retry logic
+    // Complete the handoff with retry logic.
     let max_retries = 3u32;
     let mut last_error: Option<String> = None;
 
     for attempt in 0..max_retries {
         match send_supabase_update(
-            token,
             app_instance_id,
-            &member_id_hash,
-            &supabase_url,
-            &supabase_anon_key,
+            &complete_endpoint,
+            &dataset_token,
         )
         .await
         {
             Ok(_) => {
-                tracing::info!("[Realtime Sync] Supabase record updated successfully");
+                tracing::info!("[Public ID Sync] Sync handoff completed successfully");
                 return Ok(());
             }
             Err(e) => {
@@ -174,7 +163,7 @@ async fn handle_realtime_sync_async(
                     // Exponential backoff: 100ms, 200ms, 400ms
                     let backoff_ms = 100 * (1 << attempt);
                     tracing::warn!(
-                        "[Realtime Sync] Attempt {} failed: {}. Retrying in {}ms...",
+                        "[Public ID Sync] Attempt {} failed: {}. Retrying in {}ms...",
                         attempt + 1,
                         e,
                         backoff_ms
@@ -182,7 +171,7 @@ async fn handle_realtime_sync_async(
                     tokio::time::sleep(tokio::time::Duration::from_millis(backoff_ms as u64)).await;
                 } else {
                     tracing::error!(
-                        "[Realtime Sync] All {} attempts failed. Last error: {}",
+                        "[Public ID Sync] All {} attempts failed. Last error: {}",
                         max_retries,
                         e
                     );
@@ -196,16 +185,9 @@ async fn handle_realtime_sync_async(
         .into())
 }
 
-fn normalize_member_id_hash(value: &str) -> Option<String> {
-    let normalized = value.trim().to_ascii_lowercase();
-    if normalized.len() == 64 && normalized.as_bytes().iter().all(|b| b.is_ascii_hexdigit()) {
-        Some(normalized)
-    } else {
-        None
-    }
-}
-
-async fn resolve_member_id_hash_for_sync(app: &tauri::AppHandle) -> Result<String, String> {
+async fn resolve_dataset_token_for_sync(
+    app: &tauri::AppHandle,
+) -> Result<(String, String), String> {
     if let Some(auth_manager_state) = app.try_state::<Arc<Mutex<AuthManager<FileStorage>>>>() {
         // Clone to avoid holding the lock across await.
         let auth_manager_clone = {
@@ -215,55 +197,52 @@ async fn resolve_member_id_hash_for_sync(app: &tauri::AppHandle) -> Result<Strin
             manager.clone()
         };
 
-        if let Some(dataset_id) = auth_manager_clone.resolve_dataset_id_for_upload(None).await {
-            if let Some(normalized) = normalize_member_id_hash(&dataset_id) {
-                tracing::info!("[Realtime Sync] Using AuthManager dataset_id as member_id_hash");
-                return Ok(normalized);
+        if let Some(dataset_id) =
+            crate::util::resolve_dataset_id_for_current_member(&auth_manager_clone).await
+        {
+            let normalized = dataset_id.trim().to_ascii_lowercase();
+            if let Ok(uuid) = Uuid::parse_str(&normalized) {
+                if uuid.get_version_num() == 4 && uuid.get_variant() == Variant::RFC4122 {
+                    let dataset_token = auth_manager_clone
+                        .load_dataset_token_for_dataset(&normalized)
+                        .await
+                        .map_err(|e| format!("failed to load dataset token: {}", e))?
+                        .ok_or_else(|| "dataset_token is not available".to_string())?;
+                    if dataset_token.dataset_id.as_deref() != Some(normalized.as_str()) {
+                        return Err("dataset_token dataset_id does not match public_id".to_string());
+                    }
+                    tracing::info!("[Public ID Sync] Using AuthManager dataset_id as public_id");
+                    return Ok((normalized, dataset_token.token));
+                }
             }
 
-            tracing::warn!(
-                "[Realtime Sync] AuthManager dataset_id has invalid hash format; falling back to legacy source"
-            );
+            tracing::warn!("[Public ID Sync] AuthManager dataset_id is not a UUID v4");
         }
     }
 
-    crate::auth::auth_server::get_member_id_hash_with_cache()
+    Err("public_id is not available; complete anonymous v2 auth first".into())
 }
 
-/// Send PATCH request to Supabase
+/// Send a completion request to the Worker.
 async fn send_supabase_update(
-    token: &str,
     app_instance_id: &str,
-    member_id_hash: &str,
-    supabase_url: &str,
-    supabase_anon_key: &str,
+    complete_endpoint: &str,
+    dataset_token: &str,
 ) -> Result<(), String> {
     let client = reqwest::Client::new();
 
-    let update_url = format!(
-        "{}/rest/v1/pending_member_syncs?token=eq.{}",
-        supabase_url,
-        urlencoding::encode(token)
-    );
-
-    let now = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
-
     let update_body = json!({
-        "member_id_hash": member_id_hash,
         "app_instance_id": app_instance_id,
-        "synced_at": now
+        "dataset_token": dataset_token
     });
 
     tracing::debug!(
-        "[Realtime Sync] Sending PATCH to pending_member_syncs (token/member_id_hash redacted)"
+        "[Public ID Sync] Sending sync completion request (token/public_id redacted)"
     );
 
     let response = client
-        .patch(&update_url)
-        .header("apikey", supabase_anon_key)
-        .header("Authorization", format!("Bearer {}", supabase_anon_key))
+        .post(complete_endpoint)
         .header("Content-Type", "application/json")
-        .header("Prefer", "return=minimal")
         .json(&update_body)
         .send()
         .await
@@ -275,21 +254,20 @@ async fn send_supabase_update(
         return Ok(());
     }
 
-    let error_body = response.text().await.unwrap_or_default();
+    let _ = response.text().await;
 
-    // Detailed error message per HTTP status code
+    // Keep retry diagnostics free of bearer tokens and response bodies.
     let error_msg = match status.as_u16() {
-        400 => format!("Bad request (invalid token or data format): {}", error_body),
-        401 => format!("Unauthorized (invalid or expired API key): {}", error_body),
-        403 => format!("Forbidden (RLS policy denied access): {}", error_body),
-        404 => format!("Record not found (token may have expired): {}", error_body),
-        409 => format!("Conflict (record already updated): {}", error_body),
-        429 => format!("Rate limited (too many requests): {}", error_body),
-        500..=599 => format!("Supabase server error ({}): {}", status, error_body),
-        _ => format!("Unexpected error ({}): {}", status, error_body),
+        400 => "Bad request (invalid sync data)".to_string(),
+        401 => "Unauthorized (invalid or expired dataset token)".to_string(),
+        404 => "Record not found (sync token may have expired)".to_string(),
+        409 => "Conflict (sync record already completed or expired)".to_string(),
+        429 => "Rate limited (too many requests)".to_string(),
+        500..=599 => format!("Sync server error ({})", status),
+        _ => format!("Unexpected sync response ({})", status),
     };
 
-    tracing::error!("[Realtime Sync] {}", error_msg);
+    tracing::error!("[Public ID Sync] {}", error_msg);
     Err(error_msg)
 }
 

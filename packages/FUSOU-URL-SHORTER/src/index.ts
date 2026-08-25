@@ -23,15 +23,18 @@ type Bindings = {
 const app = new Hono<{ Bindings: Bindings }>();
 const SHORT_KEY_LENGTH = 16;
 
-type SnapshotPayload = {
-  snapshotShips?: Record<string, unknown>;
-  snapshotSlotItems?: Record<string, unknown>;
-};
+const snapshotPayloadSchema = z.object({
+  snapshotShips: z.record(z.unknown()).optional(),
+  snapshotSlotItems: z.record(z.unknown()).optional(),
+});
 
-type StoredShareRecord = {
-  url: string;
-  snapshotPayload?: SnapshotPayload;
-};
+const storedShareRecordSchema = z.object({
+  url: z.string(),
+  snapshotPayload: snapshotPayloadSchema.optional(),
+});
+
+type SnapshotPayload = z.infer<typeof snapshotPayloadSchema>;
+type StoredShareRecord = z.infer<typeof storedShareRecordSchema>;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -146,6 +149,7 @@ app.use("/api/*", async (c, next) => {
   }
 
   await next();
+  return;
 });
 
 // ---------------------------------------------------------------------------
@@ -183,6 +187,7 @@ const shortenValidator = zValidator("json", shortenSchema, (result, c) => {
   if (!result.success) {
     return c.json({ error: "Validation failed", issues: result.error.issues }, 400);
   }
+  return;
 });
 
 app.post("/api/shorten", shortenValidator, async (c) => {
@@ -197,7 +202,17 @@ app.post("/api/shorten", shortenValidator, async (c) => {
 
   let rawValue = url;
   if (snapshotPayload && (snapshotPayload.snapshotShips || snapshotPayload.snapshotSlotItems)) {
-    const record: StoredShareRecord = { url, snapshotPayload };
+    const record: StoredShareRecord = {
+      url,
+      snapshotPayload: {
+        ...(snapshotPayload.snapshotShips !== undefined
+          ? { snapshotShips: snapshotPayload.snapshotShips }
+          : {}),
+        ...(snapshotPayload.snapshotSlotItems !== undefined
+          ? { snapshotSlotItems: snapshotPayload.snapshotSlotItems }
+          : {}),
+      },
+    };
     const encoded = JSON.stringify(record);
     // Guardrail: keep room for future metadata and prevent excessive KV object size.
     if (encoded.length > 1_000_000) {
@@ -214,12 +229,12 @@ app.post("/api/shorten", shortenValidator, async (c) => {
 
 function parseStoredShareRecord(raw: string): { originalUrl: string; snapshotPayload: SnapshotPayload | null } {
   try {
-    const parsed = JSON.parse(raw) as Partial<StoredShareRecord>;
-    if (parsed && typeof parsed === "object" && typeof parsed.url === "string") {
-      const snapshotPayload = parsed.snapshotPayload && typeof parsed.snapshotPayload === "object"
-        ? parsed.snapshotPayload
-        : null;
-      return { originalUrl: parsed.url, snapshotPayload };
+    const parsed = storedShareRecordSchema.safeParse(JSON.parse(raw) as unknown);
+    if (parsed.success) {
+      return {
+        originalUrl: parsed.data.url,
+        snapshotPayload: parsed.data.snapshotPayload ?? null,
+      };
     }
   } catch {
     // Legacy format: raw value is the original URL string.
@@ -403,4 +418,5 @@ app.get("/", (c) => {
   return c.json({ status: "ok", service: "fusou-url-shorter" });
 });
 
+export { app };
 export default app;

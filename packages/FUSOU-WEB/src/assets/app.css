@@ -137,32 +137,55 @@
 
 .input:focus,
 .input:focus-within,
+.input:focus-visible,
+.input:active,
+.input:open,
+.input-bordered:focus,
+.input-bordered:focus-within,
+.input-bordered:focus-visible,
+.input-bordered:active,
+.input-bordered:open,
 .select:focus,
 .select:focus-within,
+.select:focus-visible,
+.select:active,
+.select:open,
+.select-bordered:focus,
+.select-bordered:focus-within,
+.select-bordered:focus-visible,
+.select-bordered:active,
+.select-bordered:open,
 .textarea:focus,
 .textarea:focus-within,
+.textarea:focus-visible,
+.textarea:active,
+.textarea:open,
+.textarea-bordered:focus,
+.textarea-bordered:focus-within,
+.textarea-bordered:focus-visible,
+.textarea-bordered:active,
+.textarea-bordered:open,
 .file-input:focus,
-.file-input:focus-within {
-  outline: none;
-  outline-offset: 0;
-  box-shadow: none;
+.file-input:focus-within,
+.file-input:focus-visible,
+.file-input:active,
+.file-input:open,
+.file-input-bordered:focus,
+.file-input-bordered:focus-within,
+.file-input-bordered:focus-visible,
+.file-input-bordered:active,
+.file-input-bordered:open {
+  --input-color: var(--color-primary) !important;
+  outline: 2px solid var(--color-primary) !important;
+  outline-offset: 2px !important;
+  border-color: var(--color-primary) !important;
+  box-shadow: none !important;
   isolation: auto;
   z-index: auto;
 }
 
-.input:focus,
-.input:focus-within,
-.select:focus,
-.select:focus-within,
-.textarea:focus,
-.textarea:focus-within,
-.file-input:focus,
-.file-input:focus-within {
-  border-color: color-mix(
-    in oklch,
-    var(--color-primary) 52%,
-    var(--color-base-content) 24%
-  );
+select::picker(select) {
+  border: 1px solid color-mix(in oklch, var(--color-base-content) 16%, transparent) !important;
 }
 
 .table th {

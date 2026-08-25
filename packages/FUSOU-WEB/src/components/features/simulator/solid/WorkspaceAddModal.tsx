@@ -2,7 +2,7 @@
 import { createSignal, createEffect } from "solid-js";
 import { useStore } from "@nanostores/solid";
 import { workspaceStore, addEntry, upsertEntry, type ViewerEntry } from "@/features/simulator/viewer-workspace";
-import { createOwnDeckFromCurrentState, saveCurrentStateToEntry, activateWorkspaceEntry } from "@/features/simulator/io-handlers";
+import { saveCurrentStateToEntry, activateWorkspaceEntry } from "@/features/simulator/io-handlers";
 import { resolveShareInput } from "@/features/simulator/share-resolver";
 
 export const workspaceAddModalRef: { current: HTMLDialogElement | null } = { current: null };
@@ -66,10 +66,13 @@ export function WorkspaceAddModal() {
 
     if (!url) {
       if (!entry) {
-        const newEntry = createOwnDeckFromCurrentState(lbl, mem);
-        activateWorkspaceEntry(newEntry);
-        workspaceAddModalRef.current?.close();
-        setTarget(null);
+        import("@/features/simulator/io-handlers").then(m => {
+          const newEntry = m.createOwnDeckFromCurrentState(lbl, mem);
+          // 元のデッキは上書きせずに、現在のUI状態で新しいデッキを作る（別名で保存）
+          activateWorkspaceEntry(newEntry, true, false);
+          workspaceAddModalRef.current?.close();
+          setTarget(null);
+        });
         return;
       }
       alert("共有URLを入力してください");

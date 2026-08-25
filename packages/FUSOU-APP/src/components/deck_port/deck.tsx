@@ -8,12 +8,12 @@ import {
   useSlotItems,
 } from "../../utility/provider.tsx";
 import type { JSX } from "solid-js";
-import { createEffect, createMemo, createSignal, For, Show } from "solid-js";
+import { createEffect, createMemo, For, Show } from "solid-js";
 
 import "../../css/divider.css";
 import "../../css/back_slash.css";
 
-import "shared-ui";
+import { ComponentColorBar, ComponentColorBarLabel, ComponentEquipmentModal, ComponentShipModal, IconCautionFill, IconKira } from "ui";;
 import type {
   MstShip,
   MstSlotItem,
@@ -22,7 +22,6 @@ import type {
 import type { Ship } from "@ipc-bindings/port.ts";
 import type { SlotItem, SlotItems } from "@ipc-bindings/require_info.ts";
 
-const expandSiganMap: { [key: number]: boolean } = {};
 const fleetOpenSignalMap: { [key: number]: boolean } = {
   1: true,
   2: false,
@@ -108,45 +107,45 @@ export function DeckComponent(props: DeckPortProps) {
       if (cond >= 71)
         cond_state = (
           <div class="size-4">
-            <icon-kira size="full" kira_type={3} />
+            <IconKira size="full" kira_type={3} />
           </div>
         );
       else if (cond >= 58)
         cond_state = (
           <div class="size-4">
-            <icon-kira size="full" kira_type={2} />
+            <IconKira size="full" kira_type={2} />
           </div>
         );
       else if (cond >= 50)
         // cond_state = <IconKira1 class="h-4 w-4 fill-yellow-500 stroke-2" />;
         cond_state = (
           <div class="size-4">
-            <icon-kira size="full" kira_type={1} />
+            <IconKira size="full" kira_type={1} />
           </div>
         );
       else if (cond == 49) cond_state = <></>;
       else if (cond >= 40)
         cond_state = (
           <div class="size-4">
-            <icon-caution-fill size="full" level={"low"} />
+            <IconCautionFill size="full" level={"low"} />
           </div>
         );
       else if (cond >= 30)
         cond_state = (
           <div class="size-4">
-            <icon-caution-fill size="full" level={"low"} />
+            <IconCautionFill size="full" level={"low"} />
           </div>
         );
       else if (cond >= 20)
         cond_state = (
           <div class="size-4">
-            <icon-caution-fill size="full" level={"middle"} />
+            <IconCautionFill size="full" level={"middle"} />
           </div>
         );
       else if (cond >= 0)
         cond_state = (
           <div class="size-4">
-            <icon-caution-fill size="full" level={"high"} />
+            <IconCautionFill size="full" level={"high"} />
           </div>
         );
       return cond_state;
@@ -166,19 +165,19 @@ export function DeckComponent(props: DeckPortProps) {
       else if (nowhp > 0.5 * maxhp)
         hp_state = (
           <div class="size-4">
-            <icon-caution-fill size="full" level={"low"} />
+            <IconCautionFill size="full" level={"low"} />
           </div>
         );
       else if (nowhp > 0.25 * maxhp)
         hp_state = (
           <div class="size-4">
-            <icon-caution-fill size="full" level={"middle"} />
+            <IconCautionFill size="full" level={"middle"} />
           </div>
         );
       else if (nowhp > 0)
         hp_state = (
           <div class="size-4">
-            <icon-caution-fill size="full" level={"high"} />
+            <IconCautionFill size="full" level={"high"} />
           </div>
         );
       return hp_state;
@@ -205,19 +204,19 @@ export function DeckComponent(props: DeckPortProps) {
       else if (9 * nowfuel >= 7 * maxfuel && 9 * nowbullet >= 7 * maxbullet)
         fuel_bullet_state = (
           <div class="size-4">
-            <icon-caution-fill size="full" level={"low"} />
+            <IconCautionFill size="full" level={"low"} />
           </div>
         );
       else if (9 * nowfuel >= 3 * maxfuel && 9 * nowbullet >= 3 * maxbullet)
         fuel_bullet_state = (
           <div class="size-4">
-            <icon-caution-fill size="full" level={"middle"} />
+            <IconCautionFill size="full" level={"middle"} />
           </div>
         );
       else if (nowfuel >= 0 && nowbullet >= 0)
         fuel_bullet_state = (
           <div class="size-4">
-            <icon-caution-fill size="full" level={"high"} />
+            <IconCautionFill size="full" level={"high"} />
           </div>
         );
       return fuel_bullet_state;
@@ -243,15 +242,8 @@ export function DeckComponent(props: DeckPortProps) {
     return states;
   });
 
-  const [expandSignal, setMoreSignal] = createSignal<boolean>(false);
 
   createEffect(() => {
-    setMoreSignal(expandSiganMap[props.deck_id]);
-
-    if (expandSiganMap[props.deck_id] == undefined) {
-      expandSiganMap[props.deck_id] = false;
-    }
-
     if (fleetOpenSignalMap[props.deck_id] == undefined) {
       fleetOpenSignalMap[props.deck_id] = false;
     }
@@ -303,24 +295,6 @@ export function DeckComponent(props: DeckPortProps) {
             </div>
             <div class="pl-4">{get_deck_name()}</div>
             <span class="flex-auto" />
-            <div class="form-control flex-none">
-              <label class="label cursor-pointer h-4">
-                <span
-                  class={`label-text pr-2 h-4${expandSignal() ? " text-info" : ""}`}
-                >
-                  expand
-                </span>
-                <input
-                  type="checkbox"
-                  onClick={() => {
-                    expandSiganMap[props.deck_id] = !expandSignal();
-                    setMoreSignal(!expandSignal());
-                  }}
-                  class="toggle toggle-xs h-4 toggle-info rounded-sm [&::before]:rounded-xs"
-                  checked={expandSignal()}
-                />
-              </label>
-            </div>
           </summary>
           <ul class="pl-0">
             <For each={get_deck_ship()}>
@@ -331,7 +305,7 @@ export function DeckComponent(props: DeckPortProps) {
                       <div class="justify-start gap-0 flex">
                         <div class="pl-2 pr-0.5 truncate flex-1 min-w-12 content-center">
                           <div class="w-[106px] h-max">
-                            <component-ship-modal
+                            <ComponentShipModal
                               size="xs"
                               color=""
                               name_flag={true}
@@ -362,7 +336,7 @@ export function DeckComponent(props: DeckPortProps) {
                             {hp_state()[ship_index()]}
                           </div>
                           <div class="w-16 text-xs">
-                            <component-color-bar-label
+                            <ComponentColorBarLabel
                               v_max={ship_list()[ship_index()].maxhp ?? 0}
                               v_now={ship_list()[ship_index()].nowhp ?? 0}
                               size="xs"
@@ -410,114 +384,112 @@ export function DeckComponent(props: DeckPortProps) {
                                   ]?.bull_max ?? 0
                                 }
                               /> */}
-                              <component-color-bar
-                                class="w-8"
-                                v_now={ship_list()[ship_index()].fuel ?? 0}
-                                v_max={
-                                  mst_ship_list()[ship_index()].fuel_max ?? 0
-                                }
-                                size="xs"
-                              />
-                              <component-color-bar
-                                class="w-8"
-                                v_now={ship_list()[ship_index()].bull ?? 0}
-                                v_max={
-                                  mst_ship_list()[ship_index()].bull_max ?? 0
-                                }
-                                size="xs"
-                              />
+                              <div class="w-8 text-xs">
+                                <ComponentColorBar
+                                  v_now={ship_list()[ship_index()].fuel ?? 0}
+                                  v_max={
+                                    mst_ship_list()[ship_index()].fuel_max ?? 0
+                                  }
+                                  size="xs"
+                                />
+                              </div>
+                              <div class="w-8 text-xs">
+                                <ComponentColorBar
+                                  v_now={ship_list()[ship_index()].bull ?? 0}
+                                  v_max={
+                                    mst_ship_list()[ship_index()].bull_max ?? 0
+                                  }
+                                  size="xs"
+                                />
+                              </div>
                             </div>
                           </div>
                         </div>
                         <div class="divider divider-horizontal mr-0 ml-0" />
-                      </div>
-                      <Show when={expandSignal()}>
-                        <div class="flex">
-                          <div class="w-[4px]" />
-                          <div class="grid grid-cols-5 gap-2 content-center w-60">
-                            <For
-                              each={ships.ships[shipId]?.slot?.slice(
-                                0,
-                                ships.ships[shipId]?.slotnum ?? 0
-                              )}
-                            >
-                              {(slotId, slotId_index) => (
-                                <Show
-                                  when={slotId > 0}
-                                  fallback={
-                                    <div class="text-base flex justify-center">
-                                      <component-equipment-modal
-                                        size="xs"
-                                        empty_flag={true}
-                                      />
-                                    </div>
-                                  }
-                                >
+                        <div class="w-[4px]" />
+                        <div class="grid grid-cols-5 gap-2 content-center w-60">
+                          <For
+                            each={ships.ships[shipId]?.slot?.slice(
+                              0,
+                              ships.ships[shipId]?.slotnum ?? 0
+                            )}
+                          >
+                            {(slotId, slotId_index) => (
+                              <Show
+                                when={slotId > 0}
+                                fallback={
                                   <div class="text-base flex justify-center">
-                                    <component-equipment-modal
+                                    <ComponentEquipmentModal
                                       size="xs"
-                                      empty_flag={false}
-                                      name_flag={false}
-                                      attr_onslot={get_onslot(
-                                        ship_index(),
-                                        slotId_index()
-                                      )}
-                                      slot_item={get_slot_item(
-                                        ship_index(),
-                                        slotId
-                                      )}
-                                      mst_slot_item={get_mst_slot_item(
-                                        ship_index(),
-                                        slotId
-                                      )}
+                                      empty_flag={true}
                                     />
                                   </div>
-                                </Show>
-                              )}
-                            </For>
-                            <For
-                              each={[
-                                ...Array(
-                                  5 - (ships.ships[shipId]?.slotnum ?? 0)
-                                ).keys(),
-                              ]}
-                            >
-                              {() => (
-                                <div class="rounded back_slash_color bg-[size:16px_16px] bg-top-left bg-[image:repeating-linear-gradient(45deg,currentColor_0,currentColor_0.5px,transparent_0,transparent_50%)]" />
-                              )}
-                            </For>
-                          </div>
-                          <div class="divider divider-horizontal mr-0 ml-0" />
-                          <div
-                            class={`content-center ${ship_list()[ship_index()].slot_ex ? "" : "back_slash_color bg-[size:16px_16px] bg-top-left bg-[image:repeating-linear-gradient(45deg,currentColor_0,currentColor_0.5px,transparent_0,transparent_50%)]"}`}
-                          >
-                            <div class="text-base flex justify-center w-8">
-                              <Show
-                                when={
-                                  (ship_list()[ship_index()].slot_ex ?? 0) > 0
                                 }
                               >
-                                <component-equipment-modal
-                                  size="xs"
-                                  empty_flag={false}
-                                  name_flag={false}
-                                  attr_onslot={undefined}
-                                  slot_item={get_slot_item(
-                                    ship_index(),
-                                    ship_list()[ship_index()].slot_ex ?? 0
-                                  )}
-                                  mst_slot_item={get_mst_slot_item(
-                                    ship_index(),
-                                    ship_list()[ship_index()].slot_ex ?? 0
-                                  )}
-                                  ex_flag={true}
-                                />
+                                <div class="text-base flex justify-center">
+                                  <ComponentEquipmentModal
+                                    size="xs"
+                                    empty_flag={false}
+                                    name_flag={false}
+                                    attr_onslot={get_onslot(
+                                      ship_index(),
+                                      slotId_index()
+                                    )}
+                                    slot_item={get_slot_item(
+                                      ship_index(),
+                                      slotId
+                                    )}
+                                    mst_slot_item={get_mst_slot_item(
+                                      ship_index(),
+                                      slotId
+                                    )}
+                                  />
+                                </div>
                               </Show>
-                            </div>
-                          </div>
-                          <div class="divider divider-horizontal mr-0 ml-0 h-auto" />
+                            )}
+                          </For>
+                          <For
+                            each={[
+                              ...Array(
+                                5 - (ships.ships[shipId]?.slotnum ?? 0)
+                              ).keys(),
+                            ]}
+                          >
+                            {() => (
+                              <div class="rounded back_slash_color bg-[size:16px_16px] bg-top-left bg-[image:repeating-linear-gradient(45deg,currentColor_0,currentColor_0.5px,transparent_0,transparent_50%)]" />
+                            )}
+                          </For>
                         </div>
-                      </Show>
+                        <div class="divider divider-horizontal mr-0 ml-0" />
+                        <div
+                          class={`content-center ${ship_list()[ship_index()].slot_ex ? "" : "back_slash_color bg-[size:16px_16px] bg-top-left bg-[image:repeating-linear-gradient(45deg,currentColor_0,currentColor_0.5px,transparent_0,transparent_50%)]"}`}
+                        >
+                          <div class="text-base flex justify-center w-8">
+                            <Show
+                              when={
+                                (ship_list()[ship_index()].slot_ex ?? 0) > 0
+                              }
+                            >
+                              <ComponentEquipmentModal
+                                size="xs"
+                                empty_flag={false}
+                                name_flag={false}
+                                attr_onslot={undefined}
+                                slot_item={get_slot_item(
+                                  ship_index(),
+                                  ship_list()[ship_index()].slot_ex ?? 0
+                                )}
+                                mst_slot_item={get_mst_slot_item(
+                                  ship_index(),
+                                  ship_list()[ship_index()].slot_ex ?? 0
+                                )}
+                                ex_flag={true}
+                              />
+                            </Show>
+                          </div>
+                        </div>
+                        {/* <div class="divider divider-horizontal mr-0 ml-0 h-auto" /> */}
+                      </div>
                     </a>
                   </li>
                 </Show>

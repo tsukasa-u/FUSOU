@@ -38,6 +38,7 @@ export const default_ship: Ship = {
   sakuteki: [0, 0],
   lucky: [0, 0],
   sally_area: 0,
+  sortie_tag_id: null,
   sp_effect_items: {
     items: {
       0: {

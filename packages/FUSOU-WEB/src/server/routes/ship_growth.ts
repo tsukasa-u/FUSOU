@@ -1,4 +1,6 @@
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
+import { z } from "zod";
+import type { KVNamespace } from "@cloudflare/workers-types";
 import type { Bindings, D1Database } from "../types";
 import { decodeAvroOcfToJson } from "../utils/avro-decoder";
 import { getSynergyManifestR2Keys } from "../types/synergy";
@@ -11,8 +13,8 @@ import {
   timingSafeEqual,
   validateDatasetTokenSecret,
   validateDatasetTokenWithConstraints,
-  validateJWT,
-  validateTokenPayload,
+  resolveDatasetTokenRevocationConfig,
+  validateTokenPayloadWithSchema,
   verifySignedToken,
   safeWaitUntil,
   safeGetExecutionCtx,
@@ -27,9 +29,42 @@ import {
   validateCachedPeriodTag,
 } from "../utils/period-tags";
 import { validateSynergyPayload } from "../utils/synergy-payload";
+import { readBodyWithinLimit } from "../utils/upload";
+import { UploadTokenPayloadSchema } from "../schemas/tokens";
+import { PublicIdSchema } from "../schemas/public-id";
+import {
+  MasterDataR2KeyRowSchema,
+  ShipGrowthArchiveBoundsRowSchema,
+  ShipGrowthArchiveCapsRowSchema,
+  ShipGrowthLegacyBoundsRowSchema,
+  ShipGrowthBoundsUpdatedRowSchema,
+  ShipGrowthCapsRowSchema,
+  ShipGrowthCapsUpdatedRowSchema,
+  ShipGrowthCountRowSchema,
+  ShipGrowthExpUpdatedRowSchema,
+  ShipGrowthIngestBodySchema,
+  ShipGrowthPeriodRowSchema,
+  SpEffectItemSchema,
+} from "../schemas/ship-growth";
+import { parseMasterDataJsonRecords } from "../schemas/master-data";
+import {
+  parseSynergyShipIds,
+  parseSynergyStatBonus,
+  SynergyPayloadSchema,
+  SynergyDatasetManifestRowSchema,
+  type SynergyStatBonus,
+  type SynergyPayload,
+} from "../schemas/synergy";
+import {
+  ShipGrowthExpRowSchema,
+  type SpEffectItem,
+} from "../schemas/ship-growth";
 
 const SHIP_GROWTH_COLLECTION_SWITCH_ENV = "SHIP_GROWTH_COLLECTION_ENABLED";
 const SHIP_GROWTH_INGEST_SCHEMA_VERSION = 1;
+const SHIP_GROWTH_MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
+const SHIP_GROWTH_HANDSHAKE_MAX_BYTES =
+  SHIP_GROWTH_MAX_UPLOAD_BYTES + 64 * 1024;
 
 const app = new Hono<{ Bindings: Bindings }>();
 
@@ -64,17 +99,22 @@ interface ShipEntry {
 
 interface IngestBody {
   dataset_id: string;
-  dataset_token?: string;
+  dataset_token?: string | undefined;
   request_id: string;
   payload_hash: string;
   event_type: string;
   schema_version: number;
-  timestamp_ms: number;
+  timestamp_ms?: number | undefined;
   period_tag: string;
   table_version: string;
   ships: ShipEntry[];
-  content_hash?: string;
-  file_size?: number | string;
+  content_hash?: string | undefined;
+  file_size?: number | undefined;
+}
+
+function parseShipGrowthIngestBody(value: unknown): IngestBody | null {
+  const result = ShipGrowthIngestBodySchema.safeParse(value);
+  return result.success ? result.data : null;
 }
 
 interface MasterSlotStats {
@@ -140,14 +180,6 @@ interface ShipGrowthArchiveCapRow {
   sakuteki_max: number;
 }
 
-type SpEffectItem = {
-  api_kind?: number | null;
-  api_houg?: number | null;
-  api_kaih?: number | null;
-  api_raig?: number | null;
-  api_souk?: number | null;
-};
-
 interface SpEffectStats {
   kind: number;
   houg: number;
@@ -164,16 +196,16 @@ interface SynergyStatTotals {
 }
 
 interface SynergySingleRule {
-  ships?: unknown;
-  b?: Record<string, unknown>;
-  l?: Record<string, unknown>;
-  c2?: Record<string, unknown>;
-  c3?: Record<string, unknown>;
+  ships: number[];
+  b?: SynergyStatBonus;
+  l?: SynergyStatBonus;
+  c2?: SynergyStatBonus;
+  c3?: SynergyStatBonus;
 }
 
 interface SynergyCrossRule {
-  ships?: unknown;
-  synergy?: Record<string, unknown>;
+  ships: number[];
+  synergy?: SynergyStatBonus;
   pairs?: Array<[number, number]>;
   item_pool?: number[];
   fixed_items?: number[];
@@ -245,17 +277,17 @@ function parseMasterSlotStatsMap(
 ): Map<number, MasterSlotStats> {
   const statsMap = new Map<number, MasterSlotStats>();
   for (const row of records) {
-    const rawId = row.id;
+    const rawId = row["id"];
     const id =
       typeof rawId === "number" && Number.isFinite(rawId)
         ? Math.trunc(rawId)
         : null;
     if (id == null || id <= 0) continue;
 
-    const houkRaw = row.houk;
-    const taisRaw = row.tais;
-    const sakuRaw = row.saku;
-    const luckRaw = row.luck;
+    const houkRaw = row["houk"];
+    const taisRaw = row["tais"];
+    const sakuRaw = row["saku"];
+    const luckRaw = row["luck"];
 
     const houk =
       typeof houkRaw === "number" && Number.isFinite(houkRaw)
@@ -290,7 +322,7 @@ async function loadMasterSlotStatsMap(
     return cached.statsMap;
   }
 
-  const record = (await env.MASTER_DATA_INDEX_DB.prepare(
+  const record = await env.MASTER_DATA_INDEX_DB.prepare(
     `SELECT t.r2_key
        FROM master_data_tables t
        JOIN master_data_index i ON i.id = t.master_data_id
@@ -302,24 +334,29 @@ async function loadMasterSlotStatsMap(
        LIMIT 1`,
   )
     .bind(periodTag, tableVersion)
-    .first()) as { r2_key?: string } | null;
+    .first();
+  const parsedRecord = MasterDataR2KeyRowSchema.safeParse(record);
+  const r2Key = parsedRecord.success ? parsedRecord.data.r2_key : undefined;
 
-  if (!record?.r2_key) {
+  if (!r2Key) {
     throw new Error(
       `master data not found for mst_slotitem (period_tag=${periodTag}, table_version=${tableVersion})`,
     );
   }
 
-  const r2Object = await env.MASTER_DATA_BUCKET.get(record.r2_key);
+  const r2Object = await env.MASTER_DATA_BUCKET.get(r2Key);
   if (!r2Object) {
-    throw new Error(`R2 object missing for mst_slotitem: ${record.r2_key}`);
+    throw new Error(`R2 object missing for mst_slotitem: ${r2Key}`);
   }
 
   const arrayBuffer = await r2Object.arrayBuffer();
   const avroBytes = new Uint8Array(arrayBuffer);
-  const decodedRecords = decodeAvroOcfToJson(avroBytes) as Array<
-    Record<string, unknown>
-  >;
+  const decodedRecords = parseMasterDataJsonRecords(
+    decodeAvroOcfToJson(avroBytes),
+  );
+  if (!decodedRecords) {
+    throw new Error("Decoded master data payload is not a record array");
+  }
   const statsMap = parseMasterSlotStatsMap(decodedRecords);
 
   masterSlotItemCache.set(cacheKey, {
@@ -333,11 +370,12 @@ async function loadMasterSlotStatsMap(
 function parseSpEffectItems(json: string | null | undefined): SpEffectItem[] {
   if (!json || !json.trim()) return [];
   try {
-    const parsed = JSON.parse(json) as unknown;
+    const parsed: unknown = JSON.parse(json);
     if (!Array.isArray(parsed)) return [];
-    return parsed.filter(
-      (item): item is SpEffectItem => typeof item === "object" && item != null,
-    );
+    return parsed.flatMap((item) => {
+      const result = SpEffectItemSchema.safeParse(item);
+      return result.success ? [result.data] : [];
+    });
   } catch {
     return [];
   }
@@ -375,14 +413,116 @@ function scaleTotals(value: SynergyStatTotals, n: number): SynergyStatTotals {
 }
 
 function toShipTotals(
-  raw: Record<string, unknown> | undefined,
+  raw: SynergyStatBonus | undefined,
 ): SynergyStatTotals {
   if (!raw) return emptyTotals();
-  const kaihi = toInt(raw.kaih) + toInt(raw.houk) + toInt(raw.kaihi);
-  const taisen = toInt(raw.tais) + toInt(raw.taisen);
-  const sakuteki = toInt(raw.saku) + toInt(raw.sakuteki);
-  const lucky = toInt(raw.luck) + toInt(raw.luk) + toInt(raw.lucky);
+  const kaihi =
+    (raw.kaih ?? 0) + (raw.houk ?? 0) + (raw.kaihi ?? 0);
+  const taisen = (raw.tais ?? 0) + (raw.taisen ?? 0);
+  const sakuteki = (raw.saku ?? 0) + (raw.sakuteki ?? 0);
+  const lucky = (raw.luck ?? 0) + (raw.luk ?? 0) + (raw.lucky ?? 0);
   return { kaihi, taisen, sakuteki, lucky };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function parseFiniteNumberArray(value: unknown): number[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  return value.every(
+    (item): item is number => typeof item === "number" && Number.isFinite(item),
+  )
+    ? value
+    : undefined;
+}
+
+function parsePairs(value: unknown): Array<[number, number]> | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const pairs: Array<[number, number]> = [];
+  for (const pair of value) {
+    if (
+      !Array.isArray(pair) ||
+      pair.length !== 2 ||
+      typeof pair[0] !== "number" ||
+      !Number.isFinite(pair[0]) ||
+      typeof pair[1] !== "number" ||
+      !Number.isFinite(pair[1])
+    ) {
+      return undefined;
+    }
+    pairs.push([pair[0], pair[1]]);
+  }
+  return pairs;
+}
+
+function parseNestedNumberArray(value: unknown): number[][] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const parsed = value.map(parseFiniteNumberArray);
+  return parsed.every((item): item is number[] => item !== undefined)
+    ? parsed
+    : undefined;
+}
+
+function parseImplicants(value: unknown): number[][][] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const parsed = value.map(parseNestedNumberArray);
+  return parsed.every((item): item is number[][] => item !== undefined)
+    ? parsed
+    : undefined;
+}
+
+function parseSynergySingleRule(value: unknown): SynergySingleRule | null {
+  if (!isRecord(value)) return null;
+  const rule: SynergySingleRule = {
+    ships: parseSynergyShipIds(value["ships"]),
+  };
+  const bonuses = [
+    ["b", "b"],
+    ["l", "l"],
+    ["c2", "c2"],
+    ["c3", "c3"],
+  ] as const;
+  for (const [sourceKey, targetKey] of bonuses) {
+    if (value[sourceKey] === undefined) continue;
+    const bonus = parseSynergyStatBonus(value[sourceKey]);
+    if (bonus === undefined) return null;
+    rule[targetKey] = bonus;
+  }
+  return rule;
+}
+
+function parseSynergyCrossRule(value: unknown): SynergyCrossRule | null {
+  if (!isRecord(value)) return null;
+  const rule: SynergyCrossRule = {
+    ships: parseSynergyShipIds(value["ships"]),
+  };
+  if (value["synergy"] !== undefined) {
+    const synergy = parseSynergyStatBonus(value["synergy"]);
+    if (synergy === undefined) return null;
+    rule.synergy = synergy;
+  }
+
+  const pairs = parsePairs(value["pairs"]);
+  if (pairs !== undefined) rule.pairs = pairs;
+  for (const key of ["item_pool", "fixed_items", "free_pool"] as const) {
+    const items = parseFiniteNumberArray(value[key]);
+    if (items !== undefined) rule[key] = items;
+  }
+  if (typeof value["free_pool_with_replacement"] === "boolean") {
+    rule.free_pool_with_replacement = value["free_pool_with_replacement"];
+  }
+  if (
+    typeof value["free_pick_count"] === "number" &&
+    Number.isFinite(value["free_pick_count"])
+  ) {
+    rule.free_pick_count = value["free_pick_count"];
+  }
+  const categoryPools = parseNestedNumberArray(value["category_pools"]);
+  if (categoryPools !== undefined) rule.category_pools = categoryPools;
+  const implicants = parseImplicants(value["implicants"]);
+  if (implicants !== undefined) rule.implicants = implicants;
+  return rule;
 }
 
 function hasShipRule(
@@ -390,7 +530,7 @@ function hasShipRule(
   masterId: number,
 ): boolean {
   return (
-    Array.isArray(rule.ships) && rule.ships.some((id) => toInt(id) === masterId)
+    rule.ships.some((id) => id === masterId)
   );
 }
 
@@ -591,7 +731,7 @@ async function loadSynergyDataSet(
   env: Bindings,
   periodTag: string,
 ): Promise<SynergyDataSet> {
-  const rows = (await env.MASTER_DATA_INDEX_DB.prepare(
+  const rowsResult = await env.MASTER_DATA_INDEX_DB.prepare(
     `SELECT period_tag, period_revision, content_hash, sp_effect_sha256
      FROM synergy_manifest
      WHERE period_tag = ?
@@ -600,16 +740,15 @@ async function loadSynergyDataSet(
      LIMIT 20`,
   )
     .bind(periodTag)
-    .all()) as {
-    results?: Array<{
-      period_tag?: string;
-      period_revision?: number;
-      content_hash?: string;
-      sp_effect_sha256?: string;
-    }>;
-  };
+    .all();
+  const parsedRows = z.array(SynergyDatasetManifestRowSchema).safeParse(
+    rowsResult.results ?? [],
+  );
+  if (!parsedRows.success) {
+    throw new Error("Invalid synergy manifest rows");
+  }
 
-  const manifests = rows.results ?? [];
+  const manifests = parsedRows.data;
   if (manifests.length === 0) {
     throw new Error(`synergy manifest not found for period_tag=${periodTag}`);
   }
@@ -620,32 +759,7 @@ async function loadSynergyDataSet(
     content_hash: string;
     sp_effect_sha256: string;
   } | null = null;
-  type ParsedSynergyPayload = {
-    effects?: Record<string, unknown>;
-    cross_effects?: Record<string, unknown>;
-    effect_rules?: Array<{
-      ships: number[];
-      b: Record<string, number>;
-      l?: Record<string, number>;
-      c2?: Record<string, number>;
-      c3?: Record<string, number>;
-      items: number[];
-    }>;
-    cross_rules?: Array<{
-      ships: number[];
-      synergy: Record<string, number>;
-      pairs?: Array<[number, number]>;
-      item_pool?: number[];
-      fixed_items?: number[];
-      free_pool?: number[];
-      free_pool_with_replacement?: boolean;
-      free_pick_count?: number;
-      category_pools?: number[][];
-      implicants?: number[][][];
-    }>;
-  };
-
-  let parsed: ParsedSynergyPayload | null = null;
+  let parsed: SynergyPayload | null = null;
   let lastLoadError: unknown = null;
 
   for (const manifest of manifests) {
@@ -677,12 +791,17 @@ async function loadSynergyDataSet(
     }
 
     try {
-      parsed = (
-        await validateSynergyPayload(
-          new Uint8Array(await object.arrayBuffer()),
-          manifest.sp_effect_sha256,
-        )
-      ).parsed as ParsedSynergyPayload;
+      const validatedPayload = await validateSynergyPayload(
+        new Uint8Array(await object.arrayBuffer()),
+        manifest.sp_effect_sha256,
+      );
+      const parsedPayload = SynergyPayloadSchema.safeParse(
+        validatedPayload.parsed,
+      );
+      if (!parsedPayload.success) {
+        throw new Error("synergy payload has an invalid rule shape");
+      }
+      parsed = parsedPayload.data;
       selectedManifest = {
         period_tag: manifest.period_tag,
         period_revision: periodRevision,
@@ -716,13 +835,11 @@ async function loadSynergyDataSet(
   if (parsedPayload.effect_rules && Array.isArray(parsedPayload.effect_rules)) {
     for (const rule of parsedPayload.effect_rules) {
       if (!rule || !Array.isArray(rule.items)) continue;
-      const synRule: SynergySingleRule = {
-        ships: rule.ships ?? [],
-        b: rule.b ?? {},
-        l: rule.l,
-        c2: rule.c2,
-        c3: rule.c3,
-      };
+      const synRule = parseSynergySingleRule(rule);
+      if (!synRule) {
+        droppedSingleCount++;
+        continue;
+      }
       for (const itemId of rule.items) {
         if (!Number.isInteger(itemId) || itemId <= 0) {
           droppedSingleCount++;
@@ -749,12 +866,12 @@ async function loadSynergyDataSet(
         droppedSingleCount += 1;
         continue;
       }
-      singleByItem.set(
-        itemId,
-        rawRules.filter(
-          (rule) => typeof rule === "object" && rule != null,
-        ) as SynergySingleRule[],
-      );
+      const parsedRules = rawRules.flatMap((rule) => {
+        const parsedRule = parseSynergySingleRule(rule);
+        if (!parsedRule) droppedSingleCount++;
+        return parsedRule ? [parsedRule] : [];
+      });
+      singleByItem.set(itemId, parsedRules);
     }
   }
   if (droppedSingleCount > 0) {
@@ -771,20 +888,13 @@ async function loadSynergyDataSet(
   if (parsedPayload.cross_rules && Array.isArray(parsedPayload.cross_rules)) {
     for (const rule of parsedPayload.cross_rules) {
       if (!rule) continue;
-      const synRule: SynergyCrossRule = {
-        ships: rule.ships ?? [],
-        synergy: rule.synergy ?? {},
-        item_pool: rule.item_pool,
-        fixed_items: rule.fixed_items,
-        free_pool: rule.free_pool,
-        free_pool_with_replacement: rule.free_pool_with_replacement,
-        free_pick_count: rule.free_pick_count,
-        category_pools: rule.category_pools,
-        implicants: rule.implicants,
-      };
-      if (Array.isArray(rule.pairs) && rule.pairs.length > 0) {
-        synRule.pairs = rule.pairs;
-        for (const [a, b] of rule.pairs) {
+      const synRule = parseSynergyCrossRule(rule);
+      if (!synRule) {
+        droppedCrossCount++;
+        continue;
+      }
+      if (synRule.pairs && synRule.pairs.length > 0) {
+        for (const [a, b] of synRule.pairs) {
           const key = `${Math.min(a, b)}:${Math.max(a, b)}`;
           let list = crossByPair.get(key);
           if (!list) {
@@ -817,9 +927,11 @@ async function loadSynergyDataSet(
       }
       crossByPair.set(
         pairKey,
-        rawRules.filter(
-          (rule) => typeof rule === "object" && rule != null,
-        ) as SynergyCrossRule[],
+        rawRules.flatMap((rule) => {
+          const parsedRule = parseSynergyCrossRule(rule);
+          if (!parsedRule) droppedCrossCount++;
+          return parsedRule ? [parsedRule] : [];
+        }),
       );
     }
   }
@@ -1006,10 +1118,10 @@ function validateIngestBody(
 
   const datasetId = String(body.dataset_id ?? "").trim();
   if (!datasetId) return { ok: false, error: "dataset_id is required" };
-  if (!/^[a-f0-9]{64}$/i.test(datasetId)) {
+  if (!PublicIdSchema.safeParse(datasetId).success) {
     return {
       ok: false,
-      error: "dataset_id must be a 64-character SHA-256 hex string",
+      error: "dataset_id must be a UUID v4 public_id",
     };
   }
 
@@ -1163,7 +1275,7 @@ function buildAggregatedShipGrowthRows(
       }
     }
 
-    if (ship.lv > 0) {
+    if (ship.lv > 0 && derived) {
       const boundKey = `${ship.master_id}:${ship.lv}`;
       const existingBound = boundsByKey.get(boundKey);
       if (!existingBound) {
@@ -1297,7 +1409,7 @@ async function collectShipGrowthHistoryForArchive(
        WHERE (period_tag <> ? OR table_version <> ?)`,
     )
     .bind(periodTag, tableVersion)
-    .all<ShipGrowthArchiveBoundRow>();
+    .all();
 
   const oldCapsResult = await db
     .prepare(
@@ -1306,10 +1418,22 @@ async function collectShipGrowthHistoryForArchive(
        WHERE (period_tag <> ? OR table_version <> ?)`,
     )
     .bind(periodTag, tableVersion)
-    .all<ShipGrowthArchiveCapRow>();
+    .all();
 
-  const oldBounds = oldBoundsResult.results ?? [];
-  const oldCaps = oldCapsResult.results ?? [];
+  const parsedOldBounds = ShipGrowthArchiveBoundsRowSchema.array().safeParse(
+    oldBoundsResult.results ?? [],
+  );
+  if (!parsedOldBounds.success) {
+    throw new Error("Invalid ship-growth archive bounds rows");
+  }
+  const parsedOldCaps = ShipGrowthArchiveCapsRowSchema.array().safeParse(
+    oldCapsResult.results ?? [],
+  );
+  if (!parsedOldCaps.success) {
+    throw new Error("Invalid ship-growth archive caps rows");
+  }
+  const oldBounds = parsedOldBounds.data;
+  const oldCaps = parsedOldCaps.data;
 
   return { oldBounds, oldCaps };
 }
@@ -1435,18 +1559,39 @@ interface CumulativeKvSnapshot {
   db_synced_at: number; // epoch ms (CanonicalSnapshotBase) = last_archived_at_sec * 1000
 }
 
+function isJsonRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function parseArchiveRowsPayload(
+  value: unknown,
+): { bounds: unknown[]; caps: unknown[] } | null {
+  if (!isJsonRecord(value)) return null;
+  const rows = value["rows"];
+  if (rows === undefined) return { bounds: [], caps: [] };
+  if (!isJsonRecord(rows)) return null;
+  const bounds = rows["bounds"];
+  const caps = rows["caps"];
+  if (bounds !== undefined && !Array.isArray(bounds)) return null;
+  if (caps !== undefined && !Array.isArray(caps)) return null;
+  return {
+    bounds: bounds ?? [],
+    caps: caps ?? [],
+  };
+}
+
 function isCumulativeKvSnapshot(v: unknown): v is CumulativeKvSnapshot {
   if (!v || typeof v !== "object") return false;
   const s = v as Record<string, unknown>;
   return (
-    s.schema_version === CUMULATIVE_SCHEMA_VERSION &&
-    Array.isArray(s.bounds) &&
-    Array.isArray(s.caps) &&
-    typeof s.archive_object_count === "number" &&
-    typeof s.last_archived_at_sec === "number" &&
-    Array.isArray(s.processed_keys) &&
-    typeof s.refreshed_at === "number" &&
-    typeof s.db_synced_at === "number"
+    s["schema_version"] === CUMULATIVE_SCHEMA_VERSION &&
+    Array.isArray(s["bounds"]) &&
+    Array.isArray(s["caps"]) &&
+    typeof s["archive_object_count"] === "number" &&
+    typeof s["last_archived_at_sec"] === "number" &&
+    Array.isArray(s["processed_keys"]) &&
+    typeof s["refreshed_at"] === "number" &&
+    typeof s["db_synced_at"] === "number"
   );
 }
 
@@ -1475,14 +1620,22 @@ function mergeBoundsRow(
     (existing.kaihi_naked === 0 || row.kaihi_naked < existing.kaihi_naked)
   ) {
     existing.kaihi_naked = row.kaihi_naked;
-    existing.kaihi_source_period = row.kaihi_source_period;
+    if (row.kaihi_source_period === undefined) {
+      delete existing.kaihi_source_period;
+    } else {
+      existing.kaihi_source_period = row.kaihi_source_period;
+    }
   }
   if (
     row.taisen_naked > 0 &&
     (existing.taisen_naked === 0 || row.taisen_naked < existing.taisen_naked)
   ) {
     existing.taisen_naked = row.taisen_naked;
-    existing.taisen_source_period = row.taisen_source_period;
+    if (row.taisen_source_period === undefined) {
+      delete existing.taisen_source_period;
+    } else {
+      existing.taisen_source_period = row.taisen_source_period;
+    }
   }
   if (
     row.sakuteki_naked > 0 &&
@@ -1490,14 +1643,22 @@ function mergeBoundsRow(
       row.sakuteki_naked < existing.sakuteki_naked)
   ) {
     existing.sakuteki_naked = row.sakuteki_naked;
-    existing.sakuteki_source_period = row.sakuteki_source_period;
+    if (row.sakuteki_source_period === undefined) {
+      delete existing.sakuteki_source_period;
+    } else {
+      existing.sakuteki_source_period = row.sakuteki_source_period;
+    }
   }
   if (
     row.lucky_naked > 0 &&
     (existing.lucky_naked === 0 || row.lucky_naked < existing.lucky_naked)
   ) {
     existing.lucky_naked = row.lucky_naked;
-    existing.lucky_source_period = row.lucky_source_period;
+    if (row.lucky_source_period === undefined) {
+      delete existing.lucky_source_period;
+    } else {
+      existing.lucky_source_period = row.lucky_source_period;
+    }
   }
 }
 
@@ -1533,11 +1694,11 @@ async function listAllArchiveObjects(
   for (let page = 0; page < ARCHIVE_LIST_MAX_PAGES; page += 1) {
     const listed = await env.SHIP_GROWTH_ARCHIVE_BUCKET.list({
       prefix: ARCHIVE_PREFIX,
-      cursor,
+      ...(cursor !== undefined ? { cursor } : {}),
       limit: ARCHIVE_LIST_PAGE_LIMIT,
     });
     for (const obj of listed.objects) {
-      const archivedAtRaw = obj.customMetadata?.archived_at;
+      const archivedAtRaw = obj.customMetadata?.["archived_at"];
       const archivedAt = archivedAtRaw ? Number(archivedAtRaw) : NaN;
       out.push({
         key: obj.key,
@@ -1573,54 +1734,57 @@ async function fetchAndMergeArchiveObject(
   }
   const buffer = await obj.arrayBuffer();
   const text = new TextDecoder("utf-8").decode(buffer);
-  let parsed: { rows?: { bounds?: unknown; caps?: unknown } };
+  let parsed: { bounds: unknown[]; caps: unknown[] } | null;
   try {
-    parsed = JSON.parse(text) as typeof parsed;
+    parsed = parseArchiveRowsPayload(JSON.parse(text));
   } catch (err) {
     throw new Error(
       `[ship-growth] archive ${key} is not valid JSON: ${String(err)}`,
     );
   }
-  const bounds = Array.isArray(parsed.rows?.bounds) ? parsed.rows!.bounds! : [];
-  const caps = Array.isArray(parsed.rows?.caps) ? parsed.rows!.caps! : [];
+  if (!parsed) {
+    throw new Error(`[ship-growth] archive ${key} has invalid rows payload`);
+  }
+  const { bounds, caps } = parsed;
 
-  for (const raw of bounds as Array<Record<string, unknown>>) {
-    const masterId = Number(raw.master_id);
-    const lv = Number(raw.lv);
-    if (!Number.isFinite(masterId) || masterId <= 0) continue;
-    if (!Number.isFinite(lv) || lv <= 0) continue;
+  for (const raw of bounds) {
+    const parsedRow = ShipGrowthArchiveBoundsRowSchema.safeParse(raw);
+    if (!parsedRow.success) continue;
+    const row = parsedRow.data;
     // The source period is the OLD period the row was observed in (stored
     // inside the archive object body as raw.period_tag / raw.table_version).
-    const sourcePeriod =
-      raw.period_tag && raw.table_version
-        ? `${String(raw.period_tag)}/${String(raw.table_version)}`
-        : undefined;
+    const sourcePeriod = `${row.period_tag}/${row.table_version}`;
     mergeBoundsRow(boundsByKey, {
-      master_id: masterId,
-      lv,
+      master_id: row.master_id,
+      lv: row.lv,
       // Clamp to ≥ 0: D1 naked stats are always non-negative (Math.max(0, ...)),
       // but defensive clamping prevents a corrupted archive row with a negative
       // value from permanently poisoning mergeBoundsRow's min-selection logic
       // (a negative "existing" value would block all future positive updates).
-      kaihi_naked: Math.max(0, Number(raw.kaihi_naked) || 0),
-      taisen_naked: Math.max(0, Number(raw.taisen_naked) || 0),
-      sakuteki_naked: Math.max(0, Number(raw.sakuteki_naked) || 0),
-      lucky_naked: Math.max(0, Number(raw.lucky_naked) || 0),
-      kaihi_source_period: sourcePeriod,
-      taisen_source_period: sourcePeriod,
-      sakuteki_source_period: sourcePeriod,
-      lucky_source_period: sourcePeriod,
+      kaihi_naked: Math.max(0, row.kaihi_naked),
+      taisen_naked: Math.max(0, row.taisen_naked),
+      sakuteki_naked: Math.max(0, row.sakuteki_naked),
+      lucky_naked: Math.max(0, row.lucky_naked),
+      ...(sourcePeriod
+        ? {
+            kaihi_source_period: sourcePeriod,
+            taisen_source_period: sourcePeriod,
+            sakuteki_source_period: sourcePeriod,
+            lucky_source_period: sourcePeriod,
+          }
+        : {}),
     });
   }
 
-  for (const raw of caps as Array<Record<string, unknown>>) {
-    const masterId = Number(raw.master_id);
-    if (!Number.isFinite(masterId) || masterId <= 0) continue;
+  for (const raw of caps) {
+    const parsedRow = ShipGrowthArchiveCapsRowSchema.safeParse(raw);
+    if (!parsedRow.success) continue;
+    const row = parsedRow.data;
     mergeCapsRow(capsByMaster, {
-      master_id: masterId,
-      kaihi_max: Number(raw.kaihi_max) || 0,
-      taisen_max: Number(raw.taisen_max) || 0,
-      sakuteki_max: Number(raw.sakuteki_max) || 0,
+      master_id: row.master_id,
+      kaihi_max: row.kaihi_max,
+      taisen_max: row.taisen_max,
+      sakuteki_max: row.sakuteki_max,
     });
   }
 }
@@ -1897,10 +2061,13 @@ async function processShipGrowthIngest(
           .bind(period_tag, table_version, ...chunk.map((r) => r.lv))
           .all()
           .then((result) => {
-            for (const r of (result.results ?? []) as {
-              lv: number;
-              exp_current: number;
-            }[]) {
+            const parsedRows = z
+              .array(ShipGrowthExpRowSchema)
+              .safeParse(result.results ?? []);
+            if (!parsedRows.success) {
+              throw new Error("Invalid ship growth EXP rows");
+            }
+            for (const r of parsedRows.data) {
               existingExpMap.set(r.lv, r.exp_current);
             }
           }),
@@ -2142,11 +2309,11 @@ function isExpKvSnapshot(v: unknown): v is ExpKvSnapshot {
   if (!v || typeof v !== "object") return false;
   const s = v as Record<string, unknown>;
   return (
-    typeof s.period_tag === "string" &&
-    typeof s.table_version === "string" &&
-    Array.isArray(s.rows) &&
-    typeof s.refreshed_at === "number" &&
-    typeof s.db_synced_at === "number"
+    typeof s["period_tag"] === "string" &&
+    typeof s["table_version"] === "string" &&
+    Array.isArray(s["rows"]) &&
+    typeof s["refreshed_at"] === "number" &&
+    typeof s["db_synced_at"] === "number"
   );
 }
 
@@ -2155,14 +2322,14 @@ function isBoundsKvSnapshot(v: unknown): v is BoundsKvSnapshot {
   const s = v as Record<string, unknown>;
   // schema_version === 3 indicates the snapshot includes the lucky_naked field.
   // Older snapshots are treated as invalid so the cache rebuilds.
-  if (s.schema_version !== 3) return false;
+  if (s["schema_version"] !== 3) return false;
   return (
-    typeof s.period_tag === "string" &&
-    typeof s.table_version === "string" &&
-    Array.isArray(s.bounds) &&
-    Array.isArray(s.caps) &&
-    typeof s.refreshed_at === "number" &&
-    typeof s.db_synced_at === "number"
+    typeof s["period_tag"] === "string" &&
+    typeof s["table_version"] === "string" &&
+    Array.isArray(s["bounds"]) &&
+    Array.isArray(s["caps"]) &&
+    typeof s["refreshed_at"] === "number" &&
+    typeof s["db_synced_at"] === "number"
   );
 }
 
@@ -2245,7 +2412,7 @@ async function staleMarkAllPeriodsSnapshot(
 // ── Cache helper ───────────────────────────────────────────────────
 
 async function putShipGrowthCache(
-  c: any,
+  c: Context<{ Bindings: Bindings }>,
   cache: Cache,
   cacheKey: Request,
   response: Response,
@@ -2255,7 +2422,7 @@ async function putShipGrowthCache(
 }
 
 function scheduleShipGrowthTask(
-  c: any,
+  c: Context<{ Bindings: Bindings }>,
   task: Promise<unknown>,
 ): void {
   safeWaitUntil(c, task);
@@ -2284,16 +2451,21 @@ app.get("/summary", async (c) => {
   }
 
   try {
-    const periods = ((
-      await db
-        .prepare(
-          `SELECT DISTINCT period_tag, table_version
-         FROM ship_growth_bounds
-         ORDER BY period_tag DESC, table_version DESC
-         LIMIT 20`,
-        )
-        .all()
-    ).results ?? []) as Array<{ period_tag: string; table_version: string }>;
+    const periodsResult = await db
+      .prepare(
+        `SELECT DISTINCT period_tag, table_version
+       FROM ship_growth_bounds
+       ORDER BY period_tag DESC, table_version DESC
+       LIMIT 20`,
+      )
+      .all();
+    const parsedPeriods = ShipGrowthPeriodRowSchema.array().safeParse(
+      periodsResult.results ?? [],
+    );
+    if (!parsedPeriods.success) {
+      throw new Error("Invalid ship-growth period rows");
+    }
+    const periods = parsedPeriods.data;
 
     // Archive presence check: prefer KV snapshot (cheap), but fall back to
     // a tiny R2 LIST(limit=1) so first-ever archive data is visible in the UI
@@ -2388,20 +2560,21 @@ app.get("/exp", async (c) => {
       expirationTtlSeconds: KV_EXPIRATION_TTL_S,
       isValidSnapshot: isExpKvSnapshot,
       refreshFromDelta: async (cached) => {
-        const deltaRows = ((
-          await db
-            .prepare(
-              `SELECT lv, exp_current, updated_at FROM ship_level_exp_pairs
-               WHERE period_tag = ? AND table_version = ? AND updated_at > ?
-               ORDER BY lv ASC`,
-            )
-            .bind(periodTag, tableVersion, cached.db_synced_at)
-            .all()
-        ).results ?? []) as Array<{
-          lv: number;
-          exp_current: number;
-          updated_at: number;
-        }>;
+        const deltaRowsResult = await db
+          .prepare(
+            `SELECT lv, exp_current, updated_at FROM ship_level_exp_pairs
+             WHERE period_tag = ? AND table_version = ? AND updated_at > ?
+             ORDER BY lv ASC`,
+          )
+          .bind(periodTag, tableVersion, cached.db_synced_at)
+          .all();
+        const parsedDeltaRows = ShipGrowthExpUpdatedRowSchema.array().safeParse(
+          deltaRowsResult.results ?? [],
+        );
+        if (!parsedDeltaRows.success) {
+          throw new Error("Invalid ship-growth exp delta rows");
+        }
+        const deltaRows = parsedDeltaRows.data;
 
         const byLv = new Map(cached.rows.map((r) => [r.lv, r]));
         for (const r of deltaRows) {
@@ -2425,20 +2598,21 @@ app.get("/exp", async (c) => {
         };
       },
       loadFull: async () => {
-        const fullRows = ((
-          await db
-            .prepare(
-              `SELECT lv, exp_current, updated_at FROM ship_level_exp_pairs
-               WHERE period_tag = ? AND table_version = ?
-               ORDER BY lv ASC`,
-            )
-            .bind(periodTag, tableVersion)
-            .all()
-        ).results ?? []) as Array<{
-          lv: number;
-          exp_current: number;
-          updated_at: number;
-        }>;
+        const fullRowsResult = await db
+          .prepare(
+            `SELECT lv, exp_current, updated_at FROM ship_level_exp_pairs
+             WHERE period_tag = ? AND table_version = ?
+             ORDER BY lv ASC`,
+          )
+          .bind(periodTag, tableVersion)
+          .all();
+        const parsedFullRows = ShipGrowthExpUpdatedRowSchema.array().safeParse(
+          fullRowsResult.results ?? [],
+        );
+        if (!parsedFullRows.success) {
+          throw new Error("Invalid ship-growth exp rows");
+        }
+        const fullRows = parsedFullRows.data;
 
         const maxUpdatedAt = fullRows.reduce(
           (max, row) => Math.max(max, Number(row.updated_at) || 0),
@@ -2484,19 +2658,21 @@ app.get("/exp", async (c) => {
     if (message.includes("no such column: updated_at")) {
       // Local legacy D1 schema compatibility: serve full snapshot without delta columns.
       try {
-        const legacyRows = ((
-          await db
-            .prepare(
-              `SELECT lv, exp_current FROM ship_level_exp_pairs
-               WHERE period_tag = ? AND table_version = ?
-               ORDER BY lv ASC`,
-            )
-            .bind(periodTag, tableVersion)
-            .all()
-        ).results ?? []) as Array<{
-          lv: number;
-          exp_current: number;
-        }>;
+        const legacyRowsResult = await db
+          .prepare(
+            `SELECT lv, exp_current FROM ship_level_exp_pairs
+             WHERE period_tag = ? AND table_version = ?
+             ORDER BY lv ASC`,
+          )
+          .bind(periodTag, tableVersion)
+          .all();
+        const parsedLegacyRows = ShipGrowthExpRowSchema.array().safeParse(
+          legacyRowsResult.results ?? [],
+        );
+        if (!parsedLegacyRows.success) {
+          throw new Error("Invalid legacy ship-growth exp rows");
+        }
+        const legacyRows = parsedLegacyRows.data;
 
         const response = c.json({
           ok: true,
@@ -2566,13 +2742,6 @@ app.get("/bounds", async (c) => {
     sakuteki_naked: number;
     lucky_naked: number;
   };
-  type CapsRow = {
-    master_id: number;
-    kaihi_max: number;
-    taisen_max: number;
-    sakuteki_max: number;
-  };
-
   try {
     const kv = c.env.DATA_LOADER_CACHE_KV;
     const kvKey = `sg:bounds:${periodTag}:${tableVersion}`;
@@ -2584,28 +2753,38 @@ app.get("/bounds", async (c) => {
       expirationTtlSeconds: KV_EXPIRATION_TTL_S,
       isValidSnapshot: isBoundsKvSnapshot,
       refreshFromDelta: async (cached) => {
-        const deltaBounds = ((
-          await db
-            .prepare(
-              `SELECT master_id, lv, kaihi_naked, taisen_naked, sakuteki_naked, lucky_naked, updated_at
-               FROM ship_growth_bounds
-               WHERE period_tag = ? AND table_version = ? AND updated_at > ?
-               ORDER BY master_id ASC, lv ASC`,
-            )
-            .bind(periodTag, tableVersion, cached.db_synced_at)
-            .all()
-        ).results ?? []) as Array<BoundsRow & { updated_at: number }>;
+        const deltaBoundsResult = await db
+          .prepare(
+            `SELECT master_id, lv, kaihi_naked, taisen_naked, sakuteki_naked, lucky_naked, updated_at
+             FROM ship_growth_bounds
+             WHERE period_tag = ? AND table_version = ? AND updated_at > ?
+             ORDER BY master_id ASC, lv ASC`,
+          )
+          .bind(periodTag, tableVersion, cached.db_synced_at)
+          .all();
+        const parsedDeltaBounds = ShipGrowthBoundsUpdatedRowSchema.array().safeParse(
+          deltaBoundsResult.results ?? [],
+        );
+        if (!parsedDeltaBounds.success) {
+          throw new Error("Invalid ship-growth bounds delta rows");
+        }
+        const deltaBounds = parsedDeltaBounds.data;
 
-        const deltaCaps = ((
-          await db
-            .prepare(
-              `SELECT master_id, kaihi_max, taisen_max, sakuteki_max, updated_at
-               FROM ship_growth_caps
-               WHERE period_tag = ? AND table_version = ? AND updated_at > ?`,
-            )
-            .bind(periodTag, tableVersion, cached.db_synced_at)
-            .all()
-        ).results ?? []) as Array<CapsRow & { updated_at: number }>;
+        const deltaCapsResult = await db
+          .prepare(
+            `SELECT master_id, kaihi_max, taisen_max, sakuteki_max, updated_at
+             FROM ship_growth_caps
+             WHERE period_tag = ? AND table_version = ? AND updated_at > ?`,
+          )
+          .bind(periodTag, tableVersion, cached.db_synced_at)
+          .all();
+        const parsedDeltaCaps = ShipGrowthCapsUpdatedRowSchema.array().safeParse(
+          deltaCapsResult.results ?? [],
+        );
+        if (!parsedDeltaCaps.success) {
+          throw new Error("Invalid ship-growth caps delta rows");
+        }
+        const deltaCaps = parsedDeltaCaps.data;
 
         const boundsMap = new Map(
           cached.bounds.map((r) => [`${r.master_id}:${r.lv}`, r]),
@@ -2669,13 +2848,17 @@ app.get("/bounds", async (c) => {
           .prepare(`SELECT COUNT(*) as c FROM ship_growth_bounds WHERE period_tag = ? AND table_version = ?`)
           .bind(periodTag, tableVersion)
           .first();
-        const totalRows = (countRes?.c as number) || 0;
+        const parsedCount = ShipGrowthCountRowSchema.safeParse(countRes);
+        if (!parsedCount.success) {
+          throw new Error("Invalid ship-growth bounds count row");
+        }
+        const totalRows = parsedCount.data.c;
 
         const BOUNDS_PAGE = 5000;
         let boundsRows: Array<BoundsRow & { updated_at: number }> = [];
 
         if (totalRows > 0) {
-          const stmts: any[] = [];
+          const stmts: ReturnType<D1Database["prepare"]>[] = [];
           for (let offset = 0; offset < totalRows; offset += BOUNDS_PAGE) {
             stmts.push(
               db.prepare(
@@ -2690,21 +2873,32 @@ app.get("/bounds", async (c) => {
           for (let i = 0; i < stmts.length; i += BATCH_LIMIT) {
             const batchResults = await db.batch(stmts.slice(i, i + BATCH_LIMIT));
             for (const res of batchResults) {
-              boundsRows = boundsRows.concat((res.results ?? []) as Array<BoundsRow & { updated_at: number }>);
+              const parsedRows = ShipGrowthBoundsUpdatedRowSchema.array().safeParse(
+                res.results ?? [],
+              );
+              if (!parsedRows.success) {
+                throw new Error("Invalid ship-growth bounds rows");
+              }
+              boundsRows = boundsRows.concat(parsedRows.data);
             }
           }
         }
 
-        const capsRows = ((
-          await db
-            .prepare(
-              `SELECT master_id, kaihi_max, taisen_max, sakuteki_max, updated_at
-               FROM ship_growth_caps
-               WHERE period_tag = ? AND table_version = ?`,
-            )
-            .bind(periodTag, tableVersion)
-            .all()
-        ).results ?? []) as Array<CapsRow & { updated_at: number }>;
+        const capsResult = await db
+          .prepare(
+            `SELECT master_id, kaihi_max, taisen_max, sakuteki_max, updated_at
+             FROM ship_growth_caps
+             WHERE period_tag = ? AND table_version = ?`,
+          )
+          .bind(periodTag, tableVersion)
+          .all();
+        const parsedCaps = ShipGrowthCapsUpdatedRowSchema.array().safeParse(
+          capsResult.results ?? [],
+        );
+        if (!parsedCaps.success) {
+          throw new Error("Invalid ship-growth caps rows");
+        }
+        const capsRows = parsedCaps.data;
 
         const maxBoundUpdatedAt = boundsRows.reduce(
           (max, row) => Math.max(max, Number(row.updated_at) || 0),
@@ -2785,13 +2979,17 @@ app.get("/bounds", async (c) => {
           .prepare(`SELECT COUNT(*) as c FROM ship_growth_bounds WHERE period_tag = ? AND table_version = ?`)
           .bind(periodTag, tableVersion)
           .first();
-        const totalRows = (countRes?.c as number) || 0;
+        const parsedCount = ShipGrowthCountRowSchema.safeParse(countRes);
+        if (!parsedCount.success) {
+          throw new Error("Invalid legacy ship-growth bounds count row");
+        }
+        const totalRows = parsedCount.data.c;
 
         const BOUNDS_PAGE = 5000;
         let legacyBounds: Array<BoundsRow> = [];
 
         if (totalRows > 0) {
-          const stmts: any[] = [];
+          const stmts: ReturnType<D1Database["prepare"]>[] = [];
           for (let offset = 0; offset < totalRows; offset += BOUNDS_PAGE) {
             stmts.push(
               db.prepare(
@@ -2806,22 +3004,33 @@ app.get("/bounds", async (c) => {
           for (let i = 0; i < stmts.length; i += BATCH_LIMIT) {
             const batchResults = await db.batch(stmts.slice(i, i + BATCH_LIMIT));
             for (const res of batchResults) {
-              const page = (res.results ?? []) as Array<Omit<BoundsRow, "lucky_naked">>;
+              const parsedPage = ShipGrowthLegacyBoundsRowSchema.array().safeParse(
+                res.results ?? [],
+              );
+              if (!parsedPage.success) {
+                throw new Error("Invalid legacy ship-growth bounds rows");
+              }
+              const page = parsedPage.data;
               legacyBounds = legacyBounds.concat(page.map((r) => ({ ...r, lucky_naked: 0 })));
             }
           }
         }
 
-        const legacyCaps = ((
-          await db
-            .prepare(
-              `SELECT master_id, kaihi_max, taisen_max, sakuteki_max
-               FROM ship_growth_caps
-               WHERE period_tag = ? AND table_version = ?`,
-            )
-            .bind(periodTag, tableVersion)
-            .all()
-        ).results ?? []) as Array<CapsRow>;
+        const legacyCapsResult = await db
+          .prepare(
+            `SELECT master_id, kaihi_max, taisen_max, sakuteki_max
+             FROM ship_growth_caps
+             WHERE period_tag = ? AND table_version = ?`,
+          )
+          .bind(periodTag, tableVersion)
+          .all();
+        const parsedLegacyCaps = ShipGrowthCapsRowSchema.array().safeParse(
+          legacyCapsResult.results ?? [],
+        );
+        if (!parsedLegacyCaps.success) {
+          throw new Error("Invalid legacy ship-growth caps rows");
+        }
+        const legacyCaps = parsedLegacyCaps.data;
 
         const responseBounds =
           masterId === null
@@ -2964,12 +3173,12 @@ function isAllPeriodsKvSnapshot(v: unknown): v is AllPeriodsKvSnapshot {
   if (!v || typeof v !== "object") return false;
   const s = v as Record<string, unknown>;
   return (
-    s.schema_version === ALL_PERIODS_SCHEMA_VERSION &&
-    Array.isArray(s.entries) &&
-    typeof s.archive_object_count === "number" &&
-    Array.isArray(s.processed_keys) &&
-    typeof s.refreshed_at === "number" &&
-    typeof s.db_synced_at === "number"
+    s["schema_version"] === ALL_PERIODS_SCHEMA_VERSION &&
+    Array.isArray(s["entries"]) &&
+    typeof s["archive_object_count"] === "number" &&
+    Array.isArray(s["processed_keys"]) &&
+    typeof s["refreshed_at"] === "number" &&
+    typeof s["db_synced_at"] === "number"
   );
 }
 
@@ -2990,31 +3199,25 @@ async function fetchAndMergeArchiveObjectForAllPeriods(
   }
   const buffer = await obj.arrayBuffer();
   const text = new TextDecoder("utf-8").decode(buffer);
-  let parsed: { rows?: { bounds?: unknown; caps?: unknown } };
+  let parsed: { bounds: unknown[]; caps: unknown[] } | null;
   try {
-    parsed = JSON.parse(text) as typeof parsed;
+    parsed = parseArchiveRowsPayload(JSON.parse(text));
   } catch (err) {
     throw new Error(
       `[ship-growth] archive ${key} is not valid JSON: ${String(err)}`,
     );
   }
-
-  const bounds = Array.isArray(parsed.rows?.bounds)
-    ? (parsed.rows!.bounds! as Array<Record<string, unknown>>)
-    : [];
-  const caps = Array.isArray(parsed.rows?.caps)
-    ? (parsed.rows!.caps! as Array<Record<string, unknown>>)
-    : [];
+  if (!parsed) {
+    throw new Error(`[ship-growth] archive ${key} has invalid rows payload`);
+  }
+  const { bounds, caps } = parsed;
 
   for (const raw of bounds) {
-    const masterId = Number(raw.master_id);
-    const lv = Number(raw.lv);
-    if (!Number.isFinite(masterId) || masterId <= 0) continue;
-    if (!Number.isFinite(lv) || lv <= 0) continue;
-    const periodTag = typeof raw.period_tag === "string" ? raw.period_tag : "";
-    const tableVersion =
-      typeof raw.table_version === "string" ? raw.table_version : "";
-    if (!periodTag || !tableVersion) continue;
+    const parsedRow = ShipGrowthArchiveBoundsRowSchema.safeParse(raw);
+    if (!parsedRow.success) continue;
+    const row = parsedRow.data;
+    const periodTag = row.period_tag;
+    const tableVersion = row.table_version;
 
     const pKey = `${periodTag}/${tableVersion}`;
     if (!byPeriod.has(pKey))
@@ -3024,32 +3227,31 @@ async function fetchAndMergeArchiveObjectForAllPeriods(
       });
     const entry = byPeriod.get(pKey)!;
     mergeBoundsRow(entry.bounds, {
-      master_id: masterId,
-      lv,
-      kaihi_naked: Math.max(0, Number(raw.kaihi_naked) || 0),
-      taisen_naked: Math.max(0, Number(raw.taisen_naked) || 0),
-      sakuteki_naked: Math.max(0, Number(raw.sakuteki_naked) || 0),
-      lucky_naked: Math.max(0, Number(raw.lucky_naked) || 0),
+      master_id: row.master_id,
+      lv: row.lv,
+      kaihi_naked: Math.max(0, row.kaihi_naked),
+      taisen_naked: Math.max(0, row.taisen_naked),
+      sakuteki_naked: Math.max(0, row.sakuteki_naked),
+      lucky_naked: Math.max(0, row.lucky_naked),
     });
   }
 
   for (const raw of caps) {
-    const masterId = Number(raw.master_id);
-    if (!Number.isFinite(masterId) || masterId <= 0) continue;
-    const periodTag = typeof raw.period_tag === "string" ? raw.period_tag : "";
-    const tableVersion =
-      typeof raw.table_version === "string" ? raw.table_version : "";
-    if (!periodTag || !tableVersion) continue;
+    const parsedRow = ShipGrowthArchiveCapsRowSchema.safeParse(raw);
+    if (!parsedRow.success) continue;
+    const row = parsedRow.data;
+    const periodTag = row.period_tag;
+    const tableVersion = row.table_version;
 
     const pKey = `${periodTag}/${tableVersion}`;
     if (!byPeriod.has(pKey))
       byPeriod.set(pKey, { bounds: new Map(), caps: new Map() });
     const entry = byPeriod.get(pKey)!;
     mergeCapsRow(entry.caps, {
-      master_id: masterId,
-      kaihi_max: Number(raw.kaihi_max) || 0,
-      taisen_max: Number(raw.taisen_max) || 0,
-      sakuteki_max: Number(raw.sakuteki_max) || 0,
+      master_id: row.master_id,
+      kaihi_max: row.kaihi_max,
+      taisen_max: row.taisen_max,
+      sakuteki_max: row.sakuteki_max,
     });
   }
 }
@@ -3304,25 +3506,33 @@ app.post("/ingest", async (c) => {
 
   // ── Stage 1: Handshake ───────────────────────────────────────────
   if (!uploadToken) {
-    const authHeader = c.req.header("Authorization");
-    const bearer = authHeader?.startsWith("Bearer ")
-      ? authHeader.slice(7).trim()
-      : null;
-    if (!bearer) return c.json({ error: "Unauthorized" }, 401);
-    const user = await validateJWT(bearer);
-    if (!user?.id)
-      return c.json({ error: "Invalid or expired JWT token" }, 401);
-
-    const handshakeBody = (await c.req
-      .json()
-      .catch(() => null)) as IngestBody | null;
+    const handshakeRead = await readBodyWithinLimit(
+      c.req.raw,
+      SHIP_GROWTH_HANDSHAKE_MAX_BYTES,
+    );
+    if (handshakeRead.kind === "too_large") {
+      return c.json({ error: "Request body exceeds maximum size" }, 413);
+    }
+    let rawHandshakeBody: unknown = null;
+    if (handshakeRead.kind === "ok") {
+      try {
+        rawHandshakeBody = JSON.parse(
+          new TextDecoder().decode(handshakeRead.data),
+        );
+      } catch {
+        rawHandshakeBody = null;
+      }
+    }
+    const handshakeBody = parseShipGrowthIngestBody(rawHandshakeBody);
 
     const validated = validateIngestBody(handshakeBody);
     if (!validated.ok) return c.json({ error: validated.error }, 400);
     const periodTagValidation = await validateCachedPeriodTag(
       c,
       String(handshakeBody?.period_tag ?? "").trim(),
-      { cacheKV: c.env.DATA_LOADER_CACHE_KV },
+      c.env.DATA_LOADER_CACHE_KV
+        ? { cacheKV: c.env.DATA_LOADER_CACHE_KV }
+        : {},
     );
     if (!periodTagValidation.ok) {
       return c.json(
@@ -3331,7 +3541,7 @@ app.post("/ingest", async (c) => {
       );
     }
 
-    // Require dataset_token to prove ownership of dataset_id.
+    // Require dataset_token possession and bind the request to its dataset_id.
     const datasetToken = resolveDatasetToken(
       c.req.header("X-Dataset-Token"),
       handshakeBody?.dataset_token,
@@ -3346,8 +3556,9 @@ app.post("/ingest", async (c) => {
       token: datasetToken,
       secret: datasetTokenSecret,
       expectedDatasetId: validated.datasetId,
+      revocation: resolveDatasetTokenRevocationConfig(env),
       // expectedUserId は検証しない: 複数端末では端末ごとの匿名 user_id が異なるため。
-      // データ帰属は dataset_id (member_id_hash) の照合で担保する。
+      // データ帰属は dataset_id (public_id) の照合で担保する。
     });
     if (!tokenValidation.ok) {
       return c.json(
@@ -3361,14 +3572,13 @@ app.post("/ingest", async (c) => {
     if (!contentHash) return c.json({ error: "content_hash is required" }, 400);
 
     const declaredSize = Number(handshakeBody?.file_size ?? 0);
-    const MAX_INGEST_BYTES = 10 * 1024 * 1024; // 10 MB
     if (!Number.isFinite(declaredSize) || declaredSize <= 0) {
       return c.json({ error: "file_size must be > 0" }, 400);
     }
-    if (declaredSize > MAX_INGEST_BYTES) {
+    if (declaredSize > SHIP_GROWTH_MAX_UPLOAD_BYTES) {
       return c.json(
         {
-          error: `file_size exceeds maximum allowed size (${MAX_INGEST_BYTES} bytes)`,
+          error: `file_size exceeds maximum allowed size (${SHIP_GROWTH_MAX_UPLOAD_BYTES} bytes)`,
         },
         400,
       );
@@ -3412,42 +3622,39 @@ app.post("/ingest", async (c) => {
   }
 
   // ── Stage 2: Execution ───────────────────────────────────────────
-  const authHeader = c.req.header("Authorization");
-  const bearer = authHeader?.startsWith("Bearer ")
-    ? authHeader.slice(7).trim()
-    : null;
-  if (!bearer) return c.json({ error: "Unauthorized" }, 401);
-  const user = await validateJWT(bearer);
-  if (!user?.id) return c.json({ error: "Invalid or expired JWT token" }, 401);
-
   const tokenPayload = await verifySignedToken(uploadToken, signingSecret);
   if (!tokenPayload)
     return c.json({ error: "Invalid or expired upload token" }, 401);
 
-  const payloadValidation = validateTokenPayload(tokenPayload, [
-    "content_hash",
-    "declared_size",
-    "dataset_id",
-    "request_id",
-    "event_type",
-    "schema_version",
-  ]);
+  const payloadValidation = validateTokenPayloadWithSchema(
+    tokenPayload,
+    UploadTokenPayloadSchema,
+  );
   if (!payloadValidation.valid) {
     return c.json(
       { error: payloadValidation.error ?? "Invalid upload token payload" },
       400,
     );
   }
+  const validatedPayload = payloadValidation.data;
   // user_id 照合は行わない: upload token の user_id は dataset_token.sub（帰属者）であり
   // JWT user_id（端末固有）と一致しないことがある。JWT 有効性は上で確認済み。
 
   // Read binary body
-  const bodyStream = c.req.raw.body;
-  if (!bodyStream) return c.json({ error: "Upload payload is missing" }, 400);
-  const uploaded = new Uint8Array(await new Response(bodyStream).arrayBuffer());
+  const bodyRead = await readBodyWithinLimit(
+    c.req.raw,
+    SHIP_GROWTH_MAX_UPLOAD_BYTES,
+  );
+  if (bodyRead.kind === "missing") {
+    return c.json({ error: "Upload payload is missing" }, 400);
+  }
+  if (bodyRead.kind === "too_large") {
+    return c.json({ error: "Upload payload exceeds maximum size" }, 413);
+  }
+  const uploaded = bodyRead.data;
 
   // Size check
-  const declaredSize = Number(tokenPayload.declared_size);
+  const declaredSize = validatedPayload.declared_size;
   if (!Number.isFinite(declaredSize) || uploaded.byteLength !== declaredSize) {
     return c.json(
       {
@@ -3461,7 +3668,7 @@ app.post("/ingest", async (c) => {
 
   // Hash check
   const actualHash = await sha256Hex(uploaded);
-  const expectedHash = String(tokenPayload.content_hash ?? "").toLowerCase();
+  const expectedHash = validatedPayload.content_hash.toLowerCase();
   if (!timingSafeEqual(actualHash.toLowerCase(), expectedHash)) {
     return c.json(
       { error: "Content hash mismatch - data may be corrupted" },
@@ -3470,19 +3677,23 @@ app.post("/ingest", async (c) => {
   }
 
   // Parse JSON payload
-  let body: IngestBody;
+  let parsedBody: unknown;
   try {
-    body = JSON.parse(new TextDecoder().decode(uploaded)) as IngestBody;
+    parsedBody = JSON.parse(new TextDecoder().decode(uploaded));
   } catch {
     return c.json({ error: "Invalid JSON upload payload" }, 400);
   }
+  const body = parseShipGrowthIngestBody(parsedBody);
+  if (!body) return c.json({ error: "Invalid JSON upload payload" }, 400);
 
   const verified = validateIngestBody(body);
   if (!verified.ok) return c.json({ error: verified.error }, 400);
   const periodTagValidation = await validateCachedPeriodTag(
     c,
     body.period_tag,
-    { cacheKV: c.env.DATA_LOADER_CACHE_KV },
+    c.env.DATA_LOADER_CACHE_KV
+      ? { cacheKV: c.env.DATA_LOADER_CACHE_KV }
+      : {},
   );
   if (!periodTagValidation.ok) {
     return c.json(
@@ -3493,10 +3704,10 @@ app.post("/ingest", async (c) => {
 
   // Verify claims match payload
   if (
-    verified.datasetId !== String(tokenPayload.dataset_id) ||
-    verified.requestId !== String(tokenPayload.request_id) ||
-    verified.eventType !== String(tokenPayload.event_type) ||
-    verified.schemaVersion !== Number(tokenPayload.schema_version)
+    verified.datasetId !== validatedPayload.dataset_id ||
+    verified.requestId !== validatedPayload.request_id ||
+    verified.eventType !== validatedPayload.event_type ||
+    verified.schemaVersion !== validatedPayload.schema_version
   ) {
     return c.json(
       { error: "Upload payload does not match upload token claims" },

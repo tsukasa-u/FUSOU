@@ -10,8 +10,10 @@ export type ShareGrowthSelection = {
 
 export type ShareBattleSelection = {
   battleId: string;
+  battleIndex?: number | null;
   periodTag?: string;
   tableVersion?: string;
+  datasetId?: string;
   view?: "phase" | "timeline";
   separators?: boolean;
 };
@@ -42,11 +44,17 @@ export function buildShareBattleUrl(
 ): string {
   const shareUrl = new URL("/share/battle", origin);
   shareUrl.searchParams.set("id", selection.battleId);
+  if (selection.battleIndex != null) {
+    shareUrl.searchParams.set("battle_index", String(selection.battleIndex));
+  }
   if (selection.periodTag) {
     shareUrl.searchParams.set("period_tag", selection.periodTag);
   }
   if (selection.tableVersion) {
     shareUrl.searchParams.set("table_version", selection.tableVersion);
+  }
+  if (selection.datasetId) {
+    shareUrl.searchParams.set("dataset_id", selection.datasetId);
   }
   if (selection.view) {
     shareUrl.searchParams.set("view", selection.view);
@@ -57,14 +65,3 @@ export function buildShareBattleUrl(
   return shareUrl.toString();
 }
 
-export async function copyTextWithFallback(text: string): Promise<boolean> {
-  if (navigator.clipboard?.writeText) {
-    try {
-      await navigator.clipboard.writeText(text);
-      return true;
-    } catch {
-      return false;
-    }
-  }
-  return false;
-}

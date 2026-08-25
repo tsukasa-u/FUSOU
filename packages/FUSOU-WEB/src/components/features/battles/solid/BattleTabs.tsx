@@ -33,7 +33,6 @@ export default function BattleTabs(props: Props) {
       >
         <For each={tabs}>
         {(tab) => {
-          const isActive = props.activeTab === tab.id;
           return (
             <button
               classList={{

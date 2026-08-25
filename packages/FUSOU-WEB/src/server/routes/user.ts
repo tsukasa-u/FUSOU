@@ -6,17 +6,15 @@ import {
   extractBearer,
   validateJWT,
   createEnvContext,
-  resolveLinkedMemberIdHashForUser,
+  resolvePublicIdsForUser,
   resolveSupabaseConfig,
 } from "../utils";
 
 const app = new Hono<{ Bindings: Bindings }>();
 
-function maskMemberIdHash(value: string): string {
+function maskPublicId(value: string): string {
   const normalized = value.trim().toLowerCase();
-  if (normalized.length <= 10) {
-    return normalized;
-  }
+  if (normalized.length <= 10) return normalized;
   return `${normalized.slice(0, 6)}...${normalized.slice(-4)}`;
 }
 
@@ -29,10 +27,10 @@ app.options(
 /**
  * GET /user/member-map
  *
- * Retrieves the current user's member_id mapping.
+ * Retrieves the current user's pseudonymous game-identifier associations.
  *
  * Responses:
- * - 200: Returns mapping data (or null if not found)
+ * - 200: Returns association data (or null if not linked)
  * - 401: Authentication failed
  * - 500: Server error
  */
@@ -42,12 +40,13 @@ app.get("/member-map", async (c) => {
   const cookieMatch = cookieHeader?.match(
     /(?:^|;\s*)(?:sb-access-token|__Secure-sb-access-token)=([^;]+)/,
   );
-  const cookieToken = cookieMatch
+  const cookieValue = cookieMatch?.[1];
+  const cookieToken = cookieValue !== undefined
     ? (() => {
         try {
-          return decodeURIComponent(cookieMatch[1]);
+          return decodeURIComponent(cookieValue);
         } catch {
-          return cookieMatch[1];
+          return cookieValue;
         }
       })()
     : null;
@@ -62,49 +61,32 @@ app.get("/member-map", async (c) => {
     return c.json({ error: "Invalid or expired JWT token" }, 401);
   }
 
-  // Get Supabase config
   const envCtx = createEnvContext(c);
   const { url, serviceRoleKey } = resolveSupabaseConfig(envCtx);
-
   if (!url || !serviceRoleKey) {
-    console.error("Supabase configuration missing");
     return c.json({ error: "Server misconfiguration" }, 500);
   }
 
-  // Create service role client
-  const supabaseAdmin = createClient(url, serviceRoleKey);
-
   try {
-    const currentUserId = supabaseUser.id;
-    const resolved = await resolveLinkedMemberIdHashForUser({
-      supabaseAdmin,
-      userId: currentUserId,
-      jwtPayload: supabaseUser.payload,
+    const resolved = await resolvePublicIdsForUser({
+      supabaseAdmin: createClient(url, serviceRoleKey),
+      ...(supabaseUser.id === undefined ? {} : { userId: supabaseUser.id }),
     });
-    const memberIdHash = resolved.memberIdHash;
-    const linked = Boolean(memberIdHash);
-
+    const maps = resolved.publicIds.map((publicId) => ({
+      linked: true,
+      public_id_masked: maskPublicId(publicId),
+      source: resolved.source,
+    }));
     return c.json({
       ok: true,
-      linked,
-      map: memberIdHash
-        ? {
-            linked: true,
-            member_id_hash_masked: maskMemberIdHash(memberIdHash),
-            source: resolved.source,
-          }
-        : null,
+      linked: maps.length > 0,
+      count: maps.length,
+      map: maps[0] ?? null,
+      maps,
     });
-  } catch (err) {
-    console.error("[/user/member-map] Unexpected error:", err);
-    return c.json(
-      {
-        error: "INTERNAL_ERROR",
-        message:
-          err instanceof Error ? err.message : "An unexpected error occurred",
-      },
-      500,
-    );
+  } catch (error) {
+    console.error("[/user/member-map] association lookup failed:", error);
+    return c.json({ error: "INTERNAL_ERROR" }, 500);
   }
 });
 

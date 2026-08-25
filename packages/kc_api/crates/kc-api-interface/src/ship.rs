@@ -52,6 +52,7 @@ pub struct Ship {
     pub sakuteki: Option<Vec<i64>>, // 索敵
     pub lucky: Option<Vec<i64>>,    // 運
     pub sally_area: Option<i64>,
+    pub sortie_tag_id: Option<i64>,
     pub sp_effect_items: Option<SpEffectItems>,
 }
 
@@ -124,6 +125,7 @@ impl Ships {
                         sakuteki: ship.sakuteki.clone().or(v.sakuteki.clone()),
                         lucky: ship.lucky.clone().or(v.lucky.clone()),
                         sally_area: ship.sally_area.or(v.sally_area),
+                        sortie_tag_id: ship.sortie_tag_id.or(v.sortie_tag_id),
                         sp_effect_items: ship.sp_effect_items.clone().or(v.sp_effect_items.clone()),
                     };
                     ship_map.ships.insert(*key, ship_or);

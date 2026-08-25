@@ -11,6 +11,9 @@ allow_save_api_responses = false
 # Whether to save KanColle resources such as images and metadata
 allow_save_resources = false
 
+# Whether to save only main.js locally (JS is not uploaded by asset sync)
+allow_save_main_js_local = false
+
 # The location to save files
 # The default location is under the user's Documents directory
 # to use the default location, leave this empty
@@ -80,7 +83,44 @@ save_file_location = ""
     pac_server_port = 0
 
 
+    [proxy.channel]
+    # The transport implementation for BidirectionalChannel.
+    # Supported values: "mpsc" (default, in-process queues) or "grpc" (connect to the channel microservice).
+    transport = "mpsc"
+
+    # The gRPC endpoint used when transport = "grpc". Leave empty to use the built-in default.
+    endpoint = "http://127.0.0.1:50061"
+
+    # Optional buffer size hint for the gRPC channel service. Set 0 to use the server default.
+    buffer_size = 0
+
+
 [app]
+    [app.connect_kc_server.server_list]
+    # Server hostname mappings (automatically used by the application)
+    #
+    #  No. = server hostname            # server name
+       1   = "w01y.kancolle-server.com" # 横須賀鎮守府
+       2   = "w02k.kancolle-server.com" # 新呉鎮守府
+       3   = "w03s.kancolle-server.com" # 佐世保鎮守府
+       4   = "w04m.kancolle-server.com" # 舞鶴鎮守府
+       5   = "w05o.kancolle-server.com" # 大湊警備府
+       6   = "w06k.kancolle-server.com" # トラック泊地
+       7   = "w07l.kancolle-server.com" # リンガ泊地
+       8   = "w08r.kancolle-server.com" # ラバウル基地
+       9   = "w09s.kancolle-server.com" # ショートランド泊地
+      10   = "w10b.kancolle-server.com" # ブイン基地
+      11   = "w11t.kancolle-server.com" # タウイタウイ泊地
+      12   = "w12p.kancolle-server.com" # パラオ泊地
+      13   = "w13b.kancolle-server.com" # ブルネイ泊地
+      14   = "w14h.kancolle-server.com" # 単冠湾泊地
+      15   = "w15p.kancolle-server.com" # 幌筵泊地
+      16   = "w16s.kancolle-server.com" # 宿毛湾泊地
+      17   = "w17k.kancolle-server.com" # 鹿屋基地
+      18   = "w18i.kancolle-server.com" # 岩川基地
+      19   = "w19s.kancolle-server.com" # 佐伯湾泊地
+      20   = "w20h.kancolle-server.com" # 柱島泊地
+
     [app.connect_kc_server]
     # The hostname of the KanColle server you want to connect to
     # This is the hostname or IP address of the server, like w16s.kancolle-server.com
@@ -124,7 +164,12 @@ save_file_location = ""
     #   Linux: "/home/yourname/Pictures/FUSOU/custom-screenshots"
     #   Windows: "C:/Users/yourname/Pictures/FUSOU/custom-screenshots"
     external_screenshot_directory = ""
-    
+
+
+    [app.autostart]
+    # Whether to enable the Tauri autostart integration
+    # default is false
+    enable = false
 
     [app.theme]
     # The theme to use for the application
@@ -167,8 +212,23 @@ save_file_location = ""
     # this feature can be enabled with user authentication
     # check [app.auth]
     allow_data_to_cloud = false
+
+    # Whether to sync KanColle data to the shared database (Cloudflare R2)
+    allow_data_to_shared_cloud = false
+
     # Whether to save KanColle data to the local filesystem
     allow_data_to_local = false
+
+    # Cron schedule for integration jobs (e.g., local FS or cloud storage integration)
+    # Format: "sec min hour day month day_of_week"
+    # Example: "0 0 * * * *" runs every hour
+    integration_schedule_cron = "0 0 * * * *"
+
+    [app.database.r2]
+    # HTTPS endpoint provided by FUSOU-WEB that mediates Cloudflare R2 uploads
+    upload_endpoint = "https://fusou.dev/api/battle-data/upload"
+    # Master-data upload endpoint
+    master_data_upload_endpoint = "https://fusou.dev/api/master-data/upload"
 
 
     [app.database.google_drive]
@@ -176,15 +236,63 @@ save_file_location = ""
     # this option is only used when [app.database] is enabled
     page_size = 100
 
-    # The interval (in cron format) to sync data to Google Drive
-    # this option is only used when [app.database] is enabled
-    schedule_cron = "0 0 * * * *" # every hour
-
 
     [app.database.local]
     # Base directory used when writing KanColle data locally
     # leave it empty to use the Documents directory/FUSOU/storage path
     output_directory = ""
+
+    # Batch size for local filesystem integration operations
+    # Higher values = faster but more memory usage
+    # LocalFS can handle larger batches due to local I/O speed
+    # Default is 500 (can adjust down for memory-constrained systems)
+    integration_batch_size = 500
+
+
+    [app.asset_sync]
+    # Whether to upload non-kcsapi proxy resources to Cloudflare R2
+    # default is false
+    enable = false
+
+    # Whether asset upload worker is enabled
+    asset_upload_enable = false
+
+    # The polling interval (in seconds) for scanning the cache directory
+    scan_interval_seconds = 30
+
+    # HTTPS endpoint provided by FUSOU-WEB that mediates Cloudflare R2 uploads
+    asset_upload_endpoint = "https://fusou.dev/api/asset-sync/upload"
+
+    # Optional explicit snapshot upload endpoint (if empty, origin derived from asset_upload_endpoint)
+    fleet_snapshot_endpoint = "https://fusou.dev/api/fleet/snapshot"
+
+    # Endpoint returning the latest kc_period_tag timestamp to decide when uploads can restart
+    kc_period_endpoint = "https://fusou.dev/api/kc-period/latest"
+
+    # Endpoint returning a cached list of existing R2 asset keys (1 hour TTL)
+    asset_existing_keys_endpoint = "https://fusou.dev/api/asset-sync/keys"
+
+    # Extensions (without dot) that must never be uploaded to Cloudflare R2
+    asset_skip_extensions = ["mp3", "woff2", "js"]
+
+
+    [app.asset_sync.retry]
+    # Maximum number of retry attempts for failed uploads
+    max_attempts = 10
+
+    # Time to live (in seconds) for pending upload files
+    # Files older than this will be deleted
+    ttl_seconds = 2592000 # 30 days
+
+    # Interval (in seconds) between retry attempts
+    interval_seconds = 900 # 15 minutes (base for exponential backoff)
+
+    # Cooldown (in seconds) after an authentication failure before retrying
+    auth_backoff_seconds = 600
+
+    # Minimum wait time (in seconds) between individual items within a single retry batch run.
+    # Set to 0 to disable the wait. Increase to reduce CPU/network load during large retry batches.
+    item_interval_seconds = 5
 
 
     [app.auth]
@@ -200,11 +308,11 @@ save_file_location = ""
     # Standard path for current builds.
     # On first launch, the client calls register to obtain device_id.
     # After registration, it uses challenge -> refresh to renew dataset_token.
-    # If a device is lost, another trusted device can call revoke.
+    # Device revoke is controlled by the server's device-key policy.
     anonymous_sync_v2_register_endpoint = "https://fusou.dev/api/auth/anonymous-sync/v2/register"
     anonymous_sync_v2_challenge_endpoint = "https://fusou.dev/api/auth/anonymous-sync/v2/challenge"
     anonymous_sync_v2_refresh_endpoint = "https://fusou.dev/api/auth/anonymous-sync/v2/refresh"
-    anonymous_sync_v2_revoke_endpoint = "https://fusou.dev/api/auth/anonymous-sync/v2/revoke"
+    anonymous_sync_v2_complete_endpoint = "https://fusou.dev/api/auth/anonymous-sync/v2/pending/{token}/complete"
 
 
     [app.kc_window]
@@ -249,6 +357,14 @@ save_file_location = ""
     # Endpoint to ingest ship growth data
     # If empty, ship growth sender is disabled
     ingest_endpoint = "https://fusou.dev/api/ship-growth/ingest"
+
+    [app.soku_speed_sender]
+    # Whether to enable speed observed data collection
+    # default is false
+    enable = true
+
+    # Endpoint to ingest soku_speed observed data
+    ingest_endpoint = "https://fusou.dev/api/soku-speed-observed/ingest"
 
     [app.remodel_sender]
     # Whether to enable remodel tree data ingestion (experimental feature)

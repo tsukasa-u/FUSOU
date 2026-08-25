@@ -3,7 +3,7 @@
 //! v2 anonymous-sync では、端末を以下の手順で本人性証明する:
 //!   1. 端末は OS の CSPRNG で Ed25519 keypair を 1 度だけ生成する
 //!   2. 公開鍵を `/anonymous-sync/v2/register` に送り、サーバーが `device_id` を発行する
-//!   3. 以降の `/v2/refresh` / `/v2/revoke` ではサーバーから受け取った challenge nonce
+//!   3. 以降の `/v2/refresh` ではサーバーから受け取った challenge nonce
 //!      に署名して送信する
 //!
 //! 秘密鍵は端末外に出さない。本モジュールでは Tauri Stronghold / OS keyring との統合は
@@ -143,17 +143,27 @@ impl DeviceKey {
                 .await
                 .map_err(|e| AuthError::Other(e.to_string()))?;
         }
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+
+            std::fs::OpenOptions::new()
+                .write(true)
+                .create(true)
+                .mode(0o600)
+                .open(&self.storage_path)
+                .map_err(|e| AuthError::Other(e.to_string()))?;
+            std::fs::set_permissions(
+                &self.storage_path,
+                std::fs::Permissions::from_mode(0o600),
+            )
+            .map_err(|e| AuthError::Other(e.to_string()))?;
+        }
+
         tokio::fs::write(&self.storage_path, &json)
             .await
             .map_err(|e| AuthError::Other(e.to_string()))?;
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            let _ = std::fs::set_permissions(
-                &self.storage_path,
-                std::fs::Permissions::from_mode(0o600),
-            );
-        }
         // Windows ではユーザー専有領域 (%APPDATA%) 前提のためファイルパーミッションは付けない。
         // Stronghold / OS keyring 統合時に併せて強化する。
         Ok(())
@@ -187,6 +197,43 @@ impl DeviceKey {
         }
         self.record.device_id = Some(device_id);
         self.persist().await
+    }
+
+    /// Replace the server-issued device ID after the server-side device registry was reset.
+    /// This is crate-private so callers cannot bypass the normal no-overwrite guard.
+    pub(crate) async fn replace_device_id_after_server_reset(
+        &mut self,
+        device_id: String,
+    ) -> Result<(), AuthError> {
+        let previous = self.record.device_id.replace(device_id);
+        if let Err(error) = self.persist().await {
+            self.record.device_id = previous;
+            return Err(error);
+        }
+        Ok(())
+    }
+
+    /// Clear the server-issued device ID before registering this key to a new public ID.
+    pub async fn clear_device_id(&mut self) -> Result<(), AuthError> {
+        if self.record.device_id.take().is_some() {
+            self.persist().await?;
+        }
+        Ok(())
+    }
+
+    pub async fn clear_device_id_if_matches(
+        &mut self,
+        expected_device_id: &str,
+    ) -> Result<bool, AuthError> {
+        if self.record.device_id.as_deref() != Some(expected_device_id) {
+            return Ok(false);
+        }
+        self.record.device_id = None;
+        if let Err(error) = self.persist().await {
+            self.record.device_id = Some(expected_device_id.to_string());
+            return Err(error);
+        }
+        Ok(true)
     }
 
     /// 任意のメッセージに署名して base64 で返す。
@@ -291,6 +338,84 @@ mod tests {
             .set_device_id("11111111-1111-4111-8111-111111111111".to_string())
             .await;
         assert!(result.is_err());
+
+        let _ = tokio::fs::remove_file(&path).await;
+    }
+
+    #[tokio::test]
+    async fn device_id_can_be_cleared_and_reloaded() {
+        let path = temp_path();
+        let mut key = DeviceKey::load_or_create(path.clone()).await.unwrap();
+        key.set_device_id("00000000-0000-4000-8000-000000000000".to_string())
+            .await
+            .unwrap();
+
+        key.clear_device_id().await.unwrap();
+        assert!(key.device_id().is_none());
+
+        let reloaded = DeviceKey::load_or_create(path.clone()).await.unwrap();
+        assert!(reloaded.device_id().is_none());
+
+        let _ = tokio::fs::remove_file(&path).await;
+    }
+
+    #[tokio::test]
+    async fn device_id_conditional_clear_preserves_unexpected_identity() {
+        let path = temp_path();
+        let mut key = DeviceKey::load_or_create(path.clone()).await.unwrap();
+        key.set_device_id("00000000-0000-4000-8000-000000000000".to_string())
+            .await
+            .unwrap();
+
+        assert!(!key
+            .clear_device_id_if_matches("11111111-1111-4111-8111-111111111111")
+            .await
+            .unwrap());
+        assert_eq!(
+            key.device_id(),
+            Some("00000000-0000-4000-8000-000000000000")
+        );
+        assert!(key
+            .clear_device_id_if_matches("00000000-0000-4000-8000-000000000000")
+            .await
+            .unwrap());
+        assert!(key.device_id().is_none());
+
+        let _ = tokio::fs::remove_file(&path).await;
+    }
+
+    #[tokio::test]
+    async fn device_id_can_be_replaced_after_server_reset() {
+        let path = temp_path();
+        let mut key = DeviceKey::load_or_create(path.clone()).await.unwrap();
+        key.set_device_id("00000000-0000-4000-8000-000000000000".to_string())
+            .await
+            .unwrap();
+
+        key.replace_device_id_after_server_reset(
+            "11111111-1111-4111-8111-111111111111".to_string(),
+        )
+        .await
+        .unwrap();
+
+        let reloaded = DeviceKey::load_or_create(path.clone()).await.unwrap();
+        assert_eq!(
+            reloaded.device_id(),
+            Some("11111111-1111-4111-8111-111111111111")
+        );
+
+        let _ = tokio::fs::remove_file(&path).await;
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn persisted_key_file_is_owner_only() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let path = temp_path();
+        let _key = DeviceKey::load_or_create(path.clone()).await.unwrap();
+        let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600);
 
         let _ = tokio::fs::remove_file(&path).await;
     }

@@ -24,11 +24,13 @@
     // "traceResolution": true
 
     "paths": {
+      "ui": ["./src/components/ui/index.tsx"],
       "@ipc-bindings/*": ["../kc_api/bindings/*"],
       "@ipc-bindings/default_state/*": ["../kc_api/bindings/default_state/*"],
+      "@fusou-testdata-shared-ui/*": ["../../../FUSOU-TESTDATA/storybook/shared-ui/*"],
       "@fusou-testdata-ipc/*": ["../../../FUSOU-TESTDATA/storybook/ipc/*"]
     }
   },
-  "include": ["src/**/*.ts", "src/**/*.tsx", "src/custom.d.ts"],
+  "include": ["src/**/*.ts", "src/**/*.tsx"],
   "references": [{ "path": "./tsconfig.node.json" }]
 }

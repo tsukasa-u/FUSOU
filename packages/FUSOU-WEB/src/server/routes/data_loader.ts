@@ -11,22 +11,44 @@
  */
 
 import { Hono } from "hono";
+import type { KVNamespace } from "@cloudflare/workers-types";
 import type { Bindings } from "../types";
 import { CORS_HEADERS } from "../constants";
+import {
+  ApiKeyValidationRowsSchema,
+  ArchivedBlockRowsSchema,
+  DataLoaderBlockInfoRowSchema,
+  MasterDataFileRowsSchema,
+  MasterDataR2KeyRowSchema,
+  parseRateLimitAttempts,
+  TableNameRowsSchema,
+  TrustedDeviceTrustRowsSchema,
+  VerifyDeviceRequestSchema,
+  VerifyGoogleRequestSchema,
+  VerificationCodeRowsSchema,
+} from "../schemas/data-loader";
 import { checkAndDeductRU, RU_COSTS } from "../utils/ru";
 
-import { createEnvContext, getEnv, type EnvContext } from "../utils";
+import {
+  createEnvContext,
+  getEnv,
+  type EnvContext,
+} from "../utils";
 import {
   type SupabaseRestConfig,
   getSupabaseRestConfig,
+  resolvePublicIdsForUser,
   supabaseRestRequest,
-  resolveMemberIdHashForUser,
 } from "../utils/supabase-rest";
 import {
   getLatestAllowedPeriodTag,
   getLatestMasterPeriodTag,
   listAllowedPeriodTags,
 } from "../utils/period-tags";
+
+function isJsonRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
 
 // CORS headers for Python client access
 const DATA_LOADER_CORS_HEADERS = {
@@ -113,7 +135,7 @@ app.get("/tables", async (c) => {
     }
 
     // RU Check (fail-closed: reject if KV unavailable)
-    const kv = env.runtime.DATA_LOADER_CACHE_KV;
+    const kv = env.runtime["DATA_LOADER_CACHE_KV"];
     if (!kv) {
       return jsonResponse(
         {
@@ -148,7 +170,7 @@ app.get("/tables", async (c) => {
       getSupabaseRestConfig(c),
       apiKeyData.user_id,
       clientId,
-      env.runtime.DATA_LOADER_CACHE_KV,
+      env.runtime["DATA_LOADER_CACHE_KV"],
     );
     if (!trusted) {
       const code = generateVerificationCode();
@@ -168,8 +190,8 @@ app.get("/tables", async (c) => {
         ruStatus,
       );
     }
-    const indexDb = env.runtime.BATTLE_INDEX_DB;
-    const masterDb = env.runtime.MASTER_DATA_INDEX_DB;
+    const indexDb = env.runtime["BATTLE_INDEX_DB"];
+    const masterDb = env.runtime["MASTER_DATA_INDEX_DB"];
     if (!indexDb) {
       return jsonResponse({ error: "D1 database not configured" }, 500);
     }
@@ -178,7 +200,14 @@ app.get("/tables", async (c) => {
       `SELECT DISTINCT table_name FROM block_indexes ORDER BY table_name`,
     );
     const result = await stmt.all?.();
-    const battleTables = (result?.results || []).map((r: any) => r.table_name);
+    const parsedBattleTables = TableNameRowsSchema.safeParse(result?.results ?? []);
+    if (!parsedBattleTables.success) {
+      return jsonResponse(
+        { error: "INTERNAL_ERROR", message: "Invalid battle table rows" },
+        500,
+      );
+    }
+    const battleTables = parsedBattleTables.data.map((row) => row.table_name);
 
     // Add master-data tables if available
     const masterTables: string[] = [];
@@ -191,11 +220,18 @@ app.get("/tables", async (c) => {
          ORDER BY mdt.table_name`,
       );
       const masterResult = await masterStmt.all?.();
-      if (masterResult?.results) {
-        masterTables.push(
-          ...(masterResult.results as any[]).map((r: any) => r.table_name),
+      const parsedMasterTables = TableNameRowsSchema.safeParse(
+        masterResult?.results ?? [],
+      );
+      if (!parsedMasterTables.success) {
+        return jsonResponse(
+          { error: "INTERNAL_ERROR", message: "Invalid master table rows" },
+          500,
         );
       }
+      masterTables.push(
+        ...parsedMasterTables.data.map((row) => row.table_name),
+      );
     }
 
     const tables = [...battleTables, ...masterTables];
@@ -243,7 +279,7 @@ app.get("/period-tags", async (c) => {
     }
 
     // RU Check - fail-closed if KV unavailable
-    const kv = env.runtime.DATA_LOADER_CACHE_KV;
+    const kv = env.runtime["DATA_LOADER_CACHE_KV"];
     if (!kv) {
       return jsonResponse(
         {
@@ -296,7 +332,7 @@ app.get("/period-tags", async (c) => {
     }
 
     const periodTags = await listAllowedPeriodTags(c, {
-      cacheKV: env.runtime.DATA_LOADER_CACHE_KV,
+      cacheKV: env.runtime["DATA_LOADER_CACHE_KV"],
       limit: 100,
     });
 
@@ -326,14 +362,15 @@ app.get("/period-tags", async (c) => {
  * Query params:
  *   - period_tag: specific period tag, "latest", or "all" (default: "latest")
  *   - limit: max number of files (default: 100)
- *   - scope: "own" (user's data only) or "all" (all users' data, default)
+ *   - scope: "all" (all public data, default)
  */
 app.get("/data/:table", async (c) => {
   const tableName = c.req.param("table");
   const apiKey = c.req.header("X-API-KEY");
   const clientId = c.req.header("X-CLIENT-ID");
   const periodTagParam = c.req.query("period_tag") || "latest";
-  const scopeParam = c.req.query("scope") || "all";
+  const scopeParamRaw = c.req.query("scope") || "all";
+  const scopeParam: "own" | "all" = scopeParamRaw === "own" ? "own" : "all";
   const tableVersionParam = c.req.query("table_version") || undefined;
   const tierParamRaw = c.req.query("tier")?.trim();
   const compactionTier = parseCompactionTier(tierParamRaw);
@@ -375,7 +412,7 @@ app.get("/data/:table", async (c) => {
   }
 
   // Validate scope parameter
-  if (scopeParam !== "own" && scopeParam !== "all") {
+  if (scopeParamRaw !== "own" && scopeParamRaw !== "all") {
     return jsonResponse(
       { error: "INVALID_SCOPE", message: "scope must be 'own' or 'all'" },
       400,
@@ -437,7 +474,7 @@ app.get("/data/:table", async (c) => {
     }
 
     // Pre-check RU (Base cost)
-    const kv = env.runtime.DATA_LOADER_CACHE_KV;
+    const kv = env.runtime["DATA_LOADER_CACHE_KV"];
     let ruStatus:
       | {
           allowed: boolean;
@@ -474,7 +511,7 @@ app.get("/data/:table", async (c) => {
       getSupabaseRestConfig(c),
       apiKeyData.user_id,
       clientId,
-      env.runtime.DATA_LOADER_CACHE_KV,
+      env.runtime["DATA_LOADER_CACHE_KV"],
     );
     if (!trusted) {
       const code = generateVerificationCode();
@@ -496,9 +533,9 @@ app.get("/data/:table", async (c) => {
       );
     }
 
-    const indexDb = env.runtime.BATTLE_INDEX_DB;
-    const masterDb = env.runtime.MASTER_DATA_INDEX_DB;
-    const bucket = env.runtime.MASTER_DATA_BUCKET;
+    const indexDb = env.runtime["BATTLE_INDEX_DB"];
+    const masterDb = env.runtime["MASTER_DATA_INDEX_DB"];
+    const bucket = env.runtime["MASTER_DATA_BUCKET"];
     if (!indexDb) {
       return jsonResponse({ error: "D1 database not configured" }, 500);
     }
@@ -522,7 +559,10 @@ app.get("/data/:table", async (c) => {
       // For master-data, ignore scope parameter (always "all")
       let periodTag: string | null = null;
       if (periodTagParam === "latest") {
-        const latestMaster = await getLatestMasterPeriodTag(masterDb, env.runtime.DATA_LOADER_CACHE_KV);
+        const latestMaster = await getLatestMasterPeriodTag(
+          masterDb,
+          env.runtime["DATA_LOADER_CACHE_KV"],
+        );
         const latestPeriodTag = latestMaster?.period_tag;
 
         if (latestPeriodTag) {
@@ -571,11 +611,18 @@ app.get("/data/:table", async (c) => {
       const masterStmt = masterDb.prepare(masterSql);
       const masterResult = await masterStmt.bind(...masterParams).all?.();
 
-      if (
-        !masterResult ||
-        !masterResult.results ||
-        masterResult.results.length === 0
-      ) {
+      const parsedMasterFileRows = MasterDataFileRowsSchema.safeParse(
+        masterResult?.results ?? [],
+      );
+      if (!parsedMasterFileRows.success) {
+        return jsonResponse(
+          { error: "INTERNAL_ERROR", message: "Invalid master data file rows" },
+          500,
+          ruStatus,
+        );
+      }
+      const masterFileRows = parsedMasterFileRows.data;
+      if (masterFileRows.length === 0) {
         return jsonResponse(
           {
             error: "DATASET_NOT_FOUND",
@@ -586,7 +633,7 @@ app.get("/data/:table", async (c) => {
         );
       }
 
-      const files = (masterResult.results as any[]).map((r) => ({
+      const files = masterFileRows.map((r) => ({
         id: r.id,
         period_tag: r.period_tag,
         table_version: r.table_version,
@@ -613,11 +660,29 @@ app.get("/data/:table", async (c) => {
     }
 
     // Original battle-data logic below
+    let userDatasetIds: string[] = [];
+    if (scopeParam === "own") {
+      userDatasetIds = await resolvePublicIdsForUser(
+        getSupabaseRestConfig(c),
+        apiKeyData.user_id,
+      );
+      if (userDatasetIds.length === 0) {
+        return jsonResponse(
+          {
+            error: "NO_LINKED_MEMBER",
+            message: "Link a game identifier before requesting own-scope data.",
+          },
+          400,
+          ruStatus,
+        );
+      }
+    }
+
     // Resolve period tag
     let periodTag: string | null = null;
     if (periodTagParam === "latest") {
       periodTag = await getLatestAllowedPeriodTag(c, {
-        cacheKV: env.runtime.DATA_LOADER_CACHE_KV,
+        cacheKV: env.runtime["DATA_LOADER_CACHE_KV"],
       });
       if (!periodTag) {
         return jsonResponse(
@@ -631,27 +696,6 @@ app.get("/data/:table", async (c) => {
       }
     } else if (periodTagParam !== "all") {
       periodTag = periodTagParam;
-    }
-
-    // For scope=own, resolve user's dataset_id (member_id_hash)
-    // via social link first, then canonical owner fallback.
-    let userDatasetId: string | null = null;
-    if (scopeParam === "own") {
-      userDatasetId = await resolveMemberIdHashForUser(
-        getSupabaseRestConfig(c),
-        apiKeyData.user_id,
-      );
-      if (!userDatasetId) {
-        return jsonResponse(
-          {
-            error: "NO_LINKED_MEMBER",
-            message:
-              "No member account linked. Please link your game account first.",
-          },
-          400,
-          ruStatus,
-        );
-      }
     }
 
     const includeBuffer = c.req.query("include_buffer") === "true";
@@ -678,11 +722,6 @@ app.get("/data/:table", async (c) => {
        WHERE bi.table_name = ?`;
       const params: unknown[] = [tableName];
 
-      if (scopeParam === "own" && userDatasetId) {
-        sql += ` AND bi.dataset_id = ?`;
-        params.push(userDatasetId);
-      }
-
       if (periodTag && periodTagParam !== "all") {
         sql += ` AND bi.period_tag = ?`;
         params.push(periodTag);
@@ -696,6 +735,11 @@ app.get("/data/:table", async (c) => {
       if (tier) {
         sql += ` AND bi.compaction_tier = ?`;
         params.push(tier);
+      }
+
+      if (scopeParam === "own" && userDatasetIds.length > 0) {
+        sql += ` AND bi.dataset_id IN (${userDatasetIds.map(() => "?").join(", ")})`;
+        params.push(...userDatasetIds);
       }
 
       if (windowStartMs != null) {
@@ -712,16 +756,27 @@ app.get("/data/:table", async (c) => {
       params.push(perTierFetchLimit);
 
       const stmt = indexDb.prepare(sql);
-      return await stmt.bind(...params).all?.();
+      const result = await stmt.bind(...params).all?.();
+      const parsedRows = ArchivedBlockRowsSchema.safeParse(result?.results ?? []);
+      if (!parsedRows.success) {
+        throw new Error("Invalid archived block rows");
+      }
+      return parsedRows.data;
     };
 
     let result: Awaited<ReturnType<typeof fetchArchivedRows>> | undefined;
     let effectiveTier: CompactionTier | null = compactionTier ?? null;
 
     const mergeTierRows = (
-      tierRows: Map<CompactionTier, any[]>,
-    ): { rows: any[]; tier: CompactionTier | null } => {
-      const accepted: any[] = [];
+      tierRows: Map<
+        CompactionTier,
+        Awaited<ReturnType<typeof fetchArchivedRows>>
+      >,
+    ): {
+      rows: Awaited<ReturnType<typeof fetchArchivedRows>>;
+      tier: CompactionTier | null;
+    } => {
+      const accepted: Awaited<ReturnType<typeof fetchArchivedRows>> = [];
       const seenBlockIds = new Set<number>();
       let usedTierCount = 0;
       let firstTier: CompactionTier | null = null;
@@ -731,8 +786,8 @@ app.get("/data/:table", async (c) => {
         let usedThisTier = false;
 
         for (const row of rows) {
-          const id = Number(row?.id ?? NaN);
-          if (!Number.isFinite(id) || seenBlockIds.has(id)) {
+          const id = row.id;
+          if (seenBlockIds.has(id)) {
             continue;
           }
 
@@ -749,9 +804,7 @@ app.get("/data/:table", async (c) => {
         }
       }
 
-      accepted.sort(
-        (a, b) => Number(b?.start_timestamp ?? 0) - Number(a?.start_timestamp ?? 0),
-      );
+      accepted.sort((a, b) => b.start_timestamp - a.start_timestamp);
 
       return {
         rows: accepted,
@@ -763,29 +816,27 @@ app.get("/data/:table", async (c) => {
       result = await fetchArchivedRows(compactionTier);
       effectiveTier = compactionTier;
     } else {
-      const tierRows = new Map<CompactionTier, any[]>();
+      const tierRows = new Map<
+        CompactionTier,
+        Awaited<ReturnType<typeof fetchArchivedRows>>
+      >();
       for (const tier of TIER_PRIORITY) {
         const candidate = await fetchArchivedRows(tier);
-        tierRows.set(tier, (candidate?.results || []) as any[]);
+        tierRows.set(tier, candidate);
       }
 
       const merged = mergeTierRows(tierRows);
       effectiveTier = merged.tier;
 
       if (merged.rows.length > 0) {
-        result = { results: merged.rows } as Awaited<
-          ReturnType<typeof fetchArchivedRows>
-        >;
+        result = merged.rows;
       } else {
         result = await fetchArchivedRows(null);
         effectiveTier = null;
       }
     }
 
-    if (
-      (!result || !result.results || result.results.length === 0) &&
-      !includeBuffer
-    ) {
+    if ((!result || result.length === 0) && !includeBuffer) {
       return jsonResponse(
         {
           error: "DATASET_NOT_FOUND",
@@ -796,7 +847,7 @@ app.get("/data/:table", async (c) => {
       );
     }
 
-    const candidateRows = ((result?.results as any[]) || []) as any[];
+    const candidateRows = result ?? [];
     const filesTruncated = candidateRows.length > limit;
     const archivedFiles = candidateRows.slice(0, limit).map((r) => ({
       id: r.id,
@@ -807,7 +858,6 @@ app.get("/data/:table", async (c) => {
       record_count: r.record_count,
       start_timestamp: r.start_timestamp,
       end_timestamp: r.end_timestamp,
-      // Use block_id for own scope (partial download), file path for all scope (full file)
       download_url:
         scopeParam === "own"
           ? `/api/data-loader/download?block_id=${r.id}`
@@ -880,7 +930,7 @@ app.get("/usage", async (c) => {
       );
     }
 
-    const kv = env.runtime.DATA_LOADER_CACHE_KV;
+    const kv = env.runtime["DATA_LOADER_CACHE_KV"];
     let usage = {
       remaining: 1000, // Default Default Max
       consumed: 0,
@@ -917,7 +967,7 @@ app.get("/usage", async (c) => {
  * GET /data-loader/download - Download file from R2
  * Query params:
  *   - file: Full file path (for scope=all, downloads entire file)
- *   - block_id: Block index ID (for scope=own, downloads Header + specific data block)
+ *   - block_id: Block index ID (for scope=own, downloads header + one data block)
  */
 app.get("/download", async (c) => {
   const apiKey = c.req.header("X-API-KEY");
@@ -957,7 +1007,7 @@ app.get("/download", async (c) => {
       getSupabaseRestConfig(c),
       apiKeyData.user_id,
       clientId,
-      env.runtime.DATA_LOADER_CACHE_KV,
+      env.runtime["DATA_LOADER_CACHE_KV"],
     );
     if (!trusted) {
       // For download, if unreachable, just error? Or 403.
@@ -967,8 +1017,8 @@ app.get("/download", async (c) => {
       );
     }
 
-    const bucket = env.runtime.BATTLE_DATA_BUCKET;
-    const indexDb = env.runtime.BATTLE_INDEX_DB;
+    const bucket = env.runtime["BATTLE_DATA_BUCKET"];
+    const indexDb = env.runtime["BATTLE_INDEX_DB"];
     if (!bucket || !indexDb) {
       return jsonResponse(
         {
@@ -979,7 +1029,6 @@ app.get("/download", async (c) => {
       );
     }
 
-    // Block-based download (for scope=own)
     if (blockIdParam) {
       const blockId = parseInt(blockIdParam, 10);
       if (isNaN(blockId)) {
@@ -989,53 +1038,45 @@ app.get("/download", async (c) => {
         );
       }
 
-      // Get block info from D1
-      const blockInfo = (await indexDb
+      const blockInfoResult = await indexDb
         .prepare(
-          `
-        SELECT bi.id, bi.start_byte, bi.length, bi.dataset_id, af.file_path
-        FROM block_indexes bi
-        JOIN archived_files af ON af.id = bi.file_id
-        WHERE bi.id = ?
-      `,
+          `SELECT bi.id, bi.start_byte, bi.length, bi.dataset_id, af.file_path
+           FROM block_indexes bi
+           JOIN archived_files af ON af.id = bi.file_id
+           WHERE bi.id = ?`,
         )
         .bind(blockId)
-        .first()) as {
-        id: number;
-        start_byte: number;
-        length: number;
-        dataset_id: string;
-        file_path: string;
-      } | null;
-
-      if (!blockInfo) {
+        .first();
+      if (blockInfoResult === null) {
         return jsonResponse(
           { error: "BLOCK_NOT_FOUND", message: "Block not found" },
           404,
         );
       }
 
-      // Ownership check: verify this block belongs to the authenticated user
-      const userDatasetId = await resolveMemberIdHashForUser(
+      const parsedBlockInfo = DataLoaderBlockInfoRowSchema.safeParse(blockInfoResult);
+      if (!parsedBlockInfo.success) {
+        return jsonResponse(
+          { error: "INTERNAL_ERROR", message: "Invalid block metadata" },
+          500,
+        );
+      }
+
+      const userDatasetIds = await resolvePublicIdsForUser(
         getSupabaseRestConfig(c),
         apiKeyData.user_id,
       );
-      if (!userDatasetId || blockInfo.dataset_id !== userDatasetId) {
+      if (!userDatasetIds.includes(parsedBlockInfo.data.dataset_id)) {
         return jsonResponse(
           { error: "FORBIDDEN", message: "Access to this block is not authorized" },
           403,
         );
       }
 
-      // Extract Avro header and data block
-      // Note: start_byte is the accurate position where the dataset's data block starts
-      // (after the Avro OCF header). This is correctly set by mergeAvroOCFWithBoundaries
-      // in the compaction workflow when multiple datasets are merged into a single file.
-
+      const blockInfo = parsedBlockInfo.data;
       const headerObject = await bucket.get(blockInfo.file_path, {
-        range: { offset: 0, length: blockInfo.start_byte }, // Fetches header (everything before data block)
+        range: { offset: 0, length: blockInfo.start_byte },
       });
-
       if (!headerObject?.body) {
         return jsonResponse(
           { error: "FILE_NOT_FOUND", message: "File not found in storage" },
@@ -1046,20 +1087,16 @@ app.get("/download", async (c) => {
       const dataObject = await bucket.get(blockInfo.file_path, {
         range: { offset: blockInfo.start_byte, length: blockInfo.length },
       });
-
       if (!dataObject?.body) {
         return jsonResponse(
-          { error: "DATA_NOT_FOUND", message: "Data block not found" },
+          { error: "DATA_NOT_FOUND", message: "Data block not found in storage" },
           404,
         );
       }
 
       const headerBytes = await headerObject.arrayBuffer();
       const dataBytes = await dataObject.arrayBuffer();
-
-      const combined = new Uint8Array(
-        headerBytes.byteLength + dataBytes.byteLength,
-      );
+      const combined = new Uint8Array(headerBytes.byteLength + dataBytes.byteLength);
       combined.set(new Uint8Array(headerBytes), 0);
       combined.set(new Uint8Array(dataBytes), headerBytes.byteLength);
 
@@ -1073,7 +1110,6 @@ app.get("/download", async (c) => {
       });
     }
 
-    // File-based download (for scope=all fallback)
     if (filePath) {
       // Security check: Verify file exists in registry to prevent IDOR
       const fileRecord = await indexDb
@@ -1105,7 +1141,7 @@ app.get("/download", async (c) => {
       headers.set("Content-Length", String(object.size));
       headers.set("Content-Disposition", `attachment; filename="${fileName}"`);
 
-      return new Response(object.body, { headers });
+      return new Response(object.body as unknown as ReadableStream, { headers });
     }
 
     return jsonResponse(
@@ -1135,7 +1171,7 @@ const LAST_USED_UPDATE_BATCH_HOURS = 1; // Only update last_used_at if older tha
 function generateVerificationCode(): string {
   const array = new Uint32Array(1);
   crypto.getRandomValues(array);
-  const code = (array[0] % 900000) + 100000;
+  const code = ((array[0] ?? 0) % 900000) + 100000;
   return String(code);
 }
 
@@ -1153,7 +1189,14 @@ async function checkRateLimit(
   const now = Date.now();
 
   const data = await kv.get(rateLimitKey);
-  let attempts: number[] = data ? JSON.parse(data) : [];
+  const parsedAttempts = parseRateLimitAttempts(data);
+  if (parsedAttempts === null) {
+    console.warn("Invalid rate-limit state; rejecting the attempt", {
+      rateLimitKey,
+    });
+    return true;
+  }
+  let attempts = parsedAttempts;
 
   // Remove attempts outside the time window
   attempts = attempts.filter(
@@ -1184,13 +1227,16 @@ async function validateApiKey(
   config: SupabaseRestConfig,
   apiKey: string,
 ): Promise<{ id: string; user_id: string; email: string } | null> {
-  const results = await supabaseRestRequest<
-    { id: string; user_id: string; email: string }[]
-  >(config, "api_keys", {
+  const results = await supabaseRestRequest(config, "api_keys", {
     query: `?key=eq.${encodeURIComponent(apiKey)}&is_active=eq.true&select=id,user_id,email`,
   });
+  const parsedResults = ApiKeyValidationRowsSchema.safeParse(results);
+  if (!parsedResults.success) {
+    console.warn("API key validation response shape invalid:", parsedResults.error);
+    return null;
+  }
 
-  return results && results.length > 0 ? results[0] : null;
+  return parsedResults.data[0] ?? null;
 }
 
 /**
@@ -1203,14 +1249,17 @@ async function isDeviceTrusted(
   clientId: string,
   kv?: KVNamespace,
 ): Promise<boolean> {
-  const results = await supabaseRestRequest<
-    { id: string; last_used_at: string }[]
-  >(config, "trusted_devices", {
+  const results = await supabaseRestRequest(config, "trusted_devices", {
     query: `?user_id=eq.${userId}&client_id=eq.${encodeURIComponent(clientId)}&select=id,last_used_at`,
   });
+  const parsedResults = TrustedDeviceTrustRowsSchema.safeParse(results);
+  if (!parsedResults.success) {
+    console.warn("Trusted device response shape invalid:", parsedResults.error);
+    return false;
+  }
 
-  if (results && results.length > 0) {
-    const device = results[0];
+  const device = parsedResults.data[0];
+  if (device) {
     const now = new Date();
     const lastUsed = new Date(device.last_used_at);
     const hoursSinceLastUpdate =
@@ -1287,21 +1336,27 @@ async function verifyCodeAndRegisterDevice(
   code: string,
 ): Promise<boolean> {
   const now = new Date().toISOString();
-  const results = await supabaseRestRequest<{ id: string }[]>(
+  const results = await supabaseRestRequest(
     config,
     "verification_codes",
     {
       query: `?user_id=eq.${userId}&client_id=eq.${encodeURIComponent(clientId)}&code=eq.${code}&is_used=eq.false&expires_at=gt.${now}&select=id`,
     },
   );
+  const parsedResults = VerificationCodeRowsSchema.safeParse(results);
+  if (!parsedResults.success) {
+    console.warn("Verification code response shape invalid:", parsedResults.error);
+    return false;
+  }
 
-  if (!results || results.length === 0) {
+  const verificationCode = parsedResults.data[0];
+  if (!verificationCode) {
     return false;
   }
 
   await supabaseRestRequest(config, "verification_codes", {
     method: "PATCH",
-    query: `?id=eq.${results[0].id}`,
+    query: `?id=eq.${verificationCode.id}`,
     body: { is_used: true },
   });
 
@@ -1423,7 +1478,7 @@ app.get("/download-master", async (c) => {
       return new Response("Invalid API key", { status: 403 });
     }
 
-    const kv = env.runtime.DATA_LOADER_CACHE_KV;
+    const kv = env.runtime["DATA_LOADER_CACHE_KV"];
     if (!kv) {
       return new Response("Service unavailable", { status: 503 });
     }
@@ -1455,8 +1510,8 @@ app.get("/download-master", async (c) => {
       return new Response("Device unverified", { status: 403 });
     }
 
-    const masterDb = env.runtime.MASTER_DATA_INDEX_DB;
-    const bucket = env.runtime.MASTER_DATA_BUCKET;
+    const masterDb = env.runtime["MASTER_DATA_INDEX_DB"];
+    const bucket = env.runtime["MASTER_DATA_BUCKET"];
 
     if (!masterDb || !bucket) {
       return new Response("Master data service not configured", {
@@ -1484,7 +1539,11 @@ app.get("/download-master", async (c) => {
     sql += " ORDER BY mdi.completed_at DESC, mdi.period_revision DESC LIMIT 1";
     const stmt = masterDb.prepare(sql);
     const row = await stmt.bind(...params).first();
-    const r2Key = (row as { r2_key?: string } | null)?.r2_key;
+    const parsedRow = MasterDataR2KeyRowSchema.nullable().safeParse(row);
+    if (!parsedRow.success) {
+      return new Response("Invalid master data download row", { status: 500 });
+    }
+    const r2Key = parsedRow.data?.r2_key;
 
     if (!r2Key) {
       return new Response("Master data not found", { status: 404 });
@@ -1496,7 +1555,7 @@ app.get("/download-master", async (c) => {
       return new Response("R2 object not found", { status: 404 });
     }
 
-    return new Response(object.body, {
+    return new Response(object.body as unknown as ReadableStream, {
       headers: {
         "Content-Type": "application/octet-stream",
         "Content-Disposition": `attachment; filename="${tableName}.avro"`,
@@ -1528,7 +1587,7 @@ app.post("/verify", async (c) => {
 
   // Rate limiting: 5 attempts per client per 5 minutes
   const env = createEnvContext(c);
-  const kv = env.runtime.DATA_LOADER_CACHE_KV;
+  const kv = env.runtime["DATA_LOADER_CACHE_KV"];
   if (kv) {
     const isRateLimited = await checkRateLimit(
       kv,
@@ -1547,9 +1606,9 @@ app.post("/verify", async (c) => {
     }
   }
 
-  let body: { code?: string };
+  let rawBody: unknown;
   try {
-    body = await c.req.json();
+    rawBody = await c.req.json();
   } catch {
     return jsonResponse(
       { error: "INVALID_BODY", message: "Invalid JSON body" },
@@ -1557,7 +1616,15 @@ app.post("/verify", async (c) => {
     );
   }
 
-  const { code } = body;
+  const parsedBody = VerifyDeviceRequestSchema.safeParse(rawBody);
+  if (!parsedBody.success) {
+    return jsonResponse(
+      { error: "INVALID_BODY", message: "Invalid JSON body" },
+      400,
+    );
+  }
+
+  const { code } = parsedBody.data;
   if (!code) {
     return jsonResponse(
       { error: "MISSING_CODE", message: "Verification code is required" },
@@ -1627,7 +1694,7 @@ app.post("/verify-google", async (c) => {
 
   // Rate limiting: 5 attempts per client per 5 minutes
   const env = createEnvContext(c);
-  const kv = env.runtime.DATA_LOADER_CACHE_KV;
+  const kv = env.runtime["DATA_LOADER_CACHE_KV"];
   if (kv) {
     const isRateLimited = await checkRateLimit(
       kv,
@@ -1646,9 +1713,9 @@ app.post("/verify-google", async (c) => {
     }
   }
 
-  let body: { email?: string; google_token?: string };
+  let rawBody: unknown;
   try {
-    body = await c.req.json();
+    rawBody = await c.req.json();
   } catch {
     return jsonResponse(
       { error: "INVALID_BODY", message: "Invalid JSON body" },
@@ -1656,7 +1723,15 @@ app.post("/verify-google", async (c) => {
     );
   }
 
-  const { email: _unusedEmail, google_token } = body;
+  const parsedBody = VerifyGoogleRequestSchema.safeParse(rawBody);
+  if (!parsedBody.success) {
+    return jsonResponse(
+      { error: "INVALID_BODY", message: "Invalid JSON body" },
+      400,
+    );
+  }
+
+  const { google_token } = parsedBody.data;
 
   // google_token is required — accepting a client-supplied email without proof of
   // ownership would allow any API key holder to register arbitrary devices by simply
@@ -1694,8 +1769,11 @@ app.post("/verify-google", async (c) => {
         },
       );
       if (userinfoResp.ok) {
-        const userinfo = (await userinfoResp.json()) as { email?: string };
-        verifiedEmail = userinfo.email;
+        const userinfo = await userinfoResp.json();
+        verifiedEmail = isJsonRecord(userinfo) &&
+          typeof userinfo["email"] === "string"
+          ? userinfo["email"]
+          : undefined;
       } else if (userinfoResp.status === 401) {
         throw new Error("Invalid or expired Google token");
       } else {
@@ -1739,7 +1817,7 @@ app.post("/verify-google", async (c) => {
       getSupabaseRestConfig(c),
       apiKeyData.user_id,
       clientId,
-      env.runtime.DATA_LOADER_CACHE_KV,
+      env.runtime["DATA_LOADER_CACHE_KV"],
     );
     if (!alreadyTrusted) {
       await supabaseRestRequest(getSupabaseRestConfig(c), "trusted_devices", {

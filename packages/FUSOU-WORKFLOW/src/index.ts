@@ -1,11 +1,24 @@
 import { handleRead as handleHybridRead } from "./reader";
 import { handleCron } from "./cron";
 import { handleBufferConsumerChunked } from "./buffer-consumer";
+import type { QueueMessage, QueueSendBatchItem } from "./types";
 import { runQuestInferenceTasks } from "./quest_tree_inference";
 import {
   cleanupOrphanedMasterData,
   handleCleanupRequest,
 } from "./master_data_cleanup";
+import { z } from "zod";
+
+const UploadIngestPayloadSchema = z.object({
+  dataset_id: z.string().optional(),
+  datasetId: z.string().optional(),
+  table: z.string().optional(),
+  period_tag: z.string().optional(),
+  periodTag: z.string().optional(),
+  table_version: z.string().optional(),
+  tableVersion: z.string().optional(),
+  slices: z.array(z.string().min(1)).optional(),
+});
 
 interface Env {
   BATTLE_DATA_BUCKET: R2Bucket;
@@ -15,7 +28,7 @@ interface Env {
   MASTER_DATA_BUCKET?: R2Bucket;
   MASTER_DATA_INDEX_DB?: D1Database;
   OUTPUT_KEY_NAME?: string;
-  COMPACTION_QUEUE?: Queue<any>;
+  COMPACTION_QUEUE?: Queue<QueueMessage>;
   TURSO_DATABASE_URL: string;
   TURSO_AUTH_TOKEN: string;
   // Cleanup job auth token
@@ -49,7 +62,7 @@ async function handleRead(
 }
 
 const queueConsumer = {
-  async queue(batch: MessageBatch<unknown>, env: Env, _ctx: ExecutionContext) {
+  async queue(batch: MessageBatch<QueueMessage>, env: Env, _ctx: ExecutionContext) {
     if (!env.BATTLE_INDEX_DB) {
       console.error("[Queue] Missing BATTLE_INDEX_DB binding");
       batch.messages.forEach((m) => m.retry());
@@ -57,8 +70,8 @@ const queueConsumer = {
     }
     // Delegate to chunked bulk-insert consumer for performance and consistency
     await handleBufferConsumerChunked(
-      batch as unknown as MessageBatch<any>,
-      env as any,
+      batch,
+      env,
     );
   },
 };
@@ -89,7 +102,10 @@ function timingSafeEqual(a: string, b: string): boolean {
   if (aBytes.length !== bBytes.length) return false;
   let diff = 0;
   for (let i = 0; i < aBytes.length; i++) {
-    diff |= aBytes[i] ^ bBytes[i];
+    const aByte = aBytes[i];
+    const bByte = bBytes[i];
+    if (aByte === undefined || bByte === undefined) return false;
+    diff |= aByte ^ bByte;
   }
   return diff === 0;
 }
@@ -152,7 +168,15 @@ export default {
       }
       // Authenticated upload handler: accept base64 Avro slices and enqueue
       try {
-        const payload: any = await request.json();
+        const rawPayload: unknown = await request.json();
+        const parsedPayload = UploadIngestPayloadSchema.safeParse(rawPayload);
+        if (!parsedPayload.success) {
+          return new Response(JSON.stringify({ error: "Invalid JSON body" }), {
+            status: 400,
+            headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
+          });
+        }
+        const payload = parsedPayload.data;
         const dataset_id = payload?.dataset_id ?? payload?.datasetId;
         const table = payload?.table;
         const period_tag =
@@ -199,16 +223,16 @@ export default {
             },
           );
         }
-        const messages = slices.map((b64) => ({
+        const messages: QueueSendBatchItem[] = slices.map((b64) => ({
           body: {
-            dataset_id,
+            datasetId: dataset_id,
             table,
-            period_tag,
-            table_version,
+            periodTag: period_tag,
+            tableVersion: table_version,
             avro_base64: b64,
           },
         }));
-        await (env.COMPACTION_QUEUE as any).sendBatch(messages as any);
+        await env.COMPACTION_QUEUE.sendBatch(messages);
         return new Response(
           JSON.stringify({ status: "accepted", enqueued: messages.length }),
           {
@@ -258,11 +282,11 @@ export default {
     return new Response("Not Found", { status: 404, headers: CORS_HEADERS });
   },
   async queue(
-    batch: MessageBatch<unknown>,
+    batch: MessageBatch<QueueMessage>,
     env: Env,
     ctx: ExecutionContext,
   ): Promise<void> {
-    const queueName = (batch as { queue?: string }).queue as string | undefined;
+    const queueName = (batch as MessageBatch<QueueMessage> & { queue?: string }).queue;
     const target =
       queueName && queueName.toLowerCase().includes("dlq") ? "dlq" : "main";
     if (target === "dlq") {

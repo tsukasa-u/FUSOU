@@ -175,6 +175,68 @@
         "status": "changed"
       }
     },
+    "v0_5_1_to_v0_6_0": {
+      "airbase": {
+        "addedFields": [
+          "base_no"
+        ],
+        "changedFields": [],
+        "removedFields": [],
+        "status": "changed"
+      },
+      "airbase_airattack": {
+        "addedFields": [
+          "airbase_base_no"
+        ],
+        "changedFields": [],
+        "removedFields": [
+          "airbase_id"
+        ],
+        "status": "changed"
+      },
+      "airbase_assult": {
+        "addedFields": [
+          "airbase_base_nos"
+        ],
+        "changedFields": [],
+        "removedFields": [],
+        "status": "changed"
+      },
+      "battle_result": {
+        "addedFields": [
+          "mvp_ship_indexes"
+        ],
+        "changedFields": [],
+        "removedFields": [],
+        "status": "changed"
+      },
+      "cells": {
+        "addedFields": [
+          "airbase_id"
+        ],
+        "changedFields": [],
+        "removedFields": [],
+        "status": "changed"
+      },
+      "destruction_battle": {
+        "addedFields": [
+          "f_airbase_base_nos"
+        ],
+        "changedFields": [],
+        "removedFields": [
+          "f_airbase_ids"
+        ],
+        "status": "changed"
+      },
+      "own_ship": {
+        "addedFields": [
+          "sortie_tag_id"
+        ],
+        "changedFields": [],
+        "removedFields": [],
+        "status": "changed"
+      }
+    },
     "v0_5_to_v0_5_1": {
       "cells": {
         "addedFields": [
@@ -227,18 +289,20 @@
   },
   "majorVersions": {
     "v0": {
-      "latest": "v0_5_1",
+      "latest": "v0_6_0",
       "versions": [
         "v0_4",
         "v0_5",
-        "v0_5_1"
+        "v0_5_1",
+        "v0_6_0"
       ]
     }
   },
   "sortedVersions": [
     "v0_4",
     "v0_5",
-    "v0_5_1"
+    "v0_5_1",
+    "v0_6_0"
   ],
   "versions": {
     "v0_4": {
@@ -252,6 +316,10 @@
     "v0_5_1": {
       "tableCount": 48,
       "version": "0.5.1"
+    },
+    "v0_6_0": {
+      "tableCount": 48,
+      "version": "0.6.0"
     }
   }
 }

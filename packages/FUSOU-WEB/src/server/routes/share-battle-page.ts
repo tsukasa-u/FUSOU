@@ -22,6 +22,7 @@ export async function handleShareBattleRequest(
   const separators = requestUrl.searchParams.get("separators") === "1";
   const periodTag = requestUrl.searchParams.get("period_tag")?.trim();
   const tableVersion = requestUrl.searchParams.get("table_version")?.trim();
+  const datasetId = requestUrl.searchParams.get("dataset_id")?.trim();
 
   const targetUrl = new URL(
     `/battles/${encodeURIComponent(battleId)}`,
@@ -32,6 +33,9 @@ export async function handleShareBattleRequest(
   }
   if (tableVersion) {
     targetUrl.searchParams.set("table_version", tableVersion);
+  }
+  if (datasetId) {
+    targetUrl.searchParams.set("dataset_id", datasetId);
   }
   if (normalizedView) {
     targetUrl.searchParams.set("view", normalizedView);

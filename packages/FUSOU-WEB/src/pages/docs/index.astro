@@ -1,6 +1,5 @@
 ---
 import "@/assets/app.css";
-import "@/styles/global.css";
 import Navigation from "@/components/common/astro/layout/Navigation.astro";
 import LeftMenu from "@/components/features/docs/astro/LeftMenu.astro";
 import Layout from "@/layouts/Layout.astro";
@@ -11,11 +10,13 @@ const rawDocsGlobResult = import.meta.glob("@docs/**/*.md", {
   eager: true,
 });
 const rawDocs = Object.values(rawDocsGlobResult).reverse() as MarkdownInstance<
-  Record<string, any>
+  Record<string, unknown>
 >[];
 
-const normalizeSlug = (value: string | undefined) =>
-  (value ?? "").replace(/^\/+|\/+$/g, "").replace(/^docs\//, "");
+const normalizeSlug = (value: unknown) =>
+  (typeof value === "string" ? value : "")
+    .replace(/^\/+|\/+$/g, "")
+    .replace(/^docs\//, "");
 
 const formatSegment = (segment: string) =>
   segment
@@ -25,15 +26,15 @@ const formatSegment = (segment: string) =>
 
 const docs = rawDocs
   .map((doc) => {
-    const slug = normalizeSlug(doc.frontmatter?.slug);
+    const slug = normalizeSlug(doc.frontmatter?.["slug"]);
     const segments = slug.split("/").filter(Boolean);
     if (segments.length === 0) return null;
 
     return {
       slug,
       segments,
-      title: doc.frontmatter?.title ?? formatSegment(segments.at(-1)!),
-      description: doc.frontmatter?.description ?? "",
+      title: doc.frontmatter?.["title"] ?? formatSegment(segments.at(-1)!),
+      description: doc.frontmatter?.["description"] ?? "",
       url: `/docs/${slug}`,
     };
   })
@@ -64,16 +65,15 @@ type MenuNode = {
   children: MenuNode[];
 };
 
-const root = new Map<
-  string,
-  {
-    segment: string;
-    title: string;
-    url?: string;
-    description?: string;
-    children: Map<string, any>;
-  }
->();
+type MutableMenuNode = {
+  segment: string;
+  title: string;
+  url?: string;
+  description?: string;
+  children: Map<string, MutableMenuNode>;
+};
+
+const root = new Map<string, MutableMenuNode>();
 
 for (const entry of docsWithSchema) {
   let current = root;
@@ -83,9 +83,10 @@ for (const entry of docsWithSchema) {
       current.set(segment, {
         segment,
         title: isLeaf ? entry.title : formatSegment(segment),
-        url: isLeaf ? entry.url : undefined,
-        description: isLeaf ? entry.description : undefined,
         children: new Map(),
+        ...(isLeaf
+          ? { url: entry.url, description: entry.description }
+          : {}),
       });
     } else if (isLeaf) {
       const node = current.get(segment)!;
@@ -97,13 +98,15 @@ for (const entry of docsWithSchema) {
   });
 }
 
-const mapToArray = (nodeMap: Map<string, any>): MenuNode[] =>
+const mapToArray = (nodeMap: Map<string, MutableMenuNode>): MenuNode[] =>
   Array.from(nodeMap.values())
     .sort((a, b) => compareSegments(a, b))
     .map((node) => ({
       title: node.title,
-      url: node.url,
-      description: node.description,
+      ...(node.url === undefined ? {} : { url: node.url }),
+      ...(node.description === undefined
+        ? {}
+        : { description: node.description }),
       children: mapToArray(node.children),
     }));
 

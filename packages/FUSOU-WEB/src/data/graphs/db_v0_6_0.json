@@ -1,0 +1,5939 @@
+{
+  "edges": [
+    {
+      "id": "e-airbase_airattack_list-air_base_air_attack-airbase_airattack",
+      "label": "air_base_air_attack",
+      "source": "airbase_airattack_list",
+      "sourceHandle": "airbase_airattack_list-air_base_air_attack",
+      "target": "airbase_airattack",
+      "targetHandle": "airbase_airattack-uuid"
+    },
+    {
+      "id": "e-airbase-plane_info-plane_info",
+      "label": "plane_info",
+      "source": "airbase",
+      "sourceHandle": "airbase-plane_info",
+      "target": "plane_info",
+      "targetHandle": "plane_info-uuid"
+    },
+    {
+      "id": "e-battle-air_base_air_attacks-airbase_airattack_list",
+      "label": "air_base_air_attacks",
+      "source": "battle",
+      "sourceHandle": "battle-air_base_air_attacks",
+      "target": "airbase_airattack_list",
+      "targetHandle": "airbase_airattack_list-uuid"
+    },
+    {
+      "id": "e-battle-air_base_assault-airbase_assult",
+      "label": "air_base_assault",
+      "source": "battle",
+      "sourceHandle": "battle-air_base_assault",
+      "target": "airbase_assult",
+      "targetHandle": "airbase_assult-uuid"
+    },
+    {
+      "id": "e-battle-battle_result-battle_result",
+      "label": "battle_result",
+      "source": "battle",
+      "sourceHandle": "battle-battle_result",
+      "target": "battle_result",
+      "targetHandle": "battle_result-uuid"
+    },
+    {
+      "id": "e-battle-carrier_base_assault-carrierbase_assault",
+      "label": "carrier_base_assault",
+      "source": "battle",
+      "sourceHandle": "battle-carrier_base_assault",
+      "target": "carrierbase_assault",
+      "targetHandle": "carrierbase_assault-uuid"
+    },
+    {
+      "id": "e-battle-closing_raigeki-closing_raigeki",
+      "label": "closing_raigeki",
+      "source": "battle",
+      "sourceHandle": "battle-closing_raigeki",
+      "target": "closing_raigeki",
+      "targetHandle": "closing_raigeki-uuid"
+    },
+    {
+      "id": "e-battle-e_deck_id-enemy_deck",
+      "label": "e_deck_id",
+      "source": "battle",
+      "sourceHandle": "battle-e_deck_id",
+      "target": "enemy_deck",
+      "targetHandle": "enemy_deck-uuid"
+    },
+    {
+      "id": "e-battle-friend_deck_id-friend_deck",
+      "label": "friend_deck_id",
+      "source": "battle",
+      "sourceHandle": "battle-friend_deck_id",
+      "target": "friend_deck",
+      "targetHandle": "friend_deck-uuid"
+    },
+    {
+      "id": "e-battle-friendly_force_attack-friendly_support_hourai_list",
+      "label": "friendly_force_attack",
+      "source": "battle",
+      "sourceHandle": "battle-friendly_force_attack",
+      "target": "friendly_support_hourai_list",
+      "targetHandle": "friendly_support_hourai_list-uuid"
+    },
+    {
+      "id": "e-battle-hougeki-hougeki_list",
+      "label": "hougeki",
+      "source": "battle",
+      "sourceHandle": "battle-hougeki",
+      "target": "hougeki_list",
+      "targetHandle": "hougeki_list-uuid"
+    },
+    {
+      "id": "e-battle-midnight_hougeki-midnight_hougeki_list",
+      "label": "midnight_hougeki",
+      "source": "battle",
+      "sourceHandle": "battle-midnight_hougeki",
+      "target": "midnight_hougeki_list",
+      "targetHandle": "midnight_hougeki_list-uuid"
+    },
+    {
+      "id": "e-battle-opening_air_attack-opening_airattack_list",
+      "label": "opening_air_attack",
+      "source": "battle",
+      "sourceHandle": "battle-opening_air_attack",
+      "target": "opening_airattack_list",
+      "targetHandle": "opening_airattack_list-uuid"
+    },
+    {
+      "id": "e-battle-opening_raigeki-opening_raigeki",
+      "label": "opening_raigeki",
+      "source": "battle",
+      "sourceHandle": "battle-opening_raigeki",
+      "target": "opening_raigeki",
+      "targetHandle": "opening_raigeki-uuid"
+    },
+    {
+      "id": "e-battle-opening_taisen-opening_taisen_list",
+      "label": "opening_taisen",
+      "source": "battle",
+      "sourceHandle": "battle-opening_taisen",
+      "target": "opening_taisen_list",
+      "targetHandle": "opening_taisen_list-uuid"
+    },
+    {
+      "id": "e-battle-support_airattack-support_airattack",
+      "label": "support_airattack",
+      "source": "battle",
+      "sourceHandle": "battle-support_airattack",
+      "target": "support_airattack",
+      "targetHandle": "support_airattack-uuid"
+    },
+    {
+      "id": "e-battle-support_deck_id-support_deck",
+      "label": "support_deck_id",
+      "source": "battle",
+      "sourceHandle": "battle-support_deck_id",
+      "target": "support_deck",
+      "targetHandle": "support_deck-uuid"
+    },
+    {
+      "id": "e-battle-support_hourai-support_hourai",
+      "label": "support_hourai",
+      "source": "battle",
+      "sourceHandle": "battle-support_hourai",
+      "target": "support_hourai",
+      "targetHandle": "support_hourai-uuid"
+    },
+    {
+      "id": "e-cells-airbase_id-airbase",
+      "label": "airbase_id",
+      "source": "cells",
+      "sourceHandle": "cells-airbase_id",
+      "target": "airbase",
+      "targetHandle": "airbase-uuid"
+    },
+    {
+      "id": "e-cells-battles-battle",
+      "label": "battles",
+      "source": "cells",
+      "sourceHandle": "cells-battles",
+      "target": "battle",
+      "targetHandle": "battle-uuid"
+    },
+    {
+      "id": "e-cells-destruction_battles-destruction_battle",
+      "label": "destruction_battles",
+      "source": "cells",
+      "sourceHandle": "cells-destruction_battles",
+      "target": "destruction_battle",
+      "targetHandle": "destruction_battle-uuid"
+    },
+    {
+      "id": "e-cells-f_deck_after_id-own_deck",
+      "label": "f_deck_after_id",
+      "source": "cells",
+      "sourceHandle": "cells-f_deck_after_id",
+      "target": "own_deck",
+      "targetHandle": "own_deck-uuid"
+    },
+    {
+      "id": "e-cells-f_deck_before_id-own_deck",
+      "label": "f_deck_before_id",
+      "source": "cells",
+      "sourceHandle": "cells-f_deck_before_id",
+      "target": "own_deck",
+      "targetHandle": "own_deck-uuid"
+    },
+    {
+      "id": "e-cells-maparea_id-mst_map_info",
+      "label": "maparea_id",
+      "source": "cells",
+      "sourceHandle": "cells-maparea_id",
+      "target": "mst_map_info",
+      "targetHandle": "mst_map_info-uuid"
+    },
+    {
+      "id": "e-destruction_battle-e_deck_ids-enemy_deck",
+      "label": "e_deck_ids",
+      "source": "destruction_battle",
+      "sourceHandle": "destruction_battle-e_deck_ids",
+      "target": "enemy_deck",
+      "targetHandle": "enemy_deck-uuid"
+    },
+    {
+      "id": "e-enemy_deck-ship_ids-enemy_ship",
+      "label": "ship_ids",
+      "source": "enemy_deck",
+      "sourceHandle": "enemy_deck-ship_ids",
+      "target": "enemy_ship",
+      "targetHandle": "enemy_ship-uuid"
+    },
+    {
+      "id": "e-enemy_ship-mst_ship_id-mst_ship",
+      "label": "mst_ship_id",
+      "source": "enemy_ship",
+      "sourceHandle": "enemy_ship-mst_ship_id",
+      "target": "mst_ship",
+      "targetHandle": "mst_ship-uuid"
+    },
+    {
+      "id": "e-enemy_ship-mst_ship_id-mst_shipgraph",
+      "label": "mst_ship_id",
+      "source": "enemy_ship",
+      "sourceHandle": "enemy_ship-mst_ship_id",
+      "target": "mst_shipgraph",
+      "targetHandle": "mst_shipgraph-uuid"
+    },
+    {
+      "id": "e-enemy_ship-slot-enemy_slotitem",
+      "label": "slot",
+      "source": "enemy_ship",
+      "sourceHandle": "enemy_ship-slot",
+      "target": "enemy_slotitem",
+      "targetHandle": "enemy_slotitem-uuid"
+    },
+    {
+      "id": "e-enemy_slotitem-mst_slotitem_id-mst_slotitem",
+      "label": "mst_slotitem_id",
+      "source": "enemy_slotitem",
+      "sourceHandle": "enemy_slotitem-mst_slotitem_id",
+      "target": "mst_slotitem",
+      "targetHandle": "mst_slotitem-uuid"
+    },
+    {
+      "id": "e-friend_deck-ship_ids-friend_ship",
+      "label": "ship_ids",
+      "source": "friend_deck",
+      "sourceHandle": "friend_deck-ship_ids",
+      "target": "friend_ship",
+      "targetHandle": "friend_ship-uuid"
+    },
+    {
+      "id": "e-friend_ship-mst_ship_id-mst_ship",
+      "label": "mst_ship_id",
+      "source": "friend_ship",
+      "sourceHandle": "friend_ship-mst_ship_id",
+      "target": "mst_ship",
+      "targetHandle": "mst_ship-uuid"
+    },
+    {
+      "id": "e-friend_ship-mst_ship_id-mst_shipgraph",
+      "label": "mst_ship_id",
+      "source": "friend_ship",
+      "sourceHandle": "friend_ship-mst_ship_id",
+      "target": "mst_shipgraph",
+      "targetHandle": "mst_shipgraph-uuid"
+    },
+    {
+      "id": "e-friend_ship-slot-friend_slotitem",
+      "label": "slot",
+      "source": "friend_ship",
+      "sourceHandle": "friend_ship-slot",
+      "target": "friend_slotitem",
+      "targetHandle": "friend_slotitem-uuid"
+    },
+    {
+      "id": "e-friend_slotitem-mst_slotitem_id-mst_slotitem",
+      "label": "mst_slotitem_id",
+      "source": "friend_slotitem",
+      "sourceHandle": "friend_slotitem-mst_slotitem_id",
+      "target": "mst_slotitem",
+      "targetHandle": "mst_slotitem-uuid"
+    },
+    {
+      "id": "e-friendly_support_hourai_list-hourai_list-friendly_support_hourai",
+      "label": "hourai_list",
+      "source": "friendly_support_hourai_list",
+      "sourceHandle": "friendly_support_hourai_list-hourai_list",
+      "target": "friendly_support_hourai",
+      "targetHandle": "friendly_support_hourai-uuid"
+    },
+    {
+      "id": "e-friendly_support_hourai-si-mst_slotitem",
+      "label": "si",
+      "source": "friendly_support_hourai",
+      "sourceHandle": "friendly_support_hourai-si",
+      "target": "mst_slotitem",
+      "targetHandle": "mst_slotitem-uuid"
+    },
+    {
+      "id": "e-hougeki_list-hougeki-hougeki",
+      "label": "hougeki",
+      "source": "hougeki_list",
+      "sourceHandle": "hougeki_list-hougeki",
+      "target": "hougeki",
+      "targetHandle": "hougeki-uuid"
+    },
+    {
+      "id": "e-hougeki-si-mst_slotitem",
+      "label": "si",
+      "source": "hougeki",
+      "sourceHandle": "hougeki-si",
+      "target": "mst_slotitem",
+      "targetHandle": "mst_slotitem-uuid"
+    },
+    {
+      "id": "e-midnight_hougeki_list-midnight_hougeki-midnight_hougeki",
+      "label": "midnight_hougeki",
+      "source": "midnight_hougeki_list",
+      "sourceHandle": "midnight_hougeki_list-midnight_hougeki",
+      "target": "midnight_hougeki",
+      "targetHandle": "midnight_hougeki-uuid"
+    },
+    {
+      "id": "e-midnight_hougeki-si-mst_slotitem",
+      "label": "si",
+      "source": "midnight_hougeki",
+      "sourceHandle": "midnight_hougeki-si",
+      "target": "mst_slotitem",
+      "targetHandle": "mst_slotitem-uuid"
+    },
+    {
+      "id": "e-mst_equip_exslot-equip-mst_slotitem",
+      "label": "equip",
+      "source": "mst_equip_exslot",
+      "sourceHandle": "mst_equip_exslot-equip",
+      "target": "mst_slotitem",
+      "targetHandle": "mst_slotitem-uuid"
+    },
+    {
+      "id": "e-mst_equip_limit_exslot-equip-mst_slotitem",
+      "label": "equip",
+      "source": "mst_equip_limit_exslot",
+      "sourceHandle": "mst_equip_limit_exslot-equip",
+      "target": "mst_slotitem",
+      "targetHandle": "mst_slotitem-uuid"
+    },
+    {
+      "id": "e-mst_map_info-maparea_id-mst_map_area",
+      "label": "maparea_id",
+      "source": "mst_map_info",
+      "sourceHandle": "mst_map_info-maparea_id",
+      "target": "mst_map_area",
+      "targetHandle": "mst_map_area-uuid"
+    },
+    {
+      "id": "e-mst_ship_upgrade-api_current_ship_id-mst_ship",
+      "label": "api_current_ship_id",
+      "source": "mst_ship_upgrade",
+      "sourceHandle": "mst_ship_upgrade-api_current_ship_id",
+      "target": "mst_ship",
+      "targetHandle": "mst_ship-uuid"
+    },
+    {
+      "id": "e-mst_ship_upgrade-api_current_ship_id-mst_shipgraph",
+      "label": "api_current_ship_id",
+      "source": "mst_ship_upgrade",
+      "sourceHandle": "mst_ship_upgrade-api_current_ship_id",
+      "target": "mst_shipgraph",
+      "targetHandle": "mst_shipgraph-uuid"
+    },
+    {
+      "id": "e-mst_ship_upgrade-api_original_ship_id-mst_ship",
+      "label": "api_original_ship_id",
+      "source": "mst_ship_upgrade",
+      "sourceHandle": "mst_ship_upgrade-api_original_ship_id",
+      "target": "mst_ship",
+      "targetHandle": "mst_ship-uuid"
+    },
+    {
+      "id": "e-mst_ship_upgrade-api_original_ship_id-mst_shipgraph",
+      "label": "api_original_ship_id",
+      "source": "mst_ship_upgrade",
+      "sourceHandle": "mst_ship_upgrade-api_original_ship_id",
+      "target": "mst_shipgraph",
+      "targetHandle": "mst_shipgraph-uuid"
+    },
+    {
+      "id": "e-mst_ship-aftershipid-mst_shipgraph",
+      "label": "aftershipid",
+      "source": "mst_ship",
+      "sourceHandle": "mst_ship-aftershipid",
+      "target": "mst_shipgraph",
+      "targetHandle": "mst_shipgraph-uuid"
+    },
+    {
+      "id": "e-mst_ship-stype-mst_stype",
+      "label": "stype",
+      "source": "mst_ship",
+      "sourceHandle": "mst_ship-stype",
+      "target": "mst_stype",
+      "targetHandle": "mst_stype-uuid"
+    },
+    {
+      "id": "e-mst_slotitem-type-mst_slotitem_equiptype",
+      "label": "type",
+      "source": "mst_slotitem",
+      "sourceHandle": "mst_slotitem-type",
+      "target": "mst_slotitem_equiptype",
+      "targetHandle": "mst_slotitem_equiptype-uuid"
+    },
+    {
+      "id": "e-opening_airattack_list-opening_air_attack-opening_airattack",
+      "label": "opening_air_attack",
+      "source": "opening_airattack_list",
+      "sourceHandle": "opening_airattack_list-opening_air_attack",
+      "target": "opening_airattack",
+      "targetHandle": "opening_airattack-uuid"
+    },
+    {
+      "id": "e-opening_taisen_list-opening_taisen-opening_taisen",
+      "label": "opening_taisen",
+      "source": "opening_taisen_list",
+      "sourceHandle": "opening_taisen_list-opening_taisen",
+      "target": "opening_taisen",
+      "targetHandle": "opening_taisen-uuid"
+    },
+    {
+      "id": "e-opening_taisen-si-mst_slotitem",
+      "label": "si",
+      "source": "opening_taisen",
+      "sourceHandle": "opening_taisen-si",
+      "target": "mst_slotitem",
+      "targetHandle": "mst_slotitem-uuid"
+    },
+    {
+      "id": "e-own_deck-ship_ids-own_ship",
+      "label": "ship_ids",
+      "source": "own_deck",
+      "sourceHandle": "own_deck-ship_ids",
+      "target": "own_ship",
+      "targetHandle": "own_ship-uuid"
+    },
+    {
+      "id": "e-own_ship-ship_id-mst_ship",
+      "label": "ship_id",
+      "source": "own_ship",
+      "sourceHandle": "own_ship-ship_id",
+      "target": "mst_ship",
+      "targetHandle": "mst_ship-uuid"
+    },
+    {
+      "id": "e-own_ship-ship_id-mst_shipgraph",
+      "label": "ship_id",
+      "source": "own_ship",
+      "sourceHandle": "own_ship-ship_id",
+      "target": "mst_shipgraph",
+      "targetHandle": "mst_shipgraph-uuid"
+    },
+    {
+      "id": "e-own_ship-slot_ex-own_slotitem",
+      "label": "slot_ex",
+      "source": "own_ship",
+      "sourceHandle": "own_ship-slot_ex",
+      "target": "own_slotitem",
+      "targetHandle": "own_slotitem-uuid"
+    },
+    {
+      "id": "e-own_ship-slot-own_slotitem",
+      "label": "slot",
+      "source": "own_ship",
+      "sourceHandle": "own_ship-slot",
+      "target": "own_slotitem",
+      "targetHandle": "own_slotitem-uuid"
+    },
+    {
+      "id": "e-own_slotitem-mst_slotitem_id-mst_slotitem",
+      "label": "mst_slotitem_id",
+      "source": "own_slotitem",
+      "sourceHandle": "own_slotitem-mst_slotitem_id",
+      "target": "mst_slotitem",
+      "targetHandle": "mst_slotitem-uuid"
+    },
+    {
+      "id": "e-plane_info-slotid-own_slotitem",
+      "label": "slotid",
+      "source": "plane_info",
+      "sourceHandle": "plane_info-slotid",
+      "target": "own_slotitem",
+      "targetHandle": "own_slotitem-uuid"
+    },
+    {
+      "id": "e-support_deck-ship_ids-own_ship",
+      "label": "ship_ids",
+      "source": "support_deck",
+      "sourceHandle": "support_deck-ship_ids",
+      "target": "own_ship",
+      "targetHandle": "own_ship-uuid"
+    }
+  ],
+  "masterTableCount": 13,
+  "nodes": [
+    {
+      "data": {
+        "fields": [
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "action_kind",
+            "type": "int"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "base_no",
+            "type": "int?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "distance",
+            "type": "int"
+          },
+          {
+            "isEnvRef": true,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": true,
+            "name": "env_uuid",
+            "type": "uuid"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": true,
+            "isKey": false,
+            "isUuid": true,
+            "name": "plane_info",
+            "type": "uuid?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": true,
+            "isUuid": true,
+            "name": "uuid",
+            "type": "uuid"
+          }
+        ],
+        "recordName": "AirBase",
+        "tableName": "airbase"
+      },
+      "id": "airbase",
+      "position": {
+        "x": 0,
+        "y": 0
+      },
+      "type": "schemaTableNode"
+    },
+    {
+      "data": {
+        "fields": [
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "airbase_base_no",
+            "type": "int?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "e_bak_flag",
+            "type": "int?[]?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "e_cl",
+            "type": "int[]?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "e_damages",
+            "type": "int[]?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "e_loss_plane1",
+            "type": "int"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "e_loss_plane2",
+            "type": "int"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "e_now_hps",
+            "type": "int[]"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "e_plane_from",
+            "type": "int[]?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "e_protect_flag",
+            "type": "boolean[]?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "e_rai_flag",
+            "type": "int?[]?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "e_sprite_fly_count",
+            "type": "int?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "e_sprite_non_normal_count",
+            "type": "int?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "e_touch_plane",
+            "type": "int?"
+          },
+          {
+            "isEnvRef": true,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": true,
+            "name": "env_uuid",
+            "type": "uuid"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "f_bak_flag",
+            "type": "int?[]?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "f_cl",
+            "type": "int[]?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "f_damages",
+            "type": "int[]?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "f_loss_plane1",
+            "type": "int"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "f_loss_plane2",
+            "type": "int"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "f_now_hps",
+            "type": "int[]"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "f_plane_from",
+            "type": "int[]?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "f_protect_flag",
+            "type": "boolean[]?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "f_rai_flag",
+            "type": "int?[]?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "f_sprite_fly_count",
+            "type": "int?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "f_sprite_non_normal_count",
+            "type": "int?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "f_touch_plane",
+            "type": "int?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "index",
+            "type": "int"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "squadron_plane",
+            "type": "int?[]?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": true,
+            "isUuid": true,
+            "name": "uuid",
+            "type": "uuid"
+          }
+        ],
+        "recordName": "AirBaseAirAttack",
+        "tableName": "airbase_airattack"
+      },
+      "id": "airbase_airattack",
+      "position": {
+        "x": 0,
+        "y": 0
+      },
+      "type": "schemaTableNode"
+    },
+    {
+      "data": {
+        "fields": [
+          {
+            "isEnvRef": false,
+            "isFk": true,
+            "isKey": false,
+            "isUuid": true,
+            "name": "air_base_air_attack",
+            "type": "uuid?"
+          },
+          {
+            "isEnvRef": true,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": true,
+            "name": "env_uuid",
+            "type": "uuid"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": true,
+            "isUuid": true,
+            "name": "uuid",
+            "type": "uuid"
+          }
+        ],
+        "recordName": "AirBaseAirAttackList",
+        "tableName": "airbase_airattack_list"
+      },
+      "id": "airbase_airattack_list",
+      "position": {
+        "x": 0,
+        "y": 0
+      },
+      "type": "schemaTableNode"
+    },
+    {
+      "data": {
+        "fields": [
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "airbase_base_nos",
+            "type": "int[]?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "e_bak_flag",
+            "type": "int?[]?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "e_cl",
+            "type": "int[]?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "e_damages",
+            "type": "int[]?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "e_loss_plane1",
+            "type": "int"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "e_loss_plane2",
+            "type": "int"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "e_now_hps",
+            "type": "int[]"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "e_plane_from",
+            "type": "int[]?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "e_protect_flag",
+            "type": "boolean[]?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "e_rai_flag",
+            "type": "int?[]?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "e_sprite_crash_stage1_count",
+            "type": "int?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "e_sprite_crash_stage2_count",
+            "type": "int?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "e_sprite_damage_stage1_count",
+            "type": "int?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "e_sprite_damage_stage2_count",
+            "type": "int?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "e_sprite_fly_count",
+            "type": "int?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "e_sprite_non_normal_count",
+            "type": "int?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "e_touch_plane",
+            "type": "int?"
+          },
+          {
+            "isEnvRef": true,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": true,
+            "name": "env_uuid",
+            "type": "uuid"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "f_bak_flag",
+            "type": "int?[]?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "f_cl",
+            "type": "int[]?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "f_damages",
+            "type": "int[]?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "f_loss_plane1",
+            "type": "int"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "f_loss_plane2",
+            "type": "int"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "f_now_hps",
+            "type": "int[]"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "f_plane_from",
+            "type": "int[]?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "f_protect_flag",
+            "type": "boolean[]?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "f_rai_flag",
+            "type": "int?[]?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "f_sprite_crash_stage1_count",
+            "type": "int?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "f_sprite_crash_stage2_count",
+            "type": "int?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "f_sprite_damage_stage1_count",
+            "type": "int?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "f_sprite_damage_stage2_count",
+            "type": "int?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "f_sprite_fly_count",
+            "type": "int?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "f_sprite_non_normal_count",
+            "type": "int?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "f_touch_plane",
+            "type": "int?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "squadron_plane",
+            "type": "int[]"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": true,
+            "isUuid": true,
+            "name": "uuid",
+            "type": "uuid"
+          }
+        ],
+        "recordName": "AirBaseAssult",
+        "tableName": "airbase_assult"
+      },
+      "id": "airbase_assult",
+      "position": {
+        "x": 0,
+        "y": 0
+      },
+      "type": "schemaTableNode"
+    },
+    {
+      "data": {
+        "fields": [
+          {
+            "isEnvRef": false,
+            "isFk": true,
+            "isKey": false,
+            "isUuid": true,
+            "name": "air_base_air_attacks",
+            "type": "uuid?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": true,
+            "isKey": false,
+            "isUuid": true,
+            "name": "air_base_assault",
+            "type": "uuid?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "balloon_flag",
+            "type": "int?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "battle_order",
+            "type": "int[]"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": true,
+            "isKey": false,
+            "isUuid": true,
+            "name": "battle_result",
+            "type": "uuid?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": true,
+            "isKey": false,
+            "isUuid": true,
+            "name": "carrier_base_assault",
+            "type": "uuid?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "cell_id",
+            "type": "int"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": true,
+            "isKey": false,
+            "isUuid": true,
+            "name": "closing_raigeki",
+            "type": "uuid?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": true,
+            "isKey": false,
+            "isUuid": true,
+            "name": "e_deck_id",
+            "type": "uuid?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "e_formation",
+            "type": "int?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "e_nowhps",
+            "type": "int[]?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "e_reconnaissance",
+            "type": "int?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "e_total_damages",
+            "type": "int[]?"
+          },
+          {
+            "isEnvRef": true,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": true,
+            "name": "env_uuid",
+            "type": "uuid"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "f_combat_ration",
+            "type": "int[]?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "f_escape_idx",
+            "type": "int[]?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "f_formation",
+            "type": "int?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "f_nowhps",
+            "type": "int[]?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "f_reconnaissance",
+            "type": "int?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "f_total_damages",
+            "type": "int[]?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": true,
+            "isKey": false,
+            "isUuid": true,
+            "name": "friend_deck_id",
+            "type": "uuid?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "friend_total_damages",
+            "type": "int[]?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": true,
+            "isKey": false,
+            "isUuid": true,
+            "name": "friendly_force_attack",
+            "type": "uuid?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": true,
+            "isKey": false,
+            "isUuid": true,
+            "name": "hougeki",
+            "type": "uuid?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "index",
+            "type": "int"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "midnight_e_nowhps",
+            "type": "int[]?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "midnight_e_total_damages",
+            "type": "int[]?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "midnight_f_nowhps",
+            "type": "int[]?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "midnight_f_total_damages",
+            "type": "int[]?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": true,
+            "isKey": false,
+            "isUuid": true,
+            "name": "midnight_hougeki",
+            "type": "uuid?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "midnight_timestamp",
+            "type": "long?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": true,
+            "isKey": false,
+            "isUuid": true,
+            "name": "night_support_airattack",
+            "type": "uuid?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": true,
+            "isKey": false,
+            "isUuid": true,
+            "name": "night_support_hourai",
+            "type": "uuid?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": true,
+            "isKey": false,
+            "isUuid": true,
+            "name": "opening_air_attack",
+            "type": "uuid?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": true,
+            "isKey": false,
+            "isUuid": true,
+            "name": "opening_raigeki",
+            "type": "uuid?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": true,
+            "isKey": false,
+            "isUuid": true,
+            "name": "opening_taisen",
+            "type": "uuid?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "smoke_type",
+            "type": "int?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": true,
+            "isKey": false,
+            "isUuid": true,
+            "name": "support_airattack",
+            "type": "uuid?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": true,
+            "isKey": false,
+            "isUuid": true,
+            "name": "support_deck_id",
+            "type": "uuid?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": true,
+            "isKey": false,
+            "isUuid": true,
+            "name": "support_hourai",
+            "type": "uuid?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "timestamp",
+            "type": "long?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": true,
+            "isUuid": true,
+            "name": "uuid",
+            "type": "uuid"
+          }
+        ],
+        "recordName": "Battle",
+        "tableName": "battle"
+      },
+      "id": "battle",
+      "position": {
+        "x": 0,
+        "y": 0
+      },
+      "type": "schemaTableNode"
+    },
+    {
+      "data": {
+        "fields": [
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "drop_ship_id",
+            "type": "int?"
+          },
+          {
+            "isEnvRef": true,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": true,
+            "name": "env_uuid",
+            "type": "uuid"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "landing_hp_max",
+            "type": "int?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "landing_hp_now",
+            "type": "int?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "landing_sub_value",
+            "type": "int?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "mvp_ship_indexes",
+            "type": "int[]?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": true,
+            "isUuid": true,
+            "name": "uuid",
+            "type": "uuid"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "win_rank",
+            "type": "string"
+          }
+        ],
+        "recordName": "BattleResult",
+        "tableName": "battle_result"
+      },
+      "id": "battle_result",
+      "position": {
+        "x": 0,
+        "y": 0
+      },
+      "type": "schemaTableNode"
+    },
+    {
+      "data": {
+        "fields": [
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "e_bak_flag",
+            "type": "int?[]?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "e_cl",
+            "type": "int[]?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "e_damages",
+            "type": "int[]?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "e_loss_plane1",
+            "type": "int"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "e_loss_plane2",
+            "type": "int"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "e_now_hps",
+            "type": "int[]"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "e_plane_from",
+            "type": "int[]?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "e_protect_flag",
+            "type": "boolean[]?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "e_rai_flag",
+            "type": "int?[]?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "e_sprite_crash_stage1_count",
+            "type": "int?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "e_sprite_crash_stage2_count",
+            "type": "int?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "e_sprite_damage_stage1_count",
+            "type": "int?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "e_sprite_damage_stage2_count",
+            "type": "int?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "e_sprite_fly_count",
+            "type": "int?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "e_sprite_non_normal_count",
+            "type": "int?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "e_touch_plane",
+            "type": "int?"
+          },
+          {
+            "isEnvRef": true,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": true,
+            "name": "env_uuid",
+            "type": "uuid"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "f_bak_flag",
+            "type": "int?[]?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "f_cl",
+            "type": "int[]?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "f_damages",
+            "type": "int[]?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "f_loss_plane1",
+            "type": "int"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "f_loss_plane2",
+            "type": "int"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "f_now_hps",
+            "type": "int[]"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "f_plane_from",
+            "type": "int[]?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "f_protect_flag",
+            "type": "boolean[]?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "f_rai_flag",
+            "type": "int?[]?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "f_sprite_crash_stage1_count",
+            "type": "int?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "f_sprite_crash_stage2_count",
+            "type": "int?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "f_sprite_damage_stage1_count",
+            "type": "int?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "f_sprite_damage_stage2_count",
+            "type": "int?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "f_sprite_fly_count",
+            "type": "int?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "f_sprite_non_normal_count",
+            "type": "int?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "f_touch_plane",
+            "type": "int?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": true,
+            "isUuid": true,
+            "name": "uuid",
+            "type": "uuid"
+          }
+        ],
+        "recordName": "CarrierBaseAssault",
+        "tableName": "carrierbase_assault"
+      },
+      "id": "carrierbase_assault",
+      "position": {
+        "x": 0,
+        "y": 0
+      },
+      "type": "schemaTableNode"
+    },
+    {
+      "data": {
+        "fields": [
+          {
+            "isEnvRef": false,
+            "isFk": true,
+            "isKey": false,
+            "isUuid": true,
+            "name": "airbase_id",
+            "type": "uuid?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "battle_index",
+            "type": "int[]"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": true,
+            "isKey": false,
+            "isUuid": true,
+            "name": "battles",
+            "type": "uuid"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "cell_index",
+            "type": "int[]"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": true,
+            "isKey": false,
+            "isUuid": true,
+            "name": "destruction_battles",
+            "type": "uuid?"
+          },
+          {
+            "isEnvRef": true,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": true,
+            "name": "env_uuid",
+            "type": "uuid"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "event_map_dmg",
+            "type": "int?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "event_map_gauge_num",
+            "type": "int?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "event_map_gauge_type",
+            "type": "int?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "event_map_max_maphp",
+            "type": "int?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "event_map_now_maphp",
+            "type": "int?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "event_map_selected_rank",
+            "type": "int?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "event_map_state",
+            "type": "int?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": true,
+            "isKey": false,
+            "isUuid": true,
+            "name": "f_deck_after_id",
+            "type": "uuid?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": true,
+            "isKey": false,
+            "isUuid": true,
+            "name": "f_deck_before_id",
+            "type": "uuid?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "happening_counts",
+            "type": "int?[]?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "happening_dentans",
+            "type": "int?[]?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "happening_mst_ids",
+            "type": "int?[]?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "itemget_counts",
+            "type": "int[][]?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "itemget_ids",
+            "type": "int[][]?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": true,
+            "isKey": false,
+            "isUuid": false,
+            "name": "maparea_id",
+            "type": "int"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "mapinfo_no",
+            "type": "int"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": true,
+            "isUuid": true,
+            "name": "uuid",
+            "type": "uuid"
+          }
+        ],
+        "recordName": "Cells",
+        "tableName": "cells"
+      },
+      "id": "cells",
+      "position": {
+        "x": 0,
+        "y": 0
+      },
+      "type": "schemaTableNode"
+    },
+    {
+      "data": {
+        "fields": [
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "e_cl",
+            "type": "int[]"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "e_dam",
+            "type": "int[]"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "e_now_hps",
+            "type": "int[]"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "e_protect_flag",
+            "type": "boolean[]"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "e_rai",
+            "type": "int[]"
+          },
+          {
+            "isEnvRef": true,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": true,
+            "name": "env_uuid",
+            "type": "uuid"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "f_cl",
+            "type": "int[]"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "f_dam",
+            "type": "int[]"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "f_now_hps",
+            "type": "int[]"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "f_protect_flag",
+            "type": "boolean[]"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "f_rai",
+            "type": "int[]"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": true,
+            "isUuid": true,
+            "name": "uuid",
+            "type": "uuid"
+          }
+        ],
+        "recordName": "ClosingRaigeki",
+        "tableName": "closing_raigeki"
+      },
+      "id": "closing_raigeki",
+      "position": {
+        "x": 0,
+        "y": 0
+      },
+      "type": "schemaTableNode"
+    },
+    {
+      "data": {
+        "fields": [
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "air_superiority",
+            "type": "int?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "cell_no",
+            "type": "int"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "e_damages",
+            "type": "int[]?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": true,
+            "isKey": false,
+            "isUuid": true,
+            "name": "e_deck_ids",
+            "type": "uuid?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "e_formation",
+            "type": "int?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "e_loss_plane1",
+            "type": "int"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "e_loss_plane2",
+            "type": "int"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "e_now_hps",
+            "type": "int[]"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "e_plane_from",
+            "type": "int[]?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "e_sprite_crash_count",
+            "type": "int?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "e_sprite_damage_count",
+            "type": "int?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "e_sprite_fly_count",
+            "type": "int?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "e_total_damages",
+            "type": "int[]?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "e_touch_plane",
+            "type": "int?"
+          },
+          {
+            "isEnvRef": true,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": true,
+            "name": "env_uuid",
+            "type": "uuid"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "f_airbase_base_nos",
+            "type": "int[]?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "f_damages",
+            "type": "int[]?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "f_formation",
+            "type": "int?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "f_loss_plane1",
+            "type": "int"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "f_loss_plane2",
+            "type": "int"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "f_max_hps",
+            "type": "int[]"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "f_now_hps",
+            "type": "int[]"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "f_plane_from",
+            "type": "int[]?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "f_sprite_crash_count",
+            "type": "int?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "f_sprite_damage_count",
+            "type": "int?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "f_sprite_fly_count",
+            "type": "int?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "f_total_damages",
+            "type": "int[]?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "f_touch_plane",
+            "type": "int?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "index",
+            "type": "int"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "lost_kind",
+            "type": "int"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "squadron_planes",
+            "type": "int[][]?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": true,
+            "isUuid": true,
+            "name": "uuid",
+            "type": "uuid"
+          }
+        ],
+        "recordName": "DestructionBattle",
+        "tableName": "destruction_battle"
+      },
+      "id": "destruction_battle",
+      "position": {
+        "x": 0,
+        "y": 0
+      },
+      "type": "schemaTableNode"
+    },
+    {
+      "data": {
+        "fields": [
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "combined_flag",
+            "type": "int?"
+          },
+          {
+            "isEnvRef": true,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": true,
+            "name": "env_uuid",
+            "type": "uuid"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": true,
+            "isKey": false,
+            "isUuid": true,
+            "name": "ship_ids",
+            "type": "uuid?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": true,
+            "isUuid": true,
+            "name": "uuid",
+            "type": "uuid"
+          }
+        ],
+        "recordName": "EnemyDeck",
+        "tableName": "enemy_deck"
+      },
+      "id": "enemy_deck",
+      "position": {
+        "x": 0,
+        "y": 0
+      },
+      "type": "schemaTableNode"
+    },
+    {
+      "data": {
+        "fields": [
+          {
+            "isEnvRef": true,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": true,
+            "name": "env_uuid",
+            "type": "uuid"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "index",
+            "type": "int"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "karyoku",
+            "type": "int?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "lv",
+            "type": "int?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "maxhp",
+            "type": "int?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": true,
+            "isKey": false,
+            "isUuid": false,
+            "name": "mst_ship_id",
+            "type": "int"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "nowhp",
+            "type": "int?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "raisou",
+            "type": "int?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": true,
+            "isKey": false,
+            "isUuid": true,
+            "name": "slot",
+            "type": "uuid?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "soukou",
+            "type": "int?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "taiku",
+            "type": "int?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": true,
+            "isUuid": true,
+            "name": "uuid",
+            "type": "uuid"
+          }
+        ],
+        "recordName": "EnemyShip",
+        "tableName": "enemy_ship"
+      },
+      "id": "enemy_ship",
+      "position": {
+        "x": 0,
+        "y": 0
+      },
+      "type": "schemaTableNode"
+    },
+    {
+      "data": {
+        "fields": [
+          {
+            "isEnvRef": true,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": true,
+            "name": "env_uuid",
+            "type": "uuid"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "index",
+            "type": "int"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": true,
+            "isKey": false,
+            "isUuid": false,
+            "name": "mst_slotitem_id",
+            "type": "int"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": true,
+            "isUuid": true,
+            "name": "uuid",
+            "type": "uuid"
+          }
+        ],
+        "recordName": "EnemySlotItem",
+        "tableName": "enemy_slotitem"
+      },
+      "id": "enemy_slotitem",
+      "position": {
+        "x": 0,
+        "y": 0
+      },
+      "type": "schemaTableNode"
+    },
+    {
+      "data": {
+        "fields": [
+          {
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "timestamp",
+            "type": "long"
+          },
+          {
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "user_env_unique",
+            "type": "string"
+          },
+          {
+            "isFk": false,
+            "isKey": true,
+            "isUuid": true,
+            "name": "uuid",
+            "type": "uuid"
+          },
+          {
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "version",
+            "type": "string"
+          }
+        ],
+        "recordName": "EnvInfo",
+        "tableName": "env_info"
+      },
+      "id": "env_info",
+      "position": {
+        "x": 0,
+        "y": 0
+      },
+      "type": "schemaTableNode"
+    },
+    {
+      "data": {
+        "fields": [
+          {
+            "isEnvRef": true,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": true,
+            "name": "env_uuid",
+            "type": "uuid"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": true,
+            "isKey": false,
+            "isUuid": true,
+            "name": "ship_ids",
+            "type": "uuid?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": true,
+            "isUuid": true,
+            "name": "uuid",
+            "type": "uuid"
+          }
+        ],
+        "recordName": "FriendDeck",
+        "tableName": "friend_deck"
+      },
+      "id": "friend_deck",
+      "position": {
+        "x": 0,
+        "y": 0
+      },
+      "type": "schemaTableNode"
+    },
+    {
+      "data": {
+        "fields": [
+          {
+            "isEnvRef": true,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": true,
+            "name": "env_uuid",
+            "type": "uuid"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "index",
+            "type": "int"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "karyoku",
+            "type": "int?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "lv",
+            "type": "int?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "maxhp",
+            "type": "int?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": true,
+            "isKey": false,
+            "isUuid": false,
+            "name": "mst_ship_id",
+            "type": "int"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "nowhp",
+            "type": "int?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "raisou",
+            "type": "int?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": true,
+            "isKey": false,
+            "isUuid": true,
+            "name": "slot",
+            "type": "uuid?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "slotnum",
+            "type": "int?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "soukou",
+            "type": "int?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "taiku",
+            "type": "int?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": true,
+            "isUuid": true,
+            "name": "uuid",
+            "type": "uuid"
+          }
+        ],
+        "recordName": "FriendShip",
+        "tableName": "friend_ship"
+      },
+      "id": "friend_ship",
+      "position": {
+        "x": 0,
+        "y": 0
+      },
+      "type": "schemaTableNode"
+    },
+    {
+      "data": {
+        "fields": [
+          {
+            "isEnvRef": true,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": true,
+            "name": "env_uuid",
+            "type": "uuid"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "index",
+            "type": "int"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": true,
+            "isKey": false,
+            "isUuid": false,
+            "name": "mst_slotitem_id",
+            "type": "int"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": true,
+            "isUuid": true,
+            "name": "uuid",
+            "type": "uuid"
+          }
+        ],
+        "recordName": "FriendSlotItem",
+        "tableName": "friend_slotitem"
+      },
+      "id": "friend_slotitem",
+      "position": {
+        "x": 0,
+        "y": 0
+      },
+      "type": "schemaTableNode"
+    },
+    {
+      "data": {
+        "fields": [
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "at",
+            "type": "int?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "at_eflag",
+            "type": "int?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "cl",
+            "type": "int[]?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "damage",
+            "type": "int[]?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "df",
+            "type": "int[]?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "e_now_hps",
+            "type": "int[]?"
+          },
+          {
+            "isEnvRef": true,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": true,
+            "name": "env_uuid",
+            "type": "uuid"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "f_now_hps",
+            "type": "int[]?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "index",
+            "type": "int"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "protect_flag",
+            "type": "boolean[]?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": true,
+            "isKey": false,
+            "isUuid": false,
+            "name": "si",
+            "type": "int?[]?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": true,
+            "isUuid": true,
+            "name": "uuid",
+            "type": "uuid"
+          }
+        ],
+        "recordName": "FriendlySupportHourai",
+        "tableName": "friendly_support_hourai"
+      },
+      "id": "friendly_support_hourai",
+      "position": {
+        "x": 0,
+        "y": 0
+      },
+      "type": "schemaTableNode"
+    },
+    {
+      "data": {
+        "fields": [
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "e_flare_pos",
+            "type": "int?"
+          },
+          {
+            "isEnvRef": true,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": true,
+            "name": "env_uuid",
+            "type": "uuid"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "f_flare_pos",
+            "type": "int?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": true,
+            "isKey": false,
+            "isUuid": true,
+            "name": "hourai_list",
+            "type": "uuid?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": true,
+            "isUuid": true,
+            "name": "uuid",
+            "type": "uuid"
+          }
+        ],
+        "recordName": "FriendlySupportHouraiList",
+        "tableName": "friendly_support_hourai_list"
+      },
+      "id": "friendly_support_hourai_list",
+      "position": {
+        "x": 0,
+        "y": 0
+      },
+      "type": "schemaTableNode"
+    },
+    {
+      "data": {
+        "fields": [
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "at",
+            "type": "int"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "at_eflag",
+            "type": "int"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "at_type",
+            "type": "int"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "cl",
+            "type": "int[]"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "damage",
+            "type": "int[]"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "df",
+            "type": "int[]"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "e_now_hps",
+            "type": "int[]"
+          },
+          {
+            "isEnvRef": true,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": true,
+            "name": "env_uuid",
+            "type": "uuid"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "f_now_hps",
+            "type": "int[]"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "index_1",
+            "type": "int"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "index_2",
+            "type": "int"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "protect_flag",
+            "type": "boolean[]"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": true,
+            "isKey": false,
+            "isUuid": false,
+            "name": "si",
+            "type": "int?[]"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": true,
+            "isUuid": true,
+            "name": "uuid",
+            "type": "uuid"
+          }
+        ],
+        "recordName": "Hougeki",
+        "tableName": "hougeki"
+      },
+      "id": "hougeki",
+      "position": {
+        "x": 0,
+        "y": 0
+      },
+      "type": "schemaTableNode"
+    },
+    {
+      "data": {
+        "fields": [
+          {
+            "isEnvRef": true,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": true,
+            "name": "env_uuid",
+            "type": "uuid"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": true,
+            "isKey": false,
+            "isUuid": true,
+            "name": "hougeki",
+            "type": "uuid?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": true,
+            "isUuid": true,
+            "name": "uuid",
+            "type": "uuid"
+          }
+        ],
+        "recordName": "HougekiList",
+        "tableName": "hougeki_list"
+      },
+      "id": "hougeki_list",
+      "position": {
+        "x": 0,
+        "y": 0
+      },
+      "type": "schemaTableNode"
+    },
+    {
+      "data": {
+        "fields": [
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "at",
+            "type": "int?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "at_eflag",
+            "type": "int?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "cl",
+            "type": "int[]?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "damage",
+            "type": "int[]?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "df",
+            "type": "int[]?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "e_now_hps",
+            "type": "int[]?"
+          },
+          {
+            "isEnvRef": true,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": true,
+            "name": "env_uuid",
+            "type": "uuid"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "f_now_hps",
+            "type": "int[]?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "index",
+            "type": "int"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "protect_flag",
+            "type": "boolean[]?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": true,
+            "isKey": false,
+            "isUuid": false,
+            "name": "si",
+            "type": "int?[]?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": true,
+            "isUuid": true,
+            "name": "uuid",
+            "type": "uuid"
+          }
+        ],
+        "recordName": "MidnightHougeki",
+        "tableName": "midnight_hougeki"
+      },
+      "id": "midnight_hougeki",
+      "position": {
+        "x": 0,
+        "y": 0
+      },
+      "type": "schemaTableNode"
+    },
+    {
+      "data": {
+        "fields": [
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "e_flare_pos",
+            "type": "int?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "e_touch_plane",
+            "type": "int?"
+          },
+          {
+            "isEnvRef": true,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": true,
+            "name": "env_uuid",
+            "type": "uuid"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "f_flare_pos",
+            "type": "int?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "f_touch_plane",
+            "type": "int?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": true,
+            "isKey": false,
+            "isUuid": true,
+            "name": "midnight_hougeki",
+            "type": "uuid?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": true,
+            "isUuid": true,
+            "name": "uuid",
+            "type": "uuid"
+          }
+        ],
+        "recordName": "MidnightHougekiList",
+        "tableName": "midnight_hougeki_list"
+      },
+      "id": "midnight_hougeki_list",
+      "position": {
+        "x": 0,
+        "y": 0
+      },
+      "type": "schemaTableNode"
+    },
+    {
+      "data": {
+        "fields": [
+          {
+            "isFk": true,
+            "isKey": false,
+            "isUuid": false,
+            "name": "equip",
+            "type": "int"
+          }
+        ],
+        "recordName": "MstEquipExslot",
+        "tableName": "mst_equip_exslot"
+      },
+      "id": "mst_equip_exslot",
+      "position": {
+        "x": 0,
+        "y": 0
+      },
+      "type": "schemaTableNode"
+    },
+    {
+      "data": {
+        "fields": [
+          {
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "ctypes",
+            "type": "{\"type\":\"map\",\"values\":\"int\"}?"
+          },
+          {
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "req_level",
+            "type": "int"
+          },
+          {
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "ship_ids",
+            "type": "{\"type\":\"map\",\"values\":\"int\"}?"
+          },
+          {
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "slotitem_id",
+            "type": "int"
+          },
+          {
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "stypes",
+            "type": "{\"type\":\"map\",\"values\":\"int\"}?"
+          }
+        ],
+        "recordName": "MstEquipExslotShip",
+        "tableName": "mst_equip_exslot_ship"
+      },
+      "id": "mst_equip_exslot_ship",
+      "position": {
+        "x": 0,
+        "y": 0
+      },
+      "type": "schemaTableNode"
+    },
+    {
+      "data": {
+        "fields": [
+          {
+            "isFk": true,
+            "isKey": false,
+            "isUuid": false,
+            "name": "equip",
+            "type": "int[]"
+          },
+          {
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "ship_id",
+            "type": "int"
+          }
+        ],
+        "recordName": "MstEquipLimitExslot",
+        "tableName": "mst_equip_limit_exslot"
+      },
+      "id": "mst_equip_limit_exslot",
+      "position": {
+        "x": 0,
+        "y": 0
+      },
+      "type": "schemaTableNode"
+    },
+    {
+      "data": {
+        "fields": [
+          {
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "equip_type",
+            "type": "int[]"
+          },
+          {
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "ship_id",
+            "type": "int"
+          }
+        ],
+        "recordName": "MstEquipShip",
+        "tableName": "mst_equip_ship"
+      },
+      "id": "mst_equip_ship",
+      "position": {
+        "x": 0,
+        "y": 0
+      },
+      "type": "schemaTableNode"
+    },
+    {
+      "data": {
+        "fields": [
+          {
+            "isFk": false,
+            "isKey": true,
+            "isUuid": false,
+            "name": "api_id",
+            "type": "int"
+          },
+          {
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "api_name",
+            "type": "string"
+          },
+          {
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "api_type",
+            "type": "int"
+          }
+        ],
+        "recordName": "MstMapArea",
+        "tableName": "mst_map_area"
+      },
+      "id": "mst_map_area",
+      "position": {
+        "x": 0,
+        "y": 0
+      },
+      "type": "schemaTableNode"
+    },
+    {
+      "data": {
+        "fields": [
+          {
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "gauge_num",
+            "type": "int?"
+          },
+          {
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "gauge_type",
+            "type": "int?"
+          },
+          {
+            "isFk": false,
+            "isKey": true,
+            "isUuid": false,
+            "name": "id",
+            "type": "int"
+          },
+          {
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "infotext",
+            "type": "string"
+          },
+          {
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "item",
+            "type": "int[]"
+          },
+          {
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "level",
+            "type": "int"
+          },
+          {
+            "isFk": true,
+            "isKey": false,
+            "isUuid": false,
+            "name": "maparea_id",
+            "type": "int"
+          },
+          {
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "max_maphp",
+            "type": "int?"
+          },
+          {
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "name",
+            "type": "string"
+          },
+          {
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "no",
+            "type": "int"
+          },
+          {
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "opetext",
+            "type": "string"
+          },
+          {
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "required_defeat_count",
+            "type": "int?"
+          },
+          {
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "sally_flag",
+            "type": "int[]"
+          }
+        ],
+        "recordName": "MstMapInfo",
+        "tableName": "mst_map_info"
+      },
+      "id": "mst_map_info",
+      "position": {
+        "x": 0,
+        "y": 0
+      },
+      "type": "schemaTableNode"
+    },
+    {
+      "data": {
+        "fields": [
+          {
+            "isFk": false,
+            "isKey": true,
+            "isUuid": false,
+            "name": "id",
+            "type": "int"
+          },
+          {
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "name",
+            "type": "string"
+          }
+        ],
+        "recordName": "MstUseItem",
+        "tableName": "mst_payitem"
+      },
+      "id": "mst_payitem",
+      "position": {
+        "x": 0,
+        "y": 0
+      },
+      "type": "schemaTableNode"
+    },
+    {
+      "data": {
+        "fields": [
+          {
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "afterbull",
+            "type": "int?"
+          },
+          {
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "afterfuel",
+            "type": "int?"
+          },
+          {
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "afterlv",
+            "type": "int?"
+          },
+          {
+            "isFk": true,
+            "isKey": false,
+            "isUuid": false,
+            "name": "aftershipid",
+            "type": "string?"
+          },
+          {
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "backs",
+            "type": "int?"
+          },
+          {
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "broken",
+            "type": "int[]?"
+          },
+          {
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "buildtime",
+            "type": "int?"
+          },
+          {
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "bull_max",
+            "type": "int?"
+          },
+          {
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "ctype",
+            "type": "int"
+          },
+          {
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "fuel_max",
+            "type": "int?"
+          },
+          {
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "getmes",
+            "type": "string?"
+          },
+          {
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "houg",
+            "type": "int[]?"
+          },
+          {
+            "isFk": false,
+            "isKey": true,
+            "isUuid": false,
+            "name": "id",
+            "type": "int"
+          },
+          {
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "leng",
+            "type": "int?"
+          },
+          {
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "luck",
+            "type": "int[]?"
+          },
+          {
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "maxeq",
+            "type": "int[]?"
+          },
+          {
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "name",
+            "type": "string"
+          },
+          {
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "powup",
+            "type": "int[]?"
+          },
+          {
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "raig",
+            "type": "int[]?"
+          },
+          {
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "slot_num",
+            "type": "int"
+          },
+          {
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "soku",
+            "type": "int"
+          },
+          {
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "sort_id",
+            "type": "int"
+          },
+          {
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "sortno",
+            "type": "int?"
+          },
+          {
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "souk",
+            "type": "int[]?"
+          },
+          {
+            "isFk": true,
+            "isKey": false,
+            "isUuid": false,
+            "name": "stype",
+            "type": "int"
+          },
+          {
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "taik",
+            "type": "int[]?"
+          },
+          {
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "tais",
+            "type": "int[]?"
+          },
+          {
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "tyku",
+            "type": "int[]?"
+          },
+          {
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "voicef",
+            "type": "int?"
+          },
+          {
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "yomi",
+            "type": "string"
+          }
+        ],
+        "recordName": "MstShip",
+        "tableName": "mst_ship"
+      },
+      "id": "mst_ship",
+      "position": {
+        "x": 0,
+        "y": 0
+      },
+      "type": "schemaTableNode"
+    },
+    {
+      "data": {
+        "fields": [
+          {
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "api_arms_mat_count",
+            "type": "int"
+          },
+          {
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "api_aviation_mat_count",
+            "type": "int"
+          },
+          {
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "api_boiler_count",
+            "type": "int?"
+          },
+          {
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "api_catapult_count",
+            "type": "int"
+          },
+          {
+            "isFk": true,
+            "isKey": false,
+            "isUuid": false,
+            "name": "api_current_ship_id",
+            "type": "int"
+          },
+          {
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "api_drawing_count",
+            "type": "int"
+          },
+          {
+            "isFk": false,
+            "isKey": true,
+            "isUuid": false,
+            "name": "api_id",
+            "type": "int"
+          },
+          {
+            "isFk": true,
+            "isKey": false,
+            "isUuid": false,
+            "name": "api_original_ship_id",
+            "type": "int"
+          },
+          {
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "api_report_count",
+            "type": "int"
+          },
+          {
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "api_sortno",
+            "type": "int"
+          },
+          {
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "api_tech_count",
+            "type": "int"
+          },
+          {
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "api_upgrade_level",
+            "type": "int"
+          },
+          {
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "api_upgrade_type",
+            "type": "int"
+          }
+        ],
+        "recordName": "MstShipUpgrade",
+        "tableName": "mst_ship_upgrade"
+      },
+      "id": "mst_ship_upgrade",
+      "position": {
+        "x": 0,
+        "y": 0
+      },
+      "type": "schemaTableNode"
+    },
+    {
+      "data": {
+        "fields": [
+          {
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "api_battle_d",
+            "type": "int[]?"
+          },
+          {
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "api_battle_n",
+            "type": "int[]?"
+          },
+          {
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "api_boko_d",
+            "type": "int[]?"
+          },
+          {
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "api_boko_n",
+            "type": "int[]?"
+          },
+          {
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "api_ensyue_n",
+            "type": "int[]?"
+          },
+          {
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "api_ensyuf_d",
+            "type": "int[]?"
+          },
+          {
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "api_ensyuf_n",
+            "type": "int[]?"
+          },
+          {
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "api_filename",
+            "type": "string"
+          },
+          {
+            "isFk": false,
+            "isKey": true,
+            "isUuid": false,
+            "name": "api_id",
+            "type": "int"
+          },
+          {
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "api_kaisyu_d",
+            "type": "int[]?"
+          },
+          {
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "api_kaisyu_n",
+            "type": "int[]?"
+          },
+          {
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "api_kaizo_d",
+            "type": "int[]?"
+          },
+          {
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "api_kaizo_n",
+            "type": "int[]?"
+          },
+          {
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "api_map_d",
+            "type": "int[]?"
+          },
+          {
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "api_map_n",
+            "type": "int[]?"
+          },
+          {
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "api_pa",
+            "type": "int[]?"
+          },
+          {
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "api_pab",
+            "type": "int[]?"
+          },
+          {
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "api_sortno",
+            "type": "int?"
+          },
+          {
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "api_sp_flag",
+            "type": "int?"
+          },
+          {
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "api_version",
+            "type": "string[]"
+          },
+          {
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "api_weda",
+            "type": "int[]?"
+          },
+          {
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "api_wedb",
+            "type": "int[]?"
+          },
+          {
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "api_wedc",
+            "type": "int[]?"
+          },
+          {
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "api_wedd",
+            "type": "int[]?"
+          }
+        ],
+        "recordName": "MstShipGraph",
+        "tableName": "mst_shipgraph"
+      },
+      "id": "mst_shipgraph",
+      "position": {
+        "x": 0,
+        "y": 0
+      },
+      "type": "schemaTableNode"
+    },
+    {
+      "data": {
+        "fields": [
+          {
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "atap",
+            "type": "int"
+          },
+          {
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "bakk",
+            "type": "int"
+          },
+          {
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "baku",
+            "type": "int"
+          },
+          {
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "broken",
+            "type": "int[]"
+          },
+          {
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "cost",
+            "type": "int?"
+          },
+          {
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "distance",
+            "type": "int?"
+          },
+          {
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "geigeki",
+            "type": "int"
+          },
+          {
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "houg",
+            "type": "int"
+          },
+          {
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "houk",
+            "type": "int"
+          },
+          {
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "houm",
+            "type": "int"
+          },
+          {
+            "isFk": false,
+            "isKey": true,
+            "isUuid": false,
+            "name": "id",
+            "type": "int"
+          },
+          {
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "leng",
+            "type": "int"
+          },
+          {
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "luck",
+            "type": "int"
+          },
+          {
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "name",
+            "type": "string"
+          },
+          {
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "raig",
+            "type": "int"
+          },
+          {
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "raik",
+            "type": "int"
+          },
+          {
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "raim",
+            "type": "int"
+          },
+          {
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "rare",
+            "type": "int"
+          },
+          {
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "sakb",
+            "type": "int"
+          },
+          {
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "saku",
+            "type": "int"
+          },
+          {
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "soku",
+            "type": "int"
+          },
+          {
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "sortno",
+            "type": "int"
+          },
+          {
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "souk",
+            "type": "int"
+          },
+          {
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "taibaku",
+            "type": "int"
+          },
+          {
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "taik",
+            "type": "int"
+          },
+          {
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "tais",
+            "type": "int"
+          },
+          {
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "tyku",
+            "type": "int"
+          },
+          {
+            "isFk": true,
+            "isKey": false,
+            "isUuid": false,
+            "name": "type",
+            "type": "int[]"
+          },
+          {
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "usebull",
+            "type": "string"
+          },
+          {
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "version",
+            "type": "int?"
+          }
+        ],
+        "recordName": "MstSlotItem",
+        "tableName": "mst_slotitem"
+      },
+      "id": "mst_slotitem",
+      "position": {
+        "x": 0,
+        "y": 0
+      },
+      "type": "schemaTableNode"
+    },
+    {
+      "data": {
+        "fields": [
+          {
+            "isFk": false,
+            "isKey": true,
+            "isUuid": false,
+            "name": "id",
+            "type": "int"
+          },
+          {
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "name",
+            "type": "string"
+          }
+        ],
+        "recordName": "MstSlotItemEquipType",
+        "tableName": "mst_slotitem_equiptype"
+      },
+      "id": "mst_slotitem_equiptype",
+      "position": {
+        "x": 0,
+        "y": 0
+      },
+      "type": "schemaTableNode"
+    },
+    {
+      "data": {
+        "fields": [
+          {
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "equip_type",
+            "type": "{\"type\":\"map\",\"values\":\"int\"}"
+          },
+          {
+            "isFk": false,
+            "isKey": true,
+            "isUuid": false,
+            "name": "id",
+            "type": "int"
+          },
+          {
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "name",
+            "type": "string"
+          },
+          {
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "sortno",
+            "type": "int"
+          }
+        ],
+        "recordName": "MstStype",
+        "tableName": "mst_stype"
+      },
+      "id": "mst_stype",
+      "position": {
+        "x": 0,
+        "y": 0
+      },
+      "type": "schemaTableNode"
+    },
+    {
+      "data": {
+        "fields": [
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "air_superiority",
+            "type": "int?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "airfire_idx",
+            "type": "int?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "airfire_use_item",
+            "type": "int[]?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "e_bak_flag",
+            "type": "int?[]?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "e_cl",
+            "type": "int[]?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "e_damages",
+            "type": "int[]?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "e_loss_plane1",
+            "type": "int"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "e_loss_plane2",
+            "type": "int"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "e_now_hps",
+            "type": "int[]"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "e_plane_from",
+            "type": "int[]?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "e_protect_flag",
+            "type": "boolean[]?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "e_rai_flag",
+            "type": "int?[]?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "e_sprite_crash_stage1_count",
+            "type": "int?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "e_sprite_crash_stage2_count",
+            "type": "int?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "e_sprite_damage_stage1_count",
+            "type": "int?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "e_sprite_damage_stage2_count",
+            "type": "int?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "e_sprite_fly_count",
+            "type": "int?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "e_sprite_non_normal_count",
+            "type": "int?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "e_touch_plane",
+            "type": "int?"
+          },
+          {
+            "isEnvRef": true,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": true,
+            "name": "env_uuid",
+            "type": "uuid"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "f_bak_flag",
+            "type": "int?[]?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "f_cl",
+            "type": "int[]?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "f_damages",
+            "type": "int[]?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "f_loss_plane1",
+            "type": "int"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "f_loss_plane2",
+            "type": "int"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "f_now_hps",
+            "type": "int[]"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "f_plane_from",
+            "type": "int[]?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "f_protect_flag",
+            "type": "boolean[]?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "f_rai_flag",
+            "type": "int?[]?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "f_sprite_crash_stage1_count",
+            "type": "int?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "f_sprite_crash_stage2_count",
+            "type": "int?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "f_sprite_damage_stage1_count",
+            "type": "int?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "f_sprite_damage_stage2_count",
+            "type": "int?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "f_sprite_fly_count",
+            "type": "int?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "f_sprite_non_normal_count",
+            "type": "int?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "f_touch_plane",
+            "type": "int?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "index",
+            "type": "int"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": true,
+            "isUuid": true,
+            "name": "uuid",
+            "type": "uuid"
+          }
+        ],
+        "recordName": "OpeningAirAttack",
+        "tableName": "opening_airattack"
+      },
+      "id": "opening_airattack",
+      "position": {
+        "x": 0,
+        "y": 0
+      },
+      "type": "schemaTableNode"
+    },
+    {
+      "data": {
+        "fields": [
+          {
+            "isEnvRef": true,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": true,
+            "name": "env_uuid",
+            "type": "uuid"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": true,
+            "isKey": false,
+            "isUuid": true,
+            "name": "opening_air_attack",
+            "type": "uuid?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": true,
+            "isUuid": true,
+            "name": "uuid",
+            "type": "uuid"
+          }
+        ],
+        "recordName": "OpeningAirAttackList",
+        "tableName": "opening_airattack_list"
+      },
+      "id": "opening_airattack_list",
+      "position": {
+        "x": 0,
+        "y": 0
+      },
+      "type": "schemaTableNode"
+    },
+    {
+      "data": {
+        "fields": [
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "e_cl",
+            "type": "int[]"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "e_dam",
+            "type": "int[]"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "e_now_hps",
+            "type": "int[]"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "e_protect_flag",
+            "type": "boolean[]"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "e_rai",
+            "type": "int[]?[]"
+          },
+          {
+            "isEnvRef": true,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": true,
+            "name": "env_uuid",
+            "type": "uuid"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "f_cl",
+            "type": "int[]"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "f_dam",
+            "type": "int[]"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "f_now_hps",
+            "type": "int[]"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "f_protect_flag",
+            "type": "boolean[]"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "f_rai",
+            "type": "int[]?[]"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": true,
+            "isUuid": true,
+            "name": "uuid",
+            "type": "uuid"
+          }
+        ],
+        "recordName": "OpeningRaigeki",
+        "tableName": "opening_raigeki"
+      },
+      "id": "opening_raigeki",
+      "position": {
+        "x": 0,
+        "y": 0
+      },
+      "type": "schemaTableNode"
+    },
+    {
+      "data": {
+        "fields": [
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "at",
+            "type": "int"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "at_eflag",
+            "type": "int"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "at_type",
+            "type": "int"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "cl",
+            "type": "int[]"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "damage",
+            "type": "int[]"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "df",
+            "type": "int[]"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "e_now_hps",
+            "type": "int[]"
+          },
+          {
+            "isEnvRef": true,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": true,
+            "name": "env_uuid",
+            "type": "uuid"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "f_now_hps",
+            "type": "int[]"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "index",
+            "type": "int"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "protect_flag",
+            "type": "boolean[]"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": true,
+            "isKey": false,
+            "isUuid": false,
+            "name": "si",
+            "type": "int?[]"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": true,
+            "isUuid": true,
+            "name": "uuid",
+            "type": "uuid"
+          }
+        ],
+        "recordName": "OpeningTaisen",
+        "tableName": "opening_taisen"
+      },
+      "id": "opening_taisen",
+      "position": {
+        "x": 0,
+        "y": 0
+      },
+      "type": "schemaTableNode"
+    },
+    {
+      "data": {
+        "fields": [
+          {
+            "isEnvRef": true,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": true,
+            "name": "env_uuid",
+            "type": "uuid"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": true,
+            "isKey": false,
+            "isUuid": true,
+            "name": "opening_taisen",
+            "type": "uuid?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": true,
+            "isUuid": true,
+            "name": "uuid",
+            "type": "uuid"
+          }
+        ],
+        "recordName": "OpeningTaisenList",
+        "tableName": "opening_taisen_list"
+      },
+      "id": "opening_taisen_list",
+      "position": {
+        "x": 0,
+        "y": 0
+      },
+      "type": "schemaTableNode"
+    },
+    {
+      "data": {
+        "fields": [
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "chart_seiku_value",
+            "type": "int?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "chart_tp_value",
+            "type": "int?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "combined_flag",
+            "type": "int?"
+          },
+          {
+            "isEnvRef": true,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": true,
+            "name": "env_uuid",
+            "type": "uuid"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": true,
+            "isKey": false,
+            "isUuid": true,
+            "name": "ship_ids",
+            "type": "uuid?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": true,
+            "isUuid": true,
+            "name": "uuid",
+            "type": "uuid"
+          }
+        ],
+        "recordName": "OwnDeck",
+        "tableName": "own_deck"
+      },
+      "id": "own_deck",
+      "position": {
+        "x": 0,
+        "y": 0
+      },
+      "type": "schemaTableNode"
+    },
+    {
+      "data": {
+        "fields": [
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "bull",
+            "type": "int?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "cond",
+            "type": "int?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "cond_state",
+            "type": "int?"
+          },
+          {
+            "isEnvRef": true,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": true,
+            "name": "env_uuid",
+            "type": "uuid"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "fuel",
+            "type": "int?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "index",
+            "type": "int"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "kaihi",
+            "type": "int?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "karyoku",
+            "type": "int?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "leng",
+            "type": "int?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "lucky",
+            "type": "int?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "lv",
+            "type": "int?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "maxhp",
+            "type": "int?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "nowhp",
+            "type": "int?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "onsolot",
+            "type": "int[]?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "raisou",
+            "type": "int?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "sakuteki",
+            "type": "int?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "sally_area",
+            "type": "int?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": true,
+            "isKey": false,
+            "isUuid": false,
+            "name": "ship_id",
+            "type": "int?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": true,
+            "isKey": false,
+            "isUuid": true,
+            "name": "slot",
+            "type": "uuid?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": true,
+            "isKey": false,
+            "isUuid": true,
+            "name": "slot_ex",
+            "type": "uuid?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "soku",
+            "type": "int?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "sortie_tag_id",
+            "type": "int?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "soukou",
+            "type": "int?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "sp_effect_items",
+            "type": "int[]?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "taiku",
+            "type": "int?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "taisen",
+            "type": "int?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": true,
+            "isUuid": true,
+            "name": "uuid",
+            "type": "uuid"
+          }
+        ],
+        "recordName": "OwnShip",
+        "tableName": "own_ship"
+      },
+      "id": "own_ship",
+      "position": {
+        "x": 0,
+        "y": 0
+      },
+      "type": "schemaTableNode"
+    },
+    {
+      "data": {
+        "fields": [
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "alv",
+            "type": "int?"
+          },
+          {
+            "isEnvRef": true,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": true,
+            "name": "env_uuid",
+            "type": "uuid"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "index",
+            "type": "int"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "level",
+            "type": "int"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": true,
+            "isKey": false,
+            "isUuid": false,
+            "name": "mst_slotitem_id",
+            "type": "int"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": true,
+            "isUuid": true,
+            "name": "uuid",
+            "type": "uuid"
+          }
+        ],
+        "recordName": "OwnSlotItem",
+        "tableName": "own_slotitem"
+      },
+      "id": "own_slotitem",
+      "position": {
+        "x": 0,
+        "y": 0
+      },
+      "type": "schemaTableNode"
+    },
+    {
+      "data": {
+        "fields": [
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "cond",
+            "type": "int?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "count",
+            "type": "int?"
+          },
+          {
+            "isEnvRef": true,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": true,
+            "name": "env_uuid",
+            "type": "uuid"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "index",
+            "type": "int"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "max_count",
+            "type": "int?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": true,
+            "isKey": false,
+            "isUuid": true,
+            "name": "slotid",
+            "type": "uuid?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "state",
+            "type": "int"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": true,
+            "isUuid": true,
+            "name": "uuid",
+            "type": "uuid"
+          }
+        ],
+        "recordName": "PlaneInfo",
+        "tableName": "plane_info"
+      },
+      "id": "plane_info",
+      "position": {
+        "x": 0,
+        "y": 0
+      },
+      "type": "schemaTableNode"
+    },
+    {
+      "data": {
+        "fields": [
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "e_bak_flag",
+            "type": "int?[]?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "e_cl",
+            "type": "int[]?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "e_damages",
+            "type": "int[]?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "e_loss_plane",
+            "type": "int"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "e_now_hps",
+            "type": "int[]"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "e_plane_from",
+            "type": "int[]?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "e_protect_flag",
+            "type": "boolean[]?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "e_rai_flag",
+            "type": "int?[]?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "e_sprite_crash_count",
+            "type": "int?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "e_sprite_damage_count",
+            "type": "int?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "e_sprite_fly_count",
+            "type": "int?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "e_sprite_non_normal_count",
+            "type": "int?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "e_touch_plane",
+            "type": "int?"
+          },
+          {
+            "isEnvRef": true,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": true,
+            "name": "env_uuid",
+            "type": "uuid"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "f_bak_flag",
+            "type": "int?[]?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "f_cl",
+            "type": "int[]?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "f_damages",
+            "type": "int[]?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "f_loss_plane",
+            "type": "int"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "f_now_hps",
+            "type": "int[]"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "f_plane_from",
+            "type": "int[]?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "f_protect_flag",
+            "type": "boolean[]?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "f_rai_flag",
+            "type": "int?[]?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "f_sprite_crash_count",
+            "type": "int?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "f_sprite_damage_count",
+            "type": "int?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "f_sprite_fly_count",
+            "type": "int?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "f_sprite_non_normal_count",
+            "type": "int?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "f_touch_plane",
+            "type": "int?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": true,
+            "isUuid": true,
+            "name": "uuid",
+            "type": "uuid"
+          }
+        ],
+        "recordName": "SupportAirattack",
+        "tableName": "support_airattack"
+      },
+      "id": "support_airattack",
+      "position": {
+        "x": 0,
+        "y": 0
+      },
+      "type": "schemaTableNode"
+    },
+    {
+      "data": {
+        "fields": [
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "chart_seiku_value",
+            "type": "int?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "chart_tp_value",
+            "type": "int?"
+          },
+          {
+            "isEnvRef": true,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": true,
+            "name": "env_uuid",
+            "type": "uuid"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": true,
+            "isKey": false,
+            "isUuid": true,
+            "name": "ship_ids",
+            "type": "uuid?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": true,
+            "isUuid": true,
+            "name": "uuid",
+            "type": "uuid"
+          }
+        ],
+        "recordName": "SupportDeck",
+        "tableName": "support_deck"
+      },
+      "id": "support_deck",
+      "position": {
+        "x": 0,
+        "y": 0
+      },
+      "type": "schemaTableNode"
+    },
+    {
+      "data": {
+        "fields": [
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "e_cl",
+            "type": "int[]"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "e_damage",
+            "type": "int[]"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "e_now_hps",
+            "type": "int[]"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "e_protect_flag",
+            "type": "boolean[]"
+          },
+          {
+            "isEnvRef": true,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": true,
+            "name": "env_uuid",
+            "type": "uuid"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "f_cl",
+            "type": "int[]"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "f_damage",
+            "type": "int[]"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "f_now_hps",
+            "type": "int[]"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "f_protect_flag",
+            "type": "boolean[]"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": true,
+            "isUuid": true,
+            "name": "uuid",
+            "type": "uuid"
+          }
+        ],
+        "recordName": "SupportHourai",
+        "tableName": "support_hourai"
+      },
+      "id": "support_hourai",
+      "position": {
+        "x": 0,
+        "y": 0
+      },
+      "type": "schemaTableNode"
+    }
+  ],
+  "tableCount": 48,
+  "version": "0.6.0",
+  "versionKey": "v0_6_0"
+}

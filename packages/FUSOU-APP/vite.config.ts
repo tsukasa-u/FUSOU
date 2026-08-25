@@ -49,10 +49,6 @@ export default defineConfig(async () => ({
     exclude: ["stories/**/*.mdx"],
   },
   optimizeDeps: {
-    //  include: ["shared-ui"],
-    // shared-ui is a workspace-linked package — exclude it so Vite always
-    // reads the latest dist/index.js instead of serving a stale pre-bundle cache.
-    exclude: ["shared-ui"],
   },
 
   // Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`
@@ -78,11 +74,16 @@ export default defineConfig(async () => ({
   },
   resolve: {
     alias: {
-      "@ipc-bindings": resolve(__dirname, "../kc_api/bindings"),
+      "@ipc-bindings": resolve(dirname, "../kc_api/bindings"),
       "@fusou-testdata-ipc": resolve(
-        __dirname,
-        "../../../FUSOU-TESTDATA/storybook/ipc",
+        dirname,
+        "../../../FUSOU-TESTDATA/storybook/ipc"
       ),
-    },
+      "ui": resolve(dirname, "src/components/ui/index.tsx"),
+      "@fusou-testdata-shared-ui": resolve(
+        dirname,
+        "../../../FUSOU-TESTDATA/storybook/shared-ui"
+      ),
+    }
   },
 }));

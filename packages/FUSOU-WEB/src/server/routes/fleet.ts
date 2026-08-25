@@ -1,30 +1,31 @@
-import { Hono } from "hono";
-import type { ContentfulStatusCode } from "hono/utils/http-status";
+import { Hono, type Context } from "hono";
 import { createClient } from "@supabase/supabase-js";
+import type { ContentfulStatusCode } from "hono/utils/http-status";
 import type { Bindings, R2ObjectLite } from "../types";
 import {
   createEnvContext,
-  getEnv,
   extractBearer,
-  resolveLinkedMemberIdHashForUser,
+  getEnv,
+  resolvePublicIdForUser,
+  validateDatasetTokenWithConstraints,
+  resolveDatasetTokenRevocationConfig,
+  timingSafeEqual,
   validateJWT,
   resolveSupabaseConfig,
-  validateDatasetTokenWithConstraints,
-  timingSafeEqual,
 } from "../utils";
 import {
   CORS_HEADERS,
   SNAPSHOT_TOKEN_TTL_SECONDS,
   SNAPSHOT_EMPTY_PAYLOAD_THRESHOLD_BYTES,
   SNAPSHOT_KEEP_LATEST_COUNT_PER_TAG,
+  MAX_UPLOAD_BYTES,
 } from "../constants";
 import { handleTwoStageUpload } from "../utils/upload";
+import {
+  parseFleetSnapshotPayload,
+} from "../schemas/fleet";
+import { FleetSnapshotTokenPayloadSchema } from "../schemas/tokens";
 
-const DATASET_ID_PATTERN = /^[a-f0-9]{64}$/;
-const MAX_ROTATION_HOPS = 5;
-const MAX_CANDIDATE_DATASET_IDS = 8;
-const ROTATION_QUERY_PAGE_SIZE = 128;
-const MAX_ROTATION_QUERY_PAGES = 8;
 const MAX_R2_LIST_PAGES = 32;
 const R2_LIST_PAGE_LIMIT = 1000;
 
@@ -33,10 +34,7 @@ type AuthSource = "jwt" | "dataset_token";
 type FleetAuthResolution = {
   ok: true;
   datasetId: string;
-  actorUserId: string;
   authSource: AuthSource;
-  canonicalDatasetId: string | null;
-  supabaseAdmin: any | null;
 };
 
 type FleetAuthFailure = {
@@ -44,12 +42,6 @@ type FleetAuthFailure = {
   error: string;
   status: ContentfulStatusCode;
 };
-
-function normalizeDatasetId(value: unknown): string | null {
-  if (typeof value !== "string") return null;
-  const normalized = value.trim().toLowerCase();
-  return DATASET_ID_PATTERN.test(normalized) ? normalized : null;
-}
 
 function normalizeFleetTag(rawTag: string): string {
   return rawTag
@@ -63,16 +55,6 @@ function normalizeFleetTag(rawTag: string): string {
 function encodeFleetTagPath(rawTag: string): string {
   const normalizedTag = normalizeFleetTag(rawTag.trim());
   return encodeURIComponent(normalizedTag);
-}
-
-function isSchemaObjectMissingError(error: unknown): boolean {
-  const err = error as { code?: unknown; message?: unknown } | null;
-  const code = typeof err?.code === "string" ? err.code : null;
-  if (code === "42P01" || code === "42703") {
-    return true;
-  }
-  const message = typeof err?.message === "string" ? err.message : "";
-  return /does not exist/i.test(message);
 }
 
 function compareSnapshotRecency(a: R2ObjectLite, b: R2ObjectLite): number {
@@ -92,10 +74,10 @@ async function listAllObjectsByPrefix(
   for (let page = 0; page < MAX_R2_LIST_PAGES; page += 1) {
     const listed = await bucket.list({
       prefix,
-      cursor,
+      ...(cursor === undefined ? {} : { cursor }),
       limit: R2_LIST_PAGE_LIMIT,
     });
-    out.push(...((listed.objects ?? []) as R2ObjectLite[]));
+    out.push(...(listed.objects ?? []));
 
     if (!listed.truncated) {
       return { objects: out, pagesScanned: page + 1 };
@@ -112,173 +94,15 @@ async function listAllObjectsByPrefix(
   );
 }
 
-async function resolveCanonicalDatasetIdBestEffort(options: {
-  supabaseAdmin: any | null;
-  actorUserId: string;
-  fallbackDatasetId?: string | null;
-}): Promise<string | null> {
-  const fallback = normalizeDatasetId(options.fallbackDatasetId);
-  if (!options.supabaseAdmin) return fallback;
-
-  try {
-    const { data, error } = await options.supabaseAdmin
-      .from("user_member_map")
-      .select("member_id_hash")
-      .eq("user_id", options.actorUserId)
-      .maybeSingle();
-
-    if (error) {
-      console.warn(
-        "[fleet] canonical dataset lookup failed; falling back to current dataset",
-        {
-          actor_user_id: options.actorUserId,
-          error: (error as { message?: unknown }).message,
-        },
-      );
-      return fallback;
-    }
-
-    return normalizeDatasetId(data?.member_id_hash) ?? fallback;
-  } catch (err) {
-    console.warn(
-      "[fleet] canonical dataset lookup threw; falling back to current dataset",
-      err,
-    );
-    return fallback;
-  }
-}
-
-async function resolveFleetDatasetCandidates(options: {
-  supabaseAdmin: any | null;
-  actorUserId: string;
-  currentDatasetId: string;
-  canonicalDatasetId: string | null;
-}): Promise<{
-  datasetIds: string[];
-  hopCount: number;
-  resolvedFromHistorical: 0 | 1;
-}> {
-  const seed: string[] = [];
-  const currentNormalized = normalizeDatasetId(options.currentDatasetId);
-  if (currentNormalized) seed.push(currentNormalized);
-  const canonicalNormalized = normalizeDatasetId(options.canonicalDatasetId);
-  if (canonicalNormalized) seed.push(canonicalNormalized);
-
-  const visited = new Set(seed);
-  const seedSetSize = visited.size;
-  if (!options.supabaseAdmin || visited.size === 0) {
-    return {
-      datasetIds: Array.from(visited).slice(0, MAX_CANDIDATE_DATASET_IDS),
-      hopCount: 0,
-      resolvedFromHistorical: 0,
-    };
-  }
-
-  let frontier = Array.from(visited);
-  let hopCount = 0;
-
-  for (
-    let hop = 0;
-    hop < MAX_ROTATION_HOPS &&
-    frontier.length > 0 &&
-    visited.size < MAX_CANDIDATE_DATASET_IDS;
-    hop += 1
-  ) {
-    const inValues = frontier.join(",");
-    const rows: Array<{ pid_from?: string | null; pid_to?: string | null }> =
-      [];
-    let queryFailed = false;
-
-    for (let page = 0; page < MAX_ROTATION_QUERY_PAGES; page += 1) {
-      const from = page * ROTATION_QUERY_PAGE_SIZE;
-      const to = from + ROTATION_QUERY_PAGE_SIZE - 1;
-
-      const { data, error } = await options.supabaseAdmin
-        .from("member_id_hash_rotations")
-        .select("pid_from,pid_to")
-        .eq("canonical_user_id", options.actorUserId)
-        .or(`pid_to.in.(${inValues}),pid_from.in.(${inValues})`)
-        .range(from, to);
-
-      if (error) {
-        if (isSchemaObjectMissingError(error)) {
-          console.warn(
-            "[fleet] member_id_hash_rotations unavailable; using seed dataset IDs only",
-          );
-        } else {
-          console.warn(
-            "[fleet] member_id_hash_rotations query failed; using seed dataset IDs only",
-            {
-              actor_user_id: options.actorUserId,
-              error: (error as { message?: unknown }).message,
-            },
-          );
-        }
-        queryFailed = true;
-        break;
-      }
-
-      const pageRows = Array.isArray(data)
-        ? (data as Array<{ pid_from?: string | null; pid_to?: string | null }>)
-        : [];
-      rows.push(...pageRows);
-
-      if (pageRows.length < ROTATION_QUERY_PAGE_SIZE) {
-        break;
-      }
-    }
-
-    if (queryFailed) {
-      break;
-    }
-
-    const nextFrontier: string[] = [];
-
-    for (const row of rows) {
-      const candidates = [row.pid_from, row.pid_to];
-      for (const candidate of candidates) {
-        const normalized = normalizeDatasetId(candidate);
-        if (!normalized || visited.has(normalized)) continue;
-
-        visited.add(normalized);
-        nextFrontier.push(normalized);
-
-        if (visited.size >= MAX_CANDIDATE_DATASET_IDS) {
-          break;
-        }
-      }
-
-      if (visited.size >= MAX_CANDIDATE_DATASET_IDS) {
-        break;
-      }
-    }
-
-    if (nextFrontier.length === 0) {
-      break;
-    }
-
-    frontier = nextFrontier;
-    hopCount = hop + 1;
-  }
-
-  const datasetIds = Array.from(visited).slice(0, MAX_CANDIDATE_DATASET_IDS);
-  return {
-    datasetIds,
-    hopCount,
-    resolvedFromHistorical: datasetIds.length > seedSetSize ? 1 : 0,
-  };
-}
-
 /**
- * 認証情報から dataset_id (member_id_hash) を解決する。
- * 優先順位:
- *   1. Authorization: Bearer <supabase_jwt> → JWT metadata / legacy canonical user_member_map
- *   2. X-Dataset-Token → JWT ペイロードの dataset_id
+ * 認証情報から UUID の dataset_id を解決する。
+ * JWT の Web mapping は、本人確認ではなく Web アカウントと
+ * 疑似匿名 dataset の関連付けとして利用する。
  *
  * @returns { datasetId: string } on success, or { error: string, status: number } on failure
  */
 async function resolveDatasetId(
-  c: any,
+  c: Context<{ Bindings: Bindings }>,
 ): Promise<FleetAuthResolution | FleetAuthFailure> {
   const env = createEnvContext(c);
 
@@ -291,6 +115,7 @@ async function resolveDatasetId(
     const tokenValidation = await validateDatasetTokenWithConstraints({
       token: datasetTokenHeader,
       secret: getEnv(env, "DATASET_TOKEN_SECRET"),
+      revocation: resolveDatasetTokenRevocationConfig(env),
     });
     if (!tokenValidation.ok || !tokenValidation.token) {
       return {
@@ -300,20 +125,6 @@ async function resolveDatasetId(
       };
     }
 
-    const actorUserId = tokenValidation.token.user_id;
-    let supabaseAdmin: any | null = null;
-    const envCtx = createEnvContext(c);
-    const { url, serviceRoleKey } = resolveSupabaseConfig(envCtx);
-    if (url && serviceRoleKey) {
-      supabaseAdmin = createClient(url, serviceRoleKey);
-    }
-
-    const canonicalDatasetId = await resolveCanonicalDatasetIdBestEffort({
-      supabaseAdmin,
-      actorUserId,
-      fallbackDatasetId: tokenValidation.token.dataset_id,
-    });
-
     console.log(
       `[fleet] dataset_id resolved from X-Dataset-Token: ${tokenValidation.token.dataset_id.slice(0, 8)}...`,
     );
@@ -321,99 +132,62 @@ async function resolveDatasetId(
     return {
       ok: true,
       datasetId: tokenValidation.token.dataset_id,
-      actorUserId,
       authSource: "dataset_token",
-      canonicalDatasetId,
-      supabaseAdmin,
     };
   };
 
-  // 1. Bearer JWT → JWT metadata / legacy canonical owner map (anonymous-only mode)
-  const authHeader = c.req.header("Authorization");
-  const accessToken = extractBearer(authHeader);
+  if (c.req.header("X-Dataset-Token")) {
+    const tokenResolution = await tryResolveFromDatasetToken();
+    if (tokenResolution) return tokenResolution;
+  }
+
+  const accessToken = extractBearer(c.req.header("Authorization"));
   if (accessToken) {
     const user = await validateJWT(accessToken);
     if (!user?.id) {
-      console.warn("[fleet] JWT validation failed for provided access token");
       const tokenFallback = await tryResolveFromDatasetToken();
       if (tokenFallback) return tokenFallback;
-      return {
-        ok: false,
-        error: "Invalid or expired access token",
-        status: 401,
-      };
+      return { ok: false, error: "Invalid or expired access token", status: 401 };
     }
 
-    const envCtx = createEnvContext(c);
-    const { url, serviceRoleKey } = resolveSupabaseConfig(envCtx);
+    const { url, serviceRoleKey } = resolveSupabaseConfig(env);
     if (!url || !serviceRoleKey) {
       const tokenFallback = await tryResolveFromDatasetToken();
       if (tokenFallback?.ok) return tokenFallback;
-      console.error(
-        "[fleet] Supabase configuration missing for user_member_map lookup",
-      );
       return { ok: false, error: "Server misconfiguration", status: 500 };
     }
 
-    const supabaseAdmin = createClient(url, serviceRoleKey);
-
     try {
-      const resolvedMember = await resolveLinkedMemberIdHashForUser({
-        supabaseAdmin,
+      const resolvedMember = await resolvePublicIdForUser({
+        supabaseAdmin: createClient(url, serviceRoleKey),
         userId: user.id,
-        jwtPayload: user.payload,
       });
-
-      console.log("[fleet] dataset resolution result:", {
-        user_id: user.id,
-        source: resolvedMember.source,
-        member_id_hash: resolvedMember.memberIdHash
-          ? `${resolvedMember.memberIdHash.slice(0, 8)}...`
-          : null,
-      });
-
-      if (!resolvedMember.memberIdHash) {
-        const tokenFallback = await tryResolveFromDatasetToken();
-        if (tokenFallback?.ok) return tokenFallback;
+      if (resolvedMember.publicId) {
         return {
-          ok: false,
-          error:
-            "No game account linked to this FUSOU account. Please link your game account via FUSOU-APP first.",
-          status: 403,
+          ok: true,
+          datasetId: resolvedMember.publicId,
+          authSource: "jwt",
         };
       }
-
-      const canonicalDatasetId = await resolveCanonicalDatasetIdBestEffort({
-        supabaseAdmin,
-        actorUserId: user.id,
-        fallbackDatasetId: resolvedMember.memberIdHash,
-      });
-
+      const tokenFallback = await tryResolveFromDatasetToken();
+      if (tokenFallback?.ok) return tokenFallback;
       return {
-        ok: true,
-        datasetId: resolvedMember.memberIdHash,
-        actorUserId: user.id,
-        authSource: "jwt",
-        canonicalDatasetId,
-        supabaseAdmin,
+        ok: false,
+        error: "No game identifier is linked to this Web account",
+        status: 403,
       };
-    } catch (err) {
-      console.error("[fleet] Unexpected error while resolving dataset:", err);
+    } catch (error) {
+      console.error("[fleet] dataset association lookup failed:", error);
       const tokenFallback = await tryResolveFromDatasetToken();
       if (tokenFallback?.ok) return tokenFallback;
       return { ok: false, error: "Failed to resolve dataset", status: 500 };
     }
   }
 
-  // 2. X-Dataset-Token → dataset_id from JWT payload
-  const tokenFallback = await tryResolveFromDatasetToken();
-  if (tokenFallback) return tokenFallback;
+  const tokenResolution = await tryResolveFromDatasetToken();
+  if (tokenResolution) return tokenResolution;
 
-  return {
-    ok: false,
-    error: "Authentication required. Please sign in first.",
-    status: 401,
-  };
+  return { ok: false, error: "Authentication required. Please sign in first.", status: 401 };
 }
 
 const app = new Hono<{ Bindings: Bindings }>();
@@ -427,7 +201,7 @@ app.options(
 // POST /snapshot
 app.post("/snapshot", async (c) => {
   const env = createEnvContext(c);
-  const bucket = env.runtime.FLEET_SNAPSHOT_BUCKET;
+  const bucket = env.runtime["FLEET_SNAPSHOT_BUCKET"];
   const signingSecret = getEnv(env, "FLEET_SNAPSHOT_SIGNING_SECRET");
 
   if (!bucket || !signingSecret) {
@@ -437,14 +211,19 @@ app.post("/snapshot", async (c) => {
   return handleTwoStageUpload(c, {
     bucket,
     signingSecret,
+    tokenPayloadSchema: FleetSnapshotTokenPayloadSchema,
     requireDatasetToken: true,
     tokenTTL: SNAPSHOT_TOKEN_TTL_SECONDS,
+    maxBodySize: MAX_UPLOAD_BYTES,
     preparationValidator: async (body, _user, authContext) => {
-      const rawTag = typeof body?.tag === "string" ? body.tag.trim() : "";
+      const rawTag =
+        typeof body?.["tag"] === "string" ? body["tag"].trim() : "";
       const datasetIdFromToken =
         authContext.datasetToken?.dataset_id?.trim() ?? "";
       const requestedDatasetId =
-        typeof body?.dataset_id === "string" ? body.dataset_id.trim() : "";
+        typeof body?.["dataset_id"] === "string"
+          ? body["dataset_id"].trim()
+          : "";
       if (requestedDatasetId && requestedDatasetId !== datasetIdFromToken) {
         console.warn(`[fleet-snapshot] dataset_id mismatch detected`);
         return c.json({ error: "dataset_id does not match token" }, 403);
@@ -452,7 +231,9 @@ app.post("/snapshot", async (c) => {
 
       const datasetId = datasetIdFromToken || requestedDatasetId;
       const contentHash =
-        typeof body?.content_hash === "string" ? body.content_hash.trim() : "";
+        typeof body?.["content_hash"] === "string"
+          ? body["content_hash"].trim()
+          : "";
 
       if (!rawTag) {
         return c.json({ error: "tag is required" }, 400);
@@ -483,10 +264,11 @@ app.post("/snapshot", async (c) => {
       };
     },
     executionProcessor: async (tokenPayload, data, _user) => {
-      const tag = tokenPayload.tag;
+      const tag =
+        typeof tokenPayload["tag"] === "string" ? tokenPayload["tag"] : "";
       const datasetId =
-        typeof tokenPayload?.dataset_id === "string"
-          ? tokenPayload.dataset_id.trim()
+        typeof tokenPayload?.["dataset_id"] === "string"
+          ? tokenPayload["dataset_id"].trim()
           : "";
 
       if (!tag) {
@@ -504,7 +286,7 @@ app.post("/snapshot", async (c) => {
       // This ensures data integrity across the two-stage upload and matches the pattern
       // used by remodel_data.ts, ship_growth.ts and master_data.ts.
       const expectedHash = String(
-        tokenPayload.content_hash ?? "",
+        tokenPayload["content_hash"] ?? "",
       ).toLowerCase();
       if (!expectedHash) {
         return c.json(
@@ -530,8 +312,21 @@ app.post("/snapshot", async (c) => {
         );
       }
 
-      // Treat very small payloads as empty and skip upload
-      if (data && data.byteLength <= SNAPSHOT_EMPTY_PAYLOAD_THRESHOLD_BYTES) {
+      // Parse and validate payload from data
+      let payload: ReturnType<typeof parseFleetSnapshotPayload>;
+      try {
+        const text = new TextDecoder().decode(data);
+        payload = parseFleetSnapshotPayload(JSON.parse(text));
+      } catch {
+        return c.json({ error: "Invalid JSON payload" }, 400);
+      }
+
+      if (!payload) {
+        return c.json({ error: "Invalid fleet snapshot payload" }, 400);
+      }
+
+      // Treat very small valid payloads as empty and skip upload
+      if (data.byteLength <= SNAPSHOT_EMPTY_PAYLOAD_THRESHOLD_BYTES) {
         return {
           response: {
             ok: true,
@@ -540,26 +335,6 @@ app.post("/snapshot", async (c) => {
             tag,
           },
         };
-      }
-
-      // Parse and validate payload from data
-      let payload: any;
-      try {
-        const text = new TextDecoder().decode(data);
-        payload = JSON.parse(text);
-      } catch {
-        return c.json({ error: "Invalid JSON payload" }, 400);
-      }
-
-      const isEmptyObject =
-        payload !== null &&
-        typeof payload === "object" &&
-        !Array.isArray(payload) &&
-        Object.keys(payload).length === 0;
-      const isEmptyArray = Array.isArray(payload) && payload.length === 0;
-
-      if (isEmptyObject || isEmptyArray) {
-        return c.json({ error: "Empty payload is not allowed" }, 400);
       }
 
       // Compress JSON payload
@@ -611,12 +386,12 @@ app.post("/snapshot", async (c) => {
         const toKeep = new Set(
           sorted
             .slice(0, Math.max(SNAPSHOT_KEEP_LATEST_COUNT_PER_TAG, 1))
-            .map((o: any) => o.key),
+            .map((o) => o.key),
         );
         // Ensure the just-uploaded file is always kept
         toKeep.add(fileName);
         const keysToDelete = sorted
-          .map((o: any) => o.key)
+          .map((o) => o.key)
           .filter((key: string) => !toKeep.has(key));
 
         if (typeof bucket.delete !== "function") {
@@ -641,8 +416,9 @@ app.post("/snapshot", async (c) => {
 
 // GET /snapshot/:tag - Retrieve fleet snapshot from R2
 app.get("/snapshot/:tag", async (c) => {
+  c.header("Cache-Control", "no-cache, no-store, must-revalidate");
   const env = createEnvContext(c);
-  const bucket = env.runtime.FLEET_SNAPSHOT_BUCKET;
+  const bucket = env.runtime["FLEET_SNAPSHOT_BUCKET"];
 
   if (!bucket) {
     return c.json({ error: "Server misconfiguration" }, 500);
@@ -661,45 +437,11 @@ app.get("/snapshot/:tag", async (c) => {
   const resolved = await resolveDatasetId(c);
   if (!resolved.ok) return c.json({ error: resolved.error }, resolved.status);
 
-  const candidates = await resolveFleetDatasetCandidates({
-    supabaseAdmin: resolved.supabaseAdmin,
-    actorUserId: resolved.actorUserId,
-    currentDatasetId: resolved.datasetId,
-    canonicalDatasetId: resolved.canonicalDatasetId,
-  });
-
-  console.log("[fleet] event=fleet_rotation_candidates_resolved", {
-    request_path: "/snapshot/:tag",
-    auth_source: resolved.authSource,
-    seed_count: new Set(
-      [resolved.datasetId, resolved.canonicalDatasetId].filter(
-        (value): value is string => Boolean(normalizeDatasetId(value)),
-      ),
-    ).size,
-    candidate_count: candidates.datasetIds.length,
-    hop_count: candidates.hopCount,
-    resolved_from_historical: candidates.resolvedFromHistorical,
-  });
-
   const safeTag = encodeFleetTagPath(normalizedTag);
 
   try {
-    const allObjects: R2ObjectLite[] = [];
-    let totalPages = 0;
-
-    for (const datasetId of candidates.datasetIds) {
-      const prefix = `fleets/${datasetId}/${safeTag}/`;
-      const listed = await listAllObjectsByPrefix(bucket, prefix);
-      totalPages += listed.pagesScanned;
-      allObjects.push(...listed.objects);
-    }
-
-    console.log("[fleet] event=fleet_rotation_fallback_hit", {
-      request_path: "/snapshot/:tag",
-      candidate_count: candidates.datasetIds.length,
-      r2_pages_scanned: totalPages,
-      resolved_from_historical: candidates.resolvedFromHistorical,
-    });
+    const prefix = `fleets/${resolved.datasetId}/${safeTag}/`;
+    const { objects: allObjects } = await listAllObjectsByPrefix(bucket, prefix);
 
     if (allObjects.length === 0) {
       return c.json({ error: "No snapshots found for this tag" }, 404);
@@ -708,7 +450,11 @@ app.get("/snapshot/:tag", async (c) => {
     // Sort by uploaded time descending to get the latest
     const sorted = allObjects.sort(compareSnapshotRecency);
 
-    const latestKey = sorted[0].key;
+    const latest = sorted[0];
+    if (latest === undefined) {
+      return c.json({ error: "No snapshots found for this tag" }, 404);
+    }
+    const latestKey = latest.key;
     const object = await bucket.get(latestKey);
 
     if (!object) {
@@ -727,7 +473,13 @@ app.get("/snapshot/:tag", async (c) => {
       jsonText = new TextDecoder().decode(compressed);
     }
 
-    const data = JSON.parse(jsonText);
+    const data = parseFleetSnapshotPayload(JSON.parse(jsonText));
+    if (!data) {
+      console.error("[fleet-snapshot] Stored payload failed schema validation", {
+        key: latestKey,
+      });
+      return c.json({ error: "Stored fleet snapshot is invalid" }, 502);
+    }
     return c.json({
       ok: true,
       tag,
@@ -741,8 +493,9 @@ app.get("/snapshot/:tag", async (c) => {
 
 // GET /snapshots/list - List available fleet snapshot tags
 app.get("/snapshots/list", async (c) => {
+  c.header("Cache-Control", "no-cache, no-store, must-revalidate");
   const env = createEnvContext(c);
-  const bucket = env.runtime.FLEET_SNAPSHOT_BUCKET;
+  const bucket = env.runtime["FLEET_SNAPSHOT_BUCKET"];
 
   if (!bucket) {
     return c.json({ error: "Server misconfiguration" }, 500);
@@ -751,43 +504,9 @@ app.get("/snapshots/list", async (c) => {
   const resolved = await resolveDatasetId(c);
   if (!resolved.ok) return c.json({ error: resolved.error }, resolved.status);
 
-  const candidates = await resolveFleetDatasetCandidates({
-    supabaseAdmin: resolved.supabaseAdmin,
-    actorUserId: resolved.actorUserId,
-    currentDatasetId: resolved.datasetId,
-    canonicalDatasetId: resolved.canonicalDatasetId,
-  });
-
-  console.log("[fleet] event=fleet_rotation_candidates_resolved", {
-    request_path: "/snapshots/list",
-    auth_source: resolved.authSource,
-    seed_count: new Set(
-      [resolved.datasetId, resolved.canonicalDatasetId].filter(
-        (value): value is string => Boolean(normalizeDatasetId(value)),
-      ),
-    ).size,
-    candidate_count: candidates.datasetIds.length,
-    hop_count: candidates.hopCount,
-    resolved_from_historical: candidates.resolvedFromHistorical,
-  });
-
   try {
-    const objects: R2ObjectLite[] = [];
-    let totalPages = 0;
-
-    for (const datasetId of candidates.datasetIds) {
-      const prefix = `fleets/${datasetId}/`;
-      const listed = await listAllObjectsByPrefix(bucket, prefix);
-      totalPages += listed.pagesScanned;
-      objects.push(...listed.objects);
-    }
-
-    console.log("[fleet] event=fleet_rotation_fallback_hit", {
-      request_path: "/snapshots/list",
-      candidate_count: candidates.datasetIds.length,
-      r2_pages_scanned: totalPages,
-      resolved_from_historical: candidates.resolvedFromHistorical,
-    });
+    const prefix = `fleets/${resolved.datasetId}/`;
+    const { objects } = await listAllObjectsByPrefix(bucket, prefix);
 
     // Group by tag (second path segment after dataset_id)
     const tagMap = new Map<
@@ -847,7 +566,7 @@ app.get("/snapshots/list", async (c) => {
 // DELETE /snapshot/:tag - Delete all fleet snapshots for a tag
 app.delete("/snapshot/:tag", async (c) => {
   const env = createEnvContext(c);
-  const bucket = env.runtime.FLEET_SNAPSHOT_BUCKET;
+  const bucket = env.runtime["FLEET_SNAPSHOT_BUCKET"];
 
   if (!bucket || typeof bucket.delete !== "function") {
     return c.json({ error: "Server misconfiguration" }, 500);
@@ -866,45 +585,11 @@ app.delete("/snapshot/:tag", async (c) => {
   const resolved = await resolveDatasetId(c);
   if (!resolved.ok) return c.json({ error: resolved.error }, resolved.status);
 
-  const candidates = await resolveFleetDatasetCandidates({
-    supabaseAdmin: resolved.supabaseAdmin,
-    actorUserId: resolved.actorUserId,
-    currentDatasetId: resolved.datasetId,
-    canonicalDatasetId: resolved.canonicalDatasetId,
-  });
-
-  console.log("[fleet] event=fleet_rotation_candidates_resolved", {
-    request_path: "/snapshot/:tag:delete",
-    auth_source: resolved.authSource,
-    seed_count: new Set(
-      [resolved.datasetId, resolved.canonicalDatasetId].filter(
-        (value): value is string => Boolean(normalizeDatasetId(value)),
-      ),
-    ).size,
-    candidate_count: candidates.datasetIds.length,
-    hop_count: candidates.hopCount,
-    resolved_from_historical: candidates.resolvedFromHistorical,
-  });
-
   const safeTag = encodeFleetTagPath(normalizedTag);
 
   try {
-    const objects: R2ObjectLite[] = [];
-    let totalPages = 0;
-
-    for (const datasetId of candidates.datasetIds) {
-      const prefix = `fleets/${datasetId}/${safeTag}/`;
-      const listed = await listAllObjectsByPrefix(bucket, prefix);
-      totalPages += listed.pagesScanned;
-      objects.push(...listed.objects);
-    }
-
-    console.log("[fleet] event=fleet_rotation_fallback_hit", {
-      request_path: "/snapshot/:tag:delete",
-      candidate_count: candidates.datasetIds.length,
-      r2_pages_scanned: totalPages,
-      resolved_from_historical: candidates.resolvedFromHistorical,
-    });
+    const prefix = `fleets/${resolved.datasetId}/${safeTag}/`;
+    const { objects } = await listAllObjectsByPrefix(bucket, prefix);
 
     if (objects.length === 0) {
       return c.json({ ok: true, deleted: 0, tag });

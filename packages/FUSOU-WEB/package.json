@@ -1,7 +1,7 @@
 {
   "name": "fusou-web",
   "type": "module",
-  "version": "0.0.1",
+  "version": "0.5.0",
   "scripts": {
     "dev": "CLOUDFLARE_INCLUDE_PROCESS_ENV=true dotenvx run -fk ../.env.keys -f .env --verbose --overload -- astro dev",
     "dev:workers": "CLOUDFLARE_INCLUDE_PROCESS_ENV=true dotenvx run -fk ../.env.keys -f .env --verbose --overload -- wrangler dev",
@@ -17,7 +17,10 @@
     "deploy": "pnpm run build && echo '_worker.js' > dist/.assetsignore && wrangler deploy",
     "preview": "CLOUDFLARE_INCLUDE_PROCESS_ENV=true dotenvx run -fk ../.env.keys -f .env --verbose --overload -- astro preview",
     "astro": "astro",
-    "test:battle-data": "vitest run --passWithNoTests src/server/routes/__tests__/battle_data.integration.test.ts",
+    "test:battle-data": "vitest run src/server/routes/__tests__/battle_data.integration.test.ts",
+    "verify:battle-data": "vitest run src/features/battles src/server/routes/__tests__/battle_data",
+    "test:local-avro": "vitest run src/features/battles/local-directory src/features/battles/local-worker src/features/battles/repository src/features/battles/resolvers",
+    "e2e:battles:local-avro": "playwright test -c playwright.config.ts e2e/battles.local-avro.spec.ts",
     "e2e:simulator": "dotenvx run -fk ../.env.keys -f .env --verbose --overload -- playwright test -c playwright.config.ts e2e/simulator.spec.ts",
     "e2e:simulator:smoke": "playwright test -c playwright.config.ts e2e/simulator.smoke.spec.ts",
     "e2e:simulator:headed": "dotenvx run -fk ../.env.keys -f .env --verbose --overload -- playwright test -c playwright.config.ts e2e/simulator.spec.ts --headed",
@@ -46,6 +49,8 @@
     "battle-data:recover": "pnpm --dir ../fusou-compaction-trigger run battle-data:recover",
     "battle-data:recover:apply": "pnpm --dir ../fusou-compaction-trigger run battle-data:recover:apply",
     "battle-data:verify": "pnpm --dir ../fusou-compaction-trigger run battle-data:verify",
+    "battle-data:reconcile": "pnpm --dir ../fusou-compaction-trigger run battle-data:reconcile",
+    "battle-data:reconcile:apply": "pnpm --dir ../fusou-compaction-trigger run battle-data:reconcile:apply",
     "battle-data:reindex": "pnpm --dir ../fusou-compaction-trigger run battle-data:reindex",
     "battle-data:reindex:apply": "pnpm --dir ../fusou-compaction-trigger run battle-data:reindex:apply",
     "seed:ship-growth-data": "node scripts/seed-local-ship-growth-data.mjs --db dev-kc-ship-growth --period latest",
@@ -61,14 +66,16 @@
     "audit:anon-sync-v1": "node scripts/audit-anon-sync-v1-usage.mjs",
     "audit:anon-sync-v1:json": "node scripts/audit-anon-sync-v1-usage.mjs --json",
     "check:cloudflare:required-secrets": "node scripts/check-cloudflare-required-secrets.mjs",
-    "manage-anon-sync-vault": "dotenvx run -fk ../.env.keys -f .env --overload -- node scripts/manage-anon-sync-vault.js"
+    "purge:d1-member-data": "node scripts/purge-d1-member-data.mjs --remote",
+    "purge:d1-member-data:apply": "node scripts/purge-d1-member-data.mjs --remote --apply",
+    "purge:r2-fleet-data": "node scripts/purge-r2-fleet-data.mjs --remote",
+    "purge:r2-fleet-data:apply": "node scripts/purge-r2-fleet-data.mjs --remote --apply"
   },
   "dependencies": {
     "@astrojs/cloudflare": "^14.1.4",
     "@dagrejs/dagre": "^2.0.4",
-    "@duckdb/duckdb-wasm": "1.29.1-dev132.0",
-    "@duckdb/node-api": "1.2.2-alpha.18",
     "@fusou/avro-wasm": "workspace:*",
+    "@fusou/compaction-core": "workspace:*",
     "@nanostores/persistent": "^1.2.0",
     "@nanostores/solid": "^1.1.1",
     "@supabase/supabase-js": "2.86.0",
@@ -89,12 +96,11 @@
     "rehype-katex": "^7.0.1",
     "rehype-mermaid": "^3.0.0",
     "remark-math": "^6.0.0",
-    "shared-ui": "workspace:*",
     "solid-chartjs": "^1.3.11",
     "solid-js": "^1.9.13",
     "use-sync-external-store": "^1.6.0",
-    "uuid": "^14.0.0",
     "virtua": "^0.41.5",
+    "zod": "^3.25.76",
     "zustand": "^4.5.7"
   },
   "devDependencies": {

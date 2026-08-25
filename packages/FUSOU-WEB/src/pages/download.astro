@@ -347,20 +347,24 @@ const downloadData = {
     </section>
   </PageShell>
 
-  <script define:vars={{ downloadData }}>
+  <script is:inline define:vars={{ downloadData }}>
     // Auto-detect OS logic
     function detectOS() {
-      const platform = navigator.platform.toLowerCase();
+      // Use the modern User-Agent Client Hints API when available;
+      // fall back to the deprecated navigator.platform only as a last resort.
+      const platformHint =
+        (navigator.userAgentData?.platform ?? "").toLowerCase();
       const userAgent = navigator.userAgent.toLowerCase();
 
-      if (platform.includes("win") || userAgent.includes("windows"))
+      if (platformHint === "windows" || userAgent.includes("windows"))
         return "windows";
-      if (platform.includes("mac") || userAgent.includes("mac os"))
+      if (platformHint === "macos" || userAgent.includes("mac os"))
         return "macos";
       if (
-        platform.includes("linux") ||
+        platformHint === "linux" ||
         userAgent.includes("ubuntu") ||
-        userAgent.includes("debian")
+        userAgent.includes("debian") ||
+        userAgent.includes("linux")
       )
         return "linux";
       return "unknown";

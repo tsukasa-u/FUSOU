@@ -2,6 +2,7 @@
 import { For, Show, createMemo, createSignal } from "solid-js";
 import type { SharedDashboardState } from "../../battles/solid/types";
 import { mapKeyOf } from "../../map-flow/solid/battle-map-flow/dataUtils";
+import { battleResultOf } from "../../map-flow/solid/battle-map-flow/recordParsers";
 
 type DailyPoint = { date: string; count: number };
 
@@ -115,7 +116,7 @@ export default function BattleStatsPanel(props: { dashboardState: SharedDashboar
 
     for (const c of d.cellRecords()) {
       let mapLabel = mapKeyOf(c);
-      if (mapLabel === "-" || mapLabel === "0-0") mapLabel = "不明";
+      if (mapLabel === "-" || mapLabel === "unknown") mapLabel = "不明";
       if (c.battles) {
         if (Array.isArray(c.battles)) {
           c.battles.forEach((bu: string) => battleToMap.set(bu, mapLabel));
@@ -128,14 +129,20 @@ export default function BattleStatsPanel(props: { dashboardState: SharedDashboar
     const dailySortiesByDate = new Map<string, Set<string>>();
 
     for (const b of battles) {
-      const rank = b.battle_result?.win_rank ?? "未記録";
+      const result = battleResultOf(b);
+      const rank = result?.win_rank ?? "未記録";
       rankCounts[rank] = (rankCounts[rank] ?? 0) + 1;
 
-      if (b.battle_result?.drop_ship_id) drops++;
+      if (result?.drop_ship_id) drops++;
 
-      const mvp = b.battle_result?.mvp;
-      if (mvp != null && Number(mvp) > 0) {
-        const label = Number(mvp) === 1 ? "旗艦" : `随伴艦(${mvp}番艦)`;
+      const mvpIndexes = Array.isArray(result?.mvp_ship_indexes)
+        ? result.mvp_ship_indexes
+        : [];
+      for (const idx of mvpIndexes) {
+        const normalized = Number(idx);
+        if (!Number.isFinite(normalized) || normalized <= 0) continue;
+        const label =
+          normalized === 1 ? "旗艦" : `随伴艦(${Math.trunc(normalized)}番艦)`;
         mvpCounts[label] = (mvpCounts[label] ?? 0) + 1;
       }
 
@@ -162,7 +169,7 @@ export default function BattleStatsPanel(props: { dashboardState: SharedDashboar
         (Array.isArray(openingAir?.e_plane_from) && openingAir.e_plane_from.length > 0);
       const airSup = openingAir?.air_superiority;
       if ((hasAnyAirDamage || hasAnyAirSortie) && airSup != null) {
-        const name = AIR_NAMES[airSup] ?? `不明(${airSup})`;
+        const name = AIR_NAMES[Number(airSup)] ?? `不明(${airSup})`;
         airCounts[name] = (airCounts[name] ?? 0) + 1;
       }
 
@@ -184,13 +191,15 @@ export default function BattleStatsPanel(props: { dashboardState: SharedDashboar
 
       uniqueSorties.add(sortieId);
       
-      const mapLabel = battleToMap.get(b.uuid) || "不明";
+      const mapLabel = (b.uuid ? battleToMap.get(b.uuid) : undefined) || "不明";
       if (!mapStats[mapLabel]) {
         mapStats[mapLabel] = { sorties: new Set(), sRanks: 0, battles: 0 };
       }
-      mapStats[mapLabel].battles++;
-      mapStats[mapLabel].sorties.add(sortieId);
-      if (rank === "S") mapStats[mapLabel].sRanks++;
+      const mapStat = mapStats[mapLabel];
+      if (!mapStat) continue;
+      mapStat.battles++;
+      mapStat.sorties.add(sortieId);
+      if (rank === "S") mapStat.sRanks++;
     }
 
     const compiledMapStats: Record<string, { sorties: number; sRanks: number; battles: number }> = {};
@@ -204,7 +213,7 @@ export default function BattleStatsPanel(props: { dashboardState: SharedDashboar
 
     const totalBattles = battles.length;
     const totalSortiesCount = uniqueSorties.size;
-    const sCount = rankCounts.S ?? 0;
+    const sCount = rankCounts["S"] ?? 0;
     const airSecured = airCounts["制空権確保"] ?? 0;
     const airTotal = Object.values(airCounts).reduce((sum, v) => sum + v, 0);
 
@@ -215,11 +224,15 @@ export default function BattleStatsPanel(props: { dashboardState: SharedDashboar
     const dailySortiesRaw = Object.entries(dailyCounts).sort(([a], [b]) => a.localeCompare(b));
     const dailySorties: DailyPoint[] = [];
     if (dailySortiesRaw.length > 0) {
-      const firstDate = new Date(dailySortiesRaw[0][0]);
-      const lastDate = new Date(dailySortiesRaw[dailySortiesRaw.length - 1][0]);
-      for (let d = new Date(firstDate); d <= lastDate; d.setDate(d.getDate() + 1)) {
-        const dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-        dailySorties.push({ date: dateStr, count: dailyCounts[dateStr] ?? 0 });
+      const firstEntry = dailySortiesRaw[0];
+      const lastEntry = dailySortiesRaw[dailySortiesRaw.length - 1];
+      if (firstEntry && lastEntry) {
+        const firstDate = new Date(firstEntry[0]);
+        const lastDate = new Date(lastEntry[0]);
+        for (let d = new Date(firstDate); d <= lastDate; d.setDate(d.getDate() + 1)) {
+          const dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+          dailySorties.push({ date: dateStr, count: dailyCounts[dateStr] ?? 0 });
+        }
       }
     }
 
@@ -278,8 +291,12 @@ export default function BattleStatsPanel(props: { dashboardState: SharedDashboar
     Object.entries(stats().mapAreaStats).sort((a, b) => {
       if (a[0] === "不明") return 1;
       if (b[0] === "不明") return -1;
-      const [aArea, aInfo] = a[0].split("-").map(Number);
-      const [bArea, bInfo] = b[0].split("-").map(Number);
+      const aParts = a[0].split("-").map(Number);
+      const bParts = b[0].split("-").map(Number);
+      const aArea = aParts[0] ?? 0;
+      const aInfo = aParts[1] ?? 0;
+      const bArea = bParts[0] ?? 0;
+      const bInfo = bParts[1] ?? 0;
       if (aArea !== bArea) return aArea - bArea;
       return aInfo - bInfo;
     }),
@@ -287,7 +304,6 @@ export default function BattleStatsPanel(props: { dashboardState: SharedDashboar
 
   const rankConic = createMemo(() => buildConicGradient(rankEntries(), RANK_COLORS));
   const airConic = createMemo(() => buildConicGradient(airEntries(), AIR_COLORS));
-  const linePath = createMemo(() => buildLinePath(stats().dailySorties, 760, 220));
 
   return (
     <>
@@ -326,6 +342,10 @@ export default function BattleStatsPanel(props: { dashboardState: SharedDashboar
                 const width = 740;
                 const height = 210;
                 const stepX = points.length === 1 ? 0 : width / (points.length - 1);
+                const firstPoint = points[0];
+                if (!firstPoint) return null;
+                const middlePoint = points[Math.floor(points.length / 2)];
+                const lastPoint = points[points.length - 1];
                 const [hoveredIdx, setHoveredIdx] = createSignal<number | null>(null);
 
                 return (
@@ -348,12 +368,12 @@ export default function BattleStatsPanel(props: { dashboardState: SharedDashboar
 
                       {/* X-axis labels (Start, Middle, End) */}
                       <Show when={points.length > 0}>
-                        <text x="40" y="245" fill="currentColor" class="text-[10px] text-base-content/50" text-anchor="start">{points[0].date}</text>
+                        <text x="40" y="245" fill="currentColor" class="text-[10px] text-base-content/50" text-anchor="start">{firstPoint.date}</text>
                         <Show when={points.length > 2}>
-                          <text x={40 + width / 2} y="245" fill="currentColor" class="text-[10px] text-base-content/50" text-anchor="middle">{points[Math.floor(points.length / 2)].date}</text>
+                          <text x={40 + width / 2} y="245" fill="currentColor" class="text-[10px] text-base-content/50" text-anchor="middle">{middlePoint?.date}</text>
                         </Show>
                         <Show when={points.length > 1}>
-                          <text x="780" y="245" fill="currentColor" class="text-[10px] text-base-content/50" text-anchor="end">{points[points.length - 1].date}</text>
+                          <text x="780" y="245" fill="currentColor" class="text-[10px] text-base-content/50" text-anchor="end">{lastPoint?.date}</text>
                         </Show>
                       </Show>
 
@@ -392,6 +412,7 @@ export default function BattleStatsPanel(props: { dashboardState: SharedDashboar
                       {(() => {
                         const idx = hoveredIdx()!;
                         const p = points[idx];
+                        if (!p) return null;
                         const cx = 40 + idx * stepX;
                         const cy = 20 + height - (p.count / maxY) * height;
                         const isRightHalf = idx > points.length / 2;

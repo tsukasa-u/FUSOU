@@ -1,7 +1,7 @@
 export const PHASE_NAMES: Record<string, string> = {
-  AirBaseAssult: "基地航空隊突撃",
-  CarrierBaseAssault: "空母機動部隊",
-  AirBaseAirAttack: "基地航空隊",
+  AirBaseAssult: "基地航空隊強襲",
+  CarrierBaseAssault: "基地航空隊ジェット攻撃",
+  AirBaseAirAttack: "基地航空隊攻撃",
   OpeningAirAttack: "開幕航空戦",
   SupportAttack: "支援攻撃",
   OpeningTaisen: "開幕対潜",

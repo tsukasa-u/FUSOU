@@ -2,12 +2,18 @@ import { createHash, randomUUID } from "node:crypto";
 import {
   CopyObjectCommand,
   DeleteObjectCommand,
+  HeadObjectCommand,
   S3Client,
   PutObjectCommand,
 } from "@aws-sdk/client-s3";
 import { mergeAvroOCF, mergeAvroOCFWithBoundaries } from "@fusou/compaction-core";
 import { InternalCompactionClient } from "./internal-api.js";
-import type { CompactionJobInput, RegisterOutputBlock, SourceBlock } from "./types.js";
+import {
+  CompactionJobInputSchema,
+  type CompactionJobInput,
+  type RegisterOutputBlock,
+  type SourceBlock,
+} from "./types.js";
 
 function requiredEnv(name: string): string {
   const value = process.env[name];
@@ -25,7 +31,7 @@ function groupByDataset(blocks: SourceBlock[]): Map<string, SourceBlock[]> {
 }
 
 function consumedSourceArchivePrefix(): string {
-  const raw = String(process.env.COMPACTION_CONSUMED_SOURCE_PREFIX ?? "compacted").trim();
+  const raw = String(process.env["COMPACTION_CONSUMED_SOURCE_PREFIX"] ?? "compacted").trim();
   return raw.replace(/^\/+|\/+$/g, "") || "compacted";
 }
 
@@ -103,15 +109,39 @@ async function moveConsumedSourceObjects(sourcePaths: string[]): Promise<void> {
   for (const sourcePath of sourcePaths) {
     const targetPath = buildCompactedSourcePath(sourcePath);
     try {
-      await client.send(
-        new CopyObjectCommand({
-          Bucket: bucket,
-          CopySource: `${bucket}/${sourcePath}`,
-          Key: targetPath,
-          MetadataDirective: "COPY",
-        }),
-      );
-      await client.send(new DeleteObjectCommand({ Bucket: bucket, Key: sourcePath }));
+      let sourceExists = true;
+      try {
+        await client.send(new HeadObjectCommand({ Bucket: bucket, Key: sourcePath }));
+      } catch {
+        sourceExists = false;
+      }
+
+      let targetExists = true;
+      try {
+        await client.send(new HeadObjectCommand({ Bucket: bucket, Key: targetPath }));
+      } catch {
+        targetExists = false;
+      }
+
+      if (!sourceExists && !targetExists) {
+        throw new Error(`source and archived source objects are both missing: ${sourcePath}`);
+      }
+
+      if (!targetExists) {
+        await client.send(
+          new CopyObjectCommand({
+            Bucket: bucket,
+            CopySource: `${bucket}/${sourcePath}`,
+            Key: targetPath,
+            MetadataDirective: "COPY",
+          }),
+        );
+        await client.send(new HeadObjectCommand({ Bucket: bucket, Key: targetPath }));
+      }
+
+      if (sourceExists) {
+        await client.send(new DeleteObjectCommand({ Bucket: bucket, Key: sourcePath }));
+      }
       movedCount += 1;
     } catch (error) {
       failedPaths.push(sourcePath);
@@ -126,6 +156,7 @@ async function moveConsumedSourceObjects(sourcePaths: string[]): Promise<void> {
     console.warn(
       `[compactor] moved ${movedCount}/${sourcePaths.length} consumed source objects; ${failedPaths.length} remained at source path`,
     );
+    throw new Error(`Failed to archive ${failedPaths.length} consumed source object(s): ${failedPaths.join(", ")}`);
   } else {
     console.info(
       `[compactor] moved ${movedCount} consumed source objects into '${consumedSourceArchivePrefix()}/' route`,
@@ -198,11 +229,15 @@ export async function runCompactionJob(input: CompactionJobInput): Promise<void>
         );
       }
       datasetMergedOcf.push(mergedDataset);
+      const firstBlock = datasetBlocks[0];
+      if (firstBlock === undefined) {
+        throw new Error(`Missing source block for dataset_id=${datasetId}`);
+      }
 
       datasetMetas.push({
         dataset_id: datasetId,
-        table_name: datasetBlocks[0].table_name,
-        period_tag: datasetBlocks[0].period_tag,
+        table_name: firstBlock.table_name,
+        period_tag: firstBlock.period_tag,
         record_count: datasetBlocks.reduce((sum, b) => sum + Number(b.record_count || 0), 0),
         start_timestamp: Math.min(...datasetBlocks.map((b) => Number(b.start_timestamp || 0))),
         end_timestamp: Math.max(...datasetBlocks.map((b) => Number(b.end_timestamp || 0))),
@@ -225,6 +260,9 @@ export async function runCompactionJob(input: CompactionJobInput): Promise<void>
 
     const registerBlocks: RegisterOutputBlock[] = merged.boundaries.map((boundary, i) => {
       const meta = datasetMetas[i];
+      if (meta === undefined) {
+        throw new Error(`Missing dataset metadata for boundary index ${i}`);
+      }
       return {
         dataset_id: meta.dataset_id,
         table_name: meta.table_name,
@@ -239,6 +277,18 @@ export async function runCompactionJob(input: CompactionJobInput): Promise<void>
     });
 
     const sourceFileIds = [...new Set(sourceBlocks.map((block) => Number(block.file_id)).filter((id) => Number.isFinite(id) && id > 0))];
+    const sourceObjects = [
+      ...new Map(
+        sourceBlocks
+          .map((block) => ({
+            file_id: Number(block.file_id),
+            file_path: String(block.file_path || ""),
+            archived_path: buildCompactedSourcePath(String(block.file_path || "")),
+          }))
+          .filter((source) => Number.isFinite(source.file_id) && source.file_id > 0 && source.file_path.length > 0)
+          .map((source) => [source.file_id, source] as const),
+      ).values(),
+    ];
 
     await client.registerOutput({
       file_path: outputKey,
@@ -251,10 +301,14 @@ export async function runCompactionJob(input: CompactionJobInput): Promise<void>
       file_size: merged.merged.byteLength,
       compression_codec: "deflate",
       blocks: registerBlocks,
+      source_objects: sourceObjects,
     });
 
-    if (sourceFileIds.length > 0) {
+    const sourcePaths = [...new Set(sourceBlocks.map((block) => String(block.file_path || "")).filter(Boolean))];
+    if (sourceFileIds.length > 0 && sourcePaths.length > 0) {
+      await moveConsumedSourceObjects(sourcePaths);
       await client.cleanupConsumedSources({
+        output_file_path: outputKey,
         source_file_ids: sourceFileIds,
         source_tier: input.source_tier,
         table_name: input.table_name,
@@ -262,12 +316,8 @@ export async function runCompactionJob(input: CompactionJobInput): Promise<void>
         table_version: input.table_version,
         window_start_ms: input.window_start_ms,
         window_end_ms: input.window_end_ms,
+        source_objects: sourceObjects,
       });
-    }
-
-    const sourcePaths = [...new Set(sourceBlocks.map((block) => String(block.file_path || "")).filter(Boolean))];
-    if (sourcePaths.length > 0) {
-      await moveConsumedSourceObjects(sourcePaths);
     }
 
   } catch (error) {
@@ -286,14 +336,7 @@ export async function runCompactionJob(input: CompactionJobInput): Promise<void>
 
 function parseJobFromEnv(): CompactionJobInput {
   const raw = requiredEnv("COMPACTION_JOB_JSON");
-  const parsed = JSON.parse(raw) as CompactionJobInput;
-  return {
-    ...parsed,
-    chunk_limit:
-      Number.isFinite(Number(parsed.chunk_limit)) && Number(parsed.chunk_limit) > 0
-        ? Number(parsed.chunk_limit)
-        : 200,
-  };
+  return CompactionJobInputSchema.parse(JSON.parse(raw) as unknown);
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {

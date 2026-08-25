@@ -4,11 +4,13 @@ import type { Provider } from "@supabase/supabase-js";
 import {
   validateOriginDetailed,
   validateRedirectUrl,
+  validateInternalReturnPath,
   sanitizeErrorMessage,
   TEMPORARY_COOKIE_OPTIONS,
 } from "@/utils/security";
 import { createEnvContext, getEnv } from "@/server/utils";
 import { env as cfEnv } from "cloudflare:workers";
+import { isValidPublicId } from "@/server/utils";
 
 export const POST: APIRoute = async ({ request, cookies, redirect }) => {
   // Detect app origin hint passed from initial signin page (e.g., /auth/local/signin?app_origin=tauri)
@@ -17,7 +19,9 @@ export const POST: APIRoute = async ({ request, cookies, redirect }) => {
 
   // Use configured canonical site URL as trusted origin anchor to prevent Host-header spoofing.
   // Do not fall back to request.url; fail loudly on misconfiguration.
-  const envCtx = createEnvContext({ env: cfEnv as any });
+  const envCtx = createEnvContext({
+    env: cfEnv as Record<string, unknown>,
+  });
   const siteUrl = getEnv(envCtx, "PUBLIC_SITE_URL")?.trim();
   if (!siteUrl) {
     console.error("[local_auth/signin] PUBLIC_SITE_URL is not configured");
@@ -84,6 +88,10 @@ export const POST: APIRoute = async ({ request, cookies, redirect }) => {
   // Get app_origin from form data (passed from signin page)
   const appOriginFormParam =
     formData.get("app_origin")?.toString() || appOriginParam;
+  const returnTo = validateInternalReturnPath(
+    formData.get("return_to")?.toString(),
+    canonicalOrigin,
+  );
 
   const validProviders = ["google"];
 
@@ -95,13 +103,26 @@ export const POST: APIRoute = async ({ request, cookies, redirect }) => {
     return new Response("Authentication request invalid", { status: 400 });
   }
 
-  const supabase = createSupabaseServerClient(cookies);
+  const oauthFlowId = crypto.randomUUID();
+  const supabase = createSupabaseServerClient(cookies, cfEnv as Record<string, unknown>, {
+    storageKey: `sb-local-auth-${oauthFlowId}`,
+  });
 
   // Construct callback URL without custom state - Supabase will add its own state
   const callbackUrl = new URL(`${url_origin}/api/local_auth/callback`);
   if (appOriginFormParam) {
     callbackUrl.searchParams.set("app_origin", appOriginFormParam);
   }
+  callbackUrl.searchParams.set("return_to", returnTo);
+  const pendingSyncToken = cookies.get("sb-pending-sync-token")?.value?.trim();
+  if (pendingSyncToken && isValidPublicId(pendingSyncToken)) {
+    cookies.set(
+      `sb-pending-sync-token-${oauthFlowId}`,
+      pendingSyncToken,
+      TEMPORARY_COOKIE_OPTIONS,
+    );
+  }
+  callbackUrl.searchParams.set("oauth_flow", oauthFlowId);
 
   // Open Redirect protection: Validate callback URL
   if (!validateRedirectUrl(callbackUrl.toString(), url_origin)) {

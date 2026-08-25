@@ -2,6 +2,10 @@
 // Here we only do lightweight header check for defense-in-depth
 
 import { insertBufferLogs } from "./db";
+import { QueueMessageSchema } from "./schemas";
+import type { QueueMessage } from "./schemas";
+export { QueueMessageSchema } from "./schemas";
+export type { QueueMessage } from "./schemas";
 /**
  * Lightweight Avro header validation (DoS prevention)
  */
@@ -42,43 +46,6 @@ interface BufferLogRecord {
   uploaded_by?: string;
   trust_tag?: string;
 }
-
-// Legacy queue message format (single table per message)
-interface LegacyQueueMessage {
-  batched?: false;
-  table: string;
-  avro_base64: string;
-  datasetId: string;
-  periodTag: string;
-  tableVersion: string; // 0.4, 0.5, etc.
-  triggeredAt?: string;
-  userId?: string;
-  trust_tag?: string;
-}
-
-// Table offset info for batched messages
-interface TableOffset {
-  table_name: string;
-  start_byte: number;
-  byte_length: number;
-  record_count?: number;
-}
-
-// New batched message format (all tables in single message)
-interface BatchedQueueMessage {
-  batched: true;
-  datasetId: string;
-  periodTag: string;
-  tableVersion: string;
-  triggeredAt?: string;
-  userId?: string;
-  payload_base64: string; // Full concatenated payload
-  table_offsets: TableOffset[]; // Offsets for each table
-  trust_tag?: string;
-}
-
-// Union type for queue messages
-type QueueMessage = LegacyQueueMessage | BatchedQueueMessage;
 
 function toArrayBuffer(data: Uint8Array): ArrayBuffer {
   return data.buffer.slice(
@@ -149,8 +116,10 @@ async function normalizeMessage(msg: QueueMessage): Promise<BufferLogRecord[]> {
         table_version: tableVersion,
         timestamp,
         data: toArrayBuffer(slice),
-        uploaded_by: msg.userId,
-        trust_tag: normalizeTrustTag(msg.trust_tag),
+        ...(msg.userId !== undefined ? { uploaded_by: msg.userId } : {}),
+        ...(normalizeTrustTag(msg.trust_tag) !== undefined
+          ? { trust_tag: normalizeTrustTag(msg.trust_tag) }
+          : {}),
       });
     }
 
@@ -161,7 +130,7 @@ async function normalizeMessage(msg: QueueMessage): Promise<BufferLogRecord[]> {
   }
 
   // Legacy format: single table per message
-  const legacyMsg = msg as LegacyQueueMessage;
+  const legacyMsg = msg;
   const avroBytes = decodeBase64ToBytes(legacyMsg.avro_base64);
 
   // Defense-in-depth: lightweight header check (magic bytes + size)
@@ -182,8 +151,12 @@ async function normalizeMessage(msg: QueueMessage): Promise<BufferLogRecord[]> {
       table_version: tableVersion,
       timestamp,
       data: toArrayBuffer(avroBytes),
-      uploaded_by: legacyMsg.userId,
-      trust_tag: normalizeTrustTag(legacyMsg.trust_tag),
+      ...(legacyMsg.userId !== undefined
+        ? { uploaded_by: legacyMsg.userId }
+        : {}),
+      ...(normalizeTrustTag(legacyMsg.trust_tag) !== undefined
+        ? { trust_tag: normalizeTrustTag(legacyMsg.trust_tag) }
+        : {}),
     },
   ];
 }
@@ -214,7 +187,11 @@ export async function handleBufferConsumer(
   // Step 1: Flatten all messages into single record array (with async validation)
   for (const message of batch.messages) {
     try {
-      const normalized = await normalizeMessage(message.body);
+      const parsedMessage = QueueMessageSchema.safeParse(message.body);
+      if (!parsedMessage.success) {
+        throw new Error(`Invalid queue message: ${parsedMessage.error.message}`);
+      }
+      const normalized = await normalizeMessage(parsedMessage.data);
       allRecords.push(...normalized);
     } catch (err) {
       console.error("Failed to normalize/validate message:", err);
@@ -238,8 +215,8 @@ export async function handleBufferConsumer(
       table_version: r.table_version,
       timestamp: r.timestamp,
       data: r.data,
-      uploaded_by: r.uploaded_by,
-      trust_tag: r.trust_tag,
+      ...(r.uploaded_by !== undefined ? { uploaded_by: r.uploaded_by } : {}),
+      ...(r.trust_tag !== undefined ? { trust_tag: r.trust_tag } : {}),
     }));
 
     const { source, insertedCount } = await insertBufferLogs(
@@ -278,7 +255,11 @@ export async function handleBufferConsumerChunked(
 
   for (const message of batch.messages) {
     try {
-      const normalized = await normalizeMessage(message.body);
+      const parsedMessage = QueueMessageSchema.safeParse(message.body);
+      if (!parsedMessage.success) {
+        throw new Error(`Invalid queue message: ${parsedMessage.error.message}`);
+      }
+      const normalized = await normalizeMessage(parsedMessage.data);
       allRecords.push(...normalized);
     } catch (err) {
       console.error("Failed to normalize/validate message:", err);
@@ -301,8 +282,8 @@ export async function handleBufferConsumerChunked(
       table_version: r.table_version,
       timestamp: r.timestamp,
       data: r.data,
-      uploaded_by: r.uploaded_by,
-      trust_tag: r.trust_tag,
+      ...(r.uploaded_by !== undefined ? { uploaded_by: r.uploaded_by } : {}),
+      ...(r.trust_tag !== undefined ? { trust_tag: r.trust_tag } : {}),
     }));
 
     const { source, insertedCount } = await insertBufferLogs(

@@ -31,7 +31,7 @@ quote = { workspace = true }
 kc-api-build-config = { path = "../kc-api-build-config" }
 
 [features]
-default = ["graphviz", "full", "schema_v0_5_1", "genesis"]
+default = ["graphviz", "full", "schema_v0_6_0", "genesis"]
 graphviz = []
 cytoscape = []
 breaking_schema = []
@@ -42,8 +42,9 @@ full = ["tokio", "apache-avro/zstandard"]
 wasm = []
 
 schema_v0_4 = []
-schema_v0_5 = []
+schema_v0_5 = ["schema_v0_4"]
 schema_v0_5_1 = ["schema_v0_5"]
+schema_v0_6_0 = ["schema_v0_5_1"]
 
 genesis = ["kc-api-interface/genesis"]
 epoch_20250627 = ["kc-api-interface/epoch_20250627"]

@@ -1,6 +1,8 @@
 // ── Viewer Workspace: in-page multi-fleet browsing state ──
 // Persists to localStorage; maximum MAX_ENTRIES entries with LRU eviction.
 
+import { z } from "zod";
+
 export interface ViewerEntry {
   id: string;
   name: string;
@@ -22,6 +24,42 @@ export interface ViewerWorkspace {
   entries: ViewerEntry[];
 }
 
+const StoredViewerEntrySchema = z
+  .object({
+    id: z.string().min(1),
+    name: z.string(),
+    memo: z.string().optional().default(""),
+    sourceType: z
+      .enum(["shareKey", "simulatorUrl", "ownDeck", "snapshotTag"])
+      .optional()
+      .default("simulatorUrl"),
+    sourceValue: z.string(),
+    payloadKind: z.enum(["exportedFleet", "fleetSnapshot"]),
+    payload: z.union([
+      z.string(),
+      z.number(),
+      z.boolean(),
+      z.null(),
+      z.array(z.unknown()),
+      z.record(z.unknown()),
+    ]),
+    updatedAt: z.number().finite(),
+    pinned: z.boolean(),
+    locked: z.boolean().optional().default(false),
+  })
+  .passthrough()
+  .transform((entry): ViewerEntry => ({
+    ...entry,
+    sourceType: entry.sourceType === "snapshotTag" ? "ownDeck" : entry.sourceType,
+  }));
+
+const StoredViewerWorkspaceSchema = z
+  .object({
+    activeId: z.string().nullable().optional().default(null),
+    entries: z.array(StoredViewerEntrySchema),
+  })
+  .passthrough();
+
 import { atom } from "nanostores";
 
 const STORAGE_KEY = "__fusouViewerWorkspace";
@@ -31,22 +69,8 @@ export function loadWorkspace(): ViewerWorkspace {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return { activeId: null, entries: [] };
-    const parsed = JSON.parse(raw);
-    if (!parsed || typeof parsed !== "object") return { activeId: null, entries: [] };
-    const ws = parsed as ViewerWorkspace;
-    ws.entries = (ws.entries ?? []).map((entry) => ({
-      ...entry,
-      sourceType: (entry as { sourceType?: unknown }).sourceType === "snapshotTag"
-        ? "ownDeck"
-        : ((entry as { sourceType?: ViewerEntry["sourceType"] }).sourceType ?? "simulatorUrl"),
-      memo: typeof (entry as { memo?: unknown }).memo === "string"
-        ? (entry as { memo?: string }).memo ?? ""
-        : "",
-      locked: typeof (entry as { locked?: unknown }).locked === "boolean"
-        ? (entry as { locked?: boolean }).locked ?? false
-        : false,
-    }));
-    return ws;
+    const result = StoredViewerWorkspaceSchema.safeParse(JSON.parse(raw));
+    return result.success ? result.data : { activeId: null, entries: [] };
   } catch {
     return { activeId: null, entries: [] };
   }
@@ -247,7 +271,7 @@ export function updateEntryData(
   return entry;
 }
 
-export function duplicateEntry(id: string): ViewerEntry | null {
+export function duplicateEntry(id: string, customPayload?: unknown): ViewerEntry | null {
   const ws = workspaceStore.get();
   const src = ws.entries.find((e) => e.id === id);
   if (!src) return null;
@@ -260,6 +284,7 @@ export function duplicateEntry(id: string): ViewerEntry | null {
     sourceValue: `duplicate:${crypto.randomUUID()}`,
     updatedAt: Date.now(),
     locked: false,
+    payload: customPayload !== undefined ? customPayload : src.payload,
   };
 
   let newEntries = [duplicated, ...ws.entries];

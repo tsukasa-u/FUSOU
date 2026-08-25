@@ -17,9 +17,10 @@ import {
   type JSX,
 } from "solid-js";
 import { render } from "solid-js/web";
-import { buildShareDetailUrl, copyTextWithFallback } from "@/utils/share-url";
+import { buildShareDetailUrl } from "@/utils/share-url";
+import { copyToClipboard } from "@/utils/clipboard";
 import { bannerUrl } from "@/features/simulator/equip-calc";
-import { ShipListRow } from "@/components/common/solid/ship-list-row";
+import { ShipListRow, type ShipListItem } from "@/components/common/solid/ship-list-row";
 import {
   getMasterShip,
   getMasterShips,
@@ -55,6 +56,18 @@ import { PickerQuickAccess } from "./picker-quick-access";
 
 type DetailsTab = "ship" | "equip";
 type MobilePickerDisplayMode = "sticky" | "floating";
+type ShipCatalogRow =
+  | { type: "header"; key: string }
+  | { type: "ship"; data: MstShipData };
+type EquipCatalogRow =
+  | { type: "header"; key: string }
+  | { type: "equip"; data: MstSlotItemData };
+
+function isShipListItem(value: unknown): value is ShipListItem {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return false;
+  const record = value as Record<string, unknown>;
+  return typeof record["id"] === "number" && typeof record["name"] === "string";
+}
 
 function SimulatorDetailsCatalog(): JSX.Element {
   const [tab, setTab] = createSignal<DetailsTab>("ship");
@@ -129,8 +142,9 @@ function SimulatorDetailsCatalog(): JSX.Element {
     setInitialEquipIdFromUrl(parsePositiveInt(params.get("equip")));
     setUrlStateReady(true);
 
-    window.addEventListener("simulator-tab-changed", (e: any) => {
-      const newTab = e.detail;
+    window.addEventListener("simulator-tab-changed", (event) => {
+      if (!(event instanceof CustomEvent)) return;
+      const newTab: unknown = event.detail;
       if (newTab === "ship" || newTab === "equip") {
         setTab(newTab);
       }
@@ -240,7 +254,7 @@ function SimulatorDetailsCatalog(): JSX.Element {
 
   const flatShips = createMemo(() => {
     const flat: Array<
-      { type: "header"; key: string } | { type: "ship"; data: MstShipData }
+      ShipCatalogRow
     > = [];
     for (const group of groupedShips()) {
       flat.push({ type: "header", key: group.key });
@@ -285,7 +299,7 @@ function SimulatorDetailsCatalog(): JSX.Element {
 
   const flatEquips = createMemo(() => {
     const flat: Array<
-      { type: "header"; key: string } | { type: "equip"; data: MstSlotItemData }
+      EquipCatalogRow
     > = [];
     for (const group of groupedEquips()) {
       flat.push({ type: "header", key: group.key });
@@ -346,7 +360,8 @@ function SimulatorDetailsCatalog(): JSX.Element {
     }
     if (!activeKey) {
       const fallback = shipRows.find((item) => item.type === "header");
-      activeKey = fallback?.type === "header" ? fallback.key : entries[0]?.key;
+      activeKey =
+        fallback?.type === "header" ? fallback.key : (entries[0]?.key ?? null);
     }
     setShipDesktopActiveQuickAccessId(activeKey ?? null);
   };
@@ -374,7 +389,8 @@ function SimulatorDetailsCatalog(): JSX.Element {
     }
     if (!activeKey) {
       const fallback = equipRows.find((item) => item.type === "header");
-      activeKey = fallback?.type === "header" ? fallback.key : entries[0]?.key;
+      activeKey =
+        fallback?.type === "header" ? fallback.key : (entries[0]?.key ?? null);
     }
     setEquipDesktopActiveQuickAccessId(activeKey ?? null);
   };
@@ -450,16 +466,17 @@ function SimulatorDetailsCatalog(): JSX.Element {
   async function issueShareUrl(): Promise<void> {
     const shareUrl = buildCurrentShareUrl();
     if (!shareUrl) {
-      alert("共有URLを生成できませんでした。艦または装備を選択してください。");
+      window.dispatchEvent(new CustomEvent("sim-details-share-status", { detail: "error" }));
       return;
     }
 
-    const copied = await copyTextWithFallback(shareUrl);
+    const copied = await copyToClipboard(shareUrl);
     if (copied) {
-      alert("共有URLをクリップボードにコピーしました");
+      window.dispatchEvent(new CustomEvent("sim-details-share-status", { detail: "success" }));
       return;
     }
 
+    window.dispatchEvent(new CustomEvent("sim-details-share-status", { detail: "error" }));
     window.prompt(
       "自動コピーに失敗しました。以下を手動でコピーしてください:",
       shareUrl,
@@ -468,10 +485,16 @@ function SimulatorDetailsCatalog(): JSX.Element {
 
   createEffect(() => {
     if (selectedShipId() == null && allShips().length > 0) {
-      setSelectedShipId(allShips()[0].id);
+      if (initialShipIdFromUrl() == null) {
+        const firstShip = allShips()[0];
+        if (firstShip) setSelectedShipId(firstShip.id);
+      }
     }
     if (selectedEquipId() == null && allEquips().length > 0) {
-      setSelectedEquipId(allEquips()[0].id);
+      if (initialEquipIdFromUrl() == null) {
+        const firstEquip = allEquips()[0];
+        if (firstEquip) setSelectedEquipId(firstEquip.id);
+      }
     }
   });
 
@@ -513,22 +536,18 @@ function SimulatorDetailsCatalog(): JSX.Element {
   });
 
   onMount(() => {
-    const btnSettings = document.getElementById("sim-details-settings-btn");
-    const btnHelp = document.getElementById("sim-details-help-btn");
-    const btnShare = document.getElementById("sim-details-share-btn");
-
     const onSettingsClick = () => setSettingsOpen(true);
     const onHelpClick = () => setHelpOpen(true);
     const onShareClick = () => void issueShareUrl();
 
-    btnSettings?.addEventListener("click", onSettingsClick);
-    btnHelp?.addEventListener("click", onHelpClick);
-    btnShare?.addEventListener("click", onShareClick);
+    window.addEventListener("sim-details-open-settings", onSettingsClick);
+    window.addEventListener("sim-details-open-help", onHelpClick);
+    window.addEventListener("sim-details-share", onShareClick);
 
     onCleanup(() => {
-      btnSettings?.removeEventListener("click", onSettingsClick);
-      btnHelp?.removeEventListener("click", onHelpClick);
-      btnShare?.removeEventListener("click", onShareClick);
+      window.removeEventListener("sim-details-open-settings", onSettingsClick);
+      window.removeEventListener("sim-details-open-help", onHelpClick);
+      window.removeEventListener("sim-details-share", onShareClick);
     });
   });
 
@@ -1046,15 +1065,17 @@ function SimulatorDetailsCatalog(): JSX.Element {
         flatItems={flatShips()}
         quickAccessItems={shipQuickAccessItems()}
         onClose={() => setShipPickerOpen(false)}
-        renderRow={(item: any) => (
-          <ShipListRow
-            ship={item}
-            active={selectedShipId() === item.id}
-            onSelect={() => {
-              setSelectedShipId(item.id);
-              setShipPickerOpen(false);
-            }}
-          />
+        renderRow={(item) => (
+          isShipListItem(item) ? (
+            <ShipListRow
+              ship={item}
+              active={selectedShipId() === item.id}
+              onSelect={() => {
+                setSelectedShipId(item.id);
+                setShipPickerOpen(false);
+              }}
+            />
+          ) : <></>
         )}
       />
 
@@ -1075,7 +1096,7 @@ function SimulatorDetailsCatalog(): JSX.Element {
         flatItems={flatEquips()}
         quickAccessItems={equipQuickAccessItems()}
         onClose={() => setEquipPickerOpen(false)}
-        renderRow={(item: any) => (
+        renderRow={(item) => (
           <EquipListRow
             equip={item}
             active={selectedEquipId() === item.id}
@@ -1132,7 +1153,7 @@ function SimulatorDetailsCatalog(): JSX.Element {
                   class="h-full overflow-y-auto overflow-x-hidden"
                   onScroll={() => updateShipDesktopQuickAccessByScroll()}
                 >
-                  {(item: any) =>
+                  {(item: ShipCatalogRow) =>
                     item.type === "header" ? (
                       <div class="mb-2 mt-1 first:mt-0">
                         <h4 class="px-2.5 py-1 text-[11px] font-semibold tracking-wide text-base-content/45 uppercase bg-base-100/95 backdrop-blur-sm z-10">
@@ -1275,7 +1296,7 @@ function SimulatorDetailsCatalog(): JSX.Element {
                   class="h-full overflow-y-auto overflow-x-hidden"
                   onScroll={() => updateEquipDesktopQuickAccessByScroll()}
                 >
-                  {(item: any) =>
+                  {(item: EquipCatalogRow) =>
                     item.type === "header" ? (
                       <div class="mb-2 mt-1 first:mt-0">
                         <h4 class="px-2.5 py-1 text-[11px] font-semibold tracking-wide text-base-content/45 uppercase bg-base-100/95 backdrop-blur-sm z-10">

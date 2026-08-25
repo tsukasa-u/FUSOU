@@ -1,4 +1,17 @@
 import type { Context } from "hono";
+import type {
+  D1Database as CloudflareD1Database,
+  D1ExecResult as CloudflareD1ExecResult,
+  D1PreparedStatement,
+  D1Result as CloudflareD1Result,
+  KVNamespace as CloudflareKVNamespace,
+  R2Bucket,
+  R2ListOptions as CloudflareR2ListOptions,
+  R2Object as CloudflareR2Object,
+  R2ObjectBody as CloudflareR2ObjectBody,
+  R2Objects as CloudflareR2Objects,
+  R2PutOptions as CloudflareR2PutOptions,
+} from "@cloudflare/workers-types";
 
 // ========================
 // 型定義
@@ -35,12 +48,7 @@ export type Bindings = {
   REMODEL_DATA_SIGNING_SECRET?: string;
   BATTLE_DATA_SIGNED_URL_SECRET?: string; // For battle data signed URL generation
   DATASET_TOKEN_SECRET: string; // For dataset token signing (anonymous sync)
-  // pepper 秘密と運用状態は Supabase Vault + public.anon_sync_pepper_runtime に
-  // 移管済み (Worker 環境変数では保持しない)。詳細手順・ローテーション・運用は
-  //   docs/operations/web/ANON_SYNC_V2_PEPPER_SUPABASE_RUNTIME_GUIDE.md
-  // を参照。Worker は service_role 権限の Supabase クライアントから
-  // `get_anon_sync_pepper_bundle` RPC を呼び出して bundle を取得する。
-  // §4.2 register/refresh で利用する stateless challenge HMAC キー (32 文字以上)。
+  // Stateless challenge HMAC key used by anonymous-sync register/refresh.
   CHALLENGE_HMAC_SECRET: string;
   RESEND_API_KEY?: string; // For sending verification emails
   ADMIN_TOKEN?: string; // For securing admin endpoints
@@ -59,87 +67,22 @@ export type Bindings = {
   SHORTENER_SERVICE: Fetcher;
 
   // KV for caching (optional)
-  ASSET_SYNC_INDEX_KV?: KVNamespace;
-  DATA_LOADER_CACHE_KV?: KVNamespace;
+  ASSET_SYNC_INDEX_KV?: CloudflareKVNamespace;
+  DATA_LOADER_CACHE_KV?: CloudflareKVNamespace;
 };
 
-export type R2BucketBinding = {
-  head(key: string): Promise<R2ObjectLike | null>;
-  list(options?: R2ListOptions): Promise<R2ListResponse>;
-  get(
-    key: string,
-    options?: { range?: { offset: number; length?: number } },
-  ): Promise<R2ObjectBody | null>;
-  put(
-    key: string,
-    value:
-      | ReadableStream
-      | ArrayBuffer
-      | ArrayBufferView
-      | string
-      | Blob
-      | null,
-    options?: BucketPutOptions,
-  ): Promise<R2ObjectLike | null>;
-  delete?(key: string): Promise<void>;
-};
+export type R2BucketBinding = R2Bucket;
+export type R2ListOptions = CloudflareR2ListOptions;
+export type R2ListResponse = CloudflareR2Objects;
+export type R2ObjectLite = CloudflareR2Object;
+export type R2ObjectLike = CloudflareR2Object;
+export type R2ObjectBody = CloudflareR2ObjectBody;
+export type BucketPutOptions = CloudflareR2PutOptions;
 
-export type R2ListOptions = {
-  limit?: number;
-  cursor?: string;
-  prefix?: string;
-};
-
-export type R2ListResponse = {
-  objects: R2ObjectLite[];
-  truncated?: boolean;
-  cursor?: string;
-};
-
-export type R2ObjectLite = {
-  key: string;
-  size: number;
-  uploaded: Date;
-  httpMetadata?: { contentType?: string };
-  customMetadata?: Record<string, string>;
-};
-
-export type R2ObjectLike = {
-  size: number;
-  etag?: string;
-};
-
-export type R2ObjectBody = {
-  size: number;
-  etag?: string;
-  body: ReadableStream;
-  arrayBuffer(): Promise<ArrayBuffer>;
-};
-
-export type BucketPutOptions = {
-  httpMetadata?: { contentType?: string; cacheControl?: string };
-  customMetadata?: Record<string, string | undefined>;
-};
-
-export type D1Database = {
-  prepare(sql: string): D1Statement;
-  batch<T = D1Row>(statements: D1Statement[]): Promise<{ results?: T[] }[]>;
-};
-
-export type D1Statement = {
-  bind(...args: unknown[]): D1Statement;
-  run(): Promise<D1ExecResult>;
-  all<T = D1Row>(): Promise<{ results?: T[] }>;
-  first<T = D1Result>(): Promise<T | null>;
-};
-
-export type D1ExecResult = {
-  success: boolean;
-  error?: string;
-  meta?: { duration?: number; rows_read?: number; rows_written?: number };
-};
-
-export type D1AllResult = { results?: D1Row[] };
+export type D1Database = CloudflareD1Database;
+export type D1Statement = D1PreparedStatement;
+export type D1ExecResult = CloudflareD1ExecResult;
+export type D1AllResult = CloudflareD1Result<D1Row>;
 export type D1Result = Record<string, unknown>;
 export type D1Row = Record<string, unknown>;
 

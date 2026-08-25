@@ -10,8 +10,8 @@
  *   node scripts/seed-local-fleet-data.mjs --all
  *
  * Examples:
- *   # Seed snapshots for a specific dataset_id (member_id_hash)
- *   node scripts/seed-local-fleet-data.mjs 73b5d4e465c258e0be1da2a541401abea10c20e0d2b83a0e5ed0cc41b6a89ab1
+ *   # Seed snapshots for a specific UUID v4 public_id dataset_id
+ *   node scripts/seed-local-fleet-data.mjs f47ac10b-58cc-4372-a567-0e02b2c3d479
  *
  *   # Seed all datasets found in remote R2
  *   node scripts/seed-local-fleet-data.mjs --all
@@ -22,7 +22,7 @@
  */
 
 import { execSync } from "child_process";
-import { mkdirSync, rmSync, existsSync, writeFileSync } from "fs";
+import { mkdirSync, rmSync, existsSync } from "fs";
 import { join } from "path";
 
 const BUCKET = "dev-kc-fleets";
@@ -30,28 +30,6 @@ const TMP_DIR = join(process.cwd(), ".seed-fleet-tmp");
 
 function run(cmd) {
   return execSync(cmd, { encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] });
-}
-
-/**
- * List remote R2 objects under a given prefix using the Cloudflare REST API.
- * Falls back to wrangler CLI JSON parsing when the API token has R2 list scope.
- */
-function listRemoteObjects(prefix) {
-  // Use wrangler r2 object get with a known prefix via the API
-  // Since wrangler CLI doesn't have a list subcommand, we use the Cloudflare API
-  // through wrangler's --remote flag on a list operation via a workaround:
-  // execute a D1 query isn't applicable here, so we rely on the Cloudflare API token.
-
-  // Attempt via wrangler-exposed API (requires workers:write scope in token)
-  try {
-    const result = run(
-      `npx wrangler r2 object list ${BUCKET} --prefix "${prefix}" --remote --json 2>/dev/null`,
-    );
-    return JSON.parse(result);
-  } catch {
-    // wrangler doesn't have a native list command; use CF REST API via curl/PowerShell fallback
-    return null;
-  }
 }
 
 /**

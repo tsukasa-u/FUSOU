@@ -605,18 +605,96 @@ function statsAdd(a, b) {
 }
 
 function statsSub(a, b) {
-  if (!a) return null;
-  if (!b) return { ...a };
+  if (!a && !b) return null;
   const out = {};
   let any = false;
   for (const k of STAT_KEYS) {
-    const v = (a[k] || 0) - (b[k] || 0);
+    const v = (a ? a[k] || 0 : 0) - (b ? b[k] || 0 : 0);
     if (v !== 0) {
       out[k] = v;
       any = true;
     }
   }
   return any ? out : null;
+}
+
+function getSubsets(arr) {
+  const result = [];
+  const max = 1 << arr.length;
+  for (let i = 0; i < max; i++) {
+    const subset = [];
+    for (let j = 0; j < arr.length; j++) {
+      if ((i & (1 << j))) subset.push(arr[j]);
+    }
+    result.push(subset);
+  }
+  return result;
+}
+
+function calculateSuppressedComponents(ship, comboItems, residual) {
+  let hasNegative = false;
+  if (residual) {
+    for (const v of Object.values(residual)) {
+      if (v < 0) {
+        hasNegative = true;
+        break;
+      }
+    }
+  }
+  if (!hasNegative) return null;
+
+  const suppressed = new Set();
+  const subsetSynCache = new Map();
+  function getSyn(items) {
+    if (items.length === 0) return {};
+    const key = items.join(":");
+    if (!subsetSynCache.has(key)) {
+      let syn = null;
+      if (items.length === 1) syn = getAlone(ship, items[0]);
+      else syn = extractNonZero(SlotItemEffectUtil.getSlotitemEffect(ship, items.map(id => getMakeSlot(id, 0))));
+      subsetSynCache.set(key, syn || {});
+    }
+    return subsetSynCache.get(key);
+  }
+  
+  const fullSyn = getSyn(comboItems);
+  
+  for (let i = 0; i < comboItems.length; i++) {
+    const item = comboItems[i];
+    const comboWithoutItem = [...comboItems];
+    comboWithoutItem.splice(i, 1);
+    
+    const synWithoutItem = getSyn(comboWithoutItem);
+    const marginalFull = statsSub(fullSyn, synWithoutItem) || {};
+    
+    let isSuppressed = false;
+    const subsetsWithoutItem = getSubsets(comboWithoutItem);
+    
+    for (const sub of subsetsWithoutItem) {
+      if (sub.length === comboWithoutItem.length) continue; 
+      
+      const subWithItem = [...sub, item].sort((a,b)=>a-b);
+      const subSyn = getSyn(sub);
+      const subWithSyn = getSyn(subWithItem);
+      const marginalSub = statsSub(subWithSyn, subSyn) || {};
+      
+      for (const k of STAT_KEYS) {
+        const vFull = marginalFull[k] || 0;
+        const vSub = marginalSub[k] || 0;
+        if (vFull < vSub) {
+          isSuppressed = true;
+          break;
+        }
+      }
+      if (isSuppressed) break;
+    }
+    
+    if (isSuppressed) {
+      suppressed.add(item);
+    }
+  }
+  
+  return suppressed.size > 0 ? Array.from(suppressed).sort((a,b)=>a-b) : null;
 }
 
 function isMeaninglessSynergy(delta) {
@@ -1239,14 +1317,15 @@ for (const [, members] of shipGroups) {
   groupMembersOf[rep] = members;
 }
 
-function appendSynergyForRepShip(synergyMap, repShipId, items, synergy, cancelsSingle = false) {
+function appendSynergyForRepShip(synergyMap, repShipId, items, synergy, cancelsSingle = false, suppressedComponents = null) {
   const key = items.join(":");
   if (!synergyMap.has(key)) synergyMap.set(key, new Map());
-  const profileKey = bkey(synergy) + (cancelsSingle ? "|C" : "");
+  const profileKey = bkey(synergy) + (cancelsSingle ? "|C" : "") + (suppressedComponents ? "|S:" + suppressedComponents.join(",") : "");
   const pm = synergyMap.get(key);
   if (!pm.has(profileKey)) {
     const entry = { ships: [], items, synergy, placements: [] };
     if (cancelsSingle) entry.cancels_single = true;
+    if (suppressedComponents) entry.suppressed_components = suppressedComponents;
     pm.set(profileKey, entry);
   }
 
@@ -1423,11 +1502,14 @@ for (let ai = 0; ai < bonusItemIds.length; ai++) {
 
       const pairKey = `${Math.min(itemA, itemB)}:${Math.max(itemA, itemB)}`;
 
+      const suppressedComponents = calculateSuppressedComponents(ship, [itemA, itemB], synDelta);
+
       // Track result on representative ship
       if (!repSynergyResults[shipId]) repSynergyResults[shipId] = {};
       repSynergyResults[shipId][pairKey] = {
         synDelta,
         cancelsSingle: isCancel,
+        suppressedComponents,
       };
     }
   }
@@ -1467,6 +1549,7 @@ for (const [repShipId, pairMap] of Object.entries(repSynergyResults)) {
         synergy: synDelta,
         items: [Math.min(itemA, itemB), Math.max(itemA, itemB)],
         ...(cancelsSingle ? { cancels_single: true } : {}),
+        ...(pairResult.suppressedComponents ? { suppressed_components: pairResult.suppressedComponents } : {}),
       });
     }
     
@@ -1682,6 +1765,39 @@ const repShipIdsWithBonuses = Object.keys(bonusItemsByRepShipArr)
 
 const { getSlotitemEffect } = SlotItemEffectUtil;
 
+function getSubExpectedComponents(ship, items, prules, trules, qrules, perules) {
+  const comps = [];
+  for (const id of items) comps.push(getAlone(ship, id));
+  
+  if (prules) {
+    for (let i = 0; i < items.length; i++)
+      for (let j = i + 1; j < items.length; j++)
+        comps.push(simulateRules(prules, [items[i], items[j]], 2));
+  }
+  if (trules && items.length >= 3) {
+    for (let i = 0; i < items.length; i++)
+      for (let j = i + 1; j < items.length; j++)
+        for (let k = j + 1; k < items.length; k++)
+          comps.push(simulateRules(trules, [items[i], items[j], items[k]], 3));
+  }
+  if (qrules && items.length >= 4) {
+    for (let i = 0; i < items.length; i++)
+      for (let j = i + 1; j < items.length; j++)
+        for (let k = j + 1; k < items.length; k++)
+          for (let l = k + 1; l < items.length; l++)
+            comps.push(simulateRules(qrules, [items[i], items[j], items[k], items[l]], 4));
+  }
+  if (perules && items.length >= 5) {
+    for (let i = 0; i < items.length; i++)
+      for (let j = i + 1; j < items.length; j++)
+        for (let k = j + 1; k < items.length; k++)
+          for (let l = k + 1; l < items.length; l++)
+            for (let m = l + 1; m < items.length; m++)
+              comps.push(simulateRules(perules, [items[i], items[j], items[k], items[l], items[m]], 5));
+  }
+  return comps;
+}
+
 for (let si = 0; si < repShipIdsWithBonuses.length; si++) {
   const shipId = repShipIdsWithBonuses[si];
   const bItems = getAstFilteredItemsForShip(
@@ -1739,10 +1855,12 @@ for (let si = 0; si < repShipIdsWithBonuses.length; si++) {
       if (!residual) return;
       if (pruneInvisible && isMeaninglessSynergy(residual)) return;
 
-      const isCancel =
-        statsEqual(residual, statsSub(null, aloneA)) ||
-        statsEqual(residual, statsSub(null, aloneB)) ||
-        statsEqual(residual, statsSub(null, aloneC));
+      const expectedComponents = getSubExpectedComponents(ship, comboItems, pairRulesByShip[shipId]);
+      expectedComponents.push(expected); // Also check against the total expected
+      const isCancel = expectedComponents.some(
+        (c) => c && statsEqual(residual, statsSub(null, c))
+      );
+      const suppressedComponents = calculateSuppressedComponents(ship, comboItems, residual);
 
       tripleCount++;
       appendSynergyForRepShip(
@@ -1751,6 +1869,7 @@ for (let si = 0; si < repShipIdsWithBonuses.length; si++) {
         comboItems,
         residual,
         isCancel,
+        suppressedComponents
       );
     },
   );
@@ -1870,8 +1989,15 @@ if (maxComboSize >= 4) {
         if (!residual) return;
         if (pruneInvisible && isMeaninglessSynergy(residual)) return;
 
+        const expectedComponents = getSubExpectedComponents(ship, comboItems, pairRulesByShip[shipId], tripleRulesByShip[shipId]);
+        expectedComponents.push(expected);
+        const isCancel = expectedComponents.some(
+          (c) => c && statsEqual(residual, statsSub(null, c))
+        );
+        const suppressedComponents = calculateSuppressedComponents(ship, comboItems, residual);
+
         quadCount++;
-        appendSynergyForRepShip(quadSynergies, shipId, comboItems, residual);
+        appendSynergyForRepShip(quadSynergies, shipId, comboItems, residual, isCancel, suppressedComponents);
       },
     );
 
@@ -1995,8 +2121,15 @@ if (maxComboSize >= 5) {
         const residual = statsSub(combined, expected);
         if (!residual) return;
         if (pruneInvisible && isMeaninglessSynergy(residual)) return;
+        const expectedComponents = getSubExpectedComponents(ship, comboItems, pairRulesByShip[shipId], tripleRulesByShip[shipId], quadRulesByShip[shipId]);
+        expectedComponents.push(expected);
+        const isCancel = expectedComponents.some(
+          (c) => c && statsEqual(residual, statsSub(null, c))
+        );
+        const suppressedComponents = calculateSuppressedComponents(ship, comboItems, residual);
+
         pentaCount++;
-        appendSynergyForRepShip(pentaSynergies, shipId, comboItems, residual);
+        appendSynergyForRepShip(pentaSynergies, shipId, comboItems, residual, isCancel, suppressedComponents);
       });
     }
     if (si === repShipIdsForPenta.length - 1 || (si + 1) % 5 === 0) {
@@ -2125,8 +2258,15 @@ if (maxComboSize >= 6) {
           const residual = statsSub(combined, expected);
           if (!residual) return;
           if (pruneInvisible && isMeaninglessSynergy(residual)) return;
+          const expectedComponents = getSubExpectedComponents(ship, comboItems, pairRulesByShip[shipId], tripleRulesByShip[shipId], quadRulesByShip[shipId], pentaRulesByShip[shipId]);
+          expectedComponents.push(expected);
+          const isCancel = expectedComponents.some(
+            (c) => c && statsEqual(residual, statsSub(null, c))
+          );
+          const suppressedComponents = calculateSuppressedComponents(ship, comboItems, residual);
+
           hexaCount++;
-          appendSynergyForRepShip(hexaSynergies, shipId, comboItems, residual);
+          appendSynergyForRepShip(hexaSynergies, shipId, comboItems, residual, isCancel, suppressedComponents);
         },
       );
     }
@@ -2460,15 +2600,16 @@ function buildRules(synergyMap, comboSize) {
   const rulesMap = new Map();
   for (const [key, profileMap] of synergyMap) {
     const items = key.split(":").map(Number);
-    for (const { ships, synergy, cancels_single, placements } of profileMap.values()) {
+    for (const { ships, synergy, cancels_single, suppressed_components, placements } of profileMap.values()) {
       const shipsSorted = [...ships].sort((a, b) => a - b);
       const synSorted = Object.fromEntries(Object.entries(synergy).sort());
-      const groupKey = shipsSorted.join(",") + "|" + JSON.stringify(synSorted) + (cancels_single ? "|C" : "");
+      const groupKey = shipsSorted.join(",") + "|" + JSON.stringify(synSorted) + (cancels_single ? "|C" : "") + (suppressed_components ? "|S:" + suppressed_components.join(",") : "");
       if (!rulesMap.has(groupKey)) {
         rulesMap.set(groupKey, {
           ships: shipsSorted,
           synergy: synSorted,
           cancels_single,
+          suppressed_components,
           combos: [],
           placements: [],
           _allItems: new Set(),
@@ -2851,7 +2992,7 @@ function buildRules(synergyMap, comboSize) {
     if (rule.category_pools && !rule.item_pool && !rule.fixed_items && !rule.implicants && !rule.combos_b64) {
       const sortedPools = sortedPoolsForMerge(rule.category_pools);
       const radarProfileSig = sortedPools.map(radarProfileOfPool).join(",");
-      const sig = JSON.stringify(rule.synergy) + (rule.cancels_single ? "|C" : "") + `|len:${rule.category_pools.length}|radar:${radarProfileSig}`;
+      const sig = JSON.stringify(rule.synergy) + (rule.cancels_single ? "|C" : "") + (rule.suppressed_components ? "|S:" + rule.suppressed_components.join(",") : "") + `|len:${rule.category_pools.length}|radar:${radarProfileSig}`;
       if (!categoryGroups.has(sig)) categoryGroups.set(sig, []);
       categoryGroups.get(sig).push(rule);
     } else {
@@ -2887,6 +3028,7 @@ function buildRules(synergyMap, comboSize) {
       category_pools: unionedPools.map(s => Array.from(s).sort((a, b) => a - b))
     };
     if (group[0].cancels_single) mergedRule.cancels_single = true;
+    if (group[0].suppressed_components) mergedRule.suppressed_components = group[0].suppressed_components;
     mergedRules.push(mergedRule);
   }
 

@@ -15,9 +15,13 @@ const segmentOrder: Record<string, number> = {
   others: 0x07,
 };
 
-export const compareSegments = (a: any, b: any) => {
-  const aOrder = segmentOrder[a.segment] ?? 0xff;
-  const bOrder = segmentOrder[b.segment] ?? 0xff;
+type SegmentEntry = { segment?: string | null };
+
+export const compareSegments = (a: SegmentEntry, b: SegmentEntry) => {
+  const aSegment = a.segment ?? "";
+  const bSegment = b.segment ?? "";
+  const aOrder = segmentOrder[aSegment] ?? 0xff;
+  const bOrder = segmentOrder[bSegment] ?? 0xff;
   if (aOrder !== bOrder) return aOrder - bOrder;
-  return (a.segment ?? "").localeCompare(b.segment ?? "");
+  return aSegment.localeCompare(bSegment);
 };

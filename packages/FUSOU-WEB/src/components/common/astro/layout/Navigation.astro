@@ -1,5 +1,6 @@
 ---
-const filled: boolean = Astro.props.filled;
+import ThemeToggle from "@/components/common/astro/ui/ThemeToggle.astro";
+const filled: boolean = Astro.props["filled"];
 const css_filled = filled ? "bg-navbar" : "bg-base-100";
 ---
 
@@ -10,7 +11,10 @@ const css_filled = filled ? "bg-navbar" : "bg-base-100";
     class="flex w-full max-w-[1440px] mx-auto px-4 sm:px-8 py-1 flex-nowrap items-center gap-1 sm:gap-2"
   >
     <div class="flex items-center gap-1 min-w-0">
-      <a class="btn btn-ghost text-xl" href="/">FUSOU</a>
+      <a class="btn btn-ghost text-xl gap-2 px-2" href="/">
+        <img src="/favicon.svg" alt="FUSOU Logo" class="w-7 h-7" />
+        FUSOU
+      </a>
       <div class="tooltip tooltip-bottom" data-tip="GitHub">
         <a
           class="btn btn-ghost"
@@ -40,7 +44,6 @@ const css_filled = filled ? "bg-navbar" : "bg-base-100";
           <svg
             xmlns="http://www.w3.org/2000/svg"
             width="24"
-            ,
             height="24"
             viewBox="0 0 576 512"
             fill="currentColor"
@@ -73,7 +76,7 @@ const css_filled = filled ? "bg-navbar" : "bg-base-100";
       </div>
       <ul
         tabindex="0"
-        class="dropdown-content menu menu-sm bg-base-100 rounded-box z-50 mt-1 w-48 shadow-lg border border-base-300"
+        class="dropdown-content menu menu-sm bg-base-100 rounded-box z-50 mt-1 w-48 max-h-[calc(100vh-120px)] overflow-y-auto overflow-x-hidden flex-col flex-nowrap shadow-lg border border-base-300"
       >
         <li class="menu-title"><span>データ</span></li>
         <li><a href="/battles">Battles</a></li>
@@ -90,10 +93,9 @@ const css_filled = filled ? "bg-navbar" : "bg-base-100";
         <li><a href="/contact">Contact</a></li>
         <hr class="my-1 border-base-200" />
         <li class="menu-title"><span>アカウント</span></li>
-        <li><a href="/auth/signin">Webサービスにサインイン</a></li>
-        <li><a href="/auth/local/signin">ローカルアプリと連携</a></li>
+        <li><a href="/auth/signin">サインイン</a></li>
+        <li><a href="/auth/local/signin">FUSOU-APPと連携してサインイン</a></li>
         <li><a href="/dashboard">ダッシュボード</a></li>
-        <li><a href="/dashboard/devices">端末管理</a></li>
         <hr class="my-1 border-base-200" />
         <li class="menu-title"><span>開発者</span></li>
         <li><a href="/dashboard/api-keys">APIキー管理</a></li>
@@ -308,14 +310,13 @@ const css_filled = filled ? "bg-navbar" : "bg-base-100";
           class="dropdown-content menu menu-sm bg-base-100 rounded-box z-100 mt-1 w-56 shadow-lg border border-base-300"
         >
           <li class="menu-title">アカウント</li>
-          <li><a href="/auth/signin">Webサービスにサインイン</a></li>
-          <li><a href="/auth/local/signin">ローカルアプリと連携</a></li>
+          <li><a href="/auth/signin">サインイン</a></li>
+          <li><a href="/auth/local/signin">FUSOU-APPと連携してサインイン</a></li>
           <hr class="my-1 border-base-200" />
           <li class="menu-title">開発者</li>
           <li><a href="/dashboard/api-keys">APIキー管理</a></li>
           <hr class="my-1 border-base-200" />
           <li class="menu-title">端末</li>
-          <li><a href="/dashboard/devices">端末管理</a></li>
         </ul>
       </div>
       <div class="tooltip tooltip-bottom" data-tip="Download">
@@ -334,6 +335,9 @@ const css_filled = filled ? "bg-navbar" : "bg-base-100";
           <span class="hidden lg:inline">Download</span>
         </a>
       </div>
+    </div>
+    <div class="tooltip tooltip-bottom shrink-0 ml-1 sm:ml-2" data-tip="Toggle Theme">
+      <ThemeToggle />
     </div>
   </div>
 

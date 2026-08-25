@@ -5,7 +5,9 @@ import { createEnvContext, getEnv } from "@/server/utils";
 import { env as cfEnv } from "cloudflare:workers";
 
 export const POST: APIRoute = async ({ request, cookies, redirect }) => {
-  const envCtx = createEnvContext({ env: cfEnv as any });
+  const envCtx = createEnvContext({
+    env: cfEnv as Record<string, unknown>,
+  });
   const siteUrl = getEnv(envCtx, "PUBLIC_SITE_URL")?.trim();
   if (!siteUrl) {
     return new Response("Server misconfiguration", { status: 500 });
@@ -15,7 +17,10 @@ export const POST: APIRoute = async ({ request, cookies, redirect }) => {
     return new Response("Invalid request origin", { status: 403 });
   }
 
-  const supabase = createSupabaseServerClient(cookies, cfEnv as Record<string, any>);
+  const supabase = createSupabaseServerClient(
+    cookies,
+    cfEnv as Record<string, unknown>,
+  );
   await supabase.auth.signOut();
 
   const cookieNames = [
@@ -25,10 +30,6 @@ export const POST: APIRoute = async ({ request, cookies, redirect }) => {
     "sb-provider-refresh-token",
     "sb-provider",
     "oauth_state",
-    "stored-sb-access-token",
-    "stored-sb-refresh-token",
-    "stored-sb-provider-token",
-    "stored-sb-provider-refresh-token",
   ];
 
   for (const name of cookieNames) {

@@ -9,6 +9,7 @@ import { Hono } from "hono";
 import type { Bindings } from "../types";
 import { createEnvContext, verifyAdminToken } from "../utils";
 import { bumpAssetIndexRevision } from "../utils/asset-index-cache";
+import { AssetContentHashRowSchema } from "../schemas/assets";
 
 const adminApp = new Hono<{ Bindings: Bindings }>();
 
@@ -21,6 +22,7 @@ adminApp.use("*", async (c, next) => {
   }
 
   await next();
+  return;
 });
 
 // ===== MIME Type detection helper =====
@@ -98,7 +100,7 @@ adminApp.get("/fix-mime-types", async (c) => {
 
   // Use createEnvContext for reliable binding access (same as battle_data.ts)
   const env = createEnvContext(c);
-  const bucket = env.runtime.ASSET_SYNC_BUCKET;
+  const bucket = env.runtime["ASSET_SYNC_BUCKET"];
 
   if (!bucket) {
     return c.json({ error: "ASSET_SYNC_BUCKET not bound" }, 500);
@@ -119,7 +121,11 @@ adminApp.get("/fix-mime-types", async (c) => {
   let processed = 0;
 
   // Single list call per request - no internal looping to avoid timeout
-  const listResult = await bucket.list({ cursor, prefix, limit });
+  const listResult = await bucket.list({
+    prefix,
+    limit,
+    ...(cursor === undefined ? {} : { cursor }),
+  });
 
   for (const obj of listResult.objects) {
     results.total++;
@@ -135,7 +141,7 @@ adminApp.get("/fix-mime-types", async (c) => {
     }
 
     const currentMime =
-      (objData as any).httpMetadata?.contentType || "application/octet-stream";
+      objData.httpMetadata?.contentType || "application/octet-stream";
 
     // Skip if already correct or supposed to be octet-stream
     if (
@@ -153,8 +159,8 @@ adminApp.get("/fix-mime-types", async (c) => {
         const body = await objData.arrayBuffer();
 
         // Preserve existing metadata when re-uploading
-        const existingHttpMeta = (objData as any).httpMetadata || {};
-        const existingCustomMeta = (objData as any).customMetadata || {};
+        const existingHttpMeta = objData.httpMetadata || {};
+        const existingCustomMeta = objData.customMetadata || {};
 
         await bucket.put(obj.key, body, {
           httpMetadata: {
@@ -194,8 +200,8 @@ adminApp.get("/fix-mime-types", async (c) => {
 adminApp.get("/backfill-asset-index", async (c) => {
   // Use createEnvContext for reliable binding access (same as battle_data.ts)
   const env = createEnvContext(c);
-  const bucket = env.runtime.ASSET_SYNC_BUCKET;
-  const db = env.runtime.ASSET_INDEX_DB;
+  const bucket = env.runtime["ASSET_SYNC_BUCKET"];
+  const db = env.runtime["ASSET_INDEX_DB"];
 
   if (!bucket || !db) {
     return c.json({ error: "Missing R2 or D1 bindings" }, 500);
@@ -209,7 +215,10 @@ adminApp.get("/backfill-asset-index", async (c) => {
   const cursor = c.req.query("cursor") || undefined;
 
   try {
-    const listed = await bucket.list({ limit, cursor });
+    const listed = await bucket.list({
+      limit,
+      ...(cursor === undefined ? {} : { cursor }),
+    });
     const objects = listed.objects || [];
     const nextCursor = listed.truncated ? listed.cursor : null;
 
@@ -235,18 +244,19 @@ adminApp.get("/backfill-asset-index", async (c) => {
         const contentHash = await sha256(arrayBuffer);
 
         const stmt = db.prepare("SELECT content_hash FROM files WHERE key = ?");
-        const existing = (await stmt.bind(key).first()) as {
-          content_hash: string;
-        } | null;
+        const existingResult = await stmt.bind(key).first();
+        const existing = AssetContentHashRowSchema.safeParse(existingResult);
 
-        if (existing && existing.content_hash === contentHash) {
+        if (
+          existing.success &&
+          existing.data.content_hash === contentHash
+        ) {
           skipped++;
           continue;
         }
 
         const contentType =
-          (r2Object as any).httpMetadata?.contentType ||
-          "application/octet-stream";
+          r2Object.httpMetadata?.contentType || "application/octet-stream";
 
         if (!dryRun) {
           await db

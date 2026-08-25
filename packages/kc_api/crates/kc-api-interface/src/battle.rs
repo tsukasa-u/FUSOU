@@ -488,6 +488,7 @@ mod tests {
 pub struct BattleResult {
     pub win_rank: String,
     pub drop_ship_id: Option<i64>,
+    pub mvp_ship_indexes: Option<Vec<i64>>,
     pub landing_hp_now: Option<i64>,
     pub landing_hp_max: Option<i64>,
     pub landing_sub_value: Option<i64>,
@@ -524,6 +525,7 @@ pub struct CarrierBaseAssault {
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[ts(export, export_to = "battle.ts")]
 pub struct AirBaseAssult {
+    pub air_superiority: Option<i64>,
     pub squadron_plane: Vec<i64>,
     pub squadron_count: Vec<i64>,
     pub f_damage: AirDamage,
@@ -560,6 +562,7 @@ pub struct AirBaseAirAttacks {
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[ts(export, export_to = "battle.ts")]
 pub struct AirBaseAirAttack {
+    pub air_superiority: Option<i64>,
     pub stage_flag: Vec<i64>,
     pub squadron_plane: Option<Vec<Option<i64>>>,
     pub squadron_count: Option<Vec<Option<i64>>>,

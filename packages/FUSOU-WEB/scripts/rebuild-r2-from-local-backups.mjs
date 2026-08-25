@@ -457,9 +457,6 @@ function toR2Key({ tableVersion, periodTag, runTs, tableName, index }) {
   return `${tableVersion}/${periodTag}/hourly/${runTs}/${tableName}-${idx}.avro`;
 }
 
-function nowEpochSec() {
-  return Math.floor(Date.now() / 1000);
-}
 
 function toDatasetKey(periodTag, mapTag, datasetUuid) {
   if (!datasetUuid) return "";

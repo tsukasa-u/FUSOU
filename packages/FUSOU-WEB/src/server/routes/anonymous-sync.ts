@@ -7,6 +7,12 @@ import {
   verifyAdminToken,
 } from "../utils";
 import type { Bindings } from "../types";
+import {
+  AuthConfigDiagnosticsSchema,
+  AuthSettingsDiagnosticsSchema,
+  type AuthConfigDiagnostics,
+  type AuthSettingsDiagnostics,
+} from "../schemas/anonymous-sync-v2";
 
 const app = new Hono<{ Bindings: Bindings }>();
 
@@ -47,23 +53,24 @@ app.get("/anonymous-sync/diagnostics", async (c) => {
     const datasetTokenSecret = getEnv(envCtx, "DATASET_TOKEN_SECRET");
 
     // Attempt to read auth config via service role
-    let authConfig: any = null;
+    let authConfig: AuthConfigDiagnostics | null = null;
     if (supabaseConfig.url && supabaseConfig.serviceRoleKey) {
       const admin = createClient(
         supabaseConfig.url,
         supabaseConfig.serviceRoleKey,
       );
       const { data, error } = await admin
-        .from("auth.config" as any)
+        .from("auth.config")
         .select("enable_anonymous_sign_ins, external_url")
         .limit(1);
       if (!error && data && data.length > 0) {
-        authConfig = data[0];
+        const parsedAuthConfig = AuthConfigDiagnosticsSchema.safeParse(data[0]);
+        if (parsedAuthConfig.success) authConfig = parsedAuthConfig.data;
       }
     }
 
     // Fetch GoTrue settings directly (if possible)
-    let authSettings: any = null;
+    let authSettings: AuthSettingsDiagnostics | null = null;
     if (supabaseConfig.url && supabaseConfig.serviceRoleKey) {
       try {
         const resp = await fetch(`${supabaseConfig.url}/auth/v1/settings`, {
@@ -73,7 +80,12 @@ app.get("/anonymous-sync/diagnostics", async (c) => {
           },
         });
         if (resp.ok) {
-          authSettings = await resp.json();
+          const parsedAuthSettings = AuthSettingsDiagnosticsSchema.safeParse(
+            await resp.json(),
+          );
+          if (parsedAuthSettings.success) {
+            authSettings = parsedAuthSettings.data;
+          }
         }
       } catch (e) {
         console.warn(

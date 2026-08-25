@@ -15,6 +15,68 @@ export interface AssetIndexResponse {
   incremental: boolean;  // true if this is a partial sync (since was provided)
 }
 
+function isJsonRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function parseAssetIndexResponse(value: unknown): AssetIndexResponse | null {
+  if (!isJsonRecord(value)) return null;
+  const keys = value["keys"];
+  const rawItems = value["items"];
+  if (
+    !Array.isArray(keys) ||
+    !keys.every((key): key is string => typeof key === "string") ||
+    !Array.isArray(rawItems) ||
+    typeof value["total"] !== "number" ||
+    !Number.isFinite(value["total"]) ||
+    typeof value["refreshedAt"] !== "string" ||
+    typeof value["cacheExpiresAt"] !== "string" ||
+    typeof value["cached"] !== "boolean" ||
+    typeof value["incremental"] !== "boolean"
+  ) {
+    return null;
+  }
+
+  const items: AssetIndexItem[] = [];
+  for (const rawItem of rawItems) {
+    if (!isJsonRecord(rawItem)) return null;
+    const { key, contentHash, size, uploadedAt } = rawItem;
+    if (
+      typeof key !== "string" ||
+      (contentHash !== null && typeof contentHash !== "string") ||
+      typeof size !== "number" ||
+      !Number.isFinite(size) ||
+      (uploadedAt !== null &&
+        (typeof uploadedAt !== "number" || !Number.isFinite(uploadedAt)))
+    ) {
+      return null;
+    }
+    items.push({ key, contentHash, size, uploadedAt });
+  }
+
+  return {
+    keys,
+    items,
+    total: value["total"],
+    refreshedAt: value["refreshedAt"],
+    cacheExpiresAt: value["cacheExpiresAt"],
+    cached: value["cached"],
+    incremental: value["incremental"],
+  };
+}
+
+function parseHashCheckResponse(
+  value: unknown,
+): { exists: boolean; file?: { key: string } } | null {
+  if (!isJsonRecord(value) || typeof value["exists"] !== "boolean") {
+    return null;
+  }
+  const file = value["file"];
+  if (file === undefined) return { exists: value["exists"] };
+  if (!isJsonRecord(file) || typeof file["key"] !== "string") return null;
+  return { exists: value["exists"], file: { key: file["key"] } };
+}
+
 /**
  * Fetch asset keys with metadata (including contentHash) from /asset-sync/keys.
  * Requires Authorization bearer token (Supabase access token).
@@ -40,8 +102,11 @@ export async function fetchAssetIndex(
   if (!res.ok) {
     throw new Error(`Failed to fetch asset keys: ${res.status}`);
   }
-  const data = await res.json();
-  return data as AssetIndexResponse;
+  const data = parseAssetIndexResponse(await res.json());
+  if (!data) {
+    throw new Error("Invalid asset index response");
+  }
+  return data;
 }
 
 /**
@@ -57,7 +122,10 @@ export async function shouldUploadByHash(baseUrl: string, accessToken: string, c
   if (!res.ok) {
     throw new Error(`Failed to check hash: ${res.status}`);
   }
-  const data = (await res.json()) as { exists?: boolean; file?: { key: string } };
+  const data = parseHashCheckResponse(await res.json());
+  if (!data) {
+    throw new Error("Invalid asset hash response");
+  }
   return {
     shouldUpload: !data.exists,
     existing: data.file,

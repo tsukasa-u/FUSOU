@@ -25,13 +25,6 @@ function extractCssUrl(v: string): string | null {
   return m?.[1] ?? null;
 }
 
-function sanitizeFileName(name: string): string {
-  const n = name
-    .trim()
-    .replace(/[\\/:*?"<>|]+/g, "-")
-    .replace(/\s+/g, "-");
-  return n || "fleet-deck";
-}
 
 export function getOriginalImageUrl(url: string): string {
   // With format=auto only (no resize), the cdn-cgi URL serves the same image
@@ -141,36 +134,6 @@ function setImageCache(url: string, dataUrl: string): void {
   externalImageDataUrlCache.set(url, dataUrl);
 }
 
-function flashPressedEffect(btn: HTMLButtonElement): void {
-  btn.style.transform = "translateY(1px) scale(0.98)";
-  btn.style.filter = "brightness(0.92)";
-  btn.style.transition = "transform 70ms ease, filter 70ms ease";
-  window.setTimeout(() => {
-    btn.style.transform = "";
-    btn.style.filter = "";
-    btn.style.transition = "";
-  }, 110);
-}
-
-function syncSaveTargetControls(): void {
-  const checked = document.querySelector(
-    'input[name="saveimg-fleet-target"]:checked',
-  ) as HTMLInputElement | null;
-  const includeAirbase = document.getElementById(
-    "saveimg-include-airbase",
-  ) as HTMLInputElement | null;
-  if (!checked || !includeAirbase) return;
-
-  const isAirbaseOnly = checked.value === "airbase";
-  if (isAirbaseOnly) {
-    includeAirbase.checked = true;
-    includeAirbase.disabled = true;
-    includeAirbase.closest("label")?.classList.add("opacity-60");
-  } else {
-    includeAirbase.disabled = false;
-    includeAirbase.closest("label")?.classList.remove("opacity-60");
-  }
-}
 
 async function fetchProxyImageAsDataUrl(
   absUrl: string,
@@ -567,7 +530,9 @@ export async function captureAndSaveImage(options: CaptureImageOptions): Promise
             skipFonts: true,
             imagePlaceholder: TRANSPARENT_PIXEL,
           };
-          if (!transparentBackground) renderOpts.backgroundColor = "#eceff3";
+          if (!transparentBackground) {
+            renderOpts["backgroundColor"] = "#eceff3";
+          }
           blob = await toBlobImpl(prepared.node, renderOpts);
         } catch (e) {
           primaryError = e;
@@ -606,8 +571,9 @@ export async function captureAndSaveImage(options: CaptureImageOptions): Promise
             imagePlaceholder: TRANSPARENT_PIXEL,
             filter: (n: Node) => !(n instanceof HTMLImageElement),
           };
-          if (!transparentBackground)
-            retryRenderOpts.backgroundColor = "#eceff3";
+          if (!transparentBackground) {
+            retryRenderOpts["backgroundColor"] = "#eceff3";
+          }
           blob = await toBlobImpl(retry.node, retryRenderOpts);
         }
         if (!blob) throw new Error("png conversion failed");

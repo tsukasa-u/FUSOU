@@ -1,4 +1,5 @@
 import type { KVNamespace } from "@cloudflare/workers-types";
+import { z } from "zod";
 
 // Configuration
 const DEFAULT_MAX_RU = 1000;
@@ -11,6 +12,20 @@ const RU_COSTS = {
   VERIFY: 0,
   DOWNLOAD: 10,
 };
+
+const RUBucketStateSchema = z
+  .object({
+    tokens: z.number().finite().nonnegative().max(DEFAULT_MAX_RU),
+    lastRefill: z.number().finite().nonnegative(),
+  })
+  .passthrough();
+
+export type RUBucketState = z.infer<typeof RUBucketStateSchema>;
+
+export function parseRUBucketState(value: unknown): RUBucketState | null {
+  const parsed = RUBucketStateSchema.safeParse(value);
+  return parsed.success ? parsed.data : null;
+}
 
 interface RUStatus {
   allowed: boolean;
@@ -32,7 +47,7 @@ export async function checkAndDeductRU(
   
   // Read current bucket state
   // Format: { tokens: number, lastRefill: number }
-  const data = await kv.get(key, "json") as { tokens: number; lastRefill: number } | null;
+  const data = parseRUBucketState(await kv.get(key, "json"));
   
   let tokens = DEFAULT_MAX_RU;
   let lastRefill = now;

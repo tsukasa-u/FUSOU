@@ -1,7 +1,6 @@
 /* @jsxImportSource solid-js */
-import { createSignal, createMemo, onMount, onCleanup, createEffect, Show, For } from "solid-js";
-import { VList } from "virtua/solid";
-import type { Component } from "solid-js";
+import { createSignal, createMemo, createEffect, Show, For } from "solid-js";
+import { VList, type VListHandle } from "virtua/solid";
 import { useStore } from "@nanostores/solid";
 import type { MstShipData } from "@/features/simulator/types";
 import { STYPE_NAMES, STYPE_SHORT, SPEED_NAMES, ENEMY_ID_THRESHOLD } from "@/features/simulator/constants";
@@ -13,6 +12,10 @@ import { getCombinedFleetType, getFleetState, getMasterShip, getMasterShips, get
 import { cachedFetch } from "@/utils/fetchCache";
 import { masterDataStatusStore } from "@/features/simulator/data-loader";
 import {
+  ShipGrowthBoundsResponseSchema,
+  ShipGrowthSummaryResponseSchema,
+} from "@/features/simulator/ship-growth-utils";
+import {
   PickerQuickAccess,
   type PickerQuickAccessEntry,
 } from "./picker-quick-access";
@@ -23,11 +26,9 @@ import { SelectionModalShell } from "./selection-modal-shell";
 export const [shipModalTrigger, setShipModalTrigger] = createSignal(0);
 
 // --- Ship Growth Logic ---
-type ShipGrowthSummary = { ok: boolean; periods?: Array<{ period_tag: string; table_version: string }> };
 type ShipGrowthCaps = { master_id: number; kaihi_max?: number; taisen_max?: number; sakuteki_max?: number; kaih_max?: number; tais_max?: number; saku_max?: number; };
 type NormalizedShipGrowthCaps = { master_id: number; kaihi_max: number; taisen_max: number; sakuteki_max: number; };
 type ShipGrowthBoundRow = { master_id: number; lv: number; kaihi_naked: number; taisen_naked: number; sakuteki_naked: number; };
-type ShipGrowthBoundsResponse = { caps?: ShipGrowthCaps[]; bounds?: ShipGrowthBoundRow[]; updated_at?: number; updated_at_iso?: string | null; };
 type ShipGrowthCapLookup = { cap: NormalizedShipGrowthCaps | null; updatedAtIso: string | null; };
 
 function normalizeShipGrowthCaps(raw: ShipGrowthCaps | null): NormalizedShipGrowthCaps | null {
@@ -59,7 +60,9 @@ function getLatestShipGrowthPeriod(): Promise<{ period_tag: string; table_versio
   _shipGrowthPeriodPromise = (async () => {
     const res = await cachedFetch("/api/ship-growth/summary");
     if (!res.ok) return null;
-    const json = (await res.json()) as ShipGrowthSummary;
+    const parsed = ShipGrowthSummaryResponseSchema.safeParse(await res.json());
+    if (!parsed.success || !parsed.data.ok) return null;
+    const json = parsed.data;
     const latest = json.periods?.[0];
     return latest ? { period_tag: latest.period_tag, table_version: latest.table_version } : null;
   })().catch(() => null);
@@ -73,7 +76,9 @@ async function getShipGrowthCaps(masterId: number): Promise<ShipGrowthCapLookup 
     if (!latest) { _shipGrowthCapsCache.set(masterId, null); return null; }
     const boundsRes = await cachedFetch(`/api/ship-growth/bounds?period_tag=${encodeURIComponent(latest.period_tag)}&table_version=${encodeURIComponent(latest.table_version)}`);
     if (!boundsRes.ok) { _shipGrowthCapsCache.set(masterId, null); return null; }
-    const boundsJson = (await boundsRes.json()) as ShipGrowthBoundsResponse;
+    const parsed = ShipGrowthBoundsResponseSchema.safeParse(await boundsRes.json());
+    if (!parsed.success || !parsed.data.ok) { _shipGrowthCapsCache.set(masterId, null); return null; }
+    const boundsJson = parsed.data;
     const capFromCaps = normalizeShipGrowthCaps((boundsJson.caps ?? []).find((row) => row.master_id === masterId) ?? null);
     const capFromBounds = deriveShipGrowthCapsFromBounds(masterId, boundsJson.bounds ?? []);
     const merged = mergeShipGrowthCaps(capFromCaps, capFromBounds);
@@ -87,6 +92,12 @@ async function getShipGrowthCaps(masterId: number): Promise<ShipGrowthCapLookup 
 }
 
 type SideFilter = "ally" | "enemy" | "all";
+type ShipRuntimeMeta = MstShipData & { _snapshotLevel?: number; _snapshotCount?: number };
+type ShipVariant = { shipId: number; level: number; name: string; stype: number; count: number };
+type ShipRow =
+  | { kind: "header"; stype: number }
+  | { kind: "item"; ship: ShipRuntimeMeta };
+
 function filterShipsBySide(ships: MstShipData[], sideFilter: SideFilter): MstShipData[] {
   if (sideFilter === "all") return ships;
   if (sideFilter === "enemy") return ships.filter((s) => s.id >= ENEMY_ID_THRESHOLD);
@@ -108,7 +119,10 @@ function filterShipsByCombinedRules(ships: MstShipData[]): MstShipData[] {
 // --- Component ---
 export function ShipSelectionModal() {
   let dialogRef!: HTMLDialogElement;
-  let vlistRef: any;
+  let vlistRef: VListHandle | undefined;
+  const setVlistRef = (handle?: VListHandle) => {
+    vlistRef = handle;
+  };
   const masterDataStatus = useStore(masterDataStatusStore);
 
   const [search, setSearch] = createSignal("");
@@ -155,9 +169,9 @@ export function ShipSelectionModal() {
     masterDataStatus();
     shipModalTrigger();
     if (!hasMasterData()) return [];
-    let ships: MstShipData[];
+    let ships: ShipRuntimeMeta[];
     if (source() === "snapshot" && hasSnapshotShips()) {
-      const variantMap = new Map<string, any>();
+      const variantMap = new Map<string, ShipVariant>();
       for (const ss of Object.values(getSnapshotShips())) {
         const key = `${ss.shipId}_${ss.level ?? 0}`;
         const existing = variantMap.get(key);
@@ -165,12 +179,12 @@ export function ShipSelectionModal() {
         else variantMap.set(key, { ...ss, count: 1 });
       }
       ships = [...variantMap.values()]
-        .map((v) => {
+        .map((v): ShipRuntimeMeta | null => {
           const mst = getMasterShip(v.shipId);
           if (!mst) return null;
           return { ...mst, _snapshotLevel: v.level, _snapshotCount: v.count };
         })
-        .filter((s): s is any => s != null)
+        .filter((s): s is ShipRuntimeMeta => s != null)
         .sort((a, b) => (a.sort_id ?? a.id) - (b.sort_id ?? b.id));
     } else {
       ships = Object.values(getMasterShips()).sort((a, b) => (a.sort_id ?? a.id) - (b.sort_id ?? b.id));
@@ -190,7 +204,7 @@ export function ShipSelectionModal() {
 
   const listData = createMemo(() => {
     const ships = filteredShips();
-    const rows: any[] = [];
+    const rows: ShipRow[] = [];
     let catOffsets: { stype: number; offset: number }[] = [];
     let virtualOffset = 0;
     const filter = stypeFilter();
@@ -251,7 +265,12 @@ export function ShipSelectionModal() {
       setActiveQuickAccessId(null);
       return;
     }
-    let current = cats[0].stype;
+    const firstCat = cats[0];
+    if (!firstCat) {
+      setActiveQuickAccessId(null);
+      return;
+    }
+    let current = firstCat.stype;
     for (const cat of cats) {
       if (cat.offset <= offset + 2) current = cat.stype;
       else break;
@@ -265,14 +284,19 @@ export function ShipSelectionModal() {
       setActiveQuickAccessId(null);
       return;
     }
+    const firstCat = cats[0];
+    if (!firstCat) {
+      setActiveQuickAccessId(null);
+      return;
+    }
     if (!activeQuickAccessId()) {
-      setActiveQuickAccessId(String(cats[0].stype));
+      setActiveQuickAccessId(String(firstCat.stype));
     }
   });
 
-  const handleSelect = (ship: MstShipData) => {
+  const handleSelect = (ship: ShipRuntimeMeta) => {
     if (isWorkspaceReadOnly()) return;
-    consumeShipModalCallback({ id: ship.id, level: (ship as any)._snapshotLevel });
+    consumeShipModalCallback({ id: ship.id, level: ship._snapshotLevel ?? null });
     closeModal();
   };
 
@@ -368,12 +392,12 @@ export function ShipSelectionModal() {
              <div id="ship-modal-grid" class="flex-1 min-h-0 overflow-hidden">
                <VList
                  data={listData().rows}
-                 ref={vlistRef}
+                ref={setVlistRef}
                  style={{ height: "100%" }}
                  class="overflow-x-hidden"
                  onScroll={updateActiveQuickAccessByOffset}
                >
-                 {(row: any) => {
+                 {(row: ShipRow) => {
                    if (row.kind === "header") {
                      return (
                        <div class="bg-base-100/90 backdrop-blur-sm px-2 text-xs font-bold text-base-content/50 border-b border-base-200/50 flex items-center" style={{ height: `${HEADER_HEIGHT}px` }}>
@@ -382,13 +406,14 @@ export function ShipSelectionModal() {
                      );
                    }
                    const ship = row.ship;
+                   const snapshotCount = ship._snapshotCount ?? 0;
                    return (
                      <div class="mb-0.5">
                        <ShipListRow
                          ship={ship}
                          active={ship.id === getShipModalCurrentId()}
                          onPreview={() => setHoveredShipId(ship.id)}
-                         subtitle={`ID ${ship.id} / ${STYPE_NAMES[ship.stype] ?? ""}${ship._snapshotLevel ? ` / Lv${ship._snapshotLevel}` : ""}${ship._snapshotCount > 1 ? ` / ×${ship._snapshotCount}` : ""}`}
+                         subtitle={`ID ${ship.id} / ${STYPE_NAMES[ship.stype] ?? ""}${ship._snapshotLevel ? ` / Lv${ship._snapshotLevel}` : ""}${snapshotCount > 1 ? ` / ×${snapshotCount}` : ""}`}
                          onSelect={() => handleSelect(ship)}
                        />
                      </div>
@@ -422,8 +447,8 @@ function ShipDetail(props: { ship: MstShipData }) {
     }
   });
 
-  const statValueOrDash = (v: any) => v == null || v === 0 ? "-" : v;
-  const statValueWithFallback = (val: any, fallback: any) => {
+  const statValueOrDash = (v: number | null | undefined) => v == null || v === 0 ? "-" : v;
+  const statValueWithFallback = (val: number[] | null | undefined, fallback: number | undefined) => {
     if (Array.isArray(val) && val.length > 0 && !needsStatFallback(val)) return String(val[0]);
     if (typeof fallback === "number" && fallback > 0) return `- / ${fallback}`;
     return "-";

@@ -1,11 +1,29 @@
 /* @jsxImportSource solid-js */
-import { createSignal, onMount, Show, For } from "solid-js";
+import { createSignal, Show, For } from "solid-js";
+
 import { applyFleetSnapshot } from "@/features/simulator/snapshot";
 import { finalizePlaygroundLoad } from "@/features/simulator/io-handlers";
+import { authFetch } from "@/utils/authFetch";
+import { z } from "zod";
 
 export const loadFleetModalRef: { current: HTMLDialogElement | null } = { current: null };
 
-type SnapshotEntry = { tag: string; uploaded: string; size: number };
+const SnapshotEntrySchema = z.object({
+  tag: z.string(),
+  uploaded: z.string(),
+  size: z.number(),
+});
+const SnapshotListResponseSchema = z
+  .object({ ok: z.boolean(), tags: z.array(SnapshotEntrySchema) })
+  .passthrough();
+const SnapshotResponseSchema = z
+  .object({ ok: z.literal(true), snapshot: z.record(z.unknown()) })
+  .passthrough();
+const ErrorResponseSchema = z
+  .object({ error: z.string().optional() })
+  .passthrough();
+
+type SnapshotEntry = z.infer<typeof SnapshotEntrySchema>;
 
 export function LoadFleetModal() {
   const [loading, setLoading] = createSignal(false);
@@ -13,13 +31,7 @@ export function LoadFleetModal() {
   const [errorMsg, setErrorMsg] = createSignal("");
   const [requiresAuth, setRequiresAuth] = createSignal(false);
 
-  const getAccessToken = () => (window as any).__fusouAccessToken ?? null;
-
-  const authHeaders = (): Record<string, string> => {
-    const token = getAccessToken();
-    if (!token) return {};
-    return { Authorization: `Bearer ${token}` };
-  };
+  const getAccessToken = () => window.__fusouAccessToken ?? null;
 
   const loadSnapshots = async () => {
     const token = getAccessToken();
@@ -33,22 +45,32 @@ export function LoadFleetModal() {
     setEntries([]);
 
     try {
-      const res = await fetch("/api/fleet/snapshots/list", { headers: authHeaders() });
+      const res = await authFetch("/api/fleet/snapshots/list");
       if (res.status === 401 || res.status === 403) {
-        const body = (await res.json().catch(() => ({}))) as Record<string, any>;
-        setErrorMsg(body.error ?? "認証エラー");
+        const body = ErrorResponseSchema.safeParse(
+          await res.json().catch(() => ({})),
+        );
+        setErrorMsg(
+          body.success
+            ? body.data.error ?? "Authentication required. Please check your FUSOU-APP connection."
+            : "Authentication required. Please check your FUSOU-APP connection.",
+        );
         return;
       }
       if (!res.ok) {
         setErrorMsg("読込に失敗しました");
         return;
       }
-      const data = await res.json() as { ok: boolean; tags: SnapshotEntry[] };
-      if (!data.tags || data.tags.length === 0) {
+      const data = SnapshotListResponseSchema.safeParse(await res.json());
+      if (!data.success) {
+        setErrorMsg("読込に失敗しました");
+        return;
+      }
+      if (data.data.tags.length === 0) {
         setErrorMsg("保存された艦隊データがありません");
         return;
       }
-      setEntries(data.tags);
+      setEntries(data.data.tags);
     } catch {
       setErrorMsg("読込エラー");
     } finally {
@@ -58,12 +80,14 @@ export function LoadFleetModal() {
 
   const handleApplySnapshot = async (tag: string) => {
     try {
-      const snapRes = await fetch(`/api/fleet/snapshot/${encodeURIComponent(tag)}`, {
-        headers: authHeaders(),
-      });
+      const snapRes = await authFetch(`/api/fleet/snapshot/${encodeURIComponent(tag)}`);
       if (snapRes.ok) {
-        const result = (await snapRes.json()) as { ok: boolean; snapshot: Record<string, unknown> };
-        applyFleetSnapshot(result.snapshot);
+        const result = SnapshotResponseSchema.safeParse(await snapRes.json());
+        if (!result.success) {
+          alert("スナップショットの読込に失敗しました");
+          return;
+        }
+        applyFleetSnapshot(result.data.snapshot);
         finalizePlaygroundLoad(true);
         loadFleetModalRef.current?.close();
       } else {
@@ -91,9 +115,9 @@ export function LoadFleetModal() {
       }}
     >
       <div class="modal-box rounded-xl">
-        <h3 class="font-bold text-lg mb-2">R2から自分のデッキを読込</h3>
+        <h3 class="font-bold text-lg mb-2">Load My Deck from R2</h3>
         <p class="text-xs text-base-content/60 mb-4">
-          選択したデッキはワークスペースに追加されます。
+          The selected deck will be added to the workspace.
         </p>
 
         <div class="space-y-2 max-h-80 overflow-y-auto">
@@ -102,13 +126,13 @@ export function LoadFleetModal() {
           </Show>
 
           <Show when={requiresAuth()}>
-            <p class="text-base-content/60 text-sm">
-              この機能を利用するにはFUSOU-APPのスナップショット機能と
-              <a href="/auth/local/signin" class="link link-primary mx-1">ローカルアプリ連携</a>
-              と
-              <a href="/auth/signin" class="link link-primary mx-1">Webサービス連携</a>
-              が必要です
-            </p>
+            <div class="alert alert-info items-start text-sm leading-relaxed">
+              <div>
+                <p>Using saved fleet data requires FUSOU-APP linking and web service sign-in.</p>
+                <p class="mt-2">Authenticating with Google during FUSOU-APP linking also completes web sign-in.</p>
+                <a href="/auth/local/signin?return_to=%2Fsimulator" class="link link-primary mt-2 inline-block">Link FUSOU-APP and sign in</a>
+              </div>
+            </div>
           </Show>
 
           <Show when={errorMsg()}>

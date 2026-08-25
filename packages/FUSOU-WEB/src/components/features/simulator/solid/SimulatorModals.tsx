@@ -14,8 +14,9 @@ import {
   setAirbaseSectionVisible,
   setVisibleAirbaseCount,
   setCombinedFleetType,
+  setFleetSlotLayoutMode,
 } from "@/features/simulator/simulator-mutations";
-import { writeDisplaySettings, setFleetSlotLayoutMode } from "@/features/simulator/airbase-renderer";
+import { writeDisplaySettings } from "@/features/simulator/airbase-renderer";
 import { captureAndSaveImage, type CaptureImageOptions } from "@/features/simulator/image-capture";
 
 import { ShipSelectionModal } from "./ShipSelectionModal";

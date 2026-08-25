@@ -69,6 +69,63 @@ const FIELD_TARGET_OVERRIDES = new Map([
   ["si", "mst_slotitem"],
 ]);
 
+// Non-master specific fallback mappings used by resolveTarget.
+// Keep these separate from master overrides so relationship rules remain explicit.
+const NON_MASTER_FIELD_TARGET_OVERRIDES = new Map([
+  ["battles", "battle"],
+  ["slotid", "own_slotitem"],
+  ["plane_info", "plane_info"],
+  ["air_base_air_attack", "airbase_airattack"],
+  ["air_base_assault", ["airbase_assault", "airbase_assult"]],
+  ["carrier_base_assault", "carrierbase_assault"],
+  ["air_base_air_attacks", "airbase_airattack_list"],
+  ["opening_air_attack", "opening_airattack"],
+  ["opening_taisen", "opening_taisen_list"],
+  ["support_hourai", "support_hourai"],
+  ["support_airattack", "support_airattack"],
+  ["opening_raigeki", "opening_raigeki"],
+  ["hougeki", "hougeki_list"],
+  ["closing_raigeki", "closing_raigeki"],
+  ["friendly_force_attack", "friendly_support_hourai_list"],
+  ["midnight_hougeki", "midnight_hougeki_list"],
+  ["hourai_list", "friendly_support_hourai"],
+  ["airbase_id", "airbase"],
+  ["f_deck_id", "own_deck"],
+  ["e_deck_id", "enemy_deck"],
+  ["friend_deck_id", "friend_deck"],
+  ["support_deck_id", "support_deck"],
+]);
+
+const NON_MASTER_CONTEXTUAL_TARGET_OVERRIDES = new Map([
+  [
+    "ship_ids",
+    [
+      ["own", "own_ship"],
+      ["enemy", "enemy_ship"],
+      ["friend", "friend_ship"],
+      ["support", "own_ship"],
+    ],
+  ],
+  [
+    "slot",
+    [
+      ["own", "own_slotitem"],
+      ["enemy", "enemy_slotitem"],
+      ["friend", "friend_slotitem"],
+      ["support", "own_slotitem"],
+    ],
+  ],
+  [
+    "slot_ex",
+    [
+      ["own", "own_slotitem"],
+      ["enemy", "enemy_slotitem"],
+      ["friend", "friend_slotitem"],
+      ["support", "own_slotitem"],
+    ],
+  ],
+]);
+
 function normalizeMasterTableName(name) {
   return MASTER_TABLE_ALIASES.get(name) || name;
 }
@@ -93,6 +150,29 @@ function resolveOverrideTargets(fieldName, sourceTable = "") {
 
 function resolveOverrideTarget(fieldName, sourceTable = "") {
   return resolveOverrideTargets(fieldName, sourceTable)[0] ?? null;
+}
+
+function resolveNonMasterKnownTarget(fieldName, sourceTable, tableNames) {
+  const direct = NON_MASTER_FIELD_TARGET_OVERRIDES.get(fieldName);
+  if (direct) {
+    const candidates = Array.isArray(direct) ? direct : [direct];
+    for (const candidate of candidates) {
+      if (tableNames.includes(candidate) && candidate !== sourceTable) {
+        return candidate;
+      }
+    }
+  }
+
+  const contextual = NON_MASTER_CONTEXTUAL_TARGET_OVERRIDES.get(fieldName);
+  if (!contextual) return null;
+
+  for (const [prefix, target] of contextual) {
+    if (sourceTable.startsWith(prefix) && tableNames.includes(target)) {
+      return target;
+    }
+  }
+
+  return null;
 }
 
 /** Compare version keys like "v0_4" vs "v0_5_1" vs "v1_0" numerically */
@@ -188,7 +268,6 @@ function parseAvroType(avroType) {
  * or whose type is uuid with a name matching another table, indicates a reference.
  */
 function inferEdges(tables) {
-  const tableNameSet = new Set(tables.map((t) => t.table_name));
   const tableByRecord = new Map();
   for (const t of tables) {
     const schema = JSON.parse(t.schema);
@@ -261,55 +340,12 @@ function resolveTarget(fieldName, sourceTable, tables) {
     }
   }
 
-  // Special known mappings based on database_dependency_dot analysis
-  const knownMappings = {
-    battles: "battle",
-    ship_ids: null, // contextual: own_ship, enemy_ship, friend_ship depending on source
-    slotid: "own_slotitem",
-    slot: null, // contextual
-    slot_ex: null,
-    plane_info: "plane_info",
-    air_base_air_attack: "airbase_airattack",
-    air_base_assault: "airbase_assult",
-    carrier_base_assault: "carrierbase_assault",
-    air_base_air_attacks: "airbase_airattack_list",
-    opening_air_attack: "opening_airattack",
-    opening_taisen: "opening_taisen_list",
-    support_hourai: "support_hourai",
-    support_airattack: "support_airattack",
-    opening_raigeki: "opening_raigeki",
-    hougeki: "hougeki_list",
-    closing_raigeki: "closing_raigeki",
-    friendly_force_attack: "friendly_support_hourai_list",
-    midnight_hougeki: "midnight_hougeki_list",
-    hourai_list: "friendly_support_hourai",
-    airbase_id: "airbase",
-    f_deck_id: "own_deck",
-    e_deck_id: "enemy_deck",
-    friend_deck_id: "friend_deck",
-    support_deck_id: "support_deck",
-  };
-
-  if (fieldName in knownMappings) {
-    const mapped = knownMappings[fieldName];
-    if (mapped && tableNames.includes(mapped)) {
-      return mapped;
-    }
-    // Contextual: try to match by source table prefix
-    if (mapped === null) {
-      if (sourceTable.startsWith("own") && tableNames.includes("own_ship"))
-        return "own_ship";
-      if (sourceTable.startsWith("enemy") && tableNames.includes("enemy_ship"))
-        return "enemy_ship";
-      if (
-        sourceTable.startsWith("friend") &&
-        tableNames.includes("friend_ship")
-      )
-        return "friend_ship";
-      if (sourceTable.startsWith("support") && tableNames.includes("own_ship"))
-        return "own_ship";
-    }
-  }
+  const nonMasterKnown = resolveNonMasterKnownTarget(
+    fieldName,
+    sourceTable,
+    tableNames,
+  );
+  if (nonMasterKnown) return nonMasterKnown;
 
   return null;
 }
@@ -385,17 +421,6 @@ function buildMasterDataNodesFromAvro(version) {
   }
 
   return deduped;
-}
-
-function resolveMasterTarget(fieldName, sourceTable = "") {
-  const overridden = resolveOverrideTarget(fieldName, sourceTable);
-  if (overridden) return overridden;
-
-  if (/^mst_[a-z0-9_]+_id$/.test(fieldName)) {
-    return normalizeMasterTableName(fieldName.replace(/_id$/, ""));
-  }
-
-  return null;
 }
 
 function resolveMasterTargets(fieldName, sourceTable = "") {

@@ -1,8 +1,30 @@
-import type { WeaponIconFrame, ShipInfo, BattleFleets } from "./types";
-import { escHtml, getDamageState, hpFillClass, transitionState } from "./helpers";
+import type {
+  BattleFleets,
+  MstSlotItemRecord,
+  ShipInfo,
+  WeaponIconFrame,
+} from "./types";
+import {
+  averageNullableNumbers,
+  escHtml,
+  formatNullableNumber,
+  getDamageState,
+  hpFillClass,
+  normalizeNullableNumber,
+  sumNullableNumbers,
+  transitionState,
+} from "./helpers";
 import { AIR_STATE } from "./constants";
 import { getWeaponIconCaches } from "./data-service";
+import { unknownArrayOf } from "./payload-guards";
 import { isSafeImageUrl } from "@/utils/security";
+
+function normalizeParticipantIndex(value: unknown): number | null {
+  const index = normalizeNullableNumber(value);
+  return index !== null && Number.isSafeInteger(index) && index >= 0
+    ? index
+    : null;
+}
 
 export function renderWeaponIconHtml(iconType: unknown): string {
   const iconId = Number(iconType ?? 0);
@@ -24,7 +46,7 @@ export function renderWeaponIconHtml(iconType: unknown): string {
 
 export function slotItemMeta(
   slotItemId: unknown,
-  mstSlotItemById: Map<number, Record<string, unknown>> | null,
+  mstSlotItemById: Map<number, MstSlotItemRecord> | null = null,
 ): { name: string; iconType: number | null } {
   const id = Number(slotItemId ?? 0);
   if (!Number.isFinite(id) || id <= 0) {
@@ -35,11 +57,11 @@ export function slotItemMeta(
     return { name: "", iconType: null };
   }
   const iconType =
-    Array.isArray(mst.type) && (mst.type as unknown[]).length >= 4
-      ? Number((mst.type as unknown[])[3] ?? 0) || null
+    mst.type && mst.type.length >= 4
+      ? Number(mst.type[3] ?? 0) || null
       : null;
   return {
-    name: String(mst.name ?? ""),
+    name: mst.name ?? "",
     iconType,
   };
 }
@@ -75,7 +97,7 @@ export function renderEquipmentBadgesFromObjects(
 
 export function renderEquipmentBadgesFromSlotIds(
   slotIds: unknown[],
-  mstSlotItemById: Map<number, Record<string, unknown>> | null,
+  mstSlotItemById: Map<number, MstSlotItemRecord> | null,
 ): string {
   if (!Array.isArray(slotIds) || slotIds.length === 0) {
     return "";
@@ -96,15 +118,17 @@ export function renderEquipmentBadgesFromSlotIds(
 
 export function renderCompactHpBadge(current: unknown, max: unknown): string {
   const damageState = getDamageState(current, max);
-  const safeCurrent = Number(current ?? 0) || 0;
-  const safeMax = Number(max ?? current ?? 0) || 0;
+  const safeCurrent = formatNullableNumber(current);
+  const safeMax = formatNullableNumber(max);
+  const currentNumber = Number(current);
+  const maxNumber = Number(max);
   const pct =
-    safeMax > 0
-      ? Math.max(0, Math.min(100, (safeCurrent / safeMax) * 100))
+    Number.isFinite(currentNumber) && Number.isFinite(maxNumber) && maxNumber > 0
+      ? Math.max(0, Math.min(100, (currentNumber / maxNumber) * 100))
       : 0;
   const fillClass = hpFillClass(pct);
 
-  return `<div class="inline-flex min-w-[92px] flex-col gap-1 rounded bg-base-100 px-2 py-1 ring-1 ring-base-300">
+  return `<div class="inline-flex min-w-23 flex-col gap-1 rounded bg-base-100 px-2 py-1 ring-1 ring-base-300">
     <div class="flex items-center justify-between gap-2 text-[11px] leading-none">
       <span class="font-mono">${safeCurrent}/${safeMax}</span>
       <span class="badge ${damageState.cls} badge-xs">${damageState.label}</span>
@@ -117,29 +141,19 @@ export function renderCompactHpBadge(current: unknown, max: unknown): string {
 
 export function renderFleetSummary(ships: ShipInfo[], sideLabel: string): string {
   if (!Array.isArray(ships) || ships.length === 0) return "";
-  const totalNow = ships.reduce(
-    (sum, ship) => sum + (Number(ship.nowhp ?? 0) || 0),
-    0,
-  );
-  const totalMax = ships.reduce(
-    (sum, ship) => sum + (Number(ship.maxhp ?? ship.nowhp ?? 0) || 0),
-    0,
-  );
+  const totalNow = sumNullableNumbers(ships.map((ship) => ship.nowhp));
+  const totalMax = sumNullableNumbers(ships.map((ship) => ship.maxhp));
   const taiha = ships.filter(
     (ship) => getDamageState(ship.nowhp, ship.maxhp).label === "大破",
   ).length;
   const chuuha = ships.filter(
     (ship) => getDamageState(ship.nowhp, ship.maxhp).label === "中破",
   ).length;
-  const totalLevel = ships.reduce(
-    (sum, ship) => sum + (Number(ship.level ?? 0) || 0),
-    0,
-  );
-  const avgLevel = Math.round(totalLevel / ships.length);
+  const avgLevel = averageNullableNumbers(ships.map((ship) => ship.level));
   return `<div class="mb-2 flex flex-wrap gap-2 text-[11px]">
     <span class="badge badge-outline">${sideLabel} ${ships.length}隻</span>
-    <span class="badge badge-outline">総HP ${totalNow}/${totalMax}</span>
-    <span class="badge badge-outline">平均Lv ${Number.isFinite(avgLevel) ? avgLevel : "-"}</span>
+    <span class="badge badge-outline">総HP ${formatNullableNumber(totalNow)}/${formatNullableNumber(totalMax)}</span>
+    <span class="badge badge-outline">平均Lv ${formatNullableNumber(avgLevel)}</span>
     ${taiha > 0 ? `<span class="badge badge-error badge-outline">大破 ${taiha}</span>` : ""}
     ${chuuha > 0 ? `<span class="badge badge-warning badge-outline">中破 ${chuuha}</span>` : ""}
   </div>`;
@@ -150,11 +164,13 @@ export function renderInlineHpMeter(
   max: unknown,
   extraClasses = "",
 ): string {
-  const safeCurrent = Number(current ?? 0) || 0;
-  const safeMax = Number(max ?? current ?? 0) || 0;
+  const safeCurrent = formatNullableNumber(current);
+  const safeMax = formatNullableNumber(max);
+  const currentNumber = Number(current);
+  const maxNumber = Number(max);
   const pct =
-    safeMax > 0
-      ? Math.max(0, Math.min(100, (safeCurrent / safeMax) * 100))
+    Number.isFinite(currentNumber) && Number.isFinite(maxNumber) && maxNumber > 0
+      ? Math.max(0, Math.min(100, (currentNumber / maxNumber) * 100))
       : 0;
   return `<span class="inline-flex items-center gap-1 ${extraClasses}">
     <span class="font-mono">${safeCurrent}/${safeMax}</span>
@@ -171,9 +187,11 @@ export function renderOutcomeBadges(opts: {
   sunk: boolean;
   afterState: string;
 }): string {
-  const dmg = Number(opts.damage ?? 0) || 0;
+  const dmg = normalizeNullableNumber(opts.damage);
   const badges: string[] = [];
-  if (dmg <= 0) {
+  if (dmg === null) {
+    badges.push(`<span class="badge badge-ghost badge-sm">ダメージ不明</span>`);
+  } else if (dmg <= 0) {
     badges.push(`<span class="badge badge-neutral badge-sm">MISS</span>`);
   } else {
     badges.push(
@@ -217,22 +235,22 @@ export function renderHPBar(
 
 export function shipNameFromIndex(
   side: "friend" | "enemy",
-  idx: number,
+  idx: number | null,
   fleets: BattleFleets | null,
 ): string {
   const list =
     side === "friend" ? fleets?.friendlyShips : fleets?.enemyShips;
-  const ship = Array.isArray(list) ? list[idx] : null;
-  return ship?.name ?? `艦${idx + 1}`;
+  const ship = idx !== null && Array.isArray(list) ? list[idx] : null;
+  return ship?.name ?? (idx === null ? "艦不明" : `艦${idx + 1}`);
 }
 
-export function shipSlotLabel(_side: string, idx: number): string {
-  return `${Number(idx ?? 0) + 1}番`;
+export function shipSlotLabel(_side: string, idx: number | null): string {
+  return idx === null ? "?番" : `${idx + 1}番`;
 }
 
 export function shipDisplayLabel(
   side: "friend" | "enemy",
-  idx: number,
+  idx: number | null,
   fleets: BattleFleets | null,
 ): string {
   return `${shipSlotLabel(side, idx)} ${shipNameFromIndex(side, idx, fleets)}`;
@@ -240,27 +258,29 @@ export function shipDisplayLabel(
 
 export function maxHpForShip(
   side: "friend" | "enemy",
-  idx: number,
-  fallbackHp: number,
+  idx: number | null,
+  fallbackHp: number | null,
   fleets: BattleFleets | null,
-): number {
+): number | null {
   const ship =
-    (side === "friend"
-      ? fleets?.friendlyShips
-      : fleets?.enemyShips)?.[idx] ?? null;
-  return Number(ship?.maxhp ?? fallbackHp ?? 0) || 0;
+    idx !== null
+      ? (side === "friend"
+          ? fleets?.friendlyShips
+          : fleets?.enemyShips)?.[idx] ?? null
+      : null;
+  return ship?.maxhp ?? fallbackHp;
 }
 
-export function renderShipIndexBadge(side: string, idx: number): string {
+export function renderShipIndexBadge(side: string, idx: number | null): string {
   return `<span class="badge badge-ghost badge-sm">${shipSlotLabel(side, idx)}</span>`;
 }
 
 export function renderPhaseParticipant(
   name: string,
   side: string,
-  idx: number,
-  hpCurrent: number,
-  hpMax: number,
+  idx: number | null,
+  hpCurrent: number | null,
+  hpMax: number | null,
 ): string {
   const tone = side === "enemy" ? "text-error" : "text-info";
   return `<div class="min-w-0 rounded bg-base-100 px-2 py-1 border border-base-300">
@@ -279,8 +299,8 @@ export function renderShipRows(ships: ShipInfo[], sideLabel: string): string {
   const rows = ships
     .map((ship) => {
       const hpBadge = renderCompactHpBadge(
-        ship.nowhp ?? 0,
-        ship.maxhp ?? ship.nowhp ?? 0,
+        ship.nowhp,
+        ship.maxhp,
       );
       const statText = `火${ship.karyoku ?? "-"} 雷${ship.raisou ?? "-"} 対${ship.taiku ?? "-"} 装${ship.soukou ?? "-"}`;
       const equipText = renderEquipmentBadgesFromObjects(ship.equipments);
@@ -309,23 +329,15 @@ function getRowHpSnapshot(
   side: string,
 ): unknown[] {
   if (side === "friend") {
-    return Array.isArray(row?.f_now_hps)
-      ? (row.f_now_hps as unknown[])
-      : Array.isArray(row?.f_nowhps)
-        ? (row.f_nowhps as unknown[])
-        : [];
+    return unknownArrayOf(row?.["f_now_hps"] ?? row?.["f_nowhps"]);
   }
-  return Array.isArray(row?.e_now_hps)
-    ? (row.e_now_hps as unknown[])
-    : Array.isArray(row?.e_nowhps)
-      ? (row.e_nowhps as unknown[])
-      : [];
+  return unknownArrayOf(row?.["e_now_hps"] ?? row?.["e_nowhps"]);
 }
 
 export function renderShellingRows(
   rows: Array<Record<string, unknown>>,
   fleets: BattleFleets | null,
-  mstSlotItemById: Map<number, Record<string, unknown>> | null,
+  mstSlotItemById: Map<number, MstSlotItemRecord> | null,
 ): string {
   const header = `<div class="mb-1 hidden text-[10px] uppercase tracking-wide text-base-content/45 md:grid md:grid-cols-[minmax(0,260px)_20px_minmax(0,1fr)] md:items-center">
     <span>攻撃艦</span>
@@ -335,37 +347,50 @@ export function renderShellingRows(
 
   const body = rows
     .map((row) => {
-      const atkEnemy = Number(row.at_eflag ?? 0) !== 0;
-      const attackerIdx = Number(row.at ?? 0) || 0;
+      const atkEnemy = Number(row["at_eflag"] ?? 0) !== 0;
+      const attackerIdx = normalizeParticipantIndex(row["at"]);
       const attackerSide: "friend" | "enemy" = atkEnemy ? "enemy" : "friend";
       const attackerName = shipNameFromIndex(attackerSide, attackerIdx, fleets);
       const attackerHpSnapshot = getRowHpSnapshot(row, attackerSide);
-      const attackerCurrentHp = Number(attackerHpSnapshot[attackerIdx] ?? 0) || 0;
-      const attackerMaxHp = maxHpForShip(
-        attackerSide,
-        attackerIdx,
-        attackerCurrentHp,
-        fleets,
-      );
-      const defs = Array.isArray(row.df) ? (row.df as unknown[]) : [];
-      const dmgs = Array.isArray(row.damage) ? (row.damage as unknown[]) : [];
-      const cls = Array.isArray(row.cl) ? (row.cl as unknown[]) : [];
-      const protects = Array.isArray(row.protect_flag)
-        ? (row.protect_flag as unknown[])
-        : [];
-      const sis = Array.isArray(row.si) ? (row.si as unknown[]) : [];
+      const attackerCurrentHp =
+        attackerIdx === null
+          ? null
+          : normalizeNullableNumber(attackerHpSnapshot[attackerIdx]);
+      const attackerMaxHp =
+        attackerIdx === null
+          ? null
+          : maxHpForShip(
+              attackerSide,
+              attackerIdx,
+              attackerCurrentHp,
+              fleets,
+            );
+      const defs = unknownArrayOf(row["df"]);
+      const dmgs = unknownArrayOf(row["damage"]);
+      const cls = unknownArrayOf(row["cl"]);
+      const protects = unknownArrayOf(row["protect_flag"]);
+      const sis = unknownArrayOf(row["si"]);
       const defenderSide: "friend" | "enemy" = atkEnemy ? "friend" : "enemy";
       const defenderHpSnapshot = getRowHpSnapshot(row, defenderSide);
       const targetsHtml = defs
         .map((d, i) => {
-          const defenderIdx = Number(d ?? 0) || 0;
+          const defenderIdx = normalizeParticipantIndex(d);
           const defName = shipNameFromIndex(defenderSide, defenderIdx, fleets);
-          const dmg = Number(dmgs[i] ?? 0) || 0;
+          const dmg = normalizeNullableNumber(dmgs[i]);
           const crit = Number(cls[i] ?? 0) >= 2;
           const protect = Boolean(protects[i]);
-          const beforeHp = Number(defenderHpSnapshot[defenderIdx] ?? 0) || 0;
-          const mHp = maxHpForShip(defenderSide, defenderIdx, beforeHp, fleets);
-          const afterHp = Math.max(0, beforeHp - dmg);
+          const beforeHp =
+            defenderIdx === null
+              ? null
+              : normalizeNullableNumber(defenderHpSnapshot[defenderIdx]);
+          const mHp =
+            defenderIdx === null
+              ? null
+              : maxHpForShip(defenderSide, defenderIdx, beforeHp, fleets);
+          const afterHp =
+            beforeHp !== null && dmg !== null
+              ? Math.max(0, beforeHp - dmg)
+              : null;
           const state = transitionState(beforeHp, afterHp, mHp);
           return `<div class="rounded bg-base-100 px-2 py-1 border border-base-300">
             <div class="flex flex-wrap items-center gap-2 justify-between">
@@ -408,32 +433,35 @@ export function renderRaigekiRows(
   title: string,
   fleets: BattleFleets | null,
 ): string {
-  const fDam = Array.isArray(data?.f_dam) ? (data.f_dam as unknown[]) : [];
-  const eDam = Array.isArray(data?.e_dam) ? (data.e_dam as unknown[]) : [];
+  const fDam = unknownArrayOf(data?.["f_dam"]);
+  const eDam = unknownArrayOf(data?.["e_dam"]);
   const fNow = getRowHpSnapshot(data, "friend");
   const eNow = getRowHpSnapshot(data, "enemy");
   const fHits = fDam
     .map((d, i) => ({
       side: "friend" as const,
       idx: i,
-      dmg: Number(d ?? 0) || 0,
+      dmg: normalizeNullableNumber(d),
       beforeHp: fNow[i],
     }))
-    .filter((x) => x.dmg > 0);
+    .filter((x): x is typeof x & { dmg: number } => x.dmg !== null && x.dmg >= 0);
   const eHits = eDam
     .map((d, i) => ({
       side: "enemy" as const,
       idx: i,
-      dmg: Number(d ?? 0) || 0,
+      dmg: normalizeNullableNumber(d),
       beforeHp: eNow[i],
     }))
-    .filter((x) => x.dmg > 0);
+    .filter((x): x is typeof x & { dmg: number } => x.dmg !== null && x.dmg >= 0);
   const rows = [...fHits, ...eHits]
     .map((hit) => {
       const name = shipNameFromIndex(hit.side, hit.idx, fleets);
-      const beforeHp = Number(hit.beforeHp ?? 0) || 0;
+      const beforeHp = normalizeNullableNumber(hit.beforeHp);
       const mHp = maxHpForShip(hit.side, hit.idx, beforeHp, fleets);
-      const afterHp = Math.max(0, beforeHp - hit.dmg);
+      const afterHp =
+        beforeHp !== null
+          ? Math.max(0, beforeHp - hit.dmg)
+          : null;
       const state = transitionState(beforeHp, afterHp, mHp);
       return `<div class="rounded border border-base-300 bg-base-200 px-2 py-1">
         <div class="flex flex-wrap items-center justify-between gap-2">
@@ -456,24 +484,16 @@ export function renderRaigekiRows(
 }
 
 export function renderAirAttackRows(data: Record<string, unknown>): string {
-  const fDmg = Array.isArray(data?.f_damages)
-    ? (data.f_damages as number[]).reduce(
-        (s, d) => s + (Number(d ?? 0) || 0),
-        0,
-      )
-    : 0;
-  const eDmg = Array.isArray(data?.e_damages)
-    ? (data.e_damages as number[]).reduce(
-        (s, d) => s + (Number(d ?? 0) || 0),
-        0,
-      )
-    : 0;
-  const sup = Number(data?.air_superiority ?? -1);
+  const fDmg = sumNullableNumbers(unknownArrayOf(data?.["f_damages"]));
+  const eDmg = sumNullableNumbers(unknownArrayOf(data?.["e_damages"]));
+  const sup = Number(data?.["air_superiority"] ?? -1);
   const airLabel = AIR_STATE[sup]?.label ?? "";
   const hasAnySortie =
-    (Array.isArray(data?.f_plane_from) && (data.f_plane_from as unknown[]).length > 0) ||
-    (Array.isArray(data?.e_plane_from) && (data.e_plane_from as unknown[]).length > 0);
-  const showAirLabel = airLabel.length > 0 && (hasAnySortie || fDmg > 0 || eDmg > 0);
+    unknownArrayOf(data?.["f_plane_from"]).length > 0 ||
+    unknownArrayOf(data?.["e_plane_from"]).length > 0;
+  const showAirLabel =
+    airLabel.length > 0 &&
+    (hasAnySortie || (fDmg !== null && fDmg > 0) || (eDmg !== null && eDmg > 0));
   return `<div class="grid gap-2 md:grid-cols-3 text-xs">
     <div class="rounded border border-base-300 bg-base-100 px-2 py-2">
       <div class="text-[10px] uppercase tracking-wide text-base-content/45">制空</div>
@@ -481,11 +501,11 @@ export function renderAirAttackRows(data: Record<string, unknown>): string {
     </div>
     <div class="rounded border border-info/25 bg-info/5 px-2 py-2">
       <div class="text-[10px] uppercase tracking-wide text-base-content/45">味方被ダメ</div>
-      <div class="font-semibold">${fDmg}</div>
+      <div class="font-semibold">${formatNullableNumber(fDmg)}</div>
     </div>
     <div class="rounded border border-error/25 bg-error/5 px-2 py-2">
       <div class="text-[10px] uppercase tracking-wide text-base-content/45">敵被ダメ</div>
-      <div class="font-semibold">${eDmg}</div>
+      <div class="font-semibold">${formatNullableNumber(eDmg)}</div>
     </div>
   </div>`;
 }

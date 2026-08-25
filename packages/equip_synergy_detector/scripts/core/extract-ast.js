@@ -125,7 +125,26 @@ if (!decoderFuncName) {
 
 function createResolver(funcName) {
   let source = safeHeader;
-  if (!safeHeader.includes(`function ${funcName}`) && !safeHeader.includes(`var ${funcName}`)) {
+
+  const refs = new Set(safeHeader.match(/\b_0x[a-f0-9]+\b/g) || []);
+  const missingChunks = [];
+  for (const ref of refs) {
+    const hasFunc = new RegExp(`function\\s+${ref}\\b`).test(safeHeader);
+    const hasVar = new RegExp(`(?:var|let|const)\\s+${ref}\\b`).test(safeHeader);
+    if (!hasFunc && !hasVar) {
+      if (topLevelCallableMap.has(ref)) {
+        const node = topLevelCallableMap.get(ref);
+        missingChunks.push(deob.slice(node.start, node.end));
+      }
+    }
+  }
+  if (missingChunks.length > 0) {
+    source = missingChunks.join("\n") + "\n" + source;
+  }
+
+  const hasDecoderFunc = new RegExp(`function\\s+${funcName}\\b`).test(source);
+  const hasDecoderVar = new RegExp(`(?:var|let|const)\\s+${funcName}\\b`).test(source);
+  if (!hasDecoderFunc && !hasDecoderVar) {
     const fallbackSource = buildCallableBootstrapSource(
       funcName,
       topLevelCallableMap,

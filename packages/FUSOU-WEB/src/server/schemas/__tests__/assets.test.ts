@@ -1,0 +1,189 @@
+import { describe, expect, it } from "vitest";
+import {
+  AssetContentHashRowSchema,
+  AssetHashLookupRowSchema,
+  AssetKeyRowSchema,
+  CacheClearKeysSchema,
+  EquipImageMapCacheSchema,
+  parseAssetKeyRows,
+  ShipBannerMapCacheSchema,
+  ShipCardMapCacheSchema,
+  ShipIconMapCacheSchema,
+  SpriteAtlasSchema,
+} from "../assets";
+
+describe("SpriteAtlasSchema", () => {
+  it("accepts a texture atlas shape and preserves metadata", () => {
+    const result = SpriteAtlasSchema.safeParse({
+      frames: { icon: { frame: { x: 0, y: 0, w: 32, h: 32 } } },
+      meta: { size: { w: 256, h: 256 }, app: "texture-packer" },
+    });
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.meta).toMatchObject({ app: "texture-packer" });
+    }
+  });
+
+  it("rejects JSON values without atlas frames and metadata", () => {
+    expect(SpriteAtlasSchema.safeParse([]).success).toBe(false);
+    expect(
+      SpriteAtlasSchema.safeParse({ frames: [], meta: {} }).success,
+    ).toBe(false);
+    expect(
+      SpriteAtlasSchema.safeParse({ frames: {}, meta: "invalid" }).success,
+    ).toBe(false);
+  });
+
+  it("rejects non-finite frame and metadata values without changing valid zeroes", () => {
+    const result = SpriteAtlasSchema.safeParse({
+      frames: {
+        icon: { frame: { x: 0, y: 0, w: "32", h: "32" } },
+      },
+      meta: { size: { w: 0, h: 256 } },
+    });
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.frames["icon"]?.frame).toMatchObject({
+        x: 0,
+        y: 0,
+        w: 32,
+        h: 32,
+      });
+      expect(result.data.meta.size.w).toBe(0);
+    }
+
+    expect(
+      SpriteAtlasSchema.safeParse({
+        frames: { icon: { frame: { x: "NaN", y: 0, w: 32, h: 32 } } },
+        meta: { size: { w: 256, h: 256 } },
+      }).success,
+    ).toBe(false);
+  });
+});
+
+describe("AssetKeyRowSchema", () => {
+  it("accepts a non-empty asset key and preserves extra columns", () => {
+    const result = AssetKeyRowSchema.safeParse({
+      key: "assets/kcs2/resources/ship/banner/0001_v1.png",
+      content_hash: "hash",
+    });
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.key).toBe(
+        "assets/kcs2/resources/ship/banner/0001_v1.png",
+      );
+      expect(result.data["content_hash"]).toBe("hash");
+    }
+  });
+
+  it("rejects missing, empty, and non-string keys", () => {
+    expect(AssetKeyRowSchema.safeParse({}).success).toBe(false);
+    expect(AssetKeyRowSchema.safeParse({ key: "" }).success).toBe(false);
+    expect(AssetKeyRowSchema.safeParse({ key: 42 }).success).toBe(false);
+    expect(AssetKeyRowSchema.safeParse(null).success).toBe(false);
+  });
+});
+
+describe("parseAssetKeyRows", () => {
+  it("keeps valid rows and skips malformed external rows", () => {
+    expect(
+      parseAssetKeyRows([
+        { key: "assets/valid.png", size: 10 },
+        { key: 42 },
+        null,
+      ]),
+    ).toEqual([{ key: "assets/valid.png", size: 10 }]);
+  });
+
+  it("returns an empty list for non-array values", () => {
+    expect(parseAssetKeyRows({ key: "assets/valid.png" })).toEqual([]);
+  });
+});
+
+describe("AssetContentHashRowSchema", () => {
+  it("accepts hash, null, and missing legacy values", () => {
+    expect(
+      AssetContentHashRowSchema.safeParse({ content_hash: "hash" }).success,
+    ).toBe(true);
+    expect(AssetContentHashRowSchema.safeParse({ content_hash: null }).success).toBe(
+      true,
+    );
+    expect(AssetContentHashRowSchema.safeParse({}).success).toBe(true);
+  });
+
+  it("rejects non-string hashes", () => {
+    expect(
+      AssetContentHashRowSchema.safeParse({ content_hash: 42 }).success,
+    ).toBe(false);
+    expect(AssetContentHashRowSchema.safeParse(null).success).toBe(false);
+  });
+});
+
+describe("AssetHashLookupRowSchema", () => {
+  it("accepts the file lookup projection", () => {
+    expect(
+      AssetHashLookupRowSchema.safeParse({
+        key: "assets/file.png",
+        size: 12,
+        uploaded_at: 1_752_000_000_000,
+      }).success,
+    ).toBe(true);
+  });
+
+  it("rejects malformed lookup columns", () => {
+    expect(
+      AssetHashLookupRowSchema.safeParse({
+        key: "assets/file.png",
+        size: "12",
+        uploaded_at: 1,
+      }).success,
+    ).toBe(false);
+  });
+});
+
+describe("CacheClearKeysSchema", () => {
+  it("accepts non-empty cache keys", () => {
+    expect(CacheClearKeysSchema.safeParse(["cache:ship-banner-map"]).success).toBe(
+      true,
+    );
+  });
+
+  it("rejects non-string and empty cache keys", () => {
+    expect(CacheClearKeysSchema.safeParse(["", "cache:key"]).success).toBe(
+      false,
+    );
+    expect(CacheClearKeysSchema.safeParse([1]).success).toBe(false);
+    expect(CacheClearKeysSchema.safeParse(null).success).toBe(false);
+  });
+});
+
+describe("asset map cache schemas", () => {
+  it("accepts the cached ship and equipment map shapes", () => {
+    expect(ShipBannerMapCacheSchema.safeParse({ banners: { "1": "a" } }).success).toBe(
+      true,
+    );
+    expect(ShipCardMapCacheSchema.safeParse({ cards: { "1": "a" } }).success).toBe(
+      true,
+    );
+    expect(ShipIconMapCacheSchema.safeParse({ icons: { "1": "a" } }).success).toBe(
+      true,
+    );
+    expect(
+      EquipImageMapCacheSchema.safeParse({
+        card: { "1": "a" },
+        item_on: {},
+        item_up: {},
+      }).success,
+    ).toBe(true);
+  });
+
+  it("rejects malformed cache values", () => {
+    expect(ShipBannerMapCacheSchema.safeParse({ banners: { "1": 42 } }).success).toBe(
+      false,
+    );
+    expect(EquipImageMapCacheSchema.safeParse({ card: {} }).success).toBe(false);
+  });
+});

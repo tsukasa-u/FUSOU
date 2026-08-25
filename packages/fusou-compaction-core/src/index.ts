@@ -4,6 +4,8 @@ export interface MergeResult {
   headerSize: number;
 }
 
+export * from "./avro.js";
+
 interface OCFHeader {
   metadataEnd: number;
   syncMarker: Uint8Array;
@@ -19,6 +21,9 @@ function readZigzagVarInt(data: Uint8Array, offset: number): { value: number; by
   let bytesRead = 0;
   while (offset + bytesRead < data.byteLength && bytesRead < 10) {
     const byte = data[offset + bytesRead];
+    if (byte === undefined) {
+      throw new Error("Cannot read varint: byte is missing");
+    }
     bytesRead += 1;
     raw |= (byte & 0x7f) << shift;
     if ((byte & 0x80) === 0) {
@@ -115,13 +120,19 @@ function rewriteSyncMarkers(
     }
 
     for (let i = 0; i < 16; i += 1) {
-      if (out[syncPos + i] !== originalMarker[i]) {
+      const outputByte = out[syncPos + i];
+      const originalByte = originalMarker[i];
+      if (outputByte === undefined || originalByte === undefined || outputByte !== originalByte) {
         throw new Error("Unexpected sync marker at OCF block boundary");
       }
     }
 
     for (let i = 0; i < 16; i += 1) {
-      out[syncPos + i] = newMarker[i];
+      const newByte = newMarker[i];
+      if (newByte === undefined) {
+        throw new Error("Replacement sync marker is incomplete");
+      }
+      out[syncPos + i] = newByte;
     }
 
     pos = syncPos + 16;
@@ -134,6 +145,7 @@ export function mergeAvroOCFWithBoundaries(ocfDataArray: Uint8Array[]): MergeRes
   if (ocfDataArray.length === 0) throw new Error("Cannot merge empty OCF array");
 
   const first = ocfDataArray[0];
+  if (first === undefined) throw new Error("Cannot merge empty OCF array");
   const unifiedHeader = parseOCFHeader(first);
   const headerSize = unifiedHeader.metadataEnd + 16;
 
@@ -142,6 +154,7 @@ export function mergeAvroOCFWithBoundaries(ocfDataArray: Uint8Array[]): MergeRes
 
   for (let i = 0; i < ocfDataArray.length; i += 1) {
     const source = ocfDataArray[i];
+    if (source === undefined) throw new Error("OCF source is missing");
     const sourceHeader = parseOCFHeader(source);
     const rawBlocks = extractDataBlocksRaw(source, sourceHeader);
     const rewritten = rewriteSyncMarkers(rawBlocks, sourceHeader.syncMarker, unifiedHeader.syncMarker);

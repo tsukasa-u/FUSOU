@@ -39,26 +39,26 @@ tags: [formulas, sakuteki, cutin, improvement, battle]
 索敵成功判定は `SakutekiData` が戦闘データの `api_search` をそのまま読んでいる。
 
 ```ts
-_data_f = api_search[0]
-_data_e = api_search[1]
+_data_f = api_search[0];
+_data_e = api_search[1];
 ```
 
 ### 1-2. 成功判定
 
 ```ts
-isSuccess(value) = value == 1 || value == 2 || value == 5
+isSuccess(value) = value == 1 || value == 2 || value == 5;
 ```
 
 ### 1-3. 索敵機あり判定
 
 ```ts
-hasPlane(value) = value == 1 || value == 2 || value == 3 || value == 4
+hasPlane(value) = value == 1 || value == 2 || value == 3 || value == 4;
 ```
 
 ### 1-4. 未帰還機あり判定
 
 ```ts
-hasMikikan(value) = value == 2 || value == 3
+hasMikikan(value) = value == 2 || value == 3;
 ```
 
 ### 1-5. 結論
@@ -77,8 +77,8 @@ hasMikikan(value) = value == 2 || value == 3
 
 ```ts
 if (record.raw.sakuteki.hasPlane_f() == 1) {
-  const slot = _searchEquipedSlotitems()
-  _loadPlaneImage(slot)
+  const slot = _searchEquipedSlotitems();
+  _loadPlaneImage(slot);
 }
 ```
 
@@ -111,8 +111,8 @@ $$
 
 ```ts
 if (score > maxScore) {
-  maxScore = score
-  selected = slot
+  maxScore = score;
+  selected = slot;
 }
 ```
 
@@ -142,7 +142,7 @@ if (score > maxScore) {
 - `api_search` の値
 - ルート分岐判定
 - 触接判定
-- 装備画面や艦娘詳細画面で見える索敵値の表示
+- 装備画面や艦詳細画面で見える索敵値の表示
 
 ---
 

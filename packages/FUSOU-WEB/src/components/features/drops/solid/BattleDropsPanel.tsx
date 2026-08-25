@@ -1,12 +1,59 @@
 /** @jsxImportSource solid-js */
 import { createSignal, createMemo, createEffect, For, Show } from "solid-js";
 import type { SharedDashboardState } from "../../battles/solid/types";
-import { getBattleMapAsset, resolveBattleMapSpriteUrl, type BattleMapTheme } from "@/data/battleMapAssets";
-import { mapKeyOf, cellLabel as pureCellLabel } from "../../map-flow/solid/battle-map-flow/dataUtils";
-import { ShipBanner } from "../../battle-detail/solid/ui";
-import { STYPE_NAMES } from "@/features/simulator/constants";
+import { getBattleMapAsset, resolveBattleMapSpriteUrl } from "@/data/battleMapAssets";
+import { mapKeyOf, cellLabel as pureCellLabel, parseMapFrameMeta } from "../../map-flow/solid/battle-map-flow/dataUtils";
+import { inferRouteOverlays } from "../../map-flow/solid/battle-map-flow/routeInference";
+import { battleResultOf } from "../../map-flow/solid/battle-map-flow/recordParsers";
+import type {
+  InferredRouteOverlay,
+  MapImageMetaPayload,
+} from "../../map-flow/solid/battle-map-flow/types";
 
-type MapSpot = { cellId: number; x: number; y: number };
+import { STYPE_NAMES } from "@/features/simulator/constants";
+import {
+  resolveMapAreaName,
+  resolveMapInfoName,
+} from "@/features/battles/map-labels";
+
+type MapSpot = { cellId: number; x: number; y: number; lineOffsetX?: number; lineOffsetY?: number };
+type JsonRecord = Record<string, unknown>;
+type MapAreaRecord = { id: string | number; name: string };
+type MapInfoRecord = { maparea_id: string | number; no: string | number; name: string };
+
+function isJsonRecord(value: unknown): value is JsonRecord {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function isMapAreaRecord(value: unknown): value is MapAreaRecord {
+  if (!isJsonRecord(value)) return false;
+  return (
+    (typeof value["id"] === "string" || typeof value["id"] === "number") &&
+    typeof value["name"] === "string"
+  );
+}
+
+function isMapInfoRecord(value: unknown): value is MapInfoRecord {
+  if (!isJsonRecord(value)) return false;
+  return (
+    (typeof value["maparea_id"] === "string" || typeof value["maparea_id"] === "number") &&
+    (typeof value["no"] === "string" || typeof value["no"] === "number") &&
+    typeof value["name"] === "string"
+  );
+}
+
+function recordsMatching<T>(payload: unknown, predicate: (value: unknown) => value is T): T[] {
+  if (!isJsonRecord(payload) || !Array.isArray(payload["records"])) return [];
+  return payload["records"].filter(predicate);
+}
+
+function isMapImageMetaPayload(value: unknown): value is MapImageMetaPayload {
+  if (!isJsonRecord(value)) return false;
+  return (
+    (value["frames"] === undefined || isJsonRecord(value["frames"])) &&
+    (value["meta"] === undefined || isJsonRecord(value["meta"]))
+  );
+}
 
 import { ShipDropCard } from "./ShipDropCard";
 
@@ -16,46 +63,38 @@ export default function BattleDropsPanel(props: { dashboardState: SharedDashboar
 
   const [mapSpots, setMapSpots] = createSignal<MapSpot[]>([]);
   const [mapLabels, setMapLabels] = createSignal<Record<number, string>>({});
+  const [mapRouteFrames, setMapRouteFrames] = createSignal<Record<number, { x: number; y: number; width: number; height: number; routeId: number }>>({});
   const [selectedCellId, setSelectedCellId] = createSignal<number | null>(null);
 
-  const [mstMapareas, setMstMapareas] = createSignal<any[]>([]);
-  const [mstMapinfos, setMstMapinfos] = createSignal<any[]>([]);
+  const [mstMapareas, setMstMapareas] = createSignal<MapAreaRecord[]>([]);
+  const [mstMapinfos, setMstMapinfos] = createSignal<MapInfoRecord[]>([]);
 
   createEffect(() => {
     fetch("/api/master-data/json?table_name=mst_map_area")
       .then(res => res.json())
-      .then((payload: any) => setMstMapareas(payload.records || []))
+      .then((payload: unknown) => setMstMapareas(recordsMatching(payload, isMapAreaRecord)))
       .catch(() => {});
     fetch("/api/master-data/json?table_name=mst_map_info")
       .then(res => res.json())
-      .then((payload: any) => setMstMapinfos(payload.records || []))
+      .then((payload: unknown) => setMstMapinfos(recordsMatching(payload, isMapInfoRecord)))
       .catch(() => {});
   });
 
   const getAreaName = (areaIdStr: string) => {
     const fromApi = mstMapareas().find(m => String(m.id) === areaIdStr);
     if (fromApi?.name) return fromApi.name;
-    const map = {
-      "1": "鎮守府海域", "2": "南西諸島海域", "3": "北方海域", "4": "西方海域",
-      "5": "南方海域", "6": "中部海域", "7": "南西海域",
-    };
-    return (map as any)[areaIdStr] || `第${areaIdStr}海域`;
+    const areaId = Number(areaIdStr);
+    return Number.isFinite(areaId) && areaId > 0
+      ? resolveMapAreaName(areaId)
+      : `第${areaIdStr}海域`;
   };
 
   const getMapInfoName = (mapKey: string) => {
     const [area, no] = mapKey.split("-");
+    if (area === undefined || no === undefined) return resolveMapInfoName(mapKey);
     const fromApi = mstMapinfos().find(m => String(m.maparea_id) === area && String(m.no) === no);
     if (fromApi?.name) return fromApi.name;
-    const map = {
-      "1-1": "鎮守府正面海域", "1-2": "南西諸島沖", "1-3": "製油所地帯沿岸", "1-4": "南西諸島防衛線", "1-5": "鎮守府近海", "1-6": "鎮守府近海航路",
-      "2-1": "南西諸島近海", "2-2": "バシー海峡", "2-3": "東部オリョール海", "2-4": "沖ノ島海域", "2-5": "沖ノ島沖",
-      "3-1": "モーレイ海", "3-2": "キス島沖", "3-3": "アルフォンシーノ方面", "3-4": "北方海域全域", "3-5": "北方AL海域",
-      "4-1": "ジャム島攻略作戦", "4-2": "カレー洋制圧戦", "4-3": "リランカ島空襲", "4-4": "カスガダマ沖海戦", "4-5": "カレー洋リランカ島沖",
-      "5-1": "南方海域前面", "5-2": "珊瑚諸島沖", "5-3": "サブ島沖海域", "5-4": "サーモン海域", "5-5": "サーモン海域北方",
-      "6-1": "中部海域哨戒線", "6-2": "MS諸島沖", "6-3": "グアノ環礁沖海域", "6-4": "中部北太平洋海域", "6-5": "KW環礁沖海域",
-      "7-1": "ブルネイ泊地沖", "7-2": "タウイタウイ泊地沖", "7-3": "ペナン島沖", "7-4": "昭南本土航路"
-    };
-    return (map as any)[mapKey] || "";
+    return resolveMapInfoName(mapKey);
   };
 
   createEffect(() => {
@@ -72,18 +111,52 @@ export default function BattleDropsPanel(props: { dashboardState: SharedDashboar
 
     fetch(asset.infoUrl)
       .then((res) => res.json())
-      .then((payload: any) => {
-        const spots = (payload.spots || [])
-          .map((s: any) => ({ cellId: Number(s.no), x: Number(s.x), y: Number(s.y) }))
-          .filter((s: MapSpot) => !Number.isNaN(s.cellId) && !Number.isNaN(s.x) && !Number.isNaN(s.y));
+      .then((payload: unknown) => {
+        const rawSpots = isJsonRecord(payload) && Array.isArray(payload["spots"])
+          ? payload["spots"]
+          : [];
+        const spots = rawSpots
+          .map((value: unknown) => {
+            const s = isJsonRecord(value) ? value : null;
+            if (!s) return null;
+            const line = isJsonRecord(s["line"]) ? s["line"] : {};
+            const cellId = Number(s["no"]);
+            const x = Number(s["x"]);
+            const y = Number(s["y"]);
+            if (!Number.isFinite(cellId) || !Number.isFinite(x) || !Number.isFinite(y)) return null;
+            const lineOffsetX = Number(line["x"] ?? NaN);
+            const lineOffsetY = Number(line["y"] ?? NaN);
+            return {
+              cellId,
+              x,
+              y,
+              ...(Number.isFinite(lineOffsetX) ? { lineOffsetX } : {}),
+              ...(Number.isFinite(lineOffsetY) ? { lineOffsetY } : {}),
+            } satisfies MapSpot;
+          })
+          .filter((s: MapSpot | null): s is MapSpot => s !== null);
         setMapSpots(spots);
       })
       .catch(() => setMapSpots([]));
 
+    fetch(asset.imageMetaUrl)
+      .then((res) => res.json())
+      .then((payload: unknown) => {
+        const meta = parseMapFrameMeta(
+          isMapImageMetaPayload(payload) ? payload : {},
+        );
+        setMapRouteFrames(meta?.routeFrames ?? {});
+      })
+      .catch(() => setMapRouteFrames({}));
+
     if (asset.labelsUrl) {
       fetch(asset.labelsUrl)
         .then((res) => res.json())
-        .then((payload: any) => {
+        .then((payload: unknown) => {
+          if (!isJsonRecord(payload)) {
+            setMapLabels({});
+            return;
+          }
           const labels: Record<number, string> = {};
           for (const [k, v] of Object.entries(payload)) {
             labels[Number(k)] = String(v);
@@ -96,7 +169,7 @@ export default function BattleDropsPanel(props: { dashboardState: SharedDashboar
     }
   });
 
-  const getCellLabel = (cellId: number, mapKey: string) => {
+  const getCellLabel = (cellId: number) => {
     return pureCellLabel(cellId, mapLabels());
   };
 
@@ -106,24 +179,25 @@ export default function BattleDropsPanel(props: { dashboardState: SharedDashboar
 
   const allDrops = createMemo(() => {
     return d.battleRecords()
-      .filter((r) => r.battle_result?.drop_ship_id)
+      .map((r) => ({ record: r, result: battleResultOf(r) }))
+      .filter((entry) => entry.result?.drop_ship_id)
       .map((r) => {
-        const shipId = r.battle_result.drop_ship_id;
+        const shipId = r.result!.drop_ship_id!;
         const info = mstShipInfoById().get(shipId);
         const name = info?.name || `艦#${shipId}`;
         const stype = info?.stype || 0;
         const backs = info?.backs || 1;
-        const mapKey = mapKeyOf(r);
-        const winRank = r.battle_result.win_rank || "不明";
+        const mapKey = mapKeyOf(r.record);
+        const winRank = r.result!.win_rank || "不明";
         return {
-          id: r.uuid || `${r.timestamp}-${shipId}`,
+          id: r.record.uuid || `${r.record.timestamp}-${shipId}`,
           shipId,
           stype,
           backs,
           shipName: name,
           mapKey,
-          cellId: r.cell_id,
-          timestamp: r.timestamp,
+          cellId: r.record.cell_id,
+          timestamp: r.record.timestamp,
           winRank,
         };
       })
@@ -168,6 +242,14 @@ export default function BattleDropsPanel(props: { dashboardState: SharedDashboar
   });
 
   const mapAsset = createMemo(() => getBattleMapAsset(d.mapFilter()));
+
+  const inferredRoutes = createMemo((): InferredRouteOverlay[] => {
+    const spots = mapSpots();
+    const routeFrames = mapRouteFrames();
+    if (spots.length === 0 || Object.keys(routeFrames).length === 0) return [];
+    // No transition data in drops panel – pass empty array so lines render as "potential routes"
+    return inferRouteOverlays(spots, routeFrames, []);
+  });
   const resolvedSpriteUrl = createMemo(() => {
     const asset = mapAsset();
     if (!asset) return null;
@@ -224,8 +306,9 @@ export default function BattleDropsPanel(props: { dashboardState: SharedDashboar
     
     const grouped = new Map<string, { areaId: string; maps: { mapKey: string; drops: number }[]; totalAreaDrops: number }>();
     for (const [mapKey, stats] of mapStats.entries()) {
-      if (mapKey === "-" || mapKey === "0-0") continue;
+      if (mapKey === "-" || mapKey === "unknown") continue;
       const areaId = mapKey.split("-")[0];
+      if (areaId === undefined) continue;
       if (!grouped.has(areaId)) {
         grouped.set(areaId, { areaId, maps: [], totalAreaDrops: 0 });
       }
@@ -420,7 +503,7 @@ export default function BattleDropsPanel(props: { dashboardState: SharedDashboar
                             class="btn btn-secondary btn-xs"
                             onClick={() => setSelectedCellId(null)}
                           >
-                            選択解除: {getCellLabel(selectedCellId()!, d.mapFilter())}
+                            選択解除: {getCellLabel(selectedCellId()!)}
                           </button>
                         </Show>
                       </div>
@@ -443,25 +526,72 @@ export default function BattleDropsPanel(props: { dashboardState: SharedDashboar
                           />
                         </Show>
 
+                        {/* Inferred route lines (実線) */}
+                        <For each={inferredRoutes()}>
+                          {(route) => (
+                            <g>
+                              <line
+                                x1={route.renderFromX}
+                                y1={route.renderFromY}
+                                x2={route.renderToX}
+                                y2={route.renderToY}
+                                stroke="#052e2b"
+                                stroke-width="5"
+                                stroke-linecap="round"
+                                opacity="0.28"
+                              />
+                              <line
+                                x1={route.renderFromX}
+                                y1={route.renderFromY}
+                                x2={route.renderToX}
+                                y2={route.renderToY}
+                                stroke="#34d399"
+                                stroke-width="2.5"
+                                stroke-linecap="round"
+                                opacity="0.75"
+                              />
+                            </g>
+                          )}
+                        </For>
+
                         <For each={mapSpots()}>
                           {(spot) => {
-                            const drops = mapDropsByCell().get(spot.cellId) || [];
-                            const hasDrops = drops.length > 0;
-                            const isSelected = selectedCellId() === spot.cellId;
-                            const totalCount = drops.reduce((sum, d) => sum + d.count, 0);
+                            // NOTE: すべてシグナル読み取りを関数でラップしてリアクティブに保つ
+                            const drops = () => mapDropsByCell().get(spot.cellId) || [];
+                            const hasDrops = () => drops().length > 0;
+                            const totalCount = () => drops().reduce((sum, d) => sum + d.count, 0);
+                            const isSelected = () => selectedCellId() === spot.cellId;
+                            const isHarbor = () => getCellLabel(spot.cellId) === "港";
+                            const r = () => isSelected() ? 18 : 14;
+
+                            const fill = () => isHarbor()
+                              ? "#e3c765"
+                              : hasDrops() ? "#fecdd3" : "#f1f5f9";
+                            const stroke = () => isSelected()
+                              ? "#ea580c"
+                              : isHarbor()
+                                ? "#a16207"
+                                : hasDrops() ? "#e11d48" : "#94a3b8";
+                            const textFill = () => isSelected()
+                              ? "#9a3412"
+                              : isHarbor()
+                                ? "#713f12"
+                                : hasDrops() ? "#9f1239" : "#475569";
 
                             return (
                               <g
                                 class="cursor-pointer"
-                                onClick={() => setSelectedCellId(isSelected ? null : spot.cellId)}
+                                onClick={() => setSelectedCellId(isSelected() ? null : spot.cellId)}
                               >
+                                {/* クリック領域拡張 */}
+                                <circle cx={spot.x} cy={spot.y} r="22" fill="transparent" />
                                 <circle
                                   cx={spot.x}
                                   cy={spot.y}
-                                  r={isSelected ? "18" : "14"}
-                                  fill={hasDrops ? "#fecdd3" : "#f1f5f9"}
-                                  stroke={hasDrops ? "#e11d48" : "#94a3b8"}
-                                  stroke-width={isSelected ? "3" : "2"}
+                                  r={r()}
+                                  fill={fill()}
+                                  stroke={stroke()}
+                                  stroke-width={isSelected() ? "3" : "2"}
                                   class="transition-all"
                                 />
                                 <text
@@ -470,15 +600,16 @@ export default function BattleDropsPanel(props: { dashboardState: SharedDashboar
                                   text-anchor="middle"
                                   font-size="12"
                                   font-weight="bold"
-                                  fill={hasDrops ? "#9f1239" : "#475569"}
+                                  fill={textFill()}
+                                  style={{ "pointer-events": "none" }}
                                 >
-                                  {getCellLabel(spot.cellId, d.mapFilter())}
+                                  {getCellLabel(spot.cellId)}
                                 </text>
-                                <Show when={hasDrops}>
-                                  <g transform={`translate(${spot.x + 12}, ${spot.y - 12})`}>
+                                <Show when={hasDrops()}>
+                                  <g transform={`translate(${spot.x + r() - 4}, ${spot.y - r() + 4})`}>
                                     <rect x="-8" y="-8" width="16" height="16" rx="8" fill="#e11d48" />
                                     <text x="0" y="3" text-anchor="middle" font-size="9" font-weight="bold" fill="white">
-                                      {totalCount}
+                                      {totalCount()}
                                     </text>
                                   </g>
                                 </Show>
@@ -494,7 +625,7 @@ export default function BattleDropsPanel(props: { dashboardState: SharedDashboar
 
               <div class="mt-6 border-t border-base-200 pt-6">
                 <h3 class="font-bold text-base mb-3">
-                  {selectedCellId() !== null ? `${getCellLabel(selectedCellId()!, d.mapFilter())}マスのドロップ` : '海域全体のドロップ'}
+                  {selectedCellId() !== null ? `${getCellLabel(selectedCellId()!)}マスのドロップ` : '海域全体のドロップ'}
                 </h3>
                 <div class="space-y-6 mt-3">
                   <Show when={mapDropsGroupedByStype().length > 0} fallback={<div class="py-4 text-center text-base-content/40">ドロップ履歴がありません</div>}>
@@ -530,7 +661,7 @@ export default function BattleDropsPanel(props: { dashboardState: SharedDashboar
                                   const dropRate = totalAtLoc > 0 ? ((loc.count / totalAtLoc) * 100).toFixed(1) + "%" : "-";
                                   const ranksStr = Object.entries(loc.winRanks).map(([r, c]) => `${r}:${c}`).join(" ");
                                   return {
-                                    label: `${getCellLabel(loc.cellId, d.mapFilter())}マス`,
+                                    label: `${getCellLabel(loc.cellId)}マス`,
                                     dropRateStr: dropRate,
                                     ranksStr,
                                     count: loc.count,

@@ -48,6 +48,20 @@ const SUPPORTED_TABLES = [
   "opening_raigeki",
   "opening_taisen",
   "opening_taisen_list",
+  "airbase",
+  "plane_info",
+  "friend_slotitem",
+  "friend_ship",
+  "support_deck",
+  "friend_deck",
+  "airbase_airattack",
+  "airbase_airattack_list",
+  "airbase_assult",
+  "friendly_support_hourai",
+  "friendly_support_hourai_list",
+  "support_airattack",
+  "support_hourai",
+  "destruction_battle",
 ];
 const DEFAULT_TABLES = [...SUPPORTED_TABLES];
 const PERIOD_TAG_FETCH_LIMIT = 400;
@@ -60,13 +74,6 @@ function run(cmd) {
   });
 }
 
-function runQuiet(cmd) {
-  try {
-    return run(cmd);
-  } catch (e) {
-    return e.stderr || e.stdout || "";
-  }
-}
 
 function sleepMs(ms) {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
@@ -252,6 +259,24 @@ function d1Query(dbName, sql, remote = false) {
   return parsed?.[0]?.results || [];
 }
 
+function fetchAllowedPeriodTagSetFromRemoteD1(dbName, tables) {
+  const tableListSql = (Array.isArray(tables) ? tables : DEFAULT_TABLES)
+    .map((t) => `'${esc(t)}'`)
+    .join(",");
+  const sql = `
+SELECT DISTINCT period_tag
+FROM block_indexes
+WHERE table_name IN (${tableListSql})
+ORDER BY period_tag DESC
+LIMIT ${PERIOD_TAG_FETCH_LIMIT};`;
+
+  const rows = d1Query(dbName, sql, true);
+  const tags = (Array.isArray(rows) ? rows : [])
+    .map((row) => String(row?.period_tag || "").trim())
+    .filter((tag) => isValidPeriodTagDate(tag));
+  return new Set(tags);
+}
+
 function ensureLocalSchema(dbName) {
   const schemaSql = `
 CREATE TABLE IF NOT EXISTS archived_files (
@@ -268,7 +293,12 @@ CREATE TABLE IF NOT EXISTS archived_files (
   source_tier TEXT,
   lock_token TEXT,
   lock_expires_ms INTEGER,
-  lock_owner_run_key TEXT
+  lock_owner_run_key TEXT,
+  lifecycle_state TEXT NOT NULL DEFAULT 'ready',
+  output_etag TEXT,
+  output_verified_at_ms INTEGER,
+  source_cleanup_completed_at_ms INTEGER,
+  output_error TEXT
 );
 CREATE TABLE IF NOT EXISTS block_indexes (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -292,6 +322,24 @@ CREATE INDEX IF NOT EXISTS idx_archived_files_path ON archived_files(file_path);
 CREATE INDEX IF NOT EXISTS idx_block_file_offset ON block_indexes(file_id, start_byte);
 CREATE INDEX IF NOT EXISTS idx_block_indexes_table_period ON block_indexes(table_name, period_tag);
 CREATE INDEX IF NOT EXISTS idx_block_indexes_time ON block_indexes(start_timestamp);
+CREATE TABLE IF NOT EXISTS compaction_output_sources (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  output_file_id INTEGER NOT NULL,
+  source_file_id INTEGER NOT NULL,
+  source_file_path TEXT NOT NULL,
+  archived_source_path TEXT NOT NULL,
+  source_r2_state TEXT NOT NULL DEFAULT 'pending',
+  source_d1_state TEXT NOT NULL DEFAULT 'active',
+  created_at_ms INTEGER NOT NULL,
+  moved_at_ms INTEGER,
+  d1_deleted_at_ms INTEGER,
+  UNIQUE(output_file_id, source_file_id),
+  FOREIGN KEY(output_file_id) REFERENCES archived_files(id)
+);
+CREATE INDEX IF NOT EXISTS idx_compaction_output_sources_output_state
+  ON compaction_output_sources(output_file_id, source_r2_state, source_d1_state);
+CREATE INDEX IF NOT EXISTS idx_compaction_output_sources_source
+  ON compaction_output_sources(source_file_id, source_d1_state);
 `;
   runWithRetry(
     `npx wrangler d1 execute ${dbName} --command "${quoteForCommand(schemaSql)}"`,
@@ -308,6 +356,11 @@ CREATE INDEX IF NOT EXISTS idx_block_indexes_time ON block_indexes(start_timesta
       lock_token: "TEXT",
       lock_expires_ms: "INTEGER",
       lock_owner_run_key: "TEXT",
+      lifecycle_state: "TEXT NOT NULL DEFAULT 'ready'",
+      output_etag: "TEXT",
+      output_verified_at_ms: "INTEGER",
+      source_cleanup_completed_at_ms: "INTEGER",
+      output_error: "TEXT",
     },
     block_indexes: {
       compaction_tier: "TEXT NOT NULL DEFAULT 'hourly'",
@@ -545,7 +598,19 @@ function seedLocalD1(db, rows, tables, period, uploadedPaths) {
 
 async function main() {
   const opts = parseArgs();
-  const allowedPeriodTagSet = await fetchAllowedPeriodTagSetFromSupabase();
+  let allowedPeriodTagSet;
+  try {
+    allowedPeriodTagSet = await fetchAllowedPeriodTagSetFromSupabase();
+  } catch (e) {
+    const reason = e?.message || String(e);
+    console.warn(
+      `[seed-local-battle-data] Supabase period-tag fetch failed (${reason}). Falling back to remote D1 period_tag set.`,
+    );
+    allowedPeriodTagSet = fetchAllowedPeriodTagSetFromRemoteD1(
+      opts.db,
+      opts.tables,
+    );
+  }
 
   console.log("=== Local Battle Data Seeder ===");
   console.log(`Bucket: ${opts.bucket}`);

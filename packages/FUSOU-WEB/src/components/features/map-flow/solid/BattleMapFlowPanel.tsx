@@ -13,24 +13,12 @@ import {
   getBattleMapAsset,
   resolveBattleMapSpriteUrl,
 } from "@/data/battleMapAssets";
-import { cachedFetch } from "@/utils/fetchCache";
 import type { SharedDashboardState } from "../../battles/solid/types";
 
 import type {
   BattleRecord,
-  BattleResultData,
-  BattleResultRecord,
-  CellRecord,
-  EnemyDeckRecord,
-  EnemyShipRecord,
-  EnemySlotItemRecord,
   MapFrameMeta,
-  MapImageMetaPayload,
-  MapInfoPayload,
-  MapLabelsPayload,
   MapSpot,
-  MstShipRecord,
-  MstSlotItemRecord,
   OfficialMapThemeMode,
   OverlayMarker,
   ResolvedRouteOverlay,
@@ -42,7 +30,6 @@ import type {
 
 import {
   DEFAULT_MAP_VIEWPORT_HEIGHT_PERCENT,
-  MAP_FLOW_DISPLAY_SETTINGS_KEY,
   MAX_SORTIE_ROUTES,
   ROUTE_COUNT_BADGE_HEIGHT,
   ROUTE_COUNT_BADGE_WIDTH,
@@ -56,38 +43,58 @@ import {
 } from "./battle-map-flow/geometry";
 import { buildAutoLabelLayouts } from "./battle-map-flow/labelLayout";
 import { inferRouteOverlays } from "./battle-map-flow/routeInference";
+import { buildEnemyDeckResolver } from "./battle-map-flow/enemyResolver";
 import {
   cellLabel as pureCellLabel,
   cellOverlayLabel as pureCellOverlayLabel,
+  compareNullableTimestamps,
   formatTimestamp,
   mapKeyOf,
-  normalizeEpochMs,
+  parseMapInfoPayload,
+  parseMapLabelsPayload,
   parseMapFrameMeta,
-  parseOfficialMapThemeMode,
-  resolveBattleResult,
   resolveRouteCellsWithPort,
 } from "./battle-map-flow/dataUtils";
 import MapSvgCanvas from "./battle-map-flow/MapSvgCanvas";
 import CellDetailsPanel from "./battle-map-flow/CellDetailsPanel";
 import SortieListPanel from "./battle-map-flow/SortieListPanel";
 import DisplaySettingsModal from "./battle-map-flow/DisplaySettingsModal";
-import { AlertMessage } from "@/components/common/solid/AlertMessage";
 import {
-  MasterDataLoadStatusAlert,
-  type MasterDataLoadStatusItem,
-} from "@/components/common/solid/MasterDataLoadStatusAlert";
+  resolveMapAreaName,
+  resolveMapInfoName,
+} from "@/features/battles/map-labels";
 
-type PeriodSummary = {
-  period_tag: string;
-  table_version: string | null;
-};
+type JsonRecord = Record<string, unknown>;
+type MapAreaRecord = { id: string | number; name: string };
+type MapInfoRecord = { maparea_id: string | number; no: string | number; name: string };
 
-function periodLabel(period: PeriodSummary): string {
-  if (period.period_tag === "latest") return "最新期間";
-  if (period.period_tag === "all") return "全期間";
-  if (!period.table_version) return period.period_tag;
-  return `${period.period_tag} (v${period.table_version})`;
+function isJsonRecord(value: unknown): value is JsonRecord {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
 }
+
+function isMapAreaRecord(value: unknown): value is MapAreaRecord {
+  if (!isJsonRecord(value)) return false;
+  return (
+    (typeof value["id"] === "string" || typeof value["id"] === "number") &&
+    typeof value["name"] === "string"
+  );
+}
+
+function isMapInfoRecord(value: unknown): value is MapInfoRecord {
+  if (!isJsonRecord(value)) return false;
+  return (
+    (typeof value["maparea_id"] === "string" || typeof value["maparea_id"] === "number") &&
+    (typeof value["no"] === "string" || typeof value["no"] === "number") &&
+    typeof value["name"] === "string"
+  );
+}
+
+function recordsMatching<T>(payload: unknown, predicate: (value: unknown) => value is T): T[] {
+  if (!isJsonRecord(payload) || !Array.isArray(payload["records"])) return [];
+  return payload["records"].filter(predicate);
+}
+
+
 
 export default function BattleMapFlowPanel(props: { dashboardState: SharedDashboardState }) {
   const d = props.dashboardState;
@@ -96,10 +103,11 @@ export default function BattleMapFlowPanel(props: { dashboardState: SharedDashbo
   const [selectedCellFilter, setSelectedCellFilter] =
     createSignal<SelectedCellFilter | null>(null);
   const [metadataWarnings, setMetadataWarnings] = createSignal<string[]>([]);
+  const [showWarnings, setShowWarnings] = createSignal(false);
   const [showOfficialMapAssets, setShowOfficialMapAssets] = createSignal(true);
   const [officialMapThemeMode, setOfficialMapThemeMode] =
     createSignal<OfficialMapThemeMode>("auto");
-  const [detectedTheme, setDetectedTheme] =
+  const [detectedTheme] =
     createSignal<BattleMapTheme>("light");
 
   let displaySettingsModalRef!: HTMLDialogElement;
@@ -120,6 +128,25 @@ export default function BattleMapFlowPanel(props: { dashboardState: SharedDashbo
   const pendingMetadataLoads = new Map<string, Promise<void>>();
 
   let mapMetadataAbortController: AbortController | null = null;
+
+  // ── Master data for area/map names ─────────────────────────────────────────
+  const [mstMapareas, setMstMapareas] = createSignal<MapAreaRecord[]>([]);
+  const [mstMapinfos, setMstMapinfos] = createSignal<MapInfoRecord[]>([]);
+
+  onMount(() => {
+    fetch("/api/master-data/json?table_name=mst_map_area")
+      .then((res) => res.json())
+      .then((payload: unknown) => setMstMapareas(recordsMatching(payload, isMapAreaRecord)))
+      .catch(() => {});
+    fetch("/api/master-data/json?table_name=mst_map_info")
+      .then((res) => res.json())
+      .then((payload: unknown) => setMstMapinfos(recordsMatching(payload, isMapInfoRecord)))
+      .catch(() => {});
+
+    const openSettings = () => displaySettingsModalRef.showModal();
+    window.addEventListener("map-flow-open-display-settings", openSettings);
+    onCleanup(() => window.removeEventListener("map-flow-open-display-settings", openSettings));
+  });
 
   // ── Helper closures (depend on signal state) ────────────────────────────────
 
@@ -174,9 +201,7 @@ export default function BattleMapFlowPanel(props: { dashboardState: SharedDashbo
           const imageMetaResponse = await fetch(asset.imageMetaUrl, { signal });
           if (signal.aborted) return;
           if (imageMetaResponse.ok) {
-            const imageMetaPayload =
-              (await imageMetaResponse.json()) as MapImageMetaPayload;
-            const parsed = parseMapFrameMeta(imageMetaPayload);
+            const parsed = parseMapFrameMeta(await imageMetaResponse.json());
             if (parsed) {
               setMapFrameMetaByKey((prev) => ({ ...prev, [mapKey]: parsed }));
             } else {
@@ -202,7 +227,13 @@ export default function BattleMapFlowPanel(props: { dashboardState: SharedDashbo
           );
           return;
         }
-        const payload = (await response.json()) as MapInfoPayload;
+        const payload = parseMapInfoPayload(await response.json());
+        if (!payload) {
+          addMetadataWarning(
+            `${mapKey} のマップ情報を読み取れませんでした。`,
+          );
+          return;
+        }
         const spots = (payload.spots || [])
           .map((spot): MapSpot | null => {
             const cellId = Number(spot.no ?? NaN);
@@ -220,12 +251,8 @@ export default function BattleMapFlowPanel(props: { dashboardState: SharedDashbo
               cellId,
               x,
               y,
-              lineOffsetX: Number.isFinite(lineOffsetX)
-                ? lineOffsetX
-                : undefined,
-              lineOffsetY: Number.isFinite(lineOffsetY)
-                ? lineOffsetY
-                : undefined,
+              ...(Number.isFinite(lineOffsetX) ? { lineOffsetX } : {}),
+              ...(Number.isFinite(lineOffsetY) ? { lineOffsetY } : {}),
             } satisfies MapSpot;
           })
           .filter((spot): spot is MapSpot => spot !== null);
@@ -246,8 +273,15 @@ export default function BattleMapFlowPanel(props: { dashboardState: SharedDashbo
             const labelsResponse = await fetch(asset.labelsUrl, { signal });
             if (signal.aborted) return;
             if (labelsResponse.ok) {
-              const labelsPayload =
-                (await labelsResponse.json()) as MapLabelsPayload;
+              const labelsPayload = parseMapLabelsPayload(
+                await labelsResponse.json(),
+              );
+              if (!labelsPayload) {
+                addMetadataWarning(
+                  `${mapKey} のラベル情報を読み取れませんでした。`,
+                );
+                return;
+              }
               const labels: Record<number, string> = {};
               for (const [rawId, label] of Object.entries(labelsPayload)) {
                 const id = Number(rawId);
@@ -293,24 +327,84 @@ export default function BattleMapFlowPanel(props: { dashboardState: SharedDashbo
 
   // ── Derived data ─────────────────────────────────────────────────────────────
 
+  const enemyDeckResolver = createMemo(() =>
+    buildEnemyDeckResolver(d.enemyDecks(), d.enemyShips(), d.mstShips()),
+  );
+
   const describeEnemy = (battle: Record<string, unknown>): string => {
-    const summary = battle.enemy_summary;
-    if (typeof summary === "string" && summary) return summary;
-    const deckId = typeof battle.e_deck_id === "string" ? battle.e_deck_id : "";
-    return deckId ? `敵艦隊 ${deckId.slice(0, 6)}` : "-";
+    const summary = battle["enemy_summary"];
+    if (
+      typeof summary === "string" &&
+      summary &&
+      summary !== "-" &&
+      !summary.match(/^[0-9a-f]{8}/i) &&
+      !summary.startsWith("敵艦隊 01") &&
+      !summary.startsWith("敵艦隊 0c")
+    ) {
+      return summary;
+    }
+    const deckId =
+      typeof battle["e_deck_id"] === "string" ? battle["e_deck_id"] : "";
+    if (!deckId) return "-";
+    const resolved = enemyDeckResolver()(deckId);
+    if (
+      resolved &&
+      resolved !== "-" &&
+      resolved !== "敵艦隊" &&
+      !resolved.match(/^敵艦隊 [0-9a-fA-F]/)
+    ) {
+      return resolved;
+    }
+    if (typeof summary === "string" && summary && summary !== "-") {
+      return summary;
+    }
+    return `敵艦隊 (${deckId.slice(0, 6)})`;
   };
 
   const mapOptions = createMemo(() => {
     const values = new Set<string>();
     for (const rec of d.battleRecords()) {
       const key = mapKeyOf(rec);
-      if (key !== "0-0") values.add(key);
+      if (key !== "unknown") values.add(key);
     }
     for (const rec of d.cellRecords()) {
       const key = mapKeyOf(rec);
-      if (key !== "0-0") values.add(key);
+      if (key !== "unknown") values.add(key);
     }
     return [...values].sort((a, b) => a.localeCompare(b, "ja"));
+  });
+
+  function getAreaName(areaIdStr: string): string {
+    const fromApi = mstMapareas().find((m) => String(m.id) === areaIdStr);
+    if (fromApi?.name) return fromApi.name;
+    const areaId = Number(areaIdStr);
+    return Number.isFinite(areaId) && areaId > 0
+      ? resolveMapAreaName(areaId)
+      : `第${areaIdStr}海域`;
+  }
+
+  function getMapInfoName(mapKey: string): string {
+    const parts = mapKey.split("-");
+    const area = parts[0] ?? "";
+    const no = parts[1] ?? "";
+    const fromApi = mstMapinfos().find(
+      (m) => String(m.maparea_id) === area && String(m.no) === no,
+    );
+    if (fromApi?.name) return fromApi.name;
+    return resolveMapInfoName(mapKey);
+  }
+
+  /** mapOptions を海域ごとにグループ化したリスト */
+  const mapAreaGroups = createMemo(() => {
+    const grouped = new Map<string, string[]>();
+    for (const mapKey of mapOptions()) {
+      const areaId = mapKey.split("-")[0] ?? "";
+      if (!grouped.has(areaId)) grouped.set(areaId, []);
+      grouped.get(areaId)!.push(mapKey);
+    }
+    return [...grouped.entries()]
+      .sort(([a], [b]) => Number(a) - Number(b))
+      .map(([areaId, maps]) => ({ areaId, maps }));
   });
 
   createEffect(() => {
@@ -324,7 +418,7 @@ export default function BattleMapFlowPanel(props: { dashboardState: SharedDashbo
     const selected = d.mapFilter();
     return d.battleRecords()
       .filter((r) => !selected || mapKeyOf(r) === selected)
-      .sort((a, b) => (a.timestamp ?? 0) - (b.timestamp ?? 0));
+      .sort((a, b) => compareNullableTimestamps(a.timestamp, b.timestamp));
   });
 
   const filteredCellRecords = createMemo(() => {
@@ -344,7 +438,7 @@ export default function BattleMapFlowPanel(props: { dashboardState: SharedDashbo
       }
     }
     for (const list of groups.values()) {
-      list.sort((a, b) => (a.timestamp ?? 0) - (b.timestamp ?? 0));
+      list.sort((a, b) => compareNullableTimestamps(a.timestamp, b.timestamp));
     }
     return groups;
   });
@@ -354,8 +448,8 @@ export default function BattleMapFlowPanel(props: { dashboardState: SharedDashbo
       .map((cellRecord) => {
         const mapKey = mapKeyOf(cellRecord);
         const cells = (cellRecord.cell_index || [])
-          .map((cellId) => Number(cellId ?? NaN))
-          .filter((cellId) => Number.isFinite(cellId));
+          .map((cellId: unknown) => Number(cellId ?? NaN))
+          .filter((cellId: number) => Number.isFinite(cellId));
         if (cells.length === 0) return null;
 
         const ports = mapPortsByKey()[mapKey] || [];
@@ -388,12 +482,13 @@ export default function BattleMapFlowPanel(props: { dashboardState: SharedDashbo
           };
         });
 
-        const routeTimestamp = Math.max(
-          0,
-          ...battles
-            .map((battle) => Number(battle.timestamp ?? 0))
-            .filter((ts) => Number.isFinite(ts)),
-        );
+        const timestamps = battles
+          .map((battle) => battle.timestamp)
+          .filter((ts): ts is number => ts !== null && Number.isFinite(ts));
+        const routeTimestamp =
+          timestamps.length > 0
+            ? Math.max(...timestamps)
+            : Number.MIN_SAFE_INTEGER;
 
         const sortieId =
           cellRecord.uuid ||
@@ -480,8 +575,8 @@ export default function BattleMapFlowPanel(props: { dashboardState: SharedDashbo
 
     for (const route of filteredCellRecords()) {
       const cells = (route.cell_index || [])
-        .map((cellId) => Number(cellId ?? NaN))
-        .filter((cellId) => Number.isFinite(cellId));
+        .map((cellId: unknown) => Number(cellId ?? NaN))
+        .filter((cellId: number) => Number.isFinite(cellId));
       if (cells.length === 0) continue;
 
       const mapKey = mapKeyOf(route);
@@ -504,6 +599,7 @@ export default function BattleMapFlowPanel(props: { dashboardState: SharedDashbo
 
       for (let i = 0; i < routeCells.length; i++) {
         const currentCell = routeCells[i];
+        if (currentCell === undefined) continue;
         let stat = statMap.get(currentCell);
         if (!stat) {
           stat = {
@@ -559,22 +655,13 @@ export default function BattleMapFlowPanel(props: { dashboardState: SharedDashbo
     return routes.find((r) => r.sortieId === selectedSortieId()) || routes[0];
   });
 
-  // Clear stale cell filter when filtered routes no longer include the selected cell.
-  createEffect(() => {
-    const filter = selectedCellFilter();
-    if (!filter) return;
-    const exists = allSortieRoutes().some((route) => {
-      if (route.mapKey !== filter.mapKey) return false;
-      return route.cells.some((cellId) => filter.cellIds.includes(cellId));
-    });
-    if (!exists) {
-      setSelectedCellFilter(null);
-    }
-  });
+  // NOTE: フィルター選択されたマスのデータがゼロの場合でも filter を null にしない。
+  // データなしのマスをクリックした際にマップが消えたり古いデータが残る問題を防ぐ。
 
   const selectedAsset = createMemo(() => {
     const selected = selectedSortieRoute();
-    const key = selected?.mapKey || d.mapFilter() || null;
+    // セルフィルターが設定されているがrouteがない場合(データなしマス)でもmapKeyを維持
+    const key = selected?.mapKey || selectedCellFilter()?.mapKey || d.mapFilter() || null;
     return getBattleMapAsset(key);
   });
 
@@ -587,8 +674,9 @@ export default function BattleMapFlowPanel(props: { dashboardState: SharedDashbo
 
   const selectedRouteOverlay = createMemo((): ResolvedRouteOverlay | null => {
     const asset = selectedAsset();
+    if (!asset) return null;
+    // selected が null のケース(データなしマスを選択中)ではマップを表示継続し markers を空にする
     const selected = selectedSortieRoute();
-    if (!asset || !selected) return null;
     const frameMeta = mapFrameMetaByKey()[asset.mapKey];
     const hasStandaloneThemeSprite = !!asset.spriteUrls;
     const resolvedAsset = {
@@ -614,7 +702,7 @@ export default function BattleMapFlowPanel(props: { dashboardState: SharedDashbo
       analysis().stats.map((stat) => [stat.cell, stat]),
     );
 
-    const markers: OverlayMarker[] = selected.steps
+    const markers: OverlayMarker[] = (selected?.steps ?? [])
       .map((step) => {
         const spot = spotByCellId.get(step.cellId);
         if (!spot) return null;
@@ -663,7 +751,7 @@ export default function BattleMapFlowPanel(props: { dashboardState: SharedDashbo
       number,
       { visited: boolean; hasBattle: boolean }
     >();
-    for (const step of selected.steps) {
+    for (const step of (selected?.steps ?? [])) {
       const current = selectedRouteStateByCellId.get(step.cellId);
       selectedRouteStateByCellId.set(step.cellId, {
         visited: true,
@@ -812,7 +900,9 @@ export default function BattleMapFlowPanel(props: { dashboardState: SharedDashbo
         (battle) =>
           mapKeyOf(battle) === filter.mapKey && cellIdSet.has(battle.cell_id),
       )
-      .sort((a, b) => (b.timestamp ?? 0) - (a.timestamp ?? 0));
+      .sort((a, b) =>
+        compareNullableTimestamps(a.timestamp, b.timestamp, "desc"),
+      );
 
     const enemyLabelCounts = new Map<string, number>();
     const resultCounts = new Map<string, number>();
@@ -873,7 +963,7 @@ export default function BattleMapFlowPanel(props: { dashboardState: SharedDashbo
         uuid:
           battle.uuid ??
           battle.env_uuid ??
-          `${battle.cell_id}-${battle.timestamp ?? 0}`,
+          `${battle.cell_id}-${battle.index ?? "unknown"}-${battle.timestamp ?? "unknown"}`,
         timestamp: formatTimestamp(battle.timestamp),
         enemy: describeEnemy(battle),
         result:
@@ -888,28 +978,46 @@ export default function BattleMapFlowPanel(props: { dashboardState: SharedDashbo
 
   return (
     <>
-      {/* Hidden button for triggering Display Settings modal from the global header */}
-      <button
-        id="map-flow-display-settings-btn"
-        class="hidden"
-        type="button"
-        onClick={() => displaySettingsModalRef.showModal()}
-      >
-        表示設定
-      </button>
-
       <Show when={metadataWarnings().length > 0}>
-        <AlertMessage
-          type="warning"
-          title="マップメタデータ警告"
-          class="mb-6 p-3 text-sm items-start shadow-sm"
-        >
-          <For each={metadataWarnings()}>
-            {(warning) => (
-              <div class="text-xs text-base-content/80">{warning}</div>
-            )}
-          </For>
-        </AlertMessage>
+        <div class="alert alert-warning mb-6 p-3 text-sm items-start">
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            class="w-5 h-5 shrink-0 stroke-current text-warning"
+            fill="none"
+            viewBox="0 0 24 24"
+            aria-hidden="true"
+          >
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="2"
+              d="M12 9v4m0 4h.01M5.07 19h13.86c1.54 0 2.5-1.67 1.73-3L13.73 4c-.77-1.33-2.69-1.33-3.46 0L3.34 16c-.77 1.33.19 3 1.73 3z"
+            />
+          </svg>
+          <div class="flex flex-col gap-2 w-full">
+            <div class="flex items-center justify-between gap-2">
+              <span class="font-semibold text-warning">
+                マップメタデータ警告 ({metadataWarnings().length}件)
+              </span>
+              <button
+                class="btn btn-xs btn-ghost"
+                type="button"
+                onClick={() => setShowWarnings((prev) => !prev)}
+              >
+                {showWarnings() ? "詳細を隠す" : "詳細を表示"}
+              </button>
+            </div>
+            <Show when={showWarnings()}>
+              <div class="flex flex-col gap-1 mt-1">
+                <For each={metadataWarnings()}>
+                  {(warning) => (
+                    <div class="text-xs text-base-content/80">{warning}</div>
+                  )}
+                </For>
+              </div>
+            </Show>
+          </div>
+        </div>
       </Show>
 
       {/* Map route visualisation */}
@@ -919,6 +1027,53 @@ export default function BattleMapFlowPanel(props: { dashboardState: SharedDashbo
           <div class="text-xs text-base-content/60 mb-2">
             港からどの順番で進んだかを矢印で表示します。線のそばの数字は、そのルートを通った回数です。セルをクリックすると、そのマスを通った出撃だけを表示できます。
           </div>
+
+          {/* 海域未選択時: ドロップページと同様の海域選択グリッドを表示 */}
+          <Show when={!d.mapFilter()}>
+            <Show
+              when={mapAreaGroups().length > 0}
+              fallback={
+                <div class="flex items-center justify-center h-32 text-base-content/40">
+                  {d.loading() ? "読込中..." : "データがありません"}
+                </div>
+              }
+            >
+              <div class="space-y-6">
+                <For each={mapAreaGroups()}>
+                  {(area) => (
+                    <div>
+                      <h4 class="font-bold text-sm text-base-content/80 mb-3 border-b border-base-200 pb-1">
+                        {area.areaId} {getAreaName(area.areaId)}
+                      </h4>
+                      <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-3">
+                        <For each={area.maps}>
+                          {(mapKey) => {
+                            const infoName = getMapInfoName(mapKey);
+                            return (
+                              <button
+                                class="btn btn-outline h-auto py-2 flex flex-col items-center gap-1 hover:bg-base-200 hover:text-base-content hover:border-base-300"
+                                onClick={() => d.setMapFilter(mapKey)}
+                              >
+                                <span class="font-bold text-base">{mapKey}</span>
+                                <Show when={infoName}>
+                                  <span class="text-[10px] font-normal opacity-75 max-w-full truncate px-1">
+                                    {infoName}
+                                  </span>
+                                </Show>
+                              </button>
+                            );
+                          }}
+                        </For>
+                      </div>
+                    </div>
+                  )}
+                </For>
+              </div>
+            </Show>
+          </Show>
+
+          {/* 海域選択済み: ルート図を表示 */}
+          <Show when={d.mapFilter()}>
           <Show
             when={selectedRouteOverlay()}
             fallback={
@@ -952,13 +1107,15 @@ export default function BattleMapFlowPanel(props: { dashboardState: SharedDashbo
                   </div>
                 </div>
 
-                {/* SVG canvas */}
-                <MapSvgCanvas
-                  overlay={overlay()}
-                  selectedCellFilter={selectedCellFilter}
-                  toggleCellFilter={toggleCellFilter}
-                  showOfficialMapAssets={showOfficialMapAssets}
-                />
+                {/* SVG canvas — 固定アスペクト比コンテナでサイズ安定化 */}
+                <div style={`aspect-ratio: ${overlay().asset.routeLayoutFrame.width} / ${overlay().asset.routeLayoutFrame.height}; width: 100%;`}>
+                  <MapSvgCanvas
+                    overlay={overlay()}
+                    selectedCellFilter={selectedCellFilter}
+                    toggleCellFilter={toggleCellFilter}
+                    showOfficialMapAssets={showOfficialMapAssets}
+                  />
+                </div>
 
                 {/* Legend / summary */}
                 <div class="grid gap-3 md:grid-cols-3">
@@ -1035,10 +1192,12 @@ export default function BattleMapFlowPanel(props: { dashboardState: SharedDashbo
               </div>
             )}
           </Show>
+          </Show>
         </div>
       </div>
 
       {/* Cell stats table */}
+      <Show when={d.mapFilter()}>
       <div class="card bg-base-100 shadow-sm">
         <div class="card-body p-0">
           <div class="overflow-x-auto">
@@ -1101,8 +1260,10 @@ export default function BattleMapFlowPanel(props: { dashboardState: SharedDashbo
           </div>
         </div>
       </div>
+      </Show>
 
       {/* Sortie list panel */}
+      <Show when={d.mapFilter()}>
       <div class="card bg-base-100 shadow-sm mt-6">
         <div class="card-body">
           <h3 class="card-title text-lg">進軍ルート一覧（出撃ごと）</h3>
@@ -1120,6 +1281,7 @@ export default function BattleMapFlowPanel(props: { dashboardState: SharedDashbo
           />
         </div>
       </div>
+      </Show>
 
       {/* Display settings modal */}
       <DisplaySettingsModal

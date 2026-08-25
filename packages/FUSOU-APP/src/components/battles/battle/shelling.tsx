@@ -8,12 +8,12 @@ import type {
 } from "../../../utility/get_data_set";
 import type { DeckShipIds } from "../../../utility/battles";
 import {
-  WrapCIMstEquipComponent,
-  WrapEnemyShipHPComponent,
-  WrapOwnShipHPComponent,
-  WrapNumberedEnemyShipComponent,
-  WrapNumberedOwnShipComponent,
-} from "../wrap_web_component";
+  ConnectedCIMstEquip,
+  ConnectedEnemyShipHP,
+  ConnectedOwnShipHP,
+  ConnectedNumberedEnemyShip,
+  ConnectedNumberedOwnShip,
+} from "../connected_components";
 import { DamageCommonComponent } from "../dmg";
 
 interface ShellingProps {
@@ -48,7 +48,7 @@ export function ShellingComponent(props: ShellingProps) {
       return (
         <td>
           <div class="flex flex-nowarp">
-            <WrapNumberedOwnShipComponent
+            <ConnectedNumberedOwnShip
               ship_idx={at}
               deck_ship_id={props.deck_ship_id}
               battle_selected={props.battle_selected}
@@ -61,7 +61,7 @@ export function ShellingComponent(props: ShellingProps) {
       return (
         <td>
           <div class="flex flex-nowarp">
-            <WrapNumberedEnemyShipComponent
+            <ConnectedNumberedEnemyShip
               ship_idx={at}
               battle_selected={props.battle_selected}
               store_data_set_param_ship={props.store_data_set_param_ship}
@@ -76,7 +76,7 @@ export function ShellingComponent(props: ShellingProps) {
     if (hougeki()?.at_eflag[at_index()] == 0) {
       return (
         <td>
-          <WrapOwnShipHPComponent
+          <ConnectedOwnShipHP
             deck_ship_id={props.deck_ship_id}
             battle_selected={props.battle_selected}
             store_data_set_deck_ship={props.store_data_set_deck_ship}
@@ -88,7 +88,7 @@ export function ShellingComponent(props: ShellingProps) {
     } else {
       return (
         <td>
-          <WrapEnemyShipHPComponent
+          <ConnectedEnemyShipHP
             store_data_set_param_ship={props.store_data_set_param_ship}
             idx={at}
             e_now_hps={hougeki()?.e_now_hps[at_index()]}
@@ -106,7 +106,7 @@ export function ShellingComponent(props: ShellingProps) {
             <For each={hougeki()?.df_list[at_index()]}>
               {(df, df_index) => (
                 <div class="flex flex-nowarp">
-                  <WrapNumberedEnemyShipComponent
+                  <ConnectedNumberedEnemyShip
                     ship_idx={df}
                     battle_selected={props.battle_selected}
                     store_data_set_param_ship={props.store_data_set_param_ship}
@@ -129,7 +129,7 @@ export function ShellingComponent(props: ShellingProps) {
             <For each={hougeki()?.df_list[at_index()]}>
               {(df, df_index) => (
                 <div class="flex flex-nowarp">
-                  <WrapNumberedOwnShipComponent
+                  <ConnectedNumberedOwnShip
                     ship_idx={df}
                     deck_ship_id={props.deck_ship_id}
                     battle_selected={props.battle_selected}
@@ -157,7 +157,7 @@ export function ShellingComponent(props: ShellingProps) {
             {(df) => {
               if (hougeki()?.at_eflag[at_index()] == 0) {
                 return (
-                  <WrapEnemyShipHPComponent
+                  <ConnectedEnemyShipHP
                     store_data_set_param_ship={props.store_data_set_param_ship}
                     idx={df}
                     e_now_hps={hougeki()?.e_now_hps[at_index()]}
@@ -165,7 +165,7 @@ export function ShellingComponent(props: ShellingProps) {
                 );
               } else {
                 return (
-                  <WrapOwnShipHPComponent
+                  <ConnectedOwnShipHP
                     deck_ship_id={props.deck_ship_id}
                     battle_selected={props.battle_selected}
                     store_data_set_deck_ship={props.store_data_set_deck_ship}
@@ -212,7 +212,7 @@ export function ShellingComponent(props: ShellingProps) {
             <For each={hougeki()?.si_list[at_index()]}>
               {(si) => (
                 <Show when={si}>
-                  <WrapCIMstEquipComponent
+                  <ConnectedCIMstEquip
                     si={si!}
                     e_flag={hougeki()?.at_eflag[at_index()] !== 0}
                   />
