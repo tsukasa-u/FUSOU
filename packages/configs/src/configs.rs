@@ -1303,6 +1303,15 @@ mod tests {
     }
 
     #[test]
+    fn test_bundled_app_config_is_valid() {
+        let config_content =
+            include_str!("../../FUSOU-APP/src-tauri/resources/user/configs.toml");
+
+        toml::from_str::<Configs>(config_content)
+            .expect("bundled FUSOU-APP configs.toml must match Configs");
+    }
+
+    #[test]
     fn test_all_default_values_match_config_toml() {
         // Initialize default configs from configs.toml
         let default_configs = get_default_configs();
