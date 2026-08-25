@@ -440,6 +440,20 @@ export function ConnectedCIMstEquip(props: WrapCIMstEquipmentProps) {
   );
 }
 
+export function ConnectedMstPlaneEquip(props: { si: number }) {
+  return (
+    <ComponentEquipmentMstModal
+      size="xs"
+      compact={false}
+      empty_flag={false}
+      name_flag={true}
+      show_name={true}
+      show_param={true}
+      mst_slot_item={get_mst_slot_item(props.si)}
+    />
+  );
+}
+
 interface WrapOwnPlaneEquipmentProps {
   si: number;
 }
