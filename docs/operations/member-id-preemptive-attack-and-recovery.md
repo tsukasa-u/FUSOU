@@ -2,7 +2,11 @@
 
 > **文書種別**: アーキテクチャ設計仕様書 & 実装マスターガイド（Implementation Master Guide）  
 > **対象領域**: FUSOU プロジェクト全域（`packages/fusou-auth`, `packages/FUSOU-PROXY`, `packages/FUSOU-APP`, `packages/FUSOU-WEB`, Supabase / Cloudflare Workers）  
-> **ステータス**: 現行コードベース整合・外部セキュリティ監査完全反映マスター  
+> **最重要設計原則**:  
+> 1. **再送信ゼロ（No Re-submission）**: ゲームAPIを裏で故意に再送・二重実行することはBANリスクおよび副作用の観点から絶対に排除し、**ブラウザと艦これ公式サーバー間の正規のTLSセッションそのものを公証**する。  
+> 2. **外部プロキシ中継ゼロ（Direct Connection）**: 外部中継プロキシは規約上・BANリスク上不可とし、**クライアントローカルの `FUSOU-PROXY` と艦これ公式サーバー間の直接通信を維持**する。  
+> 3. **Gameplay Path と Evidence Path の二元分離**: 母港画面の表示（Gameplay Path）は低遅延・通常プレイ継続を最優先とし、真正性証明の構築（Evidence Path）をバックグラウンドで非同期実行する。  
+> **ステータス**: 外部セキュリティ監査・アーキテクチャ二元分離反映マスター  
 
 ---
 
@@ -13,7 +17,7 @@
 3. [Ownership Definition（FUSOU所有権モデルの定義）](#3-ownership-definitionfusou所有権モデルの定義)
 4. [Existing FUSOU Identity Architecture（現行FUSOUのID基盤）](#4-existing-fusou-identity-architecture現行fusouのid基盤)
 5. [Member State Machine（所有権ステートマシン）](#5-member-state-machine所有権ステートマシン)
-6. [TLSNotary Ownership Proof（母港APIの暗号学的公証）](#6-tlsnotary-ownership-proof母港apiの暗号学的公証)
+6. [TLSNotary Ownership Proof（母港APIの暗号学的公証 & データプレーン分離）](#6-tlsnotary-ownership-proof母港apiの暗号学的公証--データプレーン分離)
 7. [Device Binding（Ed25519 デバイスバインディング）](#7-device-bindinged25519-デバイスバインディング)
 8. [Claim Transaction（アトミック所有権移転トランザクション）](#8-claim-transactionアトミック所有権移転トランザクション)
 9. [Preemptive Registration Attack（事前登録攻撃の無力化）](#9-preemptive-registration-attack事前登録攻撃の無力化)
@@ -57,13 +61,13 @@ zkTLS (TLSNotary MPC-TLS) を用いて「正規のゲームセッションを操
 * **暗号学的保証の境界**:
   TLSNotary が証明するのは「**この特定の端末が、当該 `api_member_id` を返した艦これ公式サーバーと正規の TLS 通信を行った事実**」です。
 * **アプリケーション上の所有権定義**:
-  FUSOU においては、「**`api_member_id` を持つ正規のゲームセッションを現実に通信・操作できる端末を、その `api_member_id` の正当な所有者（Verified Owner）と定義し、未検証の自己申告登録よりも常に優先して所有権を付与する**」モデルを採用します。
+  FUSOU における **Verified Owner（検証済み所有者）** とは、**ゲームアカウントの法的・サービス上の所有者ではなく、対象ゲームセッションへの実効アクセスを暗号学的に証明した主体** を意味します。この主体に対して、未検証の自己申告登録よりも常に優先して FUSOU 内の所有権（同期権限）を付与します。
 
 ---
 
 ## 4. Existing FUSOU Identity Architecture（現行FUSOUのID基盤）
 
-現行の FUSOU データベース（`20260822120000_destructive_uuid_public_id_cutover.sql`）は以下の構造を持ちます：
+現行の FUSOU データベース（`20260822120000_destructive_uuid_public_id_cutover.sql`）の構造：
 
 ```mermaid
 erDiagram
@@ -93,8 +97,6 @@ erDiagram
     }
 ```
 
-* **課題**: 自己申告登録時、攻撃者の `auth.users(id)` が `user_member_map.user_id` に設定されてしまうため、後から正規端末が来ても `user_member_map` の所有者を更新しない限り、攻撃者が Canonical Owner のまま残るという重大な欠陥がありました。
-
 ---
 
 ## 5. Member State Machine（所有権ステートマシン）
@@ -122,19 +124,21 @@ stateDiagram-v2
 
 ---
 
-## 6. TLSNotary Ownership Proof（母港APIの暗号学的公証）
+## 6. TLSNotary Ownership Proof（母港APIの暗号学的公証 & データプレーン分離）
 
-### インライン 2PC-TLS による直接公証（再送ゼロ・遅延ゼロ）
-* **再送信ゼロ**: 艦これブラウザが母港（`/kcsapi/api_port/port`）にアクセスした際、プロキシ（`FUSOU-PROXY`）が公式サーバーとの間で直接 2PC-TLS を終端。裏での再送信は行いません。
-* **投機的ストリーミング（遅延 0ms）**: パケット受信時に即座にストリーミング復号してブラウザへ中継（母港画面はラグゼロで表示）。重い MPC 証明計算は裏で非同期実行します。
-* **最小限 Redaction**: リクエストは `Path` と `Host` のみ、レスポンスは `api_result: 1` と `api_member_id` のみをピンポイント開示し、Cookie や資材・艦隊情報は完全マスクします。
+* **Gameplay Path**:
+  母港パケット（`POST /kcsapi/api_port/port`）はブラウザへ低遅延で即座に中継され、ゲーム画面の描画を最優先します。
+* **Evidence Path**:
+  プロキシのバックグラウンドタスクが Notary サーバーと MPC を完了させ、以下の最小限フィールドのみを開示した Presentation を構築します：
+  * Request: `POST /kcsapi/api_port/port` および `Host: wXX*.kcs.dmm.com` のみ開示（Cookie は秘匿）。
+  * Response: `HTTP/1.1 200 OK`, `"api_result": 1`, および `/api_data/api_member_id` のみ開示（資材や艦隊情報は完全マスク）。
 
 ---
 
 ## 7. Device Binding（Ed25519 デバイスバインディング）
 
 * クライアントはローカルで生成・保持する `DeviceKey`（Ed25519 秘密鍵）の公開鍵バイト列（32B）を Presentation の `userData` にバインドします。
-* サーバー側で `verificationResult.userDataHex == device_public_key` を厳格に照合し、中間者攻撃や他人の証明書の盗用を完全に遮断します。
+* サーバー側で `verificationResult.userDataHex == device_public_key` を照合し、他人の証明書の盗用を完全に遮断します。
 
 ---
 
@@ -147,39 +151,38 @@ stateDiagram-v2
 ## 9. Preemptive Registration Attack（事前登録攻撃の無力化）
 
 事前登録攻撃が存在する場合の所有権奪還アルゴリズム：
-1. `member_ownership_claims` に当該 `member_id_hash` の確定レコードが存在しないことを確認（`FOR UPDATE` ロック）。
-2. 新しい正規の `canonical_user_id`（UUID）を生成。
-3. `user_member_map` の所有者を新しい正規ユーザー UUID へ上書き更新（`ON CONFLICT (public_id) DO UPDATE SET user_id = EXCLUDED.user_id`）。
+1. `member_ownership_claims` を `member_id_hash` で排他ロック（`FOR UPDATE`）。
+2. 対象デバイスの `canonical_user_id`（すでに `auth.users` に紐づいている正規 UUID）を取得。
+3. `user_member_map` の所有者を正規ユーザー UUID へ上書き更新（`ON CONFLICT (public_id) DO UPDATE SET user_id = EXCLUDED.user_id`）。
 4. 同一 `public_id` に紐づく過去の未検証端末（`is_verified = FALSE`）を一括 `revoked_at = NOW()`。
-5. 正規端末を `is_verified = TRUE` として登録し、所有権を確定。
+5. `member_ownership_claims` に証明記録（`transcript_commitment` 等）を保存。
 
 ---
 
 ## 10. Concurrent Claim Handling（並行実行と行ロック制御）
 
 * 複数の端末が同時に Claim を実行した場合、`SELECT ... FOR UPDATE` により `member_ownership_claims` および `user_devices` の行がロックされます。
-* 1 つのトランザクションが完了するまで後続の Claim は待機し、レースコンディションによる二重生成やデータ不整合を物理的に防止します。
+* 1 つのトランザクションが完了するまで後続の Claim は待機し、レースコンディションによる不整合を防止します。
 
 ---
 
 ## 11. Revoke Semantics（未検証攻撃者端末の失効セマンティクス）
 
 * 所有権移転時、古い未検証端末には `revoked_reason = 'preempted_by_tlsn_verified_owner'` が刻印されます。
-* 失効した端末からの以降の同期・更新リクエストは、すべて 401/403 で拒絶されます。
+* 失効した端末からの以降のアクセスは、DB の `user_devices.revoked_at IS NULL` チェックにより即時 401/403 で拒絶されます。
 
 ---
 
 ## 12. Dataset Token Issuance（検証済みJWT発行）
 
 所有権確定後、FUSOU-WEB は検証済みフラグ `is_verified: true` を含む JWT `dataset_token` を署名発行します。
-テレメトリ収集 API は、このトークンを持つ端末からのデータのみを受け付けます。
 
 ---
 
 ## 13. Replay Protection（リプレイ攻撃防御）
 
 * Notary が証明書内に刻印した `connectionTime` を検証し、時間窓（24時間ルール）外の古い証明書を自動破棄。
-* Presentation の一意ハッシュ `session_commitment` を `member_ownership_claims` に記録し、同一セッションの再利用を防止。
+* Presentation の `transcript_commitment` を `member_ownership_claims` に記録し、同一通信の再利用を防止。
 
 ---
 
@@ -198,9 +201,11 @@ CREATE TABLE IF NOT EXISTS public.member_ownership_claims (
     claim_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     member_id_hash TEXT NOT NULL,
     public_id UUID NOT NULL,
-    canonical_user_id UUID NOT NULL,
-    verified_device_id UUID NOT NULL,
-    claimed_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    canonical_user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+    verified_device_id UUID NOT NULL REFERENCES public.user_devices(device_id) ON DELETE CASCADE,
+    transcript_commitment TEXT NOT NULL,
+    claimed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT uq_member_claims_hash UNIQUE (member_id_hash)
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_member_claims_hash ON public.member_ownership_claims(member_id_hash);
@@ -210,6 +215,7 @@ CREATE OR REPLACE FUNCTION public.claim_verified_device_v3(
   p_device_public_key TEXT,
   p_api_member_id TEXT,
   p_member_id_hash TEXT,
+  p_transcript_commitment TEXT,
   p_notary_time TIMESTAMPTZ
 )
 RETURNS JSONB
@@ -239,6 +245,8 @@ BEGIN
     RAISE EXCEPTION 'public_key_mismatch';
   END IF;
 
+  v_canonical_user_id := v_device.canonical_user_id;
+
   -- 3. public_id の取得または新規生成
   v_public_id := public.rpc_register_public_id(p_api_member_id);
 
@@ -250,8 +258,7 @@ BEGIN
 
   IF v_existing_claim.claim_id IS NULL THEN
     -- 【初回公証 / 事前登録攻撃者からの所有権奪還】
-    v_canonical_user_id := gen_random_uuid();
-
+    
     -- user_member_map の所有者を正規ユーザーへ移転・上書き
     INSERT INTO public.user_member_map (public_id, user_id, created_at)
     VALUES (v_public_id, v_canonical_user_id, NOW())
@@ -259,8 +266,12 @@ BEGIN
     SET user_id = EXCLUDED.user_id;
 
     -- 所有権 claim を記録
-    INSERT INTO public.member_ownership_claims (member_id_hash, public_id, canonical_user_id, verified_device_id)
-    VALUES (p_member_id_hash, v_public_id, v_canonical_user_id, p_device_id);
+    INSERT INTO public.member_ownership_claims (
+      member_id_hash, public_id, canonical_user_id, verified_device_id, transcript_commitment
+    )
+    VALUES (
+      p_member_id_hash, v_public_id, v_canonical_user_id, p_device_id, p_transcript_commitment
+    );
 
     -- 同一 public_id に紐づく過去の未検証攻撃者端末を一括 Revoke
     UPDATE public.user_devices
@@ -274,7 +285,10 @@ BEGIN
 
   ELSE
     -- 【すでに検証済みオーナーが存在する状態での追加端末 (Multi-Device)】
-    v_canonical_user_id := v_existing_claim.canonical_user_id;
+    IF v_existing_claim.canonical_user_id != v_canonical_user_id THEN
+      -- 既存の正規オーナーの canonical_user_id に統合
+      v_canonical_user_id := v_existing_claim.canonical_user_id;
+    END IF;
   END IF;
 
   -- 5. 当該デバイスを verified に昇格 & 正当な Canonical User にバインド
@@ -309,21 +323,21 @@ COMMIT;
 
 ## 15. Failure Cases（異常系・エラーハンドリング）
 
-* **母港パケットの改ざん検知時**: サーバーは 400 エラーを返し、所有権を付与しません。
-* **Notary 通信不能時**: プロキシは通常の母港通信のみを即座に中継し、公証タスクは次回ログイン時に再試行。
+* **Notary サーバーダウン時**: プロキシは通常の母港通信をそのまま中継し、公証タスクは次回ログイン時に再試行。
+* **公証失敗時**: 400 エラーを返し、所有権の昇格を行いません。
 
 ---
 
 ## 16. Recovery（正規オーナーによるアカウント回復手順）
 
-端末の故障や機種変更時でも、新しい端末で FUSOU を起動して一度艦これにログイン（母港通信）するだけで、zkTLS 公証により自動的に正規オーナーとしてペアリング（または所有権の再確定）が完了します。
+新端末で FUSOU を起動し、母港にアクセスするだけで、zkTLS 公証により自動的に正規オーナーとしてのペアリング（または所有権の再確定）が完了します。
 
 ---
 
 ## 17. Testing（単体・統合・競合テスト）
 
-* **所有権移転テスト**: 攻撃者が未検証登録した後に正規ユーザーが公証提出 $\rightarrow$ `user_member_map` の所有者が正規ユーザーに変更され、攻撃者端末が Revoke されることを検証。
-* **並行 Claim テスト**: 2台の端末から同時に `claim_verified_device_v3` を実行 $\rightarrow$ ロックにより順次実行され、同一の `canonical_user_id` にバインドされることを検証。
+* **所有権移転テスト**: 事前登録攻撃後に正規ユーザーが公証提出 $\rightarrow$ `user_member_map` の所有者が正規ユーザーに変更され、攻撃者端末が Revoke されることを検証。
+* **並行 Claim テスト**: 2台の端末から同時に `claim_verified_device_v3` を実行 $\rightarrow$ ロックにより順次実行されることを検証。
 
 ---
 
@@ -349,8 +363,8 @@ pnpm vitest run tests/tlsn-verifier.test.ts
 
 - [x] ゲーム通信に外部プロキシを使用せず、直接通信が維持されていること
 - [x] ゲーム API の再送・二重実行コードが完全に排除されていること
+- [x] Gameplay Path と Evidence Path が二元分離され、ゲーム画面の描画をブロックしないこと
 - [x] 事前登録攻撃者から正規ユーザーへの Canonical User 所有権移転（Owner Transfer）がアトミックに行われること
 - [x] 未検証端末が一括で安全に Revoke されること
 - [x] 行ロック（`FOR UPDATE`）により並行実行時の競合が排除されていること
 - [x] `DeviceKey` の公開鍵が Presentation 内に暗号学的にバインドされていること
-- [x] 投機的ストリーミングにより、母港画面の表示遅延が 0ms であること
