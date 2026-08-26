@@ -217,6 +217,56 @@ describe("battle-data route integration", () => {
 		]);
 	});
 
+	it("reads legacy dataset IDs from indexed battle blocks", async () => {
+		const avroBytes = battleFixtureBytes;
+		const headerLength = parseOcfHeader(avroBytes).bodyOffset;
+		const bucket = {
+			get: async (
+				_key: string,
+				options?: { range?: { offset: number; length: number } },
+			) => {
+				const range = options?.range;
+				if (!range) throw new Error("expected an R2 range read");
+				const body = avroBytes.slice(range.offset, range.offset + range.length);
+				return {
+					arrayBuffer: async () =>
+						body.buffer.slice(
+							body.byteOffset,
+							body.byteOffset + body.byteLength,
+						),
+				};
+			},
+		} as unknown as R2Bucket;
+		const response = await request(
+			"/global/records?table=battle&period_tag=2026-06-26",
+			{
+				BATTLE_INDEX_DB: createD1([
+					{
+						id: 1,
+						dataset_id: "legacy-member-hash",
+						start_byte: headerLength,
+						length: avroBytes.byteLength - headerLength,
+						start_timestamp: 1783429200000,
+						end_timestamp: 1783429200000,
+						period_tag: "2026-06-26",
+						table_version: "v1",
+						window_start_ms: null,
+						window_end_ms: null,
+						compaction_tier: "hourly",
+						file_path: "battle.avro",
+					},
+				]),
+				BATTLE_DATA_BUCKET: bucket,
+				DATA_LOADER_CACHE_KV: createPeriodCache(),
+			},
+		);
+
+		expect(response.status).toBe(200);
+		await expect(response.json()).resolves.toMatchObject({
+			success: true,
+		});
+	});
+
 	it("prunes latest R2 blocks by dataset and resolved table version", async () => {
 				const avroBytes = battleFixtureBytes;
 		const headerLength = parseOcfHeader(avroBytes).bodyOffset;
