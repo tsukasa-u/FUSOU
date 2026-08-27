@@ -1,7 +1,7 @@
 # FUSOU: zkTLS (TLSNotary MPC-TLS) による member_id 所有権担保 & 所有権移転ステートマシン 完全実装仕様書
 
 > **文書種別**: アーキテクチャ設計仕様書 & 実装マスターガイド（Implementation Master Guide）  
-> **対象領域**: FUSOU プロジェクト全域（`packages/fusou-auth`, `packages/FUSOU-PROXY`, `packages/FUSOU-APP`, `packages/FUSOU-WEB`, Supabase / Cloudflare Workers）  
+> **対象領域**: FUSOU プロジェクト全域（`packages/fusou-auth`, `packages/fusou-proxy-core`, `packages/fusou-proxy-tlsn`, `packages/FUSOU-WEB`, Supabase / Cloudflare Workers）  
 > **最重要設計原則**:  
 > 1. **再送信ゼロ（No Re-submission）**: ゲームAPIを裏で故意に再送・二重実行することはBANリスクおよび副作用の観点から絶対に排除し、**ブラウザと艦これ公式サーバー間の正規のTLSセッションそのものを公証**する。  
 > 2. **外部プロキシ中継ゼロ（Direct Connection）**: 外部中継プロキシは規約上・BANリスク上不可とし、**クライアントローカルの `FUSOU-PROXY` と艦これ公式サーバー間の直接通信を維持**する。  
@@ -9,7 +9,7 @@
 > 4. **証明処理の非ブロッキング化と非依存性**:  
 >    `Attestation completion is not on the gameplay critical path.`  
 >    `Notary availability is not a gameplay dependency.`  
-> **ステータス**: ADR-000・PoC先行ゲート・Supabase Auth整合性完全反映マスター  
+> **ステータス**: クレート分割・二段階フォールバック・Supabase Auth整合性完全反映マスター  
 
 ---
 
@@ -29,7 +29,7 @@
 12. [Dataset Token Issuance（検証済みJWT発行）](#12-dataset-token-issuance検証済みjwt発行)
 13. [Replay Protection（リプレイ攻撃防御）](#13-replay-protectionリプレイ攻撃防御)
 14. [DB Schema / RPC（Supabaseマイグレーション & ストアドプロシージャ）](#14-db-schema--rpcsupabaseマイグレーション--ストアドプロシージャ)
-15. [Failure Cases & Fallback（異常系・フォールバック時のデータ扱い）](#15-failure-cases--fallback異常系フォールバック時のデータ扱い)
+15. [Failure Handling & Fallback（異常系・二段階フォールバックセマンティクス）](#15-failure-handling--fallback異常系二段階フォールバックセマンティクス)
 16. [Recovery（正規オーナーによるアカウント回復手順）](#16-recovery正規オーナーによるアカウント回復手順)
 17. [Testing（単体・統合・競合テスト）](#17-testing単体統合競合テスト)
 18. [Migration（既存データの移行手順）](#18-migration既存データの移行手順)
@@ -101,7 +101,7 @@ erDiagram
 ```
 
 * **Canonical User の整合性**:
-  `user_member_map.user_id` は `auth.users(id)` を参照します。データベース内部で適当に `gen_random_uuid()` を生成するのではなく、端末登録時に既に発行されている `user_devices.canonical_user_id` を用いてアトミックに移転・統合します。
+  `user_member_map.user_id` は `auth.users(id)` を参照します。端末登録時に既に発行されている `user_devices.canonical_user_id` を用いてアトミックに移転・統合します。
 
 ---
 
@@ -144,9 +144,9 @@ stateDiagram-v2
 ## 7. Device Binding（Ed25519 デバイスバインディングの暗号学的証明）
 
 * **Presentation 内部への埋め込み**:
-  Presentation 構築時に、Prover は `SessionProof.build_presentation(&device_key.public_key_bytes())` を実行し、Notary の暗号コミット対象である `userData` 平文領域にデバイス公開鍵を直接埋め込みます。
+  Prover は Notary との暗号コミット対象平文領域に `device_public_key` を埋め込み、Presentation を生成。
 * **サーバー側での照合**:
-  サーバー側で `verificationResult.userDataHex == device_public_key` を照合し、他人の証明書の盗用を完全に遮断します。
+  サーバー側で検証された公開鍵とリクエストの `device_public_key` を照合し、他人の証明書の盗用を完全に遮断します。
 
 ---
 
@@ -329,10 +329,12 @@ COMMIT;
 
 ---
 
-## 15. Failure Cases & Fallback（異常系・フォールバック時のデータ扱い）
+## 15. Failure Cases & Fallback（異常系・二段階フォールバックセマンティクス）
 
-* **Notary サーバーダウン時**: プロキシは通常の母港通信をそのまま中継し、ゲーム進行を一切停止させません。公証タスクは次回ログイン時に再試行します。
-* **公証失敗時**: 400 エラーを返し、所有権の昇格を行いません。
+Notary 障害時やタイムアウト時でも、母港画面の表示を停止させないため、以下の 2 段階で制御します：
+* **Phase A（リクエスト送信前）**: Notary 接続失敗時、新しい通常 TLS 接続を開いて母港へアクセス（ゲーム継続、公証なし）。
+* **Phase B（リクエスト送信後）**: レスポンスをそのままブラウザへ中継してゲーム継続。公証タスクは破棄。
+* **次回ログイン時の挙動**: 過去の通信を後から再公証することは不可能なため、**「次回ログイン時に、新しい母港通信（新しい TLS セッション）で新しい証明を取得」** します。
 
 ---
 
@@ -364,7 +366,7 @@ pnpm vitest run tests/tlsn-verifier.test.ts
 1. **Phase 0 (ADR-000 Data Plane PoC)**: 母港通信における Prover 統合と Gameplay 中継の動作実測。
 2. **Phase 1**: Supabase マイグレーション適用（`claim_verified_device_v3` RPC デプロイ）。
 3. **Phase 2**: `FUSOU-WEB` に `/anonymous-sync/v2/verify-tlsn` エンドポイントを有効化。
-4. **Phase 3**: `FUSOU-APP` / `FUSOU-PROXY` にインライン公証ロジックを配信。
+4. **Phase 3**: `FUSOU-APP` / `fusou-proxy-tlsn` にインライン公証ロジックを配信。
 
 ---
 
