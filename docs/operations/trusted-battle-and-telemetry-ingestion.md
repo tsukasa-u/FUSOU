@@ -15,7 +15,7 @@
 > 6. **Rust クレートのモジュール分割 & Trait 分離（`fusou-proxy-core`, `fusou-proxy-tlsn`, `fusou-telemetry`）**:  
 >    `UpstreamTransport`（純粋なHTTP送受信）と `EvidenceObserver`（非同期公証観測）を Trait 境界で完全分離し、Phase 0 完了まで `fusou-proxy-tlsn` は experimental crate（PoC専用）として本番 Gameplay Path からは有効化しない。  
 > 7. **Phase 0 PoC（ADR-000）先行検証の必須化**:  
->    TLSNotary MPC-TLS の Upstream 統合およびレイテンシ影響について、ボス戦リザルト（`battleresult`）1本での実測 PoC を通過するまで本番実装・全体展開を凍結する。  
+>    TLSNotary MPC-TLS の Upstream 統合およびレイテンシ影響について、ボス戦リザルト（`battleresult`）1本での実測 PoC を通過するまで本番実装・全体展開を凍結する。公式 `compute_reveal()` / handler 機構の流用可能性を PoC で検証する。  
 > **ステータス**: Trust Boundary・ADR-000・SLA Gate・Trait純化完全反映マスター  
 
 ---
@@ -35,8 +35,8 @@
    - 8.3 [Phase 0 PoC 実測検証計画 & Target SLA Gate](#83-phase-0-poc-実測検証計画--target-sla-gate)
 9. [Attestation Data Model（in-toto Statement v1 ベース Envelope仕様）](#9-attestation-data-modelin-toto-statement-v1-ベース-envelope仕様)
 10. [Strict Server-Side Canonical Telemetry Parser（厳格な多段パース仕様）](#10-strict-server-side-canonical-telemetry-parser厳格な多段パース仕様)
-11. [Selective Disclosure（Offset Mapping と JSON Pointer によるバイト範囲決定）](#11-selective-disclosureoffset-mapping-と-json-pointer-によるバイト範囲決定)
-12. [Device Binding（Ed25519 デバイスバインディングの暗号学的証明）](#12-device-bindinged25519-デバイスバインディングの暗号学的証明)
+11. [Selective Disclosure（Offset Mapping と compute_reveal 機構）](#11-selective-disclosureoffset-mapping-と-compute_reveal-機構)
+12. [Device Binding & Triple Owner Invariant（デバイスバインディングと所有権不変条件）](#12-device-binding--triple-owner-invariantデバイスバインディングと所有権不変条件)
 13. [Replay & Event Identity Protection（多重リプレイ・二重計上防御）](#13-replay--event-identity-protection多重リプレイ二重計上防御)
 14. [Server-side Verification Pipeline（検証パイプライン詳細）](#14-server-side-verification-pipeline検証パイプライン詳細)
 15. [DB Schema（Supabaseマイグレーション & RLS設計）](#15-db-schemasupabaseマイグレーション--rls設計)
@@ -383,7 +383,7 @@ export function parseCanonicalBattleResult(
 
 ---
 
-## 11. Selective Disclosure（Offset Mapping と JSON Pointer によるバイト範囲決定）
+## 11. Selective Disclosure（Offset Mapping と compute_reveal 機構）
 
 単なる文字列検索を排し、以下の厳格な Offset Mapping で開示バイト範囲（Byte Range）を決定します：
 
@@ -393,11 +393,14 @@ export function parseCanonicalBattleResult(
 [HTTP Body Offset]
        ↓ (+7 bytes "svdata=")
 [JSON Payload Offset]
-       ↓ (JSON Parser with Source Spans / AST Token Positions)
+       ↓ (TLSNotary compute_reveal() / JSON Parser with Source Spans)
 [Target JSON Pointer Match (/api_data/api_win_rank 等)]
        ↓ (Span Start Offset .. Span End Offset)
 [TLSNotary Reveal Byte Range]
 ```
+
+> **実装指針**:  
+> 現行 TLSNotary（`tlsn-extension` / `tlsn` crate）の `compute_reveal()` / handler 機構を調査し、HTTP ヘッダー・ボディ境界および JSON トークン位置の自動抽出機構を活用・流用することを Phase 0 PoC の検証項目とします。
 
 開示対象 JSON Pointer 一覧：
 * `battleresult`: `/api_data/api_win_rank`, `/api_data/api_get_ship/api_ship_id`, `/api_data/api_quest_name`
@@ -407,14 +410,15 @@ export function parseCanonicalBattleResult(
 
 ---
 
-## 12. Device Binding（Ed25519 デバイスバインディングの暗号学的証明）
+## 12. Device Binding & Triple Owner Invariant（デバイスバインディングと所有権不変条件）
 
 * **Presentation 内部への埋め込み**:
   Prover は Notary との暗号コミット対象平文領域に `device_public_key` を埋め込み、Presentation を生成。
 * **サーバー側での照合**:
   FUSOU-WEB は検証された公開鍵とリクエストの `device_public_key` を照合。
-* **DB 有効性の確認**:
-  DB の `user_devices` テーブル上で `device_id` が存在し、`revoked_at IS NULL` かつ `is_verified = TRUE` であることを必須確認。
+* **Triple Owner Invariant の保証**:
+  DB の `user_devices` テーブル上で `device_id` が存在し、`revoked_at IS NULL` かつ `is_verified = TRUE` であることを必須確認し、以下の不変条件が維持されていることを確認：
+  $$\text{member\_ownership.verified\_user\_id} \equiv \text{user\_devices.canonical\_user\_id} \equiv \text{user\_member\_map.user\_id}$$
 
 ---
 
@@ -590,3 +594,4 @@ Notary 障害やタイムアウト時のフォールバックは、**API 再送�
 - [x] RLS（Row Level Security）が有効化され、`service_role` 以外からの書き込みが遮断されていること
 - [x] Phase 0 PoC（ADR-000）の SLA Gate を通過するまで本番実装を凍結するルールが確立されていること
 - [x] Rust workspace がクレート境界（`fusou-proxy-core`, `fusou-proxy-tlsn`, `fusou-telemetry`）で分離され、Trait 境界が純化されていること
+- [x] Triple Owner Invariant（$\text{verified\_user\_id} \equiv \text{canonical\_user\_id} \equiv \text{user\_id}$）が保証されていること
