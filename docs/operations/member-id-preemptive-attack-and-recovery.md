@@ -3,9 +3,9 @@
 > **文書種別**: アーキテクチャ設計仕様書 & 実装マスターガイド（Implementation Master Guide）  
 > **対象領域**: FUSOU プロジェクト全域（`packages/fusou-auth`, `packages/fusou-proxy-core`, `packages/fusou-proxy-tlsn`, `packages/FUSOU-WEB`, Supabase / Cloudflare Workers / Dedicated Verifier Service）  
 > **v1 Core Security Goal**:  
-> **「ログイン時の `POST /kcsapi/api_get_member/require_info` から暗号学的に検証した `api_member_id` を FUSOU Dataset Identity として確立し、事前登録攻撃を完全に無力化して正当な所有権を確定・移転する」**  
-> 対象 API: **`POST /kcsapi/api_get_member/require_info`**（ログイン時 1 回のみ）  
-> 対象データ: **`/api_data/api_basic/api_member_id`**  
+> **「ログインセッション開始時の `POST /kcsapi/api_get_member/require_info` から暗号学的に検証した `api_member_id` を FUSOU Dataset Identity として確立し、事前登録攻撃を完全に無力化して正当な所有権を確定・移転する」**  
+> 対象 API: **`POST /kcsapi/api_get_member/require_info`**（1つの Game Session で最初に正常取得された 1 回のみ）  
+> 対象データ: **`/api_data/api_basic/api_member_id`**（Wire: `i64`, Canonical Internal: Decimal String）  
 > **最重要設計原則**:  
 > 1. **再送信ゼロ（No Re-submission）**: ログイン時の `require_info` を裏で故意に再送・二重実行することは絶対に排除し、**ブラウザと艦これ公式サーバー間の正規の 1 回限りの TLS セッションそのものを公証**する。  
 > 2. **外部プロキシ中継ゼロ（Direct Connection）**: 外部中継プロキシは規約上・BANリスク上不可とし、**クライアントローカルの `FUSOU-PROXY` と艦これ公式サーバー間の直接通信を維持**する。  
@@ -14,14 +14,16 @@
 > 5. **並行 Claim の完全直列化（64-bit Advisory Lock & 親行ロック契約）**:  
 >    64-bit Advisory Lock により衝突確率を十分に低減し、同一トランザクション内で必ず行が存在する `member_id_mapping` 親行の `FOR UPDATE` により並行 Claim を物理的に直列化する。  
 > 6. **二重識別子モデル（Random UUID `public_id` と Pepper HMAC `member_id_hash`）**:  
->    `public_id` は DB 内部リレーション用のランダム UUID（UUIDv4）のままとし、`member_id_hash`（`anon_sync_pepper_runtime` 動的バージョン管理付き）はサーバー側 HMAC による秘匿照合・一意 Claim 用キーとして両立させる。  
+>    `public_id` は DB 内部リレーション用のランダム UUID（UUIDv4）のままとし、`member_id_hash`（`anon_sync_pepper_runtime` 動的バージョン管理付き）はサーバー側 HMAC による秘匿照合・一意 Claim 用キーとして両立させる（正しさの根拠は TLSNotary にあり、hash は検索/秘匿キー）。  
 > 7. **所有権現在状態（`member_ownership`）と通常のアプリケーション経路で変更禁止な監査履歴（`member_ownership_claims`）の分離**:  
 >    現在の検証済み所有者レコードと、将来の監査検証用情報（`notary_time`, `notary_key_id`）を含む Append-Only 監査証跡ログをテーブル分離する。  
 > 8. **Triple Owner Invariant & Social User Binding**:  
->    排他ロック取得後に同一 `transcript_commitment` の多重消費を `DUPLICATE_PROOF_CONSUMED` として防ぎ、$\text{member\_ownership.verified\_user\_id} \equiv \text{user\_devices.canonical\_user\_id} \equiv \text{user\_member\_map.user\_id}$ の不変条件を厳格に保持し、`web_user_member_map`（Social Account）との紐付けを確立する。  
+>    排他ロック取得後に同一 `transcript_commitment` の多重消費を `DUPLICATE_PROOF_CONSUMED` として防ぎ、$\text{member\_ownership.verified\_user\_id} \equiv \text{user\_devices.canonical\_user\_id} \equiv \text{user\_member\_map.user\_id}$ の不変条件を厳格に保持し、`web_user_member_map`（Social Account 1:1 binding）との紐付けを確立する。  
 > 9. **RPC 前提条件の明確化（Security Boundary）**:  
 >    ストアドプロシージャ `claim_verified_device_v3` は、呼び出し元 FUSOU-WEB が TLSNotary Proof を完全検証済みであることを前提とし、未検証データの書き込みを遮断する。  
-> **ステータス**: require_info 採用・全12ステップRPC順序維持・Social User連携マスター  
+> 10. **Dataset Token の後発行（Post-Verification Issuance）**:  
+>     `require_info proof verified` $\rightarrow$ `member_id verified` $\rightarrow$ `claim accepted` $\rightarrow$ `device authorized` $\rightarrow$ **`dataset_token issued`** の順序を厳守し、事前発行は行わない。  
+> **ステータス**: require_info 採用・Post-Verification Issuance・Social 1:1 binding 完全反映マスター  
 
 ---
 
@@ -39,7 +41,7 @@
 10. [Preemptive Registration Attack（事前登録攻撃の無力化）](#10-preemptive-registration-attack事前登録攻撃の無力化)
 11. [Concurrent Claim Handling（64-bit Advisory Lock & 親行ロック契約）](#11-concurrent-claim-handling64-bit-advisory-lock--親行ロック契約)
 12. [Revoke Semantics & Currently Trusted Device（失効セマンティクスと有効端末定義）](#12-revoke-semantics--currently-trusted-device失効セマンティクスと有効端末定義)
-13. [Dataset Token Issuance（検証済みJWT発行）](#13-dataset-token-issuance検証済みjwt発行)
+13. [Dataset Token Issuance（後発行ルールとJWT Claims）](#13-dataset-token-issuance後発行ルールとjwt-claims)
 14. [Replay Protection & Proof Consumption Policy（証明書消費ポリシー）](#14-replay-protection--proof-consumption-policy証明書消費ポリシー)
 15. [DB Schema / RPC（Supabaseマイグレーション: 状態と拡張監査履歴の分離）](#15-db-schema--rpcsupabaseマイグレーション-状態と拡張監査履歴の分離)
 16. [Failure Cases & Fallback（異常系・二段階フォールバックセマンティクス）](#16-failure-cases--fallback異常系二段階フォールバックセマンティクス)
@@ -54,7 +56,7 @@
 ## 1. Goal（目標）
 
 FUSOU の匿名同期システム（`anonymous-sync-v2`）において、悪意ある第三者が他人の `api_member_id` を先回りして自己申告登録し、本物のプレイヤーがデータを同期できなくなる **事前登録攻撃（Preemptive Registration Attack / ID Squatting）** を暗号学的に完全無力化します。
-ログイン時の `POST /kcsapi/api_get_member/require_info` の `/api_data/api_basic/api_member_id` を対象に zkTLS (TLSNotary MPC-TLS) を適用し、「正規のゲームセッションを操作できる端末」が所有権をいつでも奪還・確定できるアトミックな所有権移転基盤を確立します。
+セッション開始時の `POST /kcsapi/api_get_member/require_info` の `/api_data/api_basic/api_member_id` を対象に zkTLS (TLSNotary MPC-TLS) を適用し、「正規のゲームセッションを操作できる端末」が所有権をいつでも奪還・確定できるアトミックな所有権移転基盤を確立します。
 
 ---
 
@@ -132,7 +134,7 @@ FUSOU の匿名同期システム（`anonymous-sync-v2`）において、悪意�
 
 ### 4.1 二重識別子モデル
 ```
-api_member_id (例: "12345678")
+api_member_id (例: 12345678: i64)
        │
        ├───────────────▶ public_id = UUIDv4 (Random UUID: Dataset U1)
        │                    ↑
@@ -140,12 +142,14 @@ api_member_id (例: "12345678")
        │                 ・member_id_mapping, user_member_map, web_user_member_map 間の FK 参照
        │                 ・外部に member_id を推測させないための内部 UUID
        │
-       └───────────────▶ member_id_hash = HMAC-SHA256(secret_pepper_vN, api_member_id)
+       └───────────────▶ member_id_hash = HMAC-SHA256(secret_pepper_vN, api_member_id_str)
                             ↑
                          【所有権照合・秘匿検索用の決定論的ハッシュ】
                          ・サーバー側でのみ anon_sync_pepper_runtime バージョンを管理して計算
-                         ・member_ownership および監査ログのユニークキー
+                         ・member_ownership および監査ログのユニークキー (検索/秘匿用)
 ```
+
+> **重要原則**: `member_id_hash` が存在するから `member_id` が正しいのではなく、正しさの唯一の根拠は **TLSNotary Verification** にあります。`member_id_hash` はサーバー側で安全に DB 照合を行うための検索/秘匿キーです。
 
 ### 4.2 Triple Owner Invariant（三者一致の不変条件）
 FUSOU の検証済み端末（Verified Device）について、以下の不変条件が常に成立することを保証します：
@@ -199,6 +203,9 @@ erDiagram
     }
 ```
 
+> **1:1 Binding ルール**: `web_user_member_map` は `PRIMARY KEY (user_id, public_id)` かつ `public_id UNIQUE` であり、1 つの Dataset `public_id` に紐づく Web ユーザーは 1 人です。  
+> **注意**: Game Account へのアクセス証明 $\neq$ Social Account 所有権の証明 であるため、別ユーザーからの乗っ取り Claim は `EXISTING_VERIFIED_OWNER_CONFLICT` で遮断されます。
+
 ---
 
 ## 6. Member State Machine（所有権ステートマシン & 乗っ取り防止ルール）
@@ -218,17 +225,12 @@ stateDiagram-v2
     VERIFIED --> VERIFIED: 別ユーザーからのClaim試行 ──▶ 拒絶 (403 Conflict)
 ```
 
-### Verified Owner 確定後の競合保護ルール
-* **ルール 1**: 一度 `member_ownership` に Verified Owner（`verified_user_id`）が確立された後は、**異なる `canonical_user_id` を持つ別アカウントからの Claim リクエストは即座に拒絶（`EXISTING_VERIFIED_OWNER_CONFLICT`）** されます。
-* **ルール 2**: 同一の `verified_user_id` を持つ端末からの Claim のみ、追加端末（Multi-Device）として検証済み昇格を許可します。
-* **ルール 3（Primary Device 固定）**: `member_ownership.primary_device_id` は初回認証端末として固定され、追加端末は `user_devices` テーブル側で検証済みフラグ（`is_verified = TRUE`）を付与して管理します。
-
 ---
 
 ## 7. TLSNotary Ownership Proof (`POST /kcsapi/api_get_member/require_info`)
 
 * **Gameplay Path**:
-  ログイン時の `require_info` パケットはブラウザへ即座に中継され、ログイン画面描画を最優先します。Proof 完成を待ってブラウザを待たせることは絶対にありません。
+  ログイン時の `require_info` パケットはブラウザへ即座に中継され、画面描画を最優先します。Proof 完成を待ってブラウザを待たせることは絶対にありません。
 * **Evidence Path**:
   プロキシのバックグラウンドタスクが Notary サーバーと MPC を完了させ、最小限フィールド（`POST /kcsapi/api_get_member/require_info`, `Host:`, `api_result: 1`, `/api_data/api_basic/api_member_id`）のみを開示した Presentation を構築します。
 
@@ -283,7 +285,6 @@ stateDiagram-v2
    v_lock_key := ('x' || substr(md5(p_api_member_id), 1, 16))::bit(64)::bigint;
    PERFORM pg_advisory_xact_lock(v_lock_key);
    ```
-   ※仮に衝突した場合でも誤った所有権移転は発生せず、別 member の Claim が一時的に順次実行されるのみです。
 2. **親行ロック契約（Parent Row Lock Contract）**:
    `rpc_register_public_id(p_api_member_id)` は、**同一トランザクション内で必ず `public.member_id_mapping` に行を作成（または取得）してから `v_public_id` を返却する契約** とし、直後に親行を確実に `SELECT ... FOR UPDATE` します。
 
@@ -298,9 +299,21 @@ stateDiagram-v2
 
 ---
 
-## 13. Dataset Token Issuance（検証済みJWT発行）
+## 13. Dataset Token Issuance（後発行ルールとJWT Claims）
 
-所有権確定後、FUSOU-WEB は検証済みフラグ `is_verified: true` を含む JWT `dataset_token` を署名発行します。
+### 13.1 Post-Verification Issuance（公証後発行ルール）
+必ず以下の順序で発行され、公証前にトークンが発行されることは絶対にありません：
+$$\text{require\_info proof verified} \longrightarrow \text{member\_id verified} \longrightarrow \text{claim accepted} \longrightarrow \text{device authorized} \longrightarrow \text{dataset\_token issued}$$
+
+### 13.2 JWT Claims
+```json
+{
+  "sub": "00000000-0000-4000-8000-000000000000",
+  "public_id": "11111111-1111-4000-8000-111111111111",
+  "is_verified": true,
+  "exp": 1756300000
+}
+```
 
 ---
 
@@ -597,6 +610,7 @@ pnpm vitest run tests/tlsn-verifier.test.ts
 - [D] 排他ロック取得後の Proof Consumption Policy（重複消費排除）設計
 - [D] Verified Owner 確定後の別ユーザー乗っ取り遮断（`EXISTING_VERIFIED_OWNER_CONFLICT`）設計
 - [D] Triple Owner Invariant（$\text{verified\_user\_id} \equiv \text{canonical\_user\_id} \equiv \text{user\_id}$）の定義
+- [D] Post-Verification Issuance（公証前のトークン発行禁止）設計
 - [P] Phase 0 PoC（ADR-000）の `require_info` 実測検証
 - [P] Verifier 実行環境ベンチマーク（Workers vs Dedicated Rust Verifier）
 - [I] 実装および Supabase マイグレーション適用
