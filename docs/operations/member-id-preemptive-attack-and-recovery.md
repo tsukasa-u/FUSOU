@@ -1,7 +1,7 @@
 # FUSOU: zkTLS (TLSNotary MPC-TLS) による member_id 所有権担保 & 所有権移転ステートマシン 完全実装仕様書
 
 > **文書種別**: アーキテクチャ設計仕様書 & 実装マスターガイド（Implementation Master Guide）  
-> **対象領域**: FUSOU プロジェクト全域（`packages/fusou-auth`, `packages/fusou-proxy-core`, `packages/fusou-proxy-tlsn`, `packages/FUSOU-WEB`, Supabase / Cloudflare Workers）  
+> **対象領域**: FUSOU プロジェクト全域（`packages/fusou-auth`, `packages/fusou-proxy-core`, `packages/fusou-proxy-tlsn`, `packages/FUSOU-WEB`, Supabase / Cloudflare Workers / Dedicated Verifier Service）  
 > **最重要設計原則**:  
 > 1. **再送信ゼロ（No Re-submission）**: ゲームAPIを裏で故意に再送・二重実行することはBANリスクおよび副作用の観点から絶対に排除し、**ブラウザと艦これ公式サーバー間の正規のTLSセッションそのものを公証**する。  
 > 2. **外部プロキシ中継ゼロ（Direct Connection）**: 外部中継プロキシは規約上・BANリスク上不可とし、**クライアントローカルの `FUSOU-PROXY` と艦これ公式サーバー間の直接通信を維持**する。  
@@ -14,12 +14,12 @@
 > 6. **二重識別子モデル（Random UUID `public_id` と Pepper HMAC `member_id_hash`）**:  
 >    `public_id` は DB 内部リレーション用のランダム UUID（UUIDv4）のままとし、`member_id_hash`（`anon_sync_pepper_runtime` 動的バージョン管理付き）はサーバー側 HMAC による秘匿照合・一意 Claim 用キーとして両立させる。  
 > 7. **所有権現在状態（`member_ownership`）と通常のアプリケーション経路で変更禁止な監査履歴（`member_ownership_claims`）の分離**:  
->    現在の検証済み所有者レコードと、通常のアプリケーション経路において UPDATE / DELETE を禁止する Append-Only 監査証跡ログをテーブル分離する。  
+>    現在の検証済み所有者レコードと、将来の監査検証用情報（`notary_time`, `notary_key_id`）を含む Append-Only 監査証跡ログをテーブル分離する。  
 > 8. **Proof Consumption Policy & Triple Owner Invariant**:  
 >    排他ロック取得後に同一 `transcript_commitment` の多重消費を `DUPLICATE_PROOF_CONSUMED` として防ぎ、$\text{member\_ownership.verified\_user\_id} \equiv \text{user\_devices.canonical\_user\_id} \equiv \text{user\_member\_map.user\_id}$ の不変条件を厳格に保持する。  
 > 9. **RPC 前提条件の明確化（Security Boundary）**:  
 >    ストアドプロシージャ `claim_verified_device_v3` は、呼び出し元 FUSOU-WEB が TLSNotary Proof を完全検証済みであることを前提とし、未検証データの書き込みを遮断する。  
-> **ステータス**: Pepper動的取得・排他ロック順序適正化・不変条件完全反映マスター  
+> **ステータス**: 監査情報拡張・Currently Trusted定義・Progress Checklist完全反映マスター  
 
 ---
 
@@ -32,20 +32,20 @@
 5. [Existing FUSOU Identity Architecture（現行FUSOUのID基盤）](#5-existing-fusou-identity-architecture現行fusouのid基盤)
 6. [Member State Machine（所有権ステートマシン & 乗っ取り防止ルール）](#6-member-state-machine所有権ステートマシン--乗っ取り防止ルール)
 7. [TLSNotary Ownership Proof（母港APIの暗号学的公証 & データプレーン分離）](#7-tlsnotary-ownership-proof母港apiの暗号学的公証--データプレーン分離)
-8. [Device Binding（Ed25519 デバイスバインディングの暗号学的証明）](#8-device-bindinged25519-デバイスバインディングの暗号学的証明)
+8. [Device Binding（Proof-bound Metadata による暗号学的証明）](#8-device-bindingproof-bound-metadata-による暗号学的証明)
 9. [Claim Transaction（アトミック所有権移転トランザクション）](#9-claim-transactionアトミック所有権移転トランザクション)
 10. [Preemptive Registration Attack（事前登録攻撃の無力化）](#10-preemptive-registration-attack事前登録攻撃の無力化)
 11. [Concurrent Claim Handling（64-bit Advisory Lock & 親行ロック契約）](#11-concurrent-claim-handling64-bit-advisory-lock--親行ロック契約)
-12. [Revoke Semantics（未検証攻撃者端末の失効セマンティクス）](#12-revoke-semantics未検証攻撃者端末の失効セマンティクス)
+12. [Revoke Semantics & Currently Trusted Device（失効セマンティクスと有効端末定義）](#12-revoke-semantics--currently-trusted-device失効セマンティクスと有効端末定義)
 13. [Dataset Token Issuance（検証済みJWT発行）](#13-dataset-token-issuance検証済みjwt発行)
 14. [Replay Protection & Proof Consumption Policy（証明書消費ポリシー）](#14-replay-protection--proof-consumption-policy証明書消費ポリシー)
-15. [DB Schema / RPC（Supabaseマイグレーション: 状態とAppend-Only監査履歴の分離）](#15-db-schema--rpcsupabaseマイグレーション-状態とappend-only監査履歴の分離)
+15. [DB Schema / RPC（Supabaseマイグレーション: 状態と拡張監査履歴の分離）](#15-db-schema--rpcsupabaseマイグレーション-状態と拡張監査履歴の分離)
 16. [Failure Cases & Fallback（異常系・二段階フォールバックセマンティクス）](#16-failure-cases--fallback異常系二段階フォールバックセマンティクス)
 17. [Recovery（正規オーナーによるアカウント回復手順）](#17-recovery正規オーナーによるアカウント回復手順)
 18. [Testing（単体・統合・並行競合テスト）](#18-testing単体統合並行競合テスト)
 19. [Migration（既存データの移行手順）](#19-migration既存データの移行手順)
-20. [Rollout Plan（PoC先行の段階的ロールアウト計画）](#20-rollout-planpoc先行の段階的ロールアウト計画)
-21. [Security Review Checklist（監査チェックリスト）](#21-security-review-checklist監査チェックリスト)
+20. [Rollout Plan & Verifier Benchmark（PoC先行の段階的ロールアウト計画）](#20-rollout-plan--verifier-benchmarkpoc先行の段階的ロールアウト計画)
+21. [Security Progress Checklist（開発進捗チェックリスト）](#21-security-progress-checklist開発進捗チェックリスト)
 
 ---
 
@@ -98,11 +98,12 @@ zkTLS (TLSNotary MPC-TLS) を用いて「正規のゲームセッションを操
 │                                                        │
 │  - Verify Web PKI Certificate Chain                    │
 │  - Verify TLSNotary Notary Signature & Merkle Root     │
-│  - Verify Device Binding (userData == device_pubkey)   │
+│  - Verify Device Binding (Proof-bound Pubkey Match)    │
 │  - Strict Server-Side Canonical Parser (Zod)           │
-│  - Server-Side Pepper HMAC Computation                 │
+│  - Dynamic Pepper HMAC (anon_sync_pepper_runtime)      │
 │                                                        │
 │  Verified Plaintext = TRUSTED provenance               │
+│  (TLSNotary verification で開示された Opening Bytes)    │
 │  Canonical Parser Output = TRUSTED representation      │
 └───────────────────────────┬────────────────────────────┘
                             │
@@ -113,7 +114,7 @@ zkTLS (TLSNotary MPC-TLS) を用いて「正規のゲームセッションを操
 │  - 64-bit Advisory Lock & Row-Level Locking            │
 │  - Atomic Ownership Transfer Transaction               │
 │  - Enforce Triple Owner Invariant                      │
-│  - Proof Consumption Enforcement                       │
+│  - Proof Consumption Enforcement (Post-Lock Check)     │
 │  - Append-Only Audit Trail (Trigger Protected)         │
 │                                                        │
 │  Stored State = ACCEPTED Verified Evidence Only        │
@@ -225,10 +226,10 @@ stateDiagram-v2
 
 ---
 
-## 8. Device Binding（Ed25519 デバイスバインディングの暗号学的証明）
+## 8. Device Binding（Proof-bound Metadata による暗号学的証明）
 
-* **Presentation 内部への埋め込み**:
-  Prover は Notary との暗号コミット対象平文領域に `device_public_key` を埋め込み、Presentation を生成。
+* **Proof-bound Metadata Binding**:
+  TLSNotary の Proof 生成機構が提供する application data / user data binding 機構を調査し、`device_public_key` を Proof に暗号学的にバインドします（Phase 0 PoC 検証項目）。
 * **サーバー側での照合**:
   FUSOU-WEB は検証された公開鍵と、DB の `user_devices` に登録された `device_pubkey` を照合。
 
@@ -267,10 +268,12 @@ stateDiagram-v2
 
 ---
 
-## 12. Revoke Semantics（未検証攻撃者端末の失効セマンティクス）
+## 12. Revoke Semantics & Currently Trusted Device（失効セマンティクスと有効端末定義）
 
-* 所有権移転時、古い未検証端末には `revoked_reason = 'preempted_by_tlsn_verified_owner'` が刻印されます。
-* 失効した端末からの以降のアクセスは、DB の `user_devices.revoked_at IS NULL` チェックにより即時 401/403 で拒絶されます。
+* **Currently Trusted Device の厳格な定義**:
+  DB の `user_devices` テーブル上で **`is_verified = TRUE AND revoked_at IS NULL`** であること。
+* **Revoke 処理**:
+  所有権移転時、古い未検証端末には `revoked_reason = 'preempted_by_tlsn_verified_owner'` が刻印され、以降のアクセスは即時 401/403 で拒絶されます。
 
 ---
 
@@ -284,12 +287,12 @@ stateDiagram-v2
 
 * **Proof 一意消費制約**:
   排他ロック取得後に `member_ownership_claims` テーブルに `UNIQUE (transcript_commitment)` 制約を課し、**同一の公証証明（Proof）が 2 回以上 Claim に使われた場合は `DUPLICATE_PROOF_CONSUMED` 例外として即時ロールバック** します。
-* **Freshness Window**:
+* **Maximum Age Acceptance Policy**:
   Notary が刻印した `notary_time` が 24 時間以上前の古い証明書は自動破棄。
 
 ---
 
-## 15. DB Schema / RPC（Supabaseマイグレーション: 状態とAppend-Only監査履歴の分離）
+## 15. DB Schema / RPC（Supabaseマイグレーション: 状態と拡張監査履歴の分離）
 
 ### `20260826000000_claim_verified_device_v3.sql`
 ```sql
@@ -322,6 +325,8 @@ CREATE TABLE IF NOT EXISTS public.member_ownership_claims (
     canonical_user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE RESTRICT,
     verified_device_id UUID NOT NULL REFERENCES public.user_devices(device_id) ON DELETE RESTRICT,
     transcript_commitment TEXT NOT NULL,
+    notary_time TIMESTAMPTZ NOT NULL,
+    notary_key_id TEXT,
     claim_type TEXT NOT NULL CHECK (claim_type IN ('INITIAL_VERIFIED', 'TAKEOVER_FROM_PRE_REG', 'ADDITIONAL_DEVICE')),
     claimed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     CONSTRAINT uq_member_claims_transcript UNIQUE (transcript_commitment)
@@ -346,7 +351,8 @@ CREATE OR REPLACE FUNCTION public.claim_verified_device_v3(
   p_device_id UUID,
   p_api_member_id TEXT,
   p_transcript_commitment TEXT,
-  p_notary_time TIMESTAMPTZ
+  p_notary_time TIMESTAMPTZ,
+  p_notary_key_id TEXT DEFAULT NULL
 )
 RETURNS JSONB
 LANGUAGE plpgsql
@@ -475,10 +481,10 @@ BEGIN
 
   -- 7. 通常のアプリケーション経路において UPDATE / DELETE を禁止する Append-Only 監査履歴テーブルに記録
   INSERT INTO public.member_ownership_claims (
-    public_id, member_id_hash, member_id_hash_version, canonical_user_id, verified_device_id, transcript_commitment, claim_type
+    public_id, member_id_hash, member_id_hash_version, canonical_user_id, verified_device_id, transcript_commitment, notary_time, notary_key_id, claim_type
   )
   VALUES (
-    v_public_id, v_computed_member_id_hash, v_hash_version, v_canonical_user_id, p_device_id, p_transcript_commitment, v_claim_type
+    v_public_id, v_computed_member_id_hash, v_hash_version, v_canonical_user_id, p_device_id, p_transcript_commitment, p_notary_time, p_notary_key_id, v_claim_type
   );
 
   -- 8. 当該デバイスを verified に昇格 & 正当な Canonical User にバインド
@@ -546,24 +552,30 @@ pnpm vitest run tests/tlsn-verifier.test.ts
 
 ---
 
-## 20. Rollout Plan（PoC先行の段階的ロールアウト計画）
+## 20. Rollout Plan & Verifier Benchmark（PoC先行の段階的ロールアウト計画）
 
-1. **Phase 0 (ADR-000 Data Plane PoC)**: 母港通信における Prover 統合と Gameplay 中継の動作実測。
+1. **Phase 0 (ADR-000 Data Plane PoC & Verifier Benchmark)**:
+   - 母港通信における Prover 統合と Gameplay 中継の動作実測。
+   - Cloudflare Workers vs Dedicated Rust Verifier の検証ベンチマーク。
 2. **Phase 1**: Supabase マイグレーション適用（`claim_verified_device_v3` RPC デプロイ）。
 3. **Phase 2**: `FUSOU-WEB` に `/anonymous-sync/v2/verify-tlsn` エンドポイントを有効化。
 4. **Phase 3**: `FUSOU-APP` / `fusou-proxy-tlsn` にインライン公証ロジックを配信。
 
 ---
 
-## 21. Security Review Checklist（監査チェックリスト）
+## 21. Security Progress Checklist（開発進捗チェックリスト）
 
-- [x] ゲーム通信に外部プロキシを使用せず、直接通信が維持されていること
-- [x] ゲーム API の再送・二重実行コードが完全に排除されていること
-- [x] Gameplay Path と Evidence Path が二元分離され、ゲーム画面の描画をブロックしないこと
-- [x] Trust Boundary Diagram が定義され、RPC 前提条件（Security Boundary）が明文化されていること
-- [x] `public_id`（UUIDv4）と `member_id_hash`（Pepper HMAC・Version付き）の二重識別子モデルが確立されていること
-- [x] 64-bit Advisory Lock により衝突確率が低減され、親行ロック契約により並行実行時の競合が物理的に排除されていること
-- [x] `member_ownership`（現在状態）と `member_ownership_claims`（通常のアプリケーション経路で変更禁止な監査履歴）が分離され、トリガーで改ざん防止されていること
-- [x] 排他ロック取得後の Proof Consumption Policy により同一 `transcript_commitment` の多重 Claim が遮断されること
-- [x] Verified Owner 確定後の別ユーザーによる乗っ取り Claim が `EXISTING_VERIFIED_OWNER_CONFLICT` で遮断されること
-- [x] Triple Owner Invariant（$\text{verified\_user\_id} \equiv \text{canonical\_user\_id} \equiv \text{user\_id}$）が保証されていること
+- [D] ゲーム通信に外部プロキシを使用しない直接接続設計
+- [D] ゲーム API の再送信・二重実行コードの完全排除
+- [D] Gameplay Path と Evidence Path の二元分離設計
+- [D] Trust Boundary Diagram および RPC 前提条件（Security Boundary）の定義
+- [D] `public_id`（UUIDv4）と `member_id_hash`（Pepper HMAC・Version付き）の二重識別子モデル
+- [D] 64-bit Advisory Lock および親行ロック契約による並行実行競合排除設計
+- [D] `member_ownership`（現在状態）と `member_ownership_claims`（拡張監査履歴）の分離
+- [D] 排他ロック取得後の Proof Consumption Policy（重複消費排除）設計
+- [D] Verified Owner 確定後の別ユーザー乗っ取り遮断（`EXISTING_VERIFIED_OWNER_CONFLICT`）設計
+- [D] Triple Owner Invariant（$\text{verified\_user\_id} \equiv \text{canonical\_user\_id} \equiv \text{user\_id}$）の定義
+- [P] Phase 0 PoC（ADR-000）の母港通信実測検証
+- [P] Verifier 実行環境ベンチマーク（Workers vs Dedicated Rust Verifier）
+- [I] 実装および Supabase マイグレーション適用
+- [T] 単体テスト・並行競合テスト
