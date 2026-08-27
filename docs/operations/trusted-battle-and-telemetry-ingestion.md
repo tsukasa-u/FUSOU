@@ -6,8 +6,13 @@
 > 1. **再送信ゼロ（No Re-submission）**: ゲームAPI（戦闘、ドロップ、建造、開発等）の副作用・BANリスクを排除するため、**裏での再送信・二重実行は一切行わず、ゲームサーバーとの正規のTLSセッションそのものを公証**する。  
 > 2. **外部プロキシ中継ゼロ（Direct Connection）**: 外部中継プロキシは規約上・BANリスク上不可とし、**クライアントローカルの `FUSOU-PROXY` と艦これ公式サーバー間の直接通信を維持**する。  
 > 3. **Gameplay Path と Evidence Path の二元分離**: ブラウザ表示（Gameplay Path）は低遅延・ゲームプレイ継続を最優先とし、FUSOU の真正性保証対象外とする。FUSOU-WEB が受理・集計するテレメトリデータ（Evidence Path）のみを暗号学的に公証・検証する。  
-> 4. **サーバーサイド カノニカル パース（Server-Side Canonical Parsing）**: クライアントが提出する `api_path` や自称JSONを信用せず、**公証・開示された Request/Response 平文バイト列からサーバー側で直接パスおよび構造化データをパースして真実のソースとしてDBへ格納**する。  
-> **ステータス**: 外部セキュリティ監査・アーキテクチャ二元分離反映マスター  
+> 4. **証明処理をゲーム進行のクリティカルパスに置かない（Non-blocking Attestation）**:  
+>    `Attestation is not on the gameplay critical path.`  
+>    `Notary availability is not a gameplay dependency.`  
+>    Notary 障害時やネットワーク遅延時でもゲームプレイは 100% 継続し、追加遅延は PoC で実測・評価する。  
+> 5. **サーバーサイド カノニカル パース（Strict Server-Side Canonical Parsing）**:  
+>    クライアント申告の `api_path` や自称JSONを一切信用せず、**公証された Request/Response 平文から直接 `HTTP parser -> svdata parser -> JSON parser -> JSON Pointer` のパイプラインで正規オブジェクトを生成**する。  
+> **ステータス**: 外部セキュリティ監査・TLSデータプレーン統合設計完全反映マスター  
 
 ---
 
@@ -15,29 +20,28 @@
 
 1. [Goal（目標）](#1-goal目標)
 2. [Threat Model（脅威モデル）](#2-threat-model脅威モデル)
-3. [Security Guarantees（提供されるセキュリティ保証）](#3-security-guarantees提供されるセキュリティ保証)
-4. [Non-Guarantees（保証されない事項・非目標）](#4-non-guarantees保証されない事項非目標)
-5. [Current FUSOU Architecture（現行FUSOUアーキテクチャの現状）](#5-current-fusou-architecture現行fusouアーキテクチャの現状)
-6. [Target Architecture（目標アーキテクチャ: Gameplay Path と Evidence Path の分離）](#6-target-architecture目標アーキテクチャ-gameplay-path-と-evidence-path-の分離)
-7. [External Proxyを使わない理由（Why No External Proxy）](#7-external-proxyを使わない理由why-no-external-proxy)
-8. [TLSNotary MPC-TLS Integration（MPC-TLS統合仕様）](#8-tlsnotary-mpc-tls-integrationmpc-tls統合仕様)
-   - 8.1 [TLS Data Plane Feasibility PoC（データプレーン実現性検証計画）](#81-tls-data-plane-feasibility-pocデータプレーン実現性検証計画)
-9. [Local Proxy / Prover Integration（HUDSuckerとProverの責務分離）](#9-local-proxy--prover-integrationhudsuckerとproverの責務分離)
-10. [Attestation Data Model（in-toto Statement v1 ベース Envelope仕様）](#10-attestation-data-modelin-toto-statement-v1-ベース-envelope仕様)
-11. [Canonical Telemetry Model（サーバーサイド・カノニカルモデル）](#11-canonical-telemetry-modelサーバーサイドカノニカルモデル)
-12. [Selective Disclosure（真のJSON Pointer単位の最小限開示Redaction）](#12-selective-disclosure真のjson-pointer単位の最小限開示redaction)
-13. [Device Binding（Ed25519 デバイスバインディング）](#13-device-bindinged25519-デバイスバインディング)
-14. [Replay Protection（多重リプレイ・二重計上防御）](#14-replay-protection多重リプレイ二重計上防御)
-15. [Server-side Verification Pipeline（検証パイプライン詳細）](#15-server-side-verification-pipeline検証パイプライン詳細)
-16. [DB Schema（Supabaseマイグレーション & RLS設計）](#16-db-schemasupabaseマイグレーション--rls設計)
-17. [Queue / Retry Design（SQLite永続キュー・エラー分類・部分ACK）](#17-queue--retry-designsqlite永続キューエラー分類部分ack)
-18. [Failure Handling（障害処理・フォールバック・隔離）](#18-failure-handling障害処理フォールバック隔離)
-19. [Privacy（プライバシー保護とCookie秘匿）](#19-privacyプライバシー保護とcookie秘匿)
-20. [Rate Limiting / DoS（DoS耐性とリソース制限）](#20-rate-limiting--dosdos耐性とリソース制限)
-21. [Testing（単体・統合・攻撃回帰テスト）](#21-testing単体統合攻撃回帰テスト)
-22. [Migration（既存データ・環境の移行手順）](#22-migration既存データ環境の移行手順)
-23. [Rollout（段階的ロールアウト計画）](#23-rollout段階的ロールアウト計画)
-24. [Security Review Checklist（監査チェックリスト）](#24-security-review-checklist監査チェックリスト)
+3. [Security Guarantees & Non-Guarantees（セキュリティ保証境界の明確化）](#3-security-guarantees--non-guaranteesセキュリティ保証境界の明確化)
+4. [Current FUSOU Architecture & TLS Terminationの根本的課題](#4-current-fusou-architecture--tls-terminationの根本的課題)
+5. [Target Architecture（Gameplay Path と Evidence Path の二元分離）](#5-target-architecturegameplay-path-と-evidence-path-の二元分離)
+6. [External Proxyを使わない理由（Why No External Proxy）](#6-external-proxyを使わない理由why-no-external-proxy)
+7. [TLS Data Plane Integration: FUSOU-PROXY と TLSNotary Prover の具体的統合設計](#7-tls-data-plane-integration-fusou-proxy-と-tlsnotary-prover-の具体的統合設計)
+   - 7.1 [HUDSucker MITM と MPC-TLS の関係（なぜ既存鍵の流用が不可能なのか）](#71-hudsucker-mitm-と-mpc-tls-の関係なぜ既存鍵の流用が不可能なのか)
+   - 7.2 [具体統合構成（Downstream MITM + Upstream MPC-TLS Prover）](#72-具体統合構成downstream-mitm--upstream-mpc-tls-prover)
+   - 7.3 [TLS Data Plane Feasibility PoC（第0段階: `battleresult` 実測検証計画）](#73-tls-data-plane-feasibility-poc第0段階-battleresult-実測検証計画)
+8. [Attestation Data Model（in-toto Statement v1 ベース Envelope仕様）](#8-attestation-data-modelin-toto-statement-v1-ベース-envelope仕様)
+9. [Strict Server-Side Canonical Telemetry Parser（厳格な多段パーサー仕様）](#9-strict-server-side-canonical-telemetry-parser厳格な多段パーサー仕様)
+10. [Selective Disclosure（真のJSON Pointer単位の最小限開示Redaction）](#10-selective-disclosure真のjson-pointer単位の最小限開示redaction)
+11. [Device Binding（Ed25519 デバイスバインディングの暗号学的証明）](#11-device-bindinged25519-デバイスバインディングの暗号学的証明)
+12. [Replay & Event Identity Protection（多重リプレイ・二重計上防御）](#12-replay--event-identity-protection多重リプレイ二重計上防御)
+13. [Server-side Verification Pipeline（検証パイプライン詳細）](#13-server-side-verification-pipeline検証パイプライン詳細)
+14. [DB Schema（Supabaseマイグレーション & RLS設計）](#14-db-schemasupabaseマイグレーション--rls設計)
+15. [Queue / Retry Design（SQLite永続キュー・4状態エラー分類・部分ACK）](#15-queue--retry-designsqlite永続キュー4状態エラー分類部分ack)
+16. [Failure Handling（障害処理・フォールバック・隔離）](#16-failure-handling障害処理フォールバック隔離)
+17. [Privacy（プライバシー保護とCookie秘匿）](#17-privacyプライバシー保護とcookie秘匿)
+18. [Rate Limiting / DoS（DoS耐性とリソース制限）](#18-rate-limiting--dosdos耐性とリソース制限)
+19. [Testing（単体・統合・攻撃回帰テスト）](#19-testing単体統合攻撃回帰テスト)
+20. [Migration & Rollout Plan（PoC先行の段階的ロールアウト計画）](#20-migration--rollout-planpoc先行の段階的ロールアウト計画)
+21. [Security Review Checklist（監査チェックリスト）](#21-security-review-checklist監査チェックリスト)
 
 ---
 
@@ -67,8 +71,9 @@ FUSOU.exe 自体の改ざん防止やメモリ保護をセキュリティの根�
 
 ---
 
-## 3. Security Guarantees（提供されるセキュリティ保証）
+## 3. Security Guarantees & Non-Guarantees（セキュリティ保証境界の明確化）
 
+### Security Guarantees（提供される保証）
 システムは以下の 3 層の検証に合格したデータのみをデータベースに受理します：
 
 | 検証層 | 保証内容 | 保証主体 | 検証手段 |
@@ -87,105 +92,142 @@ FUSOU.exe 自体の改ざん防止やメモリ保護をセキュリティの根�
 | **Response Contents** | TLSNotary | Merkle Root & Notary Signature | **即時検知・拒絶** |
 | **Canonical Telemetry** | FUSOU-WEB | 開示された Response 平文から直接パース | **改ざん余地なし (無視)** |
 | **Device Identity** | Ed25519 + DB | Signature & DB `revoked_at IS NULL` | **即時検知・拒絶** |
-| **Event Uniqueness** | FUSOU DB | `session_commitment` UNIQUE 制約 | **即時検知・重複排除** |
+| **Event Uniqueness** | FUSOU DB | `transcript_commitment` & `canonical_event_id` UNIQUE 制約 | **即時検知・重複排除** |
 
----
-
-## 4. Non-Guarantees（保証されない事項・非目標）
-
+### Non-Guarantees（保証されない事項・非目標）
 1. **ブラウザ画面の完全性保証（Gameplay Path Non-Guarantee）**:
    ブラウザへの表示はゲームプレイの快適性・低遅延を最優先とし、FUSOU の暗号学的真正性保証の対象外とします（攻撃者が自分のブラウザ画面を書き換えてチート表示しても、FUSOU-WEB の統計には一切影響しません）。
-2. **クライアントバイナリの改ざん防止**: ローカルメモリやバイナリの改変自体は防げません（無効な証明書がサーバーで弾かれることで安全性を担保します）。
+2. **クライアントバイナリの改ざん防止**: ローカルメモリやバイナリの改変自体は防げません。
 3. **秘密鍵ファイル（`device-key.json`）のOS管理者による盗難**: OS root 権限を持つユーザーがローカルファイルを複製した場合の端末クローンは防げません。
 4. **TPM / Remote Attestation によるハードウェア信頼**: ハードウェアレベルの完全性保証はスコープ外です。
 
 ---
 
-## 5. Current FUSOU Architecture（現行FUSOUアーキテクチャの現状）
+## 4. Current FUSOU Architecture & TLS Terminationの根本的課題
 
-* **`packages/fusou-auth` (v0.3.0)**:
-  `DeviceKey`（Ed25519 keypair 生成・永続化・Base64公開鍵・署名）、`AuthManager`（チャレンジ nonce 署名、`dataset_token` 管理）。
-* **`packages/FUSOU-PROXY/proxy-https`**:
-  HUDSucker ベースのローカル MITM HTTPS プロキシ。独自 CA 証明書、gzip/deflate/br デコード、KCS API 保存。
-* **`packages/FUSOU-WEB`**:
-  `/anonymous-sync/v2`（nonce 発行・検証、Ed25519 署名検証、レートリミット）、`/battle-data`（Avro/Parquet 収集）。
-* **Supabase Database**:
-  `member_id_mapping`, `user_member_map`, `user_devices`（UUID-only identity 基盤）。
+現行の `FUSOU-PROXY` は HUDSucker ベースの MITM (Man-In-The-Middle) プロキシです：
+```
+[Browser] <--- (Downstream TLS: ローカル独自CA) ---> [HUDSucker Proxy] <--- (Upstream TLS: 通常のTLS Client) ---> [Game Server]
+```
+
+### 根本的課題：なぜ既存の MITM TLS 鍵をそのまま TLSNotary に渡せないのか？
+1. **暗号学的信頼境界の喪失**:
+   HUDSucker は Upstream 側 TLS 接続において、通常の TLS Client として動作し、セッション鍵（Master Secret / Traffic Keys）を完全に単独で保持しています。
+2. **改ざん可能性**:
+   もしクライアントがセッション鍵を単独で知っている状態で後から公証を作れるとすれば、**改造された `FUSOU-PROXY` はゲームサーバーからのレスポンスをメモリ上で自由に書き換えた上で「本物」として暗号署名できてしまいます**。
+3. **結論**:
+   **既存の HUDSucker による Upstream MITM TLS termination を維持したまま TLSNotary を後付けすることは暗号学的に不可能です**。Upstream 側の TLS トランスポート自体を、Prover 単独が鍵を握らない「MPC-TLS Prover トランスポート」へ置き換える必要があります。
 
 ---
 
-## 6. Target Architecture（目標アーキテクチャ: Gameplay Path と Evidence Path の分離）
+## 5. Target Architecture（Gameplay Path と Evidence Path の二元分離）
 
 ```
 [艦これ公式サーバー (*.kcs.dmm.com)]
          ▲
-         │ 1. 実際のTLSセッション (Direct TLS Connection)
+         │ 1. 実際のTLSセッション (Direct 2PC-TLS Connection)
          │    ※再送信ゼロ・外部プロキシ中継ゼロ
          ▼
- ┌───────────────┐
- │  FUSOU-PROXY  │
- └───────┬───────┘
-         │
- ┌───────┴────────────────────────────────────────┐
- │                                                │
- ▼ 【Gameplay Path】                              ▼ 【Evidence Path】
-[FUSOU-PROXY / HUDSucker]               [TLSNotary Prover (MPC-TLS)]
- │ 低遅延・ゲームプレイ最優先                       │ 真正性証明の構築
- │ FUSOUの真正性保証対象外                         │ バックグラウンド MPC ──▶ [Notary サーバー]
- ▼                                                ▼
-[ブラウザ画面表示]                       [TelemetryQueue (SQLite: 部分ACK)]
-                                                  │
-                                                  │ バッチ送信 (in-toto Envelope)
-                                                  ▼
-                                        [FUSOU-WEB (Workers)]
-                                           ├─ Request 平文から api_path 抽出
-                                           ├─ Response 平文からカノニカル生成
-                                           ├─ DeviceKey & DB 有効性検証
-                                           └─ session_commitment UNIQUE 照合
-                                                  │
-                                                  ▼
-                                        [Supabase (attested_telemetry_logs)]
+ ┌──────────────────────────────────────────────┐
+ │ FUSOU-PROXY (Local Process)                  │
+ │                                              │
+ │  [Upstream: TLSNotary MPC-TLS Prover Engine] │
+ │       │                                      │
+ │       ├───────────▶ (平文ストリーム転送)      │
+ │       │                    │                 │
+ └───────┼────────────────────┼─────────────────┘
+         │                    │
+ ┌───────┴────────────┐ ┌─────┴───────────────────┐
+ │ Evidence Path      │ │ Gameplay Path           │
+ │ (真正性保証対象)   │ │ (真正性保証外・低遅延)   │
+ │                    │ │                         │
+ │ 2. 非同期 MPC 公証 │ │ 2. Downstream MITM TLS  │
+ │    (tokio::spawn)  │ │    (HUDSucker Engine)   │
+ │        ▼           │ │        ▼                │
+ │  [Notary Server]   │ │  [艦これブラウザ画面]   │
+ │        ▼           │ └─────────────────────────┘
+ │  [TelemetryQueue]  │
+ │   (SQLite / 4-state│
+ │        ▼           │
+ │ 3. in-toto Envelope│
+ │    バッチ送信      │
+ │        ▼           │
+ │  [FUSOU-WEB]       │
+ │        ▼           │
+ │  [Supabase DB]     │
+ └────────────────────┘
 ```
 
 ---
 
-## 7. External Proxyを使わない理由（Why No External Proxy）
+## 6. External Proxyを使わない理由（Why No External Proxy）
 
 1. **DMM利用規約およびアカウントBANリスクの回避**:
    外部プロキシ経由はデータセンターIPとなり、ゲーム運営による不正検知（アカウント凍結）の対象となります。
 2. **プライバシー保護**:
    セッショントークンやCookieが第三者サーバーを通過することを防ぎます。
 3. **結論**:
-   通信は**ユーザーPCから艦これ公式サーバーへの完全直接接続（Direct TLS Connection）**を維持します。
+   通信は**ユーザーPCから艦これ公式サーバーへの完全直接接続（Direct 2PC-TLS Connection）**を維持します。
 
 ---
 
-## 8. TLSNotary MPC-TLS Integration（MPC-TLS統合仕様）
+## 7. TLS Data Plane Integration: FUSOU-PROXY と TLSNotary Prover の具体的統合設計
 
-### 8.1 TLS Data Plane Feasibility PoC（データプレーン実現性検証計画）
+### 7.1 HUDSucker MITM と MPC-TLS の関係
 
-本番実装へ進む前に、以下のデータプレーン検証 PoC を実施します：
+* **Downstream（Browser $\leftrightarrow$ Proxy）**: 既存の HUDSucker ローカル CA を用いた高速なローカル TLS 通信を維持。
+* **Upstream（Proxy $\leftrightarrow$ Game Server）**: 既存の `rustls` 単体クライアントを廃止し、`tlsn-prover` による MPC-TLS Client トランスポートを採用。Prover と Notary が暗号鍵を秘密分散（$K = K_{prover} \oplus K_{notary}$）して共同で TLS 1.2 を終端。
 
-| 検証項目 | 検証内容 | 判定基準 |
+### 7.2 具体統合構成（Downstream MITM + Upstream MPC-TLS Prover）
+
+```rust
+// packages/FUSOU-PROXY/proxy-https/src/upstream_mpc_transport.rs (概念設計)
+
+pub struct UpstreamMpcTransport {
+    prover: tlsn_prover::Prover,
+    notary_ws_channel: async_tungstenite::WebSocketStream<...>,
+}
+
+impl UpstreamMpcTransport {
+    /// 艦これサーバーへの直接 MPC-TLS 接続を確立
+    pub async fn connect_kancolle(
+        server_name: &str,
+        notary_url: &str,
+    ) -> Result<Self, TransportError> {
+        // 1. Notary との MPC チャネル初期化 (平文は流れない)
+        // 2. 艦これサーバーへの TCP 接続
+        // 3. 2PC-TLS ハンドシェイクの実行
+        // ...
+    }
+
+    /// Application Data の送受信と Gameplay Path への平文ストリーム供給
+    pub async fn forward_request_and_stream_response(
+        &mut self,
+        req: hyper::Request<hyper::body::Incoming>,
+    ) -> Result<(hyper::Response<...>, AttestationHandle), TransportError> {
+        // HTTP リクエストの送信
+        // レスポンス平文の受信 -> Gameplay Path (Browser) へ即時ストリーミング
+        // Transcript Commitment の記録 -> Evidence Path (AttestationHandle) へ渡す
+    }
+}
+```
+
+### 7.3 TLS Data Plane Feasibility PoC（第0段階: `battleresult` 実測検証計画）
+
+本格的な全体実装に入る前に、**ボス戦リザルト（`/kcsapi/api_req_sortie/battleresult`）1本に絞った「TLS Data Plane 実現性 PoC」** を実施します。
+
+| 検証項目 | 検証内容 | 合格判定基準 |
 |---|---|:---:|
-| **① Upstream TLS 終端** | HUDSucker の upstream コネクションを TLSNotary Prover トランスポートに置換可能か | 接続確立・データ送受信 |
-| **② Gameplay Path への平文供給** | Prover の復号ストリーム（online/deferred）からブラウザへ平文を中継できるか | ゲーム画面の正常描画 |
-| **③ HTTP Framing** | Content-Length および Transfer-Encoding: chunked の境界を正しく解釈できるか | ボディ読了・EOF 判定 |
-| **④ Keep-Alive & 連続通信** | 同一 TCP/TLS コネクションでの複数 API 連続呼び出しに対応できるか | セッション切断なし |
-| **⑤ Notary 障害時耐性** | Notary 未接続・タイムアウト時に通常のゲーム通信のみを安全にフォールバックできるか | ゲームプレイ継続 |
+| **① Upstream MPC 終端** | HUDSucker の Upstream コネクションを TLSNotary Prover に差し替えてハンドシェイク完了できるか | TCP/TLS 確立成功 |
+| **② Gameplay Path への平文供給** | Prover の受信ストリームからブラウザへパケットを流し、ゲーム画面が正常に描画されるか | ゲームプレイ継続・画面描画成功 |
+| **③ HTTP Framing** | Content-Length / chunked エンコーディングのボディ境界を正確に解釈できるか | ボディパース完了・EOF到達 |
+| **④ Keep-Alive & 連続通信** | 同一 TCP コネクションでの連続リクエストを正常に処理できるか | セッション切断なし |
+| **⑤ Notary 障害時フォールバック** | Notary サーバー停止時、Upstream を通常の TLS クライアントへ即座にフォールバックできるか | ゲーム進行を一切停止させない |
+| **⑥ 追加遅延の実測** | MPC-TLS 適用時と通常時の Gameplay レスポンス時間を実測・比較 | 体感可能なブロッキングがないこと |
 
 ---
 
-## 9. Local Proxy / Prover Integration（HUDSuckerとProverの責務分離）
-
-* **Gameplay Path**:
-  ブラウザへのパケット供給を最優先とし、暗号公証処理の成否に影響されずに動作します。
-* **Evidence Path**:
-  公証処理はバックグラウンドの非同期タスクとして実行され、生成された証明書（Presentation）は SQLite キューに格納されます。
-
----
-
-## 10. Attestation Data Model（in-toto Statement v1 ベース Envelope仕様）
+## 8. Attestation Data Model（in-toto Statement v1 ベース Envelope仕様）
 
 証明データは、in-toto Statement v1 スキーマに基づき以下の形式で構造化されます。
 
@@ -204,7 +246,7 @@ FUSOU.exe 自体の改ざん防止やメモリ保護をセキュリティの根�
   "predicate": {
     "schema_version": 1,
     "server_name": "w01y.kcs.dmm.com",
-    "transcript_commitment": "3a7c9f... (TLSNotary transcript commit)",
+    "transcript_commitment": "3a7c9f... (TLSNotary transcript commitment)",
     "notary_time": "2026-08-27T03:00:00Z",
     "device": {
       "device_id": "00000000-0000-4000-8000-000000000000",
@@ -219,11 +261,26 @@ FUSOU.exe 自体の改ざん防止やメモリ保護をセキュリティの根�
 
 ---
 
-## 11. Canonical Telemetry Model（サーバーサイド・カノニカルモデル）
+## 9. Strict Server-Side Canonical Telemetry Parser（厳格な多段パーサー仕様）
 
-サーバー側パーサー（`telemetry_parser.ts`）は、開示された Request 平文から `api_path` を取得し、開示された Response 平文から正規オブジェクトを直接構築します。
+クライアントが送信した自称 `api_path` や JSON を一切信頼せず、開示された平文バイト列から以下の厳格な多段パイプラインで正規オブジェクトを抽出します：
+
+```
+[開示された Request 平文]  --> [HTTP Request Parser]  --> [actual api_path 抽出]
+                                                               │
+                                                               ▼ (エンドポイント合致検証)
+[開示された Response 平文] --> [HTTP Response Parser] --> [svdata= プレフィックス除去]
+                                                               │
+                                                               ▼
+                                                       [JSON Parser]
+                                                               │
+                                                               ▼ (JSON Pointer 抽出)
+                                                       [Canonical Telemetry Object]
+```
 
 ```typescript
+// packages/FUSOU-WEB/src/server/utils/telemetry_parser.ts
+
 export interface CanonicalBattleResult {
   api_path: string;
   win_rank: 'S' | 'A' | 'B' | 'C' | 'D' | 'E';
@@ -231,16 +288,40 @@ export interface CanonicalBattleResult {
   drop_ship_id?: number;
 }
 
-export interface CanonicalCreateItem {
-  api_path: string;
-  create_flag: 0 | 1;
-  slotitem_id?: number;
+export function parseCanonicalBattleResult(
+  revealedReq: Uint8Array,
+  revealedRecv: Uint8Array
+): CanonicalBattleResult {
+  // 1. Request 平文から api_path を直接パース
+  const reqStr = new TextDecoder().decode(revealedReq);
+  const matchReq = reqStr.match(/POST\s+(\/kcsapi\/api_[a-z0-9_]+(\/[a-z0-9_]+)?)/i);
+  if (!matchReq || matchReq[1] !== '/kcsapi/api_req_sortie/battleresult') {
+    throw new Error('invalid_or_unauthorized_request_path');
+  }
+
+  // 2. Response 平文から svdata= を除去して JSON パース
+  const recvStr = new TextDecoder().decode(revealedRecv);
+  const jsonStart = recvStr.indexOf('svdata=');
+  if (jsonStart === -1) throw new Error('svdata_prefix_missing');
+
+  const jsonStr = recvStr.slice(jsonStart + 7).trim();
+  const rawJson = JSON.parse(jsonStr);
+
+  if (rawJson.api_result !== 1) throw new Error('api_result_not_ok');
+
+  // 3. JSON Pointer 単位で安全にカノニカルオブジェクトを構築
+  return {
+    api_path: matchReq[1],
+    win_rank: rawJson.api_data?.api_win_rank,
+    quest_name: rawJson.api_data?.api_quest_name,
+    drop_ship_id: rawJson.api_data?.api_get_ship?.api_ship_id,
+  };
 }
 ```
 
 ---
 
-## 12. Selective Disclosure（真のJSON Pointer単位の最小限開示Redaction）
+## 10. Selective Disclosure（真のJSON Pointer単位の最小限開示Redaction）
 
 文字列検索を排し、`svdata=` プレフィックスを除去した JSON 構造をパースして、対象の JSON Pointer のバイト範囲のみを開示します。
 
@@ -255,26 +336,30 @@ export interface CanonicalCreateItem {
 
 ---
 
-## 13. Device Binding（Ed25519 デバイスバインディング）
+## 11. Device Binding（Ed25519 デバイスバインディングの暗号学的証明）
 
-* Presentation 構築時にデバイス公開鍵バイト列（32B）をバインド。
-* サーバー側で `verificationResult.userDataHex == device_public_key` を照合。
-* さらに DB 上で `user_devices.revoked_at IS NULL` かつ `is_verified = TRUE` であることを必須検証。
+* **Presentation 内部への埋め込み**:
+  Presentation 構築時に、Prover は `SessionProof.build_presentation(&device_key.public_key_bytes())` を実行し、Notary の暗号コミット対象である `userData` 平文領域にデバイス公開鍵を直接埋め込みます。
+* **サーバー側での照合**:
+  FUSOU-WEB は `verificationResult.userDataHex == device_public_key` を照合。
+* **DB 有効性の確認**:
+  DB の `user_devices` テーブル上で `device_id` が存在し、`revoked_at IS NULL` かつ `is_verified = TRUE` であることを必須確認。
 
 ---
 
-## 14. Replay Protection（多重リプレイ・二重計上防御）
+## 12. Replay & Event Identity Protection（多重リプレイ・二重計上防御）
 
-1. **`transcript_commitment`（または `session_commitment`）**:
-   TLSNotary の Transcript Commitment ハッシュを一意キーとし、DB に `UNIQUE` 制約を設定。
-2. **同一セッションからの別 Presentation 生成（Attack F）防御**:
-   根底の `transcript_commitment` が同一であるため、DB の `ON CONFLICT (session_commitment) DO NOTHING` で確実に排除。
+1. **`transcript_commitment` による DB UNIQUE 制約**:
+   TLSNotary の Transcript Commitment ハッシュを一意キーとし、DB に `UNIQUE (session_commitment)` 制約を設定。
+2. **`canonical_event_id` のサーバー側生成**:
+   クライアントが送信した `item_id` は単なる通信用 ID として扱い、サーバー側で以下の決定論的ハッシュを生成してイベントの一意性を担保：
+   $$\text{canonical\_event\_id} = \text{SHA256}(\text{public\_id} \mathbin{\Vert} \text{transcript\_commitment} \mathbin{\Vert} \text{canonical\_payload\_hash})$$
 3. **時間窓（24時間ルール）**:
-   `notary_time` が 24 時間以上前のものは破棄。
+   `notary_time` が 24 時間以上前の古い証明書は自動破棄。
 
 ---
 
-## 15. Server-side Verification Pipeline（検証パイプライン詳細）
+## 13. Server-side Verification Pipeline（検証パイプライン詳細）
 
 ```mermaid
 flowchart TD
@@ -285,17 +370,17 @@ flowchart TD
     Auth -->|Yes| Loop[各アイテムの検証ループ]
 
     Loop --> V1{TLSNotary 検証<br/>@tlsnotary/tlsn-js}
-    V1 -->|Fail| E1[rejected_items に追加]
+    V1 -->|Fail| E1[PERMANENT_REJECT]
     V1 -->|Pass| V2{Server Name 照合<br/>wXX*.kcs.dmm.com?}
-    V2 -->|Fail| E2[rejected_items に追加]
+    V2 -->|Fail| E2[PERMANENT_REJECT]
     V2 -->|Pass| V3{DeviceKey バインド照合<br/>userData == device_pubkey?}
-    V3 -->|Fail| E3[rejected_items に追加]
+    V3 -->|Fail| E3[PERMANENT_REJECT]
     V3 -->|Pass| V4{Time Window 検証<br/>age <= 24h?}
-    V4 -->|Fail| E4[rejected_items に追加]
+    V4 -->|Fail| E4[PERMANENT_REJECT]
     V4 -->|Pass| P1[Request 平文から api_path 抽出]
     P1 --> P2[Response 平文から Canonical Data 生成]
     
-    P2 -->|Parse Error| E5[rejected_items に追加]
+    P2 -->|Parse Error| E5[PERMANENT_REJECT]
     P2 -->|Success| Bulk[バルクインサートキューに追加]
     
     Bulk --> DB[(Supabase: attested_telemetry_logs<br/>ON CONFLICT DO NOTHING)]
@@ -304,7 +389,7 @@ flowchart TD
 
 ---
 
-## 16. DB Schema（Supabaseマイグレーション & RLS設計）
+## 14. DB Schema（Supabaseマイグレーション & RLS設計）
 
 ### `20260826010000_create_attested_telemetry_tables_v2.sql`
 ```sql
@@ -312,6 +397,7 @@ BEGIN;
 
 CREATE TABLE IF NOT EXISTS public.attested_telemetry_logs (
     item_id UUID PRIMARY KEY,
+    canonical_event_id TEXT NOT NULL,
     device_id UUID NOT NULL REFERENCES public.user_devices(device_id) ON DELETE RESTRICT,
     api_path TEXT NOT NULL,
     session_commitment TEXT NOT NULL,
@@ -319,7 +405,8 @@ CREATE TABLE IF NOT EXISTS public.attested_telemetry_logs (
     canonical_payload JSONB NOT NULL,
     is_attested BOOLEAN NOT NULL DEFAULT TRUE,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    CONSTRAINT uq_attested_telemetry_session_commit UNIQUE (session_commitment)
+    CONSTRAINT uq_attested_telemetry_session_commit UNIQUE (session_commitment),
+    CONSTRAINT uq_attested_telemetry_event_id UNIQUE (canonical_event_id)
 );
 
 CREATE INDEX IF NOT EXISTS idx_attested_telemetry_path_time 
@@ -345,32 +432,35 @@ COMMIT;
 
 ---
 
-## 17. Queue / Retry Design（SQLite永続キュー・エラー分類・部分ACK）
+## 15. Queue / Retry Design（SQLite永続キュー・4状態エラー分類・部分ACK）
 
-* **エラー分類**:
-  * **`PERMANENT_FAILURE`**（証明書破損、スキーマ不一致、端末失効） $\rightarrow$ 即座にキューから削除・隔離（Quarantine）。
-  * **`TRANSIENT_FAILURE`**（500 エラー、ネットワークタイムアウト） $\rightarrow$ `retry_count` をインクリメントし、次回フラッシュで再試行。
+* **キュー状態（4-State Lifecycle）**:
+  1. **`ACCEPTED`**: サーバーで正常に受理され、ローカル DB から削除完了。
+  2. **`TRANSIENT_FAILURE`**: 500 エラー、ネットワークタイムアウト等 $\rightarrow$ `retry_count` を加算して次回フラッシュ時に再試行。
+  3. **`PERMANENT_REJECT`**: 証明書破損、スキーマ不一致、失効端末等 $\rightarrow$ 再送を即座に停止し、エラーログ記録。
+  4. **`QUARANTINED`**: `retry_count > 5` に達したアイテムを退避。
 * **部分成功 ACK（Partial ACK）**:
-  サーバーが返却した `accepted_item_ids` のみをローカル DB から削除。
+  サーバーが返却した `accepted_item_ids` のみをローカル DB から安全に削除。
 
 ---
 
-## 18. Failure Handling（障害処理・フォールバック・隔離）
+## 16. Failure Handling（障害処理・フォールバック・隔離）
 
 1. **Notary サーバー障害時**:
+   `Notary availability is not a gameplay dependency.`  
    Prover は公証タスクを待機させ、Gameplay Path（通常ゲーム通信）のみを 100% 継続（ゲームプレイを絶対に停止させない）。
 2. **ネットワーク切断時**:
    生成済みの証明書は SQLite に安全に永続化され、再接続時に自動送信。
 
 ---
 
-## 19. Privacy（プライバシー保護とCookie秘匿）
+## 17. Privacy（プライバシー保護とCookie秘匿）
 
 * `Cookie:`, `api_token=`, DMM セッション ID はクライアント側で完全マスクされ、Notary および FUSOU-WEB には一切開示されません。
 
 ---
 
-## 20. Rate Limiting / DoS（DoS耐性とリソース制限）
+## 18. Rate Limiting / DoS（DoS耐性とリソース制限）
 
 * `AUTH_BODY_MAX_BYTES = 512KB`, `MAX_BATCH_ITEMS = 20`
 * 1 端末あたり 1 時間 60 回のバッチ送信制限。
@@ -378,38 +468,28 @@ COMMIT;
 
 ---
 
-## 21. Testing（単体・統合・攻撃回帰テスト）
+## 19. Testing（単体・統合・攻撃回帰テスト）
 
 * **Attack A〜I 回帰テスト**:
-  改ざんデータ、偽装 `api_path`、失効端末、多重 Presentation リプレイの各攻撃がサーバーで 100% 遮断されることを自動テスト（Vitest / Rust test）で検証。
+  改ざんデータ、偽装 `api_path`、失効端末、多重 Presentation リプレイの各攻撃がサーバーで確実に遮断されることを自動テストで検証。
 
 ---
 
-## 22. Migration（既存データ・環境の移行手順）
+## 20. Migration & Rollout Plan（PoC先行の段階的ロールアウト計画）
 
-```bash
-cd packages/FUSOU-WEB
-npx supabase db push
-pnpm vitest run tests/telemetry-parser.test.ts
-```
-
----
-
-## 23. Rollout（段階的ロールアウト計画）
-
-1. **Phase 0 (Data Plane PoC)**: `proxy-https` と TLSNotary Prover の実通信データプレーン検証。
+1. **Phase 0 (Data Plane PoC)**: `proxy-https` と TLSNotary Prover の実通信データプレーン検証（第7.3節）。
 2. **Phase 1 (ボス戦リザルト公証)**: `/kcsapi/api_req_sortie/battleresult` のみで本番運用開始。
 3. **Phase 2 (全エンドポイント展開)**: 建造・開発・改修へ順次拡大。
 
 ---
 
-## 24. Security Review Checklist（監査チェックリスト）
+## 21. Security Review Checklist（監査チェックリスト）
 
 - [x] ゲームサーバー通信に外部プロキシを介在させていないこと（Direct Connection）
 - [x] ゲーム API の再送信・二重実行コードが完全に排除されていること
 - [x] Gameplay Path と Evidence Path が二元分離され、公証処理がゲーム進行をブロックしないこと
 - [x] クライアントの申告した `api_path` や JSON を信用せず、開示平文からサーバー側で直接カノニカル生成していること
 - [x] `api_data` 丸ごと開示を排除し、真の JSON Pointer 単位での最小限開示を行っていること
-- [x] `session_commitment` による DB UNIQUE 制約で完全な冪等性が担保されていること
-- [x] 部分成功 ACK およびエラー分類（PERMANENT / TRANSIENT）によりデータ消失が発生しないこと
+- [x] `session_commitment` および `canonical_event_id` による DB UNIQUE 制約で完全な冪等性が担保されていること
+- [x] 部分成功 ACK および 4 状態エラー分類によりデータ消失が発生しないこと
 - [x] RLS（Row Level Security）が有効化され、`service_role` 以外からの書き込みが遮断されていること

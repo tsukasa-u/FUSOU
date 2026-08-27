@@ -6,7 +6,10 @@
 > 1. **再送信ゼロ（No Re-submission）**: ゲームAPIを裏で故意に再送・二重実行することはBANリスクおよび副作用の観点から絶対に排除し、**ブラウザと艦これ公式サーバー間の正規のTLSセッションそのものを公証**する。  
 > 2. **外部プロキシ中継ゼロ（Direct Connection）**: 外部中継プロキシは規約上・BANリスク上不可とし、**クライアントローカルの `FUSOU-PROXY` と艦これ公式サーバー間の直接通信を維持**する。  
 > 3. **Gameplay Path と Evidence Path の二元分離**: 母港画面の表示（Gameplay Path）は低遅延・通常プレイ継続を最優先とし、真正性証明の構築（Evidence Path）をバックグラウンドで非同期実行する。  
-> **ステータス**: 外部セキュリティ監査・アーキテクチャ二元分離反映マスター  
+> 4. **証明処理をゲーム進行のクリティカルパスに置かない（Non-blocking Attestation）**:  
+>    `Attestation is not on the gameplay critical path.`  
+>    `Notary availability is not a gameplay dependency.`  
+> **ステータス**: 外部セキュリティ監査・TLSデータプレーン統合設計完全反映マスター  
 
 ---
 
@@ -18,7 +21,7 @@
 4. [Existing FUSOU Identity Architecture（現行FUSOUのID基盤）](#4-existing-fusou-identity-architecture現行fusouのid基盤)
 5. [Member State Machine（所有権ステートマシン）](#5-member-state-machine所有権ステートマシン)
 6. [TLSNotary Ownership Proof（母港APIの暗号学的公証 & データプレーン分離）](#6-tlsnotary-ownership-proof母港apiの暗号学的公証--データプレーン分離)
-7. [Device Binding（Ed25519 デバイスバインディング）](#7-device-bindinged25519-デバイスバインディング)
+7. [Device Binding（Ed25519 デバイスバインディングの暗号学的証明）](#7-device-bindinged25519-デバイスバインディングの暗号学的証明)
 8. [Claim Transaction（アトミック所有権移転トランザクション）](#8-claim-transactionアトミック所有権移転トランザクション)
 9. [Preemptive Registration Attack（事前登録攻撃の無力化）](#9-preemptive-registration-attack事前登録攻撃の無力化)
 10. [Concurrent Claim Handling（並行実行と行ロック制御）](#10-concurrent-claim-handling並行実行と行ロック制御)
@@ -30,7 +33,7 @@
 16. [Recovery（正規オーナーによるアカウント回復手順）](#16-recovery正規オーナーによるアカウント回復手順)
 17. [Testing（単体・統合・競合テスト）](#17-testing単体統合競合テスト)
 18. [Migration（既存データの移行手順）](#18-migration既存データの移行手順)
-19. [Rollout（段階的ロールアウト計画）](#19-rollout段階的ロールアウト計画)
+19. [Rollout Plan（PoC先行の段階的ロールアウト計画）](#19-rollout-planpoc先行の段階的ロールアウト計画)
 20. [Security Review Checklist（監査チェックリスト）](#20-security-review-checklist監査チェックリスト)
 
 ---
@@ -135,10 +138,12 @@ stateDiagram-v2
 
 ---
 
-## 7. Device Binding（Ed25519 デバイスバインディング）
+## 7. Device Binding（Ed25519 デバイスバインディングの暗号学的証明）
 
-* クライアントはローカルで生成・保持する `DeviceKey`（Ed25519 秘密鍵）の公開鍵バイト列（32B）を Presentation の `userData` にバインドします。
-* サーバー側で `verificationResult.userDataHex == device_public_key` を照合し、他人の証明書の盗用を完全に遮断します。
+* **Presentation 内部への埋め込み**:
+  Presentation 構築時に、Prover は `SessionProof.build_presentation(&device_key.public_key_bytes())` を実行し、Notary の暗号コミット対象である `userData` 平文領域にデバイス公開鍵を直接埋め込みます。
+* **サーバー側での照合**:
+  サーバー側で `verificationResult.userDataHex == device_public_key` を照合し、他人の証明書の盗用を完全に遮断します。
 
 ---
 
@@ -351,11 +356,12 @@ pnpm vitest run tests/tlsn-verifier.test.ts
 
 ---
 
-## 19. Rollout（段階的ロールアウト計画）
+## 19. Rollout Plan（PoC先行の段階的ロールアウト計画）
 
-1. **Phase 1**: Supabase マイグレーション適用（`claim_verified_device_v3` RPC デプロイ）。
-2. **Phase 2**: `FUSOU-WEB` に `/anonymous-sync/v2/verify-tlsn` エンドポイントを有効化。
-3. **Phase 3**: `FUSOU-APP` / `FUSOU-PROXY` にインライン公証ロジックを配信。
+1. **Phase 0 (Data Plane PoC)**: 母港通信における Prover 統合と Gameplay 中継の動作実測。
+2. **Phase 1**: Supabase マイグレーション適用（`claim_verified_device_v3` RPC デプロイ）。
+3. **Phase 2**: `FUSOU-WEB` に `/anonymous-sync/v2/verify-tlsn` エンドポイントを有効化。
+4. **Phase 3**: `FUSOU-APP` / `FUSOU-PROXY` にインライン公証ロジックを配信。
 
 ---
 
