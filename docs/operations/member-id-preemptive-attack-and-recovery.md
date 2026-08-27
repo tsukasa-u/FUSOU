@@ -1,27 +1,27 @@
-# FUSOU: zkTLS (TLSNotary MPC-TLS) による member_id 所有権担保 & 所有権移転ステートマシン 完全実装仕様書 (v1 Scope)
+# FUSOU: zkTLS (TLSNotary MPC-TLS) による member_id 所有権担保 & 所有権移転ステートマシン 完全実装仕様書 (require_info 特化版)
 
 > **文書種別**: アーキテクチャ設計仕様書 & 実装マスターガイド（Implementation Master Guide）  
 > **対象領域**: FUSOU プロジェクト全域（`packages/fusou-auth`, `packages/fusou-proxy-core`, `packages/fusou-proxy-tlsn`, `packages/FUSOU-WEB`, Supabase / Cloudflare Workers / Dedicated Verifier Service）  
-> **v1 Security Goal**:  
-> **「FUSOU-WEB が採用する `api_member_id` が、本当に信頼対象のゲームサーバーから返された値であることを暗号学的に検証し、事前登録攻撃を完全に無力化する」**  
-> 対象 API: **`POST /kcsapi/api_port/port`**  
-> 対象データ: **`/api_data/api_member_id`** のみ。  
+> **v1 Core Security Goal**:  
+> **「ログイン時の `POST /kcsapi/api_get_member/require_info` から暗号学的に検証した `api_member_id` を FUSOU Dataset Identity として確立し、事前登録攻撃を完全に無力化して正当な所有権を確定・移転する」**  
+> 対象 API: **`POST /kcsapi/api_get_member/require_info`**（ログイン時 1 回のみ）  
+> 対象データ: **`/api_data/api_basic/api_member_id`**  
 > **最重要設計原則**:  
-> 1. **再送信ゼロ（No Re-submission）**: 母港 API（`api_port/port`）を裏で故意に再送・二重実行することは絶対に排除し、**ブラウザと艦これ公式サーバー間の正規の 1 回限りの TLS セッションそのものを公証**する。  
-> 2. **外部ゲーム通信プロキシ中継ゼロ（Direct Connection）**: 外部中継プロキシは規約上・BANリスク上不可とし、**クライアントローカルの `FUSOU-PROXY` と艦これ公式サーバー間の直接通信を維持**する。  
-> 3. **Gameplay Path と Evidence Path の二元分離（Proof 完了待ちの完全排除）**: 母港画面の表示（Gameplay Path）のために Proof 完成を待たせない。レスポンス受信時点でブラウザへ即座に中継し、公証（Evidence Path）はバックグラウンドで非同期実行する。  
-> 4. **Selective Disclosure（0.5MB レスポンスの最小限開示）**: 500KB に達する母港レスポンス全体を開示せず、TLSNotary の selective disclosure により `/api_data/api_member_id` の Byte Range のみを開示する。  
+> 1. **再送信ゼロ（No Re-submission）**: ログイン時の `require_info` を裏で故意に再送・二重実行することは絶対に排除し、**ブラウザと艦これ公式サーバー間の正規の 1 回限りの TLS セッションそのものを公証**する。  
+> 2. **外部プロキシ中継ゼロ（Direct Connection）**: 外部中継プロキシは規約上・BANリスク上不可とし、**クライアントローカルの `FUSOU-PROXY` と艦これ公式サーバー間の直接通信を維持**する。  
+> 3. **Gameplay Path の Proof 完了待ち完全排除**: `require_info` レスポンス平文を受信した時点でブラウザへ即座に中継し、公証タスクはバックグラウンドで非同期実行する。  
+> 4. **Selective Disclosure（最小限開示）**: `require_info` レスポンス全体を開示せず、TLSNotary の selective disclosure により `/api_data/api_basic/api_member_id` の Byte Range のみを開示する。  
 > 5. **並行 Claim の完全直列化（64-bit Advisory Lock & 親行ロック契約）**:  
 >    64-bit Advisory Lock により衝突確率を十分に低減し、同一トランザクション内で必ず行が存在する `member_id_mapping` 親行の `FOR UPDATE` により並行 Claim を物理的に直列化する。  
 > 6. **二重識別子モデル（Random UUID `public_id` と Pepper HMAC `member_id_hash`）**:  
 >    `public_id` は DB 内部リレーション用のランダム UUID（UUIDv4）のままとし、`member_id_hash`（`anon_sync_pepper_runtime` 動的バージョン管理付き）はサーバー側 HMAC による秘匿照合・一意 Claim 用キーとして両立させる。  
 > 7. **所有権現在状態（`member_ownership`）と通常のアプリケーション経路で変更禁止な監査履歴（`member_ownership_claims`）の分離**:  
 >    現在の検証済み所有者レコードと、将来の監査検証用情報（`notary_time`, `notary_key_id`）を含む Append-Only 監査証跡ログをテーブル分離する。  
-> 8. **Proof Consumption Policy & Triple Owner Invariant**:  
->    排他ロック取得後に同一 `transcript_commitment` の多重消費を `DUPLICATE_PROOF_CONSUMED` として防ぎ、$\text{member\_ownership.verified\_user\_id} \equiv \text{user\_devices.canonical\_user\_id} \equiv \text{user\_member\_map.user\_id}$ の不変条件を厳格に保持する。  
+> 8. **Triple Owner Invariant & Social User Binding**:  
+>    排他ロック取得後に同一 `transcript_commitment` の多重消費を `DUPLICATE_PROOF_CONSUMED` として防ぎ、$\text{member\_ownership.verified\_user\_id} \equiv \text{user\_devices.canonical\_user\_id} \equiv \text{user\_member\_map.user\_id}$ の不変条件を厳格に保持し、`web_user_member_map`（Social Account）との紐付けを確立する。  
 > 9. **RPC 前提条件の明確化（Security Boundary）**:  
 >    ストアドプロシージャ `claim_verified_device_v3` は、呼び出し元 FUSOU-WEB が TLSNotary Proof を完全検証済みであることを前提とし、未検証データの書き込みを遮断する。  
-> **ステータス**: v1 member_id 特化・排他ロック順序完全維持・監査情報拡張マスター  
+> **ステータス**: require_info 採用・全12ステップRPC順序維持・Social User連携マスター  
 
 ---
 
@@ -31,10 +31,10 @@
 2. [Threat Model（脅威モデル）](#2-threat-model脅威モデル)
 3. [Trust Boundary & Security Boundary（信頼境界 & RPC前提条件）](#3-trust-boundary--security-boundary信頼境界--rpc前提条件)
 4. [Dual Identifier Model & Triple Owner Invariant（二重識別子モデルと不変条件）](#4-dual-identifier-model--triple-owner-invariant二重識別子モデルと不変条件)
-5. [Existing FUSOU Identity Architecture（現行FUSOUのID基盤）](#5-existing-fusou-identity-architecture現行fusouのid基盤)
+5. [Existing FUSOU Identity Architecture（現行FUSOUのID基盤 & web_user_member_map）](#5-existing-fusou-identity-architecture現行fusouのid基盤--web_user_member_map)
 6. [Member State Machine（所有権ステートマシン & 乗っ取り防止ルール）](#6-member-state-machine所有権ステートマシン--乗っ取り防止ルール)
-7. [TLSNotary Ownership Proof（母港APIの暗号学的公証 & データプレーン分離）](#7-tlsnotary-ownership-proof母港apiの暗号学的公証--データプレーン分離)
-8. [Device Binding（Proof-bound Metadata による暗号学的証明）](#8-device-bindingproof-bound-metadata-による暗号学的証明)
+7. [TLSNotary Ownership Proof (`POST /kcsapi/api_get_member/require_info`)](#7-tlsnotary-ownership-proof-post-kcsapiapi_get_memberrequire_info)
+8. [Device Binding（Ed25519 署名と Proof のアトミックバインディング）](#8-device-bindinged25519-署名と-proof-のアトミックバインディング)
 9. [Claim Transaction（アトミック所有権移転トランザクション 全12ステップ）](#9-claim-transactionアトミック所有権移転トランザクション-全12ステップ)
 10. [Preemptive Registration Attack（事前登録攻撃の無力化）](#10-preemptive-registration-attack事前登録攻撃の無力化)
 11. [Concurrent Claim Handling（64-bit Advisory Lock & 親行ロック契約）](#11-concurrent-claim-handling64-bit-advisory-lock--親行ロック契約)
@@ -54,7 +54,7 @@
 ## 1. Goal（目標）
 
 FUSOU の匿名同期システム（`anonymous-sync-v2`）において、悪意ある第三者が他人の `api_member_id` を先回りして自己申告登録し、本物のプレイヤーがデータを同期できなくなる **事前登録攻撃（Preemptive Registration Attack / ID Squatting）** を暗号学的に完全無力化します。
-母港 API（`POST /kcsapi/api_port/port`）の `/api_data/api_member_id` を対象に zkTLS (TLSNotary MPC-TLS) を適用し、「正規のゲームセッションを操作できる端末」が所有権をいつでも奪還・確定できるアトミックな所有権移転基盤を確立します。
+ログイン時の `POST /kcsapi/api_get_member/require_info` の `/api_data/api_basic/api_member_id` を対象に zkTLS (TLSNotary MPC-TLS) を適用し、「正規のゲームセッションを操作できる端末」が所有権をいつでも奪還・確定できるアトミックな所有権移転基盤を確立します。
 
 ---
 
@@ -70,7 +70,7 @@ FUSOU の匿名同期システム（`anonymous-sync-v2`）において、悪意�
 3. **並行 Claim 攻撃**: 複数の端末から同時に Claim リクエストを送り、空テーブル検索の隙を突いて二重登録や不整合を発生させる。
 4. **ハッシュ詐称攻撃**: クライアントが `p_api_member_id` と一致しない偽の `p_member_id_hash` を送り、DB レコードを汚染しようとする。
 5. **別ユーザーによる乗っ取り Claim 攻撃**: 正規オーナー A が確定した後に、第三者 B が一時的にゲームアカウントにアクセスできた場合に B のアカウントへ所有権を強制移転しようとする。
-6. **同一 Proof の多重 Claim（Replay）**: 過去の母港通信の証明書を別の端末や別アカウントで再利用する。
+6. **同一 Proof の多重 Claim（Replay）**: 過去のログイン通信の証明書を別の端末や別アカウントで再利用する。
 
 ---
 
@@ -89,7 +89,7 @@ FUSOU の匿名同期システム（`anonymous-sync-v2`）において、悪意�
 │  Client-provided metadata = NEVER trusted              │
 └───────────────────────────┬────────────────────────────┘
                             │
-                            │ 1. TLSNotary Presentation (MPC-TLS)
+                            │ 1. TLSNotary Presentation (require_info)
                             │ 2. Ed25519 Device Signature
                             ▼
 ═════════════════════ TRUST BOUNDARY ═════════════════════
@@ -100,7 +100,7 @@ FUSOU の匿名同期システム（`anonymous-sync-v2`）において、悪意�
 │                                                        │
 │  - Verify Web PKI Certificate Chain                    │
 │  - Verify TLSNotary Notary Signature & Merkle Root     │
-│  - Verify Device Binding (Proof-bound Pubkey Match)    │
+│  - Verify Device Binding (Ed25519 Signature Match)     │
 │  - Strict Server-Side Canonical Parser (Zod)           │
 │  - Dynamic Pepper HMAC (anon_sync_pepper_runtime)      │
 │                                                        │
@@ -114,7 +114,7 @@ FUSOU の匿名同期システム（`anonymous-sync-v2`）において、悪意�
 │ Supabase Database (Trusted Core Storage: RPC Layer)    │
 │                                                        │
 │  - 64-bit Advisory Lock & Row-Level Locking            │
-│  - Atomic Ownership Transfer Transaction (12 Steps)    │
+│  - Atomic Ownership Transfer (Strict 12 Steps)         │
 │  - Enforce Triple Owner Invariant                      │
 │  - Proof Consumption Enforcement (Post-Lock Check)     │
 │  - Append-Only Audit Trail with notary_time/key_id     │
@@ -134,10 +134,10 @@ FUSOU の匿名同期システム（`anonymous-sync-v2`）において、悪意�
 ```
 api_member_id (例: "12345678")
        │
-       ├───────────────▶ public_id = UUIDv4 (Random UUID)
+       ├───────────────▶ public_id = UUIDv4 (Random UUID: Dataset U1)
        │                    ↑
        │                 【DB内部の安定したエンティティ識別子】
-       │                 ・member_id_mapping, user_member_map, user_devices 間の FK 参照
+       │                 ・member_id_mapping, user_member_map, web_user_member_map 間の FK 参照
        │                 ・外部に member_id を推測させないための内部 UUID
        │
        └───────────────▶ member_id_hash = HMAC-SHA256(secret_pepper_vN, api_member_id)
@@ -153,7 +153,7 @@ $$\text{member\_ownership.verified\_user\_id} \equiv \text{user\_devices.canonic
 
 ---
 
-## 5. Existing FUSOU Identity Architecture（現行FUSOUのID基盤）
+## 5. Existing FUSOU Identity Architecture（現行FUSOUのID基盤 & web_user_member_map）
 
 ```mermaid
 erDiagram
@@ -162,6 +162,8 @@ erDiagram
     auth_users ||--o{ user_devices : registers
     member_id_mapping ||--o{ user_devices : links_to
     member_id_mapping ||--|| member_ownership : verified_owner
+    auth_users ||--o{ web_user_member_map : social_links
+    member_id_mapping ||--|| web_user_member_map : bound_dataset
 
     auth_users {
         uuid id PK
@@ -172,6 +174,10 @@ erDiagram
         uuid public_id UK
     }
     user_member_map {
+        uuid user_id PK,FK
+        uuid public_id UK,FK
+    }
+    web_user_member_map {
         uuid user_id PK,FK
         uuid public_id UK,FK
     }
@@ -204,7 +210,7 @@ stateDiagram-v2
     UNCLAIMED --> PRE_REGISTERED: 自己申告による仮登録 (未検証端末)
     UNCLAIMED --> VERIFIED: 初回から TLSNotary 証明を提出 (正規オーナー確定)
     
-    PRE_REGISTERED --> VERIFIED: 本物のプレイヤーが TLSNotary 証明を提出<br/>【アトミック所有権移転: 攻撃者をRevoke & 新規Owner UUIDへ切替】
+    PRE_REGISTERED --> VERIFIED: 本物のプレイヤーが require_info 証明を提出<br/>【アトミック所有権移転: 攻撃者をRevoke & 新規Owner UUIDへ切替】
     
     VERIFIED --> MULTI_DEVICE: 同一オーナー (同一 canonical_user_id) による追加端末
     MULTI_DEVICE --> MULTI_DEVICE: 追加端末の登録
@@ -219,21 +225,21 @@ stateDiagram-v2
 
 ---
 
-## 7. TLSNotary Ownership Proof（母港APIの暗号学的公証 & データプレーン分離）
+## 7. TLSNotary Ownership Proof (`POST /kcsapi/api_get_member/require_info`)
 
 * **Gameplay Path**:
-  母港パケット（`POST /kcsapi/api_port/port`）はブラウザへ即座に中継され、画面描画を最優先します。Proof 完成を待ってブラウザを待たせることは絶対にありません。
+  ログイン時の `require_info` パケットはブラウザへ即座に中継され、ログイン画面描画を最優先します。Proof 完成を待ってブラウザを待たせることは絶対にありません。
 * **Evidence Path**:
-  プロキシのバックグラウンドタスクが Notary サーバーと MPC を完了させ、最小限フィールド（`POST /kcsapi/api_port/port`, `Host:`, `api_result: 1`, `/api_data/api_member_id`）のみを開示した Presentation を構築します。
+  プロキシのバックグラウンドタスクが Notary サーバーと MPC を完了させ、最小限フィールド（`POST /kcsapi/api_get_member/require_info`, `Host:`, `api_result: 1`, `/api_data/api_basic/api_member_id`）のみを開示した Presentation を構築します。
 
 ---
 
-## 8. Device Binding（Proof-bound Metadata による暗号学的証明）
+## 8. Device Binding（Ed25519 署名と Proof のアトミックバインディング）
 
-* **Proof-bound Metadata Binding**:
-  TLSNotary の Proof 生成機構が提供する application data / user data binding 機構を調査し、`device_public_key` を Proof に暗号学的にバインドします（Phase 0 PoC 検証項目）。
+* **Explicit Binding**:
+  クライアントは `require_info` の TLSNotary Presentation とともに、自身の `device_id` および Ed25519 秘密鍵で署名したトークンを提出。
 * **サーバー側での照合**:
-  FUSOU-WEB は検証された公開鍵と、DB の `user_devices` に登録された `device_pubkey` を照合。
+  FUSOU-WEB は検証された公開鍵と、DB の `user_devices` に登録された `device_pubkey` を照合し、ストアドプロシージャ `claim_verified_device_v3` をアトミックに実行。
 
 ---
 
@@ -536,16 +542,16 @@ COMMIT;
 
 ## 16. Failure Cases & Fallback（異常系・二段階フォールバックセマンティクス）
 
-Notary 障害時やタイムアウト時でも、母港画面の表示を停止させないため、以下の 2 段階で制御します：
-* **Phase A（リクエスト送信前）**: Notary 接続失敗時、新しい通常 TLS 接続を開いて母港へアクセス（ゲーム継続、公証なし）。
-* **Phase B（リクエスト送信後）**: レスポンスをそのままブラウザへ中継してゲーム継続。通常 TLS での再送信は厳格に禁止し、公証タスクのみ破棄。
-* **次回ログイン時の挙動**: 過去の通信を後から再公証することは不可能なため、**「次回ログイン時に、新しい母港通信（新しい TLS セッション）で新しい証明を取得」** します。
+Notary 障害時やタイムアウト時でも、ログイン画面の表示を停止させないため、以下の 2 段階で制御します：
+* **Phase A（リクエスト送信前）**: Notary 接続失敗時、新しい通常 TLS 接続を開いてログインへアクセス（ゲーム継続、公証なし）。
+* **Phase B（リクエスト送信後）**: レスポンスをそのままブラウザへ中継してログイン継続。通常 TLS での再送信は厳格に禁止し、公証タスクのみ破棄。
+* **次回ログイン時の挙動**: 過去の通信を後から再公証することは不可能なため、**「次回ログイン時に、新しいログイン通信（新しい TLS セッション）で新しい証明を取得」** します。
 
 ---
 
 ## 17. Recovery（正規オーナーによるアカウント回復手順）
 
-新端末で FUSOU を起動し、母港にアクセスするだけで、zkTLS 公証により自動的に正規オーナーとしてのペアリング（または所有権の再確定）が完了します。
+新端末で FUSOU を起動し、ログインするだけで、zkTLS 公証により自動的に正規オーナーとしてのペアリング（または所有権の再確定）が完了します。
 
 ---
 
@@ -571,13 +577,11 @@ pnpm vitest run tests/tlsn-verifier.test.ts
 ## 20. Rollout Plan & Verifier Benchmark（PoC先行の段階的ロールアウト計画）
 
 1. **Phase 0 (ADR-000 Data Plane PoC & Verifier Benchmark)**:
-   - 母港 API（`POST /kcsapi/api_port/port`）1 本での実測 PoC と SLA Gate 判定。
+   - `POST /kcsapi/api_get_member/require_info` における Prover 統合と Gameplay 中継の動作実測。
    - Cloudflare Workers vs Dedicated Rust Verifier のベンチマーク比較。
-2. **Phase 1 (member_id 所有権担保本番化)**:
-   - Supabase マイグレーション適用（`claim_verified_device_v3`）。
-   - `/anonymous-sync/v2/verify-tlsn` エンドポイント稼働開始。
-3. **Phase 2 (将来拡張: テレメトリ公証)**:
-   - 将来的に戦闘・ドロップ等のテレメトリ公証を検討する場合の追加拡張。
+2. **Phase 1**: Supabase マイグレーション適用（`claim_verified_device_v3` RPC デプロイ）。
+3. **Phase 2**: `FUSOU-WEB` に `/anonymous-sync/v2/verify-tlsn` エンドポイントを有効化。
+4. **Phase 3**: `FUSOU-APP` / `fusou-proxy-tlsn` にインライン公証ロジックを配信。
 
 ---
 
@@ -593,7 +597,7 @@ pnpm vitest run tests/tlsn-verifier.test.ts
 - [D] 排他ロック取得後の Proof Consumption Policy（重複消費排除）設計
 - [D] Verified Owner 確定後の別ユーザー乗っ取り遮断（`EXISTING_VERIFIED_OWNER_CONFLICT`）設計
 - [D] Triple Owner Invariant（$\text{verified\_user\_id} \equiv \text{canonical\_user\_id} \equiv \text{user\_id}$）の定義
-- [P] Phase 0 PoC（ADR-000）の母港 API 実測検証 (全20項目)
+- [P] Phase 0 PoC（ADR-000）の `require_info` 実測検証
 - [P] Verifier 実行環境ベンチマーク（Workers vs Dedicated Rust Verifier）
 - [I] 実装および Supabase マイグレーション適用
 - [T] 単体テスト・並行競合テスト
