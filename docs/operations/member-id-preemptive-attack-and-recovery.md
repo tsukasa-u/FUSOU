@@ -6,10 +6,10 @@
 > 1. **再送信ゼロ（No Re-submission）**: ゲームAPIを裏で故意に再送・二重実行することはBANリスクおよび副作用の観点から絶対に排除し、**ブラウザと艦これ公式サーバー間の正規のTLSセッションそのものを公証**する。  
 > 2. **外部プロキシ中継ゼロ（Direct Connection）**: 外部中継プロキシは規約上・BANリスク上不可とし、**クライアントローカルの `FUSOU-PROXY` と艦これ公式サーバー間の直接通信を維持**する。  
 > 3. **Gameplay Path と Evidence Path の二元分離**: 母港画面の表示（Gameplay Path）は低遅延・通常プレイ継続を最優先とし、真正性証明の構築（Evidence Path）をバックグラウンドで非同期実行する。  
-> 4. **証明処理をゲーム進行のクリティカルパスに置かない（Non-blocking Attestation）**:  
->    `Attestation is not on the gameplay critical path.`  
+> 4. **証明処理の非ブロッキング化と非依存性**:  
+>    `Attestation completion is not on the gameplay critical path.`  
 >    `Notary availability is not a gameplay dependency.`  
-> **ステータス**: 外部セキュリティ監査・TLSデータプレーン統合設計完全反映マスター  
+> **ステータス**: ADR-000・PoC先行ゲート・Supabase Auth整合性完全反映マスター  
 
 ---
 
@@ -29,7 +29,7 @@
 12. [Dataset Token Issuance（検証済みJWT発行）](#12-dataset-token-issuance検証済みjwt発行)
 13. [Replay Protection（リプレイ攻撃防御）](#13-replay-protectionリプレイ攻撃防御)
 14. [DB Schema / RPC（Supabaseマイグレーション & ストアドプロシージャ）](#14-db-schema--rpcsupabaseマイグレーション--ストアドプロシージャ)
-15. [Failure Cases（異常系・エラーハンドリング）](#15-failure-cases異常系エラーハンドリング)
+15. [Failure Cases & Fallback（異常系・フォールバック時のデータ扱い）](#15-failure-cases--fallback異常系フォールバック時のデータ扱い)
 16. [Recovery（正規オーナーによるアカウント回復手順）](#16-recovery正規オーナーによるアカウント回復手順)
 17. [Testing（単体・統合・競合テスト）](#17-testing単体統合競合テスト)
 18. [Migration（既存データの移行手順）](#18-migration既存データの移行手順)
@@ -100,6 +100,9 @@ erDiagram
     }
 ```
 
+* **Canonical User の整合性**:
+  `user_member_map.user_id` は `auth.users(id)` を参照します。データベース内部で適当に `gen_random_uuid()` を生成するのではなく、端末登録時に既に発行されている `user_devices.canonical_user_id` を用いてアトミックに移転・統合します。
+
 ---
 
 ## 5. Member State Machine（所有権ステートマシン）
@@ -130,7 +133,7 @@ stateDiagram-v2
 ## 6. TLSNotary Ownership Proof（母港APIの暗号学的公証 & データプレーン分離）
 
 * **Gameplay Path**:
-  母港パケット（`POST /kcsapi/api_port/port`）はブラウザへ低遅延で即座に中継され、ゲーム画面の描画を最優先します。
+  母港パケット（`POST /kcsapi/api_port/port`）はブラウザへ即座に中継され、画面描画を最優先します。
 * **Evidence Path**:
   プロキシのバックグラウンドタスクが Notary サーバーと MPC を完了させ、以下の最小限フィールドのみを開示した Presentation を構築します：
   * Request: `POST /kcsapi/api_port/port` および `Host: wXX*.kcs.dmm.com` のみ開示（Cookie は秘匿）。
@@ -157,7 +160,7 @@ stateDiagram-v2
 
 事前登録攻撃が存在する場合の所有権奪還アルゴリズム：
 1. `member_ownership_claims` を `member_id_hash` で排他ロック（`FOR UPDATE`）。
-2. 対象デバイスの `canonical_user_id`（すでに `auth.users` に紐づいている正規 UUID）を取得。
+2. 対象デバイスの `canonical_user_id`（既に `auth.users` に紐づいている正規 UUID）を取得。
 3. `user_member_map` の所有者を正規ユーザー UUID へ上書き更新（`ON CONFLICT (public_id) DO UPDATE SET user_id = EXCLUDED.user_id`）。
 4. 同一 `public_id` に紐づく過去の未検証端末（`is_verified = FALSE`）を一括 `revoked_at = NOW()`。
 5. `member_ownership_claims` に証明記録（`transcript_commitment` 等）を保存。
@@ -326,9 +329,9 @@ COMMIT;
 
 ---
 
-## 15. Failure Cases（異常系・エラーハンドリング）
+## 15. Failure Cases & Fallback（異常系・フォールバック時のデータ扱い）
 
-* **Notary サーバーダウン時**: プロキシは通常の母港通信をそのまま中継し、公証タスクは次回ログイン時に再試行。
+* **Notary サーバーダウン時**: プロキシは通常の母港通信をそのまま中継し、ゲーム進行を一切停止させません。公証タスクは次回ログイン時に再試行します。
 * **公証失敗時**: 400 エラーを返し、所有権の昇格を行いません。
 
 ---
@@ -358,7 +361,7 @@ pnpm vitest run tests/tlsn-verifier.test.ts
 
 ## 19. Rollout Plan（PoC先行の段階的ロールアウト計画）
 
-1. **Phase 0 (Data Plane PoC)**: 母港通信における Prover 統合と Gameplay 中継の動作実測。
+1. **Phase 0 (ADR-000 Data Plane PoC)**: 母港通信における Prover 統合と Gameplay 中継の動作実測。
 2. **Phase 1**: Supabase マイグレーション適用（`claim_verified_device_v3` RPC デプロイ）。
 3. **Phase 2**: `FUSOU-WEB` に `/anonymous-sync/v2/verify-tlsn` エンドポイントを有効化。
 4. **Phase 3**: `FUSOU-APP` / `FUSOU-PROXY` にインライン公証ロジックを配信。
