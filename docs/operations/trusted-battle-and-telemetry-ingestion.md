@@ -16,7 +16,7 @@
 >    `UpstreamTransport`（純粋なHTTP送受信）と `EvidenceObserver`（非同期公証観測）を Trait 境界で完全分離し、Phase 0 完了まで `fusou-proxy-tlsn` は experimental crate（PoC専用）として本番 Gameplay Path からは有効化しない。  
 > 7. **Phase 0 PoC（ADR-000）先行検証の必須化**:  
 >    TLSNotary MPC-TLS の Upstream 統合およびレイテンシ影響について、ボス戦リザルト（`battleresult`）1本での実測 PoC を通過するまで本番実装・全体展開を凍結する。  
-> **ステータス**: ADR-000・SLA Gate・Trait純化・フォールバック厳格化完全反映マスター  
+> **ステータス**: Trust Boundary・ADR-000・SLA Gate・Trait純化完全反映マスター  
 
 ---
 
@@ -24,7 +24,7 @@
 
 1. [Goal（目標）](#1-goal目標)
 2. [Threat Model（脅威モデル）](#2-threat-model脅威モデル)
-3. [Security Guarantees & Non-Guarantees（セキュリティ保証境界）](#3-security-guarantees--non-guaranteesセキュリティ保証境界)
+3. [Trust Boundary & Security Guarantees（信頼境界図 & セキュリティ保証境界）](#3-trust-boundary--security-guarantees信頼境界図--セキュリティ保証境界)
 4. [Current FUSOU Architecture & TLS Terminationの根本的課題](#4-current-fusou-architecture--tls-terminationの根本的課題)
 5. [Target Architecture（Gameplay Path と Evidence Path の二元分離）](#5-target-architecturegameplay-path-と-evidence-path-の二元分離)
 6. [External Proxyを使わない理由（Why No External Proxy）](#6-external-proxyを使わない理由why-no-external-proxy)
@@ -76,7 +76,49 @@ FUSOU.exe 自体の改ざん防止やメモリ保護をセキュリティの根�
 
 ---
 
-## 3. Security Guarantees & Non-Guarantees（セキュリティ保証境界）
+## 3. Trust Boundary & Security Guarantees（信頼境界図 & セキュリティ保証境界）
+
+```
+                     UNTRUSTED ZONE
+┌────────────────────────────────────────────────────────┐
+│ User PC (Client Environment)                           │
+│                                                        │
+│  - FUSOU binary (Tamperable)                           │
+│  - Local Memory / Process (Inspectable)                │
+│  - Local SQLite DB (Modifiable)                        │
+│  - Browser / OS (Untrusted)                            │
+│                                                        │
+│  Client-provided metadata = NEVER trusted              │
+└───────────────────────────┬────────────────────────────┘
+                            │
+                            │ 1. TLSNotary Presentation (MPC-TLS)
+                            │ 2. Ed25519 Device Signature
+                            ▼
+═════════════════════ TRUST BOUNDARY ═════════════════════
+                            │
+                            ▼
+┌────────────────────────────────────────────────────────┐
+│ FUSOU-WEB (Verification Server / Cloudflare Workers)   │
+│                                                        │
+│  - Verify Web PKI Certificate Chain                    │
+│  - Verify TLSNotary Notary Signature & Merkle Root     │
+│  - Verify Device Binding (userData == device_pubkey)   │
+│  - Strict Server-Side Canonical Parser (Zod)           │
+│                                                        │
+│  Verified Plaintext = TRUSTED provenance               │
+│  Canonical Parser Output = TRUSTED representation      │
+└───────────────────────────┬────────────────────────────┘
+                            │
+                            ▼
+┌────────────────────────────────────────────────────────┐
+│ Supabase Database (Trusted Core Storage)               │
+│                                                        │
+│  - Event Uniqueness (canonical_event_id UNIQUE)        │
+│  - Row Level Security (RLS) Enforced                   │
+│                                                        │
+│  Stored State = ACCEPTED Verified Evidence Only        │
+└────────────────────────────────────────────────────────┘
+```
 
 ### Security Guarantees（提供される保証）
 システムは以下の 3 層の検証に合格したデータのみをデータベースに受理します：
@@ -86,18 +128,6 @@ FUSOU.exe 自体の改ざん防止やメモリ保護をセキュリティの根�
 | **Layer 1: Game Server Authenticity** | 艦これ公式サーバーとの正規の TLS 1.2 通信から得られたバイト列であること | TLSNotary MPC-TLS | Presentation & Web PKI 検証 |
 | **Layer 2: Device Identity & Binding** | FUSOU に登録・有効な端末（Ed25519）から提出されたこと | `fusou-auth` DeviceKey | Ed25519 署名、JWT、DB 有効性（`revoked_at IS NULL`） |
 | **Layer 3: Server-side Canonicalization** | クライアント申告ではなく、公証平文（Request/Response）から直接抽出した正規データであること | FUSOU-WEB Verifier | 厳格な多段ストリームパーサー & Zod 検証 |
-
-### 保証マトリクス
-
-| データ項目 | 保証主体 | 検証方法 | クライアント改ざん時のサーバー検知 |
-|---|---|---|:---:|
-| **Game Server Origin** | TLSNotary | Presentation verification | **即時検知・拒絶** |
-| **Server Identity** | TLSNotary + Allowlist | Server Name (SNI) / SAN 照合 | **即時検知・拒絶** |
-| **API Path / Method** | FUSOU-WEB | 開示された Request 平文から直接パース | **改ざん余地なし (無視)** |
-| **Response Contents** | TLSNotary | Merkle Root & Notary Signature | **即時検知・拒絶** |
-| **Canonical Telemetry** | FUSOU-WEB | 開示された Response 平文から直接パース | **改ざん余地なし (無視)** |
-| **Device Identity** | Ed25519 + DB | Signature & DB `revoked_at IS NULL` | **即時検知・拒絶** |
-| **Event Uniqueness** | FUSOU DB | `canonical_event_id` UNIQUE 制約 | **即時検知・重複排除** |
 
 ### Non-Guarantees（保証されない事項・非目標）
 1. **ブラウザ画面の完全性保証（Gameplay Path Non-Guarantee）**:
@@ -183,9 +213,9 @@ FUSOU.exe 自体の改ざん防止やメモリ保護をセキュリティの根�
 ```
 packages/
 ├── fusou-auth/               # [既存] DeviceKey / Ed25519 署名 / Token管理
-├── fusou-proxy-core/         # [NEW] Proxy ライフサイクル・HTTP 抽象化・UpstreamTransport トレイト
+├── fusou-proxy-core/         # [NEW] Proxy ライフサイクル・HTTP 抽象化・UpstreamTransport / EvidenceObserver Trait
 ├── fusou-proxy-hudsucker/    # [MODIFY] 通常の Gameplay MITM プロキシ実装
-├── fusou-proxy-tlsn/         # [NEW] TLSNotary Prover / MPC-TLS Upstream トランスポート（PoC対象）
+├── fusou-proxy-tlsn/         # [NEW] TLSNotary Prover / MPC-TLS Upstream トランスポート（PoC対象・experimental）
 ├── fusou-telemetry/          # [NEW] テレメトリ イベントモデル・SQLite キュー・in-toto Envelope
 └── FUSOU-APP/                # [MODIFY] Composition Root (DI コンテナとして各クレートを結合)
 ```
@@ -552,6 +582,7 @@ Notary 障害やタイムアウト時のフォールバックは、**API 再送�
 - [x] ゲームサーバー通信に外部プロキシを介在させていないこと（Direct Connection）
 - [x] ゲーム API の再送信・二重実行コードが完全に排除されていること
 - [x] Gameplay Path と Evidence Path が二元分離され、公証処理がゲーム進行をブロックしないこと
+- [x] Trust Boundary Diagram が定義され、クライアント非信頼原則が徹底されていること
 - [x] クライアントの申告した `api_path` や JSON を信用せず、開示平文からサーバー側で直接カノニカル生成していること
 - [x] `api_data` 丸ごと開示を排除し、JSON Pointer & Source Spans による最小限開示を行っていること
 - [x] `canonical_event_id` による DB UNIQUE 制約で完全な冪等性が担保されていること
