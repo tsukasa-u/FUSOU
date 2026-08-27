@@ -9,14 +9,14 @@
 > 4. **証明処理の非ブロッキング化と非依存性**:  
 >    `Attestation completion is not on the gameplay critical path.`  
 >    `Notary availability is not a gameplay dependency.`  
->    Notary 障害時やネットワーク遅延時でもゲームプレイは 100% 継続する。フォールバック通信は `UNATTESTED` として破棄され、DB には入らない。  
+>    Notary 障害時やネットワーク遅延時でもゲームプレイは 100% 継続する。フォールバック通信は `UNATTESTED` として破棄され、DB には入らない。Phase B（リクエスト送信後）の障害時における通常 TLS 再送は厳格に禁止する。  
 > 5. **厳格なサーバーサイド カノニカル パース（Strict Server-Side Canonical Parsing）**:  
 >    クライアント申告の `api_path` や自称JSONを一切信用せず、**公証平文から直接 `HTTP parser -> svdata framing -> JSON parser with source spans -> JSON Pointer -> Zod schema validation` のパイプラインで正規オブジェクトを生成**する。  
-> 6. **Rust クレートのモジュール分割（`fusou-proxy-core`, `fusou-proxy-tlsn`, `fusou-telemetry`）**:  
->    既存 HUDSucker プロキシと TLSNotary 実装をクレート境界・Trait 境界で分離し、TLSNotary の変更や失敗が通常プロキシに波及しない構造にする。  
+> 6. **Rust クレートのモジュール分割 & Trait 分離（`fusou-proxy-core`, `fusou-proxy-tlsn`, `fusou-telemetry`）**:  
+>    `UpstreamTransport`（純粋なHTTP送受信）と `EvidenceObserver`（非同期公証観測）を Trait 境界で完全分離し、Phase 0 完了まで `fusou-proxy-tlsn` は experimental crate（PoC専用）として本番 Gameplay Path からは有効化しない。  
 > 7. **Phase 0 PoC（ADR-000）先行検証の必須化**:  
 >    TLSNotary MPC-TLS の Upstream 統合およびレイテンシ影響について、ボス戦リザルト（`battleresult`）1本での実測 PoC を通過するまで本番実装・全体展開を凍結する。  
-> **ステータス**: クレート分割・Trait境界・フォールバックフェーズ完全反映マスター  
+> **ステータス**: ADR-000・SLA Gate・Trait純化・フォールバック厳格化完全反映マスター  
 
 ---
 
@@ -32,10 +32,10 @@
 8. [ADR-000: TLS Data Plane Integration & Feasibility PoC](#8-adr-000-tls-data-plane-integration--feasibility-poc)
    - 8.1 [ADR-000 の背景と設計上の三すくみ（Trilemma）](#81-adr-000-の背景と設計上の三すくみtrilemma)
    - 8.2 [検証対象アーキテクチャ候補（Case A 〜 Case D）](#82-検証対象アーキテクチャ候補case-a--case-d)
-   - 8.3 [Phase 0 PoC 実測検証計画 & 数値合格基準（SLA Gate）](#83-phase-0-poc-実測検証計画--数値合格基準sla-gate)
+   - 8.3 [Phase 0 PoC 実測検証計画 & Target SLA Gate](#83-phase-0-poc-実測検証計画--target-sla-gate)
 9. [Attestation Data Model（in-toto Statement v1 ベース Envelope仕様）](#9-attestation-data-modelin-toto-statement-v1-ベース-envelope仕様)
 10. [Strict Server-Side Canonical Telemetry Parser（厳格な多段パース仕様）](#10-strict-server-side-canonical-telemetry-parser厳格な多段パース仕様)
-11. [Selective Disclosure（JSON Pointer と Source Spans によるバイト範囲決定）](#11-selective-disclosurejson-pointer-と-source-spans-によるバイト範囲決定)
+11. [Selective Disclosure（Offset Mapping と JSON Pointer によるバイト範囲決定）](#11-selective-disclosureoffset-mapping-と-json-pointer-によるバイト範囲決定)
 12. [Device Binding（Ed25519 デバイスバインディングの暗号学的証明）](#12-device-bindinged25519-デバイスバインディングの暗号学的証明)
 13. [Replay & Event Identity Protection（多重リプレイ・二重計上防御）](#13-replay--event-identity-protection多重リプレイ二重計上防御)
 14. [Server-side Verification Pipeline（検証パイプライン詳細）](#14-server-side-verification-pipeline検証パイプライン詳細)
@@ -133,26 +133,26 @@ FUSOU.exe 自体の改ざん防止やメモリ保護をセキュリティの根�
          │ 1. 実際のTLSセッション (Direct 2PC-TLS Connection)
          │    ※再送信ゼロ・外部プロキシ中継ゼロ
          ▼
- ┌──────────────────────────────────────────────┐
- │ FUSOU-PROXY (Local Process)                  │
- │                                              │
- │  [Upstream: TLSNotary MPC-TLS Prover Engine] │
- │       │                                      │
- │       ├───────────▶ (平文ストリーム転送)      │
- │       │                    │                 │
- └───────┼────────────────────┼─────────────────┘
+ ┌────────────────────────────────────────────────────────┐
+ │ FUSOU-PROXY (fusou-proxy-core)                         │
+ │                                                        │
+ │  [Upstream: fusou-proxy-tlsn (UpstreamTransport)]      │
+ │       │                                                │
+ │       ├───────────▶ (平文ストリーム転送)                │
+ │       │                    │                           │
+ └───────┼────────────────────┼───────────────────────────┘
          │                    │
- ┌───────┴────────────┐ ┌─────┴───────────────────┐
- │ Evidence Path      │ │ Gameplay Path           │
- │ (真正性保証対象)   │ │ (真正性保証外・低遅延)   │
- │                    │ │                         │
- │ 2. 非同期 MPC 公証 │ │ 2. Downstream MITM TLS  │
- │    (tokio::spawn)  │ │    (HUDSucker Engine)   │
- │        ▼           │ │        ▼                │
- │  [Notary Server]   │ │  [艦これブラウザ画面]   │
- │        ▼           │ └─────────────────────────┘
+ ┌───────┴────────────┐ ┌─────┴───────────────────────────┐
+ │ Evidence Path      │ │ Gameplay Path                   │
+ │ (真正性保証対象)   │ │ (真正性保証外・低遅延)           │
+ │                    │ │                                 │
+ │ 2. 非同期 MPC 公証 │ │ 2. fusou-proxy-hudsucker        │
+ │    (tokio::spawn)  │ │    (Downstream MITM TLS)        │
+ │        ▼           │ │        ▼                        │
+ │  [Notary Server]   │ │  [艦これブラウザ画面]           │
+ │        ▼           │ └─────────────────────────────────┘
  │  [TelemetryQueue]  │
- │   (SQLite / 4-state│
+ │   (fusou-telemetry)│
  │        ▼           │
  │ 3. in-toto Envelope│
  │    バッチ送信      │
@@ -199,20 +199,27 @@ use hyper::{Request, Response, body::Incoming};
 
 #[async_trait]
 pub trait UpstreamTransport: Send + Sync {
-    /// サーバーへリクエストを送信し、Gameplay レスポンスと公証用ハンドルを分離して返却
+    /// サーバーへリクエストを送信し、Gameplay レスポンスを返却 (純粋なHTTP送受信)
     async fn send_request(
         &mut self,
         req: Request<Incoming>,
-    ) -> Result<(Response<Incoming>, Option<EvidenceHandle>), ProxyTransportError>;
+    ) -> Result<Response<Incoming>, ProxyTransportError>;
 }
 
-pub struct EvidenceHandle {
-    pub session_id: String,
-    pub completion_receiver: tokio::sync::oneshot::Receiver<Result<AttestationPayload, EvidenceError>>,
+/// 公証観測用インターフェース (Core は Evidence の具体実装を知らない)
+#[async_trait]
+pub trait EvidenceObserver: Send + Sync {
+    async fn on_response_received(
+        &self,
+        req_headers: &hyper::HeaderMap,
+        res_headers: &hyper::HeaderMap,
+        raw_body_bytes: &[u8],
+    );
 }
 ```
 
-* **利点**: `fusou-proxy-hudsucker` は `fusou-proxy-tlsn` に直接依存せず、Trait 境界を介して呼び出すため、TLSNotary の障害や仕様変更が通常のゲームプロキシに波及しません。
+> **Feature フラグ制御**:  
+> Phase 0 完了まで `fusou-proxy-tlsn` は experimental crate とし、Cargo の `default` feature は通常の `fusou-proxy-hudsucker` のみとします。`tlsn` feature は PoC 専用フラグとして分離します。
 
 ---
 
@@ -237,11 +244,11 @@ TLSNotary MPC-TLS では Application Data の復号自体が Prover と Notary �
 * **Case C (Existing TLS Gameplay + Same-Session Evidence Capture)**: 通常の TLS でブラウザ中継しつつ、同一セッションから安全に公証を分離できるか検証。
 * **Case D (TLSNotary 最新機能 / Proxy-TLS ローカルループバック等)**: 最新の TLSNotary 機能を活用したローカル構成。
 
-### 8.3 Phase 0 PoC 実測検証計画 & 数値合格基準（SLA Gate）
+### 8.3 Phase 0 PoC 実測検証計画 & Target SLA Gate
 
-全体実装に入る前に、**ボス戦リザルト（`/kcsapi/api_req_sortie/battleresult`）1本に絞った実測 PoC** をローカル mock サーバーに対して実施し、以下の SLA を満たすか判定します。
+全体実装に入る前に、**ボス戦リザルト（`/kcsapi/api_req_sortie/battleresult`）1本に絞った実測 PoC** をローカル mock サーバーに対して実施し、以下の Target SLA を満たすか判定します。
 
-| 検証項目 | 検証内容 | 合格判定基準 (SLA) |
+| 検証項目 | 検証内容 | Target SLA |
 |---|---|:---:|
 | **① レイテンシ影響** | 通常 TLS 通信時と比較した Gameplay レスポンス追加遅延 | **P50 < 100ms, P95 < 300ms, P99 < 500ms** |
 | **② レスポンス安定性** | 大きな JSON レスポンス（100KB〜1MB）での通信挙動 | **タイムアウト・切断率 0%** |
@@ -346,19 +353,19 @@ export function parseCanonicalBattleResult(
 
 ---
 
-## 11. Selective Disclosure（JSON Pointer と Source Spans によるバイト範囲決定）
+## 11. Selective Disclosure（Offset Mapping と JSON Pointer によるバイト範囲決定）
 
-単なる文字列検索を排し、以下のアルゴリズムで正確な開示バイト範囲（Byte Range）を決定します：
+単なる文字列検索を排し、以下の厳格な Offset Mapping で開示バイト範囲（Byte Range）を決定します：
 
 ```
-[Raw HTTP Response]
-       ↓
-[JSON Parser with Source Spans (AST / Token Positions)]
-       ↓
-[Target JSON Pointer 照合 (/api_data/api_win_rank, /api_data/api_get_ship/api_ship_id 等)]
-       ↓
-[Source Span (Start Offset .. End Offset)]
-       ↓
+[TLS Plaintext Offset]
+       ↓ (HTTP Header 読了)
+[HTTP Body Offset]
+       ↓ (+7 bytes "svdata=")
+[JSON Payload Offset]
+       ↓ (JSON Parser with Source Spans / AST Token Positions)
+[Target JSON Pointer Match (/api_data/api_win_rank 等)]
+       ↓ (Span Start Offset .. Span End Offset)
 [TLSNotary Reveal Byte Range]
 ```
 
@@ -384,8 +391,11 @@ export function parseCanonicalBattleResult(
 ## 13. Replay & Event Identity Protection（多重リプレイ・二重計上防御）
 
 1. **`canonical_event_id` のサーバー側決定論的生成**:
-   単一セッション内の複数 HTTP イベント（Keep-Alive）に対応するため、サーバー側で以下の決定論的ハッシュを生成してイベントの一意性を担保：
+   単一セッション内の複数 HTTP イベント（Keep-Alive）に対応するため、サーバー側で以下の決定論的ハッシュを生成：
    $$\text{canonical\_event\_id} = \text{SHA256}(\text{public\_id} \mathbin{\Vert} \text{transcript\_commitment} \mathbin{\Vert} \text{request\_hash} \mathbin{\Vert} \text{response\_hash} \mathbin{\Vert} \text{canonical\_payload\_hash})$$
+   * `request_hash = SHA256(raw_revealed_request_bytes)`
+   * `response_hash = SHA256(raw_revealed_response_bytes)`
+   * `canonical_payload_hash = SHA256(canonical_json_bytes)`
 2. **DB UNIQUE 制約**:
    DB テーブル `attested_telemetry_logs` に **`UNIQUE (canonical_event_id)` 制約** を設定し、二重計上・リプレイを物理的に排除。
 3. **時間窓（24時間ルール）**:
@@ -430,20 +440,20 @@ flowchart TD
 BEGIN;
 
 CREATE TABLE IF NOT EXISTS public.attested_telemetry_logs (
-    item_id UUID PRIMARY KEY,
-    canonical_event_id TEXT NOT NULL,
+    canonical_event_id TEXT PRIMARY KEY,
+    client_transport_id UUID NOT NULL,
     device_id UUID NOT NULL REFERENCES public.user_devices(device_id) ON DELETE RESTRICT,
     api_path TEXT NOT NULL,
-    session_commitment TEXT NOT NULL,
+    transcript_commitment TEXT NOT NULL,
+    event_time TIMESTAMPTZ NOT NULL,
     notary_time TIMESTAMPTZ NOT NULL,
     canonical_payload JSONB NOT NULL,
-    is_attested BOOLEAN NOT NULL DEFAULT TRUE,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    ingested_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     CONSTRAINT uq_attested_telemetry_event_id UNIQUE (canonical_event_id)
 );
 
 CREATE INDEX IF NOT EXISTS idx_attested_telemetry_path_time 
-    ON public.attested_telemetry_logs (api_path, notary_time DESC);
+    ON public.attested_telemetry_logs (api_path, event_time DESC);
 
 CREATE INDEX IF NOT EXISTS idx_attested_telemetry_device 
     ON public.attested_telemetry_logs (device_id);
@@ -496,7 +506,7 @@ Notary 障害やタイムアウト時のフォールバックは、**API 再送�
         └─ Evidence Path ──▶ UNATTESTED (破棄・DB へ入れない)
 
 【Phase B: リクエスト送信後 / レスポンス受信中・受信後】
-  ├─ リクエストは既にゲームサーバーへ送信済み (再送信は絶対に禁止)
+  ├─ リクエストは既にゲームサーバーへ送信済み (通常TLSでの再送信は厳格禁止)
   └─ Notary 通信切断 / MPC 計算失敗
         │
         ├─ Gameplay Path ──▶ レスポンス平文を Browser へ即時中継 (ゲーム 100% 継続)
@@ -548,4 +558,4 @@ Notary 障害やタイムアウト時のフォールバックは、**API 再送�
 - [x] 部分成功 ACK および 4 状態エラー分類によりデータ消失が発生しないこと
 - [x] RLS（Row Level Security）が有効化され、`service_role` 以外からの書き込みが遮断されていること
 - [x] Phase 0 PoC（ADR-000）の SLA Gate を通過するまで本番実装を凍結するルールが確立されていること
-- [x] Rust workspace がクレート境界（`fusou-proxy-core`, `fusou-proxy-tlsn`, `fusou-telemetry`）で分離されていること
+- [x] Rust workspace がクレート境界（`fusou-proxy-core`, `fusou-proxy-tlsn`, `fusou-telemetry`）で分離され、Trait 境界が純化されていること

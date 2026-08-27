@@ -9,7 +9,11 @@
 > 4. **証明処理の非ブロッキング化と非依存性**:  
 >    `Attestation completion is not on the gameplay critical path.`  
 >    `Notary availability is not a gameplay dependency.`  
-> **ステータス**: クレート分割・二段階フォールバック・Supabase Auth整合性完全反映マスター  
+> 5. **並行 Claim の完全直列化（親行ロック & Advisory Lock）**:  
+>    空テーブルへの `FOR UPDATE` を排し、必ず存在する `member_id_mapping` 行ロックおよびトランザクション Advisory Lock により並行 Claim を物理的に直列化する。  
+> 6. **サーバーサイド member_id_hash 導出**:  
+>    クライアント申告のハッシュを一切信用せず、サーバー側で `api_member_id` から Pepper 付き HMAC を直接生成・検証する。  
+> **ステータス**: 並行ロック完全化・サーバーサイドハッシュ導出・フォールバック厳格化反映マスター  
 
 ---
 
@@ -24,14 +28,14 @@
 7. [Device Binding（Ed25519 デバイスバインディングの暗号学的証明）](#7-device-bindinged25519-デバイスバインディングの暗号学的証明)
 8. [Claim Transaction（アトミック所有権移転トランザクション）](#8-claim-transactionアトミック所有権移転トランザクション)
 9. [Preemptive Registration Attack（事前登録攻撃の無力化）](#9-preemptive-registration-attack事前登録攻撃の無力化)
-10. [Concurrent Claim Handling（並行実行と行ロック制御）](#10-concurrent-claim-handling並行実行と行ロック制御)
+10. [Concurrent Claim Handling（親行ロック & トランザクション Advisory Lock 制御）](#10-concurrent-claim-handling親行ロック--トランザクション-advisory-lock-制御)
 11. [Revoke Semantics（未検証攻撃者端末の失効セマンティクス）](#11-revoke-semantics未検証攻撃者端末の失効セマンティクス)
 12. [Dataset Token Issuance（検証済みJWT発行）](#12-dataset-token-issuance検証済みjwt発行)
 13. [Replay Protection（リプレイ攻撃防御）](#13-replay-protectionリプレイ攻撃防御)
 14. [DB Schema / RPC（Supabaseマイグレーション & ストアドプロシージャ）](#14-db-schema--rpcsupabaseマイグレーション--ストアドプロシージャ)
-15. [Failure Handling & Fallback（異常系・二段階フォールバックセマンティクス）](#15-failure-handling--fallback異常系二段階フォールバックセマンティクス)
+15. [Failure Cases & Fallback（異常系・二段階フォールバックセマンティクス）](#15-failure-cases--fallback異常系二段階フォールバックセマンティクス)
 16. [Recovery（正規オーナーによるアカウント回復手順）](#16-recovery正規オーナーによるアカウント回復手順)
-17. [Testing（単体・統合・競合テスト）](#17-testing単体統合競合テスト)
+17. [Testing（単体・統合・並行競合テスト）](#17-testing単体統合並行競合テスト)
 18. [Migration（既存データの移行手順）](#18-migration既存データの移行手順)
 19. [Rollout Plan（PoC先行の段階的ロールアウト計画）](#19-rollout-planpoc先行の段階的ロールアウト計画)
 20. [Security Review Checklist（監査チェックリスト）](#20-security-review-checklist監査チェックリスト)
@@ -54,8 +58,9 @@ zkTLS (TLSNotary MPC-TLS) を用いて「正規のゲームセッションを操
 ### 攻撃シナリオ
 1. **先回り占有攻撃**: 被害者が FUSOU を起動する前に、攻撃者が被害者の `api_member_id` を自己申告登録し、被害者のデータを盗聴・妨害しようとする。
 2. **所有権奪還妨害**: 正規ユーザーが公証証明を提出した際、攻撃者の端末を Revoke できても、DB の Canonical User 所有者レコードが攻撃者のまま残り所有権が奪還できないバグを突く攻撃。
-3. **並行 Claim 攻撃**: 複数の端末から同時に Claim リクエストを送り、レースコンディションを引き起こして二重登録や不整合を発生させる。
-4. **証明書の使い回し（Replay）**: 過去の母港通信の証明書を別の端末や別アカウントで再利用する。
+3. **並行 Claim 攻撃**: 複数の端末から同時に Claim リクエストを送り、空テーブル検索の隙を突いて二重登録や不整合を発生させる。
+4. **ハッシュ詐称攻撃**: クライアントが `p_api_member_id` と一致しない偽の `p_member_id_hash` を送り、DB レコードを汚染しようとする。
+5. **証明書の使い回し（Replay）**: 過去の母港通信の証明書を別の端末や別アカウントで再利用する。
 
 ---
 
@@ -159,7 +164,7 @@ stateDiagram-v2
 ## 9. Preemptive Registration Attack（事前登録攻撃の無力化）
 
 事前登録攻撃が存在する場合の所有権奪還アルゴリズム：
-1. `member_ownership_claims` を `member_id_hash` で排他ロック（`FOR UPDATE`）。
+1. `pg_advisory_xact_lock(hashtext(p_api_member_id))` および `member_id_mapping` の行ロック（`FOR UPDATE`）を取得。
 2. 対象デバイスの `canonical_user_id`（既に `auth.users` に紐づいている正規 UUID）を取得。
 3. `user_member_map` の所有者を正規ユーザー UUID へ上書き更新（`ON CONFLICT (public_id) DO UPDATE SET user_id = EXCLUDED.user_id`）。
 4. 同一 `public_id` に紐づく過去の未検証端末（`is_verified = FALSE`）を一括 `revoked_at = NOW()`。
@@ -167,10 +172,13 @@ stateDiagram-v2
 
 ---
 
-## 10. Concurrent Claim Handling（並行実行と行ロック制御）
+## 10. Concurrent Claim Handling（親行ロック & トランザクション Advisory Lock 制御）
 
-* 複数の端末が同時に Claim を実行した場合、`SELECT ... FOR UPDATE` により `member_ownership_claims` および `user_devices` の行がロックされます。
-* 1 つのトランザクションが完了するまで後続の Claim は待機し、レースコンディションによる不整合を防止します。
+初回 claim 時、`member_ownership_claims` に行が存在しない場合でも確実に排他制御を行うため、以下の二重ロックをトランザクション先頭で適用します：
+1. **Transaction Advisory Lock**: `PERFORM pg_advisory_xact_lock(hashtext(p_api_member_id));`
+2. **親行ロック**: 必ず 1 行存在する `public.member_id_mapping` の `SELECT ... FOR UPDATE`。
+
+これにより、複数の端末からミリ秒単位で同時に Claim リクエストが到達しても、後続のトランザクションは完全に待機し、レースコンディションによる二重生成を物理的に排除します。
 
 ---
 
@@ -222,7 +230,6 @@ CREATE OR REPLACE FUNCTION public.claim_verified_device_v3(
   p_device_id UUID,
   p_device_public_key TEXT,
   p_api_member_id TEXT,
-  p_member_id_hash TEXT,
   p_transcript_commitment TEXT,
   p_notary_time TIMESTAMPTZ
 )
@@ -236,9 +243,14 @@ DECLARE
   v_public_id UUID;
   v_canonical_user_id UUID;
   v_existing_claim RECORD;
+  v_computed_member_id_hash TEXT;
+  v_mapping RECORD;
   v_result JSONB;
 BEGIN
-  -- 1. 対象デバイスの存在確認 & 行ロック
+  -- 1. トランザクション Advisory Lock による member_id 単位の完全排他制御
+  PERFORM pg_advisory_xact_lock(hashtext(p_api_member_id));
+
+  -- 2. 対象デバイスの存在確認 & 行ロック
   SELECT * INTO v_device
   FROM public.user_devices
   WHERE device_id = p_device_id
@@ -248,20 +260,29 @@ BEGIN
     RAISE EXCEPTION 'device_not_found';
   END IF;
 
-  -- 2. 公開鍵の一致確認
+  -- 3. 公開鍵の一致確認
   IF encode(v_device.device_pubkey, 'hex') != lower(p_device_public_key) THEN
     RAISE EXCEPTION 'public_key_mismatch';
   END IF;
 
   v_canonical_user_id := v_device.canonical_user_id;
 
-  -- 3. public_id の取得または新規生成
+  -- 4. public_id の取得または新規生成 & 親行ロック
   v_public_id := public.rpc_register_public_id(p_api_member_id);
 
-  -- 4. 既存の所有権 claim を確認 (排他ロック)
+  SELECT * INTO v_mapping
+  FROM public.member_id_mapping
+  WHERE public_id = v_public_id
+  FOR UPDATE;
+
+  -- 5. サーバーサイドで安全に member_id_hash を計算 (クライアント入力を信用しない)
+  -- 既存の pepper vault / HMAC 関数を利用
+  v_computed_member_id_hash := encode(hmac(p_api_member_id, (SELECT secret FROM vault.secrets WHERE name = 'anon_sync_pepper' LIMIT 1), 'sha256'), 'hex');
+
+  -- 6. 既存の所有権 claim を確認 (排他ロック)
   SELECT * INTO v_existing_claim
   FROM public.member_ownership_claims
-  WHERE member_id_hash = p_member_id_hash
+  WHERE member_id_hash = v_computed_member_id_hash
   FOR UPDATE;
 
   IF v_existing_claim.claim_id IS NULL THEN
@@ -278,7 +299,7 @@ BEGIN
       member_id_hash, public_id, canonical_user_id, verified_device_id, transcript_commitment
     )
     VALUES (
-      p_member_id_hash, v_public_id, v_canonical_user_id, p_device_id, p_transcript_commitment
+      v_computed_member_id_hash, v_public_id, v_canonical_user_id, p_device_id, p_transcript_commitment
     );
 
     -- 同一 public_id に紐づく過去の未検証攻撃者端末を一括 Revoke
@@ -299,7 +320,7 @@ BEGIN
     END IF;
   END IF;
 
-  -- 5. 当該デバイスを verified に昇格 & 正当な Canonical User にバインド
+  -- 7. 当該デバイスを verified に昇格 & 正当な Canonical User にバインド
   UPDATE public.user_devices
   SET
     public_id = v_public_id,
@@ -311,7 +332,7 @@ BEGIN
     revoked_reason = NULL
   WHERE device_id = p_device_id;
 
-  -- 6. 結果返却
+  -- 8. 結果返却
   v_result := jsonb_build_object(
     'device_id', p_device_id,
     'public_id', v_public_id,
@@ -333,7 +354,7 @@ COMMIT;
 
 Notary 障害時やタイムアウト時でも、母港画面の表示を停止させないため、以下の 2 段階で制御します：
 * **Phase A（リクエスト送信前）**: Notary 接続失敗時、新しい通常 TLS 接続を開いて母港へアクセス（ゲーム継続、公証なし）。
-* **Phase B（リクエスト送信後）**: レスポンスをそのままブラウザへ中継してゲーム継続。公証タスクは破棄。
+* **Phase B（リクエスト送信後）**: レスポンスをそのままブラウザへ中継してゲーム継続。通常 TLS での再送信は厳格に禁止し、公証タスクのみ破棄。
 * **次回ログイン時の挙動**: 過去の通信を後から再公証することは不可能なため、**「次回ログイン時に、新しい母港通信（新しい TLS セッション）で新しい証明を取得」** します。
 
 ---
@@ -344,10 +365,10 @@ Notary 障害時やタイムアウト時でも、母港画面の表示を停止�
 
 ---
 
-## 17. Testing（単体・統合・競合テスト）
+## 17. Testing（単体・統合・並行競合テスト）
 
 * **所有権移転テスト**: 事前登録攻撃後に正規ユーザーが公証提出 $\rightarrow$ `user_member_map` の所有者が正規ユーザーに変更され、攻撃者端末が Revoke されることを検証。
-* **並行 Claim テスト**: 2台の端末から同時に `claim_verified_device_v3` を実行 $\rightarrow$ ロックにより順次実行されることを検証。
+* **並行 Claim 競合テスト**: 2台の端末からミリ秒単位で同時に `claim_verified_device_v3` を実行 $\rightarrow$ Advisory Lock と親行ロックにより完全に順次直列化されることを検証。
 
 ---
 
@@ -377,5 +398,6 @@ pnpm vitest run tests/tlsn-verifier.test.ts
 - [x] Gameplay Path と Evidence Path が二元分離され、ゲーム画面の描画をブロックしないこと
 - [x] 事前登録攻撃者から正規ユーザーへの Canonical User 所有権移転（Owner Transfer）がアトミックに行われること
 - [x] 未検証端末が一括で安全に Revoke されること
-- [x] 行ロック（`FOR UPDATE`）により並行実行時の競合が排除されていること
+- [x] Advisory Lock および親行ロック（`member_id_mapping FOR UPDATE`）により並行実行時の競合が物理的に排除されていること
+- [x] `member_id_hash` がクライアント入力ではなくサーバー側で安全に計算・検証されていること
 - [x] `DeviceKey` の公開鍵が Presentation 内に暗号学的にバインドされていること
