@@ -11,12 +11,12 @@
 >    `Notary availability is not a gameplay dependency.`  
 >    Notary 障害時やネットワーク遅延時でもゲームプレイは 100% 継続する。フォールバック通信は `UNATTESTED` として破棄され、DB には入らない。Phase B（リクエスト送信後）の障害時における通常 TLS 再送は厳格に禁止する。  
 > 5. **厳格なサーバーサイド カノニカル パース（Strict Server-Side Canonical Parsing）**:  
->    クライアント申告の `api_path` や自称JSONを一切信用せず、**公証平文から直接 `HTTP parser -> svdata framing -> JSON parser with source spans -> JSON Pointer -> Zod schema validation` のパイプラインで正規オブジェクトを生成**する。  
+>    クライアント申告の `api_path` や自称JSONを一切信用せず、**公証平文（Verified Opening Bytes）から直接 `HTTP parser -> svdata framing -> JSON parser with source spans -> JSON Pointer -> Zod schema validation` のパイプラインで正規オブジェクトを生成**する。  
 > 6. **Rust クレートのモジュール分割 & Trait 分離（`fusou-proxy-core`, `fusou-proxy-tlsn`, `fusou-telemetry`）**:  
->    `UpstreamTransport`（純粋なHTTP送受信）と `EvidenceObserver`（非同期公証観測）を Trait 境界で完全分離し、Phase 0 完了まで `fusou-proxy-tlsn` は experimental crate（PoC専用）として本番 Gameplay Path からは有効化しない。  
+>    `UpstreamTransport`（純粋なHTTP送受信）と `EvidenceObserver`（`EvidenceFrame` による Transcript 同一性バインディング）を Trait 境界で完全分離し、Phase 0 完了まで `fusou-proxy-tlsn` は experimental crate（PoC専用）として本番 Gameplay Path からは有効化しない。  
 > 7. **Phase 0 PoC（ADR-000）先行検証の必須化**:  
->    TLSNotary MPC-TLS の Upstream 統合およびレイテンシ影響について、ボス戦リザルト（`battleresult`）1本での実測 PoC を通過するまで本番実装・全体展開を凍結する。公式 `compute_reveal()` / handler 機構の流用可能性を PoC で検証する。  
-> **ステータス**: Trust Boundary・ADR-000・SLA Gate・Trait純化完全反映マスター  
+>    TLSNotary MPC-TLS の Upstream 統合およびレイテンシ影響について、ボス戦リザルト（`battleresult`）1本での実測 PoC を通過するまで本番実装・全体展開を凍結する。公式 `tlsn-extension` の `prove()` / `compute_reveal()` / handler 機構を参考実装として調査・流用する。  
+> **ステータス**: EvidenceFrameバインディング・同一ストリーム保証・公式PoC流用完全反映マスター  
 
 ---
 
@@ -26,13 +26,14 @@
 2. [Threat Model（脅威モデル）](#2-threat-model脅威モデル)
 3. [Trust Boundary & Security Guarantees（信頼境界図 & セキュリティ保証境界）](#3-trust-boundary--security-guarantees信頼境界図--セキュリティ保証境界)
 4. [Current FUSOU Architecture & TLS Terminationの根本的課題](#4-current-fusou-architecture--tls-terminationの根本的課題)
-5. [Target Architecture（Gameplay Path と Evidence Path の二元分離）](#5-target-architecturegameplay-path-と-evidence-path-の二元分離)
+5. [Target Architecture & Data Flow（Gameplay Path と Evidence Path の二元分離 & 同一性保証）](#5-target-architecture--data-flowgameplay-path-と-evidence-path-の二元分離--同一性保証)
 6. [External Proxyを使わない理由（Why No External Proxy）](#6-external-proxyを使わない理由why-no-external-proxy)
 7. [Rust Workspace クレート分割設計（Core, Hudsucker, TLSN, Telemetry）](#7-rust-workspace-クレート分割設計core-hudsucker-tlsn-telemetry)
 8. [ADR-000: TLS Data Plane Integration & Feasibility PoC](#8-adr-000-tls-data-plane-integration--feasibility-poc)
    - 8.1 [ADR-000 の背景と設計上の三すくみ（Trilemma）](#81-adr-000-の背景と設計上の三すくみtrilemma)
    - 8.2 [検証対象アーキテクチャ候補（Case A 〜 Case D）](#82-検証対象アーキテクチャ候補case-a--case-d)
    - 8.3 [Phase 0 PoC 実測検証計画 & Target SLA Gate](#83-phase-0-poc-実測検証計画--target-sla-gate)
+   - 8.4 [参考実装: 公式 tlsn-extension の prove() / compute_reveal() 機構の調査](#84-参考実装-公式-tlsn-extension-の-prove--compute_reveal-機構の調査)
 9. [Attestation Data Model（in-toto Statement v1 ベース Envelope仕様）](#9-attestation-data-modelin-toto-statement-v1-ベース-envelope仕様)
 10. [Strict Server-Side Canonical Telemetry Parser（厳格な多段パース仕様）](#10-strict-server-side-canonical-telemetry-parser厳格な多段パース仕様)
 11. [Selective Disclosure（Offset Mapping と compute_reveal 機構）](#11-selective-disclosureoffset-mapping-と-compute_reveal-機構)
@@ -106,6 +107,7 @@ FUSOU.exe 自体の改ざん防止やメモリ保護をセキュリティの根�
 │  - Strict Server-Side Canonical Parser (Zod)           │
 │                                                        │
 │  Verified Plaintext = TRUSTED provenance               │
+│  (TLSNotary verification で開示された Opening Bytes)    │
 │  Canonical Parser Output = TRUSTED representation      │
 └───────────────────────────┬────────────────────────────┘
                             │
@@ -125,9 +127,9 @@ FUSOU.exe 自体の改ざん防止やメモリ保護をセキュリティの根�
 
 | 検証層 | 保証内容 | 保証主体 | 検証手段 |
 |---|---|---|---|
-| **Layer 1: Game Server Authenticity** | 艦これ公式サーバーとの正規の TLS 1.2 通信から得られたバイト列であること | TLSNotary MPC-TLS | Presentation & Web PKI 検証 |
+| **Layer 1: Game Server Authenticity** | TLSNotary verification により、検証された TLS transcript commitment に対応する開示 plaintext 範囲（Opening Bytes）であること | TLSNotary MPC-TLS | Presentation & Web PKI 検証 |
 | **Layer 2: Device Identity & Binding** | FUSOU に登録・有効な端末（Ed25519）から提出されたこと | `fusou-auth` DeviceKey | Ed25519 署名、JWT、DB 有効性（`revoked_at IS NULL`） |
-| **Layer 3: Server-side Canonicalization** | クライアント申告ではなく、公証平文（Request/Response）から直接抽出した正規データであること | FUSOU-WEB Verifier | 厳格な多段ストリームパーサー & Zod 検証 |
+| **Layer 3: Server-side Canonicalization** | クライアント申告ではなく、公証平文（Request/Response Opening）から直接抽出した正規データであること | FUSOU-WEB Verifier | 厳格な多段ストリームパーサー & Zod 検証 |
 
 ### Non-Guarantees（保証されない事項・非目標）
 1. **ブラウザ画面の完全性保証（Gameplay Path Non-Guarantee）**:
@@ -155,8 +157,9 @@ FUSOU.exe 自体の改ざん防止やメモリ保護をセキュリティの根�
 
 ---
 
-## 5. Target Architecture（Gameplay Path と Evidence Path の二元分離）
+## 5. Target Architecture & Data Flow（Gameplay Path と Evidence Path の二元分離 & 同一性保証）
 
+### 5.1 統合データフロー（単一ストリーム分離による同一性保証）
 ```
 [艦これ公式サーバー (*.kcs.dmm.com)]
          ▲
@@ -164,15 +167,19 @@ FUSOU.exe 自体の改ざん防止やメモリ保護をセキュリティの根�
          │    ※再送信ゼロ・外部プロキシ中継ゼロ
          ▼
  ┌────────────────────────────────────────────────────────┐
- │ FUSOU-PROXY (fusou-proxy-core)                         │
+ │ fusou-proxy-tlsn (MPC-TLS Prover Engine)               │
  │                                                        │
- │  [Upstream: fusou-proxy-tlsn (UpstreamTransport)]      │
+ │  [Online Decryption Stream]                            │
  │       │                                                │
- │       ├───────────▶ (平文ストリーム転送)                │
- │       │                    │                           │
- └───────┼────────────────────┼───────────────────────────┘
-         │                    │
- ┌───────┴────────────┐ ┌─────┴───────────────────────────┐
+ │       ├─ (Tee / Fork: 同一平文ストリームの分岐)         │
+ │       │                                                │
+ │       ▼ (Evidence Frame Generation)                    │
+ │  EvidenceFrame { session_id, transcript_range, bytes } │
+ │       │                                                │
+ └───────┼────────────────────┬───────────────────────────┘
+         │                    │ (Gameplay Stream)
+         ▼                    ▼
+ ┌────────────────────┐ ┌─────────────────────────────────┐
  │ Evidence Path      │ │ Gameplay Path                   │
  │ (真正性保証対象)   │ │ (真正性保証外・低遅延)           │
  │                    │ │                                 │
@@ -192,6 +199,9 @@ FUSOU.exe 自体の改ざん防止やメモリ保護をセキュリティの根�
  │  [Supabase DB]     │
  └────────────────────┘
 ```
+
+> **同一 TLS セッションの同一性保証構造**:  
+> `fusou-proxy-tlsn` 内部で、MPC 復号されたバイトストリームからブラウザ転送ストリームと `EvidenceFrame` を単一のパイプライン（Single Stream Fork）として生成します。これにより、「ブラウザへ転送されたレスポンス」と「Notary が暗号コミットする transcript」が 100% 同一の TLS セッション由来であることを保証します。
 
 ---
 
@@ -220,12 +230,14 @@ packages/
 └── FUSOU-APP/                # [MODIFY] Composition Root (DI コンテナとして各クレートを結合)
 ```
 
-### Trait 境界による完全分離
+### Trait 境界による完全分離 & `EvidenceFrame`
 ```rust
 // packages/fusou-proxy-core/src/transport.rs
 
 use async_trait::async_trait;
-use hyper::{Request, Response, body::Incoming};
+use bytes::Bytes;
+use hyper::{Request, Response, HeaderMap, body::Incoming};
+use std::ops::Range;
 
 #[async_trait]
 pub trait UpstreamTransport: Send + Sync {
@@ -236,15 +248,20 @@ pub trait UpstreamTransport: Send + Sync {
     ) -> Result<Response<Incoming>, ProxyTransportError>;
 }
 
+/// TLSNotary Transcript との同一性を型レベルで保証する Evidence フレーム
+pub struct EvidenceFrame {
+    pub session_id: String,
+    pub request_id: String,
+    pub response_id: String,
+    pub transcript_range: Range<usize>,
+    pub raw_bytes: Bytes,
+    pub http_headers: HeaderMap,
+}
+
 /// 公証観測用インターフェース (Core は Evidence の具体実装を知らない)
 #[async_trait]
 pub trait EvidenceObserver: Send + Sync {
-    async fn on_response_received(
-        &self,
-        req_headers: &hyper::HeaderMap,
-        res_headers: &hyper::HeaderMap,
-        raw_body_bytes: &[u8],
-    );
+    async fn observe_frame(&self, frame: EvidenceFrame) -> Result<(), EvidenceError>;
 }
 ```
 
@@ -288,6 +305,11 @@ TLSNotary MPC-TLS では Application Data の復号自体が Prover と Notary �
 
 > **Gate 判定ルール**:  
 > Phase 0 PoC で Case A が上記 SLA を満たさない場合、Case A を破棄して別構成（Case C/D等）へアーキテクチャを再設計します。この PoC を通過するまで全体 Telemetry の本番実装は凍結します。
+
+### 8.4 参考実装: 公式 tlsn-extension の prove() / compute_reveal() 機構の調査
+TLSNotary 公式の `tlsn-extension` では、現在以下のパイプラインが実装されています：
+$$\text{prove()} \longrightarrow \text{TLS request} \longrightarrow \text{transcript capture} \longrightarrow \text{compute\_reveal()} \longrightarrow \text{handler} \longrightarrow \text{byte ranges} \longrightarrow \text{proof}$$
+Phase 0 PoC においてはこの公式機構を徹底調査し、FUSOU 独自の Byte Range 算出コードを最小化して安全に流用・統合する方針を採用します。
 
 ---
 
@@ -398,9 +420,6 @@ export function parseCanonicalBattleResult(
        ↓ (Span Start Offset .. Span End Offset)
 [TLSNotary Reveal Byte Range]
 ```
-
-> **実装指針**:  
-> 現行 TLSNotary（`tlsn-extension` / `tlsn` crate）の `compute_reveal()` / handler 機構を調査し、HTTP ヘッダー・ボディ境界および JSON トークン位置の自動抽出機構を活用・流用することを Phase 0 PoC の検証項目とします。
 
 開示対象 JSON Pointer 一覧：
 * `battleresult`: `/api_data/api_win_rank`, `/api_data/api_get_ship/api_ship_id`, `/api_data/api_quest_name`
@@ -593,5 +612,5 @@ Notary 障害やタイムアウト時のフォールバックは、**API 再送�
 - [x] 部分成功 ACK および 4 状態エラー分類によりデータ消失が発生しないこと
 - [x] RLS（Row Level Security）が有効化され、`service_role` 以外からの書き込みが遮断されていること
 - [x] Phase 0 PoC（ADR-000）の SLA Gate を通過するまで本番実装を凍結するルールが確立されていること
-- [x] Rust workspace がクレート境界（`fusou-proxy-core`, `fusou-proxy-tlsn`, `fusou-telemetry`）で分離され、Trait 境界が純化されていること
+- [x] Rust workspace がクレート境界（`fusou-proxy-core`, `fusou-proxy-tlsn`, `fusou-telemetry`）で分離され、`EvidenceFrame` によるバインディングが確立されていること
 - [x] Triple Owner Invariant（$\text{verified\_user\_id} \equiv \text{canonical\_user\_id} \equiv \text{user\_id}$）が保証されていること
