@@ -5,7 +5,7 @@
 > **v1 Core Security Goal**:  
 > **「ログインセッション開始時の `POST /kcsapi/api_get_member/require_info` から暗号学的に検証した `api_member_id` を FUSOU Dataset Identity（`public_id`）として確立し、事前登録攻撃を完全に無力化して正当な所有権を確定・移転する」**  
 > 対象 API: **`POST /kcsapi/api_get_member/require_info`**（1つの Game Login Session で最初に正常取得された 1 回のみ）  
-> 対象データ: **`/api_data/api_basic/api_member_id`**（Wire: `i64`, Canonical Internal: Decimal String）  
+> 対象データ: **`/api_data/api_basic/api_member_id`**（Wire: `i64` from `kc-api-dto`, Canonical Internal: Decimal String）  
 > **最重要設計原則**:  
 > 1. **再送信ゼロ（No Re-submission）**: FUSOU 自身が同一 logical request を二重送信しないことを徹底し（FUSOU-generated duplicate = 0）、**FUSOU-Prover と Game Server 間の正規の 1 回限りの TLSNotary MPC-TLS セッションを公証**する。  
 > 2. **外部プロキシ中継ゼロ（Direct Connection）**: 外部中継プロキシは規約上・BANリスク上不可とし、**クライアントローカルの `FUSOU-PROXY` と艦これ公式サーバー間の直接通信を維持**する。  
@@ -15,7 +15,7 @@
 >    - **Phase C**: Presentation 生成 + Remote verification + DB claim（**Post-processing is not on critical path**）  
 > 4. **Selective Disclosure（最小限開示）**: `require_info` レスポンス全体を開示せず、TLSNotary の selective disclosure により `/api_data/api_basic/api_member_id` の Byte Range のみを開示する。  
 > 5. **Device ↔ Proof の暗号学的バインディング（Server-issued One-Time Challenge & Byte Layout 完全固定）**:  
->    `public_id` はクライアントが任意選択せず、サーバーが `verified_member_id` から導出する。Server-issued one-time challenge（`challenge_id`, `challenge_nonce`）に対する固定バイト列（Length-delimited binary framing）での Ed25519 署名を必須とし、Proof と提出端末を暗号学的に不可分にバインドする。  
+>    `public_id` はクライアントが任意選択せず、サーバーが `verified_member_id` から導出する。Server-issued one-time challenge（`challenge_id`, `challenge_nonce`）に対する固定バイト列（Length-delimited binary framing: Domain `"FUSOU-IDENTITY-CLAIM-V1"`）での Ed25519 署名を必須とし、Proof と提出端末を暗号学的に不可分にバインドする。  
 > 6. **`member_id_hash` / Pepper の完全廃止（UUID `public_id` への一本化）**:  
 >    `member_id_hash`、`anon_sync_pepper_runtime`、`anon_sync_pepper_versions`、Vault secret、Pepper rotation、HMAC 計算、hash version を**完全に廃止・削除**し、`public_id`（UUIDv4）を唯一の内部 Dataset Identity として使用する。  
 > 7. **`api_member_id` と `public_id` の責務完全分離**:  
@@ -28,25 +28,25 @@
 > 10. **Quad Invariant の段階的成立 & Social User Binding**:  
 >     `GAME_IDENTITY_VERIFIED` 時点で Triple Invariant を満たし、OAuth 認証ユーザーによる明示的なバインディング操作（`SOCIAL_ACCOUNT_BOUND`）完了後に $\text{member\_ownership.verified\_user\_id} \equiv \text{user\_devices.canonical\_user\_id} \equiv \text{user\_member\_map.user\_id} \equiv \text{web\_user\_member\_map.user\_id}$ の Quad Invariant を厳格に保持する。  
 > 11. **RPC 前提条件の明確化（Security Boundary）**:  
->     ストアドプロシージャ `claim_verified_device_v3` は、呼び出し元 FUSOU-WEB が TLSNotary Proof および `ClaimBindingMessage` 署名を完全検証済みであることを前提とし、未検証データの書き込みを遮断する。  
+>     ストアドプロシージャ `claim_verified_device_v3` は、呼び出し元 FUSOU-WEB が TLSNotary Proof および `ClaimBindingBytes` 署名を完全検証済みであることを前提とし、未検証データの書き込みを遮断する。  
 > 12. **Dataset Token の後発行（Triple Verified Issuance）**:  
 >     `Game Identity Verified + Device Authorized + Social Account Bound` の 3 条件がすべて揃った時点で `dataset_token` を発行し、事前発行は行わない。  
 > 13. **Fallback 時のステータス明示**:  
 >     Notary 障害時は `GAMEPLAY_OK / IDENTITY_UNVERIFIED / DATASET_TOKEN_NOT_ISSUED` の状態へ安全にフォールバックし、ゲームプレイを継続する。  
-> **ステータス**: Byte Layout固定・One-Time Challenge DB管理・段階的Quad Invariant完全反映マスター  
+> **ステータス**: 実装開始前最終レビュー・完全確定版マスター仕様書  
 
 ---
 
 ## 目次
 
 1. [Goal（目標）](#1-goal目標)
-2. [Threat Model（脅威モデル）](#2-threat-model脅威モデル)
+2. [Threat Model & Attack Scenario Trace（脅威モデルと攻撃シナリオ追跡）](#2-threat-model--attack-scenario-trace脅威モデルと攻撃シナリオ追跡)
 3. [Trust Boundary & Security Boundary（信頼境界 & RPC前提条件）](#3-trust-boundary--security-boundary信頼境界--rpc前提条件)
 4. [Identity Architecture & Invariant（ID基盤と不変条件の段階的成立）](#4-identity-architecture--invariantid基盤と不変条件の段階的成立)
 5. [Social Account Binding (`web_user_member_map`) & 状態モデル](#5-social-account-binding-web_user_member_map--状態モデル)
 6. [Member State Machine（所有権ステートマシン & 乗っ取り防止ルール）](#6-member-state-machine所有権ステートマシン--乗っ取り防止ルール)
 7. [TLSNotary Ownership Proof (`POST /kcsapi/api_get_member/require_info`)](#7-tlsnotary-ownership-proof-post-kcsapiapi_get_memberrequire_info)
-8. [Device ↔ Proof Binding（Challenge-Response と Byte Layout 固定）](#8-device--proof-bindingchallenge-response-と-byte-layout-固定)
+8. [Device ↔ Proof Binding（Challenge-Response と Byte Layout 完全固定）](#8-device--proof-bindingchallenge-response-と-byte-layout-完全固定)
 9. [Claim Transaction（アトミック所有権移転トランザクション 全10ステップ）](#9-claim-transactionアトミック所有権移転トランザクション-全10ステップ)
 10. [Preemptive Registration Attack（事前登録攻撃の無力化と安全なRevoke）](#10-preemptive-registration-attack事前登録攻撃の無力化と安全なrevoke)
 11. [Concurrent Claim Handling（64-bit Advisory Lock & 親行ロック契約）](#11-concurrent-claim-handling64-bit-advisory-lock--親行ロック契約)
@@ -55,11 +55,10 @@
 14. [Replay Protection & Proof Consumption Policy（証明書消費ポリシー）](#14-replay-protection--proof-consumption-policy証明書消費ポリシー)
 15. [DB Schema / RPC（Supabaseマイグレーション: Challenge, 状態, 拡張監査履歴）](#15-db-schema--rpcsupabaseマイグレーション-challenge-状態-拡張監査履歴)
 16. [Failure Cases & Fallback Semantics (Phase A / Phase B)](#16-failure-cases--fallback-semantics-phase-a--phase-b)
-17. [Recovery（正規オーナーによるアカウント回復手順）](#17-recovery正規オーナーによるアカウント回復手順)
-18. [Testing（単体・統合・並行競合テスト）](#18-testing単体統合並行競合テスト)
-19. [Migration（既存データの移行手順）](#19-migration既存データの移行手順)
-20. [Rollout Plan & Verifier Benchmark（PoC先行の段階的ロールアウト計画）](#20-rollout-plan--verifier-benchmarkpoc先行の段階的ロールアウト計画)
-21. [Security Progress Checklist（開発進捗チェックリスト）](#21-security-progress-checklist開発進捗チェックリスト)
+17. [Recovery & Ownership Transfer Policy（正規オーナー回復手順）](#17-recovery--ownership-transfer-policy正規オーナー回復手順)
+18. [Testing（網羅的セキュリティ・競合テストケース）](#18-testing網羅的セキュリティ競合テストケース)
+19. [Migration & Rollout Plan（既存データの移行手順と段階的展開）](#19-migration--rollout-plan既存データの移行手順と段階的展開)
+20. [Security Progress Checklist（開発進捗チェックリスト）](#20-security-progress-checklist開発進捗チェックリスト)
 
 ---
 
@@ -70,19 +69,31 @@ FUSOU の匿名同期システム（`anonymous-sync-v2`）において、悪意�
 
 ---
 
-## 2. Threat Model（脅威モデル）
+## 2. Threat Model & Attack Scenario Trace（脅威モデルと攻撃シナリオ追跡）
 
-### 前提条件
-* 攻撃者はスクリプト等を用いて、未登録の任意の `api_member_id`（例: `12345678`）に対して `POST /anonymous-sync/v2/register` を自由に実行できます。
-* クライアント環境（ローカルファイル・メモリ）は攻撃者により完全に制御されているものと仮定します。
-
-### 想定される攻撃シナリオ
-1. **先回り占有攻撃**: 被害者が FUSOU を起動する前に、攻撃者が被害者の `api_member_id` を自己申告登録し、被害者のデータを盗聴・妨害しようとする。
-2. **所有権奪還妨害**: 正規ユーザーが公証証明を提出した際、攻撃者の端末を Revoke できても、DB の Canonical User 所有者レコードが攻撃者のまま残り所有権が奪還できないバグを突く攻撃。
-3. **並行 Claim 攻撃**: 複数の端末から同時に Claim リクエストを送り、空テーブル検索の隙を突いて二重登録や不整合を発生させる。
-4. **別ユーザーによる乗っ取り Claim 攻撃**: 正規オーナー A が確定した後に、第三者 B が一時的にゲームアカウントにアクセスできた場合に B のアカウントへ所有権を強制移転しようとする。
-5. **同一 Proof の多重 Claim（Replay）**: 過去のログイン通信の証明書を別の端末や別アカウントで再利用する。
-6. **Proof-Device 切り離し攻撃**: 盗聴した他人・別端末の Proof P を、自端末の Device ID と組み合わせて提出しようとする。
+### 2.1 攻撃シナリオと防御追跡
+* **A. 攻撃者が任意の `member_id` を自己申告登録する攻撃**:
+  自己申告登録は `PRE_REGISTERED`（未検証 Dataset Claim）として扱われ、Game Account Identity の身元保証は一切付与されません。正規オーナーが `require_info` 証明を提出した時点でアトミックに無力化されます。
+* **B. 被害者の有効な Proof P を盗聴・傍受して攻撃者端末にバインドする攻撃**:
+  Server-issued Challenge（`challenge_nonce`）に対する署名には被害者端末の秘密鍵が必要なため、攻撃者の `Device B` による署名はサーバー側で 100% 遮断されます（端末すり替え拒絶）。
+* **C. クライアントが Telemetry 内で他人の `member_id` を指定する攻撃**:
+  Telemetry ペイロード内の `member_id` はサーバーの認可判断から完全排除され、無視されます。
+* **D. クライアントが Telemetry 内で他人の `public_id` / Dataset ID を指定する攻撃**:
+  サーバーは `dataset_token` から `public_id` を導出するため、クライアント指定の `public_id` は完全無視されます。
+* **E. クライアントが Telemetry 内で他人の `owner user_id` を指定する攻撃**:
+  同様に認可判断から完全排除され、無視されます。
+* **F. 同一 Telemetry リクエストの再生（Replay 攻撃）**:
+  `telemetry_nonces` テーブル（10分保持）と ±5 分のタイムスタンプ窓により、同一 Nonce の再送信は 401/403 で拒絶されます。
+* **G. クライアントによる Telemetry 本文の改ざん**:
+  Telemetry 内容自体は UNTRUSTED ですが、改ざんされたデータであっても「どの Dataset に所属して提出されたか（Attribution）」はサーバー側で厳格に確定されます。
+* **H. 既存オーナー A の Game Account に対し第三者 B が Proof を提出する攻撃**:
+  Game Account アクセス証明 $\neq$ Social Account 所有権証明。一度確立された `member_ownership` は別ユーザーからの Claim で自動移転することはなく、`EXISTING_VERIFIED_OWNER_CONFLICT` で拒絶されます。
+* **I. 端末の交換・追加（Device Replacement）**:
+  同一オーナー（同一 `canonical_user_id`）による新端末は、同一の `public_id` に対する追加端末として安全に登録されます。
+* **J. Notary サーバーの障害**:
+  送信前障害時は通常 TLS へ切り替えて `GAMEPLAY_OK / IDENTITY_UNVERIFIED / DATASET_TOKEN_NOT_ISSUED` でゲームプレイを 100% 継続。送信後障害時は同一リクエストの再送を厳禁とし `UNATTESTED` 扱いとします。
+* **K. ゲーム API の二重送信・BAN リスク**:
+  FUSOU 自身によるリクエスト再送コードを完全排除し、FUSOU-generated duplicate = 0 を保証します。
 
 ---
 
@@ -209,7 +220,7 @@ stateDiagram-v2
 
 ---
 
-## 8. Device ↔ Proof Binding（Challenge-Response と Byte Layout 固定）
+## 8. Device ↔ Proof Binding（Challenge-Response と Byte Layout 完全固定）
 
 Proof P と提出端末 Device A を暗号学的に不可分にバインドするため、以下の 4 ステップ Challenge-Response を実行します：
 
@@ -235,7 +246,7 @@ sequenceDiagram
 ```
 
 * **署名対象バイト列（Length-Delimited Binary Framing）**:
-  $$\text{ClaimBindingBytes} = \text{u16}(17) \Vert \text{"fusou-identity-v1"} \Vert \text{u16}(32) \Vert \text{comm} \Vert \text{u16}(\text{len(mid)}) \Vert \text{mid} \Vert \text{u16}(16) \Vert \text{dev} \Vert \text{u16}(16) \Vert \text{pub} \Vert \text{u16}(16) \Vert \text{cid} \Vert \text{u16}(32) \Vert \text{nonce}$$
+  $$\text{ClaimBindingBytes} = \text{u16}(23) \Vert \text{"FUSOU-IDENTITY-CLAIM-V1"} \Vert \text{u16}(32) \Vert \text{comm} \Vert \text{u16}(\text{len(mid)}) \Vert \text{mid} \Vert \text{u16}(16) \Vert \text{dev} \Vert \text{u16}(16) \Vert \text{pub} \Vert \text{u16}(16) \Vert \text{cid} \Vert \text{u16}(32) \Vert \text{nonce}$$
   $$\text{ClaimSignature} = \text{Ed25519\_Sign}(sk_{\text{device}}, \text{ClaimBindingBytes})$$
 
 ---
@@ -571,36 +582,36 @@ COMMIT;
 
 ---
 
-## 17. Recovery（正規オーナーによるアカウント回復手順）
+## 17. Recovery & Ownership Transfer Policy（正規オーナー回復手順）
 
 正規ユーザーが新端末で FUSOU を起動した場合：
 1. **Game Identity**: TLSNotary による `require_info` 証明から同一の `api_member_id` を検証。
 2. **Social Identity**: 認証済み同一 `canonical_user_id`（OAuth）を確認。
 3. 既存の `public_id`（U1）に対して新端末 `Device B` を `user_devices` に追加（`Primary Device` は固定、Owner は不変）。
+4. **所有権移転ポリシー**: 異なる Web ユーザーからの Claim は自動移転せず、明示的なリカバリ / 移転プロトコル（別途サポートまたは認証連携）を通じてのみ実行可能です。
 
 ---
 
-## 18. Testing（単体・統合・並行競合テスト）
+## 18. Testing（網羅的セキュリティ・競合テストケース）
 
-* **所有権移転テスト**: 事前登録攻撃後に正規ユーザーが公証提出 $\rightarrow$ `user_member_map` の所有者が正規ユーザーに変更され、攻撃者端末が Revoke されることを検証。
-* **並行 Claim 競合テスト**: 2台の端末からミリ秒単位で同時に `claim_verified_device_v3` を実行 $\rightarrow$ 64-bit Advisory Lock と親行ロックにより完全に順次直列化されることを検証。
-* **別ユーザー乗っ取り拒絶テスト**: Owner 確立後に別ユーザーが Claim 実行 $\rightarrow$ `EXISTING_VERIFIED_OWNER_CONFLICT` で拒絶されることを検証。
-* **端末すり替え遮断テスト**: 検証済み Proof P に対し別端末 Device B の署名を提出 $\rightarrow$ 403 で遮断されることを検証。
-* **Proof 多重消費拒絶テスト**: 同一 `transcript_commitment` を再提出 $\rightarrow$ `DUPLICATE_PROOF_CONSUMED` でロールバックされることを検証。
+1. **事前登録攻撃奪還テスト**: 攻撃者が `PRE_REGISTERED` 登録後に正規ユーザーが公証提出 $\rightarrow$ 攻撃者端末のみ Revoke され所有権が正規ユーザーへ移転。
+2. **端末すり替え遮断テスト**: Proof P（`member_id = 1234`）に対し別 Device B の署名を提出 $\rightarrow$ 403 拒絶。
+3. **`public_id` 改変遮断テスト**: クライアントが署名メッセージ内の `public_id` を書き換えて提出 $\rightarrow$ 400/403 拒絶。
+4. **Challenge 再生遮断テスト**: 同一 `challenge_nonce` を 2 回提出 $\rightarrow$ 400 拒絶。
+5. **期限切れ Challenge 遮断テスト**: 5 分以上経過した Challenge で提出 $\rightarrow$ 400 拒絶。
+6. **Telemetry Replay 遮断テスト**: 同一 `device_id + nonce` を再送信 $\rightarrow$ 401/403 拒絶。
+7. **Telemetry 冪等性テスト**: 同一 `ingest_item_id` で Body 一致時は 200/201、Body 不一致時は 409 Conflict。
+8. **並行 Claim 競合テスト**: 2 台の端末から同時に Claim 実行 $\rightarrow$ 64-bit Advisory Lock と親行ロックにより直列化。
 
 ---
 
-## 19. Migration（既存データの移行手順）
+## 19. Migration & Rollout Plan（既存データの移行手順と段階的展開）
 
 ```bash
 cd packages/FUSOU-WEB
 npx supabase db push
 pnpm vitest run tests/tlsn-verifier.test.ts
 ```
-
----
-
-## 20. Rollout Plan & Verifier Benchmark（PoC先行の段階的ロールアウト計画）
 
 1. **Phase 0 (ADR-000 Data Plane PoC & Verifier Benchmark)**:
    - `POST /kcsapi/api_get_member/require_info` における Prover 統合と MPC 復号遅延の動作実測（P95 < 300ms）。
@@ -611,7 +622,7 @@ pnpm vitest run tests/tlsn-verifier.test.ts
 
 ---
 
-## 21. Security Progress Checklist（開発進捗チェックリスト）
+## 20. Security Progress Checklist（開発進捗チェックリスト）
 
 - [D] ゲーム通信に外部プロキシを使用しない直接接続設計
 - [D] FUSOU 生成の二重送信ゼロ（FUSOU-generated duplicate = 0）設計
@@ -627,7 +638,7 @@ pnpm vitest run tests/tlsn-verifier.test.ts
 - [D] Verified Owner 確定後の別ユーザー乗っ取り遮断（`EXISTING_VERIFIED_OWNER_CONFLICT`）設計
 - [D] Quad Invariant（$\text{verified\_user\_id} \equiv \text{canonical\_user\_id} \equiv \text{user\_id} \equiv \text{web\_user\_id}$）の段階的成立定義
 - [D] Post-Verification Issuance（公証前のトークン発行禁止）設計
-- [P] Phase 0 PoC（GO/NO-GO 基準付き実測検証 15 項目）
+- [P] Phase 0 PoC（GO/NO-GO 基準付き実測検証 23 項目）
 - [P] Verifier 実行環境ベンチマーク（Workers vs Dedicated Rust Verifier）
 - [I] 実装および DB マイグレーション適用
 - [T] 単体テスト・端末すり替え遮断テスト
