@@ -1,13 +1,16 @@
-# FUSOU: zkTLS (TLSNotary MPC-TLS) による member_id 所有権担保 & 所有権移転ステートマシン 完全実装仕様書 (require_info 特化版)
+# FUSOU: zkTLS (TLSNotary MPC-TLS) による Game Account 身元公証 (Provenance) & 事前登録攻撃無力化 実装仕様書 (require_info 特化版)
 
 > **文書種別**: アーキテクチャ設計仕様書 & 実装マスターガイド（Implementation Master Guide）  
 > **対象領域**: FUSOU プロジェクト全域（`packages/fusou-auth`, `packages/fusou-proxy-core`, `packages/fusou-proxy-tlsn`, `packages/FUSOU-WEB`, Supabase / Cloudflare Workers / Dedicated Verifier Service）  
 > **v1 Core Security Goal**:  
-> **「ログインセッション開始時の `POST /kcsapi/api_get_member/require_info` から暗号学的に検証した `api_member_id` を FUSOU Dataset Identity（`public_id`）として確立し、事前登録攻撃を完全に無力化して正当な所有権を確定・移転する」**  
+> **「ログインセッション開始時の `POST /kcsapi/api_get_member/require_info` から暗号学的に検証した `api_member_id` を FUSOU Dataset Identity（`public_id`）として確立し、事前登録攻撃（Preemptive Registration / ID Squatting）を完全に無力化して正当な Dataset Attribution を確定する」**  
 > 対象 API: **`POST /kcsapi/api_get_member/require_info`**（1つの Game Login Session で最初に正常取得された 1 回のみ）  
 > 対象データ: **`/api_data/api_basic/api_member_id`**（Wire: `i64` from `kc-api-dto`, Canonical Internal: Decimal String）  
 > **最重要設計原則**:  
-> 1. **再送信ゼロ（No Re-submission）**: FUSOU 自身が同一 logical request を二重送信しないことを徹底し（FUSOU-generated duplicate = 0）、**FUSOU-Prover と Game Server 間の正規の 1 回限りの TLSNotary MPC-TLS セッションを公証**する。  
+> 1. **再送信ゼロ（No Re-submission）**:  
+>    - **設計要件 (Design Requirement)**: FUSOU must not intentionally retry the same logical request.（FUSOU は同一 logical request を意図的に再送してはならない）  
+>    - **検証結果 (Verification Result)**: Phase 0 計測により FUSOU 生成の二重送信数が 0 件であることを確認・保証する（FUSOU-generated duplicate count == 0）。  
+>    - **FUSOU-Prover と Game Server 間の正規の 1 回限りの TLSNotary MPC-TLS セッションを公証**する。  
 > 2. **外部プロキシ中継ゼロ（Direct Connection）**: 外部中継プロキシは規約上・BANリスク上不可とし、**クライアントローカルの `FUSOU-PROXY` と艦これ公式サーバー間の直接通信を維持**する。  
 > 3. **MPC-TLS 処理 3 段階と Browser 待機の分離**:  
 >    - **Phase A**: Request routing / upstream connection  
@@ -15,7 +18,10 @@
 >    - **Phase C**: Presentation 生成 + Remote verification + DB claim（**Post-processing is not on critical path**）  
 > 4. **Selective Disclosure（最小限開示）**: `require_info` レスポンス全体を開示せず、TLSNotary の selective disclosure により `/api_data/api_basic/api_member_id` の Byte Range のみを開示する。  
 > 5. **Device ↔ Proof の暗号学的バインディング（Server-issued One-Time Challenge & Byte Layout 完全固定）**:  
->    `public_id` はクライアントが任意選択せず、サーバーが `verified_member_id` から導出する。Server-issued one-time challenge（`challenge_id`, `challenge_nonce`）に対する固定バイト列（Length-delimited binary framing: Domain `"FUSOU-IDENTITY-CLAIM-V1"`）での Ed25519 署名を必須とし、Proof と提出端末を暗号学的に不可分にバインドする。  
+>    - `public_id` はクライアントが任意選択せず、サーバーが `verified_member_id` から導出する。  
+>    - **Challenge 発行元と Claim 実行主体は単一の Trust Domain（FUSOU-WEB / Supabase DB）に完全一本化**。  
+>    - `transcript_commitment` は **TLSNotary Presentation Session Header における `transcript_commitments_root`（32-byte raw binary digest）** として厳密に固定。  
+>    - サーバーが発行・DB 記録する One-Time Challenge（`challenge_id`, `challenge_nonce`）に対して、完全固定されたバイト列（Length-delimited binary framing: Domain `"FUSOU-IDENTITY-CLAIM-V1"`）での Ed25519 署名を必須とし、Proof と提出端末を暗号学的に不可分にバインドする。  
 > 6. **`member_id_hash` / Pepper の完全廃止（UUID `public_id` への一本化）**:  
 >    `member_id_hash`、`anon_sync_pepper_runtime`、`anon_sync_pepper_versions`、Vault secret、Pepper rotation、HMAC 計算、hash version を**完全に廃止・削除**し、`public_id`（UUIDv4）を唯一の内部 Dataset Identity として使用する。  
 > 7. **`api_member_id` と `public_id` の責務完全分離**:  
@@ -23,7 +29,7 @@
 >    - `public_id`: FUSOU Dataset の内部安定 UUID（各テーブルの FK 参照、Telemetry 所属先）。  
 > 8. **並行 Claim の完全直列化（64-bit Advisory Lock & 親行ロック契約）**:  
 >    64-bit Advisory Lock により衝突確率を十分に低減し、同一トランザクション内で必ず行が存在する `member_id_mapping` 親行の `FOR UPDATE` により並行 Claim を物理的に直列化する。  
-> 9. **所有権現在状態（`member_ownership`）と通常のアプリケーション経路で変更禁止な監査履歴（`member_ownership_claims`）の分離**:  
+> 9. **所有状態（`member_ownership`）と通常のアプリケーション経路で変更禁止な監査履歴（`member_ownership_claims`）の分離**:  
 >    現在の検証済み所有者レコードと、将来の監査検証用情報（`notary_time`, `notary_key_id`, `proof_purpose`）を含む Append-Only 監査証跡ログをテーブル分離する。  
 > 10. **Quad Invariant の段階的成立 & Social User Binding**:  
 >     `GAME_IDENTITY_VERIFIED` 時点で Triple Invariant を満たし、OAuth 認証ユーザーによる明示的なバインディング操作（`SOCIAL_ACCOUNT_BOUND`）完了後に $\text{member\_ownership.verified\_user\_id} \equiv \text{user\_devices.canonical\_user\_id} \equiv \text{user\_member\_map.user\_id} \equiv \text{web\_user\_member\_map.user\_id}$ の Quad Invariant を厳格に保持する。  
@@ -33,21 +39,21 @@
 >     `Game Identity Verified + Device Authorized + Social Account Bound` の 3 条件がすべて揃った時点で `dataset_token` を発行し、事前発行は行わない。  
 > 13. **Fallback 時のステータス明示**:  
 >     Notary 障害時は `GAMEPLAY_OK / IDENTITY_UNVERIFIED / DATASET_TOKEN_NOT_ISSUED` の状態へ安全にフォールバックし、ゲームプレイを継続する。  
-> **ステータス**: 実装開始前最終レビュー・完全確定版マスター仕様書  
+> **ステータス**: 暗号バイト完全固定・Trust Domain一本化・Attribution用語適正化マスター仕様書  
 
 ---
 
 ## 目次
 
-1. [Goal（目標）](#1-goal目標)
+1. [Goal（目標と概念の整理）](#1-goal目標と概念の整理)
 2. [Threat Model & Attack Scenario Trace（脅威モデルと攻撃シナリオ追跡）](#2-threat-model--attack-scenario-trace脅威モデルと攻撃シナリオ追跡)
 3. [Trust Boundary & Security Boundary（信頼境界 & RPC前提条件）](#3-trust-boundary--security-boundary信頼境界--rpc前提条件)
 4. [Identity Architecture & Invariant（ID基盤と不変条件の段階的成立）](#4-identity-architecture--invariantid基盤と不変条件の段階的成立)
 5. [Social Account Binding (`web_user_member_map`) & 状態モデル](#5-social-account-binding-web_user_member_map--状態モデル)
-6. [Member State Machine（所有権ステートマシン & 乗っ取り防止ルール）](#6-member-state-machine所有権ステートマシン--乗っ取り防止ルール)
+6. [Member State Machine（身元確認ステートマシン & 乗っ取り防止ルール）](#6-member-state-machine身元確認ステートマシン--乗っ取り防止ルール)
 7. [TLSNotary Ownership Proof (`POST /kcsapi/api_get_member/require_info`)](#7-tlsnotary-ownership-proof-post-kcsapiapi_get_memberrequire_info)
 8. [Device ↔ Proof Binding（Challenge-Response と Byte Layout 完全固定）](#8-device--proof-bindingchallenge-response-と-byte-layout-完全固定)
-9. [Claim Transaction（アトミック所有権移転トランザクション 全10ステップ）](#9-claim-transactionアトミック所有権移転トランザクション-全10ステップ)
+9. [Claim Transaction（アトミック身元確定・奪還トランザクション 全10ステップ）](#9-claim-transactionアトミック身元確定奪還トランザクション-全10ステップ)
 10. [Preemptive Registration Attack（事前登録攻撃の無力化と安全なRevoke）](#10-preemptive-registration-attack事前登録攻撃の無力化と安全なrevoke)
 11. [Concurrent Claim Handling（64-bit Advisory Lock & 親行ロック契約）](#11-concurrent-claim-handling64-bit-advisory-lock--親行ロック契約)
 12. [Revoke Semantics & Currently Trusted Device（失効セマンティクスと有効端末定義）](#12-revoke-semantics--currently-trusted-device失効セマンティクスと有効端末定義)
@@ -55,45 +61,52 @@
 14. [Replay Protection & Proof Consumption Policy（証明書消費ポリシー）](#14-replay-protection--proof-consumption-policy証明書消費ポリシー)
 15. [DB Schema / RPC（Supabaseマイグレーション: Challenge, 状態, 拡張監査履歴）](#15-db-schema--rpcsupabaseマイグレーション-challenge-状態-拡張監査履歴)
 16. [Failure Cases & Fallback Semantics (Phase A / Phase B)](#16-failure-cases--fallback-semantics-phase-a--phase-b)
-17. [Recovery & Ownership Transfer Policy（正規オーナー回復手順）](#17-recovery--ownership-transfer-policy正規オーナー回復手順)
+17. [Recovery & Ownership Transfer Policy（用語の明確な分離）](#17-recovery--ownership-transfer-policy用語の明確な分離)
 18. [Testing（網羅的セキュリティ・競合テストケース）](#18-testing網羅的セキュリティ競合テストケース)
-19. [Migration & Rollout Plan（既存データの移行手順と段階的展開）](#19-migration--rollout-plan既存データの移行手順と段階的展開)
+19. [Migration & Rollout Plan（既存データの移行手順と utils/pepper.ts 移行）](#19-migration--rollout-plan既存データの移行手順と-utilspepperts-移行)
 20. [Security Progress Checklist（開発進捗チェックリスト）](#20-security-progress-checklist開発進捗チェックリスト)
 
 ---
 
-## 1. Goal（目標）
+## 1. Goal（目標と概念の整理）
 
+### 1.1 目的
 FUSOU の匿名同期システム（`anonymous-sync-v2`）において、悪意ある第三者が他人の `api_member_id` を先回りして自己申告登録し、本物のプレイヤーがデータを同期できなくなる **事前登録攻撃（Preemptive Registration Attack / ID Squatting）** を暗号学的に完全無力化します。
-セッション開始時の `POST /kcsapi/api_get_member/require_info` の `/api_data/api_basic/api_member_id` を対象に zkTLS (TLSNotary MPC-TLS) を適用し、「正規のゲームセッションを操作できる端末」が所有権をいつでも奪還・確定できるアトミックな所有権移転基盤を確立します。
+セッション開始時の `POST /kcsapi/api_get_member/require_info` の `/api_data/api_basic/api_member_id` を対象に zkTLS (TLSNotary MPC-TLS) を適用し、「正規のゲームセッションを操作できる端末」が Dataset 帰属（Attribution）をいつでも奪還・確定できるアトミックな基盤を確立します。
+
+### 1.2 用語と概念の明確な分離
+1. **Game Account Identity Provenance**: TLSNotary による「その時点で正規の `api_member_id` セッションを所持・操作している事実の証明」（Game Account の絶対的所有権の証明ではなく、セッションの真正性証明）。
+2. **Dataset Attribution**: Telemetry データを特定 Dataset (`public_id`) にサーバー側で確定・帰属させる保証。
+3. **Social Account Binding**: OAuth 認証ユーザーによる明示的なアカウント紐付け操作（`web_user_member_map`）。
+4. **Ownership Transfer (所有権移転)**: Game Account アクセス証明 $\neq$ Social Account 所有権証明。一度確立された Dataset の所有権は別ユーザーからの Claim で自動移転することはなく、明示的なリカバリ / 移転プロトコルを通じてのみ実行可能。
 
 ---
 
 ## 2. Threat Model & Attack Scenario Trace（脅威モデルと攻撃シナリオ追跡）
 
 ### 2.1 攻撃シナリオと防御追跡
-* **A. 攻撃者が任意の `member_id` を自己申告登録する攻撃**:
+* **A. 攻撃者が任意の `member_id` を自己申告登録する攻撃**:  
   自己申告登録は `PRE_REGISTERED`（未検証 Dataset Claim）として扱われ、Game Account Identity の身元保証は一切付与されません。正規オーナーが `require_info` 証明を提出した時点でアトミックに無力化されます。
-* **B. 被害者の有効な Proof P を盗聴・傍受して攻撃者端末にバインドする攻撃**:
+* **B. 被害者の有効な Proof P を盗聴・傍受して攻撃者端末にバインドする攻撃**:  
   Server-issued Challenge（`challenge_nonce`）に対する署名には被害者端末の秘密鍵が必要なため、攻撃者の `Device B` による署名はサーバー側で 100% 遮断されます（端末すり替え拒絶）。
-* **C. クライアントが Telemetry 内で他人の `member_id` を指定する攻撃**:
+* **C. クライアントが Telemetry 内で他人の `member_id` を指定する攻撃**:  
   Telemetry ペイロード内の `member_id` はサーバーの認可判断から完全排除され、無視されます。
-* **D. クライアントが Telemetry 内で他人の `public_id` / Dataset ID を指定する攻撃**:
+* **D. クライアントが Telemetry 内で他人の `public_id` / Dataset ID を指定する攻撃**:  
   サーバーは `dataset_token` から `public_id` を導出するため、クライアント指定の `public_id` は完全無視されます。
-* **E. クライアントが Telemetry 内で他人の `owner user_id` を指定する攻撃**:
+* **E. クライアントが Telemetry 内で他人の `owner user_id` を指定する攻撃**:  
   同様に認可判断から完全排除され、無視されます。
-* **F. 同一 Telemetry リクエストの再生（Replay 攻撃）**:
+* **F. 同一 Telemetry リクエストの再生（Replay 攻撃）**:  
   `telemetry_nonces` テーブル（10分保持）と ±5 分のタイムスタンプ窓により、同一 Nonce の再送信は 401/403 で拒絶されます。
-* **G. クライアントによる Telemetry 本文の改ざん**:
+* **G. クライアントによる Telemetry 本文の改ざん**:  
   Telemetry 内容自体は UNTRUSTED ですが、改ざんされたデータであっても「どの Dataset に所属して提出されたか（Attribution）」はサーバー側で厳格に確定されます。
-* **H. 既存オーナー A の Game Account に対し第三者 B が Proof を提出する攻撃**:
+* **H. 既存オーナー A の Game Account に対し第三者 B が Proof を提出する攻撃**:  
   Game Account アクセス証明 $\neq$ Social Account 所有権証明。一度確立された `member_ownership` は別ユーザーからの Claim で自動移転することはなく、`EXISTING_VERIFIED_OWNER_CONFLICT` で拒絶されます。
-* **I. 端末の交換・追加（Device Replacement）**:
+* **I. 端末の交換・追加（Device Replacement）**:  
   同一オーナー（同一 `canonical_user_id`）による新端末は、同一の `public_id` に対する追加端末として安全に登録されます。
-* **J. Notary サーバーの障害**:
+* **J. Notary サーバーの障害**:  
   送信前障害時は通常 TLS へ切り替えて `GAMEPLAY_OK / IDENTITY_UNVERIFIED / DATASET_TOKEN_NOT_ISSUED` でゲームプレイを 100% 継続。送信後障害時は同一リクエストの再送を厳禁とし `UNATTESTED` 扱いとします。
-* **K. ゲーム API の二重送信・BAN リスク**:
-  FUSOU 自身によるリクエスト再送コードを完全排除し、FUSOU-generated duplicate = 0 を保証します。
+* **K. ゲーム API の二重送信・BAN リスク**:  
+  FUSOU 自身によるリクエスト再送コードを完全排除し、設計要件および計測により FUSOU-generated duplicate = 0 を保証します。
 
 ---
 
@@ -119,7 +132,7 @@ FUSOU の匿名同期システム（`anonymous-sync-v2`）において、悪意�
                             │
                             ▼
 ┌────────────────────────────────────────────────────────┐
-│ FUSOU-WEB (Verification Server / Cloudflare Workers)   │
+│ FUSOU-WEB (Single Security Authority & Trust Domain)   │
 │                                                        │
 │  - Verify Web PKI Certificate Chain                    │
 │  - Verify TLSNotary Notary Signature & Merkle Root     │
@@ -190,16 +203,16 @@ public_id = UUIDv4 (Random UUID: Dataset U1)
 
 ---
 
-## 6. Member State Machine（所有権ステートマシン & 乗っ取り防止ルール）
+## 6. Member State Machine（身元確認ステートマシン & 乗っ取り防止ルール）
 
 ```mermaid
 stateDiagram-v2
     [*] --> UNCLAIMED: 初期状態 (未登録)
     
     UNCLAIMED --> PRE_REGISTERED: 自己申告による仮登録 (未検証Dataset Claim)
-    UNCLAIMED --> VERIFIED: 初回から TLSNotary 証明を提出 (正規オーナー確定)
+    UNCLAIMED --> VERIFIED: 初回から TLSNotary 証明を提出 (正規身元確定)
     
-    PRE_REGISTERED --> VERIFIED: 本物のプレイヤーが require_info 証明を提出<br/>【アトミック所有権移転: 攻撃者をRevoke & 新規Owner UUIDへ切替】
+    PRE_REGISTERED --> VERIFIED: 本物のプレイヤーが require_info 証明を提出<br/>【アトミック所有権奪還: 攻撃者をRevoke & 新規Owner UUIDへ切替】
     
     VERIFIED --> VERIFIED: 同一オーナーによる追加端末登録 (属性: user_devices 追加)
     VERIFIED --> VERIFIED: 別ユーザーからのClaim試行 ──▶ 拒絶 (403 Conflict)
@@ -228,7 +241,7 @@ Proof P と提出端末 Device A を暗号学的に不可分にバインドす�
 sequenceDiagram
     autonumber
     actor Client as FUSOU-APP (Prover)
-    participant Web as FUSOU-WEB (Verifier)
+    participant Web as FUSOU-WEB (Single Trust Domain)
     participant DB as Supabase DB
 
     Client->>Web: 1. Submit TLSNotary Presentation (require_info)
@@ -245,13 +258,23 @@ sequenceDiagram
     Web-->>Client: 7. Issue Dataset Token (Post-Social Binding)
 ```
 
+| フィールド名 | データ型 / エンコーディング | バイト長 | 説明 |
+|---|---|---|---|
+| `domain_tag` | ASCII string `"FUSOU-IDENTITY-CLAIM-V1"` | 23 bytes | ドメイン分離タグ |
+| `transcript_commitment` | Binary SHA-256 Digest | 32 bytes | **TLSNotary Presentation Session Header における `transcript_commitments_root`（32-byte raw binary digest）** |
+| `verified_member_id` | UTF-8 decimal ASCII (例: `"12345678"`) | 1〜16 bytes | 検証済みゲームアカウント ID（Game Server 平文から正規化） |
+| `device_id` | Binary UUID (RFC 4122 Big-endian) | 16 bytes | 提出端末の Device UUID |
+| `expected_public_id` | Binary UUID (RFC 4122 Big-endian) | 16 bytes | サーバー導出 Dataset UUID |
+| `challenge_id` | Binary UUID (RFC 4122 Big-endian) | 16 bytes | サーバー発行 Challenge UUID |
+| `challenge_nonce` | Binary Random Bytes | 32 bytes | サーバー発行 One-Time Nonce |
+
 * **署名対象バイト列（Length-Delimited Binary Framing）**:
   $$\text{ClaimBindingBytes} = \text{u16}(23) \Vert \text{"FUSOU-IDENTITY-CLAIM-V1"} \Vert \text{u16}(32) \Vert \text{comm} \Vert \text{u16}(\text{len(mid)}) \Vert \text{mid} \Vert \text{u16}(16) \Vert \text{dev} \Vert \text{u16}(16) \Vert \text{pub} \Vert \text{u16}(16) \Vert \text{cid} \Vert \text{u16}(32) \Vert \text{nonce}$$
   $$\text{ClaimSignature} = \text{Ed25519\_Sign}(sk_{\text{device}}, \text{ClaimBindingBytes})$$
 
 ---
 
-## 9. Claim Transaction（アトミック所有権移転トランザクション 全10ステップ）
+## 9. Claim Transaction（アトミック身元確定・奪還トランザクション 全10ステップ）
 
 `member_id_hash` / pepper 関連を完全に排したシンプルな **全10ステップのトランザクション** を実行します：
 
@@ -348,7 +371,7 @@ $$\text{require\_info verified} \longrightarrow \text{device claim accepted} \lo
 ```sql
 BEGIN;
 
--- 1. Server-issued One-Time Claim Challenge テーブル
+-- 1. Server-issued One-Time Claim Challenge テーブル (同一 Trust Domain 管理)
 CREATE TABLE IF NOT EXISTS public.claim_challenges (
     challenge_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     public_id UUID NOT NULL REFERENCES public.member_id_mapping(public_id) ON DELETE RESTRICT,
@@ -406,7 +429,7 @@ CREATE TRIGGER trg_protect_member_claims_audit
 BEFORE UPDATE OR DELETE ON public.member_ownership_claims
 FOR EACH ROW EXECUTE FUNCTION public.fn_prevent_audit_tampering();
 
--- 4. アトミック所有権確定・移転ストアドプロシージャ (全10ステップ順序完全維持)
+-- 4. アトミック身元確定・奪還ストアドプロシージャ (全10ステップ順序完全維持)
 CREATE OR REPLACE FUNCTION public.claim_verified_device_v3(
   p_device_id UUID,
   p_api_member_id TEXT,
@@ -582,13 +605,14 @@ COMMIT;
 
 ---
 
-## 17. Recovery & Ownership Transfer Policy（正規オーナー回復手順）
+## 17. Recovery & Ownership Transfer Policy（用語の明確な分離）
 
-正規ユーザーが新端末で FUSOU を起動した場合：
-1. **Game Identity**: TLSNotary による `require_info` 証明から同一の `api_member_id` を検証。
-2. **Social Identity**: 認証済み同一 `canonical_user_id`（OAuth）を確認。
-3. 既存の `public_id`（U1）に対して新端末 `Device B` を `user_devices` に追加（`Primary Device` は固定、Owner は不変）。
-4. **所有権移転ポリシー**: 異なる Web ユーザーからの Claim は自動移転せず、明示的なリカバリ / 移転プロトコル（別途サポートまたは認証連携）を通じてのみ実行可能です。
+概念および用語を厳格に分離して運用します：
+1. **Game Account Identity Provenance**: TLSNotary による「その時点で正規の `api_member_id` セッションを所持・操作している事実の証明」。
+2. **Dataset Attribution**: Telemetry データを特定 Dataset (`public_id`) にサーバー側で確定・帰属させる保証。
+3. **Social Account Binding**: OAuth 認証ユーザーによる明示的なアカウント紐付け操作。
+4. **Device Replacement (端末追加・失効)**: 同一オーナー（同一 `canonical_user_id`）が新端末を導入する場合、同一 `public_id` に対して新端末を `user_devices` に追加登録（Owner は不変）。
+5. **Ownership Transfer (所有権移転)**: Game Account アクセス証明 $\neq$ Social Account 所有権証明。異なる Web ユーザーからの Claim は自動移転せず、明示的なリカバリ / 移転プロトコルを通じてのみ実行可能。
 
 ---
 
@@ -605,7 +629,7 @@ COMMIT;
 
 ---
 
-## 19. Migration & Rollout Plan（既存データの移行手順と段階的展開）
+## 19. Migration & Rollout Plan（既存データの移行手順と utils/pepper.ts 移行）
 
 ```bash
 cd packages/FUSOU-WEB
@@ -616,7 +640,9 @@ pnpm vitest run tests/tlsn-verifier.test.ts
 1. **Phase 0 (ADR-000 Data Plane PoC & Verifier Benchmark)**:
    - `POST /kcsapi/api_get_member/require_info` における Prover 統合と MPC 復号遅延の動作実測（P95 < 300ms）。
    - Cloudflare Workers vs Dedicated Rust Verifier のベンチマーク比較。
-2. **Phase 1**: Supabase マイグレーション適用（`claim_challenges` 作成 & `claim_verified_device_v3` RPC デプロイ）。
+2. **Phase 1 (DB マイグレーション & pepper.ts 置換)**:
+   - `packages/FUSOU-WEB/src/server/utils/pepper.ts` を、DB-backed One-Time Challenge（`public.claim_challenges`）および Ed25519 署名検証を行う **`packages/FUSOU-WEB/src/server/utils/device-auth.ts`** へ完全移行・改称。
+   - Supabase マイグレーション適用（`claim_challenges` 作成 & `claim_verified_device_v3` RPC デプロイ）。
 3. **Phase 2**: `FUSOU-WEB` に `/anonymous-sync/v2/verify-tlsn` エンドポイントを有効化。
 4. **Phase 3**: `FUSOU-APP` / `fusou-proxy-tlsn` にインライン公証ロジックを配信。
 
@@ -625,10 +651,10 @@ pnpm vitest run tests/tlsn-verifier.test.ts
 ## 20. Security Progress Checklist（開発進捗チェックリスト）
 
 - [D] ゲーム通信に外部プロキシを使用しない直接接続設計
-- [D] FUSOU 生成の二重送信ゼロ（FUSOU-generated duplicate = 0）設計
+- [D] FUSOU 生成の二重送信ゼロ設計（Design Requirement & Verification Instrument）
 - [D] MPC 復号遅延と Proof 後処理（非同期化）の 3 段階分離設計
-- [D] `ClaimBindingBytes` の厳密な Byte Layout & Binary Framing 設計
-- [D] Server-issued One-Time Challenge の DB 管理 & 単一消費ライフサイクル設計
+- [D] `ClaimBindingBytes` の厳密な Byte Layout & Binary Framing 設計（`transcript_commitments_root` 32-byte 固定）
+- [D] Server-issued One-Time Challenge の DB 管理 & 単一消費ライフサイクル設計（同一 Trust Domain）
 - [D] `member_id_hash` / Pepper 体系の完全削除と UUID `public_id` への一本化
 - [D] `api_member_id`（検証対象）と `public_id`（内部安定UUID）の責務完全分離
 - [D] Trust Boundary Diagram および RPC 前提条件（Security Boundary）の定義
