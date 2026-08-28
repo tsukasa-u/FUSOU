@@ -3,22 +3,24 @@
 > **文書種別**: アーキテクチャ設計仕様書 & 実装マスターガイド（Implementation Master Guide）  
 > **対象領域**: FUSOU プロジェクト全域（`packages/fusou-auth`, `packages/fusou-proxy-core`, `packages/fusou-proxy-hudsucker`, `packages/fusou-proxy-tlsn`, `packages/fusou-telemetry`, `packages/FUSOU-WEB`, Supabase / Cloudflare Workers / Dedicated Verifier Service）  
 > **v1 Core Security Goal**:  
-> **「ゲームサーバーから暗号学的に検証した `api_member_id` を FUSOU Dataset Identity として確立し、その Dataset への Telemetry 提出を、クライアントが任意の別 member_id・別 Social Account・別 Dataset へ付け替えられないようにする（Dataset Attribution / Provenance 保証）」**  
-> 対象 API: **`POST /kcsapi/api_get_member/require_info`**（1つの Game Session で最初に正常取得された 1 回のみ）  
-> 対象データ: **`/api_data/api_basic/api_member_id`**  
+> **「Game Server が返した `api_member_id` を暗号学的に検証し、それを FUSOU の Game Account Identity（`public_id`）として確立する。その後 FUSOU へ送信される任意の Telemetry が、クライアントによって別の Game Account / Dataset / Social Account へ付け替えられないようにする（Dataset Attribution / Provenance 保証）。」**  
+> 対象 API: **`POST /kcsapi/api_get_member/require_info`**（1つの Game Login Session で最初に正常取得された 1 回のみ）  
+> 対象データ: **`/api_data/api_basic/api_member_id`**（Wire: `i64`, Canonical Internal: Decimal String）  
 > **最重要設計原則**:  
 > 1. **Identity Attestation と Telemetry Submission の完全分離**:  
->    - **① Identity Attestation（暗号学的保証）**: セッション開始時の最初の `require_info` を TLSNotary で 1 回だけ公証し、Game Account（`member_id`）$\rightarrow$ Dataset（`public_id`）$\rightarrow$ Social User（`web_user_member_map`）$\rightarrow$ Authorized Device（`user_devices`）の身元連鎖を確定する。  
->    - **② Telemetry Submission（内容は UNTRUSTED / 所属先 Dataset は TRUSTED）**: 戦闘等のテレメトリデータ自体は暗号公証せず、クライアントはリクエスト内に `member_id`, `public_id`, `dataset_id` などの所属識別子を一切含めない。  
-> 2. **Telemetry Ingest における厳格な Attribution 決定権（Security Authority）**:  
+>    - **① Identity Attestation（暗号学的保証）**: ログインセッション開始時の最初の `require_info` を TLSNotary で 1 回だけ公証し、Game Account（`api_member_id`）$\rightarrow$ `member_id_mapping` $\rightarrow$ Dataset（`public_id`）$\rightarrow$ Social User（`web_user_member_map`）$\rightarrow$ Authorized Device（`user_devices`）の身元連鎖を確立する。  
+>    - **② Telemetry Submission（内容は UNTRUSTED / 所属先 Dataset は TRUSTED）**: 戦闘等のテレメトリデータ自体は暗号公証せず、クライアントはリクエスト内に `member_id`, `public_id`, `dataset_id`, `owner user_id` などの所属識別子を一切含めない。  
+> 2. **`member_id_hash` / Pepper の完全廃止（UUID `public_id` への一本化）**:  
+>    `member_id_hash`、`anon_sync_pepper_runtime`、`anon_sync_pepper_versions`、Vault secret、Pepper rotation、HMAC 計算、hash version を**完全に廃止・削除**し、`public_id`（UUIDv4）を唯一の内部 Dataset Identity として使用する。  
+> 3. **Telemetry Ingest における厳格な Attribution 決定権（Security Authority）**:  
 >    **「Telemetry ingest endpoint は、request payload に含まれる member_id、public_id、dataset_id 等の所属識別子を認証・認可判断に使用してはならない。Dataset identity は検証済み Credential（Dataset Token + Device Signature）からのみサーバー側で導出する。」**  
-> 3. **Dual Authentication（Dataset Token + Ed25519 Device Signature）**:  
->    Telemetry アップロード時は `Authorization: Bearer <dataset-token>` に加え、`X-FUSOU-Device-ID`, `X-FUSOU-Nonce`, `X-FUSOU-Timestamp`, `X-FUSOU-Signature`（Ed25519）を必須とし、トークン単体盗用による別端末からの不正投稿を遮断する。  
-> 4. **再送信ゼロ（No Re-submission）**: ゲーム API を裏で二重実行・再送することは絶対に排除し、**実際のユーザー操作による 1 回限りの TLS 通信そのものを公証**する。  
-> 5. **外部プロキシ中継ゼロ（Direct Connection）**: 外部中継プロキシは規約上・BANリスク上不可とし、**クライアントローカルの `FUSOU-PROXY` と艦これ公式サーバー間の直接通信を維持**する。  
-> 6. **Dataset Token の後発行（Post-Verification Issuance）**:  
->    `require_info proof verified` $\rightarrow$ `member_id verified` $\rightarrow$ `claim accepted` $\rightarrow$ `device authorized` $\rightarrow$ **`dataset_token issued`** の順序を厳守し、公証前のトークン発行は厳格に禁止する。  
-> **ステータス**: Dataset Attribution 決定権・Dual Auth・構造化 Parser 完全反映マスター  
+> 4. **Dual Authentication（Dataset Token + Ed25519 Device Signature）**:  
+>    Telemetry アップロード時は `Authorization: Bearer <dataset-token>` に加え、`X-FUSOU-Device-ID`, `X-FUSOU-Nonce`, `X-FUSOU-Timestamp`, `X-FUSOU-Signature`（Ed25519）を要求し、トークン単体盗用による別端末からの不正投稿を遮断する。  
+> 5. **再送信ゼロ（No Re-submission）**: ゲーム API を裏で二重実行・再送することは絶対に排除し、**実際のユーザー操作による 1 回限りの TLS 通信そのものを公証**する。  
+> 6. **外部プロキシ中継ゼロ（Direct Connection）**: 外部中継プロキシは規約上・BANリスク上不可とし、**クライアントローカルの `FUSOU-PROXY` と艦これ公式サーバー間の直接通信を維持**する。  
+> 7. **Dataset Token の後発行（Post-Verification Issuance）**:  
+>    `require_info proof verified` $\rightarrow$ `member_id verified` $\rightarrow$ `claim accepted` $\rightarrow$ `device authorized` $\rightarrow$ **`dataset_token issued`** の順序を厳守し、公証前の事前トークン発行は行わない。  
+> **ステータス**: member_id_hash完全撤廃・require_info採用・Dataset Attribution特化マスター  
 
 ---
 
@@ -47,16 +49,19 @@
 ### 1.1 背景と設計思想の転換
 FUSOU において真に防ぐべき攻撃は、**「悪意ある第三者が、他人のゲームアカウント（`api_member_id`）や他人の Social アカウントになりすまして偽の戦闘データを送信し、特定プレイヤーの統計やコミュニティデータを汚染すること（Attribution 偽装 / なりすまし攻撃）」** です。
 
-したがって、v1 では「戦闘データの中身が本物か」を毎戦闘ごとに重い MPC-TLS で公証する過剰設計を排し、**ログインセッション最初の `require_info` で 1 回だけ強固に Game Account の身元（Identity）を暗号公証し、以降の全テレメトリはその確定された Dataset Identity にサーバー側で自動帰属（Attribution）させる** アーキテクチャを採用します。
+したがって、v1 では「戦闘データの中身が本物か」を毎戦闘ごとに重い MPC-TLS で公証する過剰設計を排し、**ログインセッション最初の `require_info` で 1 回だけ強固に Game Account の身元（Identity）を暗号公証し、以降の全テレメトリはその確定された Dataset Identity（`public_id`）にサーバー側で自動帰属（Attribution）させる** アーキテクチャを採用します。
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────────┐
 │ ① Identity Attestation (セッション最初 1 回のみ / 暗号学的に保証)                │
 │                                                                                 │
-│  Game Server (require_info) ──▶ TLSNotary ──▶ verified member_id = 1234         │
+│  Game Server (require_info) ──▶ TLSNotary ──▶ verified api_member_id = 12345678 │
 │                                                      │                          │
 │                                                      ▼                          │
-│                                              Dataset ID = U1                    │
+│                                              member_id_mapping                  │
+│                                                      │                          │
+│                                                      ▼                          │
+│                                              Dataset ID = public_id (UUID-U1)   │
 │                                              ├── Social User A (OAuth)          │
 │                                              └── Authorized Device A (Ed25519)  │
 └─────────────────────────────────────────────────────────────────────────────────┘
@@ -68,7 +73,7 @@ FUSOU において真に防ぐべき攻撃は、**「悪意ある第三者が、
 │  Device A ──▶ POST /telemetry/upload                                            │
 │               - Authorization: Bearer <dataset-token>                           │
 │               - X-FUSOU-Signature: Ed25519(...)                                 │
-│               ※ Payload に member_id / dataset_id は一切含めない                  │
+│               ※ Payload に member_id / public_id / dataset_id は一切含めない     │
 │                                                                                 │
 │  FUSOU-WEB が Credential から Dataset U1 を確定し、U1 のデータとして DB 保存       │
 │  (クライアントが member_id を 5678 に改変して他人の Dataset に投稿することは不可能)│
@@ -90,8 +95,8 @@ FUSOU において真に防ぐべき攻撃は、**「悪意ある第三者が、
   被害者がセッション開始時に `require_info` の TLSNotary 証明を提出することで、攻撃者の未検証端末をアトミックに Revoke し、所有権を正規オーナーへ奪還します。
 
 ### 2.2 防げない事項（Non-Guarantees）
-* **自端末の資格情報盗難時のデータ捏造**:
-  攻撃者がユーザー PC を完全支配して `Device A` の秘密鍵/トークンを窃取した場合、`Device A`（Dataset U1）として偽の戦闘データを送ることは防げません（TPM 等がない限り不可）。
+* **Telemetry 内容の真正性**: 戦闘結果、ドロップ、資源、艦隊、装備等の内容自体が Game Server 由来であることは v1 では判定しません。
+* **自端末の資格情報盗難時のデータ捏造**: 攻撃者がユーザー PC を完全支配して `Device A` の秘密鍵/トークンを窃取した場合、`Device A`（Dataset U1）として偽の戦闘データを送ることは防げません（TPM 等がない限り不可）。
   **ただしその場合でも、「登録済み Device / Dataset / Game Account の関係をクライアントが別の identity へ変更することを防ぐ」という保証は維持されます**。
 
 ---
@@ -106,7 +111,7 @@ FUSOU において真に防ぐべき攻撃は、**「悪意ある第三者が、
          ▼
 [TLSNotary MPC-TLS Prover]
          │
-         │ verified api_member_id = 1234
+         │ verified api_member_id = 12345678
          ▼
 [public.member_id_mapping] ──▶ public_id = UUID (Dataset U1)
                                       │
@@ -131,7 +136,7 @@ FUSOU において真に防ぐべき攻撃は、**「悪意ある第三者が、
 ## 4. Identity Attestation Protocol (`api_get_member/require_info`)
 
 ### 4.1 セッション最初の 1 回の定義と再試行ポリシー
-* **対象**: 1 つの Game Session において **最初に正常取得された `require_info` のみ** を Identity Attestation の対象とします。
+* **対象**: 1 つの Game Login Session において **最初に正常取得された `require_info` のみ** を Identity Attestation の対象とします。
 * **同一セッション内の再試行**: 通信エラー等で同一セッション内に追加取得された `require_info` は公証対象外（通常 TLS）とし、Replay 防止は `uq_member_claims_transcript` による Proof 消費ポリシーで担保します。
 
 ### 4.2 構造化 HTTP Parser & Trusted Server Identity Policy
@@ -150,7 +155,7 @@ import { z } from 'zod';
 
 const CanonicalRequireInfoSchema = z.object({
   api_path: z.literal('/kcsapi/api_get_member/require_info'),
-  api_member_id: z.string().regex(/^[0-9]+$/), // Canonical internal representation = decimal string
+  api_member_id: z.string().regex(/^[0-9]{1,16}$/), // Canonical internal representation = decimal string
 });
 
 export type CanonicalRequireInfoResult = z.infer<typeof CanonicalRequireInfoSchema>;
@@ -197,7 +202,7 @@ export function parseCanonicalRequireInfo(
 ## 5. Device Binding & Social Account Linking
 
 1. **Explicit Device Binding**:
-   - クライアントは `require_info` の TLSNotary Presentation とともに、自身の `device_id` および `device_public_key` による署名を提出。
+   - クライアントは `require_info` の TLSNotary Presentation とともに、自身の `device_id` および `device_public_key`（Ed25519）による署名を提出。
    - FUSOU-WEB はこれらをアトミックに照合し、ストアドプロシージャ `claim_verified_device_v3` を実行。
 2. **Social Account Linking (`web_user_member_map`)**:
    - 認証済み Web ユーザー（OAuth）が存在する場合、`web_user_member_map` に `public_id` と `user_id` のマッピングを確立。
@@ -347,8 +352,8 @@ COMMIT;
 - [D] `require_info` によるセッション最初 1 回限りの Identity Attestation 設計
 - [D] Telemetry ペイロードからの所属識別子完全排除 & Dataset Attribution 設計
 - [D] Dual Authentication（Dataset Token + Ed25519 Device Signature）設計
+- [D] `member_id_hash` / Pepper 体系の完全削除と UUID `public_id` への一本化
 - [D] Trust Boundary Diagram および Security Authority（Verified Opening Bytes）の定義
-- [D] `public_id`（UUIDv4）と `member_id_hash`（Pepper HMAC）の二重識別子モデル
 - [D] 64-bit Advisory Lock & 親行ロック契約による並行実行競合排除設計
 - [D] `member_ownership`（現在状態）と `member_ownership_claims`（監査履歴）の分離
 - [D] 排他ロック取得後の Proof Consumption Policy（重複消費排除）設計

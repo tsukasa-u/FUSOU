@@ -3,27 +3,30 @@
 > **文書種別**: アーキテクチャ設計仕様書 & 実装マスターガイド（Implementation Master Guide）  
 > **対象領域**: FUSOU プロジェクト全域（`packages/fusou-auth`, `packages/fusou-proxy-core`, `packages/fusou-proxy-tlsn`, `packages/FUSOU-WEB`, Supabase / Cloudflare Workers / Dedicated Verifier Service）  
 > **v1 Core Security Goal**:  
-> **「ログインセッション開始時の `POST /kcsapi/api_get_member/require_info` から暗号学的に検証した `api_member_id` を FUSOU Dataset Identity として確立し、事前登録攻撃を完全に無力化して正当な所有権を確定・移転する」**  
-> 対象 API: **`POST /kcsapi/api_get_member/require_info`**（1つの Game Session で最初に正常取得された 1 回のみ）  
+> **「ログインセッション開始時の `POST /kcsapi/api_get_member/require_info` から暗号学的に検証した `api_member_id` を FUSOU Dataset Identity（`public_id`）として確立し、事前登録攻撃を完全に無力化して正当な所有権を確定・移転する」**  
+> 対象 API: **`POST /kcsapi/api_get_member/require_info`**（1つの Game Login Session で最初に正常取得された 1 回のみ）  
 > 対象データ: **`/api_data/api_basic/api_member_id`**（Wire: `i64`, Canonical Internal: Decimal String）  
 > **最重要設計原則**:  
 > 1. **再送信ゼロ（No Re-submission）**: ログイン時の `require_info` を裏で故意に再送・二重実行することは絶対に排除し、**ブラウザと艦これ公式サーバー間の正規の 1 回限りの TLS セッションそのものを公証**する。  
 > 2. **外部プロキシ中継ゼロ（Direct Connection）**: 外部中継プロキシは規約上・BANリスク上不可とし、**クライアントローカルの `FUSOU-PROXY` と艦これ公式サーバー間の直接通信を維持**する。  
 > 3. **Gameplay Path の Proof 完了待ち完全排除**: `require_info` レスポンス平文を受信した時点でブラウザへ即座に中継し、公証タスクはバックグラウンドで非同期実行する。  
 > 4. **Selective Disclosure（最小限開示）**: `require_info` レスポンス全体を開示せず、TLSNotary の selective disclosure により `/api_data/api_basic/api_member_id` の Byte Range のみを開示する。  
-> 5. **並行 Claim の完全直列化（64-bit Advisory Lock & 親行ロック契約）**:  
+> 5. **`member_id_hash` / Pepper の完全廃止（UUID `public_id` への一本化）**:  
+>    `member_id_hash`、`anon_sync_pepper_runtime`、`anon_sync_pepper_versions`、Vault secret、Pepper rotation、HMAC 計算、hash version を**完全に廃止・削除**し、`public_id`（UUIDv4）を唯一の内部 Dataset Identity として使用する。  
+> 6. **`api_member_id` と `public_id` の責務完全分離**:  
+>    - `api_member_id`: Game Server が発行する識別子（TLSNotary で検証、`member_id_mapping` に保存）。  
+>    - `public_id`: FUSOU Dataset の内部安定 UUID（各テーブルの FK 参照、Telemetry 所属先）。  
+> 7. **並行 Claim の完全直列化（64-bit Advisory Lock & 親行ロック契約）**:  
 >    64-bit Advisory Lock により衝突確率を十分に低減し、同一トランザクション内で必ず行が存在する `member_id_mapping` 親行の `FOR UPDATE` により並行 Claim を物理的に直列化する。  
-> 6. **二重識別子モデル（Random UUID `public_id` と Pepper HMAC `member_id_hash`）**:  
->    `public_id` は DB 内部リレーション用のランダム UUID（UUIDv4）のままとし、`member_id_hash`（`anon_sync_pepper_runtime` 動的バージョン管理付き）はサーバー側 HMAC による秘匿照合・一意 Claim 用キーとして両立させる（正しさの根拠は TLSNotary にあり、hash は検索/秘匿キー）。  
-> 7. **所有権現在状態（`member_ownership`）と通常のアプリケーション経路で変更禁止な監査履歴（`member_ownership_claims`）の分離**:  
+> 8. **所有権現在状態（`member_ownership`）と通常のアプリケーション経路で変更禁止な監査履歴（`member_ownership_claims`）の分離**:  
 >    現在の検証済み所有者レコードと、将来の監査検証用情報（`notary_time`, `notary_key_id`）を含む Append-Only 監査証跡ログをテーブル分離する。  
-> 8. **Triple Owner Invariant & Social User Binding**:  
+> 9. **Triple Owner Invariant & Social User Binding**:  
 >    排他ロック取得後に同一 `transcript_commitment` の多重消費を `DUPLICATE_PROOF_CONSUMED` として防ぎ、$\text{member\_ownership.verified\_user\_id} \equiv \text{user\_devices.canonical\_user\_id} \equiv \text{user\_member\_map.user\_id}$ の不変条件を厳格に保持し、`web_user_member_map`（Social Account 1:1 binding）との紐付けを確立する。  
-> 9. **RPC 前提条件の明確化（Security Boundary）**:  
->    ストアドプロシージャ `claim_verified_device_v3` は、呼び出し元 FUSOU-WEB が TLSNotary Proof を完全検証済みであることを前提とし、未検証データの書き込みを遮断する。  
-> 10. **Dataset Token の後発行（Post-Verification Issuance）**:  
+> 10. **RPC 前提条件の明確化（Security Boundary）**:  
+>     ストアドプロシージャ `claim_verified_device_v3` は、呼び出し元 FUSOU-WEB が TLSNotary Proof を完全検証済みであることを前提とし、未検証データの書き込みを遮断する。  
+> 11. **Dataset Token の後発行（Post-Verification Issuance）**:  
 >     `require_info proof verified` $\rightarrow$ `member_id verified` $\rightarrow$ `claim accepted` $\rightarrow$ `device authorized` $\rightarrow$ **`dataset_token issued`** の順序を厳守し、事前発行は行わない。  
-> **ステータス**: require_info 採用・Post-Verification Issuance・Social 1:1 binding 完全反映マスター  
+> **ステータス**: member_id_hash完全撤廃・require_info特化・Post-Verification Issuance完全反映マスター  
 
 ---
 
@@ -32,12 +35,12 @@
 1. [Goal（目標）](#1-goal目標)
 2. [Threat Model（脅威モデル）](#2-threat-model脅威モデル)
 3. [Trust Boundary & Security Boundary（信頼境界 & RPC前提条件）](#3-trust-boundary--security-boundary信頼境界--rpc前提条件)
-4. [Dual Identifier Model & Triple Owner Invariant（二重識別子モデルと不変条件）](#4-dual-identifier-model--triple-owner-invariant二重識別子モデルと不変条件)
-5. [Existing FUSOU Identity Architecture（現行FUSOUのID基盤 & web_user_member_map）](#5-existing-fusou-identity-architecture現行fusouのid基盤--web_user_member_map)
+4. [Identity Architecture & Triple Owner Invariant（ID基盤と不変条件）](#4-identity-architecture--triple-owner-invariantid基盤と不変条件)
+5. [Social Account Binding (`web_user_member_map`)](#5-social-account-binding-web_user_member_map)
 6. [Member State Machine（所有権ステートマシン & 乗っ取り防止ルール）](#6-member-state-machine所有権ステートマシン--乗っ取り防止ルール)
 7. [TLSNotary Ownership Proof (`POST /kcsapi/api_get_member/require_info`)](#7-tlsnotary-ownership-proof-post-kcsapiapi_get_memberrequire_info)
 8. [Device Binding（Ed25519 署名と Proof のアトミックバインディング）](#8-device-bindinged25519-署名と-proof-のアトミックバインディング)
-9. [Claim Transaction（アトミック所有権移転トランザクション 全12ステップ）](#9-claim-transactionアトミック所有権移転トランザクション-全12ステップ)
+9. [Claim Transaction（アトミック所有権移転トランザクション 全10ステップ）](#9-claim-transactionアトミック所有権移転トランザクション-全10ステップ)
 10. [Preemptive Registration Attack（事前登録攻撃の無力化）](#10-preemptive-registration-attack事前登録攻撃の無力化)
 11. [Concurrent Claim Handling（64-bit Advisory Lock & 親行ロック契約）](#11-concurrent-claim-handling64-bit-advisory-lock--親行ロック契約)
 12. [Revoke Semantics & Currently Trusted Device（失効セマンティクスと有効端末定義）](#12-revoke-semantics--currently-trusted-device失効セマンティクスと有効端末定義)
@@ -70,9 +73,8 @@ FUSOU の匿名同期システム（`anonymous-sync-v2`）において、悪意�
 1. **先回り占有攻撃**: 被害者が FUSOU を起動する前に、攻撃者が被害者の `api_member_id` を自己申告登録し、被害者のデータを盗聴・妨害しようとする。
 2. **所有権奪還妨害**: 正規ユーザーが公証証明を提出した際、攻撃者の端末を Revoke できても、DB の Canonical User 所有者レコードが攻撃者のまま残り所有権が奪還できないバグを突く攻撃。
 3. **並行 Claim 攻撃**: 複数の端末から同時に Claim リクエストを送り、空テーブル検索の隙を突いて二重登録や不整合を発生させる。
-4. **ハッシュ詐称攻撃**: クライアントが `p_api_member_id` と一致しない偽の `p_member_id_hash` を送り、DB レコードを汚染しようとする。
-5. **別ユーザーによる乗っ取り Claim 攻撃**: 正規オーナー A が確定した後に、第三者 B が一時的にゲームアカウントにアクセスできた場合に B のアカウントへ所有権を強制移転しようとする。
-6. **同一 Proof の多重 Claim（Replay）**: 過去のログイン通信の証明書を別の端末や別アカウントで再利用する。
+4. **別ユーザーによる乗っ取り Claim 攻撃**: 正規オーナー A が確定した後に、第三者 B が一時的にゲームアカウントにアクセスできた場合に B のアカウントへ所有権を強制移転しようとする。
+5. **同一 Proof の多重 Claim（Replay）**: 過去のログイン通信の証明書を別の端末や別アカウントで再利用する。
 
 ---
 
@@ -104,7 +106,6 @@ FUSOU の匿名同期システム（`anonymous-sync-v2`）において、悪意�
 │  - Verify TLSNotary Notary Signature & Merkle Root     │
 │  - Verify Device Binding (Ed25519 Signature Match)     │
 │  - Strict Server-Side Canonical Parser (Zod)           │
-│  - Dynamic Pepper HMAC (anon_sync_pepper_runtime)      │
 │                                                        │
 │  Verified Plaintext = TRUSTED provenance               │
 │  (TLSNotary verification で開示された Opening Bytes)    │
@@ -116,7 +117,7 @@ FUSOU の匿名同期システム（`anonymous-sync-v2`）において、悪意�
 │ Supabase Database (Trusted Core Storage: RPC Layer)    │
 │                                                        │
 │  - 64-bit Advisory Lock & Row-Level Locking            │
-│  - Atomic Ownership Transfer (Strict 12 Steps)         │
+│  - Atomic Ownership Transfer (Strict Steps)            │
 │  - Enforce Triple Owner Invariant                      │
 │  - Proof Consumption Enforcement (Post-Lock Check)     │
 │  - Append-Only Audit Trail with notary_time/key_id     │
@@ -130,26 +131,27 @@ FUSOU の匿名同期システム（`anonymous-sync-v2`）において、悪意�
 
 ---
 
-## 4. Dual Identifier Model & Triple Owner Invariant（二重識別子モデルと不変条件）
+## 4. Identity Architecture & Triple Owner Invariant（ID基盤と不変条件）
 
-### 4.1 二重識別子モデル
+### 4.1 `api_member_id` と `public_id` の責務分離
 ```
 api_member_id (例: 12345678: i64)
        │
-       ├───────────────▶ public_id = UUIDv4 (Random UUID: Dataset U1)
-       │                    ↑
-       │                 【DB内部の安定したエンティティ識別子】
-       │                 ・member_id_mapping, user_member_map, web_user_member_map 間の FK 参照
-       │                 ・外部に member_id を推測させないための内部 UUID
+       │ (TLSNotary provenance 検証)
+       ▼
+member_id_mapping (Service-role only)
        │
-       └───────────────▶ member_id_hash = HMAC-SHA256(secret_pepper_vN, api_member_id_str)
-                            ↑
-                         【所有権照合・秘匿検索用の決定論的ハッシュ】
-                         ・サーバー側でのみ anon_sync_pepper_runtime バージョンを管理して計算
-                         ・member_ownership および監査ログのユニークキー (検索/秘匿用)
+       ▼
+public_id = UUIDv4 (Random UUID: Dataset U1)
+       │
+       ├───────────────▶ member_ownership (verified_user_id = Auth User A)
+       ├───────────────▶ user_member_map (user_id = Auth User A)
+       ├───────────────▶ web_user_member_map (user_id = Social User A)
+       ├───────────────▶ user_devices (device_id = Device A)
+       └───────────────▶ telemetry_events (public_id = U1)
 ```
 
-> **重要原則**: `member_id_hash` が存在するから `member_id` が正しいのではなく、正しさの唯一の根拠は **TLSNotary Verification** にあります。`member_id_hash` はサーバー側で安全に DB 照合を行うための検索/秘匿キーです。
+> **重要原則**: `api_member_id` $\neq$ `public_id`。`api_member_id` はゲームサーバーが発行する識別子であり `member_id_mapping` にのみ保持され、他のテーブルはすべて `public_id`（UUIDv4）を外部キー参照します。
 
 ### 4.2 Triple Owner Invariant（三者一致の不変条件）
 FUSOU の検証済み端末（Verified Device）について、以下の不変条件が常に成立することを保証します：
@@ -157,7 +159,7 @@ $$\text{member\_ownership.verified\_user\_id} \equiv \text{user\_devices.canonic
 
 ---
 
-## 5. Existing FUSOU Identity Architecture（現行FUSOUのID基盤 & web_user_member_map）
+## 5. Social Account Binding (`web_user_member_map`)
 
 ```mermaid
 erDiagram
@@ -195,8 +197,6 @@ erDiagram
     }
     member_ownership {
         uuid public_id PK,FK
-        text member_id_hash UK
-        int member_id_hash_version
         uuid verified_user_id FK
         uuid primary_device_id FK
         timestamptz established_at
@@ -245,22 +245,20 @@ stateDiagram-v2
 
 ---
 
-## 9. Claim Transaction（アトミック所有権移転トランザクション 全12ステップ）
+## 9. Claim Transaction（アトミック所有権移転トランザクション 全10ステップ）
 
-所有権の確定および移転は、Supabase のストアドプロシージャ `claim_verified_device_v3` 内で以下の **全12ステップの順序を厳格に維持** して実行されます：
+`member_id_hash` / pepper 関連を完全に排したシンプルな **全10ステップのトランザクション** を実行します：
 
 1. **Advisory Lock 取得**: 64-bit キーによるトランザクション排他ロック。
 2. **Proof Consumption Check**: 排他ロック下での `transcript_commitment` 重複消費チェック（TOCTOU 防止）。
 3. **Device Row Lock**: 対象 `user_devices` レコードの存在確認と `FOR UPDATE` ロック。
 4. **Public ID 登録/取得**: `rpc_register_public_id(p_api_member_id)` の呼び出し。
 5. **Parent Mapping Row Lock**: 親行 `member_id_mapping` に対する `FOR UPDATE` ロック。
-6. **Current Pepper 取得**: `anon_sync_pepper_runtime` から最新バージョン文字列と Secret を動的解決。
-7. **`member_id_hash` 計算**: 動的 Pepper によるサーバーサイド HMAC 計算。
-8. **Current Ownership Row Lock**: 現在の `member_ownership` レコードの `FOR UPDATE` ロック。
-9. **Ownership Rule 判定**: 初回公証 / 事前登録攻撃者からの奪還 / 別アカウント乗っ取り拒絶の判定。
-10. **Audit Record Insert**: `member_ownership_claims` への監査ログ追記（`notary_time`, `notary_key_id` 含む）。
-11. **Device Verification Update**: 当該デバイスの `is_verified = TRUE` 昇格およびバインド更新。
-12. **Result Return**: 確定された所有権メタデータの JSON 返却。
+6. **Current Ownership Row Lock**: 現在の `member_ownership` レコードの `FOR UPDATE` ロック。
+7. **Ownership Rule 判定**: 初回公証 / 事前登録攻撃者からの奪還 / 別アカウント乗っ取り拒絶の判定。
+8. **Audit Record Insert**: `member_ownership_claims` への監査ログ追記（`notary_time`, `notary_key_id` 含む）。
+9. **Device Verification Update**: 当該デバイスの `is_verified = TRUE` 昇格およびバインド更新。
+10. **Result Return**: 確定された所有権メタデータの JSON 返却。
 
 ---
 
@@ -340,22 +338,16 @@ ALTER TABLE public.user_devices
 -- 1. 現在の検証済み所有者テーブル (Current Ownership State)
 CREATE TABLE IF NOT EXISTS public.member_ownership (
     public_id UUID PRIMARY KEY REFERENCES public.member_id_mapping(public_id) ON DELETE RESTRICT,
-    member_id_hash TEXT NOT NULL UNIQUE,
-    member_id_hash_version INT NOT NULL DEFAULT 1,
     verified_user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE RESTRICT,
     primary_device_id UUID NOT NULL REFERENCES public.user_devices(device_id) ON DELETE RESTRICT,
     established_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE UNIQUE INDEX IF NOT EXISTS idx_member_ownership_hash ON public.member_ownership(member_id_hash);
-
 -- 2. 所有権 Claim 監査履歴テーブル (通常アプリケーション経路でUPDATE/DELETE禁止のAppend-Only Audit Trail)
 CREATE TABLE IF NOT EXISTS public.member_ownership_claims (
     claim_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     public_id UUID NOT NULL REFERENCES public.member_id_mapping(public_id) ON DELETE RESTRICT,
-    member_id_hash TEXT NOT NULL,
-    member_id_hash_version INT NOT NULL DEFAULT 1,
     canonical_user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE RESTRICT,
     verified_device_id UUID NOT NULL REFERENCES public.user_devices(device_id) ON DELETE RESTRICT,
     transcript_commitment TEXT NOT NULL,
@@ -380,7 +372,7 @@ CREATE TRIGGER trg_protect_member_claims_audit
 BEFORE UPDATE OR DELETE ON public.member_ownership_claims
 FOR EACH ROW EXECUTE FUNCTION public.fn_prevent_audit_tampering();
 
--- 3. アトミック所有権確定・移転ストアドプロシージャ (全12ステップ順序完全維持)
+-- 3. アトミック所有権確定・移転ストアドプロシージャ (全10ステップ順序完全維持)
 CREATE OR REPLACE FUNCTION public.claim_verified_device_v3(
   p_device_id UUID,
   p_api_member_id TEXT,
@@ -399,10 +391,6 @@ DECLARE
   v_public_id UUID;
   v_canonical_user_id UUID;
   v_current_ownership RECORD;
-  v_computed_member_id_hash TEXT;
-  v_pepper_secret TEXT;
-  v_current_version_str TEXT;
-  v_hash_version INT;
   v_mapping RECORD;
   v_claim_type TEXT;
   v_existing_claim_count INT;
@@ -442,39 +430,13 @@ BEGIN
   WHERE public_id = v_public_id
   FOR UPDATE;
 
-  -- Step 6. anon_sync_pepper_runtime から動的に最新 Pepper バージョンと Secret を取得
-  SELECT current_version INTO v_current_version_str
-  FROM public.anon_sync_pepper_runtime
-  WHERE singleton = TRUE;
-
-  IF v_current_version_str IS NULL THEN
-    RAISE EXCEPTION 'pepper_runtime_uninitialized';
-  END IF;
-
-  v_hash_version := substring(v_current_version_str FROM '[0-9]+')::INT;
-
-  SELECT secret INTO v_pepper_secret
-  FROM vault.secrets
-  WHERE name = (
-    SELECT vault_secret_name
-    FROM public.anon_sync_pepper_versions
-    WHERE version = v_current_version_str
-  );
-
-  IF v_pepper_secret IS NULL THEN
-    RAISE EXCEPTION 'pepper_secret_not_found_for_version_%', v_current_version_str;
-  END IF;
-
-  -- Step 7. 動的 Pepper による HMAC 計算
-  v_computed_member_id_hash := encode(hmac(p_api_member_id, v_pepper_secret, 'sha256'), 'hex');
-
-  -- Step 8. 現在の検証済み所有者レコードを確認 (排他ロック)
+  -- Step 6. 現在の検証済み所有者レコードを確認 (排他ロック)
   SELECT * INTO v_current_ownership
   FROM public.member_ownership
   WHERE public_id = v_public_id
   FOR UPDATE;
 
-  -- Step 9. 所有権ルール判定
+  -- Step 7. 所有権ルール判定
   IF v_current_ownership.public_id IS NULL THEN
     -- 【初回公証 / 事前登録攻撃者からの所有権奪還】
     v_claim_type := 'INITIAL_VERIFIED';
@@ -487,10 +449,10 @@ BEGIN
 
     -- 現在の Verified Owner として登録 (Primary Device 固定)
     INSERT INTO public.member_ownership (
-      public_id, member_id_hash, member_id_hash_version, verified_user_id, primary_device_id, established_at, updated_at
+      public_id, verified_user_id, primary_device_id, established_at, updated_at
     )
     VALUES (
-      v_public_id, v_computed_member_id_hash, v_hash_version, v_canonical_user_id, p_device_id, NOW(), NOW()
+      v_public_id, v_canonical_user_id, p_device_id, NOW(), NOW()
     );
 
     -- 同一 public_id に紐づく過去の未検証攻撃者端末を一括 Revoke
@@ -514,15 +476,15 @@ BEGIN
     v_claim_type := 'ADDITIONAL_DEVICE';
   END IF;
 
-  -- Step 10. 通常のアプリケーション経路において UPDATE / DELETE を禁止する Append-Only 監査履歴テーブルに記録
+  -- Step 8. 通常のアプリケーション経路において UPDATE / DELETE を禁止する Append-Only 監査履歴テーブルに記録
   INSERT INTO public.member_ownership_claims (
-    public_id, member_id_hash, member_id_hash_version, canonical_user_id, verified_device_id, transcript_commitment, notary_time, notary_key_id, claim_type
+    public_id, canonical_user_id, verified_device_id, transcript_commitment, notary_time, notary_key_id, claim_type
   )
   VALUES (
-    v_public_id, v_computed_member_id_hash, v_hash_version, v_canonical_user_id, p_device_id, p_transcript_commitment, p_notary_time, p_notary_key_id, v_claim_type
+    v_public_id, v_canonical_user_id, p_device_id, p_transcript_commitment, p_notary_time, p_notary_key_id, v_claim_type
   );
 
-  -- Step 11. 当該デバイスを verified に昇格 & 正当な Canonical User にバインド
+  -- Step 9. 当該デバイスを verified に昇格 & 正当な Canonical User にバインド
   UPDATE public.user_devices
   SET
     public_id = v_public_id,
@@ -534,7 +496,7 @@ BEGIN
     revoked_reason = NULL
   WHERE device_id = p_device_id;
 
-  -- Step 12. 結果返却
+  -- Step 10. 結果返却
   v_result := jsonb_build_object(
     'device_id', p_device_id,
     'public_id', v_public_id,
@@ -564,7 +526,10 @@ Notary 障害時やタイムアウト時でも、ログイン画面の表示を�
 
 ## 17. Recovery（正規オーナーによるアカウント回復手順）
 
-新端末で FUSOU を起動し、ログインするだけで、zkTLS 公証により自動的に正規オーナーとしてのペアリング（または所有権の再確定）が完了します。
+正規ユーザーが新端末で FUSOU を起動した場合：
+1. **Game Identity**: TLSNotary による `require_info` 証明から同一の `api_member_id` を検証。
+2. **Social Identity**: 認証済み同一 `canonical_user_id`（OAuth）を確認。
+3. 既存の `public_id`（U1）に対して新端末 `Device B` を `user_devices` に追加（`Primary Device` は固定）。
 
 ---
 
@@ -603,8 +568,9 @@ pnpm vitest run tests/tlsn-verifier.test.ts
 - [D] ゲーム通信に外部プロキシを使用しない直接接続設計
 - [D] ゲーム API の再送信・二重実行コードの完全排除
 - [D] Gameplay Path と Evidence Path の二元分離設計（Proof 完了待ち排除）
+- [D] `member_id_hash` / Pepper 体系の完全削除と UUID `public_id` への一本化
+- [D] `api_member_id`（検証対象）と `public_id`（内部安定UUID）の責務完全分離
 - [D] Trust Boundary Diagram および RPC 前提条件（Security Boundary）の定義
-- [D] `public_id`（UUIDv4）と `member_id_hash`（Pepper HMAC・Version付き）の二重識別子モデル
 - [D] 64-bit Advisory Lock および親行ロック契約による並行実行競合排除設計
 - [D] `member_ownership`（現在状態）と `member_ownership_claims`（拡張監査履歴）の分離
 - [D] 排他ロック取得後の Proof Consumption Policy（重複消費排除）設計
