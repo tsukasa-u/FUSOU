@@ -10,19 +10,23 @@
 > 1. **Identity Attestation と Telemetry Submission の完全分離**:  
 >    - **① Identity Attestation（暗号学的保証）**: ログインセッション開始時の最初の `require_info` を FUSOU-Prover と Game Server 間の TLSNotary MPC-TLS セッションで公証し、Game Account（`api_member_id`）$\rightarrow$ `member_id_mapping` $\rightarrow$ Dataset（`public_id`）$\rightarrow$ Social User（`web_user_member_map`）$\rightarrow$ Authorized Device（`user_devices`）の身元連鎖を確立する。  
 >    - **② Telemetry Submission（内容は UNTRUSTED / 所属先 Dataset は TRUSTED）**: 戦闘等のテレメトリデータ自体は暗号公証せず、クライアントはリクエスト内に `member_id`, `public_id`, `dataset_id`, `owner user_id` などの所属識別子を一切含めない。  
-> 2. **MPC-TLS 応答取得と Browser 待機の分離**:  
->    `require_info` は TLSNotary MPC-TLS 経路により処理されるため、この API の応答取得には MPC 由来の追加遅延が発生する可能性がある。**Browser の待機条件から除外するのは Presentation 生成、証明送信、DB 登録等の後処理（Post-processing is not on critical path）** であり、Response plaintext の取得自体は MPC-TLS の制約に従う（**MPC-TLS response acquisition remains on the login API path** / 許容遅延は Phase 0 PoC で実測検証）。  
-> 3. **Device ↔ Proof の暗号学的バインディング（`public_id` サーバー導出）**:  
->    `public_id` はクライアントが任意選択せず、サーバーが `verified_member_id` から `member_id_mapping` を通じて導出する。`ClaimBindingMessage = protocol_version || transcript_commitment || verified_member_id || device_id || expected_public_id || nonce` に対する Ed25519 署名を必須とし、Proof と Device を不可分にバインドする。  
+> 2. **MPC-TLS 処理 3 段階と Browser 待機の分離**:  
+>    - **A. Request routing / upstream connection**: ブラウザから受信したリクエストをルーティング。  
+>    - **B. MPC-TLS による Response plaintext 取得**: Prover-Notary 共同復号。Browser が待つ可能性がある同期区間（**MPC-TLS response acquisition remains on the login API path** / 許容遅延は Phase 0 で実測）。  
+>    - **C. Presentation 生成 + Remote verification + DB claim**: Browser 待機から完全に除外する非同期後処理（**Post-processing is not on critical path**）。  
+> 3. **Device ↔ Proof の暗号学的バインディング（Server-issued Challenge & `public_id` サーバー導出）**:  
+>    - クライアントが Proof を提出 $\rightarrow$ サーバーが `verified_member_id` から `member_id_mapping` を参照/生成して `expected_public_id` を確定 $\rightarrow$ サーバーが One-Time Challenge（`challenge_nonce`）を発行 $\rightarrow$ クライアントが `ClaimBindingMessage` に署名 $\rightarrow$ サーバーが検証してアトミック Claim を実行。  
 > 4. **Telemetry Ingest における厳格な Attribution 決定権（Security Authority）**:  
 >    **「Telemetry ingest endpoint は、request payload に含まれる member_id、public_id、dataset_id 等の所属識別子を認証・認可判断に使用してはならない。Dataset identity は検証済み Credential（Dataset Token + Device Signature）からのみサーバー側で導出する。`api_path` は informational metadata であり認可判断には使用しない。」**  
-> 5. **Dual Authentication & Replay Protection（DB 永続化 Nonce + Idempotency）**:  
->    Telemetry アップロード時は `Authorization: Bearer <dataset-token>` に加え、`X-FUSOU-Device-ID`, `X-FUSOU-Nonce`, `X-FUSOU-Timestamp`, `X-FUSOU-Signature`（Ed25519）を要求。サーバー側で `telemetry_nonces` テーブルに記録してリプレイを遮断し、`ingest_item_id` により同一リクエストの冪等性（Body 不一致時は 409 Conflict）を担保する。  
+> 5. **Dual Authentication & Replay Protection（DB 永続化 Nonce + Raw Body Hash Idempotency）**:  
+>    - Telemetry アップロード時は `Authorization: Bearer <dataset-token>` に加え、`X-FUSOU-Device-ID`, `X-FUSOU-Nonce`, `X-FUSOU-Timestamp`, `X-FUSOU-Signature`（Ed25519）を要求。  
+>    - サーバー側で `telemetry_nonces` テーブルに記録してリプレイを遮断（許容窓 ±5 分、保持期間 10 分、`device_id` は Never-reused）。  
+>    - `body_hash = sha256(raw_body_bytes)` と `ingest_item_id` により、同一 ID かつ Body 一致時は 200/201 冪等成功、Body 不一致時は 409 Conflict で拒絶。  
 > 6. **再送信ゼロ（No Re-submission）**: FUSOU 自身が同一 logical request を二重送信しないことを徹底する（FUSOU-generated duplicate = 0）。  
 > 7. **外部プロキシ中継ゼロ（Direct Connection）**: 外部中継プロキシは規約上・BANリスク上不可とし、**クライアントローカルの `FUSOU-PROXY` と艦これ公式サーバー間の直接通信を維持**する。  
 > 8. **Fallback 時のステータス明示**:  
 >    Notary 障害時は `GAMEPLAY_OK / IDENTITY_UNVERIFIED / DATASET_TOKEN_NOT_ISSUED` の状態へ安全にフォールバックし、ゲームプレイを継続する。  
-> **ステータス**: TLSセッション表現統一・public_idサーバー導出・Nonce永続化完全反映マスター  
+> **ステータス**: Challenge-Response Binding・MPC 3段階分離・Nonce Retention・PASS基準完全反映マスター  
 
 ---
 
@@ -33,19 +37,19 @@
 3. [Architecture Overview（身元連鎖とデータフロー）](#3-architecture-overview身元連鎖とデータフロー)
 4. [Identity Attestation Protocol (`api_get_member/require_info`)](#4-identity-attestation-protocol-api_get_memberrequire_info)
    - 4.1 [セッション最初の 1 回の定義と再試行ポリシー](#41-セッション最初の-1-回の定義と再試行ポリシー)
-   - 4.2 [MPC-TLS 応答取得と Browser 待機の分離](#42-mpc-tls-応答取得と-browser-待機の分離)
+   - 4.2 [MPC-TLS 処理 3 段階と Browser 待機の分離](#42-mpc-tls-処理-3-段階と-browser-待機の分離)
    - 4.3 [構造化 HTTP Parser & Trusted Server Identity Policy](#43-構造化-http-parser--trusted-server-identity-policy)
    - 4.4 [Application-level Validation & 多段抽出](#44-application-level-validation--多段抽出)
 5. [Device ↔ Proof Binding & Social Account Linking](#5-device--proof-binding--social-account-linking)
-   - 5.1 [ClaimBindingMessage と public_id サーバー導出](#51-claimbindingmessage-と-public_id-サーバー導出)
-   - 5.2 [Social Account Linking (`web_user_member_map`) & Quad Invariant](#52-social-account-linking-web_user_member_map--quad-invariant)
+   - 5.1 [Challenge-Response による ClaimBindingMessage フロー](#51-challenge-response-による-claimbindingmessage-フロー)
+   - 5.2 [Social Account Linking (`web_user_member_map`) と状態分離](#52-social-account-linking-web_user_member_map-と状態分離)
    - 5.3 [Dataset Token の後発行（Post-Verification Issuance）](#53-dataset-token-の後発行post-verification-issuance)
 6. [Telemetry Submission Protocol (Dual Auth: Token + Device Signature)](#6-telemetry-submission-protocol-dual-auth-token--device-signature)
    - 6.1 [Telemetry Ingest 原則](#61-telemetry-ingest-原則)
-   - 6.2 [リクエスト仕様 & Idempotency / DB Nonce Replay Protection](#62-リクエスト仕様--idempotency--db-nonce-replay-protection)
+   - 6.2 [リクエスト仕様 & Idempotency / DB Nonce Retention](#62-リクエスト仕様--idempotency--db-nonce-retention)
    - 6.3 [サーバー側処理パイプライン](#63-サーバー側処理パイプライン)
 7. [Rust Workspace クレート分割設計](#7-rust-workspace-クレート分割設計)
-8. [Phase 0 PoC（`require_info` 実測検証計画）](#8-phase-0-pocrequire_info-実測検証計画)
+8. [Phase 0 PoC & GO/NO-GO Criteria（実測検証計画と判定基準）](#8-phase-0-poc--gono-go-criteria実測検証計画と判定基準)
 9. [FUSOU-WEB Verifier アーキテクチャ (Workers vs Dedicated Rust Verifier)](#9-fusou-web-verifier-アーキテクチャ-workers-vs-dedicated-rust-verifier)
 10. [DB Schema（Supabaseマイグレーション: Nonceテーブル & Telemetry）](#10-db-schemasupabaseマイグレーション-nonceテーブル--telemetry)
 11. [Failure Handling & Fallback Semantics (Phase A / Phase B)](#11-failure-handling--fallback-semantics-phase-a--phase-b)
@@ -85,7 +89,7 @@ FUSOU において真に防ぐべき攻撃は、**「悪意ある第三者が、
 │  Device A ──▶ POST /telemetry/upload                                            │
 │               - Authorization: Bearer <dataset-token>                           │
 │               - X-FUSOU-Signature: Ed25519(SignDoc)                             │
-│               - X-FUSOU-Nonce (DB永続化・単一消費)                              │
+│               - X-FUSOU-Nonce (DB telemetry_nonces 単一消費)                    │
 │               ※ Payload に member_id / public_id / dataset_id は一切含めない     │
 │                                                                                 │
 │  FUSOU-WEB が Credential から Dataset U1 を確定し、U1 のデータとして DB 保存       │
@@ -153,9 +157,17 @@ FUSOU において真に防ぐべき攻撃は、**「悪意ある第三者が、
 * **対象**: 1 つの Game Login Session において **最初に正常取得された `require_info` のみ** を Identity Attestation の対象とします。
 * **セッション中の再試行**: 最初に成功した `require_info` のうち、TLSNotary-capable session で正常取得できたものを公証対象とします。同一 session 中に証明が成立していない場合は同一リクエストの再送を行わず、ゲームクライアント自身の自然な再試行が発生した場合のみ、新しい TLSNotary session として扱います。
 
-### 4.2 MPC-TLS 応答取得と Browser 待機の分離
-* **`Post-processing is not on critical path`**: Presentation 生成、証明送信、DB 登録等の後処理はバックグラウンド（`tokio::spawn`）で実行され、Browser の待機条件から除外されます。
-* **`MPC-TLS response acquisition remains on the login API path`**: `require_info` のレスポンス平文取得自体は Prover と Notary 間の MPC-TLS 演算を経由するため、追加遅延が発生します。この遅延の許容範囲は Phase 0 PoC で実測検証します。
+### 4.2 MPC-TLS 処理 3 段階と Browser 待機の分離
+コードレベルおよびアーキテクチャ上で処理パイプラインを以下の 3 段階に厳格分離します：
+
+1. **Phase A (Request Routing / Upstream Connection)**:  
+   ブラウザから受信したリクエストを検知し、Game Server への MPC-TLS 接続を確立。
+2. **Phase B (MPC-TLS Response Acquisition)**:  
+   Prover と Notary 間で MPC ハンドシェイクおよび共同復号を実行し、Response plaintext を取得。  
+   > **注意**: この区間は Browser が待つ同期区間となります（**MPC-TLS response acquisition remains on the login API path**）。この追加遅延の許容範囲は Phase 0 PoC で実測検証します。
+3. **Phase C (Presentation Generation & Verification & DB Claim)**:  
+   バックグラウンドタスク（`tokio::spawn`）で Presentation を構築し、FUSOU-WEB での検証および DB Claim を実行。  
+   > **原則**: この区間は Browser の待機条件から完全に除外されます（**Post-processing is not on critical path**）。
 
 ### 4.3 構造化 HTTP Parser & Trusted Server Identity Policy
 * **構造化 HTTP Parser**: 正規表現による文字列検索を排し、構造化 HTTP パーサーにより `method === POST`, `path === /kcsapi/api_get_member/require_info`, `HTTP version === 1.1` を検証。
@@ -219,19 +231,40 @@ export function parseCanonicalRequireInfo(
 
 ## 5. Device ↔ Proof Binding & Social Account Linking
 
-### 5.1 `ClaimBindingMessage` と `public_id` サーバー導出
-> **重要原則**: `public_id` はクライアントが任意選択するのではなく、サーバー側で `TLSNotary verified member_id` $\rightarrow$ `member_id_mapping` から `expected_public_id` を導出して署名検証を行います。
+### 5.1 Challenge-Response による ClaimBindingMessage フロー
+`public_id` が未作成の初回 Claim でも安全にバインドできるよう、以下の 4 ステップ Challenge-Response を実行します：
 
-$$\text{ClaimBindingMessage} = \text{v1} \mathbin{\Vert} \text{transcript\_commitment} \mathbin{\Vert} \text{verified\_member\_id} \mathbin{\Vert} \text{device\_id} \mathbin{\Vert} \text{expected\_public\_id} \mathbin{\Vert} \text{nonce}$$
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Client as FUSOU-APP (Prover)
+    participant Web as FUSOU-WEB (Verifier)
+    participant DB as Supabase DB
 
-$$\text{ClaimSignature} = \text{Ed25519\_Sign}(sk_{\text{device}}, \text{ClaimBindingMessage})$$
+    Client->>Web: 1. Submit TLSNotary Presentation (require_info)
+    Note over Web: Verify Web PKI, Notary Sig, Merkle Root<br/>Extract verified_member_id
+    Web->>DB: 2. rpc_register_public_id(verified_member_id)
+    DB-->>Web: Return expected_public_id
+    Web-->>Client: 3. Return Claim Challenge (challenge_nonce, expected_public_id, expires_at)
+    Note over Client: Sign ClaimBindingMessage with Device PrivKey
+    Client->>Web: 4. Submit Claim (Challenge ID + ClaimSignature)
+    Note over Web: Verify ClaimSignature against user_devices.device_pubkey
+    Web->>DB: 5. Execute claim_verified_device_v3
+    DB-->>Web: Atomic Claim Accepted
+    Web-->>Client: 6. Issue Dataset Token (JWT)
+```
 
-FUSOU-WEB は TLSNotary 検証済み `transcript_commitment`、検証済み `member_id`、サーバー導出 `expected_public_id`、および `user_devices.device_pubkey` を用いてこの署名を同時に検証し、不一致時は即座に拒絶します。
+* **署名対象メッセージ（Canonical Serialization）**:
+  $$\text{ClaimBindingMessage} = \text{v1} \mathbin{\Vert} \text{transcript\_commitment} \mathbin{\Vert} \text{verified\_member\_id} \mathbin{\Vert} \text{device\_id} \mathbin{\Vert} \text{expected\_public\_id} \mathbin{\Vert} \text{server\_challenge\_nonce}$$
+  $$\text{ClaimSignature} = \text{Ed25519\_Sign}(sk_{\text{device}}, \text{ClaimBindingMessage})$$
 
-### 5.2 Social Account Linking (`web_user_member_map`) & Quad Invariant
+### 5.2 Social Account Linking (`web_user_member_map`) と状態分離
+* **状態の明確な分離**:
+  1. `GAME_IDENTITY_VERIFIED`: TLSNotary Proof により `api_member_id` $\leftrightarrow$ `public_id` $\leftrightarrow$ `user_devices` が確定した状態。
+  2. `SOCIAL_ACCOUNT_BOUND`: OAuth 認証済み Web ユーザーが明示的なバインディング操作を行い、`web_user_member_map` に登録された状態。
 * **Quad Invariant（四者一致の不変条件）**:
   $$\text{member\_ownership.verified\_user\_id} \equiv \text{user\_devices.canonical\_user\_id} \equiv \text{user\_member\_map.user\_id} \equiv \text{web\_user\_member\_map.user\_id}$$
-* **明示的バインディング**: Game Account アクセス証明 $\neq$ Social Account 所有権証明 であるため、OAuth 認証済みユーザーによる明示的なバインディング操作を経て `web_user_member_map` に登録します。別ユーザーからの乗っ取り Claim は `EXISTING_VERIFIED_OWNER_CONFLICT` で遮断されます。
+  ※ この Invariant は専用 RPC（`claim_verified_device_v3` および `bind_web_social_account`）内部でアトミックに検証・維持されます。
 
 ### 5.3 Dataset Token の後発行（Post-Verification Issuance）
 所有権確定後、FUSOU-WEB は以下の Claims を持つ署名済み JWT `dataset_token` を返却：
@@ -252,7 +285,7 @@ FUSOU-WEB は TLSNotary 検証済み `transcript_commitment`、検証済み `mem
 ### 6.1 Telemetry Ingest 原則
 > **「Telemetry ingest endpoint は、request payload に含まれる member_id、public_id、dataset_id 等の所属識別子を認証・認可判断に使用してはならない。Dataset identity は検証済み Credential（Dataset Token + Device Signature）からのみサーバー側で導出する。`api_path` は informational metadata であり認可判断には使用しない。」**
 
-### 6.2 リクエスト仕様 & Idempotency / DB Nonce Replay Protection
+### 6.2 リクエスト仕様 & Idempotency / DB Nonce Retention
 ```http
 POST /api/v1/telemetry/ingest HTTP/1.1
 Host: api.fusou.dev
@@ -275,11 +308,13 @@ Content-Type: application/json
 ```
 
 * **署名対象ペイロード（Canonical Serialization）**:
-  $$\text{SignDoc} = \text{POST} \mathbin{\Vert} \text{/api/v1/telemetry/ingest} \mathbin{\Vert} \text{Nonce} \mathbin{\Vert} \text{Timestamp} \mathbin{\Vert} \text{SHA256(BodyBytes)} \mathbin{\Vert} \text{public\_id}$$
-* **DB レベル Nonce Replay Protection**:
-  サーバーは署名検証後、`telemetry_nonces` テーブルに `(device_id, nonce)` を INSERT。既に存在する場合は 401/403 で拒絶。
-* **Idempotency**:
-  同一 `ingest_item_id` が既に存在する場合、保存済み `body_hash` と一致すれば 200/201 冪等成功、不一致であれば 409 Conflict で拒絶。
+  $$\text{SignDoc} = \text{POST} \mathbin{\Vert} \text{/api/v1/telemetry/ingest} \mathbin{\Vert} \text{Nonce} \mathbin{\Vert} \text{Timestamp} \mathbin{\Vert} \text{SHA256(RawBodyBytes)} \mathbin{\Vert} \text{public\_id}$$
+* **DB レベル Nonce Replay Protection & Retention**:
+  - `device_id` は UUIDv4 であり **Never-reused**。
+  - `X-FUSOU-Timestamp` は ±5 分（±300秒）以内のみ受理。
+  - `telemetry_nonces` に `(device_id, nonce)` を INSERT して消費。データは 10 分間保持し、定期クリーンアップ（`first_seen_at < NOW() - INTERVAL '10 minutes'`）。
+* **Raw Body Hash による厳格な Idempotency**:
+  同一 `ingest_item_id` が既に存在する場合、保存済み `body_hash`（`sha256(raw_body_bytes)`）と完全一致すれば 200/201 冪等成功、不一致であれば 409 Conflict で拒絶。
 * **Time Distinction**: `event_time` は UNTRUSTED なクライアント申告時刻であり、DB の `received_at`（TRUSTED サーバー受信時刻）と明確に区別して記録。
 
 ### 6.3 サーバー側処理パイプライン
@@ -305,8 +340,9 @@ packages/
 
 ---
 
-## 8. Phase 0 PoC（`require_info` 実測検証計画）
+## 8. Phase 0 PoC & GO/NO-GO Criteria（実測検証計画と判定基準）
 
+### 8.1 検証項目
 母港通信ではなく、**`POST /kcsapi/api_get_member/require_info`** 1 本に絞り、以下の検証を実施します：
 
 1. FUSOU local proxy から Game Server への直接接続（Direct Connection）
@@ -316,7 +352,7 @@ packages/
 5. selective disclosure による `/api_data/api_basic/api_member_id` のみのピンポイント抽出
 6. request path（`POST /kcsapi/api_get_member/require_info`）のサーバー側検証
 7. Trusted Server Identity Policy によるサーバー真正性検証
-8. `ClaimBindingMessage`（`public_id` サーバー導出）による Device ↔ Proof の暗号バインディング照合
+8. Server-issued Challenge による `ClaimBindingMessage` の署名検証
 9. Presentation generation の正常完了
 10. remote verification の動作確認
 11. duplicate proof rejection の確認
@@ -324,6 +360,21 @@ packages/
 13. Keep-Alive 接続の維持
 14. FUSOU-WEB での canonical member_id 抽出成功
 15. `dataset_token` 発行と Dual Auth + DB Nonce による Telemetry 送信の Attribution 一致確認
+
+### 8.2 Phase 0 PASS / FAIL 判定基準 (GO Criteria)
+以下の全条件を満たした場合にのみ、Phase 1（本番実装・マイグレーション）へ移行を承認します：
+
+| 分類 | 必須条件 (MUST PASS) | 判定基準 |
+|---|---|:---:|
+| **プロトコル** | FUSOU 生成の二重送信ゼロ | FUSOU-generated duplicate = 0 |
+| **暗号検証** | TLSNotary Proof 検証成功 | Notary 署名・Merkle Root 完全一致 |
+| **データ抽出** | `api_member_id` の正確な抽出 | レスポンス平文と抽出値が 100% 一致 |
+| **バインディング** | `ClaimBindingMessage` 偽造不能 | 他端末秘密鍵・別 Nonce での Claim を 100% 遮断 |
+| **所属決定権** | クライアントによる Dataset 選択排除 | Payload 内の `public_id` 改変を完全無視 |
+| **リプレイ防御** | DB Nonce & Idempotency 検証 | 同一 Nonce 拒絶、同一 ID 異 Body で 409 Conflict |
+| **耐障害性** | 送信前 Notary 障害時のログイン継続 | 通常 TLS フォールバックでゲームプレイ 100% 継続 |
+| **接続性** | 外部中継プロキシ排除 | クライアントローカルから直接接続維持 |
+| **性能目標** | `require_info` MPC 復号追加遅延 | **P95 < 300ms**（実測値を記録・評価） |
 
 ---
 
@@ -333,7 +384,7 @@ Phase 0 PoC において以下の両構成をベンチマーク測定し、最�
 1. **Option A (Cloudflare Workers + WASM Verifier)**:
    Workers 内で `@tlsnotary/tlsn-js` または `tlsn-verifier-wasm` を直接実行。
 2. **Option B (Dedicated Rust Verifier Service: 推奨フォールバック)**:
-   `FUSOU-APP -> TLSNotary Verifier Service (Rust Native / Cloud Run / Fly.io) -> FUSOU-WEB (HMAC/署名付き認証チャネル) -> Supabase`。
+   `FUSOU-APP -> TLSNotary Verifier Service (Rust Native: Ed25519署名付き検証結果返却) -> FUSOU-WEB -> Supabase`。
 
 ---
 
@@ -343,16 +394,16 @@ Phase 0 PoC において以下の両構成をベンチマーク測定し、最�
 ```sql
 BEGIN;
 
--- 1. Telemetry リプレイ防御用 Nonce テーブル
+-- 1. Telemetry リプレイ防御用 Nonce テーブル (10分保持)
 CREATE TABLE IF NOT EXISTS public.telemetry_nonces (
-    device_id UUID NOT NULL REFERENCES public.user_devices(device_id) ON DELETE CASCADE,
+    device_id UUID NOT NULL REFERENCES public.user_devices(device_id) ON DELETE RESTRICT,
     nonce TEXT NOT NULL,
     first_seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     PRIMARY KEY (device_id, nonce)
 );
 
-CREATE INDEX IF NOT EXISTS idx_telemetry_nonces_created 
-    ON public.telemetry_nonces (first_seen_at DESC);
+CREATE INDEX IF NOT EXISTS idx_telemetry_nonces_cleanup 
+    ON public.telemetry_nonces (first_seen_at);
 
 ALTER TABLE public.telemetry_nonces ENABLE ROW LEVEL SECURITY;
 
@@ -401,6 +452,7 @@ COMMIT;
 * **Phase B（リクエスト送信後）**:
   リクエスト送信後に MPC session が失敗した場合、**同一リクエストの再送は厳格に禁止（BAN 回避 / FUSOU-generated duplicate = 0）**。
   - 状態: `UNATTESTED`
+  - `MPC-TLS request sent -> Verifier failure -> NO automatic replay, NO second upstream request -> If plaintext already fully available: may return original response; else: cannot reconstruct response from TLS.`
   - Browser への継続可否は「Prover が既に取得済みの plaintext が存在するか」に依存します（Phase 0 で実測検証）。公証タスクのみ破棄し、次回以降の自然な再試行時に新しい TLSNotary session として扱います。
 
 ---
@@ -409,17 +461,17 @@ COMMIT;
 
 - [D] ゲーム通信に外部プロキシを使用しない直接接続設計
 - [D] FUSOU 生成の二重送信ゼロ（FUSOU-generated duplicate = 0）設計
-- [D] MPC 復号遅延と Proof 後処理（非同期化）の明確な分離設計
-- [D] `ClaimBindingMessage`（`public_id` サーバー導出）による Device ↔ Proof の暗号バインディング設計
+- [D] MPC 復号遅延と Proof 後処理（非同期化）の 3 段階分離設計
+- [D] Server Challenge-Response による `ClaimBindingMessage` 暗号バインディング設計
 - [D] `require_info` によるセッション最初 1 回限りの Identity Attestation 設計
 - [D] Telemetry ペイロードからの所属識別子完全排除 & Dataset Attribution 設計
-- [D] Dual Authentication & `telemetry_nonces` による DB 永続化 Replay Protection 設計
+- [D] Dual Authentication & `telemetry_nonces`（10分保持）による Replay Protection 設計
 - [D] `member_id_hash` / Pepper 体系の完全削除と UUID `public_id` への一本化
 - [D] Quad Invariant（$\text{verified\_user\_id} \equiv \text{canonical\_user\_id} \equiv \text{user\_id} \equiv \text{web\_user\_id}$）の定義
 - [D] 64-bit Advisory Lock & 親行ロック契約による並行実行競合排除設計
 - [D] `member_ownership`（現在状態）と `member_ownership_claims`（監査履歴）の分離
 - [D] 排他ロック取得後の Proof Consumption Policy（重複消費排除）設計
-- [P] Phase 0 PoC（`require_info` 特化実測検証 15 項目）
+- [P] Phase 0 PoC（GO/NO-GO 基準付き実測検証 15 項目）
 - [P] Verifier 実行環境ベンチマーク（Workers vs Dedicated Rust Verifier）
 - [I] 実装および DB マイグレーション適用
 - [T] 単体テスト・Attribution 偽装遮断テスト
