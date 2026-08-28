@@ -7,13 +7,13 @@
 > 対象 API: **`POST /kcsapi/api_get_member/require_info`**（1つの Game Login Session で最初に正常取得された 1 回のみ）  
 > 対象データ: **`/api_data/api_basic/api_member_id`**（Wire: `i64`, Canonical Internal: Decimal String）  
 > **最重要設計原則**:  
-> 1. **再送信ゼロ（No Re-submission）**: ログイン時の `require_info` を裏で故意に再送・二重実行することは絶対に排除し、**ブラウザと艦これ公式サーバー間の正規の 1 回限りの TLS セッションそのものを公証**する。  
+> 1. **再送信ゼロ（No Re-submission）**: FUSOU 自身が同一 logical request を二重送信しないことを徹底し（FUSOU-generated duplicate = 0）、**FUSOU-Prover と Game Server 間の正規の 1 回限りの TLSNotary MPC-TLS セッションを公証**する。  
 > 2. **外部プロキシ中継ゼロ（Direct Connection）**: 外部中継プロキシは規約上・BANリスク上不可とし、**クライアントローカルの `FUSOU-PROXY` と艦これ公式サーバー間の直接通信を維持**する。  
 > 3. **MPC-TLS 応答取得と Browser 待機の分離**:  
->    `require_info` は TLSNotary MPC-TLS 経路により処理されるため、この API の応答取得には MPC 由来の追加遅延が発生する可能性がある。**Browser の待機条件から除外するのは Presentation 生成、証明送信、DB 登録等の後処理** であり、Response plaintext の取得自体は MPC-TLS の制約に従う（許容遅延は Phase 0 PoC で実測検証）。  
+>    `require_info` は TLSNotary MPC-TLS 経路により処理されるため、この API の応答取得には MPC 由来の追加遅延が発生する可能性がある。**Browser の待機条件から除外するのは Presentation 生成、証明送信、DB 登録等の後処理（Post-processing is not on critical path）** であり、Response plaintext の取得自体は MPC-TLS の制約に従う（**MPC-TLS response acquisition remains on the login API path** / 許容遅延は Phase 0 PoC で実測検証）。  
 > 4. **Selective Disclosure（最小限開示）**: `require_info` レスポンス全体を開示せず、TLSNotary の selective disclosure により `/api_data/api_basic/api_member_id` の Byte Range のみを開示する。  
-> 5. **Device ↔ Proof の暗号学的バインディング（ClaimBindingMessage）**:  
->    Identity Claim 時は、`ClaimBindingMessage = protocol_version || transcript_commitment || verified_member_id || device_id || public_id || nonce` に対する Ed25519 署名を必須とし、Proof と提出端末を暗号学的に不可分にバインドする。  
+> 5. **Device ↔ Proof の暗号学的バインディング（`public_id` サーバー導出）**:  
+>    `public_id` はクライアントが任意選択せず、サーバーが `verified_member_id` から `member_id_mapping` を通じて導出する。`ClaimBindingMessage = protocol_version || transcript_commitment || verified_member_id || device_id || expected_public_id || nonce` に対する Ed25519 署名を必須とし、Proof と提出端末を暗号学的に不可分にバインドする。  
 > 6. **`member_id_hash` / Pepper の完全廃止（UUID `public_id` への一本化）**:  
 >    `member_id_hash`、`anon_sync_pepper_runtime`、`anon_sync_pepper_versions`、Vault secret、Pepper rotation、HMAC 計算、hash version を**完全に廃止・削除**し、`public_id`（UUIDv4）を唯一の内部 Dataset Identity として使用する。  
 > 7. **`api_member_id` と `public_id` の責務完全分離**:  
@@ -23,13 +23,15 @@
 >    64-bit Advisory Lock により衝突確率を十分に低減し、同一トランザクション内で必ず行が存在する `member_id_mapping` 親行の `FOR UPDATE` により並行 Claim を物理的に直列化する。  
 > 9. **所有権現在状態（`member_ownership`）と通常のアプリケーション経路で変更禁止な監査履歴（`member_ownership_claims`）の分離**:  
 >    現在の検証済み所有者レコードと、将来の監査検証用情報（`notary_time`, `notary_key_id`, `proof_purpose`）を含む Append-Only 監査証跡ログをテーブル分離する。  
-> 10. **Triple Owner Invariant & Social User Binding**:  
->     排他ロック取得後に同一 `transcript_commitment` の多重消費を `DUPLICATE_PROOF_CONSUMED` として防ぎ、$\text{member\_ownership.verified\_user\_id} \equiv \text{user\_devices.canonical\_user\_id} \equiv \text{user\_member\_map.user\_id}$ の不変条件を厳格に保持し、`web_user_member_map`（Social Account 1:1 binding）との紐付けを確立する。  
+> 10. **Quad Invariant & Social User Binding**:  
+>     排他ロック取得後に同一 `transcript_commitment` の多重消費を `DUPLICATE_PROOF_CONSUMED` として防ぎ、$\text{member\_ownership.verified\_user\_id} \equiv \text{user\_devices.canonical\_user\_id} \equiv \text{user\_member\_map.user\_id} \equiv \text{web\_user\_member\_map.user\_id}$ の四者一致不変条件を厳格に保持する。  
 > 11. **RPC 前提条件の明確化（Security Boundary）**:  
 >     ストアドプロシージャ `claim_verified_device_v3` は、呼び出し元 FUSOU-WEB が TLSNotary Proof および `ClaimBindingMessage` 署名を完全検証済みであることを前提とし、未検証データの書き込みを遮断する。  
 > 12. **Dataset Token の後発行（Post-Verification Issuance）**:  
 >     `require_info proof verified` $\rightarrow$ `member_id verified` $\rightarrow$ `claim accepted` $\rightarrow$ `device authorized` $\rightarrow$ **`dataset_token issued`** の順序を厳守し、事前発行は行わない。  
-> **ステータス**: MPC遅延分離・ClaimBindingMessage・全10ステップRPC順序完全反映マスター  
+> 13. **Fallback 時のステータス明示**:  
+>     Notary 障害時は `GAMEPLAY_OK / IDENTITY_UNVERIFIED / DATASET_TOKEN_NOT_ISSUED` の状態へ安全にフォールバックし、ゲームプレイを継続する。  
+> **ステータス**: TLSセッション表現統一・public_idサーバー導出・Quad Invariant完全反映マスター  
 
 ---
 
@@ -38,11 +40,11 @@
 1. [Goal（目標）](#1-goal目標)
 2. [Threat Model（脅威モデル）](#2-threat-model脅威モデル)
 3. [Trust Boundary & Security Boundary（信頼境界 & RPC前提条件）](#3-trust-boundary--security-boundary信頼境界--rpc前提条件)
-4. [Identity Architecture & Triple Owner Invariant（ID基盤と不変条件）](#4-identity-architecture--triple-owner-invariantid基盤と不変条件)
+4. [Identity Architecture & Quad Invariant（ID基盤と不変条件）](#4-identity-architecture--quad-invariantid基盤と不変条件)
 5. [Social Account Binding (`web_user_member_map`)](#5-social-account-binding-web_user_member_map)
 6. [Member State Machine（所有権ステートマシン & 乗っ取り防止ルール）](#6-member-state-machine所有権ステートマシン--乗っ取り防止ルール)
 7. [TLSNotary Ownership Proof (`POST /kcsapi/api_get_member/require_info`)](#7-tlsnotary-ownership-proof-post-kcsapiapi_get_memberrequire_info)
-8. [Device ↔ Proof Binding（ClaimBindingMessage と Ed25519 署名）](#8-device--proof-bindingclaimbindingmessage-と-ed25519-署名)
+8. [Device ↔ Proof Binding（ClaimBindingMessage と public_id サーバー導出）](#8-device--proof-bindingclaimbindingmessage-と-public_id-サーバー導出)
 9. [Claim Transaction（アトミック所有権移転トランザクション 全10ステップ）](#9-claim-transactionアトミック所有権移転トランザクション-全10ステップ)
 10. [Preemptive Registration Attack（事前登録攻撃の無力化）](#10-preemptive-registration-attack事前登録攻撃の無力化)
 11. [Concurrent Claim Handling（64-bit Advisory Lock & 親行ロック契約）](#11-concurrent-claim-handling64-bit-advisory-lock--親行ロック契約)
@@ -108,6 +110,7 @@ FUSOU の匿名同期システム（`anonymous-sync-v2`）において、悪意�
 │                                                        │
 │  - Verify Web PKI Certificate Chain                    │
 │  - Verify TLSNotary Notary Signature & Merkle Root     │
+│  - Derive expected_public_id from verified member_id   │
 │  - Verify ClaimBindingMessage Signature (Device Match) │
 │  - Strict Server-Side Canonical Parser (Zod)           │
 │                                                        │
@@ -122,7 +125,7 @@ FUSOU の匿名同期システム（`anonymous-sync-v2`）において、悪意�
 │                                                        │
 │  - 64-bit Advisory Lock & Row-Level Locking            │
 │  - Atomic Ownership Transfer (Strict 10 Steps)         │
-│  - Enforce Triple Owner Invariant                      │
+│  - Enforce Quad Invariant                              │
 │  - Proof Consumption Enforcement (Post-Lock Check)     │
 │  - Append-Only Audit Trail with proof_purpose          │
 │                                                        │
@@ -131,11 +134,11 @@ FUSOU の匿名同期システム（`anonymous-sync-v2`）において、悪意�
 ```
 
 > **RPC の Security Boundary（前提条件）**:  
-> `claim_verified_device_v3` は、**呼び出し元である FUSOU-WEB が TLSNotary Proof の暗号署名・Merkle Root・Web PKI および `ClaimBindingMessage` 署名を完全検証済みであることを前提** とします。未検証の証明書や改ざんされた平文が直接 RPC に渡されることはありません。
+> `claim_verified_device_v3` は、**呼び出し元である FUSOU-WEB が TLSNotary Proof の暗号署名・Merkle Root・Web PKI およびサーバー導出 `expected_public_id` に基づく `ClaimBindingMessage` 署名を完全検証済みであることを前提** とします。未検証の証明書や改ざんされた平文が直接 RPC に渡されることはありません。
 
 ---
 
-## 4. Identity Architecture & Triple Owner Invariant（ID基盤と不変条件）
+## 4. Identity Architecture & Quad Invariant（ID基盤と不変条件）
 
 ### 4.1 `api_member_id` と `public_id` の責務分離
 ```
@@ -157,9 +160,9 @@ public_id = UUIDv4 (Random UUID: Dataset U1)
 
 > **重要原則**: `api_member_id` $\neq$ `public_id`。`api_member_id` はゲームサーバーが発行する識別子であり `member_id_mapping` にのみ保持され、他のテーブルはすべて `public_id`（UUIDv4）を外部キー参照します。
 
-### 4.2 Triple Owner Invariant（三者一致の不変条件）
+### 4.2 Quad Invariant（四者一致の不変条件）
 FUSOU の検証済み端末（Verified Device）について、以下の不変条件が常に成立することを保証します：
-$$\text{member\_ownership.verified\_user\_id} \equiv \text{user\_devices.canonical\_user\_id} \equiv \text{user\_member\_map.user\_id}$$
+$$\text{member\_ownership.verified\_user\_id} \equiv \text{user\_devices.canonical\_user\_id} \equiv \text{user\_member\_map.user\_id} \equiv \text{web\_user\_member\_map.user\_id}$$
 
 ---
 
@@ -208,7 +211,7 @@ erDiagram
 ```
 
 > **1:1 Binding ルール**: `web_user_member_map` は `PRIMARY KEY (user_id, public_id)` かつ `public_id UNIQUE` であり、1 つの Dataset `public_id` に紐づく Web ユーザーは 1 人です。  
-> **注意**: Game Account へのアクセス証明 $\neq$ Social Account 所有権の証明 であるため、別ユーザーからの乗っ取り Claim は `EXISTING_VERIFIED_OWNER_CONFLICT` で遮断されます。
+> **注意**: Game Account へのアクセス証明 $\neq$ Social Account 所有権の証明 であるため、OAuth 認証済みユーザーによる明示的なバインディング操作を必須とし、別ユーザーからの乗っ取り Claim は `EXISTING_VERIFIED_OWNER_CONFLICT` で遮断されます。
 
 ---
 
@@ -229,28 +232,32 @@ stateDiagram-v2
     VERIFIED --> VERIFIED: 別ユーザーからのClaim試行 ──▶ 拒絶 (403 Conflict)
 ```
 
-> **重要**: `PRE_REGISTERED` は「未検証の Game Identity」ではなく「未検証の Dataset Claim（自己申告による仮登録）」であり、この状態の Dataset が正規の `member_id` であるとは扱いません。
+> **重要原則**:  
+> 1. `PRE_REGISTERED` は「未検証の Game Identity」ではなく「未検証の Dataset Claim（自己申告による仮登録）」であり、この状態の Dataset が正規の `member_id` であるとは扱いません。  
+> 2. **Game Account Owner は一度確立したら原則不変**。Device の追加・失効のみ可能であり、所有者変更は別途明示的な Recovery/Transfer プロトコルを必要とします。
 
 ---
 
 ## 7. TLSNotary Ownership Proof (`POST /kcsapi/api_get_member/require_info`)
 
 * **Gameplay Path**:
-  `require_info` は TLSNotary MPC-TLS 経路により処理されるため、この API の応答取得には MPC 由来の追加遅延が発生する可能性があります。**Browser の待機条件から除外するのは Presentation 生成、証明送信、DB 登録等の後処理** であり、Response plaintext の取得自体は MPC-TLS の制約に従います（許容遅延は Phase 0 PoC で実測検証）。
+  `require_info` は FUSOU-Prover と Game Server 間の TLSNotary MPC-TLS 経路により処理されるため、この API の応答取得には MPC 由来の追加遅延が発生する可能性があります。**Browser の待機条件から除外するのは Presentation 生成、証明送信、DB 登録等の後処理（Post-processing is not on critical path）** であり、Response plaintext の取得自体は MPC-TLS の制約に従います（**MPC-TLS response acquisition remains on the login API path** / 許容遅延は Phase 0 PoC で実測検証）。
 * **Evidence Path**:
   プロキシのバックグラウンドタスクが Notary サーバーと MPC を完了させ、最小限フィールド（`POST /kcsapi/api_get_member/require_info`, `Host:`, `api_result: 1`, `/api_data/api_basic/api_member_id`）のみを開示した Presentation を構築します。
 
 ---
 
-## 8. Device ↔ Proof Binding（ClaimBindingMessage と Ed25519 署名）
+## 8. Device ↔ Proof Binding（ClaimBindingMessage と public_id サーバー導出）
 
 Proof P と提出端末 Device A を暗号学的に不可分にバインドするため、クライアントは以下の長さ区切り canonical serialization に対して Ed25519 署名を行います：
 
-$$\text{ClaimBindingMessage} = \text{v1} \mathbin{\Vert} \text{transcript\_commitment} \mathbin{\Vert} \text{verified\_member\_id} \mathbin{\Vert} \text{device\_id} \mathbin{\Vert} \text{public\_id} \mathbin{\Vert} \text{nonce}$$
+> **`public_id` サーバー導出ルール**: `public_id` はクライアントが任意選択できず、サーバー側で `TLSNotary verified member_id` $\rightarrow$ `member_id_mapping` から導出した `expected_public_id` を用いて検証します。
+
+$$\text{ClaimBindingMessage} = \text{v1} \mathbin{\Vert} \text{transcript\_commitment} \mathbin{\Vert} \text{verified\_member\_id} \mathbin{\Vert} \text{device\_id} \mathbin{\Vert} \text{expected\_public\_id} \mathbin{\Vert} \text{nonce}$$
 
 $$\text{ClaimSignature} = \text{Ed25519\_Sign}(sk_{\text{device}}, \text{ClaimBindingMessage})$$
 
-FUSOU-WEB は TLSNotary 検証済み `transcript_commitment`、検証済み `member_id`、および `user_devices.device_pubkey` を用いてこの署名を同時に検証し、不一致時は即座に拒絶します。
+FUSOU-WEB は TLSNotary 検証済み `transcript_commitment`、検証済み `member_id`、サーバー導出 `expected_public_id`、および `user_devices.device_pubkey` を用いてこの署名を同時に検証し、不一致時は即座に拒絶します。
 
 ---
 
@@ -261,7 +268,7 @@ FUSOU-WEB は TLSNotary 検証済み `transcript_commitment`、検証済み `mem
 1. **Advisory Lock 取得**: 64-bit キーによるトランザクション排他ロック。
 2. **Proof Consumption Check**: 排他ロック下での `transcript_commitment` 重複消費チェック（TOCTOU 防止）。
 3. **Device Row Lock**: 対象 `user_devices` レコードの存在確認と `FOR UPDATE` ロック。
-4. **Public ID 登録/取得**: `rpc_register_public_id(p_api_member_id)` の呼び出し。
+4. **Public ID 登録/取得**: `rpc_register_public_id(p_api_member_id)` の呼び出し（`UNIQUE(api_member_id)` による同一 `public_id` 取得保証）。
 5. **Parent Mapping Row Lock**: 親行 `member_id_mapping` に対する `FOR UPDATE` ロック。
 6. **Current Ownership Row Lock**: 現在の `member_ownership` レコードの `FOR UPDATE` ロック。
 7. **Ownership Rule 判定**: 初回公証 / 事前登録攻撃者からの奪還 / 別アカウント乗っ取り拒絶の判定。
@@ -318,7 +325,8 @@ $$\text{require\_info proof verified} \longrightarrow \text{member\_id verified}
   "sub": "00000000-0000-4000-8000-000000000000",
   "public_id": "11111111-1111-4000-8000-111111111111",
   "is_verified": true,
-  "exp": 1756300000
+  "iat": 1756200000,
+  "exp": "<iat + configured_ttl>"
 }
 ```
 
@@ -451,7 +459,7 @@ BEGIN
     -- 【初回公証 / 事前登録攻撃者からの所有権奪還】
     v_claim_type := 'INITIAL_VERIFIED';
 
-    -- user_member_map の所有者を正規ユーザーへ移転・上書き (Triple Invariant 保証)
+    -- user_member_map の所有者を正規ユーザーへ移転・上書き (Quad Invariant 保証)
     INSERT INTO public.user_member_map (public_id, user_id, created_at)
     VALUES (v_public_id, v_canonical_user_id, NOW())
     ON CONFLICT (public_id) DO UPDATE
@@ -482,7 +490,7 @@ BEGIN
       RAISE EXCEPTION 'EXISTING_VERIFIED_OWNER_CONFLICT: account % is already verified owner', v_current_ownership.verified_user_id;
     END IF;
 
-    -- 同一オーナーによる追加端末 (Multi-Device)
+    -- 同一オーナーによる追加端末 (Multi-Device: Owner は不変)
     v_claim_type := 'ADDITIONAL_DEVICE';
   END IF;
 
@@ -528,9 +536,13 @@ COMMIT;
 ## 16. Failure Cases & Fallback Semantics (Phase A / Phase B)
 
 * **Phase A（リクエスト送信前）**:
-  Game Server へのリクエスト送信前に MPC session が成立しない場合、直ちに通常の TLS 接続へ切り替えて `require_info` を送信。ゲームログインは 100% 継続し、Identity は UNVERIFIED 状態（未公証）として扱います。
+  Game Server へのリクエスト送信前に MPC session が成立しない場合、直ちに通常の TLS 接続へ切り替えて `require_info` を送信。
+  - 状態: `GAMEPLAY_OK / IDENTITY_UNVERIFIED / DATASET_TOKEN_NOT_ISSUED`
+  - ゲームログインは 100% 継続し、未検証状態を維持します。
 * **Phase B（リクエスト送信後）**:
-  リクエスト送信後に MPC session が失敗した場合、**同一リクエストの再送は厳格に禁止（BAN 回避）**。この `require_info` は UNATTESTED 扱いとし、Browser への継続可否は「Prover が既に取得済みの plaintext が存在するか」に依存します（Phase 0 で実測検証）。公証タスクのみ破棄し、次回以降の自然な再試行時に新しい TLSNotary session として扱います。
+  リクエスト送信後に MPC session が失敗した場合、**同一リクエストの再送は厳格に禁止（BAN 回避 / FUSOU-generated duplicate = 0）**。
+  - 状態: `UNATTESTED`
+  - Browser への継続可否は「Prover が既に取得済みの plaintext が存在するか」に依存します（Phase 0 で実測検証）。公証タスクのみ破棄し、次回以降の自然な再試行時に新しい TLSNotary session として扱います。
 
 ---
 
@@ -539,7 +551,7 @@ COMMIT;
 正規ユーザーが新端末で FUSOU を起動した場合：
 1. **Game Identity**: TLSNotary による `require_info` 証明から同一の `api_member_id` を検証。
 2. **Social Identity**: 認証済み同一 `canonical_user_id`（OAuth）を確認。
-3. 既存の `public_id`（U1）に対して新端末 `Device B` を `user_devices` に追加（`Primary Device` は固定）。
+3. 既存の `public_id`（U1）に対して新端末 `Device B` を `user_devices` に追加（`Primary Device` は固定、Owner は不変）。
 
 ---
 
@@ -576,9 +588,9 @@ pnpm vitest run tests/tlsn-verifier.test.ts
 ## 21. Security Progress Checklist（開発進捗チェックリスト）
 
 - [D] ゲーム通信に外部プロキシを使用しない直接接続設計
-- [D] ゲーム API の再送信・二重実行コードの完全排除
+- [D] FUSOU 生成の二重送信ゼロ（FUSOU-generated duplicate = 0）設計
 - [D] MPC 復号遅延と Proof 後処理（非同期化）の明確な分離設計
-- [D] `ClaimBindingMessage` による Device ↔ Proof の暗号学的バインディング設計
+- [D] `ClaimBindingMessage`（`public_id` サーバー導出）による Device ↔ Proof の暗号バインディング設計
 - [D] `member_id_hash` / Pepper 体系の完全削除と UUID `public_id` への一本化
 - [D] `api_member_id`（検証対象）と `public_id`（内部安定UUID）の責務完全分離
 - [D] Trust Boundary Diagram および RPC 前提条件（Security Boundary）の定義
@@ -586,7 +598,7 @@ pnpm vitest run tests/tlsn-verifier.test.ts
 - [D] `member_ownership`（現在状態）と `member_ownership_claims`（拡張監査履歴）の分離
 - [D] 排他ロック取得後の Proof Consumption Policy（重複消費排除）設計
 - [D] Verified Owner 確定後の別ユーザー乗っ取り遮断（`EXISTING_VERIFIED_OWNER_CONFLICT`）設計
-- [D] Triple Owner Invariant（$\text{verified\_user\_id} \equiv \text{canonical\_user\_id} \equiv \text{user\_id}$）の定義
+- [D] Quad Invariant（$\text{verified\_user\_id} \equiv \text{canonical\_user\_id} \equiv \text{user\_id} \equiv \text{web\_user\_id}$）の定義
 - [D] Post-Verification Issuance（公証前のトークン発行禁止）設計
 - [P] Phase 0 PoC（ADR-000）の `require_info` 実測検証
 - [P] Verifier 実行環境ベンチマーク（Workers vs Dedicated Rust Verifier）
