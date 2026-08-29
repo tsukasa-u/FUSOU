@@ -665,6 +665,7 @@ pnpm vitest run tests/tlsn-verifier.test.ts
 
 1. **Phase 0 (ADR-000 Data Plane PoC & Verifier Benchmark)**:
    - `POST /kcsapi/api_get_member/require_info` における Prover 統合と MPC 復号遅延の動作実測（P95 < 300ms）。
+   - SessionKey 判定モデル（Cookie/Token 境界）の実測検証と確定。
    - TLSNotary exact git tag/commit revision の確定。
    - `Attestation.header().id` の公式 canonical serialization バイト抽出ルーチン確定。
    - Cloudflare Workers vs Dedicated Rust Verifier のベンチマーク比較。
@@ -684,15 +685,15 @@ pnpm vitest run tests/tlsn-verifier.test.ts
 - [D] `ClaimBindingBytes` の厳密な Byte Layout & Binary Framing 設計（`proof_purpose` + `Attestation.header().id` 公式識別子）
 - [D] Server-issued One-Time Challenge の DB 管理 & 単一消費ライフサイクル設計
 - [D] 同一 Attestation の多重 Claim 遮断（`UNIQUE (tlsn_attestation_id)`）設計
+- [D] `require_info` によるセッション最初 1 回限りの Identity Attestation 設計（SessionKey 単位）
+- [D] Telemetry ペイロードからの所属識別子完全排除 & 提出時点 Immutable 帰属設計
+- [D] Dual Authentication & `telemetry_nonces`（10分保持）による Replay Protection 設計
 - [D] `member_id_hash` / Pepper 体系の完全削除と UUID `public_id` への一本化
-- [D] `api_member_id`（検証対象）と `public_id`（内部安定UUID）の責務完全分離
-- [D] Trust Boundary Diagram および RPC 前提条件（Security Boundary）の定義
-- [D] 64-bit Advisory Lock および親行ロック契約による並行実行競合排除設計
+- [D] Quad Invariant（$\text{verified\_user\_id} \equiv \text{canonical\_user\_id} \equiv \text{user\_id} \equiv \text{web\_user\_id}$）の段階的成立定義
+- [D] 64-bit Advisory Lock & 親行ロック契約による並行実行競合排除設計
 - [D] `member_ownership`（現在状態）と `member_ownership_claims`（拡張監査履歴）の分離
 - [D] 排他ロック取得後の Proof / Attestation Consumption Policy（重複消費排除）設計
 - [D] Verified Owner 確定後の別ユーザー乗っ取り遮断（`EXISTING_VERIFIED_OWNER_CONFLICT`）設計
-- [D] Quad Invariant（$\text{verified\_user\_id} \equiv \text{canonical\_user\_id} \equiv \text{user\_id} \equiv \text{web\_user\_id}$）の段階的成立定義
-- [D] Post-Verification Issuance（公証前のトークン発行禁止）設計
 - [P] Phase 0 PoC（GO/NO-GO 基準付き実測検証 23 項目）
 - [P] Verifier 実行環境ベンチマーク（Workers vs Dedicated Rust Verifier）および exact TLSNotary revision 固定
 - [I] 実装および DB マイグレーション適用
