@@ -4,7 +4,7 @@
 > **対象領域**: FUSOU プロジェクト全域（`packages/fusou-auth`, `packages/fusou-proxy-core`, `packages/fusou-proxy-tlsn`, `packages/FUSOU-WEB`, Supabase / Cloudflare Workers / Dedicated Verifier Service）  
 > **v1 Core Security Goal**:  
 > **「ログインセッション開始時の `POST /kcsapi/api_get_member/require_info` から暗号学的に検証した `api_member_id` を FUSOU Dataset Identity（`public_id`）として確立し、事前登録攻撃（Preemptive Registration / ID Squatting）を完全に無力化して正当な Dataset Attribution を確定する」**  
-> 対象 API: **`POST /kcsapi/api_get_member/require_info`**（1つの Game Login Session で最初に正常取得された 1 回のみ）  
+> 対象 API: **`POST /kcsapi/api_get_member/require_info`**（HTTP/1.1、1つの Proxy 起動ライフサイクルで最初に正常取得された 1 回のみ）  
 > 対象データ: **`/api_data/api_basic/api_member_id`**（Wire: `i64` from `kc-api-dto`, Canonical Internal: Decimal String）  
 > **最重要設計原則**:  
 > 1. **再送信ゼロ（No Re-submission）**:  
@@ -19,9 +19,13 @@
 > 4. **Selective Disclosure（最小限開示）**: `require_info` レスポンス全体を開示せず、TLSNotary の selective disclosure により `/api_data/api_basic/api_member_id` の Byte Range のみを開示する。  
 > 5. **Device ↔ Proof の暗号学的バインディング（Server-issued One-Time Challenge & Byte Layout 完全固定）**:  
 >    - `public_id` はクライアントが任意選択せず、サーバーが `verified_member_id` から導出する。  
->    - **Trust Authority の分離**: TLSNotary Verifier を `Cryptographic Verification Authority`、FUSOU-WEB / Supabase を `Application / Identity / Dataset Authorization Authority` として役割を明確化。  
->    - **TLSNotary 公式 Attestation 識別子の一本化**: `ClaimBindingBytes` には、Phase 0 で採用する exact TLSNotary revision の公式識別子 **`tlsn_attestation_id = Attestation.header().id` の exact binary bytes** を格納し、Length-delimited binary framing（Domain: `"FUSOU-IDENTITY-CLAIM-V1"`, `uint16_be(len)`）によりバイト列を安全に固定する。  
->    - **Attestation 再利用の DB 遮断**: `member_ownership_claims` テーブルに `UNIQUE (tlsn_attestation_id)` 制約を課し、同一 Attestation による二重 Claim を確実に拒絶する。  
+>    - **Trust Authority の厳格な分離**:  
+>      - **`Cryptographic Verification Authority` (`TLSNotary Verifier`)**: Web PKI、Attestation Proof、`transcript_commitments` による Transcript Proof の暗号検証、開示平文バイト列および `Attestation.header().id` の抽出・認証付き結果返却。  
+>      - **`Application / Identity / Dataset Authorization Authority` (`FUSOU-WEB` & Supabase)**: 開示平文からの唯一の Canonical Application Parser（Zod）による `verified_member_id` 抽出、DB-backed One-Time Challenge の発行・単一消費管理、`ClaimBindingBytes` 署名検証、DB Claim、Dataset Token 発行。  
+>    - **`ClaimBindingBytes` への `proof_purpose` 導入 & 公式 canonical byte 採用**:  
+>      `ClaimBindingBytes` には用途識別子 `proof_purpose = "GAME_ACCOUNT_IDENTITY_V1"` および TLSNotary 公式 canonical serialization による `tlsn_attestation_id = Attestation.header().id` を格納し、Length-delimited binary framing（Domain: `"FUSOU-IDENTITY-CLAIM-V1"`, `uint16_be(len)`）によりバイト列を安全に固定する。  
+>    - **Attestation 再利用の DB 遮断 (Anti-Reuse)**:  
+>      同一 Attestation に対し複数 Presentation が生成された場合でも、`member_ownership_claims` テーブルの `UNIQUE (tlsn_attestation_id)` 制約により、Identity Claim は Attestation 単位で 1 度しか行えない。  
 > 6. **`member_id_hash` / Pepper の完全廃止（UUID `public_id` への一本化）**:  
 >    `member_id_hash`、`anon_sync_pepper_runtime`、`anon_sync_pepper_versions`、Vault secret、Pepper rotation、HMAC 計算、hash version を**完全に廃止・削除**し、`public_id`（UUIDv4）を唯一の内部 Dataset Identity として使用する。  
 > 7. **`api_member_id` と `public_id` の責務完全分離**:  
@@ -39,7 +43,7 @@
 >     `Game Identity Verified + Device Authorized + Social Account Bound` の 3 条件がすべて揃った時点で `dataset_token` を発行し、事前発行は行わない。  
 > 13. **Fallback 時のステータス明示**:  
 >     Notary 障害時は `GAMEPLAY_OK / IDENTITY_UNVERIFIED / DATASET_TOKEN_NOT_ISSUED` の状態へ安全にフォールバックし、ゲームプレイを継続する。  
-> **ステータス**: 実装開始前最終確定・完全凍結版マスター仕様書 (Freeze for Phase 0)  
+> **ステータス**: 暗号プロトコル・認証境界・Attestation一意性 完全確定版マスター仕様書  
 
 ---
 
@@ -47,12 +51,12 @@
 
 1. [Goal（目標と概念の整理）](#1-goal目標と概念の整理)
 2. [Threat Model & Attack Scenario Trace（脅威モデルと攻撃シナリオ追跡）](#2-threat-model--attack-scenario-trace脅威モデルと攻撃シナリオ追跡)
-3. [Trust Boundary & Authority Separation（信頼境界 & 認証・検証機関の分離）](#3-trust-boundary--authority-separation信頼境界--認証検証機関の分離)
+3. [Trust Boundary & Authority Separation（検証機関・認可機関の厳格分離）](#3-trust-boundary--authority-separation検証機関認可機関の厳格分離)
 4. [Identity Architecture & Invariant（ID基盤と不変条件の段階的成立）](#4-identity-architecture--invariantid基盤と不変条件の段階的成立)
 5. [Social Account Binding (`web_user_member_map`) & 状態モデル](#5-social-account-binding-web_user_member_map--状態モデル)
 6. [Member State Machine（身元確認ステートマシン & 乗っ取り防止ルール）](#6-member-state-machine身元確認ステートマシン--乗っ取り防止ルール)
 7. [TLSNotary Ownership Proof (`POST /kcsapi/api_get_member/require_info`)](#7-tlsnotary-ownership-proof-post-kcsapiapi_get_memberrequire_info)
-8. [Device ↔ Proof Binding（Attestation.header().id と Byte Layout 完全固定）](#8-device--proof-bindingattestationheaderid-と-byte-layout-完全固定)
+8. [Device ↔ Proof Binding（proof_purpose, Attestation.header().id, Byte Layout 完全固定）](#8-device--proof-bindingproof_purpose-attestationheaderid-byte-layout-完全固定)
 9. [Claim Transaction（アトミック身元確定・奪還トランザクション 全10ステップ）](#9-claim-transactionアトミック身元確定奪還トランザクション-全10ステップ)
 10. [Preemptive Registration Attack（事前登録攻撃の無力化と安全なRevoke）](#10-preemptive-registration-attack事前登録攻撃の無力化と安全なrevoke)
 11. [Concurrent Claim Handling（64-bit Advisory Lock & 親行ロック契約）](#11-concurrent-claim-handling64-bit-advisory-lock--親行ロック契約)
@@ -115,7 +119,7 @@ FUSOU の匿名同期システム（`anonymous-sync-v2`）において、悪意�
 
 ---
 
-## 3. Trust Boundary & Authority Separation（信頼境界 & 認証・検証機関の分離）
+## 3. Trust Boundary & Authority Separation（検証機関・認可機関の厳格分離）
 
 ```
                      UNTRUSTED ZONE
@@ -143,19 +147,21 @@ FUSOU の匿名同期システム（`anonymous-sync-v2`）において、悪意�
 │  - Verify Web PKI Certificate Chain                    │
 │  - Verify Attestation Proof & Merkle Root              │
 │  - Verify Transcript Proof with transcript_commitments │
-│  - Extract & Canonicalize verified_member_id           │
-│  - Extract Attestation.header().id                     │
-│  - Return Signed Verification Result (if Dedicated)   │
+│  - Extract Attestation.header().id (canonical bytes)   │
+│  - Return Authenticated Verification Result:           │
+│    { tlsn_attestation_id, revealed_req, revealed_recv,  │
+│      notary_key_id, server_identity, verified_at, sig } │
 └───────────────────────────┬────────────────────────────┘
-                            │ Verified Plaintext & Attestation.header().id
+                            │ Authenticated Verification Result
                             ▼
 ┌────────────────────────────────────────────────────────┐
 │ FUSOU-WEB (Application / Authorization Authority)      │
 │                                                        │
+│  - Verify Verifier Signature (if Dedicated)            │
+│  - Parse canonical verified_member_id (Zod Parser)     │
 │  - Derive expected_public_id from verified_member_id   │
 │  - Issue Server One-Time Challenge into DB (5min TTL)  │
 │  - Verify ClaimBindingBytes Ed25519 Device Signature   │
-│  - Strict Server-Side Canonical Validation (Zod)       │
 │  - Issue Dataset Token post-verification               │
 └───────────────────────────┬────────────────────────────┘
                             │
@@ -166,7 +172,7 @@ FUSOU の匿名同期システム（`anonymous-sync-v2`）において、悪意�
 │  - 64-bit Advisory Lock & Row-Level Locking            │
 │  - Atomic Ownership Transfer (Strict 10 Steps)         │
 │  - Enforce Quad Invariant (Post-Social Binding)        │
-│  - Enforce Unique tlsn_attestation_id (Anti-Reuse)     │
+│  - Enforce Unique (tlsn_attestation_id, proof_purpose) │
 │  - Atomic Challenge & Proof Consumption Enforcement    │
 │  - Append-Only Audit Trail with proof_purpose          │
 │                                                        │
@@ -175,7 +181,7 @@ FUSOU の匿名同期システム（`anonymous-sync-v2`）において、悪意�
 ```
 
 > **RPC の Security Boundary（前提条件）**:  
-> `claim_verified_device_v3` は、**呼び出し元である FUSOU-WEB が TLSNotary Proof の暗号署名・Merkle Root・Web PKI およびサーバー導出 `expected_public_id` と Server Challenge に基づく `ClaimBindingBytes` 署名を完全検証済みであることを前提** とします。未検証の証明書や改ざんされた平文が直接 RPC に渡されることはありません。
+> `claim_verified_device_v3` は、**呼び出し元である FUSOU-WEB が TLSNotary Verifier の暗号検証結果・開示平文からのカノニカルパースおよびサーバー導出 `expected_public_id` と Server Challenge に基づく `ClaimBindingBytes` 署名を完全検証済みであることを前提** とします。未検証の証明書や改ざんされた平文が直接 RPC に渡されることはありません。
 
 ---
 
@@ -247,7 +253,7 @@ stateDiagram-v2
 
 ---
 
-## 8. Device ↔ Proof Binding（Attestation.header().id と Byte Layout 完全固定）
+## 8. Device ↔ Proof Binding（proof_purpose, Attestation.header().id, Byte Layout 完全固定）
 
 Proof P と提出端末 Device A を暗号学的に不可分にバインドするため、以下の 4 ステップ Challenge-Response を実行します：
 
@@ -260,8 +266,9 @@ sequenceDiagram
     participant DB as Supabase DB
 
     Client->>Verifier: 1. Submit TLSNotary Presentation (require_info)
-    Note over Verifier: Verify Web PKI, Notary Sig, Body Root<br/>Verify Transcript Proof with transcript_commitments<br/>Extract verified_member_id & Attestation.header().id
-    Verifier-->>Web: 2. Return Verification Result (verified_member_id, tlsn_attestation_id)
+    Note over Verifier: Verify Web PKI, Notary Sig, Body Root<br/>Verify Transcript Proof with transcript_commitments<br/>Extract Attestation.header().id (canonical bytes)
+    Verifier-->>Web: 2. Return Authenticated Result (tlsn_attestation_id, revealed_req, revealed_recv, sig)
+    Note over Web: Parse canonical verified_member_id (Zod Parser)<br/>Derive expected_public_id
     Web->>DB: 3. rpc_register_public_id(verified_member_id)
     DB-->>Web: Return expected_public_id
     Web->>DB: 4. Insert Claim Challenge (5min TTL)
@@ -277,15 +284,16 @@ sequenceDiagram
 | 順序 | フィールド名 | データ型 / エンコーディング | バイト長 | 説明 |
 |:---:|---|---|---|---|
 | 1 | `domain_tag` | Raw ASCII bytes | 23 bytes | `"FUSOU-IDENTITY-CLAIM-V1"` |
-| 2 | `tlsn_attestation_id` | Exact Binary Bytes | $N$ bytes (Phase 0 固定) | `Attestation.header().id` |
-| 3 | `verified_member_id` | UTF-8 decimal ASCII | 1〜16 bytes | 検証済みゲームアカウント ID（例: `"12345678"`） |
-| 4 | `device_id` | Binary UUID (RFC 4122 Big-endian) | 16 bytes | 提出端末の Device UUID |
-| 5 | `expected_public_id` | Binary UUID (RFC 4122 Big-endian) | 16 bytes | サーバー導出 Dataset UUID |
-| 6 | `challenge_id` | Binary UUID (RFC 4122 Big-endian) | 16 bytes | サーバー発行 Challenge UUID |
-| 7 | `challenge_nonce` | Raw Binary Bytes | 32 bytes | サーバー発行 One-Time Nonce |
+| 2 | `proof_purpose` | Raw ASCII bytes | 23 bytes | `"GAME_ACCOUNT_IDENTITY_V1"` |
+| 3 | `tlsn_attestation_id` | TLSNotary Canonical Bytes | $N$ bytes (Phase 0 固定) | `Attestation.header().id` の公式シリアライズバイト列 |
+| 4 | `verified_member_id` | UTF-8 decimal ASCII | 1〜16 bytes | 検証済みゲームアカウント ID（例: `"12345678"`） |
+| 5 | `device_id` | Binary UUID (RFC 4122 Big-endian) | 16 bytes | 提出端末の Device UUID |
+| 6 | `expected_public_id` | Binary UUID (RFC 4122 Big-endian) | 16 bytes | サーバー導出 Dataset UUID |
+| 7 | `challenge_id` | Binary UUID (RFC 4122 Big-endian) | 16 bytes | サーバー発行 Challenge UUID |
+| 8 | `challenge_nonce` | Raw Binary Bytes | 32 bytes | サーバー発行 One-Time Nonce |
 
 * **署名対象バイト列（Length-Delimited Binary Framing）**:
-  $$\text{ClaimBindingBytes} = \text{u16}(23) \Vert \text{"FUSOU-IDENTITY-CLAIM-V1"} \Vert \text{u16}(\text{len(att\_id)}) \Vert \text{att\_id} \Vert \text{u16}(\text{len(mid)}) \Vert \text{mid} \Vert \text{u16}(16) \Vert \text{dev} \Vert \text{u16}(16) \Vert \text{pub} \Vert \text{u16}(16) \Vert \text{cid} \Vert \text{u16}(32) \Vert \text{nonce}$$
+  $$\text{ClaimBindingBytes} = \text{u16}(23) \Vert \text{"FUSOU-IDENTITY-CLAIM-V1"} \Vert \text{u16}(23) \Vert \text{"GAME_ACCOUNT_IDENTITY_V1"} \Vert \text{u16}(\text{len(att\_id)}) \Vert \text{att\_id} \Vert \text{u16}(\text{len(mid)}) \Vert \text{mid} \Vert \text{u16}(16) \Vert \text{dev} \Vert \text{u16}(16) \Vert \text{pub} \Vert \text{u16}(16) \Vert \text{cid} \Vert \text{u16}(32) \Vert \text{nonce}$$
   $$\text{ClaimSignature} = \text{Ed25519\_Sign}(sk_{\text{device}}, \text{ClaimBindingBytes})$$
 
 ---
@@ -301,7 +309,7 @@ sequenceDiagram
 5. **Parent Mapping Row Lock**: 親行 `member_id_mapping` に対する `FOR UPDATE` ロック。
 6. **Current Ownership Row Lock**: 現在の `member_ownership` レコードの `FOR UPDATE` ロック。
 7. **Ownership Rule 判定**: 初回公証 / 事前登録攻撃者からの奪還 / 別アカウント乗っ取り拒絶の判定。
-8. **Audit Record Insert**: `member_ownership_claims` への監査ログ追記（`proof_purpose = 'GAME_ACCOUNT_IDENTITY_V1'`, `tlsn_attestation_id`, `notary_time`, `notary_key_id` 含む）。
+8. **Audit Record Insert**: `member_ownership_claims` への監査ログ追記（`proof_purpose = p_proof_purpose`, `tlsn_attestation_id`, `notary_time`, `notary_key_id` 含む）。
 9. **Device Verification Update**: 当該デバイスの `is_verified = TRUE` 昇格およびバインド更新。
 10. **Result Return**: 確定された所有権メタデータの JSON 返却。
 
@@ -453,7 +461,8 @@ CREATE OR REPLACE FUNCTION public.claim_verified_device_v3(
   p_notary_time TIMESTAMPTZ,
   p_challenge_id UUID,
   p_challenge_nonce BYTEA,
-  p_notary_key_id TEXT DEFAULT NULL
+  p_notary_key_id TEXT DEFAULT NULL,
+  p_proof_purpose TEXT DEFAULT 'GAME_ACCOUNT_IDENTITY_V1'
 )
 RETURNS JSONB
 LANGUAGE plpgsql
@@ -573,7 +582,7 @@ BEGIN
     public_id, canonical_user_id, verified_device_id, tlsn_attestation_id, notary_time, notary_key_id, proof_purpose, claim_type
   )
   VALUES (
-    v_public_id, v_canonical_user_id, p_device_id, p_tlsn_attestation_id, p_notary_time, p_notary_key_id, 'GAME_ACCOUNT_IDENTITY_V1', v_claim_type
+    v_public_id, v_canonical_user_id, p_device_id, p_tlsn_attestation_id, p_notary_time, p_notary_key_id, p_proof_purpose, v_claim_type
   );
 
   -- Step 9. 当該デバイスを verified に昇格 & 正当な Canonical User にバインド
@@ -657,7 +666,7 @@ pnpm vitest run tests/tlsn-verifier.test.ts
 1. **Phase 0 (ADR-000 Data Plane PoC & Verifier Benchmark)**:
    - `POST /kcsapi/api_get_member/require_info` における Prover 統合と MPC 復号遅延の動作実測（P95 < 300ms）。
    - TLSNotary exact git tag/commit revision の確定。
-   - `Attestation.header().id` のバイナリ抽出ルーチン確定。
+   - `Attestation.header().id` の公式 canonical serialization バイト抽出ルーチン確定。
    - Cloudflare Workers vs Dedicated Rust Verifier のベンチマーク比較。
 2. **Phase 1 (DB マイグレーション & pepper.ts 置換)**:
    - `packages/FUSOU-WEB/src/server/utils/pepper.ts` を、DB-backed One-Time Challenge（`public.claim_challenges`）および Ed25519 署名検証を行う **`packages/FUSOU-WEB/src/server/utils/device-auth.ts`** へ完全移行・改称。
@@ -672,7 +681,7 @@ pnpm vitest run tests/tlsn-verifier.test.ts
 - [D] ゲーム通信に外部プロキシを使用しない直接接続設計
 - [D] FUSOU 生成の二重送信ゼロ設計（Design Requirement & Verification Instrument）
 - [D] MPC 復号遅延と Proof 後処理（非同期化）の 3 段階分離設計
-- [D] `ClaimBindingBytes` の厳密な Byte Layout & Binary Framing 設計（`Attestation.header().id` 公式識別子）
+- [D] `ClaimBindingBytes` の厳密な Byte Layout & Binary Framing 設計（`proof_purpose` + `Attestation.header().id` 公式識別子）
 - [D] Server-issued One-Time Challenge の DB 管理 & 単一消費ライフサイクル設計
 - [D] 同一 Attestation の多重 Claim 遮断（`UNIQUE (tlsn_attestation_id)`）設計
 - [D] `member_id_hash` / Pepper 体系の完全削除と UUID `public_id` への一本化
