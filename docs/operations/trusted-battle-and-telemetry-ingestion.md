@@ -246,7 +246,7 @@ v1 では、**自己申告で Dataset Token を取得できるコード経路を
 │  - Enforce Quad Invariant (Post-Social Binding)        │
 │  - Enforce UNIQUE (tlsn_attestation_id) (Anti-Reuse)   │
 │  - Atomic Challenge & Proof Consumption Enforcement    │
-│  - Append-Only Audit Trail with proof_purpose & spans  │
+│  - Append-Only Audit Trail (UPDATE/DELETE physically prevented by ON DELETE RESTRICT & trg_protect_member_claims_audit) with proof_purpose & spans  │
 │                                                        │
 │  Stored State = ACCEPTED Verified Evidence Only        │
 └────────────────────────────────────────────────────────┘
@@ -754,7 +754,7 @@ COMMIT;
 - [D] ゲーム通信に外部プロキシを使用しない直接接続設計
 - [D] FUSOU 生成の二重送信ゼロ設計（Game Server observed requests = 1）
 - [D] 旧 `/anonymous-sync/v2/register` および `pending` 自己申告登録の完全根絶設計（Call graph 0本）
-- [D] MPC 復号遅延と Proof 後処理（非同期化）のイベント分離 (T0〜T6)
+- [D] MPC 復号遅延と Proof 後処理（非同期化）のイベント分離 (T0〜T6) および、fusou-proxy-tlsn 内部における MPC 復号ストリームからの Gameplay 転送と EvidenceFrame (session_id, request_id, response_id, transcript_range, raw_bytes 定義による TLSNotary Transcript との同一性の型レベル保証) の単一ストリーム分離（Single Stream Fork）設計
 - [D] `ClaimBindingBytes` の厳密な Byte Layout & Binary Framing 設計（`proof_purpose` 24B US-ASCII + `Attestation.header().id`）
 - [D] 初回 Claim 決定論的 8 ステップ順序（Lock -> PublicID -> Challenge -> Signature -> Atomic Commit）
 - [D] Server-issued One-Time Challenge の DB 管理 & 単一消費ライフサイクル設計（32-byte CSPRNG BYTEA）
@@ -763,13 +763,13 @@ COMMIT;
 - [D] Telemetry ペイロードからの所属識別子完全排除 & 提出時点 Immutable 帰属設計
 - [D] Dual Authentication & `telemetry_nonces`（30分保持）による Replay Protection 設計
 - [D] Telemetry 7 段階検証順序 & 新規時 Nonce 消費・INSERT 同一トランザクション設計
-- [D] `member_id_hash` / Pepper 体系の完全削除と UUID `public_id` への一本化
-- [D] Quad Invariant（$\text{verified\_user\_id} \equiv \text{canonical\_user\_id} \equiv \text{user\_id} \equiv \text{web\_user\_id}$）の段階的成立定義
-- [D] 64-bit Advisory Lock & 親行ロック契約による並行実行競合排除設計
-- [D] `member_ownership`（現在状態）と `member_ownership_claims`（拡張監査履歴）の分離
-- [D] 排他ロック取得後の Proof / Attestation Consumption Policy（重複消費排除）設計
+- [D] Pepper バージョン管理の導入 (v_hash_version の `anon_sync_pepper_runtime` からの動的取得) & Triple Owner Invariant (`member_ownership.verified_user_id` ≡ `user_devices.canonical_user_id` ≡ `user_member_map.user_id`) の成立定義
+- [D] Quad Invariant（$\text{verified\_user\_id} \equiv \text{canonical\_user\_id} \equiv \text{user\_id} \equiv \text{web\_user\_id}$）の段階的成立定義 (member_id_hash_version 記録を含む)
+- [D] 64-bit Advisory Lock & 親行ロック契約により衝突確率を十分に低減する設計
+- [D] `member_ownership`（現在状態）と `member_ownership_claims`（ON DELETE RESTRICT とトリガー trg_protect_member_claims_audit により、DB レベルで UPDATE/DELETE を物理禁止する真の Append-Only 監査履歴）の分離
+- [D] Advisory Lock 取得後の Proof / Attestation Consumption Policy（同一 transcript_commitment の多重消費を DUPLICATE_PROOF_CONSUMED で即時遮断）設計、および claim_verified_device_v3 は FUSOU-WEB が TLSNotary を完全検証済みであることを前提とする Security Boundary の明文化
 - [D] Security Invariant $\rightarrow$ Enforcement $\rightarrow$ Test 対応表の定義
-- [P] Phase 0 PoC（GO/NO-GO 基準付き実測検証 24 項目 / Mock Server 先行）
+- [P] Phase 0 PoC（公式 tlsn-extension を参考とした prove() / compute_reveal() / handler 機構の調査・流用方針の策定、および alpha 版特定 API への過度な依存排除）
 - [P] Verifier 実行環境ベンチマーク（Workers vs Dedicated Rust Verifier）および exact TLSNotary revision 固定
 - [I] 実装および DB マイグレーション適用
 - [T] 単体テスト・端末すり替え遮断テスト・Attestation 再利用遮断テスト
