@@ -19,9 +19,9 @@
 >    - **T4〜T6 (非同期後処理)**: Notary 署名・Attestation 生成 $\rightarrow$ Verifier 検証 $\rightarrow$ DB Claim コミット（Identity completion）。  
 > 5. **Selective Disclosure（最小構造開示）& JS Number 変換完全禁止**:  
 >    - TLSNotary の Selective Disclosure では、Response 内の `HTTP/1.1 200 OK`、`svdata=`、`"api_result": 1`、`"api_data": { "api_basic": { "api_member_id": <digits> } }` を含む **必要最小限の構造化 Byte Range** を開示する。  
->    - FUSOU-WEB の Canonical Identity Parser（`packages/FUSOU-WEB/src/server/utils/require_info_parser.ts` [Planned File]）は、`JSON.parse()` を通さず raw ASCII / UTF-8 バイト列から **バイトレベルのトークン抽出（`"api_member_id": <digits>`）により Decimal ASCII 文字列（`^[0-9]{1,16}$`）として直接抽出・前置ゼロ正規化** し、IEEE 754 浮動小数点数による丸め誤差を 100% 排除する。  
+>    - FUSOU-WEB の Canonical Identity Parser（`packages/FUSOU-WEB/src/server/utils/require_info_parser.ts` [Planned File]）は、`JSON.parse()` による IEEE 754 丸め誤差や、Regex・部分一致検索の脆弱性を 100% 排除するため、**専用の Strict Lossless JSON Tokenizer を用いて `/api_data/api_basic/api_member_id` の JSON Pointer 階層構造を厳密に辿り、エスケープなしの ASCII digits トークンとして直接抽出** します。
 > 6. **Device ↔ Proof の暗号学的バインディング（長さ 24 bytes `proof_purpose` & 完全固定 Binary Layout）**:  
->    - `public_id` はクライアントが任意選択せず、サーバーが `verified_member_id` から導出する。  
+>    - `public_id` はクライアントが任意選択せず、サーバーが `verified_member_id` に対してランダムな UUIDv4 を一度だけ割り当て・永続化する。  
 >    - **Trust Authority の厳格な分離**:  
 >      - **`Cryptographic Verification Authority` (`FUSOU Dedicated Verifier`)**: Prover との MPC-TLS 共同復号（MPC Verifier）および Session Header 署名（Notary）を担当し、Attestation Proof、`transcript_commitments` による Transcript Proof の暗号検証、開示平文バイト列および `Attestation.header().id` の抽出・認証付き結果返却（Ed25519 署名 / Key Registry 仕様 / FUSOU-WEB と秘密鍵非共有）を行う。  
 >      - **`Application / Identity / Dataset Authorization Authority` (`FUSOU-WEB` & Supabase)**: 開示平文からの唯一の Canonical Application Parser による `verified_member_id` 抽出、DB-backed One-Time Challenge（`public.claim_challenges` / 32-byte CSPRNG `BYTEA` / 5分 TTL / 単一消費）の発行・単一消費管理、`ClaimBindingBytes` raw bytes 署名検証（`verifyEd25519ClaimBinding`）、DB Claim、Dataset Token 発行。  
@@ -187,14 +187,14 @@ v1 ではこの自己申告エンドポイントおよび未検証の匿名ユ�
 │  - Enforce Quad Invariant (Post-Social Binding)        │
 │  - Enforce UNIQUE (tlsn_attestation_id) (Anti-Reuse)   │
 │  - Atomic Challenge & Proof Consumption Enforcement    │
-│  - Append-Only Audit Trail (UPDATE/DELETE physically prevented by ON DELETE RESTRICT & trg_protect_member_claims_audit) with proof_purpose & spans  │
+│  - Append-Only Audit Trail (Parent cascade prevented by ON DELETE RESTRICT; row modifications physically prevented by REVOKE UPDATE, DELETE and trg_protect_member_claims_audit) with proof_purpose & spans  │
 │                                                        │
 │  Stored State = ACCEPTED Verified Evidence Only        │
 └────────────────────────────────────────────────────────┘
 ```
 
 > **RPC の Security Boundary（前提条件）**:  
-> `claim_verified_device_v3` は、**呼び出し元である FUSOU-WEB が TLSNotary Verifier の暗号検証結果・開示平文からのカノニカルパース（Decimal ASCII 文字列抽出）およびサーバー導出 `expected_public_id` と Server Challenge に基づく `ClaimBindingBytes` 署名を完全検証済みであることを前提** とします。未検証の証明書や改ざんされた平文が直接 RPC に渡されることはありません。
+> `claim_verified_device_v3` は、**呼び出し元である FUSOU-WEB が TLSNotary Verifier の暗号検証結果・開示平文からのカノニカルパース（Decimal ASCII 文字列抽出）およびサーバーが割り当てた `expected_public_id` と Server Challenge に基づく `ClaimBindingBytes` 署名を完全検証済みであることを前提** とします。未検証の証明書や改ざんされた平文が直接 RPC に渡されることはありません。
 
 ---
 
@@ -248,20 +248,18 @@ public_id = UUIDv4 (Random UUID: Dataset U1)
 
 ```mermaid
 stateDiagram-v2
-    [*] --> UNCLAIMED: 初期状態 (未登録)
+    [*] --> UNCLAIMED: Dataset未登録
     
-    UNCLAIMED --> PRE_REGISTERED: 自己申告による仮登録 (旧互換・未検証Dataset Claim)
-    UNCLAIMED --> VERIFIED: 初回から TLSNotary 証明を提出 (正規身元確定)
-    
-    PRE_REGISTERED --> VERIFIED: 本物のプレイヤーが require_info 証明を提出<br/>【アトミック所有権奪還: 攻撃者をRevoke & 新規Owner UUIDへ切替】
-    
-    VERIFIED --> VERIFIED: 同一オーナーによる追加端末登録 (属性: user_devices 追加)
-    VERIFIED --> VERIFIED: 別ユーザーからのClaim試行 ──▶ 拒絶 (403 Conflict)
+    UNCLAIMED --> TLSN_VERIFIED: (1) TLSNotary Attestation 検証完了
+    TLSN_VERIFIED --> DEVICE_VERIFIED: (2) PENDING Device 登録 & Challenge 署名検証完了
+    DEVICE_VERIFIED --> GAME_IDENTITY_VERIFIED: (3) Atomic Claim 確定 (member_id 帰属)
+    GAME_IDENTITY_VERIFIED --> SOCIAL_ACCOUNT_BOUND: (4) OAuth 連携 (user_member_map)
+    SOCIAL_ACCOUNT_BOUND --> DATASET_TOKEN_ISSUED: (5) Token 発行可能
 ```
 
 > **重要原則**:  
-> 1. `PRE_REGISTERED` は「未検証の Game Identity」ではなく「未検証の Dataset Claim（自己申告による仮登録）」であり、この状態の Dataset が正規の `member_id` であるとは扱いません。  
-> 2. **Game Account Owner は一度確立したら原則不変**。Device の追加・失効のみ可能であり、所有者変更は別途明示的な Recovery/Transfer プロトコルを必要とします。
+> 1. `GAME_IDENTITY_VERIFIED`（Game Accessの証明）と `SOCIAL_ACCOUNT_BOUND`（Web側の所有証明）は明確に分離されます。  
+> 2. 過去のV2自己申告による `PRE_REGISTERED` という状態はランタイム上から**完全に削除**されます。過去に自己申告されたデータに対しては、`GAME_IDENTITY_VERIFIED` に達した本物のプレイヤーのClaimが到達した時点で、旧未検証Deviceを強制Revokeし、正規所有者へアトミックに上書き奪還します（レガシーリカバリ）。
 
 ---
 
@@ -307,7 +305,7 @@ sequenceDiagram
 | 3 | `tlsn_attestation_id` | TLSNotary Canonical Bytes | $N$ bytes (Phase 0 固定) | `Attestation.header().id` の公式シリアライズバイト列 |
 | 4 | `verified_member_id` | UTF-8 decimal ASCII | 1〜16 bytes | 検証済みゲームアカウント ID（例: `"12345678"`） |
 | 5 | `device_id` | Binary UUID (RFC 4122 Big-endian) | 16 bytes | 提出端末の Device UUID |
-| 6 | `expected_public_id` | Binary UUID (RFC 4122 Big-endian) | 16 bytes | サーバー導出 Dataset UUID |
+| 6 | `expected_public_id` | Binary UUID (RFC 4122 Big-endian) | 16 bytes | サーバー割当 Dataset UUID |
 | 7 | `challenge_id` | Binary UUID (RFC 4122 Big-endian) | 16 bytes | サーバー発行 Challenge UUID |
 | 8 | `challenge_nonce` | Raw Binary Bytes | 32 bytes | サーバー発行 One-Time Nonce (`crypto.getRandomValues`) |
 
@@ -325,18 +323,17 @@ sequenceDiagram
 1. **Step 1 (Verified Member ID 受領)**: FUSOU-WEB が TLSNotary Verifier から Authenticated Verifier Result を受領し、`parseCanonicalRequireInfo` により `verified_member_id` を抽出。
 2. **Step 2 (64-bit Advisory Lock 取得)**: FUSOU-WEB が `member_id` に基づく 64-bit Advisory Lock を取得。
 3. **Step 3 (Public ID 確定)**: `public.member_id_mapping` に対する atomic get-or-create を実行し、`public_id` を確定。
-4. **Step 4 (PENDING Device 登録 & Server Challenge 発行)**: クライアントは `device_id` と `device_public_key` のみを提示。FUSOU-WEBはサーバーサイドで解決した `public_id` と OAuthの `authenticated_user` を元に、`is_verified = FALSE` (PENDING状態、24h TTL) として `user_devices` へ INSERT し、そのデバイスに対して `public.claim_challenges` (5分 TTL) を発行。
-   - ※クライアントからの `public_id` や `canonical_user_id` の指定は一切拒絶する。
-   - ※Challenge発行前に、`member_ownership_claims` および発行済み `claim_challenges` を確認し、同一 `tlsn_attestation_id` または同一 `result_id` による無制限な Challenge 発行 (Idempotency Replay Attack) を事前に遮断する。
-5. **Step 5 (ClaimBindingBytes 構築 & 署名)**: 端末が `(domain, purpose, attestation_id, verified_member_id, device_id, expected_public_id, challenge_id, challenge_nonce)` から `ClaimBindingBytes` を構築し、端末秘密鍵で Ed25519 署名。※`public_key` は署名対象に含めず、サーバー側で `user_devices` から取得する。
-6. **Step 6 (Claim 提出 & 署名検証)**: クライアントが FUSOU-WEB へ Claim 提出。FUSOU-WEB が `verifyEd25519ClaimBinding(pubkey, bytes, sig)` で raw byte 署名を検証。
-7. **Step 7 (Atomic DB Commit)**: `claim_verified_device_v3` を実行し、以下の条件をアトミックに検証・適用：
+4. **Step 4 (PENDING Device 独立登録)**: FUSOU-WEB は独立した別トランザクションとして、クライアントから提示された `device_public_key` を元に、サーバーが生成した `device_id` と OAuth の `authenticated_user` を紐付け `is_verified = FALSE` (24h TTL) で `user_devices` へ INSERT します。※クライアントからの `public_id` や `canonical_user_id` の直接指定は完全に拒絶し、DB上で `authenticated_user ↓ PENDING Device ↓ public_id` の束縛を確立します。
+5. **Step 5 (Server Challenge 発行)**: 登録した PENDING デバイスに対して `public.claim_challenges` (5分 TTL) を発行。※発行前に `member_ownership_claims` 等を確認し同一 `result_id` での無制限 Challenge 取得を遮断します。
+6. **Step 6 (ClaimBindingBytes 構築 & 署名)**: 端末が `(domain, purpose, attestation_id, verified_member_id, device_id, expected_public_id, challenge_id, challenge_nonce)` から `ClaimBindingBytes` を構築し、端末秘密鍵で Ed25519 署名。※`public_key` は署名対象に含めず、サーバー側で `user_devices` から取得する。
+7. **Step 7 (Claim 提出 & 署名検証)**: クライアントが FUSOU-WEB へ Claim 提出。FUSOU-WEB が `verifyEd25519ClaimBinding(pubkey, bytes, sig)` で raw byte 署名を検証。
+8. **Step 8 (Atomic DB Commit)**: `claim_verified_device_v3` を実行しアトミックに検証・適用：
    - Challenge 単一消費 (`consumed_at = NOW()`)
    - `UNIQUE(tlsn_attestation_id)` 検証 (再利用防止)
-   - `authenticated_user == PENDING device.canonical_user_id` および `device.public_id == expected_public_id` の一致検証
+   - `authenticated_user == PENDING device.canonical_user_id` および `device.public_id == expected_public_id` の一致再検証
    - `member_ownership_claims` への Audit Log 記録
    - Device を `is_verified = TRUE` へ昇格 (VERIFIED化)
-   ※ 同一Attestation + 同一Device + 同一public_id の場合は idempotent success（再ログイン扱い）とし、それ以外のAttestation重複利用は拒絶する。
+   ※ `claim_verified_device_v3` は暗号学的検証器ではなく、**FUSOU-WEB による署名検証と認可境界を信頼して DB を更新する内部 RPC** です。クライアントからの直接呼び出しは完全に禁止 (`REVOKE EXECUTE FROM PUBLIC`) されます。
 
 ### 9.2 DB トランザクション内部 10 ステップ (claim_verified_device_v3)
 1. **Advisory Lock 取得**: 64-bit キーによるトランザクション排他ロック（Claim / Revoke 共通ロックドメイン）。
@@ -471,7 +468,7 @@ CREATE TABLE IF NOT EXISTS public.member_ownership (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- 3. 所有権 Claim 監査履歴テーブル (通常アプリケーション経路でUPDATE/DELETE禁止のAppend-Only Audit Trail)
+-- 3. 所有権 Claim 監査履歴テーブル (通常アプリケーション経路でUPDATE/DELETEを禁止するAppend-Only Audit Trail。REVOKE UPDATE, DELETEとトリガーで強制し、ON DELETE RESTRICTで親削除巻き込みを防止する)
 CREATE TABLE IF NOT EXISTS public.member_ownership_claims (
     claim_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     public_id UUID NOT NULL REFERENCES public.member_id_mapping(public_id) ON DELETE RESTRICT,
@@ -819,7 +816,7 @@ COMMIT;
 - [D] `member_id_hash` / Pepper 体系の完全削除と UUID `public_id` への一本化
 - [D] Quad Invariant（$\text{verified\_user\_id} \equiv \text{canonical\_user\_id} \equiv \text{user\_id} \equiv \text{web\_user\_id}$）の段階的成立定義
 - [D] 64-bit Advisory Lock & 親行ロック契約により衝突確率を十分に低減する設計
-- [D] `member_ownership`（現在状態）と `member_ownership_claims`（ON DELETE RESTRICT とトリガー trg_protect_member_claims_audit により、DB レベルで UPDATE/DELETE を物理禁止する真の Append-Only 監査履歴）の分離
+- [D] `member_ownership`（現在状態）と `member_ownership_claims`（REVOKE UPDATE, DELETE とトリガー trg_protect_member_claims_audit によりDBレベルで行の変更を物理禁止し、ON DELETE RESTRICTで親削除から守る真の Append-Only 監査履歴）の分離
 - [D] Advisory Lock 取得後の Proof / Attestation Consumption Policy（同一 transcript_commitment の多重消費を DUPLICATE_PROOF_CONSUMED で即時遮断）設計、および claim_verified_device_v3 は FUSOU-WEB が TLSNotary を完全検証済みであることを前提とする Security Boundary の明文化
 - [D] Security Invariant $\rightarrow$ Enforcement $\rightarrow$ Test 対応表の定義
 - [P] Phase 0 PoC（公式 tlsn-extension を参考とした prove() / compute_reveal() / handler 機構の調査・流用方針の策定、および alpha 版特定 API への過度な依存排除）

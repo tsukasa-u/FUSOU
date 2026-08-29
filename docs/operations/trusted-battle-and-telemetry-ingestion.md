@@ -18,9 +18,9 @@
 >    - FUSOU v1 が保証するのは **「この Telemetry が、Game Account A にバインドされた Dataset U1 の正規 Credential から提出された事実（Credential Attribution）」** であり、**「この Telemetry が、現在 Game Server 上でリアルタイムにプレイされているゲームセッションとリアルタイムに一致していること（Real-time Session Freshness）」までは保証しない（Non-Guarantee）**。  
 > 4. **Selective Disclosure（最小構造開示）& JS Number 変換完全禁止**:  
 >    - TLSNotary の Selective Disclosure では、Response 内の `HTTP/1.1 200 OK`、`svdata=`、`"api_result": 1`、`"api_data": { "api_basic": { "api_member_id": <digits> } }` を含む **必要最小限の構造化 Byte Range** を開示する。  
->    - FUSOU-WEB の Canonical Identity Parser（`packages/FUSOU-WEB/src/server/utils/require_info_parser.ts` [Planned File]）は、`JSON.parse()` を通さず raw ASCII / UTF-8 バイト列から **バイトレベルのトークン抽出（`"api_member_id": <digits>`）により Decimal ASCII 文字列（`^[0-9]{1,16}$`）として直接抽出・前置ゼロ正規化** し、IEEE 754 浮動小数点数による丸め誤差を 100% 排除する。  
+>    - FUSOU-WEB の Canonical Identity Parser（`packages/FUSOU-WEB/src/server/utils/require_info_parser.ts` [Planned File]）は、`JSON.parse()` による IEEE 754 丸め誤差や、Regex・部分一致検索の脆弱性を 100% 排除するため、**専用の Strict Lossless JSON Tokenizer を用いて `/api_data/api_basic/api_member_id` の JSON Pointer 階層構造を厳密に辿り、エスケープなしの ASCII digits トークンとして直接抽出** します。
 > 5. **Device ↔ Proof の暗号学的バインディング（長さ 24 bytes `proof_purpose` & 完全固定 Binary Layout）**:  
->    - `public_id` はクライアントが任意選択せず、サーバーが `verified_member_id` から導出する。  
+>    - `public_id` はクライアントが任意選択せず、サーバーが `verified_member_id` に対してランダムな UUIDv4 を一度だけ割り当て・永続化する。  
 >    - **Trust Authority の厳格な分離**:  
 >      - **`Cryptographic Verification Authority` (`FUSOU Dedicated Verifier`)**: Prover との MPC-TLS 共同復号（MPC Verifier）および Session Header 署名（Notary）を担当し、Attestation Proof、`transcript_commitments` による Transcript Proof の暗号検証、開示平文バイト列および `Attestation.header().id` の抽出・認証付き結果返却（Ed25519 署名 / Key Registry 仕様 / FUSOU-WEB と秘密鍵非共有）を行う。  
 >      - **`Application / Identity / Dataset Authorization Authority` (`FUSOU-WEB` & Supabase)**: 開示平文からの唯一の Canonical Application Parser による `verified_member_id` 抽出、DB-backed One-Time Challenge（`public.claim_challenges` / 32-byte CSPRNG `BYTEA` / 5分 TTL / 単一消費）の発行・管理、`ClaimBindingBytes` raw bytes 署名検証（`verifyEd25519ClaimBinding`）、DB Claim、Dataset Token 発行。  
@@ -104,7 +104,7 @@ v1 では、**自己申告で Dataset Token を取得できるコード経路を
 │                                                   - HTTP/1.1 厳格マッチ         │
 │                                                   - verified api_member_id      │
 │                                                     (Decimal ASCII 文字列抽出)   │
-│                                                   - expected public_id 導出     │
+│                                                   - expected public_id 解決     │
 │                                                   - Issue One-Time Challenge    │
 │                                                     (32-byte CSPRNG BYTEA)      │
 │                                                                   │             │
@@ -246,7 +246,7 @@ v1 では、**自己申告で Dataset Token を取得できるコード経路を
 │  - Enforce Quad Invariant (Post-Social Binding)        │
 │  - Enforce UNIQUE (tlsn_attestation_id) (Anti-Reuse)   │
 │  - Atomic Challenge & Proof Consumption Enforcement    │
-│  - Append-Only Audit Trail (UPDATE/DELETE physically prevented by ON DELETE RESTRICT & trg_protect_member_claims_audit) with proof_purpose & spans  │
+│  - Append-Only Audit Trail (Parent cascade prevented by ON DELETE RESTRICT; row modifications physically prevented by REVOKE UPDATE, DELETE and trg_protect_member_claims_audit) with proof_purpose & spans  │
 │                                                        │
 │  Stored State = ACCEPTED Verified Evidence Only        │
 └────────────────────────────────────────────────────────┘
@@ -372,34 +372,37 @@ export function parseCanonicalRequireInfo(
   const headerEnd = recvStr.indexOf('\r\n\r\n');
   if (headerEnd === -1) throw new Error('http_headers_malformed');
 
+  // svdata= のプレフィックス検証 (svdata=<JSON> の完全一致のみ許可)
   const bodyStr = recvStr.slice(headerEnd + 4).trim();
   if (!bodyStr.startsWith('svdata=')) {
     throw new Error('svdata_prefix_missing_at_body_start');
   }
+  const jsonStr = bodyStr.slice(7); // "svdata=" 以降の完全なJSON文字列
 
   // 構造的JSON Pointer検証 (lossless JSON tokenizerによる完全一致検証)
-  // native JS Numberへの変換による丸め誤差を防ぐため、JSON.parse は禁止し lossless parser を使用
-  const jsonStr = bodyStr.slice(7); // remove "svdata="
-  const parsed = losslessJsonParse(jsonStr);
+  // 以下のポリシーを強制する専用のTokenizerを使用します：
+  // 1. JSON.parse は禁止（Number丸め誤差防止）
+  // 2. Duplicate keys はエラーとして拒絶 (first/last wins を許容しない)
+  // 3. key/value の \uXXXX エスケープは拒絶 (literal ASCII のみ許可)
+  // 4. Regex による部分検索・抽出は一切禁止
+  const tokenizer = new StrictLosslessJsonTokenizer(jsonStr);
   
-  if (parsed.api_result !== 1) {
-    throw new Error('api_result_not_ok');
+  // root.api_result の厳格検証 (Key exactly once, Type: Number, Value: 1)
+  const apiResult = tokenizer.getNumber('/api_result');
+  if (apiResult !== '1') {
+    throw new Error('api_result_not_integer_1');
   }
 
-  // api_data.api_basic.api_member_id の階層構造を厳密に抽出 (部分一致検索の脆弱性を排除)
-  if (!parsed.api_data || !parsed.api_data.api_basic || parsed.api_data.api_basic.api_member_id === undefined) {
-    throw new Error('api_member_id_missing_in_canonical_path');
+  // /api_data/api_basic/api_member_id の階層構造を JSON Pointer として厳密に追跡
+  // 途中のオブジェクト構造をスキップしたり、文字列として検索したりすることは禁止
+  const rawMemberIdToken = tokenizer.getNumber('/api_data/api_basic/api_member_id');
+  if (!rawMemberIdToken || !/^[1-9]\d*$/.test(rawMemberIdToken)) {
+    throw new Error('api_member_id_missing_or_invalid_format');
   }
-
-  // v1 wire representation (JSON Number vs String) の確定に従い抽出
-  const rawMemberIdToken = parsed.api_data.api_basic.api_member_id.toString();
-  
-  // JSON Number の場合は leading zero を許容しない等、wire type に応じた正規化
-  const normalizedMemberId = rawMemberIdToken.replace(/^0+/, '') || '0';
 
   return CanonicalRequireInfoSchema.parse({
-    api_path: matchReq[1],
-    api_member_id: normalizedMemberId,
+    api_path: '/kcsapi/api_get_member/require_info', // Regex で抽出せず固定パスを検証
+    api_member_id: rawMemberIdToken,
   });
 }
 ```
@@ -423,7 +426,7 @@ export function parseCanonicalRequireInfo(
 | 3 | `tlsn_attestation_id` | TLSNotary Canonical Bytes | $N$ bytes (Phase 0 固定) | `Attestation.header().id` の公式シリアライズバイト列 |
 | 4 | `verified_member_id` | UTF-8 decimal ASCII | 1〜16 bytes | 検証・正規化済みゲームアカウント ID（例: `"12345678"`） |
 | 5 | `device_id` | Binary UUID (RFC 4122 Big-endian) | 16 bytes | 提出端末の Device UUID |
-| 6 | `expected_public_id` | Binary UUID (RFC 4122 Big-endian) | 16 bytes | サーバー導出 Dataset UUID |
+| 6 | `expected_public_id` | Binary UUID (RFC 4122 Big-endian) | 16 bytes | サーバー割当 Dataset UUID |
 | 7 | `challenge_id` | Binary UUID (RFC 4122 Big-endian) | 16 bytes | サーバー発行 Challenge UUID |
 | 8 | `challenge_nonce` | Raw Binary Bytes | 32 bytes | サーバー発行 One-Time Nonce (`crypto.getRandomValues`) |
 
@@ -439,18 +442,17 @@ export function parseCanonicalRequireInfo(
 1. **Step 1 (Verified Member ID 受領)**: FUSOU-WEB が TLSNotary Verifier から Authenticated Verifier Result を受領し、`parseCanonicalRequireInfo` により `verified_member_id` を抽出。
 2. **Step 2 (64-bit Advisory Lock 取得)**: FUSOU-WEB が `member_id` に基づく 64-bit Advisory Lock を取得。
 3. **Step 3 (Public ID 確定)**: `public.member_id_mapping` に対する atomic get-or-create を実行し、`public_id` を確定。
-4. **Step 4 (PENDING Device 登録 & Server Challenge 発行)**: クライアントは `device_id` と `device_public_key` のみを提示。FUSOU-WEBはサーバーサイドで解決した `public_id` と OAuthの `authenticated_user` を元に、`is_verified = FALSE` (PENDING状態、24h TTL) として `user_devices` へ INSERT し、そのデバイスに対して `public.claim_challenges` (5分 TTL) を発行。
-   - ※クライアントからの `public_id` や `canonical_user_id` の指定は一切拒絶する。
-   - ※Challenge発行前に、`member_ownership_claims` および発行済み `claim_challenges` を確認し、同一 `tlsn_attestation_id` または同一 `result_id` による無制限な Challenge 発行 (Idempotency Replay Attack) を事前に遮断する。
-5. **Step 5 (ClaimBindingBytes 構築 & 署名)**: 端末が `(domain, purpose, attestation_id, verified_member_id, device_id, expected_public_id, challenge_id, challenge_nonce)` から `ClaimBindingBytes` を構築し、端末秘密鍵で Ed25519 署名。※`public_key` は署名対象に含めず、サーバー側で `user_devices` から取得する。
-6. **Step 6 (Claim 提出 & 署名検証)**: クライアントが FUSOU-WEB へ Claim 提出。FUSOU-WEB が `verifyEd25519ClaimBinding(pubkey, bytes, sig)` で raw byte 署名を検証。
-7. **Step 7 (Atomic DB Commit)**: `claim_verified_device_v3` を実行し、以下の条件をアトミックに検証・適用：
+4. **Step 4 (PENDING Device 独立登録)**: FUSOU-WEB は独立した別トランザクションとして、クライアントから提示された `device_public_key` を元に、サーバーが生成した `device_id` と OAuth の `authenticated_user` を紐付け `is_verified = FALSE` (24h TTL) で `user_devices` へ INSERT します。※クライアントからの `public_id` や `canonical_user_id` の直接指定は完全に拒絶し、DB上で `authenticated_user ↓ PENDING Device ↓ public_id` の束縛を確立します。
+5. **Step 5 (Server Challenge 発行)**: 登録した PENDING デバイスに対して `public.claim_challenges` (5分 TTL) を発行。※発行前に `member_ownership_claims` 等を確認し同一 `result_id` での無制限 Challenge 取得を遮断します。
+6. **Step 6 (ClaimBindingBytes 構築 & 署名)**: 端末が `(domain, purpose, attestation_id, verified_member_id, device_id, expected_public_id, challenge_id, challenge_nonce)` から `ClaimBindingBytes` を構築し、端末秘密鍵で Ed25519 署名。※`public_key` は署名対象に含めず、サーバー側で `user_devices` から取得する。
+7. **Step 7 (Claim 提出 & 署名検証)**: クライアントが FUSOU-WEB へ Claim 提出。FUSOU-WEB が `verifyEd25519ClaimBinding(pubkey, bytes, sig)` で raw byte 署名を検証。
+8. **Step 8 (Atomic DB Commit)**: `claim_verified_device_v3` を実行しアトミックに検証・適用：
    - Challenge 単一消費 (`consumed_at = NOW()`)
    - `UNIQUE(tlsn_attestation_id)` 検証 (再利用防止)
-   - `authenticated_user == PENDING device.canonical_user_id` および `device.public_id == expected_public_id` の一致検証
+   - `authenticated_user == PENDING device.canonical_user_id` および `device.public_id == expected_public_id` の一致再検証
    - `member_ownership_claims` への Audit Log 記録
    - Device を `is_verified = TRUE` へ昇格 (VERIFIED化)
-   ※ 同一Attestation + 同一Device + 同一public_id の場合は idempotent success（再ログイン扱い）とし、それ以外のAttestation重複利用は拒絶する。
+   ※ `claim_verified_device_v3` は暗号学的検証器ではなく、**FUSOU-WEB による署名検証と認可境界を信頼して DB を更新する内部 RPC** です。クライアントからの直接呼び出しは完全に禁止 (`REVOKE EXECUTE FROM PUBLIC`) されます。
 
 ### 6.3 Attestation Reuse Prevention（同一証明書の多重 Claim 遮断）
 `public.member_ownership_claims` テーブルに `tlsn_attestation_id BYTEA NOT NULL` を保持し、`CONSTRAINT uq_member_claims_attestation UNIQUE (tlsn_attestation_id)` 制約を定義。同一 Attestation を別 Challenge で再利用した二重 Claim は `DUPLICATE_ATTESTATION_CLAIMED` 例外として即時ロールバックされます（**Presentation は何度生成されてもよいが、FUSOU Identity Claim は Attestation 単位で 1 度限り**）。
