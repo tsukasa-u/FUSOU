@@ -4,7 +4,7 @@
 > **対象領域**: FUSOU プロジェクト全域（`packages/fusou-auth`, `packages/fusou-proxy-core`, `packages/fusou-proxy-hudsucker`, `packages/fusou-proxy-tlsn`, `packages/fusou-telemetry`, `packages/FUSOU-WEB`, Supabase / Cloudflare Workers / Dedicated Verifier Service）  
 > **v1 Core Security Goal**:  
 > **「FUSOU v1 は、ログイン時の `POST /kcsapi/api_get_member/require_info` に含まれる `/api_data/api_basic/api_member_id` についてのみ TLSNotary による Game Server provenance を確立し、その証明済み Game Account を `public_id` へ固定する。その後の Telemetry は内容を信頼せず、認証済み Dataset/Device credential からサーバー側で所属 Dataset を決定して保存する（Dataset Attribution / Provenance 保証）。」**  
-> 対象 API: **`POST /kcsapi/api_get_member/require_info`**（HTTP/1.1、1つの Proxy 起動ライフサイクルで最初に正常取得された 1 回のみ）  
+> 対象 API: **`POST /kcsapi/api_get_member/require_info`**（HTTP/1.1、Game Server 認証セッション単位で最初に TLSNotary Identity Attestation に成功した 1 回のみ）  
 > 対象データ: **`/api_data/api_basic/api_member_id`**（Wire: `i64` from `kc-api-dto`, Canonical Internal: Decimal String）  
 > **最重要設計原則**:  
 > 1. **Identity Attestation と Telemetry Submission の完全分離**:  
@@ -20,9 +20,9 @@
 >      - **`Cryptographic Verification Authority` (`TLSNotary Verifier`)**: Web PKI、Attestation Proof、`transcript_commitments` による Transcript Proof の暗号検証、開示平文バイト列および `Attestation.header().id` の抽出・認証付き結果返却。  
 >      - **`Application / Identity / Dataset Authorization Authority` (`FUSOU-WEB` & Supabase)**: 開示平文からの唯一の Canonical Application Parser（Zod）による `verified_member_id` 抽出、DB-backed One-Time Challenge の発行・単一消費管理、`ClaimBindingBytes` 署名検証、DB Claim、Dataset Token 発行。  
 >    - **`ClaimBindingBytes` への `proof_purpose` 導入 & 公式 canonical byte 採用**:  
->      `ClaimBindingBytes` には用途識別子 `proof_purpose = "GAME_ACCOUNT_IDENTITY_V1"` および TLSNotary 公式 canonical serialization による `tlsn_attestation_id = Attestation.header().id` を格納し、Length-delimited binary framing（Domain: `"FUSOU-IDENTITY-CLAIM-V1"`, `uint16_be(len)`）によりバイト列を安全に固定する。  
+>      `ClaimBindingBytes` には用途識別子 `proof_purpose = "GAME_ACCOUNT_IDENTITY_V1"` および TLSNotary 公式 canonical serialization による `tlsn_attestation_id = Attestation.header().id` の byte representation を格納し、Length-delimited binary framing（Domain: `"FUSOU-IDENTITY-CLAIM-V1"`, `uint16_be(len)`）によりバイト列を安全に固定する。  
 >    - **Attestation 再利用の DB 遮断 (Anti-Reuse)**:  
->      同一 Attestation に対し複数 Presentation が生成された場合でも、`member_ownership_claims` テーブルの `UNIQUE (tlsn_attestation_id)` 制約により、Identity Claim は Attestation 単位で 1 度しか行えない。  
+>      `member_ownership_claims` テーブルに `UNIQUE (tlsn_attestation_id)` 制約を課し、同一 Attestation に対し複数 Presentation が生成された場合でも、Identity Claim は Attestation 単位で 1 度しか行えない。  
 > 4. **Telemetry Ingest における厳格な Attribution 決定権 & Immutable 記録**:  
 >    - **「Telemetry ingest endpoint は、request payload に含まれる member_id、public_id、dataset_id 等の所属識別子を認証・認可判断に使用してはならない。Dataset identity は検証済み Credential（Dataset Token + Device Signature）からのみサーバー側で導出する。`api_path` は informational metadata であり認可判断には使用しない。」**  
 >    - 提出された Telemetry レコードの `(public_id, submitted_by_device_id)` は **提出時点（submission time）の事実として Immutable に保存** され、将来のデバイス再バインド時にも過去データは一切更新されない。  
@@ -36,7 +36,7 @@
 > 7. **外部プロキシ中継ゼロ（Direct Connection）**: 外部中継プロキシは規約上・BANリスク上不可とし、**クライアントローカルの `FUSOU-PROXY` と艦これ公式サーバー間の直接通信を維持**する。  
 > 8. **Fallback 時のステータス明示**:  
 >    Notary 障害時は `GAMEPLAY_OK / IDENTITY_UNVERIFIED / DATASET_TOKEN_NOT_ISSUED` の状態へ安全にフォールバックし、ゲームプレイを継続する。  
-> **ステータス**: 暗号プロトコル・認証境界・Attestation一意性 完全確定版マスター仕様書  
+> **ステータス**: 暗号プロトコル・認証境界・Attestation一意性 完全確定マスター仕様書 (Freeze for Phase 0)  
 
 ---
 
@@ -47,7 +47,7 @@
 3. [Trust Boundary & Authority Separation（検証機関・認可機関の厳格分離）](#3-trust-boundary--authority-separation検証機関認可機関の厳格分離)
 4. [Identity Architecture & Invariant（ID基盤と不変条件の段階的成立）](#4-identity-architecture--invariantid基盤と不変条件の段階的成立)
 5. [require_info TLSNotary Protocol (`POST /kcsapi/api_get_member/require_info`)](#5-require_info-tlsnotary-protocol-post-kcsapiapi_get_memberrequire_info)
-   - 5.1 [セッション最初の 1 回の定義（Proxy Lifecycle）と再試行ポリシー](#51-セッション最初の-1-回の定義proxy-lifecycleと再試行ポリシー)
+   - 5.1 [Game Login Session 単位の定義と再試行ポリシー](#51-game-login-session-単位の定義と再試行ポリシー)
    - 5.2 [MPC-TLS 処理 3 段階と Browser 待機の分離](#52-mpc-tls-処理-3-段階と-browser-待機の分離)
    - 5.3 [Transcript Range Selection & HTTP/1.1 パーサー要件](#53-transcript-range-selection--http11-パーサー要件)
    - 5.4 [Application-level Validation & FUSOU-WEB カノニカルパース (kc-api-dto 整合)](#54-application-level-validation--fusou-web-カノニカルパース-kc-api-dto-整合)
@@ -121,7 +121,7 @@ FUSOU において真に防ぐべき攻撃は、**「悪意ある第三者が、
 
 ### 2.1 防げる攻撃（Security Guarantees: シナリオ追跡）
 * **A. 攻撃者が任意の `member_id` を自己申告登録する攻撃**:  
-  自己申告登録は `PRE_REGISTERED`（未検証 Dataset Claim）として扱われ、Game Account Identity の身元保証は一切付与されません。正規オーナーが `require_info` 証明を提出した時点でアトミックに無力化されます。
+  自己申告登録は `PRE_REGISTERED`（未検証 Dataset Claim）として扱われ、Game Account Identity の身元保証は一切付与されません。正規オーナーが `require_info` 証明を提出した時点でアトミックに無力化されます（自己申告による先回り登録攻撃を無力化）。
 * **B. 被害者の有効な Proof P を盗聴・傍受して攻撃者端末にバインドする攻撃**:  
   Server-issued Challenge（`challenge_nonce`）に対する署名には被害者端末の秘密鍵が必要なため、有効な Device B の公開鍵では Device A にバインドされた Claim を暗号学的に検証できず拒絶されます（端末すり替え拒絶）。
 * **C. クライアントが Telemetry 内で他人の `member_id` を指定する攻撃**:  
@@ -179,7 +179,7 @@ FUSOU において真に防ぐべき攻撃は、**「悪意ある第三者が、
 │  - Verify Attestation Proof & Merkle Root              │
 │  - Verify Transcript Proof with transcript_commitments │
 │  - Extract Attestation.header().id (canonical bytes)   │
-│  - Return Signed Verification Result:                 │
+│  - Return Authenticated Verification Result:           │
 │    { tlsn_attestation_id, revealed_req, revealed_recv,  │
 │      notary_key_id, server_identity, verified_at, sig } │
 └───────────────────────────┬────────────────────────────┘
@@ -203,7 +203,7 @@ FUSOU において真に防ぐべき攻撃は、**「悪意ある第三者が、
 │  - 64-bit Advisory Lock & Row-Level Locking            │
 │  - Atomic Ownership Transfer (Strict 10 Steps)         │
 │  - Enforce Quad Invariant (Post-Social Binding)        │
-│  - Enforce Unique (tlsn_attestation_id, proof_purpose) │
+│  - Enforce UNIQUE (tlsn_attestation_id) (Anti-Reuse)   │
 │  - Atomic Challenge & Proof Consumption Enforcement    │
 │  - Append-Only Audit Trail with proof_purpose          │
 │                                                        │
@@ -243,13 +243,14 @@ public_id = UUIDv4 (Random UUID: Dataset U1)
 
 ## 5. require_info TLSNotary Protocol (`POST /kcsapi/api_get_member/require_info`)
 
-### 5.1 セッション最初の 1 回の定義（Proxy Lifecycle）と再試行ポリシー
+### 5.1 Game Login Session 単位の定義と再試行ポリシー
 * **対象セッション定義**:
-  FUSOU v1 における Game Login Session は **「FUSOU Proxy 起動から最初に成功した対象 `require_info` 通信」** と定義します。
-* **セッション中の再試行**:
-  - 当該 Proxy 起動ライフサイクルにおいて、最初に正常取得・公証された `require_info` のみを採用します。
-  - TLSNotary Claim が一度成功した後は、同一 Proxy ライフサイクル中の後続 `require_info` は通常のプロキシとして中継し、再度 Identity 公証を行うことはありません。
-  - リクエスト送信前に MPC が失敗した場合は通常 TLS へフォールバックし、自然な次回ゲームログイン時に新しい Proxy セッションとして再試行します。
+  FUSOU v1 における Game Login Session は、Proxy プロセスの起動ライフサイクルと同一視するのではなく、**「FUSOU Proxy が認識した Game Server 認証セッション単位で、最初に TLSNotary Identity Attestation に成功した `require_info` 通信」** と定義します。
+* **セッション中の再試行 & アカウント切り替え**:
+  - 当該ゲームログインセッションにおいて、最初に正常取得・公証された `require_info` のみを Identity 確立に採用します。
+  - TLSNotary Claim が一度成功した後は、同一ゲームセッション中の後続 `require_info` は通常のプロキシとして中継し、再度 Identity 公証を行うことはありません。
+  - ゲーム側でログアウト・アカウント切り替えが行われ、新しい Game Server 認証セッション（Cookie / Token 更新）が検知された場合は、新しいセッションとして次の `require_info` に対し改めて TLSNotary Identity Attestation を適用します。
+  - リクエスト送信前に MPC が失敗した場合は通常 TLS へフォールバックし、次回ログイン時に新しいセッションとして再試行します。
 
 ### 5.2 MPC-TLS 処理 3 段階と Browser 待機の分離
 1. **Phase A (Request Routing / Upstream Connection)**:  
@@ -327,7 +328,7 @@ export function parseCanonicalRequireInfo(
 ### 6.1 TLSNotary `Attestation.header().id` と `ClaimBindingBytes` の完全固定 Byte Layout
 
 #### 6.1.1 Attestation 識別子の一本化 & Canonical Serialization
-`tlsn_attestation_id` は、Phase 0 で採用・固定する exact TLSNotary revision において **TLSNotary 公式の canonical serialization で定義された `Attestation.header().id` の exact binary bytes** を直接使用します（独自ハッシュ化や独自エンコーディングを排除）。
+`tlsn_attestation_id` は、Rust 内部表現や Debug/String representation ではなく、**Phase 0 で採用・固定する exact TLSNotary revision が定義する canonical serialization によって得られる `Attestation.header().id` の byte representation を使用** します。
 
 #### 6.1.2 全 8 フィールドの厳密な Encoding・Byte Layout 定義
 将来の用途拡張（イベント証明等）におけるドメイン混同を防ぐため、`proof_purpose` を含む全 8 フィールドを完全固定します：
@@ -556,7 +557,7 @@ COMMIT;
 
 ## 13. Testing（網羅的セキュリティ・競合テストケース）
 
-1. **事前登録攻撃奪還テスト**: 攻撃者が `PRE_REGISTERED` 登録後に正規ユーザーが公証提出 $\rightarrow$ 攻撃者端末のみ Revoke され所有権が正規ユーザーへ移転。
+1. **事前登録攻撃奪還テスト**: 攻撃者が `PRE_REGISTERED` 登録後に正規ユーザーが公証提出 $\rightarrow$ 攻撃者端末のみ Revoke され所有権が正規ユーザーへ移転（自己申告先回り登録の無力化）。
 2. **端末すり替え遮断テスト**: Proof P（`member_id = 1234`）に対し別 Device B の署名を提出 $\rightarrow$ 有効な Device B の公開鍵では Claim を検証できず拒絶。
 3. **Attestation 再利用遮断テスト**: 同一 `tlsn_attestation_id` で別 Challenge を提出 $\rightarrow$ `DUPLICATE_ATTESTATION_CLAIMED` で拒絶。
 4. **`public_id` 改変遮断テスト**: クライアントが署名メッセージ内の `public_id` を書き換えて提出 $\rightarrow$ 400/403 拒絶。
@@ -580,7 +581,7 @@ COMMIT;
 7. Selective disclosure による最小限開示が成立する
 8. 正当な Device 署名が accept される
 9. 別 Device の署名が reject される
-10. 同一 Attestation の再利用が reject される（Anti-Reuse）
+10. 同一 Attestation の再利用が reject される（Anti-Reuse: UNIQUE tlsn_attestation_id）
 11. `public_id` 改変が reject される
 12. Challenge reuse が reject される
 13. Expired challenge が reject される
@@ -603,7 +604,7 @@ COMMIT;
 | **データ抽出** | `api_member_id` の正確な抽出 | レスポンス平文と抽出値が一致 |
 | **バインディング** | `ClaimBindingBytes` 偽造不能 | 他端末秘密鍵・別 Nonce での Claim を遮断 |
 | **端末すり替え拒絶** | 検証済み Proof に対する別 Device 署名拒絶 | **Proof P (member 1234) + Device B 署名 $\rightarrow$ 拒絶** |
-| **Attestation 再利用遮断** | 同一 Attestation の多重 Claim 拒絶 | **Proof P + Challenge C2 $\rightarrow$ 拒絶 (Anti-Reuse)** |
+| **Attestation 再利用遮断** | 同一 Attestation の多重 Claim 拒絶 | **Proof P + Challenge C2 $\rightarrow$ 拒絶 (UNIQUE tlsn_attestation_id)** |
 | **所属決定権** | クライアントによる Dataset 選択排除 | Payload 内の `public_id` 改変を完全無視 |
 | **リプレイ防御** | DB Nonce & Idempotency 検証 | 同一 Nonce 拒絶、同一 ID 異 Body で 409 Conflict |
 | **耐障害性** | 送信前 Notary 障害時のログイン継続 | 通常 TLS フォールバックでゲームプレイ継続 |
@@ -634,7 +635,7 @@ COMMIT;
 - [D] `ClaimBindingBytes` の厳密な Byte Layout & Binary Framing 設計（`proof_purpose` + `Attestation.header().id` 公式識別子）
 - [D] Server-issued One-Time Challenge の DB 管理 & 単一消費ライフサイクル設計
 - [D] 同一 Attestation の多重 Claim 遮断（`UNIQUE (tlsn_attestation_id)`）設計
-- [D] `require_info` によるセッション最初 1 回限りの Identity Attestation 設計（Proxy Lifecycle 単位）
+- [D] `require_info` によるセッション最初 1 回限りの Identity Attestation 設計（Game Login Session 単位）
 - [D] Telemetry ペイロードからの所属識別子完全排除 & 提出時点 Immutable 帰属設計
 - [D] Dual Authentication & `telemetry_nonces`（10分保持）による Replay Protection 設計
 - [D] `member_id_hash` / Pepper 体系の完全削除と UUID `public_id` への一本化
