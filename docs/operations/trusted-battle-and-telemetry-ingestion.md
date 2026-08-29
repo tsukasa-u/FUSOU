@@ -5,12 +5,12 @@
 > **v1 Core Security Goal**:  
 > **「FUSOU v1 は、ログイン時の `POST /kcsapi/api_get_member/require_info` に含まれる `/api_data/api_basic/api_member_id` についてのみ TLSNotary による Game Server provenance を確立し、その証明済み Game Account を `public_id` へ固定する。その後の Telemetry は内容を信頼せず、認証済み Dataset/Device credential からサーバー側で所属 Dataset を決定して保存する（Dataset Attribution / Provenance 保証）。」**  
 > 対象 API: **`POST /kcsapi/api_get_member/require_info`**（HTTP/1.1、Game Server 認証セッション単位で最初に TLSNotary Identity Attestation に成功した 1 回のみ）  
-> 対象データ: **`/api_data/api_basic/api_member_id`**（Wire: `i64` from `kc-api-dto`, Canonical Internal: Decimal String `^[0-9]{1,16}$`, DB: `BIGINT`）  
+> 対象データ: **`/api_data/api_basic/api_member_id`**（Wire: `i64` from `kc-api-dto`, Canonical Internal: Decimal String `^[0-9]{1,16}$` 前置ゼロ正規化済み, DB: `BIGINT`）  
 > **最重要設計原則**:  
 > 1. **旧自己申告経路の完全根絶と Implementation Acceptance Criteria への格上げ**:  
->    - **「コードベース上にクライアントからの `api_member_id` を受け取って Dataset Token を取得・発行できる経路が 1 つも存在しないこと」** を最優先の Implementation Acceptance Criteria とする。  
+>    - **「コードベース上にクライアントからの `api_member_id` を受け取って Dataset Token を取得・発行できる経路が 1 つも存在しないこと（Call Graph 0本）」** を最優先の Implementation Acceptance Criteria とする。  
 >    - 旧 `POST /anonymous-sync/v2/register`、旧 `POST /anonymous-sync/v2/pending/:token/complete`、および `signInAnonymously()` による未検証匿名ユーザー自動生成（`ensureCanonicalUserForPublicId`）は **完全廃止・削除（HTTP 410 Gone / コードベースから除去）** とする。  
->    - 汎用 RPC `rpc_register_public_id` の外部直接実行を禁止し、**`claim_verified_device_v3` の Verified Claim トランザクション内部でのみ `member_id_mapping` を作成・取得できる構造** に強制する。  
+>    - 汎用 RPC `rpc_register_public_id` の外部直接実行を禁止し、**`claim_verified_device_v3` の Verified Claim トランザクション内部でのみ `member_id_mapping` を作成・取得できる構造** にカプセル化する。  
 > 2. **Identity Attestation と Telemetry Submission の完全分離**:  
 >    - **① Identity Attestation（暗号学的保証）**: ログインセッションの最初の `require_info` を FUSOU-Prover と Game Server 間の TLSNotary MPC-TLS セッションで公証し、Game Account（`api_member_id`）$\rightarrow$ `member_id_mapping` $\rightarrow$ Dataset（`public_id`）$\rightarrow$ Social User（`web_user_member_map`）$\rightarrow$ Authorized Device（`user_devices`）の身元連鎖（Identity Chain）を確立する。  
 >    - **② Telemetry Submission（内容は UNTRUSTED / 所属先 Dataset は TRUSTED）**: 戦闘等のテレメトリデータ自体は暗号公証せず、クライアントはリクエスト内に `member_id`, `public_id`, `dataset_id`, `owner user_id` などの所属識別子を一切含めない。  
@@ -18,19 +18,19 @@
 >    - FUSOU v1 が保証するのは **「この Telemetry が、Game Account A にバインドされた Dataset U1 の正規 Credential から提出された事実（Credential Attribution）」** であり、**「この Telemetry が、現在 Game Server 上でリアルタイムにプレイされているゲームセッションとリアルタイムに一致していること（Real-time Session Freshness）」までは保証しない（Non-Guarantee）**。  
 > 4. **Selective Disclosure（最小構造開示）& JS Number 変換完全禁止**:  
 >    - TLSNotary の Selective Disclosure では、Response 内の `HTTP/1.1 200 OK`、`svdata=`、`"api_result": 1`、`"api_data": { "api_basic": { "api_member_id": <digits> } }` を含む **必要最小限の構造化 Byte Range** を開示する。  
->    - FUSOU-WEB の Canonical Parser は、`api_member_id` を JavaScript `number`（IEEE 754 float64、`2^53 - 1` 制限）に変換せず、raw JSON / ASCII バイト列から **Decimal ASCII 文字列（`^[0-9]{1,16}$`）として直接抽出・正規化** する。  
-> 5. **Device ↔ Proof の暗号学的バインディング（Server-issued One-Time Challenge & Binary Layout 完全固定）**:  
+>    - FUSOU-WEB の Canonical Parser は、`JSON.parse()` を通さず raw ASCII / UTF-8 バイト列から **バイトレベルのトークン抽出（`"api_member_id": <digits>`）により Decimal ASCII 文字列（`^[0-9]{1,16}$`）として直接抽出・前置ゼロ正規化** し、IEEE 754 浮動小数点数による丸め誤差を 100% 排除する。  
+> 5. **Device ↔ Proof の暗号学的バインディング（長さ 24 bytes `proof_purpose` & 完全固定 Binary Layout）**:  
 >    - `public_id` はクライアントが任意選択せず、サーバーが `verified_member_id` から導出する。  
 >    - **Trust Authority の厳格な分離**:  
 >      - **`Cryptographic Verification Authority` (`TLSNotary Verifier`)**: Web PKI、Attestation Proof、`transcript_commitments` による Transcript Proof の暗号検証、開示平文バイト列および `Attestation.header().id` の抽出・認証付き結果返却（Ed25519 署名 / Key Registry 仕様）。  
 >      - **`Application / Identity / Dataset Authorization Authority` (`FUSOU-WEB` & Supabase)**: 開示平文からの唯一の Canonical Application Parser による `verified_member_id` 抽出、DB-backed One-Time Challenge（`public.claim_challenges` / 32-byte CSPRNG `BYTEA` / 5分 TTL / 単一消費）の発行・管理、`ClaimBindingBytes` 署名検証（`verifyEd25519ClaimBinding`）、DB Claim、Dataset Token 発行。  
->    - **`ClaimBindingBytes` への `proof_purpose` 導入 & 公式 canonical byte 採用**:  
->      `ClaimBindingBytes` には用途識別子 `proof_purpose = "GAME_ACCOUNT_IDENTITY_V1"` および TLSNotary 公式 canonical serialization による `tlsn_attestation_id = Attestation.header().id` の byte representation を格納し、Length-delimited binary framing（Domain: `"FUSOU-IDENTITY-CLAIM-V1"`, `uint16_be(len)`）によりバイト列を安全に固定する。  
+>    - **`ClaimBindingBytes` への `proof_purpose`（24 bytes）導入 & 公式 canonical byte 採用**:  
+>      `ClaimBindingBytes` には用途識別子 `proof_purpose = "GAME_ACCOUNT_IDENTITY_V1"`（正確に 24 bytes）および TLSNotary 公式 canonical serialization による `tlsn_attestation_id = Attestation.header().id` の byte representation を格納し、Length-delimited binary framing（Domain: `"FUSOU-IDENTITY-CLAIM-V1"`, `uint16_be(len)`）によりバイト列を安全に固定する。  
 >    - **Attestation 再利用の DB 遮断 (Anti-Reuse)**:  
 >      `member_ownership_claims` テーブルに `UNIQUE (tlsn_attestation_id)` 制約を課し、同一 Attestation に対し複数 Presentation が生成された場合でも、Identity Claim は Attestation 単位で 1 度しか行えない。  
 > 6. **Telemetry Ingest パイプラインにおける厳格な検証順序 & Immutable 帰属保証**:  
 >    - **検証順序**:  
->      ① JWT 検証 (`sub = device_id`, `dataset_id = public_id`, EdDSA/HS256) $\rightarrow$ ② Server-side Lookup (`user_devices` 存在・`is_verified = TRUE`・`revoked_at IS NULL`・`public_id` 一致) $\rightarrow$ ③ Ed25519 Device Signature 検証 (raw body bytes hash) $\rightarrow$ ④ Nonce アトミック消費 (`telemetry_nonces`) $\rightarrow$ ⑤ Idempotency 検証 (`ingest_item_id` + `body_hash`) $\rightarrow$ ⑥ `telemetry_events` INSERT。  
+>      ① JWT 検証 (`sub = device_id`, `dataset_id = public_id`) $\rightarrow$ ② Server-side Lookup (`user_devices` 存在・`is_verified = TRUE`・`revoked_at IS NULL`・`public_id` 一致) $\rightarrow$ ③ Ed25519 Device Signature 検証 (raw body bytes hash) $\rightarrow$ ④ Nonce アトミック消費 (`telemetry_nonces`: 30分保持) $\rightarrow$ ⑤ Idempotency 検証 (`ingest_item_id` + `body_hash`) $\rightarrow$ ⑥ `telemetry_events` INSERT。  
 >    - 提出された Telemetry レコードの `(public_id, submitted_by_device_id)` は **提出時点（submission time）の事実として Immutable に保存** され、将来のデバイス再バインドや所有者変更時にも過去データは一切更新されない。  
 > 7. **再送信ゼロ（No Re-submission）**:  
 >    - **設計要件 (Design Requirement)**: FUSOU must not intentionally retry the same logical request.（FUSOU は同一 logical request を意図的に再送してはならない）  
@@ -54,16 +54,16 @@
    - 5.1 [Game Login Session の検知・判定モデル (SessionKey) と再試行ポリシー](#51-game-login-session-の検知判定モデル-sessionkey-と再試行ポリシー)
    - 5.2 [MPC-TLS 処理 3 段階と Browser 待機の分離](#52-mpc-tls-処理-3-段階と-browser-待機の分離)
    - 5.3 [Transcript Range Selection (最小構造開示) & Wire Representation 要件](#53-transcript-range-selection-最小構造開示--wire-representation-要件)
-   - 5.4 [Application-level Validation & Decimal String カノニカルパース (JS Number 変換禁止)](#54-application-level-validation--decimal-string-カノニカルパース-js-number-変換禁止)
+   - 5.4 [Application-level Validation & Decimal String カノニカルパース (JS Number 変換完全禁止)](#54-application-level-validation--decimal-string-カノニカルパース-js-number-変換完全禁止)
 6. [Device ↔ Proof Binding & Social Account Linking](#6-device--proof-binding--social-account-linking)
    - 6.1 [TLSNotary Attestation.header().id と ClaimBindingBytes の完全固定 Byte Layout](#61-tlsnotary-attestationheaderid-と-claimbindingbytes-の完全固定-byte-layout)
    - 6.2 [Claim Transaction 境界と DB 状態遷移モデル (claim_verified_device_v3)](#62-claim-transaction-境界と-db-状態遷移モデル-claim_verified_device_v3)
    - 6.3 [Attestation Reuse Prevention（同一証明書の多重 Claim 遮断）](#63-attestation-reuse-prevention同一証明書の多重-claim-遮断)
-   - 6.4 [Social Account Binding と 旧 Pending Flow の完全置換](#64-social-account-binding-と-旧-pending-flow-の完全置換)
+   - 6.4 [Social Account Binding と 認証済み POST /identity/bind-social フロー](#64-social-account-binding-と-認証済み-post-identitybind-social-フロー)
    - 6.5 [Dataset Token の発行条件 & リアルタイム失効セマンティクス](#65-dataset-token-の発行条件--リアルタイム失効セマンティクス)
 7. [Telemetry Submission Protocol (Dual Auth: Token + Device Signature)](#7-telemetry-submission-protocol-dual-auth-token--device-signature)
    - 7.1 [Telemetry Ingest 原則 & Immutable 帰属保証](#71-telemetry-ingest-原則--immutable-帰属保証)
-   - 7.2 [リクエスト仕様 & Idempotency / DB Nonce Retention](#72-リクエスト仕様--idempotency--db-nonce-retention)
+   - 7.2 [リクエスト仕様 & Idempotency / DB Nonce Retention (30分保持)](#72-リクエスト仕様--idempotency--db-nonce-retention-30分保持)
    - 7.3 [サーバー側処理パイプライン & 厳格な検証順序](#73-サーバー側処理パイプライン--厳格な検証順序)
 8. [Rust Workspace クレート分割設計 & utils/pepper.ts 移行](#8-rust-workspace-クレート分割設計--utilspepperts-移行)
 9. [FUSOU-WEB Verifier アーキテクチャ (Workers vs Dedicated Rust Verifier & Key Registry)](#9-fusou-web-verifier-アーキテクチャ-workers-vs-dedicated-rust-verifier--key-registry)
@@ -84,7 +84,7 @@
 
 この構造では、攻撃者が TLSNotary を完全にスキップして任意の `api_member_id` で Dataset を作成・詐称できる致命的な脆弱性が存在していました。
 
-v1 では、**自己申告で Dataset Token を取得できるコード経路をコードベース全域から 100% 根絶** し、**セッション最初の `require_info` で TLSNotary による Game Server provenance を確立した後にのみ Dataset Token を発行する** アーキテクチャへ完全移行します。
+v1 では、**自己申告で Dataset Token を取得できるコード経路をコードベース全域から 100% 根絶（Call graph 上で 0 本であることを保証）** し、**セッション最初の `require_info` で TLSNotary による Game Server provenance を確立した後にのみ Dataset Token を発行する** アーキテクチャへ完全移行します。
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────────┐
@@ -107,13 +107,15 @@ v1 では、**自己申告で Dataset Token を取得できるコード経路を
 │                                                                   │             │
 │                                                                   ▼             │
 │                                                   ClaimBindingBytes 署名検証    │
-│                                                   (Domain + Purpose + AttID +   │
-│                                                    MemberID + DevID + PubID +   │
-│                                                    ChallengeID + Nonce)         │
+│                                                   (Domain + Purpose(24B) +      │
+│                                                    AttID + MemberID + DevID +   │
+│                                                    PubID + ChallengeID + Nonce) │
+│                                                   ※ verifyEd25519ClaimBinding   │
 │                                                                   │             │
 │                                                                   ▼             │
 │                                                   DB Atomic Claim (10 Steps)    │
 │                                                   - UNIQUE(tlsn_attestation_id) │
+│                                                   - 64-bit Advisory Lock        │
 └─────────────────────────────────────────────────────────────────────────────────┘
                                        │
                                        ▼ 発行: Dataset Token (Triple Verified 後発行)
@@ -124,11 +126,16 @@ v1 では、**自己申告で Dataset Token を取得できるコード経路を
 │  Device A ──▶ POST /telemetry/upload                                            │
 │               - Authorization: Bearer <dataset-token> (sub=device_id)           │
 │               - X-FUSOU-Signature: Ed25519(SignDoc: raw_body_bytes hash)        │
-│               - X-FUSOU-Nonce (DB telemetry_nonces 単一消費: 10分保持)          │
+│               - X-FUSOU-Nonce (DB telemetry_nonces 単一消費: 30分保持)          │
 │               ※ Payload に member_id / public_id / dataset_id は一切含めない     │
 │                                                                                 │
-│  FUSOU-WEB が JWT 検証後、Server-side user_devices Lookup を実行して有効性を確認   │
-│  Dataset U1 のデータとして DB 保存 (提出時点の事実として Immutable に永続化)        │
+│  FUSOU-WEB の厳格な 6 段階検証パイプライン:                                      │
+│  1. JWT 検証 (sub=device_id, dataset_id=public_id)                              │
+│  2. Server-side Lookup (user_devices: is_verified=TRUE, revoked_at IS NULL)      │
+│  3. Ed25519 Device 署名検証 (raw_body_bytes ハッシュ)                            │
+│  4. Nonce アトミック消費 (telemetry_nonces)                                     │
+│  5. Idempotency チェック (ingest_item_id + body_hash)                            │
+│  6. DB INSERT (提出時点の事実として Immutable に永続化)                          │
 └─────────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -148,7 +155,7 @@ v1 では、**自己申告で Dataset Token を取得できるコード経路を
 * **E. クライアントが Telemetry 内で他人の `owner user_id` を指定する攻撃**:  
   同様に認可判断から完全排除され、無視されます。
 * **F. 同一 Telemetry リクエストの再生（Replay 攻撃）**:  
-  `telemetry_nonces` テーブル（10分保持）と ±5 分のタイムスタンプ窓により、同一 Nonce の再送信は 401/403 で拒絶されます。
+  `telemetry_nonces` テーブル（30分保持）と ±5 分のタイムスタンプ窓により、同一 Nonce の再送信は 401/403 で拒絶されます。
 * **G. クライアントによる Telemetry 本文の改ざん**:  
   Telemetry 内容自体は UNTRUSTED ですが、改ざんされたデータであっても「どの Dataset に所属して提出されたか（Attribution）」はサーバー側で厳格に確定されます。
 * **H. 既存オーナー A の Game Account に対し第三者 B が Proof を提出する攻撃**:  
@@ -263,7 +270,7 @@ public_id = UUIDv4 (Random UUID: Dataset U1)
 
 ### 5.1 Game Login Session の検知・判定モデル (SessionKey) と再試行ポリシー
 * **SessionKey 定義 & Cookie Canonicalization**:
-  FUSOU Proxy は、プロキシが観測した Game Server 認証状態（SessionKey）に基づいてセッション境界を判定します：
+  FUSOU Proxy は、プロキシが観測した Game Server 認証状態（SessionKey）をローカルのルーティング・キャッシュ最適化ヒューリスティックとして使用します（**Security Decision / Cryptographic Identity には関与させない**）：
   $$\text{SessionKey} = \text{SHA256}(\text{Target World Host} \mathbin{\Vert} \text{Canonicalized Auth Cookies/Token Headers})$$
   - **Cookie Canonicalization**: 認証に関係する Cookie のみを抽出し、`name=value` を辞書順（lexicographic order）でソート・結合してハッシュ化。Cookie 平文のログ出力は完全禁止。
 * **観測ポリシー**:
@@ -287,14 +294,14 @@ public_id = UUIDv4 (Random UUID: Dataset U1)
 * **Transcript Range Selection (最小構造開示)**:
   FUSOU-WEB が唯一の Canonical Application Parser として機能するため、TLSNotary の Selective Disclosure では以下の最小限の構造化 Byte Range を開示します：
   - **Request**: `POST /kcsapi/api_get_member/require_info HTTP/1.1` および必須ヘッダー（`Host:`, `Content-Type:`）
-  - **Response**: `HTTP/1.1 200 OK`、`svdata=` プレフィックス、`"api_result": 1`、`"api_data": { "api_basic": { "api_member_id": <digits> } }` を含む JSON 構造境界。
+  - **Response**: `HTTP/1.1 200 OK`、`svdata=` プレフィックス、`"api_result": 1`、`"api_data": { "api_basic": { "api_member_id": <digits> } }` を含む構造境界。
 * **Wire Representation 実測要件 (Phase 0)**:
   TLSNotary が証明するのは wire 上の TLS plaintext bytes です。`Transfer-Encoding: chunked` や `Content-Encoding: gzip` 等の wire 形式の有無を Phase 0 で実測計測し、gzip 圧縮時は `compressed bytes -> Range Proof -> Decompress -> Parse` の順序を Parser 仕様へ固定します。
 * **Trusted Server Identity Policy (Explicit Allowlist)**:
   単一のワイルドカードではなく、`(TLS Certificate / Server Identity, HTTP Host, HTTP Path === /kcsapi/api_get_member/require_info, Method === POST)` の 4 項目完全一致 Allowlist に基づいて Game Server の真正性を検証します。
 
-### 5.4 Application-level Validation & Decimal String カノニカルパース (JS Number 変換禁止)
-JavaScript の `Number`（IEEE 754 float64、`2^53 - 1` 制限）への変換を **完全禁止** し、raw JSON / ASCII バイト列から Decimal ASCII 文字列として直接抽出・検証します：
+### 5.4 Application-level Validation & Decimal String カノニカルパース (JS Number 変換完全禁止)
+JavaScript の `JSON.parse()` を通さず、raw ASCII / UTF-8 バイト列からバイトレベルで抽出して前置ゼロを正規化します：
 
 ```typescript
 // packages/FUSOU-WEB/src/server/utils/require_info_parser.ts
@@ -303,7 +310,7 @@ import { z } from 'zod';
 
 const CanonicalRequireInfoSchema = z.object({
   api_path: z.literal('/kcsapi/api_get_member/require_info'),
-  api_member_id: z.string().regex(/^[0-9]{1,16}$/), // Canonical internal representation = 1..16 decimal ASCII string
+  api_member_id: z.string().regex(/^[1-9][0-9]{0,15}$|^0$/), // Normalized decimal ASCII string (1..16 digits, no leading zeros)
 });
 
 export type CanonicalRequireInfoResult = z.infer<typeof CanonicalRequireInfoSchema>;
@@ -329,20 +336,24 @@ export function parseCanonicalRequireInfo(
     throw new Error('svdata_prefix_missing_at_body_start');
   }
 
-  const rawJson = JSON.parse(bodyStr.slice(7).trim());
-  if (rawJson.api_result !== 1) throw new Error('api_result_not_ok');
-  if (!rawJson.api_data || !rawJson.api_data.api_basic) throw new Error('api_basic_missing');
-
-  // JS Number に変換せず、文字列または raw token として直接抽出
-  const rawMemberId = rawJson.api_data.api_basic.api_member_id;
-  const memberIdStr = String(rawMemberId).trim();
-  if (!/^[0-9]{1,16}$/.test(memberIdStr)) {
-    throw new Error('api_member_id_invalid_decimal_digits');
+  // api_result: 1 の確認
+  if (!/"api_result"\s*:\s*1\b/.test(bodyStr)) {
+    throw new Error('api_result_not_ok');
   }
+
+  // JSON.parse() を使わず、raw body string から api_member_id の numeric lexeme を直接抽出
+  const memberIdMatch = bodyStr.match(/"api_member_id"\s*:\s*([0-9]{1,16})\b/);
+  if (!memberIdMatch) {
+    throw new Error('api_member_id_missing_or_invalid_digits');
+  }
+
+  // 前置ゼロ正規化 (例: "000123" -> "123")
+  const rawDigits = memberIdMatch[1];
+  const normalizedMemberId = rawDigits.replace(/^0+/, '') || '0';
 
   return CanonicalRequireInfoSchema.parse({
     api_path: matchReq[1],
-    api_member_id: memberIdStr,
+    api_member_id: normalizedMemberId,
   });
 }
 ```
@@ -362,9 +373,9 @@ export function parseCanonicalRequireInfo(
 | 順序 | フィールド名 | データ型 / エンコーディング | バイト長 | 説明 |
 |:---:|---|---|---|---|
 | 1 | `domain_tag` | Raw ASCII bytes | 23 bytes | `"FUSOU-IDENTITY-CLAIM-V1"` |
-| 2 | `proof_purpose` | Raw ASCII bytes | 23 bytes | `"GAME_ACCOUNT_IDENTITY_V1"` |
+| 2 | `proof_purpose` | Raw ASCII bytes | **24 bytes** | `"GAME_ACCOUNT_IDENTITY_V1"` |
 | 3 | `tlsn_attestation_id` | TLSNotary Canonical Bytes | $N$ bytes (Phase 0 固定) | `Attestation.header().id` の公式シリアライズバイト列 |
-| 4 | `verified_member_id` | UTF-8 decimal ASCII | 1〜16 bytes | 検証済みゲームアカウント ID（例: `"12345678"`） |
+| 4 | `verified_member_id` | UTF-8 decimal ASCII | 1〜16 bytes | 検証・正規化済みゲームアカウント ID（例: `"12345678"`） |
 | 5 | `device_id` | Binary UUID (RFC 4122 Big-endian) | 16 bytes | 提出端末の Device UUID |
 | 6 | `expected_public_id` | Binary UUID (RFC 4122 Big-endian) | 16 bytes | サーバー導出 Dataset UUID |
 | 7 | `challenge_id` | Binary UUID (RFC 4122 Big-endian) | 16 bytes | サーバー発行 Challenge UUID |
@@ -372,7 +383,7 @@ export function parseCanonicalRequireInfo(
 
 * **Length-Delimited Binary Framing**:
   全フィールドの直前に 2 バイトの Big-endian 長さヘッダー（`uint16_be(len)`）を付加して連結：
-  $$\text{ClaimBindingBytes} = \text{u16}(23) \Vert \text{"FUSOU-IDENTITY-CLAIM-V1"} \Vert \text{u16}(23) \Vert \text{"GAME_ACCOUNT_IDENTITY_V1"} \Vert \text{u16}(\text{len(att\_id)}) \Vert \text{att\_id} \Vert \text{u16}(\text{len(mid)}) \Vert \text{mid} \Vert \text{u16}(16) \Vert \text{dev} \Vert \text{u16}(16) \Vert \text{pub} \Vert \text{u16}(16) \Vert \text{cid} \Vert \text{u16}(32) \Vert \text{nonce}$$
+  $$\text{ClaimBindingBytes} = \text{u16}(23) \Vert \text{"FUSOU-IDENTITY-CLAIM-V1"} \Vert \text{u16}(24) \Vert \text{"GAME_ACCOUNT_IDENTITY_V1"} \Vert \text{u16}(\text{len(att\_id)}) \Vert \text{att\_id} \Vert \text{u16}(\text{len(mid)}) \Vert \text{mid} \Vert \text{u16}(16) \Vert \text{dev} \Vert \text{u16}(16) \Vert \text{pub} \Vert \text{u16}(16) \Vert \text{cid} \Vert \text{u16}(32) \Vert \text{nonce}$$
   $$\text{ClaimSignature} = \text{Ed25519\_Sign}(sk_{\text{device}}, \text{ClaimBindingBytes})$$
 
 ### 6.2 Claim Transaction 境界と DB 状態遷移モデル (claim_verified_device_v3)
@@ -403,14 +414,17 @@ stateDiagram-v2
 同一の Attestation に対して複数の Presentation を生成できたとしても、FUSOU においては **`Attestation.header().id` をキーとして Identity Claim は一度しか行えない** ルールを適用します。
 `public.member_ownership_claims` テーブルに `tlsn_attestation_id BYTEA NOT NULL` を保持し、`CONSTRAINT uq_member_claims_attestation UNIQUE (tlsn_attestation_id)` 制約を定義。同一 Attestation を別 Challenge で再利用した二重 Claim は `DUPLICATE_ATTESTATION_CLAIMED` 例外として即時ロールバックされます。
 
-### 6.4 Social Account Binding と 旧 Pending Flow の完全置換
+### 6.4 Social Account Binding と 認証済み `POST /identity/bind-social` フロー
 * **状態の段階的遷移**:
   1. `GAME_IDENTITY_VERIFIED`: TLSNotary Proof により `api_member_id` $\leftrightarrow$ `public_id` $\leftrightarrow$ `user_devices` が確定した状態。
      $$\text{member\_ownership.verified\_user\_id} \equiv \text{user\_devices.canonical\_user\_id} \equiv \text{user\_member\_map.user\_id} \quad (\text{Triple Invariant 成立})$$
   2. `SOCIAL_ACCOUNT_BOUND`: OAuth 認証済み Web ユーザーが明示的なバインディング操作を行い、`web_user_member_map` に登録された状態。
      $$\text{上記 3 者} \equiv \text{web\_user\_member\_map.user\_id} \quad (\text{Quad Invariant 成立})$$
-* **旧 Pending Flow の完全置換**:
-  旧 `pending_member_syncs` は完全廃止され、OAuth ログイン済みユーザーが自らのアカウントと `public_id` を明示的に紐付ける **`POST /identity/bind-social` エンドポイント** へ完全置換されます。
+* **`POST /identity/bind-social` の認証・認可仕様**:
+  1. **CSRF 防御**: `assertCsrfSafe(c, hasCookieAuth)` の実行。
+  2. **Supabase OAuth User 認証**: 認証済み `authenticated_user_id` を抽出。
+  3. **所有権検証**: サーバー側で `target public_id` の `member_ownership` を照合し、`GAME_IDENTITY_VERIFIED` かつ `verified_user_id == authenticated_user_id` であることを確認（別ユーザーによる乗っ取り Binding は 403 拒絶）。
+  4. **DB 登録**: `web_user_member_map` に `(user_id, public_id)` をアトミックに INSERT。
 
 ### 6.5 Dataset Token の発行条件 & リアルタイム失効セマンティクス
 * **Triple Verified Issuance（公証後発行ルール）**:
@@ -421,23 +435,23 @@ stateDiagram-v2
   {
     "sub": "<device_id>",
     "dataset_id": "<public_id>",
-    "is_verified": true,
-    "iat": 1756200000,
-    "exp": 1756804800
+    "typ": "dataset",
+    "iat": "<issued_at_timestamp>",
+    "exp": "<issued_at_timestamp + configured_ttl>"
   }
   ```
 * **リアルタイム失効セマンティクス**:
-  JWT の有効期限内であっても、サーバー側はリクエスト毎に DB の `user_devices` を参照し、**`revoked_at IS NULL` かつ `member_ownership` / `web_user_member_map` のバインディングが有効であること** を検証します。Social 解除や Device Revoke が発生した場合、Token は即座に 401/403 で無効化されます。
+  JWT の有効期限内であっても、サーバー側はリクエスト毎に DB の `user_devices` を参照し、**`revoked_at IS NULL` かつ `member_ownership` / `web_user_member_map` のバインディングが有効であること** を検証します。Social 解除や Device Revoke が発生した場合、Token は次のリクエスト時に即座に 401/403 で拒絶されます。
 
 ---
 
 ## 7. Telemetry Submission Protocol (Dual Auth: Token + Device Signature)
 
 ### 7.1 Telemetry Ingest 原則 & Immutable 帰属保証
-> **「Telemetry ingest endpoint は、request payload に含まれる member_id、public_id、dataset_id 等の所属識別子を認証・認可判断に使用してはならない。Dataset identity は検証済み Credential（Dataset Token + Device Signature）からのみサーバー側で導出する。`api_path` は informational metadata（最大 128 bytes, UTF-8 検証のみ）であり認可判断には使用しない。」**  
+> **「Telemetry ingest endpoint は、request payload に含まれる member_id、public_id、dataset_id 等の所属識別子を認証・認可判断に使用してはならない。Dataset identity は検証済み Credential（Dataset Token + Device Signature）からのみサーバー側で導出する。`api_path` は informational metadata（最大 128 UTF-8 bytes）であり認可判断には使用しない。」**  
 > **「DB に格納された Telemetry レコードの `(public_id, submitted_by_device_id)` は提出時点の事実として Immutable であり、将来のデバイス再バインドや所有者変更によって過去データが更新されることはない。」**
 
-### 7.2 リクエスト仕様 & Idempotency / DB Nonce Retention
+### 7.2 リクエスト仕様 & Idempotency / DB Nonce Retention (30分保持)
 ```http
 POST /api/v1/telemetry/ingest HTTP/1.1
 Host: api.fusou.dev
@@ -445,7 +459,7 @@ Authorization: Bearer <dataset-token>
 X-FUSOU-Device-ID: 00000000-0000-4000-8000-000000000000
 X-FUSOU-Timestamp: 1756200000
 X-FUSOU-Nonce: a1b2c3d4e5f6
-X-FUSOU-Signature: <base64-encoded-ed25519-signature>
+X-FUSOU-Signature: <base64url-encoded-ed25519-signature>
 Content-Type: application/json
 
 {
@@ -460,11 +474,12 @@ Content-Type: application/json
 ```
 
 * **署名対象ペイロード（Canonical Serialization）**:
+  Client は Dataset Token の Claims から `public_id` をデコードして署名に含めます：
   $$\text{SignDoc} = \text{POST} \mathbin{\Vert} \text{/api/v1/telemetry/ingest} \mathbin{\Vert} \text{Nonce} \mathbin{\Vert} \text{Timestamp} \mathbin{\Vert} \text{SHA256(RawBodyBytes)} \mathbin{\Vert} \text{public\_id}$$
 * **DB レベル Nonce Replay Protection & クリーンアップ運用**:
   - `device_id` は UUIDv4 であり **Never-reused**。
   - `X-FUSOU-Timestamp` は ±5 分（±300秒）以内のみ受理。
-  - `telemetry_nonces` に `(device_id, nonce)` を INSERT して消費。データは 10 分間保持し、定期ジョブ（pg_cron）で自動パージ。
+  - `telemetry_nonces` に `(device_id, nonce)` を INSERT して消費。データは 30 分間保持し、定期ジョブ（pg_cron）で自動パージ。
 * **Raw Body Hash による厳格な Idempotency**:
   `body_hash = sha256(raw_body_bytes)` は改ざん防止ではなく **Idempotency 判定専用**。同一 `ingest_item_id` が既に存在する場合、保存済み `body_hash` と完全一致すれば 200/201 冪等成功、不一致であれば 409 Conflict で拒絶。
 
@@ -523,7 +538,7 @@ TLSNotary は active development 中（breaking changes が発生し得る）で
 ```sql
 BEGIN;
 
--- 1. Server-issued One-Time Claim Challenge テーブル
+-- 1. Server-issued One-Time Claim Challenge テーブル (RLS: Service-role only)
 CREATE TABLE IF NOT EXISTS public.claim_challenges (
     challenge_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     public_id UUID NOT NULL REFERENCES public.member_id_mapping(public_id) ON DELETE RESTRICT,
@@ -538,7 +553,16 @@ CREATE INDEX IF NOT EXISTS idx_claim_challenges_active
     ON public.claim_challenges (challenge_id, expires_at) 
     WHERE consumed_at IS NULL;
 
--- 2. Telemetry リプレイ防御用 Nonce テーブル (10分保持)
+ALTER TABLE public.claim_challenges ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Allow service_role full access to claim_challenges"
+    ON public.claim_challenges
+    FOR ALL
+    TO service_role
+    USING (true)
+    WITH CHECK (true);
+
+-- 2. Telemetry リプレイ防御用 Nonce テーブル (30分保持)
 CREATE TABLE IF NOT EXISTS public.telemetry_nonces (
     device_id UUID NOT NULL REFERENCES public.user_devices(device_id) ON DELETE RESTRICT,
     nonce TEXT NOT NULL,
@@ -634,7 +658,7 @@ COMMIT;
 2. Game Server への request は FUSOU 自身が二重送信しない（Phase 0 test instrumentation must demonstrate zero FUSOU-generated duplicate sends）
 3. TLSNotary proof が正常に verify できる
 4. Server identity（Explicit Allowlist: Host + Path + Method）が正常に verify できる
-5. `verified_member_id` の抽出（Decimal String / JS Number 変換禁止）が成功する
+5. `verified_member_id` の抽出（Decimal String / JS Number 変換完全禁止）が成功する
 6. Transcript Range Selection による必要最小構造の切り出しが成立する
 7. Wire Representation（Transfer-Encoding / Content-Encoding / gzip 順序）の実測が完了する
 8. Selective disclosure による最小限開示が成立する
@@ -660,8 +684,8 @@ COMMIT;
 |---|---|:---:|
 | **プロトコル** | FUSOU 生成の二重送信ゼロ | Phase 0 test instrumentation must demonstrate zero FUSOU-generated duplicate sends |
 | **暗号検証** | TLSNotary Proof 検証成功 | Notary 署名・Attestation Header/Body 検証完全一致 |
-| **データ抽出** | `api_member_id` の正確な抽出 | レスポンス平文と抽出値（Decimal String）が一致（JS Number 禁止） |
-| **バインディング** | `ClaimBindingBytes` 偽造不能 | 他端末秘密鍵・別 Nonce での Claim を遮断 |
+| **データ抽出** | `api_member_id` の正確な抽出 | レスポンス平文と抽出値（Decimal String）が一致（JS Number 完全禁止） |
+| **バインディング** | `ClaimBindingBytes` 偽造不能 | 他端末秘密鍵・別 Nonce での Claim を遮断（正確な 24B length） |
 | **端末すり替え拒絶** | 検証済み Proof に対する別 Device 署名拒絶 | **Proof P (member 1234) + Device B 署名 $\rightarrow$ 拒絶** |
 | **Attestation 再利用遮断** | 同一 Attestation の多重 Claim 拒絶 | **Proof P + Challenge C2 $\rightarrow$ 拒絶 (UNIQUE tlsn_attestation_id)** |
 | **自己申告完全根絶** | 旧 register / pending からの Token 発行遮断 | **コードベース上に自己申告 member_id で Token を取得できる経路が 0 件** |
@@ -686,7 +710,7 @@ COMMIT;
    - 旧 `POST /anonymous-sync/v2/register` および `POST /pending/:token/complete` を完全削除・廃止（HTTP 410 Gone）。
    - `packages/FUSOU-WEB/src/server/utils/pepper.ts` を完全削除し、DB-backed One-Time Challenge（`public.claim_challenges`）および raw bytes 署名検証を行う **`packages/FUSOU-WEB/src/server/utils/device-auth.ts`** へ完全移行。
    - Supabase マイグレーション適用（`claim_challenges` 作成 & `claim_verified_device_v3` RPC デプロイ）。
-3. **Phase 2**: `FUSOU-WEB` に新エンドポイント `/anonymous-sync/v2/identity/claim` を有効化。
+3. **Phase 2**: `FUSOU-WEB` に新エンドポイント `/anonymous-sync/v2/identity/claim` および `POST /identity/bind-social` を有効化。
 4. **Phase 3**: `FUSOU-APP` / `fusou-proxy-tlsn` にインライン公証ロジックを配信。
 
 ---
@@ -695,14 +719,14 @@ COMMIT;
 
 - [D] ゲーム通信に外部プロキシを使用しない直接接続設計
 - [D] FUSOU 生成の二重送信ゼロ設計（Design Requirement & Verification Instrument）
-- [D] 旧 `/anonymous-sync/v2/register` および `pending` 自己申告登録の完全根絶設計
+- [D] 旧 `/anonymous-sync/v2/register` および `pending` 自己申告登録の完全根絶設計（Call graph 0本）
 - [D] MPC 復号遅延と Proof 後処理（非同期化）の 3 段階分離設計
-- [D] `ClaimBindingBytes` の厳密な Byte Layout & Binary Framing 設計（`proof_purpose` + `Attestation.header().id` 公式識別子）
+- [D] `ClaimBindingBytes` の厳密な Byte Layout & Binary Framing 設計（`proof_purpose` 24B + `Attestation.header().id` 公式識別子）
 - [D] Server-issued One-Time Challenge の DB 管理 & 単一消費ライフサイクル設計（32-byte CSPRNG BYTEA）
 - [D] 同一 Attestation の多重 Claim 遮断（`UNIQUE (tlsn_attestation_id)`）設計
 - [D] `require_info` によるセッション最初 1 回限りの Identity Attestation 設計（SessionKey 単位）
 - [D] Telemetry ペイロードからの所属識別子完全排除 & 提出時点 Immutable 帰属設計
-- [D] Dual Authentication & `telemetry_nonces`（10分保持）による Replay Protection 設計
+- [D] Dual Authentication & `telemetry_nonces`（30分保持）による Replay Protection 設計
 - [D] `member_id_hash` / Pepper 体系の完全削除と UUID `public_id` への一本化
 - [D] Quad Invariant（$\text{verified\_user\_id} \equiv \text{canonical\_user\_id} \equiv \text{user\_id} \equiv \text{web\_user\_id}$）の段階的成立定義
 - [D] 64-bit Advisory Lock & 親行ロック契約による並行実行競合排除設計
