@@ -323,8 +323,8 @@ sequenceDiagram
 1. **Step 1 (Verified Member ID 受領)**: FUSOU-WEB が TLSNotary Verifier から Authenticated Verifier Result を受領し、`parseCanonicalRequireInfo` により `verified_member_id` を抽出。
 2. **Step 2 (64-bit Advisory Lock 取得)**: FUSOU-WEB が `member_id` に基づく 64-bit Advisory Lock を取得。
 3. **Step 3 (Public ID 確定)**: `public.member_id_mapping` に対する atomic get-or-create を実行し、`public_id` を確定。
-4. **Step 4 (PENDING Device 独立登録)**: FUSOU-WEB は独立した別トランザクションとして、クライアントから提示された `device_public_key` を元に、サーバーが生成した `device_id` と OAuth の `authenticated_user` を紐付け `is_verified = FALSE` (24h TTL) で `user_devices` へ INSERT します。※クライアントからの `public_id` や `canonical_user_id` の直接指定は完全に拒絶し、DB上で `authenticated_user ↓ PENDING Device ↓ public_id` の束縛を確立します。
-5. **Step 5 (Server Challenge 発行)**: 登録した PENDING デバイスに対して `public.claim_challenges` (5分 TTL) を発行。※発行前に `member_ownership_claims` 等を確認し同一 `result_id` での無制限 Challenge 取得を遮断します。
+4. **Step 4 (PENDING Device 独立登録)**: FUSOU-WEB は独立した別トランザクションとして、クライアントから提示された `device_public_key` を元に、サーバーが生成した `device_id` と OAuth の `authenticated_user` を紐付け `is_verified = FALSE` (24h TTL) で `user_devices` へ INSERT します。※クライアントからの `public_id` や `canonical_user_id` の直接指定は完全に拒絶し、DB上で `authenticated_user ↓ PENDING Device ↓ public_id` の束縛を確立します（PENDING stage の `canonical_user_id` はブラウザの authenticated operator を意味し、この時点ではまだ Game Account の所有権証明ではありません）。
+5. **Step 5 (Server Challenge 発行)**: 登録した PENDING デバイスに対して `public.claim_challenges` (5分 TTL) を発行。※発行前に `member_identity_claims` 等を確認し同一 `tlsn_attestation_id` での無制限 Challenge 取得を遮断します。
 6. **Step 6 (ClaimBindingBytes 構築 & 署名)**: 端末が `(domain, purpose, attestation_id, verified_member_id, device_id, expected_public_id, challenge_id, challenge_nonce)` から `ClaimBindingBytes` を構築し、端末秘密鍵で Ed25519 署名。※`public_key` は署名対象に含めず、サーバー側で `user_devices` から取得する。
 7. **Step 7 (Claim 提出 & 署名検証)**: クライアントが FUSOU-WEB へ Claim 提出。FUSOU-WEB が `verifyEd25519ClaimBinding(pubkey, bytes, sig)` で raw byte 署名を検証。
 8. **Step 8 (Atomic DB Commit)**: `claim_verified_device_v3` を実行しアトミックに検証・適用：
@@ -435,7 +435,7 @@ CREATE TABLE IF NOT EXISTS public.claim_challenges (
     public_id UUID NOT NULL REFERENCES public.member_id_mapping(public_id) ON DELETE RESTRICT,
     device_id UUID NOT NULL REFERENCES public.user_devices(device_id) ON DELETE RESTRICT,
     attestation_id BYTEA NOT NULL,
-    challenge_nonce BYTEA NOT NULL,
+    challenge_nonce BYTEA NOT NULL CHECK (octet_length(challenge_nonce) = 32),
     expires_at TIMESTAMPTZ NOT NULL,
     consumed_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -462,50 +462,61 @@ ALTER TABLE public.user_devices
 -- 2. 現在の検証済み所有者テーブル (Current Ownership State)
 CREATE TABLE IF NOT EXISTS public.member_ownership (
     public_id UUID PRIMARY KEY REFERENCES public.member_id_mapping(public_id) ON DELETE RESTRICT,
-    verified_user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE RESTRICT,
+    social_user_id UUID REFERENCES auth.users(id) ON DELETE RESTRICT,
     primary_device_id UUID NOT NULL REFERENCES public.user_devices(device_id) ON DELETE RESTRICT,
     established_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 -- 3. 所有権 Claim 監査履歴テーブル (通常アプリケーション経路でUPDATE/DELETEを禁止するAppend-Only Audit Trail。REVOKE UPDATE, DELETEとトリガーで強制し、ON DELETE RESTRICTで親削除巻き込みを防止する)
-CREATE TABLE IF NOT EXISTS public.member_ownership_claims (
+CREATE TABLE IF NOT EXISTS public.member_identity_claims (
     claim_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     public_id UUID NOT NULL REFERENCES public.member_id_mapping(public_id) ON DELETE RESTRICT,
     canonical_user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE RESTRICT,
     verified_device_id UUID NOT NULL REFERENCES public.user_devices(device_id) ON DELETE RESTRICT,
     tlsn_attestation_id BYTEA NOT NULL,
-    tlsn_request_range TEXT,
-    tlsn_response_range TEXT,
+    request_range_start BIGINT NOT NULL,
+    request_range_length BIGINT NOT NULL,
+    request_range_direction TEXT NOT NULL CHECK (request_range_direction IN ('Sent', 'Received')),
+    response_range_start BIGINT NOT NULL,
+    response_range_length BIGINT NOT NULL,
+    response_range_direction TEXT NOT NULL CHECK (response_range_direction IN ('Sent', 'Received')),
     notary_time TIMESTAMPTZ NOT NULL,
-    notary_key_id TEXT,
+    notary_key_id TEXT NOT NULL,
     proof_purpose TEXT NOT NULL DEFAULT 'GAME_ACCOUNT_IDENTITY_V1',
-    claim_type TEXT NOT NULL CHECK (claim_type IN ('INITIAL_VERIFIED', 'TAKEOVER_FROM_PRE_REG', 'ADDITIONAL_DEVICE')),
+    claim_type TEXT NOT NULL CHECK (claim_type IN ('INITIAL_VERIFIED', 'TAKEOVER_FROM_LEGACY', 'ADDITIONAL_DEVICE')),
     claimed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     CONSTRAINT uq_member_claims_attestation UNIQUE (tlsn_attestation_id)
 );
 
-CREATE INDEX IF NOT EXISTS idx_member_claims_history ON public.member_ownership_claims(public_id, claimed_at DESC);
+CREATE INDEX IF NOT EXISTS idx_member_claims_history ON public.member_identity_claims(public_id, claimed_at DESC);
 
-ALTER TABLE public.member_ownership_claims ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.member_identity_claims ENABLE ROW LEVEL SECURITY;
 
-CREATE POLICY "Allow service_role full access to member_ownership_claims"
-    ON public.member_ownership_claims
-    FOR ALL
+CREATE POLICY "Allow service_role insert only to member_identity_claims"
+    ON public.member_identity_claims
+    FOR INSERT
     TO service_role
-    USING (true)
     WITH CHECK (true);
+
+REVOKE UPDATE, DELETE ON public.member_identity_claims FROM PUBLIC;
+REVOKE UPDATE, DELETE ON public.member_identity_claims FROM service_role;
 
 -- 監査履歴テーブルの UPDATE / DELETE を物理禁止するトリガー
 CREATE OR REPLACE FUNCTION public.fn_prevent_audit_tampering()
-RETURNS TRIGGER LANGUAGE plpgsql AS $$
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
 BEGIN
-  RAISE EXCEPTION 'member_ownership_claims is an append-only audit trail: UPDATE or DELETE is strictly prohibited';
+  RAISE EXCEPTION 'member_identity_claims is an append-only audit trail: UPDATE or DELETE is strictly prohibited';
 END;
 $$;
 
+ALTER FUNCTION public.fn_prevent_audit_tampering() OWNER TO postgres;
+
 CREATE TRIGGER trg_protect_member_claims_audit
-BEFORE UPDATE OR DELETE ON public.member_ownership_claims
+BEFORE UPDATE OR DELETE ON public.member_identity_claims
 FOR EACH ROW EXECUTE FUNCTION public.fn_prevent_audit_tampering();
 
 -- 4. アトミック身元確定・奪還ストアドプロシージャ (全10ステップ順序完全維持)
@@ -516,10 +527,13 @@ CREATE OR REPLACE FUNCTION public.claim_verified_device_v3(
   p_notary_time TIMESTAMPTZ,
   p_challenge_id UUID,
   p_challenge_nonce BYTEA,
-  p_notary_key_id TEXT DEFAULT NULL,
-  p_proof_purpose TEXT DEFAULT 'GAME_ACCOUNT_IDENTITY_V1',
-  p_request_range TEXT DEFAULT NULL,
-  p_response_range TEXT DEFAULT NULL
+  p_notary_key_id TEXT,
+  p_request_range_start BIGINT,
+  p_request_range_length BIGINT,
+  p_request_range_direction TEXT,
+  p_response_range_start BIGINT,
+  p_response_range_length BIGINT,
+  p_response_range_direction TEXT
 )
 RETURNS JSONB
 LANGUAGE plpgsql
@@ -534,21 +548,41 @@ DECLARE
   v_current_ownership RECORD;
   v_mapping RECORD;
   v_claim_type TEXT;
-  v_existing_claim_count INT;
+  v_existing_claim RECORD;
   v_challenge_updated INT;
   v_result JSONB;
+  v_proof_purpose TEXT := 'GAME_ACCOUNT_IDENTITY_V1';
 BEGIN
+  -- Step 0. Notary Time Verification (24時間以内の Proof かつ Clock Skew 5分許容)
+  IF p_notary_time < NOW() - INTERVAL '24 hours' OR p_notary_time > NOW() + INTERVAL '5 minutes' THEN
+    RAISE EXCEPTION 'TLSN_NOTARY_TIME_INVALID_OR_EXPIRED';
+  END IF;
+
   -- Step 1. 【最優先】64-bit Transaction Advisory Lock による完全排他制御
   v_lock_key := ('x' || substr(md5(p_api_member_id::text), 1, 16))::bit(64)::bigint;
   PERFORM pg_advisory_xact_lock(v_lock_key);
 
   -- Step 2. 排他ロック取得後の Attestation 重複消費チェック (TOCTOU競合防止)
-  SELECT COUNT(*) INTO v_existing_claim_count
-  FROM public.member_ownership_claims
+  SELECT * INTO v_existing_claim
+  FROM public.member_identity_claims
   WHERE tlsn_attestation_id = p_tlsn_attestation_id;
 
-  IF v_existing_claim_count > 0 THEN
-    RAISE EXCEPTION 'DUPLICATE_ATTESTATION_CLAIMED: attestation has already been used for identity claim';
+  IF FOUND THEN
+    IF v_existing_claim.verified_device_id = p_device_id THEN
+      -- 同一 Attestation + 同一 Device の再送は Idempotent Success
+      RETURN jsonb_build_object(
+        'device_id', p_device_id,
+        'public_id', v_existing_claim.public_id,
+        'canonical_user_id', v_existing_claim.canonical_user_id,
+        'is_verified', TRUE,
+        'claim_type', v_existing_claim.claim_type,
+        'verified_at', v_existing_claim.claimed_at,
+        'idempotent_replay', TRUE
+      );
+    ELSE
+      -- 異なる Device/User への流用は厳格に拒絶
+      RAISE EXCEPTION 'DUPLICATE_ATTESTATION_CLAIMED: attestation has already been used for a different identity claim';
+    END IF;
   END IF;
 
   -- Step 3. 対象デバイスの存在確認 & 行ロック
@@ -561,19 +595,26 @@ BEGIN
     RAISE EXCEPTION 'device_not_found';
   END IF;
 
-  v_canonical_user_id := v_device.canonical_user_id;
-
   -- Step 4. public_id の取得/生成 (Atomic get-or-create)
   INSERT INTO public.member_id_mapping (api_member_id, public_id, created_at)
   VALUES (p_api_member_id, gen_random_uuid(), NOW())
-  ON CONFLICT (api_member_id) DO UPDATE SET updated_at = NOW()
+  ON CONFLICT (api_member_id) DO UPDATE SET api_member_id = EXCLUDED.api_member_id
   RETURNING public_id INTO v_public_id;
+
+  -- 認証済みオペレーターと PENDING Device のバインディング検証
+  IF v_device.public_id != v_public_id THEN
+    RAISE EXCEPTION 'DEVICE_PUBLIC_ID_MISMATCH: pending device is bound to a different public_id';
+  END IF;
+  
+  -- PENDING登録時の作成者（OAuth User）を引き継ぐ
+  v_canonical_user_id := v_device.canonical_user_id;
 
   -- Step 4.1 Server Challenge の単一消費確認 (One-Time Consume)
   UPDATE public.claim_challenges
   SET consumed_at = NOW()
   WHERE challenge_id = p_challenge_id
     AND challenge_nonce = p_challenge_nonce
+    AND attestation_id = p_tlsn_attestation_id
     AND public_id = v_public_id
     AND device_id = p_device_id
     AND consumed_at IS NULL
@@ -598,21 +639,18 @@ BEGIN
 
   -- Step 7. 所有権ルール判定
   IF v_current_ownership.public_id IS NULL THEN
-    -- 【初回公証 / 事前登録攻撃者からの所有権奪還】
-    v_claim_type := 'INITIAL_VERIFIED';
-
     -- user_member_map の所有者を正規ユーザーへ移転・上書き (Triple Invariant 保証)
     INSERT INTO public.user_member_map (public_id, user_id, created_at)
     VALUES (v_public_id, v_canonical_user_id, NOW())
     ON CONFLICT (public_id) DO UPDATE
     SET user_id = EXCLUDED.user_id;
 
-    -- 現在の Verified Owner として登録 (Primary Device 固定)
+    -- 現在の Verified Owner として登録 (Primary Device 固定, social_user_id は NULL)
     INSERT INTO public.member_ownership (
-      public_id, verified_user_id, primary_device_id, established_at, updated_at
+      public_id, primary_device_id, established_at, updated_at
     )
     VALUES (
-      v_public_id, v_canonical_user_id, p_device_id, NOW(), NOW()
+      v_public_id, p_device_id, NOW(), NOW()
     );
 
     -- 同一 public_id に紐づく未検証端末のうち、別ユーザーの未検証端末のみを安全に Revoke
@@ -625,12 +663,21 @@ BEGIN
       AND is_verified = FALSE
       AND canonical_user_id <> v_canonical_user_id
       AND revoked_at IS NULL;
+      
+    IF FOUND THEN
+      -- Legacy attacker からの奪還 (Historical label)
+      v_claim_type := 'TAKEOVER_FROM_LEGACY';
+    ELSE
+      -- 通常の初回公証
+      v_claim_type := 'INITIAL_VERIFIED';
+    END IF;
 
   ELSE
     -- 【すでに検証済みオーナーが存在する状態】
-    IF v_current_ownership.verified_user_id != v_canonical_user_id THEN
+    -- user_member_map から現在の正規オーナー (user_id) を取得して比較
+    IF (SELECT user_id FROM public.user_member_map WHERE public_id = v_public_id) != v_canonical_user_id THEN
       -- 別アカウントからの乗っ取り Claim は厳格に拒絶
-      RAISE EXCEPTION 'EXISTING_VERIFIED_OWNER_CONFLICT: account % is already verified owner', v_current_ownership.verified_user_id;
+      RAISE EXCEPTION 'EXISTING_VERIFIED_OWNER_CONFLICT: account is already claimed by another owner';
     END IF;
 
     -- 同一オーナーによる追加端末 (Multi-Device: Owner は不変)
@@ -638,18 +685,22 @@ BEGIN
   END IF;
 
   -- Step 8. 通常のアプリケーション経路において UPDATE / DELETE を禁止する Append-Only 監査履歴テーブルに記録
-  INSERT INTO public.member_ownership_claims (
-    public_id, canonical_user_id, verified_device_id, tlsn_attestation_id, tlsn_request_range, tlsn_response_range, notary_time, notary_key_id, proof_purpose, claim_type
+  INSERT INTO public.member_identity_claims (
+    public_id, canonical_user_id, verified_device_id, tlsn_attestation_id,
+    request_range_start, request_range_length, request_range_direction,
+    response_range_start, response_range_length, response_range_direction,
+    notary_time, notary_key_id, proof_purpose, claim_type
   )
   VALUES (
-    v_public_id, v_canonical_user_id, p_device_id, p_tlsn_attestation_id, p_request_range, p_response_range, p_notary_time, p_notary_key_id, p_proof_purpose, v_claim_type
+    v_public_id, v_canonical_user_id, p_device_id, p_tlsn_attestation_id,
+    p_request_range_start, p_request_range_length, p_request_range_direction,
+    p_response_range_start, p_response_range_length, p_response_range_direction,
+    p_notary_time, p_notary_key_id, v_proof_purpose, v_claim_type
   );
 
-  -- Step 9. 当該デバイスを verified に昇格 & 正当な Canonical User にバインド
+  -- Step 9. 当該デバイスを verified に昇格
   UPDATE public.user_devices
   SET
-    public_id = v_public_id,
-    canonical_user_id = v_canonical_user_id,
     is_verified = TRUE,
     verified_at = NOW(),
     last_notary_time = p_notary_time,
@@ -670,6 +721,9 @@ BEGIN
   RETURN v_result;
 END;
 $$;
+
+REVOKE ALL ON FUNCTION public.claim_verified_device_v3 FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.claim_verified_device_v3 TO service_role;
 
 COMMIT;
 ```
@@ -769,7 +823,7 @@ COMMIT;
 | 23 | Legacy RPC Orphan | RPC Replacement | DB Migration | - | `rpc_register_user_device` の責務を `claim_verified_device_v3` へ完全統合 | - | `rpc_register_user_device` DROP | - |
 | 24 | PENDING Device DoS | Resource Exhaustion | DB Cron / Trigger | - | 24h TTL で expired PENDING device を自動物理削除 | - | - | `test_pending_device_ttl_cleanup` |
 | 25 | PENDING Re-use | Device Isolation | DB Schema | `device_id` 削除後は再利用禁止 | 紛失時は新規 `device_id` を発行 | 期限切れ `device_id` の使い回し | - | `test_pending_device_reuse_rejected` |
-| 26 | Challenge Idempotency | Attestation Replay | `claim_challenges` | - | `member_ownership_claims` または `claim_challenges` で `tlsn_attestation_id`, `result_id` 確認 | 同一 Result での複数 Challenge 発行 | - | `test_challenge_replay_by_result_id_rejected` |
+| 26 | Challenge Idempotency | Attestation Replay | `claim_challenges` | - | `member_identity_claims` または `claim_challenges` で `tlsn_attestation_id` 確認 | 同一 Attestation での複数 Challenge 発行 | - | `test_challenge_replay_by_attestation_id_rejected` |
 | 27 | Claim Idempotency | Attestation Replay | `claim_verified_device_v3` | - | 同一Attestation + public_id + device_id の再Claimは成功扱い | 異なるdeviceへのClaim流用 | - | `test_claim_idempotency_same_device` |
 | 28 | HTTP Size Forgery | Resource Exhaustion | FUSOU-WEB Proxy | - | `Content-Length` ではなく実際の受信 Bytes で上限判定 | 偽の Content-Length を信用する | - | `test_http_actual_size_limit_enforced` |
 | 29 | Chunked / Gzip Bomb | Memory Exhaustion | FUSOU-WEB Proxy | - | dechunk/decompressed の最終サイズで 500KB 上限判定 | 圧縮時サイズのみで判定 | - | `test_http_decompressed_size_limit` |
@@ -806,7 +860,7 @@ COMMIT;
 - [D] 旧 `/anonymous-sync/v2/register` および `pending` 自己申告登録の完全根絶設計（Call graph 0本）。`rpc_register_public_id`, `ensureCanonicalUserForPublicId`, `signInAnonymously` の完全削除（DB DROP含む）。`issueDatasetToken()` の許可callerを `claim` と `social-bind` のみに完全一致（allowlist化）し、`register` や `refresh` などを FORBIDDEN とする。
 - [D] MPC 復号遅延と Proof 後処理（非同期化）のイベント分離 (T0〜T6) および、fusou-proxy-tlsn 内部における MPC 復号ストリームからの Gameplay 転送と EvidenceFrame (session_id, request_id, response_id, transcript_range, raw_bytes 定義による TLSNotary Transcript との同一性の型レベル保証) の単一ストリーム分離（Single Stream Fork）設計
 - [D] `ClaimBindingBytes` の厳密な Byte Layout & Binary Framing 設計（`proof_purpose` ＝ `GAME_ACCOUNT_IDENTITY_V1` を正確に 24 bytes として自動テスト。UUID は 16-byte binary、`verified_member_id` は normalized decimal ASCII UTF-8 bytes に完全固定。既存 `verifyDeviceSig(string)` は使用禁止とし `verifyEd25519ClaimBinding(Uint8Array, ...)` へ切り替え）。Telemetry も `FUSOU-TELEMETRY-SIGN-V1` を用い length-delimited に完全固定。
-- [D] 初回 Claim 決定論的 8 ステップ順序（Lock -> PublicID -> Challenge -> Signature -> Atomic Commit）
+- [D] 初回 Claim 論理プロトコル 8 ステップ順序（Lock -> PublicID -> Challenge -> Signature -> Atomic Commit）
 - [D] Server-issued One-Time Challenge の DB 管理（旧 stateless HMAC challenge の完全 DELETE と新 `claim_challenges` の CREATE）。`UPDATE ... WHERE consumed_at IS NULL` を用いたアトミック消費と、Attestation 検証完了後のみの Challenge 発行の厳格化。
 - [D] 同一 Attestation の多重 Claim 遮断（`UNIQUE (tlsn_attestation_id)`）設計
 - [D] `require_info` によるセッション最初 1 回限りの Identity Attestation 設計（SessionKey 単位）
