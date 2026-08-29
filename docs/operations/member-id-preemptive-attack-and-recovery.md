@@ -321,11 +321,12 @@ sequenceDiagram
 1. **Step 1 (Verified Member ID 受領)**: FUSOU-WEB が TLSNotary Verifier から Authenticated Verifier Result を受領し、`parseCanonicalRequireInfo` により `verified_member_id` を抽出。
 2. **Step 2 (64-bit Advisory Lock 取得)**: FUSOU-WEB が `member_id` に基づく 64-bit Advisory Lock を取得。
 3. **Step 3 (Public ID 確定)**: `public.member_id_mapping` に対する atomic get-or-create を実行し、`public_id` を確定。
-4. **Step 4 (Authenticated Device が Claim 要求)**: 端末が `device_id` を提示して Challenge を要求。
-5. **Step 5 (Server Challenge 発行)**: FUSOU-WEB が `(public_id, device_id, attestation_id, challenge_nonce, expires_at)` を `public.claim_challenges` に INSERT。
+4. **Step 4 (PENDING Device 登録)**: 未登録のデバイスが Claim を開始する場合、まず `is_verified = FALSE` (PENDING状態) として先に `user_devices` へ INSERT し、FK 依存関係を解決する。PENDING状態のデバイスはTelemetry送信やToken発行等の一切の権限を持たない。
+5. **Step 5 (Server Challenge 発行)**: FUSOU-WEB が PENDING/既存の `device_id` に対して `(public_id, device_id, attestation_id, challenge_nonce, expires_at)` を `public.claim_challenges` に INSERT。
 6. **Step 6 (ClaimBindingBytes 構築 & 署名)**: 端末が `(domain, purpose, attestation_id, verified_member_id, device_id, expected_public_id, challenge_id, challenge_nonce)` から `ClaimBindingBytes` を構築し、端末秘密鍵で Ed25519 署名。
-7. **Step 7 (Claim 提出 & 署名検証)**: クライアントが FUSOU-WEB へ Claim 提出。FUSOU-WEB が `verifyEd25519ClaimBinding(pubkey, bytes, sig)` で raw byte 署名を検証。
-8. **Step 8 (Atomic DB Commit)**: `claim_verified_device_v3` を実行し、Challenge 単一消費、`UNIQUE(tlsn_attestation_id)` 検証、所有権判定、監査ログ記録、Device 昇格をアトミックにコミット。
+7. **Step 7 (VERIFIED Device へ昇格)**: 検証成功時のみ、アトミックなトランザクション内で Device を `is_verified = TRUE` へ昇格させ、`member_ownership_claims` へ Audit Log を記録する。
+8. **Step 8 (Claim 提出 & 署名検証)**: クライアントが FUSOU-WEB へ Claim 提出。FUSOU-WEB が `verifyEd25519ClaimBinding(pubkey, bytes, sig)` で raw byte 署名を検証。
+9. **Step 9 (Atomic DB Commit)**: `claim_verified_device_v3` を実行し、Challenge 単一消費、`UNIQUE(tlsn_attestation_id)` 検証、所有権判定、監査ログ記録、Device 昇格をアトミックにコミット。
 
 ### 9.2 DB トランザクション内部 10 ステップ (claim_verified_device_v3)
 1. **Advisory Lock 取得**: 64-bit キーによるトランザクション排他ロック（Claim / Revoke 共通ロックドメイン）。
@@ -746,6 +747,20 @@ COMMIT;
 | 8 | Legacy Device Bypass | 旧デバイスの無効化 | Device Verify Status | - | 新 TLSNotary Proof のみ | 旧 `is_verified=TRUE` の無条件継承 | 旧 Device `is_verified=FALSE` へ降格 | `test_legacy_device_unverified_fallback` |
 | 9 | Cryptographic Parameter Drift | Wire Serialization 完全固定 | `ClaimBinding`, `TelemetrySignDoc` | - | UUID (16-byte binary), `member_id` (ASCII utf-8) | `verifyDeviceSig(string)`, 単純concat | `GAME_ACCOUNT_IDENTITY_V1` 24 byte 固定 | `test_claim_binding_byte_length_24` |
 | 10 | Cryptographic Cross-Reuse | Domain Tag の分離 | `TelemetrySignDoc` | - | `FUSOU-TELEMETRY-SIGN-V1` (length-delimited) | `FUSOU-IDENTITY-CLAIM-V1` (流用禁止) | Telemetry も length-delimited 化 | `test_telemetry_domain_tag_isolation` |
+| 11 | JSON Wire Forgery | Lossless JSON Parser | FUSOU-WEB Parser | - | 完全構造一致 `/api_data/api_basic/api_member_id` | `JSON.parse` のNumber変換, Regex検索 | v1 wire (JSON Number vs String) の確定 | `test_lossless_json_pointer_extraction` |
+| 12 | Device Claim Race | PENDING Device State | `claim_verified_device_v3` | `device_id` FK | PENDING デバイスへの Challenge 発行 | 未登録デバイスへの Challenge | - | `test_pending_device_claim_lifecycle` |
+| 13 | Idempotency Failure | Client-gen UUIDv4 | `telemetry_events` | `ingest_item_id` PK | クライアント送信 UUIDv4 必須化 | サーバー側の自動 UUID 生成 | - | `test_client_generated_idempotency_key` |
+| 14 | API Verification Gap | Phase 0 実測確定 | MPC-TLS Lifecycle | - | T3 Browser 返却後の T4 Attestation 成立 | Verifier の plaintext 事前取得 | - | `test_tlsnotary_t3_t4_compatibility` |
+| 15 | Verifier Result Serialization | Canonical Encoding | Verifier | - | `base64url` 無し Canonical Binary 署名 | `JSON.stringify` 依存 | - | `test_verifier_result_canonical_serialization` |
+
+### 移行における完全削除対象ファイル (Files to DELETE)
+新 Security Boundary を迂回する全経路を遮断するため、以下のレガシーコード・RPCは「非推奨」ではなく**物理的に完全削除（DROP / DELETE）**します。
+- `packages/FUSOU-WEB/src/server/routes/anonymous-sync-v2.ts`（旧 register / pending completion 全ハンドラ）
+- `packages/FUSOU-WEB/src/server/utils/pepper.ts`
+- 旧 HMAC challenge handler および関連 DB スキーマ
+- 匿名ユーザー自動生成関数 (`signInAnonymously`, `ensureCanonicalUserForPublicId`)
+- 汎用 RPC (`rpc_register_public_id`, `rpc_register_user_device`)
+
 
 
 
@@ -781,6 +796,6 @@ COMMIT;
 - [D] Advisory Lock 取得後の Proof / Attestation Consumption Policy（同一 transcript_commitment の多重消費を DUPLICATE_PROOF_CONSUMED で即時遮断）設計、および claim_verified_device_v3 は FUSOU-WEB が TLSNotary を完全検証済みであることを前提とする Security Boundary の明文化
 - [D] Security Invariant $\rightarrow$ Enforcement $\rightarrow$ Test 対応表の定義
 - [P] Phase 0 PoC（公式 tlsn-extension を参考とした prove() / compute_reveal() / handler 機構の調査・流用方針の策定、および alpha 版特定 API への過度な依存排除）
-- [P] Verifier 実行環境ベンチマーク（Workers vs Dedicated Rust Verifier）および exact TLSNotary revision 固定 (例: FUSOU TLSNotary profile v1 tlsn git commit = ABC, Attestation.header().id serialization = exact canonical bytes) および claim_challenges.attestation_id と member_ownership_claims.tlsn_attestation_id の同一ID体系の固定
+- [P] Verifier 実行環境ベンチマーク（Workers vs Dedicated Rust Verifier）および exact TLSNotary revision 固定（T3 Browser response 返却後に同一 MPC session で T4 Attestation 生成が可能かを Phase 0 で実証必須） (例: FUSOU TLSNotary profile v1 tlsn git commit = ABC, Attestation.header().id serialization = exact canonical bytes) および claim_challenges.attestation_id と member_ownership_claims.tlsn_attestation_id の同一ID体系の固定
 - [I] 実装および DB マイグレーション適用（旧Tokenの完全失効と refresh 拒絶、旧Deviceの `is_verified = FALSE` 降格、旧Telemetryの `LEGACY_UNVERIFIED` 扱い、および `pending_member_syncs` 関連全コードの削除、`member_id_mapping` の保持）
 - [T] 単体テスト・端末すり替え遮断テスト・Attestation 再利用遮断テスト
