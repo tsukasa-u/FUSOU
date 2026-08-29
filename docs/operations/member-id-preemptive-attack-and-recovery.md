@@ -215,18 +215,22 @@ member_id_mapping (Service-role only: UNIQUE(api_member_id), UNIQUE(public_id))
        ▼
 public_id = UUIDv4 (Random UUID: Dataset U1)
        │
-       ├───────────────▶ member_ownership (Security Truth: verified_user_id = Auth User A)
+       ├───────────────▶ member_ownership_claims (Audit Trail: 誰がいつ証明したか)
        ├───────────────▶ user_member_map (Application Projection)
        ├───────────────▶ web_user_member_map (Social Projection: UNIQUE public_id -> 1 Dataset = 1 Social User)
        ├───────────────▶ user_devices (device_id = Device A)
        └───────────────▶ telemetry_events (public_id = U1)
 ```
 
-### 4.2 Invariant の段階的成立
+### 4.2 Invariant の段階的成立と「Binding」の定義
+*Note: DB名上の「ownership」は、アプリケーション上の Binding (認可状態) を指すものであり、法的・暗号学的な Game Account 所有権の恒久証明ではありません（TLSNotaryが証明するのは「その瞬間、Game Serverがこのmember_idを返した」という事実のみです）。*
+
 1. **`GAME_IDENTITY_VERIFIED` 時点**:
-   $$\text{member\_ownership.verified\_user\_id} \equiv \text{user\_devices.canonical\_user\_id} \equiv \text{user\_member\_map.user\_id} \quad (\text{Triple Invariant})$$
+   - `user_devices.canonical_user_id` = `authenticated Supabase user` (操作者) に設定。
+   - ただし、この時点ではまだ Social Account (外部OAuthなど) とは結びついておらず、`web_user_member_map.social_user_id` は `NULL` です（Device Verified ≠ Social Account Bound）。
 2. **`SOCIAL_ACCOUNT_BOUND`（OAuth 明示的バインディング完了）以降**:
-   $$\text{上記 3 者} \equiv \text{web\_user\_member\_map.user\_id} \quad (\text{Quad Invariant})$$
+   - `web_user_member_map` に OAuth の `social_user_id` が格納され、Token 発行が可能になります。
+   $$\text{canonical\_user\_id} \equiv \text{user\_member\_map.user\_id} \equiv \text{web\_user\_member\_map.user\_id} \quad (\text{Quad Invariant 成立})$$
 
 ---
 
@@ -321,12 +325,18 @@ sequenceDiagram
 1. **Step 1 (Verified Member ID 受領)**: FUSOU-WEB が TLSNotary Verifier から Authenticated Verifier Result を受領し、`parseCanonicalRequireInfo` により `verified_member_id` を抽出。
 2. **Step 2 (64-bit Advisory Lock 取得)**: FUSOU-WEB が `member_id` に基づく 64-bit Advisory Lock を取得。
 3. **Step 3 (Public ID 確定)**: `public.member_id_mapping` に対する atomic get-or-create を実行し、`public_id` を確定。
-4. **Step 4 (PENDING Device 登録)**: 未登録のデバイスが Claim を開始する場合、まず `is_verified = FALSE` (PENDING状態) として先に `user_devices` へ INSERT し、FK 依存関係を解決する。PENDING状態のデバイスはTelemetry送信やToken発行等の一切の権限を持たない。
-5. **Step 5 (Server Challenge 発行)**: FUSOU-WEB が PENDING/既存の `device_id` に対して `(public_id, device_id, attestation_id, challenge_nonce, expires_at)` を `public.claim_challenges` に INSERT。
-6. **Step 6 (ClaimBindingBytes 構築 & 署名)**: 端末が `(domain, purpose, attestation_id, verified_member_id, device_id, expected_public_id, challenge_id, challenge_nonce)` から `ClaimBindingBytes` を構築し、端末秘密鍵で Ed25519 署名。
-7. **Step 7 (VERIFIED Device へ昇格)**: 検証成功時のみ、アトミックなトランザクション内で Device を `is_verified = TRUE` へ昇格させ、`member_ownership_claims` へ Audit Log を記録する。
-8. **Step 8 (Claim 提出 & 署名検証)**: クライアントが FUSOU-WEB へ Claim 提出。FUSOU-WEB が `verifyEd25519ClaimBinding(pubkey, bytes, sig)` で raw byte 署名を検証。
-9. **Step 9 (Atomic DB Commit)**: `claim_verified_device_v3` を実行し、Challenge 単一消費、`UNIQUE(tlsn_attestation_id)` 検証、所有権判定、監査ログ記録、Device 昇格をアトミックにコミット。
+4. **Step 4 (PENDING Device 登録 & Server Challenge 発行)**: クライアントは `device_id` と `device_public_key` のみを提示。FUSOU-WEBはサーバーサイドで解決した `public_id` と OAuthの `authenticated_user` を元に、`is_verified = FALSE` (PENDING状態、24h TTL) として `user_devices` へ INSERT し、そのデバイスに対して `public.claim_challenges` (5分 TTL) を発行。
+   - ※クライアントからの `public_id` や `canonical_user_id` の指定は一切拒絶する。
+   - ※Challenge発行前に、`member_ownership_claims` および発行済み `claim_challenges` を確認し、同一 `tlsn_attestation_id` または同一 `result_id` による無制限な Challenge 発行 (Idempotency Replay Attack) を事前に遮断する。
+5. **Step 5 (ClaimBindingBytes 構築 & 署名)**: 端末が `(domain, purpose, attestation_id, verified_member_id, device_id, expected_public_id, challenge_id, challenge_nonce)` から `ClaimBindingBytes` を構築し、端末秘密鍵で Ed25519 署名。※`public_key` は署名対象に含めず、サーバー側で `user_devices` から取得する。
+6. **Step 6 (Claim 提出 & 署名検証)**: クライアントが FUSOU-WEB へ Claim 提出。FUSOU-WEB が `verifyEd25519ClaimBinding(pubkey, bytes, sig)` で raw byte 署名を検証。
+7. **Step 7 (Atomic DB Commit)**: `claim_verified_device_v3` を実行し、以下の条件をアトミックに検証・適用：
+   - Challenge 単一消費 (`consumed_at = NOW()`)
+   - `UNIQUE(tlsn_attestation_id)` 検証 (再利用防止)
+   - `authenticated_user == PENDING device.canonical_user_id` および `device.public_id == expected_public_id` の一致検証
+   - `member_ownership_claims` への Audit Log 記録
+   - Device を `is_verified = TRUE` へ昇格 (VERIFIED化)
+   ※ 同一Attestation + 同一Device + 同一public_id の場合は idempotent success（再ログイン扱い）とし、それ以外のAttestation重複利用は拒絶する。
 
 ### 9.2 DB トランザクション内部 10 ステップ (claim_verified_device_v3)
 1. **Advisory Lock 取得**: 64-bit キーによるトランザクション排他ロック（Claim / Revoke 共通ロックドメイン）。
@@ -752,6 +762,23 @@ COMMIT;
 | 13 | Idempotency Failure | Client-gen UUIDv4 | `telemetry_events` | `ingest_item_id` PK | クライアント送信 UUIDv4 必須化 | サーバー側の自動 UUID 生成 | - | `test_client_generated_idempotency_key` |
 | 14 | API Verification Gap | Phase 0 実測確定 | MPC-TLS Lifecycle | - | T3 Browser 返却後の T4 Attestation 成立 | Verifier の plaintext 事前取得 | - | `test_tlsnotary_t3_t4_compatibility` |
 | 15 | Verifier Result Serialization | Canonical Encoding | Verifier | - | `base64url` 無し Canonical Binary 署名 | `JSON.stringify` 依存 | - | `test_verifier_result_canonical_serialization` |
+| 16 | JSON Duplicate Key Injection | JSON Parser | FUSOU-WEB Parser | - | Duplicate key error 拒絶 | 最初/最後のキーを静かに採用 | - | `test_json_duplicate_key_rejected` |
+| 17 | JSON String Escape Bypass | JSON Parser | FUSOU-WEB Parser | - | `api_member_id` の ASCII digits (Number) 完全一致 | `\u0031` 等の Unicode escape 許可 | - | `test_json_unicode_escape_rejected` |
+| 18 | JSON Exponential Forgery | JSON Parser | FUSOU-WEB Parser | - | 指数表現(`1e4`), 符号(`-1`) を拒絶 | 浮動小数点/指数パース許可 | - | `test_json_exponential_number_rejected` |
+| 19 | Verifier Canonical Framing | Verifier Result | Verifier | - | `VerifierResultSignBytes` = length-delimited binary | JSON field order に依存する署名 | - | `test_verifier_result_binary_framing` |
+| 20 | Decoder Padding Attack | Base64URL Strict Decoder | FUSOU-WEB Parser | - | padding (`=`) なしの strict base64url | loose/malleable base64url decoder | - | `test_base64url_strict_decoder` |
+| 21 | Verifier Result Issuer Check | Verifier Signatures | FUSOU-WEB Parser | - | `issuer = FUSOU Dedicated Verifier` 必須 | issuer の未確認 | - | `test_verifier_result_issuer_verification` |
+| 22 | T3-T4 MPC State Loss | TLSNotary Lifecycle | MPC Proxy | - | Browser response 返却後も MPC state を保持し T4 移行 | T3 後に MPC Connection を破棄 | - | `test_mpc_state_retention_after_t3` |
+| 23 | Legacy RPC Orphan | RPC Replacement | DB Migration | - | `rpc_register_user_device` の責務を `claim_verified_device_v3` へ完全統合 | - | `rpc_register_user_device` DROP | - |
+| 24 | PENDING Device DoS | Resource Exhaustion | DB Cron / Trigger | - | 24h TTL で expired PENDING device を自動物理削除 | - | - | `test_pending_device_ttl_cleanup` |
+| 25 | PENDING Re-use | Device Isolation | DB Schema | `device_id` 削除後は再利用禁止 | 紛失時は新規 `device_id` を発行 | 期限切れ `device_id` の使い回し | - | `test_pending_device_reuse_rejected` |
+| 26 | Challenge Idempotency | Attestation Replay | `claim_challenges` | - | `member_ownership_claims` または `claim_challenges` で `tlsn_attestation_id`, `result_id` 確認 | 同一 Result での複数 Challenge 発行 | - | `test_challenge_replay_by_result_id_rejected` |
+| 27 | Claim Idempotency | Attestation Replay | `claim_verified_device_v3` | - | 同一Attestation + public_id + device_id の再Claimは成功扱い | 異なるdeviceへのClaim流用 | - | `test_claim_idempotency_same_device` |
+| 28 | HTTP Size Forgery | Resource Exhaustion | FUSOU-WEB Proxy | - | `Content-Length` ではなく実際の受信 Bytes で上限判定 | 偽の Content-Length を信用する | - | `test_http_actual_size_limit_enforced` |
+| 29 | Chunked / Gzip Bomb | Memory Exhaustion | FUSOU-WEB Proxy | - | dechunk/decompressed の最終サイズで 500KB 上限判定 | 圧縮時サイズのみで判定 | - | `test_http_decompressed_size_limit` |
+| 30 | MPC Failure Gameplay Block | Availability Loss | MPC Proxy | - | MPC失敗時は normal TLS fallback に切り替えゲーム影響ゼロ | 送信後のMPC失敗時にゲーム通信まで失敗 | - | `test_mpc_failure_graceful_fallback` |
+| 31 | DB Failure Replay | Gameplay Re-submission | MPC Proxy | - | DB書込失敗時でもブラウザへ送信済みなら再送しない | ブラウザ要求をゲームサーバーへ再送 | - | `test_db_failure_no_gameplay_replay` |
+| 32 | Queue Unbound Retry | Resource Exhaustion | Background Jobs | - | invalid proof 等の non-retryable error は即時破棄 | 永久再試行 (Infinite Retries) | - | `test_queue_non_retryable_error_discard` |
 
 ### 移行における完全削除対象ファイル (Files to DELETE)
 新 Security Boundary を迂回する全経路を遮断するため、以下のレガシーコード・RPCは「非推奨」ではなく**物理的に完全削除（DROP / DELETE）**します。
