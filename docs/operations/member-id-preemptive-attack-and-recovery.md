@@ -319,7 +319,7 @@ sequenceDiagram
 |:---:|---|---|---|---|
 | 1 | `domain_tag` | US-ASCII octets | 23 bytes | `"FUSOU-IDENTITY-CLAIM-V1"` |
 | 2 | `proof_purpose` | US-ASCII octets | **24 bytes** | `"GAME_ACCOUNT_IDENTITY_V1"` |
-| 3 | `tlsn_attestation_id` | TLSNotary Canonical Bytes | $N$ bytes (Phase 0 固定) | `Attestation.header().id` の公式シリアライズバイト列 |
+| 3 | `tlsn_attestation_id` | TLSNotary Canonical Bytes | 32 bytes 固定 (Phase 0 実証済み) | `Attestation.header().id` の公式シリアライズバイト列 |
 | 4 | `verified_member_id` | UTF-8 decimal ASCII | 1〜16 bytes | 検証済みゲームアカウント ID（例: `"12345678"`） |
 | 5 | `device_id` | Binary UUID (RFC 4122 Big-endian) | 16 bytes | 提出端末の Device UUID |
 | 6 | `expected_public_id` | Binary UUID (RFC 4122 Big-endian) | 16 bytes | サーバー割当 Dataset UUID |
@@ -518,6 +518,9 @@ Client から FUSOU-WEB への提出ペイロードにおける `verifier_result
 
 ## 12. Revoke Semantics & Currently Trusted Device（失効セマンティクスと有効端末定義）
 
+※ **Owner Conflict 完全定義**: 同一 `public_id` に対して既に特定の `canonical_user_id` による `VERIFIED` Device が存在する場合、全く別の User が正規の TLSNotary Proof を持ち込んでも、既存の `VERIFIED` Device は自動 Takeover されません（必ず Reject されます）。新しい Device が `VERIFIED` として追加（Additional Device）できるのは、全ての既存の VERIFIED Device と Claiming User が同一の `canonical_user_id` である場合のみです。例外的な強制的 Ownership Transfer には専用の明示的 API が必要であり、通常の Claim RPC では自動移譲しません。
+
+
 * **Currently Trusted Device の厳格な定義**:
   DB の `user_devices` テーブル上で **`device_status = 'VERIFIED' AND revoked_at IS NULL`** であること。
 * **Revoke 処理**:
@@ -691,9 +694,6 @@ CREATE TABLE IF NOT EXISTS public.member_ownership (
 
 -- 5. member_identity_claims ベーステーブル
 
--- member_identity_claims への直接操作の完全禁止 (Append-only 強制)
-REVOKE INSERT, UPDATE, DELETE ON public.member_identity_claims FROM PUBLIC, authenticated, anon, service_role;
--- ※ 実際の書き込み経路は Security Definer を持つ claim_verified_device_v3 関数内部のみに厳格に限定されます。
 
 CREATE TABLE IF NOT EXISTS public.member_identity_claims (
     claim_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -714,10 +714,18 @@ CREATE TABLE IF NOT EXISTS public.member_identity_claims (
 );
 
 CREATE INDEX IF NOT EXISTS idx_member_claims_history ON public.member_identity_claims(public_id, claimed_at DESC);
+
+-- member_identity_claims への直接操作の完全禁止 (Append-only 強制)
+-- ※ 実際の書き込み経路は Security Definer を持つ claim_verified_device_v3 関数内部のみに厳格に限定されます。
+REVOKE INSERT, UPDATE, DELETE ON public.member_identity_claims FROM PUBLIC, authenticated, anon, service_role;
+
+
+-- member_identity_claims への直接操作の完全禁止 (Append-only 強制)
+-- ※ 実際の書き込み経路は Security Definer を持つ claim_verified_device_v3 関数内部のみに厳格に限定されます。
+
 ALTER TABLE public.member_identity_claims ENABLE ROW LEVEL SECURITY;
 
 -- Security Invariant: DBへの直接INSERTを完全に禁止し、SECURITY DEFINER RPCのみが書き込み権限を持つようにする
-REVOKE INSERT ON public.member_identity_claims FROM authenticated, anon, service_role;
 
 COMMIT;
 ```
@@ -772,23 +780,33 @@ BEGIN
     RAISE EXCEPTION 'PREFLIGHT FAILED: Duplicate tlsn_attestation_id found in member_identity_claims';
   END IF;
 
-  -- 削除予定の NULL public_id 行に対する依存 (FK 制約違反) が存在するかどうかを事前検査
-  IF EXISTS (
-    SELECT 1 FROM public.member_ownership m
-    JOIN public.user_devices u ON m.primary_device_id = u.device_id
-    WHERE u.public_id IS NULL OR u.device_public_key IS NULL
-  ) THEN
-    RAISE EXCEPTION 'PREFLIGHT FAILED: Cannot safely delete legacy devices because member_ownership depends on them';
-  END IF;
-
-  IF EXISTS (
-    SELECT 1 FROM public.member_identity_claims c
-    JOIN public.user_devices u ON c.verified_device_id = u.device_id
-    WHERE u.public_id IS NULL OR u.device_public_key IS NULL
-  ) THEN
-    RAISE EXCEPTION 'PREFLIGHT FAILED: Cannot safely delete legacy devices because member_identity_claims depends on them';
-  END IF;
-
+  -- 削除予定の NULL public_id / device_public_key 行に対する依存 (FK 制約違反) が存在するかどうかを PostgreSQL Catalog から動的に事前検査
+  DECLARE
+    v_fk_record RECORD;
+    v_dep_count INT;
+  BEGIN
+    FOR v_fk_record IN 
+      SELECT
+        tc.table_schema, 
+        tc.table_name, 
+        kcu.column_name
+      FROM 
+        information_schema.table_constraints AS tc 
+        JOIN information_schema.key_column_usage AS kcu
+          ON tc.constraint_name = kcu.constraint_name
+          AND tc.table_schema = kcu.table_schema
+        JOIN information_schema.constraint_column_usage AS ccu
+          ON ccu.constraint_name = tc.constraint_name
+          AND ccu.table_schema = tc.table_schema
+      WHERE tc.constraint_type = 'FOREIGN KEY' AND ccu.table_name = 'user_devices'
+    LOOP
+      EXECUTE format('SELECT COUNT(*) FROM %I.%I d JOIN public.user_devices u ON d.%I = u.device_id WHERE u.public_id IS NULL OR u.device_public_key IS NULL', 
+                     v_fk_record.table_schema, v_fk_record.table_name, v_fk_record.column_name) INTO v_dep_count;
+      IF v_dep_count > 0 THEN
+        RAISE EXCEPTION 'PREFLIGHT FAILED: Cannot safely delete legacy devices because %I.%I depends on them', v_fk_record.table_schema, v_fk_record.table_name;
+      END IF;
+    END LOOP;
+  END;
 
   -- レガシー claim_type の事前検証 (存在してはならない値の検知)
   IF EXISTS (
@@ -985,6 +1003,10 @@ BEGIN
   v_lock_key := public.fn_identity_lock_key(v_api_member_id);
   PERFORM pg_advisory_xact_lock(v_lock_key);
 
+  -- Step 1.5. Parent Row Lock (Global Lock Ordering の厳格な遵守)
+  -- ※ Advisory Lock -> Parent Row (member_id_mapping) -> Child Row (user_devices) の順序を強制します。
+  PERFORM 1 FROM public.member_id_mapping WHERE public_id = v_challenge.public_id FOR UPDATE;
+
   -- Step 2. 対象デバイスの存在確認 & 行ロック
   SELECT * INTO v_device
   FROM public.user_devices
@@ -1145,6 +1167,9 @@ COMMIT;
 
 ## 18. Migration & Token Revocation Semantics（既存データの安全な移行）
 
+※ **Migration One-shot 安全性**: 本 Migration は Versioned One-time Migration です。`CREATE OR REPLACE FUNCTION` 等による個別文の冪等性はありますが、Migration 全体を手動で再実行（二重実行）することは禁止します。Preflight で異常を検知した場合は `RAISE EXCEPTION` によりただちに Abort（Zero unintended mutation）し、DDL の失敗は Transaction rollback によって保護されます。Invalid legacy data や Constraint violation もすべて Explicit abort を引き起こします。
+
+
 1. **既存 Dataset Token の一括失効**:
    移行開始時、旧自己申告経路で発行されたすべての Dataset Token を無効化（`user_devices.device_status = 'PENDING'` へのリセット）。
 2. **既存自己申告 Device の扱い**:
@@ -1163,6 +1188,16 @@ COMMIT;
 ---
 
 ## 19. Testing & Security Invariant 対応表
+
+### Migration Failure & Concurrency Tests
+- **Migration Failure Test**:
+  - `Preflight failure` → Zero unintended mutation (Abort)
+  - `DDL failure` → Expected Rollback
+  - `Invalid legacy data` → Explicit Abort
+  - `Constraint violation` → Explicit Abort
+- **Concurrency Test**:
+  - `Claim × Claim`, `Claim × Revoke`, `Challenge × Challenge`, `PENDING × PENDING`, `Social Bind × Social Bind`, `Claim × Social Bind` の全組み合わせを実 DB トランザクションで検証し、Lock Ordering 違反と Race Condition が 0 件であることを保証します。
+
 
 第三者実装者およびセキュリティ監査者がシステムを検証するための決定論的対応表：
 
@@ -1330,20 +1365,18 @@ COMMIT;
 
 ## Challenge Lifecycle と DB 処理順序
 
-- **Challenge Lifecycle と DB 処理順序**
+Challengeの発行処理順序は、以下の手順へ完全に統一されています。「または」「実装方法A/B」といった実装の揺らぎは禁止です。
 
-  1. **Challenge Issuance Time Validation**: Challenge を発行するエンドポイント (FUSOU-WEB) は、クライアントが提出した Verifier Result (または事前の検証済みデータ) に含まれる `notary_time` が `now - 24h <= notary_time <= now + 5m` であることを、Challenge 発行段階で必ず検証しなければなりません。Claim 実行時まで検証を遅延させないでください。
-  2. `claim_challenges` テーブルにおいて、`challenge_status TEXT CHECK (challenge_status IN ('ACTIVE', 'CONSUMED', 'EXPIRED'))` を設ける。
-  2. `CREATE UNIQUE INDEX uq_active_claim_challenge_attestation ON public.claim_challenges (tlsn_attestation_id) WHERE challenge_status = 'ACTIVE';` により、「同一Attestationから同時にACTIVEなChallengeは最大1個」を保証。
-  3. **Challenge 取得 Transaction の厳密な処理順序**:
-     a. **Challenge issuance always acquires an advisory lock derived deterministically from the canonical `tlsn_attestation_id`; row locking alone is not sufficient** (Because the row might not exist yet).
-     b. 既存の ACTIVE Challenge のうち `expires_at <= NOW()` となったものを `challenge_status = 'EXPIRED'` に UPDATE。※この `UPDATE` は一般 Application Role からは実行禁止とし、Challenge issuer transaction 内部の Security Definer 権限でのみ実行されます。
-     c. ACTIVE な Challenge がまだ残っているか SELECT して確認。
-     d. 残っていれば、**必ずその既存の ACTIVE Challenge をそのまま返します**（エラーにはしません）。無ければ新しい Challenge を INSERT して `ACTIVE` として返します。
-     これにより、クライアントからの Timeout/Retry 時には同じ Challenge が返り、期限切れ(`EXPIRED`)の場合は新しい Challenge が発行されるという実装が一意に確定します。
-  ※ `challenge_status = 'ACTIVE'` と `expires_at < NOW()` という矛盾状態は、Issuer transaction 開始前には（CronによるCleanupが行われるまで）一時的に存在し得ます。しかし、Claim エンドポイント側で `expires_at > NOW()` を常に検証するため、期限切れ Challenge が消費されることは即座に Reject されます。
-  ※ このトランザクション順序により、Cron が停止していても Security Invariant（ACTIVEは最大1個）は絶対に壊れません。
-  ※ `expires_at` は状態を自動変更する DB 制約 (trigger/check) ではなく、Challenge access/claim transaction が評価して状態を更新するための期限値です。
+1. **Verify Verifier Result**: 提出された Verifier Result の暗号学的検証を行う。
+2. **Validate notary_time**: `notary_time` が `now - 24h <= notary_time <= now + 5m` であることを検証する。
+3. **obtain attestation-derived advisory lock**: `pg_advisory_xact_lock` を使用し、`tlsn_attestation_id` から決定論的に導出された Lock を取得する。
+4. **expire expired ACTIVE challenge**: 既存の ACTIVE Challenge のうち `expires_at <= NOW()` となったものを `challenge_status = 'EXPIRED'` に UPDATE する。
+5. **find ACTIVE**: 該当 `tlsn_attestation_id` を持つ ACTIVE Challenge を SELECT する。
+6. **ACTIVE exists → return same challenge**: ACTIVE Challenge が存在すれば、必ずその既存の Challenge をそのまま返す。
+7. **otherwise create new challenge**: 存在しなければ、新しい Challenge を INSERT して返す。
+
+※ `claim_challenges` テーブルには `UNIQUE (tlsn_attestation_id) WHERE challenge_status = 'ACTIVE'` の Partial Unique Index を設定します。`NOW()` を Partial Index predicate には絶対に使用しないでください。
+※ `expires_at` による期限は Issuer / Claim transaction が実行時に評価・更新します。Cron は Cleanup 補助に過ぎず、Cron が停止しても Security Invariant は維持されます。
 
 
 ## Range Schema と検証 (完全定義)

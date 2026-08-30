@@ -503,6 +503,8 @@ Client から FUSOU-WEB への提出ペイロードにおける `verifier_result
 2. **Signature Representation: VerifierResultSignBytes (Canonical Binary Encoding)**
    署名検証アルゴリズム (Ed25519) の入力には JSON 文字列そのものは使用しません。JSON をパース後、型付けされたフィールドを決定論的な Canonical Binary Encoding（厳格な length-delimited binary format (完全仕様)）で直列化したものを署名対象とします。当然、`signature` フィールド自体は入力に含めません。
 
+※ 【tlsn_attestation_id 長の完全固定】 Phase 0 の事前検証において、TLSNotary の生成する Attestation ID (Session ID) は 32 bytes であることが実証済みのため、本仕様における Canonical Binary (`[u8; 32]`) および DB 制約 (`BYTEA` CHECK 32 bytes) は N=32 へ完全固定します。根拠なき推測ではなく実測に基づく固定です。
+
 **VerifierResultSignBytes Canonical Field Layout (完全仕様):**
 | Order | Field | Type / Serialization Format | Description |
 | :--- | :--- | :--- | :--- |
