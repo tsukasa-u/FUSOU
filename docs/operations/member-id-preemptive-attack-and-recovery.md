@@ -648,6 +648,7 @@ COMMIT;
 BEGIN;
 
 -- 1. レガシーデバイスのパージ: public_id が特定できない完全に追跡不能なレガシーデバイスは、架空の UUID を振らずに物理削除する
+-- ※ Device IDs are globally generated UUIDv4 and are never intentionally reused. 物理削除によりDB上の履歴は消滅するが、運用上UUIDv4の再割り当ては行われない。
 DELETE FROM public.user_devices WHERE public_id IS NULL;
 
 -- 2. 既存デバイスのステータス移行: VERIFIED だったデバイスも含めて安全側に倒して REVOKED 化する (One-time migration)
@@ -661,7 +662,7 @@ DO $$
 BEGIN
   IF EXISTS (
     SELECT 1 FROM (
-      SELECT device_id, public_id FROM public.user_devices GROUP BY device_id, public_id HAVING COUNT(*) > 1
+      SELECT public_id FROM public.user_devices WHERE public_id IS NOT NULL GROUP BY public_id HAVING COUNT(*) > 1
     ) t
   ) THEN
     RAISE EXCEPTION 'PREFLIGHT FAILED: Duplicate public_id found in user_devices';
@@ -685,6 +686,16 @@ BEGIN
 
   IF EXISTS (
     SELECT 1 FROM (
+      SELECT public_id FROM public.member_id_mapping GROUP BY public_id HAVING COUNT(*) > 1
+    ) t
+  ) THEN
+    RAISE EXCEPTION 'PREFLIGHT FAILED: Duplicate public_id found in member_id_mapping';
+  END IF;
+
+  END IF;
+
+  IF EXISTS (
+    SELECT 1 FROM (
       SELECT tlsn_attestation_id FROM public.member_identity_claims GROUP BY tlsn_attestation_id HAVING COUNT(*) > 1
     ) t
   ) THEN
@@ -699,39 +710,28 @@ BEGIN
   ) THEN
     RAISE EXCEPTION 'PREFLIGHT FAILED: Orphaned member_ownership (primary_device_id, public_id) not found in user_devices';
   END IF;
+
+  IF EXISTS (
+    SELECT 1 FROM public.member_identity_claims c
+    LEFT JOIN public.user_devices u 
+      ON c.verified_device_id = u.device_id AND c.public_id = u.public_id
+    WHERE u.device_id IS NULL
+  ) THEN
+    RAISE EXCEPTION 'PREFLIGHT FAILED: Orphaned member_identity_claims (verified_device_id, public_id) not found in user_devices';
+  END IF;
+
+  IF EXISTS (
+    SELECT 1 FROM public.member_identity_claims c
+    LEFT JOIN public.user_devices u 
+      ON c.verified_device_id = u.device_id AND c.canonical_user_id = u.canonical_user_id
+    WHERE u.device_id IS NULL
+  ) THEN
+    RAISE EXCEPTION 'PREFLIGHT FAILED: Orphaned member_identity_claims (verified_device_id, canonical_user_id) not found in user_devices';
+  END IF;
+
 END $$;
 -- ==============================================================================
 
--- 1. public_id の重複
-SELECT device_id, public_id, COUNT(*) 
-FROM public.user_devices 
-GROUP BY device_id, public_id 
-HAVING COUNT(*) > 1;
-
--- 2. device_public_key の重複
-SELECT device_public_key, COUNT(*) 
-FROM public.user_devices 
-GROUP BY device_public_key 
-HAVING COUNT(*) > 1;
-
--- 3. api_member_id の重複 (member_id_mapping)
-SELECT api_member_id, COUNT(*) 
-FROM public.member_id_mapping 
-GROUP BY api_member_id 
-HAVING COUNT(*) > 1;
-
--- 4. tlsn_attestation_id の重複
-SELECT tlsn_attestation_id, COUNT(*) 
-FROM public.member_identity_claims 
-GROUP BY tlsn_attestation_id 
-HAVING COUNT(*) > 1;
-
--- 5. member_ownership の (primary_device_id, public_id) が user_devices に実在するかどうかの検査 (Orphaned row 検査)
-SELECT m.primary_device_id, m.public_id 
-FROM public.member_ownership m
-LEFT JOIN public.user_devices u 
-  ON m.primary_device_id = u.device_id AND m.public_id = u.public_id
-WHERE u.device_id IS NULL;
 
 -- ==============================================================================
 
@@ -884,11 +884,20 @@ BEGIN
   END IF;
 
   -- Step 5. 既存の Owner 確認と競合判定
+  -- ※ `social_user_id` が NULL の場合でも、`primary_device` の `canonical_user_id` が別人であれば競合とする。
+  -- ※ 既存の VERIFIED デバイスが別ユーザーに紐付いている場合の「自動Takeover」は禁止（明示的Transfer以外は拒否）。
   IF EXISTS (
-    SELECT 1 FROM public.member_ownership 
-    WHERE social_user_id IS NOT NULL 
-      AND social_user_id <> v_device.canonical_user_id
-      AND public_id = v_challenge.public_id
+    SELECT 1 
+    FROM public.member_ownership mo
+    JOIN public.user_devices ud ON mo.primary_device_id = ud.device_id
+    WHERE mo.public_id = v_challenge.public_id
+      AND ud.canonical_user_id <> v_device.canonical_user_id
+  ) OR EXISTS (
+    SELECT 1 
+    FROM public.user_devices
+    WHERE public_id = v_challenge.public_id
+      AND device_status = 'VERIFIED'
+      AND canonical_user_id <> v_device.canonical_user_id
   ) THEN
     RAISE EXCEPTION 'EXISTING_VERIFIED_OWNER_CONFLICT';
   END IF;
@@ -931,13 +940,15 @@ BEGIN
     primary_device_id = EXCLUDED.primary_device_id,
     updated_at = NOW();
 
+  -- 射影テーブル (Projection) の同期
+  -- ※ Security Root (member_ownership) の情報を元に、Projection drift を修復する。
   INSERT INTO public.user_member_map (user_id, public_id)
   VALUES (v_device.canonical_user_id, v_challenge.public_id)
-  ON CONFLICT DO NOTHING;
+  ON CONFLICT (public_id) DO UPDATE SET user_id = EXCLUDED.user_id;
 
   INSERT INTO public.web_user_member_map (user_id, public_id)
   VALUES (v_device.canonical_user_id, v_challenge.public_id)
-  ON CONFLICT DO NOTHING;
+  ON CONFLICT (public_id) DO UPDATE SET user_id = EXCLUDED.user_id;
 
   RETURN jsonb_build_object('status', 'success', 'public_id', v_challenge.public_id);
 END;
