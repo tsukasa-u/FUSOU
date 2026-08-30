@@ -9,7 +9,7 @@
 > **最重要設計原則**:  
 > 1. **旧自己申告経路の完全根絶と Implementation Acceptance Criteria の確立**:  
 >    - **「すべての公開関数 / HTTP ルート / RPC において、`api_member_id` $\rightarrow$ `public_id` $\rightarrow$ `dataset_token` のコールグラフが、TLSNotary Verified Claim を先祖（ancestor）に持たない経路をコードベース上に 0 本とすること（Call Graph 0本保証）」** を最優先の Implementation Acceptance Criteria とする。  
->    - 旧 `POST /anonymous-sync/v2/register`、旧 `POST /anonymous-sync/v2/pending/:token/complete`、および `signInAnonymously()` による未検証匿名ユーザー自動生成（`ensureCanonicalUserForPublicId`）は **完全廃止・削除（HTTP 410 Gone / コードベースから除去）** とする。  
+>    - 旧 `POST /anonymous-sync/v2/register`、旧 `POST /anonymous-sync/v2/pending/:token/complete`、および `signInAnonymously()` による未検証匿名ユーザー自動生成（`ensureCanonicalUserForPublicId`）は **完全廃止・削除（HTTP 404 Not Found / コードベースから除去）** とする。  
 >    - 汎用 RPC `rpc_register_public_id` は DB から完全に DROP し（`REVOKE EXECUTE`等の権限制御ではなく削除）、`claim_verified_device_v3` 内部の SQL トランザクションとして完全にインライン化・カプセル化する。
  2. **Identity Attestation と Telemetry Submission の完全分離**:  
 >    - **① Identity Attestation（暗号学的保証）**: ログインセッションの最初の `require_info` を FUSOU-Prover と FUSOU Dedicated Verifier (MPC Verifier & Notary) 間の TLSNotary MPC-TLS セッションで公証し、Game Account（`api_member_id`）$\rightarrow$ `member_id_mapping` $\rightarrow$ Dataset（`public_id`）$\rightarrow$ Social User（`web_user_member_map`）$\rightarrow$ Authorized Device（`user_devices`）の身元連鎖（Identity Chain）を確立する。  
@@ -528,7 +528,8 @@ Client から FUSOU-WEB への提出ペイロードにおける `verifier_result
    ※ **Every path that creates a Challenge must acquire the same attestation-derived advisory lock.**（これを忘れると Concurrent INSERT で Unique Violation が発生します）※発行前に `member_identity_claims` 等を確認し同一 `tlsn_attestation_id` からは1つのChallengeしか発行できないよう、DB上で `UNIQUE(tlsn_attestation_id) WHERE challenge_status = 'ACTIVE'` 制約により別デバイスへの流用等も含めて物理拒絶します（同時有効なChallengeを最大1個に制限するものであり、期限切れ後の再発行による復旧は妨げません）。
 6. **Step 6 (ClaimBindingBytes 構築 & 署名)**: 端末が `(domain, purpose, attestation_id, verified_member_id, device_id, expected_public_id, challenge_id, challenge_nonce)` から `ClaimBindingBytes` を構築し、端末秘密鍵で Ed25519 署名。※`public_key` は署名対象に含めず、サーバー側で `user_devices` から取得する。
 7. **Step 7 (Claim 提出 & 署名検証)**: クライアントは `{ "challenge_id", "signature" }` のみを FUSOU-WEB へ提出（攻撃面を最小化するため Client から public_id 等は受け付けない）。FUSOU-WEB は DB から関連 ID (`expected_public_id` 含む) を復元し `verifyEd25519ClaimBinding(pubkey, bytes, sig)` で raw byte 署名を検証します。**不正な署名によるリトライ攻撃（Signature Oracle Abuse）を防ぐため、署名検証に失敗した場合でも対象の Challenge は即座に `CONSUMED` として消費・無効化されます**。
-   ※ 実装上の注意: `claim_verified_device_v3` は署名検証を伴わない内部 RPC であるため、不正署名時の Challenge 消費は FUSOU-WEB の API サーバー側 (Challenge/Claim service transaction) の責務です。FUSOU-WEB は署名検証に失敗した場合、専用の `consume_invalid_challenge` RPC 等を呼び出してただちに Challenge を消費した上で `401 Unauthorized` を返します。
+   ※ 実装上の注意: `claim_verified_device_v3` は署名検証を伴わない内部 RPC であるため、不正署名時の Challenge 消費は FUSOU-WEB の API サーバー側 (Challenge/Claim service transaction) の責務です。FUSOU-WEB は署名検証に失敗した場合、専用の RPC (`SELECT public.consume_invalid_challenge(p_challenge_id);`) を呼び出してただちに Challenge を消費した上で `401 Unauthorized` を返します。
+   ※ `consume_invalid_challenge` は authenticated server のみが実行可能な単一引数の冪等な関数であり、内部で `UPDATE claim_challenges SET challenge_status = 'CONSUMED' WHERE challenge_id = p_challenge_id AND challenge_status = 'ACTIVE'` のみを実行します。同時に正規 Claim と競合した場合は「First consume wins」となります。
    ※ Threat Model 補足: Invalid signature consumes challenge intentionally to prevent unlimited signature retries. これは意図的な UX/DoS トレードオフであり、攻撃者が不正署名を送ることで正規ユーザーの Challenge を消費させることも理論上可能ですが、攻撃者は 5 分の有効期間内の競合 (race condition) に勝つ必要があります。
 ※ Claim の重複・Idempotency ルール (統一仕様):
 1. 先に `member_identity_claims` で既存 Claim を検索します。
@@ -706,6 +707,12 @@ CREATE TABLE IF NOT EXISTS public.claim_challenges (
     device_id UUID NOT NULL REFERENCES public.user_devices(device_id) ON DELETE RESTRICT,
     tlsn_attestation_id BYTEA NOT NULL,
     challenge_nonce BYTEA NOT NULL CHECK (octet_length(challenge_nonce) = 32),
+    notary_time TIMESTAMPTZ NOT NULL,
+    notary_key_id TEXT NOT NULL,
+    request_range_start BIGINT NOT NULL CHECK (request_range_start >= 0),
+    request_range_length BIGINT NOT NULL CHECK (request_range_length > 0),
+    response_range_start BIGINT NOT NULL CHECK (response_range_start >= 0),
+    response_range_length BIGINT NOT NULL CHECK (response_range_length > 0),
     challenge_status TEXT NOT NULL DEFAULT 'ACTIVE' CHECK (challenge_status IN ('ACTIVE', 'CONSUMED', 'EXPIRED')),
     expires_at TIMESTAMPTZ NOT NULL,
     consumed_at TIMESTAMPTZ,
