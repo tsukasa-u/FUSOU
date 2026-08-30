@@ -321,7 +321,7 @@ sequenceDiagram
 | 5 | `device_id` | Binary UUID (RFC 4122 Big-endian) | 16 bytes | 提出端末の Device UUID |
 | 6 | `expected_public_id` | Binary UUID (RFC 4122 Big-endian) | 16 bytes | サーバー割当 Dataset UUID |
 | 7 | `challenge_id` | Binary UUID (RFC 4122 Big-endian) | 16 bytes | サーバー発行 Challenge UUID |
-| 8 | `challenge_nonce` | Raw Binary Bytes | 32 bytes | サーバー発行 One-Time Nonce (`crypto.getRandomValues`) |
+| 8 | `challenge_nonce` | Raw Binary Bytes | 32 bytes | サーバー発行 One-Time Nonce (`Server-issued: crypto.random_bytes(32)`) |
 
 * **署名対象バイト列（Length-Delimited Binary Framing）**:
   $$\text{ClaimBindingBytes} = \text{u16}(23) \Vert \text{"FUSOU-IDENTITY-CLAIM-V1"} \Vert \text{u16}(24) \Vert \text{"GAME_ACCOUNT_IDENTITY_V1"} \Vert \text{u16}(\text{len(att\_id)}) \Vert \text{att\_id} \Vert \text{u16}(\text{len(mid)}) \Vert \text{mid} \Vert \text{u16}(16) \Vert \text{dev} \Vert \text{u16}(16) \Vert \text{pub} \Vert \text{u16}(16) \Vert \text{cid} \Vert \text{u16}(32) \Vert \text{nonce}$$
@@ -604,6 +604,7 @@ ALTER TABLE public.user_devices
 
 ALTER TABLE public.user_devices
   ADD CONSTRAINT uq_device_public_key UNIQUE (device_public_key),
+  CONSTRAINT uq_device_id_public_id UNIQUE(device_id, public_id),
   ADD CONSTRAINT chk_device_status_times CHECK (
     (device_status = 'PENDING' AND pending_expires_at IS NOT NULL) OR
     (device_status = 'VERIFIED' AND verified_at IS NOT NULL) OR
@@ -615,7 +616,8 @@ ALTER TABLE public.user_devices
 CREATE TABLE IF NOT EXISTS public.member_ownership (
     public_id UUID PRIMARY KEY REFERENCES public.member_id_mapping(public_id) ON DELETE RESTRICT,
     social_user_id UUID REFERENCES auth.users(id) ON DELETE RESTRICT,
-    primary_device_id UUID NOT NULL REFERENCES public.user_devices(device_id) ON DELETE RESTRICT,
+    primary_device_id UUID NOT NULL,
+    FOREIGN KEY (primary_device_id, public_id) REFERENCES public.user_devices(device_id, public_id) ON DELETE RESTRICT,
     established_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -629,11 +631,9 @@ CREATE TABLE IF NOT EXISTS public.member_identity_claims (
     tlsn_attestation_id BYTEA NOT NULL,
     request_range_start BIGINT NOT NULL,
     request_range_length BIGINT NOT NULL,
-    request_range_direction TEXT NOT NULL CHECK (request_range_direction IN ('Sent', 'Received')),
-    response_range_start BIGINT NOT NULL,
+        response_range_start BIGINT NOT NULL,
     response_range_length BIGINT NOT NULL,
-    response_range_direction TEXT NOT NULL CHECK (response_range_direction IN ('Sent', 'Received')),
-    notary_time TIMESTAMPTZ NOT NULL,
+        notary_time TIMESTAMPTZ NOT NULL,
     notary_key_id TEXT NOT NULL,
     proof_purpose TEXT NOT NULL CHECK (proof_purpose = 'GAME_ACCOUNT_IDENTITY_V1'),
     claim_type TEXT NOT NULL CHECK (claim_type IN ('INITIAL_VERIFIED', 'TAKEOVER_FROM_LEGACY', 'ADDITIONAL_DEVICE')),
@@ -707,7 +707,9 @@ BEGIN
   END IF;
 
   -- Step 1. 【最優先】64-bit Transaction Advisory Lock による完全排他制御
-  v_lock_key := ('x' || substr(md5(encode(p_tlsn_attestation_id, 'hex')), 1, 16))::bit(64)::bigint;
+  -- ※ Claim処理とRevoke処理で共通のLock Domain (member_id) を使用し、Identity競合を直列化します
+  -- ※ Challenge発行は attestation_id domain の lock とし、明確に分離します。
+  v_lock_key := ('x' || substr(md5(p_api_member_id::text), 1, 16))::bit(64)::bigint;
   PERFORM pg_advisory_xact_lock(v_lock_key);
 
   -- Step 2. 対象デバイスの存在確認 & 行ロック
@@ -725,6 +727,8 @@ BEGIN
 
   -- Step 3. public_id の取得/生成 (単一の Security Helper RPC を呼び出し)
   v_public_id := public.get_or_create_public_id(p_api_member_id);
+  -- ※ `get_or_create_public_id()` is a SECURITY DEFINER function whose advisory lock is transaction-scoped and remains held until the caller transaction commits/rolls back.
+  -- ※ Security Boundary: Client はこの関数を直接呼び出すことはできません。FUSOU-WEB (trusted server) のみが利用可能な内部 Helper です。
 
   -- 認証済みオペレーターと PENDING Device のバインディング検証
   IF v_device.public_id != v_public_id THEN
@@ -742,6 +746,7 @@ BEGIN
        AND v_existing_claim.public_id = v_public_id
        AND v_existing_claim.canonical_user_id = v_canonical_user_id THEN
       -- 同一 Attestation + 同一 Device の再送は Idempotent Success
+      -- ※ Idempotency は「過去の正当な Claim の再送」として定義するため、対象 Device がその後 REVOKED になっていたとしても already_claimed を返します。
       -- 攻撃者への情報漏洩を防ぐため、返却情報は最小限に留めます
       RETURN jsonb_build_object('status', 'already_claimed');
     ELSE
@@ -812,7 +817,7 @@ BEGIN
       AND revoked_at IS NULL;
       
     IF FOUND THEN
-      v_claim_type := 'TAKEOVER_FROM_LEGACY';
+      v_claim_type := 'TAKEOVER_FROM_UNVERIFIED_DEVICE'; -- Historical label for recovery from a pre-v1/unverified device
     ELSE
       v_claim_type := 'INITIAL_VERIFIED';
     END IF;
