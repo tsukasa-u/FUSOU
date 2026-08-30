@@ -494,7 +494,8 @@ Client から FUSOU-WEB への提出ペイロードにおける `verifier_result
      - `key_id`: String
      - `tlsn_attestation_id`: String (base64url strict, padding なし)
      - `server_identity`: String (TLS Application の Canonical Hostname) ※TLS Certificate verification は Verifier 側で別途証明されている前提
-     - `revealed_request_spans` / `revealed_response_spans`: Array of Object (start: uint64 checked_add 対策済み, length: uint64 (fixed-width), direction: "sent" | "received", bytes: base64url strict)
+     - `revealed_request_spans` / `revealed_response_spans`: Array of Object (start: uint64 checked_add 対策済み, length: uint64 (fixed-width), bytes: base64url strict)
+     - `notary_time`: Number (TLSNotary Proofの完了時刻のNumericDate秒)
      - `created_at`: Number (Verifier Result 生成時刻の NumericDate 秒。notary_time とは別)
      - `signature`: String (base64url strict, padding なし)
    - **Range Constraints**: TLS application plaintext transcript offset を基準とし、start >= 0, length > 0, Overlap は禁止、Range bytes length との一致を Parser で検証。
@@ -679,10 +680,10 @@ TLSNotary は active development 中（breaking changes が発生し得る）で
      "key_id": "verifier-key-2026-01",
      "tlsn_attestation_id": "<canonical_bytes_hex>",
      "server_identity": "api.kancolle-server.jp",
-     "revealed_request_spans": [ { "start": 0, "length": 512, "direction": "sent", "bytes": "<base64url_raw_bytes>" } ],
-     "revealed_response_spans": [ { "start": 123, "length": 456, "direction": "recv", "bytes": "<base64url_raw_bytes>" } ],
-     "notary_time": "2026-08-29T12:00:00Z",
-     "created_at": "2026-08-29T12:00:05Z",
+     "revealed_request_spans": [ { "start": 0, "length": 512, "bytes": "<base64url_raw_bytes>" } ],
+     "revealed_response_spans": [ { "start": 123, "length": 456, "bytes": "<base64url_raw_bytes>" } ],
+     "notary_time": 1724932800,
+     "created_at": 1724932805,
      "signature": "<base64url_ed25519_signature>"
    }
    ```
@@ -1081,14 +1082,13 @@ COMMIT;
   TLSNotary から提出される Revealed Spans の各 Range オブジェクトは、以下の厳密な Schema を満たす必要があります。
   - `start`: uint64
   - `length`: uint64
-  - `direction`: "sent" | "received" のいずれか完全一致
   - `bytes`: base64url strict (paddingなし)
   **Verifier 検証要件**:
   - `start >= 0` かつ `length > 0`
   - `start + length` 演算時における uint64 オーバーフローのチェック (Rust `checked_add` 必須)
   - `decoded(bytes).length == length` であること
   - Range end が TLS Application Plaintext Transcript size 以下であること（HTTP Body Offset や Decompressed Body Offset と混在させてはならない）
-  - 同一 direction 内での Overlap は厳格に禁止
+  - 各 Span Array 内部での Overlap は厳格に禁止
   - Array の並び順 (Order deterministic): `start` の昇順であることを強制
 
 
