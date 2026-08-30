@@ -263,7 +263,7 @@ stateDiagram-v2
     UNCLAIMED --> TLSN_PROOF_VERIFIED: (1) TLSNotary Attestation 検証完了
     TLSN_PROOF_VERIFIED --> GAME_IDENTITY_VERIFIED: (2) Verified Member ID 抽出 & Public ID 確定 + Device Binding
     GAME_IDENTITY_VERIFIED --> SOCIAL_ACCOUNT_BOUND: (3) OAuth 連携 (social_user_id 確定)
-    SOCIAL_ACCOUNT_BOUND --> DATASET_TOKEN_ISSUED: (5) Token 発行可能
+    SOCIAL_ACCOUNT_BOUND --> DATASET_TOKEN_ISSUED: (4) Token 発行可能
 ```
 
 > **重要原則**:  
@@ -497,7 +497,7 @@ Client から FUSOU-WEB への提出ペイロードにおける `verifier_result
 1. **64-bit Transaction Advisory Lock**:
    32-bit `hashtext()` によるハッシュ衝突確率を十分に低減するため、64-bit 整数キーを使用し、`claim_verified_device_v3` と `revoke_pre_registered_devices` の双方が同一の Lock Key 導出関数を共有します：
    ```sql
-   v_lock_key := ('x' || substr(md5(v_api_member_id::text), 1, 16))::bit(64)::bigint;
+   v_lock_key := public.fn_identity_lock_key(v_api_member_id);
    PERFORM pg_advisory_xact_lock(v_lock_key);
    ```
 2. **親行ロック契約（Parent Row Lock Contract）**:
@@ -551,6 +551,13 @@ $$\text{require\_info verified} \longrightarrow \text{device claim accepted} \lo
 
 ### `20260826000000_claim_verified_device_v3.sql`
 ```sql
+-- 共通の Identity Lock Key 導出関数
+CREATE OR REPLACE FUNCTION public.fn_identity_lock_key(p_api_member_id BIGINT) RETURNS BIGINT AS $$
+BEGIN
+  RETURN ('x' || substr(md5(p_api_member_id::text), 1, 16))::bit(64)::bigint;
+END;
+$$ LANGUAGE plpgsql IMMUTABLE;
+
 BEGIN;
 
 -- 1. Server-issued One-Time Claim Challenge テーブル (RLS: Service-role only)
@@ -620,6 +627,25 @@ ALTER TABLE public.user_devices
   );
   -- ※ Timestamp fields not associated with the current state (e.g. pending_expires_at when state is REVOKED) are historical metadata and are not required to be NULL.
 
+-- Migration for existing DBs (Backfill and Constraint upgrades)
+-- 1. Backfill NULL public_ids before applying NOT NULL
+UPDATE public.user_devices SET public_id = gen_random_uuid() WHERE public_id IS NULL;
+ALTER TABLE public.user_devices ALTER COLUMN public_id SET NOT NULL;
+
+-- 2. Deduplicate existing data before applying UNIQUE constraints
+-- (In a real migration, manually resolve duplicates. Here we assume preflight validation was done)
+
+-- 3. Upgrade existing FKs to Composite FKs
+ALTER TABLE public.member_ownership DROP CONSTRAINT IF EXISTS member_ownership_primary_device_id_fkey;
+ALTER TABLE public.member_ownership ADD CONSTRAINT member_ownership_composite_fkey FOREIGN KEY (primary_device_id, public_id) REFERENCES public.user_devices(device_id, public_id) ON DELETE RESTRICT;
+
+ALTER TABLE public.member_identity_claims DROP CONSTRAINT IF EXISTS member_identity_claims_verified_device_id_fkey;
+ALTER TABLE public.member_identity_claims ADD CONSTRAINT member_identity_claims_composite_fkey FOREIGN KEY (verified_device_id, public_id) REFERENCES public.user_devices(device_id, public_id) ON DELETE RESTRICT;
+ALTER TABLE public.member_identity_claims ADD CONSTRAINT member_identity_claims_canonical_composite_fkey FOREIGN KEY (verified_device_id, canonical_user_id) REFERENCES public.user_devices(device_id, canonical_user_id) ON DELETE RESTRICT;
+
+-- 4. Rename legacy claim_type
+UPDATE public.member_identity_claims SET claim_type = 'TAKEOVER_FROM_UNVERIFIED_DEVICE' WHERE claim_type = 'TAKEOVER_FROM_LEGACY';
+
 -- 2. 現在の検証済み所有者テーブル (Current Ownership State)
 CREATE TABLE IF NOT EXISTS public.member_ownership (
     public_id UUID PRIMARY KEY REFERENCES public.member_id_mapping(public_id) ON DELETE RESTRICT,
@@ -655,13 +681,9 @@ CREATE INDEX IF NOT EXISTS idx_member_claims_history ON public.member_identity_c
 
 ALTER TABLE public.member_identity_claims ENABLE ROW LEVEL SECURITY;
 
--- Security Invariant: direct INSERT to member_identity_claims is explicitly forbidden even for service_role.
--- The only way to insert is by executing the SECURITY DEFINER function claim_verified_device_v3.
-CREATE POLICY "Reject all direct inserts"
-    ON public.member_identity_claims
-    FOR INSERT
-    TO PUBLIC
-    WITH CHECK (false);
+-- Security Invariant: direct INSERT to member_identity_claims is explicitly forbidden for all application roles.
+-- The only way to insert is by executing the SECURITY DEFINER function claim_verified_device_v3 (which runs as postgres).
+REVOKE INSERT ON public.member_identity_claims FROM authenticated, anon, service_role;
 
 REVOKE UPDATE, DELETE ON public.member_identity_claims FROM PUBLIC;
 REVOKE UPDATE, DELETE ON public.member_identity_claims FROM service_role;
@@ -684,6 +706,20 @@ BEFORE UPDATE OR DELETE ON public.member_identity_claims
 FOR EACH ROW EXECUTE FUNCTION public.fn_prevent_audit_tampering();
 
 -- 4. アトミック身元確定・奪還ストアドプロシージャ (全10ステップ順序完全維持)
+-- 5. 不正署名発覚時の Challenge 即時消費 RPC
+CREATE OR REPLACE FUNCTION public.consume_invalid_challenge(p_challenge_id UUID) RETURNS VOID AS $$
+BEGIN
+  -- First consume wins. (Returns silently if already consumed/expired or not found)
+  UPDATE public.claim_challenges
+  SET challenge_status = 'CONSUMED', consumed_at = NOW()
+  WHERE challenge_id = p_challenge_id AND challenge_status = 'ACTIVE';
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+-- Server-only endpoint (Authentication enforcement is up to Web layer, but direct invocation from Client is denied by Supabase RLS/Roles)
+REVOKE EXECUTE ON FUNCTION public.consume_invalid_challenge(UUID) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.consume_invalid_challenge(UUID) TO service_role;
+
+-- 6. Claim Verified Device RPC
 CREATE OR REPLACE FUNCTION public.claim_verified_device_v3(
   p_challenge_id UUID,
   p_challenge_nonce BYTEA,
@@ -730,7 +766,7 @@ BEGIN
   -- Step 1. 【最優先】64-bit Transaction Advisory Lock による完全排他制御
   -- ※ Claim処理とRevoke処理で共通のLock Domain (member_id) を使用し、Identity競合を直列化します
   -- ※ Challenge発行は attestation_id domain の lock とし、明確に分離します。
-  v_lock_key := ('x' || substr(md5(v_api_member_id::text), 1, 16))::bit(64)::bigint;
+  v_lock_key := public.fn_identity_lock_key(v_api_member_id);
   PERFORM pg_advisory_xact_lock(v_lock_key);
 
   -- Step 2. 対象デバイスの存在確認 & 行ロック
@@ -768,6 +804,7 @@ BEGIN
        AND v_existing_claim.canonical_user_id = v_canonical_user_id THEN
       -- 同一 Attestation + 同一 Device の再送は Idempotent Success
       -- ※ Idempotency は「過去の正当な Claim の再送」として定義するため、対象 Device がその後 REVOKED になっていたとしても already_claimed を返します。
+      -- ※ API response の `{"status":"already_claimed"}` は単なる履歴上の冪等成功を表すのみであり、現在の認証状態を保証するものではありません。
       -- 攻撃者への情報漏洩を防ぐため、返却情報は最小限に留めます
       RETURN jsonb_build_object('status', 'already_claimed');
     ELSE
@@ -1109,7 +1146,7 @@ COMMIT;
    - **戻る遷移**: DB 側の状態剥奪による JWT 失効。
    - **禁止遷移**: Legacy Token からのリフレッシュ昇格。
 
-※ 旧来のレガシー中間状態はランタイム State Machine から**完全消滅**しています。履歴用の Historical Marker として `TAKEOVER_FROM_LEGACY` を Audit Log (`member_identity_claims.claim_type`) に残すのみです。
+※ 旧来のレガシー中間状態はランタイム State Machine から**完全消滅**しています。履歴用の Historical Marker として `TAKEOVER_FROM_UNVERIFIED_DEVICE` を Audit Log (`member_identity_claims.claim_type`) に残すのみです。
 
 
 ## Challenge Lifecycle と DB 処理順序

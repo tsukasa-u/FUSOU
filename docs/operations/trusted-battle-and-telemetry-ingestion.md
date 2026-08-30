@@ -698,6 +698,13 @@ TLSNotary は active development 中（breaking changes が発生し得る）で
 
 ### `20260826010000_create_telemetry_attribution_tables.sql`
 ```sql
+-- 共通の Identity Lock Key 導出関数
+CREATE OR REPLACE FUNCTION public.fn_identity_lock_key(p_api_member_id BIGINT) RETURNS BIGINT AS $$
+BEGIN
+  RETURN ('x' || substr(md5(p_api_member_id::text), 1, 16))::bit(64)::bigint;
+END;
+$$ LANGUAGE plpgsql IMMUTABLE;
+
 BEGIN;
 
 -- 1. Server-issued One-Time Claim Challenge テーブル (RLS: Service-role only)
@@ -1049,7 +1056,7 @@ COMMIT;
    - **戻る遷移**: DB 側の状態剥奪による JWT 失効。
    - **禁止遷移**: Legacy Token からのリフレッシュ昇格。
 
-※ 旧来のレガシー中間状態はランタイム State Machine から**完全消滅**しています。履歴用の Historical Marker として `TAKEOVER_FROM_LEGACY` を Audit Log (`member_identity_claims.claim_type`) に残すのみです。
+※ 旧来のレガシー中間状態はランタイム State Machine から**完全消滅**しています。履歴用の Historical Marker として `TAKEOVER_FROM_UNVERIFIED_DEVICE` を Audit Log (`member_identity_claims.claim_type`) に残すのみです。
 
 
 ## Challenge Lifecycle と DB 処理順序
