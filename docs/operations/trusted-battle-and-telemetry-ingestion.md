@@ -509,8 +509,14 @@ Client から FUSOU-WEB への提出ペイロードにおける `verifier_result
 2. **Step 2 (64-bit Advisory Lock 取得)**: FUSOU-WEB が `member_id` に基づく 64-bit Advisory Lock を取得。
 3. **Step 3 (Public ID 確定)**: `public.member_id_mapping` に対する atomic get-or-create を実行し、`public_id` を確定。
 ※ `member_ownership` テーブルは `GAME_IDENTITY_VERIFIED` 状態（デバイス署名検証完了後）でのみレコードが作成されるため、`primary_device_id UUID NOT NULL` 制約は状態機械と完全に整合します。
-4. **Step 4 (PENDING Device 独立登録)**: FUSOU-WEB は独立した別トランザクションとして、サーバーが生成した `device_id` と OAuth の `authenticated_user` を紐付け `device_status = 'PENDING'` (24h TTL) で `user_devices` へ INSERT します。※この時点でサーバーは `public_id` を知っているため、DB上で `authenticated_user ↓ PENDING Device ↓ public_id` の束縛を安全に確立します。**PENDING Device DoS対策として、per-user および per-public_id で同時に存在できる未検証デバイス数をそれぞれ最大 5 台に制限し、Cron ジョブは `pending_expires_at < NOW()` を基準とし、超過分は論理無効化（`revoked_at = NOW()` / `revoked_reason = 'expired_pending'`）し、`device_id` の UUID 再利用防止（Never Reuse）を DB 履歴として永続保証します。**
-5. **Step 5 (Server Challenge 発行)**: 登録した PENDING デバイスに対して `public.claim_challenges` (5分 TTL) を発行し、クライアントへ Response Body を返却。※発行前に `member_identity_claims` 等を確認し同一 `tlsn_attestation_id` からは1つのChallengeしか発行できないよう、DB上で `UNIQUE(tlsn_attestation_id) WHERE consumed_at IS NULL AND expires_at > NOW()` 制約により別デバイスへの流用等も含めて物理拒絶します（同時有効なChallengeを最大1個に制限するものであり、期限切れ後の再発行による復旧は妨げません）。
+4. **Step 4 (PENDING Device 独立登録)**: FUSOU-WEB は独立した別トランザクションとして、サーバーが生成した `device_id` と OAuth の `authenticated_user` を紐付け `device_status = 'PENDING'` (24h TTL) で `user_devices` へ INSERT します。※この時点でサーバーは `public_id` を知っているため、DB上で `authenticated_user ↓ PENDING Device ↓ public_id` の束縛を安全に確立します。
+**【PENDING Device の生成・権限制約】**
+- `canonical_user_id` と `public_id` の**両方**に基づく Advisory Lock を取得し、`max 5 PENDING` デバイス（VERIFIEDとは別枠）の制限を Race なしで強制します。
+- デバイスの `device_public_key` は `UNIQUE` 制約とし、transport は base64url とします。
+- Client Role から `UPDATE user_devices SET device_status='VERIFIED'` と直接更新することは DB 権限で禁止され、`claim_verified_device_v3` 経由のみ許可されます。
+- `REVOKED` なデバイスを `VERIFIED` に戻すことは禁止されます。
+- Challenge エンドポイントおよび Claim エンドポイントの双方において、`device_status = 'PENDING'` かつ `pending_expires_at > NOW()` であることを厳格に確認します。**PENDING Device DoS対策として、per-user および per-public_id で同時に存在できる未検証デバイス数をそれぞれ最大 5 台に制限し、Cron ジョブは `pending_expires_at < NOW()` を基準とし、超過分は論理無効化（`revoked_at = NOW()` / `revoked_reason = 'expired_pending'`）し、`device_id` の UUID 再利用防止（Never Reuse）を DB 履歴として永続保証します。**
+5. **Step 5 (Server Challenge 発行)**: 登録した PENDING デバイスに対して `public.claim_challenges` (5分 TTL) を発行し、クライアントへ Response Body を返却。※発行前に `member_identity_claims` 等を確認し同一 `tlsn_attestation_id` からは1つのChallengeしか発行できないよう、DB上で `UNIQUE(tlsn_attestation_id) WHERE challenge_status = 'ACTIVE' AND expires_at > NOW()` 制約により別デバイスへの流用等も含めて物理拒絶します（同時有効なChallengeを最大1個に制限するものであり、期限切れ後の再発行による復旧は妨げません）。
 6. **Step 6 (ClaimBindingBytes 構築 & 署名)**: 端末が `(domain, purpose, attestation_id, verified_member_id, device_id, expected_public_id, challenge_id, challenge_nonce)` から `ClaimBindingBytes` を構築し、端末秘密鍵で Ed25519 署名。※`public_key` は署名対象に含めず、サーバー側で `user_devices` から取得する。
 7. **Step 7 (Claim 提出 & 署名検証)**: クライアントは `{ "challenge_id", "signature" }` のみを FUSOU-WEB へ提出（攻撃面を最小化するため Client から public_id 等は受け付けない）。FUSOU-WEB は DB から関連 ID (`expected_public_id` 含む) を復元し `verifyEd25519ClaimBinding(pubkey, bytes, sig)` で raw byte 署名を検証。
 ※ Claim の重複・Idempotency ルール (統一仕様):
@@ -573,6 +579,7 @@ Client から FUSOU-WEB への提出ペイロードにおける `verifier_result
     "exp": 1720086400
   }
   ```
+  ※ JWT の `iat` / `exp` は JSON Number の NumericDate です。
 * **リアルタイム失効セマンティクス**:
   JWT の NumericDate (iat/exp) は JSON String ではなく Number としてエンコードされます。また JWT は認証資格情報（Authentication Credential）であり、現在の認可状態（Current Authorization State）は DB の `user_devices` および `member_ownership` で管理されます。Social 解除や Device Revoke が発生した場合、Token は次のリクエスト時に即座に 401/403 で拒絶されます。
 
@@ -872,7 +879,7 @@ COMMIT;
 | 3 | **One Attestation = One Identity Claim** | `UNIQUE (tlsn_attestation_id)` on `member_identity_claims` | `test_duplicate_attestation_claim_rejected` |
 | 4 | **Claim requires authentic Device** | `verifyEd25519ClaimBinding(pubkey, bytes, sig)` | `test_wrong_device_key_claim_rejected` |
 | 5 | **Claim Challenge is Single-Use** | DB atomic update: `challenge_status = 'CONSUMED',
-    consumed_at = NOW() WHERE consumed_at IS NULL` | `test_challenge_nonce_replay_rejected` |
+    consumed_at = NOW() WHERE challenge_status = 'ACTIVE'` | `test_challenge_nonce_replay_rejected` |
 | 6 | **Telemetry belongs to Token's Dataset** | 3-way check: `JWT.dataset_id === SignDoc.public_id === user_devices.public_id` | `test_telemetry_dataset_substitution_rejected` |
 | 7 | **Telemetry body content is unverified** | Payload stored directly without tampering checks under Dataset U1 | `test_arbitrary_telemetry_payload_accepted_under_u1` |
 | 8 | **Revocation is effective on next request** | Server-side `user_devices.revoked_at IS NULL` lookup on every call | `test_revoked_device_telemetry_rejected` |
@@ -891,7 +898,7 @@ COMMIT;
 - [D] MPC 復号遅延と Proof 後処理（非同期化）のイベント分離 (T0〜T6) および、fusou-proxy-tlsn 内部における MPC 復号ストリームからの Gameplay 転送と EvidenceFrame (session_id, request_id, response_id, transcript_range, raw_bytes 定義による TLSNotary Transcript との同一性の型レベル保証) の単一ストリーム分離（Single Stream Fork）設計
 - [D] `ClaimBindingBytes` の厳密な Byte Layout & Binary Framing 設計（`proof_purpose` ＝ `GAME_ACCOUNT_IDENTITY_V1` を正確に 24 bytes として自動テスト。UUID は 16-byte binary、`verified_member_id` は normalized decimal ASCII UTF-8 bytes に完全固定。既存 `verifyDeviceSig(string)` は使用禁止とし `verifyEd25519ClaimBinding(Uint8Array, ...)` へ切り替え）。Telemetry も `FUSOU-TELEMETRY-SIGN-V1` を用い length-delimited に完全固定。
 - [D] 初回 Claim 論理プロトコル 8 ステップ順序（Lock -> PublicID -> Challenge -> Signature -> Atomic Commit）
-- [D] Server-issued One-Time Challenge の DB 管理（旧 stateless HMAC challenge の完全 DELETE と新 `claim_challenges` の CREATE）。`UPDATE ... WHERE consumed_at IS NULL` を用いたアトミック消費と、Attestation 検証完了後のみの Challenge 発行の厳格化。
+- [D] Server-issued One-Time Challenge の DB 管理（旧 stateless HMAC challenge の完全 DELETE と新 `claim_challenges` の CREATE）。`UPDATE ... WHERE challenge_status = 'ACTIVE'` を用いたアトミック消費と、Attestation 検証完了後のみの Challenge 発行の厳格化。
 - [D] 同一 Attestation の多重 Claim 遮断（`UNIQUE (tlsn_attestation_id)`）設計
 - [D] `require_info` によるセッション最初 1 回限りの Identity Attestation 設計（SessionKey 単位）
 - [D] Telemetry ペイロードからの所属識別子完全排除 & 提出時点 Immutable 帰属設計
@@ -997,7 +1004,7 @@ COMMIT;
    - **証明済み**: 指定の `member_id` に対する TLSNotary Proof が暗号学的に正しいこと。
    - **DB状態**: FUSOU-WEB のメモリ上でのみ検証成功、DB 上では未コミット（`public_id` 未確定または PENDING 発行前）。
    - **未確定**: デバイスの署名（Claim）、および他者による排他的所有権の有無。
-   - **次遷移**: PENDING Device 登録を経て `GAME_IDENTITY_VERIFIED` (Claim API 経由)。
+   - **次遷移**: PENDING Device 登録 (クライアントが **`verifier_result` の実体を毎回ステートレスに送信する** 一意な設計とします。identity session handle は用いません) を経て `GAME_IDENTITY_VERIFIED` (Claim API 経由)。
    - **戻る遷移**: `UNCLAIMED` (Proof 期限切れ・破棄)。
    - **禁止遷移**: この状態で `dataset_token` を発行すること。
 
@@ -1024,7 +1031,7 @@ COMMIT;
    - **戻る遷移**: DB 側の状態剥奪による JWT 失効。
    - **禁止遷移**: Legacy Token からのリフレッシュ昇格。
 
-※ レガシー状態 `PRE_REGISTERED` はランタイム State Machine から**完全消滅**しています。履歴用の Historical Marker として `TAKEOVER_FROM_LEGACY` を Audit Log (`member_identity_claims.claim_type`) に残すのみです。
+※ 旧来のレガシー中間状態はランタイム State Machine から**完全消滅**しています。履歴用の Historical Marker として `TAKEOVER_FROM_LEGACY` を Audit Log (`member_identity_claims.claim_type`) に残すのみです。
 
 
 ## Challenge Lifecycle と DB 処理順序
@@ -1033,10 +1040,12 @@ COMMIT;
   1. `claim_challenges` テーブルにおいて、`challenge_status TEXT CHECK (challenge_status IN ('ACTIVE', 'CONSUMED', 'EXPIRED'))` を設ける。
   2. `CREATE UNIQUE INDEX uq_active_claim_challenge_attestation ON public.claim_challenges (tlsn_attestation_id) WHERE challenge_status = 'ACTIVE';` により、「同一Attestationから同時にACTIVEなChallengeは最大1個」を保証。
   3. **Challenge 取得 Transaction の厳密な処理順序**:
-     a. 対象 Attestation ID に関して行ロックを取得（または Advisory Lock）。
-     b. 既存の ACTIVE Challenge のうち `expires_at <= NOW()` となったものを `challenge_status = 'EXPIRED'` に UPDATE。
+     a. **Challenge issuance always acquires an advisory lock derived deterministically from the canonical `tlsn_attestation_id`; row locking alone is not sufficient** (Because the row might not exist yet).
+     b. 既存の ACTIVE Challenge のうち `expires_at <= NOW()` となったものを `challenge_status = 'EXPIRED'` に UPDATE。※この `UPDATE` は一般 Application Role からは実行禁止とし、Challenge issuer transaction 内部の Security Definer 権限でのみ実行されます。
      c. ACTIVE な Challenge がまだ残っているか SELECT して確認。
-     d. 残っていればそれを返す（またはエラー）。無ければ新しい Challenge を INSERT して `ACTIVE` として返す。
+     d. 残っていれば、**必ずその既存の ACTIVE Challenge をそのまま返します**（エラーにはしません）。無ければ新しい Challenge を INSERT して `ACTIVE` として返します。
+     これにより、クライアントからの Timeout/Retry 時には同じ Challenge が返り、期限切れ(`EXPIRED`)の場合は新しい Challenge が発行されるという実装が一意に確定します。
+  ※ `challenge_status = 'ACTIVE'` と `expires_at < NOW()` という矛盾状態は、Issuer transaction 開始前には（CronによるCleanupが行われるまで）一時的に存在し得ます。しかし、Claim エンドポイント側で `expires_at > NOW()` を常に検証するため、期限切れ Challenge が消費されることは即座に Reject されます。
   ※ このトランザクション順序により、Cron が停止していても Security Invariant（ACTIVEは最大1個）は絶対に壊れません。
 
 
