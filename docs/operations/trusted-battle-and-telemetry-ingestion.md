@@ -466,6 +466,7 @@ PENDING Device の紐付け先を一意に決定するため、Verifier Result �
 {
   "challenge_id": "<uuidv4>",
   "challenge_nonce": "<base64url_32bytes>",
+  "expires_at": "<iso8601_timestamp>",
   "device_id": "<uuidv4>",
   "attestation_id": "<base64url>",
   "verified_member_id": "<digits_string>",
@@ -477,14 +478,22 @@ PENDING Device の紐付け先を一意に決定するため、Verifier Result �
 
 第三者が実装しても完全に同一の動作となるよう、初回 Claim の論理順序を以下のように完全固定します：
 
-1. **Step 1 (API 受領 & 解析)**: クライアントから `POST /identity/challenge` により `verifier_result` と `device_public_key` を受領。FUSOU-WEB が `parseCanonicalRequireInfo` により `verified_member_id` を抽出。
+1. **Step 1 (API 受領 & 厳格な検証順序)**: クライアントから `POST /identity/challenge` により `verifier_result` と `device_public_key` を受領。FUSOU-WEB は以下の順序を絶対に守って検証します：
+   1. OAuth Session authentication
+   2. Verifier Result signature verification (不正なら即拒否。**署名検証前に member_id を Security Decision に用いることは絶対禁止**)
+   3. issuer / key_id / version validation
+   4. TLSNotary proof validity validation
+   5. server identity validation
+   6. revealed spans validation
+   7. lossless parser による `verified_member_id` 抽出
 2. **Step 2 (64-bit Advisory Lock 取得)**: FUSOU-WEB が `member_id` に基づく 64-bit Advisory Lock を取得。
 3. **Step 3 (Public ID 確定)**: `public.member_id_mapping` に対する atomic get-or-create を実行し、`public_id` を確定。
 ※ `member_ownership` テーブルは `GAME_IDENTITY_VERIFIED` 状態（デバイス署名検証完了後）でのみレコードが作成されるため、`primary_device_id UUID NOT NULL` 制約は状態機械と完全に整合します。
-4. **Step 4 (PENDING Device 独立登録)**: FUSOU-WEB は独立した別トランザクションとして、サーバーが生成した `device_id` と OAuth の `authenticated_user` を紐付け `device_status = 'PENDING'` (24h TTL) で `user_devices` へ INSERT します。※この時点でサーバーは `public_id` を知っているため、DB上で `authenticated_user ↓ PENDING Device ↓ public_id` の束縛を安全に確立します。**PENDING Device DoS対策として、per-user および per-public_id で同時に存在できる未検証デバイス数をそれぞれ最大 5 台に制限し、24h TTL 超過分は Cron ジョブで論理無効化（`revoked_at = NOW()` / `revoked_reason = 'expired_pending'`）し、`device_id` の UUID 再利用防止（Never Reuse）を DB 履歴として永続保証します。**
-5. **Step 5 (Server Challenge 発行)**: 登録した PENDING デバイスに対して `public.claim_challenges` (5分 TTL) を発行し、クライアントへ Response Body を返却。※発行前に `member_identity_claims` 等を確認し同一 `tlsn_attestation_id` での無制限 Challenge 取得を遮断します。
+4. **Step 4 (PENDING Device 独立登録)**: FUSOU-WEB は独立した別トランザクションとして、サーバーが生成した `device_id` と OAuth の `authenticated_user` を紐付け `device_status = 'PENDING'` (24h TTL) で `user_devices` へ INSERT します。※この時点でサーバーは `public_id` を知っているため、DB上で `authenticated_user ↓ PENDING Device ↓ public_id` の束縛を安全に確立します。**PENDING Device DoS対策として、per-user および per-public_id で同時に存在できる未検証デバイス数をそれぞれ最大 5 台に制限し、Cron ジョブは `pending_expires_at < NOW()` を基準とし、超過分は論理無効化（`revoked_at = NOW()` / `revoked_reason = 'expired_pending'`）し、`device_id` の UUID 再利用防止（Never Reuse）を DB 履歴として永続保証します。**
+5. **Step 5 (Server Challenge 発行)**: 登録した PENDING デバイスに対して `public.claim_challenges` (5分 TTL) を発行し、クライアントへ Response Body を返却。※発行前に `member_identity_claims` 等を確認し同一 `tlsn_attestation_id` からは1つのChallengeしか発行できないよう、DB上で `UNIQUE(attestation_id)` 制約により別デバイスへの流用等も含めて物理拒絶します。
 6. **Step 6 (ClaimBindingBytes 構築 & 署名)**: 端末が `(domain, purpose, attestation_id, verified_member_id, device_id, expected_public_id, challenge_id, challenge_nonce)` から `ClaimBindingBytes` を構築し、端末秘密鍵で Ed25519 署名。※`public_key` は署名対象に含めず、サーバー側で `user_devices` から取得する。
 7. **Step 7 (Claim 提出 & 署名検証)**: クライアントは `{ "challenge_id", "signature" }` のみを FUSOU-WEB へ提出（攻撃面を最小化するため Client から public_id 等は受け付けない）。FUSOU-WEB は DB から関連 ID (`expected_public_id` 含む) を復元し `verifyEd25519ClaimBinding(pubkey, bytes, sig)` で raw byte 署名を検証。
+※ Claim の重複ルール: `same attestation` + `same device` + `same public_id` + `same canonical user` の再 Claim は idempotent success (早期 return) とする。一方、それ以外の異なるデバイス等への流用は `DUPLICATE_ATTESTATION_CLAIMED` として厳格に reject する。
 8. **Step 8 (Atomic DB Commit)**: `claim_verified_device_v3` を実行しアトミックに検証・適用：
    - Challenge 単一消費 (`consumed_at = NOW()`)
    - `UNIQUE(tlsn_attestation_id)` 検証 (再利用防止)
@@ -499,7 +508,7 @@ PENDING Device の紐付け先を一意に決定するため、Verifier Result �
 ### 6.4 Social Account Binding と 認証済み `POST /identity/bind-social` フロー
 * **状態の段階的遷移**:
   1. `GAME_IDENTITY_VERIFIED`: TLSNotary Proof により `api_member_id` $\leftrightarrow$ `public_id` $\leftrightarrow$ `user_devices` が確定した状態。
-     $$\text{member\_ownership.verified\_user\_id} \equiv \text{user\_devices.canonical\_user\_id} \equiv \text{user\_member\_map.user\_id} \quad (\text{Triple Invariant 成立})$$
+     $$\text{user\_devices.canonical\_user\_id} \equiv \text{user\_member\_map.user\_id} \equiv \text{<OAuth authenticated user>} \quad (\text{Triple Invariant 成立})$$
   2. `SOCIAL_ACCOUNT_BOUND`: OAuth 認証済み Web ユーザーが明示的なバインディング操作を行い、`web_user_member_map` に登録された状態。
      $$\text{上記 3 者} \equiv \text{web\_user\_member\_map.user\_id} \quad (\text{Quad Invariant 成立})$$
 * **1 Dataset = 1 Social User ポリシー**:
@@ -517,16 +526,18 @@ PENDING Device の紐付け先を一意に決定するため、Verifier Result �
 * **JWT Claims 仕様**:
   ```json
   {
+    "iss": "fusou-identity",
     "sub": "<device_id>",
-    "dataset_id": "<public_id>",
+    "aud": "fusou-upload",
     "typ": "dataset",
-    "iat": "<issued_at_timestamp>",
-    "exp": "<issued_at_timestamp + configured_ttl>",
-    "credential_version": 1
+    "credential_version": 1,
+    "dataset_id": "<public_id>",
+    "iat": 1720000000,
+    "exp": 1720086400
   }
   ```
 * **リアルタイム失効セマンティクス**:
-  JWT は認証資格情報（Authentication Credential）であり、現在の認可状態（Current Authorization State）は DB の `user_devices` および `member_ownership` で管理されます。Social 解除や Device Revoke が発生した場合、Token は次のリクエスト時に即座に 401/403 で拒絶されます。
+  JWT の NumericDate (iat/exp) は JSON String ではなく Number としてエンコードされます。また JWT は認証資格情報（Authentication Credential）であり、現在の認可状態（Current Authorization State）は DB の `user_devices` および `member_ownership` で管理されます。Social 解除や Device Revoke が発生した場合、Token は次のリクエスト時に即座に 401/403 で拒絶されます。
 
 ---
 
@@ -638,7 +649,7 @@ CREATE TABLE IF NOT EXISTS public.claim_challenges (
     challenge_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     public_id UUID NOT NULL REFERENCES public.member_id_mapping(public_id) ON DELETE RESTRICT,
     device_id UUID NOT NULL REFERENCES public.user_devices(device_id) ON DELETE RESTRICT,
-    attestation_id BYTEA NOT NULL,
+    attestation_id BYTEA NOT NULL UNIQUE,
     challenge_nonce BYTEA NOT NULL,
     expires_at TIMESTAMPTZ NOT NULL,
     consumed_at TIMESTAMPTZ,
@@ -827,7 +838,7 @@ COMMIT;
 - [D] Dual Authentication & `telemetry_nonces`（30分保持）による Replay Protection 設計
 - [D] Telemetry 7 段階検証順序 & 新規時 Nonce 消費・INSERT 同一トランザクション設計
 - [D] `member_id_hash` / Pepper 体系の完全削除と UUID `public_id` への一本化
-- [D] Quad Invariant（$\text{verified\_user\_id} \equiv \text{canonical\_user\_id} \equiv \text{user\_id} \equiv \text{web\_user\_id}$）の段階的成立定義
+- [D] Quad Invariant（$\text{canonical\_user\_id} \equiv \text{user\_id} \equiv \text{OAuth User}$）の段階的成立定義
 - [D] 64-bit Advisory Lock & 親行ロック契約により衝突確率を十分に低減する設計
 - [D] `member_ownership`（現在状態）と `member_identity_claims`（ON DELETE RESTRICT とトリガー trg_protect_member_claims_audit により、DB レベルで UPDATE/DELETE を物理禁止する真の Append-Only 監査履歴）の分離
 - [D] Advisory Lock 取得後の Proof / Attestation Consumption Policy（同一 transcript_commitment の多重消費を DUPLICATE_PROOF_CONSUMED で即時遮断）設計、および claim_verified_device_v3 は FUSOU-WEB が TLSNotary を完全検証済みであることを前提とする Security Boundary の明文化
