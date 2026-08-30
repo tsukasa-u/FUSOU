@@ -502,6 +502,20 @@ Client から FUSOU-WEB への提出ペイロードにおける `verifier_result
 
 2. **Signature Representation: VerifierResultSignBytes (Canonical Binary Encoding)**
    署名検証アルゴリズム (Ed25519) の入力には JSON 文字列そのものは使用しません。JSON をパース後、型付けされたフィールドを決定論的な Canonical Binary Encoding（厳格な length-delimited binary format (完全仕様)）で直列化したものを署名対象とします。当然、`signature` フィールド自体は入力に含めません。
+
+**VerifierResultSignBytes Canonical Field Layout (完全仕様):**
+| Order | Field | Type / Serialization Format | Description |
+| :--- | :--- | :--- | :--- |
+| 1 | `version` | `u16_be` | Protocol version (currently `1`) |
+| 2 | `issuer` | `u16_be(len)` + `UTF-8 bytes` | Issuing authority string |
+| 3 | `key_id` | `u16_be(len)` + `UTF-8 bytes` | Key identifier string |
+| 4 | `attestation_id` | `[u8; 32]` (Fixed array) | 32-byte TLSNotary Session ID |
+| 5 | `server_identity` | `u16_be(len)` + `UTF-8 bytes` | Verified TLS host |
+| 6 | `request_spans` | `u16_be(count)` + Array of `[u64_be(start), u64_be(length)]` | List of requested HTTP span offsets |
+| 7 | `response_spans` | `u16_be(count)` + Array of `[u64_be(start), u64_be(length)]` | List of responded HTTP span offsets |
+| 8 | `notary_time` | `u64_be` | NumericDate (Seconds since epoch) |
+| 9 | `created_at` | `u64_be` | NumericDate (Seconds since epoch) |
+
    3. issuer / key_id / version validation
    4. TLSNotary proof validity validation
    5. server identity validation

@@ -390,7 +390,7 @@ Client から FUSOU-WEB への提出ペイロードにおける `verifier_result
      - `key_id`: String
      - `tlsn_attestation_id`: String (base64url strict, padding なし)
      - `server_identity`: String (TLS Application の Canonical Hostname) ※TLS Certificate verification は Verifier 側で別途証明されている前提
-     - `revealed_request_spans` / `revealed_response_spans`: Array of Object (start: uint64 checked_add 対策済み, length: uint64 (fixed-width), direction: "sent" | "received", bytes: base64url strict)
+     - `revealed_request_spans` / `revealed_response_spans`: Array of Object (start: uint64 checked_add 対策済み, length: uint64 (fixed-width), bytes: base64url strict)
      - `created_at`: Number (Verifier Result 生成時刻の NumericDate 秒。notary_time とは別)
      - `signature`: String (base64url strict, padding なし)
    - **Range Constraints**: TLS application plaintext transcript offset を基準とし、start >= 0, length > 0, Overlap は禁止、Range bytes length との一致を Parser で検証。
@@ -549,18 +549,23 @@ $$\text{require\_info verified} \longrightarrow \text{device claim accepted} \lo
 
 ## 15. DB Schema / RPC（Supabaseマイグレーション: Challenge, 状態, 拡張監査履歴）
 
-### `20260826000000_claim_verified_device_v3.sql`
+本設計を実DBへ安全に適用するため、以下の4つの Migration ステップに完全に分離して実行します。新規環境 (Fresh DB) の場合はすべて順次実行可能であり、既存環境 (Existing DB) でも安全にアップグレードできる構造です。
+
+### `20260826000000_create_base_schema.sql` (ベーススキーマと Security Primitive)
 ```sql
--- 共通の Identity Lock Key 導出関数
+BEGIN;
+
+-- 1. 共通の Identity Lock Key 導出関数
 CREATE OR REPLACE FUNCTION public.fn_identity_lock_key(p_api_member_id BIGINT) RETURNS BIGINT AS $$
 BEGIN
+  -- BIGINT (64-bit) へのハッシュ変換 (Collision は advisory lock の serialization 効率低下のみ)
   RETURN ('x' || substr(md5(p_api_member_id::text), 1, 16))::bit(64)::bigint;
 END;
 $$ LANGUAGE plpgsql IMMUTABLE;
+-- Security Invariant: Client からの直接実行禁止
+REVOKE EXECUTE ON FUNCTION public.fn_identity_lock_key(BIGINT) FROM PUBLIC, anon, authenticated;
 
-BEGIN;
-
--- 1. Server-issued One-Time Claim Challenge テーブル (RLS: Service-role only)
+-- 2. Server-issued One-Time Claim Challenge テーブル
 CREATE TABLE IF NOT EXISTS public.claim_challenges (
     challenge_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     public_id UUID NOT NULL REFERENCES public.member_id_mapping(public_id) ON DELETE RESTRICT,
@@ -584,21 +589,15 @@ CREATE TABLE IF NOT EXISTS public.claim_challenges (
     )
 );
 
--- 同時に有効な Challenge は 1 つまでとする制約 (期限切れ後は再発行可能)
--- NOW() のような mutable な関数は Partial Index に使えないため、challenge_status = 'ACTIVE' で一意性を担保します。
-CREATE UNIQUE INDEX uq_active_claim_challenge_attestation 
+CREATE UNIQUE INDEX IF NOT EXISTS uq_active_claim_challenge_attestation 
 ON public.claim_challenges (tlsn_attestation_id) 
 WHERE challenge_status = 'ACTIVE';
 
 ALTER TABLE public.claim_challenges ENABLE ROW LEVEL SECURITY;
-
 CREATE POLICY "Allow service_role full access to claim_challenges"
-    ON public.claim_challenges
-    FOR ALL
-    TO service_role
-    USING (true)
-    WITH CHECK (true);
+    ON public.claim_challenges FOR ALL TO service_role USING (true) WITH CHECK (true);
 
+-- 3. user_devices 新規カラム追加
 ALTER TABLE public.user_devices
   ADD COLUMN IF NOT EXISTS device_status TEXT,
   ADD COLUMN IF NOT EXISTS pending_expires_at TIMESTAMPTZ,
@@ -607,106 +606,197 @@ ALTER TABLE public.user_devices
   ADD COLUMN IF NOT EXISTS revoked_at TIMESTAMPTZ,
   ADD COLUMN IF NOT EXISTS revoked_reason TEXT;
 
--- Migration: Existing legacy verified rows are demoted to REVOKED securely
-UPDATE public.user_devices SET device_status = 'REVOKED', revoked_at = NOW(), revoked_reason = 'legacy_migration';
--- ※ 注意: これは one-time versioned migration です。SQL 自身に冪等性はなく、再実行すると新方式で VERIFIED されたデバイスも REVOKED になってしまうため一度のみ実行します。
-
-ALTER TABLE public.user_devices
-  ALTER COLUMN device_status SET NOT NULL,
-  ALTER COLUMN device_status SET DEFAULT 'PENDING',
-  ADD CONSTRAINT chk_device_status_val CHECK (device_status IN ('PENDING', 'VERIFIED', 'REVOKED'));
-
-ALTER TABLE public.user_devices
-  ADD CONSTRAINT uq_device_public_key UNIQUE (device_public_key),
-  CONSTRAINT uq_device_id_public_id UNIQUE(device_id, public_id),
-  CONSTRAINT uq_device_id_canonical_user_id UNIQUE(device_id, canonical_user_id),
-  ADD CONSTRAINT chk_device_status_times CHECK (
-    (device_status = 'PENDING' AND pending_expires_at IS NOT NULL) OR
-    (device_status = 'VERIFIED' AND verified_at IS NOT NULL) OR
-    (device_status = 'REVOKED' AND revoked_at IS NOT NULL)
-  );
-  -- ※ Timestamp fields not associated with the current state (e.g. pending_expires_at when state is REVOKED) are historical metadata and are not required to be NULL.
-
--- Migration for existing DBs (Backfill and Constraint upgrades)
--- 1. Backfill NULL public_ids before applying NOT NULL
-UPDATE public.user_devices SET public_id = gen_random_uuid() WHERE public_id IS NULL;
-ALTER TABLE public.user_devices ALTER COLUMN public_id SET NOT NULL;
-
--- 2. Deduplicate existing data before applying UNIQUE constraints
--- (In a real migration, manually resolve duplicates. Here we assume preflight validation was done)
-
--- 3. Upgrade existing FKs to Composite FKs
-ALTER TABLE public.member_ownership DROP CONSTRAINT IF EXISTS member_ownership_primary_device_id_fkey;
-ALTER TABLE public.member_ownership ADD CONSTRAINT member_ownership_composite_fkey FOREIGN KEY (primary_device_id, public_id) REFERENCES public.user_devices(device_id, public_id) ON DELETE RESTRICT;
-
-ALTER TABLE public.member_identity_claims DROP CONSTRAINT IF EXISTS member_identity_claims_verified_device_id_fkey;
-ALTER TABLE public.member_identity_claims ADD CONSTRAINT member_identity_claims_composite_fkey FOREIGN KEY (verified_device_id, public_id) REFERENCES public.user_devices(device_id, public_id) ON DELETE RESTRICT;
-ALTER TABLE public.member_identity_claims ADD CONSTRAINT member_identity_claims_canonical_composite_fkey FOREIGN KEY (verified_device_id, canonical_user_id) REFERENCES public.user_devices(device_id, canonical_user_id) ON DELETE RESTRICT;
-
--- 4. Rename legacy claim_type
-UPDATE public.member_identity_claims SET claim_type = 'TAKEOVER_FROM_UNVERIFIED_DEVICE' WHERE claim_type = 'TAKEOVER_FROM_LEGACY';
-
--- 2. 現在の検証済み所有者テーブル (Current Ownership State)
+-- 4. member_ownership テーブル
 CREATE TABLE IF NOT EXISTS public.member_ownership (
     public_id UUID PRIMARY KEY REFERENCES public.member_id_mapping(public_id) ON DELETE RESTRICT,
     social_user_id UUID REFERENCES auth.users(id) ON DELETE RESTRICT,
     primary_device_id UUID NOT NULL,
-    FOREIGN KEY (primary_device_id, public_id) REFERENCES public.user_devices(device_id, public_id) ON DELETE RESTRICT,
     established_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- 3. 所有権 Claim 監査履歴テーブル (通常アプリケーション経路でUPDATE/DELETEを禁止するAppend-Only Audit Trail。REVOKE UPDATE, DELETEとトリガーで強制し、ON DELETE RESTRICTで親削除巻き込みを防止する)
+-- 5. member_identity_claims ベーステーブル
 CREATE TABLE IF NOT EXISTS public.member_identity_claims (
     claim_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     public_id UUID NOT NULL REFERENCES public.member_id_mapping(public_id) ON DELETE RESTRICT,
     canonical_user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE RESTRICT,
     verified_device_id UUID NOT NULL,
     tlsn_attestation_id BYTEA NOT NULL,
-    FOREIGN KEY (verified_device_id, public_id) REFERENCES public.user_devices(device_id, public_id) ON DELETE RESTRICT,
-    FOREIGN KEY (verified_device_id, canonical_user_id) REFERENCES public.user_devices(device_id, canonical_user_id) ON DELETE RESTRICT,
-    request_range_start BIGINT NOT NULL,
-    request_range_length BIGINT NOT NULL,
-        response_range_start BIGINT NOT NULL,
-    response_range_length BIGINT NOT NULL,
-        notary_time TIMESTAMPTZ NOT NULL,
+    request_range_start BIGINT NOT NULL CHECK (request_range_start >= 0),
+    request_range_length BIGINT NOT NULL CHECK (request_range_length > 0),
+    response_range_start BIGINT NOT NULL CHECK (response_range_start >= 0),
+    response_range_length BIGINT NOT NULL CHECK (response_range_length > 0),
+    notary_time TIMESTAMPTZ NOT NULL,
     notary_key_id TEXT NOT NULL,
     proof_purpose TEXT NOT NULL CHECK (proof_purpose = 'GAME_ACCOUNT_IDENTITY_V1'),
-    claim_type TEXT NOT NULL CHECK (claim_type IN ('INITIAL_VERIFIED', 'TAKEOVER_FROM_UNVERIFIED_DEVICE', 'ADDITIONAL_DEVICE')),
+    claim_type TEXT NOT NULL,
     claimed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     CONSTRAINT uq_member_claims_attestation UNIQUE (tlsn_attestation_id)
 );
 
 CREATE INDEX IF NOT EXISTS idx_member_claims_history ON public.member_identity_claims(public_id, claimed_at DESC);
-
 ALTER TABLE public.member_identity_claims ENABLE ROW LEVEL SECURITY;
 
--- Security Invariant: direct INSERT to member_identity_claims is explicitly forbidden for all application roles.
--- The only way to insert is by executing the SECURITY DEFINER function claim_verified_device_v3 (which runs as postgres).
+-- Security Invariant: DBへの直接INSERTを完全に禁止し、SECURITY DEFINER RPCのみが書き込み権限を持つようにする
 REVOKE INSERT ON public.member_identity_claims FROM authenticated, anon, service_role;
 
-REVOKE UPDATE, DELETE ON public.member_identity_claims FROM PUBLIC;
-REVOKE UPDATE, DELETE ON public.member_identity_claims FROM service_role;
+COMMIT;
+```
 
--- 監査履歴テーブルの UPDATE / DELETE を物理禁止するトリガー
-CREATE OR REPLACE FUNCTION public.fn_prevent_audit_tampering()
-RETURNS TRIGGER
-LANGUAGE plpgsql
-SECURITY DEFINER
-AS $$
+### `20260826000001_backfill_existing_data.sql` (既存データの安全な移行・無効化)
+```sql
+BEGIN;
+
+-- 1. レガシーデバイスのパージ: public_id が特定できない完全に追跡不能なレガシーデバイスは、架空の UUID を振らずに物理削除する
+DELETE FROM public.user_devices WHERE public_id IS NULL;
+
+-- 2. 既存デバイスのステータス移行: VERIFIED だったデバイスも含めて安全側に倒して REVOKED 化する (One-time migration)
+UPDATE public.user_devices SET device_status = 'REVOKED', revoked_at = NOW(), revoked_reason = 'legacy_migration' WHERE device_status IS NULL;
+
+-- ==============================================================================
+-- 既存DB移行時の Preflight Validation Gate (事前重複検査)
+-- ※ 重複が存在する場合、このブロックで Migration が即座に Abort されます。
+-- ==============================================================================
+DO $$
 BEGIN
-  RAISE EXCEPTION 'member_identity_claims is an append-only audit trail: UPDATE or DELETE is strictly prohibited';
-END;
-$$;
+  IF EXISTS (
+    SELECT 1 FROM (
+      SELECT device_id, public_id FROM public.user_devices GROUP BY device_id, public_id HAVING COUNT(*) > 1
+    ) t
+  ) THEN
+    RAISE EXCEPTION 'PREFLIGHT FAILED: Duplicate public_id found in user_devices';
+  END IF;
 
-ALTER FUNCTION public.fn_prevent_audit_tampering() OWNER TO postgres;
+  IF EXISTS (
+    SELECT 1 FROM (
+      SELECT device_public_key FROM public.user_devices GROUP BY device_public_key HAVING COUNT(*) > 1
+    ) t
+  ) THEN
+    RAISE EXCEPTION 'PREFLIGHT FAILED: Duplicate device_public_key found in user_devices';
+  END IF;
 
-CREATE TRIGGER trg_protect_member_claims_audit
-BEFORE UPDATE OR DELETE ON public.member_identity_claims
-FOR EACH ROW EXECUTE FUNCTION public.fn_prevent_audit_tampering();
+  IF EXISTS (
+    SELECT 1 FROM (
+      SELECT api_member_id FROM public.member_id_mapping GROUP BY api_member_id HAVING COUNT(*) > 1
+    ) t
+  ) THEN
+    RAISE EXCEPTION 'PREFLIGHT FAILED: Duplicate api_member_id found in member_id_mapping';
+  END IF;
 
--- 4. アトミック身元確定・奪還ストアドプロシージャ (全10ステップ順序完全維持)
--- 5. 不正署名発覚時の Challenge 即時消費 RPC
+  IF EXISTS (
+    SELECT 1 FROM (
+      SELECT tlsn_attestation_id FROM public.member_identity_claims GROUP BY tlsn_attestation_id HAVING COUNT(*) > 1
+    ) t
+  ) THEN
+    RAISE EXCEPTION 'PREFLIGHT FAILED: Duplicate tlsn_attestation_id found in member_identity_claims';
+  END IF;
+
+  IF EXISTS (
+    SELECT 1 FROM public.member_ownership m
+    LEFT JOIN public.user_devices u 
+      ON m.primary_device_id = u.device_id AND m.public_id = u.public_id
+    WHERE u.device_id IS NULL
+  ) THEN
+    RAISE EXCEPTION 'PREFLIGHT FAILED: Orphaned member_ownership (primary_device_id, public_id) not found in user_devices';
+  END IF;
+END $$;
+-- ==============================================================================
+
+-- 1. public_id の重複
+SELECT device_id, public_id, COUNT(*) 
+FROM public.user_devices 
+GROUP BY device_id, public_id 
+HAVING COUNT(*) > 1;
+
+-- 2. device_public_key の重複
+SELECT device_public_key, COUNT(*) 
+FROM public.user_devices 
+GROUP BY device_public_key 
+HAVING COUNT(*) > 1;
+
+-- 3. api_member_id の重複 (member_id_mapping)
+SELECT api_member_id, COUNT(*) 
+FROM public.member_id_mapping 
+GROUP BY api_member_id 
+HAVING COUNT(*) > 1;
+
+-- 4. tlsn_attestation_id の重複
+SELECT tlsn_attestation_id, COUNT(*) 
+FROM public.member_identity_claims 
+GROUP BY tlsn_attestation_id 
+HAVING COUNT(*) > 1;
+
+-- 5. member_ownership の (primary_device_id, public_id) が user_devices に実在するかどうかの検査 (Orphaned row 検査)
+SELECT m.primary_device_id, m.public_id 
+FROM public.member_ownership m
+LEFT JOIN public.user_devices u 
+  ON m.primary_device_id = u.device_id AND m.public_id = u.public_id
+WHERE u.device_id IS NULL;
+
+-- ==============================================================================
+
+
+-- 3. 旧 CHECK 制約の削除 (存在する場合のみ) と旧 claim_type のデータ修正
+-- ※ 旧 CHECK がかかったまま UPDATE すると失敗するため、先に DROP
+ALTER TABLE public.member_identity_claims DROP CONSTRAINT IF EXISTS member_identity_claims_claim_type_check;
+
+-- Historical marker として TAKEOVER_FROM_LEGACY を TAKEOVER_FROM_UNVERIFIED_DEVICE にリネーム
+UPDATE public.member_identity_claims SET claim_type = 'TAKEOVER_FROM_UNVERIFIED_DEVICE' WHERE claim_type = 'TAKEOVER_FROM_LEGACY';
+
+COMMIT;
+```
+
+### `20260826000002_add_new_constraints.sql` (Composite FK と Strict Constraint の付与)
+```sql
+BEGIN;
+
+-- 1. user_devices 制約の厳格化
+ALTER TABLE public.user_devices ALTER COLUMN public_id SET NOT NULL;
+ALTER TABLE public.user_devices ALTER COLUMN device_status SET NOT NULL;
+ALTER TABLE public.user_devices ALTER COLUMN device_status SET DEFAULT 'PENDING';
+
+ALTER TABLE public.user_devices DROP CONSTRAINT IF EXISTS chk_device_status_val;
+ALTER TABLE public.user_devices ADD CONSTRAINT chk_device_status_val CHECK (device_status IN ('PENDING', 'VERIFIED', 'REVOKED'));
+
+ALTER TABLE public.user_devices DROP CONSTRAINT IF EXISTS chk_device_status_times;
+ALTER TABLE public.user_devices ADD CONSTRAINT chk_device_status_times CHECK (
+    (device_status = 'PENDING' AND pending_expires_at IS NOT NULL) OR
+    (device_status = 'VERIFIED' AND verified_at IS NOT NULL) OR
+    (device_status = 'REVOKED' AND revoked_at IS NOT NULL)
+);
+
+-- 複合 FK 参照用の UNIQUE 制約
+ALTER TABLE public.user_devices DROP CONSTRAINT IF EXISTS uq_device_public_key;
+ALTER TABLE public.user_devices ADD CONSTRAINT uq_device_public_key UNIQUE (device_public_key);
+
+ALTER TABLE public.user_devices DROP CONSTRAINT IF EXISTS uq_device_id_public_id;
+ALTER TABLE public.user_devices ADD CONSTRAINT uq_device_id_public_id UNIQUE(device_id, public_id);
+
+-- This UNIQUE constraint exists solely to provide a referenced key for member_identity_claims(verified_device_id, canonical_user_id)
+ALTER TABLE public.user_devices DROP CONSTRAINT IF EXISTS uq_device_id_canonical_user_id;
+ALTER TABLE public.user_devices ADD CONSTRAINT uq_device_id_canonical_user_id UNIQUE(device_id, canonical_user_id);
+
+-- 2. member_ownership 複合外部キー
+ALTER TABLE public.member_ownership DROP CONSTRAINT IF EXISTS member_ownership_composite_fkey;
+ALTER TABLE public.member_ownership ADD CONSTRAINT member_ownership_composite_fkey FOREIGN KEY (primary_device_id, public_id) REFERENCES public.user_devices(device_id, public_id) ON DELETE RESTRICT;
+
+-- 3. member_identity_claims 新規 CHECK および複合外部キー
+ALTER TABLE public.member_identity_claims ADD CONSTRAINT member_identity_claims_claim_type_check CHECK (claim_type IN ('INITIAL_VERIFIED', 'TAKEOVER_FROM_UNVERIFIED_DEVICE', 'ADDITIONAL_DEVICE'));
+
+ALTER TABLE public.member_identity_claims DROP CONSTRAINT IF EXISTS member_identity_claims_composite_fkey;
+ALTER TABLE public.member_identity_claims ADD CONSTRAINT member_identity_claims_composite_fkey FOREIGN KEY (verified_device_id, public_id) REFERENCES public.user_devices(device_id, public_id) ON DELETE RESTRICT;
+
+ALTER TABLE public.member_identity_claims DROP CONSTRAINT IF EXISTS member_identity_claims_canonical_composite_fkey;
+ALTER TABLE public.member_identity_claims ADD CONSTRAINT member_identity_claims_canonical_composite_fkey FOREIGN KEY (verified_device_id, canonical_user_id) REFERENCES public.user_devices(device_id, canonical_user_id) ON DELETE RESTRICT;
+
+COMMIT;
+```
+
+### `20260826000003_create_security_functions.sql` (Security Definer RPC)
+```sql
+BEGIN;
+
+-- 1. 不正署名発覚時の Challenge 即時消費 RPC
 CREATE OR REPLACE FUNCTION public.consume_invalid_challenge(p_challenge_id UUID) RETURNS VOID AS $$
 BEGIN
   -- First consume wins. (Returns silently if already consumed/expired or not found)
@@ -715,38 +805,28 @@ BEGIN
   WHERE challenge_id = p_challenge_id AND challenge_status = 'ACTIVE';
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
--- Server-only endpoint (Authentication enforcement is up to Web layer, but direct invocation from Client is denied by Supabase RLS/Roles)
 REVOKE EXECUTE ON FUNCTION public.consume_invalid_challenge(UUID) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.consume_invalid_challenge(UUID) TO service_role;
 
--- 6. Claim Verified Device RPC
+-- 2. Claim Verified Device RPC
+-- ※ Client input を最小化し、challenge_id のみを受け取ります。
+-- ※ RPC 自身は署名を検証しません（claim_verified_device_v3 is not a public authorization primitive）。
 CREATE OR REPLACE FUNCTION public.claim_verified_device_v3(
-  p_challenge_id UUID,
-  p_challenge_nonce BYTEA,
-  p_device_id UUID
-)
-RETURNS JSONB
-LANGUAGE plpgsql
-SECURITY DEFINER
-SET search_path = public
-AS $$
+  p_challenge_id UUID
+) RETURNS jsonb AS $$
 DECLARE
-  v_lock_key BIGINT;
-  v_device RECORD;
-  v_public_id UUID;
-  v_canonical_user_id UUID;
-  v_current_ownership RECORD;
-  v_claim_type TEXT;
-  v_existing_claim RECORD;
-  v_challenge_updated INT;
   v_challenge RECORD;
   v_api_member_id BIGINT;
+  v_lock_key BIGINT;
+  v_device RECORD;
+  v_existing_claim RECORD;
+  v_claim_type TEXT;
   v_proof_purpose TEXT := 'GAME_ACCOUNT_IDENTITY_V1';
 BEGIN
   -- Step 0. Challenge情報の取得 (この段階ではまだACTIVEか検証しないが、必要なメタデータを取得する)
   SELECT * INTO v_challenge
   FROM public.claim_challenges
-  WHERE challenge_id = p_challenge_id AND challenge_nonce = p_challenge_nonce AND device_id = p_device_id;
+  WHERE challenge_id = p_challenge_id;
   
   IF NOT FOUND THEN
     RAISE EXCEPTION 'CHALLENGE_NOT_FOUND_OR_INVALID';
@@ -765,173 +845,123 @@ BEGIN
 
   -- Step 1. 【最優先】64-bit Transaction Advisory Lock による完全排他制御
   -- ※ Claim処理とRevoke処理で共通のLock Domain (member_id) を使用し、Identity競合を直列化します
-  -- ※ Challenge発行は attestation_id domain の lock とし、明確に分離します。
   v_lock_key := public.fn_identity_lock_key(v_api_member_id);
   PERFORM pg_advisory_xact_lock(v_lock_key);
 
   -- Step 2. 対象デバイスの存在確認 & 行ロック
   SELECT * INTO v_device
   FROM public.user_devices
-  WHERE device_id = p_device_id
+  WHERE device_id = v_challenge.device_id
   FOR UPDATE;
 
   IF NOT FOUND THEN
-    RAISE EXCEPTION 'device_not_found';
+    RAISE EXCEPTION 'DEVICE_NOT_FOUND';
   END IF;
 
-  -- PENDING登録時の作成者（OAuth User）を引き継ぐ
-  v_canonical_user_id := v_device.canonical_user_id;
-
-  -- Step 3. public_id の取得/生成 (単一の Security Helper RPC を呼び出し)
-  v_public_id := public.get_or_create_public_id(v_api_member_id);
-  -- ※ `get_or_create_public_id()` is a SECURITY DEFINER function whose advisory lock is transaction-scoped and remains held until the caller transaction commits/rolls back.
-  -- ※ Security Boundary: Client はこの関数を直接呼び出すことはできません。FUSOU-WEB (trusted server) のみが利用可能な内部 Helper です。
-
-  -- 認証済みオペレーターと PENDING Device のバインディング検証
-  IF v_device.public_id != v_public_id THEN
-    RAISE EXCEPTION 'DEVICE_PUBLIC_ID_MISMATCH: pending device is bound to a different public_id';
-  END IF;
-
-  -- Step 4. 排他ロック取得後の Attestation 重複消費チェック (TOCTOU競合防止)
+  -- Step 3. 冪等性（Idempotency）の検証
   SELECT * INTO v_existing_claim
   FROM public.member_identity_claims
   WHERE tlsn_attestation_id = v_challenge.tlsn_attestation_id;
 
   IF FOUND THEN
-    -- 厳密な Idempotent 条件: same attestation AND same device AND same public_id AND same canonical_user_id
-    IF v_existing_claim.verified_device_id = p_device_id 
-       AND v_existing_claim.public_id = v_public_id
-       AND v_existing_claim.canonical_user_id = v_canonical_user_id THEN
-      -- 同一 Attestation + 同一 Device の再送は Idempotent Success
-      -- ※ Idempotency は「過去の正当な Claim の再送」として定義するため、対象 Device がその後 REVOKED になっていたとしても already_claimed を返します。
+    IF v_existing_claim.verified_device_id = v_device.device_id 
+       AND v_existing_claim.public_id = v_challenge.public_id
+       AND v_existing_claim.canonical_user_id = v_device.canonical_user_id THEN
       -- ※ API response の `{"status":"already_claimed"}` は単なる履歴上の冪等成功を表すのみであり、現在の認証状態を保証するものではありません。
-      -- 攻撃者への情報漏洩を防ぐため、返却情報は最小限に留めます
       RETURN jsonb_build_object('status', 'already_claimed');
     ELSE
-      -- 異なる Device/User への流用は厳格に拒絶
-      RAISE EXCEPTION 'DUPLICATE_ATTESTATION_CLAIMED: attestation has already been used for a different identity claim';
+      RAISE EXCEPTION 'DUPLICATE_ATTESTATION_CLAIMED';
     END IF;
   END IF;
 
-  -- Step 5. PENDING Device 状態・期限の厳格な検証
-  IF v_device.device_status = 'VERIFIED' THEN
-    RAISE EXCEPTION 'ALREADY_VERIFIED: this device is already verified. New attestation cannot be consumed.';
-  ELSIF v_device.device_status = 'REVOKED' THEN
-    RAISE EXCEPTION 'DEVICE_REVOKED: revoked devices cannot be reclaimed';
-  ELSIF v_device.device_status <> 'PENDING' THEN
-    RAISE EXCEPTION 'INVALID_DEVICE_STATUS';
-  ELSIF v_device.pending_expires_at <= NOW() THEN
-    RAISE EXCEPTION 'PENDING_DEVICE_EXPIRED';
-  END IF;
-
-  -- Step 6. Server Challenge の単一消費確認 (One-Time Consume)
+  -- Step 4. Challengeの消費
   UPDATE public.claim_challenges
-  SET challenge_status = 'CONSUMED',
-    consumed_at = NOW()
-  WHERE challenge_id = p_challenge_id
-    AND challenge_nonce = p_challenge_nonce
-    AND tlsn_attestation_id = v_challenge.tlsn_attestation_id
-    AND public_id = v_public_id
-    AND device_id = p_device_id
-    AND challenge_status = 'ACTIVE'
-    AND expires_at > NOW();
+  SET challenge_status = 'CONSUMED', consumed_at = NOW()
+  WHERE challenge_id = p_challenge_id AND challenge_status = 'ACTIVE';
 
-  GET DIAGNOSTICS v_challenge_updated = ROW_COUNT;
-  IF v_challenge_updated = 0 THEN
-    RAISE EXCEPTION 'INVALID_OR_EXPIRED_CHALLENGE: challenge % is invalid, expired, or already consumed', p_challenge_id;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'CHALLENGE_ALREADY_CONSUMED_OR_EXPIRED';
   END IF;
 
-  -- Step 7. 現在の検証済み所有者レコードを確認 (排他ロック)
-  SELECT * INTO v_current_ownership
-  FROM public.member_ownership
-  WHERE public_id = v_public_id
-  FOR UPDATE;
-
-  -- Step 8. 所有権ルール判定
-  IF v_current_ownership.public_id IS NULL THEN
-    -- 現在の Verified Owner として登録 (Primary Device 固定, social_user_id は NULL)
-    INSERT INTO public.member_ownership (
-      public_id, primary_device_id, established_at, updated_at
-    )
-    VALUES (
-      v_public_id, p_device_id, NOW(), NOW()
-    );
-
-    -- Projection: user_member_map (Web API等の参照用。Security Rootではない)
-    INSERT INTO public.user_member_map (public_id, user_id, created_at)
-    VALUES (v_public_id, v_canonical_user_id, NOW())
-    ON CONFLICT (public_id) DO UPDATE SET user_id = EXCLUDED.user_id;
-
-    -- 同一 public_id に紐づく未検証端末のうち、別ユーザーの未検証端末のみを安全に Revoke
-    UPDATE public.user_devices
-    SET
-      device_status = 'REVOKED',
-      revoked_at = NOW(),
-      revoked_reason = 'preempted_by_tlsn_verified_owner'
-    WHERE public_id = v_public_id
-      AND device_id != p_device_id
-      AND device_status = 'PENDING'
-      AND canonical_user_id <> v_canonical_user_id
-      AND revoked_at IS NULL;
-      
-    IF FOUND THEN
-      v_claim_type := 'TAKEOVER_FROM_UNVERIFIED_DEVICE'; -- Historical label for recovery from a pre-v1/unverified device
-    ELSE
-      v_claim_type := 'INITIAL_VERIFIED';
-    END IF;
-
-  ELSE
-    -- 【すでに検証済みオーナーが存在する状態】
-    -- Security Root である member_ownership の primary_device_id から元オーナーの canonical_user_id を取得して比較
-    IF (SELECT canonical_user_id FROM public.user_devices WHERE device_id = v_current_ownership.primary_device_id) != v_canonical_user_id THEN
-      RAISE EXCEPTION 'OWNERSHIP_CONFLICT: This Game Account identity is securely bound to a different verified member';
-    END IF;
-
-    -- 同一所有者による追加デバイス登録
-    v_claim_type := 'ADDITIONAL_DEVICE';
-    -- ※ primary_device_id の入れ替えは行わない (Owner変更禁止のため)
+  -- Step 5. 既存の Owner 確認と競合判定
+  IF EXISTS (
+    SELECT 1 FROM public.member_ownership 
+    WHERE social_user_id IS NOT NULL 
+      AND social_user_id <> v_device.canonical_user_id
+      AND public_id = v_challenge.public_id
+  ) THEN
+    RAISE EXCEPTION 'EXISTING_VERIFIED_OWNER_CONFLICT';
   END IF;
 
-  -- Step 9. デバイスを VERIFIED へ昇格し、状態タイムスタンプを更新
+  -- Step 6. Legacy 状態からの移譲判定 (claim_type の決定)
   UPDATE public.user_devices
-  SET device_status = 'VERIFIED',
-      verified_at = NOW(),
-      last_notary_time = v_challenge.notary_time
-  WHERE device_id = p_device_id;
+  SET device_status = 'REVOKED', revoked_at = NOW(), revoked_reason = 'preempted_by_tlsn_verified_owner'
+  WHERE public_id = v_challenge.public_id
+    AND device_status = 'PENDING'
+    AND canonical_user_id <> v_device.canonical_user_id
+    AND revoked_at IS NULL;
+    
+  IF FOUND THEN
+    v_claim_type := 'TAKEOVER_FROM_UNVERIFIED_DEVICE';
+  ELSE
+    v_claim_type := 'INITIAL_VERIFIED';
+  END IF;
 
-  -- Step 10. Append-Only 監査証跡（member_identity_claims）へ INSERT
+  -- Step 7. Claim レコードの挿入
   INSERT INTO public.member_identity_claims (
-    claim_id, verified_device_id, public_id, canonical_user_id,
-    tlsn_attestation_id, notary_time, proof_purpose, claim_type,
-    notary_key_id, request_range_start, request_range_length,
-    response_range_start, response_range_length
-  )
-  VALUES (
-    gen_random_uuid(), p_device_id, v_public_id, v_canonical_user_id,
-    v_challenge.tlsn_attestation_id, v_challenge.notary_time, v_proof_purpose, v_claim_type,
-    v_challenge.notary_key_id, v_challenge.request_range_start, v_challenge.request_range_length,
-    v_challenge.response_range_start, v_challenge.response_range_length
+    public_id, canonical_user_id, verified_device_id, tlsn_attestation_id,
+    request_range_start, request_range_length, response_range_start, response_range_length,
+    notary_time, notary_key_id, proof_purpose, claim_type
+  ) VALUES (
+    v_challenge.public_id, v_device.canonical_user_id, v_device.device_id, v_challenge.tlsn_attestation_id,
+    v_challenge.request_range_start, v_challenge.request_range_length, v_challenge.response_range_start, v_challenge.response_range_length,
+    v_challenge.notary_time, v_challenge.notary_key_id, v_proof_purpose, v_claim_type
   );
 
-  RETURN jsonb_build_object(
-    'device_id', p_device_id,
-    'public_id', v_public_id,
-    'canonical_user_id', v_canonical_user_id,
-    'device_status', 'VERIFIED',
-    'claim_type', v_claim_type,
-    'verified_at', NOW(),
-    'idempotent_replay', FALSE
-  );
+  -- Step 8. 状態昇格と Ownership 更新
+  UPDATE public.user_devices
+  SET device_status = 'VERIFIED', verified_at = NOW(), pending_expires_at = NULL, last_notary_time = v_challenge.notary_time
+  WHERE device_id = v_challenge.device_id;
+
+  INSERT INTO public.member_ownership (
+    public_id, primary_device_id
+  ) VALUES (
+    v_challenge.public_id, v_device.device_id
+  ) ON CONFLICT (public_id) DO UPDATE SET
+    primary_device_id = EXCLUDED.primary_device_id,
+    updated_at = NOW();
+
+  INSERT INTO public.user_member_map (user_id, public_id)
+  VALUES (v_device.canonical_user_id, v_challenge.public_id)
+  ON CONFLICT DO NOTHING;
+
+  INSERT INTO public.web_user_member_map (user_id, public_id)
+  VALUES (v_device.canonical_user_id, v_challenge.public_id)
+  ON CONFLICT DO NOTHING;
+
+  RETURN jsonb_build_object('status', 'success', 'public_id', v_challenge.public_id);
 END;
-$$;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+REVOKE EXECUTE ON FUNCTION public.claim_verified_device_v3(UUID) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.claim_verified_device_v3(UUID) TO service_role;
 
-REVOKE ALL ON FUNCTION public.claim_verified_device_v3 FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION public.claim_verified_device_v3 TO service_role;
+-- 3. Audit Log Tampering Prevention
+-- ※ Versioned migration (1回のみ実行される前提) のため CREATE OR REPLACE および DROP TRIGGER IF EXISTS を用いて冪等性を担保
+CREATE OR REPLACE FUNCTION public.fn_prevent_audit_tampering() RETURNS TRIGGER AS $$
+BEGIN
+  RAISE EXCEPTION 'member_identity_claims is append-only. UPDATE/DELETE is strictly forbidden.';
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+-- owner = postgres (Supabase default) ensures it cannot be bypassed by application roles
+REVOKE EXECUTE ON FUNCTION public.fn_prevent_audit_tampering() FROM PUBLIC, anon, authenticated, service_role;
+
+DROP TRIGGER IF EXISTS trg_prevent_audit_tampering ON public.member_identity_claims;
+CREATE TRIGGER trg_prevent_audit_tampering
+BEFORE UPDATE OR DELETE ON public.member_identity_claims
+FOR EACH ROW EXECUTE FUNCTION public.fn_prevent_audit_tampering();
 
 COMMIT;
 ```
-
----
 
 ## 16. Failure Cases & Fallback Semantics (Phase A / Phase B)
 
@@ -972,13 +1002,7 @@ COMMIT;
   後方互換性としての HTTP 410 は実装せず、Router から完全に撤去することで Platform Generic 404 を返し、Security 上の攻撃面をゼロにします。
 
 
-### 既存データベースに対するマイグレーション適用順序（Migration Execution Order）
-既存の `user_devices` データに制約違反を起こさず安全に移行するため、以下の順序で DDL/DML を実行します：
-1. **Add Columns**: `device_status`, `pending_expires_at`, `verified_at`, `revoked_at`, `revoked_reason`, `last_notary_time` の列を `user_devices` に追加する（この時点では CHECK 制約を入れない）。
-2. **Backfill Existing Rows**: 既存の `device_status = 'PENDING'` 行に対し `pending_expires_at` などを populate する。
-3. **Normalize Legacy Devices**: 古い自己申告 Device を `device_status = 'REVOKED'` へ一律更新し、同時に `revoked_at = NOW()`, `revoked_reason = 'legacy_security_model'` をセットする。
-4. **Set Required Timestamps**: その他全行について `verified_at` 等の整合性を取る。
-5. **Add CHECK Constraint**: 最後に `user_devices` に `chk_device_status_times` 制約を追加する。
+
 
 
 ---
@@ -1171,14 +1195,13 @@ COMMIT;
   TLSNotary から提出される Revealed Spans の各 Range オブジェクトは、以下の厳密な Schema を満たす必要があります。
   - `start`: uint64
   - `length`: uint64
-  - `direction`: "sent" | "received" のいずれか完全一致
   - `bytes`: base64url strict (paddingなし)
   **Verifier 検証要件**:
   - `start >= 0` かつ `length > 0`
   - `start + length` 演算時における uint64 オーバーフローのチェック (Rust `checked_add` 必須)
   - `decoded(bytes).length == length` であること
   - Range end が TLS Application Plaintext Transcript size 以下であること（HTTP Body Offset や Decompressed Body Offset と混在させてはならない）
-  - 同一 direction 内での Overlap は厳格に禁止
+  - 各 Span Array 内部での Overlap は厳格に禁止
   - Array の並び順 (Order deterministic): `start` の昇順であることを強制
 
 
