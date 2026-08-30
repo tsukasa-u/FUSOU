@@ -513,7 +513,15 @@ Client から FUSOU-WEB への提出ペイロードにおける `verifier_result
 5. **Step 5 (Server Challenge 発行)**: 登録した PENDING デバイスに対して `public.claim_challenges` (5分 TTL) を発行し、クライアントへ Response Body を返却。※発行前に `member_identity_claims` 等を確認し同一 `tlsn_attestation_id` からは1つのChallengeしか発行できないよう、DB上で `UNIQUE(tlsn_attestation_id) WHERE consumed_at IS NULL AND expires_at > NOW()` 制約により別デバイスへの流用等も含めて物理拒絶します（同時有効なChallengeを最大1個に制限するものであり、期限切れ後の再発行による復旧は妨げません）。
 6. **Step 6 (ClaimBindingBytes 構築 & 署名)**: 端末が `(domain, purpose, attestation_id, verified_member_id, device_id, expected_public_id, challenge_id, challenge_nonce)` から `ClaimBindingBytes` を構築し、端末秘密鍵で Ed25519 署名。※`public_key` は署名対象に含めず、サーバー側で `user_devices` から取得する。
 7. **Step 7 (Claim 提出 & 署名検証)**: クライアントは `{ "challenge_id", "signature" }` のみを FUSOU-WEB へ提出（攻撃面を最小化するため Client から public_id 等は受け付けない）。FUSOU-WEB は DB から関連 ID (`expected_public_id` 含む) を復元し `verifyEd25519ClaimBinding(pubkey, bytes, sig)` で raw byte 署名を検証。
-※ Claim の重複・Idempotency ルール:
+※ Claim の重複・Idempotency ルール (統一仕様):
+1. 先に `member_identity_claims` で既存 Claim を検索します。
+2. もし同一 Attestation が既に存在する場合：
+   - 同一 Device ID (同一 Identity) であれば、対象の Challenge が消費済・期限切れに関わらず Idempotent Success として既存の Claim 結果を早期 return します。
+   - 異なる Device 等への流用であれば `DUPLICATE_ATTESTATION_CLAIMED` として厳格に reject します。
+3. もし未 Claim（新規 Attestation）の場合：
+   - デバイスが PENDING で未期限切れの場合のみ normal claim を進行します。
+   - すでに VERIFIED のデバイスに新しい Attestation を適用しようとした場合は `ALREADY_VERIFIED` として reject します。
+
 1. 先に `member_identity_claims` で既存 Claim を検索します。
 2. もし同一 Attestation が既に存在する場合：
    - 同一 Device ID (同一 Identity) であれば、対象の Challenge が消費済・期限切れに関わらず Idempotent Success として既存の Claim 結果を早期 return します。
@@ -790,6 +798,11 @@ COMMIT;
 3. **旧テーブル・RPC の無効化**:
    `pending_member_syncs` は削除。`rpc_register_public_id` は完全に DROP。
 
+- **Legacy Cleanup と Route 撤去 (404 統一)**
+  旧ルート `signInAnonymously`, `rpc_register_public_id`, `rpc_register_user_device`, `pending_member_syncs` は関連する全てのファイル、ルート、RPC、スキーマ、テストから完全物理削除されます。
+  後方互換性としての HTTP 410 は実装せず、Router から完全に撤去することで Platform Generic 404 を返し、Security 上の攻撃面をゼロにします。
+
+
 ### 既存データベースに対するマイグレーション適用順序（Migration Execution Order）
 既存の `user_devices` データに制約違反を起こさず安全に移行するため、以下の順序で DDL/DML を実行します：
 1. **Add Columns**: `device_status`, `pending_expires_at`, `verified_at`, `revoked_at`, `revoked_reason`, `last_notary_time` の列を `user_devices` に追加する（この時点では CHECK 制約を入れない）。
@@ -966,3 +979,133 @@ COMMIT;
 6. **Forbidden Caller (禁止経路)**: 旧経路など、実行してはならない経路
 7. **Migration Action (移行措置)**: 既存データ・旧経路に対するマイグレーション（旧Token失効、旧関数DROP等）
 8. **Test Case (テスト)**: 実装を自動証明するテスト名
+
+
+## Identity State Machine と Transition 厳密定義
+
+以下は、システムの唯一の Source of Truth となる Identity State Machine です。
+
+1. **UNCLAIMED**
+   - **証明済み**: OAuth ログイン済みのユーザーであることのみ。
+   - **DB状態**: `auth.users` にのみ存在。`user_devices` には存在しない。
+   - **未確定**: `member_id`、Game Account との繋がり。
+   - **次遷移**: `TLSN_PROOF_VERIFIED` (Challenge 取得等を通じて)。
+   - **戻る遷移**: なし。
+   - **禁止遷移**: `GAME_IDENTITY_VERIFIED` への直接ジャンプ。
+
+2. **TLSN_PROOF_VERIFIED**
+   - **証明済み**: 指定の `member_id` に対する TLSNotary Proof が暗号学的に正しいこと。
+   - **DB状態**: FUSOU-WEB のメモリ上でのみ検証成功、DB 上では未コミット（`public_id` 未確定または PENDING 発行前）。
+   - **未確定**: デバイスの署名（Claim）、および他者による排他的所有権の有無。
+   - **次遷移**: PENDING Device 登録を経て `GAME_IDENTITY_VERIFIED` (Claim API 経由)。
+   - **戻る遷移**: `UNCLAIMED` (Proof 期限切れ・破棄)。
+   - **禁止遷移**: この状態で `dataset_token` を発行すること。
+
+3. **GAME_IDENTITY_VERIFIED** (Device Bound)
+   - **証明済み**: Proof が正しく、かつ PENDING デバイスの秘密鍵による Ed25519 署名が提出・検証され、そのデバイスが正式に Game Identity (`public_id`) と結びついたこと。
+   - **DB状態**: `user_devices.device_status = 'VERIFIED'`。`member_identity_claims` に記録完了。`member_ownership` に `primary_device_id` として登録。
+   - **未確定**: Social Account（Web ユーザー）との永続的な所有権結びつけ。
+   - **次遷移**: `SOCIAL_ACCOUNT_BOUND`。
+   - **戻る遷移**: `UNCLAIMED` (Device Revoke)。
+   - **禁止遷移**: 他の `public_id` への付け替え。
+
+4. **SOCIAL_ACCOUNT_BOUND**
+   - **証明済み**: `GAME_IDENTITY_VERIFIED` なデバイスを持つユーザーが、明示的に Web Application 側で Social Binding 操作を完了したこと。
+   - **DB状態**: `user_member_map` および `web_user_member_map` に登録完了（Quad Invariant 成立）。
+   - **未確定**: なし。
+   - **次遷移**: `DATASET_TOKEN_ISSUED`。
+   - **戻る遷移**: `GAME_IDENTITY_VERIFIED` (Social Unbind された場合)。
+   - **禁止遷移**: 異なる Social User への勝手な移転（明示的 Transfer API が必要）。
+
+5. **DATASET_TOKEN_ISSUED**
+   - **証明済み**: 上記すべての状態を満たすアクティブなセッションに対して JWT が発行されたこと。
+   - **DB状態**: 状態自体は DB ではなく、クライアントが有効な JWT (`credential_version=1`) を保持。DB 上の Device や Social Binding が剥奪されれば実質無効（Live Lookup）。
+   - **次遷移**: JWT 期限切れによる再取得。
+   - **戻る遷移**: DB 側の状態剥奪による JWT 失効。
+   - **禁止遷移**: Legacy Token からのリフレッシュ昇格。
+
+※ レガシー状態 `PRE_REGISTERED` はランタイム State Machine から**完全消滅**しています。履歴用の Historical Marker として `TAKEOVER_FROM_LEGACY` を Audit Log (`member_identity_claims.claim_type`) に残すのみです。
+
+
+## Challenge Lifecycle と DB 処理順序
+
+- **Challenge Lifecycle と DB 処理順序**
+  1. `claim_challenges` テーブルにおいて、`challenge_status TEXT CHECK (challenge_status IN ('ACTIVE', 'CONSUMED', 'EXPIRED'))` を設ける。
+  2. `CREATE UNIQUE INDEX uq_active_claim_challenge_attestation ON public.claim_challenges (tlsn_attestation_id) WHERE challenge_status = 'ACTIVE';` により、「同一Attestationから同時にACTIVEなChallengeは最大1個」を保証。
+  3. **Challenge 取得 Transaction の厳密な処理順序**:
+     a. 対象 Attestation ID に関して行ロックを取得（または Advisory Lock）。
+     b. 既存の ACTIVE Challenge のうち `expires_at <= NOW()` となったものを `challenge_status = 'EXPIRED'` に UPDATE。
+     c. ACTIVE な Challenge がまだ残っているか SELECT して確認。
+     d. 残っていればそれを返す（またはエラー）。無ければ新しい Challenge を INSERT して `ACTIVE` として返す。
+  ※ このトランザクション順序により、Cron が停止していても Security Invariant（ACTIVEは最大1個）は絶対に壊れません。
+
+
+## Range Schema と検証 (完全定義)
+
+- **Range Schema と検証 (完全定義)**
+  TLSNotary から提出される Revealed Spans の各 Range オブジェクトは、以下の厳密な Schema を満たす必要があります。
+  - `start`: uint64
+  - `length`: uint64
+  - `direction`: "sent" | "received" のいずれか完全一致
+  - `bytes`: base64url strict (paddingなし)
+  **Verifier 検証要件**:
+  - `start >= 0` かつ `length > 0`
+  - `start + length` 演算時における uint64 オーバーフローのチェック (Rust `checked_add` 必須)
+  - `decoded(bytes).length == length` であること
+  - Range end が TLS Application Plaintext Transcript size 以下であること（HTTP Body Offset や Decompressed Body Offset と混在させてはならない）
+  - 同一 direction 内での Overlap は厳格に禁止
+  - Array の並び順 (Order deterministic): `start` の昇順であることを強制
+
+
+## Parser の完全決定論的挙動
+
+- **require_info 解析器の完全決定論的挙動**
+  FUSOU-WEB の Application Verifier は `JSON.parse()`, 正規表現検索, 部分文字列検索を**一切使用しません**。
+  Strict Lossless JSON Tokenizer によって、`root -> api_result` と `root -> api_data -> api_basic -> api_member_id` の JSON Pointer を構造的に直接トラバースします。
+  以下の異常な JSON 表現は Parser レベルで即座に Reject します：
+  - Duplicate key (重複キー)
+  - Unicode escape (`1` 等)
+  - Exponent (指数表記 `1e4`), Negative (負数), Decimal (小数点)
+  - Invalid UTF-8
+  `api_member_id` の Wire Type は、Phase 0 実測により String か Number のいずれか**1つに固定**（現行仕様では JSON Number に固定）し、それ以外の型表現は許容しません。
+  `root.api_result` も同様に、ルートオブジェクト直下に1回のみ出現する JSON Number の `1` であることを構造的に検証します。
+
+
+## DB 権限と Security Root の保護
+
+- **DB 権限と Security Root の保護**
+  - **Security Root**: `member_id_mapping`, `member_identity_claims`, `member_ownership`, `user_devices`
+  - **Projection**: `user_member_map`, `web_user_member_map`
+  Projection は Security Root からいつでも Rebuild 可能な手続きを用意します。
+  **権限 (Defense in Depth)**:
+  - `member_id_mapping`: `api_member_id` と `public_id` は Immutable。`REVOKE UPDATE, DELETE ON public.member_id_mapping FROM PUBLIC, authenticated, anon, service_role;` により変更を DB 権限レベルで禁止。
+  - `member_identity_claims`: Audit History として Insert-Only。`REVOKE UPDATE, DELETE ON public.member_identity_claims FROM PUBLIC, authenticated, anon, service_role;`
+  - `claim_verified_device_v3`: `REVOKE EXECUTE ON FUNCTION public.claim_verified_device_v3 FROM PUBLIC; GRANT EXECUTE TO service_role;` を適用。
+
+
+## Fallback Security と Integration Test
+
+- **Fallback Security と Integration Test (Exactly 1 upstream request)**
+  MPC-TLS 失敗時の Normal TLS への Fallback は、**Game Server へ Application Request が 1 byte でも送信される前**の場合のみ許可され、`DATASET_TOKEN_NOT_ISSUED` として Gameplay のみを継続します。
+  送信後に失敗した場合は Fallback および再送を厳格に禁止します。Fallback で得られた `member_id` を Identity として信用することは絶対にありません。
+  これを担保するため、Mock ではなく実際の Proxy を通した Integration Test にて「Intercept された 1 つの論理リクエストに対して、Game Server が観測する Upstream Request が Exactly 1 であること」を実測検証します（0=Failure, 1=Correct, 2+=Protocol Violation）。
+
+
+## PENDING Device Race Condition 排除
+
+- **PENDING Device 5台制限の Race Condition 排除**
+  単なる `SELECT COUNT(*) -> INSERT` では競合するため、`canonical_user_id` と `public_id` に基づく Advisory Lock を取得したトランザクション内部で `COUNT` と `INSERT` をアトミックに実行し、`per-user <= 5` および `per-public_id <= 5` を完全に保証します。
+
+
+## 最終監査トレーサビリティ・マトリクス
+
+| Security Property       | Source of Truth                  | Enforcement     | Code Location | DB Enforcement           | Test              |
+| ----------------------- | -------------------------------- | --------------- | ------------- | ------------------------ | ----------------- |
+| member_id authenticity  | TLSNotary MPC-TLS                | Verifier Result | FUSOU-WEB API | N/A                      | `test_tlsnotary_proof_validity` |
+| public_id uniqueness    | member_id_mapping                | DB Constraint   | Supabase      | UNIQUE, Immutable        | `test_public_id_immutable` |
+| Device binding          | ClaimBindingBytes Ed25519 Sig    | FUSOU-WEB API   | FUSOU-WEB API | FK to `user_devices`     | `test_claim_binding_signature` |
+| Attestation anti-reuse  | member_identity_claims           | DB Constraint   | Supabase      | UNIQUE (tlsn_attestation_id)| `test_duplicate_attestation_claim_rejected` |
+| Challenge single-active | claim_challenges                 | DB Transaction  | Supabase      | UNIQUE partial-by-status | `test_single_active_challenge` |
+| Telemetry attribution   | Dataset Token + Device Signature | FUSOU-WEB API   | FUSOU-WEB API | JWT validation, DB live lookup | `test_telemetry_attribution_dataset` |
+| No re-submission        | Proxy state machine              | FUSOU-PROXY     | Proxy Core    | N/A                      | integration `exactly_one_upstream` |
+| Legacy path absence     | call graph / router              | CI Static Check | Router        | N/A                      | grep 404 / AST check |
