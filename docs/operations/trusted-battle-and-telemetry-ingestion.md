@@ -481,6 +481,13 @@ PENDING Device の紐付け先を一意に決定するため、Verifier Result �
 1. **Step 1 (API 受領 & 厳格な検証順序)**: クライアントから `POST /identity/challenge` により `verifier_result` と `device_public_key` を受領。FUSOU-WEB は以下の順序を絶対に守って検証します：
    1. OAuth Session authentication
    2. Verifier Result signature verification (不正なら即拒否。**署名検証前に member_id を Security Decision に用いることは絶対禁止**)
+   
+※ **Verifier Result Wire Protocol (厳格仕様)**
+Client から FUSOU-WEB への提出ペイロードにおける `verifier_result` は、以下の Canonical JSON フォーマットを強制します（一切のフォーマット揺れや未定義フィールドを許容しません）：
+- **Field Order**: `version`, `issuer`, `key_id`, `tlsn_attestation_id`, `server_identity`, `revealed_request_spans`, `revealed_response_spans`, `created_at`, `signature` の完全一致順序。
+- **Field Type**: `version` (Number), `issuer` (String), `key_id` (String), `tlsn_attestation_id` (String: base64url strict, padding なし), `server_identity` (String: Hostname 完全一致), `revealed_request_spans`/`response_spans` (Array of byte-spans), `created_at` (Number: NumericDate 秒), `signature` (String: base64url strict, padding なし)。
+- **Signature Excludes**: 署名計算対象（Canonical Binary Serialization）から `signature` フィールド自体は除外。
+- **Range Constraints**: Range start >= 0, length > 0, Overlap禁止。
    3. issuer / key_id / version validation
    4. TLSNotary proof validity validation
    5. server identity validation
@@ -490,7 +497,7 @@ PENDING Device の紐付け先を一意に決定するため、Verifier Result �
 3. **Step 3 (Public ID 確定)**: `public.member_id_mapping` に対する atomic get-or-create を実行し、`public_id` を確定。
 ※ `member_ownership` テーブルは `GAME_IDENTITY_VERIFIED` 状態（デバイス署名検証完了後）でのみレコードが作成されるため、`primary_device_id UUID NOT NULL` 制約は状態機械と完全に整合します。
 4. **Step 4 (PENDING Device 独立登録)**: FUSOU-WEB は独立した別トランザクションとして、サーバーが生成した `device_id` と OAuth の `authenticated_user` を紐付け `device_status = 'PENDING'` (24h TTL) で `user_devices` へ INSERT します。※この時点でサーバーは `public_id` を知っているため、DB上で `authenticated_user ↓ PENDING Device ↓ public_id` の束縛を安全に確立します。**PENDING Device DoS対策として、per-user および per-public_id で同時に存在できる未検証デバイス数をそれぞれ最大 5 台に制限し、Cron ジョブは `pending_expires_at < NOW()` を基準とし、超過分は論理無効化（`revoked_at = NOW()` / `revoked_reason = 'expired_pending'`）し、`device_id` の UUID 再利用防止（Never Reuse）を DB 履歴として永続保証します。**
-5. **Step 5 (Server Challenge 発行)**: 登録した PENDING デバイスに対して `public.claim_challenges` (5分 TTL) を発行し、クライアントへ Response Body を返却。※発行前に `member_identity_claims` 等を確認し同一 `tlsn_attestation_id` からは1つのChallengeしか発行できないよう、DB上で `UNIQUE(attestation_id)` 制約により別デバイスへの流用等も含めて物理拒絶します。
+5. **Step 5 (Server Challenge 発行)**: 登録した PENDING デバイスに対して `public.claim_challenges` (5分 TTL) を発行し、クライアントへ Response Body を返却。※発行前に `member_identity_claims` 等を確認し同一 `tlsn_attestation_id` からは1つのChallengeしか発行できないよう、DB上で `UNIQUE(tlsn_attestation_id) WHERE consumed_at IS NULL AND expires_at > NOW()` 制約により別デバイスへの流用等も含めて物理拒絶します（同時有効なChallengeを最大1個に制限するものであり、期限切れ後の再発行による復旧は妨げません）。
 6. **Step 6 (ClaimBindingBytes 構築 & 署名)**: 端末が `(domain, purpose, attestation_id, verified_member_id, device_id, expected_public_id, challenge_id, challenge_nonce)` から `ClaimBindingBytes` を構築し、端末秘密鍵で Ed25519 署名。※`public_key` は署名対象に含めず、サーバー側で `user_devices` から取得する。
 7. **Step 7 (Claim 提出 & 署名検証)**: クライアントは `{ "challenge_id", "signature" }` のみを FUSOU-WEB へ提出（攻撃面を最小化するため Client から public_id 等は受け付けない）。FUSOU-WEB は DB から関連 ID (`expected_public_id` 含む) を復元し `verifyEd25519ClaimBinding(pubkey, bytes, sig)` で raw byte 署名を検証。
 ※ Claim の重複ルール: `same attestation` + `same device` + `same public_id` + `same canonical user` の再 Claim は idempotent success (早期 return) とする。一方、それ以外の異なるデバイス等への流用は `DUPLICATE_ATTESTATION_CLAIMED` として厳格に reject する。
@@ -527,11 +534,12 @@ PENDING Device の紐付け先を一意に決定するため、Verifier Result �
   ```json
   {
     "iss": "fusou-identity",
-    "sub": "<device_id>",
     "aud": "fusou-upload",
+    "kid": "fusou-jwt-key-2026-01",
+    "sub": "<device_id>",
+    "dataset_id": "<public_id>",
     "typ": "dataset",
     "credential_version": 1,
-    "dataset_id": "<public_id>",
     "iat": 1720000000,
     "exp": 1720086400
   }
@@ -649,7 +657,7 @@ CREATE TABLE IF NOT EXISTS public.claim_challenges (
     challenge_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     public_id UUID NOT NULL REFERENCES public.member_id_mapping(public_id) ON DELETE RESTRICT,
     device_id UUID NOT NULL REFERENCES public.user_devices(device_id) ON DELETE RESTRICT,
-    attestation_id BYTEA NOT NULL UNIQUE,
+    tlsn_attestation_id BYTEA NOT NULL,
     challenge_nonce BYTEA NOT NULL,
     expires_at TIMESTAMPTZ NOT NULL,
     consumed_at TIMESTAMPTZ,
@@ -659,6 +667,12 @@ CREATE TABLE IF NOT EXISTS public.claim_challenges (
 CREATE INDEX IF NOT EXISTS idx_claim_challenges_active 
     ON public.claim_challenges (challenge_id, expires_at) 
     WHERE consumed_at IS NULL;
+
+
+-- 同時に有効な Challenge は 1 つまでとする制約 (期限切れ後は再発行可能)
+CREATE UNIQUE INDEX uq_active_claim_challenge_attestation 
+ON public.claim_challenges (tlsn_attestation_id) 
+WHERE consumed_at IS NULL AND expires_at > NOW();
 
 ALTER TABLE public.claim_challenges ENABLE ROW LEVEL SECURITY;
 
@@ -749,7 +763,7 @@ COMMIT;
 1. **既存 Dataset Token の一括失効**:
    移行開始時、旧自己申告経路で発行されたすべての Dataset Token を無効化（`user_devices.device_status = 'PENDING'` へのリセット）。
 2. **既存自己申告 Device の扱い**:
-   旧 Device 登録は未検証状態（`identity_verified = FALSE`）となり、新システムでの `require_info` TLSNotary Claim を完了して初めて `device_status = 'VERIFIED'` に昇格し新 Dataset Token が発行されます。
+   旧 Device 登録は一律無効化（`device_status = 'REVOKED'`）され、新システムでの `require_info` TLSNotary Claim を完了して初めて `device_status = 'VERIFIED'` に昇格し新 Dataset Token が発行されます。
 3. **旧テーブル・RPC の無効化**:
    `pending_member_syncs` は削除。`rpc_register_public_id` は完全に DROP。
 
@@ -866,7 +880,7 @@ COMMIT;
 | 5 | Stream Manipulation (すり替え) | Single Stream Fork | `fusou-proxy-tlsn` | - | Proxy内部ストリーム | 分割・遅延された別リクエスト | - | `test_single_stream_fork_consistency` |
 | 6 | Audit Trail Tampering | Append-Only 強制 | `member_identity_claims` | `ON DELETE RESTRICT` & Trigger | `claim_verified_device_v3` のみ | admin, cron, CASCADE DELETE | `member_id_mapping` 削除禁止維持 | `test_audit_trail_update_rejected` |
 | 7 | Legacy Token Bypass | 旧トークンの更新遮断 | Token Refresh Endpoint | - | Triple Verified User のみ | 旧 legacy token | JWT 検証側で `credential_version: 1` 必須化（device_status 依存だけでなく Token schema レベルで拒絶） | `test_legacy_token_refresh_rejected` |
-| 8 | Legacy Device Bypass | 旧デバイスの無効化 | Device Verify Status | - | 新 TLSNotary Proof のみ | 旧 `device_status='VERIFIED'` の無条件継承 | 旧 Device `device_status='PENDING'` へ降格 | `test_legacy_device_unverified_fallback` |
+| 8 | Legacy Device Bypass | 旧デバイスの無効化 | Device Verify Status | - | 新 TLSNotary Proof のみ | 旧 `device_status='VERIFIED'` の無条件継承 | 旧 Device `device_status='REVOKED'` へ一律無効化 (migration_reason = 'legacy_security_model') | `test_legacy_device_unverified_fallback` |
 | 9 | Cryptographic Parameter Drift | Wire Serialization 完全固定 | `ClaimBinding`, `TelemetrySignDoc` | - | UUID (16-byte binary), `member_id` (ASCII utf-8) | `verifyDeviceSig(string)`, 単純concat | `GAME_ACCOUNT_IDENTITY_V1` 24 byte 固定 | `test_claim_binding_byte_length_24` |
 | 10 | Cryptographic Cross-Reuse | Domain Tag の分離 | `TelemetrySignDoc` | - | `FUSOU-TELEMETRY-SIGN-V1` (length-delimited) | `FUSOU-IDENTITY-CLAIM-V1` (流用禁止) | Telemetry も length-delimited 化 | `test_telemetry_domain_tag_isolation` |
 | 11 | JSON Wire Forgery | Lossless JSON Parser | FUSOU-WEB Parser | - | 完全構造一致 `/api_data/api_basic/api_member_id` | `JSON.parse` のNumber変換, Regex検索 | v1 wire (JSON Number vs String) の確定 | `test_lossless_json_pointer_extraction` |
