@@ -453,8 +453,8 @@ PENDING Device の紐付け先を一意に決定するため、Verifier Result �
     "server_identity": "...",
     "revealed_request_spans": [...],
     "revealed_response_spans": [...],
-    "notary_time": "...",
-    "created_at": "...",
+    "notary_time": 1724932800,
+    "created_at": 1724932805,
     "signature": "..."
   },
   "device_public_key": "<base64url>"
@@ -1001,6 +1001,8 @@ COMMIT;
 | 36 | Telemetry Nonce DB Schema | DB Schema | `telemetry_nonces` | `PRIMARY KEY(device_id, nonce)` | `device_id` と `nonce` の複合 PK による厳格な単一消費 | 複合PKを持たない設計 | - | `test_telemetry_nonce_composite_pk` |
 | 37 | Telemetry SignDoc Framing | SignDoc Encoding | `TelemetrySignDoc` | - | Length-delimited binary framing のみ許可 | 単純 string concatenation | - | `test_telemetry_signdoc_length_delimited` |
 | 38 | Telemetry Domain Separation | SignDoc Context | `TelemetrySignDoc` | - | `FUSOU-TELEMETRY-V1` などの明示的な Domain Context 必須 | - | - | `test_telemetry_domain_separation_enforced` |
+| 39 | Concurrent Revoke Race | Cross-user Takeover | `fn_identity_lock_key` | - | ClaimとRevokeの同列トランザクションロック | - | - | `test_concurrent_claim_revoke_race` |
+| 40 | Projection Drift | Privilege Escalation | Projection Logic | - | Security Root から Projection を安全に再構築 | - | - | `test_projection_drift_rebuild` |
 | 30 | MPC Failure Gameplay Block | Availability Loss | MPC Proxy | - | MPC失敗時は normal TLS fallback に切り替えゲーム影響ゼロ | 送信後のMPC失敗時にゲーム通信まで失敗 | - | `test_mpc_failure_graceful_fallback` |
 | 31 | DB Failure Replay | Gameplay Re-submission | MPC Proxy | - | DB書込失敗時でもブラウザへ送信済みなら再送しない | ブラウザ要求をゲームサーバーへ再送 | - | `test_db_failure_no_gameplay_replay` |
 | 32 | Queue Unbound Retry | Resource Exhaustion | Background Jobs | - | invalid proof 等の non-retryable error は即時破棄 | 永久再試行 (Infinite Retries) | - | `test_queue_non_retryable_error_discard` |

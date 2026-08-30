@@ -583,6 +583,16 @@ BEGIN;
 -- ==============================================================================
 -- ※ `claim_verified_device_v3` と Challenge 発行 RPC の両方でこの単一の実装を呼び出します。
 -- ※ この関数を呼び出す前に、必ず `fn_identity_lock_key(p_api_member_id)` に基づく Advisory Lock が取得されている必要があります。
+
+-- 【get_or_create_public_id Contract 完全定義】
+-- 1. SECURITY DEFINER で実行される。
+-- 2. 必ず caller (issuer/claim) transaction 内部で実行される。
+-- 3. 実行前に必ず fn_identity_lock_key(p_api_member_id) による Identity Advisory Lock が取得されていること。
+-- 4. public.member_id_mapping の Parent Row を必ず FOR UPDATE でロックする。
+-- 5. 同じ api_member_id なら既存の public_id を必ず返し、public_id は絶対に変更しない。
+-- 6. Client (PUBLIC, anon, authenticated) からは直接呼び出せない (REVOKE EXECUTE)。
+-- 7. 既存行に対する不要な直接 UPDATE (DO UPDATE SET...) は行わず、ON CONFLICT DO NOTHING と SELECT を使用する。
+
 CREATE OR REPLACE FUNCTION public.get_or_create_public_id(p_api_member_id BIGINT)
 RETURNS UUID
 LANGUAGE plpgsql
@@ -606,6 +616,9 @@ BEGIN
   RETURN v_public_id;
 END;
 $$;
+-- Security Invariant: Client からの直接実行禁止
+REVOKE EXECUTE ON FUNCTION public.get_or_create_public_id(BIGINT) FROM PUBLIC, anon, authenticated;
+
 
 CREATE OR REPLACE FUNCTION public.fn_identity_lock_key(p_api_member_id BIGINT) RETURNS BIGINT AS $$
 BEGIN
@@ -677,6 +690,11 @@ CREATE TABLE IF NOT EXISTS public.member_ownership (
 );
 
 -- 5. member_identity_claims ベーステーブル
+
+-- member_identity_claims への直接操作の完全禁止 (Append-only 強制)
+REVOKE INSERT, UPDATE, DELETE ON public.member_identity_claims FROM PUBLIC, authenticated, anon, service_role;
+-- ※ 実際の書き込み経路は Security Definer を持つ claim_verified_device_v3 関数内部のみに厳格に限定されます。
+
 CREATE TABLE IF NOT EXISTS public.member_identity_claims (
     claim_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     public_id UUID NOT NULL REFERENCES public.member_id_mapping(public_id) ON DELETE RESTRICT,
@@ -758,7 +776,7 @@ BEGIN
   IF EXISTS (
     SELECT 1 FROM public.member_ownership m
     JOIN public.user_devices u ON m.primary_device_id = u.device_id
-    WHERE u.public_id IS NULL
+    WHERE u.public_id IS NULL OR u.device_public_key IS NULL
   ) THEN
     RAISE EXCEPTION 'PREFLIGHT FAILED: Cannot safely delete legacy devices because member_ownership depends on them';
   END IF;
@@ -766,7 +784,7 @@ BEGIN
   IF EXISTS (
     SELECT 1 FROM public.member_identity_claims c
     JOIN public.user_devices u ON c.verified_device_id = u.device_id
-    WHERE u.public_id IS NULL
+    WHERE u.public_id IS NULL OR u.device_public_key IS NULL
   ) THEN
     RAISE EXCEPTION 'PREFLIGHT FAILED: Cannot safely delete legacy devices because member_identity_claims depends on them';
   END IF;
@@ -815,6 +833,9 @@ BEGIN
   END IF;
 
 END $$;
+-- Security Invariant: Client からの直接実行禁止
+REVOKE EXECUTE ON FUNCTION public.get_or_create_public_id(BIGINT) FROM PUBLIC, anon, authenticated;
+
 -- ==============================================================================
 
 -- 1. レガシーデバイスのパージ: public_id が特定できない完全に追跡不能なレガシーデバイスは物理削除する
@@ -826,11 +847,13 @@ DELETE FROM public.user_devices WHERE public_id IS NULL;
 UPDATE public.user_devices SET device_status = 'REVOKED', revoked_at = NOW(), revoked_reason = 'legacy_migration' WHERE device_status IS NULL;
 
 
--- 2.5 既存デバイスの device_public_key の Backfill (NOT NULL 化のため)
--- ※ レガシーデバイスで device_public_key が NULL の場合、32 bytes のランダム値で埋めて UNIQUE 制約と NOT NULL 制約を通過させます（これらのデバイスは既に REVOKED 化されています）。
-UPDATE public.user_devices 
-SET device_public_key = decode(replace(gen_random_uuid()::text, '-', '') || replace(gen_random_uuid()::text, '-', ''), 'hex') 
-WHERE device_public_key IS NULL;
+
+-- 2.5 既存デバイスの物理削除 (Legacy Device Purge)
+-- ※ public_id または device_public_key が存在しないレガシーデバイスは、架空の鍵を割り当てることなく物理的に完全削除します。
+-- ※ 削除対象の device_id は 'never intentionally reused' として扱われ、Security Model と一貫性を保ちます。
+-- ※ Preflight check により、これらのデバイスが member_ownership や member_identity_claims に依存されていないことが既に保証されています。
+DELETE FROM public.user_devices WHERE public_id IS NULL OR device_public_key IS NULL;
+
 
 -- 3. 旧 CHECK 制約の削除 (存在する場合のみ) と旧 claim_type のデータ修正
 -- ※ 旧 CHECK がかかったまま UPDATE すると失敗するため、先に DROP
@@ -888,6 +911,15 @@ ALTER TABLE public.member_identity_claims DROP CONSTRAINT IF EXISTS member_ident
 ALTER TABLE public.member_identity_claims ADD CONSTRAINT member_identity_claims_composite_fkey FOREIGN KEY (verified_device_id, public_id) REFERENCES public.user_devices(device_id, public_id) ON DELETE RESTRICT;
 
 ALTER TABLE public.member_identity_claims DROP CONSTRAINT IF EXISTS member_identity_claims_canonical_composite_fkey;
+
+-- 4. 射影テーブル (Projection) の UNIQUE 制約明示
+-- ※ Claim トランザクション内での ON CONFLICT (public_id) DO UPDATE を安全に機能させるため、必ず付与・確認します。
+ALTER TABLE public.user_member_map DROP CONSTRAINT IF EXISTS uq_user_member_map_public_id;
+ALTER TABLE public.user_member_map ADD CONSTRAINT uq_user_member_map_public_id UNIQUE (public_id);
+
+ALTER TABLE public.web_user_member_map DROP CONSTRAINT IF EXISTS uq_web_user_member_map_public_id;
+ALTER TABLE public.web_user_member_map ADD CONSTRAINT uq_web_user_member_map_public_id UNIQUE (public_id);
+
 ALTER TABLE public.member_identity_claims ADD CONSTRAINT member_identity_claims_canonical_composite_fkey FOREIGN KEY (verified_device_id, canonical_user_id) REFERENCES public.user_devices(device_id, canonical_user_id) ON DELETE RESTRICT;
 
 COMMIT;
@@ -905,7 +937,7 @@ BEGIN
   SET challenge_status = 'CONSUMED', consumed_at = NOW()
   WHERE challenge_id = p_challenge_id AND challenge_status = 'ACTIVE';
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 REVOKE EXECUTE ON FUNCTION public.consume_invalid_challenge(UUID) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.consume_invalid_challenge(UUID) TO service_role;
 
@@ -914,7 +946,11 @@ GRANT EXECUTE ON FUNCTION public.consume_invalid_challenge(UUID) TO service_role
 -- ※ RPC 自身は署名を検証しません（claim_verified_device_v3 is not a public authorization primitive）。
 CREATE OR REPLACE FUNCTION public.claim_verified_device_v3(
   p_challenge_id UUID
-) RETURNS jsonb AS $$
+) RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
 DECLARE
   v_challenge RECORD;
   v_api_member_id BIGINT;
@@ -1060,7 +1096,7 @@ BEGIN
 
   RETURN jsonb_build_object('status', 'success', 'public_id', v_challenge.public_id);
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 REVOKE EXECUTE ON FUNCTION public.claim_verified_device_v3(UUID) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.claim_verified_device_v3(UUID) TO service_role;
 
