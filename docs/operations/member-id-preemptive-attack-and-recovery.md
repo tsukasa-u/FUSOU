@@ -45,7 +45,7 @@
 > 10. **所有状態（`member_ownership`）と通常のアプリケーション経路で変更禁止な監査履歴（`member_identity_claims`）の分離**:  
 >     現在の検証済み所有者レコードと、将来の監査検証用情報（`notary_time`, `notary_key_id`, `proof_purpose`, `tlsn_request_range`, `tlsn_response_range`）を含む Append-Only 監査証跡ログをテーブル分離する。  
 > 11. **Quad Invariant の段階的成立 & Social User Binding**:  
->     `GAME_IDENTITY_VERIFIED` 時点で Triple Invariant を満たし、OAuth 認証ユーザーによる明示的なバインディング操作（`SOCIAL_ACCOUNT_BOUND`）完了後に $\text{user\_devices.canonical\_user\_id} \equiv \text{user\_member\_map.user\_id} \equiv \text{<OAuth authenticated user>}$ の Quad Invariant を厳格に保持する。  
+>     `GAME_IDENTITY_VERIFIED` 時点で Triple Invariant を満たし、OAuth 認証ユーザーによる明示的なバインディング操作（`SOCIAL_ACCOUNT_BOUND`）完了後に $\text{member\_ownership.social\_user\_id} \equiv \text{user\_devices.canonical\_user\_id} \equiv \text{user\_member\_map.user\_id} \equiv \text{web\_user\_member\_map.user\_id}$ の Quad Invariant を厳格に保持する。  
 > 12. **RPC 前提条件の明確化（Security Boundary）**:  
 >     ストアドプロシージャ `claim_verified_device_v3` は、呼び出し元 FUSOU-WEB が TLSNotary Proof および `ClaimBindingBytes` 署名を完全検証済みであることを前提とし、未検証データの書き込みを遮断する。  
 > 13. **Dataset Token の後発行（Triple Verified Issuance）**:  
@@ -235,7 +235,7 @@ public_id = UUIDv4 (Random UUID: Dataset U1)
    - ただし、この時点ではまだ Social Account (外部OAuthなど) とは結びついておらず、`web_user_member_map.social_user_id` は `NULL` です（Device Verified ≠ Social Account Bound）。
 2. **`SOCIAL_ACCOUNT_BOUND`（OAuth 明示的バインディング完了）以降**:
    - `web_user_member_map` に OAuth の `social_user_id` が格納され、Token 発行が可能になります。
-   $$\text{canonical\_user\_id} \equiv \text{user\_member\_map.user\_id} \equiv \text{web\_user\_member\_map.user\_id} \quad (\text{Quad Invariant 成立})$$
+   $$\text{user\_devices.canonical\_user\_id} \equiv \text{user\_member\_map.user\_id} \equiv \text{<OAuth authenticated user>} \quad (\text{Triple Invariant 成立})$$
 
 ---
 
@@ -381,11 +381,24 @@ PENDING Device の紐付け先を一意に決定するため、Verifier Result �
    2. Verifier Result signature verification (不正なら即拒否。**署名検証前に member_id を Security Decision に用いることは絶対禁止**)
    
 ※ **Verifier Result Wire Protocol (厳格仕様)**
-Client から FUSOU-WEB への提出ペイロードにおける `verifier_result` は、以下の Canonical JSON フォーマットを強制します（一切のフォーマット揺れや未定義フィールドを許容しません）：
-- **Field Order**: `version`, `issuer`, `key_id`, `tlsn_attestation_id`, `server_identity`, `revealed_request_spans`, `revealed_response_spans`, `created_at`, `signature` の完全一致順序。
-- **Field Type**: `version` (Number), `issuer` (String), `key_id` (String), `tlsn_attestation_id` (String: base64url strict, padding なし), `server_identity` (String: Hostname 完全一致), `revealed_request_spans`/`response_spans` (Array of byte-spans), `created_at` (Number: NumericDate 秒), `signature` (String: base64url strict, padding なし)。
-- **Signature Excludes**: 署名計算対象（Canonical Binary Serialization）から `signature` フィールド自体は除外。
-- **Range Constraints**: Range start >= 0, length > 0, Overlap禁止。
+Client から FUSOU-WEB への提出ペイロードにおける `verifier_result` は、以下の 2 層構造の仕様を強制します。
+
+1. **Transport Representation: Canonical JSON**
+   通信上の JSON は以下の順序・型を強制し、一切のフォーマット揺れや未定義フィールドを許容しません（重複キー、Unicode エスケープ、指数表記等も全てパーサーレベルで拒絶）。
+   - **Field Order**: `version`, `issuer`, `key_id`, `tlsn_attestation_id`, `server_identity`, `revealed_request_spans`, `revealed_response_spans`, `created_at`, `signature`
+   - **Field Type**:
+     - `version`: Number
+     - `issuer`: String
+     - `key_id`: String
+     - `tlsn_attestation_id`: String (base64url strict, padding なし)
+     - `server_identity`: String (TLS Application の Canonical Hostname) ※TLS Certificate verification は Verifier 側で別途証明されている前提
+     - `revealed_request_spans` / `revealed_response_spans`: Array of Object (start: uint64 checked_add 対策済み, length: uint32/uint64, direction: "sent" | "received", bytes: base64url strict)
+     - `created_at`: Number (Verifier Result 生成時刻の NumericDate 秒。notary_time とは別)
+     - `signature`: String (base64url strict, padding なし)
+   - **Range Constraints**: TLS application plaintext transcript offset を基準とし、start >= 0, length > 0, Overlap は禁止、Range bytes length との一致を Parser で検証。
+
+2. **Signature Representation: VerifierResultSignBytes (Canonical Binary Encoding)**
+   署名検証アルゴリズム (Ed25519) の入力には JSON 文字列そのものは使用しません。JSON をパース後、型付けされたフィールドを決定論的な Canonical Binary Encoding（例: length-delimited binary format）で直列化したものを署名対象とします。当然、`signature` フィールド自体は入力に含めません。
    3. issuer / key_id / version validation
    4. TLSNotary proof validity validation
    5. server identity validation
@@ -398,9 +411,17 @@ Client から FUSOU-WEB への提出ペイロードにおける `verifier_result
 5. **Step 5 (Server Challenge 発行)**: 登録した PENDING デバイスに対して `public.claim_challenges` (5分 TTL) を発行し、クライアントへ Response Body を返却。※発行前に `member_identity_claims` 等を確認し同一 `tlsn_attestation_id` からは1つのChallengeしか発行できないよう、DB上で `UNIQUE(tlsn_attestation_id) WHERE consumed_at IS NULL AND expires_at > NOW()` 制約により別デバイスへの流用等も含めて物理拒絶します（同時有効なChallengeを最大1個に制限するものであり、期限切れ後の再発行による復旧は妨げません）。
 6. **Step 6 (ClaimBindingBytes 構築 & 署名)**: 端末が `(domain, purpose, attestation_id, verified_member_id, device_id, expected_public_id, challenge_id, challenge_nonce)` から `ClaimBindingBytes` を構築し、端末秘密鍵で Ed25519 署名。※`public_key` は署名対象に含めず、サーバー側で `user_devices` から取得する。
 7. **Step 7 (Claim 提出 & 署名検証)**: クライアントは `{ "challenge_id", "signature" }` のみを FUSOU-WEB へ提出（攻撃面を最小化するため Client から public_id 等は受け付けない）。FUSOU-WEB は DB から関連 ID (`expected_public_id` 含む) を復元し `verifyEd25519ClaimBinding(pubkey, bytes, sig)` で raw byte 署名を検証。
-※ Claim の重複ルール: `same attestation` + `same device` + `same public_id` + `same canonical user` の再 Claim は idempotent success (早期 return) とする。一方、それ以外の異なるデバイス等への流用は `DUPLICATE_ATTESTATION_CLAIMED` として厳格に reject する。
+※ Claim の重複・Idempotency ルール:
+1. 先に `member_identity_claims` で既存 Claim を検索します。
+2. もし同一 Attestation が既に存在する場合：
+   - 同一 Device ID (同一 Identity) であれば、対象の Challenge が消費済・期限切れに関わらず Idempotent Success として既存の Claim 結果を早期 return します。
+   - 異なる Device 等への流用であれば `DUPLICATE_ATTESTATION_CLAIMED` として厳格に reject します。
+3. もし未 Claim（新規 Attestation）の場合：
+   - デバイスが PENDING で未期限切れの場合のみ normal claim を進行します。
+   - すでに VERIFIED のデバイスに新しい Attestation を適用しようとした場合は `ALREADY_VERIFIED` として reject します。
 8. **Step 8 (Atomic DB Commit)**: `claim_verified_device_v3` を実行しアトミックに検証・適用：
-   - Challenge 単一消費 (`consumed_at = NOW()`)
+   - Challenge 単一消費 (`challenge_status = 'CONSUMED',
+    consumed_at = NOW()`)
    - `UNIQUE(tlsn_attestation_id)` 検証 (再利用防止)
    - `authenticated_user == PENDING device.canonical_user_id` および `device.public_id == expected_public_id` の一致再検証
    - `member_identity_claims` への Audit Log 記録
@@ -409,7 +430,8 @@ Client から FUSOU-WEB への提出ペイロードにおける `verifier_result
 
 ### 9.2 DB トランザクション内部 10 ステップ (claim_verified_device_v3)
 1. **Advisory Lock 取得**: 64-bit キーによるトランザクション排他ロック（Claim / Revoke 共通ロックドメイン）。
-2. **Challenge & Attestation Reuse Check**: 排他ロック下での Challenge 単一消費（`UPDATE claim_challenges SET consumed_at = NOW()`）および `tlsn_attestation_id` 重複消費チェック。
+2. **Challenge & Attestation Reuse Check**: 排他ロック下での Challenge 単一消費（`UPDATE claim_challenges SET challenge_status = 'CONSUMED',
+    consumed_at = NOW()`）および `tlsn_attestation_id` 重複消費チェック。
 3. **Device Row Lock**: 対象 `user_devices` レコードの存在確認と `FOR UPDATE` ロック。
 4. **Public ID 登録/取得 (Atomic get-or-create)**: トランザクション内部で `public.member_id_mapping` から取得または INSERT（`UNIQUE(api_member_id)` により同一 `public_id` 取得保証）。
 5. **Parent Mapping Row Lock**: 親行 `member_id_mapping` に対する `FOR UPDATE` ロック。
@@ -508,21 +530,23 @@ CREATE TABLE IF NOT EXISTS public.claim_challenges (
     public_id UUID NOT NULL REFERENCES public.member_id_mapping(public_id) ON DELETE RESTRICT,
     device_id UUID NOT NULL REFERENCES public.user_devices(device_id) ON DELETE RESTRICT,
     tlsn_attestation_id BYTEA NOT NULL,
-    challenge_nonce BYTEA NOT NULL CHECK (octet_length(challenge_nonce) = 32),
+    challenge_nonce BYTEA NOT NULL,
+    challenge_status TEXT NOT NULL DEFAULT 'ACTIVE' CHECK (challenge_status IN ('ACTIVE', 'CONSUMED', 'EXPIRED')),
     expires_at TIMESTAMPTZ NOT NULL,
     consumed_at TIMESTAMPTZ,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CHECK (
+        (challenge_status = 'ACTIVE' AND consumed_at IS NULL) OR
+        (challenge_status = 'CONSUMED' AND consumed_at IS NOT NULL) OR
+        (challenge_status = 'EXPIRED' AND consumed_at IS NULL)
+    )
 );
 
-CREATE INDEX IF NOT EXISTS idx_claim_challenges_active 
-    ON public.claim_challenges (challenge_id, expires_at) 
-    WHERE consumed_at IS NULL;
-
-
 -- 同時に有効な Challenge は 1 つまでとする制約 (期限切れ後は再発行可能)
+-- NOW() のような mutable な関数は Partial Index に使えないため、challenge_status = 'ACTIVE' で一意性を担保します。
 CREATE UNIQUE INDEX uq_active_claim_challenge_attestation 
 ON public.claim_challenges (tlsn_attestation_id) 
-WHERE consumed_at IS NULL AND expires_at > NOW();
+WHERE challenge_status = 'ACTIVE';
 
 ALTER TABLE public.claim_challenges ENABLE ROW LEVEL SECURITY;
 
@@ -561,7 +585,7 @@ CREATE TABLE IF NOT EXISTS public.member_identity_claims (
     public_id UUID NOT NULL REFERENCES public.member_id_mapping(public_id) ON DELETE RESTRICT,
     canonical_user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE RESTRICT,
     verified_device_id UUID NOT NULL REFERENCES public.user_devices(device_id) ON DELETE RESTRICT,
-    tlsn_tlsn_attestation_id BYTEA NOT NULL,
+    tlsn_attestation_id BYTEA NOT NULL,
     request_range_start BIGINT NOT NULL,
     request_range_length BIGINT NOT NULL,
     request_range_direction TEXT NOT NULL CHECK (request_range_direction IN ('Sent', 'Received')),
@@ -709,7 +733,8 @@ BEGIN
 
   -- Step 4.1 Server Challenge の単一消費確認 (One-Time Consume)
   UPDATE public.claim_challenges
-  SET consumed_at = NOW()
+  SET challenge_status = 'CONSUMED',
+    consumed_at = NOW()
   WHERE challenge_id = p_challenge_id
     AND challenge_nonce = p_challenge_nonce
     AND tlsn_attestation_id = p_tlsn_attestation_id
@@ -863,6 +888,15 @@ COMMIT;
 3. **旧テーブル・RPC の無効化**:
    `pending_member_syncs` は削除。`rpc_register_public_id` は完全に DROP。
 
+### 既存データベースに対するマイグレーション適用順序（Migration Execution Order）
+既存の `user_devices` データに制約違反を起こさず安全に移行するため、以下の順序で DDL/DML を実行します：
+1. **Add Columns**: `device_status`, `pending_expires_at`, `verified_at`, `revoked_at`, `revoked_reason`, `last_notary_time` の列を `user_devices` に追加する（この時点では CHECK 制約を入れない）。
+2. **Backfill Existing Rows**: 既存の `device_status = 'PENDING'` 行に対し `pending_expires_at` などを populate する。
+3. **Normalize Legacy Devices**: 古い自己申告 Device を `device_status = 'REVOKED'` へ一律更新し、同時に `revoked_at = NOW()`, `revoked_reason = 'legacy_security_model'` をセットする。
+4. **Set Required Timestamps**: その他全行について `verified_at` 等の整合性を取る。
+5. **Add CHECK Constraint**: 最後に `user_devices` に `chk_device_status_times` 制約を追加する。
+
+
 ---
 
 ## 19. Testing & Security Invariant 対応表
@@ -875,7 +909,8 @@ COMMIT;
 | 2 | **Client cannot choose `member_id`** | No client identity input on any route; TLSNotary verified only | `test_client_supplied_member_id_rejected` |
 | 3 | **One Attestation = One Identity Claim** | `UNIQUE (tlsn_attestation_id)` on `member_identity_claims` | `test_duplicate_attestation_claim_rejected` |
 | 4 | **Claim requires authentic Device** | `verifyEd25519ClaimBinding(pubkey, bytes, sig)` | `test_wrong_device_key_claim_rejected` |
-| 5 | **Claim Challenge is Single-Use** | DB atomic update: `consumed_at = NOW() WHERE consumed_at IS NULL` | `test_challenge_nonce_replay_rejected` |
+| 5 | **Claim Challenge is Single-Use** | DB atomic update: `challenge_status = 'CONSUMED',
+    consumed_at = NOW() WHERE consumed_at IS NULL` | `test_challenge_nonce_replay_rejected` |
 | 6 | **Telemetry belongs to Token's Dataset** | 3-way check: `JWT.dataset_id === SignDoc.public_id === user_devices.public_id` | `test_telemetry_dataset_substitution_rejected` |
 | 7 | **Telemetry body content is unverified** | Payload stored directly without tampering checks under Dataset U1 | `test_arbitrary_telemetry_payload_accepted_under_u1` |
 | 8 | **Revocation is effective on next request** | Server-side `user_devices.revoked_at IS NULL` lookup on every call | `test_revoked_device_telemetry_rejected` |
@@ -973,7 +1008,7 @@ COMMIT;
 - [D] Dual Authentication & `telemetry_nonces`（30分保持）による Replay Protection 設計
 - [D] Telemetry 7 段階検証順序 & 新規時 Nonce 消費・INSERT 同一トランザクション設計
 - [D] `member_id_hash` / Pepper 体系の完全削除と UUID `public_id` への一本化
-- [D] Quad Invariant（$\text{canonical\_user\_id} \equiv \text{user\_id} \equiv \text{OAuth User}$）の段階的成立定義
+- [D] Quad Invariant（$\text{member\_ownership.social\_user\_id} \equiv \text{user\_devices.canonical\_user\_id} \equiv \text{user\_member\_map.user\_id} \equiv \text{web\_user\_member\_map.user\_id}$）の段階的成立定義
 - [D] 64-bit Advisory Lock & 親行ロック契約により衝突確率を十分に低減する設計
 - [D] `member_ownership`（現在状態）と `member_identity_claims`（REVOKE UPDATE, DELETE とトリガー trg_protect_member_claims_audit によりDBレベルで行の変更を物理禁止し、ON DELETE RESTRICTで親削除から守る真の Append-Only 監査履歴）の分離
 - [D] Advisory Lock 取得後の Proof / Attestation Consumption Policy（同一 transcript_commitment の多重消費を DUPLICATE_PROOF_CONSUMED で即時遮断）設計、および claim_verified_device_v3 は FUSOU-WEB が TLSNotary を完全検証済みであることを前提とする Security Boundary の明文化
