@@ -506,6 +506,14 @@ Client から FUSOU-WEB への提出ペイロードにおける `verifier_result
 2. **親行ロック契約（Parent Row Lock Contract）**:
    Advisory Lock 取得後、`INSERT ... ON CONFLICT (api_member_id) DO UPDATE` により親行を生成/取得した上で、必ず `public.member_id_mapping` に対する親行を確実に `SELECT ... FOR UPDATE` します。
 
+
+3. **Global Lock Ordering (完全固定)**:
+   Identity mutation (Claim, Revoke, Public ID 生成) において複数のロックを取得する場合は、デッドロックを完全に排除するため、以下の**厳格な順序**でのみロックを取得します。文書内のすべての処理はこの順序に拘束されます。逆順での取得は一切許可されません。
+   - **Order 1**: Transaction Advisory Lock (`fn_identity_lock_key(member_id)`)
+   - **Order 2**: Parent Row Lock (`member_id_mapping` FOR UPDATE)
+   - **Order 3**: Child Row Lock (`user_devices` FOR UPDATE 等)
+
+
 ---
 
 ## 12. Revoke Semantics & Currently Trusted Device（失効セマンティクスと有効端末定義）
@@ -569,6 +577,36 @@ $$\text{require\_info verified} \longrightarrow \text{device claim accepted} \lo
 BEGIN;
 
 -- 1. 共通の Identity Lock Key 導出関数
+
+-- ==============================================================================
+-- 唯一の Public ID 決定 / 生成関数
+-- ==============================================================================
+-- ※ `claim_verified_device_v3` と Challenge 発行 RPC の両方でこの単一の実装を呼び出します。
+-- ※ この関数を呼び出す前に、必ず `fn_identity_lock_key(p_api_member_id)` に基づく Advisory Lock が取得されている必要があります。
+CREATE OR REPLACE FUNCTION public.get_or_create_public_id(p_api_member_id BIGINT)
+RETURNS UUID
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_public_id UUID;
+BEGIN
+  -- 親行の存在確認または生成
+  INSERT INTO public.member_id_mapping (api_member_id, public_id)
+  VALUES (p_api_member_id, gen_random_uuid())
+  ON CONFLICT (api_member_id) DO NOTHING;
+
+  -- 確実な親行ロックの取得と public_id 決定
+  SELECT public_id INTO v_public_id
+  FROM public.member_id_mapping
+  WHERE api_member_id = p_api_member_id
+  FOR UPDATE;
+
+  RETURN v_public_id;
+END;
+$$;
+
 CREATE OR REPLACE FUNCTION public.fn_identity_lock_key(p_api_member_id BIGINT) RETURNS BIGINT AS $$
 BEGIN
   -- BIGINT (64-bit) へのハッシュ変換 (Collision は advisory lock の serialization 効率低下のみ)
@@ -579,6 +617,16 @@ $$ LANGUAGE plpgsql IMMUTABLE;
 REVOKE EXECUTE ON FUNCTION public.fn_identity_lock_key(BIGINT) FROM PUBLIC, anon, authenticated;
 
 -- 2. Server-issued One-Time Claim Challenge テーブル
+
+-- 3.5 member_id_mapping テーブル
+CREATE TABLE IF NOT EXISTS public.member_id_mapping (
+    api_member_id BIGINT PRIMARY KEY,
+    public_id UUID NOT NULL DEFAULT gen_random_uuid(),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+ALTER TABLE public.member_id_mapping DROP CONSTRAINT IF EXISTS uq_member_id_mapping_public_id;
+ALTER TABLE public.member_id_mapping ADD CONSTRAINT uq_member_id_mapping_public_id UNIQUE (public_id);
+
 CREATE TABLE IF NOT EXISTS public.claim_challenges (
     challenge_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     public_id UUID NOT NULL REFERENCES public.member_id_mapping(public_id) ON DELETE RESTRICT,
@@ -723,6 +771,21 @@ BEGIN
     RAISE EXCEPTION 'PREFLIGHT FAILED: Cannot safely delete legacy devices because member_identity_claims depends on them';
   END IF;
 
+
+  -- レガシー claim_type の事前検証 (存在してはならない値の検知)
+  IF EXISTS (
+    SELECT 1 FROM public.member_identity_claims WHERE claim_type NOT IN ('INITIAL_VERIFIED', 'TAKEOVER_FROM_LEGACY', 'ADDITIONAL_DEVICE', 'TAKEOVER_FROM_UNVERIFIED_DEVICE')
+  ) THEN
+    RAISE EXCEPTION 'PREFLIGHT FAILED: Invalid legacy claim_type found';
+  END IF;
+
+  -- 予期しない device_status の検知
+  IF EXISTS (
+    SELECT 1 FROM public.user_devices WHERE device_status NOT IN ('PENDING', 'VERIFIED', 'REVOKED') AND device_status IS NOT NULL
+  ) THEN
+    RAISE EXCEPTION 'PREFLIGHT FAILED: Unexpected device_status found in user_devices';
+  END IF;
+
   -- 孤立した参照 (Orphaned FK) の検査
   IF EXISTS (
     SELECT 1 FROM public.member_ownership m
@@ -762,6 +825,13 @@ DELETE FROM public.user_devices WHERE public_id IS NULL;
 -- 2. 既存デバイスのステータス移行: VERIFIED だったデバイスも含めて安全側に倒して REVOKED 化する (One-time migration)
 UPDATE public.user_devices SET device_status = 'REVOKED', revoked_at = NOW(), revoked_reason = 'legacy_migration' WHERE device_status IS NULL;
 
+
+-- 2.5 既存デバイスの device_public_key の Backfill (NOT NULL 化のため)
+-- ※ レガシーデバイスで device_public_key が NULL の場合、32 bytes のランダム値で埋めて UNIQUE 制約と NOT NULL 制約を通過させます（これらのデバイスは既に REVOKED 化されています）。
+UPDATE public.user_devices 
+SET device_public_key = decode(replace(gen_random_uuid()::text, '-', '') || replace(gen_random_uuid()::text, '-', ''), 'hex') 
+WHERE device_public_key IS NULL;
+
 -- 3. 旧 CHECK 制約の削除 (存在する場合のみ) と旧 claim_type のデータ修正
 -- ※ 旧 CHECK がかかったまま UPDATE すると失敗するため、先に DROP
 ALTER TABLE public.member_identity_claims DROP CONSTRAINT IF EXISTS member_identity_claims_claim_type_check;
@@ -780,6 +850,7 @@ BEGIN;
 ALTER TABLE public.user_devices ALTER COLUMN public_id SET NOT NULL;
 ALTER TABLE public.user_devices ALTER COLUMN device_status SET NOT NULL;
 ALTER TABLE public.user_devices ALTER COLUMN device_status SET DEFAULT 'PENDING';
+ALTER TABLE public.user_devices ALTER COLUMN device_public_key SET NOT NULL;
 
 ALTER TABLE public.user_devices DROP CONSTRAINT IF EXISTS chk_device_status_val;
 ALTER TABLE public.user_devices ADD CONSTRAINT chk_device_status_val CHECK (device_status IN ('PENDING', 'VERIFIED', 'REVOKED'));
@@ -897,7 +968,7 @@ BEGIN
     IF v_existing_claim.verified_device_id = v_device.device_id 
        AND v_existing_claim.public_id = v_challenge.public_id
        AND v_existing_claim.canonical_user_id = v_device.canonical_user_id THEN
-      -- ※ API response の `{"status":"already_claimed"}` は単なる履歴上の冪等成功を表すのみであり、現在の認証状態を保証するものではありません。
+      -- ※ 【完全仕様】Idempotent Success (already_claimed) は、現在の認証状態 (VERIFIED) を保証するレスポンスではなく、過去のClaimを再実行したことに対する履歴上の冪等成功を表すのみです。同一Attestationで異なるDevice/User/IdentityへのClaimや、既に別のVERIFIED Deviceが存在する場合への新しいAttestationの適用は必ずReject (Exception) されます。
       RETURN jsonb_build_object('status', 'already_claimed', 'note', 'This is a historical idempotency result, not an active challenge validation.');
     ELSE
       RAISE EXCEPTION 'DUPLICATE_ATTESTATION_CLAIMED';
@@ -976,7 +1047,7 @@ BEGIN
   -- 射影テーブル (Projection) の同期
 
   -- ※ `ON CONFLICT (public_id)` を機能させるため、既存の `user_member_map` および `web_user_member_map` テーブルには `UNIQUE (public_id)` が存在することが前提となります。
-  -- ※ もし Projection update に失敗した場合、この Security Root Transaction 自体が Abort してロールバックされます。
+  -- ※ 【Projection同期仕様】もし Projection update に失敗した場合、この Security Root Transaction 自体が Abort してロールバックされます。非同期の Eventually Consistent な更新ではなく、Security Root と同一 Transaction 内での同期更新です。
 
   -- ※ Security Root (member_ownership) の情報を元に、Projection drift を修復する。
   INSERT INTO public.user_member_map (user_id, public_id)
@@ -1154,7 +1225,7 @@ COMMIT;
 - [D] ゲーム通信に外部プロキシを使用しない直接接続設計
 - [D] FUSOU 生成の二重送信ゼロ設計（Game Server observed requests = 1）
 - [D] 旧 `/anonymous-sync/v2/register` および `pending` 自己申告登録の完全根絶設計（Call graph 0本）。`rpc_register_public_id`, `ensureCanonicalUserForPublicId`, `signInAnonymously` の完全削除（DB DROP含む）。`issueDatasetToken()` の許可callerを `claim` と `social-bind` のみに完全一致（allowlist化）し、`register` や `refresh` などを FORBIDDEN とする。
-- [D] MPC 復号遅延と Proof 後処理（非同期化）のイベント分離 (T0〜T6) および、fusou-proxy-tlsn 内部における MPC 復号ストリームからの Gameplay 転送と EvidenceFrame (session_id, request_id, response_id, transcript_range, raw_bytes 定義による TLSNotary Transcript との同一性の型レベル保証) の単一ストリーム分離（Single Stream Fork）設計
+- [D] Gameplay Critical Path の厳格化: Browser の Critical Path に残るのは「MPC-TLS Response Acquisition」のみです。Presentation generation, Verifier processing, DB Claim, Dataset Token issuance 等は一切 Browser critical path へ入れてはなりません。ただし「MPC自体の遅延がゼロである」とは断定せず、Phase 0 の PoC 実環境にて実際のオーバーヘッドを実測し確定させます。 (T0〜T6) および、fusou-proxy-tlsn 内部における MPC 復号ストリームからの Gameplay 転送と EvidenceFrame (session_id, request_id, response_id, transcript_range, raw_bytes 定義による TLSNotary Transcript との同一性の型レベル保証) の単一ストリーム分離（Single Stream Fork）設計
 - [D] `ClaimBindingBytes` の厳密な Byte Layout & Binary Framing 設計（`proof_purpose` ＝ `GAME_ACCOUNT_IDENTITY_V1` を正確に 24 bytes として自動テスト。UUID は 16-byte binary、`verified_member_id` は normalized decimal ASCII UTF-8 bytes に完全固定。既存 `verifyDeviceSig(string)` は使用禁止とし `verifyEd25519ClaimBinding(Uint8Array, ...)` へ切り替え）。Telemetry も `FUSOU-TELEMETRY-SIGN-V1` を用い length-delimited に完全固定。
 - [D] 初回 Claim 論理プロトコル 8 ステップ順序（Lock -> PublicID -> Challenge -> Signature -> Atomic Commit）
 - [D] Server-issued One-Time Challenge の DB 管理（旧 stateless HMAC challenge の完全 DELETE と新 `claim_challenges` の CREATE）。`UPDATE ... WHERE challenge_status = 'ACTIVE'` を用いたアトミック消費と、Attestation 検証完了後のみの Challenge 発行の厳格化。
@@ -1211,7 +1282,7 @@ COMMIT;
    - **戻る遷移**: `GAME_IDENTITY_VERIFIED` (Social Unbind された場合)。
    - **禁止遷移**: 異なる Social User への勝手な移転（明示的 Transfer API が必要）。
 
-5. **DATASET_TOKEN_ISSUED**
+### [EVENT] DATASET_TOKEN_ISSUED (Credential Issuance Event)
    - **証明済み**: 上記すべての状態を満たすアクティブなセッションに対して JWT が発行されたこと。
    - **DB状態**: 状態自体は DB ではなく、クライアントが有効な JWT (`credential_version=1`) を保持。DB 上の Device や Social Binding が剥奪されれば実質無効（Live Lookup）。
    - **次遷移**: JWT 期限切れによる再取得。
@@ -1246,7 +1317,14 @@ COMMIT;
   - `start`: uint64
   - `length`: uint64
   - `bytes`: base64url strict (paddingなし)
-  **Verifier 検証要件**:
+  **Verifier 検証要件 (完全仕様)**:
+  - `start >= 0` かつ `length > 0`
+  - オーバーフロー防止 (`checked_add` による `start + length` 検証)
+  - `end <= transcript size`
+  - `decoded(bytes).length == length`
+  - Overlap 禁止 (互いに重ならないこと)
+  - Array Order: 必ず `start` の昇進順 (ascending order) でソートされていること
+  - Request/Response はそれぞれ独立した配列で表現されるため、`direction` フィールドは存在しません（復活不可）。
   - `start >= 0` かつ `length > 0`
   - `start + length` 演算時における uint64 オーバーフローのチェック (Rust `checked_add` 必須)
   - `decoded(bytes).length == length` であること

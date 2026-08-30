@@ -511,7 +511,7 @@ Client から FUSOU-WEB への提出ペイロードにおける `verifier_result
 | 3 | `key_id` | `u16_be(len)` + `UTF-8 bytes` | Key identifier string |
 | 4 | `attestation_id` | `[u8; 32]` (Fixed array) | 32-byte TLSNotary Session ID |
 | 5 | `server_identity` | `u16_be(len)` + `UTF-8 bytes` | Verified TLS host |
-| 6 | `request_spans` | `u16_be(count)` + Array of `[u64_be(start), u64_be(length)]` | List of requested HTTP span offsets |
+| 6 | `request_spans` | `u16_be(count)` + Array of `[u64_be(start), u64_be(length)]` | List of requested HTTP span offsets (Ascending order of start, overlap prohibited) |
 | 7 | `response_spans` | `u16_be(count)` + Array of `[u64_be(start), u64_be(length)]` | List of responded HTTP span offsets |
 | 8 | `notary_time` | `u64_be` | NumericDate (Seconds since epoch) |
 | 9 | `created_at` | `u64_be` | NumericDate (Seconds since epoch) |
@@ -935,7 +935,7 @@ COMMIT;
 - [D] ゲーム通信に外部プロキシを使用しない直接接続設計
 - [D] FUSOU 生成の二重送信ゼロ設計（Game Server observed requests = 1）
 - [D] 旧 `/anonymous-sync/v2/register` および `pending` 自己申告登録の完全根絶設計（Call graph 0本）。`rpc_register_public_id`, `ensureCanonicalUserForPublicId`, `signInAnonymously` の完全削除（DB DROP含む）。`issueDatasetToken()` の許可callerを `claim` と `social-bind` のみに完全一致（allowlist化）し、`register` や `refresh` などを FORBIDDEN とする。
-- [D] MPC 復号遅延と Proof 後処理（非同期化）のイベント分離 (T0〜T6) および、fusou-proxy-tlsn 内部における MPC 復号ストリームからの Gameplay 転送と EvidenceFrame (session_id, request_id, response_id, transcript_range, raw_bytes 定義による TLSNotary Transcript との同一性の型レベル保証) の単一ストリーム分離（Single Stream Fork）設計
+- [D] Gameplay Critical Path の厳格化: Browser の Critical Path に残るのは「MPC-TLS Response Acquisition」のみです。Presentation generation, Verifier processing, DB Claim, Dataset Token issuance 等は一切 Browser critical path へ入れてはなりません。ただし「MPC自体の遅延がゼロである」とは断定せず、Phase 0 の PoC 実環境にて実際のオーバーヘッドを実測し確定させます。 (T0〜T6) および、fusou-proxy-tlsn 内部における MPC 復号ストリームからの Gameplay 転送と EvidenceFrame (session_id, request_id, response_id, transcript_range, raw_bytes 定義による TLSNotary Transcript との同一性の型レベル保証) の単一ストリーム分離（Single Stream Fork）設計
 - [D] `ClaimBindingBytes` の厳密な Byte Layout & Binary Framing 設計（`proof_purpose` ＝ `GAME_ACCOUNT_IDENTITY_V1` を正確に 24 bytes として自動テスト。UUID は 16-byte binary、`verified_member_id` は normalized decimal ASCII UTF-8 bytes に完全固定。既存 `verifyDeviceSig(string)` は使用禁止とし `verifyEd25519ClaimBinding(Uint8Array, ...)` へ切り替え）。Telemetry も `FUSOU-TELEMETRY-SIGN-V1` を用い length-delimited に完全固定。
 - [D] 初回 Claim 論理プロトコル 8 ステップ順序（Lock -> PublicID -> Challenge -> Signature -> Atomic Commit）
 - [D] Server-issued One-Time Challenge の DB 管理（旧 stateless HMAC challenge の完全 DELETE と新 `claim_challenges` の CREATE）。`UPDATE ... WHERE challenge_status = 'ACTIVE'` を用いたアトミック消費と、Attestation 検証完了後のみの Challenge 発行の厳格化。
@@ -1064,7 +1064,7 @@ COMMIT;
    - **戻る遷移**: `GAME_IDENTITY_VERIFIED` (Social Unbind された場合)。
    - **禁止遷移**: 異なる Social User への勝手な移転（明示的 Transfer API が必要）。
 
-5. **DATASET_TOKEN_ISSUED**
+### [EVENT] DATASET_TOKEN_ISSUED (Credential Issuance Event)
    - **証明済み**: 上記すべての状態を満たすアクティブなセッションに対して JWT が発行されたこと。
    - **DB状態**: 状態自体は DB ではなく、クライアントが有効な JWT (`credential_version=1`) を保持。DB 上の Device や Social Binding が剥奪されれば実質無効（Live Lookup）。
    - **次遷移**: JWT 期限切れによる再取得。
@@ -1097,7 +1097,14 @@ COMMIT;
   - `start`: uint64
   - `length`: uint64
   - `bytes`: base64url strict (paddingなし)
-  **Verifier 検証要件**:
+  **Verifier 検証要件 (完全仕様)**:
+  - `start >= 0` かつ `length > 0`
+  - オーバーフロー防止 (`checked_add` による `start + length` 検証)
+  - `end <= transcript size`
+  - `decoded(bytes).length == length`
+  - Overlap 禁止 (互いに重ならないこと)
+  - Array Order: 必ず `start` の昇進順 (ascending order) でソートされていること
+  - Request/Response はそれぞれ独立した配列で表現されるため、`direction` フィールドは存在しません（復活不可）。
   - `start >= 0` かつ `length > 0`
   - `start + length` 演算時における uint64 オーバーフローのチェック (Rust `checked_add` 必須)
   - `decoded(bytes).length == length` であること
