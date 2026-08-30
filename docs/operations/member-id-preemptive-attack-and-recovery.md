@@ -251,6 +251,9 @@ public_id = UUIDv4 (Random UUID: Dataset U1)
 
 ## 6. Member State Machine（身元確認ステートマシン & 乗っ取り防止ルール）
 
+**※ 重要事項:** `TLSN_PROOF_VERIFIED` は Request-local な状態であり、Persistent DB State ではありません。また、`DATASET_TOKEN_ISSUED` は Identity State ではなく「Credential Issuance Event」であり、このイベントが発生しても基底の DB Identity State Machine 自体は `GAME_IDENTITY_VERIFIED` または `SOCIAL_ACCOUNT_BOUND` に留まります。
+
+
 
 **状態の保証内容 (Security Guarantees):**
 - `TLSN_PROOF_VERIFIED`: Game Server 由来の `member_id` が TLSNotary によって証明された状態。
