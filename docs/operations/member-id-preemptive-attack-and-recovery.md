@@ -5,7 +5,7 @@
 > **v1 Core Security Goal**:  
 > **「ログインセッション開始時の `POST /kcsapi/api_get_member/require_info` から暗号学的に検証した `api_member_id` を FUSOU Dataset Identity（`public_id`）として確立し、自己申告による先回り登録攻撃（Preemptive Registration / ID Squatting）を無力化して正当な Dataset Attribution を確定する」**  
 > 対象 API: **`POST /kcsapi/api_get_member/require_info`**（HTTP/1.1、Game Server 認証セッション単位で最初に TLSNotary Identity Attestation に成功した 1 回のみ）  
-> 対象データ: **`/api_data/api_basic/api_member_id`**（kc-api-dto: internal Rust representation = `i64`, Wire: JSON numeric/string token lexeme, Canonical Internal: Decimal String `^[0-9]{1,16}$` 前置ゼロ正規化済み, DB: `BIGINT`）  
+> 対象データ: **`/api_data/api_basic/api_member_id`**（kc-api-dto: internal Rust representation = `i64`, Wire: JSON JSON Number token, Canonical Internal: Decimal String `^[0-9]{1,16}$` 前置ゼロ正規化済み, DB: `BIGINT`）  
 > **最重要設計原則**:  
 > 1. **旧自己申告経路の完全根絶と Implementation Acceptance Criteria の確立**:  
 >    - **「すべての公開関数 / HTTP ルート / RPC において、`api_member_id` $\rightarrow$ `public_id` $\rightarrow$ `dataset_token` のコールグラフが、TLSNotary Verified Claim を先祖（ancestor）に持たない経路をコードベース上に 0 本とすること（Call Graph 0本保証）」** を最優先の Implementation Acceptance Criteria とする。  
@@ -337,7 +337,8 @@ sequenceDiagram
 ### 9.1 初回 Claim 決定論的 8 ステップ順序
 
 ### 4.2 Claim Challenge API (PENDING Device 登録と Challenge 発行の統合)
-第三者実装のブレをなくすため、`POST /identity/challenge` (Auth: OAuth Session) のスキーマを完全に固定します。
+第三者実装のブレをなくすため、`POST /identity/challenge` (Auth: OAuth Session (Cookie-based)
+   - ※ **CSRF 防御**: Identity 操作 API のため、Cookie に `SameSite=Strict` を付与し、さらに `Origin` / `Referer` チェックを強制します。) のスキーマを完全に固定します。
 PENDING Device の紐付け先を一意に決定するため、Verifier Result と Device Public Key は同一の API で送信されます。
 
 **Request Body**:
@@ -392,38 +393,41 @@ Client から FUSOU-WEB への提出ペイロードにおける `verifier_result
      - `key_id`: String
      - `tlsn_attestation_id`: String (base64url strict, padding なし)
      - `server_identity`: String (TLS Application の Canonical Hostname) ※TLS Certificate verification は Verifier 側で別途証明されている前提
-     - `revealed_request_spans` / `revealed_response_spans`: Array of Object (start: uint64 checked_add 対策済み, length: uint32/uint64, direction: "sent" | "received", bytes: base64url strict)
+     - `revealed_request_spans` / `revealed_response_spans`: Array of Object (start: uint64 checked_add 対策済み, length: uint64 (fixed-width), direction: "sent" | "received", bytes: base64url strict)
      - `created_at`: Number (Verifier Result 生成時刻の NumericDate 秒。notary_time とは別)
      - `signature`: String (base64url strict, padding なし)
    - **Range Constraints**: TLS application plaintext transcript offset を基準とし、start >= 0, length > 0, Overlap は禁止、Range bytes length との一致を Parser で検証。
 
 2. **Signature Representation: VerifierResultSignBytes (Canonical Binary Encoding)**
-   署名検証アルゴリズム (Ed25519) の入力には JSON 文字列そのものは使用しません。JSON をパース後、型付けされたフィールドを決定論的な Canonical Binary Encoding（例: length-delimited binary format）で直列化したものを署名対象とします。当然、`signature` フィールド自体は入力に含めません。
+   署名検証アルゴリズム (Ed25519) の入力には JSON 文字列そのものは使用しません。JSON をパース後、型付けされたフィールドを決定論的な Canonical Binary Encoding（厳格な length-delimited binary format (完全仕様)）で直列化したものを署名対象とします。当然、`signature` フィールド自体は入力に含めません。
    3. issuer / key_id / version validation
    4. TLSNotary proof validity validation
    5. server identity validation
    6. revealed spans validation
    7. lossless parser による `verified_member_id` 抽出
 2. **Step 2 (64-bit Advisory Lock 取得)**: FUSOU-WEB が `member_id` に基づく 64-bit Advisory Lock を取得。
-3. **Step 3 (Public ID 確定)**: `public.member_id_mapping` に対する atomic get-or-create を実行し、`public_id` を確定。
+3. **Step 3 (Public ID 確定)**: 単一のサーバーサイド RPC / Helper である `get_or_create_public_id(canonical_member_id)` を呼び出し `public_id` を確定します（※ Claim RPC と Challenge エンドポイントの両方で必ずこの単一の実装を共有し、同一の member_id 由来の canonical lock domain 下で実行します）。
 ※ `member_ownership` テーブルは `GAME_IDENTITY_VERIFIED` 状態（デバイス署名検証完了後）でのみレコードが作成されるため、`primary_device_id UUID NOT NULL` 制約は状態機械と完全に整合します。
 4. **Step 4 (PENDING Device 独立登録)**: FUSOU-WEB は独立した別トランザクションとして、サーバーが生成した `device_id` と OAuth の `authenticated_user` を紐付け `device_status = 'PENDING'` (24h TTL) で `user_devices` へ INSERT します。※この時点でサーバーは `public_id` を知っているため、DB上で `authenticated_user ↓ PENDING Device ↓ public_id` の束縛を安全に確立します。
 **【PENDING Device の生成・権限制約】**
 - `canonical_user_id` と `public_id` の**両方**に基づく Advisory Lock を取得し、`max 5 PENDING` デバイス（VERIFIEDとは別枠）の制限を Race なしで強制します。
-- デバイスの `device_public_key` は `UNIQUE` 制約とし、transport は base64url とします。
+- **PENDING Device自体へAttestation IDを持たせる必要はない**（どの Proof 由来かは Challenge の tlsn_attestation_id で最終Claim時に結びつければ十分であり、余計な FK を増やさない）と明記します。
+- デバイスの `device_public_key` は `UNIQUE` 制約とし、transport は base64url とします。既に同じ公開鍵が存在する場合は既存Deviceを返さず、厳格に `409 DEVICE_ALREADY_EXISTS` として Reject します。
 - `user_devices.public_id` は PENDING 登録以降、変更不可 (immutable) であることを DB レベル（権限またはトリガー）で保証します。これにより Claim 前の差し替え攻撃を防ぎます。
 - Client Role から `UPDATE user_devices SET device_status='VERIFIED'` と直接更新することは DB 権限で禁止され、`claim_verified_device_v3` 経由のみ許可されます。
 - `REVOKED` なデバイスを `VERIFIED` に戻すことは禁止されます。
 - Challenge エンドポイントおよび Claim エンドポイントの双方において、`device_status = 'PENDING'` かつ `pending_expires_at > NOW()` であることを厳格に確認します。**PENDING Device DoS対策として、per-user および per-public_id で同時に存在できる未検証デバイス数をそれぞれ最大 5 台に制限し、Cron ジョブは `pending_expires_at < NOW()` を基準とし、超過分は論理無効化（`revoked_at = NOW()` / `revoked_reason = 'expired_pending'`）し、`device_id` の UUID 再利用防止（Never Reuse）を DB 履歴として永続保証します。**
 5. **Step 5 (Server Challenge 発行)**: 登録した PENDING デバイスに対して `public.claim_challenges` (5分 TTL) を発行し、クライアントへ Response Body を返却。
    **【Challenge発行トランザクションの擬似SQL】**
-   1. `SELECT pg_advisory_xact_lock( hashtext(tlsn_attestation_id) );` -- canonical advisory lock
-   2. `UPDATE public.claim_challenges SET challenge_status = 'EXPIRED' WHERE challenge_status = 'ACTIVE' AND expires_at <= NOW();`
+   1. `SELECT pg_advisory_xact_lock( ('x' || substr(md5(encode(tlsn_attestation_id, 'hex')), 1, 16))::bit(64)::bigint );` -- canonical 64-bit advisory lock. ※ 異なる Attestation でハッシュ衝突が発生しても Security Hole ではなく、unnecessary serialization（余計な直列化）が起きるだけです。
+   2. `UPDATE public.claim_challenges SET challenge_status = 'EXPIRED' WHERE tlsn_attestation_id = p_attestation_id AND challenge_status = 'ACTIVE' AND expires_at <= NOW();`
    3. `SELECT * FROM public.claim_challenges WHERE tlsn_attestation_id = p_attestation_id AND challenge_status = 'ACTIVE';`
    4. 存在すれば、**必ずその既存の Challenge をそのまま返す** (ACTIVE exists → always return existing Challenge).
-   5. 存在しなければ、新規 INSERT して返す。※発行前に `member_identity_claims` 等を確認し同一 `tlsn_attestation_id` からは1つのChallengeしか発行できないよう、DB上で `UNIQUE(tlsn_attestation_id) WHERE challenge_status = 'ACTIVE'` 制約により別デバイスへの流用等も含めて物理拒絶します（同時有効なChallengeを最大1個に制限するものであり、期限切れ後の再発行による復旧は妨げません）。
+   5. 存在しなければ、新規 INSERT して返す。
+   ※ **Every path that creates a Challenge must acquire the same attestation-derived advisory lock.**（これを忘れると Concurrent INSERT で Unique Violation が発生します）※発行前に `member_identity_claims` 等を確認し同一 `tlsn_attestation_id` からは1つのChallengeしか発行できないよう、DB上で `UNIQUE(tlsn_attestation_id) WHERE challenge_status = 'ACTIVE'` 制約により別デバイスへの流用等も含めて物理拒絶します（同時有効なChallengeを最大1個に制限するものであり、期限切れ後の再発行による復旧は妨げません）。
 6. **Step 6 (ClaimBindingBytes 構築 & 署名)**: 端末が `(domain, purpose, attestation_id, verified_member_id, device_id, expected_public_id, challenge_id, challenge_nonce)` から `ClaimBindingBytes` を構築し、端末秘密鍵で Ed25519 署名。※`public_key` は署名対象に含めず、サーバー側で `user_devices` から取得する。
 7. **Step 7 (Claim 提出 & 署名検証)**: クライアントは `{ "challenge_id", "signature" }` のみを FUSOU-WEB へ提出（攻撃面を最小化するため Client から public_id 等は受け付けない）。FUSOU-WEB は DB から関連 ID (`expected_public_id` 含む) を復元し `verifyEd25519ClaimBinding(pubkey, bytes, sig)` で raw byte 署名を検証します。**不正な署名によるリトライ攻撃（Signature Oracle Abuse）を防ぐため、署名検証に失敗した場合でも対象の Challenge は即座に `CONSUMED` として消費・無効化されます**。
+   ※ Threat Model 補足: Invalid signature consumes challenge intentionally to prevent unlimited signature retries. これは意図的な UX/DoS トレードオフであり、攻撃者が不正署名を送ることで正規ユーザーの Challenge を消費させることも理論上可能ですが、攻撃者は 5 分の有効期間内の競合 (race condition) に勝つ必要があります。
 ※ Claim の重複・Idempotency ルール (統一仕様):
 1. 先に `member_identity_claims` で既存 Claim を検索します。
 2. もし同一 Attestation が既に存在する場合：
@@ -593,6 +597,7 @@ ALTER TABLE public.user_devices
 
 -- Migration: Existing legacy verified rows are demoted to REVOKED securely
 UPDATE public.user_devices SET device_status = 'REVOKED', revoked_at = NOW(), revoked_reason = 'legacy_migration';
+-- ※ 注意: これは one-time versioned migration です。SQL 自身に冪等性はなく、再実行すると新方式で VERIFIED されたデバイスも REVOKED になってしまうため一度のみ実行します。
 
 ALTER TABLE public.user_devices
   ALTER COLUMN device_status SET NOT NULL,
@@ -677,11 +682,12 @@ CREATE OR REPLACE FUNCTION public.claim_verified_device_v3(
   p_challenge_id UUID,
   p_challenge_nonce BYTEA,
   p_notary_key_id TEXT,
-  p_request_range_start BIGINT,
+  p_request_range_start BIGINT, -- Canonical binary では unsigned 64-bit fixed-width に固定
+  -- DB Schema は Cryptographic proof verifier ではありません。DB上の metadata は Verifier 由来の記録です。
+  -- ※ `direction` field は不要です (request_spans = sent only, response_spans = received only に固定)。
   -- 疑似コード上省略していますが、以下のCHECK制約と同等の検証を行います:
   -- CHECK (request_range_start >= 0 AND request_range_length > 0)
-  -- CHECK (request_range_direction IN ('Sent', 'Received'))
-  -- CHECK (response_range_direction IN ('Sent', 'Received'))
+  
   -- CHECK (response_range_start >= 0 AND response_range_length > 0)
   p_request_range_length BIGINT,
   p_request_range_direction TEXT,
@@ -722,7 +728,10 @@ BEGIN
   WHERE tlsn_attestation_id = p_tlsn_attestation_id;
 
   IF FOUND THEN
-    IF v_existing_claim.verified_device_id = p_device_id THEN
+    -- 厳密な Idempotent 条件: same attestation AND same device AND same public_id AND same canonical_user_id AND RPC parameter mapped to same public_id
+    IF v_existing_claim.verified_device_id = p_device_id 
+       AND v_existing_claim.public_id = v_public_id
+       AND v_existing_claim.canonical_user_id = v_device.canonical_user_id THEN
       -- 同一 Attestation + 同一 Device の再送は Idempotent Success
       -- FUSOU-WEBがすでに署名検証を実施した前提で、同一Attestationによる正当な再送は早期リターンします
       -- 攻撃者への情報漏洩（canonical_user_id等）を防ぐため、返却情報は最小限に留めます
@@ -759,7 +768,7 @@ BEGIN
   -- Step 4. public_id の取得/生成 (Atomic get-or-create)
   INSERT INTO public.member_id_mapping (api_member_id, public_id, created_at)
   VALUES (p_api_member_id, gen_random_uuid(), NOW())
-  ON CONFLICT (api_member_id) DO UPDATE SET api_member_id = EXCLUDED.api_member_id
+  ON CONFLICT (api_member_id) DO UPDATE SET api_member_id = EXCLUDED.api_member_id -- ※ this is an intentional no-op update solely to obtain RETURNING (immutable table)
   RETURNING public_id INTO v_public_id;
 
   -- 認証済みオペレーターと PENDING Device のバインディング検証
