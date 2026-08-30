@@ -513,10 +513,17 @@ Client から FUSOU-WEB への提出ペイロードにおける `verifier_result
 **【PENDING Device の生成・権限制約】**
 - `canonical_user_id` と `public_id` の**両方**に基づく Advisory Lock を取得し、`max 5 PENDING` デバイス（VERIFIEDとは別枠）の制限を Race なしで強制します。
 - デバイスの `device_public_key` は `UNIQUE` 制約とし、transport は base64url とします。
+- `user_devices.public_id` は PENDING 登録以降、変更不可 (immutable) であることを DB レベル（権限またはトリガー）で保証します。これにより Claim 前の差し替え攻撃を防ぎます。
 - Client Role から `UPDATE user_devices SET device_status='VERIFIED'` と直接更新することは DB 権限で禁止され、`claim_verified_device_v3` 経由のみ許可されます。
 - `REVOKED` なデバイスを `VERIFIED` に戻すことは禁止されます。
 - Challenge エンドポイントおよび Claim エンドポイントの双方において、`device_status = 'PENDING'` かつ `pending_expires_at > NOW()` であることを厳格に確認します。**PENDING Device DoS対策として、per-user および per-public_id で同時に存在できる未検証デバイス数をそれぞれ最大 5 台に制限し、Cron ジョブは `pending_expires_at < NOW()` を基準とし、超過分は論理無効化（`revoked_at = NOW()` / `revoked_reason = 'expired_pending'`）し、`device_id` の UUID 再利用防止（Never Reuse）を DB 履歴として永続保証します。**
-5. **Step 5 (Server Challenge 発行)**: 登録した PENDING デバイスに対して `public.claim_challenges` (5分 TTL) を発行し、クライアントへ Response Body を返却。※発行前に `member_identity_claims` 等を確認し同一 `tlsn_attestation_id` からは1つのChallengeしか発行できないよう、DB上で `UNIQUE(tlsn_attestation_id) WHERE challenge_status = 'ACTIVE'` 制約により別デバイスへの流用等も含めて物理拒絶します（同時有効なChallengeを最大1個に制限するものであり、期限切れ後の再発行による復旧は妨げません）。
+5. **Step 5 (Server Challenge 発行)**: 登録した PENDING デバイスに対して `public.claim_challenges` (5分 TTL) を発行し、クライアントへ Response Body を返却。
+   **【Challenge発行トランザクションの擬似SQL】**
+   1. `SELECT pg_advisory_xact_lock( hashtext(tlsn_attestation_id) );` -- canonical advisory lock
+   2. `UPDATE public.claim_challenges SET challenge_status = 'EXPIRED' WHERE challenge_status = 'ACTIVE' AND expires_at <= NOW();`
+   3. `SELECT * FROM public.claim_challenges WHERE tlsn_attestation_id = p_attestation_id AND challenge_status = 'ACTIVE';`
+   4. 存在すれば、**必ずその既存の Challenge をそのまま返す** (ACTIVE exists → always return existing Challenge).
+   5. 存在しなければ、新規 INSERT して返す。※発行前に `member_identity_claims` 等を確認し同一 `tlsn_attestation_id` からは1つのChallengeしか発行できないよう、DB上で `UNIQUE(tlsn_attestation_id) WHERE challenge_status = 'ACTIVE'` 制約により別デバイスへの流用等も含めて物理拒絶します（同時有効なChallengeを最大1個に制限するものであり、期限切れ後の再発行による復旧は妨げません）。
 6. **Step 6 (ClaimBindingBytes 構築 & 署名)**: 端末が `(domain, purpose, attestation_id, verified_member_id, device_id, expected_public_id, challenge_id, challenge_nonce)` から `ClaimBindingBytes` を構築し、端末秘密鍵で Ed25519 署名。※`public_key` は署名対象に含めず、サーバー側で `user_devices` から取得する。
 7. **Step 7 (Claim 提出 & 署名検証)**: クライアントは `{ "challenge_id", "signature" }` のみを FUSOU-WEB へ提出（攻撃面を最小化するため Client から public_id 等は受け付けない）。FUSOU-WEB は DB から関連 ID (`expected_public_id` 含む) を復元し `verifyEd25519ClaimBinding(pubkey, bytes, sig)` で raw byte 署名を検証します。**不正な署名によるリトライ攻撃（Signature Oracle Abuse）を防ぐため、署名検証に失敗した場合でも対象の Challenge は即座に `CONSUMED` として消費・無効化されます**。
 ※ Claim の重複・Idempotency ルール (統一仕様):
@@ -694,7 +701,7 @@ CREATE TABLE IF NOT EXISTS public.claim_challenges (
     public_id UUID NOT NULL REFERENCES public.member_id_mapping(public_id) ON DELETE RESTRICT,
     device_id UUID NOT NULL REFERENCES public.user_devices(device_id) ON DELETE RESTRICT,
     tlsn_attestation_id BYTEA NOT NULL,
-    challenge_nonce BYTEA NOT NULL,
+    challenge_nonce BYTEA NOT NULL CHECK (octet_length(challenge_nonce) = 32),
     challenge_status TEXT NOT NULL DEFAULT 'ACTIVE' CHECK (challenge_status IN ('ACTIVE', 'CONSUMED', 'EXPIRED')),
     expires_at TIMESTAMPTZ NOT NULL,
     consumed_at TIMESTAMPTZ,
@@ -1047,6 +1054,7 @@ COMMIT;
      これにより、クライアントからの Timeout/Retry 時には同じ Challenge が返り、期限切れ(`EXPIRED`)の場合は新しい Challenge が発行されるという実装が一意に確定します。
   ※ `challenge_status = 'ACTIVE'` と `expires_at < NOW()` という矛盾状態は、Issuer transaction 開始前には（CronによるCleanupが行われるまで）一時的に存在し得ます。しかし、Claim エンドポイント側で `expires_at > NOW()` を常に検証するため、期限切れ Challenge が消費されることは即座に Reject されます。
   ※ このトランザクション順序により、Cron が停止していても Security Invariant（ACTIVEは最大1個）は絶対に壊れません。
+  ※ `expires_at` は状態を自動変更する DB 制約 (trigger/check) ではなく、Challenge access/claim transaction が評価して状態を更新するための期限値です。
 
 
 ## Range Schema と検証 (完全定義)
@@ -1118,5 +1126,7 @@ COMMIT;
 | Telemetry attribution   | Dataset Token + Device Signature | FUSOU-WEB API   | FUSOU-WEB API | JWT validation, DB live lookup | `test_telemetry_attribution_dataset` |
 | No re-submission        | Proxy state machine              | FUSOU-PROXY     | Proxy Core    | N/A                      | integration `exactly_one_upstream` |
 | Legacy string absence | Source Code | CI Gate | CI | N/A | `grep -R "is_verified"` == 0 |
+| Legacy DB mapping | Source Code | CI Gate | CI | N/A | `grep -R "member_id_hash"` == 0 |
+| Legacy state string | Source Code | CI Gate | CI | N/A | `grep -R "PRE_REGISTERED"` == 0 |
 | Legacy API absence | Source Code | CI Gate | CI | N/A | `grep -R "verified_user_id"` == 0 |
 | Legacy path absence     | call graph / router              | CI Static Check | Router        | N/A                      | grep 404 / AST check |
