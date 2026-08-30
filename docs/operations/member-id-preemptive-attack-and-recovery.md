@@ -551,6 +551,16 @@ $$\text{require\_info verified} \longrightarrow \text{device claim accepted} \lo
 
 本設計を実DBへ安全に適用するため、以下の4つの Migration ステップに完全に分離して実行します。新規環境 (Fresh DB) の場合はすべて順次実行可能であり、既存環境 (Existing DB) でも安全にアップグレードできる構造です。
 
+**Deployment Order (厳密な実行手順):**
+1. `001_create_base_schema.sql` (Fresh DB の場合は既存の user_devices 等が存在する前提)
+2. `002_backfill_existing_data.sql` (Preflight 検証、Legacy 削除、Rename)
+3. `003_add_new_constraints.sql` (NOT NULL, CHECK, 複合 FK 追加)
+4. `004_create_security_functions.sql` (RPC 実装)
+
+※ **Deployment Atomicity & Window**: マイグレーション 002 (CHECK DROP) から 003 (CHECK ADD, FK ADD) の間は一時的に Security Invariant が制約されていない窓が存在します。この不整合を防ぐため、Supabase Migration Versioning を用いて一度だけ順次適用させると共に、すべてのマイグレーションが完了するまではアプリケーションの Traffic を Block し、古い Write Path と新しい Write Path が絶対に混在しないようにしてください。
+
+
+
 ### `20260826000000_create_base_schema.sql` (ベーススキーマと Security Primitive)
 ```sql
 BEGIN;
@@ -570,7 +580,7 @@ CREATE TABLE IF NOT EXISTS public.claim_challenges (
     challenge_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     public_id UUID NOT NULL REFERENCES public.member_id_mapping(public_id) ON DELETE RESTRICT,
     device_id UUID NOT NULL REFERENCES public.user_devices(device_id) ON DELETE RESTRICT,
-    tlsn_attestation_id BYTEA NOT NULL,
+    tlsn_attestation_id BYTEA NOT NULL CHECK (octet_length(tlsn_attestation_id) = 32),
     challenge_nonce BYTEA NOT NULL CHECK (octet_length(challenge_nonce) = 32),
     notary_time TIMESTAMPTZ NOT NULL,
     notary_key_id TEXT NOT NULL,
@@ -621,7 +631,7 @@ CREATE TABLE IF NOT EXISTS public.member_identity_claims (
     public_id UUID NOT NULL REFERENCES public.member_id_mapping(public_id) ON DELETE RESTRICT,
     canonical_user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE RESTRICT,
     verified_device_id UUID NOT NULL,
-    tlsn_attestation_id BYTEA NOT NULL,
+    tlsn_attestation_id BYTEA NOT NULL CHECK (octet_length(tlsn_attestation_id) = 32),
     request_range_start BIGINT NOT NULL CHECK (request_range_start >= 0),
     request_range_length BIGINT NOT NULL CHECK (request_range_length > 0),
     response_range_start BIGINT NOT NULL CHECK (response_range_start >= 0),
@@ -647,16 +657,9 @@ COMMIT;
 ```sql
 BEGIN;
 
--- 1. レガシーデバイスのパージ: public_id が特定できない完全に追跡不能なレガシーデバイスは、架空の UUID を振らずに物理削除する
--- ※ Device IDs are globally generated UUIDv4 and are never intentionally reused. 物理削除によりDB上の履歴は消滅するが、運用上UUIDv4の再割り当ては行われない。
-DELETE FROM public.user_devices WHERE public_id IS NULL;
-
--- 2. 既存デバイスのステータス移行: VERIFIED だったデバイスも含めて安全側に倒して REVOKED 化する (One-time migration)
-UPDATE public.user_devices SET device_status = 'REVOKED', revoked_at = NOW(), revoked_reason = 'legacy_migration' WHERE device_status IS NULL;
-
 -- ==============================================================================
 -- 既存DB移行時の Preflight Validation Gate (事前重複検査)
--- ※ 重複が存在する場合、このブロックで Migration が即座に Abort されます。
+-- ※ データ変更 (DELETE/UPDATE) の前に必ず実行し、既存不整合がある場合は安全に Abort します。
 -- ==============================================================================
 DO $$
 BEGIN
@@ -670,7 +673,7 @@ BEGIN
 
   IF EXISTS (
     SELECT 1 FROM (
-      SELECT device_public_key FROM public.user_devices GROUP BY device_public_key HAVING COUNT(*) > 1
+      SELECT device_public_key FROM public.user_devices WHERE device_public_key IS NOT NULL GROUP BY device_public_key HAVING COUNT(*) > 1
     ) t
   ) THEN
     RAISE EXCEPTION 'PREFLIGHT FAILED: Duplicate device_public_key found in user_devices';
@@ -692,8 +695,6 @@ BEGIN
     RAISE EXCEPTION 'PREFLIGHT FAILED: Duplicate public_id found in member_id_mapping';
   END IF;
 
-  END IF;
-
   IF EXISTS (
     SELECT 1 FROM (
       SELECT tlsn_attestation_id FROM public.member_identity_claims GROUP BY tlsn_attestation_id HAVING COUNT(*) > 1
@@ -702,6 +703,24 @@ BEGIN
     RAISE EXCEPTION 'PREFLIGHT FAILED: Duplicate tlsn_attestation_id found in member_identity_claims';
   END IF;
 
+  -- 削除予定の NULL public_id 行に対する依存 (FK 制約違反) が存在するかどうかを事前検査
+  IF EXISTS (
+    SELECT 1 FROM public.member_ownership m
+    JOIN public.user_devices u ON m.primary_device_id = u.device_id
+    WHERE u.public_id IS NULL
+  ) THEN
+    RAISE EXCEPTION 'PREFLIGHT FAILED: Cannot safely delete legacy devices because member_ownership depends on them';
+  END IF;
+
+  IF EXISTS (
+    SELECT 1 FROM public.member_identity_claims c
+    JOIN public.user_devices u ON c.verified_device_id = u.device_id
+    WHERE u.public_id IS NULL
+  ) THEN
+    RAISE EXCEPTION 'PREFLIGHT FAILED: Cannot safely delete legacy devices because member_identity_claims depends on them';
+  END IF;
+
+  -- 孤立した参照 (Orphaned FK) の検査
   IF EXISTS (
     SELECT 1 FROM public.member_ownership m
     LEFT JOIN public.user_devices u 
@@ -732,9 +751,13 @@ BEGIN
 END $$;
 -- ==============================================================================
 
+-- 1. レガシーデバイスのパージ: public_id が特定できない完全に追跡不能なレガシーデバイスは物理削除する
+-- ※ Device IDs are globally generated UUIDv4 and are never intentionally reused.
+-- 物理削除により DB 上の行は消滅するが、運用上 `device_id` の UUIDv4 再割り当ては行われない。
+DELETE FROM public.user_devices WHERE public_id IS NULL;
 
--- ==============================================================================
-
+-- 2. 既存デバイスのステータス移行: VERIFIED だったデバイスも含めて安全側に倒して REVOKED 化する (One-time migration)
+UPDATE public.user_devices SET device_status = 'REVOKED', revoked_at = NOW(), revoked_reason = 'legacy_migration' WHERE device_status IS NULL;
 
 -- 3. 旧 CHECK 制約の削除 (存在する場合のみ) と旧 claim_type のデータ修正
 -- ※ 旧 CHECK がかかったまま UPDATE すると失敗するため、先に DROP
@@ -766,6 +789,10 @@ ALTER TABLE public.user_devices ADD CONSTRAINT chk_device_status_times CHECK (
 );
 
 -- 複合 FK 参照用の UNIQUE 制約
+
+ALTER TABLE public.user_devices DROP CONSTRAINT IF EXISTS chk_device_public_key_len;
+ALTER TABLE public.user_devices ADD CONSTRAINT chk_device_public_key_len CHECK (octet_length(device_public_key) = 32);
+
 ALTER TABLE public.user_devices DROP CONSTRAINT IF EXISTS uq_device_public_key;
 ALTER TABLE public.user_devices ADD CONSTRAINT uq_device_public_key UNIQUE (device_public_key);
 
@@ -868,7 +895,7 @@ BEGIN
        AND v_existing_claim.public_id = v_challenge.public_id
        AND v_existing_claim.canonical_user_id = v_device.canonical_user_id THEN
       -- ※ API response の `{"status":"already_claimed"}` は単なる履歴上の冪等成功を表すのみであり、現在の認証状態を保証するものではありません。
-      RETURN jsonb_build_object('status', 'already_claimed');
+      RETURN jsonb_build_object('status', 'already_claimed', 'note', 'This is a historical idempotency result, not an active challenge validation.');
     ELSE
       RAISE EXCEPTION 'DUPLICATE_ATTESTATION_CLAIMED';
     END IF;
@@ -886,6 +913,9 @@ BEGIN
   -- Step 5. 既存の Owner 確認と競合判定
   -- ※ `social_user_id` が NULL の場合でも、`primary_device` の `canonical_user_id` が別人であれば競合とする。
   -- ※ 既存の VERIFIED デバイスが別ユーザーに紐付いている場合の「自動Takeover」は禁止（明示的Transfer以外は拒否）。
+
+  -- ※【仕様固定】同一 public_id で複数の VERIFIED デバイスが存在することは、それらが現在の Ownership の canonical_user_id と完全に一致している場合 (端末追加) にのみ許可されます。
+
   IF EXISTS (
     SELECT 1 
     FROM public.member_ownership mo
@@ -941,6 +971,10 @@ BEGIN
     updated_at = NOW();
 
   -- 射影テーブル (Projection) の同期
+
+  -- ※ `ON CONFLICT (public_id)` を機能させるため、既存の `user_member_map` および `web_user_member_map` テーブルには `UNIQUE (public_id)` が存在することが前提となります。
+  -- ※ もし Projection update に失敗した場合、この Security Root Transaction 自体が Abort してロールバックされます。
+
   -- ※ Security Root (member_ownership) の情報を元に、Projection drift を修復する。
   INSERT INTO public.user_member_map (user_id, public_id)
   VALUES (v_device.canonical_user_id, v_challenge.public_id)
@@ -1187,7 +1221,9 @@ COMMIT;
 ## Challenge Lifecycle と DB 処理順序
 
 - **Challenge Lifecycle と DB 処理順序**
-  1. `claim_challenges` テーブルにおいて、`challenge_status TEXT CHECK (challenge_status IN ('ACTIVE', 'CONSUMED', 'EXPIRED'))` を設ける。
+
+  1. **Challenge Issuance Time Validation**: Challenge を発行するエンドポイント (FUSOU-WEB) は、クライアントが提出した Verifier Result (または事前の検証済みデータ) に含まれる `notary_time` が `now - 24h <= notary_time <= now + 5m` であることを、Challenge 発行段階で必ず検証しなければなりません。Claim 実行時まで検証を遅延させないでください。
+  2. `claim_challenges` テーブルにおいて、`challenge_status TEXT CHECK (challenge_status IN ('ACTIVE', 'CONSUMED', 'EXPIRED'))` を設ける。
   2. `CREATE UNIQUE INDEX uq_active_claim_challenge_attestation ON public.claim_challenges (tlsn_attestation_id) WHERE challenge_status = 'ACTIVE';` により、「同一Attestationから同時にACTIVEなChallengeは最大1個」を保証。
   3. **Challenge 取得 Transaction の厳密な処理順序**:
      a. **Challenge issuance always acquires an advisory lock derived deterministically from the canonical `tlsn_attestation_id`; row locking alone is not sufficient** (Because the row might not exist yet).
