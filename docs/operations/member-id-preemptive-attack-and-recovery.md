@@ -257,7 +257,7 @@ public_id = UUIDv4 (Random UUID: Dataset U1)
 
 **状態の保証内容 (Security Guarantees):**
 - `TLSN_PROOF_VERIFIED`: Game Server 由来の `member_id` が TLSNotary によって証明された状態。
-- `GAME_IDENTITY_VERIFIED`: verified member identity と verified device claim の両方が成立し、その Identity が FUSOU-WEB 上で一意の `public_id` として確立された状態 (GAME_IDENTITY_VERIFIED = verified member identity + verified device claim)。
+- `GAME_IDENTITY_VERIFIED`: verified member identity と verified device claim の両方が成立し、その Identity が FUSOU-WEB 上で一意の `public_id` として確立された状態 (GAME_IDENTITY_VERIFIED = verified member identity + verified device claim + current VERIFIED Device)。
 
 ```mermaid
 stateDiagram-v2
@@ -291,7 +291,7 @@ Proof P と提出端末 Device A を暗号学的に不可分にバインドす�
 
 **状態の保証内容 (Security Guarantees):**
 - `TLSN_PROOF_VERIFIED`: Game Server 由来の `member_id` が TLSNotary によって証明された状態。
-- `GAME_IDENTITY_VERIFIED`: verified member identity と verified device claim の両方が成立し、その Identity が FUSOU-WEB 上で一意の `public_id` として確立された状態 (GAME_IDENTITY_VERIFIED = verified member identity + verified device claim)。
+- `GAME_IDENTITY_VERIFIED`: verified member identity と verified device claim の両方が成立し、その Identity が FUSOU-WEB 上で一意の `public_id` として確立された状態 (GAME_IDENTITY_VERIFIED = verified member identity + verified device claim + current VERIFIED Device)。
 
 ```mermaid
 sequenceDiagram
