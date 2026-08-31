@@ -687,7 +687,7 @@ ALTER TABLE public.user_devices
 CREATE TABLE IF NOT EXISTS public.member_ownership (
     public_id UUID PRIMARY KEY REFERENCES public.member_id_mapping(public_id) ON DELETE RESTRICT,
     social_user_id UUID REFERENCES auth.users(id) ON DELETE RESTRICT,
-    primary_device_id UUID NOT NULL,
+    primary_device_id UUID NOT NULL, -- ※ historical record: 最後に確立した primary device の記録。デバイスが REVOKED になってもこのカラムは NULL 化されず履歴として保持されます。
     established_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -1349,6 +1349,7 @@ COMMIT;
 3. **GAME_IDENTITY_VERIFIED** (Device Bound)
    - **証明済み**: Proof が正しく、かつ PENDING デバイスの秘密鍵による Ed25519 署名が提出・検証され、そのデバイスが正式に Game Identity (`public_id`) と結びついたこと。
    - **DB状態**: `user_devices.device_status = 'VERIFIED'`。`member_identity_claims` に記録完了。`member_ownership` に `primary_device_id` として登録。
+   - ※ `primary_device_id` は「現在有効なVerified Device」ではなく、「最後に確立した primary device の historical record」として定義されます。後日デバイスが `REVOKED` された場合でも `primary_device_id` はそのまま保持され、Token validation 等では必ず `user_devices.device_status` を JOIN して現在の有効性を評価します。
    - **未確定**: Social Account（Web ユーザー）との永続的な所有権結びつけ。
    - **次遷移**: `SOCIAL_ACCOUNT_BOUND`。
    - **戻る遷移**: `UNCLAIMED` (Device Revoke)。
