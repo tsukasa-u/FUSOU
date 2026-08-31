@@ -781,29 +781,36 @@ BEGIN
   END IF;
 
   -- 削除予定の NULL public_id / device_public_key 行に対する依存 (FK 制約違反) が存在するかどうかを PostgreSQL Catalog から動的に事前検査
+-- 削除予定の NULL public_id / device_public_key 行に対する依存 (FK 制約違反) が存在するかどうかを PostgreSQL Catalog から動的に事前検査
+  -- ※ Composite FK (複合外部キー) の各カラムを 1 対 1 で正確に紐付け、誤検出 (False Positive/Negative) を防ぎます。
   DECLARE
     v_fk_record RECORD;
     v_dep_count INT;
+    v_sql TEXT;
   BEGIN
     FOR v_fk_record IN 
       SELECT
-        tc.table_schema, 
-        tc.table_name, 
-        kcu.column_name
-      FROM 
-        information_schema.table_constraints AS tc 
-        JOIN information_schema.key_column_usage AS kcu
-          ON tc.constraint_name = kcu.constraint_name
-          AND tc.table_schema = kcu.table_schema
-        JOIN information_schema.constraint_column_usage AS ccu
-          ON ccu.constraint_name = tc.constraint_name
-          AND ccu.table_schema = tc.table_schema
-      WHERE tc.constraint_type = 'FOREIGN KEY' AND ccu.table_name = 'user_devices'
+          n.nspname AS schema_name,
+          c.relname AS table_name,
+          con.conname AS constraint_name,
+          (
+              SELECT string_agg('d.' || quote_ident(a_child.attname) || ' = u.' || quote_ident(a_parent.attname), ' AND ')
+              FROM unnest(con.conkey) WITH ORDINALITY AS k_child(attnum, ord)
+              JOIN unnest(con.confkey) WITH ORDINALITY AS k_parent(attnum, ord) ON k_child.ord = k_parent.ord
+              JOIN pg_attribute a_child ON a_child.attrelid = con.conrelid AND a_child.attnum = k_child.attnum
+              JOIN pg_attribute a_parent ON a_parent.attrelid = con.confrelid AND a_parent.attnum = k_parent.attnum
+          ) AS join_condition
+      FROM pg_constraint con
+      JOIN pg_class c ON c.oid = con.conrelid
+      JOIN pg_namespace n ON n.oid = c.relnamespace
+      WHERE con.contype = 'f' 
+        AND con.confrelid = 'public.user_devices'::regclass
     LOOP
-      EXECUTE format('SELECT COUNT(*) FROM %I.%I d JOIN public.user_devices u ON d.%I = u.device_id WHERE u.public_id IS NULL OR u.device_public_key IS NULL', 
-                     v_fk_record.table_schema, v_fk_record.table_name, v_fk_record.column_name) INTO v_dep_count;
+      v_sql := format('SELECT COUNT(*) FROM %I.%I d JOIN public.user_devices u ON %s WHERE u.public_id IS NULL OR u.device_public_key IS NULL', 
+                      v_fk_record.schema_name, v_fk_record.table_name, v_fk_record.join_condition);
+      EXECUTE v_sql INTO v_dep_count;
       IF v_dep_count > 0 THEN
-        RAISE EXCEPTION 'PREFLIGHT FAILED: Cannot safely delete legacy devices because %I.%I depends on them', v_fk_record.table_schema, v_fk_record.table_name;
+        RAISE EXCEPTION 'PREFLIGHT FAILED: Cannot safely delete legacy devices because FK %s on %I.%I depends on them', v_fk_record.constraint_name, v_fk_record.schema_name, v_fk_record.table_name;
       END IF;
     END LOOP;
   END;
@@ -1195,6 +1202,8 @@ COMMIT;
   - `DDL failure` → Expected Rollback
   - `Invalid legacy data` → Explicit Abort
   - `Constraint violation` → Explicit Abort
+  - `Composite FK preflight` → Verify 0 false positives, 0 false negatives on composite and single-column FK mappings
+  - `Legacy purge dependency` → Verify all dependent legacy rows block physical deletion (Explicit Abort)
 - **Concurrency Test**:
   - `Claim × Claim`, `Claim × Revoke`, `Challenge × Challenge`, `PENDING × PENDING`, `Social Bind × Social Bind`, `Claim × Social Bind` の全組み合わせを実 DB トランザクションで検証し、Lock Ordering 違反と Race Condition が 0 件であることを保証します。
 
