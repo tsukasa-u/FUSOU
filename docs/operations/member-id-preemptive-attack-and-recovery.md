@@ -257,7 +257,7 @@ public_id = UUIDv4 (Random UUID: Dataset U1)
 
 **状態の保証内容 (Security Guarantees):**
 - `TLSN_PROOF_VERIFIED`: Game Server 由来の `member_id` が TLSNotary によって証明された状態。
-- `GAME_IDENTITY_VERIFIED`: その Identity が FUSOU-WEB 上で一意の `public_id` として確立された状態。
+- `GAME_IDENTITY_VERIFIED`: verified member identity と verified device claim の両方が成立し、その Identity が FUSOU-WEB 上で一意の `public_id` として確立された状態 (GAME_IDENTITY_VERIFIED = verified member identity + verified device claim)。
 
 ```mermaid
 stateDiagram-v2
@@ -291,7 +291,7 @@ Proof P と提出端末 Device A を暗号学的に不可分にバインドす�
 
 **状態の保証内容 (Security Guarantees):**
 - `TLSN_PROOF_VERIFIED`: Game Server 由来の `member_id` が TLSNotary によって証明された状態。
-- `GAME_IDENTITY_VERIFIED`: その Identity が FUSOU-WEB 上で一意の `public_id` として確立された状態。
+- `GAME_IDENTITY_VERIFIED`: verified member identity と verified device claim の両方が成立し、その Identity が FUSOU-WEB 上で一意の `public_id` として確立された状態 (GAME_IDENTITY_VERIFIED = verified member identity + verified device claim)。
 
 ```mermaid
 sequenceDiagram
@@ -1332,7 +1332,7 @@ COMMIT;
 
 1. **UNCLAIMED**
    - **証明済み**: OAuth ログイン済みのユーザーであることのみ。
-   - **DB状態**: `auth.users` にのみ存在。`user_devices` には存在しない。
+   - **DB状態**: current active identity (現在有効な `VERIFIED` Device) が存在しない状態を指します。※過去の履歴（`member_identity_claims`、`device_status = 'REVOKED'` な `user_devices`、および `member_ownership` の historical `primary_device_id`）がDB上に残存していても、現在有効なデバイスが存在しなければ状態機械上は `UNCLAIMED` として扱われます。
    - **未確定**: `member_id`、Game Account との繋がり。
    - **次遷移**: `TLSN_PROOF_VERIFIED` (Challenge 取得等を通じて)。
    - **戻る遷移**: なし。
