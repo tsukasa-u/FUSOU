@@ -242,7 +242,7 @@ public_id = UUIDv4 (Random UUID: Dataset U1)
 ## 5. Social Account Binding (`web_user_member_map`) & 状態モデル
 
 * **状態の分離**:
-  1. `GAME_IDENTITY_VERIFIED`: TLSNotary Proof により `api_member_id` $\leftrightarrow$ `public_id` $\leftrightarrow$ `user_devices` が確定した状態。
+  1. `GAME_IDENTITY_VERIFIED`: verified member identity と verified device claim の両方が成立し、`api_member_id` $\leftrightarrow$ `public_id` $\leftrightarrow$ `user_devices` (現在有効な `VERIFIED` Device) が確定した状態。
   2. `SOCIAL_ACCOUNT_BOUND`: OAuth 認証済み Web ユーザーが明示的なバインディング操作を行い、`web_user_member_map` に登録された状態。
 * **1:1 Binding ルール**: `web_user_member_map` は `PRIMARY KEY (user_id, public_id)` かつ `public_id UNIQUE` であり、1 つの Dataset `public_id` に紐づく Web ユーザーは 1 人です（同一 Game Account Dataset の複数 Social アカウント共有は不可）。  
 * **注意**: Game Account へのアクセス証明 $\neq$ Social Account 所有権の証明 であるため、OAuth 認証済みユーザーによる明示的なバインディング操作を必須とし、別ユーザーからの乗っ取り Claim は `EXISTING_VERIFIED_OWNER_CONFLICT` で遮断されます。
@@ -498,7 +498,7 @@ Client から FUSOU-WEB への提出ペイロードにおける `verifier_result
 
 初回 Claim 時、`member_ownership` に行が存在しない場合でも確実に排他制御を行うため、以下の二重ロックをトランザクション先頭で適用します：
 1. **64-bit Transaction Advisory Lock**:
-   32-bit `hashtext()` によるハッシュ衝突確率を十分に低減するため、64-bit 整数キーを使用し、`claim_verified_device_v3` と `revoke_pre_registered_devices` の双方が同一の Lock Key 導出関数を共有します：
+   32-bit `hashtext()` によるハッシュ衝突確率を十分に低減するため、64-bit 整数キーを使用し、Identity mutation を行う全トランザクション（`claim_verified_device_v3`、および `get_or_create_public_id` を呼ぶエンドポイント等）が同一の Lock Key 導出関数を共有します：
    ```sql
    v_lock_key := public.fn_identity_lock_key(v_api_member_id);
    PERFORM pg_advisory_xact_lock(v_lock_key);
@@ -863,21 +863,14 @@ REVOKE EXECUTE ON FUNCTION public.get_or_create_public_id(BIGINT) FROM PUBLIC, a
 
 -- ==============================================================================
 
--- 1. レガシーデバイスのパージ: public_id が特定できない完全に追跡不能なレガシーデバイスは物理削除する
+-- 1. 既存レガシーデバイスの物理削除 (Legacy Device Purge)
+-- ※ public_id または device_public_key が存在しない完全に追跡不能なレガシーデバイスは、架空の鍵を割り当てることなく物理的に完全削除します。
 -- ※ Device IDs are globally generated UUIDv4 and are never intentionally reused.
--- 物理削除により DB 上の行は消滅するが、運用上 `device_id` の UUIDv4 再割り当ては行われない。
-DELETE FROM public.user_devices WHERE public_id IS NULL;
-
--- 2. 既存デバイスのステータス移行: VERIFIED だったデバイスも含めて安全側に倒して REVOKED 化する (One-time migration)
-UPDATE public.user_devices SET device_status = 'REVOKED', revoked_at = NOW(), revoked_reason = 'legacy_migration' WHERE device_status IS NULL;
-
-
-
--- 2.5 既存デバイスの物理削除 (Legacy Device Purge)
--- ※ public_id または device_public_key が存在しないレガシーデバイスは、架空の鍵を割り当てることなく物理的に完全削除します。
--- ※ 削除対象の device_id は 'never intentionally reused' として扱われ、Security Model と一貫性を保ちます。
--- ※ Preflight check により、これらのデバイスが member_ownership や member_identity_claims に依存されていないことが既に保証されています。
+-- ※ Preflight check により、これらのデバイスに対するいかなる外部キー依存 (Composite FK 含む) も存在しないことが PostgreSQL Catalog から完全に保証されています。
 DELETE FROM public.user_devices WHERE public_id IS NULL OR device_public_key IS NULL;
+
+-- 2. 残存デバイスのステータス移行: VERIFIED だったデバイスも含めて安全側に倒して REVOKED 化する (One-time migration)
+UPDATE public.user_devices SET device_status = 'REVOKED', revoked_at = NOW(), revoked_reason = 'legacy_migration' WHERE device_status IS NULL;
 
 
 -- 3. 旧 CHECK 制約の削除 (存在する場合のみ) と旧 claim_type のデータ修正
@@ -1056,12 +1049,6 @@ BEGIN
   -- ※【仕様固定】同一 public_id で複数の VERIFIED デバイスが存在することは、それらが現在の Ownership の canonical_user_id と完全に一致している場合 (端末追加) にのみ許可されます。
 
   IF EXISTS (
-    SELECT 1 
-    FROM public.member_ownership mo
-    JOIN public.user_devices ud ON mo.primary_device_id = ud.device_id
-    WHERE mo.public_id = v_challenge.public_id
-      AND ud.canonical_user_id <> v_device.canonical_user_id
-  ) OR EXISTS (
     SELECT 1 
     FROM public.user_devices
     WHERE public_id = v_challenge.public_id
