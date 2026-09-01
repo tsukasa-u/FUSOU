@@ -4,7 +4,7 @@
 >
 > **対象リポジトリ**: `FUSOU`
 >
-> **基準 branch / HEAD**: `security-attestation-design` / `305b95cefb5c27993d3e54104306a9b558fddedc`
+> **基準 branch / HEAD**: `security-attestation-design` / `f92cada9dffd22a6497a91975bd7c3db414f6b52`
 >
 > **Revision note**: 上記HEADはrepository archaeologyの基準であり、本書のworking-tree revisionを含まない。本書がcommitされるまでHEAD実装と本仕様を同一視しない。
 >
@@ -382,7 +382,7 @@ Profile limits は次に固定する。
 
 ```text
 MAX_VERIFIER_RESULT_JSON_BYTES = 25165824
-MAX_REQUEST_TRANSCRIPT_BYTES = 65536
+MAX_REQUEST_TRANSCRIPT_BYTES = 512000
 MAX_RESPONSE_TRANSCRIPT_BYTES = 16777216
 MAX_HTTP_HEADER_BYTES = 65536
 MAX_HTTP_HEADER_COUNT = 128
@@ -481,7 +481,7 @@ u32_be(response_range_count)
     u64_be(start) || u64_be(length) || u64_be(decoded_bytes_length) || raw bytes
 ```
 
-Integer は unsigned big-endian fixed width である。String length は bytes 数であり character 数ではない。Array order は `start` 昇順である。第三者実装は同一 semantic value から同一 bytes を生成しなければならない。
+Integer は unsigned big-endian fixed width である。String length は bytes 数であり character 数ではない。`u16_be(length)`へ入る全length（Attestation IDの`N`を含む）は65535以下でなければならず、overflowは拒否する。Array order は `start` 昇順である。第三者実装は同一 semantic value から同一 bytes を生成しなければならない。
 
 `signature` は strict RFC 8032 pure Ed25519 で VerifierResultSignBytes を署名する。Verifier/Device 共通で canonical point encoding、`S < L`、identity point、small-order point、torsion component rejectionを必須とし、ZIP-215 permissive acceptanceを禁止する。
 
@@ -909,7 +909,7 @@ device_id UUID PRIMARY KEY
 canonical_user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE RESTRICT
 public_id UUID NOT NULL REFERENCES member_id_mapping(public_id) ON DELETE RESTRICT
 device_public_key BYTEA NOT NULL UNIQUE CHECK (octet_length(device_public_key) = 32)
-device_status TEXT NOT NULL CHECK (IN PENDING, VERIFIED, REVOKED)
+device_status TEXT NOT NULL CHECK (device_status IN ('PENDING', 'VERIFIED', 'REVOKED'))
 pending_expires_at TIMESTAMPTZ NULL
 verified_at TIMESTAMPTZ NULL
 revoked_at TIMESTAMPTZ NULL
@@ -957,20 +957,20 @@ api_member_id TEXT NOT NULL
 public_id UUID NOT NULL
 canonical_user_id UUID NOT NULL
 verified_device_id UUID NOT NULL UNIQUE
-tlsn_attestation_id BYTEA NOT NULL UNIQUE CHECK (octet_length = literal N)
+tlsn_attestation_id BYTEA NOT NULL UNIQUE CHECK (octet_length(tlsn_attestation_id) = <PHASE-0 literal N>)
 notary_time public.fusou_uint64 NOT NULL
 result_time public.fusou_uint64 NOT NULL
-profile_sha256 BYTEA NOT NULL CHECK (octet_length = 32)
+profile_sha256 BYTEA NOT NULL CHECK (octet_length(profile_sha256) = 32)
 server_identity TEXT NOT NULL
 verifier_key_id TEXT NOT NULL
 notary_key_id TEXT NOT NULL
-verifier_result_sha256 BYTEA NOT NULL CHECK (octet_length = 32)
-request_transcript_sha256 BYTEA NOT NULL CHECK (octet_length = 32)
-response_transcript_sha256 BYTEA NOT NULL CHECK (octet_length = 32)
+verifier_result_sha256 BYTEA NOT NULL CHECK (octet_length(verifier_result_sha256) = 32)
+request_transcript_sha256 BYTEA NOT NULL CHECK (octet_length(request_transcript_sha256) = 32)
+response_transcript_sha256 BYTEA NOT NULL CHECK (octet_length(response_transcript_sha256) = 32)
 request_ranges JSONB NOT NULL CHECK (jsonb_typeof(request_ranges) = 'array')
 response_ranges JSONB NOT NULL CHECK (jsonb_typeof(response_ranges) = 'array')
-proof_purpose TEXT NOT NULL CHECK (= 'GAME_ACCOUNT_IDENTITY_V1')
-claim_type TEXT NOT NULL CHECK (IN canonical 2 values)
+proof_purpose TEXT NOT NULL CHECK (proof_purpose = 'GAME_ACCOUNT_IDENTITY_V1')
+claim_type TEXT NOT NULL CHECK (claim_type IN ('INITIAL_VERIFIED', 'ADDITIONAL_DEVICE'))
 claimed_at TIMESTAMPTZ NOT NULL
 FOREIGN KEY (api_member_id, public_id)
   REFERENCES member_id_mapping(api_member_id, public_id) ON DELETE RESTRICT
@@ -1003,23 +1003,23 @@ api_member_id TEXT NOT NULL
 public_id UUID NOT NULL
 canonical_user_id UUID NOT NULL
 device_id UUID NOT NULL
-device_public_key_sha256 BYTEA NOT NULL CHECK (octet_length = 32)
-tlsn_attestation_id BYTEA NOT NULL CHECK (octet_length = literal N)
-challenge_nonce BYTEA NOT NULL CHECK (octet_length = 32)
+device_public_key_sha256 BYTEA NOT NULL CHECK (octet_length(device_public_key_sha256) = 32)
+tlsn_attestation_id BYTEA NOT NULL CHECK (octet_length(tlsn_attestation_id) = <PHASE-0 literal N>)
+challenge_nonce BYTEA NOT NULL CHECK (octet_length(challenge_nonce) = 32)
 notary_time public.fusou_uint64 NOT NULL
 result_time public.fusou_uint64 NOT NULL
-profile_sha256 BYTEA NOT NULL CHECK (octet_length = 32)
+profile_sha256 BYTEA NOT NULL CHECK (octet_length(profile_sha256) = 32)
 server_identity TEXT NOT NULL
 verifier_key_id TEXT NOT NULL
 notary_key_id TEXT NOT NULL
-verifier_result_sha256 BYTEA NOT NULL CHECK (octet_length = 32)
-request_transcript_sha256 BYTEA NOT NULL CHECK (octet_length = 32)
-response_transcript_sha256 BYTEA NOT NULL CHECK (octet_length = 32)
+verifier_result_sha256 BYTEA NOT NULL CHECK (octet_length(verifier_result_sha256) = 32)
+request_transcript_sha256 BYTEA NOT NULL CHECK (octet_length(request_transcript_sha256) = 32)
+response_transcript_sha256 BYTEA NOT NULL CHECK (octet_length(response_transcript_sha256) = 32)
 request_ranges JSONB NOT NULL CHECK (jsonb_typeof(request_ranges) = 'array')
 response_ranges JSONB NOT NULL CHECK (jsonb_typeof(response_ranges) = 'array')
-proof_purpose TEXT NOT NULL CHECK (= 'GAME_ACCOUNT_IDENTITY_V1')
-challenge_status TEXT NOT NULL CHECK (IN ACTIVE, CONSUMED, EXPIRED)
-terminal_reason TEXT NULL CHECK (IN CLAIM_ACCEPTED, INVALID_SIGNATURE, DEVICE_REVOKED, TTL_EXPIRED)
+proof_purpose TEXT NOT NULL CHECK (proof_purpose = 'GAME_ACCOUNT_IDENTITY_V1')
+challenge_status TEXT NOT NULL CHECK (challenge_status IN ('ACTIVE', 'CONSUMED', 'EXPIRED'))
+terminal_reason TEXT NULL CHECK (terminal_reason IN ('CLAIM_ACCEPTED', 'INVALID_SIGNATURE', 'DEVICE_REVOKED', 'TTL_EXPIRED'))
 expires_at TIMESTAMPTZ NOT NULL
 consumed_at TIMESTAMPTZ NULL
 expired_at TIMESTAMPTZ NULL
@@ -1066,10 +1066,10 @@ Range sha256 = SHA-256(raw decoded Range bytes)
 ingest_id UUID PRIMARY KEY
 device_id UUID NOT NULL REFERENCES user_devices(device_id) ON DELETE RESTRICT
 public_id UUID NOT NULL REFERENCES member_id_mapping(public_id) ON DELETE RESTRICT
-route_id TEXT NOT NULL CHECK (IN Section 11.4 canonical 6 route IDs)
-content_sha256 BYTEA NOT NULL CHECK (octet_length = 32)
+route_id TEXT NOT NULL CHECK (route_id IN ('FLEET_SNAPSHOT', 'BATTLE_DATA_UPLOAD', 'QUEST_TREE_INGEST', 'REMODEL_DATA_INGEST', 'SHIP_GROWTH_INGEST', 'SOKU_SPEED_OBSERVED_INGEST'))
+content_sha256 BYTEA NOT NULL CHECK (octet_length(content_sha256) = 32)
 content_size BIGINT NOT NULL CHECK (content_size >= 0)
-nonce BYTEA NOT NULL UNIQUE CHECK (octet_length = 32)
+nonce BYTEA NOT NULL UNIQUE CHECK (octet_length(nonce) = 32)
 expires_at TIMESTAMPTZ NOT NULL
 consumed_at TIMESTAMPTZ NULL
 created_at TIMESTAMPTZ NOT NULL
@@ -1108,6 +1108,17 @@ expire_identity_artifact_v1
 `lock_attestation_v1`、`lock_identity_v1`、`lock_user_quota_v1`、`lock_device_key_v1`、`get_or_create_public_id`、validator/trigger functionsは`fusou_identity_owner`だけが実行できる。すべてのSECURITY DEFINER functionは`SET search_path = public, extensions, pg_temp`を持ち、body内のrelation/functionをschema-qualifiedする。Function作成直後、次のfunctionを作る前にowner/revoke/grantを適用する。
 
 Preflight/postflightは`PUBLIC`、`anon`、`authenticated`、`service_role`に`public`/`extensions` schemaの`CREATE` privilegeがないことをassertする。Built-inは`pg_catalog.transaction_timestamp()`等、extension functionは`extensions.gen_random_uuid()`等として全てschema-qualifiedする。
+
+最終ACL matrixは次である。`fusou_identity_owner`の`ALL`はowned identity objectsに限り、NOLOGINである。全roleについてmigration完了後の`public`/`extensions` schema `CREATE`は`NO`とし、migration operatorだけがobject作成中に使用する。`PUBLIC`はPostgreSQLの擬似roleとして明示する。
+
+| Principal | Identity tables/sequences | Entry EXECUTE | Internal/helper EXECUTE | `public`/`extensions` CREATE | `auth` schema/data |
+| --- | --- | --- | --- | --- | --- |
+| `PUBLIC` | none | none | none | NO | none |
+| `anon` | none | none | none | NO | none |
+| `authenticated` | none | none | none | NO | none |
+| `service_role` | none | entry functions only | none | NO | none |
+| `fusou_identity_owner` | ALL on owned objects | owner-only | owner-only | NO after migration | `USAGE` + `SELECT` on `auth.users(id,is_anonymous)` and `auth.identities(user_id,provider)` |
+| `fusou_identity_auditor` | `SELECT` on `member_identity_claims` only | none | none | NO | none |
 
 ---
 
@@ -1431,6 +1442,33 @@ Dataset TokenはWorkers Fetch APIが公開する正規化後の単一`request.he
 
 Stage 2はbody hash/sizeとUpload Tokenを検証した後、同じ`X-Dataset-Token`のsignature/time/subject一致と上記live root/key lookupを再実行し、7 token fieldsを`consume_dataset_upload_v1`へ渡す。CAS commit後だけ最初のQueue/storage mutationへ進む。Stage 1後にdevice、ownership、Social Binding、JWT key、Notary key、Verifier keyのいずれかが失効した場合、Stage 2は401でledger consumeも書込みも0件とする。Upload Token replayは409で拒否する。
 
+二段階uploadのHTTP境界は、Section 11.4の6つの同一POST endpointについて次に固定する。Stage判定は`X-Upload-Token` headerのnormalized single-valueが**存在するかどうかだけ**で行い、query、body、cookie、別headerでStageを選択してはならない。
+
+```text
+Stage 1 (prepare)
+  Request: POST <one of the six Section 11.4 paths>
+  Headers: exactly one X-Dataset-Token; X-Upload-Token absent
+  Body: route-owned preparation JSON with exactly the route schema fields plus
+  content_sha256 (strict base64url, decoded 32 bytes) and
+  content_size (non-negative JSON safe integer)
+  Server: route path selects the closed route ID; device/public/user and all
+    authority values come from the live Dataset Token/root lookup
+  DB: issue_dataset_upload_v1(UUID, UUID, TEXT, BYTEA, BIGINT)
+  Success: HTTP 201 and exactly
+           {"upload_token":"<compact-JWS>","ingest_id":"<uuidv4>","expires_at":"<YYYY-MM-DDTHH:MM:SS.sssZ>"}
+
+Stage 2 (execute)
+  Request: POST <the same endpoint path used by Stage 1>
+  Headers: exactly one X-Dataset-Token and exactly one X-Upload-Token
+  Body: route-owned execution bytes; common code hashes the exact received bytes
+  Server: route schema validates the body before sink mutation and passes only
+    server-selected route ID plus token claims to consume_dataset_upload_v1
+  DB: consume_dataset_upload_v1(UUID, UUID, UUID, TEXT, BYTEA, BIGINT, BYTEA)
+  Success: route-owned 2xx only after CAS commit and required sink convergence
+```
+
+Stage 1のroute-specific preparation/execution fieldsはSection 11.4で指定したowning schemaがcanonicalであり、identity layerはそれらをauthorityとして解釈しない。`route`、`device_id`、`public_id`、`ingest_id`、nonce、timestampsをclient bodyから受け取らず、token/endpoint/ledgerから復元する。Stage 1/2でDataset Tokenがmissing、複数、invalid、expired、root/key mismatchなら、Stage判定後に`401 INVALID_DATASET_TOKEN`としてDBを変更しない。`X-Upload-Token`が存在するStage 2で空値または複数値なら`409 UPLOAD_TOKEN_NOT_ACTIVE`としてDBを変更しない。
+
 ### 11.3 JWT key registry と rotation
 
 FUSOU-WEBのprivate keyは`createEnvContext()`と`getEnv()`だけで読むsecret `DATASET_JWT_ED25519_PRIVATE_JWK`、active IDは`DATASET_JWT_ACTIVE_KID`である。Direct `process.env` readとclient HTMLへの埋込みを禁止する。Private JWKはexact `kty=OKP`、`crv=Ed25519`、RFC 8037の32-byte Ed25519 seedである`d`、32-byte `x`、registryと一致する`kid`だけを持つ。Startup時に`d`からpublic keyを導出し、JWK `x`、registry `x`、active `kid`の4値をconstant-time比較して不一致ならfail closedとする。
@@ -1650,7 +1688,7 @@ Preflight failure fixtureはmutation前後のtable checksumが同一でなけれ
 ```text
 id INTEGER PRIMARY KEY AUTOINCREMENT
 ingest_id TEXT NOT NULL
-route_id TEXT NOT NULL CHECK (IN Section 11.4 canonical 6 route IDs)
+route_id TEXT NOT NULL CHECK (route_id IN ('FLEET_SNAPSHOT', 'BATTLE_DATA_UPLOAD', 'QUEST_TREE_INGEST', 'REMODEL_DATA_INGEST', 'SHIP_GROWTH_INGEST', 'SOKU_SPEED_OBSERVED_INGEST'))
 record_ordinal INTEGER NOT NULL CHECK (record_ordinal >= 0)
 content_sha256 TEXT NOT NULL CHECK (length = 43, strict base64url-32)
 public_id TEXT NOT NULL
@@ -1667,7 +1705,7 @@ UNIQUE (ingest_id, route_id, record_ordinal)
 
 `timestamp`と`data`はuntrusted payload contentでありauthorityではない。各tableはordering index `(table_version, table_name, period_tag, public_id, id)`とhot index `(public_id, table_name, timestamp)`を持つ。Swap/recreate pathもこのartifactのliteral DDLを使用し、legacy `dataset_id`、`uploaded_by`、`trust_tag` columnsを再作成してはならない。P0-17はこのfileからfresh targetを作り、fingerprint profileとruntime insert/select/swap smokeを通す。
 
-Checked-in manifestは`packages/FUSOU-WEB/scripts/manifests/tlsn-identity-storage-v1.json`、executorは新規`packages/FUSOU-WEB/scripts/cutover-tlsn-identity-storage.mjs`である。既存no-op `purge-d1-member-data.mjs`は削除する。ManifestはRFC 8785 canonical JSONのexactly次のtop-level shapeを持つ。
+Required manifest artifact（現行repositoryには未作成）は`packages/FUSOU-WEB/scripts/manifests/tlsn-identity-storage-v1.json`、executorは新規`packages/FUSOU-WEB/scripts/cutover-tlsn-identity-storage.mjs`である。既存no-op `purge-d1-member-data.mjs`は削除する。ManifestはRFC 8785 canonical JSONのexactly次のtop-level shapeを持つ。
 
 ```json
 {"bindings":[],"epoch":"tlsn-v1","generation_id":"<uuidv4>","legacy_resources":[],"preserved_resources":[],"queue_consumers":[],"target_resources":[],"transitions":[],"version":1}
@@ -1815,7 +1853,7 @@ packages/FUSOU-PROXY/proxy-https
   - send-state latch
   - post-T3 finalization worker
 
-packages/FUSOU-TLSN-VERIFIER
+packages/FUSOU-TLSN-VERIFIER (new package; absent in current repository)
   - pinned TLSNotary profile
   - proof/transcript verification
   - canonical Verifier Result serializer
@@ -2045,7 +2083,7 @@ quoted schema/table/column identifiers
 
 Composite FK detector acceptance は false positive = 0、false negative = 0。
 
-Executable fixtureは`packages/FUSOU-WEB/supabase/tests/tlsn_identity_spec_primitives.sql`である。Fixture自身が`server_version_num = 160015`をassertする。2026-09-01にimage `postgres@sha256:cf78e76683b9ca8c5733cbbdce6c9262b45b6767934dd0a95e671f9a0fc20685`をdatabase serverとして実行し、UInt64境界、4 lock domains、1/2/3-column FK、same childからのmultiple FK、unrelated FK、quoted schema/table/columnを含む6対象constraintがPASSした。再実行commandは次である。
+Executable fixtureは`packages/FUSOU-WEB/supabase/tests/tlsn_identity_spec_primitives.sql`である。Fixture自身が`server_version_num = 160015`をassertする。2026-09-01にimage `postgres@sha256:cf78e76683b9ca8c5733cbbdce6c9262b45b6767934dd0a95e671f9a0fc20685`をdatabase serverとして実行し、UInt64境界、4 lock domains、1/2/3-column FK、valid/invalid dependency、nullable child、same childからのmultiple FK、unrelated FK、quoted schema/table/columnを含む7対象constraintがPASSした。再実行commandは次である。
 
 ```bash
 CONTAINER=fusou-tlsn-spec-pg
@@ -2122,7 +2160,7 @@ Production trafficは全GateがPASSするまでenableしない。P0-01..10とP0-
 | P0-02 | Attestation ID | official extraction API、golden bytes、literal `N` |
 | P0-03 | Authenticated time | `notary_time` source、tamper test、wire fixture |
 | P0-04 | Real `require_info` | 各supported Game client build/allowlisted hostでnatural requestを1件以上captureし、Number token、HTTP framing、compression、response sizeをmanifest化 |
-| P0-05 | Strict disclosure profile | Dedicated Verifierでfull request + full response認証、Resultはsafe request rangesだけ、digest golden fixture |
+| P0-05 | Strict disclosure profile | Dedicated Verifierでfull request + full response認証、500 KiB/16 MiB limit boundary fixture、Resultはsafe request rangesだけ、digest golden fixture |
 | P0-06 | T3/T4 delivery lifecycle | Browser response後にsame session finalization、signed ResultのProxy -> APP -> Web byte一致 |
 | P0-07 | No FUSOU resubmission | Section 14.5でattempt <= 1、complete <= 1、正常/fallback成功はcomplete = 1、2以上 = 0件 |
 | P0-08 | Performance | 同じmatched network/origin profileでbaseline 1000回とMPC 1000回、paired added latency P95 <= 300 ms、MPC failure count <= baseline failure count |
@@ -2191,14 +2229,14 @@ FINAL SPECIFICATION AUDIT
 Repository:
 FUSOU
 
-HEAD:
-305b95cefb5c27993d3e54104306a9b558fddedc
+Commit:
+f92cada9dffd22a6497a91975bd7c3db414f6b52
 
 Document:
 docs/operations/member-id-preemptive-attack-and-recovery.md
 
-Specification reconstructed:
-YES
+Specification reconstruction:
+PASS
 
 P0 issues found:
 36
@@ -2212,48 +2250,77 @@ P2 issues found:
 Specification dispositions complete:
 P0 36/36, P1 58/58, P2 15/15
 
-Runtime implementation verified:
-0/36 historical P0 dispositions; PostgreSQL primitive fixture only
+Issues automatically fixed:
+Canonical state/ownership rules, RPC authority boundaries, lock order, replay/CAS,
+cross-store cutover/recovery, target Turso bootstrap source, and report cardinality
+
+Remaining contradictions:
+NONE in this specification; legacy surfaces compared, target implementation comparison pending
+
+Remaining implementation decisions:
+NONE
+
+Remaining Phase 0 gates:
+P0-01 through P0-17; 0/17 passed
 
 Architecture:
-SPECIFICATION PASS - runtime absent
+PASS - runtime absent
 
 Security Goal:
-SPECIFICATION PASS - runtime unverified
+PASS - runtime unverified
 
 Threat Model:
-SPECIFICATION PASS - Proof Copy remains an explicit v1 non-goal
+PASS - Proof Copy remains an explicit v1 non-goal
 
 State Machine:
-SPECIFICATION PASS - runtime unverified
+PASS - runtime unverified
 
-State Machine <-> DB:
-SPECIFICATION PASS - target migration absent
+State Machine ↔ DB:
+PASS - target migration not yet verified
 
 Owner Conflict:
-SPECIFICATION PASS - concurrency suite pending
+PASS - concurrency suite pending
 
-API <-> RPC:
-SPECIFICATION PASS - target routes/RPCs absent
+Device Lifecycle:
+PASS - runtime unverified
+
+Challenge Lifecycle:
+PASS - runtime unverified
+
+Claim Lifecycle:
+PASS - runtime unverified
+
+API ↔ RPC:
+PASS - target identity RPCs/contract absent; legacy handlers remain non-conforming
 
 Verifier Protocol:
-FAIL - PHASE-0 revision and authenticated-time evidence are not frozen
+PHASE-0 - revision and authenticated-time evidence not yet verified
 
 Canonical Serialization:
-FAIL - PHASE-0 literal Attestation ID length N is not frozen
+PHASE-0 - literal Attestation ID length N not yet verified
+
+Parser:
+PHASE-0 - real capture and parser fixtures pending
+
+JWT:
+PHASE-0 - key registry rotation and live validation not yet verified
+
+Telemetry:
+PHASE-0 - route integration and attribution tests pending
 
 PostgreSQL:
-PRIMITIVE PASS - PostgreSQL 16.15 fixture passed
-TARGET FAIL - migrations do not exist and have not run end-to-end
+PHASE-0 - PostgreSQL 16.15 primitive fixture passed; target migration not yet verified
 
-Composite FK Preflight:
-PRIMITIVE PASS - six fixture cases
-PRODUCTION PHASE-0
+Dynamic Composite FK Preflight:
+PHASE-0 - seven primitive fixture cases passed; production preflight pending
 
 Fresh DB Migration:
 PHASE-0
 
 Existing DB Migration:
+PHASE-0
+
+Cross-store Cutover:
 PHASE-0
 
 Concurrency:
@@ -2266,26 +2333,16 @@ Gameplay Critical Path:
 PHASE-0
 
 Legacy Cleanup:
-SPECIFICATION PASS - removal set and ordering are fixed
-RUNTIME FAIL - manifest executor and cutover evidence are absent
+PHASE-0 - removal set/order specified; executor and evidence absent
 
 Third-party implementation determinism:
-FAIL - TLSNotary profile artifact and golden fixtures are pending
+PHASE-0 - TLSNotary profile artifact and golden fixtures pending
 
-Remaining design decisions:
-NONE
+Overengineering check:
+PASS - no new architecture, security mechanism, proxy, hash, or recovery mechanism added
 
-Cross-layer contradictions:
-0 in this specification; implementation comparison pending
-
-Blocking open questions:
-17 explicit GO Gates
-
-Phase 0 GO Gates:
-P0-01 through P0-17 in Section 15
-
-Phase 0 GO Gates passed:
-0/17
+Runtime implementation verified:
+0/36 historical P0 dispositions; PostgreSQL primitive fixture only
 
 IMPLEMENTATION READY:
 NO
