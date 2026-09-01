@@ -4,9 +4,11 @@
 >
 > **対象リポジトリ**: `FUSOU`
 >
-> **基準 branch / HEAD**: `security-attestation-design` / `0d2a85a8c474271ecf6bf7e2cf062365a9608e83`
+> **基準 branch / Reference Baseline**: `security-attestation-design` / `0d2a85a8c474271ecf6bf7e2cf062365a9608e83`
 >
-> **Revision note**: 上記HEADは本仕様書の対象commitである。runtime implementationは別途未作成であり、commit済み仕様と実装済み機能を同一視しない。今回のcross-specification auditはこのHEADを基準に行う。
+> **Specification Revision**: `afd16690ecdaf2229d0a017e97ae551010744fc2`
+>
+> **Revision note**: Reference Baseline は本仕様書が対象とする repository baseline であり、Specification Revision は本仕様書自身を更新した commit である。runtime implementationは別途未作成であり、commit済み仕様と実装済み機能を同一視しない。今回のcross-specification auditは Reference Baseline を基準に行う。
 >
 > **再構築日**: 2026-09-01
 >
@@ -1181,7 +1183,7 @@ consumed_at TIMESTAMPTZ NULL
 created_at TIMESTAMPTZ NOT NULL
 ```
 
-Server-generated `ingest_id`はUUIDv4 PRIMARY KEY、nonceはCSPRNG 32 bytes、`created_at=v_db_now`、`expires_at=v_db_now + interval '1 hour'`である。Triggerは全authority columnsをimmutableにし、`consumed_at`の`NULL -> non-NULL`という一方向遷移だけを許可する。時刻を読むのはtriggerではなく`consume_dataset_upload_v1`であり、RPCが`v_consumed_at = date_trunc('milliseconds', v_db_now)`を一度だけ計算してCAS UPDATEへ渡す。したがって`consumed_at`の保存値は常にUTC instantのmillisecond精度で、microsecond remainderは0である。Consumedまたはexpired rowは7日保持後にservice-only cleanupで削除する。Table/sequenceへのdirect DML/TRUNCATEを全application roleからrevokeし、Section 10.5のentry functionsだけをwrite pathとする。
+Server-generated `ingest_id`はUUIDv4 PRIMARY KEY、nonceはCSPRNG 32 bytes、`created_at=date_trunc('second', v_db_now)`、`expires_at=created_at + interval '1 hour'`である。`created_at`は別clock readではなく、transaction-wide `v_db_now`から派生するwhole-second UTC instantであり、Upload Token `iat`/`exp`とledger expiryをexact一致させるためだけにsecond精度へ切り捨てる。Triggerは全authority columnsをimmutableにし、`consumed_at`の`NULL -> non-NULL`という一方向遷移だけを許可する。時刻を読むのはtriggerではなく`consume_dataset_upload_v1`であり、RPCが`v_consumed_at = date_trunc('milliseconds', v_db_now)`を一度だけ計算してCAS UPDATEへ渡す。したがって`consumed_at`の保存値は常にUTC instantのmillisecond精度で、microsecond remainderは0である。Consumedまたはexpired rowは7日保持後にservice-only cleanupで削除する。Table/sequenceへのdirect DML/TRUNCATEを全application roleからrevokeし、Section 10.5のentry functionsだけをwrite pathとする。
 
 ### 9.9 Roles と privileges
 
@@ -1505,7 +1507,7 @@ actor-owned EXPIRED                                   -> CHALLENGE_NOT_ACTIVE
 
 `OK_REPLAY`ではlinked Claimのactor/device/public/AttestationがChallengeとexact一致しなければcorruptionとしてraiseする。Non-OK時はauthority fieldsを全てNULLにする。Dataset subject/validation functionsは当該deviceのunique accepted Claimをjoinして両key IDを返す。Unauthorized時は`authorized=false`またはnon-OKとしkey IDsはNULLにする。ほかのfunctionは`outcome`を第1列とするnamed composite resultを返し、non-OK時のauthority/result columnsはすべてNULLとする。
 
-`issue_dataset_upload_v1(device_id, public_id, route_id, content_sha256, content_size)`はdeviceをpre-readし、Identity、mapping、ownership、deviceの順にlockしてSection 11.2のDB root条件を再検証する。Upload issuanceはPENDING/VERIFIED数またはdevice key lifecycleを変更しないため、User-quota/Device-key advisory lockは取得しない。Success時は`v_db_now`をtransaction-wideなDB timestampとして使用し、Section 9.8 rowをINSERTして`OK_NEW`を返す。Client指定ingest ID/nonce/timeを受け取らない。
+`issue_dataset_upload_v1(device_id, public_id, route_id, content_sha256, content_size)`はdeviceをpre-readし、Identity、mapping、ownership、deviceの順にlockしてSection 11.2のDB root条件を再検証する。Upload issuanceはPENDING/VERIFIED数またはdevice key lifecycleを変更しないため、User-quota/Device-key advisory lockは取得しない。Success時は`v_db_now`をtransaction-wideなDB timestampとして使用し、`v_ledger_created_at = date_trunc('second', v_db_now)`、`expires_at = v_ledger_created_at + interval '1 hour'`でSection 9.8 rowをINSERTして`OK_NEW`を返す。Client指定ingest ID/nonce/timeを受け取らない。
 
 `consume_dataset_upload_v1(ingest_id, device_id, public_id, route_id, content_sha256, content_size, nonce)`はledgerをnon-locking pre-readしてlocatorを得た後、Identity、Device-key、mapping、ownership、device、ledgerの順にlockし、DB root条件と7 immutable token fieldsを再検証する。Missingまたはimmutable field mismatchは`UPLOAD_TOKEN_NOT_ACTIVE`、`consumed_at IS NOT NULL`はexpiry後であっても先に評価して`UPLOAD_TOKEN_REPLAY`、未消費で`expires_at <= v_db_now`なら`UPLOAD_TOKEN_NOT_ACTIVE`とする。残るactive rowは`v_consumed_at = date_trunc('milliseconds', v_db_now)`を1回取得し、`UPDATE ... SET consumed_at=v_consumed_at WHERE ingest_id=$1 AND consumed_at IS NULL AND expires_at > v_db_now`のaffected row exactly 1で`OK`、`ingest_id`、`v_consumed_at`を返す。CASのaffected rowが0なら、lock済みrowを再確認して`consumed_at IS NOT NULL`なら`UPLOAD_TOKEN_REPLAY`、`expires_at <= v_db_now`なら`UPLOAD_TOKEN_NOT_ACTIVE`を返し、両方を満たさない場合はinvariant corruptionとしてraiseする。Non-OK時は後2列をNULLにする。CAS transactionをcommitしてから最初のQueue/storage mutationを行う。
 
@@ -1598,7 +1600,7 @@ Dataset TokenはWorkers Fetch APIが公開する正規化後の単一`request.he
 
 Upload Token header/payloadのproperty orderは上記の表示順をwire contractとして固定する（payloadでは`version`が最後）。Serializerはpropertyを追加、削除、並替えしてはならず、Dataset JWTのpayload orderとは別のこのupload payload orderを使用する。
 
-`iat`はledger `created_at`のwhole second、`exp=iat+3600`でledger `expires_at`と一致する。`content_size`は0以上のJSON safe integerかつroute上限以下、routeはSection 11.4の6値だけである。Unknown/duplicate field、noncanonical JSON/base64url/number、header/payload `kid`不一致を拒否する。Upload TokenをDataset credentialの代用にしない。
+`iat`はledger `created_at`のwhole second、`exp=iat+3600`でledger `expires_at`のwhole secondと一致する。ledger `created_at`はSection 9.8/10.5のとおり`date_trunc('second', v_db_now)`なので、fractional `v_db_now`でもtoken expiryとledger expiryはexact一致する。`content_size`は0以上のJSON safe integerかつroute上限以下、routeはSection 11.4の6値だけである。Unknown/duplicate field、noncanonical JSON/base64url/number、header/payload `kid`不一致を拒否する。Upload TokenをDataset credentialの代用にしない。
 
 Stage 2の処理順は、全6 routeで次の一つだけを使用する。
 
@@ -2440,7 +2442,10 @@ FINAL FREEZE AUDIT
 Repository:
 FUSOU
 
-Commit:
+Specification Commit:
+afd16690ecdaf2229d0a017e97ae551010744fc2
+
+Reference Baseline:
 0d2a85a8c474271ecf6bf7e2cf062365a9608e83
 
 Document:
