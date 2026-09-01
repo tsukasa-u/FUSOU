@@ -4,11 +4,11 @@
 >
 > **対象リポジトリ**: `FUSOU`
 >
-> **基準 branch / HEAD**: `security-attestation-design` / `da508c19b8a527a759b1cfbeb03572f70e103a4b`
+> **基準 branch / HEAD**: `security-attestation-design` / `2bc3f3e3a3dea3fe9658d2a591ecee11cae056c1`
 >
-> **Revision note**: 上記HEADは本仕様書の対象commitである。runtime implementationは別途未作成であり、commit済み仕様と実装済み機能を同一視しない。
+> **Revision note**: 上記HEADは本仕様書の対象commitである。runtime implementationは別途未作成であり、commit済み仕様と実装済み機能を同一視しない。今回のcross-specification auditはこのHEADを基準に行う。
 >
-> **再構築日**: 2026-08-31
+> **再構築日**: 2026-09-01
 >
 > **実装状態**: `DESIGN ONLY`。現行 runtime は TLSNotary を実装していない。Phase 0 GO Gate を全件通過するまで `implemented`、`verified`、`tested`、`implementation ready` と扱わない。
 
@@ -1325,7 +1325,7 @@ Function は transaction-scoped であり、same member ID に same immutable pu
 1. Challengeをnon-locking readしAttestation、member ID、user、device keyを得る。存在しなければreject。
 2. Attestation、Identity、User-quota、Device-key advisory lockを順に取得。
 3. Mapping parent rowを`FOR UPDATE`し、Challengeの`(api_member_id, public_id)`と一致確認。
-4. Challenge rowを`FOR UPDATE`し、pre-read値とactor userを再検証。
+4. Challenge rowを`FOR UPDATE`し、pre-read値とactor userを再検証する。Claim insert用の全authority列はこのlock済みrowから再構築し、pre-read値またはclient値を直接使用してはならない。
 5. ownership row、対象device、同public IDのVERIFIED devicesをorderに従ってlock。
 6. 同Attestationのexisting Claimをlookup。actorを含む4値exact matchはidempotent result、mismatchはreject。
 7. `v_db_now := pg_catalog.transaction_timestamp()`をこのtransactionで一度だけ取得する。新規ClaimではChallengeがACTIVEかつ`expires_at > v_db_now`であることを確認。期限切れなら`EXPIRED/TTL_EXPIRED`へ遷移し、Deviceも期限切れPENDINGなら`REVOKED/expired_pending`へ遷移してrejectする。
@@ -1507,11 +1507,11 @@ actor-owned EXPIRED                                   -> CHALLENGE_NOT_ACTIVE
 
 `issue_dataset_upload_v1(device_id, public_id, route_id, content_sha256, content_size)`はdeviceをpre-readし、Identity、mapping、ownership、deviceの順にlockしてSection 11.2のDB root条件を再検証する。Upload issuanceはPENDING/VERIFIED数またはdevice key lifecycleを変更しないため、User-quota/Device-key advisory lockは取得しない。Success時は`v_db_now`をtransaction-wideなDB timestampとして使用し、Section 9.8 rowをINSERTして`OK_NEW`を返す。Client指定ingest ID/nonce/timeを受け取らない。
 
-`consume_dataset_upload_v1(ingest_id, device_id, public_id, route_id, content_sha256, content_size, nonce)`はledgerをnon-locking pre-readしてlocatorを得た後、Identity、Device-key、mapping、ownership、device、ledgerの順にlockし、DB root条件と7 immutable token fieldsを再検証する。Missingまたはimmutable field mismatchは`UPLOAD_TOKEN_NOT_ACTIVE`、`consumed_at IS NOT NULL`はexpiry後であっても先に評価して`UPLOAD_TOKEN_REPLAY`、未消費で`expires_at <= v_db_now`なら`UPLOAD_TOKEN_NOT_ACTIVE`とする。残るactive rowは`v_consumed_at = date_trunc('milliseconds', v_db_now)`を1回取得し、`UPDATE ... SET consumed_at=v_consumed_at WHERE ingest_id=$1 AND consumed_at IS NULL AND expires_at > v_db_now`のaffected row exactly 1で`OK`、`ingest_id`、`v_consumed_at`を返す。Non-OK時は後2列をNULLにする。CAS transactionをcommitしてから最初のQueue/storage mutationを行う。
+`consume_dataset_upload_v1(ingest_id, device_id, public_id, route_id, content_sha256, content_size, nonce)`はledgerをnon-locking pre-readしてlocatorを得た後、Identity、Device-key、mapping、ownership、device、ledgerの順にlockし、DB root条件と7 immutable token fieldsを再検証する。Missingまたはimmutable field mismatchは`UPLOAD_TOKEN_NOT_ACTIVE`、`consumed_at IS NOT NULL`はexpiry後であっても先に評価して`UPLOAD_TOKEN_REPLAY`、未消費で`expires_at <= v_db_now`なら`UPLOAD_TOKEN_NOT_ACTIVE`とする。残るactive rowは`v_consumed_at = date_trunc('milliseconds', v_db_now)`を1回取得し、`UPDATE ... SET consumed_at=v_consumed_at WHERE ingest_id=$1 AND consumed_at IS NULL AND expires_at > v_db_now`のaffected row exactly 1で`OK`、`ingest_id`、`v_consumed_at`を返す。CASのaffected rowが0なら、lock済みrowを再確認して`consumed_at IS NOT NULL`なら`UPLOAD_TOKEN_REPLAY`、`expires_at <= v_db_now`なら`UPLOAD_TOKEN_NOT_ACTIVE`を返し、両方を満たさない場合はinvariant corruptionとしてraiseする。Non-OK時は後2列をNULLにする。CAS transactionをcommitしてから最初のQueue/storage mutationを行う。
 
 CAS commit後のexternal failureでも`consumed_at`をrollback/NULL化せず、same Upload Token replayを拒否する。ClientはStage 1から新しい`ingest_id`を取得する。これはduplicate external mutationよりavailability lossを選ぶsecurity ruleであり、同じ`ingest_id`のserver/Queue retryはSection 11.4のidempotent sink contractだけが許可する。
 
-`list_expired_identity_artifact_ids_v1(INTEGER)`はread-only、`RETURNS SETOF UUID`で、limitは1..100、Challenge ID昇順、ID以外を返さない。Cleanup schedulerは`list_expired_identity_artifact_ids_v1(100)`でopaque Challenge IDsを取得し、各IDを別transactionの`expire_identity_artifact_v1(UUID)`へ渡す。後者は`outcome`だけのtyped resultを返し、Attestation、Identity、User-quota、Device-key、mapping、Challenge、deviceの順にlockし、expired ACTIVE/PENDINGを遷移する。Challenge rowの削除は行わず、`UNIQUE(tlsn_attestation_id)`によるlifecycle全体の一回性を維持する。1 transactionで複数identityのadvisory lockを保持しない。
+`list_expired_identity_artifact_ids_v1(INTEGER)`はread-only、`RETURNS SETOF UUID`で、limitは1..100、ID以外を返さない。関数は`v_db_now := pg_catalog.transaction_timestamp()`を一度だけ取得し、`claim_challenges`と`user_devices`をjoinして、`ACTIVE`かつ`expires_at <= v_db_now`のChallenge、または`PENDING`かつ`pending_expires_at <= v_db_now`のdeviceに紐づくChallengeを候補とする。複数の retained Challengeが同じdeviceに紐づく場合は`challenge_id`最小の1件だけを返し、結果全体は`challenge_id`昇順とする。したがって、invalid signatureまたはdevice revokeでChallengeがterminalになった後も、期限切れPENDINGをcleanupできる。Cleanup schedulerは`list_expired_identity_artifact_ids_v1(100)`でopaque Challenge IDsを取得し、各IDを別transactionの`expire_identity_artifact_v1(UUID)`へ渡す。結果が空になるまでこのbatch処理を繰り返し、1 transactionで複数identityを処理しない。後者は`outcome`だけのtyped resultを返し、Attestation、Identity、User-quota、Device-key、mapping、Challenge、deviceの順にlockする。lock後に選択されたChallenge rowと当該deviceの全ACTIVE Challenge rowのunionを`challenge_id`昇順で`FOR UPDATE`し、linked device rowも`FOR UPDATE`する。期限切れACTIVEを`EXPIRED/TTL_EXPIRED`へ、期限切れPENDINGを`REVOKED/expired_pending`へ同じ`v_db_now`で遷移する。既に別transactionが遷移済みなら`OK_REPLAY`、対象が存在しなければ`RESOURCE_NOT_FOUND`、対象Challengeがterminalでlinked deviceも未期限なら`CHALLENGE_NOT_ACTIVE`を返す。Challenge rowの削除は行わず、`UNIQUE(tlsn_attestation_id)`によるlifecycle全体の一回性を維持する。
 
 ---
 
@@ -1975,6 +1975,8 @@ Legacy -> target mappingは次に固定する。Target locatorはP0-17で作成�
 | `compaction-dlq-legacy -> compaction-dlq-target` / Web producer plus Workflow consumer inventory | `dev-kc-compaction-dlq` | `dev-kc-compaction-dlq-tlsn-v1` | EMPTY_QUEUE |
 | `hot-buffer-legacy -> hot-buffer-target` / Workflow Turso secrets | management API locator for current database/group | dedicated group database `dev-kc-hot-buffer-tlsn-v1` | EMPTY_DATABASE_REBUILD |
 
+`session-target`はtarget KV namespaceとしてP0-17のresource provisioning時にmanagement APIで`dev-fusou-session-tlsn-v1`を作成する。候補のFUSOU-WEB deploymentへ生成対象の`SESSION` bindingを宣言してdeployし、deploymentが返すbinding metadataとKV namespace locator（ID、account、jurisdiction、title）を取得してからmanifestへ記録する。現在のchecked-in `wrangler.toml`に`SESSION`がないことから名前やIDを推測してはならず、生成binding metadataを取得できない場合はP0-17 FAILとする。
+
 R2 identity-derived keyspacesは`dev-kc-fleets: fleets/<legacy-public_id>/...`、`dev-kc-battle-data: <table_version>/<period_tag>/<tier>/<group>/<table>-<index>.avro`（複数datasetを同一objectへcompactionするためbucket全体）、`dev-kc-ship-growth-archive: ship-growth/archive/<period_tag>/<table_version>/...`である。3 legacy bucketsの`expected_keyspace`は空prefix `""`、すなわち全objectをquarantine対象とする。
 
 Preserve allowlistは次の5 physical resources、6 binding aliasesだけである。
@@ -2249,6 +2251,7 @@ same device concurrent issuance across Attestations -> one ACTIVE row
 same user concurrent issuance across public IDs -> pending quota <= 5
 existing device reuse at pending quota -> replay/reuse succeeds; new device -> limit
 expired ACTIVE -> EXPIRED and same Attestation cannot create another row
+expired PENDING with only terminal Challenge rows -> cleanup selects one retained Challenge ID and revokes the device
 invalid signature consume vs valid Claim -> one winner
 valid Claim x valid Claim -> one insert/idempotent result
 same exact Claim repeated -> idempotent
@@ -2438,7 +2441,7 @@ Repository:
 FUSOU
 
 Commit:
-da508c19b8a527a759b1cfbeb03572f70e103a4b
+2bc3f3e3a3dea3fe9658d2a591ecee11cae056c1
 
 Document:
 docs/operations/member-id-preemptive-attack-and-recovery.md
