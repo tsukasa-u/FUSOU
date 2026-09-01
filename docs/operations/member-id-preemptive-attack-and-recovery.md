@@ -6,7 +6,7 @@
 >
 > **基準 branch / Reference Baseline**: `security-attestation-design` / `0d2a85a8c474271ecf6bf7e2cf062365a9608e83`
 >
-> **Specification Revision**: `afd16690ecdaf2229d0a017e97ae551010744fc2`
+> **Specification Revision**: `8be12bf7cad2ba181f7b39aea38903f96475c4d9`
 >
 > **Revision note**: Reference Baseline は本仕様書が対象とする repository baseline であり、Specification Revision は本仕様書自身を更新した commit である。runtime implementationは別途未作成であり、commit済み仕様と実装済み機能を同一視しない。今回のcross-specification auditは Reference Baseline を基準に行う。
 >
@@ -233,6 +233,7 @@ member_ownership -> user_member_map -> web_user_member_map
 | `Upload Token` | Ed25519 compact JWS coordinating one single-use upload ledger row; never a Dataset credential | Exact v1 header/payload from Section 11.2; 3 segments | FUSOU-WEB issuer plus `dataset_upload_ledger_v1` CAS | Issued for one hour; consumed at most once; replay is rejected | Ledger row keyed by `ingest_id` with nonce/immutable fields and `consumed_at` | Response upload token; Stage 2 credential only in `X-Upload-Token` |
 | `Telemetry Identity Envelope` | Server-derived attribution tuple `public_id`, `submitted_by_device_id`, `received_at` | Exact object with those three fields | Dataset JWT/live roots plus committed ledger `consumed_at` | Immutable per accepted ingest record; payload cannot alter it | Explicit columns in each target record/object wrapper; no client metadata merge | Internal Queue/storage envelope only; not accepted from request payload |
 | `ingest_id` | Server-generated identifier for one Stage 1 upload ledger record and its downstream delivery | UUIDv4 | `dataset_upload_ledger_v1` | Immutable for the upload; retained through sink retries | `dataset_upload_ledger_v1.ingest_id UUID PRIMARY KEY` and sink unique keys | Returned by Stage 1; Stage 2 derives it from the validated Upload Token, not body |
+| `consumed_at` | Actual successful Upload Token CAS consumption instant; millisecond precision is intentional so `received_at` records the committed consumption event while credential NumericDate fields remain whole seconds | `TIMESTAMPTZ`, persisted at millisecond precision with zero microsecond remainder | `consume_dataset_upload_v1` using transaction-wide `v_db_now` | Immutable after `NULL -> non-NULL`; retained with the ledger row lifetime | `dataset_upload_ledger_v1.consumed_at TIMESTAMPTZ NULL` with millisecond invariant CHECK | Internal consume result and source of `Telemetry Identity Envelope.received_at`; never client-supplied |
 | `Route ID` | Closed server-selected identity for one dataset-bearing ingest endpoint | Exact text set `FLEET_SNAPSHOT`, `BATTLE_DATA_UPLOAD`, `QUEST_TREE_INGEST`, `REMODEL_DATA_INGEST`, `SHIP_GROWTH_INGEST`, `SOKU_SPEED_OBSERVED_INGEST` | Endpoint path, not client body | Immutable per ingest | `route_id TEXT` with explicit CHECK/unique sink key | Internal ledger/Queue/storage field; never a free-form client authority |
 
 The canonical definition table intentionally distinguishes **identity authority** from **transport encoding**. A base64url field, JSON field, DB column, projection row, or client locator does not become authoritative merely because it carries the same bytes. Later sections may specify validation details, but may not redefine these concepts, types, owners, lifetimes, or representations.
@@ -1179,11 +1180,11 @@ content_sha256 BYTEA NOT NULL CHECK (octet_length(content_sha256) = 32)
 content_size BIGINT NOT NULL CHECK (content_size >= 0)
 nonce BYTEA NOT NULL UNIQUE CHECK (octet_length(nonce) = 32)
 expires_at TIMESTAMPTZ NOT NULL
-consumed_at TIMESTAMPTZ NULL
+consumed_at TIMESTAMPTZ NULL CHECK (consumed_at IS NULL OR date_trunc('milliseconds', consumed_at) = consumed_at)
 created_at TIMESTAMPTZ NOT NULL
 ```
 
-Server-generated `ingest_id`はUUIDv4 PRIMARY KEY、nonceはCSPRNG 32 bytes、`created_at=date_trunc('second', v_db_now)`、`expires_at=created_at + interval '1 hour'`である。`created_at`は別clock readではなく、transaction-wide `v_db_now`から派生するwhole-second UTC instantであり、Upload Token `iat`/`exp`とledger expiryをexact一致させるためだけにsecond精度へ切り捨てる。Triggerは全authority columnsをimmutableにし、`consumed_at`の`NULL -> non-NULL`という一方向遷移だけを許可する。時刻を読むのはtriggerではなく`consume_dataset_upload_v1`であり、RPCが`v_consumed_at = date_trunc('milliseconds', v_db_now)`を一度だけ計算してCAS UPDATEへ渡す。したがって`consumed_at`の保存値は常にUTC instantのmillisecond精度で、microsecond remainderは0である。Consumedまたはexpired rowは7日保持後にservice-only cleanupで削除する。Table/sequenceへのdirect DML/TRUNCATEを全application roleからrevokeし、Section 10.5のentry functionsだけをwrite pathとする。
+Server-generated `ingest_id`はUUIDv4 PRIMARY KEY、nonceはCSPRNG 32 bytes、`created_at=date_trunc('second', v_db_now)`、`expires_at=created_at + interval '1 hour'`である。`created_at`と`expires_at`はCanonical Definitionに従う。Triggerは全authority columnsをimmutableにし、`consumed_at`の`NULL -> non-NULL`という一方向遷移だけを許可する。時刻を読むのはtriggerではなく`consume_dataset_upload_v1`であり、Canonical Definitionに従う`v_consumed_at = date_trunc('milliseconds', v_db_now)`を一度だけ計算してCAS UPDATEへ渡す。Consumedまたはexpired rowは7日保持後にservice-only cleanupで削除する。Table/sequenceへのdirect DML/TRUNCATEを全application roleからrevokeし、Section 10.5のentry functionsだけをwrite pathとする。
 
 ### 9.9 Roles と privileges
 
@@ -1282,7 +1283,7 @@ lock_device_key_v1(BYTEA):  1179997004, hashtext(encode(value, 'hex'))
 
 Operationが触れないlock domainは飛ばしてよいが、後順位を保持したまま前順位を新たに取得してはならない。Challenge issuance、Claim、Challenge cleanupはAttestationから開始する。Revoke、Social Binding、Token subject lookup、upload ledger mutationはIdentityから開始する。PENDING/VERIFIED数を変える処理はUser-quota lockを取得し、device rowを作成・遷移する処理はDevice-key lockを取得する。Pre-readはimmutable locatorを得るためだけに許可し、lock後に全authority valueを再検証する。
 
-Expiryを判定またはlifecycle timestampを作成する各entry functionは、必要なlockを取得した後に`v_db_now := pg_catalog.transaction_timestamp()`を一度だけ取得する。同一transaction内のexpiry比較、期限遷移、`created_at`/`consumed_at`/`expired_at`/`revoked_at`/`verified_at`のDB event timestampにはこの値を再利用し、別のclock readやstatementごとの時刻を使わない。
+Expiryを判定またはlifecycle timestampを作成する各entry functionは、必要なlockを取得した後に`v_db_now := pg_catalog.transaction_timestamp()`を一度だけ取得する。同一transaction内のexpiry比較と期限遷移、および各timestampのCanonical Definitionに定める精度でのDB event timestamp生成にはこの値を再利用し、別のclock readやstatementごとの時刻を使わない。
 
 ### 10.2 `get_or_create_public_id()`
 
@@ -2442,8 +2443,8 @@ FINAL FREEZE AUDIT
 Repository:
 FUSOU
 
-Specification Commit:
-afd16690ecdaf2229d0a017e97ae551010744fc2
+Specification Revision:
+8be12bf7cad2ba181f7b39aea38903f96475c4d9
 
 Reference Baseline:
 0d2a85a8c474271ecf6bf7e2cf062365a9608e83
@@ -2451,13 +2452,13 @@ Reference Baseline:
 Document:
 docs/operations/member-id-preemptive-attack-and-recovery.md
 
-Specification status:
+Specification:
 DESIGN-COMPLETE
 
-FINAL DESIGN DECISION:
-FREEZE
+Design Freeze:
+MAINTAIN
 
-IMPLEMENTATION:
+Implementation:
 NO-GO
 
 Phase 0:
@@ -2466,17 +2467,19 @@ Phase 0:
 Specification reconstruction:
 PASS
 
-P0 issues found:
-36
+P0:
+36 (all dispositioned; 0 remaining)
 
-P1 issues found:
-58
+P1:
+58 (all dispositioned; 0 remaining)
 
-P2 issues found:
-15
+P2:
+15 (all dispositioned; 0 remaining)
 
-Specification dispositions:
-P0 36/36, P1 58/58, P2 15/15
+Automatically fixed:
+- Reference Baseline / Specification Revision metadata separation.
+- Upload ledger `created_at`/`expires_at` whole-second precision and Upload Token `iat`/`exp` exact alignment.
+- Canonical `consumed_at` millisecond precision, rationale, and schema CHECK invariant.
 
 Design dispositions:
 Canonical state/ownership rules, RPC authority boundaries, lock order, replay/CAS,
@@ -2485,10 +2488,37 @@ cross-store cutover/recovery, target Turso bootstrap source, and report cardinal
 Remaining contradictions:
 NONE in the canonical specification
 
-Remaining evidence:
-Phase 0 must still freeze the literal TLSNotary profile, Verifier revision/authenticated-time
-evidence, Attestation ID length N, production migration, key-registry, and storage-manifest
-artifacts before any GO decision.
+Remaining design decisions:
+NONE. External facts below are Phase 0 evidence gates, not open design decisions.
+
+Remaining Phase 0 evidence:
+P0-01..P0-06 TLSNotary revision/profile, Attestation ID bytes and literal N, authenticated notary_time,
+real require_info capture, strict disclosure, and T3/T4 delivery evidence.
+P0-07..P0-10 no-resubmission, performance, direct topology, and cross-language determinism evidence.
+P0-11..P0-12 target PostgreSQL migration and existing-production preflight evidence.
+P0-13..P0-16 non-anonymous auth, login-frequency, privacy, and JWT key lifecycle evidence.
+P0-17 storage epoch manifest, resource provisioning, Queue drain, backup/restore, and cutover rehearsal.
+
+Canonical Definitions:
+PASS
+
+Protocol Consistency:
+PASS
+
+Lock Ordering:
+PASS
+
+Authority Boundary:
+PASS
+
+Transaction Timestamp:
+PASS - field-specific precision derives from one transaction-wide `v_db_now`
+
+Upload Timestamp:
+PASS - whole-second ledger/token `iat` and `exp` are exactly aligned
+
+Upload CAS:
+PASS - one-way millisecond `consumed_at` CAS; external sinks follow commit
 
 Architecture:
 PASS - runtime absent
@@ -2502,7 +2532,7 @@ PASS - Proof Copy remains an explicit v1 non-goal
 State Machine:
 PASS - runtime unverified
 
-State Machine ↔ DB:
+State ↔ DB:
 PASS - target migration not yet verified
 
 Owner Conflict:
@@ -2538,7 +2568,7 @@ PHASE-0 - route integration and attribution tests pending
 PostgreSQL:
 PHASE-0 - PostgreSQL 16.15 primitive fixture passed; target migration not yet verified
 
-Dynamic Composite FK Preflight:
+Composite FK:
 PHASE-0 - seven primitive fixture cases passed; production preflight pending
 
 Fresh DB Migration:
@@ -2565,7 +2595,7 @@ PHASE-0 - removal set/order specified; executor and evidence absent
 Third-party implementation determinism:
 PHASE-0 - TLSNotary profile artifact and golden fixtures pending
 
-Overengineering check:
+Overengineering:
 PASS - no new architecture, security mechanism, proxy, hash, or recovery mechanism added
 
 Runtime verification:
@@ -2581,6 +2611,8 @@ Runtime implementation:
 PHASE-0 - absent
 
 FINAL DESIGN DECISION: FREEZE
+
+FINAL DECISION: FREEZE
 
 IMPLEMENTATION: NO-GO
 ```
