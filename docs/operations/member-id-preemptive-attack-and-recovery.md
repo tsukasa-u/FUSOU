@@ -4,7 +4,7 @@
 >
 > **対象リポジトリ**: `FUSOU`
 >
-> **基準 branch / HEAD**: `security-attestation-design` / `0ddb2a8d3f76c939f956fdc0140f1ae872c07052`
+> **基準 branch / HEAD**: `security-attestation-design` / `da508c19b8a527a759b1cfbeb03572f70e103a4b`
 >
 > **Revision note**: 上記HEADは本仕様書の対象commitである。runtime implementationは別途未作成であり、commit済み仕様と実装済み機能を同一視しない。
 >
@@ -876,7 +876,9 @@ SOCIAL_ACCOUNT_BOUND
 
 `TLSN_PROOF_VERIFIED` は request-local context、`DATASET_TOKEN_ISSUED` は credential event であり state に追加しない。`DEVICE_BOUND` を追加しない。
 
-単一stateを返す評価順は次である。
+stateを返す前に、root-derived invariant を次のように検証する。`member_ownership` が存在する場合は同じ`public_id`/`canonical_user_id`の accepted Claim が少なくとも1件存在する。accepted Claim が存在する場合は対応する ownership と、Claimの`verified_device_id`に一致する user_devices row が存在し、`public_id`/`canonical_user_id`/device authority が一致する。current VERIFIED device が1件以上ある場合は ownership、accepted Claim、同じ owner の current VERIFIED device がすべて存在し、異なる owner の current VERIFIED device が存在しない。PENDING deviceにaccepted Claimがあってはならない。`social_user_id`が非NULLの場合は ownership の canonical user と一致し、canonical userのsupported Google identityも存在しなければならない。これらを満たさない組合せは state として補正せず invariant corruption を raise する。
+
+Invariant 検証後の単一state評価順は次である。
 
 ```text
 1. current VERIFIED device が0件 -> UNCLAIMED
@@ -1154,6 +1156,8 @@ Range sha256 = SHA-256(raw decoded Range bytes)
 
 `UNIQUE(tlsn_attestation_id)`とSection 7.2のpartial ACTIVE device indexを作成する。Expired/consumed Attestationから新Challengeを作らない。`CONSUMED/CLAIM_ACCEPTED` Challengeはaccepted Claim replayのauthority recordとしてretention期限なく保持する。
 
+Challenge row は retention enforcement のため delete 不可である。Migration は `reject_claim_challenge_delete_v1()` (`RETURNS trigger`, `LANGUAGE plpgsql`, `SECURITY DEFINER`, `SET search_path = public, pg_temp`) を作成し、function body は常に `RAISE EXCEPTION 'CHALLENGE_DELETE_FORBIDDEN';` の後に到達不能な `RETURN OLD` を置く。`trg_claim_challenges_reject_delete_v1` を `claim_challenges` の `BEFORE DELETE FOR EACH ROW` trigger として付ける。この trigger は常に `CHALLENGE_DELETE_FORBIDDEN` を raise する。`PUBLIC`、`anon`、`authenticated`、`service_role`から table の `DELETE`/`TRUNCATE` を revoke し、cleanup RPCを含む全supported pathはlifecycle UPDATEだけを行う。superuser/table ownerによる直接削除はDB trust boundary外であり、preflight/postflightでtrigger、owner、ACLを検査する。
+
 `claim_challenges`は`member_identity_claims`より先にCREATEし、mapping composite UNIQUEとdevice composite UNIQUEを両tableのFKより先に追加する。Section 9.5/9.6の記載順はDDL作成順を表さない。
 
 ### 9.7 Projection schema
@@ -1177,7 +1181,7 @@ consumed_at TIMESTAMPTZ NULL
 created_at TIMESTAMPTZ NOT NULL
 ```
 
-Server-generated `ingest_id`はUUIDv4 PRIMARY KEY、nonceはCSPRNG 32 bytes、`created_at=v_db_now`、`expires_at=v_db_now + interval '1 hour'`である。Triggerは全authority columnsをimmutableにし、`consumed_at`の`NULL -> non-NULL`という一方向遷移だけを許可する。時刻を読むのはtriggerではなく`consume_dataset_upload_v1`であり、RPCが`v_consumed_at = date_trunc('milliseconds', v_db_now)`を一度だけ計算してCAS UPDATEへ渡す。Consumedまたはexpired rowは7日保持後にservice-only cleanupで削除する。Table/sequenceへのdirect DML/TRUNCATEを全application roleからrevokeし、Section 10.5のentry functionsだけをwrite pathとする。
+Server-generated `ingest_id`はUUIDv4 PRIMARY KEY、nonceはCSPRNG 32 bytes、`created_at=v_db_now`、`expires_at=v_db_now + interval '1 hour'`である。Triggerは全authority columnsをimmutableにし、`consumed_at`の`NULL -> non-NULL`という一方向遷移だけを許可する。時刻を読むのはtriggerではなく`consume_dataset_upload_v1`であり、RPCが`v_consumed_at = date_trunc('milliseconds', v_db_now)`を一度だけ計算してCAS UPDATEへ渡す。したがって`consumed_at`の保存値は常にUTC instantのmillisecond精度で、microsecond remainderは0である。Consumedまたはexpired rowは7日保持後にservice-only cleanupで削除する。Table/sequenceへのdirect DML/TRUNCATEを全application roleからrevokeし、Section 10.5のentry functionsだけをwrite pathとする。
 
 ### 9.9 Roles と privileges
 
@@ -1501,7 +1505,7 @@ actor-owned EXPIRED                                   -> CHALLENGE_NOT_ACTIVE
 
 `OK_REPLAY`ではlinked Claimのactor/device/public/AttestationがChallengeとexact一致しなければcorruptionとしてraiseする。Non-OK時はauthority fieldsを全てNULLにする。Dataset subject/validation functionsは当該deviceのunique accepted Claimをjoinして両key IDを返す。Unauthorized時は`authorized=false`またはnon-OKとしkey IDsはNULLにする。ほかのfunctionは`outcome`を第1列とするnamed composite resultを返し、non-OK時のauthority/result columnsはすべてNULLとする。
 
-`issue_dataset_upload_v1(device_id, public_id, route_id, content_sha256, content_size)`はdeviceをpre-readし、Identity、Device-key、mapping、ownership、deviceの順にlockしてSection 11.2のDB root条件を再検証する。Success時は`v_db_now`をtransaction-wideなDB timestampとして使用し、Section 9.8 rowをINSERTして`OK_NEW`を返す。Client指定ingest ID/nonce/timeを受け取らない。
+`issue_dataset_upload_v1(device_id, public_id, route_id, content_sha256, content_size)`はdeviceをpre-readし、Identity、mapping、ownership、deviceの順にlockしてSection 11.2のDB root条件を再検証する。Upload issuanceはPENDING/VERIFIED数またはdevice key lifecycleを変更しないため、User-quota/Device-key advisory lockは取得しない。Success時は`v_db_now`をtransaction-wideなDB timestampとして使用し、Section 9.8 rowをINSERTして`OK_NEW`を返す。Client指定ingest ID/nonce/timeを受け取らない。
 
 `consume_dataset_upload_v1(ingest_id, device_id, public_id, route_id, content_sha256, content_size, nonce)`はledgerをnon-locking pre-readしてlocatorを得た後、Identity、Device-key、mapping、ownership、device、ledgerの順にlockし、DB root条件と7 immutable token fieldsを再検証する。Missingまたはimmutable field mismatchは`UPLOAD_TOKEN_NOT_ACTIVE`、`consumed_at IS NOT NULL`はexpiry後であっても先に評価して`UPLOAD_TOKEN_REPLAY`、未消費で`expires_at <= v_db_now`なら`UPLOAD_TOKEN_NOT_ACTIVE`とする。残るactive rowは`v_consumed_at = date_trunc('milliseconds', v_db_now)`を1回取得し、`UPDATE ... SET consumed_at=v_consumed_at WHERE ingest_id=$1 AND consumed_at IS NULL AND expires_at > v_db_now`のaffected row exactly 1で`OK`、`ingest_id`、`v_consumed_at`を返す。Non-OK時は後2列をNULLにする。CAS transactionをcommitしてから最初のQueue/storage mutationを行う。
 
@@ -1517,7 +1521,7 @@ CAS commit後のexternal failureでも`consumed_at`をrollback/NULL化せず、s
 
 `POST /api/identity/v1/social-bindings`はBearer認証済みでbody `{ "device_id": "<uuidv4>" }`だけを受ける。v1 social providerはrepositoryのlogin allowlistと同じexact `google`である。FUSOU-WEBとDB functionの両方が、actor userに`auth.identities.provider = 'google'`のrowがあることを確認する。
 
-FUSOU-WEBは`bind_social_identity_v1(authenticated_user_id, device_id)`を1回呼ぶ。Functionはdeviceをpre-readしてIdentity、User-quota、Device-key、mapping、ownership、deviceの順にlockし、次を要求する。
+FUSOU-WEBは`bind_social_identity_v1(authenticated_user_id, device_id)`を1回呼ぶ。Functionはdeviceをpre-readしてIdentity、mapping、ownership、deviceの順にlockし、次を要求する。Social BindingはPENDING/VERIFIED数とdevice key lifecycleを変更しないため、User-quota/Device-key advisory lockは取得しない。
 
 1. Actor user = ownership canonical user。
 2. 入力`device_id`自身がactor/public IDに属するcurrent VERIFIED deviceである。
@@ -1527,7 +1531,7 @@ FUSOU-WEBは`bind_social_identity_v1(authenticated_user_id, device_id)`を1回�
 
 ### 11.2 Dataset JWT v1
 
-`POST /api/identity/v1/dataset-tokens`はBearer認証済みでbody `{ "device_id": "<uuidv4>" }`だけを受ける。FUSOU-WEBは`get_dataset_token_subject_v1(authenticated_user_id, device_id)`を呼ぶ。Functionはdeviceをpre-readし、Identity、User-quota、Device-key、mapping、ownership、deviceの順にlockして、Section 11.2のlive-root条件とactor一致を再検証する。DB失敗は`404 RESOURCE_NOT_FOUND`または`409 SOCIAL_BINDING_REQUIRED`であり、projectionを参照しない。DB success後、FUSOU-WEBは返されたNotary/Verifier key IDsをcurrent registriesへ照合する。ACTIVE/VERIFY_ONLYだけを許可し、RETIRED、missing、REVOKEDは`409 IDENTITY_TRUST_REVOKED`としてtokenを発行しない。RETIREDを許可するのはaccepted Claimのexact replayだけである。
+`POST /api/identity/v1/dataset-tokens`はBearer認証済みでbody `{ "device_id": "<uuidv4>" }`だけを受ける。FUSOU-WEBは`get_dataset_token_subject_v1(authenticated_user_id, device_id)`を呼ぶ。Functionはdeviceをpre-readし、Identity、mapping、ownership、deviceの順にlockして、Section 11.2のlive-root条件とactor一致を再検証する。これはread-only subject lookupでありPENDING/VERIFIED数またはdevice key lifecycleを変更しないため、User-quota/Device-key advisory lockは取得しない。DB失敗は`404 RESOURCE_NOT_FOUND`または`409 SOCIAL_BINDING_REQUIRED`であり、projectionを参照しない。DB success後、FUSOU-WEBは返されたNotary/Verifier key IDsをcurrent registriesへ照合する。ACTIVE/VERIFY_ONLYだけを許可し、RETIRED、missing、REVOKEDは`409 IDENTITY_TRUST_REVOKED`としてtokenを発行しない。RETIREDを許可するのはaccepted Claimのexact replayだけである。
 
 成功時だけFUSOU-WEBがEd25519署名を行い、`200`で次の3 fieldsだけを返す。
 
@@ -1596,7 +1600,32 @@ Upload Token header/payloadのproperty orderは上記の表示順をwire contrac
 
 `iat`はledger `created_at`のwhole second、`exp=iat+3600`でledger `expires_at`と一致する。`content_size`は0以上のJSON safe integerかつroute上限以下、routeはSection 11.4の6値だけである。Unknown/duplicate field、noncanonical JSON/base64url/number、header/payload `kid`不一致を拒否する。Upload TokenをDataset credentialの代用にしない。
 
-Stage 2は、request framingとStage判定後、まず同じ`X-Dataset-Token`のsignature/time/subject一致と上記live root/key lookupを再実行する。Dataset Tokenが受理された場合だけ、exact Stage 2 execution bytesのhash/sizeとUpload Tokenを検証し、7 token fieldsを`consume_dataset_upload_v1`へ渡す。Upload Tokenの`kid`はStage 2検証時にcurrent JWT registryで`ACTIVE`または`VERIFY_ONLY`であり、tokenの発行時刻・有効期限window内でなければならない。発行後に`VERIFY_ONLY`へ移行したkeyのtokenはこの条件で受理し、`RETIRED`、`REVOKED`、missing keyは拒否する。CAS commit後だけ最初のQueue/storage mutationへ進む。Stage 1後にdevice、ownership、Social Binding、JWT key、Notary key、Verifier keyのいずれかが失効した場合、Stage 2は401でledger consumeも書込みも0件とする。Upload Token replayは409で拒否する。
+Stage 2の処理順は、全6 routeで次の一つだけを使用する。
+
+```text
+1. request framing: normalized single-value credential headers、Content-Length/
+  Transfer-Encoding grammar、body-size limit、content decodingを検証する。
+2. stage detection: X-Upload-Token の normalized presence だけで Stage 2 と
+  判定する。空値・複数値は Upload Token validation の失敗として扱う。
+3. Dataset Token validation: 同じ X-Dataset-Token の signature/time/subject
+  一致、current registry、live root/key lookup を再実行する。失敗時は401で
+  DBを変更しない。
+4. Upload Token validation: compact-JWS、current JWT registry、発行時刻・有効
+  期限、route/device/public/ingest/nonce claim の形式を検証する。失敗時は
+  409または401の規定された error code でDBを変更しない。
+5. exact input validation: Stage 2 execution input bytesを再serializeせず読み、
+  tokenのcontent_sizeとの完全一致、SHA-256との完全一致、reserved-field/
+  duplicate-key detector、route-owned schema、token claimとの一致を検証する。
+6. CAS: 7 immutable token fieldsを`consume_dataset_upload_v1`へ渡し、ledger
+  rowの`consumed_at IS NULL` CASを行う。既消費なら先に replay、期限切れなら
+  not-activeを返す。
+7. commit: CAS transactionをcommitし、成功した`consumed_at`を固定する。commit
+  前に外部 Queue/storage mutationを行わない。
+8. sink convergence: route manifestで固定したrequired sinkを同じ`ingest_id`で
+  insertまたはexact-match no-opへ収束させ、全sink成功後だけ2xxを返す。
+```
+
+Upload Tokenの`kid`はStage 2検証時にcurrent JWT registryで`ACTIVE`または`VERIFY_ONLY`であり、tokenの発行時刻・有効期限window内でなければならない。発行後に`VERIFY_ONLY`へ移行したkeyのtokenはこの条件で受理し、`RETIRED`、`REVOKED`、missing keyは拒否する。Stage 1後にdevice、ownership、Social Binding、JWT key、Notary key、Verifier keyのいずれかが失効した場合、Stage 2は401でledger consumeも書込みも0件とする。Upload Token replayは409で拒否する。
 
 二段階uploadのHTTP境界は、Section 11.4の6つの同一POST endpointについて次に固定する。Stage判定は`X-Upload-Token` headerのnormalized single-valueが**存在するかどうかだけ**で行い、query、body、cookie、別headerでStageを選択してはならない。
 
@@ -1618,16 +1647,16 @@ Stage 2 (execute)
   Headers: exactly one X-Dataset-Token and exactly one X-Upload-Token
   Body: route-owned execution bytes; common code hashes the exact Stage 2
     input bytes before server envelope or compression
-  Server: route schema validates the body before sink mutation and passes only
-    server-selected route ID plus token claims to consume_dataset_upload_v1
+  Server: executes the exact eight-step Stage 2 sequence below; route schema
+    validation is part of exact input validation and precedes CAS
   DB: consume_dataset_upload_v1(UUID, UUID, UUID, TEXT, BYTEA, BIGINT, BYTEA)
   Success: route-owned 2xx only after CAS commit and convergence of every
-    required sink fixed by that route's owning handler/schema
+    required sink fixed by the target route manifest
 ```
 
 `content_sha256`と`content_size`は、HTTP transfer framingとrouteが明示的に許可するcontent decoding後、route schema parse、server envelope生成、compressionより前の、Stage 2が受け取るexecution input byte列だけを対象とする。Common codeはそのbytesを再serializeせずhashし、Stage 1のledger/Upload TokenとStage 2の再計算値を一致させる。R2 envelopeの`content_sha256`はこのStage 2 input digestを格納するfieldであり、envelope自身（またはgzip wrapper）のdigestではない。したがって、envelopeをuncompressed canonical bodyとして保存する場合も、digestの入力はenvelope外のStage 2 input bytesである。
 
-各routeのrequired sinkは、そのrouteの既存checked-in owning handler/schemaが定めるQueue、Turso、D1、R2のexact subsetだけであり、全sinkを暗黙にrequiredとはしない。Section 11.4のRoute IDごとにそのsubsetをmanifestへ固定する。Successはそのsubsetの各sinkがinsertまたは同一値のexact-match no-opを返した場合だけとする。CAS後にrequired sinkが収束できない場合は共通の`500 INTERNAL_ERROR`を返し、ledgerの`consumed_at`は保持する。Server/Queueのretry/recoveryは既存のSection 11.4 idempotent sink contractに従い、同じ`ingest_id`で不足sinkだけを再試行する。Clientの同じUpload Token再送は許可せず、再送を必要とする場合はStage 1から新しい`ingest_id`を取得する。
+各routeのrequired sinkは、次のtarget route manifest tableで定めるQueue、Turso、D1、R2のexact subsetだけであり、全sinkを暗黙にrequiredとはしない。ここでSection 11.4に列挙したchecked-in handler/schema pathは、現行legacy implementationを authority とする意味ではなく、target implementationで置換される route contract の ownership path である。Required sink 自体は現行コードから推測せず、この表とP0-17 manifestへ固定する。Successはそのsubsetの各sinkがinsertまたは同一値のexact-match no-opを返した場合だけとする。CAS後にrequired sinkが収束できない場合は共通の`500 INTERNAL_ERROR`を返し、ledgerの`consumed_at`は保持する。Server/Queueのretry/recoveryは同じ`ingest_id`で不足sinkだけを再試行する。Clientの同じUpload Token再送は許可せず、再送を必要とする場合はStage 1から新しい`ingest_id`を取得する。
 
 Stage 1のroute-specific preparation/execution fieldsはSection 11.4で指定したowning schemaがcanonicalであり、identity layerはそれらをauthorityとして解釈しない。`route`、`device_id`、`public_id`、`ingest_id`、nonce、timestampsをclient bodyから受け取らず、token/endpoint/ledgerから復元する。Stage 1/2でDataset Tokenがmissing、複数、invalid、expired、root/key mismatchなら、Stage判定後に`401 INVALID_DATASET_TOKEN`としてDBを変更しない。`X-Upload-Token`が存在するStage 2で空値または複数値なら`409 UPLOAD_TOKEN_NOT_ACTIVE`としてDBを変更しない。
 
@@ -1665,7 +1694,7 @@ submitted_by_device_id = JWT.sub
 received_at = committed upload-ledger `consumed_at`をUTC `YYYY-MM-DDTHH:MM:SS.sssZ`へformatした値
 ```
 
-この3値を`IdentityEnvelopeV1`と呼ぶ。Stage 2はsuccessful `consume_dataset_upload_v1`が返した`consumed_at`だけを`received_at`へ使用し、request clockから再生成しない。Queueを使うrouteのmessageはexact top-level shape `{"content_sha256":"<base64url-32>","identity":<IdentityEnvelopeV1>,"ingest_id":"<uuidv4>","payload":<validated route payload>,"route":"<closed route ID>","version":1}`とし、identity objectのexact fieldsは`public_id`、`received_at`、`submitted_by_device_id`だけである。Route IDはendpoint順に`FLEET_SNAPSHOT`、`BATTLE_DATA_UPLOAD`、`QUEST_TREE_INGEST`、`REMODEL_DATA_INGEST`、`SHIP_GROWTH_INGEST`、`SOKU_SPEED_OBSERVED_INGEST`とする。`ingest_id`はSection 9.8 ledger由来でありclient payloadから読まない。
+この3値を`IdentityEnvelopeV1`と呼ぶ。Stage 2はsuccessful `consume_dataset_upload_v1`が返した`consumed_at`だけを`received_at`へ使用し、request clockから再生成しない。SerializerはまずそのTIMESTAMPTZ instantをUTCへ変換し、UTCの4桁year、2桁month、2桁day、`T`、2桁hour、2桁minute、2桁second、`.`、`consumed_at`のmillisecondを3桁decimal、`Z`の順にASCII bytesへ出力する。出力は正規表現 `^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\.[0-9]{3}Z$` に一致し、offset、locale、rounding、追加fraction、`Date` object経由の再解釈を許可しない。`consumed_at`はmillisecondへ切り捨て済みなのでserializerは再度丸めない。Queueを使うrouteのmessageはexact top-level shape `{"content_sha256":"<base64url-32>","identity":<IdentityEnvelopeV1>,"ingest_id":"<uuidv4>","payload":<validated route payload>,"route":"<closed route ID>","version":1}`とし、identity objectのexact fieldsは`public_id`、`received_at`、`submitted_by_device_id`だけである。Route IDはendpoint順に`FLEET_SNAPSHOT`、`BATTLE_DATA_UPLOAD`、`QUEST_TREE_INGEST`、`REMODEL_DATA_INGEST`、`SHIP_GROWTH_INGEST`、`SOKU_SPEED_OBSERVED_INGEST`とする。`ingest_id`はSection 9.8 ledger由来でありclient payloadから読まない。
 
 Target storage contractは次である。
 
@@ -1690,6 +1719,19 @@ POST /api/soku-speed-observed/ingest      -> src/server/schemas/soku-speed.ts
 ```
 
 各routeはparse前のduplicate-key detectorとschemaのreserved-field rejectを通し、storage DML/Queue message/R2 metadataではserver envelopeを明示的な列/field listで書く。Object spread、recursive merge、client metadataのpass-throughを禁止する。新しいdataset-bearing ingest routeはこのclosed setとcross-route substitution testsを同じchangeで更新しなければならない。
+
+Target route の required sink は次の閉じた表である。`HTTP sink` は Stage 2 の CAS commit 後に直接収束させる sink、`downstream sink` はその HTTP sink が Queue の場合に同じ `ingest_id` で consumer が収束させる sink である。表にない sink、現行legacy handlerの偶発的な書込み先、cache invalidation は required sink ではない。
+
+| Route ID | Target owning schema path | HTTP sink | Downstream sink |
+| --- | --- | --- | --- |
+| `FLEET_SNAPSHOT` | `src/server/schemas/fleet.ts` | `fleet-bucket-target` R2 | — |
+| `BATTLE_DATA_UPLOAD` | `src/server/schemas/battle-data.ts` | `compaction-queue-target` Queue | `battle-bucket-target` R2 via `fusou-workflow` |
+| `QUEST_TREE_INGEST` | `src/server/schemas/quest-tree.ts` | `quest-index-target` D1 | — |
+| `REMODEL_DATA_INGEST` | `src/server/schemas/remodel-data.ts` | `remodel-index-target` D1 and `ship-growth-bucket-target` R2 | — |
+| `SHIP_GROWTH_INGEST` | `src/server/schemas/ship-growth.ts` | `ship-growth-index-target` D1 and `ship-growth-bucket-target` R2 | — |
+| `SOKU_SPEED_OBSERVED_INGEST` | `src/server/schemas/soku-speed.ts` | `soku-index-target` D1 | — |
+
+The named schema paths are target ownership paths and must be strict replacement implementations before traffic is enabled; the currently checked-in legacy handlers and schemas are not normative. The target manifest must contain this exact route-to-sink table, and a route is successful only after its listed HTTP sinks converge. A Queue consumer must additionally satisfy its downstream sink contract before acknowledging the message.
 
 v1 が保証する「who」は bearer credential の `device_id`、「which dataset」は `public_id` である。Payload の出来事の真正性、現在の Game session、token を使用した物理端末は保証しない。
 
@@ -1944,6 +1986,8 @@ master-data-bucket / Web MASTER_DATA_BUCKET: dev-kc-master-data, keyspace master
 master-data-index / Web MASTER_DATA_INDEX_DB: dev_kc_master_data_index
 asset-sync-index / Web ASSET_SYNC_INDEX_KV
 ```
+
+The manifest binding cardinality `24` is the exact count of `(package,binding)` pairs below, not a count of physical resources. Preserve aliases are 6: `FUSOU-WEB/ASSETS_BUCKET`, `FUSOU-WEB/ASSET_SYNC_BUCKET`, `FUSOU-WEB/ASSET_INDEX_DB`, `FUSOU-WEB/MASTER_DATA_BUCKET`, `FUSOU-WEB/MASTER_DATA_INDEX_DB`, and `FUSOU-WEB/ASSET_SYNC_INDEX_KV`. Transition aliases are 18: `FUSOU-WEB/BATTLE_INDEX_DB`, `FUSOU-WORKFLOW/BATTLE_INDEX_DB`, `FUSOU-WEB/QUEST_INDEX_DB`, `FUSOU-WORKFLOW/QUEST_INDEX_DB`, `FUSOU-WEB/REMODEL_INDEX_DB`, `FUSOU-WEB/SOKU_SPEED_OBSERVED_DB`, `FUSOU-WEB/SHIP_GROWTH_DB`, `FUSOU-WEB/FLEET_SNAPSHOT_BUCKET`, `FUSOU-WEB/BATTLE_DATA_BUCKET`, `FUSOU-WORKFLOW/BATTLE_DATA_BUCKET`, `FUSOU-WEB/SHIP_GROWTH_ARCHIVE_BUCKET`, `FUSOU-WEB/DATA_LOADER_CACHE_KV`, `FUSOU-WEB/SESSION`, `FUSOU-WEB/COMPACTION_QUEUE`, `FUSOU-WORKFLOW/COMPACTION_QUEUE`, `FUSOU-WEB/COMPACTION_DLQ`, `FUSOU-WORKFLOW/TURSO_DATABASE_URL`, and `FUSOU-WORKFLOW/TURSO_AUTH_TOKEN`. `FUSOU-WEB/SESSION` is a required generated target alias and is not present in the current checked-in `wrangler.toml`; P0-17 must obtain and record its generated binding metadata before approval. Service bindings such as `COMPACTION_WORKFLOW` and `SHORTENER_SERVICE` are outside this storage binding cardinality. Queue consumer registrations are counted separately as the two `queue_consumers` entries.
 
 `legacy_resources`と`target_resources`は上表13 transitionsの各from/to ref、`preserved_resources`はこの5 refsだけをexactly 1回含む。`bindings`は両表に列挙した24 `(package,binding)` aliases、`queue_consumers`はFUSOU-WORKFLOW script `fusou-workflow`のmain Queue consumerとDLQ consumerの2 entriesだけを含む。ExecutorはFUSOU-WEB/FUSOU-WORKFLOWのchecked-in config、generated Worker binding metadata、Cloudflare/Turso management inventoryを列挙し、storage binding/resource/producer/consumerのmissingまたはextraをmutation前に拒否する。
 
@@ -2385,22 +2429,31 @@ Runtime implementation: absent
 
 ---
 
-## 17. FINAL SPECIFICATION AUDIT
+## 17. FINAL FREEZE AUDIT
 
 ```text
-FINAL SPECIFICATION AUDIT
+FINAL FREEZE AUDIT
 
 Repository:
 FUSOU
 
 Commit:
-0ddb2a8d3f76c939f956fdc0140f1ae872c07052
+da508c19b8a527a759b1cfbeb03572f70e103a4b
 
 Document:
 docs/operations/member-id-preemptive-attack-and-recovery.md
 
-Specification:
+Specification status:
 DESIGN-COMPLETE
+
+FINAL DESIGN DECISION:
+FREEZE
+
+IMPLEMENTATION:
+NO-GO
+
+Phase 0:
+0/17 PASS
 
 Specification reconstruction:
 PASS
@@ -2414,23 +2467,20 @@ P1 issues found:
 P2 issues found:
 15
 
-Specification dispositions complete:
+Specification dispositions:
 P0 36/36, P1 58/58, P2 15/15
 
-Issues automatically fixed:
+Design dispositions:
 Canonical state/ownership rules, RPC authority boundaries, lock order, replay/CAS,
 cross-store cutover/recovery, target Turso bootstrap source, and report cardinality
 
 Remaining contradictions:
-NONE in the canonical specification; target implementation and legacy-surface comparison remain unverified
+NONE in the canonical specification
 
-Remaining design decisions:
-NONE in the canonical definitions. Phase 0 must still freeze the literal TLSNotary profile,
-Verifier revision/authenticated-time evidence, Attestation ID length N, production migration,
-key-registry, and storage-manifest artifacts before any GO decision.
-
-Remaining Phase 0 gates:
-P0-01 through P0-17; 0/17 passed
+Remaining evidence:
+Phase 0 must still freeze the literal TLSNotary profile, Verifier revision/authenticated-time
+evidence, Attestation ID length N, production migration, key-registry, and storage-manifest
+artifacts before any GO decision.
 
 Architecture:
 PASS - runtime absent
