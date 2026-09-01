@@ -4,7 +4,7 @@
 >
 > **対象リポジトリ**: `FUSOU`
 >
-> **基準 branch / HEAD**: `security-attestation-design` / `2bc3f3e3a3dea3fe9658d2a591ecee11cae056c1`
+> **基準 branch / HEAD**: `security-attestation-design` / `0d2a85a8c474271ecf6bf7e2cf062365a9608e83`
 >
 > **Revision note**: 上記HEADは本仕様書の対象commitである。runtime implementationは別途未作成であり、commit済み仕様と実装済み機能を同一視しない。今回のcross-specification auditはこのHEADを基準に行う。
 >
@@ -2441,7 +2441,7 @@ Repository:
 FUSOU
 
 Commit:
-2bc3f3e3a3dea3fe9658d2a591ecee11cae056c1
+0d2a85a8c474271ecf6bf7e2cf062365a9608e83
 
 Document:
 docs/operations/member-id-preemptive-attack-and-recovery.md
