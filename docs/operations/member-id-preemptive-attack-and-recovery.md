@@ -6,9 +6,9 @@
 >
 > **基準 branch / Reference Baseline**: `security-attestation-design` / `0d2a85a8c474271ecf6bf7e2cf062365a9608e83`
 >
-> **Specification Revision**: `8be12bf7cad2ba181f7b39aea38903f96475c4d9`
+> **Specification Revision**: `UNCOMMITTED WORKTREE`
 >
-> **Revision note**: Reference Baseline は本仕様書が対象とする repository baseline であり、Specification Revision は本仕様書自身を更新した commit である。runtime implementationは別途未作成であり、commit済み仕様と実装済み機能を同一視しない。今回のcross-specification auditは Reference Baseline を基準に行う。
+> **Revision note**: Reference Baseline は本仕様書が対象とする repository baseline であり、Specification Revision は本仕様書自身を更新した commit、または未commit時の `UNCOMMITTED WORKTREE` marker である。runtime implementationは別途未作成であり、commit済み仕様と実装済み機能を同一視しない。今回のcross-specification auditは Reference Baseline を基準に行う。
 >
 > **再構築日**: 2026-09-01
 >
@@ -115,36 +115,42 @@ POST /kcsapi/api_get_member/require_info
 response.api_data.api_basic.api_member_id
 ```
 
-TLSNotary で Game Server provenance を検証し、Server-side で次を確立する。
+TLSNotary で Game Server provenance を検証し、Server-side で次を一つの検証可能な binding chain として確立する。
 
 ```text
 verified api_member_id
+  -> TLSNotary transcript
+  -> server-issued Attestation Session
+  -> authenticated non-anonymous canonical user
+  -> authenticated device
+  -> Identity Claim
   -> member_id_mapping
   -> public_id
-  -> authenticated non-anonymous canonical user
-  -> VERIFIED device
   -> explicit social binding
   -> Dataset Token
   -> server-derived telemetry attribution
 ```
 
-client が自己申告した偽の `api_member_id`、任意の `public_id`、任意の owner だけを根拠に Dataset を先取りする経路は 0 本でなければならない。初回 owner は genuine Verifier Result を提出した non-anonymous Supabase user である。盗取・copy された genuine Verifier Result の最初の提出者が Game Account の正当な所有者かは v1 では判定しない。
+client が自己申告した偽の `api_member_id`、任意の `public_id`、任意の owner だけを根拠に Dataset を先取りする経路は 0 本でなければならない。初回 owner は、同じ Attestation Session に server-side で固定された authenticated non-anonymous Supabase user/device である。Verifier Result、Session、Challenge、Device、Claim のいずれかの binding が一致しない場合は受理してはならない。
 
 ### 1.2 v1 が保証すること
 
 1. Accepted Identity Claim の `api_member_id` は、許可した Game Server の `require_info` response から得た値である。
-2. `public_id` は Server-side の唯一の mapping function が割り当て、client は選択できない。
-3. Claim に使用した device key の秘密鍵を持つ client だけが、その Challenge を完了できる。
-4. 同一 Attestation は 1 件の accepted Identity Claim にしか使用できない。
-5. 既存 verified owner と異なる user への自動 takeover は発生しない。
-6. Dataset Token から `public_id` と `device_id` を決定し、Telemetry payload の identity field を認可に使用しない。
+2. TLS transcript は、server-issued Attestation Session の exact binding header を authenticated bytes として含む。
+3. Attestation Session は、server-side で authenticated non-anonymous user、authenticated device、device public key、binding nonce、lifetime に固定される。
+4. Verifier Result は Attestation Session ID、binding nonce、binding value、Game Server provenance、`require_info` evidence を同じ署名対象で証明する。
+5. Claim は Session、Challenge、authenticated user/device、Verifier Result、device signature の全 authority 値を server-side に再構成して一致確認する。
+6. `public_id` は Server-side の唯一の mapping function が割り当て、client は選択できない。
+7. 同一 Attestation Session/Attestation は 1 件の accepted Identity Claim にしか使用できない。
+8. 既存 verified owner と異なる user への自動 takeover は発生しない。
+9. Dataset Token から `public_id` と `device_id` を決定し、Telemetry payload の identity field を認可に使用しない。
 
 ### 1.3 Scope 外
 
 次は v1 で保証せず、新しい機構を追加しない。
 
 1. Telemetry JSON、battle data、fleet data の内容が Game Server 由来であること。
-2. User A の genuine Verifier Result を User B が copy し、A の Claim より先に B 自身の device challenge を作る **Proof Copy Attack**。Device signature は発行済み Challenge の device 差し替えを防ぐが、copy された未 Claim Verifier Result の最初の使用者を証明しない。
+2. Session binding を破らずに成立する Proof Copy Attack は v1 の保証対象外ではない。User A の Proof を User B の Session、Challenge、Device、Claim と組み合わせる試行は、Proof Copy Attack として必ず reject する。
 3. TPM、Secure Enclave、kernel attestation。
 4. anonymous account、pre-registration、client-authoritative ownership。
 5. `member_id_hash`、Pepper、HMAC identity、旧 token upgrade。
@@ -152,7 +158,20 @@ client が自己申告した偽の `api_member_id`、任意の `public_id`、任
 7. Cross-user transfer、manual recovery、Social unbind、盗難 device key/bearer credential の無効化以外の補償。
 8. Game Account の法的・恒久的所有権。TLSNotary が証明するのは response provenance である。
 
-Proof Copy Attack を v1 で解決する変更は protocol v2 として別途設計する。v1 の Challenge/Device signature を Proof Copy 防止と説明してはならない。
+Proof Copy Attack の拒否は v1 の MUST であり、Phase 0 の実験結果を待って scope 外へ戻してはならない。Device signature 単体が Proof Copy を防ぐのではなく、`Verifier Result <-> Attestation Session <-> authenticated user/device` の一致が防止の根拠である。
+
+### 1.4 Proof Copy security requirement
+
+次の組合せはすべて reject する。
+
+```text
+Proof(A) + User B
+Proof(A) + Device B
+Proof(A) + Challenge B
+Proof(A, Session A) rewritten as Session B
+```
+
+`Verifier Result.attestation_session_id`、`Verifier Result.binding_nonce`、authenticated user/device、Challenge row、`user_devices` row、ClaimBindingBytes の各値は、同じ server-issued Session を指さなければならない。最初に Claim した actor を owner とする first-claim-wins semantics でこの検査を省略してはならない。
 
 ---
 
@@ -179,19 +198,20 @@ TRUSTED APPLICATION AUTHORITY
   - Verifier Result signature verification
   - strict require_info parsing
   - non-anonymous Supabase Bearer verification
+  - server-side Attestation Session issuance and binding validation
   - device signature verification
        |
        v
 TRUSTED IDENTITY STORAGE
   PostgreSQL SECURITY DEFINER RPC
-  - locking, state transition, owner conflict, replay prevention
+  - Session/Challenge binding, locking, state transition, owner conflict, replay prevention
 ```
 
 Dedicated Verifier、FUSOU-WEB、PostgreSQL のいずれかの privileged runtime が侵害された場合、その authority が担当する保証は失われる。Client compromise と bearer token theft は防止しない。
 
 ### 2.2 唯一の Security Root
 
-Identity authorization の Security Root は次の4 tableだけである。
+Identity authorization の Security Root は次の4 tableだけである。Attestation Session と Challenge は identity owner を決める root ではなく、accepted Claim の proof provenance と one-time protocol state を server-authoritatively 拘束する retained coordination records である。
 
 1. `member_id_mapping`: verified `api_member_id` と immutable `public_id` の 1:1 mapping。
 2. `member_identity_claims`: accepted Attestation と Claim の append-only audit。
@@ -222,7 +242,8 @@ member_ownership -> user_member_map -> web_user_member_map
 | `tlsn_attestation_id` | Canonical bytes of `Attestation.header().id` from the pinned TLSNotary revision | Raw bytes of unresolved Phase 0 length `N` | TLSNotary Attestation and Verifier Result | Immutable; Challenge/Claim retention lifetime | `BYTEA` with `octet_length = N`, UNIQUE on Challenge/Claim | Strict unpadded base64url of exactly `N` bytes inside Verifier Result |
 | `notary_time` | Notary-authenticated POSIX UTC whole seconds signed in the Attestation | UInt64 | Notary signature over the authenticated Attestation | Immutable evidence field | `public.fusou_uint64` | UInt64Decimal String in Verifier Result; never Game event time |
 | `result_time` | POSIX UTC whole seconds read once by the Verifier after proof validation completes | UInt64 | Dedicated Verifier trusted clock | Immutable per Verifier Result | `public.fusou_uint64` | UInt64Decimal String in Verifier Result; distinct from `notary_time` |
-| `Verifier Result` | Canonical JSON object carrying authenticated full transcripts/ranges, identity profile, key IDs, times, attestation ID, and Verifier Ed25519 signature | UTF-8 canonical JSON bytes plus 64-byte Ed25519 signature | Dedicated Verifier after TLSNotary verification | Immutable signed artifact; raw bytes are request-lifetime only | Raw JSON is not stored; Challenge/Claim authority subset, full SHA-256 digests, and Range metadata are copied | One exact `application/json` artifact; the same bytes may be retried to the Web API on network/5xx failure |
+| `Verifier Result` | Canonical JSON object carrying authenticated full transcripts/ranges, identity profile, Attestation Session binding fields, key IDs, times, attestation ID, and Verifier Ed25519 signature | UTF-8 canonical JSON bytes plus 64-byte Ed25519 signature | Dedicated Verifier after TLSNotary verification; user/device are derived from the Session, never client supplied | Immutable signed artifact; raw bytes are request-lifetime only | Raw JSON is not stored; Challenge/Claim authority subset, full SHA-256 digests, and Range metadata are copied | One exact `application/json` artifact; the same bytes may be retried to the Web API on network/5xx failure |
+| `Attestation Session` | One server-issued proof-acquisition binding fixed before the TLSNotary request to one authenticated non-anonymous user and one authenticated device key | `session_id`, `canonical_user_id`, `device_id`, `device_public_key`, `binding_nonce`, `issued_at`, `expires_at`, and closed lifecycle status | FUSOU-WEB authenticated-device context plus PostgreSQL Session row; no client locator is authoritative | Immutable authority fields; `ACTIVE -> CONSUMED/EXPIRED/REVOKED` terminal lifecycle | `attestation_sessions` row with unique `session_id`/`binding_nonce`, exact device-key binding, and terminal reason | Client receives only an opaque server-generated binding value and expiry for transport relay; `session_id`, nonce, user, device, and key are not client authority inputs |
 | `ClaimBindingBytes` | Canonical binary message reconstructed by FUSOU-WEB from Challenge authority fields and signed by the device key | Deterministic byte string defined in Section 7.3 | FUSOU-WEB serialization rules plus Challenge row; device signs but does not define fields | Immutable per Challenge; not persisted as raw bytes | No raw column; Challenge authority fields and accepted Claim fields are the source | Never client-supplied; device receives/derives the exact bytes for Ed25519 signing |
 | `Challenge` | One server-issued, device-bound coordination record authorizing one Claim attempt | PostgreSQL row with `ACTIVE`, `CONSUMED`, or `EXPIRED` lifecycle | FUSOU-WEB verifier + PostgreSQL Challenge root for lifecycle | Authority columns immutable; lifecycle terminal; transient coordination with retained replay evidence | `claim_challenges` row, terminal reason/lifecycle checks, one UNIQUE `tlsn_attestation_id` | Server response exposes only defined authority/result fields; client submits only challenge ID and signature to Claim |
 | `Claim` | Accepted binding of one Attestation, member mapping, canonical user, and verified device | PostgreSQL append-only identity fact | `member_identity_claims` root after atomic Claim RPC | Immutable; retained audit history | `member_identity_claims` append-only row | Server result only; client cannot submit authority columns |
@@ -247,6 +268,7 @@ Verifier Resultのraw canonical JSON bytesはChallenge/Claimのいずれにも�
 | Concept | Canonical definition | JSON | Binary | DB | API | Test |
 | --- | --- | --- | --- | --- | --- | --- |
 | `api_member_id` | Section 2.3のcanonical member value | Authenticated responseのNumber token | ClaimBindingBytesのdecimal ASCII value | `TEXT` in mapping/claim roots | Internal `TEXT`; never client input | `require_info_number_token` |
+| `Attestation Session` | Section 2.3のserver-issued user/device proof binding | Session is not client-authored JSON authority; binding is authenticated in request transcript and Result | Binding bytes include session ID and nonce as defined in Section 5.3 | `attestation_sessions` with immutable user/device/key fields | Session creation response exposes opaque binding only; Claim derives Session from Challenge | `attestation_session_binding_exact` |
 | `verified_member_id` | `api_member_id`の処理段階alias | Not a second field; extracted from response | Same bytes as `api_member_id` | No separate column | Challenge response signing field; never client input | `verified_member_id_alias_identity` |
 | `public_id` | Server-generated mapping UUID | UUID String where returned | ClaimBindingBytes RFC 4122 UUID bytes | `UUID` mapping/root FK | Server response/token/envelope | `mapping_returns_stable_public_id` |
 | `canonical_user_id` | Non-anonymous authenticated owner | UUID String only in server result fields that specify it | Not a ClaimBindingBytes field; bound by Challenge actor | UUID auth FKs | Session-derived server value | `client_user_id_has_no_authority` |
@@ -284,6 +306,10 @@ Identity State、Device State、Challenge Stateは別domainであり、同じ文
 | `ACTIVE Challenge` | `challenge_status = 'ACTIVE'`, all terminal timestamps/reason NULL, expiry future at use | One unconsumed device-bound Claim attempt | `CONSUMED` or `EXPIRED` | Attestation/device row locks and lifecycle trigger; `active_challenge_unique` |
 | `CONSUMED Challenge` | `challenge_status = 'CONSUMED'`, terminal reason is Claim accepted, invalid signature, or device revoke, `consumed_at` non-NULL | Attempt is permanently spent; accepted Claim replay may read it | No transition | Append-only authority + lifecycle trigger; `challenge_replay_rejected` |
 | `EXPIRED Challenge` | `challenge_status = 'EXPIRED'`, reason `TTL_EXPIRED`, `expired_at` non-NULL | Attempt expired without Claim; it cannot be reused | No transition | Single DB timestamp and cleanup RPC; `expired_challenge_rejected` |
+| `ACTIVE Attestation Session` | `session_status = 'ACTIVE'`, terminal timestamps/reason NULL, `expires_at > v_db_now` at use | Proof acquisition is bound to one authenticated user/device and may produce one Challenge | `CONSUMED`, `EXPIRED`, or `REVOKED` | Session issue/Claim/expiry/revoke RPC; `attestation_session_lifecycle` |
+| `CONSUMED Attestation Session` | `session_status = 'CONSUMED'`, terminal reason `CLAIM_ACCEPTED` or `INVALID_SIGNATURE`, `consumed_at` non-NULL | Session has been used by one terminal Challenge/Claim path and cannot issue another Challenge | No transition | Session/Challenge atomic lifecycle update; `attestation_session_replay_rejected` |
+| `EXPIRED Attestation Session` | `session_status = 'EXPIRED'`, reason `TTL_EXPIRED`, `expired_at` non-NULL | Binding is no longer valid; a new authenticated Session is required | No transition | Session expiry RPC; `expired_attestation_session_rejected` |
+| `REVOKED Attestation Session` | `session_status = 'REVOKED'`, reason `DEVICE_REVOKED`, `revoked_at` non-NULL | Binding is invalid because its authenticated device was revoked | No transition | Revoke/session lock path; `revoked_attestation_session_rejected` |
 
 `UNCLAIMED` is therefore not equivalent to “no history,” and `CONSUMED` is not equivalent to “accepted Claim”: the terminal reason and linked Claim decide the latter distinction.
 
@@ -294,6 +320,8 @@ Identity State、Device State、Challenge Stateは別domainであり、同じ文
 | Invariant | Enforcement point | Code | DB | Allowed caller | Forbidden caller | Test |
 | --- | --- | --- | --- | --- | --- | --- |
 | Fake member ID has no authority | Strict authenticated response parser | `require_info` Number token parser; no client member argument | Mapping is written only by identity function | FUSOU-WEB service path with verified Result | Browser, APP, proxy, payload | `client_member_id_has_no_authority` |
+| Proof is bound to authenticated submitter | Session issuance, transcript binding, and Claim revalidation | Session is created from authenticated user/device context; Result carries signed Session fields | Immutable Session fields and Challenge composite binding | Authenticated Session/Claim handler | Client-supplied session/user/device/member fields | `proof_copy_attack_rejected` |
+| Session binding cannot be substituted | Verifier request-range validation and Result signature | Exact binding header must be authenticated in the same transcript | Session ID/nonce/value are immutable and cross-checked | Dedicated Verifier plus FUSOU-WEB | Modified Result, copied binding, alternate Challenge | `binding_substitution_rejected` |
 | Fake public ID has no authority | Mapping creation | `get_or_create_public_id()` | Mapping parent UNIQUE/immutable trigger | Identity SECURITY DEFINER owner path | Client and direct application DML | `forged_public_id_rejected` |
 | Cross-user takeover is rejected | Claim owner conflict | `claim_verified_device_v1()` | Immutable `member_ownership.canonical_user_id` + Identity lock | Same historical owner reclaim | Different authenticated user | `revoked_owner_cross_user_rejected` |
 | Attestation replay is rejected | Challenge issuance and Claim | Attestation lookup before new Challenge | UNIQUE `tlsn_attestation_id` on Challenge/Claim | First valid lifecycle owner | Any second Challenge/Claim | `attestation_claim_race_one_winner` |
@@ -327,7 +355,7 @@ Identity State、Device State、Challenge Stateは別domainであり、同じ文
 | revoked device token | 防止 | request ごとに live DB state を確認 | `revoked_device_token_rejected` |
 | payload の dataset substitution | 防止 | token/device roots から attribution | `payload_identity_fields_rejected` |
 | post-send Notary/Verifier/DB failure | upstream replay なし | send-state latch | `post_send_failure_write_attempt_at_most_one` |
-| copied genuine Verifier Result の先行使用 | v1 非保証 | Threat Model に明記 | `proof_copy_limitation_documented` |
+| copied genuine Verifier Result の先行使用 | 防止 | server-issued Attestation Session の user/device/key binding と transcript binding の再検証 | `proof_copy_attack_rejected` |
 | Telemetry 内容改ざん | v1 非保証 | payload を UNTRUSTED として保存 | `telemetry_content_not_attested` |
 
 ---
@@ -342,26 +370,28 @@ Identity Attestation の対象は次だけである。
 Method: POST
 Path: /kcsapi/api_get_member/require_info
 Protocol: HTTP/1.1
+Required injected header: X-FUSOU-Attestation-Binding
 Redirect: forbidden
 ```
 
-`api_port/port` その他の API を Identity Authority に使用してはならない。Proxy は Game client が自然に送信した `require_info` だけを処理し、Identity 用 request を新規生成してはならない。
+`api_port/port` その他の API を Identity Authority に使用してはならない。Proxy は Game client が自然に送信した `require_info` に server-issued binding header を一度だけ付加して処理し、Identity 用 request を新規生成してはならない。Binding がない request は通常 gameplay として扱い、Identity proof の入力にしてはならない。
 
 過去の非決定的notebook観測では`api_start2/getData -> require_info -> api_port/port`の順とJSON Number tokenが見られたが、これはevidenceでもproduction invariantでもない。P0-04はsorted input manifest、各capture SHA-256、collector version、deterministic script、machine-readable reportを`docs/security/evidence/require-info-corpus-v1/`へcheck-inし、実Game clientで再実行して初めてPASSとする。Repository外path、未sort directory traversal、手集計件数をPASS根拠にしない。
 
 ### 4.2 Critical Path
 
 ```text
-T0 Proxy receives logical require_info request
+T-1 authenticated APP obtains one server-issued Attestation Session
+T0 Proxy receives logical require_info request and one-shot binding value
 T1 MPC-TLS session is ready
-T2 exactly one upstream application request is sent
+T2 exactly one upstream application request with the exact binding header is sent
 T3 response plaintext is available and Browser response is sent
 T4 TLSNotary finalization / Presentation generation
 T5 Dedicated Verifier and FUSOU-WEB verification
 T6 Challenge / Claim / Social Binding / Token issuance
 ```
 
-Browser critical path に存在するのは T1-T3 の **MPC-TLS response acquisition** だけである。Presentation generation、Verifier post-processing、DB Claim、audit persistence、Social Binding、Dataset Token issuance は T3 後に実行する。
+Browser critical path に存在するのは T1-T3 の **MPC-TLS response acquisition** だけである。Session issuance はproof取得前の authenticated control operationであり、Presentation generation、Verifier post-processing、DB Claim、audit persistence、Social Binding、Dataset Token issuance は T3 後に実行する。
 
 「証明処理による遅延ゼロ」と記載してはならない。MPC-TLS の追加遅延を Phase 0 で計測する。
 
@@ -412,6 +442,7 @@ Fallback は MPC session setup failure、Notary接続 failure、profile negotiat
 Result deliveryは次の一本道に固定する。
 
 ```text
+FUSOU-APP -> FUSOU-WEB Attestation Session API -> one-shot binding value -> Proxy
 proxy-https -> Dedicated Verifier -> proxy-https -> in-process mpsc -> FUSOU-APP
 FUSOU-APP -> FUSOU-WEB Challenge/Claim APIs
 ```
@@ -420,7 +451,7 @@ FUSOU-APP -> FUSOU-WEB Challenge/Claim APIs
 2. Dedicated VerifierはSection 5.5を完了した場合だけ`200 application/json`でexact canonical signed Verifier Result bytesを返す。Failure bodyはopaque codeだけでtranscriptをechoしない。Proxyはresponse bodyを`MAX_VERIFIER_RESULT_JSON_BYTES`で打ち切る。
 3. ProxyはResultをparse・再serializeせず、`packages/FUSOU-PROXY/proxy-https/src/channel_types.rs`の新variant `StatusInfo::IDENTITY_ATTESTATION { verifier_result: Vec<u8> }`として既存Proxy-log in-process mpscへ1回送る。Debug/Display/logにbytesを出さないcustom implementationを使う。
 4. FUSOU-APPのsingle consumerはraw bytesのSHA-256でprocess-local deduplicationし、device Ed25519 keypairをOS credential storageから取得する。Result、member ID、Challenge nonce、device private keyをlog、event payload、WebView、filesystemへ出さない。
-5. APPは`AuthManager::get_access_token()`相当で得たnon-anonymous Supabase Bearerを使い、raw Resultをstrict unpadded base64urlへ一度だけencodeしてSection 7.2へ送る。Challenge responseを受けたらClaimBindingBytesを署名してSection 7.4へ送る。
+5. APPはproof acquisition前に`AuthManager::get_access_token()`相当で得たnon-anonymous Supabase Bearerとdevice public keyを使い、Section 7.1.1でAttestation Sessionを発行する。返されたopaque binding valueをProxyへone-shotで渡し、その後raw Resultをstrict unpadded base64urlへ一度だけencodeしてSection 7.2へ送る。Challenge responseを受けたらClaimBindingBytesを署名してSection 7.4へ送る。
 6. FUSOU-WEB submissionのnetwork/5xxだけは同じouter request bytesで最大3回retryできる。Challenge/Claimのidempotency contractが収束を保証する。401/4xxはretryしない。RetryはGame originへのrequestを一切発生させない。
 7. Queue full、APP未認証、Verifier failure、APP終了、retry exhaustionはResultをdropして`IDENTITY_UNVERIFIED`とする。次の自然な`require_info`だけが新しい試行機会であり、旧Game requestを生成・再送しない。
 
@@ -494,7 +525,7 @@ MAX_JSON_DEPTH = 64
 MAX_GAME_JSON_STRING_BYTES = 1048576
 MAX_VERIFIER_JSON_STRING_BYTES = 33554432
 MAX_CHALLENGE_BODY_BYTES = 33558528
-REQUEST_RANGE_COUNT = 2
+REQUEST_RANGE_COUNT = 3
 RESPONSE_RANGE_COUNT = 1
 ```
 
@@ -510,6 +541,9 @@ profile_id
 profile_sha256
 issuer
 proof_purpose
+attestation_session_id
+binding_nonce
+binding_value
 verifier_key_id
 notary_key_id
 tlsn_attestation_id
@@ -534,6 +568,9 @@ Transport type は次に固定する。
 | `profile_sha256` | strict unpadded base64url、decoded length = 32 |
 | `issuer` | exact ASCII String `fusou-tlsn-verifier` |
 | `proof_purpose` | exact ASCII String `GAME_ACCOUNT_IDENTITY_V1` |
+| `attestation_session_id` | lowercase canonical UUIDv4 String; server-issued Session identifier extracted from the authenticated binding header |
+| `binding_nonce` | strict unpadded base64url, decoded length = 32; exact nonce extracted from the authenticated binding header |
+| `binding_value` | strict unpadded base64url of the canonical binding bytes; exact ASCII value of the authenticated `X-FUSOU-Attestation-Binding` header |
 | `verifier_key_id` | ASCII String `^[A-Za-z0-9._-]{1,64}$` |
 | `notary_key_id` | ASCII String `^[A-Za-z0-9._-]{1,64}$` |
 | `tlsn_attestation_id` | strict unpadded base64url、decoded length = `N` |
@@ -566,6 +603,9 @@ u16_be(profile_id_byte_length) || profile_id ASCII bytes
 u16_be(32) || profile_sha256 raw bytes
 u16_be(issuer_byte_length) || issuer UTF-8 bytes
 u16_be(proof_purpose_byte_length) || proof_purpose ASCII bytes
+u16_be(16) || attestation_session_id RFC 4122 network-order UUID bytes
+u16_be(32) || binding_nonce raw bytes
+u16_be(binding_value_byte_length) || binding_value ASCII bytes
 u16_be(verifier_key_id_byte_length) || verifier_key_id ASCII bytes
 u16_be(notary_key_id_byte_length) || notary_key_id ASCII bytes
 u16_be(N) || tlsn_attestation_id raw bytes
@@ -602,13 +642,13 @@ Request array と Response array は別 field であり、Range object に `dire
 
 v1 `require_info` profile はさらに次を要求する。
 
-1. TLSNotary Presentationはauthenticated sent transcript全体をDedicated Verifierだけへ開示する。Verifierは`MAX_REQUEST_TRANSCRIPT_BYTES`以下のbytesをsingle HTTP/1.1 requestとしてstrict parseし、request後のtrailing byteを拒否する。Request lineはexact `POST /kcsapi/api_get_member/require_info HTTP/1.1\r\n`、直後のfirst headerはexact `Host: <server_identity>\r\n`でport suffixを許可しない。Host fieldは全header中exactly 1件であり、異なるcaseを含む後続Hostを拒否する。Header/body framingはSection 6.2と同じ規則を使い、responseと異なりbody length 0を要求する。
-2. Verifier ResultのRequest range count = 2。Range 0は`start = 0`のexact request line、Range 1は`start = Range0.end`のexact Host lineである。Cookie、token、残りのrequest bytesはResultへ含めない。
+1. TLSNotary Presentationはauthenticated sent transcript全体をDedicated Verifierだけへ開示する。Verifierは`MAX_REQUEST_TRANSCRIPT_BYTES`以下のbytesをsingle HTTP/1.1 requestとしてstrict parseし、request後のtrailing byteを拒否する。Request lineはexact `POST /kcsapi/api_get_member/require_info HTTP/1.1\r\n`、直後のfirst headerはexact `Host: <server_identity>\r\n`でport suffixを許可しない。Host fieldは全header中exactly 1件であり、異なるcaseを含む後続Hostを拒否する。Host lineの直後のsecond headerはexact `X-FUSOU-Attestation-Binding: <binding_value>\r\n`であり、header nameのcase variation、duplicate、OWS variation、別位置のbinding headerを拒否する。Header/body framingはSection 6.2と同じ規則を使い、responseと異なりbody length 0を要求する。
+2. Verifier ResultのRequest range count = 3。Range 0は`start = 0`のexact request line、Range 1は`start = Range0.end`のexact Host line、Range 2は`start = Range1.end`のexact `X-FUSOU-Attestation-Binding: <binding_value>\r\n` lineである。Cookie、token、残りのrequest bytesはResultへ含めない。
 3. Response range count = 1、`start = 0`、`length = response_transcript_size`。すなわちresponse HTTP/1.1 transcript全体をResultへ含める。
 4. `request_transcript_sha256`と`response_transcript_sha256`はauthenticated full transcript raw bytesのSHA-256である。FUSOU-WEBはresponse digestをRange bytesから再計算し一致を要求する。
 5. Dedicated VerifierとFUSOU-WEBはtranscript bytesをlog・DB・object storageへ保存しない。DBにはfull digestとRangeのstart、length、SHA-256 digestだけを保存する。
 6. Request/response transcript size、range count、decoded bytes totalはProfile limits以下である。
-7. ProxyはMPC-TLS sessionごとにapplication requestを1件だけ送信する。Dedicated Verifierはauthenticated sent transcriptのstrict parseによりrequest 1件とtrailing bytes不在を検証する。TLS server identityがSecurity Authorityであり、非開示header/body値はIdentity Authorityに使用しない。
+7. ProxyはMPC-TLS sessionごとにapplication requestを1件だけ送信する。Dedicated Verifierはauthenticated sent transcriptのstrict parseによりrequest 1件、exact target、Host、binding header 1件、binding valueのcanonical encoding、trailing bytes不在を検証する。TLS server identityがSecurity Authorityであり、非開示header/body値はIdentity Authorityに使用しない。
 
 Response 全体開示は partial transcript 上で JSON path と duplicate key absence を推測しないための v1 correctness rule である。Privacy review がこれを拒否する場合、Phase 0 は NO-GO とし、redaction-aware authenticated parser を protocol v2 として別設計する。
 
@@ -619,7 +659,7 @@ Dedicated Verifier は次を順番に実行する。
 1. Profile ID、profile hash、protocol version、`proof_purpose`を照合。
 2. TLSNotary Attestation、Notary signature、transcript commitment を検証。
 3. Web PKI chain、SNI、certificate hostname、`server_identity` allowlist を検証。
-4. Full request transcriptをstrict parseし、request/Host/body/trailing-byte ruleとrequest digestを検証する。
+4. Full request transcriptをstrict parseし、request target/Host/exact binding header/body/trailing-byte ruleとrequest digestを検証する。Binding headerからSession ID、binding nonce、binding valueを抽出する。
 5. Resultへ出すRequest rangesをfull requestから切り出し、Range validationを実行する。
 6. Response transcriptが単一HTTP/1.1 200 responseであること、response digest、Range validationを検証する。
 7. authenticated `notary_time` を抽出し、`result_time` を1回取得する。`notary_time <= result_time` を要求する。
@@ -684,14 +724,67 @@ Identity APIのrequest `Content-Type`はparameterなしのexact `application/jso
 
 共通error評価順は`size 413 -> media/framing/outer JSON 400 -> authentication 401 -> resource ownership/not-found 404 -> expired 410 -> state/conflict 409 -> quota 429`。Challenge内のVerifier Result検証はauthentication後に行う。Web-side codeは`INVALID_REQUEST` 400、`INVALID_VERIFIER_RESULT` 400、`AUTHENTICATION_REQUIRED` 401、`INVALID_DEVICE_SIGNATURE` 401、`INVALID_DATASET_TOKEN` 401、`RESOURCE_NOT_FOUND` 404、`CHALLENGE_EXPIRED` 410、`IDENTITY_TRUST_REVOKED` 409、`REQUEST_TOO_LARGE` 413、`INTERNAL_ERROR` 500のclosed setである。DB outcome由来のHTTP codeはSection 10.5のclosed tableだけを使用し、HTTP error codeの全体集合はこのWeb-side setとDB outcome mappingのunionである。ほかのcodeを返してはならない。Error bodyは`{"error":{"code":"<UPPER_SNAKE_CASE>","request_id":"<uuidv4>"}}`の2 fieldsだけ、成功/errorとも`Cache-Control: no-store`と`X-Content-Type-Options: nosniff`を返す。内部DB error/detail、member ID、owner存在有無をerror textへ含めない。
 
+#### 7.1.1 Pre-proof Attestation Session issuance
+
+Proof acquisitionの前に、authenticated non-anonymous userが`POST /api/identity/v1/attestation-sessions`を1回呼ぶ。Request bodyは次の1 fieldだけである。
+
+```json
+{
+  "device_public_key": "<strict-unpadded-base64url-32-bytes>"
+}
+```
+
+このkeyはSessionに固定するdevice-key registration inputであり、member identity、`public_id`、Game Server responseのauthorityではない。FUSOU-WEBはBearerから`canonical_user_id`を得て、keyをstrict RFC 8032 profileでdecode/validateした後、service-only `issue_attestation_session_v1(authenticated_user_id, device_public_key)`を呼ぶ。Clientは`session_id`、`canonical_user_id`、`device_id`、`binding_nonce`をrequest authorityとして送らない。
+
+Functionは次の値をserver-sideで生成する。
+
+```text
+session_id       = extensions.gen_random_uuid()
+device_id        = extensions.gen_random_uuid()
+binding_nonce    = CSPRNG 32 bytes
+issued_at        = v_db_now
+expires_at       = v_db_now + interval '5 minutes'
+```
+
+`binding_value`はDB columnではなく、次のcanonical bytesをstrict unpadded base64url encodeした派生値である。
+
+```text
+ASCII "FUSOU-ATTESTATION-BINDING-V1\0"
+|| u16_be(16) || session_id RFC 4122 network-order bytes
+|| u16_be(32) || binding_nonce raw bytes
+```
+
+Functionは`auth.users.is_anonymous = false`、public key uniqueness、UUIDv4、nonce uniqueness、`expires_at > issued_at`を検証し、active/terminalを問わず同じ key の既存 Session または `user_devices` row があれば`DEVICE_KEY_ALREADY_REGISTERED`を返す。Session rowはproofの前にcommitされ、client responseは次の2 fieldsだけである。
+
+Function内部の順序は、auth userの再検証、raw device keyによるDevice-key advisory lock、`v_db_now := pg_catalog.transaction_timestamp()`の取得、全lifecycleのSession/Device key uniqueness再検証、Session INSERT、canonical binding valueの導出、typed resultの返却とcommitである。auth userが存在しない、またはanonymousの場合は`RESOURCE_NOT_FOUND`を返し、non-OK resultではSessionを作成しない。Session INSERTとbinding value導出を同一transactionで完了してからHTTP responseへ進む。
+
+```json
+{
+  "binding_value": "<strict-unpadded-base64url-canonical-binding-bytes>",
+  "expires_at": "<RFC3339 UTC>"
+}
+```
+
+APPはこのopaque binding valueをone-shot control messageとしてProxyへ渡す。Proxyは次の自然な`require_info` requestにだけ、exact ASCII header `X-FUSOU-Attestation-Binding: <binding_value>\r\n`を付加する。Binding value、Session ID、nonce、device keyをlog、Game request body、client event payloadへ出さない。Session issuance失敗、expiry、binding injection failureは通常gameplayを継続できるが、binding headerのないtranscriptをIdentity proofとして送ってはならない。
+
+Session issuanceのsuccessは`201 OK_NEW`である。Sessionは一度だけproof acquisitionに使用され、同一Session/nonce/bindingの再発行、別user/deviceへの移し替え、別Challengeへの再利用を許可しない。Session terminal transitionはClaim accepted、invalid signature、Challenge/device revoke、またはTTL expiryと同一transactionで記録する。
+
+`issue_attestation_session_v1`のtyped resultは次である。
+
+```text
+outcome, session_id UUID, device_id UUID, binding_nonce BYTEA,
+binding_value TEXT, expires_at TIMESTAMPTZ
+```
+
+`OK_NEW`だけがSession fieldsを返し、`DEVICE_KEY_ALREADY_REGISTERED`とその他のnon-OK outcomeでは全result fieldsをNULLにする。FUSOU-WEBはこのinternal resultから`binding_value`と`expires_at`だけをHTTP responseへ出し、Session ID、device ID、nonceはclientへ返さない。
+
 ### 7.2 `POST /api/identity/v1/challenges`
 
 Request body は次だけである。
 
 ```json
 {
-  "verifier_result_b64": "<base64url(exact canonical Verifier Result JSON bytes)>",
-  "device_public_key": "<strict-unpadded-base64url-32-bytes>"
+  "verifier_result_b64": "<base64url(exact canonical Verifier Result JSON bytes)>"
 }
 ```
 
@@ -699,18 +792,20 @@ Request body は次だけである。
 
 1. Outer body size、media type、strict JSON shapeを検証する。
 2. Supabase Bearerを検証し、non-anonymous userを取得する。
-3. `verifier_result_b64`をdecodeし、decoded length上限、canonical JSON、Verifier signature、profile、server identity、transcript digests/ranges、`require_info` parserを検証する。
+3. `verifier_result_b64`をdecodeし、decoded length上限、canonical JSON、Verifier signature、profile、server identity、Attestation Session fields、transcript digests/ranges、`require_info` parserを検証する。Resultの`attestation_session_id`、`binding_nonce`、`binding_value`はrequest transcriptのauthenticated binding headerからVerifierが抽出した同じ値でなければならない。
 4. `server_now_epoch`を1回取得する。`notary_time <= result_time <= server_now_epoch + 300`、`notary_time >= server_now_epoch - 86400`をBigIntで検証する。これはDB mutationを伴わない早期reject用のtransport preflightであり、`result_time`を`notary_time`の代用にしない。Acceptanceのauthoritative clockはRPC内で必要なlock取得後に再取得する`v_db_now`である。
-5. Device public keyをstrict RFC 8032 profileでdecode/validateする。
-6. `verifier_result_sha256 = SHA-256(decoded canonical JSON bytes including signature)`と各revealed Range digestを計算する。Full response digestはfull response Rangeから再計算する。Full requestはWebへ開示されないため、`request_transcript_sha256`はVerifier署名済みassertionとしてformatだけを検証する。
-7. service-only `issue_identity_challenge_v1(...)` を1回呼ぶ。HTTP handlerからIdentity tableへ個別DMLを発行しない。
+5. ResultのSession ID、binding nonce、binding valueをstrict canonical formでdecode/validateする。Clientからdevice public keyやcanonical user/deviceを受け付けず、keyはSession rowから復元する。
+6. `verifier_result_sha256 = SHA-256(decoded canonical JSON bytes including signature)`と各revealed Range digestを計算する。Full response digestはfull response Rangeから再計算する。Full requestはWebへ開示されないが、Resultのsafe binding rangeと署名済み`binding_value`のformatを検証する。
+7. service-only `issue_identity_challenge_v1(...)` を1回呼ぶ。HTTP handlerからIdentity tableへ個別DMLを発行せず、Session/user/device authorityをResultやbodyから個別に保存しない。
 
 `issue_identity_challenge_v1` の入力はFUSOU-WEBが検証・正規化した次の値である。
 
 ```text
 p_authenticated_user_id UUID
+p_attestation_session_id UUID
+p_binding_nonce BYTEA
+p_binding_value TEXT
 p_api_member_id TEXT
-p_device_public_key BYTEA
 p_tlsn_attestation_id BYTEA
 p_notary_time public.fusou_uint64
 p_result_time public.fusou_uint64
@@ -734,17 +829,18 @@ Function内部の順序は次である。
 3. Identity advisory lockを取得。
 4. User quota advisory lockを取得。
 5. Device-key advisory lockを取得し、必要なlockをすべて取得した後ここで`v_db_now := pg_catalog.transaction_timestamp()`を一度だけ取得する。`notary_time <= result_time <= v_db_now + 300`、`notary_time >= v_db_now - 86400`を再確認する。HTTP handlerの`server_now_epoch`はこの判定を代用しない。
-6. `get_or_create_public_id(p_api_member_id)`を呼び、mapping parent rowを`FOR UPDATE`。Device-key lock取得後のnon-locking lookupで、supplied keyに対応するcandidate `device_id`があれば取得する。
-7. 同AttestationのChallengeとcandidate deviceの全ACTIVE Challengeのunionを`challenge_id`昇順で`FOR UPDATE`する。Lock後に両集合を再queryし、未lock rowがあればinvariant errorとしてabortする。
-8. 同Attestationの期限切れACTIVEを`EXPIRED/TTL_EXPIRED`へ遷移する。このexpiry transition後にACTIVE Challengeをlookupする。
-9. ACTIVE rowがあり、user、device key digest、Verifier Result digestが一致し、deviceが同じuser/publicの未期限PENDINGなら同じChallengeを返す。不一致なら`ATTESTATION_IN_USE`。
-10. ACTIVE rowがない場合だけ、同Attestationのaccepted Claim、CONSUMED row、EXPIRED rowを順に確認する。accepted Claimは`ATTESTATION_ALREADY_CLAIMED`、CONSUMED rowは`ATTESTATION_ALREADY_USED`、EXPIRED rowは`CHALLENGE_EXPIRED`とし、いずれも新Challengeを作らない。
-11. Ownership rowを`FOR UPDATE`し、different userなら`EXISTING_VERIFIED_OWNER_CONFLICT`。
-12. Candidate deviceだけを`FOR UPDATE`する。期限切れPENDINGなら`REVOKED/expired_pending`へ、そのlock済みACTIVE Challengeを`EXPIRED/TTL_EXPIRED`へ遷移する。その後はexisting REVOKED keyとして`DEVICE_KEY_ALREADY_REGISTERED`を返す。
-13. Candidateが同じuser/publicの未期限PENDINGなら再利用し、それ以外のexisting keyは`DEVICE_KEY_ALREADY_REGISTERED`。Candidateに別のACTIVE Challengeがあれば`DEVICE_CHALLENGE_IN_USE`。
-14. Deviceが新規の場合だけ、同じUser-quota/Identity advisory lockを保持したまま`v_db_now`を使用し、`device_status='PENDING' AND pending_expires_at > v_db_now`のrowをactor user全体とpublic ID全体でcountする。count、limit判定、PENDING row INSERTは同一transaction/lock区間で完了し、別pathがこのlock protocol外でPENDINGを作成・遷移してはならない。count対象rowを個別にlockする必要はない。いずれかが5以上なら`PENDING_DEVICE_LIMIT`、未満なら`extensions.gen_random_uuid()`と`v_db_now + interval '24 hours'`でPENDING rowを作る。
-15. 同Attestationのrowが存在しない場合だけ、Server-generated UUIDv4、32-byte nonce、`expires_at = LEAST(v_db_now + interval '5 minutes', device.pending_expires_at)`でChallengeを作る。
-16. Typed resultを返してcommitする。
+6. Session rowを`FOR UPDATE`し、`session_id`、`canonical_user_id`、`device_id`、`device_public_key`、`binding_nonce`、`issued_at`、`expires_at`、`session_status`を再構成する。Authenticated user、ResultのSession fields、canonical binding bytesがすべて一致し、ACTIVEかつ`expires_at > v_db_now`でなければ、terminal statusに応じた拒否を返す。
+7. `get_or_create_public_id(p_api_member_id)`を呼び、mapping parent rowを`FOR UPDATE`。Device-key lock取得後のnon-locking lookupで、Sessionのdevice ID/keyに対応するcandidate `device_id`があれば取得する。
+8. 同AttestationのChallenge、同SessionのChallenge、candidate deviceの全ACTIVE Challengeのunionを`challenge_id`昇順で`FOR UPDATE`する。Lock後に全集合を再queryし、未lock rowがあればinvariant errorとしてabortする。
+9. 同Attestationの期限切れACTIVEを`EXPIRED/TTL_EXPIRED`へ遷移し、対応Sessionも`EXPIRED/TTL_EXPIRED`へ遷移する。このexpiry transition後にACTIVE Challengeをlookupする。
+10. ACTIVE rowがあり、Session、user、device key digest、Verifier Result digest、binding nonce/valueが一致し、deviceが同じuser/publicの未期限PENDINGなら同じChallengeを返す。不一致なら`ATTESTATION_IN_USE`。
+11. ACTIVE rowがない場合だけ、同Attestationのaccepted Claim、CONSUMED row、EXPIRED rowを順に確認する。accepted Claimは`ATTESTATION_ALREADY_CLAIMED`、CONSUMED rowは`ATTESTATION_ALREADY_USED`、EXPIRED rowまたはterminal Sessionは`CHALLENGE_EXPIRED`とし、いずれも新Challengeを作らない。
+12. Ownership rowを`FOR UPDATE`し、different userなら`EXISTING_VERIFIED_OWNER_CONFLICT`。
+13. Sessionのdevice ID/keyに対応するcandidate deviceだけを`FOR UPDATE`する。期限切れPENDINGなら`REVOKED/expired_pending`へ、そのlock済みACTIVE ChallengeとSessionを`EXPIRED/TTL_EXPIRED`へ遷移する。その後はexisting REVOKED keyとして`DEVICE_KEY_ALREADY_REGISTERED`を返す。
+14. Candidateが同じuser/publicの未期限PENDINGなら再利用し、それ以外のexisting keyは`DEVICE_KEY_ALREADY_REGISTERED`。Candidateに別のACTIVE Challengeがあれば`DEVICE_CHALLENGE_IN_USE`。新規device rowを作る場合はSessionの`device_id`と`device_public_key`をそのまま使用し、client keyを再入力しない。
+15. Deviceが新規の場合だけ、同じUser-quota/Identity advisory lockを保持したまま`v_db_now`を使用し、`device_status='PENDING' AND pending_expires_at > v_db_now`のrowをactor user全体とpublic ID全体でcountする。count、limit判定、PENDING row INSERTは同一transaction/lock区間で完了し、別pathがこのlock protocol外でPENDINGを作成・遷移してはならない。count対象rowを個別にlockする必要はない。いずれかが5以上なら`PENDING_DEVICE_LIMIT`、未満ならSessionのdevice ID/keyと`v_db_now + interval '24 hours'`でPENDING rowを作る。
+16. 同Attestationのrowが存在しない場合だけ、Server-generated UUIDv4、32-byte nonce、`expires_at = LEAST(v_db_now + interval '5 minutes', device.pending_expires_at)`でChallengeを作る。ChallengeのSession ID、nonce、binding valueはSessionからcopyする。
+17. Session、Challenge、device、Result authorityのcross-table equalityをassertし、Typed resultを返してcommitする。
 
 Challenge issuanceは無関係なPENDING deviceをsweep/lock/updateしない。Expiry mutationはsupplied keyのcandidate device、Claim対象device、またはSection 10.5のsingle-Challenge cleanupだけに限定し、各pathが対応User-quota/Device-key lockを取得する。
 
@@ -752,6 +848,9 @@ Response body は次である。
 
 ```json
 {
+  "attestation_session_id": "<uuidv4>",
+  "binding_nonce": "<strict-base64url-32-bytes>",
+  "binding_value": "<strict-base64url-canonical-binding-bytes>",
   "challenge_id": "<uuidv4>",
   "challenge_nonce": "<strict-base64url-32-bytes>",
   "expires_at": "<RFC3339 UTC>",
@@ -763,13 +862,16 @@ Response body は次である。
 }
 ```
 
-新規作成は`201`かつ`challenge_replayed=false`、同一ACTIVE Challengeの再取得は`200`かつ`challenge_replayed=true`である。Replayは同じchallenge ID、nonce、expiry、device/public/member/Attestation IDsを返す。Response fieldは上記8個だけである。
+新規作成は`201`かつ`challenge_replayed=false`、同一ACTIVE Challengeの再取得は`200`かつ`challenge_replayed=true`である。Replayは同じSession ID、binding nonce/value、challenge ID、nonce、expiry、device/public/member/Attestation IDsを返す。Response fieldは上記11個だけであり、canonical user IDとdevice public keyは返さない。
 
-同一Attestationはlifecycle全体でChallengeを最大1件とする。
+同一Attestationと同一Attestation Sessionはlifecycle全体でChallengeを最大1件とする。SessionとAttestationのどちらかが異なるResultの結合は許可しない。
 
 ```sql
 CREATE UNIQUE INDEX uq_claim_challenges_attestation
 ON public.claim_challenges (tlsn_attestation_id);
+
+CREATE UNIQUE INDEX uq_claim_challenges_session
+ON public.claim_challenges (attestation_session_id);
 
 CREATE UNIQUE INDEX uq_claim_challenges_active_device
 ON public.claim_challenges (device_id)
@@ -788,16 +890,19 @@ Client は Challenge response を次の順序で binary serialize し、device E
 | ---: | --- | --- |
 | 1 | domain | `u16_be(23)` + ASCII `FUSOU-IDENTITY-CLAIM-V1` |
 | 2 | purpose | `u16_be(24)` + ASCII `GAME_ACCOUNT_IDENTITY_V1` |
-| 3 | Attestation ID | `u16_be(N)` + raw `N` bytes |
-| 4 | verified member ID | `u16_be(length)` + decimal ASCII bytes |
-| 5 | device ID | `u16_be(16)` + RFC 4122 network-order UUID bytes |
-| 6 | public ID | `u16_be(16)` + RFC 4122 network-order UUID bytes |
-| 7 | challenge ID | `u16_be(16)` + RFC 4122 network-order UUID bytes |
-| 8 | nonce | `u16_be(32)` + raw 32 bytes |
+| 3 | Attestation Session ID | `u16_be(16)` + RFC 4122 network-order UUID bytes |
+| 4 | binding nonce | `u16_be(32)` + raw 32 bytes |
+| 5 | binding value | `u16_be(length)` + exact ASCII binding value bytes |
+| 6 | Attestation ID | `u16_be(N)` + raw `N` bytes |
+| 7 | verified member ID | `u16_be(length)` + decimal ASCII bytes |
+| 8 | device ID | `u16_be(16)` + RFC 4122 network-order UUID bytes |
+| 9 | public ID | `u16_be(16)` + RFC 4122 network-order UUID bytes |
+| 10 | challenge ID | `u16_be(16)` + RFC 4122 network-order UUID bytes |
+| 11 | challenge nonce | `u16_be(32)` + raw 32 bytes |
 
 `ClaimSignature = Ed25519.Sign(device_private_key, ClaimBindingBytes)`。
 
-Clientはresponseの`tlsn_attestation_id`と`challenge_nonce`をstrict unpadded base64url decodeし、それぞれraw `N` bytesとraw 32 bytesを上表へ入れる。JSON StringのASCII bytesまたは再encodeしたbase64url bytesを署名入力にしてはならない。
+ClientはresponseのSession ID、`binding_nonce`、`binding_value`、`tlsn_attestation_id`、`challenge_nonce`をstrict canonical formでdecodeし、Session ID/challenge IDはUUID raw bytes、nonce/Attestation IDはraw bytes、binding valueはexact ASCII bytesとして上表へ入れる。JSON StringのASCII bytesまたは再encodeしたbase64url bytesを署名入力にしてはならない。ServerはChallenge responseの値をauthorityとせず、同じSession rowとChallenge rowから再構築した bytes を検証する。
 
 ### 7.4 `POST /api/identity/v1/claims`
 
@@ -810,11 +915,26 @@ HTTP Request body は次だけである。
 }
 ```
 
+Claim受理には次の12 preconditionsをすべて満たす必要がある。1つでも不一致ならownership/device transition前にrejectする。
+
+1. Bearer actorが存在し、`auth.users.is_anonymous = false`である。
+2. Challengeがactor-ownedであり、missing/different ownerを同じ404へ写像する。
+3. Challengeの`attestation_session_id`がretained Session rowを一意に参照する。
+4. Sessionの`canonical_user_id`、Challengeの`canonical_user_id`、Bearer actorが一致する。
+5. Sessionの`device_id`、Challengeの`device_id`、Sessionの`device_public_key`、Challengeの`device_public_key_sha256`が一致する。
+6. Sessionの`binding_nonce`、Challengeの`binding_nonce`、Verifier Resultの`binding_nonce`がbyte-for-byte一致する。
+7. Sessionから再計算した`binding_value`がChallenge/Verifier Resultの`binding_value`と一致し、同じ value がauthenticated request transcriptのexact binding headerに現れる。
+8. Session、Challenge、Verifier ResultのAttestation ID、member ID、profile/server/key IDs、times、full transcript digests、Range metadata、purposeがimmutable authorityとして一致する。
+9. ChallengeとSessionがACTIVEかつ、同じ `v_db_now` に対してそれぞれのexpiryが未来である。
+10. `user_devices` rowがSessionのkey/user/public IDに対応するPENDING deviceであり、device statusがREVOKED/VERIFIEDへ先行遷移していない。
+11. Signatureが、serverがSession/Challenge authorityから再構成した11-field ClaimBindingBytesに対するstrict pure Ed25519 signatureである。
+12. 同Attestation、同Session、同Challengeにaccepted Claimがなく、ownership conflict、device/quota limit、unique constraint violationがない。
+
 FUSOU-WEB は Challenge row から `device_id`、nonce、`public_id`、`api_member_id`、Attestation ID、`notary_time`、key IDs、range metadata を復元する。Client から同名 metadata を受け付けない。
 
-1. `get_claim_challenge_v1(authenticated_user_id, challenge_id)`を呼ぶ。`RESOURCE_NOT_FOUND`は404、`CHALLENGE_EXPIRED`は`expire_identity_artifact_v1(challenge_id)`を同requestで完了して410、`CHALLENGE_NOT_ACTIVE`は409とし、authority fieldsを処理しない。`OK`または`OK_REPLAY`だけ次へ進む。
+1. `get_claim_challenge_v1(authenticated_user_id, challenge_id)`を呼ぶ。`RESOURCE_NOT_FOUND`は404、`CHALLENGE_EXPIRED`は`expire_identity_artifact_v1(challenge_id)`を同requestで完了して410、`CHALLENGE_NOT_ACTIVE`は409とし、authority fieldsを処理しない。`OK`または`OK_REPLAY`だけ次へ進む。Read resultからSession/Challenge/Result authorityの全12 preconditionsを再確認し、値をclient inputとして扱わない。
 2. Current Notary/Verifier registriesを、device signature検証、`consume_invalid_challenge`、Claim RPCのいずれよりも先に照合する。`OK`は両keyがACTIVE/VERIFY_ONLYかつNotaryは`notary_time`、Verifierは`result_time`がoriginal signing window内、profile hash一致を要求する。`OK_REPLAY`はRETIREDも許可するが、両caseともmissing/REVOKEDは`409 CHALLENGE_NOT_ACTIVE`とし、registry failureではChallengeをconsume/expireせずDB mutationを行わない。
-3. Device rowのpublic keyとChallenge rowのauthority valuesからClaimBindingBytesを再構築。
+3. Session row、Device row、Challenge rowのauthority valuesからClaimBindingBytesを再構築し、Session ID、binding nonce、binding valueを含める。
 4. Strict RFC 8032 pure Ed25519 signatureをraw bytesに対して検証。
 5. invalidの場合は`consume_invalid_challenge(authenticated_user_id, challenge_id)`を呼ぶ。Outcomeが`CHALLENGE_EXPIRED`なら`410 CHALLENGE_EXPIRED`、`INVALID_SIGNATURE_CONSUMED`なら`401 INVALID_DEVICE_SIGNATURE`、`CHALLENGE_NOT_ACTIVE`なら`409 CHALLENGE_NOT_ACTIVE`を返す。
 6. validの場合はDB RPC `claim_verified_device_v1(authenticated_user_id, challenge_id)`を呼ぶ。
@@ -839,12 +959,13 @@ RPCへ渡す`authenticated_user_id`はFUSOU-WEBが検証済みsessionから得�
 
 ### 7.5 Invalid Signature Consumption
 
-`consume_invalid_challenge(UUID, UUID)`はservice-only SECURITY DEFINER functionとする。第1引数はauthenticated user、第2引数はChallenge IDであり、non-anonymous userを再検証する。Challenge rowを`FOR UPDATE`後、次の順序でtyped outcomeを返す。
+`consume_invalid_challenge(UUID, UUID)`はservice-only SECURITY DEFINER functionとする。第1引数はauthenticated user、第2引数はChallenge IDであり、non-anonymous userを再検証する。Challengeをnon-locking pre-readした後、Lock orderに従いlinked Session row、Challenge rowを`FOR UPDATE`し、次の順序でtyped outcomeを返す。
 
 1. Missing/different ownerは`RESOURCE_NOT_FOUND`。
-2. `v_db_now := pg_catalog.transaction_timestamp()`をChallenge row lock後に一度だけ取得する。ACTIVEかつ`expires_at <= v_db_now`なら`EXPIRED/TTL_EXPIRED`へ遷移し`CHALLENGE_EXPIRED`。
-3. ACTIVEなら`CONSUMED/INVALID_SIGNATURE`へ遷移し`INVALID_SIGNATURE_CONSUMED`。
-4. Terminal rowは`CHALLENGE_NOT_ACTIVE`。
+2. Session rowをChallenge rowの前に`FOR UPDATE`し、ChallengeのSession ID、actor、device ID、binding nonceとSession authorityの一致を検証する。Sessionが見つからない、またはcross-table mismatchならinvariant errorとしてabortする。
+3. `v_db_now := pg_catalog.transaction_timestamp()`をSession/Challenge row lock後に一度だけ取得する。ACTIVEかつChallengeまたはSessionの`expires_at <= v_db_now`なら、両rowを`EXPIRED/TTL_EXPIRED`へ遷移し`CHALLENGE_EXPIRED`を返す。
+4. ChallengeとSessionがともにACTIVEなら、Challengeを`CONSUMED/INVALID_SIGNATURE`、Sessionを`CONSUMED/INVALID_SIGNATURE`へ同一transactionで遷移し`INVALID_SIGNATURE_CONSUMED`を返す。
+5. Terminal rowは`CHALLENGE_NOT_ACTIVE`。SessionとChallengeのterminal state/reasonが一致しない場合はcorruptionとしてabortする。
 
 Valid Claimと競合した場合はfirst row-lock winnerが消費する。FunctionはChallenge row lock取得後にほかのadvisory/row lockを取得しない。
 
@@ -1007,6 +1128,41 @@ CHECK (api_member_id ~ '^[1-9][0-9]{0,15}$')
 
 `api_member_id` と `public_id` は trigger で immutable にする。Client role と service role の direct INSERT/UPDATE/DELETE/TRUNCATE を revoke する。
 
+### 9.3a `attestation_sessions`
+
+Session row はproof取得より前に作成し、terminal rowも削除せず保持する。`binding_value`は保存せず、`session_id`と`binding_nonce`からSection 7.1.1のcanonical bytesを再計算する。
+
+```text
+session_id UUID PRIMARY KEY
+canonical_user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE RESTRICT
+device_id UUID NOT NULL UNIQUE
+device_public_key BYTEA NOT NULL UNIQUE CHECK (octet_length(device_public_key) = 32)
+binding_nonce BYTEA NOT NULL UNIQUE CHECK (octet_length(binding_nonce) = 32)
+issued_at TIMESTAMPTZ NOT NULL
+expires_at TIMESTAMPTZ NOT NULL
+session_status TEXT NOT NULL CHECK (session_status IN ('ACTIVE', 'CONSUMED', 'EXPIRED', 'REVOKED'))
+terminal_reason TEXT NULL CHECK (terminal_reason IN ('CLAIM_ACCEPTED', 'INVALID_SIGNATURE', 'DEVICE_REVOKED', 'TTL_EXPIRED'))
+consumed_at TIMESTAMPTZ NULL
+expired_at TIMESTAMPTZ NULL
+revoked_at TIMESTAMPTZ NULL
+created_at TIMESTAMPTZ NOT NULL
+UNIQUE (session_id, canonical_user_id, device_id, binding_nonce)
+```
+
+Session row-shape CHECKは次である。
+
+```text
+ACTIVE   => terminal_reason NULL, consumed_at NULL, expired_at NULL, revoked_at NULL
+CONSUMED => terminal_reason IN (CLAIM_ACCEPTED, INVALID_SIGNATURE), consumed_at NOT NULL,
+            expired_at NULL, revoked_at NULL
+EXPIRED  => terminal_reason = TTL_EXPIRED, consumed_at NULL, expired_at NOT NULL,
+            revoked_at NULL
+REVOKED  => terminal_reason = DEVICE_REVOKED, consumed_at NULL, expired_at NULL,
+            revoked_at NOT NULL
+```
+
+`session_id`、`canonical_user_id`、`device_id`、`device_public_key`、`binding_nonce`、`issued_at`、`expires_at`はimmutableである。Lifecycleは`ACTIVE -> CONSUMED/EXPIRED/REVOKED`だけを許可し、Session issuanceは`device_public_key`の再利用を全lifecycleで拒否する。Sessionは`user_devices`のpublic/member rowをまだ持たないため、Challenge issuanceだけがSessionのdevice ID/keyをtarget `public_id`へ一度結び付ける。以後のClaim/Revoke/cleanupはSessionとChallengeを同じlock protocol・transactionで更新する。
+
 ### 9.3 `user_devices`
 
 Target columns は次である。
@@ -1060,6 +1216,9 @@ CHECK (social_user_id IS NULL OR social_user_id = canonical_user_id)
 ```text
 claim_id UUID PRIMARY KEY
 challenge_id UUID NOT NULL UNIQUE REFERENCES claim_challenges(challenge_id) ON DELETE RESTRICT
+attestation_session_id UUID NOT NULL
+binding_nonce BYTEA NOT NULL CHECK (octet_length(binding_nonce) = 32)
+binding_value TEXT NOT NULL
 api_member_id TEXT NOT NULL
 public_id UUID NOT NULL
 canonical_user_id UUID NOT NULL
@@ -1083,9 +1242,11 @@ FOREIGN KEY (api_member_id, public_id)
   REFERENCES member_id_mapping(api_member_id, public_id) ON DELETE RESTRICT
 FOREIGN KEY (verified_device_id, public_id, canonical_user_id)
   REFERENCES user_devices(device_id, public_id, canonical_user_id) ON DELETE RESTRICT
+FOREIGN KEY (attestation_session_id, canonical_user_id, verified_device_id, binding_nonce)
+  REFERENCES attestation_sessions(session_id, canonical_user_id, device_id, binding_nonce) ON DELETE RESTRICT
 ```
 
-`profile_sha256`、`server_identity`、key IDs、Range metadataはChallengeからbyte-for-byte copyし、Claim API inputから受け取らない。Key IDsは`^[A-Za-z0-9._-]{1,64}$`、`server_identity`はSection 5.2のhostname grammarをCHECKする。`request_ranges`と`response_ranges`は`validate_range_metadata_v1()`もCHECKし、両tableで`jsonb_array_length(request_ranges) = 2`と`jsonb_array_length(response_ranges) = 1`を別CHECKとして持つ。
+`profile_sha256`、`server_identity`、key IDs、Range metadataはChallengeからbyte-for-byte copyし、Claim API inputから受け取らない。Key IDsは`^[A-Za-z0-9._-]{1,64}$`、`server_identity`はSection 5.2のhostname grammarをCHECKする。`request_ranges`と`response_ranges`は`validate_range_metadata_v1()`もCHECKし、両tableで`jsonb_array_length(request_ranges) = 3`と`jsonb_array_length(response_ranges) = 1`を別CHECKとして持つ。
 
 Stored Range metadata object は `start`、`length`、`sha256` のexact 3 keysだけを持つ。`start`と`length`はUInt64Decimal String、`sha256`はraw revealed bytesのSHA-256 lowercase 64-hex Stringである。Arrayはstart昇順でoverlapなし。`validate_range_metadata_v1(JSONB)` immutable functionでこのshapeを検証する。Raw revealed bytesは保存しない。
 
@@ -1106,6 +1267,9 @@ Table owner/superuser compromise は DB trust boundary 外である。通常 App
 
 ```text
 challenge_id UUID PRIMARY KEY
+attestation_session_id UUID NOT NULL
+binding_nonce BYTEA NOT NULL CHECK (octet_length(binding_nonce) = 32)
+binding_value TEXT NOT NULL
 api_member_id TEXT NOT NULL
 public_id UUID NOT NULL
 canonical_user_id UUID NOT NULL
@@ -1135,6 +1299,8 @@ FOREIGN KEY (api_member_id, public_id)
   REFERENCES member_id_mapping(api_member_id, public_id) ON DELETE RESTRICT
 FOREIGN KEY (device_id, public_id, canonical_user_id)
   REFERENCES user_devices(device_id, public_id, canonical_user_id) ON DELETE RESTRICT
+FOREIGN KEY (attestation_session_id, canonical_user_id, device_id, binding_nonce)
+  REFERENCES attestation_sessions(session_id, canonical_user_id, device_id, binding_nonce) ON DELETE RESTRICT
 ```
 
 Lifecycle CHECK は次である。
@@ -1195,11 +1361,12 @@ fusou_identity_owner NOLOGIN
 fusou_identity_auditor NOLOGIN
 ```
 
-4 Security Root tables、Challenge table、upload replay ledger、関連sequence、trigger/helper/entry functionsのownerは`fusou_identity_owner`。全table/sequence/functionについて`PUBLIC`、`anon`、`authenticated`、`service_role`から`ALL`をrevokeする。`fusou_identity_auditor`には`member_identity_claims`の`SELECT`だけをgrantする。`fusou_identity_owner`には`auth` schema USAGEと`auth.users(id, is_anonymous)`、`auth.identities(user_id, provider)`のSELECTだけをgrantする。
+`member_id_mapping`、`attestation_sessions`、`member_identity_claims`、`member_ownership`、`user_devices`の5 Security Root tables、`claim_challenges`、upload replay ledger、関連sequence、trigger/helper/entry functionsのownerは`fusou_identity_owner`。全table/sequence/functionについて`PUBLIC`、`anon`、`authenticated`、`service_role`から`ALL`をrevokeする。`fusou_identity_auditor`には`member_identity_claims`の`SELECT`だけをgrantする。`fusou_identity_owner`には`auth` schema USAGEと`auth.users(id, is_anonymous)`、`auth.identities(user_id, provider)`のSELECTだけをgrantする。
 
 `service_role`にEXECUTEをgrantするentry functionsは次だけである。
 
 ```text
+issue_attestation_session_v1
 issue_identity_challenge_v1
 get_claim_challenge_v1
 consume_invalid_challenge
@@ -1212,6 +1379,8 @@ issue_dataset_upload_v1
 consume_dataset_upload_v1
 list_expired_identity_artifact_ids_v1
 expire_identity_artifact_v1
+list_expired_attestation_session_ids_v1
+expire_attestation_session_v1
 ```
 
 `lock_attestation_v1`、`lock_identity_v1`、`lock_user_quota_v1`、`lock_device_key_v1`、`get_or_create_public_id`、validator/trigger functionsは`fusou_identity_owner`だけが実行できる。すべてのSECURITY DEFINER functionは`SET search_path = public, extensions, pg_temp`を持ち、body内のrelation/functionをschema-qualifiedする。Function作成直後、次のfunctionを作る前にowner/revoke/grantを適用する。
@@ -1273,12 +1442,13 @@ lock_device_key_v1(BYTEA):  1179997004, hashtext(encode(value, 'hex'))
 2. Identity advisory lock
 3. User-quota advisory lock
 4. Device-key advisory lock
-5. member_id_mapping parent row FOR UPDATE
-6. claim_challenges rows FOR UPDATE, challenge_id ascending
-7. member_ownership row FOR UPDATE
-8. user_devices rows FOR UPDATE, device_id ascending
-9. projection rows
-10. dataset_upload_ledger_v1 row FOR UPDATE
+5. attestation_sessions row FOR UPDATE
+6. member_id_mapping parent row FOR UPDATE
+7. claim_challenges rows FOR UPDATE, challenge_id ascending
+8. member_ownership row FOR UPDATE
+9. user_devices rows FOR UPDATE, device_id ascending
+10. projection rows
+11. dataset_upload_ledger_v1 row FOR UPDATE
 ```
 
 Operationが触れないlock domainは飛ばしてよいが、後順位を保持したまま前順位を新たに取得してはならない。Challenge issuance、Claim、Challenge cleanupはAttestationから開始する。Revoke、Social Binding、Token subject lookup、upload ledger mutationはIdentityから開始する。PENDING/VERIFIED数を変える処理はUser-quota lockを取得し、device rowを作成・遷移する処理はDevice-key lockを取得する。Pre-readはimmutable locatorを得るためだけに許可し、lock後に全authority valueを再検証する。
@@ -1325,31 +1495,32 @@ Function は transaction-scoped であり、same member ID に same immutable pu
 
 単一 transaction 内の順序を固定する。
 
-1. Challengeをnon-locking readしAttestation、member ID、user、device keyを得る。存在しなければreject。
+1. Challengeをnon-locking readしAttestation、Session ID、member ID、user、device ID、device key digestを得る。存在しなければreject。Session rowは次のlock後に再取得する。
 2. Attestation、Identity、User-quota、Device-key advisory lockを順に取得。
-3. Mapping parent rowを`FOR UPDATE`し、Challengeの`(api_member_id, public_id)`と一致確認。
-4. Challenge rowを`FOR UPDATE`し、pre-read値とactor userを再検証する。Claim insert用の全authority列はこのlock済みrowから再構築し、pre-read値またはclient値を直接使用してはならない。
-5. ownership row、対象device、同public IDのVERIFIED devicesをorderに従ってlock。
-6. 同Attestationのexisting Claimをlookup。actorを含む4値exact matchはidempotent result、mismatchはreject。
-7. `v_db_now := pg_catalog.transaction_timestamp()`をこのtransactionで一度だけ取得する。新規ClaimではChallengeがACTIVEかつ`expires_at > v_db_now`であることを確認。期限切れなら`EXPIRED/TTL_EXPIRED`へ遷移し、Deviceも期限切れPENDINGなら`REVOKED/expired_pending`へ遷移してrejectする。
-8. DeviceがPENDING、`pending_expires_at > v_db_now`、Challengeとuser/public/key digestが一致することを確認する。以後のChallenge/Device expiry比較とlifecycle timestampにはこの同じ`v_db_now`だけを使い、別のclock readを行わない。
-9. Ownership ruleを評価。different historical ownerはcurrent device数に関係なくreject。
-10. 同public IDのVERIFIED deviceが別userに属する場合はinvariant violationとしてtransactionをabort。VERIFIED数が16以上なら`VERIFIED_DEVICE_LIMIT`。
-11. `UPDATE ... SET challenge_status='CONSUMED', terminal_reason='CLAIM_ACCEPTED', consumed_at=v_db_now WHERE challenge_status='ACTIVE' AND expires_at > v_db_now`を実行し、affected row = 1を要求。
-12. DeviceをPENDING -> VERIFIEDにし`verified_at`を設定。
-13. ownershipがなければINSERT、same ownerならhistorical `primary_device_id`をnew deviceへ更新。
-14. Claim typeをSection 8.3から決定し、`member_identity_claims`へINSERT。
-15. `user_member_map`をownershipからupsert。Social Bindingがある場合だけ`web_user_member_map`をupsert。
-16. current state、claim ID、`claim_replayed=false`を返してcommit。
+3. Session rowを`FOR UPDATE`し、Sessionのcanonical user/device/key/nonce/lifecycleを再検証する。Sessionの`attestation_session_id`、`binding_nonce`、`binding_value`はChallengeと一致し、ACTIVEでなければならない。
+4. Mapping parent rowを`FOR UPDATE`し、Challengeの`(api_member_id, public_id)`と一致確認。
+5. Challenge rowを`FOR UPDATE`し、pre-read値とactor userを再検証する。Claim insert用の全authority列はこのlock済みrowとSession rowから再構築し、pre-read値またはclient値を直接使用してはならない。
+6. ownership row、対象device、同public IDのVERIFIED devicesをorderに従ってlock。
+7. 同Attestation/Sessionのexisting Claimをlookup。actorを含む4値exact matchはidempotent result、mismatchはreject。
+8. `v_db_now := pg_catalog.transaction_timestamp()`をこのtransactionで一度だけ取得する。新規ClaimではChallengeとSessionがACTIVEかつそれぞれの`expires_at > v_db_now`であることを確認。期限切れならChallengeとSessionを`EXPIRED/TTL_EXPIRED`へ遷移し、Deviceも期限切れPENDINGなら`REVOKED/expired_pending`へ遷移してrejectする。
+9. DeviceがPENDING、`pending_expires_at > v_db_now`、Challenge/Sessionとuser/public/key/nonce/binding digestが一致することを確認する。以後のChallenge/Session/Device expiry比較とlifecycle timestampにはこの同じ`v_db_now`だけを使い、別のclock readを行わない。
+10. Ownership ruleを評価。different historical ownerはcurrent device数に関係なくreject。
+11. 同public IDのVERIFIED deviceが別userに属する場合はinvariant violationとしてtransactionをabort。VERIFIED数が16以上なら`VERIFIED_DEVICE_LIMIT`。
+12. `UPDATE ... SET challenge_status='CONSUMED', terminal_reason='CLAIM_ACCEPTED', consumed_at=v_db_now WHERE challenge_status='ACTIVE' AND expires_at > v_db_now`を実行し、affected row = 1を要求する。Sessionも同じtransactionで`CONSUMED/CLAIM_ACCEPTED`へ遷移する。
+13. DeviceをPENDING -> VERIFIEDにし`verified_at`を設定。
+14. ownershipがなければINSERT、same ownerならhistorical `primary_device_id`をnew deviceへ更新。
+15. Claim typeをSection 8.3から決定し、Session ID、binding nonce/valueを含む`member_identity_claims`へINSERT。
+16. `user_member_map`をownershipからupsert。Social Bindingがある場合だけ`web_user_member_map`をupsert。
+17. current state、claim ID、`claim_replayed=false`を返してcommit。
 
 Unique constraint failure を normal control flow の代用にせず、同じ error code へ正規化する。
 
 ### 10.4 Revoke
 
-`POST /api/identity/v1/devices/revoke`はbody `{ "device_id": "<uuidv4>" }`だけを受ける。ServerはBearer userを別途取得し、`revoke_identity_device_v1(authenticated_user_id, device_id)`を呼ぶ。Functionはdevice rowからpublic/member IDとkeyをnon-locking pre-readした後、Identity、User-quota、Device-key、mappingの順にlockする。次に対象deviceのACTIVE Challengeを`challenge_id`昇順で`FOR UPDATE`し、ownership、deviceの順にlockして全locator/authority値を再検証する。必要なlockを取得した後、`v_db_now := pg_catalog.transaction_timestamp()`を一度だけ取得し、expiry比較とlifecycle timestampに再利用する。Attestation advisory lockは後順位取得になるためRevokeでは取得しない。
+`POST /api/identity/v1/devices/revoke`はbody `{ "device_id": "<uuidv4>" }`だけを受ける。ServerはBearer userを別途取得し、`revoke_identity_device_v1(authenticated_user_id, device_id)`を呼ぶ。Functionはdevice row、linked Session、ACTIVE Challengeをnon-locking pre-readした後、Identity、User-quota、Device-keyの順にlockする。次にlinked Session rowを`FOR UPDATE`、mapping、Challenge rowを`challenge_id`昇順、ownership、deviceの順にlockして全locator/authority値を再検証する。Lock後に対象deviceの全ACTIVE Challengeとlinked Sessionを再queryし、pre-readにないrowがあれば同じorderでlockする。必要なlockを取得した後、`v_db_now := pg_catalog.transaction_timestamp()`を一度だけ取得し、expiry比較とlifecycle timestampに再利用する。Attestation advisory lockは後順位取得になるためRevokeでは取得しない。
 
 1. Deviceの`canonical_user_id`がactorと一致しなければreject。VERIFIED deviceではさらにactorが`member_ownership.canonical_user_id`と一致することを要求する。PENDING deviceはownership未作成でもactor自身がrevokeできる。
-2. PENDING -> REVOKED、VERIFIED -> REVOKEDを許可する。紐づくACTIVE Challengeは、`expires_at <= v_db_now`なら先に`EXPIRED/TTL_EXPIRED`へ、それ以外なら`CONSUMED/DEVICE_REVOKED`へ遷移して再利用を止める。期限切れPENDINGは同じ`v_db_now`で`REVOKED/expired_pending`へ遷移し、device revoke自体は継続する。
+2. PENDING -> REVOKED、VERIFIED -> REVOKEDを許可する。紐づくACTIVE ChallengeとSessionは、対応するexpiryが`<= v_db_now`ならそれぞれ`EXPIRED/TTL_EXPIRED`へ、それ以外ならChallengeを`CONSUMED/DEVICE_REVOKED`、Sessionを`REVOKED/DEVICE_REVOKED`へ遷移して再利用を止める。期限切れPENDINGは同じ`v_db_now`で`REVOKED/expired_pending`へ遷移し、device revoke自体は継続する。
 3. REVOKED の再 revoke は同じ result を返す idempotent success。
 4. `primary_device_id`、ownership、Claims、Social Binding を削除・変更しない。
 5. last VERIFIED device の revoke 後、computed Identity State は UNCLAIMED。
@@ -1363,7 +1534,8 @@ Claim x Revoke は同じ Identity lock で直列化する。Claim が先なら R
 Externally executable function signatureは次に固定する。UUID actorはFUSOU-WEBがsessionから注入し、client bodyから受け取らない。
 
 ```text
-issue_identity_challenge_v1(UUID, TEXT, BYTEA, BYTEA, public.fusou_uint64,
+issue_attestation_session_v1(UUID, BYTEA)
+issue_identity_challenge_v1(UUID, UUID, BYTEA, TEXT, TEXT, BYTEA, public.fusou_uint64,
   public.fusou_uint64, BYTEA, TEXT, TEXT, TEXT, BYTEA, BYTEA, BYTEA,
   JSONB, JSONB)
 get_claim_challenge_v1(UUID, UUID)
@@ -1377,9 +1549,11 @@ issue_dataset_upload_v1(UUID, UUID, TEXT, BYTEA, BIGINT)
 consume_dataset_upload_v1(UUID, UUID, UUID, TEXT, BYTEA, BIGINT, BYTEA)
 list_expired_identity_artifact_ids_v1(INTEGER)
 expire_identity_artifact_v1(UUID)
+list_expired_attestation_session_ids_v1(INTEGER)
+expire_attestation_session_v1(UUID)
 ```
 
-`issue_identity_challenge_v1`の15 argumentsはSection 7.2の記載順である。全functionはnamed argumentsで呼び、PostgREST schema cacheにexact signature以外がないことをpostflightで確認する。
+`issue_attestation_session_v1`の2 argumentsはSection 7.1.1の記載順、`issue_identity_challenge_v1`の17 argumentsはSection 7.2の記載順である。Cleanup functionsはSession単独のexpiryを処理するために分離し、全functionはnamed argumentsで呼び、PostgREST schema cacheにexact signature以外がないことをpostflightで確認する。
 
 上記のexternally executable function listはclosed setであり、`get_or_create_public_id(TEXT)`はその一覧に含めない。これは`fusou_identity_owner`だけが実行できるinternal helperで、PostgREST RPC、HTTP endpoint、`service_role`の直接EXECUTEとして公開してはならず、既存のSECURITY DEFINER entry functionからschema-qualifiedに呼び出す。
 
@@ -1403,6 +1577,7 @@ VERIFIED_DEVICE_LIMIT
 EXISTING_VERIFIED_OWNER_CONFLICT
 CHALLENGE_EXPIRED
 CHALLENGE_NOT_ACTIVE
+SESSION_NOT_ACTIVE
 DEVICE_NOT_PENDING
 SOCIAL_IDENTITY_REQUIRED
 SOCIAL_BINDING_REQUIRED
@@ -1434,13 +1609,15 @@ DB outcomeからHTTPへの写像は次のclosed tableを使用し、functionご�
 | `DEVICE_NOT_PENDING` | 409 | `DEVICE_NOT_PENDING` |
 | `SOCIAL_IDENTITY_REQUIRED` | 409 | `SOCIAL_IDENTITY_REQUIRED` |
 | `SOCIAL_BINDING_REQUIRED` | 409 | `SOCIAL_BINDING_REQUIRED` |
+| `SESSION_NOT_ACTIVE` | 409 | `SESSION_NOT_ACTIVE` |
 
 `INVALID_SIGNATURE_CONSUMED`だけはWeb-side error code `INVALID_DEVICE_SIGNATURE`へ変換し、それ以外のnon-OK outcomeは同名のUPPER_SNAKE_CASE error codeを使う。`OK`系のsuccess bodyは各APIのexact field contractを使う。DB constraint violation、unexpected row count、authority column mismatchはbusiness outcomeではなくraiseし、FUSOU-WEBはdetailなしの`500 INTERNAL_ERROR`へ写像する。
 
-各entry functionのbusiness outcome許容集合は次で固定する。ここにないshape/authentication failure、invariant corruption、unexpected SQL errorはoutcomeを返さずraiseし、`500 INTERNAL_ERROR`へ写像する。`validate_dataset_credential_state_v1`と`list_expired_identity_artifact_ids_v1`はそれぞれboolean resultと`SETOF UUID`だけを返すため、このenum集合には含めない。
+各entry functionのbusiness outcome許容集合は次で固定する。ここにないshape/authentication failure、invariant corruption、unexpected SQL errorはoutcomeを返さずraiseし、`500 INTERNAL_ERROR`へ写像する。`validate_dataset_credential_state_v1`、`list_expired_identity_artifact_ids_v1`、`list_expired_attestation_session_ids_v1`はそれぞれboolean resultまたは`SETOF UUID`だけを返すため、このenum集合には含めない。
 
 | Entry function | Allowed outcome values |
 | --- | --- |
+| `issue_attestation_session_v1` | `OK_NEW`, `RESOURCE_NOT_FOUND`, `DEVICE_KEY_ALREADY_REGISTERED` |
 | `issue_identity_challenge_v1` | `OK_NEW`, `OK_REPLAY`, `RESOURCE_NOT_FOUND`, `ATTESTATION_IN_USE`, `ATTESTATION_ALREADY_USED`, `ATTESTATION_ALREADY_CLAIMED`, `CHALLENGE_EXPIRED`, `DEVICE_CHALLENGE_IN_USE`, `DEVICE_KEY_ALREADY_REGISTERED`, `PENDING_DEVICE_LIMIT`, `EXISTING_VERIFIED_OWNER_CONFLICT` |
 | `get_claim_challenge_v1` | `OK`, `OK_REPLAY`, `RESOURCE_NOT_FOUND`, `CHALLENGE_EXPIRED`, `CHALLENGE_NOT_ACTIVE` |
 | `consume_invalid_challenge` | `INVALID_SIGNATURE_CONSUMED`, `RESOURCE_NOT_FOUND`, `CHALLENGE_EXPIRED`, `CHALLENGE_NOT_ACTIVE` |
@@ -1451,18 +1628,25 @@ DB outcomeからHTTPへの写像は次のclosed tableを使用し、functionご�
 | `issue_dataset_upload_v1` | `OK_NEW`, `RESOURCE_NOT_FOUND`, `SOCIAL_BINDING_REQUIRED` |
 | `consume_dataset_upload_v1` | `OK`, `UPLOAD_TOKEN_NOT_ACTIVE`, `UPLOAD_TOKEN_REPLAY` |
 | `expire_identity_artifact_v1` | `OK`, `OK_REPLAY`, `RESOURCE_NOT_FOUND`, `CHALLENGE_NOT_ACTIVE` |
+| `list_expired_attestation_session_ids_v1` | no business outcome; `SETOF UUID` |
+| `expire_attestation_session_v1` | `OK`, `OK_REPLAY`, `RESOURCE_NOT_FOUND`, `SESSION_NOT_ACTIVE` |
 
 `OK_NEW`は作成・初回遷移、`OK`は単一の成功結果、`OK_REPLAY`は同一authorityの再取得・再実行にだけ使用する。Functionはこの表にない別のoutcomeを返してはならない。
 
 Entry functionの`RETURNS TABLE`列順と型は次である。`outcome`は`public.identity_outcome_v1`、`identity_state`/status/typeは各Sectionのclosed text enum、時刻は`TIMESTAMPTZ`、digest/key/nonceは`BYTEA`である。
 
 ```text
+issue_attestation_session_v1:
+  outcome, session_id UUID, device_id UUID, binding_nonce BYTEA,
+  binding_value TEXT, expires_at TIMESTAMPTZ
 issue_identity_challenge_v1:
-  outcome, challenge_id UUID, challenge_nonce BYTEA, expires_at TIMESTAMPTZ,
+  outcome, attestation_session_id UUID, binding_nonce BYTEA, binding_value TEXT,
+  challenge_id UUID, challenge_nonce BYTEA, expires_at TIMESTAMPTZ,
   device_id UUID, tlsn_attestation_id BYTEA, verified_member_id TEXT,
   public_id UUID, challenge_replayed BOOLEAN
 get_claim_challenge_v1:
-  outcome, challenge_id UUID, api_member_id TEXT, public_id UUID,
+  outcome, attestation_session_id UUID, binding_nonce BYTEA, binding_value TEXT,
+  challenge_id UUID, api_member_id TEXT, public_id UUID,
   canonical_user_id UUID, device_id UUID, device_public_key BYTEA,
   tlsn_attestation_id BYTEA, challenge_nonce BYTEA,
   notary_time public.fusou_uint64, result_time public.fusou_uint64,
@@ -1493,9 +1677,11 @@ consume_dataset_upload_v1:
   outcome, ingest_id UUID, consumed_at TIMESTAMPTZ
 list_expired_identity_artifact_ids_v1: SETOF UUID
 expire_identity_artifact_v1: outcome
+list_expired_attestation_session_ids_v1: SETOF UUID
+expire_attestation_session_v1: outcome
 ```
 
-`get_claim_challenge_v1`はread-onlyで、expiry判定前に`v_db_now := pg_catalog.transaction_timestamp()`を一度だけ取得し、次の順序とoutcomeだけを返す。
+`get_claim_challenge_v1`はread-onlyで、expiry判定前に`v_db_now := pg_catalog.transaction_timestamp()`を一度だけ取得し、次の順序とoutcomeだけを返す。`OK`/`OK_REPLAY`ではSessionから再計算した`binding_value`を含むSession ID/nonceを返し、non-OKでは全authority fieldsをNULLにする。
 
 ```text
 missingまたはdifferent owner                         -> RESOURCE_NOT_FOUND
@@ -1514,7 +1700,9 @@ actor-owned EXPIRED                                   -> CHALLENGE_NOT_ACTIVE
 
 CAS commit後のexternal failureでも`consumed_at`をrollback/NULL化せず、same Upload Token replayを拒否する。ClientはStage 1から新しい`ingest_id`を取得する。これはduplicate external mutationよりavailability lossを選ぶsecurity ruleであり、同じ`ingest_id`のserver/Queue retryはSection 11.4のidempotent sink contractだけが許可する。
 
-`list_expired_identity_artifact_ids_v1(INTEGER)`はread-only、`RETURNS SETOF UUID`で、limitは1..100、ID以外を返さない。関数は`v_db_now := pg_catalog.transaction_timestamp()`を一度だけ取得し、`claim_challenges`と`user_devices`をjoinして、`ACTIVE`かつ`expires_at <= v_db_now`のChallenge、または`PENDING`かつ`pending_expires_at <= v_db_now`のdeviceに紐づくChallengeを候補とする。複数の retained Challengeが同じdeviceに紐づく場合は`challenge_id`最小の1件だけを返し、結果全体は`challenge_id`昇順とする。したがって、invalid signatureまたはdevice revokeでChallengeがterminalになった後も、期限切れPENDINGをcleanupできる。Cleanup schedulerは`list_expired_identity_artifact_ids_v1(100)`でopaque Challenge IDsを取得し、各IDを別transactionの`expire_identity_artifact_v1(UUID)`へ渡す。結果が空になるまでこのbatch処理を繰り返し、1 transactionで複数identityを処理しない。後者は`outcome`だけのtyped resultを返し、Attestation、Identity、User-quota、Device-key、mapping、Challenge、deviceの順にlockする。lock後に選択されたChallenge rowと当該deviceの全ACTIVE Challenge rowのunionを`challenge_id`昇順で`FOR UPDATE`し、linked device rowも`FOR UPDATE`する。期限切れACTIVEを`EXPIRED/TTL_EXPIRED`へ、期限切れPENDINGを`REVOKED/expired_pending`へ同じ`v_db_now`で遷移する。既に別transactionが遷移済みなら`OK_REPLAY`、対象が存在しなければ`RESOURCE_NOT_FOUND`、対象Challengeがterminalでlinked deviceも未期限なら`CHALLENGE_NOT_ACTIVE`を返す。Challenge rowの削除は行わず、`UNIQUE(tlsn_attestation_id)`によるlifecycle全体の一回性を維持する。
+`list_expired_identity_artifact_ids_v1(INTEGER)`はread-only、`RETURNS SETOF UUID`で、limitは1..100、ID以外を返さない。関数は`v_db_now := pg_catalog.transaction_timestamp()`を一度だけ取得し、`claim_challenges`と`user_devices`をjoinして、`ACTIVE`かつ`expires_at <= v_db_now`のChallenge、または`PENDING`かつ`pending_expires_at <= v_db_now`のdeviceに紐づくChallengeを候補とする。複数の retained Challengeが同じdeviceに紐づく場合は`challenge_id`最小の1件だけを返し、結果全体は`challenge_id`昇順とする。したがって、invalid signatureまたはdevice revokeでChallengeがterminalになった後も、期限切れPENDINGをcleanupできる。Cleanup schedulerは`list_expired_identity_artifact_ids_v1(100)`でopaque Challenge IDsを取得し、各IDを別transactionの`expire_identity_artifact_v1(UUID)`へ渡す。結果が空になるまでこのbatch処理を繰り返し、1 transactionで複数identityを処理しない。後者は`outcome`だけのtyped resultを返し、Attestation、Identity、User-quota、Device-key、Session、mapping、Challenge、deviceの順にlockする。lock後に選択されたChallenge rowと当該deviceの全ACTIVE Challenge rowのunionを`challenge_id`昇順で`FOR UPDATE`し、linked Session rowとdevice rowも`FOR UPDATE`する。期限切れACTIVE ChallengeとそのACTIVE Sessionを`EXPIRED/TTL_EXPIRED`へ、期限切れPENDINGを`REVOKED/expired_pending`へ同じ`v_db_now`で遷移する。既に別transactionが遷移済みなら`OK_REPLAY`、対象が存在しなければ`RESOURCE_NOT_FOUND`、対象Challengeがterminalでlinked deviceも未期限なら`CHALLENGE_NOT_ACTIVE`を返す。Challenge rowの削除は行わず、`UNIQUE(tlsn_attestation_id)`によるlifecycle全体の一回性を維持する。
+
+`list_expired_attestation_session_ids_v1(INTEGER)`はread-only、`RETURNS SETOF UUID`で、Challengeにまだ結び付いていない`ACTIVE` Sessionのうち`expires_at <= v_db_now`だけを`session_id`昇順で返す。Cleanup schedulerはこのIDを別transactionの`expire_attestation_session_v1(UUID)`へ渡し、ChallengeのないSessionも漏れなくterminal化する。後者はDevice-key advisory lock、Session rowの順にlockし、再queryでChallengeが存在しないことを確認する。対象SessionがACTIVEかつ期限切れなら`EXPIRED/TTL_EXPIRED`へ遷移して`OK`、既にEXPIREDなら`OK_REPLAY`、CONSUMED/REVOKEDまたは未期限なら`SESSION_NOT_ACTIVE`、missingなら`RESOURCE_NOT_FOUND`を返す。Session rowは削除しない。
 
 ---
 
@@ -1846,11 +2034,11 @@ Cutover transactionはStep 1のlock取得後にDB timestampを一度だけ`cutov
 9. `chk_member_id_mapping_api_member_id`をtarget regexへ置換する。`uq_member_id_mapping_api_member_id_public_id`を追加する。
 10. Device target CHECK、global key UNIQUE、`uq_user_devices_device_public_owner`、status別indexesを追加し、全constraintをvalidateする。
 11. `user_member_map_pkey`をdropして`PRIMARY KEY (user_id, public_id)`を同名で追加する。既存`UNIQUE(public_id)`を保持する。`web_user_member_map`の既存composite PKと`UNIQUE(public_id)`を検証する。
-12. `claim_challenges -> member_ownership -> member_identity_claims -> dataset_upload_ledger_v1`の順でcreateする。各child FKより先にmapping/device parent UNIQUEが存在しなければならない。各table作成直後にSection 9.9のREVOKE/ownerを適用する。
+12. `attestation_sessions -> claim_challenges -> member_ownership -> member_identity_claims -> dataset_upload_ledger_v1`の順でcreateする。各child FKより先にmapping/device parent UNIQUEとSession composite UNIQUEが存在しなければならない。各table作成直後にSection 9.9のREVOKE/ownerを適用する。
 13. Immutable/lifecycle/append-only triggers、internal helpers、entry functionsを作成する。既存4 root/projection tablesと`public.member_id_mapping_id_seq`を含む全identity relation/sequence、new tables、trigger/helper/entry functionsを`fusou_identity_owner`へ移管する。各object作成直後にowner/revoke/grantを適用する。
 14. Projectionはownershipから再構築する。このcutoverではlegacy ownershipを作らないため両projectionは0件でなければならない。
 15. 旧anonymous authority objectsをdropする。
-16. Catalog、owner、ACL、RLS policy absence、constraint validation、0件projection、legacy object absenceのpostflightを実行する。`aclexplode`/`has_*_privilege`で4 application rolesにtable/sequence direct privilegeがなく、`service_role`がSection 9.9のentry functionsだけをEXECUTEできることをassertする。
+16. Catalog、owner、ACL、RLS policy absence、constraint validation、0件projection、legacy object absenceのpostflightを実行する。`attestation_sessions`のrow-shape/lifecycle/composite UNIQUEとSession/Challenge composite FK、Session単独expiry cleanupをassertする。`aclexplode`/`has_*_privilege`で4 application rolesにtable/sequence direct privilegeがなく、`service_role`がSection 10.5のclosed entry function setとexact signatureだけをEXECUTEできることをassertする。
 
 Phase 0がliteral`N`とprofile hashを固定する前にcutover fileをcommit・applyしてはならない。Legacy deviceへrandom `public_id`やfake keyを設定せず、TLSNotary proofなしでVERIFIEDへbackfillしない。`auth.users`と`member_id_mapping`は保持するが、anonymous accountをownershipへ移行しない。
 
@@ -1886,7 +2074,7 @@ Existing DB test fixture は次を含む。
 5. valid/invalid FK dependency variants。
 6. duplicate/invalid data variant。
 
-Preflight failure fixtureはmutation前後のtable checksumが同一でなければならない。Cutoverの各logical stepへtest-only forced failureを挿入し、全table/catalog checksumとlegacy RPC availabilityがtransaction開始前と同一へrollbackすることを検証する。成功後は4 roots、Challenge、projection、roles、ACL、function owner/search_path/signature、FK action、validated constraintをcatalog assertionする。
+Preflight failure fixtureはmutation前後のtable checksumが同一でなければならない。Cutoverの各logical stepへtest-only forced failureを挿入し、全table/catalog checksumとlegacy RPC availabilityがtransaction開始前と同一へrollbackすることを検証する。成功後は4 roots、Attestation Session、Challenge、projection、roles、ACL、function owner/search_path/signature、FK action、validated constraintをcatalog assertionする。
 
 ### 12.7 Legacy identity epoch storage cutover
 
@@ -2179,12 +2367,20 @@ Rust Prover/Verifier、TypeScript FUSOU-WEB、Rust/TypeScript client serializer 
 valid Bearer plus arbitrary Cookie -> Bearer alone is authoritative
 Cookie without Bearer -> AUTHENTICATION_REQUIRED and no DB call
 anonymous auth user -> reject in Web and RPC
+Session issuance -> 201/OK_NEW, client receives only binding_value and expires_at, duplicate key -> 409 with no new Session
+Proof(A) + User B -> reject before Challenge/Claim mutation
+Proof(A) + Device B -> reject before Challenge/Claim mutation
+Proof(A) + Challenge B -> reject before Claim/device/ownership transition
+Proof(A, Session A) rewritten as Session B -> Verifier Result signature or Session equality check rejects
+Session binding header missing, duplicated, noncanonical, or moved -> Verifier rejects before Result creation
 cross-user Challenge locator -> indistinguishable 404
 cross-user invalid-signature consume -> no mutation
 Challenge new -> 201/replayed false; exact ACTIVE retry -> 200/replayed true with same IDs/nonce/expiry
 expired Challenge -> EXPIRED/TTL_EXPIRED and same Attestation reissue -> 410
 invalid signature before expiry -> CONSUMED/INVALID_SIGNATURE and same Attestation reissue -> 409
 invalid signature after expiry -> EXPIRED/TTL_EXPIRED and HTTP 410
+invalid signature -> linked Challenge and Session transition atomically; standalone expired Session cleanup -> EXPIRED/TTL_EXPIRED
+device revoke -> linked active Challenge/Session transition atomically with Challenge DEVICE_REVOKED and Session REVOKED
 accepted CONSUMED Challenge -> authority readable for exact Claim replay only
 new Claim with Notary/Verifier ACTIVE or VERIFY_ONLY -> accept; RETIRED/REVOKED/missing -> reject before device signature
 exact accepted Claim replay with RETIRED Notary/Verifier -> idempotent accept; REVOKED/missing -> reject
@@ -2273,7 +2469,7 @@ projection rows tampered by privileged fixture -> root-derived state/token resul
 accepted Claim whose Notary/Verifier key becomes REVOKED -> token issuance and validation reject
 upload ledger PRIMARY KEY/nonce UNIQUE, immutable authority columns, consumed_at one-way transition, owner/ACL -> catalog PASS
 concurrent upload consume -> exactly one OK with stable millisecond consumed_at and one UPLOAD_TOKEN_REPLAY
-stored request/response Range array cardinality 2/1 -> constraint PASS; all other counts reject
+stored request/response Range array cardinality 3/1 -> constraint PASS; all other counts reject
 ```
 
 #### Migration
@@ -2336,7 +2532,7 @@ redirect response -> attempts 1, complete 1, follow count 0, identity rejected
 ### 14.6 Delivery と cross-store tests
 
 ```text
-Verifier receives authenticated full request; Result exposes only request-line/Host
+Verifier receives authenticated full request; Result exposes only request-line/Host/binding-header ranges
 Verifier Result -> Proxy Vec<u8> -> APP base64url -> Web decoded bytes are identical
 Result delivery retry never increments Game origin request count
 queue full / APP unauthenticated / APP restart -> identity unverified, no upstream replay
@@ -2374,12 +2570,12 @@ Production trafficは全GateがPASSするまでenableしない。P0-01..10とP0-
 | P0-02 | Attestation ID | official extraction API、golden bytes、literal `N` |
 | P0-03 | Authenticated time | `notary_time` source、tamper test、wire fixture |
 | P0-04 | Real `require_info` | 各supported Game client build/allowlisted hostでnatural requestを1件以上captureし、Number token、HTTP framing、compression、response sizeをmanifest化 |
-| P0-05 | Strict disclosure profile | Dedicated Verifierでfull request + full response認証、500 KiB/16 MiB limit boundary fixture、Resultはsafe request rangesだけ、digest golden fixture |
+| P0-05 | Strict disclosure profile | Dedicated Verifierでfull request + full response認証、500 KiB/16 MiB limit boundary fixture、Resultはexact request-line/Host/binding-headerの3 safe rangesだけ、digest golden fixture |
 | P0-06 | T3/T4 delivery lifecycle | Browser response後にsame session finalization、signed ResultのProxy -> APP -> Web byte一致 |
 | P0-07 | No FUSOU resubmission | Section 14.5でattempt <= 1、complete <= 1、正常/fallback成功はcomplete = 1、2以上 = 0件 |
 | P0-08 | Performance | 固定した同一matched network/origin profileで、pair IDを対応付けたbaseline 1000回とMPC 1000回を完了し、両runの全request outcome、failure count、paired latency sample countをreportする。PASSはbaseline/MPCが各1000回、latency sampleが欠落せずpaired added latency P95 <= 300 ms、かつMPC failure count <= baseline failure count。測定値またはoutcomeが欠落した場合はFAIL |
 | P0-09 | Direct topology | Game request streamのpacket/egress-flow manifestでlocal proxyからallowlisted Game Server peerへdirect、FUSOU relay宛Game bytes 0件 |
-| P0-10 | Cross-language determinism | JSON/Binary/Claim golden fixtures all exact match |
+| P0-10 | Cross-language determinism | JSON/Binary/Claim golden fixtures all exact match。Session binding value、Verifier Result fields、ClaimBindingBytesのSession/nonce/value順序を含む |
 | P0-11 | PostgreSQL execution | production `server_version_num`/extensionsとimmutable OCI digestを記録し、target imageでmigration/test suite PASS |
 | P0-12 | Existing production preflight | read-only catalog/data report、invalid row count = 0 |
 | P0-13 | Non-anonymous auth | Supabase Bearer user identification and anonymous rejection test |
@@ -2398,6 +2594,7 @@ Gate failure時は fallback実装で Security Goal を弱めず、NO-GO とす�
 | --- | --- | --- | --- |
 | Game response | TLSNotary + Verifier signature | profile/ranges/parser | P0-01..06、parser suite |
 | Result delivery | Verifier signature | opaque in-process bytes + Bearer API | delivery byte-identity/retry suite |
+| Attestation Session | Authenticated user/device/key and exact binding header | pre-proof issuance, Verifier Result fields, Session/Challenge composite checks | Session lifecycle and Proof Copy adversarial suite |
 | verified member ID | FUSOU-WEB parser | no client identity input | client authority test |
 | public ID | mapping root | `get_or_create_public_id` | mapping concurrency |
 | device | device root | challenge signature/state trigger | device/claim races |
@@ -2444,7 +2641,7 @@ Repository:
 FUSOU
 
 Specification Revision:
-8be12bf7cad2ba181f7b39aea38903f96475c4d9
+UNCOMMITTED WORKTREE
 
 Reference Baseline:
 0d2a85a8c474271ecf6bf7e2cf062365a9608e83
@@ -2527,7 +2724,7 @@ Security Goal:
 PASS - runtime unverified
 
 Threat Model:
-PASS - Proof Copy remains an explicit v1 non-goal
+PASS - Proof Copy rejection is an explicit v1 MUST; same-user/device proof reuse is outside the stated guarantee
 
 State Machine:
 PASS - runtime unverified
