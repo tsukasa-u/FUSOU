@@ -175,7 +175,7 @@ Proof(A, Session A) rewritten as Session B
 
 ---
 
-## 2. Authority と Security Root
+## 2. Authority と Identity Authorization Roots
 
 ### 2.1 Trust Boundary
 
@@ -209,16 +209,16 @@ TRUSTED IDENTITY STORAGE
 
 Dedicated Verifier、FUSOU-WEB、PostgreSQL のいずれかの privileged runtime が侵害された場合、その authority が担当する保証は失われる。Client compromise と bearer token theft は防止しない。
 
-### 2.2 唯一の Security Root
+### 2.2 唯一の Identity Authorization Roots
 
-Identity authorization の Security Root は次の4 tableだけである。Attestation Session と Challenge は identity owner を決める root ではなく、accepted Claim の proof provenance と one-time protocol state を server-authoritatively 拘束する retained coordination records である。
+v1 で `Security Root` と呼ぶ場合の正規の意味は、Identity Authorization Roots の次の4 tableだけである。Attestation Session と Challenge は identity owner を決める root ではなく、accepted Claim の proof provenance と one-time protocol state を server-authoritatively 拘束する retained Protocol Coordination Records である。同じ `Security Root` という語を、この4 tableとSession/Challengeの両方の意味で使用してはならない。
 
 1. `member_id_mapping`: verified `api_member_id` と immutable `public_id` の 1:1 mapping。
 2. `member_identity_claims`: accepted Attestation と Claim の append-only audit。
 3. `member_ownership`: historical owner、historical `primary_device_id`、Social Binding。
 4. `user_devices`: current device state。
 
-`user_member_map` と `web_user_member_map` は projection である。Security decision、owner conflict、token validation を projection から逆算してはならない。
+`user_member_map` と `web_user_member_map` は projection である。Security decision、owner conflict、token validation を projection から逆算してはならない。Upload ledger も Identity Authorization Root ではなく、single-use delivery の coordination record である。
 
 Projection の更新方向は次だけである。
 
@@ -243,7 +243,7 @@ member_ownership -> user_member_map -> web_user_member_map
 | `notary_time` | Notary-authenticated POSIX UTC whole seconds signed in the Attestation | UInt64 | Notary signature over the authenticated Attestation | Immutable evidence field | `public.fusou_uint64` | UInt64Decimal String in Verifier Result; never Game event time |
 | `result_time` | POSIX UTC whole seconds read once by the Verifier after proof validation completes | UInt64 | Dedicated Verifier trusted clock | Immutable per Verifier Result | `public.fusou_uint64` | UInt64Decimal String in Verifier Result; distinct from `notary_time` |
 | `Verifier Result` | Canonical JSON object carrying authenticated full transcripts/ranges, identity profile, Attestation Session binding fields, key IDs, times, attestation ID, and Verifier Ed25519 signature | UTF-8 canonical JSON bytes plus 64-byte Ed25519 signature | Dedicated Verifier after TLSNotary verification; user/device are derived from the Session, never client supplied | Immutable signed artifact; raw bytes are request-lifetime only | Raw JSON is not stored; Challenge/Claim authority subset, full SHA-256 digests, and Range metadata are copied | One exact `application/json` artifact; the same bytes may be retried to the Web API on network/5xx failure |
-| `Attestation Session` | One server-issued proof-acquisition binding fixed before the TLSNotary request to one authenticated non-anonymous user and one authenticated device key | `session_id`, `canonical_user_id`, `device_id`, `device_public_key`, `binding_nonce`, `issued_at`, `expires_at`, and closed lifecycle status | FUSOU-WEB authenticated-device context plus PostgreSQL Session row; no client locator is authoritative | Immutable authority fields; `ACTIVE -> CONSUMED/EXPIRED/REVOKED` terminal lifecycle | `attestation_sessions` row with unique `session_id`/`binding_nonce`, exact device-key binding, and terminal reason | Client receives only an opaque server-generated binding value and expiry for transport relay; `session_id`, nonce, user, device, and key are not client authority inputs |
+| `Attestation Session` | One server-issued proof-acquisition binding fixed before the TLSNotary request to one authenticated non-anonymous user and one authenticated device key | `session_id`, `canonical_user_id`, `device_id`, `device_public_key`, `binding_nonce`, `issued_at`, `expires_at`, and closed lifecycle status | FUSOU-WEB authenticated-device context plus PostgreSQL Session row; no client locator is authoritative | Immutable authority fields; `ACTIVE -> CONSUMED/EXPIRED/REVOKED` terminal lifecycle. A terminal Session is never reused; a new Session may reuse the same non-REVOKED device key under the retry rules in Section 7.1.1 | `attestation_sessions` row with unique `session_id`/`binding_nonce`, at most one ACTIVE row per device key, and terminal reason; retained terminal rows may share a device key/device ID | Client receives only an opaque server-generated binding value and expiry for transport relay; `session_id`, nonce, user, device, and key are not client authority inputs |
 | `ClaimBindingBytes` | Canonical binary message reconstructed by FUSOU-WEB from Challenge authority fields and signed by the device key | Deterministic byte string defined in Section 7.3 | FUSOU-WEB serialization rules plus Challenge row; device signs but does not define fields | Immutable per Challenge; not persisted as raw bytes | No raw column; Challenge authority fields and accepted Claim fields are the source | Never client-supplied; device receives/derives the exact bytes for Ed25519 signing |
 | `Challenge` | One server-issued, device-bound coordination record authorizing one Claim attempt | PostgreSQL row with `ACTIVE`, `CONSUMED`, or `EXPIRED` lifecycle | FUSOU-WEB verifier + PostgreSQL Challenge root for lifecycle | Authority columns immutable; lifecycle terminal; transient coordination with retained replay evidence | `claim_challenges` row, terminal reason/lifecycle checks, one UNIQUE `tlsn_attestation_id` | Server response exposes only defined authority/result fields; client submits only challenge ID and signature to Claim |
 | `Claim` | Accepted binding of one Attestation, member mapping, canonical user, and verified device | PostgreSQL append-only identity fact | `member_identity_claims` root after atomic Claim RPC | Immutable; retained audit history | `member_identity_claims` append-only row | Server result only; client cannot submit authority columns |
@@ -303,7 +303,7 @@ Identity State、Device State、Challenge Stateは別domainであり、同じ文
 | `PENDING` | `user_devices.device_status = 'PENDING'`, non-NULL future `pending_expires_at`, no verification/revoke fields | Device key is registered for one Claim attempt, not authorization | `VERIFIED` by accepted Claim; `REVOKED` by revoke or expiry | Device row CHECK/RPC; `pending_expiry_race` |
 | `VERIFIED` | `device_status = 'VERIFIED'`, non-NULL `verified_at`, no revoke fields | Device can authorize live Dataset Token checks if all roots/key registries pass | `REVOKED` only | Transition trigger/Claim/Revoke; `verified_device_owner_invariant` |
 | `REVOKED` | `device_status = 'REVOKED'`, non-NULL `revoked_at` and reason | Device can never authorize; historical rows remain | No automatic transition | Terminal trigger and live lookup; `revoked_device_rejected` |
-| `ACTIVE Challenge` | `challenge_status = 'ACTIVE'`, all terminal timestamps/reason NULL, expiry future at use | One unconsumed device-bound Claim attempt | `CONSUMED` or `EXPIRED` | Attestation/device row locks and lifecycle trigger; `active_challenge_unique` |
+| `ACTIVE Challenge` | `challenge_status = 'ACTIVE'`, all terminal timestamps/reason NULL, expiry future at use, linked Session is ACTIVE and unexpired, and linked device is PENDING and unexpired | One usable unconsumed device-bound Claim attempt | `CONSUMED` or `EXPIRED` | Attestation/device/Session row locks and lifecycle trigger; `active_challenge_unique` |
 | `CONSUMED Challenge` | `challenge_status = 'CONSUMED'`, terminal reason is Claim accepted, invalid signature, or device revoke, `consumed_at` non-NULL | Attempt is permanently spent; accepted Claim replay may read it | No transition | Append-only authority + lifecycle trigger; `challenge_replay_rejected` |
 | `EXPIRED Challenge` | `challenge_status = 'EXPIRED'`, reason `TTL_EXPIRED`, `expired_at` non-NULL | Attempt expired without Claim; it cannot be reused | No transition | Single DB timestamp and cleanup RPC; `expired_challenge_rejected` |
 | `ACTIVE Attestation Session` | `session_status = 'ACTIVE'`, terminal timestamps/reason NULL, `expires_at > v_db_now` at use | Proof acquisition is bound to one authenticated user/device and may produce one Challenge | `CONSUMED`, `EXPIRED`, or `REVOKED` | Session issue/Claim/expiry/revoke RPC; `attestation_session_lifecycle` |
@@ -718,7 +718,7 @@ Wire type が live Phase 0 response で JSON Number でなければ GO は失敗
 
 全Identity APIはCloudflare Workers Fetch APIが公開する正規化後の`request.headers.get("Authorization")`だけを認証に使用する。Observable value grammarはcase-sensitive `Bearer`、exact SP 1 byte、non-empty Supabase compact access tokenであり、HTAB、comma、追加whitespace、schemeのcase variationを拒否する。Platformが公開前に除去するouter OWSや同値header foldingをApplicationが再判定できるとは仮定しない。複数fieldがcomma結合されればgrammar不一致として拒否する。この正規化契約は実Workerへraw HTTPを送るintegration fixtureで固定する。Cookie、query、bodyのcredentialを受け付けず、任意Cookieが同時に存在しても認証判断に使用しない。FUSOU-WEBと各mutation RPCの両方で`auth.users.is_anonymous = false`を確認する。Google identityはSection 11.1のexplicit Social Bindingでだけ要求し、Game Identity Claim自体はnon-anonymous Supabase userに結び付ける。Bearer APIにはcookie authorityがないためCSRF tokenを使用しない。
 
-Client が送る locator は authority ではない。Server は Security Root row と authenticated user を毎回照合する。
+Client が送る locator は authority ではない。Server は Identity Authorization Root row と authenticated user を毎回照合する。
 
 Identity APIのrequest `Content-Type`はparameterなしのexact `application/json`、`Content-Encoding`は不在でなければならない。Challenge body上限は`MAX_CHALLENGE_BODY_BYTES`、その他は4096 bytes。`MAX_CHALLENGE_BODY_BYTES = 4 * (MAX_VERIFIER_RESULT_JSON_BYTES / 3) + 4096 = 33558528`であり、24 MiBのdecoded Resultが3の倍数であることを利用する。`Content-Length`の有無にかかわらずstream読取り中に上限を強制し、超過は`413 REQUEST_TOO_LARGE`。UUID Stringはlowercase canonical hyphenated UUIDv4、base64urlはRFC 4648 unpadded canonical form、`expires_at`は`YYYY-MM-DDTHH:MM:SS.sssZ`に固定する。Unknown/duplicate JSON fieldを拒否する。
 
@@ -754,9 +754,13 @@ ASCII "FUSOU-ATTESTATION-BINDING-V1\0"
 || u16_be(32) || binding_nonce raw bytes
 ```
 
-Functionは`auth.users.is_anonymous = false`、public key uniqueness、UUIDv4、nonce uniqueness、`expires_at > issued_at`を検証し、active/terminalを問わず同じ key の既存 Session または `user_devices` row があれば`DEVICE_KEY_ALREADY_REGISTERED`を返す。Session rowはproofの前にcommitされ、client responseは次の2 fieldsだけである。
+Functionは`auth.users.is_anonymous = false`、public keyのstrict profile、UUIDv4、nonce uniqueness、`expires_at > issued_at`を検証する。既存の同じ key に ACTIVE Session があれば`DEVICE_KEY_ALREADY_REGISTERED`を返す。既存の `user_devices` row がある場合は、authenticated user と同じ owner の非REVOKED device に限り、その server-owned `device_id` を新しい Session に再利用する。別 user の device、REVOKED device、または不整合な key は`DEVICE_KEY_ALREADY_REGISTERED`を返す。`user_devices` row がない場合だけ新しい `device_id` を生成する。terminal Session row が存在しても、上記条件を満たす新しい Session の発行を妨げない。
 
-Function内部の順序は、auth userの再検証、raw device keyによるDevice-key advisory lock、`v_db_now := pg_catalog.transaction_timestamp()`の取得、全lifecycleのSession/Device key uniqueness再検証、Session INSERT、canonical binding valueの導出、typed resultの返却とcommitである。auth userが存在しない、またはanonymousの場合は`RESOURCE_NOT_FOUND`を返し、non-OK resultではSessionを作成しない。Session INSERTとbinding value導出を同一transactionで完了してからHTTP responseへ進む。
+同じ device key の再利用と同じ Session の再利用は別である。terminal Session は同じ `session_id`、nonce、binding を再利用できないが、同じ authenticated user に属する同じ non-REVOKED device key で新しい `session_id`、nonce、binding を発行できる。旧Sessionと新Sessionはともに保持し、新Sessionの `device_id` は既存deviceから復元する。REVOKED key、別userのkey、ACTIVE Sessionを持つkeyは再利用できない。新Sessionで同じdeviceに新しいChallengeを作れるのは、既存Challengeの lifecycle と device状態が Section 7.2 の条件を満たす場合だけであり、既存VERIFIED deviceを新しいClaimへ戻すことはない。
+
+Session rowはproofの前にcommitされ、client responseは次の2 fieldsだけである。
+
+Function内部の順序は、auth userの再検証、raw device keyによるDevice-key advisory lock、`v_db_now := pg_catalog.transaction_timestamp()`の取得、ACTIVE Session uniquenessとDevice key lifecycleの再検証、Session INSERT、canonical binding valueの導出、typed resultの返却とcommitである。auth userが存在しない、またはanonymousの場合は`RESOURCE_NOT_FOUND`を返し、non-OK resultではSessionを作成しない。Session INSERTとbinding value導出を同一transactionで完了してからHTTP responseへ進む。
 
 ```json
 {
@@ -767,7 +771,7 @@ Function内部の順序は、auth userの再検証、raw device keyによるDevi
 
 APPはこのopaque binding valueをone-shot control messageとしてProxyへ渡す。Proxyは次の自然な`require_info` requestにだけ、exact ASCII header `X-FUSOU-Attestation-Binding: <binding_value>\r\n`を付加する。Binding value、Session ID、nonce、device keyをlog、Game request body、client event payloadへ出さない。Session issuance失敗、expiry、binding injection failureは通常gameplayを継続できるが、binding headerのないtranscriptをIdentity proofとして送ってはならない。
 
-Session issuanceのsuccessは`201 OK_NEW`である。Sessionは一度だけproof acquisitionに使用され、同一Session/nonce/bindingの再発行、別user/deviceへの移し替え、別Challengeへの再利用を許可しない。Session terminal transitionはClaim accepted、invalid signature、Challenge/device revoke、またはTTL expiryと同一transactionで記録する。
+Session issuanceのsuccessは`201 OK_NEW`である。Sessionは一度だけproof acquisitionに使用され、同一Session/nonce/bindingの再発行、別user/deviceへの移し替え、別Challengeへの再利用を許可しない。Session terminal transitionはClaim accepted、invalid signature、Challenge/device revoke、またはTTL expiryと同一transactionで記録する。Session expiryまたはterminal state後の通常の再試行は、同じ authenticated user と同じ non-REVOKED device key に対する新しい Session issuance としてだけ許可し、旧Sessionを復活・更新してはならない。
 
 `issue_attestation_session_v1`のtyped resultは次である。
 
@@ -829,17 +833,17 @@ Function内部の順序は次である。
 3. Identity advisory lockを取得。
 4. User quota advisory lockを取得。
 5. Device-key advisory lockを取得し、必要なlockをすべて取得した後ここで`v_db_now := pg_catalog.transaction_timestamp()`を一度だけ取得する。`notary_time <= result_time <= v_db_now + 300`、`notary_time >= v_db_now - 86400`を再確認する。HTTP handlerの`server_now_epoch`はこの判定を代用しない。
-6. Session rowを`FOR UPDATE`し、`session_id`、`canonical_user_id`、`device_id`、`device_public_key`、`binding_nonce`、`issued_at`、`expires_at`、`session_status`を再構成する。Authenticated user、ResultのSession fields、canonical binding bytesがすべて一致し、ACTIVEかつ`expires_at > v_db_now`でなければ、terminal statusに応じた拒否を返す。
+6. Session rowを`FOR UPDATE`し、`session_id`、`canonical_user_id`、`device_id`、`device_public_key`、`binding_nonce`、`issued_at`、`expires_at`、`session_status`を再構成する。Authenticated user、ResultのSession fields、canonical binding bytesがすべて一致し、ACTIVEかつ`expires_at > v_db_now`でなければ、`SESSION_NOT_ACTIVE`を返す。ACTIVE Sessionの expiry が過ぎている場合は、同Sessionに紐づくACTIVE Challengeがあればそれも`EXPIRED/TTL_EXPIRED`へ遷移してから返す。
 7. `get_or_create_public_id(p_api_member_id)`を呼び、mapping parent rowを`FOR UPDATE`。Device-key lock取得後のnon-locking lookupで、Sessionのdevice ID/keyに対応するcandidate `device_id`があれば取得する。
 8. 同AttestationのChallenge、同SessionのChallenge、candidate deviceの全ACTIVE Challengeのunionを`challenge_id`昇順で`FOR UPDATE`する。Lock後に全集合を再queryし、未lock rowがあればinvariant errorとしてabortする。
-9. 同Attestationの期限切れACTIVEを`EXPIRED/TTL_EXPIRED`へ遷移し、対応Sessionも`EXPIRED/TTL_EXPIRED`へ遷移する。このexpiry transition後にACTIVE Challengeをlookupする。
+9. 同Attestationの期限切れACTIVE、または linked Session/device pending expiry により使用不能になったACTIVE Challengeを`EXPIRED/TTL_EXPIRED`へ遷移し、対応Sessionも`EXPIRED/TTL_EXPIRED`へ遷移する。このexpiry normalization後にACTIVE Challengeをlookupする。SessionがREVOKEDの場合はChallengeをusableなACTIVEのまま残さず、revoke pathの`DEVICE_REVOKED` terminal reasonを要求する。
 10. ACTIVE rowがあり、Session、user、device key digest、Verifier Result digest、binding nonce/valueが一致し、deviceが同じuser/publicの未期限PENDINGなら同じChallengeを返す。不一致なら`ATTESTATION_IN_USE`。
-11. ACTIVE rowがない場合だけ、同Attestationのaccepted Claim、CONSUMED row、EXPIRED rowを順に確認する。accepted Claimは`ATTESTATION_ALREADY_CLAIMED`、CONSUMED rowは`ATTESTATION_ALREADY_USED`、EXPIRED rowまたはterminal Sessionは`CHALLENGE_EXPIRED`とし、いずれも新Challengeを作らない。
+11. ACTIVE rowがない場合だけ、同Attestationのaccepted Claim、CONSUMED row、EXPIRED rowを順に確認する。accepted Claimは`ATTESTATION_ALREADY_CLAIMED`、CONSUMED rowは`ATTESTATION_ALREADY_USED`、EXPIRED rowは`CHALLENGE_EXPIRED`、terminal/expired/revoked Sessionは`SESSION_NOT_ACTIVE`とし、いずれも新Challengeを作らない。
 12. Ownership rowを`FOR UPDATE`し、different userなら`EXISTING_VERIFIED_OWNER_CONFLICT`。
 13. Sessionのdevice ID/keyに対応するcandidate deviceだけを`FOR UPDATE`する。期限切れPENDINGなら`REVOKED/expired_pending`へ、そのlock済みACTIVE ChallengeとSessionを`EXPIRED/TTL_EXPIRED`へ遷移する。その後はexisting REVOKED keyとして`DEVICE_KEY_ALREADY_REGISTERED`を返す。
 14. Candidateが同じuser/publicの未期限PENDINGなら再利用し、それ以外のexisting keyは`DEVICE_KEY_ALREADY_REGISTERED`。Candidateに別のACTIVE Challengeがあれば`DEVICE_CHALLENGE_IN_USE`。新規device rowを作る場合はSessionの`device_id`と`device_public_key`をそのまま使用し、client keyを再入力しない。
 15. Deviceが新規の場合だけ、同じUser-quota/Identity advisory lockを保持したまま`v_db_now`を使用し、`device_status='PENDING' AND pending_expires_at > v_db_now`のrowをactor user全体とpublic ID全体でcountする。count、limit判定、PENDING row INSERTは同一transaction/lock区間で完了し、別pathがこのlock protocol外でPENDINGを作成・遷移してはならない。count対象rowを個別にlockする必要はない。いずれかが5以上なら`PENDING_DEVICE_LIMIT`、未満ならSessionのdevice ID/keyと`v_db_now + interval '24 hours'`でPENDING rowを作る。
-16. 同Attestationのrowが存在しない場合だけ、Server-generated UUIDv4、32-byte nonce、`expires_at = LEAST(v_db_now + interval '5 minutes', device.pending_expires_at)`でChallengeを作る。ChallengeのSession ID、nonce、binding valueはSessionからcopyする。
+16. 同Attestationのrowが存在しない場合だけ、Server-generated UUIDv4、32-byte nonce、`expires_at = LEAST(v_db_now + interval '5 minutes', attestation_session.expires_at, device.pending_expires_at)`でChallengeを作る。ChallengeのSession ID、nonce、binding valueはSessionからcopyする。Sessionがexpiry済み、REVOKED、または同じtransaction内でexpiry normalizationされた場合はChallengeを作らず`SESSION_NOT_ACTIVE`を返す。
 17. Session、Challenge、device、Result authorityのcross-table equalityをassertし、Typed resultを返してcommitする。
 
 Challenge issuanceは無関係なPENDING deviceをsweep/lock/updateしない。Expiry mutationはsupplied keyのcandidate device、Claim対象device、またはSection 10.5のsingle-Challenge cleanupだけに限定し、各pathが対応User-quota/Device-key lockを取得する。
@@ -932,11 +936,11 @@ Claim受理には次の12 preconditionsをすべて満たす必要がある。1�
 
 FUSOU-WEB は Challenge row から `device_id`、nonce、`public_id`、`api_member_id`、Attestation ID、`notary_time`、key IDs、range metadata を復元する。Client から同名 metadata を受け付けない。
 
-1. `get_claim_challenge_v1(authenticated_user_id, challenge_id)`を呼ぶ。`RESOURCE_NOT_FOUND`は404、`CHALLENGE_EXPIRED`は`expire_identity_artifact_v1(challenge_id)`を同requestで完了して410、`CHALLENGE_NOT_ACTIVE`は409とし、authority fieldsを処理しない。`OK`または`OK_REPLAY`だけ次へ進む。Read resultからSession/Challenge/Result authorityの全12 preconditionsを再確認し、値をclient inputとして扱わない。
+1. `get_claim_challenge_v1(authenticated_user_id, challenge_id)`を呼ぶ。`RESOURCE_NOT_FOUND`は404、`CHALLENGE_EXPIRED`は`expire_identity_artifact_v1(challenge_id)`を同requestで完了して410、`SESSION_NOT_ACTIVE`はlinked Session/Challengeをusableな状態にせず409、`CHALLENGE_NOT_ACTIVE`は409とし、authority fieldsを処理しない。`OK`または`OK_REPLAY`だけ次へ進む。Read resultからSession/Challenge/Result authorityの全12 preconditionsを再確認し、値をclient inputとして扱わない。
 2. Current Notary/Verifier registriesを、device signature検証、`consume_invalid_challenge`、Claim RPCのいずれよりも先に照合する。`OK`は両keyがACTIVE/VERIFY_ONLYかつNotaryは`notary_time`、Verifierは`result_time`がoriginal signing window内、profile hash一致を要求する。`OK_REPLAY`はRETIREDも許可するが、両caseともmissing/REVOKEDは`409 CHALLENGE_NOT_ACTIVE`とし、registry failureではChallengeをconsume/expireせずDB mutationを行わない。
 3. Session row、Device row、Challenge rowのauthority valuesからClaimBindingBytesを再構築し、Session ID、binding nonce、binding valueを含める。
 4. Strict RFC 8032 pure Ed25519 signatureをraw bytesに対して検証。
-5. invalidの場合は`consume_invalid_challenge(authenticated_user_id, challenge_id)`を呼ぶ。Outcomeが`CHALLENGE_EXPIRED`なら`410 CHALLENGE_EXPIRED`、`INVALID_SIGNATURE_CONSUMED`なら`401 INVALID_DEVICE_SIGNATURE`、`CHALLENGE_NOT_ACTIVE`なら`409 CHALLENGE_NOT_ACTIVE`を返す。
+5. invalidの場合は`consume_invalid_challenge(authenticated_user_id, challenge_id)`を呼ぶ。Outcomeが`SESSION_NOT_ACTIVE`なら`409 SESSION_NOT_ACTIVE`、`CHALLENGE_EXPIRED`なら`410 CHALLENGE_EXPIRED`、`INVALID_SIGNATURE_CONSUMED`なら`401 INVALID_DEVICE_SIGNATURE`、`CHALLENGE_NOT_ACTIVE`なら`409 CHALLENGE_NOT_ACTIVE`を返す。
 6. validの場合はDB RPC `claim_verified_device_v1(authenticated_user_id, challenge_id)`を呼ぶ。
 
 RPCへ渡す`authenticated_user_id`はFUSOU-WEBが検証済みsessionから得た値であり、client JSONには存在しない。Claim RPCはclient metadata、signature、public ID、member IDを引数に取ってはならない。
@@ -963,7 +967,7 @@ RPCへ渡す`authenticated_user_id`はFUSOU-WEBが検証済みsessionから得�
 
 1. Missing/different ownerは`RESOURCE_NOT_FOUND`。
 2. Session rowをChallenge rowの前に`FOR UPDATE`し、ChallengeのSession ID、actor、device ID、binding nonceとSession authorityの一致を検証する。Sessionが見つからない、またはcross-table mismatchならinvariant errorとしてabortする。
-3. `v_db_now := pg_catalog.transaction_timestamp()`をSession/Challenge row lock後に一度だけ取得する。ACTIVEかつChallengeまたはSessionの`expires_at <= v_db_now`なら、両rowを`EXPIRED/TTL_EXPIRED`へ遷移し`CHALLENGE_EXPIRED`を返す。
+3. `v_db_now := pg_catalog.transaction_timestamp()`をSession/Challenge row lock後に一度だけ取得する。SessionがREVOKED、またはSessionがexpiry済みなら、ACTIVE Challengeを`EXPIRED/TTL_EXPIRED`へ正規化し`SESSION_NOT_ACTIVE`を返す。SessionがACTIVEでもChallengeの`expires_at <= v_db_now`なら、両rowを`EXPIRED/TTL_EXPIRED`へ遷移し`CHALLENGE_EXPIRED`を返す。Device pending expiryが先に成立した場合はDeviceを`REVOKED/expired_pending`、Challenge/Sessionを`EXPIRED/TTL_EXPIRED`へ遷移し`SESSION_NOT_ACTIVE`を返す。
 4. ChallengeとSessionがともにACTIVEなら、Challengeを`CONSUMED/INVALID_SIGNATURE`、Sessionを`CONSUMED/INVALID_SIGNATURE`へ同一transactionで遷移し`INVALID_SIGNATURE_CONSUMED`を返す。
 5. Terminal rowは`CHALLENGE_NOT_ACTIVE`。SessionとChallengeのterminal state/reasonが一致しない場合はcorruptionとしてabortする。
 
@@ -1130,13 +1134,13 @@ CHECK (api_member_id ~ '^[1-9][0-9]{0,15}$')
 
 ### 9.3a `attestation_sessions`
 
-Session row はproof取得より前に作成し、terminal rowも削除せず保持する。`binding_value`は保存せず、`session_id`と`binding_nonce`からSection 7.1.1のcanonical bytesを再計算する。
+Session row はproof取得より前に作成し、terminal rowも削除せず保持する。`binding_value`は保存せず、`session_id`と`binding_nonce`からSection 7.1.1のcanonical bytesを再計算する。terminal rowを再利用せず、同じ非REVOKED device keyに対する新規Sessionだけを許可する。
 
 ```text
 session_id UUID PRIMARY KEY
 canonical_user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE RESTRICT
-device_id UUID NOT NULL UNIQUE
-device_public_key BYTEA NOT NULL UNIQUE CHECK (octet_length(device_public_key) = 32)
+device_id UUID NOT NULL
+device_public_key BYTEA NOT NULL CHECK (octet_length(device_public_key) = 32)
 binding_nonce BYTEA NOT NULL UNIQUE CHECK (octet_length(binding_nonce) = 32)
 issued_at TIMESTAMPTZ NOT NULL
 expires_at TIMESTAMPTZ NOT NULL
@@ -1161,7 +1165,13 @@ REVOKED  => terminal_reason = DEVICE_REVOKED, consumed_at NULL, expired_at NULL,
             revoked_at NOT NULL
 ```
 
-`session_id`、`canonical_user_id`、`device_id`、`device_public_key`、`binding_nonce`、`issued_at`、`expires_at`はimmutableである。Lifecycleは`ACTIVE -> CONSUMED/EXPIRED/REVOKED`だけを許可し、Session issuanceは`device_public_key`の再利用を全lifecycleで拒否する。Sessionは`user_devices`のpublic/member rowをまだ持たないため、Challenge issuanceだけがSessionのdevice ID/keyをtarget `public_id`へ一度結び付ける。以後のClaim/Revoke/cleanupはSessionとChallengeを同じlock protocol・transactionで更新する。
+`session_id`、`canonical_user_id`、`device_id`、`device_public_key`、`binding_nonce`、`issued_at`、`expires_at`はimmutableである。Lifecycleは`ACTIVE -> CONSUMED/EXPIRED/REVOKED`だけを許可する。`session_id`/nonceは全lifecycleで一意だが、同じ非REVOKED device keyはterminal Sessionを保持したまま新しいSessionで再利用できる。`device_public_key`ごとのACTIVE Sessionはpartial UNIQUE indexで1件に制限する。Sessionは`user_devices`のpublic/member rowをまだ持たない場合があり、Challenge issuanceだけがSessionのdevice ID/keyをtarget `public_id`へ一度結び付ける。以後のClaim/Revoke/cleanupはSessionとChallengeを同じlock protocol・transactionで更新する。
+
+```sql
+CREATE UNIQUE INDEX uq_attestation_sessions_active_key
+ON public.attestation_sessions (device_public_key)
+WHERE session_status = 'ACTIVE';
+```
 
 ### 9.3 `user_devices`
 
@@ -1311,7 +1321,7 @@ CONSUMED => terminal_reason IN (CLAIM_ACCEPTED, INVALID_SIGNATURE, DEVICE_REVOKE
 EXPIRED  => terminal_reason = TTL_EXPIRED, consumed_at NULL, expired_at NOT NULL
 ```
 
-Challenge は transient coordination state であり Identity Security Root ではない。
+Challenge は transient coordination state であり Identity Authorization Root ではない。ACTIVE Challenge は linked Session がACTIVEかつ未期限、deviceがPENDINGかつ未期限の場合だけusableである。Session expiry、Device pending expiry、またはDevice revokeを検出した全supported pathは、linked ACTIVE Challengeを同じtransactionでterminal化するか、少なくともusableでないことを返し、`Session = EXPIRED` と `Challenge = ACTIVE and usable` の組合せを許可してはならない。
 
 Challenge authority columnsはimmutable。Lifecycle triggerは`ACTIVE -> CONSUMED`または`ACTIVE -> EXPIRED`だけを許可し、terminal stateからの遷移を拒否する。`verifier_key_id`と`notary_key_id`は`^[A-Za-z0-9._-]{1,64}$`。Digest columnsはそれぞれ次へ固定する。
 
@@ -1335,7 +1345,7 @@ Challenge row は retention enforcement のため delete 不可である。Migra
 
 ### 9.8 Dataset upload replay ledger
 
-`dataset_upload_ledger_v1`はIdentity Security Rootではなく、二段階uploadのsingle-use coordination tableである。
+`dataset_upload_ledger_v1`はIdentity Authorization Rootではなく、二段階uploadのsingle-use coordination tableである。
 
 ```text
 ingest_id UUID PRIMARY KEY
@@ -1361,7 +1371,7 @@ fusou_identity_owner NOLOGIN
 fusou_identity_auditor NOLOGIN
 ```
 
-`member_id_mapping`、`attestation_sessions`、`member_identity_claims`、`member_ownership`、`user_devices`の5 Security Root tables、`claim_challenges`、upload replay ledger、関連sequence、trigger/helper/entry functionsのownerは`fusou_identity_owner`。全table/sequence/functionについて`PUBLIC`、`anon`、`authenticated`、`service_role`から`ALL`をrevokeする。`fusou_identity_auditor`には`member_identity_claims`の`SELECT`だけをgrantする。`fusou_identity_owner`には`auth` schema USAGEと`auth.users(id, is_anonymous)`、`auth.identities(user_id, provider)`のSELECTだけをgrantする。
+`member_id_mapping`、`member_identity_claims`、`member_ownership`、`user_devices`の4 Identity Authorization Root tables、`attestation_sessions`、`claim_challenges`、upload replay ledger、関連sequence、trigger/helper/entry functionsのownerは`fusou_identity_owner`。全table/sequence/functionについて`PUBLIC`、`anon`、`authenticated`、`service_role`から`ALL`をrevokeする。`fusou_identity_auditor`には`member_identity_claims`の`SELECT`だけをgrantする。`fusou_identity_owner`には`auth` schema USAGEと`auth.users(id, is_anonymous)`、`auth.identities(user_id, provider)`のSELECTだけをgrantする。
 
 `service_role`にEXECUTEをgrantするentry functionsは次だけである。
 
@@ -1493,16 +1503,18 @@ Function は transaction-scoped であり、same member ID に same immutable pu
 
 ### 10.3 `claim_verified_device_v1(authenticated_user_id, challenge_id)`
 
+Claim の security-sensitive linearization point は、Challenge consumption、Session transition、Device transition、accepted Claim INSERT、Ownership mutation、および projection updateを含む単一 transaction の authoritative commit である。commit 前の検査や一部の row updateは成功 Claim ではなく、commit failure時には全てrollbackされる。commit後に初めてClaimはacceptedとなり、同時実行の勝者はこのcommitを完了した transaction、敗者はlock後に観測したterminal stateまたは完全一致のidempotent replay resultに従う。
+
 単一 transaction 内の順序を固定する。
 
 1. Challengeをnon-locking readしAttestation、Session ID、member ID、user、device ID、device key digestを得る。存在しなければreject。Session rowは次のlock後に再取得する。
 2. Attestation、Identity、User-quota、Device-key advisory lockを順に取得。
-3. Session rowを`FOR UPDATE`し、Sessionのcanonical user/device/key/nonce/lifecycleを再検証する。Sessionの`attestation_session_id`、`binding_nonce`、`binding_value`はChallengeと一致し、ACTIVEでなければならない。
+3. 対象Sessionと、同じdevice key/device IDにlinkedする全Session rowを`session_id`昇順で`FOR UPDATE`し、Sessionのcanonical user/device/key/nonce/lifecycleを再検証する。lock後に全linked Session/Challenge集合を再queryし、未lockのrowがあれば同じ順序でlockしてからmappingへ進む。対象Sessionの`attestation_session_id`、`binding_nonce`、`binding_value`はChallengeと一致し、ACTIVEでなければならない。
 4. Mapping parent rowを`FOR UPDATE`し、Challengeの`(api_member_id, public_id)`と一致確認。
 5. Challenge rowを`FOR UPDATE`し、pre-read値とactor userを再検証する。Claim insert用の全authority列はこのlock済みrowとSession rowから再構築し、pre-read値またはclient値を直接使用してはならない。
-6. ownership row、対象device、同public IDのVERIFIED devicesをorderに従ってlock。
+6. ownership row、対象device、同public IDのVERIFIED devicesをorderに従ってlockする。対象deviceの全ACTIVE Session/Challengeは、上記のSession lock後に再queryした集合と一致しなければならず、後順位で新たなSession rowを取得してはならない。
 7. 同Attestation/Sessionのexisting Claimをlookup。actorを含む4値exact matchはidempotent result、mismatchはreject。
-8. `v_db_now := pg_catalog.transaction_timestamp()`をこのtransactionで一度だけ取得する。新規ClaimではChallengeとSessionがACTIVEかつそれぞれの`expires_at > v_db_now`であることを確認。期限切れならChallengeとSessionを`EXPIRED/TTL_EXPIRED`へ遷移し、Deviceも期限切れPENDINGなら`REVOKED/expired_pending`へ遷移してrejectする。
+8. `v_db_now := pg_catalog.transaction_timestamp()`をこのtransactionで一度だけ取得する。新規ClaimではChallengeとSessionがACTIVEかつそれぞれの`expires_at > v_db_now`であることを確認。SessionがREVOKEDまたは期限切れなら、linked ACTIVE Challengeを`EXPIRED/TTL_EXPIRED`へ正規化して`SESSION_NOT_ACTIVE`でrejectする。SessionがACTIVEでもChallengeの期限切れ、またはDevice pending expiryが先に成立した場合は、Challenge/Session/Deviceを同じtransactionでterminal化し、前者は`CHALLENGE_EXPIRED`、後者は`SESSION_NOT_ACTIVE`でrejectする。
 9. DeviceがPENDING、`pending_expires_at > v_db_now`、Challenge/Sessionとuser/public/key/nonce/binding digestが一致することを確認する。以後のChallenge/Session/Device expiry比較とlifecycle timestampにはこの同じ`v_db_now`だけを使い、別のclock readを行わない。
 10. Ownership ruleを評価。different historical ownerはcurrent device数に関係なくreject。
 11. 同public IDのVERIFIED deviceが別userに属する場合はinvariant violationとしてtransactionをabort。VERIFIED数が16以上なら`VERIFIED_DEVICE_LIMIT`。
@@ -1517,7 +1529,7 @@ Unique constraint failure を normal control flow の代用にせず、同じ er
 
 ### 10.4 Revoke
 
-`POST /api/identity/v1/devices/revoke`はbody `{ "device_id": "<uuidv4>" }`だけを受ける。ServerはBearer userを別途取得し、`revoke_identity_device_v1(authenticated_user_id, device_id)`を呼ぶ。Functionはdevice row、linked Session、ACTIVE Challengeをnon-locking pre-readした後、Identity、User-quota、Device-keyの順にlockする。次にlinked Session rowを`FOR UPDATE`、mapping、Challenge rowを`challenge_id`昇順、ownership、deviceの順にlockして全locator/authority値を再検証する。Lock後に対象deviceの全ACTIVE Challengeとlinked Sessionを再queryし、pre-readにないrowがあれば同じorderでlockする。必要なlockを取得した後、`v_db_now := pg_catalog.transaction_timestamp()`を一度だけ取得し、expiry比較とlifecycle timestampに再利用する。Attestation advisory lockは後順位取得になるためRevokeでは取得しない。
+`POST /api/identity/v1/devices/revoke`はbody `{ "device_id": "<uuidv4>" }`だけを受ける。ServerはBearer userを別途取得し、`revoke_identity_device_v1(authenticated_user_id, device_id)`を呼ぶ。Functionはdevice row、linked Sessions、ACTIVE Challengesをnon-locking pre-readした後、Identity、User-quota、Device-keyの順にlockする。次にlinked Session rowsを`session_id`昇順で全て`FOR UPDATE`、mapping、Challenge rowsを`challenge_id`昇順、ownership、deviceの順にlockして全locator/authority値を再検証する。Lock後に対象deviceの全ACTIVE Challengeとlinked Sessionを再queryし、pre-readにないrowがあれば同じorderでlockする。必要なlockを取得した後、`v_db_now := pg_catalog.transaction_timestamp()`を一度だけ取得し、expiry比較とlifecycle timestampに再利用する。Attestation advisory lockは後順位取得になるためRevokeでは取得しない。
 
 1. Deviceの`canonical_user_id`がactorと一致しなければreject。VERIFIED deviceではさらにactorが`member_ownership.canonical_user_id`と一致することを要求する。PENDING deviceはownership未作成でもactor自身がrevokeできる。
 2. PENDING -> REVOKED、VERIFIED -> REVOKEDを許可する。紐づくACTIVE ChallengeとSessionは、対応するexpiryが`<= v_db_now`ならそれぞれ`EXPIRED/TTL_EXPIRED`へ、それ以外ならChallengeを`CONSUMED/DEVICE_REVOKED`、Sessionを`REVOKED/DEVICE_REVOKED`へ遷移して再利用を止める。期限切れPENDINGは同じ`v_db_now`で`REVOKED/expired_pending`へ遷移し、device revoke自体は継続する。
@@ -1618,16 +1630,16 @@ DB outcomeからHTTPへの写像は次のclosed tableを使用し、functionご�
 | Entry function | Allowed outcome values |
 | --- | --- |
 | `issue_attestation_session_v1` | `OK_NEW`, `RESOURCE_NOT_FOUND`, `DEVICE_KEY_ALREADY_REGISTERED` |
-| `issue_identity_challenge_v1` | `OK_NEW`, `OK_REPLAY`, `RESOURCE_NOT_FOUND`, `ATTESTATION_IN_USE`, `ATTESTATION_ALREADY_USED`, `ATTESTATION_ALREADY_CLAIMED`, `CHALLENGE_EXPIRED`, `DEVICE_CHALLENGE_IN_USE`, `DEVICE_KEY_ALREADY_REGISTERED`, `PENDING_DEVICE_LIMIT`, `EXISTING_VERIFIED_OWNER_CONFLICT` |
-| `get_claim_challenge_v1` | `OK`, `OK_REPLAY`, `RESOURCE_NOT_FOUND`, `CHALLENGE_EXPIRED`, `CHALLENGE_NOT_ACTIVE` |
-| `consume_invalid_challenge` | `INVALID_SIGNATURE_CONSUMED`, `RESOURCE_NOT_FOUND`, `CHALLENGE_EXPIRED`, `CHALLENGE_NOT_ACTIVE` |
-| `claim_verified_device_v1` | `OK_NEW`, `OK_REPLAY`, `RESOURCE_NOT_FOUND`, `ATTESTATION_ALREADY_CLAIMED`, `CHALLENGE_EXPIRED`, `CHALLENGE_NOT_ACTIVE`, `DEVICE_NOT_PENDING`, `EXISTING_VERIFIED_OWNER_CONFLICT`, `VERIFIED_DEVICE_LIMIT` |
+| `issue_identity_challenge_v1` | `OK_NEW`, `OK_REPLAY`, `RESOURCE_NOT_FOUND`, `ATTESTATION_IN_USE`, `ATTESTATION_ALREADY_USED`, `ATTESTATION_ALREADY_CLAIMED`, `CHALLENGE_EXPIRED`, `SESSION_NOT_ACTIVE`, `DEVICE_CHALLENGE_IN_USE`, `DEVICE_KEY_ALREADY_REGISTERED`, `PENDING_DEVICE_LIMIT`, `EXISTING_VERIFIED_OWNER_CONFLICT` |
+| `get_claim_challenge_v1` | `OK`, `OK_REPLAY`, `RESOURCE_NOT_FOUND`, `CHALLENGE_EXPIRED`, `SESSION_NOT_ACTIVE`, `CHALLENGE_NOT_ACTIVE` |
+| `consume_invalid_challenge` | `INVALID_SIGNATURE_CONSUMED`, `RESOURCE_NOT_FOUND`, `CHALLENGE_EXPIRED`, `SESSION_NOT_ACTIVE`, `CHALLENGE_NOT_ACTIVE` |
+| `claim_verified_device_v1` | `OK_NEW`, `OK_REPLAY`, `RESOURCE_NOT_FOUND`, `ATTESTATION_ALREADY_CLAIMED`, `CHALLENGE_EXPIRED`, `SESSION_NOT_ACTIVE`, `CHALLENGE_NOT_ACTIVE`, `DEVICE_NOT_PENDING`, `EXISTING_VERIFIED_OWNER_CONFLICT`, `VERIFIED_DEVICE_LIMIT` |
 | `revoke_identity_device_v1` | `OK`, `OK_REPLAY`, `RESOURCE_NOT_FOUND` |
 | `bind_social_identity_v1` | `OK`, `OK_REPLAY`, `RESOURCE_NOT_FOUND`, `SOCIAL_IDENTITY_REQUIRED` |
 | `get_dataset_token_subject_v1` | `OK`, `RESOURCE_NOT_FOUND`, `SOCIAL_BINDING_REQUIRED` |
 | `issue_dataset_upload_v1` | `OK_NEW`, `RESOURCE_NOT_FOUND`, `SOCIAL_BINDING_REQUIRED` |
 | `consume_dataset_upload_v1` | `OK`, `UPLOAD_TOKEN_NOT_ACTIVE`, `UPLOAD_TOKEN_REPLAY` |
-| `expire_identity_artifact_v1` | `OK`, `OK_REPLAY`, `RESOURCE_NOT_FOUND`, `CHALLENGE_NOT_ACTIVE` |
+| `expire_identity_artifact_v1` | `OK`, `OK_REPLAY`, `RESOURCE_NOT_FOUND`, `SESSION_NOT_ACTIVE`, `CHALLENGE_NOT_ACTIVE` |
 | `list_expired_attestation_session_ids_v1` | no business outcome; `SETOF UUID` |
 | `expire_attestation_session_v1` | `OK`, `OK_REPLAY`, `RESOURCE_NOT_FOUND`, `SESSION_NOT_ACTIVE` |
 
@@ -1685,7 +1697,9 @@ expire_attestation_session_v1: outcome
 
 ```text
 missingまたはdifferent owner                         -> RESOURCE_NOT_FOUND
-actor-owned ACTIVEかつexpires_at <= v_db_now          -> CHALLENGE_EXPIRED
+actor-owned ACTIVE、linked Session ACTIVE、Challenge expires_at <= v_db_now -> CHALLENGE_EXPIRED
+actor-owned ACTIVE、linked Session EXPIRED/REVOKED または Session expires_at <= v_db_now -> SESSION_NOT_ACTIVE
+actor-owned ACTIVE、linked device pending_expires_at <= v_db_now -> SESSION_NOT_ACTIVE
 actor-owned ACTIVEかつunexpired                       -> OK + authority fields
 actor-owned CONSUMED/CLAIM_ACCEPTEDかつlinked Claim   -> OK_REPLAY + authority fields
 actor-owned CONSUMED/INVALID_SIGNATURE|DEVICE_REVOKED -> CHALLENGE_NOT_ACTIVE
@@ -1700,7 +1714,7 @@ actor-owned EXPIRED                                   -> CHALLENGE_NOT_ACTIVE
 
 CAS commit後のexternal failureでも`consumed_at`をrollback/NULL化せず、same Upload Token replayを拒否する。ClientはStage 1から新しい`ingest_id`を取得する。これはduplicate external mutationよりavailability lossを選ぶsecurity ruleであり、同じ`ingest_id`のserver/Queue retryはSection 11.4のidempotent sink contractだけが許可する。
 
-`list_expired_identity_artifact_ids_v1(INTEGER)`はread-only、`RETURNS SETOF UUID`で、limitは1..100、ID以外を返さない。関数は`v_db_now := pg_catalog.transaction_timestamp()`を一度だけ取得し、`claim_challenges`と`user_devices`をjoinして、`ACTIVE`かつ`expires_at <= v_db_now`のChallenge、または`PENDING`かつ`pending_expires_at <= v_db_now`のdeviceに紐づくChallengeを候補とする。複数の retained Challengeが同じdeviceに紐づく場合は`challenge_id`最小の1件だけを返し、結果全体は`challenge_id`昇順とする。したがって、invalid signatureまたはdevice revokeでChallengeがterminalになった後も、期限切れPENDINGをcleanupできる。Cleanup schedulerは`list_expired_identity_artifact_ids_v1(100)`でopaque Challenge IDsを取得し、各IDを別transactionの`expire_identity_artifact_v1(UUID)`へ渡す。結果が空になるまでこのbatch処理を繰り返し、1 transactionで複数identityを処理しない。後者は`outcome`だけのtyped resultを返し、Attestation、Identity、User-quota、Device-key、Session、mapping、Challenge、deviceの順にlockする。lock後に選択されたChallenge rowと当該deviceの全ACTIVE Challenge rowのunionを`challenge_id`昇順で`FOR UPDATE`し、linked Session rowとdevice rowも`FOR UPDATE`する。期限切れACTIVE ChallengeとそのACTIVE Sessionを`EXPIRED/TTL_EXPIRED`へ、期限切れPENDINGを`REVOKED/expired_pending`へ同じ`v_db_now`で遷移する。既に別transactionが遷移済みなら`OK_REPLAY`、対象が存在しなければ`RESOURCE_NOT_FOUND`、対象Challengeがterminalでlinked deviceも未期限なら`CHALLENGE_NOT_ACTIVE`を返す。Challenge rowの削除は行わず、`UNIQUE(tlsn_attestation_id)`によるlifecycle全体の一回性を維持する。
+`list_expired_identity_artifact_ids_v1(INTEGER)`はread-only、`RETURNS SETOF UUID`で、limitは1..100、ID以外を返さない。関数は`v_db_now := pg_catalog.transaction_timestamp()`を一度だけ取得し、`claim_challenges`、linked `attestation_sessions`、`user_devices`をjoinして、`ACTIVE`かつ`expires_at <= v_db_now`のChallenge、またはlinked Sessionが`ACTIVE`かつ`expires_at <= v_db_now`、または`PENDING`かつ`pending_expires_at <= v_db_now`のdeviceに紐づくChallengeを候補とする。複数の retained Challengeが同じdeviceに紐づく場合は`challenge_id`最小の1件だけを返し、結果全体は`challenge_id`昇順とする。したがって、Session expiry、invalid signature、またはdevice revokeでChallengeがusableでなくなった後も、期限切れPENDINGをcleanupできる。Cleanup schedulerは`list_expired_identity_artifact_ids_v1(100)`でopaque Challenge IDsを取得し、各IDを別transactionの`expire_identity_artifact_v1(UUID)`へ渡す。結果が空になるまでこのbatch処理を繰り返し、1 transactionで複数identityを処理しない。後者は`outcome`だけのtyped resultを返し、Attestation、Identity、User-quota、Device-key、Session、mapping、Challenge、deviceの順にlockする。lock後に選択されたChallenge rowと当該deviceの全ACTIVE Challenge rowのunionを`challenge_id`昇順で`FOR UPDATE`し、linked Session rowとdevice rowも`FOR UPDATE`する。期限切れACTIVE ChallengeとそのACTIVE Sessionを`EXPIRED/TTL_EXPIRED`へ、期限切れPENDINGを`REVOKED/expired_pending`へ同じ`v_db_now`で遷移する。既に別transactionが遷移済みなら`OK_REPLAY`、対象が存在しなければ`RESOURCE_NOT_FOUND`、対象Challengeがterminalでlinked deviceも未期限なら`CHALLENGE_NOT_ACTIVE`を返す。Challenge rowの削除は行わず、`UNIQUE(tlsn_attestation_id)`によるlifecycle全体の一回性を維持する。
 
 `list_expired_attestation_session_ids_v1(INTEGER)`はread-only、`RETURNS SETOF UUID`で、Challengeにまだ結び付いていない`ACTIVE` Sessionのうち`expires_at <= v_db_now`だけを`session_id`昇順で返す。Cleanup schedulerはこのIDを別transactionの`expire_attestation_session_v1(UUID)`へ渡し、ChallengeのないSessionも漏れなくterminal化する。後者はDevice-key advisory lock、Session rowの順にlockし、再queryでChallengeが存在しないことを確認する。対象SessionがACTIVEかつ期限切れなら`EXPIRED/TTL_EXPIRED`へ遷移して`OK`、既にEXPIREDなら`OK_REPLAY`、CONSUMED/REVOKEDまたは未期限なら`SESSION_NOT_ACTIVE`、missingなら`RESOURCE_NOT_FOUND`を返す。Session rowは削除しない。
 
@@ -2681,6 +2695,17 @@ Automatically fixed:
 Design dispositions:
 Canonical state/ownership rules, RPC authority boundaries, lock order, replay/CAS,
 cross-store cutover/recovery, target Turso bootstrap source, and report cardinality
+
+Resolved review items:
+P1-01 RESOLVED - Challenge expiry is bounded by `v_db_now`, Session expiry, and
+Device pending expiry; Session-expired getter/Claim/cleanup outcomes are explicit.
+P1-02 RESOLVED - authenticated FUSOU-WEB Claim handler is the only supported
+production caller; `service_role` process provenance is not claimed, and ACL,
+caller inventory, registry gate, and B1-B6 remain Phase 0 evidence gates.
+P2-01 RESOLVED - Reference Baseline and Specification Revision are separate.
+P2-02 RESOLVED - the four Identity Authorization Root tables are explicit.
+P2-03 RESOLVED - same-user reuse of a non-REVOKED device key issues a new Session;
+terminal Sessions are never reused and ACTIVE Session uniqueness is partial.
 
 Remaining contradictions:
 NONE in the canonical specification

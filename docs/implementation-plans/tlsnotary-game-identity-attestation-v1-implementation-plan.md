@@ -4,13 +4,13 @@
 
 **対象仕様:** `docs/operations/member-id-preemptive-attack-and-recovery.md`
 
-**仕様ベースライン:** `356aad0c012560be9c5ac477b494866d06d75fb9`
+**仕様ベースライン:** Reference Baseline `0d2a85a8c474271ecf6bf7e2cf062365a9608e83`、Proof Copy baseline `356aad0c012560be9c5ac477b494866d06d75fb9`、現在の Specification Revision `UNCOMMITTED WORKTREE`
 
-**計画の範囲:** このタスクで作成または変更するファイルはこの文書だけである。Final Specification と実行時コードは変更しない。
+**計画の範囲:** この同期作業では Final Specification とこの文書だけを変更する。実行時コードは変更しない。
 
 **情報源の優先順位:** Final Specification、攻撃者視点の監査、リポジトリ構成、古い計画の順とする。古い計画との競合は Final Specification を優先して解決する。
 
-**監査ベースライン:** `P0 = 0`、`P1 = 2`、`P2 = 3`。Proof Copy 攻撃 = `PASS`、主要セキュリティ目標 = `PASS`、設計凍結 = `REVISE`、実装 = `NO-GO`。
+**監査ベースライン:** `P0 = 0`、`P1 = 2`、`P2 = 3` の初期監査項目はすべて disposition 済み。Proof Copy 攻撃 = `PASS`、主要セキュリティ目標 = `PASS`、設計凍結 = `MAINTAIN`、実装 = `NO-GO`。
 
 **規範語:** `MUST`、`MUST NOT`、`ONLY` は受入条件である。「新規ファイル」と記された対象パスは、そのタスクが実装・テストされるまで存在しないものとする。
 
@@ -85,6 +85,7 @@ flowchart LR
   M --> N[Dataset Token]
   N --> O[Server-derived telemetry envelope]
 ```
+
 | PostgreSQL のカットオーバー | `packages/FUSOU-WEB/supabase/migrations/20260831010000_tlsn_identity_cutover.sql` | 新規の単一カットオーバーマイグレーション |
 | PostgreSQL のテスト | `packages/FUSOU-WEB/supabase/tests/tlsn_identity_spec_primitives.sql` | 新規の実 PostgreSQL 用フィクスチャ |
 | Turso の対象 | `docs/sql/turso/migration_0002_tlsn_identity_epoch_v1.sql` | 新規の専用ターゲットブートストラップ |
@@ -151,8 +152,8 @@ ASCII "FUSOU-ATTESTATION-BINDING-V1\0"
 ```text
 session_id UUID PRIMARY KEY
 canonical_user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE RESTRICT
-device_id UUID NOT NULL UNIQUE
-device_public_key BYTEA NOT NULL UNIQUE CHECK (octet_length(device_public_key) = 32)
+device_id UUID NOT NULL
+device_public_key BYTEA NOT NULL CHECK (octet_length(device_public_key) = 32)
 binding_nonce BYTEA NOT NULL UNIQUE CHECK (octet_length(binding_nonce) = 32)
 issued_at TIMESTAMPTZ NOT NULL
 expires_at TIMESTAMPTZ NOT NULL
@@ -161,9 +162,15 @@ terminal_reason IN ('CLAIM_ACCEPTED', 'INVALID_SIGNATURE', 'DEVICE_REVOKED', 'TT
 consumed_at, expired_at, revoked_at, created_at
 ```
 
-権威列は不変である。行形状チェックにより、可能な遷移を `ACTIVE -> CONSUMED`、`ACTIVE -> EXPIRED`、`ACTIVE -> REVOKED` に限定し、終端タイムスタンプ/理由が status と一致することを強制する。Session 行は保持し、削除はクリーンアップ操作としない。
+権威列は不変である。行形状チェックにより、可能な遷移を `ACTIVE -> CONSUMED`、`ACTIVE -> EXPIRED`、`ACTIVE -> REVOKED` に限定し、終端タイムスタンプ/理由が status と一致することを強制する。Session 行は保持し、削除はクリーンアップ操作としない。同じ非REVOKED device keyを使う再試行は、terminal Sessionを再利用せず、新しい Session ID、nonce、bindingを発行する。ACTIVE Sessionはdevice keyごとに1件だけ許可する。
 
-インデックスと制約は、Session ID の primary key、device ID のグローバルな一意性、device public key のグローバルな一意性、nonce の一意性、UUIDv4 の検査、Session の正確な複合一意性、認証済みユーザーに対する外部キー保護を含まなければならない (`MUST`)。
+インデックスと制約は、Session ID の primary key、nonce の一意性、UUIDv4 の検査、Session の正確な複合一意性、認証済みユーザーに対する外部キー保護、および次の ACTIVE Session partial unique index を含まなければならない (`MUST`)。
+
+```sql
+CREATE UNIQUE INDEX uq_attestation_sessions_active_key
+ON public.attestation_sessions (device_public_key)
+WHERE session_status = 'ACTIVE';
+```
 
 ### 3.4 Binding の伝送と改ざん処理
 
@@ -176,29 +183,23 @@ consumed_at, expired_at, revoked_at, created_at
 6. Binding value と Session fields はログ、ゲームプレイのペイロード、WebView state、クライアントイベントのペイロードから除外する。
 7. 構文上は有効でも authenticated transcript に存在しない binding は識別情報の証明ではない。
 
-### 3.5 P1-01 の解決と仕様ゲート
+### 3.5 P1-01 の解決と仕様契約
 
 Challenge の有効期限に関する実装契約は次のとおりである。
 
 ```text
 Challenge.expires_at = LEAST(
     v_db_now + interval '5 minutes',
-    AttestationSession.expires_at,
-    Device.pending_expires_at
+    attestation_session.expires_at,
+    device.pending_expires_at
 )
 ```
 
 1 つの RPC 内の有効期限比較とライフサイクルタイムスタンプはすべて、ロック取得後の 1 つの `v_db_now := pg_catalog.transaction_timestamp()` を使用する。
 
-現在の Final Specification は Challenge の式に `AttestationSession.expires_at` を明示的に含めておらず、各 function table で Session-expired outcome をすべて定義していない。したがって、target migration または実装の前に、次を必須とする。
+Final Specification Section 7.2、9.3a、10.3、10.5、12.1〜12.3 がこの式、Session-expired getter/Claim/cleanup behavior、`SESSION_NOT_ACTIVE`、partial unique index、および per-function outcome tableを規範的かつ相互に一致する形で定義している。新しい数値TTLやAttestation ID lengthを推測せず、その仕様を実装のauthorityとする。
 
-```text
-SPECIFICATION CHANGE REQUIRED: update the Final Specification so that the formula,
-Session-expired getter/Claim/cleanup behavior, and per-function outcome tables are
-normative and mutually consistent. This plan does not edit that specification.
-```
-
-この計画では、Challenge を受け入れられない期限切れまたは revoked の Session に既存の `SESSION_NOT_ACTIVE` outcome を使用する。仕様改訂では、影響する許可 outcome 集合と HTTP mapping にこれを追加するか、同じ決定論的な挙動を持つ既存 outcome を明示的に選択 `MUST` する。新しい数値 TTL や Attestation ID length を推測してはならない。
+P1-01 は `RESOLVED` である。P1-02 も、authenticated FUSOU-WEB Claim handlerを唯一のproduction callerとし、`service_role` credentialがprocess provenanceを証明しないこと、registry gate・ACL・caller inventoryをrelease evidenceにする契約として `RESOLVED` である。Phase 0 evidenceが未取得であることは実装GOを意味しない。
 
 ## 4. TLSNotary 統合
 
@@ -341,7 +342,7 @@ proof_purpose, status, terminal_reason, expires_at, lifecycle timestamps
 5. Session、mapping、関連する保持対象の Challenge 行すべてを `challenge_id` order でロックし、ownership と device の行も指定された row order でロックする。
 6. ロック後に権威情報をすべて再読する。
 7. 必須のロック後に 1 つの `v_db_now` を計算する。
-8. P1-01 の上限付き有効期限の式を適用する。
+8. Final Specification Section 7.2 の上限付き有効期限の式を適用する。
 9. すべての Challenge 行を保持し、期限切れまたは consume 済みの行を削除しない。
 10. 同一の ACTIVE Challenge には完全一致の再実行識別情報を返し、同じ Attestation の不一致は拒否する。
 
@@ -376,7 +377,7 @@ RPC のシグネチャは厳密に `claim_verified_device_v1(authenticated_user_
 5. Identity の advisory lock を取得する。
 6. User-quota の advisory lock を取得する。
 7. Device-key の advisory lock を取得する。
-8. 関連する Session 行をロックする。
+8. 関連する Session 行をすべて `session_id` 昇順でロックし、ロック後に同じ device の全 ACTIVE Session/Challenge を再 query する。
 9. mapping の親行をロックする。
 10. 関連する Challenge 行すべてを昇順の `challenge_id` 順でロックする。
 11. ownership の行をロックする。
@@ -435,7 +436,7 @@ SOCIAL_ACCOUNT_BOUND
 
 ### 9.3 Device のルール
 
-`user_devices` は `PENDING`、`VERIFIED`、終端状態の `REVOKED` を使用する。Device public key は厳密に 32 raw Ed25519 バイトで、すべてのライフサイクル状態を通じてグローバルに一意である。PENDING expiry は volatile CHECK ではなく RPC で評価する。Session uniqueness rule の下では revoked key を再登録できない。
+`user_devices` は `PENDING`、`VERIFIED`、終端状態の `REVOKED` を使用する。Device public key は厳密に 32 raw Ed25519 バイトで、すべてのデバイス行ライフサイクルを通じてグローバルに一意である。PENDING expiry は volatile CHECK ではなく RPC で評価する。したがって revoked key は新しい device row として再登録できない。一方、REVOKEDでない既存device keyは、terminal Sessionを再利用せず、新しいSession ID、nonce、bindingを発行することで再試行できる。Session自体のACTIVE一意性は `attestation_sessions(device_public_key)` の partial unique indexで制限する。
 
 ### 9.4 Claim レコード
 
@@ -529,7 +530,7 @@ target migration は次を満たさなければならない (`MUST`)。
 
 ### 11.2 技術的な境界の制約
 
-PostgreSQL は role と function privilege により `service_role` を制限できるが、許可された FUSOU-WEB プロセスと同じ `service_role` credential を持つ任意のプロセスを区別できない。したがって P1-02 は暗号学的な呼び出し元 provenance を偽って主張するのではなく、本番の呼び出し元契約と必須の証拠ゲートとして解決する。
+PostgreSQL は role と function privilege により `service_role` を制限できるが、許可された FUSOU-WEB プロセスと同じ `service_role` credential を持つ任意のプロセスを区別できない。P1-02 は暗号学的な呼び出し元 provenance を主張せず、authenticated FUSOU-WEB Claim handlerを唯一のproduction callerとする契約、ACL、caller inventory、および必須の証拠ゲートとして `RESOLVED` とする。
 
 呼び出し元一覧は、本番クライアント、PostgREST route、メンテナンスコマンド、マイグレーションコマンド、代替 Worker path のいずれも Claim/Challenge entry functions をサポート対象の経路として呼び出さないことを証明しなければならない (`MUST`)。未知の呼び出し元、direct DML path、registry を迂回する service-role invocation のいずれかがあれば、実装は `NO-GO` のままとする。
 
@@ -564,26 +565,25 @@ expire_attestation_session_v1
 | Session | Challenge | Claim の入力 | 期待結果 |
 | --- | --- | --- | --- |
 | ACTIVE | ACTIVE | 有効 | すべての権威情報と署名検査に合格した場合に受理 |
-| EXPIRED | ACTIVE | 有効 | 必須の仕様改訂後に `SESSION_NOT_ACTIVE` として拒否。Claim なし |
-| ACTIVE | EXPIRED | 有効 | `CHALLENGE_EXPIRED`、または必須の仕様改訂で選択する単一の outcome として拒否 |
-| EXPIRED | EXPIRED | 有効 | 拒否。冪等な終端正規化以外の変更なし |
-| REVOKED | ACTIVE | 有効 | Session/device not active として拒否。Claim なし |
-| ACTIVE | CONSUMED | 再実行 | 完全一致する Claim の再実行のみ。それ以外は拒否 |
-| CONSUMED | CONSUMED | 再実行 | 完全一致する Claim の再実行のみ。それ以外は拒否 |
-| ACTIVE | ACTIVE | 無効な署名 | Challenge と Session を無効としてアトミックに consume |
-| ACTIVE | ACTIVE | Claim の同時実行 | 1 transaction が勝者となり、敗者は終端状態または完全一致の再実行を観測 |
-| ACTIVE | ACTIVE | Revoke の同時実行 | Identity lock が Claim/Revoke を直列化 |
+| EXPIRED | ACTIVE | 有効 | linked Challengeを`EXPIRED/TTL_EXPIRED`へ正規化し、`SESSION_NOT_ACTIVE`。Claimなし |
+| ACTIVE | EXPIRED | 有効 | `CHALLENGE_EXPIRED`。Sessionも`EXPIRED/TTL_EXPIRED`へ正規化し、Claimなし |
+| EXPIRED | EXPIRED | 有効 | `SESSION_NOT_ACTIVE`。冪等な終端状態以外の変更なし |
+| REVOKED | ACTIVE | 有効 | linked ChallengeをusableなACTIVEのまま残さず、`SESSION_NOT_ACTIVE`。Claimなし |
+| ACTIVE | CONSUMED | 再実行 | linked Claimとの完全一致時だけ決定論的なreplay result。それ以外は拒否 |
+| CONSUMED | CONSUMED | 再実行 | linked Claimとの完全一致時だけ決定論的なreplay result。それ以外は拒否 |
+| ACTIVE | ACTIVE | 無効な署名 | Challenge と Session を`CONSUMED/INVALID_SIGNATURE`へアトミックに遷移 |
+| ACTIVE | ACTIVE | Claim の同時実行 | commitを完了した1 transactionが勝者。敗者は終端状態または完全一致の再実行を観測 |
+| ACTIVE | ACTIVE | Revoke の同時実行 | Identity lockがClaim/Revokeを直列化し、勝者のterminal stateを保持 |
 
 ### 12.2 Expiry のルール
 
 | イベント | 必須遷移 | 必須結果 |
 | --- | --- | --- |
-| イベント | 必須遷移 | 必須結果 |
-| Session が Challenge 作成前に期限切れになる | Session `EXPIRED/TTL_EXPIRED`。Challenge なし | 必須の仕様確定後の `SESSION_NOT_ACTIVE` |
-| Challenge が ACTIVE の間に Session が期限切れになる | Session と Challenge を `EXPIRED/TTL_EXPIRED` にする | Claim/getter は拒否。Claim なし |
-| Challenge が Session より先に期限切れになる | Challenge を `EXPIRED/TTL_EXPIRED` にし、関連アーティファクトが期限切れになったとき Session も終端化する | 決定論的な期限切れ結果。Claim なし |
-| Device の PENDING expiry が先に発生 | Device を `REVOKED/expired_pending` にし、関連する active Challenge/Session を終端化する | 拒否し、監査行を保持 |
-| Device の revoke | Device を `REVOKED` にし、active Challenge/Session を device reason で終端化する | 再利用なし |
+| Session が Challenge 作成前に期限切れになる | Session `EXPIRED/TTL_EXPIRED`。Challenge なし | `SESSION_NOT_ACTIVE`。新しいSession issuanceだけが再試行手段 |
+| Challenge が ACTIVE の間に Session が期限切れになる | Session と linked Challenge を `EXPIRED/TTL_EXPIRED` にする | Getter/Claimは`SESSION_NOT_ACTIVE`。Claimなし |
+| Challenge が Session より先に期限切れになる | Challenge と Session を`EXPIRED/TTL_EXPIRED`にする | `CHALLENGE_EXPIRED`。Claimなし |
+| Device の PENDING expiry が先に発生 | Deviceを`REVOKED/expired_pending`、関連するactive Challenge/Sessionを`EXPIRED/TTL_EXPIRED`へ遷移 | `SESSION_NOT_ACTIVE`。Claimなし。監査行を保持 |
+| Device の revoke | Deviceを`REVOKED`にし、active Challengeを`CONSUMED/DEVICE_REVOKED`、Sessionを`REVOKED/DEVICE_REVOKED`へ遷移 | `SESSION_NOT_ACTIVE`。再利用なし |
 | Registry の revoke | Edge block、drain、registry update、digest convergence | 既存/新規 credential の検証は fail closed |
 | クリーンアップ | 遷移のみ。Session/Challenge roots は決して削除しない | 冪等な `OK`/`OK_REPLAY` または型付き終端結果 |
 
@@ -711,7 +711,7 @@ legacy device を VERIFIED に backfill したり、fake Session/Challenge を�
 | T5 | Expired Session と ACTIVE Challenge | Getter と Claim はともに拒否。accepted Claim なし。保持対象の行は残る |
 | T6 | 有効期限切れと Claim の同時実行 | ロックの勝者が結果を決定。期限切れの権威情報を持つ accepted Claim は決して発生しない |
 
-各 T1-T6 は、境界のタイムスタンプ、1 つの共有 transaction timestamp、繰り返しの再試行、catalog/state assertions を用いて実 PostgreSQL 上で実行しなければならない (`MUST`)。式が Session の有効期限を含まない場合、またはいずれかの関数が 2 回目の時刻読み取りを使用する場合、テストスイートは失敗する。
+各 T1-T6 は、境界のタイムスタンプ、1 つの共有 transaction timestamp、繰り返しの再試行、catalog/state assertions を用いて実 PostgreSQL 上で実行しなければならない (`MUST`)。Final Specification の式とoutcomeが実装されていない場合、またはいずれかの関数が2回目の時刻読み取りを使用する場合、テストスイートは失敗する。
 
 ### 16.2 P1-02 呼び出し元と registry のテスト
 
@@ -813,11 +813,11 @@ IMP-14 staging/prod deployment and cutover evidence
 
 **タイトル:** 前提仕様と証拠入力を凍結する。
 
-**目的:** P1-01 を明示的な仕様変更ゲートとして解決し、値を発明せずに Phase 0 の未知項目をすべて取得する。
+**目的:** 確定済みFinal Specificationを実装入力として凍結し、値を発明せずに Phase 0 の未知項目をすべて取得する。
 
 **仕様参照:** 第4.1節、5.1、7.1.1、7.2、9.1、10.5、15、および P1-01/P1-02 監査。
 
-**リポジトリファイル:** `docs/operations/member-id-preemptive-attack-and-recovery.md`、`docs/security/evidence/`。仕様改訂が承認されるまでは計画のみの記録とする。
+**リポジトリファイル:** `docs/operations/member-id-preemptive-attack-and-recovery.md`、`docs/security/evidence/`。Final Specificationの現行Revisionを参照し、Phase 0 evidenceを記録する。
 
 **新規ファイル:** Final Specification が指定する Phase 0 profile、registry、corpus、証拠アーティファクト。
 
@@ -843,7 +843,7 @@ IMP-14 staging/prod deployment and cutover evidence
 
 **受入テスト:** P0-01〜P0-10、P1-01 T1-T6 の前提条件、binding 認証可能性テスト。
 
-**ロールバック / 復旧:** 候補アーティファクトを破棄して設計 review に戻る。このタスクで Final Specification を変更しない。
+**ロールバック / 復旧:** 候補アーティファクトを破棄して設計 review に戻る。確定仕様との不一致は実装を止め、仕様revisionまたはevidence gateを更新して再監査する。
 
 **フェーズ:** Phase 0 / 仕様の前提条件。
 
@@ -1095,13 +1095,13 @@ IMP-14 staging/prod deployment and cutover evidence
 
 **目的:** 有効な Result/Session を上限付き有効期限の、サーバーを権威とする device Challenge 1 つに変換する。
 
-**仕様参照:** 第7.2節、7.3、9.6、10.5、および P1-01。
+**仕様参照:** 第7.2節、7.3、9.3a、9.6、10.5、12.1〜12.3、および P1-01 disposition。
 
 **リポジトリファイル:** Challenge route、Result validation helpers、migration entry function。
 
 **新規ファイル:** Challenge route/tests と typed RPC result adapter。
 
-**依存関係:** `IMP-02`、`IMP-03`、`IMP-05`、`IMP-06`、承認済み P1-01 仕様改訂。
+**依存関係:** `IMP-02`、`IMP-03`、`IMP-05`、`IMP-06`、確定済み Final Specification。
 
 **権威ソース:** 検証済み Result、ロック済み Session、mapping root、認証済み actor、candidate device root。
 
@@ -1141,7 +1141,7 @@ IMP-14 staging/prod deployment and cutover evidence
 
 **新規ファイル:** 言語間 ClaimBindingBytes fixtures と race test harness。
 
-**依存関係:** `IMP-02`、`IMP-03`、`IMP-07`、`IMP-00` P1-02 caller contract。
+**依存関係:** `IMP-02`、`IMP-03`、`IMP-07`、`IMP-00` の P1-02 caller contract/evidence gate。
 
 **権威ソース:** ロック済みの Session/Challenge/device/mapping/ownership 行と認証済み actor。
 
@@ -1437,13 +1437,13 @@ Notary、Verifier、Dataset key が compromise された場合は、独立した
 | Challenge の置換 | PASS | Challenge/Session/Attestation の一意性、PC-03 |
 | Binding の置換 | PASS | header/transcript/nonce の完全一致、PC-06 |
 | 同じ Result の再実行 | PASS | Challenge の一意性と Result digest |
-| 同じ Session の再実行 | PASS | Session の終端ライフサイクルと一意な key |
+| 同じ Session の再実行 | PASS | terminal Sessionは再利用せず、同じ非REVOKED keyには新しいSessionを発行 |
 | 同じ Challenge の再実行 | PASS | Challenge CAS と Claim の完全一致に対する冪等性 |
 | Claim の同時実行 | PASS | グローバルロック順序と Challenge CAS |
 | Claim + device revoke | PASS | 共有 Identity lock と B5 に隣接する race tests |
 | Claim + Session expiry | PASS | 1 つの `v_db_now`、P1-01 formula、T6 |
 | Direct client RPC | PASS | Role/RLS による拒否と B2 |
-| `service_role` misuse | UNKNOWN | データベースは process origin を識別できない。B3 caller inventory が必須 |
+| `service_role` misuse | PASS (contract; Phase 0 evidence pending) | データベースは process origin を識別できないため、B3 caller inventoryをrelease gateとする |
 | Registry revoke + Claim | ゲート付き手順として PASS | REVOKED update 前の Edge block/drain と B5 |
 | クライアントが指定する識別情報 | PASS | Claim/Challenge input contracts がすべての authority fields を reject |
 | Projection の権威 | PASS | ルートから導出する state/token と B6 |
@@ -1454,7 +1454,7 @@ Notary、Verifier、Dataset key が compromise された場合は、独立した
 
 ### 自己監査の結論
 
-この計画は、未解決の外部事実すべてに明示的なゲート、期待される証拠、失敗時の処置があるため内部整合している。実行時実装は承認されていない。P1-01 は実装前に必要な Final Specification revision のままであり、P1-02 は証拠をリリースゲートとする定義済みの本番呼び出し元契約である。
+この計画は、未解決の外部事実すべてに明示的なゲート、期待される証拠、失敗時の処置があるため内部整合している。実行時実装は承認されていない。P1-01 は Final Specification の上限付きexpiry契約とSession outcome表で `RESOLVED`、P1-02 は唯一のauthenticated FUSOU-WEB caller、ACL、inventory、B1-B6 evidence gateで `RESOLVED` である。Phase 0 evidence pendingは設計未解決ではない。
 
 ## 最終ステータス
 
@@ -1475,10 +1475,10 @@ P2:
 3
 
 P1-01:
-UNRESOLVED - SPECIFICATION CHANGE REQUIRED before migration/implementation
+RESOLVED - Final Specification defines the LEAST expiry formula, Session lifecycle behavior, and outcome tables
 
 P1-02:
-RESOLVED IN PLAN - production caller contract, ACL, inventory, and B1-B6 gate required
+RESOLVED - authenticated FUSOU-WEB Claim handler is the only supported production caller; ACL, inventory, and B1-B6 remain Phase 0 evidence gates
 
 Proof Copy Attack:
 PASS
@@ -1496,4 +1496,4 @@ Implementation:
 NO-GO
 ```
 
-この計画に記録する P2 の処置は次のとおりである。P2-01 metadata は Final Specification revision で修正し、P2-02 Security Root の用語は同仕様で normalize し、P2-03 同一 device key の retry policy は同仕様で明示する。この計画は Final Specification を編集しない。
+P2-01、P2-02、P2-03 は `RESOLVED` である。P2-01のReference Baseline/Specification Revision metadataはFinal Specificationとこの計画で分離し、P2-02のIdentity Authorization Rootは4 tablesとして正規化し、P2-03の同一非REVOKED device key retry policyはterminal Sessionを再利用しない新規Session issuanceとしてFinal Specificationとこの計画へ反映した。Proof CopyのMUST-REJECT条件、Phase 0 `NO-GO (0/17 PASS)`、およびruntime implementation `NO-GO`は変更しない。
