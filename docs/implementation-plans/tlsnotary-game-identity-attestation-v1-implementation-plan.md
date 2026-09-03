@@ -4,13 +4,13 @@
 
 **対象仕様:** `docs/operations/member-id-preemptive-attack-and-recovery.md`
 
-**仕様ベースライン:** Reference Baseline `0d2a85a8c474271ecf6bf7e2cf062365a9608e83`、Proof Copy baseline `356aad0c012560be9c5ac477b494866d06d75fb9`、現在の Specification Revision `UNCOMMITTED WORKTREE`
+**仕様ベースライン:** Reference Baseline `0d2a85a8c474271ecf6bf7e2cf062365a9608e83`、Proof Copy baseline `356aad0c012560be9c5ac477b494866d06d75fb9`、現在の Specification Revision `7f847bb2285e95d9b8c310d9527b0fdce5d38622`
 
 **計画の範囲:** この同期作業では Final Specification とこの文書だけを変更する。実行時コードは変更しない。
 
 **情報源の優先順位:** Final Specification、攻撃者視点の監査、リポジトリ構成、古い計画の順とする。古い計画との競合は Final Specification を優先して解決する。
 
-**監査ベースライン:** `P0 = 0`、`P1 = 2`、`P2 = 3` の初期監査項目はすべて disposition 済み。Proof Copy 攻撃 = `PASS`、主要セキュリティ目標 = `PASS`、設計凍結 = `MAINTAIN`、実装 = `NO-GO`。
+**監査結果:** `P0 = 0 remaining`、`P1 = 0 remaining`、`P2 = 0 remaining`（初期監査項目はすべて disposition 済み）。Proof Copy 攻撃 = `PASS`、主要セキュリティ目標 = `PASS`、設計凍結 = `MAINTAIN`、実装 = `NO-GO`。
 
 **規範語:** `MUST`、`MUST NOT`、`ONLY` は受入条件である。「新規ファイル」と記された対象パスは、そのタスクが実装・テストされるまで存在しないものとする。
 
@@ -635,6 +635,9 @@ selection 関数と transition 関数は型付き結果を返す別々の transa
 | Claim の同時実行 | グローバル順序全体 + Challenge CAS | commit に成功した側 | 敗者が terminal state を再読 | Claim は 1 つ |
 | Claim と device Revoke の同時実行 | 共有 Identity ロックと行順序 | 最初にロックした側 | 決定論的な反対方向の遷移 | ルートと整合する状態 |
 | Claim と Session/Challenge expiry の同時実行 | 共有ロックと 1 つの `v_db_now` | 最初にロックした側 | 期限切れまたは終端結果 | 期限切れの Claim は受理しない |
+| invalid signature と valid Claim の同時実行 | Session/Challenge row lock と同じ lifecycle order | 最初にrow lockを取得した側 | 敗者はaccepted Claimまたはinvalid-signature terminal stateを再読 | accepted Claimまたはinvalid-signature consumeのいずれか1つ |
+| cleanup と Claim の同時実行 | Session/Challenge/device row lock と同じglobal order | 最初のterminal transition | 敗者は終端/expiryのtyped resultを再読 | cleanup後のClaimなし。retained rowsは保持 |
+| cleanup と Device pending expiry の同時実行 | User-quota/Device-key lock とSession/Challenge/device row lock | 最初のlifecycle transition | 敗者は`OK_REPLAY`またはtyped terminal result | usableなACTIVE artifactなし。状態は整合 |
 | 同じ key での Session 同時作成 | Device-key ロック + グローバルな key uniqueness | 最初の insert | `DEVICE_KEY_ALREADY_REGISTERED` | Session/key は 1 つ |
 | upload consume の同時実行 | Ledger row ロック + `consumed_at IS NULL` CAS | 1 回の consume | `UPLOAD_TOKEN_REPLAY` | consume 済みの ledger 行は 1 つ |
 
@@ -1469,10 +1472,10 @@ P0:
 0
 
 P1:
-2
+0 remaining (2 initial items; all dispositioned)
 
 P2:
-3
+0 remaining (3 initial items; all dispositioned)
 
 P1-01:
 RESOLVED - Final Specification defines the LEAST expiry formula, Session lifecycle behavior, and outcome tables
@@ -1487,6 +1490,9 @@ Primary Security Goal:
 PASS under the declared Dedicated Verifier/FUSOU-WEB/PostgreSQL trust boundary
 
 Implementation Plan Consistency:
+PASS
+
+Cross-Specification Consistency:
 PASS
 
 Phase 0:

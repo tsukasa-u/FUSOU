@@ -6,9 +6,9 @@
 >
 > **基準 branch / Reference Baseline**: `security-attestation-design` / `0d2a85a8c474271ecf6bf7e2cf062365a9608e83`
 >
-> **Specification Revision**: `UNCOMMITTED WORKTREE`
+> **Specification Revision**: `7f847bb2285e95d9b8c310d9527b0fdce5d38622`
 >
-> **Revision note**: Reference Baseline は本仕様書が対象とする repository baseline であり、Specification Revision は本仕様書自身を更新した commit、または未commit時の `UNCOMMITTED WORKTREE` marker である。runtime implementationは別途未作成であり、commit済み仕様と実装済み機能を同一視しない。今回のcross-specification auditは Reference Baseline を基準に行う。
+> **Revision note**: Reference Baseline は本仕様書が対象とする repository baseline であり、Specification Revision `7f847bb2285e95d9b8c310d9527b0fdce5d38622` は本仕様書の現在の設計変更を含む確定 commit である。runtime implementationは別途未作成であり、commit済み仕様と実装済み機能を同一視しない。今回のcross-specification auditはこの Specification Revision と Reference Baseline の差分を基準に行う。
 >
 > **再構築日**: 2026-09-01
 >
@@ -239,7 +239,7 @@ member_ownership -> user_member_map -> web_user_member_map
 | `device_id` | Server-created identifier for one registered device key | UUIDv4 | `user_devices` row and Challenge linkage | Immutable; row lifetime | `user_devices.device_id UUID PRIMARY KEY` | Returned only in server responses or supplied to actor-owned APIs after registration |
 | `device_public_key` | Raw Ed25519 public key bound to `device_id` | Exactly 32 raw bytes | Device registration and `user_devices` root | Immutable; row lifetime | `user_devices.device_public_key BYTEA` with global UNIQUE | Strict unpadded base64url of 32 bytes where an API returns/accepts a registration key |
 | `primary_device_id` | Historical pointer to the last accepted primary device for an ownership row | UUID FK to the same owner/public device | `member_ownership` history only | Mutable only on accepted same-owner Additional Device Claim; not authorization | `member_ownership.primary_device_id UUID` | May be returned as historical data; never a token/state authorization input |
-| `tlsn_attestation_id` | Canonical bytes of `Attestation.header().id` from the pinned TLSNotary revision | Raw bytes of unresolved Phase 0 length `N` | TLSNotary Attestation and Verifier Result | Immutable; Challenge/Claim retention lifetime | `BYTEA` with `octet_length = N`, UNIQUE on Challenge/Claim | Strict unpadded base64url of exactly `N` bytes inside Verifier Result |
+| `tlsn_attestation_id` | Canonical bytes of `Attestation.header().id` from the pinned TLSNotary revision | Raw bytes of pending Phase 0 length `N` | TLSNotary Attestation and Verifier Result | Immutable; Challenge/Claim retention lifetime | `BYTEA` with `octet_length = N`, UNIQUE on Challenge/Claim | Strict unpadded base64url of exactly `N` bytes inside Verifier Result |
 | `notary_time` | Notary-authenticated POSIX UTC whole seconds signed in the Attestation | UInt64 | Notary signature over the authenticated Attestation | Immutable evidence field | `public.fusou_uint64` | UInt64Decimal String in Verifier Result; never Game event time |
 | `result_time` | POSIX UTC whole seconds read once by the Verifier after proof validation completes | UInt64 | Dedicated Verifier trusted clock | Immutable per Verifier Result | `public.fusou_uint64` | UInt64Decimal String in Verifier Result; distinct from `notary_time` |
 | `Verifier Result` | Canonical JSON object carrying authenticated full transcripts/ranges, identity profile, Attestation Session binding fields, key IDs, times, attestation ID, and Verifier Ed25519 signature | UTF-8 canonical JSON bytes plus 64-byte Ed25519 signature | Dedicated Verifier after TLSNotary verification; user/device are derived from the Session, never client supplied | Immutable signed artifact; raw bytes are request-lifetime only | Raw JSON is not stored; Challenge/Claim authority subset, full SHA-256 digests, and Range metadata are copied | One exact `application/json` artifact; the same bytes may be retried to the Web API on network/5xx failure |
@@ -2467,6 +2467,8 @@ expired ACTIVE -> EXPIRED and same Attestation cannot create another row
 expired PENDING with only terminal Challenge rows -> cleanup selects one retained Challenge ID and revokes the device
 invalid signature consume vs valid Claim -> one winner
 valid Claim x valid Claim -> one insert/idempotent result
+cleanup x Claim -> shared Session/Challenge/device locks; one typed terminal outcome and no accepted expired Claim
+cleanup x device pending expiry -> User-quota/Device-key and row locks; no usable ACTIVE artifact
 same exact Claim repeated -> idempotent
 same Attestation different device/user/public -> reject
 Claim x Revoke -> serialized outcomes
@@ -2639,7 +2641,7 @@ ownership <-> projections: one-way
 roots <-> JWT <-> Telemetry: live validation and server attribution
 Migration <-> Fresh/Existing DB: sequence defined; target migration absent
 Migration <-> Deployment/Test: acceptance criteria aligned; execution pending
-Issue ledger: P0=36, P1=58, P2=15
+Issue ledger: P0=0, P1=0, P2=0 remaining (historical dispositions: P0=36, P1=58, P2=15)
 Phase 0: 0/17 PASS
 Runtime implementation: absent
 ```
@@ -2655,7 +2657,7 @@ Repository:
 FUSOU
 
 Specification Revision:
-UNCOMMITTED WORKTREE
+7f847bb2285e95d9b8c310d9527b0fdce5d38622
 
 Reference Baseline:
 0d2a85a8c474271ecf6bf7e2cf062365a9608e83
@@ -2678,14 +2680,23 @@ Phase 0:
 Specification reconstruction:
 PASS
 
+Proof Copy Attack:
+PASS
+
+Primary Security Goal:
+PASS
+
+Cross-Specification Consistency:
+PASS
+
 P0:
-36 (all dispositioned; 0 remaining)
+0 remaining (36 historical items; all dispositioned)
 
 P1:
-58 (all dispositioned; 0 remaining)
+0 remaining (58 historical items; all dispositioned)
 
 P2:
-15 (all dispositioned; 0 remaining)
+0 remaining (15 historical items; all dispositioned)
 
 Automatically fixed:
 - Reference Baseline / Specification Revision metadata separation.
