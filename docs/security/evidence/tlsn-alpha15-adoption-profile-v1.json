@@ -1,0 +1,120 @@
+{
+  "artifact_id": "fusou-tlsn-alpha15-adoption-profile-v1",
+  "schema_version": 1,
+  "status": "SELECTED_IMPLEMENTATION_INPUT_DOCUMENTATION_ONLY",
+  "runtime_changes": "NONE",
+  "selected_revision": {
+    "repository": "https://github.com/tlsnotary/tlsn.git",
+    "ref": "refs/tags/v0.1.0-alpha.15",
+    "commit": "47aee45b53e06648c1b2ad3689b367b8c923fdec",
+    "package_versions": {
+      "tlsn": "0.1.0-alpha.15",
+      "tlsn-attestation": "0.1.0-alpha.15",
+      "tlsn-core": "0.1.0-alpha.15"
+    },
+    "selection": "Selected public release for the FUSOU adapter boundary. The observed refs/heads/main commit 0fe3c32d35382b3f290a43c4156399ca4512bb89 is 0.1.0-alpha.16-pre and remains excluded until released and re-reviewed."
+  },
+  "dependency_lock": {
+    "source": "upstream Cargo.lock at the selected commit",
+    "cargo_lock_sha256": "eab3a6230d1d8792782bf5fbb3b2613af48748d9f61d5bb30bbf809bdcb3cd88",
+    "workspace_manifest_sha256": "d6d8cb3de92d103bf3aa931c9e453e5cd4d41c6d0d928eab266db5899f10ccfe",
+    "selected_manifest_sha256": {
+      "crates/tlsn/Cargo.toml": "779e48ca72a9cad11222bb8b4f723bda720739873ec14c26d6dd49e98e0fdaa3",
+      "crates/attestation/Cargo.toml": "3057f7eb1bf2691799bb86e4f1d52177aea5f526545a5a115c3928688521242d",
+      "crates/core/Cargo.toml": "b8530af8ccfd949215ebbbafd8dab5e2e5eb4fb9b5caa0832e788c46e0f135f9"
+    },
+    "lock_records": [
+      {
+        "name": "tlsn",
+        "version": "0.1.0-alpha.15",
+        "source": "workspace path at selected commit"
+      },
+      {
+        "name": "tlsn-attestation",
+        "version": "0.1.0-alpha.15",
+        "source": "workspace path at selected commit"
+      },
+      {
+        "name": "tlsn-core",
+        "version": "0.1.0-alpha.15",
+        "source": "workspace path at selected commit"
+      },
+      {
+        "name": "mpz-core",
+        "version": "0.1.0-alpha.6",
+        "source": "https://github.com/privacy-ethereum/mpz?rev=v0.1.0-alpha.6#6ebfe619490c3155a589fc6a3be83b0976de19dc"
+      },
+      {
+        "name": "tlsn-mux",
+        "version": "0.1.0",
+        "source": "https://github.com/tlsnotary/tlsn-utils?rev=64722f7#64722f7de999cbd41c0cab7312dade306d50ea5f"
+      },
+      {
+        "name": "bcs",
+        "version": "0.1.6",
+        "checksum": "85b6598a2f5d564fb7855dc6b06fd1c38cff5a72bd8b863a4d021938497b440a"
+      },
+      {
+        "name": "bincode",
+        "version": "1.3.3",
+        "checksum": "b1f45e9417d87227c7a56d22e471c6206462cba514c7590c09aff4cf6d1ddcad"
+      }
+    ]
+  },
+  "fusou_adapter_boundary": {
+    "selected_crates": [
+      "tlsn",
+      "tlsn-attestation",
+      "tlsn-core"
+    ],
+    "direct_dependency_status": "NONE_COMMITTED",
+    "pinning_rule": "An implementation may use only the selected revision and the lock records above. Adding a FUSOU Cargo dependency, vendoring source, or changing a lockfile requires a later implementation change and must not select another TLSNotary revision implicitly.",
+    "adapter_rule": "FUSOU owns HTTP require_info framing, authenticated binding validation, strict Result parsing, one-request state, lifecycle, and transport. TLSNotary source does not provide those FUSOU guarantees.",
+    "time_rule": "ConnectionInfo.time is connection-start metadata only. It is not Notary issuance time and is not copied into v1 identity authority fields."
+  },
+  "license_security_review": {
+    "status": "REVIEWED_WITH_EXPLICIT_DISTRIBUTION_CONSTRAINT",
+    "manifest_license": {
+      "tlsn": "MIT OR Apache-2.0",
+      "tlsn-core": "MIT OR Apache-2.0",
+      "tlsn-attestation": "no package-level license field in the selected manifest"
+    },
+    "repository_files_present": [],
+    "security_scope": "Reviewed source and lock inputs for the selected adapter boundary, including Attestation ID exposure, header signing, BCS canonical serialization, bincode example transport, and absence of Notary-issued time.",
+    "disposition": "This Phase 0 artifact freezes source selection and records the missing root license/NOTICE files. It does not authorize binary redistribution. Legal owner confirmation of applicable MIT/Apache terms is required before shipping or redistributing a runtime dependency."
+  },
+  "attestation_id_profile": {
+    "extraction_expression": "presentation.verify(&CryptoProvider::default())?.attestation.header.id.0",
+    "source_type": "tlsn_attestation::Uid(pub [u8; 16])",
+    "profile_encoding": "raw opaque bytes returned by Uid.0; exactly 16 bytes for the selected revision",
+    "json_transport": "strict unpadded base64url of the exact 16 raw bytes",
+    "database_representation": "the exact 16 raw bytes; no text or re-encoding is authoritative",
+    "claim_binding_representation": "u16_be(16) followed by the exact 16 raw bytes",
+    "fixture": {
+      "path": "crates/attestation/tests/fixtures/presentation.bin",
+      "bytes": 5394,
+      "sha256": "cb9b3befb43df5157a4d5ac52080ba19d842f191fa346bfda1dfc4927b37e5b6"
+    },
+    "golden": {
+      "attestation_id_hex": "effe1a316b1c91b41f6284f78409c6c2",
+      "attestation_id_base64url_nopad": "7_4aMWsckbQfYoT3hAnGwg",
+      "header_bcs_len": 54,
+      "header_bcs_hex": "effe1a316b1c91b41f6284f78409c6c20000000002209056d409e0c629c6ca880911401203de3d1596717a6946076c3fc30b19f6dd20"
+    },
+    "signature_boundary": "The Notary signature is over the BCS canonical serialization of Header, not over the ID alone. FUSOU extracts the ID only after successful TLSNotary presentation verification."
+  },
+  "source_sha256": {
+    "crates/attestation/src/lib.rs": "be78d7e5335170398141ba1d2b6dba3b516179071bd049d4088139d73b027a0b",
+    "crates/attestation/src/serialize.rs": "ec69c500a5da3f4a7de826cd964dc5fa7a18497857536b91e2ab0e92cbff1f05",
+    "crates/attestation/src/builder.rs": "08851ea15be6c6b9ab241c9518d9c8c98b6f4a64fcd35cc329ce3c86495610f0",
+    "crates/attestation/src/presentation.rs": "0d03f8373ac9e6b7e03c1cc830e7c34c81a64ed47c1316363cb89c915c761de2",
+    "crates/attestation/tests/fixtures/generate_presentation_fixture.rs": "not independently fingerprinted in the prior source report",
+    "crates/attestation/tests/no_syscall_verify.rs": "not independently fingerprinted in the prior source report"
+  },
+  "reproduction": {
+    "verification_test": "cargo test -p tlsn-attestation --features fixtures --test no_syscall_verify test_verify_presentation_without_syscalls -- --exact",
+    "extraction_check": "Deserialize the fixture as Presentation, call verify with CryptoProvider::default(), read output.attestation.header.id.0, and compare both golden encodings and the 54-byte BCS Header value.",
+    "expected_verification": "presentation verification succeeds; server_name and transcript are present",
+    "expected_id_bytes": 16
+  }
+}

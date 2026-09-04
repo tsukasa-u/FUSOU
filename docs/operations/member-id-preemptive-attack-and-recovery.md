@@ -9,7 +9,7 @@
 > **Specification Revision**: `7f847bb2285e95d9b8c310d9527b0fdce5d38622`
 >
 > **Revision note**: Reference Baseline は本仕様書が対象とする repository baseline であり、Specification Revision `7f847bb2285e95d9b8c310d9527b0fdce5d38622` は本仕様書の現在の設計変更を含む確定 commit である。runtime implementationは別途未作成であり、commit済み仕様と実装済み機能を同一視しない。今回のcross-specification auditはこの Specification Revision と Reference Baseline の差分を基準に行う。
-**Phase 0証拠revision**: `UNCOMMITTED WORKTREE`。凍結済み設計revisionを変更せず、2026-09-03の候補upstream調査結果と未取得証拠を [P0 gate ledger](../security/evidence/tlsn-phase0-gate-ledger-v1.json) および [TLSNotaryソース調査](../security/evidence/tlsn-source-inspection-v1.md) に記録する。
+**Phase 0証拠revision**: `UNCOMMITTED WORKTREE @ 30ffb76923dac8e5ec56caa3ad6fde4f60a3040a`。2026-09-03のselected alpha.15 profile evidenceと未取得証拠を [P0 gate ledger](../security/evidence/tlsn-phase0-gate-ledger-v1.json)、[TLSNotaryソース調査](../security/evidence/tlsn-source-inspection-v1.md)、[alpha.15 adoption profile](../security/evidence/tlsn-alpha15-adoption-profile-v1.json) に記録する。
 >
 > **再構築日**: 2026-09-01
 >
@@ -39,7 +39,7 @@
 
 1. 選定revisionは、Notary署名で保護されたAttestation/transcriptと、その検証に必要なVerifier modelを提供しなければならない。`ConnectionInfo.time`、Verifier clock、client clockをidentity evidenceとして扱わない。
 2. authenticated transcriptは、自然な一つの`require_info` request/responseとserver-issued bindingを含み、Verifierはserver identity、request/response、disclosure、Session bindingを同じproofとして検証しなければならない。
-3. Attestation IDは選定revisionが返すopaque bytesとして、Session/Challenge/Result/Claimのidentity・replay比較でbyte-for-byte一致させる。内部構造や未証明の固定長を仮定しない。
+3. 選定alpha.15 profileのAttestation IDは、verified Presentationから抽出したexact raw 16 bytesとして、Session/Challenge/Result/Claimのidentity・replay比較でbyte-for-byte一致させる。IDはopaqueとして扱い、内部構造を解釈しない。
 4. Verifier ResultとClaimBindingBytesは、protocol version内で決定的で、署名対象と検証対象のbytesが一致しなければならない。serializationの細部はこの決定性と相互運用性を満たす最小限だけを固定する。
 5. protocolが返すauthenticated transcript、transcript digest、proof purpose、profile/key identityはserver-sideで検証し、clientがこれらをauthorityとして提出できない。時間情報は、v1のidentity authorityではない。
 
@@ -64,7 +64,7 @@ JSON property order、HTTP headerの具体的位置、resource limitsの初期�
 5. `member_ownership`、`member_identity_claims`、`claim_challenges`、`claim_verified_device_v1` は実 migration に存在しない。
 6. 現行 `member_id_mapping.api_member_id` は `TEXT`、`user_devices.device_pubkey` は `BYTEA` である。
 7. 現行 Dataset JWT は `sub = canonical_user_id`、別 claim `device_id`、HS256、7日 TTL である。本書の v1 credential と互換ではない。
-8. TLSNotary revision、`Attestation.header().id` のcanonical bytesとopaque encoding、Verifier Result serializerはrepository上で未実証である。`ConnectionInfo.time`は候補source上の補助metadataに留める。
+8. TLSNotaryの選定revisionはalpha.15 (`refs/tags/v0.1.0-alpha.15`, `47aee45b53e06648c1b2ad3689b367b8c923fdec`) である。verified extractionは `presentation.verify(&CryptoProvider::default())?.attestation.header.id.0`、ID profileはexact raw 16 bytesで、selected evidenceは [alpha.15 adoption profile](../security/evidence/tlsn-alpha15-adoption-profile-v1.json) に固定する。`ConnectionInfo.time`はconnection-start metadataに留める。
 
 したがって、本書は現行実装の説明ではなく、現行実装を置換する target specification である。
 
@@ -137,17 +137,16 @@ TotalはP0 36件、P1 58件、P2 15件である。本書ではそれらの設計
 
 ### 0.3 Phase 0 調査の実測結果
 
-2026-09-03に公式TLSNotary remoteの `refs/heads/main` を read-only clone し、観測commit `0fe3c32d35382b3f290a43c4156399ca4512bb89` を検査した。このcommitはFUSOUの採用revisionではない。`tlsn-attestation`、`tlsn-core`、`tlsn` は `0.1.0-alpha.16-pre` である。
+2026-09-03に公式TLSNotary remoteの公開tag `refs/tags/v0.1.0-alpha.15` をread-only checkoutし、正確なcommit `47aee45b53e06648c1b2ad3689b367b8c923fdec` を選定した。`tlsn-attestation`、`tlsn-core`、`tlsn` はすべて `0.1.0-alpha.15` である。比較対象の `refs/heads/main` (`0fe3c32d35382b3f290a43c4156399ca4512bb89`) は `0.1.0-alpha.16-pre` の未release sourceであり、選定しない。
 
-候補sourceから確認できた事実は次のとおりである。
+選定sourceから確認できた事実は次のとおりである。
 
-1. `Attestation` は `header()` methodではなく公開field `header: Header` を持ち、`Header.id` は `Uid([u8; 16])` である。これは候補の観測値であり、FUSOUの固定長契約、golden bytes、採用APIを確定しない。
-2. `ConnectionInfo.time` は「TLS connection started」のUnix秒であり、proxyのfirst read時に取得され、Notaryが `tls_transcript.time()` としてsigned `ConnectionInfo`へコピーする。これはconnection metadataであり、v1のidentity authorityやClaim freshnessの根拠にはしない。
-3. 候補sourceの内部signature serializationはBCS、exampleのrequest/attestation wire transportはbincodeである。FUSOUのVerifier Result、ClaimBindingBytes、Rust/TypeScript golden equalityは未実装・未実証である。
+1. `Attestation` は `header()` methodではなく公開field `header: Header` を持ち、`Header.id` は `Uid([u8; 16])` である。`Presentation::verify()`成功後のexact extraction pathは `presentation.verify(&CryptoProvider::default())?.attestation.header.id.0` である。
+2. upstream fixture `crates/attestation/tests/fixtures/presentation.bin` のverificationに成功し、5394 bytes、SHA-256 `cb9b3befb43df5157a4d5ac52080ba19d842f191fa346bfda1dfc4927b37e5b6`、ID hex `effe1a316b1c91b41f6284f78409c6c2`、unpadded base64url `7_4aMWsckbQfYoT3hAnGwg`、Header BCS 54-byte goldenを得た。
+3. Attestation headerのNotary signature inputはBCS canonical serializationである。exampleのrequest/attestation transportはbincodeであり、FUSOUのVerifier Result、ClaimBindingBytes、Rust/TypeScript equality fixtureは別の後続gateで検証する。
+4. `ConnectionInfo.time` は「TLS connection started」のUnix秒であり、proxyのfirst read時に取得されてsigned `ConnectionInfo`へ入る。これはconnection metadataであり、Notary-issued `notary_time`ではない。v1 identity authorityやClaim freshnessの根拠にはしない。
 
-4. 公開tagは `v0.1.0-alpha.1` から `v0.1.0-alpha.15` までであり、詳細比較を行った最新公開版alpha.15とmainの両方でNotary-issued `notary_time` は確認できない。この欠落はv1のreject理由ではない。alpha.15はFUSOU adapter前提のrevision候補、mainは未release candidateとして扱う。
-
-したがって今回の候補探索の結論は **`ADOPT_WITH_FUSOU_ADAPTER`** である。これはalpha.15を優先候補としてadapterとともに採用検証する決定であり、dependency pin、opaque ID golden、natural capture、Verifier/parser evidenceが完了したことを意味しない。mainはreleaseされるまで採用候補にしない。調査の機械可読な判定は `PASS = 1`、`FAIL = 2`、`BLOCKED = 14` であり、Phase 0は `NO-GO (1/17 PASS)` のままとする。候補sourceのfixture API testが通ったことは、FUSOU profileやproduction gateのPASSを意味しない。詳細な候補matrix、数値根拠、攻撃別再監査は [TLSNotaryソース調査](../security/evidence/tlsn-source-inspection-v1.md) に固定する。
+したがってalpha.15のTLSNotary revision、upstream lock boundary、selected ID profileはdocumentation-only implementation inputとして凍結した。FUSOU direct dependencyはまだなく、natural capture、strict parser、runtime、production evidenceが完了したことを意味しない。機械可読な判定は `PASS = 3`、`FAIL = 0`、`BLOCKED = 14`、Phase 0は `NO-GO (3/17 PASS)` のままである。詳細なlock/license disposition、adapter ownership、golden値は [alpha.15 adoption profile](../security/evidence/tlsn-alpha15-adoption-profile-v1.json) と [TLSNotaryソース調査](../security/evidence/tlsn-source-inspection-v1.md) に固定する。
 
 ---
 
@@ -310,7 +309,7 @@ member_ownership -> user_member_map -> web_user_member_map
 | `device_id` | Server-created identifier for one registered device key | UUIDv4 | `user_devices` row and Challenge linkage | Immutable; row lifetime | `user_devices.device_id UUID PRIMARY KEY` | Returned only in server responses or supplied to actor-owned APIs after registration |
 | `device_public_key` | Raw Ed25519 public key bound to `device_id` | Exactly 32 raw bytes | Device registration and `user_devices` root | Immutable; row lifetime | `user_devices.device_public_key BYTEA` with global UNIQUE | Strict unpadded base64url of 32 bytes where an API returns/accepts a registration key |
 | `primary_device_id` | Historical pointer to the last accepted primary device for an ownership row | UUID FK to the same owner/public device | `member_ownership` history only | Mutable only on accepted same-owner Additional Device Claim; not authorization | `member_ownership.primary_device_id UUID` | May be returned as historical data; never a token/state authorization input |
-| `tlsn_attestation_id` | Opaque bytes of `Attestation.header.id` extracted through the selected TLSNotary profile | Raw opaque bytes; a fixed length is used only if the selected profile or interoperability requires it | TLSNotary Attestation and Verifier Result | Immutable; Challenge/Claim retention lifetime | `BYTEA`, profile-validated and UNIQUE on Challenge/Claim | Strict unpadded base64url of the profile-defined bytes inside Verifier Result |
+| `tlsn_attestation_id` | Exact raw 16 bytes from `presentation.verify(&CryptoProvider::default())?.attestation.header.id.0` in selected alpha.15 | Raw opaque bytes, exactly 16 bytes for this selected profile | TLSNotary Attestation and Verifier Result | Immutable; Challenge/Claim retention lifetime | `BYTEA`, exact length 16 and UNIQUE on Challenge/Claim | Strict unpadded base64url of the exact 16 bytes inside Verifier Result |
 | `Verifier Result` | Canonical JSON object carrying authenticated full transcripts/ranges, identity profile, Attestation Session binding fields, key IDs, attestation ID, and Verifier Ed25519 signature | UTF-8 canonical JSON bytes plus 64-byte Ed25519 signature | Dedicated Verifier after TLSNotary verification; user/device are derived from the Session, never client supplied | Immutable signed artifact; raw bytes are request-lifetime only | Raw JSON is not stored; Challenge/Claim authority subset, full SHA-256 digests, and Range metadata are copied | One exact `application/json` artifact; the same bytes may be retried to the Web API on network/5xx failure |
 | `Verifier Result` | Canonical JSON object carrying authenticated full transcripts/ranges, identity profile, Attestation Session binding fields, key IDs, attestation ID, and Verifier Ed25519 signature | UTF-8 canonical JSON bytes plus 64-byte Ed25519 signature | Dedicated Verifier after TLSNotary verification; user/device are derived from the Session, never client supplied | Immutable signed artifact; raw bytes are request-lifetime only | Raw JSON is not stored; Challenge/Claim authority subset, full SHA-256 digests, and Range metadata are copied | One exact `application/json` artifact; the same bytes may be retried to the Web API on network/5xx failure |
 | `Attestation Session` | One server-issued proof-acquisition binding fixed before the TLSNotary request to one authenticated non-anonymous user and one authenticated device key | `session_id`, `canonical_user_id`, `device_id`, `device_public_key`, `binding_nonce`, `issued_at`, `expires_at`, and closed lifecycle status | FUSOU-WEB authenticated-device context plus PostgreSQL Session row; no client locator is authoritative | Immutable authority fields; `ACTIVE -> CONSUMED/EXPIRED/REVOKED` terminal lifecycle. A terminal Session is never reused; a new Session may reuse the same non-REVOKED device key under the retry rules in Section 7.1.1 | `attestation_sessions` row with unique `session_id`/`binding_nonce`, at most one ACTIVE row per device key, and terminal reason; retained terminal rows may share a device key/device ID | Client receives only an opaque server-generated binding value and expiry for transport relay; `session_id`, nonce, user, device, and key are not client authority inputs |
@@ -345,7 +344,7 @@ Verifier Resultのraw canonical JSON bytesはChallenge/Claimのいずれにも�
 | `device_id` | Server-created device UUID | Lowercase UUID String | `u16_be(16)` + network-order UUID bytes | `UUID` primary/FK | Challenge/claim/revoke result or actor-owned input | `device_id_binding_exact` |
 | `device_public_key` | Raw 32-byte Ed25519 key | Strict unpadded base64url String | Not included in ClaimBindingBytes; loaded from DB for verification | `BYTEA` length 32, global UNIQUE | Registration input uses base64url; internal `get_claim_challenge_v1` may return DB `BYTEA` to FUSOU-WEB only | `device_key_encoding_exact` |
 | `primary_device_id` | Historical ownership pointer | UUID String only when explicitly returned | — | Ownership UUID FK | Historical output only | `primary_device_not_authority` |
-| `tlsn_attestation_id` | Selected-profile TLSNotary `Attestation.header.id` opaque bytes | Strict unpadded base64url of profile-defined bytes | Length-prefixed raw opaque bytes | `BYTEA`, profile validation and UNIQUE | Verifier Result/Challenge response encoding | `attestation_id_bytes_round_trip` |
+| `tlsn_attestation_id` | Selected alpha.15 `Attestation.header.id` exact raw 16 bytes | Strict unpadded base64url of the exact 16 bytes | `u16_be(16)` + raw opaque bytes | `BYTEA`, exact length 16 and UNIQUE | Verifier Result/Challenge response encoding | `attestation_id_bytes_round_trip` |
 | `Verifier Result` | Signed canonical full-transcript result | Exact canonical JSON, signature included | Signature input excludes signature and follows Section 5.3 | Challenge/Claim authority subset, full SHA-256 digests, and Range metadata; raw JSON absent | `verifier_result_b64` in Challenge request | `verifier_result_golden_bytes` |
 | `ClaimBindingBytes` | Server-defined device-signature preimage | Never accepted as JSON authority | Exact Section 7.3 byte sequence | Raw bytes absent; source fields copied | Client derives locally from Challenge response | `claim_binding_bytes_golden_hex` |
 | `Challenge` | One device-bound Claim coordination row | Exact Challenge response fields | Its fields feed ClaimBindingBytes | `claim_challenges`, lifecycle, `terminal_reason` = `NULL`, `CLAIM_ACCEPTED`, `INVALID_SIGNATURE`, `DEVICE_REVOKED`, or `TTL_EXPIRED`, and unique constraints | Challenge API response; Claim request carries only ID/signature | `challenge_lifecycle_and_attestation_unique` |
@@ -531,7 +530,9 @@ Dedicated Verifier responseは署名によりend-to-end認証されるため、P
 
 ### 5.1 Phase 0 で固定する profile
 
-Phase 0は次のpublic canonical JSON artifactsとgolden fixturesを出力する。
+選定するTLSNotary upstream profileは、alpha.15 (`refs/tags/v0.1.0-alpha.15`, commit `47aee45b53e06648c1b2ad3689b367b8c923fdec`) に固定する。documentation-only selection、upstream Cargo.lock、manifest/license disposition、adapter boundary、Attestation ID goldenは [alpha.15 adoption profile](../security/evidence/tlsn-alpha15-adoption-profile-v1.json) を正とする。FUSOU direct dependency、自然なcapture、Verifier Resultのcross-language fixture、runtime/production evidenceはまだ存在せず、後続gateで検証する。
+
+Phase 0で後続実装のために維持するpublic canonical JSON artifactsとgolden fixturesは次である。
 
 ```text
 docs/security/tlsn-profile-v1.json
@@ -541,16 +542,16 @@ docs/security/tlsn-game-servers-v1.json
 packages/FUSOU-APP/src-tauri/security/tlsn-v1.json
 ```
 
-1. TLSNotary repository URL と exact git commit。
-2. Prover、Notary、Verifier crate version と feature set。
-3. 採用revisionにおける `Attestation` header ID のcanonical byte extraction APIと、opaque bytesとして扱うためのencoding。
-4. `tlsn_attestation_id` に固定長が必要かどうか。必要な場合だけprofileがその長さを定める。
+1. TLSNotary repository URL、exact git commit、upstream Cargo.lock SHA-256。
+2. Prover、Notary、Verifier crate version と feature set。selected packagesは `tlsn`、`tlsn-attestation`、`tlsn-core` の `0.1.0-alpha.15` である。
+3. selected revisionにおける `Attestation` header IDのcanonical byte extraction APIは `presentation.verify(&CryptoProvider::default())?.attestation.header.id.0` であり、raw opaque bytesとして扱う。
+4. selected alpha.15 profileの `tlsn_attestation_id` はexact 16 raw bytes。JSON/APIはstrict unpadded base64url、DBはexact raw bytes、ClaimBindingBytesは `u16_be(16) || raw bytes` とする。
 5. `ConnectionInfo.time` はsource observationとして記録するが、identity authorityまたはClaim freshnessへ昇格させない。
 6. Request/response transcript offset の基準。
 7. One-request-per-MPC-session と T3 後 finalization の実証 fixture。
 8. Notary trust anchors、Web PKI root snapshot、certificate revocation policy。
 
-Profile IDは現行candidateのASCII `fusou-require-info-v1`。Profile document自身は`profile_sha256` fieldを持たない。`profile_sha256`はprofile documentをRFC 8785 JSON Canonicalization Schemeで直列化したUTF-8 bytesのSHA-256 raw 32 bytesである。Notary/Verifier registryのsemantic schema、unknown/duplicate field拒否、canonical bytes digest、key lifecycleはsecurity contractである。下記のproperty orderと具体的なartifact shapeはcandidate serializationであり、選定profileのgolden bytesで凍結する。
+FUSOU protocol Profile IDはASCII `fusou-require-info-v1`。これはTLSNotary revision選定とは別のFUSOU protocol profileであり、Profile document自身は`profile_sha256` fieldを持たない。`profile_sha256`はprofile documentをRFC 8785 JSON Canonicalization Schemeで直列化したUTF-8 bytesのSHA-256 raw 32 bytesである。Notary/Verifier registryのsemantic schema、unknown/duplicate field拒否、canonical bytes digest、key lifecycleはsecurity contractである。下記のproperty orderと具体的なartifact shapeはP0-10でgolden bytesとnegative fixturesにより最終承認する。
 
 ```json
 {"keys":[{"not_after":"1788307500","not_before":"1788134400","notary_key_id":"notary-2026-09","status":"ACTIVE","stop_signing_at":"1788220800","x":"<strict-unpadded-base64url-32-bytes>"}],"version":1}
@@ -595,11 +596,11 @@ MAX_VERIFIER_JSON_STRING_BYTES = 33554432
 MAX_CHALLENGE_BODY_BYTES = 33558528 (candidate)
 ```
 
-Request/response rangeは、authenticated transcriptからidentityを検証するために必要な最小byte coverageを満たさなければならない。request line、allowlisted server identity、binding headerと必要なframing、response parserが必要とするbytesを含め、不要な機微情報は開示しない。rangeの個数自体をsecurity guaranteeとしない。Attestation IDのbyte boundは、選定profileが固定長を要求した場合だけprofile inputとして決定し、そうでなければopaque byte列とresource上限を使う。候補観測の16 bytes、`TBD`、未根拠の可変長/固定長を実装へ推測してはならない。
+Request/response rangeは、authenticated transcriptからidentityを検証するために必要な最小byte coverageを満たさなければならない。request line、allowlisted server identity、binding headerと必要なframing、response parserが必要とするbytesを含め、不要な機微情報は開示しない。rangeの個数自体をsecurity guaranteeとしない。Attestation IDのbyte boundはselected alpha.15 profileではexact 16 bytesとして固定し、他のprofileへ変更する場合は別のselectionとgolden reviewを要求する。
 
 ### 5.2 Verifier Result Transport Representation
 
-Verifier Resultのprotocol contractは、VerifierとFUSOU-WEBが同じ署名対象のsemantic fields、canonicalization、signature verificationを再現できることである。Content-Type、encoding、field order、JSONのwire formattingは相互運用に必要なprofile inputであり、下記は現時点のcandidate profileである。選定profileのgolden bytesとnegative fixturesを承認するまで、下記の候補値をsecurity invariantやruntime implementationの既成事実として扱わない。
+Verifier Resultのprotocol contractは、VerifierとFUSOU-WEBが同じ署名対象のsemantic fields、canonicalization、signature verificationを再現できることである。Content-Type、encoding、field order、JSONのwire formattingは相互運用に必要なFUSOU protocol profile inputであり、下記はP0-10でgolden bytesとnegative fixturesを承認するまでcandidateとして扱う。これはselected alpha.15 upstream revisionのID/profile freezeを遡及して取り消さない。
 
 ```text
 version
@@ -2651,8 +2652,8 @@ Production trafficは全GateがPASSするまでenableしない。P0-01..10とP0-
 
 | P0-ID | Layer | Status | Reason | Evidence | Specification impact | Implementation impact |
 | --- | --- | --- | --- | --- | --- | --- |
-| P0-01 | Repository | `FAIL` | upstream refsは観測済みだが、FUSOUの選定/pinned revision、lock、license/security reviewがない | E-UPSTREAM-004, E-REPO-002 | 採用revisionとprofileを未確定のまま維持する | runtime implementationを開始しない |
-| P0-02 | Protocol | `FAIL` | alpha.15/mainのID APIは観測済みだが、採用revision、opaque-byte encoding、goldenが未凍結 | E-UPSTREAM-004 | 観測値を固定長へ推測変更せず、canonical extractionを未確定にする | profile byte bound、type、validator、fixtureを作成しない |
+| P0-01 | Repository | `PASS` | documentation-only acceptanceとしてalpha.15 exact commit、upstream Cargo.lock/manifest fingerprint、scoped license/security review、distribution constraintを固定。FUSOU direct dependency未導入は明示済み | E-UPSTREAM-005, E-REPO-002 | selected revision、lock boundary、adapter ownershipを実装入力として固定 | runtime implementationを開始せず、後続実装でprofileから逸脱しない |
+| P0-02 | Protocol | `PASS` | selected alpha.15のverified extraction、exact raw 16-byte opaque encoding、fixture hash、ID/base64url、54-byte Header BCS goldenを固定 | E-UPSTREAM-005, E-UPSTREAM-006 | Attestation IDのextraction、DB/API/ClaimBinding encodingを固定 | Presentation verification成功後だけIDを抽出し、cross-language fixtureはP0-10で検証する |
 | P0-03 | Security contract | `PASS` | A-M reviewでNotary issuance-time provenanceをv1から削除し、stale/future proofの残余リスクとSession/Challenge TTLの代替を明記 | E-UPSTREAM-001, E-UPSTREAM-003, E-UPSTREAM-004 | Mを削除し、Lをserver-side `v_db_now`、Session/Challenge/device TTL、single-useで境界付ける | stale/future proof fixtureを追加するがtimestamp authorityを追加しない |
 | P0-04 | Empirical | `BLOCKED` | supported Game clientのnatural captureがない | E-REPO-001 | synthetic captureを代替にしない | captureなしにparser/profileを承認しない |
 | P0-05 | Empirical | `BLOCKED` | RangeSetはあるが、FUSOUのauthenticated coverage、parser、digest goldenがない | E-UPSTREAM-004, E-REPO-001 | profile range contractをevidenceなしに固定しない | Dedicated Verifier/fixtureを作成するまで実装しない |
@@ -2669,7 +2670,7 @@ Production trafficは全GateがPASSするまでenableしない。P0-01..10とP0-
 | P0-16 | Empirical | `BLOCKED` | registry/key lifecycle implementationとrehearsalがない | E-REPO-001 | REVOKEDをfail closedにしProof Copyを弱めない | digest/revoke barrierを実装・rehearseする |
 | P0-17 | Environment | `BLOCKED` | storage manifest、resources、Queue drain、restore、forward recoveryがない | E-REPO-001, E-ENV-001 | partial cutoverを許可しない | provisioning/cutover barrierまでdeploymentしない |
 
-現在の集計: `PASS = 1`、`FAIL = 2`、`BLOCKED = 14`。したがって全17 gateのPASS条件を満たさず、runtime implementationは `NO-GO` のままとする。
+現在の集計: `PASS = 3`、`FAIL = 0`、`BLOCKED = 14`。P0-01/P0-02のPASSはdocumentation-only selection/profile freezeであり、全17 gateのPASS条件やruntime implementation GOを意味しない。runtime implementationは `NO-GO` のままとする。
 
 Gate failure時は fallback実装で Security Goal を弱めず、NO-GO とする。
 
@@ -2713,7 +2714,7 @@ roots <-> JWT <-> Telemetry: live validation and server attribution
 Migration <-> Fresh/Existing DB: sequence defined; target migration absent
 Migration <-> Deployment/Test: acceptance criteria aligned; execution pending
 Issue ledger: P0=0, P1=0, P2=0 remaining (historical dispositions: P0=36, P1=58, P2=15)
-Phase 0: 1/17 PASS
+Phase 0: 3/17 PASS (P0-01/P0-02/P0-03; documentation/profile evidence only)
 Runtime implementation: absent
 ```
 
@@ -2746,7 +2747,7 @@ Implementation:
 NO-GO
 
 Phase 0:
-1/17 PASS
+3/17 PASS (P0-01/P0-02/P0-03; documentation/profile evidence only)
 
 Specification reconstruction:
 PASS
@@ -2796,8 +2797,8 @@ Remaining design decisions:
 NONE. External facts below are Phase 0 evidence gates, not open design decisions.
 
 Remaining Phase 0 evidence:
-現在の証拠ledger: PASS=1, FAIL=2, BLOCKED=14。公開alpha.15とmainの候補比較、候補分類、数値根拠、攻撃別再監査、および残りすべての証拠は、
-docs/security/evidence/tlsn-phase0-gate-ledger-v1.json と docs/security/evidence/tlsn-source-inspection-v1.md に記録する。候補探索の結論は `ADOPT_WITH_FUSOU_ADAPTER` であり、alpha.15を優先候補とするがselected TLSNotary revisionは未確定である。
+現在の証拠ledger: PASS=3, FAIL=0, BLOCKED=14。alpha.15の選定、lock/license disposition、ID profile/golden、候補比較、数値根拠、攻撃別再監査、および残りすべての証拠は、
+docs/security/evidence/tlsn-phase0-gate-ledger-v1.json、docs/security/evidence/tlsn-source-inspection-v1.md、docs/security/evidence/tlsn-alpha15-adoption-profile-v1.json に記録する。選定結論は `SELECTED_FOR_FUSOU_ADAPTER_DOCUMENTATION_ONLY` であり、runtime integration、natural capture、strict parser、production evidenceは未取得である。
 P0-A Protocol / Dependency Freeze: P0-01..P0-02 TLSNotary revision/profileとAttestation ID opaque-byte encodingの証拠。
 P0-B Security Contract Validation: P0-03 A-M security goal、stale/future proof、Session/Challenge freshnessの証拠。
 P0-C Repository / Architecture Validation: P0-04..P0-05
@@ -2902,13 +2903,13 @@ Legacy Cleanup:
 PHASE-0 - removal set/order specified; executor and evidence absent
 
 Third-party implementation determinism:
-PHASE-0 - TLSNotary profile artifact and golden fixtures pending
+PHASE-0 - alpha.15 profile/ID golden is frozen; FUSOU Result/ClaimBinding cross-language fixtures pending
 
 Overengineering:
 PASS - no new architecture, security mechanism, proxy, hash, or recovery mechanism added
 
 Runtime verification:
-1/17 Phase 0 gates。候補upstreamのfixture API testのみ実行済みで、現在のledgerは1 PASS、2 FAIL、14 BLOCKED。候補探索の結論はADOPT_WITH_FUSOU_ADAPTER（alpha.15優先候補）
+3/17 Phase 0 gates。upstreamのfixture API testとdocumentation-only alpha.15 profile freezeを確認済みで、現在のledgerは3 PASS、0 FAIL、14 BLOCKED。選定結論はSELECTED_FOR_FUSOU_ADAPTER_DOCUMENTATION_ONLY
 
 Target migration:
 PHASE-0 - absent

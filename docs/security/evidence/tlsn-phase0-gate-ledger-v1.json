@@ -3,12 +3,15 @@
   "schema_version": 2,
   "observed_at_utc": "2026-09-03T07:59:13Z",
   "repository": "https://github.com/tsukasa-u/FUSOU.git",
-  "repository_head_at_observation": "a103b5068251ae4d02ac2e3b7dac882f032943fe",
+  "repository_head_at_observation": "30ffb76923dac8e5ec56caa3ad6fde4f60a3040a",
   "upstream": {
     "repository": "https://github.com/tlsnotary/tlsn.git",
     "observed_remote": "refs/heads/main",
     "observed_commit": "0fe3c32d35382b3f290a43c4156399ca4512bb89",
-    "selection_status": "CANDIDATE_ONLY",
+    "selection_status": "SELECTED_RELEASE_FOR_DOCUMENTATION_ONLY_ADAPTER_PROFILE",
+    "selected_ref": "refs/tags/v0.1.0-alpha.15",
+    "selected_commit": "47aee45b53e06648c1b2ad3689b367b8c923fdec",
+    "selection_artifact": "tlsn-alpha15-adoption-profile-v1.json",
     "visible_tags_observed": [
       "v0.1.0-alpha.1",
       "v0.1.0-alpha.2",
@@ -35,8 +38,8 @@
         "attestation_id_width_bytes": 16,
         "time_semantics": "ConnectionInfo.time is TLS connection-start time; no notary_time",
         "binding_and_session_semantics": "RangeSet sent/received disclosure and close lifecycle exist; FUSOU HTTP/range and one-request policy are not upstream guarantees",
-        "classification": "ADOPT_WITH_FUSOU_ADAPTER_CANDIDATE",
-        "blocking_requirement": "P0-01/P0-02 selection, pin, and opaque-ID profile freeze"
+        "classification": "SELECTED_FOR_FUSOU_ADAPTER_DOCUMENTATION_ONLY",
+        "blocking_requirement": "No P0-A blocker remains; runtime implementation still depends on the remaining gates"
       },
       {
         "ref": "refs/heads/main",
@@ -50,21 +53,22 @@
         "blocking_requirement": "P0-01 release selection and P0-02 opaque-ID profile freeze"
       }
     ],
-    "candidate_conclusion": "ADOPT_WITH_FUSOU_ADAPTER",
+    "candidate_conclusion": "SELECTED_FOR_FUSOU_ADAPTER_DOCUMENTATION_ONLY",
     "preferred_candidate": "refs/tags/v0.1.0-alpha.15",
-    "adapter_conclusion": "alpha.15 is the preferred adapter candidate; the adapter MUST NOT reinterpret ConnectionInfo.time as Notary issuance time"
+    "adapter_conclusion": "alpha.15 is the frozen documentation-only adapter input; the adapter MUST NOT reinterpret ConnectionInfo.time as Notary issuance time"
   },
   "method": {
-    "source_checkout": "git clone --depth 1 https://github.com/tlsnotary/tlsn.git /tmp/tlsn-phase0-source",
-    "source_verification": "git -C /tmp/tlsn-phase0-source rev-parse HEAD",
+    "source_checkout": "git clone --branch v0.1.0-alpha.15 --depth 1 https://github.com/tlsnotary/tlsn.git /tmp/tlsn-phase0-alpha15",
+    "source_verification": "git -C /tmp/tlsn-phase0-alpha15 rev-parse HEAD && sha256sum Cargo.toml Cargo.lock",
     "candidate_comparison": "git clone --filter=blob:none --no-checkout https://github.com/tlsnotary/tlsn.git /tmp/tlsn-candidate-repo; compare refs/tags/v0.1.0-alpha.15 and refs/remotes/origin/main",
     "api_test": "cargo test -p tlsn-attestation --features fixtures --test api test_api -- --exact",
+    "fixture_extraction": "Deserialize crates/attestation/tests/fixtures/presentation.bin as Presentation, verify with CryptoProvider::default(), extract attestation.header.id.0, and compare the golden values in tlsn-alpha15-adoption-profile-v1.json",
     "repository_inventory": "rg --files and rg searches excluding target and node_modules",
     "secret_policy": "credential、cookie、Bearer token、private key、production identifier、live identity dataは収集していない。"
   },
   "status_summary": {
-    "PASS": 1,
-    "FAIL": 2,
+    "PASS": 3,
+    "FAIL": 0,
     "BLOCKED": 14,
     "total": 17
   },
@@ -72,30 +76,30 @@
     {
       "id": "P0-01",
       "layer": "Repository",
-      "status": "FAIL",
+      "status": "PASS",
       "group": "P0-A Protocol / Dependency Freeze",
       "stage": "MUST_KNOW_BEFORE_IMPLEMENTATION",
-      "reason": "upstream refs and exact commits are observed, but FUSOU has not selected or pinned a revision and has no committed dependency lock or completed license/security review",
-      "evidence": ["E-UPSTREAM-004", "E-REPO-002"],
-      "specification_impact": "採用revisionと依存関係を凍結するまでprofileと実装入力を確定できない",
-      "implementation_impact": "runtime implementationを開始しない。採用revisionなしのintegrationを作らない",
-      "evidence_ids": ["E-UPSTREAM-004", "E-REPO-002"],
-      "finding": "公式upstreamのmain HEADは観測したが、FUSOUにはこのintegration向けに選定・pinnedされたTLSNotary revisionまたはdependency lockがない。候補はalpha.16-preであり、license/security reviewも未完了である。",
-      "next_action": "明示的にreviewしたrevisionを選定し、dependency lockとlicense/security reviewをcommitしてからgateを再実行する。"
+      "reason": "the documentation-only Phase 0 acceptance is satisfied by an explicitly selected release commit, reproducible upstream Cargo.lock and manifest fingerprints, and a scoped license/security review with distribution constraints; no FUSOU runtime dependency is claimed",
+      "evidence": ["E-UPSTREAM-005", "E-REPO-002"],
+      "specification_impact": "alpha.15のexact revision、upstream dependency boundary、license/security disposition、adapter ownershipをimplementation inputとして凍結する",
+      "implementation_impact": "runtime implementationは開始しない。後続実装はprofile artifactのrevision/lockから逸脱せず、法務確認なしのbinary redistributionを行わない",
+      "evidence_ids": ["E-UPSTREAM-005", "E-REPO-002"],
+      "finding": "Phase 0のP0-A acceptanceをdocumentation-only selection/profile freezeとして適用した。alpha.15 (`47aee45b53e06648c1b2ad3689b367b8c923fdec`)、upstream Cargo.lock SHA-256、selected package manifest SHA-256、MIT/Apache metadata、tlsn-attestationのlicense metadata欠落、root LICENSE/NOTICE/SECURITY不在、およびFUSOU direct dependency未導入を [tlsn-alpha15-adoption-profile-v1.json](tlsn-alpha15-adoption-profile-v1.json) に固定した。PASSはruntime integrationまたはredistribution authorizationを意味しない。",
+      "next_action": "runtime implementation開始時にのみ、選定profileのlockをFUSOU dependencyへ導入し、法務owner確認と再現可能なdependency reviewを完了する。"
     },
     {
       "id": "P0-02",
       "layer": "Protocol",
-      "status": "FAIL",
+      "status": "PASS",
       "group": "P0-A Protocol / Dependency Freeze",
       "stage": "MUST_KNOW_BEFORE_IMPLEMENTATION",
-      "reason": "alpha.15 and main both expose attestation.header.id.0 as 16 bytes, but no FUSOU-selected revision, opaque-byte encoding, or golden bytes has been frozen",
-      "evidence": ["E-UPSTREAM-004"],
-      "specification_impact": "opaque-byte encodingとcanonical extractionを未確定のまま残し、候補観測値を固定長へ昇格させない",
-      "implementation_impact": "profile-defined byte bound、Rust type、TypeScript validator、fixtureを作成しない",
-      "evidence_ids": ["E-UPSTREAM-004"],
-      "finding": "候補sourceはAttestation.headerをpublic fieldとして、Header.idをUid([u8; 16])として公開する。header() accessorはない。これは候補が16 bytesであるという観測であり、採用したFUSOU revisionの固定長contractを確定するものではない。またFUSOUのgolden fixtureはcommitされていない。",
-      "next_action": "P0-01の選定後、正確なextraction expression、opaque-byte encoding、golden bytes、profile byte boundをimplementation inputに凍結する。固定長はprofileが要求する場合だけ採用する。"
+      "reason": "the selected alpha.15 revision exposes a verified public extraction path and the opaque-byte encoding, fixture hash, ID values, and BCS Header signing preimage are frozen",
+      "evidence": ["E-UPSTREAM-005", "E-UPSTREAM-006"],
+      "specification_impact": "verified Presentationから抽出するraw 16-byte ID、strict unpadded base64url transport、raw database representation、ClaimBinding length prefixを凍結する",
+      "implementation_impact": "runtime実装は開始しない。後続実装はPresentation verification成功後だけIDを抽出し、Header全体のBCS署名境界をID単体の署名と誤認しない",
+      "evidence_ids": ["E-UPSTREAM-005", "E-UPSTREAM-006"],
+      "finding": "selected alpha.15のextraction expressionは `presentation.verify(&CryptoProvider::default())?.attestation.header.id.0`。`Uid(pub [u8; 16])`のexact raw bytesをopaque IDとし、fixture `presentation.bin`（5394 bytes、SHA-256 `cb9b3befb43df5157a4d5ac52080ba19d842f191fa346bfda1dfc4927b37e5b6`）からID hex `effe1a316b1c91b41f6284f78409c6c2`、base64url `7_4aMWsckbQfYoT3hAnGwg`、54-byte Header BCS goldenを得た。",
+      "next_action": "runtime implementation時にこのprofileをRust/TypeScript fixtureへ移し、cross-language Result/ClaimBinding equalityとnegative casesをP0-10で検証する。"
     },
     {
       "id": "P0-03",
@@ -330,6 +334,16 @@
       "scope": "公開alpha.15とmainのexact commit、package version、ID/time/API差分、candidate classification、visible tag enumeration。"
     },
     {
+      "id": "E-UPSTREAM-005",
+      "artifact": "tlsn-alpha15-adoption-profile-v1.json",
+      "scope": "selected alpha.15 exact commit、upstream Cargo.lockとmanifest fingerprint、license/security disposition、FUSOU adapter boundary、runtime dependency未導入の明示。"
+    },
+    {
+      "id": "E-UPSTREAM-006",
+      "artifact": "tlsn-alpha15-adoption-profile-v1.json",
+      "scope": "verified Presentation fixture extraction、exact raw 16-byte Attestation ID、strict base64url、fixture hash、ID golden、Header BCS golden。"
+    },
+    {
       "id": "E-REPO-001",
       "artifact": "tlsn-source-inspection-v1.md",
       "scope": "FUSOU repository inventoryではconcreteなTLSNotary runtime、profile、registry、golden fixture、production preflight、storage epoch manifestは見つからなかった。ignoreされるPostgreSQL primitive fixtureはprimitive-only evidenceとして別に扱う。"
@@ -346,7 +360,7 @@
     }
   ],
   "decision": {
-    "phase_0": "NO-GO (1/17 PASS)",
+    "phase_0": "NO-GO (3/17 PASS)",
     "implementation": "NO-GO",
     "proof_copy": "MUST-REJECT unchanged",
     "runtime_changes": "NONE"

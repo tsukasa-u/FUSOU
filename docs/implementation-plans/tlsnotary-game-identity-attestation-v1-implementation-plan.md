@@ -6,13 +6,13 @@
 
 **仕様ベースライン:** Reference Baseline `0d2a85a8c474271ecf6bf7e2cf062365a9608e83`、Proof Copy baseline `356aad0c012560be9c5ac477b494866d06d75fb9`、現在の Specification Revision `7f847bb2285e95d9b8c310d9527b0fdce5d38622`
 
-**Phase 0証拠revision:** `UNCOMMITTED WORKTREE`。候補upstreamのソース調査とP0-01〜P0-17の判定は [gate ledger](../security/evidence/tlsn-phase0-gate-ledger-v1.json) と [ソース調査レポート](../security/evidence/tlsn-source-inspection-v1.md) に固定する。
+**Phase 0証拠revision:** `UNCOMMITTED WORKTREE @ 30ffb76923dac8e5ec56caa3ad6fde4f60a3040a`。selected alpha.15 profileとP0-01〜P0-17の判定は [gate ledger](../security/evidence/tlsn-phase0-gate-ledger-v1.json)、[ソース調査レポート](../security/evidence/tlsn-source-inspection-v1.md)、[alpha.15 adoption profile](../security/evidence/tlsn-alpha15-adoption-profile-v1.json) に固定する。
 
 **計画の範囲:** この調査更新では Final Specification、この文書、および `docs/security/evidence/` の非機密証拠だけを変更する。実行時コード、migration、production resourceは変更しない。
 
 **情報源の優先順位:** Final Specification、攻撃者視点の監査、リポジトリ構成、古い計画の順とする。古い計画との競合は Final Specification を優先して解決する。
 
-**監査結果:** `P0 = 残り0件`、`P1 = 残り0件`、`P2 = 残り0件`（初期監査項目はすべて処置済み）。これは設計issue ledgerの状態であり、Phase 0実測gateのPASSを意味しない。現在のPhase 0証拠は `PASS = 1`、`FAIL = 2`、`BLOCKED = 14`。候補探索の結論は `ADOPT_WITH_FUSOU_ADAPTER`（alpha.15優先候補）であり、Proof Copy攻撃 = `PASS`、主要セキュリティ目標 = `PASS`、Notary issuance-time provenance = `REMOVED_FROM_V1`、実装 = `NO-GO`。
+**監査結果:** `P0 = 残り0件`、`P1 = 残り0件`、`P2 = 残り0件`（初期監査項目はすべて処置済み）。これは設計issue ledgerの状態であり、Phase 0全gateのPASSを意味しない。現在のPhase 0証拠は `PASS = 3`、`FAIL = 0`、`BLOCKED = 14`。alpha.15 (`47aee45b53e06648c1b2ad3689b367b8c923fdec`) をdocumentation-only implementation inputとして選定し、ID extraction/profile/goldenを固定した。Proof Copy攻撃 = `PASS`、主要セキュリティ目標 = `PASS`、Notary issuance-time provenance = `REMOVED_FROM_V1`、実装 = `NO-GO`。
 
 **規範語:** `MUST`、`MUST NOT`、`ONLY` は Final Specificationのsecurity/protocol contractとその受入条件にだけ適用する。各タスクの具体的なfilename、function/index name、provider resource、lock key、batch/timeout、step orderは、別途不変条件または相互運用性を示さない限り、候補実装・configuration・runbookである。「新規ファイル」と記された対象パスは、そのタスクが実装・テストされるまで存在しないものとする。
 
@@ -250,7 +250,7 @@ BEFORE_APPLICATION_SEND -> SEND_COMMITTED -> RESPONSE_AVAILABLE -> COMPLETE
 
 TLSNotary API、固定リビジョン、Attestation ID の抽出、transcript のオフセット意味論、proof のシリアライズを推測してはならない。これらは Phase 0 の証拠ゲートである。`ConnectionInfo.time`をNotary発行時刻として扱わず、Session/Challenge TTLとserver-side clockだけでClaim authorization freshnessを実現できるかを、stale/future proof fixtureを含めて検証する。固定リビジョンの下でbindingを認証済みTLS transcriptのバイト列にできない場合の結果は次のとおりである。
 
-2026-09-03のread-onlyソース調査では、公式remoteの公開alpha.15と観測HEAD `0fe3c32d35382b3f290a43c4156399ca4512bb89`（`0.1.0-alpha.16-pre`）を比較した。両候補は `Attestation.header` fieldと `Uid([u8; 16])` を持つが、Notary-issued `notary_time`を持たず、`ConnectionInfo.time`はTLS connection start timeである。この欠落はv1のidentity contractに反しない。alpha.15はFUSOU adapter前提の優先候補、mainは未release candidateとして扱い、P0-01/P0-02は `FAIL`、P0-03 security decisionは `PASS` とする。全gateの根拠は [tlsn-phase0-gate-ledger-v1.json](../security/evidence/tlsn-phase0-gate-ledger-v1.json) と [ソース調査レポート](../security/evidence/tlsn-source-inspection-v1.md) に集約する。
+2026-09-03のread-onlyソース調査では、公式remoteの公開alpha.15 (`refs/tags/v0.1.0-alpha.15`, commit `47aee45b53e06648c1b2ad3689b367b8c923fdec`) を選定し、観測HEAD `0fe3c32d35382b3f290a43c4156399ca4512bb89`（`0.1.0-alpha.16-pre`）を比較対象から除外した。alpha.15は `Attestation.header` fieldと `Uid([u8; 16])` を持ち、verified extraction、raw opaque 16-byte encoding、fixture golden、Header BCS boundaryを [alpha.15 adoption profile](../security/evidence/tlsn-alpha15-adoption-profile-v1.json) に固定する。`ConnectionInfo.time`はTLS connection start timeであり、Notary-issued `notary_time`ではない。この欠落はv1のidentity contractに反しない。documentation-only acceptanceによりP0-01/P0-02/P0-03は `PASS` とするが、FUSOU direct dependency、natural capture、runtime、production evidenceは未取得である。全gateの根拠は [gate ledger](../security/evidence/tlsn-phase0-gate-ledger-v1.json)、[ソース調査レポート](../security/evidence/tlsn-source-inspection-v1.md)、[adoption profile](../security/evidence/tlsn-alpha15-adoption-profile-v1.json) に集約する。
 
 ```text
 IMPLEMENTATION = NO-GO
@@ -771,7 +771,7 @@ mapping の並行性、Session uniqueness、Challenge のライフサイクル�
 
 ## 17. Phase 0 ゲート
 
-Phase 0 は実装上の事実を検証する。Proof Copy を弱めたり、セキュリティモデルを再設計したりしない。本番トラフィックを有効化する前に 17 個のゲートすべてが PASS でなければならず、現在のステータスは `1/17 PASS`、`FAIL=2`、`BLOCKED=14` である。ゲートは次の5 groupへ整理する。
+Phase 0 は実装上の事実を検証する。Proof Copy を弱めたり、セキュリティモデルを再設計したりしない。本番トラフィックを有効化する前に 17 個のゲートすべてが PASS でなければならず、現在のステータスは `3/17 PASS`、`FAIL=0`、`BLOCKED=14` である。P0-01/P0-02のPASSはdocumentation-only selection/profile freezeであり、runtime integrationまたは全gateのPASSを意味しない。ゲートは次の5 groupへ整理する。
 
 | Group | 目的 | Gate |
 | --- | --- | --- |
@@ -803,14 +803,14 @@ Protocol/Repositoryのsource/inventory factはruntime未実装だけを理由に
 | P0-16 JWT/鍵ライフサイクル | Registry rotation、tombstones、preactivation、future-skew、revoke rehearsal | NO-GO。fail closed |
 | P0-17 ストレージ epoch | 承認済みclosed manifest、選定resource/consumer inventory、fingerprints、backup/restore、drain、forward recovery | NO-GO。partial cutover なし |
 
-調査時点の判定は `PASS = 1`、`FAIL = 2`、`BLOCKED = 14`。P0-01/P0-02のFAILは、選定・pin不足とAttestation IDのopaque-byte contract/golden未凍結を意味する。P0-03は、Notary issuance-time provenanceをv1から削除し、Session/Challenge authorization freshnessで必要な保証を維持するsecurity decisionを確認済みとしてPASSにする。残りのBLOCKEDは実クライアント、実装、production、またはcross-store証拠が未取得であることを意味する。候補upstreamのfixture API testの成功はFUSOU implementationのPASSではない。候補matrix、numeric rationale、攻撃別再監査は [ソース調査レポート](../security/evidence/tlsn-source-inspection-v1.md) に固定する。
+調査時点の判定は `PASS = 3`、`FAIL = 0`、`BLOCKED = 14`。P0-01はalpha.15 exact commit/upstream lock/scoped license-security disposition、P0-02はverified extraction/opaque-byte contract/golden、P0-03はNotary issuance-time provenanceをv1から削除しSession/Challenge authorization freshnessで必要な保証を維持するsecurity decisionを確認済みとしてPASSにする。残りのBLOCKEDは実クライアント、実装、production、またはcross-store証拠が未取得であることを意味する。upstream fixture API testの成功とdocumentation-only P0-A PASSはFUSOU runtime implementationのPASSではない。selected profile、候補matrix、numeric rationale、攻撃別再監査は [adoption profile](../security/evidence/tlsn-alpha15-adoption-profile-v1.json) と [ソース調査レポート](../security/evidence/tlsn-source-inspection-v1.md) に固定する。
 
 層別の判定は次のとおりである。`Protocol`/`Repository`のFAILはsourceまたはinventoryで確定した不充足を示し、runtime未実装を理由にBLOCKEDへ丸めない。`Environment`/`Empirical`のBLOCKEDは、実クライアント、runtime、staging/production、deployment、canaryまたはcutover evidenceが必要な項目である。
 
 | P0-ID | Layer | Status | 要点 |
 | --- | --- | --- | --- |
-| P0-01 | Repository | `FAIL` | FUSOUの選定/pinned revision、lock、license/security reviewがない |
-| P0-02 | Protocol | `FAIL` | ID APIは観測済みだが、採用revision、opaque-byte encoding、goldenが未凍結 |
+| P0-01 | Repository | `PASS` | documentation-only acceptanceとしてalpha.15 exact commit、upstream Cargo.lock/manifest fingerprint、scoped license/security review、distribution constraintを固定。FUSOU direct dependency未導入は明示済み |
+| P0-02 | Protocol | `PASS` | selected alpha.15のverified extraction、exact raw 16-byte opaque encoding、fixture hash、ID/base64url、54-byte Header BCS goldenを固定 |
 | P0-03 | Security contract | `PASS` | A-M reviewでNotary issuance-time provenanceをv1から削除し、stale/future proofの残余リスクとSession/Challenge TTLの代替を明記 |
 | P0-04 | Empirical | `BLOCKED` | natural client captureがない |
 | P0-05 | Empirical | `BLOCKED` | FUSOU authenticated coverage/parser/digest fixtureがない |
@@ -827,7 +827,7 @@ Protocol/Repositoryのsource/inventory factはruntime未実装だけを理由に
 | P0-16 | Empirical | `BLOCKED` | registry/key lifecycle rehearsalがない |
 | P0-17 | Environment | `BLOCKED` | storage/cutover manifestとrecovery rehearsalがない |
 
-候補探索の結論は **`ADOPT_WITH_FUSOU_ADAPTER`**。alpha.15を優先候補とするが、P0-01/P0-02、natural capture、profile/parser、runtime、production evidenceが未完了のためselected revision確定または実装GOではない。`ConnectionInfo.time`をNotary issuance timeとして使うadapterは拒否する。詳細なReason、Evidence、Specification impact、Implementation impactはFinal Specification Section 15.1とledgerを正とする。
+選定結論は **`SELECTED_FOR_FUSOU_ADAPTER_DOCUMENTATION_ONLY`**。alpha.15のexact revision、upstream lock、ID profile/goldenを固定したが、natural capture、strict parser、runtime、production evidenceが未完了のため実装GOではない。`ConnectionInfo.time`をNotary issuance timeとして使うadapterは拒否する。詳細なReason、Evidence、Specification impact、Implementation impactはFinal Specification Section 15.1、ledger、[adoption profile](../security/evidence/tlsn-alpha15-adoption-profile-v1.json)を正とする。
 
 未知の API/provider 値は、期待する証拠と失敗時の処置を添えて `UNKNOWN` として記録する。mock、直感、既存のファイル名によって PASS に変換しては決してならない。
 
@@ -1518,7 +1518,7 @@ Notary、Verifier、Dataset key が compromise された場合は、独立した
 | テレメトリへの識別情報注入 | PASS | 予約フィールドの拒否と IdentityEnvelope tests |
 | Legacy の権威 | カットオーバーゲートとして PASS | 完全な削除一覧、manifest、no-backfill rule、P0-17 |
 | TLSNotary bindingの実現可能性 | UNKNOWN | RangeSetの表現力はsourceで確認したが、FUSOUのauthenticated coverage/parser/one-request fixtureは未取得。`ConnectionInfo.time`をidentity authorityにしないP0-03 security decisionは確定済み |
-| Attestation IDのopaque encodingとAPI revision | UNKNOWN | alpha.15/mainは16 bytesを観測したが、採用revision、profile encoding、goldenは未確定。P0-02はFAIL |
+| Attestation IDのopaque encodingとAPI revision | PASS (documentation-only input) | alpha.15 exact commit、`presentation.verify(&CryptoProvider::default())?.attestation.header.id.0`、exact raw 16 bytes、strict unpadded base64url、fixture/goldenを固定。Rust/TypeScript runtime equalityはP0-10待ち |
 | 数値limitsとrange coverageの根拠 | UNKNOWN | range coverageと各MAX_*はprofile/correctness/privacy/DoS evidenceが必要。詳細はsource report |
 
 ### 自己監査の結論
@@ -1562,14 +1562,14 @@ Cross-Specification Consistency:
 PASS
 
 Phase 0:
-NO-GO (1/17 PASS)
+NO-GO (3/17 PASS)
 
 現在の証拠ledger:
-PASS=1, FAIL=2, BLOCKED=14
+PASS=3, FAIL=0, BLOCKED=14
 docs/security/evidence/tlsn-phase0-gate-ledger-v1.json
 
 Implementation:
 NO-GO
 ```
 
-P2-01、P2-02、P2-03 は `RESOLVED` である。P2-01のReference Baseline/Specification Revision metadataはFinal Specificationとこの計画で分離し、P2-02のIdentity Authorization Rootは4 tablesとして正規化し、P2-03の同一非REVOKED device key retry policyはterminal Sessionを再利用しない新規Session issuanceとしてFinal Specificationとこの計画へ反映した。Proof CopyのMUST-REJECT条件、Phase 0 `NO-GO (1/17 PASS)`、およびruntime implementation `NO-GO`は変更しない。
+P2-01、P2-02、P2-03 は `RESOLVED` である。P2-01のReference Baseline/Specification Revision metadataはFinal Specificationとこの計画で分離し、P2-02のIdentity Authorization Rootは4 tablesとして正規化し、P2-03の同一非REVOKED device key retry policyはterminal Sessionを再利用しない新規Session issuanceとしてFinal Specificationとこの計画へ反映した。Proof CopyのMUST-REJECT条件、Phase 0 `NO-GO (3/17 PASS)`、およびruntime implementation `NO-GO`は変更しない。

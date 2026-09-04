@@ -2,24 +2,27 @@
 
 ## 調査範囲
 
-このレポートは、公式TLSNotaryソースとFUSOU repositoryをread-onlyで調査した結果を記録する。候補に関する証拠のみであり、FUSOUのupstream revision選定、profile承認、runtimeまたはmigration作業の承認は行わない。
+このレポートは、公式TLSNotaryソースとFUSOU repositoryをread-onlyで調査した結果を記録する。alpha.15のrevision/profile selection evidenceを固定するが、runtimeまたはmigration作業の承認は行わない。
 
 観測時刻: `2026-09-03T07:59:13Z` (UTC)
 
 ## 正確なupstream入力
 
 - repository: `https://github.com/tlsnotary/tlsn.git`
-- 観測したremote: `refs/heads/main`
-- 観測した正確なcommit: `0fe3c32d35382b3f290a43c4156399ca4512bb89`
-- checkout: `/tmp/tlsn-phase0-source`、shallow clone、観測時点でclean
-- 観測時点のFUSOU repository HEAD: `a103b5068251ae4d02ac2e3b7dac882f032943fe`
-- 候補状態: `CANDIDATE_ONLY`。FUSOUにはTLSNotaryのpinned dependencyまたはprofile artifactがない
+- 比較したremote: `refs/heads/main`
+- 比較したmainの正確なcommit: `0fe3c32d35382b3f290a43c4156399ca4512bb89`
+- 選定したrelease: `refs/tags/v0.1.0-alpha.15`
+- 選定した正確なcommit: `47aee45b53e06648c1b2ad3689b367b8c923fdec`
+- selected checkout: `/tmp/tlsn-phase0-alpha15`、tag checkout、観測時点でclean
+- 観測時点のFUSOU repository HEAD: `30ffb76923dac8e5ec56caa3ad6fde4f60a3040a`
+- 選定状態: `SELECTED_FOR_FUSOU_ADAPTER`。documentation-only adoption profileは [tlsn-alpha15-adoption-profile-v1.json](tlsn-alpha15-adoption-profile-v1.json) に固定し、FUSOU runtime dependencyはまだ追加していない
 
 ソースcheckoutを再現し、revisionを検証するコマンド:
 
 ```text
-git clone --depth 1 https://github.com/tlsnotary/tlsn.git /tmp/tlsn-phase0-source
-git -C /tmp/tlsn-phase0-source rev-parse HEAD
+git clone --branch v0.1.0-alpha.15 --depth 1 https://github.com/tlsnotary/tlsn.git /tmp/tlsn-phase0-alpha15
+git -C /tmp/tlsn-phase0-alpha15 rev-parse HEAD
+sha256sum /tmp/tlsn-phase0-alpha15/Cargo.toml /tmp/tlsn-phase0-alpha15/Cargo.lock
 ```
 
 ## 公開版比較と候補分類
@@ -28,7 +31,7 @@ git -C /tmp/tlsn-phase0-source rev-parse HEAD
 
 | 候補 | exact commit | package version | Attestation ID | time | transcript / finalization | FUSOU bindingとの関係 | 分類 |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| `refs/tags/v0.1.0-alpha.15` | `47aee45b53e06648c1b2ad3689b367b8c923fdec` | `0.1.0-alpha.15` | `attestation.header.id.0`、16 bytes | `ConnectionInfo.time`はTLS connection-start time。Notary発行時刻ではない | sent/received `RangeSet` disclosureとsession closeはある | FUSOU HTTP range、strict parser、one-request policyはupstream保証ではない | `ADOPT_WITH_FUSOU_ADAPTER` candidate |
+| `refs/tags/v0.1.0-alpha.15` | `47aee45b53e06648c1b2ad3689b367b8c923fdec` | `0.1.0-alpha.15` | `attestation.header.id.0`、16 bytes | `ConnectionInfo.time`はTLS connection-start time。Notary発行時刻ではない | sent/received `RangeSet` disclosureとsession closeはある | FUSOU HTTP range、strict parser、one-request policyはupstream保証ではない | `SELECTED_FOR_FUSOU_ADAPTER` |
 | `refs/heads/main` | `0fe3c32d35382b3f290a43c4156399ca4512bb89` | `0.1.0-alpha.16-pre` | `attestation.header.id.0`、16 bytes | `ConnectionInfo.time`はTLS connection-start time。Notary発行時刻ではない | alpha.15と同じ根本API。mainにはclosure testが追加された | FUSOUのwrite/retry契約は保証しない | `CANDIDATE_ONLY`（未release） |
 
 alpha.15とmainで、次のfocused source filesは同一SHA-256だった。
@@ -47,13 +50,13 @@ crates/tlsn/src/proxy.rs                  8ec2bb0808730e1f4976d616253bdd7d7673b5
 
 この比較に基づく判定は次のとおりである。
 
-- `ADOPTABLE`: 該当なし。FUSOU profile、dependency lock、golden fixtureが未承認である。
-- `ADOPT_WITH_FUSOU_ADAPTER`: alpha.15。Attestation/transcript、RangeSet、既存のfinalization部品をFUSOUのSession/Result/parser/transport adapterへ接続する優先候補である。
+- `SELECTED_FOR_FUSOU_ADAPTER`: alpha.15。Attestation/transcript、RangeSet、既存のfinalization部品をFUSOUのSession/Result/parser/transport adapterへ接続する選定入力である。exact revision、upstream lock、ID extraction、goldenは [adoption profile](tlsn-alpha15-adoption-profile-v1.json) に固定した。
+- `ADOPT_WITH_FUSOU_ADAPTER`: alpha.15の採用方式。FUSOU固有のHTTP range、strict parser、one-request、lifecycle、transportはadapterが所有する。
 - `REJECT`: reviewed sourceにNotary-issued `notary_time`がないことを理由にしたrejectは行わない。`ConnectionInfo.time`をNotary発行時刻と偽って使うadapterは拒否する。
 - main: release statusが確定するまで採用候補にしない。
-- 結論: **`ADOPT_WITH_FUSOU_ADAPTER`**（alpha.15を優先候補としてPhase 0検証へ進める）。
+- 結論: **`SELECTED_FOR_FUSOU_ADAPTER`**（alpha.15をdocumentation-only implementation inputとして凍結する）。
 
-FUSOUはまだselected revisionを確定していない。候補の16-byte ID観測だけからFUSOUの固定長IDサイズを16へ変更してはならない。alpha.15の採用候補化は、自然capture、profile-defined opaque encoding、strict parser、Result/ClaimBinding golden、one-request/finalization evidenceが未取得でも実装GOになることを意味しない。
+FUSOU runtimeにはまだTLSNotary dependencyがなく、runtime実装は開始しない。選定profileはalpha.15のverified `Uid.0`をraw opaque 16 bytesとして固定し、Result transportはstrict unpadded base64urlとする。自然capture、FUSOU固有のstrict parser、one-request/finalization、cross-language Result/ClaimBinding evidenceは別gateとして未取得のままであり、今回のselectionは実装GOやproduction GOを意味しない。
 
 ### Capability matrix
 
@@ -87,7 +90,7 @@ FUSOUはまだselected revisionを確定していない。候補の16-byte ID観
 | `requirement` | FUSOUが採用を許可するためのsecurity/protocol contract | Proof Copy MUST-REJECT、Session/Challenge authorization freshness |
 | `empirical evidence` | real client、runtime、database、staging/productionで取得する検証結果 | natural capture、origin counter、key rotation rehearsal |
 | `candidate` | sourceを調査したが、FUSOUが選定・pinしていないrevision | alpha.15、観測時点のmain |
-| `selected revision` | P0-01を通過し、FUSOUのprofileとdependency lockに固定されたrevision | 現時点では存在しない |
+| `selected revision` | P0-01を通過し、FUSOUのprofileとupstream dependency lock evidenceに固定されたrevision | alpha.15、[adoption profile](tlsn-alpha15-adoption-profile-v1.json) |
 
 Observed factはrequirementやempirical evidenceの代用にならない。特に候補sourceのAPI test成功は、FUSOU runtimeのPASSやselected revisionの成立を意味しない。
 
@@ -123,40 +126,53 @@ Bの受入条件はsecurityを弱めない。Verifier signature、authenticated 
 
 ## パッケージとfeature metadata
 
-観測commitにおけるCargo metadataは次のとおりである。
+選定alpha.15のCargo metadataと比較対象mainは次のとおりである。
 
-| パッケージ | version | 関連feature |
+| パッケージ | 選定alpha.15 | 比較対象main |
 | --- | --- | --- |
-| `tlsn` | `0.1.0-alpha.16-pre` | default `rayon`, `hash-blake3`; optional `mozilla-certs`, `web` |
-| `tlsn-attestation` | `0.1.0-alpha.16-pre` | default empty; `fixtures` enables core fixtures and data fixtures |
-| `tlsn-core` | `0.1.0-alpha.16-pre` | default empty; `fixtures`, `mozilla-certs`, `rstest` |
-| `tlsn-sdk-core` | `0.1.0-alpha.16-pre` | default empty; `mozilla-certs`, `wasm` |
+| `tlsn` | `0.1.0-alpha.15`; default `rayon`, `hash-blake3`; optional `mozilla-certs`, `web` | `0.1.0-alpha.16-pre` |
+| `tlsn-attestation` | `0.1.0-alpha.15`; default empty; `fixtures` enables core/data fixtures | `0.1.0-alpha.16-pre` |
+| `tlsn-core` | `0.1.0-alpha.15`; default empty; `fixtures`, `mozilla-certs`, `rstest` | `0.1.0-alpha.16-pre` |
 
-lockfileには`bcs 0.1.6`、`bincode 1.3.3`、workspaceのTLSNotary packagesが含まれる。upstream workspaceは、`tlsn-utils`をrevision `64722f7`、`mpz`を`v0.1.0-alpha.6`とする複数のgit dependencyをpinnedしている。これはupstreamの観測結果であり、FUSOUのdependency lockではない。
+選定Cargo.lockには`bcs 0.1.6`、`bincode 1.3.3`、workspaceのTLSNotary packagesが含まれる。upstream workspaceは、`tlsn-utils`をrevision `64722f7`、`mpz`を`v0.1.0-alpha.6`とするgit dependencyをlockしている。選定Cargo.lockのSHA-256は`eab3a6230d1d8792782bf5fbb3b2613af48748d9f61d5bb30bbf809bdcb3cd88`であり、lock recordの再確認は [adoption profile](tlsn-alpha15-adoption-profile-v1.json) に委譲する。これはFUSOUのCargo.lockを追加したという意味ではなく、runtime未実装のまま許可するupstream dependency boundaryのdocumentation freezeである。
 
-upstreamの`tlsn`と`tlsn-core` package manifestは`MIT OR Apache-2.0`を宣言している。`tlsn-attestation` manifestにはpackage-level license fieldがなく、このcommitで調査したrepository treeにはrootの`LICENSE`、`SECURITY`、`NOTICE` fileがない。したがってP0-01には完全な法務・security reviewがまだ必要である。
+upstreamの`tlsn`と`tlsn-core` package manifestは`MIT OR Apache-2.0`を宣言している。`tlsn-attestation` manifestにはpackage-level license fieldがなく、このcommitで調査したrepository treeにはrootの`LICENSE`、`SECURITY`、`NOTICE` fileがない。P0-01のscoped reviewではこの欠落を明示的なdistribution constraintとして記録し、法務確認なしのbinary shipping/redistributionを許可しない。
 
 ## P0-02: Attestation IDの確認
 
-観測commitでは次のとおりである。
+選定commit `47aee45b53e06648c1b2ad3689b367b8c923fdec`では次のとおりである。
 
 - `crates/attestation/src/lib.rs`は`Uid`を`pub struct Uid(pub [u8; 16]);`として定義する。
-- `Header`は`pub id: Uid`を持つ。
-- `Attestation`は`pub header: Header`を持つ。
-- `Attestation::header()` accessorはなく、sourceはpublic field形式の`attestation.header`を使う。
-- `AttestationBuilder::build`はrandomな`Uid`実装でIDを生成する。
-- Attestation headerはNotary signatureの前にcrate内部のcanonical serializerでserializeされる。
+- `Header`は`pub id: Uid`を持ち、`Attestation`は`pub header: Header`を持つ。
+- `Attestation::header()` accessorはなく、正確なpublic extraction pathはverified outputの`output.attestation.header.id.0`である。
+- `AttestationBuilder::build`はrandomな`Uid`を生成するため、IDの意味を推測せずfixtureから実値を取得する。
+- Attestation headerはNotary signatureの前にcrate内部のBCS canonical serializerでserializeされる。signature対象はID単体ではなくHeader全体である。
+- upstream fixture `presentation.bin`をbincode deserializeし、`Presentation::verify()`に成功した結果、ID raw bytesとtransport encodingを [golden artifact](tlsn-alpha15-adoption-profile-v1.json) に固定した。
 
-これは候補fieldの幅が16 bytesで、利用可能なpublic field pathがあることを示す。しかしFUSOUの固定長ID contractを凍結するものではない。候補revisionは採用されておらず、FUSOUのgolden bytesもcommitされていない。また、現行仕様の`Attestation.header().id`という記述はこのsource APIと一致しない。source/inventoryで不充足が確定しているため、P0-02はruntime待ちの`BLOCKED`ではなく`FAIL`とする。
+選定profileのopaque ID contractは次である。
 
-commit `0fe3c32d35382b3f290a43c4156399ca4512bb89`における関連source path:
+```text
+extraction: presentation.verify(&CryptoProvider::default())?.attestation.header.id.0
+raw bytes: 16 bytes, opaque, no reinterpretation
+JSON/API: strict unpadded base64url of the exact raw bytes
+DB: exact raw bytes
+ClaimBindingBytes: u16_be(16) || raw bytes
+```
+
+Golden fixture `crates/attestation/tests/fixtures/presentation.bin` は5394 bytes、SHA-256 `cb9b3befb43df5157a4d5ac52080ba19d842f191fa346bfda1dfc4927b37e5b6`である。verified outputのIDはhex `effe1a316b1c91b41f6284f78409c6c2`、strict unpadded base64urlは`7_4aMWsckbQfYoT3hAnGwg`、Header BCS signing preimageは54 bytesである。FUSOUはPresentation verification成功前にIDを抽出してはならない。
+
+selected alpha.15における関連source path:
 
 ```text
 crates/attestation/src/lib.rs:255-257   Uid([u8; 16])
 crates/attestation/src/lib.rs:321-329   Header.id
 crates/attestation/src/lib.rs:436-444   Attestation.header
 crates/attestation/src/serialize.rs:9-17 canonical BCS serialization
-crates/attestation/src/builder.rs:124-185 header construction and signature input
+crates/attestation/src/builder.rs:172-180 header construction and signature input
+crates/attestation/src/presentation.rs:65-76 verification and output construction
+crates/attestation/src/presentation.rs:116-124 verified Attestation output
+crates/attestation/tests/fixtures/generate_presentation_fixture.rs:154-158 bincode fixture write
+crates/attestation/tests/no_syscall_verify.rs:14-18 fixture deserialize and verify
 ```
 
 ## P0-03: connection metadataの確認
@@ -213,7 +229,7 @@ mainの`crates/tlsn/tests/closure.rs`はTLS close_notify、abrupt close、fatal 
 | paired performance sample plan、added latency/failure acceptance rule | empirical acceptance threshold candidate | 実測reportが未取得。sample size、thresholdの採用根拠と結果はP0-08で検証する |
 | future-skew policy | security / operational acceptance policy candidate | 全validator共通ruleとして設計済みだが、具体値のnegative/positive fixtureはP0-16待ち |
 
-Attestation IDのbyte boundは候補観測値ではなく、選定revisionのcanonical extractionとgolden bytesから決めるprotocol/profile inputであり、現時点は未確定である。
+Attestation IDのbyte boundは候補観測値ではなく、選定revisionのcanonical extractionとgolden bytesから決めるprotocol/profile inputである。alpha.15ではraw 16 bytesとして [adoption profile](tlsn-alpha15-adoption-profile-v1.json) に固定した。
 
 ## lifecycle、transcript、serializationの確認
 
@@ -277,10 +293,16 @@ ROLLBACK
 | `crates/core/src/transcript/tls/builder.rs` | `60968e4fe25e3b4d1c9d0f4607aab972b639d598511850962ad8773787117d3b` |
 | `crates/tlsn/src/proxy.rs` | `8ec2bb0808730e1f4976d616253bdd7d7673b536684f99d174571f68dcb6494c` |
 | `crates/examples/attestation/prove.rs` | `7f913bc5d63e05214d281ae38531c8cea8acc219fb713f4d798e9524d05dcaa5` |
+| `Cargo.toml` | `d6d8cb3de92d103bf3aa931c9e453e5cd4d41c6d0d928eab266db5899f10ccfe` |
+| `Cargo.lock` | `eab3a6230d1d8792782bf5fbb3b2613af48748d9f61d5bb30bbf809bdcb3cd88` |
+| `crates/tlsn/Cargo.toml` | `779e48ca72a9cad11222bb8b4f723bda720739873ec14c26d6dd49e98e0fdaa3` |
+| `crates/attestation/Cargo.toml` | `3057f7eb1bf2691799bb86e4f1d52177aea5f526545a5a115c3928688521242d` |
+| `crates/core/Cargo.toml` | `b8530af8ccfd949215ebbbafd8dab5e2e5eb4fb9b5caa0832e788c46e0f135f9` |
+| `crates/attestation/tests/fixtures/presentation.bin` | `cb9b3befb43df5157a4d5ac52080ba19d842f191fa346bfda1dfc4927b37e5b6` |
 
 ## FUSOU inventoryの範囲
 
-このレポートのために実施したrepository inventoryでは、検索したpackage manifestsとsource pathsにconcreteなTLSNotary runtime dependencyまたはimplementationはなく、このレポート以前の`docs/security/evidence/` artifactもなく、TLSNotary profile、registry、golden fixture、production preflight、storage epoch manifestも見つからなかった。Wranglerはlocalにinstallされていない。local PostgreSQL clientの利用可能性とupstream sourceへの到達可能性は観測結果にすぎず、どちらもproduction evidenceではない。
+このレポートのために実施したrepository inventoryでは、検索したpackage manifestsとsource pathsにconcreteなTLSNotary runtime dependencyまたはimplementationはない。これはruntime実装を開始しない今回の制約による。選定revision、adapter boundary、ID goldenは [adoption profile](tlsn-alpha15-adoption-profile-v1.json) に記録したが、registry、natural capture、production preflight、storage epoch manifestは未取得である。Wranglerはlocalにinstallされていない。local PostgreSQL clientの利用可能性とupstream sourceへの到達可能性は観測結果にすぎず、どちらもproduction evidenceではない。
 
 この調査ではruntime code、migration、credential、production resource、無関係なworktree changeを変更していない。
 
@@ -308,7 +330,7 @@ ROLLBACK
 | Verifier compromise | issuance/ingestをfail closedし、affected keyをreject | production rehearsal pending |
 | Game Server request re-submission | send後の再送を`MUST NOT`とする | P0-07 counters pending |
 | caller boundary | authenticated FUSOU-WEB Claim handlerだけをproduction callerとする | P0-13 deployment evidence pending |
-| selected revision guarantee | alpha.15をadapter前提の優先候補とするが、pin/profile未確定 | selected revision/profile未確定 |
+| selected revision guarantee | alpha.15のexact commit、upstream lock、adapter boundary、ID goldenをdocumentation-only inputとして固定 | runtime dependency、natural capture、FUSOU固有の実装証拠は未取得 |
 
 この再監査の結果、Proof Copyの`MUST-REJECT`、Primary Security Goal、no Game Server request re-submissionを候補のAPI不足やPhase 0未取得を理由に弱める変更はない。
 
@@ -317,10 +339,10 @@ ROLLBACK
 machine-readableなstatus ledgerは[tlsn-phase0-gate-ledger-v1.json](tlsn-phase0-gate-ledger-v1.json)である。現在の集計は次のとおりである。
 
 ```text
-PASS: 1
-FAIL: 2
+PASS: 3
+FAIL: 0
 BLOCKED: 14
-Phase 0: NO-GO (1/17 PASS)
+Phase 0: NO-GO (3/17 PASS)
 Implementation: NO-GO
 Proof Copy: MUST-REJECT unchanged
 ```
