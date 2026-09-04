@@ -7,7 +7,13 @@ use hudsucker::{
     rustls::crypto::aws_lc_rs,
     *,
 };
-use std::{fs, io::Read, net::SocketAddr, path::Path, sync::OnceLock};
+use std::{
+    fs,
+    io::Read,
+    net::SocketAddr,
+    path::{Path, PathBuf},
+    sync::OnceLock,
+};
 
 use chrono::{TimeZone, Utc};
 use chrono_tz::Asia::Tokyo;
@@ -17,7 +23,7 @@ use chrono_tz::Asia::Tokyo;
 #[cfg(target_os = "windows")]
 use std::os::windows::fs::MetadataExt;
 
-use crate::bidirectional_channel;
+use crate::{bidirectional_channel, capture};
 
 use configs;
 
@@ -495,6 +501,8 @@ struct LogHandler {
     allow_save_api_responses: bool,
     allow_save_resources: bool,
     allow_save_main_js_local: bool,
+    capture_output_root: Option<PathBuf>,
+    capture: Option<capture::CaptureBuilder>,
 }
 
 impl HttpHandler for LogHandler {
@@ -507,17 +515,35 @@ impl HttpHandler for LogHandler {
 
         let (part, body) = req.into_parts();
 
-        let body_vec = match body.collect().await {
-            Ok(collected) => collected.to_bytes().to_vec(),
+        let (body_vec, body_collected) = match body.collect().await {
+            Ok(collected) => (collected.to_bytes().to_vec(), true),
             Err(e) => {
                 tracing::warn!("failed to collect request body for logging: {}", e);
-                Vec::new()
+                (Vec::new(), false)
             }
         };
         let body = hyper::body::Bytes::from(body_vec);
         let full_body = http_body_util::Full::from(body.clone());
 
         let body_vec = body.to_vec();
+        self.capture = None;
+        if body_collected
+            && self.capture_output_root.is_some()
+            && self
+                .request_uri
+                .path()
+                .ends_with("/api_get_member/require_info")
+        {
+            let mut builder = capture::CaptureBuilder::new(
+                self.capture_output_root
+                    .as_ref()
+                    .expect("capture output root checked above")
+                    .clone(),
+                capture::next_capture_id(),
+            );
+            builder.record_request(capture::CapturedMessage::from_request(&part, &body_vec));
+            self.capture = Some(builder);
+        }
         log_request(
             part.clone(),
             body_vec,
@@ -537,17 +563,35 @@ impl HttpHandler for LogHandler {
     async fn handle_response(&mut self, _ctx: &HttpContext, res: Response<Body>) -> Response<Body> {
         let (part, body) = res.into_parts();
 
-        let body_vec = match body.collect().await {
-            Ok(collected) => collected.to_bytes().to_vec(),
+        let (body_vec, body_collected) = match body.collect().await {
+            Ok(collected) => (collected.to_bytes().to_vec(), true),
             Err(e) => {
                 tracing::warn!("failed to collect response body for logging: {}", e);
-                Vec::new()
+                (Vec::new(), false)
             }
         };
         let body = hyper::body::Bytes::from(body_vec);
         let full_body = http_body_util::Full::from(body.clone());
 
         let body_vec = body.to_vec();
+        if body_collected {
+            if let Some(builder) = self.capture.take() {
+                let response = capture::CapturedMessage::from_response(&part, &body_vec);
+                tokio::spawn(async move {
+                    match tokio::task::spawn_blocking(move || builder.finish(response)).await {
+                        Ok(Ok(capture_dir)) => {
+                            tracing::info!(path = %capture_dir.display(), "wrote private structured capture")
+                        }
+                        Ok(Err(error)) => {
+                            tracing::warn!(error = %error, "failed to write private structured capture")
+                        }
+                        Err(error) => tracing::warn!(error = %error, "capture writer task failed"),
+                    }
+                });
+            }
+        } else {
+            self.capture = None;
+        }
         log_response(
             part.clone(),
             body_vec,
@@ -605,7 +649,8 @@ pub fn check_ca(ca_save_path: String) -> bool {
     let ca_cert_der = ca_dir.join(CA_CERT_NAME_DER);
     let ca_key = ca_dir.join(CA_KEY_NAME_PEM);
 
-    if !ca_cert_crt.exists() || !ca_cert_pem.exists() || !ca_cert_der.exists() || !ca_key.exists()
+    if !ca_cert_crt.exists() || !ca_cert_pem.exists() || !ca_cert_der.exists()
+        || !ca_key.exists()
     {
         return false;
     }
@@ -690,6 +735,26 @@ pub fn serve_proxy(
     let allow_save_api_responses = configs.get_allow_save_api_responses();
     let allow_save_resources = configs.get_allow_save_resources();
     let allow_save_main_js_local = configs.get_allow_save_main_js_local();
+    let capture_output_root = if configs.get_capture_enabled() {
+        match configs.get_capture_output_path().map(PathBuf::from) {
+            Some(path) if path.is_absolute() => Some(path),
+            Some(path) => {
+                tracing::warn!(
+                    path = %path.display(),
+                    "require_info capture disabled because capture_output_path is not absolute"
+                );
+                None
+            }
+            None => None,
+        }
+    } else {
+        None
+    };
+    if capture_output_root.is_some() {
+        tracing::warn!(
+            "require_info capture enabled; artifacts are handler-visible and not raw wire evidence"
+        );
+    }
 
     let ca_dir = Path::new(ca_save_path.as_str());
     let use_generated_certs = configs.certificates.get_use_generated_certs();
@@ -838,6 +903,8 @@ pub fn serve_proxy(
             allow_save_api_responses,
             allow_save_resources,
             allow_save_main_js_local,
+            capture_output_root,
+            capture: None,
         })
         .with_graceful_shutdown(async move {
             loop {

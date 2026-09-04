@@ -1,4 +1,5 @@
 pub mod bidirectional_channel;
+pub mod capture;
 // mpsc implementation (always compiled)
 pub mod channel_types;
 pub mod mpsc_channel;

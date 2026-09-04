@@ -14,6 +14,13 @@ allow_save_resources = false
 # Whether to save only main.js locally (JS is not uploaded by asset sync)
 allow_save_main_js_local = false
 
+# Capture require_info traffic into a private local-only artifact directory.
+# This is disabled by default and never writes to the evidence repository automatically.
+capture_enabled = false
+
+# The private directory for capture artifacts. Empty disables capture even when enabled.
+capture_output_path = ""
+
 # The location to save files
 # The default location is under the user's Documents directory
 # to use the default location, leave this empty

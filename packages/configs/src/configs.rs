@@ -1022,6 +1022,8 @@ pub struct ConfigsProxy {
     allow_save_api_responses: Option<bool>,
     allow_save_resources: Option<bool>,
     allow_save_main_js_local: Option<bool>,
+    capture_enabled: Option<bool>,
+    capture_output_path: Option<String>,
     save_file_location: Option<String>,
     pub network: ConfigsProxyNetwork,
     pub certificates: ConfigsProxyCertificates,
@@ -1056,6 +1058,18 @@ impl ConfigsProxy {
                 .allow_save_main_js_local
                 .unwrap()
         })
+    }
+
+    pub fn get_capture_enabled(&self) -> bool {
+        self.capture_enabled
+            .unwrap_or_else(|| get_default_configs().proxy.capture_enabled.unwrap())
+    }
+
+    pub fn get_capture_output_path(&self) -> Option<String> {
+        match self.capture_output_path {
+            Some(ref value) if !value.trim().is_empty() => Some(value.trim().to_string()),
+            _ => None,
+        }
     }
 
     pub fn get_save_file_location(&self) -> Option<String> {
@@ -1386,6 +1400,8 @@ mod tests {
             allow_save_api_responses: None,
             allow_save_resources: None,
             allow_save_main_js_local: None,
+            capture_enabled: None,
+            capture_output_path: None,
             save_file_location: None,
             network: default_configs.proxy.network.clone(),
             certificates: default_configs.proxy.certificates.clone(),
@@ -1412,6 +1428,16 @@ mod tests {
             empty_proxy_fields.get_allow_save_main_js_local(),
             default_configs.proxy.get_allow_save_main_js_local(),
             "allow_save_main_js_local getter should return configs.toml default"
+        );
+        assert_eq!(
+            empty_proxy_fields.get_capture_enabled(),
+            default_configs.proxy.get_capture_enabled(),
+            "capture_enabled getter should return configs.toml default"
+        );
+        assert_eq!(
+            empty_proxy_fields.get_capture_output_path(),
+            default_configs.proxy.get_capture_output_path(),
+            "capture_output_path getter should return configs.toml default"
         );
 
         // Test App Autostart defaults
