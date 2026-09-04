@@ -6,11 +6,13 @@
 
 **仕様ベースライン:** Reference Baseline `0d2a85a8c474271ecf6bf7e2cf062365a9608e83`、Proof Copy baseline `356aad0c012560be9c5ac477b494866d06d75fb9`、現在の Specification Revision `7f847bb2285e95d9b8c310d9527b0fdce5d38622`
 
-**計画の範囲:** この同期作業では Final Specification とこの文書だけを変更する。実行時コードは変更しない。
+**Phase 0証拠revision:** `UNCOMMITTED WORKTREE`。候補upstreamのソース調査とP0-01〜P0-17の判定は [gate ledger](../security/evidence/tlsn-phase0-gate-ledger-v1.json) と [ソース調査レポート](../security/evidence/tlsn-source-inspection-v1.md) に固定する。
+
+**計画の範囲:** この調査更新では Final Specification、この文書、および `docs/security/evidence/` の非機密証拠だけを変更する。実行時コード、migration、production resourceは変更しない。
 
 **情報源の優先順位:** Final Specification、攻撃者視点の監査、リポジトリ構成、古い計画の順とする。古い計画との競合は Final Specification を優先して解決する。
 
-**監査結果:** `P0 = 0 remaining`、`P1 = 0 remaining`、`P2 = 0 remaining`（初期監査項目はすべて disposition 済み）。Proof Copy 攻撃 = `PASS`、主要セキュリティ目標 = `PASS`、設計凍結 = `MAINTAIN`、実装 = `NO-GO`。
+**監査結果:** `P0 = 残り0件`、`P1 = 残り0件`、`P2 = 残り0件`（初期監査項目はすべて処置済み）。これは設計issue ledgerの状態であり、Phase 0実測gateのPASSを意味しない。現在のPhase 0証拠は `PASS = 0`、`FAIL = 3`、`BLOCKED = 14`。候補探索の結論は `NO ADOPTABLE REVISION FOUND` であり、Proof Copy攻撃 = `PASS`、主要セキュリティ目標 = `PASS`、設計凍結 = `MAINTAIN`、実装 = `NO-GO`。
 
 **規範語:** `MUST`、`MUST NOT`、`ONLY` は受入条件である。「新規ファイル」と記された対象パスは、そのタスクが実装・テストされるまで存在しないものとする。
 
@@ -241,6 +243,8 @@ BEFORE_APPLICATION_SEND -> SEND_COMMITTED -> RESPONSE_AVAILABLE -> COMPLETE
 ### 4.4 Phase 0 の未知項目
 
 TLSNotary API、固定リビジョン、Attestation ID の抽出、transcript のオフセット意味論、認証済み時刻、proof のシリアライズを推測してはならない。これらは Phase 0 の証拠ゲートである。固定リビジョンの下で binding を認証済み TLS transcript のバイト列にできない場合の結果は次のとおりである。
+
+2026-09-03のread-onlyソース調査では、公式remoteの公開alpha.15と観測HEAD `0fe3c32d35382b3f290a43c4156399ca4512bb89`（`0.1.0-alpha.16-pre`）を比較した。両候補は `Attestation.header` fieldと `Uid([u8; 16])` を持つが、Notary-issued `notary_time`を持たず、`ConnectionInfo.time`はTLS connection start timeである。FUSOUはrevisionを選定していないため、selected revision不適合とは記録しない。候補は現行仕様で `ADOPTABLE` でも `SPEC-COMPATIBLE-BUT-NEEDS-ADAPTER` でもなく、P0-01/P0-02/P0-03は `FAIL` とする。全gateの根拠は [tlsn-phase0-gate-ledger-v1.json](../security/evidence/tlsn-phase0-gate-ledger-v1.json) と [ソース調査レポート](../security/evidence/tlsn-source-inspection-v1.md) に集約する。
 
 ```text
 IMPLEMENTATION = NO-GO
@@ -762,7 +766,7 @@ mapping の並行性、Session uniqueness、Challenge のライフサイクル�
 
 ## 17. Phase 0 ゲート
 
-Phase 0 は実装上の事実を検証する。Proof Copy を弱めたり、セキュリティモデルを再設計したりしない。本番トラフィックを有効化する前に 17 個のゲートすべてが PASS でなければならず、現在のステータスは `0/17 PASS` である。
+Phase 0 は実装上の事実を検証する。Proof Copy を弱めたり、セキュリティモデルを再設計したりしない。本番トラフィックを有効化する前に 17 個のゲートすべてが PASS でなければならず、現在のステータスは `0/17 PASS`、`FAIL=3`、`BLOCKED=14` である。Protocol/Repositoryのsource/inventory factはruntime未実装だけを理由にBLOCKEDとせず、Environment/Empiricalの未取得実測・runtime・deployment証拠だけをBLOCKEDとする。詳細な層別表はFinal Specification Section 15.1とledgerに従う。
 
 | ゲート | 必須証拠 | 失敗時の処置 |
 | --- | --- | --- |
@@ -783,6 +787,32 @@ Phase 0 は実装上の事実を検証する。Proof Copy を弱めたり、セ�
 | P0-15 プライバシー | 完全なレスポンスの開示、non-persistence、redaction approval | NO-GO。silent privacy tradeoff なし |
 | P0-16 JWT/鍵ライフサイクル | Registry rotation、tombstones、preactivation、future-skew、revoke rehearsal | NO-GO。fail closed |
 | P0-17 ストレージ epoch | Exact manifest、13 transitions、24 aliases、2 consumers、SESSION、fingerprints、backup/restore、drain、forward recovery | NO-GO。partial cutover なし |
+
+調査時点の判定は `PASS = 0`、`FAIL = 3`、`BLOCKED = 14`。P0-01/P0-02/P0-03のFAILは、選定・pin不足、literal `N`未凍結、候補のauthenticated time不足をそれぞれ意味する。残りのBLOCKEDは実クライアント、実装、production、またはcross-store証拠が未取得であることを意味する。候補upstreamのfixture API testの成功はFUSOU implementationのPASSではない。候補matrix、numeric rationale、攻撃別再監査は [ソース調査レポート](../security/evidence/tlsn-source-inspection-v1.md) に固定する。
+
+層別の判定は次のとおりである。`Protocol`/`Repository`のFAILはsourceまたはinventoryで確定した不充足を示し、runtime未実装を理由にBLOCKEDへ丸めない。`Environment`/`Empirical`のBLOCKEDは、実クライアント、runtime、staging/production、deployment、canaryまたはcutover evidenceが必要な項目である。
+
+| P0-ID | Layer | Status | 要点 |
+| --- | --- | --- | --- |
+| P0-01 | Repository | `FAIL` | FUSOUの選定/pinned revision、lock、license/security reviewがない |
+| P0-02 | Protocol | `FAIL` | ID APIは観測済みだが、採用revision、golden、literal `N`が未凍結 |
+| P0-03 | Protocol | `FAIL` | reviewed candidatesにNotary-issued `notary_time`がない |
+| P0-04 | Empirical | `BLOCKED` | natural client captureがない |
+| P0-05 | Empirical | `BLOCKED` | FUSOU exact range/parser/digest fixtureがない |
+| P0-06 | Empirical | `BLOCKED` | Result delivery runtimeがない |
+| P0-07 | Empirical | `BLOCKED` | no-resubmission counter/latch evidenceがない |
+| P0-08 | Environment | `BLOCKED` | paired 1000-run reportがない |
+| P0-09 | Environment | `BLOCKED` | packet/egress manifestがない |
+| P0-10 | Empirical | `BLOCKED` | Rust/TypeScript golden equalityがない |
+| P0-11 | Environment | `BLOCKED` | production migration evidenceがない |
+| P0-12 | Environment | `BLOCKED` | production preflightがない |
+| P0-13 | Empirical | `BLOCKED` | deployed Bearer/anonymous rejection evidenceがない |
+| P0-14 | Empirical | `BLOCKED` | natural login-frequency metadataがない |
+| P0-15 | Empirical | `BLOCKED` | privacy/non-persistence approvalがない |
+| P0-16 | Empirical | `BLOCKED` | registry/key lifecycle rehearsalがない |
+| P0-17 | Environment | `BLOCKED` | storage/cutover manifestとrecovery rehearsalがない |
+
+候補探索の結論は **`NO ADOPTABLE REVISION FOUND`**。`ADOPTABLE`と`SPEC-COMPATIBLE-BUT-NEEDS-ADAPTER`はいずれも該当なしであり、adapterでNotary署名対象のauthenticated issuance timeを補うことはできない。詳細なReason、Evidence、Specification impact、Implementation impactはFinal Specification Section 15.1とledgerを正とする。
 
 未知の API/provider 値は、期待する証拠と失敗時の処置を添えて `UNKNOWN` として記録する。mock、直感、既存のファイル名によって PASS に変換しては決してならない。
 
@@ -1452,8 +1482,9 @@ Notary、Verifier、Dataset key が compromise された場合は、独立した
 | Projection の権威 | PASS | ルートから導出する state/token と B6 |
 | テレメトリへの識別情報注入 | PASS | 予約フィールドの拒否と IdentityEnvelope tests |
 | Legacy の権威 | カットオーバーゲートとして PASS | 完全な削除一覧、manifest、no-backfill rule、P0-17 |
-| TLSNotary binding の実現可能性 | UNKNOWN | P0-01〜P0-06。不可能な binding は NO-GO/REVISE を意味する |
-| Attestation ID length と API revision | UNKNOWN | P0-01/P0-02。推測した `N` はない |
+| TLSNotary bindingの実現可能性 | UNKNOWN | RangeSetの表現力はsourceで確認したが、FUSOU exact range/parser/one-request fixtureは未取得。候補sourceのauthenticated time不足はP0-03 FAIL |
+| Attestation IDの長さとAPI revision | UNKNOWN | alpha.15/mainは16 bytesを観測したが、採用revision、literal `N`、goldenは未確定。P0-02はFAIL |
+| 数値limitsとrange countの根拠 | UNKNOWN | range count 3/1は仕様・security rule、各MAX_*は多くがRATIONALE REQUIRED。詳細はsource report |
 
 ### 自己監査の結論
 
@@ -1497,6 +1528,10 @@ PASS
 
 Phase 0:
 NO-GO (0/17 PASS)
+
+現在の証拠ledger:
+PASS=0, FAIL=3, BLOCKED=14
+docs/security/evidence/tlsn-phase0-gate-ledger-v1.json
 
 Implementation:
 NO-GO

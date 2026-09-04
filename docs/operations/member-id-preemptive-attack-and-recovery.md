@@ -9,6 +9,7 @@
 > **Specification Revision**: `7f847bb2285e95d9b8c310d9527b0fdce5d38622`
 >
 > **Revision note**: Reference Baseline は本仕様書が対象とする repository baseline であり、Specification Revision `7f847bb2285e95d9b8c310d9527b0fdce5d38622` は本仕様書の現在の設計変更を含む確定 commit である。runtime implementationは別途未作成であり、commit済み仕様と実装済み機能を同一視しない。今回のcross-specification auditはこの Specification Revision と Reference Baseline の差分を基準に行う。
+**Phase 0証拠revision**: `UNCOMMITTED WORKTREE`。凍結済み設計revisionを変更せず、2026-09-03の候補upstream調査結果と未取得証拠を [P0 gate ledger](../security/evidence/tlsn-phase0-gate-ledger-v1.json) および [TLSNotaryソース調査](../security/evidence/tlsn-source-inspection-v1.md) に記録する。
 >
 > **再構築日**: 2026-09-01
 >
@@ -101,6 +102,20 @@ bytewise registry ordering, measurable Gate terminology
 ```
 
 TotalはP0 36件、P1 58件、P2 15件である。本書ではそれらの設計上の矛盾を解消した。現行runtimeとDBの実装gapはPhase 0/implementation taskとして残る。Phase 0でしか確定できない値は「決定待ち」ではなく、判定方法・成果物・失敗時動作を固定したGO Gateとした。
+
+### 0.3 Phase 0 調査の実測結果
+
+2026-09-03に公式TLSNotary remoteの `refs/heads/main` を read-only clone し、観測commit `0fe3c32d35382b3f290a43c4156399ca4512bb89` を検査した。このcommitはFUSOUの採用revisionではない。`tlsn-attestation`、`tlsn-core`、`tlsn` は `0.1.0-alpha.16-pre` である。
+
+候補sourceから確認できた事実は次のとおりである。
+
+1. `Attestation` は `header()` methodではなく公開field `header: Header` を持ち、`Header.id` は `Uid([u8; 16])` である。これは候補の観測値であり、FUSOUのliteral `N`、golden bytes、採用APIを確定しない。
+2. `ConnectionInfo.time` は「TLS connection started」のUnix秒であり、proxyのfirst read時に取得され、Notaryが `tls_transcript.time()` としてsigned `ConnectionInfo`へコピーする。Notary発行時刻を表す `notary_time` field/APIは候補sourceにないため、現行profileのP0-03を満たさない。
+3. 候補sourceの内部signature serializationはBCS、exampleのrequest/attestation wire transportはbincodeである。FUSOUのVerifier Result、ClaimBindingBytes、Rust/TypeScript golden equalityは未実装・未実証である。
+
+4. 公開tagは `v0.1.0-alpha.1` から `v0.1.0-alpha.15` までであり、詳細比較を行った最新公開版alpha.15とmainの両方で `notary_time` は確認できない。両候補は `REJECTED_UNDER_CURRENT_SPEC` であり、`ADOPTABLE` および `SPEC-COMPATIBLE-BUT-NEEDS-ADAPTER` は該当なしである。
+
+したがって今回の候補探索の結論は **`NO ADOPTABLE REVISION FOUND`** である。FUSOUはrevisionを選定していないため、「selected TLSNotary revisionが仕様不適合」とは記録しない。adapterはpublic field、RangeSet、wire transportを接続できても、Notary signatureの対象となるNotary-issued `notary_time`を追加できない。調査の機械可読な判定は `PASS = 0`、`FAIL = 3`（revision/pin、Attestation ID contract、authenticated time）、`BLOCKED = 14` であり、Phase 0は `NO-GO (0/17 PASS)` のままとする。候補sourceのfixture API testが通ったことは、FUSOU profileやproduction gateのPASSを意味しない。詳細な候補matrix、数値根拠、攻撃別再監査は [TLSNotaryソース調査](../security/evidence/tlsn-source-inspection-v1.md) に固定する。
 
 ---
 
@@ -475,7 +490,7 @@ packages/FUSOU-APP/src-tauri/security/tlsn-v1.json
 
 1. TLSNotary repository URL と exact git commit。
 2. Prover、Notary、Verifier crate version と feature set。
-3. `Attestation.header().id` の canonical byte extraction API。
+3. 採用revisionにおける `Attestation` header ID の canonical byte extraction API。
 4. `tlsn_attestation_id` の固定 byte length `N`。
 5. `notary_time` の authenticated source と seconds-since-Unix-epoch semantics。
 6. Request/response transcript offset の基準。
@@ -2509,7 +2524,7 @@ quoted schema/table/column identifiers
 
 Composite FK detector acceptance は false positive = 0、false negative = 0。
 
-Executable fixtureは`packages/FUSOU-WEB/supabase/tests/tlsn_identity_spec_primitives.sql`である。Fixture自身が`server_version_num = 160015`をassertする。2026-09-01にimage `postgres@sha256:cf78e76683b9ca8c5733cbbdce6c9262b45b6767934dd0a95e671f9a0fc20685`をdatabase serverとして実行し、UInt64境界、4 lock domains、1/2/3-column FK、valid/invalid dependency、nullable child、same childからのmultiple FK、unrelated FK、quoted schema/table/columnを含む7対象constraintがPASSした。再実行commandは次である。
+Executable fixtureは`packages/FUSOU-WEB/supabase/tests/tlsn_identity_spec_primitives.sql`である。Fixture自身が`server_version_num = 160015`をassertする。この調査でimage `postgres@sha256:cf78e76683b9ca8c5733cbbdce6c9262b45b6767934dd0a95e671f9a0fc20685`をdatabase serverとして再実行し、UInt64境界、4 lock domains、1/2/3-column FK、valid/invalid dependency、nullable child、same childからのmultiple FK、unrelated FK、quoted schema/table/columnを含む7対象constraintがPASSした。再実行commandは次である。
 
 ```bash
 CONTAINER=fusou-tlsn-spec-pg
@@ -2525,7 +2540,7 @@ docker exec -i "$CONTAINER" psql -U postgres -v ON_ERROR_STOP=1 \
   < packages/FUSOU-WEB/supabase/tests/tlsn_identity_spec_primitives.sql
 ```
 
-これはprimitive fixtureのPASSであり、target migrationまたはproduction preflightのPASSを意味しない。P0-11はproduction `SHOW server_version_num`とextension versionsを記録し、対応するimmutable test image digestを`docs/security/evidence/postgres-target-v1.json`へ固定して同じfixtureとmigration suiteを通すまでPHASE-0である。
+これはprimitive fixtureのPASSであり、`.gitignore`対象の作業ツリーfixtureでもある。target migrationまたはproduction preflightのPASSを意味しない。P0-11はproduction `SHOW server_version_num`とextension versionsを記録し、対応するimmutable test image digestを`docs/security/evidence/postgres-target-v1.json`へ固定して同じfixtureとmigration suiteを通すまでPHASE-0である。
 
 ### 14.5 Gameplay integration tests
 
@@ -2599,6 +2614,32 @@ Production trafficは全GateがPASSするまでenableしない。P0-01..10とP0-
 | P0-15 | Privacy review | full response disclosure、non-persistence、log redaction承認 |
 | P0-16 | JWT key rollout | Ed25519 public registry先行配布、ACTIVE/VERIFY_ONLY/RETIRED tombstone rotation、pre-activation reject、60秒future-skew/expiry境界fixture、全validator rule一致、emergency revoke rehearsal |
 | P0-17 | Storage epoch cutover | 13 transitions/24 bindings/2 consumers/SESSIONを含むexact manifest、schema/Queue-drain profiles、backup restore、pause/in-flight barrier、binding/forward-recovery rehearsal |
+
+### 15.1 調査時点のゲート判定
+
+判定根拠の全文と再現コマンドは [tlsn-phase0-gate-ledger-v1.json](../security/evidence/tlsn-phase0-gate-ledger-v1.json) および [tlsn-source-inspection-v1.md](../security/evidence/tlsn-source-inspection-v1.md) に固定する。`Protocol` と `Repository` はsource/inventoryで確定できる事実を示し、runtime未実装だけを理由に `BLOCKED` としない。`Environment` と `Empirical` の `BLOCKED` は、実クライアント、runtime、staging/production、deployment、canaryまたはcutover証拠が未取得であることを示す。`FAIL` は観測した候補またはrepository状態が現行受入条件を満たさないことを表す。
+
+| P0-ID | Layer | Status | Reason | Evidence | Specification impact | Implementation impact |
+| --- | --- | --- | --- | --- | --- | --- |
+| P0-01 | Repository | `FAIL` | upstream refsは観測済みだが、FUSOUの選定/pinned revision、lock、license/security reviewがない | E-UPSTREAM-004, E-REPO-002 | 採用revisionとprofileを未確定のまま維持する | runtime implementationを開始しない |
+| P0-02 | Protocol | `FAIL` | alpha.15/mainのID APIは観測済みだが、採用revision、golden、literal `N`が未凍結 | E-UPSTREAM-004 | `N`を16へ推測変更せず、canonical extractionを未確定にする | DB CHECK、type、validator、fixtureを作成しない |
+| P0-03 | Protocol | `FAIL` | 候補はconnection-start timeであり、Notary-issued `notary_time`がない | E-UPSTREAM-001, E-UPSTREAM-003, E-UPSTREAM-004 | 現行authenticated issuance-time contractを維持する | client/verifier clockで代替せずNO-GO |
+| P0-04 | Empirical | `BLOCKED` | supported Game clientのnatural captureがない | E-REPO-001 | synthetic captureを代替にしない | captureなしにparser/profileを承認しない |
+| P0-05 | Empirical | `BLOCKED` | RangeSetはあるが、FUSOUの3 request range/1 response range、parser、digest goldenがない | E-UPSTREAM-004, E-REPO-001 | binding range contractを変更しない | Dedicated Verifier/fixtureを作成するまで実装しない |
+| P0-06 | Empirical | `BLOCKED` | Proxy、Dedicated Verifier、Web Result delivery runtimeがない | E-REPO-001 | same-session finalizationとResult byte identityを維持する | runtime pathとdelivery fixtureを実装・検証する |
+| P0-07 | Empirical | `BLOCKED` | origin counter、send latch、fallback/retry traceがない | E-REPO-001 | Game Server request re-submission禁止を維持する | send後にretryせずcounterを実装後に測定する |
+| P0-08 | Environment | `BLOCKED` | paired 1000-run reportとlatency samplesがない | E-ENV-001 | zero-delayを主張せずP95 ruleを維持する | matched profileで実測する |
+| P0-09 | Environment | `BLOCKED` | packet/egress-flow manifestがない | E-REPO-001, E-ENV-001 | topologyをconfigurationから推測しない | egress evidenceなしにenableしない |
+| P0-10 | Empirical | `BLOCKED` | upstream BCS/bincodeは観測済みだがRust/TypeScript goldenがない | E-UPSTREAM-001, E-UPSTREAM-004, E-REPO-001 | canonical orderとserializerを推測しない | cross-language fixture完成までbinary実装を承認しない |
+| P0-11 | Environment | `BLOCKED` | primitive fixtureはPASSだがproduction/image/migration evidenceがない | E-ENV-001, E-REPO-001 | primitive PASSをproduction PASSに昇格しない | production inventory前にDDLをapplyしない |
+| P0-12 | Environment | `BLOCKED` | production preflightとcutover-lock再検査がない | E-REPO-001, E-ENV-001 | zero invalid rowsとfreezeを維持する | recheckなしにcutoverしない |
+| P0-13 | Empirical | `BLOCKED` | deployed Bearer identityとanonymous rejection evidenceがない | E-REPO-001 | anonymous authorityを許可しない | authenticated callerを実装後に検証する |
+| P0-14 | Empirical | `BLOCKED` | natural client/session frequency metadataがない | E-REPO-001 | thresholdを発明せずgenerated request zeroを要求する | capture windowとcounterを取得する |
+| P0-15 | Empirical | `BLOCKED` | full-response privacy review、non-persistence、redaction approvalがない | E-REPO-001 | silent privacy tradeoffをしない | approval/testなしにdeliveryをenableしない |
+| P0-16 | Empirical | `BLOCKED` | registry/key lifecycle implementationとrehearsalがない | E-REPO-001 | REVOKEDをfail closedにしProof Copyを弱めない | digest/revoke barrierを実装・rehearseする |
+| P0-17 | Environment | `BLOCKED` | storage manifest、resources、Queue drain、restore、forward recoveryがない | E-REPO-001, E-ENV-001 | partial cutoverを許可しない | provisioning/cutover barrierまでdeploymentしない |
+
+現在の集計: `PASS = 0`、`FAIL = 3`、`BLOCKED = 14`。したがって全17 gateのPASS条件を満たさず、runtime implementationは `NO-GO` のままとする。
 
 Gate failure時は fallback実装で Security Goal を弱めず、NO-GO とする。
 
@@ -2725,7 +2766,10 @@ Remaining design decisions:
 NONE. External facts below are Phase 0 evidence gates, not open design decisions.
 
 Remaining Phase 0 evidence:
-P0-01..P0-06 TLSNotary revision/profile, Attestation ID bytes and literal N, authenticated notary_time,
+現在の証拠ledger: PASS=0, FAIL=3, BLOCKED=14。公開alpha.15とmainの候補比較、候補分類、数値根拠、攻撃別再監査、および残りすべての証拠は、
+docs/security/evidence/tlsn-phase0-gate-ledger-v1.json と docs/security/evidence/tlsn-source-inspection-v1.md に記録する。候補探索の結論は `NO ADOPTABLE REVISION FOUND` であり、FUSOUのselected TLSNotary revisionはない。
+P0-01..P0-03 TLSNotary revision/profile、Attestation ID bytesとliteral N、authenticated notary_timeのFAIL理由と候補source evidence。
+P0-04..P0-06
 real require_info capture, strict disclosure, and T3/T4 delivery evidence.
 P0-07..P0-10 no-resubmission, performance, direct topology, and cross-language determinism evidence.
 P0-11..P0-12 target PostgreSQL migration and existing-production preflight evidence.
@@ -2784,10 +2828,10 @@ API ↔ RPC:
 PASS - canonical contract and outcome subsets are defined; target RPC implementation is absent
 
 Verifier Protocol:
-PHASE-0 - revision and authenticated-time evidence not yet verified
+PHASE-0 - 候補revisionには仕様が要求するNotary-issued notary_timeがなく、採用revisionとprofileは未検証
 
 Canonical Serialization:
-PHASE-0 - literal Attestation ID length N not yet verified
+PHASE-0 - 候補ではUid([u8; 16])を観測したが、採用revision、extraction API、literal N、golden bytesは未検証
 
 Parser:
 PHASE-0 - real capture and parser fixtures pending
@@ -2832,7 +2876,7 @@ Overengineering:
 PASS - no new architecture, security mechanism, proxy, hash, or recovery mechanism added
 
 Runtime verification:
-0/17 Phase 0 gates; PostgreSQL primitive fixture only
+0/17 Phase 0 gates。候補upstreamのfixture API testのみ実行済みで、現在のledgerは3 FAIL、14 BLOCKED。候補探索の結論はNO ADOPTABLE REVISION FOUND
 
 Target migration:
 PHASE-0 - absent
