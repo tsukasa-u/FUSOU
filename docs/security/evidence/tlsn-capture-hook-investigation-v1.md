@@ -1,6 +1,6 @@
 # TLSNotary Capture Hook Investigation v1
 
-Status: source-backed architecture investigation only. This document does not provide natural evidence for P0-04 or P0-05 and does not authorize runtime implementation.
+Status: source-backed architecture investigation and input to the selected `FORK` decision. This document does not provide natural evidence for P0-04 or P0-05 and does not authorize runtime implementation.
 
 ## Question and conclusion
 
@@ -68,6 +68,19 @@ This gives two possible internal observation positions, but neither is public in
 - Wrap the returned server `TlsStream` after `accept` and before `serve_stream` to observe client-facing decrypted HTTP application bytes.
 
 The second position is the required HTTP transcript position. It is inside hudsucker's private implementation, so `with_http_handler` cannot reach it.
+
+## Architecture decision
+
+The formal implementation decision is **`FORK`**. A maintained hudsucker fork
+will add the smallest per-CONNECT stream hook after `TlsAcceptor::accept` and
+before private `serve_stream`. `REPLACEMENT` is retained only as a migration
+fallback. A separate upstream connector or capture-side proxy is rejected as a
+natural transcript solution because it observes FUSOU's reconstructed
+origin-side serialization.
+
+The source-backed comparison, minimum fork patch surface, lifecycle rules,
+prototype status, and unchanged gate disposition are recorded in [TLSNotary
+Capture Architecture Decision v1](tlsn-capture-architecture-decision-v1.md).
 
 ## Upstream connector source path
 

@@ -1,6 +1,6 @@
 # TLSNotary Capture Harness Architecture v1
 
-Status: infrastructure preparation only. This document does not provide natural evidence for P0-04 or P0-05.
+Status: infrastructure preparation only. The selected future server boundary is `FORK` as recorded in [TLSNotary Capture Architecture Decision v1](tlsn-capture-architecture-decision-v1.md). This document does not provide natural evidence for P0-04 or P0-05.
 
 ## Purpose
 
@@ -34,7 +34,7 @@ A future lower-level collector must feed `ExactWireMessage::from_parts` from the
 
 The constructor rejects offsets that do not equal the byte length. `ExactWireCapture::write_private_raw` stores the request and response wire payloads as `request-wire.bin` and `response-wire.bin`, with `EXACT_WIRE` and `PRIVATE_RAW_CAPTURE` markers.
 
-The current hudsucker `HttpHandler` does not expose this exact-wire input, and its public builder does not expose a per-CONNECT stream wrapper at the required layer. Adding a lower-level hook requires a hudsucker fork or replacement server boundary and must be implemented separately from this harness.
+The current hudsucker `HttpHandler` does not expose this exact-wire input, and its public builder does not expose a per-CONNECT stream wrapper at the required layer. The selected implementation path is a maintained hudsucker fork that adds the smallest per-CONNECT hook after TLS accept and before Hyper parsing. A replacement server boundary remains a migration fallback and must not be introduced as part of this harness work.
 
 ## Artifact and Hash Rules
 

@@ -54,6 +54,8 @@ kc-api-epoch-20250627 = ["fusou-storage/kc-api-epoch-20250627"]
 [dev-dependencies]
 tracing = { version = "0.1.35", features = ["log"] }
 tracing-subscriber = "0.3.8"
+rcgen = "0.13.2"
+tokio-rustls = "0.26.4"
 
 [[example]]
 name = "example"
