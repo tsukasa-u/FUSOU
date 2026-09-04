@@ -37,11 +37,11 @@
 
 次だけがTLSNotary profileとFUSOUの相互運用に必要なprotocol contractである。
 
-1. 選定revisionは、Notary署名で保護されたauthenticated issuance timeを提供しなければならない。`ConnectionInfo.time`、Verifier clock、client clockは代用にならない。
+1. 選定revisionは、Notary署名で保護されたAttestation/transcriptと、その検証に必要なVerifier modelを提供しなければならない。`ConnectionInfo.time`、Verifier clock、client clockをidentity evidenceとして扱わない。
 2. authenticated transcriptは、自然な一つの`require_info` request/responseとserver-issued bindingを含み、Verifierはserver identity、request/response、disclosure、Session bindingを同じproofとして検証しなければならない。
 3. Attestation IDは選定revisionが返すopaque bytesとして、Session/Challenge/Result/Claimのidentity・replay比較でbyte-for-byte一致させる。内部構造や未証明の固定長を仮定しない。
 4. Verifier ResultとClaimBindingBytesは、protocol version内で決定的で、署名対象と検証対象のbytesが一致しなければならない。serializationの細部はこの決定性と相互運用性を満たす最小限だけを固定する。
-5. protocolが返すauthenticated time、transcript digest、proof purpose、profile/key identityはserver-sideで検証し、clientがこれらをauthorityとして提出できない。
+5. protocolが返すauthenticated transcript、transcript digest、proof purpose、profile/key identityはserver-sideで検証し、clientがこれらをauthorityとして提出できない。時間情報は、v1のidentity authorityではない。
 
 ### Implementation / Operational Contract
 
@@ -64,7 +64,7 @@ JSON property order、HTTP headerの具体的位置、resource limitsの初期�
 5. `member_ownership`、`member_identity_claims`、`claim_challenges`、`claim_verified_device_v1` は実 migration に存在しない。
 6. 現行 `member_id_mapping.api_member_id` は `TEXT`、`user_devices.device_pubkey` は `BYTEA` である。
 7. 現行 Dataset JWT は `sub = canonical_user_id`、別 claim `device_id`、HS256、7日 TTL である。本書の v1 credential と互換ではない。
-8. TLSNotary revision、`Attestation.header().id` の canonical bytes と長さ、authenticated `notary_time`、Verifier Result serializer は repository 上で未実証である。
+8. TLSNotary revision、`Attestation.header().id` のcanonical bytesとopaque encoding、Verifier Result serializerはrepository上で未実証である。`ConnectionInfo.time`は候補source上の補助metadataに留める。
 
 したがって、本書は現行実装の説明ではなく、現行実装を置換する target specification である。
 
@@ -72,7 +72,7 @@ JSON property order、HTTP headerの具体的位置、resource limitsの初期�
 
 | Severity | 件数 | 主な内容 |
 | --- | ---: | --- |
-| P0 | 17 | 複数 master document、自己申告 path の未反映、未実証値を「実証済み」と記載、State Machine と DB の不一致、cross-user takeover の曖昧性、Claim idempotency 不足、RPC authority input 過多、lock order 逆転、Verifier binary 未定義、`notary_time` 欠落、Fresh DB 不成立、projection authority 化、JWT 不一致、No Re-submission 未実証、legacy route 稼働中 |
+| P0 | 17 | 複数 master document、自己申告 path の未反映、未実証値を「実証済み」と記載、State Machine と DB の不一致、cross-user takeover の曖昧性、Claim idempotency 不足、RPC authority input 過多、lock order 逆転、Verifier binary 未定義、未検証のissuance-time前提、Fresh DB 不成立、projection authority 化、JWT 不一致、No Re-submission 未実証、legacy route 稼働中 |
 | P1 | 10 | Device transition constraint 不足、append-only DDL 不足、current schema の列名不一致、Composite FK query 未試験、legacy purge 順序不良、Social Binding 重複定義、range semantics 不足、partial transcript と strict parser の両立未定義、migration rollback 不足、mock-only test |
 | P2 | 4 | 重複 paragraph、壊れた heading 番号、存在しない crate 名の既成事実化、設計項目を完了扱いする checklist |
 
@@ -142,12 +142,12 @@ TotalはP0 36件、P1 58件、P2 15件である。本書ではそれらの設計
 候補sourceから確認できた事実は次のとおりである。
 
 1. `Attestation` は `header()` methodではなく公開field `header: Header` を持ち、`Header.id` は `Uid([u8; 16])` である。これは候補の観測値であり、FUSOUの固定長契約、golden bytes、採用APIを確定しない。
-2. `ConnectionInfo.time` は「TLS connection started」のUnix秒であり、proxyのfirst read時に取得され、Notaryが `tls_transcript.time()` としてsigned `ConnectionInfo`へコピーする。Notary発行時刻を表す `notary_time` field/APIは候補sourceにないため、現行profileのP0-03を満たさない。
+2. `ConnectionInfo.time` は「TLS connection started」のUnix秒であり、proxyのfirst read時に取得され、Notaryが `tls_transcript.time()` としてsigned `ConnectionInfo`へコピーする。これはconnection metadataであり、v1のidentity authorityやClaim freshnessの根拠にはしない。
 3. 候補sourceの内部signature serializationはBCS、exampleのrequest/attestation wire transportはbincodeである。FUSOUのVerifier Result、ClaimBindingBytes、Rust/TypeScript golden equalityは未実装・未実証である。
 
-4. 公開tagは `v0.1.0-alpha.1` から `v0.1.0-alpha.15` までであり、詳細比較を行った最新公開版alpha.15とmainの両方で `notary_time` は確認できない。両候補は `REJECTED_UNDER_CURRENT_SPEC` であり、`ADOPTABLE` および `SPEC-COMPATIBLE-BUT-NEEDS-ADAPTER` は該当なしである。
+4. 公開tagは `v0.1.0-alpha.1` から `v0.1.0-alpha.15` までであり、詳細比較を行った最新公開版alpha.15とmainの両方でNotary-issued `notary_time` は確認できない。この欠落はv1のreject理由ではない。alpha.15はFUSOU adapter前提のrevision候補、mainは未release candidateとして扱う。
 
-したがって今回の候補探索の結論は **`NO ADOPTABLE REVISION FOUND`** である。FUSOUはrevisionを選定していないため、「selected TLSNotary revisionが仕様不適合」とは記録しない。adapterはpublic field、RangeSet、wire transportを接続できても、Notary signatureの対象となるNotary-issued `notary_time`を追加できない。調査の機械可読な判定は `PASS = 0`、`FAIL = 3`（revision/pin、Attestation ID contract、authenticated time）、`BLOCKED = 14` であり、Phase 0は `NO-GO (0/17 PASS)` のままとする。候補sourceのfixture API testが通ったことは、FUSOU profileやproduction gateのPASSを意味しない。詳細な候補matrix、数値根拠、攻撃別再監査は [TLSNotaryソース調査](../security/evidence/tlsn-source-inspection-v1.md) に固定する。
+したがって今回の候補探索の結論は **`ADOPT_WITH_FUSOU_ADAPTER`** である。これはalpha.15を優先候補としてadapterとともに採用検証する決定であり、dependency pin、opaque ID golden、natural capture、Verifier/parser evidenceが完了したことを意味しない。mainはreleaseされるまで採用候補にしない。調査の機械可読な判定は `PASS = 1`、`FAIL = 2`、`BLOCKED = 14` であり、Phase 0は `NO-GO (1/17 PASS)` のままとする。候補sourceのfixture API testが通ったことは、FUSOU profileやproduction gateのPASSを意味しない。詳細な候補matrix、数値根拠、攻撃別再監査は [TLSNotaryソース調査](../security/evidence/tlsn-source-inspection-v1.md) に固定する。
 
 ---
 
@@ -192,7 +192,31 @@ client が自己申告した偽の `api_member_id`、任意の `public_id`、任
 8. 既存 verified owner と異なる user への自動 takeover は発生しない。
 9. Dataset Token から `public_id` と `device_id` を決定し、Telemetry payload の identity field を認可に使用しない。
 
-### 1.3 Scope 外
+### 1.3 Security Goal Classification (A-M)
+
+`notary_time`の不在がどの保証を壊すかを、Primary Security Goalと補助的なfreshness propertyに分けて判定する。ここで `preserved` はserver-side binding、single-use、署名、live authorizationがそのまま保証するもの、`reduced` はNotary発行時刻を証明できないため精度が落ちるもの、`out of scope` はv1が主張しないものである。
+
+| ID | Security property | 判定 | `notary_time`がない場合の具体的な影響 | 代替する根拠 |
+| --- | --- | --- | --- | --- |
+| A | Game Server response provenance | `preserved` | 影響なし。TLSNotaryのauthenticated transcriptとallowlisted server identityで検証する | Attestation、transcript commitment、Web PKI、strict parser |
+| B | `api_member_id`のresponse由来 | `preserved` | 影響なし。client bodyからmember IDを受け取らない | authenticated `require_info` response parser |
+| C | Proofとauthenticated userのbinding | `preserved` | 影響なし。Proof Copyはuser/session equalityで拒否する | server-issued Session、Bearer actor、Verifier signature |
+| D | Proofとdevice keyのbinding | `preserved` | 影響なし。別deviceの署名やSession差替えを拒否する | immutable Session/Challenge、device Ed25519 signature |
+| E | Session/Challenge/Claimの同一性 | `preserved` | 影響なし。exact equalityとterminal lifecycleを維持する | DB root、foreign key、row lock、Challenge CAS |
+| F | Owner conflict prevention | `preserved` | 影響なし。first claimantをauthorityにする経路は作らない | ownership rootとatomic Claim RPC |
+| G | Replay / single-use | `preserved` | 影響なし。古いproofの再送はterminal Session/Challengeで拒否する | Session/Challenge lifecycle、unique Attestation ID |
+| H | Device revocation / live authorization | `preserved` | 影響なし。proof取得時刻ではなく利用時のdevice/root stateを評価する | current root lookup、revoke fail-closed、Dataset validation |
+| I | Server-derived `public_id` | `preserved` | 影響なし。proofやclientがIDを選べない | mapping rootとserver-generated UUID |
+| J | No Game Server request re-submission | `preserved` | 影響なし。proof timeとは独立したtransport state-machineの性質 | send latch、origin counter、post-send no-retry |
+| K | No unnecessary transcript/secret persistence | `preserved` | 影響なし。timestampの追加保存も不要になる | request-lifetime bytes、digest/range metadata only |
+| L | Claim authorization freshness | `preserved with bounded semantics` | proofが取得直後かどうかは証明できないが、Session/Challengeの有効期限内だけClaimを許可できる | `v_db_now`、Session/Challenge/device TTL、single-use |
+| M | Notary issuance-time provenance | `removed from v1` | NotaryがいつAttestationを発行したか、またはproofが取得からどれだけ古いかを証明できない | 代替authorityは導入しない |
+
+したがって `notary_time` がないことで失われるのはMだけであり、Lは「proof freshness」ではなく「Claim authorization freshness」として境界付きで維持できる。攻撃者が古いproofを持っていても、対応するSession/Challengeが期限切れ、消費済み、別user/device、またはrevoked rootに結び付く場合は受理されない。一方、同じ未期限Session内でproof取得からの経過時間を検出することはできない。この残余リスクを受け入れない利用目的、例えばNotary発行時刻そのものの監査証明やproof age SLAが必要な場合は、v1のPrimary Security Goalを拡張する別設計とする。
+
+案Cの外部timestamp authorityは、この残余リスクだけを理由に導入しない。新たなtrust root、鍵 lifecycle、availability、時計整合性、compromise時のfail-closed条件を増やし、現在のidentity保証に必要な根拠ではないからである。
+
+### 1.4 Scope 外
 
 次は v1 で保証せず、新しい機構を追加しない。
 
@@ -207,7 +231,7 @@ client が自己申告した偽の `api_member_id`、任意の `public_id`、任
 
 Proof Copy Attack の拒否は v1 の MUST であり、Phase 0 の実験結果を待って scope 外へ戻してはならない。Device signature 単体が Proof Copy を防ぐのではなく、`Verifier Result <-> Attestation Session <-> authenticated user/device` の一致が防止の根拠である。
 
-### 1.4 Proof Copy security requirement
+### 1.5 Proof Copy security requirement
 
 次の組合せはすべて reject する。
 
@@ -287,9 +311,8 @@ member_ownership -> user_member_map -> web_user_member_map
 | `device_public_key` | Raw Ed25519 public key bound to `device_id` | Exactly 32 raw bytes | Device registration and `user_devices` root | Immutable; row lifetime | `user_devices.device_public_key BYTEA` with global UNIQUE | Strict unpadded base64url of 32 bytes where an API returns/accepts a registration key |
 | `primary_device_id` | Historical pointer to the last accepted primary device for an ownership row | UUID FK to the same owner/public device | `member_ownership` history only | Mutable only on accepted same-owner Additional Device Claim; not authorization | `member_ownership.primary_device_id UUID` | May be returned as historical data; never a token/state authorization input |
 | `tlsn_attestation_id` | Opaque bytes of `Attestation.header.id` extracted through the selected TLSNotary profile | Raw opaque bytes; a fixed length is used only if the selected profile or interoperability requires it | TLSNotary Attestation and Verifier Result | Immutable; Challenge/Claim retention lifetime | `BYTEA`, profile-validated and UNIQUE on Challenge/Claim | Strict unpadded base64url of the profile-defined bytes inside Verifier Result |
-| `notary_time` | Notary-authenticated POSIX UTC whole seconds signed in the Attestation | UInt64 | Notary signature over the authenticated Attestation | Immutable evidence field | `public.fusou_uint64` | UInt64Decimal String in Verifier Result; never Game event time |
-| `result_time` | POSIX UTC whole seconds read once by the Verifier after proof validation completes | UInt64 | Dedicated Verifier trusted clock | Immutable per Verifier Result | `public.fusou_uint64` | UInt64Decimal String in Verifier Result; distinct from `notary_time` |
-| `Verifier Result` | Canonical JSON object carrying authenticated full transcripts/ranges, identity profile, Attestation Session binding fields, key IDs, times, attestation ID, and Verifier Ed25519 signature | UTF-8 canonical JSON bytes plus 64-byte Ed25519 signature | Dedicated Verifier after TLSNotary verification; user/device are derived from the Session, never client supplied | Immutable signed artifact; raw bytes are request-lifetime only | Raw JSON is not stored; Challenge/Claim authority subset, full SHA-256 digests, and Range metadata are copied | One exact `application/json` artifact; the same bytes may be retried to the Web API on network/5xx failure |
+| `Verifier Result` | Canonical JSON object carrying authenticated full transcripts/ranges, identity profile, Attestation Session binding fields, key IDs, attestation ID, and Verifier Ed25519 signature | UTF-8 canonical JSON bytes plus 64-byte Ed25519 signature | Dedicated Verifier after TLSNotary verification; user/device are derived from the Session, never client supplied | Immutable signed artifact; raw bytes are request-lifetime only | Raw JSON is not stored; Challenge/Claim authority subset, full SHA-256 digests, and Range metadata are copied | One exact `application/json` artifact; the same bytes may be retried to the Web API on network/5xx failure |
+| `Verifier Result` | Canonical JSON object carrying authenticated full transcripts/ranges, identity profile, Attestation Session binding fields, key IDs, attestation ID, and Verifier Ed25519 signature | UTF-8 canonical JSON bytes plus 64-byte Ed25519 signature | Dedicated Verifier after TLSNotary verification; user/device are derived from the Session, never client supplied | Immutable signed artifact; raw bytes are request-lifetime only | Raw JSON is not stored; Challenge/Claim authority subset, full SHA-256 digests, and Range metadata are copied | One exact `application/json` artifact; the same bytes may be retried to the Web API on network/5xx failure |
 | `Attestation Session` | One server-issued proof-acquisition binding fixed before the TLSNotary request to one authenticated non-anonymous user and one authenticated device key | `session_id`, `canonical_user_id`, `device_id`, `device_public_key`, `binding_nonce`, `issued_at`, `expires_at`, and closed lifecycle status | FUSOU-WEB authenticated-device context plus PostgreSQL Session row; no client locator is authoritative | Immutable authority fields; `ACTIVE -> CONSUMED/EXPIRED/REVOKED` terminal lifecycle. A terminal Session is never reused; a new Session may reuse the same non-REVOKED device key under the retry rules in Section 7.1.1 | `attestation_sessions` row with unique `session_id`/`binding_nonce`, at most one ACTIVE row per device key, and terminal reason; retained terminal rows may share a device key/device ID | Client receives only an opaque server-generated binding value and expiry for transport relay; `session_id`, nonce, user, device, and key are not client authority inputs |
 | `ClaimBindingBytes` | Canonical binary message reconstructed by FUSOU-WEB from Challenge authority fields and signed by the device key | Deterministic byte string defined in Section 7.3 | FUSOU-WEB serialization rules plus Challenge row; device signs but does not define fields | Immutable per Challenge; not persisted as raw bytes | No raw column; Challenge authority fields and accepted Claim fields are the source | Never client-supplied; device receives/derives the exact bytes for Ed25519 signing |
 | `Challenge` | One server-issued, device-bound coordination record authorizing one Claim attempt | PostgreSQL row with `ACTIVE`, `CONSUMED`, or `EXPIRED` lifecycle | FUSOU-WEB verifier + PostgreSQL Challenge root for lifecycle | Authority columns immutable; lifecycle terminal; transient coordination with retained replay evidence | `claim_challenges` row, terminal reason/lifecycle checks, one UNIQUE `tlsn_attestation_id` | Server response exposes only defined authority/result fields; client submits only challenge ID and signature to Claim |
@@ -323,8 +346,6 @@ Verifier Resultのraw canonical JSON bytesはChallenge/Claimのいずれにも�
 | `device_public_key` | Raw 32-byte Ed25519 key | Strict unpadded base64url String | Not included in ClaimBindingBytes; loaded from DB for verification | `BYTEA` length 32, global UNIQUE | Registration input uses base64url; internal `get_claim_challenge_v1` may return DB `BYTEA` to FUSOU-WEB only | `device_key_encoding_exact` |
 | `primary_device_id` | Historical ownership pointer | UUID String only when explicitly returned | — | Ownership UUID FK | Historical output only | `primary_device_not_authority` |
 | `tlsn_attestation_id` | Selected-profile TLSNotary `Attestation.header.id` opaque bytes | Strict unpadded base64url of profile-defined bytes | Length-prefixed raw opaque bytes | `BYTEA`, profile validation and UNIQUE | Verifier Result/Challenge response encoding | `attestation_id_bytes_round_trip` |
-| `notary_time` | Notary-authenticated POSIX UTC seconds | UInt64Decimal String | `u64_be` | `public.fusou_uint64` | Verifier Result field | `notary_time_authenticated_not_result_time` |
-| `result_time` | Verifier trusted post-validation POSIX UTC seconds | UInt64Decimal String | `u64_be` | `public.fusou_uint64` | Verifier Result field | `result_time_is_verifier_clock` |
 | `Verifier Result` | Signed canonical full-transcript result | Exact canonical JSON, signature included | Signature input excludes signature and follows Section 5.3 | Challenge/Claim authority subset, full SHA-256 digests, and Range metadata; raw JSON absent | `verifier_result_b64` in Challenge request | `verifier_result_golden_bytes` |
 | `ClaimBindingBytes` | Server-defined device-signature preimage | Never accepted as JSON authority | Exact Section 7.3 byte sequence | Raw bytes absent; source fields copied | Client derives locally from Challenge response | `claim_binding_bytes_golden_hex` |
 | `Challenge` | One device-bound Claim coordination row | Exact Challenge response fields | Its fields feed ClaimBindingBytes | `claim_challenges`, lifecycle, `terminal_reason` = `NULL`, `CLAIM_ACCEPTED`, `INVALID_SIGNATURE`, `DEVICE_REVOKED`, or `TTL_EXPIRED`, and unique constraints | Challenge API response; Claim request carries only ID/signature | `challenge_lifecycle_and_attestation_unique` |
@@ -524,7 +545,7 @@ packages/FUSOU-APP/src-tauri/security/tlsn-v1.json
 2. Prover、Notary、Verifier crate version と feature set。
 3. 採用revisionにおける `Attestation` header ID のcanonical byte extraction APIと、opaque bytesとして扱うためのencoding。
 4. `tlsn_attestation_id` に固定長が必要かどうか。必要な場合だけprofileがその長さを定める。
-5. `notary_time` の authenticated source と seconds-since-Unix-epoch semantics。
+5. `ConnectionInfo.time` はsource observationとして記録するが、identity authorityまたはClaim freshnessへ昇格させない。
 6. Request/response transcript offset の基準。
 7. One-request-per-MPC-session と T3 後 finalization の実証 fixture。
 8. Notary trust anchors、Web PKI root snapshot、certificate revocation policy。
@@ -541,7 +562,7 @@ Profile IDは現行candidateのASCII `fusou-require-info-v1`。Profile document�
 
 Top-levelとentryのunknown/duplicate field、key identityの重複、invalid lifecycle windowは拒否する。`x`と`profile_sha256`は32-byte public/digest valuesとして検証し、key statusとsigning-window semanticsを保つ。Keysの並び、時刻のwire representation、Game Server registryの具体的なJSON shape、lowercase hostnameと`port=443`の採用はprofile/registry artifactのcandidate inputであり、選定profileのgolden bytesとnegative fixturesで凍結する。全registry parserは再serialize bytes一致を検証し、unknown/duplicate/unsorted/noncanonical negative fixturesを共有する。
 
-`REVOKED`はkey compromise用の不可逆・遡及失効であり、同じIDを再登録しない。FUSOU-WEBはChallenge issuanceとClaim署名検証前にChallengeのVerifier/Notary key ID、profile hash、result/notary timeをcurrent registriesへ照合する。どちらかがmissing/REVOKEDならClaimを`409 CHALLENGE_NOT_ACTIVE`として拒否する。新規ClaimはACTIVE/VERIFY_ONLYかつoriginal signing window内だけ受理し、accepted Claimのexact replayはRETIREDも受理する。
+`REVOKED`はkey compromise用の不可逆・遡及失効であり、同じIDを再登録しない。FUSOU-WEBはChallenge issuanceとClaim署名検証前にChallengeのVerifier/Notary key IDとprofile hashをcurrent registriesへ照合する。どちらかがmissing/REVOKEDならClaimを`409 CHALLENGE_NOT_ACTIVE`として拒否する。新規ClaimはACTIVE/VERIFY_ONLY keyだけを受理し、accepted Claimのexact replayはRETIREDも受理する。時間フィールドがないため、registryはNotary/Verifierの過去の署名時刻を証明するものではなく、現在の受理可否と明示的revokeを管理する。
 
 Normal rotationはnew key先行配布、signer切替、old VERIFY_ONLY、`stop_signing_at + 86700`以後かつACTIVE/unclaimed Challengeが0件でold RETIREDとする。Registryはappend-onlyであり、RETIRED/REVOKEDを含む全entryとpublic keyを永久tombstoneとして保持する。ID/`x`の削除・再利用を禁止する。
 
@@ -557,7 +578,7 @@ Notary、Verifier、Dataset JWT registryのcanonical bytes SHA-256を`security_r
 4. Old deploymentへのtraffic/deliveryが0であることとrevoked-key negative fixtureをproduction canaryで確認する。Affected deviceの明示的revokeを開始する。
 5. Consumers、ingest、token issuance、Identityの順に再開する。Inventoryを完全列挙できない、digestが混在する、または独立edge blockを実証できない場合はP0-16 FAILのまま再開しない。
 
-`notary_time` は Notary が Attestation signature の対象に含める POSIX UTC whole seconds である。Leap second は POSIX time と同じく表現しない。Profile は signed field の exact API/path と extraction fixture を固定する。採用 revision が Notary-authenticated time を提供しない場合は P0-03 FAIL とする。`result_time` は Verifier が proof validation 完了後に trusted UTC clock から1回取得する POSIX UTC whole secondsであり、Game Server event timeではない。
+`ConnectionInfo.time` は候補sourceが提供するTLS connection-start metadataとしてのみ記録する。Notary issuance timeやproof ageを表すと解釈せず、Verifier Result、Challenge、Claimのauthority fieldへコピーしない。Claim authorizationの時刻判定は、Challenge/Session/deviceのexpiryと、lock取得後に一度だけ取得するserver-side `v_db_now`で行う。
 
 Profile limits は、実装がresource exhaustionを防ぐために有限の上限を持たなければならない (`MUST`)。次の値は現時点の実装候補であり、protocolのsecurity constantではない。各値はnatural capture、privacy、性能、DoS耐性のevidenceで承認し、根拠がない値はprofile/configurationから除外または変更する。`MAX_CHALLENGE_BODY_BYTES`のような派生値も、親limitの根拠なしには固定しない。
 
@@ -593,8 +614,6 @@ verifier_key_id
 notary_key_id
 tlsn_attestation_id
 server_identity
-notary_time
-result_time
 request_transcript_size
 request_transcript_sha256
 response_transcript_size
@@ -620,8 +639,6 @@ signature
 | `notary_key_id` | ASCII String `^[A-Za-z0-9._-]{1,64}$` |
 | `tlsn_attestation_id` | strict unpadded base64url of the profile-defined opaque bytes |
 | `server_identity` | lowercase ASCII DNS hostname。total 1..253 bytes、label 1..63 bytes、label は `[a-z0-9](?:[a-z0-9-]*[a-z0-9])?`、末尾 dot なし |
-| `notary_time` | UInt64Decimal String |
-| `result_time` | UInt64Decimal String |
 | transcript sizes | UInt64Decimal String |
 | transcript digests | strict unpadded base64url、decoded length = 32 |
 | revealed ranges | Range array |
@@ -655,8 +672,6 @@ u16_be(verifier_key_id_byte_length) || verifier_key_id ASCII bytes
 u16_be(notary_key_id_byte_length) || notary_key_id ASCII bytes
 u16_be(tlsn_attestation_id_byte_length) || tlsn_attestation_id raw bytes
 u16_be(server_identity_byte_length) || server_identity ASCII bytes
-u64_be(notary_time)
-u64_be(result_time)
 u64_be(request_transcript_size)
 u16_be(32) || request_transcript_sha256 raw bytes
 u32_be(request_range_count)
@@ -707,11 +722,10 @@ Dedicated Verifier は次を順番に実行する。
 4. Full request transcriptをstrict parseし、request target/Host/exact binding header/body/trailing-byte ruleとrequest digestを検証する。Binding headerからSession ID、binding nonce、binding valueを抽出する。
 5. Resultへ出すRequest rangesをfull requestから切り出し、Range validationを実行する。
 6. Response transcriptが単一HTTP/1.1 200 responseであること、response digest、Range validationを検証する。
-7. authenticated `notary_time` を抽出し、`result_time` を1回取得する。`notary_time <= result_time` を要求する。
-8. Notary key validityを`notary_time`で評価する。Notary keyはACTIVEかつ`not_before <= notary_time < stop_signing_at < not_after`、Verifier signing keyはACTIVEかつ`not_before <= result_time < stop_signing_at < not_after`でなければならない。これはproof signing時点のkey windowであり、後続のChallenge/replayのcurrent-registry判定とは別である。
-9. Verifier Result を canonical serialize し、Verifier signing key で署名。
+7. Notary/Verifier key IDとprofile hashをcurrent registryへ照合し、missing/REVOKED keyまたはprofile mismatchを拒否する。Verifierは署名時点のkey statusを内部運用で確認するが、その時刻をResultのidentity authorityとして出力しない。
+8. Verifier Result を canonical serialize し、Verifier signing key で署名。
 
-FUSOU-WEBはVerifier key registryから`verifier_key_id`を解決し、signature、profile hash、issuer、purpose、version、server allowlistを検証する。新規ChallengeではREVOKED/RETIRED keyを拒否し、ACTIVE/VERIFY_ONLY keyについて`not_before <= result_time < stop_signing_at`かつ`result_time < not_after`を要求する。Historical entryのretirementと永久tombstone保持はSection 5.1に従う。HTTPS transportだけでResultを受理してはならない。Verifier private keyとFUSOU-WEB secretを共有してはならない。
+FUSOU-WEBはVerifier/Notary key registryから両key IDを解決し、signature、profile hash、issuer、purpose、version、server allowlistを検証する。新規Challengeではmissing/REVOKED/RETIRED keyを拒否し、ACTIVE/VERIFY_ONLY keyだけを受理する。Accepted Claimのexact replayはRETIRED keyも受理するが、missing/REVOKEDは常に拒否する。Historical entryのretirementと永久tombstone保持はSection 5.1に従う。HTTPS transportだけでResultを受理してはならない。Verifier private keyとFUSOU-WEB secretを共有してはならない。
 
 ---
 
@@ -842,7 +856,7 @@ Request body は次だけである。
 1. Outer body size、media type、strict JSON shapeを検証する。
 2. Supabase Bearerを検証し、non-anonymous userを取得する。
 3. `verifier_result_b64`をdecodeし、decoded length上限、canonical JSON、Verifier signature、profile、server identity、Attestation Session fields、transcript digests/ranges、`require_info` parserを検証する。Resultの`attestation_session_id`、`binding_nonce`、`binding_value`はrequest transcriptのauthenticated binding headerからVerifierが抽出した同じ値でなければならない。
-4. `server_now_epoch`を1回取得する。`notary_time <= result_time <= server_now_epoch + 300`、`notary_time >= server_now_epoch - 86400`をBigIntで検証する。これはDB mutationを伴わない早期reject用のtransport preflightであり、`result_time`を`notary_time`の代用にしない。Acceptanceのauthoritative clockはRPC内で必要なlock取得後に再取得する`v_db_now`である。
+4. ResultのfreshnessをVerifier/Client timestampから推定しない。Acceptanceのauthoritative clockはRPC内で必要なlock取得後に一度だけ取得するserver-side `v_db_now`である。
 5. ResultのSession ID、binding nonce、binding valueをstrict canonical formでdecode/validateする。Clientからdevice public keyやcanonical user/deviceを受け付けず、keyはSession rowから復元する。
 6. `verifier_result_sha256 = SHA-256(decoded canonical JSON bytes including signature)`と各revealed Range digestを計算する。Full response digestはfull response Rangeから再計算する。Full requestはWebへ開示されないが、Resultのsafe binding rangeと署名済み`binding_value`のformatを検証する。
 7. service-only `issue_identity_challenge_v1(...)` を1回呼ぶ。HTTP handlerからIdentity tableへ個別DMLを発行せず、Session/user/device authorityをResultやbodyから個別に保存しない。
@@ -856,8 +870,6 @@ p_binding_nonce BYTEA
 p_binding_value TEXT
 p_api_member_id TEXT
 p_tlsn_attestation_id BYTEA
-p_notary_time public.fusou_uint64
-p_result_time public.fusou_uint64
 p_profile_sha256 BYTEA
 p_server_identity TEXT
 p_verifier_key_id TEXT
@@ -877,7 +889,7 @@ Function内部の順序は次である。
 2. Attestation advisory lockを取得。
 3. Identity advisory lockを取得。
 4. User quota advisory lockを取得。
-5. Device-key advisory lockを取得し、必要なlockをすべて取得した後ここで`v_db_now := pg_catalog.transaction_timestamp()`を一度だけ取得する。`notary_time <= result_time <= v_db_now + 300`、`notary_time >= v_db_now - 86400`を再確認する。HTTP handlerの`server_now_epoch`はこの判定を代用しない。
+5. Device-key advisory lockを取得し、必要なlockをすべて取得した後ここで`v_db_now := pg_catalog.transaction_timestamp()`を一度だけ取得する。Session、Challenge、device expiryの判定にはこの値だけを使う。
 6. Session rowを`FOR UPDATE`し、`session_id`、`canonical_user_id`、`device_id`、`device_public_key`、`binding_nonce`、`issued_at`、`expires_at`、`session_status`を再構成する。Authenticated user、ResultのSession fields、canonical binding bytesがすべて一致し、ACTIVEかつ`expires_at > v_db_now`でなければ、`SESSION_NOT_ACTIVE`を返す。ACTIVE Sessionの expiry が過ぎている場合は、同Sessionに紐づくACTIVE Challengeがあればそれも`EXPIRED/TTL_EXPIRED`へ遷移してから返す。
 7. `get_or_create_public_id(p_api_member_id)`を呼び、mapping parent rowを`FOR UPDATE`。Device-key lock取得後のnon-locking lookupで、Sessionのdevice ID/keyに対応するcandidate `device_id`があれば取得する。
 8. 同AttestationのChallenge、同SessionのChallenge、candidate deviceの全ACTIVE Challengeのunionを`challenge_id`昇順で`FOR UPDATE`する。Lock後に全集合を再queryし、未lock rowがあればinvariant errorとしてabortする。
@@ -975,16 +987,16 @@ Claim受理には次の12 preconditionsをすべて満たす必要がある。1�
 5. Sessionの`device_id`、Challengeの`device_id`、Sessionの`device_public_key`、Challengeの`device_public_key_sha256`が一致する。
 6. Sessionの`binding_nonce`、Challengeの`binding_nonce`、Verifier Resultの`binding_nonce`がbyte-for-byte一致する。
 7. Sessionから再計算した`binding_value`がChallenge/Verifier Resultの`binding_value`と一致し、同じ value がauthenticated request transcriptのexact binding headerに現れる。
-8. Session、Challenge、Verifier ResultのAttestation ID、member ID、profile/server/key IDs、times、full transcript digests、Range metadata、purposeがimmutable authorityとして一致する。
+8. Session、Challenge、Verifier ResultのAttestation ID、member ID、profile/server/key IDs、full transcript digests、Range metadata、purposeがimmutable authorityとして一致する。
 9. ChallengeとSessionがACTIVEかつ、同じ `v_db_now` に対してそれぞれのexpiryが未来である。
 10. `user_devices` rowがSessionのkey/user/public IDに対応するPENDING deviceであり、device statusがREVOKED/VERIFIEDへ先行遷移していない。
 11. Signatureが、serverがSession/Challenge authorityから再構成した11-field ClaimBindingBytesに対するstrict pure Ed25519 signatureである。
 12. 同Attestation、同Session、同Challengeにaccepted Claimがなく、ownership conflict、device/quota limit、unique constraint violationがない。
 
-FUSOU-WEB は Challenge row から `device_id`、nonce、`public_id`、`api_member_id`、Attestation ID、`notary_time`、key IDs、range metadata を復元する。Client から同名 metadata を受け付けない。
+FUSOU-WEB は Challenge row から `device_id`、nonce、`public_id`、`api_member_id`、Attestation ID、key IDs、range metadata を復元する。Client から同名 metadata を受け付けない。
 
 1. `get_claim_challenge_v1(authenticated_user_id, challenge_id)`を呼ぶ。`RESOURCE_NOT_FOUND`は404、`CHALLENGE_EXPIRED`は`expire_identity_artifact_v1(challenge_id)`を同requestで完了して410、`SESSION_NOT_ACTIVE`はlinked Session/Challengeをusableな状態にせず409、`CHALLENGE_NOT_ACTIVE`は409とし、authority fieldsを処理しない。`OK`または`OK_REPLAY`だけ次へ進む。Read resultからSession/Challenge/Result authorityの全12 preconditionsを再確認し、値をclient inputとして扱わない。
-2. Current Notary/Verifier registriesを、device signature検証、`consume_invalid_challenge`、Claim RPCのいずれよりも先に照合する。`OK`は両keyがACTIVE/VERIFY_ONLYかつNotaryは`notary_time`、Verifierは`result_time`がoriginal signing window内、profile hash一致を要求する。`OK_REPLAY`はRETIREDも許可するが、両caseともmissing/REVOKEDは`409 CHALLENGE_NOT_ACTIVE`とし、registry failureではChallengeをconsume/expireせずDB mutationを行わない。
+2. Current Notary/Verifier registriesを、device signature検証、`consume_invalid_challenge`、Claim RPCのいずれよりも先に照合する。`OK`は両keyがACTIVE/VERIFY_ONLYかつprofile hash一致を要求する。`OK_REPLAY`はRETIREDも許可するが、両caseともmissing/REVOKEDは`409 CHALLENGE_NOT_ACTIVE`とし、registry failureではChallengeをconsume/expireせずDB mutationを行わない。Registry statusは現在の受理可否とrevokeを制御するが、過去の署名時刻を証明しない。
 3. Session row、Device row、Challenge rowのauthority valuesからClaimBindingBytesを再構築し、Session ID、binding nonce、binding valueを含める。
 4. Strict RFC 8032 pure Ed25519 signatureをraw bytesに対して検証。
 5. invalidの場合は`consume_invalid_challenge(authenticated_user_id, challenge_id)`を呼ぶ。Outcomeが`SESSION_NOT_ACTIVE`なら`409 SESSION_NOT_ACTIVE`、`CHALLENGE_EXPIRED`なら`410 CHALLENGE_EXPIRED`、`INVALID_SIGNATURE_CONSUMED`なら`401 INVALID_DEVICE_SIGNATURE`、`CHALLENGE_NOT_ACTIVE`なら`409 CHALLENGE_NOT_ACTIVE`を返す。
@@ -1033,7 +1045,7 @@ canonical_user_id
 
 1値でも異なれば `409 ATTESTATION_ALREADY_CLAIMED`。Idempotent response は `claim_replayed=true` と current device state を返す。Device が既に REVOKED なら Claim 自体は idempotent success だが `currently_authorized=false` とし、Token を発行しない。Existing accepted Claimをcurrent authorizationと解釈してはならない。
 
-`member_identity_claims.challenge_id`はClaimに使用したChallengeを一意に参照し、`ON DELETE RESTRICT`とする。Accepted Claim replayは同じ`challenge_id`から上記4値を復元できる。4値が一致しても`challenge_id`、member/public/user/device IDs、Attestation ID、notary/result times、profile hash、server identity、両key IDs、Verifier Result/full transcript digests、両Range metadata、proof purposeの全immutable authority列がChallengeとbyte/value-for-byte/value一致しない場合はDB corruptionとしてtransactionをabortし、idempotent successを返さない。
+`member_identity_claims.challenge_id`はClaimに使用したChallengeを一意に参照し、`ON DELETE RESTRICT`とする。Accepted Claim replayは同じ`challenge_id`から上記4値を復元できる。4値が一致しても`challenge_id`、member/public/user/device IDs、Attestation ID、profile hash、server identity、両key IDs、Verifier Result/full transcript digests、両Range metadata、proof purposeの全immutable authority列がChallengeとbyte/value-for-byte/value一致しない場合はDB corruptionとしてtransactionをabortし、idempotent successを返さない。
 
 ---
 
@@ -1149,20 +1161,9 @@ PENDING TTLは作成時から24時間、Challenge TTLは作成時から最大5�
 | Attestation ID | `BYTEA` | non-empty profile-defined opaque bytes; finite profile limit enforced before persistence |
 | nonce | `BYTEA` | `octet_length = 32` |
 | signature | API only | decoded 64 bytes |
-| `notary_time` | `NUMERIC(20,0)` | UInt64 range、same semantics as protocol |
-| DB lifecycle time | `TIMESTAMPTZ` | entry functionが一度取得する`v_db_now`によるDB event time。`notary_time`の代用禁止 |
+| DB lifecycle time | `TIMESTAMPTZ` | entry functionが一度取得する`v_db_now`によるDB event time。Verifier/Client timestampの代用禁止 |
 
 Attestation IDの内部構造や固定長を仮定してはならない。Profileが承認した有限の最大byte lengthはVerifier、API、DB境界で一貫して強制し、`u16_be(length)`を使うwire encodingでは65535 bytesを超える値を拒否する。候補sourceで観測した16 bytesを実装値へ昇格させてはならない。
-
-`notary_time`の実型は次のdomainである。
-
-```sql
-CREATE DOMAIN public.fusou_uint64 AS NUMERIC
-CHECK (
-  VALUE = pg_catalog.trunc(VALUE)
-  AND VALUE BETWEEN 0 AND 18446744073709551615
-);
-```
 
 すべてのServer-generated UUIDにはversion nibble `4`、variant nibble `[89ab]`のCHECKを付ける。`TIMESTAMPTZ` lifecycle columnsはentry functionが一度取得する`v_db_now`を使い、client timestampを受け取らない。
 
@@ -1281,8 +1282,6 @@ public_id UUID NOT NULL
 canonical_user_id UUID NOT NULL
 verified_device_id UUID NOT NULL UNIQUE
 tlsn_attestation_id BYTEA NOT NULL UNIQUE CHECK (octet_length(tlsn_attestation_id) > 0 AND octet_length(tlsn_attestation_id) <= 65535)
-notary_time public.fusou_uint64 NOT NULL
-result_time public.fusou_uint64 NOT NULL
 profile_sha256 BYTEA NOT NULL CHECK (octet_length(profile_sha256) = 32)
 server_identity TEXT NOT NULL
 verifier_key_id TEXT NOT NULL
@@ -1334,8 +1333,6 @@ device_id UUID NOT NULL
 device_public_key_sha256 BYTEA NOT NULL CHECK (octet_length(device_public_key_sha256) = 32)
 tlsn_attestation_id BYTEA NOT NULL CHECK (octet_length(tlsn_attestation_id) > 0 AND octet_length(tlsn_attestation_id) <= 65535)
 challenge_nonce BYTEA NOT NULL CHECK (octet_length(challenge_nonce) = 32)
-notary_time public.fusou_uint64 NOT NULL
-result_time public.fusou_uint64 NOT NULL
 profile_sha256 BYTEA NOT NULL CHECK (octet_length(profile_sha256) = 32)
 server_identity TEXT NOT NULL
 verifier_key_id TEXT NOT NULL
@@ -1708,7 +1705,6 @@ get_claim_challenge_v1:
   challenge_id UUID, api_member_id TEXT, public_id UUID,
   canonical_user_id UUID, device_id UUID, device_public_key BYTEA,
   tlsn_attestation_id BYTEA, challenge_nonce BYTEA,
-  notary_time public.fusou_uint64, result_time public.fusou_uint64,
   profile_sha256 BYTEA, server_identity TEXT, verifier_key_id TEXT,
   notary_key_id TEXT, verifier_result_sha256 BYTEA,
   request_transcript_sha256 BYTEA, response_transcript_sha256 BYTEA,
@@ -2633,7 +2629,7 @@ Production trafficは全GateがPASSするまでenableしない。P0-01..10とP0-
 | --- | --- | --- |
 | P0-01 | TLSNotary revision | exact commit、dependency lock、license/security review |
 | P0-02 | Attestation ID | official extraction API、opaque-byte encoding、golden bytes |
-| P0-03 | Authenticated time | `notary_time` source、tamper test、wire fixture |
+| P0-03 | Security freshness contract | A-M分類、stale/future proof分析、Session/Challenge `v_db_now` fixture、外部timestamp authorityを追加しない理由 |
 | P0-04 | Real `require_info` | 各supported Game client build/allowlisted hostでnatural requestを1件以上captureし、Number token、HTTP framing、compression、response sizeをmanifest化 |
 | P0-05 | Strict disclosure profile | Dedicated Verifierで必要なrequest/response coverageを認証、選定profileのlimit boundary fixture、Resultは必要最小限のrequest-line/Host/binding-header coverage、digest golden fixture |
 | P0-06 | T3/T4 delivery lifecycle | Browser response後にsame session finalization、signed ResultのProxy -> APP -> Web byte一致 |
@@ -2657,7 +2653,7 @@ Production trafficは全GateがPASSするまでenableしない。P0-01..10とP0-
 | --- | --- | --- | --- | --- | --- | --- |
 | P0-01 | Repository | `FAIL` | upstream refsは観測済みだが、FUSOUの選定/pinned revision、lock、license/security reviewがない | E-UPSTREAM-004, E-REPO-002 | 採用revisionとprofileを未確定のまま維持する | runtime implementationを開始しない |
 | P0-02 | Protocol | `FAIL` | alpha.15/mainのID APIは観測済みだが、採用revision、opaque-byte encoding、goldenが未凍結 | E-UPSTREAM-004 | 観測値を固定長へ推測変更せず、canonical extractionを未確定にする | profile byte bound、type、validator、fixtureを作成しない |
-| P0-03 | Protocol | `FAIL` | 候補はconnection-start timeであり、Notary-issued `notary_time`がない | E-UPSTREAM-001, E-UPSTREAM-003, E-UPSTREAM-004 | 現行authenticated issuance-time contractを維持する | client/verifier clockで代替せずNO-GO |
+| P0-03 | Security contract | `PASS` | A-M reviewでNotary issuance-time provenanceをv1から削除し、stale/future proofの残余リスクとSession/Challenge TTLの代替を明記 | E-UPSTREAM-001, E-UPSTREAM-003, E-UPSTREAM-004 | Mを削除し、Lをserver-side `v_db_now`、Session/Challenge/device TTL、single-useで境界付ける | stale/future proof fixtureを追加するがtimestamp authorityを追加しない |
 | P0-04 | Empirical | `BLOCKED` | supported Game clientのnatural captureがない | E-REPO-001 | synthetic captureを代替にしない | captureなしにparser/profileを承認しない |
 | P0-05 | Empirical | `BLOCKED` | RangeSetはあるが、FUSOUのauthenticated coverage、parser、digest goldenがない | E-UPSTREAM-004, E-REPO-001 | profile range contractをevidenceなしに固定しない | Dedicated Verifier/fixtureを作成するまで実装しない |
 | P0-06 | Empirical | `BLOCKED` | Proxy、Dedicated Verifier、Web Result delivery runtimeがない | E-REPO-001 | same-session finalizationとResult byte identityを維持する | runtime pathとdelivery fixtureを実装・検証する |
@@ -2673,7 +2669,7 @@ Production trafficは全GateがPASSするまでenableしない。P0-01..10とP0-
 | P0-16 | Empirical | `BLOCKED` | registry/key lifecycle implementationとrehearsalがない | E-REPO-001 | REVOKEDをfail closedにしProof Copyを弱めない | digest/revoke barrierを実装・rehearseする |
 | P0-17 | Environment | `BLOCKED` | storage manifest、resources、Queue drain、restore、forward recoveryがない | E-REPO-001, E-ENV-001 | partial cutoverを許可しない | provisioning/cutover barrierまでdeploymentしない |
 
-現在の集計: `PASS = 0`、`FAIL = 3`、`BLOCKED = 14`。したがって全17 gateのPASS条件を満たさず、runtime implementationは `NO-GO` のままとする。
+現在の集計: `PASS = 1`、`FAIL = 2`、`BLOCKED = 14`。したがって全17 gateのPASS条件を満たさず、runtime implementationは `NO-GO` のままとする。
 
 Gate failure時は fallback実装で Security Goal を弱めず、NO-GO とする。
 
@@ -2717,7 +2713,7 @@ roots <-> JWT <-> Telemetry: live validation and server attribution
 Migration <-> Fresh/Existing DB: sequence defined; target migration absent
 Migration <-> Deployment/Test: acceptance criteria aligned; execution pending
 Issue ledger: P0=0, P1=0, P2=0 remaining (historical dispositions: P0=36, P1=58, P2=15)
-Phase 0: 0/17 PASS
+Phase 0: 1/17 PASS
 Runtime implementation: absent
 ```
 
@@ -2750,7 +2746,7 @@ Implementation:
 NO-GO
 
 Phase 0:
-0/17 PASS
+1/17 PASS
 
 Specification reconstruction:
 PASS
@@ -2800,15 +2796,14 @@ Remaining design decisions:
 NONE. External facts below are Phase 0 evidence gates, not open design decisions.
 
 Remaining Phase 0 evidence:
-現在の証拠ledger: PASS=0, FAIL=3, BLOCKED=14。公開alpha.15とmainの候補比較、候補分類、数値根拠、攻撃別再監査、および残りすべての証拠は、
-docs/security/evidence/tlsn-phase0-gate-ledger-v1.json と docs/security/evidence/tlsn-source-inspection-v1.md に記録する。候補探索の結論は `NO ADOPTABLE REVISION FOUND` であり、FUSOUのselected TLSNotary revisionはない。
-P0-01..P0-03 TLSNotary revision/profile、Attestation ID opaque-byte encoding、authenticated notary_timeのFAIL理由と候補source evidence。
-P0-04..P0-06
+現在の証拠ledger: PASS=1, FAIL=2, BLOCKED=14。公開alpha.15とmainの候補比較、候補分類、数値根拠、攻撃別再監査、および残りすべての証拠は、
+docs/security/evidence/tlsn-phase0-gate-ledger-v1.json と docs/security/evidence/tlsn-source-inspection-v1.md に記録する。候補探索の結論は `ADOPT_WITH_FUSOU_ADAPTER` であり、alpha.15を優先候補とするがselected TLSNotary revisionは未確定である。
+P0-A Protocol / Dependency Freeze: P0-01..P0-02 TLSNotary revision/profileとAttestation ID opaque-byte encodingの証拠。
+P0-B Security Contract Validation: P0-03 A-M security goal、stale/future proof、Session/Challenge freshnessの証拠。
+P0-C Repository / Architecture Validation: P0-04..P0-05
 real require_info capture, strict disclosure, and T3/T4 delivery evidence.
-P0-07..P0-10 no-resubmission, performance, direct topology, and cross-language determinism evidence.
-P0-11..P0-12 target PostgreSQL migration and existing-production preflight evidence.
-P0-13..P0-16 non-anonymous auth, login-frequency, privacy, and JWT key lifecycle evidence.
-P0-17 storage epoch manifest, resource provisioning, Queue drain, backup/restore, and cutover rehearsal.
+P0-D Runtime Conformance: P0-06..P0-07、P0-10、P0-13のdelivery、no-resubmission、determinism、auth evidence。
+P0-E Environment / Production Evidence: P0-08..P0-09、P0-11..P0-12、P0-14..P0-17のperformance、topology、DB、preflight、privacy、key、cutover evidence。
 
 Canonical Definitions:
 PASS
@@ -2862,7 +2857,10 @@ API ↔ RPC:
 PASS - canonical contract and outcome subsets are defined; target RPC implementation is absent
 
 Verifier Protocol:
-PHASE-0 - 候補revisionには仕様が要求するNotary-issued notary_timeがなく、採用revisionとprofileは未検証
+PHASE-0 - alpha.15を優先候補とするが、採用revision、profile、strict parser、runtime conformanceは未検証
+
+Security freshness:
+PASS - M (Notary issuance-time provenance)をv1から削除し、L (Claim authorization freshness)をSession/Challenge/device TTLとserver-side `v_db_now`で境界付ける。stale proofのageは証明しない
 
 Canonical Serialization:
 PHASE-0 - 候補ではUid([u8; 16])を観測したが、採用revision、extraction API、opaque-byte encoding、golden bytesは未検証
@@ -2910,7 +2908,7 @@ Overengineering:
 PASS - no new architecture, security mechanism, proxy, hash, or recovery mechanism added
 
 Runtime verification:
-0/17 Phase 0 gates。候補upstreamのfixture API testのみ実行済みで、現在のledgerは3 FAIL、14 BLOCKED。候補探索の結論はNO ADOPTABLE REVISION FOUND
+1/17 Phase 0 gates。候補upstreamのfixture API testのみ実行済みで、現在のledgerは1 PASS、2 FAIL、14 BLOCKED。候補探索の結論はADOPT_WITH_FUSOU_ADAPTER（alpha.15優先候補）
 
 Target migration:
 PHASE-0 - absent

@@ -24,12 +24,12 @@ git -C /tmp/tlsn-phase0-source rev-parse HEAD
 
 ## 公開版比較と候補分類
 
-観測remoteの公開tagは `v0.1.0-alpha.1` から `v0.1.0-alpha.15` までであり、`alpha.16` の公開tagは観測されなかった。詳細なsource比較は、最新公開版 `v0.1.0-alpha.15` と観測時点の `refs/heads/main` に対して行った。両revisionのsource treeを対象に `notary_time`、`issued_at`、`issuance_time` の完全なfield/API名を検索したが、該当するNotary-issued時刻は見つからなかった。tag列挙とこの検索は候補探索の証拠であり、FUSOUがrevisionを選定したことを意味しない。
+観測remoteの公開tagは `v0.1.0-alpha.1` から `v0.1.0-alpha.15` までであり、`alpha.16` の公開tagは観測されなかった。詳細なsource比較は、最新公開版 `v0.1.0-alpha.15` と観測時点の `refs/heads/main` に対して行った。両revisionのsource treeを対象に `notary_time`、`issued_at`、`issuance_time` の完全なfield/API名を検索したが、該当するNotary-issued時刻は見つからなかった。tag列挙とこの検索は候補探索の証拠であり、FUSOUがrevisionを選定したことを意味しない。これはv1でNotary発行時刻をidentity authorityから除外する判断と矛盾しない。
 
 | 候補 | exact commit | package version | Attestation ID | time | transcript / finalization | FUSOU bindingとの関係 | 分類 |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| `refs/tags/v0.1.0-alpha.15` | `47aee45b53e06648c1b2ad3689b367b8c923fdec` | `0.1.0-alpha.15` | `attestation.header.id.0`、16 bytes | `ConnectionInfo.time`はTLS connection-start time | sent/received `RangeSet` disclosureとsession closeはある | FUSOU HTTP range、strict parser、one-request policyはupstream保証ではない | `REJECTED_UNDER_CURRENT_SPEC`（P0-03） |
-| `refs/heads/main` | `0fe3c32d35382b3f290a43c4156399ca4512bb89` | `0.1.0-alpha.16-pre` | `attestation.header.id.0`、16 bytes | `ConnectionInfo.time`はTLS connection-start time | alpha.15と同じ根本API。mainにはclosure testが追加された | FUSOUのwrite/retry契約は保証しない | `REJECTED_UNDER_CURRENT_SPEC`（P0-03） |
+| `refs/tags/v0.1.0-alpha.15` | `47aee45b53e06648c1b2ad3689b367b8c923fdec` | `0.1.0-alpha.15` | `attestation.header.id.0`、16 bytes | `ConnectionInfo.time`はTLS connection-start time。Notary発行時刻ではない | sent/received `RangeSet` disclosureとsession closeはある | FUSOU HTTP range、strict parser、one-request policyはupstream保証ではない | `ADOPT_WITH_FUSOU_ADAPTER` candidate |
+| `refs/heads/main` | `0fe3c32d35382b3f290a43c4156399ca4512bb89` | `0.1.0-alpha.16-pre` | `attestation.header.id.0`、16 bytes | `ConnectionInfo.time`はTLS connection-start time。Notary発行時刻ではない | alpha.15と同じ根本API。mainにはclosure testが追加された | FUSOUのwrite/retry契約は保証しない | `CANDIDATE_ONLY`（未release） |
 
 alpha.15とmainで、次のfocused source filesは同一SHA-256だった。
 
@@ -47,11 +47,13 @@ crates/tlsn/src/proxy.rs                  8ec2bb0808730e1f4976d616253bdd7d7673b5
 
 この比較に基づく判定は次のとおりである。
 
-- `ADOPTABLE`: 該当なし。
-- `SPEC-COMPATIBLE-BUT-NEEDS-ADAPTER`: 該当なし。public fieldやRangeSetをFUSOU adapterで接続することはできても、adapterはNotary signatureの対象となるNotary-issued `notary_time`を追加できない。
-- 結論: **`NO ADOPTABLE REVISION FOUND`**。
+- `ADOPTABLE`: 該当なし。FUSOU profile、dependency lock、golden fixtureが未承認である。
+- `ADOPT_WITH_FUSOU_ADAPTER`: alpha.15。Attestation/transcript、RangeSet、既存のfinalization部品をFUSOUのSession/Result/parser/transport adapterへ接続する優先候補である。
+- `REJECT`: reviewed sourceにNotary-issued `notary_time`がないことを理由にしたrejectは行わない。`ConnectionInfo.time`をNotary発行時刻と偽って使うadapterは拒否する。
+- main: release statusが確定するまで採用候補にしない。
+- 結論: **`ADOPT_WITH_FUSOU_ADAPTER`**（alpha.15を優先候補としてPhase 0検証へ進める）。
 
-FUSOUはまだTLSNotary revisionを選定していない。したがって「selected TLSNotary revisionが仕様不適合」とは記録せず、「今回レビューした候補が現行仕様のP0-03を満たさず、選定revisionは存在しない」と記録する。候補の16-byte ID観測だけからFUSOUの固定長IDサイズを16へ変更してはならない。
+FUSOUはまだselected revisionを確定していない。候補の16-byte ID観測だけからFUSOUの固定長IDサイズを16へ変更してはならない。alpha.15の採用候補化は、自然capture、profile-defined opaque encoding、strict parser、Result/ClaimBinding golden、one-request/finalization evidenceが未取得でも実装GOになることを意味しない。
 
 ### Capability matrix
 
@@ -63,7 +65,7 @@ FUSOUはまだTLSNotary revisionを選定していない。したがって「sel
 | Release status | `AVAILABLE` | `UNKNOWN` | alpha.15は公開tag、mainは公開branch上のpre-release package |
 | Attestation ID | `AVAILABLE` | `AVAILABLE` | `attestation.header.id.0`のpublic field pathと16-byte `Uid` |
 | Attestation serialization | `AVAILABLE` | `AVAILABLE` | BCSの内部canonical serialization、example transportのbincode |
-| Authenticated time | `NOT_AVAILABLE` | `NOT_AVAILABLE` | Notary-issued `notary_time`はなく、`ConnectionInfo.time`はconnection-start time |
+| Notary issuance-time provenance | `NOT_AVAILABLE` | `NOT_AVAILABLE` | Notary-issued `notary_time`はなく、`ConnectionInfo.time`はconnection-start time。v1ではidentity authorityにしない |
 | Transcript authentication | `AVAILABLE` | `AVAILABLE` | sent/received transcriptとAttestation検証のsource pathがある |
 | Selective disclosure | `AVAILABLE` | `AVAILABLE` | sent/receivedの`RangeSet<usize>` disclosureがある |
 | Verifier model | `AVAILABLE` | `AVAILABLE` | NotaryがMPC sessionをverify/acceptし、Attestationを構築する |
@@ -71,7 +73,7 @@ FUSOUはまだTLSNotary revisionを選定していない。したがって「sel
 | Request semantics | `AVAILABLE_WITH_FUSOU_LOGIC` | `AVAILABLE_WITH_FUSOU_LOGIC` | transcript bytesはあるが、require_info、HTTP parser、header位置はない |
 | Finalization semantics | `AVAILABLE_WITH_FUSOU_LOGIC` | `AVAILABLE_WITH_FUSOU_LOGIC` | MPC close/finalizationはあるが、FUSOU T3/T4 deliveryはない |
 | Supported transport | `AVAILABLE_WITH_FUSOU_LOGIC` | `AVAILABLE_WITH_FUSOU_LOGIC` | exampleのrequest/Attestation transportはあるが、FUSOU relayはない |
-| FUSOU binding feasibility | `NOT_AVAILABLE` | `NOT_AVAILABLE` | current specのauthenticated timeとFUSOU固有binding証拠を満たさない |
+| FUSOU binding feasibility | `AVAILABLE_WITH_FUSOU_LOGIC` | `AVAILABLE_WITH_FUSOU_LOGIC` | time authorityなしのv1 bindingはSession/Challenge TTL、署名、exact equalityで成立し得るが、FUSOU固有証拠は未取得 |
 
 このmatrixの`AVAILABLE`は「upstreamに部品がある」という意味に限定する。例えば`Selective disclosure = AVAILABLE`は、FUSOUが指定するrange数、parser、privacy、digest fixtureまで証明済みという意味ではない。`FUSOU binding feasibility = NOT_AVAILABLE`は候補sourceだけで現在の契約を実現できないという分類であり、adapterでNotary signature対象の時刻を追加できるという意味ではない。
 
@@ -82,7 +84,7 @@ FUSOUはまだTLSNotary revisionを選定していない。したがって「sel
 | 用語 | 意味 | 例 |
 | --- | --- | --- |
 | `observed fact` | source、repository inventory、または実行結果から直接確認した事実 | `Uid([u8; 16])`、`ConnectionInfo.time`のsource semantics |
-| `requirement` | FUSOUが採用を許可するためのsecurity/protocol contract | Notary-authenticated `notary_time`、Proof Copy MUST-REJECT |
+| `requirement` | FUSOUが採用を許可するためのsecurity/protocol contract | Proof Copy MUST-REJECT、Session/Challenge authorization freshness |
 | `empirical evidence` | real client、runtime、database、staging/productionで取得する検証結果 | natural capture、origin counter、key rotation rehearsal |
 | `candidate` | sourceを調査したが、FUSOUが選定・pinしていないrevision | alpha.15、観測時点のmain |
 | `selected revision` | P0-01を通過し、FUSOUのprofileとdependency lockに固定されたrevision | 現時点では存在しない |
@@ -97,15 +99,27 @@ Observed factはrequirementやempirical evidenceの代用にならない。特�
 
 ## `notary_time` decision table
 
-`ConnectionInfo.time`を`notary_time`として扱うことはしない。A/B/Cは仕様変更の候補を比較するためのdecision tableであり、現在の採用決定ではない。
+`ConnectionInfo.time`を`notary_time`として扱うことはしない。比較の結果、v1ではNotary issuance-time provenanceをPrimary Security Goalから削除する。
 
 | 案 | 内容 | セキュリティ上の変化 | 複雑性 | 判定 |
 | --- | --- | --- | --- | --- |
-| A | Notaryが署名対象に含めるauthenticated issuance timeをupstream capabilityとして要求する | 現行のtrust modelとissuance freshnessを維持する。候補に能力がなければ証明を受理できない | upstream revision/profileの選定とtamper fixtureが必要 | `RETAIN AS REQUIREMENT` |
-| B | `notary_time`を削除し、connection-start timeまたはFUSOU取得時刻だけを使う | Notary issuance freshnessを失う。証明の古い取得、Notary処理遅延、clock provenanceの混同を検出できず、time freshnessを攻撃者が利用できる範囲が増える | protocol依存は減るが、保証も減る | `REJECT UNLESS SECURITY REVIEW REVISES GUARANTEE` |
-| C | 外部timestamp authority、追加のsigned receipt、または別のtrusted clockを導入する | 新しいauthorityのcompromise、availability、key rotation、跨ぎ時刻整合性をtrust modelへ追加する | 現行のVerifier/Notary chainより複雑になる | `REJECT UNLESS STRICTLY NECESSARY` |
+| A | Notaryが署名対象に含めるauthenticated issuance timeをupstream capabilityとして要求する | Mを保証できるが、identity provenance、single-use、owner conflict、live device authorizationを追加で強化しない | upstream revision/profileの選定とtamper fixtureが必要 | `REJECTED AS UNNECESSARY FOR V1` |
+| B | `notary_time`をResult/Challenge/Claimから削除し、Session/Challenge/device TTLとserver-side `v_db_now`だけでClaim authorization freshnessを制御する | Mは失う。Lは「proof age」ではなく「利用可能なClaim window」として維持する。connection-start timeやclient/verifier clockの偽装には依存しない | 現行の候補APIにadapterで接続でき、追加authorityなし | `SELECTED V1 SECURITY MODEL` |
+| C | 外部timestamp authority、追加のsigned receipt、または別のtrusted clockを導入する | Mを補える可能性はあるが、新しいauthorityのcompromise、availability、key rotation、時計整合性を追加する | 現行のVerifier/Notary chainより複雑 | `REJECTED; NOT STRICTLY NECESSARY` |
 
-Aはupstream capabilityが確認できるまで実装へ進めない。Bは「簡素化」ではあるが、authenticated issuance freshnessを削除して新しい受入可能な攻撃を生むため、現在の保証を維持する解決ではない。CはAが不可能であることだけを理由に追加してはならず、既存の保証を保てないこと、追加trust dependencyの必要性、失敗時のfail-closed設計を独立reviewで示す必要がある。したがって現時点の結論は、Aを要件として維持し、alpha.15/mainを採用しない、である。
+Bの受入条件はsecurityを弱めない。Verifier signature、authenticated transcript、exact Session/Challenge/Claim equality、single-use lifecycle、owner conflict、live registry/device authorization、no Game Server re-submissionは維持する。`ConnectionInfo.time`やFUSOUの受信時刻をproof freshnessとして保存・検証してはならない。したがってalpha.15はFUSOU adapter前提の優先候補となり、mainは未releaseのため候補に留める。
+
+### `notary_time`なしの攻撃分析
+
+| 攻撃 | 失われるもの | v1での判定 | 拒否または受入根拠 |
+| --- | --- | --- | --- |
+| stale proof: proofを長時間保持して後で送る | proof取得からの経過時間の証明 | Primary Goalは失われない。Sessionが未期限なら受入可能な遅延として扱う | Session/Challenge/device TTL、single-use、current root/registry |
+| stale proof: Session/Challenge期限後に送る | authorization freshness | 拒否 | server-side `v_db_now`とterminal lifecycle |
+| future proof: 未来の`ConnectionInfo.time`を作る | connection metadataの時刻の信頼性 | identity authorityに使わないため影響なし | TLSNotary signature、`ConnectionInfo.time`の非authority化 |
+| future proof: future timestampをResultへ追加する | Resultの時間authority | Result schemaが時間を持たないため拒否 | strict schema、canonical signature bytes |
+| Proof Copy / replay | user/device/session/challenge binding | 拒否を維持 | immutable equality、device signature、unique Attestation ID、CAS |
+
+つまり、`notary_time`なしで新たに許すのは「未期限の同一Session内で、proofがいつ作られたかを区別しない」ことだけである。これはproof freshnessを必要条件とする別用途には不十分だが、FUSOU v1のresponse provenanceとClaim authorizationの保証を破るものではない。案Cはこの残余リスクを埋めるためだけには導入しない。
 
 ## パッケージとfeature metadata
 
@@ -145,9 +159,9 @@ crates/attestation/src/serialize.rs:9-17 canonical BCS serialization
 crates/attestation/src/builder.rs:124-185 header construction and signature input
 ```
 
-## P0-03: authenticated timeの確認
+## P0-03: connection metadataの確認
 
-候補はNotary-issuedな`notary_time` fieldを提供しない。
+候補はNotary-issuedな`notary_time` fieldを提供しない。これはv1の採用拒否ではなく、Mを削除したsecurity modelと整合するsource observationである。
 
 - `crates/core/src/connection.rs`は`ConnectionInfo.time`をTLS connectionが開始した時刻のUNIX timeとして説明する。
 - `crates/core/src/transcript/tls.rs`はこの値をconnectionの開始時刻として公開する。
@@ -155,7 +169,7 @@ crates/attestation/src/builder.rs:124-185 header construction and signature inpu
 - `crates/tlsn/src/proxy.rs`は最初のbytesを読み取った時に、local system clockからfirst-read timeを設定する。
 - upstream attestation exampleはAttestationを送る前に、`time: tls_transcript.time()`を使ってsigned `ConnectionInfo`を構築する。
 
-この値はbody Merkle rootとsigned headerを通じてsigned attestation bodyに含まれる。しかしauthenticatedな意味はconnection-start timeであり、Notary issuance timeではない。verifier-sideまたはclient-sideで置き換えることは現行FUSOU仕様に違反する。したがってこの候補のP0-03は`FAIL`であり、別revision/design decisionとtamper fixtureなしに候補を承認できない。
+この値はbody Merkle rootとsigned headerを通じてsigned attestation bodyに含まれる。しかしauthenticatedな意味はconnection-start timeであり、Notary issuance timeではない。FUSOUはこのfieldをResult、Challenge、Claimのauthorityへコピーせず、Verifier/client clockで置き換えない。P0-03はこのsecurity decisionとsource semanticsの確認を対象とする。
 
 正確なsource pathと観測行:
 
@@ -294,7 +308,7 @@ ROLLBACK
 | Verifier compromise | issuance/ingestをfail closedし、affected keyをreject | production rehearsal pending |
 | Game Server request re-submission | send後の再送を`MUST NOT`とする | P0-07 counters pending |
 | caller boundary | authenticated FUSOU-WEB Claim handlerだけをproduction callerとする | P0-13 deployment evidence pending |
-| selected revision guarantee | 選定revisionなし。レビュー候補はP0-03 FAIL | selected revision/profile未確定 |
+| selected revision guarantee | alpha.15をadapter前提の優先候補とするが、pin/profile未確定 | selected revision/profile未確定 |
 
 この再監査の結果、Proof Copyの`MUST-REJECT`、Primary Security Goal、no Game Server request re-submissionを候補のAPI不足やPhase 0未取得を理由に弱める変更はない。
 
@@ -303,10 +317,10 @@ ROLLBACK
 machine-readableなstatus ledgerは[tlsn-phase0-gate-ledger-v1.json](tlsn-phase0-gate-ledger-v1.json)である。現在の集計は次のとおりである。
 
 ```text
-PASS: 0
-FAIL: 3
+PASS: 1
+FAIL: 2
 BLOCKED: 14
-Phase 0: NO-GO (0/17 PASS)
+Phase 0: NO-GO (1/17 PASS)
 Implementation: NO-GO
 Proof Copy: MUST-REJECT unchanged
 ```

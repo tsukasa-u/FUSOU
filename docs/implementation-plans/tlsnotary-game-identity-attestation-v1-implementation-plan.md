@@ -12,7 +12,7 @@
 
 **情報源の優先順位:** Final Specification、攻撃者視点の監査、リポジトリ構成、古い計画の順とする。古い計画との競合は Final Specification を優先して解決する。
 
-**監査結果:** `P0 = 残り0件`、`P1 = 残り0件`、`P2 = 残り0件`（初期監査項目はすべて処置済み）。これは設計issue ledgerの状態であり、Phase 0実測gateのPASSを意味しない。現在のPhase 0証拠は `PASS = 0`、`FAIL = 3`、`BLOCKED = 14`。候補探索の結論は `NO ADOPTABLE REVISION FOUND` であり、Proof Copy攻撃 = `PASS`、主要セキュリティ目標 = `PASS`、設計凍結 = `MAINTAIN`、実装 = `NO-GO`。
+**監査結果:** `P0 = 残り0件`、`P1 = 残り0件`、`P2 = 残り0件`（初期監査項目はすべて処置済み）。これは設計issue ledgerの状態であり、Phase 0実測gateのPASSを意味しない。現在のPhase 0証拠は `PASS = 1`、`FAIL = 2`、`BLOCKED = 14`。候補探索の結論は `ADOPT_WITH_FUSOU_ADAPTER`（alpha.15優先候補）であり、Proof Copy攻撃 = `PASS`、主要セキュリティ目標 = `PASS`、Notary issuance-time provenance = `REMOVED_FROM_V1`、実装 = `NO-GO`。
 
 **規範語:** `MUST`、`MUST NOT`、`ONLY` は Final Specificationのsecurity/protocol contractとその受入条件にだけ適用する。各タスクの具体的なfilename、function/index name、provider resource、lock key、batch/timeout、step orderは、別途不変条件または相互運用性を示さない限り、候補実装・configuration・runbookである。「新規ファイル」と記された対象パスは、そのタスクが実装・テストされるまで存在しないものとする。
 
@@ -248,9 +248,9 @@ BEFORE_APPLICATION_SEND -> SEND_COMMITTED -> RESPONSE_AVAILABLE -> COMPLETE
 
 ### 4.4 Phase 0 の未知項目
 
-TLSNotary API、固定リビジョン、Attestation ID の抽出、transcript のオフセット意味論、認証済み時刻、proof のシリアライズを推測してはならない。これらは Phase 0 の証拠ゲートである。固定リビジョンの下で binding を認証済み TLS transcript のバイト列にできない場合の結果は次のとおりである。
+TLSNotary API、固定リビジョン、Attestation ID の抽出、transcript のオフセット意味論、proof のシリアライズを推測してはならない。これらは Phase 0 の証拠ゲートである。`ConnectionInfo.time`をNotary発行時刻として扱わず、Session/Challenge TTLとserver-side clockだけでClaim authorization freshnessを実現できるかを、stale/future proof fixtureを含めて検証する。固定リビジョンの下でbindingを認証済みTLS transcriptのバイト列にできない場合の結果は次のとおりである。
 
-2026-09-03のread-onlyソース調査では、公式remoteの公開alpha.15と観測HEAD `0fe3c32d35382b3f290a43c4156399ca4512bb89`（`0.1.0-alpha.16-pre`）を比較した。両候補は `Attestation.header` fieldと `Uid([u8; 16])` を持つが、Notary-issued `notary_time`を持たず、`ConnectionInfo.time`はTLS connection start timeである。FUSOUはrevisionを選定していないため、selected revision不適合とは記録しない。候補は現行仕様で `ADOPTABLE` でも `SPEC-COMPATIBLE-BUT-NEEDS-ADAPTER` でもなく、P0-01/P0-02/P0-03は `FAIL` とする。全gateの根拠は [tlsn-phase0-gate-ledger-v1.json](../security/evidence/tlsn-phase0-gate-ledger-v1.json) と [ソース調査レポート](../security/evidence/tlsn-source-inspection-v1.md) に集約する。
+2026-09-03のread-onlyソース調査では、公式remoteの公開alpha.15と観測HEAD `0fe3c32d35382b3f290a43c4156399ca4512bb89`（`0.1.0-alpha.16-pre`）を比較した。両候補は `Attestation.header` fieldと `Uid([u8; 16])` を持つが、Notary-issued `notary_time`を持たず、`ConnectionInfo.time`はTLS connection start timeである。この欠落はv1のidentity contractに反しない。alpha.15はFUSOU adapter前提の優先候補、mainは未release candidateとして扱い、P0-01/P0-02は `FAIL`、P0-03 security decisionは `PASS` とする。全gateの根拠は [tlsn-phase0-gate-ledger-v1.json](../security/evidence/tlsn-phase0-gate-ledger-v1.json) と [ソース調査レポート](../security/evidence/tlsn-source-inspection-v1.md) に集約する。
 
 ```text
 IMPLEMENTATION = NO-GO
@@ -269,9 +269,8 @@ Dedicated Verifier は Final Specification Section 5.5 の順序で実行しな�
 4. リクエスト全体を厳格に parse し、正確な target/Host/binding header/body/trailing-byte rules と request digest を検証する。
 5. リクエスト範囲の抽出と範囲の検証を行う。
 6. 単一の HTTP/1.1 response、response digest、完全な response 範囲の検証を行う。
-7. 認証済みの `notary_time`、続いて信頼済みの `result_time` を 1 回だけ読み取り、`notary_time <= result_time` を要求する。
-8. それぞれの署名時刻における Notary と Verifier の鍵の有効性を検証する。
-9. Canonical Result のシリアライズと pure Ed25519 署名を生成する。
+7. Notary/Verifier key IDとprofile hashをcurrent registryへ照合し、missing/REVOKED keyまたはprofile mismatchを拒否する。署名時刻をResultのauthorityとして出力しない。
+8. Canonical Result のシリアライズと pure Ed25519 署名を生成する。
 
 Verifier は FUSOU のユーザー、device、ownership、public-ID authority を確立してはならない (`MUST NOT`)。これらの値は Session とデータベースのルートによって確立される。
 
@@ -291,7 +290,7 @@ Canonical Result は Final Specification 第5.2節のフィールドを含む。
 version, profile_id, profile_sha256, issuer, proof_purpose,
 attestation_session_id, binding_nonce, binding_value,
 verifier_key_id, notary_key_id, tlsn_attestation_id,
-server_identity, notary_time, result_time,
+server_identity,
 request_transcript_size, request_transcript_sha256,
 response_transcript_size, response_transcript_sha256,
 revealed_request_ranges, revealed_response_ranges, signature
@@ -301,9 +300,9 @@ Result が証明するのはゲームサーバーの来歴と Session binding �
 
 ### 6.2 暗号学的 binding
 
-Verifier は、期待されるフィールドを含むというだけで受け入れる JSON オブジェクトではなく、`VerifierResultSignBytes` に署名する。署名対象バイト列は Final Specification 第5.3節の domain separator と固定幅ビッグエンディアンフィールドを使用し、Session ID、nonce、binding value、Attestation ID、server identity、時刻、完全な transcript digest、順序付けられた範囲バイト列を含む。署名検証は strict pure Ed25519 を使用し、寛容な ZIP-215 の挙動を禁止する。
+Verifier は、期待されるフィールドを含むというだけで受け入れる JSON オブジェクトではなく、`VerifierResultSignBytes` に署名する。署名対象バイト列は Final Specification 第5.3節の domain separator と固定幅ビッグエンディアンフィールドを使用し、Session ID、nonce、binding value、Attestation ID、server identity、完全な transcript digest、順序付けられた範囲バイト列を含む。署名検証は strict pure Ed25519 を使用し、寛容な ZIP-215 の挙動を禁止する。
 
-FUSOU-WEB は Challenge を発行する前に、署名、現在のプロファイル/許可リスト、レジストリの期間、フィールド文法、完全なレスポンスダイジェスト、および認証済み binding ヘッダーと Result フィールドの一致を検証しなければならない。
+FUSOU-WEB は Challenge を発行する前に、署名、現在のプロファイル/許可リスト、registry status、フィールド文法、完全なレスポンスダイジェスト、および認証済み binding ヘッダーと Result フィールドの一致を検証しなければならない。Resultの時刻からproof ageやoriginal signing windowを推定してはならない。
 
 ### 6.3 Result の配送
 
@@ -336,7 +335,7 @@ Challenge は検証済みの Result と Session から権威情報をコピー�
 challenge_id, attestation_session_id, binding_nonce, binding_value,
 api_member_id, public_id, canonical_user_id, device_id,
 device_public_key_sha256, tlsn_attestation_id, challenge_nonce,
-notary_time, result_time, profile_sha256, server_identity,
+profile_sha256, server_identity,
 verifier_key_id, notary_key_id, Result/transcript digests, ranges,
 proof_purpose, status, terminal_reason, expires_at, lifecycle timestamps
 ```
@@ -772,13 +771,23 @@ mapping の並行性、Session uniqueness、Challenge のライフサイクル�
 
 ## 17. Phase 0 ゲート
 
-Phase 0 は実装上の事実を検証する。Proof Copy を弱めたり、セキュリティモデルを再設計したりしない。本番トラフィックを有効化する前に 17 個のゲートすべてが PASS でなければならず、現在のステータスは `0/17 PASS`、`FAIL=3`、`BLOCKED=14` である。Protocol/Repositoryのsource/inventory factはruntime未実装だけを理由にBLOCKEDとせず、Environment/Empiricalの未取得実測・runtime・deployment証拠だけをBLOCKEDとする。詳細な層別表はFinal Specification Section 15.1とledgerに従う。
+Phase 0 は実装上の事実を検証する。Proof Copy を弱めたり、セキュリティモデルを再設計したりしない。本番トラフィックを有効化する前に 17 個のゲートすべてが PASS でなければならず、現在のステータスは `1/17 PASS`、`FAIL=2`、`BLOCKED=14` である。ゲートは次の5 groupへ整理する。
+
+| Group | 目的 | Gate |
+| --- | --- | --- |
+| P0-A Protocol / Dependency Freeze | revision、dependency、Attestation IDの採用入力を凍結する | P0-01..P0-02 |
+| P0-B Security Contract Validation | A-M security goal、freshness境界、Proof Copy/no-replay契約を検証する | P0-03 |
+| P0-C Repository / Architecture Validation | natural capture、authenticated disclosure、profile/parserの適合性を検証する | P0-04..P0-05 |
+| P0-D Runtime Conformance | delivery、no-resubmission、serialization、caller/auth runtimeを検証する | P0-06..P0-07、P0-10、P0-13 |
+| P0-E Environment / Production Evidence | performance、topology、DB、preflight、privacy、registry、cutoverを検証する | P0-08..P0-09、P0-11..P0-12、P0-14..P0-17 |
+
+Protocol/Repositoryのsource/inventory factはruntime未実装だけを理由にBLOCKEDとせず、Environment/Empiricalの未取得実測・runtime・deployment証拠だけをBLOCKEDとする。詳細な層別表はFinal Specification Section 15.1とledgerに従う。
 
 | ゲート | 必須証拠 | 失敗時の処置 |
 | --- | --- | --- |
 | P0-01 TLSNotary リビジョン | 正確なリポジトリ commit、依存関係 lock、セキュリティ/ライセンスレビュー | NO-GO。別のリビジョンを対象に実装しない |
 | P0-02 Attestation ID | 公式 extraction API、opaque-byte encoding、golden bytes | NO-GO。利用できなければ仕様を revise |
-| P0-03 認証済み時刻 | Notary-authenticated source と改ざんフィクスチャ | NO-GO。client/verifier の代替なし |
+| P0-03 Security freshness contract | A-M分類、stale/future proof分析、Session/Challenge `v_db_now` fixture、外部timestamp authorityを追加しない理由 | NO-GO。proof ageをPrimary Goalへ戻さない |
 | P0-04 実際の require_info | 自然な実クライアントの capture、ソート済み corpus、ハッシュ、framing、compression、size | NO-GO。synthetic-only の証明なし |
 | P0-05 厳格な開示 | 認証済みの完全な request/response、正確な範囲、digest fixture、プライバシーレビュー入力 | binding を authenticated にできなければ NO-GO |
 | P0-06 T3/T4 の配送 | 最終化前の response と正確な Result byte path | NO-GO。Result mutation なし |
@@ -794,7 +803,7 @@ Phase 0 は実装上の事実を検証する。Proof Copy を弱めたり、セ�
 | P0-16 JWT/鍵ライフサイクル | Registry rotation、tombstones、preactivation、future-skew、revoke rehearsal | NO-GO。fail closed |
 | P0-17 ストレージ epoch | 承認済みclosed manifest、選定resource/consumer inventory、fingerprints、backup/restore、drain、forward recovery | NO-GO。partial cutover なし |
 
-調査時点の判定は `PASS = 0`、`FAIL = 3`、`BLOCKED = 14`。P0-01/P0-02/P0-03のFAILは、選定・pin不足、Attestation IDのopaque-byte contract/golden未凍結、候補のauthenticated time不足をそれぞれ意味する。残りのBLOCKEDは実クライアント、実装、production、またはcross-store証拠が未取得であることを意味する。候補upstreamのfixture API testの成功はFUSOU implementationのPASSではない。候補matrix、numeric rationale、攻撃別再監査は [ソース調査レポート](../security/evidence/tlsn-source-inspection-v1.md) に固定する。
+調査時点の判定は `PASS = 1`、`FAIL = 2`、`BLOCKED = 14`。P0-01/P0-02のFAILは、選定・pin不足とAttestation IDのopaque-byte contract/golden未凍結を意味する。P0-03は、Notary issuance-time provenanceをv1から削除し、Session/Challenge authorization freshnessで必要な保証を維持するsecurity decisionを確認済みとしてPASSにする。残りのBLOCKEDは実クライアント、実装、production、またはcross-store証拠が未取得であることを意味する。候補upstreamのfixture API testの成功はFUSOU implementationのPASSではない。候補matrix、numeric rationale、攻撃別再監査は [ソース調査レポート](../security/evidence/tlsn-source-inspection-v1.md) に固定する。
 
 層別の判定は次のとおりである。`Protocol`/`Repository`のFAILはsourceまたはinventoryで確定した不充足を示し、runtime未実装を理由にBLOCKEDへ丸めない。`Environment`/`Empirical`のBLOCKEDは、実クライアント、runtime、staging/production、deployment、canaryまたはcutover evidenceが必要な項目である。
 
@@ -802,7 +811,7 @@ Phase 0 は実装上の事実を検証する。Proof Copy を弱めたり、セ�
 | --- | --- | --- | --- |
 | P0-01 | Repository | `FAIL` | FUSOUの選定/pinned revision、lock、license/security reviewがない |
 | P0-02 | Protocol | `FAIL` | ID APIは観測済みだが、採用revision、opaque-byte encoding、goldenが未凍結 |
-| P0-03 | Protocol | `FAIL` | reviewed candidatesにNotary-issued `notary_time`がない |
+| P0-03 | Security contract | `PASS` | A-M reviewでNotary issuance-time provenanceをv1から削除し、stale/future proofの残余リスクとSession/Challenge TTLの代替を明記 |
 | P0-04 | Empirical | `BLOCKED` | natural client captureがない |
 | P0-05 | Empirical | `BLOCKED` | FUSOU authenticated coverage/parser/digest fixtureがない |
 | P0-06 | Empirical | `BLOCKED` | Result delivery runtimeがない |
@@ -818,7 +827,7 @@ Phase 0 は実装上の事実を検証する。Proof Copy を弱めたり、セ�
 | P0-16 | Empirical | `BLOCKED` | registry/key lifecycle rehearsalがない |
 | P0-17 | Environment | `BLOCKED` | storage/cutover manifestとrecovery rehearsalがない |
 
-候補探索の結論は **`NO ADOPTABLE REVISION FOUND`**。`ADOPTABLE`と`SPEC-COMPATIBLE-BUT-NEEDS-ADAPTER`はいずれも該当なしであり、adapterでNotary署名対象のauthenticated issuance timeを補うことはできない。詳細なReason、Evidence、Specification impact、Implementation impactはFinal Specification Section 15.1とledgerを正とする。
+候補探索の結論は **`ADOPT_WITH_FUSOU_ADAPTER`**。alpha.15を優先候補とするが、P0-01/P0-02、natural capture、profile/parser、runtime、production evidenceが未完了のためselected revision確定または実装GOではない。`ConnectionInfo.time`をNotary issuance timeとして使うadapterは拒否する。詳細なReason、Evidence、Specification impact、Implementation impactはFinal Specification Section 15.1とledgerを正とする。
 
 未知の API/provider 値は、期待する証拠と失敗時の処置を添えて `UNKNOWN` として記録する。mock、直感、既存のファイル名によって PASS に変換しては決してならない。
 
@@ -853,7 +862,7 @@ IMP-14 staging/prod deployment and cutover evidence
 | IMP-02 | direct writeと権限迂回を閉じる | entry function限定、append-only、RLS/ACL、deadlock-freeのglobal order | caller boundary、role matrix、lock-order invariant | DB方式は延期・置換可。authority boundaryは延期不可 |
 | IMP-03 | 証明前にserver-owned Session/bindingを発行する | actor、device key、Session、bindingの等価性 | authenticated Bearer、Session lifecycle、binding encoding | P0-01/02/04/05後に実装。API接続以外のmechanicsは延期可 |
 | IMP-04 | natural requestを一回だけ認証済み経路へ送る | no replay、send-after-latch no retry、binding移動拒否 | require_info、binding placement、fallback boundary | natural capture/profile証拠前は延期。no-retry contractは延期不可 |
-| IMP-05 | transcriptから暗号学的にtrusted Resultを作る | authenticated transcript、strict parser、Result mutation拒否 | selected TLSNotary profile、range coverage、authenticated time | P0-01〜P0-05が揃うまで延期。採用なしの実装は不可 |
+| IMP-05 | transcriptから暗号学的にtrusted Resultを作る | authenticated transcript、strict parser、Result mutation拒否 | selected TLSNotary profile、range coverage、Session/Challenge freshness境界 | P0-01〜P0-05が揃うまで延期。採用なしの実装は不可 |
 | IMP-06 | signed Resultの意味とbytesを経路全体で保持する | Result/session/auth等価性、DB mutation前の検証 | Result contract、canonical encoding、Bearer boundary | verifier contract後に実装。transportの具体方式は延期可 |
 | IMP-07 | Resultをserver-owned Challengeへ変換する | Session/actor/device/Attestation substitutionとreplayの拒否 | Challenge lifecycle、quota、Result equality | IMP-02/03/05/06後。response adapterの方式は延期可 |
 | IMP-08 | device possessionとClaimを一つのatomic transactionで確定する | Claim authorityのserver reconstruction、CAS、expiry/revoke race | ClaimBindingBytes、device signature、Claim outcome table | protocol bytesが凍結するまで延期不可。SQL mechanicsは置換可 |
@@ -886,7 +895,7 @@ IMP-14 staging/prod deployment and cutover evidence
 
 **入力:** 固定 revision、実際の `require_info` captures、provider/runtime versions、承認済み仕様改訂。
 
-**出力:** opaque Attestation ID encoding、プロファイルハッシュ、認証済み時刻の証拠、正確な request/transcript facts、呼び出し元境界の判断、改訂仕様の承認。
+**出力:** opaque Attestation ID encoding、プロファイルハッシュ、正確な request/transcript facts、Session/Challenge freshness境界、呼び出し元境界の判断、改訂仕様の承認。
 
 **検証:** 独立したレビュー担当者が各未知項目に期待する証拠と失敗時の処置があることを確認する。実装入力に `TBD`/推測値を残さない。
 
@@ -1508,7 +1517,7 @@ Notary、Verifier、Dataset key が compromise された場合は、独立した
 | Projection の権威 | PASS | ルートから導出する state/token と B6 |
 | テレメトリへの識別情報注入 | PASS | 予約フィールドの拒否と IdentityEnvelope tests |
 | Legacy の権威 | カットオーバーゲートとして PASS | 完全な削除一覧、manifest、no-backfill rule、P0-17 |
-| TLSNotary bindingの実現可能性 | UNKNOWN | RangeSetの表現力はsourceで確認したが、FUSOUのauthenticated coverage/parser/one-request fixtureは未取得。候補sourceのauthenticated time不足はP0-03 FAIL |
+| TLSNotary bindingの実現可能性 | UNKNOWN | RangeSetの表現力はsourceで確認したが、FUSOUのauthenticated coverage/parser/one-request fixtureは未取得。`ConnectionInfo.time`をidentity authorityにしないP0-03 security decisionは確定済み |
 | Attestation IDのopaque encodingとAPI revision | UNKNOWN | alpha.15/mainは16 bytesを観測したが、採用revision、profile encoding、goldenは未確定。P0-02はFAIL |
 | 数値limitsとrange coverageの根拠 | UNKNOWN | range coverageと各MAX_*はprofile/correctness/privacy/DoS evidenceが必要。詳細はsource report |
 
@@ -1553,14 +1562,14 @@ Cross-Specification Consistency:
 PASS
 
 Phase 0:
-NO-GO (0/17 PASS)
+NO-GO (1/17 PASS)
 
 現在の証拠ledger:
-PASS=0, FAIL=3, BLOCKED=14
+PASS=1, FAIL=2, BLOCKED=14
 docs/security/evidence/tlsn-phase0-gate-ledger-v1.json
 
 Implementation:
 NO-GO
 ```
 
-P2-01、P2-02、P2-03 は `RESOLVED` である。P2-01のReference Baseline/Specification Revision metadataはFinal Specificationとこの計画で分離し、P2-02のIdentity Authorization Rootは4 tablesとして正規化し、P2-03の同一非REVOKED device key retry policyはterminal Sessionを再利用しない新規Session issuanceとしてFinal Specificationとこの計画へ反映した。Proof CopyのMUST-REJECT条件、Phase 0 `NO-GO (0/17 PASS)`、およびruntime implementation `NO-GO`は変更しない。
+P2-01、P2-02、P2-03 は `RESOLVED` である。P2-01のReference Baseline/Specification Revision metadataはFinal Specificationとこの計画で分離し、P2-02のIdentity Authorization Rootは4 tablesとして正規化し、P2-03の同一非REVOKED device key retry policyはterminal Sessionを再利用しない新規Session issuanceとしてFinal Specificationとこの計画へ反映した。Proof CopyのMUST-REJECT条件、Phase 0 `NO-GO (1/17 PASS)`、およびruntime implementation `NO-GO`は変更しない。
