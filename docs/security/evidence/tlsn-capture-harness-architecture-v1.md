@@ -22,9 +22,11 @@ The opt-in `require_info` capture hook runs at this handler boundary. It writes 
 
 This current hook is useful for plumbing and artifact validation. It is not exact natural transcript evidence: the original HTTP request/response bytes, wire framing, header spelling, chunk boundaries, and TLS record boundaries are no longer available at this boundary.
 
+The source-backed layer and hook investigation is recorded in [TLSNotary Capture Hook Investigation v1](tlsn-capture-hook-investigation-v1.md).
+
 ## Exact-Wire Hook
 
-A future lower-level collector must feed `ExactWireMessage::from_parts` before the bytes cross the structured Hyper boundary. The collector supplies:
+A future lower-level collector must feed `ExactWireMessage::from_parts` from the client-facing TLS plaintext application stream, after MITM TLS decryption and before Hyper HTTP parsing, or from an equivalent server boundary with identical byte provenance. An upstream proxy-to-origin capture, handler-visible body, reconstructed message, TLS ciphertext capture, or TLS record capture must not be substituted for the natural client-facing HTTP transcript without separate equivalence evidence. The collector supplies:
 
 - the complete request or response wire byte sequence;
 - the source stream start offset;
@@ -32,7 +34,7 @@ A future lower-level collector must feed `ExactWireMessage::from_parts` before t
 
 The constructor rejects offsets that do not equal the byte length. `ExactWireCapture::write_private_raw` stores the request and response wire payloads as `request-wire.bin` and `response-wire.bin`, with `EXACT_WIRE` and `PRIVATE_RAW_CAPTURE` markers.
 
-The current hudsucker `HttpHandler` does not expose this exact-wire input. Adding a lower-level hook requires an upstream/library boundary investigation and must be implemented separately from this harness.
+The current hudsucker `HttpHandler` does not expose this exact-wire input, and its public builder does not expose a per-CONNECT stream wrapper at the required layer. Adding a lower-level hook requires a hudsucker fork or replacement server boundary and must be implemented separately from this harness.
 
 ## Artifact and Hash Rules
 
