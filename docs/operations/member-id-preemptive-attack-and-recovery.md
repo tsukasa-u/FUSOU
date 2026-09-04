@@ -15,7 +15,39 @@
 >
 > **実装状態**: `DESIGN ONLY`。現行 runtime は TLSNotary を実装していない。Phase 0 GO Gate を全件通過するまで `implemented`、`verified`、`tested`、`implementation ready` と扱わない。
 
-本書の `MUST`、`MUST NOT`、`ONLY` は実装・migration・test の受入条件である。説明文、サンプル、旧文書、既存コードが本書と競合した場合は本書を正とする。ただし Phase 0 の実測結果が本書の固定条件を満たさない場合は実装を開始せず、本書の revision を上げて再監査する。
+本書の `MUST`、`MUST NOT`、`ONLY` は、下記の Immutable Security Contract と Minimal Protocol Contract、およびそれらを実証する受入条件にだけ適用する。Implementation / Operational Contract の項目は、明示的にsecurity invariantまたはprotocol interoperability requirementと記載されない限り、候補実装・runbook・Phase 0 evidenceである。説明文、サンプル、旧文書、既存コードが本書と競合した場合は本書を正とする。ただし Phase 0 の実測結果がsecurity/protocol contractを満たさない場合は実装を開始せず、本書のrevisionを上げて再監査する。
+
+## 0.0 契約の層別
+
+この仕様の目的は、security guaranteeを保ったまま実装の選択肢を狭めすぎないことである。後続節の詳細はこの優先順位で解釈する。
+
+### Immutable Security Contract
+
+次は実装・provider・storageが変わっても維持する不変条件である。
+
+1. `api_member_id`のauthorityは、allowlisted Game Serverの`require_info` responseをauthenticated TLSNotary proofで検証し、strict parserを通したserver-side valueだけである。
+2. User、device、Session、binding、Challenge、Verifier Result、Claimは同じserver-issued proof chainに属し、`Proof(A) + User B`、`Proof(A) + Device B`、`Proof(A) + Challenge B`、Session substitutionを必ずrejectする。
+3. `public_id`、ownership、device state、Dataset authorization、telemetry identityはserver-side rootsから導出する。client、projection、payload、member-ID hash/pepperはauthorityではない。
+4. Session、Challenge、Claim、deviceのterminal lifecycleとreplay semanticsはfail closedであり、accepted Claimのauthorityを後からclient入力やfirst-claim-winsで置き換えない。
+5. Claimはauthenticated non-anonymous user/deviceとserver-reconstructed device signature preimageを要求し、owner conflict、revoke、expiry、concurrent Claimでは不正なaccepted Claimを作らない。
+6. Game Serverへの同じlogical requestの送信は高々一回であり、send後のretry、redirect、fallback、request replayでidentity evidenceを作らない。
+7. key registry、Verifier、Database、storageの失敗や不整合はidentity/token/ingestをfail closedにし、秘密値やfull transcriptを不要に永続化・ログ出力しない。
+
+### Minimal Protocol Contract
+
+次だけがTLSNotary profileとFUSOUの相互運用に必要なprotocol contractである。
+
+1. 選定revisionは、Notary署名で保護されたauthenticated issuance timeを提供しなければならない。`ConnectionInfo.time`、Verifier clock、client clockは代用にならない。
+2. authenticated transcriptは、自然な一つの`require_info` request/responseとserver-issued bindingを含み、Verifierはserver identity、request/response、disclosure、Session bindingを同じproofとして検証しなければならない。
+3. Attestation IDは選定revisionが返すopaque bytesとして、Session/Challenge/Result/Claimのidentity・replay比較でbyte-for-byte一致させる。内部構造や未証明の固定長を仮定しない。
+4. Verifier ResultとClaimBindingBytesは、protocol version内で決定的で、署名対象と検証対象のbytesが一致しなければならない。serializationの細部はこの決定性と相互運用性を満たす最小限だけを固定する。
+5. protocolが返すauthenticated time、transcript digest、proof purpose、profile/key identityはserver-sideで検証し、clientがこれらをauthorityとして提出できない。
+
+### Implementation / Operational Contract
+
+JSON property order、HTTP headerの具体的位置、resource limitsの初期値、PostgreSQLのlock order/advisory key/index name、registryのwire order、KV/R2/Queue名、storage epochのcardinality、cleanup batch、migration/deployment sequence、詳細なerror taxonomyは、上の契約から論理的に必要でない限り候補実装またはrunbookである。必要なresource bound、atomicity、fail-closed、no-retry、監査可能性は不変条件として残し、具体値はprofile/configurationまたは実測evidenceで承認する。後続節で候補値を示す場合は、security invariant、protocol interoperability、implementation candidate、operational procedureのいずれかとして読む。
+
+本書で`observed fact`はsource/inventory/runtimeから観測した値、`requirement`は上記contract、`empirical evidence`は実client/runtime/environmentで取得した証拠を意味する。observed factをrequirementやempirical evidenceへ昇格させない。Phase 0で未取得の項目は未取得のまま記録し、runtime implementationは変更しない。
 
 ---
 
@@ -97,7 +129,7 @@ storage fingerprint algorithms, closed manifest inventory, Queue pause/consumer 
 database writer barrier, exact purge predicate, pre-COMMIT resource reuse boundary,
 security/concurrency/recovery acceptance coverage, target Turso bootstrap source
 
-Final P2 C01..C04: raw nonce decoding, stored Range cardinality,
+Final P2 C01..C04: raw nonce decoding, stored Range metadata,
 bytewise registry ordering, measurable Gate terminology
 ```
 
@@ -109,7 +141,7 @@ TotalはP0 36件、P1 58件、P2 15件である。本書ではそれらの設計
 
 候補sourceから確認できた事実は次のとおりである。
 
-1. `Attestation` は `header()` methodではなく公開field `header: Header` を持ち、`Header.id` は `Uid([u8; 16])` である。これは候補の観測値であり、FUSOUのliteral `N`、golden bytes、採用APIを確定しない。
+1. `Attestation` は `header()` methodではなく公開field `header: Header` を持ち、`Header.id` は `Uid([u8; 16])` である。これは候補の観測値であり、FUSOUの固定長契約、golden bytes、採用APIを確定しない。
 2. `ConnectionInfo.time` は「TLS connection started」のUnix秒であり、proxyのfirst read時に取得され、Notaryが `tls_transcript.time()` としてsigned `ConnectionInfo`へコピーする。Notary発行時刻を表す `notary_time` field/APIは候補sourceにないため、現行profileのP0-03を満たさない。
 3. 候補sourceの内部signature serializationはBCS、exampleのrequest/attestation wire transportはbincodeである。FUSOUのVerifier Result、ClaimBindingBytes、Rust/TypeScript golden equalityは未実装・未実証である。
 
@@ -254,7 +286,7 @@ member_ownership -> user_member_map -> web_user_member_map
 | `device_id` | Server-created identifier for one registered device key | UUIDv4 | `user_devices` row and Challenge linkage | Immutable; row lifetime | `user_devices.device_id UUID PRIMARY KEY` | Returned only in server responses or supplied to actor-owned APIs after registration |
 | `device_public_key` | Raw Ed25519 public key bound to `device_id` | Exactly 32 raw bytes | Device registration and `user_devices` root | Immutable; row lifetime | `user_devices.device_public_key BYTEA` with global UNIQUE | Strict unpadded base64url of 32 bytes where an API returns/accepts a registration key |
 | `primary_device_id` | Historical pointer to the last accepted primary device for an ownership row | UUID FK to the same owner/public device | `member_ownership` history only | Mutable only on accepted same-owner Additional Device Claim; not authorization | `member_ownership.primary_device_id UUID` | May be returned as historical data; never a token/state authorization input |
-| `tlsn_attestation_id` | Canonical bytes of `Attestation.header().id` from the pinned TLSNotary revision | Raw bytes of pending Phase 0 length `N` | TLSNotary Attestation and Verifier Result | Immutable; Challenge/Claim retention lifetime | `BYTEA` with `octet_length = N`, UNIQUE on Challenge/Claim | Strict unpadded base64url of exactly `N` bytes inside Verifier Result |
+| `tlsn_attestation_id` | Opaque bytes of `Attestation.header.id` extracted through the selected TLSNotary profile | Raw opaque bytes; a fixed length is used only if the selected profile or interoperability requires it | TLSNotary Attestation and Verifier Result | Immutable; Challenge/Claim retention lifetime | `BYTEA`, profile-validated and UNIQUE on Challenge/Claim | Strict unpadded base64url of the profile-defined bytes inside Verifier Result |
 | `notary_time` | Notary-authenticated POSIX UTC whole seconds signed in the Attestation | UInt64 | Notary signature over the authenticated Attestation | Immutable evidence field | `public.fusou_uint64` | UInt64Decimal String in Verifier Result; never Game event time |
 | `result_time` | POSIX UTC whole seconds read once by the Verifier after proof validation completes | UInt64 | Dedicated Verifier trusted clock | Immutable per Verifier Result | `public.fusou_uint64` | UInt64Decimal String in Verifier Result; distinct from `notary_time` |
 | `Verifier Result` | Canonical JSON object carrying authenticated full transcripts/ranges, identity profile, Attestation Session binding fields, key IDs, times, attestation ID, and Verifier Ed25519 signature | UTF-8 canonical JSON bytes plus 64-byte Ed25519 signature | Dedicated Verifier after TLSNotary verification; user/device are derived from the Session, never client supplied | Immutable signed artifact; raw bytes are request-lifetime only | Raw JSON is not stored; Challenge/Claim authority subset, full SHA-256 digests, and Range metadata are copied | One exact `application/json` artifact; the same bytes may be retried to the Web API on network/5xx failure |
@@ -290,7 +322,7 @@ Verifier Resultのraw canonical JSON bytesはChallenge/Claimのいずれにも�
 | `device_id` | Server-created device UUID | Lowercase UUID String | `u16_be(16)` + network-order UUID bytes | `UUID` primary/FK | Challenge/claim/revoke result or actor-owned input | `device_id_binding_exact` |
 | `device_public_key` | Raw 32-byte Ed25519 key | Strict unpadded base64url String | Not included in ClaimBindingBytes; loaded from DB for verification | `BYTEA` length 32, global UNIQUE | Registration input uses base64url; internal `get_claim_challenge_v1` may return DB `BYTEA` to FUSOU-WEB only | `device_key_encoding_exact` |
 | `primary_device_id` | Historical ownership pointer | UUID String only when explicitly returned | — | Ownership UUID FK | Historical output only | `primary_device_not_authority` |
-| `tlsn_attestation_id` | Pinned TLSNotary `Attestation.header().id` bytes | Strict unpadded base64url of `N` bytes | `u16_be(N)` + raw bytes | `BYTEA` length `N`, UNIQUE | Verifier Result/Challenge response encoding | `attestation_id_bytes_round_trip` |
+| `tlsn_attestation_id` | Selected-profile TLSNotary `Attestation.header.id` opaque bytes | Strict unpadded base64url of profile-defined bytes | Length-prefixed raw opaque bytes | `BYTEA`, profile validation and UNIQUE | Verifier Result/Challenge response encoding | `attestation_id_bytes_round_trip` |
 | `notary_time` | Notary-authenticated POSIX UTC seconds | UInt64Decimal String | `u64_be` | `public.fusou_uint64` | Verifier Result field | `notary_time_authenticated_not_result_time` |
 | `result_time` | Verifier trusted post-validation POSIX UTC seconds | UInt64Decimal String | `u64_be` | `public.fusou_uint64` | Verifier Result field | `result_time_is_verifier_clock` |
 | `Verifier Result` | Signed canonical full-transcript result | Exact canonical JSON, signature included | Signature input excludes signature and follows Section 5.3 | Challenge/Claim authority subset, full SHA-256 digests, and Range metadata; raw JSON absent | `verifier_result_b64` in Challenge request | `verifier_result_golden_bytes` |
@@ -467,7 +499,7 @@ FUSOU-APP -> FUSOU-WEB Challenge/Claim APIs
 3. ProxyはResultをparse・再serializeせず、`packages/FUSOU-PROXY/proxy-https/src/channel_types.rs`の新variant `StatusInfo::IDENTITY_ATTESTATION { verifier_result: Vec<u8> }`として既存Proxy-log in-process mpscへ1回送る。Debug/Display/logにbytesを出さないcustom implementationを使う。
 4. FUSOU-APPのsingle consumerはraw bytesのSHA-256でprocess-local deduplicationし、device Ed25519 keypairをOS credential storageから取得する。Result、member ID、Challenge nonce、device private keyをlog、event payload、WebView、filesystemへ出さない。
 5. APPはproof acquisition前に`AuthManager::get_access_token()`相当で得たnon-anonymous Supabase Bearerとdevice public keyを使い、Section 7.1.1でAttestation Sessionを発行する。返されたopaque binding valueをProxyへone-shotで渡し、その後raw Resultをstrict unpadded base64urlへ一度だけencodeしてSection 7.2へ送る。Challenge responseを受けたらClaimBindingBytesを署名してSection 7.4へ送る。
-6. FUSOU-WEB submissionのnetwork/5xxだけは同じouter request bytesで最大3回retryできる。Challenge/Claimのidempotency contractが収束を保証する。401/4xxはretryしない。RetryはGame originへのrequestを一切発生させない。
+6. FUSOU-WEB submissionのnetwork/5xxだけは、承認済みの有限retry budget内で同じouter request bytesをretryできる。Challenge/Claimのidempotency contractが収束を保証する。401/4xxはretryしない。RetryはGame originへのrequestを一切発生させない。budget、backoff、timeoutはcandidate operational profileであり、Game originへの再送禁止はsecurity contractである。
 7. Queue full、APP未認証、Verifier failure、APP終了、retry exhaustionはResultをdropして`IDENTITY_UNVERIFIED`とする。次の自然な`require_info`だけが新しい試行機会であり、旧Game requestを生成・再送しない。
 
 Dedicated Verifier responseは署名によりend-to-end認証されるため、Proxy/APPはcryptographic authorityではない。APPがChallenge APIへ送るexact bytesはVerifierが署名したcanonical Result bytesであり、中間層がJSON fieldを追加・削除・並替えしてはならない。
@@ -490,14 +522,14 @@ packages/FUSOU-APP/src-tauri/security/tlsn-v1.json
 
 1. TLSNotary repository URL と exact git commit。
 2. Prover、Notary、Verifier crate version と feature set。
-3. 採用revisionにおける `Attestation` header ID の canonical byte extraction API。
-4. `tlsn_attestation_id` の固定 byte length `N`。
+3. 採用revisionにおける `Attestation` header ID のcanonical byte extraction APIと、opaque bytesとして扱うためのencoding。
+4. `tlsn_attestation_id` に固定長が必要かどうか。必要な場合だけprofileがその長さを定める。
 5. `notary_time` の authenticated source と seconds-since-Unix-epoch semantics。
 6. Request/response transcript offset の基準。
 7. One-request-per-MPC-session と T3 後 finalization の実証 fixture。
 8. Notary trust anchors、Web PKI root snapshot、certificate revocation policy。
 
-Profile IDはexact ASCII `fusou-require-info-v1`。Profile document自身は`profile_sha256` fieldを持たない。`profile_sha256`はprofile documentをRFC 8785 JSON Canonicalization Schemeで直列化したUTF-8 bytesのSHA-256 raw 32 bytesである。Notary/Verifier registryはRFC 8785 canonical JSONであり、exact schemaとproperty orderは次である。
+Profile IDは現行candidateのASCII `fusou-require-info-v1`。Profile document自身は`profile_sha256` fieldを持たない。`profile_sha256`はprofile documentをRFC 8785 JSON Canonicalization Schemeで直列化したUTF-8 bytesのSHA-256 raw 32 bytesである。Notary/Verifier registryのsemantic schema、unknown/duplicate field拒否、canonical bytes digest、key lifecycleはsecurity contractである。下記のproperty orderと具体的なartifact shapeはcandidate serializationであり、選定profileのgolden bytesで凍結する。
 
 ```json
 {"keys":[{"not_after":"1788307500","not_before":"1788134400","notary_key_id":"notary-2026-09","status":"ACTIVE","stop_signing_at":"1788220800","x":"<strict-unpadded-base64url-32-bytes>"}],"version":1}
@@ -507,7 +539,7 @@ Profile IDはexact ASCII `fusou-require-info-v1`。Profile document自身は`pro
 {"keys":[{"not_after":"1788307500","not_before":"1788134400","profile_sha256":"<strict-unpadded-base64url-32-bytes>","status":"ACTIVE","stop_signing_at":"1788220800","verifier_key_id":"verifier-2026-09","x":"<strict-unpadded-base64url-32-bytes>"}],"version":1}
 ```
 
-Top-levelとentryのunknown/duplicate fieldを拒否する。`version`はJSON Number `1`、各時刻はUInt64Decimal String、`x`と`profile_sha256`はstrict unpadded base64url decoded 32 bytes、IDは`^[A-Za-z0-9._-]{1,64}$`である。Keysは対応IDのASCII bytewise lexicographic昇順、IDと`x`は各registry内でuniqueである。Statusは`ACTIVE | VERIFY_ONLY | RETIRED | REVOKED`、`not_before < stop_signing_at`、`stop_signing_at + 86700 <= not_after`である。Game Server registryはRFC 8785 canonical JSONのexact `{"servers":[...],"version":1}`、entryはexact lowercase `hostname`とinteger `port=443`だけ、hostnameのASCII bytewise lexicographic昇順、duplicate/wildcard/IP literalなしとする。全registry parserは再serialize bytes一致、golden bytes、unknown/duplicate/unsorted/noncanonical negative fixturesを共有する。
+Top-levelとentryのunknown/duplicate field、key identityの重複、invalid lifecycle windowは拒否する。`x`と`profile_sha256`は32-byte public/digest valuesとして検証し、key statusとsigning-window semanticsを保つ。Keysの並び、時刻のwire representation、Game Server registryの具体的なJSON shape、lowercase hostnameと`port=443`の採用はprofile/registry artifactのcandidate inputであり、選定profileのgolden bytesとnegative fixturesで凍結する。全registry parserは再serialize bytes一致を検証し、unknown/duplicate/unsorted/noncanonical negative fixturesを共有する。
 
 `REVOKED`はkey compromise用の不可逆・遡及失効であり、同じIDを再登録しない。FUSOU-WEBはChallenge issuanceとClaim署名検証前にChallengeのVerifier/Notary key ID、profile hash、result/notary timeをcurrent registriesへ照合する。どちらかがmissing/REVOKEDならClaimを`409 CHALLENGE_NOT_ACTIVE`として拒否する。新規ClaimはACTIVE/VERIFY_ONLYかつoriginal signing window内だけ受理し、accepted Claimのexact replayはRETIREDも受理する。
 
@@ -527,7 +559,7 @@ Notary、Verifier、Dataset JWT registryのcanonical bytes SHA-256を`security_r
 
 `notary_time` は Notary が Attestation signature の対象に含める POSIX UTC whole seconds である。Leap second は POSIX time と同じく表現しない。Profile は signed field の exact API/path と extraction fixture を固定する。採用 revision が Notary-authenticated time を提供しない場合は P0-03 FAIL とする。`result_time` は Verifier が proof validation 完了後に trusted UTC clock から1回取得する POSIX UTC whole secondsであり、Game Server event timeではない。
 
-Profile limits は次に固定する。
+Profile limits は、実装がresource exhaustionを防ぐために有限の上限を持たなければならない (`MUST`)。次の値は現時点の実装候補であり、protocolのsecurity constantではない。各値はnatural capture、privacy、性能、DoS耐性のevidenceで承認し、根拠がない値はprofile/configurationから除外または変更する。`MAX_CHALLENGE_BODY_BYTES`のような派生値も、親limitの根拠なしには固定しない。
 
 ```text
 MAX_VERIFIER_RESULT_JSON_BYTES = 25165824
@@ -539,16 +571,14 @@ MAX_DECOMPRESSED_BODY_BYTES = 16777216
 MAX_JSON_DEPTH = 64
 MAX_GAME_JSON_STRING_BYTES = 1048576
 MAX_VERIFIER_JSON_STRING_BYTES = 33554432
-MAX_CHALLENGE_BODY_BYTES = 33558528
-REQUEST_RANGE_COUNT = 3
-RESPONSE_RANGE_COUNT = 1
+MAX_CHALLENGE_BODY_BYTES = 33558528 (candidate)
 ```
 
-`N` は Phase 0 実測値だけから決定する。たとえば実測値が32なら、protocol constant、DB `CHECK (octet_length(...) = 32)`、Rust type、TypeScript validator、fixture を同一 commit で32へ固定する。`N`、`TBD`、可変長 check を committed implementation に残してはならない。
+Request/response rangeは、authenticated transcriptからidentityを検証するために必要な最小byte coverageを満たさなければならない。request line、allowlisted server identity、binding headerと必要なframing、response parserが必要とするbytesを含め、不要な機微情報は開示しない。rangeの個数自体をsecurity guaranteeとしない。Attestation IDのbyte boundは、選定profileが固定長を要求した場合だけprofile inputとして決定し、そうでなければopaque byte列とresource上限を使う。候補観測の16 bytes、`TBD`、未根拠の可変長/固定長を実装へ推測してはならない。
 
 ### 5.2 Verifier Result Transport Representation
 
-Content-Type は `application/json`、encoding は UTF-8、top-level field order は次に固定する。
+Verifier Resultのprotocol contractは、VerifierとFUSOU-WEBが同じ署名対象のsemantic fields、canonicalization、signature verificationを再現できることである。Content-Type、encoding、field order、JSONのwire formattingは相互運用に必要なprofile inputであり、下記は現時点のcandidate profileである。選定profileのgolden bytesとnegative fixturesを承認するまで、下記の候補値をsecurity invariantやruntime implementationの既成事実として扱わない。
 
 ```text
 version
@@ -574,7 +604,7 @@ revealed_response_ranges
 signature
 ```
 
-Transport type は次に固定する。
+候補profileのtransport typeは次である。profile freeze時に、不要なwire制約を削除しつつ、strict parser、canonicalization、Verifier ResultとClaimBindingBytesのbyte determinismを証明する。
 
 | Field | JSON representation |
 | --- | --- |
@@ -588,7 +618,7 @@ Transport type は次に固定する。
 | `binding_value` | strict unpadded base64url of the canonical binding bytes; exact ASCII value of the authenticated `X-FUSOU-Attestation-Binding` header |
 | `verifier_key_id` | ASCII String `^[A-Za-z0-9._-]{1,64}$` |
 | `notary_key_id` | ASCII String `^[A-Za-z0-9._-]{1,64}$` |
-| `tlsn_attestation_id` | strict unpadded base64url、decoded length = `N` |
+| `tlsn_attestation_id` | strict unpadded base64url of the profile-defined opaque bytes |
 | `server_identity` | lowercase ASCII DNS hostname。total 1..253 bytes、label 1..63 bytes、label は `[a-z0-9](?:[a-z0-9-]*[a-z0-9])?`、末尾 dot なし |
 | `notary_time` | UInt64Decimal String |
 | `result_time` | UInt64Decimal String |
@@ -605,7 +635,7 @@ Range object の field order と type は次である。
 {"start":"0","length":"42","bytes":"<strict-base64url>"}
 ```
 
-Canonical JSON は UTF-8、BOMなし、whitespaceなし、上記 field order、object field order固定、String内の非ASCII禁止、escape禁止である。Unknown field、duplicate key、padding付きbase64url、noncanonical decimal、Unicode escapeを拒否する。`Content-Type` は parameterなしの exact `application/json`。受信 bytes を strict parser で parseしてcanonical serializerで再生成し、元 bytes と byte-for-byte 一致しなければ拒否する。
+選定profileのcanonical JSONはUTF-8、BOMなし、object field order、String/number encodingを一意にしなければならない。Unknown field、duplicate key、padding付きbase64url、noncanonical decimal、Unicode escapeなど、署名対象の意味を曖昧にする入力は拒否する。`Content-Type`の受理値とfield orderを固定する場合はprofileのgolden bytesで証明する。受信 bytesをstrict parserでparseし、profileのcanonical serializerで再生成した結果とbyte-for-byte一致しない場合は拒否する。
 
 ### 5.3 VerifierResultSignBytes
 
@@ -623,7 +653,7 @@ u16_be(32) || binding_nonce raw bytes
 u16_be(binding_value_byte_length) || binding_value ASCII bytes
 u16_be(verifier_key_id_byte_length) || verifier_key_id ASCII bytes
 u16_be(notary_key_id_byte_length) || notary_key_id ASCII bytes
-u16_be(N) || tlsn_attestation_id raw bytes
+u16_be(tlsn_attestation_id_byte_length) || tlsn_attestation_id raw bytes
 u16_be(server_identity_byte_length) || server_identity ASCII bytes
 u64_be(notary_time)
 u64_be(result_time)
@@ -639,7 +669,7 @@ u32_be(response_range_count)
     u64_be(start) || u64_be(length) || u64_be(decoded_bytes_length) || raw bytes
 ```
 
-Integer は unsigned big-endian fixed width である。String length は bytes 数であり character 数ではない。`u16_be(length)`へ入る全length（Attestation IDの`N`を含む）は65535以下でなければならず、overflowは拒否する。Array order は `start` 昇順である。第三者実装は同一 semantic value から同一 bytes を生成しなければならない。
+Integer は unsigned big-endian fixed width である。String length は bytes 数であり character 数ではない。`u16_be(length)`へ入る全length（Attestation IDの実際のbyte lengthを含む）は65535以下でなければならず、overflowは拒否する。Array order は `start` 昇順である。第三者実装は同一 semantic value から同一 bytes を生成しなければならない。
 
 `signature` は strict RFC 8032 pure Ed25519 で VerifierResultSignBytes を署名する。Verifier/Device 共通で canonical point encoding、`S < L`、identity point、small-order point、torsion component rejectionを必須とし、ZIP-215 permissive acceptanceを禁止する。
 
@@ -657,12 +687,12 @@ Request array と Response array は別 field であり、Range object に `dire
 
 v1 `require_info` profile はさらに次を要求する。
 
-1. TLSNotary Presentationはauthenticated sent transcript全体をDedicated Verifierだけへ開示する。Verifierは`MAX_REQUEST_TRANSCRIPT_BYTES`以下のbytesをsingle HTTP/1.1 requestとしてstrict parseし、request後のtrailing byteを拒否する。Request lineはexact `POST /kcsapi/api_get_member/require_info HTTP/1.1\r\n`、直後のfirst headerはexact `Host: <server_identity>\r\n`でport suffixを許可しない。Host fieldは全header中exactly 1件であり、異なるcaseを含む後続Hostを拒否する。Host lineの直後のsecond headerはexact `X-FUSOU-Attestation-Binding: <binding_value>\r\n`であり、header nameのcase variation、duplicate、OWS variation、別位置のbinding headerを拒否する。Header/body framingはSection 6.2と同じ規則を使い、responseと異なりbody length 0を要求する。
-2. Verifier ResultのRequest range count = 3。Range 0は`start = 0`のexact request line、Range 1は`start = Range0.end`のexact Host line、Range 2は`start = Range1.end`のexact `X-FUSOU-Attestation-Binding: <binding_value>\r\n` lineである。Cookie、token、残りのrequest bytesはResultへ含めない。
-3. Response range count = 1、`start = 0`、`length = response_transcript_size`。すなわちresponse HTTP/1.1 transcript全体をResultへ含める。
+1. TLSNotary Presentationはauthenticated sent transcript全体をDedicated Verifierだけへ開示する。Verifierは承認済みのrequest resource limit以下のbytesをsingle HTTP/1.1 requestとしてstrict parseし、request後のtrailing byteを拒否する。Requestはtarget method/path、allowlisted server identity、binding headerが一つのauthenticated requestに属すること、binding headerの欠落・重複・置換がないことを検証する。具体的なheader order、OWS、framingのprofileは選定revisionと実captureに基づくimplementation/profile inputとし、client copyや未認証metadataで補わない。
+2. Verifier Resultのrequest rangesは、request line、allowlisted server identity、binding headerと必要なframingを認証できる最小coverageを持つ。range count、rangeの分割位置、headerのwire上の相対位置はsecurity invariantではなくprofile inputであり、選定profileとprivacy reviewで承認する。Cookie、token、その他の不要なrequest bytesはResultへ含めない。
+3. Response rangesはstrict response parserが必要とするauthenticated bytesをすべて含まなければならない。full response一つのrangeは現行candidate optionにすぎず、partial disclosureを採用する場合もparserがJSON path、duplicate key、framingを安全に検証できることをfixtureで証明する。range countを固定する場合はprotocol interoperabilityまたはprivacy/correctness evidenceを添える。
 4. `request_transcript_sha256`と`response_transcript_sha256`はauthenticated full transcript raw bytesのSHA-256である。FUSOU-WEBはresponse digestをRange bytesから再計算し一致を要求する。
 5. Dedicated VerifierとFUSOU-WEBはtranscript bytesをlog・DB・object storageへ保存しない。DBにはfull digestとRangeのstart、length、SHA-256 digestだけを保存する。
-6. Request/response transcript size、range count、decoded bytes totalはProfile limits以下である。
+6. Request/response transcript size、range count、decoded bytes totalは承認済みProfile limits以下である。
 7. ProxyはMPC-TLS sessionごとにapplication requestを1件だけ送信する。Dedicated Verifierはauthenticated sent transcriptのstrict parseによりrequest 1件、exact target、Host、binding header 1件、binding valueのcanonical encoding、trailing bytes不在を検証する。TLS server identityがSecurity Authorityであり、非開示header/body値はIdentity Authorityに使用しない。
 
 Response 全体開示は partial transcript 上で JSON path と duplicate key absence を推測しないための v1 correctness rule である。Privacy review がこれを拒否する場合、Phase 0 は NO-GO とし、redaction-aware authenticated parser を protocol v2 として別設計する。
@@ -843,7 +873,7 @@ Functionは`auth.users`の該当rowが存在し`is_anonymous = false`である�
 
 Function内部の順序は次である。
 
-1. Input shape、literal Attestation length `N`、frozen profile hash/server allowlist、digest length、Range metadata shapeを検証する。Expiryの比較とlifecycle timestampの生成はlock取得後に行う。
+1. Input shape、profile-defined opaque Attestation ID byte bounds、frozen profile hash/server allowlist、digest length、Range metadata shapeを検証する。Expiryの比較とlifecycle timestampの生成はlock取得後に行う。
 2. Attestation advisory lockを取得。
 3. Identity advisory lockを取得。
 4. User quota advisory lockを取得。
@@ -874,7 +904,7 @@ Response body は次である。
   "challenge_nonce": "<strict-base64url-32-bytes>",
   "expires_at": "<RFC3339 UTC>",
   "device_id": "<uuidv4>",
-  "tlsn_attestation_id": "<strict-base64url-N-bytes>",
+  "tlsn_attestation_id": "<strict-base64url-profile-defined-opaque-bytes>",
   "verified_member_id": "<canonical decimal string>",
   "public_id": "<uuidv4>",
   "challenge_replayed": "<boolean>"
@@ -884,6 +914,8 @@ Response body は次である。
 新規作成は`201`かつ`challenge_replayed=false`、同一ACTIVE Challengeの再取得は`200`かつ`challenge_replayed=true`である。Replayは同じSession ID、binding nonce/value、challenge ID、nonce、expiry、device/public/member/Attestation IDsを返す。Response fieldは上記11個だけであり、canonical user IDとdevice public keyは返さない。
 
 同一Attestationと同一Attestation Sessionはlifecycle全体でChallengeを最大1件とする。SessionとAttestationのどちらかが異なるResultの結合は許可しない。
+
+次のindex定義は候補名を示す。必要な不変条件は、AttestationとSessionのlifecycle全体での一意性、およびdeviceごとのACTIVE Challengeの高々1件であり、index name自体はcontractではない。
 
 ```sql
 CREATE UNIQUE INDEX uq_claim_challenges_attestation
@@ -897,7 +929,7 @@ ON public.claim_challenges (device_id)
 WHERE challenge_status = 'ACTIVE';
 ```
 
-Index predicate に `now()` を使用してはならない。
+Index predicate に `now()` を使用してはならない。時刻に依存するusable判定はRPCのtransaction内で行う。
 
 Attestationの一回性と`UNIQUE(tlsn_attestation_id)`をlifecycle全体で成立させるため、すべてのChallenge rowを保持する。Accepted Claimが参照するrowだけでなく、unclaimed CONSUMED/EXPIRED rowも削除しない。Section 10.5のcleanup RPCは期限切れACTIVE/PENDINGの遷移だけを行い、Challenge rowを削除してはならない。
 
@@ -912,7 +944,7 @@ Client は Challenge response を次の順序で binary serialize し、device E
 | 3 | Attestation Session ID | `u16_be(16)` + RFC 4122 network-order UUID bytes |
 | 4 | binding nonce | `u16_be(32)` + raw 32 bytes |
 | 5 | binding value | `u16_be(length)` + exact ASCII binding value bytes |
-| 6 | Attestation ID | `u16_be(N)` + raw `N` bytes |
+| 6 | Attestation ID | `u16_be(byte_length)` + raw opaque bytes |
 | 7 | verified member ID | `u16_be(length)` + decimal ASCII bytes |
 | 8 | device ID | `u16_be(16)` + RFC 4122 network-order UUID bytes |
 | 9 | public ID | `u16_be(16)` + RFC 4122 network-order UUID bytes |
@@ -1114,13 +1146,13 @@ PENDING TTLは作成時から24時間、Challenge TTLは作成時から最大5�
 | `api_member_id` | `TEXT` | `^[1-9][0-9]{0,15}$` |
 | `public_id`, device/challenge/claim IDs | `UUID` | Server-generated UUIDv4 |
 | device public key | `BYTEA` | `octet_length = 32`, global `UNIQUE` |
-| Attestation ID | `BYTEA` | `octet_length = <PHASE-0-LITERAL-N>` |
+| Attestation ID | `BYTEA` | non-empty profile-defined opaque bytes; finite profile limit enforced before persistence |
 | nonce | `BYTEA` | `octet_length = 32` |
 | signature | API only | decoded 64 bytes |
 | `notary_time` | `NUMERIC(20,0)` | UInt64 range、same semantics as protocol |
 | DB lifecycle time | `TIMESTAMPTZ` | entry functionが一度取得する`v_db_now`によるDB event time。`notary_time`の代用禁止 |
 
-Schema中の`<Phase-0 literal N>`は設計時のsymbolic placeholderであり、実装値ではない。P0-02が固定したAttestation IDのnumeric byte lengthで仕様書中の全placeholderを置換し、置換結果をmigration/constraint testで検証するまで、target migrationをcommitまたはapplyしてはならない。Nを推測した値やfixtureだけで代用してはならない。
+Attestation IDの内部構造や固定長を仮定してはならない。Profileが承認した有限の最大byte lengthはVerifier、API、DB境界で一貫して強制し、`u16_be(length)`を使うwire encodingでは65535 bytesを超える値を拒否する。候補sourceで観測した16 bytesを実装値へ昇格させてはならない。
 
 `notary_time`の実型は次のdomainである。
 
@@ -1248,7 +1280,7 @@ api_member_id TEXT NOT NULL
 public_id UUID NOT NULL
 canonical_user_id UUID NOT NULL
 verified_device_id UUID NOT NULL UNIQUE
-tlsn_attestation_id BYTEA NOT NULL UNIQUE CHECK (octet_length(tlsn_attestation_id) = <PHASE-0-LITERAL-N>)
+tlsn_attestation_id BYTEA NOT NULL UNIQUE CHECK (octet_length(tlsn_attestation_id) > 0 AND octet_length(tlsn_attestation_id) <= 65535)
 notary_time public.fusou_uint64 NOT NULL
 result_time public.fusou_uint64 NOT NULL
 profile_sha256 BYTEA NOT NULL CHECK (octet_length(profile_sha256) = 32)
@@ -1271,11 +1303,11 @@ FOREIGN KEY (attestation_session_id, canonical_user_id, verified_device_id, bind
   REFERENCES attestation_sessions(session_id, canonical_user_id, device_id, binding_nonce) ON DELETE RESTRICT
 ```
 
-`profile_sha256`、`server_identity`、key IDs、Range metadataはChallengeからbyte-for-byte copyし、Claim API inputから受け取らない。Key IDsは`^[A-Za-z0-9._-]{1,64}$`、`server_identity`はSection 5.2のhostname grammarをCHECKする。`request_ranges`と`response_ranges`は`validate_range_metadata_v1()`もCHECKし、両tableで`jsonb_array_length(request_ranges) = 3`と`jsonb_array_length(response_ranges) = 1`を別CHECKとして持つ。
+`profile_sha256`、`server_identity`、key IDs、Range metadataはChallengeからbyte-for-byte copyし、Claim API inputから受け取らない。Key IDsは`^[A-Za-z0-9._-]{1,64}$`、`server_identity`はSection 5.2のhostname grammarをCHECKする。`request_ranges`と`response_ranges`は`validate_range_metadata_v1()`もCHECKし、range countの固定値は選定profileとprivacy/correctness evidenceで承認した場合だけ適用する。
 
 Stored Range metadata object は `start`、`length`、`sha256` のexact 3 keysだけを持つ。`start`と`length`はUInt64Decimal String、`sha256`はraw revealed bytesのSHA-256 lowercase 64-hex Stringである。Arrayはstart昇順でoverlapなし。`validate_range_metadata_v1(JSONB)` immutable functionでこのshapeを検証する。Raw revealed bytesは保存しない。
 
-Append-only DDL order は次に固定する。
+Append-only enforcementは、table write pathをentry functionへ限定し、accepted historyの削除・改変を防がなければならない。次のDDL orderは候補PostgreSQL migration sequenceであり、同じatomicity、ACL、trigger、監査結果を満たす別順序を妨げない。
 
 ```text
 CREATE TABLE
@@ -1300,7 +1332,7 @@ public_id UUID NOT NULL
 canonical_user_id UUID NOT NULL
 device_id UUID NOT NULL
 device_public_key_sha256 BYTEA NOT NULL CHECK (octet_length(device_public_key_sha256) = 32)
-tlsn_attestation_id BYTEA NOT NULL CHECK (octet_length(tlsn_attestation_id) = <PHASE-0-LITERAL-N>)
+tlsn_attestation_id BYTEA NOT NULL CHECK (octet_length(tlsn_attestation_id) > 0 AND octet_length(tlsn_attestation_id) <= 65535)
 challenge_nonce BYTEA NOT NULL CHECK (octet_length(challenge_nonce) = 32)
 notary_time public.fusou_uint64 NOT NULL
 result_time public.fusou_uint64 NOT NULL
@@ -1350,9 +1382,9 @@ Range sha256 = SHA-256(raw decoded Range bytes)
 
 `UNIQUE(tlsn_attestation_id)`とSection 7.2のpartial ACTIVE device indexを作成する。Expired/consumed Attestationから新Challengeを作らない。`CONSUMED/CLAIM_ACCEPTED` Challengeはaccepted Claim replayのauthority recordとしてretention期限なく保持する。
 
-Challenge row は retention enforcement のため delete 不可である。Migration は `reject_claim_challenge_delete_v1()` (`RETURNS trigger`, `LANGUAGE plpgsql`, `SECURITY DEFINER`, `SET search_path = public, pg_temp`) を作成し、function body は常に `RAISE EXCEPTION 'CHALLENGE_DELETE_FORBIDDEN';` の後に到達不能な `RETURN OLD` を置く。`trg_claim_challenges_reject_delete_v1` を `claim_challenges` の `BEFORE DELETE FOR EACH ROW` trigger として付ける。この trigger は常に `CHALLENGE_DELETE_FORBIDDEN` を raise する。`PUBLIC`、`anon`、`authenticated`、`service_role`から table の `DELETE`/`TRUNCATE` を revoke し、cleanup RPCを含む全supported pathはlifecycle UPDATEだけを行う。superuser/table ownerによる直接削除はDB trust boundary外であり、preflight/postflightでtrigger、owner、ACLを検査する。
+Challenge row は retention enforcement のため delete 不可である。選定migrationはtrigger、ACL、または同等のDB enforcementにより、supported pathからのDELETE/TRUNCATEを拒否し、cleanup RPCを含む全supported pathをlifecycle UPDATEだけに制限しなければならない。次のfunction名、trigger名、error text、`SECURITY DEFINER`設定は候補PostgreSQL実装であり、同じ削除禁止・権限分離・監査可能性を証明する別実装へ置換できる。superuser/table ownerによる直接削除はDB trust boundary外であり、preflight/postflightで選定したenforcement、owner、ACLを検査する。
 
-`claim_challenges`は`member_identity_claims`より先にCREATEし、mapping composite UNIQUEとdevice composite UNIQUEを両tableのFKより先に追加する。Section 9.5/9.6の記載順はDDL作成順を表さない。
+`claim_challenges`は`member_identity_claims`より先に作成するなど、FKが解決可能なdependency orderを選定migrationで満たす。Section 9.5/9.6の記載順はDDL作成順を表さない。
 
 ### 9.7 Projection schema
 
@@ -1433,7 +1465,7 @@ Entry functionは`READ COMMITTED` transactionだけを受け付け、開始時�
 
 ### 10.1 Lock domains と total order
 
-Advisory lockは`pg_advisory_xact_lock(integer, integer)`の2-key formだけを使用する。第1 keyをdomain ID、第2 keyを`hashtext` resultとし、domain間のkey spaceを分離する。
+同じidentity、device、Attestation、またはquotaを同時に変更する処理は、全callerで共有するdocumented total orderを使い、lock後にauthorityを再読してatomicに判定しなければならない。Advisory lockのDB関数、keyのshape、hash algorithm、domain IDは候補PostgreSQL実装であり、選定実装はcollision、restart、lock scope、deadlock-freeの性質を証明する。
 
 ```sql
 CREATE OR REPLACE FUNCTION public.lock_identity_v1(p_api_member_id TEXT)
@@ -1449,7 +1481,7 @@ AS $$
 $$;
 ```
 
-残るinternal helpersも同じshapeとし、domain IDを次に固定する。
+現行candidateのinternal helper mappingは次である。名前、key値、hash mappingはprotocol contractではない。
 
 ```text
 lock_attestation_v1(BYTEA): 1179997001, hashtext(encode(value, 'hex'))
@@ -1460,7 +1492,7 @@ lock_device_key_v1(BYTEA):  1179997004, hashtext(encode(value, 'hex'))
 
 異なるdomainは第1 keyが異なるため衝突しない。同一domainのhash collisionは余分なserializationだけを生み、row constraintsがcorrectnessを保証する。Lock keyは永続化せず、PostgreSQL major versionをまたぐ安定性に依存しない。
 
-複数 lock/row を取る処理の total order は次である。
+複数 lock/row を取る処理のcandidate total orderは次である。実装はこの順序を採用してもよいし、全entry function、cleanup、revoke、migration testで一貫した別順序を承認してもよい。
 
 ```text
 1. Attestation advisory lock
@@ -1876,7 +1908,7 @@ Stage 2 (execute)
 
 `content_sha256`と`content_size`は、HTTP transfer framingとrouteが明示的に許可するcontent decoding後、route schema parse、server envelope生成、compressionより前の、Stage 2が受け取るexecution input byte列だけを対象とする。Common codeはそのbytesを再serializeせずhashし、Stage 1のledger/Upload TokenとStage 2の再計算値を一致させる。R2 envelopeの`content_sha256`はこのStage 2 input digestを格納するfieldであり、envelope自身（またはgzip wrapper）のdigestではない。したがって、envelopeをuncompressed canonical bodyとして保存する場合も、digestの入力はenvelope外のStage 2 input bytesである。
 
-各routeのrequired sinkは、次のtarget route manifest tableで定めるQueue、Turso、D1、R2のexact subsetだけであり、全sinkを暗黙にrequiredとはしない。ここでSection 11.4に列挙したchecked-in handler/schema pathは、現行legacy implementationを authority とする意味ではなく、target implementationで置換される route contract の ownership path である。Required sink 自体は現行コードから推測せず、この表とP0-17 manifestへ固定する。Successはそのsubsetの各sinkがinsertまたは同一値のexact-match no-opを返した場合だけとする。CAS後にrequired sinkが収束できない場合は共通の`500 INTERNAL_ERROR`を返し、ledgerの`consumed_at`は保持する。Server/Queueのretry/recoveryは同じ`ingest_id`で不足sinkだけを再試行する。Clientの同じUpload Token再送は許可せず、再送を必要とする場合はStage 1から新しい`ingest_id`を取得する。
+各routeのrequired sinkは、全sinkを暗黙にrequiredとせず、versionedでclosedなdeployment manifestが選択したQueue、Turso、D1、R2のsubsetだけとする。ここで示すhandler/schema path、resource名、routeごとのsink対応は現行candidate manifestであり、protocol contractや現行legacy implementationのauthorityではない。選定manifestはP0-17で存在、所有者、failure/recovery手順、exact-match条件を実証する。Successは選定subsetの各sinkがinsertまたは同一値のexact-match no-opを返した場合だけとする。CAS後にrequired sinkが収束できない場合は共通の`500 INTERNAL_ERROR`を返し、ledgerの`consumed_at`は保持する。Server/Queueのretry/recoveryは同じ`ingest_id`で不足sinkだけを再試行する。Clientの同じUpload Token再送は許可せず、再送を必要とする場合はStage 1から新しい`ingest_id`を取得する。
 
 Stage 1のroute-specific preparation/execution fieldsはSection 11.4で指定したowning schemaがcanonicalであり、identity layerはそれらをauthorityとして解釈しない。`route`、`device_id`、`public_id`、`ingest_id`、nonce、timestampsをclient bodyから受け取らず、token/endpoint/ledgerから復元する。Stage 1/2でDataset Tokenがmissing、複数、invalid、expired、root/key mismatchなら、Stage判定後に`401 INVALID_DATASET_TOKEN`としてDBを変更しない。`X-Upload-Token`が存在するStage 2で空値または複数値なら`409 UPLOAD_TOKEN_NOT_ACTIVE`としてDBを変更しない。
 
@@ -1940,7 +1972,7 @@ POST /api/soku-speed-observed/ingest      -> src/server/schemas/soku-speed.ts
 
 各routeはparse前のduplicate-key detectorとschemaのreserved-field rejectを通し、storage DML/Queue message/R2 metadataではserver envelopeを明示的な列/field listで書く。Object spread、recursive merge、client metadataのpass-throughを禁止する。新しいdataset-bearing ingest routeはこのclosed setとcross-route substitution testsを同じchangeで更新しなければならない。
 
-Target route の required sink は次の閉じた表である。`HTTP sink` は Stage 2 の CAS commit 後に直接収束させる sink、`downstream sink` はその HTTP sink が Queue の場合に同じ `ingest_id` で consumer が収束させる sink である。表にない sink、現行legacy handlerの偶発的な書込み先、cache invalidation は required sink ではない。
+現行candidate route manifestのrequired sinkは次の表である。`HTTP sink` は Stage 2 の CAS commit 後に直接収束させる sink、`downstream sink` はその HTTP sink が Queue の場合に同じ `ingest_id` で consumer が収束させる sink である。選定manifestにないsink、現行legacy handlerの偶発的な書込み先、cache invalidationはrequired sinkではない。
 
 | Route ID | Target owning schema path | HTTP sink | Downstream sink |
 | --- | --- | --- | --- |
@@ -1951,7 +1983,7 @@ Target route の required sink は次の閉じた表である。`HTTP sink` は 
 | `SHIP_GROWTH_INGEST` | `src/server/schemas/ship-growth.ts` | `ship-growth-index-target` D1 and `ship-growth-bucket-target` R2 | — |
 | `SOKU_SPEED_OBSERVED_INGEST` | `src/server/schemas/soku-speed.ts` | `soku-index-target` D1 | — |
 
-The named schema paths are target ownership paths and must be strict replacement implementations before traffic is enabled; the currently checked-in legacy handlers and schemas are not normative. The target manifest must contain this exact route-to-sink table, and a route is successful only after its listed HTTP sinks converge. A Queue consumer must additionally satisfy its downstream sink contract before acknowledging the message.
+The named schema paths and resource names are target ownership candidates; the currently checked-in legacy handlers and schemas are not normative. Before traffic is enabled, a versioned target manifest must select one closed route-to-sink mapping and prove that each listed HTTP sink converges. A Queue consumer must additionally satisfy its downstream sink contract before acknowledging the message.
 
 v1 が保証する「who」は bearer credential の `device_id`、「which dataset」は `public_id` である。Payload の出来事の真正性、現在の Game session、token を使用した物理端末は保証しない。
 
@@ -1961,18 +1993,18 @@ v1 が保証する「who」は bearer credential の `device_id`、「which data
 
 ### 12.1 Baseline
 
-Fresh DB は repository の全既存 migration を順番に適用した後、本節の migration を適用する。既存 migration を飛ばした独立 bootstrap を想定しない。Existing DB は実在する最新baseline `20260825010000_provider_tokens_acl_hardening.sql` まで適用済みであることをpreflightで確認する。
+Fresh DB は repository の既存migrationを依存関係に従って適用した後、選定したtarget migrationを適用する。既存migrationを飛ばした独立bootstrapをproduction pathとしない。Existing DBは、選定baselineが要求するversionまで適用済みであることをpreflightで確認する。baselineの具体的なfilenameはrepository/runbook inputである。
 
-新規PostgreSQL migration fileは次の2 filesに固定する。Profile、registry、evidence、storage manifest、executor、およびSection 12.7で指定する別のTurso bootstrap SQLはこの2 filesの件数に含めない。Turso bootstrapはPostgreSQL migration fileではない。
+現行candidateではPostgreSQL migrationをpreflightとcutoverの2 filesに分ける。Profile、registry、evidence、storage manifest、executor、およびTurso bootstrap SQLはPostgreSQL migration fileとは別のartifactである。file数、filename、directoryはimplementation/runbook inputであり、選定artifactのdependency、review、適用範囲をP0-12/P0-17で証明する。
 
 ```text
 packages/FUSOU-WEB/supabase/preflight/tlsn_identity_preflight.sql
 packages/FUSOU-WEB/supabase/migrations/20260831010000_tlsn_identity_cutover.sql
 ```
 
-Preflight fileは`BEGIN TRANSACTION READ ONLY -> checks/report -> ROLLBACK`だけを行う。Cutover fileはpreflight checksを先頭で再実行し、`BEGIN`から`COMMIT`まで1個のtop-level transactionで全DDL/DML/postflightを行う。Transaction controlを行うprocedure、`CREATE INDEX CONCURRENTLY`、外部network/storage mutationを含めない。別commitの段階migrationへ分割してはならない。
+Preflight artifactは永続mutationなしでchecks/reportを行う。Cutover artifactはpreflight checksを再実行し、DBのsecurity-sensitive DDL/DMLを一つのatomic transactionで適用し、external network/storage mutationをtransaction内で行わない。transaction境界、分割数、index作成方式はcandidate implementationだが、部分適用、検証前のwriter再開、external side effectとの不可逆な混在を許可してはならない。
 
-Production cutoverはSection 12.7 Step 1の独立edge blockとStep 2のproducer/cron/consumer barrierを維持し、Step 4のrestore test後にだけ実行する。P0-17 reportはPostgreSQLへ接続可能な全writer role/applicationを列挙する。Migration connection以外について、列挙したwriterのwrite-attempt logが0で、`pg_stat_activity`の`xact_start IS NOT NULL`なsessionが0であることを確認する。Idle pool connectionは許可するが、unknown application/roleまたはidle-in-transactionを含むopen transactionがあれば停止する。Transaction開始後、`pg_advisory_xact_lock(1179997099, 0)`を取得し、次のexisting tablesを記載順の単一`LOCK TABLE ... IN ACCESS EXCLUSIVE MODE`でlockしてからpreflight checksを再実行する。Lock取得完了をDB内の最終no-concurrent-writer barrierとする。
+Production cutoverは独立edge block、producer/cron/consumer barrier、backup/restore evidence、DB内のno-concurrent-writer barrierを維持した後にだけ実行する。P0-17 reportはPostgreSQLへ接続可能な全writer role/applicationを列挙する。Migration connection以外について、列挙したwriterのwrite-attempt logが0で、open transactionが0であることを確認する。barrierの具体的なadvisory key、table lock方式、table list、timeoutはcandidate runbookであり、選定方式がlegacy writerの侵入を防ぎ、preflight再検査からcommitまでwriterを遮断することを証明する。
 
 ```text
 public.anon_sync_nonce_consumptions
@@ -2048,11 +2080,11 @@ Dependency が1件でもあれば DELETE 前に停止する。`ON DELETE CASCADE
 
 ### 12.4 Atomic cutover order
 
-Cutover transaction内の順序を固定する。
+Cutoverに必要なsecurity propertiesは、writer barrier、preflightの再検査、atomicなschema/authority変更、外部side effectとの分離、失敗時のrollbackまたはforward recoveryである。以下は現行candidate runbookの順序であり、object名、lock方式、step数、個別DDLは同じpropertiesを証明する範囲で変更できる。
 
 Cutover transactionはStep 1のlock取得後にDB timestampを一度だけ`cutover_v_db_now`として取得し、以後の全legacy lifecycle normalizationとreport timestampに再利用する。client時刻やstatementごとのclock readを使用しない。
 
-1. Advisory lockとSection 12.1のfixed-order `ACCESS EXCLUSIVE` locksを取得し、Section 12.2 preflightを再実行する。
+1. 選定したDB writer barrierを取得し、Section 12.2 preflightを再実行する。
 2. `fusou_identity_owner`、`fusou_identity_auditor`、`public.fusou_uint64`を作り、必要最小限の`auth` read grantを設定する。
 3. 旧RPCのEXECUTEをrevokeする。`DROP POLICY IF EXISTS user_member_map_select_own ON public.user_member_map`と`DROP POLICY IF EXISTS user_devices_select_own ON public.user_devices`を実行し、この時点で存在する`member_id_mapping`、`user_devices`、両projectionの全direct privilegeを`PUBLIC`、`anon`、`authenticated`、`service_role`からrevokeする。未作成の`claim_challenges`、`member_ownership`、`member_identity_claims`を参照してはならず、それらはStep 12の各`CREATE TABLE`直後に同じREVOKEを行う。
 4. `supabase_realtime`から`pending_member_syncs`を外し、`web_user_member_map`、`user_member_map`を全削除する。
@@ -2069,11 +2101,11 @@ Cutover transactionはStep 1のlock取得後にDB timestampを一度だけ`cutov
 15. 旧anonymous authority objectsをdropする。
 16. Catalog、owner、ACL、RLS policy absence、constraint validation、0件projection、legacy object absenceのpostflightを実行する。`attestation_sessions`のrow-shape/lifecycle/composite UNIQUEとSession/Challenge composite FK、Session単独expiry cleanupをassertする。`aclexplode`/`has_*_privilege`で4 application rolesにtable/sequence direct privilegeがなく、`service_role`がSection 10.5のclosed entry function setとexact signatureだけをEXECUTEできることをassertする。
 
-Phase 0がliteral`N`とprofile hashを固定する前にcutover fileをcommit・applyしてはならない。Legacy deviceへrandom `public_id`やfake keyを設定せず、TLSNotary proofなしでVERIFIEDへbackfillしない。`auth.users`と`member_id_mapping`は保持するが、anonymous accountをownershipへ移行しない。
+Phase 0がprofile hash、opaque Attestation ID encoding、required protocol evidenceを承認する前にcutover artifactをcommit・applyしてはならない。Legacy deviceへrandom `public_id`やfake keyを設定せず、TLSNotary proofなしでVERIFIEDへbackfillしない。`auth.users`と`member_id_mapping`は保持するが、anonymous accountをownershipへ移行しない。
 
 ### 12.5 Legacy authority removal
 
-Step 15は依存trigger/functionを先にdropし、次をexact signature/nameで除去する。
+Step 15相当のlegacy authority removalは、依存関係を解決してから実行し、self-reported identity path、旧projection、旧anonymous grantsをsupported callerから除去する。次は現行candidateの対象一覧であり、具体的なsignature/nameはrepository/runbook inputである。
 
 ```text
 rpc_register_public_id(text)
@@ -2105,11 +2137,11 @@ Existing DB test fixture は次を含む。
 
 Preflight failure fixtureはmutation前後のtable checksumが同一でなければならない。Cutoverの各logical stepへtest-only forced failureを挿入し、全table/catalog checksumとlegacy RPC availabilityがtransaction開始前と同一へrollbackすることを検証する。成功後は4 roots、Attestation Session、Challenge、projection、roles、ACL、function owner/search_path/signature、FK action、validated constraintをcatalog assertionする。
 
-### 12.7 Legacy identity epoch storage cutover
+### 12.7 Candidate legacy identity epoch storage cutover
 
-旧self-report epochの`public_id`を含むrow/objectと、それらを入力にしたaggregateは、新しいverified identityへ継承しない。Lineageを完全復元できないためrow単位deleteは禁止し、identity-derived resource全体を空の`tlsn-v1`世代へ交換する。
+旧self-report epochの`public_id`を含むrow/objectと、それらを入力にしたaggregateは、新しいverified identityへ継承しない。Lineageを完全復元できないためrow単位deleteは禁止し、identity-derived resource全体を空の新世代へ交換する。以下のprovider resource、artifact filename、manifest shape、cardinality、cleanup orderは現行candidate runbookであり、実装前にP0-17で選定・実証する。security contractは旧authorityを再利用しないこと、target identityを混在させないこと、backup/restore、idempotent sink、失敗時のforward recoveryである。
 
-現行`docs/sql/turso/migration_0001_create_buffer_tables.sql`はlegacy backup/restore検査専用であり、target bootstrapへ使用しない。Target Tursoのauthoritative artifactは新規`docs/sql/turso/migration_0002_tlsn_identity_epoch_v1.sql`で、empty dedicated-group databaseだけへ適用する。`buffer_logs_active`と`buffer_logs_processing`はexactly同じ次のcolumns/constraintsを持つ。
+現行`docs/sql/turso/migration_0001_create_buffer_tables.sql`はlegacy backup/restore検査専用であり、target bootstrapへ使用しない。Target Turso bootstrap、table/column/index names、DDL artifact pathはcandidate implementationであり、empty dedicated-group databaseに適用する方式をP0-17で選定する。以下はcandidate logical row contractである。
 
 ```text
 id INTEGER PRIMARY KEY AUTOINCREMENT
@@ -2129,9 +2161,9 @@ created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
 UNIQUE (ingest_id, route_id, record_ordinal)
 ```
 
-`timestamp`と`data`はuntrusted payload contentでありauthorityではない。各tableはordering index `(table_version, table_name, period_tag, public_id, id)`とhot index `(public_id, table_name, timestamp)`を持つ。Swap/recreate pathもこのartifactのliteral DDLを使用し、legacy `dataset_id`、`uploaded_by`、`trust_tag` columnsを再作成してはならない。P0-17はこのfileからfresh targetを作り、fingerprint profileとruntime insert/select/swap smokeを通す。
+`timestamp`と`data`はuntrusted payload contentでありauthorityではない。ordering/hot lookupを満たすindex方式、swap/recreate path、物理DDLはcandidate implementationである。legacy `dataset_id`、`uploaded_by`、`trust_tag`をauthority columnとして再作成してはならない。P0-17は選定したtarget bootstrapでfresh targetを作り、fingerprint profileとruntime insert/select/swap smokeを通す。
 
-Required manifest artifact（現行repositoryには未作成）は`packages/FUSOU-WEB/scripts/manifests/tlsn-identity-storage-v1.json`、executorは新規`packages/FUSOU-WEB/scripts/cutover-tlsn-identity-storage.mjs`である。既存no-op `purge-d1-member-data.mjs`は削除する。ManifestはRFC 8785 canonical JSONのexactly次のtop-level shapeを持つ。
+Required manifest artifact（現行repositoryには未作成）のpath、executor path、既存cleanup pathの扱いはcandidate runbookである。Manifestはclosed, versioned inventoryとgeneration identityを持ち、canonical serializationとunknown/duplicate rejectionを満たさなければならない。次はcandidate top-level shapeである。
 
 ```json
 {"bindings":[],"epoch":"tlsn-v1","generation_id":"<uuidv4>","legacy_resources":[],"preserved_resources":[],"queue_consumers":[],"target_resources":[],"transitions":[],"version":1}
@@ -2139,7 +2171,7 @@ Required manifest artifact（現行repositoryには未作成）は`packages/FUSO
 
 Resource arrayは物理resourceだけ、`bindings`はpackage alias、`queue_consumers`はbinding名を持たないconsumer registration、`transitions`はdestructive legacy-to-target mappingだけを表す。同じ物理resourceを複数bindingが参照してよい。全entryはunknown/duplicate fieldを拒否し、resourceは`ref`昇順、binding/consumerは`package`、`binding`または`script_name`の順、transitionは`from_resource_ref`昇順、`modes`はASCII昇順とする。Top-level `generation_id`はCSPRNG UUIDv4で、initial cutover/recoveryごとに新規生成する。
 
-Resource entryはkindごとにexactly次のshapeを持つ。Property orderはRFC 8785出力順である。
+Resource entryのkind別shape、property order、locator fieldsはcandidate artifact schemaである。selected schemaはphysical locatorの一意性、kind/action整合性、generation bindingを証明できなければならない。
 
 ```text
 d1:    {"expected_schema_sha256":"<lowercase-hex-64>","kind":"d1","locator":<d1-locator>,"ref":"<ref>"}
@@ -2155,7 +2187,7 @@ D1/Turso schema fingerprintは新規`packages/FUSOU-WEB/scripts/fingerprint-stor
 
 Queue `expected_configuration_sha256`はmanagement APIのexact normalized `{"delivery_delay":<integer>,"message_retention_period":<integer>}`をRFC 8785 serializeしたSHA-256である。一時的な`delivery_paused`、producer list、consumer listをこのdigestへ含めず、それぞれprocedure、`bindings`、`queue_consumers`で検査する。
 
-Provider locatorは次のexact objectとする。
+Provider locatorは次のcandidate object shapeとする。providerが返すstable identityを含む別shapeを採用してよい。
 
 ```text
 d1:    {"account_id":"<hex>","name":"<exact>","uuid":"<uuid>"}
@@ -2167,17 +2199,17 @@ turso: {"database_id":"<provider-uuid>","group":"<exact>","hostname":"<lowercase
 
 Cloudflare APIがR2/KV `jurisdiction`を省略した場合はexact String `default`へ正規化する。R2には独立したimmutable bucket IDがないため、account、jurisdiction、exact nameとmanagement credentialで作成したmarker objectのcanonical content digestを一組のidentityとする。Marker contentはRFC 8785 exact `{"epoch":"tlsn-v1","generation_id":"<same-manifest-uuidv4>","version":1}`であり、`marker_sha256`はそのbytesのSHA-256である。Target bucketはこのmarker 1 objectだけを許可し、business key count 0を「empty」と定義する。Turso locatorはmanagement APIが返すdatabase UUIDを必須とし、URL/tokenはmanifestへ記録しない。Target Tursoはlegacyと異なるdedicated groupに作成する。Management APIが上記locatorを返せないresourceはP0-17 FAILである。
 
-Binding entryはexact `{"binding":"<name>","from_resource_ref":"<ref>","modes":["<mode>"],"package":"<package>","to_resource_ref":"<ref>"}`である。Modesは`credential-secret | producer | read | url-secret | write`のclosed set。同一`(package,binding)`を禁止し、from/to refsは同kindで、destructive resourceでは対応transition、preserved resourceでは同じrefを指す。Physical locatorのduplicateはresource arrays全体で禁止するが、binding aliasのduplicate locator参照は許可する。
+Binding entryのfield shapeとmodesの表現はcandidate artifact schemaである。selected schemaは同一aliasの重複、kind不一致、destructive transitionとの不整合を拒否し、同一physical locatorの複数alias参照は許可できる。
 
-Queue consumer entryはexact `{"consumer_type":"worker","dead_letter_from_resource_ref":"<ref-or-empty>","dead_letter_to_resource_ref":"<ref-or-empty>","from_consumer_id":"<cloudflare-resource-id-max-32>","from_resource_ref":"<queue-ref>","from_settings":<settings>,"package":"<package>","script_name":"<exact>","to_consumer_id":"<cloudflare-resource-id-max-32>","to_resource_ref":"<queue-ref>","to_settings":<settings>}`である。`settings`はmanagement APIをexact normalizedした`{"batch_size":<integer>,"max_concurrency":<integer-or-null>,"max_retries":<integer>,"max_wait_time_ms":<integer>,"retry_delay":<integer>}`。No DLQはempty String。Management APIのconsumer ID/type/script/queue/DLQ/settings relationをexact照合する。
+Queue consumer entryのfield shapeとsettings normalizationはcandidate artifact schemaである。selected schemaはconsumer ID/type/script/queue/DLQ/settings relationをlive management inventoryと照合し、missing/extra/unknown consumerを拒否できなければならない。
 
-Transition entryはexact `{"action":"<action>","from_resource_ref":"<legacy-ref>","to_resource_ref":"<target-ref>"}`である。Actionは`EMPTY_DATABASE_REBUILD | EMPTY_NAMESPACE | EMPTY_QUEUE | EMPTY_SCHEMA_REBUILD | MARKER_ONLY_BUCKET`のclosed setで、from/to kind一致を要求する。各legacy/target refはexactly 1 transitionに現れ、preserved refは現れない。
+Transition entryのfield shapeとactionのclosed setはcandidate artifact schemaである。selected schemaはlegacy/target refの一対一対応、kind整合性、preserved resourceの非破壊扱いを検証しなければならない。
 
 Tursoの`TURSO_DATABASE_URL`と`TURSO_AUTH_TOKEN`はそれぞれmode `url-secret`、`credential-secret`でlegacy/target Turso refsを結ぶ。Release reportにはsecret value/token IDを記録せず、Worker deployment version ID、binding name、runtime self-checkが返すtarget Turso database ID/hostnameだけを記録する。
 
-`TBD`、empty locator、name-only Cloudflare lookup、wildcard account discoveryを禁止する。Executorはlive management APIから全locator、alias、schema/keyspaceを再取得してmanifestとexact一致しなければmutation前に停止する。Scriptはcanonical manifest bytesのSHA-256をoperatorに表示し、`--apply`にはそのdigest、backup report digest、change-ticket IDの3値を要求する。
+`TBD`、empty locator、name-only Cloudflare lookup、wildcard account discoveryを禁止する。Executorはlive management APIからlocator、alias、schema/keyspaceを再取得し、selected manifestと一致しなければmutation前に停止する。digest、backup report、change-ticketの受け渡し形式はcandidate runbookだが、operator approvalとpre-mutation mismatch rejectionは必須である。
 
-Legacy -> target mappingは次に固定する。Target locatorはP0-17で作成しmanifestへ確定する。表のbindingは全package aliasを列挙する。
+Legacy -> target mappingは次をcandidate runbook例とする。Target locatorと全package aliasはP0-17でlive inventoryから作成し、承認済みmanifestへ確定する。
 
 | Physical refs / binding aliases | Legacy name | Target name | Action |
 | --- | --- | --- | --- |
@@ -2195,11 +2227,11 @@ Legacy -> target mappingは次に固定する。Target locatorはP0-17で作成�
 | `compaction-dlq-legacy -> compaction-dlq-target` / Web producer plus Workflow consumer inventory | `dev-kc-compaction-dlq` | `dev-kc-compaction-dlq-tlsn-v1` | EMPTY_QUEUE |
 | `hot-buffer-legacy -> hot-buffer-target` / Workflow Turso secrets | management API locator for current database/group | dedicated group database `dev-kc-hot-buffer-tlsn-v1` | EMPTY_DATABASE_REBUILD |
 
-`session-target`はtarget KV namespaceとしてP0-17のresource provisioning時にmanagement APIで`dev-fusou-session-tlsn-v1`を作成する。候補のFUSOU-WEB deploymentへ生成対象の`SESSION` bindingを宣言してdeployし、deploymentが返すbinding metadataとKV namespace locator（ID、account、jurisdiction、title）を取得してからmanifestへ記録する。現在のchecked-in `wrangler.toml`に`SESSION`がないことから名前やIDを推測してはならず、生成binding metadataを取得できない場合はP0-17 FAILとする。
+`session-target`はtarget KV namespaceとしてP0-17のresource provisioning時にmanagement APIで作成する候補である。候補のFUSOU-WEB deploymentへ生成対象の`SESSION` bindingを宣言してdeployし、deploymentが返すbinding metadataとKV namespace locatorを取得してからmanifestへ記録する。現在のchecked-in `wrangler.toml`に`SESSION`がないことから名前やIDを推測してはならず、生成binding metadataを取得できない場合はP0-17 FAILとする。
 
-R2 identity-derived keyspacesは`dev-kc-fleets: fleets/<legacy-public_id>/...`、`dev-kc-battle-data: <table_version>/<period_tag>/<tier>/<group>/<table>-<index>.avro`（複数datasetを同一objectへcompactionするためbucket全体）、`dev-kc-ship-growth-archive: ship-growth/archive/<period_tag>/<table_version>/...`である。3 legacy bucketsの`expected_keyspace`は空prefix `""`、すなわち全objectをquarantine対象とする。
+R2 identity-derived keyspacesはcandidate inventoryであり、実装前にlive keyspaceとprivacy/authority boundaryを確認する。legacy identity-derived objectはverified v1 identityへ再結合せず、quarantineまたは全体交換の対象とする。対象prefix、bucket数、marker方式はP0-17で選定する。
 
-Preserve allowlistは次の5 physical resources、6 binding aliasesだけである。
+Preserve allowlistはcandidate resource inventoryである。実際に保持できるphysical resourceとbinding aliasはP0-17のlive inventoryで承認し、未列挙のlegacy authorityは保持しない。
 
 ```text
 assets-bucket / Web ASSETS_BUCKET + ASSET_SYNC_BUCKET: dev-kc-assets
@@ -2209,32 +2241,32 @@ master-data-index / Web MASTER_DATA_INDEX_DB: dev_kc_master_data_index
 asset-sync-index / Web ASSET_SYNC_INDEX_KV
 ```
 
-The manifest binding cardinality `24` is the exact count of `(package,binding)` pairs below, not a count of physical resources. Preserve aliases are 6: `FUSOU-WEB/ASSETS_BUCKET`, `FUSOU-WEB/ASSET_SYNC_BUCKET`, `FUSOU-WEB/ASSET_INDEX_DB`, `FUSOU-WEB/MASTER_DATA_BUCKET`, `FUSOU-WEB/MASTER_DATA_INDEX_DB`, and `FUSOU-WEB/ASSET_SYNC_INDEX_KV`. Transition aliases are 18: `FUSOU-WEB/BATTLE_INDEX_DB`, `FUSOU-WORKFLOW/BATTLE_INDEX_DB`, `FUSOU-WEB/QUEST_INDEX_DB`, `FUSOU-WORKFLOW/QUEST_INDEX_DB`, `FUSOU-WEB/REMODEL_INDEX_DB`, `FUSOU-WEB/SOKU_SPEED_OBSERVED_DB`, `FUSOU-WEB/SHIP_GROWTH_DB`, `FUSOU-WEB/FLEET_SNAPSHOT_BUCKET`, `FUSOU-WEB/BATTLE_DATA_BUCKET`, `FUSOU-WORKFLOW/BATTLE_DATA_BUCKET`, `FUSOU-WEB/SHIP_GROWTH_ARCHIVE_BUCKET`, `FUSOU-WEB/DATA_LOADER_CACHE_KV`, `FUSOU-WEB/SESSION`, `FUSOU-WEB/COMPACTION_QUEUE`, `FUSOU-WORKFLOW/COMPACTION_QUEUE`, `FUSOU-WEB/COMPACTION_DLQ`, `FUSOU-WORKFLOW/TURSO_DATABASE_URL`, and `FUSOU-WORKFLOW/TURSO_AUTH_TOKEN`. `FUSOU-WEB/SESSION` is a required generated target alias and is not present in the current checked-in `wrangler.toml`; P0-17 must obtain and record its generated binding metadata before approval. Service bindings such as `COMPACTION_WORKFLOW` and `SHORTENER_SERVICE` are outside this storage binding cardinality. Queue consumer registrations are counted separately as the two `queue_consumers` entries.
+The manifest binding list is an inventory of `(package,binding)` pairs, not a protocol cardinality. Preserve and transition aliases, generated `SESSION` metadata, service-binding exclusions, and Queue consumer registrations are candidates until P0-17 compares checked-in configuration with live management inventory. Missing, extra, duplicate, or unknown authority paths must still block approval.
 
-`legacy_resources`と`target_resources`は上表13 transitionsの各from/to ref、`preserved_resources`はこの5 refsだけをexactly 1回含む。`bindings`は両表に列挙した24 `(package,binding)` aliases、`queue_consumers`はFUSOU-WORKFLOW script `fusou-workflow`のmain Queue consumerとDLQ consumerの2 entriesだけを含む。ExecutorはFUSOU-WEB/FUSOU-WORKFLOWのchecked-in config、generated Worker binding metadata、Cloudflare/Turso management inventoryを列挙し、storage binding/resource/producer/consumerのmissingまたはextraをmutation前に拒否する。
+`legacy_resources`、`target_resources`、`preserved_resources`、`bindings`、`queue_consumers`は、P0-17で閉じたlive inventoryとして承認した集合を含む。ExecutorはFUSOU-WEB/FUSOU-WORKFLOWのchecked-in config、generated Worker binding metadata、Cloudflare/Turso management inventoryを列挙し、storage binding/resource/producer/consumerのmissing、extra、duplicate、unknownをmutation前に拒否する。
 
 Quest master、remodel summary、soku observation、ship-growth bounds/caps、battle/quest inference、Turso hot rows、compaction metadataはclient upload由来またはそのaggregateなのでpreserveしない。新D1/Tursoには完全なreproducible baseline migrationを適用し、business row count 0、D1 `foreign_key_check` 0件、schema hash一致を要求する。現行battle D1とTursoの初期schemaがchecked-in migrationsだけでは再現できない場合はP0-17 FAILである。
 
-P0-17はchecked-in `docs/security/evidence/storage-epoch-v1/queue-drain-profile-v1.json`を生成する。Exact shapeは`{"backlog_zero_rounds":3,"consumer_max_wall_seconds":900,"max_initial_delay_seconds":<integer>,"max_retry_delay_seconds":<integer>,"sample_interval_seconds":60,"version":1,"visibility_horizon_seconds":<integer>}`である。`max_initial_delay_seconds`はqueue-level `delivery_delay`とproducer codeの全send `delaySeconds`、`max_retry_delay_seconds`はconsumer `retry_delay`とconsumer codeの全retry `delaySeconds`の各最大値である。非定数またはinventory外のdelay pathはFAILする。各Queue/consumerについて次を計算し、その最大値を`visibility_horizon_seconds`へ固定する。
+P0-17はchecked-in evidence artifactとしてqueue-drain profileを生成する。artifactのfield shapeと保存pathはcandidate runbookだが、provider設定、producer/consumerのdelay、retry、visibility horizon、観測window、versionを再現可能に記録しなければならない。非定数またはinventory外のdelay pathはFAILする。各Queue/consumerについて、設定された遅延とretry、consumer wall time、観測間隔から、全in-flight workが終端化したと判断できる有限のdrain horizonを計算する。
 
 ```text
-max_initial_delay_seconds
-+ (max_retries + 1) * (consumer_max_wall_seconds + max_wait_time_ms / 1000)
-+ max_retries * max_retry_delay_seconds
+configured initial delay
++ retry attempts * (consumer wall time + configured wait time)
++ configured retry delays
 ```
 
-Division結果はceiling integer secondsとする。ProviderのQueue consumer wall limitが900秒でない場合は本仕様をrevisionし、artifact値だけを変更してはならない。
+Division結果の丸め方とprovider wall limitの取り込み方はselected profileで定める。drain horizonを短縮するために設定値や実測結果を都合よく切り捨ててはならず、providerの制限とprofileが一致しない場合はP0-17 FAILまたは仕様revisionとする。
 
 P0-17 preflightはlegacy Turso databaseへ有効なcredentialを使う全deployment/consumerを列挙する。同じcredentialが別databaseまたはinventory外consumerでも使われている場合は、cutover前に別credentialへrotateして再inventoryできるまでFAILする。Target dedicated groupにはfresh database credentialを発行し、legacy credential/tokenを再利用しない。Secret valueはmanifest/reportへ記録しない。
 
 Cross-store procedureは次の順序で、各stepとdigestをappend-only JSON reportへfsyncする。途中失敗はtraffic freezeを維持する。PostgreSQL COMMIT前は同じtarget resources/manifestを再検証してresumeし、COMMIT後またはresource locator変更後は下記forward recoveryを使う。Legacy Queueをpauseした時点からbinding cut替え完了まで、legacy Tursoを含む全storeへのapplication write attempt countは0でなければならない。
 
 **Step 1.** Application codeと独立したCloudflare edge maintenance ruleでIdentity、fleet、battle、quest、remodel、soku、ship-growthの全HTTP ingestを503へ切替え、rule ID、version、有効化時刻を記録する。
-**Step 2.** FUSOU-WEB/FUSOU-WORKFLOWをlegacy Queue producer bindingなし、Workflow cronなしのdrain versionへdeployし、両deployment versionとlast enqueue時刻を記録する。Management APIでlegacy Queue/DLQの`producers_total_count=0`を確認する。Main consumerは処理を継続し、DLQ consumerはdeliveryされた各messageをaccess-restricted quarantine objectへ保存し、message ID/body digest/countを記録してからackする。Last enqueueからprofile `visibility_horizon_seconds`以上待ち、両Queueのrealtime `backlog_count=0`を60秒間隔で3回、Queue `WriteMessage` operation 0、consumer error/retry収束、legacy store write 0とともに観測する。次に両legacy Queueの`delivery_paused=true`をmanagement APIで設定し、acknowledged `pause_time`を記録する。Queue drain barrierは`pause_time + 900 seconds`で判定し、その時点でpause前に開始した全invocation（`started_at < pause_time`）がterminal outcomeを持ち、terminal timestampがboundary以下であり、`pause_time`以後のdelivery logとlegacy store writeが0でなければならない。boundary時点でrunning invocationが1件でも残る、またはpause後のdeliveryが1件でもある場合はFAILする。その後consumer registrationsを削除し、producer/consumer count 0と全active deploymentからlegacy queue ID不在を確認する。Metricsだけをexact in-flight証明とは扱わず、producer removal、pause、900秒wall-limit barrier、invocation突合、binding absenceの組をsecurity barrierとする。遅延・hidden messageが残る場合も旧Queue内に隔離しtargetへ移行しない。いずれかのinventory/logを完全に取得できなければFAILする。
+**Step 2.** FUSOU-WEB/FUSOU-WORKFLOWをlegacy Queue producer bindingなし、Workflow cronなしのdrain versionへdeployし、deployment versionとlast enqueue時刻を記録する。Management APIでlegacy Queue/DLQのproducer停止を確認する。Main consumerは処理を継続し、DLQ consumerはdeliveryされた各messageをaccess-restricted quarantine objectへ保存し、message ID/body digest/countを記録してからackする。選定profileのdrain horizonと観測windowを満たすまで待ち、backlog zero、write operation zero、consumer error/retry収束、legacy store write zeroを観測する。次にlegacy Queueのdelivery pauseを設定し、acknowledged pause timeを記録する。drain barrierはpause前に開始した全invocationがterminal outcomeを持ち、pause後のdeliveryとlegacy store writeがzeroであることを、provider設定とprofileから導出したboundaryまで確認する。running invocationまたはpause後deliveryが残る場合はFAILする。その後consumer registrationsを削除し、active deploymentからlegacy queue IDが消えたことを確認する。Metricsだけをin-flight証明とは扱わず、producer removal、pause、invocation突合、binding absenceの組をsecurity barrierとする。遅延・hidden messageが残る場合も旧Queue内に隔離しtargetへ移行しない。いずれかのinventory/logを完全に取得できなければFAILする。
 **Step 3.** PostgreSQL `pg_dump`、各D1 logical export、3 R2 bucketの全object、KV keys、Turso schemaと`buffer_logs_active`/`buffer_logs_processing`を含む全tableのconsistent logical dumpをaccess-restricted backupへ取得する。File size、SHA-256、D1/Turso table/row count、R2 key/etag/size、KV key count、producer-stop version、Queue metrics/log observation window、quarantine object count/digestをbackup reportへ記録する。Secret/token/valueをreportへ記録しない。
 **Step 4.** Backupを別account/projectのstagingへrestoreし、PostgreSQL/D1/R2/KV/TursoとDLQ quarantine objectsのinventory digest一致、read smoke testを実行する。Queue contents自体はrestoreせず、新規staging Queue/DLQにproducer/consumerを接続する前のcreation auditをempty evidenceとする。成功前にdestructive stepへ進まない。
 **Step 5.** Section 12.4 PostgreSQL transactionをcommitする。
-**Step 6.** Target D1/R2/KV/Queue/DLQ/Tursoがmanifest locatorと一致することを確認する。Target D1/Turso schemaをbootstrapしbusiness tables 0件、KV 0件、R2 object count 1、key/digestがmanifest markerとexact一致することを確認する。Target Queue/DLQは`delivery_paused=true`、manifestのconsumer registrations/settingsだけが存在し、`producers_total_count=0`、creation以後の`WriteMessage` operation 0、realtime backlog 0であることをempty evidenceとする。
+**Step 6.** Target D1/R2/KV/Queue/DLQ/Tursoがmanifest locatorと一致することを確認する。Target D1/Turso schemaをbootstrapし、business dataがemptyまたは承認済みmarker-onlyであることを確認する。Target Queue/DLQはdelivery paused、manifestのconsumer registrations/settingsだけが存在し、producer停止、creation以後のwrite operation zero、realtime backlog zeroであることをempty evidenceとする。
 **Step 7.** FUSOU-WEBとFUSOU-WORKFLOWの全bindings、queue producer bindings、Turso URL/auth secret references、`CACHE_EPOCH=tlsn-v1`を同じrelease manifestへ切替える。Runtime self-checkは各physical locatorをmanagement API inventoryと照合し、old/new resourceの混在を拒否する。Producer/consumer/target store postflight後にtarget Queue/DLQの`delivery_paused=false`を設定する。ReportはWorker deployment versionとtarget Turso database ID/hostnameを記録する。
 **Step 8.** Pausedかつunboundのlegacy D1/KV/Queueをdeleteし、legacy R2の全objectをdelete後bucketをdeleteする。Provider-supported operationでlegacy Turso database credentialを全invalidateしてdatabaseをdeleteし、target dedicated-group credentialが別物で有効なことをruntime self-checkする。Target credentialをinvalidateしてはならない。Deletion不能ならwrite/read IAM deny、secret/binding absence、network denyを確認してquarantineし、release blockerとして残す。
 **Step 9.** New epoch smoke uploadを行い、new Turso/Queue/D1/R2だけが変化しlegacy backup/checksumが不変であることを確認してtrafficを再開する。
@@ -2252,9 +2284,9 @@ Traffic再開後はbackup rollbackを行わず、new v1 dataを保持したforwa
 
 ## 13. Active Code Cleanup と Deployment
 
-### 13.1 Active runtime から削除する symbol/path
+### 13.1 Candidate active-runtime cleanup inventory
 
-次を active source、active route、active schema、generated deploy artifact から除去する。Historical migration text は変更しない。
+次は現行repositoryを対象にしたcleanup候補である。選定implementationでは旧self-reported authority、anonymous-sync path、旧token refresh pathをactive source、active route、active schema、generated deploy artifactから除去する。Historical migration textは変更しない。
 
 ```text
 is_verified
@@ -2311,7 +2343,9 @@ docs/sql/turso/migration_0002_tlsn_identity_epoch_v1.sql
   - active/processing swap-safe indexes and constraints
 ```
 
-### 13.3 Deployment order
+### 13.3 Candidate deployment runbook
+
+以下は現行candidateのdeployment runbookである。normativeなのは、全security/protocol gateを満たすまでtrafficを有効化しないこと、old/new writerをdual operationさせないこと、cutover前後のbarrierとfailure recoveryを証明することである。step番号、artifact名、resource切替順は環境の依存関係と選定manifestに合わせて変更できる。
 
 ```text
 1. Complete evidence/profile gates P0-01..05 and auth/privacy gates P0-13..15
@@ -2490,17 +2524,17 @@ Claim x Revoke -> serialized outcomes
 Claim x Challenge issuance -> no post-Claim ACTIVE row
 Social Binding x Revoke -> serialized, root-consistent outcome
 Token subject lookup x Revoke -> serializable authorization outcome
-1000 mixed operations -> no deadlock and all lock-order assertions pass
+representative mixed operations -> no deadlock and all lock-order assertions pass; sample size is justified by the test plan
 direct DML/EXECUTE as anon/authenticated/service_role -> denied except entry functions
 all identity relation/sequence/function owners -> fusou_identity_owner
 legacy user_member_map_select_own/user_devices_select_own policies -> absent
-fixed ACCESS EXCLUSIVE locks held before cutover recheck
+selected cutover lock/barrier held before cutover recheck
 revoked primary pointer plus another VERIFIED device -> state/token authorization remains positive
 projection rows tampered by privileged fixture -> root-derived state/token result is unchanged
 accepted Claim whose Notary/Verifier key becomes REVOKED -> token issuance and validation reject
 upload ledger PRIMARY KEY/nonce UNIQUE, immutable authority columns, consumed_at one-way transition, owner/ACL -> catalog PASS
 concurrent upload consume -> exactly one OK with stable millisecond consumed_at and one UPLOAD_TOKEN_REPLAY
-stored request/response Range array cardinality 3/1 -> constraint PASS; all other counts reject
+stored request/response ranges satisfy the approved authenticated-coverage profile -> constraint PASS; insufficient, excessive, or otherwise unapproved coverage rejects
 ```
 
 #### Migration
@@ -2568,7 +2602,7 @@ Verifier Result -> Proxy Vec<u8> -> APP base64url -> Web decoded bytes are ident
 Result delivery retry never increments Game origin request count
 queue full / APP unauthenticated / APP restart -> identity unverified, no upstream replay
 manifest unknown/duplicate/mismatched physical locator or binding alias -> apply refuses before mutation
-manifest missing/extra transition, any of 24 bindings, either Queue consumer, SESSION rotation, or preserved ref -> apply refuses
+manifest missing/extra/duplicate transition, binding, Queue consumer, generated SESSION metadata, or preserved ref -> apply refuses
 manifest from/to kind/action mismatch or Queue consumer ID/script/DLQ/settings mismatch -> apply refuses
 schema fingerprint unclassified/missing/extra object or hash mismatch -> apply refuses
 R2 marker key/content/generation/digest mismatch -> apply refuses
@@ -2576,7 +2610,7 @@ backup restore inventory digest mismatch -> apply refuses before mutation
 target D1/KV/Queue/Turso business data non-empty or R2 has keys other than marker -> apply refuses
 failure injection before PostgreSQL COMMIT -> freeze remains; unchanged paused/empty resources resume with same manifest
 failure injection after PostgreSQL COMMIT or resource replacement -> new generation/recovery manifest approval; old manifest reuse rejected
-Queue drain rehearsal -> producer count 0, visibility horizon plus 3 zero samples, delivery pause, 900-second completion barrier, no unmatched invocation
+Queue drain rehearsal -> producer count 0, profile-derived visibility horizon and observation window, delivery pause, completion barrier, no unmatched invocation
 postflight -> only tlsn-v1 bindings mutate; legacy resources are absent or IAM-quarantined
 forward recovery -> restored PostgreSQL is cut over again and all active stores use one empty tlsn-v1 generation; mixed epoch rejected
 each of six ingest routes rejects reserved fields at root/nested/duplicate positions
@@ -2598,13 +2632,13 @@ Production trafficは全GateがPASSするまでenableしない。P0-01..10とP0-
 | ID | Gate | PASS artifact |
 | --- | --- | --- |
 | P0-01 | TLSNotary revision | exact commit、dependency lock、license/security review |
-| P0-02 | Attestation ID | official extraction API、golden bytes、literal `N` |
+| P0-02 | Attestation ID | official extraction API、opaque-byte encoding、golden bytes |
 | P0-03 | Authenticated time | `notary_time` source、tamper test、wire fixture |
 | P0-04 | Real `require_info` | 各supported Game client build/allowlisted hostでnatural requestを1件以上captureし、Number token、HTTP framing、compression、response sizeをmanifest化 |
-| P0-05 | Strict disclosure profile | Dedicated Verifierでfull request + full response認証、500 KiB/16 MiB limit boundary fixture、Resultはexact request-line/Host/binding-headerの3 safe rangesだけ、digest golden fixture |
+| P0-05 | Strict disclosure profile | Dedicated Verifierで必要なrequest/response coverageを認証、選定profileのlimit boundary fixture、Resultは必要最小限のrequest-line/Host/binding-header coverage、digest golden fixture |
 | P0-06 | T3/T4 delivery lifecycle | Browser response後にsame session finalization、signed ResultのProxy -> APP -> Web byte一致 |
 | P0-07 | No FUSOU resubmission | Section 14.5でattempt <= 1、complete <= 1、正常/fallback成功はcomplete = 1、2以上 = 0件 |
-| P0-08 | Performance | 固定した同一matched network/origin profileで、pair IDを対応付けたbaseline 1000回とMPC 1000回を完了し、両runの全request outcome、failure count、paired latency sample countをreportする。PASSはbaseline/MPCが各1000回、latency sampleが欠落せずpaired added latency P95 <= 300 ms、かつMPC failure count <= baseline failure count。測定値またはoutcomeが欠落した場合はFAIL |
+| P0-08 | Performance | 承認済みmatched network/origin profileでpair IDを対応付けたbaseline/MPCの十分なpaired sampleを完了し、全request outcome、failure count、paired latency sampleをreportする。PASSは事前承認したsample size、latency、failure acceptance ruleを満たすこと。測定値またはoutcomeが欠落した場合はFAIL |
 | P0-09 | Direct topology | Game request streamのpacket/egress-flow manifestでlocal proxyからallowlisted Game Server peerへdirect、FUSOU relay宛Game bytes 0件 |
 | P0-10 | Cross-language determinism | JSON/Binary/Claim golden fixtures all exact match。Session binding value、Verifier Result fields、ClaimBindingBytesのSession/nonce/value順序を含む |
 | P0-11 | PostgreSQL execution | production `server_version_num`/extensionsとimmutable OCI digestを記録し、target imageでmigration/test suite PASS |
@@ -2613,7 +2647,7 @@ Production trafficは全GateがPASSするまでenableしない。P0-01..10とP0-
 | P0-14 | Login frequency | real clientのsupported build/sessionごとにnatural `require_info` frequency（capture window、login/session event数、Game request count）を記録する。これは閾値を導入しない観測値であり、PASSはreportのsample metadataが完全で、FUSOU/Proxyが生成したGame `require_info` request = 0件であること。Identity API callはこの件数に含めず、metadata欠落または生成requestが1件以上ならFAIL |
 | P0-15 | Privacy review | full response disclosure、non-persistence、log redaction承認 |
 | P0-16 | JWT key rollout | Ed25519 public registry先行配布、ACTIVE/VERIFY_ONLY/RETIRED tombstone rotation、pre-activation reject、60秒future-skew/expiry境界fixture、全validator rule一致、emergency revoke rehearsal |
-| P0-17 | Storage epoch cutover | 13 transitions/24 bindings/2 consumers/SESSIONを含むexact manifest、schema/Queue-drain profiles、backup restore、pause/in-flight barrier、binding/forward-recovery rehearsal |
+| P0-17 | Storage epoch cutover | 承認済みclosed manifest、live resource/binding/consumer inventory、schema/Queue-drain profiles、backup restore、pause/in-flight barrier、binding/forward-recovery rehearsal |
 
 ### 15.1 調査時点のゲート判定
 
@@ -2622,13 +2656,13 @@ Production trafficは全GateがPASSするまでenableしない。P0-01..10とP0-
 | P0-ID | Layer | Status | Reason | Evidence | Specification impact | Implementation impact |
 | --- | --- | --- | --- | --- | --- | --- |
 | P0-01 | Repository | `FAIL` | upstream refsは観測済みだが、FUSOUの選定/pinned revision、lock、license/security reviewがない | E-UPSTREAM-004, E-REPO-002 | 採用revisionとprofileを未確定のまま維持する | runtime implementationを開始しない |
-| P0-02 | Protocol | `FAIL` | alpha.15/mainのID APIは観測済みだが、採用revision、golden、literal `N`が未凍結 | E-UPSTREAM-004 | `N`を16へ推測変更せず、canonical extractionを未確定にする | DB CHECK、type、validator、fixtureを作成しない |
+| P0-02 | Protocol | `FAIL` | alpha.15/mainのID APIは観測済みだが、採用revision、opaque-byte encoding、goldenが未凍結 | E-UPSTREAM-004 | 観測値を固定長へ推測変更せず、canonical extractionを未確定にする | profile byte bound、type、validator、fixtureを作成しない |
 | P0-03 | Protocol | `FAIL` | 候補はconnection-start timeであり、Notary-issued `notary_time`がない | E-UPSTREAM-001, E-UPSTREAM-003, E-UPSTREAM-004 | 現行authenticated issuance-time contractを維持する | client/verifier clockで代替せずNO-GO |
 | P0-04 | Empirical | `BLOCKED` | supported Game clientのnatural captureがない | E-REPO-001 | synthetic captureを代替にしない | captureなしにparser/profileを承認しない |
-| P0-05 | Empirical | `BLOCKED` | RangeSetはあるが、FUSOUの3 request range/1 response range、parser、digest goldenがない | E-UPSTREAM-004, E-REPO-001 | binding range contractを変更しない | Dedicated Verifier/fixtureを作成するまで実装しない |
+| P0-05 | Empirical | `BLOCKED` | RangeSetはあるが、FUSOUのauthenticated coverage、parser、digest goldenがない | E-UPSTREAM-004, E-REPO-001 | profile range contractをevidenceなしに固定しない | Dedicated Verifier/fixtureを作成するまで実装しない |
 | P0-06 | Empirical | `BLOCKED` | Proxy、Dedicated Verifier、Web Result delivery runtimeがない | E-REPO-001 | same-session finalizationとResult byte identityを維持する | runtime pathとdelivery fixtureを実装・検証する |
 | P0-07 | Empirical | `BLOCKED` | origin counter、send latch、fallback/retry traceがない | E-REPO-001 | Game Server request re-submission禁止を維持する | send後にretryせずcounterを実装後に測定する |
-| P0-08 | Environment | `BLOCKED` | paired 1000-run reportとlatency samplesがない | E-ENV-001 | zero-delayを主張せずP95 ruleを維持する | matched profileで実測する |
+| P0-08 | Environment | `BLOCKED` | 承認済みsample planに基づくpaired reportとlatency samplesがない | E-ENV-001 | zero-delayを主張せずP95/failure ruleを維持する | matched profileで実測する |
 | P0-09 | Environment | `BLOCKED` | packet/egress-flow manifestがない | E-REPO-001, E-ENV-001 | topologyをconfigurationから推測しない | egress evidenceなしにenableしない |
 | P0-10 | Empirical | `BLOCKED` | upstream BCS/bincodeは観測済みだがRust/TypeScript goldenがない | E-UPSTREAM-001, E-UPSTREAM-004, E-REPO-001 | canonical orderとserializerを推測しない | cross-language fixture完成までbinary実装を承認しない |
 | P0-11 | Environment | `BLOCKED` | primitive fixtureはPASSだがproduction/image/migration evidenceがない | E-ENV-001, E-REPO-001 | primitive PASSをproduction PASSに昇格しない | production inventory前にDDLをapplyしない |
@@ -2675,7 +2709,7 @@ State Machine <-> DB: aligned
 DB <-> RPC: aligned
 RPC <-> API: aligned
 API <-> Verifier Result: aligned subject to Phase 0 profile freeze
-Verifier Result <-> Canonical Binary: defined subject to literal N
+Verifier Result <-> Canonical Binary: defined subject to selected profile and golden bytes
 member_id <-> mapping <-> public_id: one authority path
 public_id <-> devices <-> ownership: root constraints and locks defined
 ownership <-> projections: one-way
@@ -2768,7 +2802,7 @@ NONE. External facts below are Phase 0 evidence gates, not open design decisions
 Remaining Phase 0 evidence:
 現在の証拠ledger: PASS=0, FAIL=3, BLOCKED=14。公開alpha.15とmainの候補比較、候補分類、数値根拠、攻撃別再監査、および残りすべての証拠は、
 docs/security/evidence/tlsn-phase0-gate-ledger-v1.json と docs/security/evidence/tlsn-source-inspection-v1.md に記録する。候補探索の結論は `NO ADOPTABLE REVISION FOUND` であり、FUSOUのselected TLSNotary revisionはない。
-P0-01..P0-03 TLSNotary revision/profile、Attestation ID bytesとliteral N、authenticated notary_timeのFAIL理由と候補source evidence。
+P0-01..P0-03 TLSNotary revision/profile、Attestation ID opaque-byte encoding、authenticated notary_timeのFAIL理由と候補source evidence。
 P0-04..P0-06
 real require_info capture, strict disclosure, and T3/T4 delivery evidence.
 P0-07..P0-10 no-resubmission, performance, direct topology, and cross-language determinism evidence.
@@ -2831,7 +2865,7 @@ Verifier Protocol:
 PHASE-0 - 候補revisionには仕様が要求するNotary-issued notary_timeがなく、採用revisionとprofileは未検証
 
 Canonical Serialization:
-PHASE-0 - 候補ではUid([u8; 16])を観測したが、採用revision、extraction API、literal N、golden bytesは未検証
+PHASE-0 - 候補ではUid([u8; 16])を観測したが、採用revision、extraction API、opaque-byte encoding、golden bytesは未検証
 
 Parser:
 PHASE-0 - real capture and parser fixtures pending

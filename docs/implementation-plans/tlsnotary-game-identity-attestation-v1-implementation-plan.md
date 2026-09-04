@@ -14,7 +14,9 @@
 
 **監査結果:** `P0 = 残り0件`、`P1 = 残り0件`、`P2 = 残り0件`（初期監査項目はすべて処置済み）。これは設計issue ledgerの状態であり、Phase 0実測gateのPASSを意味しない。現在のPhase 0証拠は `PASS = 0`、`FAIL = 3`、`BLOCKED = 14`。候補探索の結論は `NO ADOPTABLE REVISION FOUND` であり、Proof Copy攻撃 = `PASS`、主要セキュリティ目標 = `PASS`、設計凍結 = `MAINTAIN`、実装 = `NO-GO`。
 
-**規範語:** `MUST`、`MUST NOT`、`ONLY` は受入条件である。「新規ファイル」と記された対象パスは、そのタスクが実装・テストされるまで存在しないものとする。
+**規範語:** `MUST`、`MUST NOT`、`ONLY` は Final Specificationのsecurity/protocol contractとその受入条件にだけ適用する。各タスクの具体的なfilename、function/index name、provider resource、lock key、batch/timeout、step orderは、別途不変条件または相互運用性を示さない限り、候補実装・configuration・runbookである。「新規ファイル」と記された対象パスは、そのタスクが実装・テストされるまで存在しないものとする。
+
+**タスクカードの読み方:** 各カードで `目的` と `セキュリティ不変条件` は実装必須の理由、`仕様参照` と `権威ソース` は依存するprotocol fact、`入力/出力` と `検証` は受入成果物、`リポジトリファイル`、`新規ファイル`、具体的なprovider/DB mechanicsは候補実装である。候補mechanicsは、同じ不変条件を証明できる別方式へ置換でき、Phase 0のprotocol factまたはproduction evidenceが揃うまで延期できる。
 
 ## 1. 範囲とセキュリティ目標
 
@@ -88,7 +90,7 @@ flowchart LR
   N --> O[Server-derived telemetry envelope]
 ```
 
-| PostgreSQL のカットオーバー | `packages/FUSOU-WEB/supabase/migrations/20260831010000_tlsn_identity_cutover.sql` | 新規の単一カットオーバーマイグレーション |
+| PostgreSQL のカットオーバー | target migration artifact（filenameはcandidate） | 新規のatomic cutover migration |
 | PostgreSQL のテスト | `packages/FUSOU-WEB/supabase/tests/tlsn_identity_spec_primitives.sql` | 新規の実 PostgreSQL 用フィクスチャ |
 | Turso の対象 | `docs/sql/turso/migration_0002_tlsn_identity_epoch_v1.sql` | 新規の専用ターゲットブートストラップ |
 | ストレージマニフェスト | `packages/FUSOU-WEB/scripts/manifests/tlsn-identity-storage-v1.json` | 新規生成アーティファクト。正確なロケーターのみ |
@@ -168,6 +170,10 @@ consumed_at, expired_at, revoked_at, created_at
 
 インデックスと制約は、Session ID の primary key、nonce の一意性、UUIDv4 の検査、Session の正確な複合一意性、認証済みユーザーに対する外部キー保護、および次の ACTIVE Session partial unique index を含まなければならない (`MUST`)。
 
+ACTIVE Session が device key ごとに高々1件であることはsecurity contractである。次のSQLは候補実装であり、同じ一意性、不変性、lifecycle検査を証明する別の制約方式へ置換できる。
+
+候補SQL:
+
 ```sql
 CREATE UNIQUE INDEX uq_attestation_sessions_active_key
 ON public.attestation_sessions (device_public_key)
@@ -199,7 +205,7 @@ Challenge.expires_at = LEAST(
 
 1 つの RPC 内の有効期限比較とライフサイクルタイムスタンプはすべて、ロック取得後の 1 つの `v_db_now := pg_catalog.transaction_timestamp()` を使用する。
 
-Final Specification Section 7.2、9.3a、10.3、10.5、12.1〜12.3 がこの式、Session-expired getter/Claim/cleanup behavior、`SESSION_NOT_ACTIVE`、partial unique index、および per-function outcome tableを規範的かつ相互に一致する形で定義している。新しい数値TTLやAttestation ID lengthを推測せず、その仕様を実装のauthorityとする。
+Final Specification Section 7.2、9.3a、10.3、10.5、12.1〜12.3 がこの式、Session-expired getter/Claim/cleanup behavior、`SESSION_NOT_ACTIVE`、partial unique index、および per-function outcome tableを規範的かつ相互に一致する形で定義している。新しい数値TTLやAttestation ID byte boundを推測せず、その仕様と承認済みprofileを実装のauthorityとする。
 
 P1-01 は `RESOLVED` である。P1-02 も、authenticated FUSOU-WEB Claim handlerを唯一のproduction callerとし、`service_role` credentialがprocess provenanceを証明しないこと、registry gate・ACL・caller inventoryをrelease evidenceにする契約として `RESOLVED` である。Phase 0 evidenceが未取得であることは実装GOを意味しない。
 
@@ -271,7 +277,7 @@ Verifier は FUSOU のユーザー、device、ownership、public-ID authority �
 
 ### 5.2 制限と拒否
 
-Final Specification 第5.1節の固定されたプロファイル上限を適用する。対象には Result、リクエスト/レスポンス transcript、ヘッダー、body、JSON depth/string、request range count `3`、response range count `1` が含まれる。リテラルの Attestation ID length `N` は P0-02 まで未知のままであり、レビュー済みの 1 つのリビジョンで全箇所に置換しなければならない。
+Final Specification 第5.1節の承認済みprofile上限を適用する。対象には Result、リクエスト/レスポンス transcript、ヘッダー、body、JSON depth/string、range metadataが含まれる。range cardinality、wire formatting、Attestation IDのbyte boundは、選定profileとgolden/DoS/privacy evidenceに基づいて凍結し、候補値を推測しない。
 
 重複または未知のフィールド、非正規 JSON、非正規 decimal/base64url エンコーディング、範囲の重複/順序エラー、ダイジェスト不一致、誤った Host、誤ったリクエストターゲット、欠落/重複/移動した binding ヘッダー、末尾バイト、無効な証明書識別情報、失効/欠落したレジストリ鍵、未対応のプロファイルは拒否する。
 
@@ -470,7 +476,7 @@ SOCIAL_ACCOUNT_BOUND
 既存DBの実装順序は次のとおりである。
 
 1. 実際の baseline version、スキーマ、拡張、ロール、権限付与、ポリシー、publication、トリガー、外部キーを棚卸しする。
-2. すべての書き込み元を freeze し、固定のカットオーバー advisory/table locks を取得する。
+2. すべての書き込み元を freeze し、選定したカットオーバー writer barrierを取得する。
 3. purge 前に `conkey`/`confkey` の順序性を使用して composite-FK 依存関係の検出を実行する。
 4. orphan 行、重複または無効な key、無効な UUID、不完全な target objects、未知の writer sessions を拒否する。
 5. 依存関係が報告された後に限り legacy authority functions/policies を削除する。
@@ -687,7 +693,7 @@ legacy device を VERIFIED に backfill したり、fake Session/Challenge を�
 
 対象ストレージの epoch は `tlsn-v1` である。新しい target D1/R2/KV/Queue/DLQ/Turso resources は、bindings を切り替える前に作成し、empty/marker-only であることを証明する。target Turso bootstrap は別個のアーティファクトであり、3 番目の PostgreSQL migration ではない。R2 marker identity には manifest generation ID と canonical content digest を含め、client metadata を marker または envelope authority に持ち込まない。
 
-ストレージマニフェストは Final Specification の route/resource/binding/consumer cardinalities を正確に含まなければならない。13 transitions、24 binding aliases、2 つの Queue consumers、generated `SESSION` metadata も含む。Missing、extra、unknown、stale、name-only locators があれば適用を block する。
+ストレージマニフェストは、選定したroute/resource/binding/consumer inventoryをclosedでversionedに含めなければならない。現行候補のtransition数、binding alias数、Queue consumer数、generated `SESSION` metadataはcandidate valuesであり、P0-17でlive inventoryと照合して承認する。Missing、extra、unknown、stale、name-only locatorsがあれば適用をblockする。
 
 ### 15.3 デプロイのバリア
 
@@ -754,7 +760,7 @@ canonical JSON bytes、Result signing bytes、ClaimBindingBytes、Ed25519 の厳
 
 ### 16.5 データベースと状態のテスト
 
-mapping の並行性、Session uniqueness、Challenge のライフサイクル全体での一意性、PENDING/VERIFIED/REVOKED transitions、owner conflicts、quota races、Claim idempotency、invalid-signature consumption、複数の retained Challenges を伴うクリーンアップ、composite FKs、append-only triggers、direct privilege denial、projection tamper resistance、1000 mixed operations 下の deadlock testing には、mocked Supabase client ではなく実 PostgreSQL を使用する。
+mapping の並行性、Session uniqueness、Challenge のライフサイクル全体での一意性、PENDING/VERIFIED/REVOKED transitions、owner conflicts、quota races、Claim idempotency、invalid-signature consumption、複数の retained Challenges を伴うクリーンアップ、composite FKs、append-only triggers、direct privilege denial、projection tamper resistance、十分な mixed operations 下の deadlock testingには、mocked Supabase clientではなく実PostgreSQLを使用する。実行件数は選定profileとtest planで根拠付ける。
 
 ### 16.6 Token、upload、telemetry のテスト
 
@@ -762,7 +768,7 @@ mapping の並行性、Session uniqueness、Challenge のライフサイクル�
 
 ### 16.7 Migration と cross-store のテスト
 
-新規DBの full chain、既存DBの baseline、無効な依存関係の検出、preflight における変更ゼロ、commit 前の DDL rollback、catalog owner/ACL/RLS/search_path、storage manifest cardinality、正確な provider locators、schema/keyspace fingerprints、R2 marker、Queue pause/drain と 900-second barrier、backup/restore digest、target の空状態、new generation ID を使う PostgreSQL post-commit forward recovery、legacy binding の不存在をテストする。
+新規DBの full chain、既存DBの baseline、無効な依存関係の検出、preflightにおける変更ゼロ、commit前のDDL rollback、catalog owner/ACL/RLS/search_path、closed storage manifest、provider locator identity、schema/keyspace fingerprints、R2 marker、Queue pause/drain barrier、backup/restore digest、targetの空状態、new generation IDを使うPostgreSQL post-commit forward recovery、legacy bindingの不存在をテストする。具体的なtimeout、cardinality、resource名は選定manifest/runbookの入力として検証する。
 
 ## 17. Phase 0 ゲート
 
@@ -771,13 +777,13 @@ Phase 0 は実装上の事実を検証する。Proof Copy を弱めたり、セ�
 | ゲート | 必須証拠 | 失敗時の処置 |
 | --- | --- | --- |
 | P0-01 TLSNotary リビジョン | 正確なリポジトリ commit、依存関係 lock、セキュリティ/ライセンスレビュー | NO-GO。別のリビジョンを対象に実装しない |
-| P0-02 Attestation ID | 公式 extraction API、golden bytes、リテラル `N` | NO-GO。利用できなければ仕様を revise |
+| P0-02 Attestation ID | 公式 extraction API、opaque-byte encoding、golden bytes | NO-GO。利用できなければ仕様を revise |
 | P0-03 認証済み時刻 | Notary-authenticated source と改ざんフィクスチャ | NO-GO。client/verifier の代替なし |
 | P0-04 実際の require_info | 自然な実クライアントの capture、ソート済み corpus、ハッシュ、framing、compression、size | NO-GO。synthetic-only の証明なし |
 | P0-05 厳格な開示 | 認証済みの完全な request/response、正確な範囲、digest fixture、プライバシーレビュー入力 | binding を authenticated にできなければ NO-GO |
 | P0-06 T3/T4 の配送 | 最終化前の response と正確な Result byte path | NO-GO。Result mutation なし |
 | P0-07 再送なし | Origin の write/complete counters が at most one であることと fallback behavior の証明 | NO-GO。send latch/retry を修正 |
-| P0-08 性能 | 1000 paired baseline/MPC runs と specification に基づく P95/failure report | NO-GO。zero delay と主張しない |
+| P0-08 性能 | 承認済みsample planに基づくpaired baseline/MPC runs と P95/failure report | NO-GO。zero delay と主張しない |
 | P0-09 直接トポロジー | Game Server への直接 bypass がないことを証明する Egress/peer manifest | NO-GO。configuration から推測しない |
 | P0-10 言語間の決定性 | Rust/TypeScript の JSON、binary、Session、Result、Claim の golden equality | NO-GO。implementation-specific serializer なし |
 | P0-11 PostgreSQL の実行 | Production version/extensions、immutable test image digest、migration suite | NO-GO。unsupported DB assumptions なし |
@@ -786,22 +792,22 @@ Phase 0 は実装上の事実を検証する。Proof Copy を弱めたり、セ�
 | P0-14 ログイン頻度 | 実クライアント/Session の capture metadata と zero generated Game requests | NO-GO。直感で threshold を追加しない |
 | P0-15 プライバシー | 完全なレスポンスの開示、non-persistence、redaction approval | NO-GO。silent privacy tradeoff なし |
 | P0-16 JWT/鍵ライフサイクル | Registry rotation、tombstones、preactivation、future-skew、revoke rehearsal | NO-GO。fail closed |
-| P0-17 ストレージ epoch | Exact manifest、13 transitions、24 aliases、2 consumers、SESSION、fingerprints、backup/restore、drain、forward recovery | NO-GO。partial cutover なし |
+| P0-17 ストレージ epoch | 承認済みclosed manifest、選定resource/consumer inventory、fingerprints、backup/restore、drain、forward recovery | NO-GO。partial cutover なし |
 
-調査時点の判定は `PASS = 0`、`FAIL = 3`、`BLOCKED = 14`。P0-01/P0-02/P0-03のFAILは、選定・pin不足、literal `N`未凍結、候補のauthenticated time不足をそれぞれ意味する。残りのBLOCKEDは実クライアント、実装、production、またはcross-store証拠が未取得であることを意味する。候補upstreamのfixture API testの成功はFUSOU implementationのPASSではない。候補matrix、numeric rationale、攻撃別再監査は [ソース調査レポート](../security/evidence/tlsn-source-inspection-v1.md) に固定する。
+調査時点の判定は `PASS = 0`、`FAIL = 3`、`BLOCKED = 14`。P0-01/P0-02/P0-03のFAILは、選定・pin不足、Attestation IDのopaque-byte contract/golden未凍結、候補のauthenticated time不足をそれぞれ意味する。残りのBLOCKEDは実クライアント、実装、production、またはcross-store証拠が未取得であることを意味する。候補upstreamのfixture API testの成功はFUSOU implementationのPASSではない。候補matrix、numeric rationale、攻撃別再監査は [ソース調査レポート](../security/evidence/tlsn-source-inspection-v1.md) に固定する。
 
 層別の判定は次のとおりである。`Protocol`/`Repository`のFAILはsourceまたはinventoryで確定した不充足を示し、runtime未実装を理由にBLOCKEDへ丸めない。`Environment`/`Empirical`のBLOCKEDは、実クライアント、runtime、staging/production、deployment、canaryまたはcutover evidenceが必要な項目である。
 
 | P0-ID | Layer | Status | 要点 |
 | --- | --- | --- | --- |
 | P0-01 | Repository | `FAIL` | FUSOUの選定/pinned revision、lock、license/security reviewがない |
-| P0-02 | Protocol | `FAIL` | ID APIは観測済みだが、採用revision、golden、literal `N`が未凍結 |
+| P0-02 | Protocol | `FAIL` | ID APIは観測済みだが、採用revision、opaque-byte encoding、goldenが未凍結 |
 | P0-03 | Protocol | `FAIL` | reviewed candidatesにNotary-issued `notary_time`がない |
 | P0-04 | Empirical | `BLOCKED` | natural client captureがない |
-| P0-05 | Empirical | `BLOCKED` | FUSOU exact range/parser/digest fixtureがない |
+| P0-05 | Empirical | `BLOCKED` | FUSOU authenticated coverage/parser/digest fixtureがない |
 | P0-06 | Empirical | `BLOCKED` | Result delivery runtimeがない |
 | P0-07 | Empirical | `BLOCKED` | no-resubmission counter/latch evidenceがない |
-| P0-08 | Environment | `BLOCKED` | paired 1000-run reportがない |
+| P0-08 | Environment | `BLOCKED` | 承認済みsample planに基づくpaired reportがない |
 | P0-09 | Environment | `BLOCKED` | packet/egress manifestがない |
 | P0-10 | Empirical | `BLOCKED` | Rust/TypeScript golden equalityがない |
 | P0-11 | Environment | `BLOCKED` | production migration evidenceがない |
@@ -838,6 +844,26 @@ IMP-13 real database, cross-language, transport, and acceptance suites
 IMP-14 staging/prod deployment and cutover evidence
 ```
 
+### 18.1a タスクの必須理由と延期境界
+
+| タスク | 必須理由 | 保護する不変条件 | 依存するprotocol fact | 延期可否 |
+| --- | --- | --- | --- | --- |
+| IMP-00 | 未確定のupstream/profile factを推測せず実装入力を決める | Proof Copy拒否、unknownのfail-closed、採用revisionの一貫性 | Final Specification、source report、P0-01〜P0-05 | runtime実装は不可。evidence収集の具体的mechanicsは延期可 |
+| IMP-01 | identity rootsとatomic cutoverをDBに定着させる | orphan、mutable authority、invalid lifecycle、partial cutoverの拒否 | root schema、FK、lifecycle、cutover contract | runtime依存。DDLのfilename/orderは延期・置換可 |
+| IMP-02 | direct writeと権限迂回を閉じる | entry function限定、append-only、RLS/ACL、deadlock-freeのglobal order | caller boundary、role matrix、lock-order invariant | DB方式は延期・置換可。authority boundaryは延期不可 |
+| IMP-03 | 証明前にserver-owned Session/bindingを発行する | actor、device key、Session、bindingの等価性 | authenticated Bearer、Session lifecycle、binding encoding | P0-01/02/04/05後に実装。API接続以外のmechanicsは延期可 |
+| IMP-04 | natural requestを一回だけ認証済み経路へ送る | no replay、send-after-latch no retry、binding移動拒否 | require_info、binding placement、fallback boundary | natural capture/profile証拠前は延期。no-retry contractは延期不可 |
+| IMP-05 | transcriptから暗号学的にtrusted Resultを作る | authenticated transcript、strict parser、Result mutation拒否 | selected TLSNotary profile、range coverage、authenticated time | P0-01〜P0-05が揃うまで延期。採用なしの実装は不可 |
+| IMP-06 | signed Resultの意味とbytesを経路全体で保持する | Result/session/auth等価性、DB mutation前の検証 | Result contract、canonical encoding、Bearer boundary | verifier contract後に実装。transportの具体方式は延期可 |
+| IMP-07 | Resultをserver-owned Challengeへ変換する | Session/actor/device/Attestation substitutionとreplayの拒否 | Challenge lifecycle、quota、Result equality | IMP-02/03/05/06後。response adapterの方式は延期可 |
+| IMP-08 | device possessionとClaimを一つのatomic transactionで確定する | Claim authorityのserver reconstruction、CAS、expiry/revoke race | ClaimBindingBytes、device signature、Claim outcome table | protocol bytesが凍結するまで延期不可。SQL mechanicsは置換可 |
+| IMP-09 | rootからowner/public ID/projectionを導出する | client/projectionによるauthority選択の拒否 | mapping、ownership、device state、Social Binding contract | core mappingは延期不可。Social projectionは受入範囲外なら延期可 |
+| IMP-10 | live rootsとregistryからcredentialを検証する | revoked/expired credential、upload replay、payload authorityの拒否 | Dataset Token、Upload Token、registry lifecycle、CAS | ingest開始前に必須。serializer/resource mechanicsは延期可 |
+| IMP-11 | 全sinkでserver-derived attributionを保持する | client metadataによるidentity置換、sink inconsistency | IdentityEnvelope、ingest ledger、sink idempotency | telemetryを有効化するまで延期可。ただし有効化前に完了必須 |
+| IMP-12 | expiry/revokeとcross-store cutoverをfail-closedにする | mixed epoch、legacy authority、復旧後の再承認 | registry incident、storage epoch、backup/forward recovery | production前必須。resource名、manifest形状、barrier方式は延期・置換可 |
+| IMP-13 | security contractを独立した実測で証明する | 全substitution、replay、race、ACL bypassのnegative evidence | acceptance matrix、P0/P1、実DB/profile/runtime | テスト対象の具体fixtureは延期可。gate証拠なしのreleaseは不可 |
+| IMP-14 | 全gate合格後だけ本番trafficを再開する | single caller/registry/epoch、legacy authorityなし、fail-closed recovery | deployment/cutover contract、P0-01〜P0-17 | 全前提の後にのみ実行。runbook詳細は延期可 |
+
 以下の各タスクには必須の実装フィールドがある。設計だけのレビューでタスクを完了扱いにしてはならず、その検証と受入テストに合格しなければならない。
 
 ### 18.2 IMP-00: 仕様ゲートと証拠コーパス
@@ -860,7 +886,7 @@ IMP-14 staging/prod deployment and cutover evidence
 
 **入力:** 固定 revision、実際の `require_info` captures、provider/runtime versions、承認済み仕様改訂。
 
-**出力:** リテラル `N`、プロファイルハッシュ、認証済み時刻の証拠、正確な request/transcript facts、呼び出し元境界の判断、改訂仕様の承認。
+**出力:** opaque Attestation ID encoding、プロファイルハッシュ、認証済み時刻の証拠、正確な request/transcript facts、呼び出し元境界の判断、改訂仕様の承認。
 
 **検証:** 独立したレビュー担当者が各未知項目に期待する証拠と失敗時の処置があることを確認する。実装入力に `TBD`/推測値を残さない。
 
@@ -894,7 +920,7 @@ IMP-14 staging/prod deployment and cutover evidence
 
 **新規ファイル:** 上記 2 つの SQL ファイルと `IMP-13` の基本テストフィクスチャ。
 
-**依存関係:** `IMP-00` の承認済みリテラル `N` とプロファイル、リポジトリ baseline の一覧。
+**依存関係:** `IMP-00` の承認済みopaque ID encodingとプロファイル、リポジトリ baseline の一覧。
 
 **権威ソース:** PostgreSQL root tables と Final Specification DDL。
 
@@ -904,11 +930,11 @@ IMP-14 staging/prod deployment and cutover evidence
 
 **検証:** 新規DBでの全チェーン、既存DBフィクスチャ、composite-FK の誤検知/見逃しスイート、owner/ACL/catalog assertions。
 
-**データベースの変更:** 指定された順序で tables、domains、constraints、indexes、FKs、triggers、roles、policies、functions を作成・変更する。
+**データベースの変更:** root authority、FK、lifecycle、append-only、ACL、atomic cutoverを実装する。tables、domains、constraints、indexes、triggers、roles、policies、functionsの作成順と具体名はcandidate migrationである。
 
 **状態の変更:** Legacy rows は freeze 下でのみ分類・purge し、legacy row を VERIFIED にしない。
 
-**ロック / 並行性:** 固定の cutover advisory lock と指定された ACCESS EXCLUSIVE table lock order を使用し、top-level transaction は 1 つとする。
+**ロック / 並行性:** writer barrierとglobal lock orderを使い、cutoverのauthority変更をatomicにする。advisory key、table lock mode/order、transaction分割はcandidate implementationであり、deadlock-freeとzero-concurrent-writerのevidenceを要求する。
 
 **失敗時の挙動:** Preflight または DDL エラーは変更を一切行わずに abort し、traffic は block したままとする。
 
@@ -1054,7 +1080,7 @@ IMP-14 staging/prod deployment and cutover evidence
 
 **新規ファイル:** Verifier package、profile fixtures、Result serializer、golden data、test vectors。
 
-**依存関係:** `IMP-00`、`IMP-04`、承認済み TLSNotary revision、リテラル `N`。
+**依存関係:** `IMP-00`、`IMP-04`、承認済み TLSNotary revision、profile-defined Attestation ID encoding。
 
 **権威ソース:** TLSNotary Attestation、認証済み Notary time、Web PKI、Verifier key。
 
@@ -1182,7 +1208,7 @@ IMP-14 staging/prod deployment and cutover evidence
 
 **出力:** 新しい Claim または完全一致の再実行結果と、現在の導出状態。
 
-**検証:** 正確なロック順序、12 個の権威情報の前提条件、expiry、registry、strict Ed25519、ownership/quota/CAS。
+**検証:** 承認済みglobal lock order、全authority preconditions、expiry、registry、strict Ed25519、ownership/quota/CAS。
 
 **データベースの変更:** Challenge/Session/device の遷移、Claim の追加、ownership と root-to-projection update。
 
@@ -1342,19 +1368,19 @@ IMP-14 staging/prod deployment and cutover evidence
 
 **出力:** 終端化した lifecycle rows、empty/marker-only target resources、1 つの generation manifest、postflight report。
 
-**検証:** retained rows を伴う Cleanup、queue producer/consumer drain、900-second barrier、locator/fingerprint/marker checks。
+**検証:** retained rowsを伴うCleanup、queue producer/consumer drain、選定barrier、locator/fingerprint/marker checks。
 
 **データベースの変更:** Cleanup/lifecycle functions とアトミックな PostgreSQL cutover。partial migration は行わない。
 
 **状態の変更:** Session/Challenge/device の終端化、legacy epoch の removed/quarantined、target epoch の enabled。
 
-**ロック / 並行性:** Cleanup は global order を使用し、cutover は固定の advisory/table locks を使用する。incident barrier は writers を drain する。
+**ロック / 並行性:** Cleanupはglobal orderを使用し、cutoverは選定したwriter barrier/DB lock方式を使用する。incident barrierはwritersをdrainする。
 
 **失敗時の挙動:** COMMIT 前は rollback、COMMIT 後は新しい世代への forward recovery とし、混在した epoch は block したままとする。
 
 **セキュリティ不変条件:** 期限切れの artifact、revoked registry、legacy writer、混在した storage target を accepted authority にできない。
 
-**受入テスト:** T1〜T6 の cleanup、P0-16/P0-17、backup restore、pre/post-COMMIT recovery、manifest cardinality。
+**受入テスト:** T1〜T6 の cleanup、P0-16/P0-17、backup restore、pre/post-COMMIT recovery、closed manifestとlive inventoryの一致。
 
 **ロールバック / 復旧:** commit 後は決して down-migrate しない。isolated backup を restore し、新しい世代を作成して、再承認、rebind、smoke、resume を行う。
 
@@ -1428,7 +1454,7 @@ IMP-14 staging/prod deployment and cutover evidence
 
 **状態の変更:** Legacy epoch から empty/marker-only `tlsn-v1` へ移行し、二重運用は行わない。
 
-**ロック / 並行性:** Traffic/writer barrier を破壊的な手順に先行させ、固定の DB locks を final preflight に先行させる。
+**ロック / 並行性:** Traffic/writer barrierを破壊的な手順に先行させ、選定したDB barrierをfinal preflightに先行させる。
 
 **失敗時の挙動:** traffic を block したままとし、境界に応じて pre-commit rollback または post-commit forward recovery を使用する。
 
@@ -1482,9 +1508,9 @@ Notary、Verifier、Dataset key が compromise された場合は、独立した
 | Projection の権威 | PASS | ルートから導出する state/token と B6 |
 | テレメトリへの識別情報注入 | PASS | 予約フィールドの拒否と IdentityEnvelope tests |
 | Legacy の権威 | カットオーバーゲートとして PASS | 完全な削除一覧、manifest、no-backfill rule、P0-17 |
-| TLSNotary bindingの実現可能性 | UNKNOWN | RangeSetの表現力はsourceで確認したが、FUSOU exact range/parser/one-request fixtureは未取得。候補sourceのauthenticated time不足はP0-03 FAIL |
-| Attestation IDの長さとAPI revision | UNKNOWN | alpha.15/mainは16 bytesを観測したが、採用revision、literal `N`、goldenは未確定。P0-02はFAIL |
-| 数値limitsとrange countの根拠 | UNKNOWN | range count 3/1は仕様・security rule、各MAX_*は多くがRATIONALE REQUIRED。詳細はsource report |
+| TLSNotary bindingの実現可能性 | UNKNOWN | RangeSetの表現力はsourceで確認したが、FUSOUのauthenticated coverage/parser/one-request fixtureは未取得。候補sourceのauthenticated time不足はP0-03 FAIL |
+| Attestation IDのopaque encodingとAPI revision | UNKNOWN | alpha.15/mainは16 bytesを観測したが、採用revision、profile encoding、goldenは未確定。P0-02はFAIL |
+| 数値limitsとrange coverageの根拠 | UNKNOWN | range coverageと各MAX_*はprofile/correctness/privacy/DoS evidenceが必要。詳細はsource report |
 
 ### 自己監査の結論
 

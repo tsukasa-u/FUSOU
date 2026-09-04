@@ -51,7 +51,61 @@ crates/tlsn/src/proxy.rs                  8ec2bb0808730e1f4976d616253bdd7d7673b5
 - `SPEC-COMPATIBLE-BUT-NEEDS-ADAPTER`: 該当なし。public fieldやRangeSetをFUSOU adapterで接続することはできても、adapterはNotary signatureの対象となるNotary-issued `notary_time`を追加できない。
 - 結論: **`NO ADOPTABLE REVISION FOUND`**。
 
-FUSOUはまだTLSNotary revisionを選定していない。したがって「selected TLSNotary revisionが仕様不適合」とは記録せず、「今回レビューした候補が現行仕様のP0-03を満たさず、選定revisionは存在しない」と記録する。候補の16-byte ID観測だけからFUSOUのliteral `N`を16へ変更してはならない。
+FUSOUはまだTLSNotary revisionを選定していない。したがって「selected TLSNotary revisionが仕様不適合」とは記録せず、「今回レビューした候補が現行仕様のP0-03を満たさず、選定revisionは存在しない」と記録する。候補の16-byte ID観測だけからFUSOUの固定長IDサイズを16へ変更してはならない。
+
+### Capability matrix
+
+次の値は候補sourceから確認できる能力の分類である。`AVAILABLE`は候補にその能力があること、`AVAILABLE_WITH_FUSOU_LOGIC`はupstreamの構成要素はあるがFUSOU固有の検証・制約・fixtureが必要なこと、`NOT_AVAILABLE`は現行の候補sourceに能力がないこと、`UNKNOWN`はこの調査の証拠だけでは判定できないことを意味する。これは採用可否の表ではなく、FUSOUの要件適合性や実行時証拠をPASSにする表でもない。
+
+| Capability | `v0.1.0-alpha.15` | `refs/heads/main` | 観測された境界 |
+| --- | --- | --- | --- |
+| Revision | `AVAILABLE` | `AVAILABLE` | alpha.15のtag commitとmainのexact commitを固定できる |
+| Release status | `AVAILABLE` | `UNKNOWN` | alpha.15は公開tag、mainは公開branch上のpre-release package |
+| Attestation ID | `AVAILABLE` | `AVAILABLE` | `attestation.header.id.0`のpublic field pathと16-byte `Uid` |
+| Attestation serialization | `AVAILABLE` | `AVAILABLE` | BCSの内部canonical serialization、example transportのbincode |
+| Authenticated time | `NOT_AVAILABLE` | `NOT_AVAILABLE` | Notary-issued `notary_time`はなく、`ConnectionInfo.time`はconnection-start time |
+| Transcript authentication | `AVAILABLE` | `AVAILABLE` | sent/received transcriptとAttestation検証のsource pathがある |
+| Selective disclosure | `AVAILABLE` | `AVAILABLE` | sent/receivedの`RangeSet<usize>` disclosureがある |
+| Verifier model | `AVAILABLE` | `AVAILABLE` | NotaryがMPC sessionをverify/acceptし、Attestationを構築する |
+| Session semantics | `AVAILABLE_WITH_FUSOU_LOGIC` | `AVAILABLE_WITH_FUSOU_LOGIC` | close lifecycleはあるが、FUSOU Session/binding/actor equalityはない |
+| Request semantics | `AVAILABLE_WITH_FUSOU_LOGIC` | `AVAILABLE_WITH_FUSOU_LOGIC` | transcript bytesはあるが、require_info、HTTP parser、header位置はない |
+| Finalization semantics | `AVAILABLE_WITH_FUSOU_LOGIC` | `AVAILABLE_WITH_FUSOU_LOGIC` | MPC close/finalizationはあるが、FUSOU T3/T4 deliveryはない |
+| Supported transport | `AVAILABLE_WITH_FUSOU_LOGIC` | `AVAILABLE_WITH_FUSOU_LOGIC` | exampleのrequest/Attestation transportはあるが、FUSOU relayはない |
+| FUSOU binding feasibility | `NOT_AVAILABLE` | `NOT_AVAILABLE` | current specのauthenticated timeとFUSOU固有binding証拠を満たさない |
+
+このmatrixの`AVAILABLE`は「upstreamに部品がある」という意味に限定する。例えば`Selective disclosure = AVAILABLE`は、FUSOUが指定するrange数、parser、privacy、digest fixtureまで証明済みという意味ではない。`FUSOU binding feasibility = NOT_AVAILABLE`は候補sourceだけで現在の契約を実現できないという分類であり、adapterでNotary signature対象の時刻を追加できるという意味ではない。
+
+### Fact / requirement / evidence vocabulary
+
+このレポートでは用語を次のように分離する。
+
+| 用語 | 意味 | 例 |
+| --- | --- | --- |
+| `observed fact` | source、repository inventory、または実行結果から直接確認した事実 | `Uid([u8; 16])`、`ConnectionInfo.time`のsource semantics |
+| `requirement` | FUSOUが採用を許可するためのsecurity/protocol contract | Notary-authenticated `notary_time`、Proof Copy MUST-REJECT |
+| `empirical evidence` | real client、runtime、database、staging/productionで取得する検証結果 | natural capture、origin counter、key rotation rehearsal |
+| `candidate` | sourceを調査したが、FUSOUが選定・pinしていないrevision | alpha.15、観測時点のmain |
+| `selected revision` | P0-01を通過し、FUSOUのprofileとdependency lockに固定されたrevision | 現時点では存在しない |
+
+Observed factはrequirementやempirical evidenceの代用にならない。特に候補sourceのAPI test成功は、FUSOU runtimeのPASSやselected revisionの成立を意味しない。
+
+### Attestation ID is opaque
+
+候補で16 bytesのIDを観測したことは、候補sourceの型幅に関する`observed fact`である。FUSOUのsecurity semanticsでは、Attestation IDはその内部構造、乱数性、byte widthの意味を仮定せず、選定profileが返すexact opaque bytesとして扱う。IDはSession、Challenge、Result、Claimの同一性・replay判定・signature-bound dataでbyte-for-byte比較するが、clientが意味を解釈したり、IDからidentityを導出したりしてはならない。
+
+固定長IDサイズは、protocol interoperability、lifecycle uniqueness、または暗号学的なencodingが固定長を実際に要求することを独立証拠で示した場合だけ、選定profileの入力として凍結する。現時点ではその必要性は証明されていないため、観測値16をDB CHECK、ClaimBindingBytes、またはその他のFUSOU採用値へ昇格させない。固定長が不要と確認された場合は、profileが定めるopaque byte列とresource上限だけを契約にし、候補観測値に依存しない。
+
+## `notary_time` decision table
+
+`ConnectionInfo.time`を`notary_time`として扱うことはしない。A/B/Cは仕様変更の候補を比較するためのdecision tableであり、現在の採用決定ではない。
+
+| 案 | 内容 | セキュリティ上の変化 | 複雑性 | 判定 |
+| --- | --- | --- | --- | --- |
+| A | Notaryが署名対象に含めるauthenticated issuance timeをupstream capabilityとして要求する | 現行のtrust modelとissuance freshnessを維持する。候補に能力がなければ証明を受理できない | upstream revision/profileの選定とtamper fixtureが必要 | `RETAIN AS REQUIREMENT` |
+| B | `notary_time`を削除し、connection-start timeまたはFUSOU取得時刻だけを使う | Notary issuance freshnessを失う。証明の古い取得、Notary処理遅延、clock provenanceの混同を検出できず、time freshnessを攻撃者が利用できる範囲が増える | protocol依存は減るが、保証も減る | `REJECT UNLESS SECURITY REVIEW REVISES GUARANTEE` |
+| C | 外部timestamp authority、追加のsigned receipt、または別のtrusted clockを導入する | 新しいauthorityのcompromise、availability、key rotation、跨ぎ時刻整合性をtrust modelへ追加する | 現行のVerifier/Notary chainより複雑になる | `REJECT UNLESS STRICTLY NECESSARY` |
+
+Aはupstream capabilityが確認できるまで実装へ進めない。Bは「簡素化」ではあるが、authenticated issuance freshnessを削除して新しい受入可能な攻撃を生むため、現在の保証を維持する解決ではない。CはAが不可能であることだけを理由に追加してはならず、既存の保証を保てないこと、追加trust dependencyの必要性、失敗時のfail-closed設計を独立reviewで示す必要がある。したがって現時点の結論は、Aを要件として維持し、alpha.15/mainを採用しない、である。
 
 ## パッケージとfeature metadata
 
@@ -79,7 +133,7 @@ upstreamの`tlsn`と`tlsn-core` package manifestは`MIT OR Apache-2.0`を宣言�
 - `AttestationBuilder::build`はrandomな`Uid`実装でIDを生成する。
 - Attestation headerはNotary signatureの前にcrate内部のcanonical serializerでserializeされる。
 
-これは候補fieldの幅が16 bytesで、利用可能なpublic field pathがあることを示す。しかしFUSOUの`N`を凍結するものではない。候補revisionは採用されておらず、FUSOUのgolden bytesもcommitされていない。また、現行仕様の`Attestation.header().id`という記述はこのsource APIと一致しない。source/inventoryで不充足が確定しているため、P0-02はruntime待ちの`BLOCKED`ではなく`FAIL`とする。
+これは候補fieldの幅が16 bytesで、利用可能なpublic field pathがあることを示す。しかしFUSOUの固定長ID contractを凍結するものではない。候補revisionは採用されておらず、FUSOUのgolden bytesもcommitされていない。また、現行仕様の`Attestation.header().id`という記述はこのsource APIと一致しない。source/inventoryで不充足が確定しているため、P0-02はruntime待ちの`BLOCKED`ではなく`FAIL`とする。
 
 commit `0fe3c32d35382b3f290a43c4156399ca4512bb89`における関連source path:
 
@@ -115,7 +169,7 @@ crates/examples/attestation/prove.rs:368-384       Notary copies tls_transcript.
 
 ## binding、range、one-requestの境界
 
-alpha.15とmainの `ProveConfigBuilder` は `reveal_sent`、`reveal_recv`、およびdirection付き`reveal`を公開し、内部では`RangeSet<usize>`をunionする。したがってFUSOUの3つの送信rangeと1つの受信rangeを表現するデータ構造上の余地はある。しかしupstreamは次を定義しない。
+alpha.15とmainの `ProveConfigBuilder` は `reveal_sent`、`reveal_recv`、およびdirection付き`reveal`を公開し、内部では`RangeSet<usize>`をunionする。したがってFUSOUのprofile-defined authenticated coverageを表現するデータ構造上の余地はある。しかしupstreamは次を定義しない。
 
 - HTTP/1.1 request line、Host、`X-FUSOU-Attestation-Binding`の構文・位置・cardinality。
 - FUSOUのstrict response parser、full response digest、Result schema。
@@ -126,7 +180,7 @@ mainの`crates/tlsn/tests/closure.rs`はTLS close_notify、abrupt close、fatal 
 
 ## 数値根拠の分類
 
-次の表はFinal Specification Section 5.1の`MAX_*`とrange count、および関連するPhase 0 acceptance thresholdの根拠分類である。`RATIONALE REQUIRED`は値を否定する判定ではなく、protocol仕様・resource安全性・実測値のどれに基づくかを独立証拠で補う必要があることを示す。未裏付けの値を実装へ確定してはならない。
+次の表はFinal Specification Section 5.1の`MAX_*`、authenticated range coverage、および関連するPhase 0 acceptance thresholdの根拠分類である。`RATIONALE REQUIRED`は値を否定する判定ではなく、protocol仕様・resource安全性・実測値のどれに基づくかを独立証拠で補う必要があることを示す。未裏付けの値を実装へ確定してはならない。
 
 | 値 | 分類 | 根拠状態 |
 | --- | --- | --- |
@@ -140,12 +194,12 @@ mainの`crates/tlsn/tests/closure.rs`はTLS close_notify、abrupt close、fatal 
 | `MAX_GAME_JSON_STRING_BYTES = 1048576` | application parser / resource limit candidate | `RATIONALE REQUIRED` |
 | `MAX_VERIFIER_JSON_STRING_BYTES = 33554432` | Result parser / resource limit candidate | `RATIONALE REQUIRED` |
 | `MAX_CHALLENGE_BODY_BYTES = 33558528` | implementation-derived formula | `MAX_VERIFIER_RESULT_JSON_BYTES`、base64 overhead、4096からの算術導出は確認できるが、親limitの根拠は`RATIONALE REQUIRED` |
-| `REQUEST_RANGE_COUNT = 3` | specification / security-derived | request line、Host、binding headerだけをsafe rangeとして開示するv1 privacy ruleに基づく。upstream protocolの値ではない |
-| `RESPONSE_RANGE_COUNT = 1` | specification / correctness-derived | partial responseのJSON解釈を避けるfull response ruleに基づく。upstream protocolの値ではない |
-| paired runs `1000`、added latency P95 `300 ms` | empirical acceptance threshold | 実測reportが未取得。thresholdの採用根拠と結果はP0-08で検証する |
-| future skew `60 s` | security / operational acceptance policy | 全validator共通ruleとして設計済みだが、negative/positive fixtureはP0-16待ち |
+| request range coverage | profile / security-derived candidate | request line、Host、binding headerと必要なframingを最小限認証する。upstream protocolは具体的なrange cardinalityを定めない |
+| response range coverage | profile / correctness-derived candidate | strict parserが必要とするauthenticated bytesを含める。full responseまたはpartial disclosureの選択はfixture、privacy、correctness evidenceで決める |
+| paired performance sample plan、added latency/failure acceptance rule | empirical acceptance threshold candidate | 実測reportが未取得。sample size、thresholdの採用根拠と結果はP0-08で検証する |
+| future-skew policy | security / operational acceptance policy candidate | 全validator共通ruleとして設計済みだが、具体値のnegative/positive fixtureはP0-16待ち |
 
-`N`は候補観測値ではなく、選定revisionのcanonical extractionとgolden bytesから決めるprotocol/profile inputであり、現時点は未確定である。
+Attestation IDのbyte boundは候補観測値ではなく、選定revisionのcanonical extractionとgolden bytesから決めるprotocol/profile inputであり、現時点は未確定である。
 
 ## lifecycle、transcript、serializationの確認
 
