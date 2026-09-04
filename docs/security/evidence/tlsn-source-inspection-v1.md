@@ -14,7 +14,7 @@
 - 選定したrelease: `refs/tags/v0.1.0-alpha.15`
 - 選定した正確なcommit: `47aee45b53e06648c1b2ad3689b367b8c923fdec`
 - selected checkout: `/tmp/tlsn-phase0-alpha15`、tag checkout、観測時点でclean
-- 観測時点のFUSOU repository HEAD: `30ffb76923dac8e5ec56caa3ad6fde4f60a3040a`
+- 観測時点のFUSOU repository HEAD: `2cabedc4bc8db70a00ba42f91048b46127fea4e8`
 - 選定状態: `SELECTED_FOR_FUSOU_ADAPTER`。documentation-only adoption profileは [tlsn-alpha15-adoption-profile-v1.json](tlsn-alpha15-adoption-profile-v1.json) に固定し、FUSOU runtime dependencyはまだ追加していない
 
 ソースcheckoutを再現し、revisionを検証するコマンド:
@@ -57,6 +57,12 @@ crates/tlsn/src/proxy.rs                  8ec2bb0808730e1f4976d616253bdd7d7673b5
 - 結論: **`SELECTED_FOR_FUSOU_ADAPTER`**（alpha.15をdocumentation-only implementation inputとして凍結する）。
 
 FUSOU runtimeにはまだTLSNotary dependencyがなく、runtime実装は開始しない。選定profileはalpha.15のverified `Uid.0`をraw opaque 16 bytesとして固定し、Result transportはstrict unpadded base64urlとする。自然capture、FUSOU固有のstrict parser、one-request/finalization、cross-language Result/ClaimBinding evidenceは別gateとして未取得のままであり、今回のselectionは実装GOやproduction GOを意味しない。
+
+## P0-04/P0-05 evidence collection attempt
+
+2026-09-04の再現可能なinventoryで、`P0-04`のnatural require_info captureは0件だった。`TEST_DATA_PATH`、`TEST_DATA_REPO_PATH`、repository-local proxy data、`docs/security/evidence/require-info-corpus-v1/`、tracked capture/transcript filesはこのrunでは利用できなかった。既存proxyはrequest/response bodyをcollectして保存・通知できるが、raw HTTP line、全headers、framing、transcript offset、request/response boundaryを保存する実装ではない。認証情報・cookie・token・user-specific captureは収集せず、synthetic fixtureも作成していない。
+
+`P0-05`については、alpha.15のupstream `presentation.bin` verificationはP0-02のfixture evidenceに限られる。FUSOUのrequire_info Presentation、server identity、binding header、request/response ranges、full-transcript digest、strict parser negative matrix、privacy-reviewed disclosure fixtureは取得していない。したがって両gateは `BLOCKED` のままとし、詳細な実行結果・不足項目・再現手順は [P0-04/P0-05 evidence attempt](tlsn-p0-04-p0-05-evidence-attempt-v1.json) に固定する。仕様変更、runtime実装、FUSOU TLSNotary dependency追加は行わない。
 
 ### Capability matrix
 

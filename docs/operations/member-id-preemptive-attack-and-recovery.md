@@ -9,7 +9,7 @@
 > **Specification Revision**: `7f847bb2285e95d9b8c310d9527b0fdce5d38622`
 >
 > **Revision note**: Reference Baseline は本仕様書が対象とする repository baseline であり、Specification Revision `7f847bb2285e95d9b8c310d9527b0fdce5d38622` は本仕様書の現在の設計変更を含む確定 commit である。runtime implementationは別途未作成であり、commit済み仕様と実装済み機能を同一視しない。今回のcross-specification auditはこの Specification Revision と Reference Baseline の差分を基準に行う。
-**Phase 0証拠revision**: `UNCOMMITTED WORKTREE @ 30ffb76923dac8e5ec56caa3ad6fde4f60a3040a`。2026-09-03のselected alpha.15 profile evidenceと未取得証拠を [P0 gate ledger](../security/evidence/tlsn-phase0-gate-ledger-v1.json)、[TLSNotaryソース調査](../security/evidence/tlsn-source-inspection-v1.md)、[alpha.15 adoption profile](../security/evidence/tlsn-alpha15-adoption-profile-v1.json) に記録する。
+**Phase 0証拠revision**: `COMMITTED BASELINE @ 2cabedc4bc8db70a00ba42f91048b46127fea4e8`。2026-09-04のselected alpha.15 profile evidence、P0-04/P0-05 evidence collection attempt、および未取得証拠を [P0 gate ledger](../security/evidence/tlsn-phase0-gate-ledger-v1.json)、[TLSNotaryソース調査](../security/evidence/tlsn-source-inspection-v1.md)、[alpha.15 adoption profile](../security/evidence/tlsn-alpha15-adoption-profile-v1.json)、[P0-04/P0-05 evidence attempt](../security/evidence/tlsn-p0-04-p0-05-evidence-attempt-v1.json) に記録する。
 >
 > **再構築日**: 2026-09-01
 >

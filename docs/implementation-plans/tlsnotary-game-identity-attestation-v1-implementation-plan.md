@@ -6,7 +6,7 @@
 
 **仕様ベースライン:** Reference Baseline `0d2a85a8c474271ecf6bf7e2cf062365a9608e83`、Proof Copy baseline `356aad0c012560be9c5ac477b494866d06d75fb9`、現在の Specification Revision `7f847bb2285e95d9b8c310d9527b0fdce5d38622`
 
-**Phase 0証拠revision:** `UNCOMMITTED WORKTREE @ 30ffb76923dac8e5ec56caa3ad6fde4f60a3040a`。selected alpha.15 profileとP0-01〜P0-17の判定は [gate ledger](../security/evidence/tlsn-phase0-gate-ledger-v1.json)、[ソース調査レポート](../security/evidence/tlsn-source-inspection-v1.md)、[alpha.15 adoption profile](../security/evidence/tlsn-alpha15-adoption-profile-v1.json) に固定する。
+**Phase 0証拠revision:** `COMMITTED BASELINE @ 2cabedc4bc8db70a00ba42f91048b46127fea4e8`。selected alpha.15 profile、P0-04/P0-05 evidence collection attempt、およびP0-01〜P0-17の判定は [gate ledger](../security/evidence/tlsn-phase0-gate-ledger-v1.json)、[ソース調査レポート](../security/evidence/tlsn-source-inspection-v1.md)、[alpha.15 adoption profile](../security/evidence/tlsn-alpha15-adoption-profile-v1.json)、[P0-04/P0-05 evidence attempt](../security/evidence/tlsn-p0-04-p0-05-evidence-attempt-v1.json) に固定する。
 
 **計画の範囲:** この調査更新では Final Specification、この文書、および `docs/security/evidence/` の非機密証拠だけを変更する。実行時コード、migration、production resourceは変更しない。
 

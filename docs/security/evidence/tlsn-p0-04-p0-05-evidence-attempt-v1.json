@@ -1,0 +1,231 @@
+{
+  "artifact_id": "fusou-tlsn-p0-04-p0-05-evidence-attempt-v1",
+  "schema_version": 1,
+  "observed_at_utc": "2026-09-04T02:24:00Z",
+  "repository": {
+    "repository": "https://github.com/tsukasa-u/FUSOU.git",
+    "head": "2cabedc4bc8db70a00ba42f91048b46127fea4e8",
+    "branch": "tlsn-phase0-investigation",
+    "selected_tlsn_ref": "refs/tags/v0.1.0-alpha.15",
+    "selected_tlsn_commit": "47aee45b53e06648c1b2ad3689b367b8c923fdec"
+  },
+  "scope": {
+    "gates": ["P0-04", "P0-05"],
+    "purpose": "Evidence collection attempt only; no production implementation or synthetic substitute",
+    "runtime_changes": "NONE",
+    "p0_01_p0_02_contract": "Unchanged; alpha.15 revision, opaque 16-byte ID encoding, golden values, and notary_time exclusion remain frozen"
+  },
+  "repository_inventory": {
+    "identified_paths": {
+      "final_specification": "docs/operations/member-id-preemptive-attack-and-recovery.md",
+      "implementation_plan": "docs/implementation-plans/tlsnotary-game-identity-attestation-v1-implementation-plan.md",
+      "gate_ledger": "docs/security/evidence/tlsn-phase0-gate-ledger-v1.json",
+      "adoption_profile": "docs/security/evidence/tlsn-alpha15-adoption-profile-v1.json",
+      "source_inspection": "docs/security/evidence/tlsn-source-inspection-v1.md",
+      "https_proxy": "packages/FUSOU-PROXY/proxy-https/src/proxy_server_https.rs",
+      "proxy_channel_types": "packages/FUSOU-PROXY/proxy-https/src/channel_types.rs",
+      "app_proxy_start": "packages/FUSOU-APP/src-tauri/src/wrap_proxy.rs",
+      "require_info_dto": "packages/kc_api/crates/kc-api-dto/src/endpoints/api_get_member/require_info.rs",
+      "simulator_response_parser": "packages/FUSOU-WEB/src/features/simulator/api-response-parser.ts",
+      "proxy_configuration": "packages/configs/src/configs.rs",
+      "proxy_manifest": "packages/FUSOU-PROXY/proxy-https/Cargo.toml",
+      "upstream_fixture_evidence": "docs/security/evidence/tlsn-alpha15-adoption-profile-v1.json"
+    },
+    "missing_expected_paths": [
+      "docs/security/evidence/require-info-corpus-v1/",
+      "packages/FUSOU-TLSN-VERIFIER/"
+    ],
+    "checks": {
+      "TEST_DATA_PATH": "UNSET",
+      "TEST_DATA_REPO_PATH": "UNSET",
+      "repository_local_proxy_data_directory": "ABSENT",
+      "repository_require_info_corpus_directory": "ABSENT",
+      "tracked_natural_capture_or_transcript_files": "NONE_FOUND",
+      "fusou_tlsnotary_runtime_dependency": "NONE_COMMITTED"
+    }
+  },
+  "p0_04_natural_capture": {
+    "status": "NOT_OBTAINED",
+    "verdict": "BLOCKED",
+    "target": {
+      "method": "POST",
+      "path": "/kcsapi/api_get_member/require_info",
+      "natural_client_required": true,
+      "synthetic_substitution_allowed": false
+    },
+    "capture": {
+      "count": 0,
+      "raw_fixture_path": null,
+      "sanitized_fixture_path": null,
+      "sha256": null,
+      "repository_commit_allowed": false,
+      "reason": "No authorized real Game Client session and Game Server capture were supplied or available for this run"
+    },
+    "required_observations": {
+      "request_method": "NOT_MEASURED",
+      "request_target": "NOT_MEASURED",
+      "request_host": "NOT_MEASURED",
+      "request_path": "NOT_MEASURED",
+      "request_query": "NOT_MEASURED",
+      "request_headers": "NOT_MEASURED",
+      "request_body": "NOT_MEASURED",
+      "request_body_framing": "NOT_MEASURED",
+      "request_compression": "NOT_MEASURED",
+      "request_content_encoding": "NOT_MEASURED",
+      "request_transfer_encoding": "NOT_MEASURED",
+      "request_content_length": "NOT_MEASURED",
+      "response_status": "NOT_MEASURED",
+      "response_headers": "NOT_MEASURED",
+      "response_body": "NOT_MEASURED",
+      "transcript_layout": "NOT_MEASURED",
+      "request_response_boundaries": "NOT_MEASURED"
+    },
+    "proxy_observed_facts": [
+      {
+        "path": "packages/FUSOU-PROXY/proxy-https/src/proxy_server_https.rs",
+        "symbol": "LogHandler::handle_request",
+        "fact": "Collects the hyper request body and reconstructs the request body before forwarding"
+      },
+      {
+        "path": "packages/FUSOU-PROXY/proxy-https/src/proxy_server_https.rs",
+        "symbol": "log_request",
+        "fact": "Records method, derived path, content type, and a body representation; API request persistence is enabled only by the allow_save_api_requests configuration"
+      },
+      {
+        "path": "packages/FUSOU-PROXY/proxy-https/src/proxy_server_https.rs",
+        "symbol": "log_request",
+        "fact": "Saved kcsapi request files prepend local metadata and do not preserve the raw request line, complete headers, transfer framing, or transcript offsets"
+      },
+      {
+        "path": "packages/FUSOU-PROXY/proxy-https/src/proxy_server_https.rs",
+        "symbol": "LogHandler::handle_response",
+        "fact": "Collects the hyper response body and reconstructs the response body before forwarding"
+      },
+      {
+        "path": "packages/FUSOU-PROXY/proxy-https/src/proxy_server_https.rs",
+        "symbol": "decode_response_body",
+        "fact": "The logging path can decode gzip, deflate, and brotli, so the saved representation is not an authenticated raw transcript"
+      },
+      {
+        "path": "packages/FUSOU-PROXY/proxy-https/src/channel_types.rs",
+        "symbol": "StatusInfo::REQUEST / StatusInfo::RESPONSE",
+        "fact": "In-process messages contain path, content_type, and String content only; they do not contain status, headers, raw bytes, or request/response boundaries"
+      }
+    ],
+    "require_info_repository_facts": [
+      {
+        "path": "packages/kc_api/crates/kc-api-dto/src/endpoints/api_get_member/require_info.rs",
+        "fact": "The repository DTO models api_data.api_basic.api_member_id as i64; this is a source/DTO fact and not a natural wire capture"
+      },
+      {
+        "path": "packages/kc_api/crates/kc-api-dto/src/endpoints/api_get_member/require_info.rs",
+        "fact": "The DTO tests load external TEST_DATA_PATH and TEST_DATA_REPO_PATH values; neither variable was configured for this run"
+      }
+    ],
+    "fixture_generation_procedure": {
+      "status": "NOT_RUN",
+      "required_inputs": [
+        "An authorized supported Game Client build and controlled session",
+        "An allowlisted Game Server endpoint",
+        "The FUSOU proxy configured to retain a privacy-reviewed raw capture",
+        "A collector that records raw request/response bytes and boundaries before any decoding"
+      ],
+      "prohibited_substitute": "Do not generate a local mock request, synthetic response, or simulator fixture and label it natural"
+    },
+    "privacy": {
+      "credentials_collected": false,
+      "cookies_collected": false,
+      "tokens_collected": false,
+      "user_specific_capture_collected": false,
+      "raw_fixture_written": false,
+      "sanitized_fixture_written": false,
+      "disposition": "No secret-bearing material was collected. A future natural capture requires redaction review before repository storage; hashing alone is not a substitute for removing sensitive bytes"
+    }
+  },
+  "p0_05_authenticated_disclosure": {
+    "status": "NOT_OBTAINED",
+    "verdict": "BLOCKED",
+    "upstream_fixture": {
+      "path": "crates/attestation/tests/fixtures/presentation.bin",
+      "sha256": "cb9b3befb43df5157a4d5ac52080ba19d842f191fa346bfda1dfc4927b37e5b6",
+      "bytes": 5394,
+      "verification_command": "cargo test -p tlsn-attestation --features fixtures --test no_syscall_verify test_verify_presentation_without_syscalls -- --exact",
+      "verification_result": "1 passed; 0 failed",
+      "qualification": "P0-02 alpha.15 Presentation verification only; it is not a FUSOU require_info request/response disclosure fixture"
+    },
+    "fusou_disclosure_evidence": {
+      "verified_parsing": "NOT_OBTAINED",
+      "attestation_id_extraction_from_require_info_proof": "NOT_OBTAINED",
+      "server_identity": "NOT_OBTAINED",
+      "request_transcript": "NOT_OBTAINED",
+      "response_transcript": "NOT_OBTAINED",
+      "request_ranges": "NOT_OBTAINED",
+      "response_ranges": "NOT_OBTAINED",
+      "exact_byte_preservation": "NOT_OBTAINED",
+      "request_digest": "NOT_OBTAINED",
+      "response_digest": "NOT_OBTAINED",
+      "fusou_binding_header": "NOT_OBTAINED",
+      "transcript_ordering": "NOT_OBTAINED",
+      "trailing_bytes_check": "NOT_OBTAINED",
+      "compression_and_framing_check": "NOT_OBTAINED"
+    },
+    "strict_negative_matrix": {
+      "status": "NOT_RUN",
+      "cases": [
+        "malformed input",
+        "truncated input",
+        "trailing bytes",
+        "duplicated fields",
+        "unexpected fields",
+        "invalid lengths",
+        "out-of-range offsets",
+        "overlapping ranges",
+        "invalid UTF-8 in binary fields",
+        "invalid Base64",
+        "invalid ID representation",
+        "wrong server identity",
+        "wrong binding header",
+        "request/response mismatch"
+      ],
+      "authority_parser_status": "No FUSOU identity-authoritative strict Result/transcript parser exists in the repository"
+    },
+    "upstream_boundary": {
+      "available": [
+        "alpha.15 Presentation verification",
+        "sent/received RangeSet disclosure data structures"
+      ],
+      "not_upstream_guarantees": [
+        "FUSOU require_info HTTP framing and exact target validation",
+        "X-FUSOU-Attestation-Binding placement, cardinality, and session matching",
+        "FUSOU server identity allowlist",
+        "FUSOU strict parser, digest, and range acceptance",
+        "one logical Game request and no Game Server re-submission"
+      ],
+      "adapter_rule": "FUSOU adapter owns these validations and must not describe adapter-added fields as Notary-signed"
+    },
+    "no_resubmission": {
+      "runtime_test": "NOT_RUN",
+      "contract": "The existing no Game Server re-submission contract is unchanged",
+      "retry_classification": "No runtime retry path was added or exercised"
+    }
+  },
+  "reproduction": {
+    "inventory_commands": [
+      "git -C /home/ogu-h/Documents/GitHub/FUSOU log -1 --format='%H%n%s'",
+      "rg --files /home/ogu-h/Documents/GitHub/FUSOU -g '!**/target/**' -g '!**/node_modules/**'",
+      "git -C /home/ogu-h/Documents/GitHub/FUSOU ls-files",
+      "rg -n --hidden -g '!**/target/**' -g '!**/node_modules/**' -g '!**/.git/**' 'api_get_member|require_info|X-FUSOU-Attestation-Binding|transcript|TLSNotary|tlsn' /home/ogu-h/Documents/GitHub/FUSOU/packages /home/ogu-h/Documents/GitHub/FUSOU/docs",
+      "test -d /home/ogu-h/Documents/GitHub/FUSOU/docs/security/evidence/require-info-corpus-v1",
+      "test -d /home/ogu-h/Documents/GitHub/FUSOU/packages/FUSOU-TLSN-VERIFIER"
+    ],
+    "upstream_verification": "The alpha.15 fixture verification command is recorded above and remains valid for P0-02 only",
+    "natural_capture_reproduction": "Requires authorized client/server access and a privacy-approved raw capture collector; no run is claimed by this artifact"
+  },
+  "decision": {
+    "P0-04": "BLOCKED",
+    "P0-05": "BLOCKED",
+    "specification_change_required": false,
+    "phase_0": "NO-GO",
+    "implementation": "NO-GO"
+  }
+}

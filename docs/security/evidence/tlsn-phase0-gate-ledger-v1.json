@@ -1,9 +1,9 @@
 {
   "artifact_id": "fusou-tlsn-phase0-gate-ledger-v1",
   "schema_version": 2,
-  "observed_at_utc": "2026-09-03T07:59:13Z",
+  "observed_at_utc": "2026-09-04T02:24:00Z",
   "repository": "https://github.com/tsukasa-u/FUSOU.git",
-  "repository_head_at_observation": "30ffb76923dac8e5ec56caa3ad6fde4f60a3040a",
+  "repository_head_at_observation": "2cabedc4bc8db70a00ba42f91048b46127fea4e8",
   "upstream": {
     "repository": "https://github.com/tlsnotary/tlsn.git",
     "observed_remote": "refs/heads/main",
@@ -122,12 +122,12 @@
       "group": "P0-C Repository / Architecture Validation",
       "stage": "MUST_KNOW_BEFORE_IMPLEMENTATION",
       "reason": "natural supported-client require_info captures and their manifests are absent",
-      "evidence": ["E-REPO-001"],
+      "evidence": ["E-P0-04-001", "E-REPO-001"],
       "specification_impact": "synthetic captureをnatural captureの代替にしない",
       "implementation_impact": "client captureなしにparser/profileを実装・承認しない",
-      "evidence_ids": ["E-REPO-001"],
-      "finding": "supported real Game clientとallowlisted Game Serverによるnatural captureは、repository内にもこの調査での収集結果にも存在しない。",
-      "next_action": "synthetic substitutionなしで、supported client buildとallowlisted hostごとに少なくとも1つのnatural require_info captureを収集してhashする。"
+      "evidence_ids": ["E-P0-04-001", "E-REPO-001"],
+      "finding": "自然captureは取得していない。実施したinventoryでは、require-info corpus、repository-local proxy data、tracked capture/transcript files、TEST_DATA_PATH/TEST_DATA_REPO_PATHはいずれも利用できず、既存proxyはraw HTTP framing/transcript boundaryではなくbody/log representationを扱う。詳細は [tlsn-p0-04-p0-05-evidence-attempt-v1.json](tlsn-p0-04-p0-05-evidence-attempt-v1.json) に固定した。",
+      "next_action": "synthetic substitutionなしで、authorized supported client buildとallowlisted hostごとに少なくとも1つのnatural require_info captureを収集し、privacy review後にraw boundary、framing、compression、size、SHA-256 manifestを作成する。"
     },
     {
       "id": "P0-05",
@@ -136,12 +136,12 @@
       "group": "P0-C Repository / Architecture Validation",
       "stage": "MUST_KNOW_BEFORE_IMPLEMENTATION",
       "reason": "the upstream API represents sent/received RangeSet disclosure, but no FUSOU authenticated coverage presentation, parser, digest golden, or privacy input exists",
-      "evidence": ["E-UPSTREAM-004", "E-REPO-001"],
+      "evidence": ["E-P0-05-001", "E-UPSTREAM-004", "E-REPO-001"],
       "specification_impact": "binding headerと必要なparser bytesをauthenticated transcriptへ含められることをfixtureで証明するまでprofile range contractを凍結しない",
       "implementation_impact": "Dedicated Verifierとparser fixtureを作成するまで実装しない",
-      "evidence_ids": ["E-UPSTREAM-004", "E-REPO-001"],
-      "finding": "Dedicated Verifier、accepted full request/response presentation、disclosure range fixture、digest golden、privacy review inputはrepositoryに存在しない。",
-      "next_action": "選定したrevisionとprofileを凍結した後にのみ実装し、必要なauthenticated full-transcript fixtureとboundary fixtureを作成する。"
+      "evidence_ids": ["E-P0-05-001", "E-UPSTREAM-004", "E-REPO-001"],
+      "finding": "alpha.15 upstream Presentation fixtureのverification成功はP0-02の証拠に限られ、FUSOU require_infoのauthenticated request/response disclosure、server identity、binding header、range、digest、strict parser negative casesを証明しない。Dedicated Verifier、accepted full request/response presentation、disclosure range fixture、digest golden、privacy review inputはrepositoryに存在しない。詳細は [tlsn-p0-04-p0-05-evidence-attempt-v1.json](tlsn-p0-04-p0-05-evidence-attempt-v1.json) に固定した。",
+      "next_action": "自然capture取得後にのみ、選定alpha.15 adapter境界でfull request/response disclosure、strict framing/range/digest validation、binding header検証、negative matrix、privacy reviewを実証する。"
     },
     {
       "id": "P0-06",
@@ -357,6 +357,16 @@
       "id": "E-ENV-001",
       "artifact": "tlsn-source-inspection-v1.md",
       "scope": "toolとenvironmentの観測。local toolはproduction evidenceではない。"
+    },
+    {
+      "id": "E-P0-04-001",
+      "artifact": "tlsn-p0-04-p0-05-evidence-attempt-v1.json",
+      "scope": "P0-04 natural capture attempt、repository/environment inventory、既存proxyのcapture boundary、privacy disposition。自然captureは0件で、P0-04はBLOCKED。"
+    },
+    {
+      "id": "E-P0-05-001",
+      "artifact": "tlsn-p0-04-p0-05-evidence-attempt-v1.json",
+      "scope": "P0-05 disclosure attempt、alpha.15 upstream fixtureのP0-02限定 qualification、FUSOU transcript/range/digest/binding/strict-negative evidenceの不存在。P0-05はBLOCKED。"
     }
   ],
   "decision": {
