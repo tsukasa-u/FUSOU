@@ -23,11 +23,30 @@ const scriptArguments = process.argv
   .filter((argument) => argument !== "--");
 const outputArgument =
   scriptArguments[0] ?? process.env.FUSOU_CAPTURE_OUTPUT_PATH;
-const temporaryProxySettings = new Map([
-  ["allow_save_api_requests", "false"],
-  ["allow_save_api_responses", "false"],
-  ["allow_save_resources", "false"],
-  ["allow_save_main_js_local", "false"],
+const temporarySettingsBySection = new Map([
+  [
+    "proxy",
+    new Map([
+      ["allow_save_api_requests", "false"],
+      ["allow_save_api_responses", "false"],
+      ["allow_save_resources", "false"],
+      ["allow_save_main_js_local", "false"],
+    ]),
+  ],
+  [
+    "app.database",
+    new Map([
+      ["allow_data_to_cloud", "false"],
+      ["allow_data_to_shared_cloud", "false"],
+      ["allow_data_to_local", "false"],
+    ]),
+  ],
+  ["app.asset_sync", new Map([["asset_upload_enable", "false"]])],
+  ["app.auth", new Map([["deny_auth", "true"]])],
+  ["app.quest_tree_sender", new Map([["enable", "false"]])],
+  ["app.ship_growth_sender", new Map([["enable", "false"]])],
+  ["app.soku_speed_sender", new Map([["enable", "false"]])],
+  ["app.remodel_sender", new Map([["enable", "false"]])],
 ]);
 
 function fail(message) {
@@ -48,44 +67,68 @@ function isInside(parent, child) {
 function withCaptureConfig(content, outputPath) {
   const newline = content.includes("\r\n") ? "\r\n" : "\n";
   const lines = content.split(/\r?\n/);
-  let inProxySection = false;
-  let proxySectionFound = false;
-  let proxySectionEnd = lines.length;
-  const seenSettings = new Set();
-  const settings = new Map(temporaryProxySettings);
-  settings.set("capture_enabled", "true");
-  settings.set("capture_output_path", JSON.stringify(outputPath));
+  const hasTrailingNewline = lines.at(-1) === "";
+  if (hasTrailingNewline) {
+    lines.pop();
+  }
+  const settingsBySection = new Map(temporarySettingsBySection);
+  settingsBySection.set(
+    "proxy",
+    new Map([
+      ...settingsBySection.get("proxy"),
+      ["capture_enabled", "true"],
+      ["capture_output_path", JSON.stringify(outputPath)],
+    ]),
+  );
+  const seenBySection = new Map(
+    [...settingsBySection].map(([section]) => [section, new Set()]),
+  );
+  const updatedLines = [];
+  let currentSection;
 
-  const updatedLines = lines.map((line, index) => {
-    const section = line.match(/^\s*\[([^\]]+)\]\s*$/);
-    if (section) {
-      if (section[1] === "proxy") {
-        proxySectionFound = true;
-        inProxySection = true;
-      } else if (inProxySection) {
-        proxySectionEnd = index;
-        inProxySection = false;
+  const appendMissingSettings = (section) => {
+    const settings = settingsBySection.get(section);
+    const seen = seenBySection.get(section);
+    if (!settings || !seen) {
+      return;
+    }
+    for (const [name, value] of settings) {
+      if (!seen.has(name)) {
+        updatedLines.push(`${name} = ${value}`);
       }
     }
-    if (!inProxySection) {
-      return line;
-    }
-    const setting = line.match(/^\s*([A-Za-z0-9_]+)\s*=/);
-    if (setting && settings.has(setting[1])) {
-      seenSettings.add(setting[1]);
-      return `${setting[1]} = ${settings.get(setting[1])}`;
-    }
-    return line;
-  });
+  };
 
-  if (!proxySectionFound) {
-    throw new Error("the user config does not contain a [proxy] section");
+  for (const line of lines) {
+    const section = line.match(/^\s*\[([^\]]+)\]\s*$/);
+    if (section) {
+      appendMissingSettings(currentSection);
+      currentSection = section[1];
+      updatedLines.push(line);
+      continue;
+    }
+
+    const setting = line.match(/^\s*([A-Za-z0-9_]+)\s*=/);
+    const settings = settingsBySection.get(currentSection);
+    const seen = seenBySection.get(currentSection);
+    if (setting && settings?.has(setting[1]) && seen) {
+      seen.add(setting[1]);
+      updatedLines.push(`${setting[1]} = ${settings.get(setting[1])}`);
+      continue;
+    }
+    updatedLines.push(line);
   }
-  const missingSettings = [...settings]
-    .filter(([name]) => !seenSettings.has(name))
-    .map(([name, value]) => `${name} = ${value}`);
-  updatedLines.splice(proxySectionEnd, 0, ...missingSettings);
-  return updatedLines.join(newline);
+  appendMissingSettings(currentSection);
+
+  for (const [section, settings] of settingsBySection) {
+    if (seenBySection.get(section).size === 0) {
+      updatedLines.push("", `[${section}]`);
+      for (const [name, value] of settings) {
+        updatedLines.push(`${name} = ${value}`);
+      }
+    }
+  }
+  return updatedLines.join(newline) + (hasTrailingNewline ? newline : "");
 }
 
 async function readOptional(filePath) {
@@ -153,7 +196,7 @@ async function main() {
 
   console.log(`Capture output: ${outputPath}`);
   console.log(
-    "API/resource persistence and asset upload are disabled for this session only.",
+    "Proxy persistence, app data uploads, custom senders, auth bootstrap, and pending retries are disabled for this session only.",
   );
   console.log(
     "Use only ordinary FUSOU-APP gameplay. Do not issue standalone requests, inject, replay, retry, or automate traffic.",

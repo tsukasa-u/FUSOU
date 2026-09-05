@@ -22,6 +22,20 @@ fn main() -> ExitCode {
                 println!("capture_dir={}", capture_dir.display());
                 println!("review_id={}", verification.review_id);
                 println!("natural_provenance={}", verification.natural_provenance);
+                println!("privacy_qualified={}", verification.privacy_qualified);
+                println!(
+                    "external_transmission_status={}",
+                    verification.external_transmission_status
+                );
+                println!("privacy_disposition={}", verification.privacy_disposition);
+                println!(
+                    "p0_04={}",
+                    if verification.natural_provenance && verification.privacy_qualified {
+                        "READY"
+                    } else {
+                        "BLOCKED"
+                    }
+                );
                 println!("request_sha256={}", verification.capture.request_sha256);
                 println!("response_sha256={}", verification.capture.response_sha256);
                 println!(

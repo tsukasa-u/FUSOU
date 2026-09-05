@@ -42,6 +42,11 @@ async fn bootstrap_tokens_on_startup(
     storage: Arc<FileStorage>,
     auth_manager: AuthManager<FileStorage>,
 ) {
+    if configs::get_user_configs_for_app().auth.get_deny_auth() {
+        tracing::info!("startup auth bootstrap disabled by configuration");
+        return;
+    }
+
     // Try to load existing session from storage
     if let Ok(Some(session)) = storage.load_session().await {
         tracing::info!("startup: session loaded from storage");

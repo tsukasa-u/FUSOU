@@ -74,7 +74,7 @@ impl From<serde_json::Error> for CaptureError {
 
 pub const CAPTURE_COLLECTOR_VERSION: &str = "exact-wire-capture-v3";
 pub const HUDSUCKER_FORK_REVISION: &str = "hudsucker-0.23.0-fusou-maintained-fork";
-pub const NATURAL_CAPTURE_REVIEW_SCHEMA_VERSION: u32 = 1;
+pub const NATURAL_CAPTURE_REVIEW_SCHEMA_VERSION: u32 = 2;
 pub const CLIENT_FACING_TLS_PLAINTEXT_BOUNDARY: &str =
     "after MITM TLS accept and before Hyper parsing";
 
@@ -116,6 +116,18 @@ pub struct NaturalCapturePrivacyReview {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct NaturalCaptureOperationalReview {
+    pub launcher_revision: String,
+    pub proxy_persistence_disabled: bool,
+    pub app_uploads_disabled: bool,
+    pub pending_uploads_reviewed: bool,
+    pub external_transmission_status: String,
+    pub external_transmission_evidence: String,
+    pub credential_exposure_status: String,
+    pub privacy_disposition: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct NaturalCaptureReview {
     pub schema_version: u32,
     pub review_id: String,
@@ -123,6 +135,7 @@ pub struct NaturalCaptureReview {
     pub capture_complete_artifact_sha256: String,
     pub observation: NaturalCaptureObservation,
     pub privacy_review: NaturalCapturePrivacyReview,
+    pub operational_review: NaturalCaptureOperationalReview,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -964,6 +977,9 @@ pub struct NaturalCaptureReviewVerification {
     pub capture: CaptureVerification,
     pub review_id: String,
     pub natural_provenance: bool,
+    pub privacy_qualified: bool,
+    pub external_transmission_status: String,
+    pub privacy_disposition: String,
 }
 
 pub fn verify_natural_capture_review(
@@ -976,10 +992,18 @@ pub fn verify_natural_capture_review(
         serde_json::from_slice(&fs::read(capture_dir.join(MANIFEST_FILE))?)?;
     let review: NaturalCaptureReview = serde_json::from_slice(&fs::read(review_path)?)?;
     validate_natural_capture_review(&manifest, &review)?;
+    let privacy_qualified = review.operational_review.proxy_persistence_disabled
+        && review.operational_review.app_uploads_disabled
+        && review.operational_review.pending_uploads_reviewed
+        && review.operational_review.external_transmission_status == "RESOLVED_ABSENT"
+        && review.operational_review.privacy_disposition == "QUALIFIED";
     Ok(NaturalCaptureReviewVerification {
         capture,
         review_id: review.review_id,
         natural_provenance: true,
+        privacy_qualified,
+        external_transmission_status: review.operational_review.external_transmission_status,
+        privacy_disposition: review.operational_review.privacy_disposition,
     })
 }
 
@@ -1095,6 +1119,51 @@ fn validate_natural_capture_review(
     }
     validate_timestamp(&review.observation.observed_at_utc)?;
     validate_timestamp(&review.privacy_review.reviewed_at_utc)?;
+    if review
+        .operational_review
+        .launcher_revision
+        .trim()
+        .is_empty()
+        || review
+            .operational_review
+            .external_transmission_evidence
+            .trim()
+            .is_empty()
+    {
+        return Err(CaptureError::InvalidEvidencePolicy(
+            "natural capture operational review is incomplete".to_string(),
+        ));
+    }
+    if !matches!(
+        review
+            .operational_review
+            .external_transmission_status
+            .as_str(),
+        "RESOLVED_ABSENT" | "CONFIRMED" | "POSSIBLE_UNRESOLVED"
+    ) {
+        return Err(CaptureError::InvalidEvidencePolicy(
+            "unsupported external transmission status".to_string(),
+        ));
+    }
+    if !matches!(
+        review
+            .operational_review
+            .credential_exposure_status
+            .as_str(),
+        "NONE_OBSERVED" | "PRIVATE_RAW_ONLY" | "UNKNOWN"
+    ) {
+        return Err(CaptureError::InvalidEvidencePolicy(
+            "unsupported credential exposure status".to_string(),
+        ));
+    }
+    if !matches!(
+        review.operational_review.privacy_disposition.as_str(),
+        "QUALIFIED" | "DISQUALIFIED" | "UNKNOWN"
+    ) {
+        return Err(CaptureError::InvalidEvidencePolicy(
+            "unsupported privacy disposition".to_string(),
+        ));
+    }
     Ok(())
 }
 
@@ -1618,6 +1687,16 @@ mod tests {
                 sanitized_fixture_id: "sanitized-review-1".to_string(),
                 no_credentials_or_session_tokens_in_sanitized_fixture: true,
             },
+            operational_review: NaturalCaptureOperationalReview {
+                launcher_revision: "test-launcher".to_string(),
+                proxy_persistence_disabled: true,
+                app_uploads_disabled: true,
+                pending_uploads_reviewed: true,
+                external_transmission_status: "RESOLVED_ABSENT".to_string(),
+                external_transmission_evidence: "isolated test".to_string(),
+                credential_exposure_status: "NONE_OBSERVED".to_string(),
+                privacy_disposition: "QUALIFIED".to_string(),
+            },
         };
         let review_path = root.join("natural-review.json");
         fs::write(
@@ -1629,7 +1708,23 @@ mod tests {
         let verification = verify_natural_capture_review(&capture_dir, &review_path)
             .expect("verify natural review");
         assert!(verification.natural_provenance);
+        assert!(verification.privacy_qualified);
         assert_eq!(verification.review_id, "manual-review-1");
+
+        let mut unresolved_review = review.clone();
+        unresolved_review
+            .operational_review
+            .external_transmission_status = "POSSIBLE_UNRESOLVED".to_string();
+        unresolved_review.operational_review.privacy_disposition = "UNKNOWN".to_string();
+        fs::write(
+            &review_path,
+            serde_json::to_vec(&unresolved_review).expect("unresolved review JSON"),
+        )
+        .expect("overwrite review");
+        let unresolved_verification = verify_natural_capture_review(&capture_dir, &review_path)
+            .expect("verify unresolved natural review");
+        assert!(unresolved_verification.natural_provenance);
+        assert!(!unresolved_verification.privacy_qualified);
 
         let mut invalid_review = review;
         invalid_review.observation.no_request_replay = false;

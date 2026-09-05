@@ -187,6 +187,11 @@ async fn check_session_usable(app: &tauri::AppHandle) -> bool {
 /// across multiple device launches of the same app instance.
 /// If the existing session is expired or missing, the flag is ignored and re-auth is allowed.
 pub async fn try_anonymous_auth(app: &tauri::AppHandle) {
+    if configs::get_user_configs_for_app().auth.get_deny_auth() {
+        tracing::info!("anonymous authentication disabled by configuration");
+        return;
+    }
+
     // api_member_id を取得
     let api_member_id = get_user_member_id().await;
     if api_member_id.is_empty() {

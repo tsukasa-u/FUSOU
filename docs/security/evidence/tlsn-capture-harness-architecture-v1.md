@@ -120,7 +120,7 @@ an external `NaturalCaptureReview` record against the candidate's complete
 artifact hash, runtime metadata, passive-observation assertions, and privacy
 review. The successful verifier result is the manual qualification event; it
 does not rewrite or self-authorize the collector manifest. The controlled
-procedure and review template are in [Controlled Natural Capture Procedure v1](tlsn-natural-capture-procedure-v1.md) and [Natural Capture Review Template v1](tlsn-natural-capture-review-template-v1.json).
+procedure and review template are in [Controlled Natural Capture Procedure v1](tlsn-natural-capture-procedure-v1.md) and [Natural Capture Review Template v2](tlsn-natural-capture-review-template-v2.json).
 
 No capture artifact is automatically copied into `docs/security/evidence/`.
 

@@ -52,6 +52,9 @@ pub async fn perform_snapshot_sync_app(
     tracing::info!("Starting snapshot sync");
 
     let app_configs = configs::get_user_configs_for_app();
+    if !app_configs.asset_sync.get_asset_upload_enable() {
+        return Err("Snapshot sync is disabled by configuration".to_string());
+    }
 
     let snapshot_url = if let Some(explicit) = app_configs.asset_sync.get_snapshot_endpoint() {
         explicit

@@ -99,6 +99,10 @@ impl UploadRetryService {
     }
 
     pub async fn retry_pending_item_now(&self, id: &str) -> Result<(), String> {
+        if get_user_configs().app.auth.get_deny_auth() {
+            return Err("authentication and upload retries are disabled by configuration".to_string());
+        }
+
         if self
             .is_running
             .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
@@ -169,6 +173,11 @@ impl UploadRetryService {
     }
 
     async fn trigger_retry_internal(&self, force: bool) {
+        if get_user_configs().app.auth.get_deny_auth() {
+            tracing::info!(force, "pending upload retry disabled by configuration");
+            return;
+        }
+
         if self
             .is_running
             .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
