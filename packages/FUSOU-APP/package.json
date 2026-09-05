@@ -16,6 +16,7 @@
     "rustfmt": "cd src-tauri && cargo fmt --all --check --verbose",
     "rustfmt:fix": "cd src-tauri && cargo fmt --all",
     "tauri": "dotenvx run -fk ../.env.keys -f .env -f src-tauri/.env --verbose --overload -- tauri",
+    "testplay:verify": "node scripts/testplay-verify.mjs",
     "check.tsc": "tsc --noEmit",
     "storybook.build": "storybook build",
     "storybook": "storybook dev -p 6007"

@@ -18,8 +18,14 @@ The repository does not establish the ordinary gameplay action that first causes
 
 ## Collection
 
-1. Set the local user configuration `proxy.capture_enabled = true` and set `proxy.capture_output_path` to the private absolute directory. The default configuration remains disabled with an empty output path.
-2. Start FUSOU-APP normally. The APP starts the HTTPS proxy and PAC routing before opening the Game Client.
+1. From the repository root, start the verification test-play launcher with a private absolute output directory:
+
+	```text
+	pnpm --dir packages/FUSOU-APP testplay:verify -- /absolute/private/capture-root
+	```
+
+	The launcher temporarily enables capture, disables API/resource persistence and asset upload for this session, starts `tauri dev`, and restores the exact previous development user config when the process exits. The default configuration remains disabled with an empty output path. Do not use a path inside the repository.
+2. Start FUSOU-APP normally through that launcher. The APP starts the HTTPS proxy and PAC routing before opening the Game Client.
 3. Use only ordinary Game Client startup and gameplay. Do not open a separate HTTP client, call the Game Server directly, or manually construct the `require_info` request.
 4. Stop the session after the naturally observed `require_info` exchange. Do not retry the exchange if the capture is incomplete.
 5. Disable capture again after the controlled session.
