@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import { promises as fs } from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 const appRoot = process.cwd();
 const repositoryRoot = path.resolve(appRoot, "..", "..");
@@ -64,7 +65,7 @@ function isInside(parent, child) {
   );
 }
 
-function withCaptureConfig(content, outputPath) {
+export function withCaptureConfig(content, outputPath) {
   const newline = content.includes("\r\n") ? "\r\n" : "\n";
   const lines = content.split(/\r?\n/);
   const hasTrailingNewline = lines.at(-1) === "";
@@ -129,6 +130,14 @@ function withCaptureConfig(content, outputPath) {
     }
   }
   return updatedLines.join(newline) + (hasTrailingNewline ? newline : "");
+}
+
+export async function restoreConfig(filePath, originalConfig) {
+  if (originalConfig === null) {
+    await fs.rm(filePath, { force: true });
+  } else {
+    await fs.writeFile(filePath, originalConfig, "utf8");
+  }
 }
 
 async function readOptional(filePath) {
@@ -209,16 +218,14 @@ async function main() {
   try {
     exitCode = await runTauriDev();
   } finally {
-    if (originalConfig === null) {
-      await fs.rm(configPath, { force: true });
-    } else {
-      await fs.writeFile(configPath, originalConfig, "utf8");
-    }
+    await restoreConfig(configPath, originalConfig);
   }
   process.exitCode = exitCode;
 }
 
-main().catch((error) => {
-  console.error(`testplay:verify: ${error.message}`);
-  process.exitCode = 1;
-});
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  main().catch((error) => {
+    console.error(`testplay:verify: ${error.message}`);
+    process.exitCode = 1;
+  });
+}
