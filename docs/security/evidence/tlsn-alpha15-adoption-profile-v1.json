@@ -2,7 +2,7 @@
   "artifact_id": "fusou-tlsn-alpha15-adoption-profile-v1",
   "schema_version": 1,
   "status": "SELECTED_IMPLEMENTATION_INPUT_DOCUMENTATION_ONLY",
-  "runtime_changes": "NONE",
+  "runtime_changes": "ADAPTER_ONLY; NOT_WIRED_TO_PRODUCTION_RUNTIME",
   "selected_revision": {
     "repository": "https://github.com/tlsnotary/tlsn.git",
     "ref": "refs/tags/v0.1.0-alpha.15",
@@ -67,8 +67,13 @@
       "tlsn-attestation",
       "tlsn-core"
     ],
-    "direct_dependency_status": "NONE_COMMITTED",
-    "pinning_rule": "An implementation may use only the selected revision and the lock records above. Adding a FUSOU Cargo dependency, vendoring source, or changing a lockfile requires a later implementation change and must not select another TLSNotary revision implicitly.",
+    "direct_dependency_status": "LINKED_IN_PACKAGES/FUSOU-TLSN-VERIFIER; NOT_WIRED_TO_PRODUCTION_RUNTIME",
+    "linked_dependencies": {
+      "tlsn-attestation": "git dependency at selected commit; used for Presentation decode and verify",
+      "tlsn-core": "git dependency at selected commit; pinned alpha.15 verification graph",
+      "tlsn": "not linked; prover/runtime crate is not required by the offline Presentation verifier"
+    },
+    "pinning_rule": "The adapter may use only the selected revision and the lock records above. The FUSOU verifier links tlsn-attestation and tlsn-core at the selected commit; it must not select another TLSNotary revision implicitly. Cargo.lock remains ignored for this library package, so the selected upstream lock hash and exact git revisions remain the reproducibility record.",
     "adapter_rule": "FUSOU owns HTTP require_info framing, authenticated binding validation, strict Result parsing, one-request state, lifecycle, and transport. TLSNotary source does not provide those FUSOU guarantees.",
     "time_rule": "ConnectionInfo.time is connection-start metadata only. It is not Notary issuance time and is not copied into v1 identity authority fields."
   },

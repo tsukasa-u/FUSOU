@@ -41,12 +41,13 @@
       "repository_local_proxy_data_directory": "ABSENT",
       "repository_require_info_corpus_directory": "ABSENT",
       "tracked_natural_capture_or_transcript_files": "NONE_FOUND",
-      "fusou_tlsnotary_runtime_dependency": "NONE_COMMITTED"
+      "fusou_tlsnotary_runtime_dependency": "ADAPTER_ONLY; NOT_WIRED_TO_PRODUCTION_RUNTIME"
     }
   },
   "p0_04_natural_capture": {
-    "status": "NOT_OBTAINED",
-    "verdict": "BLOCKED",
+    "status": "SUPERSEDED_BY_FORENSIC_REVIEW",
+    "verdict": "PASS_UNDER_CORRECTED_NATURAL_EVIDENCE_SEMANTICS",
+    "superseding_artifact": "docs/security/evidence/tlsn-natural-capture-forensic-review-2026-09-05.md",
     "target": {
       "method": "POST",
       "path": "/kcsapi/api_get_member/require_info",
@@ -173,14 +174,21 @@
     "gate_independence": "A qualifying natural capture is necessary input provenance but does not by itself prove TLSNotary alpha.15 verification, authenticated disclosure, exact ranges, digest, binding validation, or strict Result construction",
     "adapter_boundary": {
       "artifact": "docs/security/evidence/tlsn-p0-05-alpha15-adapter-v1.md",
-      "status": "IMPLEMENTED_BUT_CRYPTOGRAPHIC_BACKEND_UNAVAILABLE",
+      "status": "IMPLEMENTED_AND_LINKED; FUSOU_EVIDENCE_NOT_OBTAINED",
       "sealed_transcript_type": "AuthenticatedTranscript",
       "presentation_entry_point": "presentation.verify(&CryptoProvider::default())?.attestation.header.id.0",
-      "unavailable_behavior": "verify_alpha15_presentation returns UpstreamImplementationUnavailable",
+      "backend_behavior": "verify_alpha15_presentation strictly decodes, verifies, and maps a frozen alpha.15 Presentation",
       "caller_supplied_transcript_bypass": "REJECTED_BY_API_SHAPE",
       "production_server_allowlist": "FAILS_CLOSED_UNTIL_REGISTRY_IS_LINKED",
       "mock_test_classification": "MOCK_TLSN_VERIFICATION",
-      "p0_05_effect": "NO_CHANGE; BLOCKED"
+      "p0_05_effect": "NO_CHANGE; BLOCKED",
+      "backend_evidence": "docs/security/evidence/tlsn-p0-05-alpha15-backend-v1.md",
+      "backend_fixture": {
+        "path": "packages/FUSOU-TLSN-VERIFIER/fixtures/tlsn-alpha15-upstream-presentation.bin",
+        "bytes": 5394,
+        "sha256": "cb9b3befb43df5157a4d5ac52080ba19d842f191fa346bfda1dfc4927b37e5b6",
+        "classification": "REAL_ALPHA15_VERIFICATION_NOT_REAL_FUSOU_AUTHENTICATED_EVIDENCE"
+      }
     },
     "upstream_fixture": {
       "path": "crates/attestation/tests/fixtures/presentation.bin",
@@ -188,7 +196,7 @@
       "bytes": 5394,
       "verification_command": "cargo test -p tlsn-attestation --features fixtures --test no_syscall_verify test_verify_presentation_without_syscalls -- --exact",
       "verification_result": "1 passed; 0 failed",
-      "qualification": "P0-02 alpha.15 Presentation verification only; it is not a FUSOU require_info request/response disclosure fixture"
+      "qualification": "REAL_ALPHA15_VERIFICATION; upstream Presentation verification only; it is not a FUSOU require_info request/response disclosure fixture"
     },
     "fusou_disclosure_evidence": {
       "verified_parsing": "NOT_OBTAINED",
@@ -207,7 +215,7 @@
       "compression_and_framing_check": "NOT_OBTAINED"
     },
     "strict_negative_matrix": {
-      "status": "LOCAL_ADAPTER_NEGATIVES_PASSED_REAL_PRESENTATION_MATRIX_NOT_RUN",
+      "status": "LOCAL_ADAPTER_AND_UPSTREAM_PRESENTATION_NEGATIVES_PASSED_FUSOU_MATRIX_NOT_RUN",
       "cases": [
         "malformed input",
         "truncated input",
@@ -224,7 +232,7 @@
         "wrong binding header",
         "request/response mismatch"
       ],
-      "authority_parser_status": "An offline strict Result/transcript parser foundation and sealed adapter plumbing now exist at packages/FUSOU-TLSN-VERIFIER; local tests cover modified transcript bytes, modified ranges, partial disclosure, wrong identity, unavailable backend, and canonical Result flow, but no identity-authoritative authenticated parser path is active; TLSNotary presentation verification, Notary signature validation, and FUSOU authenticated disclosure evidence remain NOT_OBTAINED"
+      "authority_parser_status": "A strict Result/transcript parser and sealed alpha15 adapter exist at packages/FUSOU-TLSN-VERIFIER; tests cover real upstream Presentation verification, modified/truncated/trailing/invalid Presentation bytes, modified transcript bytes, modified ranges, partial disclosure, wrong identity, and canonical Result flow. The upstream fixture is not FUSOU require_info evidence; production identity authority and FUSOU authenticated disclosure remain NOT_OBTAINED"
     },
     "upstream_boundary": {
       "available": [
@@ -255,11 +263,12 @@
       "test -d /home/ogu-h/Documents/GitHub/FUSOU/docs/security/evidence/require-info-corpus-v1",
       "test -d /home/ogu-h/Documents/GitHub/FUSOU/packages/FUSOU-TLSN-VERIFIER"
     ],
-    "upstream_verification": "The alpha.15 fixture verification command is recorded above and remains valid for P0-02 only",
+    "upstream_verification": "The package-level alpha.15 backend test verifies the 5394-byte upstream fixture and remains valid as REAL_ALPHA15_VERIFICATION only",
+    "adapter_verification": "cargo test --manifest-path packages/FUSOU-TLSN-VERIFIER/Cargo.toml: 22 passed; 0 failed",
     "natural_capture_reproduction": "Requires an authorized supported Game Client used through ordinary FUSOU-APP gameplay, an allowlisted Game Server, and a privacy-approved passive raw capture collector; no standalone request, replay, injection, or run is claimed by this artifact"
   },
   "decision": {
-    "P0-04": "BLOCKED",
+    "P0-04": "PASS",
     "P0-05": "BLOCKED",
     "specification_change_required": false,
     "phase_0": "NO-GO",

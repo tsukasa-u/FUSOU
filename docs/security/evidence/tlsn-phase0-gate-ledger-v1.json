@@ -112,10 +112,10 @@
       "reason": "the documentation-only Phase 0 acceptance is satisfied by an explicitly selected release commit, reproducible upstream Cargo.lock and manifest fingerprints, and a scoped license/security review with distribution constraints; no FUSOU runtime dependency is claimed",
       "evidence": ["E-UPSTREAM-005", "E-REPO-002"],
       "specification_impact": "alpha.15のexact revision、upstream dependency boundary、license/security disposition、adapter ownershipをimplementation inputとして凍結する",
-      "implementation_impact": "runtime implementationは開始しない。後続実装はprofile artifactのrevision/lockから逸脱せず、法務確認なしのbinary redistributionを行わない",
+      "implementation_impact": "adapter implementation may link only the profile artifact revision/lock; production runtime and binary redistribution remain unauthorized without the remaining gate and legal-owner review",
       "evidence_ids": ["E-UPSTREAM-005", "E-REPO-002"],
-      "finding": "Phase 0のP0-A acceptanceをdocumentation-only selection/profile freezeとして適用した。alpha.15 (`47aee45b53e06648c1b2ad3689b367b8c923fdec`)、upstream Cargo.lock SHA-256、selected package manifest SHA-256、MIT/Apache metadata、tlsn-attestationのlicense metadata欠落、root LICENSE/NOTICE/SECURITY不在、およびFUSOU direct dependency未導入を [tlsn-alpha15-adoption-profile-v1.json](tlsn-alpha15-adoption-profile-v1.json) に固定した。PASSはruntime integrationまたはredistribution authorizationを意味しない。",
-      "next_action": "runtime implementation開始時にのみ、選定profileのlockをFUSOU dependencyへ導入し、法務owner確認と再現可能なdependency reviewを完了する。"
+      "finding": "Phase 0のP0-A acceptanceをdocumentation-only selection/profile freezeとして適用した。alpha.15 (`47aee45b53e06648c1b2ad3689b367b8c923fdec`)、upstream Cargo.lock SHA-256、selected package manifest SHA-256、MIT/Apache metadata、tlsn-attestationのlicense metadata欠落、root LICENSE/NOTICE/SECURITY不在、およびFUSOU adapter dependency linkageを [tlsn-alpha15-adoption-profile-v1.json](tlsn-alpha15-adoption-profile-v1.json) に固定した。PASSはproduction runtime integrationまたはredistribution authorizationを意味しない。",
+      "next_action": "Keep the linked adapter pinned to the selected revision, complete dependency/license review, and do not wire it into production runtime until the remaining Phase 0 gates pass."
     },
     {
       "id": "P0-02",
@@ -175,13 +175,13 @@
       "status": "BLOCKED",
       "group": "P0-C Repository / Architecture Validation",
       "stage": "MUST_KNOW_BEFORE_IMPLEMENTATION",
-      "reason": "the sealed alpha.15 adapter boundary and offline parser foundation are implemented, but no FUSOU authenticated coverage presentation, authenticated parser evidence, digest golden, or privacy input exists; implementation plumbing is not sufficient for this gate",
-      "evidence": ["E-P0-05-001", "E-P0-05-002", "E-UPSTREAM-004", "E-REPO-001"],
+      "reason": "the frozen alpha.15 verifier backend and upstream Presentation negative tests are now linked and passing, but no FUSOU authenticated coverage presentation, authenticated require_info parser evidence, binding digest golden, or privacy input exists; backend plumbing is not sufficient for this gate",
+      "evidence": ["E-P0-05-001", "E-P0-05-002", "E-P0-05-003", "E-UPSTREAM-004", "E-REPO-001"],
       "specification_impact": "natural captureは入力provenanceに過ぎず、binding headerと必要なparser bytesをauthenticated transcriptへ含め、alpha.15 verification、exact ranges、digest、strict Resultをfixtureで証明するまでprofile range contractを凍結しない",
-      "implementation_impact": "offline parserとsealed adapter boundaryは実装済みだが、alpha.15 dependency/link、trusted allowlist registry、Dedicated Verifier、real Presentation fixtureが揃うまでruntime implementationとP0-05 PASSを認めない",
-      "evidence_ids": ["E-P0-05-001", "E-P0-05-002", "E-UPSTREAM-004", "E-REPO-001"],
-      "finding": "alpha.15 upstream Presentation fixtureのverification成功はP0-02の証拠に限られ、FUSOU require_infoのauthenticated request/response disclosure、server identity、binding header、range、digest、strict parser negative casesを証明しない。新しいadapterはprivate verified-output hook、full disclosure、fixed profile、digest、Result flowをfail-closedで定義したが、Presentation::verify、Notary signature/commitment、production allowlist registry、accepted full request/response presentation、privacy review inputはrepositoryに存在しない。詳細は [tlsn-p0-05-alpha15-adapter-v1.md](tlsn-p0-05-alpha15-adapter-v1.md) に固定した。",
-      "next_action": "自然capture取得後にのみ、選定alpha.15 dependencyをlinkしたadapterでPresentation verification、full request/response disclosure、strict framing/range/digest validation、binding header検証、negative matrix、privacy reviewを実証する。offline parserまたはadapter plumbingの成功でP0-05をPASSにしてはならない。"
+      "implementation_impact": "offline parser and alpha.15 backend are linked and tested, but trusted allowlist registry, FUSOU authenticated Presentation, Dedicated Verifier, privacy review, and runtime evidence are still required; do not allow backend or upstream fixture success to produce P0-05 PASS",
+      "evidence_ids": ["E-P0-05-001", "E-P0-05-002", "E-P0-05-003", "E-UPSTREAM-004", "E-REPO-001"],
+      "finding": "The frozen alpha.15 backend now decodes strict bincode, rejects trailing bytes, calls Presentation::verify, requires complete sent/received disclosure, maps authenticated ranges and exact bytes, and passes 22 focused tests against a 5394-byte upstream fixture. That fixture is classified REAL_ALPHA15_VERIFICATION, not REAL_FUSOU_AUTHENTICATED_EVIDENCE: it is an upstream GET / exchange without the FUSOU require_info target, binding header, or member-ID response. The production allowlist remains empty, and no FUSOU authenticated request/response, Session/Challenge authority, privacy-reviewed disclosure, or runtime Result evidence exists. Details are fixed in [tlsn-p0-05-alpha15-adapter-v1.md](tlsn-p0-05-alpha15-adapter-v1.md) and [tlsn-p0-05-alpha15-backend-v1.md](tlsn-p0-05-alpha15-backend-v1.md).",
+      "next_action": "Keep P0-05 BLOCKED. Obtain an authorized, privacy-reviewed FUSOU require_info Presentation and prove authenticated server identity, binding header, complete ranges, transcript digests, strict parser negatives, Session/Challenge matching, and runtime Result handling. Do not use the upstream fixture or adapter plumbing as a substitute."
     },
     {
       "id": "P0-06",
@@ -376,7 +376,7 @@
     {
       "id": "E-UPSTREAM-005",
       "artifact": "tlsn-alpha15-adoption-profile-v1.json",
-      "scope": "selected alpha.15 exact commit、upstream Cargo.lockとmanifest fingerprint、license/security disposition、FUSOU adapter boundary、runtime dependency未導入の明示。"
+      "scope": "selected alpha.15 exact commit、upstream Cargo.lockとmanifest fingerprint、license/security disposition、FUSOU adapter boundary、and the later linked-adapter status recorded by the current evidence set。"
     },
     {
       "id": "E-UPSTREAM-006",
@@ -401,7 +401,7 @@
     {
       "id": "E-P0-04-001",
       "artifact": "tlsn-p0-04-p0-05-evidence-attempt-v1.json",
-      "scope": "P0-04 natural capture attempt、repository/environment inventory、既存proxyのcapture boundary、evidence class policy、privacy disposition。synthetic harness evidenceは別扱いで、自然captureは0件、P0-04はBLOCKED。"
+      "scope": "P0-04 natural capture attemptとrepository/environment inventory。これは後続のtlsn-natural-capture-forensic-review-2026-09-05.mdでsupersededされ、corrected natural-evidence semanticsではP0-04 PASS。synthetic harness evidenceとprivacy qualificationは別扱い。"
     },
     {
       "id": "E-NATURAL-2026-09-05",
@@ -417,6 +417,11 @@
       "id": "E-P0-05-002",
       "artifact": "tlsn-p0-05-alpha15-adapter-v1.md",
       "scope": "sealed alpha.15 adapter boundary、fixed require_info disclosure profile、full transcript digest/range checks、Result flow、negative plumbing tests、および未接続cryptographic/runtime sub-gatesの明示。"
+    },
+    {
+      "id": "E-P0-05-003",
+      "artifact": "tlsn-p0-05-alpha15-backend-v1.md",
+      "scope": "pinned alpha.15 Presentation decode/verify linkage、strict trailing-byte rejection、complete disclosure mapping、upstream fixture hash/goldens、22-test result、REAL_ALPHA15_VERIFICATIONとREAL_FUSOU_AUTHENTICATED_EVIDENCEの分離。"
     }
   ],
   "decision": {

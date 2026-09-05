@@ -3,8 +3,11 @@
 Status: `IMPLEMENTATION = NO-GO`, `P0-05 = BLOCKED`.
 
 This document records the repository boundary between the selected TLSNotary
-alpha.15 verifier and the offline FUSOU verifier foundation. It does not claim
-that the current repository verifies a TLSNotary Presentation.
+alpha.15 verifier and the FUSOU verifier foundation. The alpha.15 backend is
+now linked and verified against a legitimate upstream fixture. This document
+does not claim that the upstream fixture is FUSOU authenticated `require_info`
+evidence. Backend details and fixture goldens are recorded in
+[the alpha.15 backend evidence](tlsn-p0-05-alpha15-backend-v1.md).
 
 ## Frozen upstream input
 
@@ -30,9 +33,13 @@ opaque 16-byte `Uid.0`. The Notary signature covers the canonical BCS Header,
 not the ID alone. `ConnectionInfo.time` is connection-start metadata and is not
 Notary issuance time; it is excluded from FUSOU v1 authority fields.
 
-The selected TLSNotary source, dependency, and upstream fixture are not present
-in this repository. No newer alpha.16-pre API is selected. No Game Server,
-external service, historical replay, or new capture was used for this boundary.
+The selected `tlsn-attestation` and `tlsn-core` dependencies are linked in
+`packages/FUSOU-TLSN-VERIFIER/Cargo.toml` at this exact revision. The top-level
+`tlsn` prover/runtime crate is intentionally not linked because this adapter
+only verifies serialized `Presentation` values. The checked-in upstream
+fixture is not a FUSOU `require_info` fixture. No newer alpha.16-pre API is
+selected. No Game Server, external service, historical replay, or new capture
+was used for this boundary.
 
 ## Authenticated data flow
 
@@ -69,9 +76,11 @@ Untrusted input:
 verify_alpha15_presentation(presentation_bytes)
 ```
 
-The current function returns `UpstreamImplementationUnavailable`; it does not
-decode, trust, or reinterpret the bytes. This is deliberate because the frozen
-alpha.15 dependency is not available locally.
+The current function strictly decodes the frozen bincode representation,
+rejects trailing bytes, calls `Presentation::verify(&CryptoProvider::default())`,
+requires complete disclosure, maps authenticated ranges and exact bytes, and
+returns a sealed `AuthenticatedTranscript`. Decode, verification, incomplete
+disclosure, and trailing-byte failures are rejected.
 
 Trusted internal hook:
 
@@ -116,16 +125,17 @@ separate parser design and protocol review; it is not introduced here.
 
 | Mutation or failure | Offline/parser or adapter result | Real alpha.15 evidence |
 | --- | --- | --- |
-| malformed, truncated, duplicate, unknown, or non-canonical HTTP/JSON input | `PASS`: existing strict parser tests reject it | `BLOCKED`: no authenticated Presentation |
-| trailing HTTP, chunked, or gzip bytes | `PASS`: existing strict parser tests reject it | `BLOCKED`: no authenticated disclosure fixture |
-| modified transcript bytes or digest | `PASS`: sealed adapter tests reject it | `BLOCKED`: no verified transcript |
-| modified, overlapping, out-of-order, or partial ranges | `PASS`: range and full-coverage tests reject it | `BLOCKED`: no alpha.15 RangeSet output |
-| wrong Host/server identity | `PASS`: parser and adapter profile tests reject it | `BLOCKED`: no authenticated server identity |
-| wrong target or binding header cardinality/framing | `PASS`: strict request tests reject it | `BLOCKED`: no authenticated request |
+| malformed, truncated, duplicate, unknown, or non-canonical HTTP/JSON input | `PASS`: existing strict parser tests reject it | `BLOCKED`: upstream fixture is not FUSOU `require_info` |
+| trailing HTTP, chunked, or gzip bytes | `PASS`: existing strict parser tests reject it | `BLOCKED`: upstream fixture is not FUSOU `require_info` |
+| modified transcript bytes or digest | `PASS`: sealed adapter tests reject it | `PASS`: modified Presentation fails alpha.15 verification; FUSOU fixture still absent |
+| modified, overlapping, out-of-order, or partial ranges | `PASS`: range and full-coverage tests reject it | `PASS`: complete upstream ranges map successfully; FUSOU profile coverage remains unproven |
+| wrong Host/server identity | `PASS`: parser and adapter profile tests reject it | `PASS`: authenticated upstream `server_name` is mapped; production allowlist remains unavailable |
+| wrong target or binding header cardinality/framing | `PASS`: strict request tests reject it | `BLOCKED`: upstream fixture has no FUSOU binding/request contract |
 | wrong binding Session/nonce against server-side Session/Challenge | `BLOCKED`: runtime authority registry is not linked | `BLOCKED`: no authenticated FUSOU binding evidence |
 | wrong profile ID | `PASS`: profile ID is fixed and not caller-selectable | `BLOCKED`: no runtime profile registry |
-| request/response from different verified contexts | `BLOCKED`: no real Presentation context exists to exercise | `BLOCKED`: no authenticated paired transcript |
-| modified Presentation, Notary signature, or commitment | `BLOCKED`: upstream verifier is not linked | `BLOCKED`: no real Presentation |
+| request/response from different verified contexts | `BLOCKED`: no FUSOU Presentation context exists to exercise | `BLOCKED`: no authenticated paired FUSOU transcript |
+| modified, truncated, invalid, or trailing Presentation | `PASS`: strict alpha.15 backend tests reject it | `PASS`: upstream fixture verification path is exercised |
+| modified Notary signature or transcript commitment | `PASS`: `Presentation::verify` rejects modified authenticated bytes | `BLOCKED`: no FUSOU Presentation fixture |
 
 ## Identity and binding sources
 
@@ -144,7 +154,8 @@ authority check; client-provided Session IDs or nonces are not accepted.
 
 ## Digest and Result relationship
 
-The alpha.15 verification layer authenticates the TLS transcript and disclosure.
+The alpha.15 verification layer authenticates the upstream Attestation, Notary
+signature, server identity proof, transcript commitment, and disclosure.
 The FUSOU adapter then verifies the full transcript SHA-256, range metadata, and
 revealed bytes before running the HTTP/JSON parser. The parser returns the raw
 decimal `api_member_id` lexeme without numeric conversion.
@@ -166,15 +177,23 @@ The existing `require-info-response.http` fixture remains:
 OFFLINE_PARSER_FIXTURE
 ```
 
-It is not an alpha.15 Presentation and not authenticated evidence. The adapter
-tests use deterministic internal plumbing only and are classified as:
+It is not an alpha.15 Presentation and not authenticated evidence. The checked-
+in upstream `tlsn-alpha15-upstream-presentation.bin` is classified as:
+
+```text
+REAL_ALPHA15_VERIFICATION
+```
+
+It is not FUSOU authenticated evidence because it is an upstream `GET /`
+exchange without the FUSOU binding header or `require_info` member-ID payload.
+The adapter tests that use deterministic internal plumbing are classified as:
 
 ```text
 MOCK_TLSN_VERIFICATION
 ```
 
-No real authenticated FUSOU Presentation, Notary verification result, or
-authenticated disclosure fixture exists in the repository.
+No real authenticated FUSOU Presentation or authenticated FUSOU disclosure
+fixture exists in the repository.
 
 ## P0-05 sub-gates
 
@@ -184,14 +203,17 @@ authenticated disclosure fixture exists in the repository.
 | offline strict parser | `PASS` | Existing crate tests |
 | RangeSet/range validation | `PASS` | Existing and adapter tests |
 | canonical digest handling | `PASS` | Digest and revealed-byte tests |
-| alpha.15 Presentation verification | `BLOCKED` | alpha.15 dependency/source is not linked |
-| Notary signature verification | `BLOCKED` | No real Presentation is available |
-| authenticated transcript commitment | `BLOCKED` | No real Presentation is available |
+| alpha.15 Presentation verification | `PASS` | Pinned backend verifies the 5394-byte upstream fixture; see [backend evidence](tlsn-p0-05-alpha15-backend-v1.md) |
+| Notary signature verification | `PASS` (upstream fixture only) | Performed by `Presentation::verify`; no FUSOU fixture |
+| authenticated transcript commitment | `PASS` (upstream fixture only) | Performed by `Presentation::verify`; no FUSOU fixture |
 | FUSOU authenticated disclosure | `BLOCKED` | Requires an authenticated FUSOU Presentation |
 | binding verification against Session/Challenge | `BLOCKED` | Runtime authority path is not implemented |
 | real FUSOU evidence fixture | `BLOCKED` | No authenticated fixture exists |
 | runtime verifier evidence | `BLOCKED` | Dedicated Verifier/runtime is not implemented |
 
 P0-04 remains `PASS` for the previously reviewed natural exact-wire evidence.
-P0-05 remains `BLOCKED`, and implementation remains `NO-GO`. Offline parser or
-mock adapter success must not be promoted to authenticated TLSNotary evidence.
+The alpha.15 backend sub-gate is now verified, but P0-05 remains `BLOCKED` and
+implementation remains `NO-GO` because no authenticated FUSOU `require_info`
+Presentation, production authority registry, privacy review, or runtime Result
+evidence exists. Upstream fixture, offline parser, or mock adapter success must
+not be promoted to FUSOU authenticated TLSNotary evidence.

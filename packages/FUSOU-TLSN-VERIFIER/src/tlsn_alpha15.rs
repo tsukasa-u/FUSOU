@@ -3,7 +3,9 @@ use crate::{
     verify_transcript_digest, ParsedBinding, ParserLimits, RevealedRange, VerifierError,
     MAX_ATTESTATION_ID_BYTES, PROFILE_ID, REQUIRE_INFO_TARGET,
 };
+use std::{io::Cursor, ops::Range};
 use thiserror::Error;
+use tlsn_attestation::{presentation::Presentation, CryptoProvider};
 
 pub const SELECTED_REVISION: &str = "refs/tags/v0.1.0-alpha.15";
 pub const SELECTED_COMMIT: &str = "47aee45b53e06648c1b2ad3689b367b8c923fdec";
@@ -13,8 +15,14 @@ pub const UPSTREAM_PRESENTATION_TYPE: &str = "tlsn_attestation::Presentation";
 
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum Alpha15AdapterError {
-    #[error("TLSNotary alpha.15 implementation is not linked")]
-    UpstreamImplementationUnavailable,
+    #[error("alpha.15 Presentation decoding failed: {0}")]
+    PresentationDecode(String),
+    #[error("alpha.15 Presentation verification failed: {0}")]
+    PresentationVerification(String),
+    #[error("alpha.15 Presentation does not disclose an authenticated server identity")]
+    MissingServerIdentity,
+    #[error("alpha.15 Presentation does not disclose an authenticated transcript")]
+    MissingTranscript,
     #[error("verified alpha.15 output is invalid: {0}")]
     InvalidVerifiedOutput(&'static str),
     #[error("authenticated server identity is not in the trusted allowlist")]
@@ -266,8 +274,67 @@ fn validate_authenticated_direction(
         })
 }
 
-pub fn verify_alpha15_presentation(_presentation_bytes: &[u8]) -> Result<AuthenticatedTranscript> {
-    Err(Alpha15AdapterError::UpstreamImplementationUnavailable)
+pub fn verify_alpha15_presentation(presentation_bytes: &[u8]) -> Result<AuthenticatedTranscript> {
+    let mut cursor = Cursor::new(presentation_bytes);
+    let presentation: Presentation = bincode::deserialize_from(&mut cursor)
+        .map_err(|error| Alpha15AdapterError::PresentationDecode(error.to_string()))?;
+    if cursor.position() != presentation_bytes.len() as u64 {
+        return Err(Alpha15AdapterError::PresentationDecode(
+            "trailing Presentation bytes".to_owned(),
+        ));
+    }
+    let output = presentation
+        .verify(&CryptoProvider::default())
+        .map_err(|error| Alpha15AdapterError::PresentationVerification(error.to_string()))?;
+    let server_identity = output
+        .server_name
+        .ok_or(Alpha15AdapterError::MissingServerIdentity)?
+        .to_string();
+    let transcript = output
+        .transcript
+        .ok_or(Alpha15AdapterError::MissingTranscript)?;
+    if !transcript.is_complete() {
+        return Err(Alpha15AdapterError::DisclosureProfileViolation(
+            "alpha.15 transcript disclosure is incomplete",
+        ));
+    }
+
+    let sent_transcript = transcript.sent_unsafe().to_vec();
+    let received_transcript = transcript.received_unsafe().to_vec();
+    let sent_ranges = map_authenticated_ranges(transcript.sent_authed().iter(), &sent_transcript)?;
+    let received_ranges =
+        map_authenticated_ranges(transcript.received_authed().iter(), &received_transcript)?;
+
+    AuthenticatedTranscript::from_verified_alpha15(Alpha15VerifiedOutput {
+        server_identity,
+        attestation_id: output.attestation.header.id.0,
+        sent_digest: sha256(&sent_transcript),
+        sent_ranges,
+        sent_transcript,
+        received_digest: sha256(&received_transcript),
+        received_ranges,
+        received_transcript,
+    })
+}
+
+fn map_authenticated_ranges(
+    ranges: impl Iterator<Item = Range<usize>>,
+    transcript: &[u8],
+) -> Result<Vec<RevealedRange>> {
+    ranges
+        .map(|range| {
+            let bytes = transcript.get(range.clone()).ok_or(
+                Alpha15AdapterError::DisclosureProfileViolation(
+                    "alpha.15 disclosed range is outside the transcript",
+                ),
+            )?;
+            Ok(RevealedRange {
+                start: range.start as u64,
+                length: range.len() as u64,
+                bytes: bytes.to_vec(),
+            })
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -323,11 +390,80 @@ mod tests {
     }
 
     #[test]
-    fn real_entry_point_stays_blocked_without_alpha15_dependency() {
+    fn real_alpha15_fixture_verifies_with_pinned_backend() {
+        let transcript = verify_alpha15_presentation(include_bytes!(
+            "../fixtures/tlsn-alpha15-upstream-presentation.bin"
+        ))
+        .unwrap();
         assert_eq!(
-            verify_alpha15_presentation(b"OFFLINE_PARSER_FIXTURE"),
-            Err(Alpha15AdapterError::UpstreamImplementationUnavailable)
+            transcript.attestation_id(),
+            &[
+                0xef, 0xfe, 0x1a, 0x31, 0x6b, 0x1c, 0x91, 0xb4, 0x1f, 0x62, 0x84, 0xf7, 0x84, 0x09,
+                0xc6, 0xc2,
+            ]
         );
+        assert_eq!(transcript.server_identity(), "tlsnotary.org");
+        assert_eq!(
+            transcript.request_transcript_sha256(),
+            &[
+                0xc3, 0x63, 0xbe, 0x30, 0x7b, 0x84, 0xf4, 0x38, 0x9c, 0xf1, 0x23, 0xe9, 0x7d, 0x68,
+                0xf0, 0x66, 0x60, 0x0c, 0x09, 0x64, 0xd3, 0xae, 0x4d, 0x1d, 0x9b, 0x2b, 0x67, 0xe2,
+                0xe6, 0x92, 0x38, 0xf8
+            ]
+        );
+        assert_eq!(
+            transcript.response_transcript_sha256(),
+            &[
+                0xb4, 0xbb, 0x12, 0x6c, 0x97, 0x9e, 0xee, 0xb4, 0xd6, 0x83, 0x2d, 0x3b, 0xb9, 0x78,
+                0x49, 0xb9, 0xe9, 0x98, 0x47, 0x49, 0x08, 0xe6, 0x50, 0x0b, 0x2a, 0x2c, 0xcb, 0xef,
+                0xf2, 0x5b, 0x26, 0x2f
+            ]
+        );
+        assert_eq!(
+            transcript.revealed_request_ranges(),
+            &[RevealedRange {
+                start: 0,
+                length: 35,
+                bytes: b"GET / HTTP/1.1\r\nHost: localhost\r\n\r\n".to_vec(),
+            }]
+        );
+        assert_eq!(
+            transcript.revealed_response_ranges(),
+            &[RevealedRange {
+                start: 0,
+                length: 145,
+                bytes: b"HTTP/1.1 200 OK\r\nCookie: very-secret-cookie\r\nContent-Length: 44\r\nContent-Type: application/json\r\n\r\n{\"foo\": \"bar\", \"bazz\": 123, \"buzz\": [1,\"5\"]}\r\n".to_vec(),
+            }]
+        );
+        let profile =
+            RequireInfoDisclosureProfile::for_mock_tlsn_verification("tlsnotary.org").unwrap();
+        assert!(matches!(
+            transcript.verify_require_info(&profile, &ParserLimits::default()),
+            Err(Alpha15AdapterError::Parser(VerifierError::InvalidHttp(
+                "unexpected start line"
+            )))
+        ));
+    }
+
+    #[test]
+    fn rejects_modified_truncated_and_trailing_alpha15_presentations() {
+        let fixture = include_bytes!("../fixtures/tlsn-alpha15-upstream-presentation.bin");
+
+        let mut modified = fixture.to_vec();
+        let modified_index = modified.len() / 2;
+        modified[modified_index] ^= 1;
+        assert!(verify_alpha15_presentation(&modified).is_err());
+
+        assert!(verify_alpha15_presentation(&fixture[..fixture.len() - 1]).is_err());
+
+        let mut trailing = fixture.to_vec();
+        trailing.push(0);
+        assert!(verify_alpha15_presentation(&trailing).is_err());
+    }
+
+    #[test]
+    fn rejects_invalid_alpha15_encoding() {
+        assert!(verify_alpha15_presentation(b"not-a-presentation").is_err());
     }
 
     #[test]
