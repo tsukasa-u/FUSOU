@@ -171,6 +171,14 @@
   "p0_05_authenticated_disclosure": {
     "status": "NOT_OBTAINED",
     "verdict": "BLOCKED",
+    "evidence_contract": {
+      "artifact": "docs/security/evidence/tlsn-p0-05-fusou-require-info-evidence-contract-v1.md",
+      "contract_defined": true,
+      "evidence_obtained": false,
+      "classification": "CONTRACT_ONLY",
+      "real_fusou_authenticated_presentation": "NOT_OBTAINED",
+      "p0_05_effect": "NO_CHANGE; BLOCKED"
+    },
     "gate_independence": "A qualifying natural capture is necessary input provenance but does not by itself prove TLSNotary alpha.15 verification, authenticated disclosure, exact ranges, digest, binding validation, or strict Result construction",
     "adapter_boundary": {
       "artifact": "docs/security/evidence/tlsn-p0-05-alpha15-adapter-v1.md",

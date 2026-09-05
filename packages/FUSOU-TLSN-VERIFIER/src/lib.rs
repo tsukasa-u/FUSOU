@@ -1682,6 +1682,54 @@ mod tests {
     }
 
     #[test]
+    fn rejects_wrong_request_method_target_and_host() {
+        let value = binding();
+        for start_line in [
+            format!("GET {REQUIRE_INFO_TARGET} HTTP/1.1"),
+            "POST /kcsapi/api_get_member/other HTTP/1.1".to_owned(),
+        ] {
+            let request = format!(
+                "{start_line}\r\nHost: game.example.test\r\nX-FUSOU-Attestation-Binding: {value}\r\nContent-Length: 0\r\n\r\n"
+            );
+            assert!(parse_require_info_request(
+                request.as_bytes(),
+                "game.example.test",
+                &default_limits()
+            )
+            .is_err());
+        }
+        let wrong_host = format!(
+            "POST {REQUIRE_INFO_TARGET} HTTP/1.1\r\nHost: other.example.test\r\nX-FUSOU-Attestation-Binding: {value}\r\nContent-Length: 0\r\n\r\n"
+        );
+        assert!(parse_require_info_request(
+            wrong_host.as_bytes(),
+            "game.example.test",
+            &default_limits()
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn rejects_missing_request_or_response_framing() {
+        let value = binding();
+        let request = format!(
+            "POST {REQUIRE_INFO_TARGET} HTTP/1.1\r\nHost: game.example.test\r\nX-FUSOU-Attestation-Binding: {value}\r\n\r\n"
+        );
+        assert!(parse_require_info_request(
+            request.as_bytes(),
+            "game.example.test",
+            &default_limits()
+        )
+        .is_err());
+        let body = b"svdata={\"api_result\":1,\"api_data\":{\"api_basic\":{\"api_member_id\":1}}}";
+        let response = format!(
+            "HTTP/1.1 200 OK\r\n\r\n{}",
+            std::str::from_utf8(body).unwrap()
+        );
+        assert!(parse_require_info_response(response.as_bytes(), &default_limits()).is_err());
+    }
+
+    #[test]
     fn validates_ranges_and_rejects_overlap_or_mismatch() {
         let ranges = vec![RevealedRange {
             start: 0,

@@ -506,6 +506,25 @@ mod tests {
     }
 
     #[test]
+    fn rejects_modified_digest_and_partial_authenticated_coverage() {
+        let mut output = mock_output();
+        output.sent_digest[0] ^= 1;
+        assert!(AuthenticatedTranscript::from_verified_alpha15(output).is_err());
+
+        let mut output = mock_output();
+        let request = output.sent_transcript.clone();
+        output.sent_ranges = vec![RevealedRange {
+            start: 0,
+            length: request.len() as u64 - 1,
+            bytes: request[..request.len() - 1].to_vec(),
+        }];
+        assert!(matches!(
+            AuthenticatedTranscript::from_verified_alpha15(output),
+            Err(Alpha15AdapterError::DisclosureProfileViolation(_))
+        ));
+    }
+
+    #[test]
     fn keeps_request_and_response_in_one_authenticated_object() {
         let transcript = AuthenticatedTranscript::from_verified_alpha15(mock_output()).unwrap();
         assert_eq!(

@@ -175,13 +175,13 @@
       "status": "BLOCKED",
       "group": "P0-C Repository / Architecture Validation",
       "stage": "MUST_KNOW_BEFORE_IMPLEMENTATION",
-      "reason": "the frozen alpha.15 verifier backend and upstream Presentation negative tests are now linked and passing, but no FUSOU authenticated coverage presentation, authenticated require_info parser evidence, binding digest golden, or privacy input exists; backend plumbing is not sufficient for this gate",
-      "evidence": ["E-P0-05-001", "E-P0-05-002", "E-P0-05-003", "E-UPSTREAM-004", "E-REPO-001"],
-      "specification_impact": "natural captureは入力provenanceに過ぎず、binding headerと必要なparser bytesをauthenticated transcriptへ含め、alpha.15 verification、exact ranges、digest、strict Resultをfixtureで証明するまでprofile range contractを凍結しない",
-      "implementation_impact": "offline parser and alpha.15 backend are linked and tested, but trusted allowlist registry, FUSOU authenticated Presentation, Dedicated Verifier, privacy review, and runtime evidence are still required; do not allow backend or upstream fixture success to produce P0-05 PASS",
-      "evidence_ids": ["E-P0-05-001", "E-P0-05-002", "E-P0-05-003", "E-UPSTREAM-004", "E-REPO-001"],
-      "finding": "The frozen alpha.15 backend now decodes strict bincode, rejects trailing bytes, calls Presentation::verify, requires complete sent/received disclosure, maps authenticated ranges and exact bytes, and passes 22 focused tests against a 5394-byte upstream fixture. That fixture is classified REAL_ALPHA15_VERIFICATION, not REAL_FUSOU_AUTHENTICATED_EVIDENCE: it is an upstream GET / exchange without the FUSOU require_info target, binding header, or member-ID response. The production allowlist remains empty, and no FUSOU authenticated request/response, Session/Challenge authority, privacy-reviewed disclosure, or runtime Result evidence exists. Details are fixed in [tlsn-p0-05-alpha15-adapter-v1.md](tlsn-p0-05-alpha15-adapter-v1.md) and [tlsn-p0-05-alpha15-backend-v1.md](tlsn-p0-05-alpha15-backend-v1.md).",
-      "next_action": "Keep P0-05 BLOCKED. Obtain an authorized, privacy-reviewed FUSOU require_info Presentation and prove authenticated server identity, binding header, complete ranges, transcript digests, strict parser negatives, Session/Challenge matching, and runtime Result handling. Do not use the upstream fixture or adapter plumbing as a substitute."
+      "reason": "the frozen alpha.15 verifier backend and upstream Presentation negative tests are now linked and passing, and the exact FUSOU evidence contract is frozen, but no FUSOU authenticated coverage Presentation, authenticated require_info parser evidence, binding digest golden, or privacy input exists; backend plumbing and a contract document are not sufficient for this gate",
+      "evidence": ["E-P0-05-001", "E-P0-05-002", "E-P0-05-003", "E-P0-05-004", "E-UPSTREAM-004", "E-REPO-001"],
+      "specification_impact": "natural captureは入力provenanceに過ぎない。binding headerと必要なparser bytesをauthenticated transcriptへ含め、alpha.15 verification、exact ranges、digest、strict Resultをfixtureで証明するためのprofile range contractをcontract artifactで凍結した",
+      "implementation_impact": "offline parser, alpha.15 backend, and the exact FUSOU evidence contract are linked and tested, but trusted allowlist registry, FUSOU authenticated Presentation, Dedicated Verifier, privacy review, and runtime evidence are still required; do not allow backend, contract, or upstream fixture success to produce P0-05 PASS",
+      "evidence_ids": ["E-P0-05-001", "E-P0-05-002", "E-P0-05-003", "E-P0-05-004", "E-UPSTREAM-004", "E-REPO-001"],
+      "finding": "The frozen alpha.15 backend now decodes strict bincode, rejects trailing bytes, calls Presentation::verify, requires complete sent/received disclosure, maps authenticated ranges and exact bytes, and passes 22 focused tests against a 5394-byte upstream fixture. The exact future FUSOU require_info evidence contract is now frozen in [tlsn-p0-05-fusou-require-info-evidence-contract-v1.md](tlsn-p0-05-fusou-require-info-evidence-contract-v1.md), but that contract is not evidence. The upstream fixture remains classified REAL_ALPHA15_VERIFICATION, not REAL_FUSOU_AUTHENTICATED_EVIDENCE: it is an upstream GET / exchange without the FUSOU require_info target, binding header, or member-ID response. The production allowlist remains empty, and no FUSOU authenticated request/response, Session/Challenge authority, privacy-reviewed disclosure, or runtime Result evidence exists. Details are fixed in [tlsn-p0-05-alpha15-adapter-v1.md](tlsn-p0-05-alpha15-adapter-v1.md), [tlsn-p0-05-alpha15-backend-v1.md](tlsn-p0-05-alpha15-backend-v1.md), and the contract artifact.",
+      "next_action": "Keep P0-05 BLOCKED. Use the frozen contract to obtain an authorized, privacy-reviewed FUSOU require_info Presentation and prove authenticated server identity, binding header, complete ranges, transcript digests, strict parser negatives, Session/Challenge matching, and runtime Result handling. Do not use the contract, upstream fixture, or adapter plumbing as a substitute."
     },
     {
       "id": "P0-06",
@@ -422,6 +422,11 @@
       "id": "E-P0-05-003",
       "artifact": "tlsn-p0-05-alpha15-backend-v1.md",
       "scope": "pinned alpha.15 Presentation decode/verify linkage、strict trailing-byte rejection、complete disclosure mapping、upstream fixture hash/goldens、22-test result、REAL_ALPHA15_VERIFICATIONとREAL_FUSOU_AUTHENTICATED_EVIDENCEの分離。"
+    },
+    {
+      "id": "E-P0-05-004",
+      "artifact": "tlsn-p0-05-fusou-require-info-evidence-contract-v1.md",
+      "scope": "future real FUSOU authenticated require_info Presentationのexact request/response byte-range、identity、Attestation ID、binding、digest、pairing、fail-closed、and remaining-evidence contract。CONTRACT_ONLY; evidence not obtained。"
     }
   ],
   "decision": {
