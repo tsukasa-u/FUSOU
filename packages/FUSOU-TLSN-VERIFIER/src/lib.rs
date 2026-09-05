@@ -1,5 +1,6 @@
 #![forbid(unsafe_code)]
 
+pub mod prover_transport;
 pub mod tlsn_alpha15;
 
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};

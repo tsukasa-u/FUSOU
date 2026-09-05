@@ -19,6 +19,10 @@ It currently provides:
 - fixed `require_info` request/response, server-identity, binding, digest, and full-disclosure checks.
 - authenticated output to canonical `VerifierResult` construction, with the
 	separate FUSOU signing inputs remaining explicit.
+- a local alpha.15 Proxy-mode transport skeleton whose request builder places
+	the binding before the Prover-owned TLS write and rejects retries;
+- an offline TLS fixture proving that the verifier-owned origin forwarding path
+	receives the exact request and response bytes.
 
 The backend is pinned to:
 
@@ -28,9 +32,10 @@ tag: refs/tags/v0.1.0-alpha.15
 commit: 47aee45b53e06648c1b2ad3689b367b8c923fdec
 ```
 
-`tlsn-attestation` and `tlsn-core` are linked at that exact revision. The
-top-level `tlsn` prover/runtime crate is intentionally not linked: this crate
-only verifies serialized alpha.15 `Presentation` values.
+`tlsn`, `tlsn-attestation`, and `tlsn-core` are linked at that exact revision.
+The runtime dependency is currently used only by the local transport skeleton;
+it is not wired into FUSOU-App, FUSOU-PROXY, a production Verifier service, or
+a Notary service.
 
 `verify_alpha15_presentation` deserializes an upstream bincode Presentation,
 rejects trailing bytes, calls `Presentation::verify`, requires complete
@@ -52,14 +57,18 @@ provided. Only test-only mock plumbing can create a profile for local parser
 tests.
 
 It does not provide the production server-identity allowlist, Session/Challenge
-authority, FUSOU Ed25519 signing keys, runtime transport, Web PKI policy, or
-privacy/persistence review. The upstream fixture proves alpha.15 verification
-including its upstream cryptographic checks, but the implementation therefore
-does not change the P0-05 gate: P0-05 remains `BLOCKED` until an authenticated
-alpha.15 FUSOU presentation and its evidence fixtures exist.
+authority, FUSOU Ed25519 signing keys, Notary trust boundary, Web PKI policy,
+FUSOU-App integration, or privacy/persistence review. The local transport test
+proves only the alpha.15 runtime and verifier flow over an in-memory fixture;
+it does not create a serialized Presentation or real FUSOU evidence. The
+implementation therefore does not change the P0-05 gate: P0-05 remains
+`BLOCKED` until an authenticated alpha.15 FUSOU presentation and its evidence
+fixtures exist.
 
 Run the focused checks with:
 
 ```text
-cargo test --manifest-path packages/FUSOU-TLSN-VERIFIER/Cargo.toml
+cargo +1.95.0 test --manifest-path packages/FUSOU-TLSN-VERIFIER/Cargo.toml
 ```
+
+The pinned `mpz-fields` dependency requires Rust 1.95 or newer.
