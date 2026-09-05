@@ -90,7 +90,13 @@ are computed over each recorded range. This avoids silently treating two
 directional streams as one original TCP stream while still permitting ordered
 message verification on persistent connections.
 
-Serialization uses the declared Rust structure order and no timestamps. Identical inputs therefore produce an identical complete artifact hash even when written to different directories.
+Serialization uses the declared Rust structure order. Synthetic and
+structured artifacts have no runtime timestamps, so identical inputs produce
+an identical complete artifact hash even when written to different
+directories. A natural candidate intentionally includes connection start and
+end timestamps in its provenance, so its complete hash identifies that
+observation and is not expected to match another capture of identical wire
+bytes.
 
 ## Privacy Boundary
 
@@ -107,6 +113,14 @@ Server directly, to synthesize the request, or to replay a previously captured
 request.
 
 The sanitized fixture writer is a separate explicit operation. It can redact selected body byte sequences and credential-like headers, writes `SANITIZED_PENDING_REVIEW`, and always requires manual privacy review. A sanitized fixture is not natural evidence until its provenance and privacy review are independently recorded.
+
+The collector writes only `synthetic` or `natural_candidate` provenance and never
+sets `natural_provenance=true`. The read-only `verify_capture` binary can verify
+an external `NaturalCaptureReview` record against the candidate's complete
+artifact hash, runtime metadata, passive-observation assertions, and privacy
+review. The successful verifier result is the manual qualification event; it
+does not rewrite or self-authorize the collector manifest. The controlled
+procedure and review template are in [Controlled Natural Capture Procedure v1](tlsn-natural-capture-procedure-v1.md) and [Natural Capture Review Template v1](tlsn-natural-capture-review-template-v1.json).
 
 No capture artifact is automatically copied into `docs/security/evidence/`.
 

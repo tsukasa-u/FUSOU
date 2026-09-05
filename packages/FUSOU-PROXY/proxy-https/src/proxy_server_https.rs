@@ -26,7 +26,10 @@ use chrono_tz::Asia::Tokyo;
 #[cfg(target_os = "windows")]
 use std::os::windows::fs::MetadataExt;
 
-use crate::capture::{ExactWireCapture, ExactWireDirection, ExactWireMessage, ExactWireMetadata};
+use crate::capture::{
+    CaptureProvenance, CaptureRuntimeMetadata, ExactWireCapture, ExactWireDirection,
+    ExactWireMessage, ExactWireMetadata,
+};
 use crate::capture_io::{CaptureDirection, CaptureRecorder};
 use crate::{bidirectional_channel, capture};
 
@@ -498,12 +501,14 @@ fn log_request(
 #[derive(Clone)]
 struct RawCaptureHook {
     output_root: PathBuf,
+    provenance: CaptureProvenance,
     sessions: Arc<Mutex<HashMap<u64, Arc<Mutex<RawCaptureSession>>>>>,
 }
 
 #[derive(Debug)]
 struct RawCaptureSession {
     recorder: CaptureRecorder,
+    provenance: CaptureProvenance,
     messages: Vec<RawCaptureMessage>,
     active_request: Option<usize>,
     active_response: Option<usize>,
@@ -522,8 +527,23 @@ struct RawCaptureMessage {
 
 impl RawCaptureHook {
     fn new(output_root: PathBuf) -> Self {
+        Self::with_provenance(output_root, CaptureProvenance::synthetic())
+    }
+
+    fn new_natural_candidate(
+        output_root: PathBuf,
+        runtime_metadata: CaptureRuntimeMetadata,
+    ) -> Self {
+        Self::with_provenance(
+            output_root,
+            CaptureProvenance::natural_candidate(&runtime_metadata),
+        )
+    }
+
+    fn with_provenance(output_root: PathBuf, provenance: CaptureProvenance) -> Self {
         Self {
             output_root,
+            provenance,
             sessions: Arc::new(Mutex::new(HashMap::new())),
         }
     }
@@ -549,6 +569,10 @@ impl ClientStreamHook for RawCaptureHook {
         let recorder = CaptureRecorder::new();
         let session = Arc::new(Mutex::new(RawCaptureSession {
             recorder: recorder.clone(),
+            provenance: self
+                .provenance
+                .clone()
+                .for_connection(context.connection_id),
             messages: Vec::new(),
             active_request: None,
             active_response: None,
@@ -734,6 +758,7 @@ fn write_raw_capture(
     if session.invalid || !connection_clean || session.active_request.is_some() {
         return Ok(None);
     }
+    session.provenance.mark_finished();
     let recorder = session.recorder.clone();
     if let Some(message_index) = session.active_response.take() {
         let stream_end = recorder
@@ -783,10 +808,11 @@ fn write_raw_capture(
     }) {
         return Ok(None);
     }
-    ExactWireCapture::from_transcript(
+    ExactWireCapture::from_transcript_with_provenance(
         snapshot.request_bytes().to_vec(),
         snapshot.response_bytes().to_vec(),
         messages,
+        session.provenance.clone(),
     )
     .map_err(|error| error.to_string())?
     .write_private_raw_transcript(
@@ -1027,6 +1053,7 @@ pub fn serve_proxy(
     ca_save_path: String,
     file_prefix: String,
     _auth_manager: Arc<AuthManager<FileStorage>>,
+    capture_runtime_metadata: Option<CaptureRuntimeMetadata>,
 ) -> Result<SocketAddr, Box<dyn std::error::Error>> {
     setup_default_crypto_provider();
 
@@ -1224,8 +1251,12 @@ pub fn serve_proxy(
 
     match capture_output_root {
         Some(output_root) => {
+            let capture_hook = capture_runtime_metadata.map_or_else(
+                || RawCaptureHook::new(output_root.clone()),
+                |metadata| RawCaptureHook::new_natural_candidate(output_root.clone(), metadata),
+            );
             let server_proxy = proxy_builder
-                .with_client_stream_hook(RawCaptureHook::new(output_root))
+                .with_client_stream_hook(capture_hook)
                 .with_graceful_shutdown(wait_for_proxy_shutdown(slave))
                 .build()
                 .expect_or_log("Failed to create proxy");

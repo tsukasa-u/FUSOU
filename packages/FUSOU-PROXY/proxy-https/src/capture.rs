@@ -1,3 +1,4 @@
+use chrono::{DateTime, SecondsFormat, Utc};
 use http::{request, response, HeaderMap, Version};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -24,6 +25,7 @@ pub enum CaptureError {
     InvalidMessageBoundary,
     OutputPathNotAbsolute,
     InvalidPayloadFile,
+    InvalidEvidencePolicy(String),
     Io(io::Error),
     Json(serde_json::Error),
 }
@@ -47,6 +49,9 @@ impl std::fmt::Display for CaptureError {
             Self::InvalidPayloadFile => {
                 formatter.write_str("capture payload file must be a single safe path component")
             }
+            Self::InvalidEvidencePolicy(message) => {
+                write!(formatter, "invalid capture evidence policy: {message}")
+            }
             Self::Io(error) => write!(formatter, "capture I/O failed: {error}"),
             Self::Json(error) => write!(formatter, "capture JSON failed: {error}"),
         }
@@ -65,6 +70,145 @@ impl From<serde_json::Error> for CaptureError {
     fn from(error: serde_json::Error) -> Self {
         Self::Json(error)
     }
+}
+
+pub const CAPTURE_COLLECTOR_VERSION: &str = "exact-wire-capture-v3";
+pub const HUDSUCKER_FORK_REVISION: &str = "hudsucker-0.23.0-fusou-maintained-fork";
+pub const NATURAL_CAPTURE_REVIEW_SCHEMA_VERSION: u32 = 1;
+pub const CLIENT_FACING_TLS_PLAINTEXT_BOUNDARY: &str =
+    "after MITM TLS accept and before Hyper parsing";
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct CaptureRuntimeMetadata {
+    pub app_version: String,
+    pub game_client: String,
+    pub allowlisted_game_server: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct NaturalCaptureObservation {
+    pub observed_at_utc: String,
+    pub app_version: String,
+    pub game_client: String,
+    pub allowlisted_game_server: String,
+    pub ordinary_fusou_app_startup: bool,
+    pub ordinary_gameplay: bool,
+    pub existing_client_generated_request: bool,
+    pub observed_require_info: bool,
+    pub no_standalone_game_server_request: bool,
+    pub no_request_injection: bool,
+    pub no_request_replay: bool,
+    pub no_request_retry: bool,
+    pub no_capture_generated_traffic: bool,
+    pub client_facing_tls_plaintext_boundary: String,
+    pub trigger_action: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct NaturalCapturePrivacyReview {
+    pub reviewed_at_utc: String,
+    pub reviewer_role: String,
+    pub raw_artifact_retained_private: bool,
+    pub no_raw_artifact_committed: bool,
+    pub sanitized_fixture_reviewed: bool,
+    pub sanitized_fixture_id: String,
+    pub no_credentials_or_session_tokens_in_sanitized_fixture: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct NaturalCaptureReview {
+    pub schema_version: u32,
+    pub review_id: String,
+    pub capture_id: String,
+    pub capture_complete_artifact_sha256: String,
+    pub observation: NaturalCaptureObservation,
+    pub privacy_review: NaturalCapturePrivacyReview,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct CaptureProvenance {
+    pub evidence_class: String,
+    pub natural_provenance: bool,
+    pub capture_enabled: bool,
+    pub app_version: Option<String>,
+    pub proxy_version: String,
+    pub hudsucker_fork_revision: String,
+    pub collector_version: String,
+    pub game_client: Option<String>,
+    pub allowlisted_game_server: Option<String>,
+    pub connection_id: Option<u64>,
+    pub capture_started_at_utc: Option<String>,
+    pub capture_ended_at_utc: Option<String>,
+    pub manual_observation_record: Option<String>,
+}
+
+impl CaptureProvenance {
+    pub fn synthetic() -> Self {
+        Self {
+            evidence_class: "synthetic".to_string(),
+            natural_provenance: false,
+            capture_enabled: true,
+            app_version: None,
+            proxy_version: env!("CARGO_PKG_VERSION").to_string(),
+            hudsucker_fork_revision: HUDSUCKER_FORK_REVISION.to_string(),
+            collector_version: CAPTURE_COLLECTOR_VERSION.to_string(),
+            game_client: None,
+            allowlisted_game_server: None,
+            connection_id: None,
+            capture_started_at_utc: None,
+            capture_ended_at_utc: None,
+            manual_observation_record: None,
+        }
+    }
+
+    pub fn natural_candidate(runtime: &CaptureRuntimeMetadata) -> Self {
+        let mut provenance = Self::synthetic();
+        provenance.evidence_class = "natural_candidate".to_string();
+        provenance.app_version = Some(runtime.app_version.clone());
+        provenance.game_client = Some(runtime.game_client.clone());
+        provenance.allowlisted_game_server = Some(runtime.allowlisted_game_server.clone());
+        provenance
+    }
+
+    pub(crate) fn for_connection(mut self, connection_id: u64) -> Self {
+        self.connection_id = Some(connection_id);
+        self.capture_started_at_utc = Some(capture_timestamp());
+        self
+    }
+
+    pub(crate) fn mark_finished(&mut self) {
+        self.capture_ended_at_utc = Some(capture_timestamp());
+    }
+
+    fn structured() -> Self {
+        let mut provenance = Self::synthetic();
+        provenance.evidence_class = "non_evidence".to_string();
+        provenance
+    }
+}
+
+impl Default for CaptureProvenance {
+    fn default() -> Self {
+        Self {
+            evidence_class: "legacy".to_string(),
+            natural_provenance: false,
+            capture_enabled: false,
+            app_version: None,
+            proxy_version: "UNKNOWN".to_string(),
+            hudsucker_fork_revision: "UNKNOWN".to_string(),
+            collector_version: "UNKNOWN".to_string(),
+            game_client: None,
+            allowlisted_game_server: None,
+            connection_id: None,
+            capture_started_at_utc: None,
+            capture_ended_at_utc: None,
+            manual_observation_record: None,
+        }
+    }
+}
+
+fn capture_timestamp() -> String {
+    DateTime::<Utc>::from(SystemTime::now()).to_rfc3339_opts(SecondsFormat::Millis, true)
 }
 
 #[derive(Debug, Clone)]
@@ -299,6 +443,7 @@ pub struct ExactWireCapture {
     request_bytes: Vec<u8>,
     response_bytes: Vec<u8>,
     messages: Vec<ExactWireMessage>,
+    provenance: CaptureProvenance,
 }
 
 impl ExactWireCapture {
@@ -319,6 +464,7 @@ impl ExactWireCapture {
             request_bytes,
             response_bytes,
             messages: vec![request, response],
+            provenance: CaptureProvenance::synthetic(),
         }
     }
 
@@ -327,10 +473,25 @@ impl ExactWireCapture {
         response_bytes: impl Into<Vec<u8>>,
         messages: Vec<ExactWireMessage>,
     ) -> Result<Self, CaptureError> {
+        Self::from_transcript_with_provenance(
+            request_bytes,
+            response_bytes,
+            messages,
+            CaptureProvenance::synthetic(),
+        )
+    }
+
+    pub fn from_transcript_with_provenance(
+        request_bytes: impl Into<Vec<u8>>,
+        response_bytes: impl Into<Vec<u8>>,
+        messages: Vec<ExactWireMessage>,
+        provenance: CaptureProvenance,
+    ) -> Result<Self, CaptureError> {
         let capture = Self {
             request_bytes: request_bytes.into(),
             response_bytes: response_bytes.into(),
             messages,
+            provenance,
         };
         capture.validate_messages()?;
         Ok(capture)
@@ -353,7 +514,7 @@ impl ExactWireCapture {
         let request_length = self.request_bytes.len() as u64;
         let response_length = self.response_bytes.len() as u64;
         let core = CaptureManifestCore {
-            schema_version: 2,
+            schema_version: 3,
             capture_id: capture_id.into(),
             capture_kind: "require_info".to_string(),
             source: "lower-level exact-wire collector".to_string(),
@@ -370,6 +531,7 @@ impl ExactWireCapture {
                 response_start: request_length,
                 response_end: request_length + response_length,
             },
+            provenance: self.provenance.clone(),
             sanitization: None,
         };
         write_artifact(
@@ -447,7 +609,7 @@ impl CaptureBuilder {
         let request_length = request.body.len() as u64;
         let response_length = response.body.len() as u64;
         let core = CaptureManifestCore {
-            schema_version: 1,
+            schema_version: 2,
             capture_id: self.capture_id.clone(),
             capture_kind: "require_info".to_string(),
             source: "FUSOU HTTPS proxy HttpHandler boundary".to_string(),
@@ -464,6 +626,7 @@ impl CaptureBuilder {
                 response_start: request_length,
                 response_end: request_length + response_length,
             },
+            provenance: CaptureProvenance::structured(),
             sanitization,
         };
         write_artifact(
@@ -551,6 +714,8 @@ struct CaptureManifestCore {
     source: String,
     wire_fidelity: String,
     privacy_state: String,
+    #[serde(default)]
+    provenance: CaptureProvenance,
     request: MessageManifest,
     response: MessageManifest,
     #[serde(default)]
@@ -781,6 +946,163 @@ pub fn verify_capture(capture_dir: impl AsRef<Path>) -> Result<CaptureVerificati
         response_sha256,
         complete_artifact_sha256: complete_sha256,
     })
+}
+
+pub fn verify_capture_evidence(
+    capture_dir: impl AsRef<Path>,
+) -> Result<CaptureVerification, CaptureError> {
+    let capture_dir = capture_dir.as_ref();
+    let verification = verify_capture(capture_dir)?;
+    let manifest: CaptureManifest =
+        serde_json::from_slice(&fs::read(capture_dir.join(MANIFEST_FILE))?)?;
+    validate_evidence_policy(&manifest.core.provenance)?;
+    Ok(verification)
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NaturalCaptureReviewVerification {
+    pub capture: CaptureVerification,
+    pub review_id: String,
+    pub natural_provenance: bool,
+}
+
+pub fn verify_natural_capture_review(
+    capture_dir: impl AsRef<Path>,
+    review_path: impl AsRef<Path>,
+) -> Result<NaturalCaptureReviewVerification, CaptureError> {
+    let capture_dir = capture_dir.as_ref();
+    let capture = verify_capture_evidence(capture_dir)?;
+    let manifest: CaptureManifest =
+        serde_json::from_slice(&fs::read(capture_dir.join(MANIFEST_FILE))?)?;
+    let review: NaturalCaptureReview = serde_json::from_slice(&fs::read(review_path)?)?;
+    validate_natural_capture_review(&manifest, &review)?;
+    Ok(NaturalCaptureReviewVerification {
+        capture,
+        review_id: review.review_id,
+        natural_provenance: true,
+    })
+}
+
+fn validate_evidence_policy(provenance: &CaptureProvenance) -> Result<(), CaptureError> {
+    if provenance.natural_provenance {
+        return Err(CaptureError::InvalidEvidencePolicy(
+            "the collector cannot assert natural provenance".to_string(),
+        ));
+    }
+    if provenance.proxy_version.trim().is_empty()
+        || provenance.hudsucker_fork_revision.trim().is_empty()
+        || provenance.collector_version.trim().is_empty()
+    {
+        return Err(CaptureError::InvalidEvidencePolicy(
+            "runtime provenance versions must be non-empty".to_string(),
+        ));
+    }
+    if provenance.manual_observation_record.is_some() {
+        return Err(CaptureError::InvalidEvidencePolicy(
+            "manual observation records must remain external to collector artifacts".to_string(),
+        ));
+    }
+    match provenance.evidence_class.as_str() {
+        "synthetic" | "non_evidence" => Ok(()),
+        "natural_candidate" => {
+            if !provenance.capture_enabled
+                || provenance
+                    .app_version
+                    .as_deref()
+                    .map_or(true, str::is_empty)
+                || provenance
+                    .game_client
+                    .as_deref()
+                    .map_or(true, str::is_empty)
+                || provenance
+                    .allowlisted_game_server
+                    .as_deref()
+                    .map_or(true, str::is_empty)
+                || provenance.connection_id.is_none()
+                || provenance.capture_started_at_utc.is_none()
+                || provenance.capture_ended_at_utc.is_none()
+            {
+                return Err(CaptureError::InvalidEvidencePolicy(
+                    "natural candidate provenance is incomplete".to_string(),
+                ));
+            }
+            validate_timestamp(provenance.capture_started_at_utc.as_deref().unwrap())?;
+            validate_timestamp(provenance.capture_ended_at_utc.as_deref().unwrap())?;
+            Ok(())
+        }
+        other => Err(CaptureError::InvalidEvidencePolicy(format!(
+            "unsupported evidence class {other}"
+        ))),
+    }
+}
+
+fn validate_natural_capture_review(
+    manifest: &CaptureManifest,
+    review: &NaturalCaptureReview,
+) -> Result<(), CaptureError> {
+    let provenance = &manifest.core.provenance;
+    if review.schema_version != NATURAL_CAPTURE_REVIEW_SCHEMA_VERSION {
+        return Err(CaptureError::InvalidEvidencePolicy(
+            "unsupported natural capture review schema".to_string(),
+        ));
+    }
+    validate_capture_id(&review.review_id)?;
+    validate_capture_id(&review.capture_id)?;
+    validate_capture_id(&review.privacy_review.sanitized_fixture_id)?;
+    if review.capture_id != manifest.core.capture_id
+        || review.capture_complete_artifact_sha256 != manifest.complete_artifact_sha256
+        || provenance.evidence_class != "natural_candidate"
+        || review.observation.app_version != provenance.app_version.as_deref().unwrap_or_default()
+        || review.observation.game_client != provenance.game_client.as_deref().unwrap_or_default()
+        || review.observation.allowlisted_game_server
+            != provenance
+                .allowlisted_game_server
+                .as_deref()
+                .unwrap_or_default()
+    {
+        return Err(CaptureError::InvalidEvidencePolicy(
+            "natural capture review does not match capture provenance".to_string(),
+        ));
+    }
+    if !review.observation.ordinary_fusou_app_startup
+        || !review.observation.ordinary_gameplay
+        || !review.observation.existing_client_generated_request
+        || !review.observation.observed_require_info
+        || !review.observation.no_standalone_game_server_request
+        || !review.observation.no_request_injection
+        || !review.observation.no_request_replay
+        || !review.observation.no_request_retry
+        || !review.observation.no_capture_generated_traffic
+        || review.observation.client_facing_tls_plaintext_boundary
+            != CLIENT_FACING_TLS_PLAINTEXT_BOUNDARY
+        || review.observation.trigger_action != "UNKNOWN"
+    {
+        return Err(CaptureError::InvalidEvidencePolicy(
+            "natural capture review does not satisfy passive observation policy".to_string(),
+        ));
+    }
+    if !review.privacy_review.raw_artifact_retained_private
+        || !review.privacy_review.no_raw_artifact_committed
+        || !review.privacy_review.sanitized_fixture_reviewed
+        || !review
+            .privacy_review
+            .no_credentials_or_session_tokens_in_sanitized_fixture
+        || review.privacy_review.reviewer_role.trim().is_empty()
+    {
+        return Err(CaptureError::InvalidEvidencePolicy(
+            "natural capture privacy review is incomplete".to_string(),
+        ));
+    }
+    validate_timestamp(&review.observation.observed_at_utc)?;
+    validate_timestamp(&review.privacy_review.reviewed_at_utc)?;
+    Ok(())
+}
+
+fn validate_timestamp(value: &str) -> Result<(), CaptureError> {
+    DateTime::parse_from_rfc3339(value).map_err(|_| {
+        CaptureError::InvalidEvidencePolicy("provenance timestamp is not RFC3339".to_string())
+    })?;
+    Ok(())
 }
 
 fn verify_message_manifests(
@@ -1128,10 +1450,38 @@ mod tests {
     fn exact_wire_capture_preserves_wire_payloads_and_source_boundaries() {
         let request_wire = b"POST /kcsapi/api_get_member/require_info HTTP/1.1\r\n\r\nwire-request";
         let response_wire = b"HTTP/1.1 200 OK\r\n\r\nwire-response";
-        let request = ExactWireMessage::from_parts(request_wire, 0, request_wire.len() as u64)
-            .expect("request boundary");
-        let response = ExactWireMessage::from_parts(response_wire, 0, response_wire.len() as u64)
-            .expect("response boundary");
+        let request = ExactWireMessage::from_parts_with_metadata(
+            request_wire,
+            0,
+            request_wire.len() as u64,
+            ExactWireDirection::Request,
+            0,
+            ExactWireMetadata {
+                version: "HTTP/1.1".to_string(),
+                method: Some("POST".to_string()),
+                target: Some("/kcsapi/api_get_member/require_info".to_string()),
+                status: None,
+                reason: None,
+                headers: Vec::new(),
+            },
+        )
+        .expect("request boundary");
+        let response = ExactWireMessage::from_parts_with_metadata(
+            response_wire,
+            0,
+            response_wire.len() as u64,
+            ExactWireDirection::Response,
+            1,
+            ExactWireMetadata {
+                version: "HTTP/1.1".to_string(),
+                method: None,
+                target: None,
+                status: Some(200),
+                reason: Some("OK".to_string()),
+                headers: Vec::new(),
+            },
+        )
+        .expect("response boundary");
         let root = temp_dir("exact_wire");
         let capture_dir = ExactWireCapture::new(request, response)
             .write_private_raw(&root, "exact-wire")
@@ -1149,6 +1499,150 @@ mod tests {
         assert!(manifest.contains("EXACT_WIRE"));
         assert!(manifest.contains("lower-level exact-wire collector"));
         verify_capture(&capture_dir).expect("verify exact-wire capture");
+        verify_capture_evidence(&capture_dir).expect("verify exact-wire evidence policy");
+    }
+
+    #[test]
+    fn collector_provenance_never_asserts_natural_provenance() {
+        let synthetic = CaptureProvenance::synthetic();
+        assert_eq!(synthetic.evidence_class, "synthetic");
+        assert!(!synthetic.natural_provenance);
+
+        let runtime = CaptureRuntimeMetadata {
+            app_version: "0.0.0-test".to_string(),
+            game_client: "test-client".to_string(),
+            allowlisted_game_server: "game.example.test".to_string(),
+        };
+        let natural_candidate = CaptureProvenance::natural_candidate(&runtime).for_connection(42);
+        assert_eq!(natural_candidate.evidence_class, "natural_candidate");
+        assert!(!natural_candidate.natural_provenance);
+        assert!(natural_candidate.capture_started_at_utc.is_some());
+    }
+
+    #[test]
+    fn evidence_validator_rejects_natural_provenance_claims() {
+        let mut provenance = CaptureProvenance::synthetic();
+        provenance.natural_provenance = true;
+        assert!(matches!(
+            validate_evidence_policy(&provenance),
+            Err(CaptureError::InvalidEvidencePolicy(message))
+                if message.contains("cannot assert natural provenance")
+        ));
+    }
+
+    #[test]
+    fn manual_natural_review_must_match_candidate_and_privacy_record() {
+        let request_wire = b"POST /kcsapi/api_get_member/require_info HTTP/1.1\r\n\r\nrequest";
+        let response_wire = b"HTTP/1.1 200 OK\r\n\r\nresponse";
+        let request = ExactWireMessage::from_parts_with_metadata(
+            request_wire,
+            0,
+            request_wire.len() as u64,
+            ExactWireDirection::Request,
+            0,
+            ExactWireMetadata {
+                version: "HTTP/1.1".to_string(),
+                method: Some("POST".to_string()),
+                target: Some("/kcsapi/api_get_member/require_info".to_string()),
+                status: None,
+                reason: None,
+                headers: Vec::new(),
+            },
+        )
+        .expect("request boundary");
+        let response = ExactWireMessage::from_parts_with_metadata(
+            response_wire,
+            0,
+            response_wire.len() as u64,
+            ExactWireDirection::Response,
+            1,
+            ExactWireMetadata {
+                version: "HTTP/1.1".to_string(),
+                method: None,
+                target: None,
+                status: Some(200),
+                reason: Some("OK".to_string()),
+                headers: Vec::new(),
+            },
+        )
+        .expect("response boundary");
+        let runtime = CaptureRuntimeMetadata {
+            app_version: "0.0.0-test".to_string(),
+            game_client: "supported-client".to_string(),
+            allowlisted_game_server: "game.example.test".to_string(),
+        };
+        let mut provenance = CaptureProvenance::natural_candidate(&runtime).for_connection(7);
+        provenance.mark_finished();
+        let root = temp_dir("natural_review");
+        let capture_dir = ExactWireCapture::from_transcript_with_provenance(
+            request_wire.to_vec(),
+            response_wire.to_vec(),
+            vec![request, response],
+            provenance,
+        )
+        .expect("natural candidate")
+        .write_private_raw(&root, "natural-candidate")
+        .expect("write natural candidate");
+        let manifest: CaptureManifest =
+            serde_json::from_slice(&fs::read(capture_dir.join(MANIFEST_FILE)).expect("manifest"))
+                .expect("manifest JSON");
+        let review = NaturalCaptureReview {
+            schema_version: NATURAL_CAPTURE_REVIEW_SCHEMA_VERSION,
+            review_id: "manual-review-1".to_string(),
+            capture_id: manifest.core.capture_id.clone(),
+            capture_complete_artifact_sha256: manifest.complete_artifact_sha256,
+            observation: NaturalCaptureObservation {
+                observed_at_utc: capture_timestamp(),
+                app_version: "0.0.0-test".to_string(),
+                game_client: "supported-client".to_string(),
+                allowlisted_game_server: "game.example.test".to_string(),
+                ordinary_fusou_app_startup: true,
+                ordinary_gameplay: true,
+                existing_client_generated_request: true,
+                observed_require_info: true,
+                no_standalone_game_server_request: true,
+                no_request_injection: true,
+                no_request_replay: true,
+                no_request_retry: true,
+                no_capture_generated_traffic: true,
+                client_facing_tls_plaintext_boundary: CLIENT_FACING_TLS_PLAINTEXT_BOUNDARY
+                    .to_string(),
+                trigger_action: "UNKNOWN".to_string(),
+            },
+            privacy_review: NaturalCapturePrivacyReview {
+                reviewed_at_utc: capture_timestamp(),
+                reviewer_role: "authorized maintainer".to_string(),
+                raw_artifact_retained_private: true,
+                no_raw_artifact_committed: true,
+                sanitized_fixture_reviewed: true,
+                sanitized_fixture_id: "sanitized-review-1".to_string(),
+                no_credentials_or_session_tokens_in_sanitized_fixture: true,
+            },
+        };
+        let review_path = root.join("natural-review.json");
+        fs::write(
+            &review_path,
+            serde_json::to_vec_pretty(&review).expect("review JSON"),
+        )
+        .expect("write review");
+
+        let verification = verify_natural_capture_review(&capture_dir, &review_path)
+            .expect("verify natural review");
+        assert!(verification.natural_provenance);
+        assert_eq!(verification.review_id, "manual-review-1");
+
+        let mut invalid_review = review;
+        invalid_review.observation.no_request_replay = false;
+        fs::write(
+            &review_path,
+            serde_json::to_vec(&invalid_review).expect("invalid review JSON"),
+        )
+        .expect("overwrite review");
+        assert!(matches!(
+            verify_natural_capture_review(&capture_dir, &review_path),
+            Err(CaptureError::InvalidEvidencePolicy(message))
+                if message.contains("passive observation policy")
+        ));
     }
 
     #[test]

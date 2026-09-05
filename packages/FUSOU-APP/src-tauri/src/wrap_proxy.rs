@@ -153,6 +153,11 @@ where
         ca_path,
         file_prefix.unwrap_or("".to_string()),
         auth_manager_for_proxy,
+        Some(proxy_https::capture::CaptureRuntimeMetadata {
+            app_version: env!("CARGO_PKG_VERSION").to_string(),
+            game_client: "FUSOU-APP external WebView/browser".to_string(),
+            allowlisted_game_server: proxy_target.clone(),
+        }),
     );
 
     if proxy_addr.is_err() {

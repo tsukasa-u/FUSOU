@@ -1,0 +1,32 @@
+{
+  "schema_version": 1,
+  "review_id": "REPLACE_WITH_REVIEW_ID",
+  "capture_id": "REPLACE_WITH_CAPTURE_ID",
+  "capture_complete_artifact_sha256": "REPLACE_WITH_64_HEX_SHA256",
+  "observation": {
+    "observed_at_utc": "REPLACE_WITH_RFC3339_TIMESTAMP",
+    "app_version": "REPLACE_WITH_CAPTURE_APP_VERSION",
+    "game_client": "REPLACE_WITH_CAPTURE_GAME_CLIENT",
+    "allowlisted_game_server": "REPLACE_WITH_CAPTURE_ALLOWLISTED_SERVER",
+    "ordinary_fusou_app_startup": false,
+    "ordinary_gameplay": false,
+    "existing_client_generated_request": false,
+    "observed_require_info": false,
+    "no_standalone_game_server_request": false,
+    "no_request_injection": false,
+    "no_request_replay": false,
+    "no_request_retry": false,
+    "no_capture_generated_traffic": false,
+    "client_facing_tls_plaintext_boundary": "after MITM TLS accept and before Hyper parsing",
+    "trigger_action": "UNKNOWN"
+  },
+  "privacy_review": {
+    "reviewed_at_utc": "REPLACE_WITH_RFC3339_TIMESTAMP",
+    "reviewer_role": "REPLACE_WITH_AUTHORIZED_REVIEWER_ROLE",
+    "raw_artifact_retained_private": false,
+    "no_raw_artifact_committed": false,
+    "sanitized_fixture_reviewed": false,
+    "sanitized_fixture_id": "REPLACE_WITH_SANITIZED_FIXTURE_ID",
+    "no_credentials_or_session_tokens_in_sanitized_fixture": false
+  }
+}
