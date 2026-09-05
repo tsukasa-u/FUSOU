@@ -8,6 +8,14 @@ The Capture Harness gives a future natural-traffic collection path a determinist
 
 The harness is evidence collection only. It cannot authorize a `member_id`, prove ownership or device identity, make claims about authenticated disclosure, or produce a TLSNotary Result.
 
+Evidence is classified into three non-interchangeable classes:
+
+- **Synthetic harness evidence:** repository-local generated client/upstream traffic used to prove the hook, byte fidelity, message boundaries, failure handling, and artifact validation. It does not establish natural Game Client provenance.
+- **Natural capture evidence:** a manually controlled capture produced only by ordinary FUSOU-APP startup and gameplay with the supported Game Client and an allowlisted Game Server. The repository does not currently identify the exact gameplay action that first causes `require_info`; that timing must be observed, not inferred from a DTO or synthetic request.
+- **Authenticated disclosure evidence:** a TLSNotary-verified FUSOU transcript and verifier result. A natural capture is an input candidate for this class, not proof of it.
+
+The harness is passive. It observes a request that the Game Client has already generated; it never creates, injects, replays, retries, or submits a standalone Game Server request. CI may validate synthetic artifacts and previously sanitized fixtures, but it cannot manufacture or auto-pass natural evidence.
+
 ## Current Data Flow
 
 The current FUSOU HTTPS proxy uses hudsucker 0.23.0:
@@ -27,7 +35,10 @@ connection ends.
 
 This integration proves the selected byte boundary with generated traffic. It
 is not natural Game Client evidence: no natural capture has been collected,
-and privacy authorization remains outside this harness. Persistent HTTP/1.1
+and privacy authorization remains outside this harness. The normal APP path
+starts the proxy and PAC routing before opening the Game Client, but repository
+inspection does not establish which ordinary gameplay action triggers the
+observed `require_info` request. Persistent HTTP/1.1
 message splitting is driven by Hyper lifecycle callbacks rather than a second
 HTTP parser in the capture layer.
 
@@ -90,6 +101,11 @@ Capture is disabled by default. Enabling it requires both:
 
 The proxy only captures the `require_info` endpoint. The private output path is separate from API/resource persistence and is never selected automatically from the repository evidence directories.
 
+This endpoint filter is passive and applies only when an ordinary client
+session naturally contains the request. It is not permission to call the Game
+Server directly, to synthesize the request, or to replay a previously captured
+request.
+
 The sanitized fixture writer is a separate explicit operation. It can redact selected body byte sequences and credential-like headers, writes `SANITIZED_PENDING_REVIEW`, and always requires manual privacy review. A sanitized fixture is not natural evidence until its provenance and privacy review are independently recorded.
 
 No capture artifact is automatically copied into `docs/security/evidence/`.
@@ -107,13 +123,21 @@ The Capture Harness records bytes and provenance metadata. It does not:
 
 P0-04 remains `BLOCKED` until a real natural Game Client/Game Server capture exists. P0-05 remains `BLOCKED` until a real authenticated alpha.15 disclosure fixture and strict verifier evidence exist. Synthetic Harness tests prove only harness behavior.
 
+Natural evidence additionally requires all of the following: ordinary
+FUSOU-APP use; no capture-generated Game Server request; no replay or
+injection; the client-facing TLS plaintext boundary; preserved raw bytes and
+message boundaries; recorded provenance; and recorded privacy review. These
+conditions are manual evidence requirements and cannot be satisfied by a CI
+job that generates traffic.
+
 ## Operational Flow
 
 1. Enable the private capture path only in a controlled local environment.
-2. Collect a natural `require_info` exchange without changing the request or response.
-3. Preserve the private raw artifact and its manifest outside the repository.
-4. Review and sanitize a copy using the explicit fixture writer.
-5. Record provenance, privacy review, and verifier results separately.
-6. Only then consider whether the resulting natural evidence satisfies a gate requirement.
+2. Start FUSOU-APP normally and use the Game Client through ordinary gameplay; do not issue a standalone Game Server request.
+3. Collect a natural `require_info` exchange without changing, replaying, or retrying the request or response.
+4. Preserve the private raw artifact and its manifest outside the repository.
+5. Review and sanitize a copy using the explicit fixture writer.
+6. Record provenance, privacy review, and verifier results separately.
+7. Only then consider whether the resulting natural evidence satisfies a gate requirement.
 
 The implementation intentionally does not add TLSNotary dependencies, authority logic, migrations, production resources, or Game Server request re-submission.

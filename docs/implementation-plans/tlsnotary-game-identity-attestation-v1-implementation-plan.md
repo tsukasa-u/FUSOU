@@ -788,7 +788,7 @@ Protocol/Repositoryのsource/inventory factはruntime未実装だけを理由に
 | P0-01 TLSNotary リビジョン | 正確なリポジトリ commit、依存関係 lock、セキュリティ/ライセンスレビュー | NO-GO。別のリビジョンを対象に実装しない |
 | P0-02 Attestation ID | 公式 extraction API、opaque-byte encoding、golden bytes | NO-GO。利用できなければ仕様を revise |
 | P0-03 Security freshness contract | A-M分類、stale/future proof分析、Session/Challenge `v_db_now` fixture、外部timestamp authorityを追加しない理由 | NO-GO。proof ageをPrimary Goalへ戻さない |
-| P0-04 実際の require_info | 自然な実クライアントの capture、ソート済み corpus、ハッシュ、framing、compression、size | NO-GO。synthetic-only の証明なし |
+| P0-04 実際の require_info | 通常のFUSOU-APP gameplayから手動収集したnatural capture、ソート済み corpus、ハッシュ、framing、compression、size、provenance、privacy review | NO-GO。synthetic harness correctnessだけではnatural evidenceを満たさない。standalone request、injection、replay、capture-generated trafficは禁止 |
 | P0-05 厳格な開示 | 認証済みの完全な request/response、正確な範囲、digest fixture、プライバシーレビュー入力 | binding を authenticated にできなければ NO-GO |
 | P0-06 T3/T4 の配送 | 最終化前の response と正確な Result byte path | NO-GO。Result mutation なし |
 | P0-07 再送なし | Origin の write/complete counters が at most one であることと fallback behavior の証明 | NO-GO。send latch/retry を修正 |

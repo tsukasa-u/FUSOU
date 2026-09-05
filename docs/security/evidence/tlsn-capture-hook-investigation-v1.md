@@ -52,6 +52,22 @@ The relevant source anchors are:
 
 At this point, the original request line, complete header serialization, HTTP framing bytes, source offsets, and transport read/write provenance are not available. The existing persistence path can additionally decode content encodings, stringify content, prefix metadata, and send `String` content through `StatusInfo`; those outputs cannot serve as authenticated raw transcript evidence.
 
+### Normal APP path and natural-source policy
+
+The normal FUSOU-APP launch path checks `run_proxy_server`, starts the HTTPS
+proxy and PAC server through `wrap_proxy::serve_proxy`, and only then opens the
+configured Game Client URL in the external WebView or browser. The capture hook
+does not participate in request construction. It can persist a session only
+when that existing client-facing session naturally contains a parsed
+`/api_get_member/require_info` request.
+
+The repository contains no source-backed fact identifying the exact ordinary
+gameplay action that causes the first natural `require_info` request. The DTO,
+frontend types, proxy logs, and synthetic integration tests do not establish
+that timing. A qualifying natural capture therefore requires manual, controlled
+observation of normal FUSOU-APP gameplay. Standalone Game Server requests,
+request injection, replay, and capture-triggered traffic are prohibited.
+
 ## Client-facing MITM source path
 
 The public hudsucker builder exposes `with_listener`, `with_client`, `with_http_handler`, and `with_server`. The listener accepts a `tokio::net::TcpListener`, the client configures the upstream Hyper client, the HTTP handler receives structured messages, and the server accepts a Hyper server builder. None of these APIs accepts a per-connection stream wrapper or a callback around the accepted stream.
@@ -148,5 +164,9 @@ This investigation changes no gate result and adds no runtime collector.
 - `P0-05 = BLOCKED`; no authenticated FUSOU disclosure, range evidence, digest golden, binding evidence, or strict verifier fixture exists.
 - `PASS = 3`, `BLOCKED = 14`, `FAIL = 0` remains unchanged.
 - `IMPLEMENTATION = NO-GO` remains unchanged.
+
+The synthetic fork integration may establish capture correctness independently,
+but it cannot change the natural capture count or satisfy the provenance part of
+P0-04. Natural evidence is manual evidence and is not an automated CI output.
 
 No request replay, Game Server re-submission, TLSNotary dependency addition, or production capture enablement is authorized by this investigation.

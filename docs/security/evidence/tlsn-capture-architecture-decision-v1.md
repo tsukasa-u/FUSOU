@@ -38,6 +38,15 @@ stream by Hyper before rustls encrypts them for the client. The capture layer
 MUST NOT be placed below `TlsAcceptor::accept`, because that would record
 client-facing TLS ciphertext rather than HTTP plaintext.
 
+The evidence source is constrained separately from the byte boundary. Natural
+evidence means ordinary FUSOU-APP startup and gameplay through the supported
+Game Client and allowlisted Game Server. The hook observes that traffic only; it
+does not issue a standalone request, inject a request into the client, replay a
+capture, or retry a forwarded request. Synthetic integration traffic proves the
+capture mechanism, not natural provenance. The repository currently does not
+identify the exact gameplay action that first produces `require_info`, so that
+fact must come from a manual controlled observation.
+
 ## Source-backed comparison
 
 The comparison uses the resolved hudsucker 0.23.0 source in the local Cargo
@@ -201,6 +210,11 @@ traffic through the selected fork boundary. It does not prove natural Game
 Client traffic, authenticated TLSNotary disclosure, verifier behavior, or
 production capture authorization.
 
+The evidence classes remain independent: synthetic capture correctness may be
+validated in CI; natural capture requires ordinary gameplay, private raw
+retention, provenance, and manual privacy review; authenticated evidence
+requires TLSNotary verification and strict FUSOU disclosure validation.
+
 ## Gate disposition
 
 This decision changes no evidence or gate status:
@@ -213,5 +227,6 @@ This decision changes no evidence or gate status:
 
 Remaining blockers include natural capture, exact message-boundary proof,
 authenticated disclosure, strict verifier evidence, and privacy review. No
-TLSNotary dependency, Game Server re-submission, or production capture
-enablement is authorized by this document.
+TLSNotary dependency, standalone Game Server request, request replay/injection,
+Game Server re-submission, or production capture enablement is authorized by
+this document.

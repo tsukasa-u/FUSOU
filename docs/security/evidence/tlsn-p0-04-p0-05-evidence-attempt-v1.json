@@ -4,15 +4,15 @@
   "observed_at_utc": "2026-09-04T02:24:00Z",
   "repository": {
     "repository": "https://github.com/tsukasa-u/FUSOU.git",
-    "head": "2cabedc4bc8db70a00ba42f91048b46127fea4e8",
+    "head": "8d387ab3ee21da6f945ec9d81309a35cbbd350d1",
     "branch": "tlsn-phase0-investigation",
     "selected_tlsn_ref": "refs/tags/v0.1.0-alpha.15",
     "selected_tlsn_commit": "47aee45b53e06648c1b2ad3689b367b8c923fdec"
   },
   "scope": {
     "gates": ["P0-04", "P0-05"],
-    "purpose": "Evidence collection attempt only; no production implementation or synthetic substitute",
-    "runtime_changes": "NONE",
+    "purpose": "Evidence collection attempt and evidence-policy record; no natural evidence or production implementation; synthetic harness evidence is not a natural substitute",
+    "runtime_changes": "NO PRODUCTION RUNTIME; synthetic capture harness remains non-production",
     "p0_01_p0_02_contract": "Unchanged; alpha.15 revision, opaque 16-byte ID encoding, golden values, and notary_time exclusion remain frozen"
   },
   "repository_inventory": {
@@ -53,13 +53,37 @@
       "natural_client_required": true,
       "synthetic_substitution_allowed": false
     },
+    "evidence_policy": {
+      "natural_source": "ordinary FUSOU-APP startup and gameplay through the supported Game Client and an allowlisted Game Server",
+      "prohibited_sources": [
+        "standalone Game Server request",
+        "request injection",
+        "request replay",
+        "capture-generated traffic",
+        "retry of a forwarded logical request"
+      ],
+      "capture_behavior": "passive observation of an existing client-facing TLS plaintext session; the harness never creates the request",
+      "collection_mode": "manual controlled observation with private raw storage and recorded privacy review",
+      "ci_policy": "CI may validate synthetic harness artifacts and previously sanitized fixtures, but cannot create or auto-pass natural provenance",
+      "trigger_knowledge": "The repository does not identify the exact ordinary gameplay action that first causes require_info"
+    },
+    "synthetic_harness_evidence": {
+      "status": "AVAILABLE_SEPARATELY",
+      "scope": "Generated CONNECT/TLS traffic proves the hook, directional exact-wire ranges, lifecycle handling, and no-retry behavior",
+      "does_not_satisfy": [
+        "natural Game Client provenance",
+        "ordinary gameplay timing",
+        "privacy review of a real client session",
+        "P0-04 natural capture"
+      ]
+    },
     "capture": {
       "count": 0,
       "raw_fixture_path": null,
       "sanitized_fixture_path": null,
       "sha256": null,
       "repository_commit_allowed": false,
-      "reason": "No authorized real Game Client session and Game Server capture were supplied or available for this run"
+      "reason": "No authorized natural capture from ordinary FUSOU-APP gameplay was supplied or available for this run"
     },
     "required_observations": {
       "request_method": "NOT_MEASURED",
@@ -124,13 +148,14 @@
     ],
     "fixture_generation_procedure": {
       "status": "NOT_RUN",
+      "natural_source_requirement": "The exchange must arise from ordinary FUSOU-APP gameplay; no standalone request or capture-triggered traffic may be used",
       "required_inputs": [
         "An authorized supported Game Client build and controlled session",
         "An allowlisted Game Server endpoint",
         "The FUSOU proxy configured to retain a privacy-reviewed raw capture",
         "A collector that records raw request/response bytes and boundaries before any decoding"
       ],
-      "prohibited_substitute": "Do not generate a local mock request, synthetic response, or simulator fixture and label it natural"
+      "prohibited_substitute": "Do not generate a local mock request, synthetic response, simulator fixture, replay, or injected request and label it natural"
     },
     "privacy": {
       "credentials_collected": false,
@@ -145,6 +170,7 @@
   "p0_05_authenticated_disclosure": {
     "status": "NOT_OBTAINED",
     "verdict": "BLOCKED",
+    "gate_independence": "A qualifying natural capture is necessary input provenance but does not by itself prove TLSNotary alpha.15 verification, authenticated disclosure, exact ranges, digest, binding validation, or strict Result construction",
     "upstream_fixture": {
       "path": "crates/attestation/tests/fixtures/presentation.bin",
       "sha256": "cb9b3befb43df5157a4d5ac52080ba19d842f191fa346bfda1dfc4927b37e5b6",
@@ -219,7 +245,7 @@
       "test -d /home/ogu-h/Documents/GitHub/FUSOU/packages/FUSOU-TLSN-VERIFIER"
     ],
     "upstream_verification": "The alpha.15 fixture verification command is recorded above and remains valid for P0-02 only",
-    "natural_capture_reproduction": "Requires authorized client/server access and a privacy-approved raw capture collector; no run is claimed by this artifact"
+    "natural_capture_reproduction": "Requires an authorized supported Game Client used through ordinary FUSOU-APP gameplay, an allowlisted Game Server, and a privacy-approved passive raw capture collector; no standalone request, replay, injection, or run is claimed by this artifact"
   },
   "decision": {
     "P0-04": "BLOCKED",

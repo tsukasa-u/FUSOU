@@ -46,8 +46,10 @@ response lifecycle as the message-boundary authority. Request and response
 ranges use direction-local offsets in `request-wire.bin` and
 `response-wire.bin`; the capture layer does not implement a competing HTTP
 parser. Only requests whose parsed target contains
-`/api_get_member/require_info` are persisted. Handler-visible body capture is
-not combined with the raw artifact.
+`/api_get_member/require_info` are persisted when they occur in an existing
+client session. Handler-visible body capture is not combined with the raw
+artifact. This is a passive observer: the hook does not generate, inject,
+replay, retry, or submit a Game Server request.
 
 The hook uses one-byte reads on the client-facing stream. This prevents Hyper
 read-ahead from consuming bytes belonging to a later persistent request before
@@ -100,6 +102,13 @@ count as natural Game Client evidence and does not update the Phase 0 ledger:
 - `P0-04 = BLOCKED`;
 - `P0-05 = BLOCKED`;
 - `IMPLEMENTATION = NO-GO` remains unchanged.
+
+Natural evidence must instead come from ordinary FUSOU-APP gameplay in a
+manually controlled session, with private raw storage and a recorded privacy
+review. The repository does not currently prove which gameplay action triggers
+the natural `require_info` request. CI can rerun the synthetic integration or
+validate a previously sanitized fixture, but it must not generate a standalone
+Game Server request and call it natural evidence.
 
 No TLSNotary runtime, verifier, Claim, database migration, production key
 registry, Game Server re-submission, or natural credential is part of this

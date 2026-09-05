@@ -443,7 +443,16 @@ Redirect: forbidden
 
 `api_port/port` その他の API を Identity Authority に使用してはならない。Proxy は Game client が自然に送信した `require_info` に server-issued binding header を一度だけ付加して処理し、Identity 用 request を新規生成してはならない。Binding がない request は通常 gameplay として扱い、Identity proof の入力にしてはならない。
 
-過去の非決定的notebook観測では`api_start2/getData -> require_info -> api_port/port`の順とJSON Number tokenが見られたが、これはevidenceでもproduction invariantでもない。P0-04はsorted input manifest、各capture SHA-256、collector version、deterministic script、machine-readable reportを`docs/security/evidence/require-info-corpus-v1/`へcheck-inし、実Game clientで再実行して初めてPASSとする。Repository外path、未sort directory traversal、手集計件数をPASS根拠にしない。
+Natural evidence for this path MUST come only from ordinary FUSOU-APP startup
+and gameplay using the supported Game Client and an allowlisted Game Server.
+The proxy and capture harness are observers of the client's existing logical
+request; they MUST NOT generate a standalone Game Server request, inject a
+request into the client, replay a captured request, or retry a forwarded
+request. The repository does not establish which gameplay action first causes
+`require_info`; that timing is a manual observation result, not a DTO, parser,
+or synthetic-test fact.
+
+過去の非決定的notebook観測では`api_start2/getData -> require_info -> api_port/port`の順とJSON Number tokenが見られたが、これはevidenceでもproduction invariantでもない。P0-04は、通常のFUSOU-APP gameplayで手動取得したnatural provenance、各capture SHA-256、collector version、framing/compression/size、privacy reviewを含むmachine-readable reportを要求する。raw artifactはprivate storageに保持し、repositoryにはprivacy review済みのsanitized fixtureだけを置く。CIはfixtureとmanifestの構造を検証できるが、natural provenanceを生成・自動承認してはならない。
 
 ### 4.2 Critical Path
 
