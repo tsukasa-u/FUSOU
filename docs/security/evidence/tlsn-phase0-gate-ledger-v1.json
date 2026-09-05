@@ -175,13 +175,13 @@
       "status": "BLOCKED",
       "group": "P0-C Repository / Architecture Validation",
       "stage": "MUST_KNOW_BEFORE_IMPLEMENTATION",
-      "reason": "the upstream API represents sent/received RangeSet disclosure, but no FUSOU authenticated coverage presentation, authenticated parser evidence, digest golden, or privacy input exists; an offline parser foundation is not sufficient for this gate",
-      "evidence": ["E-P0-05-001", "E-UPSTREAM-004", "E-REPO-001"],
+      "reason": "the sealed alpha.15 adapter boundary and offline parser foundation are implemented, but no FUSOU authenticated coverage presentation, authenticated parser evidence, digest golden, or privacy input exists; implementation plumbing is not sufficient for this gate",
+      "evidence": ["E-P0-05-001", "E-P0-05-002", "E-UPSTREAM-004", "E-REPO-001"],
       "specification_impact": "natural captureは入力provenanceに過ぎず、binding headerと必要なparser bytesをauthenticated transcriptへ含め、alpha.15 verification、exact ranges、digest、strict Resultをfixtureで証明するまでprofile range contractを凍結しない",
-      "implementation_impact": "Dedicated Verifierとparser fixtureを作成するまで実装しない",
-      "evidence_ids": ["E-P0-05-001", "E-UPSTREAM-004", "E-REPO-001"],
-      "finding": "alpha.15 upstream Presentation fixtureのverification成功はP0-02の証拠に限られ、FUSOU require_infoのauthenticated request/response disclosure、server identity、binding header、range、digest、strict parser negative casesを証明しない。Dedicated Verifier、accepted full request/response presentation、disclosure range fixture、digest golden、privacy review inputはrepositoryに存在しない。詳細は [tlsn-p0-04-p0-05-evidence-attempt-v1.json](tlsn-p0-04-p0-05-evidence-attempt-v1.json) に固定した。",
-      "next_action": "自然capture取得後にのみ、選定alpha.15 adapter境界でfull request/response disclosure、strict framing/range/digest validation、binding header検証、negative matrix、privacy reviewを実証する。自然captureの存在だけでP0-05をPASSにしてはならない。"
+      "implementation_impact": "offline parserとsealed adapter boundaryは実装済みだが、alpha.15 dependency/link、trusted allowlist registry、Dedicated Verifier、real Presentation fixtureが揃うまでruntime implementationとP0-05 PASSを認めない",
+      "evidence_ids": ["E-P0-05-001", "E-P0-05-002", "E-UPSTREAM-004", "E-REPO-001"],
+      "finding": "alpha.15 upstream Presentation fixtureのverification成功はP0-02の証拠に限られ、FUSOU require_infoのauthenticated request/response disclosure、server identity、binding header、range、digest、strict parser negative casesを証明しない。新しいadapterはprivate verified-output hook、full disclosure、fixed profile、digest、Result flowをfail-closedで定義したが、Presentation::verify、Notary signature/commitment、production allowlist registry、accepted full request/response presentation、privacy review inputはrepositoryに存在しない。詳細は [tlsn-p0-05-alpha15-adapter-v1.md](tlsn-p0-05-alpha15-adapter-v1.md) に固定した。",
+      "next_action": "自然capture取得後にのみ、選定alpha.15 dependencyをlinkしたadapterでPresentation verification、full request/response disclosure、strict framing/range/digest validation、binding header検証、negative matrix、privacy reviewを実証する。offline parserまたはadapter plumbingの成功でP0-05をPASSにしてはならない。"
     },
     {
       "id": "P0-06",
@@ -412,6 +412,11 @@
       "id": "E-P0-05-001",
       "artifact": "tlsn-p0-04-p0-05-evidence-attempt-v1.json",
       "scope": "P0-05 disclosure attempt、alpha.15 upstream fixtureのP0-02限定 qualification、FUSOU transcript/range/digest/binding/strict-negative evidenceの不存在。natural captureはauthenticated disclosureの十分条件ではなく、P0-05はBLOCKED。"
+    },
+    {
+      "id": "E-P0-05-002",
+      "artifact": "tlsn-p0-05-alpha15-adapter-v1.md",
+      "scope": "sealed alpha.15 adapter boundary、fixed require_info disclosure profile、full transcript digest/range checks、Result flow、negative plumbing tests、および未接続cryptographic/runtime sub-gatesの明示。"
     }
   ],
   "decision": {

@@ -171,6 +171,17 @@
     "status": "NOT_OBTAINED",
     "verdict": "BLOCKED",
     "gate_independence": "A qualifying natural capture is necessary input provenance but does not by itself prove TLSNotary alpha.15 verification, authenticated disclosure, exact ranges, digest, binding validation, or strict Result construction",
+    "adapter_boundary": {
+      "artifact": "docs/security/evidence/tlsn-p0-05-alpha15-adapter-v1.md",
+      "status": "IMPLEMENTED_BUT_CRYPTOGRAPHIC_BACKEND_UNAVAILABLE",
+      "sealed_transcript_type": "AuthenticatedTranscript",
+      "presentation_entry_point": "presentation.verify(&CryptoProvider::default())?.attestation.header.id.0",
+      "unavailable_behavior": "verify_alpha15_presentation returns UpstreamImplementationUnavailable",
+      "caller_supplied_transcript_bypass": "REJECTED_BY_API_SHAPE",
+      "production_server_allowlist": "FAILS_CLOSED_UNTIL_REGISTRY_IS_LINKED",
+      "mock_test_classification": "MOCK_TLSN_VERIFICATION",
+      "p0_05_effect": "NO_CHANGE; BLOCKED"
+    },
     "upstream_fixture": {
       "path": "crates/attestation/tests/fixtures/presentation.bin",
       "sha256": "cb9b3befb43df5157a4d5ac52080ba19d842f191fa346bfda1dfc4927b37e5b6",
@@ -196,7 +207,7 @@
       "compression_and_framing_check": "NOT_OBTAINED"
     },
     "strict_negative_matrix": {
-      "status": "NOT_RUN",
+      "status": "LOCAL_ADAPTER_NEGATIVES_PASSED_REAL_PRESENTATION_MATRIX_NOT_RUN",
       "cases": [
         "malformed input",
         "truncated input",
@@ -213,7 +224,7 @@
         "wrong binding header",
         "request/response mismatch"
       ],
-      "authority_parser_status": "An offline strict Result/transcript parser foundation now exists at packages/FUSOU-TLSN-VERIFIER, but no identity-authoritative authenticated parser path exists; TLSNotary presentation verification, Notary signature validation, and FUSOU authenticated disclosure evidence remain NOT_OBTAINED"
+      "authority_parser_status": "An offline strict Result/transcript parser foundation and sealed adapter plumbing now exist at packages/FUSOU-TLSN-VERIFIER; local tests cover modified transcript bytes, modified ranges, partial disclosure, wrong identity, unavailable backend, and canonical Result flow, but no identity-authoritative authenticated parser path is active; TLSNotary presentation verification, Notary signature validation, and FUSOU authenticated disclosure evidence remain NOT_OBTAINED"
     },
     "upstream_boundary": {
       "available": [
