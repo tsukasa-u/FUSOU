@@ -62,7 +62,7 @@ FUSOU runtimeにはまだTLSNotary dependencyがなく、runtime実装は開始�
 
 2026-09-04の再現可能なinventoryで、`P0-04`のnatural require_info captureは0件だった。`TEST_DATA_PATH`、`TEST_DATA_REPO_PATH`、repository-local proxy data、`docs/security/evidence/require-info-corpus-v1/`、tracked capture/transcript filesはこのrunでは利用できなかった。既存proxyはrequest/response bodyをcollectして保存・通知できるが、raw HTTP line、全headers、framing、transcript offset、request/response boundaryを保存する実装ではない。認証情報・cookie・token・user-specific captureは収集せず、synthetic fixtureも作成していない。
 
-`P0-05`については、alpha.15のupstream `presentation.bin` verificationはP0-02のfixture evidenceに限られる。FUSOUのrequire_info Presentation、server identity、binding header、request/response ranges、full-transcript digest、strict parser negative matrix、privacy-reviewed disclosure fixtureは取得していない。したがって両gateは `BLOCKED` のままとし、詳細な実行結果・不足項目・再現手順は [P0-04/P0-05 evidence attempt](tlsn-p0-04-p0-05-evidence-attempt-v1.json) に固定する。仕様変更、runtime実装、FUSOU TLSNotary dependency追加は行わない。
+`P0-05`については、alpha.15のupstream `presentation.bin` verificationはP0-02のfixture evidenceに限られる。FUSOUのrequire_info Presentation、server identity、binding header、request/response ranges、full-transcript digest、authenticated parser evidence、privacy-reviewed disclosure fixtureは取得していない。repositoryにはoffline strict parser foundationとnegative testsを追加したが、これはTLSNotary-authenticated disclosureの代替ではない。したがってgateは `BLOCKED` のままとし、詳細な実行結果・不足項目・再現手順は [P0-04/P0-05 evidence attempt](tlsn-p0-04-p0-05-evidence-attempt-v1.json) に固定する。仕様変更、runtime実装、FUSOU TLSNotary dependency追加は行わない。
 
 ### Capability matrix
 

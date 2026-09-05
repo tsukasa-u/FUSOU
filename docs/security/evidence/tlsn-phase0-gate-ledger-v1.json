@@ -175,7 +175,7 @@
       "status": "BLOCKED",
       "group": "P0-C Repository / Architecture Validation",
       "stage": "MUST_KNOW_BEFORE_IMPLEMENTATION",
-      "reason": "the upstream API represents sent/received RangeSet disclosure, but no FUSOU authenticated coverage presentation, parser, digest golden, or privacy input exists",
+      "reason": "the upstream API represents sent/received RangeSet disclosure, but no FUSOU authenticated coverage presentation, authenticated parser evidence, digest golden, or privacy input exists; an offline parser foundation is not sufficient for this gate",
       "evidence": ["E-P0-05-001", "E-UPSTREAM-004", "E-REPO-001"],
       "specification_impact": "natural captureは入力provenanceに過ぎず、binding headerと必要なparser bytesをauthenticated transcriptへ含め、alpha.15 verification、exact ranges、digest、strict Resultをfixtureで証明するまでprofile range contractを凍結しない",
       "implementation_impact": "Dedicated Verifierとparser fixtureを作成するまで実装しない",

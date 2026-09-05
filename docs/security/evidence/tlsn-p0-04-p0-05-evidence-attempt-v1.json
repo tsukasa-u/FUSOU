@@ -213,7 +213,7 @@
         "wrong binding header",
         "request/response mismatch"
       ],
-      "authority_parser_status": "No FUSOU identity-authoritative strict Result/transcript parser exists in the repository"
+      "authority_parser_status": "An offline strict Result/transcript parser foundation now exists at packages/FUSOU-TLSN-VERIFIER, but no identity-authoritative authenticated parser path exists; TLSNotary presentation verification, Notary signature validation, and FUSOU authenticated disclosure evidence remain NOT_OBTAINED"
     },
     "upstream_boundary": {
       "available": [

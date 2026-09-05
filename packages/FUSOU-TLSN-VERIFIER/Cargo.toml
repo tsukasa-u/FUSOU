@@ -1,0 +1,18 @@
+[package]
+name = "fusou-tlsn-verifier"
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+description = "Offline strict parser and canonicalization foundation for the FUSOU TLSNotary adapter"
+
+[dependencies]
+base64 = "0.22"
+flate2 = "1.0"
+sha2 = "0.10"
+thiserror = "1.0"
+uuid = { version = "1.16", features = ["v4"] }
+
+[dev-dependencies]
+
+[lints.rust]
+unsafe_code = "forbid"
