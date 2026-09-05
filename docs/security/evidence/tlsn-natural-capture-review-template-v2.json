@@ -3,6 +3,13 @@
   "review_id": "REPLACE_WITH_REVIEW_ID",
   "capture_id": "REPLACE_WITH_CAPTURE_ID",
   "capture_complete_artifact_sha256": "REPLACE_WITH_64_HEX_SHA256",
+  "review_semantics": {
+    "natural_evidence_gate": "artifact_integrity + natural_provenance + allowlisted_game_server_identity + require_info_request_response",
+    "privacy_review_is_separate": true,
+    "operational_isolation_is_separate": true,
+    "unresolved_external_transmission_blocks": ["P0-15", "privacy-qualified clean-capture claims"],
+    "unresolved_external_transmission_does_not_block": ["P0-04 natural evidence"]
+  },
   "observation": {
     "observed_at_utc": "REPLACE_WITH_RFC3339_TIMESTAMP",
     "app_version": "REPLACE_WITH_CAPTURE_APP_VERSION",

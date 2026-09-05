@@ -155,12 +155,17 @@ The existing Capture Harness description should be read with the following quali
 
 The `ExactWireMessage` input contract remains valid, but it is only an artifact contract. It does not prove that the current proxy can produce the required input. The producer must also record the stream identity, direction, ordering, message boundary method, and the layer identity (`CLIENT_FACING_TLS_PLAINTEXT_HTTP`) in its provenance.
 
-## Gate and implementation disposition
+## Historical Gate and Implementation Disposition
+
+This is a pre-natural-capture investigation snapshot. Its P0-04 status is
+superseded by the later exact-wire artifact review and the corrected ledger;
+the implementation and P0-05 conclusions remain current.
 
 This investigation changes no gate result and adds no runtime collector.
 
 - Capture status remains `HANDLER_VISIBLE_BODY_ONLY_NOT_RAW_WIRE`.
-- `P0-04 = BLOCKED`; natural capture count remains `0`.
+- `P0-04 = BLOCKED` in this pre-capture snapshot; the current corrected ledger
+	records the later natural-evidence result separately.
 - `P0-05 = BLOCKED`; no authenticated FUSOU disclosure, range evidence, digest golden, binding evidence, or strict verifier fixture exists.
 - `PASS = 3`, `BLOCKED = 14`, `FAIL = 0` remains unchanged.
 - `IMPLEMENTATION = NO-GO` remains unchanged.

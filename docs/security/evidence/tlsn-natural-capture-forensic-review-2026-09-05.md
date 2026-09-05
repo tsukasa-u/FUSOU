@@ -1,6 +1,6 @@
 # Historical Natural Capture Forensic Review
 
-Status: `P0-04 BLOCKED`. This review uses existing local artifacts and source inspection only. It did not access the Game Server, replay the capture, or recollect traffic.
+Status: `P0-04 PASS under corrected natural-evidence semantics; P0-15 BLOCKED`. This review uses existing local artifacts and source inspection only. It did not access the Game Server, replay the capture, or recollect traffic.
 
 ## Reviewed Artifact
 
@@ -12,7 +12,7 @@ Status: `P0-04 BLOCKED`. This review uses existing local artifacts and source in
 - Operator provenance: ordinary FUSOU-APP startup and ordinary gameplay were reported; no standalone request, injection, replay, or retry was reported.
 - Raw artifact: remains private and is not committed.
 
-The natural provenance claim is supported by the external operator record and the exact-wire verifier. It is not, by itself, a privacy or side-effect qualification.
+The natural provenance claim is supported by the external operator record and the exact-wire verifier. The request is the observed `POST /kcsapi/api_get_member/require_info` exchange with an HTTP 200 response and the allowlisted Game Server identity recorded in the candidate/review metadata. These facts qualify the natural-evidence requirement; they are not, by themselves, a privacy or side-effect qualification.
 
 ## Historical Upload and Persistence Findings
 
@@ -52,7 +52,7 @@ All times below are local APP log time in JST; the capture manifest is UTC.
 - “No successful upload was logged”: supported by the reviewed local log, with the ordinary limitation that logs are not a network trace.
 - “No upload attempt occurred”: false for the session; asset upload attempts and retry attempts are recorded.
 - “No external transmission occurred”: unsupported. Requests were sent to the configured FUSOU endpoints, and local evidence cannot establish that no request metadata or payload bytes were accepted before the 401 responses.
-- “The captured `require_info` bytes were uploaded”: not established by the reviewed source, pending metadata, or logs. The asset path explicitly skips `kcsapi`; this does not qualify the session because other external upload side effects were confirmed and the complete transmission boundary is unresolved.
+- “The captured `require_info` bytes were uploaded”: not established by the reviewed source, pending metadata, or logs. The asset path explicitly skips `kcsapi`; the unresolved transmission boundary disqualifies privacy/clean-capture claims, but does not establish that the observed `require_info` request was fabricated or invalidate its natural provenance.
 
 ## Gate Decision
 
@@ -62,14 +62,15 @@ The side-effect-aware v2 review records:
 - `external_transmission_status=POSSIBLE_UNRESOLVED`;
 - `privacy_disposition=DISQUALIFIED`;
 - `privacy_qualified=false`;
-- `P0-04=BLOCKED`;
+- `P0-04=PASS` under the corrected model: exact-wire integrity, natural provenance, allowlisted Game Server identity, and `require_info` evidence pass;
+- `P0-15=BLOCKED` because privacy/non-persistence/redaction approval is not qualified;
 - `P0-05=BLOCKED`;
 - `IMPLEMENTATION=NO-GO`.
 
-The old v1 review's `natural_provenance=true` output must not be treated as a final P0-04 pass because it had no fields for launcher revision, app upload state, pending uploads, or external transmission disposition.
+The old v1 review's `natural_provenance=true` output did not qualify privacy or operational isolation because it had no fields for launcher revision, app upload state, pending uploads, or external transmission disposition. Those missing fields do not invalidate the separate natural-evidence result under the corrected P0-04 model.
 
 ## Future Clean Session Conditions
 
 The updated manual launcher now temporarily disables proxy persistence, database providers, asset upload, custom senders, authentication bootstrap, pending-upload retries, and snapshot sync. The app honors `deny_auth`, suppresses retry services while authentication is denied, and rejects manual snapshot sync while asset upload is disabled. The temporary configuration is restored after the launcher exits.
 
-These changes establish safer collection conditions for a future operator-controlled session. They do not retroactively qualify this historical capture and do not authorize recollection in this review.
+These changes establish safer collection conditions for a future operator-controlled session. They do not retroactively qualify this historical capture for privacy or operational isolation and do not authorize recollection in this review. The existing capture is sufficient for the corrected P0-04 natural-evidence decision; P0-15 remains blocked.

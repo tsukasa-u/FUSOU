@@ -10,7 +10,7 @@ Final classification: `NOT_SAFE_FOR_CLEAN_CAPTURE`.
 
 The current `FUSOU-APP/scripts/testplay-verify.mjs` launcher disables the principal configured persistence and upload features for a fresh process, and its local override/restoration behavior is covered by deterministic tests. It does not provide a process-wide network deny boundary, however. The source contains reachable external sinks that are independent of the disabled asset/database flags, and the launcher does not close the remaining configuration, process, or signal races. A future capture started with this launcher must not be represented as privacy-qualified solely because the launcher completed normally.
 
-This classification is independent of natural provenance. It does not make the historical capture natural or unnatural; that capture remains disqualified for P0-04 because its privacy qualification is blocked.
+This classification is independent of natural provenance and P0-04 natural-evidence validity. It does not make the historical capture natural or unnatural. The historical capture is not privacy-qualified, but its unrelated upload attempts do not establish that the observed `require_info` request was fabricated or invalidate its exact-wire Game Client/Game Server provenance.
 
 ## Scope and method
 
@@ -128,16 +128,17 @@ Normal exit restores the exact original string or removes an originally absent f
 
 ## Historical capture statement
 
-The historical natural `require_info` capture may retain natural provenance based on its observed gameplay path, but it is not privacy-qualified. Earlier forensic review identified application-side persistence/upload and retry exposure in the historical run. The current audit does not alter that result and does not retroactively classify the historical artifact as P0-04 eligible.
+The historical natural `require_info` capture retains natural provenance based on its observed gameplay path and passes the corrected P0-04 natural-evidence checks. Earlier forensic review identified application-side persistence/upload and retry exposure in the historical run, so it is not privacy-qualified and remains unsuitable for a clean-capture claim. The current audit preserves that operational result without using it to invalidate P0-04.
 
 Required gates remain:
 
-- `P0-04=BLOCKED`;
+- `P0-04=PASS` under corrected natural-evidence semantics;
+- `P0-15=BLOCKED`;
 - `P0-05=BLOCKED`;
 - `IMPLEMENTATION=NO-GO`.
 
-## Required changes before a clean capture claim
+## Required changes before a privacy-qualified clean capture claim
 
-A future clean-capture launcher should have a single authoritative runtime deny policy enforced at every outbound sink, including period-tag fetch, deep-link sync, Discord, auth refresh/provider-token fetch, retries, storage providers, sender workers, snapshot upload, and `Uploader::upload` itself. It should also reject an existing app instance, use process-group/job cleanup, make config replacement atomic, and provide crash recovery or an isolated config path rather than mutating the normal roaming config.
+A future privacy-qualified clean-capture launcher should have a single authoritative runtime deny policy enforced at every outbound sink, including period-tag fetch, deep-link sync, Discord, auth refresh/provider-token fetch, retries, storage providers, sender workers, snapshot upload, and `Uploader::upload` itself. It should also reject an existing app instance, use process-group/job cleanup, make config replacement atomic, and provide crash recovery or an isolated config path rather than mutating the normal roaming config. These controls are not required merely to establish P0-04 natural provenance when the observed `require_info` artifact and its external provenance record already pass.
 
 Until those controls are implemented and tested, the only supportable claim is that this launcher disables selected configured persistence/upload features for a fresh process. It does not support a claim of zero external side effects.

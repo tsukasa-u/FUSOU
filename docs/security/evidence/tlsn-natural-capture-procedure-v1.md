@@ -61,7 +61,7 @@ The record must copy the candidate's capture ID, complete artifact SHA-256, APP 
 cargo run --manifest-path packages/FUSOU-PROXY/proxy-https/Cargo.toml --bin verify_capture -- /absolute/private/capture-root/capture-id /absolute/private/natural-review.json
 ```
 
-The verifier returns `natural_provenance=true` only as the result of matching the external manual record. It also reports `privacy_qualified` and `p0_04`; `natural_provenance=true` with unresolved transmission remains `p0_04=BLOCKED`. It does not rewrite the capture manifest or mark the collector artifact as naturally authoritative.
+The verifier returns `natural_provenance=true` only as the result of matching the external manual record. It also reports `artifact_integrity`, `game_server_identity_verified`, `require_info_evidence`, `operational_isolation`, `privacy_review_complete`, and `privacy_qualified`. `p0_04` is ready only when artifact integrity, natural provenance, the allowlisted Game Server identity, and the exact `require_info` request/response evidence all pass. Unresolved external transmission makes the privacy/operational result unqualified, but does not invalidate otherwise valid natural Game Server provenance or block P0-04. It does not rewrite the capture manifest or mark the collector artifact as naturally authoritative.
 
 ## Raw-to-Sanitized Workflow
 
@@ -82,7 +82,7 @@ Discard the candidate from natural-evidence consideration when any of these occu
 - the session used a standalone Game Server access path;
 - the capture was incomplete, malformed, or not client-facing plaintext;
 - the allowlisted server, client, or APP version cannot be matched;
-- raw secrets remain in the sanitized fixture;
+- raw secrets remain in the sanitized fixture: do not approve the privacy review or publish the sanitized fixture; this is a P0-15/handling failure, not evidence that the observed `require_info` request was fabricated;
 - the operator cannot explain the provenance without inferring the unknown trigger action.
 
-This procedure does not implement TLSNotary, an authenticated disclosure, a database migration, or a production rollout. P0-04 requires both `natural_provenance=true` and `privacy_qualified=true`; a known upload attempt or unresolved external transmission blocks it. P0-05 remains `BLOCKED` until the separate authenticated disclosure and strict verifier evidence exist. `IMPLEMENTATION = NO-GO` remains unchanged.
+This procedure does not implement TLSNotary, an authenticated disclosure, a database migration, or a production rollout. P0-04 requires valid exact-wire artifact integrity, natural provenance from ordinary Game Client/Game Server communication, allowlisted Game Server identity, and the natural `require_info` request/response checks. `privacy_qualified` and process-wide operational isolation are not P0-04 prerequisites; they are separately reported for P0-15 and clean-capture handling. P0-05 remains `BLOCKED` until the separate authenticated disclosure and strict verifier evidence exist. `IMPLEMENTATION = NO-GO` remains unchanged.

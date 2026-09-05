@@ -98,8 +98,9 @@ persistent HTTP/1.1 connection, fixed and chunked request framing, fragmented
 request/response IO, directional offsets, and per-message hashes. It does not
 count as natural Game Client evidence and does not update the Phase 0 ledger:
 
-- natural capture count remains `0`;
-- `P0-04 = BLOCKED`;
+- natural capture count was `0` at the time of this maintenance snapshot;
+- `P0-04 = BLOCKED` in that historical snapshot; the current corrected ledger
+  records the later natural-evidence result;
 - `P0-05 = BLOCKED`;
 - `IMPLEMENTATION = NO-GO` remains unchanged.
 

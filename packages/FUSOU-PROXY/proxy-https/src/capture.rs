@@ -1,5 +1,5 @@
 use chrono::{DateTime, SecondsFormat, Utc};
-use http::{request, response, HeaderMap, Version};
+use http::{request, response, HeaderMap, Uri, Version};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{
@@ -976,10 +976,22 @@ pub fn verify_capture_evidence(
 pub struct NaturalCaptureReviewVerification {
     pub capture: CaptureVerification,
     pub review_id: String,
+    pub artifact_integrity: bool,
     pub natural_provenance: bool,
+    pub game_server_identity_verified: bool,
+    pub require_info_evidence: bool,
+    pub natural_evidence_qualified: bool,
+    pub operational_isolation: bool,
+    pub privacy_review_complete: bool,
     pub privacy_qualified: bool,
     pub external_transmission_status: String,
     pub privacy_disposition: String,
+}
+
+impl NaturalCaptureReviewVerification {
+    pub fn p0_04_ready(&self) -> bool {
+        self.natural_evidence_qualified
+    }
 }
 
 pub fn verify_natural_capture_review(
@@ -992,15 +1004,28 @@ pub fn verify_natural_capture_review(
         serde_json::from_slice(&fs::read(capture_dir.join(MANIFEST_FILE))?)?;
     let review: NaturalCaptureReview = serde_json::from_slice(&fs::read(review_path)?)?;
     validate_natural_capture_review(&manifest, &review)?;
-    let privacy_qualified = review.operational_review.proxy_persistence_disabled
+    let privacy_review_complete = review.privacy_review.raw_artifact_retained_private
+        && review.privacy_review.no_raw_artifact_committed
+        && review.privacy_review.sanitized_fixture_reviewed
+        && review
+            .privacy_review
+            .no_credentials_or_session_tokens_in_sanitized_fixture;
+    let operational_isolation = review.operational_review.proxy_persistence_disabled
         && review.operational_review.app_uploads_disabled
         && review.operational_review.pending_uploads_reviewed
-        && review.operational_review.external_transmission_status == "RESOLVED_ABSENT"
-        && review.operational_review.privacy_disposition == "QUALIFIED";
+        && review.operational_review.external_transmission_status == "RESOLVED_ABSENT";
+    let privacy_qualified =
+        privacy_review_complete && review.operational_review.privacy_disposition == "QUALIFIED";
     Ok(NaturalCaptureReviewVerification {
         capture,
         review_id: review.review_id,
+        artifact_integrity: true,
         natural_provenance: true,
+        game_server_identity_verified: true,
+        require_info_evidence: true,
+        natural_evidence_qualified: true,
+        operational_isolation,
+        privacy_review_complete,
         privacy_qualified,
         external_transmission_status: review.operational_review.external_transmission_status,
         privacy_disposition: review.operational_review.privacy_disposition,
@@ -1088,6 +1113,12 @@ fn validate_natural_capture_review(
             "natural capture review does not match capture provenance".to_string(),
         ));
     }
+    if manifest.core.capture_kind != "require_info" || manifest.core.wire_fidelity != "EXACT_WIRE" {
+        return Err(CaptureError::InvalidEvidencePolicy(
+            "natural capture review requires an exact-wire require_info artifact".to_string(),
+        ));
+    }
+    validate_require_info_exchange(&manifest.core, &review.observation.allowlisted_game_server)?;
     if !review.observation.ordinary_fusou_app_startup
         || !review.observation.ordinary_gameplay
         || !review.observation.existing_client_generated_request
@@ -1105,16 +1136,11 @@ fn validate_natural_capture_review(
             "natural capture review does not satisfy passive observation policy".to_string(),
         ));
     }
-    if !review.privacy_review.raw_artifact_retained_private
-        || !review.privacy_review.no_raw_artifact_committed
-        || !review.privacy_review.sanitized_fixture_reviewed
-        || !review
-            .privacy_review
-            .no_credentials_or_session_tokens_in_sanitized_fixture
-        || review.privacy_review.reviewer_role.trim().is_empty()
+    if review.privacy_review.reviewer_role.trim().is_empty()
+        || review.privacy_review.sanitized_fixture_id.trim().is_empty()
     {
         return Err(CaptureError::InvalidEvidencePolicy(
-            "natural capture privacy review is incomplete".to_string(),
+            "natural capture privacy review record is incomplete".to_string(),
         ));
     }
     validate_timestamp(&review.observation.observed_at_utc)?;
@@ -1165,6 +1191,98 @@ fn validate_natural_capture_review(
         ));
     }
     Ok(())
+}
+
+fn validate_require_info_exchange(
+    manifest: &CaptureManifestCore,
+    allowlisted_game_server: &str,
+) -> Result<(), CaptureError> {
+    let request = manifest
+        .messages
+        .iter()
+        .find(|message| message.direction == "request")
+        .ok_or_else(|| {
+            CaptureError::InvalidEvidencePolicy(
+                "natural capture is missing the require_info request message".to_string(),
+            )
+        })?;
+    let response = manifest
+        .messages
+        .iter()
+        .find(|message| message.direction == "response")
+        .ok_or_else(|| {
+            CaptureError::InvalidEvidencePolicy(
+                "natural capture is missing the require_info response message".to_string(),
+            )
+        })?;
+    if request.method.as_deref() != Some("POST") {
+        return Err(CaptureError::InvalidEvidencePolicy(
+            "natural capture request must use POST".to_string(),
+        ));
+    }
+    let target = request.target.as_deref().ok_or_else(|| {
+        CaptureError::InvalidEvidencePolicy("natural capture request target is missing".to_string())
+    })?;
+    let uri = target.parse::<Uri>().map_err(|_| {
+        CaptureError::InvalidEvidencePolicy(
+            "natural capture request target is not a valid URI".to_string(),
+        )
+    })?;
+    if uri.path() != "/kcsapi/api_get_member/require_info" {
+        return Err(CaptureError::InvalidEvidencePolicy(
+            "natural capture request is not require_info".to_string(),
+        ));
+    }
+    let expected_host = parse_server_host(allowlisted_game_server).ok_or_else(|| {
+        CaptureError::InvalidEvidencePolicy(
+            "allowlisted game server is not a valid host".to_string(),
+        )
+    })?;
+    let target_host = uri
+        .authority()
+        .map(|authority| authority.host().to_ascii_lowercase())
+        .or_else(|| {
+            manifest_request_header(request, "host")
+                .and_then(|value| String::from_utf8(value).ok())
+                .and_then(|value| parse_server_host(&value))
+        })
+        .ok_or_else(|| {
+            CaptureError::InvalidEvidencePolicy(
+                "natural capture request has no game server authority".to_string(),
+            )
+        })?;
+    if target_host != expected_host {
+        return Err(CaptureError::InvalidEvidencePolicy(
+            "natural capture request target is not the allowlisted game server".to_string(),
+        ));
+    }
+    if response.status != Some(200) {
+        return Err(CaptureError::InvalidEvidencePolicy(
+            "natural capture require_info response is not HTTP 200".to_string(),
+        ));
+    }
+    Ok(())
+}
+
+fn parse_server_host(value: &str) -> Option<String> {
+    let value = value.trim();
+    let uri_value = if value.contains("://") {
+        value.to_string()
+    } else {
+        format!("https://{value}")
+    };
+    uri_value.parse::<Uri>().ok().and_then(|uri| {
+        uri.authority()
+            .map(|authority| authority.host().to_ascii_lowercase())
+    })
+}
+
+fn manifest_request_header(message: &MessageManifest, name: &str) -> Option<Vec<u8>> {
+    message
+        .headers
+        .iter()
+        .find(|header| header.name.eq_ignore_ascii_case(name))
+        .and_then(|header| hex_decode(&header.value_hex))
 }
 
 fn validate_timestamp(value: &str) -> Result<(), CaptureError> {
@@ -1311,6 +1429,21 @@ fn hex_encode(bytes: &[u8]) -> String {
         output.push(HEX[(byte & 0x0f) as usize] as char);
     }
     output
+}
+
+fn hex_decode(value: &str) -> Option<Vec<u8>> {
+    if value.len() % 2 != 0 {
+        return None;
+    }
+    value
+        .as_bytes()
+        .chunks_exact(2)
+        .map(|pair| {
+            let high = (pair[0] as char).to_digit(16)? as u8;
+            let low = (pair[1] as char).to_digit(16)? as u8;
+            Some((high << 4) | low)
+        })
+        .collect()
 }
 
 fn sanitize_message(
@@ -1601,7 +1734,7 @@ mod tests {
 
     #[test]
     fn manual_natural_review_must_match_candidate_and_privacy_record() {
-        let request_wire = b"POST /kcsapi/api_get_member/require_info HTTP/1.1\r\n\r\nrequest";
+        let request_wire = b"POST /kcsapi/api_get_member/require_info HTTP/1.1\r\nHost: game.example.test\r\n\r\nrequest";
         let response_wire = b"HTTP/1.1 200 OK\r\n\r\nresponse";
         let request = ExactWireMessage::from_parts_with_metadata(
             request_wire,
@@ -1615,7 +1748,10 @@ mod tests {
                 target: Some("/kcsapi/api_get_member/require_info".to_string()),
                 status: None,
                 reason: None,
-                headers: Vec::new(),
+                headers: vec![CapturedHeader {
+                    name: "host".to_string(),
+                    value: b"game.example.test".to_vec(),
+                }],
             },
         )
         .expect("request boundary");
@@ -1707,14 +1843,40 @@ mod tests {
 
         let verification = verify_natural_capture_review(&capture_dir, &review_path)
             .expect("verify natural review");
+        assert!(verification.artifact_integrity);
         assert!(verification.natural_provenance);
+        assert!(verification.game_server_identity_verified);
+        assert!(verification.require_info_evidence);
+        assert!(verification.natural_evidence_qualified);
+        assert!(verification.p0_04_ready());
+        assert!(verification.operational_isolation);
         assert!(verification.privacy_qualified);
         assert_eq!(verification.review_id, "manual-review-1");
+
+        let mut wrong_target_manifest = manifest.core.clone();
+        wrong_target_manifest
+            .messages
+            .iter_mut()
+            .find(|message| message.direction == "request")
+            .expect("request message")
+            .target = Some("/kcsapi/api_get_member/other".to_string());
+        assert!(matches!(
+            validate_require_info_exchange(&wrong_target_manifest, "game.example.test"),
+            Err(CaptureError::InvalidEvidencePolicy(message))
+                if message.contains("not require_info")
+        ));
 
         let mut unresolved_review = review.clone();
         unresolved_review
             .operational_review
             .external_transmission_status = "POSSIBLE_UNRESOLVED".to_string();
+        unresolved_review
+            .operational_review
+            .proxy_persistence_disabled = false;
+        unresolved_review.operational_review.app_uploads_disabled = false;
+        unresolved_review
+            .operational_review
+            .pending_uploads_reviewed = false;
         unresolved_review.operational_review.privacy_disposition = "UNKNOWN".to_string();
         fs::write(
             &review_path,
@@ -1724,6 +1886,10 @@ mod tests {
         let unresolved_verification = verify_natural_capture_review(&capture_dir, &review_path)
             .expect("verify unresolved natural review");
         assert!(unresolved_verification.natural_provenance);
+        assert!(unresolved_verification.artifact_integrity);
+        assert!(unresolved_verification.natural_evidence_qualified);
+        assert!(unresolved_verification.p0_04_ready());
+        assert!(!unresolved_verification.operational_isolation);
         assert!(!unresolved_verification.privacy_qualified);
 
         let mut invalid_review = review;

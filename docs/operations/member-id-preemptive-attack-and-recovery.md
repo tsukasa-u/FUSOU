@@ -452,7 +452,7 @@ request. The repository does not establish which gameplay action first causes
 `require_info`; that timing is a manual observation result, not a DTO, parser,
 or synthetic-test fact.
 
-過去の非決定的notebook観測では`api_start2/getData -> require_info -> api_port/port`の順とJSON Number tokenが見られたが、これはevidenceでもproduction invariantでもない。P0-04は、通常のFUSOU-APP gameplayで手動取得したnatural provenance、各capture SHA-256、collector version、framing/compression/size、privacy reviewを含むmachine-readable reportを要求する。raw artifactはprivate storageに保持し、repositoryにはprivacy review済みのsanitized fixtureだけを置く。CIはfixtureとmanifestの構造を検証できるが、natural provenanceを生成・自動承認してはならない。
+過去の非決定的notebook観測では`api_start2/getData -> require_info -> api_port/port`の順とJSON Number tokenが見られたが、これはevidenceでもproduction invariantでもない。P0-04は、通常のFUSOU-APP gameplayで手動取得したnatural provenance、allowlisted Game Server identity、自然な`require_info` request/response、各capture SHA-256、collector version、framing/compression/sizeを含むmachine-readable reportを要求する。privacy review、non-persistence、redaction、operational isolationはP0-15および別の運用レビューとして記録するが、P0-04のnatural-evidence qualificationの入力にはしない。raw artifactはprivate storageに保持し、repositoryにはprivacy review済みのsanitized fixtureだけを置く。CIはfixtureとmanifestの構造を検証できるが、natural provenanceを生成・自動承認してはならない。
 
 ### 4.2 Critical Path
 
@@ -2640,7 +2640,7 @@ Production trafficは全GateがPASSするまでenableしない。P0-01..10とP0-
 | P0-01 | TLSNotary revision | exact commit、dependency lock、license/security review |
 | P0-02 | Attestation ID | official extraction API、opaque-byte encoding、golden bytes |
 | P0-03 | Security freshness contract | A-M分類、stale/future proof分析、Session/Challenge `v_db_now` fixture、外部timestamp authorityを追加しない理由 |
-| P0-04 | Real `require_info` | 各supported Game client build/allowlisted hostでnatural requestを1件以上captureし、Number token、HTTP framing、compression、response sizeをmanifest化 |
+| P0-04 | Real `require_info` | 各supported Game client build/allowlisted hostでnatural requestを1件以上captureし、allowlisted server identity、Number token、HTTP framing、compression、response sizeをmanifest化。privacy/non-persistence/redactionはP0-15で別判定 |
 | P0-05 | Strict disclosure profile | Dedicated Verifierで必要なrequest/response coverageを認証、選定profileのlimit boundary fixture、Resultは必要最小限のrequest-line/Host/binding-header coverage、digest golden fixture |
 | P0-06 | T3/T4 delivery lifecycle | Browser response後にsame session finalization、signed ResultのProxy -> APP -> Web byte一致 |
 | P0-07 | No FUSOU resubmission | Section 14.5でattempt <= 1、complete <= 1、正常/fallback成功はcomplete = 1、2以上 = 0件 |
@@ -2664,7 +2664,7 @@ Production trafficは全GateがPASSするまでenableしない。P0-01..10とP0-
 | P0-01 | Repository | `PASS` | documentation-only acceptanceとしてalpha.15 exact commit、upstream Cargo.lock/manifest fingerprint、scoped license/security review、distribution constraintを固定。FUSOU direct dependency未導入は明示済み | E-UPSTREAM-005, E-REPO-002 | selected revision、lock boundary、adapter ownershipを実装入力として固定 | runtime implementationを開始せず、後続実装でprofileから逸脱しない |
 | P0-02 | Protocol | `PASS` | selected alpha.15のverified extraction、exact raw 16-byte opaque encoding、fixture hash、ID/base64url、54-byte Header BCS goldenを固定 | E-UPSTREAM-005, E-UPSTREAM-006 | Attestation IDのextraction、DB/API/ClaimBinding encodingを固定 | Presentation verification成功後だけIDを抽出し、cross-language fixtureはP0-10で検証する |
 | P0-03 | Security contract | `PASS` | A-M reviewでNotary issuance-time provenanceをv1から削除し、stale/future proofの残余リスクとSession/Challenge TTLの代替を明記 | E-UPSTREAM-001, E-UPSTREAM-003, E-UPSTREAM-004 | Mを削除し、Lをserver-side `v_db_now`、Session/Challenge/device TTL、single-useで境界付ける | stale/future proof fixtureを追加するがtimestamp authorityを追加しない |
-| P0-04 | Empirical | `BLOCKED` | supported Game clientのnatural captureがない | E-REPO-001 | synthetic captureを代替にしない | captureなしにparser/profileを承認しない |
+| P0-04 | Empirical | `PASS` for the reviewed supported client/allowlisted host | historical exact-wire `require_info` artifact, external natural provenance, and allowlisted Game Server metadata pass; privacy/operational review remains separate | E-NATURAL-2026-09-05 | synthetic captureを代替にしない。unrelated app transmissionはnatural provenance invalidityの証拠ではない | P0-05/P0-15およびruntime gatesは別途BLOCKEDのまま |
 | P0-05 | Empirical | `BLOCKED` | RangeSetはあるが、FUSOUのauthenticated coverage、parser、digest goldenがない | E-UPSTREAM-004, E-REPO-001 | profile range contractをevidenceなしに固定しない | Dedicated Verifier/fixtureを作成するまで実装しない |
 | P0-06 | Empirical | `BLOCKED` | Proxy、Dedicated Verifier、Web Result delivery runtimeがない | E-REPO-001 | same-session finalizationとResult byte identityを維持する | runtime pathとdelivery fixtureを実装・検証する |
 | P0-07 | Empirical | `BLOCKED` | origin counter、send latch、fallback/retry traceがない | E-REPO-001 | Game Server request re-submission禁止を維持する | send後にretryせずcounterを実装後に測定する |
@@ -2679,7 +2679,7 @@ Production trafficは全GateがPASSするまでenableしない。P0-01..10とP0-
 | P0-16 | Empirical | `BLOCKED` | registry/key lifecycle implementationとrehearsalがない | E-REPO-001 | REVOKEDをfail closedにしProof Copyを弱めない | digest/revoke barrierを実装・rehearseする |
 | P0-17 | Environment | `BLOCKED` | storage manifest、resources、Queue drain、restore、forward recoveryがない | E-REPO-001, E-ENV-001 | partial cutoverを許可しない | provisioning/cutover barrierまでdeploymentしない |
 
-現在の集計: `PASS = 3`、`FAIL = 0`、`BLOCKED = 14`。P0-01/P0-02のPASSはdocumentation-only selection/profile freezeであり、全17 gateのPASS条件やruntime implementation GOを意味しない。runtime implementationは `NO-GO` のままとする。
+現在の補正後集計: `PASS = 4`、`FAIL = 0`、`BLOCKED = 13`。P0-04は既存private artifactの再評価によりnatural-evidenceだけをPASSとし、P0-15 privacy review、P0-05 authenticated disclosure、その他runtime gateはBLOCKEDのまま維持する。P0-01/P0-02のPASSはdocumentation-only selection/profile freezeであり、全17 gateのPASS条件やruntime implementation GOを意味しない。runtime implementationは `NO-GO` のままとする。
 
 Gate failure時は fallback実装で Security Goal を弱めず、NO-GO とする。
 

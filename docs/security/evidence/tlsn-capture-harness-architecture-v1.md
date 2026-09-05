@@ -117,10 +117,13 @@ The sanitized fixture writer is a separate explicit operation. It can redact sel
 The collector writes only `synthetic` or `natural_candidate` provenance and never
 sets `natural_provenance=true`. The read-only `verify_capture` binary can verify
 an external `NaturalCaptureReview` record against the candidate's complete
-artifact hash, runtime metadata, passive-observation assertions, and privacy
-review. The successful verifier result is the manual qualification event; it
-does not rewrite or self-authorize the collector manifest. The controlled
-procedure and review template are in [Controlled Natural Capture Procedure v1](tlsn-natural-capture-procedure-v1.md) and [Natural Capture Review Template v2](tlsn-natural-capture-review-template-v2.json).
+artifact hash, runtime metadata, passive-observation assertions, and review
+records. It reports natural evidence validity, privacy review completeness,
+and operational isolation separately. A successful natural-evidence result
+does not imply process-wide privacy isolation; unresolved unrelated app
+transmission is a separate P0-15/operational result. The verifier does not
+rewrite or self-authorize the collector manifest. The controlled procedure
+and review template are in [Controlled Natural Capture Procedure v1](tlsn-natural-capture-procedure-v1.md) and [Natural Capture Review Template v2](tlsn-natural-capture-review-template-v2.json).
 
 No capture artifact is automatically copied into `docs/security/evidence/`.
 
@@ -135,14 +138,20 @@ The Capture Harness records bytes and provenance metadata. It does not:
 - select or alter the frozen TLSNotary alpha.15 profile;
 - update the Phase 0 gate ledger.
 
-P0-04 remains `BLOCKED` until a real natural Game Client/Game Server capture exists. P0-05 remains `BLOCKED` until a real authenticated alpha.15 disclosure fixture and strict verifier evidence exist. Synthetic Harness tests prove only harness behavior.
+P0-04 is satisfied only by a real natural Game Client/Game Server capture
+whose exact-wire artifact, allowlisted server identity, and `require_info`
+exchange pass review. P0-05 remains `BLOCKED` until a real authenticated
+alpha.15 disclosure fixture and strict verifier evidence exist. Synthetic
+Harness tests prove only harness behavior.
 
-Natural evidence additionally requires all of the following: ordinary
+P0-04 natural evidence additionally requires all of the following: ordinary
 FUSOU-APP use; no capture-generated Game Server request; no replay or
 injection; the client-facing TLS plaintext boundary; preserved raw bytes and
-message boundaries; recorded provenance; and recorded privacy review. These
-conditions are manual evidence requirements and cannot be satisfied by a CI
-job that generates traffic.
+message boundaries; the allowlisted Game Server identity; the exact natural
+`require_info` request/response; and recorded external provenance. Privacy
+review and operational isolation are recorded separately for P0-15 and
+clean-capture handling. These conditions are manual evidence requirements and
+cannot be satisfied by a CI job that generates traffic.
 
 ## Operational Flow
 

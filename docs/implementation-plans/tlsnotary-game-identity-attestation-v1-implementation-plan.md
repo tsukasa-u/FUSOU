@@ -771,7 +771,7 @@ mapping の並行性、Session uniqueness、Challenge のライフサイクル�
 
 ## 17. Phase 0 ゲート
 
-Phase 0 は実装上の事実を検証する。Proof Copy を弱めたり、セキュリティモデルを再設計したりしない。本番トラフィックを有効化する前に 17 個のゲートすべてが PASS でなければならず、現在のステータスは `3/17 PASS`、`FAIL=0`、`BLOCKED=14` である。P0-01/P0-02のPASSはdocumentation-only selection/profile freezeであり、runtime integrationまたは全gateのPASSを意味しない。ゲートは次の5 groupへ整理する。
+Phase 0 は実装上の事実を検証する。Proof Copy を弱めたり、セキュリティモデルを再設計したりしない。本番トラフィックを有効化する前に 17 個のゲートすべてが PASS でなければならず、補正後のステータスは `4/17 PASS`、`FAIL=0`、`BLOCKED=13` である。P0-04はnatural-evidenceだけをPASSとし、P0-15 privacy review、P0-05 authenticated disclosure、その他runtime gateはBLOCKEDのまま維持する。P0-01/P0-02のPASSはdocumentation-only selection/profile freezeであり、runtime integrationまたは全gateのPASSを意味しない。ゲートは次の5 groupへ整理する。
 
 | Group | 目的 | Gate |
 | --- | --- | --- |
@@ -788,7 +788,7 @@ Protocol/Repositoryのsource/inventory factはruntime未実装だけを理由に
 | P0-01 TLSNotary リビジョン | 正確なリポジトリ commit、依存関係 lock、セキュリティ/ライセンスレビュー | NO-GO。別のリビジョンを対象に実装しない |
 | P0-02 Attestation ID | 公式 extraction API、opaque-byte encoding、golden bytes | NO-GO。利用できなければ仕様を revise |
 | P0-03 Security freshness contract | A-M分類、stale/future proof分析、Session/Challenge `v_db_now` fixture、外部timestamp authorityを追加しない理由 | NO-GO。proof ageをPrimary Goalへ戻さない |
-| P0-04 実際の require_info | 通常のFUSOU-APP gameplayから手動収集したnatural capture、ソート済み corpus、ハッシュ、framing、compression、size、provenance、privacy review | NO-GO。synthetic harness correctnessだけではnatural evidenceを満たさない。standalone request、injection、replay、capture-generated trafficは禁止 |
+| P0-04 実際の require_info | 通常のFUSOU-APP gameplayから手動収集したnatural capture、allowlisted Game Server identity、ソート済み corpus、ハッシュ、framing、compression、size、provenance | privacy review/operational isolationとは独立に、exact-wire integrity、natural provenance、自然な`require_info` request/responseを満たす。standalone request、injection、replay、capture-generated trafficは禁止 |
 | P0-05 厳格な開示 | 認証済みの完全な request/response、正確な範囲、digest fixture、プライバシーレビュー入力 | binding を authenticated にできなければ NO-GO |
 | P0-06 T3/T4 の配送 | 最終化前の response と正確な Result byte path | NO-GO。Result mutation なし |
 | P0-07 再送なし | Origin の write/complete counters が at most one であることと fallback behavior の証明 | NO-GO。send latch/retry を修正 |
@@ -803,7 +803,7 @@ Protocol/Repositoryのsource/inventory factはruntime未実装だけを理由に
 | P0-16 JWT/鍵ライフサイクル | Registry rotation、tombstones、preactivation、future-skew、revoke rehearsal | NO-GO。fail closed |
 | P0-17 ストレージ epoch | 承認済みclosed manifest、選定resource/consumer inventory、fingerprints、backup/restore、drain、forward recovery | NO-GO。partial cutover なし |
 
-調査時点の判定は `PASS = 3`、`FAIL = 0`、`BLOCKED = 14`。P0-01はalpha.15 exact commit/upstream lock/scoped license-security disposition、P0-02はverified extraction/opaque-byte contract/golden、P0-03はNotary issuance-time provenanceをv1から削除しSession/Challenge authorization freshnessで必要な保証を維持するsecurity decisionを確認済みとしてPASSにする。残りのBLOCKEDは実クライアント、実装、production、またはcross-store証拠が未取得であることを意味する。upstream fixture API testの成功とdocumentation-only P0-A PASSはFUSOU runtime implementationのPASSではない。selected profile、候補matrix、numeric rationale、攻撃別再監査は [adoption profile](../security/evidence/tlsn-alpha15-adoption-profile-v1.json) と [ソース調査レポート](../security/evidence/tlsn-source-inspection-v1.md) に固定する。
+補正後の判定は `PASS = 4`、`FAIL = 0`、`BLOCKED = 13`。P0-01はalpha.15 exact commit/upstream lock/scoped license-security disposition、P0-02はverified extraction/opaque-byte contract/golden、P0-03はNotary issuance-time provenanceをv1から削除しSession/Challenge authorization freshnessで必要な保証を維持するsecurity decision、P0-04は既存private exact-wire artifactとexternal natural provenanceを確認済みとしてPASSにする。P0-04のPASSはprivacy/non-persistence/redactionまたはruntime implementationのPASSを意味しない。残りのBLOCKEDは実装、production、またはcross-store証拠が未取得であることを意味する。upstream fixture API testの成功とdocumentation-only P0-A PASSはFUSOU runtime implementationのPASSではない。selected profile、候補matrix、numeric rationale、攻撃別再監査は [adoption profile](../security/evidence/tlsn-alpha15-adoption-profile-v1.json) と [ソース調査レポート](../security/evidence/tlsn-source-inspection-v1.md) に固定する。
 
 層別の判定は次のとおりである。`Protocol`/`Repository`のFAILはsourceまたはinventoryで確定した不充足を示し、runtime未実装を理由にBLOCKEDへ丸めない。`Environment`/`Empirical`のBLOCKEDは、実クライアント、runtime、staging/production、deployment、canaryまたはcutover evidenceが必要な項目である。
 
@@ -812,7 +812,7 @@ Protocol/Repositoryのsource/inventory factはruntime未実装だけを理由に
 | P0-01 | Repository | `PASS` | documentation-only acceptanceとしてalpha.15 exact commit、upstream Cargo.lock/manifest fingerprint、scoped license/security review、distribution constraintを固定。FUSOU direct dependency未導入は明示済み |
 | P0-02 | Protocol | `PASS` | selected alpha.15のverified extraction、exact raw 16-byte opaque encoding、fixture hash、ID/base64url、54-byte Header BCS goldenを固定 |
 | P0-03 | Security contract | `PASS` | A-M reviewでNotary issuance-time provenanceをv1から削除し、stale/future proofの残余リスクとSession/Challenge TTLの代替を明記 |
-| P0-04 | Empirical | `BLOCKED` | natural client captureがない |
+| P0-04 | Empirical | `PASS` for the reviewed supported client/allowlisted host | historical exact-wire `require_info` artifact and external natural provenance pass; privacy/non-persistence remains a separate P0-15 result |
 | P0-05 | Empirical | `BLOCKED` | FUSOU authenticated coverage/parser/digest fixtureがない |
 | P0-06 | Empirical | `BLOCKED` | Result delivery runtimeがない |
 | P0-07 | Empirical | `BLOCKED` | no-resubmission counter/latch evidenceがない |

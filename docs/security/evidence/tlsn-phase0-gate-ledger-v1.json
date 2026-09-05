@@ -1,7 +1,23 @@
 {
   "artifact_id": "fusou-tlsn-phase0-gate-ledger-v1",
-  "schema_version": 2,
+  "schema_version": 3,
   "observed_at_utc": "2026-09-04T02:24:00Z",
+  "last_corrected_at_utc": "2026-09-05T06:24:32Z",
+  "superseding_correction": {
+    "basis": "P0-04 natural evidence is separate from P0-15 privacy review and operational isolation. The earlier P0-04 BLOCKED status incorrectly treated privacy qualification as a natural-provenance prerequisite.",
+    "superseded_status": {
+      "p0_04": "BLOCKED",
+      "reason": "privacy_qualified was coupled to P0-04 after the original evidence-attempt record"
+    },
+    "corrected_status": {
+      "p0_04": "PASS",
+      "p0_15": "BLOCKED",
+      "p0_05": "BLOCKED",
+      "implementation": "NO-GO"
+    },
+    "reviewed_artifact": "tlsn-natural-capture-forensic-review-2026-09-05.md",
+    "no_recollection_or_external_access": true
+  },
   "repository": "https://github.com/tsukasa-u/FUSOU.git",
   "repository_head_at_observation": "8d387ab3ee21da6f945ec9d81309a35cbbd350d1",
   "upstream": {
@@ -67,9 +83,9 @@
     "secret_policy": "credential、cookie、Bearer token、private key、production identifier、live identity dataは収集していない。"
   },
   "status_summary": {
-    "PASS": 3,
+    "PASS": 4,
     "FAIL": 0,
-    "BLOCKED": 14,
+    "BLOCKED": 13,
     "total": 17
   },
   "evidence_policy": {
@@ -132,15 +148,15 @@
     {
       "id": "P0-04",
       "layer": "Empirical",
-      "status": "BLOCKED",
+      "status": "PASS",
       "group": "P0-C Repository / Architecture Validation",
       "stage": "MUST_KNOW_BEFORE_IMPLEMENTATION",
-      "reason": "natural supported-client require_info captures and their manifests are absent",
-      "evidence": ["E-P0-04-001", "E-REPO-001"],
+      "reason": "the reviewed supported-client exact-wire require_info capture, natural provenance record, and allowlisted Game Server identity pass; privacy and operational qualification remain separate",
+      "evidence": ["E-NATURAL-2026-09-05", "E-P0-04-001", "E-REPO-001"],
       "specification_impact": "synthetic harness correctnessとnatural client provenanceを別証拠として扱い、standalone request、injection、replay、capture-generated trafficをnatural evidenceとして認めない",
-      "implementation_impact": "synthetic harnessの実装・検証は独立して許可するが、natural captureなしにparser/profile/authenticated disclosureを承認しない",
-      "evidence_ids": ["E-P0-04-001", "E-REPO-001"],
-      "finding": "自然captureは取得していない。通常のFUSOU-APP起動はHTTPS proxy/PAC routingを先に開始してからGame Clientを開く。capture hookは既存のclient-facing TLS plaintextを受動観測するだけでrequestを生成しない。実施したinventoryでは、require-info corpus、repository-local proxy data、tracked capture/transcript files、TEST_DATA_PATH/TEST_DATA_REPO_PATHはいずれも利用できず、repositoryは最初のrequire_infoを発生させる正確な通常gameplay actionも確定していない。詳細は [tlsn-p0-04-p0-05-evidence-attempt-v1.json](tlsn-p0-04-p0-05-evidence-attempt-v1.json) に固定した。",
+      "implementation_impact": "synthetic harnessの実装・検証は独立して許可する。P0-04のnatural evidenceはpassしたが、P0-05 authenticated disclosure、P0-15 privacy review、その他のruntime gatesは別途承認されていない",
+      "evidence_ids": ["E-NATURAL-2026-09-05", "E-P0-04-001", "E-REPO-001"],
+      "finding": "旧evidence-attemptでは自然captureを取得していなかったが、その後の既存private artifact reviewで、supported Game Clientの通常gameplayに由来するexact-wire POST /kcsapi/api_get_member/require_info、HTTP 200 response、allowlisted Game Server identity、artifact hash、Number token/framing/compression/response-size manifest、passive observation recordを確認した。旧BLOCKED判定はprivacy_qualifiedをP0-04へ誤って結合していたため superseded とする。無関係なFUSOU-APP upload/retry side effectはprivacy/operational caveatであり、require_infoのnatural provenanceを無効にしない。詳細は [tlsn-natural-capture-forensic-review-2026-09-05.md](tlsn-natural-capture-forensic-review-2026-09-05.md) に固定した。",
       "natural_evidence_conditions": [
         "ordinary FUSOU-APP startup and gameplay",
         "no capture-generated Game Server request",
@@ -148,10 +164,10 @@
         "client-facing TLS plaintext boundary",
         "raw bytes and message boundaries preserved",
         "provenance recorded",
-        "privacy review recorded",
+        "privacy review recorded separately; privacy qualification is not a P0-04 prerequisite",
         "manual evidence; not auto-passed by CI"
       ],
-      "next_action": "standalone requestやsynthetic substitutionなしで、authorized supported client buildを通常のFUSOU-APP gameplayに使用し、allowlisted hostとのnatural require_info captureを手動収集する。raw artifactはprivateに保持し、privacy review後にのみsanitized fixture、framing、compression、size、SHA-256 manifest、provenance reportを作成する。"
+      "next_action": "P0-04は補正後のnatural evidenceでPASSとする。P0-05 authenticated disclosure、P0-15 privacy/non-persistence/redaction review、runtime gatesは未完了のまま維持する。"
     },
     {
       "id": "P0-05",
@@ -388,13 +404,18 @@
       "scope": "P0-04 natural capture attempt、repository/environment inventory、既存proxyのcapture boundary、evidence class policy、privacy disposition。synthetic harness evidenceは別扱いで、自然captureは0件、P0-04はBLOCKED。"
     },
     {
+      "id": "E-NATURAL-2026-09-05",
+      "artifact": "tlsn-natural-capture-forensic-review-2026-09-05.md",
+      "scope": "既存private exact-wire require_info artifactのintegrity、external natural provenance、allowlisted Game Server identity、HTTP 200 response、およびP0-04/P0-15を分離した再評価。再capture、replay、Game Server accessは行っていない。"
+    },
+    {
       "id": "E-P0-05-001",
       "artifact": "tlsn-p0-04-p0-05-evidence-attempt-v1.json",
       "scope": "P0-05 disclosure attempt、alpha.15 upstream fixtureのP0-02限定 qualification、FUSOU transcript/range/digest/binding/strict-negative evidenceの不存在。natural captureはauthenticated disclosureの十分条件ではなく、P0-05はBLOCKED。"
     }
   ],
   "decision": {
-    "phase_0": "NO-GO (3/17 PASS)",
+    "phase_0": "NO-GO (4/17 PASS; P0-04 natural evidence PASS, P0-15/P0-05 and runtime gates remain blocked)",
     "implementation": "NO-GO",
     "proof_copy": "MUST-REJECT unchanged",
     "runtime_changes": "NONE"

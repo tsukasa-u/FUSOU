@@ -21,7 +21,28 @@ fn main() -> ExitCode {
             Ok(verification) => {
                 println!("capture_dir={}", capture_dir.display());
                 println!("review_id={}", verification.review_id);
+                println!("artifact_integrity={}", verification.artifact_integrity);
                 println!("natural_provenance={}", verification.natural_provenance);
+                println!(
+                    "game_server_identity_verified={}",
+                    verification.game_server_identity_verified
+                );
+                println!(
+                    "require_info_evidence={}",
+                    verification.require_info_evidence
+                );
+                println!(
+                    "natural_evidence_qualified={}",
+                    verification.natural_evidence_qualified
+                );
+                println!(
+                    "operational_isolation={}",
+                    verification.operational_isolation
+                );
+                println!(
+                    "privacy_review_complete={}",
+                    verification.privacy_review_complete
+                );
                 println!("privacy_qualified={}", verification.privacy_qualified);
                 println!(
                     "external_transmission_status={}",
@@ -30,7 +51,7 @@ fn main() -> ExitCode {
                 println!("privacy_disposition={}", verification.privacy_disposition);
                 println!(
                     "p0_04={}",
-                    if verification.natural_provenance && verification.privacy_qualified {
+                    if verification.p0_04_ready() {
                         "READY"
                     } else {
                         "BLOCKED"

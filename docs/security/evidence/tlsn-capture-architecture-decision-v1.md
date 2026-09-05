@@ -215,12 +215,17 @@ validated in CI; natural capture requires ordinary gameplay, private raw
 retention, provenance, and manual privacy review; authenticated evidence
 requires TLSNotary verification and strict FUSOU disclosure validation.
 
-## Gate disposition
+## Historical Gate Disposition
+
+The following disposition is a historical snapshot from before the later
+natural capture was reviewed. The superseding current status is recorded in
+[tlsn-phase0-gate-ledger-v1.json](tlsn-phase0-gate-ledger-v1.json) and in the
+2026-09-05 forensic review.
 
 This decision changes no evidence or gate status:
 
 - natural capture count remains `0`;
-- `P0-04 = BLOCKED`;
+- `P0-04 = BLOCKED` at the time of this architecture decision;
 - `P0-05 = BLOCKED`;
 - `PASS = 3`, `FAIL = 0`, `BLOCKED = 14` remains unchanged;
 - `IMPLEMENTATION = NO-GO` remains unchanged.
