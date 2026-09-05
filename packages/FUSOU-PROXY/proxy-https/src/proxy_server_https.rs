@@ -8,11 +8,14 @@ use hudsucker::{
     *,
 };
 use std::{
+    collections::HashMap,
     fs,
+    future::Future,
     io::Read,
     net::SocketAddr,
     path::{Path, PathBuf},
-    sync::OnceLock,
+    pin::Pin,
+    sync::{Arc, Mutex, OnceLock},
 };
 
 use chrono::{TimeZone, Utc};
@@ -23,13 +26,13 @@ use chrono_tz::Asia::Tokyo;
 #[cfg(target_os = "windows")]
 use std::os::windows::fs::MetadataExt;
 
+use crate::capture_io::CaptureRecorder;
 use crate::{bidirectional_channel, capture};
 
 use configs;
 
 use fusou_auth::{AuthManager, FileStorage};
 use fusou_storage::asset_sync;
-use std::sync::Arc;
 use tracing_unwrap::ResultExt;
 
 pub static CA_CERT_NAME: &str = "fusou_ca_cert";
@@ -492,6 +495,109 @@ fn log_request(
 }
 
 #[derive(Clone)]
+struct RawCaptureHook {
+    output_root: PathBuf,
+    recorders: Arc<Mutex<HashMap<u64, CaptureRecorder>>>,
+}
+
+impl RawCaptureHook {
+    fn new(output_root: PathBuf) -> Self {
+        Self {
+            output_root,
+            recorders: Arc::new(Mutex::new(HashMap::new())),
+        }
+    }
+}
+
+impl ClientStreamHook for RawCaptureHook {
+    fn wrap(&self, context: &HttpContext, stream: ClientStream) -> ClientStream {
+        let recorder = CaptureRecorder::new();
+        match self.recorders.lock() {
+            Ok(mut recorders) => {
+                recorders.insert(context.connection_id, recorder.clone());
+            }
+            Err(_) => {
+                tracing::error!(
+                    connection_id = context.connection_id,
+                    "raw capture recorder map poisoned"
+                );
+            }
+        }
+        Box::new(crate::capture_io::CaptureIo::new(stream, recorder))
+    }
+
+    fn finish(&self, context: HttpContext) -> Pin<Box<dyn Future<Output = ()> + Send>> {
+        let recorder = self
+            .recorders
+            .lock()
+            .ok()
+            .and_then(|mut recorders| recorders.remove(&context.connection_id));
+        let output_root = self.output_root.clone();
+        Box::pin(async move {
+            let Some(recorder) = recorder else {
+                return;
+            };
+            match tokio::task::spawn_blocking(move || {
+                write_raw_capture(output_root, context.connection_id, recorder)
+            })
+            .await
+            {
+                Ok(Ok(Some(capture_dir))) => {
+                    tracing::info!(path = %capture_dir.display(), "wrote private raw capture");
+                }
+                Ok(Ok(None)) => {}
+                Ok(Err(error)) => {
+                    tracing::warn!(error = %error, "failed to write private raw capture");
+                }
+                Err(error) => tracing::warn!(error = %error, "raw capture writer task failed"),
+            }
+        })
+    }
+}
+
+fn write_raw_capture(
+    output_root: PathBuf,
+    connection_id: u64,
+    recorder: CaptureRecorder,
+) -> Result<Option<PathBuf>, String> {
+    let snapshot = recorder.snapshot().map_err(|error| error.to_string())?;
+    if snapshot.request_len() == 0
+        || snapshot.response_len() == 0
+        || !is_require_info_request(snapshot.request_bytes())
+    {
+        return Ok(None);
+    }
+
+    recorder
+        .exact_wire_capture()
+        .map_err(|error| error.to_string())?
+        .write_private_raw(
+            output_root,
+            format!("{}-connection-{connection_id}", capture::next_capture_id()),
+        )
+        .map(Some)
+        .map_err(|error| error.to_string())
+}
+
+fn is_require_info_request(bytes: &[u8]) -> bool {
+    let Some(line_end) = bytes.windows(2).position(|window| window == b"\r\n") else {
+        return false;
+    };
+    let mut fields = bytes[..line_end].split(|byte| *byte == b' ');
+    let _method = fields.next();
+    let Some(target) = fields.next() else {
+        return false;
+    };
+    let Ok(target) = std::str::from_utf8(target) else {
+        return false;
+    };
+    target
+        .parse::<Uri>()
+        .map(|uri| uri.path().ends_with("/api_get_member/require_info"))
+        .unwrap_or(false)
+}
+
+#[derive(Clone)]
 struct LogHandler {
     request_uri: Uri,
     tx_proxy_log: bidirectional_channel::Master<bidirectional_channel::StatusInfo>,
@@ -501,8 +607,6 @@ struct LogHandler {
     allow_save_api_responses: bool,
     allow_save_resources: bool,
     allow_save_main_js_local: bool,
-    capture_output_root: Option<PathBuf>,
-    capture: Option<capture::CaptureBuilder>,
 }
 
 impl HttpHandler for LogHandler {
@@ -515,35 +619,17 @@ impl HttpHandler for LogHandler {
 
         let (part, body) = req.into_parts();
 
-        let (body_vec, body_collected) = match body.collect().await {
-            Ok(collected) => (collected.to_bytes().to_vec(), true),
+        let body_vec = match body.collect().await {
+            Ok(collected) => collected.to_bytes().to_vec(),
             Err(e) => {
                 tracing::warn!("failed to collect request body for logging: {}", e);
-                (Vec::new(), false)
+                Vec::new()
             }
         };
         let body = hyper::body::Bytes::from(body_vec);
         let full_body = http_body_util::Full::from(body.clone());
 
         let body_vec = body.to_vec();
-        self.capture = None;
-        if body_collected
-            && self.capture_output_root.is_some()
-            && self
-                .request_uri
-                .path()
-                .ends_with("/api_get_member/require_info")
-        {
-            let mut builder = capture::CaptureBuilder::new(
-                self.capture_output_root
-                    .as_ref()
-                    .expect("capture output root checked above")
-                    .clone(),
-                capture::next_capture_id(),
-            );
-            builder.record_request(capture::CapturedMessage::from_request(&part, &body_vec));
-            self.capture = Some(builder);
-        }
         log_request(
             part.clone(),
             body_vec,
@@ -563,35 +649,17 @@ impl HttpHandler for LogHandler {
     async fn handle_response(&mut self, _ctx: &HttpContext, res: Response<Body>) -> Response<Body> {
         let (part, body) = res.into_parts();
 
-        let (body_vec, body_collected) = match body.collect().await {
-            Ok(collected) => (collected.to_bytes().to_vec(), true),
+        let body_vec = match body.collect().await {
+            Ok(collected) => collected.to_bytes().to_vec(),
             Err(e) => {
                 tracing::warn!("failed to collect response body for logging: {}", e);
-                (Vec::new(), false)
+                Vec::new()
             }
         };
         let body = hyper::body::Bytes::from(body_vec);
         let full_body = http_body_util::Full::from(body.clone());
 
         let body_vec = body.to_vec();
-        if body_collected {
-            if let Some(builder) = self.capture.take() {
-                let response = capture::CapturedMessage::from_response(&part, &body_vec);
-                tokio::spawn(async move {
-                    match tokio::task::spawn_blocking(move || builder.finish(response)).await {
-                        Ok(Ok(capture_dir)) => {
-                            tracing::info!(path = %capture_dir.display(), "wrote private structured capture")
-                        }
-                        Ok(Err(error)) => {
-                            tracing::warn!(error = %error, "failed to write private structured capture")
-                        }
-                        Err(error) => tracing::warn!(error = %error, "capture writer task failed"),
-                    }
-                });
-            }
-        } else {
-            self.capture = None;
-        }
         log_response(
             part.clone(),
             body_vec,
@@ -649,9 +717,7 @@ pub fn check_ca(ca_save_path: String) -> bool {
     let ca_cert_der = ca_dir.join(CA_CERT_NAME_DER);
     let ca_key = ca_dir.join(CA_KEY_NAME_PEM);
 
-    if !ca_cert_crt.exists() || !ca_cert_pem.exists() || !ca_cert_der.exists()
-        || !ca_key.exists()
-    {
+    if !ca_cert_crt.exists() || !ca_cert_pem.exists() || !ca_cert_der.exists() || !ca_key.exists() {
         return false;
     }
 
@@ -716,10 +782,45 @@ pub fn setup_default_crypto_provider() {
     });
 }
 
+async fn wait_for_proxy_shutdown(
+    mut slave: bidirectional_channel::Slave<bidirectional_channel::StatusInfo>,
+) {
+    loop {
+        tokio::select! {
+            recv_msg = slave.recv() => {
+                match recv_msg {
+                    None => {
+                        tracing::warn!("Received None message");
+                    },
+                    Some(bidirectional_channel::StatusInfo::SHUTDOWN { status, message }) => {
+                        tracing::info!("Received shutdown message: {} {}", status, message);
+                        let _ = slave.send(bidirectional_channel::StatusInfo::SHUTDOWN {
+                            status: "SHUTTING DOWN".to_string(),
+                            message: "Proxy server is shutting down".to_string(),
+                        }).await;
+                        break;
+                    },
+                    Some(bidirectional_channel::StatusInfo::HEALTH { status, message }) => {
+                        tracing::info!("Received health message: {} {}", status, message);
+                        let _ = slave.send(bidirectional_channel::StatusInfo::HEALTH {
+                            status: "RUNNING".to_string(),
+                            message: "Proxy server is running".to_string(),
+                        }).await;
+                    },
+                    _ => {}
+                }
+            },
+            _ = tokio::signal::ctrl_c() => {
+                break;
+            },
+        }
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 pub fn serve_proxy(
     port: u16,
-    mut slave: bidirectional_channel::Slave<bidirectional_channel::StatusInfo>,
+    slave: bidirectional_channel::Slave<bidirectional_channel::StatusInfo>,
     tx_proxy_log: bidirectional_channel::Master<bidirectional_channel::StatusInfo>,
     log_save_path: String,
     asset_sync_save_path: String,
@@ -752,7 +853,7 @@ pub fn serve_proxy(
     };
     if capture_output_root.is_some() {
         tracing::warn!(
-            "require_info capture enabled; artifacts are handler-visible and not raw wire evidence"
+            "require_info capture enabled; artifacts are client-facing TLS plaintext raw wire"
         );
     }
 
@@ -766,8 +867,8 @@ pub fn serve_proxy(
     } else {
         let cert_path = custom_cert_file_path
             .ok_or("custom certificate mode requires certificates.cert_file")?;
-        let key_path = custom_key_file_path
-            .ok_or("custom certificate mode requires certificates.key_file")?;
+        let key_path =
+            custom_key_file_path.ok_or("custom certificate mode requires certificates.key_file")?;
         (cert_path, key_path)
     };
 
@@ -793,12 +894,29 @@ pub fn serve_proxy(
         )
     })?;
 
-    let key_pair = KeyPair::from_pem(&key_pair_pem)
-        .map_err(|e| format!("failed to parse private key {}: {}", ca_key_path.display(), e))?;
+    let key_pair = KeyPair::from_pem(&key_pair_pem).map_err(|e| {
+        format!(
+            "failed to parse private key {}: {}",
+            ca_key_path.display(),
+            e
+        )
+    })?;
     let ca_cert = CertificateParams::from_ca_cert_pem(&ca_cert_pem)
-        .map_err(|e| format!("failed to parse CA certificate {}: {}", ca_cert_path.display(), e))?
+        .map_err(|e| {
+            format!(
+                "failed to parse CA certificate {}: {}",
+                ca_cert_path.display(),
+                e
+            )
+        })?
         .self_signed(&key_pair)
-        .map_err(|e| format!("failed to self-sign CA certificate {}: {}", ca_cert_path.display(), e))?;
+        .map_err(|e| {
+            format!(
+                "failed to self-sign CA certificate {}: {}",
+                ca_cert_path.display(),
+                e
+            )
+        })?;
 
     let ca = RcgenAuthority::new(key_pair, ca_cert, 1_000, aws_lc_rs::default_provider());
 
@@ -889,11 +1007,10 @@ pub fn serve_proxy(
         tracing::info!("asset sync disabled in configuration");
     }
 
-    let server_proxy = Proxy::builder()
+    let proxy_builder = Proxy::builder()
         .with_addr(addr)
         .with_ca(ca)
         .with_client(client)
-        // .with_rustls_client(aws_lc_rs::default_provider())
         .with_http_handler(LogHandler {
             tx_proxy_log: tx_proxy_log.clone(),
             request_uri: Uri::default(),
@@ -903,62 +1020,45 @@ pub fn serve_proxy(
             allow_save_api_responses,
             allow_save_resources,
             allow_save_main_js_local,
-            capture_output_root,
-            capture: None,
-        })
-        .with_graceful_shutdown(async move {
-            loop {
-                tokio::select! {
-                    recv_msg = slave.recv() => {
-                        match recv_msg {
-                            None => {
-                                tracing::warn!("Received None message");
-                            },
-                            Some(bidirectional_channel::StatusInfo::SHUTDOWN { status, message }) => {
-                                tracing::info!("Received shutdown message: {} {}", status, message);
-                                let _ = slave.send(bidirectional_channel::StatusInfo::SHUTDOWN {
-                                    status: "SHUTTING DOWN".to_string(),
-                                    message: "Proxy server is shutting down".to_string(),
-                                }).await;
-                                break;
-                            },
-                            Some(bidirectional_channel::StatusInfo::HEALTH { status, message }) => {
-                                tracing::info!("Received health message: {} {}", status, message);
-                                let _ = slave.send(bidirectional_channel::StatusInfo::HEALTH {
-                                    status: "RUNNING".to_string(),
-                                    message: "Proxy server is running".to_string(),
-                                }).await;
-                            },
-                            _ => {}
-                        }
-                    },
-                    _ = tokio::signal::ctrl_c() => {
-                        break;
-                    },
-                }
-            }
-        })
-        .build()
-        .expect_or_log("Failed to create proxy");
+        });
+
+    match capture_output_root {
+        Some(output_root) => {
+            let server_proxy = proxy_builder
+                .with_client_stream_hook(RawCaptureHook::new(output_root))
+                .with_graceful_shutdown(wait_for_proxy_shutdown(slave))
+                .build()
+                .expect_or_log("Failed to create proxy");
+            tokio::task::spawn(server_proxy.start());
+        }
+        None => {
+            let server_proxy = proxy_builder
+                .with_graceful_shutdown(wait_for_proxy_shutdown(slave))
+                .build()
+                .expect_or_log("Failed to create proxy");
+            tokio::task::spawn(server_proxy.start());
+        }
+    }
 
     tracing::info!("Proxy server addr: {}", addr);
-
-    tokio::task::spawn(server_proxy.start());
 
     Ok(addr)
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        check_ca, create_ca, decode_response_body, parse_content_encodings, CA_CERT_NAME_CRT,
-        CA_CERT_NAME_DER, CA_CERT_NAME_PEM, CA_KEY_NAME_PEM,
-    };
     use super::rcgen::{CertificateParams, KeyPair};
+    use super::{
+        check_ca, create_ca, decode_response_body, parse_content_encodings, ClientStreamHook,
+        HttpContext, RawCaptureHook, CA_CERT_NAME_CRT, CA_CERT_NAME_DER, CA_CERT_NAME_PEM,
+        CA_KEY_NAME_PEM,
+    };
+    use hudsucker::HttpHandler;
     use std::fs;
     use std::io::Write;
     use std::path::PathBuf;
     use std::time::{SystemTime, UNIX_EPOCH};
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
     fn unique_temp_dir(name: &str) -> PathBuf {
         let stamp = SystemTime::now()
@@ -985,6 +1085,287 @@ mod tests {
                 .expect("failed to write brotli input");
         }
         out
+    }
+
+    #[tokio::test]
+    async fn raw_capture_hook_persists_client_facing_wire_and_hashes() {
+        let output_root = unique_temp_dir("raw_capture_hook");
+        let hook = RawCaptureHook::new(output_root.clone());
+        let context = HttpContext::new("127.0.0.1:40000".parse().expect("client address"), 42);
+        let (mut peer, stream) = tokio::io::duplex(16 * 1024);
+        let mut wrapped = hook.wrap(&context, Box::new(stream));
+        let request =
+            b"POST /kcsapi/api_get_member/require_info?x=1 HTTP/1.1\r\nHost: game\r\nContent-Length: 3\r\n\r\nabc";
+        let response = b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok";
+
+        peer.write_all(request).await.expect("write request");
+        let mut observed_request = vec![0; request.len()];
+        wrapped
+            .read_exact(&mut observed_request)
+            .await
+            .expect("read request");
+        assert_eq!(observed_request, request);
+
+        wrapped.write_all(response).await.expect("write response");
+        let mut observed_response = vec![0; response.len()];
+        peer.read_exact(&mut observed_response)
+            .await
+            .expect("read response");
+        assert_eq!(observed_response, response);
+
+        drop(wrapped);
+        hook.finish(context).await;
+
+        let entries = std::fs::read_dir(&output_root)
+            .expect("capture output root")
+            .collect::<Result<Vec<_>, _>>()
+            .expect("capture entries");
+        assert_eq!(entries.len(), 1);
+        let capture_dir = entries[0].path();
+        let verification = crate::capture::verify_capture(&capture_dir).expect("verify capture");
+        assert_eq!(verification.request_sha256, digest_hex(request));
+        assert_eq!(verification.response_sha256, digest_hex(response));
+        assert_eq!(
+            std::fs::read(capture_dir.join("request-wire.bin")).expect("request wire"),
+            request
+        );
+        assert_eq!(
+            std::fs::read(capture_dir.join("response-wire.bin")).expect("response wire"),
+            response
+        );
+
+        let _ = std::fs::remove_dir_all(output_root);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn fork_proxy_captures_tls_plaintext_after_connect_without_retry() {
+        use hudsucker::{
+            certificate_authority::RcgenAuthority,
+            hyper_util::{client::legacy::Client, rt::TokioExecutor},
+            rustls::crypto::aws_lc_rs,
+            Proxy,
+        };
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use tokio::net::TcpListener;
+        use tokio::sync::oneshot;
+        use tokio_rustls::{TlsAcceptor, TlsConnector};
+
+        super::setup_default_crypto_provider();
+        let output_root = unique_temp_dir("fork_proxy_integration");
+
+        let upstream_cert =
+            super::rcgen::generate_simple_self_signed(vec!["localhost".to_string()])
+                .expect("upstream certificate");
+        let upstream_key = hudsucker::rustls::pki_types::PrivateKeyDer::Pkcs8(
+            hudsucker::rustls::pki_types::PrivatePkcs8KeyDer::from(
+                upstream_cert.key_pair.serialize_der(),
+            ),
+        );
+        let upstream_server_config = hudsucker::rustls::ServerConfig::builder()
+            .with_no_client_auth()
+            .with_single_cert(vec![upstream_cert.cert.der().clone()], upstream_key)
+            .expect("upstream server config");
+        let upstream_acceptor = TlsAcceptor::from(std::sync::Arc::new(upstream_server_config));
+        let upstream_listener = TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("upstream listener");
+        let upstream_addr = upstream_listener.local_addr().expect("upstream address");
+        let upstream_requests = std::sync::Arc::new(AtomicUsize::new(0));
+        let upstream_requests_task = upstream_requests.clone();
+        let upstream_task = tokio::spawn(async move {
+            let (socket, _) = upstream_listener.accept().await.expect("upstream accept");
+            let mut stream = upstream_acceptor
+                .accept(socket)
+                .await
+                .expect("upstream tls accept");
+            let mut request = Vec::new();
+            let mut buffer = [0; 4096];
+            loop {
+                let bytes_read = stream.read(&mut buffer).await.expect("upstream read");
+                if bytes_read == 0 {
+                    break;
+                }
+                request.extend_from_slice(&buffer[..bytes_read]);
+                if request.windows(4).any(|window| window == b"\r\n\r\n") {
+                    break;
+                }
+            }
+            assert!(request.starts_with(b"GET /kcsapi/api_get_member/require_info"));
+            upstream_requests_task.fetch_add(1, Ordering::SeqCst);
+            stream
+                .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok")
+                .await
+                .expect("upstream response");
+            stream.shutdown().await.expect("upstream shutdown");
+        });
+
+        let proxy_key_pair = KeyPair::generate().expect("proxy CA key");
+        let mut proxy_ca_params = CertificateParams::default();
+        proxy_ca_params.is_ca =
+            super::rcgen::IsCa::Ca(super::rcgen::BasicConstraints::Unconstrained);
+        let proxy_ca_cert = proxy_ca_params
+            .self_signed(&proxy_key_pair)
+            .expect("proxy CA certificate");
+        let proxy_ca_der = proxy_ca_cert.der().clone();
+        let proxy_ca = RcgenAuthority::new(
+            proxy_key_pair,
+            proxy_ca_cert,
+            100,
+            aws_lc_rs::default_provider(),
+        );
+
+        let mut upstream_roots = hudsucker::rustls::RootCertStore::empty();
+        upstream_roots
+            .add(upstream_cert.cert.der().clone())
+            .expect("upstream root");
+        let upstream_client_config = hudsucker::rustls::ClientConfig::builder()
+            .with_root_certificates(upstream_roots)
+            .with_no_client_auth();
+        let upstream_connector = hyper_rustls::HttpsConnectorBuilder::new()
+            .with_tls_config(upstream_client_config)
+            .https_or_http()
+            .enable_http1()
+            .build();
+        let upstream_client = Client::builder(TokioExecutor::new()).build(upstream_connector);
+
+        let proxy_listener = TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("proxy listener");
+        let proxy_addr = proxy_listener.local_addr().expect("proxy address");
+        let (shutdown_tx, shutdown_rx) = oneshot::channel();
+        let proxy = Proxy::builder()
+            .with_listener(proxy_listener)
+            .with_ca(proxy_ca)
+            .with_client(upstream_client)
+            .with_http_handler(PassthroughHandler)
+            .with_client_stream_hook(RawCaptureHook::new(output_root.clone()))
+            .with_graceful_shutdown(async move {
+                let _ = shutdown_rx.await;
+            })
+            .build()
+            .expect("build proxy");
+        let proxy_task = tokio::spawn(proxy.start());
+
+        let mut client_socket = tokio::net::TcpStream::connect(proxy_addr)
+            .await
+            .expect("client connect");
+        let authority = format!("localhost:{}", upstream_addr.port());
+        let connect_request = format!("CONNECT {authority} HTTP/1.1\r\nHost: {authority}\r\n\r\n");
+        client_socket
+            .write_all(connect_request.as_bytes())
+            .await
+            .expect("connect request");
+        let mut connect_response = Vec::new();
+        let mut buffer = [0; 4096];
+        loop {
+            let bytes_read = client_socket
+                .read(&mut buffer)
+                .await
+                .expect("connect response");
+            assert!(bytes_read > 0, "proxy closed before CONNECT response");
+            connect_response.extend_from_slice(&buffer[..bytes_read]);
+            if connect_response
+                .windows(4)
+                .any(|window| window == b"\r\n\r\n")
+            {
+                break;
+            }
+        }
+        assert!(connect_response.starts_with(b"HTTP/1.1 200"));
+
+        let mut proxy_roots = hudsucker::rustls::RootCertStore::empty();
+        proxy_roots.add(proxy_ca_der).expect("proxy root");
+        let client_tls_config = hudsucker::rustls::ClientConfig::builder()
+            .with_root_certificates(proxy_roots)
+            .with_no_client_auth();
+        let client_tls = TlsConnector::from(std::sync::Arc::new(client_tls_config));
+        let server_name =
+            hudsucker::rustls::pki_types::ServerName::try_from("localhost".to_string())
+                .expect("proxy server name");
+        let mut client_tls_stream = client_tls
+            .connect(server_name, client_socket)
+            .await
+            .expect("client TLS handshake");
+        let client_request =
+            b"GET /kcsapi/api_get_member/require_info?x=1 HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n";
+        client_tls_stream
+            .write_all(client_request)
+            .await
+            .expect("client request");
+        let mut client_response = Vec::new();
+        loop {
+            let bytes_read = client_tls_stream
+                .read(&mut buffer)
+                .await
+                .expect("client response");
+            if bytes_read == 0 {
+                break;
+            }
+            client_response.extend_from_slice(&buffer[..bytes_read]);
+            if client_response
+                .windows(4)
+                .any(|window| window == b"\r\n\r\n")
+                && client_response.ends_with(b"ok")
+            {
+                break;
+            }
+        }
+        assert!(client_response.starts_with(b"HTTP/1.1 200"));
+        drop(client_tls_stream);
+
+        upstream_task.await.expect("upstream task");
+        assert_eq!(upstream_requests.load(Ordering::SeqCst), 1);
+
+        let capture_dir = tokio::time::timeout(std::time::Duration::from_secs(2), async {
+            loop {
+                if let Ok(mut entries) = std::fs::read_dir(&output_root) {
+                    if let Some(path) = entries
+                        .by_ref()
+                        .flatten()
+                        .map(|entry| (entry.file_name(), entry.path()))
+                        .find_map(|(name, path)| {
+                            let is_staging = name.to_string_lossy().starts_with('.');
+                            (!is_staging && path.join("manifest.json").exists()).then_some(path)
+                        })
+                    {
+                        break path;
+                    }
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("capture finalization timeout");
+        crate::capture::verify_capture(&capture_dir).expect("verify integration capture");
+        assert_eq!(
+            std::fs::read(capture_dir.join("request-wire.bin")).expect("request wire"),
+            client_request
+        );
+        assert_eq!(
+            std::fs::read(capture_dir.join("response-wire.bin")).expect("response wire"),
+            client_response
+        );
+
+        shutdown_tx.send(()).expect("proxy shutdown signal");
+        proxy_task
+            .await
+            .expect("proxy task join")
+            .expect("proxy shutdown");
+        let _ = std::fs::remove_dir_all(output_root);
+    }
+
+    #[derive(Clone)]
+    struct PassthroughHandler;
+
+    impl HttpHandler for PassthroughHandler {}
+
+    fn digest_hex(bytes: &[u8]) -> String {
+        use sha2::{Digest, Sha256};
+
+        Sha256::digest(bytes)
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect()
     }
 
     #[test]

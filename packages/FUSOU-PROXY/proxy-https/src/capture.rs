@@ -480,13 +480,15 @@ fn write_artifact(
 
     fs::create_dir_all(&output_root)?;
     let capture_dir = output_root.join(&manifest.core.capture_id);
-    fs::create_dir(&capture_dir)?;
-    fs::write(capture_dir.join(request_file), request_bytes)?;
-    fs::write(capture_dir.join(response_file), response_bytes)?;
+    let staging_dir = output_root.join(format!(".{}.staging", manifest.core.capture_id));
+    fs::create_dir(&staging_dir)?;
+    fs::write(staging_dir.join(request_file), request_bytes)?;
+    fs::write(staging_dir.join(response_file), response_bytes)?;
     fs::write(
-        capture_dir.join(MANIFEST_FILE),
+        staging_dir.join(MANIFEST_FILE),
         serde_json::to_vec_pretty(&manifest)?,
     )?;
+    fs::rename(staging_dir, &capture_dir)?;
     Ok(capture_dir)
 }
 

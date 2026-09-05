@@ -18,9 +18,17 @@ The current FUSOU HTTPS proxy uses hudsucker 0.23.0:
 4. FUSOU collects the body and reconstructs the response before forwarding it.
 5. Existing persistence optionally decodes, stringifies, prefixes metadata, or sends text through the proxy channel.
 
-The opt-in `require_info` capture hook runs at this handler boundary. It writes a `PRIVATE_STRUCTURED_VIEW` artifact containing the handler-visible body bytes and structured headers. The manifest explicitly marks this as `HANDLER_VISIBLE_BODY_ONLY_NOT_RAW_WIRE`.
+The handler continues to provide structured logging, but raw capture is now
+attached through the repository-local hudsucker fork after client-facing TLS
+accept and before Hyper parsing. `RawCaptureHook` writes a
+`PRIVATE_RAW_CAPTURE` artifact from `CaptureIo` and does not combine
+handler-visible bodies with it. The artifact is finalized atomically after the
+connection ends.
 
-This current hook is useful for plumbing and artifact validation. It is not exact natural transcript evidence: the original HTTP request/response bytes, wire framing, header spelling, chunk boundaries, and TLS record boundaries are no longer available at this boundary.
+This integration proves the selected byte boundary with generated traffic. It
+is not natural Game Client evidence: no natural capture has been collected,
+and persistent HTTP/1.1 message splitting and privacy authorization remain
+outside this harness.
 
 The source-backed layer and hook investigation is recorded in [TLSNotary Capture Hook Investigation v1](tlsn-capture-hook-investigation-v1.md).
 
@@ -34,7 +42,12 @@ A future lower-level collector must feed `ExactWireMessage::from_parts` from the
 
 The constructor rejects offsets that do not equal the byte length. `ExactWireCapture::write_private_raw` stores the request and response wire payloads as `request-wire.bin` and `response-wire.bin`, with `EXACT_WIRE` and `PRIVATE_RAW_CAPTURE` markers.
 
-The current hudsucker `HttpHandler` does not expose this exact-wire input, and its public builder does not expose a per-CONNECT stream wrapper at the required layer. The selected implementation path is a maintained hudsucker fork that adds the smallest per-CONNECT hook after TLS accept and before Hyper parsing. A replacement server boundary remains a migration fallback and must not be introduced as part of this harness work.
+The original hudsucker `HttpHandler` did not expose this exact-wire input, and
+its public builder did not expose a per-CONNECT stream wrapper at the required
+layer. The selected implementation is the maintained fork at
+`packages/FUSOU-PROXY/hudsucker-fork`, which adds the smallest per-CONNECT hook
+after TLS accept and before Hyper parsing. A replacement server boundary
+remains a migration fallback and is not part of this harness work.
 
 ## Artifact and Hash Rules
 

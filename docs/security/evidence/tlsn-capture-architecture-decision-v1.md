@@ -1,8 +1,8 @@
 # TLSNotary Capture Architecture Decision v1
 
-Status: architecture decision recorded; prototype only. This document selects a
-future integration boundary. It does not authorize production capture, TLSNotary
-runtime integration, or a Phase 0 gate transition.
+Status: architecture decision recorded; minimal fork integration implemented
+for synthetic proof only. This document does not authorize production capture,
+TLSNotary runtime integration, or a Phase 0 gate transition.
 
 ## Decision
 
@@ -11,11 +11,12 @@ runtime integration, or a Phase 0 gate transition.
 client-facing MITM TLS accept succeeds and before Hyper receives the stream for
 HTTP parsing.
 
-The prototype in
-`packages/FUSOU-PROXY/proxy-https/src/capture_io.rs` models this boundary with
-`CaptureIo<IO>`. It is not connected to `serve_proxy`, and it does not produce
-natural evidence. The selected architecture therefore records an implementation
-direction, not an implementation approval.
+The repository-local fork is at `packages/FUSOU-PROXY/hudsucker-fork` and is
+selected by the `proxy-https` path dependency. Its `ClientStreamHook` runs at
+the selected boundary. FUSOU's `RawCaptureHook` wraps the stream with
+`CaptureIo<IO>` and writes private exact-wire artifacts after connection
+finalization. This is an implementation-level synthetic proof, not natural
+evidence or production approval.
 
 ## Required byte provenance
 
@@ -74,8 +75,8 @@ registry and the current FUSOU source.
   `ExactWireCapture`: validates and persists externally collected exact bytes;
   it does not create the bytes or establish their provenance.
 - `packages/FUSOU-PROXY/proxy-https/src/capture_io.rs`,
-  `CaptureIo::{poll_read,poll_write}`: prototype directional collector for the
-  selected stream boundary. It remains opt-in and unwired.
+  `CaptureIo::{poll_read,poll_write}`: opt-in directional collector used by
+  `RawCaptureHook` at the selected stream boundary.
 
 ### Separate-layer source anchors
 
@@ -90,7 +91,7 @@ or byte ordering after FUSOU has parsed and reconstructed the request.
 
 ## Minimum fork patch surface
 
-The smallest sustainable fork should contain the following semantic changes:
+The implemented fork contains the following semantic changes:
 
 1. Add an optional per-CONNECT server-stream hook to the fork's proxy state and
    builder. The hook receives connection context and the accepted plaintext
@@ -105,11 +106,12 @@ The smallest sustainable fork should contain the following semantic changes:
    capture, HTTP parse errors, connection close, and write-failure no-retry
    behavior.
 
-The estimate is three production touch points in the fork (`builder`, proxy
-state/initialization, and `process_connect`), plus a hook type and focused
-tests. The FUSOU application-side change should remain limited to selecting the
-fork dependency and supplying the collector. This is materially smaller than a
-replacement server, which would own the entire CONNECT-to-Hyper lifecycle.
+The fork has four source touch points (`lib`, `builder`, proxy state, and
+`process_connect`), plus focused tests. The FUSOU application-side change
+selects the path dependency and supplies the collector. The synthetic test
+exercises CONNECT, TLS accept, Hyper forwarding, and artifact finalization.
+This remains smaller than a replacement server, which would own the entire
+CONNECT-to-Hyper lifecycle.
 
 The fork MUST be version-pinned to the hudsucker source it patches. A future
 hudsucker upgrade requires a source re-diff of `process_connect`,
@@ -135,10 +137,11 @@ the write result MUST remain successful so the caller cannot retry already
 forwarded bytes; the connection MUST then become unusable for further writes.
 There must be no replay fallback.
 
-The current prototype implements these IO-level rules and tests them, but its
-recorder still treats one request direction and one response direction as a
-single session. Persistent HTTP/1.1 message boundaries, CONNECT lifecycle
-identity, and production artifact finalization remain future work.
+The integrated collector implements these IO-level rules for one TLS
+connection and finalizes the artifact after the Hyper connection ends. It
+still treats one request direction and one response direction as a single
+session; persistent HTTP/1.1 message splitting, natural-traffic validation,
+and production privacy authorization remain future work.
 
 ## Why replacement is not selected
 
@@ -172,20 +175,24 @@ No secrets, credentials, TLSNotary keys, or capture artifacts are added by this
 decision. Capture remains disabled by default and private raw output remains
 outside repository evidence directories.
 
-## Prototype status and acceptance gaps
+## Integration status and acceptance gaps
 
-The non-production prototype currently provides:
+The non-production integration currently provides:
 
 - directional request/response byte recording;
 - explicit post-TLS wrapping shape through `CaptureIo`;
-- existing `ExactWireCapture` artifact integration;
+- `ExactWireCapture` artifact integration from the real fork hook;
+- atomic staging and finalization of private artifacts;
 - limits and no-retry failure tests;
 - Hyper parse-failure and failed-TLS tests.
+- synthetic CONNECT/TLS/upstream integration with an exactly-one upstream
+   request assertion.
 
-The focused prototype test result is `8 passed; 0 failed`. This result proves
-only local IO behavior. It does not prove natural Game Client traffic, HTTP
-message-boundary extraction on persistent connections, authenticated
-TLSNotary disclosure, verifier behavior, or production integration.
+The focused synthetic integration passes. It proves only generated client
+traffic through the selected fork boundary. It does not prove natural Game
+Client traffic, HTTP message-boundary extraction on persistent connections,
+authenticated TLSNotary disclosure, verifier behavior, or production capture
+authorization.
 
 ## Gate disposition
 
@@ -198,6 +205,6 @@ This decision changes no evidence or gate status:
 - `IMPLEMENTATION = NO-GO` remains unchanged.
 
 Remaining blockers include natural capture, exact message-boundary proof,
-authenticated disclosure, strict verifier evidence, production fork integration,
-and privacy review. No TLSNotary dependency, Game Server re-submission, or
-production capture enablement is authorized by this document.
+authenticated disclosure, strict verifier evidence, and privacy review. No
+TLSNotary dependency, Game Server re-submission, or production capture
+enablement is authorized by this document.
