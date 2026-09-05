@@ -7,7 +7,7 @@ use crate::{
     HttpHandler, WebSocketHandler,
 };
 use builder::{AddrOrListener, WantsAddr};
-use hyper::service::service_fn;
+use hyper::{body::Incoming, service::service_fn, Request, Response};
 use hyper_util::{
     client::legacy::{connect::Connect, Client},
     rt::{TokioExecutor, TokioIo},
@@ -40,6 +40,22 @@ pub trait ClientStreamHook: Clone + Send + Sync + 'static {
     fn wrap(&self, context: &HttpContext, stream: ClientStream) -> ClientStream;
 
     fn finish(&self, context: HttpContext) -> Pin<Box<dyn Future<Output = ()> + Send>>;
+
+    fn finish_with_status(
+        &self,
+        context: HttpContext,
+        _connection_clean: bool,
+    ) -> Pin<Box<dyn Future<Output = ()> + Send>> {
+        self.finish(context)
+    }
+
+    fn request_started(&self, _context: &HttpContext, _request: &Request<Incoming>) {}
+
+    fn request_completed(&self, _context: &HttpContext) {}
+
+    fn response_started(&self, _context: &HttpContext, _response: &Response<Body>) {}
+
+    fn response_completed(&self, _context: &HttpContext) {}
 }
 
 #[derive(Clone, Debug, Default)]

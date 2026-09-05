@@ -26,7 +26,8 @@ use chrono_tz::Asia::Tokyo;
 #[cfg(target_os = "windows")]
 use std::os::windows::fs::MetadataExt;
 
-use crate::capture_io::CaptureRecorder;
+use crate::capture::{ExactWireCapture, ExactWireDirection, ExactWireMessage, ExactWireMetadata};
+use crate::capture_io::{CaptureDirection, CaptureRecorder};
 use crate::{bidirectional_channel, capture};
 
 use configs;
@@ -497,14 +498,48 @@ fn log_request(
 #[derive(Clone)]
 struct RawCaptureHook {
     output_root: PathBuf,
-    recorders: Arc<Mutex<HashMap<u64, CaptureRecorder>>>,
+    sessions: Arc<Mutex<HashMap<u64, Arc<Mutex<RawCaptureSession>>>>>,
+}
+
+#[derive(Debug)]
+struct RawCaptureSession {
+    recorder: CaptureRecorder,
+    messages: Vec<RawCaptureMessage>,
+    active_request: Option<usize>,
+    active_response: Option<usize>,
+    next_sequence: u64,
+    invalid: bool,
+}
+
+#[derive(Debug)]
+struct RawCaptureMessage {
+    direction: ExactWireDirection,
+    sequence: u64,
+    stream_start: u64,
+    stream_end: Option<u64>,
+    metadata: ExactWireMetadata,
 }
 
 impl RawCaptureHook {
     fn new(output_root: PathBuf) -> Self {
         Self {
             output_root,
-            recorders: Arc::new(Mutex::new(HashMap::new())),
+            sessions: Arc::new(Mutex::new(HashMap::new())),
+        }
+    }
+
+    fn session(&self, connection_id: u64) -> Option<Arc<Mutex<RawCaptureSession>>> {
+        self.sessions
+            .lock()
+            .ok()
+            .and_then(|sessions| sessions.get(&connection_id).cloned())
+    }
+
+    fn mark_invalid(&self, connection_id: u64) {
+        if let Some(session) = self.session(connection_id) {
+            if let Ok(mut session) = session.lock() {
+                session.invalid = true;
+            }
         }
     }
 }
@@ -512,9 +547,17 @@ impl RawCaptureHook {
 impl ClientStreamHook for RawCaptureHook {
     fn wrap(&self, context: &HttpContext, stream: ClientStream) -> ClientStream {
         let recorder = CaptureRecorder::new();
-        match self.recorders.lock() {
-            Ok(mut recorders) => {
-                recorders.insert(context.connection_id, recorder.clone());
+        let session = Arc::new(Mutex::new(RawCaptureSession {
+            recorder: recorder.clone(),
+            messages: Vec::new(),
+            active_request: None,
+            active_response: None,
+            next_sequence: 0,
+            invalid: false,
+        }));
+        match self.sessions.lock() {
+            Ok(mut sessions) => {
+                sessions.insert(context.connection_id, session);
             }
             Err(_) => {
                 tracing::error!(
@@ -523,22 +566,146 @@ impl ClientStreamHook for RawCaptureHook {
                 );
             }
         }
-        Box::new(crate::capture_io::CaptureIo::new(stream, recorder))
+        Box::new(crate::capture_io::CaptureIo::new_with_read_chunk_size(
+            stream, recorder, 1,
+        ))
+    }
+
+    fn request_started(
+        &self,
+        context: &HttpContext,
+        request: &Request<hudsucker::hyper::body::Incoming>,
+    ) {
+        let Some(session) = self.session(context.connection_id) else {
+            return;
+        };
+        let Ok(mut session) = session.lock() else {
+            self.mark_invalid(context.connection_id);
+            return;
+        };
+        if session.active_request.is_some() {
+            session.invalid = true;
+            return;
+        }
+        if let Some(message_index) = session.active_response.take() {
+            let Ok(stream_end) = session.recorder.direction_len(CaptureDirection::Response) else {
+                session.invalid = true;
+                return;
+            };
+            if (stream_end as u64) < session.messages[message_index].stream_start {
+                session.invalid = true;
+                return;
+            }
+            session.messages[message_index].stream_end = Some(stream_end as u64);
+        }
+        let stream_start = session
+            .messages
+            .iter()
+            .rev()
+            .find(|message| message.direction == ExactWireDirection::Request)
+            .and_then(|message| message.stream_end)
+            .unwrap_or(0);
+        let message_index = session.messages.len();
+        let sequence = session.next_sequence;
+        session.next_sequence += 1;
+        session.messages.push(RawCaptureMessage {
+            direction: ExactWireDirection::Request,
+            sequence,
+            stream_start: stream_start as u64,
+            stream_end: None,
+            metadata: ExactWireMetadata::from_request(request),
+        });
+        session.active_request = Some(message_index);
+    }
+
+    fn request_completed(&self, context: &HttpContext) {
+        let Some(session) = self.session(context.connection_id) else {
+            return;
+        };
+        let Ok(mut session) = session.lock() else {
+            self.mark_invalid(context.connection_id);
+            return;
+        };
+        let Some(message_index) = session.active_request.take() else {
+            session.invalid = true;
+            return;
+        };
+        let Ok(stream_end) = session.recorder.direction_len(CaptureDirection::Request) else {
+            session.invalid = true;
+            return;
+        };
+        session.messages[message_index].stream_end = Some(stream_end as u64);
+    }
+
+    fn response_started(&self, context: &HttpContext, response: &Response<Body>) {
+        let Some(session) = self.session(context.connection_id) else {
+            return;
+        };
+        let Ok(mut session) = session.lock() else {
+            self.mark_invalid(context.connection_id);
+            return;
+        };
+        if session.active_request.is_some() || session.active_response.is_some() {
+            session.invalid = true;
+            return;
+        }
+        let Some(last_message) = session.messages.last() else {
+            session.invalid = true;
+            return;
+        };
+        if last_message.direction != ExactWireDirection::Request
+            || last_message.stream_end.is_none()
+        {
+            session.invalid = true;
+            return;
+        }
+        let Ok(stream_start) = session.recorder.direction_len(CaptureDirection::Response) else {
+            session.invalid = true;
+            return;
+        };
+        let message_index = session.messages.len();
+        let sequence = session.next_sequence;
+        session.next_sequence += 1;
+        session.messages.push(RawCaptureMessage {
+            direction: ExactWireDirection::Response,
+            sequence,
+            stream_start: stream_start as u64,
+            stream_end: None,
+            metadata: ExactWireMetadata::from_response(response),
+        });
+        session.active_response = Some(message_index);
+    }
+
+    fn response_completed(&self, context: &HttpContext) {
+        let _ = context;
     }
 
     fn finish(&self, context: HttpContext) -> Pin<Box<dyn Future<Output = ()> + Send>> {
-        let recorder = self
-            .recorders
+        self.finish_with_status(context, true)
+    }
+
+    fn finish_with_status(
+        &self,
+        context: HttpContext,
+        connection_clean: bool,
+    ) -> Pin<Box<dyn Future<Output = ()> + Send>> {
+        let session = self
+            .sessions
             .lock()
             .ok()
-            .and_then(|mut recorders| recorders.remove(&context.connection_id));
+            .and_then(|mut sessions| sessions.remove(&context.connection_id));
         let output_root = self.output_root.clone();
         Box::pin(async move {
-            let Some(recorder) = recorder else {
+            let Some(session) = session else {
                 return;
             };
             match tokio::task::spawn_blocking(move || {
-                write_raw_capture(output_root, context.connection_id, recorder)
+                write_raw_capture(
+                    output_root,
+                    context.connection_id,
+                    session,
+                    connection_clean,
+                )
             })
             .await
             {
@@ -558,43 +725,76 @@ impl ClientStreamHook for RawCaptureHook {
 fn write_raw_capture(
     output_root: PathBuf,
     connection_id: u64,
-    recorder: CaptureRecorder,
+    session: Arc<Mutex<RawCaptureSession>>,
+    connection_clean: bool,
 ) -> Result<Option<PathBuf>, String> {
+    let mut session = session
+        .lock()
+        .map_err(|_| "raw capture session lock poisoned".to_string())?;
+    if session.invalid || !connection_clean || session.active_request.is_some() {
+        return Ok(None);
+    }
+    let recorder = session.recorder.clone();
+    if let Some(message_index) = session.active_response.take() {
+        let stream_end = recorder
+            .direction_len(CaptureDirection::Response)
+            .map_err(|error| error.to_string())?;
+        session.messages[message_index].stream_end = Some(stream_end as u64);
+    }
+    if session.active_response.is_some() {
+        return Ok(None);
+    }
     let snapshot = recorder.snapshot().map_err(|error| error.to_string())?;
-    if snapshot.request_len() == 0
-        || snapshot.response_len() == 0
-        || !is_require_info_request(snapshot.request_bytes())
-    {
+    if snapshot.request_len() == 0 || snapshot.response_len() == 0 || session.messages.is_empty() {
         return Ok(None);
     }
 
-    recorder
-        .exact_wire_capture()
-        .map_err(|error| error.to_string())?
-        .write_private_raw(
-            output_root,
-            format!("{}-connection-{connection_id}", capture::next_capture_id()),
-        )
-        .map(Some)
-        .map_err(|error| error.to_string())
-}
-
-fn is_require_info_request(bytes: &[u8]) -> bool {
-    let Some(line_end) = bytes.windows(2).position(|window| window == b"\r\n") else {
-        return false;
-    };
-    let mut fields = bytes[..line_end].split(|byte| *byte == b' ');
-    let _method = fields.next();
-    let Some(target) = fields.next() else {
-        return false;
-    };
-    let Ok(target) = std::str::from_utf8(target) else {
-        return false;
-    };
-    target
-        .parse::<Uri>()
-        .map(|uri| uri.path().ends_with("/api_get_member/require_info"))
-        .unwrap_or(false)
+    let messages = session
+        .messages
+        .iter()
+        .map(|message| {
+            let stream = match message.direction {
+                ExactWireDirection::Request => snapshot.request_bytes(),
+                ExactWireDirection::Response => snapshot.response_bytes(),
+            };
+            let stream_end = message
+                .stream_end
+                .ok_or_else(|| "message has no completed stream boundary".to_string())?;
+            if stream_end as usize > stream.len() {
+                return Err("message boundary exceeds captured stream".to_string());
+            }
+            ExactWireMessage::from_parts_with_metadata(
+                stream[message.stream_start as usize..stream_end as usize].to_vec(),
+                message.stream_start,
+                stream_end,
+                message.direction,
+                message.sequence,
+                message.metadata.clone(),
+            )
+            .map_err(|error| error.to_string())
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    if !session.messages.iter().any(|message| {
+        message.direction == ExactWireDirection::Request
+            && message
+                .metadata
+                .target()
+                .is_some_and(|target| target.contains("/api_get_member/require_info"))
+    }) {
+        return Ok(None);
+    }
+    ExactWireCapture::from_transcript(
+        snapshot.request_bytes().to_vec(),
+        snapshot.response_bytes().to_vec(),
+        messages,
+    )
+    .map_err(|error| error.to_string())?
+    .write_private_raw_transcript(
+        output_root,
+        format!("{}-connection-{connection_id}", capture::next_capture_id()),
+    )
+    .map(Some)
+    .map_err(|error| error.to_string())
 }
 
 #[derive(Clone)]
@@ -1050,15 +1250,16 @@ mod tests {
     use super::rcgen::{CertificateParams, KeyPair};
     use super::{
         check_ca, create_ca, decode_response_body, parse_content_encodings, ClientStreamHook,
-        HttpContext, RawCaptureHook, CA_CERT_NAME_CRT, CA_CERT_NAME_DER, CA_CERT_NAME_PEM,
-        CA_KEY_NAME_PEM,
+        ExactWireDirection, ExactWireMetadata, HttpContext, RawCaptureHook, RawCaptureMessage,
+        CA_CERT_NAME_CRT, CA_CERT_NAME_DER, CA_CERT_NAME_PEM, CA_KEY_NAME_PEM,
     };
+    use http::{Request as HttpRequest, Response as HttpResponse};
     use hudsucker::HttpHandler;
     use std::fs;
     use std::io::Write;
     use std::path::PathBuf;
     use std::time::{SystemTime, UNIX_EPOCH};
-    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt};
 
     fn unique_temp_dir(name: &str) -> PathBuf {
         let stamp = SystemTime::now()
@@ -1087,6 +1288,39 @@ mod tests {
         out
     }
 
+    async fn read_http_message<S: AsyncRead + Unpin>(stream: &mut S) -> Vec<u8> {
+        let mut message = Vec::new();
+        let mut buffer = [0; 4096];
+        let headers_end;
+        loop {
+            let bytes_read = stream.read(&mut buffer).await.expect("HTTP message read");
+            assert!(bytes_read > 0, "stream closed before HTTP headers");
+            message.extend_from_slice(&buffer[..bytes_read]);
+            if let Some(position) = message.windows(4).position(|window| window == b"\r\n\r\n") {
+                headers_end = position + 4;
+                break;
+            }
+        }
+        let headers = String::from_utf8_lossy(&message[..headers_end]).to_ascii_lowercase();
+        if headers.contains("transfer-encoding: chunked") {
+            while !message.windows(7).any(|window| window == b"\r\n0\r\n\r\n") {
+                let bytes_read = stream.read(&mut buffer).await.expect("chunked body read");
+                assert!(bytes_read > 0, "stream closed during chunked body");
+                message.extend_from_slice(&buffer[..bytes_read]);
+            }
+        } else if let Some(content_length) = headers.lines().find_map(|line| {
+            line.strip_prefix("content-length:")
+                .and_then(|value| value.trim().parse::<usize>().ok())
+        }) {
+            while message.len() < headers_end + content_length {
+                let bytes_read = stream.read(&mut buffer).await.expect("fixed body read");
+                assert!(bytes_read > 0, "stream closed during fixed body");
+                message.extend_from_slice(&buffer[..bytes_read]);
+            }
+        }
+        message
+    }
+
     #[tokio::test]
     async fn raw_capture_hook_persists_client_facing_wire_and_hashes() {
         let output_root = unique_temp_dir("raw_capture_hook");
@@ -1113,6 +1347,43 @@ mod tests {
             .expect("read response");
         assert_eq!(observed_response, response);
 
+        let request_metadata = ExactWireMetadata::from_request(
+            &HttpRequest::builder()
+                .method("POST")
+                .uri("/kcsapi/api_get_member/require_info?x=1")
+                .header("Host", "game")
+                .header("Content-Length", "3")
+                .body(())
+                .expect("request metadata"),
+        );
+        let response_metadata = ExactWireMetadata::from_response(
+            &HttpResponse::builder()
+                .status(200)
+                .header("Content-Length", "2")
+                .body(())
+                .expect("response metadata"),
+        );
+        let session = hook
+            .session(context.connection_id)
+            .expect("capture session");
+        let mut session = session.lock().expect("capture session lock");
+        session.messages = vec![
+            RawCaptureMessage {
+                direction: ExactWireDirection::Request,
+                sequence: 0,
+                stream_start: 0,
+                stream_end: Some(request.len() as u64),
+                metadata: request_metadata,
+            },
+            RawCaptureMessage {
+                direction: ExactWireDirection::Response,
+                sequence: 1,
+                stream_start: 0,
+                stream_end: Some(response.len() as u64),
+                metadata: response_metadata,
+            },
+        ];
+        drop(session);
         drop(wrapped);
         hook.finish(context).await;
 
@@ -1133,12 +1404,41 @@ mod tests {
             std::fs::read(capture_dir.join("response-wire.bin")).expect("response wire"),
             response
         );
+        let manifest: serde_json::Value = serde_json::from_slice(
+            &std::fs::read(capture_dir.join("manifest.json")).expect("manifest"),
+        )
+        .expect("manifest JSON");
+        assert_eq!(manifest["messages"].as_array().unwrap().len(), 2);
 
         let _ = std::fs::remove_dir_all(output_root);
     }
 
+    #[tokio::test]
+    async fn raw_capture_hook_does_not_finalize_dirty_or_incomplete_sessions() {
+        let output_root = unique_temp_dir("raw_capture_hook_invalid");
+        let hook = RawCaptureHook::new(output_root.clone());
+        let context = HttpContext::new("127.0.0.1:40001".parse().expect("client address"), 43);
+        let (mut peer, stream) = tokio::io::duplex(16 * 1024);
+        let mut wrapped = hook.wrap(&context, Box::new(stream));
+        let partial_request = b"GET /kcsapi/api_get_member/require_info HTTP/1.1\r\nHost: game";
+        peer.write_all(partial_request)
+            .await
+            .expect("write partial request");
+        let mut observed = vec![0; partial_request.len()];
+        wrapped
+            .read_exact(&mut observed)
+            .await
+            .expect("read partial request");
+        drop(wrapped);
+
+        hook.finish_with_status(context, false).await;
+
+        assert!(!output_root.exists() || fs::read_dir(&output_root).unwrap().next().is_none());
+        let _ = fs::remove_dir_all(output_root);
+    }
+
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn fork_proxy_captures_tls_plaintext_after_connect_without_retry() {
+    async fn fork_proxy_captures_persistent_tls_plaintext_without_retry() {
         use hudsucker::{
             certificate_authority::RcgenAuthority,
             hyper_util::{client::legacy::Client, rt::TokioExecutor},
@@ -1172,32 +1472,35 @@ mod tests {
         let upstream_addr = upstream_listener.local_addr().expect("upstream address");
         let upstream_requests = std::sync::Arc::new(AtomicUsize::new(0));
         let upstream_requests_task = upstream_requests.clone();
-        let upstream_task = tokio::spawn(async move {
-            let (socket, _) = upstream_listener.accept().await.expect("upstream accept");
-            let mut stream = upstream_acceptor
-                .accept(socket)
-                .await
-                .expect("upstream tls accept");
-            let mut request = Vec::new();
-            let mut buffer = [0; 4096];
-            loop {
-                let bytes_read = stream.read(&mut buffer).await.expect("upstream read");
-                if bytes_read == 0 {
-                    break;
+        let upstream_task =
+            tokio::spawn(async move {
+                let (socket, _) = upstream_listener.accept().await.expect("upstream accept");
+                let mut stream = upstream_acceptor
+                    .accept(socket)
+                    .await
+                    .expect("upstream tls accept");
+                for index in 0..3 {
+                    let request = read_http_message(&mut stream).await;
+                    if index == 1 {
+                        assert!(request.starts_with(b"POST /kcsapi/api_get_member/require_info"));
+                    } else {
+                        assert!(request.starts_with(b"GET /kcsapi/api_get_member/require_info"));
+                    }
+                    upstream_requests_task.fetch_add(1, Ordering::SeqCst);
+                    let response = match index {
+                    0 => b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: keep-alive\r\n\r\nr1"
+                        .as_slice(),
+                    1 => b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: keep-alive\r\n\r\nr2"
+                        .as_slice(),
+                    _ => b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nr3"
+                        .as_slice(),
+                };
+                    for chunk in response.chunks(index + 1) {
+                        stream.write_all(chunk).await.expect("upstream response");
+                    }
                 }
-                request.extend_from_slice(&buffer[..bytes_read]);
-                if request.windows(4).any(|window| window == b"\r\n\r\n") {
-                    break;
-                }
-            }
-            assert!(request.starts_with(b"GET /kcsapi/api_get_member/require_info"));
-            upstream_requests_task.fetch_add(1, Ordering::SeqCst);
-            stream
-                .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok")
-                .await
-                .expect("upstream response");
-            stream.shutdown().await.expect("upstream shutdown");
-        });
+                stream.shutdown().await.expect("upstream shutdown");
+            });
 
         let proxy_key_pair = KeyPair::generate().expect("proxy CA key");
         let mut proxy_ca_params = CertificateParams::default();
@@ -1286,35 +1589,47 @@ mod tests {
             .connect(server_name, client_socket)
             .await
             .expect("client TLS handshake");
-        let client_request =
-            b"GET /kcsapi/api_get_member/require_info?x=1 HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n";
-        client_tls_stream
-            .write_all(client_request)
-            .await
-            .expect("client request");
-        let mut client_response = Vec::new();
-        loop {
-            let bytes_read = client_tls_stream
-                .read(&mut buffer)
-                .await
-                .expect("client response");
-            if bytes_read == 0 {
-                break;
+        let client_requests = [
+            b"GET /kcsapi/api_get_member/require_info?x=1 HTTP/1.1\r\nHost: localhost\r\nConnection: keep-alive\r\n\r\n"
+                .as_slice(),
+            b"POST /kcsapi/api_get_member/require_info?x=2 HTTP/1.1\r\nHost: localhost\r\nTransfer-Encoding: chunked\r\nConnection: keep-alive\r\n\r\n4\r\nWiki\r\n5\r\npedia\r\n0\r\n\r\n"
+                .as_slice(),
+            b"GET /kcsapi/api_get_member/require_info?x=3 HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n"
+                .as_slice(),
+        ];
+        let expected_response_bodies = [b"r1".as_slice(), b"r2".as_slice(), b"r3".as_slice()];
+        let mut client_request_wire = Vec::new();
+        let mut client_response_wire = Vec::new();
+        for (index, request) in client_requests.iter().enumerate() {
+            for chunk in request.chunks([1, 5, request.len()][index]) {
+                client_tls_stream
+                    .write_all(chunk)
+                    .await
+                    .expect("client request");
             }
-            client_response.extend_from_slice(&buffer[..bytes_read]);
-            if client_response
-                .windows(4)
-                .any(|window| window == b"\r\n\r\n")
-                && client_response.ends_with(b"ok")
-            {
-                break;
+            let mut response = Vec::new();
+            loop {
+                let mut buffer = [0; 4096];
+                let bytes_read = client_tls_stream
+                    .read(&mut buffer)
+                    .await
+                    .expect("client response");
+                assert!(bytes_read > 0, "client closed before response {index}");
+                response.extend_from_slice(&buffer[..bytes_read]);
+                if response.windows(4).any(|window| window == b"\r\n\r\n")
+                    && response.ends_with(expected_response_bodies[index])
+                {
+                    break;
+                }
             }
+            assert!(response.starts_with(b"HTTP/1.1 200 OK"));
+            client_request_wire.extend_from_slice(request);
+            client_response_wire.extend_from_slice(&response);
         }
-        assert!(client_response.starts_with(b"HTTP/1.1 200"));
         drop(client_tls_stream);
 
         upstream_task.await.expect("upstream task");
-        assert_eq!(upstream_requests.load(Ordering::SeqCst), 1);
+        assert_eq!(upstream_requests.load(Ordering::SeqCst), 3);
 
         let capture_dir = tokio::time::timeout(std::time::Duration::from_secs(2), async {
             loop {
@@ -1339,12 +1654,53 @@ mod tests {
         crate::capture::verify_capture(&capture_dir).expect("verify integration capture");
         assert_eq!(
             std::fs::read(capture_dir.join("request-wire.bin")).expect("request wire"),
-            client_request
+            client_request_wire
         );
         assert_eq!(
             std::fs::read(capture_dir.join("response-wire.bin")).expect("response wire"),
-            client_response
+            client_response_wire
         );
+        let manifest: serde_json::Value = serde_json::from_slice(
+            &std::fs::read(capture_dir.join("manifest.json")).expect("manifest"),
+        )
+        .expect("manifest JSON");
+        let messages = manifest["messages"].as_array().expect("message manifests");
+        assert_eq!(messages.len(), 6);
+        for (sequence, message) in messages.iter().enumerate() {
+            assert_eq!(message["sequence"].as_u64(), Some(sequence as u64));
+            let direction = message["direction"].as_str().expect("direction");
+            let stream = if direction == "request" {
+                &client_request_wire
+            } else {
+                assert_eq!(direction, "response");
+                &client_response_wire
+            };
+            let start = message["stream_start"].as_u64().expect("stream start") as usize;
+            let end = message["stream_end"].as_u64().expect("stream end") as usize;
+            assert!(start < end);
+            assert_eq!(message["body_bytes"].as_u64(), Some((end - start) as u64));
+            assert_eq!(
+                message["body_sha256"].as_str(),
+                Some(digest_hex(&stream[start..end]).as_str())
+            );
+            if direction == "request" {
+                if sequence == 2 {
+                    assert!(
+                        stream[start..end].starts_with(b"POST /kcsapi/api_get_member/require_info")
+                    );
+                    assert!(stream[start..end]
+                        .windows(26)
+                        .any(|window| { window == b"Transfer-Encoding: chunked" }));
+                    assert!(stream[start..end].ends_with(b"0\r\n\r\n"));
+                } else {
+                    assert!(
+                        stream[start..end].starts_with(b"GET /kcsapi/api_get_member/require_info")
+                    );
+                }
+            } else {
+                assert!(stream[start..end].starts_with(b"HTTP/1.1 200 OK"));
+            }
+        }
 
         shutdown_tx.send(()).expect("proxy shutdown signal");
         proxy_task

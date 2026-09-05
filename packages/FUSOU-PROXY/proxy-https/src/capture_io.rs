@@ -126,10 +126,21 @@ impl CaptureRecorder {
         let snapshot = self.snapshot()?;
         let request =
             ExactWireMessage::from_bytes(snapshot.request, 0).map_err(CaptureIoError::ExactWire)?;
-        let response =
-            ExactWireMessage::from_bytes(snapshot.response, request.bytes().len() as u64)
-                .map_err(CaptureIoError::ExactWire)?;
+        let response = ExactWireMessage::from_bytes(snapshot.response, 0)
+            .map_err(CaptureIoError::ExactWire)?;
         Ok(ExactWireCapture::new(request, response))
+    }
+
+    pub fn direction_len(&self, direction: CaptureDirection) -> Result<usize, CaptureIoError> {
+        self.ensure_available()?;
+        let state = self.state.lock().map_err(|_| {
+            self.mark_unavailable();
+            CaptureIoError::RecorderPoisoned
+        })?;
+        Ok(match direction {
+            CaptureDirection::Request => state.request.len(),
+            CaptureDirection::Response => state.response.len(),
+        })
     }
 
     fn record(&self, direction: CaptureDirection, bytes: &[u8]) -> Result<(), CaptureIoError> {
@@ -224,11 +235,32 @@ impl Default for CaptureRecorder {
 pub struct CaptureIo<IO> {
     inner: IO,
     recorder: CaptureRecorder,
+    read_chunk_size: Option<usize>,
 }
 
 impl<IO> CaptureIo<IO> {
     pub fn new(inner: IO, recorder: CaptureRecorder) -> Self {
-        Self { inner, recorder }
+        Self {
+            inner,
+            recorder,
+            read_chunk_size: None,
+        }
+    }
+
+    pub fn new_with_read_chunk_size(
+        inner: IO,
+        recorder: CaptureRecorder,
+        read_chunk_size: usize,
+    ) -> Self {
+        assert!(
+            read_chunk_size > 0,
+            "capture read chunk size must be non-zero"
+        );
+        Self {
+            inner,
+            recorder,
+            read_chunk_size: Some(read_chunk_size),
+        }
     }
 
     pub fn recorder(&self) -> &CaptureRecorder {
@@ -256,15 +288,36 @@ where
         context: &mut Context<'_>,
         buffer: &mut ReadBuf<'_>,
     ) -> Poll<io::Result<()>> {
-        let filled_before = buffer.filled().len();
-        let result = Pin::new(&mut self.inner).poll_read(context, buffer);
+        let (result, captured_bytes) = if let Some(read_chunk_size) = self.read_chunk_size {
+            let read_limit = read_chunk_size.min(buffer.remaining());
+            let (result, captured_bytes) = {
+                let unfilled = buffer.initialize_unfilled_to(read_limit);
+                let mut limited_buffer = ReadBuf::new(unfilled);
+                let result = Pin::new(&mut self.inner).poll_read(context, &mut limited_buffer);
+                let captured_bytes = limited_buffer.filled().to_vec();
+                (result, captured_bytes)
+            };
+            if let Poll::Ready(Ok(())) = &result {
+                let filled = captured_bytes.len();
+                buffer.advance(filled);
+            }
+            (result, captured_bytes)
+        } else {
+            let filled_before = buffer.filled().len();
+            let result = Pin::new(&mut self.inner).poll_read(context, buffer);
+            let captured_bytes = if let Poll::Ready(Ok(())) = &result {
+                buffer.filled()[filled_before..].to_vec()
+            } else {
+                Vec::new()
+            };
+            (result, captured_bytes)
+        };
         if let Poll::Ready(Ok(())) = &result {
-            let filled_after = buffer.filled().len();
-            if filled_after > filled_before {
-                let bytes = buffer.filled()[filled_before..filled_after].to_vec();
-                if let Err(error) = self.recorder.record(CaptureDirection::Request, &bytes) {
-                    return Poll::Ready(Err(error.into()));
-                }
+            if let Err(error) = self
+                .recorder
+                .record(CaptureDirection::Request, &captured_bytes)
+            {
+                return Poll::Ready(Err(error.into()));
             }
         }
         result

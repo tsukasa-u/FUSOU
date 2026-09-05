@@ -5,7 +5,43 @@ use hyper::{
     body::{Body as HttpBody, Bytes, Frame, Incoming, SizeHint},
     Request, Response,
 };
-use std::{pin::Pin, task::Poll};
+use std::{
+    pin::Pin,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
+    task::Poll,
+};
+
+struct Completion {
+    callback: Arc<dyn Fn() + Send + Sync>,
+    fired: AtomicBool,
+}
+
+impl std::fmt::Debug for Completion {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("Completion")
+            .field("fired", &self.fired)
+            .finish()
+    }
+}
+
+impl Completion {
+    fn new(callback: impl Fn() + Send + Sync + 'static) -> Arc<Self> {
+        Arc::new(Self {
+            callback: Arc::new(callback),
+            fired: AtomicBool::new(false),
+        })
+    }
+
+    fn fire(&self) {
+        if !self.fired.swap(true, Ordering::AcqRel) {
+            (self.callback)();
+        }
+    }
+}
 
 #[derive(Debug)]
 enum Internal {
@@ -15,6 +51,10 @@ enum Internal {
     Full(Full<Bytes>),
     Incoming(Incoming),
     String(String),
+    Completion {
+        body: BoxBody<Bytes, Error>,
+        completion: Arc<Completion>,
+    },
 }
 
 /// Concrete implementation of [`Body`](HttpBody).
@@ -43,6 +83,15 @@ impl Body {
             ))),
         }
     }
+
+    pub fn with_completion(self, callback: impl Fn() + Send + Sync + 'static) -> Self {
+        Self {
+            inner: Internal::Completion {
+                body: BoxBody::new(self),
+                completion: Completion::new(callback),
+            },
+        }
+    }
 }
 
 impl HttpBody for Body {
@@ -60,6 +109,13 @@ impl HttpBody for Body {
             Internal::Full(body) => Pin::new(body).poll_frame(cx).map_err(|e| match e {}),
             Internal::Incoming(body) => Pin::new(body).poll_frame(cx).map_err(Error::from),
             Internal::String(body) => Pin::new(body).poll_frame(cx).map_err(|e| match e {}),
+            Internal::Completion { body, completion } => {
+                let result = Pin::new(body).poll_frame(cx);
+                if matches!(result, Poll::Ready(None)) {
+                    completion.fire();
+                }
+                result
+            }
         }
     }
 
@@ -71,6 +127,7 @@ impl HttpBody for Body {
             Internal::Full(body) => body.is_end_stream(),
             Internal::Incoming(body) => body.is_end_stream(),
             Internal::String(body) => body.is_end_stream(),
+            Internal::Completion { body, .. } => body.is_end_stream(),
         }
     }
 
@@ -82,6 +139,7 @@ impl HttpBody for Body {
             Internal::Full(body) => body.size_hint(),
             Internal::Incoming(body) => body.size_hint(),
             Internal::String(body) => body.size_hint(),
+            Internal::Completion { body, .. } => body.size_hint(),
         }
     }
 }

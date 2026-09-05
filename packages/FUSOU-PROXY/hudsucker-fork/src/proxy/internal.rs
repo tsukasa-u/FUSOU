@@ -6,7 +6,7 @@ use crate::{
 use futures::{Sink, Stream, StreamExt};
 use http::uri::{Authority, Scheme};
 use hyper::{
-    body::{Bytes, Incoming},
+    body::{Body as HttpBody, Bytes, Incoming},
     header::Entry,
     service::service_fn,
     upgrade::Upgraded,
@@ -103,6 +103,23 @@ where
         req: Request<Incoming>,
     ) -> Result<Response<Body>, Infallible> {
         let ctx = self.context();
+        let request_body_is_empty = req.body().is_end_stream();
+        self.client_stream_hook.request_started(&ctx, &req);
+        let request_hook = self.client_stream_hook.clone();
+        let request_context = ctx.clone();
+        let req = req.map(|body| {
+            let body = Body::from(body);
+            if request_body_is_empty {
+                body
+            } else {
+                body.with_completion(move || {
+                    request_hook.request_completed(&request_context);
+                })
+            }
+        });
+        if request_body_is_empty {
+            self.client_stream_hook.request_completed(&ctx);
+        }
 
         let req = match self
             .http_handler
@@ -111,7 +128,7 @@ where
             .await
         {
             RequestOrResponse::Request(req) => req,
-            RequestOrResponse::Response(res) => return Ok(res),
+            RequestOrResponse::Response(res) => return Ok(self.wrap_response(&ctx, res)),
         };
 
         if req.method() == Method::CONNECT {
@@ -125,19 +142,35 @@ where
                 .instrument(info_span!("proxy_request"))
                 .await;
 
-            match res {
-                Ok(res) => Ok(self
-                    .http_handler
-                    .handle_response(&ctx, res.map(Body::from))
-                    .instrument(info_span!("handle_response"))
-                    .await),
-                Err(err) => Ok(self
-                    .http_handler
-                    .handle_error(&ctx, err)
-                    .instrument(info_span!("handle_error"))
-                    .await),
-            }
+            let res = match res {
+                Ok(res) => {
+                    self.http_handler
+                        .handle_response(&ctx, res.map(Body::from))
+                        .instrument(info_span!("handle_response"))
+                        .await
+                }
+                Err(err) => {
+                    self.http_handler
+                        .handle_error(&ctx, err)
+                        .instrument(info_span!("handle_error"))
+                        .await
+                }
+            };
+            Ok(self.wrap_response(&ctx, res))
         }
+    }
+
+    fn wrap_response(&self, context: &HttpContext, response: Response<Body>) -> Response<Body> {
+        self.client_stream_hook.response_started(context, &response);
+        let hook = self.client_stream_hook.clone();
+        let context = context.clone();
+        let (parts, body) = response.into_parts();
+        Response::from_parts(
+            parts,
+            body.with_completion(move || {
+                hook.response_completed(&context);
+            }),
+        )
     }
 
     fn process_connect(mut self, mut req: Request<Body>) -> Response<Body> {
@@ -206,7 +239,7 @@ where
 
                                     let result =
                                         self.serve_stream(stream, Scheme::HTTPS, authority).await;
-                                    hook.finish(context).await;
+                                    hook.finish_with_status(context, result.is_ok()).await;
                                     if let Err(e) = result {
                                         if !e
                                             .to_string()

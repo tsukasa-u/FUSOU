@@ -27,8 +27,9 @@ connection ends.
 
 This integration proves the selected byte boundary with generated traffic. It
 is not natural Game Client evidence: no natural capture has been collected,
-and persistent HTTP/1.1 message splitting and privacy authorization remain
-outside this harness.
+and privacy authorization remains outside this harness. Persistent HTTP/1.1
+message splitting is driven by Hyper lifecycle callbacks rather than a second
+HTTP parser in the capture layer.
 
 The source-backed layer and hook investigation is recorded in [TLSNotary Capture Hook Investigation v1](tlsn-capture-hook-investigation-v1.md).
 
@@ -39,6 +40,20 @@ A future lower-level collector must feed `ExactWireMessage::from_parts` from the
 - the complete request or response wire byte sequence;
 - the source stream start offset;
 - the exclusive source stream end offset.
+
+For the current fork integration, `RawCaptureHook` records connection-level
+directional wire streams and an ordered `messages[]` list. Each message stores
+its direction, sequence, Hyper metadata, parse state, and a non-overlapping
+direction-local range into the corresponding wire file. Request and response
+bytes remain raw, including HTTP headers and chunk framing. Hyper may serialize
+client-facing response headers such as `Date`, so upstream response literals
+must not be used as expected client-facing wire bytes.
+
+The hook finalizes an artifact only for a clean Hyper connection with complete
+request/response lifecycle state. Malformed HTTP, truncated bodies, premature
+close, capture failure, or an incomplete lifecycle produces no valid exact-wire
+artifact. Bytes already forwarded before a post-write recorder failure are not
+retried.
 
 The constructor rejects offsets that do not equal the byte length. `ExactWireCapture::write_private_raw` stores the request and response wire payloads as `request-wire.bin` and `response-wire.bin`, with `EXACT_WIRE` and `PRIVATE_RAW_CAPTURE` markers.
 
@@ -58,7 +73,11 @@ Each artifact contains:
 - request SHA-256 and response SHA-256;
 - a complete artifact SHA-256 over a fixed magic value, length-delimited canonical manifest JSON, request bytes, and response bytes.
 
-The canonical hash order is request payload followed by response payload. Source stream offsets remain metadata and are validated independently. This avoids silently treating two directional streams as one original TCP stream.
+The canonical hash order is request payload followed by response payload. Source
+stream offsets remain metadata and are validated independently. Message hashes
+are computed over each recorded range. This avoids silently treating two
+directional streams as one original TCP stream while still permitting ordered
+message verification on persistent connections.
 
 Serialization uses the declared Rust structure order and no timestamps. Identical inputs therefore produce an identical complete artifact hash even when written to different directories.
 

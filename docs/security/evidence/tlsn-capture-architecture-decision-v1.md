@@ -104,12 +104,15 @@ The implemented fork contains the following semantic changes:
    shutdown behavior remains in the upstream path.
 4. Add fork-local tests for failed TLS handshakes, plaintext request/response
    capture, HTTP parse errors, connection close, and write-failure no-retry
-   behavior.
+   behavior. The proxy integration additionally exercises three persistent
+   HTTP/1.1 request/response pairs, chunked request framing, fragmented IO,
+   six ordered message ranges, and no request retry.
 
-The fork has four source touch points (`lib`, `builder`, proxy state, and
-`process_connect`), plus focused tests. The FUSOU application-side change
+The fork has five source touch points (`lib`, `body`, `builder`, proxy state,
+and `process_connect`), plus focused tests. The FUSOU application-side change
 selects the path dependency and supplies the collector. The synthetic test
-exercises CONNECT, TLS accept, Hyper forwarding, and artifact finalization.
+exercises CONNECT, TLS accept, Hyper forwarding, persistent message lifecycle,
+and artifact finalization.
 This remains smaller than a replacement server, which would own the entire
 CONNECT-to-Hyper lifecycle.
 
@@ -139,9 +142,13 @@ There must be no replay fallback.
 
 The integrated collector implements these IO-level rules for one TLS
 connection and finalizes the artifact after the Hyper connection ends. It
-still treats one request direction and one response direction as a single
-session; persistent HTTP/1.1 message splitting, natural-traffic validation,
-and production privacy authorization remain future work.
+keeps complete directional wire streams separate from ordered message ranges.
+Hyper's request and response lifecycle is authoritative for those ranges; the
+collector does not implement an independent HTTP parser. A one-byte client
+read quantum prevents parser read-ahead from crossing a lifecycle boundary.
+Malformed or incomplete connections are not finalized as valid artifacts.
+Natural-traffic validation and production privacy authorization remain future
+work.
 
 ## Why replacement is not selected
 
@@ -185,14 +192,14 @@ The non-production integration currently provides:
 - atomic staging and finalization of private artifacts;
 - limits and no-retry failure tests;
 - Hyper parse-failure and failed-TLS tests.
-- synthetic CONNECT/TLS/upstream integration with an exactly-one upstream
-   request assertion.
+- synthetic CONNECT/TLS/upstream integration with three persistent requests,
+  six ordered message assertions, chunked framing, and exactly-three upstream
+  request assertion.
 
 The focused synthetic integration passes. It proves only generated client
 traffic through the selected fork boundary. It does not prove natural Game
-Client traffic, HTTP message-boundary extraction on persistent connections,
-authenticated TLSNotary disclosure, verifier behavior, or production capture
-authorization.
+Client traffic, authenticated TLSNotary disclosure, verifier behavior, or
+production capture authorization.
 
 ## Gate disposition
 

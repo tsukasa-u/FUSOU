@@ -21,6 +21,7 @@ pub enum CaptureError {
     MissingRequest,
     InvalidCaptureId,
     InvalidBoundary,
+    InvalidMessageBoundary,
     OutputPathNotAbsolute,
     InvalidPayloadFile,
     Io(io::Error),
@@ -36,6 +37,9 @@ impl std::fmt::Display for CaptureError {
             }
             Self::InvalidBoundary => {
                 formatter.write_str("capture boundary does not match payload length")
+            }
+            Self::InvalidMessageBoundary => {
+                formatter.write_str("capture message boundary does not match wire stream")
             }
             Self::OutputPathNotAbsolute => {
                 formatter.write_str("capture output path must be absolute")
@@ -74,7 +78,7 @@ pub struct CapturedMessage {
     body: Vec<u8>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 struct CapturedHeader {
     name: String,
     value: Vec<u8>,
@@ -112,8 +116,10 @@ impl CapturedMessage {
     fn manifest(&self, direction: &str, body_file: &str, stream_start: u64) -> MessageManifest {
         let body_length = self.body.len() as u64;
         MessageManifest {
+            sequence: None,
             direction: direction.to_string(),
             representation: "handler-visible body bytes; not original HTTP wire bytes".to_string(),
+            parse_state: "HANDLER_VISIBLE_BODY".to_string(),
             body_file: body_file.to_string(),
             body_bytes: body_length,
             body_sha256: sha256_hex(&self.body),
@@ -142,10 +148,66 @@ impl CapturedMessage {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ExactWireMetadata {
+    version: String,
+    method: Option<String>,
+    target: Option<String>,
+    status: Option<u16>,
+    reason: Option<String>,
+    headers: Vec<CapturedHeader>,
+}
+
+impl ExactWireMetadata {
+    pub fn from_request<B>(request: &request::Request<B>) -> Self {
+        Self {
+            version: version_name(request.version()),
+            method: Some(request.method().as_str().to_string()),
+            target: Some(request.uri().to_string()),
+            status: None,
+            reason: None,
+            headers: captured_headers(request.headers()),
+        }
+    }
+
+    pub fn from_response<B>(response: &response::Response<B>) -> Self {
+        Self {
+            version: version_name(response.version()),
+            method: None,
+            target: None,
+            status: Some(response.status().as_u16()),
+            reason: response.status().canonical_reason().map(str::to_string),
+            headers: captured_headers(response.headers()),
+        }
+    }
+
+    pub fn target(&self) -> Option<&str> {
+        self.target.as_deref()
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ExactWireDirection {
+    Request,
+    Response,
+}
+
+impl ExactWireDirection {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Request => "request",
+            Self::Response => "response",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ExactWireMessage {
     bytes: Vec<u8>,
     stream_start: u64,
     stream_end: u64,
+    direction: ExactWireDirection,
+    sequence: u64,
+    metadata: ExactWireMetadata,
 }
 
 impl ExactWireMessage {
@@ -162,6 +224,16 @@ impl ExactWireMessage {
             bytes,
             stream_start,
             stream_end,
+            direction: ExactWireDirection::Request,
+            sequence: 0,
+            metadata: ExactWireMetadata {
+                version: "WIRE_UNKNOWN".to_string(),
+                method: None,
+                target: None,
+                status: None,
+                reason: None,
+                headers: Vec::new(),
+            },
         })
     }
 
@@ -174,23 +246,94 @@ impl ExactWireMessage {
             bytes,
             stream_start,
             stream_end,
+            direction: ExactWireDirection::Request,
+            sequence: 0,
+            metadata: ExactWireMetadata {
+                version: "WIRE_UNKNOWN".to_string(),
+                method: None,
+                target: None,
+                status: None,
+                reason: None,
+                headers: Vec::new(),
+            },
+        })
+    }
+
+    pub fn from_parts_with_metadata(
+        bytes: impl Into<Vec<u8>>,
+        stream_start: u64,
+        stream_end: u64,
+        direction: ExactWireDirection,
+        sequence: u64,
+        metadata: ExactWireMetadata,
+    ) -> Result<Self, CaptureError> {
+        let bytes = bytes.into();
+        if stream_end < stream_start || stream_end - stream_start != bytes.len() as u64 {
+            return Err(CaptureError::InvalidBoundary);
+        }
+        Ok(Self {
+            bytes,
+            stream_start,
+            stream_end,
+            direction,
+            sequence,
+            metadata,
         })
     }
 
     pub fn bytes(&self) -> &[u8] {
         &self.bytes
     }
+
+    pub fn stream_start(&self) -> u64 {
+        self.stream_start
+    }
+
+    pub fn stream_end(&self) -> u64 {
+        self.stream_end
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ExactWireCapture {
-    request: ExactWireMessage,
-    response: ExactWireMessage,
+    request_bytes: Vec<u8>,
+    response_bytes: Vec<u8>,
+    messages: Vec<ExactWireMessage>,
 }
 
 impl ExactWireCapture {
     pub fn new(request: ExactWireMessage, response: ExactWireMessage) -> Self {
-        Self { request, response }
+        let request_bytes = request.bytes.clone();
+        let response_bytes = response.bytes.clone();
+        let request = ExactWireMessage {
+            direction: ExactWireDirection::Request,
+            sequence: 0,
+            ..request
+        };
+        let response = ExactWireMessage {
+            direction: ExactWireDirection::Response,
+            sequence: 1,
+            ..response
+        };
+        Self {
+            request_bytes,
+            response_bytes,
+            messages: vec![request, response],
+        }
+    }
+
+    pub fn from_transcript(
+        request_bytes: impl Into<Vec<u8>>,
+        response_bytes: impl Into<Vec<u8>>,
+        messages: Vec<ExactWireMessage>,
+    ) -> Result<Self, CaptureError> {
+        let capture = Self {
+            request_bytes: request_bytes.into(),
+            response_bytes: response_bytes.into(),
+            messages,
+        };
+        capture.validate_messages()?;
+        Ok(capture)
     }
 
     pub fn write_private_raw(
@@ -198,17 +341,27 @@ impl ExactWireCapture {
         output_root: impl Into<PathBuf>,
         capture_id: impl Into<String>,
     ) -> Result<PathBuf, CaptureError> {
-        let request_length = self.request.bytes.len() as u64;
-        let response_length = self.response.bytes.len() as u64;
+        self.write_private_raw_transcript(output_root, capture_id)
+    }
+
+    pub fn write_private_raw_transcript(
+        self,
+        output_root: impl Into<PathBuf>,
+        capture_id: impl Into<String>,
+    ) -> Result<PathBuf, CaptureError> {
+        self.validate_messages()?;
+        let request_length = self.request_bytes.len() as u64;
+        let response_length = self.response_bytes.len() as u64;
         let core = CaptureManifestCore {
-            schema_version: 1,
+            schema_version: 2,
             capture_id: capture_id.into(),
             capture_kind: "require_info".to_string(),
             source: "lower-level exact-wire collector".to_string(),
             wire_fidelity: "EXACT_WIRE".to_string(),
             privacy_state: "PRIVATE_RAW_CAPTURE".to_string(),
-            request: wire_manifest("request", REQUEST_WIRE_FILE, &self.request),
-            response: wire_manifest("response", RESPONSE_WIRE_FILE, &self.response),
+            request: stream_manifest("request", REQUEST_WIRE_FILE, &self.request_bytes),
+            response: stream_manifest("response", RESPONSE_WIRE_FILE, &self.response_bytes),
+            messages: self.messages.iter().map(message_manifest).collect(),
             canonical_stream: CanonicalStreamManifest {
                 ordering: "request-wire then response-wire; length-delimited in hash preimage"
                     .to_string(),
@@ -222,11 +375,40 @@ impl ExactWireCapture {
         write_artifact(
             output_root.into(),
             core,
-            &self.request.bytes,
-            &self.response.bytes,
+            &self.request_bytes,
+            &self.response_bytes,
             REQUEST_WIRE_FILE,
             RESPONSE_WIRE_FILE,
         )
+    }
+
+    fn validate_messages(&self) -> Result<(), CaptureError> {
+        let mut previous_sequence = None;
+        let mut request_end = 0;
+        let mut response_end = 0;
+        for message in &self.messages {
+            if let Some(previous_sequence) = previous_sequence {
+                if message.sequence <= previous_sequence {
+                    return Err(CaptureError::InvalidMessageBoundary);
+                }
+            }
+            previous_sequence = Some(message.sequence);
+            let (stream, previous_end) = match message.direction {
+                ExactWireDirection::Request => (&self.request_bytes, &mut request_end),
+                ExactWireDirection::Response => (&self.response_bytes, &mut response_end),
+            };
+            if message.stream_start < *previous_end
+                || message.stream_end < message.stream_start
+                || message.stream_end as usize > stream.len()
+                || message.stream_end - message.stream_start != message.bytes.len() as u64
+                || stream[message.stream_start as usize..message.stream_end as usize]
+                    != message.bytes
+            {
+                return Err(CaptureError::InvalidMessageBoundary);
+            }
+            *previous_end = message.stream_end;
+        }
+        Ok(())
     }
 }
 
@@ -273,6 +455,7 @@ impl CaptureBuilder {
             privacy_state: privacy_state.to_string(),
             request: request.manifest("request", REQUEST_BODY_FILE, 0),
             response: response.manifest("response", RESPONSE_BODY_FILE, request_length),
+            messages: Vec::new(),
             canonical_stream: CanonicalStreamManifest {
                 ordering: "request-body then response-body; length-delimited in hash preimage"
                     .to_string(),
@@ -370,14 +553,20 @@ struct CaptureManifestCore {
     privacy_state: String,
     request: MessageManifest,
     response: MessageManifest,
+    #[serde(default)]
+    messages: Vec<MessageManifest>,
     canonical_stream: CanonicalStreamManifest,
     sanitization: Option<SanitizationManifest>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct MessageManifest {
+    #[serde(default)]
+    sequence: Option<u64>,
     direction: String,
     representation: String,
+    #[serde(default)]
+    parse_state: String,
     body_file: String,
     body_bytes: u64,
     body_sha256: String,
@@ -435,8 +624,10 @@ impl From<SanitizationReport> for SanitizationManifest {
 
 fn wire_manifest(direction: &str, body_file: &str, message: &ExactWireMessage) -> MessageManifest {
     MessageManifest {
+        sequence: None,
         direction: direction.to_string(),
         representation: "complete HTTP wire bytes from lower-level collector".to_string(),
+        parse_state: "WIRE_STREAM".to_string(),
         body_file: body_file.to_string(),
         body_bytes: message.bytes.len() as u64,
         body_sha256: sha256_hex(&message.bytes),
@@ -452,6 +643,50 @@ fn wire_manifest(direction: &str, body_file: &str, message: &ExactWireMessage) -
             content_length_hex: Vec::new(),
             transfer_encoding_hex: Vec::new(),
             content_encoding_hex: Vec::new(),
+        },
+    }
+}
+
+fn stream_manifest(direction: &str, body_file: &str, bytes: &[u8]) -> MessageManifest {
+    let message = ExactWireMessage::from_bytes(bytes.to_vec(), 0).expect("stream boundary");
+    wire_manifest(direction, body_file, &message)
+}
+
+fn message_manifest(message: &ExactWireMessage) -> MessageManifest {
+    MessageManifest {
+        sequence: Some(message.sequence),
+        direction: message.direction.as_str().to_string(),
+        representation: "message range within complete HTTP wire stream".to_string(),
+        parse_state: "HYPER_ACCEPTED_BODY_COMPLETE".to_string(),
+        body_file: match message.direction {
+            ExactWireDirection::Request => REQUEST_WIRE_FILE.to_string(),
+            ExactWireDirection::Response => RESPONSE_WIRE_FILE.to_string(),
+        },
+        body_bytes: message.bytes.len() as u64,
+        body_sha256: sha256_hex(&message.bytes),
+        stream_start: message.stream_start,
+        stream_end: message.stream_end,
+        version: message.metadata.version.clone(),
+        method: message.metadata.method.clone(),
+        target: message.metadata.target.clone(),
+        status: message.metadata.status,
+        reason: message.metadata.reason.clone(),
+        headers: message
+            .metadata
+            .headers
+            .iter()
+            .map(|header| HeaderManifest {
+                name: header.name.clone(),
+                value_hex: hex_encode(&header.value),
+            })
+            .collect(),
+        framing: FramingManifest {
+            content_length_hex: header_values_hex(&message.metadata.headers, "content-length"),
+            transfer_encoding_hex: header_values_hex(
+                &message.metadata.headers,
+                "transfer-encoding",
+            ),
+            content_encoding_hex: header_values_hex(&message.metadata.headers, "content-encoding"),
         },
     }
 }
@@ -530,6 +765,9 @@ pub fn verify_capture(capture_dir: impl AsRef<Path>) -> Result<CaptureVerificati
             "capture manifest does not match body files",
         )));
     }
+    if manifest.core.wire_fidelity == "EXACT_WIRE" {
+        verify_message_manifests(&manifest.core.messages, &request_body, &response_body)?;
+    }
     let core_json = serde_json::to_vec(&manifest.core)?;
     let complete_sha256 = complete_artifact_sha256(&core_json, &request_body, &response_body);
     if complete_sha256 != manifest.complete_artifact_sha256 {
@@ -543,6 +781,45 @@ pub fn verify_capture(capture_dir: impl AsRef<Path>) -> Result<CaptureVerificati
         response_sha256,
         complete_artifact_sha256: complete_sha256,
     })
+}
+
+fn verify_message_manifests(
+    messages: &[MessageManifest],
+    request_bytes: &[u8],
+    response_bytes: &[u8],
+) -> Result<(), CaptureError> {
+    if messages.is_empty() {
+        return Err(CaptureError::InvalidMessageBoundary);
+    }
+    let mut previous_sequence = None;
+    let mut request_end = 0;
+    let mut response_end = 0;
+    for message in messages {
+        let sequence = message
+            .sequence
+            .ok_or(CaptureError::InvalidMessageBoundary)?;
+        if previous_sequence.is_some_and(|previous| sequence <= previous) {
+            return Err(CaptureError::InvalidMessageBoundary);
+        }
+        previous_sequence = Some(sequence);
+        let (stream, expected_file, previous_end) = match message.direction.as_str() {
+            "request" => (request_bytes, REQUEST_WIRE_FILE, &mut request_end),
+            "response" => (response_bytes, RESPONSE_WIRE_FILE, &mut response_end),
+            _ => return Err(CaptureError::InvalidMessageBoundary),
+        };
+        if message.body_file != expected_file
+            || message.stream_start < *previous_end
+            || message.stream_end < message.stream_start
+            || message.stream_end as usize > stream.len()
+            || message.stream_end - message.stream_start != message.body_bytes
+            || sha256_hex(&stream[message.stream_start as usize..message.stream_end as usize])
+                != message.body_sha256
+        {
+            return Err(CaptureError::InvalidMessageBoundary);
+        }
+        *previous_end = message.stream_end;
+    }
+    Ok(())
 }
 
 pub fn next_capture_id() -> String {
@@ -851,12 +1128,10 @@ mod tests {
     fn exact_wire_capture_preserves_wire_payloads_and_source_boundaries() {
         let request_wire = b"POST /kcsapi/api_get_member/require_info HTTP/1.1\r\n\r\nwire-request";
         let response_wire = b"HTTP/1.1 200 OK\r\n\r\nwire-response";
-        let request =
-            ExactWireMessage::from_parts(request_wire, 41, 41 + request_wire.len() as u64)
-                .expect("request boundary");
-        let response =
-            ExactWireMessage::from_parts(response_wire, 7, 7 + response_wire.len() as u64)
-                .expect("response boundary");
+        let request = ExactWireMessage::from_parts(request_wire, 0, request_wire.len() as u64)
+            .expect("request boundary");
+        let response = ExactWireMessage::from_parts(response_wire, 0, response_wire.len() as u64)
+            .expect("response boundary");
         let root = temp_dir("exact_wire");
         let capture_dir = ExactWireCapture::new(request, response)
             .write_private_raw(&root, "exact-wire")

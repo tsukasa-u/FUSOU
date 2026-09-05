@@ -27,9 +27,13 @@ capture:
   `ClientStream`, `ClientStreamHook`, and no-op hook types.
 - `src/proxy/builder.rs`: optional hook state and
   `with_client_stream_hook` builder method.
-- `src/proxy/mod.rs`: per-connection id allocation and hook propagation.
-- `src/proxy/internal.rs`: hook state cloning and invocation after
-  `TlsAcceptor::accept` succeeds and before Hyper `serve_stream`.
+- `src/body.rs`: one-shot body completion callbacks used to observe Hyper body
+  EOF without adding an independent HTTP parser.
+- `src/proxy/mod.rs`: per-connection id allocation, hook propagation, and
+  request/response lifecycle callbacks.
+- `src/proxy/internal.rs`: hook state cloning, lifecycle event emission, and
+  invocation after `TlsAcceptor::accept` succeeds and before Hyper
+  `serve_stream`.
 
 The accepted stream is client-facing MITM TLS plaintext. The hook does not
 run for failed TLS handshakes, raw CONNECT tunnels, or the cleartext WebSocket
@@ -37,16 +41,25 @@ CONNECT path; HTTPS WebSocket traffic is still carried through the accepted
 MITM TLS stream.
 
 FUSOU supplies the hook from `proxy_server_https.rs`. It wraps the stream with
-`CaptureIo`, records directional bytes, and finalizes one private exact-wire
-artifact after the Hyper connection ends. Only requests whose raw request line
-contains `/api_get_member/require_info` are persisted. Handler-visible body
-capture is not combined with the raw artifact.
+`CaptureIo`, records directional bytes, and uses Hyper's accepted request and
+response lifecycle as the message-boundary authority. Request and response
+ranges use direction-local offsets in `request-wire.bin` and
+`response-wire.bin`; the capture layer does not implement a competing HTTP
+parser. Only requests whose parsed target contains
+`/api_get_member/require_info` are persisted. Handler-visible body capture is
+not combined with the raw artifact.
+
+The hook uses one-byte reads on the client-facing stream. This prevents Hyper
+read-ahead from consuming bytes belonging to a later persistent request before
+the previous lifecycle callback records its exclusive end offset. This is a
+correctness choice for the proof harness, not a general HTTP framing
+algorithm.
 
 ## Upgrade procedure
 
 1. Confirm the intended upstream tag and commit with `git ls-remote`.
 2. Copy the new upstream package source into a clean temporary directory.
-3. Reapply only the four fork source changes listed above.
+3. Reapply only the five fork source changes listed above.
 4. Re-run the proxy package lockfile update and inspect the hudsucker package
    source entry.
 5. Review CONNECT protocol detection, TLS accept, `serve_stream`, Hyper
@@ -57,8 +70,10 @@ capture is not combined with the raw artifact.
    dependency changes, or credential-like material.
 
 A hudsucker version upgrade is not complete until the stream hook remains after
-TLS accept and before Hyper parsing, and the synthetic test still proves one
-upstream request with matching captured client-facing bytes.
+TLS accept and before Hyper parsing, and the synthetic test still proves three
+persistent HTTP/1.1 request/response pairs, chunked request framing, matching
+client-facing wire bytes, six ordered message ranges, and exactly three
+upstream requests without retry.
 
 ## Regression commands
 
@@ -74,10 +89,12 @@ it is not required for this Rust-only integration.
 
 ## Evidence boundary
 
-The synthetic integration proves only that generated client TLS traffic can
-travel through CONNECT, the fork's MITM TLS accept, the plaintext hook, Hyper,
-and a generated upstream TLS server without request retry. It does not count
-as natural Game Client evidence and does not update the Phase 0 ledger:
+The synthetic integration proves that generated client TLS traffic can travel
+through CONNECT, the fork's MITM TLS accept, the plaintext hook, Hyper, and a
+generated upstream TLS server. It exercises multiple requests on one
+persistent HTTP/1.1 connection, fixed and chunked request framing, fragmented
+request/response IO, directional offsets, and per-message hashes. It does not
+count as natural Game Client evidence and does not update the Phase 0 ledger:
 
 - natural capture count remains `0`;
 - `P0-04 = BLOCKED`;
