@@ -108,8 +108,14 @@ mod tests {
 
     #[test]
     fn experimental_request_contains_one_binding_before_origin_send() {
-        let probe =
-            ExperimentalRequireInfoProbe::new("game.example.test", &binding_value()).unwrap();
+        let binding = binding_value();
+        let expected = parse_binding_value(&binding).unwrap();
+        let probe = ExperimentalRequireInfoProbe::from_expected_binding(
+            "game.example.test",
+            &expected,
+            &binding,
+        )
+        .unwrap();
         let request = probe.request();
         assert_eq!(
             request
@@ -122,7 +128,22 @@ mod tests {
             .windows(crate::BINDING_HEADER.len())
             .position(|window| window == crate::BINDING_HEADER.as_bytes())
             .is_some());
-        assert_eq!(probe.binding().value, binding_value());
+        assert_eq!(probe.binding(), &expected);
+        assert_eq!(probe.binding().value, binding);
+    }
+
+    #[test]
+    fn experimental_probe_rejects_invalid_configuration_before_transport() {
+        assert!(matches!(
+            ExperimentalRequireInfoProbe::new("Game.example.test", &binding_value()),
+            Err(ExperimentalProbeError::Transport(
+                ProverTransportError::InvalidRequest(_)
+            ))
+        ));
+        assert!(matches!(
+            ExperimentalRequireInfoProbe::new("game.example.test", "not-a-binding"),
+            Err(ExperimentalProbeError::Configuration(_))
+        ));
     }
 
     #[test]

@@ -533,6 +533,64 @@ mod tests {
     }
 
     #[test]
+    fn rejects_authenticated_request_without_binding() {
+        let mut output = mock_output();
+        let binding_start = output
+            .sent_transcript
+            .windows(crate::BINDING_HEADER.len())
+            .position(|window| window == crate::BINDING_HEADER.as_bytes())
+            .unwrap();
+        let line_end = output.sent_transcript[binding_start..]
+            .windows(2)
+            .position(|window| window == b"\r\n")
+            .map(|offset| binding_start + offset)
+            .unwrap();
+        output.sent_transcript.drain(binding_start..line_end + 2);
+        output.sent_digest = sha256(&output.sent_transcript);
+        output.sent_ranges = vec![RevealedRange {
+            start: 0,
+            length: output.sent_transcript.len() as u64,
+            bytes: output.sent_transcript.clone(),
+        }];
+        let transcript = AuthenticatedTranscript::from_verified_alpha15(output).unwrap();
+        let profile =
+            RequireInfoDisclosureProfile::for_mock_tlsn_verification("game.example.test").unwrap();
+        assert!(matches!(
+            transcript.verify_require_info(&profile, &ParserLimits::default()),
+            Err(Alpha15AdapterError::Parser(VerifierError::InvalidHttp(
+                "binding header cardinality is invalid"
+            )))
+        ));
+    }
+
+    #[test]
+    fn derives_member_id_from_authenticated_response_bytes() {
+        let mut output = mock_output();
+        let original = b"16189463";
+        let replacement = b"26189463";
+        let member_start = output
+            .received_transcript
+            .windows(original.len())
+            .position(|window| window == original)
+            .unwrap();
+        output.received_transcript[member_start..member_start + original.len()]
+            .copy_from_slice(replacement);
+        output.received_digest = sha256(&output.received_transcript);
+        output.received_ranges = vec![RevealedRange {
+            start: 0,
+            length: output.received_transcript.len() as u64,
+            bytes: output.received_transcript.clone(),
+        }];
+        let transcript = AuthenticatedTranscript::from_verified_alpha15(output).unwrap();
+        let profile =
+            RequireInfoDisclosureProfile::for_mock_tlsn_verification("game.example.test").unwrap();
+        let authenticated = transcript
+            .verify_require_info(&profile, &ParserLimits::default())
+            .unwrap();
+        assert_eq!(authenticated.verified_member_id, "26189463");
+    }
+
+    #[test]
     fn keeps_request_and_response_in_one_authenticated_object() {
         let transcript = AuthenticatedTranscript::from_verified_alpha15(mock_output()).unwrap();
         assert_eq!(

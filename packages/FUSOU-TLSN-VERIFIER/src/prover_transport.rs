@@ -225,6 +225,53 @@ mod tests {
             binding
         );
         assert!(build_require_info_request(SERVER_IDENTITY, "not-a-binding").is_err());
+
+        let missing_binding = format!(
+            "POST {REQUIRE_INFO_TARGET} HTTP/1.1\r\nHost: {SERVER_IDENTITY}\r\nContent-Length: 0\r\n\r\n"
+        );
+        assert!(parse_require_info_request(
+            missing_binding.as_bytes(),
+            SERVER_IDENTITY,
+            &ParserLimits::default(),
+        )
+        .is_err());
+    }
+
+    #[tokio::test]
+    async fn transport_rejects_invalid_state_transitions_fail_closed() {
+        let mut transport = ProverOwnedTlsTransport {
+            connection: None,
+            request_sent: false,
+            response_read: false,
+        };
+        assert!(matches!(
+            transport.read_response_to_end().await,
+            Err(ProverTransportError::RequestNotSent)
+        ));
+
+        let binding = binding_value();
+        let send_error = transport.send_require_info(SERVER_IDENTITY, &binding).await;
+        assert!(matches!(
+            send_error,
+            Err(ProverTransportError::ConnectionClosed)
+        ));
+        assert!(!transport.request_sent());
+        assert!(matches!(
+            transport.send_require_info(SERVER_IDENTITY, &binding).await,
+            Err(ProverTransportError::ConnectionClosed)
+        ));
+
+        let mut response_already_read = ProverOwnedTlsTransport {
+            connection: None,
+            request_sent: true,
+            response_read: true,
+        };
+        assert!(matches!(
+            response_already_read.read_response_to_end().await,
+            Err(ProverTransportError::ResponseAlreadyRead)
+        ));
+        response_already_read.close().await.unwrap();
+        response_already_read.close().await.unwrap();
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -290,6 +337,10 @@ mod tests {
                 Err(ProverTransportError::RequestAlreadySent)
             ));
             let response = transport.read_response_to_end().await.unwrap();
+            assert!(matches!(
+                transport.read_response_to_end().await,
+                Err(ProverTransportError::ResponseAlreadyRead)
+            ));
             transport.close().await.unwrap();
             let evidence = ExperimentalRequireInfoEvidence {
                 request: probe.request().to_vec(),
@@ -376,6 +427,9 @@ mod tests {
 
         let (origin_request, origin_response) = origin_result;
         assert_eq!(origin_request, expected_request);
+        assert!(!origin_request
+            .windows(b"16189463".len())
+            .any(|window| { window == b"16189463" }));
         assert_eq!(evidence.request, origin_request);
         assert_eq!(evidence.response, origin_response);
 
@@ -464,5 +518,105 @@ mod tests {
         assert_eq!(result.verified_member_id, "16189463");
         assert!(!result.canonical_json().unwrap().is_empty());
         assert!(!result.signing_bytes().unwrap().is_empty());
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn experimental_probe_runs_on_a_prover_owned_connection() {
+        let binding = binding_value();
+        let probe = ExperimentalRequireInfoProbe::new(SERVER_IDENTITY, &binding).unwrap();
+        let expected_request = probe.request().to_vec();
+        let (root_certificate, server_certificate, private_key) = server_credentials();
+        let root_store = RootCertStore {
+            roots: vec![CertificateDer(root_certificate)],
+        };
+        let proxy_config = ProxyTlsConfig::builder()
+            .server_name(DnsName::try_from(SERVER_IDENTITY).unwrap())
+            .build()
+            .unwrap();
+
+        let (prover_socket, verifier_socket) = tokio::io::duplex(2 << 23);
+        let mut prover_session = Session::new(prover_socket.compat());
+        let mut verifier_session = Session::new(verifier_socket.compat());
+        let prover = prover_session
+            .new_prover(ProverConfig::builder().build().unwrap())
+            .unwrap();
+        let verifier = verifier_session
+            .new_verifier(
+                VerifierConfig::builder()
+                    .root_store(root_store.clone())
+                    .build()
+                    .unwrap(),
+            )
+            .unwrap();
+        let (prover_driver, prover_handle) = prover_session.split();
+        let (verifier_driver, verifier_handle) = verifier_session.split();
+        tokio::spawn(prover_driver);
+        tokio::spawn(verifier_driver);
+
+        let (origin_socket, verifier_origin_socket) = tokio::io::duplex(2 << 16);
+        let origin_task =
+            tokio::spawn(serve_origin(origin_socket, server_certificate, private_key));
+        let prover_root_store = root_store;
+        let prover_task = tokio::spawn(async move {
+            let prover = prover.commit(proxy_config).await.unwrap();
+            let (connection, prover) = prover
+                .connect(
+                    TlsClientConfig::builder()
+                        .server_name(ServerName::Dns(DnsName::try_from(SERVER_IDENTITY).unwrap()))
+                        .root_store(prover_root_store)
+                        .build()
+                        .unwrap(),
+                )
+                .unwrap();
+            let prover_task = tokio::spawn(prover.into_future());
+            let evidence = probe.run(connection).await.unwrap();
+            let prover = prover_task.await.unwrap().unwrap();
+            let mut transcript_commit = TranscriptCommitConfig::builder(prover.transcript());
+            transcript_commit
+                .commit_sent(0..prover.transcript().sent().len())
+                .unwrap();
+            transcript_commit
+                .commit_recv(0..prover.transcript().received().len())
+                .unwrap();
+            let mut prove_config = ProveConfig::builder(prover.transcript());
+            prove_config.transcript_commit(transcript_commit.build().unwrap());
+            prove_config.server_identity();
+            prove_config.reveal_sent_all().unwrap();
+            prove_config.reveal_recv_all().unwrap();
+            let prove_config = prove_config.build().unwrap();
+            let mut prover = prover;
+            prover.prove(&prove_config).await.unwrap();
+            prover.close().await.unwrap();
+            evidence
+        });
+
+        let verifier_task = tokio::spawn(async move {
+            let verifier = verifier.commit().await.unwrap();
+            let VerifierCommitStart::Proxy(verifier) = verifier else {
+                panic!("expected proxy verifier");
+            };
+            let verifier = verifier
+                .accept()
+                .await
+                .unwrap()
+                .run(verifier_origin_socket.compat())
+                .await
+                .unwrap();
+            let (_, verifier) = verifier.verify().await.unwrap().accept().await.unwrap();
+            verifier.close().await.unwrap();
+        });
+
+        let (evidence, verifier_result) = tokio::join!(prover_task, verifier_task);
+        verifier_result.unwrap();
+        let evidence = evidence.unwrap();
+        let (origin_request, origin_response) = origin_task.await.unwrap();
+        prover_handle.close();
+        verifier_handle.close();
+
+        assert_eq!(origin_request, expected_request);
+        assert_eq!(evidence.request, origin_request);
+        assert_eq!(evidence.response, origin_response);
+        assert_eq!(evidence.binding.value, binding_value());
+        assert_eq!(evidence.verified_member_id, "16189463");
     }
 }

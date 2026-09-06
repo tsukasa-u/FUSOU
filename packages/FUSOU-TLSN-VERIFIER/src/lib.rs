@@ -1809,6 +1809,19 @@ mod tests {
     }
 
     #[test]
+    fn changing_signed_result_fields_changes_signing_bytes() {
+        let result = sanitized_result();
+        let original = result.signing_bytes().unwrap();
+        let mut changed = result.clone();
+        changed.verified_member_id = "26189463".to_owned();
+        assert_ne!(original, changed.signing_bytes().unwrap());
+
+        let mut changed = result;
+        changed.response_transcript_sha256[0] ^= 1;
+        assert_ne!(original, changed.signing_bytes().unwrap());
+    }
+
+    #[test]
     fn rejects_result_binding_substitution() {
         let mut result = sanitized_result();
         result.binding_nonce[0] ^= 1;
