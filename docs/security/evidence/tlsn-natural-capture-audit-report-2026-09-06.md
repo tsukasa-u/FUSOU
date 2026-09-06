@@ -1,0 +1,146 @@
+# TLSNotary Natural Capture Audit Report 2026-09-06
+
+Status: `P0-04 PASS`; `P0-05 BLOCKED`; `P0-15 BLOCKED`. This report records a read-only local audit of one operator-controlled private capture. It does not claim TLSNotary authentication, production integration, privacy qualification, or Game Client/OS/browser provenance.
+
+## Audit Decision
+
+The reviewed artifact is a valid natural exact-wire `require_info` candidate:
+
+- one observed `POST /kcsapi/api_get_member/require_info` request;
+- one corresponding HTTP `200` response;
+- allowlisted Game Server identity `w16s.kancolle-server.com`;
+- exact-wire message boundaries and complete-artifact hash verified;
+- ordinary FUSOU-APP startup and gameplay attested by the operator;
+- no standalone request, injection, replay, retry, or capture-generated traffic attested.
+
+The response was accepted by the existing strict `require_info` parser and produced an `observed_member_id`. This is natural capture data only. It is not an authenticated alpha.15 Presentation and must not be called `verified_member_id`.
+
+## Reviewed Private Artifact
+
+The raw artifact is outside the repository and remains private at:
+
+```text
+/tmp/private/capture-root/capture-1788700756254772969-3254561-0-connection-6
+```
+
+The external manual review record is:
+
+```text
+/tmp/private/natural-review-capture-1788700756254772969-3254561-0-connection-6.json
+```
+
+The raw capture files and review record were restricted to owner-only access (`600` files, `700` directories). No raw wire bytes, headers, cookies, credentials, session tokens, response body, or member ID value are committed in this repository.
+
+| Field | Value |
+| --- | --- |
+| Capture ID | `capture-1788700756254772969-3254561-0-connection-6` |
+| Capture kind | `require_info` |
+| Wire fidelity | `EXACT_WIRE` |
+| App version | `0.5.0` |
+| Game client metadata | `FUSOU-APP external WebView/browser` |
+| Allowlisted server | `w16s.kancolle-server.com` |
+| Request bytes | `2145` |
+| Response stream bytes | `213990` |
+| Require-info response range | `response-wire.bin[0..162774]` |
+| Request SHA-256 | `6d92c2106b9aa181de0b94303fff161466053bee85835f67370da5690eed57d5` |
+| Response SHA-256 | `f2bd3f29a45b16d0d7f15db778cf28122b0ed8da9bf3be9b579f4f735e5ab3d8` |
+| Complete artifact SHA-256 | `b583cfaa5ed64928e0fc310733d12dc2bdd0bfaaef3e9b5f6728e92595e67b62` |
+
+The connection contains six messages. The second message is the `require_info` response at status `200`; a later `200` belongs to a voice resource and is not a second `require_info` response. The request contains zero `X-FUSOU-Attestation-Binding` headers. The collector manifest intentionally remains `natural_candidate` with `natural_provenance=false`; natural provenance is supplied only by the separate manual review record.
+
+## Local Verification
+
+The artifact verifier was run without network access:
+
+```text
+cargo run --locked \
+  --manifest-path packages/FUSOU-PROXY/proxy-https/Cargo.toml \
+  --bin verify_capture -- \
+  /tmp/private/capture-root/capture-1788700756254772969-3254561-0-connection-6 \
+  /tmp/private/natural-review-capture-1788700756254772969-3254561-0-connection-6.json
+```
+
+Results:
+
+```text
+artifact_integrity=true
+natural_provenance=true
+game_server_identity_verified=true
+require_info_evidence=true
+natural_evidence_qualified=true
+operational_isolation=false
+privacy_review_complete=false
+privacy_qualified=false
+external_transmission_status=POSSIBLE_UNRESOLVED
+privacy_disposition=UNKNOWN
+p0_04=READY
+```
+
+The first response range was passed to `parse_require_info_response` from `packages/FUSOU-TLSN-VERIFIER`. The strict parser accepted it and produced an ID with these non-secret reporting values:
+
+```text
+strict_parser=accepted
+observed_member_id_present=true
+observed_member_id_length=8
+observed_member_id_sha256=37d6280b7e2476c6f0d4118defcbd7942d936066b696c3f12ef0de5f0cafa4d8
+```
+
+The ID value is retained only in the owner-readable private file:
+
+```text
+/tmp/private/observed-member-id-capture-6.txt
+```
+
+The temporary local checker used for this extraction was removed after verification. The extraction was not a TLSNotary verification.
+
+## Test Results
+
+- `cargo +1.95.0 test --locked --manifest-path packages/FUSOU-TLSN-VERIFIER/Cargo.toml`: `36 passed`
+- `cargo test --locked --manifest-path packages/FUSOU-PROXY/proxy-https/Cargo.toml capture::`: `12 passed`
+- `verify_capture` with the private review record: success, `p0_04=READY`
+- Production-area diff check: no changes in `FUSOU-APP`, `FUSOU-PROXY`, or `FUSOU-WEB`
+
+Rust 1.95 was required because the pinned alpha.15 dependency `mpz-fields` rejects Rust 1.94. No external Game Server, Notary, or HTTP/API connection was made during this local audit.
+
+## Privacy and Operational Boundary
+
+The operator attested that the session used ordinary FUSOU-APP startup/gameplay and that the request was not standalone, injected, replayed, retried, or generated by capture. This supports the natural-provenance review only.
+
+Privacy and operational isolation remain unresolved:
+
+- no sanitized fixture was reviewed;
+- pending upload state was not independently resolved;
+- external transmission status is `POSSIBLE_UNRESOLVED`;
+- privacy disposition is `UNKNOWN`;
+- the artifact is not privacy-qualified.
+
+These limitations do not invalidate the separate P0-04 natural-evidence decision, but they block P0-15 and any clean-capture claim.
+
+## P0-05 Boundary
+
+This artifact does not contain or establish any of the following:
+
+- a server-issued `X-FUSOU-Attestation-Binding` value;
+- a Prover-owned TLSNotary connection to the real Game Server;
+- a Real Notary-issued alpha.15 Presentation;
+- authenticated sent/received disclosure and transcript digest coverage;
+- Dedicated Verifier processing of a real Presentation;
+- authenticated `verified_member_id`;
+- signed Result verification or Web ingestion.
+
+Therefore `P0-05` remains `BLOCKED`. The production route, ordinary Hyper/rustls origin transport, schema, retry behavior, and configuration remain unchanged. The investigation remains `IMPLEMENTATION=NO-GO` for TLSNotary production integration.
+
+## Audit AI Summary
+
+```text
+NATURAL_EXACT_WIRE_CAPTURE: PASS
+NATURAL_PROVENANCE_REVIEW: PASS
+STRICT_RESPONSE_MEMBER_ID_PARSE: PASS (observed only)
+TLSNOTARY_AUTHENTICATED_PRESENTATION: NOT_OBTAINED
+SERVER_ISSUED_BINDING: NOT_PRESENT
+PRIVACY_QUALIFICATION: BLOCKED
+P0-04: PASS
+P0-05: BLOCKED
+P0-15: BLOCKED
+PRODUCTION_ROUTE: UNCHANGED
+```

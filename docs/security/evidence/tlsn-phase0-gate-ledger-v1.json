@@ -152,10 +152,10 @@
       "group": "P0-C Repository / Architecture Validation",
       "stage": "MUST_KNOW_BEFORE_IMPLEMENTATION",
       "reason": "the reviewed supported-client exact-wire require_info capture, natural provenance record, and allowlisted Game Server identity pass; privacy and operational qualification remain separate",
-      "evidence": ["E-NATURAL-2026-09-05", "E-P0-04-001", "E-REPO-001"],
+      "evidence": ["E-NATURAL-2026-09-05", "E-NATURAL-2026-09-06", "E-P0-04-001", "E-REPO-001"],
       "specification_impact": "synthetic harness correctnessとnatural client provenanceを別証拠として扱い、standalone request、injection、replay、capture-generated trafficをnatural evidenceとして認めない",
       "implementation_impact": "synthetic harnessの実装・検証は独立して許可する。P0-04のnatural evidenceはpassしたが、P0-05 authenticated disclosure、P0-15 privacy review、その他のruntime gatesは別途承認されていない",
-      "evidence_ids": ["E-NATURAL-2026-09-05", "E-P0-04-001", "E-REPO-001"],
+      "evidence_ids": ["E-NATURAL-2026-09-05", "E-NATURAL-2026-09-06", "E-P0-04-001", "E-REPO-001"],
       "finding": "旧evidence-attemptでは自然captureを取得していなかったが、その後の既存private artifact reviewで、supported Game Clientの通常gameplayに由来するexact-wire POST /kcsapi/api_get_member/require_info、HTTP 200 response、allowlisted Game Server identity、artifact hash、Number token/framing/compression/response-size manifest、passive observation recordを確認した。旧BLOCKED判定はprivacy_qualifiedをP0-04へ誤って結合していたため superseded とする。無関係なFUSOU-APP upload/retry side effectはprivacy/operational caveatであり、require_infoのnatural provenanceを無効にしない。詳細は [tlsn-natural-capture-forensic-review-2026-09-05.md](tlsn-natural-capture-forensic-review-2026-09-05.md) に固定した。",
       "natural_evidence_conditions": [
         "ordinary FUSOU-APP startup and gameplay",
@@ -407,6 +407,11 @@
       "id": "E-NATURAL-2026-09-05",
       "artifact": "tlsn-natural-capture-forensic-review-2026-09-05.md",
       "scope": "既存private exact-wire require_info artifactのintegrity、external natural provenance、allowlisted Game Server identity、HTTP 200 response、およびP0-04/P0-15を分離した再評価。再capture、replay、Game Server accessは行っていない。"
+    },
+    {
+      "id": "E-NATURAL-2026-09-06",
+      "artifact": "tlsn-natural-capture-audit-report-2026-09-06.md",
+      "scope": "新規private exact-wire require_info artifactのintegrity、operator-reviewed natural provenance、allowlisted Game Server identity、strict response parserによるobserved_member_id導出、およびP0-04/P0-05/P0-15の境界。raw artifactはrepository外に保持し、TLSNotary authenticated Presentationとは分類しない。"
     },
     {
       "id": "E-P0-05-001",
