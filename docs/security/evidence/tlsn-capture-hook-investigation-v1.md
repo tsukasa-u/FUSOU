@@ -6,7 +6,10 @@ for P0-04 or P0-05 and does not authorize production capture.
 
 ## Question and conclusion
 
-The question is whether the current FUSOU HTTPS proxy architecture exposes a lower-level capture point for the exact request and response bytes needed by the frozen TLSNotary alpha.15 profile.
+The question is whether the current FUSOU HTTPS proxy architecture exposes a
+lower-level capture point for exact client-facing bytes used by the separate
+P0-04 natural-provenance artifact. That boundary is not the P0-05 proof
+boundary.
 
 Conclusion:
 
@@ -15,7 +18,18 @@ Conclusion:
 - The client-facing MITM TLS stream is handled inside hudsucker after CONNECT upgrade. hudsucker 0.23.0 has no public callback for wrapping that stream before Hyper parses it or after rustls decrypts it.
 - Therefore, a complete natural Game Client request/response capture is not available through the original public integration. FUSOU now uses a maintained hudsucker fork with a per-stream IO hook; a replacement server boundary remains unnecessary for this integration.
 
-The required TLSNotary capture layer is the client-facing TLS plaintext application stream: the serialized HTTP bytes sent by the natural client and returned by the proxy toward that client. Upstream proxy-to-origin bytes are a different serialization and must not be substituted for the client-facing transcript. TLS ciphertext and TLS record data are also different artifacts and are not HTTP request/response wire bytes.
+The P0-04 natural-capture layer is the client-facing TLS plaintext application
+stream: the serialized HTTP bytes sent by the natural client and returned by
+the proxy toward that client. Upstream proxy-to-origin bytes are a different
+serialization and must not be substituted for that natural-provenance
+artifact. TLS ciphertext and TLS record data are also different artifacts and
+are not HTTP request/response wire bytes.
+
+P0-05 has a different requirement: alpha.15 must own the FUSOU-MITM to Game
+Server origin TLS session, and its authenticated transcript must contain the
+exact request bytes sent by FUSOU-MITM and the response returned by the Game
+Server. The current upstream Hyper/rustls client is not that prover-owned
+session.
 
 ## Scope and source snapshot
 
@@ -113,7 +127,12 @@ The upstream leg has a different, real extension point.
 
 `tokio-rustls-0.26.4/src/client.rs` confirms that its `TlsStream<IO>` stores the underlying `IO` and exposes `get_ref`, `get_mut`, and `into_inner`. The public API therefore supports implementing those upstream transport wrappers without modifying rustls.
 
-This is useful for transport diagnostics or for a future origin-side collector, but it does not capture the natural client's original bytes. FUSOU's client-facing request is parsed, reconstructed, normalized, and serialized again on the upstream leg. An upstream capture must therefore never be described as the client-facing exact transcript without an explicit equivalence proof, which the current architecture does not have.
+This is useful for the P0-05 origin-side integration candidate, but no such
+alpha.15 collector is currently installed. FUSOU's client-facing request is
+parsed, reconstructed, normalized, and serialized again on the upstream leg.
+An upstream capture therefore must not be described as the P0-04 natural
+client transcript. It may become the P0-05 authenticated transcript only when
+the origin connection itself is owned by the pinned alpha.15 Prover.
 
 Hyper's `capture_connection` API was also inspected. It captures only `Connected` metadata through a request extension; it does not capture stream bytes, HTTP framing, TLS plaintext, TLS ciphertext, or offsets.
 
@@ -149,9 +168,10 @@ If the project does not want to maintain a hudsucker fork, the alternative is a 
 
 ## Required specification wording
 
-The existing Capture Harness description should be read with the following qualification:
+The existing P0-04 Capture Harness description should be read with the
+following qualification:
 
-> The exact-wire collector MUST attach to the client-facing TLS plaintext application stream after MITM TLS decryption and before Hyper HTTP parsing, or to an equivalent server boundary with identical byte provenance. An upstream connector capture, handler-visible body, decoded body, reconstructed request/response, TLS ciphertext capture, or TLS record capture MUST NOT be labeled as the natural client-facing HTTP transcript without separate equivalence evidence.
+> The P0-04 exact-wire collector MUST attach to the client-facing TLS plaintext application stream after MITM TLS decryption and before Hyper HTTP parsing, or to an equivalent server boundary with identical byte provenance. An upstream connector capture, handler-visible body, decoded body, reconstructed request/response, TLS ciphertext capture, or TLS record capture MUST NOT be labeled as the natural client-facing HTTP transcript without separate equivalence evidence. This requirement does not define the P0-05 cryptographic proof boundary; P0-05 uses the alpha.15 Prover-owned FUSOU-MITM origin stream.
 
 The `ExactWireMessage` input contract remains valid, but it is only an artifact contract. It does not prove that the current proxy can produce the required input. The producer must also record the stream identity, direction, ordering, message boundary method, and the layer identity (`CLIENT_FACING_TLS_PLAINTEXT_HTTP`) in its provenance.
 

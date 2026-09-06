@@ -8,7 +8,7 @@
 
 **Phase 0証拠revision:** `COMMITTED BASELINE @ 2cabedc4bc8db70a00ba42f91048b46127fea4e8`。selected alpha.15 profile、P0-04/P0-05 evidence collection attempt、およびP0-01〜P0-17の判定は [gate ledger](../security/evidence/tlsn-phase0-gate-ledger-v1.json)、[ソース調査レポート](../security/evidence/tlsn-source-inspection-v1.md)、[alpha.15 adoption profile](../security/evidence/tlsn-alpha15-adoption-profile-v1.json)、[P0-04/P0-05 evidence attempt](../security/evidence/tlsn-p0-04-p0-05-evidence-attempt-v1.json) に固定する。
 
-**計画の範囲:** この調査更新では Final Specification、この文書、および `docs/security/evidence/` の非機密証拠だけを変更する。実行時コード、migration、production resourceは変更しない。
+**計画の範囲:** この更新では Final Specification、この文書、`docs/security/evidence/` の非機密証拠、および `packages/FUSOU-TLSN-VERIFIER` の実験専用probeだけを扱う。FUSOU-WEBのproduction route、FUSOU-PROXYの通常Hyper/rustls origin transport、migration、production resourceは変更しない。実験probeはproduction route、FUSOU-PROXY、FUSOU-APPから参照されない。
 
 **情報源の優先順位:** Final Specification、攻撃者視点の監査、リポジトリ構成、古い計画の順とする。古い計画との競合は Final Specification を優先して解決する。
 
@@ -93,6 +93,25 @@ flowchart LR
 | PostgreSQL のカットオーバー | target migration artifact（filenameはcandidate） | 新規のatomic cutover migration |
 | PostgreSQL のテスト | `packages/FUSOU-WEB/supabase/tests/tlsn_identity_spec_primitives.sql` | 新規の実 PostgreSQL 用フィクスチャ |
 | Turso の対象 | `docs/sql/turso/migration_0002_tlsn_identity_epoch_v1.sql` | 新規の専用ターゲットブートストラップ |
+
+### 2.2 現在の実装ステータス
+
+上のフローは target architecture であり、現在の production path の説明ではない。
+
+```text
+PRODUCTION:
+  Existing FUSOU-WEB anonymous-sync route: unchanged
+  Existing FUSOU-PROXY Hyper/rustls origin transport: unchanged
+
+EXPERIMENTAL:
+  Explicit Prover-owned alpha.15 require_info origin probe: available
+  Browser traffic and normal gameplay traffic: not accepted
+  FUSOU-PROXY / FUSOU-APP integration: absent
+
+P0-05:
+  BLOCKED; real FUSOU Presentation, Game Server run, Notary, Dedicated Verifier,
+  signer, and Web Result ingestion are not available
+```
 | ストレージマニフェスト | `packages/FUSOU-WEB/scripts/manifests/tlsn-identity-storage-v1.json` | 新規生成アーティファクト。正確なロケーターのみ |
 | ストレージ実行器 | `packages/FUSOU-WEB/scripts/cutover-tlsn-identity-storage.mjs` | 新規の保護付き実行器 |
 | デスクトップクライアント | `packages/FUSOU-APP/src-tauri` および `packages/fusou-auth` | Session relay と Claim signer を追加し、従来の権威経路を削除 |
@@ -288,6 +307,7 @@ Canonical Result は Final Specification 第5.2節のフィールドを含む。
 
 ```text
 version, profile_id, profile_sha256, issuer, proof_purpose,
+verified_member_id,
 attestation_session_id, binding_nonce, binding_value,
 verifier_key_id, notary_key_id, tlsn_attestation_id,
 server_identity,
@@ -296,7 +316,12 @@ response_transcript_size, response_transcript_sha256,
 revealed_request_ranges, revealed_response_ranges, signature
 ```
 
-Result が証明するのはゲームサーバーの来歴と Session binding である。FUSOU の認証済みアクターを証明するものではない。FUSOU-WEB は Bearer からアクターの権威情報を取得し、Session、Challenge、ルートテーブルから device/public/mapping の権威情報を取得する。
+`verified_member_id` は認証済み `require_info` response から抽出された
+canonical decimal string であり、Result の canonical JSON と署名対象 bytes
+に含める。Result が証明するのはゲームサーバーの来歴、member identity、
+および Session binding である。FUSOU の認証済みアクターを証明するものでは
+ない。FUSOU-WEB は client body の member ID を受け付けず、検証済み Result
+から mapping を導出する。
 
 ### 6.2 暗号学的 binding
 

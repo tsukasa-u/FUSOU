@@ -117,6 +117,7 @@ impl AuthenticatedRequireInfo {
             profile_sha256,
             issuer: crate::ISSUER.to_owned(),
             proof_purpose: crate::PROOF_PURPOSE.to_owned(),
+            verified_member_id: self.verified_member_id,
             attestation_session_id: self.binding.session_id,
             binding_nonce: self.binding.binding_nonce,
             binding_value: self.binding.value,

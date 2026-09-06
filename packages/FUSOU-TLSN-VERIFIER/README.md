@@ -18,9 +18,13 @@ It currently provides:
 - an `AuthenticatedTranscript` type that can only be created from the verified alpha.15 output;
 - fixed `require_info` request/response, server-identity, binding, digest, and full-disclosure checks.
 - authenticated output to canonical `VerifierResult` construction, with the
-	separate FUSOU signing inputs remaining explicit.
+	response-derived `verified_member_id` included in the canonical Result and
+	its signing bytes; separate FUSOU signing inputs remain explicit.
 - a local alpha.15 Proxy-mode transport skeleton whose request builder places
 	the binding before the Prover-owned TLS write and rejects retries;
+- an explicitly opt-in `experimental` origin probe that accepts only a
+	Prover-owned alpha.15 `TlsConnection`, records the exact request/response,
+	and extracts `api_member_id` with the strict parser;
 - an offline TLS fixture proving that the verifier-owned origin forwarding path
 	receives the exact request and response bytes.
 
@@ -64,6 +68,13 @@ it does not create a serialized Presentation or real FUSOU evidence. The
 implementation therefore does not change the P0-05 gate: P0-05 remains
 `BLOCKED` until an authenticated alpha.15 FUSOU presentation and its evidence
 fixtures exist.
+
+The experimental probe is not a production route. It is not referenced by
+FUSOU-PROXY or FUSOU-APP, does not consume browser traffic, and does not
+replace the Hyper/rustls production origin client. Its synthetic-origin tests
+cover the Prover-owned request/response boundary and binding/replay rejection;
+real Game Server compatibility, Notary-backed Presentation generation, and
+runtime Result signing remain blocked.
 
 Run the focused checks with:
 

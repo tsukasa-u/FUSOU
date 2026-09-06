@@ -257,6 +257,10 @@ mod tests {
                 .await
                 .unwrap();
             assert!(transport.request_sent());
+            assert!(matches!(
+                transport.send_require_info(SERVER_IDENTITY, &binding).await,
+                Err(ProverTransportError::RequestAlreadySent)
+            ));
             let response = transport.read_response_to_end().await.unwrap();
             transport.close().await.unwrap();
 

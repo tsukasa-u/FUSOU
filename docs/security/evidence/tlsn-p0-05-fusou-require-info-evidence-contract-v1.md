@@ -275,6 +275,12 @@ request and response SHA-256 digests
 authenticated request and response ranges
 ```
 
+`verified_member_id` is extracted only from the authenticated
+`api_data.api_basic.api_member_id` response field. It is included in the
+canonical signed Result and its signing bytes so that FUSOU-WEB can derive the
+mapping from the verified Result without accepting a client-supplied member
+ID.
+
 Profile hash, verifier and Notary key IDs, and the final Ed25519 signature are
 separate FUSOU registry/signer inputs. A successful parser or a mock Result
 construction is not a signed runtime Verifier Result.

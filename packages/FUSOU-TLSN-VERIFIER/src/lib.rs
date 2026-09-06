@@ -1,5 +1,6 @@
 #![forbid(unsafe_code)]
 
+pub mod experimental;
 pub mod prover_transport;
 pub mod tlsn_alpha15;
 
@@ -993,9 +994,9 @@ fn parse_api_basic(
         cursor.skip_whitespace();
         if target_key(&key, "api_member_id")? {
             let token = cursor.parse_number()?;
-            if token.len() > 16
-                || token.is_empty()
+            if token.is_empty()
                 || token[0] == b'0'
+                || token.len() > 16
                 || !token.iter().all(|byte| byte.is_ascii_digit())
             {
                 return Err(VerifierError::InvalidJson(
@@ -1037,6 +1038,7 @@ pub struct VerifierResult {
     pub profile_sha256: [u8; 32],
     pub issuer: String,
     pub proof_purpose: String,
+    pub verified_member_id: String,
     pub attestation_session_id: Uuid,
     pub binding_nonce: [u8; 32],
     pub binding_value: String,
@@ -1075,6 +1077,13 @@ fn validate_key_id(value: &str) -> Result<()> {
     Ok(())
 }
 
+fn is_canonical_member_id(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= 16
+        && value.as_bytes()[0] != b'0'
+        && value.bytes().all(|byte| byte.is_ascii_digit())
+}
+
 pub fn validate_server_identity(value: &str) -> Result<()> {
     if value.is_empty() || value.len() > 253 || !value.is_ascii() || value.ends_with('.') {
         return Err(VerifierError::InvalidResult("invalid server identity"));
@@ -1108,6 +1117,9 @@ impl VerifierResult {
         }
         if self.proof_purpose != PROOF_PURPOSE {
             return Err(VerifierError::InvalidResult("unexpected proof purpose"));
+        }
+        if !is_canonical_member_id(&self.verified_member_id) {
+            return Err(VerifierError::InvalidResult("invalid verified member ID"));
         }
         if self.attestation_session_id.get_version_num() != 4 {
             return Err(VerifierError::InvalidResult("session ID is not UUIDv4"));
@@ -1150,6 +1162,7 @@ impl VerifierResult {
         );
         append_json_string_field(&mut output, "issuer", &self.issuer);
         append_json_string_field(&mut output, "proof_purpose", &self.proof_purpose);
+        append_json_string_field(&mut output, "verified_member_id", &self.verified_member_id);
         append_json_string_field(
             &mut output,
             "attestation_session_id",
@@ -1217,6 +1230,7 @@ impl VerifierResult {
         push_len_prefixed(&mut output, &self.profile_sha256)?;
         push_len_prefixed(&mut output, self.issuer.as_bytes())?;
         push_len_prefixed(&mut output, self.proof_purpose.as_bytes())?;
+        push_len_prefixed(&mut output, self.verified_member_id.as_bytes())?;
         push_len_prefixed(&mut output, self.attestation_session_id.as_bytes())?;
         push_len_prefixed(&mut output, &self.binding_nonce)?;
         push_len_prefixed(&mut output, self.binding_value.as_bytes())?;
@@ -1319,6 +1333,8 @@ pub fn parse_verifier_result(input: &[u8], limits: &ParserLimits) -> Result<Veri
     let issuer = parse_result_string(&mut cursor)?;
     expect_result_field(&mut cursor, "proof_purpose", true)?;
     let proof_purpose = parse_result_string(&mut cursor)?;
+    expect_result_field(&mut cursor, "verified_member_id", true)?;
+    let verified_member_id = parse_result_string(&mut cursor)?;
     expect_result_field(&mut cursor, "attestation_session_id", true)?;
     let attestation_session_id = parse_result_uuid(&mut cursor)?;
     expect_result_field(&mut cursor, "binding_nonce", true)?;
@@ -1359,6 +1375,7 @@ pub fn parse_verifier_result(input: &[u8], limits: &ParserLimits) -> Result<Veri
         profile_sha256,
         issuer,
         proof_purpose,
+        verified_member_id,
         attestation_session_id,
         binding_nonce,
         binding_value,
@@ -1556,6 +1573,7 @@ mod tests {
             profile_sha256: [1_u8; 32],
             issuer: ISSUER.to_owned(),
             proof_purpose: PROOF_PURPOSE.to_owned(),
+            verified_member_id: "16189463".to_owned(),
             attestation_session_id: Uuid::parse_str("123e4567-e89b-42d3-a456-426614174000")
                 .unwrap(),
             binding_nonce: [0x42_u8; 32],
@@ -1795,6 +1813,16 @@ mod tests {
         let mut result = sanitized_result();
         result.binding_nonce[0] ^= 1;
         assert!(result.validate().is_err());
+    }
+
+    #[test]
+    fn rejects_noncanonical_verified_member_id() {
+        let mut result = sanitized_result();
+        result.verified_member_id = "016189463".to_owned();
+        assert!(result.canonical_json().is_err());
+
+        result.verified_member_id = "16189463".to_owned();
+        assert!(result.canonical_json().is_ok());
     }
 
     #[test]

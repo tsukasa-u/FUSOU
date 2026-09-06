@@ -59,7 +59,7 @@ JSON property order、HTTP headerの具体的位置、resource limitsの初期�
 
 1. `packages/FUSOU-PROXY/proxy-https` は `hudsucker` による通常の HTTPS MITM proxy である。TLSNotary、MPC-TLS、Dedicated Verifier は存在しない。
 2. `require_info` の DTO は `api_member_id: i64` であるが、APP の Identity は後続 `api_port/port` の `Set::Basic` を使用する。`require_info` 由来の Security Authority path は存在しない。
-3. `packages/FUSOU-WEB/src/server/routes/anonymous-sync-v2.ts` は client 提出の `api_member_id` を `rpc_register_public_id` へ渡し、anonymous user と device を作成して Dataset Token を即時発行する。
+3. `packages/FUSOU-WEB/src/server/routes/anonymous-sync-v2.ts` は client 提出の `api_member_id` を `rpc_register_public_id` へ渡し、anonymous user と device を作成して Dataset Token を即時発行する既存 production route のままである。TLSN Result ingestionによるfail-closed変更は実施していない。TLSNの変更は `packages/FUSOU-TLSN-VERIFIER` の明示的に呼び出す実験probeに限定され、FUSOU-PROXY、FUSOU-APP、通常gameplay trafficからは到達できない。
 4. 現行 `user_devices` に `device_status` はなく、`revoked_at IS NULL` だけで active を表す。
 5. `member_ownership`、`member_identity_claims`、`claim_challenges`、`claim_verified_device_v1` は実 migration に存在しない。
 6. 現行 `member_id_mapping.api_member_id` は `TEXT`、`user_devices.device_pubkey` は `BYTEA` である。
@@ -618,6 +618,7 @@ profile_id
 profile_sha256
 issuer
 proof_purpose
+verified_member_id
 attestation_session_id
 binding_nonce
 binding_value
@@ -643,6 +644,7 @@ signature
 | `profile_sha256` | strict unpadded base64url、decoded length = 32 |
 | `issuer` | exact ASCII String `fusou-tlsn-verifier` |
 | `proof_purpose` | exact ASCII String `GAME_ACCOUNT_IDENTITY_V1` |
+| `verified_member_id` | authenticated `require_info` responseから抽出した canonical decimal ASCII string。client inputではなく、Resultのcanonical JSONと署名対象bytesに含める |
 | `attestation_session_id` | lowercase canonical UUIDv4 String; server-issued Session identifier extracted from the authenticated binding header |
 | `binding_nonce` | strict unpadded base64url, decoded length = 32; exact nonce extracted from the authenticated binding header |
 | `binding_value` | strict unpadded base64url of the canonical binding bytes; exact ASCII value of the authenticated `X-FUSOU-Attestation-Binding` header |
