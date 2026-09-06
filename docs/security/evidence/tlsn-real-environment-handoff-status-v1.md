@@ -1,0 +1,66 @@
+# TLSNotary Real-Environment Handoff Status v1
+
+Status: controlled FUSOU-APP handoff defined; no new external network access was performed by this investigation.
+
+## Scope
+
+The only permitted source of a real Game Server response for this path is an operator-controlled ordinary FUSOU-APP session:
+
+```text
+operator uses FUSOU-APP normally
+  -> existing PAC and Hyper/rustls proxy route
+  -> passive client-facing TLS plaintext capture
+  -> private exact-wire artifact
+  -> read-only capture verification
+```
+
+The experimental path must not issue a standalone API request, create a request from a fixture, inject a request into the Game Client, replay a request, or retry a forwarded logical request. Browser, Game Client, and OS provenance are untrusted input and are not part of the P0-05 security claim.
+
+The controlled launcher is:
+
+```text
+pnpm --dir packages/FUSOU-APP testplay:verify -- /absolute/private/capture-root
+```
+
+The output directory must be outside the repository. The launcher enables only the private capture settings for that session and disables the configured persistence, upload, auth bootstrap, custom sender, and pending-retry paths. After the operator stops the session, the previous user configuration is restored. The capture is then checked without network access:
+
+```text
+cargo run --manifest-path packages/FUSOU-PROXY/proxy-https/Cargo.toml --bin verify_capture -- /absolute/private/capture-root/<capture-id>
+```
+
+## Evidence classification
+
+| Evidence | Current status | Boundary |
+| --- | --- | --- |
+| Synthetic alpha.15 harness | PASS | Prover-owned synthetic origin, Presentation verification, strict parser, and Result contract are tested. |
+| FUSOU-APP controlled capture path | AVAILABLE | Launcher and capture verifier are locally tested; no live operator capture was collected in this investigation. |
+| Real Game Server natural capture | NOT TESTED IN THIS RUN | Requires the operator to use ordinary FUSOU-APP gameplay and retain the private artifact for review. Existing reviewed natural evidence remains separate from this status record. |
+| Real Notary | BLOCKED | No authorized endpoint, protocol configuration, or credential is present for this experimental path. No credentials are guessed or stored. |
+| Real alpha.15 Presentation | BLOCKED | A normal FUSOU-APP capture is plaintext capture evidence, not a TLSNotary-authenticated Presentation. |
+| Dedicated Verifier with real Presentation | BLOCKED | No real FUSOU Presentation is available to submit. Local verifier tests remain synthetic or upstream-fixture evidence. |
+| `verified_member_id` from real authenticated response | BLOCKED | The strict parser is tested, but no real TLSNotary-authenticated FUSOU response is available in this path. |
+| Binding in real authenticated transcript | BLOCKED | The current production route does not add the experimental FUSOU binding header, and no production hook may be added for this task. |
+| Replay protection | PASS for synthetic harness | Natural capture procedure forbids injection, replay, retry, and capture-generated traffic. A real TLSN attempt remains unavailable. |
+| Signed Result | PASS for synthetic Result contract; BLOCKED for real evidence | Canonical/signing behavior is tested locally, but no real authenticated Result is available. |
+| Web Result ingestion | BLOCKED | No real signed Result exists to submit to the Web path. |
+| Privacy/runtime evidence | BLOCKED | The private-capture procedure exists, but a new operator review and runtime evidence are not part of this investigation. |
+
+## Production boundary
+
+No production integration hook, normal origin transport replacement, database migration, schema change, retry/fallback change, or production configuration change is authorized by this status. The existing FUSOU-APP route remains the ordinary gameplay route. The capture launcher is an explicit operator tool and does not start automatically from gameplay or a background task.
+
+The passive FUSOU-APP capture can establish exact natural request/response bytes and allowlisted-server semantics after an authorized operator review. It cannot turn those bytes into a TLSNotary proof. A future P0-05 real-evidence path would need an explicitly approved experimental Prover-owned TLS session, an authorized Notary path, the exact binding contract, a real alpha.15 Presentation, and an isolated verifier run. None of those prerequisites is added here.
+
+## Gate disposition
+
+```text
+Synthetic evidence: PASS
+Real Game Server for this investigation: NOT TESTED IN THIS RUN
+Real Notary: BLOCKED
+Real alpha.15 Presentation: BLOCKED
+Dedicated Verifier real evidence: BLOCKED
+P0-05: BLOCKED
+Production Route: UNCHANGED
+```
+
+This document records an evidence boundary and does not promote synthetic or natural capture evidence to authenticated disclosure evidence.
