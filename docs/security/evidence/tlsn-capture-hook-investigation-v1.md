@@ -167,7 +167,8 @@ This investigation changes no gate result and adds no runtime collector.
 - `P0-04 = BLOCKED` in this pre-capture snapshot; the current corrected ledger
 	records the later natural-evidence result separately.
 - `P0-05 = BLOCKED`; no authenticated FUSOU disclosure, range evidence, digest golden, binding evidence, or strict verifier fixture exists.
-- `PASS = 3`, `BLOCKED = 14`, `FAIL = 0` remains unchanged.
+- Historical snapshot: `PASS = 3`, `BLOCKED = 14`, `FAIL = 0`.
+- Current corrected ledger: `PASS = 4`, `BLOCKED = 13`, `FAIL = 0`.
 - `IMPLEMENTATION = NO-GO` remains unchanged.
 
 The synthetic fork integration may establish capture correctness independently,

@@ -348,7 +348,7 @@ machine-readableなstatus ledgerは[tlsn-phase0-gate-ledger-v1.json](tlsn-phase0
 PASS: 3
 FAIL: 0
 BLOCKED: 14
-Phase 0: NO-GO (3/17 PASS)
+Phase 0: NO-GO (4/17 PASS; P0-04 natural evidence only)
 Implementation: NO-GO
 Proof Copy: MUST-REJECT unchanged
 ```

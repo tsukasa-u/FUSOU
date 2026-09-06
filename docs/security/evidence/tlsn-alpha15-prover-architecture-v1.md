@@ -11,22 +11,21 @@ FUSOU-PROXY MITM connection is not that endpoint: it terminates the Game
 Client's TLS session, exposes plaintext to Hyper, and creates a separate
 origin TLS session with `hyper-rustls`.
 
-The preferred production shape is therefore:
+The required production shape is therefore:
 
 ```text
-Game Client / FUSOU-App application path
-  -> TLSNotary alpha.15 Prover-owned TLS client
+FUSOU-MITM origin request path
+   -> TLSNotary alpha.15 Prover-owned origin TLS client
   -> encrypted proxy stream over the Session channel
   -> TLSNotary alpha.15 Verifier
   -> verifier-owned TCP connection to the allowlisted Game Server
 ```
 
-The current MITM path may remain as an ordinary proxy or capture path, but it
-must not be presented as the source of an authenticated alpha.15 Presentation.
-A prover placed inside the existing proxy can create a cryptographically
-authenticated Presentation for a new proxy-origin TLS session, but that
-Presentation does not prove that the original Game Client generated the
-authenticated request.
+The current MITM path may remain as an ordinary proxy or capture path, but the
+selected origin path must replace its current Hyper/rustls client with the
+alpha.15 Prover-owned transport. A Presentation for this path proves the exact
+request sent by FUSOU-MITM and the exact response returned by the Game Server.
+It does not prove that an external Game Client generated the request.
 
 ## Goals and non-goals
 
@@ -109,7 +108,8 @@ TLSNotary prover, Session channel, `ProxyTlsConfig`, or alpha.15 transcript
 finalization is connected to it. The two TLS sessions therefore have
 different keys, handshakes, Finished records, and transcript identities.
 
-The existing capture is valuable for exact-wire and natural-provenance work,
+The existing capture is valuable for exact-wire and separate P0-04
+natural-provenance work,
 but it is not a substitute for the alpha.15 application transcript. A capture
 manifest cannot provide the master-secret-derived commitments, authenticated
 server identity proof, Notary signature, or Presentation Attestation ID.
@@ -119,27 +119,25 @@ server identity proof, Notary signature, or Presentation Attestation ID.
 | Shape | What alpha.15 would authenticate | P0-05 suitability |
 | --- | --- | --- |
 | Keep current MITM and capture plaintext | No alpha.15 session; only observed client-facing bytes | Not suitable for a Presentation |
-| Add a prover after MITM and forward plaintext into a new TLSNotary client | The proxy-generated request and the Game Server response on the new origin TLS session | Produces `REAL_ALPHA15_VERIFICATION`, but not natural Game Client provenance or client-to-server binding |
-| Move the prover into the FUSOU-App/client application path | The application bytes sent by the prover-owned TLS client to the Game Server and the corresponding server response | Required target, subject to client integration and origin compatibility |
+| Add a prover at the FUSOU-MITM origin boundary | The exact FUSOU-MITM request and the Game Server response on the new origin TLS session | Required target, subject to origin integration and compatibility |
+| Move the prover into the FUSOU-App/client application path | A client-owned request and the corresponding server response | Optional alternative; stronger provenance than the requested claim |
 | Run prover and verifier in one trusted proxy process | A locally assembled protocol result with no independent Notary boundary | Not acceptable as production TLSNotary evidence |
 
-The second shape is technically possible, but it changes the claim. A proxy
-could read the decrypted MITM bytes and write equivalent bytes to its own
-`TlsConnection`; alpha.15 would authenticate what that prover sent to the
-origin. It would not cryptographically establish that the bytes came from the
-Game Client unchanged. The proxy could have altered, retried, reordered, or
-generated them before the authenticated TLS session began. This fails the
-natural-client and no-injection requirements in the frozen evidence contract.
+The origin-boundary shape is technically sufficient for the requested claim. A
+proxy may select or transform the upstream input before origin serialization;
+alpha.15 authenticates the exact bytes it then sends and the response returned
+by the Game Server. This does not establish browser intent or browser-side
+provenance, which are explicitly outside the claim. The no-resubmission rule
+still applies after the origin send latch.
 
 ## Required implementation boundaries
 
 An implementation that aims at `REAL_FUSOU_AUTHENTICATED_EVIDENCE` must provide
 all of the following.
 
-1. **Prover endpoint.** The FUSOU application path that creates the
+1. **Prover endpoint.** The FUSOU-MITM origin path that creates the
    `require_info` request must use the alpha.15 `TlsConnection` as its HTTP
-   transport, or an equivalent client-owned integration. A passive MITM
-   stream cannot supply the prover's TLS secrets.
+   transport. A passive MITM stream cannot supply the prover's TLS secrets.
 2. **Verifier forwarding service.** The verifier must accept the Session
    channel, accept `ProxyTlsConfig`, resolve and connect the allowlisted origin,
    and run `Verifier::run(origin_socket.compat())`. The Session driver must be
@@ -159,12 +157,12 @@ all of the following.
    component that extracts the Attestation ID and computes the final digests.
 6. **FUSOU authority binding.** The authenticated binding header must be issued
    by the FUSOU Session/Challenge authority and matched server-side for owner,
-   nonce, freshness, and single use. A prover or proxy merely copying a client
-   header does not satisfy this boundary.
-7. **Natural provenance evidence.** The exchange must be produced by the
-   supported ordinary client path, with no standalone Game Server request,
-   injection, replay, retry, or capture-generated traffic. This is separate
-   evidence from the alpha.15 cryptographic proof.
+   nonce, freshness, and single use. A caller-supplied header copied without
+   matching the authority record does not satisfy this boundary.
+7. **Origin transport evidence.** The exchange must be produced by the
+   FUSOU-MITM origin path, with the exact request bytes and one-shot send
+   record. Browser intent and browser-facing TLS are outside this evidence.
+   Natural-client provenance remains a separate P0-04 operational artifact.
 
 ## Compatibility gate
 
@@ -216,15 +214,15 @@ traffic:
    the Game Server request.
 
 These tests would establish integration feasibility only. They would not
-change `P0-05` until a real natural FUSOU exchange and the required authority,
-privacy, and runtime evidence are separately reviewed.
+change `P0-05` until a real FUSOU-MITM origin Presentation and the required
+authority, privacy, and runtime evidence are separately reviewed.
 
 ## Current disposition
 
 The alpha.15 prover architecture is feasible in principle through
 `ProxyTlsConfig`, but it is not wired into FUSOU-PROXY and cannot be obtained by
 converting the current capture artifact into a Presentation. The smallest
-credible production path is a prover-owned FUSOU application transport plus a
+credible production path is a Prover-owned FUSOU-MITM origin transport plus a
 separate verifier/notary origin-forwarding service. Until that path exists and
 the frozen evidence contract is satisfied, the correct status remains:
 

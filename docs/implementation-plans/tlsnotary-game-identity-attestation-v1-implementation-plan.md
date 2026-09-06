@@ -12,7 +12,7 @@
 
 **情報源の優先順位:** Final Specification、攻撃者視点の監査、リポジトリ構成、古い計画の順とする。古い計画との競合は Final Specification を優先して解決する。
 
-**監査結果:** `P0 = 残り0件`、`P1 = 残り0件`、`P2 = 残り0件`（初期監査項目はすべて処置済み）。これは設計issue ledgerの状態であり、Phase 0全gateのPASSを意味しない。現在のPhase 0証拠は `PASS = 3`、`FAIL = 0`、`BLOCKED = 14`。alpha.15 (`47aee45b53e06648c1b2ad3689b367b8c923fdec`) をdocumentation-only implementation inputとして選定し、ID extraction/profile/goldenを固定した。Proof Copy攻撃 = `PASS`、主要セキュリティ目標 = `PASS`、Notary issuance-time provenance = `REMOVED_FROM_V1`、実装 = `NO-GO`。
+**監査結果:** `P0 = 残り0件`、`P1 = 残り0件`、`P2 = 残り0件`（初期監査項目はすべて処置済み）。これは設計issue ledgerの状態であり、Phase 0全gateのPASSを意味しない。現在のPhase 0証拠は `PASS = 4`、`FAIL = 0`、`BLOCKED = 13`。alpha.15 (`47aee45b53e06648c1b2ad3689b367b8c923fdec`) をdocumentation-only implementation inputとして選定し、ID extraction/profile/goldenを固定した。Proof Copy攻撃 = `PASS`、主要セキュリティ目標 = `PASS`、Notary issuance-time provenance = `REMOVED_FROM_V1`、実装 = `NO-GO`。
 
 **規範語:** `MUST`、`MUST NOT`、`ONLY` は Final Specificationのsecurity/protocol contractとその受入条件にだけ適用する。各タスクの具体的なfilename、function/index name、provider resource、lock key、batch/timeout、step orderは、別途不変条件または相互運用性を示さない限り、候補実装・configuration・runbookである。「新規ファイル」と記された対象パスは、そのタスクが実装・テストされるまで存在しないものとする。
 
@@ -77,7 +77,7 @@ flowchart LR
   A[Authenticated APP] --> B[FUSOU-WEB Session API]
   B --> C[(PostgreSQL Session row)]
   B --> D[Opaque binding value]
-  D --> E[Proxy one-shot injection]
+  D --> E[FUSOU-MITM origin one-shot binding]
   E --> F[Game Server require_info]
   F --> G[Dedicated Verifier]
   G --> H[Signed Verifier Result]
@@ -108,7 +108,7 @@ authenticated non-anonymous user + device public key
   -> issue_attestation_session_v1
   -> committed Attestation Session
   -> opaque binding value
-  -> next natural require_info request
+  -> next FUSOU-MITM origin require_info request
 ```
 
 HTTP リクエスト:
@@ -147,7 +147,7 @@ ASCII "FUSOU-ATTESTATION-BINDING-V1\0"
 || u16_be(32) || binding_nonce raw bytes
 ```
 
-`binding_value` はそのバイト列のパディングなしの厳密な base64url encoding である。これは導出値であり、権威列として保存しない。Session 行は HTTP レスポンスより前、かつ proxy が header を注入できるより前に commit する。
+`binding_value` はそのバイト列のパディングなしの厳密な base64url encoding である。これは導出値であり、権威列として保存しない。Session 行は HTTP レスポンスより前、かつFUSOU-MITMがorigin requestをシリアライズするより前に commit する。
 
 ### 3.3 対象 Session ストレージ
 
@@ -221,7 +221,7 @@ Host: <allowlisted server_identity>
 X-FUSOU-Attestation-Binding: <exact binding_value>
 ```
 
-リダイレクト、暗黙の再試行、proxy によるリクエスト生成、代替ゲームサーバーのエンドポイント、フォールバックから導出した識別情報を禁止する。
+リダイレクト、暗黙の再試行、別のorigin requestの生成、代替ゲームサーバーのエンドポイント、フォールバックから導出した識別情報を禁止する。
 
 ### 4.2 1 つの論理リクエスト
 
@@ -241,7 +241,7 @@ BEFORE_APPLICATION_SEND -> SEND_COMMITTED -> RESPONSE_AVAILABLE -> COMPLETE
 | --- | --- | --- |
 | Session 発行 | Session を永続化し binding を導出する | クライアントの Session metadata を受け入れる |
 | Proxy への引き渡し | 一回限りの不透明な制御メッセージ | 秘密の binding データをログまたは永続化する |
-| リクエストへの注入 | 次の通常のリクエストに正確なヘッダーを追加する | 別のリクエストまたは 2 回追加する |
+| Origin requestへのbinding placement | 次のorigin requestをシリアライズする前に正確なヘッダーを1回追加する | 別のリクエスト、シリアライズ後、または2回追加する |
 | Transcript | 認証済みの送信バイト列に正確なヘッダーを含める | ヘッダーのクライアント側コピーを使用する |
 | 検証 | Session ID、nonce、value を抽出して比較する | transcript の証明なしで Result JSON を信頼する |
 | 失敗 | 識別情報未検証とし、識別情報の変更を残さない | 送信後に上流で再試行する |
@@ -861,7 +861,7 @@ IMP-14 staging/prod deployment and cutover evidence
 | IMP-01 | identity rootsとatomic cutoverをDBに定着させる | orphan、mutable authority、invalid lifecycle、partial cutoverの拒否 | root schema、FK、lifecycle、cutover contract | runtime依存。DDLのfilename/orderは延期・置換可 |
 | IMP-02 | direct writeと権限迂回を閉じる | entry function限定、append-only、RLS/ACL、deadlock-freeのglobal order | caller boundary、role matrix、lock-order invariant | DB方式は延期・置換可。authority boundaryは延期不可 |
 | IMP-03 | 証明前にserver-owned Session/bindingを発行する | actor、device key、Session、bindingの等価性 | authenticated Bearer、Session lifecycle、binding encoding | P0-01/02/04/05後に実装。API接続以外のmechanicsは延期可 |
-| IMP-04 | natural requestを一回だけ認証済み経路へ送る | no replay、send-after-latch no retry、binding移動拒否 | require_info、binding placement、fallback boundary | natural capture/profile証拠前は延期。no-retry contractは延期不可 |
+| IMP-04 | FUSOU-MITM origin requestを一回だけ認証済み経路へ送る | no replay、send-after-latch no retry、binding移動拒否 | require_info、binding placement、fallback boundary | origin integration/profile証拠前は延期。no-retry contractは延期不可 |
 | IMP-05 | transcriptから暗号学的にtrusted Resultを作る | authenticated transcript、strict parser、Result mutation拒否 | selected TLSNotary profile、range coverage、Session/Challenge freshness境界 | P0-01〜P0-05が揃うまで延期。採用なしの実装は不可 |
 | IMP-06 | signed Resultの意味とbytesを経路全体で保持する | Result/session/auth等価性、DB mutation前の検証 | Result contract、canonical encoding、Bearer boundary | verifier contract後に実装。transportの具体方式は延期可 |
 | IMP-07 | Resultをserver-owned Challengeへ変換する | Session/actor/device/Attestation substitutionとreplayの拒否 | Challenge lifecycle、quota、Result equality | IMP-02/03/05/06後。response adapterの方式は延期可 |
@@ -1562,7 +1562,7 @@ Cross-Specification Consistency:
 PASS
 
 Phase 0:
-NO-GO (3/17 PASS)
+NO-GO (4/17 PASS)
 
 現在の証拠ledger:
 PASS=3, FAIL=0, BLOCKED=14
@@ -1572,4 +1572,4 @@ Implementation:
 NO-GO
 ```
 
-P2-01、P2-02、P2-03 は `RESOLVED` である。P2-01のReference Baseline/Specification Revision metadataはFinal Specificationとこの計画で分離し、P2-02のIdentity Authorization Rootは4 tablesとして正規化し、P2-03の同一非REVOKED device key retry policyはterminal Sessionを再利用しない新規Session issuanceとしてFinal Specificationとこの計画へ反映した。Proof CopyのMUST-REJECT条件、Phase 0 `NO-GO (3/17 PASS)`、およびruntime implementation `NO-GO`は変更しない。
+P2-01、P2-02、P2-03 は `RESOLVED` である。P2-01のReference Baseline/Specification Revision metadataはFinal Specificationとこの計画で分離し、P2-02のIdentity Authorization Rootは4 tablesとして正規化し、P2-03の同一非REVOKED device key retry policyはterminal Sessionを再利用しない新規Session issuanceとしてFinal Specificationとこの計画へ反映した。Proof CopyのMUST-REJECT条件、Phase 0 `NO-GO (4/17 PASS)`、およびruntime implementation `NO-GO`は変更しない。

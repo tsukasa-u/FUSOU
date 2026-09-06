@@ -227,7 +227,8 @@ This decision changes no evidence or gate status:
 - natural capture count remains `0`;
 - `P0-04 = BLOCKED` at the time of this architecture decision;
 - `P0-05 = BLOCKED`;
-- `PASS = 3`, `FAIL = 0`, `BLOCKED = 14` remains unchanged;
+- Historical snapshot: `PASS = 3`, `FAIL = 0`, `BLOCKED = 14`;
+- Current corrected ledger: `PASS = 4`, `FAIL = 0`, `BLOCKED = 13`;
 - `IMPLEMENTATION = NO-GO` remains unchanged.
 
 Remaining blockers include natural capture, exact message-boundary proof,

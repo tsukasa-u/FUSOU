@@ -335,9 +335,11 @@ The contract being frozen changes none of the gate statuses. P0-05 remains
 A future evidence submission must contain, or securely reference, all of the
 following without exposing secrets in the repository:
 
-1. An authorized natural-client provenance record linking the exchange to the
-   supported FUSOU-APP path, with no request injection, replay, standalone
-   Game Server request, or capture-generated traffic.
+1. A production origin-transport record showing that the FUSOU-MITM selected
+   and sent the exact request covered by the Presentation, including the
+   binding header, exactly once. Browser intent, browser TLS, and browser-side
+   request modification are outside this record and outside the cryptographic
+   claim. Natural-client provenance remains a separate P0-04 operational gate.
 2. The serialized alpha.15 Presentation bytes, a hash of those bytes, the
    exact selected revision, and a reproducible verification record showing
    strict decode, no trailing bytes, and successful `Presentation::verify`.

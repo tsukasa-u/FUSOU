@@ -38,7 +38,7 @@
 次だけがTLSNotary profileとFUSOUの相互運用に必要なprotocol contractである。
 
 1. 選定revisionは、Notary署名で保護されたAttestation/transcriptと、その検証に必要なVerifier modelを提供しなければならない。`ConnectionInfo.time`、Verifier clock、client clockをidentity evidenceとして扱わない。
-2. authenticated transcriptは、自然な一つの`require_info` request/responseとserver-issued bindingを含み、Verifierはserver identity、request/response、disclosure、Session bindingを同じproofとして検証しなければならない。
+2. authenticated transcriptは、FUSOU-MITMがGame Serverへ送った一つの`require_info` requestと、そのGame Server response、およびserver-issued bindingを含み、Verifierはserver identity、request/response、disclosure、Session bindingを同じproofとして検証しなければならない。Browserの意図、Browser TLS、Browser側の変更はこのclaimの対象外である。
 3. 選定alpha.15 profileのAttestation IDは、verified Presentationから抽出したexact raw 16 bytesとして、Session/Challenge/Result/Claimのidentity・replay比較でbyte-for-byte一致させる。IDはopaqueとして扱い、内部構造を解釈しない。
 4. Verifier ResultとClaimBindingBytesは、protocol version内で決定的で、署名対象と検証対象のbytesが一致しなければならない。serializationの細部はこの決定性と相互運用性を満たす最小限だけを固定する。
 5. protocolが返すauthenticated transcript、transcript digest、proof purpose、profile/key identityはserver-sideで検証し、clientがこれらをauthorityとして提出できない。時間情報は、v1のidentity authorityではない。
@@ -146,7 +146,7 @@ TotalはP0 36件、P1 58件、P2 15件である。本書ではそれらの設計
 3. Attestation headerのNotary signature inputはBCS canonical serializationである。exampleのrequest/attestation transportはbincodeであり、FUSOUのVerifier Result、ClaimBindingBytes、Rust/TypeScript equality fixtureは別の後続gateで検証する。
 4. `ConnectionInfo.time` は「TLS connection started」のUnix秒であり、proxyのfirst read時に取得されてsigned `ConnectionInfo`へ入る。これはconnection metadataであり、Notary-issued `notary_time`ではない。v1 identity authorityやClaim freshnessの根拠にはしない。
 
-したがってalpha.15のTLSNotary revision、upstream lock boundary、selected ID profileはdocumentation-only implementation inputとして凍結した。FUSOU direct dependencyはまだなく、natural capture、strict parser、runtime、production evidenceが完了したことを意味しない。機械可読な判定は `PASS = 3`、`FAIL = 0`、`BLOCKED = 14`、Phase 0は `NO-GO (3/17 PASS)` のままである。詳細なlock/license disposition、adapter ownership、golden値は [alpha.15 adoption profile](../security/evidence/tlsn-alpha15-adoption-profile-v1.json) と [TLSNotaryソース調査](../security/evidence/tlsn-source-inspection-v1.md) に固定する。
+したがってalpha.15のTLSNotary revision、upstream lock boundary、selected ID profileはdocumentation-only implementation inputとして凍結した。FUSOU direct dependencyはまだなく、natural capture、strict parser、runtime、production evidenceが完了したことを意味しない。機械可読な判定は `PASS = 4`、`FAIL = 0`、`BLOCKED = 13`、Phase 0は `NO-GO (4/17 PASS)` のままである。詳細なlock/license disposition、adapter ownership、golden値は [alpha.15 adoption profile](../security/evidence/tlsn-alpha15-adoption-profile-v1.json) と [TLSNotaryソース調査](../security/evidence/tlsn-source-inspection-v1.md) に固定する。
 
 ---
 
@@ -441,16 +441,17 @@ Required injected header: X-FUSOU-Attestation-Binding
 Redirect: forbidden
 ```
 
-`api_port/port` その他の API を Identity Authority に使用してはならない。Proxy は Game client が自然に送信した `require_info` に server-issued binding header を一度だけ付加して処理し、Identity 用 request を新規生成してはならない。Binding がない request は通常 gameplay として扱い、Identity proof の入力にしてはならない。
+`api_port/port` その他の API を Identity Authority に使用してはならない。FUSOU-MITM は対象の origin request を一度だけ選択・シリアライズし、server-issued binding header を alpha.15 Prover-owned origin TLSへ送るbytesへ付加して処理する。Identity proofはBrowserが何を意図したかではなく、FUSOU-MITMがGame Serverへ実際に送ったrequestを対象とする。Binding がない request は通常 gameplay として扱い、Identity proof の入力にしてはならない。
 
-Natural evidence for this path MUST come only from ordinary FUSOU-APP startup
-and gameplay using the supported Game Client and an allowlisted Game Server.
-The proxy and capture harness are observers of the client's existing logical
-request; they MUST NOT generate a standalone Game Server request, inject a
-request into the client, replay a captured request, or retry a forwarded
-request. The repository does not establish which gameplay action first causes
-`require_info`; that timing is a manual observation result, not a DTO, parser,
-or synthetic-test fact.
+Natural evidence for the separate P0-04 gate MUST come only from ordinary
+FUSOU-APP startup and gameplay using the supported Game Client and an allowlisted
+Game Server. That operational evidence is not part of the P0-05 cryptographic
+claim. The P0-05 origin path MUST authenticate the exact request selected and
+sent by FUSOU-MITM, including any binding header, and MUST NOT replay a prior
+origin request or retry the same logical request after the send latch. The
+repository does not establish which gameplay action first causes `require_info`;
+that timing is a manual P0-04 observation result, not a DTO, parser, or
+synthetic-test fact.
 
 過去の非決定的notebook観測では`api_start2/getData -> require_info -> api_port/port`の順とJSON Number tokenが見られたが、これはevidenceでもproduction invariantでもない。P0-04は、通常のFUSOU-APP gameplayで手動取得したnatural provenance、allowlisted Game Server identity、自然な`require_info` request/response、各capture SHA-256、collector version、framing/compression/sizeを含むmachine-readable reportを要求する。privacy review、non-persistence、redaction、operational isolationはP0-15および別の運用レビューとして記録するが、P0-04のnatural-evidence qualificationの入力にはしない。raw artifactはprivate storageに保持し、repositoryにはprivacy review済みのsanitized fixtureだけを置く。CIはfixtureとmanifestの構造を検証できるが、natural provenanceを生成・自動承認してはならない。
 
@@ -529,7 +530,7 @@ FUSOU-APP -> FUSOU-WEB Challenge/Claim APIs
 4. FUSOU-APPのsingle consumerはraw bytesのSHA-256でprocess-local deduplicationし、device Ed25519 keypairをOS credential storageから取得する。Result、member ID、Challenge nonce、device private keyをlog、event payload、WebView、filesystemへ出さない。
 5. APPはproof acquisition前に`AuthManager::get_access_token()`相当で得たnon-anonymous Supabase Bearerとdevice public keyを使い、Section 7.1.1でAttestation Sessionを発行する。返されたopaque binding valueをProxyへone-shotで渡し、その後raw Resultをstrict unpadded base64urlへ一度だけencodeしてSection 7.2へ送る。Challenge responseを受けたらClaimBindingBytesを署名してSection 7.4へ送る。
 6. FUSOU-WEB submissionのnetwork/5xxだけは、承認済みの有限retry budget内で同じouter request bytesをretryできる。Challenge/Claimのidempotency contractが収束を保証する。401/4xxはretryしない。RetryはGame originへのrequestを一切発生させない。budget、backoff、timeoutはcandidate operational profileであり、Game originへの再送禁止はsecurity contractである。
-7. Queue full、APP未認証、Verifier failure、APP終了、retry exhaustionはResultをdropして`IDENTITY_UNVERIFIED`とする。次の自然な`require_info`だけが新しい試行機会であり、旧Game requestを生成・再送しない。
+7. Queue full、APP未認証、Verifier failure、APP終了、retry exhaustionはResultをdropして`IDENTITY_UNVERIFIED`とする。次のorigin `require_info`だけが新しい試行機会であり、旧Game requestを生成・再送しない。
 
 Dedicated Verifier responseは署名によりend-to-end認証されるため、Proxy/APPはcryptographic authorityではない。APPがChallenge APIへ送るexact bytesはVerifierが署名したcanonical Result bytesであり、中間層がJSON fieldを追加・削除・並替えしてはならない。
 
@@ -838,7 +839,7 @@ Function内部の順序は、auth userの再検証、raw device keyによるDevi
 }
 ```
 
-APPはこのopaque binding valueをone-shot control messageとしてProxyへ渡す。Proxyは次の自然な`require_info` requestにだけ、exact ASCII header `X-FUSOU-Attestation-Binding: <binding_value>\r\n`を付加する。Binding value、Session ID、nonce、device keyをlog、Game request body、client event payloadへ出さない。Session issuance失敗、expiry、binding injection failureは通常gameplayを継続できるが、binding headerのないtranscriptをIdentity proofとして送ってはならない。
+APPはこのopaque binding valueをone-shot control messageとしてProxyへ渡す。Proxyは次の対象origin `require_info` requestにだけ、origin serialization前にexact ASCII header `X-FUSOU-Attestation-Binding: <binding_value>\r\n`を付加する。Binding value、Session ID、nonce、device keyをlog、Game request body、client event payloadへ出さない。Session issuance失敗、expiry、binding placement failureは通常gameplayを継続できるが、binding headerのないtranscriptをIdentity proofとして送ってはならない。
 
 Session issuanceのsuccessは`201 OK_NEW`である。Sessionは一度だけproof acquisitionに使用され、同一Session/nonce/bindingの再発行、別user/deviceへの移し替え、別Challengeへの再利用を許可しない。Session terminal transitionはClaim accepted、invalid signature、Challenge/device revoke、またはTTL expiryと同一transactionで記録する。Session expiryまたはterminal state後の通常の再試行は、同じ authenticated user と同じ non-REVOKED device key に対する新しい Session issuance としてだけ許可し、旧Sessionを復活・更新してはならない。
 
@@ -2723,7 +2724,7 @@ roots <-> JWT <-> Telemetry: live validation and server attribution
 Migration <-> Fresh/Existing DB: sequence defined; target migration absent
 Migration <-> Deployment/Test: acceptance criteria aligned; execution pending
 Issue ledger: P0=0, P1=0, P2=0 remaining (historical dispositions: P0=36, P1=58, P2=15)
-Phase 0: 3/17 PASS (P0-01/P0-02/P0-03; documentation/profile evidence only)
+Phase 0: 4/17 PASS (P0-01/P0-02/P0-03/P0-04; P0-04 natural evidence only)
 Runtime implementation: absent
 ```
 
@@ -2756,7 +2757,7 @@ Implementation:
 NO-GO
 
 Phase 0:
-3/17 PASS (P0-01/P0-02/P0-03; documentation/profile evidence only)
+4/17 PASS (P0-01/P0-02/P0-03/P0-04; P0-04 natural evidence only)
 
 Specification reconstruction:
 PASS
@@ -2918,7 +2919,7 @@ Overengineering:
 PASS - no new architecture, security mechanism, proxy, hash, or recovery mechanism added
 
 Runtime verification:
-3/17 Phase 0 gates。upstreamのfixture API testとdocumentation-only alpha.15 profile freezeを確認済みで、現在のledgerは3 PASS、0 FAIL、14 BLOCKED。選定結論はSELECTED_FOR_FUSOU_ADAPTER_DOCUMENTATION_ONLY
+4/17 Phase 0 gates。upstreamのfixture API test、documentation-only alpha.15 profile freeze、P0-04 natural evidenceを確認済みで、現在のledgerは4 PASS、0 FAIL、13 BLOCKED。選定結論はSELECTED_FOR_FUSOU_ADAPTER_DOCUMENTATION_ONLY
 
 Target migration:
 PHASE-0 - absent
