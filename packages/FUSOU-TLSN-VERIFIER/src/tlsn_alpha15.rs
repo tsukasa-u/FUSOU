@@ -65,7 +65,7 @@ impl RequireInfoDisclosureProfile {
     }
 
     #[cfg(test)]
-    fn for_mock_tlsn_verification(server_identity: &str) -> Result<Self> {
+    pub(crate) fn for_mock_tlsn_verification(server_identity: &str) -> Result<Self> {
         validate_server_identity(server_identity)?;
         Ok(Self {
             server_identity: server_identity.to_owned(),
@@ -276,6 +276,13 @@ fn validate_authenticated_direction(
 }
 
 pub fn verify_alpha15_presentation(presentation_bytes: &[u8]) -> Result<AuthenticatedTranscript> {
+    verify_alpha15_presentation_with_provider(presentation_bytes, &CryptoProvider::default())
+}
+
+pub(crate) fn verify_alpha15_presentation_with_provider(
+    presentation_bytes: &[u8],
+    provider: &CryptoProvider,
+) -> Result<AuthenticatedTranscript> {
     let mut cursor = Cursor::new(presentation_bytes);
     let presentation: Presentation = bincode::deserialize_from(&mut cursor)
         .map_err(|error| Alpha15AdapterError::PresentationDecode(error.to_string()))?;
@@ -285,7 +292,7 @@ pub fn verify_alpha15_presentation(presentation_bytes: &[u8]) -> Result<Authenti
         ));
     }
     let output = presentation
-        .verify(&CryptoProvider::default())
+        .verify(provider)
         .map_err(|error| Alpha15AdapterError::PresentationVerification(error.to_string()))?;
     let server_identity = output
         .server_name

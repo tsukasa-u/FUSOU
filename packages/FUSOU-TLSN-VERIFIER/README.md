@@ -20,8 +20,10 @@ It currently provides:
 - authenticated output to canonical `VerifierResult` construction, with the
 	response-derived `verified_member_id` included in the canonical Result and
 	its signing bytes; separate FUSOU signing inputs remain explicit.
-- a local alpha.15 Proxy-mode transport skeleton whose request builder places
-	the binding before the Prover-owned TLS write and rejects retries;
+- a local alpha.15 Proxy-mode transport harness whose request builder places
+	the binding before the Prover-owned TLS write, rejects retries, captures the
+	exact synthetic-origin request/response, and builds a test-only serialized
+	Presentation;
 - an explicitly opt-in `experimental` origin probe that accepts only a
 	Prover-owned alpha.15 `TlsConnection`, records the exact request/response,
 	and extracts `api_member_id` with the strict parser;
@@ -63,18 +65,24 @@ tests.
 It does not provide the production server-identity allowlist, Session/Challenge
 authority, FUSOU Ed25519 signing keys, Notary trust boundary, Web PKI policy,
 FUSOU-App integration, or privacy/persistence review. The local transport test
-proves only the alpha.15 runtime and verifier flow over an in-memory fixture;
-it does not create a serialized Presentation or real FUSOU evidence. The
-implementation therefore does not change the P0-05 gate: P0-05 remains
-`BLOCKED` until an authenticated alpha.15 FUSOU presentation and its evidence
-fixtures exist.
+proves the alpha.15 runtime and verifier flow over an in-memory synthetic
+origin: exact origin request and response bytes, complete Prover/Verifier
+transcript disclosure, local serialized Presentation verification with a
+test-only trust root, response-derived `api_member_id`, and unsigned canonical
+Result construction. This is experimental partial evidence only. It is not a
+real Game Server, real Notary, production Dedicated Verifier, production
+signer, or privacy/runtime evidence. The implementation therefore does not
+change the P0-05 gate: P0-05 remains `BLOCKED` until an authenticated alpha.15
+FUSOU Presentation and its evidence fixtures exist.
 
 The experimental probe is not a production route. It is not referenced by
 FUSOU-PROXY or FUSOU-APP, does not consume browser traffic, and does not
 replace the Hyper/rustls production origin client. Its synthetic-origin tests
-cover the Prover-owned request/response boundary and binding/replay rejection;
-real Game Server compatibility, Notary-backed Presentation generation, and
-runtime Result signing remain blocked.
+cover the Prover-owned request/response boundary, binding/replay rejection,
+alpha.15 Presentation verification, and unsigned Result construction. The
+synthetic certificate chain and test signing inputs are not production trust or
+signer evidence; real Game Server compatibility, Notary-backed Presentation
+generation, production Result signing, and runtime delivery remain blocked.
 
 Run the focused checks with:
 
