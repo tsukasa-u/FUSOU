@@ -113,6 +113,16 @@ export const DeviceProofRequestSchema = z
   })
   .strict();
 
+export const TlsnDeviceProofRequestSchema = z
+  .object({
+    device_id: UuidV4Schema,
+    session_id: UuidV4Schema,
+    binding_value: z.string().min(1).max(512).regex(/^[A-Za-z0-9_-]+$/),
+    challenge: z.string().regex(/^[A-Za-z0-9_-]{43}$/),
+    sig: z.string().min(1).max(256).regex(/^[A-Za-z0-9+/_=-]+$/),
+  })
+  .strict();
+
 export const RevokeRequestSchema = z
   .object({
     device_id: NonEmptyStringSchema,

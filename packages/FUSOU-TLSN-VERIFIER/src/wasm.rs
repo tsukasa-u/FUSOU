@@ -17,12 +17,16 @@ fn verify_require_info_presentation_inner(
     notary_key_id: &str,
     canonical_user_id: &str,
     canonical_device_id: &str,
+    device_challenge: &[u8],
     trusted_notary_key: &[u8],
     trust_anchor_der: Option<&[u8]>,
 ) -> Result<String, JsValue> {
     let profile_sha256: [u8; 32] = profile_sha256
         .try_into()
         .map_err(|_| JsValue::from_str("profile_sha256 must be exactly 32 bytes"))?;
+    let device_challenge: [u8; 32] = device_challenge
+        .try_into()
+        .map_err(|_| JsValue::from_str("device_challenge must be exactly 32 bytes"))?;
     let profile = RequireInfoDisclosureProfile::from_server_identity(expected_server_identity)
         .map_err(|error| JsValue::from_str(&error.to_string()))?;
     if trusted_notary_key.is_empty() {
@@ -58,6 +62,7 @@ fn verify_require_info_presentation_inner(
             notary_key_id.to_owned(),
             canonical_user_id.to_owned(),
             canonical_device_id.to_owned(),
+            device_challenge,
             [0_u8; 64],
         )
         .map_err(|error| JsValue::from_str(&error.to_string()))?;
@@ -86,6 +91,7 @@ pub fn verify_require_info_presentation(
     notary_key_id: &str,
     canonical_user_id: &str,
     canonical_device_id: &str,
+    device_challenge: &[u8],
     trusted_notary_key: &[u8],
 ) -> Result<String, JsValue> {
     verify_require_info_presentation_inner(
@@ -96,6 +102,7 @@ pub fn verify_require_info_presentation(
         notary_key_id,
         canonical_user_id,
         canonical_device_id,
+        device_challenge,
         trusted_notary_key,
         None,
     )
@@ -110,6 +117,7 @@ pub fn verify_require_info_presentation_with_trust_anchor(
     notary_key_id: &str,
     canonical_user_id: &str,
     canonical_device_id: &str,
+    device_challenge: &[u8],
     trust_anchor_der: &[u8],
     trusted_notary_key: &[u8],
 ) -> Result<String, JsValue> {
@@ -121,6 +129,7 @@ pub fn verify_require_info_presentation_with_trust_anchor(
         notary_key_id,
         canonical_user_id,
         canonical_device_id,
+        device_challenge,
         trusted_notary_key,
         Some(trust_anchor_der),
     )

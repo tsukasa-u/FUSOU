@@ -6,11 +6,13 @@ This document describes the FUSOU TLSNotary alpha.15 verification boundary at co
 
 ## Scope
 
-The Worker requires a Supabase Bearer access token on `/attestation/session` and `/verify/tlsn`. It resolves the token through Supabase `/auth/v1/user`, rejects anonymous users, and uses the returned `auth.users.id` as the canonical user subject. Session issuance also forwards the existing FUSOU device proof to FUSOU-WEB's generic `/api/auth/anonymous-sync/v2/device-proof` endpoint in the deployed API. It issues a one-shot Session/Binding context at `/attestation/session` and accepts this strict JSON shape at `/verify/tlsn`:
+The Worker requires a Supabase Bearer access token on `/attestation/session` and `/verify/tlsn`. It resolves the token through Supabase `/auth/v1/user`, rejects anonymous users, and uses the returned `auth.users.id` as the canonical user subject. Session issuance forwards the existing FUSOU device proof to FUSOU-WEB's generic `/api/auth/anonymous-sync/v2/device-proof` endpoint in the deployed API. Each issued Session also contains a fresh 32-byte TLSN device challenge, returned as a 43-character base64url `device_challenge`. Verification requires a separate TLSN-specific device proof signed over the current device, Session, binding, and challenge context:
 
 ```json
-{"presentation_base64":"<base64url without padding>","session_id":"<UUIDv4>","device_id":"<UUIDv4>","binding":"<base64url without padding>"}
+{"presentation_base64":"<base64url without padding>","session_id":"<UUIDv4>","device_id":"<UUIDv4>","binding":"<base64url without padding>","device_proof":{"challenge":"<43-char base64url>","sig":"<base64 signature>"}}
 ```
+
+The Worker checks that `device_proof.challenge` equals the challenge issued for the Session/Binding. It forwards the proof context to FUSOU-WEB's dedicated `/api/auth/anonymous-sync/v2/tlsn-device-proof` endpoint, which proves current private-key possession against the existing `user_devices` row. The endpoint verifies the device signature and consumes the canonical message digest; it is not the generic session-issued HMAC nonce and cannot be reused across Sessions or bindings.
 
 The Rust/WASM verifier is responsible for:
 
@@ -31,11 +33,13 @@ The Worker is responsible for:
 - checking the Presentation Notary key against the configured registry;
 - issuing and looking up Session/Binding records through a Durable Object;
 - matching authority state against authenticated user, device, Session ID, nonce, and binding value;
+- requiring a fresh TLSN device challenge and matching the authenticated WASM result's `device_challenge` to the request proof;
+- delegating current device private-key possession, ownership, revocation, and TLSN proof replay to FUSOU-WEB;
 - atomically consuming an active binding after proof verification and before returning the result;
 - signing only WASM-produced signing bytes with the configured Ed25519 key;
 - returning generic failure responses and `Cache-Control: no-store` on success.
 
-The Worker does not establish device authority itself. FUSOU-WEB remains the existing device-auth authority. Its bearer-bound endpoint resolves the device row from `user_devices`, requires the non-anonymous bearer user to equal `canonical_user_id`, rejects `revoked_at`, verifies the existing HMAC challenge nonce and DB public key's Ed25519 signature, consumes `(device_id, nonce)`, and returns only the DB-derived device ID. The standalone Worker has no Supabase service-role key and no device private key. A client-supplied device ID is only a lookup/proof selector and must match the backend result and Durable Object record.
+The Worker does not establish device authority itself. FUSOU-WEB remains the existing device-auth authority and uses no new TLSN device registry. Its generic bearer-bound endpoint resolves the device row from `user_devices`, requires the non-anonymous bearer user to equal `canonical_user_id`, rejects `revoked_at`, verifies the existing HMAC challenge nonce and DB public key's Ed25519 signature, consumes `(device_id, nonce)`, and returns only the DB-derived device ID for Session issuance. Its dedicated TLSN endpoint repeats the owner and revocation checks, verifies Ed25519 over the canonical `FUSOU-TLSN-DEVICE-PROOF-V1\0` message, and consumes `SHA-256(message)` through the same `anon_sync_nonce_consumptions` table. The standalone Worker has no Supabase service-role key and no device private key. A client-supplied device ID is only a lookup/proof selector and must match the backend result, WASM result, and Durable Object record.
 
 ## Trust model
 
@@ -43,7 +47,7 @@ A valid alpha.15 proof authenticates the TLS connection, the disclosed server id
 
 The Worker now enforces the Notary part with an explicit registry. `TLSN_NOTARY_KEY_ID` selects an entry in `TLSN_NOTARY_REGISTRY`. Each entry is URL-safe base64 of the exact bincode serialization of the pinned alpha.15 `tlsn_attestation::signing::VerifyingKey`. The WASM verifier compares that registry value with `Presentation::verifying_key()` before accepting the Presentation.
 
-The result field `notary_key_id` is therefore meaningful only when the registry lookup succeeds. It is not, by itself, a trust anchor. The result also contains `canonical_user_id` and `device_id`, which are generated from the authenticated Supabase user and FUSOU-WEB device proof respectively and included in the canonical JSON and Ed25519 signing bytes.
+The result field `notary_key_id` is therefore meaningful only when the registry lookup succeeds. It is not, by itself, a trust anchor. The result also contains `canonical_user_id`, `device_id`, and the 32-byte `device_challenge`, which are generated or checked from the authenticated Supabase user, FUSOU-WEB device proof, and Session authority respectively and included in the canonical JSON and Ed25519 signing bytes.
 
 ## Disclosure profile
 
@@ -79,13 +83,15 @@ The synthetic root certificate, synthetic server identity, synthetic Notary key,
 
 The Rust crate contains an experimental in-process `ExperimentalBindingAuthority` that demonstrates the required semantics: issue a binding for one Session, match the authenticated Session ID and nonce, and consume the binding once. Its tests cover unknown bindings, Session swaps, nonce mismatches, and duplicate consumption.
 
-The Worker now uses `TlsnBindingAuthorityDurableObject`, one strongly consistent DO instance per SHA-256(binding value). The DO stores the Session ID, canonical user ID, device ID, nonce, binding, creation and expiry timestamps, status, used timestamp, and Presentation ID. Lookup performs request-time expiry checks and compares the authenticated user and device before verification; an alarm marks expired records, and a storage transaction makes consume single-use under concurrent requests. User, device, session, nonce, and consumed-binding conflicts return HTTP `409`.
+The Worker now uses `TlsnBindingAuthorityDurableObject`, one strongly consistent DO instance per SHA-256(binding value). The DO stores the Session ID, canonical user ID, device ID, nonce, binding, creation and expiry timestamps, status, used timestamp, Presentation ID, and a fresh TLSN device challenge. Lookup performs request-time expiry checks and compares the authenticated user and device before verification; an alarm marks expired records, and a storage transaction makes consume single-use under concurrent requests. User, device, session, nonce, and consumed-binding conflicts return HTTP `409`.
+
+Device proof replay and TLSN binding replay are separate one-shot authorities. FUSOU-WEB consumes the canonical device-proof digest before the Worker consumes the Durable Object binding. Therefore a repeated or concurrently losing device proof can return `device_proof_replayed` even when the binding itself has not yet been consumed. This ordering preserves one-shot semantics for both state machines; it may intentionally burn a valid device proof if a later binding-consume race loses.
 
 Local Wrangler tests observed the following: missing and unknown authentication are rejected, a binding cannot cross users, unknown binding and Session mismatch are rejected, expired bindings return `binding_expired`, two concurrent requests produce exactly one success and one `binding_consumed`, and a subsequent duplicate is rejected. These are synthetic test-authority results only; they do not establish production operational readiness.
 
 ## Result signature
 
-The Worker signs only the WASM-produced binary signing bytes. The signing domain is `FUSOU-VERIFIER-RESULT-V1` and includes the canonical user ID, backend-derived device ID, authenticated member ID, Session ID, binding nonce and value, server identity, transcript hashes and sizes, disclosed ranges, alpha.15 attestation ID, profile, verifier key ID, and Notary key ID.
+The Worker signs only the WASM-produced binary signing bytes. The signing domain is `FUSOU-VERIFIER-RESULT-V1` and includes the canonical user ID, backend-derived device ID, 32-byte TLSN device challenge, authenticated member ID, Session ID, binding nonce and value, server identity, transcript hashes and sizes, disclosed ranges, alpha.15 attestation ID, profile, verifier key ID, and Notary key ID.
 
 The returned result JSON has a fixed canonical property order. Reordering JSON properties does not change the signing bytes. Changing an authenticated signed field invalidates the Ed25519 signature.
 
@@ -105,11 +111,15 @@ This signature authenticates the verifier result to downstream consumers after a
 | Disclosure profile enforcement | PASS, full-disclosure scope | Exact request/response parser and full transcript disclosure are enforced. Minimal selective disclosure is not implemented. |
 | Verifier result signing | PASS, local synthetic scope | Worker Ed25519 signature verifies independently and binds authenticated fields. |
 | Replay and expiry authority | PASS, local test scope | Local tests observed atomic concurrent consume, duplicate rejection, and `410 binding_expired`. |
-| Authenticated user ownership | PASS, local test scope | Local tests reject missing/unknown credentials, reject cross-user binding use, and reject signed canonical-user mutation. |
-| Authenticated FUSOU device ownership | PASS, local synthetic scope | FUSOU-WEB route tests exercise the existing challenge, DB public-key, owner, revocation, signature, and nonce-consumption path; Worker smoke tests bind the returned device ID into the Durable Object and signed result. The synthetic bridge is not production evidence. |
+| Authenticated user ownership | PASS | Local tests reject missing/unknown credentials, reject cross-user binding use, and reject signed canonical-user mutation. |
+| Authenticated device ownership | PASS | FUSOU-WEB route tests exercise the existing challenge, DB public-key, owner, revocation, signature, and nonce-consumption path; Worker smoke tests bind the returned device ID into the Durable Object and signed result. The synthetic bridge is not production evidence. |
+| Current device possession proof | PASS, local synthetic scope | Each Session receives a fresh DO challenge; Worker smoke and FUSOU-WEB route tests verify Ed25519 possession over the current Session/binding/challenge context using the existing `user_devices` authority. |
+| TLSN/device cryptographic binding | PASS, local synthetic scope | The challenge is passed into WASM, included in the signed verifier result, compared at the Worker boundary, and bound to the FUSOU-WEB proof message. |
+| Replay/expiry | PASS | Device-proof digest consumption and Durable Object binding consumption are independently atomic; local tests cover replay, concurrent use, and expiry. |
 | Cloudflare remote runtime | NOT RUN in this phase | No authenticated remote Worker validation or production deployment was performed. |
 | Cloudflare performance and memory | UNMEASURED | No remote performance or memory evidence was collected in this phase. |
 | `TLSN_VERIFICATION_BOUNDARY` | PASS, local synthetic scope only | Cryptography, authenticated user/device ownership, and authority paths were exercised with synthetic evidence; production claims remain excluded. |
+| Production evidence | BLOCKED | No production trust material, deployed authority evidence, or remote runtime validation exists. |
 | P0-05 production evidence | BLOCKED | Synthetic success does not satisfy production Game Server evidence. |
 
 ## Deployment gate
@@ -124,7 +134,7 @@ Do not deploy this Worker as a production verifier until all of the following ex
 6. remote negative tests for identity, Notary key, trust root, binding, replay, malformed input, and signature failures;
 7. remote memory and payload-limit measurements, plus broader latency evidence;
 8. real Game Server evidence sufficient for P0-05.
-9. a deployed FUSOU-WEB device-proof endpoint with remote tests for revoked, owner-mismatched, invalid-signature, stale, and replayed proofs.
+9. deployed FUSOU-WEB generic and TLSN device-proof endpoints with remote tests for revoked, owner-mismatched, invalid-signature, stale, context-tampered, and replayed proofs;
 
 ## Security impact and rollback
 
@@ -143,7 +153,7 @@ Checks currently include:
 - Notary registry mismatch rejection;
 - production-mode fail-closed testing without production trust configuration;
 - local DO tests for context mismatch, expiry, duplicate, and concurrent consume;
-- FUSOU-WEB device-proof tests for owner mismatch, revocation, invalid signature, and nonce replay;
-- local synthetic Worker checks for positive device binding, signed device-ID tampering, missing device proof, replay, concurrent consume, and expiry.
+- FUSOU-WEB generic and TLSN device-proof tests for owner mismatch, revocation, invalid signature, malformed context, and atomic replay;
+- local synthetic Worker checks for positive device binding, signed device-ID tampering, missing device proof, context tampering, replay, concurrent consume, and expiry.
 
 These checks establish synthetic local behavior only. They do not establish production Game Server authenticity, production operational key governance, production memory or payload limits, remote Worker behavior, or P0-05 evidence.

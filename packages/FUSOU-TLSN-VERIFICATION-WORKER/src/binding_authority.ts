@@ -2,6 +2,7 @@ import { DurableObject } from "cloudflare:workers";
 
 const BINDING_PREFIX = new TextEncoder().encode("FUSOU-ATTESTATION-BINDING-V1\0");
 const BINDING_NONCE_BYTES = 32;
+const TLSN_DEVICE_CHALLENGE_BYTES = 32;
 const UUID_BYTES = 16;
 
 export type BindingStatus = "active" | "expired" | "consumed";
@@ -12,6 +13,7 @@ export type BindingRecord = {
   canonical_user_id: string;
   device_id: string;
   nonce: string;
+  tlsn_device_challenge: string;
   binding_value: string;
   created_at: string;
   expires_at: string;
@@ -25,6 +27,7 @@ type BindingOperation = {
   session_id: string;
   canonical_user_id: string;
   device_id: string;
+  tlsn_device_challenge: string;
   binding_value: string;
   nonce: string;
   created_at: string;
@@ -98,6 +101,12 @@ function bytesToUuid(bytes: Uint8Array): string {
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
 
+function randomBase64Url(byteLength: number): string {
+  const bytes = new Uint8Array(byteLength);
+  crypto.getRandomValues(bytes);
+  return encodeBase64Url(bytes);
+}
+
 export function parseBindingValue(bindingValue: string): { sessionId: string; nonce: string } {
   const bytes = decodeBase64Url(bindingValue);
   const expectedLength = BINDING_PREFIX.length + 2 + UUID_BYTES + 2 + BINDING_NONCE_BYTES;
@@ -155,17 +164,14 @@ export class DurableObjectBindingAuthority {
     const sessionId = configuredBindingValue ? parseBindingValue(configuredBindingValue).sessionId : crypto.randomUUID();
     const nonce = configuredBindingValue
       ? parseBindingValue(configuredBindingValue).nonce
-      : (() => {
-          const bytes = new Uint8Array(BINDING_NONCE_BYTES);
-          crypto.getRandomValues(bytes);
-          return encodeBase64Url(bytes);
-        })();
+      : randomBase64Url(BINDING_NONCE_BYTES);
     const bindingValue = configuredBindingValue ?? createBindingValue(sessionId, nonce);
     const record: BindingOperation = {
       binding_id: await hashBindingId(bindingValue),
       session_id: sessionId,
       canonical_user_id: canonicalUserId,
       device_id: deviceId,
+      tlsn_device_challenge: randomBase64Url(TLSN_DEVICE_CHALLENGE_BYTES),
       nonce,
       binding_value: bindingValue,
       created_at: new Date(now).toISOString(),

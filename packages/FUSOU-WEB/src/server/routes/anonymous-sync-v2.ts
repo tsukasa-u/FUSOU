@@ -14,6 +14,7 @@ import {
   UserDeviceWebRevokeTargetRowSchema,
   UserDeviceRefreshRowSchema,
   UserDeviceProofRowSchema,
+  TlsnDeviceProofRequestSchema,
   PendingSyncCompleteRequestSchema,
   DeviceProofRequestSchema,
   SupabaseAccessTokenUserSchema,
@@ -32,6 +33,8 @@ import {
   issueChallengeNonce,
   verifyChallengeNonce,
   verifyDeviceSig,
+  verifyDeviceSigBytes,
+  createTlsnDeviceProofMessage,
 } from "../utils/pepper";
 import type { Bindings } from "../types";
 
@@ -192,6 +195,22 @@ function storedPubkeyToBase64(value: string): string | null {
     bytes[index] = parseInt(hex.slice(index * 2, index * 2 + 2), 16);
   }
   return encodeBytesToBase64(bytes);
+}
+
+function encodeBytesToBase64Url(bytes: Uint8Array): string {
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replaceAll("=", "");
+}
+
+function decodeStrictBase64Url(value: string): Uint8Array | null {
+  if (!/^[A-Za-z0-9_-]+$/.test(value) || value.length % 4 === 1) return null;
+  const bytes = decodeBase64ToBytes(value);
+  return bytes && encodeBytesToBase64Url(bytes) === value ? bytes : null;
+}
+
+function bytesToHex(bytes: Uint8Array): string {
+  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
 export function assertCsrfSafe(
@@ -472,7 +491,7 @@ async function consumeDeviceNonce(options: {
   supabaseAdmin: SupabaseClient;
   deviceId: string;
   nonce: string;
-  context: "register" | "refresh" | "revoke" | "device-proof";
+  context: "register" | "refresh" | "revoke" | "device-proof" | "tlsn-device-proof";
   refreshResult?: {
     token: string;
     expiresAt: number;
@@ -1078,6 +1097,111 @@ app.post("/anonymous-sync/v2/device-proof", async (c) => {
     });
   } catch (err) {
     console.error("[anonymous-sync-v2/device-proof] unexpected error:", err);
+    return c.json({ error: "Internal server error" }, 500);
+  }
+});
+
+app.post("/anonymous-sync/v2/tlsn-device-proof", async (c) => {
+  try {
+    const auth = extractAccessToken(c);
+    if (!auth || auth.fromCookie) return c.json({ error: "unauthorized" }, 401);
+    const bodyResult = await readJsonBodyWithinLimit(c.req.raw);
+    if (bodyResult.kind === "too_large") return c.json({ error: "request_too_large" }, 413);
+    if (bodyResult.kind === "invalid_json") return c.json({ error: "invalid_json" }, 400);
+    const parsedBody = TlsnDeviceProofRequestSchema.safeParse(bodyResult.body);
+    if (!parsedBody.success) return c.json({ error: firstSchemaError(parsedBody.error) }, 400);
+
+    const deviceId = normalizeUuidV4(parsedBody.data.device_id);
+    const sessionId = normalizeUuidV4(parsedBody.data.session_id);
+    const challengeBytes = decodeStrictBase64Url(parsedBody.data.challenge);
+    const bindingBytes = decodeStrictBase64Url(parsedBody.data.binding_value);
+    if (!deviceId || !sessionId) return c.json({ error: "identity malformed" }, 400);
+    if (!challengeBytes || challengeBytes.length !== 32) {
+      return c.json({ error: "challenge malformed" }, 400);
+    }
+    if (!bindingBytes) return c.json({ error: "binding_value malformed" }, 400);
+
+    const base = resolveBaseConfig(c);
+    if (!base.ok) return c.json({ error: "Server configuration error" }, 500);
+    const user = await verifySupabaseAccessToken({
+      supabaseUrl: base.config.supabaseUrl,
+      anonKey: base.config.anonKey,
+      accessToken: auth.token,
+    });
+    if (!user || user.is_anonymous) return c.json({ error: "invalid_token" }, 401);
+
+    const supabaseAdmin = createClient(base.config.supabaseUrl, base.config.serviceRoleKey);
+    const rateOk = await consumeRateLimit({
+      supabaseAdmin,
+      keys: [
+        `tlsn-device-proof:ip:${requestClientKey(c)}`,
+        `tlsn-device-proof:user:${user.id}`,
+        `tlsn-device-proof:device:${deviceId}`,
+      ],
+    });
+    if (!rateOk) return c.json({ error: "Too many requests" }, 429);
+
+    const deviceRaw = await supabaseAdmin
+      .from("user_devices")
+      .select("canonical_user_id, device_pubkey, revoked_at")
+      .eq("device_id", deviceId)
+      .maybeSingle();
+    if (deviceRaw.error) return c.json({ error: "Database error" }, 500);
+    if (!deviceRaw.data) return c.json({ error: "device_unknown_or_revoked" }, 404);
+    const device = UserDeviceProofRowSchema.safeParse(deviceRaw.data);
+    if (!device.success) return c.json({ error: "Database error" }, 500);
+    if (device.data.revoked_at) return c.json({ error: "device_revoked" }, 409);
+    if (device.data.canonical_user_id !== user.id) {
+      return c.json({ error: "device_owner_mismatch" }, 403);
+    }
+
+    const publicKeyB64 = storedPubkeyToBase64(device.data.device_pubkey);
+    if (!publicKeyB64) return c.json({ error: "Database error" }, 500);
+    const message = createTlsnDeviceProofMessage({
+      deviceId,
+      sessionId,
+      bindingValue: parsedBody.data.binding_value,
+      challenge: challengeBytes,
+    });
+    const signatureValid = await verifyDeviceSigBytes({
+      publicKeyB64,
+      messageBytes: message,
+      signatureB64: parsedBody.data.sig,
+    });
+    if (!signatureValid) return c.json({ error: "signature_invalid" }, 401);
+
+    const replayMessage = new ArrayBuffer(message.byteLength);
+    new Uint8Array(replayMessage).set(message);
+    const replayDigest = new Uint8Array(
+      await crypto.subtle.digest("SHA-256", replayMessage),
+    );
+    const nonceConsume = await consumeDeviceNonce({
+      supabaseAdmin,
+      deviceId,
+      nonce: bytesToHex(replayDigest),
+      context: "tlsn-device-proof",
+    });
+    if (!nonceConsume.ok) {
+      if (nonceConsume.error === "nonce_already_used") {
+        return c.json({ error: "device_proof_replayed" }, 409);
+      }
+      return c.json({ error: nonceConsume.error }, nonceConsume.status);
+    }
+
+    await supabaseAdmin
+      .from("user_devices")
+      .update({ last_seen_at: new Date().toISOString() })
+      .eq("device_id", deviceId)
+      .eq("canonical_user_id", user.id)
+      .is("revoked_at", null);
+    c.header("Cache-Control", "no-store");
+    return c.json({
+      authenticated: true,
+      canonical_user_id: device.data.canonical_user_id,
+      device_id: deviceId,
+    });
+  } catch (err) {
+    console.error("[anonymous-sync-v2/tlsn-device-proof] unexpected error:", err);
     return c.json({ error: "Internal server error" }, 500);
   }
 });

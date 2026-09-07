@@ -10,6 +10,9 @@ export const CHALLENGE_BUCKET_SECONDS = 300;
 
 const ED25519_PUBKEY_BYTES = 32;
 const ED25519_SIG_BYTES = 64;
+const TLSN_DEVICE_PROOF_DOMAIN = new TextEncoder().encode(
+  "FUSOU-TLSN-DEVICE-PROOF-V1\0",
+);
 
 function bytesToHex(buf: ArrayBuffer | Uint8Array): string {
   const bytes = buf instanceof Uint8Array ? buf : new Uint8Array(buf);
@@ -33,6 +36,34 @@ function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
     bytes.byteOffset,
     bytes.byteOffset + bytes.byteLength,
   ) as ArrayBuffer;
+}
+
+function appendLengthPrefixed(chunks: Uint8Array[], value: Uint8Array): void {
+  if (value.length > 0xffff) throw new Error("TLSN proof field is too large");
+  chunks.push(new Uint8Array([value.length >> 8, value.length & 0xff]), value);
+}
+
+/** Build the JSON-independent message signed for a TLSN verification. */
+export function createTlsnDeviceProofMessage(options: {
+  deviceId: string;
+  sessionId: string;
+  bindingValue: string;
+  challenge: Uint8Array;
+}): Uint8Array {
+  const encoder = new TextEncoder();
+  const chunks: Uint8Array[] = [TLSN_DEVICE_PROOF_DOMAIN];
+  appendLengthPrefixed(chunks, encoder.encode(options.deviceId));
+  appendLengthPrefixed(chunks, encoder.encode(options.sessionId));
+  appendLengthPrefixed(chunks, encoder.encode(options.bindingValue));
+  appendLengthPrefixed(chunks, options.challenge);
+  const length = chunks.reduce((total, chunk) => total + chunk.length, 0);
+  const message = new Uint8Array(length);
+  let offset = 0;
+  for (const chunk of chunks) {
+    message.set(chunk, offset);
+    offset += chunk.length;
+  }
+  return message;
 }
 
 /** Decode standard or URL-safe base64 into bytes. */
@@ -70,6 +101,18 @@ export async function verifyDeviceSig(options: {
   message: string;
   signatureB64: string;
 }): Promise<boolean> {
+  return verifyDeviceSigBytes({
+    publicKeyB64: options.publicKeyB64,
+    messageBytes: new TextEncoder().encode(options.message),
+    signatureB64: options.signatureB64,
+  });
+}
+
+export async function verifyDeviceSigBytes(options: {
+  publicKeyB64: string;
+  messageBytes: Uint8Array;
+  signatureB64: string;
+}): Promise<boolean> {
   const publicKey = decodeBase64ToBytes(options.publicKeyB64);
   if (!publicKey || publicKey.length !== ED25519_PUBKEY_BYTES) return false;
 
@@ -88,7 +131,7 @@ export async function verifyDeviceSig(options: {
       "Ed25519",
       key,
       toArrayBuffer(signature),
-      utf8(options.message),
+      toArrayBuffer(options.messageBytes),
     );
   } catch (error) {
     console.warn("[device-auth] Ed25519 verification failed", error);

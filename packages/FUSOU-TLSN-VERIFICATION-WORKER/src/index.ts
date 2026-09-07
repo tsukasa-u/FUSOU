@@ -35,7 +35,9 @@ type Bindings = {
   TLSN_SUPABASE_URL?: string;
   TLSN_SUPABASE_PUBLISHABLE_KEY?: string;
   TLSN_DEVICE_AUTH_URL?: string;
+  TLSN_DEVICE_POSSESSION_AUTH_URL?: string;
   TLSN_PRODUCTION_DEVICE_AUTH_URL?: string;
+  TLSN_PRODUCTION_DEVICE_POSSESSION_AUTH_URL?: string;
   TLSN_TEST_AUTH_USERS?: string;
 };
 
@@ -54,6 +56,10 @@ const requestSchema = z
     session_id: z.string().uuid(),
     binding: z.string().min(1).max(512).regex(/^[A-Za-z0-9_-]+$/),
     device_id: z.string().uuid(),
+    device_proof: z.object({
+      challenge: z.string().regex(/^[A-Za-z0-9_-]{43}$/),
+      sig: z.string().min(1).max(256).regex(/^[A-Za-z0-9+/_=-]+$/),
+    }).strict(),
   })
   .strict();
 
@@ -69,6 +75,7 @@ const authenticatedResultSchema = z.object({
   attestation_session_id: z.string().uuid(),
   canonical_user_id: z.string().uuid(),
   device_id: z.string().uuid(),
+  device_challenge: z.string().regex(/^[A-Za-z0-9_-]{43}$/),
   binding_nonce: z.string().regex(/^[A-Za-z0-9_-]+$/),
   binding_value: z.string().min(1).max(512).regex(/^[A-Za-z0-9_-]+$/),
   tlsn_attestation_id: z.string().regex(/^[A-Za-z0-9_-]+$/),
@@ -88,6 +95,7 @@ const configSchema = z.object({
   verifierKeyId: z.string().regex(/^[A-Za-z0-9._-]{1,64}$/),
   notaryKeyId: z.string().regex(/^[A-Za-z0-9._-]{1,64}$/),
   deviceAuthUrl: z.string().url(),
+  devicePossessionAuthUrl: z.string().url(),
   notaryRegistry: z.string().min(1).max(65_536),
   signingPrivateKeyPkcs8: z.string().regex(/^[A-Za-z0-9_-]+$/),
   trustRootCertificateDer: z.string().regex(/^[A-Za-z0-9_-]+$/).optional(),
@@ -150,6 +158,9 @@ function readConfig(env: Bindings): VerifierConfig | null {
     verifierKeyId: production ? env.TLSN_PRODUCTION_VERIFIER_KEY_ID : env.TLSN_VERIFIER_KEY_ID,
     notaryKeyId: production ? env.TLSN_PRODUCTION_NOTARY_KEY_ID : env.TLSN_NOTARY_KEY_ID,
     deviceAuthUrl: production ? env.TLSN_PRODUCTION_DEVICE_AUTH_URL : env.TLSN_DEVICE_AUTH_URL,
+    devicePossessionAuthUrl: production
+      ? env.TLSN_PRODUCTION_DEVICE_POSSESSION_AUTH_URL
+      : env.TLSN_DEVICE_POSSESSION_AUTH_URL,
     notaryRegistry: production ? env.TLSN_PRODUCTION_NOTARY_REGISTRY : env.TLSN_NOTARY_REGISTRY,
     signingPrivateKeyPkcs8: production
       ? env.TLSN_PRODUCTION_SIGNING_PRIVATE_KEY_PKCS8
@@ -176,6 +187,9 @@ function readConfig(env: Bindings): VerifierConfig | null {
       return null;
     }
     if (production && !parsed.data.deviceAuthUrl.startsWith("https://")) {
+      return null;
+    }
+    if (production && !parsed.data.devicePossessionAuthUrl.startsWith("https://")) {
       return null;
     }
     const notaryRegistry = notaryRegistrySchema.safeParse(JSON.parse(parsed.data.notaryRegistry));
@@ -318,6 +332,19 @@ type DeviceAuthenticationResult =
         | "device_auth_unavailable";
     };
 
+    type DevicePossessionAuthenticationResult =
+      | { ok: true; canonicalUserId: string; deviceId: string }
+      | {
+          ok: false;
+          status: 401 | 403 | 409 | 503;
+          error:
+            | "device_possession_unauthorized"
+            | "device_possession_owner_mismatch"
+            | "device_possession_revoked"
+            | "device_possession_replayed"
+            | "device_possession_unavailable";
+        };
+
 const deviceProofResponseSchema = z
   .object({
     authenticated: z.literal(true),
@@ -374,6 +401,60 @@ async function authenticateDeviceProof(
     };
   } catch {
     return { ok: false, status: 503, error: "device_auth_unavailable" };
+  }
+}
+
+async function authenticateTlsnDeviceProof(
+  subject: AuthenticatedSubject,
+  proof: {
+    device_id: string;
+    session_id: string;
+    binding_value: string;
+    challenge: string;
+    sig: string;
+  },
+  endpoint: string,
+): Promise<DevicePossessionAuthenticationResult> {
+  try {
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${subject.accessToken}`,
+      },
+      body: JSON.stringify(proof),
+    });
+    const payload = (await response.json().catch(() => null)) as unknown;
+    if (!response.ok) {
+      const error = z.object({ error: z.string() }).safeParse(payload).data?.error;
+      if (response.status === 403) {
+        return { ok: false, status: 403, error: "device_possession_owner_mismatch" };
+      }
+      if (response.status === 409 && error === "device_revoked") {
+        return { ok: false, status: 409, error: "device_possession_revoked" };
+      }
+      if (response.status === 409 && error === "device_proof_replayed") {
+        return { ok: false, status: 409, error: "device_possession_replayed" };
+      }
+      if (response.status >= 500) {
+        return { ok: false, status: 503, error: "device_possession_unavailable" };
+      }
+      return { ok: false, status: 401, error: "device_possession_unauthorized" };
+    }
+    const parsed = deviceProofResponseSchema.safeParse(payload);
+    if (!parsed.success || parsed.data.canonical_user_id !== subject.canonicalUserId) {
+      return { ok: false, status: 403, error: "device_possession_owner_mismatch" };
+    }
+    if (parsed.data.device_id !== proof.device_id) {
+      return { ok: false, status: 403, error: "device_possession_owner_mismatch" };
+    }
+    return {
+      ok: true,
+      canonicalUserId: parsed.data.canonical_user_id,
+      deviceId: parsed.data.device_id,
+    };
+  } catch {
+    return { ok: false, status: 503, error: "device_possession_unavailable" };
   }
 }
 
@@ -449,6 +530,7 @@ app.post("/attestation/session", async (c) => {
       challenge: record.nonce,
       binding: record.binding_value,
       device_id: record.device_id,
+      device_challenge: record.tlsn_device_challenge,
       expires_at: record.expires_at,
     }, 201);
   } catch {
@@ -495,6 +577,16 @@ app.post("/verify/tlsn", async (c) => {
     return c.json({ verified: false, error: message }, bindingAuthorityStatus(error));
   }
 
+  if (requestBody.device_proof.challenge !== issuedBinding.tlsn_device_challenge) {
+    return c.json({ verified: false, error: "device_challenge_mismatch" }, 409);
+  }
+  let deviceChallengeBytes: Uint8Array;
+  try {
+    deviceChallengeBytes = decodeBase64Url(requestBody.device_proof.challenge, 32);
+  } catch {
+    return c.json({ verified: false, error: "invalid_request" }, 400);
+  }
+
   try {
     await ensureWasmInitialized();
   } catch {
@@ -513,6 +605,7 @@ app.post("/verify/tlsn", async (c) => {
               config.notaryKeyId,
               authentication.canonicalUserId,
               requestBody.device_id,
+              deviceChallengeBytes,
               config.trustRootCertificateDerBytes,
               config.notaryKeyBytes,
             )
@@ -524,6 +617,7 @@ app.post("/verify/tlsn", async (c) => {
               config.notaryKeyId,
               authentication.canonicalUserId,
               requestBody.device_id,
+              deviceChallengeBytes,
               config.notaryKeyBytes,
             ),
       ) as unknown,
@@ -536,11 +630,33 @@ app.post("/verify/tlsn", async (c) => {
       authenticatedResult.attestation_session_id !== requestBody.session_id ||
       authenticatedResult.canonical_user_id !== authentication.canonicalUserId ||
       authenticatedResult.device_id !== requestBody.device_id ||
+      authenticatedResult.device_challenge !== requestBody.device_proof.challenge ||
       authenticatedResult.binding_nonce !== issuedBinding.nonce ||
       authenticatedResult.binding_value !== issuedBinding.binding_value ||
       authenticatedResult.binding_value !== requestBody.binding
     ) {
       return c.json({ verified: false, error: "binding_mismatch" }, 422);
+    }
+    const devicePossession = await authenticateTlsnDeviceProof(
+      authentication,
+      {
+        device_id: issuedBinding.device_id,
+        session_id: issuedBinding.session_id,
+        binding_value: issuedBinding.binding_value,
+        challenge: requestBody.device_proof.challenge,
+        sig: requestBody.device_proof.sig,
+      },
+      config.devicePossessionAuthUrl,
+    );
+    if (!devicePossession.ok) {
+      return c.json({ verified: false, error: devicePossession.error }, devicePossession.status);
+    }
+    if (
+      devicePossession.canonicalUserId !== authentication.canonicalUserId ||
+      devicePossession.deviceId !== issuedBinding.device_id ||
+      devicePossession.deviceId !== requestBody.device_id
+    ) {
+      return c.json({ verified: false, error: "device_possession_owner_mismatch" }, 403);
     }
     const presentationId = encodeBase64Url(
       new Uint8Array(await crypto.subtle.digest("SHA-256", presentationBytes)),

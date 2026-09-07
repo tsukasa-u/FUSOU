@@ -1042,6 +1042,7 @@ pub struct VerifierResult {
     pub proof_purpose: String,
     pub canonical_user_id: String,
     pub canonical_device_id: String,
+    pub device_challenge: [u8; 32],
     pub verified_member_id: String,
     pub attestation_session_id: Uuid,
     pub binding_nonce: [u8; 32],
@@ -1184,6 +1185,11 @@ impl VerifierResult {
         append_json_string_field(&mut output, "proof_purpose", &self.proof_purpose);
         append_json_string_field(&mut output, "canonical_user_id", &self.canonical_user_id);
         append_json_string_field(&mut output, "device_id", &self.canonical_device_id);
+        append_json_string_field(
+            &mut output,
+            "device_challenge",
+            &URL_SAFE_NO_PAD.encode(self.device_challenge),
+        );
         append_json_string_field(&mut output, "verified_member_id", &self.verified_member_id);
         append_json_string_field(
             &mut output,
@@ -1254,6 +1260,7 @@ impl VerifierResult {
         push_len_prefixed(&mut output, self.proof_purpose.as_bytes())?;
         push_len_prefixed(&mut output, self.canonical_user_id.as_bytes())?;
         push_len_prefixed(&mut output, self.canonical_device_id.as_bytes())?;
+        push_len_prefixed(&mut output, &self.device_challenge)?;
         push_len_prefixed(&mut output, self.verified_member_id.as_bytes())?;
         push_len_prefixed(&mut output, self.attestation_session_id.as_bytes())?;
         push_len_prefixed(&mut output, &self.binding_nonce)?;
@@ -1361,6 +1368,8 @@ pub fn parse_verifier_result(input: &[u8], limits: &ParserLimits) -> Result<Veri
     let canonical_user_id = parse_result_string(&mut cursor)?;
     expect_result_field(&mut cursor, "device_id", true)?;
     let canonical_device_id = parse_result_string(&mut cursor)?;
+    expect_result_field(&mut cursor, "device_challenge", true)?;
+    let device_challenge = parse_fixed_base64::<32>(&mut cursor)?;
     expect_result_field(&mut cursor, "verified_member_id", true)?;
     let verified_member_id = parse_result_string(&mut cursor)?;
     expect_result_field(&mut cursor, "attestation_session_id", true)?;
@@ -1405,6 +1414,7 @@ pub fn parse_verifier_result(input: &[u8], limits: &ParserLimits) -> Result<Veri
         proof_purpose,
         canonical_user_id,
         canonical_device_id,
+        device_challenge,
         verified_member_id,
         attestation_session_id,
         binding_nonce,
@@ -1605,6 +1615,7 @@ mod tests {
             proof_purpose: PROOF_PURPOSE.to_owned(),
             canonical_user_id: "11111111-1111-4111-8111-111111111111".to_owned(),
             canonical_device_id: "22222222-2222-4222-8222-222222222222".to_owned(),
+            device_challenge: [6_u8; 32],
             verified_member_id: "16189463".to_owned(),
             attestation_session_id: Uuid::parse_str("123e4567-e89b-42d3-a456-426614174000")
                 .unwrap(),

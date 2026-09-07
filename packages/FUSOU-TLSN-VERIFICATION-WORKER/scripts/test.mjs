@@ -3,7 +3,7 @@
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
-import { generateKeyPairSync } from "node:crypto";
+import { generateKeyPairSync, verify as verifySignature } from "node:crypto";
 import { createServer } from "node:http";
 import { unstable_dev } from "wrangler";
 
@@ -48,6 +48,26 @@ function capture(command, argumentsList, cwd) {
   return JSON.parse(outputLines.at(-1));
 }
 
+function pushLengthPrefixed(chunks, value) {
+  const bytes = Buffer.isBuffer(value) ? value : Buffer.from(value);
+  const length = Buffer.alloc(2);
+  length.writeUInt16BE(bytes.length);
+  chunks.push(length, bytes);
+}
+
+function decodeBase64Url(value) {
+  return Buffer.from(value, "base64url");
+}
+
+function tlsnDeviceProofMessage(deviceId, sessionId, bindingValue, challenge) {
+  const chunks = [Buffer.from("FUSOU-TLSN-DEVICE-PROOF-V1\0")];
+  pushLengthPrefixed(chunks, deviceId);
+  pushLengthPrefixed(chunks, sessionId);
+  pushLengthPrefixed(chunks, bindingValue);
+  pushLengthPrefixed(chunks, decodeBase64Url(challenge));
+  return Buffer.concat(chunks);
+}
+
 run(process.execPath, ["scripts/build-wasm.mjs"]);
 run(typescript, ["--noEmit", "--pretty", "false"]);
 
@@ -68,14 +88,18 @@ const syntheticFixture = capture(
 );
 
 const { privateKey, publicKey } = generateKeyPairSync("ed25519");
+const { privateKey: devicePrivateKey, publicKey: devicePublicKey } = generateKeyPairSync("ed25519");
 const signingPrivateKeyPkcs8 = privateKey
   .export({ format: "der", type: "pkcs8" })
   .toString("base64url");
 const deviceId = "33333333-3333-4333-8333-333333333333";
 const deviceNonce = "a".repeat(64);
 const deviceSignature = "synthetic-device-signature";
+const consumedDeviceProofs = new Set();
 const deviceAuthServer = createServer(async (request, response) => {
-  if (request.method !== "POST" || request.url !== "/anonymous-sync/v2/device-proof") {
+  const isSessionDeviceProof = request.url === "/anonymous-sync/v2/device-proof";
+  const isTlsnDeviceProof = request.url === "/anonymous-sync/v2/tlsn-device-proof";
+  if (request.method !== "POST" || (!isSessionDeviceProof && !isTlsnDeviceProof)) {
     response.writeHead(404, { "Content-Type": "application/json" });
     response.end(JSON.stringify({ error: "not_found" }));
     return;
@@ -90,15 +114,42 @@ const deviceAuthServer = createServer(async (request, response) => {
     response.end(JSON.stringify({ error: "invalid_json" }));
     return;
   }
-  if (
-    request.headers.authorization !== "Bearer test-token-a" ||
-    body.device_id !== deviceId ||
-    body.nonce !== deviceNonce ||
-    body.sig !== deviceSignature
-  ) {
+  if (request.headers.authorization !== "Bearer test-token-a" || body.device_id !== deviceId) {
     response.writeHead(401, { "Content-Type": "application/json" });
     response.end(JSON.stringify({ error: "device_unauthorized" }));
     return;
+  }
+  if (isSessionDeviceProof && (body.nonce !== deviceNonce || body.sig !== deviceSignature)) {
+    response.writeHead(401, { "Content-Type": "application/json" });
+    response.end(JSON.stringify({ error: "device_unauthorized" }));
+    return;
+  }
+  if (isTlsnDeviceProof) {
+    const proofKey = `${body.device_id}:${body.session_id}:${body.challenge}`;
+    const signature = Buffer.from(body.sig ?? "", "base64url");
+    const valid =
+      typeof body.session_id === "string" &&
+      typeof body.binding_value === "string" &&
+      typeof body.challenge === "string" &&
+      typeof body.sig === "string" &&
+      signature.length === 64 &&
+      verifySignature(
+        null,
+        tlsnDeviceProofMessage(body.device_id, body.session_id, body.binding_value, body.challenge),
+        devicePublicKey,
+        signature,
+      );
+    if (!valid) {
+      response.writeHead(401, { "Content-Type": "application/json" });
+      response.end(JSON.stringify({ error: "signature_invalid" }));
+      return;
+    }
+    if (consumedDeviceProofs.has(proofKey)) {
+      response.writeHead(409, { "Content-Type": "application/json" });
+      response.end(JSON.stringify({ error: "device_proof_replayed" }));
+      return;
+    }
+    consumedDeviceProofs.add(proofKey);
   }
   response.writeHead(200, {
     "Cache-Control": "no-store",
@@ -112,7 +163,9 @@ const deviceAuthServer = createServer(async (request, response) => {
 });
 await new Promise((resolve) => deviceAuthServer.listen(0, "127.0.0.1", resolve));
 deviceAuthServer.unref();
-const deviceAuthUrl = `http://127.0.0.1:${deviceAuthServer.address().port}/anonymous-sync/v2/device-proof`;
+const deviceAuthOrigin = `http://127.0.0.1:${deviceAuthServer.address().port}`;
+const deviceAuthUrl = `${deviceAuthOrigin}/anonymous-sync/v2/device-proof`;
+const devicePossessionAuthUrl = `${deviceAuthOrigin}/anonymous-sync/v2/tlsn-device-proof`;
 const testVars = {
   TLSN_ENVIRONMENT: "test",
   TLSN_BINDING_TTL_SECONDS: "60",
@@ -125,6 +178,7 @@ const testVars = {
   TLSN_SIGNING_PRIVATE_KEY_PKCS8: signingPrivateKeyPkcs8,
   TLSN_TRUST_ROOT_CERTIFICATE_DER: syntheticFixture.root_certificate_base64,
   TLSN_DEVICE_AUTH_URL: deviceAuthUrl,
+  TLSN_DEVICE_POSSESSION_AUTH_URL: devicePossessionAuthUrl,
   TLSN_TEST_AUTH_USERS: JSON.stringify({
     "test-token-a": { id: "11111111-1111-4111-8111-111111111111", is_anonymous: false },
     "test-token-b": { id: "22222222-2222-4222-8222-222222222222", is_anonymous: false },
@@ -157,6 +211,7 @@ try {
     worker.fetch,
     syntheticFixture,
     publicKey.export({ format: "der", type: "spki" }).toString("base64url"),
+    devicePrivateKey,
   );
 } finally {
   await worker.stop();
@@ -168,7 +223,7 @@ const concurrentWorker = await localWorker({
 
 try {
   const { runConcurrentReplaySmokeTest } = await import("../test/index-smoke.mjs");
-  await runConcurrentReplaySmokeTest(concurrentWorker.fetch, syntheticFixture);
+  await runConcurrentReplaySmokeTest(concurrentWorker.fetch, syntheticFixture, devicePrivateKey);
 } finally {
   await concurrentWorker.stop();
 }
@@ -179,7 +234,7 @@ const contextWorker = await localWorker({
 
 try {
   const { runBindingContextNegativeSmokeTest } = await import("../test/index-smoke.mjs");
-  await runBindingContextNegativeSmokeTest(contextWorker.fetch, syntheticFixture);
+  await runBindingContextNegativeSmokeTest(contextWorker.fetch, syntheticFixture, devicePrivateKey);
 } finally {
   await contextWorker.stop();
 }
@@ -190,7 +245,7 @@ const ownershipWorker = await localWorker({
 
 try {
   const { runAuthenticatedOwnershipSmokeTest } = await import("../test/index-smoke.mjs");
-  await runAuthenticatedOwnershipSmokeTest(ownershipWorker.fetch, syntheticFixture);
+  await runAuthenticatedOwnershipSmokeTest(ownershipWorker.fetch, syntheticFixture, devicePrivateKey);
 } finally {
   await ownershipWorker.stop();
 }
@@ -202,7 +257,7 @@ const expiryWorker = await localWorker({
 
 try {
   const { runExpiredBindingSmokeTest } = await import("../test/index-smoke.mjs");
-  await runExpiredBindingSmokeTest(expiryWorker.fetch, syntheticFixture);
+  await runExpiredBindingSmokeTest(expiryWorker.fetch, syntheticFixture, devicePrivateKey);
 } finally {
   await expiryWorker.stop();
 }
@@ -214,7 +269,7 @@ const mismatchedIdentityWorker = await localWorker({
 
 try {
   const { runMismatchedIdentitySmokeTest } = await import("../test/index-smoke.mjs");
-  await runMismatchedIdentitySmokeTest(mismatchedIdentityWorker.fetch, syntheticFixture);
+  await runMismatchedIdentitySmokeTest(mismatchedIdentityWorker.fetch, syntheticFixture, devicePrivateKey);
 } finally {
   await mismatchedIdentityWorker.stop();
 }
@@ -241,7 +296,7 @@ const mismatchedNotaryWorker = await unstable_dev(resolve(packageDirectory, "src
 
 try {
   const { runMismatchedNotarySmokeTest } = await import("../test/index-smoke.mjs");
-  await runMismatchedNotarySmokeTest(mismatchedNotaryWorker.fetch, syntheticFixture);
+  await runMismatchedNotarySmokeTest(mismatchedNotaryWorker.fetch, syntheticFixture, devicePrivateKey);
 } finally {
   await mismatchedNotaryWorker.stop();
 }

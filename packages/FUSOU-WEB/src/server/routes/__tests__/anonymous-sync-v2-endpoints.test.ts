@@ -12,6 +12,8 @@ const {
   mockValidateDatasetTokenWithConstraints,
   mockVerifyChallengeNonce,
   mockVerifyDeviceSig,
+  mockVerifyDeviceSigBytes,
+  mockCreateTlsnDeviceProofMessage,
   mockEncodeBytesToBase64,
 } = vi.hoisted(() => {
   const mockFrom = vi.fn();
@@ -40,6 +42,8 @@ const {
     mockValidateDatasetTokenWithConstraints: vi.fn(),
     mockVerifyChallengeNonce: vi.fn(),
     mockVerifyDeviceSig: vi.fn(),
+    mockVerifyDeviceSigBytes: vi.fn(),
+    mockCreateTlsnDeviceProofMessage: vi.fn(),
     mockEncodeBytesToBase64,
   };
 });
@@ -76,6 +80,8 @@ vi.mock("../../utils/pepper", () => ({
   issueChallengeNonce: vi.fn(),
   verifyChallengeNonce: mockVerifyChallengeNonce,
   verifyDeviceSig: mockVerifyDeviceSig,
+  verifyDeviceSigBytes: mockVerifyDeviceSigBytes,
+  createTlsnDeviceProofMessage: mockCreateTlsnDeviceProofMessage,
 }));
 
 import anonymousSyncV2App from "../anonymous-sync-v2";
@@ -159,12 +165,41 @@ function stubDeviceProof(options: {
   return { deviceId, nonceInsert, update };
 }
 
+const tlsnSessionId = "44444444-4444-4444-8444-444444444444";
+const tlsnChallenge = "A".repeat(43);
+const tlsnBindingValue = "RlVTT1UtQklORElORy1WMQ";
+
+function tlsnProofBody(overrides: Record<string, unknown> = {}) {
+  return {
+    device_id: "33333333-3333-4333-8333-333333333333",
+    session_id: tlsnSessionId,
+    binding_value: tlsnBindingValue,
+    challenge: tlsnChallenge,
+    sig: "A".repeat(88),
+    ...overrides,
+  };
+}
+
+function stubTlsnDeviceProof(options: Parameters<typeof stubDeviceProof>[0] = {}) {
+  const result = stubDeviceProof(options);
+  mockDecodeBase64ToBytes.mockImplementation((value: string) => {
+    try {
+      return new Uint8Array(Buffer.from(value, "base64url"));
+    } catch {
+      return null;
+    }
+  });
+  return result;
+}
+
 describe("anonymous-sync v2 endpoints", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockRpc.mockResolvedValue({ data: true, error: null });
     mockVerifyChallengeNonce.mockResolvedValue(true);
     mockVerifyDeviceSig.mockResolvedValue(true);
+    mockVerifyDeviceSigBytes.mockResolvedValue(true);
+    mockCreateTlsnDeviceProofMessage.mockReturnValue(new Uint8Array([1, 2, 3]));
     mockResolvePublicIdsForUser.mockResolvedValue({
       publicIds: [publicId],
       source: "web_mapping",
@@ -559,6 +594,176 @@ describe("anonymous-sync v2 endpoints", () => {
 
     expect(response.status).toBe(409);
     await expect(response.json()).resolves.toEqual({ error: "nonce_already_used" });
+    expect(nonceInsert).toHaveBeenCalledTimes(1);
+    vi.unstubAllGlobals();
+  });
+
+  it("verifies TLSN possession against the canonical session and binding context", async () => {
+    const { deviceId, nonceInsert } = stubTlsnDeviceProof();
+    const proof = tlsnProofBody();
+
+    const response = await anonymousSyncV2App.request(
+      "https://fusou.dev/anonymous-sync/v2/tlsn-device-proof",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer access-token",
+        },
+        body: JSON.stringify(proof),
+      },
+      env,
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      authenticated: true,
+      canonical_user_id: "55555555-5555-4555-8555-555555555555",
+      device_id: deviceId,
+    });
+    expect(mockCreateTlsnDeviceProofMessage).toHaveBeenCalledWith({
+      deviceId,
+      sessionId: tlsnSessionId,
+      bindingValue: tlsnBindingValue,
+      challenge: expect.any(Uint8Array),
+    });
+    expect(mockVerifyDeviceSigBytes).toHaveBeenCalledWith({
+      publicKeyB64: "A".repeat(44),
+      messageBytes: new Uint8Array([1, 2, 3]),
+      signatureB64: proof.sig,
+    });
+    expect(nonceInsert).toHaveBeenCalledWith({
+      device_id: deviceId,
+      nonce: expect.stringMatching(/^[a-f0-9]{64}$/),
+    });
+    vi.unstubAllGlobals();
+  });
+
+  it("rejects malformed TLSN proof context before authenticating the device", async () => {
+    stubTlsnDeviceProof();
+
+    const response = await anonymousSyncV2App.request(
+      "https://fusou.dev/anonymous-sync/v2/tlsn-device-proof",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer access-token",
+        },
+        body: JSON.stringify(tlsnProofBody({ challenge: "A".repeat(42) })),
+      },
+      env,
+    );
+
+    expect(response.status).toBe(400);
+    expect(mockFrom).not.toHaveBeenCalled();
+    expect(mockVerifyDeviceSigBytes).not.toHaveBeenCalled();
+    vi.unstubAllGlobals();
+  });
+
+  it("rejects TLSN possession when the device owner does not match the bearer user", async () => {
+    stubTlsnDeviceProof({
+      canonicalUserId: "66666666-6666-4666-8666-666666666666",
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          id: "55555555-5555-4555-8555-555555555555",
+          is_anonymous: false,
+        }),
+      }),
+    );
+
+    const response = await anonymousSyncV2App.request(
+      "https://fusou.dev/anonymous-sync/v2/tlsn-device-proof",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer access-token",
+        },
+        body: JSON.stringify(tlsnProofBody()),
+      },
+      env,
+    );
+
+    expect(response.status).toBe(403);
+    await expect(response.json()).resolves.toEqual({
+      error: "device_owner_mismatch",
+    });
+    expect(mockVerifyDeviceSigBytes).not.toHaveBeenCalled();
+    vi.unstubAllGlobals();
+  });
+
+  it("rejects revoked TLSN devices before verifying their proof", async () => {
+    stubTlsnDeviceProof({ revokedAt: "2026-08-20T00:00:00.000Z" });
+
+    const response = await anonymousSyncV2App.request(
+      "https://fusou.dev/anonymous-sync/v2/tlsn-device-proof",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer access-token",
+        },
+        body: JSON.stringify(tlsnProofBody()),
+      },
+      env,
+    );
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toEqual({ error: "device_revoked" });
+    expect(mockVerifyDeviceSigBytes).not.toHaveBeenCalled();
+    vi.unstubAllGlobals();
+  });
+
+  it("rejects an invalid TLSN device signature without consuming proof replay state", async () => {
+    const { nonceInsert } = stubTlsnDeviceProof();
+    mockVerifyDeviceSigBytes.mockResolvedValue(false);
+
+    const response = await anonymousSyncV2App.request(
+      "https://fusou.dev/anonymous-sync/v2/tlsn-device-proof",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer access-token",
+        },
+        body: JSON.stringify(tlsnProofBody()),
+      },
+      env,
+    );
+
+    expect(response.status).toBe(401);
+    await expect(response.json()).resolves.toEqual({ error: "signature_invalid" });
+    expect(nonceInsert).not.toHaveBeenCalled();
+    vi.unstubAllGlobals();
+  });
+
+  it("rejects a replayed TLSN device proof atomically", async () => {
+    const { nonceInsert } = stubTlsnDeviceProof({
+      nonceError: { code: "23505" },
+    });
+
+    const response = await anonymousSyncV2App.request(
+      "https://fusou.dev/anonymous-sync/v2/tlsn-device-proof",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer access-token",
+        },
+        body: JSON.stringify(tlsnProofBody()),
+      },
+      env,
+    );
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toEqual({
+      error: "device_proof_replayed",
+    });
     expect(nonceInsert).toHaveBeenCalledTimes(1);
     vi.unstubAllGlobals();
   });
