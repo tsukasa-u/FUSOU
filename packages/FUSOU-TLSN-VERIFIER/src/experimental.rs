@@ -5,9 +5,9 @@
 //! traffic cannot enter this path accidentally.
 
 use crate::{
-    parse_binding_value, parse_require_info_response,
-    prover_transport::{build_require_info_request, ProverTransportError},
-    ParsedBinding, ParsedRequireInfo, ParserLimits, VerifierError,
+    parse_require_info_request, parse_require_info_response,
+    prover_transport::ProverTransportError, ParsedBinding, ParsedRequireInfo, ParserLimits,
+    VerifierError,
 };
 use thiserror::Error;
 use tlsn::prover::TlsConnection;
@@ -40,24 +40,19 @@ pub struct ExperimentalRequireInfoEvidence {
 }
 
 impl ExperimentalRequireInfoProbe {
-    pub fn new(server_identity: &str, binding_value: &str) -> Result<Self> {
-        let binding = parse_binding_value(binding_value)?;
-        Self::from_expected_binding(server_identity, &binding, binding_value)
-    }
-
-    pub fn from_expected_binding(
+    pub fn from_actual_request(
         server_identity: &str,
         expected_binding: &ParsedBinding,
-        binding_value: &str,
+        request: Vec<u8>,
     ) -> Result<Self> {
-        let binding = parse_binding_value(binding_value)?;
-        if &binding != expected_binding {
+        let parsed =
+            parse_require_info_request(&request, server_identity, &ParserLimits::default())?;
+        if parsed.binding != *expected_binding {
             return Err(ExperimentalProbeError::BindingMismatch);
         }
-        let request = build_require_info_request(server_identity, binding_value)?;
         Ok(Self {
             server_identity: server_identity.to_owned(),
-            binding,
+            binding: parsed.binding,
             request,
         })
     }
@@ -73,7 +68,7 @@ impl ExperimentalRequireInfoProbe {
     pub async fn run(self, connection: TlsConnection) -> Result<ExperimentalRequireInfoEvidence> {
         let mut transport = crate::prover_transport::ProverOwnedTlsTransport::new(connection);
         transport
-            .send_require_info(&self.server_identity, &self.binding.value)
+            .send_actual_require_info(&self.request, &self.server_identity, &self.binding)
             .await?;
         let response = transport.read_response_to_end().await?;
         transport.close().await?;
@@ -92,8 +87,16 @@ impl ExperimentalRequireInfoProbe {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::parse_binding_value;
     use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
     use uuid::Uuid;
+
+    fn actual_request(binding: &str) -> Vec<u8> {
+        format!(
+            "POST /kcsapi/api_get_member/require_info HTTP/1.1\r\nHost: game.example.test\r\nX-Attestation-Binding: {binding}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+        )
+        .into_bytes()
+    }
 
     fn binding_value() -> String {
         let session = Uuid::parse_str("123e4567-e89b-42d3-a456-426614174000").unwrap();
@@ -110,10 +113,10 @@ mod tests {
     fn experimental_request_contains_one_binding_before_origin_send() {
         let binding = binding_value();
         let expected = parse_binding_value(&binding).unwrap();
-        let probe = ExperimentalRequireInfoProbe::from_expected_binding(
+        let probe = ExperimentalRequireInfoProbe::from_actual_request(
             "game.example.test",
             &expected,
-            &binding,
+            actual_request(&binding),
         )
         .unwrap();
         let request = probe.request();
@@ -135,13 +138,19 @@ mod tests {
     #[test]
     fn experimental_probe_rejects_invalid_configuration_before_transport() {
         assert!(matches!(
-            ExperimentalRequireInfoProbe::new("Game.example.test", &binding_value()),
-            Err(ExperimentalProbeError::Transport(
-                ProverTransportError::InvalidRequest(_)
-            ))
+            ExperimentalRequireInfoProbe::from_actual_request(
+                "Game.example.test",
+                &parse_binding_value(&binding_value()).unwrap(),
+                actual_request(&binding_value()),
+            ),
+            Err(ExperimentalProbeError::Configuration(_))
         ));
         assert!(matches!(
-            ExperimentalRequireInfoProbe::new("game.example.test", "not-a-binding"),
+            ExperimentalRequireInfoProbe::from_actual_request(
+                "game.example.test",
+                &parse_binding_value(&binding_value()).unwrap(),
+                b"GET / HTTP/1.1\r\nHost: game.example.test\r\n\r\n".to_vec(),
+            ),
             Err(ExperimentalProbeError::Configuration(_))
         ));
     }
@@ -152,13 +161,12 @@ mod tests {
         let mut mismatched = expected.clone();
         mismatched.binding_nonce[0] ^= 1;
         assert!(matches!(
-            ExperimentalRequireInfoProbe::from_expected_binding(
+            ExperimentalRequireInfoProbe::from_actual_request(
                 "game.example.test",
                 &mismatched,
-                &binding_value(),
+                actual_request(&binding_value()),
             ),
             Err(ExperimentalProbeError::BindingMismatch)
         ));
-        assert!(ExperimentalRequireInfoProbe::new("game.example.test", "not-a-binding").is_err());
     }
 }

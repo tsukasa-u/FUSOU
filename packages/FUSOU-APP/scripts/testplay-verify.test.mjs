@@ -28,10 +28,12 @@ test("clean-capture config overrides every targeted setting", () => {
     "allow_save_api_responses",
     "allow_save_resources",
     "allow_save_main_js_local",
+    "experimental_tlsn_enabled",
     "capture_enabled",
   ]) {
     assert.match(updated, new RegExp(`^${setting} = (?:true|false|"[^"]+")$`, "m"));
   }
+  assert.match(updated, /^experimental_tlsn_enabled = false$/m);
   for (const setting of [
     "allow_data_to_cloud",
     "allow_data_to_shared_cloud",

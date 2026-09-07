@@ -1022,6 +1022,7 @@ pub struct ConfigsProxy {
     allow_save_api_responses: Option<bool>,
     allow_save_resources: Option<bool>,
     allow_save_main_js_local: Option<bool>,
+    experimental_tlsn_enabled: Option<bool>,
     capture_enabled: Option<bool>,
     capture_output_path: Option<String>,
     save_file_location: Option<String>,
@@ -1032,6 +1033,15 @@ pub struct ConfigsProxy {
 }
 
 impl ConfigsProxy {
+    pub fn get_experimental_tlsn_enabled(&self) -> bool {
+        self.experimental_tlsn_enabled.unwrap_or_else(|| {
+            get_default_configs()
+                .proxy
+                .experimental_tlsn_enabled
+                .unwrap_or(false)
+        })
+    }
+
     pub fn get_allow_save_api_requests(&self) -> bool {
         self.allow_save_api_requests
             .unwrap_or_else(|| get_default_configs().proxy.allow_save_api_requests.unwrap())
@@ -1400,6 +1410,7 @@ mod tests {
             allow_save_api_responses: None,
             allow_save_resources: None,
             allow_save_main_js_local: None,
+            experimental_tlsn_enabled: None,
             capture_enabled: None,
             capture_output_path: None,
             save_file_location: None,
@@ -1414,6 +1425,7 @@ mod tests {
             default_configs.proxy.get_allow_save_api_requests(),
             "allow_save_api_requests getter should return configs.toml default"
         );
+        assert!(!empty_proxy_fields.get_experimental_tlsn_enabled());
         assert_eq!(
             empty_proxy_fields.get_allow_save_api_responses(),
             default_configs.proxy.get_allow_save_api_responses(),

@@ -201,13 +201,19 @@ fn encode_binding_value(session_id: Uuid, binding_nonce: [u8; 32]) -> String {
 mod tests {
     use super::*;
     use crate::{
-        parse_binding_value, parse_require_info_request,
-        prover_transport::build_require_info_request, tlsn_alpha15::AuthenticatedRequireInfo,
+        parse_binding_value, parse_require_info_request, tlsn_alpha15::AuthenticatedRequireInfo,
         ParsedBinding, ParserLimits, BINDING_HEADER,
     };
 
     fn session(value: &str) -> Uuid {
         Uuid::parse_str(value).unwrap()
+    }
+
+    fn actual_request(binding: &str) -> Vec<u8> {
+        format!(
+            "POST /kcsapi/api_get_member/require_info HTTP/1.1\r\nHost: game.example.test\r\n{BINDING_HEADER}: {binding}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+        )
+        .into_bytes()
     }
 
     fn authenticated_evidence(binding: ParsedBinding) -> AuthenticatedRequireInfo {
@@ -270,7 +276,7 @@ mod tests {
         let session_a = session("123e4567-e89b-42d3-a456-426614174000");
         let mut authority = ExperimentalBindingAuthority::default();
         let issued = authority.issue_binding(session_a, [0x42; 32]).unwrap();
-        let request = build_require_info_request("game.example.test", issued.value()).unwrap();
+        let request = actual_request(issued.value());
         assert!(parse_require_info_request(
             &request,
             "game.example.test",

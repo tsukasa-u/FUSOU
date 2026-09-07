@@ -1,8 +1,8 @@
 //! FUSOU-owned request transport boundary for the pinned alpha.15 Prover.
 
 use crate::{
-    parse_binding_value, parse_require_info_request, validate_server_identity, ParserLimits,
-    VerifierError, BINDING_HEADER, REQUIRE_INFO_TARGET,
+    parse_require_info_request, validate_server_identity, ParsedBinding, ParserLimits,
+    VerifierError,
 };
 use futures::io::{AsyncReadExt, AsyncWriteExt};
 use thiserror::Error;
@@ -14,6 +14,8 @@ pub enum ProverTransportError {
     InvalidRequest(#[from] VerifierError),
     #[error("require_info request has already been sent")]
     RequestAlreadySent,
+    #[error("actual require_info request binding does not match the expected binding")]
+    BindingMismatch,
     #[error("require_info request has not been sent")]
     RequestNotSent,
     #[error("response has already been read")]
@@ -26,17 +28,17 @@ pub enum ProverTransportError {
 
 pub type Result<T> = std::result::Result<T, ProverTransportError>;
 
-pub fn build_require_info_request(server_identity: &str, binding_value: &str) -> Result<Vec<u8>> {
+pub fn validate_actual_require_info_request(
+    request: &[u8],
+    server_identity: &str,
+    expected_binding: &ParsedBinding,
+) -> Result<()> {
     validate_server_identity(server_identity)?;
-    parse_binding_value(binding_value)?;
-
-    let request = format!(
-        "POST {REQUIRE_INFO_TARGET} HTTP/1.1\r\nHost: {server_identity}\r\n{BINDING_HEADER}: {binding_value}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
-    )
-    .into_bytes();
-
-    parse_require_info_request(&request, server_identity, &ParserLimits::default())?;
-    Ok(request)
+    let parsed = parse_require_info_request(request, server_identity, &ParserLimits::default())?;
+    if parsed.binding != *expected_binding {
+        return Err(ProverTransportError::BindingMismatch);
+    }
+    Ok(())
 }
 
 pub struct ProverOwnedTlsTransport {
@@ -58,22 +60,23 @@ impl ProverOwnedTlsTransport {
         self.request_sent
     }
 
-    pub async fn send_require_info(
+    pub async fn send_actual_require_info(
         &mut self,
+        request: &[u8],
         server_identity: &str,
-        binding_value: &str,
+        expected_binding: &ParsedBinding,
     ) -> Result<()> {
         if self.request_sent {
             return Err(ProverTransportError::RequestAlreadySent);
         }
-        let request = build_require_info_request(server_identity, binding_value)?;
+        validate_actual_require_info_request(request, server_identity, expected_binding)?;
         let connection = self
             .connection
             .as_mut()
             .ok_or(ProverTransportError::ConnectionClosed)?;
 
         self.request_sent = true;
-        connection.write_all(&request).await?;
+        connection.write_all(request).await?;
         connection.flush().await?;
         Ok(())
     }
@@ -109,6 +112,7 @@ impl ProverOwnedTlsTransport {
 mod tests {
     use super::*;
     use crate::experimental::{ExperimentalRequireInfoEvidence, ExperimentalRequireInfoProbe};
+    use crate::parse_binding_value;
     use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
     use rcgen::{
         BasicConstraints, CertificateParams, ExtendedKeyUsagePurpose, IsCa, KeyPair,
@@ -151,6 +155,13 @@ mod tests {
         bytes.extend_from_slice(&32_u16.to_be_bytes());
         bytes.extend_from_slice(&[0x42_u8; 32]);
         URL_SAFE_NO_PAD.encode(bytes)
+    }
+
+    fn actual_request(binding: &str) -> Vec<u8> {
+        format!(
+            "POST /kcsapi/api_get_member/require_info HTTP/1.1\r\nHost: {SERVER_IDENTITY}\r\nX-Attestation-Binding: {binding}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+        )
+        .into_bytes()
     }
 
     fn server_credentials() -> (Vec<u8>, Vec<u8>, Vec<u8>) {
@@ -214,25 +225,19 @@ mod tests {
     }
 
     #[test]
-    fn request_builder_is_strict_and_one_shot() {
+    fn actual_request_validation_is_strict() {
         let binding = binding_value();
-        let request = build_require_info_request(SERVER_IDENTITY, &binding).unwrap();
-        assert_eq!(
-            parse_require_info_request(&request, SERVER_IDENTITY, &ParserLimits::default())
-                .unwrap()
-                .binding
-                .value,
-            binding
-        );
-        assert!(build_require_info_request(SERVER_IDENTITY, "not-a-binding").is_err());
+        let expected_binding = parse_binding_value(&binding).unwrap();
+        let request = actual_request(&binding);
+        validate_actual_require_info_request(&request, SERVER_IDENTITY, &expected_binding).unwrap();
 
         let missing_binding = format!(
-            "POST {REQUIRE_INFO_TARGET} HTTP/1.1\r\nHost: {SERVER_IDENTITY}\r\nContent-Length: 0\r\n\r\n"
+            "POST /kcsapi/api_get_member/require_info HTTP/1.1\r\nHost: {SERVER_IDENTITY}\r\nContent-Length: 0\r\n\r\n"
         );
-        assert!(parse_require_info_request(
+        assert!(validate_actual_require_info_request(
             missing_binding.as_bytes(),
             SERVER_IDENTITY,
-            &ParserLimits::default(),
+            &expected_binding,
         )
         .is_err());
     }
@@ -250,14 +255,20 @@ mod tests {
         ));
 
         let binding = binding_value();
-        let send_error = transport.send_require_info(SERVER_IDENTITY, &binding).await;
+        let expected_binding = parse_binding_value(&binding).unwrap();
+        let request = actual_request(&binding);
+        let send_error = transport
+            .send_actual_require_info(&request, SERVER_IDENTITY, &expected_binding)
+            .await;
         assert!(matches!(
             send_error,
             Err(ProverTransportError::ConnectionClosed)
         ));
         assert!(!transport.request_sent());
         assert!(matches!(
-            transport.send_require_info(SERVER_IDENTITY, &binding).await,
+            transport
+                .send_actual_require_info(&request, SERVER_IDENTITY, &expected_binding)
+                .await,
             Err(ProverTransportError::ConnectionClosed)
         ));
 
@@ -277,8 +288,14 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn proxy_transport_authenticates_prover_owned_wire_bytes() {
         let binding = binding_value();
-        let probe = ExperimentalRequireInfoProbe::new(SERVER_IDENTITY, &binding).unwrap();
+        let probe = ExperimentalRequireInfoProbe::from_actual_request(
+            SERVER_IDENTITY,
+            &parse_binding_value(&binding).unwrap(),
+            actual_request(&binding),
+        )
+        .unwrap();
         let expected_request = probe.request().to_vec();
+        let request_for_transport = expected_request.clone();
         let (root_certificate, server_certificate, private_key) = server_credentials();
 
         let proxy_config = ProxyTlsConfig::builder()
@@ -328,12 +345,18 @@ mod tests {
             let prover_task = tokio::spawn(prover.into_future());
             let mut transport = ProverOwnedTlsTransport::new(connection);
             transport
-                .send_require_info(SERVER_IDENTITY, &binding)
+                .send_actual_require_info(&request_for_transport, SERVER_IDENTITY, probe.binding())
                 .await
                 .unwrap();
             assert!(transport.request_sent());
             assert!(matches!(
-                transport.send_require_info(SERVER_IDENTITY, &binding).await,
+                transport
+                    .send_actual_require_info(
+                        &request_for_transport,
+                        SERVER_IDENTITY,
+                        probe.binding(),
+                    )
+                    .await,
                 Err(ProverTransportError::RequestAlreadySent)
             ));
             let response = transport.read_response_to_end().await.unwrap();
@@ -523,7 +546,12 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn experimental_probe_runs_on_a_prover_owned_connection() {
         let binding = binding_value();
-        let probe = ExperimentalRequireInfoProbe::new(SERVER_IDENTITY, &binding).unwrap();
+        let probe = ExperimentalRequireInfoProbe::from_actual_request(
+            SERVER_IDENTITY,
+            &parse_binding_value(&binding).unwrap(),
+            actual_request(&binding),
+        )
+        .unwrap();
         let expected_request = probe.request().to_vec();
         let (root_certificate, server_certificate, private_key) = server_credentials();
         let root_store = RootCertStore {

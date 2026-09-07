@@ -32,6 +32,7 @@ const temporarySettingsBySection = new Map([
       ["allow_save_api_responses", "false"],
       ["allow_save_resources", "false"],
       ["allow_save_main_js_local", "false"],
+      ["experimental_tlsn_enabled", "false"],
     ]),
   ],
   [

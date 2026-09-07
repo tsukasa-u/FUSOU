@@ -2,8 +2,8 @@
 
 This crate is the fail-closed FUSOU `require_info` TLSNotary adapter boundary. It
 contains the strict parser and links the frozen TLSNotary alpha.15 verification
-backend. It is not wired into a production Proxy, Dedicated Verifier, or Web
-runtime.
+backend. Its Prover-owned TLS transport is not wired into a production origin
+client, Dedicated Verifier, or Web runtime.
 
 It currently provides:
 
@@ -16,19 +16,29 @@ It currently provides:
 - a pinned alpha.15 `Presentation` decoder and `Presentation::verify` call;
 - strict rejection of malformed and trailing Presentation bytes;
 - an `AuthenticatedTranscript` type that can only be created from the verified alpha.15 output;
-- fixed `require_info` request/response, server-identity, binding, digest, and full-disclosure checks.
+- strict `require_info` request/response, server-identity, binding, digest, and full-disclosure checks;
 - authenticated output to canonical `VerifierResult` construction, with the
 	response-derived `verified_member_id` included in the canonical Result and
 	its signing bytes; separate FUSOU signing inputs remain explicit.
-- a local alpha.15 Proxy-mode transport harness whose request builder places
-	the binding before the Prover-owned TLS write, rejects retries, captures the
-	exact synthetic-origin request/response, and builds a test-only serialized
-	Presentation;
+- a local alpha.15 Proxy-mode transport harness that validates caller-supplied
+  serialized request bytes before the Prover-owned TLS write, rejects retries,
+  captures the exact synthetic-origin request/response, and builds a test-only
+  serialized Presentation;
 - an explicitly opt-in `experimental` origin probe that accepts only a
-	Prover-owned alpha.15 `TlsConnection`, records the exact request/response,
-	and extracts `api_member_id` with the strict parser;
+-  Prover-owned alpha.15 `TlsConnection` and an actual serialized request,
+  records the exact request/response, and extracts `api_member_id` with the
+  strict parser;
 - an offline TLS fixture proving that the verifier-owned origin forwarding path
 	receives the exact request and response bytes.
+
+FUSOU-PROXY also contains a default-off request-selection gate controlled by
+`proxy.experimental_tlsn_enabled`. When explicitly enabled, it detects the
+first actual ordinary-play `POST /kcsapi/api_get_member/require_info` request
+and fails closed with `503` because the production Session/Challenge authority,
+Notary channel, binding injection, and Prover-owned origin transport are not
+available. It never forwards that selected request through Production or
+retries it. Non-target requests and the default-disabled Production route are
+unchanged.
 
 The backend is pinned to:
 
@@ -39,9 +49,9 @@ commit: 47aee45b53e06648c1b2ad3689b367b8c923fdec
 ```
 
 `tlsn`, `tlsn-attestation`, and `tlsn-core` are linked at that exact revision.
-The runtime dependency is currently used only by the local transport skeleton;
-it is not wired into FUSOU-App, FUSOU-PROXY, a production Verifier service, or
-a Notary service.
+The runtime dependency is currently used by the local transport skeleton and
+offline tests. It is not wired into a production FUSOU-App origin transport, a
+production Verifier service, or a Notary service.
 
 `verify_alpha15_presentation` deserializes an upstream bincode Presentation,
 rejects trailing bytes, calls `Presentation::verify`, requires complete
@@ -75,19 +85,37 @@ signer, or privacy/runtime evidence. The implementation therefore does not
 change the P0-05 gate: P0-05 remains `BLOCKED` until an authenticated alpha.15
 FUSOU Presentation and its evidence fixtures exist.
 
-The experimental probe is not a production route. It is not referenced by
-FUSOU-PROXY or FUSOU-APP, does not consume browser traffic, and does not
-replace the Hyper/rustls production origin client. Its synthetic-origin tests
-cover the Prover-owned request/response boundary, binding/replay rejection,
-alpha.15 Presentation verification, and unsigned Result construction. The
-synthetic certificate chain and test signing inputs are not production trust or
-signer evidence; real Game Server compatibility, Notary-backed Presentation
-generation, production Result signing, and runtime delivery remain blocked.
+The experimental probe is not a production TLSN route and does not replace the
+Hyper/rustls production origin client. The FUSOU-PROXY gate consumes the normal
+MITM handler's actual request metadata only to select and block the request until
+the missing transport is supplied; it does not generate a standalone
+`require_info` request. Its synthetic-origin tests cover the Prover-owned
+request/response boundary, binding/replay rejection, alpha.15 Presentation
+verification, and unsigned Result construction. The synthetic certificate chain
+and test signing inputs are not production trust or signer evidence; real Game
+Server compatibility, Notary-backed Presentation generation, production Result
+signing, and runtime delivery remain blocked. P0-05 therefore remains
+`BLOCKED`.
 
 Run the focused checks with:
 
 ```text
 cargo +1.95.0 test --manifest-path packages/FUSOU-TLSN-VERIFIER/Cargo.toml
+cargo test --manifest-path packages/FUSOU-PROXY/proxy-https/Cargo.toml experimental_require_info_route
+cargo test --manifest-path packages/FUSOU-PROXY/proxy-https/Cargo.toml selected_actual_request_uses_only_the_experimental_forwarder
+cargo test --manifest-path packages/FUSOU-PROXY/proxy-https/Cargo.toml handler_routes_the_actual_request_once_without_production_fallback
 ```
 
 The pinned `mpz-fields` dependency requires Rust 1.95 or newer.
+
+The local origin integration checks can be run independently when iterating on
+the Prover-owned wire path:
+
+```text
+cargo +1.95.0 test --manifest-path packages/FUSOU-TLSN-VERIFIER/Cargo.toml proxy_transport_authenticates_prover_owned_wire_bytes
+cargo +1.95.0 test --manifest-path packages/FUSOU-TLSN-VERIFIER/Cargo.toml experimental_probe_runs_on_a_prover_owned_connection
+```
+
+These tests use an in-memory TLS origin and test-only trust/signing material.
+They do not contact the Game Server or a Notary and do not change the
+`P0-05 = BLOCKED` classification.
