@@ -1,15 +1,15 @@
 # Cloudflare Verification Worker Trust Boundary
 
-Status: local synthetic verification boundary only
+Status: local synthetic verification boundary plus remote test Worker validation; production blocked
 
 This document describes the FUSOU TLSNotary alpha.15 verification boundary at commit `47aee45b53e06648c1b2ad3689b367b8c923fdec` and the Cloudflare Worker implementation currently tested from commit `3499bce06` onward.
 
 ## Scope
 
-The Worker accepts one strict JSON field:
+The Worker issues a one-shot Session/Binding context at `/attestation/session` and accepts this strict JSON shape at `/verify/tlsn`:
 
 ```json
-{"presentation_base64":"<base64url without padding>"}
+{"presentation_base64":"<base64url without padding>","session_id":"<UUIDv4>","binding":"<base64url without padding>"}
 ```
 
 The Rust/WASM verifier is responsible for:
@@ -26,8 +26,11 @@ The Rust/WASM verifier is responsible for:
 The Worker is responsible for:
 
 - strict request and configuration parsing;
-- selecting the configured alpha.15 trust root in test mode;
+- selecting test or production-specific alpha.15 trust configuration;
 - checking the Presentation Notary key against the configured registry;
+- issuing and looking up Session/Binding records through a Durable Object;
+- matching authority state against authenticated Session ID, nonce, and binding value;
+- atomically consuming an active binding after proof verification and before returning the result;
 - signing only WASM-produced signing bytes with the configured Ed25519 key;
 - returning generic failure responses and `Cache-Control: no-store` on success.
 
@@ -56,14 +59,15 @@ The authenticated request must contain all of the following exact semantics:
 
 The authenticated response must contain an accepted status, exact framing, the expected `svdata=` prefix, valid JSON, and one canonical numeric `api_member_id` at the required path. The current alpha.15 adapter requires the entire sent and received transcripts to be disclosed. Selective ranges are not accepted as a substitute for the parser input.
 
-The profile authenticates the request binding as transcript data. It does not yet compare that value with an external Session/Binding authority.
+The profile authenticates the request binding as transcript data. The Worker compares that authenticated value and Session ID with the external Session/Binding authority before consuming the binding.
 
 ## Environment separation
 
-`TLSN_ENVIRONMENT` is required and accepts `test` or `production`.
+`TLSN_ENVIRONMENT` is required and accepts `test` or `production`. `TLSN_BINDING_TTL_SECONDS` is bounded to one hour. `TLSN_BINDINGS` points to the SQLite-backed Durable Object authority.
 
 - `test` may use `TLSN_TRUST_ROOT_CERTIFICATE_DER`. This is the path used by the synthetic fixture and must never contain production trust material or credentials.
-- `production` currently fails closed as `verifier_unconfigured`. This is intentional because binding authority, replay state, and production Notary operations are not connected to the Worker request path. Production mode must not become a partially trusted mode by configuration alone.
+- `test` may use `TLSN_TEST_BINDING_VALUE` only to seed the deterministic synthetic fixture. It is not a Prover authority and is rejected when production configuration is selected.
+- `production` selects only `TLSN_PRODUCTION_*` fields and requires a production trust root. No production Worker deployment or production trust material has been performed in this phase.
 - A missing or malformed registry, profile hash, verifier key, signing key, or required environment value fails closed.
 
 The synthetic root certificate, synthetic server identity, synthetic Notary key, and synthetic member response are test artifacts. They are not production evidence.
@@ -72,16 +76,9 @@ The synthetic root certificate, synthetic server identity, synthetic Notary key,
 
 The Rust crate contains an experimental in-process `ExperimentalBindingAuthority` that demonstrates the required semantics: issue a binding for one Session, match the authenticated Session ID and nonce, and consume the binding once. Its tests cover unknown bindings, Session swaps, nonce mismatches, and duplicate consumption.
 
-That authority is not a Cloudflare Worker binding. The current Worker is stateless and does not perform any of these operations:
+The Worker now uses `TlsnBindingAuthorityDurableObject`, one strongly consistent DO instance per SHA-256(binding value). The DO stores the Session ID, nonce, binding, creation and expiry timestamps, status, used timestamp, and Presentation ID. Lookup performs request-time expiry checks; an alarm marks expired records, and a storage transaction makes consume single-use under concurrent requests.
 
-- lookup of an authority-issued binding;
-- Session or challenge ownership validation;
-- expiration validation;
-- atomic single-use consumption;
-- durable used-state storage;
-- rejection of a repeated Presentation or attestation ID.
-
-A Durable Object or another strongly consistent authority is required before production correlation can be claimed. Attestation ID, transcript hashes, and the Worker result signature provide audit data, not replay prevention.
+Local Wrangler tests and the remote test Worker observed the following: unknown binding and Session mismatch are rejected, expired bindings return `binding_expired`, two concurrent requests produce exactly one success and one `binding_consumed`, and a subsequent duplicate is rejected. These are test-authority results only; they do not establish production operational readiness.
 
 ## Result signature
 
@@ -89,7 +86,7 @@ The Worker signs only the WASM-produced binary signing bytes. The signing domain
 
 The returned result JSON has a fixed canonical property order. Reordering JSON properties does not change the signing bytes. Changing an authenticated signed field invalidates the Ed25519 signature.
 
-This signature authenticates the verifier result to downstream consumers. It does not turn an authorityless binding into an authority-backed binding.
+This signature authenticates the verifier result to downstream consumers after authority correlation and consume. It does not turn synthetic evidence or test authority state into production evidence.
 
 ## Verification status matrix
 
@@ -100,44 +97,46 @@ This signature authenticates the verifier result to downstream consumers. It doe
 | Notary approved-key registry | PASS, local synthetic scope | Worker requires an ID-to-key registry and rejects a mutated registry key. Production registry governance is unavailable. |
 | Server certificate trust root | PASS, test scope | Synthetic root works through the explicit test-only trust-root path. Production trust policy is not validated. |
 | Authenticated request binding extraction | PASS | Binding is parsed from authenticated request bytes with strict framing and value validation. |
-| Authority-backed Session binding | BLOCKED | No Worker-accessible authority lookup or issued-binding comparison exists. |
+| Authority-backed Session binding | PASS, local and remote test scope | Durable Object lookup compares client context with authenticated Session ID, nonce, and binding value. Production authority operations are not deployed. |
 | Authenticated member ID derivation | PASS | Member ID is parsed only from authenticated response bytes. |
 | Disclosure profile enforcement | PASS, full-disclosure scope | Exact request/response parser and full transcript disclosure are enforced. Minimal selective disclosure is not implemented. |
 | Verifier result signing | PASS, local synthetic scope | Worker Ed25519 signature verifies independently and binds authenticated fields. |
-| Replay and expiry authority | BLOCKED | Worker is stateless; no TTL or atomic single-use state exists. |
-| Cloudflare remote runtime | BLOCKED | Local Wrangler `unstable_dev` passes. No dedicated remote test Worker, safe fixture deployment, or observed remote response is recorded. |
-| Cloudflare performance and memory | BLOCKED | No remote measurements. Local timings are not production capacity evidence. |
-| `TLSN_VERIFICATION_BOUNDARY` | PASS, local synthetic scope only | The local Worker boundary is cryptographically exercised; authority and production claims remain excluded. |
+| Replay and expiry authority | PASS, local and remote test scope | Local and remote tests observed atomic concurrent consume, duplicate rejection, and `410 binding_expired`. |
+| Cloudflare remote runtime | PASS, test Worker only | `fusou-tlsn-verification-test` returned remote Session `201`, positive verification `200`, replay `422 binding_consumed`, concurrent `[200, 422]`, and expiry `410 binding_expired`. |
+| Cloudflare performance and memory | PARTIAL, remote test scope | Three synthetic samples: Session/authority latency min/median/max `543/579/604 ms`; verification total `136/185/246 ms`; request bytes `2570/2573/2575`; response `1656` bytes. WASM init and memory were not exposed by the Worker and remain unmeasured. |
+| `TLSN_VERIFICATION_BOUNDARY` | PASS, local and remote test scope only | Cryptography and authority paths were exercised with synthetic evidence; production claims remain excluded. |
 | P0-05 production evidence | BLOCKED | Synthetic success does not satisfy production Game Server evidence. |
 
 ## Deployment gate
 
 Do not deploy this Worker as a production verifier until all of the following exist and are tested against the deployed runtime:
 
-1. an authority-backed binding lookup with Session, nonce, expiry, and atomic consume semantics;
-2. durable replay state keyed by the authority binding and proof identity;
+1. production authority configuration and operational ownership for Session, nonce, expiry, and atomic consume semantics;
+2. durable production replay state keyed by the authority binding and proof identity;
 3. a governed production Notary registry with rotation and rollback procedures;
 4. a production server certificate trust policy;
 5. a dedicated Cloudflare test Worker and non-production fixture;
 6. remote negative tests for identity, Notary key, trust root, binding, replay, malformed input, and signature failures;
-7. remote latency, memory, and payload-limit measurements;
+7. remote memory and payload-limit measurements, plus broader latency evidence;
 8. real Game Server evidence sufficient for P0-05.
 
 ## Security impact and rollback
 
-The changes make missing or unapproved Notary configuration fail closed, prevent synthetic custom roots from being used in production mode, and keep production unavailable until missing authority state is connected. They do not add replay protection or authority-backed binding validation.
+The changes make missing or unapproved Notary configuration fail closed, prevent synthetic custom roots from being selected through production configuration, and add durable test-authority correlation and replay protection. They do not establish production trust material, production key governance, or P0-05 evidence.
 
 Rollback is the previous Worker version plus removal of the new test-only registry configuration. Do not roll back by enabling production mode with incomplete authority state. Any registry rotation must deploy the new registry and verifier version together, validate both old and new expected failure paths, and retain the prior Worker version for rollback.
 
 ## Validation performed
 
-Local checks currently include:
+Checks currently include:
 
 - Rust verifier unit tests;
 - feature-gated synthetic alpha.15 transport tests;
 - Wrangler local positive and negative Worker smoke tests;
 - independent Ed25519 signature verification;
 - Notary registry mismatch rejection;
-- production-mode fail-closed testing when configured with synthetic trust material.
+- production-mode fail-closed testing without production trust configuration;
+- local DO tests for context mismatch, expiry, duplicate, and concurrent consume;
+- remote test Worker checks for positive verification, replay, concurrent consume, expiry, and observed latency/payload samples.
 
-These checks establish local behavior only. They do not establish production Game Server authenticity, Cloudflare remote behavior, operational key governance, replay resistance, or P0-05 evidence.
+These checks establish synthetic local behavior and the deployed test Worker only. They do not establish production Game Server authenticity, production operational key governance, production memory or payload limits, or P0-05 evidence.

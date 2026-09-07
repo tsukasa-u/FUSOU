@@ -85,6 +85,38 @@ function assertFullDisclosure(ranges, transcript) {
   assert.deepEqual(Buffer.concat(disclosed), transcript);
 }
 
+async function issueSession(fetch, expectedBinding) {
+  const response = await fetch("https://verify.test/attestation/session", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: "{}",
+  });
+  assert.equal(response.status, 201);
+  const session = await response.json();
+  assert.equal(session.binding, expectedBinding);
+  assert.match(session.session_id, /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+  assert.match(session.challenge, /^[A-Za-z0-9_-]+$/);
+  assert.match(session.expires_at, /^20[0-9]{2}-/);
+  return session;
+}
+
+function verificationBody(presentationBase64, session, extra = {}) {
+  return JSON.stringify({
+    presentation_base64: presentationBase64,
+    session_id: session.session_id,
+    binding: session.binding,
+    ...extra,
+  });
+}
+
+async function postVerification(fetch, body) {
+  return fetch("https://verify.test/verify/tlsn", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body,
+  });
+}
+
 export async function runSmokeTest(fetch, fixture, publicKeyDerBase64url) {
   const healthResponse = await fetch("https://verify.test/health");
   assert.equal(healthResponse.status, 200);
@@ -93,13 +125,56 @@ export async function runSmokeTest(fetch, fixture, publicKeyDerBase64url) {
     verifier: "tlsn-alpha15-wasm",
   });
 
-  const validResponse = await fetch(
-    "https://verify.test/verify/tlsn",
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ presentation_base64: fixture.presentation_base64 }),
-    },
+  const session = await issueSession(fetch, fixture.binding_value);
+  const extraMemberIdResponse = await postVerification(
+    fetch,
+    verificationBody(fixture.presentation_base64, session, { member_id: "16189463" }),
+  );
+  assert.equal(extraMemberIdResponse.status, 400);
+  assert.deepEqual(await extraMemberIdResponse.json(), { error: "invalid_request" });
+
+  const invalidPresentationResponse = await postVerification(
+    fetch,
+    verificationBody("AQ", session),
+  );
+  assert.equal(invalidPresentationResponse.status, 422);
+  assert.deepEqual(await invalidPresentationResponse.json(), {
+    verified: false,
+    error: "verification_failed",
+  });
+
+  const fixturePath = fileURLToPath(
+    new URL(
+      "../../FUSOU-TLSN-VERIFIER/fixtures/tlsn-alpha15-upstream-presentation.bin",
+      import.meta.url,
+    ),
+  );
+  const upstreamFixture = await readFile(fixturePath);
+  const upstreamResponse = await postVerification(
+    fetch,
+    verificationBody(base64Url(upstreamFixture), session),
+  );
+  assert.equal(upstreamResponse.status, 422);
+  assert.deepEqual(await upstreamResponse.json(), {
+    verified: false,
+    error: "verification_failed",
+  });
+
+  const tamperedPresentation = decodeBase64Url(fixture.presentation_base64);
+  tamperedPresentation[Math.floor(tamperedPresentation.length / 2)] ^= 1;
+  const tamperedResponse = await postVerification(
+    fetch,
+    verificationBody(base64Url(tamperedPresentation), session),
+  );
+  assert.equal(tamperedResponse.status, 422);
+  assert.deepEqual(await tamperedResponse.json(), {
+    verified: false,
+    error: "verification_failed",
+  });
+
+  const validResponse = await postVerification(
+    fetch,
+    verificationBody(fixture.presentation_base64, session),
   );
   assert.equal(validResponse.status, 200);
   const validPayload = await validResponse.json();
@@ -137,7 +212,7 @@ export async function runSmokeTest(fetch, fixture, publicKeyDerBase64url) {
   assert.equal(result.proof_purpose, "GAME_ACCOUNT_IDENTITY_V1");
   assert.equal(result.verified_member_id, "16189463");
   assert.equal(result.server_identity, "game.example.test");
-  assert.equal(result.attestation_session_id, "123e4567-e89b-42d3-a456-426614174000");
+  assert.equal(result.attestation_session_id, session.session_id);
   assert.equal(result.binding_nonce, base64Url(Buffer.alloc(32, 0x42)));
   assert.equal(result.binding_value, fixture.binding_value);
   assert.equal(result.verifier_key_id, "worker-test");
@@ -146,14 +221,8 @@ export async function runSmokeTest(fetch, fixture, publicKeyDerBase64url) {
   assert.equal(decodeBase64Url(result.signature).length, 64);
   assert.equal(result.request_transcript_size, String(requestBytes.length));
   assert.equal(result.response_transcript_size, String(responseBytes.length));
-  assert.equal(
-    result.request_transcript_sha256,
-    createHash("sha256").update(requestBytes).digest("base64url"),
-  );
-  assert.equal(
-    result.response_transcript_sha256,
-    createHash("sha256").update(responseBytes).digest("base64url"),
-  );
+  assert.equal(result.request_transcript_sha256, createHash("sha256").update(requestBytes).digest("base64url"));
+  assert.equal(result.response_transcript_sha256, createHash("sha256").update(responseBytes).digest("base64url"));
   assertFullDisclosure(result.revealed_request_ranges, requestBytes);
   assertFullDisclosure(result.revealed_response_ranges, responseBytes);
 
@@ -169,129 +238,92 @@ export async function runSmokeTest(fetch, fixture, publicKeyDerBase64url) {
   const mutatedResult = { ...result, verified_member_id: "16189464" };
   assert.equal(verifySignature(null, signingBytes(mutatedResult), publicKey, signature), false);
 
-  const extraMemberIdResponse = await fetch(
-    "https://verify.test/verify/tlsn",
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ presentation_base64: "AQ", member_id: "16189463" }),
-    },
-  );
-  assert.equal(extraMemberIdResponse.status, 400);
-  assert.deepEqual(await extraMemberIdResponse.json(), { error: "invalid_request" });
-
-  const invalidPresentationResponse = await fetch(
-    "https://verify.test/verify/tlsn",
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ presentation_base64: "AQ" }),
-    },
-  );
-  assert.equal(invalidPresentationResponse.status, 422);
-  assert.deepEqual(await invalidPresentationResponse.json(), {
+  const replayResponse = await postVerification(fetch, verificationBody(fixture.presentation_base64, session));
+  assert.equal(replayResponse.status, 422);
+  assert.deepEqual(await replayResponse.json(), {
     verified: false,
-    error: "verification_failed",
+    error: "binding_consumed",
   });
-
-  const fixturePath = fileURLToPath(
-    new URL(
-      "../../FUSOU-TLSN-VERIFIER/fixtures/tlsn-alpha15-upstream-presentation.bin",
-      import.meta.url,
-    ),
-  );
-  const upstreamFixture = await readFile(fixturePath);
-  const fixtureResponse = await fetch(
-    "https://verify.test/verify/tlsn",
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ presentation_base64: base64Url(upstreamFixture) }),
-    },
-  );
-  assert.equal(fixtureResponse.status, 422);
-  assert.deepEqual(await fixtureResponse.json(), {
-    verified: false,
-    error: "verification_failed",
-  });
-
-  const tamperedPresentation = decodeBase64Url(fixture.presentation_base64);
-  tamperedPresentation[Math.floor(tamperedPresentation.length / 2)] ^= 1;
-  const tamperedResponse = await fetch(
-    "https://verify.test/verify/tlsn",
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ presentation_base64: base64Url(tamperedPresentation) }),
-    },
-  );
-  assert.equal(tamperedResponse.status, 422);
-  assert.deepEqual(await tamperedResponse.json(), {
-    verified: false,
-    error: "verification_failed",
-  });
-
-  console.log("[tlsn-verification-worker] positive, signature, and negative paths OK");
+  console.log("[tlsn-verification-worker] session, positive, signature, negative, and replay paths OK");
 }
 
 export async function runUnconfiguredSmokeTest(fetch) {
-  const unconfiguredResponse = await fetch(
-    "https://verify.test/verify/tlsn",
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ presentation_base64: "AQ" }),
-    },
-  );
-  assert.equal(unconfiguredResponse.status, 503);
-  assert.deepEqual(await unconfiguredResponse.json(), { error: "verifier_unconfigured" });
+  const response = await fetch("https://verify.test/verify/tlsn", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ presentation_base64: "AQ" }),
+  });
+  assert.equal(response.status, 503);
+  assert.deepEqual(await response.json(), { error: "verifier_unconfigured" });
   console.log("[tlsn-verification-worker] unconfigured fail-closed path OK");
 }
 
 export async function runMismatchedIdentitySmokeTest(fetch, fixture) {
-  const response = await fetch(
-    "https://verify.test/verify/tlsn",
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ presentation_base64: fixture.presentation_base64 }),
-    },
-  );
+  const session = await issueSession(fetch, fixture.binding_value);
+  const response = await postVerification(fetch, verificationBody(fixture.presentation_base64, session));
   assert.equal(response.status, 422);
-  assert.deepEqual(await response.json(), {
-    verified: false,
-    error: "verification_failed",
-  });
+  assert.deepEqual(await response.json(), { verified: false, error: "verification_failed" });
   console.log("[tlsn-verification-worker] mismatched identity fail-closed path OK");
 }
 
 export async function runMismatchedNotarySmokeTest(fetch, fixture) {
-  const response = await fetch(
-    "https://verify.test/verify/tlsn",
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ presentation_base64: fixture.presentation_base64 }),
-    },
-  );
+  const session = await issueSession(fetch, fixture.binding_value);
+  const response = await postVerification(fetch, verificationBody(fixture.presentation_base64, session));
   assert.equal(response.status, 422);
-  assert.deepEqual(await response.json(), {
-    verified: false,
-    error: "verification_failed",
-  });
+  assert.deepEqual(await response.json(), { verified: false, error: "verification_failed" });
   console.log("[tlsn-verification-worker] mismatched Notary registry fail-closed path OK");
 }
 
+export async function runConcurrentReplaySmokeTest(fetch, fixture) {
+  const session = await issueSession(fetch, fixture.binding_value);
+  const body = verificationBody(fixture.presentation_base64, session);
+  const responses = await Promise.all([
+    postVerification(fetch, body),
+    postVerification(fetch, body),
+  ]);
+  assert.deepEqual(responses.map((response) => response.status).sort(), [200, 422]);
+  const payloads = await Promise.all(responses.map((response) => response.json()));
+  assert.equal(payloads.filter((payload) => payload.verified === true).length, 1);
+  assert.equal(payloads.filter((payload) => payload.error === "binding_consumed").length, 1);
+  console.log("[tlsn-verification-worker] concurrent single-use replay path OK");
+}
+
+export async function runExpiredBindingSmokeTest(fetch, fixture) {
+  const session = await issueSession(fetch, fixture.binding_value);
+  await new Promise((resolve) => setTimeout(resolve, 1_100));
+  const response = await postVerification(fetch, verificationBody(fixture.presentation_base64, session));
+  assert.equal(response.status, 410);
+  assert.deepEqual(await response.json(), { verified: false, error: "binding_expired" });
+  console.log("[tlsn-verification-worker] binding expiry path OK");
+}
+
+export async function runBindingContextNegativeSmokeTest(fetch, fixture) {
+  const session = await issueSession(fetch, fixture.binding_value);
+  const wrongSessionResponse = await postVerification(fetch, JSON.stringify({
+    presentation_base64: fixture.presentation_base64,
+    session_id: "123e4567-e89b-42d3-a456-426614174001",
+    binding: session.binding,
+  }));
+  assert.equal(wrongSessionResponse.status, 422);
+  assert.deepEqual(await wrongSessionResponse.json(), { verified: false, error: "session_mismatch" });
+
+  const unknownBindingResponse = await postVerification(fetch, JSON.stringify({
+    presentation_base64: fixture.presentation_base64,
+    session_id: session.session_id,
+    binding: "AQ",
+  }));
+  assert.equal(unknownBindingResponse.status, 422);
+  assert.deepEqual(await unknownBindingResponse.json(), { verified: false, error: "binding_unknown" });
+  console.log("[tlsn-verification-worker] binding context rejection paths OK");
+}
+
 export async function runProductionTrustRootSmokeTest(fetch) {
-  const response = await fetch(
-    "https://verify.test/verify/tlsn",
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ presentation_base64: "AQ" }),
-    },
-  );
+  const response = await fetch("https://verify.test/attestation/session", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: "{}",
+  });
   assert.equal(response.status, 503);
   assert.deepEqual(await response.json(), { error: "verifier_unconfigured" });
-  console.log("[tlsn-verification-worker] production custom-root rejection path OK");
+  console.log("[tlsn-verification-worker] production trust configuration gate OK");
 }

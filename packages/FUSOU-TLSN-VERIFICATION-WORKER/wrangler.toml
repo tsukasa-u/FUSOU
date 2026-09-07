@@ -9,3 +9,22 @@ compatibility_date = "2026-09-07"
 type = "CompiledWasm"
 globs = ["**/*.wasm"]
 fallthrough = true
+
+[[durable_objects.bindings]]
+name = "TLSN_BINDINGS"
+class_name = "TlsnBindingAuthorityDurableObject"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["TlsnBindingAuthorityDurableObject"]
+
+[env.test]
+name = "fusou-tlsn-verification-test"
+
+[[env.test.durable_objects.bindings]]
+name = "TLSN_BINDINGS"
+class_name = "TlsnBindingAuthorityDurableObject"
+
+[[env.test.migrations]]
+tag = "v1"
+new_sqlite_classes = ["TlsnBindingAuthorityDurableObject"]

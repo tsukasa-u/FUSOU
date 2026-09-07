@@ -67,28 +67,40 @@ const syntheticFixture = capture(
 );
 
 const { privateKey, publicKey } = generateKeyPairSync("ed25519");
-const worker = await unstable_dev(resolve(packageDirectory, "src/index.ts"), {
-  config: resolve(packageDirectory, "wrangler.toml"),
-  vars: {
-    TLSN_ENVIRONMENT: "test",
-    TLSN_SERVER_IDENTITY: "game.example.test",
-    TLSN_PROFILE_SHA256: Buffer.alloc(32).toString("base64url"),
-    TLSN_VERIFIER_KEY_ID: "worker-test",
-    TLSN_NOTARY_KEY_ID: "notary-test",
-    TLSN_NOTARY_REGISTRY: JSON.stringify({ "notary-test": syntheticFixture.notary_key_base64 }),
-    TLSN_SIGNING_PRIVATE_KEY_PKCS8: privateKey
-      .export({ format: "der", type: "pkcs8" })
-      .toString("base64url"),
-    TLSN_TRUST_ROOT_CERTIFICATE_DER: syntheticFixture.root_certificate_base64,
-  },
-  bundle: true,
-  local: true,
-  compatibilityDate: "2026-07-29",
-  experimental: {
-    disableExperimentalWarning: true,
-    forceLocal: true,
-    testMode: true,
-  },
+const signingPrivateKeyPkcs8 = privateKey
+  .export({ format: "der", type: "pkcs8" })
+  .toString("base64url");
+const testVars = {
+  TLSN_ENVIRONMENT: "test",
+  TLSN_BINDING_TTL_SECONDS: "60",
+  TLSN_TEST_BINDING_VALUE: syntheticFixture.binding_value,
+  TLSN_SERVER_IDENTITY: "game.example.test",
+  TLSN_PROFILE_SHA256: Buffer.alloc(32).toString("base64url"),
+  TLSN_VERIFIER_KEY_ID: "worker-test",
+  TLSN_NOTARY_KEY_ID: "notary-test",
+  TLSN_NOTARY_REGISTRY: JSON.stringify({ "notary-test": syntheticFixture.notary_key_base64 }),
+  TLSN_SIGNING_PRIVATE_KEY_PKCS8: signingPrivateKeyPkcs8,
+  TLSN_TRUST_ROOT_CERTIFICATE_DER: syntheticFixture.root_certificate_base64,
+};
+
+function localWorker(vars) {
+  return unstable_dev(resolve(packageDirectory, "src/index.ts"), {
+    config: resolve(packageDirectory, "wrangler.toml"),
+    vars,
+    persist: false,
+    bundle: true,
+    local: true,
+    compatibilityDate: "2026-07-29",
+    experimental: {
+      disableExperimentalWarning: true,
+      forceLocal: true,
+      testMode: true,
+    },
+  });
+}
+
+const worker = await localWorker({
+  ...testVars,
 });
 
 try {
@@ -102,28 +114,43 @@ try {
   await worker.stop();
 }
 
-const mismatchedIdentityWorker = await unstable_dev(resolve(packageDirectory, "src/index.ts"), {
-  config: resolve(packageDirectory, "wrangler.toml"),
-  vars: {
-    TLSN_ENVIRONMENT: "test",
-    TLSN_SERVER_IDENTITY: "other.example.test",
-    TLSN_PROFILE_SHA256: Buffer.alloc(32).toString("base64url"),
-    TLSN_VERIFIER_KEY_ID: "worker-test",
-    TLSN_NOTARY_KEY_ID: "notary-test",
-    TLSN_NOTARY_REGISTRY: JSON.stringify({ "notary-test": syntheticFixture.notary_key_base64 }),
-    TLSN_SIGNING_PRIVATE_KEY_PKCS8: privateKey
-      .export({ format: "der", type: "pkcs8" })
-      .toString("base64url"),
-    TLSN_TRUST_ROOT_CERTIFICATE_DER: syntheticFixture.root_certificate_base64,
-  },
-  bundle: true,
-  local: true,
-  compatibilityDate: "2026-07-29",
-  experimental: {
-    disableExperimentalWarning: true,
-    forceLocal: true,
-    testMode: true,
-  },
+const concurrentWorker = await localWorker({
+  ...testVars,
+});
+
+try {
+  const { runConcurrentReplaySmokeTest } = await import("../test/index-smoke.mjs");
+  await runConcurrentReplaySmokeTest(concurrentWorker.fetch, syntheticFixture);
+} finally {
+  await concurrentWorker.stop();
+}
+
+const contextWorker = await localWorker({
+  ...testVars,
+});
+
+try {
+  const { runBindingContextNegativeSmokeTest } = await import("../test/index-smoke.mjs");
+  await runBindingContextNegativeSmokeTest(contextWorker.fetch, syntheticFixture);
+} finally {
+  await contextWorker.stop();
+}
+
+const expiryWorker = await localWorker({
+  ...testVars,
+  TLSN_BINDING_TTL_SECONDS: "1",
+});
+
+try {
+  const { runExpiredBindingSmokeTest } = await import("../test/index-smoke.mjs");
+  await runExpiredBindingSmokeTest(expiryWorker.fetch, syntheticFixture);
+} finally {
+  await expiryWorker.stop();
+}
+
+const mismatchedIdentityWorker = await localWorker({
+  ...testVars,
+  TLSN_SERVER_IDENTITY: "other.example.test",
 });
 
 try {
@@ -138,17 +165,11 @@ wrongNotaryKey[wrongNotaryKey.length - 1] ^= 1;
 const mismatchedNotaryWorker = await unstable_dev(resolve(packageDirectory, "src/index.ts"), {
   config: resolve(packageDirectory, "wrangler.toml"),
   vars: {
-    TLSN_ENVIRONMENT: "test",
-    TLSN_SERVER_IDENTITY: "game.example.test",
-    TLSN_PROFILE_SHA256: Buffer.alloc(32).toString("base64url"),
-    TLSN_VERIFIER_KEY_ID: "worker-test",
+    ...testVars,
     TLSN_NOTARY_KEY_ID: "notary-test",
     TLSN_NOTARY_REGISTRY: JSON.stringify({ "notary-test": wrongNotaryKey.toString("base64url") }),
-    TLSN_SIGNING_PRIVATE_KEY_PKCS8: privateKey
-      .export({ format: "der", type: "pkcs8" })
-      .toString("base64url"),
-    TLSN_TRUST_ROOT_CERTIFICATE_DER: syntheticFixture.root_certificate_base64,
   },
+  persist: false,
   bundle: true,
   local: true,
   compatibilityDate: "2026-07-29",
@@ -170,16 +191,15 @@ const productionTrustRootWorker = await unstable_dev(resolve(packageDirectory, "
   config: resolve(packageDirectory, "wrangler.toml"),
   vars: {
     TLSN_ENVIRONMENT: "production",
-    TLSN_SERVER_IDENTITY: "game.example.test",
-    TLSN_PROFILE_SHA256: Buffer.alloc(32).toString("base64url"),
-    TLSN_VERIFIER_KEY_ID: "worker-test",
-    TLSN_NOTARY_KEY_ID: "notary-test",
-    TLSN_NOTARY_REGISTRY: JSON.stringify({ "notary-test": syntheticFixture.notary_key_base64 }),
-    TLSN_SIGNING_PRIVATE_KEY_PKCS8: privateKey
-      .export({ format: "der", type: "pkcs8" })
-      .toString("base64url"),
-    TLSN_TRUST_ROOT_CERTIFICATE_DER: syntheticFixture.root_certificate_base64,
+    TLSN_BINDING_TTL_SECONDS: "60",
+    TLSN_PRODUCTION_SERVER_IDENTITY: "game.example.test",
+    TLSN_PRODUCTION_PROFILE_SHA256: Buffer.alloc(32).toString("base64url"),
+    TLSN_PRODUCTION_VERIFIER_KEY_ID: "worker-test",
+    TLSN_PRODUCTION_NOTARY_KEY_ID: "notary-test",
+    TLSN_PRODUCTION_NOTARY_REGISTRY: JSON.stringify({ "notary-test": syntheticFixture.notary_key_base64 }),
+    TLSN_PRODUCTION_SIGNING_PRIVATE_KEY_PKCS8: signingPrivateKeyPkcs8,
   },
+  persist: false,
   bundle: true,
   local: true,
   compatibilityDate: "2026-07-29",
@@ -199,6 +219,7 @@ try {
 
 const unconfiguredWorker = await unstable_dev(resolve(packageDirectory, "src/index.ts"), {
   config: resolve(packageDirectory, "wrangler.toml"),
+  persist: false,
   bundle: true,
   local: true,
   compatibilityDate: "2026-07-29",

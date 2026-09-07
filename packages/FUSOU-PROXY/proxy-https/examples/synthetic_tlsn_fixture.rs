@@ -8,6 +8,9 @@ use proxy_https::synthetic_tlsn::{
 use uuid::Uuid;
 
 fn binding_value() -> String {
+    if let Ok(configured_binding) = std::env::var("FUSOU_SYNTHETIC_BINDING_VALUE") {
+        return configured_binding;
+    }
     let session = Uuid::parse_str("123e4567-e89b-42d3-a456-426614174000").unwrap();
     let mut bytes = Vec::new();
     bytes.extend_from_slice(BINDING_PREFIX);
