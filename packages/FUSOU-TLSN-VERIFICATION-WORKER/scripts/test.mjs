@@ -4,6 +4,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 import { generateKeyPairSync } from "node:crypto";
+import { createServer } from "node:http";
 import { unstable_dev } from "wrangler";
 
 const packageDirectory = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -70,6 +71,48 @@ const { privateKey, publicKey } = generateKeyPairSync("ed25519");
 const signingPrivateKeyPkcs8 = privateKey
   .export({ format: "der", type: "pkcs8" })
   .toString("base64url");
+const deviceId = "33333333-3333-4333-8333-333333333333";
+const deviceNonce = "a".repeat(64);
+const deviceSignature = "synthetic-device-signature";
+const deviceAuthServer = createServer(async (request, response) => {
+  if (request.method !== "POST" || request.url !== "/anonymous-sync/v2/device-proof") {
+    response.writeHead(404, { "Content-Type": "application/json" });
+    response.end(JSON.stringify({ error: "not_found" }));
+    return;
+  }
+  const chunks = [];
+  for await (const chunk of request) chunks.push(chunk);
+  let body;
+  try {
+    body = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+  } catch {
+    response.writeHead(400, { "Content-Type": "application/json" });
+    response.end(JSON.stringify({ error: "invalid_json" }));
+    return;
+  }
+  if (
+    request.headers.authorization !== "Bearer test-token-a" ||
+    body.device_id !== deviceId ||
+    body.nonce !== deviceNonce ||
+    body.sig !== deviceSignature
+  ) {
+    response.writeHead(401, { "Content-Type": "application/json" });
+    response.end(JSON.stringify({ error: "device_unauthorized" }));
+    return;
+  }
+  response.writeHead(200, {
+    "Cache-Control": "no-store",
+    "Content-Type": "application/json",
+  });
+  response.end(JSON.stringify({
+    authenticated: true,
+    canonical_user_id: "11111111-1111-4111-8111-111111111111",
+    device_id: deviceId,
+  }));
+});
+await new Promise((resolve) => deviceAuthServer.listen(0, "127.0.0.1", resolve));
+deviceAuthServer.unref();
+const deviceAuthUrl = `http://127.0.0.1:${deviceAuthServer.address().port}/anonymous-sync/v2/device-proof`;
 const testVars = {
   TLSN_ENVIRONMENT: "test",
   TLSN_BINDING_TTL_SECONDS: "60",
@@ -81,6 +124,7 @@ const testVars = {
   TLSN_NOTARY_REGISTRY: JSON.stringify({ "notary-test": syntheticFixture.notary_key_base64 }),
   TLSN_SIGNING_PRIVATE_KEY_PKCS8: signingPrivateKeyPkcs8,
   TLSN_TRUST_ROOT_CERTIFICATE_DER: syntheticFixture.root_certificate_base64,
+  TLSN_DEVICE_AUTH_URL: deviceAuthUrl,
   TLSN_TEST_AUTH_USERS: JSON.stringify({
     "test-token-a": { id: "11111111-1111-4111-8111-111111111111", is_anonymous: false },
     "test-token-b": { id: "22222222-2222-4222-8222-222222222222", is_anonymous: false },
@@ -251,3 +295,5 @@ try {
 } finally {
   await unconfiguredWorker.stop();
 }
+
+deviceAuthServer.close();

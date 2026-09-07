@@ -106,6 +106,59 @@ function updateChain(result: unknown) {
   };
 }
 
+function stubDeviceProof(options: {
+  canonicalUserId?: string;
+  revokedAt?: string | null;
+  nonceError?: unknown;
+} = {}) {
+  const deviceId = "33333333-3333-4333-8333-333333333333";
+  const userId = options.canonicalUserId ?? "55555555-5555-4555-8555-555555555555";
+  const nonceInsert = vi.fn().mockResolvedValue({ error: options.nonceError ?? null });
+  const update = vi.fn(() => ({
+    eq: vi.fn(() => ({
+      eq: vi.fn(() => ({
+        is: vi.fn().mockResolvedValue({ error: null }),
+      })),
+    })),
+  }));
+  vi.stubGlobal(
+    "fetch",
+    vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ id: userId, is_anonymous: false }),
+    }),
+  );
+  mockFrom.mockImplementation((table: string) => {
+    if (table === "anon_sync_nonce_consumptions") {
+      return {
+        insert: nonceInsert,
+        delete: vi.fn(() => ({
+          lt: vi.fn().mockResolvedValue({ error: null }),
+        })),
+      };
+    }
+    if (table === "user_devices") {
+      return {
+        select: vi.fn(() => ({
+          eq: vi.fn(() => ({
+            maybeSingle: vi.fn().mockResolvedValue({
+              data: {
+                canonical_user_id: userId,
+                device_pubkey: "00".repeat(32),
+                revoked_at: options.revokedAt ?? null,
+              },
+              error: null,
+            }),
+          })),
+        })),
+        update,
+      };
+    }
+    throw new Error(`unexpected table: ${table}`);
+  });
+  return { deviceId, nonceInsert, update };
+}
+
 describe("anonymous-sync v2 endpoints", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -124,6 +177,390 @@ describe("anonymous-sync v2 endpoints", () => {
         device_id: "33333333-3333-4333-8333-333333333333",
       },
     });
+  });
+
+  it("verifies an owned device proof with the existing challenge signature", async () => {
+    const deviceId = "33333333-3333-4333-8333-333333333333";
+    const userId = "55555555-5555-4555-8555-555555555555";
+    const nonce = "a".repeat(64);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({ id: userId, is_anonymous: false }),
+      }),
+    );
+    const update = vi.fn(() => ({
+      eq: vi.fn(() => ({
+        eq: vi.fn(() => ({
+          is: vi.fn().mockResolvedValue({ error: null }),
+        })),
+      })),
+    }));
+    const nonceChain = {
+      insert: vi.fn().mockResolvedValue({ error: null }),
+      delete: vi.fn(() => ({
+        lt: vi.fn().mockResolvedValue({ error: null }),
+      })),
+    };
+    mockFrom.mockImplementation((table: string) => {
+      if (table === "anon_sync_nonce_consumptions") return nonceChain;
+      if (table === "user_devices") {
+        return {
+          select: vi.fn(() => ({
+            eq: vi.fn(() => ({
+              maybeSingle: vi.fn().mockResolvedValue({
+                data: {
+                  canonical_user_id: userId,
+                  device_pubkey: "00".repeat(32),
+                  revoked_at: null,
+                },
+                error: null,
+              }),
+            })),
+          })),
+          update,
+        };
+      }
+      throw new Error(`unexpected table: ${table}`);
+    });
+
+    const response = await anonymousSyncV2App.request(
+      "https://fusou.dev/anonymous-sync/v2/device-proof",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer access-token",
+        },
+        body: JSON.stringify({ device_id: deviceId, nonce, sig: "signature" }),
+      },
+      env,
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      authenticated: true,
+      canonical_user_id: userId,
+      device_id: deviceId,
+    });
+    expect(mockVerifyDeviceSig).toHaveBeenCalledWith({
+      publicKeyB64: "A".repeat(44),
+      message: nonce,
+      signatureB64: "signature",
+    });
+    expect(nonceChain.insert).toHaveBeenCalledWith({
+      device_id: deviceId,
+      nonce,
+    });
+    vi.unstubAllGlobals();
+  });
+
+  it("rejects a valid device signature when the device belongs to another user", async () => {
+    const deviceId = "33333333-3333-4333-8333-333333333333";
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          id: "55555555-5555-4555-8555-555555555555",
+          is_anonymous: false,
+        }),
+      }),
+    );
+    mockFrom.mockReturnValue({
+      select: vi.fn(() => ({
+        eq: vi.fn(() => ({
+          maybeSingle: vi.fn().mockResolvedValue({
+            data: {
+              canonical_user_id: "66666666-6666-4666-8666-666666666666",
+              device_pubkey: "00".repeat(32),
+              revoked_at: null,
+            },
+            error: null,
+          }),
+        })),
+      })),
+    });
+
+    const response = await anonymousSyncV2App.request(
+      "https://fusou.dev/anonymous-sync/v2/device-proof",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer access-token",
+        },
+        body: JSON.stringify({
+          device_id: deviceId,
+          nonce: "a".repeat(64),
+          sig: "signature",
+        }),
+      },
+      env,
+    );
+
+    expect(response.status).toBe(403);
+    await expect(response.json()).resolves.toEqual({
+      error: "device_owner_mismatch",
+    });
+    expect(mockVerifyDeviceSig).not.toHaveBeenCalled();
+    vi.unstubAllGlobals();
+  });
+
+  it("rejects an anonymous bearer user before looking up the device", async () => {
+    const deviceId = "33333333-3333-4333-8333-333333333333";
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          id: "55555555-5555-4555-8555-555555555555",
+          is_anonymous: true,
+        }),
+      }),
+    );
+
+    const response = await anonymousSyncV2App.request(
+      "https://fusou.dev/anonymous-sync/v2/device-proof",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer access-token",
+        },
+        body: JSON.stringify({
+          device_id: deviceId,
+          nonce: "a".repeat(64),
+          sig: "signature",
+        }),
+      },
+      env,
+    );
+
+    expect(response.status).toBe(401);
+    await expect(response.json()).resolves.toEqual({ error: "invalid_token" });
+    expect(mockFrom).not.toHaveBeenCalled();
+    vi.unstubAllGlobals();
+  });
+
+  it("rejects a stale device challenge before looking up the device", async () => {
+    const deviceId = "33333333-3333-4333-8333-333333333333";
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          id: "55555555-5555-4555-8555-555555555555",
+          is_anonymous: false,
+        }),
+      }),
+    );
+    mockVerifyChallengeNonce.mockResolvedValue(false);
+
+    const response = await anonymousSyncV2App.request(
+      "https://fusou.dev/anonymous-sync/v2/device-proof",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer access-token",
+        },
+        body: JSON.stringify({
+          device_id: deviceId,
+          nonce: "a".repeat(64),
+          sig: "signature",
+        }),
+      },
+      env,
+    );
+
+    expect(response.status).toBe(401);
+    await expect(response.json()).resolves.toEqual({ error: "nonce_invalid_or_expired" });
+    expect(mockFrom).not.toHaveBeenCalled();
+    vi.unstubAllGlobals();
+  });
+
+  it("rejects cookie authentication for device proof", async () => {
+    const response = await anonymousSyncV2App.request(
+      "https://fusou.dev/anonymous-sync/v2/device-proof",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Cookie: "sb-access-token=access-token",
+        },
+        body: JSON.stringify({
+          device_id: "33333333-3333-4333-8333-333333333333",
+          nonce: "a".repeat(64),
+          sig: "signature",
+        }),
+      },
+      env,
+    );
+
+    expect(response.status).toBe(401);
+    await expect(response.json()).resolves.toEqual({ error: "unauthorized" });
+    expect(mockFrom).not.toHaveBeenCalled();
+  });
+
+  it("rejects an unknown device without accepting client identity", async () => {
+    const deviceId = "33333333-3333-4333-8333-333333333333";
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          id: "55555555-5555-4555-8555-555555555555",
+          is_anonymous: false,
+        }),
+      }),
+    );
+    mockFrom.mockReturnValue({
+      select: vi.fn(() => ({
+        eq: vi.fn(() => ({
+          maybeSingle: vi.fn().mockResolvedValue({ data: null, error: null }),
+        })),
+      })),
+    });
+
+    const response = await anonymousSyncV2App.request(
+      "https://fusou.dev/anonymous-sync/v2/device-proof",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer access-token",
+        },
+        body: JSON.stringify({ device_id: deviceId, nonce: "a".repeat(64), sig: "signature" }),
+      },
+      env,
+    );
+
+    expect(response.status).toBe(404);
+    await expect(response.json()).resolves.toEqual({ error: "device_unknown_or_revoked" });
+    expect(mockVerifyDeviceSig).not.toHaveBeenCalled();
+    vi.unstubAllGlobals();
+  });
+
+  it("fails closed when the device row is malformed", async () => {
+    const deviceId = "33333333-3333-4333-8333-333333333333";
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          id: "55555555-5555-4555-8555-555555555555",
+          is_anonymous: false,
+        }),
+      }),
+    );
+    mockFrom.mockReturnValue({
+      select: vi.fn(() => ({
+        eq: vi.fn(() => ({
+          maybeSingle: vi.fn().mockResolvedValue({
+            data: { canonical_user_id: "55555555-5555-4555-8555-555555555555" },
+            error: null,
+          }),
+        })),
+      })),
+    });
+
+    const response = await anonymousSyncV2App.request(
+      "https://fusou.dev/anonymous-sync/v2/device-proof",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer access-token",
+        },
+        body: JSON.stringify({ device_id: deviceId, nonce: "a".repeat(64), sig: "signature" }),
+      },
+      env,
+    );
+
+    expect(response.status).toBe(500);
+    await expect(response.json()).resolves.toEqual({ error: "Database error" });
+    expect(mockVerifyDeviceSig).not.toHaveBeenCalled();
+    vi.unstubAllGlobals();
+  });
+
+  it("rejects a revoked device before verifying its signature", async () => {
+    const { deviceId } = stubDeviceProof({ revokedAt: "2026-08-20T00:00:00.000Z" });
+    const response = await anonymousSyncV2App.request(
+      "https://fusou.dev/anonymous-sync/v2/device-proof",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer access-token",
+        },
+        body: JSON.stringify({
+          device_id: deviceId,
+          nonce: "a".repeat(64),
+          sig: "signature",
+        }),
+      },
+      env,
+    );
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toEqual({ error: "device_revoked" });
+    expect(mockVerifyDeviceSig).not.toHaveBeenCalled();
+    vi.unstubAllGlobals();
+  });
+
+  it("rejects an invalid device signature without consuming the nonce", async () => {
+    const { deviceId, nonceInsert } = stubDeviceProof();
+    mockVerifyDeviceSig.mockResolvedValue(false);
+    const response = await anonymousSyncV2App.request(
+      "https://fusou.dev/anonymous-sync/v2/device-proof",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer access-token",
+        },
+        body: JSON.stringify({
+          device_id: deviceId,
+          nonce: "a".repeat(64),
+          sig: "signature",
+        }),
+      },
+      env,
+    );
+
+    expect(response.status).toBe(401);
+    await expect(response.json()).resolves.toEqual({ error: "signature_invalid" });
+    expect(nonceInsert).not.toHaveBeenCalled();
+    vi.unstubAllGlobals();
+  });
+
+  it("rejects a replayed device-proof nonce atomically", async () => {
+    const { deviceId, nonceInsert } = stubDeviceProof({
+      nonceError: { code: "23505" },
+    });
+    const response = await anonymousSyncV2App.request(
+      "https://fusou.dev/anonymous-sync/v2/device-proof",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer access-token",
+        },
+        body: JSON.stringify({
+          device_id: deviceId,
+          nonce: "a".repeat(64),
+          sig: "signature",
+        }),
+      },
+      env,
+    );
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toEqual({ error: "nonce_already_used" });
+    expect(nonceInsert).toHaveBeenCalledTimes(1);
+    vi.unstubAllGlobals();
   });
 
   it("sets an HttpOnly pending-sync cookie when creating a handoff", async () => {
@@ -552,7 +989,7 @@ describe("anonymous-sync v2 endpoints", () => {
       "fetch",
       vi.fn().mockResolvedValue({
         ok: true,
-        json: async () => ({ id: "web-user", email: null }),
+        json: async () => ({ id: "web-user", email: null, is_anonymous: false }),
       }),
     );
     const listResult = {
@@ -612,7 +1049,7 @@ describe("anonymous-sync v2 endpoints", () => {
       "fetch",
       vi.fn().mockResolvedValue({
         ok: true,
-        json: async () => ({ id: "web-user", email: null }),
+        json: async () => ({ id: "web-user", email: null, is_anonymous: false }),
       }),
     );
     mockResolvePublicIdsForUser.mockResolvedValue({
@@ -642,7 +1079,7 @@ describe("anonymous-sync v2 endpoints", () => {
       "fetch",
       vi.fn().mockResolvedValue({
         ok: true,
-        json: async () => ({ id: "web-user", email: null }),
+        json: async () => ({ id: "web-user", email: null, is_anonymous: false }),
       }),
     );
     const update = vi.fn(() => ({

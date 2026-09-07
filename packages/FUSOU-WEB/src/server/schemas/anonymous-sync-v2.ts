@@ -59,6 +59,14 @@ export type UserDeviceRefreshRow = z.infer<
   typeof UserDeviceRefreshRowSchema
 >;
 
+export const UserDeviceProofRowSchema = z
+  .object({
+    canonical_user_id: NonEmptyStringSchema,
+    device_pubkey: NonEmptyStringSchema,
+    revoked_at: z.string().nullable(),
+  })
+  .passthrough();
+
 export const UserDeviceRevokeTargetRowSchema = z
   .object({
     canonical_user_id: NonEmptyStringSchema,
@@ -96,6 +104,14 @@ export const RefreshRequestSchema = z
     sig: NonEmptyStringSchema,
   })
   .passthrough();
+
+export const DeviceProofRequestSchema = z
+  .object({
+    device_id: NonEmptyStringSchema,
+    nonce: NonEmptyStringSchema,
+    sig: NonEmptyStringSchema,
+  })
+  .strict();
 
 export const RevokeRequestSchema = z
   .object({
@@ -139,6 +155,7 @@ export const SupabaseAccessTokenUserSchema = z
   .object({
     id: NonEmptyStringSchema,
     email: z.string().nullable().optional(),
+    is_anonymous: z.boolean(),
   })
   .passthrough();
 

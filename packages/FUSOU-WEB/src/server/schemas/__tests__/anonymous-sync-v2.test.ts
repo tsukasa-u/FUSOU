@@ -18,11 +18,15 @@ describe("SupabaseAccessTokenUserSchema", () => {
       SupabaseAccessTokenUserSchema.safeParse({
         id: "user-1",
         email: null,
+        is_anonymous: false,
         role: "authenticated",
       }).success,
     ).toBe(true);
     expect(
-      SupabaseAccessTokenUserSchema.safeParse({ id: "user-1" }).success,
+      SupabaseAccessTokenUserSchema.safeParse({
+        id: "user-1",
+        is_anonymous: false,
+      }).success,
     ).toBe(true);
   });
 
@@ -33,6 +37,12 @@ describe("SupabaseAccessTokenUserSchema", () => {
     ).toBe(false);
     expect(
       SupabaseAccessTokenUserSchema.safeParse({ id: 1 }).success,
+    ).toBe(false);
+  });
+
+  it("rejects a user response without explicit anonymous status", () => {
+    expect(
+      SupabaseAccessTokenUserSchema.safeParse({ id: "user-1" }).success,
     ).toBe(false);
   });
 });

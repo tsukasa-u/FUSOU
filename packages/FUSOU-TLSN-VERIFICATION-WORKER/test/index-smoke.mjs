@@ -54,6 +54,7 @@ function signingBytes(result) {
   pushLengthPrefixed(chunks, result.issuer);
   pushLengthPrefixed(chunks, result.proof_purpose);
   pushLengthPrefixed(chunks, result.canonical_user_id);
+  pushLengthPrefixed(chunks, result.device_id);
   pushLengthPrefixed(chunks, result.verified_member_id);
   pushLengthPrefixed(chunks, Buffer.from(result.attestation_session_id.replaceAll("-", ""), "hex"));
   pushLengthPrefixed(chunks, decodeBase64Url(result.binding_nonce));
@@ -90,11 +91,16 @@ async function issueSession(fetch, expectedBinding, accessToken = "test-token-a"
   const response = await fetch("https://verify.test/attestation/session", {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
-    body: "{}",
+    body: JSON.stringify({
+      device_id: "33333333-3333-4333-8333-333333333333",
+      nonce: "a".repeat(64),
+      sig: "synthetic-device-signature",
+    }),
   });
   assert.equal(response.status, 201);
   const session = await response.json();
   assert.equal(session.binding, expectedBinding);
+  assert.equal(session.device_id, "33333333-3333-4333-8333-333333333333");
   assert.match(session.session_id, /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
   assert.match(session.challenge, /^[A-Za-z0-9_-]+$/);
   assert.match(session.expires_at, /^20[0-9]{2}-/);
@@ -106,6 +112,7 @@ function verificationBody(presentationBase64, session, extra = {}) {
     presentation_base64: presentationBase64,
     session_id: session.session_id,
     binding: session.binding,
+    device_id: session.device_id,
     ...extra,
   });
 }
@@ -191,6 +198,7 @@ export async function runSmokeTest(fetch, fixture, publicKeyDerBase64url) {
     "issuer",
     "proof_purpose",
     "canonical_user_id",
+    "device_id",
     "verified_member_id",
     "attestation_session_id",
     "binding_nonce",
@@ -213,6 +221,7 @@ export async function runSmokeTest(fetch, fixture, publicKeyDerBase64url) {
   assert.equal(result.issuer, "fusou-tlsn-verifier");
   assert.equal(result.proof_purpose, "GAME_ACCOUNT_IDENTITY_V1");
   assert.equal(result.canonical_user_id, "11111111-1111-4111-8111-111111111111");
+  assert.equal(result.device_id, "33333333-3333-4333-8333-333333333333");
   assert.equal(result.verified_member_id, "16189463");
   assert.equal(result.server_identity, "game.example.test");
   assert.equal(result.attestation_session_id, session.session_id);
@@ -242,6 +251,8 @@ export async function runSmokeTest(fetch, fixture, publicKeyDerBase64url) {
   assert.equal(verifySignature(null, signingBytes(mutatedResult), publicKey, signature), false);
   const mutatedUserResult = { ...result, canonical_user_id: "22222222-2222-4222-8222-222222222222" };
   assert.equal(verifySignature(null, signingBytes(mutatedUserResult), publicKey, signature), false);
+  const mutatedDeviceResult = { ...result, device_id: "44444444-4444-4444-8444-444444444444" };
+  assert.equal(verifySignature(null, signingBytes(mutatedDeviceResult), publicKey, signature), false);
 
   const replayResponse = await postVerification(fetch, verificationBody(fixture.presentation_base64, session));
   assert.equal(replayResponse.status, 409);
@@ -308,6 +319,7 @@ export async function runBindingContextNegativeSmokeTest(fetch, fixture) {
     presentation_base64: fixture.presentation_base64,
     session_id: "123e4567-e89b-42d3-a456-426614174001",
     binding: session.binding,
+    device_id: session.device_id,
   }));
   assert.equal(wrongSessionResponse.status, 409);
   assert.deepEqual(await wrongSessionResponse.json(), { verified: false, error: "session_mismatch" });
@@ -316,6 +328,7 @@ export async function runBindingContextNegativeSmokeTest(fetch, fixture) {
     presentation_base64: fixture.presentation_base64,
     session_id: session.session_id,
     binding: "AQ",
+    device_id: session.device_id,
   }));
   assert.equal(unknownBindingResponse.status, 422);
   assert.deepEqual(await unknownBindingResponse.json(), { verified: false, error: "binding_unknown" });
@@ -330,6 +343,17 @@ export async function runAuthenticatedOwnershipSmokeTest(fetch, fixture) {
   });
   assert.equal(missingAuthResponse.status, 401);
   assert.deepEqual(await missingAuthResponse.json(), { error: "unauthorized" });
+
+  const missingDeviceProofResponse = await fetch("https://verify.test/attestation/session", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: "Bearer test-token-a",
+    },
+    body: "{}",
+  });
+  assert.equal(missingDeviceProofResponse.status, 400);
+  assert.deepEqual(await missingDeviceProofResponse.json(), { error: "invalid_request" });
 
   const session = await issueSession(fetch, fixture.binding_value, "test-token-a");
   const stolenBindingResponse = await postVerification(

@@ -10,6 +10,7 @@ export type BindingRecord = {
   binding_id: string;
   session_id: string;
   canonical_user_id: string;
+  device_id: string;
   nonce: string;
   binding_value: string;
   created_at: string;
@@ -23,6 +24,7 @@ type BindingOperation = {
   binding_id: string;
   session_id: string;
   canonical_user_id: string;
+  device_id: string;
   binding_value: string;
   nonce: string;
   created_at: string;
@@ -32,6 +34,7 @@ type BindingOperation = {
 type ConsumeInput = {
   session_id: string;
   canonical_user_id: string;
+  device_id: string;
   binding_value: string;
   nonce: string;
   presentation_id: string;
@@ -49,6 +52,7 @@ export type AuthorityErrorCode =
   | "binding_consumed"
   | "session_mismatch"
   | "user_mismatch"
+  | "device_mismatch"
   | "nonce_mismatch"
   | "binding_conflict";
 
@@ -145,6 +149,7 @@ export class DurableObjectBindingAuthority {
     now: number,
     ttlSeconds: number,
     canonicalUserId: string,
+    deviceId: string,
     configuredBindingValue?: string,
   ): Promise<BindingRecord> {
     const sessionId = configuredBindingValue ? parseBindingValue(configuredBindingValue).sessionId : crypto.randomUUID();
@@ -160,6 +165,7 @@ export class DurableObjectBindingAuthority {
       binding_id: await hashBindingId(bindingValue),
       session_id: sessionId,
       canonical_user_id: canonicalUserId,
+      device_id: deviceId,
       nonce,
       binding_value: bindingValue,
       created_at: new Date(now).toISOString(),
@@ -172,10 +178,16 @@ export class DurableObjectBindingAuthority {
     sessionId: string,
     bindingValue: string,
     canonicalUserId: string,
+    deviceId: string,
     now: number,
   ): Promise<BindingRecord> {
     const bindingId = await hashBindingId(bindingValue);
-    return this.call(bindingId, "/lookup", { session_id: sessionId, canonical_user_id: canonicalUserId, now });
+    return this.call(bindingId, "/lookup", {
+      session_id: sessionId,
+      canonical_user_id: canonicalUserId,
+      device_id: deviceId,
+      now,
+    });
   }
 
   async consumeBinding(bindingValue: string, input: ConsumeInput): Promise<BindingRecord> {
@@ -236,7 +248,7 @@ export class TlsnBindingAuthorityDurableObject extends DurableObject {
         case "/issue":
           return this.issue(body);
         case "/lookup":
-          return this.lookup(body.session_id, body.canonical_user_id, body.now);
+          return this.lookup(body.session_id, body.canonical_user_id, body.device_id, body.now);
         case "/consume":
           return this.consume(body as unknown as ConsumeInput);
         default:
@@ -272,7 +284,12 @@ export class TlsnBindingAuthorityDurableObject extends DurableObject {
     return Response.json({ ok: true, record: { ...operation, status: "active" } });
   }
 
-  private async lookup(sessionId: string, canonicalUserId: string, now: number): Promise<Response> {
+  private async lookup(
+    sessionId: string,
+    canonicalUserId: string,
+    deviceId: string,
+    now: number,
+  ): Promise<Response> {
     let result: AuthorityResponse = { ok: false, error: "binding_unknown" };
     await this.ctx.storage.transaction(async (transaction) => {
       const record = await transaction.get<BindingRecord>("binding");
@@ -285,6 +302,10 @@ export class TlsnBindingAuthorityDurableObject extends DurableObject {
       }
       if (record.canonical_user_id !== canonicalUserId) {
         result = { ok: false, error: "user_mismatch" };
+        return;
+      }
+      if (record.device_id !== deviceId) {
+        result = { ok: false, error: "device_mismatch" };
         return;
       }
       if (record.status === "active" && Date.parse(record.expires_at) <= now) {
@@ -319,6 +340,10 @@ export class TlsnBindingAuthorityDurableObject extends DurableObject {
       }
       if (record.canonical_user_id !== input.canonical_user_id) {
         result = { ok: false, error: "user_mismatch" };
+        return;
+      }
+      if (record.device_id !== input.device_id) {
+        result = { ok: false, error: "device_mismatch" };
         return;
       }
       if (record.binding_value !== input.binding_value) {
@@ -363,6 +388,7 @@ function authorityStatus(error: AuthorityErrorCode): number {
     case "binding_conflict":
     case "session_mismatch":
     case "user_mismatch":
+    case "device_mismatch":
     case "nonce_mismatch":
       return 409;
     case "binding_unknown":

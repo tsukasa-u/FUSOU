@@ -34,6 +34,8 @@ type Bindings = {
   TLSN_PRODUCTION_TRUST_ROOT_CERTIFICATE_DER?: string;
   TLSN_SUPABASE_URL?: string;
   TLSN_SUPABASE_PUBLISHABLE_KEY?: string;
+  TLSN_DEVICE_AUTH_URL?: string;
+  TLSN_PRODUCTION_DEVICE_AUTH_URL?: string;
   TLSN_TEST_AUTH_USERS?: string;
 };
 
@@ -51,14 +53,22 @@ const requestSchema = z
       .regex(/^[A-Za-z0-9_-]+$/),
     session_id: z.string().uuid(),
     binding: z.string().min(1).max(512).regex(/^[A-Za-z0-9_-]+$/),
+    device_id: z.string().uuid(),
   })
   .strict();
 
-const sessionRequestSchema = z.object({}).strict();
+const deviceProofRequestSchema = z
+  .object({
+    device_id: z.string().uuid(),
+    nonce: z.string().regex(/^[a-f0-9]{64}$/),
+    sig: z.string().min(1).max(256).regex(/^[A-Za-z0-9+/_=-]+$/),
+  })
+  .strict();
 
 const authenticatedResultSchema = z.object({
   attestation_session_id: z.string().uuid(),
   canonical_user_id: z.string().uuid(),
+  device_id: z.string().uuid(),
   binding_nonce: z.string().regex(/^[A-Za-z0-9_-]+$/),
   binding_value: z.string().min(1).max(512).regex(/^[A-Za-z0-9_-]+$/),
   tlsn_attestation_id: z.string().regex(/^[A-Za-z0-9_-]+$/),
@@ -77,6 +87,7 @@ const configSchema = z.object({
   profileSha256: z.string().regex(/^[A-Za-z0-9_-]+$/),
   verifierKeyId: z.string().regex(/^[A-Za-z0-9._-]{1,64}$/),
   notaryKeyId: z.string().regex(/^[A-Za-z0-9._-]{1,64}$/),
+  deviceAuthUrl: z.string().url(),
   notaryRegistry: z.string().min(1).max(65_536),
   signingPrivateKeyPkcs8: z.string().regex(/^[A-Za-z0-9_-]+$/),
   trustRootCertificateDer: z.string().regex(/^[A-Za-z0-9_-]+$/).optional(),
@@ -84,13 +95,14 @@ const configSchema = z.object({
 
 const authUserSchema = z.object({
   id: z.string().uuid(),
-  is_anonymous: z.boolean().optional(),
+  is_anonymous: z.boolean(),
 }).passthrough();
 
 const testAuthUsersSchema = z.record(z.string().min(1), authUserSchema);
 
 type AuthenticatedSubject = {
   canonicalUserId: string;
+  accessToken: string;
 };
 
 type AuthenticationResult =
@@ -137,6 +149,7 @@ function readConfig(env: Bindings): VerifierConfig | null {
     profileSha256: production ? env.TLSN_PRODUCTION_PROFILE_SHA256 : env.TLSN_PROFILE_SHA256,
     verifierKeyId: production ? env.TLSN_PRODUCTION_VERIFIER_KEY_ID : env.TLSN_VERIFIER_KEY_ID,
     notaryKeyId: production ? env.TLSN_PRODUCTION_NOTARY_KEY_ID : env.TLSN_NOTARY_KEY_ID,
+    deviceAuthUrl: production ? env.TLSN_PRODUCTION_DEVICE_AUTH_URL : env.TLSN_DEVICE_AUTH_URL,
     notaryRegistry: production ? env.TLSN_PRODUCTION_NOTARY_REGISTRY : env.TLSN_NOTARY_REGISTRY,
     signingPrivateKeyPkcs8: production
       ? env.TLSN_PRODUCTION_SIGNING_PRIVATE_KEY_PKCS8
@@ -160,6 +173,9 @@ function readConfig(env: Bindings): VerifierConfig | null {
       return null;
     }
     if (production && !parsed.data.trustRootCertificateDer) {
+      return null;
+    }
+    if (production && !parsed.data.deviceAuthUrl.startsWith("https://")) {
       return null;
     }
     const notaryRegistry = notaryRegistrySchema.safeParse(JSON.parse(parsed.data.notaryRegistry));
@@ -249,10 +265,10 @@ async function authenticateRequest(
     try {
       const users = testAuthUsersSchema.parse(JSON.parse(env.TLSN_TEST_AUTH_USERS));
       const user = token ? users[token] : undefined;
-      if (!user || user.is_anonymous === true) {
+      if (!token || !user || user.is_anonymous === true) {
         return authenticationFailure("unauthorized");
       }
-      return { ok: true, subject: { canonicalUserId: user.id } };
+      return { ok: true, subject: { canonicalUserId: user.id, accessToken: token } };
     } catch {
       return authenticationFailure("auth_unconfigured");
     }
@@ -281,9 +297,83 @@ async function authenticateRequest(
     if (user.is_anonymous === true) {
       return authenticationFailure("unauthorized");
     }
-    return { ok: true, subject: { canonicalUserId: user.id } };
+    return { ok: true, subject: { canonicalUserId: user.id, accessToken: token } };
   } catch {
     return authenticationFailure("unauthorized");
+  }
+}
+
+type DeviceAuthenticationResult =
+  | { ok: true; canonicalUserId: string; deviceId: string }
+  | {
+      ok: false;
+      status: 401 | 403 | 409 | 503;
+      error:
+        | "device_auth_unconfigured"
+        | "device_unauthorized"
+        | "device_owner_mismatch"
+        | "device_revoked"
+        | "device_nonce_invalid"
+        | "device_nonce_replayed"
+        | "device_auth_unavailable";
+    };
+
+const deviceProofResponseSchema = z
+  .object({
+    authenticated: z.literal(true),
+    canonical_user_id: z.string().uuid(),
+    device_id: z.string().uuid(),
+  })
+  .strict();
+
+async function authenticateDeviceProof(
+  subject: AuthenticatedSubject,
+  proof: z.infer<typeof deviceProofRequestSchema>,
+  endpoint: string,
+): Promise<DeviceAuthenticationResult> {
+  try {
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${subject.accessToken}`,
+      },
+      body: JSON.stringify(proof),
+    });
+    const payload = (await response.json().catch(() => null)) as unknown;
+    if (!response.ok) {
+      const error = z.object({ error: z.string() }).safeParse(payload).data?.error;
+      if (response.status === 403) {
+        return { ok: false, status: 403, error: "device_owner_mismatch" };
+      }
+      if (response.status === 409 && error === "device_revoked") {
+        return { ok: false, status: 409, error: "device_revoked" };
+      }
+      if (response.status === 409 && error === "nonce_already_used") {
+        return { ok: false, status: 409, error: "device_nonce_replayed" };
+      }
+      if (response.status === 401 && error === "nonce_invalid_or_expired") {
+        return { ok: false, status: 401, error: "device_nonce_invalid" };
+      }
+      if (response.status >= 500) {
+        return { ok: false, status: 503, error: "device_auth_unavailable" };
+      }
+      return { ok: false, status: 401, error: "device_unauthorized" };
+    }
+    const parsed = deviceProofResponseSchema.safeParse(payload);
+    if (!parsed.success || parsed.data.canonical_user_id !== subject.canonicalUserId) {
+      return { ok: false, status: 403, error: "device_owner_mismatch" };
+    }
+    if (parsed.data.device_id !== proof.device_id) {
+      return { ok: false, status: 403, error: "device_owner_mismatch" };
+    }
+    return {
+      ok: true,
+      canonicalUserId: parsed.data.canonical_user_id,
+      deviceId: parsed.data.device_id,
+    };
+  } catch {
+    return { ok: false, status: 503, error: "device_auth_unavailable" };
   }
 }
 
@@ -308,6 +398,7 @@ function bindingAuthorityStatus(error: unknown): BindingAuthorityHttpStatus {
     case "binding_conflict":
     case "session_mismatch":
     case "user_mismatch":
+    case "device_mismatch":
     case "nonce_mismatch":
       return 409;
     default:
@@ -326,13 +417,30 @@ app.post("/attestation/session", async (c) => {
   if (authentication instanceof Response) {
     return authentication;
   }
+  let requestBody: z.infer<typeof deviceProofRequestSchema>;
   try {
-    sessionRequestSchema.parse(await readJsonBody(c.req.raw));
+    requestBody = deviceProofRequestSchema.parse(await readJsonBody(c.req.raw));
+  } catch {
+    return c.json({ error: "invalid_request" }, 400);
+  }
+  try {
+    const deviceAuthentication = await authenticateDeviceProof(
+      authentication,
+      requestBody,
+      config.deviceAuthUrl,
+    );
+    if (!deviceAuthentication.ok) {
+      return c.json({ error: deviceAuthentication.error }, deviceAuthentication.status);
+    }
+    if (deviceAuthentication.canonicalUserId !== authentication.canonicalUserId) {
+      return c.json({ error: "device_owner_mismatch" }, 403);
+    }
     const authority = new DurableObjectBindingAuthority(c.env.TLSN_BINDINGS);
     const record = await authority.issueBinding(
       Date.now(),
       config.bindingTtlSeconds,
       authentication.canonicalUserId,
+      deviceAuthentication.deviceId,
       c.env.TLSN_ENVIRONMENT === "test" ? c.env.TLSN_TEST_BINDING_VALUE : undefined,
     );
     c.header("Cache-Control", "no-store");
@@ -340,6 +448,7 @@ app.post("/attestation/session", async (c) => {
       session_id: record.session_id,
       challenge: record.nonce,
       binding: record.binding_value,
+      device_id: record.device_id,
       expires_at: record.expires_at,
     }, 201);
   } catch {
@@ -378,6 +487,7 @@ app.post("/verify/tlsn", async (c) => {
       requestBody.session_id,
       requestBody.binding,
       authentication.canonicalUserId,
+      requestBody.device_id,
       Date.now(),
     );
   } catch (error) {
@@ -402,6 +512,7 @@ app.post("/verify/tlsn", async (c) => {
               config.verifierKeyId,
               config.notaryKeyId,
               authentication.canonicalUserId,
+              requestBody.device_id,
               config.trustRootCertificateDerBytes,
               config.notaryKeyBytes,
             )
@@ -412,6 +523,7 @@ app.post("/verify/tlsn", async (c) => {
               config.verifierKeyId,
               config.notaryKeyId,
               authentication.canonicalUserId,
+              requestBody.device_id,
               config.notaryKeyBytes,
             ),
       ) as unknown,
@@ -423,6 +535,7 @@ app.post("/verify/tlsn", async (c) => {
       authenticatedResult.attestation_session_id !== issuedBinding.session_id ||
       authenticatedResult.attestation_session_id !== requestBody.session_id ||
       authenticatedResult.canonical_user_id !== authentication.canonicalUserId ||
+      authenticatedResult.device_id !== requestBody.device_id ||
       authenticatedResult.binding_nonce !== issuedBinding.nonce ||
       authenticatedResult.binding_value !== issuedBinding.binding_value ||
       authenticatedResult.binding_value !== requestBody.binding
@@ -441,6 +554,7 @@ app.post("/verify/tlsn", async (c) => {
       await authority.consumeBinding(requestBody.binding, {
         session_id: requestBody.session_id,
         canonical_user_id: authentication.canonicalUserId,
+        device_id: requestBody.device_id,
         binding_value: requestBody.binding,
         nonce: authenticatedResult.binding_nonce,
         presentation_id: presentationId,

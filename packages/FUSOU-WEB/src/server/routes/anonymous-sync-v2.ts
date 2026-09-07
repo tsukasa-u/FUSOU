@@ -13,7 +13,9 @@ import {
   UserDeviceRevokeTargetRowSchema,
   UserDeviceWebRevokeTargetRowSchema,
   UserDeviceRefreshRowSchema,
+  UserDeviceProofRowSchema,
   PendingSyncCompleteRequestSchema,
+  DeviceProofRequestSchema,
   SupabaseAccessTokenUserSchema,
 } from "../schemas/anonymous-sync-v2";
 import {
@@ -251,7 +253,7 @@ async function verifySupabaseAccessToken(options: {
   supabaseUrl: string;
   anonKey: string;
   accessToken: string;
-}): Promise<{ id: string } | null> {
+}): Promise<{ id: string; is_anonymous: boolean } | null> {
   try {
     const response = await fetch(`${options.supabaseUrl}/auth/v1/user`, {
       headers: {
@@ -263,7 +265,9 @@ async function verifySupabaseAccessToken(options: {
     const parsed = SupabaseAccessTokenUserSchema.safeParse(
       await response.json(),
     );
-    return parsed.success ? { id: parsed.data.id } : null;
+    return parsed.success
+      ? { id: parsed.data.id, is_anonymous: parsed.data.is_anonymous }
+      : null;
   } catch (error) {
     console.warn("[anonymous-sync-v2] access token verification failed:", error);
     return null;
@@ -468,7 +472,7 @@ async function consumeDeviceNonce(options: {
   supabaseAdmin: SupabaseClient;
   deviceId: string;
   nonce: string;
-  context: "register" | "refresh" | "revoke";
+  context: "register" | "refresh" | "revoke" | "device-proof";
   refreshResult?: {
     token: string;
     expiresAt: number;
@@ -982,6 +986,98 @@ app.get("/anonymous-sync/v2/challenge", async (c) => {
     return c.json({ nonce, expires_at: expiresAt, window_seconds: CHALLENGE_BUCKET_SECONDS });
   } catch (err) {
     console.error("[anonymous-sync-v2/challenge] unexpected error:", err);
+    return c.json({ error: "Internal server error" }, 500);
+  }
+});
+
+app.post("/anonymous-sync/v2/device-proof", async (c) => {
+  try {
+    const auth = extractAccessToken(c);
+    if (!auth || auth.fromCookie) return c.json({ error: "unauthorized" }, 401);
+    const bodyResult = await readJsonBodyWithinLimit(c.req.raw);
+    if (bodyResult.kind === "too_large") return c.json({ error: "request_too_large" }, 413);
+    if (bodyResult.kind === "invalid_json") return c.json({ error: "invalid_json" }, 400);
+    const parsedBody = DeviceProofRequestSchema.safeParse(bodyResult.body);
+    if (!parsedBody.success) return c.json({ error: firstSchemaError(parsedBody.error) }, 400);
+
+    const deviceId = normalizeUuidV4(parsedBody.data.device_id);
+    const nonce = parsedBody.data.nonce.trim().toLowerCase();
+    if (!deviceId) return c.json({ error: "device_id must be a UUID v4" }, 400);
+    if (!/^[a-f0-9]{64}$/.test(nonce)) return c.json({ error: "nonce malformed" }, 400);
+
+    const base = resolveBaseConfig(c);
+    if (!base.ok) return c.json({ error: "Server configuration error" }, 500);
+    const challengeSecret = resolveChallengeSecret(c);
+    if (!challengeSecret.ok) return c.json({ error: "Server configuration error" }, 500);
+    const user = await verifySupabaseAccessToken({
+      supabaseUrl: base.config.supabaseUrl,
+      anonKey: base.config.anonKey,
+      accessToken: auth.token,
+    });
+    if (!user || user.is_anonymous) return c.json({ error: "invalid_token" }, 401);
+
+    const supabaseAdmin = createClient(base.config.supabaseUrl, base.config.serviceRoleKey);
+    const rateOk = await consumeRateLimit({
+      supabaseAdmin,
+      keys: [
+        `device-proof:ip:${requestClientKey(c)}`,
+        `device-proof:user:${user.id}`,
+        `device-proof:device:${deviceId}`,
+      ],
+    });
+    if (!rateOk) return c.json({ error: "Too many requests" }, 429);
+
+    const nonceValid = await verifyChallengeNonce(challengeSecret.secret, deviceId, nonce);
+    if (!nonceValid) return c.json({ error: "nonce_invalid_or_expired" }, 401);
+
+    const deviceRaw = await supabaseAdmin
+      .from("user_devices")
+      .select("canonical_user_id, device_pubkey, revoked_at")
+      .eq("device_id", deviceId)
+      .maybeSingle();
+    if (deviceRaw.error) return c.json({ error: "Database error" }, 500);
+    if (!deviceRaw.data) return c.json({ error: "device_unknown_or_revoked" }, 404);
+    const device = UserDeviceProofRowSchema.safeParse(deviceRaw.data);
+    if (!device.success) return c.json({ error: "Database error" }, 500);
+    if (device.data.revoked_at) return c.json({ error: "device_revoked" }, 409);
+    if (device.data.canonical_user_id !== user.id) return c.json({ error: "device_owner_mismatch" }, 403);
+
+    const publicKeyB64 = storedPubkeyToBase64(device.data.device_pubkey);
+    if (!publicKeyB64) return c.json({ error: "Database error" }, 500);
+    const signatureValid = await verifyDeviceSig({
+      publicKeyB64,
+      message: nonce,
+      signatureB64: parsedBody.data.sig,
+    });
+    if (!signatureValid) return c.json({ error: "signature_invalid" }, 401);
+
+    const nonceConsume = await consumeDeviceNonce({
+      supabaseAdmin,
+      deviceId,
+      nonce,
+      context: "device-proof",
+    });
+    if (!nonceConsume.ok) {
+      const status = nonceConsume.error === "nonce_already_used"
+        ? 409
+        : nonceConsume.status;
+      return c.json({ error: nonceConsume.error }, status);
+    }
+
+    await supabaseAdmin
+      .from("user_devices")
+      .update({ last_seen_at: new Date().toISOString() })
+      .eq("device_id", deviceId)
+      .eq("canonical_user_id", user.id)
+      .is("revoked_at", null);
+    c.header("Cache-Control", "no-store");
+    return c.json({
+      authenticated: true,
+      canonical_user_id: device.data.canonical_user_id,
+      device_id: deviceId,
+    });
+  } catch (err) {
+    console.error("[anonymous-sync-v2/device-proof] unexpected error:", err);
     return c.json({ error: "Internal server error" }, 500);
   }
 });

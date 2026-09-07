@@ -16,6 +16,7 @@ fn verify_require_info_presentation_inner(
     verifier_key_id: &str,
     notary_key_id: &str,
     canonical_user_id: &str,
+    canonical_device_id: &str,
     trusted_notary_key: &[u8],
     trust_anchor_der: Option<&[u8]>,
 ) -> Result<String, JsValue> {
@@ -56,6 +57,7 @@ fn verify_require_info_presentation_inner(
             verifier_key_id.to_owned(),
             notary_key_id.to_owned(),
             canonical_user_id.to_owned(),
+            canonical_device_id.to_owned(),
             [0_u8; 64],
         )
         .map_err(|error| JsValue::from_str(&error.to_string()))?;
@@ -83,6 +85,7 @@ pub fn verify_require_info_presentation(
     verifier_key_id: &str,
     notary_key_id: &str,
     canonical_user_id: &str,
+    canonical_device_id: &str,
     trusted_notary_key: &[u8],
 ) -> Result<String, JsValue> {
     verify_require_info_presentation_inner(
@@ -92,6 +95,7 @@ pub fn verify_require_info_presentation(
         verifier_key_id,
         notary_key_id,
         canonical_user_id,
+        canonical_device_id,
         trusted_notary_key,
         None,
     )
@@ -105,6 +109,7 @@ pub fn verify_require_info_presentation_with_trust_anchor(
     verifier_key_id: &str,
     notary_key_id: &str,
     canonical_user_id: &str,
+    canonical_device_id: &str,
     trust_anchor_der: &[u8],
     trusted_notary_key: &[u8],
 ) -> Result<String, JsValue> {
@@ -115,6 +120,7 @@ pub fn verify_require_info_presentation_with_trust_anchor(
         verifier_key_id,
         notary_key_id,
         canonical_user_id,
+        canonical_device_id,
         trusted_notary_key,
         Some(trust_anchor_der),
     )
