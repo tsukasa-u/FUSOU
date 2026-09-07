@@ -4,6 +4,7 @@ pub mod experimental;
 pub mod experimental_correlation;
 pub mod prover_transport;
 pub mod tlsn_alpha15;
+pub mod wasm;
 
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use flate2::read::GzDecoder;

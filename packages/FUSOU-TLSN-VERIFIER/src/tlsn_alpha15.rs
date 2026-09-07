@@ -52,6 +52,13 @@ impl RequireInfoDisclosureProfile {
         &self.server_identity
     }
 
+    pub(crate) fn from_server_identity(server_identity: &str) -> Result<Self> {
+        validate_server_identity(server_identity)?;
+        Ok(Self {
+            server_identity: server_identity.to_owned(),
+        })
+    }
+
     #[allow(dead_code)]
     pub(crate) fn from_configured_allowlist(server_identity: &str) -> Result<Self> {
         const CONFIGURED_SERVER_IDENTITIES: &[&str] = &[];

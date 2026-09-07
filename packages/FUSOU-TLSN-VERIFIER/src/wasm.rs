@@ -1,0 +1,66 @@
+use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
+use wasm_bindgen::prelude::*;
+
+use crate::{
+    parse_verifier_result,
+    tlsn_alpha15::{verify_alpha15_presentation, RequireInfoDisclosureProfile},
+    ParserLimits, VerifierResult,
+};
+
+#[wasm_bindgen]
+pub fn verify_require_info_presentation(
+    presentation_bytes: &[u8],
+    expected_server_identity: &str,
+    profile_sha256: &[u8],
+    verifier_key_id: &str,
+    notary_key_id: &str,
+) -> Result<String, JsValue> {
+    let profile_sha256: [u8; 32] = profile_sha256
+        .try_into()
+        .map_err(|_| JsValue::from_str("profile_sha256 must be exactly 32 bytes"))?;
+    let profile = RequireInfoDisclosureProfile::from_server_identity(expected_server_identity)
+        .map_err(|error| JsValue::from_str(&error.to_string()))?;
+    let transcript = verify_alpha15_presentation(presentation_bytes)
+        .map_err(|error| JsValue::from_str(&error.to_string()))?;
+    let authenticated = transcript
+        .verify_require_info(&profile, &ParserLimits::default())
+        .map_err(|error| JsValue::from_str(&error.to_string()))?;
+    let result = authenticated
+        .into_verifier_result(
+            profile_sha256,
+            verifier_key_id.to_owned(),
+            notary_key_id.to_owned(),
+            [0_u8; 64],
+        )
+        .map_err(|error| JsValue::from_str(&error.to_string()))?;
+    let canonical_unsigned_result = result
+        .canonical_json()
+        .map_err(|error| JsValue::from_str(&error.to_string()))?;
+    let signing_bytes = result
+        .signing_bytes()
+        .map_err(|error| JsValue::from_str(&error.to_string()))?;
+
+    Ok(format!(
+        "{{\"unsigned_result\":{},\"signing_bytes\":\"{}\"}}",
+        canonical_unsigned_result,
+        URL_SAFE_NO_PAD.encode(signing_bytes),
+    ))
+}
+
+#[wasm_bindgen]
+pub fn attach_verifier_result_signature(
+    unsigned_result_json: &str,
+    signature: &[u8],
+) -> Result<String, JsValue> {
+    let mut result: VerifierResult = parse_verifier_result(
+        unsigned_result_json.as_bytes(),
+        &ParserLimits::default(),
+    )
+    .map_err(|error| JsValue::from_str(&error.to_string()))?;
+    result.signature = signature
+        .try_into()
+        .map_err(|_| JsValue::from_str("signature must be exactly 64 bytes"))?;
+    result
+        .canonical_json()
+        .map_err(|error| JsValue::from_str(&error.to_string()))
+}

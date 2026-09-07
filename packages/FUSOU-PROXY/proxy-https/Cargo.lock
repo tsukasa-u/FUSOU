@@ -2990,12 +2990,15 @@ dependencies = [
  "bincode",
  "flate2",
  "futures",
+ "getrandom 0.3.4",
+ "rustls-pki-types",
  "sha2",
  "thiserror 1.0.69",
  "tlsn",
  "tlsn-attestation",
  "tlsn-core",
  "uuid",
+ "wasm-bindgen",
 ]
 
 [[package]]

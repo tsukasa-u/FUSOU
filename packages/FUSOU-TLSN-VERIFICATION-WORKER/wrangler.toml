@@ -1,0 +1,11 @@
+name = "fusou-tlsn-verification"
+main = "src/index.ts"
+compatibility_date = "2026-09-07"
+
+# Configure these values in Wrangler environments or the Cloudflare dashboard.
+# The Worker fails closed when any required value is absent or malformed.
+
+[[rules]]
+type = "CompiledWasm"
+globs = ["**/*.wasm"]
+fallthrough = true
