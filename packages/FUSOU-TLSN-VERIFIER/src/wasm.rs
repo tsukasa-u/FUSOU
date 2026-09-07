@@ -3,24 +3,38 @@ use wasm_bindgen::prelude::*;
 
 use crate::{
     parse_verifier_result,
-    tlsn_alpha15::{verify_alpha15_presentation, RequireInfoDisclosureProfile},
+    tlsn_alpha15::{verify_alpha15_presentation_with_provider, RequireInfoDisclosureProfile},
     ParserLimits, VerifierResult,
 };
 
-#[wasm_bindgen]
-pub fn verify_require_info_presentation(
+fn verify_require_info_presentation_inner(
     presentation_bytes: &[u8],
     expected_server_identity: &str,
     profile_sha256: &[u8],
     verifier_key_id: &str,
     notary_key_id: &str,
+    trust_anchor_der: Option<&[u8]>,
 ) -> Result<String, JsValue> {
     let profile_sha256: [u8; 32] = profile_sha256
         .try_into()
         .map_err(|_| JsValue::from_str("profile_sha256 must be exactly 32 bytes"))?;
     let profile = RequireInfoDisclosureProfile::from_server_identity(expected_server_identity)
         .map_err(|error| JsValue::from_str(&error.to_string()))?;
-    let transcript = verify_alpha15_presentation(presentation_bytes)
+    let provider = if let Some(trust_anchor_der) = trust_anchor_der {
+        if trust_anchor_der.is_empty() {
+            return Err(JsValue::from_str("trust anchor must not be empty"));
+        }
+        let root_store = tlsn_core::webpki::RootCertStore {
+            roots: vec![tlsn_core::webpki::CertificateDer(trust_anchor_der.to_vec())],
+        };
+        let mut provider = tlsn_attestation::CryptoProvider::default();
+        provider.cert = tlsn::verifier::ServerCertVerifier::new(&root_store)
+            .map_err(|error| JsValue::from_str(&error.to_string()))?;
+        provider
+    } else {
+        tlsn_attestation::CryptoProvider::default()
+    };
+    let transcript = verify_alpha15_presentation_with_provider(presentation_bytes, &provider)
         .map_err(|error| JsValue::from_str(&error.to_string()))?;
     let authenticated = transcript
         .verify_require_info(&profile, &ParserLimits::default())
@@ -39,12 +53,51 @@ pub fn verify_require_info_presentation(
     let signing_bytes = result
         .signing_bytes()
         .map_err(|error| JsValue::from_str(&error.to_string()))?;
+    let unsigned_result_json = serde_json::to_string(&canonical_unsigned_result)
+        .map_err(|error| JsValue::from_str(&error.to_string()))?;
 
     Ok(format!(
         "{{\"unsigned_result\":{},\"signing_bytes\":\"{}\"}}",
-        canonical_unsigned_result,
+        unsigned_result_json,
         URL_SAFE_NO_PAD.encode(signing_bytes),
     ))
+}
+
+#[wasm_bindgen]
+pub fn verify_require_info_presentation(
+    presentation_bytes: &[u8],
+    expected_server_identity: &str,
+    profile_sha256: &[u8],
+    verifier_key_id: &str,
+    notary_key_id: &str,
+) -> Result<String, JsValue> {
+    verify_require_info_presentation_inner(
+        presentation_bytes,
+        expected_server_identity,
+        profile_sha256,
+        verifier_key_id,
+        notary_key_id,
+        None,
+    )
+}
+
+#[wasm_bindgen]
+pub fn verify_require_info_presentation_with_trust_anchor(
+    presentation_bytes: &[u8],
+    expected_server_identity: &str,
+    profile_sha256: &[u8],
+    verifier_key_id: &str,
+    notary_key_id: &str,
+    trust_anchor_der: &[u8],
+) -> Result<String, JsValue> {
+    verify_require_info_presentation_inner(
+        presentation_bytes,
+        expected_server_identity,
+        profile_sha256,
+        verifier_key_id,
+        notary_key_id,
+        Some(trust_anchor_der),
+    )
 }
 
 #[wasm_bindgen]

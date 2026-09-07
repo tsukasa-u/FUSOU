@@ -2991,7 +2991,9 @@ dependencies = [
  "flate2",
  "futures",
  "getrandom 0.3.4",
+ "ring",
  "rustls-pki-types",
+ "serde_json",
  "sha2",
  "thiserror 1.0.69",
  "tlsn",
@@ -5484,6 +5486,7 @@ name = "proxy-https"
 version = "0.1.1"
 dependencies = [
  "base64 0.22.1",
+ "bincode",
  "brotli 3.5.0",
  "chrono",
  "chrono-tz",

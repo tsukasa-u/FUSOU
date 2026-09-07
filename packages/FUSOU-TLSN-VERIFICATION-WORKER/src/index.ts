@@ -3,6 +3,7 @@ import { z } from "zod";
 import initVerifier, {
   attach_verifier_result_signature,
   verify_require_info_presentation,
+  verify_require_info_presentation_with_trust_anchor,
 } from "./wasm/fusou_tlsn_verifier.js";
 import wasmModule from "./wasm/fusou_tlsn_verifier_bg.wasm";
 
@@ -12,6 +13,7 @@ type Bindings = {
   TLSN_VERIFIER_KEY_ID: string;
   TLSN_NOTARY_KEY_ID: string;
   TLSN_SIGNING_PRIVATE_KEY_PKCS8: string;
+  TLSN_TRUST_ROOT_CERTIFICATE_DER?: string;
 };
 
 const MAX_PRESENTATION_BYTES = 8 * 1024 * 1024;
@@ -42,11 +44,13 @@ const configSchema = z.object({
   verifierKeyId: z.string().regex(/^[A-Za-z0-9._-]{1,64}$/),
   notaryKeyId: z.string().regex(/^[A-Za-z0-9._-]{1,64}$/),
   signingPrivateKeyPkcs8: z.string().regex(/^[A-Za-z0-9_-]+$/),
+  trustRootCertificateDer: z.string().regex(/^[A-Za-z0-9_-]+$/).optional(),
 });
 
 type VerifierConfig = z.infer<typeof configSchema> & {
   profileSha256Bytes: Uint8Array;
   signingPrivateKeyBytes: Uint8Array;
+  trustRootCertificateDerBytes: Uint8Array | undefined;
 };
 
 const app = new Hono<{ Bindings: Bindings }>();
@@ -83,6 +87,7 @@ function readConfig(env: Bindings): VerifierConfig | null {
     verifierKeyId: env.TLSN_VERIFIER_KEY_ID,
     notaryKeyId: env.TLSN_NOTARY_KEY_ID,
     signingPrivateKeyPkcs8: env.TLSN_SIGNING_PRIVATE_KEY_PKCS8,
+    trustRootCertificateDer: env.TLSN_TRUST_ROOT_CERTIFICATE_DER,
   });
   if (!parsed.success) {
     return null;
@@ -93,7 +98,15 @@ function readConfig(env: Bindings): VerifierConfig | null {
       return null;
     }
     const signingPrivateKeyBytes = decodeBase64Url(parsed.data.signingPrivateKeyPkcs8, 4096);
-    return { ...parsed.data, profileSha256Bytes, signingPrivateKeyBytes };
+    const trustRootCertificateDerBytes = parsed.data.trustRootCertificateDer
+      ? decodeBase64Url(parsed.data.trustRootCertificateDer, 4096)
+      : undefined;
+    return {
+      ...parsed.data,
+      profileSha256Bytes,
+      signingPrivateKeyBytes,
+      trustRootCertificateDerBytes,
+    };
   } catch {
     return null;
   }
@@ -166,13 +179,22 @@ app.post("/verify/tlsn", async (c) => {
   try {
     const prepared = preparedResultSchema.parse(
       JSON.parse(
-        verify_require_info_presentation(
-          presentationBytes,
-          config.serverIdentity,
-          config.profileSha256Bytes,
-          config.verifierKeyId,
-          config.notaryKeyId,
-        ),
+        config.trustRootCertificateDerBytes
+          ? verify_require_info_presentation_with_trust_anchor(
+              presentationBytes,
+              config.serverIdentity,
+              config.profileSha256Bytes,
+              config.verifierKeyId,
+              config.notaryKeyId,
+              config.trustRootCertificateDerBytes,
+            )
+          : verify_require_info_presentation(
+              presentationBytes,
+              config.serverIdentity,
+              config.profileSha256Bytes,
+              config.verifierKeyId,
+              config.notaryKeyId,
+            ),
       ) as unknown,
     );
     const signingBytes = decodeBase64Url(prepared.signing_bytes, MAX_RESULT_JSON_BYTES);
