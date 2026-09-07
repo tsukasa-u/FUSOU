@@ -34,6 +34,9 @@ type Bindings = {
   TLSN_PRODUCTION_TRUST_ROOT_CERTIFICATE_DER?: string;
   TLSN_PRODUCTION_DEVICE_AUTH_ALLOWED_HOSTS?: string;
   TLSN_PRODUCTION_SUPABASE_ALLOWED_HOSTS?: string;
+  TLSN_DEPLOYMENT_ID?: string;
+  TLSN_SECURITY_REGISTRY_SET_SHA256?: string;
+  TLSN_RESULT_PUBLIC_KEY_SPKI?: string;
   TLSN_SUPABASE_URL?: string;
   TLSN_SUPABASE_PUBLISHABLE_KEY?: string;
   TLSN_DEVICE_AUTH_URL?: string;
@@ -102,6 +105,7 @@ const configSchema = z.object({
   notaryRegistry: z.string().min(1).max(65_536),
   signingPrivateKeyPkcs8: z.string().regex(/^[A-Za-z0-9_-]+$/),
   trustRootCertificateDer: z.string().regex(/^[A-Za-z0-9_-]+$/).optional(),
+  resultPublicKeySpki: z.string().regex(/^[A-Za-z0-9_-]+$/).optional(),
 });
 
 const authUserSchema = z.object({
@@ -188,6 +192,22 @@ function isAllowedProductionHttpsUrl(
   }
 }
 
+function containsTestFixtureMarker(value: string): boolean {
+  return /(?:^|[._-])(test|synthetic|fixture|local|staging)(?:$|[._-])/i.test(value);
+}
+
+function isSafeDeploymentId(value: string | undefined): boolean {
+  return typeof value === "string" && /^[A-Za-z0-9._-]{1,128}$/.test(value);
+}
+
+function isSha256Base64Url(value: string | undefined): boolean {
+  return typeof value === "string" && /^[A-Za-z0-9_-]{43}$/.test(value);
+}
+
+function isPublicKeyBase64Url(value: string | undefined): boolean {
+  return typeof value === "string" && /^[A-Za-z0-9_-]{59}$/.test(value);
+}
+
 function readConfig(env: Bindings): VerifierConfig | null {
   const production = env.TLSN_ENVIRONMENT === "production";
   const parsed = configSchema.safeParse({
@@ -208,6 +228,7 @@ function readConfig(env: Bindings): VerifierConfig | null {
     trustRootCertificateDer: production
       ? env.TLSN_PRODUCTION_TRUST_ROOT_CERTIFICATE_DER
       : env.TLSN_TRUST_ROOT_CERTIFICATE_DER,
+    resultPublicKeySpki: production ? env.TLSN_RESULT_PUBLIC_KEY_SPKI : undefined,
   });
   if (!parsed.success) {
     return null;
@@ -223,7 +244,23 @@ function readConfig(env: Bindings): VerifierConfig | null {
     if (production && env.TLSN_TEST_BINDING_VALUE) {
       return null;
     }
+    if (production && env.TLSN_TEST_AUTH_USERS) {
+      return null;
+    }
+    if (
+      production &&
+      (!isSafeDeploymentId(env.TLSN_DEPLOYMENT_ID) ||
+        !isSha256Base64Url(env.TLSN_SECURITY_REGISTRY_SET_SHA256) ||
+        containsTestFixtureMarker(parsed.data.verifierKeyId) ||
+        containsTestFixtureMarker(parsed.data.notaryKeyId) ||
+        containsTestFixtureMarker(parsed.data.serverIdentity))
+    ) {
+      return null;
+    }
     if (production && !parsed.data.trustRootCertificateDer) {
+      return null;
+    }
+    if (production && !isPublicKeyBase64Url(parsed.data.resultPublicKeySpki)) {
       return null;
     }
     if (production) {
@@ -358,6 +395,7 @@ async function authenticateRequest(
 
   try {
     const response = await fetch(`${supabaseUrl}/auth/v1/user`, {
+      redirect: "error",
       headers: {
         apikey: publishableKey,
         Authorization: `Bearer ${token}`,
@@ -391,18 +429,18 @@ type DeviceAuthenticationResult =
         | "device_auth_unavailable";
     };
 
-    type DevicePossessionAuthenticationResult =
-      | { ok: true; canonicalUserId: string; deviceId: string }
-      | {
-          ok: false;
-          status: 401 | 403 | 409 | 503;
-          error:
-            | "device_possession_unauthorized"
-            | "device_possession_owner_mismatch"
-            | "device_possession_revoked"
-            | "device_possession_replayed"
-            | "device_possession_unavailable";
-        };
+type DevicePossessionAuthenticationResult =
+  | { ok: true; canonicalUserId: string; deviceId: string }
+  | {
+      ok: false;
+      status: 401 | 403 | 409 | 503;
+      error:
+        | "device_possession_unauthorized"
+        | "device_possession_owner_mismatch"
+        | "device_possession_revoked"
+        | "device_possession_replayed"
+        | "device_possession_unavailable";
+    };
 
 const deviceProofResponseSchema = z
   .object({
@@ -420,6 +458,7 @@ async function authenticateDeviceProof(
   try {
     const response = await fetch(endpoint, {
       method: "POST",
+      redirect: "error",
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${subject.accessToken}`,
@@ -477,6 +516,7 @@ async function authenticateTlsnDeviceProof(
   try {
     const response = await fetch(endpoint, {
       method: "POST",
+      redirect: "error",
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${subject.accessToken}`,
@@ -546,7 +586,26 @@ function bindingAuthorityStatus(error: unknown): BindingAuthorityHttpStatus {
   }
 }
 
-app.get("/health", (c) => c.json({ ok: true, verifier: "tlsn-alpha15-wasm" }));
+app.get("/health", (c) => {
+  const production = c.env.TLSN_ENVIRONMENT === "production";
+  const verifierKeyId = production
+    ? c.env.TLSN_PRODUCTION_VERIFIER_KEY_ID
+    : c.env.TLSN_VERIFIER_KEY_ID;
+  const profileSha256 = production
+    ? c.env.TLSN_PRODUCTION_PROFILE_SHA256
+    : c.env.TLSN_PROFILE_SHA256;
+  return c.json({
+    ok: true,
+    verifier: "tlsn-alpha15-wasm",
+    environment: c.env.TLSN_ENVIRONMENT,
+    verifier_key_id: verifierKeyId ?? null,
+    profile_sha256: profileSha256 ?? null,
+    deployment_id: c.env.TLSN_DEPLOYMENT_ID ?? null,
+    security_registry_set_sha256: c.env.TLSN_SECURITY_REGISTRY_SET_SHA256 ?? null,
+    result_public_key_spki: c.env.TLSN_RESULT_PUBLIC_KEY_SPKI ?? null,
+    binding_mode: c.env.TLSN_TEST_BINDING_VALUE ? "fixed_test" : "random",
+  });
+});
 
 app.post("/attestation/session", async (c) => {
   const config = readConfig(c.env);

@@ -9,6 +9,8 @@
     "typecheck": "pnpm run build:wasm && tsc --noEmit",
     "dev": "pnpm run build:wasm && wrangler dev",
     "deploy": "pnpm run build:wasm && wrangler deploy",
+    "preflight:production": "node scripts/deployment-preflight.mjs",
+    "validate:remote": "node scripts/remote-validation.mjs",
     "types": "wrangler types",
     "test": "node scripts/test.mjs"
   },

@@ -154,6 +154,13 @@ export async function runSmokeTest(fetch, fixture, publicKeyDerBase64url, device
   assert.deepEqual(await healthResponse.json(), {
     ok: true,
     verifier: "tlsn-alpha15-wasm",
+    environment: "test",
+    verifier_key_id: "worker-test",
+    profile_sha256: base64Url(Buffer.alloc(32)),
+    deployment_id: null,
+    security_registry_set_sha256: null,
+    result_public_key_spki: null,
+    binding_mode: "fixed_test",
   });
 
   const session = await issueSession(fetch, fixture.binding_value);

@@ -46,10 +46,42 @@ Configure these Worker values before deployment:
 - `TLSN_PRODUCTION_DEVICE_AUTH_ALLOWED_HOSTS` as a comma-separated DNS hostname allowlist for both production FUSOU-WEB device endpoints
 - `TLSN_PRODUCTION_SUPABASE_ALLOWED_HOSTS` as a comma-separated DNS hostname allowlist for the production Supabase URL
 - `TLSN_SUPABASE_URL` and `TLSN_SUPABASE_PUBLISHABLE_KEY` for production Supabase access-token verification
+- `TLSN_DEPLOYMENT_ID` and `TLSN_SECURITY_REGISTRY_SET_SHA256` for non-secret deployment and trust-registry identity
+- `TLSN_RESULT_PUBLIC_KEY_SPKI` for external Ed25519 verification of signed results; production configuration fails closed without it
 - `TLSN_TEST_AUTH_USERS` only in `TLSN_ENVIRONMENT=test`, as a JSON map of test bearer tokens to non-anonymous user IDs
 
 Production uses the `TLSN_PRODUCTION_*` equivalents, including `TLSN_PRODUCTION_DEVICE_AUTH_URL` and `TLSN_PRODUCTION_DEVICE_POSSESSION_AUTH_URL`. Device URLs must use HTTPS, match an allowlisted DNS hostname, contain no credentials/query/fragment/alternate port, and use the exact deployed FUSOU-WEB API paths. `TLSN_SUPABASE_URL` must satisfy the same HTTPS and clean-origin policy and match `TLSN_PRODUCTION_SUPABASE_ALLOWED_HOSTS`. Production does not accept `TLSN_TEST_BINDING_VALUE`. The test environment may use `TLSN_TEST_BINDING_VALUE` only to seed the synthetic fixture binding; it is not a Prover authority.
 
 `TLSN_SUPABASE_PUBLISHABLE_KEY` is a publishable client key, not a service-role key. Do not configure a service-role key in this Worker. Missing production auth configuration fails closed with `503 auth_unconfigured`; missing, unknown, malformed, or anonymous credentials return `401 unauthorized`.
+
+## Deployment preflight
+
+Run the preflight in the same CI environment that supplies the production Worker variables:
+
+```sh
+pnpm run preflight:production
+```
+
+It checks required production variables, clean HTTPS URLs and exact FUSOU-WEB paths, DNS allowlists, profile/security digests, Notary registry membership, result-key publication, and the absence of test fixtures, service-role keys, and device-private-key variables. It writes only non-secret failure metadata to `artifacts/tlsn-deployment-preflight.json` or `TLSN_PREFLIGHT_REPORT_PATH`; it never prints configuration values.
+
+## Remote validation
+
+`scripts/remote-validation.mjs` exercises deployed HTTP boundaries and verifies the returned Ed25519 result independently in Node.js. It writes `artifacts/tlsn-remote-validation.json`, returns exit code `1` for a failed check and `2` when evidence is blocked, and does not retain raw Presentations or transcripts in the report.
+
+The verify Worker used by the synthetic fixture may have one fixed `TLSN_TEST_BINDING_VALUE`. Session sampling must use a separate Worker URL without that variable; the harness requires `binding_mode: random` and 100 unique sessions by default, so fixed-binding reuse cannot masquerade as a benchmark. Revocation and expiry checks likewise require separate Worker URLs and must use disposable test devices. Revocation is opt-in and permanently revokes the configured device.
+
+Required harness inputs are supplied through CI secrets or a local secret manager, never committed:
+
+- `TLSN_REMOTE_WORKER_URL`, `TLSN_REMOTE_SESSION_BENCHMARK_URL`, `TLSN_REMOTE_WEB_ORIGIN`, and `TLSN_REMOTE_SUPABASE_URL`
+- `TLSN_REMOTE_SUPABASE_PUBLISHABLE_KEY`, `TLSN_REMOTE_ACCESS_TOKEN_A`, `TLSN_REMOTE_DEVICE_ID_A`, and either `TLSN_REMOTE_DEVICE_A_PRIVATE_KEY_PKCS8_B64URL` or `TLSN_REMOTE_DEVICE_A_PRIVATE_KEY_PKCS8_FILE`
+- `TLSN_REMOTE_FIXTURE_JSON`, `TLSN_REMOTE_RESULT_PUBLIC_KEY_SPKI`, and `TLSN_REMOTE_EXPECTED_MEMBER_ID` (the last value may instead be `expected_member_id` in the fixture)
+
+Set `TLSN_REMOTE_ACCESS_TOKEN_B`, `TLSN_REMOTE_DEVICE_ID_B`, and the corresponding device key to enable cross-user attacks. Set `TLSN_REMOTE_FIXTURE_B_JSON` to a fixture with a different binding value for context swapping. Set `TLSN_REMOTE_REVOCATION_WORKER_URL` and `TLSN_REMOTE_RUN_REVOCATION=true` for verify-time revocation; set `TLSN_REMOTE_EXPIRY_WORKER_URL` and `TLSN_REMOTE_RUN_EXPIRY=true` for expiry. A sanitized log export can be scanned with `TLSN_REMOTE_LOG_EXPORT`.
+
+Run it with:
+
+```sh
+pnpm run validate:remote
+```
 
 Status: authenticated user ownership `PASS`; authenticated device ownership `PASS`; current device possession proof `PASS, local synthetic scope`; TLSN/device cryptographic binding `PASS, local synthetic scope`; replay/expiry `PASS`; production evidence `BLOCKED`; `P0-05` `BLOCKED`. The production trust contract is not complete until the deployed FUSOU-WEB endpoints, production device registry/revocation behavior, production trust material, a Notary key registry, replay/session authority, result-key publication and rotation, and performance evidence are exercised remotely. The test Worker and synthetic evidence do not satisfy that contract.
