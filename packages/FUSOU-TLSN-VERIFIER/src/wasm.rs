@@ -15,6 +15,7 @@ fn verify_require_info_presentation_inner(
     profile_sha256: &[u8],
     verifier_key_id: &str,
     notary_key_id: &str,
+    canonical_user_id: &str,
     trusted_notary_key: &[u8],
     trust_anchor_der: Option<&[u8]>,
 ) -> Result<String, JsValue> {
@@ -54,6 +55,7 @@ fn verify_require_info_presentation_inner(
             profile_sha256,
             verifier_key_id.to_owned(),
             notary_key_id.to_owned(),
+            canonical_user_id.to_owned(),
             [0_u8; 64],
         )
         .map_err(|error| JsValue::from_str(&error.to_string()))?;
@@ -80,6 +82,7 @@ pub fn verify_require_info_presentation(
     profile_sha256: &[u8],
     verifier_key_id: &str,
     notary_key_id: &str,
+    canonical_user_id: &str,
     trusted_notary_key: &[u8],
 ) -> Result<String, JsValue> {
     verify_require_info_presentation_inner(
@@ -88,6 +91,7 @@ pub fn verify_require_info_presentation(
         profile_sha256,
         verifier_key_id,
         notary_key_id,
+        canonical_user_id,
         trusted_notary_key,
         None,
     )
@@ -100,6 +104,7 @@ pub fn verify_require_info_presentation_with_trust_anchor(
     profile_sha256: &[u8],
     verifier_key_id: &str,
     notary_key_id: &str,
+    canonical_user_id: &str,
     trust_anchor_der: &[u8],
     trusted_notary_key: &[u8],
 ) -> Result<String, JsValue> {
@@ -109,6 +114,7 @@ pub fn verify_require_info_presentation_with_trust_anchor(
         profile_sha256,
         verifier_key_id,
         notary_key_id,
+        canonical_user_id,
         trusted_notary_key,
         Some(trust_anchor_der),
     )
@@ -119,11 +125,9 @@ pub fn attach_verifier_result_signature(
     unsigned_result_json: &str,
     signature: &[u8],
 ) -> Result<String, JsValue> {
-    let mut result: VerifierResult = parse_verifier_result(
-        unsigned_result_json.as_bytes(),
-        &ParserLimits::default(),
-    )
-    .map_err(|error| JsValue::from_str(&error.to_string()))?;
+    let mut result: VerifierResult =
+        parse_verifier_result(unsigned_result_json.as_bytes(), &ParserLimits::default())
+            .map_err(|error| JsValue::from_str(&error.to_string()))?;
     result.signature = signature
         .try_into()
         .map_err(|_| JsValue::from_str("signature must be exactly 64 bytes"))?;

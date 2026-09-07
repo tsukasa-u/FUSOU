@@ -118,6 +118,7 @@ impl AuthenticatedRequireInfo {
         profile_sha256: [u8; 32],
         verifier_key_id: String,
         notary_key_id: String,
+        canonical_user_id: String,
         signature: [u8; 64],
     ) -> Result<crate::VerifierResult> {
         let result = crate::VerifierResult {
@@ -126,6 +127,7 @@ impl AuthenticatedRequireInfo {
             profile_sha256,
             issuer: crate::ISSUER.to_owned(),
             proof_purpose: crate::PROOF_PURPOSE.to_owned(),
+            canonical_user_id,
             verified_member_id: self.verified_member_id,
             attestation_session_id: self.binding.session_id,
             binding_nonce: self.binding.binding_nonce,
@@ -650,6 +652,7 @@ mod tests {
                 [0x22_u8; 32],
                 "verifier-alpha15-test".to_owned(),
                 "notary-alpha15-test".to_owned(),
+                "11111111-1111-4111-8111-111111111111".to_owned(),
                 [0x33_u8; 64],
             )
             .unwrap();

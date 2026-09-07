@@ -81,6 +81,10 @@ const testVars = {
   TLSN_NOTARY_REGISTRY: JSON.stringify({ "notary-test": syntheticFixture.notary_key_base64 }),
   TLSN_SIGNING_PRIVATE_KEY_PKCS8: signingPrivateKeyPkcs8,
   TLSN_TRUST_ROOT_CERTIFICATE_DER: syntheticFixture.root_certificate_base64,
+  TLSN_TEST_AUTH_USERS: JSON.stringify({
+    "test-token-a": { id: "11111111-1111-4111-8111-111111111111", is_anonymous: false },
+    "test-token-b": { id: "22222222-2222-4222-8222-222222222222", is_anonymous: false },
+  }),
 };
 
 function localWorker(vars) {
@@ -134,6 +138,17 @@ try {
   await runBindingContextNegativeSmokeTest(contextWorker.fetch, syntheticFixture);
 } finally {
   await contextWorker.stop();
+}
+
+const ownershipWorker = await localWorker({
+  ...testVars,
+});
+
+try {
+  const { runAuthenticatedOwnershipSmokeTest } = await import("../test/index-smoke.mjs");
+  await runAuthenticatedOwnershipSmokeTest(ownershipWorker.fetch, syntheticFixture);
+} finally {
+  await ownershipWorker.stop();
 }
 
 const expiryWorker = await localWorker({

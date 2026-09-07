@@ -535,6 +535,7 @@ mod tests {
                 [0_u8; 32],
                 "test-verifier".to_owned(),
                 "test-notary".to_owned(),
+                "11111111-1111-4111-8111-111111111111".to_owned(),
                 [0_u8; 64],
             )
             .unwrap();

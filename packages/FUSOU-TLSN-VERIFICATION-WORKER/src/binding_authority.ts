@@ -9,6 +9,7 @@ export type BindingStatus = "active" | "expired" | "consumed";
 export type BindingRecord = {
   binding_id: string;
   session_id: string;
+  canonical_user_id: string;
   nonce: string;
   binding_value: string;
   created_at: string;
@@ -21,6 +22,7 @@ export type BindingRecord = {
 type BindingOperation = {
   binding_id: string;
   session_id: string;
+  canonical_user_id: string;
   binding_value: string;
   nonce: string;
   created_at: string;
@@ -29,6 +31,7 @@ type BindingOperation = {
 
 type ConsumeInput = {
   session_id: string;
+  canonical_user_id: string;
   binding_value: string;
   nonce: string;
   presentation_id: string;
@@ -45,6 +48,7 @@ export type AuthorityErrorCode =
   | "binding_expired"
   | "binding_consumed"
   | "session_mismatch"
+  | "user_mismatch"
   | "nonce_mismatch"
   | "binding_conflict";
 
@@ -137,7 +141,12 @@ function responseError(response: Response): Promise<never> {
 export class DurableObjectBindingAuthority {
   constructor(private readonly namespace: DurableObjectNamespace) {}
 
-  async issueBinding(now: number, ttlSeconds: number, configuredBindingValue?: string): Promise<BindingRecord> {
+  async issueBinding(
+    now: number,
+    ttlSeconds: number,
+    canonicalUserId: string,
+    configuredBindingValue?: string,
+  ): Promise<BindingRecord> {
     const sessionId = configuredBindingValue ? parseBindingValue(configuredBindingValue).sessionId : crypto.randomUUID();
     const nonce = configuredBindingValue
       ? parseBindingValue(configuredBindingValue).nonce
@@ -150,6 +159,7 @@ export class DurableObjectBindingAuthority {
     const record: BindingOperation = {
       binding_id: await hashBindingId(bindingValue),
       session_id: sessionId,
+      canonical_user_id: canonicalUserId,
       nonce,
       binding_value: bindingValue,
       created_at: new Date(now).toISOString(),
@@ -158,9 +168,14 @@ export class DurableObjectBindingAuthority {
     return this.call(record.binding_id, "/issue", record);
   }
 
-  async lookupBinding(sessionId: string, bindingValue: string, now: number): Promise<BindingRecord> {
+  async lookupBinding(
+    sessionId: string,
+    bindingValue: string,
+    canonicalUserId: string,
+    now: number,
+  ): Promise<BindingRecord> {
     const bindingId = await hashBindingId(bindingValue);
-    return this.call(bindingId, "/lookup", { session_id: sessionId, now });
+    return this.call(bindingId, "/lookup", { session_id: sessionId, canonical_user_id: canonicalUserId, now });
   }
 
   async consumeBinding(bindingValue: string, input: ConsumeInput): Promise<BindingRecord> {
@@ -221,7 +236,7 @@ export class TlsnBindingAuthorityDurableObject extends DurableObject {
         case "/issue":
           return this.issue(body);
         case "/lookup":
-          return this.lookup(body.session_id, body.now);
+          return this.lookup(body.session_id, body.canonical_user_id, body.now);
         case "/consume":
           return this.consume(body as unknown as ConsumeInput);
         default:
@@ -257,7 +272,7 @@ export class TlsnBindingAuthorityDurableObject extends DurableObject {
     return Response.json({ ok: true, record: { ...operation, status: "active" } });
   }
 
-  private async lookup(sessionId: string, now: number): Promise<Response> {
+  private async lookup(sessionId: string, canonicalUserId: string, now: number): Promise<Response> {
     let result: AuthorityResponse = { ok: false, error: "binding_unknown" };
     await this.ctx.storage.transaction(async (transaction) => {
       const record = await transaction.get<BindingRecord>("binding");
@@ -266,6 +281,10 @@ export class TlsnBindingAuthorityDurableObject extends DurableObject {
       }
       if (record.session_id !== sessionId) {
         result = { ok: false, error: "session_mismatch" };
+        return;
+      }
+      if (record.canonical_user_id !== canonicalUserId) {
+        result = { ok: false, error: "user_mismatch" };
         return;
       }
       if (record.status === "active" && Date.parse(record.expires_at) <= now) {
@@ -296,6 +315,10 @@ export class TlsnBindingAuthorityDurableObject extends DurableObject {
       }
       if (record.session_id !== input.session_id) {
         result = { ok: false, error: "session_mismatch" };
+        return;
+      }
+      if (record.canonical_user_id !== input.canonical_user_id) {
+        result = { ok: false, error: "user_mismatch" };
         return;
       }
       if (record.binding_value !== input.binding_value) {
@@ -339,6 +362,7 @@ function authorityStatus(error: AuthorityErrorCode): number {
     case "binding_consumed":
     case "binding_conflict":
     case "session_mismatch":
+    case "user_mismatch":
     case "nonce_mismatch":
       return 409;
     case "binding_unknown":

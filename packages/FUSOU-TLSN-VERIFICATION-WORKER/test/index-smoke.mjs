@@ -53,6 +53,7 @@ function signingBytes(result) {
   pushLengthPrefixed(chunks, decodeBase64Url(result.profile_sha256));
   pushLengthPrefixed(chunks, result.issuer);
   pushLengthPrefixed(chunks, result.proof_purpose);
+  pushLengthPrefixed(chunks, result.canonical_user_id);
   pushLengthPrefixed(chunks, result.verified_member_id);
   pushLengthPrefixed(chunks, Buffer.from(result.attestation_session_id.replaceAll("-", ""), "hex"));
   pushLengthPrefixed(chunks, decodeBase64Url(result.binding_nonce));
@@ -85,10 +86,10 @@ function assertFullDisclosure(ranges, transcript) {
   assert.deepEqual(Buffer.concat(disclosed), transcript);
 }
 
-async function issueSession(fetch, expectedBinding) {
+async function issueSession(fetch, expectedBinding, accessToken = "test-token-a") {
   const response = await fetch("https://verify.test/attestation/session", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
     body: "{}",
   });
   assert.equal(response.status, 201);
@@ -109,10 +110,10 @@ function verificationBody(presentationBase64, session, extra = {}) {
   });
 }
 
-async function postVerification(fetch, body) {
+async function postVerification(fetch, body, accessToken = "test-token-a") {
   return fetch("https://verify.test/verify/tlsn", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
     body,
   });
 }
@@ -189,6 +190,7 @@ export async function runSmokeTest(fetch, fixture, publicKeyDerBase64url) {
     "profile_sha256",
     "issuer",
     "proof_purpose",
+    "canonical_user_id",
     "verified_member_id",
     "attestation_session_id",
     "binding_nonce",
@@ -210,6 +212,7 @@ export async function runSmokeTest(fetch, fixture, publicKeyDerBase64url) {
   assert.equal(result.profile_sha256, base64Url(Buffer.alloc(32)));
   assert.equal(result.issuer, "fusou-tlsn-verifier");
   assert.equal(result.proof_purpose, "GAME_ACCOUNT_IDENTITY_V1");
+  assert.equal(result.canonical_user_id, "11111111-1111-4111-8111-111111111111");
   assert.equal(result.verified_member_id, "16189463");
   assert.equal(result.server_identity, "game.example.test");
   assert.equal(result.attestation_session_id, session.session_id);
@@ -237,9 +240,11 @@ export async function runSmokeTest(fetch, fixture, publicKeyDerBase64url) {
   assert.equal(verifySignature(null, signingBytes(reorderedResult), publicKey, signature), true);
   const mutatedResult = { ...result, verified_member_id: "16189464" };
   assert.equal(verifySignature(null, signingBytes(mutatedResult), publicKey, signature), false);
+  const mutatedUserResult = { ...result, canonical_user_id: "22222222-2222-4222-8222-222222222222" };
+  assert.equal(verifySignature(null, signingBytes(mutatedUserResult), publicKey, signature), false);
 
   const replayResponse = await postVerification(fetch, verificationBody(fixture.presentation_base64, session));
-  assert.equal(replayResponse.status, 422);
+  assert.equal(replayResponse.status, 409);
   assert.deepEqual(await replayResponse.json(), {
     verified: false,
     error: "binding_consumed",
@@ -281,7 +286,7 @@ export async function runConcurrentReplaySmokeTest(fetch, fixture) {
     postVerification(fetch, body),
     postVerification(fetch, body),
   ]);
-  assert.deepEqual(responses.map((response) => response.status).sort(), [200, 422]);
+  assert.deepEqual(responses.map((response) => response.status).sort(), [200, 409]);
   const payloads = await Promise.all(responses.map((response) => response.json()));
   assert.equal(payloads.filter((payload) => payload.verified === true).length, 1);
   assert.equal(payloads.filter((payload) => payload.error === "binding_consumed").length, 1);
@@ -304,7 +309,7 @@ export async function runBindingContextNegativeSmokeTest(fetch, fixture) {
     session_id: "123e4567-e89b-42d3-a456-426614174001",
     binding: session.binding,
   }));
-  assert.equal(wrongSessionResponse.status, 422);
+  assert.equal(wrongSessionResponse.status, 409);
   assert.deepEqual(await wrongSessionResponse.json(), { verified: false, error: "session_mismatch" });
 
   const unknownBindingResponse = await postVerification(fetch, JSON.stringify({
@@ -315,6 +320,48 @@ export async function runBindingContextNegativeSmokeTest(fetch, fixture) {
   assert.equal(unknownBindingResponse.status, 422);
   assert.deepEqual(await unknownBindingResponse.json(), { verified: false, error: "binding_unknown" });
   console.log("[tlsn-verification-worker] binding context rejection paths OK");
+}
+
+export async function runAuthenticatedOwnershipSmokeTest(fetch, fixture) {
+  const missingAuthResponse = await fetch("https://verify.test/attestation/session", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: "{}",
+  });
+  assert.equal(missingAuthResponse.status, 401);
+  assert.deepEqual(await missingAuthResponse.json(), { error: "unauthorized" });
+
+  const session = await issueSession(fetch, fixture.binding_value, "test-token-a");
+  const stolenBindingResponse = await postVerification(
+    fetch,
+    verificationBody(fixture.presentation_base64, session),
+    "test-token-b",
+  );
+  assert.equal(stolenBindingResponse.status, 409);
+  assert.deepEqual(await stolenBindingResponse.json(), {
+    verified: false,
+    error: "user_mismatch",
+  });
+
+  const validResponse = await postVerification(
+    fetch,
+    verificationBody(fixture.presentation_base64, session),
+    "test-token-a",
+  );
+  assert.equal(validResponse.status, 200);
+  assert.equal((await validResponse.json()).verified, true);
+
+  const unknownAuthResponse = await fetch("https://verify.test/attestation/session", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: "Bearer expired-or-unknown-token",
+    },
+    body: "{}",
+  });
+  assert.equal(unknownAuthResponse.status, 401);
+  assert.deepEqual(await unknownAuthResponse.json(), { error: "unauthorized" });
+  console.log("[tlsn-verification-worker] authenticated ownership and auth failure paths OK");
 }
 
 export async function runProductionTrustRootSmokeTest(fetch) {

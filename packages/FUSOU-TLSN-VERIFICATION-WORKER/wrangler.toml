@@ -4,6 +4,8 @@ compatibility_date = "2026-09-07"
 
 # Configure these values in Wrangler environments or the Cloudflare dashboard.
 # The Worker fails closed when any required value is absent or malformed.
+# Production authentication additionally requires TLSN_SUPABASE_URL and
+# TLSN_SUPABASE_PUBLISHABLE_KEY. Keep test token fixtures out of production.
 
 [[rules]]
 type = "CompiledWasm"

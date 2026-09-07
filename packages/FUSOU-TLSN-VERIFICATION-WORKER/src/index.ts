@@ -32,6 +32,9 @@ type Bindings = {
   TLSN_PRODUCTION_NOTARY_REGISTRY?: string;
   TLSN_PRODUCTION_SIGNING_PRIVATE_KEY_PKCS8?: string;
   TLSN_PRODUCTION_TRUST_ROOT_CERTIFICATE_DER?: string;
+  TLSN_SUPABASE_URL?: string;
+  TLSN_SUPABASE_PUBLISHABLE_KEY?: string;
+  TLSN_TEST_AUTH_USERS?: string;
 };
 
 const MAX_PRESENTATION_BYTES = 8 * 1024 * 1024;
@@ -55,6 +58,7 @@ const sessionRequestSchema = z.object({}).strict();
 
 const authenticatedResultSchema = z.object({
   attestation_session_id: z.string().uuid(),
+  canonical_user_id: z.string().uuid(),
   binding_nonce: z.string().regex(/^[A-Za-z0-9_-]+$/),
   binding_value: z.string().min(1).max(512).regex(/^[A-Za-z0-9_-]+$/),
   tlsn_attestation_id: z.string().regex(/^[A-Za-z0-9_-]+$/),
@@ -77,6 +81,21 @@ const configSchema = z.object({
   signingPrivateKeyPkcs8: z.string().regex(/^[A-Za-z0-9_-]+$/),
   trustRootCertificateDer: z.string().regex(/^[A-Za-z0-9_-]+$/).optional(),
 });
+
+const authUserSchema = z.object({
+  id: z.string().uuid(),
+  is_anonymous: z.boolean().optional(),
+}).passthrough();
+
+const testAuthUsersSchema = z.record(z.string().min(1), authUserSchema);
+
+type AuthenticatedSubject = {
+  canonicalUserId: string;
+};
+
+type AuthenticationResult =
+  | { ok: true; subject: AuthenticatedSubject }
+  | { ok: false; status: 401 | 503; error: "unauthorized" | "auth_unconfigured" };
 
 const notaryRegistrySchema = z.record(
   z.string().regex(/^[A-Za-z0-9._-]{1,64}$/),
@@ -209,6 +228,93 @@ async function readJsonBody(request: Request): Promise<unknown> {
   return JSON.parse(raw) as unknown;
 }
 
+function extractBearerToken(request: Request): string | null {
+  const header = request.headers.get("Authorization")?.trim();
+  const match = header ? /^Bearer ([^\s]+)$/.exec(header) : null;
+  return match?.[1] ?? null;
+}
+
+function authenticationFailure(
+  error: "unauthorized" | "auth_unconfigured",
+): AuthenticationResult {
+  return { ok: false, status: error === "unauthorized" ? 401 : 503, error };
+}
+
+async function authenticateRequest(
+  request: Request,
+  env: Bindings,
+): Promise<AuthenticationResult> {
+  const token = extractBearerToken(request);
+  if (env.TLSN_ENVIRONMENT === "test" && env.TLSN_TEST_AUTH_USERS) {
+    try {
+      const users = testAuthUsersSchema.parse(JSON.parse(env.TLSN_TEST_AUTH_USERS));
+      const user = token ? users[token] : undefined;
+      if (!user || user.is_anonymous === true) {
+        return authenticationFailure("unauthorized");
+      }
+      return { ok: true, subject: { canonicalUserId: user.id } };
+    } catch {
+      return authenticationFailure("auth_unconfigured");
+    }
+  }
+
+  const supabaseUrl = env.TLSN_SUPABASE_URL?.replace(/\/$/, "");
+  const publishableKey = env.TLSN_SUPABASE_PUBLISHABLE_KEY;
+  if (!supabaseUrl || !publishableKey) {
+    return authenticationFailure("auth_unconfigured");
+  }
+  if (!token) {
+    return authenticationFailure("unauthorized");
+  }
+
+  try {
+    const response = await fetch(`${supabaseUrl}/auth/v1/user`, {
+      headers: {
+        apikey: publishableKey,
+        Authorization: `Bearer ${token}`,
+      },
+    });
+    if (!response.ok) {
+      return authenticationFailure("unauthorized");
+    }
+    const user = authUserSchema.parse(await response.json());
+    if (user.is_anonymous === true) {
+      return authenticationFailure("unauthorized");
+    }
+    return { ok: true, subject: { canonicalUserId: user.id } };
+  } catch {
+    return authenticationFailure("unauthorized");
+  }
+}
+
+function requireAuthentication(
+  result: AuthenticationResult,
+): Response | AuthenticatedSubject {
+  return result.ok ? result.subject : Response.json({ error: result.error }, { status: result.status });
+}
+
+type BindingAuthorityHttpStatus = 409 | 410 | 422 | 503;
+
+function bindingAuthorityStatus(error: unknown): BindingAuthorityHttpStatus {
+  if (!(error instanceof BindingAuthorityError)) {
+    return 422;
+  }
+  switch (error.code) {
+    case "authority_unavailable":
+      return 503;
+    case "binding_expired":
+      return 410;
+    case "binding_consumed":
+    case "binding_conflict":
+    case "session_mismatch":
+    case "user_mismatch":
+    case "nonce_mismatch":
+      return 409;
+    default:
+      return 422;
+  }
+}
+
 app.get("/health", (c) => c.json({ ok: true, verifier: "tlsn-alpha15-wasm" }));
 
 app.post("/attestation/session", async (c) => {
@@ -216,12 +322,17 @@ app.post("/attestation/session", async (c) => {
   if (!config) {
     return c.json({ error: "verifier_unconfigured" }, 503);
   }
+  const authentication = requireAuthentication(await authenticateRequest(c.req.raw, c.env));
+  if (authentication instanceof Response) {
+    return authentication;
+  }
   try {
     sessionRequestSchema.parse(await readJsonBody(c.req.raw));
     const authority = new DurableObjectBindingAuthority(c.env.TLSN_BINDINGS);
     const record = await authority.issueBinding(
       Date.now(),
       config.bindingTtlSeconds,
+      authentication.canonicalUserId,
       c.env.TLSN_ENVIRONMENT === "test" ? c.env.TLSN_TEST_BINDING_VALUE : undefined,
     );
     c.header("Cache-Control", "no-store");
@@ -240,6 +351,10 @@ app.post("/verify/tlsn", async (c) => {
   const config = readConfig(c.env);
   if (!config) {
     return c.json({ error: "verifier_unconfigured" }, 503);
+  }
+  const authentication = requireAuthentication(await authenticateRequest(c.req.raw, c.env));
+  if (authentication instanceof Response) {
+    return authentication;
   }
 
   let requestBody: z.infer<typeof requestSchema>;
@@ -262,15 +377,12 @@ app.post("/verify/tlsn", async (c) => {
     issuedBinding = await authority.lookupBinding(
       requestBody.session_id,
       requestBody.binding,
+      authentication.canonicalUserId,
       Date.now(),
     );
   } catch (error) {
-    if (error instanceof BindingAuthorityError && error.code === "authority_unavailable") {
-      return c.json({ verified: false, error: "authority_unavailable" }, 503);
-    }
-    const status = error instanceof BindingAuthorityError && error.code === "binding_expired" ? 410 : 422;
     const message = error instanceof BindingAuthorityError ? error.code : "binding_unknown";
-    return c.json({ verified: false, error: message }, status);
+    return c.json({ verified: false, error: message }, bindingAuthorityStatus(error));
   }
 
   try {
@@ -289,6 +401,7 @@ app.post("/verify/tlsn", async (c) => {
               config.profileSha256Bytes,
               config.verifierKeyId,
               config.notaryKeyId,
+              authentication.canonicalUserId,
               config.trustRootCertificateDerBytes,
               config.notaryKeyBytes,
             )
@@ -298,6 +411,7 @@ app.post("/verify/tlsn", async (c) => {
               config.profileSha256Bytes,
               config.verifierKeyId,
               config.notaryKeyId,
+              authentication.canonicalUserId,
               config.notaryKeyBytes,
             ),
       ) as unknown,
@@ -308,6 +422,7 @@ app.post("/verify/tlsn", async (c) => {
     if (
       authenticatedResult.attestation_session_id !== issuedBinding.session_id ||
       authenticatedResult.attestation_session_id !== requestBody.session_id ||
+      authenticatedResult.canonical_user_id !== authentication.canonicalUserId ||
       authenticatedResult.binding_nonce !== issuedBinding.nonce ||
       authenticatedResult.binding_value !== issuedBinding.binding_value ||
       authenticatedResult.binding_value !== requestBody.binding
@@ -325,18 +440,15 @@ app.post("/verify/tlsn", async (c) => {
     try {
       await authority.consumeBinding(requestBody.binding, {
         session_id: requestBody.session_id,
+        canonical_user_id: authentication.canonicalUserId,
         binding_value: requestBody.binding,
         nonce: authenticatedResult.binding_nonce,
         presentation_id: presentationId,
         now: Date.now(),
       });
     } catch (error) {
-      if (error instanceof BindingAuthorityError && error.code === "authority_unavailable") {
-        return c.json({ verified: false, error: "authority_unavailable" }, 503);
-      }
-      const status = error instanceof BindingAuthorityError && error.code === "binding_expired" ? 410 : 422;
       const message = error instanceof BindingAuthorityError ? error.code : "binding_unknown";
-      return c.json({ verified: false, error: message }, status);
+      return c.json({ verified: false, error: message }, bindingAuthorityStatus(error));
     }
     const signedResultJson = attach_verifier_result_signature(
       prepared.unsigned_result,
