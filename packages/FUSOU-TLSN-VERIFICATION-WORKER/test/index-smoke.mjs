@@ -436,7 +436,18 @@ export async function runProductionTrustRootSmokeTest(fetch) {
     headers: { "Content-Type": "application/json" },
     body: "{}",
   });
+  assert.equal(response.status, 401);
+  assert.deepEqual(await response.json(), { error: "unauthorized" });
+  console.log("[tlsn-verification-worker] production trust and endpoint configuration gate OK");
+}
+
+export async function runProductionEndpointPolicySmokeTest(fetch) {
+  const response = await fetch("https://verify.test/attestation/session", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: "{}",
+  });
   assert.equal(response.status, 503);
   assert.deepEqual(await response.json(), { error: "verifier_unconfigured" });
-  console.log("[tlsn-verification-worker] production trust configuration gate OK");
+  console.log("[tlsn-verification-worker] production endpoint policy fail-closed path OK");
 }

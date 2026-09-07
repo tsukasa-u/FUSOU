@@ -6,6 +6,10 @@ compatibility_date = "2026-09-07"
 # The Worker fails closed when any required value is absent or malformed.
 # Production authentication additionally requires TLSN_SUPABASE_URL and
 # TLSN_SUPABASE_PUBLISHABLE_KEY. Keep test token fixtures out of production.
+# Production device endpoints additionally require
+# TLSN_PRODUCTION_DEVICE_AUTH_ALLOWED_HOSTS and the exact FUSOU-WEB API paths.
+# Production Supabase token validation additionally requires
+# TLSN_PRODUCTION_SUPABASE_ALLOWED_HOSTS.
 
 [[rules]]
 type = "CompiledWasm"

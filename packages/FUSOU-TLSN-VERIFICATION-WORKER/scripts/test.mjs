@@ -312,6 +312,13 @@ const productionTrustRootWorker = await unstable_dev(resolve(packageDirectory, "
     TLSN_PRODUCTION_NOTARY_KEY_ID: "notary-test",
     TLSN_PRODUCTION_NOTARY_REGISTRY: JSON.stringify({ "notary-test": syntheticFixture.notary_key_base64 }),
     TLSN_PRODUCTION_SIGNING_PRIVATE_KEY_PKCS8: signingPrivateKeyPkcs8,
+    TLSN_PRODUCTION_TRUST_ROOT_CERTIFICATE_DER: syntheticFixture.root_certificate_base64,
+    TLSN_PRODUCTION_DEVICE_AUTH_URL: "https://fusou.dev/api/auth/anonymous-sync/v2/device-proof",
+    TLSN_PRODUCTION_DEVICE_POSSESSION_AUTH_URL: "https://fusou.dev/api/auth/anonymous-sync/v2/tlsn-device-proof",
+    TLSN_PRODUCTION_DEVICE_AUTH_ALLOWED_HOSTS: "fusou.dev",
+    TLSN_PRODUCTION_SUPABASE_ALLOWED_HOSTS: "project.supabase.co",
+    TLSN_SUPABASE_URL: "https://project.supabase.co",
+    TLSN_SUPABASE_PUBLISHABLE_KEY: "test-publishable-key",
   },
   persist: false,
   bundle: true,
@@ -329,6 +336,43 @@ try {
   await runProductionTrustRootSmokeTest(productionTrustRootWorker.fetch);
 } finally {
   await productionTrustRootWorker.stop();
+}
+
+const invalidProductionEndpointWorker = await unstable_dev(resolve(packageDirectory, "src/index.ts"), {
+  config: resolve(packageDirectory, "wrangler.toml"),
+  vars: {
+    TLSN_ENVIRONMENT: "production",
+    TLSN_BINDING_TTL_SECONDS: "60",
+    TLSN_PRODUCTION_SERVER_IDENTITY: "game.example.test",
+    TLSN_PRODUCTION_PROFILE_SHA256: Buffer.alloc(32).toString("base64url"),
+    TLSN_PRODUCTION_VERIFIER_KEY_ID: "worker-test",
+    TLSN_PRODUCTION_NOTARY_KEY_ID: "notary-test",
+    TLSN_PRODUCTION_NOTARY_REGISTRY: JSON.stringify({ "notary-test": syntheticFixture.notary_key_base64 }),
+    TLSN_PRODUCTION_SIGNING_PRIVATE_KEY_PKCS8: signingPrivateKeyPkcs8,
+    TLSN_PRODUCTION_TRUST_ROOT_CERTIFICATE_DER: syntheticFixture.root_certificate_base64,
+    TLSN_PRODUCTION_DEVICE_AUTH_URL: "https://evil.example/api/auth/anonymous-sync/v2/device-proof",
+    TLSN_PRODUCTION_DEVICE_POSSESSION_AUTH_URL: "https://fusou.dev/api/auth/anonymous-sync/v2/tlsn-device-proof",
+    TLSN_PRODUCTION_DEVICE_AUTH_ALLOWED_HOSTS: "fusou.dev",
+    TLSN_PRODUCTION_SUPABASE_ALLOWED_HOSTS: "project.supabase.co",
+    TLSN_SUPABASE_URL: "https://project.supabase.co",
+    TLSN_SUPABASE_PUBLISHABLE_KEY: "test-publishable-key",
+  },
+  persist: false,
+  bundle: true,
+  local: true,
+  compatibilityDate: "2026-07-29",
+  experimental: {
+    disableExperimentalWarning: true,
+    forceLocal: true,
+    testMode: true,
+  },
+});
+
+try {
+  const { runProductionEndpointPolicySmokeTest } = await import("../test/index-smoke.mjs");
+  await runProductionEndpointPolicySmokeTest(invalidProductionEndpointWorker.fetch);
+} finally {
+  await invalidProductionEndpointWorker.stop();
 }
 
 const unconfiguredWorker = await unstable_dev(resolve(packageDirectory, "src/index.ts"), {

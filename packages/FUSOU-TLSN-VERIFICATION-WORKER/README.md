@@ -43,10 +43,12 @@ Configure these Worker values before deployment:
 - `TLSN_TRUST_ROOT_CERTIFICATE_DER` when the configured verification profile requires a custom trust root
 - `TLSN_DEVICE_AUTH_URL` set to the FUSOU-WEB device-proof endpoint (`/api/auth/anonymous-sync/v2/device-proof` in the deployed API) for non-production environments
 - `TLSN_DEVICE_POSSESSION_AUTH_URL` set to the dedicated FUSOU-WEB TLSN possession endpoint (`/api/auth/anonymous-sync/v2/tlsn-device-proof` in the deployed API) for non-production environments
+- `TLSN_PRODUCTION_DEVICE_AUTH_ALLOWED_HOSTS` as a comma-separated DNS hostname allowlist for both production FUSOU-WEB device endpoints
+- `TLSN_PRODUCTION_SUPABASE_ALLOWED_HOSTS` as a comma-separated DNS hostname allowlist for the production Supabase URL
 - `TLSN_SUPABASE_URL` and `TLSN_SUPABASE_PUBLISHABLE_KEY` for production Supabase access-token verification
 - `TLSN_TEST_AUTH_USERS` only in `TLSN_ENVIRONMENT=test`, as a JSON map of test bearer tokens to non-anonymous user IDs
 
-Production uses the `TLSN_PRODUCTION_*` equivalents, including `TLSN_PRODUCTION_DEVICE_AUTH_URL` and `TLSN_PRODUCTION_DEVICE_POSSESSION_AUTH_URL`, which must use HTTPS, and does not accept `TLSN_TEST_BINDING_VALUE`. The test environment may use `TLSN_TEST_BINDING_VALUE` only to seed the synthetic fixture binding; it is not a Prover authority.
+Production uses the `TLSN_PRODUCTION_*` equivalents, including `TLSN_PRODUCTION_DEVICE_AUTH_URL` and `TLSN_PRODUCTION_DEVICE_POSSESSION_AUTH_URL`. Device URLs must use HTTPS, match an allowlisted DNS hostname, contain no credentials/query/fragment/alternate port, and use the exact deployed FUSOU-WEB API paths. `TLSN_SUPABASE_URL` must satisfy the same HTTPS and clean-origin policy and match `TLSN_PRODUCTION_SUPABASE_ALLOWED_HOSTS`. Production does not accept `TLSN_TEST_BINDING_VALUE`. The test environment may use `TLSN_TEST_BINDING_VALUE` only to seed the synthetic fixture binding; it is not a Prover authority.
 
 `TLSN_SUPABASE_PUBLISHABLE_KEY` is a publishable client key, not a service-role key. Do not configure a service-role key in this Worker. Missing production auth configuration fails closed with `503 auth_unconfigured`; missing, unknown, malformed, or anonymous credentials return `401 unauthorized`.
 

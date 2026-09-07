@@ -32,6 +32,8 @@ type Bindings = {
   TLSN_PRODUCTION_NOTARY_REGISTRY?: string;
   TLSN_PRODUCTION_SIGNING_PRIVATE_KEY_PKCS8?: string;
   TLSN_PRODUCTION_TRUST_ROOT_CERTIFICATE_DER?: string;
+  TLSN_PRODUCTION_DEVICE_AUTH_ALLOWED_HOSTS?: string;
+  TLSN_PRODUCTION_SUPABASE_ALLOWED_HOSTS?: string;
   TLSN_SUPABASE_URL?: string;
   TLSN_SUPABASE_PUBLISHABLE_KEY?: string;
   TLSN_DEVICE_AUTH_URL?: string;
@@ -96,6 +98,7 @@ const configSchema = z.object({
   notaryKeyId: z.string().regex(/^[A-Za-z0-9._-]{1,64}$/),
   deviceAuthUrl: z.string().url(),
   devicePossessionAuthUrl: z.string().url(),
+  deviceAuthAllowedHosts: z.string().optional(),
   notaryRegistry: z.string().min(1).max(65_536),
   signingPrivateKeyPkcs8: z.string().regex(/^[A-Za-z0-9_-]+$/),
   trustRootCertificateDer: z.string().regex(/^[A-Za-z0-9_-]+$/).optional(),
@@ -149,6 +152,42 @@ function decodeBase64Url(value: string, maximumBytes: number): Uint8Array {
   return bytes;
 }
 
+const DNS_HOSTNAME_PATTERN = /^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/;
+
+function parseHostnameAllowlist(value: string | undefined): Set<string> | null {
+  if (!value) return null;
+  const hosts = value
+    .split(",")
+    .map((host) => host.trim().toLowerCase())
+    .filter((host) => host.length > 0);
+  if (hosts.length === 0 || hosts.some((host) => !DNS_HOSTNAME_PATTERN.test(host))) {
+    return null;
+  }
+  return new Set(hosts);
+}
+
+function isAllowedProductionHttpsUrl(
+  value: string,
+  pathname: string,
+  allowedHosts: Set<string>,
+): boolean {
+  try {
+    const url = new URL(value);
+    return (
+      url.protocol === "https:" &&
+      url.username === "" &&
+      url.password === "" &&
+      url.port === "" &&
+      url.search === "" &&
+      url.hash === "" &&
+      allowedHosts.has(url.hostname.toLowerCase()) &&
+      url.pathname === pathname
+    );
+  } catch {
+    return false;
+  }
+}
+
 function readConfig(env: Bindings): VerifierConfig | null {
   const production = env.TLSN_ENVIRONMENT === "production";
   const parsed = configSchema.safeParse({
@@ -161,6 +200,7 @@ function readConfig(env: Bindings): VerifierConfig | null {
     devicePossessionAuthUrl: production
       ? env.TLSN_PRODUCTION_DEVICE_POSSESSION_AUTH_URL
       : env.TLSN_DEVICE_POSSESSION_AUTH_URL,
+    deviceAuthAllowedHosts: production ? env.TLSN_PRODUCTION_DEVICE_AUTH_ALLOWED_HOSTS : undefined,
     notaryRegistry: production ? env.TLSN_PRODUCTION_NOTARY_REGISTRY : env.TLSN_NOTARY_REGISTRY,
     signingPrivateKeyPkcs8: production
       ? env.TLSN_PRODUCTION_SIGNING_PRIVATE_KEY_PKCS8
@@ -186,11 +226,30 @@ function readConfig(env: Bindings): VerifierConfig | null {
     if (production && !parsed.data.trustRootCertificateDer) {
       return null;
     }
-    if (production && !parsed.data.deviceAuthUrl.startsWith("https://")) {
-      return null;
-    }
-    if (production && !parsed.data.devicePossessionAuthUrl.startsWith("https://")) {
-      return null;
+    if (production) {
+      const deviceAuthAllowedHosts = parseHostnameAllowlist(parsed.data.deviceAuthAllowedHosts);
+      const supabaseAllowedHosts = parseHostnameAllowlist(env.TLSN_PRODUCTION_SUPABASE_ALLOWED_HOSTS);
+      if (
+        !deviceAuthAllowedHosts ||
+        !supabaseAllowedHosts ||
+        !isAllowedProductionHttpsUrl(
+          parsed.data.deviceAuthUrl,
+          "/api/auth/anonymous-sync/v2/device-proof",
+          deviceAuthAllowedHosts,
+        ) ||
+        !isAllowedProductionHttpsUrl(
+          parsed.data.devicePossessionAuthUrl,
+          "/api/auth/anonymous-sync/v2/tlsn-device-proof",
+          deviceAuthAllowedHosts,
+        ) ||
+        !isAllowedProductionHttpsUrl(
+          env.TLSN_SUPABASE_URL ?? "",
+          "/",
+          supabaseAllowedHosts,
+        )
+      ) {
+        return null;
+      }
     }
     const notaryRegistry = notaryRegistrySchema.safeParse(JSON.parse(parsed.data.notaryRegistry));
     if (!notaryRegistry.success) {
