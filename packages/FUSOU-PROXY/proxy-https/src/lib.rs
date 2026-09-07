@@ -12,3 +12,5 @@ pub mod edit_pac;
 pub mod experimental_tlsn;
 pub mod pac_server;
 pub mod proxy_server_https;
+#[cfg(feature = "synthetic-tlsn")]
+pub mod synthetic_tlsn;
