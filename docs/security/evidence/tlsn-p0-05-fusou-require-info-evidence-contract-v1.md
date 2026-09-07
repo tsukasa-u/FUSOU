@@ -7,10 +7,7 @@ authenticated `require_info` Presentation. It defines what a qualifying
 alpha.15 Presentation must prove, which exact transcript bytes the FUSOU
 profile consumes, and which evidence remains outside the Presentation. It does
 not acquire, inspect, or create a natural capture, serialized Presentation,
-replay, injection, Game Server request, or synthetic substitute. The separate
-experimental direct compatibility executable may issue an explicitly
-acknowledged live request, but this contract document does not treat its
-sanitized observation as authenticated evidence.
+replay, injection, Game Server request, or synthetic substitute.
 
 The current phase decision remains:
 
@@ -58,7 +55,6 @@ Evidence artifacts must carry one explicit classification:
 | `REAL_ALPHA15_VERIFICATION` | A serialized alpha.15 Presentation that passes the pinned upstream verifier | Proves the backend path, but not FUSOU evidence |
 | `REAL_FUSOU_AUTHENTICATED_EVIDENCE` | A real Presentation that passes alpha.15 verification and the frozen FUSOU profile with a complete evidence manifest | Required for the authenticated disclosure sub-gate |
 | `RUNTIME_EVIDENCE` | Evidence from the actual FUSOU authority, verifier, signer, and delivery runtime | Required for runtime and authority sub-gates |
-| `DIRECT_ORIGIN_COMPATIBILITY_OBSERVATION` | One explicitly invoked direct-TLS request to the experimental allowlisted host, recording only sanitized response metadata | Compatibility data only; does not qualify for P0-05 |
 | `CONTRACT_ONLY` | A specification of required evidence with no qualifying artifact | Does not change P0-05 |
 
 The checked-in upstream `GET /` Presentation remains

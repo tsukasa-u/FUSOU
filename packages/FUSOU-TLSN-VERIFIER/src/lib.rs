@@ -1,7 +1,6 @@
 #![forbid(unsafe_code)]
 
 pub mod experimental;
-pub mod experimental_compat;
 pub mod experimental_correlation;
 pub mod prover_transport;
 pub mod tlsn_alpha15;
