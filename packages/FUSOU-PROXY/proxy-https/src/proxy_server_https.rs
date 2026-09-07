@@ -31,6 +31,9 @@ use crate::capture::{
     ExactWireMessage, ExactWireMetadata,
 };
 use crate::capture_io::{CaptureDirection, CaptureRecorder};
+pub use crate::experimental_tlsn::{
+    ExperimentalForwardFuture, ExperimentalRequireInfoForwarder, ExperimentalTlsnForwarder,
+};
 use crate::{bidirectional_channel, capture};
 
 use configs;
@@ -67,13 +70,6 @@ enum ExperimentalRequireInfoDecision {
     Forward,
     Selected,
     Blocked,
-}
-
-type ExperimentalForwardFuture =
-    Pin<Box<dyn Future<Output = Result<Response<Body>, String>> + Send>>;
-
-trait ExperimentalRequireInfoForwarder: Send + Sync {
-    fn forward(&self, request: Request<hyper::body::Bytes>) -> ExperimentalForwardFuture;
 }
 
 impl ExperimentalRequireInfoRoute {
@@ -118,13 +114,16 @@ impl ExperimentalRequireInfoRoute {
 
     async fn forward_selected(
         &self,
+        connection_id: u64,
         part: request::Parts,
         body: hyper::body::Bytes,
     ) -> Result<Response<Body>, String> {
         let Some(forwarder) = &self.forwarder else {
             return Err("Prover-owned origin transport is unavailable".to_owned());
         };
-        forwarder.forward(Request::from_parts(part, body)).await
+        forwarder
+            .forward(connection_id, Request::from_parts(part, body))
+            .await
     }
 }
 
@@ -917,11 +916,7 @@ struct LogHandler {
 }
 
 impl HttpHandler for LogHandler {
-    async fn handle_request(
-        &mut self,
-        _ctx: &HttpContext,
-        req: Request<Body>,
-    ) -> RequestOrResponse {
+    async fn handle_request(&mut self, ctx: &HttpContext, req: Request<Body>) -> RequestOrResponse {
         self.request_uri = req.uri().clone();
 
         let (part, body) = req.into_parts();
@@ -952,7 +947,7 @@ impl HttpHandler for LogHandler {
             ExperimentalRequireInfoDecision::Selected => {
                 let response = self
                     .experimental_require_info_route
-                    .forward_selected(part, body)
+                    .forward_selected(ctx.connection_id, part, body)
                     .await
                     .unwrap_or_else(|error| {
                         tracing::warn!(error = %error, "Experimental TLSN request was not forwarded");
@@ -1177,11 +1172,13 @@ pub fn serve_proxy(
     let allow_save_resources = configs.get_allow_save_resources();
     let allow_save_main_js_local = configs.get_allow_save_main_js_local();
     let experimental_tlsn_enabled = configs.get_experimental_tlsn_enabled();
-    if experimental_tlsn_enabled {
-        tracing::warn!(
-            "Experimental TLSN route enabled; the first actual require_info request will fail closed until its Prover-owned origin transport is configured"
-        );
-    }
+    let experimental_tlsn_forwarder: Option<Arc<dyn ExperimentalRequireInfoForwarder>> =
+        experimental_tlsn_enabled.then(|| {
+            tracing::warn!(
+                "Experimental TLSN route enabled; external binding, Prover transport, verifier, signer, and delivery dependencies remain fail-closed"
+            );
+            ExperimentalTlsnForwarder::unavailable() as Arc<dyn ExperimentalRequireInfoForwarder>
+        });
     let capture_output_root = if configs.get_capture_enabled() {
         match configs.get_capture_output_path().map(PathBuf::from) {
             Some(path) if path.is_absolute() => Some(path),
@@ -1368,7 +1365,7 @@ pub fn serve_proxy(
             allow_save_main_js_local,
             experimental_require_info_route: ExperimentalRequireInfoRoute::new(
                 experimental_tlsn_enabled,
-                None,
+                experimental_tlsn_forwarder,
             ),
         });
 
@@ -1499,7 +1496,11 @@ mod tests {
     }
 
     impl ExperimentalRequireInfoForwarder for RecordingExperimentalForwarder {
-        fn forward(&self, request: Request<hyper::body::Bytes>) -> ExperimentalForwardFuture {
+        fn forward(
+            &self,
+            _connection_id: u64,
+            request: Request<hyper::body::Bytes>,
+        ) -> ExperimentalForwardFuture {
             let requests = Arc::clone(&self.requests);
             Box::pin(async move {
                 requests
@@ -1532,7 +1533,7 @@ mod tests {
             ExperimentalRequireInfoDecision::Selected
         );
         let response = route
-            .forward_selected(parts, body)
+            .forward_selected(7, parts, body)
             .await
             .expect("experimental forwarder response");
         assert_eq!(response.status(), http::StatusCode::OK);
