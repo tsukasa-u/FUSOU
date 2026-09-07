@@ -417,10 +417,73 @@ pub struct VerifiedTlsnEvidence {
     request_sha256: [u8; 32],
     response_sha256: [u8; 32],
     verified_member_id: VerifiedMemberId,
+    metadata: TlsnEvidenceMetadata,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TlsnEvidenceMetadata {
+    connection_id: u64,
+    binding_identifier: [u8; 32],
+    server_identity: Option<String>,
+    authenticated_request_sha256: [u8; 32],
+    authenticated_response_sha256: [u8; 32],
+    presentation_identifier: Option<String>,
+    presentation_sha256: Option<[u8; 32]>,
+}
+
+impl TlsnEvidenceMetadata {
+    pub fn new(
+        connection_id: u64,
+        binding_identifier: [u8; 32],
+        server_identity: Option<String>,
+        authenticated_request_sha256: [u8; 32],
+        authenticated_response_sha256: [u8; 32],
+        presentation_identifier: Option<String>,
+        presentation_sha256: Option<[u8; 32]>,
+    ) -> Self {
+        Self {
+            connection_id,
+            binding_identifier,
+            server_identity,
+            authenticated_request_sha256,
+            authenticated_response_sha256,
+            presentation_identifier,
+            presentation_sha256,
+        }
+    }
+
+    pub fn connection_id(&self) -> u64 {
+        self.connection_id
+    }
+
+    pub fn binding_identifier(&self) -> &[u8; 32] {
+        &self.binding_identifier
+    }
+
+    pub fn server_identity(&self) -> Option<&str> {
+        self.server_identity.as_deref()
+    }
+
+    pub fn authenticated_request_sha256(&self) -> &[u8; 32] {
+        &self.authenticated_request_sha256
+    }
+
+    pub fn authenticated_response_sha256(&self) -> &[u8; 32] {
+        &self.authenticated_response_sha256
+    }
+
+    pub fn presentation_identifier(&self) -> Option<&str> {
+        self.presentation_identifier.as_deref()
+    }
+
+    pub fn presentation_sha256(&self) -> Option<&[u8; 32]> {
+        self.presentation_sha256.as_ref()
+    }
 }
 
 impl VerifiedTlsnEvidence {
-    pub fn from_verifier(
+    #[allow(dead_code)]
+    pub(crate) fn from_verifier(
         request_sha256: [u8; 32],
         response_sha256: [u8; 32],
         verified_member_id: VerifiedMemberId,
@@ -429,7 +492,21 @@ impl VerifiedTlsnEvidence {
             request_sha256,
             response_sha256,
             verified_member_id,
+            metadata: TlsnEvidenceMetadata::new(
+                0,
+                [0_u8; 32],
+                None,
+                request_sha256,
+                response_sha256,
+                None,
+                None,
+            ),
         }
+    }
+
+    pub(crate) fn with_metadata(mut self, metadata: TlsnEvidenceMetadata) -> Self {
+        self.metadata = metadata;
+        self
     }
 
     pub fn request_sha256(&self) -> &[u8; 32] {
@@ -443,6 +520,10 @@ impl VerifiedTlsnEvidence {
     pub fn verified_member_id(&self) -> &VerifiedMemberId {
         &self.verified_member_id
     }
+
+    pub fn metadata(&self) -> &TlsnEvidenceMetadata {
+        &self.metadata
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -451,6 +532,8 @@ pub enum VerificationError {
     InvalidTranscript,
     InvalidMemberId,
     ServerIdentityMismatch,
+    BindingMismatch,
+    PresentationUnavailable,
     PresentationInvalid,
 }
 
@@ -461,6 +544,8 @@ impl std::fmt::Display for VerificationError {
             Self::InvalidTranscript => "TLSN transcript does not match the serialized exchange",
             Self::InvalidMemberId => "verified member ID is not a canonical non-empty ASCII value",
             Self::ServerIdentityMismatch => "TLSN server identity mismatch",
+            Self::BindingMismatch => "TLSN Presentation binding does not match the issued binding",
+            Self::PresentationUnavailable => "TLSN Presentation is unavailable",
             Self::PresentationInvalid => "TLSN Presentation is invalid",
         };
         formatter.write_str(message)
@@ -470,7 +555,9 @@ impl std::fmt::Display for VerificationError {
 pub trait ExperimentalVerifierBoundary: Send + Sync {
     fn verify(
         &self,
+        connection_id: u64,
         request: SerializedOriginRequest,
+        binding: AttestationBinding,
         exchange: TlsnOriginExchange,
     ) -> VerificationFuture;
 }
@@ -481,7 +568,9 @@ pub struct UnconfiguredVerifier;
 impl ExperimentalVerifierBoundary for UnconfiguredVerifier {
     fn verify(
         &self,
+        _connection_id: u64,
         _request: SerializedOriginRequest,
+        _binding: AttestationBinding,
         _exchange: TlsnOriginExchange,
     ) -> VerificationFuture {
         Box::pin(async { Err(VerificationError::Unavailable) })
@@ -646,7 +735,7 @@ impl ExperimentalTlsnForwarder {
         )?;
         let verified = self
             .verifier
-            .verify(serialized, exchange)
+            .verify(connection_id, serialized, binding, exchange)
             .await
             .map_err(|error| error.to_string())?;
         self.transition(
@@ -762,7 +851,9 @@ mod tests {
     impl ExperimentalVerifierBoundary for MockVerifier {
         fn verify(
             &self,
+            _connection_id: u64,
             request: SerializedOriginRequest,
+            _binding: AttestationBinding,
             exchange: TlsnOriginExchange,
         ) -> VerificationFuture {
             self.calls.fetch_add(1, Ordering::SeqCst);

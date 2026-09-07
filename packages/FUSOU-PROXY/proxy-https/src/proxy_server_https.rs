@@ -1216,6 +1216,36 @@ pub fn serve_proxy_with_experimental_dependencies(
 }
 
 #[allow(clippy::too_many_arguments)]
+pub fn serve_proxy_with_production_dependencies(
+    port: u16,
+    slave: bidirectional_channel::Slave<bidirectional_channel::StatusInfo>,
+    tx_proxy_log: bidirectional_channel::Master<bidirectional_channel::StatusInfo>,
+    log_save_path: String,
+    asset_sync_save_path: String,
+    ca_save_path: String,
+    file_prefix: String,
+    auth_manager: Arc<AuthManager<FileStorage>>,
+    capture_runtime_metadata: Option<CaptureRuntimeMetadata>,
+    dependencies: crate::production_tlsn::ProductionTlsnDependencies,
+) -> Result<SocketAddr, Box<dyn std::error::Error>> {
+    let forwarder = dependencies
+        .build_forwarder()
+        .map_err(|error| error.to_string())?;
+    serve_proxy_impl(
+        port,
+        slave,
+        tx_proxy_log,
+        log_save_path,
+        asset_sync_save_path,
+        ca_save_path,
+        file_prefix,
+        auth_manager,
+        capture_runtime_metadata,
+        Some(forwarder),
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
 fn serve_proxy_impl(
     port: u16,
     slave: bidirectional_channel::Slave<bidirectional_channel::StatusInfo>,
@@ -1479,8 +1509,8 @@ mod tests {
         sha256, AttestationBinding, AttestationBindingProvider, BindingFuture,
         ExperimentalResultBoundary, ExperimentalTlsnRuntimeState, ExperimentalVerifierBoundary,
         Http1OriginRequestSerializer, OriginRequestSerializer, ResultBoundaryFuture,
-        SerializedOriginRequest, TlsnOriginExchange, TlsnOriginTransport, VerificationError,
-        VerificationFuture, VerifiedMemberId, VerifiedTlsnEvidence,
+        SerializedOriginRequest, TlsnEvidenceMetadata, TlsnOriginExchange, TlsnOriginTransport,
+        VerificationError, VerificationFuture, VerifiedMemberId, VerifiedTlsnEvidence,
     };
     use http::{Request as HttpRequest, Response as HttpResponse, Uri};
     use http_body_util::BodyExt;
@@ -1650,23 +1680,36 @@ mod tests {
     impl ExperimentalVerifierBoundary for IntegrationVerifier {
         fn verify(
             &self,
+            connection_id: u64,
             request: SerializedOriginRequest,
+            binding: AttestationBinding,
             exchange: TlsnOriginExchange,
         ) -> VerificationFuture {
             self.calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             *self.exchange.lock().expect("integration exchange lock") = Some(exchange.clone());
+            let request_sha256 = sha256(request.bytes());
+            let response_sha256 = sha256(&exchange.response.raw_response_bytes);
+            let binding_identifier = sha256(binding.value().as_bytes());
             Box::pin(async move {
-                if exchange.transcript.request_sha256 != sha256(request.bytes())
-                    || exchange.transcript.response_sha256
-                        != sha256(&exchange.response.raw_response_bytes)
+                if exchange.transcript.request_sha256 != request_sha256
+                    || exchange.transcript.response_sha256 != response_sha256
                 {
                     return Err(VerificationError::InvalidTranscript);
                 }
                 Ok(VerifiedTlsnEvidence::from_verifier(
-                    sha256(request.bytes()),
-                    sha256(&exchange.response.raw_response_bytes),
+                    request_sha256,
+                    response_sha256,
                     VerifiedMemberId::from_verifier("16189463".to_owned())?,
-                ))
+                )
+                .with_metadata(TlsnEvidenceMetadata::new(
+                    connection_id,
+                    binding_identifier,
+                    Some("game.example.test".to_owned()),
+                    request_sha256,
+                    response_sha256,
+                    None,
+                    None,
+                )))
             })
         }
     }
@@ -1939,6 +1982,25 @@ mod tests {
             captured_evidence.response_sha256(),
             &sha256(&wire.origin_response)
         );
+        assert_eq!(captured_evidence.metadata().connection_id(), 73);
+        assert_eq!(
+            captured_evidence.metadata().binding_identifier(),
+            &sha256(integration_binding_value().as_bytes())
+        );
+        assert_eq!(
+            captured_evidence.metadata().server_identity(),
+            Some("game.example.test")
+        );
+        assert_eq!(
+            captured_evidence.metadata().authenticated_request_sha256(),
+            &sha256(&wire.authenticated_request)
+        );
+        assert_eq!(
+            captured_evidence.metadata().authenticated_response_sha256(),
+            &sha256(&wire.authenticated_response)
+        );
+        assert_eq!(captured_evidence.metadata().presentation_identifier(), None);
+        assert_eq!(captured_evidence.metadata().presentation_sha256(), None);
         assert_eq!(
             String::from_utf8_lossy(&wire.origin_request)
                 .matches("x-attestation-binding:")
