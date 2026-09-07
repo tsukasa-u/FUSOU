@@ -65,6 +65,17 @@ struct ExperimentalRequireInfoRoute {
     forwarder: Option<Arc<dyn ExperimentalRequireInfoForwarder>>,
 }
 
+#[derive(Clone)]
+pub struct ExperimentalTlsnDependencies {
+    forwarder: Arc<dyn ExperimentalRequireInfoForwarder>,
+}
+
+impl ExperimentalTlsnDependencies {
+    pub fn new(forwarder: Arc<dyn ExperimentalRequireInfoForwarder>) -> Self {
+        Self { forwarder }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ExperimentalRequireInfoDecision {
     Forward,
@@ -1160,8 +1171,62 @@ pub fn serve_proxy(
     asset_sync_save_path: String,
     ca_save_path: String,
     file_prefix: String,
+    auth_manager: Arc<AuthManager<FileStorage>>,
+    capture_runtime_metadata: Option<CaptureRuntimeMetadata>,
+) -> Result<SocketAddr, Box<dyn std::error::Error>> {
+    serve_proxy_impl(
+        port,
+        slave,
+        tx_proxy_log,
+        log_save_path,
+        asset_sync_save_path,
+        ca_save_path,
+        file_prefix,
+        auth_manager,
+        capture_runtime_metadata,
+        None,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn serve_proxy_with_experimental_dependencies(
+    port: u16,
+    slave: bidirectional_channel::Slave<bidirectional_channel::StatusInfo>,
+    tx_proxy_log: bidirectional_channel::Master<bidirectional_channel::StatusInfo>,
+    log_save_path: String,
+    asset_sync_save_path: String,
+    ca_save_path: String,
+    file_prefix: String,
+    auth_manager: Arc<AuthManager<FileStorage>>,
+    capture_runtime_metadata: Option<CaptureRuntimeMetadata>,
+    dependencies: ExperimentalTlsnDependencies,
+) -> Result<SocketAddr, Box<dyn std::error::Error>> {
+    serve_proxy_impl(
+        port,
+        slave,
+        tx_proxy_log,
+        log_save_path,
+        asset_sync_save_path,
+        ca_save_path,
+        file_prefix,
+        auth_manager,
+        capture_runtime_metadata,
+        Some(dependencies.forwarder),
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn serve_proxy_impl(
+    port: u16,
+    slave: bidirectional_channel::Slave<bidirectional_channel::StatusInfo>,
+    tx_proxy_log: bidirectional_channel::Master<bidirectional_channel::StatusInfo>,
+    log_save_path: String,
+    asset_sync_save_path: String,
+    ca_save_path: String,
+    file_prefix: String,
     _auth_manager: Arc<AuthManager<FileStorage>>,
     capture_runtime_metadata: Option<CaptureRuntimeMetadata>,
+    injected_forwarder: Option<Arc<dyn ExperimentalRequireInfoForwarder>>,
 ) -> Result<SocketAddr, Box<dyn std::error::Error>> {
     setup_default_crypto_provider();
 
@@ -1173,11 +1238,14 @@ pub fn serve_proxy(
     let allow_save_main_js_local = configs.get_allow_save_main_js_local();
     let experimental_tlsn_enabled = configs.get_experimental_tlsn_enabled();
     let experimental_tlsn_forwarder: Option<Arc<dyn ExperimentalRequireInfoForwarder>> =
-        experimental_tlsn_enabled.then(|| {
-            tracing::warn!(
-                "Experimental TLSN route enabled; external binding, Prover transport, verifier, signer, and delivery dependencies remain fail-closed"
-            );
-            ExperimentalTlsnForwarder::unavailable() as Arc<dyn ExperimentalRequireInfoForwarder>
+        injected_forwarder.or_else(|| {
+            experimental_tlsn_enabled.then(|| {
+                tracing::warn!(
+                    "Experimental TLSN route enabled; external binding, Prover transport, verifier, signer, and delivery dependencies remain fail-closed"
+                );
+                ExperimentalTlsnForwarder::unavailable()
+                    as Arc<dyn ExperimentalRequireInfoForwarder>
+            })
         });
     let capture_output_root = if configs.get_capture_enabled() {
         match configs.get_capture_output_path().map(PathBuf::from) {
@@ -1406,17 +1474,30 @@ mod tests {
         ExperimentalRequireInfoRoute, HttpContext, LogHandler, RawCaptureHook, RawCaptureMessage,
         CA_CERT_NAME_CRT, CA_CERT_NAME_DER, CA_CERT_NAME_PEM, CA_KEY_NAME_PEM,
     };
+    #[cfg(feature = "synthetic-tlsn")]
+    use crate::experimental_tlsn::{
+        sha256, AttestationBinding, AttestationBindingProvider, BindingFuture,
+        ExperimentalResultBoundary, ExperimentalTlsnRuntimeState, ExperimentalVerifierBoundary,
+        Http1OriginRequestSerializer, OriginRequestSerializer, ResultBoundaryFuture,
+        SerializedOriginRequest, TlsnOriginExchange, TlsnOriginTransport, VerificationError,
+        VerificationFuture, VerifiedMemberId, VerifiedTlsnEvidence,
+    };
     use http::{Request as HttpRequest, Response as HttpResponse, Uri};
+    use http_body_util::BodyExt;
     use hudsucker::{
         hyper::{Request, Response},
         HttpHandler,
     };
+    use hyper::body::Bytes;
     use std::fs;
     use std::io::Write;
     use std::path::PathBuf;
     use std::sync::{Arc, Mutex};
     use std::time::{SystemTime, UNIX_EPOCH};
     use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt};
+
+    #[cfg(feature = "synthetic-tlsn")]
+    use crate::synthetic_tlsn::SyntheticAlpha15OriginTransport;
 
     fn unique_temp_dir(name: &str) -> PathBuf {
         let stamp = SystemTime::now()
@@ -1509,6 +1590,127 @@ mod tests {
                     .push(request.body().to_vec());
                 Ok(Response::new(hudsucker::Body::from("local tlsn response")))
             })
+        }
+    }
+
+    #[cfg(feature = "synthetic-tlsn")]
+    fn integration_binding_value() -> String {
+        use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
+        use fusou_tlsn_verifier::BINDING_PREFIX;
+        use uuid::Uuid;
+
+        let mut value = Vec::new();
+        value.extend_from_slice(BINDING_PREFIX);
+        value.extend_from_slice(&16_u16.to_be_bytes());
+        value.extend_from_slice(
+            Uuid::parse_str("123e4567-e89b-42d3-a456-426614174000")
+                .expect("integration session ID")
+                .as_bytes(),
+        );
+        value.extend_from_slice(&32_u16.to_be_bytes());
+        value.extend_from_slice(&[0x42_u8; 32]);
+        URL_SAFE_NO_PAD.encode(value)
+    }
+
+    #[cfg(feature = "synthetic-tlsn")]
+    struct IntegrationBindingProvider {
+        calls: Arc<std::sync::atomic::AtomicUsize>,
+        connection_ids: Arc<Mutex<Vec<u64>>>,
+        targets: Arc<Mutex<Vec<String>>>,
+        value: String,
+    }
+
+    #[cfg(feature = "synthetic-tlsn")]
+    impl AttestationBindingProvider for IntegrationBindingProvider {
+        fn issue_binding(
+            &self,
+            context: crate::experimental_tlsn::BindingRequestContext,
+        ) -> BindingFuture {
+            self.calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            self.connection_ids
+                .lock()
+                .expect("integration connection IDs lock")
+                .push(context.connection_id());
+            self.targets
+                .lock()
+                .expect("integration targets lock")
+                .push(context.target().to_owned());
+            let value = self.value.clone();
+            Box::pin(async move { AttestationBinding::new(value) })
+        }
+    }
+
+    #[cfg(feature = "synthetic-tlsn")]
+    struct IntegrationVerifier {
+        calls: Arc<std::sync::atomic::AtomicUsize>,
+        exchange: Arc<Mutex<Option<TlsnOriginExchange>>>,
+    }
+
+    #[cfg(feature = "synthetic-tlsn")]
+    impl ExperimentalVerifierBoundary for IntegrationVerifier {
+        fn verify(
+            &self,
+            request: SerializedOriginRequest,
+            exchange: TlsnOriginExchange,
+        ) -> VerificationFuture {
+            self.calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            *self.exchange.lock().expect("integration exchange lock") = Some(exchange.clone());
+            Box::pin(async move {
+                if exchange.transcript.request_sha256 != sha256(request.bytes())
+                    || exchange.transcript.response_sha256
+                        != sha256(&exchange.response.raw_response_bytes)
+                {
+                    return Err(VerificationError::InvalidTranscript);
+                }
+                Ok(VerifiedTlsnEvidence::from_verifier(
+                    sha256(request.bytes()),
+                    sha256(&exchange.response.raw_response_bytes),
+                    VerifiedMemberId::from_verifier("16189463".to_owned())?,
+                ))
+            })
+        }
+    }
+
+    #[cfg(feature = "synthetic-tlsn")]
+    struct IntegrationResultBoundary {
+        calls: Arc<std::sync::atomic::AtomicUsize>,
+        evidence: Arc<Mutex<Option<VerifiedTlsnEvidence>>>,
+    }
+
+    #[cfg(feature = "synthetic-tlsn")]
+    impl ExperimentalResultBoundary for IntegrationResultBoundary {
+        fn accept(&self, evidence: VerifiedTlsnEvidence) -> ResultBoundaryFuture {
+            self.calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            *self.evidence.lock().expect("integration evidence lock") = Some(evidence);
+            Box::pin(async { Ok(()) })
+        }
+    }
+
+    #[cfg(feature = "synthetic-tlsn")]
+    fn actual_require_info_request() -> Request<hudsucker::Body> {
+        Request::builder()
+            .method("POST")
+            .uri("https://game.example.test/kcsapi/api_get_member/require_info")
+            .header("Host", "game.example.test")
+            .header("Content-Length", "11")
+            .header("Connection", "close")
+            .body(hudsucker::Body::from("actual body"))
+            .expect("actual require_info request")
+    }
+
+    #[cfg(feature = "synthetic-tlsn")]
+    fn test_handler(route: ExperimentalRequireInfoRoute) -> LogHandler {
+        let channel = super::bidirectional_channel::BidirectionalChannel::new(2);
+        LogHandler {
+            request_uri: Uri::default(),
+            tx_proxy_log: channel.clone_master(),
+            save_path: String::new(),
+            file_prefix: String::new(),
+            allow_save_api_requests: false,
+            allow_save_api_responses: false,
+            allow_save_resources: false,
+            allow_save_main_js_local: false,
+            experimental_require_info_route: route,
         }
     }
 
@@ -1609,6 +1811,188 @@ mod tests {
                 .as_slice(),
             [b"actual body".to_vec()]
         );
+    }
+
+    #[cfg(feature = "synthetic-tlsn")]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn actual_handler_runs_concrete_alpha15_transport_and_returns_origin_response() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        let binding_value = integration_binding_value();
+        let binding_calls = Arc::new(AtomicUsize::new(0));
+        let connection_ids = Arc::new(Mutex::new(Vec::new()));
+        let targets = Arc::new(Mutex::new(Vec::new()));
+        let verifier_calls = Arc::new(AtomicUsize::new(0));
+        let result_calls = Arc::new(AtomicUsize::new(0));
+        let exchange = Arc::new(Mutex::new(None));
+        let evidence = Arc::new(Mutex::new(None));
+        let transport =
+            Arc::new(SyntheticAlpha15OriginTransport::new().expect("synthetic alpha.15 transport"));
+        let forwarder = super::ExperimentalTlsnForwarder::new(
+            Arc::new(IntegrationBindingProvider {
+                calls: Arc::clone(&binding_calls),
+                connection_ids: Arc::clone(&connection_ids),
+                targets: Arc::clone(&targets),
+                value: binding_value.clone(),
+            }),
+            Arc::new(Http1OriginRequestSerializer),
+            Arc::clone(&transport) as Arc<dyn TlsnOriginTransport>,
+            Arc::new(IntegrationVerifier {
+                calls: Arc::clone(&verifier_calls),
+                exchange: Arc::clone(&exchange),
+            }),
+            Arc::new(IntegrationResultBoundary {
+                calls: Arc::clone(&result_calls),
+                evidence: Arc::clone(&evidence),
+            }),
+        );
+        let route = ExperimentalRequireInfoRoute::new(true, Some(forwarder.clone()));
+        let mut handler = test_handler(route);
+        let context = HttpContext::new("127.0.0.1:40002".parse().unwrap(), 73);
+
+        let first = handler
+            .handle_request(&context, actual_require_info_request())
+            .await;
+        let hudsucker::RequestOrResponse::Response(first) = first else {
+            panic!("actual require_info request did not use Experimental TLSN");
+        };
+        let first_status = first.status();
+        let first_body = first
+            .into_body()
+            .collect()
+            .await
+            .expect("synthetic origin response body")
+            .to_bytes();
+
+        let second = handler
+            .handle_request(&context, actual_require_info_request())
+            .await;
+        let hudsucker::RequestOrResponse::Response(second) = second else {
+            panic!("repeated require_info request reached Production");
+        };
+
+        let expected_parts = HttpRequest::builder()
+            .method("POST")
+            .uri("https://game.example.test/kcsapi/api_get_member/require_info")
+            .header("Host", "game.example.test")
+            .header("Content-Length", "11")
+            .header("Connection", "close")
+            .body(())
+            .expect("expected request parts")
+            .into_parts()
+            .0;
+        let expected_serialized = Http1OriginRequestSerializer
+            .serialize(
+                &expected_parts,
+                Bytes::from_static(b"actual body"),
+                &AttestationBinding::new(binding_value).expect("integration binding"),
+            )
+            .expect("serialized actual request");
+        let wire = transport.wire_evidence().expect("synthetic wire evidence");
+        let captured_exchange = exchange
+            .lock()
+            .expect("integration exchange lock")
+            .clone()
+            .expect("authenticated exchange");
+        let captured_evidence = evidence
+            .lock()
+            .expect("integration evidence lock")
+            .clone()
+            .expect("verified evidence");
+
+        assert_eq!(first_status, http::StatusCode::OK);
+        assert!(first_body.starts_with(b"svdata={\"api_result\":1"));
+        assert_eq!(second.status(), http::StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(
+            binding_calls.load(Ordering::SeqCst),
+            1,
+            "binding must be issued exactly once"
+        );
+        assert_eq!(connection_ids.lock().unwrap().as_slice(), [73]);
+        assert_eq!(
+            targets.lock().unwrap().as_slice(),
+            ["/kcsapi/api_get_member/require_info"]
+        );
+        assert_eq!(verifier_calls.load(Ordering::SeqCst), 1);
+        assert_eq!(result_calls.load(Ordering::SeqCst), 1);
+        assert_eq!(
+            forwarder.state().expect("runtime state"),
+            ExperimentalTlsnRuntimeState::ResultReady
+        );
+        assert_eq!(wire.origin_request, expected_serialized.bytes());
+        assert_eq!(wire.authenticated_request, expected_serialized.bytes());
+        assert_eq!(wire.origin_response, wire.authenticated_response);
+        assert!(!wire.presentation_available);
+        assert_eq!(
+            captured_exchange.transcript.request_sha256,
+            sha256(&expected_serialized.bytes())
+        );
+        assert_eq!(
+            captured_exchange.transcript.response_sha256,
+            sha256(&wire.origin_response)
+        );
+        assert_eq!(
+            captured_evidence.request_sha256(),
+            &sha256(&expected_serialized.bytes())
+        );
+        assert_eq!(
+            captured_evidence.response_sha256(),
+            &sha256(&wire.origin_response)
+        );
+        assert_eq!(
+            String::from_utf8_lossy(&wire.origin_request)
+                .matches("x-attestation-binding:")
+                .count(),
+            1
+        );
+    }
+
+    #[tokio::test]
+    async fn disabled_actual_handler_returns_request_to_production_path() {
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        let route = ExperimentalRequireInfoRoute::new(
+            false,
+            Some(Arc::new(RecordingExperimentalForwarder {
+                requests: Arc::clone(&requests),
+            })),
+        );
+        let channel = super::bidirectional_channel::BidirectionalChannel::new(2);
+        let mut handler = LogHandler {
+            request_uri: Uri::default(),
+            tx_proxy_log: channel.clone_master(),
+            save_path: String::new(),
+            file_prefix: String::new(),
+            allow_save_api_requests: false,
+            allow_save_api_responses: false,
+            allow_save_resources: false,
+            allow_save_main_js_local: false,
+            experimental_require_info_route: route,
+        };
+        let context = HttpContext::new("127.0.0.1:40003".parse().unwrap(), 74);
+
+        let result = handler
+            .handle_request(
+                &context,
+                Request::builder()
+                    .method("POST")
+                    .uri("https://game.example.test/kcsapi/api_get_member/require_info")
+                    .header("Host", "game.example.test")
+                    .header("Content-Length", "11")
+                    .body(hudsucker::Body::from("actual body"))
+                    .unwrap(),
+            )
+            .await;
+        let hudsucker::RequestOrResponse::Request(request) = result else {
+            panic!("disabled Experimental TLSN route intercepted Production request");
+        };
+        let body = request
+            .into_body()
+            .collect()
+            .await
+            .expect("production request body")
+            .to_bytes();
+        assert_eq!(body, Bytes::from_static(b"actual body"));
+        assert!(requests.lock().unwrap().is_empty());
     }
 
     async fn read_http_message<S: AsyncRead + Unpin>(stream: &mut S) -> Vec<u8> {

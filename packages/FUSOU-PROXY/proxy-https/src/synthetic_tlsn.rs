@@ -37,12 +37,22 @@ use tokio_util::compat::TokioAsyncReadCompatExt;
 
 pub const SYNTHETIC_SERVER_IDENTITY: &str = "game.example.test";
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SyntheticAlpha15WireEvidence {
+    pub origin_request: Vec<u8>,
+    pub authenticated_request: Vec<u8>,
+    pub origin_response: Vec<u8>,
+    pub authenticated_response: Vec<u8>,
+    pub presentation_available: bool,
+}
+
 pub struct SyntheticAlpha15OriginTransport {
     sent: AtomicBool,
     root_certificate: Arc<Vec<u8>>,
     server_certificate: Arc<Vec<u8>>,
     private_key: Arc<Vec<u8>>,
     last_request: Mutex<Option<Vec<u8>>>,
+    last_evidence: Arc<Mutex<Option<SyntheticAlpha15WireEvidence>>>,
 }
 
 impl SyntheticAlpha15OriginTransport {
@@ -54,6 +64,7 @@ impl SyntheticAlpha15OriginTransport {
             server_certificate: Arc::new(server_certificate),
             private_key: Arc::new(private_key),
             last_request: Mutex::new(None),
+            last_evidence: Arc::new(Mutex::new(None)),
         })
     }
 
@@ -62,6 +73,13 @@ impl SyntheticAlpha15OriginTransport {
             .lock()
             .ok()
             .and_then(|request| request.clone())
+    }
+
+    pub fn wire_evidence(&self) -> Option<SyntheticAlpha15WireEvidence> {
+        self.last_evidence
+            .lock()
+            .ok()
+            .and_then(|evidence| evidence.clone())
     }
 }
 
@@ -78,15 +96,20 @@ impl TlsnOriginTransport for SyntheticAlpha15OriginTransport {
         let root_certificate = Arc::clone(&self.root_certificate);
         let server_certificate = Arc::clone(&self.server_certificate);
         let private_key = Arc::clone(&self.private_key);
+        let last_evidence = Arc::clone(&self.last_evidence);
         Box::pin(async move {
-            run_synthetic_exchange(
+            let (exchange, evidence) = run_synthetic_exchange(
                 SerializedOriginRequest::new(Bytes::from(request_bytes))
                     .map_err(|_| TlsnTransportError::OriginConnectionFailed)?,
                 root_certificate,
                 server_certificate,
                 private_key,
             )
-            .await
+            .await?;
+            if let Ok(mut stored_evidence) = last_evidence.lock() {
+                *stored_evidence = Some(evidence);
+            }
+            Ok(exchange)
         })
     }
 }
@@ -96,7 +119,7 @@ async fn run_synthetic_exchange(
     root_certificate: Arc<Vec<u8>>,
     server_certificate: Arc<Vec<u8>>,
     private_key: Arc<Vec<u8>>,
-) -> Result<TlsnOriginExchange, TlsnTransportError> {
+) -> Result<(TlsnOriginExchange, SyntheticAlpha15WireEvidence), TlsnTransportError> {
     let _ = tokio_rustls::rustls::crypto::ring::default_provider().install_default();
     let proxy_config = ProxyTlsConfig::builder()
         .server_name(
@@ -108,6 +131,13 @@ async fn run_synthetic_exchange(
     let root_store = RootCertStore {
         roots: vec![CertificateDer(root_certificate.as_ref().clone())],
     };
+    let parsed_request = parse_require_info_request(
+        request.bytes(),
+        SYNTHETIC_SERVER_IDENTITY,
+        &ParserLimits::default(),
+    )
+    .map_err(|_| TlsnTransportError::OriginConnectionFailed)?;
+    let expected_binding = parsed_request.binding;
 
     let (prover_socket, verifier_socket) = tokio::io::duplex(2 << 23);
     let mut prover_session = Session::new(prover_socket.compat());
@@ -158,18 +188,12 @@ async fn run_synthetic_exchange(
             )
             .map_err(|_| TlsnTransportError::OriginConnectionFailed)?;
         let prover_task = tokio::spawn(prover.into_future());
-        let parsed_request = parse_require_info_request(
-            request_for_prover.bytes(),
-            SYNTHETIC_SERVER_IDENTITY,
-            &ParserLimits::default(),
-        )
-        .map_err(|_| TlsnTransportError::OriginConnectionFailed)?;
         let mut transport = ProverOwnedTlsTransport::new(connection);
         transport
             .send_actual_require_info(
                 request_for_prover.bytes(),
                 SYNTHETIC_SERVER_IDENTITY,
-                &parsed_request.binding,
+                &expected_binding,
             )
             .await
             .map_err(|_| TlsnTransportError::OriginConnectionFailed)?;
@@ -231,7 +255,8 @@ async fn run_synthetic_exchange(
         let verifier = verifier
             .accept()
             .await
-            .map_err(|_| TlsnTransportError::OriginConnectionFailed)?
+            .map_err(|_| TlsnTransportError::OriginConnectionFailed)?;
+        let verifier = verifier
             .run(verifier_origin_socket.compat())
             .await
             .map_err(|_| TlsnTransportError::OriginConnectionFailed)?;
@@ -271,13 +296,22 @@ async fn run_synthetic_exchange(
         return Err(TlsnTransportError::OriginConnectionFailed);
     }
     let response = parse_origin_response(&raw_response)?;
-    Ok(TlsnOriginExchange {
-        response,
-        transcript: UnverifiedTlsnTranscript {
-            request_sha256: sha256(&origin_request),
-            response_sha256: sha256(&raw_response),
+    Ok((
+        TlsnOriginExchange {
+            response,
+            transcript: UnverifiedTlsnTranscript {
+                request_sha256: sha256(&origin_request),
+                response_sha256: sha256(&raw_response),
+            },
         },
-    })
+        SyntheticAlpha15WireEvidence {
+            origin_request,
+            authenticated_request,
+            origin_response: raw_response.clone(),
+            authenticated_response: raw_response,
+            presentation_available: false,
+        },
+    ))
 }
 
 fn server_credentials() -> Result<(Vec<u8>, Vec<u8>, Vec<u8>), TlsnTransportError> {
@@ -429,7 +463,7 @@ mod tests {
 
     fn request() -> SerializedOriginRequest {
         SerializedOriginRequest::new(Bytes::from(format!(
-            "POST /kcsapi/api_get_member/require_info HTTP/1.1\r\nHost: {SYNTHETIC_SERVER_IDENTITY}\r\nX-Attestation-Binding: {}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+            "POST /kcsapi/api_get_member/require_info HTTP/1.1\r\nHost: {SYNTHETIC_SERVER_IDENTITY}\r\nX-Attestation-Binding: {}\r\nContent-Length: 11\r\nConnection: close\r\n\r\nactual body",
             binding_value()
         )))
         .unwrap()
@@ -455,6 +489,10 @@ mod tests {
             exchange.transcript.response_sha256,
             sha256(&exchange.response.raw_response_bytes)
         );
+        let evidence = transport.wire_evidence().expect("wire evidence");
+        assert_eq!(evidence.origin_request, expected_request);
+        assert_eq!(evidence.authenticated_request, evidence.origin_request);
+        assert_eq!(evidence.authenticated_response, evidence.origin_response);
         assert!(String::from_utf8_lossy(&exchange.response.body).contains("16189463"));
     }
 
@@ -465,6 +503,28 @@ mod tests {
         assert!(matches!(
             transport.send_once(request()).await,
             Err(TlsnTransportError::AlreadySent)
+        ));
+    }
+
+    #[tokio::test]
+    async fn synthetic_transport_rejects_noncanonical_target_before_starting_tasks() {
+        let transport = SyntheticAlpha15OriginTransport::new().unwrap();
+        let request = String::from_utf8(request().bytes().to_vec())
+            .unwrap()
+            .replacen(
+                "/kcsapi/api_get_member/require_info HTTP/1.1",
+                "/kcsapi/api_get_member/require_info?api_token=actual HTTP/1.1",
+                1,
+            );
+        let result = tokio::time::timeout(
+            std::time::Duration::from_secs(2),
+            transport.send_once(SerializedOriginRequest::new(Bytes::from(request)).unwrap()),
+        )
+        .await
+        .expect("invalid target should fail without hanging");
+        assert!(matches!(
+            result,
+            Err(TlsnTransportError::OriginConnectionFailed)
         ));
     }
 }
