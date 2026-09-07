@@ -27,6 +27,9 @@ It currently provides:
 - an explicitly opt-in `experimental` origin probe that accepts only a
 	Prover-owned alpha.15 `TlsConnection`, records the exact request/response,
 	and extracts `api_member_id` with the strict parser;
+- an explicitly invoked direct-TLS compatibility probe for the single
+	allowlisted experimental Game Server host, with one-shot header/no-header
+	request modes and sanitized response metadata only;
 - an offline TLS fixture proving that the verifier-owned origin forwarding path
 	receives the exact request and response bytes.
 
@@ -83,6 +86,23 @@ alpha.15 Presentation verification, and unsigned Result construction. The
 synthetic certificate chain and test signing inputs are not production trust or
 signer evidence; real Game Server compatibility, Notary-backed Presentation
 generation, production Result signing, and runtime delivery remain blocked.
+
+The direct compatibility executable is also outside the production route. It
+can only connect to `w16s.kancolle-server.com:443`, requires the explicit
+`--acknowledge-live-request` flag, performs one request with no retry, and
+prints only a sanitized JSON observation containing status, sizes, and digests.
+It never prints the response body or `api_member_id`, does not create a
+Prover-owned alpha.15 connection, and does not create or verify a Presentation.
+The no-header and binding-header modes are separate invocations:
+
+```text
+cargo +1.95.0 run --manifest-path packages/FUSOU-TLSN-VERIFIER/Cargo.toml --bin experimental-require-info-compat -- --acknowledge-live-request --mode without-header
+cargo +1.95.0 run --manifest-path packages/FUSOU-TLSN-VERIFIER/Cargo.toml --bin experimental-require-info-compat -- --acknowledge-live-request --mode with-header --binding <server-issued-binding>
+```
+
+Both outputs are `DIRECT_ORIGIN_COMPATIBILITY_OBSERVATION` and remain
+non-qualifying for P0-05. A real Notary channel and an authenticated alpha.15
+FUSOU Presentation are still required.
 
 Run the focused checks with:
 
