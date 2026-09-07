@@ -70,10 +70,12 @@ const { privateKey, publicKey } = generateKeyPairSync("ed25519");
 const worker = await unstable_dev(resolve(packageDirectory, "src/index.ts"), {
   config: resolve(packageDirectory, "wrangler.toml"),
   vars: {
+    TLSN_ENVIRONMENT: "test",
     TLSN_SERVER_IDENTITY: "game.example.test",
     TLSN_PROFILE_SHA256: Buffer.alloc(32).toString("base64url"),
     TLSN_VERIFIER_KEY_ID: "worker-test",
     TLSN_NOTARY_KEY_ID: "notary-test",
+    TLSN_NOTARY_REGISTRY: JSON.stringify({ "notary-test": syntheticFixture.notary_key_base64 }),
     TLSN_SIGNING_PRIVATE_KEY_PKCS8: privateKey
       .export({ format: "der", type: "pkcs8" })
       .toString("base64url"),
@@ -103,10 +105,12 @@ try {
 const mismatchedIdentityWorker = await unstable_dev(resolve(packageDirectory, "src/index.ts"), {
   config: resolve(packageDirectory, "wrangler.toml"),
   vars: {
+    TLSN_ENVIRONMENT: "test",
     TLSN_SERVER_IDENTITY: "other.example.test",
     TLSN_PROFILE_SHA256: Buffer.alloc(32).toString("base64url"),
     TLSN_VERIFIER_KEY_ID: "worker-test",
     TLSN_NOTARY_KEY_ID: "notary-test",
+    TLSN_NOTARY_REGISTRY: JSON.stringify({ "notary-test": syntheticFixture.notary_key_base64 }),
     TLSN_SIGNING_PRIVATE_KEY_PKCS8: privateKey
       .export({ format: "der", type: "pkcs8" })
       .toString("base64url"),
@@ -127,6 +131,70 @@ try {
   await runMismatchedIdentitySmokeTest(mismatchedIdentityWorker.fetch, syntheticFixture);
 } finally {
   await mismatchedIdentityWorker.stop();
+}
+
+const wrongNotaryKey = Buffer.from(syntheticFixture.notary_key_base64, "base64url");
+wrongNotaryKey[wrongNotaryKey.length - 1] ^= 1;
+const mismatchedNotaryWorker = await unstable_dev(resolve(packageDirectory, "src/index.ts"), {
+  config: resolve(packageDirectory, "wrangler.toml"),
+  vars: {
+    TLSN_ENVIRONMENT: "test",
+    TLSN_SERVER_IDENTITY: "game.example.test",
+    TLSN_PROFILE_SHA256: Buffer.alloc(32).toString("base64url"),
+    TLSN_VERIFIER_KEY_ID: "worker-test",
+    TLSN_NOTARY_KEY_ID: "notary-test",
+    TLSN_NOTARY_REGISTRY: JSON.stringify({ "notary-test": wrongNotaryKey.toString("base64url") }),
+    TLSN_SIGNING_PRIVATE_KEY_PKCS8: privateKey
+      .export({ format: "der", type: "pkcs8" })
+      .toString("base64url"),
+    TLSN_TRUST_ROOT_CERTIFICATE_DER: syntheticFixture.root_certificate_base64,
+  },
+  bundle: true,
+  local: true,
+  compatibilityDate: "2026-07-29",
+  experimental: {
+    disableExperimentalWarning: true,
+    forceLocal: true,
+    testMode: true,
+  },
+});
+
+try {
+  const { runMismatchedNotarySmokeTest } = await import("../test/index-smoke.mjs");
+  await runMismatchedNotarySmokeTest(mismatchedNotaryWorker.fetch, syntheticFixture);
+} finally {
+  await mismatchedNotaryWorker.stop();
+}
+
+const productionTrustRootWorker = await unstable_dev(resolve(packageDirectory, "src/index.ts"), {
+  config: resolve(packageDirectory, "wrangler.toml"),
+  vars: {
+    TLSN_ENVIRONMENT: "production",
+    TLSN_SERVER_IDENTITY: "game.example.test",
+    TLSN_PROFILE_SHA256: Buffer.alloc(32).toString("base64url"),
+    TLSN_VERIFIER_KEY_ID: "worker-test",
+    TLSN_NOTARY_KEY_ID: "notary-test",
+    TLSN_NOTARY_REGISTRY: JSON.stringify({ "notary-test": syntheticFixture.notary_key_base64 }),
+    TLSN_SIGNING_PRIVATE_KEY_PKCS8: privateKey
+      .export({ format: "der", type: "pkcs8" })
+      .toString("base64url"),
+    TLSN_TRUST_ROOT_CERTIFICATE_DER: syntheticFixture.root_certificate_base64,
+  },
+  bundle: true,
+  local: true,
+  compatibilityDate: "2026-07-29",
+  experimental: {
+    disableExperimentalWarning: true,
+    forceLocal: true,
+    testMode: true,
+  },
+});
+
+try {
+  const { runProductionTrustRootSmokeTest } = await import("../test/index-smoke.mjs");
+  await runProductionTrustRootSmokeTest(productionTrustRootWorker.fetch);
+} finally {
+  await productionTrustRootWorker.stop();
 }
 
 const unconfiguredWorker = await unstable_dev(resolve(packageDirectory, "src/index.ts"), {

@@ -264,3 +264,34 @@ export async function runMismatchedIdentitySmokeTest(fetch, fixture) {
   });
   console.log("[tlsn-verification-worker] mismatched identity fail-closed path OK");
 }
+
+export async function runMismatchedNotarySmokeTest(fetch, fixture) {
+  const response = await fetch(
+    "https://verify.test/verify/tlsn",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ presentation_base64: fixture.presentation_base64 }),
+    },
+  );
+  assert.equal(response.status, 422);
+  assert.deepEqual(await response.json(), {
+    verified: false,
+    error: "verification_failed",
+  });
+  console.log("[tlsn-verification-worker] mismatched Notary registry fail-closed path OK");
+}
+
+export async function runProductionTrustRootSmokeTest(fetch) {
+  const response = await fetch(
+    "https://verify.test/verify/tlsn",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ presentation_base64: "AQ" }),
+    },
+  );
+  assert.equal(response.status, 503);
+  assert.deepEqual(await response.json(), { error: "verifier_unconfigured" });
+  console.log("[tlsn-verification-worker] production custom-root rejection path OK");
+}

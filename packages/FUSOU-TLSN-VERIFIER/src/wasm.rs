@@ -3,7 +3,9 @@ use wasm_bindgen::prelude::*;
 
 use crate::{
     parse_verifier_result,
-    tlsn_alpha15::{verify_alpha15_presentation_with_provider, RequireInfoDisclosureProfile},
+    tlsn_alpha15::{
+        verify_alpha15_presentation_with_provider_and_notary_key, RequireInfoDisclosureProfile,
+    },
     ParserLimits, VerifierResult,
 };
 
@@ -13,6 +15,7 @@ fn verify_require_info_presentation_inner(
     profile_sha256: &[u8],
     verifier_key_id: &str,
     notary_key_id: &str,
+    trusted_notary_key: &[u8],
     trust_anchor_der: Option<&[u8]>,
 ) -> Result<String, JsValue> {
     let profile_sha256: [u8; 32] = profile_sha256
@@ -20,6 +23,9 @@ fn verify_require_info_presentation_inner(
         .map_err(|_| JsValue::from_str("profile_sha256 must be exactly 32 bytes"))?;
     let profile = RequireInfoDisclosureProfile::from_server_identity(expected_server_identity)
         .map_err(|error| JsValue::from_str(&error.to_string()))?;
+    if trusted_notary_key.is_empty() {
+        return Err(JsValue::from_str("trusted Notary key must not be empty"));
+    }
     let provider = if let Some(trust_anchor_der) = trust_anchor_der {
         if trust_anchor_der.is_empty() {
             return Err(JsValue::from_str("trust anchor must not be empty"));
@@ -34,8 +40,12 @@ fn verify_require_info_presentation_inner(
     } else {
         tlsn_attestation::CryptoProvider::default()
     };
-    let transcript = verify_alpha15_presentation_with_provider(presentation_bytes, &provider)
-        .map_err(|error| JsValue::from_str(&error.to_string()))?;
+    let transcript = verify_alpha15_presentation_with_provider_and_notary_key(
+        presentation_bytes,
+        &provider,
+        Some(trusted_notary_key),
+    )
+    .map_err(|error| JsValue::from_str(&error.to_string()))?;
     let authenticated = transcript
         .verify_require_info(&profile, &ParserLimits::default())
         .map_err(|error| JsValue::from_str(&error.to_string()))?;
@@ -70,6 +80,7 @@ pub fn verify_require_info_presentation(
     profile_sha256: &[u8],
     verifier_key_id: &str,
     notary_key_id: &str,
+    trusted_notary_key: &[u8],
 ) -> Result<String, JsValue> {
     verify_require_info_presentation_inner(
         presentation_bytes,
@@ -77,6 +88,7 @@ pub fn verify_require_info_presentation(
         profile_sha256,
         verifier_key_id,
         notary_key_id,
+        trusted_notary_key,
         None,
     )
 }
@@ -89,6 +101,7 @@ pub fn verify_require_info_presentation_with_trust_anchor(
     verifier_key_id: &str,
     notary_key_id: &str,
     trust_anchor_der: &[u8],
+    trusted_notary_key: &[u8],
 ) -> Result<String, JsValue> {
     verify_require_info_presentation_inner(
         presentation_bytes,
@@ -96,6 +109,7 @@ pub fn verify_require_info_presentation_with_trust_anchor(
         profile_sha256,
         verifier_key_id,
         notary_key_id,
+        trusted_notary_key,
         Some(trust_anchor_der),
     )
 }

@@ -36,6 +36,7 @@ async fn main() {
             "binding_value": binding_value(),
             "presentation_base64": URL_SAFE_NO_PAD.encode(evidence.presentation.unwrap()),
             "root_certificate_base64": URL_SAFE_NO_PAD.encode(evidence.root_certificate.unwrap()),
+            "notary_key_base64": URL_SAFE_NO_PAD.encode(evidence.notary_verifying_key.unwrap()),
             "authenticated_request_base64": URL_SAFE_NO_PAD.encode(evidence.authenticated_request),
             "authenticated_response_base64": URL_SAFE_NO_PAD.encode(evidence.authenticated_response),
             "origin_request_size": evidence.origin_request.len(),

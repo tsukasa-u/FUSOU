@@ -27,6 +27,8 @@ pub enum Alpha15AdapterError {
     InvalidVerifiedOutput(&'static str),
     #[error("authenticated server identity is not in the trusted allowlist")]
     ServerIdentityNotAllowlisted,
+    #[error("alpha.15 Presentation Notary key is not in the trusted registry")]
+    NotaryKeyNotAllowlisted,
     #[error("authenticated transcript is not covered by the FUSOU disclosure profile: {0}")]
     DisclosureProfileViolation(&'static str),
     #[error(transparent)]
@@ -290,6 +292,14 @@ pub(crate) fn verify_alpha15_presentation_with_provider(
     presentation_bytes: &[u8],
     provider: &CryptoProvider,
 ) -> Result<AuthenticatedTranscript> {
+    verify_alpha15_presentation_with_provider_and_notary_key(presentation_bytes, provider, None)
+}
+
+pub(crate) fn verify_alpha15_presentation_with_provider_and_notary_key(
+    presentation_bytes: &[u8],
+    provider: &CryptoProvider,
+    trusted_notary_key: Option<&[u8]>,
+) -> Result<AuthenticatedTranscript> {
     let mut cursor = Cursor::new(presentation_bytes);
     let presentation: Presentation = bincode::deserialize_from(&mut cursor)
         .map_err(|error| Alpha15AdapterError::PresentationDecode(error.to_string()))?;
@@ -297,6 +307,15 @@ pub(crate) fn verify_alpha15_presentation_with_provider(
         return Err(Alpha15AdapterError::PresentationDecode(
             "trailing Presentation bytes".to_owned(),
         ));
+    }
+    if let Some(trusted_notary_key) = trusted_notary_key {
+        if trusted_notary_key.is_empty()
+            || bincode::serialize(presentation.verifying_key())
+                .map(|key| key != trusted_notary_key)
+                .unwrap_or(true)
+        {
+            return Err(Alpha15AdapterError::NotaryKeyNotAllowlisted);
+        }
     }
     let output = presentation
         .verify(provider)

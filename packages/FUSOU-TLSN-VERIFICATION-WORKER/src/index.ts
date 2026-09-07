@@ -8,10 +8,12 @@ import initVerifier, {
 import wasmModule from "./wasm/fusou_tlsn_verifier_bg.wasm";
 
 type Bindings = {
+  TLSN_ENVIRONMENT: string;
   TLSN_SERVER_IDENTITY: string;
   TLSN_PROFILE_SHA256: string;
   TLSN_VERIFIER_KEY_ID: string;
   TLSN_NOTARY_KEY_ID: string;
+  TLSN_NOTARY_REGISTRY: string;
   TLSN_SIGNING_PRIVATE_KEY_PKCS8: string;
   TLSN_TRUST_ROOT_CERTIFICATE_DER?: string;
 };
@@ -39,16 +41,24 @@ const preparedResultSchema = z
   .strict();
 
 const configSchema = z.object({
+  environment: z.enum(["test", "production"]),
   serverIdentity: z.string().min(1).max(253),
   profileSha256: z.string().regex(/^[A-Za-z0-9_-]+$/),
   verifierKeyId: z.string().regex(/^[A-Za-z0-9._-]{1,64}$/),
   notaryKeyId: z.string().regex(/^[A-Za-z0-9._-]{1,64}$/),
+  notaryRegistry: z.string().min(1).max(65_536),
   signingPrivateKeyPkcs8: z.string().regex(/^[A-Za-z0-9_-]+$/),
   trustRootCertificateDer: z.string().regex(/^[A-Za-z0-9_-]+$/).optional(),
 });
 
+const notaryRegistrySchema = z.record(
+  z.string().regex(/^[A-Za-z0-9._-]{1,64}$/),
+  z.string().regex(/^[A-Za-z0-9_-]+$/),
+);
+
 type VerifierConfig = z.infer<typeof configSchema> & {
   profileSha256Bytes: Uint8Array;
+  notaryKeyBytes: Uint8Array;
   signingPrivateKeyBytes: Uint8Array;
   trustRootCertificateDerBytes: Uint8Array | undefined;
 };
@@ -82,10 +92,12 @@ function decodeBase64Url(value: string, maximumBytes: number): Uint8Array {
 
 function readConfig(env: Bindings): VerifierConfig | null {
   const parsed = configSchema.safeParse({
+    environment: env.TLSN_ENVIRONMENT,
     serverIdentity: env.TLSN_SERVER_IDENTITY,
     profileSha256: env.TLSN_PROFILE_SHA256,
     verifierKeyId: env.TLSN_VERIFIER_KEY_ID,
     notaryKeyId: env.TLSN_NOTARY_KEY_ID,
+    notaryRegistry: env.TLSN_NOTARY_REGISTRY,
     signingPrivateKeyPkcs8: env.TLSN_SIGNING_PRIVATE_KEY_PKCS8,
     trustRootCertificateDer: env.TLSN_TRUST_ROOT_CERTIFICATE_DER,
   });
@@ -93,10 +105,22 @@ function readConfig(env: Bindings): VerifierConfig | null {
     return null;
   }
   try {
+    if (parsed.data.environment === "production") {
+      return null;
+    }
+    const notaryRegistry = notaryRegistrySchema.safeParse(JSON.parse(parsed.data.notaryRegistry));
+    if (!notaryRegistry.success) {
+      return null;
+    }
+    const notaryKeyValue = notaryRegistry.data[parsed.data.notaryKeyId];
+    if (!notaryKeyValue) {
+      return null;
+    }
     const profileSha256Bytes = decodeBase64Url(parsed.data.profileSha256, 32);
     if (profileSha256Bytes.length !== 32) {
       return null;
     }
+    const notaryKeyBytes = decodeBase64Url(notaryKeyValue, 4096);
     const signingPrivateKeyBytes = decodeBase64Url(parsed.data.signingPrivateKeyPkcs8, 4096);
     const trustRootCertificateDerBytes = parsed.data.trustRootCertificateDer
       ? decodeBase64Url(parsed.data.trustRootCertificateDer, 4096)
@@ -104,6 +128,7 @@ function readConfig(env: Bindings): VerifierConfig | null {
     return {
       ...parsed.data,
       profileSha256Bytes,
+      notaryKeyBytes,
       signingPrivateKeyBytes,
       trustRootCertificateDerBytes,
     };
@@ -187,6 +212,7 @@ app.post("/verify/tlsn", async (c) => {
               config.verifierKeyId,
               config.notaryKeyId,
               config.trustRootCertificateDerBytes,
+              config.notaryKeyBytes,
             )
           : verify_require_info_presentation(
               presentationBytes,
@@ -194,6 +220,7 @@ app.post("/verify/tlsn", async (c) => {
               config.profileSha256Bytes,
               config.verifierKeyId,
               config.notaryKeyId,
+              config.notaryKeyBytes,
             ),
       ) as unknown,
     );

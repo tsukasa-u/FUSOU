@@ -49,6 +49,7 @@ pub struct SyntheticAlpha15WireEvidence {
     pub authenticated_response: Vec<u8>,
     pub presentation: Option<Vec<u8>>,
     pub root_certificate: Option<Vec<u8>>,
+    pub notary_verifying_key: Option<Vec<u8>>,
     pub presentation_available: bool,
 }
 
@@ -395,6 +396,8 @@ async fn run_synthetic_exchange(
     let presentation = presentation_builder
         .build()
         .map_err(|_| TlsnTransportError::OriginConnectionFailed)?;
+    let notary_verifying_key = bincode::serialize(presentation.verifying_key())
+        .map_err(|_| TlsnTransportError::OriginConnectionFailed)?;
     let presentation = bincode::serialize(&presentation)
         .map_err(|_| TlsnTransportError::OriginConnectionFailed)?;
     let response = parse_origin_response(&raw_response)?;
@@ -413,6 +416,7 @@ async fn run_synthetic_exchange(
             authenticated_response: raw_response,
             presentation: Some(presentation),
             root_certificate: Some((*root_certificate).clone()),
+            notary_verifying_key: Some(notary_verifying_key),
             presentation_available: true,
         },
     ))
