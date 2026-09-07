@@ -371,7 +371,7 @@ what the browser ultimately displayed.
 ## 8. Binding header ownership
 
 The frozen contract requires exactly one authenticated
-`X-FUSOU-Attestation-Binding` header in the `require_info` request. The value
+`X-Attestation-Binding` header in the `require_info` request. The value
 must be available before serialization and must be consumed once.
 
 | Insertion point | Byte creator | TLS owner | Origin-transcript result |

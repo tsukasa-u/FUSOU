@@ -218,7 +218,7 @@ The binding contract is:
 - the value is delivered to the FUSOU-MITM origin path as one-shot control
   state;
 - the origin path writes exactly one
-  `X-FUSOU-Attestation-Binding: <binding_value>` header on the `require_info`
+  `X-Attestation-Binding: <binding_value>` header on the `require_info`
   request before origin TLS encryption;
 - the value is not placed in the request body, logs, client event payloads, or
   unrelated requests;

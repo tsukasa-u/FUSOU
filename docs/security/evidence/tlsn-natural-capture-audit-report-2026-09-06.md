@@ -46,7 +46,7 @@ The raw capture files and review record were restricted to owner-only access (`6
 | Response SHA-256 | `f2bd3f29a45b16d0d7f15db778cf28122b0ed8da9bf3be9b579f4f735e5ab3d8` |
 | Complete artifact SHA-256 | `b583cfaa5ed64928e0fc310733d12dc2bdd0bfaaef3e9b5f6728e92595e67b62` |
 
-The connection contains six messages. The second message is the `require_info` response at status `200`; a later `200` belongs to a voice resource and is not a second `require_info` response. The request contains zero `X-FUSOU-Attestation-Binding` headers. The collector manifest intentionally remains `natural_candidate` with `natural_provenance=false`; natural provenance is supplied only by the separate manual review record.
+The connection contains six messages. The second message is the `require_info` response at status `200`; a later `200` belongs to a voice resource and is not a second `require_info` response. The request contains zero `X-Attestation-Binding` headers. The collector manifest intentionally remains `natural_candidate` with `natural_provenance=false`; natural provenance is supplied only by the separate manual review record.
 
 ## Local Verification
 
@@ -120,7 +120,7 @@ These limitations do not invalidate the separate P0-04 natural-evidence decision
 
 This artifact does not contain or establish any of the following:
 
-- a server-issued `X-FUSOU-Attestation-Binding` value;
+- a server-issued `X-Attestation-Binding` value;
 - a Prover-owned TLSNotary connection to the real Game Server;
 - a Real Notary-issued alpha.15 Presentation;
 - authenticated sent/received disclosure and transcript digest coverage;

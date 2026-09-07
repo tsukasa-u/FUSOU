@@ -278,7 +278,7 @@ mod tests {
         )
         .is_ok());
 
-        let renamed = String::from_utf8(request)
+        let renamed = String::from_utf8(request.clone())
             .unwrap()
             .replace(BINDING_HEADER, "X-Experimental-Binding")
             .into_bytes();
@@ -288,6 +288,15 @@ mod tests {
             &ParserLimits::default(),
         )
         .is_err());
+
+        let legacy = String::from_utf8(request)
+            .unwrap()
+            .replace(BINDING_HEADER, "X-FUSOU-Attestation-Binding")
+            .into_bytes();
+        assert!(
+            parse_require_info_request(&legacy, "game.example.test", &ParserLimits::default(),)
+                .is_err()
+        );
     }
 
     #[test]

@@ -437,7 +437,7 @@ Identity Attestation の対象は次だけである。
 Method: POST
 Path: /kcsapi/api_get_member/require_info
 Protocol: HTTP/1.1
-Required injected header: X-FUSOU-Attestation-Binding
+Required injected header: X-Attestation-Binding
 Redirect: forbidden
 ```
 
@@ -647,7 +647,7 @@ signature
 | `verified_member_id` | authenticated `require_info` responseから抽出した canonical decimal ASCII string。client inputではなく、Resultのcanonical JSONと署名対象bytesに含める |
 | `attestation_session_id` | lowercase canonical UUIDv4 String; server-issued Session identifier extracted from the authenticated binding header |
 | `binding_nonce` | strict unpadded base64url, decoded length = 32; exact nonce extracted from the authenticated binding header |
-| `binding_value` | strict unpadded base64url of the canonical binding bytes; exact ASCII value of the authenticated `X-FUSOU-Attestation-Binding` header |
+| `binding_value` | strict unpadded base64url of the canonical binding bytes; exact ASCII value of the authenticated `X-Attestation-Binding` header |
 | `verifier_key_id` | ASCII String `^[A-Za-z0-9._-]{1,64}$` |
 | `notary_key_id` | ASCII String `^[A-Za-z0-9._-]{1,64}$` |
 | `tlsn_attestation_id` | strict unpadded base64url of the profile-defined opaque bytes |
@@ -841,7 +841,7 @@ Function内部の順序は、auth userの再検証、raw device keyによるDevi
 }
 ```
 
-APPはこのopaque binding valueをone-shot control messageとしてProxyへ渡す。Proxyは次の対象origin `require_info` requestにだけ、origin serialization前にexact ASCII header `X-FUSOU-Attestation-Binding: <binding_value>\r\n`を付加する。Binding value、Session ID、nonce、device keyをlog、Game request body、client event payloadへ出さない。Session issuance失敗、expiry、binding placement failureは通常gameplayを継続できるが、binding headerのないtranscriptをIdentity proofとして送ってはならない。
+APPはこのopaque binding valueをone-shot control messageとしてProxyへ渡す。Proxyは次の対象origin `require_info` requestにだけ、origin serialization前にexact ASCII header `X-Attestation-Binding: <binding_value>\r\n`を付加する。Binding value、Session ID、nonce、device keyをlog、Game request body、client event payloadへ出さない。Session issuance失敗、expiry、binding placement failureは通常gameplayを継続できるが、binding headerのないtranscriptをIdentity proofとして送ってはならない。
 
 Session issuanceのsuccessは`201 OK_NEW`である。Sessionは一度だけproof acquisitionに使用され、同一Session/nonce/bindingの再発行、別user/deviceへの移し替え、別Challengeへの再利用を許可しない。Session terminal transitionはClaim accepted、invalid signature、Challenge/device revoke、またはTTL expiryと同一transactionで記録する。Session expiryまたはterminal state後の通常の再試行は、同じ authenticated user と同じ non-REVOKED device key に対する新しい Session issuance としてだけ許可し、旧Sessionを復活・更新してはならない。
 

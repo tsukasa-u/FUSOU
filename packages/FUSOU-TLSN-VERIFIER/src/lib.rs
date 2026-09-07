@@ -15,7 +15,7 @@ use uuid::Uuid;
 pub const PROFILE_ID: &str = "fusou-require-info-v1";
 pub const ISSUER: &str = "fusou-tlsn-verifier";
 pub const PROOF_PURPOSE: &str = "GAME_ACCOUNT_IDENTITY_V1";
-pub const BINDING_HEADER: &str = "X-FUSOU-Attestation-Binding";
+pub const BINDING_HEADER: &str = "X-Attestation-Binding";
 pub const REQUIRE_INFO_TARGET: &str = "/kcsapi/api_get_member/require_info";
 pub const BINDING_PREFIX: &[u8] = b"FUSOU-ATTESTATION-BINDING-V1\0";
 pub const SIGNING_DOMAIN: &[u8] = b"FUSOU-VERIFIER-RESULT-V1\0";
@@ -1669,7 +1669,7 @@ mod tests {
     fn validates_request_binding_and_host() {
         let value = binding();
         let request = format!(
-            "POST {REQUIRE_INFO_TARGET} HTTP/1.1\r\nHost: game.example.test\r\nX-FUSOU-Attestation-Binding: {value}\r\nContent-Length: 0\r\n\r\n"
+            "POST {REQUIRE_INFO_TARGET} HTTP/1.1\r\nHost: game.example.test\r\nX-Attestation-Binding: {value}\r\nContent-Length: 0\r\n\r\n"
         );
         let parsed =
             parse_require_info_request(request.as_bytes(), "game.example.test", &default_limits())
@@ -1682,7 +1682,7 @@ mod tests {
     fn rejects_request_binding_ows_and_duplicate_binding() {
         let value = binding();
         let request = format!(
-            "POST {REQUIRE_INFO_TARGET} HTTP/1.1\r\nHost: game.example.test\r\nX-FUSOU-Attestation-Binding:  {value}\r\nContent-Length: 0\r\n\r\n"
+            "POST {REQUIRE_INFO_TARGET} HTTP/1.1\r\nHost: game.example.test\r\nX-Attestation-Binding:  {value}\r\nContent-Length: 0\r\n\r\n"
         );
         assert!(parse_require_info_request(
             request.as_bytes(),
@@ -1691,10 +1691,20 @@ mod tests {
         )
         .is_err());
         let duplicate = format!(
-            "POST {REQUIRE_INFO_TARGET} HTTP/1.1\r\nHost: game.example.test\r\nX-FUSOU-Attestation-Binding: {value}\r\nX-FUSOU-Attestation-Binding: {value}\r\nContent-Length: 0\r\n\r\n"
+            "POST {REQUIRE_INFO_TARGET} HTTP/1.1\r\nHost: game.example.test\r\nX-Attestation-Binding: {value}\r\nX-Attestation-Binding: {value}\r\nContent-Length: 0\r\n\r\n"
         );
         assert!(parse_require_info_request(
             duplicate.as_bytes(),
+            "game.example.test",
+            &default_limits()
+        )
+        .is_err());
+
+        let legacy = format!(
+            "POST {REQUIRE_INFO_TARGET} HTTP/1.1\r\nHost: game.example.test\r\nX-FUSOU-Attestation-Binding: {value}\r\nContent-Length: 0\r\n\r\n"
+        );
+        assert!(parse_require_info_request(
+            legacy.as_bytes(),
             "game.example.test",
             &default_limits()
         )
@@ -1709,7 +1719,7 @@ mod tests {
             "POST /kcsapi/api_get_member/other HTTP/1.1".to_owned(),
         ] {
             let request = format!(
-                "{start_line}\r\nHost: game.example.test\r\nX-FUSOU-Attestation-Binding: {value}\r\nContent-Length: 0\r\n\r\n"
+                "{start_line}\r\nHost: game.example.test\r\nX-Attestation-Binding: {value}\r\nContent-Length: 0\r\n\r\n"
             );
             assert!(parse_require_info_request(
                 request.as_bytes(),
@@ -1719,7 +1729,7 @@ mod tests {
             .is_err());
         }
         let wrong_host = format!(
-            "POST {REQUIRE_INFO_TARGET} HTTP/1.1\r\nHost: other.example.test\r\nX-FUSOU-Attestation-Binding: {value}\r\nContent-Length: 0\r\n\r\n"
+            "POST {REQUIRE_INFO_TARGET} HTTP/1.1\r\nHost: other.example.test\r\nX-Attestation-Binding: {value}\r\nContent-Length: 0\r\n\r\n"
         );
         assert!(parse_require_info_request(
             wrong_host.as_bytes(),
@@ -1733,7 +1743,7 @@ mod tests {
     fn rejects_missing_request_or_response_framing() {
         let value = binding();
         let request = format!(
-            "POST {REQUIRE_INFO_TARGET} HTTP/1.1\r\nHost: game.example.test\r\nX-FUSOU-Attestation-Binding: {value}\r\n\r\n"
+            "POST {REQUIRE_INFO_TARGET} HTTP/1.1\r\nHost: game.example.test\r\nX-Attestation-Binding: {value}\r\n\r\n"
         );
         assert!(parse_require_info_request(
             request.as_bytes(),

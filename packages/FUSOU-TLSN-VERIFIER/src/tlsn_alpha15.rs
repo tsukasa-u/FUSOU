@@ -366,7 +366,7 @@ mod tests {
     fn mock_output() -> Alpha15VerifiedOutput {
         let binding = mock_binding();
         let request = format!(
-            "POST {REQUIRE_INFO_TARGET} HTTP/1.1\r\nHost: game.example.test\r\nX-FUSOU-Attestation-Binding: {binding}\r\nContent-Length: 0\r\n\r\n"
+            "POST {REQUIRE_INFO_TARGET} HTTP/1.1\r\nHost: game.example.test\r\nX-Attestation-Binding: {binding}\r\nContent-Length: 0\r\n\r\n"
         )
         .into_bytes();
         let response_body =

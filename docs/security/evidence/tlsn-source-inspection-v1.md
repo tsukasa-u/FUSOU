@@ -207,7 +207,7 @@ crates/examples/attestation/prove.rs:368-384       Notary copies tls_transcript.
 
 alpha.15とmainの `ProveConfigBuilder` は `reveal_sent`、`reveal_recv`、およびdirection付き`reveal`を公開し、内部では`RangeSet<usize>`をunionする。したがってFUSOUのprofile-defined authenticated coverageを表現するデータ構造上の余地はある。しかしupstreamは次を定義しない。
 
-- HTTP/1.1 request line、Host、`X-FUSOU-Attestation-Binding`の構文・位置・cardinality。
+- HTTP/1.1 request line、Host、`X-Attestation-Binding`の構文・位置・cardinality。
 - FUSOUのstrict response parser、full response digest、Result schema。
 - application writeが1回だけであること、redirect/retry/reconnectionがないこと。
 - FUSOUの`BEFORE_APPLICATION_SEND -> SEND_COMMITTED -> RESPONSE_AVAILABLE -> COMPLETE` state machine。

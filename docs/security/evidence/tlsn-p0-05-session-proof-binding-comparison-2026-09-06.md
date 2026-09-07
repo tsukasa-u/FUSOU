@@ -1,9 +1,9 @@
 # P0-05 FUSOU Session and TLSNotary Proof Binding Comparison
 
-Date: `2026-09-06`
+Date: `2026-09-06`; header-name follow-up: `2026-09-07`
 
-Requested baseline: `252473af00fad8ff807e408ccb7545b518a0b12c`
-Audited repository HEAD: `5f1368b10`
+Requested/current baseline: `9d343da4abc1865e3d1fb8c9b2e20943006da9d1`
+Audited repository HEAD before this follow-up: `9d343da4abc1865e3d1fb8c9b2e20943006da9d1`
 Selected TLSNotary revision: `refs/tags/v0.1.0-alpha.15` at `47aee45b53e06648c1b2ad3689b367b8c923fdec`
 
 Decision: `C: CURRENTLY BOTH BLOCKED FOR PRODUCTION`
@@ -96,17 +96,24 @@ Candidate A is:
 
 ```text
 server-issued single-use opaque binding
-  -> X-FUSOU-Attestation-Binding in the origin request
+  -> X-Attestation-Binding in the origin request
   -> alpha.15 authenticated sent transcript
   -> FUSOU verifier checks the issued Session/nonce
 ```
 
 ### Meaning of the header
 
-`X-FUSOU-Attestation-Binding` is not a Game Server authentication field and the
+`X-Attestation-Binding` is not a Game Server authentication field and the
 literal `FUSOU` prefix is not a security property. The header is an explicit
 carrier selected by the FUSOU experimental profile so the strict parser can
 locate one value in the authenticated request.
+
+The field name has no cryptographic significance. A different generic field
+name could carry the same opaque value if the profile and parser changed
+together. The generic name reduces project-specific naming only; it does not
+make the request indistinguishable from ordinary game traffic. The Game Server
+may still observe an unknown/custom header, and accept/ignore/strip/normalize/
+reject behavior remains unverified.
 
 The security properties are:
 
@@ -273,7 +280,7 @@ intent or provenance.
 | Evidence quality | `SYNTHETIC PARTIAL`; actual Prover-owned A harness exists | `SYNTHETIC NEGATIVE`; semantic swap failure is demonstrated, not a qualifying proof |
 | Security confidence | Partial for the authenticated-carrier design; compatibility and real authority remain unverified | Low for DB-only correlation; no alpha.15 Session link established |
 
-The name `X-FUSOU-Attestation-Binding` is therefore optional as a label but a
+The name `X-Attestation-Binding` is therefore optional as a label but a
 binding carrier is not optional under the current alpha.15 evidence model.
 
 ## RECOMMENDATION
@@ -306,8 +313,12 @@ local DB join, Attestation ID lookup, Game Server cookie, or alpha.15
 ## FINAL REPORT
 
 ```text
+Header:
+OLD = X-FUSOU-Attestation-Binding
+NEW = X-Attestation-Binding
+
 Baseline:
-252473af00fad8ff807e408ccb7545b518a0b12c
+9d343da4abc1865e3d1fb8c9b2e20943006da9d1
 
 Experimental candidate A:
 PARTIAL
@@ -327,10 +338,56 @@ FUSOU Session; a database-only join permits a demonstrated cross-session swap.
 Cryptographic Session <-> Proof binding:
 PARTIAL
 
+Binding security semantics:
+UNCHANGED
+
+Parser:
+PASS (new header accepted; missing, duplicate, malformed, and old-header-only
+requests rejected)
+
+Replay protection:
+PARTIAL (single-use is synthetic; runtime authority is absent)
+
+Synthetic alpha.15 evidence:
+PASS
+
 Game Server compatibility:
 NOT VERIFIED
 
+Real Game Server:
+NOT TESTED
+
+Real Notary:
+NOT TESTED
+
+Real Presentation:
+NOT TESTED
+
+Dedicated Verifier:
+NOT TESTED
+
+Signed Result:
+BLOCKED
+
 Production Route:
+UNCHANGED
+
+Production Web:
+UNCHANGED
+
+Production Proxy:
+UNCHANGED
+
+Production APP:
+UNCHANGED
+
+Production Hyper/rustls:
+UNCHANGED
+
+Production database:
+UNCHANGED
+
+Production configuration:
 UNCHANGED
 
 Production files changed:
@@ -339,9 +396,22 @@ NONE
 Experimental files changed:
 packages/FUSOU-TLSN-VERIFIER/src/experimental_correlation.rs
 packages/FUSOU-TLSN-VERIFIER/src/lib.rs
+packages/FUSOU-TLSN-VERIFIER/src/tlsn_alpha15.rs
 docs/security/evidence/tlsn-p0-05-session-proof-binding-comparison-2026-09-06.md
 
 docs/security/evidence/tlsn-phase0-gate-ledger-v1.json (synthetic evidence index only)
+
+Current specification/evidence documents renamed to the generic carrier:
+docs/implementation-plans/tlsnotary-game-identity-attestation-v1-implementation-plan.md
+docs/operations/member-id-preemptive-attack-and-recovery.md
+docs/security/evidence/tlsn-natural-capture-audit-report-2026-09-06.md
+docs/security/evidence/tlsn-p0-04-p0-05-evidence-attempt-v1.json
+docs/security/evidence/tlsn-p0-05-alpha15-adapter-v1.md
+docs/security/evidence/tlsn-p0-05-fusou-require-info-evidence-contract-v1.md
+docs/security/evidence/tlsn-p0-05-game-client-transport-integration-v1.md
+docs/security/evidence/tlsn-p0-05-prover-owned-transport-architecture-v1.md
+docs/security/evidence/tlsn-real-environment-handoff-status-v1.md
+docs/security/evidence/tlsn-source-inspection-v1.md
 
 P0-05:
 BLOCKED

@@ -112,7 +112,7 @@ The fixed profile ID is `fusou-require-info-v1`. The adapter requires:
 2. complete range coverage of every byte consumed by the current strict parser;
 3. request `POST /kcsapi/api_get_member/require_info HTTP/1.1`;
 4. exactly one authenticated `Host` matching the authenticated server identity;
-5. exactly one authenticated `X-FUSOU-Attestation-Binding` header;
+5. exactly one authenticated `X-Attestation-Binding` header;
 6. the existing strict HTTP framing, gzip, `svdata=`, JSON, and member-ID rules;
 7. response digest and revealed bytes matching the authenticated transcript.
 

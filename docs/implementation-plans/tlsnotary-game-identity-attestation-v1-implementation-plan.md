@@ -204,7 +204,7 @@ WHERE session_status = 'ACTIVE';
 1. FUSOU-WEB は不透明な binding value と有効期限だけを返す。
 2. APP はその値を一回限りの制御メッセージとして proxy に送る。
 3. Proxy は次の通常のリクエストに ASCII 行をちょうど 1 行だけ追加する。
-   `X-FUSOU-Attestation-Binding: <binding_value>\r\n`.
+  `X-Attestation-Binding: <binding_value>\r\n`.
 4. profile に従い、header は正確な Host header の後、request body framing の前でなければならない。
 5. binding の欠落、重複、移動、非正規、置換、期限切れは Verifier rejection とし、Result を生成しない。
 6. Binding value と Session fields はログ、ゲームプレイのペイロード、WebView state、クライアントイベントのペイロードから除外する。
@@ -237,7 +237,7 @@ P1-01 は `RESOLVED` である。P1-02 も、authenticated FUSOU-WEB Claim handl
 ```text
 POST /kcsapi/api_get_member/require_info HTTP/1.1
 Host: <allowlisted server_identity>
-X-FUSOU-Attestation-Binding: <exact binding_value>
+X-Attestation-Binding: <exact binding_value>
 ```
 
 リダイレクト、暗黙の再試行、別のorigin requestの生成、代替ゲームサーバーのエンドポイント、フォールバックから導出した識別情報を禁止する。

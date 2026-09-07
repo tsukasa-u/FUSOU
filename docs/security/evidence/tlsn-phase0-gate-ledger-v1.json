@@ -441,7 +441,7 @@
     ,{
       "id": "E-P0-05-006",
       "artifact": "tlsn-p0-05-session-proof-binding-comparison-2026-09-06.md",
-      "scope": "SYNTHETIC comparison of Candidate A server-issued authenticated request binding and Candidate B header-less correlation. Candidate A tests issued-value, Session mismatch, and single-use rejection; Candidate B tests proof/Session swap and local challenge non-authentication. This evidence is partial/negative only and does not qualify P0-05."
+      "scope": "SYNTHETIC comparison of Candidate A server-issued X-Attestation-Binding authenticated request binding and Candidate B header-less correlation. Candidate A tests issued-value, Session mismatch, and single-use rejection; Candidate B tests proof/Session swap and local challenge non-authentication. The carrier name has no cryptographic significance; this evidence is partial/negative only and does not qualify P0-05."
     }
   ],
   "decision": {

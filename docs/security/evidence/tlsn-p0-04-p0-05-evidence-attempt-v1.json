@@ -249,7 +249,7 @@
       ],
       "not_upstream_guarantees": [
         "FUSOU require_info HTTP framing and exact target validation",
-        "X-FUSOU-Attestation-Binding placement, cardinality, and session matching",
+        "X-Attestation-Binding placement, cardinality, and session matching",
         "FUSOU server identity allowlist",
         "FUSOU strict parser, digest, and range acceptance",
         "one logical Game request and no Game Server re-submission"
@@ -267,7 +267,7 @@
       "git -C /home/ogu-h/Documents/GitHub/FUSOU log -1 --format='%H%n%s'",
       "rg --files /home/ogu-h/Documents/GitHub/FUSOU -g '!**/target/**' -g '!**/node_modules/**'",
       "git -C /home/ogu-h/Documents/GitHub/FUSOU ls-files",
-      "rg -n --hidden -g '!**/target/**' -g '!**/node_modules/**' -g '!**/.git/**' 'api_get_member|require_info|X-FUSOU-Attestation-Binding|transcript|TLSNotary|tlsn' /home/ogu-h/Documents/GitHub/FUSOU/packages /home/ogu-h/Documents/GitHub/FUSOU/docs",
+      "rg -n --hidden -g '!**/target/**' -g '!**/node_modules/**' -g '!**/.git/**' 'api_get_member|require_info|X-Attestation-Binding|transcript|TLSNotary|tlsn' /home/ogu-h/Documents/GitHub/FUSOU/packages /home/ogu-h/Documents/GitHub/FUSOU/docs",
       "test -d /home/ogu-h/Documents/GitHub/FUSOU/docs/security/evidence/require-info-corpus-v1",
       "test -d /home/ogu-h/Documents/GitHub/FUSOU/packages/FUSOU-TLSN-VERIFIER"
     ],

@@ -144,11 +144,18 @@ The request parser requires:
 | Header names | HTTP token bytes; no whitespace before `:`; matching is ASCII case-insensitive |
 | Header values | No control byte other than SP or HTAB; ordinary header value comparison trims OWS |
 | `Host` | Exactly one header; its trimmed value equals the authenticated and allowlisted server identity byte-for-byte |
-| `X-FUSOU-Attestation-Binding` | Exactly one header; its field name is case-insensitive; its raw value is exactly one ASCII SP followed by the binding value, with no trailing OWS |
+| `X-Attestation-Binding` | Exactly one header; its field name is case-insensitive; its raw value is exactly one ASCII SP followed by the binding value, with no trailing OWS |
 | Body framing | Exactly one `Content-Length` or one `Transfer-Encoding`; duplicates and co-presence are rejected |
 | `Content-Length` | Canonical unsigned decimal (`0` or a non-zero digit followed by digits), and the value equals the remaining body length exactly |
 | `Transfer-Encoding` | If used, exactly `chunked` case-insensitively; chunk extensions and trailers are rejected; chunk size lines are hexadecimal and CRLF terminated |
 | Request body | Framed bytes are preserved exactly. The current profile imposes no semantic body schema and does not decode request `Content-Encoding` |
+
+`X-Attestation-Binding` is a profile-level carrier name, not a cryptographic
+property and not a Game Server authentication field. The security semantics
+come from the server-issued opaque value, authenticated request bytes,
+Session/nonce equality, and single-use replay protection. Renaming the carrier
+does not make the request indistinguishable from ordinary game traffic; unknown
+header compatibility remains an experimental question.
 
 Unknown non-framing headers are permitted by the current parser within its
 header token, value, count, and size limits. They remain part of the
