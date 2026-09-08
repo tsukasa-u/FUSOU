@@ -22,7 +22,6 @@ import {
 import { cachedFetch } from "@/utils/fetchCache";
 import {
   ENEMY_ID_THRESHOLD,
-  STYPE_NAMES,
 } from "@/features/simulator/constants";
 import {
   ShipGrowthAllPeriodsResponseSchema,
@@ -35,14 +34,13 @@ import {
 } from "@/features/simulator/api-response-schemas";
 import { buildShareGrowthUrl } from "@/utils/share-url";
 import { copyToClipboard } from "@/utils/clipboard";
-import { ShipListRow, type ShipListItem } from "@/components/common/solid/ship-list-row";
 import { AlertMessage } from "@/components/common/solid/AlertMessage";
 import { ShareUrlButton } from "@/components/common/solid/ShareUrlButton";
 import {
   MasterDataLoadStatusAlert,
   type MasterDataLoadStatusItem,
 } from "@/components/common/solid/MasterDataLoadStatusAlert";
-import { VList, type VListHandle } from "virtua/solid";
+import { ShipCatalogPicker } from "@/components/common/solid/ShipCatalogPicker";
 
 Chart.register(...registerables);
 
@@ -134,9 +132,6 @@ type ShipMasterRow = {
 };
 
 type AnyRecord = Record<string, unknown>;
-type FlatShipItem =
-  | { type: "header"; key: string }
-  | { type: "ship"; data: ShipListItem };
 
 // ── Helpers ────────────────────────────────────────────────────────
 
@@ -595,8 +590,6 @@ export default function ShipGrowthPanel() {
   const [periods, setPeriods] = createSignal<PeriodSummary[]>([]);
   const [selectedPeriodIdx, setSelectedPeriodIdx] = createSignal(0);
   const [shipMasterRows, setShipMasterRows] = createSignal<ShipMasterRow[]>([]);
-  const [shipSearchKeyword, setShipSearchKeyword] = createSignal("");
-  const [selectedShipCategory, setSelectedShipCategory] = createSignal("all");
   const [selectedMasterId, setSelectedMasterId] = createSignal<number | null>(
     null,
   );
@@ -650,77 +643,7 @@ export default function ShipGrowthPanel() {
     return shipMasterRows().find((ship) => ship.id === id) ?? null;
   });
 
-  const shipCategories = createMemo(() => {
-    const categories = new Set<string>();
-    for (const ship of shipMasterRows()) {
-      categories.add(
-        ship.stype != null
-          ? (STYPE_NAMES[ship.stype] ?? `艦種${ship.stype}`)
-          : "その他",
-      );
-    }
-    return Array.from(categories).sort((a, b) => a.localeCompare(b, "ja"));
-  });
 
-  const filteredShips = createMemo(() => {
-    const keyword = shipSearchKeyword().trim().toLowerCase();
-    const selectedCategory = selectedShipCategory();
-
-    return shipMasterRows().filter((ship) => {
-      const category =
-        ship.stype != null
-          ? (STYPE_NAMES[ship.stype] ?? `艦種${ship.stype}`)
-          : "その他";
-      if (selectedCategory !== "all" && category !== selectedCategory)
-        return false;
-      if (!keyword) return true;
-      return (
-        ship.name.toLowerCase().includes(keyword) ||
-        `${ship.id}`.includes(keyword)
-      );
-    });
-  });
-
-  const groupedShips = createMemo(() => {
-    const map = new Map<string, ShipListItem[]>();
-    for (const ship of filteredShips()) {
-      const key =
-        ship.stype != null
-          ? (STYPE_NAMES[ship.stype] ?? `艦種${ship.stype}`)
-          : "その他";
-      const rows = map.get(key);
-      if (rows) rows.push(ship);
-      else map.set(key, [ship]);
-    }
-    return Array.from(map.entries())
-      .sort((a, b) => a[0].localeCompare(b[0], "ja"))
-      .map(([key, items]) => ({ key, items }));
-  });
-
-  const flatShips = createMemo(() => {
-    const flat: FlatShipItem[] = [];
-    for (const group of groupedShips()) {
-      flat.push({ type: "header", key: group.key });
-      for (const ship of group.items) {
-        flat.push({ type: "ship", data: ship });
-      }
-    }
-    return flat;
-  });
-
-  let shipVListRef: VListHandle | undefined;
-
-  let hasScrolledInitialShip = false;
-  createEffect(() => {
-    const id = selectedMasterId();
-    if (id != null && shipVListRef && !hasScrolledInitialShip) {
-      const idx = flatShips().findIndex((r) => r.type === "ship" && r.data.id === id);
-      if (idx >= 0) {
-        hasScrolledInitialShip = true;
-        shipVListRef.scrollToIndex(idx, { align: "center" });
-      }
-    }
-  });
 
   async function fetchSummary() {
     setLoadingPeriods(true);
@@ -1351,69 +1274,14 @@ export default function ShipGrowthPanel() {
 
       <MasterDataLoadStatusAlert items={masterDataStatus()} />
 
-      {/* Ship list + charts */}
-      <div class="grid grid-cols-1 xl:grid-cols-[minmax(0,380px)_minmax(0,1fr)] gap-4 items-start">
-        <aside class="rounded-xl border border-base-300/70 bg-base-100 shadow-sm overflow-hidden">
-          <div class="p-3 border-b border-base-200 bg-base-50/50 space-y-2">
-            <select
-              class="select select-bordered select-sm w-full"
-              value={selectedShipCategory()}
-              onChange={(event) =>
-                setSelectedShipCategory(event.currentTarget.value)
-              }
-            >
-              <option value="all">すべての艦種</option>
-              <For each={shipCategories()}>
-                {(category) => <option value={category}>{category}</option>}
-              </For>
-            </select>
-            <input
-              class="input input-bordered input-sm w-full"
-              placeholder="艦名 / ID で検索"
-              value={shipSearchKeyword()}
-              onInput={(event) =>
-                setShipSearchKeyword(event.currentTarget.value)
-              }
-            />
-          </div>
-          <div class="card-body p-2">
-            <div class="flex items-center justify-between px-2 pb-2">
-              <h3 class="text-sm font-semibold">艦一覧</h3>
-              <span class="text-xs text-base-content/50">
-                {filteredShips().length} 件
-              </span>
-            </div>
-            <Show when={loadingShips()}>
-              <div class="py-8 text-center text-base-content/60">
-                <span class="loading loading-spinner loading-sm" />
-              </div>
-            </Show>
-            <Show when={!loadingShips()}>
-              <div class="h-[74vh] pr-1">
-                <VList ref={(el) => { shipVListRef = el; }} data={flatShips()} class="h-full overflow-y-auto overflow-x-hidden">
-                  {(item: FlatShipItem) =>
-                    item.type === "header" ? (
-                      <div class="mb-2 mt-1 first:mt-0">
-                        <h4 class="px-2.5 py-1 text-[11px] font-semibold tracking-wide text-base-content/45 uppercase bg-base-100/95 backdrop-blur-sm z-10">
-                          {item.key}
-                        </h4>
-                      </div>
-                    ) : (
-                      <div class="mb-0.5">
-                        <ShipListRow
-                          ship={item.data}
-                          active={selectedMasterId() === item.data.id}
-                          onSelect={() => selectShip(item.data.id)}
-                        />
-                      </div>
-                    )
-                  }
-                </VList>
-              </div>
-            </Show>
-          </div>
-        </aside>
-
+      {/* Ship picker + charts */}
+      <ShipCatalogPicker
+        idPrefix="ship-growth"
+        ships={shipMasterRows()}
+        selectedShipId={selectedMasterId()}
+        onSelectShip={(id) => selectShip(id)}
+        loading={loadingShips()}
+      >
         <div class="space-y-4">
           {/* Exp chart */}
           <Show when={expRows().length > 0}>
@@ -1545,7 +1413,7 @@ export default function ShipGrowthPanel() {
             </div>
           </Show>
         </div>
-      </div>
+      </ShipCatalogPicker>
     </div>
   );
 }
