@@ -12,7 +12,7 @@ import {
   assertSignedProductionEvidenceManifest,
   assertSignedResult,
 } from "./production-evidence.mjs";
-import { assertProductionPresentationCaptureMetadata, assertVerifiedTrustGraph, deriveProductionTrustGraph, PRODUCTION_EVIDENCE_REQUIREMENTS, productionRequirementStatus } from "./production-evidence-contract.mjs";
+import { assertProductionPresentationCaptureMetadata, assertVerifiedTrustGraph, deriveProductionTrustGraph, PRODUCTION_EVIDENCE_GOVERNANCE_ONLY_REQUIREMENTS, PRODUCTION_EVIDENCE_REQUIREMENTS, productionRequirementStatus } from "./production-evidence-contract.mjs";
 import { assertSigningKeyRegistry } from "./signing-key-registry.mjs";
 import { assertAuthorityKeyRegistry } from "./authority-key-registry.mjs";
 import { canonicalJson, workflowContextFromEnvironment } from "./deployment-attestation.mjs";
@@ -33,6 +33,7 @@ import {
   verifyTlsnDevicePossession,
   verifyDevicePredicates,
 } from "./device-evidence.mjs";
+import { verifyProductionProxyProvenance } from "./proxy-provenance.mjs";
 
 function required(name) {
   const value = process.env[name]?.trim();
@@ -89,7 +90,8 @@ function assertAllEvidenceItemsPassed(manifest) {
   const artifactHashes = new Set(Object.values(manifest.artifacts ?? {}).map((artifact) => artifact?.artifact_sha256));
   for (const requirement of PRODUCTION_EVIDENCE_REQUIREMENTS) {
     const evidence = manifest.evidence[requirement];
-    if (evidence?.status !== "PASS") {
+    const governanceOnly = PRODUCTION_EVIDENCE_GOVERNANCE_ONLY_REQUIREMENTS.includes(requirement);
+    if (evidence?.status !== "PASS" && !(governanceOnly && evidence?.status === "UNVERIFIED")) {
       throw new Error(`production evidence item is not independently passed: ${requirement}`);
     }
     if (!evidence.required_artifacts.every((artifact) => manifest.artifacts?.[artifact])) {
@@ -113,6 +115,8 @@ function assertCapturedTrustGraph(manifest, {
   deviceAuthentication,
   predicateResults,
   devicePredicateResults,
+  capturePredicateResults,
+  proxyProvenance,
 }) {
   const rebuiltGraph = deriveProductionTrustGraph({
     captureId: manifest.capture_id,
@@ -126,6 +130,7 @@ function assertCapturedTrustGraph(manifest, {
     result,
     resultBytes,
     resultSignerKeyId,
+    proxyProvenance,
   });
   if (canonicalJson(rebuiltGraph) !== canonicalJson(manifest.trust_graph)) {
     throw new Error("manifest trust graph does not match independent raw-artifact derivation");
@@ -133,6 +138,7 @@ function assertCapturedTrustGraph(manifest, {
   assertVerifiedTrustGraph(rebuiltGraph, {
     ...predicateResults,
     ...devicePredicateResults,
+    ...capturePredicateResults,
     remote_attestation_unverified: { status: "UNVERIFIED" },
   });
 }
@@ -178,6 +184,9 @@ async function main() {
   const consumeReceipt = parseArtifactJson(artifacts, "consume_receipt");
   const replay = parseArtifactJson(artifacts, "replay");
   const captureMetadata = parseArtifactJson(artifacts, "capture_metadata");
+  const externalProxyProvenancePin = optional("TLSN_PRODUCTION_PROXY_PROVENANCE_PIN_JSON")
+    ? parseJson("TLSN_PRODUCTION_PROXY_PROVENANCE_PIN_JSON")
+    : null;
   const sessionAuthorityRegistry = parseArtifactJson(artifacts, "session_authority_registry");
   const bindingAuthorityRegistry = parseArtifactJson(artifacts, "binding_authority_registry");
   const expectedSessionAuthorityRegistryRaw = required("TLSN_PRODUCTION_SESSION_AUTHORITY_KEY_REGISTRY");
@@ -343,6 +352,20 @@ async function main() {
 
   const presentation = artifacts.presentation;
   assertProductionPresentationCaptureMetadata(captureMetadata, presentation);
+  const capturePredicateResults = {
+    proxy_provenance_cryptographic_authentication: verifyProductionProxyProvenance({
+      captureMetadata,
+      presentationBytes: presentation,
+      externalPin: externalProxyProvenancePin,
+      verifiedAt: manifest.capture_finished_at,
+    }),
+  };
+  if (capturePredicateResults.proxy_provenance_cryptographic_authentication.status === "FAIL") {
+    throw new Error("recomputed production proxy provenance predicate did not pass");
+  }
+  if (canonicalJson(manifest.capture_predicates) !== canonicalJson(capturePredicateResults)) {
+    throw new Error("manifest capture predicates do not match independent verification");
+  }
   const notaryRegistry = parseArtifactJson(artifacts, "notary_registry");
   const notaryRegistryBytes = artifacts.notary_registry;
   const capturedNotaryRegistryRaw = notaryRegistryBytes.toString("utf8");
@@ -398,6 +421,8 @@ async function main() {
     resultPublicKeySpki,
     resultSignerKeyId,
     trustRootCertificateBytes: artifacts.trust_root,
+    sessionBinding: session.binding,
+    sessionId: session.session_id,
     includeResultSignature: false,
   });
   if (Object.entries(preSignaturePredicateResults).some(([name, predicate]) => name !== "result_signature" && predicate.status !== "PASS")) {
@@ -419,6 +444,8 @@ async function main() {
     resultPublicKeySpki,
     resultSignerKeyId,
     trustRootCertificateBytes: artifacts.trust_root,
+    sessionBinding: session.binding,
+    sessionId: session.session_id,
   });
   if (Object.values(predicateResults).some((predicate) => predicate.status !== "PASS")) {
     throw new Error("recomputed semantic predicate verification did not pass");
@@ -435,6 +462,8 @@ async function main() {
     resultSignerKeyId,
     predicateResults,
     devicePredicateResults,
+    capturePredicateResults,
+    proxyProvenance: captureMetadata.proxy_provenance,
   });
   assertSemanticResultMatches(result, semanticVerification);
   const semanticArtifact = parseArtifactJson(artifacts, "semantic_verification");
@@ -489,7 +518,7 @@ async function main() {
   assertResultSubjectIdentity(result, expectedSubject);
   assertObjectIdentity(manifest.subject_identity, expectedSubject, "subject identity");
   for (const requirement of Object.keys(manifest.evidence)) {
-    const expectedStatus = productionRequirementStatus(requirement, { ...predicateResults, ...devicePredicateResults });
+    const expectedStatus = productionRequirementStatus(requirement, { ...predicateResults, ...devicePredicateResults, ...capturePredicateResults });
     if (expectedStatus !== "PASS" && manifest.evidence[requirement].status !== expectedStatus) {
       throw new Error(`evidence requirement is not blocked by its predicate result: ${requirement}`);
     }

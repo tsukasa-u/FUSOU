@@ -42,6 +42,7 @@ import {
   verifyDevicePredicates,
 } from "./device-evidence.mjs";
 import { BindingAuthority, EvidenceSigner, ResultSigner, SessionAuthority } from "./authority-signers.mjs";
+import { proxyProvenanceSigningPayload, verifyProductionProxyProvenance } from "./proxy-provenance.mjs";
 
 const now = new Date();
 const nowIso = now.toISOString();
@@ -157,6 +158,38 @@ const subjectIdentity = {
 
 const presentationBytes = Buffer.from("real-production-presentation");
 const resultBytes = Buffer.from(JSON.stringify(result));
+const proxyProvenance = {
+  declared: "production",
+  cryptographic_status: "UNVERIFIED",
+  authority: {
+    type: "externally-pinned-production-proxy-key",
+    status: "UNVERIFIED",
+  },
+  proxy_identity: "fusou-proxy-production",
+  proxy_deployment_id: "proxy-test-deployment",
+  proxy_binary_identity: "proxy-test-binary",
+  presentation_sha256: sha256Base64Url(presentationBytes),
+  created_at: nowIso,
+  capture_context: {
+    method: "POST",
+    target: "/kcsapi/api_get_member/require_info",
+    http_version: "HTTP/1.1",
+  },
+  signer_key_id: null,
+  signature: null,
+};
+const captureMetadata = {
+  capture_provenance: "production",
+  capture_source: "fusou-proxy-production-tlsn",
+  synthetic: false,
+  test: false,
+  canary: false,
+  local: false,
+  request: proxyProvenance.capture_context,
+  presentation_sha256: proxyProvenance.presentation_sha256,
+  proxy_provenance: proxyProvenance,
+};
+const captureMetadataBytes = Buffer.from(JSON.stringify(captureMetadata));
 const manifest = blockedProductionEvidenceManifest({
   captureId: "323e4567-e89b-42d3-a456-426614174000",
   now: nowIso,
@@ -174,8 +207,9 @@ const manifest = blockedProductionEvidenceManifest({
 manifest.artifacts = {
   presentation: { ...artifactDescriptor(presentationBytes, { mediaType: "application/tlsn-presentation" }), path: "presentation.bin" },
   result: { ...artifactDescriptor(resultBytes, { mediaType: "application/json" }), path: "result.json" },
+  capture_metadata: { ...artifactDescriptor(captureMetadataBytes, { mediaType: "application/json" }), path: "capture-metadata.json" },
 };
-const fixtureArtifacts = { presentation: presentationBytes, result: resultBytes };
+const fixtureArtifacts = { presentation: presentationBytes, result: resultBytes, capture_metadata: captureMetadataBytes };
 for (const artifactName of ["authenticated_user", "device_identity", "device_authentication", "session", "consume_receipt", "semantic_verification", "notary_registry", "health"]) {
   const bytes = Buffer.from(`fixture-${artifactName}`);
   fixtureArtifacts[artifactName] = bytes;
@@ -191,6 +225,14 @@ manifest.evidence = Object.fromEntries(PRODUCTION_EVIDENCE_REQUIREMENTS.map((nam
     authorityIdentity: "production-test-authority",
   }),
 ]));
+manifest.capture_predicates = {
+  proxy_provenance_cryptographic_authentication: verifyProductionProxyProvenance({
+    captureMetadata,
+    presentationBytes,
+    verifiedAt: nowIso,
+  }),
+};
+manifest.evidence.real_production_tlsn_proxy_provenance.status = "UNVERIFIED";
 const { privateKey: manifestPrivateKey, publicKey: manifestPublicKey } = generateKeyPairSync("ed25519");
 const manifestPublicKeySpki = manifestPublicKey.export({ format: "der", type: "spki" }).toString("base64url");
 const manifestPrivateKeyPkcs8 = manifestPrivateKey.export({ format: "der", type: "pkcs8" }).toString("base64url");
@@ -213,6 +255,7 @@ assertSignedProductionEvidenceManifest(signedManifest, {
 });
 assertNoSyntheticEvidence(signedManifest);
 assertProductionEvidenceArtifacts(signedManifest, fixtureArtifacts);
+assert.equal(verifyProductionProxyProvenance({ captureMetadata, presentationBytes }).status, "UNVERIFIED");
 assertSignedResult(result, {
   publicKeySpki: resultPublicKeySpki,
   keyRegistry: resultKeyRegistry,
@@ -263,6 +306,8 @@ const predicateResults = verifySemanticPredicates({
   resultSignerKeyId: "result-2026",
   resultRegistrySha256: resultKeyRegistrySha256,
   trustRootCertificateBytes: trustRootBytes,
+  sessionBinding: bindingValue,
+  sessionId,
   verifiedAt: nowIso,
 });
 assert.ok(Object.values(predicateResults).every((predicate) => predicate.status === "PASS"), JSON.stringify(predicateResults));
@@ -276,6 +321,8 @@ const predicateContext = {
   resultPublicKeySpki,
   resultSignerKeyId: "result-2026",
   trustRootCertificateBytes: trustRootBytes,
+  sessionBinding: bindingValue,
+  sessionId,
   verifiedAt: nowIso,
 };
 function predicateMutation(overrides) {
@@ -320,6 +367,18 @@ const methodMutation = predicateMutation({
   }),
 });
 assertPredicateFailed("HTTP method mutation", methodMutation, ["require_info_http_profile"]);
+const freshSessionId = "423e4567-e89b-42d3-a456-426614174000";
+const freshSessionBinding = Buffer.concat([
+  Buffer.from("FUSOU-ATTESTATION-BINDING-V1\0"),
+  Buffer.from([0, 16]),
+  Buffer.from(freshSessionId.replaceAll("-", ""), "hex"),
+  Buffer.from([0, 32]),
+  bindingNonce,
+]).toString("base64url");
+assertPredicateFailed("old Presentation with fresh Session", predicateMutation({
+  sessionBinding: freshSessionBinding,
+  sessionId: freshSessionId,
+}), ["presentation_binding_to_session"]);
 const pathMutation = predicateMutation({
   semanticVerification: semanticWithTranscripts({
     request: Buffer.from(requestTranscript.toString("utf8").replace("/kcsapi/api_get_member/require_info", "/kcsapi/api_get_member/other_info")),
@@ -536,6 +595,13 @@ const graphIdentities = {
   "member-id": { verified_member_id: result.verified_member_id, response_transcript_sha256: result.response_transcript_sha256 },
   "tlsn-notary": { key_id: result.notary_key_id },
   result: { result_sha256: sha256Base64Url(resultBytes), key_id: result.signer_key_id ?? "result-2026" },
+  "production-proxy": {
+    declared: proxyProvenance.declared,
+    cryptographic_status: proxyProvenance.cryptographic_status,
+    proxy_identity: proxyProvenance.proxy_identity,
+    proxy_deployment_id: proxyProvenance.proxy_deployment_id,
+    proxy_binary_identity: proxyProvenance.proxy_binary_identity,
+  },
   "production-evidence": { capture_id: manifest.capture_id },
   "remote-attestation": { status: "UNVERIFIED" },
 };
@@ -549,6 +615,7 @@ const graphArtifactByNode = {
   "member-id": "semantic_verification",
   "tlsn-notary": "notary_registry",
   result: "result",
+  "production-proxy": "capture_metadata",
   "production-evidence": "health",
   "remote-attestation": "health",
 };
@@ -567,6 +634,7 @@ assertTrustGraphNodeIdentities(verifiedGraph, graphIdentities);
 assertVerifiedTrustGraph(verifiedGraph, {
   ...predicateResults,
   ...devicePredicateResults,
+  proxy_provenance_cryptographic_authentication: { status: "UNVERIFIED" },
   remote_attestation_unverified: { status: "UNVERIFIED" },
 });
 for (const [nodeId, identities] of Object.entries(graphIdentities)) {
@@ -773,7 +841,60 @@ assertProductionPresentationCaptureMetadata({
     http_version: "HTTP/1.1",
   },
   presentation_sha256: sha256Base64Url(presentationBytes),
+  proxy_provenance: proxyProvenance,
 }, presentationBytes);
+const { privateKey: proxyPrivateKey, publicKey: proxyPublicKey } = generateKeyPairSync("ed25519");
+const proxyPublicKeySpki = proxyPublicKey.export({ format: "der", type: "spki" }).toString("base64url");
+const externalProxyPin = {
+  type: "externally-pinned-production-proxy-key",
+  signer_key_id: "proxy-2026",
+  public_key_spki: proxyPublicKeySpki,
+  proxy_identity: proxyProvenance.proxy_identity,
+  proxy_deployment_id: proxyProvenance.proxy_deployment_id,
+  proxy_binary_identity: proxyProvenance.proxy_binary_identity,
+};
+const signedProxyProvenance = {
+  ...proxyProvenance,
+  cryptographic_status: "VERIFIED",
+  authority: {
+    type: "externally-pinned-production-proxy-key",
+    status: "EXTERNALLY_PINNED",
+  },
+  signer_key_id: externalProxyPin.signer_key_id,
+};
+signedProxyProvenance.signature = sign(null, Buffer.from(proxyProvenanceSigningPayload(signedProxyProvenance)), proxyPrivateKey).toString("base64url");
+const selfDeclaredProxyProvenance = {
+  ...proxyProvenance,
+  signer_key_id: "self-declared-proxy-key",
+  signature: signedProxyProvenance.signature,
+};
+assert.equal(verifyProductionProxyProvenance({
+  captureMetadata: { ...captureMetadata, proxy_provenance: selfDeclaredProxyProvenance },
+  presentationBytes,
+}).status, "UNVERIFIED");
+const signedCaptureMetadata = { ...captureMetadata, proxy_provenance: signedProxyProvenance };
+assert.equal(verifyProductionProxyProvenance({
+  captureMetadata: signedCaptureMetadata,
+  presentationBytes,
+  externalPin: externalProxyPin,
+}).status, "PASS");
+assert.equal(verifyProductionProxyProvenance({
+  captureMetadata: signedCaptureMetadata,
+  presentationBytes,
+}).status, "FAIL");
+assert.equal(verifyProductionProxyProvenance({
+  captureMetadata: signedCaptureMetadata,
+  presentationBytes,
+  externalPin: { ...externalProxyPin, proxy_binary_identity: "proxy-other-binary" },
+}).status, "FAIL");
+assert.equal(verifyProductionProxyProvenance({
+  captureMetadata: {
+    ...captureMetadata,
+    proxy_provenance: { ...signedProxyProvenance, signature: mutateBase64Url(signedProxyProvenance.signature) },
+  },
+  presentationBytes,
+  externalPin: externalProxyPin,
+}).status, "FAIL");
 rejects("synthetic Presentation provenance", () => assertProductionPresentationCaptureMetadata({
   capture_provenance: "production",
   capture_source: "synthetic-tlsn-fixture",

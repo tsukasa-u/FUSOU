@@ -36,6 +36,7 @@ import {
   verifyTlsnDevicePossession,
   verifyDevicePredicates,
 } from "./device-evidence.mjs";
+import { verifyProductionProxyProvenance } from "./proxy-provenance.mjs";
 
 const packageDirectory = resolve(new URL("..", import.meta.url).pathname);
 const DEFAULT_OUTPUT_PATH = resolve(packageDirectory, "artifacts/tlsn-production-evidence.json");
@@ -270,6 +271,20 @@ async function main() {
     const devicePrivateKey = await loadPrivateKeyFromEnvironment();
     const productionPresentation = await readProductionPresentation();
     const { presentationBytes } = productionPresentation;
+    const proxyProvenancePin = optional("TLSN_PRODUCTION_PROXY_PROVENANCE_PIN_JSON")
+      ? parseJsonEnvironment("TLSN_PRODUCTION_PROXY_PROVENANCE_PIN_JSON")
+      : null;
+    const capturePredicateResults = {
+      proxy_provenance_cryptographic_authentication: verifyProductionProxyProvenance({
+        captureMetadata: productionPresentation.provenance,
+        presentationBytes,
+        externalPin: proxyProvenancePin,
+        verifiedAt: now,
+      }),
+    };
+    if (capturePredicateResults.proxy_provenance_cryptographic_authentication.status === "FAIL") {
+      throw new Error("production proxy provenance verification did not pass");
+    }
     const health = await readHealth(workerOrigin);
     const user = await readSupabaseUser(supabaseOrigin, publishableKey, accessToken);
     const registryRaw = required("TLSN_PRODUCTION_RESULT_SIGNING_KEY_REGISTRY");
@@ -421,6 +436,8 @@ async function main() {
       resultPublicKeySpki,
       resultSignerKeyId,
       trustRootCertificateBytes: trustRootBytes,
+      sessionBinding: session.binding,
+      sessionId: session.session_id,
       includeResultSignature: false,
     });
     if (Object.entries(preSignaturePredicateResults).some(([name, predicate]) => name !== "result_signature" && predicate.status !== "PASS")) {
@@ -442,6 +459,8 @@ async function main() {
       resultPublicKeySpki,
       resultSignerKeyId,
       trustRootCertificateBytes: trustRootBytes,
+      sessionBinding: session.binding,
+      sessionId: session.session_id,
     });
     if (Object.values(predicateResults).some((predicate) => predicate.status !== "PASS")) {
       throw new Error("one or more semantic predicates did not pass");
@@ -603,13 +622,15 @@ async function main() {
       result,
       resultBytes,
       resultSignerKeyId,
+      proxyProvenance: productionPresentation.provenance.proxy_provenance,
     });
     assertVerifiedTrustGraph(trustGraph, {
       ...predicateResults,
       ...devicePredicateResults,
+      ...capturePredicateResults,
       remote_attestation_unverified: { status: "UNVERIFIED" },
     });
-    const allPredicateResults = { ...predicateResults, ...devicePredicateResults };
+    const allPredicateResults = { ...predicateResults, ...devicePredicateResults, ...capturePredicateResults };
     manifest = {
       ...manifest,
       capture_provenance: "production",
@@ -643,6 +664,7 @@ async function main() {
         ...(trustRootArtifact ? { trust_root: { ...trustRootArtifact, path: `${captureId}-trust-root.der` } } : {}),
       },
       semantic_predicates: semanticVerificationArtifact.predicates,
+      capture_predicates: capturePredicateResults,
       device_predicates: devicePredicateResults,
       semantic_verification: {
         status: "VERIFIED",
@@ -658,6 +680,7 @@ async function main() {
         ...manifest.evidence,
         real_production_game_server_connection: item("real_production_game_server_connection", productionRequirementStatus("real_production_game_server_connection", allPredicateResults), "Independent alpha15 semantic verification derived the authenticated server identity", { artifactSha256: presentationArtifact.artifact_sha256, authorityIdentity: health.security_identity.server_identity }),
         real_production_tlsn_notary_interaction: item("real_production_tlsn_notary_interaction", productionRequirementStatus("real_production_tlsn_notary_interaction", allPredicateResults), "Independent alpha15 semantic verification matched the production Notary registry", { artifactSha256: presentationArtifact.artifact_sha256, authorityIdentity: health.security_identity.notary_key_id }),
+        real_production_tlsn_proxy_provenance: item("real_production_tlsn_proxy_provenance", productionRequirementStatus("real_production_tlsn_proxy_provenance", allPredicateResults), "Production proxy provenance remains governed separately from Presentation authority evidence", { artifactSha256: captureMetadataArtifact.artifact_sha256, authorityIdentity: capturePredicateResults.proxy_provenance_cryptographic_authentication.authority_identity }),
         real_production_fusou_web_device_authentication: item("real_production_fusou_web_device_authentication", productionRequirementStatus("real_production_fusou_web_device_authentication", allPredicateResults), "FUSOU-WEB authoritative device identity and generic nonce signature were independently verified", { artifactSha256: deviceAuthenticationArtifact.artifact_sha256, authorityIdentity: "fusou-web-user-devices" }),
         real_production_device_possession_proof: item("real_production_device_possession_proof", productionRequirementStatus("real_production_device_possession_proof", allPredicateResults), "Canonical TLSN device possession signature and replay digest were independently verified", { artifactSha256: possessionProofArtifact.artifact_sha256, authorityIdentity: "fusou-web-tlsn-device-authentication" }),
         real_production_replay_authority: item("real_production_replay_authority", productionRequirementStatus("real_production_replay_authority", allPredicateResults), "The consumed binding rejected the second verification and the replay digest was independently reconstructed", { artifactSha256: replayArtifact.artifact_sha256, authorityIdentity: health.security_identity.binding_authority }),

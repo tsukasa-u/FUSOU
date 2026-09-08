@@ -9,6 +9,7 @@ import initVerifier, {
   verify_require_info_presentation_with_trust_anchor,
 } from "../src/wasm/fusou_tlsn_verifier.js";
 import { assertSignedResult } from "./production-evidence.mjs";
+import { parseBindingValue } from "./device-evidence.mjs";
 import {
   PRODUCTION_EVIDENCE_REQUIREMENT_PREDICATES,
   PRODUCTION_EVIDENCE_SEMANTIC_PREDICATE_DEFINITIONS,
@@ -464,6 +465,38 @@ export function verifyRequireInfoHttpProfile({
   });
 }
 
+export function verifyPresentationBindingToSession({
+  semanticVerification,
+  sessionBinding,
+  sessionId,
+  verifiedAt = new Date().toISOString(),
+}) {
+  return runPredicate("presentation_binding_to_session", verifiedAt, ["presentation", "session", "result"], () => {
+    if (typeof sessionBinding !== "string" || typeof sessionId !== "string") {
+      throw new Error("current Session Authority binding and session ID are required");
+    }
+    const framedBinding = parseBindingValue(sessionBinding);
+    if (framedBinding.sessionId !== sessionId) {
+      throw new Error("current session binding framing does not match the current session");
+    }
+    const transcripts = parseProfileTranscripts(semanticVerification, semanticVerification.result?.server_identity, sessionBinding);
+    if (semanticVerification.result?.binding_value !== sessionBinding) {
+      throw new Error("semantic Result binding does not match the current Session Authority binding");
+    }
+    if (semanticVerification.result?.attestation_session_id !== sessionId) {
+      throw new Error("semantic Result session does not match the current Session Authority session");
+    }
+    return {
+      observed: {
+        attestation_session_id: sessionId,
+        binding_value: sessionBinding,
+        binding_sha256: sha256Base64Url(sessionBinding),
+        request_transcript_sha256: sha256Base64Url(transcripts.requestTranscript),
+      },
+    };
+  });
+}
+
 export function deriveAuthenticatedMemberId({ semanticVerification, trustedServerIdentity, verifiedAt = new Date().toISOString() }) {
   return runPredicate("authenticated_member_id", verifiedAt, ["presentation"], () => {
     const transcripts = parseProfileTranscripts(semanticVerification, trustedServerIdentity);
@@ -557,6 +590,8 @@ export function verifySemanticPredicates({
   resultPublicKeySpki,
   resultSignerKeyId,
   trustRootCertificateBytes,
+  sessionBinding,
+  sessionId,
   includeResultSignature = true,
   verifiedAt = new Date().toISOString(),
 }) {
@@ -570,6 +605,12 @@ export function verifySemanticPredicates({
       trustedProfileId: trustedInputs.profile_id,
       trustedProfileSha256: trustedInputs.profile_sha256,
       trustedVerifierKeyId: trustedInputs.verifier_key_id,
+      verifiedAt,
+    }),
+    presentation_binding_to_session: verifyPresentationBindingToSession({
+      semanticVerification,
+      sessionBinding,
+      sessionId,
       verifiedAt,
     }),
     authenticated_member_id: deriveAuthenticatedMemberId({ semanticVerification, trustedServerIdentity: trustedInputs.server_identity, verifiedAt }),

@@ -55,6 +55,14 @@ export const AUTHORITY_COMPROMISE_DEFINITIONS = Object.freeze([
     compromise_scope: "forge manifest metadata and artifact references; cannot alter raw artifacts or make independently reconstructed authority predicates pass",
   },
   {
+    authority: "externally-pinned-production-proxy-provenance-authority",
+    private_key: "production proxy provenance signing key",
+    public_key_registry: "externally pinned production proxy deployment identity",
+    issued_artifact: "production proxy provenance signature",
+    verification_authority: "offline production evidence verifier and external proxy pin",
+    compromise_scope: "forge proxy origin, deployment, or binary claims; cannot forge TLSN Presentation cryptography, server identity, Session Authority receipts, Binding Authority receipts, device possession, or Result signatures",
+  },
+  {
     authority: "remote-attestation-signer",
     private_key: "remote deployment attestation signing key",
     public_key_registry: "remote attestation signer deployment registry",
@@ -74,6 +82,7 @@ export const PRODUCTION_EVIDENCE_SEMANTIC_PREDICATES = [
   "notary_identity",
   "server_identity",
   "require_info_http_profile",
+  "presentation_binding_to_session",
   "authenticated_member_id",
   "result_presentation_binding",
   "result_signature",
@@ -108,6 +117,13 @@ export const PRODUCTION_EVIDENCE_SEMANTIC_PREDICATE_DEFINITIONS = {
     verification_method: "strict parser over alpha15 authenticated request and response transcript bytes",
     authority_identity: "fusou-require-info-v1",
     derived_fields: ["server_identity", "request_transcript_sha256", "response_transcript_sha256"],
+  },
+  presentation_binding_to_session: {
+    required_artifacts: ["presentation", "session", "result"],
+    required_fields: ["session_id", "binding_value", "request_transcript_sha256"],
+    verification_method: "authenticated request X-Attestation-Binding equals the current Session Authority binding and encoded session identity",
+    authority_identity: "offline-production-evidence-verifier",
+    derived_fields: ["attestation_session_id", "binding_value", "request_transcript_sha256"],
   },
   authenticated_member_id: {
     required_artifacts: ["presentation"],
@@ -196,9 +212,20 @@ export const PRODUCTION_EVIDENCE_DEVICE_PREDICATE_DEFINITIONS = {
     derived_fields: ["session_id", "binding_value", "presentation_id", "used_at"],
   },
 };
+export const PRODUCTION_EVIDENCE_CAPTURE_PREDICATE_DEFINITIONS = {
+  proxy_provenance_cryptographic_authentication: {
+    required_artifacts: ["capture_metadata", "presentation"],
+    required_fields: ["proxy_identity", "proxy_deployment_id", "proxy_binary_identity", "presentation_sha256", "created_at", "capture_context", "signature", "signer_key_id"],
+    verification_method: "Production proxy provenance signature verifies against an externally pinned proxy identity and deployment authority",
+    authority_identity: "externally-pinned-production-proxy-provenance-authority",
+    derived_fields: ["proxy_identity", "proxy_deployment_id", "proxy_binary_identity", "presentation_sha256", "cryptographic_status"],
+  },
+};
+export const PRODUCTION_EVIDENCE_CAPTURE_PREDICATES = Object.keys(PRODUCTION_EVIDENCE_CAPTURE_PREDICATE_DEFINITIONS);
 export const PRODUCTION_EVIDENCE_PREDICATE_DEFINITIONS = {
   ...PRODUCTION_EVIDENCE_SEMANTIC_PREDICATE_DEFINITIONS,
   ...PRODUCTION_EVIDENCE_DEVICE_PREDICATE_DEFINITIONS,
+  ...PRODUCTION_EVIDENCE_CAPTURE_PREDICATE_DEFINITIONS,
   remote_attestation_unverified: {
     required_artifacts: ["health"],
     required_fields: ["status"],
@@ -210,6 +237,7 @@ export const PRODUCTION_EVIDENCE_PREDICATE_DEFINITIONS = {
 export const PRODUCTION_EVIDENCE_REQUIREMENTS = [
   "real_production_game_server_connection",
   "real_production_tlsn_notary_interaction",
+  "real_production_tlsn_proxy_provenance",
   "real_production_fusou_web_device_authentication",
   "real_production_device_possession_proof",
   "real_production_replay_authority",
@@ -231,6 +259,11 @@ export const PRODUCTION_EVIDENCE_ITEM_DEFINITIONS = {
     required_artifacts: ["presentation", "notary_registry", "semantic_verification"],
     required_fields: ["notary_key_id", "notary_key_sha256"],
     verification_method: "alpha15 Presentation verifying key matches the production Notary registry",
+  },
+  real_production_tlsn_proxy_provenance: {
+    required_artifacts: ["capture_metadata", "presentation"],
+    required_fields: ["proxy_identity", "proxy_deployment_id", "proxy_binary_identity", "presentation_sha256", "created_at", "capture_context", "signature", "signer_key_id"],
+    verification_method: "Production proxy provenance is cryptographically authenticated by an externally pinned proxy deployment authority",
   },
   real_production_fusou_web_device_authentication: {
     required_artifacts: ["authenticated_user", "health", "subject", "session", "device_identity", "device_authentication"],
@@ -286,6 +319,7 @@ export const PRODUCTION_EVIDENCE_ITEM_DEFINITIONS = {
 export const PRODUCTION_EVIDENCE_REQUIREMENT_PREDICATES = {
   real_production_game_server_connection: ["presentation_cryptography", "server_identity", "require_info_http_profile"],
   real_production_tlsn_notary_interaction: ["presentation_cryptography", "notary_identity"],
+  real_production_tlsn_proxy_provenance: ["proxy_provenance_cryptographic_authentication"],
   real_production_fusou_web_device_authentication: ["device_identity_ownership", "device_authentication_signature"],
   real_production_device_possession_proof: ["device_identity_ownership", "tlsn_device_possession_signature", "binding_framing"],
   real_production_replay_authority: ["replay_digest", "consume_receipt"],
@@ -300,6 +334,7 @@ export const PRODUCTION_EVIDENCE_REQUIREMENT_PREDICATES = {
     "notary_identity",
     "server_identity",
     "require_info_http_profile",
+    "presentation_binding_to_session",
     "authenticated_member_id",
     "result_presentation_binding",
     "result_signature",
@@ -314,6 +349,9 @@ export const PRODUCTION_EVIDENCE_REQUIREMENT_PREDICATES = {
     "consume_receipt",
   ],
 };
+export const PRODUCTION_EVIDENCE_GOVERNANCE_ONLY_REQUIREMENTS = [
+  "real_production_tlsn_proxy_provenance",
+];
 for (const requirement of PRODUCTION_EVIDENCE_REQUIREMENTS) {
   if (!Array.isArray(PRODUCTION_EVIDENCE_REQUIREMENT_PREDICATES[requirement]) || PRODUCTION_EVIDENCE_REQUIREMENT_PREDICATES[requirement].length === 0) {
     throw new Error(`production evidence requirement has no predicates: ${requirement}`);
@@ -344,7 +382,7 @@ export const PRODUCTION_EVIDENCE_DOMAINS = {
     "real_production_result_signing_key",
     "real_production_public_key_publication",
   ],
-  capture_independence: ["independently_captured_production_evidence"],
+  capture_independence: ["real_production_tlsn_proxy_provenance", "independently_captured_production_evidence"],
 };
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
@@ -359,6 +397,7 @@ export const PRODUCTION_EVIDENCE_TRUST_GRAPH_NODE_DEFINITIONS = Object.freeze([
   ["member-id", "member_id", "fusou-require-info-v1-response-parser"],
   ["tlsn-notary", "notary", "tlsn-alpha15-presentation-notary-key"],
   ["result", "result", "fusou-tlsn-result-signer"],
+  ["production-proxy", "proxy_provenance", "externally-pinned-production-proxy-provenance-authority"],
   ["production-evidence", "evidence_manifest", "production-evidence-signer"],
   ["remote-attestation", "remote_attestation", "remote-attestation-signer"],
 ].map(([id, type, authority]) => Object.freeze({ id, type, authority })));
@@ -368,11 +407,13 @@ export const PRODUCTION_EVIDENCE_TRUST_GRAPH_EDGE_DEFINITIONS = Object.freeze([
   { id: "device-authenticates", source: "device", target: "device-authentication", binding_fields: ["device_id", "device_auth_nonce"], evidence_artifact: "device_authentication", verification_predicate: "device_authentication_signature", authority: "fusou-web-device-authentication" },
   { id: "device-authentication-issues-session", source: "device-authentication", target: "session", binding_fields: ["device_id", "device_auth_nonce", "session_id"], evidence_artifact: "session", verification_predicate: "session_binding_receipt", authority: "fusou-tlsn-session-authority" },
   { id: "session-issues-binding", source: "session", target: "binding", binding_fields: ["session_id", "binding_value", "binding_nonce"], evidence_artifact: "session", verification_predicate: "session_binding_receipt", authority: "fusou-tlsn-session-authority" },
+  { id: "session-binding-authenticates-presentation", source: "session", target: "presentation", binding_fields: ["session_id", "binding_value", "request_transcript_sha256"], evidence_artifact: "presentation", verification_predicate: "presentation_binding_to_session", authority: "offline-production-evidence-verifier" },
   { id: "binding-consumes-presentation", source: "binding", target: "presentation", binding_fields: ["session_id", "binding_value", "presentation_id"], evidence_artifact: "consume_receipt", verification_predicate: "consume_receipt", authority: "fusou-tlsn-binding-authority" },
   { id: "presentation-is-authenticated-by-notary", source: "presentation", target: "tlsn-notary", binding_fields: ["notary_key_id", "notary_key_sha256"], evidence_artifact: "presentation", verification_predicate: "notary_identity", authority: "tlsn-alpha15-presentation-notary-key" },
   { id: "presentation-derives-member-id", source: "presentation", target: "member-id", binding_fields: ["verified_member_id", "response_transcript_sha256"], evidence_artifact: "semantic_verification", verification_predicate: "authenticated_member_id", authority: "fusou-require-info-v1-response-parser" },
   { id: "member-id-is-in-result", source: "member-id", target: "result", binding_fields: ["verified_member_id", "tlsn_attestation_id", "transcript_hashes"], evidence_artifact: "semantic_verification", verification_predicate: "result_presentation_binding", authority: "offline-production-evidence-verifier" },
   { id: "presentation-is-cryptographically-verified", source: "presentation", target: "result", binding_fields: ["presentation_sha256", "tlsn_attestation_id"], evidence_artifact: "semantic_verification", verification_predicate: "presentation_cryptography", authority: "tlsn-alpha15-verifier" },
+  { id: "presentation-provenance-is-declared", source: "presentation", target: "production-proxy", binding_fields: ["presentation_sha256", "proxy_identity", "proxy_deployment_id", "proxy_binary_identity"], evidence_artifact: "capture_metadata", verification_predicate: "proxy_provenance_cryptographic_authentication", authority: "externally-pinned-production-proxy-provenance-authority" },
   { id: "result-is-signed", source: "result", target: "production-evidence", binding_fields: ["result_sha256", "result_signer_key_id"], evidence_artifact: "result", verification_predicate: "result_signature", authority: "fusou-tlsn-result-signer" },
   { id: "remote-attestation-is-unverified", source: "remote-attestation", target: "production-evidence", binding_fields: ["status"], evidence_artifact: "health", verification_predicate: "remote_attestation_unverified", authority: "remote-attestation-signer" },
 ]);
@@ -399,6 +440,39 @@ function sha256Base64Url(value) {
   return createHash("sha256").update(value).digest("base64url");
 }
 
+export function assertProductionProxyProvenanceShape(proxyProvenance) {
+  if (!proxyProvenance || proxyProvenance.declared !== "production" || !["UNVERIFIED", "VERIFIED"].includes(proxyProvenance.cryptographic_status)) {
+    throw new Error("production proxy provenance declaration is invalid");
+  }
+  if (proxyProvenance.authority?.type !== "externally-pinned-production-proxy-key") {
+    throw new Error("production proxy provenance authority is invalid");
+  }
+  if (!["UNVERIFIED", "EXTERNALLY_PINNED"].includes(proxyProvenance.authority.status)) {
+    throw new Error("production proxy provenance authority status is invalid");
+  }
+  if (proxyProvenance.cryptographic_status === "UNVERIFIED" && proxyProvenance.authority.status !== "UNVERIFIED") {
+    throw new Error("unverified proxy provenance cannot claim an externally pinned authority");
+  }
+  if (proxyProvenance.cryptographic_status === "VERIFIED" && proxyProvenance.authority.status !== "EXTERNALLY_PINNED") {
+    throw new Error("verified proxy provenance requires an externally pinned authority");
+  }
+  for (const field of ["proxy_identity", "proxy_deployment_id", "proxy_binary_identity", "presentation_sha256", "created_at", "signer_key_id", "signature"]) {
+    if (proxyProvenance[field] !== null && (typeof proxyProvenance[field] !== "string" || proxyProvenance[field].length === 0)) {
+      throw new Error(`production proxy provenance field is invalid: ${field}`);
+    }
+  }
+  if (!SHA256_BASE64URL_PATTERN.test(proxyProvenance.presentation_sha256) || !Number.isFinite(Date.parse(proxyProvenance.created_at))) {
+    throw new Error("production proxy provenance identity fields are invalid");
+  }
+  if ((proxyProvenance.signer_key_id === null) !== (proxyProvenance.signature === null)) {
+    throw new Error("production proxy provenance signature fields must be paired");
+  }
+  if (!proxyProvenance.capture_context || typeof proxyProvenance.capture_context !== "object" || Array.isArray(proxyProvenance.capture_context)) {
+    throw new Error("production proxy provenance capture context is invalid");
+  }
+  return proxyProvenance;
+}
+
 export function assertProductionPresentationCaptureMetadata(metadata, presentationBytes) {
   if (
     metadata?.capture_provenance !== "production" ||
@@ -416,6 +490,13 @@ export function assertProductionPresentationCaptureMetadata(metadata, presentati
   if (metadata.presentation_sha256 !== sha256Base64Url(presentationBytes)) {
     throw new Error("Presentation provenance hash does not match the captured bytes");
   }
+  assertProductionProxyProvenanceShape(metadata.proxy_provenance);
+  if (metadata.proxy_provenance.presentation_sha256 !== metadata.presentation_sha256) {
+    throw new Error("proxy provenance Presentation hash does not match capture metadata");
+  }
+  if (metadata.proxy_provenance.capture_context.method !== metadata.request.method || metadata.proxy_provenance.capture_context.target !== metadata.request.target || metadata.proxy_provenance.capture_context.http_version !== metadata.request.http_version) {
+    throw new Error("proxy provenance capture context does not match the captured request profile");
+  }
   return metadata;
 }
 
@@ -431,22 +512,25 @@ export function deriveProductionTrustGraph({
   result,
   resultBytes,
   resultSignerKeyId,
+  proxyProvenance,
 }) {
   const verifiedPresentation = semanticVerification?.verified_presentation;
   const semanticResult = semanticVerification?.result;
-  if (!captureId || !authenticatedUserId || !deviceId || !devicePublicKeySha256 || !deviceAuthentication || !session || !presentationBytes || !verifiedPresentation || !semanticResult || !result || !resultBytes || !resultSignerKeyId) {
+  if (!captureId || !authenticatedUserId || !deviceId || !devicePublicKeySha256 || !deviceAuthentication || !session || !presentationBytes || !verifiedPresentation || !semanticResult || !result || !resultBytes || !resultSignerKeyId || !proxyProvenance) {
     throw new Error("production trust graph derivation inputs are incomplete");
   }
+  assertProductionProxyProvenanceShape(proxyProvenance);
   const identities = {
     "authenticated-user": { user_id: authenticatedUserId },
     device: { user_id: authenticatedUserId, device_id: deviceId, public_key_sha256: devicePublicKeySha256 },
     "device-authentication": { device_id: deviceAuthentication.request.device_id, nonce: deviceAuthentication.request.nonce },
-    session: { session_id: session.session_id, key_id: session.session_receipt.signer_key_id },
+    session: { session_id: session.session_id, key_id: session.session_receipt.signer_key_id, binding_sha256: sha256Base64Url(session.binding) },
     binding: { binding_sha256: sha256Base64Url(session.binding), nonce_sha256: sha256Base64Url(session.challenge) },
-    presentation: { presentation_sha256: sha256Base64Url(presentationBytes), attestation_id: verifiedPresentation.tlsn_attestation_id },
+    presentation: { presentation_sha256: sha256Base64Url(presentationBytes), attestation_id: verifiedPresentation.tlsn_attestation_id, binding_sha256: sha256Base64Url(semanticResult.binding_value) },
     "member-id": { verified_member_id: semanticResult.verified_member_id, response_transcript_sha256: semanticResult.response_transcript_sha256 },
     "tlsn-notary": { key_id: semanticResult.notary_key_id },
     result: { result_sha256: sha256Base64Url(resultBytes), key_id: resultSignerKeyId },
+    "production-proxy": { declared: proxyProvenance.declared, cryptographic_status: proxyProvenance.cryptographic_status, proxy_identity: proxyProvenance.proxy_identity, proxy_deployment_id: proxyProvenance.proxy_deployment_id, proxy_binary_identity: proxyProvenance.proxy_binary_identity },
     "production-evidence": { capture_id: captureId },
     "remote-attestation": { status: "UNVERIFIED" },
   };
@@ -460,6 +544,7 @@ export function deriveProductionTrustGraph({
     "member-id": "semantic_verification",
     "tlsn-notary": "notary_registry",
     result: "result",
+    "production-proxy": "capture_metadata",
     "production-evidence": "health",
     "remote-attestation": "health",
   };
@@ -567,10 +652,11 @@ export function assertTrustGraph(graph, { artifactNames = null } = {}) {
 
 export function assertVerifiedTrustGraph(graph, predicateResults) {
   assertTrustGraph(graph);
+  const allowedUnverified = new Set(["remote_attestation_unverified", "proxy_provenance_cryptographic_authentication"]);
   for (const edge of PRODUCTION_EVIDENCE_TRUST_GRAPH_EDGE_DEFINITIONS) {
     const predicate = predicateResults?.[edge.verification_predicate];
-    if (edge.verification_predicate === "remote_attestation_unverified") {
-      if (predicate?.status !== "UNVERIFIED") throw new Error("remote attestation must remain UNVERIFIED");
+    if (allowedUnverified.has(edge.verification_predicate)) {
+      if (predicate?.status !== "UNVERIFIED") throw new Error(`governance-only trust graph predicate must remain UNVERIFIED: ${edge.verification_predicate}`);
     } else if (predicate?.status !== "PASS") {
       throw new Error(`trust graph edge predicate is not independently verified: ${edge.id}`);
     }
@@ -705,6 +791,17 @@ export function blockedProductionEvidenceManifest({
         observed: {},
       },
     ])),
+    capture_predicates: Object.fromEntries(PRODUCTION_EVIDENCE_CAPTURE_PREDICATES.map((predicate) => [
+      predicate,
+      {
+        ...PRODUCTION_EVIDENCE_CAPTURE_PREDICATE_DEFINITIONS[predicate],
+        status: "UNVERIFIED",
+        evidence_artifacts: [],
+        verified_at: now,
+        detail: "capture predicate has not been independently verified",
+        observed: {},
+      },
+    ])),
     device_predicates: Object.fromEntries(Object.entries(PRODUCTION_EVIDENCE_DEVICE_PREDICATE_DEFINITIONS).map(([predicate, definition]) => [
       predicate,
       {
@@ -811,6 +908,27 @@ export function assertProductionEvidenceManifest(manifest) {
     assertTimestamp(item.verified_at, "device predicate verified_at");
     if (typeof item.detail !== "string" || item.detail.length > 1024 || !item.observed || typeof item.observed !== "object") {
       throw new Error(`device evidence predicate observation is invalid: ${predicate}`);
+    }
+  }
+  for (const [predicate, definition] of Object.entries(PRODUCTION_EVIDENCE_CAPTURE_PREDICATE_DEFINITIONS)) {
+    const item = manifest.capture_predicates?.[predicate];
+    if (!item || !["PASS", "UNVERIFIED", "FAIL"].includes(item.status)) {
+      throw new Error(`capture evidence predicate is missing: ${predicate}`);
+    }
+    if (
+      JSON.stringify(item.required_artifacts) !== JSON.stringify(definition.required_artifacts) ||
+      JSON.stringify(item.required_fields) !== JSON.stringify(definition.required_fields) ||
+      item.verification_method !== definition.verification_method ||
+      item.authority_identity !== definition.authority_identity
+    ) {
+      throw new Error(`capture evidence predicate definition is invalid: ${predicate}`);
+    }
+    if (!Array.isArray(item.evidence_artifacts) || !Array.isArray(item.derived_fields)) {
+      throw new Error(`capture evidence predicate schema is invalid: ${predicate}`);
+    }
+    assertTimestamp(item.verified_at, "capture predicate verified_at");
+    if (typeof item.detail !== "string" || item.detail.length > 1024 || !item.observed || typeof item.observed !== "object") {
+      throw new Error(`capture evidence predicate observation is invalid: ${predicate}`);
     }
   }
   if (manifest.semantic_verification !== null && typeof manifest.semantic_verification !== "object") {
