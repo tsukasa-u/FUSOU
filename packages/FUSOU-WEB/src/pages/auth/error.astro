@@ -26,7 +26,7 @@ const message = messageMap[reason] ?? messageMap["unknown"];
       title="認証に失敗しました"
       description="サインインを完了できませんでした。"
     />
-    <div class="rounded-lg border border-base-300 bg-base-100 p-6">
+    <div class="fusou-card p-6">
       <AuthPageSection
         title="認証結果"
         description="表示された内容を確認して、もう一度お試しください。"
@@ -42,10 +42,10 @@ const message = messageMap[reason] ?? messageMap["unknown"];
         class="mt-6"
       >
         <div class="flex flex-col gap-3 w-full">
-          <a href="/auth/signin" class="btn btn-primary w-full">
+          <a href="/auth/signin" class="fusou-btn-primary w-full text-center">
             サインインページへ戻る
           </a>
-          <a href="/" class="btn btn-ghost w-full"> トップページへ </a>
+          <a href="/" class="fusou-btn-ghost w-full text-center"> トップページへ </a>
         </div>
       </AuthPageSection>
 

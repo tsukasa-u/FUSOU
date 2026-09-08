@@ -2,7 +2,7 @@
 import ErrorView from "@/components/common/astro/ui/ErrorView.astro";
 
 interface Props {
-  error: unknown;
+  error?: unknown;
 }
 
 const { error } = Astro.props;
@@ -10,8 +10,8 @@ const detailMessage = error instanceof Error ? error.message : typeof error === 
 ---
 
 <ErrorView
-  code="500"
-  title="Internal Server Error"
-  message="By the way, how to get here? This page is not linked from anywhere. If you found a broken link, please report it to the administrator."
+  code="502"
+  title="Bad Gateway"
+  message="サーバーとの通信で一時的なエラーが発生しました。しばらく待ってから再度アクセスしてください。"
   detail={detailMessage}
 />
