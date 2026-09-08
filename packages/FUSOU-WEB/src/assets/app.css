@@ -273,8 +273,8 @@ select::picker(select) {
 }
 
 .markdown table {
-  width: max-content;
-  min-width: 100%;
+  width: 100%;
+  max-width: 100%;
   display: block;
   overflow-x: auto;
   border-collapse: collapse;
@@ -288,6 +288,15 @@ select::picker(select) {
   text-align: left;
   border-bottom: 1px solid
     color-mix(in oklch, var(--color-base-content) 10%, transparent);
+  overflow-wrap: break-word;
+  word-break: normal;
+}
+
+.markdown td code,
+.markdown th code {
+  word-break: break-word;
+  overflow-wrap: anywhere;
+  white-space: break-spaces;
 }
 
 .markdown th {
@@ -330,7 +339,11 @@ select::picker(select) {
 .markdown pre {
   @apply bg-base-200/55;
   padding: 1rem 1rem;
+  max-width: 100%;
   overflow-x: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-wrap: break-word;
   margin-bottom: 1rem;
   cursor: default;
   @apply rounded-md;
@@ -395,6 +408,9 @@ select::picker(select) {
 
 .markdown pre > code {
   @apply bg-transparent;
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-wrap: break-word;
 }
 
 .markdown p > code,
