@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { generateKeyPairSync, sign } from "node:crypto";
+import { createHash, generateKeyPairSync, sign } from "node:crypto";
 import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
@@ -28,6 +28,12 @@ import {
   verifySemanticPredicates,
   verifyProductionPresentation,
 } from "./production-evidence-semantic.mjs";
+import {
+  consumeReceiptSigningBytes,
+  sessionReceiptSigningBytes,
+  tlsnDeviceProofSigningBytes,
+  verifyDevicePredicates,
+} from "./device-evidence.mjs";
 
 const now = new Date();
 const nowIso = now.toISOString();
@@ -264,6 +270,9 @@ function semanticWithTranscripts({ request = requestTranscript, response = respo
 function assertPredicateFailed(label, predicates, predicateNames) {
   for (const name of predicateNames) assert.equal(predicates[name].status, "FAIL", `${label}: ${name}`);
 }
+function mutateBase64Url(value) {
+  return `${value.slice(0, -1)}${value.endsWith("A") ? "B" : "A"}`;
+}
 const mutatedResponse = Buffer.from(responseTranscript.toString("utf8").replace("16189463", "26189463"));
 const memberMutation = predicateMutation({
   semanticVerification: semanticWithTranscripts({ response: mutatedResponse }),
@@ -327,6 +336,155 @@ assertPredicateFailed("unrelated Result and Presentation pair", predicateMutatio
 assertPredicateFailed("result registry substitution", predicateMutation({
   resultRegistry: { ...resultKeyRegistry, keys: [{ ...resultKeyRegistry.keys[0], key_id: "result-other" }] },
 }), ["result_signature"]);
+
+const { privateKey: devicePrivateKey, publicKey: devicePublicKey } = generateKeyPairSync("ed25519");
+const devicePublicKeyBytes = devicePublicKey.export({ format: "der", type: "spki" }).subarray(-32);
+const deviceIdentity = {
+  authoritative: true,
+  authority: "fusou-web-user-devices",
+  canonical_user_id: result.canonical_user_id,
+  device_id: result.device_id,
+  device_public_key: devicePublicKeyBytes.toString("base64url"),
+  device_public_key_sha256: sha256Base64Url(devicePublicKeyBytes),
+  revoked_at: null,
+};
+const deviceAuthNonce = "a".repeat(64);
+const session = {
+  session_id: result.attestation_session_id,
+  challenge: result.binding_nonce,
+  binding: result.binding_value,
+  device_id: result.device_id,
+  device_challenge: result.device_challenge,
+  expires_at: "2026-12-31T00:00:00.000Z",
+};
+const sessionReceipt = {
+  schema_version: 1,
+  type: "attestation-session-issued",
+  signer_key_id: "result-2026",
+  signature_algorithm: "Ed25519",
+  session_id: session.session_id,
+  canonical_user_id: result.canonical_user_id,
+  device_id: result.device_id,
+  device_auth_nonce: deviceAuthNonce,
+  nonce: result.binding_nonce,
+  device_challenge: result.device_challenge,
+  binding_value: result.binding_value,
+  created_at: nowIso,
+  expires_at: session.expires_at,
+};
+sessionReceipt.signature = sign(null, sessionReceiptSigningBytes(sessionReceipt), resultPrivateKey).toString("base64url");
+session.session_receipt = sessionReceipt;
+const deviceAuthentication = {
+  request: {
+    device_id: result.device_id,
+    nonce: deviceAuthNonce,
+    sig: sign(null, Buffer.from(deviceAuthNonce), devicePrivateKey).toString("base64url"),
+  },
+  worker_acceptance: {
+    status: 201,
+    device_id: result.device_id,
+    session_id: session.session_id,
+  },
+};
+const proofSigningBytes = tlsnDeviceProofSigningBytes(
+  result.device_id,
+  session.session_id,
+  session.binding,
+  session.device_challenge,
+);
+const possessionProof = {
+  device_id: result.device_id,
+  session_id: session.session_id,
+  binding_value: session.binding,
+  challenge: session.device_challenge,
+  sig: sign(null, proofSigningBytes, devicePrivateKey).toString("base64url"),
+  message_sha256: sha256Base64Url(proofSigningBytes),
+  message_sha256_hex: createHash("sha256").update(proofSigningBytes).digest("hex"),
+  replay_digest: sha256Base64Url(proofSigningBytes),
+  replay_digest_hex: createHash("sha256").update(proofSigningBytes).digest("hex"),
+};
+const consumeReceipt = {
+  schema_version: 1,
+  type: "attestation-binding-consumed",
+  signer_key_id: "result-2026",
+  signature_algorithm: "Ed25519",
+  session_id: session.session_id,
+  canonical_user_id: result.canonical_user_id,
+  device_id: result.device_id,
+  nonce: session.challenge,
+  binding_value: session.binding,
+  presentation_id: sha256Base64Url(presentationBytes),
+  used_at: nowIso,
+};
+consumeReceipt.signature = sign(null, consumeReceiptSigningBytes(consumeReceipt), resultPrivateKey).toString("base64url");
+const replay = {
+  session_id: session.session_id,
+  device_id: session.device_id,
+  binding: session.binding,
+  status: 409,
+  error: "device_possession_replayed",
+  replay_digest: possessionProof.replay_digest,
+  replay_digest_hex: possessionProof.replay_digest_hex,
+  stored_replay_digest_hex: possessionProof.replay_digest_hex,
+  consume_receipt_presentation_id: consumeReceipt.presentation_id,
+};
+const devicePredicateContext = {
+  deviceIdentity,
+  deviceAuthentication,
+  session,
+  possessionProof,
+  consumeReceipt,
+  replay,
+  result,
+  presentationBytes,
+  resultPublicKeySpki,
+  resultSignerKeyId: "result-2026",
+  verifiedAt: nowIso,
+};
+const devicePredicateResults = verifyDevicePredicates(devicePredicateContext);
+assert.ok(Object.values(devicePredicateResults).every((predicate) => predicate.status === "PASS"), JSON.stringify(devicePredicateResults));
+function devicePredicateMutation(label, overrides, predicateNames) {
+  assertPredicateFailed(label, verifyDevicePredicates({ ...devicePredicateContext, ...overrides }), predicateNames);
+}
+devicePredicateMutation("device owner substitution", {
+  deviceIdentity: { ...deviceIdentity, canonical_user_id: "33333333-3333-4333-8333-333333333333" },
+}, ["device_identity_ownership", "device_authentication_signature"]);
+devicePredicateMutation("device public key substitution", {
+  deviceIdentity: { ...deviceIdentity, device_public_key: Buffer.alloc(32, 8).toString("base64url") },
+}, ["device_identity_ownership", "device_authentication_signature", "tlsn_device_possession_signature"]);
+devicePredicateMutation("device revocation substitution", {
+  deviceIdentity: { ...deviceIdentity, revoked_at: nowIso },
+}, ["device_identity_ownership", "device_authentication_signature"]);
+devicePredicateMutation("generic nonce mutation", {
+  deviceAuthentication: { ...deviceAuthentication, request: { ...deviceAuthentication.request, nonce: "b".repeat(64) } },
+}, ["device_authentication_signature", "session_binding_receipt"]);
+devicePredicateMutation("generic nonce signature mutation", {
+  deviceAuthentication: { ...deviceAuthentication, request: { ...deviceAuthentication.request, sig: mutateBase64Url(deviceAuthentication.request.sig) } },
+}, ["device_authentication_signature"]);
+devicePredicateMutation("session ID mutation", {
+  session: { ...session, session_id: "423e4567-e89b-42d3-a456-426614174000" },
+}, ["device_authentication_signature", "session_binding_receipt", "tlsn_device_possession_signature", "binding_framing"]);
+devicePredicateMutation("binding value mutation", {
+  session: { ...session, binding: bindingValue.slice(0, -1) + (bindingValue.endsWith("A") ? "B" : "A") },
+}, ["session_binding_receipt", "tlsn_device_possession_signature", "binding_framing", "replay_digest", "consume_receipt"]);
+devicePredicateMutation("TLSN possession signature mutation", {
+  possessionProof: { ...possessionProof, sig: mutateBase64Url(possessionProof.sig) },
+}, ["tlsn_device_possession_signature"]);
+devicePredicateMutation("TLSN possession digest mutation", {
+  possessionProof: { ...possessionProof, replay_digest_hex: "0".repeat(64) },
+}, ["tlsn_device_possession_signature", "replay_digest"]);
+devicePredicateMutation("session receipt signature mutation", {
+  session: { ...session, session_receipt: { ...session.session_receipt, signature: mutateBase64Url(session.session_receipt.signature) } },
+}, ["session_binding_receipt"]);
+devicePredicateMutation("consume receipt signature mutation", {
+  consumeReceipt: { ...consumeReceipt, signature: mutateBase64Url(consumeReceipt.signature) },
+}, ["consume_receipt"]);
+devicePredicateMutation("replay response mutation", {
+  replay: { ...replay, status: 200 },
+}, ["replay_digest"]);
+devicePredicateMutation("stored replay digest mutation", {
+  replay: { ...replay, stored_replay_digest_hex: "0".repeat(64) },
+}, ["replay_digest"]);
 const fixtureMetadata = {
   expected_member_id: result.verified_member_id,
   capture_provenance: "production",
@@ -455,6 +613,30 @@ rejects("evidence field contract mutation", () => assertProductionEvidenceManife
       required_fields: ["notary_key_id"],
     },
   },
+}));
+rejects("device predicate contract mutation", () => assertProductionEvidenceManifest({
+  ...signedManifest,
+  device_predicates: {
+    ...signedManifest.device_predicates,
+    replay_digest: {
+      ...signedManifest.device_predicates.replay_digest,
+      required_fields: ["status"],
+    },
+  },
+}));
+rejects("signed device predicate mutation", () => assertSignedProductionEvidenceManifest({
+  ...signedManifest,
+  device_predicates: {
+    ...signedManifest.device_predicates,
+    device_identity_ownership: {
+      ...signedManifest.device_predicates.device_identity_ownership,
+      status: "PASS",
+    },
+  },
+}, {
+  expectedSignerKeyId: "production-evidence-2026",
+  expectedSignerPublicKeySpki: manifestPublicKeySpki,
+  now,
 }));
 rejects("production evidence promotion", () => assertProductionEvidenceManifest({ ...signedManifest, p0_05: "PASS" }));
 rejects("result signature mutation", () => assertSignedResult({ ...result, signature: `${result.signature.startsWith("A") ? "B" : "A"}${result.signature.slice(1)}` }, {

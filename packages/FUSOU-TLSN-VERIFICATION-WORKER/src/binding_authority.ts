@@ -12,6 +12,7 @@ export type BindingRecord = {
   session_id: string;
   canonical_user_id: string;
   device_id: string;
+  device_auth_nonce: string;
   nonce: string;
   tlsn_device_challenge: string;
   binding_value: string;
@@ -27,6 +28,7 @@ type BindingOperation = {
   session_id: string;
   canonical_user_id: string;
   device_id: string;
+  device_auth_nonce: string;
   tlsn_device_challenge: string;
   binding_value: string;
   nonce: string;
@@ -159,6 +161,7 @@ export class DurableObjectBindingAuthority {
     ttlSeconds: number,
     canonicalUserId: string,
     deviceId: string,
+    deviceAuthNonce: string,
     configuredBindingValue?: string,
   ): Promise<BindingRecord> {
     const sessionId = configuredBindingValue ? parseBindingValue(configuredBindingValue).sessionId : crypto.randomUUID();
@@ -171,6 +174,7 @@ export class DurableObjectBindingAuthority {
       session_id: sessionId,
       canonical_user_id: canonicalUserId,
       device_id: deviceId,
+      device_auth_nonce: deviceAuthNonce,
       tlsn_device_challenge: randomBase64Url(TLSN_DEVICE_CHALLENGE_BYTES),
       nonce,
       binding_value: bindingValue,

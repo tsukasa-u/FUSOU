@@ -67,6 +67,14 @@ export const UserDeviceProofRowSchema = z
   })
   .passthrough();
 
+export const UserDeviceIdentityRowSchema = z
+  .object({
+    canonical_user_id: NonEmptyStringSchema,
+    device_pubkey: NonEmptyStringSchema,
+    revoked_at: z.string().nullable(),
+  })
+  .passthrough();
+
 export const UserDeviceRevokeTargetRowSchema = z
   .object({
     canonical_user_id: NonEmptyStringSchema,

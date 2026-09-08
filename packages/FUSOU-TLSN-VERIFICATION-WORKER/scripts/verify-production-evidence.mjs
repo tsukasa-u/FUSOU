@@ -12,16 +12,25 @@ import {
   assertSignedProductionEvidenceManifest,
   assertSignedResult,
 } from "./production-evidence.mjs";
-import { PRODUCTION_EVIDENCE_REQUIREMENTS } from "./production-evidence-contract.mjs";
+import { PRODUCTION_EVIDENCE_REQUIREMENTS, productionRequirementStatus } from "./production-evidence-contract.mjs";
 import { assertSigningKeyRegistry } from "./signing-key-registry.mjs";
 import { canonicalJson, workflowContextFromEnvironment } from "./deployment-attestation.mjs";
 import {
   assertSemanticResultMatches,
   assertSemanticVerificationArtifact,
-  semanticRequirementStatus,
   verifySemanticPredicates,
   verifyProductionPresentation,
 } from "./production-evidence-semantic.mjs";
+import {
+  deviceProofReplayDigest,
+  deviceProofReplayDigestHex,
+  assertDevicePredicateResults,
+  verifyConsumeReceipt,
+  verifyDeviceAuthentication,
+  verifySessionReceipt,
+  verifyTlsnDevicePossession,
+  verifyDevicePredicates,
+} from "./device-evidence.mjs";
 
 function required(name) {
   const value = process.env[name]?.trim();
@@ -158,6 +167,10 @@ async function main() {
   const session = parseArtifactJson(artifacts, "session");
   const subject = parseArtifactJson(artifacts, "subject");
   const health = parseArtifactJson(artifacts, "health");
+  const deviceIdentity = parseArtifactJson(artifacts, "device_identity");
+  const deviceAuthentication = parseArtifactJson(artifacts, "device_authentication");
+  const possessionProof = parseArtifactJson(artifacts, "possession_proof");
+  const consumeReceipt = parseArtifactJson(artifacts, "consume_receipt");
   const replay = parseArtifactJson(artifacts, "replay");
   if (
     result.attestation_session_id !== session.session_id ||
@@ -168,6 +181,52 @@ async function main() {
   ) {
     throw new Error("production Result is not bound to the captured session");
   }
+  verifyDeviceAuthentication(
+    deviceAuthentication,
+    deviceIdentity,
+    result.canonical_user_id,
+    result.device_id,
+    session.session_id,
+  );
+  verifySessionReceipt(
+    session.session_receipt,
+    {
+      session_id: session.session_id,
+      canonical_user_id: result.canonical_user_id,
+      device_id: session.device_id,
+      device_auth_nonce: deviceAuthentication.request.nonce,
+      nonce: session.challenge,
+      device_challenge: session.device_challenge,
+      binding_value: session.binding,
+      created_at: session.session_receipt.created_at,
+      expires_at: session.expires_at,
+    },
+    resultPublicKeySpki,
+    resultSignerKeyId,
+  );
+  verifyTlsnDevicePossession(
+    possessionProof,
+    deviceIdentity,
+    result.canonical_user_id,
+    result.device_id,
+    session.session_id,
+    session.binding,
+    session.device_challenge,
+  );
+  verifyConsumeReceipt(
+    consumeReceipt,
+    {
+      session_id: session.session_id,
+      canonical_user_id: result.canonical_user_id,
+      device_id: result.device_id,
+      nonce: session.challenge,
+      binding_value: session.binding,
+      presentation_id: createHash("sha256").update(artifacts.presentation).digest("base64url"),
+      used_at: consumeReceipt.used_at,
+    },
+    resultPublicKeySpki,
+    resultSignerKeyId,
+  );
   if (
     subject.user_id_sha256 !== manifest.subject_identity.canonical_user_id_sha256 ||
     subject.device_id_sha256 !== manifest.subject_identity.device_id_sha256 ||
@@ -196,6 +255,48 @@ async function main() {
     !["binding_consumed", "device_possession_replayed"].includes(replay.error)
   ) {
     throw new Error("captured production replay evidence is invalid");
+  }
+  const expectedReplayDigest = deviceProofReplayDigest(
+    session.device_id,
+    session.session_id,
+    session.binding,
+    session.device_challenge,
+  );
+  const expectedReplayDigestHex = deviceProofReplayDigestHex(
+    session.device_id,
+    session.session_id,
+    session.binding,
+    session.device_challenge,
+  );
+  if (
+    possessionProof.replay_digest !== expectedReplayDigest ||
+    possessionProof.replay_digest_hex !== expectedReplayDigestHex ||
+    replay.replay_digest !== expectedReplayDigest ||
+    replay.replay_digest_hex !== expectedReplayDigestHex ||
+    replay.stored_replay_digest_hex !== expectedReplayDigestHex ||
+    replay.consume_receipt_presentation_id !== consumeReceipt.presentation_id
+  ) {
+    throw new Error("captured replay evidence is not bound to the consumed proof");
+  }
+  const capturedDevicePredicates = assertDevicePredicateResults(manifest.device_predicates);
+  if (Object.values(capturedDevicePredicates).some((predicate) => predicate.status !== "PASS")) {
+    throw new Error("captured device predicates are not all passed");
+  }
+  const devicePredicateResults = verifyDevicePredicates({
+    deviceIdentity,
+    deviceAuthentication,
+    session,
+    possessionProof,
+    consumeReceipt,
+    replay,
+    result,
+    presentationBytes: artifacts.presentation,
+    resultPublicKeySpki,
+    resultSignerKeyId,
+    verifiedAt: capturedDevicePredicates.device_identity_ownership.verified_at,
+  });
+  if (canonicalJson(capturedDevicePredicates) !== canonicalJson(devicePredicateResults)) {
+    throw new Error("manifest device predicates do not match independent verification");
   }
   assertObjectIdentity(health.security_identity, manifest.security_identity, "health security identity");
   assertObjectIdentity(health.deployment_identity, manifest.deployment_identity, "health deployment identity");
@@ -281,7 +382,7 @@ async function main() {
     throw new Error("manifest semantic predicates do not match the verifier artifact");
   }
   for (const requirement of Object.keys(manifest.evidence)) {
-    const expectedStatus = semanticRequirementStatus(requirement, predicateResults);
+    const expectedStatus = productionRequirementStatus(requirement, predicateResults, devicePredicateResults);
     if (expectedStatus !== "PASS" && manifest.evidence[requirement].status !== expectedStatus) {
       throw new Error(`evidence requirement is not blocked by its predicate result: ${requirement}`);
     }

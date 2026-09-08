@@ -3,9 +3,10 @@
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
-import { generateKeyPairSync, sign, verify as verifySignature } from "node:crypto";
+import { createHash, generateKeyPairSync, sign, verify as verifySignature } from "node:crypto";
 import { createServer } from "node:http";
 import { unstable_dev } from "wrangler";
+import { consumeReceiptSigningBytes, sessionReceiptSigningBytes } from "./device-evidence.mjs";
 
 const packageDirectory = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const repositoryDirectory = resolve(packageDirectory, "../..");
@@ -307,6 +308,9 @@ const deviceAuthServer = createServer(async (request, response) => {
     authenticated: true,
     canonical_user_id: "11111111-1111-4111-8111-111111111111",
     device_id: deviceId,
+    ...(isTlsnDeviceProof
+      ? { replay_digest_hex: createHash("sha256").update(tlsnDeviceProofMessage(body.device_id, body.session_id, body.binding_value, body.challenge)).digest("hex") }
+      : {}),
   }));
 });
 await new Promise((resolve) => deviceAuthServer.listen(0, "127.0.0.1", resolve));
@@ -449,6 +453,34 @@ async function runRedirectRegressionTest() {
         throw new Error(`TLSN ${mode} session expected 201, got ${sessionResponse.status}`);
       }
       const session = await sessionResponse.json();
+      if (
+        session.session_receipt?.schema_version !== 1 ||
+        session.session_receipt?.type !== "attestation-session-issued" ||
+        session.session_receipt?.device_auth_nonce !== deviceNonce ||
+        session.session_receipt?.session_id !== session.session_id ||
+        session.session_receipt?.device_id !== deviceId ||
+        session.session_receipt?.binding_value !== session.binding ||
+        session.session_receipt?.nonce !== session.challenge
+      ) {
+        throw new Error("TLSN session receipt is not bound to the issued session");
+      }
+      if (!verifySignature(
+        null,
+        sessionReceiptSigningBytes(session.session_receipt),
+        publicKey,
+        decodeBase64Url(session.session_receipt.signature),
+      )) {
+        throw new Error("TLSN session receipt signature is invalid");
+      }
+      const mutatedSessionReceipt = { ...session.session_receipt, binding_value: `${session.binding}A` };
+      if (verifySignature(
+        null,
+        sessionReceiptSigningBytes(mutatedSessionReceipt),
+        publicKey,
+        decodeBase64Url(session.session_receipt.signature),
+      )) {
+        throw new Error("TLSN session receipt mutation was accepted");
+      }
       upstreamState.deviceMode = mode;
       const deviceProof = {
         device_id: deviceId,
@@ -487,6 +519,44 @@ async function runRedirectRegressionTest() {
       ]).get(mode);
       if (response.status !== expectedStatus) {
         throw new Error(`TLSN ${mode} expected ${expectedStatus}, got ${response.status}`);
+      }
+      if (mode === "ok") {
+        const verification = await response.clone().json();
+        const consumeReceipt = verification.consume_receipt;
+        if (
+          consumeReceipt?.schema_version !== 1 ||
+          consumeReceipt?.type !== "attestation-binding-consumed" ||
+          consumeReceipt?.session_id !== session.session_id ||
+          consumeReceipt?.device_id !== deviceId ||
+          consumeReceipt?.binding_value !== session.binding ||
+          consumeReceipt?.presentation_id !== createHash("sha256").update(decodeBase64Url(syntheticFixture.presentation_base64)).digest("base64url")
+        ) {
+          throw new Error("TLSN consume receipt is not bound to the verification");
+        }
+        if (
+          verification.device_replay_digest_hex !== createHash("sha256")
+            .update(tlsnDeviceProofMessage(deviceId, session.session_id, session.binding, deviceProof.challenge))
+            .digest("hex")
+        ) {
+          throw new Error("TLSN authoritative replay digest is not returned");
+        }
+        if (!verifySignature(
+          null,
+          consumeReceiptSigningBytes(consumeReceipt),
+          publicKey,
+          decodeBase64Url(consumeReceipt.signature),
+        )) {
+          throw new Error("TLSN consume receipt signature is invalid");
+        }
+        const mutatedConsumeReceipt = { ...consumeReceipt, presentation_id: `${consumeReceipt.presentation_id}A` };
+        if (verifySignature(
+          null,
+          consumeReceiptSigningBytes(mutatedConsumeReceipt),
+          publicKey,
+          decodeBase64Url(consumeReceipt.signature),
+        )) {
+          throw new Error("TLSN consume receipt mutation was accepted");
+        }
       }
       const possessionRequest = upstreamState.intendedRequests.find((entry) => entry.kind === "tlsn-device");
       if (possessionRequest?.authorization !== "Bearer remote-token") {

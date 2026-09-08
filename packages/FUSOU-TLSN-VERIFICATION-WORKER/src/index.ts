@@ -6,6 +6,10 @@ import {
   TlsnBindingAuthorityDurableObject,
   encodeBase64Url,
 } from "./binding_authority.js";
+import {
+  attestationConsumeReceiptSigningBytes,
+  attestationSessionReceiptSigningBytes,
+} from "./attestation_receipts.js";
 import initVerifier, {
   attach_verifier_result_signature,
   verify_require_info_presentation,
@@ -461,6 +465,103 @@ async function signSigningBytes(
   return new Uint8Array(signature);
 }
 
+function receiptSignerKeyId(config: VerifierConfig): string {
+  return config.resultSignerKeyId ?? "test-result-signing-key";
+}
+
+async function signSessionReceipt(
+  config: VerifierConfig,
+  record: {
+    session_id: string;
+    canonical_user_id: string;
+    device_id: string;
+    device_auth_nonce: string;
+    nonce: string;
+    tlsn_device_challenge: string;
+    binding_value: string;
+    created_at: string;
+    expires_at: string;
+  },
+): Promise<Record<string, string | number>> {
+  const signerKeyId = receiptSignerKeyId(config);
+  const signature = await signSigningBytes(
+    attestationSessionReceiptSigningBytes({
+      signerKeyId,
+      sessionId: record.session_id,
+      canonicalUserId: record.canonical_user_id,
+      deviceId: record.device_id,
+      deviceAuthNonce: record.device_auth_nonce,
+      nonce: record.nonce,
+      deviceChallenge: record.tlsn_device_challenge,
+      bindingValue: record.binding_value,
+      createdAt: record.created_at,
+      expiresAt: record.expires_at,
+    }),
+    config.signingPrivateKeyBytes,
+  );
+  return {
+    schema_version: 1,
+    type: "attestation-session-issued",
+    signer_key_id: signerKeyId,
+    signature_algorithm: "Ed25519",
+    session_id: record.session_id,
+    canonical_user_id: record.canonical_user_id,
+    device_id: record.device_id,
+    device_auth_nonce: record.device_auth_nonce,
+    nonce: record.nonce,
+    device_challenge: record.tlsn_device_challenge,
+    binding_value: record.binding_value,
+    created_at: record.created_at,
+    expires_at: record.expires_at,
+    signature: encodeBase64Url(signature),
+  };
+}
+
+async function signConsumeReceipt(
+  config: VerifierConfig,
+  record: {
+    session_id: string;
+    canonical_user_id: string;
+    device_id: string;
+    nonce: string;
+    binding_value: string;
+    presentation_id?: string;
+    used_at?: string;
+  },
+): Promise<Record<string, string | number>> {
+  if (!record.presentation_id || !record.used_at) {
+    throw new Error("consumed binding is missing receipt fields");
+  }
+  const signerKeyId = receiptSignerKeyId(config);
+  const signature = await signSigningBytes(
+    attestationConsumeReceiptSigningBytes({
+      signerKeyId,
+      sessionId: record.session_id,
+      canonicalUserId: record.canonical_user_id,
+      deviceId: record.device_id,
+      nonce: record.nonce,
+      bindingValue: record.binding_value,
+      presentationId: record.presentation_id,
+      usedAt: record.used_at,
+    }),
+    config.signingPrivateKeyBytes,
+  );
+  return {
+    schema_version: 1,
+    type: "attestation-binding-consumed",
+    signer_key_id: signerKeyId,
+    signature_algorithm: "Ed25519",
+    session_id: record.session_id,
+    canonical_user_id: record.canonical_user_id,
+    device_id: record.device_id,
+    nonce: record.nonce,
+    binding_value: record.binding_value,
+    presentation_id: record.presentation_id,
+    used_at: record.used_at,
+    signature: encodeBase64Url(signature),
+  };
+}
+
 async function readJsonBody(request: Request): Promise<unknown> {
   const contentLength = request.headers.get("Content-Length");
   if (contentLength !== null && Number(contentLength) > MAX_REQUEST_JSON_BYTES) {
@@ -553,7 +654,7 @@ type DeviceAuthenticationResult =
     };
 
 type DevicePossessionAuthenticationResult =
-  | { ok: true; canonicalUserId: string; deviceId: string }
+  | { ok: true; canonicalUserId: string; deviceId: string; replayDigestHex: string }
   | {
       ok: false;
       status: 401 | 403 | 409 | 503;
@@ -572,6 +673,10 @@ const deviceProofResponseSchema = z
     device_id: z.string().uuid(),
   })
   .strict();
+
+const tlsnDeviceProofResponseSchema = deviceProofResponseSchema.extend({
+  replay_digest_hex: z.string().regex(/^[a-f0-9]{64}$/),
+});
 
 async function authenticateDeviceProof(
   subject: AuthenticatedSubject,
@@ -669,7 +774,7 @@ async function authenticateTlsnDeviceProof(
       }
       return { ok: false, status: 401, error: "device_possession_unauthorized" };
     }
-    const parsed = deviceProofResponseSchema.safeParse(payload);
+    const parsed = tlsnDeviceProofResponseSchema.safeParse(payload);
     if (!parsed.success || parsed.data.canonical_user_id !== subject.canonicalUserId) {
       return { ok: false, status: 403, error: "device_possession_owner_mismatch" };
     }
@@ -680,6 +785,7 @@ async function authenticateTlsnDeviceProof(
       ok: true,
       canonicalUserId: parsed.data.canonical_user_id,
       deviceId: parsed.data.device_id,
+      replayDigestHex: parsed.data.replay_digest_hex,
     };
   } catch {
     return { ok: false, status: 503, error: "device_possession_unavailable" };
@@ -845,12 +951,14 @@ app.post("/attestation/session", async (c) => {
       config.bindingTtlSeconds,
       authentication.canonicalUserId,
       deviceAuthentication.deviceId,
+      requestBody.nonce,
       c.env.TLSN_ENVIRONMENT === "test"
         ? c.env.TLSN_TEST_BINDING_VALUE
         : c.env.TLSN_DEPLOYMENT_ROLE === "canary"
           ? c.env.TLSN_CANARY_BINDING_VALUE
           : undefined,
     );
+        const sessionReceipt = await signSessionReceipt(config, record);
     c.header("Cache-Control", "no-store");
     return c.json({
       session_id: record.session_id,
@@ -859,6 +967,7 @@ app.post("/attestation/session", async (c) => {
       device_id: record.device_id,
       device_challenge: record.tlsn_device_challenge,
       expires_at: record.expires_at,
+      session_receipt: sessionReceipt,
     }, 201);
   } catch {
     return c.json({ error: "authority_unavailable" }, 503);
@@ -996,8 +1105,9 @@ app.post("/verify/tlsn", async (c) => {
     if (signature.length !== 64) {
       return c.json({ error: "verifier_unavailable" }, 503);
     }
+    let consumedBinding;
     try {
-      await authority.consumeBinding(requestBody.binding, {
+      consumedBinding = await authority.consumeBinding(requestBody.binding, {
         session_id: requestBody.session_id,
         canonical_user_id: authentication.canonicalUserId,
         device_id: requestBody.device_id,
@@ -1010,6 +1120,7 @@ app.post("/verify/tlsn", async (c) => {
       const message = error instanceof BindingAuthorityError ? error.code : "binding_unknown";
       return c.json({ verified: false, error: message }, bindingAuthorityStatus(error));
     }
+    const consumeReceipt = await signConsumeReceipt(config, consumedBinding);
     const signedResultJson = attach_verifier_result_signature(
       prepared.unsigned_result,
       signature,
@@ -1020,6 +1131,8 @@ app.post("/verify/tlsn", async (c) => {
       verified: true,
       result: signedResult,
       signature_algorithm: "Ed25519",
+      consume_receipt: consumeReceipt,
+      device_replay_digest_hex: devicePossession.replayDigestHex,
     });
   } catch {
     return c.json({ verified: false, error: "verification_failed" }, 422);

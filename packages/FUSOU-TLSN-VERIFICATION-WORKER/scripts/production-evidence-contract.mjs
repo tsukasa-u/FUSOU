@@ -65,6 +65,57 @@ export const PRODUCTION_EVIDENCE_SEMANTIC_PREDICATE_DEFINITIONS = {
     derived_fields: ["result_signature_valid", "result_signer_key_id"],
   },
 };
+export const PRODUCTION_EVIDENCE_DEVICE_PREDICATE_DEFINITIONS = {
+  device_identity_ownership: {
+    required_artifacts: ["device_identity"],
+    required_fields: ["canonical_user_id", "device_id", "device_public_key", "device_public_key_sha256", "revoked_at"],
+    verification_method: "authoritative FUSOU-WEB user_devices identity matches the signed Result subject and is not revoked",
+    authority_identity: "fusou-web-user-devices",
+    derived_fields: ["canonical_user_id", "device_id", "device_public_key_sha256", "revoked_at"],
+  },
+  device_authentication_signature: {
+    required_artifacts: ["device_identity", "device_authentication", "session"],
+    required_fields: ["device_id", "nonce", "signature", "attestation_session_id"],
+    verification_method: "generic device nonce signature verifies against the authoritative device public key and the issued session",
+    authority_identity: "fusou-web-device-authentication",
+    derived_fields: ["device_id", "nonce", "attestation_session_id"],
+  },
+  session_binding_receipt: {
+    required_artifacts: ["session", "result"],
+    required_fields: ["attestation_session_id", "binding_value", "binding_nonce", "receipt_signature"],
+    verification_method: "Worker-signed session receipt binds the authenticated device nonce, binding, and session identity",
+    authority_identity: "fusou-tlsn-verification-worker",
+    derived_fields: ["attestation_session_id", "binding_value", "binding_nonce"],
+  },
+  tlsn_device_possession_signature: {
+    required_artifacts: ["device_identity", "possession_proof", "session"],
+    required_fields: ["device_id", "attestation_session_id", "binding_value", "device_challenge", "signature"],
+    verification_method: "canonical TLSN device possession signature verifies against the authoritative device public key",
+    authority_identity: "fusou-web-tlsn-device-authentication",
+    derived_fields: ["device_id", "attestation_session_id", "binding_value", "device_challenge"],
+  },
+  binding_framing: {
+    required_artifacts: ["session", "result"],
+    required_fields: ["attestation_session_id", "binding_value", "binding_nonce"],
+    verification_method: "binding bytes decode to the exact issued UUIDv4 session ID and 32-byte nonce",
+    authority_identity: "fusou-tlsn-binding-authority",
+    derived_fields: ["attestation_session_id", "binding_nonce"],
+  },
+  replay_digest: {
+    required_artifacts: ["possession_proof", "replay"],
+    required_fields: ["replay_digest", "replay_digest_hex", "stored_replay_digest_hex", "status", "error"],
+    verification_method: "SHA-256 over canonical TLSN possession bytes matches both captured replay encodings and the rejected replay",
+    authority_identity: "fusou-web-tlsn-device-authentication",
+    derived_fields: ["replay_digest", "replay_digest_hex", "stored_replay_digest_hex", "status", "error"],
+  },
+  consume_receipt: {
+    required_artifacts: ["consume_receipt", "result", "presentation", "session"],
+    required_fields: ["session_id", "binding_value", "presentation_id", "used_at", "signature"],
+    verification_method: "Worker-signed consume receipt binds the consumed session, binding, Presentation hash, and timestamp",
+    authority_identity: "fusou-tlsn-verification-worker",
+    derived_fields: ["session_id", "binding_value", "presentation_id", "used_at"],
+  },
+};
 export const PRODUCTION_EVIDENCE_REQUIREMENTS = [
   "real_production_game_server_connection",
   "real_production_tlsn_notary_interaction",
@@ -89,24 +140,24 @@ export const PRODUCTION_EVIDENCE_ITEM_DEFINITIONS = {
     verification_method: "alpha15 Presentation verifying key matches the production Notary registry",
   },
   real_production_fusou_web_device_authentication: {
-    required_artifacts: ["health", "subject", "session"],
-    required_fields: ["canonical_user_id", "device_id", "attestation_session_id"],
-    verification_method: "authenticated Supabase identity and FUSOU-WEB device challenge are captured",
+    required_artifacts: ["health", "subject", "session", "device_identity", "device_authentication"],
+    required_fields: ["canonical_user_id", "device_id", "attestation_session_id", "device_public_key", "device_public_key_sha256"],
+    verification_method: "FUSOU-WEB authoritative device identity and generic nonce signature are independently verified",
   },
   real_production_device_possession_proof: {
-    required_artifacts: ["session", "possession_proof", "result"],
-    required_fields: ["device_challenge", "device_id", "binding_value"],
-    verification_method: "production Worker accepts the device possession proof for the issued binding",
+    required_artifacts: ["session", "device_identity", "possession_proof", "result"],
+    required_fields: ["device_challenge", "device_id", "binding_value", "replay_digest"],
+    verification_method: "canonical TLSN device proof signature and replay digest verify against the authoritative device public key",
   },
   real_production_replay_authority: {
-    required_artifacts: ["session", "replay"],
-    required_fields: ["session_id", "device_id", "binding"],
-    verification_method: "the consumed production binding rejects a second verification",
+    required_artifacts: ["session", "possession_proof", "consume_receipt", "replay"],
+    required_fields: ["session_id", "device_id", "binding", "replay_digest", "stored_replay_digest_hex", "error"],
+    verification_method: "canonical proof digest equals the stored FUSOU-WEB replay key, is bound to the signed consume receipt, and the consumed binding rejects replay",
   },
   real_production_binding_authority: {
-    required_artifacts: ["session", "result"],
+    required_artifacts: ["session", "result", "consume_receipt"],
     required_fields: ["session_id", "binding", "binding_nonce"],
-    verification_method: "production Worker binds the verified Result to a one-shot session",
+    verification_method: "signed session and consume receipts bind the verified Result to a one-shot session",
   },
   real_production_verifier_trust_root: {
     required_artifacts: ["health", "trust_root"],
@@ -124,18 +175,18 @@ export const PRODUCTION_EVIDENCE_ITEM_DEFINITIONS = {
     verification_method: "Worker health identity matches the captured published result-key registry",
   },
   independently_captured_production_evidence: {
-    required_artifacts: ["presentation", "semantic_verification", "result", "session"],
-    required_fields: ["presentation_sha256", "tlsn_attestation_id", "verified_member_id"],
-    verification_method: "capture harness independently verifies Presentation semantics and signed Result binding",
+    required_artifacts: ["presentation", "semantic_verification", "result", "session", "device_identity", "device_authentication", "possession_proof", "consume_receipt"],
+    required_fields: ["presentation_sha256", "tlsn_attestation_id", "verified_member_id", "device_public_key_sha256", "replay_digest", "stored_replay_digest_hex"],
+    verification_method: "capture harness independently verifies Presentation semantics, device signatures, binding receipts, and signed Result binding",
   },
 };
 export const PRODUCTION_EVIDENCE_REQUIREMENT_PREDICATES = {
   real_production_game_server_connection: ["presentation_cryptography", "server_identity", "require_info_http_profile"],
   real_production_tlsn_notary_interaction: ["presentation_cryptography", "notary_identity"],
-  real_production_fusou_web_device_authentication: [],
-  real_production_device_possession_proof: [],
-  real_production_replay_authority: [],
-  real_production_binding_authority: [],
+  real_production_fusou_web_device_authentication: ["device_identity_ownership", "device_authentication_signature"],
+  real_production_device_possession_proof: ["device_identity_ownership", "tlsn_device_possession_signature", "binding_framing"],
+  real_production_replay_authority: ["replay_digest", "consume_receipt"],
+  real_production_binding_authority: ["session_binding_receipt", "binding_framing", "consume_receipt"],
   real_production_verifier_trust_root: [],
   real_production_result_signing_key: ["result_signature"],
   real_production_public_key_publication: ["result_signature"],
@@ -147,8 +198,42 @@ export const PRODUCTION_EVIDENCE_REQUIREMENT_PREDICATES = {
     "authenticated_member_id",
     "result_presentation_binding",
     "result_signature",
+    "device_identity_ownership",
+    "device_authentication_signature",
+    "session_binding_receipt",
+    "tlsn_device_possession_signature",
+    "binding_framing",
+    "replay_digest",
+    "consume_receipt",
   ],
 };
+export const PRODUCTION_EVIDENCE_REQUIREMENT_DEVICE_PREDICATES = {
+  real_production_game_server_connection: [],
+  real_production_tlsn_notary_interaction: [],
+  real_production_fusou_web_device_authentication: ["device_identity_ownership", "device_authentication_signature"],
+  real_production_device_possession_proof: ["device_identity_ownership", "tlsn_device_possession_signature", "binding_framing"],
+  real_production_replay_authority: ["replay_digest", "consume_receipt"],
+  real_production_binding_authority: ["session_binding_receipt", "binding_framing", "consume_receipt"],
+  real_production_verifier_trust_root: [],
+  real_production_result_signing_key: [],
+  real_production_public_key_publication: [],
+  independently_captured_production_evidence: [
+    "device_identity_ownership",
+    "device_authentication_signature",
+    "session_binding_receipt",
+    "tlsn_device_possession_signature",
+    "binding_framing",
+    "replay_digest",
+    "consume_receipt",
+  ],
+};
+export function productionRequirementStatus(requirement, semanticPredicateResults, devicePredicateResults) {
+  const semanticNames = PRODUCTION_EVIDENCE_REQUIREMENT_PREDICATES[requirement] ?? [];
+  const deviceNames = PRODUCTION_EVIDENCE_REQUIREMENT_DEVICE_PREDICATES[requirement] ?? [];
+  const semanticPass = semanticNames.every((name) => semanticPredicateResults?.[name]?.status === "PASS");
+  const devicePass = deviceNames.every((name) => devicePredicateResults?.[name]?.status === "PASS");
+  return semanticPass && devicePass ? "PASS" : "UNVERIFIED";
+}
 export const PRODUCTION_EVIDENCE_DOMAINS = {
   game_server: [
     "real_production_game_server_connection",
@@ -291,6 +376,17 @@ export function blockedProductionEvidenceManifest({
         observed: {},
       },
     ])),
+    device_predicates: Object.fromEntries(Object.entries(PRODUCTION_EVIDENCE_DEVICE_PREDICATE_DEFINITIONS).map(([predicate, definition]) => [
+      predicate,
+      {
+        ...definition,
+        status: "UNVERIFIED",
+        evidence_artifacts: [],
+        verified_at: now,
+        detail: "device predicate has not been independently verified",
+        observed: {},
+      },
+    ])),
     semantic_verification: null,
     artifacts: {},
     independent_verification: {
@@ -358,6 +454,27 @@ export function assertProductionEvidenceManifest(manifest) {
     }
     assertIdentity(item.verification_method, "semantic verification_method");
     assertIdentity(item.authority_identity, "semantic authority_identity");
+  }
+  for (const [predicate, definition] of Object.entries(PRODUCTION_EVIDENCE_DEVICE_PREDICATE_DEFINITIONS)) {
+    const item = manifest.device_predicates?.[predicate];
+    if (!item || !["PASS", "UNVERIFIED", "FAIL"].includes(item.status)) {
+      throw new Error(`device evidence predicate is missing: ${predicate}`);
+    }
+    if (
+      JSON.stringify(item.required_artifacts) !== JSON.stringify(definition.required_artifacts) ||
+      JSON.stringify(item.required_fields) !== JSON.stringify(definition.required_fields) ||
+      item.verification_method !== definition.verification_method ||
+      item.authority_identity !== definition.authority_identity
+    ) {
+      throw new Error(`device evidence predicate definition is invalid: ${predicate}`);
+    }
+    if (!Array.isArray(item.evidence_artifacts) || !Array.isArray(item.derived_fields)) {
+      throw new Error(`device evidence predicate schema is invalid: ${predicate}`);
+    }
+    assertTimestamp(item.verified_at, "device predicate verified_at");
+    if (typeof item.detail !== "string" || item.detail.length > 1024 || !item.observed || typeof item.observed !== "object") {
+      throw new Error(`device evidence predicate observation is invalid: ${predicate}`);
+    }
   }
   if (manifest.semantic_verification !== null && typeof manifest.semantic_verification !== "object") {
     throw new Error("semantic verification artifact reference is invalid");

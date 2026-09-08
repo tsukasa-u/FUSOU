@@ -36,6 +36,7 @@ export const PRODUCTION_EVIDENCE_PAYLOAD_FIELDS = [
   "evidence_domains",
   "evidence",
   "semantic_predicates",
+  "device_predicates",
   "semantic_verification",
   "artifacts",
   "independent_verification",

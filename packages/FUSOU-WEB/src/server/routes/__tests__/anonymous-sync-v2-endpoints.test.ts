@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { createHash } from "node:crypto";
 import type { Bindings } from "../../types";
 
 const {
@@ -212,6 +213,55 @@ describe("anonymous-sync v2 endpoints", () => {
         device_id: "33333333-3333-4333-8333-333333333333",
       },
     });
+  });
+
+  it("returns authoritative device identity material only for its owner", async () => {
+    const deviceId = "33333333-3333-4333-8333-333333333333";
+    const userId = "55555555-5555-4555-8555-555555555555";
+    const publicKeyBytes = Buffer.alloc(32);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({ id: userId, is_anonymous: false }),
+      }),
+    );
+    mockDecodeBase64ToBytes.mockReturnValue(new Uint8Array(publicKeyBytes));
+    mockFrom.mockReturnValue({
+      select: vi.fn(() => ({
+        eq: vi.fn(() => ({
+          maybeSingle: vi.fn().mockResolvedValue({
+            data: {
+              canonical_user_id: userId,
+              device_pubkey: "00".repeat(32),
+              revoked_at: null,
+            },
+            error: null,
+          }),
+        })),
+      })),
+    });
+
+    const response = await anonymousSyncV2App.request(
+      `https://fusou.dev/anonymous-sync/v2/device-identity?device_id=${deviceId}`,
+      {
+        headers: { Authorization: "Bearer access-token" },
+      },
+      env,
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    await expect(response.json()).resolves.toEqual({
+      authoritative: true,
+      authority: "fusou-web-user-devices",
+      canonical_user_id: userId,
+      device_id: deviceId,
+      device_public_key: "A".repeat(43),
+      device_public_key_sha256: createHash("sha256").update(publicKeyBytes).digest("base64url"),
+      revoked_at: null,
+    });
+    vi.unstubAllGlobals();
   });
 
   it("verifies an owned device proof with the existing challenge signature", async () => {
@@ -620,6 +670,7 @@ describe("anonymous-sync v2 endpoints", () => {
       authenticated: true,
       canonical_user_id: "55555555-5555-4555-8555-555555555555",
       device_id: deviceId,
+      replay_digest_hex: createHash("sha256").update(Buffer.from([1, 2, 3])).digest("hex"),
     });
     expect(mockCreateTlsnDeviceProofMessage).toHaveBeenCalledWith({
       deviceId,

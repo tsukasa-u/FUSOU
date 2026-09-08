@@ -14,6 +14,7 @@ import {
   UserDeviceWebRevokeTargetRowSchema,
   UserDeviceRefreshRowSchema,
   UserDeviceProofRowSchema,
+  UserDeviceIdentityRowSchema,
   TlsnDeviceProofRequestSchema,
   PendingSyncCompleteRequestSchema,
   DeviceProofRequestSchema,
@@ -973,6 +974,61 @@ app.get("/anonymous-sync/v2/devices", async (c) => {
   }
 });
 
+app.get("/anonymous-sync/v2/device-identity", async (c) => {
+  try {
+    const auth = extractAccessToken(c);
+    if (!auth || auth.fromCookie) return c.json({ error: "unauthorized" }, 401);
+    const deviceId = normalizeUuidV4(c.req.query("device_id"));
+    if (!deviceId) return c.json({ error: "device_id must be a UUID v4" }, 400);
+    const base = resolveBaseConfig(c);
+    if (!base.ok) return c.json({ error: "Server configuration error" }, 500);
+    const user = await verifySupabaseAccessToken({
+      supabaseUrl: base.config.supabaseUrl,
+      anonKey: base.config.anonKey,
+      accessToken: auth.token,
+    });
+    if (!user || user.is_anonymous) return c.json({ error: "invalid_token" }, 401);
+
+    const supabaseAdmin = createClient(
+      base.config.supabaseUrl,
+      base.config.serviceRoleKey,
+    );
+    const deviceRaw = await supabaseAdmin
+      .from("user_devices")
+      .select("canonical_user_id, device_pubkey, revoked_at")
+      .eq("device_id", deviceId)
+      .maybeSingle();
+    if (deviceRaw.error) return c.json({ error: "Database error" }, 500);
+    if (!deviceRaw.data) return c.json({ error: "device_unknown" }, 404);
+    const device = UserDeviceIdentityRowSchema.safeParse(deviceRaw.data);
+    if (!device.success) return c.json({ error: "Database error" }, 500);
+    if (device.data.canonical_user_id !== user.id) {
+      return c.json({ error: "device_owner_mismatch" }, 403);
+    }
+    const publicKey = storedPubkeyToBase64(device.data.device_pubkey);
+    if (!publicKey) return c.json({ error: "Database error" }, 500);
+    const decodedPublicKeyBytes = decodeBase64ToBytes(publicKey);
+    if (!decodedPublicKeyBytes || decodedPublicKeyBytes.length !== 32) {
+      return c.json({ error: "Database error" }, 500);
+    }
+    const publicKeyBytes = new Uint8Array(decodedPublicKeyBytes);
+    const publicKeySha256 = await crypto.subtle.digest("SHA-256", publicKeyBytes);
+    c.header("Cache-Control", "no-store");
+    return c.json({
+      authoritative: true,
+      authority: "fusou-web-user-devices",
+      canonical_user_id: device.data.canonical_user_id,
+      device_id: deviceId,
+      device_public_key: encodeBytesToBase64Url(publicKeyBytes),
+      device_public_key_sha256: encodeBytesToBase64Url(new Uint8Array(publicKeySha256)),
+      revoked_at: device.data.revoked_at,
+    });
+  } catch (err) {
+    console.error("[anonymous-sync-v2/device-identity] unexpected error:", err);
+    return c.json({ error: "Internal server error" }, 500);
+  }
+});
+
 app.get("/anonymous-sync/v2/challenge", async (c) => {
   try {
     const deviceId = normalizeUuidV4(c.req.query("device_id"));
@@ -1199,6 +1255,7 @@ app.post("/anonymous-sync/v2/tlsn-device-proof", async (c) => {
       authenticated: true,
       canonical_user_id: device.data.canonical_user_id,
       device_id: deviceId,
+      replay_digest_hex: bytesToHex(replayDigest),
     });
   } catch (err) {
     console.error("[anonymous-sync-v2/tlsn-device-proof] unexpected error:", err);
