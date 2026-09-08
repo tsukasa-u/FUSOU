@@ -647,6 +647,13 @@ export default function ShipGrowthPanel() {
     return shipMasterRows().find((ship) => ship.id === id) ?? null;
   });
 
+  const hasBoundsData = createMemo(() => {
+    if (isAllPeriodsPeriod(selectedPeriod())) {
+      return boundsChartData().datasets.length > 0;
+    }
+    return boundRows().length > 0;
+  });
+
 
 
   async function fetchSummary() {
@@ -1287,130 +1294,112 @@ export default function ShipGrowthPanel() {
         loading={loadingShips()}
       >
         <div class="space-y-4">
-          {/* Exp chart */}
-          <Show when={expRows().length > 0}>
-            <div class="fusou-card">
-              <div class="fusou-card-body">
-                <h2 class="card-title text-lg">経験値テーブル (累積)</h2>
-                <p class="text-sm text-base-content/60">
-                  期間: {(expSourcePeriod() ?? selectedPeriod())?.period_tag} /
-                  v{(expSourcePeriod() ?? selectedPeriod())?.table_version} / Lv{" "}
-                  {expRows()[0]?.lv}〜{expRows()[expRows().length - 1]?.lv} (
-                  {expRows().length} 行)
-                </p>
-                <div class="relative w-full h-[320px] sm:h-[380px] lg:h-[420px]">
-                  <canvas ref={setExpCanvas} class="w-full h-full block" />
-                </div>
-              </div>
-            </div>
-          </Show>
-
-          {/* Bounds chart — shown when single-period has rows, OR all-periods
-               mode has at least one period with data for the selected ship. */}
-          <Show
-            when={
-              boundRows().length > 0 ||
-              (isAllPeriodsPeriod(selectedPeriod()) &&
-                boundsChartData().datasets.length > 0)
-            }
-          >
-            <div class="fusou-card">
-              <div class="fusou-card-body">
-                <h2 class="card-title text-lg">レベル別パラメータ推移</h2>
-                <Show when={isAllPeriodsPeriod(selectedPeriod())}>
-                  <p class="text-sm text-base-content/60">
-                    艦: {selectedShip()?.name ?? "-"} /{" "}
-                    {Math.round(boundsChartData().datasets.length / 3)}{" "}
-                    期間分の履歴 (全 {allPeriodsEntries().length} 期間中)
-                  </p>
-                </Show>
-                <Show when={!isAllPeriodsPeriod(selectedPeriod())}>
-                  <p class="text-sm text-base-content/60">
-                    艦: {selectedShip()?.name ?? "-"} (ID:{" "}
-                    {boundRows()[0]?.master_id}) / Lv {boundRows()[0]?.lv}〜
-                    {boundRows()[boundRows().length - 1]?.lv} (
-                    {boundRows().length} 行)
-                  </p>
-                </Show>
-                <div class="relative w-full h-[360px] sm:h-[420px] lg:h-[480px]">
-                  <canvas ref={setBoundsCanvas} class="w-full h-full block" />
-                </div>
-              </div>
-            </div>
-          </Show>
-
           {/* Loading state for main content */}
           <Show when={loadingData() || ((loadingPeriods() || loadingShips()) && expRows().length === 0)}>
-            <div class="fusou-card mb-6">
+            <div class="fusou-card">
               <div class="fusou-card-body">
                 <LoadingState message="パラメータ推移データを集計中..." size="lg" minHeight="min-h-[360px]" />
               </div>
             </div>
           </Show>
 
-          {/* Cumulative mode: archive data exists but selected ship absent */}
-          <Show
-            when={
-              isCumulativePeriod(selectedPeriod()) &&
-              allBoundRows().length > 0 &&
-              boundRows().length === 0 &&
-              !loadingData()
-            }
-          >
-            <div class="fusou-card min-h-[400px] xl:min-h-[calc(100vh-14rem)] flex items-center justify-center">
-              <div class="fusou-card-body w-full flex items-center justify-center">
-                <EmptyState
-                  message="選択した艦のデータは累積アーカイブに存在しません。"
-                  hint="現在の期間 (ライブ) では存在する可能性があります。期間を切り替えてご確認ください。"
-                  size="large"
-                />
+          <Show when={!loadingData()}>
+            {/* Exp chart */}
+            <Show when={expRows().length > 0}>
+              <div class="fusou-card">
+                <div class="fusou-card-body">
+                  <h2 class="card-title text-lg">経験値テーブル (累積)</h2>
+                  <p class="text-sm text-base-content/60">
+                    期間: {(expSourcePeriod() ?? selectedPeriod())?.period_tag} /
+                    v{(expSourcePeriod() ?? selectedPeriod())?.table_version} / Lv{" "}
+                    {expRows()[0]?.lv}〜{expRows()[expRows().length - 1]?.lv} (
+                    {expRows().length} 行)
+                  </p>
+                  <div class="relative w-full h-[320px] sm:h-[380px] lg:h-[420px]">
+                    <canvas ref={setExpCanvas} class="w-full h-full block" />
+                  </div>
+                </div>
               </div>
-            </div>
-          </Show>
+            </Show>
 
-          {/* All-periods mode: archive data exists but selected ship absent */}
-          <Show
-            when={
-              isAllPeriodsPeriod(selectedPeriod()) &&
-              allPeriodsEntries().length > 0 &&
-              boundsChartData().datasets.length === 0 &&
-              !loadingData()
-            }
-          >
-            <div class="fusou-card">
-              <div class="fusou-card-body">
-                <EmptyState
-                  message="選択した艦のデータは全期間のアーカイブに存在しません。"
-                  hint="現在の期間 (ライブ) では存在する可能性があります。期間を切り替えてご確認ください。"
-                  size="large"
-                />
-              </div>
-            </div>
-          </Show>
+            {/* Bounds chart & Empty/Error state */}
+            <Show when={selectedMasterId() != null}>
+              <div class="fusou-card">
+                <div class="fusou-card-body">
+                  <div class="flex items-center justify-between pb-2 border-b border-base-200/60">
+                    <h2 class="card-title text-lg">レベル別パラメータ推移</h2>
+                    <Show when={selectedShip()}>
+                      {(ship) => (
+                        <span class="text-sm font-medium text-base-content/70">
+                          {ship().name} (ID: {ship().id})
+                        </span>
+                      )}
+                    </Show>
+                  </div>
 
-          {/* Empty state — only when truly no data loaded at all (not the
-               same as "data loaded but selected ship absent", which is handled
-               by the Bug M / all-periods no-data cards above). */}
-          <Show
-            when={
-              expRows().length === 0 &&
-              boundRows().length === 0 &&
-              allBoundRows().length === 0 &&
-              allPeriodsEntries().length === 0 &&
-              !loadingData() &&
-              !loadingPeriods() &&
-              !loadingShips()
-            }
-          >
-            <div class="fusou-card">
-              <div class="fusou-card-body">
-                <EmptyState
-                  message="期間と艦を選択するとグラフを表示します。"
-                  hint="経験値はmaster_idに依存せず、レベル別パラメータは選択中の艦で表示します。"
-                  size="large"
-                />
+                  <Show
+                    when={hasBoundsData()}
+                    fallback={
+                      <div class="py-12 flex flex-col items-center justify-center">
+                        <EmptyState
+                          message={
+                            error()
+                              ? "データの読み込みに失敗しました"
+                              : "選択した艦のパラメータデータがありません。"
+                          }
+                          hint={
+                            error()
+                              ? error()!
+                              : isCumulativePeriod(selectedPeriod())
+                                ? "現在の期間 (ライブ) では存在する可能性があります。期間を切り替えてご確認ください。"
+                                : isAllPeriodsPeriod(selectedPeriod())
+                                  ? "全期間のアーカイブにこの艦の記録が存在しません。別の艦または期間をお試しください。"
+                                  : "この期間には該当する艦のパラメータ成長データが記録されていません。別の期間や全期間比較をお試しください。"
+                          }
+                          size="large"
+                        />
+                      </div>
+                    }
+                  >
+                    <Show when={isAllPeriodsPeriod(selectedPeriod())}>
+                      <p class="text-sm text-base-content/60">
+                        {Math.round(boundsChartData().datasets.length / 3)}{" "}
+                        期間分の履歴 (全 {allPeriodsEntries().length} 期間中)
+                      </p>
+                    </Show>
+                    <Show when={!isAllPeriodsPeriod(selectedPeriod())}>
+                      <p class="text-sm text-base-content/60">
+                        Lv {boundRows()[0]?.lv}〜
+                        {boundRows()[boundRows().length - 1]?.lv} (
+                        {boundRows().length} 行)
+                      </p>
+                    </Show>
+                    <div class="relative w-full h-[360px] sm:h-[420px] lg:h-[480px]">
+                      <canvas ref={setBoundsCanvas} class="w-full h-full block" />
+                    </div>
+                  </Show>
+                </div>
               </div>
-            </div>
+            </Show>
+
+            {/* Empty state — only when truly no ship selected */}
+            <Show
+              when={
+                selectedMasterId() == null &&
+                !loadingPeriods() &&
+                !loadingShips()
+              }
+            >
+              <div class="fusou-card min-h-[400px] xl:min-h-[calc(100vh-14rem)] flex items-center justify-center">
+                <div class="fusou-card-body w-full flex items-center justify-center">
+                  <EmptyState
+                    message="期間と艦を選択するとグラフを表示します。"
+                    hint="経験値はmaster_idに依存せず、レベル別パラメータは選択中の艦で表示します。"
+                    size="large"
+                  />
+                </div>
+              </div>
+            </Show>
           </Show>
         </div>
       </ShipCatalogPicker>
