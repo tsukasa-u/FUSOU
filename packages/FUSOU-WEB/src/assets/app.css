@@ -176,8 +176,10 @@
 .file-input-bordered:active,
 .file-input-bordered:open {
   --input-color: var(--color-primary) !important;
-  outline: 2px solid var(--color-primary) !important;
-  outline-offset: 2px !important;
+  outline: none !important;
+  outline-width: 0 !important;
+  outline-style: none !important;
+  outline-offset: 0 !important;
   border-color: var(--color-primary) !important;
   box-shadow: none !important;
   isolation: auto;
@@ -624,7 +626,7 @@ select::picker(select) {
 }
 
 .fusou-page-header {
-  @apply flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-6;
+  @apply mb-6;
 }
 
 .fusou-page-title {
@@ -636,7 +638,7 @@ select::picker(select) {
 }
 
 .fusou-page-subtitle {
-  @apply text-base text-base-content/60 mt-1;
+  @apply text-sm sm:text-base text-base-content/60 mt-0.5 whitespace-nowrap;
 }
 
 .fusou-page-subtitle-compact {
@@ -644,7 +646,7 @@ select::picker(select) {
 }
 
 .fusou-page-actions {
-  @apply flex gap-2 flex-wrap;
+  @apply flex gap-2 items-center shrink-0 ml-auto justify-end;
 }
 
 .fusou-page-actions .btn {
@@ -670,6 +672,65 @@ select::picker(select) {
 
 .fusou-btn-ghost {
   @apply btn btn-ghost btn-sm rounded-lg border border-base-300;
+}
+
+.fusou-btn-outline {
+  @apply btn btn-outline btn-sm rounded-lg border border-base-300;
+}
+
+.fusou-btn-danger {
+  @apply btn btn-error btn-sm rounded-lg text-error-content border-error;
+}
+
+.fusou-btn-xs {
+  @apply btn btn-xs rounded-md border border-base-300 font-medium;
+}
+
+.fusou-btn-xs-primary {
+  @apply btn btn-primary btn-xs rounded-md border border-primary-content/45;
+}
+
+.fusou-btn-xs-secondary {
+  @apply btn btn-outline btn-xs rounded-md border border-base-300;
+}
+
+.fusou-btn-xs-ghost {
+  @apply btn btn-ghost btn-xs rounded-md border border-base-300;
+}
+
+.fusou-card-interactive {
+  @apply bg-base-100 rounded-xl border border-base-300/60 transition-all hover:border-primary/50 hover:shadow-sm cursor-pointer;
+}
+
+.fusou-tab-toolbar {
+  @apply flex flex-col md:flex-row md:items-center md:justify-between border-b border-base-300/60 mb-5 gap-2.5;
+}
+
+.fusou-tab-toolbar .fusou-tabs {
+  margin-bottom: 0;
+  border-bottom: none;
+}
+
+.fusou-tabs {
+  @apply flex gap-1 mb-5 border-b border-base-300/60 overflow-x-auto;
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.fusou-tabs::-webkit-scrollbar {
+  display: none;
+}
+
+.fusou-tab {
+  @apply px-4 py-2 text-sm font-medium transition-colors border-b-2 whitespace-nowrap -mb-px cursor-pointer select-none;
+}
+
+.fusou-tab-active {
+  @apply border-primary text-primary font-semibold;
+}
+
+.fusou-tab-inactive {
+  @apply border-transparent text-base-content/60 hover:text-base-content hover:border-base-300;
 }
 
 .fusou-footer-note {
@@ -820,4 +881,52 @@ select::picker(select) {
 .hide-scrollbar {
   -ms-overflow-style: none;
   scrollbar-width: none;
+}
+
+/* Light mode surface contrast refinement */
+[data-theme="light"] .fusou-card {
+  box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.05), 0 1px 2px -1px rgba(0, 0, 0, 0.05);
+  border-color: rgba(0, 0, 0, 0.1);
+}
+
+[data-theme="light"] .fusou-card-surface {
+  background-color: #ffffff;
+  border-color: rgba(0, 0, 0, 0.1);
+}
+
+[data-theme="light"] .fusou-card-interactive:hover {
+  border-color: rgba(62, 207, 142, 0.45);
+}
+
+/* Smooth mobile horizontal scrolling for dense data tables */
+.overflow-x-auto {
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-x: contain;
+}
+
+/* input 選択時の二重枠線（DaisyUI / WebKit の outline による二重線）の完全除去 */
+input,
+select,
+textarea,
+.select:focus,
+.select:focus-within,
+.select:focus-visible,
+input[type="search"],
+input.input,
+.input:focus,
+.input:focus-within,
+.input:focus-visible {
+  outline: none !important;
+  outline-width: 0 !important;
+  outline-style: none !important;
+  box-shadow: none !important;
+}
+
+/* WebKit 標準の検索キャンセル（✕）ボタンを除去して独自ボタンとの二重表示を防止 */
+input[type="search"]::-webkit-search-cancel-button,
+input[type="search"]::-webkit-search-decoration,
+input[type="search"]::-webkit-search-results-button,
+input[type="search"]::-webkit-search-results-decoration {
+  -webkit-appearance: none !important;
+  display: none !important;
 }

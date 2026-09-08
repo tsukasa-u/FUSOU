@@ -1,0 +1,908 @@
+---
+import PageLayout from "@/layouts/Layout.astro";
+import Navigation from "@/components/common/astro/layout/Navigation.astro";
+import PageShell from "@/components/common/astro/ui/PageShell.astro";
+import PageHeader from "@/components/common/astro/ui/PageHeader.astro";
+import AlertBox from "@/components/common/astro/ui/AlertBox.astro";
+import CheckIcon from "@/components/common/astro/icons/CheckIcon.astro";
+import KeyIcon from "@/components/common/astro/icons/KeyIcon.astro";
+
+export const prerender = true;
+---
+
+<PageLayout
+  title="FUSOU - Design System & Component Catalog"
+  description="FUSOU-Project の公式デザインシステム仕様 (DESIGN.MD) に基づく UI コンポーネントおよびデザイントークンのカタログ・リファレンスです。"
+>
+  <Navigation filled={true} />
+
+  <PageShell container="default" paddingY="8">
+    <PageHeader
+      title="FUSOU Design System"
+      subtitle="DESIGN.MD 準拠 UI コンポーネント＆トークン カタログ"
+    >
+      <div slot="actions" class="flex items-center gap-2">
+        <a href="#quick-jump" class="fusou-btn-secondary">
+          目次へジャンプ
+        </a>
+        <button
+          id="theme-toggle-btn"
+          type="button"
+          class="fusou-btn-primary"
+          onclick="
+            const cur = document.documentElement.getAttribute('data-theme');
+            const next = cur === 'light' ? 'dark' : 'light';
+            document.documentElement.setAttribute('data-theme', next);
+            localStorage.setItem('theme', next);
+            const btn = document.getElementById('theme-toggle-btn'); if (btn) btn.textContent = next === 'light' ? 'Dark Mode' : 'Light Mode';
+          "
+        >
+          Theme Toggle
+        </button>
+      </div>
+    </PageHeader>
+
+    <!-- Quick Jump Nav -->
+    <nav
+      id="quick-jump"
+      aria-label="Design system sections"
+      class="fusou-card fusou-card-body mb-8"
+    >
+      <div class="flex items-center justify-between mb-3">
+        <span class="text-xs font-semibold uppercase tracking-wider text-base-content/60">
+          Quick Navigation
+        </span>
+        <span class="text-xs text-base-content/50">DESIGN.MD v1.0 Spec</span>
+      </div>
+      <div class="flex flex-wrap gap-2 text-sm">
+        <a href="#section-colors" class="btn btn-xs btn-outline rounded-md">01 Colors</a>
+        <a href="#section-typography" class="btn btn-xs btn-outline rounded-md">02 Typography</a>
+        <a href="#section-buttons" class="btn btn-xs btn-outline rounded-md">03 Buttons</a>
+        <a href="#section-cards" class="btn btn-xs btn-outline rounded-md">04 Cards & Surfaces</a>
+        <a href="#section-forms" class="btn btn-xs btn-outline rounded-md">05 Form Controls</a>
+        <a href="#section-tabs" class="btn btn-xs btn-outline rounded-md">06 Tabs & Navigation</a>
+        <a href="#section-alerts" class="btn btn-xs btn-outline rounded-md">07 Alerts & Badges</a>
+        <a href="#section-primitives" class="btn btn-xs btn-outline rounded-md">08 Layout Primitives</a>
+      </div>
+    </nav>
+
+    <div class="space-y-12">
+      <!-- 01 / COLOR PALETTE -->
+      <section id="section-colors" class="scroll-mt-20">
+        <div class="border-b border-base-300 pb-3 mb-6">
+          <h2 class="text-2xl font-bold tracking-tight">01 / Color Palette & Tokens</h2>
+          <p class="text-sm text-base-content/60 mt-1">
+            ダーク基調のテクニカルキャンバスと、状態伝達のための明確なセマンティックカラー群。
+          </p>
+        </div>
+
+        <div class="space-y-6">
+          <div>
+            <h3 class="text-base font-semibold mb-3">Brand Accents & Feedback</h3>
+            <div class="grid grid-cols-2 sm:grid-cols-4 gap-4">
+              <div class="fusou-card p-4">
+                <div class="h-12 rounded-lg mb-2 shadow-inner" style="background-color: #3ecf8e;"></div>
+                <div class="font-medium text-sm">Accent Green</div>
+                <div class="text-xs text-base-content/60 font-mono">#3ecf8e</div>
+                <div class="text-[11px] text-base-content/50 mt-1">Primary action & branding</div>
+              </div>
+              <div class="fusou-card p-4">
+                <div class="h-12 rounded-lg mb-2 shadow-inner" style="background-color: #4ea8ff;"></div>
+                <div class="font-medium text-sm">Data Info Blue</div>
+                <div class="text-xs text-base-content/60 font-mono">#4ea8ff</div>
+                <div class="text-[11px] text-base-content/50 mt-1">Information & metrics</div>
+              </div>
+              <div class="fusou-card p-4">
+                <div class="h-12 rounded-lg mb-2 shadow-inner" style="background-color: #f7b955;"></div>
+                <div class="font-medium text-sm">Alert Amber</div>
+                <div class="text-xs text-base-content/60 font-mono">#f7b955</div>
+                <div class="text-[11px] text-base-content/50 mt-1">Warnings & attention</div>
+              </div>
+              <div class="fusou-card p-4">
+                <div class="h-12 rounded-lg mb-2 shadow-inner" style="background-color: #f25f5c;"></div>
+                <div class="font-medium text-sm">Critical Red</div>
+                <div class="text-xs text-base-content/60 font-mono">#f25f5c</div>
+                <div class="text-[11px] text-base-content/50 mt-1">Destructive & errors</div>
+              </div>
+            </div>
+          </div>
+
+          <div>
+            <h3 class="text-base font-semibold mb-3">Neutral Surface Scale (Dark Theme Reference)</h3>
+            <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-3 text-xs">
+              <div class="fusou-card p-3">
+                <div class="h-8 rounded mb-2 border border-white/10" style="background-color: #0f0f0f;"></div>
+                <div class="font-medium truncate">Near Black</div>
+                <div class="font-mono text-base-content/60">#0f0f0f</div>
+              </div>
+              <div class="fusou-card p-3">
+                <div class="h-8 rounded mb-2 border border-white/10" style="background-color: #171717;"></div>
+                <div class="font-medium truncate">Dark (Page BG)</div>
+                <div class="font-mono text-base-content/60">#171717</div>
+              </div>
+              <div class="fusou-card p-3">
+                <div class="h-8 rounded mb-2 border border-white/10" style="background-color: #242424;"></div>
+                <div class="font-medium truncate">Dark Border</div>
+                <div class="font-mono text-base-content/60">#242424</div>
+              </div>
+              <div class="fusou-card p-3">
+                <div class="h-8 rounded mb-2 border border-white/10" style="background-color: #2e2e2e;"></div>
+                <div class="font-medium truncate">Border Dark</div>
+                <div class="font-mono text-base-content/60">#2e2e2e</div>
+              </div>
+              <div class="fusou-card p-3">
+                <div class="h-8 rounded mb-2 border border-white/10" style="background-color: #363636;"></div>
+                <div class="font-medium truncate">Mid Border</div>
+                <div class="font-mono text-base-content/60">#363636</div>
+              </div>
+              <div class="fusou-card p-3">
+                <div class="h-8 rounded mb-2 border border-white/10" style="background-color: #fafafa;"></div>
+                <div class="font-medium truncate text-neutral">Off White</div>
+                <div class="font-mono text-base-content/60">#fafafa</div>
+              </div>
+            </div>
+          </div>
+
+          <div>
+            <h3 class="text-base font-semibold mb-3">DaisyUI CSS Variables (Live Active Theme)</h3>
+            <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+              <div class="fusou-card p-3 flex items-center gap-3">
+                <div class="w-8 h-8 rounded bg-base-100 border border-base-300 shrink-0"></div>
+                <div>
+                  <div class="font-medium">base-100</div>
+                  <div class="text-base-content/60">Card surface</div>
+                </div>
+              </div>
+              <div class="fusou-card p-3 flex items-center gap-3">
+                <div class="w-8 h-8 rounded bg-base-200 border border-base-300 shrink-0"></div>
+                <div>
+                  <div class="font-medium">base-200</div>
+                  <div class="text-base-content/60">Canvas BG</div>
+                </div>
+              </div>
+              <div class="fusou-card p-3 flex items-center gap-3">
+                <div class="w-8 h-8 rounded bg-base-300 shrink-0"></div>
+                <div>
+                  <div class="font-medium">base-300</div>
+                  <div class="text-base-content/60">Border / divider</div>
+                </div>
+              </div>
+              <div class="fusou-card p-3 flex items-center gap-3">
+                <div class="w-8 h-8 rounded bg-base-content shrink-0"></div>
+                <div>
+                  <div class="font-medium">base-content</div>
+                  <div class="text-base-content/60">Primary text</div>
+                </div>
+              </div>
+              <div class="fusou-card p-3 flex items-center gap-3">
+                <div class="w-8 h-8 rounded bg-primary text-primary-content flex items-center justify-center font-bold text-xs shrink-0">P</div>
+                <div>
+                  <div class="font-medium">primary</div>
+                  <div class="text-base-content/60">Main CTA</div>
+                </div>
+              </div>
+              <div class="fusou-card p-3 flex items-center gap-3">
+                <div class="w-8 h-8 rounded bg-secondary text-secondary-content flex items-center justify-center font-bold text-xs shrink-0">S</div>
+                <div>
+                  <div class="font-medium">secondary</div>
+                  <div class="text-base-content/60">Secondary action</div>
+                </div>
+              </div>
+              <div class="fusou-card p-3 flex items-center gap-3">
+                <div class="w-8 h-8 rounded bg-info text-info-content flex items-center justify-center font-bold text-xs shrink-0">I</div>
+                <div>
+                  <div class="font-medium">info</div>
+                  <div class="text-base-content/60">Informational</div>
+                </div>
+              </div>
+              <div class="fusou-card p-3 flex items-center gap-3">
+                <div class="w-8 h-8 rounded bg-success text-success-content flex items-center justify-center font-bold text-xs shrink-0">✓</div>
+                <div>
+                  <div class="font-medium">success</div>
+                  <div class="text-base-content/60">Confirmed / Pass</div>
+                </div>
+              </div>
+              <div class="fusou-card p-3 flex items-center gap-3">
+                <div class="w-8 h-8 rounded bg-warning text-warning-content flex items-center justify-center font-bold text-xs shrink-0">!</div>
+                <div>
+                  <div class="font-medium">warning</div>
+                  <div class="text-base-content/60">Caution / Alert</div>
+                </div>
+              </div>
+              <div class="fusou-card p-3 flex items-center gap-3">
+                <div class="w-8 h-8 rounded bg-error text-error-content flex items-center justify-center font-bold text-xs shrink-0">✕</div>
+                <div>
+                  <div class="font-medium">error</div>
+                  <div class="text-base-content/60">Error / Danger</div>
+                </div>
+              </div>
+              <div class="fusou-card p-3 flex items-center gap-3">
+                <div class="w-8 h-8 rounded border border-primary/40 bg-primary/10 flex items-center justify-center text-primary font-bold text-xs shrink-0">A</div>
+                <div>
+                  <div class="font-medium">accent-border</div>
+                  <div class="text-base-content/60">Highlight line</div>
+                </div>
+              </div>
+              <div class="fusou-card p-3 flex items-center gap-3">
+                <div class="w-8 h-8 rounded bg-base-100 flex items-center justify-center shrink-0">
+                  <a href="#section-colors" class="link font-bold text-sm">Aa</a>
+                </div>
+                <div>
+                  <div class="font-medium">color-link</div>
+                  <div class="text-base-content/60">No underline by default</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div class="fusou-card fusou-card-body">
+              <h3 class="text-base font-semibold mb-2">Live Specimen: &lt;EmptyState /&gt;</h3>
+              <p class="text-xs text-base-content/60 mb-4">
+                データ取得件数がゼロの場合の共通フォールバック。
+              </p>
+              <div class="border border-base-300/60 rounded-lg p-4 bg-base-200/30">
+                <div class="flex flex-col items-center justify-center text-center text-base-content/50 py-6 text-sm">
+                  <p class="font-medium">戦闘データがありません</p>
+                  <p class="text-xs text-base-content/40 mt-1">期間や海域フィルターを変更してお試しください</p>
+                </div>
+              </div>
+            </div>
+
+            <div class="fusou-card fusou-card-body">
+              <h3 class="text-base font-semibold mb-2">Live Specimen: &lt;LoadingState /&gt;</h3>
+              <p class="text-xs text-base-content/60 mb-4">
+                非同期データ取得中の標準スピナーと進行メッセージ。
+              </p>
+              <div class="border border-base-300/60 rounded-lg p-4 bg-base-200/30">
+                <div class="flex flex-col items-center justify-center text-center p-6 text-base-content/50" style="min-height: 110px;">
+                  <span class="loading loading-spinner text-primary loading-md" aria-hidden="true"></span>
+                  <p class="text-xs text-base-content/60 mt-2 font-medium">マスターデータを読込中...</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+      <!-- 02 / TYPOGRAPHY -->
+      <section id="section-typography" class="scroll-mt-20">
+        <div class="border-b border-base-300 pb-3 mb-6">
+          <h2 class="text-2xl font-bold tracking-tight">02 / Typography Hierarchy</h2>
+          <p class="text-sm text-base-content/60 mt-1">
+            数値・表データの判読性を最優先にしたフォントスケール。過剰な拡大を抑制。
+          </p>
+        </div>
+
+        <div class="fusou-card fusou-card-body space-y-6">
+          <div class="border-b border-base-300/40 pb-4">
+            <div class="flex items-center justify-between text-xs text-base-content/50 font-mono mb-1">
+              <span>Display Hero (56px / weight 500 / line-height 1.05)</span>
+              <span>トップページ等のヒーロー専用</span>
+            </div>
+            <div class="text-4xl md:text-5xl font-medium tracking-tight">
+              FUSOU Naval Analytics
+            </div>
+          </div>
+
+          <div class="border-b border-base-300/40 pb-4">
+            <div class="flex items-center justify-between text-xs text-base-content/50 font-mono mb-1">
+              <span>Page Title (30px / weight 700 / tracking -0.025em)</span>
+              <span>.fusou-page-title (通常ページ見出し標準)</span>
+            </div>
+            <h1 class="fusou-page-title">
+              戦闘一覧・分析ダッシュボード
+            </h1>
+            <p class="fusou-page-subtitle">
+              直近の出撃ログおよび海域ごとの戦績データを表示・解析します
+            </p>
+          </div>
+
+          <div class="border-b border-base-300/40 pb-4">
+            <div class="flex items-center justify-between text-xs text-base-content/50 font-mono mb-1">
+              <span>Compact Page Title (24px / weight 700 / tracking -0.025em)</span>
+              <span>.fusou-page-title-compact (フォーム・設定・補助画面用)</span>
+            </div>
+            <h2 class="fusou-page-title-compact">
+              お問い合わせ・削除申請
+            </h2>
+            <p class="fusou-page-subtitle-compact">
+              Contact & Takedown Request
+            </p>
+          </div>
+
+          <div class="border-b border-base-300/40 pb-4">
+            <div class="flex items-center justify-between text-xs text-base-content/50 font-mono mb-1">
+              <span>Section Heading (28px / weight 600 / line-height 1.20)</span>
+              <span>セクション大見出し</span>
+            </div>
+            <h2 class="text-2xl md:text-[28px] font-semibold tracking-tight">
+              海域別勝率推移サマリー
+            </h2>
+          </div>
+
+          <div class="border-b border-base-300/40 pb-4">
+            <div class="flex items-center justify-between text-xs text-base-content/50 font-mono mb-1">
+              <span>Card Title (20px / weight 600) & Sub-heading (16px / weight 600)</span>
+              <span>カード内見出し・サブ見出し</span>
+            </div>
+            <h3 class="text-xl font-semibold mb-1">第一艦隊：機動部隊本隊</h3>
+            <h4 class="text-base font-semibold text-base-content/80">空母機動部隊 編成パラメータ</h4>
+          </div>
+
+          <div class="border-b border-base-300/40 pb-4">
+            <div class="flex items-center justify-between text-xs text-base-content/50 font-mono mb-1">
+              <span>Body (14px / weight 400 / line-height 1.55) & Small (11px / weight 400)</span>
+              <span>標準本文テキストおよび補足注記</span>
+            </div>
+            <p class="text-sm leading-relaxed text-base-content/90 mb-2">
+              FUSOU はプロキシサーバーを通じて艦これの通信データを抽出し、戦闘結果の即時集計、編成シミュレーション、パラメータ推移グラフを提供する次世代解析基盤です。
+            </p>
+            <p class="text-[11px] text-base-content/60 leading-normal">
+              ※本データはユーザーのクライアント環境でリアルタイム抽出された最新の通信パケットに基づいています。
+            </p>
+          </div>
+
+          <div>
+            <div class="flex items-center justify-between text-xs text-base-content/50 font-mono mb-2">
+              <span>Hyphen List (.fusou-hyphen-list)</span>
+              <span>箇条書き統一仕様（DESIGN.MD Section 09）</span>
+            </div>
+            <ul class="fusou-hyphen-list text-sm text-base-content/80 space-y-1.5">
+              <li>ディスク型（丸中黒 •）ではなくハイフンマーカー（-）を使用</li>
+              <li>インラインスタイルでの直書きを排除し共通クラスで一括制御</li>
+              <li>説明文や案内リストにおいて統一感のあるタイポグラフィを提供</li>
+            </ul>
+          </div>
+        </div>
+      </section>
+
+      <!-- 03 / BUTTONS -->
+      <section id="section-buttons" class="scroll-mt-20">
+        <div class="border-b border-base-300 pb-3 mb-6">
+          <h2 class="text-2xl font-bold tracking-tight">03 / Button Variants & Actions</h2>
+          <p class="text-sm text-base-content/60 mt-1">
+            アクションの意図と優先度に応じた統一ボタンクラス。1セクションにつき主アクションは原則1つ。
+          </p>
+        </div>
+
+        <div class="space-y-6">
+          <div class="fusou-card fusou-card-body">
+            <h3 class="text-base font-semibold mb-1">Recommended FUSOU Button Classes</h3>
+            <p class="text-xs text-base-content/60 mb-4">
+              `src/assets/app.css` に定義されている標準ボタン。すべての画面でこのクラスを優先使用します。
+            </p>
+
+            <div class="flex flex-wrap items-center gap-3">
+              <div>
+                <button type="button" class="fusou-btn-primary">
+                  .fusou-btn-primary
+                </button>
+                <div class="text-[11px] text-base-content/50 mt-1 text-center">主要CTA (確定・読込)</div>
+              </div>
+
+              <div>
+                <button type="button" class="fusou-btn-secondary">
+                  .fusou-btn-secondary
+                </button>
+                <div class="text-[11px] text-base-content/50 mt-1 text-center">副アクション (切替・戻る)</div>
+              </div>
+
+              <div>
+                <button type="button" class="fusou-btn-ghost">
+                  .fusou-btn-ghost
+                </button>
+                <div class="text-[11px] text-base-content/50 mt-1 text-center">低強調 (取消・閉じる)</div>
+              </div>
+
+              <div>
+                <button type="button" class="fusou-btn-danger">
+                  .fusou-btn-danger
+                </button>
+                <div class="text-[11px] text-base-content/50 mt-1 text-center">破壊的操作 (削除・リセット)</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="fusou-card fusou-card-body">
+            <h3 class="text-base font-semibold mb-3">Size Variations</h3>
+            <div class="flex flex-wrap items-center gap-3 mb-3">
+              <button type="button" class="btn btn-primary btn-lg rounded-lg">Large (btn-lg)</button>
+              <button type="button" class="btn btn-primary rounded-lg">Default (btn-md)</button>
+              <button type="button" class="fusou-btn-primary">Small (.fusou-btn-primary / Standard)</button>
+            </div>
+            <div class="flex flex-wrap items-center gap-2 pt-2 border-t border-base-300/40">
+              <span class="text-xs text-base-content/60 mr-2">Dense UI (.fusou-btn-xs-*):</span>
+              <button type="button" class="fusou-btn-xs-primary">Primary (xs)</button>
+              <button type="button" class="fusou-btn-xs-secondary">Secondary (xs)</button>
+              <button type="button" class="fusou-btn-xs-ghost">Ghost (xs)</button>
+            </div>
+            <p class="text-xs text-base-content/50 mt-3">
+              ※ FUSOU の高密度データUIでは、ツールバーやカード内操作は `.fusou-btn-*` (btn-sm 相当) を標準とし、テーブル行内や高密度パネルには `.fusou-btn-xs-*` を使用します。
+            </p>
+          </div>
+
+          <div class="fusou-card fusou-card-body">
+            <h3 class="text-base font-semibold mb-3">States & Icon Compositions</h3>
+            <div class="flex flex-wrap items-center gap-3">
+              <button type="button" class="fusou-btn-primary" disabled>
+                Primary (Disabled)
+              </button>
+              <button type="button" class="fusou-btn-secondary" disabled>
+                Secondary (Disabled)
+              </button>
+              <button type="button" class="fusou-btn-primary gap-2">
+                <span class="loading loading-spinner loading-xs"></span>
+                処理中...
+              </button>
+              <button type="button" class="fusou-btn-primary gap-1.5">
+                <CheckIcon class="w-4 h-4" />
+                保存完了
+              </button>
+              <button type="button" class="fusou-btn-secondary gap-1.5">
+                <KeyIcon class="w-4 h-4" />
+                APIキー発行
+              </button>
+            </div>
+          </div>
+
+          <div class="fusou-card fusou-card-body">
+            <h3 class="text-base font-semibold mb-1">Header & Navigation Borderless Rule</h3>
+            <p class="text-xs text-base-content/60 mb-3">
+              DESIGN.MD Section 09 規定: `.fusou-page-actions .btn` および `.navbar .btn` では枠線を表示しません。
+            </p>
+            <div class="p-3 bg-base-200 rounded-lg flex items-center justify-between">
+              <span class="text-sm font-medium">ヘッダー内アクション模擬表示:</span>
+              <div class="fusou-page-actions">
+                <button type="button" class="btn btn-sm btn-ghost">キャンセル</button>
+                <button type="button" class="btn btn-sm btn-primary">保存する</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+      <!-- 04 / CARDS & SURFACES -->
+      <section id="section-cards" class="scroll-mt-20">
+        <div class="border-b border-base-300 pb-3 mb-6">
+          <h2 class="text-2xl font-bold tracking-tight">04 / Cards & Surfaces</h2>
+          <p class="text-sm text-base-content/60 mt-1">
+            ドロップシャドウを排除し、境界線（ボーダー）のコントラストで階層を表現するカード設計。
+          </p>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+          <div class="fusou-card fusou-card-body flex flex-col justify-between">
+            <div>
+              <div class="text-xs font-semibold uppercase tracking-wider text-base-content/50 mb-2">Level 0</div>
+              <h3 class="text-lg font-bold mb-2">Standard Card</h3>
+              <p class="text-sm text-base-content/70 mb-4">
+                データパネルや通常のコンテンツグループ用。クラス `.fusou-card` を使用。
+              </p>
+            </div>
+            <div class="text-xs font-mono text-base-content/50 border-t border-base-300/40 pt-2">
+              border: 1px solid base-300/60<br />
+              radius: 12px / shadow: none
+            </div>
+          </div>
+
+          <div class="fusou-card fusou-card-body border-base-300 flex flex-col justify-between" style="border-color: color-mix(in oklch, var(--color-base-content) 22%, transparent);">
+            <div>
+              <div class="text-xs font-semibold uppercase tracking-wider text-primary mb-2">Level 1</div>
+              <h3 class="text-lg font-bold mb-2">Prominent Card</h3>
+              <p class="text-sm text-base-content/70 mb-4">
+                ワークフローや重要なグループを強調したい場合に使用。より明確な境界線コントラスト。
+              </p>
+            </div>
+            <div class="text-xs font-mono text-base-content/50 border-t border-base-300/40 pt-2">
+              border: #363636 (dark) / high contrast<br />
+              radius: 12px / shadow: none
+            </div>
+          </div>
+
+          <div class="fusou-card fusou-card-body flex flex-col justify-between" style="border-color: rgba(62, 207, 142, 0.35);">
+            <div>
+              <div class="text-xs font-semibold uppercase tracking-wider text-primary mb-2">Level 3 (Accent)</div>
+              <h3 class="text-lg font-bold mb-2">Accent Card</h3>
+              <p class="text-sm text-base-content/70 mb-4">
+                チュートリアル、オンボーディング、特別なステータスコールアウト専用。
+              </p>
+            </div>
+            <div class="text-xs font-mono text-base-content/50 border-t border-base-300/40 pt-2">
+              border: rgba(62, 207, 142, 0.28)<br />
+              radius: 12px / accent highlight
+            </div>
+          </div>
+
+          <div class="fusou-card-interactive p-6 flex flex-col justify-between">
+            <div>
+              <div class="text-xs font-semibold uppercase tracking-wider text-info mb-2">Interactive</div>
+              <h3 class="text-lg font-bold mb-2">Interactive Card</h3>
+              <p class="text-sm text-base-content/70 mb-4">
+                クリック可能なカード項目（ドロップ一覧の艦船カード、選択グリッド等）。
+              </p>
+            </div>
+            <div class="text-xs font-mono text-base-content/50 border-t border-base-300/40 pt-2">
+              .fusou-card-interactive<br />
+              hover: border-primary/50 shadow-sm
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 05 / FORM CONTROLS -->
+      <section id="section-forms" class="scroll-mt-20">
+        <div class="border-b border-base-300 pb-3 mb-6">
+          <h2 class="text-2xl font-bold tracking-tight">05 / Form Elements & Single Focus Ring</h2>
+          <p class="text-sm text-base-content/60 mt-1">
+            フォーカス時の二重線（outline + ring）を排除したシャープな入力部品群。ツールバー内での高さ統一。
+          </p>
+        </div>
+
+        <div class="fusou-card fusou-card-body space-y-6">
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div>
+              <label class="block text-xs font-semibold mb-1 text-base-content/80">Text Input (input-sm)</label>
+              <input
+                type="text"
+                placeholder="艦名・IDで絞り込み..."
+                class="input input-bordered input-sm w-full"
+              />
+              <span class="text-[11px] text-base-content/50 mt-1 block">タップ・フォーカスで単一枠線が点灯</span>
+            </div>
+
+            <div>
+              <label class="block text-xs font-semibold mb-1 text-base-content/80">Select Box (select-sm)</label>
+              <select class="select select-bordered select-sm w-full">
+                <option selected>全海域 (1-1 〜 7-5)</option>
+                <option>南西諸島海域 (2-X)</option>
+                <option>北方海域 (3-X)</option>
+                <option>西方海域 (4-X)</option>
+              </select>
+              <span class="text-[11px] text-base-content/50 mt-1 block">ツールバー内で input と高さを統一</span>
+            </div>
+
+            <div>
+              <label class="block text-xs font-semibold mb-1 text-error">Input with Error State</label>
+              <input
+                type="text"
+                value="invalid_query_parameter"
+                class="input input-bordered input-error input-sm w-full"
+              />
+              <span class="text-[11px] text-error mt-1 block">エラー時は枠線色＋説明文を必ず併記</span>
+            </div>
+          </div>
+
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-6 pt-4 border-t border-base-300/40">
+            <div>
+              <h4 class="text-sm font-semibold mb-3">Toggles & Checkboxes</h4>
+              <div class="space-y-3">
+                <label class="flex items-center gap-3 cursor-pointer">
+                  <input type="checkbox" checked class="checkbox checkbox-primary checkbox-sm" />
+                  <span class="text-sm">自動リアルタイム同期を有効にする</span>
+                </label>
+                <label class="flex items-center gap-3 cursor-pointer">
+                  <input type="checkbox" class="checkbox checkbox-primary checkbox-sm" />
+                  <span class="text-sm">大破艦警告アラートを表示する</span>
+                </label>
+                <label class="flex items-center gap-3 cursor-pointer pt-1">
+                  <input type="checkbox" checked class="toggle toggle-primary toggle-sm" />
+                  <span class="text-sm">ダークモード自動連動</span>
+                </label>
+              </div>
+            </div>
+
+            <div>
+              <label class="block text-xs font-semibold mb-1 text-base-content/80">Textarea (textarea-bordered)</label>
+              <textarea
+                rows="3"
+                placeholder="編成メモ・考察ノートを入力..."
+                class="textarea textarea-bordered w-full text-sm"
+              ></textarea>
+            </div>
+          </div>
+        </div>
+      </section>
+      <!-- 06 / TABS & NAVIGATION -->
+      <section id="section-tabs" class="scroll-mt-20">
+        <div class="border-b border-base-300 pb-3 mb-6">
+          <h2 class="text-2xl font-bold tracking-tight">06 / Tabs & Segmented Navigation</h2>
+          <p class="text-sm text-base-content/60 mt-1">
+            ページ内タブの統一パターン。ダッシュボード型（Boxed）とシミュレータ型（Bordered）。
+          </p>
+        </div>
+
+        <div class="space-y-6">
+          <div class="fusou-card fusou-card-body">
+            <h3 class="text-base font-semibold mb-2">Pattern A: Boxed Segment Tabs (Recommended for Data Views)</h3>
+            <p class="text-xs text-base-content/60 mb-4">
+              戦闘データやクエスト等のデータ切り替えに使用するセグメント型タブ。
+            </p>
+            <div class="inline-flex p-1 bg-base-200 rounded-lg border border-base-300/60">
+              <button type="button" class="px-3 py-1.5 text-xs font-semibold rounded-md bg-base-100 text-base-content shadow-sm">
+                全件ログ (142)
+              </button>
+              <button type="button" class="px-3 py-1.5 text-xs font-medium rounded-md text-base-content/70 hover:text-base-content">
+                S勝利のみ (108)
+              </button>
+              <button type="button" class="px-3 py-1.5 text-xs font-medium rounded-md text-base-content/70 hover:text-base-content">
+                敗北・撤退 (34)
+              </button>
+            </div>
+          </div>
+
+          <div class="fusou-card fusou-card-body">
+            <h3 class="text-base font-semibold mb-2">Pattern B: Standard FUSOU Tabs (.fusou-tabs & FusouTabs.tsx)</h3>
+            <p class="text-xs text-base-content/60 mb-4">
+              WAI-ARIA (role="tablist" / role="tab") に準拠した共通下線型タブ。Solid では `&lt;FusouTabs /&gt;` を使用。
+            </p>
+            <div class="fusou-tabs" role="tablist">
+              <button type="button" role="tab" aria-selected="true" class="fusou-tab fusou-tab-active">
+                第1艦隊 (出撃)
+              </button>
+              <button type="button" role="tab" aria-selected="false" class="fusou-tab fusou-tab-inactive">
+                第2艦隊 (随伴)
+              </button>
+              <button type="button" role="tab" aria-selected="false" class="fusou-tab fusou-tab-inactive">
+                基地航空隊 (3中隊)
+              </button>
+              <button type="button" role="tab" aria-selected="false" class="fusou-tab fusou-tab-inactive">
+                支援艦隊
+              </button>
+            </div>
+            <div class="text-xs font-mono text-base-content/50 mt-2">
+              Classes: .fusou-tabs / .fusou-tab (.fusou-tab-active | .fusou-tab-inactive)
+            </div>
+          </div>
+
+          <div class="fusou-card fusou-card-body">
+            <h3 class="text-base font-semibold mb-2">Pattern C: Integrated Tab &amp; Search/Filter Toolbar</h3>
+            <p class="text-xs text-base-content/60 mb-4">
+              タブの右側に統合検索・フィルターボタン（件数バッジ付き）を配置し、直下に適用中フィルタータグ（ActiveFilterChips）を展開する安定レイアウト。
+            </p>
+            <div class="fusou-tab-toolbar">
+              <div class="fusou-tabs shrink-0" role="tablist">
+                <button type="button" role="tab" aria-selected="true" class="fusou-tab fusou-tab-active">一覧</button>
+                <button type="button" role="tab" aria-selected="false" class="fusou-tab fusou-tab-inactive">詳細</button>
+                <button type="button" role="tab" aria-selected="false" class="fusou-tab fusou-tab-inactive">マップ進行</button>
+                <button type="button" role="tab" aria-selected="false" class="fusou-tab fusou-tab-inactive">統計</button>
+                <button type="button" role="tab" aria-selected="false" class="fusou-tab fusou-tab-inactive">ドロップ</button>
+              </div>
+              <div class="flex items-center gap-2 mb-1.5 sm:mb-1 shrink-0">
+                <button type="button" class="inline-flex items-center gap-2 px-3 h-8 text-xs rounded-md border border-primary/60 text-primary font-medium bg-primary/5 shadow-xs">
+                  <svg xmlns="http://www.w3.org/2000/svg" class="size-3.5 text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                  </svg>
+                  <span>検索・フィルター</span>
+                  <span class="badge badge-primary badge-xs px-1.5 font-bold">2</span>
+                  <kbd class="px-1 py-0.2 text-[10px] font-mono bg-base-200 border border-base-300 rounded text-base-content/40">/</kbd>
+                </button>
+              </div>
+            </div>
+            <div class="-mt-3 mb-2 px-0.5">
+              <div class="flex flex-wrap items-center gap-1.5 text-xs py-1">
+                <span class="inline-flex items-center gap-1 text-base-content/60 font-medium select-none pr-0.5">
+                  <span class="size-1.5 rounded-full bg-primary inline-block"></span>
+                  <span>適用中:</span>
+                </span>
+                <span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-base-200/90 border border-base-300 text-base-content">
+                  <span class="text-base-content/60 text-[11px]">海域:</span>
+                  <span class="font-semibold text-primary text-[11px]">4-5</span>
+                  <span class="size-3.5 rounded hover:bg-base-300 flex items-center justify-center text-base-content/50 cursor-pointer text-[10px]">✕</span>
+                </span>
+                <span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-base-200/90 border border-base-300 text-base-content">
+                  <span class="text-base-content/60 text-[11px]">勝敗:</span>
+                  <span class="font-semibold text-primary text-[11px]">S勝利</span>
+                  <span class="size-3.5 rounded hover:bg-base-300 flex items-center justify-center text-base-content/50 cursor-pointer text-[10px]">✕</span>
+                </span>
+                <span class="text-[11px] text-base-content/50 hover:text-error underline cursor-pointer ml-1">条件をすべてクリア</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 07 / ALERTS & BADGES -->
+      <section id="section-alerts" class="scroll-mt-20">
+        <div class="border-b border-base-300 pb-3 mb-6">
+          <h2 class="text-2xl font-bold tracking-tight">07 / Status Alerts & Badges</h2>
+          <p class="text-sm text-base-content/60 mt-1">
+            共通コンポーネント AlertBox.astro による統一アラート通知と DaisyUI ステータスバッジ。
+          </p>
+        </div>
+
+        <div class="space-y-6">
+          <div class="space-y-3">
+            <AlertBox type="info" title="情報通知 (Info Alert)">
+              プロキシ経由で新しいマスターデータ（Version 2026.09）を受信しました。最新の艦娘・装備スペックが反映されています。
+            </AlertBox>
+
+            <AlertBox type="success" title="完了通知 (Success Alert)">
+              編成シミュレーション計算が正常に完了しました。制空値: 412 (優勢確定 / 確率 99.4%)
+            </AlertBox>
+
+            <AlertBox type="warning" title="注意喚起 (Warning Alert)">
+              第2艦隊 3番艦「夕立改二」の疲労度（Cond値: 28）が低下しています。出撃前に休養を推奨します。
+            </AlertBox>
+
+            <AlertBox type="error" title="エラー通知 (Error Alert)">
+              APIサーバーとの通信がタイムアウトしました。ローカルプロキシの接続状態を確認してください。
+            </AlertBox>
+          </div>
+
+          <div class="fusou-card fusou-card-body">
+            <h3 class="text-base font-semibold mb-3">Status Badges</h3>
+            <div class="flex flex-wrap items-center gap-2">
+              <span class="badge badge-primary">Primary</span>
+              <span class="badge badge-secondary">Secondary</span>
+              <span class="badge badge-info">Info</span>
+              <span class="badge badge-success">S勝利</span>
+              <span class="badge badge-warning">中破</span>
+              <span class="badge badge-error">大破進撃不可</span>
+              <span class="badge badge-outline">Outline</span>
+              <span class="badge badge-ghost">Ghost</span>
+            </div>
+
+            <div class="pt-4 mt-4 border-t border-base-300/40">
+              <h4 class="text-xs font-semibold uppercase tracking-wider text-base-content/60 mb-2">
+                Victory Rank Badges (&lt;VictoryRankBadge /&gt;)
+              </h4>
+              <div class="flex flex-wrap items-center gap-2">
+                <span class="badge badge-success badge-sm font-mono font-semibold">S</span>
+                <span class="badge badge-info badge-sm font-mono font-semibold">A</span>
+                <span class="badge badge-warning badge-sm font-mono font-semibold">B</span>
+                <span class="badge badge-error badge-sm font-mono font-semibold">C</span>
+                <span class="badge badge-error badge-sm font-mono font-semibold">D</span>
+                <span class="badge badge-error badge-sm font-mono font-semibold">E</span>
+              </div>
+            </div>
+
+            <div class="pt-4 mt-4 border-t border-base-300/40">
+              <h4 class="text-xs font-semibold uppercase tracking-wider text-base-content/60 mb-2">
+                Active Filter Chips (&lt;ActiveFilterChips /&gt;)
+              </h4>
+              <p class="text-xs text-base-content/60 mb-3">
+                適用中のフィルター条件の視認化、個別解除（✕）および全クリアアクションを提供する共通チップコンポーネント。
+              </p>
+              <div class="p-3 bg-base-200/40 rounded-lg border border-base-300/60">
+                <div class="flex flex-wrap items-center gap-1.5 text-xs">
+                  <span class="inline-flex items-center gap-1 text-base-content/60 font-medium select-none pr-0.5">
+                    <svg class="size-3 text-primary" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                      <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"></polygon>
+                    </svg>
+                    <span>適用中:</span>
+                  </span>
+                  <span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-base-200/90 border border-base-300 text-base-content hover:border-primary/40 transition-colors">
+                    <span class="text-base-content/60 text-[11px]">海域:</span>
+                    <span class="font-semibold text-primary text-[11px]">7-1 (ブルネイ泊地沖)</span>
+                    <button type="button" class="size-3.5 -mr-0.5 rounded hover:bg-base-300 flex items-center justify-center text-base-content/50 hover:text-error transition-colors cursor-pointer text-[10px]" title="海域 フィルターを解除" aria-label="海域 フィルターを解除">✕</button>
+                  </span>
+                  <span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-base-200/90 border border-base-300 text-base-content hover:border-primary/40 transition-colors">
+                    <span class="text-base-content/60 text-[11px]">勝敗:</span>
+                    <span class="font-semibold text-primary text-[11px]">S勝利</span>
+                    <button type="button" class="size-3.5 -mr-0.5 rounded hover:bg-base-300 flex items-center justify-center text-base-content/50 hover:text-error transition-colors cursor-pointer text-[10px]" title="勝敗 フィルターを解除" aria-label="勝敗 フィルターを解除">✕</button>
+                  </span>
+                  <button type="button" class="text-[11px] text-base-content/50 hover:text-error transition-colors underline underline-offset-2 ml-1 cursor-pointer select-none">
+                    条件をすべてクリア
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 08 / LAYOUT PRIMITIVES & FOOTER -->
+      <section id="section-primitives" class="scroll-mt-20">
+        <div class="border-b border-base-300 pb-3 mb-6">
+          <h2 class="text-2xl font-bold tracking-tight">08 / Reusable Layout Primitives</h2>
+          <p class="text-sm text-base-content/60 mt-1">
+            画面全体の余白・コンテナ幅・フッター注記を統一するための基盤コンポーネント。
+          </p>
+        </div>
+
+        <div class="space-y-6">
+          <div class="fusou-card fusou-card-body">
+            <h3 class="text-base font-semibold mb-3">Layout Primitives Specifications</h3>
+            <div class="overflow-x-auto">
+              <table class="table w-full text-xs">
+                <thead>
+                  <tr class="border-b border-base-300">
+                    <th>コンポーネント / クラス</th>
+                    <th>役割</th>
+                    <th>標準設定 / 値</th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-base-300/40">
+                  <tr>
+                    <td class="font-mono font-semibold">PageShell.astro</td>
+                    <td>ページ外枠（上部余白 pt-16、背景 bg-base-200、一元管理コンテナ）</td>
+                    <td>container="compact" (max-w-lg) | "narrow" (max-w-2xl) | "default" (1440px) | "wide" (1500px)</td>
+                  </tr>
+                  <tr>
+                    <td class="font-mono font-semibold">DocsLayout.astro</td>
+                    <td>ドキュメント 3 カラム統合レイアウト（LeftMenu / Main / RightMenu）</td>
+                    <td>Layout.astro 基底、SEO・アナリティクス・Mermaid・KaTeX 統合</td>
+                  </tr>
+                  <tr>
+                    <td class="font-mono font-semibold">ErrorView.astro</td>
+                    <td>404 / 500 / システムエラー共通表示フレーム</td>
+                    <td>PageShell センタリング、fusou-card、fusou-btn-primary、text-error</td>
+                  </tr>
+                  <tr>
+                    <td class="font-mono font-semibold">ShipTypeBadge.tsx</td>
+                    <td>艦種・速力バッジ（stype / speed 一元表示）</td>
+                    <td>stype, short, size="xs"|"sm", variant="outline"|"neutral"</td>
+                  </tr>
+                  <tr>
+                    <td class="font-mono font-semibold">MapAreaGrid.tsx</td>
+                    <td>海域選択用 5 列レスポンシブグリッド</td>
+                    <td>エリア別見出し、マップキー/名称、ドロップ件数バッジ、選択状態ハイライト</td>
+                  </tr>
+                  <tr>
+                    <td class="font-mono font-semibold">PageHeader.astro</td>
+                    <td>Astro ページ用タイトル・サブタイトル・アクションスロット</td>
+                    <td>compact={false} (30px/w700), compact={true} (24px/w700)</td>
+                  </tr>
+                  <tr>
+                    <td class="font-mono font-semibold">FusouPageHeader.tsx</td>
+                    <td>Solid SPA ダッシュボード用共通ヘッダー</td>
+                    <td>title, subtitle, actions, compact</td>
+                  </tr>
+                  <tr>
+                    <td class="font-mono font-semibold">FusouTabs.tsx</td>
+                    <td>WAI-ARIA 準拠の共通タブナビゲーション</td>
+                    <td>tabs, activeTab, onChange, role="tablist"</td>
+                  </tr>
+                  <tr>
+                    <td class="font-mono font-semibold">FusouModal.tsx</td>
+                    <td>標準モーダルダイアログ（角丸・バックドロップ・フッター内蔵）</td>
+                    <td>maxWidth="sm"|"md"|"lg"|"xl"|"2xl", title, actions</td>
+                  </tr>
+                  <tr>
+                    <td class="font-mono font-semibold">ActiveFilterChips.tsx</td>
+                    <td>適用中フィルターの視認化・個別解除(✕)・一括クリア</td>
+                    <td>items: FilterChipItem[], onClearAll?: () =&gt; void</td>
+                  </tr>
+                  <tr>
+                    <td class="font-mono font-semibold">BattleSearchFilterBar.tsx</td>
+                    <td>タブ右側に配置する検索・フィルター統合ツールバー</td>
+                    <td>activeFilterItems, onClearAll, onOpenFilterModal</td>
+                  </tr>
+                  <tr>
+                    <td class="font-mono font-semibold">EmptyState.tsx</td>
+                    <td>データなし・一覧空状態の標準コンテナ</td>
+                    <td>size="compact"|"standard"|"large", message, hint</td>
+                  </tr>
+                  <tr>
+                    <td class="font-mono font-semibold">LoadingState.tsx</td>
+                    <td>スピナー＋ローディングメッセージ標準コンテナ</td>
+                    <td>size="xs"|"sm"|"md"|"lg", message, minHeight</td>
+                  </tr>
+                  <tr>
+                    <td class="font-mono font-semibold">ShipBanner.tsx</td>
+                    <td>艦船バナー画像の安全描画（プレースホルダー・フェードイン）</td>
+                    <td>src, alt, class="h-6 w-24"</td>
+                  </tr>
+                  <tr>
+                    <td class="font-mono font-semibold">.fusou-footer-note</td>
+                    <td>ページ最下部の標準注記・補足クレジット枠</td>
+                    <td>border-t border-base-300/60 mt-8 py-4 px-4 text-center</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div>
+            <div class="text-xs font-semibold text-base-content/60 mb-2">標準フッター注記の実物サンプル:</div>
+            <div class="fusou-footer-note text-xs text-base-content/60">
+              <p>FUSOU Design System • Developed for FUSOU Naval Operations Support Platform</p>
+              <p class="mt-1 text-base-content/40">
+                All UI tokens strictly conform to <code class="font-mono bg-base-300 px-1 rounded">DESIGN.MD</code> specifications.
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+  </PageShell>
+</PageLayout>

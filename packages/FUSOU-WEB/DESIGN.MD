@@ -287,3 +287,93 @@ Use these shared primitives to keep UI changes low-cost and consistent.
 ## Additional Links
 
 - [Design System Guide](https://getdesign.md/)
+
+## 10 / UI COMPONENT CHEAT SHEET & COMPOSITION RULES
+
+Follow this reference checklist when building new pages, features, or panels in FUSOU-WEB.
+
+### 1. Page Frame & Layout
+- **Full-width data dashboards (battles, simulator, quests)**:
+  ```astro
+  <Layout title="...">
+    <Navigation filled={true} />
+    <PageShell container="default" paddingY="8">
+      <FusouPageHeader title="..." subtitle="..." />
+      ...
+    </PageShell>
+  </Layout>
+  ```
+- **Narrow pages (forms, sign-in, settings, detail inspectors)**:
+  Use `<PageShell container="narrow">` (max-w-2xl) or `<PageShell container="compact">` (max-w-lg).
+- **Documentation pages**:
+  Always use `<DocsLayout title="..." headings={...}>` (do not handcraft 3-column grids).
+- **Error states (404, 500, broken routes)**:
+  Always use `<ErrorView code="..." title="..." message="..." />`.
+
+### 2. Containers & Cards
+- Always wrap standalone data sections in `.fusou-card`.
+- For internal card padding, use `.fusou-card-body` or `p-4 sm:p-6`.
+- For clickable or selectable cards, use `.fusou-card-interactive`. Never use ad-hoc `border border-base-300 bg-base-100`.
+
+### 3. Action Buttons
+- **Primary / Call to Action**: `.fusou-btn-primary` (navy-tinted dark button with prominent accent on hover)
+- **Secondary / Sub Actions**: `.fusou-btn-secondary` (outlined with base-300 border)
+- **Cancel / Close / Dismiss**: `.fusou-btn-ghost`
+- **Destructive / Delete / Revoke**: `.fusou-btn-danger`
+- **Data Tables & Compact Rows**: Use `.fusou-btn-xs-primary`, `.fusou-btn-xs-secondary`, `.fusou-btn-xs-ghost`. Avoid `btn-xs btn-outline` with arbitrary overrides.
+
+### 4. Zero Data & Loading Feedback
+- **Zero data / empty results**:
+  `<EmptyState message="データがありません" [compact] />` (never write bare `<div>データなし</div>`).
+- **Data loading**:
+  `<LoadingState message="データを読み込んでいます..." [height="h-32"] />` (never write bare `<span>読込中...</span>`).
+- **In-app alerts**:
+  Use `<AlertBox type="..." />` (Astro) or `<AlertMessage type="..." />` (Solid).
+
+### 5. Domain Specific Naval Primitives
+Always reuse these dedicated primitives instead of hand-crafted text/color strings:
+- **Ship Type**: `<ShipTypeBadge stype={ship.stype} [short] />`
+- **Ship Speed**: `<SpeedBadge speed={ship.soku} />`
+- **Ship Banner**: `<ShipBanner shipId={ship.id} [damaged] />`
+- **Stats (Fire/Torp/AA/Armor)**: `<StatPill tone="fire" value={...} />`
+- **Equip Improvement**: `<EquipLevelBadge level={equip.level} />` (renders `★+1` to `★max`)
+- **Aircraft Proficiency**: `<AircraftProficiencyBadge alv={equip.alv} />` (renders `|`, `||`, `>>`)
+- **Victory Rank**: `<VictoryRankBadge rank="S" />`
+- **Air State**: `<AirStateBadge state="制空権確保" />`
+- **Formation**: `<FormationBadge formation="単縦陣" />`
+- **Map Selection Grid**: `<MapAreaGrid groups={...} onSelect={...} />`
+
+### 6. Modal Dialogs
+- Always wrap modal content in `<FusouModal title="..." maxWidth="..." actions={...}>`.
+- Never write bare `<dialog class="modal"><div class="modal-box">...<form method="dialog">...`.
+
+### 7. Filter & Selection Chips (ActiveFilterChips & SearchFilterBar)
+- **Active Filter Visibility**:
+  When data lists, modal pickers, or search dashboards support filtering (e.g. Map, Victory Rank, Ship Type, Equipment Type, Search keyword), always render active filter conditions in an explicit chips bar using `<ActiveFilterChips items={...} onClearAll={...} />`.
+  - Never allow filters to be silently applied without prominent visual indication.
+  - In tabbed dashboards, place the unified `<BattleSearchFilterBar />` on the right side of the tab toolbar, and place `<ActiveFilterChips />` directly below the toolbar to prevent horizontal crowding and tab truncation across intermediate screen widths.
+- **Tab & Search/Filter Toolbar Pattern**:
+  ```tsx
+  <div class="fusou-tab-toolbar">
+    <BattleTabs activeTab={activeTab()} onTabChange={...} />
+    <BattleSearchFilterBar
+      activeFilterCount={activeFilterItems().length}
+      onOpenFilterModal={() => filterModalRef?.showModal()}
+    />
+  </div>
+
+  <Show when={activeFilterItems().length > 0}>
+    <div class="-mt-3 mb-4 px-0.5">
+      <ActiveFilterChips items={activeFilterItems()} onClearAll={...} />
+    </div>
+  </Show>
+  ```
+- **Unified Search & Filter Trigger**:
+  Combine search and filter triggers into a single button (`#battle-filter-settings-btn`) displaying:
+  - Search icon + "検索・フィルター" text
+  - Active count badge: `<span class="badge badge-primary badge-xs">{count}</span>` when count > 0
+  - Shortcut key indicator: `<kbd>/</kbd>`
+- **Chip Structure & Actions**:
+  - Each chip item displays the filter label (`label`), current value (`value`), and an individual dismiss button (`✕`).
+  - When 2 or more filters are active, render a "条件をすべてクリア" button (`onClearAll`) to clear all filters in a single click.
+  - Comply with accessibility: `role="region"`, `aria-label="適用中のフィルター"`, and explicit `aria-label` / `title` on dismiss buttons.
