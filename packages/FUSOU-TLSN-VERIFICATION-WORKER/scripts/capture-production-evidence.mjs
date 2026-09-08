@@ -7,12 +7,10 @@ import { dirname, resolve } from "node:path";
 import {
   blockedProductionEvidenceManifest,
   assertVerifiedTrustGraph,
-  assertTrustGraphNodeIdentities,
+  assertProductionPresentationCaptureMetadata,
   createProductionEvidenceItem,
-  createTrustGraph,
+  deriveProductionTrustGraph,
   productionRequirementStatus,
-  PRODUCTION_EVIDENCE_TRUST_GRAPH_EDGE_DEFINITIONS,
-  PRODUCTION_EVIDENCE_TRUST_GRAPH_NODE_DEFINITIONS,
 } from "./production-evidence-contract.mjs";
 import {
   artifactDescriptor,
@@ -105,14 +103,21 @@ async function timedRequest(url, options = {}) {
   return { response, bytes, json };
 }
 
-async function readFixture(path) {
-  const fixture = JSON.parse(await readFile(path, "utf8"));
-  if (!fixture || typeof fixture !== "object") throw new Error("capture fixture must be a JSON object");
-  const presentationBytes = decodeBase64Url(fixture.presentation_base64, "fixture.presentation_base64");
-  if (presentationBytes.length > MAX_PRESENTATION_BYTES) {
-    throw new Error("production Presentation exceeds the Worker limit");
+async function readProductionPresentation() {
+  const presentationPath = required("TLSN_PRODUCTION_EVIDENCE_PRESENTATION_PATH");
+  const provenancePath = required("TLSN_PRODUCTION_EVIDENCE_PRESENTATION_PROVENANCE_JSON");
+  const presentationBytes = await readFile(presentationPath);
+  if (presentationBytes.length === 0 || presentationBytes.length > MAX_PRESENTATION_BYTES) {
+    throw new Error("production Presentation size is invalid");
   }
-  return fixture;
+  let provenance;
+  try {
+    provenance = JSON.parse(await readFile(provenancePath, "utf8"));
+  } catch {
+    throw new Error("production Presentation provenance must be valid JSON");
+  }
+  assertProductionPresentationCaptureMetadata(provenance, presentationBytes);
+  return { presentationBytes, provenance };
 }
 
 function deviceProof(session, devicePrivateKey) {
@@ -205,7 +210,7 @@ async function issueSession(workerOrigin, webOrigin, accessToken, deviceId, devi
   };
 }
 
-async function verifyTlsn(workerOrigin, accessToken, session, deviceId, fixture, possessionProof) {
+async function verifyTlsn(workerOrigin, accessToken, session, deviceId, presentationBytes, possessionProof) {
   return timedRequest(endpoint(workerOrigin, "/verify/tlsn"), {
     method: "POST",
     headers: {
@@ -213,7 +218,7 @@ async function verifyTlsn(workerOrigin, accessToken, session, deviceId, fixture,
       Authorization: `Bearer ${accessToken}`,
     },
     body: JSON.stringify({
-      presentation_base64: fixture.presentation_base64,
+      presentation_base64: presentationBytes.toString("base64url"),
       session_id: session.session_id,
       binding: session.binding,
       device_id: deviceId,
@@ -263,8 +268,8 @@ async function main() {
     const publishableKey = required("TLSN_PRODUCTION_EVIDENCE_SUPABASE_PUBLISHABLE_KEY");
     const deviceId = required("TLSN_PRODUCTION_EVIDENCE_DEVICE_ID");
     const devicePrivateKey = await loadPrivateKeyFromEnvironment();
-    const fixture = await readFixture(required("TLSN_PRODUCTION_EVIDENCE_FIXTURE_JSON"));
-    const presentationBytes = decodeBase64Url(fixture.presentation_base64, "fixture presentation");
+    const productionPresentation = await readProductionPresentation();
+    const { presentationBytes } = productionPresentation;
     const health = await readHealth(workerOrigin);
     const user = await readSupabaseUser(supabaseOrigin, publishableKey, accessToken);
     const registryRaw = required("TLSN_PRODUCTION_RESULT_SIGNING_KEY_REGISTRY");
@@ -277,7 +282,7 @@ async function main() {
     const bindingAuthorityRegistry = parseJsonEnvironment("TLSN_PRODUCTION_BINDING_AUTHORITY_KEY_REGISTRY");
     const bindingAuthorityPublicKeySpki = required("TLSN_PRODUCTION_BINDING_AUTHORITY_PUBLIC_KEY_SPKI");
     const bindingAuthoritySignerKeyId = required("TLSN_PRODUCTION_BINDING_AUTHORITY_KEY_ID");
-    const notaryRegistryRaw = optional("TLSN_PRODUCTION_NOTARY_REGISTRY") ?? required("TLSN_CANDIDATE_NOTARY_REGISTRY");
+    const notaryRegistryRaw = required("TLSN_PRODUCTION_NOTARY_REGISTRY");
     const notaryRegistry = (() => {
       try {
         return JSON.parse(notaryRegistryRaw);
@@ -367,7 +372,7 @@ async function main() {
       session.binding,
       session.device_challenge,
     );
-    const verification = await verifyTlsn(workerOrigin, accessToken, session, deviceId, fixture, possessionProof);
+    const verification = await verifyTlsn(workerOrigin, accessToken, session, deviceId, presentationBytes, possessionProof);
     if (verification.response.status !== 200 || verification.json?.verified !== true) {
       throw new Error(`production TLSN verification did not pass: ${verification.response.status}`);
     }
@@ -459,7 +464,7 @@ async function main() {
     };
     assertResultSubjectIdentity(result, subjectIdentity);
 
-    const replay = await verifyTlsn(workerOrigin, accessToken, session, deviceId, fixture, possessionProof);
+    const replay = await verifyTlsn(workerOrigin, accessToken, session, deviceId, presentationBytes, possessionProof);
     if (replay.response.status !== 409 || !["binding_consumed", "device_possession_replayed"].includes(replay.json?.error)) throw new Error("production replay was not rejected");
     const devicePredicateResults = verifyDevicePredicates({
       deviceIdentity: issued.deviceIdentity,
@@ -536,20 +541,15 @@ async function main() {
     });
     const semanticVerificationBytes = Buffer.from(JSON.stringify(semanticVerificationArtifact));
     const captureMetadataBytes = Buffer.from(JSON.stringify({
-      declared_capture_provenance: fixture.capture_provenance ?? null,
-      declared_synthetic: fixture.synthetic ?? null,
-      declared_expected_member_id: fixture.expected_member_id ?? null,
-      declared_server_identity: fixture.server_identity ?? null,
-      declared_verifier_key_id: fixture.verifier_key_id ?? null,
-      declared_notary_key_id: fixture.notary_key_id ?? null,
-      declared_notary_registry_sha256: fixture.notary_registry_sha256 ?? null,
-      diagnostics: {
-        expected_member_id_matches: fixture.expected_member_id === undefined || fixture.expected_member_id === result.verified_member_id,
-        server_identity_matches: fixture.server_identity === undefined || fixture.server_identity === result.server_identity,
-        verifier_key_id_matches: fixture.verifier_key_id === undefined || fixture.verifier_key_id === result.verifier_key_id,
-        notary_key_id_matches: fixture.notary_key_id === undefined || fixture.notary_key_id === result.notary_key_id,
+      ...productionPresentation.provenance,
+      presentation_sha256: sha256Base64Url(presentationBytes),
+      observed_result: {
+        server_identity: result.server_identity,
+        verifier_key_id: result.verifier_key_id,
+        notary_key_id: result.notary_key_id,
+        verified_member_id: result.verified_member_id,
       },
-      authority: "diagnostic-only-fixture-metadata",
+      authority: "production-tlsn-capture-provenance",
     }));
     artifactBytes = {
       presentation: presentationBytes,
@@ -591,48 +591,19 @@ async function main() {
       : null;
     const semanticVerificationArtifactDescriptor = artifactDescriptor(semanticVerificationBytes, { mediaType: "application/json" });
     const captureMetadataArtifact = artifactDescriptor(captureMetadataBytes, { mediaType: "application/json" });
-    const trustGraphIdentities = {
-      "authenticated-user": { user_id: user.id },
-      device: { user_id: user.id, device_id: deviceId, public_key_sha256: issued.deviceIdentity.device_public_key_sha256 },
-      "device-authentication": { device_id: deviceId, nonce: issued.authentication.request.nonce },
-      session: { session_id: session.session_id, key_id: sessionAuthoritySignerKeyId },
-      binding: { binding_sha256: sha256Base64Url(session.binding), nonce_sha256: sha256Base64Url(session.challenge) },
-      presentation: { presentation_sha256: sha256Base64Url(presentationBytes), attestation_id: result.tlsn_attestation_id },
-      "member-id": { verified_member_id: result.verified_member_id, response_transcript_sha256: result.response_transcript_sha256 },
-      "tlsn-notary": { key_id: result.notary_key_id },
-      result: { result_sha256: resultVerification.result_sha256, key_id: resultSignerKeyId },
-      "production-evidence": { capture_id: captureId },
-      "remote-attestation": { status: "UNVERIFIED" },
-    };
-    const trustGraph = createTrustGraph({
-      nodes: PRODUCTION_EVIDENCE_TRUST_GRAPH_NODE_DEFINITIONS.map(({ id, type, authority }) => ({
-        id,
-        type,
-        authority,
-        identity: trustGraphIdentities[id],
-        evidence_artifact: id === "authenticated-user"
-          ? "authenticated_user"
-          : id === "device"
-            ? "device_identity"
-            : id === "device-authentication"
-              ? "device_authentication"
-              : id === "session"
-                ? "session"
-                : id === "binding"
-                  ? "consume_receipt"
-                  : id === "presentation"
-                    ? "presentation"
-                    : id === "member-id"
-                      ? "semantic_verification"
-                      : id === "tlsn-notary"
-                        ? "notary_registry"
-                        : id === "result"
-                          ? "result"
-                          : "health",
-      })),
-      edges: PRODUCTION_EVIDENCE_TRUST_GRAPH_EDGE_DEFINITIONS.map((edge) => ({ ...edge })),
+    const trustGraph = deriveProductionTrustGraph({
+      captureId,
+      authenticatedUserId: user.id,
+      deviceId,
+      devicePublicKeySha256: issued.deviceIdentity.device_public_key_sha256,
+      deviceAuthentication: issued.authentication,
+      session,
+      presentationBytes,
+      semanticVerification,
+      result,
+      resultBytes,
+      resultSignerKeyId,
     });
-    assertTrustGraphNodeIdentities(trustGraph, trustGraphIdentities);
     assertVerifiedTrustGraph(trustGraph, {
       ...predicateResults,
       ...devicePredicateResults,

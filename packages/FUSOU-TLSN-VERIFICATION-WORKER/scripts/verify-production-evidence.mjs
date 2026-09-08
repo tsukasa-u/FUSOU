@@ -12,7 +12,7 @@ import {
   assertSignedProductionEvidenceManifest,
   assertSignedResult,
 } from "./production-evidence.mjs";
-import { assertTrustGraphNodeIdentities, assertVerifiedTrustGraph, PRODUCTION_EVIDENCE_REQUIREMENTS, productionRequirementStatus } from "./production-evidence-contract.mjs";
+import { assertProductionPresentationCaptureMetadata, assertVerifiedTrustGraph, deriveProductionTrustGraph, PRODUCTION_EVIDENCE_REQUIREMENTS, productionRequirementStatus } from "./production-evidence-contract.mjs";
 import { assertSigningKeyRegistry } from "./signing-key-registry.mjs";
 import { assertAuthorityKeyRegistry } from "./authority-key-registry.mjs";
 import { canonicalJson, workflowContextFromEnvironment } from "./deployment-attestation.mjs";
@@ -114,49 +114,27 @@ function assertCapturedTrustGraph(manifest, {
   predicateResults,
   devicePredicateResults,
 }) {
-  assertVerifiedTrustGraph(manifest.trust_graph, {
+  const rebuiltGraph = deriveProductionTrustGraph({
+    captureId: manifest.capture_id,
+    authenticatedUserId: authenticatedUser.user_id,
+    deviceId: deviceIdentity.device_id,
+    devicePublicKeySha256: deviceIdentity.device_public_key_sha256,
+    deviceAuthentication,
+    session,
+    presentationBytes,
+    semanticVerification,
+    result,
+    resultBytes,
+    resultSignerKeyId,
+  });
+  if (canonicalJson(rebuiltGraph) !== canonicalJson(manifest.trust_graph)) {
+    throw new Error("manifest trust graph does not match independent raw-artifact derivation");
+  }
+  assertVerifiedTrustGraph(rebuiltGraph, {
     ...predicateResults,
     ...devicePredicateResults,
     remote_attestation_unverified: { status: "UNVERIFIED" },
   });
-  assertTrustGraphNodeIdentities(manifest.trust_graph, {
-    "authenticated-user": { user_id: authenticatedUser.user_id },
-    device: { user_id: authenticatedUser.user_id, device_id: deviceIdentity.device_id, public_key_sha256: deviceIdentity.device_public_key_sha256 },
-    "device-authentication": { device_id: deviceAuthentication.request.device_id, nonce: deviceAuthentication.request.nonce },
-    session: { session_id: session.session_id, key_id: session.session_receipt.signer_key_id },
-    binding: { binding_sha256: createHash("sha256").update(session.binding).digest("base64url"), nonce_sha256: createHash("sha256").update(session.challenge).digest("base64url") },
-    presentation: { presentation_sha256: createHash("sha256").update(presentationBytes).digest("base64url"), attestation_id: semanticVerification.verified_presentation.tlsn_attestation_id },
-    "member-id": { verified_member_id: semanticVerification.result.verified_member_id, response_transcript_sha256: semanticVerification.result.response_transcript_sha256 },
-    "tlsn-notary": { key_id: semanticVerification.result.notary_key_id },
-    result: { result_sha256: createHash("sha256").update(resultBytes).digest("base64url"), key_id: resultSignerKeyId },
-    "production-evidence": { capture_id: manifest.capture_id },
-    "remote-attestation": { status: "UNVERIFIED" },
-  });
-  const nodes = new Map(manifest.trust_graph.nodes.map((node) => [node.id, node]));
-  const assertNodeIdentity = (nodeId, field, expected) => {
-    if (nodes.get(nodeId)?.identity?.[field] !== expected) {
-      throw new Error(`trust graph ${nodeId} identity mismatch: ${field}`);
-    }
-  };
-  assertNodeIdentity("authenticated-user", "user_id", authenticatedUser.user_id);
-  assertNodeIdentity("device", "user_id", authenticatedUser.user_id);
-  assertNodeIdentity("device", "device_id", deviceIdentity.device_id);
-  assertNodeIdentity("device", "public_key_sha256", deviceIdentity.device_public_key_sha256);
-  assertNodeIdentity("device-authentication", "device_id", deviceAuthentication.request.device_id);
-  assertNodeIdentity("device-authentication", "nonce", deviceAuthentication.request.nonce);
-  assertNodeIdentity("session", "session_id", session.session_id);
-  assertNodeIdentity("session", "key_id", session.session_receipt.signer_key_id);
-  assertNodeIdentity("binding", "binding_sha256", createHash("sha256").update(session.binding).digest("base64url"));
-  assertNodeIdentity("binding", "nonce_sha256", createHash("sha256").update(session.challenge).digest("base64url"));
-  assertNodeIdentity("presentation", "presentation_sha256", createHash("sha256").update(presentationBytes).digest("base64url"));
-  assertNodeIdentity("presentation", "attestation_id", semanticVerification.verified_presentation.tlsn_attestation_id);
-  assertNodeIdentity("member-id", "verified_member_id", semanticVerification.result.verified_member_id);
-  assertNodeIdentity("member-id", "response_transcript_sha256", semanticVerification.result.response_transcript_sha256);
-  assertNodeIdentity("tlsn-notary", "key_id", semanticVerification.result.notary_key_id);
-  assertNodeIdentity("result", "result_sha256", createHash("sha256").update(resultBytes).digest("base64url"));
-  assertNodeIdentity("result", "key_id", resultSignerKeyId);
-  assertNodeIdentity("production-evidence", "capture_id", manifest.capture_id);
-  assertNodeIdentity("remote-attestation", "status", "UNVERIFIED");
 }
 
 async function main() {
@@ -188,7 +166,7 @@ async function main() {
   if (!artifacts.result) throw new Error("production result artifact is required");
   if (!artifacts.semantic_verification) throw new Error("verifier-generated semantic artifact is required");
   if (!artifacts.result_registry) throw new Error("captured result registry artifact is required");
-  if (!artifacts.session_authority_registry || !artifacts.binding_authority_registry) throw new Error("captured authority registries are required");
+  if (!artifacts.session_authority_registry || !artifacts.binding_authority_registry || !artifacts.notary_registry) throw new Error("captured authority registries are required");
   const result = parseArtifactJson(artifacts, "result");
   const authenticatedUser = parseArtifactJson(artifacts, "authenticated_user");
   const session = parseArtifactJson(artifacts, "session");
@@ -199,10 +177,12 @@ async function main() {
   const possessionProof = parseArtifactJson(artifacts, "possession_proof");
   const consumeReceipt = parseArtifactJson(artifacts, "consume_receipt");
   const replay = parseArtifactJson(artifacts, "replay");
+  const captureMetadata = parseArtifactJson(artifacts, "capture_metadata");
   const sessionAuthorityRegistry = parseArtifactJson(artifacts, "session_authority_registry");
   const bindingAuthorityRegistry = parseArtifactJson(artifacts, "binding_authority_registry");
   const expectedSessionAuthorityRegistryRaw = required("TLSN_PRODUCTION_SESSION_AUTHORITY_KEY_REGISTRY");
   const expectedBindingAuthorityRegistryRaw = required("TLSN_PRODUCTION_BINDING_AUTHORITY_KEY_REGISTRY");
+  const expectedNotaryRegistryRaw = required("TLSN_PRODUCTION_NOTARY_REGISTRY");
   if (authenticatedUser?.authoritative !== true || authenticatedUser.authority !== "supabase-authenticated-user" || typeof authenticatedUser.user_id !== "string") {
     throw new Error("captured authenticated-user authority evidence is invalid");
   }
@@ -274,7 +254,7 @@ async function main() {
   const registry = parseJson("TLSN_PRODUCTION_RESULT_SIGNING_KEY_REGISTRY", publishedResultRegistryRaw);
   const capturedResultRegistryRaw = artifacts.result_registry.toString("utf8");
   const capturedResultRegistry = parseArtifactJson(artifacts, "result_registry");
-  if (createHash("sha256").update(capturedResultRegistryRaw).digest("base64url") !== createHash("sha256").update(publishedResultRegistryRaw).digest("base64url")) {
+  if (capturedResultRegistryRaw !== publishedResultRegistryRaw) {
     throw new Error("captured result registry does not match the published result registry");
   }
   if (manifest.result_identity?.result_key_registry_sha256 !== createHash("sha256").update(capturedResultRegistryRaw).digest("base64url")) {
@@ -362,8 +342,17 @@ async function main() {
   }
 
   const presentation = artifacts.presentation;
+  assertProductionPresentationCaptureMetadata(captureMetadata, presentation);
   const notaryRegistry = parseArtifactJson(artifacts, "notary_registry");
   const notaryRegistryBytes = artifacts.notary_registry;
+  const capturedNotaryRegistryRaw = notaryRegistryBytes.toString("utf8");
+  if (capturedNotaryRegistryRaw !== expectedNotaryRegistryRaw) {
+    throw new Error("captured Notary registry does not match the expected production registry");
+  }
+  const capturedNotaryRegistryHash = createHash("sha256").update(notaryRegistryBytes).digest("base64url");
+  if (capturedNotaryRegistryHash !== expectedSecurity.notary_registry_sha256 || health.security_identity?.notary_registry_sha256 !== capturedNotaryRegistryHash || manifest.security_identity?.notary_registry_sha256 !== capturedNotaryRegistryHash) {
+    throw new Error("captured Notary registry does not match trusted health and manifest identities");
+  }
   const trustRootDer = artifacts.trust_root?.toString("base64url");
   if (!manifest.deployment_identity?.trust_root_certificate_sha256 || !trustRootDer) {
     throw new Error("production trust root is required for offline semantic verification");
@@ -373,12 +362,6 @@ async function main() {
     manifest.deployment_identity?.trust_root_certificate_sha256 !== createHash("sha256").update(artifacts.trust_root).digest("base64url")
   ) {
     throw new Error("captured trust root does not match the trusted Worker identity");
-  }
-  if (
-    manifest.security_identity?.notary_registry_sha256 !== undefined &&
-    manifest.security_identity.notary_registry_sha256 !== createHash("sha256").update(notaryRegistryBytes).digest("base64url")
-  ) {
-    throw new Error("captured Notary registry hash does not match the trusted Worker identity");
   }
   const semanticVerification = await verifyProductionPresentation({
     presentationBytes: presentation,
@@ -506,7 +489,7 @@ async function main() {
   assertResultSubjectIdentity(result, expectedSubject);
   assertObjectIdentity(manifest.subject_identity, expectedSubject, "subject identity");
   for (const requirement of Object.keys(manifest.evidence)) {
-    const expectedStatus = productionRequirementStatus(requirement, predicateResults, devicePredicateResults);
+    const expectedStatus = productionRequirementStatus(requirement, { ...predicateResults, ...devicePredicateResults });
     if (expectedStatus !== "PASS" && manifest.evidence[requirement].status !== expectedStatus) {
       throw new Error(`evidence requirement is not blocked by its predicate result: ${requirement}`);
     }

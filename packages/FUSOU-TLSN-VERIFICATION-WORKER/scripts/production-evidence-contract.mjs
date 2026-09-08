@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 
 export const PRODUCTION_EVIDENCE_SCOPE = "tlsn-production-evidence";
 export const PRODUCTION_EVIDENCE_SCHEMA_VERSION = 1;
@@ -393,6 +393,86 @@ function assertIdentity(value, label) {
 
 export function createTrustGraph({ nodes = [], edges = [] } = {}) {
   return { schema_version: 2, nodes, edges };
+}
+
+function sha256Base64Url(value) {
+  return createHash("sha256").update(value).digest("base64url");
+}
+
+export function assertProductionPresentationCaptureMetadata(metadata, presentationBytes) {
+  if (
+    metadata?.capture_provenance !== "production" ||
+    metadata?.capture_source !== "fusou-proxy-production-tlsn" ||
+    metadata?.synthetic !== false ||
+    metadata?.test !== false ||
+    metadata?.canary !== false ||
+    metadata?.local !== false ||
+    metadata?.request?.method !== "POST" ||
+    metadata?.request?.target !== "/kcsapi/api_get_member/require_info" ||
+    metadata?.request?.http_version !== "HTTP/1.1"
+  ) {
+    throw new Error("Presentation provenance is not an actual production TLSN capture");
+  }
+  if (metadata.presentation_sha256 !== sha256Base64Url(presentationBytes)) {
+    throw new Error("Presentation provenance hash does not match the captured bytes");
+  }
+  return metadata;
+}
+
+export function deriveProductionTrustGraph({
+  captureId,
+  authenticatedUserId,
+  deviceId,
+  devicePublicKeySha256,
+  deviceAuthentication,
+  session,
+  presentationBytes,
+  semanticVerification,
+  result,
+  resultBytes,
+  resultSignerKeyId,
+}) {
+  const verifiedPresentation = semanticVerification?.verified_presentation;
+  const semanticResult = semanticVerification?.result;
+  if (!captureId || !authenticatedUserId || !deviceId || !devicePublicKeySha256 || !deviceAuthentication || !session || !presentationBytes || !verifiedPresentation || !semanticResult || !result || !resultBytes || !resultSignerKeyId) {
+    throw new Error("production trust graph derivation inputs are incomplete");
+  }
+  const identities = {
+    "authenticated-user": { user_id: authenticatedUserId },
+    device: { user_id: authenticatedUserId, device_id: deviceId, public_key_sha256: devicePublicKeySha256 },
+    "device-authentication": { device_id: deviceAuthentication.request.device_id, nonce: deviceAuthentication.request.nonce },
+    session: { session_id: session.session_id, key_id: session.session_receipt.signer_key_id },
+    binding: { binding_sha256: sha256Base64Url(session.binding), nonce_sha256: sha256Base64Url(session.challenge) },
+    presentation: { presentation_sha256: sha256Base64Url(presentationBytes), attestation_id: verifiedPresentation.tlsn_attestation_id },
+    "member-id": { verified_member_id: semanticResult.verified_member_id, response_transcript_sha256: semanticResult.response_transcript_sha256 },
+    "tlsn-notary": { key_id: semanticResult.notary_key_id },
+    result: { result_sha256: sha256Base64Url(resultBytes), key_id: resultSignerKeyId },
+    "production-evidence": { capture_id: captureId },
+    "remote-attestation": { status: "UNVERIFIED" },
+  };
+  const evidenceArtifacts = {
+    "authenticated-user": "authenticated_user",
+    device: "device_identity",
+    "device-authentication": "device_authentication",
+    session: "session",
+    binding: "consume_receipt",
+    presentation: "presentation",
+    "member-id": "semantic_verification",
+    "tlsn-notary": "notary_registry",
+    result: "result",
+    "production-evidence": "health",
+    "remote-attestation": "health",
+  };
+  return createTrustGraph({
+    nodes: PRODUCTION_EVIDENCE_TRUST_GRAPH_NODE_DEFINITIONS.map(({ id, type, authority }) => ({
+      id,
+      type,
+      authority,
+      identity: identities[id],
+      evidence_artifact: evidenceArtifacts[id],
+    })),
+    edges: PRODUCTION_EVIDENCE_TRUST_GRAPH_EDGE_DEFINITIONS.map((edge) => ({ ...edge })),
+  });
 }
 
 export function assertTrustGraph(graph, { artifactNames = null } = {}) {

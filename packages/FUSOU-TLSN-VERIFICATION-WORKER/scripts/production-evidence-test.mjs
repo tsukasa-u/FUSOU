@@ -7,6 +7,7 @@ import {
   blockedProductionEvidenceManifest,
   createEvidenceItem,
   createProductionEvidenceItem,
+  assertProductionPresentationCaptureMetadata,
   PRODUCTION_EVIDENCE_REQUIREMENTS,
   assertProductionEvidenceManifest,
   assertTrustGraph,
@@ -758,6 +759,49 @@ await assert.rejects(
 function rejects(label, action) {
   assert.throws(action, undefined, label);
 }
+
+assertProductionPresentationCaptureMetadata({
+  capture_provenance: "production",
+  capture_source: "fusou-proxy-production-tlsn",
+  synthetic: false,
+  test: false,
+  canary: false,
+  local: false,
+  request: {
+    method: "POST",
+    target: "/kcsapi/api_get_member/require_info",
+    http_version: "HTTP/1.1",
+  },
+  presentation_sha256: sha256Base64Url(presentationBytes),
+}, presentationBytes);
+rejects("synthetic Presentation provenance", () => assertProductionPresentationCaptureMetadata({
+  capture_provenance: "production",
+  capture_source: "synthetic-tlsn-fixture",
+  synthetic: true,
+  test: true,
+  canary: false,
+  local: true,
+  request: {
+    method: "POST",
+    target: "/kcsapi/api_get_member/require_info",
+    http_version: "HTTP/1.1",
+  },
+  presentation_sha256: sha256Base64Url(presentationBytes),
+}, presentationBytes));
+rejects("Presentation provenance hash mutation", () => assertProductionPresentationCaptureMetadata({
+  capture_provenance: "production",
+  capture_source: "fusou-proxy-production-tlsn",
+  synthetic: false,
+  test: false,
+  canary: false,
+  local: false,
+  request: {
+    method: "POST",
+    target: "/kcsapi/api_get_member/require_info",
+    http_version: "HTTP/1.1",
+  },
+  presentation_sha256: sha256Base64Url(Buffer.from("other-presentation")),
+}, presentationBytes));
 
 rejects("manifest signature mutation", () => assertSignedProductionEvidenceManifest({
   ...signedManifest,
