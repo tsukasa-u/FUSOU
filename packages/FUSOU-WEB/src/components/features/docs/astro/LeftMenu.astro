@@ -174,25 +174,25 @@ const menuHtml = renderMenuHtml(menuTree);
   <div class="max-h-[calc(100vh-6rem)] overflow-y-auto overflow-x-hidden pr-2">
     <h2 class="text-xl font-bold mb-1">Documentation</h2>
     <p class="text-xs text-base-content/65 mb-3">Browse by section</p>
-    <nav aria-label="Documentation sections" class="w-full min-w-0">
+    <nav aria-label="Documentation sections" class="docs-sidebar-nav w-full min-w-0">
       <ul class="menu bg-base-100 rounded-box w-full min-w-0 p-2" set:html={menuHtml} />
     </nav>
   </div>
 </div>
 
 <style>
-  :global(.menu) {
+  :global(.docs-sidebar-nav .menu) {
     width: 100% !important;
     max-width: 100% !important;
     min-width: 0 !important;
   }
-  :global(.menu li) {
+  :global(.docs-sidebar-nav .menu li) {
     width: 100% !important;
     max-width: 100% !important;
     min-width: 0 !important;
   }
-  :global(.menu :where(li > *:not(ul, details, .menu-title))),
-  :global(.docs-left-link) {
+  :global(.docs-sidebar-nav .menu :where(li > *:not(ul, details, .menu-title))),
+  :global(.docs-sidebar-nav .docs-left-link) {
     white-space: normal !important;
     overflow-wrap: anywhere !important;
     word-break: break-word !important;
@@ -200,12 +200,12 @@ const menuHtml = renderMenuHtml(menuTree);
     max-width: 100% !important;
     line-height: 1.35 !important;
   }
-  :global(.menu summary) {
+  :global(.docs-sidebar-nav .menu summary) {
     white-space: normal !important;
     overflow-wrap: anywhere !important;
     word-break: break-word !important;
   }
-  :global(.menu ul) {
+  :global(.docs-sidebar-nav .menu ul) {
     min-width: 0 !important;
   }
   .docs-left-link:hover {
