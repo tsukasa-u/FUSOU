@@ -520,6 +520,13 @@ async function readConfig(env: Bindings): Promise<VerifierConfig | null> {
       Date.parse(currentBindingKey.not_before) > now ||
       (currentBindingKey.not_after !== null && Date.parse(currentBindingKey.not_after) < now)
     ) return null;
+    if (
+      parsed.data.sessionAuthorityPublicKeySpki === parsed.data.bindingAuthorityPublicKeySpki ||
+      (production && (
+        parsed.data.resultPublicKeySpki === parsed.data.sessionAuthorityPublicKeySpki ||
+        parsed.data.resultPublicKeySpki === parsed.data.bindingAuthorityPublicKeySpki
+      ))
+    ) return null;
     if (production) {
       const deviceAuthAllowedHosts = parseHostnameAllowlist(parsed.data.deviceAuthAllowedHosts);
       const supabaseAllowedHosts = parseHostnameAllowlist(env.TLSN_CANDIDATE_SUPABASE_ALLOWED_HOSTS);
@@ -610,6 +617,32 @@ async function signSigningBytes(
   return new Uint8Array(signature);
 }
 
+function hasPrefix(bytes: Uint8Array, prefix: string): boolean {
+  const encoded = new TextEncoder().encode(prefix);
+  return encoded.every((value, index) => bytes[index] === value);
+}
+
+async function signSessionAuthorityReceipt(config: VerifierConfig, signingBytes: Uint8Array): Promise<Uint8Array> {
+  if (!hasPrefix(signingBytes, "FUSOU-ATTESTATION-SESSION-V1\0")) {
+    throw new Error("Session Authority received a non-session receipt payload");
+  }
+  return signSigningBytes(signingBytes, config.sessionAuthoritySigningPrivateKeyBytes);
+}
+
+async function signBindingAuthorityReceipt(config: VerifierConfig, signingBytes: Uint8Array): Promise<Uint8Array> {
+  if (!hasPrefix(signingBytes, "FUSOU-ATTESTATION-CONSUME-V1\0")) {
+    throw new Error("Binding Authority received a non-consume receipt payload");
+  }
+  return signSigningBytes(signingBytes, config.bindingAuthoritySigningPrivateKeyBytes);
+}
+
+async function signResult(config: VerifierConfig, signingBytes: Uint8Array): Promise<Uint8Array> {
+  if (!hasPrefix(signingBytes, "FUSOU-VERIFIER-RESULT-V1\0")) {
+    throw new Error("Result Signer received a non-Result payload");
+  }
+  return signSigningBytes(signingBytes, config.resultSigningPrivateKeyBytes);
+}
+
 async function signSessionReceipt(
   config: VerifierConfig,
   record: {
@@ -625,7 +658,8 @@ async function signSessionReceipt(
   },
 ): Promise<Record<string, string | number>> {
   const signerKeyId = config.sessionAuthorityKeyId;
-  const signature = await signSigningBytes(
+  const signature = await signSessionAuthorityReceipt(
+    config,
     attestationSessionReceiptSigningBytes({
       signerKeyId,
       sessionId: record.session_id,
@@ -638,7 +672,6 @@ async function signSessionReceipt(
       createdAt: record.created_at,
       expiresAt: record.expires_at,
     }),
-    config.sessionAuthoritySigningPrivateKeyBytes,
   );
   return {
     schema_version: 1,
@@ -674,7 +707,8 @@ async function signConsumeReceipt(
     throw new Error("consumed binding is missing receipt fields");
   }
   const signerKeyId = config.bindingAuthorityKeyId;
-  const signature = await signSigningBytes(
+  const signature = await signBindingAuthorityReceipt(
+    config,
     attestationConsumeReceiptSigningBytes({
       signerKeyId,
       sessionId: record.session_id,
@@ -685,7 +719,6 @@ async function signConsumeReceipt(
       presentationId: record.presentation_id,
       usedAt: record.used_at,
     }),
-    config.bindingAuthoritySigningPrivateKeyBytes,
   );
   return {
     schema_version: 1,
@@ -1096,6 +1129,17 @@ app.get("/health", async (c) => {
         public_key_spki: bindingAuthorityPublicKeySpki ?? null,
         key_registry_sha256: bindingAuthorityKeyRegistrySha256,
       },
+      result_signer: {
+        authority: "fusou-tlsn-result-signer",
+        key_id: resultSignerKeyId,
+        public_key_spki: resultPublicKeySpki,
+        key_registry_sha256: resultKeyRegistrySha256,
+      },
+      execution_boundary: {
+        cryptographic_separation: true,
+        operational_isolation: "co-located-worker-execution-environment",
+        operational_isolation_status: "NOT_PROVIDED",
+      },
     },
   });
 });
@@ -1283,7 +1327,7 @@ app.post("/verify/tlsn", async (c) => {
       new Uint8Array(await crypto.subtle.digest("SHA-256", presentationBytes)),
     );
     const signingBytes = decodeBase64Url(prepared.signing_bytes, MAX_RESULT_JSON_BYTES);
-    const signature = await signSigningBytes(signingBytes, config.resultSigningPrivateKeyBytes);
+    const signature = await signResult(config, signingBytes);
     if (signature.length !== 64) {
       return c.json({ error: "verifier_unavailable" }, 503);
     }

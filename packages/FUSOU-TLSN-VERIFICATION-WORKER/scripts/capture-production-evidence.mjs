@@ -4,14 +4,22 @@ import assert from "node:assert/strict";
 import { createPrivateKey, randomUUID, sign } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
-import { blockedProductionEvidenceManifest, createProductionEvidenceItem, createTrustGraph, productionRequirementStatus } from "./production-evidence-contract.mjs";
+import {
+  blockedProductionEvidenceManifest,
+  assertVerifiedTrustGraph,
+  assertTrustGraphNodeIdentities,
+  createProductionEvidenceItem,
+  createTrustGraph,
+  productionRequirementStatus,
+  PRODUCTION_EVIDENCE_TRUST_GRAPH_EDGE_DEFINITIONS,
+  PRODUCTION_EVIDENCE_TRUST_GRAPH_NODE_DEFINITIONS,
+} from "./production-evidence-contract.mjs";
 import {
   artifactDescriptor,
   assertResultSubjectIdentity,
   assertSignedResult,
-  createSignedProductionEvidenceManifest,
-  productionEvidenceSignerPublicKeyFromPrivateKey,
 } from "./production-evidence.mjs";
+import { EvidenceSigner } from "./authority-signers.mjs";
 import {
   createSemanticVerificationArtifact,
   verifySemanticPredicates,
@@ -404,8 +412,10 @@ async function main() {
       trustedInputs,
       notaryRegistry,
       resultRegistry: registry,
+      resultRegistrySha256: sha256Base64Url(Buffer.from(registryRaw)),
       resultPublicKeySpki,
       resultSignerKeyId,
+      trustRootCertificateBytes: trustRootBytes,
       includeResultSignature: false,
     });
     if (Object.entries(preSignaturePredicateResults).some(([name, predicate]) => name !== "result_signature" && predicate.status !== "PASS")) {
@@ -423,8 +433,10 @@ async function main() {
       trustedInputs,
       notaryRegistry,
       resultRegistry: registry,
+      resultRegistrySha256: sha256Base64Url(Buffer.from(registryRaw)),
       resultPublicKeySpki,
       resultSignerKeyId,
+      trustRootCertificateBytes: trustRootBytes,
     });
     if (Object.values(predicateResults).some((predicate) => predicate.status !== "PASS")) {
       throw new Error("one or more semantic predicates did not pass");
@@ -467,6 +479,8 @@ async function main() {
         consume_receipt_presentation_id: verification.json.consume_receipt.presentation_id,
       },
       result,
+      authoritativeUserId: user.id,
+      authoritativeDeviceId: deviceId,
       presentationBytes,
       resultPublicKeySpki,
       resultSignerKeyId,
@@ -577,29 +591,54 @@ async function main() {
       : null;
     const semanticVerificationArtifactDescriptor = artifactDescriptor(semanticVerificationBytes, { mediaType: "application/json" });
     const captureMetadataArtifact = artifactDescriptor(captureMetadataBytes, { mediaType: "application/json" });
+    const trustGraphIdentities = {
+      "authenticated-user": { user_id: user.id },
+      device: { user_id: user.id, device_id: deviceId, public_key_sha256: issued.deviceIdentity.device_public_key_sha256 },
+      "device-authentication": { device_id: deviceId, nonce: issued.authentication.request.nonce },
+      session: { session_id: session.session_id, key_id: sessionAuthoritySignerKeyId },
+      binding: { binding_sha256: sha256Base64Url(session.binding), nonce_sha256: sha256Base64Url(session.challenge) },
+      presentation: { presentation_sha256: sha256Base64Url(presentationBytes), attestation_id: result.tlsn_attestation_id },
+      "member-id": { verified_member_id: result.verified_member_id, response_transcript_sha256: result.response_transcript_sha256 },
+      "tlsn-notary": { key_id: result.notary_key_id },
+      result: { result_sha256: resultVerification.result_sha256, key_id: resultSignerKeyId },
+      "production-evidence": { capture_id: captureId },
+      "remote-attestation": { status: "UNVERIFIED" },
+    };
     const trustGraph = createTrustGraph({
-      nodes: [
-        { id: "authenticated-user", type: "authenticated_user", authority: "supabase-authenticated-user", identity: { user_id: user.id }, evidence_artifact: "authenticated_user" },
-        { id: "device", type: "device", authority: "fusou-web-user-devices", identity: { user_id: user.id, device_id: deviceId, public_key_sha256: issued.deviceIdentity.device_public_key_sha256 }, evidence_artifact: "device_identity" },
-        { id: "session", type: "session", authority: "fusou-tlsn-session-authority", identity: { session_id: session.session_id, key_id: sessionAuthoritySignerKeyId }, evidence_artifact: "session" },
-        { id: "binding", type: "binding", authority: "fusou-tlsn-binding-authority", identity: { binding_sha256: sha256Base64Url(session.binding), nonce_sha256: sha256Base64Url(session.challenge) }, evidence_artifact: "consume_receipt" },
-        { id: "presentation", type: "presentation", authority: "tlsn-alpha15-verifier", identity: { presentation_sha256: sha256Base64Url(presentationBytes), attestation_id: result.tlsn_attestation_id }, evidence_artifact: "presentation" },
-        { id: "tlsn-notary", type: "notary", authority: "tlsn-alpha15-notary", identity: { key_id: result.notary_key_id }, evidence_artifact: "notary_registry" },
-        { id: "result", type: "result", authority: "fusou-tlsn-result-signer", identity: { result_sha256: resultVerification.result_sha256, key_id: resultSignerKeyId }, evidence_artifact: "result" },
-        { id: "production-evidence", type: "evidence_manifest", authority: "production-evidence-signer", identity: { capture_id: captureId }, evidence_artifact: "health" },
-        { id: "remote-attestation", type: "remote_attestation", authority: "remote-attestation-signer", identity: { status: "UNVERIFIED" }, evidence_artifact: "health" },
-      ],
-      edges: [
-        { id: "user-owns-device", source: "authenticated-user", target: "device", binding_fields: ["user_id", "device_id", "device_public_key_sha256"], evidence_artifact: "device_identity", verification_predicate: "device_identity_ownership" },
-        { id: "device-authenticates-session", source: "device", target: "session", binding_fields: ["device_id", "device_auth_nonce", "session_id"], evidence_artifact: "device_authentication", verification_predicate: "device_authentication_signature" },
-        { id: "session-issues-binding", source: "session", target: "binding", binding_fields: ["session_id", "binding_value", "binding_nonce"], evidence_artifact: "session", verification_predicate: "session_binding_receipt" },
-        { id: "binding-consumes-presentation", source: "binding", target: "presentation", binding_fields: ["session_id", "binding_value", "presentation_id"], evidence_artifact: "consume_receipt", verification_predicate: "consume_receipt" },
-        { id: "notary-authenticates-presentation", source: "tlsn-notary", target: "presentation", binding_fields: ["notary_key_id", "notary_key_sha256"], evidence_artifact: "presentation", verification_predicate: "notary_identity" },
-        { id: "presentation-derives-result", source: "presentation", target: "result", binding_fields: ["tlsn_attestation_id", "verified_member_id", "transcript_hashes"], evidence_artifact: "semantic_verification", verification_predicate: "result_presentation_binding" },
-        { id: "result-is-in-evidence", source: "result", target: "production-evidence", binding_fields: ["result_sha256", "result_signer_key_id"], evidence_artifact: "result", verification_predicate: "result_signature" },
-        { id: "remote-attestation-is-unverified", source: "remote-attestation", target: "production-evidence", binding_fields: ["status"], evidence_artifact: "health", verification_predicate: "remote_attestation_unverified" },
-      ],
+      nodes: PRODUCTION_EVIDENCE_TRUST_GRAPH_NODE_DEFINITIONS.map(({ id, type, authority }) => ({
+        id,
+        type,
+        authority,
+        identity: trustGraphIdentities[id],
+        evidence_artifact: id === "authenticated-user"
+          ? "authenticated_user"
+          : id === "device"
+            ? "device_identity"
+            : id === "device-authentication"
+              ? "device_authentication"
+              : id === "session"
+                ? "session"
+                : id === "binding"
+                  ? "consume_receipt"
+                  : id === "presentation"
+                    ? "presentation"
+                    : id === "member-id"
+                      ? "semantic_verification"
+                      : id === "tlsn-notary"
+                        ? "notary_registry"
+                        : id === "result"
+                          ? "result"
+                          : "health",
+      })),
+      edges: PRODUCTION_EVIDENCE_TRUST_GRAPH_EDGE_DEFINITIONS.map((edge) => ({ ...edge })),
     });
+    assertTrustGraphNodeIdentities(trustGraph, trustGraphIdentities);
+    assertVerifiedTrustGraph(trustGraph, {
+      ...predicateResults,
+      ...devicePredicateResults,
+      remote_attestation_unverified: { status: "UNVERIFIED" },
+    });
+    const allPredicateResults = { ...predicateResults, ...devicePredicateResults };
     manifest = {
       ...manifest,
       capture_provenance: "production",
@@ -646,18 +685,18 @@ async function main() {
       p0_05_status: "BLOCKED",
       evidence: {
         ...manifest.evidence,
-        real_production_game_server_connection: item("real_production_game_server_connection", productionRequirementStatus("real_production_game_server_connection", predicateResults, devicePredicateResults), "Independent alpha15 semantic verification derived the authenticated server identity", { artifactSha256: presentationArtifact.artifact_sha256, authorityIdentity: health.security_identity.server_identity }),
-        real_production_tlsn_notary_interaction: item("real_production_tlsn_notary_interaction", productionRequirementStatus("real_production_tlsn_notary_interaction", predicateResults, devicePredicateResults), "Independent alpha15 semantic verification matched the production Notary registry", { artifactSha256: presentationArtifact.artifact_sha256, authorityIdentity: health.security_identity.notary_key_id }),
-        real_production_fusou_web_device_authentication: item("real_production_fusou_web_device_authentication", productionRequirementStatus("real_production_fusou_web_device_authentication", predicateResults, devicePredicateResults), "FUSOU-WEB authoritative device identity and generic nonce signature were independently verified", { artifactSha256: deviceAuthenticationArtifact.artifact_sha256, authorityIdentity: "fusou-web-user-devices" }),
-        real_production_device_possession_proof: item("real_production_device_possession_proof", productionRequirementStatus("real_production_device_possession_proof", predicateResults, devicePredicateResults), "Canonical TLSN device possession signature and replay digest were independently verified", { artifactSha256: possessionProofArtifact.artifact_sha256, authorityIdentity: "fusou-web-tlsn-device-authentication" }),
-        real_production_replay_authority: item("real_production_replay_authority", productionRequirementStatus("real_production_replay_authority", predicateResults, devicePredicateResults), "The consumed binding rejected the second verification and the replay digest was independently reconstructed", { artifactSha256: replayArtifact.artifact_sha256, authorityIdentity: health.security_identity.binding_authority }),
-        real_production_binding_authority: item("real_production_binding_authority", productionRequirementStatus("real_production_binding_authority", predicateResults, devicePredicateResults), "Signed Worker session and consume receipts bind the verified Result to a one-shot binding", { artifactSha256: consumeReceiptArtifact.artifact_sha256, authorityIdentity: health.security_identity.binding_authority }),
-        real_production_session_authority: item("real_production_session_authority", productionRequirementStatus("real_production_session_authority", predicateResults, devicePredicateResults), "Session receipt and the published Session Authority registry were independently verified", { artifactSha256: sessionAuthorityRegistryArtifact.artifact_sha256, authorityIdentity: sessionAuthoritySignerKeyId }),
-        real_production_binding_receipt_authority: item("real_production_binding_receipt_authority", productionRequirementStatus("real_production_binding_receipt_authority", predicateResults, devicePredicateResults), "Consume receipt and the published Binding Authority registry were independently verified", { artifactSha256: bindingAuthorityRegistryArtifact.artifact_sha256, authorityIdentity: bindingAuthoritySignerKeyId }),
-        real_production_verifier_trust_root: item("real_production_verifier_trust_root", "PASS", "Production Worker health identity exposed the expected trust-root identity", { artifactSha256: healthArtifact.artifact_sha256, authorityIdentity: health.deployment_identity.trust_root_certificate_sha256 }),
-        real_production_result_signing_key: item("real_production_result_signing_key", productionRequirementStatus("real_production_result_signing_key", predicateResults, devicePredicateResults), "Result signature and active production key registry were independently verified", { artifactSha256: resultRegistryArtifact.artifact_sha256, authorityIdentity: resultVerification.result_signer_key_id }),
-        real_production_public_key_publication: item("real_production_public_key_publication", productionRequirementStatus("real_production_public_key_publication", predicateResults, devicePredicateResults), "Worker health and the supplied production registry published the same result key", { artifactSha256: healthArtifact.artifact_sha256, authorityIdentity: "production-result-key-registry" }),
-        independently_captured_production_evidence: item("independently_captured_production_evidence", productionRequirementStatus("independently_captured_production_evidence", predicateResults, devicePredicateResults), "Production endpoints, device signatures, binding receipts, and an independently verified Presentation were captured", { artifactSha256: semanticVerificationArtifactDescriptor.artifact_sha256, authorityIdentity: "production-capture-operator" }),
+        real_production_game_server_connection: item("real_production_game_server_connection", productionRequirementStatus("real_production_game_server_connection", allPredicateResults), "Independent alpha15 semantic verification derived the authenticated server identity", { artifactSha256: presentationArtifact.artifact_sha256, authorityIdentity: health.security_identity.server_identity }),
+        real_production_tlsn_notary_interaction: item("real_production_tlsn_notary_interaction", productionRequirementStatus("real_production_tlsn_notary_interaction", allPredicateResults), "Independent alpha15 semantic verification matched the production Notary registry", { artifactSha256: presentationArtifact.artifact_sha256, authorityIdentity: health.security_identity.notary_key_id }),
+        real_production_fusou_web_device_authentication: item("real_production_fusou_web_device_authentication", productionRequirementStatus("real_production_fusou_web_device_authentication", allPredicateResults), "FUSOU-WEB authoritative device identity and generic nonce signature were independently verified", { artifactSha256: deviceAuthenticationArtifact.artifact_sha256, authorityIdentity: "fusou-web-user-devices" }),
+        real_production_device_possession_proof: item("real_production_device_possession_proof", productionRequirementStatus("real_production_device_possession_proof", allPredicateResults), "Canonical TLSN device possession signature and replay digest were independently verified", { artifactSha256: possessionProofArtifact.artifact_sha256, authorityIdentity: "fusou-web-tlsn-device-authentication" }),
+        real_production_replay_authority: item("real_production_replay_authority", productionRequirementStatus("real_production_replay_authority", allPredicateResults), "The consumed binding rejected the second verification and the replay digest was independently reconstructed", { artifactSha256: replayArtifact.artifact_sha256, authorityIdentity: health.security_identity.binding_authority }),
+        real_production_binding_authority: item("real_production_binding_authority", productionRequirementStatus("real_production_binding_authority", allPredicateResults), "Signed Worker session and consume receipts bind the verified Result to a one-shot binding", { artifactSha256: consumeReceiptArtifact.artifact_sha256, authorityIdentity: health.security_identity.binding_authority }),
+        real_production_session_authority: item("real_production_session_authority", productionRequirementStatus("real_production_session_authority", allPredicateResults), "Session receipt and the published Session Authority registry were independently verified", { artifactSha256: sessionAuthorityRegistryArtifact.artifact_sha256, authorityIdentity: sessionAuthoritySignerKeyId }),
+        real_production_binding_receipt_authority: item("real_production_binding_receipt_authority", productionRequirementStatus("real_production_binding_receipt_authority", allPredicateResults), "Consume receipt and the published Binding Authority registry were independently verified", { artifactSha256: bindingAuthorityRegistryArtifact.artifact_sha256, authorityIdentity: bindingAuthoritySignerKeyId }),
+        real_production_verifier_trust_root: item("real_production_verifier_trust_root", productionRequirementStatus("real_production_verifier_trust_root", allPredicateResults), "Captured trust-root bytes matched the deployed Worker identity", { artifactSha256: trustRootArtifact?.artifact_sha256 ?? healthArtifact.artifact_sha256, authorityIdentity: health.deployment_identity.trust_root_certificate_sha256 }),
+        real_production_result_signing_key: item("real_production_result_signing_key", productionRequirementStatus("real_production_result_signing_key", allPredicateResults), "Result signature and active production key registry were independently verified", { artifactSha256: resultRegistryArtifact.artifact_sha256, authorityIdentity: resultVerification.result_signer_key_id }),
+        real_production_public_key_publication: item("real_production_public_key_publication", productionRequirementStatus("real_production_public_key_publication", allPredicateResults), "Worker health and the supplied production registry published the same result key", { artifactSha256: healthArtifact.artifact_sha256, authorityIdentity: "production-result-key-registry" }),
+        independently_captured_production_evidence: item("independently_captured_production_evidence", productionRequirementStatus("independently_captured_production_evidence", allPredicateResults), "Production endpoints, device signatures, binding receipts, and an independently verified Presentation were captured", { artifactSha256: semanticVerificationArtifactDescriptor.artifact_sha256, authorityIdentity: "production-capture-operator" }),
       },
       independent_verification: {
         status: "BLOCKED",
@@ -682,15 +721,12 @@ async function main() {
   const signerPrivateKeyEncoded = optional("TLSN_PRODUCTION_EVIDENCE_SIGNING_PRIVATE_KEY_PKCS8")
     ?? optional("TLSN_PRODUCTION_EVIDENCE_SIGNING_PRIVATE_KEY_PKCS8_B64URL");
   if (signerPrivateKeyEncoded) {
-    loadPrivateKey(signerPrivateKeyEncoded, "production evidence signing private key");
     const publicKey = required("TLSN_PRODUCTION_EVIDENCE_SIGNER_PUBLIC_KEY_SPKI");
-    if (productionEvidenceSignerPublicKeyFromPrivateKey(signerPrivateKeyEncoded) !== publicKey) throw new Error("production evidence signer key pair does not match");
-    manifest = createSignedProductionEvidenceManifest({
-      manifest,
-      signerKeyId: required("TLSN_PRODUCTION_EVIDENCE_SIGNER_KEY_ID"),
-      signerPublicKeySpki: publicKey,
-      signingPrivateKeyPkcs8: signerPrivateKeyEncoded,
-    });
+    manifest = new EvidenceSigner({
+      keyId: required("TLSN_PRODUCTION_EVIDENCE_SIGNER_KEY_ID"),
+      privateKeyPkcs8: signerPrivateKeyEncoded,
+      publicKeySpki: publicKey,
+    }).signManifest(manifest);
   }
 
   await mkdir(dirname(outputPath), { recursive: true });

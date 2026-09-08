@@ -32,6 +32,8 @@ export const PRODUCTION_EVIDENCE_PAYLOAD_FIELDS = [
   "deployment_identity",
   "result_identity",
   "security_identity",
+  "authority_compromise_definitions",
+  "worker_authority_boundary",
   "subject_identity",
   "trust_graph",
   "evidence_domains",

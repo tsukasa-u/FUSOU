@@ -300,6 +300,8 @@ export function verifyDevicePredicates({
   consumeReceipt,
   replay,
   result,
+  authoritativeUserId,
+  authoritativeDeviceId,
   presentationBytes,
   resultPublicKeySpki,
   resultSignerKeyId,
@@ -311,8 +313,11 @@ export function verifyDevicePredicates({
   bindingAuthorityKeyRegistry,
   verifiedAt = new Date().toISOString(),
 }) {
-  const expectedUserId = result?.canonical_user_id;
-  const expectedDeviceId = result?.device_id;
+  const expectedUserId = authoritativeUserId;
+  const expectedDeviceId = authoritativeDeviceId;
+  if (typeof expectedUserId !== "string" || typeof expectedDeviceId !== "string") {
+    throw new Error("authoritative user and device roots are required for device predicate verification");
+  }
   const expectedPresentationId = createHash("sha256").update(presentationBytes).digest("base64url");
   const predicates = {
     device_identity_ownership: runDevicePredicate("device_identity_ownership", verifiedAt, ["device_identity"], () => {

@@ -5,6 +5,70 @@ export const PRODUCTION_EVIDENCE_SCHEMA_VERSION = 1;
 export const PRODUCTION_EVIDENCE_ITEM_STATUSES = ["PASS", "UNVERIFIED", "BLOCKED", "FAIL"];
 export const PRODUCTION_EVIDENCE_CAPTURE_STATUSES = ["PASS", "FAILED", "UNAVAILABLE"];
 export const PRODUCTION_EVIDENCE_VERIFICATION_STATUSES = ["VERIFIED", "UNVERIFIED", "FAILED"];
+export const AUTHORITY_COMPROMISE_DEFINITIONS = Object.freeze([
+  {
+    authority: "device-authority",
+    private_key: "FUSOU-WEB device private key",
+    public_key_registry: "fusou-web-user-devices",
+    issued_artifact: "device_identity and device-authentication/device-possession signatures",
+    verification_authority: "FUSOU-WEB authoritative user_devices and device-authentication endpoints",
+    compromise_scope: "forge device-authentication and device-possession artifacts for the compromised device; cannot forge Supabase user identity, Session Authority receipts, Binding Authority receipts, TLSN Presentation, or Result signatures",
+  },
+  {
+    authority: "session-authority",
+    private_key: "TLSN_SESSION_AUTHORITY_SIGNING_PRIVATE_KEY_PKCS8",
+    public_key_registry: "tlsn-session-authority-key-registry",
+    issued_artifact: "attestation-session-issued receipt",
+    verification_authority: "tlsn-session-authority-key-registry",
+    compromise_scope: "forge session receipts and their session/binding claims; cannot forge Binding Authority consume receipts, device identity, TLSN Presentation, or Result signatures",
+  },
+  {
+    authority: "binding-authority",
+    private_key: "TLSN_BINDING_AUTHORITY_SIGNING_PRIVATE_KEY_PKCS8",
+    public_key_registry: "tlsn-binding-authority-key-registry",
+    issued_artifact: "attestation-binding-consumed receipt",
+    verification_authority: "tlsn-binding-authority-key-registry and Durable Object single-use state",
+    compromise_scope: "forge consume receipts for presented bindings; cannot forge Session Authority receipts, device identity, TLSN Presentation, or Result signatures",
+  },
+  {
+    authority: "tlsn-notary",
+    private_key: "TLSNotary notary signing key",
+    public_key_registry: "TLSN Notary registry",
+    issued_artifact: "TLSN Presentation notary authentication",
+    verification_authority: "alpha15 Presentation verifier and trusted Notary registry",
+    compromise_scope: "forge or authenticate Presentations under the compromised Notary identity; cannot forge FUSOU-WEB identity, device possession, Session Authority receipts, Binding Authority receipts, or Result signatures",
+  },
+  {
+    authority: "result-signer",
+    private_key: "TLSN_RESULT_SIGNING_PRIVATE_KEY_PKCS8",
+    public_key_registry: "tlsn-result-signing-key-registry",
+    issued_artifact: "signed Result",
+    verification_authority: "production-result-signing-key-registry and Presentation-derived binding predicates",
+    compromise_scope: "forge Result payloads signed by the compromised Result key; cannot forge session receipts, consume receipts, device identity, device possession, or TLSN Presentations",
+  },
+  {
+    authority: "production-evidence-signer",
+    private_key: "TLSN_PRODUCTION_EVIDENCE_SIGNING_PRIVATE_KEY_PKCS8",
+    public_key_registry: "production evidence signer deployment registry",
+    issued_artifact: "signed Production Evidence manifest",
+    verification_authority: "offline production evidence verifier and externally pinned signer identity",
+    compromise_scope: "forge manifest metadata and artifact references; cannot alter raw artifacts or make independently reconstructed authority predicates pass",
+  },
+  {
+    authority: "remote-attestation-signer",
+    private_key: "remote deployment attestation signing key",
+    public_key_registry: "remote attestation signer deployment registry",
+    issued_artifact: "remote deployment attestation",
+    verification_authority: "remote gate verifier and workflow/deployment identity contract",
+    compromise_scope: "forge remote deployment reports; remote attestation remains UNVERIFIED in the Production Evidence graph and cannot authorize P0-05",
+  },
+]);
+export const WORKER_AUTHORITY_BOUNDARY = Object.freeze({
+  cryptographic_separation: "independent Ed25519 key pair, key ID, registry, and semantic signing API per authority",
+  operational_isolation: "co-located Worker execution environment",
+  operational_isolation_status: "NOT_PROVIDED",
+  required_follow_up: "move Session Authority, Binding Authority, and Result Signer behind independent service, Durable Object, or external signer boundaries",
+});
 export const PRODUCTION_EVIDENCE_SEMANTIC_PREDICATES = [
   "presentation_cryptography",
   "notary_identity",
@@ -13,6 +77,8 @@ export const PRODUCTION_EVIDENCE_SEMANTIC_PREDICATES = [
   "authenticated_member_id",
   "result_presentation_binding",
   "result_signature",
+  "result_key_publication",
+  "trust_root_publication",
 ];
 export const PRODUCTION_EVIDENCE_SEMANTIC_PREDICATE_DEFINITIONS = {
   presentation_cryptography: {
@@ -64,6 +130,20 @@ export const PRODUCTION_EVIDENCE_SEMANTIC_PREDICATE_DEFINITIONS = {
     authority_identity: "production-result-signing-key-registry",
     derived_fields: ["result_signature_valid", "result_signer_key_id"],
   },
+  result_key_publication: {
+    required_artifacts: ["health", "result_registry"],
+    required_fields: ["result_public_key_spki", "result_signer_key_id", "result_key_registry_sha256"],
+    verification_method: "Worker-published Result key identity equals the externally pinned active Result registry entry",
+    authority_identity: "production-result-signing-key-registry",
+    derived_fields: ["result_public_key_spki", "result_signer_key_id", "result_key_registry_sha256"],
+  },
+  trust_root_publication: {
+    required_artifacts: ["health", "trust_root"],
+    required_fields: ["trust_root_certificate_sha256"],
+    verification_method: "captured trust-root bytes hash equals the externally pinned deployed Worker identity",
+    authority_identity: "tlsn-alpha15-verifier",
+    derived_fields: ["trust_root_certificate_sha256"],
+  },
 };
 export const PRODUCTION_EVIDENCE_DEVICE_PREDICATE_DEFINITIONS = {
   device_identity_ownership: {
@@ -114,6 +194,17 @@ export const PRODUCTION_EVIDENCE_DEVICE_PREDICATE_DEFINITIONS = {
     verification_method: "Binding Authority-signed consume receipt binds the consumed session, binding, Presentation hash, and timestamp",
     authority_identity: "fusou-tlsn-binding-authority",
     derived_fields: ["session_id", "binding_value", "presentation_id", "used_at"],
+  },
+};
+export const PRODUCTION_EVIDENCE_PREDICATE_DEFINITIONS = {
+  ...PRODUCTION_EVIDENCE_SEMANTIC_PREDICATE_DEFINITIONS,
+  ...PRODUCTION_EVIDENCE_DEVICE_PREDICATE_DEFINITIONS,
+  remote_attestation_unverified: {
+    required_artifacts: ["health"],
+    required_fields: ["status"],
+    verification_method: "remote attestation is explicitly retained as UNVERIFIED and cannot satisfy a production requirement",
+    authority_identity: "remote-attestation-signer",
+    derived_fields: ["status"],
   },
 };
 export const PRODUCTION_EVIDENCE_REQUIREMENTS = [
@@ -201,9 +292,9 @@ export const PRODUCTION_EVIDENCE_REQUIREMENT_PREDICATES = {
   real_production_binding_authority: ["session_binding_receipt", "binding_framing", "consume_receipt"],
   real_production_session_authority: ["session_binding_receipt"],
   real_production_binding_receipt_authority: ["consume_receipt"],
-  real_production_verifier_trust_root: [],
+  real_production_verifier_trust_root: ["trust_root_publication"],
   real_production_result_signing_key: ["result_signature"],
-  real_production_public_key_publication: ["result_signature"],
+  real_production_public_key_publication: ["result_key_publication"],
   independently_captured_production_evidence: [
     "presentation_cryptography",
     "notary_identity",
@@ -212,6 +303,8 @@ export const PRODUCTION_EVIDENCE_REQUIREMENT_PREDICATES = {
     "authenticated_member_id",
     "result_presentation_binding",
     "result_signature",
+    "result_key_publication",
+    "trust_root_publication",
     "device_identity_ownership",
     "device_authentication_signature",
     "session_binding_receipt",
@@ -221,34 +314,15 @@ export const PRODUCTION_EVIDENCE_REQUIREMENT_PREDICATES = {
     "consume_receipt",
   ],
 };
-export const PRODUCTION_EVIDENCE_REQUIREMENT_DEVICE_PREDICATES = {
-  real_production_game_server_connection: [],
-  real_production_tlsn_notary_interaction: [],
-  real_production_fusou_web_device_authentication: ["device_identity_ownership", "device_authentication_signature"],
-  real_production_device_possession_proof: ["device_identity_ownership", "tlsn_device_possession_signature", "binding_framing"],
-  real_production_replay_authority: ["replay_digest", "consume_receipt"],
-  real_production_binding_authority: ["session_binding_receipt", "binding_framing", "consume_receipt"],
-  real_production_session_authority: ["session_binding_receipt"],
-  real_production_binding_receipt_authority: ["consume_receipt"],
-  real_production_verifier_trust_root: [],
-  real_production_result_signing_key: [],
-  real_production_public_key_publication: [],
-  independently_captured_production_evidence: [
-    "device_identity_ownership",
-    "device_authentication_signature",
-    "session_binding_receipt",
-    "tlsn_device_possession_signature",
-    "binding_framing",
-    "replay_digest",
-    "consume_receipt",
-  ],
-};
-export function productionRequirementStatus(requirement, semanticPredicateResults, devicePredicateResults) {
-  const semanticNames = PRODUCTION_EVIDENCE_REQUIREMENT_PREDICATES[requirement] ?? [];
-  const deviceNames = PRODUCTION_EVIDENCE_REQUIREMENT_DEVICE_PREDICATES[requirement] ?? [];
-  const semanticPass = semanticNames.every((name) => semanticPredicateResults?.[name]?.status === "PASS");
-  const devicePass = deviceNames.every((name) => devicePredicateResults?.[name]?.status === "PASS");
-  return semanticPass && devicePass ? "PASS" : "UNVERIFIED";
+for (const requirement of PRODUCTION_EVIDENCE_REQUIREMENTS) {
+  if (!Array.isArray(PRODUCTION_EVIDENCE_REQUIREMENT_PREDICATES[requirement]) || PRODUCTION_EVIDENCE_REQUIREMENT_PREDICATES[requirement].length === 0) {
+    throw new Error(`production evidence requirement has no predicates: ${requirement}`);
+  }
+}
+export function productionRequirementStatus(requirement, predicateResults) {
+  const predicateNames = PRODUCTION_EVIDENCE_REQUIREMENT_PREDICATES[requirement];
+  if (!predicateNames) throw new Error(`unknown production evidence requirement: ${requirement}`);
+  return predicateNames.every((name) => predicateResults?.[name]?.status === "PASS") ? "PASS" : "UNVERIFIED";
 }
 export const PRODUCTION_EVIDENCE_DOMAINS = {
   game_server: [
@@ -275,23 +349,35 @@ export const PRODUCTION_EVIDENCE_DOMAINS = {
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const SHA256_BASE64URL_PATTERN = /^[A-Za-z0-9_-]{43}$/;
-export const PRODUCTION_EVIDENCE_TRUST_GRAPH_NODE_IDS = [
-  "authenticated-user",
-  "device",
-  "session",
-  "binding",
-  "presentation",
-  "tlsn-notary",
-  "result",
-  "production-evidence",
-  "remote-attestation",
-];
-export const PRODUCTION_EVIDENCE_TRUST_GRAPH_PREDICATES = [
-  ...PRODUCTION_EVIDENCE_SEMANTIC_PREDICATES,
-  ...Object.keys(PRODUCTION_EVIDENCE_DEVICE_PREDICATE_DEFINITIONS),
-  "remote_attestation_unverified",
-];
-const TRUST_GRAPH_NODE_TYPES = new Set(["authenticated_user", "device", "session", "binding", "presentation", "notary", "result", "evidence_manifest", "remote_attestation"]);
+export const PRODUCTION_EVIDENCE_TRUST_GRAPH_NODE_DEFINITIONS = Object.freeze([
+  ["authenticated-user", "authenticated_user", "supabase-authenticated-user"],
+  ["device", "device", "fusou-web-user-devices"],
+  ["device-authentication", "device_authentication", "fusou-web-device-authentication"],
+  ["session", "session", "fusou-tlsn-session-authority"],
+  ["binding", "binding", "fusou-tlsn-binding-authority"],
+  ["presentation", "presentation", "tlsn-alpha15-verifier"],
+  ["member-id", "member_id", "fusou-require-info-v1-response-parser"],
+  ["tlsn-notary", "notary", "tlsn-alpha15-presentation-notary-key"],
+  ["result", "result", "fusou-tlsn-result-signer"],
+  ["production-evidence", "evidence_manifest", "production-evidence-signer"],
+  ["remote-attestation", "remote_attestation", "remote-attestation-signer"],
+].map(([id, type, authority]) => Object.freeze({ id, type, authority })));
+export const PRODUCTION_EVIDENCE_TRUST_GRAPH_NODE_IDS = PRODUCTION_EVIDENCE_TRUST_GRAPH_NODE_DEFINITIONS.map(({ id }) => id);
+export const PRODUCTION_EVIDENCE_TRUST_GRAPH_EDGE_DEFINITIONS = Object.freeze([
+  { id: "user-owns-device", source: "authenticated-user", target: "device", binding_fields: ["user_id", "device_id", "device_public_key_sha256"], evidence_artifact: "device_identity", verification_predicate: "device_identity_ownership", authority: "fusou-web-user-devices" },
+  { id: "device-authenticates", source: "device", target: "device-authentication", binding_fields: ["device_id", "device_auth_nonce"], evidence_artifact: "device_authentication", verification_predicate: "device_authentication_signature", authority: "fusou-web-device-authentication" },
+  { id: "device-authentication-issues-session", source: "device-authentication", target: "session", binding_fields: ["device_id", "device_auth_nonce", "session_id"], evidence_artifact: "session", verification_predicate: "session_binding_receipt", authority: "fusou-tlsn-session-authority" },
+  { id: "session-issues-binding", source: "session", target: "binding", binding_fields: ["session_id", "binding_value", "binding_nonce"], evidence_artifact: "session", verification_predicate: "session_binding_receipt", authority: "fusou-tlsn-session-authority" },
+  { id: "binding-consumes-presentation", source: "binding", target: "presentation", binding_fields: ["session_id", "binding_value", "presentation_id"], evidence_artifact: "consume_receipt", verification_predicate: "consume_receipt", authority: "fusou-tlsn-binding-authority" },
+  { id: "presentation-is-authenticated-by-notary", source: "presentation", target: "tlsn-notary", binding_fields: ["notary_key_id", "notary_key_sha256"], evidence_artifact: "presentation", verification_predicate: "notary_identity", authority: "tlsn-alpha15-presentation-notary-key" },
+  { id: "presentation-derives-member-id", source: "presentation", target: "member-id", binding_fields: ["verified_member_id", "response_transcript_sha256"], evidence_artifact: "semantic_verification", verification_predicate: "authenticated_member_id", authority: "fusou-require-info-v1-response-parser" },
+  { id: "member-id-is-in-result", source: "member-id", target: "result", binding_fields: ["verified_member_id", "tlsn_attestation_id", "transcript_hashes"], evidence_artifact: "semantic_verification", verification_predicate: "result_presentation_binding", authority: "offline-production-evidence-verifier" },
+  { id: "presentation-is-cryptographically-verified", source: "presentation", target: "result", binding_fields: ["presentation_sha256", "tlsn_attestation_id"], evidence_artifact: "semantic_verification", verification_predicate: "presentation_cryptography", authority: "tlsn-alpha15-verifier" },
+  { id: "result-is-signed", source: "result", target: "production-evidence", binding_fields: ["result_sha256", "result_signer_key_id"], evidence_artifact: "result", verification_predicate: "result_signature", authority: "fusou-tlsn-result-signer" },
+  { id: "remote-attestation-is-unverified", source: "remote-attestation", target: "production-evidence", binding_fields: ["status"], evidence_artifact: "health", verification_predicate: "remote_attestation_unverified", authority: "remote-attestation-signer" },
+]);
+export const PRODUCTION_EVIDENCE_TRUST_GRAPH_EDGE_IDS = PRODUCTION_EVIDENCE_TRUST_GRAPH_EDGE_DEFINITIONS.map(({ id }) => id);
+export const PRODUCTION_EVIDENCE_TRUST_GRAPH_PREDICATES = Object.keys(PRODUCTION_EVIDENCE_PREDICATE_DEFINITIONS);
 
 function assertTimestamp(value, label) {
   if (typeof value !== "string" || !Number.isFinite(Date.parse(value))) {
@@ -306,20 +392,25 @@ function assertIdentity(value, label) {
 }
 
 export function createTrustGraph({ nodes = [], edges = [] } = {}) {
-  return { schema_version: 1, nodes, edges };
+  return { schema_version: 2, nodes, edges };
 }
 
 export function assertTrustGraph(graph, { artifactNames = null } = {}) {
-  if (graph?.schema_version !== 1 || !Array.isArray(graph.nodes) || !Array.isArray(graph.edges)) {
+  if (graph?.schema_version !== 2 || !Array.isArray(graph.nodes) || !Array.isArray(graph.edges)) {
     throw new Error("production evidence trust graph schema is invalid");
+  }
+  if (graph.nodes.length !== PRODUCTION_EVIDENCE_TRUST_GRAPH_NODE_DEFINITIONS.length) {
+    throw new Error("production evidence trust graph node topology is invalid");
   }
   const nodeIds = new Set();
   for (const node of graph.nodes) {
     if (!PRODUCTION_EVIDENCE_TRUST_GRAPH_NODE_IDS.includes(node?.id) || nodeIds.has(node.id)) {
       throw new Error("production evidence trust graph node ID is invalid");
     }
-    if (!TRUST_GRAPH_NODE_TYPES.has(node.type)) throw new Error(`production evidence trust graph node type is invalid: ${node.id}`);
-    assertIdentity(node.authority, `trust graph authority for ${node.id}`);
+    const definition = PRODUCTION_EVIDENCE_TRUST_GRAPH_NODE_DEFINITIONS.find((candidate) => candidate.id === node.id);
+    if (node.type !== definition.type || node.authority !== definition.authority) {
+      throw new Error(`production evidence trust graph node authority or type is invalid: ${node.id}`);
+    }
     if (!node.identity || typeof node.identity !== "object" || Array.isArray(node.identity)) {
       throw new Error(`trust graph identity is invalid: ${node.id}`);
     }
@@ -334,9 +425,16 @@ export function assertTrustGraph(graph, { artifactNames = null } = {}) {
   if (nodeIds.size !== PRODUCTION_EVIDENCE_TRUST_GRAPH_NODE_IDS.length) {
     throw new Error("production evidence trust graph must contain every required node");
   }
+  if (graph.edges.length !== PRODUCTION_EVIDENCE_TRUST_GRAPH_EDGE_DEFINITIONS.length) {
+    throw new Error("production evidence trust graph edge topology is invalid");
+  }
   const edgeIds = new Set();
   for (const edge of graph.edges) {
-    if (typeof edge?.id !== "string" || edge.id.length === 0 || edgeIds.has(edge.id)) throw new Error("trust graph edge ID is invalid");
+    const definition = PRODUCTION_EVIDENCE_TRUST_GRAPH_EDGE_DEFINITIONS.find((candidate) => candidate.id === edge?.id);
+    if (!definition || edgeIds.has(edge.id)) throw new Error("trust graph edge ID is invalid");
+    if (edge.source !== definition.source || edge.target !== definition.target || JSON.stringify(edge.binding_fields) !== JSON.stringify(definition.binding_fields) || edge.evidence_artifact !== definition.evidence_artifact || edge.verification_predicate !== definition.verification_predicate || edge.authority !== definition.authority) {
+      throw new Error(`trust graph edge protocol mismatch: ${edge.id}`);
+    }
     if (!nodeIds.has(edge.source) || !nodeIds.has(edge.target)) throw new Error(`trust graph edge endpoint is invalid: ${edge.id}`);
     if (!Array.isArray(edge.binding_fields) || edge.binding_fields.some((field) => typeof field !== "string" || field.length === 0)) {
       throw new Error(`trust graph binding fields are invalid: ${edge.id}`);
@@ -350,6 +448,67 @@ export function assertTrustGraph(graph, { artifactNames = null } = {}) {
       throw new Error(`trust graph verification predicate is not defined: ${edge.id}`);
     }
     edgeIds.add(edge.id);
+  }
+  if (edgeIds.size !== PRODUCTION_EVIDENCE_TRUST_GRAPH_EDGE_IDS.length) {
+    throw new Error("production evidence trust graph must contain every required edge");
+  }
+  const directedReachable = new Set(["authenticated-user"]);
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const edge of graph.edges) {
+      if (directedReachable.has(edge.source) && !directedReachable.has(edge.target)) {
+        directedReachable.add(edge.target);
+        changed = true;
+      }
+    }
+  }
+  if (!directedReachable.has("result")) throw new Error("production evidence trust graph has no authoritative path to Result");
+  const undirected = new Map(PRODUCTION_EVIDENCE_TRUST_GRAPH_NODE_IDS.map((id) => [id, new Set()]));
+  for (const edge of graph.edges) {
+    undirected.get(edge.source).add(edge.target);
+    undirected.get(edge.target).add(edge.source);
+  }
+  const connected = new Set(["authenticated-user"]);
+  const queue = ["authenticated-user"];
+  while (queue.length > 0) {
+    for (const next of undirected.get(queue.shift())) {
+      if (!connected.has(next)) {
+        connected.add(next);
+        queue.push(next);
+      }
+    }
+  }
+  if (connected.size !== PRODUCTION_EVIDENCE_TRUST_GRAPH_NODE_IDS.length) {
+    throw new Error("production evidence trust graph is disconnected");
+  }
+  return graph;
+}
+
+export function assertVerifiedTrustGraph(graph, predicateResults) {
+  assertTrustGraph(graph);
+  for (const edge of PRODUCTION_EVIDENCE_TRUST_GRAPH_EDGE_DEFINITIONS) {
+    const predicate = predicateResults?.[edge.verification_predicate];
+    if (edge.verification_predicate === "remote_attestation_unverified") {
+      if (predicate?.status !== "UNVERIFIED") throw new Error("remote attestation must remain UNVERIFIED");
+    } else if (predicate?.status !== "PASS") {
+      throw new Error(`trust graph edge predicate is not independently verified: ${edge.id}`);
+    }
+  }
+  return graph;
+}
+
+export function assertTrustGraphNodeIdentities(graph, expectedIdentities) {
+  assertTrustGraph(graph);
+  const nodes = new Map(graph.nodes.map((node) => [node.id, node]));
+  for (const [nodeId, expected] of Object.entries(expectedIdentities ?? {})) {
+    const node = nodes.get(nodeId);
+    if (!node) throw new Error(`trust graph identity node is missing: ${nodeId}`);
+    for (const [field, value] of Object.entries(expected)) {
+      if (node.identity?.[field] !== value) {
+        throw new Error(`trust graph ${nodeId} identity mismatch: ${field}`);
+      }
+    }
   }
   return graph;
 }
@@ -446,19 +605,12 @@ export function blockedProductionEvidenceManifest({
     deployment_identity: deploymentIdentity,
     security_identity: securityIdentity,
     result_identity: resultIdentity,
+    authority_compromise_definitions: AUTHORITY_COMPROMISE_DEFINITIONS,
+    worker_authority_boundary: WORKER_AUTHORITY_BOUNDARY,
     subject_identity: subjectIdentity,
     trust_graph: createTrustGraph({
-      nodes: [
-        ["authenticated-user", "authenticated_user", "supabase-authenticated-user"],
-        ["device", "device", "fusou-web-user-devices"],
-        ["session", "session", "fusou-tlsn-session-authority"],
-        ["binding", "binding", "fusou-tlsn-binding-authority"],
-        ["presentation", "presentation", "tlsn-alpha15-verifier"],
-        ["tlsn-notary", "notary", "tlsn-alpha15-notary"],
-        ["result", "result", "fusou-tlsn-result-signer"],
-        ["production-evidence", "evidence_manifest", "production-evidence-signer"],
-        ["remote-attestation", "remote_attestation", "remote-attestation-signer"],
-      ].map(([id, type, authority]) => ({ id, type, authority, identity: {}, evidence_artifact: null })),
+      nodes: PRODUCTION_EVIDENCE_TRUST_GRAPH_NODE_DEFINITIONS.map(({ id, type, authority }) => ({ id, type, authority, identity: {}, evidence_artifact: null })),
+      edges: PRODUCTION_EVIDENCE_TRUST_GRAPH_EDGE_DEFINITIONS.map((edge) => ({ ...edge })),
     }),
     evidence_domains: PRODUCTION_EVIDENCE_DOMAINS,
     evidence,
@@ -521,7 +673,14 @@ export function assertProductionEvidenceManifest(manifest) {
   if (JSON.stringify(manifest.evidence_domains) !== JSON.stringify(PRODUCTION_EVIDENCE_DOMAINS)) {
     throw new Error("production evidence domains are invalid");
   }
-  assertTrustGraph(manifest.trust_graph, { artifactNames: new Set(Object.keys(manifest.artifacts ?? {})) });
+  if (JSON.stringify(manifest.authority_compromise_definitions) !== JSON.stringify(AUTHORITY_COMPROMISE_DEFINITIONS)) {
+    throw new Error("production evidence authority compromise definitions are invalid");
+  }
+  if (JSON.stringify(manifest.worker_authority_boundary) !== JSON.stringify(WORKER_AUTHORITY_BOUNDARY)) {
+    throw new Error("production evidence Worker authority boundary is invalid");
+  }
+  const declaredArtifactNames = Object.keys(manifest.artifacts ?? {});
+  assertTrustGraph(manifest.trust_graph, { artifactNames: declaredArtifactNames.length > 0 ? new Set(declaredArtifactNames) : null });
   for (const requirement of PRODUCTION_EVIDENCE_REQUIREMENTS) {
     if (!manifest.evidence?.[requirement]) throw new Error(`production evidence item is missing: ${requirement}`);
     const item = manifest.evidence[requirement];

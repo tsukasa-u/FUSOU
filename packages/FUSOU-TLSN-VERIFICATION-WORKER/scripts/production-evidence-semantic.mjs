@@ -14,6 +14,7 @@ import {
   PRODUCTION_EVIDENCE_SEMANTIC_PREDICATE_DEFINITIONS,
 } from "./production-evidence-contract.mjs";
 import { canonicalJson, sha256Base64Url } from "./deployment-attestation.mjs";
+import { assertSigningKeyRegistry } from "./signing-key-registry.mjs";
 
 const scriptDirectory = dirname(fileURLToPath(import.meta.url));
 const wasmPath = resolve(scriptDirectory, "../src/wasm/fusou_tlsn_verifier_bg.wasm");
@@ -509,6 +510,42 @@ export function verifyResultSignature({ result, resultRegistry, resultPublicKeyS
   });
 }
 
+export function verifyResultKeyPublication({ resultRegistry, resultRegistrySha256, resultPublicKeySpki, resultSignerKeyId, trustedInputs, verifiedAt = new Date().toISOString() }) {
+  return runPredicate("result_key_publication", verifiedAt, ["health", "result_registry"], () => {
+    assertSigningKeyRegistry(resultRegistry, {
+      currentKeyId: resultSignerKeyId,
+      currentPublicKeySpki: resultPublicKeySpki,
+    });
+    if (
+      trustedInputs.result_public_key_spki !== resultPublicKeySpki ||
+      trustedInputs.result_signer_key_id !== resultSignerKeyId ||
+      trustedInputs.result_key_registry_sha256 !== resultRegistrySha256
+    ) {
+      throw new Error("published Result key identity does not match the trusted registry");
+    }
+    return {
+      observed: {
+        result_public_key_spki: resultPublicKeySpki,
+        result_signer_key_id: resultSignerKeyId,
+        result_key_registry_sha256: resultRegistrySha256,
+      },
+    };
+  });
+}
+
+export function verifyTrustRootPublication({ trustRootCertificateBytes, trustedTrustRootCertificateSha256, verifiedAt = new Date().toISOString() }) {
+  return runPredicate("trust_root_publication", verifiedAt, ["health", "trust_root"], () => {
+    if (!trustRootCertificateBytes || !(Buffer.isBuffer(trustRootCertificateBytes) || trustRootCertificateBytes instanceof Uint8Array)) {
+      throw new Error("captured trust-root bytes are required");
+    }
+    const observedHash = sha256Base64Url(trustRootCertificateBytes);
+    if (observedHash !== trustedTrustRootCertificateSha256) {
+      throw new Error("captured trust-root bytes do not match the trusted Worker identity");
+    }
+    return { observed: { trust_root_certificate_sha256: observedHash } };
+  });
+}
+
 export function verifySemanticPredicates({
   presentationBytes,
   semanticVerification,
@@ -516,8 +553,10 @@ export function verifySemanticPredicates({
   trustedInputs,
   notaryRegistry,
   resultRegistry,
+  resultRegistrySha256,
   resultPublicKeySpki,
   resultSignerKeyId,
+  trustRootCertificateBytes,
   includeResultSignature = true,
   verifiedAt = new Date().toISOString(),
 }) {
@@ -543,13 +582,28 @@ export function verifySemanticPredicates({
         evidenceArtifacts: ["result", "result_registry"],
         detail: "Result signature verification is deferred until Presentation semantics are established",
       }),
+    result_key_publication: verifyResultKeyPublication({
+      resultRegistry,
+      resultRegistrySha256,
+      resultPublicKeySpki,
+      resultSignerKeyId,
+      trustedInputs,
+      verifiedAt,
+    }),
+    trust_root_publication: verifyTrustRootPublication({
+      trustRootCertificateBytes,
+      trustedTrustRootCertificateSha256: trustedInputs.trust_root_certificate_sha256,
+      verifiedAt,
+    }),
   };
   return assertPredicateResults(predicateResults);
 }
 
 export function semanticRequirementStatus(requirement, predicateResults) {
-  const predicateNames = PRODUCTION_EVIDENCE_REQUIREMENT_PREDICATES[requirement] ?? [];
-  if (predicateNames.length === 0) return "PASS";
+  const predicateNames = PRODUCTION_EVIDENCE_REQUIREMENT_PREDICATES[requirement];
+  if (!Array.isArray(predicateNames) || predicateNames.length === 0) {
+    throw new Error(`unknown or empty production evidence requirement: ${requirement}`);
+  }
   return predicateNames.every((name) => predicateResults?.[name]?.status === "PASS") ? "PASS" : "UNVERIFIED";
 }
 

@@ -12,7 +12,7 @@ import {
   assertSignedProductionEvidenceManifest,
   assertSignedResult,
 } from "./production-evidence.mjs";
-import { assertTrustGraph, PRODUCTION_EVIDENCE_REQUIREMENTS, productionRequirementStatus } from "./production-evidence-contract.mjs";
+import { assertTrustGraphNodeIdentities, assertVerifiedTrustGraph, PRODUCTION_EVIDENCE_REQUIREMENTS, productionRequirementStatus } from "./production-evidence-contract.mjs";
 import { assertSigningKeyRegistry } from "./signing-key-registry.mjs";
 import { assertAuthorityKeyRegistry } from "./authority-key-registry.mjs";
 import { canonicalJson, workflowContextFromEnvironment } from "./deployment-attestation.mjs";
@@ -110,10 +110,29 @@ function assertCapturedTrustGraph(manifest, {
   result,
   resultBytes,
   resultSignerKeyId,
+  deviceAuthentication,
+  predicateResults,
+  devicePredicateResults,
 }) {
-  assertTrustGraph(manifest.trust_graph, { artifactNames: new Set(Object.keys(manifest.artifacts ?? {})) });
+  assertVerifiedTrustGraph(manifest.trust_graph, {
+    ...predicateResults,
+    ...devicePredicateResults,
+    remote_attestation_unverified: { status: "UNVERIFIED" },
+  });
+  assertTrustGraphNodeIdentities(manifest.trust_graph, {
+    "authenticated-user": { user_id: authenticatedUser.user_id },
+    device: { user_id: authenticatedUser.user_id, device_id: deviceIdentity.device_id, public_key_sha256: deviceIdentity.device_public_key_sha256 },
+    "device-authentication": { device_id: deviceAuthentication.request.device_id, nonce: deviceAuthentication.request.nonce },
+    session: { session_id: session.session_id, key_id: session.session_receipt.signer_key_id },
+    binding: { binding_sha256: createHash("sha256").update(session.binding).digest("base64url"), nonce_sha256: createHash("sha256").update(session.challenge).digest("base64url") },
+    presentation: { presentation_sha256: createHash("sha256").update(presentationBytes).digest("base64url"), attestation_id: semanticVerification.verified_presentation.tlsn_attestation_id },
+    "member-id": { verified_member_id: semanticVerification.result.verified_member_id, response_transcript_sha256: semanticVerification.result.response_transcript_sha256 },
+    "tlsn-notary": { key_id: semanticVerification.result.notary_key_id },
+    result: { result_sha256: createHash("sha256").update(resultBytes).digest("base64url"), key_id: resultSignerKeyId },
+    "production-evidence": { capture_id: manifest.capture_id },
+    "remote-attestation": { status: "UNVERIFIED" },
+  });
   const nodes = new Map(manifest.trust_graph.nodes.map((node) => [node.id, node]));
-  const edges = new Map(manifest.trust_graph.edges.map((edge) => [edge.id, edge]));
   const assertNodeIdentity = (nodeId, field, expected) => {
     if (nodes.get(nodeId)?.identity?.[field] !== expected) {
       throw new Error(`trust graph ${nodeId} identity mismatch: ${field}`);
@@ -123,33 +142,21 @@ function assertCapturedTrustGraph(manifest, {
   assertNodeIdentity("device", "user_id", authenticatedUser.user_id);
   assertNodeIdentity("device", "device_id", deviceIdentity.device_id);
   assertNodeIdentity("device", "public_key_sha256", deviceIdentity.device_public_key_sha256);
+  assertNodeIdentity("device-authentication", "device_id", deviceAuthentication.request.device_id);
+  assertNodeIdentity("device-authentication", "nonce", deviceAuthentication.request.nonce);
   assertNodeIdentity("session", "session_id", session.session_id);
   assertNodeIdentity("session", "key_id", session.session_receipt.signer_key_id);
   assertNodeIdentity("binding", "binding_sha256", createHash("sha256").update(session.binding).digest("base64url"));
   assertNodeIdentity("binding", "nonce_sha256", createHash("sha256").update(session.challenge).digest("base64url"));
   assertNodeIdentity("presentation", "presentation_sha256", createHash("sha256").update(presentationBytes).digest("base64url"));
   assertNodeIdentity("presentation", "attestation_id", semanticVerification.verified_presentation.tlsn_attestation_id);
+  assertNodeIdentity("member-id", "verified_member_id", semanticVerification.result.verified_member_id);
+  assertNodeIdentity("member-id", "response_transcript_sha256", semanticVerification.result.response_transcript_sha256);
   assertNodeIdentity("tlsn-notary", "key_id", semanticVerification.result.notary_key_id);
   assertNodeIdentity("result", "result_sha256", createHash("sha256").update(resultBytes).digest("base64url"));
   assertNodeIdentity("result", "key_id", resultSignerKeyId);
   assertNodeIdentity("production-evidence", "capture_id", manifest.capture_id);
   assertNodeIdentity("remote-attestation", "status", "UNVERIFIED");
-  const expectedEdges = {
-    "user-owns-device": ["authenticated-user", "device", ["user_id", "device_id", "device_public_key_sha256"], "device_identity", "device_identity_ownership"],
-    "device-authenticates-session": ["device", "session", ["device_id", "device_auth_nonce", "session_id"], "device_authentication", "device_authentication_signature"],
-    "session-issues-binding": ["session", "binding", ["session_id", "binding_value", "binding_nonce"], "session", "session_binding_receipt"],
-    "binding-consumes-presentation": ["binding", "presentation", ["session_id", "binding_value", "presentation_id"], "consume_receipt", "consume_receipt"],
-    "notary-authenticates-presentation": ["tlsn-notary", "presentation", ["notary_key_id", "notary_key_sha256"], "presentation", "notary_identity"],
-    "presentation-derives-result": ["presentation", "result", ["tlsn_attestation_id", "verified_member_id", "transcript_hashes"], "semantic_verification", "result_presentation_binding"],
-    "result-is-in-evidence": ["result", "production-evidence", ["result_sha256", "result_signer_key_id"], "result", "result_signature"],
-    "remote-attestation-is-unverified": ["remote-attestation", "production-evidence", ["status"], "health", "remote_attestation_unverified"],
-  };
-  for (const [edgeId, [source, target, bindingFields, evidenceArtifact, verificationPredicate]] of Object.entries(expectedEdges)) {
-    const edge = edges.get(edgeId);
-    if (!edge || edge.source !== source || edge.target !== target || JSON.stringify(edge.binding_fields) !== JSON.stringify(bindingFields) || edge.evidence_artifact !== evidenceArtifact || edge.verification_predicate !== verificationPredicate) {
-      throw new Error(`trust graph edge mismatch: ${edgeId}`);
-    }
-  }
 }
 
 async function main() {
@@ -326,6 +333,8 @@ async function main() {
     consumeReceipt,
     replay,
     result,
+    authoritativeUserId,
+    authoritativeDeviceId,
     presentationBytes: artifacts.presentation,
     resultPublicKeySpki,
     resultSignerKeyId,
@@ -402,23 +411,15 @@ async function main() {
     trustedInputs,
     notaryRegistry,
     resultRegistry: capturedResultRegistry,
+    resultRegistrySha256: createHash("sha256").update(capturedResultRegistryRaw).digest("base64url"),
     resultPublicKeySpki,
     resultSignerKeyId,
+    trustRootCertificateBytes: artifacts.trust_root,
     includeResultSignature: false,
   });
   if (Object.entries(preSignaturePredicateResults).some(([name, predicate]) => name !== "result_signature" && predicate.status !== "PASS")) {
     throw new Error("recomputed independent Presentation predicates did not pass");
   }
-  assertCapturedTrustGraph(manifest, {
-    authenticatedUser,
-    deviceIdentity,
-    session,
-    presentationBytes: presentation,
-    semanticVerification,
-    result,
-    resultBytes: artifacts.result,
-    resultSignerKeyId,
-  });
   assertSignedResult(result, {
     publicKeySpki: resultPublicKeySpki,
     keyRegistry: capturedResultRegistry,
@@ -431,12 +432,27 @@ async function main() {
     trustedInputs,
     notaryRegistry,
     resultRegistry: capturedResultRegistry,
+    resultRegistrySha256: createHash("sha256").update(capturedResultRegistryRaw).digest("base64url"),
     resultPublicKeySpki,
     resultSignerKeyId,
+    trustRootCertificateBytes: artifacts.trust_root,
   });
   if (Object.values(predicateResults).some((predicate) => predicate.status !== "PASS")) {
     throw new Error("recomputed semantic predicate verification did not pass");
   }
+  assertCapturedTrustGraph(manifest, {
+    authenticatedUser,
+    deviceIdentity,
+    deviceAuthentication,
+    session,
+    presentationBytes: presentation,
+    semanticVerification,
+    result,
+    resultBytes: artifacts.result,
+    resultSignerKeyId,
+    predicateResults,
+    devicePredicateResults,
+  });
   assertSemanticResultMatches(result, semanticVerification);
   const semanticArtifact = parseArtifactJson(artifacts, "semantic_verification");
   assertSemanticVerificationArtifact(semanticArtifact, {

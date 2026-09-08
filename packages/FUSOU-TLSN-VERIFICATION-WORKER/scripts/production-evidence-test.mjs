@@ -9,6 +9,10 @@ import {
   createProductionEvidenceItem,
   PRODUCTION_EVIDENCE_REQUIREMENTS,
   assertProductionEvidenceManifest,
+  assertTrustGraph,
+  assertTrustGraphNodeIdentities,
+  assertVerifiedTrustGraph,
+  PRODUCTION_EVIDENCE_TRUST_GRAPH_NODE_DEFINITIONS,
 } from "./production-evidence-contract.mjs";
 import {
   artifactDescriptor,
@@ -32,8 +36,11 @@ import {
   consumeReceiptSigningBytes,
   sessionReceiptSigningBytes,
   tlsnDeviceProofSigningBytes,
+  verifyConsumeReceipt,
+  verifySessionReceipt,
   verifyDevicePredicates,
 } from "./device-evidence.mjs";
+import { BindingAuthority, EvidenceSigner, ResultSigner, SessionAuthority } from "./authority-signers.mjs";
 
 const now = new Date();
 const nowIso = now.toISOString();
@@ -90,6 +97,10 @@ const resultKeyRegistry = {
     not_after: null,
   }],
 };
+const resultKeyRegistryRaw = JSON.stringify(resultKeyRegistry);
+const resultKeyRegistrySha256 = sha256Base64Url(Buffer.from(resultKeyRegistryRaw));
+const trustRootBytes = Buffer.from("test-trust-root");
+deploymentIdentity.trust_root_certificate_sha256 = sha256Base64Url(trustRootBytes);
 const sessionId = "123e4567-e89b-42d3-a456-426614174000";
 const bindingNonce = Buffer.alloc(32, 3);
 const bindingValue = Buffer.concat([
@@ -154,7 +165,7 @@ const manifest = blockedProductionEvidenceManifest({
   resultIdentity: {
     result_public_key_spki: resultPublicKeySpki,
     result_signer_key_id: "result-2026",
-    result_key_registry_sha256: "E".repeat(43),
+    result_key_registry_sha256: resultKeyRegistrySha256,
   },
   subjectIdentity,
   captureProvenance: "production",
@@ -163,6 +174,12 @@ manifest.artifacts = {
   presentation: { ...artifactDescriptor(presentationBytes, { mediaType: "application/tlsn-presentation" }), path: "presentation.bin" },
   result: { ...artifactDescriptor(resultBytes, { mediaType: "application/json" }), path: "result.json" },
 };
+const fixtureArtifacts = { presentation: presentationBytes, result: resultBytes };
+for (const artifactName of ["authenticated_user", "device_identity", "device_authentication", "session", "consume_receipt", "semantic_verification", "notary_registry", "health"]) {
+  const bytes = Buffer.from(`fixture-${artifactName}`);
+  fixtureArtifacts[artifactName] = bytes;
+  manifest.artifacts[artifactName] = { ...artifactDescriptor(bytes), path: `${artifactName}.bin` };
+}
 manifest.evidence = Object.fromEntries(PRODUCTION_EVIDENCE_REQUIREMENTS.map((name) => [
   name,
   createProductionEvidenceItem(name, {
@@ -194,7 +211,7 @@ assertSignedProductionEvidenceManifest(signedManifest, {
   now,
 });
 assertNoSyntheticEvidence(signedManifest);
-assertProductionEvidenceArtifacts(signedManifest, { presentation: presentationBytes, result: resultBytes });
+assertProductionEvidenceArtifacts(signedManifest, fixtureArtifacts);
 assertSignedResult(result, {
   publicKeySpki: resultPublicKeySpki,
   keyRegistry: resultKeyRegistry,
@@ -231,7 +248,7 @@ const trustedInputs = {
   trust_root_certificate_sha256: deploymentIdentity.trust_root_certificate_sha256,
   result_public_key_spki: resultPublicKeySpki,
   result_signer_key_id: "result-2026",
-  result_key_registry_sha256: "E".repeat(43),
+  result_key_registry_sha256: resultKeyRegistrySha256,
 };
 const notaryRegistry = { [result.notary_key_id]: notaryKey.toString("base64url") };
 const predicateResults = verifySemanticPredicates({
@@ -243,6 +260,8 @@ const predicateResults = verifySemanticPredicates({
   resultRegistry: resultKeyRegistry,
   resultPublicKeySpki,
   resultSignerKeyId: "result-2026",
+  resultRegistrySha256: resultKeyRegistrySha256,
+  trustRootCertificateBytes: trustRootBytes,
   verifiedAt: nowIso,
 });
 assert.ok(Object.values(predicateResults).every((predicate) => predicate.status === "PASS"), JSON.stringify(predicateResults));
@@ -252,8 +271,10 @@ const predicateContext = {
   trustedInputs,
   notaryRegistry,
   resultRegistry: resultKeyRegistry,
+  resultRegistrySha256: resultKeyRegistrySha256,
   resultPublicKeySpki,
   resultSignerKeyId: "result-2026",
+  trustRootCertificateBytes: trustRootBytes,
   verifiedAt: nowIso,
 };
 function predicateMutation(overrides) {
@@ -431,6 +452,45 @@ const consumeReceipt = {
   used_at: nowIso,
 };
 consumeReceipt.signature = sign(null, consumeReceiptSigningBytes(consumeReceipt), bindingAuthorityPrivateKey).toString("base64url");
+const sessionAuthoritySigner = new SessionAuthority({
+  keyId: sessionReceipt.signer_key_id,
+  privateKeyPkcs8: sessionAuthorityPrivateKey.export({ format: "der", type: "pkcs8" }).toString("base64url"),
+  publicKeySpki: sessionAuthorityPublicKeySpki,
+});
+const bindingAuthoritySigner = new BindingAuthority({
+  keyId: consumeReceipt.signer_key_id,
+  privateKeyPkcs8: bindingAuthorityPrivateKey.export({ format: "der", type: "pkcs8" }).toString("base64url"),
+  publicKeySpki: bindingAuthorityPublicKeySpki,
+});
+const resultSigner = new ResultSigner({
+  keyId: "result-2026",
+  privateKeyPkcs8: resultPrivateKey.export({ format: "der", type: "pkcs8" }).toString("base64url"),
+  publicKeySpki: resultPublicKeySpki,
+});
+const evidenceSigner = new EvidenceSigner({
+  keyId: "production-evidence-2026",
+  privateKeyPkcs8: manifestPrivateKeyPkcs8,
+  publicKeySpki: manifestPublicKeySpki,
+});
+const roleSessionReceipt = sessionAuthoritySigner.signSessionReceipt({ ...sessionReceipt, signature: undefined });
+const roleConsumeReceipt = bindingAuthoritySigner.signConsumeReceipt({ ...consumeReceipt, signature: undefined });
+assert.equal(roleSessionReceipt.signature, sessionReceipt.signature);
+assert.equal(roleConsumeReceipt.signature, consumeReceipt.signature);
+assertSignedResult(resultSigner.signResult(unsignedTestResult), {
+  publicKeySpki: resultPublicKeySpki,
+  keyRegistry: resultKeyRegistry,
+  signerKeyId: "result-2026",
+  now,
+});
+assertSignedProductionEvidenceManifest(evidenceSigner.signManifest(manifest), {
+  expectedSignerKeyId: "production-evidence-2026",
+  expectedSignerPublicKeySpki: manifestPublicKeySpki,
+  expectedWorkflowContext: workflowContext,
+  expectedDeploymentIdentity: deploymentIdentity,
+  expectedSecurityIdentity: securityIdentity,
+  expectedResultIdentity: manifest.result_identity,
+  now,
+});
 const replay = {
   session_id: session.session_id,
   device_id: session.device_id,
@@ -450,6 +510,8 @@ const devicePredicateContext = {
   consumeReceipt,
   replay,
   result,
+  authoritativeUserId: result.canonical_user_id,
+  authoritativeDeviceId: result.device_id,
   presentationBytes,
   resultPublicKeySpki,
   resultSignerKeyId: "result-2026",
@@ -463,6 +525,67 @@ const devicePredicateContext = {
 };
 const devicePredicateResults = verifyDevicePredicates(devicePredicateContext);
 assert.ok(Object.values(devicePredicateResults).every((predicate) => predicate.status === "PASS"), JSON.stringify(devicePredicateResults));
+const graphIdentities = {
+  "authenticated-user": { user_id: result.canonical_user_id },
+  device: { user_id: result.canonical_user_id, device_id: result.device_id, public_key_sha256: deviceIdentity.device_public_key_sha256 },
+  "device-authentication": { device_id: result.device_id, nonce: deviceAuthentication.request.nonce },
+  session: { session_id: sessionId, key_id: sessionReceipt.signer_key_id },
+  binding: { binding_sha256: sha256Base64Url(bindingValue), nonce_sha256: sha256Base64Url(bindingNonce) },
+  presentation: { presentation_sha256: sha256Base64Url(presentationBytes), attestation_id: result.tlsn_attestation_id },
+  "member-id": { verified_member_id: result.verified_member_id, response_transcript_sha256: result.response_transcript_sha256 },
+  "tlsn-notary": { key_id: result.notary_key_id },
+  result: { result_sha256: sha256Base64Url(resultBytes), key_id: result.signer_key_id ?? "result-2026" },
+  "production-evidence": { capture_id: manifest.capture_id },
+  "remote-attestation": { status: "UNVERIFIED" },
+};
+const graphArtifactByNode = {
+  "authenticated-user": "authenticated_user",
+  device: "device_identity",
+  "device-authentication": "device_authentication",
+  session: "session",
+  binding: "consume_receipt",
+  presentation: "presentation",
+  "member-id": "semantic_verification",
+  "tlsn-notary": "notary_registry",
+  result: "result",
+  "production-evidence": "health",
+  "remote-attestation": "health",
+};
+const verifiedGraph = {
+  ...manifest.trust_graph,
+  nodes: PRODUCTION_EVIDENCE_TRUST_GRAPH_NODE_DEFINITIONS.map(({ id, type, authority }) => ({
+    id,
+    type,
+    authority,
+    identity: graphIdentities[id],
+    evidence_artifact: graphArtifactByNode[id],
+  })),
+};
+assertTrustGraph(verifiedGraph, { artifactNames: new Set(Object.keys(manifest.artifacts)) });
+assertTrustGraphNodeIdentities(verifiedGraph, graphIdentities);
+assertVerifiedTrustGraph(verifiedGraph, {
+  ...predicateResults,
+  ...devicePredicateResults,
+  remote_attestation_unverified: { status: "UNVERIFIED" },
+});
+for (const [nodeId, identities] of Object.entries(graphIdentities)) {
+  for (const field of Object.keys(identities)) {
+    const poisoned = structuredClone(verifiedGraph);
+    poisoned.nodes.find((node) => node.id === nodeId).identity[field] = "poisoned-root";
+    assert.throws(() => assertTrustGraphNodeIdentities(poisoned, graphIdentities), `${nodeId} root poisoning`);
+  }
+}
+assert.throws(() => assertTrustGraph({ ...verifiedGraph, edges: verifiedGraph.edges.slice(1) }), "missing trust graph edge");
+assert.throws(() => assertTrustGraph({ ...verifiedGraph, edges: [...verifiedGraph.edges, verifiedGraph.edges[0]] }), "extra trust graph edge");
+const wrongAuthorityGraph = structuredClone(verifiedGraph);
+wrongAuthorityGraph.edges[0].authority = "fusou-tlsn-result-signer";
+assert.throws(() => assertTrustGraph(wrongAuthorityGraph), "wrong trust graph edge authority");
+const wrongEndpointGraph = structuredClone(verifiedGraph);
+wrongEndpointGraph.edges[0].target = "result";
+assert.throws(() => assertTrustGraph(wrongEndpointGraph), "wrong trust graph edge endpoint");
+const wrongPredicateGraph = structuredClone(verifiedGraph);
+wrongPredicateGraph.edges[0].verification_predicate = "result_signature";
+assert.throws(() => assertTrustGraph(wrongPredicateGraph), "wrong trust graph predicate pair");
 function devicePredicateMutation(label, overrides, predicateNames) {
   assertPredicateFailed(label, verifyDevicePredicates({ ...devicePredicateContext, ...overrides }), predicateNames);
 }
@@ -519,9 +642,46 @@ devicePredicateMutation("Session key cannot forge Binding Authority receipt", {
 devicePredicateMutation("Binding registry substitution", {
   bindingAuthorityKeyRegistry: sessionAuthorityKeyRegistry,
 }, ["consume_receipt"]);
+devicePredicateMutation("Session registry substitution", {
+  sessionAuthorityKeyRegistry: bindingAuthorityKeyRegistry,
+}, ["session_binding_receipt"]);
 devicePredicateMutation("consume receipt signature mutation", {
   consumeReceipt: { ...consumeReceipt, signature: mutateBase64Url(consumeReceipt.signature) },
 }, ["consume_receipt"]);
+assert.throws(() => assertSignedResult({ ...result, signature: signedManifest.manifest_signature_base64url }, {
+  publicKeySpki: resultPublicKeySpki,
+  keyRegistry: resultKeyRegistry,
+  signerKeyId: "result-2026",
+  now,
+}), "Evidence signer cannot forge Result");
+assert.throws(() => verifySessionReceipt({ ...sessionReceipt, signature: signedManifest.manifest_signature_base64url }, {
+  session_id: session.session_id,
+  canonical_user_id: result.canonical_user_id,
+  device_id: result.device_id,
+  device_auth_nonce: deviceAuthNonce,
+  nonce: session.challenge,
+  device_challenge: session.device_challenge,
+  binding_value: session.binding,
+  created_at: sessionReceipt.created_at,
+  expires_at: sessionReceipt.expires_at,
+}, {
+  publicKeySpki: sessionAuthorityPublicKeySpki,
+  signerKeyId: sessionReceipt.signer_key_id,
+  keyRegistry: sessionAuthorityKeyRegistry,
+}), "Evidence signer cannot forge Session Authority receipt");
+assert.throws(() => verifyConsumeReceipt({ ...consumeReceipt, signature: signedManifest.manifest_signature_base64url }, {
+  session_id: session.session_id,
+  canonical_user_id: result.canonical_user_id,
+  device_id: result.device_id,
+  nonce: session.challenge,
+  binding_value: session.binding,
+  presentation_id: consumeReceipt.presentation_id,
+  used_at: consumeReceipt.used_at,
+}, {
+  publicKeySpki: bindingAuthorityPublicKeySpki,
+  signerKeyId: consumeReceipt.signer_key_id,
+  keyRegistry: bindingAuthorityKeyRegistry,
+}), "Evidence signer cannot forge Binding Authority receipt");
 devicePredicateMutation("replay response mutation", {
   replay: { ...replay, status: 200 },
 }, ["replay_digest"]);
