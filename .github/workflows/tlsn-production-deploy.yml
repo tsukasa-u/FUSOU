@@ -14,6 +14,10 @@ jobs:
     env:
       TLSN_ENVIRONMENT: production
       TLSN_GIT_COMMIT_SHA: ${{ github.sha }}
+      TLSN_WORKFLOW_RUN_ID: ${{ github.run_id }}
+      TLSN_WORKFLOW_RUN_ATTEMPT: ${{ github.run_attempt }}
+      TLSN_REPOSITORY: ${{ github.repository }}
+      TLSN_WORKFLOW_FILE_IDENTITY: ${{ github.workflow_ref }}
       TLSN_BINDING_TTL_SECONDS: ${{ vars.TLSN_BINDING_TTL_SECONDS }}
       TLSN_CANDIDATE_SERVER_IDENTITY: ${{ vars.TLSN_CANDIDATE_SERVER_IDENTITY }}
       TLSN_CANDIDATE_PROFILE_SHA256: ${{ vars.TLSN_CANDIDATE_PROFILE_SHA256 }}
@@ -107,9 +111,14 @@ jobs:
       TLSN_REMOTE_EXPECTED_MEMBER_ID: ${{ vars.TLSN_REMOTE_EXPECTED_MEMBER_ID }}
       TLSN_REMOTE_RUN_REVOCATION: "true"
       TLSN_REMOTE_RUN_EXPIRY: "true"
-      TLSN_REMOTE_ALLOW_DECLARED_BLOCKED: "true"
       TLSN_REMOTE_EXPECTED_PROVENANCE_JSON: ${{ github.workspace }}/packages/FUSOU-TLSN-VERIFICATION-WORKER/artifacts/tlsn-canary-provenance.json
       TLSN_REMOTE_REPORT_PATH: ${{ github.workspace }}/packages/FUSOU-TLSN-VERIFICATION-WORKER/artifacts/tlsn-remote-validation.json
+      TLSN_REMOTE_ATTESTATION_OUTPUT_PATH: ${{ github.workspace }}/packages/FUSOU-TLSN-VERIFICATION-WORKER/artifacts/tlsn-remote-validation-attestation.json
+      TLSN_WORKFLOW_RUN_ID: ${{ github.run_id }}
+      TLSN_WORKFLOW_RUN_ATTEMPT: ${{ github.run_attempt }}
+      TLSN_GIT_COMMIT_SHA: ${{ github.sha }}
+      TLSN_REPOSITORY: ${{ github.repository }}
+      TLSN_WORKFLOW_FILE_IDENTITY: ${{ github.workflow_ref }}
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -156,6 +165,9 @@ jobs:
           fi
           pnpm --filter fusou-tlsn-verification-worker run validate:remote
 
+      - name: Verify remote gate and create attestation
+        run: pnpm --filter fusou-tlsn-verification-worker run verify:remote-gate
+
       - name: Upload remote validation evidence
         if: ${{ always() }}
         uses: actions/upload-artifact@v4
@@ -165,6 +177,7 @@ jobs:
           path: |
             packages/FUSOU-TLSN-VERIFICATION-WORKER/artifacts/tlsn-canary-provenance.json
             packages/FUSOU-TLSN-VERIFICATION-WORKER/artifacts/tlsn-remote-validation.json
+            packages/FUSOU-TLSN-VERIFICATION-WORKER/artifacts/tlsn-remote-validation-attestation.json
 
   production:
     name: Deploy TLSN Production Worker
@@ -174,6 +187,10 @@ jobs:
     env:
       TLSN_ENVIRONMENT: production
       TLSN_GIT_COMMIT_SHA: ${{ github.sha }}
+      TLSN_WORKFLOW_RUN_ID: ${{ github.run_id }}
+      TLSN_WORKFLOW_RUN_ATTEMPT: ${{ github.run_attempt }}
+      TLSN_REPOSITORY: ${{ github.repository }}
+      TLSN_WORKFLOW_FILE_IDENTITY: ${{ github.workflow_ref }}
       TLSN_BINDING_TTL_SECONDS: ${{ vars.TLSN_BINDING_TTL_SECONDS }}
       TLSN_CANDIDATE_SERVER_IDENTITY: ${{ vars.TLSN_CANDIDATE_SERVER_IDENTITY }}
       TLSN_CANDIDATE_PROFILE_SHA256: ${{ vars.TLSN_CANDIDATE_PROFILE_SHA256 }}
@@ -199,6 +216,9 @@ jobs:
       TLSN_REMOTE_EXPECTED_PROVENANCE_JSON: ${{ github.workspace }}/packages/FUSOU-TLSN-VERIFICATION-WORKER/artifacts/tlsn-canary-provenance.json
       TLSN_REMOTE_REPORT_PATH: ${{ github.workspace }}/packages/FUSOU-TLSN-VERIFICATION-WORKER/artifacts/tlsn-remote-validation.json
       TLSN_REMOTE_VALIDATION_REPORT_PATH: ${{ github.workspace }}/packages/FUSOU-TLSN-VERIFICATION-WORKER/artifacts/tlsn-remote-validation.json
+      TLSN_REMOTE_ATTESTATION_PATH: ${{ github.workspace }}/packages/FUSOU-TLSN-VERIFICATION-WORKER/artifacts/tlsn-remote-validation-attestation.json
+      TLSN_PREVIOUS_CHANGE_REPORT_PATH: ${{ github.workspace }}/packages/FUSOU-TLSN-VERIFICATION-WORKER/artifacts/tlsn-previous-identity-check.json
+      TLSN_EXPECTED_PREVIOUS_IDENTITY_CHANGES: ${{ vars.TLSN_EXPECTED_PREVIOUS_IDENTITY_CHANGES }}
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -250,5 +270,6 @@ jobs:
             packages/FUSOU-TLSN-VERIFICATION-WORKER/artifacts/tlsn-*-preflight.json
             packages/FUSOU-TLSN-VERIFICATION-WORKER/artifacts/tlsn-*-provenance.json
             packages/FUSOU-TLSN-VERIFICATION-WORKER/artifacts/tlsn-previous-provenance.json
+            packages/FUSOU-TLSN-VERIFICATION-WORKER/artifacts/tlsn-previous-identity-check.json
             packages/FUSOU-TLSN-VERIFICATION-WORKER/artifacts/tlsn-remote-validation.json
             packages/FUSOU-TLSN-VERIFICATION-WORKER/src/wasm/**

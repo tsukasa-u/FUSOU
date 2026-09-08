@@ -45,6 +45,7 @@ async function main() {
   const manifest = {
     schema_version: 2,
     scope: "previous-known-good-deployment",
+    status: "PASS",
     captured_at: new Date().toISOString(),
     worker_origin: origin,
     deployment_role: health.deployment_role,

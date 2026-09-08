@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import assert from "node:assert/strict";
-import { createHash, createPrivateKey, createPublicKey, sign, verify } from "node:crypto";
+import { createHash, createPrivateKey, createPublicKey, randomUUID, sign, verify } from "node:crypto";
     if (!replayOrigin || replayOrigin === workerOrigin) {
       blocked(
         checks,
@@ -40,6 +40,11 @@ import { createHash, createPrivateKey, createPublicKey, sign, verify } from "nod
 
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
+import {
+  assertCheckoutCommit,
+  assertProvenanceEvidence,
+  workflowContextFromEnvironment,
+} from "./deployment-attestation.mjs";
 
 const packageDirectory = resolve(new URL("..", import.meta.url).pathname);
 const DEFAULT_SAMPLE_COUNT = 100;
@@ -67,6 +72,14 @@ function required(name) {
 function optional(name) {
   const value = process.env[name]?.trim();
   return value || undefined;
+}
+
+function parseBoolean(name, fallback = false) {
+  const value = optional(name);
+  if (!value) return fallback;
+  if (value === "1" || value.toLowerCase() === "true") return true;
+  if (value === "0" || value.toLowerCase() === "false") return false;
+  throw new Error(`${name} must be true or false`);
 }
 
 async function loadExpectedProvenance() {
@@ -103,14 +116,6 @@ function parseInteger(name, fallback, minimum, maximum) {
     throw new Error(`${name} must be an integer between ${minimum} and ${maximum}`);
   }
   return value;
-}
-
-function parseBoolean(name, fallback = false) {
-  const value = optional(name);
-  if (!value) return fallback;
-  if (value === "1" || value.toLowerCase() === "true") return true;
-  if (value === "0" || value.toLowerCase() === "false") return false;
-  throw new Error(`${name} must be true or false`);
 }
 
 function requireOrigin(name) {
@@ -475,7 +480,10 @@ async function scanLogExport(checks, secrets) {
 }
 
 async function main() {
+  const workflowContext = workflowContextFromEnvironment(process.env, "canary");
+  assertCheckoutCommit(workflowContext, packageDirectory);
   const expectedProvenance = await loadExpectedProvenance();
+  assertProvenanceEvidence(expectedProvenance, workflowContext, "canary");
   const workerOrigin = requireOrigin("TLSN_REMOTE_WORKER_URL");
   const benchmarkOrigin = optional("TLSN_REMOTE_SESSION_BENCHMARK_URL")
     ? requireOrigin("TLSN_REMOTE_SESSION_BENCHMARK_URL")
@@ -517,9 +525,15 @@ async function main() {
   );
   const checks = {};
   const metrics = {};
+  const validationStartedAt = new Date().toISOString();
   const report = {
-    schema_version: 1,
-    generated_at: new Date().toISOString(),
+    schema_version: 2,
+    generated_at: validationStartedAt,
+    created_at: validationStartedAt,
+    validation_started_at: validationStartedAt,
+    validation_finished_at: null,
+    validation_id: randomUUID(),
+    ...workflowContext,
     scope: "remote-deployed-synthetic",
     worker_origin: workerOrigin,
     benchmark_origin: benchmarkOrigin ?? null,
@@ -1015,10 +1029,10 @@ async function main() {
     fail: statusValues.filter((status) => status === "FAIL").length,
     blocked: statusValues.filter((status) => status === "BLOCKED").length,
   };
-  const declaredBlockedChecks = new Set(["production_evidence", "p0_05"]);
+  report.validation_finished_at = new Date().toISOString();
   const blockingBlockedCount = Object.entries(checks).filter(([name, entry]) => (
     entry.status === "BLOCKED" &&
-    !(parseBoolean("TLSN_REMOTE_ALLOW_DECLARED_BLOCKED") && declaredBlockedChecks.has(name))
+    !new Set(["production_evidence", "p0_05"]).has(name)
   )).length;
   report.summary.blocking_blocked = blockingBlockedCount;
   const reportPath = optional("TLSN_REMOTE_REPORT_PATH") ?? DEFAULT_REPORT_PATH;

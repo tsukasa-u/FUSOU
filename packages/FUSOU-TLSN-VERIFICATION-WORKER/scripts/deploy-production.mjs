@@ -11,6 +11,7 @@ import {
   inputsForRole,
   RUNTIME_INPUTS,
   secretInputsForRole,
+  WORKFLOW_EVIDENCE_INPUTS,
 } from "./deployment-contract.mjs";
 
 const packageDirectory = resolve(new URL("..", import.meta.url).pathname);
@@ -62,8 +63,10 @@ async function main() {
   }
   requiredEnvironment("TLSN_CAPTURE_WORKER_URL");
   requiredEnvironment("TLSN_PREVIOUS_PROVENANCE_PATH");
+  requiredEnvironment("TLSN_PREVIOUS_CHANGE_REPORT_PATH");
   requiredEnvironment("TLSN_VERIFY_WORKER_URL");
   const remoteReportPath = requiredEnvironment("TLSN_REMOTE_REPORT_PATH");
+  requiredEnvironment("TLSN_REMOTE_ATTESTATION_PATH");
   const productionOrigin = new URL(process.env.TLSN_VERIFY_WORKER_URL).origin;
   const captureOrigin = new URL(process.env.TLSN_CAPTURE_WORKER_URL).origin;
   const remoteOrigin = new URL(requiredEnvironment("TLSN_REMOTE_WORKER_URL")).origin;
@@ -78,6 +81,7 @@ async function main() {
     ...allowedInputs,
     ...secretInputs,
     ...inheritedRuntimeInputs,
+    ...WORKFLOW_EVIDENCE_INPUTS,
     "TLSN_PREFLIGHT_REPORT_PATH",
     "TLSN_PROVENANCE_REPORT_PATH",
   ]);
@@ -130,7 +134,12 @@ async function main() {
     return;
   }
   const remoteValidationEnvironment = Object.fromEntries(
-    Object.entries(deploymentEnvironment).filter(([name]) => inheritedRuntimeInputs.includes(name) || name.startsWith("TLSN_REMOTE_")),
+    Object.entries(deploymentEnvironment).filter(([name]) => (
+      inheritedRuntimeInputs.includes(name) ||
+      WORKFLOW_EVIDENCE_INPUTS.includes(name) ||
+      name === "TLSN_GIT_COMMIT_SHA" ||
+      name.startsWith("TLSN_REMOTE_")
+    )),
   );
   const remoteGate = spawnSync(process.execPath, ["scripts/verify-remote-gate.mjs"], {
     cwd: packageDirectory,
@@ -143,6 +152,19 @@ async function main() {
   if (remoteGate.error) throw remoteGate.error;
   if (remoteGate.status !== 0) {
     process.exitCode = remoteGate.status ?? 1;
+    return;
+  }
+  const previousChange = spawnSync(process.execPath, ["scripts/verify-previous-deployment.mjs"], {
+    cwd: packageDirectory,
+    env: {
+      ...deploymentEnvironment,
+      TLSN_PROVENANCE_REPORT_PATH: deploymentEnvironment.TLSN_PROVENANCE_REPORT_PATH,
+    },
+    stdio: "inherit",
+  });
+  if (previousChange.error) throw previousChange.error;
+  if (previousChange.status !== 0) {
+    process.exitCode = previousChange.status ?? 1;
     return;
   }
   const childEnvironment = Object.fromEntries(

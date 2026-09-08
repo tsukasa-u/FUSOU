@@ -17,6 +17,13 @@ export const COMMON_INPUTS = [
   "TLSN_SECURITY_REGISTRY_SET_SHA256",
 ];
 
+export const WORKFLOW_EVIDENCE_INPUTS = [
+  "TLSN_WORKFLOW_RUN_ID",
+  "TLSN_WORKFLOW_RUN_ATTEMPT",
+  "TLSN_REPOSITORY",
+  "TLSN_WORKFLOW_FILE_IDENTITY",
+];
+
 export const CANARY_INPUTS = [
   "TLSN_CANARY_DEPLOYMENT_ID",
   "TLSN_CANARY_RESULT_PUBLIC_KEY_SPKI",
@@ -107,7 +114,8 @@ export function assertManifest(manifest) {
     !same(manifest.canary_inputs, CANARY_INPUTS) ||
     !same(manifest.production_inputs, PRODUCTION_INPUTS) ||
     !same(manifest.canary_secret_inputs, CANARY_SECRET_INPUTS) ||
-    !same(manifest.production_secret_inputs, PRODUCTION_SECRET_INPUTS)
+    !same(manifest.production_secret_inputs, PRODUCTION_SECRET_INPUTS) ||
+    !same(manifest.workflow_evidence_inputs, WORKFLOW_EVIDENCE_INPUTS)
   ) {
     throw new Error("production input manifest is invalid");
   }

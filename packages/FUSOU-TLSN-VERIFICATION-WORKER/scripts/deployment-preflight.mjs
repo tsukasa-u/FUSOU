@@ -7,10 +7,12 @@ import {
   CANARY_INPUTS,
   COMMON_INPUTS,
   PRODUCTION_INPUTS,
+  WORKFLOW_EVIDENCE_INPUTS,
   SECURITY_IDENTITY_FIELDS,
   secretInputsForRole,
   inputsForRole,
 } from "./deployment-contract.mjs";
+import { checkoutCommit, workflowContextFromEnvironment } from "./deployment-attestation.mjs";
 
 const packageDirectory = resolve(new URL("..", import.meta.url).pathname);
 const DEFAULT_REPORT_PATH = resolve(packageDirectory, "artifacts/tlsn-deployment-preflight.json");
@@ -97,6 +99,7 @@ async function main() {
     inputManifest = {};
   }
   const commonInputs = Array.isArray(inputManifest.common_inputs) ? inputManifest.common_inputs : [];
+  const workflowEvidenceInputs = Array.isArray(inputManifest.workflow_evidence_inputs) ? inputManifest.workflow_evidence_inputs : [];
   const canaryInputs = Array.isArray(inputManifest.canary_inputs) ? inputManifest.canary_inputs : [];
   const productionInputs = Array.isArray(inputManifest.production_inputs) ? inputManifest.production_inputs : [];
   const canarySecrets = Array.isArray(inputManifest.canary_secret_inputs) ? inputManifest.canary_secret_inputs : [];
@@ -105,6 +108,7 @@ async function main() {
     inputManifest.schema_version !== 2 ||
     inputManifest.scope !== "tlsn-deployment-inputs" ||
     JSON.stringify(commonInputs) !== JSON.stringify(COMMON_INPUTS) ||
+    JSON.stringify(workflowEvidenceInputs) !== JSON.stringify(WORKFLOW_EVIDENCE_INPUTS) ||
     JSON.stringify(canaryInputs) !== JSON.stringify(CANARY_INPUTS) ||
     JSON.stringify(productionInputs) !== JSON.stringify(PRODUCTION_INPUTS) ||
     JSON.stringify(canarySecrets) !== JSON.stringify(["TLSN_CANARY_SIGNING_PRIVATE_KEY_PKCS8", "TLSN_CANARY_TRUST_ROOT_CERTIFICATE_DER"]) ||
@@ -114,7 +118,7 @@ async function main() {
   }
   const roleInputs = ROLE_PATTERN.test(role ?? "") ? inputsForRole(role) : [];
   const secretInputs = ROLE_PATTERN.test(role ?? "") ? secretInputsForRole(role) : [];
-  const requiredInputs = [...roleInputs, ...secretInputs];
+  const requiredInputs = [...roleInputs, ...secretInputs, ...WORKFLOW_EVIDENCE_INPUTS];
   if (value("TLSN_ENVIRONMENT") !== "production") {
     addFailure(failures, "TLSN_ENVIRONMENT", "must be exactly production");
   }
@@ -123,6 +127,20 @@ async function main() {
   }
   if (!GIT_COMMIT_PATTERN.test(value("TLSN_GIT_COMMIT_SHA") ?? "")) {
     addFailure(failures, "TLSN_GIT_COMMIT_SHA", "must be a 40-character git commit SHA");
+  } else {
+    try {
+      if (checkoutCommit(packageDirectory) !== value("TLSN_GIT_COMMIT_SHA")?.toLowerCase()) {
+        addFailure(failures, "TLSN_GIT_COMMIT_SHA", "must match the checked-out HEAD");
+      }
+    } catch {
+      addFailure(failures, "TLSN_GIT_COMMIT_SHA", "checked-out HEAD could not be read");
+    }
+  }
+  let workflowContext;
+  try {
+    workflowContext = workflowContextFromEnvironment(process.env, role);
+  } catch (error) {
+    addFailure(failures, "workflow_evidence", error instanceof Error ? error.message : String(error));
   }
   if (role === "canary" && !/^[A-Za-z0-9_-]{1,512}$/.test(value("TLSN_CANARY_BINDING_VALUE") ?? "")) {
     addFailure(failures, "TLSN_CANARY_BINDING_VALUE", "canary role requires a fixed synthetic binding value");
@@ -210,6 +228,7 @@ async function main() {
     schema_version: 2,
     scope: "tlsn-deployment-provenance",
     generated_at: new Date().toISOString(),
+    created_at: new Date().toISOString(),
     status: report.status,
     environment: "production",
     deployment_role: role ?? null,
@@ -237,6 +256,14 @@ async function main() {
     device_endpoint_hosts: [...deviceHosts].sort(),
     supabase_endpoint_hosts: [...supabaseHosts].sort(),
     allowed_input_manifest: "scripts/production-inputs.json",
+    ...(workflowContext ?? {
+      workflow_run_id: value("TLSN_WORKFLOW_RUN_ID") ?? null,
+      workflow_run_attempt: value("TLSN_WORKFLOW_RUN_ATTEMPT") ?? null,
+      git_commit_sha: value("TLSN_GIT_COMMIT_SHA") ?? null,
+      repository: value("TLSN_REPOSITORY") ?? null,
+      workflow_file_identity: value("TLSN_WORKFLOW_FILE_IDENTITY") ?? null,
+      deployment_role: role ?? null,
+    }),
   };
   await mkdir(dirname(reportPath), { recursive: true });
   await mkdir(dirname(provenancePath), { recursive: true });

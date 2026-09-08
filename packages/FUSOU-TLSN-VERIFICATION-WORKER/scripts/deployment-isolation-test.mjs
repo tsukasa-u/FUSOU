@@ -84,9 +84,22 @@ assert.match(workflow, /environment: tlsn-canary/);
 assert.match(workflow, /environment: tlsn-production/);
 assert.doesNotMatch(workflow, /environment: production/);
 const canaryJob = workflow.slice(workflow.indexOf("\n  canary:"), workflow.indexOf("\n  remote-validation:"));
+const remoteJob = workflow.slice(workflow.indexOf("\n  remote-validation:"), workflow.indexOf("\n  production:"));
 const productionJob = workflow.slice(workflow.indexOf("\n  production:"));
 assert.doesNotMatch(canaryJob, /TLSN_PRODUCTION_|PRODUCTION_SIGNING|PRODUCTION_TRUST/);
+assert.doesNotMatch(remoteJob, /TLSN_PRODUCTION_|PRODUCTION_SIGNING|PRODUCTION_TRUST/);
+assert.doesNotMatch(remoteJob, /TLSN_CANARY_SIGNING_PRIVATE_KEY_PKCS8|TLSN_CANARY_TRUST_ROOT_CERTIFICATE_DER/);
 assert.doesNotMatch(productionJob, /TLSN_CANARY_|CANARY_SIGNING|CANARY_TRUST/);
+assert.match(productionJob, /TLSN_PRODUCTION_SIGNING_PRIVATE_KEY_PKCS8/);
+assert.match(workflow, /remote-validation:\n\s+name:[\s\S]*?needs: canary/);
+assert.match(workflow, /production:\n\s+name:[\s\S]*?needs: remote-validation/);
+assert.match(remoteJob, /run: pnpm --filter fusou-tlsn-verification-worker run verify:remote-gate/);
+assert.match(remoteJob, /tlsn-remote-validation-attestation\.json/);
+assert.match(productionJob, /TLSN_REMOTE_ATTESTATION_PATH/);
+assert.doesNotMatch(workflow, /TLSN_REMOTE_ALLOW_DECLARED_BLOCKED/);
+for (const field of ["TLSN_WORKFLOW_RUN_ID", "TLSN_WORKFLOW_RUN_ATTEMPT", "TLSN_REPOSITORY", "TLSN_WORKFLOW_FILE_IDENTITY"]) {
+  assert.match(workflow, new RegExp(field));
+}
 assert.match(canaryWrapper, /wrangler", "deploy", "--env", "canary/);
 assert.match(productionWrapper, /wrangler", "deploy", "--env", "production/);
 
