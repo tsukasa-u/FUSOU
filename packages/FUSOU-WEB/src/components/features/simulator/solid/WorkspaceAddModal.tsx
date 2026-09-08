@@ -1,4 +1,5 @@
-/* @jsxImportSource solid-js */
+/** @jsxImportSource solid-js */
+import { FusouModal } from "@/components/common/solid/FusouModal";
 import { createSignal, createEffect } from "solid-js";
 import { useStore } from "@nanostores/solid";
 import { workspaceStore, addEntry, upsertEntry, type ViewerEntry } from "@/features/simulator/viewer-workspace";
@@ -115,17 +116,28 @@ export function WorkspaceAddModal() {
   };
 
   return (
-    <dialog id="workspace-add-modal" class="modal" ref={(el) => workspaceAddModalRef.current = el}>
-      <div class="modal-box rounded-xl">
-        <h3 class="font-bold text-lg mb-2">
-          {target() ? "ワークスペース項目の編集" : "ワークスペースに追加"}
-        </h3>
-        <p class="text-xs text-base-content/60 mb-4">
-          {target()
-            ? target()!.locked ? "ロック中の項目は編集できません。" : "表示名・メモ・共有URLを更新できます。保存するとこの項目へ切り替えます。"
-            : "共有URL（/share/short/xxxx or /share/data?data=...）を追加できます。URLを空欄のまま保存すると、現在の編成を自分のデッキとして追加します。"}
-        </p>
-
+    <FusouModal
+      id="workspace-add-modal"
+      ref={workspaceAddModalRef}
+      title={target() ? "ワークスペース項目の編集" : "ワークスペースに追加"}
+      description={target() ? (target()!.locked ? "ロック中の項目は編集できません。" : "表示名・メモ・共有URLを更新できます。保存するとこの項目へ切り替えます。") : "共有URL（/share/short/xxxx or /share/data?data=...）を追加できます。URLを空欄のまま保存すると、現在の編成を自分のデッキとして追加します。"}
+      backdropClick={() => setTarget(null)}
+      actions={
+        <>
+          <button
+            type="button"
+            class="fusou-btn-primary"
+            onClick={handleConfirm}
+            disabled={processing() || target()?.locked}
+          >
+            {target() ? "保存して切り替え" : "追加して切り替え"}
+          </button>
+          <form method="dialog">
+            <button class="fusou-btn-ghost" onClick={() => setTarget(null)}>キャンセル</button>
+          </form>
+        </>
+      }
+    >
         <div class="space-y-3 text-sm">
           <div class="form-control">
             <label class="label py-1"><span class="label-text">表示名（任意）</span></label>
@@ -167,23 +179,6 @@ export function WorkspaceAddModal() {
           </div>
         </div>
 
-        <div class="modal-action">
-          <button
-            type="button"
-            class="btn btn-primary btn-sm"
-            onClick={handleConfirm}
-            disabled={processing() || target()?.locked}
-          >
-            {target() ? "保存して切り替え" : "追加して切り替え"}
-          </button>
-          <form method="dialog">
-            <button class="btn btn-ghost btn-sm" onClick={() => setTarget(null)}>キャンセル</button>
-          </form>
-        </div>
-      </div>
-      <form method="dialog" class="modal-backdrop">
-        <button onClick={() => setTarget(null)}>close</button>
-      </form>
-    </dialog>
+        </FusouModal>
   );
 }

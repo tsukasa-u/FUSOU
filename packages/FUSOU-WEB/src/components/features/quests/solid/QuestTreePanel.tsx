@@ -230,13 +230,13 @@ export default function QuestTreePanel() {
       {/* View toggle */}
       <div class="flex gap-2">
         <button
-          class={`btn btn-sm ${viewMode() === "rules" ? "btn-primary" : "btn-ghost"}`}
+          class={viewMode() === "rules" ? "fusou-btn-primary" : "fusou-btn-ghost"}
           onClick={() => setViewMode("rules")}
         >
           条件ルール検索
         </button>
         <button
-          class={`btn btn-sm ${viewMode() === "graph" ? "btn-primary" : "btn-ghost"}`}
+          class={viewMode() === "graph" ? "fusou-btn-primary" : "fusou-btn-ghost"}
           onClick={() => {
             setViewMode("graph");
             if (!graphData()) fetchGraph();
@@ -252,8 +252,8 @@ export default function QuestTreePanel() {
 
       {/* Rules view */}
       <Show when={viewMode() === "rules"}>
-        <div class="card bg-base-100 shadow-sm">
-          <div class="card-body">
+        <div class="fusou-card">
+          <div class="fusou-card-body">
             <h2 class="card-title text-lg">クエスト達成条件ルール</h2>
             <p class="text-sm text-base-content/60">
               特定のクエストIDに対する、マイニングされた達成条件ルールを表示します。
@@ -274,7 +274,7 @@ export default function QuestTreePanel() {
                 />
               </div>
               <button
-                class="btn btn-primary btn-sm"
+                class="fusou-btn-primary"
                 disabled={loadingRules()}
                 onClick={fetchRules}
               >
@@ -289,8 +289,8 @@ export default function QuestTreePanel() {
 
         <Show when={rulesData()}>
           {(data) => (
-            <div class="card bg-base-100 shadow-sm">
-              <div class="card-body">
+            <div class="fusou-card">
+              <div class="fusou-card-body">
                 <h2 class="card-title text-lg">
                   クエスト {data().target} の達成条件
                   <span class="badge badge-neutral ml-2">
@@ -369,8 +369,8 @@ export default function QuestTreePanel() {
 
       {/* Graph view */}
       <Show when={viewMode() === "graph"}>
-        <div class="card bg-base-100 shadow-sm">
-          <div class="card-body">
+        <div class="fusou-card">
+          <div class="fusou-card-body">
             <h2 class="card-title text-lg">
               クエスト依存グラフ
               <Show when={graphData()}>

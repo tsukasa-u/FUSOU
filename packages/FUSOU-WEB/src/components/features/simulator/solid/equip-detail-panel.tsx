@@ -762,7 +762,7 @@ function EquipDetailPanel(props: {
           }
         >
           <section class="mb-8">
-            <h4 class="text-md font-medium mb-2">装備可能な艦</h4>
+            <h4 class="text-sm font-semibold text-base-content/80 mb-2">装備可能な艦</h4>
             <p class="text-xs text-base-content/55 mb-2">
               補強増設の装備条件は表示しています。改修値が必要な条件は「補強枠条件」に併記します。
             </p>
@@ -821,7 +821,7 @@ function EquipDetailPanel(props: {
 
           <div class="space-y-8">
             <section>
-            <h4 class="text-md font-medium mb-2">この装備のシナジー対象艦</h4>
+            <h4 class="text-sm font-semibold text-base-content/80 mb-2">この装備のシナジー対象艦</h4>
             <Show
               when={equipSynergyShips().length > 0}
               fallback={
@@ -992,7 +992,7 @@ function EquipDetailPanel(props: {
 
             </section>
             <section>
-            <h4 class="text-md font-medium mb-2">この装備の速力シナジー対象艦</h4>
+            <h4 class="text-sm font-semibold text-base-content/80 mb-2">この装備の速力シナジー対象艦</h4>
             <Show
               when={ready()}
               fallback={
@@ -1168,7 +1168,7 @@ function EquipDetailPanel(props: {
 
             </section>
             <section>
-            <h4 class="text-md font-medium mb-2">この装備の射程シナジー対象艦</h4>
+            <h4 class="text-sm font-semibold text-base-content/80 mb-2">この装備の射程シナジー対象艦</h4>
             <Show
               when={ready()}
               fallback={
@@ -1352,7 +1352,7 @@ function EquipDetailPanel(props: {
             }
           >
             <section>
-              <h4 class="text-md font-medium mb-2">この装備を含む多装備シナジー</h4>
+              <h4 class="text-sm font-semibold text-base-content/80 mb-2">この装備を含む多装備シナジー</h4>
               <p class="text-xs text-base-content/50 mb-2">
                 この装備が含まれる3・4装備の組み合わせ。ステータス種別ごとにグループ表示。
               </p>

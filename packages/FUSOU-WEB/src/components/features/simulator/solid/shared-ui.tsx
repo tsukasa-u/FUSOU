@@ -38,48 +38,8 @@ import { getMasterShip } from "@/features/simulator/simulator-selectors";
 import { STYPE_NAMES } from "@/features/simulator/constants";
 import type { MstSlotItemData, SlotUsageSummary } from "@/features/simulator/types";
 
-export function StatPill(props: {
-  label: string;
-  value: number | null | undefined;
-  tone: "fire" | "torpedo" | "aa" | "armor";
-  showLabel?: boolean;
-  hideLabelOnTiny?: boolean;
-}): JSX.Element {
-  const toneClass = () => {
-    switch (props.tone) {
-      case "fire":
-        return "border-rose-500/25 bg-rose-500/10 text-rose-700 dark:text-rose-300";
-      case "torpedo":
-        return "border-sky-500/25 bg-sky-500/10 text-sky-700 dark:text-sky-300";
-      case "aa":
-        return "border-orange-600/30 bg-orange-500/12 text-orange-800 dark:text-orange-200";
-      case "armor":
-        return "border-yellow-500/35 bg-yellow-400/12 text-yellow-800 dark:text-yellow-200";
-    }
-  };
-
-  const displayValue = () => {
-    if (props.value == null || props.value === 0) return null;
-    return `${props.value > 0 ? "+" : ""}${props.value}`;
-  };
-
-  return (
-    <Show when={displayValue()}>
-      {(value) => (
-        <span
-          class={`inline-flex items-center gap-0.5 rounded px-1 py-0.5 text-[10px] font-mono font-semibold leading-none whitespace-nowrap border ${toneClass()}`}
-          title={`${props.label} ${value()}`}
-        >
-          <Show when={props.showLabel ?? true}>
-            <span class={props.hideLabelOnTiny ? "max-[360px]:hidden" : undefined}>{props.label}</span>
-          </Show>
-          <span>{value()}</span>
-        </span>
-      )}
-    </Show>
-  );
-}
-
+export { StatPill } from "@/components/common/solid/StatPill";
+import { StatPill } from "@/components/common/solid/StatPill";
 // ── LazyRender ───────────────────────────────────────────────────────
 
 export function LazyRender(props: { children: JSX.Element }) {
@@ -102,7 +62,7 @@ export function LazyRender(props: { children: JSX.Element }) {
 
   return (
     <div ref={ref}>
-      <Show when={isVisible()} fallback={<div class="min-h-16 w-full" />}>
+      <Show when={isVisible()} fallback={<div class="min-h-16 w-full rounded-lg bg-base-200/40 animate-pulse" />}>
         {props.children}
       </Show>
     </div>

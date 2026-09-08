@@ -1,4 +1,5 @@
 /** @jsxImportSource solid-js */
+import { LoadingState } from "@/components/common/solid/LoadingState";
 
 /**
  * FleetListPanel — SolidJS component for the saved fleet list page.
@@ -81,7 +82,7 @@ function FleetListPanel(props: { accessToken: string | null }): JSX.Element {
           <tr>
             <td colspan={3} class="text-center py-12">
               <span class="loading loading-spinner loading-md"></span>
-              <p class="mt-2 text-base-content/40">読込中...</p>
+              <div class="mt-2"><LoadingState size="sm" message="編成を読込中..." /></div>
             </td>
           </tr>
         </Show>
@@ -118,13 +119,13 @@ function FleetListPanel(props: { accessToken: string | null }): JSX.Element {
                   <td class="flex gap-1">
                     <a
                       href={`/simulator?fleet=${encodeURIComponent(entry.tag)}`}
-                      class="btn btn-primary btn-xs btn-open-fleet"
+                      class="fusou-btn-xs-primary btn-open-fleet"
                     >
                       シミュレータで開く
                     </a>
                     <button
                       type="button"
-                      class="btn btn-ghost btn-xs btn-delete"
+                      class="fusou-btn-xs-ghost btn-delete"
                       data-tag={entry.tag}
                       onClick={() => handleDelete(entry.tag)}
                     >

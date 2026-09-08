@@ -1,4 +1,5 @@
-/* @jsxImportSource solid-js */
+/** @jsxImportSource solid-js */
+import { FusouModal } from "@/components/common/solid/FusouModal";
 import { createSignal, createEffect } from "solid-js";
 import { useStore } from "@nanostores/solid";
 import { simulatorDisplayRevision } from "@/features/simulator/state";
@@ -101,12 +102,16 @@ export function DisplaySettingsModal() {
   const close = () => displaySettingsModalRef.current?.close();
 
   return (
-    <dialog id="display-settings-modal" class="modal" ref={(el) => displaySettingsModalRef.current = el}>
-      <div class="modal-box rounded-xl">
-        <h3 class="font-bold text-lg mb-2">表示設定</h3>
-        <p class="text-xs text-base-content/60 mb-4">
-          艦隊と基地航空隊の表示を切り替えます。
-        </p>
+    <FusouModal
+      id="display-settings-modal"
+      ref={displaySettingsModalRef}
+      title="表示設定"
+      description="艦隊と基地航空隊の表示を切り替えます。"
+      maxWidth="md"
+      actions={
+        <button type="button" class="fusou-btn-primary" onClick={close}>閉じる</button>
+      }
+    >
         <div class="space-y-3 text-sm">
           <div class="grid grid-cols-2 gap-2">
             <label class="label cursor-pointer justify-start gap-2 py-0">
@@ -156,14 +161,7 @@ export function DisplaySettingsModal() {
             </select>
           </div>
         </div>
-        <div class="modal-action">
-          <button type="button" class="btn btn-primary btn-sm" onClick={close}>閉じる</button>
-        </div>
-      </div>
-      <form method="dialog" class="modal-backdrop">
-        <button>close</button>
-      </form>
-    </dialog>
+        </FusouModal>
   );
 }
 
@@ -192,9 +190,22 @@ export function SaveImageModal() {
   };
 
   return (
-    <dialog id="save-image-modal" class="modal" ref={(el) => saveImageModalRef.current = el}>
-      <div class="modal-box rounded-xl">
-        <h3 class="font-bold text-lg mb-4">画像保存設定</h3>
+    <FusouModal
+      id="save-image-modal"
+      ref={saveImageModalRef}
+      title="画像保存設定"
+      maxWidth="md"
+      actions={
+        <>
+          <button type="button" class="fusou-btn-primary" disabled={saving()} onClick={handleSave}>
+            {saving() ? "保存中..." : "PNGで保存"}
+          </button>
+          <form method="dialog">
+            <button class="fusou-btn-ghost" disabled={saving()}>キャンセル</button>
+          </form>
+        </>
+      }
+    >
         <div class="space-y-3 text-sm">
           <div class="form-control">
             <label class="label py-1"><span class="label-text">保存対象</span></label>
@@ -230,18 +241,6 @@ export function SaveImageModal() {
             <input type="text" class="input input-bordered input-sm" value={filename()} onInput={(e) => setFilename(e.currentTarget.value)} />
           </div>
         </div>
-        <div class="modal-action">
-          <button type="button" class="btn btn-primary btn-sm" disabled={saving()} onClick={handleSave}>
-            {saving() ? "保存中..." : "PNGで保存"}
-          </button>
-          <form method="dialog">
-            <button class="btn btn-ghost btn-sm" disabled={saving()}>キャンセル</button>
-          </form>
-        </div>
-      </div>
-      <form method="dialog" class="modal-backdrop">
-        <button disabled={saving()}>close</button>
-      </form>
-    </dialog>
+        </FusouModal>
   );
 }

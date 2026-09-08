@@ -1,4 +1,7 @@
 /** @jsxImportSource solid-js */
+import { FusouPageHeader } from "@/components/common/solid/FusouPageHeader";
+import { EmptyState } from "@/components/common/solid/EmptyState";
+import { LoadingState } from "@/components/common/solid/LoadingState";
 import {
   batch,
   createEffect,
@@ -1281,12 +1284,11 @@ export default function ShipGrowthPanel() {
 
   return (
     <div class="space-y-6">
-      <div class="fusou-page-header flex flex-col md:flex-row md:items-end gap-4 pb-0 mb-2 border-none">
-        <div class="flex-1">
-          <h1 class="fusou-page-title">パラメータ推移</h1>
-          <p class="fusou-page-subtitle">収集された経験値テーブルと naked パラメータ成長の可視化</p>
-        </div>
-        <div class="fusou-page-actions flex-wrap items-end">
+      <FusouPageHeader
+        class="pb-0 mb-2 border-none"
+        title="パラメータ推移"
+        subtitle="収集された経験値テーブルと naked パラメータ成長の可視化"
+        actions={<>
           <div class="form-control">
             <select
               class="select select-bordered select-sm min-w-40"
@@ -1328,7 +1330,7 @@ export default function ShipGrowthPanel() {
 
           <ShareUrlButton
             id="ship-growth-share-btn"
-            class="btn-outline"
+            class="fusou-btn-secondary"
             disabled={
               loadingPeriods() ||
               loadingShips() ||
@@ -1338,8 +1340,8 @@ export default function ShipGrowthPanel() {
             }
             onShare={() => issueShareUrl()}
           />
-        </div>
-      </div>
+        </>}
+      />
 
       <Show when={error()}>
         <AlertMessage type="error" class="mb-4">
@@ -1415,8 +1417,8 @@ export default function ShipGrowthPanel() {
         <div class="space-y-4">
           {/* Exp chart */}
           <Show when={expRows().length > 0}>
-            <div class="card bg-base-100 shadow-sm">
-              <div class="card-body">
+            <div class="fusou-card">
+              <div class="fusou-card-body">
                 <h2 class="card-title text-lg">経験値テーブル (累積)</h2>
                 <p class="text-sm text-base-content/60">
                   期間: {(expSourcePeriod() ?? selectedPeriod())?.period_tag} /
@@ -1442,8 +1444,8 @@ export default function ShipGrowthPanel() {
                 boundsChartData().datasets.length > 0)
             }
           >
-            <div class="card bg-base-100 shadow-sm">
-              <div class="card-body">
+            <div class="fusou-card">
+              <div class="fusou-card-body">
                 <h2 class="card-title text-lg">レベル別パラメータ推移</h2>
                 <Show when={isAllPeriodsPeriod(selectedPeriod())}>
                   <p class="text-sm text-base-content/60">
@@ -1469,6 +1471,15 @@ export default function ShipGrowthPanel() {
             </div>
           </Show>
 
+          {/* Loading state for main content */}
+          <Show when={loadingData() || ((loadingPeriods() || loadingShips()) && expRows().length === 0)}>
+            <div class="fusou-card mb-6">
+              <div class="fusou-card-body">
+                <LoadingState message="パラメータ推移データを集計中..." size="lg" minHeight="min-h-[360px]" />
+              </div>
+            </div>
+          </Show>
+
           {/* Cumulative mode: archive data exists but selected ship absent */}
           <Show
             when={
@@ -1478,15 +1489,13 @@ export default function ShipGrowthPanel() {
               !loadingData()
             }
           >
-            <div class="card bg-base-100 shadow-sm">
-              <div class="card-body items-center text-center py-16">
-                <p class="text-base-content/50">
-                  選択した艦のデータは累積アーカイブに存在しません。
-                </p>
-                <p class="text-base-content/40 text-sm mt-1">
-                  現在の期間 (ライブ)
-                  では存在する可能性があります。期間を切り替えてご確認ください。
-                </p>
+            <div class="fusou-card">
+              <div class="fusou-card-body">
+                <EmptyState
+                  message="選択した艦のデータは累積アーカイブに存在しません。"
+                  hint="現在の期間 (ライブ) では存在する可能性があります。期間を切り替えてご確認ください。"
+                  size="large"
+                />
               </div>
             </div>
           </Show>
@@ -1500,15 +1509,13 @@ export default function ShipGrowthPanel() {
               !loadingData()
             }
           >
-            <div class="card bg-base-100 shadow-sm">
-              <div class="card-body items-center text-center py-16">
-                <p class="text-base-content/50">
-                  選択した艦のデータは全期間のアーカイブに存在しません。
-                </p>
-                <p class="text-base-content/40 text-sm mt-1">
-                  現在の期間 (ライブ)
-                  では存在する可能性があります。期間を切り替えてご確認ください。
-                </p>
+            <div class="fusou-card">
+              <div class="fusou-card-body">
+                <EmptyState
+                  message="選択した艦のデータは全期間のアーカイブに存在しません。"
+                  hint="現在の期間 (ライブ) では存在する可能性があります。期間を切り替えてご確認ください。"
+                  size="large"
+                />
               </div>
             </div>
           </Show>
@@ -1527,14 +1534,13 @@ export default function ShipGrowthPanel() {
               !loadingShips()
             }
           >
-            <div class="card bg-base-100 shadow-sm">
-              <div class="card-body items-center text-center py-16">
-                <p class="text-base-content/50">
-                  期間と艦を選択するとグラフを表示します。
-                </p>
-                <p class="text-base-content/40 text-sm mt-1">
-                  経験値はmaster_idに依存せず、レベル別パラメータは選択中の艦で表示します。
-                </p>
+            <div class="fusou-card">
+              <div class="fusou-card-body">
+                <EmptyState
+                  message="期間と艦を選択するとグラフを表示します。"
+                  hint="経験値はmaster_idに依存せず、レベル別パラメータは選択中の艦で表示します。"
+                  size="large"
+                />
               </div>
             </div>
           </Show>

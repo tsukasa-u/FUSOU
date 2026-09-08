@@ -767,7 +767,7 @@ function ShipDetailPanel(props: {
         </div>
 
         <section class="mb-8">
-          <h4 class="text-md font-medium mb-2">装備可能な装備</h4>
+          <h4 class="text-sm font-semibold text-base-content/80 mb-2">装備可能な装備</h4>
           <div class="rounded-lg border border-base-300/70 p-2">
             <div id="ship-detail-equippable-list" class={`space-y-3 pr-1 ${props.expandEquippableEquip ? "" : "max-h-[40vh] overflow-y-auto"}`}>
               <For each={equippableGroups()}>
@@ -821,7 +821,7 @@ function ShipDetailPanel(props: {
             {(shipSynergy) => (
               <div class="space-y-8">
                 <section>
-                <h4 class="text-md font-medium mb-2">単体装備シナジー</h4>
+                <h4 class="text-sm font-semibold text-base-content/80 mb-2">単体装備シナジー</h4>
                 <Show
                   when={shipSynergy().single.length > 0}
                   fallback={
@@ -910,7 +910,7 @@ function ShipDetailPanel(props: {
                 </section>
 
                 <section>
-                <h4 class="text-md font-medium mb-2">装備組み合わせシナジー</h4>
+                <h4 class="text-sm font-semibold text-base-content/80 mb-2">装備組み合わせシナジー</h4>
                 <Show
                   when={shipSynergy() && shipSynergy()!.double.length > 0}
                   fallback={
@@ -952,7 +952,7 @@ function ShipDetailPanel(props: {
                 </section>
 
                 <section>
-                <h4 class="text-md font-medium mb-2">速力シナジー</h4>
+                <h4 class="text-sm font-semibold text-base-content/80 mb-2">速力シナジー</h4>
                 <Show
                   when={shipSynergy().speedSynergies.length > 0}
                   fallback={
@@ -1045,7 +1045,7 @@ function ShipDetailPanel(props: {
                 </section>
 
                 <section>
-                <h4 class="text-md font-medium mb-2">射程シナジー</h4>
+                <h4 class="text-sm font-semibold text-base-content/80 mb-2">射程シナジー</h4>
                 <Show 
                   when={shipSynergy().rangeSynergies.length > 0}
                   fallback={

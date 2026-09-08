@@ -1,4 +1,6 @@
-/* @jsxImportSource solid-js */
+/** @jsxImportSource solid-js */
+import { AlertMessage } from "@/components/common/solid/AlertMessage";
+import { FusouModal } from "@/components/common/solid/FusouModal";
 import { createSignal, Show, For } from "solid-js";
 
 import { applyFleetSnapshot } from "@/features/simulator/snapshot";
@@ -99,12 +101,10 @@ export function LoadFleetModal() {
   };
 
   return (
-    <dialog
+    <FusouModal
       id="load-fleet-modal"
-      class="modal"
       ref={(el) => {
         loadFleetModalRef.current = el;
-        // Listen to native showModal so we can refresh the list every time it's opened.
         if (el) {
           const originalShowModal = el.showModal.bind(el);
           el.showModal = () => {
@@ -113,25 +113,29 @@ export function LoadFleetModal() {
           };
         }
       }}
+      title="Load My Deck from R2"
+      description="The selected deck will be added to the workspace."
+      maxWidth="lg"
+      actions={
+        <form method="dialog">
+          <button class="fusou-btn-primary">閉じる</button>
+        </form>
+      }
     >
-      <div class="modal-box rounded-xl">
-        <h3 class="font-bold text-lg mb-2">Load My Deck from R2</h3>
-        <p class="text-xs text-base-content/60 mb-4">
-          The selected deck will be added to the workspace.
-        </p>
-
         <div class="space-y-2 max-h-80 overflow-y-auto">
           <Show when={loading()}>
             <span class="loading loading-spinner loading-sm"></span>
           </Show>
 
           <Show when={requiresAuth()}>
-            <div class="alert alert-info items-start text-sm leading-relaxed">
-              <div>
-                <p>Using saved fleet data requires FUSOU-APP linking and web service sign-in.</p>
-                <p class="mt-2">Authenticating with Google during FUSOU-APP linking also completes web sign-in.</p>
-                <a href="/auth/local/signin?return_to=%2Fsimulator" class="link link-primary mt-2 inline-block">Link FUSOU-APP and sign in</a>
-              </div>
+            <div class="text-sm leading-relaxed">
+              <AlertMessage type="info">
+                <div>
+                  <p>Using saved fleet data requires FUSOU-APP linking and web service sign-in.</p>
+                  <p class="mt-2">Authenticating with Google during FUSOU-APP linking also completes web sign-in.</p>
+                  <a href="/auth/local/signin?return_to=%2Fsimulator" class="link link-primary mt-2 inline-block">Link FUSOU-APP and sign in</a>
+                </div>
+              </AlertMessage>
             </div>
           </Show>
 
@@ -145,7 +149,7 @@ export function LoadFleetModal() {
             <For each={entries()}>
               {(entry) => (
                 <button
-                  class="btn btn-ghost btn-sm w-full justify-start gap-2 flex"
+                  class="fusou-btn-ghost w-full justify-start gap-2 flex"
                   onClick={() => handleApplySnapshot(entry.tag)}
                 >
                   <span class="flex-1 text-left">{entry.tag}</span>
@@ -158,15 +162,6 @@ export function LoadFleetModal() {
           </Show>
         </div>
 
-        <div class="modal-action">
-          <form method="dialog">
-            <button class="btn btn-ghost btn-sm">閉じる</button>
-          </form>
-        </div>
-      </div>
-      <form method="dialog" class="modal-backdrop">
-        <button>close</button>
-      </form>
-    </dialog>
+        </FusouModal>
   );
 }

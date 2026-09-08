@@ -1,4 +1,5 @@
-/* @jsxImportSource solid-js */
+/** @jsxImportSource solid-js */
+import { ShipTypeBadge } from "@/components/common/solid/ShipTypeBadge";
 import { createSignal, createMemo, createEffect, Show, For } from "solid-js";
 import { VList, type VListHandle } from "virtua/solid";
 import { useStore } from "@nanostores/solid";
@@ -8,7 +9,7 @@ import { canAssignShipWithoutWorseningCombinedRules } from "@/features/simulator
 import { bannerUrl } from "@/features/simulator/equip-calc";
 import { SHIP_ROW_PITCH, HEADER_HEIGHT } from "@/features/simulator/virtual-scroll";
 import { consumeShipModalCallback, setShipModalSideFilter, setShipModalSource } from "@/features/simulator/simulator-mutations";
-import { getCombinedFleetType, getFleetState, getMasterShip, getMasterShips, getShipModalCurrentId, getShipModalTarget, getShipModalSideFilter, getShipModalSource, getSnapshotShips, hasMasterData, hasSnapshotShips, isWorkspaceReadOnly } from "@/features/simulator/simulator-selectors";
+import { getCombinedFleetType, getFleetState, getMasterShip, getMasterShips, getShipModalCurrentId, getShipModalTarget, getShipModalSideFilter, getShipModalSource, getSnapshotShips, hasSnapshotShips, isWorkspaceReadOnly } from "@/features/simulator/simulator-selectors";
 import { cachedFetch } from "@/utils/fetchCache";
 import { masterDataStatusStore } from "@/features/simulator/data-loader";
 import {
@@ -20,6 +21,10 @@ import {
   type PickerQuickAccessEntry,
 } from "./picker-quick-access";
 import { ShipListRow } from "@/components/common/solid/ship-list-row";
+import { LoadingState } from "@/components/common/solid/LoadingState";
+import { EmptyState } from "@/components/common/solid/EmptyState";
+import { ShipBanner } from "@/components/common/solid/ShipBanner";
+import { ActiveFilterChips, type FilterChipItem } from "@/components/common/solid/ActiveFilterChips";
 import { SelectionModalShell } from "./selection-modal-shell";
 
 // Modal trigger signal
@@ -165,10 +170,46 @@ export function ShipSelectionModal() {
     return [...stypes].sort((a, b) => a - b);
   });
 
+  const activeFilterItems = createMemo((): FilterChipItem[] => {
+    const items: FilterChipItem[] = [];
+    const s = search().trim();
+    if (s) {
+      items.push({
+        key: "search",
+        label: "検索",
+        value: s,
+        onRemove: () => setSearch(""),
+      });
+    }
+    const st = stypeFilter();
+    if (st) {
+      items.push({
+        key: "stype",
+        label: "艦種",
+        value: STYPE_NAMES[Number(st)] ?? `Type ${st}`,
+        onRemove: () => setStypeFilter(""),
+      });
+    }
+    const side = sideFilter();
+    if (side !== "ally") {
+      items.push({
+        key: "side",
+        label: "陣営",
+        value: side === "enemy" ? "敵のみ" : "全て",
+        onRemove: () => {
+          setSideFilter("ally");
+          setShipModalSideFilter("ally");
+        },
+      });
+    }
+    return items;
+  });
+
   const filteredShips = createMemo(() => {
     masterDataStatus();
     shipModalTrigger();
-    if (!hasMasterData()) return [];
+    const hasShips = Object.keys(getMasterShips()).length > 0 || hasSnapshotShips();
+    if (!hasShips) return [];
     let ships: ShipRuntimeMeta[];
     if (source() === "snapshot" && hasSnapshotShips()) {
       const variantMap = new Map<string, ShipVariant>();
@@ -367,6 +408,16 @@ export function ShipSelectionModal() {
               >マスターデータ</button>
             </div>
           </Show>
+          <ActiveFilterChips
+            items={activeFilterItems()}
+            onClearAll={() => {
+              setSearch("");
+              setStypeFilter("");
+              setSideFilter("ally");
+              setShipModalSideFilter("ally");
+            }}
+            class="mt-2"
+          />
         </div>
         
         <div class="flex flex-1 min-h-0">
@@ -387,7 +438,18 @@ export function ShipSelectionModal() {
                </div>
              </Show>
              <Show when={listData().rows.length === 0}>
-                <p class="text-sm text-base-content/30 text-center py-12">該当する艦が見つかりません</p>
+               <Show
+                 when={Object.keys(getMasterShips()).length === 0 && !hasSnapshotShips()}
+                 fallback={
+                   <div class="py-12">
+                     <EmptyState message="該当する艦が見つかりません" size="compact" />
+                   </div>
+                 }
+               >
+                 <div class="py-12">
+                   <LoadingState message="艦娘一覧を準備中..." size="md" minHeight="min-h-[160px]" />
+                 </div>
+               </Show>
              </Show>
              <div id="ship-modal-grid" class="flex-1 min-h-0 overflow-hidden">
                <VList
@@ -459,11 +521,12 @@ function ShipDetail(props: { ship: MstShipData }) {
   return (
     <>
       <div class="w-full h-14 bg-base-200 rounded-lg overflow-hidden mb-3">
-        <img src={bannerUrl(props.ship.id, { f: "auto" })} class="w-full h-full object-cover" onError={(e) => { e.currentTarget.style.display = 'none'; }} />
+        <ShipBanner src={bannerUrl(props.ship.id, { f: "auto" })} alt={props.ship.name} class="w-full h-full" />
       </div>
       <h4 class="font-bold text-lg text-center leading-tight">{props.ship.name}</h4>
       <div class="text-center mb-4 mt-1">
-        <span class="badge badge-sm badge-outline gap-1">{STYPE_NAMES[props.ship.stype] ?? "?"} #{props.ship.id}</span>
+        <ShipTypeBadge stype={props.ship.stype} />
+        <span class="badge badge-sm badge-neutral font-mono">#{props.ship.id}</span>
       </div>
       <div class="divide-y divide-base-200">
         {[

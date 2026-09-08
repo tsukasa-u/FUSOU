@@ -58,7 +58,7 @@ if (!accountUser) {
       description="認証済みアカウントの情報を確認します。"
     />
 
-    <div class="rounded-lg border border-base-300 bg-base-100 p-6">
+    <div class="fusou-card p-6">
       <AuthPageSection
         title="アカウント情報"
         description="現在サインインしているアカウントを確認できます。"
@@ -85,7 +85,7 @@ if (!accountUser) {
             <form action="/api/auth/signout" method="post">
               <button
                 id="dashboard-signout-btn"
-                class="btn btn-ghost h-12 min-h-12 w-full"
+                class="fusou-btn-ghost w-full"
                 type="submit"
               >
                 サインアウト
@@ -96,7 +96,7 @@ if (!accountUser) {
       </AuthPageSection>
     </div>
 
-    <div class="rounded-lg border border-base-300 bg-base-100 p-6">
+    <div class="fusou-card p-6">
       <AuthPageSection
         title="管理"
         description="APIキーの管理を行います。"
@@ -105,7 +105,7 @@ if (!accountUser) {
             <div class="grid gap-3">
               <a
                 href="/dashboard/api-keys"
-                class="group block rounded-lg bg-base-100 p-4 transition-colors hover:bg-base-200/70"
+                class="fusou-card-interactive block p-4"
               >
                 <div class="font-semibold text-link underline underline-offset-2 group-hover:text-link-hover">
                   APIキー管理
