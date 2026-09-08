@@ -27,6 +27,14 @@ type Bindings = {
   TLSN_NOTARY_KEY_ID: string;
   TLSN_NOTARY_REGISTRY: string;
   TLSN_RESULT_SIGNING_PRIVATE_KEY_PKCS8: string;
+  TLSN_SESSION_AUTHORITY_SIGNING_PRIVATE_KEY_PKCS8: string;
+  TLSN_SESSION_AUTHORITY_PUBLIC_KEY_SPKI: string;
+  TLSN_SESSION_AUTHORITY_KEY_ID: string;
+  TLSN_SESSION_AUTHORITY_KEY_REGISTRY: string;
+  TLSN_BINDING_AUTHORITY_SIGNING_PRIVATE_KEY_PKCS8: string;
+  TLSN_BINDING_AUTHORITY_PUBLIC_KEY_SPKI: string;
+  TLSN_BINDING_AUTHORITY_KEY_ID: string;
+  TLSN_BINDING_AUTHORITY_KEY_REGISTRY: string;
   TLSN_TRUST_ROOT_CERTIFICATE_DER?: string;
   TLSN_TEST_BINDING_VALUE?: string;
   TLSN_CANDIDATE_SERVER_IDENTITY?: string;
@@ -48,6 +56,14 @@ type Bindings = {
   TLSN_CANARY_RESULT_PUBLIC_KEY_SPKI?: string;
   TLSN_CANARY_RESULT_SIGNER_KEY_ID?: string;
   TLSN_CANARY_RESULT_SIGNING_KEY_REGISTRY?: string;
+  TLSN_CANARY_SESSION_AUTHORITY_SIGNING_PRIVATE_KEY_PKCS8?: string;
+  TLSN_CANARY_SESSION_AUTHORITY_PUBLIC_KEY_SPKI?: string;
+  TLSN_CANARY_SESSION_AUTHORITY_KEY_ID?: string;
+  TLSN_CANARY_SESSION_AUTHORITY_KEY_REGISTRY?: string;
+  TLSN_CANARY_BINDING_AUTHORITY_SIGNING_PRIVATE_KEY_PKCS8?: string;
+  TLSN_CANARY_BINDING_AUTHORITY_PUBLIC_KEY_SPKI?: string;
+  TLSN_CANARY_BINDING_AUTHORITY_KEY_ID?: string;
+  TLSN_CANARY_BINDING_AUTHORITY_KEY_REGISTRY?: string;
   TLSN_CANARY_WORKER_NAME?: string;
   TLSN_PRODUCTION_DEPLOYMENT_ID?: string;
   TLSN_PRODUCTION_RESULT_SIGNING_PRIVATE_KEY_PKCS8?: string;
@@ -55,6 +71,14 @@ type Bindings = {
   TLSN_PRODUCTION_RESULT_PUBLIC_KEY_SPKI?: string;
   TLSN_PRODUCTION_RESULT_SIGNER_KEY_ID?: string;
   TLSN_PRODUCTION_RESULT_SIGNING_KEY_REGISTRY?: string;
+  TLSN_PRODUCTION_SESSION_AUTHORITY_SIGNING_PRIVATE_KEY_PKCS8?: string;
+  TLSN_PRODUCTION_SESSION_AUTHORITY_PUBLIC_KEY_SPKI?: string;
+  TLSN_PRODUCTION_SESSION_AUTHORITY_KEY_ID?: string;
+  TLSN_PRODUCTION_SESSION_AUTHORITY_KEY_REGISTRY?: string;
+  TLSN_PRODUCTION_BINDING_AUTHORITY_SIGNING_PRIVATE_KEY_PKCS8?: string;
+  TLSN_PRODUCTION_BINDING_AUTHORITY_PUBLIC_KEY_SPKI?: string;
+  TLSN_PRODUCTION_BINDING_AUTHORITY_KEY_ID?: string;
+  TLSN_PRODUCTION_BINDING_AUTHORITY_KEY_REGISTRY?: string;
   TLSN_PRODUCTION_WORKER_NAME?: string;
   TLSN_DEPLOYMENT_ROLE?: string;
   TLSN_GIT_COMMIT_SHA?: string;
@@ -122,7 +146,15 @@ const configSchema = z.object({
   devicePossessionAuthUrl: z.string().url(),
   deviceAuthAllowedHosts: z.string().optional(),
   notaryRegistry: z.string().min(1).max(65_536),
-  signingPrivateKeyPkcs8: z.string().regex(/^[A-Za-z0-9_-]+$/),
+  resultSigningPrivateKeyPkcs8: z.string().regex(/^[A-Za-z0-9_-]+$/),
+  sessionAuthoritySigningPrivateKeyPkcs8: z.string().regex(/^[A-Za-z0-9_-]+$/),
+  sessionAuthorityPublicKeySpki: z.string().regex(/^[A-Za-z0-9_-]{59}$/),
+  sessionAuthorityKeyId: z.string().regex(/^[A-Za-z0-9._-]{1,128}$/),
+  sessionAuthorityKeyRegistry: z.string().min(1),
+  bindingAuthoritySigningPrivateKeyPkcs8: z.string().regex(/^[A-Za-z0-9_-]+$/),
+  bindingAuthorityPublicKeySpki: z.string().regex(/^[A-Za-z0-9_-]{59}$/),
+  bindingAuthorityKeyId: z.string().regex(/^[A-Za-z0-9._-]{1,128}$/),
+  bindingAuthorityKeyRegistry: z.string().min(1),
   trustRootCertificateDer: z.string().regex(/^[A-Za-z0-9_-]+$/).optional(),
   resultPublicKeySpki: z.string().regex(/^[A-Za-z0-9_-]+$/).optional(),
   resultSignerKeyId: z.string().regex(/^[A-Za-z0-9._-]{1,128}$/).optional(),
@@ -179,6 +211,25 @@ const resultSigningKeyRegistrySchema = z.object({
   });
 });
 
+const authorityKeyRegistrySchema = z.object({
+  schema_version: z.literal(1),
+  scope: z.enum(["tlsn-session-authority-key-registry", "tlsn-binding-authority-key-registry"]),
+  keys: z.array(resultSigningKeyEntrySchema).min(1),
+}).strict().superRefine((registry, context) => {
+  const seenKeyIds = new Set<string>();
+  registry.keys.forEach((key, index) => {
+    if (seenKeyIds.has(key.key_id)) {
+      context.addIssue({ code: z.ZodIssueCode.custom, path: ["keys", index, "key_id"], message: "authority key IDs must be unique" });
+    }
+    seenKeyIds.add(key.key_id);
+    const notBefore = Date.parse(key.not_before);
+    const notAfter = key.not_after === null ? null : Date.parse(key.not_after);
+    if (!Number.isFinite(notBefore) || (notAfter !== null && (!Number.isFinite(notAfter) || notAfter <= notBefore))) {
+      context.addIssue({ code: z.ZodIssueCode.custom, path: ["keys", index], message: "authority key validity window is invalid" });
+    }
+  });
+});
+
 const authUserSchema = z.object({
   id: z.string().uuid(),
   is_anonymous: z.boolean(),
@@ -203,7 +254,9 @@ const notaryRegistrySchema = z.record(
 type VerifierConfig = z.infer<typeof configSchema> & {
   profileSha256Bytes: Uint8Array;
   notaryKeyBytes: Uint8Array;
-  signingPrivateKeyBytes: Uint8Array;
+  resultSigningPrivateKeyBytes: Uint8Array;
+  sessionAuthoritySigningPrivateKeyBytes: Uint8Array;
+  bindingAuthoritySigningPrivateKeyBytes: Uint8Array;
   trustRootCertificateDerBytes: Uint8Array | undefined;
   bindingTtlSeconds: number;
 };
@@ -279,13 +332,61 @@ function isPublicKeyBase64Url(value: string | undefined): boolean {
   return typeof value === "string" && /^[A-Za-z0-9_-]{59}$/.test(value);
 }
 
-function readConfig(env: Bindings): VerifierConfig | null {
+async function privateKeyMatchesPublicKey(privateKeyBytes: Uint8Array, publicKeySpki: string): Promise<boolean> {
+  try {
+    const privateKey = await crypto.subtle.importKey(
+      "pkcs8",
+      privateKeyBytes,
+      { name: "Ed25519" },
+      false,
+      ["sign"],
+    );
+    const publicKey = await crypto.subtle.importKey(
+      "spki",
+      decodeBase64Url(publicKeySpki, 4096),
+      { name: "Ed25519" },
+      false,
+      ["verify"],
+    );
+    const probe = new TextEncoder().encode("FUSOU-TLSN-AUTHORITY-KEY-CHECK-V1");
+    const signature = await crypto.subtle.sign({ name: "Ed25519" }, privateKey, probe);
+    return await crypto.subtle.verify({ name: "Ed25519" }, publicKey, signature, probe);
+  } catch {
+    return false;
+  }
+}
+
+async function readConfig(env: Bindings): Promise<VerifierConfig | null> {
   const production = env.TLSN_ENVIRONMENT === "production";
   const role = env.TLSN_DEPLOYMENT_ROLE;
   const canary = production && role === "canary";
   const signingPrivateKey = production
     ? canary ? env.TLSN_CANARY_RESULT_SIGNING_PRIVATE_KEY_PKCS8 : env.TLSN_PRODUCTION_RESULT_SIGNING_PRIVATE_KEY_PKCS8
     : env.TLSN_RESULT_SIGNING_PRIVATE_KEY_PKCS8;
+  const sessionAuthoritySigningPrivateKey = production
+    ? canary ? env.TLSN_CANARY_SESSION_AUTHORITY_SIGNING_PRIVATE_KEY_PKCS8 : env.TLSN_PRODUCTION_SESSION_AUTHORITY_SIGNING_PRIVATE_KEY_PKCS8
+    : env.TLSN_SESSION_AUTHORITY_SIGNING_PRIVATE_KEY_PKCS8;
+  const sessionAuthorityPublicKeySpki = production
+    ? canary ? env.TLSN_CANARY_SESSION_AUTHORITY_PUBLIC_KEY_SPKI : env.TLSN_PRODUCTION_SESSION_AUTHORITY_PUBLIC_KEY_SPKI
+    : env.TLSN_SESSION_AUTHORITY_PUBLIC_KEY_SPKI;
+  const sessionAuthorityKeyId = production
+    ? canary ? env.TLSN_CANARY_SESSION_AUTHORITY_KEY_ID : env.TLSN_PRODUCTION_SESSION_AUTHORITY_KEY_ID
+    : env.TLSN_SESSION_AUTHORITY_KEY_ID;
+  const sessionAuthorityKeyRegistry = production
+    ? canary ? env.TLSN_CANARY_SESSION_AUTHORITY_KEY_REGISTRY : env.TLSN_PRODUCTION_SESSION_AUTHORITY_KEY_REGISTRY
+    : env.TLSN_SESSION_AUTHORITY_KEY_REGISTRY;
+  const bindingAuthoritySigningPrivateKey = production
+    ? canary ? env.TLSN_CANARY_BINDING_AUTHORITY_SIGNING_PRIVATE_KEY_PKCS8 : env.TLSN_PRODUCTION_BINDING_AUTHORITY_SIGNING_PRIVATE_KEY_PKCS8
+    : env.TLSN_BINDING_AUTHORITY_SIGNING_PRIVATE_KEY_PKCS8;
+  const bindingAuthorityPublicKeySpki = production
+    ? canary ? env.TLSN_CANARY_BINDING_AUTHORITY_PUBLIC_KEY_SPKI : env.TLSN_PRODUCTION_BINDING_AUTHORITY_PUBLIC_KEY_SPKI
+    : env.TLSN_BINDING_AUTHORITY_PUBLIC_KEY_SPKI;
+  const bindingAuthorityKeyId = production
+    ? canary ? env.TLSN_CANARY_BINDING_AUTHORITY_KEY_ID : env.TLSN_PRODUCTION_BINDING_AUTHORITY_KEY_ID
+    : env.TLSN_BINDING_AUTHORITY_KEY_ID;
+  const bindingAuthorityKeyRegistry = production
+    ? canary ? env.TLSN_CANARY_BINDING_AUTHORITY_KEY_REGISTRY : env.TLSN_PRODUCTION_BINDING_AUTHORITY_KEY_REGISTRY
+    : env.TLSN_BINDING_AUTHORITY_KEY_REGISTRY;
   const trustRootCertificateDer = production
     ? canary ? env.TLSN_CANARY_TRUST_ROOT_CERTIFICATE_DER : env.TLSN_PRODUCTION_TRUST_ROOT_CERTIFICATE_DER
     : env.TLSN_TRUST_ROOT_CERTIFICATE_DER;
@@ -310,7 +411,15 @@ function readConfig(env: Bindings): VerifierConfig | null {
       : env.TLSN_DEVICE_POSSESSION_AUTH_URL,
     deviceAuthAllowedHosts: production ? env.TLSN_CANDIDATE_DEVICE_AUTH_ALLOWED_HOSTS : undefined,
     notaryRegistry: production ? env.TLSN_CANDIDATE_NOTARY_REGISTRY : env.TLSN_NOTARY_REGISTRY,
-    signingPrivateKeyPkcs8: signingPrivateKey,
+    resultSigningPrivateKeyPkcs8: signingPrivateKey,
+    sessionAuthoritySigningPrivateKeyPkcs8: sessionAuthoritySigningPrivateKey,
+    sessionAuthorityPublicKeySpki,
+    sessionAuthorityKeyId,
+    sessionAuthorityKeyRegistry,
+    bindingAuthoritySigningPrivateKeyPkcs8: bindingAuthoritySigningPrivateKey,
+    bindingAuthorityPublicKeySpki,
+    bindingAuthorityKeyId,
+    bindingAuthorityKeyRegistry,
     trustRootCertificateDer,
     resultPublicKeySpki,
     resultSignerKeyId,
@@ -346,8 +455,8 @@ function readConfig(env: Bindings): VerifierConfig | null {
       return null;
     }
     const forbiddenRoleFields = canary
-      ? [env.TLSN_PRODUCTION_RESULT_SIGNING_PRIVATE_KEY_PKCS8, env.TLSN_PRODUCTION_TRUST_ROOT_CERTIFICATE_DER, env.TLSN_PRODUCTION_RESULT_PUBLIC_KEY_SPKI, env.TLSN_PRODUCTION_RESULT_SIGNER_KEY_ID, env.TLSN_PRODUCTION_RESULT_SIGNING_KEY_REGISTRY, env.TLSN_PRODUCTION_DEPLOYMENT_ID, env.TLSN_PRODUCTION_WORKER_NAME]
-      : [env.TLSN_CANARY_RESULT_SIGNING_PRIVATE_KEY_PKCS8, env.TLSN_CANARY_TRUST_ROOT_CERTIFICATE_DER, env.TLSN_CANARY_RESULT_PUBLIC_KEY_SPKI, env.TLSN_CANARY_RESULT_SIGNER_KEY_ID, env.TLSN_CANARY_RESULT_SIGNING_KEY_REGISTRY, env.TLSN_CANARY_DEPLOYMENT_ID, env.TLSN_CANARY_WORKER_NAME];
+      ? [env.TLSN_PRODUCTION_RESULT_SIGNING_PRIVATE_KEY_PKCS8, env.TLSN_PRODUCTION_SESSION_AUTHORITY_SIGNING_PRIVATE_KEY_PKCS8, env.TLSN_PRODUCTION_BINDING_AUTHORITY_SIGNING_PRIVATE_KEY_PKCS8, env.TLSN_PRODUCTION_TRUST_ROOT_CERTIFICATE_DER, env.TLSN_PRODUCTION_RESULT_PUBLIC_KEY_SPKI, env.TLSN_PRODUCTION_RESULT_SIGNER_KEY_ID, env.TLSN_PRODUCTION_RESULT_SIGNING_KEY_REGISTRY, env.TLSN_PRODUCTION_SESSION_AUTHORITY_PUBLIC_KEY_SPKI, env.TLSN_PRODUCTION_SESSION_AUTHORITY_KEY_ID, env.TLSN_PRODUCTION_SESSION_AUTHORITY_KEY_REGISTRY, env.TLSN_PRODUCTION_BINDING_AUTHORITY_PUBLIC_KEY_SPKI, env.TLSN_PRODUCTION_BINDING_AUTHORITY_KEY_ID, env.TLSN_PRODUCTION_BINDING_AUTHORITY_KEY_REGISTRY, env.TLSN_PRODUCTION_DEPLOYMENT_ID, env.TLSN_PRODUCTION_WORKER_NAME]
+      : [env.TLSN_CANARY_RESULT_SIGNING_PRIVATE_KEY_PKCS8, env.TLSN_CANARY_SESSION_AUTHORITY_SIGNING_PRIVATE_KEY_PKCS8, env.TLSN_CANARY_BINDING_AUTHORITY_SIGNING_PRIVATE_KEY_PKCS8, env.TLSN_CANARY_TRUST_ROOT_CERTIFICATE_DER, env.TLSN_CANARY_RESULT_PUBLIC_KEY_SPKI, env.TLSN_CANARY_RESULT_SIGNER_KEY_ID, env.TLSN_CANARY_RESULT_SIGNING_KEY_REGISTRY, env.TLSN_CANARY_SESSION_AUTHORITY_PUBLIC_KEY_SPKI, env.TLSN_CANARY_SESSION_AUTHORITY_KEY_ID, env.TLSN_CANARY_SESSION_AUTHORITY_KEY_REGISTRY, env.TLSN_CANARY_BINDING_AUTHORITY_PUBLIC_KEY_SPKI, env.TLSN_CANARY_BINDING_AUTHORITY_KEY_ID, env.TLSN_CANARY_BINDING_AUTHORITY_KEY_REGISTRY, env.TLSN_CANARY_DEPLOYMENT_ID, env.TLSN_CANARY_WORKER_NAME];
     if (production && forbiddenRoleFields.some((field) => field !== undefined)) {
       return null;
     }
@@ -386,6 +495,31 @@ function readConfig(env: Bindings): VerifierConfig | null {
         (currentResultKey.not_after !== null && Date.parse(currentResultKey.not_after) < now)
       ) return null;
     }
+    const sessionRegistry = authorityKeyRegistrySchema.safeParse(JSON.parse(parsed.data.sessionAuthorityKeyRegistry));
+    const bindingRegistry = authorityKeyRegistrySchema.safeParse(JSON.parse(parsed.data.bindingAuthorityKeyRegistry));
+    const now = Date.now();
+    const currentSessionKey = sessionRegistry.success
+      ? sessionRegistry.data.keys.find((key) => key.key_id === parsed.data.sessionAuthorityKeyId)
+      : null;
+    const currentBindingKey = bindingRegistry.success
+      ? bindingRegistry.data.keys.find((key) => key.key_id === parsed.data.bindingAuthorityKeyId)
+      : null;
+    if (
+      !sessionRegistry.success ||
+      sessionRegistry.data.scope !== "tlsn-session-authority-key-registry" ||
+      !currentSessionKey ||
+      currentSessionKey.public_key_spki !== parsed.data.sessionAuthorityPublicKeySpki ||
+      currentSessionKey.status !== "ACTIVE" ||
+      Date.parse(currentSessionKey.not_before) > now ||
+      (currentSessionKey.not_after !== null && Date.parse(currentSessionKey.not_after) < now) ||
+      !bindingRegistry.success ||
+      bindingRegistry.data.scope !== "tlsn-binding-authority-key-registry" ||
+      !currentBindingKey ||
+      currentBindingKey.public_key_spki !== parsed.data.bindingAuthorityPublicKeySpki ||
+      currentBindingKey.status !== "ACTIVE" ||
+      Date.parse(currentBindingKey.not_before) > now ||
+      (currentBindingKey.not_after !== null && Date.parse(currentBindingKey.not_after) < now)
+    ) return null;
     if (production) {
       const deviceAuthAllowedHosts = parseHostnameAllowlist(parsed.data.deviceAuthAllowedHosts);
       const supabaseAllowedHosts = parseHostnameAllowlist(env.TLSN_CANDIDATE_SUPABASE_ALLOWED_HOSTS);
@@ -424,7 +558,16 @@ function readConfig(env: Bindings): VerifierConfig | null {
       return null;
     }
     const notaryKeyBytes = decodeBase64Url(notaryKeyValue, 4096);
-    const signingPrivateKeyBytes = decodeBase64Url(parsed.data.signingPrivateKeyPkcs8, 4096);
+    const resultSigningPrivateKeyBytes = decodeBase64Url(parsed.data.resultSigningPrivateKeyPkcs8, 4096);
+    const sessionAuthoritySigningPrivateKeyBytes = decodeBase64Url(parsed.data.sessionAuthoritySigningPrivateKeyPkcs8, 4096);
+    const bindingAuthoritySigningPrivateKeyBytes = decodeBase64Url(parsed.data.bindingAuthoritySigningPrivateKeyPkcs8, 4096);
+    if (
+      !await privateKeyMatchesPublicKey(sessionAuthoritySigningPrivateKeyBytes, parsed.data.sessionAuthorityPublicKeySpki) ||
+      !await privateKeyMatchesPublicKey(bindingAuthoritySigningPrivateKeyBytes, parsed.data.bindingAuthorityPublicKeySpki) ||
+      (production && !await privateKeyMatchesPublicKey(resultSigningPrivateKeyBytes, parsed.data.resultPublicKeySpki ?? ""))
+    ) {
+      return null;
+    }
     const trustRootCertificateDerBytes = parsed.data.trustRootCertificateDer
       ? decodeBase64Url(parsed.data.trustRootCertificateDer, 4096)
       : undefined;
@@ -432,7 +575,9 @@ function readConfig(env: Bindings): VerifierConfig | null {
       ...parsed.data,
       profileSha256Bytes,
       notaryKeyBytes,
-      signingPrivateKeyBytes,
+      resultSigningPrivateKeyBytes,
+      sessionAuthoritySigningPrivateKeyBytes,
+      bindingAuthoritySigningPrivateKeyBytes,
       trustRootCertificateDerBytes,
       bindingTtlSeconds,
     };
@@ -465,10 +610,6 @@ async function signSigningBytes(
   return new Uint8Array(signature);
 }
 
-function receiptSignerKeyId(config: VerifierConfig): string {
-  return config.resultSignerKeyId ?? "test-result-signing-key";
-}
-
 async function signSessionReceipt(
   config: VerifierConfig,
   record: {
@@ -483,7 +624,7 @@ async function signSessionReceipt(
     expires_at: string;
   },
 ): Promise<Record<string, string | number>> {
-  const signerKeyId = receiptSignerKeyId(config);
+  const signerKeyId = config.sessionAuthorityKeyId;
   const signature = await signSigningBytes(
     attestationSessionReceiptSigningBytes({
       signerKeyId,
@@ -497,7 +638,7 @@ async function signSessionReceipt(
       createdAt: record.created_at,
       expiresAt: record.expires_at,
     }),
-    config.signingPrivateKeyBytes,
+    config.sessionAuthoritySigningPrivateKeyBytes,
   );
   return {
     schema_version: 1,
@@ -532,7 +673,7 @@ async function signConsumeReceipt(
   if (!record.presentation_id || !record.used_at) {
     throw new Error("consumed binding is missing receipt fields");
   }
-  const signerKeyId = receiptSignerKeyId(config);
+  const signerKeyId = config.bindingAuthorityKeyId;
   const signature = await signSigningBytes(
     attestationConsumeReceiptSigningBytes({
       signerKeyId,
@@ -544,7 +685,7 @@ async function signConsumeReceipt(
       presentationId: record.presentation_id,
       usedAt: record.used_at,
     }),
-    config.signingPrivateKeyBytes,
+    config.bindingAuthoritySigningPrivateKeyBytes,
   );
   return {
     schema_version: 1,
@@ -861,6 +1002,29 @@ app.get("/health", async (c) => {
   const resultKeyRegistrySha256 = resultSigningKeyRegistry
     ? encodeBase64Url(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(resultSigningKeyRegistry))))
     : null;
+  const sessionAuthorityPublicKeySpki = production
+    ? canary ? c.env.TLSN_CANARY_SESSION_AUTHORITY_PUBLIC_KEY_SPKI : c.env.TLSN_PRODUCTION_SESSION_AUTHORITY_PUBLIC_KEY_SPKI
+    : c.env.TLSN_SESSION_AUTHORITY_PUBLIC_KEY_SPKI;
+  const sessionAuthorityKeyId = production
+    ? canary ? c.env.TLSN_CANARY_SESSION_AUTHORITY_KEY_ID : c.env.TLSN_PRODUCTION_SESSION_AUTHORITY_KEY_ID
+    : c.env.TLSN_SESSION_AUTHORITY_KEY_ID;
+  const sessionAuthorityKeyRegistry = production
+    ? canary ? c.env.TLSN_CANARY_SESSION_AUTHORITY_KEY_REGISTRY : c.env.TLSN_PRODUCTION_SESSION_AUTHORITY_KEY_REGISTRY
+    : c.env.TLSN_SESSION_AUTHORITY_KEY_REGISTRY;
+  const bindingAuthorityPublicKeySpki = production
+    ? canary ? c.env.TLSN_CANARY_BINDING_AUTHORITY_PUBLIC_KEY_SPKI : c.env.TLSN_PRODUCTION_BINDING_AUTHORITY_PUBLIC_KEY_SPKI
+    : c.env.TLSN_BINDING_AUTHORITY_PUBLIC_KEY_SPKI;
+  const bindingAuthorityKeyId = production
+    ? canary ? c.env.TLSN_CANARY_BINDING_AUTHORITY_KEY_ID : c.env.TLSN_PRODUCTION_BINDING_AUTHORITY_KEY_ID
+    : c.env.TLSN_BINDING_AUTHORITY_KEY_ID;
+  const bindingAuthorityKeyRegistry = production
+    ? canary ? c.env.TLSN_CANARY_BINDING_AUTHORITY_KEY_REGISTRY : c.env.TLSN_PRODUCTION_BINDING_AUTHORITY_KEY_REGISTRY
+    : c.env.TLSN_BINDING_AUTHORITY_KEY_REGISTRY;
+  const authorityRegistrySha256 = async (registry: string | undefined) => registry
+    ? encodeBase64Url(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(registry))))
+    : null;
+  const sessionAuthorityKeyRegistrySha256 = await authorityRegistrySha256(sessionAuthorityKeyRegistry);
+  const bindingAuthorityKeyRegistrySha256 = await authorityRegistrySha256(bindingAuthorityKeyRegistry);
   const deploymentId = production
     ? canary ? c.env.TLSN_CANARY_DEPLOYMENT_ID : c.env.TLSN_PRODUCTION_DEPLOYMENT_ID
     : null;
@@ -893,6 +1057,10 @@ app.get("/health", async (c) => {
       security_registry_set_sha256: c.env.TLSN_SECURITY_REGISTRY_SET_SHA256 ?? null,
       notary_registry_sha256: notaryRegistrySha256,
       binding_authority: "durable-single-use",
+      session_authority_key_id: sessionAuthorityKeyId ?? null,
+      session_authority_key_registry_sha256: sessionAuthorityKeyRegistrySha256,
+      binding_authority_key_id: bindingAuthorityKeyId ?? null,
+      binding_authority_key_registry_sha256: bindingAuthorityKeyRegistrySha256,
     },
     deployment_identity: {
       deployment_id: deploymentId,
@@ -915,11 +1083,25 @@ app.get("/health", async (c) => {
           }
         : {}),
     },
+    authority_identity: {
+      session_authority: {
+        authority: "fusou-tlsn-session-authority",
+        key_id: sessionAuthorityKeyId ?? null,
+        public_key_spki: sessionAuthorityPublicKeySpki ?? null,
+        key_registry_sha256: sessionAuthorityKeyRegistrySha256,
+      },
+      binding_authority: {
+        authority: "fusou-tlsn-binding-authority",
+        key_id: bindingAuthorityKeyId ?? null,
+        public_key_spki: bindingAuthorityPublicKeySpki ?? null,
+        key_registry_sha256: bindingAuthorityKeyRegistrySha256,
+      },
+    },
   });
 });
 
 app.post("/attestation/session", async (c) => {
-  const config = readConfig(c.env);
+  const config = await readConfig(c.env);
   if (!config) {
     return c.json({ error: "verifier_unconfigured" }, 503);
   }
@@ -975,7 +1157,7 @@ app.post("/attestation/session", async (c) => {
 });
 
 app.post("/verify/tlsn", async (c) => {
-  const config = readConfig(c.env);
+  const config = await readConfig(c.env);
   if (!config) {
     return c.json({ error: "verifier_unconfigured" }, 503);
   }
@@ -1101,7 +1283,7 @@ app.post("/verify/tlsn", async (c) => {
       new Uint8Array(await crypto.subtle.digest("SHA-256", presentationBytes)),
     );
     const signingBytes = decodeBase64Url(prepared.signing_bytes, MAX_RESULT_JSON_BYTES);
-    const signature = await signSigningBytes(signingBytes, config.signingPrivateKeyBytes);
+    const signature = await signSigningBytes(signingBytes, config.resultSigningPrivateKeyBytes);
     if (signature.length !== 64) {
       return c.json({ error: "verifier_unavailable" }, 503);
     }

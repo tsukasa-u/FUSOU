@@ -8,6 +8,7 @@ import {
   assertRemoteReportGate,
   createSignedRemoteAttestation,
 } from "./deployment-attestation.mjs";
+import { PRODUCTION_EVIDENCE_REQUIREMENTS } from "./production-evidence-contract.mjs";
 
 const { privateKey: signerPrivateKey, publicKey: signerPublicKey } = generateKeyPairSync("ed25519");
 const signerPrivateKeyPkcs8 = signerPrivateKey.export({ format: "der", type: "pkcs8" }).toString("base64url");
@@ -68,18 +69,7 @@ const remoteReport = {
     scope: "tlsn-production-evidence",
     status: "BLOCKED",
     independent_capture_required: true,
-    requirements: Object.fromEntries([
-      "real_production_game_server_connection",
-      "real_production_tlsn_notary_interaction",
-      "real_production_fusou_web_device_authentication",
-      "real_production_device_possession_proof",
-      "real_production_replay_authority",
-      "real_production_binding_authority",
-      "real_production_verifier_trust_root",
-      "real_production_result_signing_key",
-      "real_production_public_key_publication",
-      "independently_captured_production_evidence",
-    ].map((field) => [field, "UNVERIFIED"])),
+    requirements: Object.fromEntries(PRODUCTION_EVIDENCE_REQUIREMENTS.map((field) => [field, "UNVERIFIED"])),
   },
   security_identity: securityIdentity,
   deployment_identity: canaryProvenance.deployment_identity,

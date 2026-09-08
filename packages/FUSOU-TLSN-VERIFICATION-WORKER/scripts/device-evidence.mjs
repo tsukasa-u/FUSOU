@@ -1,5 +1,6 @@
 import { createHash, createPublicKey, verify } from "node:crypto";
 import { PRODUCTION_EVIDENCE_DEVICE_PREDICATE_DEFINITIONS } from "./production-evidence-contract.mjs";
+import { resolveAuthorityKey } from "./authority-key-registry.mjs";
 
 const BASE64URL_PATTERN = /^[A-Za-z0-9_-]+$/;
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -201,11 +202,24 @@ function verifyReceiptSignature(receipt, expectedType, signingBytes, publicKeySp
   if (!verify(null, signingBytes, publicKey, signature)) throw new Error(`${expectedType} receipt signature is invalid`);
 }
 
-export function verifySessionReceipt(receipt, expected, publicKeySpki, signerKeyId) {
+export function verifySessionReceipt(receipt, expected, {
+  publicKeySpki,
+  signerKeyId,
+  keyRegistry,
+}) {
   for (const [field, value] of Object.entries(expected)) {
     if (receipt?.[field] !== value) throw new Error(`session receipt mismatch: ${field}`);
   }
-  verifyReceiptSignature(receipt, "attestation-session-issued", sessionReceiptSigningBytes(receipt), publicKeySpki, signerKeyId);
+  const registryPublicKeySpki = resolveAuthorityKey(keyRegistry, {
+    scope: "tlsn-session-authority-key-registry",
+    keyId: receipt.signer_key_id,
+    at: receipt.created_at,
+    label: "session authority",
+  });
+  if (registryPublicKeySpki !== publicKeySpki || receipt.signer_key_id !== signerKeyId) {
+    throw new Error("session receipt signer does not match the Session Authority registry");
+  }
+  verifyReceiptSignature(receipt, "attestation-session-issued", sessionReceiptSigningBytes(receipt), registryPublicKeySpki, signerKeyId);
   const binding = parseBindingValue(receipt.binding_value);
   if (binding.sessionId !== receipt.session_id || binding.nonce !== receipt.nonce) {
     throw new Error("session receipt binding framing mismatch");
@@ -213,11 +227,24 @@ export function verifySessionReceipt(receipt, expected, publicKeySpki, signerKey
   return binding;
 }
 
-export function verifyConsumeReceipt(receipt, expected, publicKeySpki, signerKeyId) {
+export function verifyConsumeReceipt(receipt, expected, {
+  publicKeySpki,
+  signerKeyId,
+  keyRegistry,
+}) {
   for (const [field, value] of Object.entries(expected)) {
     if (receipt?.[field] !== value) throw new Error(`consume receipt mismatch: ${field}`);
   }
-  verifyReceiptSignature(receipt, "attestation-binding-consumed", consumeReceiptSigningBytes(receipt), publicKeySpki, signerKeyId);
+  const registryPublicKeySpki = resolveAuthorityKey(keyRegistry, {
+    scope: "tlsn-binding-authority-key-registry",
+    keyId: receipt.signer_key_id,
+    at: receipt.used_at,
+    label: "binding authority",
+  });
+  if (registryPublicKeySpki !== publicKeySpki || receipt.signer_key_id !== signerKeyId) {
+    throw new Error("consume receipt signer does not match the Binding Authority registry");
+  }
+  verifyReceiptSignature(receipt, "attestation-binding-consumed", consumeReceiptSigningBytes(receipt), registryPublicKeySpki, signerKeyId);
 }
 
 function devicePredicateResult(name, status, verifiedAt, evidenceArtifacts, observed = {}, detail = "") {
@@ -276,6 +303,12 @@ export function verifyDevicePredicates({
   presentationBytes,
   resultPublicKeySpki,
   resultSignerKeyId,
+  sessionAuthorityPublicKeySpki,
+  sessionAuthoritySignerKeyId,
+  sessionAuthorityKeyRegistry,
+  bindingAuthorityPublicKeySpki,
+  bindingAuthoritySignerKeyId,
+  bindingAuthorityKeyRegistry,
   verifiedAt = new Date().toISOString(),
 }) {
   const expectedUserId = result?.canonical_user_id;
@@ -305,7 +338,7 @@ export function verifyDevicePredicates({
         attestation_session_id: session.session_id,
       };
     }),
-    session_binding_receipt: runDevicePredicate("session_binding_receipt", verifiedAt, ["session", "result"], () => {
+    session_binding_receipt: runDevicePredicate("session_binding_receipt", verifiedAt, ["session", "session_authority_registry", "result"], () => {
       verifySessionReceipt(
         session.session_receipt,
         {
@@ -319,8 +352,11 @@ export function verifyDevicePredicates({
           created_at: session.session_receipt.created_at,
           expires_at: session.expires_at,
         },
-        resultPublicKeySpki,
-        resultSignerKeyId,
+        {
+          publicKeySpki: sessionAuthorityPublicKeySpki,
+          signerKeyId: sessionAuthoritySignerKeyId,
+          keyRegistry: sessionAuthorityKeyRegistry,
+        },
       );
       return {
         attestation_session_id: session.session_id,
@@ -380,7 +416,7 @@ export function verifyDevicePredicates({
         error: replay.error,
       };
     }),
-    consume_receipt: runDevicePredicate("consume_receipt", verifiedAt, ["consume_receipt", "result", "presentation", "session"], () => {
+    consume_receipt: runDevicePredicate("consume_receipt", verifiedAt, ["consume_receipt", "binding_authority_registry", "result", "presentation", "session"], () => {
       verifyConsumeReceipt(
         consumeReceipt,
         {
@@ -392,8 +428,11 @@ export function verifyDevicePredicates({
           presentation_id: expectedPresentationId,
           used_at: consumeReceipt.used_at,
         },
-        resultPublicKeySpki,
-        resultSignerKeyId,
+        {
+          publicKeySpki: bindingAuthorityPublicKeySpki,
+          signerKeyId: bindingAuthoritySignerKeyId,
+          keyRegistry: bindingAuthorityKeyRegistry,
+        },
       );
       return {
         session_id: session.session_id,

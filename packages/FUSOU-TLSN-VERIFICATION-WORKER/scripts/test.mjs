@@ -91,6 +91,8 @@ const syntheticFixture = capture(
 const { privateKey, publicKey } = generateKeyPairSync("ed25519");
 const { privateKey: canaryPrivateKey, publicKey: canaryPublicKey } = generateKeyPairSync("ed25519");
 const { privateKey: productionPrivateKey, publicKey: productionPublicKey } = generateKeyPairSync("ed25519");
+const { privateKey: sessionAuthorityPrivateKey, publicKey: sessionAuthorityPublicKey } = generateKeyPairSync("ed25519");
+const { privateKey: bindingAuthorityPrivateKey, publicKey: bindingAuthorityPublicKey } = generateKeyPairSync("ed25519");
 const { privateKey: devicePrivateKey, publicKey: devicePublicKey } = generateKeyPairSync("ed25519");
 const signingPrivateKeyPkcs8 = privateKey
   .export({ format: "der", type: "pkcs8" })
@@ -103,6 +105,30 @@ const productionSigningPrivateKeyPkcs8 = productionPrivateKey
   .toString("base64url");
 const canaryResultPublicKeySpki = canaryPublicKey.export({ format: "der", type: "spki" }).toString("base64url");
 const productionResultPublicKeySpki = productionPublicKey.export({ format: "der", type: "spki" }).toString("base64url");
+const sessionAuthorityPublicKeySpki = sessionAuthorityPublicKey.export({ format: "der", type: "spki" }).toString("base64url");
+const bindingAuthorityPublicKeySpki = bindingAuthorityPublicKey.export({ format: "der", type: "spki" }).toString("base64url");
+const sessionAuthorityKeyRegistry = JSON.stringify({
+  schema_version: 1,
+  scope: "tlsn-session-authority-key-registry",
+  keys: [{
+    key_id: "session-authority-test",
+    public_key_spki: sessionAuthorityPublicKeySpki,
+    status: "ACTIVE",
+    not_before: "2026-01-01T00:00:00.000Z",
+    not_after: null,
+  }],
+});
+const bindingAuthorityKeyRegistry = JSON.stringify({
+  schema_version: 1,
+  scope: "tlsn-binding-authority-key-registry",
+  keys: [{
+    key_id: "binding-authority-test",
+    public_key_spki: bindingAuthorityPublicKeySpki,
+    status: "ACTIVE",
+    not_before: "2026-01-01T00:00:00.000Z",
+    not_after: null,
+  }],
+});
 const canaryResultSigningKeyRegistry = JSON.stringify({
   schema_version: 1,
   scope: "tlsn-result-signing-key-registry",
@@ -328,6 +354,14 @@ const testVars = {
   TLSN_NOTARY_KEY_ID: "notary-test",
   TLSN_NOTARY_REGISTRY: JSON.stringify({ "notary-test": syntheticFixture.notary_key_base64 }),
   TLSN_RESULT_SIGNING_PRIVATE_KEY_PKCS8: signingPrivateKeyPkcs8,
+  TLSN_SESSION_AUTHORITY_SIGNING_PRIVATE_KEY_PKCS8: sessionAuthorityPrivateKey.export({ format: "der", type: "pkcs8" }).toString("base64url"),
+  TLSN_SESSION_AUTHORITY_PUBLIC_KEY_SPKI: sessionAuthorityPublicKeySpki,
+  TLSN_SESSION_AUTHORITY_KEY_ID: "session-authority-test",
+  TLSN_SESSION_AUTHORITY_KEY_REGISTRY: sessionAuthorityKeyRegistry,
+  TLSN_BINDING_AUTHORITY_SIGNING_PRIVATE_KEY_PKCS8: bindingAuthorityPrivateKey.export({ format: "der", type: "pkcs8" }).toString("base64url"),
+  TLSN_BINDING_AUTHORITY_PUBLIC_KEY_SPKI: bindingAuthorityPublicKeySpki,
+  TLSN_BINDING_AUTHORITY_KEY_ID: "binding-authority-test",
+  TLSN_BINDING_AUTHORITY_KEY_REGISTRY: bindingAuthorityKeyRegistry,
   TLSN_TRUST_ROOT_CERTIFICATE_DER: syntheticFixture.root_certificate_base64,
   TLSN_DEVICE_AUTH_URL: deviceAuthUrl,
   TLSN_DEVICE_POSSESSION_AUTH_URL: devicePossessionAuthUrl,
@@ -467,7 +501,7 @@ async function runRedirectRegressionTest() {
       if (!verifySignature(
         null,
         sessionReceiptSigningBytes(session.session_receipt),
-        publicKey,
+        sessionAuthorityPublicKey,
         decodeBase64Url(session.session_receipt.signature),
       )) {
         throw new Error("TLSN session receipt signature is invalid");
@@ -476,7 +510,7 @@ async function runRedirectRegressionTest() {
       if (verifySignature(
         null,
         sessionReceiptSigningBytes(mutatedSessionReceipt),
-        publicKey,
+        sessionAuthorityPublicKey,
         decodeBase64Url(session.session_receipt.signature),
       )) {
         throw new Error("TLSN session receipt mutation was accepted");
@@ -543,7 +577,7 @@ async function runRedirectRegressionTest() {
         if (!verifySignature(
           null,
           consumeReceiptSigningBytes(consumeReceipt),
-          publicKey,
+          bindingAuthorityPublicKey,
           decodeBase64Url(consumeReceipt.signature),
         )) {
           throw new Error("TLSN consume receipt signature is invalid");
@@ -552,7 +586,7 @@ async function runRedirectRegressionTest() {
         if (verifySignature(
           null,
           consumeReceiptSigningBytes(mutatedConsumeReceipt),
-          publicKey,
+          bindingAuthorityPublicKey,
           decodeBase64Url(consumeReceipt.signature),
         )) {
           throw new Error("TLSN consume receipt mutation was accepted");
@@ -693,6 +727,14 @@ const productionTrustRootVars = {
   TLSN_PRODUCTION_RESULT_PUBLIC_KEY_SPKI: productionResultPublicKeySpki,
   TLSN_PRODUCTION_RESULT_SIGNER_KEY_ID: "production-result-test",
   TLSN_PRODUCTION_RESULT_SIGNING_KEY_REGISTRY: productionResultSigningKeyRegistry,
+  TLSN_PRODUCTION_SESSION_AUTHORITY_SIGNING_PRIVATE_KEY_PKCS8: sessionAuthorityPrivateKey.export({ format: "der", type: "pkcs8" }).toString("base64url"),
+  TLSN_PRODUCTION_SESSION_AUTHORITY_PUBLIC_KEY_SPKI: sessionAuthorityPublicKeySpki,
+  TLSN_PRODUCTION_SESSION_AUTHORITY_KEY_ID: "session-authority-test",
+  TLSN_PRODUCTION_SESSION_AUTHORITY_KEY_REGISTRY: sessionAuthorityKeyRegistry,
+  TLSN_PRODUCTION_BINDING_AUTHORITY_SIGNING_PRIVATE_KEY_PKCS8: bindingAuthorityPrivateKey.export({ format: "der", type: "pkcs8" }).toString("base64url"),
+  TLSN_PRODUCTION_BINDING_AUTHORITY_PUBLIC_KEY_SPKI: bindingAuthorityPublicKeySpki,
+  TLSN_PRODUCTION_BINDING_AUTHORITY_KEY_ID: "binding-authority-test",
+  TLSN_PRODUCTION_BINDING_AUTHORITY_KEY_REGISTRY: bindingAuthorityKeyRegistry,
   TLSN_CANDIDATE_DEVICE_AUTH_URL: "https://fusou.dev/api/auth/anonymous-sync/v2/device-proof",
   TLSN_CANDIDATE_DEVICE_POSSESSION_AUTH_URL: "https://fusou.dev/api/auth/anonymous-sync/v2/tlsn-device-proof",
   TLSN_CANDIDATE_DEVICE_AUTH_ALLOWED_HOSTS: "fusou.dev",
@@ -769,6 +811,14 @@ const invalidProductionEndpointWorker = await unstable_dev(resolve(packageDirect
     TLSN_PRODUCTION_RESULT_PUBLIC_KEY_SPKI: productionResultPublicKeySpki,
     TLSN_PRODUCTION_RESULT_SIGNER_KEY_ID: "production-result-test",
     TLSN_PRODUCTION_RESULT_SIGNING_KEY_REGISTRY: productionResultSigningKeyRegistry,
+    TLSN_PRODUCTION_SESSION_AUTHORITY_SIGNING_PRIVATE_KEY_PKCS8: sessionAuthorityPrivateKey.export({ format: "der", type: "pkcs8" }).toString("base64url"),
+    TLSN_PRODUCTION_SESSION_AUTHORITY_PUBLIC_KEY_SPKI: sessionAuthorityPublicKeySpki,
+    TLSN_PRODUCTION_SESSION_AUTHORITY_KEY_ID: "session-authority-test",
+    TLSN_PRODUCTION_SESSION_AUTHORITY_KEY_REGISTRY: sessionAuthorityKeyRegistry,
+    TLSN_PRODUCTION_BINDING_AUTHORITY_SIGNING_PRIVATE_KEY_PKCS8: bindingAuthorityPrivateKey.export({ format: "der", type: "pkcs8" }).toString("base64url"),
+    TLSN_PRODUCTION_BINDING_AUTHORITY_PUBLIC_KEY_SPKI: bindingAuthorityPublicKeySpki,
+    TLSN_PRODUCTION_BINDING_AUTHORITY_KEY_ID: "binding-authority-test",
+    TLSN_PRODUCTION_BINDING_AUTHORITY_KEY_REGISTRY: bindingAuthorityKeyRegistry,
     TLSN_CANDIDATE_DEVICE_AUTH_URL: "https://evil.example/api/auth/anonymous-sync/v2/device-proof",
     TLSN_CANDIDATE_DEVICE_POSSESSION_AUTH_URL: "https://fusou.dev/api/auth/anonymous-sync/v2/tlsn-device-proof",
     TLSN_CANDIDATE_DEVICE_AUTH_ALLOWED_HOSTS: "fusou.dev",

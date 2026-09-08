@@ -151,7 +151,17 @@ async function postVerification(fetch, body, accessToken = "test-token-a") {
 export async function runSmokeTest(fetch, fixture, publicKeyDerBase64url, devicePrivateKey) {
   const healthResponse = await fetch("https://verify.test/health");
   assert.equal(healthResponse.status, 200);
-  assert.deepEqual(await healthResponse.json(), {
+  const health = await healthResponse.json();
+  assert.equal(health.authority_identity?.session_authority?.authority, "fusou-tlsn-session-authority");
+  assert.equal(health.authority_identity?.binding_authority?.authority, "fusou-tlsn-binding-authority");
+  assert.match(health.authority_identity?.session_authority?.public_key_spki ?? "", /^[A-Za-z0-9_-]{59}$/);
+  assert.match(health.authority_identity?.binding_authority?.public_key_spki ?? "", /^[A-Za-z0-9_-]{59}$/);
+  delete health.authority_identity;
+  delete health.security_identity.session_authority_key_id;
+  delete health.security_identity.session_authority_key_registry_sha256;
+  delete health.security_identity.binding_authority_key_id;
+  delete health.security_identity.binding_authority_key_registry_sha256;
+  assert.deepEqual(health, {
     schema_version: 2,
     ok: true,
     verifier: "tlsn-alpha15-wasm",

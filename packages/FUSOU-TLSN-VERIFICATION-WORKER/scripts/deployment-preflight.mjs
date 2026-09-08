@@ -15,6 +15,7 @@ import {
   inputsForRole,
 } from "./deployment-contract.mjs";
 import { checkoutCommit, workflowContextFromEnvironment } from "./deployment-attestation.mjs";
+import { assertAuthorityKeyRegistry, authorityKeyRegistrySha256 } from "./authority-key-registry.mjs";
 import { assertSigningKeyRegistry, signingKeyRegistrySha256 } from "./signing-key-registry.mjs";
 
 const packageDirectory = resolve(new URL("..", import.meta.url).pathname);
@@ -91,6 +92,23 @@ function requireBase64UrlLength(failures, name, length) {
   }
 }
 
+function validatePublicKey(failures, name) {
+  const raw = value(name);
+  if (!raw || raw.length !== 59 || !BASE64URL_PATTERN.test(raw)) {
+    addFailure(failures, name, "must be canonical Ed25519 SPKI public key");
+    return false;
+  }
+  try {
+    if (createPublicKey({ key: Buffer.from(raw, "base64url"), format: "der", type: "spki" }).asymmetricKeyType !== "ed25519") {
+      throw new Error("wrong key type");
+    }
+    return true;
+  } catch {
+    addFailure(failures, name, "must be a valid Ed25519 SPKI public key");
+    return false;
+  }
+}
+
 async function main() {
   const failures = [];
   const role = value("TLSN_DEPLOYMENT_ROLE");
@@ -114,8 +132,8 @@ async function main() {
     JSON.stringify(workflowEvidenceInputs) !== JSON.stringify(WORKFLOW_EVIDENCE_INPUTS) ||
     JSON.stringify(canaryInputs) !== JSON.stringify(CANARY_INPUTS) ||
     JSON.stringify(productionInputs) !== JSON.stringify(PRODUCTION_INPUTS) ||
-    JSON.stringify(canarySecrets) !== JSON.stringify(["TLSN_CANARY_RESULT_SIGNING_PRIVATE_KEY_PKCS8", "TLSN_CANARY_TRUST_ROOT_CERTIFICATE_DER"]) ||
-    JSON.stringify(productionSecrets) !== JSON.stringify(["TLSN_PRODUCTION_RESULT_SIGNING_PRIVATE_KEY_PKCS8", "TLSN_PRODUCTION_TRUST_ROOT_CERTIFICATE_DER"]) ||
+    JSON.stringify(canarySecrets) !== JSON.stringify(["TLSN_CANARY_RESULT_SIGNING_PRIVATE_KEY_PKCS8", "TLSN_CANARY_SESSION_AUTHORITY_SIGNING_PRIVATE_KEY_PKCS8", "TLSN_CANARY_BINDING_AUTHORITY_SIGNING_PRIVATE_KEY_PKCS8", "TLSN_CANARY_TRUST_ROOT_CERTIFICATE_DER"]) ||
+    JSON.stringify(productionSecrets) !== JSON.stringify(["TLSN_PRODUCTION_RESULT_SIGNING_PRIVATE_KEY_PKCS8", "TLSN_PRODUCTION_SESSION_AUTHORITY_SIGNING_PRIVATE_KEY_PKCS8", "TLSN_PRODUCTION_BINDING_AUTHORITY_SIGNING_PRIVATE_KEY_PKCS8", "TLSN_PRODUCTION_TRUST_ROOT_CERTIFICATE_DER"]) ||
     JSON.stringify(inputManifest.production_gate_inputs) !== JSON.stringify(PRODUCTION_GATE_INPUTS) ||
     JSON.stringify(inputManifest.remote_attestation_secret_inputs) !== JSON.stringify(REMOTE_ATTESTATION_SECRET_INPUTS)
   ) {
@@ -151,8 +169,8 @@ async function main() {
     addFailure(failures, "TLSN_CANARY_BINDING_VALUE", "canary role requires a fixed synthetic binding value");
   }
   const forbiddenRoleInputs = role === "canary"
-    ? ["TLSN_PRODUCTION_RESULT_SIGNING_PRIVATE_KEY_PKCS8", "TLSN_PRODUCTION_TRUST_ROOT_CERTIFICATE_DER", "TLSN_PRODUCTION_RESULT_PUBLIC_KEY_SPKI", "TLSN_PRODUCTION_RESULT_SIGNER_KEY_ID", "TLSN_PRODUCTION_RESULT_SIGNING_KEY_REGISTRY", "TLSN_PRODUCTION_DEPLOYMENT_ID", "TLSN_PRODUCTION_WORKER_NAME"]
-    : ["TLSN_CANARY_RESULT_SIGNING_PRIVATE_KEY_PKCS8", "TLSN_CANARY_TRUST_ROOT_CERTIFICATE_DER", "TLSN_CANARY_RESULT_PUBLIC_KEY_SPKI", "TLSN_CANARY_RESULT_SIGNER_KEY_ID", "TLSN_CANARY_RESULT_SIGNING_KEY_REGISTRY", "TLSN_CANARY_DEPLOYMENT_ID", "TLSN_CANARY_WORKER_NAME", "TLSN_CANARY_BINDING_VALUE"];
+    ? ["TLSN_PRODUCTION_RESULT_SIGNING_PRIVATE_KEY_PKCS8", "TLSN_PRODUCTION_SESSION_AUTHORITY_SIGNING_PRIVATE_KEY_PKCS8", "TLSN_PRODUCTION_BINDING_AUTHORITY_SIGNING_PRIVATE_KEY_PKCS8", "TLSN_PRODUCTION_TRUST_ROOT_CERTIFICATE_DER", "TLSN_PRODUCTION_RESULT_PUBLIC_KEY_SPKI", "TLSN_PRODUCTION_RESULT_SIGNER_KEY_ID", "TLSN_PRODUCTION_RESULT_SIGNING_KEY_REGISTRY", "TLSN_PRODUCTION_SESSION_AUTHORITY_PUBLIC_KEY_SPKI", "TLSN_PRODUCTION_SESSION_AUTHORITY_KEY_ID", "TLSN_PRODUCTION_SESSION_AUTHORITY_KEY_REGISTRY", "TLSN_PRODUCTION_BINDING_AUTHORITY_PUBLIC_KEY_SPKI", "TLSN_PRODUCTION_BINDING_AUTHORITY_KEY_ID", "TLSN_PRODUCTION_BINDING_AUTHORITY_KEY_REGISTRY", "TLSN_PRODUCTION_DEPLOYMENT_ID", "TLSN_PRODUCTION_WORKER_NAME"]
+    : ["TLSN_CANARY_RESULT_SIGNING_PRIVATE_KEY_PKCS8", "TLSN_CANARY_SESSION_AUTHORITY_SIGNING_PRIVATE_KEY_PKCS8", "TLSN_CANARY_BINDING_AUTHORITY_SIGNING_PRIVATE_KEY_PKCS8", "TLSN_CANARY_TRUST_ROOT_CERTIFICATE_DER", "TLSN_CANARY_RESULT_PUBLIC_KEY_SPKI", "TLSN_CANARY_RESULT_SIGNER_KEY_ID", "TLSN_CANARY_RESULT_SIGNING_KEY_REGISTRY", "TLSN_CANARY_SESSION_AUTHORITY_PUBLIC_KEY_SPKI", "TLSN_CANARY_SESSION_AUTHORITY_KEY_ID", "TLSN_CANARY_SESSION_AUTHORITY_KEY_REGISTRY", "TLSN_CANARY_BINDING_AUTHORITY_PUBLIC_KEY_SPKI", "TLSN_CANARY_BINDING_AUTHORITY_KEY_ID", "TLSN_CANARY_BINDING_AUTHORITY_KEY_REGISTRY", "TLSN_CANARY_DEPLOYMENT_ID", "TLSN_CANARY_WORKER_NAME", "TLSN_CANARY_BINDING_VALUE"];
   for (const name of [...forbiddenRoleInputs, "TLSN_TEST_BINDING_VALUE", "TLSN_TEST_AUTH_USERS"]) {
     if (process.env[name] !== undefined) addFailure(failures, name, "forbidden configuration is present for this deployment role");
   }
@@ -194,17 +212,27 @@ async function main() {
   const resultKeyName = role === "canary" ? "TLSN_CANARY_RESULT_PUBLIC_KEY_SPKI" : "TLSN_PRODUCTION_RESULT_PUBLIC_KEY_SPKI";
   const resultSignerKeyIdName = role === "canary" ? "TLSN_CANARY_RESULT_SIGNER_KEY_ID" : "TLSN_PRODUCTION_RESULT_SIGNER_KEY_ID";
   const resultKeyRegistryName = role === "canary" ? "TLSN_CANARY_RESULT_SIGNING_KEY_REGISTRY" : "TLSN_PRODUCTION_RESULT_SIGNING_KEY_REGISTRY";
-  requireBase64UrlLength(failures, resultKeyName, 59);
+  const sessionAuthorityKeyName = role === "canary" ? "TLSN_CANARY_SESSION_AUTHORITY_PUBLIC_KEY_SPKI" : "TLSN_PRODUCTION_SESSION_AUTHORITY_PUBLIC_KEY_SPKI";
+  const sessionAuthorityKeyIdName = role === "canary" ? "TLSN_CANARY_SESSION_AUTHORITY_KEY_ID" : "TLSN_PRODUCTION_SESSION_AUTHORITY_KEY_ID";
+  const sessionAuthorityRegistryName = role === "canary" ? "TLSN_CANARY_SESSION_AUTHORITY_KEY_REGISTRY" : "TLSN_PRODUCTION_SESSION_AUTHORITY_KEY_REGISTRY";
+  const sessionAuthorityPrivateKeyName = role === "canary" ? "TLSN_CANARY_SESSION_AUTHORITY_SIGNING_PRIVATE_KEY_PKCS8" : "TLSN_PRODUCTION_SESSION_AUTHORITY_SIGNING_PRIVATE_KEY_PKCS8";
+  const bindingAuthorityKeyName = role === "canary" ? "TLSN_CANARY_BINDING_AUTHORITY_PUBLIC_KEY_SPKI" : "TLSN_PRODUCTION_BINDING_AUTHORITY_PUBLIC_KEY_SPKI";
+  const bindingAuthorityKeyIdName = role === "canary" ? "TLSN_CANARY_BINDING_AUTHORITY_KEY_ID" : "TLSN_PRODUCTION_BINDING_AUTHORITY_KEY_ID";
+  const bindingAuthorityRegistryName = role === "canary" ? "TLSN_CANARY_BINDING_AUTHORITY_KEY_REGISTRY" : "TLSN_PRODUCTION_BINDING_AUTHORITY_KEY_REGISTRY";
+  const bindingAuthorityPrivateKeyName = role === "canary" ? "TLSN_CANARY_BINDING_AUTHORITY_SIGNING_PRIVATE_KEY_PKCS8" : "TLSN_PRODUCTION_BINDING_AUTHORITY_SIGNING_PRIVATE_KEY_PKCS8";
+  validatePublicKey(failures, resultKeyName);
+  validatePublicKey(failures, sessionAuthorityKeyName);
+  validatePublicKey(failures, bindingAuthorityKeyName);
   let registry;
   const registryRaw = value("TLSN_CANDIDATE_NOTARY_REGISTRY");
   try { registry = JSON.parse(registryRaw ?? ""); } catch { addFailure(failures, "TLSN_CANDIDATE_NOTARY_REGISTRY", "must be valid JSON"); }
   if (!registry || typeof registry !== "object" || Array.isArray(registry)) addFailure(failures, "TLSN_CANDIDATE_NOTARY_REGISTRY", "must be a JSON object");
   else if (!registry[value("TLSN_CANDIDATE_NOTARY_KEY_ID")]) addFailure(failures, "TLSN_CANDIDATE_NOTARY_REGISTRY", "must contain TLSN_CANDIDATE_NOTARY_KEY_ID");
   const signingKeyRaw = value(secretInputs[0]);
-  const trustRootHash = secretHash(value(secretInputs[1]));
+  const trustRootHash = secretHash(value(secretInputs[3]));
   const signingKeyBytes = decodeBase64Url(signingKeyRaw);
   if (!signingKeyBytes) addFailure(failures, secretInputs[0] ?? "signing_key", "must be canonical base64url");
-  if (!trustRootHash) addFailure(failures, secretInputs[1] ?? "trust_root", "must be canonical base64url");
+  if (!trustRootHash) addFailure(failures, secretInputs[3] ?? "trust_root", "must be canonical base64url");
   const resultKeyRegistryRaw = value(resultKeyRegistryName);
   let resultKeyRegistry;
   try {
@@ -221,6 +249,56 @@ async function main() {
       const derivedPublicKey = createPublicKey(createPrivateKey({ key: signingKeyBytes, format: "der", type: "pkcs8" })).export({ format: "der", type: "spki" }).toString("base64url");
       if (derivedPublicKey !== value(resultKeyName)) addFailure(failures, resultKeyName, "must match the role-specific result signing private key");
     } catch { addFailure(failures, secretInputs[0], "must be a valid Ed25519 PKCS8 private key"); }
+  }
+  const authorityDefinitions = [
+    {
+      label: "Session Authority",
+      reportName: "session_authority",
+      publicKeyName: sessionAuthorityKeyName,
+      keyIdName: sessionAuthorityKeyIdName,
+      registryName: sessionAuthorityRegistryName,
+      privateKeyName: sessionAuthorityPrivateKeyName,
+      scope: "tlsn-session-authority-key-registry",
+    },
+    {
+      label: "Binding Authority",
+      reportName: "binding_authority",
+      publicKeyName: bindingAuthorityKeyName,
+      keyIdName: bindingAuthorityKeyIdName,
+      registryName: bindingAuthorityRegistryName,
+      privateKeyName: bindingAuthorityPrivateKeyName,
+      scope: "tlsn-binding-authority-key-registry",
+    },
+  ];
+  const authorityResults = [];
+  for (const authority of authorityDefinitions) {
+    const registryRaw = value(authority.registryName);
+    let authorityRegistry;
+    try {
+      authorityRegistry = JSON.parse(registryRaw ?? "");
+      assertAuthorityKeyRegistry(authorityRegistry, {
+        scope: authority.scope,
+        currentKeyId: value(authority.keyIdName),
+        currentPublicKeySpki: value(authority.publicKeyName),
+        label: authority.label,
+      });
+    } catch (error) {
+      addFailure(failures, authority.registryName, error instanceof Error ? error.message : `${authority.label} key registry is invalid`);
+    }
+    const privateKeyBytes = decodeBase64Url(value(authority.privateKeyName));
+    let privateKeyMatchesPublic = false;
+    if (!privateKeyBytes) {
+      addFailure(failures, authority.privateKeyName, "must be canonical base64url");
+    } else {
+      try {
+        const derivedPublicKey = createPublicKey(createPrivateKey({ key: privateKeyBytes, format: "der", type: "pkcs8" })).export({ format: "der", type: "spki" }).toString("base64url");
+        privateKeyMatchesPublic = derivedPublicKey === value(authority.publicKeyName);
+        if (!privateKeyMatchesPublic) addFailure(failures, authority.privateKeyName, `must match the ${authority.label} public key`);
+      } catch {
+        addFailure(failures, authority.privateKeyName, `must be a valid Ed25519 PKCS8 ${authority.label} private key`);
+      }
+    }
+    authorityResults.push({ authority, registryRaw, privateKeyMatchesPublic });
   }
   if (role === "production") {
     const signerKeyId = value("TLSN_ATTESTATION_SIGNER_KEY_ID");
@@ -251,6 +329,8 @@ async function main() {
       result_key_published: !failures.some(({ check }) => check === resultKeyName),
       result_key_registry_valid: !failures.some(({ check }) => check === resultKeyRegistryName),
       signing_key_matches_result_key: !failures.some(({ reason }) => reason.includes("signing private key")),
+      authority_key_registries_valid: authorityResults.every(({ authority }) => !failures.some(({ check }) => check === authority.registryName)),
+      authority_private_keys_match_public_keys: authorityResults.every(({ privateKeyMatchesPublic }) => privateKeyMatchesPublic),
     },
     failure_count: failures.length,
     failures,
@@ -288,6 +368,11 @@ async function main() {
       result_signer_key_id: value(resultSignerKeyIdName) ?? null,
       result_key_registry_sha256: resultKeyRegistryRaw ? signingKeyRegistrySha256(resultKeyRegistryRaw) : null,
     },
+    authority_identity: Object.fromEntries(authorityResults.map(({ authority, registryRaw }) => [authority.reportName, {
+      key_id: value(authority.keyIdName) ?? null,
+      public_key_spki: value(authority.publicKeyName) ?? null,
+      key_registry_sha256: registryRaw ? authorityKeyRegistrySha256(registryRaw) : null,
+    }])),
     device_endpoint_hosts: [...deviceHosts].sort(),
     supabase_endpoint_hosts: [...supabaseHosts].sort(),
     allowed_input_manifest: "scripts/production-inputs.json",

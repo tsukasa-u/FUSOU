@@ -33,6 +33,7 @@ export const PRODUCTION_EVIDENCE_PAYLOAD_FIELDS = [
   "result_identity",
   "security_identity",
   "subject_identity",
+  "trust_graph",
   "evidence_domains",
   "evidence",
   "semantic_predicates",

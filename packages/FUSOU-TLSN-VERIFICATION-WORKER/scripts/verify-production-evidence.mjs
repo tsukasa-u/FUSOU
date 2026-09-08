@@ -12,8 +12,9 @@ import {
   assertSignedProductionEvidenceManifest,
   assertSignedResult,
 } from "./production-evidence.mjs";
-import { PRODUCTION_EVIDENCE_REQUIREMENTS, productionRequirementStatus } from "./production-evidence-contract.mjs";
+import { assertTrustGraph, PRODUCTION_EVIDENCE_REQUIREMENTS, productionRequirementStatus } from "./production-evidence-contract.mjs";
 import { assertSigningKeyRegistry } from "./signing-key-registry.mjs";
+import { assertAuthorityKeyRegistry } from "./authority-key-registry.mjs";
 import { canonicalJson, workflowContextFromEnvironment } from "./deployment-attestation.mjs";
 import {
   assertSemanticResultMatches,
@@ -26,6 +27,7 @@ import {
   deviceProofReplayDigestHex,
   assertDevicePredicateResults,
   verifyConsumeReceipt,
+  verifyDeviceIdentity,
   verifyDeviceAuthentication,
   verifySessionReceipt,
   verifyTlsnDevicePossession,
@@ -99,6 +101,57 @@ function assertAllEvidenceItemsPassed(manifest) {
   }
 }
 
+function assertCapturedTrustGraph(manifest, {
+  authenticatedUser,
+  deviceIdentity,
+  session,
+  presentationBytes,
+  semanticVerification,
+  result,
+  resultBytes,
+  resultSignerKeyId,
+}) {
+  assertTrustGraph(manifest.trust_graph, { artifactNames: new Set(Object.keys(manifest.artifacts ?? {})) });
+  const nodes = new Map(manifest.trust_graph.nodes.map((node) => [node.id, node]));
+  const edges = new Map(manifest.trust_graph.edges.map((edge) => [edge.id, edge]));
+  const assertNodeIdentity = (nodeId, field, expected) => {
+    if (nodes.get(nodeId)?.identity?.[field] !== expected) {
+      throw new Error(`trust graph ${nodeId} identity mismatch: ${field}`);
+    }
+  };
+  assertNodeIdentity("authenticated-user", "user_id", authenticatedUser.user_id);
+  assertNodeIdentity("device", "user_id", authenticatedUser.user_id);
+  assertNodeIdentity("device", "device_id", deviceIdentity.device_id);
+  assertNodeIdentity("device", "public_key_sha256", deviceIdentity.device_public_key_sha256);
+  assertNodeIdentity("session", "session_id", session.session_id);
+  assertNodeIdentity("session", "key_id", session.session_receipt.signer_key_id);
+  assertNodeIdentity("binding", "binding_sha256", createHash("sha256").update(session.binding).digest("base64url"));
+  assertNodeIdentity("binding", "nonce_sha256", createHash("sha256").update(session.challenge).digest("base64url"));
+  assertNodeIdentity("presentation", "presentation_sha256", createHash("sha256").update(presentationBytes).digest("base64url"));
+  assertNodeIdentity("presentation", "attestation_id", semanticVerification.verified_presentation.tlsn_attestation_id);
+  assertNodeIdentity("tlsn-notary", "key_id", semanticVerification.result.notary_key_id);
+  assertNodeIdentity("result", "result_sha256", createHash("sha256").update(resultBytes).digest("base64url"));
+  assertNodeIdentity("result", "key_id", resultSignerKeyId);
+  assertNodeIdentity("production-evidence", "capture_id", manifest.capture_id);
+  assertNodeIdentity("remote-attestation", "status", "UNVERIFIED");
+  const expectedEdges = {
+    "user-owns-device": ["authenticated-user", "device", ["user_id", "device_id", "device_public_key_sha256"], "device_identity", "device_identity_ownership"],
+    "device-authenticates-session": ["device", "session", ["device_id", "device_auth_nonce", "session_id"], "device_authentication", "device_authentication_signature"],
+    "session-issues-binding": ["session", "binding", ["session_id", "binding_value", "binding_nonce"], "session", "session_binding_receipt"],
+    "binding-consumes-presentation": ["binding", "presentation", ["session_id", "binding_value", "presentation_id"], "consume_receipt", "consume_receipt"],
+    "notary-authenticates-presentation": ["tlsn-notary", "presentation", ["notary_key_id", "notary_key_sha256"], "presentation", "notary_identity"],
+    "presentation-derives-result": ["presentation", "result", ["tlsn_attestation_id", "verified_member_id", "transcript_hashes"], "semantic_verification", "result_presentation_binding"],
+    "result-is-in-evidence": ["result", "production-evidence", ["result_sha256", "result_signer_key_id"], "result", "result_signature"],
+    "remote-attestation-is-unverified": ["remote-attestation", "production-evidence", ["status"], "health", "remote_attestation_unverified"],
+  };
+  for (const [edgeId, [source, target, bindingFields, evidenceArtifact, verificationPredicate]] of Object.entries(expectedEdges)) {
+    const edge = edges.get(edgeId);
+    if (!edge || edge.source !== source || edge.target !== target || JSON.stringify(edge.binding_fields) !== JSON.stringify(bindingFields) || edge.evidence_artifact !== evidenceArtifact || edge.verification_predicate !== verificationPredicate) {
+      throw new Error(`trust graph edge mismatch: ${edgeId}`);
+    }
+  }
+}
+
 async function main() {
   const { path: manifestPath, manifest } = await readManifest();
   const expectedWorkflow = expectedWorkflowContext();
@@ -128,7 +181,88 @@ async function main() {
   if (!artifacts.result) throw new Error("production result artifact is required");
   if (!artifacts.semantic_verification) throw new Error("verifier-generated semantic artifact is required");
   if (!artifacts.result_registry) throw new Error("captured result registry artifact is required");
+  if (!artifacts.session_authority_registry || !artifacts.binding_authority_registry) throw new Error("captured authority registries are required");
   const result = parseArtifactJson(artifacts, "result");
+  const authenticatedUser = parseArtifactJson(artifacts, "authenticated_user");
+  const session = parseArtifactJson(artifacts, "session");
+  const subject = parseArtifactJson(artifacts, "subject");
+  const health = parseArtifactJson(artifacts, "health");
+  const deviceIdentity = parseArtifactJson(artifacts, "device_identity");
+  const deviceAuthentication = parseArtifactJson(artifacts, "device_authentication");
+  const possessionProof = parseArtifactJson(artifacts, "possession_proof");
+  const consumeReceipt = parseArtifactJson(artifacts, "consume_receipt");
+  const replay = parseArtifactJson(artifacts, "replay");
+  const sessionAuthorityRegistry = parseArtifactJson(artifacts, "session_authority_registry");
+  const bindingAuthorityRegistry = parseArtifactJson(artifacts, "binding_authority_registry");
+  const expectedSessionAuthorityRegistryRaw = required("TLSN_PRODUCTION_SESSION_AUTHORITY_KEY_REGISTRY");
+  const expectedBindingAuthorityRegistryRaw = required("TLSN_PRODUCTION_BINDING_AUTHORITY_KEY_REGISTRY");
+  if (authenticatedUser?.authoritative !== true || authenticatedUser.authority !== "supabase-authenticated-user" || typeof authenticatedUser.user_id !== "string") {
+    throw new Error("captured authenticated-user authority evidence is invalid");
+  }
+  const authoritativeUserId = authenticatedUser.user_id;
+  const authoritativeDeviceId = deviceIdentity.device_id;
+  const sessionAuthorityPublicKeySpki = required("TLSN_PRODUCTION_SESSION_AUTHORITY_PUBLIC_KEY_SPKI");
+  const sessionAuthoritySignerKeyId = required("TLSN_PRODUCTION_SESSION_AUTHORITY_KEY_ID");
+  const bindingAuthorityPublicKeySpki = required("TLSN_PRODUCTION_BINDING_AUTHORITY_PUBLIC_KEY_SPKI");
+  const bindingAuthoritySignerKeyId = required("TLSN_PRODUCTION_BINDING_AUTHORITY_KEY_ID");
+  assertAuthorityKeyRegistry(sessionAuthorityRegistry, {
+    scope: "tlsn-session-authority-key-registry",
+    currentKeyId: sessionAuthoritySignerKeyId,
+    currentPublicKeySpki: sessionAuthorityPublicKeySpki,
+    label: "session authority",
+  });
+  assertAuthorityKeyRegistry(bindingAuthorityRegistry, {
+    scope: "tlsn-binding-authority-key-registry",
+    currentKeyId: bindingAuthoritySignerKeyId,
+    currentPublicKeySpki: bindingAuthorityPublicKeySpki,
+    label: "binding authority",
+  });
+  if (artifacts.session_authority_registry.toString("utf8") !== expectedSessionAuthorityRegistryRaw) {
+    throw new Error("captured Session Authority registry does not match the expected production registry");
+  }
+  if (artifacts.binding_authority_registry.toString("utf8") !== expectedBindingAuthorityRegistryRaw) {
+    throw new Error("captured Binding Authority registry does not match the expected production registry");
+  }
+  if (health.authority_identity?.session_authority?.authority !== "fusou-tlsn-session-authority" || health.authority_identity.session_authority.key_id !== sessionAuthoritySignerKeyId || health.authority_identity.session_authority.key_registry_sha256 !== createHash("sha256").update(artifacts.session_authority_registry).digest("base64url") || health.authority_identity.session_authority.public_key_spki !== sessionAuthorityPublicKeySpki) {
+    throw new Error("captured Session Authority registry does not match health");
+  }
+  if (health.authority_identity?.binding_authority?.authority !== "fusou-tlsn-binding-authority" || health.authority_identity.binding_authority.key_id !== bindingAuthoritySignerKeyId || health.authority_identity.binding_authority.key_registry_sha256 !== createHash("sha256").update(artifacts.binding_authority_registry).digest("base64url") || health.authority_identity.binding_authority.public_key_spki !== bindingAuthorityPublicKeySpki) {
+    throw new Error("captured Binding Authority registry does not match health");
+  }
+  verifyDeviceIdentity(deviceIdentity, authoritativeUserId, authoritativeDeviceId);
+  verifyDeviceAuthentication(deviceAuthentication, deviceIdentity, authoritativeUserId, authoritativeDeviceId, session.session_id);
+  verifySessionReceipt(
+    session.session_receipt,
+    {
+      session_id: session.session_id,
+      canonical_user_id: authoritativeUserId,
+      device_id: authoritativeDeviceId,
+      device_auth_nonce: deviceAuthentication.request.nonce,
+      nonce: session.challenge,
+      device_challenge: session.device_challenge,
+      binding_value: session.binding,
+      created_at: session.session_receipt.created_at,
+      expires_at: session.expires_at,
+    },
+    { publicKeySpki: sessionAuthorityPublicKeySpki, signerKeyId: sessionAuthoritySignerKeyId, keyRegistry: sessionAuthorityRegistry },
+  );
+  verifyTlsnDevicePossession(possessionProof, deviceIdentity, authoritativeUserId, authoritativeDeviceId, session.session_id, session.binding, session.device_challenge);
+  verifyConsumeReceipt(
+    consumeReceipt,
+    {
+      session_id: session.session_id,
+      canonical_user_id: authoritativeUserId,
+      device_id: authoritativeDeviceId,
+      nonce: session.challenge,
+      binding_value: session.binding,
+      presentation_id: createHash("sha256").update(artifacts.presentation).digest("base64url"),
+      used_at: consumeReceipt.used_at,
+    },
+    { publicKeySpki: bindingAuthorityPublicKeySpki, signerKeyId: bindingAuthoritySignerKeyId, keyRegistry: bindingAuthorityRegistry },
+  );
+  if (session.session_id !== session.session_receipt.session_id || session.device_id !== authoritativeDeviceId || session.binding !== session.session_receipt.binding_value) {
+    throw new Error("authoritative session root is internally inconsistent");
+  }
   const publishedResultRegistryRaw = required("TLSN_PRODUCTION_RESULT_SIGNING_KEY_REGISTRY");
   const registry = parseJson("TLSN_PRODUCTION_RESULT_SIGNING_KEY_REGISTRY", publishedResultRegistryRaw);
   const capturedResultRegistryRaw = artifacts.result_registry.toString("utf8");
@@ -149,104 +283,6 @@ async function main() {
     currentKeyId: resultSignerKeyId,
     currentPublicKeySpki: resultPublicKeySpki,
   });
-  const resultVerification = assertSignedResult(result, {
-    publicKeySpki: resultPublicKeySpki,
-    keyRegistry: capturedResultRegistry,
-    signerKeyId: resultSignerKeyId,
-  });
-  assertResultSubjectIdentity(result, manifest.subject_identity);
-  assertResultSubjectIdentity(result, expectedSubject);
-  assertObjectIdentity(manifest.subject_identity, expectedSubject, "subject identity");
-  if (manifest.result_identity?.result_public_key_spki !== resultPublicKeySpki || manifest.result_identity?.result_signer_key_id !== resultSignerKeyId) {
-    throw new Error("production evidence result identity does not match the result trust anchor");
-  }
-  if (expectedResult && manifest.result_identity?.result_public_key_spki !== expectedResult.result_public_key_spki) {
-    throw new Error("production evidence result identity is not independently trusted");
-  }
-
-  const session = parseArtifactJson(artifacts, "session");
-  const subject = parseArtifactJson(artifacts, "subject");
-  const health = parseArtifactJson(artifacts, "health");
-  const deviceIdentity = parseArtifactJson(artifacts, "device_identity");
-  const deviceAuthentication = parseArtifactJson(artifacts, "device_authentication");
-  const possessionProof = parseArtifactJson(artifacts, "possession_proof");
-  const consumeReceipt = parseArtifactJson(artifacts, "consume_receipt");
-  const replay = parseArtifactJson(artifacts, "replay");
-  if (
-    result.attestation_session_id !== session.session_id ||
-    result.device_id !== session.device_id ||
-    result.device_challenge !== session.device_challenge ||
-    result.binding_value !== session.binding ||
-    result.binding_nonce !== session.challenge
-  ) {
-    throw new Error("production Result is not bound to the captured session");
-  }
-  verifyDeviceAuthentication(
-    deviceAuthentication,
-    deviceIdentity,
-    result.canonical_user_id,
-    result.device_id,
-    session.session_id,
-  );
-  verifySessionReceipt(
-    session.session_receipt,
-    {
-      session_id: session.session_id,
-      canonical_user_id: result.canonical_user_id,
-      device_id: session.device_id,
-      device_auth_nonce: deviceAuthentication.request.nonce,
-      nonce: session.challenge,
-      device_challenge: session.device_challenge,
-      binding_value: session.binding,
-      created_at: session.session_receipt.created_at,
-      expires_at: session.expires_at,
-    },
-    resultPublicKeySpki,
-    resultSignerKeyId,
-  );
-  verifyTlsnDevicePossession(
-    possessionProof,
-    deviceIdentity,
-    result.canonical_user_id,
-    result.device_id,
-    session.session_id,
-    session.binding,
-    session.device_challenge,
-  );
-  verifyConsumeReceipt(
-    consumeReceipt,
-    {
-      session_id: session.session_id,
-      canonical_user_id: result.canonical_user_id,
-      device_id: result.device_id,
-      nonce: session.challenge,
-      binding_value: session.binding,
-      presentation_id: createHash("sha256").update(artifacts.presentation).digest("base64url"),
-      used_at: consumeReceipt.used_at,
-    },
-    resultPublicKeySpki,
-    resultSignerKeyId,
-  );
-  if (
-    subject.user_id_sha256 !== manifest.subject_identity.canonical_user_id_sha256 ||
-    subject.device_id_sha256 !== manifest.subject_identity.device_id_sha256 ||
-    subject.attestation_session_id_sha256 !== manifest.subject_identity.attestation_session_id_sha256 ||
-    subject.verified_member_id_sha256 !== manifest.subject_identity.verified_member_id_sha256 ||
-    subject.binding_value_sha256 !== manifest.subject_identity.binding_value_sha256
-  ) {
-    throw new Error("captured subject artifact does not match the signed Result subject");
-  }
-  for (const [field, identityField] of [
-    ["canonical_user_id", "user_id_sha256"],
-    ["device_id", "device_id_sha256"],
-    ["attestation_session_id", "attestation_session_id_sha256"],
-    ["verified_member_id", "verified_member_id_sha256"],
-    ["binding_value", "binding_value_sha256"],
-  ]) {
-    if (subject[identityField] !== createHash("sha256").update(result[field]).digest("base64url")) {
-      throw new Error(`captured subject hash does not match the signed Result: ${field}`);
-    }
-  }
   if (
     replay.session_id !== session.session_id ||
     replay.device_id !== session.device_id ||
@@ -293,6 +329,12 @@ async function main() {
     presentationBytes: artifacts.presentation,
     resultPublicKeySpki,
     resultSignerKeyId,
+    sessionAuthorityPublicKeySpki,
+    sessionAuthoritySignerKeyId,
+    sessionAuthorityKeyRegistry,
+    bindingAuthorityPublicKeySpki,
+    bindingAuthoritySignerKeyId,
+    bindingAuthorityKeyRegistry,
     verifiedAt: capturedDevicePredicates.device_identity_ownership.verified_at,
   });
   if (canonicalJson(capturedDevicePredicates) !== canonicalJson(devicePredicateResults)) {
@@ -335,9 +377,9 @@ async function main() {
     profileSha256: expectedSecurity.profile_sha256,
     verifierKeyId: expectedSecurity.verifier_key_id,
     notaryKeyId: expectedSecurity.notary_key_id,
-    canonicalUserId: result.canonical_user_id,
-    canonicalDeviceId: result.device_id,
-    deviceChallenge: result.device_challenge,
+    canonicalUserId: authoritativeUserId,
+    canonicalDeviceId: authoritativeDeviceId,
+    deviceChallenge: session.device_challenge,
     notaryRegistry,
     trustAnchorDer: trustRootDer,
   });
@@ -353,6 +395,35 @@ async function main() {
     result_signer_key_id: manifest.result_identity.result_signer_key_id,
     result_key_registry_sha256: manifest.result_identity.result_key_registry_sha256,
   };
+  const preSignaturePredicateResults = verifySemanticPredicates({
+    presentationBytes: presentation,
+    semanticVerification,
+    result,
+    trustedInputs,
+    notaryRegistry,
+    resultRegistry: capturedResultRegistry,
+    resultPublicKeySpki,
+    resultSignerKeyId,
+    includeResultSignature: false,
+  });
+  if (Object.entries(preSignaturePredicateResults).some(([name, predicate]) => name !== "result_signature" && predicate.status !== "PASS")) {
+    throw new Error("recomputed independent Presentation predicates did not pass");
+  }
+  assertCapturedTrustGraph(manifest, {
+    authenticatedUser,
+    deviceIdentity,
+    session,
+    presentationBytes: presentation,
+    semanticVerification,
+    result,
+    resultBytes: artifacts.result,
+    resultSignerKeyId,
+  });
+  assertSignedResult(result, {
+    publicKeySpki: resultPublicKeySpki,
+    keyRegistry: capturedResultRegistry,
+    signerKeyId: resultSignerKeyId,
+  });
   const predicateResults = verifySemanticPredicates({
     presentationBytes: presentation,
     semanticVerification,
@@ -381,11 +452,51 @@ async function main() {
   if (canonicalJson(manifest.semantic_predicates) !== canonicalJson(semanticArtifact.predicates)) {
     throw new Error("manifest semantic predicates do not match the verifier artifact");
   }
+  if (manifest.result_identity?.result_public_key_spki !== resultPublicKeySpki || manifest.result_identity?.result_signer_key_id !== resultSignerKeyId) {
+    throw new Error("production evidence result identity does not match the result trust anchor");
+  }
+  if (
+    result.attestation_session_id !== session.session_id ||
+    result.canonical_user_id !== authoritativeUserId ||
+    result.device_id !== authoritativeDeviceId ||
+    result.device_id !== session.device_id ||
+    result.device_challenge !== session.device_challenge ||
+    result.binding_value !== session.binding ||
+    result.binding_nonce !== session.challenge
+  ) {
+    throw new Error("production Result is not bound to the captured session");
+  }
+  if (
+    subject.user_id_sha256 !== manifest.subject_identity.canonical_user_id_sha256 ||
+    subject.device_id_sha256 !== manifest.subject_identity.device_id_sha256 ||
+    subject.attestation_session_id_sha256 !== manifest.subject_identity.attestation_session_id_sha256 ||
+    subject.verified_member_id_sha256 !== manifest.subject_identity.verified_member_id_sha256 ||
+    subject.binding_value_sha256 !== manifest.subject_identity.binding_value_sha256
+  ) {
+    throw new Error("captured subject artifact does not match the signed Result subject");
+  }
+  for (const [field, identityField] of [
+    ["canonical_user_id", "user_id_sha256"],
+    ["device_id", "device_id_sha256"],
+    ["attestation_session_id", "attestation_session_id_sha256"],
+    ["verified_member_id", "verified_member_id_sha256"],
+    ["binding_value", "binding_value_sha256"],
+  ]) {
+    if (subject[identityField] !== createHash("sha256").update(result[field]).digest("base64url")) {
+      throw new Error(`captured subject hash does not match the signed Result: ${field}`);
+    }
+  }
+  assertResultSubjectIdentity(result, manifest.subject_identity);
+  assertResultSubjectIdentity(result, expectedSubject);
+  assertObjectIdentity(manifest.subject_identity, expectedSubject, "subject identity");
   for (const requirement of Object.keys(manifest.evidence)) {
     const expectedStatus = productionRequirementStatus(requirement, predicateResults, devicePredicateResults);
     if (expectedStatus !== "PASS" && manifest.evidence[requirement].status !== expectedStatus) {
       throw new Error(`evidence requirement is not blocked by its predicate result: ${requirement}`);
     }
+  }
+  if (expectedResult && manifest.result_identity?.result_public_key_spki !== expectedResult.result_public_key_spki) {
+    throw new Error("production evidence result identity is not independently trusted");
   }
 
   assert.equal(manifest.production_evidence, "BLOCKED");

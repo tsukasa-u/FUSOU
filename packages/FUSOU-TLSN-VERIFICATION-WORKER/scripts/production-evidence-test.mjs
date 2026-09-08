@@ -65,6 +65,20 @@ const securityIdentity = {
 
 const { privateKey: resultPrivateKey, publicKey: resultPublicKey } = generateKeyPairSync("ed25519");
 const resultPublicKeySpki = resultPublicKey.export({ format: "der", type: "spki" }).toString("base64url");
+const { privateKey: sessionAuthorityPrivateKey, publicKey: sessionAuthorityPublicKey } = generateKeyPairSync("ed25519");
+const { privateKey: bindingAuthorityPrivateKey, publicKey: bindingAuthorityPublicKey } = generateKeyPairSync("ed25519");
+const sessionAuthorityPublicKeySpki = sessionAuthorityPublicKey.export({ format: "der", type: "spki" }).toString("base64url");
+const bindingAuthorityPublicKeySpki = bindingAuthorityPublicKey.export({ format: "der", type: "spki" }).toString("base64url");
+const sessionAuthorityKeyRegistry = {
+  schema_version: 1,
+  scope: "tlsn-session-authority-key-registry",
+  keys: [{ key_id: "session-authority-2026", public_key_spki: sessionAuthorityPublicKeySpki, status: "ACTIVE", not_before: "2026-01-01T00:00:00.000Z", not_after: null }],
+};
+const bindingAuthorityKeyRegistry = {
+  schema_version: 1,
+  scope: "tlsn-binding-authority-key-registry",
+  keys: [{ key_id: "binding-authority-2026", public_key_spki: bindingAuthorityPublicKeySpki, status: "ACTIVE", not_before: "2026-01-01T00:00:00.000Z", not_after: null }],
+};
 const resultKeyRegistry = {
   schema_version: 1,
   scope: "tlsn-result-signing-key-registry",
@@ -360,7 +374,7 @@ const session = {
 const sessionReceipt = {
   schema_version: 1,
   type: "attestation-session-issued",
-  signer_key_id: "result-2026",
+  signer_key_id: "session-authority-2026",
   signature_algorithm: "Ed25519",
   session_id: session.session_id,
   canonical_user_id: result.canonical_user_id,
@@ -372,7 +386,7 @@ const sessionReceipt = {
   created_at: nowIso,
   expires_at: session.expires_at,
 };
-sessionReceipt.signature = sign(null, sessionReceiptSigningBytes(sessionReceipt), resultPrivateKey).toString("base64url");
+sessionReceipt.signature = sign(null, sessionReceiptSigningBytes(sessionReceipt), sessionAuthorityPrivateKey).toString("base64url");
 session.session_receipt = sessionReceipt;
 const deviceAuthentication = {
   request: {
@@ -406,7 +420,7 @@ const possessionProof = {
 const consumeReceipt = {
   schema_version: 1,
   type: "attestation-binding-consumed",
-  signer_key_id: "result-2026",
+  signer_key_id: "binding-authority-2026",
   signature_algorithm: "Ed25519",
   session_id: session.session_id,
   canonical_user_id: result.canonical_user_id,
@@ -416,7 +430,7 @@ const consumeReceipt = {
   presentation_id: sha256Base64Url(presentationBytes),
   used_at: nowIso,
 };
-consumeReceipt.signature = sign(null, consumeReceiptSigningBytes(consumeReceipt), resultPrivateKey).toString("base64url");
+consumeReceipt.signature = sign(null, consumeReceiptSigningBytes(consumeReceipt), bindingAuthorityPrivateKey).toString("base64url");
 const replay = {
   session_id: session.session_id,
   device_id: session.device_id,
@@ -439,6 +453,12 @@ const devicePredicateContext = {
   presentationBytes,
   resultPublicKeySpki,
   resultSignerKeyId: "result-2026",
+  sessionAuthorityPublicKeySpki,
+  sessionAuthoritySignerKeyId: "session-authority-2026",
+  sessionAuthorityKeyRegistry,
+  bindingAuthorityPublicKeySpki,
+  bindingAuthoritySignerKeyId: "binding-authority-2026",
+  bindingAuthorityKeyRegistry,
   verifiedAt: nowIso,
 };
 const devicePredicateResults = verifyDevicePredicates(devicePredicateContext);
@@ -476,6 +496,29 @@ devicePredicateMutation("TLSN possession digest mutation", {
 devicePredicateMutation("session receipt signature mutation", {
   session: { ...session, session_receipt: { ...session.session_receipt, signature: mutateBase64Url(session.session_receipt.signature) } },
 }, ["session_binding_receipt"]);
+const resultSignedSessionReceipt = { ...sessionReceipt, signer_key_id: "result-2026" };
+resultSignedSessionReceipt.signature = sign(null, sessionReceiptSigningBytes(resultSignedSessionReceipt), resultPrivateKey).toString("base64url");
+devicePredicateMutation("Result key cannot forge Session Authority receipt", {
+  session: { ...session, session_receipt: resultSignedSessionReceipt },
+}, ["session_binding_receipt"]);
+const bindingSignedSessionReceipt = { ...sessionReceipt, signer_key_id: "binding-authority-2026" };
+bindingSignedSessionReceipt.signature = sign(null, sessionReceiptSigningBytes(bindingSignedSessionReceipt), bindingAuthorityPrivateKey).toString("base64url");
+devicePredicateMutation("Binding key cannot forge Session Authority receipt", {
+  session: { ...session, session_receipt: bindingSignedSessionReceipt },
+}, ["session_binding_receipt"]);
+const resultSignedConsumeReceipt = { ...consumeReceipt, signer_key_id: "result-2026" };
+resultSignedConsumeReceipt.signature = sign(null, consumeReceiptSigningBytes(resultSignedConsumeReceipt), resultPrivateKey).toString("base64url");
+devicePredicateMutation("Result key cannot forge Binding Authority receipt", {
+  consumeReceipt: resultSignedConsumeReceipt,
+}, ["consume_receipt"]);
+const sessionSignedConsumeReceipt = { ...consumeReceipt, signer_key_id: "session-authority-2026" };
+sessionSignedConsumeReceipt.signature = sign(null, consumeReceiptSigningBytes(sessionSignedConsumeReceipt), sessionAuthorityPrivateKey).toString("base64url");
+devicePredicateMutation("Session key cannot forge Binding Authority receipt", {
+  consumeReceipt: sessionSignedConsumeReceipt,
+}, ["consume_receipt"]);
+devicePredicateMutation("Binding registry substitution", {
+  bindingAuthorityKeyRegistry: sessionAuthorityKeyRegistry,
+}, ["consume_receipt"]);
 devicePredicateMutation("consume receipt signature mutation", {
   consumeReceipt: { ...consumeReceipt, signature: mutateBase64Url(consumeReceipt.signature) },
 }, ["consume_receipt"]);

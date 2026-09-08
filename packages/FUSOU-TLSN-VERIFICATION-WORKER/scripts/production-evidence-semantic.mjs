@@ -518,6 +518,7 @@ export function verifySemanticPredicates({
   resultRegistry,
   resultPublicKeySpki,
   resultSignerKeyId,
+  includeResultSignature = true,
   verifiedAt = new Date().toISOString(),
 }) {
   const predicateResults = {
@@ -534,7 +535,14 @@ export function verifySemanticPredicates({
     }),
     authenticated_member_id: deriveAuthenticatedMemberId({ semanticVerification, trustedServerIdentity: trustedInputs.server_identity, verifiedAt }),
     result_presentation_binding: verifyResultPresentationBinding({ semanticVerification, result, verifiedAt }),
-    result_signature: verifyResultSignature({ result, resultRegistry, resultPublicKeySpki, resultSignerKeyId, verifiedAt }),
+    result_signature: includeResultSignature
+      ? verifyResultSignature({ result, resultRegistry, resultPublicKeySpki, resultSignerKeyId, verifiedAt })
+      : predicateResult("result_signature", {
+        status: "UNVERIFIED",
+        verifiedAt,
+        evidenceArtifacts: ["result", "result_registry"],
+        detail: "Result signature verification is deferred until Presentation semantics are established",
+      }),
   };
   return assertPredicateResults(predicateResults);
 }
