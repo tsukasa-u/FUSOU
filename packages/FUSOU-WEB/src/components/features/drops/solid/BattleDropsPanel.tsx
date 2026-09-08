@@ -1,4 +1,7 @@
 /** @jsxImportSource solid-js */
+import { EmptyState } from "@/components/common/solid/EmptyState";
+import { LoadingState } from "@/components/common/solid/LoadingState";
+import { MapAreaGrid } from "@/components/common/solid/MapAreaGrid";
 import { createSignal, createMemo, createEffect, For, Show } from "solid-js";
 import type { SharedDashboardState } from "../../battles/solid/types";
 import { getBattleMapAsset, resolveBattleMapSpriteUrl } from "@/data/battleMapAssets";
@@ -65,6 +68,10 @@ export default function BattleDropsPanel(props: { dashboardState: SharedDashboar
   const [mapLabels, setMapLabels] = createSignal<Record<number, string>>({});
   const [mapRouteFrames, setMapRouteFrames] = createSignal<Record<number, { x: number; y: number; width: number; height: number; routeId: number }>>({});
   const [selectedCellId, setSelectedCellId] = createSignal<number | null>(null);
+  const [mapDataLoading, setMapDataLoading] = createSignal<boolean>(false);
+  const [mapDataFailed, setMapDataFailed] = createSignal<boolean>(false);
+  const [imageLoaded, setImageLoaded] = createSignal<boolean>(false);
+  const [imageFailed, setImageFailed] = createSignal<boolean>(false);
 
   const [mstMapareas, setMstMapareas] = createSignal<MapAreaRecord[]>([]);
   const [mstMapinfos, setMstMapinfos] = createSignal<MapInfoRecord[]>([]);
@@ -98,19 +105,37 @@ export default function BattleDropsPanel(props: { dashboardState: SharedDashboar
   };
 
   createEffect(() => {
-    // Reset selection when map changes
+    // Reset selection and image states when map changes
     setSelectedCellId(null);
+    setImageLoaded(false);
+    setImageFailed(false);
     const mapKey = d.mapFilter();
     if (!mapKey) {
       setMapSpots([]);
       setMapLabels({});
+      setMapRouteFrames({});
+      setMapDataLoading(false);
+      setMapDataFailed(false);
       return;
     }
     const asset = getBattleMapAsset(mapKey);
-    if (!asset) return;
+    if (!asset) {
+      setMapSpots([]);
+      setMapLabels({});
+      setMapRouteFrames({});
+      setMapDataLoading(false);
+      setMapDataFailed(true);
+      return;
+    }
 
-    fetch(asset.infoUrl)
-      .then((res) => res.json())
+    setMapDataLoading(true);
+    setMapDataFailed(false);
+
+    const infoPromise = fetch(asset.infoUrl)
+      .then((res) => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return res.json();
+      })
       .then((payload: unknown) => {
         const rawSpots = isJsonRecord(payload) && Array.isArray(payload["spots"])
           ? payload["spots"]
@@ -135,38 +160,65 @@ export default function BattleDropsPanel(props: { dashboardState: SharedDashboar
             } satisfies MapSpot;
           })
           .filter((s: MapSpot | null): s is MapSpot => s !== null);
-        setMapSpots(spots);
-      })
-      .catch(() => setMapSpots([]));
+        return spots;
+      });
 
-    fetch(asset.imageMetaUrl)
-      .then((res) => res.json())
+    const metaPromise = fetch(asset.imageMetaUrl)
+      .then((res) => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return res.json();
+      })
       .then((payload: unknown) => {
         const meta = parseMapFrameMeta(
           isMapImageMetaPayload(payload) ? payload : {},
         );
-        setMapRouteFrames(meta?.routeFrames ?? {});
+        return meta?.routeFrames ?? {};
       })
-      .catch(() => setMapRouteFrames({}));
+      .catch(() => ({}));
 
-    if (asset.labelsUrl) {
-      fetch(asset.labelsUrl)
-        .then((res) => res.json())
-        .then((payload: unknown) => {
-          if (!isJsonRecord(payload)) {
-            setMapLabels({});
-            return;
-          }
-          const labels: Record<number, string> = {};
-          for (const [k, v] of Object.entries(payload)) {
-            labels[Number(k)] = String(v);
-          }
-          setMapLabels(labels);
-        })
-        .catch(() => setMapLabels({}));
-    } else {
-      setMapLabels({});
-    }
+    const labelsPromise = asset.labelsUrl
+      ? fetch(asset.labelsUrl)
+          .then((res) => {
+            if (!res.ok) return {};
+            return res.json();
+          })
+          .then((payload: unknown) => {
+            if (!isJsonRecord(payload)) {
+              return {};
+            }
+            const labels: Record<number, string> = {};
+            for (const [k, v] of Object.entries(payload)) {
+              labels[Number(k)] = String(v);
+            }
+            return labels;
+          })
+          .catch(() => ({}))
+      : Promise.resolve({});
+
+    Promise.all([infoPromise, metaPromise, labelsPromise])
+      .then(([spots, routeFrames, labels]) => {
+        if (d.mapFilter() !== mapKey) return;
+        setMapSpots(spots);
+        setMapRouteFrames(routeFrames);
+        setMapLabels(labels);
+        if (spots.length === 0) {
+          setMapDataFailed(true);
+        } else {
+          setMapDataFailed(false);
+        }
+      })
+      .catch(() => {
+        if (d.mapFilter() !== mapKey) return;
+        setMapSpots([]);
+        setMapRouteFrames({});
+        setMapLabels({});
+        setMapDataFailed(true);
+      })
+      .finally(() => {
+        if (d.mapFilter() === mapKey) {
+          setMapDataLoading(false);
+        }
+      });
   });
 
   const getCellLabel = (cellId: number) => {
@@ -200,6 +252,13 @@ export default function BattleDropsPanel(props: { dashboardState: SharedDashboar
           timestamp: r.record.timestamp,
           winRank,
         };
+      })
+      .filter((drop) => {
+        const query = d.searchQuery().trim().toLowerCase();
+        if (!query) return true;
+        const name = drop.shipName.toLowerCase();
+        const map = drop.mapKey.toLowerCase();
+        return name.includes(query) || map.includes(query);
       })
       .sort((a, b) => (b.timestamp ?? 0) - (a.timestamp ?? 0));
   });
@@ -369,6 +428,7 @@ export default function BattleDropsPanel(props: { dashboardState: SharedDashboar
     return d.mapFilter() ? "ドロップマップ" : "海域を選択";
   });
 
+  
   const panelSubtitle = createMemo(() => {
     if (viewMode() === "ship") return "ドロップ歴のあるすべての艦を一覧表示しています。";
     return d.mapFilter()
@@ -378,8 +438,8 @@ export default function BattleDropsPanel(props: { dashboardState: SharedDashboar
 
   return (
     <div class="space-y-6">
-      <div class="card bg-base-100 shadow-sm">
-        <div class="card-body">
+      <div class="fusou-card">
+        <div class="fusou-card-body">
           <div class="flex items-start justify-between mb-4">
             <div>
               <h3 class="card-title text-lg">{panelTitle()}</h3>
@@ -457,50 +517,38 @@ export default function BattleDropsPanel(props: { dashboardState: SharedDashboar
           <Show when={viewMode() === "map"}>
             <Show when={d.mapFilter()} fallback={
               <div class="space-y-6">
-                <Show when={allMapDropsOverview().length > 0} fallback={<div class="py-10 text-center text-base-content/50">ドロップ履歴がありません</div>}>
-                  <For each={allMapDropsOverview()}>
-                    {(area) => (
-                      <div>
-                        <h4 class="font-bold text-sm text-base-content/80 mb-3 border-b border-base-200 pb-1 flex justify-between">
-                          <span>{area.areaId} {getAreaName(area.areaId)}</span>
-                          <span class="font-mono text-xs text-base-content/60">計 {area.totalAreaDrops}件</span>
-                        </h4>
-                        <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-3">
-                          <For each={area.maps}>
-                            {(mapInfo) => {
-                              const infoName = getMapInfoName(mapInfo.mapKey);
-                              return (
-                                <button 
-                                  class="btn btn-outline h-auto py-2 flex flex-col items-center gap-1 hover:bg-base-200 hover:text-base-content hover:border-base-300"
-                                  onClick={() => d.setMapFilter(mapInfo.mapKey)}
-                                >
-                                  <div class="flex items-center gap-2">
-                                    <span class="font-bold text-base">{mapInfo.mapKey}</span>
-                                    <span class="badge badge-accent badge-sm font-mono">{mapInfo.drops}</span>
-                                  </div>
-                                  <Show when={infoName}>
-                                    <span class="text-[10px] font-normal opacity-75 max-w-full truncate px-1">{infoName}</span>
-                                  </Show>
-                                </button>
-                              );
-                            }}
-                          </For>
-                        </div>
-                      </div>
-                    )}
-                  </For>
+                <Show when={allMapDropsOverview().length > 0} fallback={<EmptyState size="compact" message="ドロップ履歴がありません" />}>
+                  <MapAreaGrid
+                    groups={allMapDropsOverview()}
+                    onSelect={(mapKey: string) => d.setMapFilter(mapKey)}
+                    getAreaName={getAreaName}
+                    getMapName={getMapInfoName}
+                  />
                 </Show>
               </div>
             }>
 
-              <Show when={mapAsset()} fallback={<div class="py-8 text-center text-base-content/40">マップデータがありません</div>}>
-                {(asset) => (
+              <Show
+                when={!mapDataLoading() && (!d.loading() || mapDataFailed())}
+                fallback={<LoadingState message="マップデータを読み込んでいます..." minHeight="h-64" />}
+              >
+                <Show
+                  when={!mapDataFailed() && mapAsset() && mapSpots().length > 0 ? mapAsset() : null}
+                  fallback={
+                    <EmptyState
+                      message="マップデータを読み込めませんでした"
+                      description="この海域のマップデータが見つからないか、読み込みに失敗しました。"
+                      minHeight="h-64"
+                    />
+                  }
+                >
+                  {(asset) => (
                   <div class="space-y-4">
                     <div class="flex flex-wrap items-center justify-between gap-3 rounded-box bg-base-200 p-3 text-sm">
                       <div class="flex items-center gap-2">
                         <Show when={selectedCellId() !== null}>
                           <button
-                            class="btn btn-secondary btn-xs"
+                            class="fusou-btn-xs-secondary"
                             onClick={() => setSelectedCellId(null)}
                           >
                             選択解除: {getCellLabel(selectedCellId()!)}
@@ -522,8 +570,46 @@ export default function BattleDropsPanel(props: { dashboardState: SharedDashboar
                             y={-asset().seaMapFrame.y}
                             width={asset().spriteSheetSize.width}
                             height={asset().spriteSheetSize.height}
-                            style={{ opacity: "0.96" }}
+                            preserveAspectRatio="none"
+                            style={{
+                              opacity: imageLoaded() ? "0.96" : "0",
+                              transition: "opacity 0.3s ease-in",
+                            }}
+                            onLoad={() => {
+                              setImageLoaded(true);
+                              setImageFailed(false);
+                            }}
+                            onError={() => {
+                              setImageLoaded(false);
+                              setImageFailed(true);
+                            }}
                           />
+                        </Show>
+
+                        <Show when={imageFailed()}>
+                          <g>
+                            <rect
+                              x="20"
+                              y="20"
+                              width="348"
+                              height="30"
+                              rx="8"
+                              fill="#eff6ff"
+                              opacity="0.95"
+                              stroke="#93c5fd"
+                              stroke-width="1.5"
+                            />
+                            <text
+                              x="32"
+                              y="35"
+                              fill="#1d4ed8"
+                              font-size="12"
+                              font-weight="700"
+                              dominant-baseline="middle"
+                            >
+                              海域画像を読み込めませんでした。
+                            </text>
+                          </g>
                         </Show>
 
                         {/* Inferred route lines (実線) */}
@@ -621,6 +707,7 @@ export default function BattleDropsPanel(props: { dashboardState: SharedDashboar
                     </div>
                   </div>
                 )}
+                </Show>
               </Show>
 
               <div class="mt-6 border-t border-base-200 pt-6">
@@ -628,7 +715,7 @@ export default function BattleDropsPanel(props: { dashboardState: SharedDashboar
                   {selectedCellId() !== null ? `${getCellLabel(selectedCellId()!)}マスのドロップ` : '海域全体のドロップ'}
                 </h3>
                 <div class="space-y-6 mt-3">
-                  <Show when={mapDropsGroupedByStype().length > 0} fallback={<div class="py-4 text-center text-base-content/40">ドロップ履歴がありません</div>}>
+                  <Show when={mapDropsGroupedByStype().length > 0} fallback={<EmptyState size="compact" message="ドロップ履歴がありません" />}>
                     <For each={mapDropsGroupedByStype()}>
                       {(group) => (
                         <div>

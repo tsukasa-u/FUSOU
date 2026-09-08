@@ -1,4 +1,5 @@
 /** @jsxImportSource solid-js */
+import { AlertMessage } from "@/components/common/solid/AlertMessage";
 import { For, Show, createMemo } from "solid-js";
 import type { JSX } from "solid-js";
 import type {
@@ -1025,11 +1026,10 @@ function PhaseCard(props: {
             isAirbaseInvolvedPhaseKey(phaseKey())
           }
         >
-          <div class="alert alert-warning mb-3 py-2">
-            <span class="text-xs">
-              この基地航空隊フェーズは table_version 0.6.0 未満の既知不具合により、
-              参照解決結果が正確でない可能性があります。
-            </span>
+          <div class="mb-3 text-xs">
+            <AlertMessage type="warning">
+              この基地航空隊フェーズは table_version 0.6.0 未満の既知不具合により、参照解決結果が正確でない可能性があります。
+            </AlertMessage>
           </div>
         </Show>
         {phaseContent()}

@@ -1,4 +1,8 @@
 /** @jsxImportSource solid-js */
+import { AlertMessage } from "@/components/common/solid/AlertMessage";
+import { MapAreaGrid } from "@/components/common/solid/MapAreaGrid";
+import { EmptyState } from "@/components/common/solid/EmptyState";
+import { LoadingState } from "@/components/common/solid/LoadingState";
 import {
   For,
   Show,
@@ -125,6 +129,8 @@ export default function BattleMapFlowPanel(props: { dashboardState: SharedDashbo
   const [mapFrameMetaByKey, setMapFrameMetaByKey] = createSignal<
     Record<string, MapFrameMeta>
   >({});
+  const [mapMetadataLoadingKey, setMapMetadataLoadingKey] = createSignal<string | null>(null);
+  const [mapMetadataFailedKey, setMapMetadataFailedKey] = createSignal<string | null>(null);
   const pendingMetadataLoads = new Map<string, Promise<void>>();
 
   let mapMetadataAbortController: AbortController | null = null;
@@ -182,11 +188,22 @@ export default function BattleMapFlowPanel(props: { dashboardState: SharedDashbo
   // ── Map metadata loading ────────────────────────────────────────────────────
 
   async function ensureMapMetadata(mapKey: string): Promise<void> {
-    if (!mapKey || mapSpotsByKey()[mapKey]) return;
+    if (!mapKey) return;
+    if (mapSpotsByKey()[mapKey]) {
+      setMapMetadataFailedKey(null);
+      setMapMetadataLoadingKey(null);
+      return;
+    }
     const pending = pendingMetadataLoads.get(mapKey);
     if (pending) return pending;
     const asset = getBattleMapAsset(mapKey);
-    if (!asset) return;
+    if (!asset) {
+      setMapMetadataFailedKey(mapKey);
+      setMapMetadataLoadingKey(null);
+      return;
+    }
+    setMapMetadataLoadingKey(mapKey);
+    setMapMetadataFailedKey(null);
     if (
       !mapMetadataAbortController ||
       mapMetadataAbortController.signal.aborted
@@ -225,6 +242,7 @@ export default function BattleMapFlowPanel(props: { dashboardState: SharedDashbo
           addMetadataWarning(
             `${mapKey} のマップ情報の読み込みに失敗しました。`,
           );
+          setMapMetadataFailedKey(mapKey);
           return;
         }
         const payload = parseMapInfoPayload(await response.json());
@@ -232,6 +250,7 @@ export default function BattleMapFlowPanel(props: { dashboardState: SharedDashbo
           addMetadataWarning(
             `${mapKey} のマップ情報を読み取れませんでした。`,
           );
+          setMapMetadataFailedKey(mapKey);
           return;
         }
         const spots = (payload.spots || [])
@@ -259,6 +278,10 @@ export default function BattleMapFlowPanel(props: { dashboardState: SharedDashbo
 
         if (spots.length > 0) {
           setMapSpotsByKey((prev) => ({ ...prev, [mapKey]: spots }));
+          setMapMetadataFailedKey(null);
+        } else {
+          setMapMetadataFailedKey(mapKey);
+          return;
         }
 
         const spotPorts = spots
@@ -315,9 +338,13 @@ export default function BattleMapFlowPanel(props: { dashboardState: SharedDashbo
         }
       } catch (error) {
         if (isAbortError(error)) return;
+        setMapMetadataFailedKey(mapKey);
         addMetadataWarning(`${mapKey} のマップ情報の読み込みに失敗しました。`);
       } finally {
         pendingMetadataLoads.delete(mapKey);
+        if (mapMetadataLoadingKey() === mapKey) {
+          setMapMetadataLoadingKey(null);
+        }
       }
     })();
 
@@ -979,34 +1006,21 @@ export default function BattleMapFlowPanel(props: { dashboardState: SharedDashbo
   return (
     <>
       <Show when={metadataWarnings().length > 0}>
-        <div class="alert alert-warning mb-6 p-3 text-sm items-start">
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            class="w-5 h-5 shrink-0 stroke-current text-warning"
-            fill="none"
-            viewBox="0 0 24 24"
-            aria-hidden="true"
-          >
-            <path
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              stroke-width="2"
-              d="M12 9v4m0 4h.01M5.07 19h13.86c1.54 0 2.5-1.67 1.73-3L13.73 4c-.77-1.33-2.69-1.33-3.46 0L3.34 16c-.77 1.33.19 3 1.73 3z"
-            />
-          </svg>
-          <div class="flex flex-col gap-2 w-full">
-            <div class="flex items-center justify-between gap-2">
-              <span class="font-semibold text-warning">
-                マップメタデータ警告 ({metadataWarnings().length}件)
-              </span>
-              <button
-                class="btn btn-xs btn-ghost"
-                type="button"
-                onClick={() => setShowWarnings((prev) => !prev)}
-              >
-                {showWarnings() ? "詳細を隠す" : "詳細を表示"}
-              </button>
-            </div>
+        <div class="mb-6 text-sm">
+          <AlertMessage type="warning">
+            <div class="flex flex-col gap-2 w-full">
+              <div class="flex items-center justify-between gap-2">
+                <span class="font-semibold text-warning">
+                  マップメタデータ警告 ({metadataWarnings().length}件)
+                </span>
+                <button
+                  class="fusou-btn-xs-ghost"
+                  type="button"
+                  onClick={() => setShowWarnings((prev) => !prev)}
+                >
+                  {showWarnings() ? "詳細を隠す" : "詳細を表示"}
+                </button>
+              </div>
             <Show when={showWarnings()}>
               <div class="flex flex-col gap-1 mt-1">
                 <For each={metadataWarnings()}>
@@ -1016,13 +1030,14 @@ export default function BattleMapFlowPanel(props: { dashboardState: SharedDashbo
                 </For>
               </div>
             </Show>
-          </div>
+            </div>
+          </AlertMessage>
         </div>
       </Show>
 
       {/* Map route visualisation */}
-      <div class="card bg-base-100 shadow-sm mb-6">
-        <div class="card-body">
+      <div class="fusou-card mb-6">
+        <div class="fusou-card-body">
           <h3 class="card-title text-lg">海域ルート図</h3>
           <div class="text-xs text-base-content/60 mb-2">
             港からどの順番で進んだかを矢印で表示します。線のそばの数字は、そのルートを通った回数です。セルをクリックすると、そのマスを通った出撃だけを表示できます。
@@ -1033,55 +1048,39 @@ export default function BattleMapFlowPanel(props: { dashboardState: SharedDashbo
             <Show
               when={mapAreaGroups().length > 0}
               fallback={
-                <div class="flex items-center justify-center h-32 text-base-content/40">
-                  {d.loading() ? "読込中..." : "データがありません"}
-                </div>
+                <Show when={d.loading()} fallback={<EmptyState size="compact" message="データがありません" />}>
+                  <LoadingState message="海域データを読込中..." minHeight="h-32" />
+                </Show>
               }
             >
-              <div class="space-y-6">
-                <For each={mapAreaGroups()}>
-                  {(area) => (
-                    <div>
-                      <h4 class="font-bold text-sm text-base-content/80 mb-3 border-b border-base-200 pb-1">
-                        {area.areaId} {getAreaName(area.areaId)}
-                      </h4>
-                      <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-3">
-                        <For each={area.maps}>
-                          {(mapKey) => {
-                            const infoName = getMapInfoName(mapKey);
-                            return (
-                              <button
-                                class="btn btn-outline h-auto py-2 flex flex-col items-center gap-1 hover:bg-base-200 hover:text-base-content hover:border-base-300"
-                                onClick={() => d.setMapFilter(mapKey)}
-                              >
-                                <span class="font-bold text-base">{mapKey}</span>
-                                <Show when={infoName}>
-                                  <span class="text-[10px] font-normal opacity-75 max-w-full truncate px-1">
-                                    {infoName}
-                                  </span>
-                                </Show>
-                              </button>
-                            );
-                          }}
-                        </For>
-                      </div>
-                    </div>
-                  )}
-                </For>
-              </div>
+              <MapAreaGrid
+                groups={mapAreaGroups()}
+                onSelect={(mapKey: string) => d.setMapFilter(mapKey)}
+                getAreaName={getAreaName}
+                getMapName={getMapInfoName}
+              />
             </Show>
           </Show>
 
           {/* 海域選択済み: ルート図を表示 */}
           <Show when={d.mapFilter()}>
-          <Show
-            when={selectedRouteOverlay()}
-            fallback={
-              <div class="flex items-center justify-center h-64 text-base-content/40">
-                {d.loading() ? "読込中..." : "マップデータを読み込んでいます"}
-              </div>
-            }
-          >
+            <Show
+              when={selectedRouteOverlay()}
+              fallback={
+                <Show
+                  when={mapMetadataLoadingKey() === d.mapFilter() || (d.loading() && mapMetadataFailedKey() !== d.mapFilter())}
+                  fallback={
+                    <EmptyState
+                      message="マップデータを読み込めませんでした"
+                      description="この海域のマップデータが見つからないか、読み込みに失敗しました。"
+                      minHeight="h-64"
+                    />
+                  }
+                >
+                  <LoadingState message="マップデータを読み込んでいます..." minHeight="h-64" />
+                </Show>
+              }
+            >
             {(overlay) => (
               <div class="space-y-4">
                 {/* Filter badge */}
@@ -1097,7 +1096,7 @@ export default function BattleMapFlowPanel(props: { dashboardState: SharedDashbo
                       {(selected) => (
                         <button
                           id="map-flow-clear-filter-btn"
-                          class="btn btn-secondary btn-xs"
+                          class="fusou-btn-xs-secondary"
                           onClick={() => setSelectedCellFilter(null)}
                         >
                           フィルター解除: {selected().label}
@@ -1198,8 +1197,8 @@ export default function BattleMapFlowPanel(props: { dashboardState: SharedDashbo
 
       {/* Cell stats table */}
       <Show when={d.mapFilter()}>
-      <div class="card bg-base-100 shadow-sm">
-        <div class="card-body p-0">
+      <div class="fusou-card">
+        <div class="p-0">
           <div class="overflow-x-auto">
             <table class="table table-zebra table-sm">
               <thead>
@@ -1264,8 +1263,8 @@ export default function BattleMapFlowPanel(props: { dashboardState: SharedDashbo
 
       {/* Sortie list panel */}
       <Show when={d.mapFilter()}>
-      <div class="card bg-base-100 shadow-sm mt-6">
-        <div class="card-body">
+      <div class="fusou-card mt-6">
+        <div class="fusou-card-body">
           <h3 class="card-title text-lg">進軍ルート一覧（出撃ごと）</h3>
           <div class="text-xs text-base-content/60 mb-3">
             出撃ごとの進み方を順番で確認できます。戦闘がなかった通過マスも表示します。

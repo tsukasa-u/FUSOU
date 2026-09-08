@@ -1,4 +1,5 @@
 /** @jsxImportSource solid-js */
+import { FusouModal } from "@/components/common/solid/FusouModal";
 import { createEffect, createSignal, For, Show } from "solid-js";
 import type { BattleDataProgress } from "@/features/battles/repository/types";
 import {
@@ -78,13 +79,17 @@ export default function BattleDataSettingsModal(props: Props) {
   };
 
   return (
-    <dialog ref={props.ref} class="modal">
-      <div class="modal-box w-11/12 max-w-lg rounded-xl bg-base-100">
-        <h3 class="mb-1 text-lg font-bold">データ設定</h3>
-        <p class="mb-4 text-xs text-base-content/60">
-          現在表示している戦闘データの取得元と状態を確認できます。
-        </p>
-
+    <FusouModal
+      ref={props.ref}
+      title="データ設定"
+      description="現在表示している戦闘データの取得元と状態を確認できます。"
+      maxWidth="lg"
+      actions={
+        <form method="dialog">
+          <button type="submit" class="fusou-btn-primary">閉じる</button>
+        </form>
+      }
+    >
         <div class="space-y-3 text-sm">
           <div class="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 rounded-lg border border-base-300 p-3">
             <span class="text-base-content/60">データソース</span>
@@ -245,21 +250,12 @@ export default function BattleDataSettingsModal(props: Props) {
             <p class="text-xs text-base-content/60">
               設定可能な最大値: {bytesToMiB(ABSOLUTE_MAX_MANIFEST_BYTES).toLocaleString()} MiB / {ABSOLUTE_MAX_QUERY_RECORDS.toLocaleString()} 件。値を上げるほどメモリ使用量が増えます。
             </p>
-            <button type="button" class="btn btn-outline btn-sm self-start" onClick={applyLocalLimits}>
+            <button type="button" class="fusou-btn-secondary self-start" onClick={applyLocalLimits}>
               適用して再読み込み
             </button>
           </div>
         </div>
 
-        <div class="modal-action">
-          <form method="dialog">
-            <button type="submit" class="btn btn-primary btn-sm">閉じる</button>
-          </form>
-        </div>
-      </div>
-      <form method="dialog" class="modal-backdrop">
-        <button type="submit" aria-label="閉じる"></button>
-      </form>
-    </dialog>
+        </FusouModal>
   );
 }

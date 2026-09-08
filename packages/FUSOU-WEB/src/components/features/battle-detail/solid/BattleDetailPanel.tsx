@@ -1,4 +1,5 @@
 /** @jsxImportSource solid-js */
+import { LoadingState } from "@/components/common/solid/LoadingState";
 import {
   createSignal,
   createMemo,
@@ -629,10 +630,7 @@ export default function BattleDetailPanel(props: {
         when={loading()}
         fallback={<span class="text-sm">{props.emptyLabel}</span>}
       >
-        <>
-          <span class="loading loading-spinner loading-sm mr-2" />
-          <span class="text-sm">艦隊データ読込中…</span>
-        </>
+        <LoadingState message="艦隊データ読込中…" size="sm" />
       </Show>
     </div>
   );
@@ -1051,8 +1049,8 @@ export default function BattleDetailPanel(props: {
 
       {/* Error banner */}
       <Show when={error()}>
-        <div class="card bg-base-100 shadow-sm mb-6">
-          <div class="card-body">
+        <div class="fusou-card mb-6">
+          <div class="fusou-card-body">
             <h2 class="card-title">戦闘詳細</h2>
             <span
               class={
@@ -1069,8 +1067,8 @@ export default function BattleDetailPanel(props: {
         {(b) => (
           <>
             {/* Battle Header */}
-            <div class="card bg-base-100 shadow-sm mb-6">
-              <div class="card-body">
+            <div class="fusou-card mb-6">
+              <div class="fusou-card-body">
                 <h2 class="card-title">戦闘詳細</h2>
                 <div class="grid grid-cols-1 md:grid-cols-3 gap-3 text-sm">
                   <div class="rounded bg-base-200 px-3 py-2">
@@ -1091,8 +1089,8 @@ export default function BattleDetailPanel(props: {
 
             {/* Formation & Air State & Result */}
             <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-              <div class="card bg-base-100 shadow-sm">
-                <div class="card-body p-4">
+              <div class="fusou-card">
+                <div class="p-4">
                   <h3 class="font-bold text-sm text-base-content/60">陣形</h3>
                   <div class="flex gap-4">
                     <div>
@@ -1108,16 +1106,16 @@ export default function BattleDetailPanel(props: {
               </div>
               <Show when={airInfo()}>
                 {(air) => (
-                  <div class="card bg-base-100 shadow-sm">
-                    <div class="card-body p-4">
+                  <div class="fusou-card">
+                    <div class="p-4">
                       <h3 class="font-bold text-sm text-base-content/60">制空</h3>
                       <p class={`text-lg font-bold ${air().cls}`}>{air().label}</p>
                     </div>
                   </div>
                 )}
               </Show>
-              <div class="card bg-base-100 shadow-sm">
-                <div class="card-body p-4">
+              <div class="fusou-card">
+                <div class="p-4">
                   <h3 class="font-bold text-sm text-base-content/60">
                     戦闘結果
                   </h3>
@@ -1149,8 +1147,8 @@ export default function BattleDetailPanel(props: {
             <div
               class={`grid grid-cols-1 ${hasAirBaseStrikeFormations() ? "lg:grid-cols-3" : "lg:grid-cols-2"} gap-4 mb-6`}
             >
-              <div class="card bg-base-100 shadow-sm">
-                <div class="card-body p-4">
+              <div class="fusou-card">
+                <div class="p-4">
                   <h3 class="font-bold text-sm text-base-content/60 mb-2">
                     味方艦隊
                   </h3>
@@ -1169,8 +1167,8 @@ export default function BattleDetailPanel(props: {
                   </div>
                 </div>
               </div>
-              <div class="card bg-base-100 shadow-sm">
-                <div class="card-body p-4">
+              <div class="fusou-card">
+                <div class="p-4">
                   <h3 class="font-bold text-sm text-base-content/60 mb-2">
                     敵艦隊
                   </h3>
@@ -1185,8 +1183,8 @@ export default function BattleDetailPanel(props: {
                 </div>
               </div>
               <Show when={hasAirBaseStrikeFormations()}>
-                <div class="card bg-base-100 shadow-sm">
-                  <div class="card-body p-4">
+                <div class="fusou-card">
+                  <div class="p-4">
                     <h3 class="font-bold text-sm text-base-content/60 mb-2">
                       基地航空隊
                     </h3>
@@ -1232,8 +1230,8 @@ export default function BattleDetailPanel(props: {
             </div>
 
             {/* Battle Phases / Timeline */}
-            <div class="card bg-base-100 shadow-sm">
-              <div class="card-body">
+            <div class="fusou-card">
+              <div class="fusou-card-body">
                 <div class="flex items-center justify-between gap-4 mb-4 flex-wrap">
                   <h3 class="card-title text-lg">戦闘フェーズ</h3>
                   <div class="join">
@@ -1297,10 +1295,9 @@ export default function BattleDetailPanel(props: {
 
       {/* Loading state (only when no preloaded data yet) */}
       <Show when={loading() && !battle()}>
-        <div class="card bg-base-100 shadow-sm mb-6">
-          <div class="card-body">
-            <h2 class="card-title">戦闘詳細</h2>
-            <span class="text-base-content/60">データ読込中...</span>
+        <div class="fusou-card mb-6">
+          <div class="fusou-card-body py-12">
+            <LoadingState message="戦闘詳細データを読込中..." size="lg" minHeight="min-h-[240px]" />
           </div>
         </div>
       </Show>

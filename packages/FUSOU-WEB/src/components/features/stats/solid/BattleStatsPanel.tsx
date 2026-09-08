@@ -1,4 +1,7 @@
 /** @jsxImportSource solid-js */
+import { EmptyState } from "@/components/common/solid/EmptyState";
+import { LoadingState } from "@/components/common/solid/LoadingState";
+import { FORMATION_NAMES, RANK_HEX_COLORS, AIR_COLORS } from "@/features/battles/constants";
 import { For, Show, createMemo, createSignal } from "solid-js";
 import type { SharedDashboardState } from "../../battles/solid/types";
 import { mapKeyOf } from "../../map-flow/solid/battle-map-flow/dataUtils";
@@ -23,39 +26,7 @@ type StatsState = {
   mvpDistribution: Record<string, number>;
 };
 
-const FORMATION_NAMES: Record<number, string> = {
-  1: "単縦陣",
-  2: "複縦陣",
-  3: "輪形陣",
-  4: "梯形陣",
-  5: "単横陣",
-  6: "警戒陣",
-};
-
-const AIR_NAMES: Record<number, string> = {
-  0: "不明",
-  1: "制空権確保",
-  2: "航空優勢",
-  3: "不明",
-  4: "制空権喪失",
-};
-
-const RANK_COLORS: Record<string, string> = {
-  S: "#22c55e",
-  A: "#3b82f6",
-  B: "#f59e0b",
-  C: "#ef4444",
-  D: "#b91c1c",
-  E: "#7f1d1d",
-  未記録: "#94a3b8",
-};
-
-const AIR_COLORS: Record<string, string> = {
-  制空権確保: "#22c55e",
-  航空優勢: "#3b82f6",
-  不明: "#94a3b8",
-  制空権喪失: "#ef4444",
-};
+const AIR_NAMES = AIR_COLORS;
 
 function buildConicGradient(
   entries: Array<[string, number]>,
@@ -302,10 +273,20 @@ export default function BattleStatsPanel(props: { dashboardState: SharedDashboar
     }),
   );
 
-  const rankConic = createMemo(() => buildConicGradient(rankEntries(), RANK_COLORS));
+  const rankConic = createMemo(() => buildConicGradient(rankEntries(), RANK_HEX_COLORS));
   const airConic = createMemo(() => buildConicGradient(airEntries(), AIR_COLORS));
 
   return (
+    <Show
+      when={!d.loading()}
+      fallback={
+        <div class="fusou-card">
+          <div class="fusou-card-body py-12">
+            <LoadingState message="戦闘統計データを集計中..." size="lg" minHeight="min-h-[320px]" />
+          </div>
+        </div>
+      }
+    >
     <>
       <div class="stats stats-vertical lg:stats-horizontal shadow-sm w-full mb-6 bg-base-100">
         <div class="stat">
@@ -329,12 +310,12 @@ export default function BattleStatsPanel(props: { dashboardState: SharedDashboar
       </div>
 
       <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div class="card bg-base-100 shadow-sm">
-          <div class="card-body p-4 sm:p-6">
+        <div class="fusou-card">
+          <div class="fusou-card-body p-4 sm:p-6">
             <h3 class="card-title text-lg mb-4">日別出撃数</h3>
             <Show
               when={stats().dailySorties.length > 0}
-              fallback={<div class="h-[260px] flex items-center justify-center text-base-content/40">データがありません</div>}
+              fallback={<EmptyState message="出撃データがありません" class="h-[260px]" />}
             >
               {(() => {
                 const points = stats().dailySorties;
@@ -443,19 +424,19 @@ export default function BattleStatsPanel(props: { dashboardState: SharedDashboar
           </div>
         </div>
 
-        <div class="card bg-base-100 shadow-sm">
-          <div class="card-body p-4 sm:p-6">
+        <div class="fusou-card">
+          <div class="fusou-card-body p-4 sm:p-6">
             <h3 class="card-title text-lg mb-4">戦闘結果分布</h3>
             <div class="flex flex-col sm:flex-row items-center gap-6">
               <div class="w-48 h-48 rounded-full shadow-inner shrink-0 overflow-hidden" style={{ background: rankConic() }}></div>
               <div class="flex-1 w-full text-sm">
-                <Show when={rankEntries().length > 0} fallback={<div class="py-8 text-center text-base-content/50">データがありません</div>}>
+                <Show when={rankEntries().length > 0} fallback={<EmptyState message="データがありません" size="compact" />}>
                   <div class="space-y-2">
                     <For each={rankEntries()}>
                       {([name, value]) => (
                         <div class="flex items-center justify-between">
                           <span class="flex items-center gap-2">
-                            <span class="inline-block w-3 h-3 rounded-full shadow-sm" style={{ background: RANK_COLORS[name] ?? "#94a3b8" }}></span>
+                            <span class="inline-block w-3 h-3 rounded-full shadow-sm" style={{ background: RANK_HEX_COLORS[name] ?? "#94a3b8" }}></span>
                             <span class="font-medium">{name}</span>
                           </span>
                           <span class="font-mono text-base-content/80">{value}</span>
@@ -469,8 +450,8 @@ export default function BattleStatsPanel(props: { dashboardState: SharedDashboar
           </div>
         </div>
 
-        <div class="card bg-base-100 shadow-sm">
-          <div class="card-body p-4 sm:p-6">
+        <div class="fusou-card">
+          <div class="fusou-card-body p-4 sm:p-6">
             <h3 class="card-title text-lg mb-4">陣形使用率</h3>
             <div class="space-y-3">
               <For each={formationEntries()}>
@@ -494,11 +475,11 @@ export default function BattleStatsPanel(props: { dashboardState: SharedDashboar
           </div>
         </div>
 
-        <div class="card bg-base-100 shadow-sm">
-          <div class="card-body p-4 sm:p-6">
+        <div class="fusou-card">
+          <div class="fusou-card-body p-4 sm:p-6">
             <h3 class="card-title text-lg mb-4">MVP取得枠</h3>
             <div class="space-y-3">
-              <Show when={mvpEntries().length > 0} fallback={<div class="py-4 text-center text-base-content/50">データがありません</div>}>
+              <Show when={mvpEntries().length > 0} fallback={<EmptyState message="データがありません" size="compact" />}>
                 <For each={mvpEntries()}>
                   {([name, value]) => {
                     const maxVal = mvpEntries()[0]?.[1] || 1;
@@ -521,13 +502,13 @@ export default function BattleStatsPanel(props: { dashboardState: SharedDashboar
           </div>
         </div>
 
-        <div class="card bg-base-100 shadow-sm">
-          <div class="card-body p-4 sm:p-6">
+        <div class="fusou-card">
+          <div class="fusou-card-body p-4 sm:p-6">
             <h3 class="card-title text-lg mb-4">制空状態分布</h3>
             <div class="flex flex-col sm:flex-row items-center gap-6">
               <div class="w-48 h-48 rounded-full shadow-inner shrink-0 overflow-hidden" style={{ background: airConic() }}></div>
               <div class="flex-1 w-full text-sm">
-                <Show when={airEntries().length > 0} fallback={<div class="py-8 text-center text-base-content/50">データがありません</div>}>
+                <Show when={airEntries().length > 0} fallback={<EmptyState message="データがありません" size="compact" />}>
                   <div class="space-y-2">
                     <For each={airEntries()}>
                       {([name, value]) => (
@@ -547,11 +528,11 @@ export default function BattleStatsPanel(props: { dashboardState: SharedDashboar
           </div>
         </div>
 
-        <div class="card bg-base-100 shadow-sm">
-          <div class="card-body p-4 sm:p-6">
+        <div class="fusou-card">
+          <div class="fusou-card-body p-4 sm:p-6">
             <h3 class="card-title text-lg mb-4">海域別成績</h3>
-            <div class="space-y-3 max-h-[300px] overflow-y-auto pr-3 scrollbar-thin scrollbar-thumb-base-300 scrollbar-track-transparent">
-              <Show when={mapAreaEntries().length > 0} fallback={<div class="py-4 text-center text-base-content/50">データがありません</div>}>
+            <div class="space-y-3 max-h-[300px] overflow-y-auto pr-3 ">
+              <Show when={mapAreaEntries().length > 0} fallback={<EmptyState message="データがありません" size="compact" />}>
                 <div class="overflow-x-auto w-full">
                   <table class="table table-sm table-zebra w-full text-sm">
                     <thead>
@@ -582,13 +563,13 @@ export default function BattleStatsPanel(props: { dashboardState: SharedDashboar
           </div>
         </div>
 
-        <div class="card bg-base-100 shadow-sm">
-          <div class="card-body p-4 sm:p-6 flex flex-col">
+        <div class="fusou-card">
+          <div class="fusou-card-body p-4 sm:p-6 flex flex-col">
             <h3 class="card-title text-lg mb-4">昼夜戦割合</h3>
             <div class="flex-1 flex flex-col justify-center pb-4">
               <div class="flex justify-between text-sm mb-3 px-1 font-medium">
                 <span class="flex items-center gap-2"><div class="w-3 h-3 rounded-full bg-warning shadow-sm"></div>昼戦終了</span>
-                <span class="flex items-center gap-2"><div class="w-3 h-3 rounded-full bg-indigo-500 shadow-sm"></div>夜戦突入</span>
+                <span class="flex items-center gap-2"><div class="w-3 h-3 rounded-full bg-secondary shadow-sm"></div>夜戦突入</span>
               </div>
               <div class="w-full h-10 bg-base-200 rounded-box overflow-hidden flex shadow-inner">
                 <Show when={stats().totalBattles > 0} fallback={<div class="w-full h-full bg-base-200 flex items-center justify-center text-xs text-base-content/40">データなし</div>}>
@@ -597,7 +578,7 @@ export default function BattleStatsPanel(props: { dashboardState: SharedDashboar
                       {((stats().dayNightRatio.day / stats().totalBattles) * 100).toFixed(1)}%
                     </Show>
                   </div>
-                  <div class="h-full bg-indigo-500 flex items-center pr-4 text-sm font-bold text-white justify-end transition-all duration-500 overflow-hidden whitespace-nowrap" style={{ width: `${Math.max(0, (stats().dayNightRatio.night / stats().totalBattles) * 100)}%` }}>
+                  <div class="h-full bg-secondary flex items-center pr-4 text-sm font-bold text-white justify-end transition-all duration-500 overflow-hidden whitespace-nowrap" style={{ width: `${Math.max(0, (stats().dayNightRatio.night / stats().totalBattles) * 100)}%` }}>
                     <Show when={(stats().dayNightRatio.night / stats().totalBattles) > 0.1}>
                       {((stats().dayNightRatio.night / stats().totalBattles) * 100).toFixed(1)}%
                     </Show>
@@ -613,5 +594,6 @@ export default function BattleStatsPanel(props: { dashboardState: SharedDashboar
         </div>
       </div>
     </>
+    </Show>
   );
 }

@@ -1,4 +1,5 @@
 /** @jsxImportSource solid-js */
+import { FusouModal } from "@/components/common/solid/FusouModal";
 import { createSignal, onCleanup, onMount, Show } from "solid-js";
 import { AlertMessage } from "@/components/common/solid/AlertMessage";
 import {
@@ -457,9 +458,12 @@ export default function BattleSourceSwitcher() {
 
 function LocalPendingBattleShell() {
   return (
-    <main class="fusou-page-container max-w-360 pt-5">
-      <h1 class="text-2xl font-bold">戦闘データ</h1>
-    </main>
+    <div class="fusou-page-header">
+      <div>
+        <h1 class="fusou-page-title">戦闘データ</h1>
+        <p class="fusou-page-subtitle">記録された戦闘ログの分析・集計機能</p>
+      </div>
+    </div>
   );
 }
 
@@ -483,12 +487,18 @@ function LocalSourceSettingsModal(props: {
       : 0;
 
   return (
-    <dialog ref={props.ref} class="modal" onClose={props.onClose}>
-      <div class="modal-box w-11/12 max-w-md rounded-xl bg-base-100">
-        <h3 class="mb-1 text-lg font-bold">表示設定</h3>
-        <p class="mb-4 text-xs text-base-content/60">
-          戦闘データの表示元とローカル AVRO の読み込みを設定します。
-        </p>
+    <FusouModal
+      ref={props.ref}
+      title="表示設定"
+      description="戦闘データの表示元とローカル AVRO の読み込みを設定します。"
+      maxWidth="md"
+      onClose={props.onClose}
+      actions={
+        <form method="dialog">
+          <button type="submit" class="fusou-btn-primary">閉じる</button>
+        </form>
+      }
+    >
         <div class="rounded-lg border border-base-300 p-3 text-sm">
           <div class="font-medium">ローカルデータ</div>
           <div class="mt-1 text-xs text-base-content/65">
@@ -514,27 +524,18 @@ function LocalSourceSettingsModal(props: {
           </Show>
           <div class="mt-3 flex flex-wrap gap-2">
             <Show when={!props.scanResult() && props.hasStoredHandle() && props.permission() === "prompt"}>
-              <button type="button" class="btn btn-primary btn-sm" onClick={props.onRequestPermission}>前回のディレクトリを使用</button>
+              <button type="button" class="fusou-btn-primary" onClick={props.onRequestPermission}>前回のディレクトリを使用</button>
             </Show>
             <Show when={!props.scanResult() && !(props.hasStoredHandle() && props.permission() === "prompt")}>
-              <button type="button" class="btn btn-primary btn-sm" onClick={props.onPick}>ディレクトリを選択</button>
+              <button type="button" class="fusou-btn-primary" onClick={props.onPick}>ディレクトリを選択</button>
             </Show>
             <Show when={props.scanResult()}>
-              <button type="button" class="btn btn-outline btn-sm" onClick={props.onRescan}>再スキャン</button>
-              <button type="button" class="btn btn-ghost btn-sm" onClick={props.onPick}>再選択</button>
-              <button type="button" class="btn btn-ghost btn-sm" onClick={props.onRelease}>アクセス解除</button>
+              <button type="button" class="fusou-btn-secondary" onClick={props.onRescan}>再スキャン</button>
+              <button type="button" class="fusou-btn-ghost" onClick={props.onPick}>再選択</button>
+              <button type="button" class="fusou-btn-ghost" onClick={props.onRelease}>アクセス解除</button>
             </Show>
           </div>
         </div>
-        <div class="modal-action">
-          <form method="dialog">
-            <button type="submit" class="btn btn-primary btn-sm">閉じる</button>
-          </form>
-        </div>
-      </div>
-      <form method="dialog" class="modal-backdrop">
-        <button type="submit" aria-label="閉じる"></button>
-      </form>
-    </dialog>
+        </FusouModal>
   );
 }

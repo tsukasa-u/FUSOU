@@ -1,6 +1,8 @@
 /** @jsxImportSource solid-js */
+import { FusouPageHeader } from "@/components/common/solid/FusouPageHeader";
 import {
   createEffect,
+  createMemo,
   createSignal,
   onCleanup,
   onMount,
@@ -16,6 +18,8 @@ import type {
 } from "./types";
 import { AlertMessage } from "@/components/common/solid/AlertMessage";
 import { MasterDataLoadStatusAlert } from "@/components/common/solid/MasterDataLoadStatusAlert";
+import { ActiveFilterChips, type FilterChipItem } from "@/components/common/solid/ActiveFilterChips";
+import BattleSearchFilterBar from "./BattleSearchFilterBar";
 
 // We'll lazy load or dynamically import the sub-panels to keep bundle size manageable if needed,
 // but for SPA we can just import them directly.
@@ -29,7 +33,7 @@ import BattleDropsPanel from "../../drops/solid/BattleDropsPanel"; // New compon
 import BattleTabs from "./BattleTabs"; // We'll create this Solid component
 import BattleDataSettingsModal from "./BattleDataSettingsModal";
 import BattleFilterSettingsModal from "./BattleFilterSettingsModal";
-import { FilterIcon } from "@/components/common/solid/icons/FilterIcon";
+
 import { SettingsIcon } from "@/components/common/solid/icons/SettingsIcon";
 import { ShareUrlButton } from "@/components/common/solid/ShareUrlButton";
 
@@ -168,6 +172,14 @@ export default function BattlesDashboard(props: {
   
   const [periods, setPeriods] = createSignal<PeriodSummary[]>([]);
   const [selectedPeriodIdx, setSelectedPeriodIdx] = createSignal(0);
+  const selectedPeriod = () => periods()[selectedPeriodIdx()] ?? null;
+
+  const defaultPeriodIndex = () => {
+    const p = periods();
+    if (p.length === 0) return 0;
+    const latestIdx = p.findIndex((row) => row.period_tag === "latest");
+    return latestIdx >= 0 ? latestIdx : 0;
+  };
   const [loadingPeriods, setLoadingPeriods] = createSignal(false);
   const [loading, setLoading] = createSignal(false);
   const [localProgress, setLocalProgress] = createSignal<BattleDataProgress | null>(null);
@@ -190,8 +202,56 @@ export default function BattlesDashboard(props: {
   const [detailLoadStatus, setDetailLoadStatus] =
     createSignal<BattleDetailLoadStatus | null>(null);
 
+  const [searchQuery, setSearchQuery] = createSignal("");
   const [mapFilter, setMapFilter] = createSignal("");
   const [resultFilter, setResultFilter] = createSignal("");
+  const activeFilterItems = createMemo((): FilterChipItem[] => {
+    const items: FilterChipItem[] = [];
+    const query = searchQuery().trim();
+    if (query) {
+      items.push({
+        key: "search",
+        label: "検索",
+        value: `"${query}"`,
+        onRemove: () => setSearchQuery(""),
+      });
+    }
+    const p = selectedPeriod();
+    if (p && (selectedPeriodIdx() !== defaultPeriodIndex() || p.period_tag !== "latest")) {
+      const periodValue = p.period_tag === "all"
+        ? "全期間"
+        : p.table_version
+          ? `${p.period_tag} (v${p.table_version})`
+          : p.period_tag;
+      items.push({
+        key: "period",
+        label: "期間",
+        value: periodValue,
+        onRemove: () => {
+          changePeriod(defaultPeriodIndex());
+        },
+      });
+    }
+    const map = mapFilter().trim();
+    if (map) {
+      items.push({
+        key: "map",
+        label: "海域",
+        value: map,
+        onRemove: () => setMapFilter(""),
+      });
+    }
+    const result = resultFilter().trim();
+    if (result) {
+      items.push({
+        key: "result",
+        label: "勝敗",
+        value: `${result}勝利`,
+        onRemove: () => setResultFilter(""),
+      });
+    }
+    return items;
+  });
 
   const [battleRecords, setBattleRecords] = createSignal<BattleRecord[]>([]);
   const [cellRecords, setCellRecords] = createSignal<CellRecord[]>([]);
@@ -246,7 +306,6 @@ export default function BattlesDashboard(props: {
     ? detailLoadStatus()?.loading ?? false
     : loading();
 
-  const selectedPeriod = () => periods()[selectedPeriodIdx()] ?? null;
   const hasReachedLimitCeiling = () =>
     limitBlocks() >= MAX_LIMIT_BLOCKS && limitRecords() >= MAX_LIMIT_RECORDS;
 
@@ -551,6 +610,10 @@ export default function BattlesDashboard(props: {
     const params = new URLSearchParams(window.location.search);
     const initialPeriodTag = params.get("period_tag");
     const initialTableVersion = params.get("table_version");
+    const initialQuery = params.get("q")?.trim() ?? "";
+    if (initialQuery) {
+      setSearchQuery(initialQuery);
+    }
     const initialMapFilter = params.get("map_filter")?.trim() ?? "";
     const initialResultFilter = params.get("result_filter")?.trim() ?? "";
     const initialTab = params.get("tab") as "list" | "detail" | "map-flow" | "stats" | "drops";
@@ -655,6 +718,13 @@ export default function BattlesDashboard(props: {
       }
     }
 
+    const query = searchQuery().trim();
+    if (query) {
+      url.searchParams.set("q", query);
+    } else {
+      url.searchParams.delete("q");
+    }
+
     const map = mapFilter().trim();
     if (map) {
       url.searchParams.set("map_filter", map);
@@ -691,6 +761,8 @@ export default function BattlesDashboard(props: {
     mstSlotItems,
     weaponIconFrames,
     weaponIconMeta,
+    searchQuery,
+    setSearchQuery,
     mapFilter,
     setMapFilter,
     resultFilter,
@@ -704,14 +776,11 @@ export default function BattlesDashboard(props: {
   };
 
   return (
-    <div class="fusou-page pb-12">
-      <div class="fusou-page-container max-w-360 py-8">
-        <div class="fusou-page-header flex flex-col md:flex-row md:items-end gap-4">
-          <div class="flex-1">
-            <h1 class="fusou-page-title">戦闘データ</h1>
-            <p class="fusou-page-subtitle">記録された戦闘ログの分析・集計機能</p>
-          </div>
-          <div class="fusou-page-actions flex-wrap">
+    <div class="space-y-6 pb-12">
+        <FusouPageHeader
+          title="戦闘データ"
+          subtitle="記録された戦闘ログの分析・集計機能"
+          actions={<>
             <Show when={activeTab() === "map-flow"}>
               <button
                 class="fusou-btn-secondary gap-1.5"
@@ -719,7 +788,7 @@ export default function BattlesDashboard(props: {
                 onClick={() => window.dispatchEvent(new CustomEvent("map-flow-open-display-settings"))}
               >
                 <SettingsIcon class="h-4 w-4" />
-                <span class="hidden md:inline">表示設定</span>
+                <span class="hidden sm:inline">表示設定</span>
               </button>
             </Show>
 
@@ -735,7 +804,7 @@ export default function BattlesDashboard(props: {
                 }
               >
                 <SettingsIcon class="h-4 w-4" />
-                <span class="hidden md:inline">表示設定</span>
+                <span class="hidden sm:inline">表示設定</span>
               </button>
             </Show>
 
@@ -761,15 +830,7 @@ export default function BattlesDashboard(props: {
               />
             </Show>
 
-            <button
-              id="battle-filter-settings-btn"
-              class="fusou-btn-secondary gap-1.5"
-              type="button"
-              onClick={() => filterSettingsModalRef?.showModal()}
-            >
-              <FilterIcon class="h-4 w-4" />
-              <span>フィルター</span>
-            </button>
+
 
             <button
               id="battle-data-settings-btn"
@@ -778,7 +839,7 @@ export default function BattlesDashboard(props: {
               onClick={() => dataSettingsModalRef?.showModal()}
             >
               <SettingsIcon class="h-4 w-4" />
-              <span class="hidden md:inline">データ設定</span>
+              <span class="hidden sm:inline">データ設定</span>
             </button>
 
             <button
@@ -797,14 +858,14 @@ export default function BattlesDashboard(props: {
               <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
               </svg>
-              <span class="hidden md:inline">
+              <span class="hidden sm:inline">
                 <Show when={loading()} fallback="更新">
                   読込中
                 </Show>
               </span>
             </button>
-          </div>
-        </div>
+          </>}
+        />
 
         <Show when={error()}>
           <div class="mb-6">
@@ -831,7 +892,7 @@ export default function BattlesDashboard(props: {
               </span>
               <button
                 type="button"
-                class="btn btn-warning btn-outline btn-sm"
+                class="fusou-btn-secondary text-warning border-warning/40 hover:bg-warning/10"
                 disabled={loading() || hasReachedLimitCeiling()}
                 onClick={() => {
                   const nextBlocks = Math.min(limitBlocks() + 100, MAX_LIMIT_BLOCKS);
@@ -858,14 +919,40 @@ export default function BattlesDashboard(props: {
           class="mb-6"
         />
 
-        <BattleTabs
-          activeTab={activeTab()}
-          onTabChange={(tab) => {
-            if (tab === "detail") setDetailLoadStatus(null);
-            setActiveTab(tab);
-          }}
-          disabled={loading()}
-        />
+        <div class="fusou-tab-toolbar">
+          <BattleTabs
+            activeTab={activeTab()}
+            onTabChange={(tab) => {
+              if (tab === "detail") setDetailLoadStatus(null);
+              setActiveTab(tab);
+            }}
+            disabled={loading()}
+          />
+
+          <BattleSearchFilterBar
+            searchQuery={searchQuery}
+            onSearchChange={setSearchQuery}
+            activeFilterCount={activeFilterItems().length}
+            onOpenFilterModal={() => filterSettingsModalRef?.showModal()}
+          />
+        </div>
+
+        <Show when={activeFilterItems().length > 0}>
+          <div class="-mt-3 mb-4 px-0.5">
+            <ActiveFilterChips
+              items={activeFilterItems()}
+              onClearAll={() => {
+                setSearchQuery("");
+                setMapFilter("");
+                setResultFilter("");
+                const defaultIdx = defaultPeriodIndex();
+                if (selectedPeriodIdx() !== defaultIdx) {
+                  changePeriod(defaultIdx);
+                }
+              }}
+            />
+          </div>
+        </Show>
 
         <div class="mt-4">
           <Switch>
@@ -893,7 +980,6 @@ export default function BattlesDashboard(props: {
             </Match>
           </Switch>
         </div>
-      </div>
       <BattleDataSettingsModal
         ref={(element) => {
           dataSettingsModalRef = element;
@@ -932,6 +1018,8 @@ export default function BattlesDashboard(props: {
         loadingPeriods={loadingPeriods}
         loading={loading}
         onPeriodChange={changePeriod}
+        searchQuery={searchQuery}
+        onSearchChange={setSearchQuery}
         mapOptions={mapOptions}
         mapFilter={mapFilter}
         onMapFilterChange={setMapFilter}

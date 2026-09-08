@@ -1,4 +1,4 @@
-import type {
+﻿import type {
   BattleRecord,
   CellRecord,
   EnemyDeckRecord,
@@ -45,6 +45,9 @@ export type SharedDashboardState = {
   weaponIconFrames: () => Record<number, WeaponIconFrame>;
   weaponIconMeta: () => { width: number; height: number };
   
+  searchQuery: () => string;
+  setSearchQuery: (query: string) => void;
+
   mapFilter: () => string;
   setMapFilter: (filter: string) => void;
   resultFilter: () => string;

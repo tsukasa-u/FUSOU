@@ -1,4 +1,4 @@
-/** @jsxImportSource solid-js */
+﻿/** @jsxImportSource solid-js */
 import { For, Show } from "solid-js";
 import type { PeriodSummary } from "./types";
 
@@ -9,6 +9,8 @@ type Props = {
   loadingPeriods: () => boolean;
   loading: () => boolean;
   onPeriodChange: (index: number) => void;
+  searchQuery?: () => string;
+  onSearchChange?: (query: string) => void;
   mapOptions: () => string[];
   mapFilter: () => string;
   onMapFilterChange: (filter: string) => void;
@@ -36,14 +38,45 @@ export default function BattleFilterSettingsModal(props: Props) {
   };
 
   return (
-    <dialog ref={props.ref} class="modal">
+    <dialog ref={props.ref} id="battle-filter-settings-modal" class="modal">
       <div class="modal-box w-11/12 max-w-md rounded-xl bg-base-100">
-        <h3 class="mb-1 text-lg font-bold">フィルター</h3>
+        <h3 class="mb-1 text-lg font-bold">検索・フィルター</h3>
         <p class="mb-4 text-xs text-base-content/60">
-          表示する戦闘データの期間・海域・結果を設定します。
+          表示する戦闘データのキーワード・期間・海域・結果を設定します。
         </p>
 
         <div class="space-y-4 text-sm">
+          <Show when={props.searchQuery && props.onSearchChange}>
+            <div class="form-control space-y-1.5">
+              <label for="battle-filter-search" class="text-xs font-semibold text-base-content/60">
+                キーワード検索
+              </label>
+              <div class="relative flex items-center">
+                <input
+                  id="battle-filter-search"
+                  type="search"
+                  class="input input-bordered input-sm w-full pr-8 text-xs focus:outline-none focus:border-primary focus:ring-0 [&::-webkit-search-cancel-button]:hidden [&::-webkit-search-decoration]:hidden"
+                  placeholder="艦名・海域・マス等で検索..."
+                  value={props.searchQuery?.() ?? ""}
+                  onInput={(event) => props.onSearchChange?.(event.currentTarget.value)}
+                />
+                <Show when={props.searchQuery?.()}>
+                  <button
+                    type="button"
+                    class="absolute right-2.5 size-4 rounded hover:bg-base-200 flex items-center justify-center text-base-content/40 hover:text-base-content text-xs cursor-pointer"
+                    onClick={() => props.onSearchChange?.("")}
+                    title="キーワードをクリア"
+                  >
+                    ✕
+                  </button>
+                </Show>
+              </div>
+            </div>
+
+            {/* キーワード検索とフィルター設定を区切る水平線 */}
+            <hr class="border-base-300/80 my-2" />
+          </Show>
+
           <div class="form-control space-y-2">
             <label for="battle-filter-period" class="text-xs font-semibold text-base-content/60">
               期間

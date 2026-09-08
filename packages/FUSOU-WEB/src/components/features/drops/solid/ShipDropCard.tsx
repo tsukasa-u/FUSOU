@@ -1,17 +1,17 @@
 /** @jsxImportSource solid-js */
 import { For } from "solid-js";
-import { ShipBanner } from "../../battle-detail/solid/ui";
+import { ShipBanner } from "@/components/common/solid/ShipBanner";
 import { bannerUrl } from "@/features/simulator/equip-calc";
 
 const RARITY_NAMES: Record<number, { label: string; colorClass: string }> = {
-  1: { label: "コモン", colorClass: "text-blue-500" },
-  2: { label: "コモン", colorClass: "text-sky-500" },
-  3: { label: "レア", colorClass: "text-slate-400" },
-  4: { label: "Sレア", colorClass: "text-yellow-500 font-medium" },
-  5: { label: "ホロ", colorClass: "text-fuchsia-500 font-bold" },
-  6: { label: "Sホロ", colorClass: "text-fuchsia-600 font-bold" },
-  7: { label: "SSホロ", colorClass: "text-pink-500 font-bold" },
-  8: { label: "SSホロ", colorClass: "text-pink-600 font-bold" }
+  1: { label: "コモン", colorClass: "text-info/80" },
+  2: { label: "コモン", colorClass: "text-info" },
+  3: { label: "レア", colorClass: "text-base-content/70" },
+  4: { label: "Sレア", colorClass: "text-warning font-medium" },
+  5: { label: "ホロ", colorClass: "text-secondary font-bold" },
+  6: { label: "Sホロ", colorClass: "text-secondary font-bold" },
+  7: { label: "SSホロ", colorClass: "text-accent font-bold" },
+  8: { label: "SSホロ", colorClass: "text-accent font-bold" }
 };
 
 export interface DropLocInfo {
@@ -34,7 +34,7 @@ export interface ShipDropCardProps {
 
 export function ShipDropCard(props: ShipDropCardProps) {
   return (
-    <div class="card bg-base-100 shadow-sm border border-base-200 hover:shadow-md transition-shadow text-xs overflow-hidden flex flex-row">
+    <div class="fusou-card-interactive text-xs overflow-hidden flex flex-row">
       <div class="flex flex-col items-center w-32 shrink-0 p-2 border-r border-base-200 bg-base-200/20">
         <div class="w-full rounded shadow-sm overflow-hidden mb-2 flex items-center justify-center bg-base-200/50" style="aspect-ratio: 4/1;">
           <ShipBanner
@@ -53,7 +53,7 @@ export function ShipDropCard(props: ShipDropCardProps) {
         <div class="flex flex-col border-b border-base-200 pb-1 mb-2">
           <span class="text-[10px] text-base-content/60 leading-none mb-1">{props.overallRateLabel}</span>
           <div class="flex items-baseline gap-1">
-            <span class="font-bold text-emerald-500 dark:text-emerald-400 leading-none">{props.overallRateStr}</span>
+            <span class="font-bold text-success leading-none">{props.overallRateStr}</span>
             <span class="text-[10px] text-base-content/50 font-mono tracking-tighter">({props.overallCount}回)</span>
           </div>
         </div>
@@ -74,7 +74,7 @@ export function ShipDropCard(props: ShipDropCardProps) {
                   </div>
                 </div>
                 <div class="w-full h-1 bg-base-200 rounded-full overflow-hidden shadow-inner">
-                  <div class="h-full bg-emerald-400 transition-all duration-500" style={{ width: `${loc.pct}%` }}></div>
+                  <div class="h-full bg-success transition-all duration-500" style={{ width: `${loc.pct}%` }}></div>
                 </div>
               </div>
             )}
