@@ -3,7 +3,7 @@
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
-import { generateKeyPairSync, verify as verifySignature } from "node:crypto";
+import { generateKeyPairSync, sign, verify as verifySignature } from "node:crypto";
 import { createServer } from "node:http";
 import { unstable_dev } from "wrangler";
 
@@ -96,9 +96,99 @@ const deviceId = "33333333-3333-4333-8333-333333333333";
 const deviceNonce = "a".repeat(64);
 const deviceSignature = "synthetic-device-signature";
 const consumedDeviceProofs = new Set();
+const upstreamState = {
+  deviceMode: "ok",
+  supabaseMode: "ok",
+  intendedRequests: [],
+  redirectRequests: [],
+};
+const redirectTargetServer = createServer((request, response) => {
+  upstreamState.redirectRequests.push({
+    origin: "cross-origin",
+    url: request.url,
+    authorization: request.headers.authorization ?? null,
+    apikey: request.headers.apikey ?? null,
+  });
+  response.writeHead(200, { "Content-Type": "application/json" });
+  response.end(JSON.stringify({ id: "11111111-1111-4111-8111-111111111111", is_anonymous: false }));
+});
+await new Promise((resolve) => redirectTargetServer.listen(0, "127.0.0.1", resolve));
+redirectTargetServer.unref();
+const redirectTargetOrigin = `http://127.0.0.1:${redirectTargetServer.address().port}`;
+
+function writeUpstreamResponse(response, mode, sameOrigin, payload) {
+  if (mode === "ok") {
+    response.writeHead(200, { "Content-Type": "application/json" });
+    response.end(JSON.stringify(payload));
+    return;
+  }
+  if (mode === "unauthorized") {
+    response.writeHead(401, { "Content-Type": "application/json" });
+    response.end(JSON.stringify({ error: "unauthorized" }));
+    return;
+  }
+  if (mode === "server_error") {
+    response.writeHead(500, { "Content-Type": "application/json" });
+    response.end(JSON.stringify({ error: "upstream_failure" }));
+    return;
+  }
+  if (mode === "redirect_same") {
+    response.writeHead(302, { Location: `${sameOrigin}/redirect-target` });
+    response.end();
+    return;
+  }
+  if (mode === "redirect_cross") {
+    response.writeHead(302, { Location: `${redirectTargetOrigin}/redirect-target` });
+    response.end();
+    return;
+  }
+  if (mode === "redirect_chain") {
+    response.writeHead(302, { Location: `${sameOrigin}/redirect-chain-hop` });
+    response.end();
+    return;
+  }
+  throw new Error(`unknown upstream mode: ${mode}`);
+}
+
 const deviceAuthServer = createServer(async (request, response) => {
-  const isSessionDeviceProof = request.url === "/anonymous-sync/v2/device-proof";
-  const isTlsnDeviceProof = request.url === "/anonymous-sync/v2/tlsn-device-proof";
+  const requestUrl = new URL(request.url ?? "/", "http://127.0.0.1");
+  if (requestUrl.pathname === "/auth/v1/user") {
+    upstreamState.intendedRequests.push({
+      kind: "supabase",
+      authorization: request.headers.authorization ?? null,
+      apikey: request.headers.apikey ?? null,
+    });
+    if (upstreamState.supabaseMode !== "ok") {
+      writeUpstreamResponse(
+        response,
+        upstreamState.supabaseMode,
+        `http://${request.headers.host}`,
+        { id: "11111111-1111-4111-8111-111111111111", is_anonymous: false },
+      );
+      return;
+    }
+    response.writeHead(200, { "Content-Type": "application/json" });
+    response.end(JSON.stringify({ id: "11111111-1111-4111-8111-111111111111", is_anonymous: false }));
+    return;
+  }
+  if (requestUrl.pathname.startsWith("/redirect")) {
+    upstreamState.redirectRequests.push({
+      origin: "same-origin",
+      url: request.url,
+      authorization: request.headers.authorization ?? null,
+      apikey: request.headers.apikey ?? null,
+    });
+    if (requestUrl.pathname === "/redirect-chain-hop") {
+      response.writeHead(302, { Location: `${redirectTargetOrigin}/redirect-target` });
+      response.end();
+      return;
+    }
+    response.writeHead(200, { "Content-Type": "application/json" });
+    response.end(JSON.stringify({ id: "11111111-1111-4111-8111-111111111111", is_anonymous: false }));
+    return;
+  }
+  const isSessionDeviceProof = requestUrl.pathname === "/anonymous-sync/v2/device-proof";
+  const isTlsnDeviceProof = requestUrl.pathname === "/anonymous-sync/v2/tlsn-device-proof";
   if (request.method !== "POST" || (!isSessionDeviceProof && !isTlsnDeviceProof)) {
     response.writeHead(404, { "Content-Type": "application/json" });
     response.end(JSON.stringify({ error: "not_found" }));
@@ -114,9 +204,35 @@ const deviceAuthServer = createServer(async (request, response) => {
     response.end(JSON.stringify({ error: "invalid_json" }));
     return;
   }
-  if (request.headers.authorization !== "Bearer test-token-a" || body.device_id !== deviceId) {
+  upstreamState.intendedRequests.push({
+    kind: isSessionDeviceProof ? "device" : "tlsn-device",
+    authorization: request.headers.authorization ?? null,
+    apikey: request.headers.apikey ?? null,
+  });
+  if (
+    !["Bearer test-token-a", "Bearer remote-token"].includes(request.headers.authorization) ||
+    body.device_id !== deviceId
+  ) {
     response.writeHead(401, { "Content-Type": "application/json" });
     response.end(JSON.stringify({ error: "device_unauthorized" }));
+    return;
+  }
+  if (isSessionDeviceProof && upstreamState.deviceMode !== "ok") {
+    writeUpstreamResponse(
+      response,
+      upstreamState.deviceMode,
+      `http://${request.headers.host}`,
+      { authenticated: true, canonical_user_id: "11111111-1111-4111-8111-111111111111", device_id: deviceId },
+    );
+    return;
+  }
+  if (isTlsnDeviceProof && upstreamState.deviceMode !== "ok") {
+    writeUpstreamResponse(
+      response,
+      upstreamState.deviceMode,
+      `http://${request.headers.host}`,
+      { authenticated: true, canonical_user_id: "11111111-1111-4111-8111-111111111111", device_id: deviceId },
+    );
     return;
   }
   if (isSessionDeviceProof && (body.nonce !== deviceNonce || body.sig !== deviceSignature)) {
@@ -200,6 +316,160 @@ function localWorker(vars) {
     },
   });
 }
+
+async function runRedirectRegressionTest() {
+  const modes = ["ok", "unauthorized", "server_error", "redirect_same", "redirect_cross", "redirect_chain"];
+  const expectedSupabaseStatus = new Map([
+    ["ok", 201],
+    ["unauthorized", 401],
+    ["server_error", 401],
+    ["redirect_same", 401],
+    ["redirect_cross", 401],
+    ["redirect_chain", 401],
+  ]);
+  const expectedDeviceStatus = new Map([
+    ["ok", 201],
+    ["unauthorized", 401],
+    ["server_error", 503],
+    ["redirect_same", 503],
+    ["redirect_cross", 503],
+    ["redirect_chain", 503],
+  ]);
+  const baseVars = { ...testVars };
+  delete baseVars.TLSN_TEST_AUTH_USERS;
+  for (const mode of modes) {
+    upstreamState.supabaseMode = mode;
+    upstreamState.deviceMode = "ok";
+    upstreamState.intendedRequests.length = 0;
+    upstreamState.redirectRequests.length = 0;
+    const worker = await localWorker({
+      ...baseVars,
+      TLSN_SUPABASE_URL: deviceAuthOrigin,
+      TLSN_SUPABASE_PUBLISHABLE_KEY: "publishable-test-key",
+    });
+    try {
+      const response = await worker.fetch("https://verify.test/attestation/session", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: "Bearer remote-token" },
+        body: JSON.stringify({ device_id: deviceId, nonce: deviceNonce, sig: deviceSignature }),
+      });
+      if (response.status !== expectedSupabaseStatus.get(mode)) {
+        throw new Error(`Supabase ${mode} expected ${expectedSupabaseStatus.get(mode)}, got ${response.status}`);
+      }
+      const supabaseRequest = upstreamState.intendedRequests.find((entry) => entry.kind === "supabase");
+      if (supabaseRequest?.authorization !== "Bearer remote-token" || supabaseRequest.apikey !== "publishable-test-key") {
+        throw new Error(`Supabase ${mode} did not receive the intended credentials`);
+      }
+      if (upstreamState.redirectRequests.length !== 0) {
+        throw new Error(`Supabase ${mode} followed a redirect`);
+      }
+    } finally {
+      await worker.stop();
+    }
+  }
+  for (const mode of modes) {
+    upstreamState.supabaseMode = "ok";
+    upstreamState.deviceMode = mode;
+    upstreamState.intendedRequests.length = 0;
+    upstreamState.redirectRequests.length = 0;
+    const worker = await localWorker({
+      ...baseVars,
+      TLSN_SUPABASE_URL: deviceAuthOrigin,
+      TLSN_SUPABASE_PUBLISHABLE_KEY: "publishable-test-key",
+    });
+    try {
+      const response = await worker.fetch("https://verify.test/attestation/session", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: "Bearer remote-token" },
+        body: JSON.stringify({ device_id: deviceId, nonce: deviceNonce, sig: deviceSignature }),
+      });
+      if (response.status !== expectedDeviceStatus.get(mode)) {
+        throw new Error(`device ${mode} expected ${expectedDeviceStatus.get(mode)}, got ${response.status}`);
+      }
+      const deviceRequest = upstreamState.intendedRequests.find((entry) => entry.kind === "device");
+      if (deviceRequest?.authorization !== "Bearer remote-token") {
+        throw new Error(`device ${mode} did not receive the intended bearer token`);
+      }
+      if (upstreamState.redirectRequests.length !== 0) {
+        throw new Error(`device ${mode} followed a redirect`);
+      }
+    } finally {
+      await worker.stop();
+    }
+  }
+  for (const mode of modes) {
+    upstreamState.supabaseMode = "ok";
+    upstreamState.deviceMode = mode;
+    upstreamState.intendedRequests.length = 0;
+    upstreamState.redirectRequests.length = 0;
+    const worker = await localWorker({
+      ...baseVars,
+      TLSN_SUPABASE_URL: deviceAuthOrigin,
+      TLSN_SUPABASE_PUBLISHABLE_KEY: "publishable-test-key",
+    });
+    try {
+      const sessionResponse = await worker.fetch("https://verify.test/attestation/session", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: "Bearer remote-token" },
+        body: JSON.stringify({ device_id: deviceId, nonce: deviceNonce, sig: deviceSignature }),
+      });
+      if (sessionResponse.status !== 201) {
+        throw new Error(`TLSN ${mode} session expected 201, got ${sessionResponse.status}`);
+      }
+      const session = await sessionResponse.json();
+      const deviceProof = {
+        device_id: deviceId,
+        session_id: session.session_id,
+        binding_value: session.binding,
+        challenge: session.device_challenge,
+      };
+      deviceProof.sig = sign(
+        null,
+        tlsnDeviceProofMessage(
+          deviceProof.device_id,
+          deviceProof.session_id,
+          deviceProof.binding_value,
+          deviceProof.challenge,
+        ),
+        devicePrivateKey,
+      ).toString("base64url");
+      const response = await worker.fetch("https://verify.test/verify/tlsn", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: "Bearer remote-token" },
+        body: JSON.stringify({
+          presentation_base64: syntheticFixture.presentation_base64,
+          session_id: session.session_id,
+          binding: session.binding,
+          device_id: deviceId,
+          device_proof: deviceProof,
+        }),
+      });
+      const expectedStatus = new Map([
+        ["ok", 200],
+        ["unauthorized", 401],
+        ["server_error", 503],
+        ["redirect_same", 503],
+        ["redirect_cross", 503],
+        ["redirect_chain", 503],
+      ]).get(mode);
+      if (response.status !== expectedStatus) {
+        throw new Error(`TLSN ${mode} expected ${expectedStatus}, got ${response.status}`);
+      }
+      const possessionRequest = upstreamState.intendedRequests.find((entry) => entry.kind === "tlsn-device");
+      if (possessionRequest?.authorization !== "Bearer remote-token") {
+        throw new Error(`TLSN ${mode} did not receive the intended bearer token`);
+      }
+      if (upstreamState.redirectRequests.length !== 0) {
+        throw new Error(`TLSN ${mode} followed a redirect`);
+      }
+    } finally {
+      await worker.stop();
+    }
+  }
+  console.log("[tlsn-verification-worker] upstream redirect and token leakage regression paths OK");
+}
+
+await runRedirectRegressionTest();
 
 const worker = await localWorker({
   ...testVars,
@@ -313,6 +583,9 @@ const productionTrustRootWorker = await unstable_dev(resolve(packageDirectory, "
     TLSN_PRODUCTION_NOTARY_REGISTRY: JSON.stringify({ "notary-test": syntheticFixture.notary_key_base64 }),
     TLSN_PRODUCTION_SIGNING_PRIVATE_KEY_PKCS8: signingPrivateKeyPkcs8,
     TLSN_PRODUCTION_TRUST_ROOT_CERTIFICATE_DER: syntheticFixture.root_certificate_base64,
+    TLSN_DEPLOYMENT_ID: "local-production-test",
+    TLSN_SECURITY_REGISTRY_SET_SHA256: Buffer.alloc(32, 0x53).toString("base64url"),
+    TLSN_RESULT_PUBLIC_KEY_SPKI: publicKey.export({ format: "der", type: "spki" }).toString("base64url"),
     TLSN_PRODUCTION_DEVICE_AUTH_URL: "https://fusou.dev/api/auth/anonymous-sync/v2/device-proof",
     TLSN_PRODUCTION_DEVICE_POSSESSION_AUTH_URL: "https://fusou.dev/api/auth/anonymous-sync/v2/tlsn-device-proof",
     TLSN_PRODUCTION_DEVICE_AUTH_ALLOWED_HOSTS: "fusou.dev",
@@ -350,6 +623,9 @@ const invalidProductionEndpointWorker = await unstable_dev(resolve(packageDirect
     TLSN_PRODUCTION_NOTARY_REGISTRY: JSON.stringify({ "notary-test": syntheticFixture.notary_key_base64 }),
     TLSN_PRODUCTION_SIGNING_PRIVATE_KEY_PKCS8: signingPrivateKeyPkcs8,
     TLSN_PRODUCTION_TRUST_ROOT_CERTIFICATE_DER: syntheticFixture.root_certificate_base64,
+    TLSN_DEPLOYMENT_ID: "local-production-invalid-endpoint",
+    TLSN_SECURITY_REGISTRY_SET_SHA256: Buffer.alloc(32, 0x53).toString("base64url"),
+    TLSN_RESULT_PUBLIC_KEY_SPKI: publicKey.export({ format: "der", type: "spki" }).toString("base64url"),
     TLSN_PRODUCTION_DEVICE_AUTH_URL: "https://evil.example/api/auth/anonymous-sync/v2/device-proof",
     TLSN_PRODUCTION_DEVICE_POSSESSION_AUTH_URL: "https://fusou.dev/api/auth/anonymous-sync/v2/tlsn-device-proof",
     TLSN_PRODUCTION_DEVICE_AUTH_ALLOWED_HOSTS: "fusou.dev",
@@ -395,4 +671,5 @@ try {
   await unconfiguredWorker.stop();
 }
 
-deviceAuthServer.close();
+await new Promise((resolve) => deviceAuthServer.close(resolve));
+await new Promise((resolve) => redirectTargetServer.close(resolve));

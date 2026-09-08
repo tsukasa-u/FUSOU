@@ -2,6 +2,42 @@
 
 import assert from "node:assert/strict";
 import { createHash, createPrivateKey, createPublicKey, sign, verify } from "node:crypto";
+    if (!replayOrigin || replayOrigin === workerOrigin) {
+      blocked(
+        checks,
+        "remote_concurrent_replay",
+        "Set TLSN_REMOTE_REPLAY_WORKER_URL to a separate fixed-binding Worker for the concurrent replay matrix.",
+      );
+    } else {
+      await runCheck(checks, "remote_concurrent_replay", async () => {
+        const replayHealth = await timedRequest(endpoint(replayOrigin, "/health"), {});
+        assert.equal(replayHealth.status, 200);
+        assert.equal(replayHealth.json?.binding_mode, "fixed");
+        const replaySession = await issueSession(replayOrigin, webOrigin, deviceA, tokenA);
+        assert.equal(replaySession.session.binding, fixture.binding_value);
+        const requests = await Promise.all(
+          Array.from({ length: 8 }, () => postVerification(
+            replayOrigin,
+            tokenA,
+            verificationBody(replaySession.session, deviceA, fixture),
+          )),
+        );
+        const successes = requests.filter((response) => response.status === 200);
+        const conflicts = requests.filter((response) => response.status === 409);
+        assert.equal(successes.length, 1);
+        assert.equal(conflicts.length, requests.length - 1);
+        for (const response of conflicts) {
+          assert.ok(["binding_consumed", "device_possession_replayed"].includes(response.json?.error));
+        }
+        return {
+          requests: requests.length,
+          successful_verifications: successes.length,
+          conflict_responses: conflicts.length,
+          conflict_codes: [...new Set(conflicts.map((response) => response.json?.error))],
+        };
+      });
+    }
+
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 
@@ -85,11 +121,6 @@ async function loadFixture(file) {
     }
   }
   return parsed;
-}
-
-function loadOptionalFixture(name) {
-  const file = optional(name);
-  return file ? loadFixture(file) : Promise.resolve(undefined);
 }
 
 function pushU16(chunks, value) {
@@ -225,18 +256,51 @@ function verifyExternalResult(result, fixture, publicKey, expected) {
   assert.equal(signature.length, 64);
   assert.equal(verify(null, signingBytes(result), publicKey, signature), true);
   return {
-    canonical_user_id: result.canonical_user_id,
-    device_id: result.device_id,
-    verified_member_id: result.verified_member_id,
-    attestation_session_id: result.attestation_session_id,
-    binding_nonce: result.binding_nonce,
-    binding_value: result.binding_value,
-    device_challenge: result.device_challenge,
-    tlsn_attestation_id: result.tlsn_attestation_id,
+    canonical_user_id_sha256: sha256Base64Url(result.canonical_user_id),
+    device_id_sha256: sha256Base64Url(result.device_id),
+    verified_member_id_sha256: sha256Base64Url(result.verified_member_id),
+    attestation_session_id_sha256: sha256Base64Url(result.attestation_session_id),
+    binding_nonce_sha256: sha256Base64Url(result.binding_nonce),
+    binding_value_sha256: sha256Base64Url(result.binding_value),
+    device_challenge_sha256: sha256Base64Url(result.device_challenge),
+    tlsn_attestation_id_sha256: sha256Base64Url(result.tlsn_attestation_id),
     notary_key_id: result.notary_key_id,
     verifier_key_id: result.verifier_key_id,
     signature_valid: true,
   };
+}
+
+function changedString(value) {
+  return `${value.startsWith("A") ? "B" : "A"}${value.slice(1)}`;
+}
+
+function assertSignedResultMutations(result, publicKey) {
+  const mutations = {
+    canonical_user_id: "22222222-2222-4222-8222-222222222222",
+    device_id: "44444444-4444-4444-8444-444444444444",
+    verified_member_id: result.verified_member_id === "16189463" ? "16189464" : "0",
+    attestation_session_id: "123e4567-e89b-42d3-a456-426614174001",
+    binding_nonce: changedString(result.binding_nonce),
+    binding_value: changedString(result.binding_value),
+    device_challenge: changedString(result.device_challenge),
+    tlsn_attestation_id: changedString(result.tlsn_attestation_id),
+    profile_sha256: changedString(result.profile_sha256),
+    server_identity: result.server_identity === "mutated.example.com" ? "other.example.com" : "mutated.example.com",
+    verifier_key_id: result.verifier_key_id === "mutated-verifier" ? "other-verifier" : "mutated-verifier",
+    notary_key_id: result.notary_key_id === "mutated-notary" ? "other-notary" : "mutated-notary",
+    request_transcript_sha256: changedString(result.request_transcript_sha256),
+    response_transcript_sha256: changedString(result.response_transcript_sha256),
+  };
+  const signature = decodeBase64Url(result.signature);
+  for (const [field, value] of Object.entries(mutations)) {
+    const mutated = { ...result, [field]: value };
+    assert.equal(
+      verify(null, signingBytes(mutated), publicKey, signature),
+      false,
+      `signature mutation unexpectedly verified: ${field}`,
+    );
+  }
+  return { fields: Object.keys(mutations), all_invalid: true };
 }
 
 async function timedRequest(url, options) {
@@ -309,7 +373,7 @@ function verificationBody(session, device, fixture, overrides = {}) {
   });
 }
 
-async function postVerification(workerOrigin, token, body) {
+async function postVerification(workerOrigin, token, body, options = {}) {
   return timedRequest(endpoint(workerOrigin, "/verify/tlsn"), {
     method: "POST",
     headers: {
@@ -317,6 +381,7 @@ async function postVerification(workerOrigin, token, body) {
       Authorization: `Bearer ${token}`,
     },
     body,
+    ...options,
   });
 }
 
@@ -347,7 +412,7 @@ async function runCheck(checks, name, action) {
   } catch (error) {
     checks[name] = {
       status: "FAIL",
-      error: error instanceof Error ? error.message : String(error),
+      error: error instanceof assert.AssertionError ? "assertion_failed" : "request_failed",
     };
     return undefined;
   }
@@ -382,6 +447,12 @@ async function main() {
   const expiryOrigin = optional("TLSN_REMOTE_EXPIRY_WORKER_URL")
     ? requireOrigin("TLSN_REMOTE_EXPIRY_WORKER_URL")
     : undefined;
+  const replayOrigin = optional("TLSN_REMOTE_REPLAY_WORKER_URL")
+    ? requireOrigin("TLSN_REMOTE_REPLAY_WORKER_URL")
+    : undefined;
+  const warmOrigin = optional("TLSN_REMOTE_WARM_WORKER_URL")
+    ? requireOrigin("TLSN_REMOTE_WARM_WORKER_URL")
+    : undefined;
   const webOrigin = requireOrigin("TLSN_REMOTE_WEB_ORIGIN");
   const supabaseOrigin = requireOrigin("TLSN_REMOTE_SUPABASE_URL");
   const publishableKey = required("TLSN_REMOTE_SUPABASE_PUBLISHABLE_KEY");
@@ -402,7 +473,7 @@ async function main() {
   const sampleCount = parseInteger(
     "TLSN_REMOTE_SESSION_SAMPLES",
     DEFAULT_SAMPLE_COUNT,
-    1,
+    DEFAULT_SAMPLE_COUNT,
     10_000,
   );
   const checks = {};
@@ -413,6 +484,8 @@ async function main() {
     scope: "remote-deployed-synthetic",
     worker_origin: workerOrigin,
     benchmark_origin: benchmarkOrigin ?? null,
+    replay_origin: replayOrigin ?? null,
+    warm_origin: warmOrigin ?? null,
     web_origin: webOrigin,
     checks,
     metrics,
@@ -423,6 +496,16 @@ async function main() {
       raw_transcript_retained: false,
     },
   };
+  blocked(
+    checks,
+    "production_evidence",
+    "Synthetic validation does not establish production trust material or real Game Server evidence.",
+  );
+  blocked(
+    checks,
+    "p0_05",
+    "P0-05 remains blocked until production trust material and real Game Server evidence are independently recorded.",
+  );
 
   const health = await runCheck(checks, "remote_worker_identity", async () => {
     const response = await timedRequest(endpoint(workerOrigin, "/health"), {});
@@ -439,11 +522,26 @@ async function main() {
       const expected = optional(envName);
       if (expected) assert.equal(response.json[field], expected);
     }
+    const expectedPublicKey = optional("TLSN_REMOTE_RESULT_PUBLIC_KEY_SPKI");
+    if (expectedPublicKey) assert.equal(response.json.result_public_key_spki, expectedPublicKey);
+    const expectedPublicKeyHash = optional("TLSN_REMOTE_EXPECTED_RESULT_PUBLIC_KEY_SHA256");
+    if (expectedPublicKeyHash) {
+      assert.equal(sha256Base64Url(response.json.result_public_key_spki ?? ""), expectedPublicKeyHash);
+    }
+    const registryJson = optional("TLSN_REMOTE_RESULT_KEY_REGISTRY_JSON");
+    if (registryJson) {
+      const registry = JSON.parse(registryJson);
+      assert.equal(typeof registry, "object");
+      const hashes = Object.values(registry);
+      assert.equal(new Set(hashes).size, hashes.length);
+      assert.equal(registry[response.json.verifier_key_id], sha256Base64Url(response.json.result_public_key_spki));
+    }
     return {
       environment: response.json.environment,
       deployment_id: response.json.deployment_id,
       verifier_key_id: response.json.verifier_key_id,
       profile_sha256: response.json.profile_sha256,
+      security_registry_set_sha256: response.json.security_registry_set_sha256,
       binding_mode: response.json.binding_mode,
       result_public_key_spki: response.json.result_public_key_spki ?? null,
       latency_ms: response.latencyMs,
@@ -451,8 +549,10 @@ async function main() {
     };
   });
 
+  let authenticatedUserAId;
   const userA = await runCheck(checks, "remote_supabase_authentication", async () => {
     const resultA = await supabaseUser(supabaseOrigin, publishableKey, tokenA);
+    authenticatedUserAId = resultA.id;
     const resultB = tokenB
       ? await supabaseUser(supabaseOrigin, publishableKey, tokenB)
       : undefined;
@@ -460,8 +560,8 @@ async function main() {
       [resultA.measurement, resultB?.measurement].filter(Boolean),
     );
     return {
-      user_a: resultA.id,
-      user_b: resultB?.id ?? null,
+      user_a_sha256: sha256Base64Url(resultA.id),
+      user_b_sha256: resultB ? sha256Base64Url(resultB.id) : null,
       samples: resultB ? 2 : 1,
     };
   });
@@ -479,11 +579,15 @@ async function main() {
       assert.equal(benchmarkHealth.json?.binding_mode, "random");
       const sessionMeasurements = [];
       const sessionIds = new Set();
+      const bindingValues = new Set();
+      const deviceChallenges = new Set();
       for (let index = 0; index < sampleCount; index++) {
         try {
           const result = await issueSession(benchmarkOrigin, webOrigin, deviceA, tokenA);
           sessionMeasurements.push(result.response);
           sessionIds.add(result.session.session_id);
+          bindingValues.add(result.session.binding);
+          deviceChallenges.add(result.session.device_challenge);
         } catch (error) {
           sessionMeasurements.push({
             latencyMs: 0,
@@ -497,11 +601,62 @@ async function main() {
       const successfulSessionCount = sessionMeasurements.filter((entry) => entry.status === 201).length;
       assert.equal(successfulSessionCount, sampleCount);
       assert.equal(sessionIds.size, sampleCount);
+      assert.equal(bindingValues.size, sampleCount);
+      assert.equal(deviceChallenges.size, sampleCount);
       return {
         samples: sampleCount,
         successful_samples: successfulSessionCount,
         unique_session_ids: sessionIds.size,
+        unique_binding_values: bindingValues.size,
+        unique_device_challenges: deviceChallenges.size,
         binding_mode: benchmarkHealth.json.binding_mode,
+      };
+    });
+  }
+
+  const wasmBenchmarkOrigin = warmOrigin ?? benchmarkOrigin;
+  if (!wasmBenchmarkOrigin || wasmBenchmarkOrigin === workerOrigin) {
+    blocked(
+      checks,
+      "remote_wasm_cold_warm",
+      "Set TLSN_REMOTE_SESSION_BENCHMARK_URL or TLSN_REMOTE_WARM_WORKER_URL to a separate random-binding Worker.",
+    );
+  } else {
+    await runCheck(checks, "remote_wasm_cold_warm", async () => {
+      const benchmarkHealth = await timedRequest(endpoint(wasmBenchmarkOrigin, "/health"), {});
+      assert.equal(benchmarkHealth.status, 200);
+      assert.equal(benchmarkHealth.json?.binding_mode, "random");
+      const coldSession = await issueSession(wasmBenchmarkOrigin, webOrigin, deviceA, tokenA);
+      const cold = await postVerification(
+        wasmBenchmarkOrigin,
+        tokenA,
+        verificationBody(coldSession.session, deviceA, fixture),
+      );
+      assert.equal(cold.status, 422);
+      assert.equal(cold.json?.error, "binding_mismatch");
+      const warmMeasurements = [];
+      for (let index = 0; index < sampleCount; index++) {
+        const session = await issueSession(wasmBenchmarkOrigin, webOrigin, deviceA, tokenA);
+        const response = await postVerification(
+          wasmBenchmarkOrigin,
+          tokenA,
+          verificationBody(session.session, deviceA, fixture),
+        );
+        assert.equal(response.status, 422);
+        assert.equal(response.json?.error, "binding_mismatch");
+        warmMeasurements.push(response);
+      }
+      metrics.tlsn_wasm = {
+        cold: summarizeMeasurements([cold]),
+        warm: summarizeMeasurements(warmMeasurements),
+        valid_verification_samples: 0,
+        binding_mismatch_wasm_samples: warmMeasurements.length + 1,
+      };
+      return {
+        cold_status: cold.status,
+        warm_samples: warmMeasurements.length,
+        warm_status: 422,
+        measurement_kind: "binding_mismatch_after_wasm",
       };
     });
   }
@@ -512,8 +667,8 @@ async function main() {
     assert.equal(result.session.binding, fixture.binding_value);
     verificationSession = result.session;
     return {
-      session_id: verificationSession.session_id,
-      device_id: verificationSession.device_id,
+      session_id_sha256: sha256Base64Url(verificationSession.session_id),
+      device_id_sha256: sha256Base64Url(verificationSession.device_id),
       expires_at: verificationSession.expires_at,
       response_body_bytes: result.response.bodyBytes,
       latency_ms: result.response.latencyMs,
@@ -538,6 +693,129 @@ async function main() {
       blocked(checks, "remote_context_swapping", "Set TLSN_REMOTE_FIXTURE_B_JSON with a different binding value for the presentation swap case.");
     }
 
+    if (tokenB && deviceB) {
+      await runCheck(checks, "remote_cross_user_attacks", async () => {
+        const caseB = await postVerification(
+          workerOrigin,
+          tokenB,
+          verificationBody(verificationSession, deviceA, fixture),
+        );
+        assert.equal(caseB.status, 409);
+        assert.equal(caseB.json?.error, "user_mismatch");
+        const caseC = await postVerification(
+          workerOrigin,
+          tokenA,
+          verificationBody(verificationSession, deviceB, fixture, { deviceId: deviceB.id }),
+        );
+        assert.equal(caseC.status, 409);
+        assert.equal(caseC.json?.error, "device_mismatch");
+        const caseF = await postVerification(
+          workerOrigin,
+          tokenB,
+          verificationBody(verificationSession, deviceB, fixture, { deviceId: deviceB.id }),
+        );
+        assert.equal(caseF.status, 409);
+        assert.equal(caseF.json?.error, "user_mismatch");
+        const sessionSwap = await postVerification(
+          workerOrigin,
+          tokenA,
+          verificationBody(verificationSession, deviceA, fixture, {
+            sessionId: "123e4567-e89b-42d3-a456-426614174001",
+          }),
+        );
+        assert.equal(sessionSwap.status, 409);
+        assert.equal(sessionSwap.json?.error, "session_mismatch");
+        const bindingSwap = await postVerification(
+          workerOrigin,
+          tokenA,
+          verificationBody(verificationSession, deviceA, fixture, { binding: "AQ" }),
+        );
+        assert.equal(bindingSwap.status, 422);
+        assert.equal(bindingSwap.json?.error, "binding_unknown");
+        const presentationSwap = fixtureB
+          ? await postVerification(
+              workerOrigin,
+              tokenA,
+              verificationBody(verificationSession, deviceA, fixtureB),
+            )
+          : null;
+        if (presentationSwap) {
+          assert.equal(presentationSwap.status, 422);
+          assert.ok(["binding_mismatch", "verification_failed"].includes(presentationSwap.json?.error));
+        }
+        return {
+          case_b: { status_code: caseB.status, failure_code: caseB.json.error },
+          case_c: { status_code: caseC.status, failure_code: caseC.json.error },
+          case_f: { status_code: caseF.status, failure_code: caseF.json.error },
+          session_swap: { status_code: sessionSwap.status, failure_code: sessionSwap.json.error },
+          binding_swap: { status_code: bindingSwap.status, failure_code: bindingSwap.json.error },
+          presentation_swap: presentationSwap
+            ? { status_code: presentationSwap.status, failure_code: presentationSwap.json.error }
+            : null,
+        };
+      });
+    } else {
+      blocked(checks, "remote_cross_user_attacks", "Set User B token, device ID, and private key to run cross-user and context matrix cases.");
+    }
+
+    await runCheck(checks, "remote_payload_resource_validation", async () => {
+      const malformed = await postVerification(
+        workerOrigin,
+        tokenA,
+        verificationBody(verificationSession, deviceA, fixture, { presentation: "AQ+" }),
+      );
+      assert.equal(malformed.status, 400);
+      const nonCanonical = await postVerification(
+        workerOrigin,
+        tokenA,
+        verificationBody(verificationSession, deviceA, fixture, { presentation: "AB" }),
+      );
+      assert.equal(nonCanonical.status, 400);
+      const maxValidPresentation = Buffer.alloc(8 * 1024 * 1024).toString("base64url");
+      const maxValid = await postVerification(
+        workerOrigin,
+        tokenA,
+        verificationBody(verificationSession, deviceA, fixture, { presentation: maxValidPresentation }),
+      );
+      assert.equal(maxValid.status, 422);
+      const oversizedPresentation = await postVerification(
+        workerOrigin,
+        tokenA,
+        verificationBody(verificationSession, deviceA, fixture, { presentation: "A".repeat(11 * 1024 * 1024) }),
+      );
+      assert.equal(oversizedPresentation.status, 400);
+      const oversizedJson = await postVerification(
+        workerOrigin,
+        tokenA,
+        `${verificationBody(verificationSession, deviceA, fixture)}${" ".repeat(13 * 1024 * 1024)}`,
+      );
+      assert.equal(oversizedJson.status, 400);
+      const fragmentedBody = verificationBody(verificationSession, deviceA, fixture, { presentation: "AQ" });
+      const fragmented = await postVerification(
+        workerOrigin,
+        tokenA,
+        new ReadableStream({
+          start(controller) {
+            controller.enqueue(new TextEncoder().encode(fragmentedBody.slice(0, 17)));
+            controller.enqueue(new TextEncoder().encode(fragmentedBody.slice(17)));
+            controller.close();
+          },
+        }),
+        { duplex: "half" },
+      );
+      assert.equal(fragmented.status, 422);
+      return {
+        malformed_base64: malformed.status,
+        non_canonical_base64: nonCanonical.status,
+        max_valid_presentation: maxValid.status,
+        oversized_presentation: oversizedPresentation.status,
+        oversized_json: oversizedJson.status,
+        fragmented_body: fragmented.status,
+      };
+    });
+
+    let verifiedResult;
+    let verifiedPublicKey;
     if (userA) {
       await runCheck(checks, "remote_signed_result_verification", async () => {
         const response = await postVerification(
@@ -555,11 +833,13 @@ async function main() {
           format: "der",
           type: "spki",
         });
+        verifiedResult = response.json.result;
+        verifiedPublicKey = publicKey;
         const expectedMemberId = optional("TLSN_REMOTE_EXPECTED_MEMBER_ID")
           ?? fixture.expected_member_id;
         assert.ok(typeof expectedMemberId === "string" && expectedMemberId.length > 0);
         const fields = verifyExternalResult(response.json.result, fixture, publicKey, {
-          userId: userA.user_a,
+          userId: authenticatedUserAId,
           deviceId: deviceA.id,
           memberId: expectedMemberId,
           sessionId: verificationSession.session_id,
@@ -581,6 +861,14 @@ async function main() {
       blocked(checks, "remote_signed_result_verification", "Supabase authentication did not produce User A.");
     }
 
+    if (verifiedResult && verifiedPublicKey) {
+      await runCheck(checks, "remote_signed_result_mutations", async () => (
+        assertSignedResultMutations(verifiedResult, verifiedPublicKey)
+      ));
+    } else {
+      blocked(checks, "remote_signed_result_mutations", "A valid externally verified result is required before mutation checks.");
+    }
+
     await runCheck(checks, "remote_tlsn_binding_replay", async () => {
       const response = await postVerification(
         workerOrigin,
@@ -591,53 +879,12 @@ async function main() {
       assert.equal(response.json?.error, "binding_consumed");
       return { status_code: response.status, failure_code: response.json.error };
     });
-
-    if (tokenB && deviceB) {
-      await runCheck(checks, "remote_cross_user_attacks", async () => {
-        const caseB = await postVerification(
-          workerOrigin,
-          tokenB,
-          verificationBody(verificationSession, deviceA, fixture),
-        );
-        assert.equal(caseB.status, 409);
-        const caseC = await postVerification(
-          workerOrigin,
-          tokenA,
-          verificationBody(verificationSession, deviceB, fixture, { deviceId: deviceB.id }),
-        );
-        assert.ok(caseC.status >= 400 && caseC.status < 500);
-        const caseF = await postVerification(
-          workerOrigin,
-          tokenB,
-          verificationBody(verificationSession, deviceB, fixture, { deviceId: deviceB.id }),
-        );
-        assert.ok(caseF.status >= 400 && caseF.status < 500);
-        return {
-          case_b: { status_code: caseB.status, failure_code: caseB.json?.error ?? null },
-          case_c: { status_code: caseC.status, failure_code: caseC.json?.error ?? null },
-          case_f: { status_code: caseF.status, failure_code: caseF.json?.error ?? null },
-        };
-      });
-    } else {
-      blocked(checks, "remote_cross_user_attacks", "Set User B token, device ID, and private key to run cross-user cases.");
-    }
-
-    await runCheck(checks, "remote_payload_limits", async () => {
-      const oversized = JSON.stringify({
-        presentation_base64: "A".repeat(11 * 1024 * 1024),
-        session_id: verificationSession.session_id,
-        binding: verificationSession.binding,
-        device_id: verificationSession.device_id,
-        device_proof: signDeviceProof(verificationSession, deviceA.privateKey),
-      });
-      const response = await postVerification(workerOrigin, tokenA, oversized);
-      assert.ok(response.status === 400 || response.status === 413);
-      return { status_code: response.status, failure_code: response.json?.error ?? null };
-    });
   } else {
     blocked(checks, "remote_context_swapping", "Requires a remotely issued session.");
+    blocked(checks, "remote_cross_user_attacks", "Requires a remotely issued session.");
+    blocked(checks, "remote_payload_resource_validation", "Requires a remotely issued session.");
+    blocked(checks, "remote_concurrent_replay", "Requires a remotely issued session.");
     blocked(checks, "remote_signed_result_verification", "A remote session matching the fixture binding was not issued.");
-    blocked(checks, "remote_payload_limits", "Requires a remotely issued session.");
   }
 
   if (parseBoolean("TLSN_REMOTE_RUN_REVOCATION") && (!revocationOrigin || revocationOrigin === workerOrigin)) {
@@ -665,19 +912,25 @@ async function main() {
     blocked(checks, "remote_verify_time_revocation", "Set TLSN_REMOTE_RUN_REVOCATION=true with a separate revocation Worker; this permanently revokes the test device.");
   }
 
-  if (parseBoolean("TLSN_REMOTE_RUN_EXPIRY") && (!expiryOrigin || expiryOrigin === workerOrigin)) {
-    blocked(checks, "remote_session_expiry", "Set TLSN_REMOTE_EXPIRY_WORKER_URL to a separate short-TTL Worker.");
+  const expiryDevice = parseBoolean("TLSN_REMOTE_RUN_REVOCATION") && deviceB ? deviceB : deviceA;
+  const expiryToken = parseBoolean("TLSN_REMOTE_RUN_REVOCATION") && tokenB ? tokenB : tokenA;
+  if (parseBoolean("TLSN_REMOTE_RUN_EXPIRY") && (
+    !expiryOrigin ||
+    expiryOrigin === workerOrigin ||
+    (parseBoolean("TLSN_REMOTE_RUN_REVOCATION") && (!deviceB || !tokenB))
+  )) {
+    blocked(checks, "remote_session_expiry", "Set a separate short-TTL expiry Worker and an unrevoked User B device when revocation also runs.");
   } else if (parseBoolean("TLSN_REMOTE_RUN_EXPIRY")) {
     await runCheck(checks, "remote_session_expiry", async () => {
       assert.ok(expiryOrigin, "set TLSN_REMOTE_EXPIRY_WORKER_URL");
-      const expirySession = await issueSession(expiryOrigin, webOrigin, deviceA, tokenA);
+      const expirySession = await issueSession(expiryOrigin, webOrigin, expiryDevice, expiryToken);
       assert.equal(expirySession.session.binding, fixture.binding_value);
       const waitMs = Math.max(0, Date.parse(expirySession.session.expires_at) - Date.now() + 250);
       await new Promise((resolveWait) => setTimeout(resolveWait, waitMs));
       const response = await postVerification(
         expiryOrigin,
-        tokenA,
-        verificationBody(expirySession.session, deviceA, fixture),
+        expiryToken,
+        verificationBody(expirySession.session, expiryDevice, fixture),
       );
       assert.equal(response.status, 410);
       assert.equal(response.json?.error, "binding_expired");
@@ -709,12 +962,18 @@ async function main() {
     fail: statusValues.filter((status) => status === "FAIL").length,
     blocked: statusValues.filter((status) => status === "BLOCKED").length,
   };
+  const declaredBlockedChecks = new Set(["production_evidence", "p0_05"]);
+  const blockingBlockedCount = Object.entries(checks).filter(([name, entry]) => (
+    entry.status === "BLOCKED" &&
+    !(parseBoolean("TLSN_REMOTE_ALLOW_DECLARED_BLOCKED") && declaredBlockedChecks.has(name))
+  )).length;
+  report.summary.blocking_blocked = blockingBlockedCount;
   const reportPath = optional("TLSN_REMOTE_REPORT_PATH") ?? DEFAULT_REPORT_PATH;
   await mkdir(dirname(reportPath), { recursive: true });
   await writeFile(reportPath, `${JSON.stringify(report, null, 2)}\n`, "utf8");
   console.log(JSON.stringify({ report_path: reportPath, summary: report.summary }));
   if (report.summary.fail > 0) process.exitCode = 1;
-  if (report.summary.blocked > 0 && process.exitCode === undefined) process.exitCode = 2;
+  if (blockingBlockedCount > 0 && process.exitCode === undefined) process.exitCode = 2;
 }
 
 main().catch((error) => {

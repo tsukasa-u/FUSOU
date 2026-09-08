@@ -1,36 +1,23 @@
 #!/usr/bin/env node
 
-import { mkdir, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 
 const packageDirectory = resolve(new URL("..", import.meta.url).pathname);
 const DEFAULT_REPORT_PATH = resolve(packageDirectory, "artifacts/tlsn-deployment-preflight.json");
+const DEFAULT_PROVENANCE_PATH = resolve(packageDirectory, "artifacts/tlsn-production-provenance.json");
+const INPUT_MANIFEST_PATH = resolve(packageDirectory, "scripts/production-inputs.json");
 const DNS_HOSTNAME_PATTERN = /^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/;
 const TEST_MARKER_PATTERN = /(?:^|[._-])(test|synthetic|fixture|local|staging)(?:$|[._-])/i;
 const BASE64URL_PATTERN = /^[A-Za-z0-9_-]+$/;
 
-const requiredProductionVariables = [
-  "TLSN_BINDING_TTL_SECONDS",
-  "TLSN_PRODUCTION_SERVER_IDENTITY",
-  "TLSN_PRODUCTION_PROFILE_SHA256",
-  "TLSN_PRODUCTION_VERIFIER_KEY_ID",
-  "TLSN_PRODUCTION_NOTARY_KEY_ID",
-  "TLSN_PRODUCTION_NOTARY_REGISTRY",
-  "TLSN_PRODUCTION_SIGNING_PRIVATE_KEY_PKCS8",
-  "TLSN_PRODUCTION_TRUST_ROOT_CERTIFICATE_DER",
-  "TLSN_PRODUCTION_DEVICE_AUTH_URL",
-  "TLSN_PRODUCTION_DEVICE_POSSESSION_AUTH_URL",
-  "TLSN_PRODUCTION_DEVICE_AUTH_ALLOWED_HOSTS",
-  "TLSN_PRODUCTION_SUPABASE_ALLOWED_HOSTS",
-  "TLSN_SUPABASE_URL",
-  "TLSN_SUPABASE_PUBLISHABLE_KEY",
-  "TLSN_DEPLOYMENT_ID",
-  "TLSN_SECURITY_REGISTRY_SET_SHA256",
-  "TLSN_RESULT_PUBLIC_KEY_SPKI",
-];
-
 function value(name) {
   return process.env[name]?.trim() || undefined;
+}
+
+function sha256Base64Url(valueToHash) {
+  return createHash("sha256").update(valueToHash).digest("base64url");
 }
 
 function addFailure(failures, check, reason) {
@@ -80,6 +67,25 @@ function requireBase64UrlLength(failures, name, length) {
 
 async function main() {
   const failures = [];
+  let inputManifest;
+  try {
+    inputManifest = JSON.parse(await readFile(INPUT_MANIFEST_PATH, "utf8"));
+  } catch {
+    addFailure(failures, "production-inputs.json", "input manifest could not be read");
+    inputManifest = { allowed_inputs: [] };
+  }
+  const allowedInputs = Array.isArray(inputManifest.allowed_inputs)
+    ? inputManifest.allowed_inputs
+    : [];
+  if (
+    inputManifest.schema_version !== 1 ||
+    inputManifest.scope !== "fusou-tlsn-verification-worker-production" ||
+    allowedInputs.length === 0 ||
+    allowedInputs.some((name) => typeof name !== "string")
+  ) {
+    addFailure(failures, "production-inputs.json", "manifest schema is invalid");
+  }
+  const requiredProductionVariables = allowedInputs;
   if (value("TLSN_ENVIRONMENT") !== "production") {
     addFailure(failures, "TLSN_ENVIRONMENT", "must be exactly production");
   }
@@ -188,9 +194,33 @@ async function main() {
     failures,
   };
   const reportPath = value("TLSN_PREFLIGHT_REPORT_PATH") ?? DEFAULT_REPORT_PATH;
+  const provenancePath = value("TLSN_PROVENANCE_REPORT_PATH") ?? DEFAULT_PROVENANCE_PATH;
+  const deviceHostsForProvenance = [...deviceHosts].sort();
+  const supabaseHostsForProvenance = [...supabaseHosts].sort();
+  const provenance = {
+    schema_version: 1,
+    scope: "production-deployment-inputs",
+    generated_at: new Date().toISOString(),
+    status: report.status,
+    environment: "production",
+    deployment_id: value("TLSN_DEPLOYMENT_ID") ?? null,
+    security_registry_set_sha256: value("TLSN_SECURITY_REGISTRY_SET_SHA256") ?? null,
+    profile_sha256: value("TLSN_PRODUCTION_PROFILE_SHA256") ?? null,
+    verifier_key_id: value("TLSN_PRODUCTION_VERIFIER_KEY_ID") ?? null,
+    notary_key_id: value("TLSN_PRODUCTION_NOTARY_KEY_ID") ?? null,
+    result_public_key_spki_sha256: value("TLSN_RESULT_PUBLIC_KEY_SPKI")
+      ? sha256Base64Url(value("TLSN_RESULT_PUBLIC_KEY_SPKI"))
+      : null,
+    device_endpoint_hosts: deviceHostsForProvenance,
+    supabase_endpoint_hosts: supabaseHostsForProvenance,
+    allowed_input_manifest: "scripts/production-inputs.json",
+  };
   await mkdir(dirname(reportPath), { recursive: true });
+  await mkdir(dirname(provenancePath), { recursive: true });
+  await writeFile(provenancePath, `${JSON.stringify(provenance, null, 2)}\n`, "utf8");
+  report.provenance_path = provenancePath;
   await writeFile(reportPath, `${JSON.stringify(report, null, 2)}\n`, "utf8");
-  console.log(JSON.stringify({ report_path: reportPath, status: report.status, failure_count: report.failure_count }));
+  console.log(JSON.stringify({ report_path: reportPath, provenance_path: provenancePath, status: report.status, failure_count: report.failure_count }));
   if (failures.length > 0) process.exitCode = 1;
 }
 
