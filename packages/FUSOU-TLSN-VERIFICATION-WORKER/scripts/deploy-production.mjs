@@ -9,6 +9,7 @@ import {
   DEPLOYMENT_AUTH_INPUTS,
   FORBIDDEN_PRODUCTION_INPUTS,
   inputsForRole,
+  PRODUCTION_GATE_INPUTS,
   RUNTIME_INPUTS,
   secretInputsForRole,
   WORKFLOW_EVIDENCE_INPUTS,
@@ -67,6 +68,7 @@ async function main() {
   requiredEnvironment("TLSN_VERIFY_WORKER_URL");
   const remoteReportPath = requiredEnvironment("TLSN_REMOTE_REPORT_PATH");
   requiredEnvironment("TLSN_REMOTE_ATTESTATION_PATH");
+  for (const name of PRODUCTION_GATE_INPUTS) requiredEnvironment(name);
   const productionOrigin = new URL(process.env.TLSN_VERIFY_WORKER_URL).origin;
   const captureOrigin = new URL(process.env.TLSN_CAPTURE_WORKER_URL).origin;
   const remoteOrigin = new URL(requiredEnvironment("TLSN_REMOTE_WORKER_URL")).origin;
@@ -82,6 +84,7 @@ async function main() {
     ...secretInputs,
     ...inheritedRuntimeInputs,
     ...WORKFLOW_EVIDENCE_INPUTS,
+    ...PRODUCTION_GATE_INPUTS,
     "TLSN_PREFLIGHT_REPORT_PATH",
     "TLSN_PROVENANCE_REPORT_PATH",
   ]);
@@ -137,6 +140,7 @@ async function main() {
     Object.entries(deploymentEnvironment).filter(([name]) => (
       inheritedRuntimeInputs.includes(name) ||
       WORKFLOW_EVIDENCE_INPUTS.includes(name) ||
+      PRODUCTION_GATE_INPUTS.includes(name) ||
       name === "TLSN_GIT_COMMIT_SHA" ||
       name.startsWith("TLSN_REMOTE_")
     )),

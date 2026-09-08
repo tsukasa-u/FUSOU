@@ -2,17 +2,10 @@
 
 import { readFile } from "node:fs/promises";
 import { writeImmutableJson } from "./deployment-attestation.mjs";
-
-const comparisonFields = [
-  ["git_commit_sha", "security_identity"],
-  ["profile_sha256", "security_identity"],
-  ["verifier_key_id", "security_identity"],
-  ["notary_key_id", "security_identity"],
-  ["security_registry_set_sha256", "security_identity"],
-  ["notary_registry_sha256", "security_identity"],
-  ["binding_mode", "deployment_identity"],
-];
-const defaultExpectedChanges = new Set(["git_commit_sha", "binding_mode"]);
+import {
+  PREVIOUS_IDENTITY_FIELDS,
+  parseExpectedIdentityChanges,
+} from "./previous-deployment-contract.mjs";
 
 function required(name) {
   const value = process.env[name]?.trim();
@@ -27,14 +20,7 @@ function optional(name) {
 
 function expectedChanges() {
   const raw = optional("TLSN_EXPECTED_PREVIOUS_IDENTITY_CHANGES");
-  if (!raw) return defaultExpectedChanges;
-  const parsed = JSON.parse(raw);
-  if (!Array.isArray(parsed) || parsed.some((field) => typeof field !== "string")) {
-    throw new Error("TLSN_EXPECTED_PREVIOUS_IDENTITY_CHANGES must be a JSON string array");
-  }
-  const allowed = new Set(comparisonFields.map(([field]) => field));
-  for (const field of parsed) if (!allowed.has(field)) throw new Error(`unsupported previous identity field: ${field}`);
-  return new Set(parsed);
+  return parseExpectedIdentityChanges(raw);
 }
 
 async function main() {
@@ -54,16 +40,22 @@ async function main() {
     current?.deployment_role !== "production"
   ) throw new Error("invalid current production provenance");
 
+  for (const [field, identityName] of PREVIOUS_IDENTITY_FIELDS) {
+    if (typeof previous[identityName]?.[field] !== "string" || typeof current[identityName]?.[field] !== "string") {
+      throw new Error(`previous/current provenance is missing ${identityName}.${field}`);
+    }
+  }
+
   const expected = expectedChanges();
   const changed = [];
   const unchanged = [];
-  for (const [field, identityName] of comparisonFields) {
+  for (const [field, identityName] of PREVIOUS_IDENTITY_FIELDS) {
     if (previous[identityName]?.[field] === current[identityName]?.[field]) unchanged.push(field);
     else changed.push(field);
   }
   const unexpected = changed.filter((field) => !expected.has(field));
   const report = {
-    schema_version: 1,
+    schema_version: 2,
     scope: "tlsn-previous-deployment-identity-check",
     status: unexpected.length === 0 ? "PASS" : "FAIL",
     generated_at: new Date().toISOString(),

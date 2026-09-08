@@ -100,6 +100,30 @@ const canarySigningPrivateKeyPkcs8 = canaryPrivateKey
 const productionSigningPrivateKeyPkcs8 = productionPrivateKey
   .export({ format: "der", type: "pkcs8" })
   .toString("base64url");
+const canaryResultPublicKeySpki = canaryPublicKey.export({ format: "der", type: "spki" }).toString("base64url");
+const productionResultPublicKeySpki = productionPublicKey.export({ format: "der", type: "spki" }).toString("base64url");
+const canaryResultSigningKeyRegistry = JSON.stringify({
+  schema_version: 1,
+  scope: "tlsn-result-signing-key-registry",
+  keys: [{
+    key_id: "canary-result-test",
+    public_key_spki: canaryResultPublicKeySpki,
+    status: "ACTIVE",
+    not_before: "2026-01-01T00:00:00.000Z",
+    not_after: null,
+  }],
+});
+const productionResultSigningKeyRegistry = JSON.stringify({
+  schema_version: 1,
+  scope: "tlsn-result-signing-key-registry",
+  keys: [{
+    key_id: "production-result-test",
+    public_key_spki: productionResultPublicKeySpki,
+    status: "ACTIVE",
+    not_before: "2026-01-01T00:00:00.000Z",
+    not_after: null,
+  }],
+});
 const deviceId = "33333333-3333-4333-8333-333333333333";
 const deviceNonce = "a".repeat(64);
 const deviceSignature = "synthetic-device-signature";
@@ -299,7 +323,7 @@ const testVars = {
   TLSN_VERIFIER_KEY_ID: "worker-test",
   TLSN_NOTARY_KEY_ID: "notary-test",
   TLSN_NOTARY_REGISTRY: JSON.stringify({ "notary-test": syntheticFixture.notary_key_base64 }),
-  TLSN_SIGNING_PRIVATE_KEY_PKCS8: signingPrivateKeyPkcs8,
+  TLSN_RESULT_SIGNING_PRIVATE_KEY_PKCS8: signingPrivateKeyPkcs8,
   TLSN_TRUST_ROOT_CERTIFICATE_DER: syntheticFixture.root_certificate_base64,
   TLSN_DEVICE_AUTH_URL: deviceAuthUrl,
   TLSN_DEVICE_POSSESSION_AUTH_URL: devicePossessionAuthUrl,
@@ -582,31 +606,35 @@ try {
   await mismatchedNotaryWorker.stop();
 }
 
+const productionTrustRootVars = {
+  TLSN_ENVIRONMENT: "production",
+  TLSN_DEPLOYMENT_ROLE: "production",
+  TLSN_GIT_COMMIT_SHA: "a".repeat(40),
+  TLSN_BINDING_TTL_SECONDS: "60",
+  TLSN_CANDIDATE_SERVER_IDENTITY: "game.example.com",
+  TLSN_CANDIDATE_PROFILE_SHA256: Buffer.alloc(32).toString("base64url"),
+  TLSN_CANDIDATE_VERIFIER_KEY_ID: "worker-prod",
+  TLSN_CANDIDATE_NOTARY_KEY_ID: "notary-prod",
+  TLSN_CANDIDATE_NOTARY_REGISTRY: JSON.stringify({ "notary-prod": syntheticFixture.notary_key_base64 }),
+  TLSN_PRODUCTION_RESULT_SIGNING_PRIVATE_KEY_PKCS8: productionSigningPrivateKeyPkcs8,
+  TLSN_PRODUCTION_TRUST_ROOT_CERTIFICATE_DER: syntheticFixture.root_certificate_base64,
+  TLSN_PRODUCTION_DEPLOYMENT_ID: "local-production-test",
+  TLSN_SECURITY_REGISTRY_SET_SHA256: Buffer.alloc(32, 0x53).toString("base64url"),
+  TLSN_PRODUCTION_RESULT_PUBLIC_KEY_SPKI: productionResultPublicKeySpki,
+  TLSN_PRODUCTION_RESULT_SIGNER_KEY_ID: "production-result-test",
+  TLSN_PRODUCTION_RESULT_SIGNING_KEY_REGISTRY: productionResultSigningKeyRegistry,
+  TLSN_CANDIDATE_DEVICE_AUTH_URL: "https://fusou.dev/api/auth/anonymous-sync/v2/device-proof",
+  TLSN_CANDIDATE_DEVICE_POSSESSION_AUTH_URL: "https://fusou.dev/api/auth/anonymous-sync/v2/tlsn-device-proof",
+  TLSN_CANDIDATE_DEVICE_AUTH_ALLOWED_HOSTS: "fusou.dev",
+  TLSN_CANDIDATE_SUPABASE_ALLOWED_HOSTS: "project.supabase.co",
+  TLSN_CANDIDATE_SUPABASE_URL: "https://project.supabase.co",
+  TLSN_CANDIDATE_SUPABASE_PUBLISHABLE_KEY: "test-publishable-key",
+  TLSN_PRODUCTION_WORKER_NAME: "fusou-tlsn-production",
+};
+
 const productionTrustRootWorker = await unstable_dev(resolve(packageDirectory, "src/index.ts"), {
   config: resolve(packageDirectory, "wrangler.toml"),
-  vars: {
-    TLSN_ENVIRONMENT: "production",
-    TLSN_DEPLOYMENT_ROLE: "production",
-    TLSN_GIT_COMMIT_SHA: "a".repeat(40),
-    TLSN_BINDING_TTL_SECONDS: "60",
-    TLSN_CANDIDATE_SERVER_IDENTITY: "game.example.com",
-    TLSN_CANDIDATE_PROFILE_SHA256: Buffer.alloc(32).toString("base64url"),
-    TLSN_CANDIDATE_VERIFIER_KEY_ID: "worker-prod",
-    TLSN_CANDIDATE_NOTARY_KEY_ID: "notary-prod",
-    TLSN_CANDIDATE_NOTARY_REGISTRY: JSON.stringify({ "notary-prod": syntheticFixture.notary_key_base64 }),
-    TLSN_PRODUCTION_SIGNING_PRIVATE_KEY_PKCS8: productionSigningPrivateKeyPkcs8,
-    TLSN_PRODUCTION_TRUST_ROOT_CERTIFICATE_DER: syntheticFixture.root_certificate_base64,
-    TLSN_PRODUCTION_DEPLOYMENT_ID: "local-production-test",
-    TLSN_SECURITY_REGISTRY_SET_SHA256: Buffer.alloc(32, 0x53).toString("base64url"),
-    TLSN_PRODUCTION_RESULT_PUBLIC_KEY_SPKI: productionPublicKey.export({ format: "der", type: "spki" }).toString("base64url"),
-    TLSN_CANDIDATE_DEVICE_AUTH_URL: "https://fusou.dev/api/auth/anonymous-sync/v2/device-proof",
-    TLSN_CANDIDATE_DEVICE_POSSESSION_AUTH_URL: "https://fusou.dev/api/auth/anonymous-sync/v2/tlsn-device-proof",
-    TLSN_CANDIDATE_DEVICE_AUTH_ALLOWED_HOSTS: "fusou.dev",
-    TLSN_CANDIDATE_SUPABASE_ALLOWED_HOSTS: "project.supabase.co",
-    TLSN_CANDIDATE_SUPABASE_URL: "https://project.supabase.co",
-    TLSN_CANDIDATE_SUPABASE_PUBLISHABLE_KEY: "test-publishable-key",
-    TLSN_PRODUCTION_WORKER_NAME: "fusou-tlsn-production",
-  },
+  vars: productionTrustRootVars,
   persist: false,
   bundle: true,
   local: true,
@@ -625,6 +653,33 @@ try {
   await productionTrustRootWorker.stop();
 }
 
+const malformedProductionRegistry = JSON.parse(productionResultSigningKeyRegistry);
+malformedProductionRegistry.keys.push({ ...malformedProductionRegistry.keys[0] });
+malformedProductionRegistry.keys[0].not_before = "not-a-timestamp";
+const malformedProductionRegistryWorker = await unstable_dev(resolve(packageDirectory, "src/index.ts"), {
+  config: resolve(packageDirectory, "wrangler.toml"),
+  vars: {
+    ...productionTrustRootVars,
+    TLSN_PRODUCTION_RESULT_SIGNING_KEY_REGISTRY: JSON.stringify(malformedProductionRegistry),
+  },
+  persist: false,
+  bundle: true,
+  local: true,
+  compatibilityDate: "2026-07-29",
+  experimental: {
+    disableExperimentalWarning: true,
+    forceLocal: true,
+    testMode: true,
+  },
+});
+
+try {
+  const { runProductionRegistryFailClosedSmokeTest } = await import("../test/index-smoke.mjs");
+  await runProductionRegistryFailClosedSmokeTest(malformedProductionRegistryWorker.fetch);
+} finally {
+  await malformedProductionRegistryWorker.stop();
+}
+
 const invalidProductionEndpointWorker = await unstable_dev(resolve(packageDirectory, "src/index.ts"), {
   config: resolve(packageDirectory, "wrangler.toml"),
   vars: {
@@ -637,11 +692,13 @@ const invalidProductionEndpointWorker = await unstable_dev(resolve(packageDirect
     TLSN_CANDIDATE_VERIFIER_KEY_ID: "worker-test",
     TLSN_CANDIDATE_NOTARY_KEY_ID: "notary-test",
     TLSN_CANDIDATE_NOTARY_REGISTRY: JSON.stringify({ "notary-test": syntheticFixture.notary_key_base64 }),
-    TLSN_PRODUCTION_SIGNING_PRIVATE_KEY_PKCS8: productionSigningPrivateKeyPkcs8,
+    TLSN_PRODUCTION_RESULT_SIGNING_PRIVATE_KEY_PKCS8: productionSigningPrivateKeyPkcs8,
     TLSN_PRODUCTION_TRUST_ROOT_CERTIFICATE_DER: syntheticFixture.root_certificate_base64,
     TLSN_PRODUCTION_DEPLOYMENT_ID: "local-production-invalid-endpoint",
     TLSN_SECURITY_REGISTRY_SET_SHA256: Buffer.alloc(32, 0x53).toString("base64url"),
-    TLSN_PRODUCTION_RESULT_PUBLIC_KEY_SPKI: productionPublicKey.export({ format: "der", type: "spki" }).toString("base64url"),
+    TLSN_PRODUCTION_RESULT_PUBLIC_KEY_SPKI: productionResultPublicKeySpki,
+    TLSN_PRODUCTION_RESULT_SIGNER_KEY_ID: "production-result-test",
+    TLSN_PRODUCTION_RESULT_SIGNING_KEY_REGISTRY: productionResultSigningKeyRegistry,
     TLSN_CANDIDATE_DEVICE_AUTH_URL: "https://evil.example/api/auth/anonymous-sync/v2/device-proof",
     TLSN_CANDIDATE_DEVICE_POSSESSION_AUTH_URL: "https://fusou.dev/api/auth/anonymous-sync/v2/tlsn-device-proof",
     TLSN_CANDIDATE_DEVICE_AUTH_ALLOWED_HOSTS: "fusou.dev",

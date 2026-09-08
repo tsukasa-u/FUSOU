@@ -1,13 +1,17 @@
 #!/usr/bin/env node
 
 import assert from "node:assert/strict";
+import { generateKeyPairSync } from "node:crypto";
 import {
   assertEvidenceContext,
   assertRemoteAttestation,
   assertRemoteReportGate,
-  createRemoteAttestation,
+  createSignedRemoteAttestation,
 } from "./deployment-attestation.mjs";
 
+const { privateKey: signerPrivateKey, publicKey: signerPublicKey } = generateKeyPairSync("ed25519");
+const signerPrivateKeyPkcs8 = signerPrivateKey.export({ format: "der", type: "pkcs8" }).toString("base64url");
+const signerPublicKeySpki = signerPublicKey.export({ format: "der", type: "spki" }).toString("base64url");
 const context = {
   workflow_run_id: "100",
   workflow_run_attempt: "2",
@@ -41,7 +45,11 @@ const canaryProvenance = {
     trust_root_certificate_sha256: "D".repeat(43),
     worker_name: "fusou-tlsn-canary",
   },
-  result_identity: { result_public_key_spki: "canary-result-key" },
+  result_identity: {
+    result_public_key_spki: "canary-result-key",
+    result_signer_key_id: "canary-result-2026",
+    result_key_registry_sha256: "E".repeat(43),
+  },
 };
 const remoteReport = {
   schema_version: 2,
@@ -56,21 +64,52 @@ const remoteReport = {
   checks: { remote_worker_identity: { status: "PASS" } },
   production_evidence: "BLOCKED",
   p0_05: "BLOCKED",
+  production_evidence_contract: {
+    scope: "tlsn-production-evidence",
+    status: "BLOCKED",
+    independent_capture_required: true,
+    requirements: Object.fromEntries([
+      "real_production_game_server_connection",
+      "real_production_tlsn_notary_interaction",
+      "real_production_fusou_web_device_authentication",
+      "real_production_device_possession_proof",
+      "real_production_replay_authority",
+      "real_production_binding_authority",
+      "real_production_verifier_trust_root",
+      "real_production_result_signing_key",
+      "real_production_public_key_publication",
+      "independently_captured_production_evidence",
+    ].map((field) => [field, "UNVERIFIED"])),
+  },
   security_identity: securityIdentity,
   deployment_identity: canaryProvenance.deployment_identity,
   result_identity: canaryProvenance.result_identity,
 };
 const canaryBytes = Buffer.from(JSON.stringify(canaryProvenance));
 const reportBytes = Buffer.from(JSON.stringify(remoteReport));
-const attestation = createRemoteAttestation({
+const attestation = createSignedRemoteAttestation({
   expectedContext: context,
   canaryProvenance,
   remoteReport,
   canaryBytes,
   reportBytes,
+  signerKeyId: "remote-attestation-2026",
+  signerPublicKeySpki,
+  signingPrivateKeyPkcs8: signerPrivateKeyPkcs8,
 });
 
-assertRemoteAttestation(attestation, context, canaryProvenance, remoteReport, canaryBytes, reportBytes);
+const verificationOptions = {
+  expectedSignerKeyId: "remote-attestation-2026",
+  expectedSignerPublicKeySpki: signerPublicKeySpki,
+  now: "2026-09-08T00:03:00.000Z",
+  maxAgeSeconds: 300,
+};
+
+function assertAttestation(value, expected = context, provenance = canaryProvenance, report = remoteReport, provenanceBytes = canaryBytes, validationReportBytes = reportBytes, options = verificationOptions) {
+  return assertRemoteAttestation(value, expected, provenance, report, provenanceBytes, validationReportBytes, options);
+}
+
+assertAttestation(attestation);
 assertEvidenceContext(attestation, context, "base attestation");
 
 function rejects(label, action) {
@@ -78,7 +117,7 @@ function rejects(label, action) {
 }
 
 for (const field of ["workflow_run_id", "workflow_run_attempt", "git_commit_sha", "repository", "workflow_file_identity"]) {
-  rejects(`different ${field}`, () => assertRemoteAttestation(
+  rejects(`different ${field}`, () => assertAttestation(
     attestation,
     {
       ...context,
@@ -96,16 +135,40 @@ for (const field of ["workflow_run_id", "workflow_run_attempt", "git_commit_sha"
     reportBytes,
   ));
 }
-rejects("old remote report replay", () => assertRemoteAttestation(attestation, context, canaryProvenance, remoteReport, canaryBytes, Buffer.from("old-report")));
-rejects("old canary provenance replay", () => assertRemoteAttestation(attestation, context, canaryProvenance, remoteReport, Buffer.from("old-provenance"), reportBytes));
-rejects("tampered remote report", () => assertRemoteAttestation(attestation, context, canaryProvenance, remoteReport, canaryBytes, Buffer.from(`${reportBytes}x`)));
-rejects("tampered canary provenance", () => assertRemoteAttestation(attestation, context, canaryProvenance, remoteReport, Buffer.from(`${canaryBytes}x`), reportBytes));
-rejects("different validation_id", () => assertRemoteAttestation({ ...attestation, validation_id: "123e4567-e89b-42d3-a456-426614174001" }, context, canaryProvenance, remoteReport, canaryBytes, reportBytes));
-rejects("missing hash", () => assertRemoteAttestation({ ...attestation, remote_report_sha256: undefined }, context, canaryProvenance, remoteReport, canaryBytes, reportBytes));
-rejects("wrong hash", () => assertRemoteAttestation({ ...attestation, remote_report_sha256: "wrong" }, context, canaryProvenance, remoteReport, canaryBytes, reportBytes));
-rejects("different security identity", () => assertRemoteAttestation(attestation, context, canaryProvenance, { ...remoteReport, security_identity: { ...securityIdentity, verifier_key_id: "other" } }, canaryBytes, reportBytes));
-rejects("wrong deployment role", () => assertRemoteAttestation({ ...attestation, deployment_role: "production" }, context, canaryProvenance, remoteReport, canaryBytes, reportBytes));
-rejects("production provenance used as canary", () => assertRemoteAttestation(attestation, context, { ...canaryProvenance, deployment_role: "production", deployment_identity: { ...canaryProvenance.deployment_identity, deployment_role: "production" } }, remoteReport, canaryBytes, reportBytes));
+rejects("old remote report replay", () => assertAttestation(attestation, context, canaryProvenance, remoteReport, canaryBytes, Buffer.from("old-report")));
+rejects("old canary provenance replay", () => assertAttestation(attestation, context, canaryProvenance, remoteReport, Buffer.from("old-provenance"), reportBytes));
+rejects("tampered remote report", () => assertAttestation(attestation, context, canaryProvenance, remoteReport, canaryBytes, Buffer.from(`${reportBytes}x`)));
+rejects("tampered canary provenance", () => assertAttestation(attestation, context, canaryProvenance, remoteReport, Buffer.from(`${canaryBytes}x`), reportBytes));
+rejects("different validation_id", () => assertAttestation({ ...attestation, validation_id: "123e4567-e89b-42d3-a456-426614174001" }));
+rejects("missing hash", () => assertAttestation({ ...attestation, remote_report_sha256: undefined }));
+rejects("wrong hash", () => assertAttestation({ ...attestation, remote_report_sha256: "wrong" }));
+rejects("different security identity", () => assertAttestation(attestation, context, canaryProvenance, { ...remoteReport, security_identity: { ...securityIdentity, verifier_key_id: "other" } }));
+rejects("wrong deployment role", () => assertAttestation({ ...attestation, deployment_role: "production" }));
+rejects("production provenance used as canary", () => assertAttestation(attestation, context, { ...canaryProvenance, deployment_role: "production", deployment_identity: { ...canaryProvenance.deployment_identity, deployment_role: "production" } }));
+rejects("signature mutation", () => assertAttestation({
+  ...attestation,
+  signature_base64url: `${attestation.signature_base64url[0] === "A" ? "B" : "A"}${attestation.signature_base64url.slice(1)}`,
+}));
+rejects("payload mutation", () => assertAttestation({ ...attestation, status: "FAIL" }));
+rejects("signer key ID mutation", () => assertAttestation({ ...attestation, attestation_signer_key_id: "other-signer" }));
+rejects("signature algorithm mutation", () => assertAttestation({ ...attestation, signature_algorithm: "RSA-SHA256" }));
+rejects("truncated signature", () => assertAttestation({ ...attestation, signature_base64url: attestation.signature_base64url.slice(0, -4) }));
+rejects("wrong public key", () => {
+  const { publicKey } = generateKeyPairSync("ed25519");
+  assertAttestation(attestation, context, canaryProvenance, remoteReport, canaryBytes, reportBytes, {
+    ...verificationOptions,
+    expectedSignerPublicKeySpki: publicKey.export({ format: "der", type: "spki" }).toString("base64url"),
+  });
+});
+rejects("stale attestation", () => assertRemoteAttestation(attestation, context, canaryProvenance, remoteReport, canaryBytes, reportBytes, {
+  ...verificationOptions,
+  now: "2026-09-08T01:00:00.000Z",
+}));
+rejects("future timestamp", () => assertRemoteAttestation(attestation, context, canaryProvenance, remoteReport, canaryBytes, reportBytes, {
+  ...verificationOptions,
+  now: "2026-09-08T00:01:30.000Z",
+}));
+rejects("old attestation from another workflow run", () => assertAttestation(attestation, { ...context, workflow_run_id: "101" }));
 rejects("production evidence must remain blocked", () => assertRemoteReportGate({ ...remoteReport, production_evidence: "PASS" }));
 rejects("P0-05 must remain blocked", () => assertRemoteReportGate({ ...remoteReport, p0_05: "PASS" }));
 rejects("missing report hash is not accepted", () => assertRemoteAttestation({ ...attestation, remote_report_sha256: null }, context, canaryProvenance, remoteReport, canaryBytes, reportBytes));

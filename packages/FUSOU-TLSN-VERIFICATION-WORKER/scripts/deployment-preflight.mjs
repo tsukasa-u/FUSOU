@@ -7,12 +7,15 @@ import {
   CANARY_INPUTS,
   COMMON_INPUTS,
   PRODUCTION_INPUTS,
+  PRODUCTION_GATE_INPUTS,
+  REMOTE_ATTESTATION_SECRET_INPUTS,
   WORKFLOW_EVIDENCE_INPUTS,
   SECURITY_IDENTITY_FIELDS,
   secretInputsForRole,
   inputsForRole,
 } from "./deployment-contract.mjs";
 import { checkoutCommit, workflowContextFromEnvironment } from "./deployment-attestation.mjs";
+import { assertSigningKeyRegistry, signingKeyRegistrySha256 } from "./signing-key-registry.mjs";
 
 const packageDirectory = resolve(new URL("..", import.meta.url).pathname);
 const DEFAULT_REPORT_PATH = resolve(packageDirectory, "artifacts/tlsn-deployment-preflight.json");
@@ -111,14 +114,16 @@ async function main() {
     JSON.stringify(workflowEvidenceInputs) !== JSON.stringify(WORKFLOW_EVIDENCE_INPUTS) ||
     JSON.stringify(canaryInputs) !== JSON.stringify(CANARY_INPUTS) ||
     JSON.stringify(productionInputs) !== JSON.stringify(PRODUCTION_INPUTS) ||
-    JSON.stringify(canarySecrets) !== JSON.stringify(["TLSN_CANARY_SIGNING_PRIVATE_KEY_PKCS8", "TLSN_CANARY_TRUST_ROOT_CERTIFICATE_DER"]) ||
-    JSON.stringify(productionSecrets) !== JSON.stringify(["TLSN_PRODUCTION_SIGNING_PRIVATE_KEY_PKCS8", "TLSN_PRODUCTION_TRUST_ROOT_CERTIFICATE_DER"])
+    JSON.stringify(canarySecrets) !== JSON.stringify(["TLSN_CANARY_RESULT_SIGNING_PRIVATE_KEY_PKCS8", "TLSN_CANARY_TRUST_ROOT_CERTIFICATE_DER"]) ||
+    JSON.stringify(productionSecrets) !== JSON.stringify(["TLSN_PRODUCTION_RESULT_SIGNING_PRIVATE_KEY_PKCS8", "TLSN_PRODUCTION_TRUST_ROOT_CERTIFICATE_DER"]) ||
+    JSON.stringify(inputManifest.production_gate_inputs) !== JSON.stringify(PRODUCTION_GATE_INPUTS) ||
+    JSON.stringify(inputManifest.remote_attestation_secret_inputs) !== JSON.stringify(REMOTE_ATTESTATION_SECRET_INPUTS)
   ) {
     addFailure(failures, "production-inputs.json", "manifest schema is invalid");
   }
   const roleInputs = ROLE_PATTERN.test(role ?? "") ? inputsForRole(role) : [];
   const secretInputs = ROLE_PATTERN.test(role ?? "") ? secretInputsForRole(role) : [];
-  const requiredInputs = [...roleInputs, ...secretInputs, ...WORKFLOW_EVIDENCE_INPUTS];
+  const requiredInputs = [...roleInputs, ...secretInputs, ...WORKFLOW_EVIDENCE_INPUTS, ...(role === "production" ? PRODUCTION_GATE_INPUTS : [])];
   if (value("TLSN_ENVIRONMENT") !== "production") {
     addFailure(failures, "TLSN_ENVIRONMENT", "must be exactly production");
   }
@@ -146,8 +151,8 @@ async function main() {
     addFailure(failures, "TLSN_CANARY_BINDING_VALUE", "canary role requires a fixed synthetic binding value");
   }
   const forbiddenRoleInputs = role === "canary"
-    ? ["TLSN_PRODUCTION_SIGNING_PRIVATE_KEY_PKCS8", "TLSN_PRODUCTION_TRUST_ROOT_CERTIFICATE_DER", "TLSN_PRODUCTION_RESULT_PUBLIC_KEY_SPKI", "TLSN_PRODUCTION_DEPLOYMENT_ID", "TLSN_PRODUCTION_WORKER_NAME"]
-    : ["TLSN_CANARY_SIGNING_PRIVATE_KEY_PKCS8", "TLSN_CANARY_TRUST_ROOT_CERTIFICATE_DER", "TLSN_CANARY_RESULT_PUBLIC_KEY_SPKI", "TLSN_CANARY_DEPLOYMENT_ID", "TLSN_CANARY_WORKER_NAME", "TLSN_CANARY_BINDING_VALUE"];
+    ? ["TLSN_PRODUCTION_RESULT_SIGNING_PRIVATE_KEY_PKCS8", "TLSN_PRODUCTION_TRUST_ROOT_CERTIFICATE_DER", "TLSN_PRODUCTION_RESULT_PUBLIC_KEY_SPKI", "TLSN_PRODUCTION_RESULT_SIGNER_KEY_ID", "TLSN_PRODUCTION_RESULT_SIGNING_KEY_REGISTRY", "TLSN_PRODUCTION_DEPLOYMENT_ID", "TLSN_PRODUCTION_WORKER_NAME"]
+    : ["TLSN_CANARY_RESULT_SIGNING_PRIVATE_KEY_PKCS8", "TLSN_CANARY_TRUST_ROOT_CERTIFICATE_DER", "TLSN_CANARY_RESULT_PUBLIC_KEY_SPKI", "TLSN_CANARY_RESULT_SIGNER_KEY_ID", "TLSN_CANARY_RESULT_SIGNING_KEY_REGISTRY", "TLSN_CANARY_DEPLOYMENT_ID", "TLSN_CANARY_WORKER_NAME", "TLSN_CANARY_BINDING_VALUE"];
   for (const name of [...forbiddenRoleInputs, "TLSN_TEST_BINDING_VALUE", "TLSN_TEST_AUTH_USERS"]) {
     if (process.env[name] !== undefined) addFailure(failures, name, "forbidden configuration is present for this deployment role");
   }
@@ -187,6 +192,8 @@ async function main() {
   requireBase64UrlLength(failures, "TLSN_CANDIDATE_PROFILE_SHA256", 43);
   requireBase64UrlLength(failures, "TLSN_SECURITY_REGISTRY_SET_SHA256", 43);
   const resultKeyName = role === "canary" ? "TLSN_CANARY_RESULT_PUBLIC_KEY_SPKI" : "TLSN_PRODUCTION_RESULT_PUBLIC_KEY_SPKI";
+  const resultSignerKeyIdName = role === "canary" ? "TLSN_CANARY_RESULT_SIGNER_KEY_ID" : "TLSN_PRODUCTION_RESULT_SIGNER_KEY_ID";
+  const resultKeyRegistryName = role === "canary" ? "TLSN_CANARY_RESULT_SIGNING_KEY_REGISTRY" : "TLSN_PRODUCTION_RESULT_SIGNING_KEY_REGISTRY";
   requireBase64UrlLength(failures, resultKeyName, 59);
   let registry;
   const registryRaw = value("TLSN_CANDIDATE_NOTARY_REGISTRY");
@@ -198,11 +205,36 @@ async function main() {
   const signingKeyBytes = decodeBase64Url(signingKeyRaw);
   if (!signingKeyBytes) addFailure(failures, secretInputs[0] ?? "signing_key", "must be canonical base64url");
   if (!trustRootHash) addFailure(failures, secretInputs[1] ?? "trust_root", "must be canonical base64url");
+  const resultKeyRegistryRaw = value(resultKeyRegistryName);
+  let resultKeyRegistry;
+  try {
+    resultKeyRegistry = JSON.parse(resultKeyRegistryRaw ?? "");
+    assertSigningKeyRegistry(resultKeyRegistry, {
+      currentKeyId: value(resultSignerKeyIdName),
+      currentPublicKeySpki: value(resultKeyName),
+    });
+  } catch (error) {
+    addFailure(failures, resultKeyRegistryName, error instanceof Error ? error.message : "result signing key registry is invalid");
+  }
   if (signingKeyBytes) {
     try {
       const derivedPublicKey = createPublicKey(createPrivateKey({ key: signingKeyBytes, format: "der", type: "pkcs8" })).export({ format: "der", type: "spki" }).toString("base64url");
-      if (derivedPublicKey !== value(resultKeyName)) addFailure(failures, resultKeyName, "must match the role-specific signing private key");
+      if (derivedPublicKey !== value(resultKeyName)) addFailure(failures, resultKeyName, "must match the role-specific result signing private key");
     } catch { addFailure(failures, secretInputs[0], "must be a valid Ed25519 PKCS8 private key"); }
+  }
+  if (role === "production") {
+    const signerKeyId = value("TLSN_ATTESTATION_SIGNER_KEY_ID");
+    const signerPublicKey = value("TLSN_ATTESTATION_SIGNER_PUBLIC_KEY_SPKI");
+    if (!signerKeyId || !/^[A-Za-z0-9._-]{1,128}$/.test(signerKeyId)) addFailure(failures, "TLSN_ATTESTATION_SIGNER_KEY_ID", "must be a valid attestation signer key ID");
+    if (!signerPublicKey || signerPublicKey.length !== 59 || !BASE64URL_PATTERN.test(signerPublicKey)) {
+      addFailure(failures, "TLSN_ATTESTATION_SIGNER_PUBLIC_KEY_SPKI", "must be canonical Ed25519 SPKI public key");
+    } else {
+      try {
+        if (createPublicKey({ key: Buffer.from(signerPublicKey, "base64url"), format: "der", type: "spki" }).asymmetricKeyType !== "ed25519") throw new Error("wrong key type");
+      } catch { addFailure(failures, "TLSN_ATTESTATION_SIGNER_PUBLIC_KEY_SPKI", "must be a valid Ed25519 SPKI public key"); }
+    }
+    const maxAge = Number(value("TLSN_MAX_ATTESTATION_AGE_SECONDS"));
+    if (!Number.isSafeInteger(maxAge) || maxAge < 1 || maxAge > 86_400) addFailure(failures, "TLSN_MAX_ATTESTATION_AGE_SECONDS", "must be an integer from 1 through 86400");
   }
   const outboundUrlChecks = new Set(["TLSN_CANDIDATE_DEVICE_AUTH_URL", "TLSN_CANDIDATE_DEVICE_POSSESSION_AUTH_URL", "TLSN_CANDIDATE_SUPABASE_URL", "TLSN_CANDIDATE_DEVICE_AUTH_ALLOWED_HOSTS", "TLSN_CANDIDATE_SUPABASE_ALLOWED_HOSTS"]);
   const report = {
@@ -217,6 +249,7 @@ async function main() {
       no_forbidden_secret_names: forbiddenNames.length === 0,
       clean_outbound_urls: failures.every(({ check }) => !outboundUrlChecks.has(check)),
       result_key_published: !failures.some(({ check }) => check === resultKeyName),
+      result_key_registry_valid: !failures.some(({ check }) => check === resultKeyRegistryName),
       signing_key_matches_result_key: !failures.some(({ reason }) => reason.includes("signing private key")),
     },
     failure_count: failures.length,
@@ -252,6 +285,8 @@ async function main() {
     result_identity: {
       result_public_key_spki: value(resultKeyName) ?? null,
       result_public_key_spki_sha256: value(resultKeyName) ? sha256Base64Url(value(resultKeyName)) : null,
+      result_signer_key_id: value(resultSignerKeyIdName) ?? null,
+      result_key_registry_sha256: resultKeyRegistryRaw ? signingKeyRegistrySha256(resultKeyRegistryRaw) : null,
     },
     device_endpoint_hosts: [...deviceHosts].sort(),
     supabase_endpoint_hosts: [...supabaseHosts].sort(),

@@ -10,12 +10,13 @@ import {
   assertTimestamp,
   assertValidationId,
   assertValidationWindow,
-  createRemoteAttestation,
+  createSignedRemoteAttestation,
   DEPLOYMENT_IDENTITY_FIELDS,
   RESULT_IDENTITY_FIELDS,
   SECURITY_IDENTITY_FIELDS,
   workflowContextFromEnvironment,
   writeImmutableJson,
+  maxAttestationAgeSecondsFromEnvironment,
 } from "./deployment-attestation.mjs";
 
 function required(name) {
@@ -98,19 +99,33 @@ async function main() {
   if (!attestationPath && !attestationOutputPath) {
     throw new Error("remote validation attestation input or output path is required");
   }
+  const signerKeyId = required("TLSN_ATTESTATION_SIGNER_KEY_ID");
+  const signerPublicKeySpki = required("TLSN_ATTESTATION_SIGNER_PUBLIC_KEY_SPKI");
+  const maxAgeSeconds = maxAttestationAgeSecondsFromEnvironment(process.env);
   if (attestationPath) {
     const attestation = await readJson(attestationPath);
-    assertRemoteAttestation(attestation, expectedContext, canary, report, canaryBytes, reportBytes);
+    assertRemoteAttestation(attestation, expectedContext, canary, report, canaryBytes, reportBytes, {
+      expectedSignerKeyId: signerKeyId,
+      expectedSignerPublicKeySpki: signerPublicKeySpki,
+      maxAgeSeconds,
+    });
   }
   if (attestationOutputPath) {
-    const attestation = createRemoteAttestation({
+    const attestation = createSignedRemoteAttestation({
       expectedContext,
       canaryProvenance: canary,
       remoteReport: report,
       canaryBytes,
       reportBytes,
+      signerKeyId,
+      signerPublicKeySpki,
+      signingPrivateKeyPkcs8: required("TLSN_REMOTE_ATTESTATION_SIGNING_PRIVATE_KEY_PKCS8"),
     });
-    assertRemoteAttestation(attestation, expectedContext, canary, report, canaryBytes, reportBytes);
+    assertRemoteAttestation(attestation, expectedContext, canary, report, canaryBytes, reportBytes, {
+      expectedSignerKeyId: signerKeyId,
+      expectedSignerPublicKeySpki: signerPublicKeySpki,
+      maxAgeSeconds,
+    });
     await writeImmutableJson(attestationOutputPath, attestation);
   }
 

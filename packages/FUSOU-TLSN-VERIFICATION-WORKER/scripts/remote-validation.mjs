@@ -40,6 +40,7 @@ import { createHash, createPrivateKey, createPublicKey, randomUUID, sign, verify
 
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
+import { blockedProductionEvidenceContract } from "./production-evidence-contract.mjs";
 import {
   assertCheckoutCommit,
   assertProvenanceEvidence,
@@ -543,6 +544,7 @@ async function main() {
     checks,
     metrics,
     evidence: {
+      domain: "synthetic",
       real_game_server: false,
       production_trust_material: false,
       raw_presentation_retained: false,
@@ -550,6 +552,7 @@ async function main() {
     },
     production_evidence: "BLOCKED",
     p0_05: "BLOCKED",
+    production_evidence_contract: blockedProductionEvidenceContract(),
     security_identity: null,
     deployment_identity: null,
     result_identity: null,

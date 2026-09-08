@@ -22,7 +22,7 @@ type Bindings = {
   TLSN_VERIFIER_KEY_ID: string;
   TLSN_NOTARY_KEY_ID: string;
   TLSN_NOTARY_REGISTRY: string;
-  TLSN_SIGNING_PRIVATE_KEY_PKCS8: string;
+  TLSN_RESULT_SIGNING_PRIVATE_KEY_PKCS8: string;
   TLSN_TRUST_ROOT_CERTIFICATE_DER?: string;
   TLSN_TEST_BINDING_VALUE?: string;
   TLSN_CANDIDATE_SERVER_IDENTITY?: string;
@@ -39,14 +39,18 @@ type Bindings = {
   TLSN_SUPABASE_URL?: string;
   TLSN_SUPABASE_PUBLISHABLE_KEY?: string;
   TLSN_CANARY_DEPLOYMENT_ID?: string;
-  TLSN_CANARY_SIGNING_PRIVATE_KEY_PKCS8?: string;
+  TLSN_CANARY_RESULT_SIGNING_PRIVATE_KEY_PKCS8?: string;
   TLSN_CANARY_TRUST_ROOT_CERTIFICATE_DER?: string;
   TLSN_CANARY_RESULT_PUBLIC_KEY_SPKI?: string;
+  TLSN_CANARY_RESULT_SIGNER_KEY_ID?: string;
+  TLSN_CANARY_RESULT_SIGNING_KEY_REGISTRY?: string;
   TLSN_CANARY_WORKER_NAME?: string;
   TLSN_PRODUCTION_DEPLOYMENT_ID?: string;
-  TLSN_PRODUCTION_SIGNING_PRIVATE_KEY_PKCS8?: string;
+  TLSN_PRODUCTION_RESULT_SIGNING_PRIVATE_KEY_PKCS8?: string;
   TLSN_PRODUCTION_TRUST_ROOT_CERTIFICATE_DER?: string;
   TLSN_PRODUCTION_RESULT_PUBLIC_KEY_SPKI?: string;
+  TLSN_PRODUCTION_RESULT_SIGNER_KEY_ID?: string;
+  TLSN_PRODUCTION_RESULT_SIGNING_KEY_REGISTRY?: string;
   TLSN_PRODUCTION_WORKER_NAME?: string;
   TLSN_DEPLOYMENT_ROLE?: string;
   TLSN_GIT_COMMIT_SHA?: string;
@@ -117,6 +121,58 @@ const configSchema = z.object({
   signingPrivateKeyPkcs8: z.string().regex(/^[A-Za-z0-9_-]+$/),
   trustRootCertificateDer: z.string().regex(/^[A-Za-z0-9_-]+$/).optional(),
   resultPublicKeySpki: z.string().regex(/^[A-Za-z0-9_-]+$/).optional(),
+  resultSignerKeyId: z.string().regex(/^[A-Za-z0-9._-]{1,128}$/).optional(),
+  resultSigningKeyRegistry: z.string().min(1).optional(),
+});
+
+const resultSigningKeyEntrySchema = z.object({
+  key_id: z.string().regex(/^[A-Za-z0-9._-]{1,128}$/),
+  public_key_spki: z.string().regex(/^[A-Za-z0-9_-]{59}$/),
+  status: z.enum(["ACTIVE", "VERIFY_ONLY", "RETIRED", "REVOKED"]),
+  not_before: z.string(),
+  not_after: z.string().nullable(),
+}).strict();
+
+const resultSigningKeyRegistrySchema = z.object({
+  schema_version: z.literal(1),
+  scope: z.literal("tlsn-result-signing-key-registry"),
+  keys: z.array(resultSigningKeyEntrySchema).min(1),
+}).strict().superRefine((registry, context) => {
+  const seenKeyIds = new Set<string>();
+  registry.keys.forEach((key, index) => {
+    if (seenKeyIds.has(key.key_id)) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["keys", index, "key_id"],
+        message: "result signing key IDs must be unique",
+      });
+    }
+    seenKeyIds.add(key.key_id);
+    const notBefore = Date.parse(key.not_before);
+    if (!Number.isFinite(notBefore)) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["keys", index, "not_before"],
+        message: "not_before must be an ISO timestamp",
+      });
+    }
+    if (key.not_after !== null) {
+      const notAfter = Date.parse(key.not_after);
+      if (!Number.isFinite(notAfter)) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["keys", index, "not_after"],
+          message: "not_after must be an ISO timestamp or null",
+        });
+      } else if (Number.isFinite(notBefore) && notAfter <= notBefore) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["keys", index, "not_after"],
+          message: "not_after must be after not_before",
+        });
+      }
+    }
+  });
 });
 
 const authUserSchema = z.object({
@@ -224,13 +280,19 @@ function readConfig(env: Bindings): VerifierConfig | null {
   const role = env.TLSN_DEPLOYMENT_ROLE;
   const canary = production && role === "canary";
   const signingPrivateKey = production
-    ? canary ? env.TLSN_CANARY_SIGNING_PRIVATE_KEY_PKCS8 : env.TLSN_PRODUCTION_SIGNING_PRIVATE_KEY_PKCS8
-    : env.TLSN_SIGNING_PRIVATE_KEY_PKCS8;
+    ? canary ? env.TLSN_CANARY_RESULT_SIGNING_PRIVATE_KEY_PKCS8 : env.TLSN_PRODUCTION_RESULT_SIGNING_PRIVATE_KEY_PKCS8
+    : env.TLSN_RESULT_SIGNING_PRIVATE_KEY_PKCS8;
   const trustRootCertificateDer = production
     ? canary ? env.TLSN_CANARY_TRUST_ROOT_CERTIFICATE_DER : env.TLSN_PRODUCTION_TRUST_ROOT_CERTIFICATE_DER
     : env.TLSN_TRUST_ROOT_CERTIFICATE_DER;
   const resultPublicKeySpki = production
     ? canary ? env.TLSN_CANARY_RESULT_PUBLIC_KEY_SPKI : env.TLSN_PRODUCTION_RESULT_PUBLIC_KEY_SPKI
+    : undefined;
+  const resultSignerKeyId = production
+    ? canary ? env.TLSN_CANARY_RESULT_SIGNER_KEY_ID : env.TLSN_PRODUCTION_RESULT_SIGNER_KEY_ID
+    : undefined;
+  const resultSigningKeyRegistry = production
+    ? canary ? env.TLSN_CANARY_RESULT_SIGNING_KEY_REGISTRY : env.TLSN_PRODUCTION_RESULT_SIGNING_KEY_REGISTRY
     : undefined;
   const parsed = configSchema.safeParse({
     environment: env.TLSN_ENVIRONMENT,
@@ -247,6 +309,8 @@ function readConfig(env: Bindings): VerifierConfig | null {
     signingPrivateKeyPkcs8: signingPrivateKey,
     trustRootCertificateDer,
     resultPublicKeySpki,
+    resultSignerKeyId,
+    resultSigningKeyRegistry,
   });
   if (!parsed.success) {
     return null;
@@ -278,8 +342,8 @@ function readConfig(env: Bindings): VerifierConfig | null {
       return null;
     }
     const forbiddenRoleFields = canary
-      ? [env.TLSN_PRODUCTION_SIGNING_PRIVATE_KEY_PKCS8, env.TLSN_PRODUCTION_TRUST_ROOT_CERTIFICATE_DER, env.TLSN_PRODUCTION_RESULT_PUBLIC_KEY_SPKI, env.TLSN_PRODUCTION_DEPLOYMENT_ID, env.TLSN_PRODUCTION_WORKER_NAME]
-      : [env.TLSN_CANARY_SIGNING_PRIVATE_KEY_PKCS8, env.TLSN_CANARY_TRUST_ROOT_CERTIFICATE_DER, env.TLSN_CANARY_RESULT_PUBLIC_KEY_SPKI, env.TLSN_CANARY_DEPLOYMENT_ID, env.TLSN_CANARY_WORKER_NAME];
+      ? [env.TLSN_PRODUCTION_RESULT_SIGNING_PRIVATE_KEY_PKCS8, env.TLSN_PRODUCTION_TRUST_ROOT_CERTIFICATE_DER, env.TLSN_PRODUCTION_RESULT_PUBLIC_KEY_SPKI, env.TLSN_PRODUCTION_RESULT_SIGNER_KEY_ID, env.TLSN_PRODUCTION_RESULT_SIGNING_KEY_REGISTRY, env.TLSN_PRODUCTION_DEPLOYMENT_ID, env.TLSN_PRODUCTION_WORKER_NAME]
+      : [env.TLSN_CANARY_RESULT_SIGNING_PRIVATE_KEY_PKCS8, env.TLSN_CANARY_TRUST_ROOT_CERTIFICATE_DER, env.TLSN_CANARY_RESULT_PUBLIC_KEY_SPKI, env.TLSN_CANARY_RESULT_SIGNER_KEY_ID, env.TLSN_CANARY_RESULT_SIGNING_KEY_REGISTRY, env.TLSN_CANARY_DEPLOYMENT_ID, env.TLSN_CANARY_WORKER_NAME];
     if (production && forbiddenRoleFields.some((field) => field !== undefined)) {
       return null;
     }
@@ -301,6 +365,22 @@ function readConfig(env: Bindings): VerifierConfig | null {
     }
     if (production && !isPublicKeyBase64Url(parsed.data.resultPublicKeySpki)) {
       return null;
+    }
+    if (production && (!parsed.data.resultSignerKeyId || !parsed.data.resultSigningKeyRegistry)) {
+      return null;
+    }
+    if (production) {
+      const resultRegistry = resultSigningKeyRegistrySchema.safeParse(JSON.parse(parsed.data.resultSigningKeyRegistry ?? ""));
+      if (!resultRegistry.success) return null;
+      const currentResultKey = resultRegistry.data.keys.find((key) => key.key_id === parsed.data.resultSignerKeyId);
+      const now = Date.now();
+      if (
+        !currentResultKey ||
+        currentResultKey.public_key_spki !== parsed.data.resultPublicKeySpki ||
+        currentResultKey.status !== "ACTIVE" ||
+        Date.parse(currentResultKey.not_before) > now ||
+        (currentResultKey.not_after !== null && Date.parse(currentResultKey.not_after) < now)
+      ) return null;
     }
     if (production) {
       const deviceAuthAllowedHosts = parseHostnameAllowlist(parsed.data.deviceAuthAllowedHosts);
@@ -666,6 +746,15 @@ app.get("/health", async (c) => {
   const resultPublicKeySpki = production
     ? canary ? c.env.TLSN_CANARY_RESULT_PUBLIC_KEY_SPKI : c.env.TLSN_PRODUCTION_RESULT_PUBLIC_KEY_SPKI
     : null;
+  const resultSignerKeyId = production
+    ? canary ? c.env.TLSN_CANARY_RESULT_SIGNER_KEY_ID : c.env.TLSN_PRODUCTION_RESULT_SIGNER_KEY_ID
+    : null;
+  const resultSigningKeyRegistry = production
+    ? canary ? c.env.TLSN_CANARY_RESULT_SIGNING_KEY_REGISTRY : c.env.TLSN_PRODUCTION_RESULT_SIGNING_KEY_REGISTRY
+    : null;
+  const resultKeyRegistrySha256 = resultSigningKeyRegistry
+    ? encodeBase64Url(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(resultSigningKeyRegistry))))
+    : null;
   const deploymentId = production
     ? canary ? c.env.TLSN_CANARY_DEPLOYMENT_ID : c.env.TLSN_PRODUCTION_DEPLOYMENT_ID
     : null;
@@ -713,6 +802,12 @@ app.get("/health", async (c) => {
       result_public_key_spki_sha256: resultPublicKeySpki
         ? encodeBase64Url(new Uint8Array(await crypto.subtle.digest("SHA-256", decodeBase64Url(resultPublicKeySpki, 4096))))
         : null,
+      ...(resultSignerKeyId && resultKeyRegistrySha256
+        ? {
+            result_signer_key_id: resultSignerKeyId,
+            result_key_registry_sha256: resultKeyRegistrySha256,
+          }
+        : {}),
     },
   });
 });
@@ -816,6 +911,9 @@ app.post("/verify/tlsn", async (c) => {
   try {
     deviceChallengeBytes = decodeBase64Url(requestBody.device_proof.challenge, 32);
   } catch {
+    return c.json({ verified: false, error: "invalid_request" }, 400);
+  }
+  if (deviceChallengeBytes.length !== 32) {
     return c.json({ verified: false, error: "invalid_request" }, 400);
   }
 

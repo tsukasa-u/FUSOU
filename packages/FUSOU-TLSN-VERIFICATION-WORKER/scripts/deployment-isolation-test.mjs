@@ -60,7 +60,11 @@ const canaryProvenance = {
     trust_root_certificate_sha256: "D".repeat(43),
     worker_name: "fusou-tlsn-canary",
   },
-  result_identity: { result_public_key_spki: "canary-key" },
+  result_identity: {
+    result_public_key_spki: "canary-key",
+    result_signer_key_id: "canary-result",
+    result_key_registry_sha256: "C".repeat(43),
+  },
 };
 const productionProvenance = {
   security_identity: { ...securityIdentity },
@@ -71,7 +75,11 @@ const productionProvenance = {
     trust_root_certificate_sha256: "E".repeat(43),
     worker_name: "fusou-tlsn-production",
   },
-  result_identity: { result_public_key_spki: "production-key" },
+  result_identity: {
+    result_public_key_spki: "production-key",
+    result_signer_key_id: "production-result",
+    result_key_registry_sha256: "D".repeat(43),
+  },
 };
 assert.deepEqual(canaryProvenance.security_identity, productionProvenance.security_identity);
 assert.notEqual(canaryProvenance.deployment_identity.trust_root_certificate_sha256, productionProvenance.deployment_identity.trust_root_certificate_sha256);
@@ -88,9 +96,12 @@ const remoteJob = workflow.slice(workflow.indexOf("\n  remote-validation:"), wor
 const productionJob = workflow.slice(workflow.indexOf("\n  production:"));
 assert.doesNotMatch(canaryJob, /TLSN_PRODUCTION_|PRODUCTION_SIGNING|PRODUCTION_TRUST/);
 assert.doesNotMatch(remoteJob, /TLSN_PRODUCTION_|PRODUCTION_SIGNING|PRODUCTION_TRUST/);
-assert.doesNotMatch(remoteJob, /TLSN_CANARY_SIGNING_PRIVATE_KEY_PKCS8|TLSN_CANARY_TRUST_ROOT_CERTIFICATE_DER/);
+assert.doesNotMatch(remoteJob, /TLSN_CANARY_RESULT_SIGNING_PRIVATE_KEY_PKCS8|TLSN_CANARY_TRUST_ROOT_CERTIFICATE_DER/);
 assert.doesNotMatch(productionJob, /TLSN_CANARY_|CANARY_SIGNING|CANARY_TRUST/);
-assert.match(productionJob, /TLSN_PRODUCTION_SIGNING_PRIVATE_KEY_PKCS8/);
+assert.match(productionJob, /TLSN_PRODUCTION_RESULT_SIGNING_PRIVATE_KEY_PKCS8/);
+assert.match(remoteJob, /TLSN_REMOTE_ATTESTATION_SIGNING_PRIVATE_KEY_PKCS8/);
+assert.doesNotMatch(productionJob, /TLSN_REMOTE_ATTESTATION_SIGNING_PRIVATE_KEY_PKCS8/);
+assert.match(productionJob, /TLSN_ATTESTATION_SIGNER_PUBLIC_KEY_SPKI/);
 assert.match(workflow, /remote-validation:\n\s+name:[\s\S]*?needs: canary/);
 assert.match(workflow, /production:\n\s+name:[\s\S]*?needs: remote-validation/);
 assert.match(remoteJob, /run: pnpm --filter fusou-tlsn-verification-worker run verify:remote-gate/);

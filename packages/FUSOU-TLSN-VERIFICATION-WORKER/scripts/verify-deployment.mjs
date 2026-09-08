@@ -13,7 +13,12 @@ const securityIdentityFields = [
   "binding_authority",
 ];
 const deploymentIdentityFields = ["deployment_id", "deployment_role", "binding_mode", "trust_root_certificate_sha256", "worker_name"];
-const resultIdentityFields = ["result_public_key_spki", "result_public_key_spki_sha256"];
+const resultIdentityFields = [
+  "result_public_key_spki",
+  "result_public_key_spki_sha256",
+  "result_signer_key_id",
+  "result_key_registry_sha256",
+];
 
 function required(name) {
   const value = process.env[name]?.trim();
