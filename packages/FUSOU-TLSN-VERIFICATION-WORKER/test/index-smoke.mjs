@@ -152,6 +152,7 @@ export async function runSmokeTest(fetch, fixture, publicKeyDerBase64url, device
   const healthResponse = await fetch("https://verify.test/health");
   assert.equal(healthResponse.status, 200);
   assert.deepEqual(await healthResponse.json(), {
+    schema_version: 2,
     ok: true,
     verifier: "tlsn-alpha15-wasm",
     environment: "test",
@@ -167,6 +168,29 @@ export async function runSmokeTest(fetch, fixture, publicKeyDerBase64url, device
     ).digest()),
     result_public_key_spki: null,
     binding_mode: "fixed_test",
+    security_identity: {
+      git_commit_sha: null,
+      server_identity: "game.example.test",
+      profile_sha256: base64Url(Buffer.alloc(32)),
+      verifier_key_id: "worker-test",
+      notary_key_id: "notary-test",
+      security_registry_set_sha256: null,
+      notary_registry_sha256: base64Url(createHash("sha256").update(
+        JSON.stringify({ "notary-test": fixture.notary_key_base64 }),
+      ).digest()),
+      binding_authority: "durable-single-use",
+    },
+    deployment_identity: {
+      deployment_id: null,
+      deployment_role: "synthetic-test",
+      binding_mode: "fixed_test",
+      trust_root_certificate_sha256: base64Url(createHash("sha256").update(decodeBase64Url(fixture.root_certificate_base64)).digest()),
+      worker_name: null,
+    },
+    result_identity: {
+      result_public_key_spki: null,
+      result_public_key_spki_sha256: null,
+    },
   });
 
   const session = await issueSession(fetch, fixture.binding_value);

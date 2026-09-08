@@ -25,27 +25,35 @@ type Bindings = {
   TLSN_SIGNING_PRIVATE_KEY_PKCS8: string;
   TLSN_TRUST_ROOT_CERTIFICATE_DER?: string;
   TLSN_TEST_BINDING_VALUE?: string;
-  TLSN_PRODUCTION_SERVER_IDENTITY?: string;
-  TLSN_PRODUCTION_PROFILE_SHA256?: string;
-  TLSN_PRODUCTION_VERIFIER_KEY_ID?: string;
-  TLSN_PRODUCTION_NOTARY_KEY_ID?: string;
-  TLSN_PRODUCTION_NOTARY_REGISTRY?: string;
+  TLSN_CANDIDATE_SERVER_IDENTITY?: string;
+  TLSN_CANDIDATE_PROFILE_SHA256?: string;
+  TLSN_CANDIDATE_VERIFIER_KEY_ID?: string;
+  TLSN_CANDIDATE_NOTARY_KEY_ID?: string;
+  TLSN_CANDIDATE_NOTARY_REGISTRY?: string;
+  TLSN_CANDIDATE_DEVICE_AUTH_ALLOWED_HOSTS?: string;
+  TLSN_CANDIDATE_SUPABASE_ALLOWED_HOSTS?: string;
+  TLSN_CANDIDATE_SUPABASE_URL?: string;
+  TLSN_CANDIDATE_SUPABASE_PUBLISHABLE_KEY?: string;
+  TLSN_CANDIDATE_DEVICE_AUTH_URL?: string;
+  TLSN_CANDIDATE_DEVICE_POSSESSION_AUTH_URL?: string;
+  TLSN_SUPABASE_URL?: string;
+  TLSN_SUPABASE_PUBLISHABLE_KEY?: string;
+  TLSN_CANARY_DEPLOYMENT_ID?: string;
+  TLSN_CANARY_SIGNING_PRIVATE_KEY_PKCS8?: string;
+  TLSN_CANARY_TRUST_ROOT_CERTIFICATE_DER?: string;
+  TLSN_CANARY_RESULT_PUBLIC_KEY_SPKI?: string;
+  TLSN_CANARY_WORKER_NAME?: string;
+  TLSN_PRODUCTION_DEPLOYMENT_ID?: string;
   TLSN_PRODUCTION_SIGNING_PRIVATE_KEY_PKCS8?: string;
   TLSN_PRODUCTION_TRUST_ROOT_CERTIFICATE_DER?: string;
-  TLSN_PRODUCTION_DEVICE_AUTH_ALLOWED_HOSTS?: string;
-  TLSN_PRODUCTION_SUPABASE_ALLOWED_HOSTS?: string;
-  TLSN_DEPLOYMENT_ID?: string;
+  TLSN_PRODUCTION_RESULT_PUBLIC_KEY_SPKI?: string;
+  TLSN_PRODUCTION_WORKER_NAME?: string;
   TLSN_DEPLOYMENT_ROLE?: string;
   TLSN_GIT_COMMIT_SHA?: string;
   TLSN_CANARY_BINDING_VALUE?: string;
   TLSN_SECURITY_REGISTRY_SET_SHA256?: string;
-  TLSN_RESULT_PUBLIC_KEY_SPKI?: string;
-  TLSN_SUPABASE_URL?: string;
-  TLSN_SUPABASE_PUBLISHABLE_KEY?: string;
   TLSN_DEVICE_AUTH_URL?: string;
   TLSN_DEVICE_POSSESSION_AUTH_URL?: string;
-  TLSN_PRODUCTION_DEVICE_AUTH_URL?: string;
-  TLSN_PRODUCTION_DEVICE_POSSESSION_AUTH_URL?: string;
   TLSN_TEST_AUTH_USERS?: string;
 };
 
@@ -213,25 +221,32 @@ function isPublicKeyBase64Url(value: string | undefined): boolean {
 
 function readConfig(env: Bindings): VerifierConfig | null {
   const production = env.TLSN_ENVIRONMENT === "production";
+  const role = env.TLSN_DEPLOYMENT_ROLE;
+  const canary = production && role === "canary";
+  const signingPrivateKey = production
+    ? canary ? env.TLSN_CANARY_SIGNING_PRIVATE_KEY_PKCS8 : env.TLSN_PRODUCTION_SIGNING_PRIVATE_KEY_PKCS8
+    : env.TLSN_SIGNING_PRIVATE_KEY_PKCS8;
+  const trustRootCertificateDer = production
+    ? canary ? env.TLSN_CANARY_TRUST_ROOT_CERTIFICATE_DER : env.TLSN_PRODUCTION_TRUST_ROOT_CERTIFICATE_DER
+    : env.TLSN_TRUST_ROOT_CERTIFICATE_DER;
+  const resultPublicKeySpki = production
+    ? canary ? env.TLSN_CANARY_RESULT_PUBLIC_KEY_SPKI : env.TLSN_PRODUCTION_RESULT_PUBLIC_KEY_SPKI
+    : undefined;
   const parsed = configSchema.safeParse({
     environment: env.TLSN_ENVIRONMENT,
-    serverIdentity: production ? env.TLSN_PRODUCTION_SERVER_IDENTITY : env.TLSN_SERVER_IDENTITY,
-    profileSha256: production ? env.TLSN_PRODUCTION_PROFILE_SHA256 : env.TLSN_PROFILE_SHA256,
-    verifierKeyId: production ? env.TLSN_PRODUCTION_VERIFIER_KEY_ID : env.TLSN_VERIFIER_KEY_ID,
-    notaryKeyId: production ? env.TLSN_PRODUCTION_NOTARY_KEY_ID : env.TLSN_NOTARY_KEY_ID,
-    deviceAuthUrl: production ? env.TLSN_PRODUCTION_DEVICE_AUTH_URL : env.TLSN_DEVICE_AUTH_URL,
+    serverIdentity: production ? env.TLSN_CANDIDATE_SERVER_IDENTITY : env.TLSN_SERVER_IDENTITY,
+    profileSha256: production ? env.TLSN_CANDIDATE_PROFILE_SHA256 : env.TLSN_PROFILE_SHA256,
+    verifierKeyId: production ? env.TLSN_CANDIDATE_VERIFIER_KEY_ID : env.TLSN_VERIFIER_KEY_ID,
+    notaryKeyId: production ? env.TLSN_CANDIDATE_NOTARY_KEY_ID : env.TLSN_NOTARY_KEY_ID,
+    deviceAuthUrl: production ? env.TLSN_CANDIDATE_DEVICE_AUTH_URL : env.TLSN_DEVICE_AUTH_URL,
     devicePossessionAuthUrl: production
-      ? env.TLSN_PRODUCTION_DEVICE_POSSESSION_AUTH_URL
+      ? env.TLSN_CANDIDATE_DEVICE_POSSESSION_AUTH_URL
       : env.TLSN_DEVICE_POSSESSION_AUTH_URL,
-    deviceAuthAllowedHosts: production ? env.TLSN_PRODUCTION_DEVICE_AUTH_ALLOWED_HOSTS : undefined,
-    notaryRegistry: production ? env.TLSN_PRODUCTION_NOTARY_REGISTRY : env.TLSN_NOTARY_REGISTRY,
-    signingPrivateKeyPkcs8: production
-      ? env.TLSN_PRODUCTION_SIGNING_PRIVATE_KEY_PKCS8
-      : env.TLSN_SIGNING_PRIVATE_KEY_PKCS8,
-    trustRootCertificateDer: production
-      ? env.TLSN_PRODUCTION_TRUST_ROOT_CERTIFICATE_DER
-      : env.TLSN_TRUST_ROOT_CERTIFICATE_DER,
-    resultPublicKeySpki: production ? env.TLSN_RESULT_PUBLIC_KEY_SPKI : undefined,
+    deviceAuthAllowedHosts: production ? env.TLSN_CANDIDATE_DEVICE_AUTH_ALLOWED_HOSTS : undefined,
+    notaryRegistry: production ? env.TLSN_CANDIDATE_NOTARY_REGISTRY : env.TLSN_NOTARY_REGISTRY,
+    signingPrivateKeyPkcs8: signingPrivateKey,
+    trustRootCertificateDer,
+    resultPublicKeySpki,
   });
   if (!parsed.success) {
     return null;
@@ -244,20 +259,28 @@ function readConfig(env: Bindings): VerifierConfig | null {
     if (bindingTtlSeconds < 1 || bindingTtlSeconds > 3600) {
       return null;
     }
+    if (production && (!canary && role !== "production")) {
+      return null;
+    }
     if (production && env.TLSN_TEST_BINDING_VALUE) {
       return null;
     }
     if (
       production &&
-      (!/^(?:production|canary)$/.test(env.TLSN_DEPLOYMENT_ROLE ?? "") ||
-        !/^[0-9a-f]{40}$/i.test(env.TLSN_GIT_COMMIT_SHA ?? ""))
+      !/^[0-9a-f]{40}$/i.test(env.TLSN_GIT_COMMIT_SHA ?? "")
     ) {
       return null;
     }
-    if (production && env.TLSN_DEPLOYMENT_ROLE === "canary" && !/^[A-Za-z0-9_-]{1,512}$/.test(env.TLSN_CANARY_BINDING_VALUE ?? "")) {
+    if (canary && !/^[A-Za-z0-9_-]{1,512}$/.test(env.TLSN_CANARY_BINDING_VALUE ?? "")) {
       return null;
     }
-    if (production && env.TLSN_DEPLOYMENT_ROLE === "production" && env.TLSN_CANARY_BINDING_VALUE) {
+    if (role === "production" && env.TLSN_CANARY_BINDING_VALUE) {
+      return null;
+    }
+    const forbiddenRoleFields = canary
+      ? [env.TLSN_PRODUCTION_SIGNING_PRIVATE_KEY_PKCS8, env.TLSN_PRODUCTION_TRUST_ROOT_CERTIFICATE_DER, env.TLSN_PRODUCTION_RESULT_PUBLIC_KEY_SPKI, env.TLSN_PRODUCTION_DEPLOYMENT_ID, env.TLSN_PRODUCTION_WORKER_NAME]
+      : [env.TLSN_CANARY_SIGNING_PRIVATE_KEY_PKCS8, env.TLSN_CANARY_TRUST_ROOT_CERTIFICATE_DER, env.TLSN_CANARY_RESULT_PUBLIC_KEY_SPKI, env.TLSN_CANARY_DEPLOYMENT_ID, env.TLSN_CANARY_WORKER_NAME];
+    if (production && forbiddenRoleFields.some((field) => field !== undefined)) {
       return null;
     }
     if (production && env.TLSN_TEST_AUTH_USERS) {
@@ -265,7 +288,7 @@ function readConfig(env: Bindings): VerifierConfig | null {
     }
     if (
       production &&
-      (!isSafeDeploymentId(env.TLSN_DEPLOYMENT_ID) ||
+      (!isSafeDeploymentId(canary ? env.TLSN_CANARY_DEPLOYMENT_ID : env.TLSN_PRODUCTION_DEPLOYMENT_ID) ||
         !isSha256Base64Url(env.TLSN_SECURITY_REGISTRY_SET_SHA256) ||
         containsTestFixtureMarker(parsed.data.verifierKeyId) ||
         containsTestFixtureMarker(parsed.data.notaryKeyId) ||
@@ -281,7 +304,7 @@ function readConfig(env: Bindings): VerifierConfig | null {
     }
     if (production) {
       const deviceAuthAllowedHosts = parseHostnameAllowlist(parsed.data.deviceAuthAllowedHosts);
-      const supabaseAllowedHosts = parseHostnameAllowlist(env.TLSN_PRODUCTION_SUPABASE_ALLOWED_HOSTS);
+      const supabaseAllowedHosts = parseHostnameAllowlist(env.TLSN_CANDIDATE_SUPABASE_ALLOWED_HOSTS);
       if (
         !deviceAuthAllowedHosts ||
         !supabaseAllowedHosts ||
@@ -296,7 +319,7 @@ function readConfig(env: Bindings): VerifierConfig | null {
           deviceAuthAllowedHosts,
         ) ||
         !isAllowedProductionHttpsUrl(
-          env.TLSN_SUPABASE_URL ?? "",
+          env.TLSN_CANDIDATE_SUPABASE_URL ?? "",
           "/",
           supabaseAllowedHosts,
         )
@@ -400,8 +423,12 @@ async function authenticateRequest(
     }
   }
 
-  const supabaseUrl = env.TLSN_SUPABASE_URL?.replace(/\/$/, "");
-  const publishableKey = env.TLSN_SUPABASE_PUBLISHABLE_KEY;
+  const supabaseUrl = (env.TLSN_ENVIRONMENT === "production"
+    ? env.TLSN_CANDIDATE_SUPABASE_URL
+    : env.TLSN_SUPABASE_URL)?.replace(/\/$/, "");
+  const publishableKey = env.TLSN_ENVIRONMENT === "production"
+    ? env.TLSN_CANDIDATE_SUPABASE_PUBLISHABLE_KEY
+    : env.TLSN_SUPABASE_PUBLISHABLE_KEY;
   if (!supabaseUrl || !publishableKey) {
     return authenticationFailure("auth_unconfigured");
   }
@@ -610,17 +637,19 @@ function bindingAuthorityStatus(error: unknown): BindingAuthorityHttpStatus {
 
 app.get("/health", async (c) => {
   const production = c.env.TLSN_ENVIRONMENT === "production";
+  const role = c.env.TLSN_DEPLOYMENT_ROLE ?? (production ? "production" : "synthetic-test");
+  const canary = production && role === "canary";
   const verifierKeyId = production
-    ? c.env.TLSN_PRODUCTION_VERIFIER_KEY_ID
+    ? c.env.TLSN_CANDIDATE_VERIFIER_KEY_ID
     : c.env.TLSN_VERIFIER_KEY_ID;
   const notaryKeyId = production
-    ? c.env.TLSN_PRODUCTION_NOTARY_KEY_ID
+    ? c.env.TLSN_CANDIDATE_NOTARY_KEY_ID
     : c.env.TLSN_NOTARY_KEY_ID;
   const profileSha256 = production
-    ? c.env.TLSN_PRODUCTION_PROFILE_SHA256
+    ? c.env.TLSN_CANDIDATE_PROFILE_SHA256
     : c.env.TLSN_PROFILE_SHA256;
   const notaryRegistry = production
-    ? c.env.TLSN_PRODUCTION_NOTARY_REGISTRY
+    ? c.env.TLSN_CANDIDATE_NOTARY_REGISTRY
     : c.env.TLSN_NOTARY_REGISTRY;
   const notaryRegistrySha256 = notaryRegistry
     ? encodeBase64Url(new Uint8Array(await crypto.subtle.digest(
@@ -628,25 +657,63 @@ app.get("/health", async (c) => {
         new TextEncoder().encode(notaryRegistry),
       )))
     : null;
+  const trustRoot = production
+    ? canary ? c.env.TLSN_CANARY_TRUST_ROOT_CERTIFICATE_DER : c.env.TLSN_PRODUCTION_TRUST_ROOT_CERTIFICATE_DER
+    : c.env.TLSN_TRUST_ROOT_CERTIFICATE_DER;
+  const trustRootCertificateSha256 = trustRoot
+    ? encodeBase64Url(new Uint8Array(await crypto.subtle.digest("SHA-256", decodeBase64Url(trustRoot, 4096))))
+    : null;
+  const resultPublicKeySpki = production
+    ? canary ? c.env.TLSN_CANARY_RESULT_PUBLIC_KEY_SPKI : c.env.TLSN_PRODUCTION_RESULT_PUBLIC_KEY_SPKI
+    : null;
+  const deploymentId = production
+    ? canary ? c.env.TLSN_CANARY_DEPLOYMENT_ID : c.env.TLSN_PRODUCTION_DEPLOYMENT_ID
+    : null;
+  const bindingMode = production && canary && c.env.TLSN_CANARY_BINDING_VALUE
+    ? "fixed_canary"
+    : c.env.TLSN_TEST_BINDING_VALUE
+      ? "fixed_test"
+      : "random";
   return c.json({
+    schema_version: 2,
     ok: true,
     verifier: "tlsn-alpha15-wasm",
     environment: c.env.TLSN_ENVIRONMENT,
-    deployment_role: c.env.TLSN_DEPLOYMENT_ROLE ?? (production ? "production" : "synthetic-test"),
+    deployment_role: role,
     git_commit_sha: c.env.TLSN_GIT_COMMIT_SHA ?? null,
     verifier_key_id: verifierKeyId ?? null,
     notary_key_id: notaryKeyId ?? null,
     profile_sha256: profileSha256 ?? null,
-    deployment_id: c.env.TLSN_DEPLOYMENT_ID ?? null,
+    deployment_id: deploymentId,
     security_registry_set_sha256: c.env.TLSN_SECURITY_REGISTRY_SET_SHA256 ?? null,
     notary_registry_sha256: notaryRegistrySha256,
-    result_public_key_spki: c.env.TLSN_RESULT_PUBLIC_KEY_SPKI ?? null,
-    binding_mode:
-      production && c.env.TLSN_DEPLOYMENT_ROLE === "canary" && c.env.TLSN_CANARY_BINDING_VALUE
-        ? "fixed_canary"
-        : c.env.TLSN_TEST_BINDING_VALUE
-          ? "fixed_test"
-          : "random",
+    result_public_key_spki: resultPublicKeySpki,
+    binding_mode: bindingMode,
+    security_identity: {
+      git_commit_sha: c.env.TLSN_GIT_COMMIT_SHA ?? null,
+      server_identity: production ? c.env.TLSN_CANDIDATE_SERVER_IDENTITY ?? null : c.env.TLSN_SERVER_IDENTITY,
+      profile_sha256: profileSha256 ?? null,
+      verifier_key_id: verifierKeyId ?? null,
+      notary_key_id: notaryKeyId ?? null,
+      security_registry_set_sha256: c.env.TLSN_SECURITY_REGISTRY_SET_SHA256 ?? null,
+      notary_registry_sha256: notaryRegistrySha256,
+      binding_authority: "durable-single-use",
+    },
+    deployment_identity: {
+      deployment_id: deploymentId,
+      deployment_role: role,
+      binding_mode: bindingMode,
+      trust_root_certificate_sha256: trustRootCertificateSha256,
+      worker_name: production
+        ? canary ? c.env.TLSN_CANARY_WORKER_NAME ?? null : c.env.TLSN_PRODUCTION_WORKER_NAME ?? null
+        : null,
+    },
+    result_identity: {
+      result_public_key_spki: resultPublicKeySpki,
+      result_public_key_spki_sha256: resultPublicKeySpki
+        ? encodeBase64Url(new Uint8Array(await crypto.subtle.digest("SHA-256", decodeBase64Url(resultPublicKeySpki, 4096))))
+        : null,
+    },
   });
 });
 

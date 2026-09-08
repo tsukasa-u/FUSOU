@@ -88,8 +88,16 @@ const syntheticFixture = capture(
 );
 
 const { privateKey, publicKey } = generateKeyPairSync("ed25519");
+const { privateKey: canaryPrivateKey, publicKey: canaryPublicKey } = generateKeyPairSync("ed25519");
+const { privateKey: productionPrivateKey, publicKey: productionPublicKey } = generateKeyPairSync("ed25519");
 const { privateKey: devicePrivateKey, publicKey: devicePublicKey } = generateKeyPairSync("ed25519");
 const signingPrivateKeyPkcs8 = privateKey
+  .export({ format: "der", type: "pkcs8" })
+  .toString("base64url");
+const canarySigningPrivateKeyPkcs8 = canaryPrivateKey
+  .export({ format: "der", type: "pkcs8" })
+  .toString("base64url");
+const productionSigningPrivateKeyPkcs8 = productionPrivateKey
   .export({ format: "der", type: "pkcs8" })
   .toString("base64url");
 const deviceId = "33333333-3333-4333-8333-333333333333";
@@ -344,8 +352,8 @@ async function runRedirectRegressionTest() {
     upstreamState.redirectRequests.length = 0;
     const worker = await localWorker({
       ...baseVars,
-      TLSN_SUPABASE_URL: deviceAuthOrigin,
-      TLSN_SUPABASE_PUBLISHABLE_KEY: "publishable-test-key",
+        TLSN_SUPABASE_URL: deviceAuthOrigin,
+        TLSN_SUPABASE_PUBLISHABLE_KEY: "publishable-test-key",
     });
     try {
       const response = await worker.fetch("https://verify.test/attestation/session", {
@@ -581,22 +589,23 @@ const productionTrustRootWorker = await unstable_dev(resolve(packageDirectory, "
     TLSN_DEPLOYMENT_ROLE: "production",
     TLSN_GIT_COMMIT_SHA: "a".repeat(40),
     TLSN_BINDING_TTL_SECONDS: "60",
-    TLSN_PRODUCTION_SERVER_IDENTITY: "game.example.com",
-    TLSN_PRODUCTION_PROFILE_SHA256: Buffer.alloc(32).toString("base64url"),
-    TLSN_PRODUCTION_VERIFIER_KEY_ID: "worker-prod",
-    TLSN_PRODUCTION_NOTARY_KEY_ID: "notary-prod",
-    TLSN_PRODUCTION_NOTARY_REGISTRY: JSON.stringify({ "notary-prod": syntheticFixture.notary_key_base64 }),
-    TLSN_PRODUCTION_SIGNING_PRIVATE_KEY_PKCS8: signingPrivateKeyPkcs8,
+    TLSN_CANDIDATE_SERVER_IDENTITY: "game.example.com",
+    TLSN_CANDIDATE_PROFILE_SHA256: Buffer.alloc(32).toString("base64url"),
+    TLSN_CANDIDATE_VERIFIER_KEY_ID: "worker-prod",
+    TLSN_CANDIDATE_NOTARY_KEY_ID: "notary-prod",
+    TLSN_CANDIDATE_NOTARY_REGISTRY: JSON.stringify({ "notary-prod": syntheticFixture.notary_key_base64 }),
+    TLSN_PRODUCTION_SIGNING_PRIVATE_KEY_PKCS8: productionSigningPrivateKeyPkcs8,
     TLSN_PRODUCTION_TRUST_ROOT_CERTIFICATE_DER: syntheticFixture.root_certificate_base64,
-    TLSN_DEPLOYMENT_ID: "local-production-test",
+    TLSN_PRODUCTION_DEPLOYMENT_ID: "local-production-test",
     TLSN_SECURITY_REGISTRY_SET_SHA256: Buffer.alloc(32, 0x53).toString("base64url"),
-    TLSN_RESULT_PUBLIC_KEY_SPKI: publicKey.export({ format: "der", type: "spki" }).toString("base64url"),
-    TLSN_PRODUCTION_DEVICE_AUTH_URL: "https://fusou.dev/api/auth/anonymous-sync/v2/device-proof",
-    TLSN_PRODUCTION_DEVICE_POSSESSION_AUTH_URL: "https://fusou.dev/api/auth/anonymous-sync/v2/tlsn-device-proof",
-    TLSN_PRODUCTION_DEVICE_AUTH_ALLOWED_HOSTS: "fusou.dev",
-    TLSN_PRODUCTION_SUPABASE_ALLOWED_HOSTS: "project.supabase.co",
-    TLSN_SUPABASE_URL: "https://project.supabase.co",
-    TLSN_SUPABASE_PUBLISHABLE_KEY: "test-publishable-key",
+    TLSN_PRODUCTION_RESULT_PUBLIC_KEY_SPKI: productionPublicKey.export({ format: "der", type: "spki" }).toString("base64url"),
+    TLSN_CANDIDATE_DEVICE_AUTH_URL: "https://fusou.dev/api/auth/anonymous-sync/v2/device-proof",
+    TLSN_CANDIDATE_DEVICE_POSSESSION_AUTH_URL: "https://fusou.dev/api/auth/anonymous-sync/v2/tlsn-device-proof",
+    TLSN_CANDIDATE_DEVICE_AUTH_ALLOWED_HOSTS: "fusou.dev",
+    TLSN_CANDIDATE_SUPABASE_ALLOWED_HOSTS: "project.supabase.co",
+    TLSN_CANDIDATE_SUPABASE_URL: "https://project.supabase.co",
+    TLSN_CANDIDATE_SUPABASE_PUBLISHABLE_KEY: "test-publishable-key",
+    TLSN_PRODUCTION_WORKER_NAME: "fusou-tlsn-production",
   },
   persist: false,
   bundle: true,
@@ -623,22 +632,23 @@ const invalidProductionEndpointWorker = await unstable_dev(resolve(packageDirect
     TLSN_DEPLOYMENT_ROLE: "production",
     TLSN_GIT_COMMIT_SHA: "a".repeat(40),
     TLSN_BINDING_TTL_SECONDS: "60",
-    TLSN_PRODUCTION_SERVER_IDENTITY: "game.example.test",
-    TLSN_PRODUCTION_PROFILE_SHA256: Buffer.alloc(32).toString("base64url"),
-    TLSN_PRODUCTION_VERIFIER_KEY_ID: "worker-test",
-    TLSN_PRODUCTION_NOTARY_KEY_ID: "notary-test",
-    TLSN_PRODUCTION_NOTARY_REGISTRY: JSON.stringify({ "notary-test": syntheticFixture.notary_key_base64 }),
-    TLSN_PRODUCTION_SIGNING_PRIVATE_KEY_PKCS8: signingPrivateKeyPkcs8,
+    TLSN_CANDIDATE_SERVER_IDENTITY: "game.example.test",
+    TLSN_CANDIDATE_PROFILE_SHA256: Buffer.alloc(32).toString("base64url"),
+    TLSN_CANDIDATE_VERIFIER_KEY_ID: "worker-test",
+    TLSN_CANDIDATE_NOTARY_KEY_ID: "notary-test",
+    TLSN_CANDIDATE_NOTARY_REGISTRY: JSON.stringify({ "notary-test": syntheticFixture.notary_key_base64 }),
+    TLSN_PRODUCTION_SIGNING_PRIVATE_KEY_PKCS8: productionSigningPrivateKeyPkcs8,
     TLSN_PRODUCTION_TRUST_ROOT_CERTIFICATE_DER: syntheticFixture.root_certificate_base64,
-    TLSN_DEPLOYMENT_ID: "local-production-invalid-endpoint",
+    TLSN_PRODUCTION_DEPLOYMENT_ID: "local-production-invalid-endpoint",
     TLSN_SECURITY_REGISTRY_SET_SHA256: Buffer.alloc(32, 0x53).toString("base64url"),
-    TLSN_RESULT_PUBLIC_KEY_SPKI: publicKey.export({ format: "der", type: "spki" }).toString("base64url"),
-    TLSN_PRODUCTION_DEVICE_AUTH_URL: "https://evil.example/api/auth/anonymous-sync/v2/device-proof",
-    TLSN_PRODUCTION_DEVICE_POSSESSION_AUTH_URL: "https://fusou.dev/api/auth/anonymous-sync/v2/tlsn-device-proof",
-    TLSN_PRODUCTION_DEVICE_AUTH_ALLOWED_HOSTS: "fusou.dev",
-    TLSN_PRODUCTION_SUPABASE_ALLOWED_HOSTS: "project.supabase.co",
-    TLSN_SUPABASE_URL: "https://project.supabase.co",
-    TLSN_SUPABASE_PUBLISHABLE_KEY: "test-publishable-key",
+    TLSN_PRODUCTION_RESULT_PUBLIC_KEY_SPKI: productionPublicKey.export({ format: "der", type: "spki" }).toString("base64url"),
+    TLSN_CANDIDATE_DEVICE_AUTH_URL: "https://evil.example/api/auth/anonymous-sync/v2/device-proof",
+    TLSN_CANDIDATE_DEVICE_POSSESSION_AUTH_URL: "https://fusou.dev/api/auth/anonymous-sync/v2/tlsn-device-proof",
+    TLSN_CANDIDATE_DEVICE_AUTH_ALLOWED_HOSTS: "fusou.dev",
+    TLSN_CANDIDATE_SUPABASE_ALLOWED_HOSTS: "project.supabase.co",
+    TLSN_CANDIDATE_SUPABASE_URL: "https://project.supabase.co",
+    TLSN_CANDIDATE_SUPABASE_PUBLISHABLE_KEY: "test-publishable-key",
+    TLSN_PRODUCTION_WORKER_NAME: "fusou-tlsn-production",
   },
   persist: false,
   bundle: true,

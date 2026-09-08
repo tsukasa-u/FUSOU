@@ -16,7 +16,8 @@
     "verify:deployment": "node scripts/verify-deployment.mjs",
     "validate:remote": "node scripts/remote-validation.mjs",
     "types": "wrangler types",
-    "test": "node scripts/test.mjs"
+    "test": "node scripts/deployment-isolation-test.mjs && node scripts/test.mjs",
+    "test:isolation": "node scripts/deployment-isolation-test.mjs"
   },
   "keywords": [
     "cloudflare",

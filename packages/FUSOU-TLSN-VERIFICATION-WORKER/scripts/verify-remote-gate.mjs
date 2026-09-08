@@ -2,17 +2,18 @@
 
 import { readFile } from "node:fs/promises";
 
-const identityFields = [
+const securityIdentityFields = [
   "git_commit_sha",
-  "deployment_id",
+  "server_identity",
   "profile_sha256",
   "verifier_key_id",
   "notary_key_id",
   "security_registry_set_sha256",
   "notary_registry_sha256",
-  "result_public_key_spki",
-  "binding_mode",
+  "binding_authority",
 ];
+const deploymentIdentityFields = ["deployment_id", "deployment_role", "binding_mode", "trust_root_certificate_sha256", "worker_name"];
+const resultIdentityFields = ["result_public_key_spki"];
 
 function required(name) {
   const value = process.env[name]?.trim();
@@ -35,23 +36,30 @@ async function readJson(path) {
 
 function assertProvenance(manifest, role) {
   if (
-    manifest?.schema_version !== 1 ||
-    manifest?.scope !== "production-deployment-inputs" ||
+    manifest?.schema_version !== 2 ||
+    manifest?.scope !== "tlsn-deployment-provenance" ||
+    manifest?.status !== "PASS" ||
     manifest?.environment !== "production" ||
     manifest?.deployment_role !== role
   ) {
     throw new Error(`invalid ${role} provenance manifest`);
   }
-  for (const field of identityFields) {
-    if (typeof manifest[field] !== "string" || manifest[field].length === 0) {
-      throw new Error(`${role} provenance is missing ${field}`);
+  for (const [name, fields] of [
+    ["security_identity", securityIdentityFields],
+    ["deployment_identity", deploymentIdentityFields],
+    ["result_identity", resultIdentityFields],
+  ]) {
+    for (const field of fields) {
+      if (typeof manifest[name]?.[field] !== "string" || manifest[name][field].length === 0) {
+        throw new Error(`${role} provenance is missing ${name}.${field}`);
+      }
     }
   }
 }
 
-function compareIdentity(left, right, label) {
-  for (const field of identityFields) {
-    if (left[field] !== right[field]) {
+function compareIdentity(left, right, label, fields) {
+  for (const field of fields) {
+    if (left?.[field] !== right?.[field]) {
       throw new Error(`${label} identity mismatch: ${field}`);
     }
   }
@@ -79,14 +87,15 @@ async function main() {
   if (report.checks?.remote_worker_identity?.status !== "PASS") {
     throw new Error("remote Worker identity check did not PASS");
   }
-  if (report.deployment_role !== "canary") {
+  if (report.deployment_identity?.deployment_role !== "canary") {
     throw new Error("remote validation must target the canary Worker");
   }
-  compareIdentity(report, canary, "remote validation");
-  for (const field of identityFields) {
-    if (field !== "binding_mode" && canary[field] !== production[field]) {
-      throw new Error(`canary/production candidate mismatch: ${field}`);
-    }
+  compareIdentity(report.security_identity, canary.security_identity, "remote validation security", securityIdentityFields);
+  compareIdentity(report.deployment_identity, canary.deployment_identity, "remote validation deployment", deploymentIdentityFields);
+  compareIdentity(report.result_identity, canary.result_identity, "remote validation result", resultIdentityFields);
+  compareIdentity(canary.security_identity, production.security_identity, "canary/production security", securityIdentityFields);
+  if (canary.result_identity.result_public_key_spki === production.result_identity.result_public_key_spki) {
+    throw new Error("canary and production result public keys must be different");
   }
   const expectedOrigin = new URL(required("TLSN_REMOTE_WORKER_URL")).origin;
   if (report.worker_origin !== expectedOrigin) {
@@ -96,15 +105,17 @@ async function main() {
   if (health.environment !== "production" || health.deployment_role !== "canary") {
     throw new Error("current remote Worker is not the production canary");
   }
-  compareIdentity(health, canary, "current canary Worker");
-  compareIdentity(report, health, "remote validation/current canary");
+  compareIdentity(health.security_identity, canary.security_identity, "current canary Worker security", securityIdentityFields);
+  compareIdentity(health.deployment_identity, canary.deployment_identity, "current canary Worker deployment", deploymentIdentityFields);
+  compareIdentity(health.result_identity, canary.result_identity, "current canary Worker result", resultIdentityFields);
+  compareIdentity(report.security_identity, health.security_identity, "remote validation/current canary security", securityIdentityFields);
 
   console.log(JSON.stringify({
     status: "PASS",
     validated_worker_origin: report.worker_origin,
-    git_commit_sha: production.git_commit_sha,
-    deployment_id: production.deployment_id,
-    binding_mode: canary.binding_mode,
+    git_commit_sha: production.security_identity.git_commit_sha,
+    deployment_id: production.deployment_identity.deployment_id,
+    binding_mode: canary.deployment_identity.binding_mode,
   }));
 }
 

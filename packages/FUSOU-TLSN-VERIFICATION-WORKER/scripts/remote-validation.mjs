@@ -45,17 +45,18 @@ const packageDirectory = resolve(new URL("..", import.meta.url).pathname);
 const DEFAULT_SAMPLE_COUNT = 100;
 const DEFAULT_REPORT_PATH = resolve(packageDirectory, "artifacts/tlsn-remote-validation.json");
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
-const PROVENANCE_FIELDS = [
+const SECURITY_IDENTITY_FIELDS = [
   "git_commit_sha",
-  "deployment_id",
+  "server_identity",
   "profile_sha256",
   "verifier_key_id",
   "notary_key_id",
   "security_registry_set_sha256",
   "notary_registry_sha256",
-  "result_public_key_spki",
-  "binding_mode",
+  "binding_authority",
 ];
+const DEPLOYMENT_IDENTITY_FIELDS = ["deployment_id", "deployment_role", "binding_mode", "trust_root_certificate_sha256", "worker_name"];
+const RESULT_IDENTITY_FIELDS = ["result_public_key_spki"];
 
 function required(name) {
   const value = process.env[name]?.trim();
@@ -72,16 +73,23 @@ async function loadExpectedProvenance() {
   const file = required("TLSN_REMOTE_EXPECTED_PROVENANCE_JSON");
   const parsed = JSON.parse(await readFile(file, "utf8"));
   if (
-    parsed?.schema_version !== 1 ||
-    parsed?.scope !== "production-deployment-inputs" ||
+    parsed?.schema_version !== 2 ||
+    parsed?.scope !== "tlsn-deployment-provenance" ||
+    parsed?.status !== "PASS" ||
     parsed?.deployment_role !== "canary" ||
     parsed?.environment !== "production"
   ) {
     throw new Error("remote validation requires a production canary provenance manifest");
   }
-  for (const field of PROVENANCE_FIELDS) {
-    if (typeof parsed[field] !== "string" || parsed[field].length === 0) {
-      throw new Error(`remote validation provenance is missing ${field}`);
+  for (const [name, fields] of [
+    ["security_identity", SECURITY_IDENTITY_FIELDS],
+    ["deployment_identity", DEPLOYMENT_IDENTITY_FIELDS],
+    ["result_identity", RESULT_IDENTITY_FIELDS],
+  ]) {
+    for (const field of fields) {
+      if (typeof parsed[name]?.[field] !== "string" || parsed[name][field].length === 0) {
+        throw new Error(`remote validation provenance is missing ${name}.${field}`);
+      }
     }
   }
   return parsed;
@@ -528,16 +536,9 @@ async function main() {
     },
     production_evidence: "BLOCKED",
     p0_05: "BLOCKED",
-    deployment_role: null,
-    git_commit_sha: null,
-    deployment_id: null,
-    profile_sha256: null,
-    verifier_key_id: null,
-    notary_key_id: null,
-    security_registry_set_sha256: null,
-    notary_registry_sha256: null,
-    result_public_key_spki: null,
-    binding_mode: null,
+    security_identity: null,
+    deployment_identity: null,
+    result_identity: null,
   };
   blocked(
     checks,
@@ -557,15 +558,9 @@ async function main() {
     assert.equal(response.json?.verifier, "tlsn-alpha15-wasm");
     assert.equal(response.json?.environment, expectedProvenance.environment);
     assert.equal(response.json?.deployment_role, expectedProvenance.deployment_role);
-    assert.equal(response.json?.git_commit_sha, expectedProvenance.git_commit_sha);
-    assert.equal(response.json?.deployment_id, expectedProvenance.deployment_id);
-    assert.equal(response.json?.profile_sha256, expectedProvenance.profile_sha256);
-    assert.equal(response.json?.verifier_key_id, expectedProvenance.verifier_key_id);
-    assert.equal(response.json?.notary_key_id, expectedProvenance.notary_key_id);
-    assert.equal(response.json?.security_registry_set_sha256, expectedProvenance.security_registry_set_sha256);
-    assert.equal(response.json?.notary_registry_sha256, expectedProvenance.notary_registry_sha256);
-    assert.equal(response.json?.result_public_key_spki, expectedProvenance.result_public_key_spki);
-    assert.equal(response.json?.binding_mode, expectedProvenance.binding_mode);
+    assert.deepEqual(response.json?.security_identity, expectedProvenance.security_identity);
+    assert.deepEqual(response.json?.deployment_identity, expectedProvenance.deployment_identity);
+    assert.deepEqual(response.json?.result_identity, expectedProvenance.result_identity);
     for (const [envName, field] of [
       ["TLSN_REMOTE_EXPECTED_ENVIRONMENT", "environment"],
       ["TLSN_REMOTE_EXPECTED_DEPLOYMENT_ID", "deployment_id"],
@@ -574,13 +569,16 @@ async function main() {
       ["TLSN_REMOTE_EXPECTED_BINDING_MODE", "binding_mode"],
     ]) {
       const expected = optional(envName);
-      if (expected) assert.equal(response.json[field], expected);
+      if (expected) assert.equal(response.json.deployment_identity[field] ?? response.json.security_identity[field], expected);
     }
     const expectedPublicKey = optional("TLSN_REMOTE_RESULT_PUBLIC_KEY_SPKI");
-    if (expectedPublicKey) assert.equal(response.json.result_public_key_spki, expectedPublicKey);
+    if (expectedPublicKey) {
+      assert.equal(expectedPublicKey, expectedProvenance.result_identity.result_public_key_spki);
+      assert.equal(response.json.result_identity.result_public_key_spki, expectedPublicKey);
+    }
     const expectedPublicKeyHash = optional("TLSN_REMOTE_EXPECTED_RESULT_PUBLIC_KEY_SHA256");
     if (expectedPublicKeyHash) {
-      assert.equal(sha256Base64Url(response.json.result_public_key_spki ?? ""), expectedPublicKeyHash);
+      assert.equal(sha256Base64Url(response.json.result_identity.result_public_key_spki ?? ""), expectedPublicKeyHash);
     }
     const registryJson = optional("TLSN_REMOTE_RESULT_KEY_REGISTRY_JSON");
     if (registryJson) {
@@ -588,35 +586,20 @@ async function main() {
       assert.equal(typeof registry, "object");
       const hashes = Object.values(registry);
       assert.equal(new Set(hashes).size, hashes.length);
-      assert.equal(registry[response.json.verifier_key_id], sha256Base64Url(response.json.result_public_key_spki));
+      assert.equal(registry[response.json.security_identity.verifier_key_id], sha256Base64Url(response.json.result_identity.result_public_key_spki));
     }
     return {
-      environment: response.json.environment,
-      deployment_role: response.json.deployment_role,
-      git_commit_sha: response.json.git_commit_sha,
-      deployment_id: response.json.deployment_id,
-      verifier_key_id: response.json.verifier_key_id,
-      notary_key_id: response.json.notary_key_id,
-      profile_sha256: response.json.profile_sha256,
-      security_registry_set_sha256: response.json.security_registry_set_sha256,
-      notary_registry_sha256: response.json.notary_registry_sha256,
-      binding_mode: response.json.binding_mode,
-      result_public_key_spki: response.json.result_public_key_spki ?? null,
+      security_identity: response.json.security_identity,
+      deployment_identity: response.json.deployment_identity,
+      result_identity: response.json.result_identity,
       latency_ms: response.latencyMs,
       body_bytes: response.bodyBytes,
     };
   });
   if (health) {
-    report.git_commit_sha = health.git_commit_sha;
-    report.deployment_role = health.deployment_role;
-    report.deployment_id = health.deployment_id;
-    report.profile_sha256 = health.profile_sha256;
-    report.verifier_key_id = health.verifier_key_id;
-    report.notary_key_id = health.notary_key_id;
-    report.security_registry_set_sha256 = health.security_registry_set_sha256;
-    report.notary_registry_sha256 = health.notary_registry_sha256;
-    report.result_public_key_spki = health.result_public_key_spki;
-    report.binding_mode = health.binding_mode;
+    report.security_identity = health.security_identity;
+    report.deployment_identity = health.deployment_identity;
+    report.result_identity = health.result_identity;
   }
 
   let authenticatedUserAId;
@@ -896,7 +879,7 @@ async function main() {
         assert.equal(response.status, 200);
         assert.equal(response.json?.verified, true);
         const publicKeyEncoded = optional("TLSN_REMOTE_RESULT_PUBLIC_KEY_SPKI")
-          ?? health?.result_public_key_spki;
+          ?? expectedProvenance.result_identity.result_public_key_spki;
         assert.ok(publicKeyEncoded, "external result public key is required");
         const publicKey = createPublicKey({
           key: Buffer.from(publicKeyEncoded, "base64url"),

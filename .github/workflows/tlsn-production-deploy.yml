@@ -7,30 +7,29 @@ permissions:
   contents: read
 
 jobs:
-  deploy:
-    name: Canary validation and production deploy TLSN Worker
+  canary:
+    name: Deploy TLSN Canary Worker
     runs-on: ubuntu-latest
-    environment: production
+    environment: tlsn-canary
     env:
       TLSN_ENVIRONMENT: production
       TLSN_GIT_COMMIT_SHA: ${{ github.sha }}
       TLSN_BINDING_TTL_SECONDS: ${{ vars.TLSN_BINDING_TTL_SECONDS }}
-      TLSN_PRODUCTION_SERVER_IDENTITY: ${{ vars.TLSN_PRODUCTION_SERVER_IDENTITY }}
-      TLSN_PRODUCTION_PROFILE_SHA256: ${{ vars.TLSN_PRODUCTION_PROFILE_SHA256 }}
-      TLSN_PRODUCTION_VERIFIER_KEY_ID: ${{ vars.TLSN_PRODUCTION_VERIFIER_KEY_ID }}
-      TLSN_PRODUCTION_NOTARY_KEY_ID: ${{ vars.TLSN_PRODUCTION_NOTARY_KEY_ID }}
-      TLSN_PRODUCTION_NOTARY_REGISTRY: ${{ vars.TLSN_PRODUCTION_NOTARY_REGISTRY }}
-      TLSN_PRODUCTION_SIGNING_PRIVATE_KEY_PKCS8: ${{ secrets.TLSN_PRODUCTION_SIGNING_PRIVATE_KEY_PKCS8 }}
-      TLSN_PRODUCTION_TRUST_ROOT_CERTIFICATE_DER: ${{ secrets.TLSN_PRODUCTION_TRUST_ROOT_CERTIFICATE_DER }}
-      TLSN_PRODUCTION_DEVICE_AUTH_URL: ${{ vars.TLSN_PRODUCTION_DEVICE_AUTH_URL }}
-      TLSN_PRODUCTION_DEVICE_POSSESSION_AUTH_URL: ${{ vars.TLSN_PRODUCTION_DEVICE_POSSESSION_AUTH_URL }}
-      TLSN_PRODUCTION_DEVICE_AUTH_ALLOWED_HOSTS: ${{ vars.TLSN_PRODUCTION_DEVICE_AUTH_ALLOWED_HOSTS }}
-      TLSN_PRODUCTION_SUPABASE_ALLOWED_HOSTS: ${{ vars.TLSN_PRODUCTION_SUPABASE_ALLOWED_HOSTS }}
-      TLSN_SUPABASE_URL: ${{ vars.TLSN_SUPABASE_URL }}
-      TLSN_SUPABASE_PUBLISHABLE_KEY: ${{ vars.TLSN_SUPABASE_PUBLISHABLE_KEY }}
-      TLSN_DEPLOYMENT_ID: ${{ vars.TLSN_DEPLOYMENT_ID }}
+      TLSN_CANDIDATE_SERVER_IDENTITY: ${{ vars.TLSN_CANDIDATE_SERVER_IDENTITY }}
+      TLSN_CANDIDATE_PROFILE_SHA256: ${{ vars.TLSN_CANDIDATE_PROFILE_SHA256 }}
+      TLSN_CANDIDATE_VERIFIER_KEY_ID: ${{ vars.TLSN_CANDIDATE_VERIFIER_KEY_ID }}
+      TLSN_CANDIDATE_NOTARY_KEY_ID: ${{ vars.TLSN_CANDIDATE_NOTARY_KEY_ID }}
+      TLSN_CANDIDATE_NOTARY_REGISTRY: ${{ vars.TLSN_CANDIDATE_NOTARY_REGISTRY }}
+      TLSN_CANDIDATE_DEVICE_AUTH_URL: ${{ vars.TLSN_CANDIDATE_DEVICE_AUTH_URL }}
+      TLSN_CANDIDATE_DEVICE_POSSESSION_AUTH_URL: ${{ vars.TLSN_CANDIDATE_DEVICE_POSSESSION_AUTH_URL }}
+      TLSN_CANDIDATE_DEVICE_AUTH_ALLOWED_HOSTS: ${{ vars.TLSN_CANDIDATE_DEVICE_AUTH_ALLOWED_HOSTS }}
+      TLSN_CANDIDATE_SUPABASE_ALLOWED_HOSTS: ${{ vars.TLSN_CANDIDATE_SUPABASE_ALLOWED_HOSTS }}
+      TLSN_CANDIDATE_SUPABASE_URL: ${{ vars.TLSN_CANDIDATE_SUPABASE_URL }}
+      TLSN_CANDIDATE_SUPABASE_PUBLISHABLE_KEY: ${{ vars.TLSN_CANDIDATE_SUPABASE_PUBLISHABLE_KEY }}
+      TLSN_CANARY_DEPLOYMENT_ID: ${{ vars.TLSN_CANARY_DEPLOYMENT_ID }}
+      TLSN_CANARY_RESULT_PUBLIC_KEY_SPKI: ${{ vars.TLSN_CANARY_RESULT_PUBLIC_KEY_SPKI }}
+      TLSN_CANARY_WORKER_NAME: ${{ vars.TLSN_CANARY_WORKER_NAME }}
       TLSN_SECURITY_REGISTRY_SET_SHA256: ${{ vars.TLSN_SECURITY_REGISTRY_SET_SHA256 }}
-      TLSN_RESULT_PUBLIC_KEY_SPKI: ${{ vars.TLSN_RESULT_PUBLIC_KEY_SPKI }}
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -61,6 +60,8 @@ jobs:
         env:
           TLSN_DEPLOYMENT_ROLE: canary
           TLSN_CANARY_BINDING_VALUE: ${{ secrets.TLSN_CANARY_BINDING_VALUE }}
+          TLSN_CANARY_SIGNING_PRIVATE_KEY_PKCS8: ${{ secrets.TLSN_CANARY_SIGNING_PRIVATE_KEY_PKCS8 }}
+          TLSN_CANARY_TRUST_ROOT_CERTIFICATE_DER: ${{ secrets.TLSN_CANARY_TRUST_ROOT_CERTIFICATE_DER }}
           TLSN_PREFLIGHT_REPORT_PATH: ${{ github.workspace }}/packages/FUSOU-TLSN-VERIFICATION-WORKER/artifacts/tlsn-canary-preflight.json
           TLSN_PROVENANCE_REPORT_PATH: ${{ github.workspace }}/packages/FUSOU-TLSN-VERIFICATION-WORKER/artifacts/tlsn-canary-provenance.json
         run: pnpm --filter fusou-tlsn-verification-worker run preflight:production
@@ -71,34 +72,70 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
           TLSN_DEPLOYMENT_ROLE: canary
           TLSN_CANARY_BINDING_VALUE: ${{ secrets.TLSN_CANARY_BINDING_VALUE }}
-          TLSN_CANARY_WORKER_NAME: ${{ vars.TLSN_CANARY_WORKER_NAME }}
-          TLSN_PRODUCTION_WORKER_NAME: ${{ vars.TLSN_PRODUCTION_WORKER_NAME }}
+          TLSN_CANARY_SIGNING_PRIVATE_KEY_PKCS8: ${{ secrets.TLSN_CANARY_SIGNING_PRIVATE_KEY_PKCS8 }}
+          TLSN_CANARY_TRUST_ROOT_CERTIFICATE_DER: ${{ secrets.TLSN_CANARY_TRUST_ROOT_CERTIFICATE_DER }}
           TLSN_PREFLIGHT_REPORT_PATH: ${{ github.workspace }}/packages/FUSOU-TLSN-VERIFICATION-WORKER/artifacts/tlsn-canary-preflight.json
           TLSN_PROVENANCE_REPORT_PATH: ${{ github.workspace }}/packages/FUSOU-TLSN-VERIFICATION-WORKER/artifacts/tlsn-canary-provenance.json
         run: pnpm --filter fusou-tlsn-verification-worker run deploy:canary
 
-      - name: Run mandatory remote validation and deploy production
+      - name: Upload Canary deployment evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: tlsn-canary-evidence-${{ github.run_id }}
+          if-no-files-found: error
+          path: packages/FUSOU-TLSN-VERIFICATION-WORKER/artifacts/tlsn-canary-*.json
+
+  remote-validation:
+    name: Run mandatory remote Canary validation
+    needs: canary
+    runs-on: ubuntu-latest
+    environment: tlsn-canary
+    env:
+      TLSN_REMOTE_WORKER_URL: ${{ vars.TLSN_REMOTE_WORKER_URL }}
+      TLSN_REMOTE_SESSION_BENCHMARK_URL: ${{ vars.TLSN_REMOTE_SESSION_BENCHMARK_URL }}
+      TLSN_REMOTE_WEB_ORIGIN: ${{ vars.TLSN_REMOTE_WEB_ORIGIN }}
+      TLSN_REMOTE_SUPABASE_URL: ${{ vars.TLSN_REMOTE_SUPABASE_URL }}
+      TLSN_REMOTE_SUPABASE_PUBLISHABLE_KEY: ${{ vars.TLSN_REMOTE_SUPABASE_PUBLISHABLE_KEY }}
+      TLSN_REMOTE_ACCESS_TOKEN_A: ${{ secrets.TLSN_REMOTE_ACCESS_TOKEN_A }}
+      TLSN_REMOTE_ACCESS_TOKEN_B: ${{ secrets.TLSN_REMOTE_ACCESS_TOKEN_B }}
+      TLSN_REMOTE_DEVICE_ID_A: ${{ vars.TLSN_REMOTE_DEVICE_ID_A }}
+      TLSN_REMOTE_DEVICE_ID_B: ${{ vars.TLSN_REMOTE_DEVICE_ID_B }}
+      TLSN_REMOTE_DEVICE_A_PRIVATE_KEY_PKCS8_B64URL: ${{ secrets.TLSN_REMOTE_DEVICE_A_PRIVATE_KEY_PKCS8_B64URL }}
+      TLSN_REMOTE_DEVICE_B_PRIVATE_KEY_PKCS8_B64URL: ${{ secrets.TLSN_REMOTE_DEVICE_B_PRIVATE_KEY_PKCS8_B64URL }}
+      TLSN_REMOTE_RESULT_PUBLIC_KEY_SPKI: ${{ vars.TLSN_CANARY_RESULT_PUBLIC_KEY_SPKI }}
+      TLSN_REMOTE_EXPECTED_MEMBER_ID: ${{ vars.TLSN_REMOTE_EXPECTED_MEMBER_ID }}
+      TLSN_REMOTE_RUN_REVOCATION: "true"
+      TLSN_REMOTE_RUN_EXPIRY: "true"
+      TLSN_REMOTE_ALLOW_DECLARED_BLOCKED: "true"
+      TLSN_REMOTE_EXPECTED_PROVENANCE_JSON: ${{ github.workspace }}/packages/FUSOU-TLSN-VERIFICATION-WORKER/artifacts/tlsn-canary-provenance.json
+      TLSN_REMOTE_REPORT_PATH: ${{ github.workspace }}/packages/FUSOU-TLSN-VERIFICATION-WORKER/artifacts/tlsn-remote-validation.json
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.14.0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        uses: actions/download-artifact@v4
+        with:
+          name: tlsn-canary-evidence-${{ github.run_id }}
+          path: packages/FUSOU-TLSN-VERIFICATION-WORKER/artifacts
+
+      - name: Install package dependencies
+        run: pnpm install --frozen-lockfile --ignore-scripts
+
+      - name: Run remote validation
         env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
-          TLSN_DEPLOYMENT_ROLE: production
-          TLSN_PRODUCTION_WORKER_NAME: ${{ vars.TLSN_PRODUCTION_WORKER_NAME }}
-          TLSN_CAPTURE_WORKER_URL: ${{ vars.TLSN_PRODUCTION_WORKER_URL }}
-          TLSN_VERIFY_WORKER_URL: ${{ vars.TLSN_PRODUCTION_WORKER_URL }}
-          TLSN_PREVIOUS_PROVENANCE_PATH: ${{ github.workspace }}/packages/FUSOU-TLSN-VERIFICATION-WORKER/artifacts/tlsn-previous-provenance.json
-          TLSN_PREFLIGHT_REPORT_PATH: ${{ github.workspace }}/packages/FUSOU-TLSN-VERIFICATION-WORKER/artifacts/tlsn-production-preflight.json
-          TLSN_PROVENANCE_REPORT_PATH: ${{ github.workspace }}/packages/FUSOU-TLSN-VERIFICATION-WORKER/artifacts/tlsn-production-provenance.json
-          TLSN_REMOTE_WORKER_URL: ${{ vars.TLSN_REMOTE_WORKER_URL }}
-          TLSN_REMOTE_SESSION_BENCHMARK_URL: ${{ vars.TLSN_REMOTE_SESSION_BENCHMARK_URL }}
-          TLSN_REMOTE_WEB_ORIGIN: ${{ vars.TLSN_REMOTE_WEB_ORIGIN }}
-          TLSN_REMOTE_SUPABASE_URL: ${{ vars.TLSN_REMOTE_SUPABASE_URL }}
-          TLSN_REMOTE_SUPABASE_PUBLISHABLE_KEY: ${{ vars.TLSN_REMOTE_SUPABASE_PUBLISHABLE_KEY }}
-          TLSN_REMOTE_ACCESS_TOKEN_A: ${{ secrets.TLSN_REMOTE_ACCESS_TOKEN_A }}
-          TLSN_REMOTE_ACCESS_TOKEN_B: ${{ secrets.TLSN_REMOTE_ACCESS_TOKEN_B }}
-          TLSN_REMOTE_DEVICE_ID_A: ${{ vars.TLSN_REMOTE_DEVICE_ID_A }}
-          TLSN_REMOTE_DEVICE_ID_B: ${{ vars.TLSN_REMOTE_DEVICE_ID_B }}
-          TLSN_REMOTE_DEVICE_A_PRIVATE_KEY_PKCS8_B64URL: ${{ secrets.TLSN_REMOTE_DEVICE_A_PRIVATE_KEY_PKCS8_B64URL }}
-          TLSN_REMOTE_DEVICE_B_PRIVATE_KEY_PKCS8_B64URL: ${{ secrets.TLSN_REMOTE_DEVICE_B_PRIVATE_KEY_PKCS8_B64URL }}
           TLSN_REMOTE_FIXTURE_JSON_CONTENT: ${{ secrets.TLSN_REMOTE_FIXTURE_JSON }}
           TLSN_REMOTE_FIXTURE_B_JSON_CONTENT: ${{ secrets.TLSN_REMOTE_FIXTURE_B_JSON }}
           TLSN_REMOTE_LOG_EXPORT_CONTENT: ${{ secrets.TLSN_REMOTE_LOG_EXPORT }}
@@ -106,14 +143,9 @@ jobs:
           TLSN_REMOTE_WARM_WORKER_URL: ${{ vars.TLSN_REMOTE_WARM_WORKER_URL }}
           TLSN_REMOTE_REVOCATION_WORKER_URL: ${{ vars.TLSN_REMOTE_REVOCATION_WORKER_URL }}
           TLSN_REMOTE_EXPIRY_WORKER_URL: ${{ vars.TLSN_REMOTE_EXPIRY_WORKER_URL }}
-          TLSN_REMOTE_RESULT_PUBLIC_KEY_SPKI: ${{ vars.TLSN_REMOTE_RESULT_PUBLIC_KEY_SPKI }}
-          TLSN_REMOTE_EXPECTED_MEMBER_ID: ${{ vars.TLSN_REMOTE_EXPECTED_MEMBER_ID }}
-          TLSN_REMOTE_EXPECTED_PROVENANCE_JSON: ${{ github.workspace }}/packages/FUSOU-TLSN-VERIFICATION-WORKER/artifacts/tlsn-canary-provenance.json
-          TLSN_REMOTE_REPORT_PATH: ${{ github.workspace }}/packages/FUSOU-TLSN-VERIFICATION-WORKER/artifacts/tlsn-remote-validation.json
-          TLSN_REMOTE_RUN_REVOCATION: "true"
-          TLSN_REMOTE_RUN_EXPIRY: "true"
         run: |
           printf '%s' "$TLSN_REMOTE_FIXTURE_JSON_CONTENT" > "$RUNNER_TEMP/tlsn-fixture.json"
+          export TLSN_REMOTE_FIXTURE_JSON="$RUNNER_TEMP/tlsn-fixture.json"
           if [[ -n "$TLSN_REMOTE_FIXTURE_B_JSON_CONTENT" ]]; then
             printf '%s' "$TLSN_REMOTE_FIXTURE_B_JSON_CONTENT" > "$RUNNER_TEMP/tlsn-fixture-b.json"
             export TLSN_REMOTE_FIXTURE_B_JSON="$RUNNER_TEMP/tlsn-fixture-b.json"
@@ -122,8 +154,91 @@ jobs:
             printf '%s' "$TLSN_REMOTE_LOG_EXPORT_CONTENT" > "$RUNNER_TEMP/tlsn-log-export.json"
             export TLSN_REMOTE_LOG_EXPORT="$RUNNER_TEMP/tlsn-log-export.json"
           fi
-          export TLSN_REMOTE_FIXTURE_JSON="$RUNNER_TEMP/tlsn-fixture.json"
-          pnpm --filter fusou-tlsn-verification-worker run deploy:production
+          pnpm --filter fusou-tlsn-verification-worker run validate:remote
+
+      - name: Upload remote validation evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: tlsn-remote-evidence-${{ github.run_id }}
+          if-no-files-found: error
+          path: |
+            packages/FUSOU-TLSN-VERIFICATION-WORKER/artifacts/tlsn-canary-provenance.json
+            packages/FUSOU-TLSN-VERIFICATION-WORKER/artifacts/tlsn-remote-validation.json
+
+  production:
+    name: Deploy TLSN Production Worker
+    needs: remote-validation
+    runs-on: ubuntu-latest
+    environment: tlsn-production
+    env:
+      TLSN_ENVIRONMENT: production
+      TLSN_GIT_COMMIT_SHA: ${{ github.sha }}
+      TLSN_BINDING_TTL_SECONDS: ${{ vars.TLSN_BINDING_TTL_SECONDS }}
+      TLSN_CANDIDATE_SERVER_IDENTITY: ${{ vars.TLSN_CANDIDATE_SERVER_IDENTITY }}
+      TLSN_CANDIDATE_PROFILE_SHA256: ${{ vars.TLSN_CANDIDATE_PROFILE_SHA256 }}
+      TLSN_CANDIDATE_VERIFIER_KEY_ID: ${{ vars.TLSN_CANDIDATE_VERIFIER_KEY_ID }}
+      TLSN_CANDIDATE_NOTARY_KEY_ID: ${{ vars.TLSN_CANDIDATE_NOTARY_KEY_ID }}
+      TLSN_CANDIDATE_NOTARY_REGISTRY: ${{ vars.TLSN_CANDIDATE_NOTARY_REGISTRY }}
+      TLSN_CANDIDATE_DEVICE_AUTH_URL: ${{ vars.TLSN_CANDIDATE_DEVICE_AUTH_URL }}
+      TLSN_CANDIDATE_DEVICE_POSSESSION_AUTH_URL: ${{ vars.TLSN_CANDIDATE_DEVICE_POSSESSION_AUTH_URL }}
+      TLSN_CANDIDATE_DEVICE_AUTH_ALLOWED_HOSTS: ${{ vars.TLSN_CANDIDATE_DEVICE_AUTH_ALLOWED_HOSTS }}
+      TLSN_CANDIDATE_SUPABASE_ALLOWED_HOSTS: ${{ vars.TLSN_CANDIDATE_SUPABASE_ALLOWED_HOSTS }}
+      TLSN_CANDIDATE_SUPABASE_URL: ${{ vars.TLSN_CANDIDATE_SUPABASE_URL }}
+      TLSN_CANDIDATE_SUPABASE_PUBLISHABLE_KEY: ${{ vars.TLSN_CANDIDATE_SUPABASE_PUBLISHABLE_KEY }}
+      TLSN_PRODUCTION_DEPLOYMENT_ID: ${{ vars.TLSN_PRODUCTION_DEPLOYMENT_ID }}
+      TLSN_PRODUCTION_RESULT_PUBLIC_KEY_SPKI: ${{ vars.TLSN_PRODUCTION_RESULT_PUBLIC_KEY_SPKI }}
+      TLSN_PRODUCTION_WORKER_NAME: ${{ vars.TLSN_PRODUCTION_WORKER_NAME }}
+      TLSN_SECURITY_REGISTRY_SET_SHA256: ${{ vars.TLSN_SECURITY_REGISTRY_SET_SHA256 }}
+      TLSN_CAPTURE_WORKER_URL: ${{ vars.TLSN_PRODUCTION_WORKER_URL }}
+      TLSN_VERIFY_WORKER_URL: ${{ vars.TLSN_PRODUCTION_WORKER_URL }}
+      TLSN_PREVIOUS_PROVENANCE_PATH: ${{ github.workspace }}/packages/FUSOU-TLSN-VERIFICATION-WORKER/artifacts/tlsn-previous-provenance.json
+      TLSN_PREFLIGHT_REPORT_PATH: ${{ github.workspace }}/packages/FUSOU-TLSN-VERIFICATION-WORKER/artifacts/tlsn-production-preflight.json
+      TLSN_PROVENANCE_REPORT_PATH: ${{ github.workspace }}/packages/FUSOU-TLSN-VERIFICATION-WORKER/artifacts/tlsn-production-provenance.json
+      TLSN_REMOTE_WORKER_URL: ${{ vars.TLSN_REMOTE_WORKER_URL }}
+      TLSN_REMOTE_EXPECTED_PROVENANCE_JSON: ${{ github.workspace }}/packages/FUSOU-TLSN-VERIFICATION-WORKER/artifacts/tlsn-canary-provenance.json
+      TLSN_REMOTE_REPORT_PATH: ${{ github.workspace }}/packages/FUSOU-TLSN-VERIFICATION-WORKER/artifacts/tlsn-remote-validation.json
+      TLSN_REMOTE_VALIDATION_REPORT_PATH: ${{ github.workspace }}/packages/FUSOU-TLSN-VERIFICATION-WORKER/artifacts/tlsn-remote-validation.json
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.14.0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Set up Rust WASM toolchain
+        uses: dtolnay/rust-toolchain@1.95.0
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Install wasm-capable Clang
+        run: sudo apt-get update && sudo apt-get install --no-install-recommends -y clang
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile --ignore-scripts
+
+      - name: Download Canary and remote evidence
+        uses: actions/download-artifact@v4
+        with:
+          name: tlsn-remote-evidence-${{ github.run_id }}
+          path: packages/FUSOU-TLSN-VERIFICATION-WORKER/artifacts
+
+      - name: Deploy Production Worker after remote gate
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          TLSN_DEPLOYMENT_ROLE: production
+          TLSN_PRODUCTION_SIGNING_PRIVATE_KEY_PKCS8: ${{ secrets.TLSN_PRODUCTION_SIGNING_PRIVATE_KEY_PKCS8 }}
+          TLSN_PRODUCTION_TRUST_ROOT_CERTIFICATE_DER: ${{ secrets.TLSN_PRODUCTION_TRUST_ROOT_CERTIFICATE_DER }}
+        run: pnpm --filter fusou-tlsn-verification-worker run deploy:production
 
       - name: Upload TLSN deployment evidence
         if: ${{ always() }}

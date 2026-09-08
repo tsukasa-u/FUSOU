@@ -4,12 +4,12 @@ compatibility_date = "2026-09-07"
 
 # Configure these values in Wrangler environments or the Cloudflare dashboard.
 # The Worker fails closed when any required value is absent or malformed.
-# Production authentication additionally requires TLSN_SUPABASE_URL and
-# TLSN_SUPABASE_PUBLISHABLE_KEY. Keep test token fixtures out of production.
-# Production device endpoints additionally require
-# TLSN_PRODUCTION_DEVICE_AUTH_ALLOWED_HOSTS and the exact FUSOU-WEB API paths.
-# Production Supabase token validation additionally requires
-# TLSN_PRODUCTION_SUPABASE_ALLOWED_HOSTS.
+# Production authentication additionally requires the candidate Supabase URL
+# and publishable key. Keep test token fixtures out of production.
+# Production device endpoints additionally require the candidate device host
+# allowlist and the exact FUSOU-WEB API paths.
+# Canary and Production environments use separate Worker names and role-specific
+# signing, trust-root, and result-key bindings.
 
 [[rules]]
 type = "CompiledWasm"
@@ -32,5 +32,27 @@ name = "TLSN_BINDINGS"
 class_name = "TlsnBindingAuthorityDurableObject"
 
 [[env.test.migrations]]
+tag = "v1"
+new_sqlite_classes = ["TlsnBindingAuthorityDurableObject"]
+
+[env.canary]
+name = "fusou-tlsn-verification-canary"
+
+[[env.canary.durable_objects.bindings]]
+name = "TLSN_BINDINGS"
+class_name = "TlsnBindingAuthorityDurableObject"
+
+[[env.canary.migrations]]
+tag = "v1"
+new_sqlite_classes = ["TlsnBindingAuthorityDurableObject"]
+
+[env.production]
+name = "fusou-tlsn-verification-production"
+
+[[env.production.durable_objects.bindings]]
+name = "TLSN_BINDINGS"
+class_name = "TlsnBindingAuthorityDurableObject"
+
+[[env.production.migrations]]
 tag = "v1"
 new_sqlite_classes = ["TlsnBindingAuthorityDurableObject"]

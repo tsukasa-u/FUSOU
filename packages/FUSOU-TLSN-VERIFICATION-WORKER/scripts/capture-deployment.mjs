@@ -3,17 +3,18 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 
-const identityFields = [
+const securityIdentityFields = [
   "git_commit_sha",
-  "deployment_id",
+  "server_identity",
   "profile_sha256",
   "verifier_key_id",
   "notary_key_id",
   "security_registry_set_sha256",
   "notary_registry_sha256",
-  "result_public_key_spki",
-  "binding_mode",
+  "binding_authority",
 ];
+const deploymentIdentityFields = ["deployment_id", "deployment_role", "binding_mode", "trust_root_certificate_sha256", "worker_name"];
+const resultIdentityFields = ["result_public_key_spki", "result_public_key_spki_sha256"];
 
 function required(name) {
   const value = process.env[name]?.trim();
@@ -30,20 +31,28 @@ async function main() {
   if (health.environment !== "production" || health.deployment_role !== "production") {
     throw new Error("previous Worker is not a production deployment");
   }
-  for (const field of identityFields) {
-    if (typeof health[field] !== "string" || health[field].length === 0) {
-      throw new Error(`previous Worker health is missing ${field}`);
+  for (const [name, fields] of [
+    ["security_identity", securityIdentityFields],
+    ["deployment_identity", deploymentIdentityFields],
+    ["result_identity", resultIdentityFields],
+  ]) {
+    for (const field of fields) {
+      if (typeof health[name]?.[field] !== "string" || health[name][field].length === 0) {
+        throw new Error(`previous Worker health is missing ${name}.${field}`);
+      }
     }
   }
   const manifest = {
-    schema_version: 1,
+    schema_version: 2,
     scope: "previous-known-good-deployment",
     captured_at: new Date().toISOString(),
     worker_origin: origin,
     deployment_role: health.deployment_role,
     environment: health.environment,
   };
-  for (const field of identityFields) manifest[field] = health[field];
+  manifest.security_identity = health.security_identity;
+  manifest.deployment_identity = health.deployment_identity;
+  manifest.result_identity = health.result_identity;
   const path = required("TLSN_PREVIOUS_PROVENANCE_PATH");
   await mkdir(dirname(path), { recursive: true });
   await writeFile(path, `${JSON.stringify(manifest, null, 2)}\n`, "utf8");

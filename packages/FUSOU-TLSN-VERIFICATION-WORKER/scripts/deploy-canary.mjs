@@ -4,20 +4,19 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { spawnSync } from "node:child_process";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
+import {
+  assertManifest,
+  DEPLOYMENT_AUTH_INPUTS,
+  FORBIDDEN_CANARY_INPUTS,
+  inputsForRole,
+  RUNTIME_INPUTS,
+  secretInputsForRole,
+} from "./deployment-contract.mjs";
 
 const packageDirectory = resolve(new URL("..", import.meta.url).pathname);
 const inputManifestPath = resolve(packageDirectory, "scripts/production-inputs.json");
-const deploymentAuthInputs = ["CLOUDFLARE_API_TOKEN", "CLOUDFLARE_ACCOUNT_ID", "WRANGLER_SEND_METRICS", "WRANGLER_LOG"];
-const secretInputs = new Set([
-  "TLSN_PRODUCTION_SIGNING_PRIVATE_KEY_PKCS8",
-  "TLSN_PRODUCTION_TRUST_ROOT_CERTIFICATE_DER",
-]);
-const inheritedRuntimeInputs = [
-  "PATH", "HOME", "PWD", "TMPDIR", "TMP", "TEMP", "CI", "NODE_OPTIONS",
-  "XDG_CACHE_HOME", "CARGO_HOME", "RUSTUP_HOME", "CC_wasm32_unknown_unknown",
-  "AR_wasm32_unknown_unknown", "RUSTFLAGS",
-];
-const canaryInputs = ["TLSN_CANARY_BINDING_VALUE"];
+const deploymentAuthInputs = DEPLOYMENT_AUTH_INPUTS;
+const inheritedRuntimeInputs = RUNTIME_INPUTS;
 
 function runGit(argumentsList) {
   const result = spawnSync("git", argumentsList, { cwd: packageDirectory, encoding: "utf8" });
@@ -32,15 +31,11 @@ function fail(message) {
 
 async function main() {
   const workerName = process.env.TLSN_CANARY_WORKER_NAME?.trim();
-  const productionWorkerName = process.env.TLSN_PRODUCTION_WORKER_NAME?.trim();
   if (!workerName || !/^[a-z][a-z0-9-]{1,62}[a-z0-9]$/.test(workerName)) {
     throw new Error("TLSN_CANARY_WORKER_NAME must be a valid non-production Worker name");
   }
-  if (!productionWorkerName || !/^[a-z][a-z0-9-]{1,62}[a-z0-9]$/.test(productionWorkerName)) {
-    throw new Error("TLSN_PRODUCTION_WORKER_NAME must be a valid production Worker name");
-  }
-  if (workerName === productionWorkerName) {
-    throw new Error("canary and production Worker names must be different");
+  for (const name of FORBIDDEN_CANARY_INPUTS) {
+    if (process.env[name] !== undefined) throw new Error(`${name} must not be present in a canary deployment`);
   }
   if (runGit(["status", "--porcelain=v1"])) throw new Error("refusing canary deploy from a dirty git worktree");
   const gitCommitSha = runGit(["rev-parse", "HEAD"]);
@@ -48,15 +43,9 @@ async function main() {
     throw new Error("TLSN_GIT_COMMIT_SHA does not match the checked-out commit");
   }
   const manifest = JSON.parse(await readFile(inputManifestPath, "utf8"));
-  const allowedInputs = manifest.allowed_inputs;
-  if (
-    manifest.schema_version !== 1 ||
-    manifest.scope !== "fusou-tlsn-verification-worker-production" ||
-    !Array.isArray(allowedInputs) ||
-    allowedInputs.length === 0
-  ) {
-    throw new Error("production input manifest is invalid");
-  }
+  assertManifest(manifest);
+  const allowedInputs = inputsForRole("canary");
+  const secretInputs = new Set(secretInputsForRole("canary"));
   const deploymentEnvironment = {
     ...process.env,
     TLSN_DEPLOYMENT_ROLE: "canary",
@@ -78,12 +67,11 @@ async function main() {
   if (build.error) throw build.error;
   if (build.status !== 0) return void (process.exitCode = build.status ?? 1);
 
-  const allowedChildEnvironment = new Set([...allowedInputs, ...canaryInputs, ...deploymentAuthInputs, ...inheritedRuntimeInputs]);
+  const allowedChildEnvironment = new Set([...allowedInputs, ...deploymentAuthInputs, ...inheritedRuntimeInputs]);
   const childEnvironment = Object.fromEntries(
     Object.entries(deploymentEnvironment).filter(([name]) => allowedChildEnvironment.has(name) && !secretInputs.has(name)),
   );
-  const deployArguments = ["exec", "wrangler", "deploy", "--name", workerName];
-  deployArguments.push("--var", `TLSN_CANARY_BINDING_VALUE:${deploymentEnvironment.TLSN_CANARY_BINDING_VALUE}`);
+  const deployArguments = ["exec", "wrangler", "deploy", "--env", "canary", "--name", workerName];
   for (const name of allowedInputs) {
     if (!secretInputs.has(name)) deployArguments.push("--var", `${name}:${deploymentEnvironment[name]}`);
   }

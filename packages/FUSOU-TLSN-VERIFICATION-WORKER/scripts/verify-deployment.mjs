@@ -2,17 +2,18 @@
 
 import { readFile } from "node:fs/promises";
 
-const identityFields = [
+const securityIdentityFields = [
   "git_commit_sha",
-  "deployment_id",
+  "server_identity",
   "profile_sha256",
   "verifier_key_id",
   "notary_key_id",
   "security_registry_set_sha256",
   "notary_registry_sha256",
-  "result_public_key_spki",
-  "binding_mode",
+  "binding_authority",
 ];
+const deploymentIdentityFields = ["deployment_id", "deployment_role", "binding_mode", "trust_root_certificate_sha256", "worker_name"];
+const resultIdentityFields = ["result_public_key_spki", "result_public_key_spki_sha256"];
 
 function required(name) {
   const value = process.env[name]?.trim();
@@ -23,8 +24,9 @@ function required(name) {
 async function main() {
   const manifest = JSON.parse(await readFile(required("TLSN_PROVENANCE_REPORT_PATH"), "utf8"));
   if (
-    manifest?.schema_version !== 1 ||
-    manifest?.scope !== "production-deployment-inputs" ||
+    manifest?.schema_version !== 2 ||
+    manifest?.scope !== "tlsn-deployment-provenance" ||
+    manifest?.status !== "PASS" ||
     manifest?.environment !== "production" ||
     manifest?.deployment_role !== "production"
   ) {
@@ -41,9 +43,15 @@ async function main() {
   if (health.environment !== "production" || health.deployment_role !== "production") {
     throw new Error("production Worker environment or role mismatch");
   }
-  for (const field of identityFields) {
-    if (health[field] !== manifest[field]) {
-      throw new Error(`post-deploy identity mismatch: ${field}`);
+  for (const [name, fields] of [
+    ["security_identity", securityIdentityFields],
+    ["deployment_identity", deploymentIdentityFields],
+    ["result_identity", resultIdentityFields],
+  ]) {
+    for (const field of fields) {
+      if (health[name]?.[field] !== manifest[name]?.[field]) {
+        throw new Error(`post-deploy identity mismatch: ${name}.${field}`);
+      }
     }
   }
   const smokeResponse = await fetch(`${origin}/attestation/session`, {
@@ -62,11 +70,11 @@ async function main() {
   console.log(JSON.stringify({
     status: "PASS",
     worker_origin: origin,
-    git_commit_sha: manifest.git_commit_sha,
-    deployment_id: manifest.deployment_id,
-    verifier_key_id: manifest.verifier_key_id,
-    profile_sha256: manifest.profile_sha256,
-    result_public_key_spki: manifest.result_public_key_spki,
+    git_commit_sha: manifest.security_identity.git_commit_sha,
+    deployment_id: manifest.deployment_identity.deployment_id,
+    verifier_key_id: manifest.security_identity.verifier_key_id,
+    profile_sha256: manifest.security_identity.profile_sha256,
+    result_public_key_spki: manifest.result_identity.result_public_key_spki,
     smoke_status: smokeResponse.status,
   }));
 }
