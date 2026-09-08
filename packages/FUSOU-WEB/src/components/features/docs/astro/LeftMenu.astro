@@ -20,12 +20,14 @@ const formatSegment = (segment: string) =>
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join(" ");
 
-type Posts = {
+type PostEntry = {
   slug: string;
   segments: string[];
   title: string;
   url: string;
-}[];
+  isExternal?: boolean;
+};
+
 const posts = rawPosts
   .map((post) => {
     const slug = normalizeSlug(post.frontmatter?.["slug"]);
@@ -39,28 +41,38 @@ const posts = rawPosts
       url: `/docs/${slug}`,
     };
   })
-  .filter(Boolean) as Posts;
+  .filter(Boolean) as PostEntry[];
 
-const postsWithSchema: Posts = [
+const postsWithSchema: PostEntry[] = [
   {
     slug: "schema/api-schema-explorer",
     segments: ["schema", "api-schema-explorer"],
     title: "API Schema Explorer",
     url: "/docs/api-schema",
+    isExternal: true,
   },
   ...posts,
+  {
+    slug: "design-system/catalog",
+    segments: ["design-system", "catalog"],
+    title: "Component Catalog",
+    url: "/design-system",
+    isExternal: true,
+  },
 ];
 
 type MenuNode = {
   segment: string;
   title: string;
   url?: string;
+  isExternal?: boolean;
   children: Map<string, MenuNode>;
 };
 
 type MenuEntry = {
   title: string;
   url?: string;
+  isExternal?: boolean;
   children: MenuEntry[];
 };
 
@@ -75,23 +87,33 @@ for (const entry of postsWithSchema) {
         segment,
         title: isLeaf ? entry.title : formatSegment(segment),
         children: new Map(),
-        ...(isLeaf ? { url: entry.url } : {}),
+        ...(isLeaf ? { url: entry.url, isExternal: entry.isExternal } : {}),
       });
     } else if (isLeaf) {
       const node = current.get(segment)!;
       node.title = entry.title;
       node.url = entry.url;
+      if (entry.isExternal !== undefined) node.isExternal = entry.isExternal;
     }
     current = current.get(segment)!.children;
   });
 }
 
+const compareDocsSegments = (a: { segment?: string | null }, b: { segment?: string | null }) => {
+  const aSeg = a.segment ?? "";
+  const bSeg = b.segment ?? "";
+  if (aSeg === "design-system" && bSeg !== "design-system") return 1;
+  if (bSeg === "design-system" && aSeg !== "design-system") return -1;
+  return compareSegments(a, b);
+};
+
 const mapToArray = (nodeMap: Map<string, MenuNode>): MenuEntry[] =>
   Array.from(nodeMap.values())
-    .sort(compareSegments)
+    .sort(compareDocsSegments)
     .map((node: MenuNode): MenuEntry => ({
       title: node.title,
       ...(node.url === undefined ? {} : { url: node.url }),
+      ...(node.isExternal ? { isExternal: true } : {}),
       children: mapToArray(node.children),
     }));
 
@@ -107,7 +129,9 @@ const escapeHtml = (value: string) =>
     .replace(/'/g, "&#39;");
 
 const sanitizeDocsUrl = (value: string | undefined): string | null => {
-  if (!value || !value.startsWith("/docs/")) return null;
+  if (!value) return null;
+  if (value === "/design-system") return "/design-system";
+  if (!value.startsWith("/docs/")) return null;
   const slug = value.slice("/docs/".length);
   const safeSlug = slug
     .split("/")
@@ -116,6 +140,8 @@ const sanitizeDocsUrl = (value: string | undefined): string | null => {
     .join("/");
   return safeSlug ? `/docs/${safeSlug}` : "/docs";
 };
+
+const externalIconSvg = `<svg xmlns="http://www.w3.org/2000/svg" class="inline-block w-3.5 h-3.5 ml-1 shrink-0 opacity-70 -translate-y-px" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>`;
 
 const renderMenuHtml = (nodes: MenuEntry[]): string =>
   nodes
@@ -127,13 +153,14 @@ const renderMenuHtml = (nodes: MenuEntry[]): string =>
             node.children
           )}</ul>`
         : "";
+      const icon = node.isExternal ? externalIconSvg : "";
       const label = safeUrl
-        ? `<a href="${escapeHtml(safeUrl)}" class="docs-left-link block rounded-lg px-2 py-1 text-sm font-medium transition-all ${
+        ? `<a href="${escapeHtml(safeUrl)}" class="docs-left-link inline-flex items-center gap-1 rounded-lg px-2 py-1.5 text-sm font-medium transition-colors !whitespace-normal break-words leading-snug w-full ${
             isActive
-              ? "bg-primary/15 text-primary"
-              : "text-base-content hover:bg-sky-500/10 hover:text-sky-500 hover:underline hover:translate-x-0.5"
-          }">${escapeHtml(node.title)}</a>`
-        : `<details open><summary class="text-sm font-semibold text-base-content/80 tracking-wide">${escapeHtml(node.title)}</summary>${
+              ? "bg-primary/15 text-primary font-semibold"
+              : "text-base-content/85 hover:bg-sky-500/10 hover:text-sky-500 hover:underline"
+          }"><span>${escapeHtml(node.title)}</span>${icon}</a>`
+        : `<details open><summary class="text-sm font-semibold text-base-content/90 tracking-wide whitespace-normal break-words leading-snug">${escapeHtml(node.title)}</summary>${
             children
           }</details>`;
       return `<li class="my-px">${label}</li>`;
@@ -144,16 +171,43 @@ const menuHtml = renderMenuHtml(menuTree);
 ---
 
 <div class="sticky top-20">
-  <div class="max-h-[calc(100vh-6rem)] overflow-y-auto pr-2">
+  <div class="max-h-[calc(100vh-6rem)] overflow-y-auto overflow-x-hidden pr-2">
     <h2 class="text-xl font-bold mb-1">Documentation</h2>
     <p class="text-xs text-base-content/65 mb-3">Browse by section</p>
-    <nav aria-label="Documentation sections">
-      <ul class="menu bg-base-100 rounded-box w-full p-2" set:html={menuHtml} />
+    <nav aria-label="Documentation sections" class="w-full min-w-0">
+      <ul class="menu bg-base-100 rounded-box w-full min-w-0 p-2" set:html={menuHtml} />
     </nav>
   </div>
 </div>
 
 <style>
+  :global(.menu) {
+    width: 100% !important;
+    max-width: 100% !important;
+    min-width: 0 !important;
+  }
+  :global(.menu li) {
+    width: 100% !important;
+    max-width: 100% !important;
+    min-width: 0 !important;
+  }
+  :global(.menu :where(li > *:not(ul, details, .menu-title))),
+  :global(.docs-left-link) {
+    white-space: normal !important;
+    overflow-wrap: anywhere !important;
+    word-break: break-word !important;
+    min-width: 0 !important;
+    max-width: 100% !important;
+    line-height: 1.35 !important;
+  }
+  :global(.menu summary) {
+    white-space: normal !important;
+    overflow-wrap: anywhere !important;
+    word-break: break-word !important;
+  }
+  :global(.menu ul) {
+    min-width: 0 !important;
+  }
   .docs-left-link:hover {
     text-decoration-thickness: 2px;
     text-underline-offset: 2px;

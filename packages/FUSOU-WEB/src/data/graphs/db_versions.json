@@ -186,6 +186,7 @@
       },
       "airbase_airattack": {
         "addedFields": [
+          "air_superiority",
           "airbase_base_no"
         ],
         "changedFields": [],
@@ -196,6 +197,7 @@
       },
       "airbase_assult": {
         "addedFields": [
+          "air_superiority",
           "airbase_base_nos"
         ],
         "changedFields": [],

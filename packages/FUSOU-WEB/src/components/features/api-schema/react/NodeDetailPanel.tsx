@@ -30,7 +30,7 @@ export default function NodeDetailPanel({
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-2 bg-base-200 border-b border-base-300">
         <h3 className="font-bold text-sm truncate">{title}</h3>
-        <button className="btn btn-ghost btn-xs btn-circle" onClick={onClose}>
+        <button className="btn btn-ghost btn-xs btn-circle" onClick={onClose} aria-label="Close details" title="Close details">
           <svg
             className="w-4 h-4"
             viewBox="0 0 24 24"

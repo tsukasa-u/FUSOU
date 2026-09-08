@@ -569,6 +569,14 @@
             "isFk": false,
             "isKey": false,
             "isUuid": false,
+            "name": "air_superiority",
+            "type": "int?"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
             "name": "airbase_base_no",
             "type": "int?"
           },
@@ -848,6 +856,14 @@
     {
       "data": {
         "fields": [
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "isUuid": false,
+            "name": "air_superiority",
+            "type": "int?"
+          },
           {
             "isEnvRef": false,
             "isFk": false,

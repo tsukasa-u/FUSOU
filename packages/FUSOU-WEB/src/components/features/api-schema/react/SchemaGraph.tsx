@@ -18,7 +18,6 @@ import EndpointNode from "./EndpointNode";
 import VersionSelector from "./VersionSelector";
 import ApiGroupNav from "./ApiGroupNav";
 import NodeDetailPanel from "./NodeDetailPanel";
-import ExpandableContainer from "@/components/common/react/ExpandableContainer";
 import "./css/reactflow.css";
 import {
   parseDbVersions,
@@ -647,8 +646,7 @@ export default function SchemaGraph({
   }, []);
 
   return (
-    <ExpandableContainer className="w-full h-[calc(100vh-12rem)]" title="API Schema Explorer">
-      <div className="w-full h-full flex flex-col gap-2">
+    <div className="w-full h-[calc(100vh-14rem)] min-h-[650px] flex flex-col gap-2 relative">
         {/* Top controls */}
       <div className="flex flex-wrap items-center gap-4 px-1">
         {/* Mode tabs */}
@@ -964,6 +962,5 @@ export default function SchemaGraph({
         )}
       </div>
     </div>
-    </ExpandableContainer>
   );
 }

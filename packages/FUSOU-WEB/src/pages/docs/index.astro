@@ -1,17 +1,14 @@
 ---
-import "@/assets/app.css";
-import Navigation from "@/components/common/astro/layout/Navigation.astro";
-import LeftMenu from "@/components/features/docs/astro/LeftMenu.astro";
-import Layout from "@/layouts/Layout.astro";
+import DocsLayout from "@/layouts/DocsLayout.astro";
 import { compareSegments } from "@/utils/page_sorter";
 import type { MarkdownInstance } from "astro";
 
-const rawDocsGlobResult = import.meta.glob("@docs/**/*.md", {
+const rawDocs = import.meta.glob("@docs/**/*.md", {
   eager: true,
 });
-const rawDocs = Object.values(rawDocsGlobResult).reverse() as MarkdownInstance<
-  Record<string, unknown>
->[];
+const rawPosts = Object.values(
+  rawDocs
+).reverse() as MarkdownInstance<Record<string, unknown>>[];
 
 const normalizeSlug = (value: unknown) =>
   (typeof value === "string" ? value : "")
@@ -24,7 +21,7 @@ const formatSegment = (segment: string) =>
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join(" ");
 
-const docs = rawDocs
+const docs = rawPosts
   .map((doc) => {
     const slug = normalizeSlug(doc.frontmatter?.["slug"]);
     const segments = slug.split("/").filter(Boolean);
@@ -44,6 +41,7 @@ const docs = rawDocs
   title: string;
   description: string;
   url: string;
+  isExternal?: boolean;
 }[];
 
 const docsWithSchema = [
@@ -54,14 +52,25 @@ const docsWithSchema = [
     description:
       "Interactive visualization of kc-api database tables and API endpoint structures with ReactFlow.",
     url: "/docs/api-schema",
+    isExternal: true,
   },
   ...docs,
+  {
+    slug: "design-system/catalog",
+    segments: ["design-system", "catalog"],
+    title: "デザインシステムコンポーネントカタログ",
+    description:
+      "DESIGN.MD 準拠の UI 仕様、デザイントークン、カラーパレット、および各種 UI コンポーネントの一覧・実装仕様を確認できます。",
+    url: "/design-system",
+    isExternal: true,
+  },
 ];
 
 type MenuNode = {
   title: string;
   url?: string;
   description?: string;
+  isExternal?: boolean;
   children: MenuNode[];
 };
 
@@ -70,6 +79,7 @@ type MutableMenuNode = {
   title: string;
   url?: string;
   description?: string;
+  isExternal?: boolean;
   children: Map<string, MutableMenuNode>;
 };
 
@@ -85,7 +95,7 @@ for (const entry of docsWithSchema) {
         title: isLeaf ? entry.title : formatSegment(segment),
         children: new Map(),
         ...(isLeaf
-          ? { url: entry.url, description: entry.description }
+          ? { url: entry.url, description: entry.description, isExternal: entry.isExternal }
           : {}),
       });
     } else if (isLeaf) {
@@ -93,20 +103,28 @@ for (const entry of docsWithSchema) {
       node.title = entry.title;
       node.url = entry.url;
       node.description = entry.description;
+      if (entry.isExternal !== undefined) node.isExternal = entry.isExternal;
     }
     current = current.get(segment)!.children;
   });
 }
 
+const compareDocsSegments = (a: MutableMenuNode, b: MutableMenuNode) => {
+  if (a.segment === "design-system") return 1;
+  if (b.segment === "design-system") return -1;
+  return compareSegments(a, b);
+};
+
 const mapToArray = (nodeMap: Map<string, MutableMenuNode>): MenuNode[] =>
   Array.from(nodeMap.values())
-    .sort((a, b) => compareSegments(a, b))
+    .sort(compareDocsSegments)
     .map((node) => ({
       title: node.title,
       ...(node.url === undefined ? {} : { url: node.url }),
       ...(node.description === undefined
         ? {}
         : { description: node.description }),
+      ...(node.isExternal ? { isExternal: true } : {}),
       children: mapToArray(node.children),
     }));
 
@@ -117,6 +135,7 @@ const quickLinks = docsWithSchema.map((doc) => ({
     title: doc.title,
     description: doc.description,
     url: doc.url,
+    isExternal: doc.isExternal,
   }));
 const suggestedQuickLinks = quickLinks.slice(0, 8);
 
@@ -129,7 +148,9 @@ const escapeHtml = (value: string) =>
     .replace(/'/g, "&#39;");
 
 const sanitizeDocsUrl = (value: string | undefined): string | null => {
-  if (!value || !value.startsWith("/docs/")) return null;
+  if (!value) return null;
+  if (value === "/design-system") return "/design-system";
+  if (!value.startsWith("/docs/")) return null;
   const slug = value.slice("/docs/".length);
   const safeSlug = slug
     .split("/")
@@ -139,6 +160,8 @@ const sanitizeDocsUrl = (value: string | undefined): string | null => {
   return safeSlug ? `/docs/${safeSlug}` : "/docs";
 };
 
+const externalIconSvg = `<svg xmlns="http://www.w3.org/2000/svg" class="inline-block w-4 h-4 ml-1.5 shrink-0 opacity-70 -translate-y-px" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>`;
+
 const renderMenuHtml = (
   nodes: MenuNode[],
   depth: number,
@@ -147,10 +170,11 @@ const renderMenuHtml = (
   nodes
     .map((node) => {
       const safeUrl = sanitizeDocsUrl(node.url);
+      const icon = node.isExternal ? externalIconSvg : "";
       const label = safeUrl
-        ? `<div class="space-y-${maxDepth / depth}"><a href="${escapeHtml(safeUrl)}" class="inline-flex items-center rounded-md px-1 text-lg font-semibold text-sky-600 transition-all hover:bg-sky-500/10 hover:text-sky-500 hover:underline hover:translate-x-0.5">${escapeHtml(
+        ? `<div class="space-y-${maxDepth / depth}"><a href="${escapeHtml(safeUrl)}" class="inline-flex items-center rounded-md px-1 text-lg font-semibold text-sky-600 transition-colors hover:bg-sky-500/10 hover:text-sky-500 hover:underline break-words"><span>${escapeHtml(
             node.title,
-          )}</a>${
+          )}</span>${icon}</a>${
             node.description
               ? `<p class="text-sm text-base-content/70">${escapeHtml(node.description)}</p>`
               : ""
@@ -172,84 +196,70 @@ const renderMenuHtml = (
 const menuHtml = renderMenuHtml(menuTree, 2, 4);
 ---
 
-<Layout>
-  <div class="h-16"></div>
-  <div class="flex">
-    <div class="flex-1 min-w-0"></div>
-    <div
-      class="grid grid-cols-24 gap-x-4 sm:gap-x-6 md:gap-x-8 pt-4 max-w-[1600px] w-full px-4 sm:px-6 md:px-8"
-    >
-      <aside
-        class="hidden md:block md:col-span-8 md:col-start-1 xl:col-span-5 xl:col-start-2 pr-4 sticky top-20 self-start h-fit"
-      >
-        <LeftMenu />
-      </aside>
-
-      <main
-        class="py-4 px-2 sm:px-6 md:px-4 xl:px-12 col-span-24 md:col-span-16 xl:col-span-12 min-w-0"
-      >
-        <section class="rounded-xl border border-base-300/70 bg-base-100 p-5 sm:p-6">
-          <h1 class="text-3xl font-bold text-base-content">
-            Documentation Index
-          </h1>
-          <p class="mt-2 text-base text-base-content/80 max-w-[70ch]">
-            Browse every guide, quick start, and reference entry grouped by hierarchy.
-            Start from the left menu if you know the category, or jump from the links below.
-          </p>
-          <div class="mt-4 flex flex-wrap gap-2 text-sm">
-            <span class="rounded-full border border-base-300 px-3 py-1 text-base-content/75">{totalDocs} documents</span>
-            <span class="rounded-full border border-base-300 px-3 py-1 text-base-content/75">{topLevelSections} top-level sections</span>
-          </div>
-        </section>
-        <ul class="mt-6 bg-base-100 rounded-xl border border-base-300/70 py-6 px-4 sm:px-6 space-y-8" set:html={menuHtml} />
-      </main>
-
-      <aside
-        class="hidden xl:block xl:col-span-5 pl-4 sticky top-20 self-start h-fit"
-      >
-        <div class="max-h-[calc(100vh-9.5rem)] pr-2">
-          <section class="rounded-xl border border-base-300/70 bg-base-100 p-4">
-            <div class="flex flex-wrap items-center justify-between gap-2">
-              <h2 class="text-base font-semibold text-base-content">Quick search</h2>
-              <span id="docs-search-hint" class="text-xs text-base-content/60">Suggested pages</span>
-            </div>
-            <label class="input input-bordered mt-3 flex items-center gap-2 w-full">
-              <span class="text-base-content/55">Search</span>
-              <input
-                id="docs-search-input"
-                type="text"
-                class="grow"
-                placeholder="e.g. auth, battle, schema"
-              />
-            </label>
-            <ul id="docs-quick-links" class="mt-3 space-y-2 max-h-[calc(100vh-18rem)] overflow-y-auto pr-1">
-              {
-                quickLinks.map((item) => (
-                  <li
-                    data-doc-item
-                    data-title={item.title.toLowerCase()}
-                    data-description={item.description.toLowerCase()}
-                    data-suggested={suggestedQuickLinks.some((suggested) => suggested.url === item.url) ? "true" : "false"}
-                  >
-                    <a href={item.url} class="block rounded-lg border border-base-300/70 bg-base-100 px-3 py-2 hover:bg-base-200/60 transition-colors">
-                      <p class="text-sm font-semibold text-base-content">{item.title}</p>
-                      {item.description && (
-                        <p class="text-xs text-base-content/65 mt-0.5 line-clamp-2">{item.description}</p>
-                      )}
-                    </a>
-                  </li>
-                ))
-              }
-            </ul>
-            <p id="docs-search-empty" class="hidden mt-2 text-sm text-base-content/65">No matches found.</p>
-          </section>
-        </div>
-      </aside>
-    </div>
-    <div class="flex-1 min-w-0"></div>
+<DocsLayout title="FUSOU Documentation" description="FUSOU ドキュメントインデックス">
+  <div>
+    <section class="rounded-xl border border-base-300/70 bg-base-100 p-5 sm:p-6">
+      <h1 class="text-3xl font-bold text-base-content">
+        Documentation Index
+      </h1>
+      <p class="mt-2 text-base text-base-content/80 max-w-[70ch]">
+        Browse every guide, quick start, and reference entry grouped by hierarchy.
+        Start from the left menu if you know the category, or jump from the links below.
+      </p>
+      <div class="mt-4 flex flex-wrap gap-2 text-sm">
+        <span class="rounded-full border border-base-300 px-3 py-1 text-base-content/75">{totalDocs} documents</span>
+        <span class="rounded-full border border-base-300 px-3 py-1 text-base-content/75">{topLevelSections} top-level sections</span>
+      </div>
+    </section>
+    <ul class="mt-6 bg-base-100 rounded-xl border border-base-300/70 py-6 px-4 sm:px-6 space-y-8" set:html={menuHtml} />
   </div>
-  <Navigation />
-</Layout>
+  <div slot="right-aside" class="max-h-[calc(100vh-9.5rem)] pr-2">
+    <section class="rounded-xl border border-base-300/70 bg-base-100 p-4">
+      <div class="flex flex-wrap items-center justify-between gap-2">
+        <h2 class="text-base font-semibold text-base-content">Quick search</h2>
+        <span id="docs-search-hint" class="text-xs text-base-content/60">Suggested pages</span>
+      </div>
+      <label class="input input-bordered mt-3 flex items-center gap-2 w-full">
+        <span class="text-base-content/55">Search</span>
+        <input
+          id="docs-search-input"
+          type="text"
+          class="grow"
+          placeholder="e.g. auth, battle, schema"
+        />
+      </label>
+      <ul id="docs-quick-links" class="mt-3 space-y-2 max-h-[calc(100vh-18rem)] overflow-y-auto overflow-x-hidden pr-1">
+        {
+          quickLinks.map((item) => (
+            <li
+              data-doc-item
+              data-title={item.title.toLowerCase()}
+              data-description={item.description.toLowerCase()}
+              data-suggested={suggestedQuickLinks.some((suggested) => suggested.url === item.url) ? "true" : "false"}
+            >
+              <a href={item.url} class="block rounded-lg border border-base-300/70 bg-base-100 px-3 py-2 hover:bg-base-200/60 transition-colors">
+                <p class="text-sm font-semibold text-base-content flex items-center justify-between gap-1">
+                  <span class="truncate">{item.title}</span>
+                  {item.isExternal && (
+                    <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5 text-base-content/50 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                      <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path>
+                      <polyline points="15 3 21 3 21 9"></polyline>
+                      <line x1="10" y1="14" x2="21" y2="3"></line>
+                    </svg>
+                  )}
+                </p>
+                {item.description && (
+                  <p class="text-xs text-base-content/65 mt-0.5 line-clamp-2">{item.description}</p>
+                )}
+              </a>
+            </li>
+          ))
+        }
+      </ul>
+      <p id="docs-search-empty" class="hidden mt-2 text-sm text-base-content/65">No matches found.</p>
+    </section>
+  </div>
+</DocsLayout>
 
 <script is:inline>
   const input = document.getElementById("docs-search-input");

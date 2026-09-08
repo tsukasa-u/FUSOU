@@ -1,206 +1,187 @@
 ---
 import "@/assets/app.css";
-import FocusBehavior from "@/components/common/astro/ui/FocusBehavior.astro";
+import Layout from "@/layouts/Layout.astro";
 import Navigation from "@/components/common/astro/layout/Navigation.astro";
-// import TutorialModal from "@/components/common/astro/ui/TutorialModal.astro";
 import LeftMenu from "@/components/features/docs/astro/LeftMenu.astro";
 import RightMenu from "@/components/features/docs/astro/RightMenu.astro";
 import Breadcrumb from "@/components/features/docs/astro/Breadcrumb.astro";
 import DocumentInfo from "@/components/features/docs/astro/DocumentInfo.astro";
 import { getEntry } from "astro:content";
 
-const { entry, Content, headings } = Astro.props;
+interface Props {
+  title?: string;
+  description?: string;
+  entry?: any;
+  Content?: any;
+  headings?: Array<{ slug: string; text: string; depth: number }>;
+  tutorial?: any;
+}
+
+const {
+  title: propTitle,
+  description: propDescription,
+  entry,
+  Content,
+  headings = [],
+  tutorial,
+} = Astro.props as Props;
+
+const title = propTitle ?? entry?.data?.title ?? "FUSOU Docs";
+const description = propDescription ?? entry?.data?.description;
+
 const sectionHeadings = headings.filter(
   (heading: { depth: number }) => heading.depth >= 2,
 );
-const plainBody = entry.body
-  .replace(/```[\s\S]*?```/g, " ")
-  .replace(/`[^`]*`/g, " ")
-  .replace(/<[^>]*>/g, " ")
-  .replace(/\[[^\]]*\]\([^)]*\)/g, " ")
-  .replace(/[^\p{L}\p{N}\s]/gu, " ");
-const estimatedReadMinutes = Math.max(
-  1,
-  Math.ceil(plainBody.trim().split(/\s+/).filter(Boolean).length / 220),
-);
-const authors = await Promise.all(
-  entry.data.contributors.map(async (contributor: string) => {
-    return await getEntry("authors", contributor);
-  }),
-);
 
-// const tutorial = {
-//   id: `docs:${entry.slug}`,
-//   title: `ドキュメントの使い方: ${entry.data.title}`,
-//   summary: "目次とメニューを使って必要な情報へ素早く移動できます。",
-//   steps: [
-//     "左メニューからセクションを選択して記事を切り替えます。",
-//     "右側の目次で見出し単位にジャンプします。",
-//     "ページ下部の更新日・関連情報を確認して運用手順の差分を把握します。",
-//   ],
-// };
+let estimatedReadMinutes = 1;
+let authors: any[] = [];
+
+if (entry?.body) {
+  const plainBody = entry.body
+    .replace(/```[\s\S]*?```/g, " ")
+    .replace(/`[^`]*`/g, " ")
+    .replace(/<[^>]*>/g, " ")
+    .replace(/\[[^\]]*\]\([^)]*\)/g, " ")
+    .replace(/[^\p{L}\p{N}\s]/gu, " ");
+  estimatedReadMinutes = Math.max(
+    1,
+    Math.ceil(plainBody.trim().split(/\s+/).filter(Boolean).length / 220),
+  );
+}
+
+if (entry?.data?.contributors) {
+  authors = await Promise.all(
+    entry.data.contributors.map(async (contributor: string) => {
+      return await getEntry("authors", contributor);
+    }),
+  );
+}
 ---
 
-<html>
-  <head>
-    <script is:inline>
-      const theme = localStorage.getItem("theme") || (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
-      document.documentElement.setAttribute("data-theme", theme);
-    </script>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <meta name="generator" content={Astro.generator} />
-    <link rel="sitemap" href="/sitemap-index.xml" />
-    <title>{entry.data.title}</title>
-    <meta name="description" content={entry.data.description} />
+<Layout title={title} description={description} tutorial={tutorial}>
+  <slot name="head" slot="head">
     <link
       rel="stylesheet"
-      href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@24,400,0,0&icon_names=report"
-    />
-    <link
-      rel="stylesheet"
-      href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@24,400,0,0&icon_names=info"
-    />
-    <link
-      rel="stylesheet"
-      href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@24,400,0,0&icon_names=feedback"
-    />
-    <link
-      rel="stylesheet"
-      href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@24,400,0,0&icon_names=warning"
-    />
-    <link
-      rel="stylesheet"
-      href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@24,400,0,0&icon_names=lightbulb"
+      href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@24,400,0,0&icon_names=report,info,feedback,warning,lightbulb"
     />
     <link
       rel="stylesheet"
       href="https://cdn.jsdelivr.net/npm/katex@0.15.2/dist/katex.min.css"
     />
-    {
-      import.meta.env.PROD && (
-        <script
-          defer
-          is:inline
-          src="https://static.cloudflareinsights.com/beacon.min.js"
-          data-cf-beacon={`{"token": "${import.meta.env["PUBLIC_CLOUDFLARE_ANALYTICS_TOKEN"]}"}`}
-        />
-      )
-    }
-    <!-- Mermaid for rendering diagrams -->
     <script type="module" is:inline>
       import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";
       mermaid.initialize({ startOnLoad: true });
     </script>
-  </head>
-  <body>
-    <FocusBehavior />
-    <Navigation />
-    <div class="h-16"></div>
-    <div class="flex">
-      <div class="flex-1 min-w-0"></div>
-      <div
-        class="grid grid-cols-24 gap-x-4 sm:gap-x-6 md:gap-x-8 pt-4 max-w-[1600px] w-full px-4 sm:px-6 md:px-8"
-      >
-        <aside
-          class="hidden md:block md:col-span-8 md:col-start-1 xl:col-span-5 xl:col-start-2 pr-4 sticky top-20 self-start h-fit"
-        >
-          <LeftMenu />
-        </aside>
+  </slot>
 
-        <main
-          class="py-4 px-2 sm:px-6 md:px-4 xl:px-12 col-span-24 md:col-span-16 xl:col-span-12 min-w-0"
-        >
-          <Breadcrumb entry={entry} />
-          <header
-            class="mb-5 rounded-xl border border-base-300/70 bg-base-100/90 p-4 sm:p-5"
-          >
-            <h1
-              class="text-2xl sm:text-3xl font-bold text-base-content tracking-tight"
+  <Navigation filled={true} />
+  <div class="h-16"></div>
+  <div class="fusou-page-shell flex">
+    <div class="flex-1 min-w-0"></div>
+    <div
+      class="grid grid-cols-24 gap-x-4 sm:gap-x-6 md:gap-x-8 pt-4 max-w-[1600px] w-full px-4 sm:px-6 md:px-8"
+    >
+      <aside
+        class="hidden md:block md:col-span-8 md:col-start-1 xl:col-span-5 xl:col-start-2 pr-4 sticky top-20 self-start h-fit min-w-0"
+      >
+        <LeftMenu />
+      </aside>
+
+      <main
+        class="py-4 px-2 sm:px-6 md:px-4 xl:px-12 col-span-24 md:col-span-16 xl:col-span-12 min-w-0"
+      >
+        {entry && <Breadcrumb entry={entry} />}
+        {
+          entry && (
+            <header
+              class="mb-5 rounded-xl border border-base-300/70 bg-base-100/90 p-4 sm:p-5"
             >
-              {entry.data.title}
-            </h1>
-            {
-              entry.data.description && (
-                <p class="mt-2 text-sm sm:text-base text-base-content/75 max-w-[70ch]">
-                  {entry.data.description}
-                </p>
-              )
-            }
-            <div class="mt-4 flex flex-wrap gap-2 text-xs sm:text-sm">
-              <span
-                class="rounded-full border border-base-300 px-3 py-1 text-base-content/75"
-                >{estimatedReadMinutes} min read</span
+              <h1
+                class="text-2xl sm:text-3xl font-bold text-base-content tracking-tight"
               >
-              <span
-                class="rounded-full border border-base-300 px-3 py-1 text-base-content/75"
-                >{sectionHeadings.length} sections</span
-              >
-              <span
-                class="rounded-full border border-base-300 px-3 py-1 text-base-content/75"
+                {entry.data.title}
+              </h1>
+              {
+                entry.data.description && (
+                  <p class="mt-2 text-sm sm:text-base text-base-content/75 max-w-[70ch]">
+                    {entry.data.description}
+                  </p>
+                )
+              }
+              <div class="mt-4 flex flex-wrap gap-2 text-xs sm:text-sm">
+                <span
+                  class="rounded-full border border-base-300 px-3 py-1 text-base-content/75"
+                >{estimatedReadMinutes} min read</span>
+                <span
+                  class="rounded-full border border-base-300 px-3 py-1 text-base-content/75"
+                >{sectionHeadings.length} sections</span>
+                <span
+                  class="rounded-full border border-base-300 px-3 py-1 text-base-content/75"
                 >Updated {
                   new Date(entry.data.date).toLocaleDateString(undefined, {
                     year: "numeric",
                     month: "short",
                     day: "numeric",
                   })
-                }</span
-              >
-            </div>
-          </header>
-          {
-            sectionHeadings.length > 0 && (
-              <details class="xl:hidden mb-4 rounded-xl border border-base-300/70 bg-base-100 p-3">
-                <summary class="cursor-pointer text-sm font-semibold text-base-content">
-                  On this page ({sectionHeadings.length})
-                </summary>
-                <ul class="mt-3 space-y-1 text-sm text-base-content/80">
-                  {sectionHeadings.map(
-                    (heading: {
-                      slug: string;
-                      text: string;
-                      depth: number;
-                    }) => (
-                      <li class={heading.depth >= 3 ? "pl-3" : "pl-0"}>
-                        <a href={`#${heading.slug}`} class="link link-hover">
-                          {heading.text}
-                        </a>
-                      </li>
-                    ),
-                  )}
-                </ul>
-              </details>
-            )
-          }
-          <div class="markdown"><Content /></div>
-          <div class="mt-6 flex xl:hidden">
-            <a href="#" class="text-sm link link-hover">Back to top</a>
-          </div>
-          <br />
-          <DocumentInfo lastUpdated={entry.data.date} contributors={authors} />
-          <br />
-        </main>
+                }</span>
+              </div>
+            </header>
+          )
+        }
+        {
+          sectionHeadings.length > 0 && (
+            <details class="xl:hidden mb-4 rounded-xl border border-base-300/70 bg-base-100 p-3">
+              <summary class="cursor-pointer text-sm font-semibold text-base-content">
+                On this page ({sectionHeadings.length})
+              </summary>
+              <ul class="mt-3 space-y-1 text-sm text-base-content/80">
+                {sectionHeadings.map(
+                  (heading: {
+                    slug: string;
+                    text: string;
+                    depth: number;
+                  }) => (
+                    <li class={heading.depth >= 3 ? "pl-3" : "pl-0"}>
+                      <a href={`#${heading.slug}`} class="link link-hover break-words leading-snug block">
+                        {heading.text}
+                      </a>
+                    </li>
+                  ),
+                )}
+              </ul>
+            </details>
+          )
+        }
+        {Content ? <div class="markdown"><Content /></div> : <slot />}
+        {
+          entry && (
+            <>
+              <div class="mt-6 flex xl:hidden">
+                <a href="#" class="text-sm link link-hover">Back to top</a>
+              </div>
+              <br />
+              <DocumentInfo lastUpdated={entry.data.date} contributors={authors} />
+              <br />
+            </>
+          )
+        }
+      </main>
 
-        <aside
-          class="hidden xl:block xl:col-span-5 pl-4 sticky top-20 self-start h-fit"
-        >
-          <RightMenu headings={headings} />
-        </aside>
-      </div>
-      <div class="flex-1 min-w-0"></div>
+      <aside
+        class="hidden xl:block xl:col-span-5 pl-4 sticky top-20 self-start h-fit min-w-0"
+      >
+        <slot name="right-aside">
+          {headings.length > 0 && <RightMenu headings={headings} />}
+        </slot>
+      </aside>
     </div>
-    <!-- <TutorialModal guide={tutorial} /> -->
-  </body>
-</html>
+    <div class="flex-1 min-w-0"></div>
+  </div>
+</Layout>
 
 <style>
-  html,
-  body {
-    margin: 0;
-    width: 100%;
-    height: 100%;
-    /* scrollbar-gutter: stable; */
+  :global(html),
+  :global(body) {
     scrollbar-width: none;
     scroll-padding-top: 100px !important;
   }
