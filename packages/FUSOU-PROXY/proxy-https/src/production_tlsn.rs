@@ -339,12 +339,53 @@ impl RuntimeIdentifiers {
 pub struct PresentationRequestContext {
     identifiers: RuntimeIdentifiers,
     connection_id: u64,
+    request_profile: Option<PresentationRequestProfile>,
     binding_identifier: [u8; 32],
     request_sha256: [u8; 32],
     authenticated_request_sha256: [u8; 32],
     response_sha256: [u8; 32],
     authenticated_response_sha256: [u8; 32],
     server_identity: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PresentationRequestProfile {
+    method: String,
+    target: String,
+    http_version: String,
+}
+
+impl PresentationRequestProfile {
+    fn from_serialized_request(request: &SerializedOriginRequest) -> Option<Self> {
+        let line_end = request
+            .bytes()
+            .windows(2)
+            .position(|window| window == b"\r\n")?;
+        let mut fields = request.bytes()[..line_end].split(|byte| *byte == b' ');
+        let method = std::str::from_utf8(fields.next()?).ok()?.to_owned();
+        let target = std::str::from_utf8(fields.next()?).ok()?.to_owned();
+        let http_version = std::str::from_utf8(fields.next()?).ok()?.to_owned();
+        if fields.next().is_some() {
+            return None;
+        }
+        Some(Self {
+            method,
+            target,
+            http_version,
+        })
+    }
+
+    pub fn method(&self) -> &str {
+        &self.method
+    }
+
+    pub fn target(&self) -> &str {
+        &self.target
+    }
+
+    pub fn http_version(&self) -> &str {
+        &self.http_version
+    }
 }
 
 impl PresentationRequestContext {
@@ -359,6 +400,7 @@ impl PresentationRequestContext {
         Self {
             identifiers,
             connection_id,
+            request_profile: PresentationRequestProfile::from_serialized_request(request),
             binding_identifier: sha256(binding.value().as_bytes()),
             request_sha256: sha256(request.bytes()),
             authenticated_request_sha256: exchange.transcript.request_sha256,
@@ -374,6 +416,10 @@ impl PresentationRequestContext {
 
     pub fn connection_id(&self) -> u64 {
         self.connection_id
+    }
+
+    pub fn request_profile(&self) -> Option<&PresentationRequestProfile> {
+        self.request_profile.as_ref()
     }
 
     pub fn binding_identifier(&self) -> &[u8; 32] {
@@ -403,6 +449,45 @@ impl PresentationRequestContext {
 
 pub trait PresentationProvider: Send + Sync {
     fn provide(&self, context: PresentationRequestContext) -> PresentationFuture;
+}
+
+pub type PresentationExportFuture =
+    Pin<Box<dyn Future<Output = Result<(), PresentationExportError>> + Send>>;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PresentationExportError {
+    Unavailable,
+    Failed,
+}
+
+impl std::fmt::Display for PresentationExportError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(match self {
+            Self::Unavailable => "TLSN Presentation artifact export is unavailable",
+            Self::Failed => "TLSN Presentation artifact export failed",
+        })
+    }
+}
+
+pub trait PresentationArtifactSink: Send + Sync {
+    fn export(
+        &self,
+        context: PresentationRequestContext,
+        presentation: TlsnPresentation,
+    ) -> PresentationExportFuture;
+}
+
+#[derive(Debug, Default)]
+pub struct UnconfiguredPresentationArtifactSink;
+
+impl PresentationArtifactSink for UnconfiguredPresentationArtifactSink {
+    fn export(
+        &self,
+        _context: PresentationRequestContext,
+        _presentation: TlsnPresentation,
+    ) -> PresentationExportFuture {
+        Box::pin(async { Err(PresentationExportError::Unavailable) })
+    }
 }
 
 #[derive(Debug, Default)]
@@ -444,6 +529,7 @@ impl DedicatedTlsnVerifier for UnconfiguredDedicatedVerifier {
 pub struct PresentationVerifierBoundary {
     presentation_provider: Arc<dyn PresentationProvider>,
     dedicated_verifier: Arc<dyn DedicatedTlsnVerifier>,
+    presentation_artifact_sink: Option<Arc<dyn PresentationArtifactSink>>,
     target: OriginTarget,
     identifiers: RuntimeIdentifiers,
 }
@@ -455,9 +541,26 @@ impl PresentationVerifierBoundary {
         target: OriginTarget,
         identifiers: RuntimeIdentifiers,
     ) -> Arc<Self> {
+        Self::new_with_artifact_sink(
+            presentation_provider,
+            dedicated_verifier,
+            target,
+            identifiers,
+            None,
+        )
+    }
+
+    pub fn new_with_artifact_sink(
+        presentation_provider: Arc<dyn PresentationProvider>,
+        dedicated_verifier: Arc<dyn DedicatedTlsnVerifier>,
+        target: OriginTarget,
+        identifiers: RuntimeIdentifiers,
+        presentation_artifact_sink: Option<Arc<dyn PresentationArtifactSink>>,
+    ) -> Arc<Self> {
         Arc::new(Self {
             presentation_provider,
             dedicated_verifier,
+            presentation_artifact_sink,
             target,
             identifiers,
         })
@@ -481,6 +584,7 @@ impl ExperimentalVerifierBoundary for PresentationVerifierBoundary {
         }
         let provider = Arc::clone(&self.presentation_provider);
         let verifier = Arc::clone(&self.dedicated_verifier);
+        let artifact_sink = self.presentation_artifact_sink.clone();
         let context = PresentationRequestContext::from_exchange(
             self.identifiers.clone(),
             connection_id,
@@ -500,6 +604,19 @@ impl ExperimentalVerifierBoundary for PresentationVerifierBoundary {
                         }
                         PresentationError::Invalid => VerificationError::PresentationInvalid,
                     })?;
+            if let Some(artifact_sink) = artifact_sink {
+                artifact_sink
+                    .export(context.clone(), presentation.clone())
+                    .await
+                    .map_err(|error| match error {
+                        PresentationExportError::Unavailable => {
+                            VerificationError::PresentationExportUnavailable
+                        }
+                        PresentationExportError::Failed => {
+                            VerificationError::PresentationExportFailed
+                        }
+                    })?;
+            }
             let presentation_metadata = TlsnEvidenceMetadata::new(
                 context.connection_id(),
                 *context.binding_identifier(),
@@ -647,6 +764,7 @@ pub struct ProductionTlsnDependencies {
     binding_provider: Arc<dyn crate::experimental_tlsn::AttestationBindingProvider>,
     transport_factory: Arc<dyn Alpha15OriginTransportFactory>,
     presentation_provider: Arc<dyn PresentationProvider>,
+    presentation_artifact_sink: Option<Arc<dyn PresentationArtifactSink>>,
     dedicated_verifier: Arc<dyn DedicatedTlsnVerifier>,
     signer: Arc<dyn ProductionResultSigner>,
     delivery: Arc<dyn ProductionResultDelivery>,
@@ -668,6 +786,7 @@ impl ProductionTlsnDependencies {
             binding_provider,
             transport_factory,
             presentation_provider,
+            presentation_artifact_sink: None,
             dedicated_verifier,
             signer,
             delivery,
@@ -677,6 +796,14 @@ impl ProductionTlsnDependencies {
 
     pub fn with_identifiers(mut self, identifiers: RuntimeIdentifiers) -> Self {
         self.identifiers = identifiers;
+        self
+    }
+
+    pub fn with_presentation_artifact_sink(
+        mut self,
+        sink: Arc<dyn PresentationArtifactSink>,
+    ) -> Self {
+        self.presentation_artifact_sink = Some(sink);
         self
     }
 
@@ -690,11 +817,12 @@ impl ProductionTlsnDependencies {
             ProductionAlpha15OriginTransport::new(self.origin.clone(), self.transport_factory)
                 .map_err(ProductionConfigurationError::InvalidOrigin)?,
         );
-        let verifier = PresentationVerifierBoundary::new(
+        let verifier = PresentationVerifierBoundary::new_with_artifact_sink(
             self.presentation_provider,
             self.dedicated_verifier,
             self.origin.target().clone(),
             self.identifiers,
+            self.presentation_artifact_sink,
         );
         let result_boundary = SignedResultBoundary::new(self.signer, self.delivery);
         Ok(ExperimentalTlsnForwarder::new(
@@ -801,6 +929,25 @@ mod tests {
             self.calls.fetch_add(1, Ordering::SeqCst);
             *self.context.lock().unwrap() = Some(context);
             Box::pin(async { TlsnPresentation::new("presentation-1".to_owned(), vec![9, 8, 7]) })
+        }
+    }
+
+    struct RecordingPresentationArtifactSink {
+        calls: AtomicUsize,
+        context: Mutex<Option<PresentationRequestContext>>,
+        presentation: Mutex<Option<TlsnPresentation>>,
+    }
+
+    impl PresentationArtifactSink for RecordingPresentationArtifactSink {
+        fn export(
+            &self,
+            context: PresentationRequestContext,
+            presentation: TlsnPresentation,
+        ) -> PresentationExportFuture {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            *self.context.lock().unwrap() = Some(context);
+            *self.presentation.lock().unwrap() = Some(presentation);
+            Box::pin(async { Ok(()) })
         }
     }
 
@@ -1056,6 +1203,55 @@ mod tests {
             Some(&sha256(&[9, 8, 7]))
         );
         assert_eq!(evidence.request_sha256(), &sha256(request.bytes()));
+    }
+
+    #[tokio::test]
+    async fn presentation_boundary_exports_raw_presentation_with_safe_request_profile() {
+        let provider = Arc::new(RecordingPresentationProvider {
+            calls: AtomicUsize::new(0),
+            context: Mutex::new(None),
+        });
+        let sink = Arc::new(RecordingPresentationArtifactSink {
+            calls: AtomicUsize::new(0),
+            context: Mutex::new(None),
+            presentation: Mutex::new(None),
+        });
+        let boundary = PresentationVerifierBoundary::new_with_artifact_sink(
+            Arc::clone(&provider) as Arc<dyn PresentationProvider>,
+            Arc::new(RecordingDedicatedVerifier {
+                calls: AtomicUsize::new(0),
+                presentation: Mutex::new(None),
+            }),
+            OriginTarget::new(
+                "game.example.test".to_owned(),
+                443,
+                "game.example.test".to_owned(),
+            )
+            .unwrap(),
+            RuntimeIdentifiers::default(),
+            Some(Arc::clone(&sink) as Arc<dyn PresentationArtifactSink>),
+        );
+
+        boundary
+            .verify(
+                7,
+                request(),
+                AttestationBinding::new("opaque".to_owned()).unwrap(),
+                exchange(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(sink.calls.load(Ordering::SeqCst), 1);
+        let context = sink.context.lock().unwrap().clone().unwrap();
+        let profile = context.request_profile().unwrap();
+        assert_eq!(profile.method(), "POST");
+        assert_eq!(profile.target(), "/kcsapi/api_get_member/require_info");
+        assert_eq!(profile.http_version(), "HTTP/1.1");
+        assert_eq!(
+            sink.presentation.lock().unwrap().as_ref().unwrap().bytes(),
+            &[9, 8, 7]
+        );
     }
 
     #[tokio::test]

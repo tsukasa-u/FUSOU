@@ -37,6 +37,17 @@ import {
   verifyDevicePredicates,
 } from "./device-evidence.mjs";
 import { verifyProductionProxyProvenance } from "./proxy-provenance.mjs";
+import {
+  createProductionEvidenceFailureBundle,
+  finalizeProductionEvidenceFailureBundle,
+  recordConsume,
+  recordFailure,
+  recordHash,
+  recordHealth,
+  recordHttpExchange,
+  recordProvenance,
+  recordSession,
+} from "./production-evidence-failure.mjs";
 
 const packageDirectory = resolve(new URL("..", import.meta.url).pathname);
 const DEFAULT_OUTPUT_PATH = resolve(packageDirectory, "artifacts/tlsn-production-evidence.json");
@@ -92,16 +103,22 @@ async function loadPrivateKeyFromEnvironment() {
   return loadPrivateKey(encoded, "production device private key");
 }
 
-async function timedRequest(url, options = {}) {
-  const response = await fetch(url, { redirect: "error", ...options });
-  const bytes = Buffer.from(await response.arrayBuffer());
-  let json;
+async function timedRequest(url, options = {}, failureBundle) {
   try {
-    json = JSON.parse(bytes.toString("utf8"));
-  } catch {
-    json = undefined;
+    const response = await fetch(url, { redirect: "error", ...options });
+    const bytes = Buffer.from(await response.arrayBuffer());
+    recordHttpExchange(failureBundle, { url, options, response, responseBytes: bytes });
+    let json;
+    try {
+      json = JSON.parse(bytes.toString("utf8"));
+    } catch {
+      json = undefined;
+    }
+    return { response, bytes, json };
+  } catch (error) {
+    recordHttpExchange(failureBundle, { url, options, error });
+    throw error;
   }
-  return { response, bytes, json };
 }
 
 async function readProductionPresentation() {
@@ -139,8 +156,8 @@ function deviceProof(session, devicePrivateKey) {
   };
 }
 
-async function readHealth(workerOrigin) {
-  const { response, json } = await timedRequest(endpoint(workerOrigin, "/health"));
+async function readHealth(workerOrigin, failureBundle) {
+  const { response, json } = await timedRequest(endpoint(workerOrigin, "/health"), {}, failureBundle);
   assert.equal(response.status, 200);
   if (
     json?.environment !== "production" ||
@@ -151,25 +168,26 @@ async function readHealth(workerOrigin) {
     || typeof json?.authority_identity?.session_authority?.public_key_spki !== "string"
     || typeof json?.authority_identity?.binding_authority?.public_key_spki !== "string"
   ) throw new Error("target Worker is not a complete production identity");
+  recordHealth(failureBundle, json);
   return json;
 }
 
-async function readSupabaseUser(supabaseOrigin, publishableKey, accessToken) {
+async function readSupabaseUser(supabaseOrigin, publishableKey, accessToken, failureBundle) {
   const { response, json } = await timedRequest(endpoint(supabaseOrigin, "/auth/v1/user"), {
     headers: {
       apikey: publishableKey,
       Authorization: `Bearer ${accessToken}`,
     },
-  });
+  }, failureBundle);
   assert.equal(response.status, 200);
   if (typeof json?.id !== "string" || json.is_anonymous === true) throw new Error("Supabase user is not authenticated and non-anonymous");
   return json;
 }
 
-async function readDeviceIdentity(webOrigin, accessToken, deviceId) {
+async function readDeviceIdentity(webOrigin, accessToken, deviceId, failureBundle) {
   const identityRequest = await timedRequest(endpoint(webOrigin, `/api/auth/anonymous-sync/v2/device-identity?device_id=${encodeURIComponent(deviceId)}`), {
     headers: { Authorization: `Bearer ${accessToken}` },
-  });
+  }, failureBundle);
   assert.equal(identityRequest.response.status, 200);
   if (identityRequest.json?.device_id !== deviceId || identityRequest.json?.authoritative !== true) {
     throw new Error("production device identity response is invalid");
@@ -177,9 +195,9 @@ async function readDeviceIdentity(webOrigin, accessToken, deviceId) {
   return identityRequest.json;
 }
 
-async function issueSession(workerOrigin, webOrigin, accessToken, deviceId, devicePrivateKey) {
-  const deviceIdentity = await readDeviceIdentity(webOrigin, accessToken, deviceId);
-  const challengeRequest = await timedRequest(endpoint(webOrigin, `/api/auth/anonymous-sync/v2/challenge?device_id=${encodeURIComponent(deviceId)}`));
+async function issueSession(workerOrigin, webOrigin, accessToken, deviceId, devicePrivateKey, failureBundle) {
+  const deviceIdentity = await readDeviceIdentity(webOrigin, accessToken, deviceId, failureBundle);
+  const challengeRequest = await timedRequest(endpoint(webOrigin, `/api/auth/anonymous-sync/v2/challenge?device_id=${encodeURIComponent(deviceId)}`), {}, failureBundle);
   assert.equal(challengeRequest.response.status, 200);
   if (typeof challengeRequest.json?.nonce !== "string") throw new Error("device challenge response is invalid");
   const nonce = challengeRequest.json.nonce;
@@ -191,12 +209,13 @@ async function issueSession(workerOrigin, webOrigin, accessToken, deviceId, devi
       Authorization: `Bearer ${accessToken}`,
     },
     body: JSON.stringify({ device_id: deviceId, nonce, sig: nonceSignature }),
-  });
+  }, failureBundle);
   assert.equal(sessionRequest.response.status, 201);
   const session = sessionRequest.json;
   if (!UUID_PATTERN.test(session?.session_id ?? "") || typeof session?.binding !== "string" || typeof session?.device_challenge !== "string") {
     throw new Error("production attestation session response is invalid");
   }
+  recordSession(failureBundle, session);
   return {
     session,
     deviceIdentity,
@@ -211,7 +230,7 @@ async function issueSession(workerOrigin, webOrigin, accessToken, deviceId, devi
   };
 }
 
-async function verifyTlsn(workerOrigin, accessToken, session, deviceId, presentationBytes, possessionProof) {
+async function verifyTlsn(workerOrigin, accessToken, session, deviceId, presentationBytes, possessionProof, failureBundle) {
   return timedRequest(endpoint(workerOrigin, "/verify/tlsn"), {
     method: "POST",
     headers: {
@@ -225,7 +244,7 @@ async function verifyTlsn(workerOrigin, accessToken, session, deviceId, presenta
       device_id: deviceId,
       device_proof: { challenge: possessionProof.challenge, sig: possessionProof.sig },
     }),
-  });
+  }, failureBundle);
 }
 
 function item(requirement, status, detail, { artifactSha256 = null, authorityIdentity = "production-authority", verifierIdentity = "capture-harness" } = {}) {
@@ -260,8 +279,11 @@ async function main() {
   });
   let runError;
   let artifactBytes = {};
+  let failureStage = "initialization";
+  const failureBundle = createProductionEvidenceFailureBundle({ captureId, startedAt: now });
 
   try {
+    failureStage = "configuration";
     const workerOrigin = cleanOrigin("TLSN_PRODUCTION_EVIDENCE_WORKER_URL");
     const webOrigin = cleanOrigin("TLSN_PRODUCTION_EVIDENCE_WEB_ORIGIN");
     const supabaseOrigin = cleanOrigin("TLSN_PRODUCTION_EVIDENCE_SUPABASE_URL");
@@ -269,8 +291,11 @@ async function main() {
     const publishableKey = required("TLSN_PRODUCTION_EVIDENCE_SUPABASE_PUBLISHABLE_KEY");
     const deviceId = required("TLSN_PRODUCTION_EVIDENCE_DEVICE_ID");
     const devicePrivateKey = await loadPrivateKeyFromEnvironment();
+    failureStage = "presentation_capture";
     const productionPresentation = await readProductionPresentation();
     const { presentationBytes } = productionPresentation;
+    recordHash(failureBundle, "presentation", presentationBytes);
+    recordProvenance(failureBundle, productionPresentation.provenance);
     const proxyProvenancePin = optional("TLSN_PRODUCTION_PROXY_PROVENANCE_PIN_JSON")
       ? parseJsonEnvironment("TLSN_PRODUCTION_PROXY_PROVENANCE_PIN_JSON")
       : null;
@@ -285,8 +310,10 @@ async function main() {
     if (capturePredicateResults.proxy_provenance_cryptographic_authentication.status === "FAIL") {
       throw new Error("production proxy provenance verification did not pass");
     }
-    const health = await readHealth(workerOrigin);
-    const user = await readSupabaseUser(supabaseOrigin, publishableKey, accessToken);
+    failureStage = "worker_health";
+    const health = await readHealth(workerOrigin, failureBundle);
+    failureStage = "supabase_user";
+    const user = await readSupabaseUser(supabaseOrigin, publishableKey, accessToken, failureBundle);
     const registryRaw = required("TLSN_PRODUCTION_RESULT_SIGNING_KEY_REGISTRY");
     const registry = parseJsonEnvironment("TLSN_PRODUCTION_RESULT_SIGNING_KEY_REGISTRY");
     const sessionAuthorityRegistryRaw = required("TLSN_PRODUCTION_SESSION_AUTHORITY_KEY_REGISTRY");
@@ -332,7 +359,8 @@ async function main() {
       throw new Error("Worker Notary registry hash is not the supplied production registry");
     }
 
-    const issued = await issueSession(workerOrigin, webOrigin, accessToken, deviceId, devicePrivateKey);
+    failureStage = "session_issue";
+    const issued = await issueSession(workerOrigin, webOrigin, accessToken, deviceId, devicePrivateKey, failureBundle);
     const session = issued.session;
     verifyDeviceAuthentication(issued.authentication, issued.deviceIdentity, user.id, deviceId, session.session_id);
     verifySessionReceipt(
@@ -387,7 +415,11 @@ async function main() {
       session.binding,
       session.device_challenge,
     );
-    const verification = await verifyTlsn(workerOrigin, accessToken, session, deviceId, presentationBytes, possessionProof);
+    recordSession(failureBundle, session);
+    failureStage = "tlsn_verify";
+    const verification = await verifyTlsn(workerOrigin, accessToken, session, deviceId, presentationBytes, possessionProof, failureBundle);
+    recordHash(failureBundle, "result", Buffer.from(JSON.stringify(verification.json?.result ?? null)));
+    recordConsume(failureBundle, verification.json?.consume_receipt);
     if (verification.response.status !== 200 || verification.json?.verified !== true) {
       throw new Error(`production TLSN verification did not pass: ${verification.response.status}`);
     }
@@ -483,7 +515,8 @@ async function main() {
     };
     assertResultSubjectIdentity(result, subjectIdentity);
 
-    const replay = await verifyTlsn(workerOrigin, accessToken, session, deviceId, presentationBytes, possessionProof);
+    failureStage = "tlsn_replay";
+    const replay = await verifyTlsn(workerOrigin, accessToken, session, deviceId, presentationBytes, possessionProof, failureBundle);
     if (replay.response.status !== 409 || !["binding_consumed", "device_possession_replayed"].includes(replay.json?.error)) throw new Error("production replay was not rejected");
     const devicePredicateResults = verifyDevicePredicates({
       deviceIdentity: issued.deviceIdentity,
@@ -701,13 +734,25 @@ async function main() {
     };
   } catch (error) {
     runError = error instanceof Error ? error.message : String(error);
+    recordFailure(failureBundle, { stage: failureStage, error, finishedAt: new Date().toISOString() });
     manifest = {
       ...manifest,
       capture_finished_at: new Date().toISOString(),
+      capture_status: "FAILED",
+      verification_status: "FAILED",
       independent_verification: {
         ...manifest.independent_verification,
         verified_at: new Date().toISOString(),
         detail: runError,
+      },
+    };
+    const failureBundleBytes = Buffer.from(`${JSON.stringify(finalizeProductionEvidenceFailureBundle(failureBundle, manifest.capture_finished_at), null, 2)}\n`);
+    artifactBytes.failure_bundle = failureBundleBytes;
+    manifest.artifacts = {
+      ...(manifest.artifacts ?? {}),
+      failure_bundle: {
+        ...artifactDescriptor(failureBundleBytes, { mediaType: "application/json" }),
+        path: `${captureId}-failure-bundle.json`,
       },
     };
   }
@@ -735,6 +780,7 @@ async function main() {
     manifest_path: outputPath,
     signed: typeof manifest.manifest_signature_base64url === "string",
     capture_provenance: manifest.capture_provenance,
+    failure_bundle_path: manifest.artifacts?.failure_bundle?.path ?? null,
     error: runError ?? null,
   }));
   process.exitCode = runError || !manifest.manifest_signature_base64url ? 2 : 0;

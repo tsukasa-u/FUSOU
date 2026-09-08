@@ -43,6 +43,13 @@ import {
 } from "./device-evidence.mjs";
 import { BindingAuthority, EvidenceSigner, ResultSigner, SessionAuthority } from "./authority-signers.mjs";
 import { proxyProvenanceSigningPayload, verifyProductionProxyProvenance } from "./proxy-provenance.mjs";
+import {
+  createProductionEvidenceFailureBundle,
+  finalizeProductionEvidenceFailureBundle,
+  recordHealth,
+  recordHttpExchange,
+  recordProvenance,
+} from "./production-evidence-failure.mjs";
 
 const now = new Date();
 const nowIso = now.toISOString();
@@ -1050,5 +1057,25 @@ const verifierProcess = spawnSync(process.execPath, ["scripts/verify-production-
 });
 assert.equal(verifierProcess.status, 1, verifierProcess.stderr);
 assert.match(verifierProcess.stderr, /missing a required artifact|verifier-generated semantic artifact is required/);
+
+const failureBundle = createProductionEvidenceFailureBundle({ captureId: "failure-capture", startedAt: nowIso });
+recordHttpExchange(failureBundle, {
+  url: "https://worker.example.test/verify/tlsn?token=must-not-be-retained",
+  options: {
+    method: "POST",
+    headers: { Authorization: "Bearer request-secret", "Content-Type": "application/json" },
+    body: JSON.stringify({ binding: "binding-secret" }),
+  },
+  response: new Response(JSON.stringify({ access_token: "response-secret" }), { status: 200, headers: { "Content-Type": "application/json" } }),
+  responseBytes: Buffer.from(JSON.stringify({ access_token: "response-secret" })),
+});
+recordHealth(failureBundle, { deployment_identity: { deployment_id: "deployment-1" }, access_token: "health-secret" });
+recordProvenance(failureBundle, { proxy_provenance: { signature: "proxy-secret" }, capture_context: { token: "context-secret" } });
+const failureJson = JSON.stringify(finalizeProductionEvidenceFailureBundle(failureBundle, nowIso));
+assert.ok(!failureJson.includes("request-secret"), "failure bundle must omit request credentials");
+assert.ok(!failureJson.includes("response-secret"), "failure bundle must omit response credentials");
+assert.ok(!failureJson.includes("health-secret"), "failure bundle must omit health credentials");
+assert.ok(!failureJson.includes("proxy-secret"), "failure bundle must omit provenance signatures");
+assert.ok(!failureJson.includes("context-secret"), "failure bundle must omit provenance credentials");
 
 console.log("[tlsn-production-evidence] manifest, signer, artifact, freshness, identity, semantic, replay-block, synthetic, and result mutation matrix OK");

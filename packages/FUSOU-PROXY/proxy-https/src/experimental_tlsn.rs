@@ -535,6 +535,8 @@ pub enum VerificationError {
     BindingMismatch,
     PresentationUnavailable,
     PresentationInvalid,
+    PresentationExportUnavailable,
+    PresentationExportFailed,
 }
 
 impl std::fmt::Display for VerificationError {
@@ -547,6 +549,10 @@ impl std::fmt::Display for VerificationError {
             Self::BindingMismatch => "TLSN Presentation binding does not match the issued binding",
             Self::PresentationUnavailable => "TLSN Presentation is unavailable",
             Self::PresentationInvalid => "TLSN Presentation is invalid",
+            Self::PresentationExportUnavailable => {
+                "TLSN Presentation artifact export is unavailable"
+            }
+            Self::PresentationExportFailed => "TLSN Presentation artifact export failed",
         };
         formatter.write_str(message)
     }
