@@ -45,6 +45,17 @@ const packageDirectory = resolve(new URL("..", import.meta.url).pathname);
 const DEFAULT_SAMPLE_COUNT = 100;
 const DEFAULT_REPORT_PATH = resolve(packageDirectory, "artifacts/tlsn-remote-validation.json");
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+const PROVENANCE_FIELDS = [
+  "git_commit_sha",
+  "deployment_id",
+  "profile_sha256",
+  "verifier_key_id",
+  "notary_key_id",
+  "security_registry_set_sha256",
+  "notary_registry_sha256",
+  "result_public_key_spki",
+  "binding_mode",
+];
 
 function required(name) {
   const value = process.env[name]?.trim();
@@ -55,6 +66,25 @@ function required(name) {
 function optional(name) {
   const value = process.env[name]?.trim();
   return value || undefined;
+}
+
+async function loadExpectedProvenance() {
+  const file = required("TLSN_REMOTE_EXPECTED_PROVENANCE_JSON");
+  const parsed = JSON.parse(await readFile(file, "utf8"));
+  if (
+    parsed?.schema_version !== 1 ||
+    parsed?.scope !== "production-deployment-inputs" ||
+    parsed?.deployment_role !== "canary" ||
+    parsed?.environment !== "production"
+  ) {
+    throw new Error("remote validation requires a production canary provenance manifest");
+  }
+  for (const field of PROVENANCE_FIELDS) {
+    if (typeof parsed[field] !== "string" || parsed[field].length === 0) {
+      throw new Error(`remote validation provenance is missing ${field}`);
+    }
+  }
+  return parsed;
 }
 
 function parseInteger(name, fallback, minimum, maximum) {
@@ -437,6 +467,7 @@ async function scanLogExport(checks, secrets) {
 }
 
 async function main() {
+  const expectedProvenance = await loadExpectedProvenance();
   const workerOrigin = requireOrigin("TLSN_REMOTE_WORKER_URL");
   const benchmarkOrigin = optional("TLSN_REMOTE_SESSION_BENCHMARK_URL")
     ? requireOrigin("TLSN_REMOTE_SESSION_BENCHMARK_URL")
@@ -495,6 +526,18 @@ async function main() {
       raw_presentation_retained: false,
       raw_transcript_retained: false,
     },
+    production_evidence: "BLOCKED",
+    p0_05: "BLOCKED",
+    deployment_role: null,
+    git_commit_sha: null,
+    deployment_id: null,
+    profile_sha256: null,
+    verifier_key_id: null,
+    notary_key_id: null,
+    security_registry_set_sha256: null,
+    notary_registry_sha256: null,
+    result_public_key_spki: null,
+    binding_mode: null,
   };
   blocked(
     checks,
@@ -512,6 +555,17 @@ async function main() {
     assert.equal(response.status, 200);
     assert.equal(response.json?.ok, true);
     assert.equal(response.json?.verifier, "tlsn-alpha15-wasm");
+    assert.equal(response.json?.environment, expectedProvenance.environment);
+    assert.equal(response.json?.deployment_role, expectedProvenance.deployment_role);
+    assert.equal(response.json?.git_commit_sha, expectedProvenance.git_commit_sha);
+    assert.equal(response.json?.deployment_id, expectedProvenance.deployment_id);
+    assert.equal(response.json?.profile_sha256, expectedProvenance.profile_sha256);
+    assert.equal(response.json?.verifier_key_id, expectedProvenance.verifier_key_id);
+    assert.equal(response.json?.notary_key_id, expectedProvenance.notary_key_id);
+    assert.equal(response.json?.security_registry_set_sha256, expectedProvenance.security_registry_set_sha256);
+    assert.equal(response.json?.notary_registry_sha256, expectedProvenance.notary_registry_sha256);
+    assert.equal(response.json?.result_public_key_spki, expectedProvenance.result_public_key_spki);
+    assert.equal(response.json?.binding_mode, expectedProvenance.binding_mode);
     for (const [envName, field] of [
       ["TLSN_REMOTE_EXPECTED_ENVIRONMENT", "environment"],
       ["TLSN_REMOTE_EXPECTED_DEPLOYMENT_ID", "deployment_id"],
@@ -538,16 +592,32 @@ async function main() {
     }
     return {
       environment: response.json.environment,
+      deployment_role: response.json.deployment_role,
+      git_commit_sha: response.json.git_commit_sha,
       deployment_id: response.json.deployment_id,
       verifier_key_id: response.json.verifier_key_id,
+      notary_key_id: response.json.notary_key_id,
       profile_sha256: response.json.profile_sha256,
       security_registry_set_sha256: response.json.security_registry_set_sha256,
+      notary_registry_sha256: response.json.notary_registry_sha256,
       binding_mode: response.json.binding_mode,
       result_public_key_spki: response.json.result_public_key_spki ?? null,
       latency_ms: response.latencyMs,
       body_bytes: response.bodyBytes,
     };
   });
+  if (health) {
+    report.git_commit_sha = health.git_commit_sha;
+    report.deployment_role = health.deployment_role;
+    report.deployment_id = health.deployment_id;
+    report.profile_sha256 = health.profile_sha256;
+    report.verifier_key_id = health.verifier_key_id;
+    report.notary_key_id = health.notary_key_id;
+    report.security_registry_set_sha256 = health.security_registry_set_sha256;
+    report.notary_registry_sha256 = health.notary_registry_sha256;
+    report.result_public_key_spki = health.result_public_key_spki;
+    report.binding_mode = health.binding_mode;
+  }
 
   let authenticatedUserAId;
   const userA = await runCheck(checks, "remote_supabase_authentication", async () => {

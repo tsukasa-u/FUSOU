@@ -399,7 +399,7 @@ async function runRedirectRegressionTest() {
   }
   for (const mode of modes) {
     upstreamState.supabaseMode = "ok";
-    upstreamState.deviceMode = mode;
+    upstreamState.deviceMode = "ok";
     upstreamState.intendedRequests.length = 0;
     upstreamState.redirectRequests.length = 0;
     const worker = await localWorker({
@@ -417,6 +417,7 @@ async function runRedirectRegressionTest() {
         throw new Error(`TLSN ${mode} session expected 201, got ${sessionResponse.status}`);
       }
       const session = await sessionResponse.json();
+      upstreamState.deviceMode = mode;
       const deviceProof = {
         device_id: deviceId,
         session_id: session.session_id,
@@ -441,7 +442,7 @@ async function runRedirectRegressionTest() {
           session_id: session.session_id,
           binding: session.binding,
           device_id: deviceId,
-          device_proof: deviceProof,
+          device_proof: { challenge: deviceProof.challenge, sig: deviceProof.sig },
         }),
       });
       const expectedStatus = new Map([
@@ -471,6 +472,8 @@ async function runRedirectRegressionTest() {
 
 await runRedirectRegressionTest();
 
+upstreamState.deviceMode = "ok";
+upstreamState.supabaseMode = "ok";
 const worker = await localWorker({
   ...testVars,
 });
@@ -575,12 +578,14 @@ const productionTrustRootWorker = await unstable_dev(resolve(packageDirectory, "
   config: resolve(packageDirectory, "wrangler.toml"),
   vars: {
     TLSN_ENVIRONMENT: "production",
+    TLSN_DEPLOYMENT_ROLE: "production",
+    TLSN_GIT_COMMIT_SHA: "a".repeat(40),
     TLSN_BINDING_TTL_SECONDS: "60",
-    TLSN_PRODUCTION_SERVER_IDENTITY: "game.example.test",
+    TLSN_PRODUCTION_SERVER_IDENTITY: "game.example.com",
     TLSN_PRODUCTION_PROFILE_SHA256: Buffer.alloc(32).toString("base64url"),
-    TLSN_PRODUCTION_VERIFIER_KEY_ID: "worker-test",
-    TLSN_PRODUCTION_NOTARY_KEY_ID: "notary-test",
-    TLSN_PRODUCTION_NOTARY_REGISTRY: JSON.stringify({ "notary-test": syntheticFixture.notary_key_base64 }),
+    TLSN_PRODUCTION_VERIFIER_KEY_ID: "worker-prod",
+    TLSN_PRODUCTION_NOTARY_KEY_ID: "notary-prod",
+    TLSN_PRODUCTION_NOTARY_REGISTRY: JSON.stringify({ "notary-prod": syntheticFixture.notary_key_base64 }),
     TLSN_PRODUCTION_SIGNING_PRIVATE_KEY_PKCS8: signingPrivateKeyPkcs8,
     TLSN_PRODUCTION_TRUST_ROOT_CERTIFICATE_DER: syntheticFixture.root_certificate_base64,
     TLSN_DEPLOYMENT_ID: "local-production-test",
@@ -615,6 +620,8 @@ const invalidProductionEndpointWorker = await unstable_dev(resolve(packageDirect
   config: resolve(packageDirectory, "wrangler.toml"),
   vars: {
     TLSN_ENVIRONMENT: "production",
+    TLSN_DEPLOYMENT_ROLE: "production",
+    TLSN_GIT_COMMIT_SHA: "a".repeat(40),
     TLSN_BINDING_TTL_SECONDS: "60",
     TLSN_PRODUCTION_SERVER_IDENTITY: "game.example.test",
     TLSN_PRODUCTION_PROFILE_SHA256: Buffer.alloc(32).toString("base64url"),

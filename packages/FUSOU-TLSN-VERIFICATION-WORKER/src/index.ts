@@ -35,6 +35,9 @@ type Bindings = {
   TLSN_PRODUCTION_DEVICE_AUTH_ALLOWED_HOSTS?: string;
   TLSN_PRODUCTION_SUPABASE_ALLOWED_HOSTS?: string;
   TLSN_DEPLOYMENT_ID?: string;
+  TLSN_DEPLOYMENT_ROLE?: string;
+  TLSN_GIT_COMMIT_SHA?: string;
+  TLSN_CANARY_BINDING_VALUE?: string;
   TLSN_SECURITY_REGISTRY_SET_SHA256?: string;
   TLSN_RESULT_PUBLIC_KEY_SPKI?: string;
   TLSN_SUPABASE_URL?: string;
@@ -244,6 +247,19 @@ function readConfig(env: Bindings): VerifierConfig | null {
     if (production && env.TLSN_TEST_BINDING_VALUE) {
       return null;
     }
+    if (
+      production &&
+      (!/^(?:production|canary)$/.test(env.TLSN_DEPLOYMENT_ROLE ?? "") ||
+        !/^[0-9a-f]{40}$/i.test(env.TLSN_GIT_COMMIT_SHA ?? ""))
+    ) {
+      return null;
+    }
+    if (production && env.TLSN_DEPLOYMENT_ROLE === "canary" && !/^[A-Za-z0-9_-]{1,512}$/.test(env.TLSN_CANARY_BINDING_VALUE ?? "")) {
+      return null;
+    }
+    if (production && env.TLSN_DEPLOYMENT_ROLE === "production" && env.TLSN_CANARY_BINDING_VALUE) {
+      return null;
+    }
     if (production && env.TLSN_TEST_AUTH_USERS) {
       return null;
     }
@@ -395,7 +411,7 @@ async function authenticateRequest(
 
   try {
     const response = await fetch(`${supabaseUrl}/auth/v1/user`, {
-      redirect: "error",
+      redirect: "manual",
       headers: {
         apikey: publishableKey,
         Authorization: `Bearer ${token}`,
@@ -458,13 +474,16 @@ async function authenticateDeviceProof(
   try {
     const response = await fetch(endpoint, {
       method: "POST",
-      redirect: "error",
+      redirect: "manual",
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${subject.accessToken}`,
       },
       body: JSON.stringify(proof),
     });
+    if (response.status >= 300 && response.status < 400) {
+      return { ok: false, status: 503, error: "device_auth_unavailable" };
+    }
     const payload = (await response.json().catch(() => null)) as unknown;
     if (!response.ok) {
       const error = z.object({ error: z.string() }).safeParse(payload).data?.error;
@@ -516,13 +535,16 @@ async function authenticateTlsnDeviceProof(
   try {
     const response = await fetch(endpoint, {
       method: "POST",
-      redirect: "error",
+      redirect: "manual",
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${subject.accessToken}`,
       },
       body: JSON.stringify(proof),
     });
+    if (response.status >= 300 && response.status < 400) {
+      return { ok: false, status: 503, error: "device_possession_unavailable" };
+    }
     const payload = (await response.json().catch(() => null)) as unknown;
     if (!response.ok) {
       const error = z.object({ error: z.string() }).safeParse(payload).data?.error;
@@ -586,24 +608,45 @@ function bindingAuthorityStatus(error: unknown): BindingAuthorityHttpStatus {
   }
 }
 
-app.get("/health", (c) => {
+app.get("/health", async (c) => {
   const production = c.env.TLSN_ENVIRONMENT === "production";
   const verifierKeyId = production
     ? c.env.TLSN_PRODUCTION_VERIFIER_KEY_ID
     : c.env.TLSN_VERIFIER_KEY_ID;
+  const notaryKeyId = production
+    ? c.env.TLSN_PRODUCTION_NOTARY_KEY_ID
+    : c.env.TLSN_NOTARY_KEY_ID;
   const profileSha256 = production
     ? c.env.TLSN_PRODUCTION_PROFILE_SHA256
     : c.env.TLSN_PROFILE_SHA256;
+  const notaryRegistry = production
+    ? c.env.TLSN_PRODUCTION_NOTARY_REGISTRY
+    : c.env.TLSN_NOTARY_REGISTRY;
+  const notaryRegistrySha256 = notaryRegistry
+    ? encodeBase64Url(new Uint8Array(await crypto.subtle.digest(
+        "SHA-256",
+        new TextEncoder().encode(notaryRegistry),
+      )))
+    : null;
   return c.json({
     ok: true,
     verifier: "tlsn-alpha15-wasm",
     environment: c.env.TLSN_ENVIRONMENT,
+    deployment_role: c.env.TLSN_DEPLOYMENT_ROLE ?? (production ? "production" : "synthetic-test"),
+    git_commit_sha: c.env.TLSN_GIT_COMMIT_SHA ?? null,
     verifier_key_id: verifierKeyId ?? null,
+    notary_key_id: notaryKeyId ?? null,
     profile_sha256: profileSha256 ?? null,
     deployment_id: c.env.TLSN_DEPLOYMENT_ID ?? null,
     security_registry_set_sha256: c.env.TLSN_SECURITY_REGISTRY_SET_SHA256 ?? null,
+    notary_registry_sha256: notaryRegistrySha256,
     result_public_key_spki: c.env.TLSN_RESULT_PUBLIC_KEY_SPKI ?? null,
-    binding_mode: c.env.TLSN_TEST_BINDING_VALUE ? "fixed_test" : "random",
+    binding_mode:
+      production && c.env.TLSN_DEPLOYMENT_ROLE === "canary" && c.env.TLSN_CANARY_BINDING_VALUE
+        ? "fixed_canary"
+        : c.env.TLSN_TEST_BINDING_VALUE
+          ? "fixed_test"
+          : "random",
   });
 });
 
@@ -640,7 +683,11 @@ app.post("/attestation/session", async (c) => {
       config.bindingTtlSeconds,
       authentication.canonicalUserId,
       deviceAuthentication.deviceId,
-      c.env.TLSN_ENVIRONMENT === "test" ? c.env.TLSN_TEST_BINDING_VALUE : undefined,
+      c.env.TLSN_ENVIRONMENT === "test"
+        ? c.env.TLSN_TEST_BINDING_VALUE
+        : c.env.TLSN_DEPLOYMENT_ROLE === "canary"
+          ? c.env.TLSN_CANARY_BINDING_VALUE
+          : undefined,
     );
     c.header("Cache-Control", "no-store");
     return c.json({

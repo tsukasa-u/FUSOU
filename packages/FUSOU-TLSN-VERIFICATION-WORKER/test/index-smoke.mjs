@@ -155,10 +155,16 @@ export async function runSmokeTest(fetch, fixture, publicKeyDerBase64url, device
     ok: true,
     verifier: "tlsn-alpha15-wasm",
     environment: "test",
+    deployment_role: "synthetic-test",
+    git_commit_sha: null,
     verifier_key_id: "worker-test",
+    notary_key_id: "notary-test",
     profile_sha256: base64Url(Buffer.alloc(32)),
     deployment_id: null,
     security_registry_set_sha256: null,
+    notary_registry_sha256: base64Url(createHash("sha256").update(
+      JSON.stringify({ "notary-test": fixture.notary_key_base64 }),
+    ).digest()),
     result_public_key_spki: null,
     binding_mode: "fixed_test",
   });

@@ -11,6 +11,7 @@ const INPUT_MANIFEST_PATH = resolve(packageDirectory, "scripts/production-inputs
 const DNS_HOSTNAME_PATTERN = /^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/;
 const TEST_MARKER_PATTERN = /(?:^|[._-])(test|synthetic|fixture|local|staging)(?:$|[._-])/i;
 const BASE64URL_PATTERN = /^[A-Za-z0-9_-]+$/;
+const GIT_COMMIT_PATTERN = /^[0-9a-f]{40}$/i;
 
 function value(name) {
   return process.env[name]?.trim() || undefined;
@@ -90,6 +91,19 @@ async function main() {
     addFailure(failures, "TLSN_ENVIRONMENT", "must be exactly production");
   }
 
+  if (!new Set(["production", "canary"]).has(value("TLSN_DEPLOYMENT_ROLE"))) {
+    addFailure(failures, "TLSN_DEPLOYMENT_ROLE", "must be production or canary");
+  }
+  if (!GIT_COMMIT_PATTERN.test(value("TLSN_GIT_COMMIT_SHA") ?? "")) {
+    addFailure(failures, "TLSN_GIT_COMMIT_SHA", "must be a 40-character git commit SHA");
+  }
+  if (value("TLSN_DEPLOYMENT_ROLE") === "canary" && !/^[A-Za-z0-9_-]{1,512}$/.test(value("TLSN_CANARY_BINDING_VALUE") ?? "")) {
+    addFailure(failures, "TLSN_CANARY_BINDING_VALUE", "canary role requires a fixed synthetic binding value");
+  }
+  if (value("TLSN_DEPLOYMENT_ROLE") === "production" && process.env.TLSN_CANARY_BINDING_VALUE !== undefined) {
+    addFailure(failures, "TLSN_CANARY_BINDING_VALUE", "canary binding must not be present in production");
+  }
+
   for (const name of requiredProductionVariables) {
     if (!value(name)) addFailure(failures, name, "required value is missing");
   }
@@ -160,8 +174,9 @@ async function main() {
   requireBase64UrlLength(failures, "TLSN_RESULT_PUBLIC_KEY_SPKI", 59);
 
   let registry;
+  const registryRaw = value("TLSN_PRODUCTION_NOTARY_REGISTRY");
   try {
-    registry = JSON.parse(value("TLSN_PRODUCTION_NOTARY_REGISTRY") ?? "");
+    registry = JSON.parse(registryRaw ?? "");
   } catch {
     addFailure(failures, "TLSN_PRODUCTION_NOTARY_REGISTRY", "must be valid JSON");
   }
@@ -203,11 +218,16 @@ async function main() {
     generated_at: new Date().toISOString(),
     status: report.status,
     environment: "production",
+    deployment_role: value("TLSN_DEPLOYMENT_ROLE") ?? null,
+    git_commit_sha: value("TLSN_GIT_COMMIT_SHA") ?? null,
     deployment_id: value("TLSN_DEPLOYMENT_ID") ?? null,
     security_registry_set_sha256: value("TLSN_SECURITY_REGISTRY_SET_SHA256") ?? null,
     profile_sha256: value("TLSN_PRODUCTION_PROFILE_SHA256") ?? null,
     verifier_key_id: value("TLSN_PRODUCTION_VERIFIER_KEY_ID") ?? null,
     notary_key_id: value("TLSN_PRODUCTION_NOTARY_KEY_ID") ?? null,
+    notary_registry_sha256: registryRaw ? sha256Base64Url(registryRaw) : null,
+    binding_mode: value("TLSN_DEPLOYMENT_ROLE") === "canary" ? "fixed_canary" : "random",
+    result_public_key_spki: value("TLSN_RESULT_PUBLIC_KEY_SPKI") ?? null,
     result_public_key_spki_sha256: value("TLSN_RESULT_PUBLIC_KEY_SPKI")
       ? sha256Base64Url(value("TLSN_RESULT_PUBLIC_KEY_SPKI"))
       : null,

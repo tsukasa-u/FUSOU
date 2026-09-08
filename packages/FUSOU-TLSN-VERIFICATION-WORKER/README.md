@@ -64,7 +64,7 @@ pnpm run preflight:production
 
 `scripts/production-inputs.json` is the explicit production input contract and the deploy wrapper's allowlist. The preflight checks required production variables, clean HTTPS URLs and exact FUSOU-WEB paths, DNS allowlists, profile/security digests, Notary registry membership, result-key publication, and the absence of test fixtures, service-role keys, and device-private-key variables. It writes only non-secret failure metadata to `artifacts/tlsn-deployment-preflight.json` or `TLSN_PREFLIGHT_REPORT_PATH`, plus `artifacts/tlsn-production-provenance.json` or `TLSN_PROVENANCE_REPORT_PATH`; it never prints configuration values.
 
-Use `pnpm run deploy:production` for the guarded deploy entry point. It runs the preflight first, injects non-secret manifest inputs through Wrangler `--var`, and uploads only the signing key through a temporary mode-600 secrets file. Wrangler authentication remains CLI-only; a failed preflight cannot deploy.
+Use `pnpm run deploy:production` for the guarded deploy entry point. It runs the preflight, captures the previous production identity, runs remote validation against the canary, verifies the fresh report, deploys only after that gate passes, and performs post-deploy identity and unauthenticated smoke checks. It injects non-secret manifest inputs through Wrangler `--var` and uploads the signing key and trust root through a temporary mode-600 secrets file. Wrangler authentication remains CLI-only; a failed prerequisite cannot deploy.
 
 ## Remote validation
 
@@ -87,4 +87,4 @@ pnpm run validate:remote
 ```
 
 Status: authenticated user ownership `PASS`; authenticated device ownership `PASS`; current device possession proof `PASS, local synthetic scope`; TLSN/device cryptographic binding `PASS, local synthetic scope`; replay/expiry `PASS`; production evidence `BLOCKED`; `P0-05` `BLOCKED`. The remote report always records `production_evidence` and `p0_05` as `BLOCKED`, even when every synthetic check passes. The production trust contract is not complete until the deployed FUSOU-WEB endpoints, production device registry/revocation behavior, production trust material, a Notary key registry, replay/session authority, result-key publication and rotation, and performance evidence are exercised remotely. The test Worker and synthetic evidence do not satisfy that contract.
-The manual GitHub Actions deployment workflow can set `TLSN_REMOTE_ALLOW_DECLARED_BLOCKED=true` so those two invariant blocks do not prevent deployment after the synthetic checks pass; it does not clear either evidence status.
+The guarded production wrapper sets `TLSN_REMOTE_ALLOW_DECLARED_BLOCKED=true` internally so the two declared evidence blocks do not prevent deployment after the synthetic checks pass; callers cannot use that setting to skip synthetic validation, and neither evidence status is cleared.
