@@ -14,7 +14,7 @@
  *   node scripts/seed-local-ship-growth-data.mjs --db <database_name> --no-r2
  */
 
-import { execFileSync } from "node:child_process";
+import { execFileSync, execSync } from "node:child_process";
 import { existsSync, mkdirSync, writeFileSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 
@@ -75,6 +75,7 @@ async function getCloudflareAuth() {
       const out = execFileSync(WRANGLER_BIN, ["whoami"], {
         encoding: "utf8",
         stdio: ["pipe", "pipe", "pipe"],
+    shell: true,
       });
       // Table format: │ Account Name │ Account ID │
       const m = out.match(/[│|]\s*([a-f0-9]{32})\s*[│|]/i);
@@ -192,22 +193,30 @@ async function syncR2Archive(remoteBucketName, localBucketName, archivePrefix, w
   console.log(`R2 archive sync complete: ${synced} synced, ${skipped} skipped.`);
 }
 
+function quoteForCommand(cmd) {
+  return cmd.replace(/"/g, '\\\"');
+}
+
 function runWrangler(dbName, mode, commandOrFile) {
-  const base = [WRANGLER_BIN, "d1", "execute", dbName, mode, "--json"];
+  let cmd = `npx wrangler d1 execute ${dbName} ${mode} --json`;
   if (commandOrFile.command) {
-    base.push("--command", commandOrFile.command);
+    cmd += ` --command "${quoteForCommand(commandOrFile.command)}"`;
   } else if (commandOrFile.file) {
-    base.push("--file", commandOrFile.file);
+    cmd += ` --file "${commandOrFile.file}"`;
   } else {
     throw new Error("commandOrFile must include command or file");
   }
 
-  const command = base[0];
-  const args = base.slice(1);
-  const stdout = execFileSync(command, args, {
+  const stdout = execSync(cmd, {
     encoding: "utf8",
     stdio: ["pipe", "pipe", "pipe"],
   });
+
+  const jsonStart = stdout.indexOf("[");
+  const jsonEnd = stdout.lastIndexOf("]");
+  if (jsonStart !== -1 && jsonEnd !== -1 && jsonEnd > jsonStart) {
+    return JSON.parse(stdout.slice(jsonStart, jsonEnd + 1));
+  }
   return JSON.parse(stdout);
 }
 

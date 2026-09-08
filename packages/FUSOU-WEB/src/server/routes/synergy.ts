@@ -400,7 +400,14 @@ app.get("/synergy-data", async (c) => {
     });
   } catch (error) {
     const msg = String(error);
-    if (envCtx.isDev && msg.includes("no such table: synergy_manifest")) {
+    if (
+      envCtx.isDev &&
+      (msg.includes("no such table: synergy_manifest") ||
+        msg.includes("no such column") ||
+        msg.includes("D1_ERROR") ||
+        msg.includes("SQLITE_ERROR"))
+    ) {
+      console.warn("[Synergy] Dev fallback due to database schema issue:", msg);
       return c.json(EMPTY_SYNERGY_DATA, 200, {
         "Cache-Control": "public, max-age=300",
         "X-FUSOU-Synergy-Source": "dev-fallback",

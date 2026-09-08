@@ -480,10 +480,17 @@ async function fetchBattleEnvBundleInternal(
 async function fetchWeaponIconFramesDirect(
   c: Context<{ Bindings: Bindings }>,
 ): Promise<Record<string, unknown>> {
-  const bucket = createEnvContext(c).runtime["ASSET_SYNC_BUCKET"];
+  const envCtx = createEnvContext(c);
+  const bucket = envCtx.runtime["ASSET_SYNC_BUCKET"];
   if (!bucket) throw new Error("Asset storage not configured");
   const r2Object = await bucket.get("assets/kcs2/img/common/common_icon_weapon.json");
-  if (!r2Object) throw new Error("Sprite atlas not found");
+  if (!r2Object) {
+    if (envCtx.isDev) {
+      console.warn("[battle-data] Sprite atlas 'assets/kcs2/img/common/common_icon_weapon.json' not found in ASSET_SYNC_BUCKET; returning empty frames in dev mode");
+      return {};
+    }
+    throw new Error("Sprite atlas not found");
+  }
   const atlasRaw = new Uint8Array(await r2Object.arrayBuffer());
   try {
     return parseJsonObjectText(new TextDecoder().decode(atlasRaw));

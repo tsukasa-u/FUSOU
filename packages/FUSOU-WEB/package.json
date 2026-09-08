@@ -4,6 +4,7 @@
   "version": "0.5.0",
   "scripts": {
     "dev": "CLOUDFLARE_INCLUDE_PROCESS_ENV=true dotenvx run -fk ../.env.keys -f .env --verbose --overload -- astro dev",
+    "dev:windows": "set CLOUDFLARE_INCLUDE_PROCESS_ENV=true&& dotenvx run -fk ../.env.keys -f .env --verbose --overload -- astro dev",
     "dev:workers": "CLOUDFLARE_INCLUDE_PROCESS_ENV=true dotenvx run -fk ../.env.keys -f .env --verbose --overload -- wrangler dev",
     "setup:rust-env": "node scripts/setup-rust-env.mjs",
     "build:avro-wasm": "node scripts/build-avro-wasm.mjs all",

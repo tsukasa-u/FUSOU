@@ -63,11 +63,13 @@ const SINGLE_FILE_ASSETS = {
     srcPath: "kcs2/img/common/common_icon_weapon.png",
     r2Key: "assets/kcs2/img/common/common_icon_weapon.png",
     contentType: "image/png",
+    dated: true,
   },
   weapon_icon_json: {
     srcPath: "kcs2/img/common/common_icon_weapon.json",
     r2Key: "assets/kcs2/img/common/common_icon_weapon.json",
     contentType: "application/json",
+    dated: true,
   },
   ship_type_icon_png: {
     srcPath: "kcs2/img/port/port_ships.png",
@@ -78,6 +80,18 @@ const SINGLE_FILE_ASSETS = {
   ship_type_icon_json: {
     srcPath: "kcs2/img/port/port_ships.json",
     r2Key: "assets/kcs2/img/port/port_ships.json",
+    contentType: "application/json",
+    dated: true,
+  },
+  organize_ship_png: {
+    srcPath: "kcs2/img/organize/organize_ship.png",
+    r2Key: "assets/kcs2/img/organize/organize_ship.png",
+    contentType: "image/png",
+    dated: true,
+  },
+  organize_ship_json: {
+    srcPath: "kcs2/img/organize/organize_ship.json",
+    r2Key: "assets/kcs2/img/organize/organize_ship.json",
     contentType: "application/json",
     dated: true,
   },
@@ -150,6 +164,11 @@ async function seedSingleFile(type, config) {
   try {
     run(
       `npx wrangler r2 object put ${ASSET_BUCKET}/${r2Key} --file "${filePath}" --content-type "${contentType}"`,
+    );
+    const escapedKey = r2Key.replace(/'/g, "''");
+    const now = Math.floor(Date.now() / 1000);
+    runQuiet(
+      `npx wrangler d1 execute ${ASSET_DB} --command "INSERT OR IGNORE INTO files (key, size, content_type, uploaded_at, uploader_id) VALUES ('${escapedKey}', 0, '${contentType}', ${now}, 'local-seed');"`,
     );
     console.log(" OK");
     return 1;
