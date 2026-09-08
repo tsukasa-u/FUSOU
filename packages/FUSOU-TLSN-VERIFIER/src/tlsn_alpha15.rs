@@ -94,6 +94,7 @@ struct AuthenticatedDirection {
 pub struct AuthenticatedTranscript {
     server_identity: String,
     attestation_id: [u8; MAX_ATTESTATION_ID_BYTES],
+    notary_key_sha256: [u8; 32],
     sent: AuthenticatedDirection,
     received: AuthenticatedDirection,
 }
@@ -158,6 +159,7 @@ impl AuthenticatedRequireInfo {
 pub(crate) struct Alpha15VerifiedOutput {
     pub(crate) server_identity: String,
     pub(crate) attestation_id: [u8; MAX_ATTESTATION_ID_BYTES],
+    pub(crate) notary_key_sha256: [u8; 32],
     pub(crate) sent_transcript: Vec<u8>,
     pub(crate) sent_digest: [u8; 32],
     pub(crate) sent_ranges: Vec<RevealedRange>,
@@ -188,6 +190,7 @@ impl AuthenticatedTranscript {
         Ok(Self {
             server_identity: output.server_identity,
             attestation_id: output.attestation_id,
+            notary_key_sha256: output.notary_key_sha256,
             sent: AuthenticatedDirection {
                 transcript: output.sent_transcript,
                 digest: output.sent_digest,
@@ -207,6 +210,10 @@ impl AuthenticatedTranscript {
 
     pub fn attestation_id(&self) -> &[u8; MAX_ATTESTATION_ID_BYTES] {
         &self.attestation_id
+    }
+
+    pub fn notary_key_sha256(&self) -> &[u8; 32] {
+        &self.notary_key_sha256
     }
 
     pub fn request_transcript_sha256(&self) -> &[u8; 32] {
@@ -314,12 +321,11 @@ pub(crate) fn verify_alpha15_presentation_with_provider_and_notary_key(
             "trailing Presentation bytes".to_owned(),
         ));
     }
+    let serialized_notary_key = bincode::serialize(presentation.verifying_key())
+        .map_err(|error| Alpha15AdapterError::PresentationDecode(error.to_string()))?;
+    let notary_key_sha256 = sha256(&serialized_notary_key);
     if let Some(trusted_notary_key) = trusted_notary_key {
-        if trusted_notary_key.is_empty()
-            || bincode::serialize(presentation.verifying_key())
-                .map(|key| key != trusted_notary_key)
-                .unwrap_or(true)
-        {
+        if trusted_notary_key.is_empty() || serialized_notary_key != trusted_notary_key {
             return Err(Alpha15AdapterError::NotaryKeyNotAllowlisted);
         }
     }
@@ -348,6 +354,7 @@ pub(crate) fn verify_alpha15_presentation_with_provider_and_notary_key(
     AuthenticatedTranscript::from_verified_alpha15(Alpha15VerifiedOutput {
         server_identity,
         attestation_id: output.attestation.header.id.0,
+        notary_key_sha256,
         sent_digest: sha256(&sent_transcript),
         sent_ranges,
         sent_transcript,
@@ -412,6 +419,7 @@ mod tests {
         Alpha15VerifiedOutput {
             server_identity: "game.example.test".to_owned(),
             attestation_id: [0x11_u8; MAX_ATTESTATION_ID_BYTES],
+            notary_key_sha256: [0x12_u8; 32],
             sent_digest: sha256(&request),
             sent_ranges: vec![RevealedRange {
                 start: 0,

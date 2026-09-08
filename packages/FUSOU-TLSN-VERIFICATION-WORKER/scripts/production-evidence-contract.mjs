@@ -12,7 +12,59 @@ export const PRODUCTION_EVIDENCE_SEMANTIC_PREDICATES = [
   "require_info_http_profile",
   "authenticated_member_id",
   "result_presentation_binding",
+  "result_signature",
 ];
+export const PRODUCTION_EVIDENCE_SEMANTIC_PREDICATE_DEFINITIONS = {
+  presentation_cryptography: {
+    required_artifacts: ["presentation"],
+    required_fields: ["presentation_sha256", "tlsn_attestation_id"],
+    verification_method: "alpha15 Presentation::verify with complete authenticated transcript disclosure",
+    authority_identity: "tlsn-alpha15-verifier",
+    derived_fields: ["presentation_sha256", "tlsn_attestation_id", "request_transcript_sha256", "response_transcript_sha256"],
+  },
+  notary_identity: {
+    required_artifacts: ["presentation", "health", "notary_registry"],
+    required_fields: ["notary_key_id", "notary_key_sha256"],
+    verification_method: "Presentation verifying key fingerprint equals the trusted Notary registry entry",
+    authority_identity: "tlsn-alpha15-presentation-notary-key",
+    derived_fields: ["notary_key_sha256", "notary_key_id"],
+  },
+  server_identity: {
+    required_artifacts: ["presentation", "health"],
+    required_fields: ["server_identity"],
+    verification_method: "alpha15 verified server_name equals the trusted production server identity",
+    authority_identity: "tlsn-alpha15-presentation-server-identity",
+    derived_fields: ["server_identity"],
+  },
+  require_info_http_profile: {
+    required_artifacts: ["presentation"],
+    required_fields: ["profile_id", "profile_sha256", "http_profile", "request_transcript_sha256", "response_transcript_sha256"],
+    verification_method: "strict parser over alpha15 authenticated request and response transcript bytes",
+    authority_identity: "fusou-require-info-v1",
+    derived_fields: ["server_identity", "request_transcript_sha256", "response_transcript_sha256"],
+  },
+  authenticated_member_id: {
+    required_artifacts: ["presentation"],
+    required_fields: ["verified_member_id", "response_transcript_sha256"],
+    verification_method: "api_member_id derived from the alpha15 authenticated response transcript",
+    authority_identity: "fusou-require-info-v1-response-parser",
+    derived_fields: ["verified_member_id", "response_transcript_sha256"],
+  },
+  result_presentation_binding: {
+    required_artifacts: ["presentation", "result"],
+    required_fields: ["tlsn_attestation_id", "verified_member_id", "binding_value"],
+    verification_method: "independent Presentation-derived Result fields equal the Worker Result payload",
+    authority_identity: "offline-production-evidence-verifier",
+    derived_fields: ["verified_member_id", "tlsn_attestation_id", "server_identity", "request_transcript_sha256", "response_transcript_sha256"],
+  },
+  result_signature: {
+    required_artifacts: ["result", "result_registry"],
+    required_fields: ["signature", "result_signer_key_id", "result_key_registry_sha256"],
+    verification_method: "Worker Result signature verifies against the trusted result-key registry",
+    authority_identity: "production-result-signing-key-registry",
+    derived_fields: ["result_signature_valid", "result_signer_key_id"],
+  },
+};
 export const PRODUCTION_EVIDENCE_REQUIREMENTS = [
   "real_production_game_server_connection",
   "real_production_tlsn_notary_interaction",
@@ -76,6 +128,26 @@ export const PRODUCTION_EVIDENCE_ITEM_DEFINITIONS = {
     required_fields: ["presentation_sha256", "tlsn_attestation_id", "verified_member_id"],
     verification_method: "capture harness independently verifies Presentation semantics and signed Result binding",
   },
+};
+export const PRODUCTION_EVIDENCE_REQUIREMENT_PREDICATES = {
+  real_production_game_server_connection: ["presentation_cryptography", "server_identity", "require_info_http_profile"],
+  real_production_tlsn_notary_interaction: ["presentation_cryptography", "notary_identity"],
+  real_production_fusou_web_device_authentication: [],
+  real_production_device_possession_proof: [],
+  real_production_replay_authority: [],
+  real_production_binding_authority: [],
+  real_production_verifier_trust_root: [],
+  real_production_result_signing_key: ["result_signature"],
+  real_production_public_key_publication: ["result_signature"],
+  independently_captured_production_evidence: [
+    "presentation_cryptography",
+    "notary_identity",
+    "server_identity",
+    "require_info_http_profile",
+    "authenticated_member_id",
+    "result_presentation_binding",
+    "result_signature",
+  ],
 };
 export const PRODUCTION_EVIDENCE_DOMAINS = {
   game_server: [
@@ -211,11 +283,12 @@ export function blockedProductionEvidenceManifest({
     semantic_predicates: Object.fromEntries(PRODUCTION_EVIDENCE_SEMANTIC_PREDICATES.map((predicate) => [
       predicate,
       {
+        ...PRODUCTION_EVIDENCE_SEMANTIC_PREDICATE_DEFINITIONS[predicate],
         status: "UNVERIFIED",
-        required_artifacts: ["presentation"],
-        required_fields: [],
-        verification_method: "independent alpha15 semantic verification",
-        authority_identity: "production-authority-unverified",
+        evidence_artifacts: [],
+        verified_at: now,
+        detail: "semantic predicate has not been independently verified",
+        observed: {},
       },
     ])),
     semantic_verification: null,
@@ -275,6 +348,13 @@ export function assertProductionEvidenceManifest(manifest) {
     }
     if (!Array.isArray(item.required_artifacts) || !Array.isArray(item.required_fields)) {
       throw new Error(`semantic evidence predicate schema is invalid: ${predicate}`);
+    }
+    if (!Array.isArray(item.evidence_artifacts) || !Array.isArray(item.derived_fields)) {
+      throw new Error(`semantic evidence predicate result schema is invalid: ${predicate}`);
+    }
+    assertTimestamp(item.verified_at, "semantic predicate verified_at");
+    if (typeof item.detail !== "string" || item.detail.length > 1024 || !item.observed || typeof item.observed !== "object") {
+      throw new Error(`semantic evidence predicate observation is invalid: ${predicate}`);
     }
     assertIdentity(item.verification_method, "semantic verification_method");
     assertIdentity(item.authority_identity, "semantic authority_identity");

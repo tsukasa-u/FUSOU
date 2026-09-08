@@ -25,6 +25,7 @@ import {
   assertSemanticResultMatches,
   assertSemanticVerificationArtifact,
   createSemanticVerificationArtifact,
+  verifySemanticPredicates,
   verifyProductionPresentation,
 } from "./production-evidence-semantic.mjs";
 
@@ -69,6 +70,26 @@ const resultKeyRegistry = {
     not_after: null,
   }],
 };
+const sessionId = "123e4567-e89b-42d3-a456-426614174000";
+const bindingNonce = Buffer.alloc(32, 3);
+const bindingValue = Buffer.concat([
+  Buffer.from("FUSOU-ATTESTATION-BINDING-V1\0"),
+  Buffer.from([0, 16]),
+  Buffer.from(sessionId.replaceAll("-", ""), "hex"),
+  Buffer.from([0, 32]),
+  bindingNonce,
+]).toString("base64url");
+const requestTranscript = Buffer.from(
+  `POST /kcsapi/api_get_member/require_info HTTP/1.1\r\nHost: game.example.com\r\nX-Attestation-Binding: ${bindingValue}\r\nContent-Length: 0\r\n\r\n`,
+);
+const responseBody = Buffer.from("svdata={\"api_result\":1,\"api_data\":{\"api_basic\":{\"api_member_id\":16189463}}}");
+const responseTranscript = Buffer.concat([
+  Buffer.from(`HTTP/1.1 200 OK\r\nContent-Length: ${responseBody.length}\r\n\r\n`),
+  responseBody,
+]);
+function rangeFor(bytes) {
+  return [{ start: "0", length: String(bytes.length), bytes: bytes.toString("base64url") }];
+}
 const result = {
   version: 1,
   profile_id: "fusou-require-info-v1",
@@ -79,19 +100,19 @@ const result = {
   device_id: "22222222-2222-4222-8222-222222222222",
   device_challenge: Buffer.alloc(32, 2).toString("base64url"),
   verified_member_id: "16189463",
-  attestation_session_id: "123e4567-e89b-42d3-a456-426614174000",
-  binding_nonce: Buffer.alloc(32, 3).toString("base64url"),
-  binding_value: "binding-value",
+  attestation_session_id: sessionId,
+  binding_nonce: bindingNonce.toString("base64url"),
+  binding_value: bindingValue,
   verifier_key_id: "verifier-2026",
   notary_key_id: "notary-2026",
   tlsn_attestation_id: Buffer.alloc(16, 4).toString("base64url"),
   server_identity: "game.example.com",
-  request_transcript_size: "7",
-  request_transcript_sha256: Buffer.alloc(32, 5).toString("base64url"),
-  revealed_request_ranges: [{ start: "0", length: "7", bytes: Buffer.from("request").toString("base64url") }],
-  response_transcript_size: "8",
-  response_transcript_sha256: Buffer.alloc(32, 6).toString("base64url"),
-  revealed_response_ranges: [{ start: "0", length: "8", bytes: Buffer.from("response").toString("base64url") }],
+  request_transcript_size: String(requestTranscript.length),
+  request_transcript_sha256: sha256Base64Url(requestTranscript),
+  revealed_request_ranges: rangeFor(requestTranscript),
+  response_transcript_size: String(responseTranscript.length),
+  response_transcript_sha256: sha256Base64Url(responseTranscript),
+  revealed_response_ranges: rangeFor(responseTranscript),
 };
 result.signature = sign(null, resultSigningBytes(result), resultPrivateKey).toString("base64url");
 const subjectIdentity = {
@@ -163,22 +184,174 @@ assertSignedResult(result, {
 assertResultSubjectIdentity(result, subjectIdentity);
 
 const { signature: ignoredSignature, ...unsignedTestResult } = result;
+const notaryKey = Buffer.alloc(32, 7);
 const semanticVerification = {
   result: unsignedTestResult,
-  notary_key_sha256: Buffer.alloc(32, 7).toString("base64url"),
+  presentation_sha256: sha256Base64Url(presentationBytes),
+  verified_presentation: {
+    server_identity: result.server_identity,
+    tlsn_attestation_id: result.tlsn_attestation_id,
+    notary_key_sha256: sha256Base64Url(notaryKey),
+    request_transcript_size: result.request_transcript_size,
+    request_transcript_sha256: result.request_transcript_sha256,
+    revealed_request_ranges: result.revealed_request_ranges,
+    response_transcript_size: result.response_transcript_size,
+    response_transcript_sha256: result.response_transcript_sha256,
+    revealed_response_ranges: result.revealed_response_ranges,
+  },
+  notary_key_sha256: sha256Base64Url(notaryKey),
 };
+const trustedInputs = {
+  server_identity: result.server_identity,
+  profile_id: result.profile_id,
+  profile_sha256: result.profile_sha256,
+  verifier_key_id: result.verifier_key_id,
+  notary_key_id: result.notary_key_id,
+  notary_key_sha256: sha256Base64Url(notaryKey),
+  trust_root_certificate_sha256: deploymentIdentity.trust_root_certificate_sha256,
+  result_public_key_spki: resultPublicKeySpki,
+  result_signer_key_id: "result-2026",
+  result_key_registry_sha256: "E".repeat(43),
+};
+const notaryRegistry = { [result.notary_key_id]: notaryKey.toString("base64url") };
+const predicateResults = verifySemanticPredicates({
+  presentationBytes,
+  semanticVerification,
+  result,
+  trustedInputs,
+  notaryRegistry,
+  resultRegistry: resultKeyRegistry,
+  resultPublicKeySpki,
+  resultSignerKeyId: "result-2026",
+  verifiedAt: nowIso,
+});
+assert.ok(Object.values(predicateResults).every((predicate) => predicate.status === "PASS"), JSON.stringify(predicateResults));
+const predicateContext = {
+  presentationBytes,
+  result,
+  trustedInputs,
+  notaryRegistry,
+  resultRegistry: resultKeyRegistry,
+  resultPublicKeySpki,
+  resultSignerKeyId: "result-2026",
+  verifiedAt: nowIso,
+};
+function predicateMutation(overrides) {
+  return verifySemanticPredicates({
+    ...predicateContext,
+    semanticVerification,
+    ...overrides,
+  });
+}
+function semanticWithTranscripts({ request = requestTranscript, response = responseTranscript, updateResult = true } = {}) {
+  const mutated = structuredClone(semanticVerification);
+  mutated.verified_presentation.revealed_request_ranges = rangeFor(request);
+  mutated.verified_presentation.request_transcript_size = String(request.length);
+  mutated.verified_presentation.request_transcript_sha256 = sha256Base64Url(request);
+  mutated.verified_presentation.revealed_response_ranges = rangeFor(response);
+  mutated.verified_presentation.response_transcript_size = String(response.length);
+  mutated.verified_presentation.response_transcript_sha256 = sha256Base64Url(response);
+  if (updateResult) {
+    mutated.result.revealed_request_ranges = rangeFor(request);
+    mutated.result.request_transcript_size = String(request.length);
+    mutated.result.request_transcript_sha256 = sha256Base64Url(request);
+    mutated.result.revealed_response_ranges = rangeFor(response);
+    mutated.result.response_transcript_size = String(response.length);
+    mutated.result.response_transcript_sha256 = sha256Base64Url(response);
+  }
+  return mutated;
+}
+function assertPredicateFailed(label, predicates, predicateNames) {
+  for (const name of predicateNames) assert.equal(predicates[name].status, "FAIL", `${label}: ${name}`);
+}
+const mutatedResponse = Buffer.from(responseTranscript.toString("utf8").replace("16189463", "26189463"));
+const memberMutation = predicateMutation({
+  semanticVerification: semanticWithTranscripts({ response: mutatedResponse }),
+});
+assertPredicateFailed("authenticated member response mutation", memberMutation, ["authenticated_member_id", "result_presentation_binding"]);
+const methodMutation = predicateMutation({
+  semanticVerification: semanticWithTranscripts({
+    request: Buffer.from(requestTranscript.toString("utf8").replace("POST ", "GET  ")),
+  }),
+});
+assertPredicateFailed("HTTP method mutation", methodMutation, ["require_info_http_profile"]);
+const pathMutation = predicateMutation({
+  semanticVerification: semanticWithTranscripts({
+    request: Buffer.from(requestTranscript.toString("utf8").replace("/kcsapi/api_get_member/require_info", "/kcsapi/api_get_member/other_info")),
+  }),
+});
+assertPredicateFailed("HTTP path mutation", pathMutation, ["require_info_http_profile"]);
+const versionMutation = predicateMutation({
+  semanticVerification: semanticWithTranscripts({
+    request: Buffer.from(requestTranscript.toString("utf8").replace("HTTP/1.1", "HTTP/1.0")),
+  }),
+});
+assertPredicateFailed("HTTP version mutation", versionMutation, ["require_info_http_profile"]);
+const statusMutation = predicateMutation({
+  semanticVerification: semanticWithTranscripts({
+    response: Buffer.from(responseTranscript.toString("utf8").replace("HTTP/1.1 200 OK", "HTTP/1.1 500 OK")),
+  }),
+});
+assertPredicateFailed("HTTP status mutation", statusMutation, ["require_info_http_profile"]);
+assertPredicateFailed("Notary registry substitution", predicateMutation({
+  notaryRegistry: { [result.notary_key_id]: Buffer.alloc(32, 8).toString("base64url") },
+}), ["notary_identity"]);
+assertPredicateFailed("Notary key ID substitution", predicateMutation({
+  trustedInputs: { ...trustedInputs, notary_key_id: "notary-other" },
+  notaryRegistry: { "notary-other": notaryKey.toString("base64url") },
+}), ["notary_identity"]);
+assertPredicateFailed("server identity substitution", predicateMutation({
+  trustedInputs: { ...trustedInputs, server_identity: "other.example.com" },
+}), ["server_identity", "require_info_http_profile"]);
+assertPredicateFailed("profile substitution", predicateMutation({
+  trustedInputs: { ...trustedInputs, profile_sha256: Buffer.alloc(32, 9).toString("base64url") },
+}), ["require_info_http_profile"]);
+assertPredicateFailed("verifier key ID substitution", predicateMutation({
+  trustedInputs: { ...trustedInputs, verifier_key_id: "verifier-other" },
+}), ["require_info_http_profile"]);
+assertPredicateFailed("Worker Result member mutation", predicateMutation({
+  result: { ...result, verified_member_id: "26189463" },
+}), ["result_presentation_binding", "result_signature"]);
+assertPredicateFailed("Worker Result transcript mutation", predicateMutation({
+  result: { ...result, response_transcript_sha256: sha256Base64Url(Buffer.from("other-response")) },
+}), ["result_presentation_binding", "result_signature"]);
+assertPredicateFailed("Worker Result session mutation", predicateMutation({
+  result: { ...result, attestation_session_id: "423e4567-e89b-42d3-a456-426614174000" },
+}), ["result_presentation_binding", "result_signature"]);
+assertPredicateFailed("Worker Result binding mutation", predicateMutation({
+  result: { ...result, binding_value: "other-binding" },
+}), ["result_presentation_binding", "result_signature"]);
+assertPredicateFailed("unrelated Result and Presentation pair", predicateMutation({
+  result: { ...result, tlsn_attestation_id: Buffer.alloc(16, 9).toString("base64url") },
+}), ["result_presentation_binding", "result_signature"]);
+assertPredicateFailed("result registry substitution", predicateMutation({
+  resultRegistry: { ...resultKeyRegistry, keys: [{ ...resultKeyRegistry.keys[0], key_id: "result-other" }] },
+}), ["result_signature"]);
+const fixtureMetadata = {
+  expected_member_id: result.verified_member_id,
+  capture_provenance: "production",
+  synthetic: false,
+};
+const substitutedFixtureMetadata = { ...fixtureMetadata, expected_member_id: "26189463", capture_provenance: "synthetic", synthetic: true };
 const semanticArtifact = createSemanticVerificationArtifact({
   presentationBytes,
   semanticVerification,
   result,
+  predicateResults,
+  trustedInputs,
   verifierIdentity: "semantic-test-verifier",
   verifiedAt: nowIso,
 });
+assert.equal(semanticArtifact.derived_from_presentation.verified_member_id, result.verified_member_id);
+assert.notEqual(substitutedFixtureMetadata.expected_member_id, result.verified_member_id);
+assert.equal(signedManifest.p0_05, "BLOCKED");
 assertSemanticResultMatches(result, semanticVerification);
 assertSemanticVerificationArtifact(semanticArtifact, {
   presentationBytes,
   semanticVerification,
   result,
+  predicateResults,
+  trustedInputs,
 });
 rejects("semantic Presentation hash mutation", () => assertSemanticVerificationArtifact({
   ...semanticArtifact,
@@ -187,6 +360,8 @@ rejects("semantic Presentation hash mutation", () => assertSemanticVerificationA
   presentationBytes,
   semanticVerification,
   result,
+  predicateResults,
+  trustedInputs,
 }));
 rejects("semantic Result member mutation", () => assertSemanticResultMatches({ ...result, verified_member_id: "26189463" }, semanticVerification));
 rejects("semantic predicate reuse", () => assertSemanticVerificationArtifact({
@@ -199,6 +374,8 @@ rejects("semantic predicate reuse", () => assertSemanticVerificationArtifact({
   presentationBytes,
   semanticVerification,
   result,
+  predicateResults,
+  trustedInputs,
 }));
 
 const upstreamPresentation = await readFile(new URL("../../FUSOU-TLSN-VERIFIER/fixtures/tlsn-alpha15-upstream-presentation.bin", import.meta.url));
@@ -214,7 +391,7 @@ await assert.rejects(
     deviceChallenge: result.device_challenge,
     notaryRegistry: { [securityIdentity.notary_key_id]: Buffer.alloc(32, 8).toString("base64url") },
   }),
-  /semantic Presentation verification failed/,
+  /semantic Presentation (cryptographic|profile) verification failed/,
 );
 
 function rejects(label, action) {

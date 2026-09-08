@@ -18,6 +18,8 @@ import { canonicalJson, workflowContextFromEnvironment } from "./deployment-atte
 import {
   assertSemanticResultMatches,
   assertSemanticVerificationArtifact,
+  semanticRequirementStatus,
+  verifySemanticPredicates,
   verifyProductionPresentation,
 } from "./production-evidence-semantic.mjs";
 
@@ -138,7 +140,7 @@ async function main() {
     currentKeyId: resultSignerKeyId,
     currentPublicKeySpki: resultPublicKeySpki,
   });
-  assertSignedResult(result, {
+  const resultVerification = assertSignedResult(result, {
     publicKeySpki: resultPublicKeySpki,
     keyRegistry: capturedResultRegistry,
     signerKeyId: resultSignerKeyId,
@@ -238,18 +240,51 @@ async function main() {
     notaryRegistry,
     trustAnchorDer: trustRootDer,
   });
+  const trustedInputs = {
+    server_identity: expectedSecurity.server_identity,
+    profile_id: "fusou-require-info-v1",
+    profile_sha256: expectedSecurity.profile_sha256,
+    verifier_key_id: expectedSecurity.verifier_key_id,
+    notary_key_id: expectedSecurity.notary_key_id,
+    notary_key_sha256: createHash("sha256").update(Buffer.from(notaryRegistry[expectedSecurity.notary_key_id], "base64url")).digest("base64url"),
+    trust_root_certificate_sha256: manifest.deployment_identity.trust_root_certificate_sha256,
+    result_public_key_spki: manifest.result_identity.result_public_key_spki,
+    result_signer_key_id: manifest.result_identity.result_signer_key_id,
+    result_key_registry_sha256: manifest.result_identity.result_key_registry_sha256,
+  };
+  const predicateResults = verifySemanticPredicates({
+    presentationBytes: presentation,
+    semanticVerification,
+    result,
+    trustedInputs,
+    notaryRegistry,
+    resultRegistry: capturedResultRegistry,
+    resultPublicKeySpki,
+    resultSignerKeyId,
+  });
+  if (Object.values(predicateResults).some((predicate) => predicate.status !== "PASS")) {
+    throw new Error("recomputed semantic predicate verification did not pass");
+  }
   assertSemanticResultMatches(result, semanticVerification);
   const semanticArtifact = parseArtifactJson(artifacts, "semantic_verification");
   assertSemanticVerificationArtifact(semanticArtifact, {
     presentationBytes: presentation,
     semanticVerification,
     result,
+    predicateResults,
+    trustedInputs,
   });
   if (manifest.semantic_verification?.artifact !== "semantic_verification" || manifest.semantic_verification.status !== "VERIFIED") {
     throw new Error("manifest does not reference a verified semantic artifact");
   }
   if (canonicalJson(manifest.semantic_predicates) !== canonicalJson(semanticArtifact.predicates)) {
     throw new Error("manifest semantic predicates do not match the verifier artifact");
+  }
+  for (const requirement of Object.keys(manifest.evidence)) {
+    const expectedStatus = semanticRequirementStatus(requirement, predicateResults);
+    if (expectedStatus !== "PASS" && manifest.evidence[requirement].status !== expectedStatus) {
+      throw new Error(`evidence requirement is not blocked by its predicate result: ${requirement}`);
+    }
   }
 
   assert.equal(manifest.production_evidence, "BLOCKED");

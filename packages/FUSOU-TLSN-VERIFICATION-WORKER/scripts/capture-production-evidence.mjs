@@ -13,8 +13,9 @@ import {
   productionEvidenceSignerPublicKeyFromPrivateKey,
 } from "./production-evidence.mjs";
 import {
-  assertSemanticResultMatches,
   createSemanticVerificationArtifact,
+  semanticRequirementStatus,
+  verifySemanticPredicates,
   verifyProductionPresentation,
 } from "./production-evidence-semantic.mjs";
 import { assertSigningKeyRegistry } from "./signing-key-registry.mjs";
@@ -296,13 +297,37 @@ async function main() {
     if (result.canonical_user_id !== user.id || result.device_id !== session.device_id || result.attestation_session_id !== session.session_id || result.binding_value !== session.binding) {
       throw new Error("production result subject or binding identity mismatch");
     }
-    assertSemanticResultMatches(result, semanticVerification);
     if (
       result.server_identity !== health.security_identity.server_identity ||
       result.profile_sha256 !== health.security_identity.profile_sha256 ||
       result.verifier_key_id !== health.security_identity.verifier_key_id ||
       result.notary_key_id !== health.security_identity.notary_key_id
     ) throw new Error("production result security identity mismatch");
+    const trustedInputs = {
+      server_identity: health.security_identity.server_identity,
+      profile_id: "fusou-require-info-v1",
+      profile_sha256: health.security_identity.profile_sha256,
+      verifier_key_id: health.security_identity.verifier_key_id,
+      notary_key_id: health.security_identity.notary_key_id,
+      notary_key_sha256: sha256Base64Url(Buffer.from(notaryRegistry[health.security_identity.notary_key_id], "base64url")),
+      trust_root_certificate_sha256: health.deployment_identity.trust_root_certificate_sha256,
+      result_public_key_spki: health.result_identity.result_public_key_spki,
+      result_signer_key_id: health.result_identity.result_signer_key_id,
+      result_key_registry_sha256: health.result_identity.result_key_registry_sha256,
+    };
+    const predicateResults = verifySemanticPredicates({
+      presentationBytes,
+      semanticVerification,
+      result,
+      trustedInputs,
+      notaryRegistry,
+      resultRegistry: registry,
+      resultPublicKeySpki,
+      resultSignerKeyId,
+    });
+    if (Object.values(predicateResults).some((predicate) => predicate.status !== "PASS")) {
+      throw new Error("one or more semantic predicates did not pass");
+    }
     const subjectIdentity = {
       canonical_user_id_sha256: sha256Base64Url(result.canonical_user_id),
       device_id_sha256: sha256Base64Url(result.device_id),
@@ -338,6 +363,8 @@ async function main() {
       presentationBytes,
       semanticVerification,
       result,
+      predicateResults,
+      trustedInputs,
       verifierIdentity: "capture-harness-semantic-verifier",
     });
     const semanticVerificationBytes = Buffer.from(JSON.stringify(semanticVerificationArtifact));
@@ -423,16 +450,16 @@ async function main() {
       p0_05_status: "BLOCKED",
       evidence: {
         ...manifest.evidence,
-        real_production_game_server_connection: item("real_production_game_server_connection", "PASS", "Independent alpha15 semantic verification derived the authenticated server identity", { artifactSha256: presentationArtifact.artifact_sha256, authorityIdentity: health.security_identity.server_identity }),
-        real_production_tlsn_notary_interaction: item("real_production_tlsn_notary_interaction", "PASS", "Independent alpha15 semantic verification matched the production Notary registry", { artifactSha256: presentationArtifact.artifact_sha256, authorityIdentity: health.security_identity.notary_key_id }),
+        real_production_game_server_connection: item("real_production_game_server_connection", semanticRequirementStatus("real_production_game_server_connection", predicateResults), "Independent alpha15 semantic verification derived the authenticated server identity", { artifactSha256: presentationArtifact.artifact_sha256, authorityIdentity: health.security_identity.server_identity }),
+        real_production_tlsn_notary_interaction: item("real_production_tlsn_notary_interaction", semanticRequirementStatus("real_production_tlsn_notary_interaction", predicateResults), "Independent alpha15 semantic verification matched the production Notary registry", { artifactSha256: presentationArtifact.artifact_sha256, authorityIdentity: health.security_identity.notary_key_id }),
         real_production_fusou_web_device_authentication: item("real_production_fusou_web_device_authentication", "PASS", "Supabase user and FUSOU-WEB device challenge were accepted", { artifactSha256: subjectArtifact.artifact_sha256, authorityIdentity: "fusou-web-device-authentication" }),
         real_production_device_possession_proof: item("real_production_device_possession_proof", "PASS", "TLSN device possession proof was accepted by FUSOU-WEB", { artifactSha256: possessionProofArtifact.artifact_sha256, authorityIdentity: "fusou-web-tlsn-device-authentication" }),
         real_production_replay_authority: item("real_production_replay_authority", "PASS", "The consumed binding rejected the second verification", { artifactSha256: replayArtifact.artifact_sha256, authorityIdentity: health.security_identity.binding_authority }),
         real_production_binding_authority: item("real_production_binding_authority", "PASS", "Production Worker issued and consumed a one-shot binding", { artifactSha256: sessionArtifact.artifact_sha256, authorityIdentity: health.security_identity.binding_authority }),
         real_production_verifier_trust_root: item("real_production_verifier_trust_root", "PASS", "Production Worker health identity exposed the expected trust-root identity", { artifactSha256: healthArtifact.artifact_sha256, authorityIdentity: health.deployment_identity.trust_root_certificate_sha256 }),
-        real_production_result_signing_key: item("real_production_result_signing_key", "PASS", "Result signature and active production key registry were independently verified", { artifactSha256: resultRegistryArtifact.artifact_sha256, authorityIdentity: resultVerification.result_signer_key_id }),
-        real_production_public_key_publication: item("real_production_public_key_publication", "PASS", "Worker health and the supplied production registry published the same result key", { artifactSha256: healthArtifact.artifact_sha256, authorityIdentity: "production-result-key-registry" }),
-        independently_captured_production_evidence: item("independently_captured_production_evidence", "PASS", "Production endpoints and an independently verified Presentation were captured", { artifactSha256: semanticVerificationArtifactDescriptor.artifact_sha256, authorityIdentity: "production-capture-operator" }),
+        real_production_result_signing_key: item("real_production_result_signing_key", semanticRequirementStatus("real_production_result_signing_key", predicateResults), "Result signature and active production key registry were independently verified", { artifactSha256: resultRegistryArtifact.artifact_sha256, authorityIdentity: resultVerification.result_signer_key_id }),
+        real_production_public_key_publication: item("real_production_public_key_publication", semanticRequirementStatus("real_production_public_key_publication", predicateResults), "Worker health and the supplied production registry published the same result key", { artifactSha256: healthArtifact.artifact_sha256, authorityIdentity: "production-result-key-registry" }),
+        independently_captured_production_evidence: item("independently_captured_production_evidence", semanticRequirementStatus("independently_captured_production_evidence", predicateResults), "Production endpoints and an independently verified Presentation were captured", { artifactSha256: semanticVerificationArtifactDescriptor.artifact_sha256, authorityIdentity: "production-capture-operator" }),
       },
       independent_verification: {
         status: "BLOCKED",

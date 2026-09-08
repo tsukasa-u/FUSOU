@@ -4,10 +4,88 @@ use wasm_bindgen::prelude::*;
 use crate::{
     parse_verifier_result,
     tlsn_alpha15::{
-        verify_alpha15_presentation_with_provider_and_notary_key, RequireInfoDisclosureProfile,
+        verify_alpha15_presentation_with_provider_and_notary_key, AuthenticatedTranscript,
+        RequireInfoDisclosureProfile,
     },
     ParserLimits, VerifierResult,
 };
+
+fn create_crypto_provider(
+    trust_anchor_der: Option<&[u8]>,
+) -> Result<tlsn_attestation::CryptoProvider, JsValue> {
+    let Some(trust_anchor_der) = trust_anchor_der else {
+        return Ok(tlsn_attestation::CryptoProvider::default());
+    };
+    if trust_anchor_der.is_empty() {
+        return Err(JsValue::from_str("trust anchor must not be empty"));
+    }
+    let root_store = tlsn_core::webpki::RootCertStore {
+        roots: vec![tlsn_core::webpki::CertificateDer(trust_anchor_der.to_vec())],
+    };
+    let mut provider = tlsn_attestation::CryptoProvider::default();
+    provider.cert = tlsn::verifier::ServerCertVerifier::new(&root_store)
+        .map_err(|error| JsValue::from_str(&error.to_string()))?;
+    Ok(provider)
+}
+
+fn range_json(range: &crate::RevealedRange) -> serde_json::Value {
+    serde_json::json!({
+        "start": range.start.to_string(),
+        "length": range.length.to_string(),
+        "bytes": URL_SAFE_NO_PAD.encode(&range.bytes),
+    })
+}
+
+fn verified_presentation_json(transcript: &AuthenticatedTranscript) -> Result<String, JsValue> {
+    serde_json::to_string(&serde_json::json!({
+        "server_identity": transcript.server_identity(),
+        "tlsn_attestation_id": URL_SAFE_NO_PAD.encode(transcript.attestation_id()),
+        "notary_key_sha256": URL_SAFE_NO_PAD.encode(transcript.notary_key_sha256()),
+        "request_transcript_size": transcript
+            .revealed_request_ranges()
+            .iter()
+            .map(|range| range.length)
+            .sum::<u64>()
+            .to_string(),
+        "request_transcript_sha256": URL_SAFE_NO_PAD.encode(transcript.request_transcript_sha256()),
+        "revealed_request_ranges": transcript
+            .revealed_request_ranges()
+            .iter()
+            .map(range_json)
+            .collect::<Vec<_>>(),
+        "response_transcript_size": transcript
+            .revealed_response_ranges()
+            .iter()
+            .map(|range| range.length)
+            .sum::<u64>()
+            .to_string(),
+        "response_transcript_sha256": URL_SAFE_NO_PAD.encode(transcript.response_transcript_sha256()),
+        "revealed_response_ranges": transcript
+            .revealed_response_ranges()
+            .iter()
+            .map(range_json)
+            .collect::<Vec<_>>(),
+    }))
+    .map_err(|error| JsValue::from_str(&error.to_string()))
+}
+
+fn inspect_alpha15_presentation_inner(
+    presentation_bytes: &[u8],
+    trusted_notary_key: &[u8],
+    trust_anchor_der: Option<&[u8]>,
+) -> Result<String, JsValue> {
+    if trusted_notary_key.is_empty() {
+        return Err(JsValue::from_str("trusted Notary key must not be empty"));
+    }
+    let provider = create_crypto_provider(trust_anchor_der)?;
+    let transcript = verify_alpha15_presentation_with_provider_and_notary_key(
+        presentation_bytes,
+        &provider,
+        Some(trusted_notary_key),
+    )
+    .map_err(|error| JsValue::from_str(&error.to_string()))?;
+    verified_presentation_json(&transcript)
+}
 
 fn verify_require_info_presentation_inner(
     presentation_bytes: &[u8],
@@ -32,20 +110,7 @@ fn verify_require_info_presentation_inner(
     if trusted_notary_key.is_empty() {
         return Err(JsValue::from_str("trusted Notary key must not be empty"));
     }
-    let provider = if let Some(trust_anchor_der) = trust_anchor_der {
-        if trust_anchor_der.is_empty() {
-            return Err(JsValue::from_str("trust anchor must not be empty"));
-        }
-        let root_store = tlsn_core::webpki::RootCertStore {
-            roots: vec![tlsn_core::webpki::CertificateDer(trust_anchor_der.to_vec())],
-        };
-        let mut provider = tlsn_attestation::CryptoProvider::default();
-        provider.cert = tlsn::verifier::ServerCertVerifier::new(&root_store)
-            .map_err(|error| JsValue::from_str(&error.to_string()))?;
-        provider
-    } else {
-        tlsn_attestation::CryptoProvider::default()
-    };
+    let provider = create_crypto_provider(trust_anchor_der)?;
     let transcript = verify_alpha15_presentation_with_provider_and_notary_key(
         presentation_bytes,
         &provider,
@@ -80,6 +145,27 @@ fn verify_require_info_presentation_inner(
         unsigned_result_json,
         URL_SAFE_NO_PAD.encode(signing_bytes),
     ))
+}
+
+#[wasm_bindgen]
+pub fn inspect_alpha15_presentation(
+    presentation_bytes: &[u8],
+    trusted_notary_key: &[u8],
+) -> Result<String, JsValue> {
+    inspect_alpha15_presentation_inner(presentation_bytes, trusted_notary_key, None)
+}
+
+#[wasm_bindgen]
+pub fn inspect_alpha15_presentation_with_trust_anchor(
+    presentation_bytes: &[u8],
+    trust_anchor_der: &[u8],
+    trusted_notary_key: &[u8],
+) -> Result<String, JsValue> {
+    inspect_alpha15_presentation_inner(
+        presentation_bytes,
+        trusted_notary_key,
+        Some(trust_anchor_der),
+    )
 }
 
 #[wasm_bindgen]
