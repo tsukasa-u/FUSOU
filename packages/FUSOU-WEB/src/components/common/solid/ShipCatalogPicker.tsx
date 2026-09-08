@@ -46,6 +46,8 @@ export interface ShipCatalogPickerProps {
   showStatLabels?: boolean;
   /** ShipListRow にステータス数値を表示するか（デフォルト false） */
   showStats?: boolean;
+  /** デスクトップ aside のカスタムクラス */
+  asideClass?: string;
 }
 
 export function ShipCatalogPicker(props: ShipCatalogPickerProps): JSX.Element {
@@ -205,10 +207,14 @@ export function ShipCatalogPicker(props: ShipCatalogPickerProps): JSX.Element {
     }
   });
 
+  const asideClasses = () =>
+    props.asideClass ??
+    "hidden xl:flex rounded-xl border border-base-300/70 bg-base-100 shadow-sm overflow-hidden flex-col xl:sticky xl:top-20 xl:h-[calc(100vh-5.5rem)]";
+
   return (
-    <section class="grid grid-cols-1 xl:grid-cols-[minmax(0,380px)_minmax(0,1fr)] gap-4 items-start">
+    <section class="grid grid-cols-1 xl:grid-cols-[minmax(0,380px)_minmax(0,1fr)] gap-4 items-start xl:min-h-[calc(100vh-5.5rem)]">
       {/* 1. デスクトップ Sticky Aside */}
-      <aside class="hidden xl:flex rounded-xl border border-base-300/70 bg-base-100 shadow-sm overflow-hidden flex-col xl:sticky xl:top-20 xl:h-[calc(100vh-5.5rem)]">
+      <aside class={asideClasses()}>
         <div class="p-3 border-b border-base-200 bg-base-50/50 space-y-2">
           <select
             class="select select-bordered select-sm w-full"

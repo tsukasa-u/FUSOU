@@ -495,6 +495,7 @@ function buildAllPeriodsBoundsChartData(
 
 const CHART_OPTIONS_EXP = {
   responsive: true,
+  maintainAspectRatio: false,
   animation: false as const,
   plugins: {
     legend: { display: false },
@@ -512,6 +513,7 @@ const CHART_OPTIONS_EXP = {
 
 const CHART_OPTIONS_BOUNDS: ChartOptions<"line"> = {
   responsive: true,
+  maintainAspectRatio: false,
   animation: false as const,
   plugins: {
     legend: { display: true, position: "top" as const },
@@ -533,6 +535,7 @@ const CHART_OPTIONS_BOUNDS: ChartOptions<"line"> = {
 // which is unreadable when many archive periods are present.
 const CHART_OPTIONS_BOUNDS_ALL_PERIODS: ChartOptions<"line"> = {
   responsive: true,
+  maintainAspectRatio: false,
   animation: false as const,
   interaction: {
     mode: "nearest" as const,
@@ -560,6 +563,7 @@ const CHART_OPTIONS_BOUNDS_ALL_PERIODS: ChartOptions<"line"> = {
 // showing which period contributed the minimum ("winning") value.
 const CHART_OPTIONS_BOUNDS_CUMULATIVE: ChartOptions<"line"> = {
   responsive: true,
+  maintainAspectRatio: false,
   animation: false as const,
   plugins: {
     legend: { display: true, position: "top" as const },
@@ -1294,10 +1298,8 @@ export default function ShipGrowthPanel() {
                   {expRows()[0]?.lv}〜{expRows()[expRows().length - 1]?.lv} (
                   {expRows().length} 行)
                 </p>
-                <div class="w-full overflow-x-auto">
-                  <div style="min-width: 400px; min-height: 320px;">
-                    <canvas ref={setExpCanvas} width={800} height={320} />
-                  </div>
+                <div class="relative w-full h-[320px] sm:h-[380px] lg:h-[420px]">
+                  <canvas ref={setExpCanvas} class="w-full h-full block" />
                 </div>
               </div>
             </div>
@@ -1330,10 +1332,8 @@ export default function ShipGrowthPanel() {
                     {boundRows().length} 行)
                   </p>
                 </Show>
-                <div class="w-full overflow-x-auto">
-                  <div style="min-width: 400px; min-height: 320px;">
-                    <canvas ref={setBoundsCanvas} width={800} height={320} />
-                  </div>
+                <div class="relative w-full h-[360px] sm:h-[420px] lg:h-[480px]">
+                  <canvas ref={setBoundsCanvas} class="w-full h-full block" />
                 </div>
               </div>
             </div>
@@ -1357,8 +1357,8 @@ export default function ShipGrowthPanel() {
               !loadingData()
             }
           >
-            <div class="fusou-card">
-              <div class="fusou-card-body">
+            <div class="fusou-card min-h-[400px] xl:min-h-[calc(100vh-14rem)] flex items-center justify-center">
+              <div class="fusou-card-body w-full flex items-center justify-center">
                 <EmptyState
                   message="選択した艦のデータは累積アーカイブに存在しません。"
                   hint="現在の期間 (ライブ) では存在する可能性があります。期間を切り替えてご確認ください。"
