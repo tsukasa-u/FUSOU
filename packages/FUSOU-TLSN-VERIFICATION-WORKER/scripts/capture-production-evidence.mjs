@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { createPrivateKey, randomUUID, sign } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
-import { blockedProductionEvidenceManifest, createEvidenceItem } from "./production-evidence-contract.mjs";
+import { blockedProductionEvidenceManifest, createProductionEvidenceItem } from "./production-evidence-contract.mjs";
 import {
   artifactDescriptor,
   assertResultSubjectIdentity,
@@ -12,6 +12,11 @@ import {
   createSignedProductionEvidenceManifest,
   productionEvidenceSignerPublicKeyFromPrivateKey,
 } from "./production-evidence.mjs";
+import {
+  assertSemanticResultMatches,
+  createSemanticVerificationArtifact,
+  verifyProductionPresentation,
+} from "./production-evidence-semantic.mjs";
 import { assertSigningKeyRegistry } from "./signing-key-registry.mjs";
 import { sha256Base64Url, workflowContextFromEnvironment } from "./deployment-attestation.mjs";
 
@@ -83,17 +88,10 @@ async function timedRequest(url, options = {}) {
 
 async function readFixture(path) {
   const fixture = JSON.parse(await readFile(path, "utf8"));
-  if (fixture.capture_provenance !== "production" || fixture.synthetic !== false) {
-    throw new Error("capture fixture must explicitly declare non-synthetic production provenance");
-  }
-  for (const field of ["expected_member_id", "server_identity", "verifier_key_id", "notary_key_id", "notary_registry_sha256"]) {
-    if (typeof fixture[field] !== "string" || fixture[field].length === 0) throw new Error(`capture fixture is missing ${field}`);
-  }
-  for (const field of ["presentation_base64", "authenticated_request_base64", "authenticated_response_base64"]) {
-    const bytes = decodeBase64Url(fixture[field], `fixture.${field}`);
-    if (field === "presentation_base64" && bytes.length > MAX_PRESENTATION_BYTES) {
-      throw new Error("production Presentation exceeds the Worker limit");
-    }
+  if (!fixture || typeof fixture !== "object") throw new Error("capture fixture must be a JSON object");
+  const presentationBytes = decodeBase64Url(fixture.presentation_base64, "fixture.presentation_base64");
+  if (presentationBytes.length > MAX_PRESENTATION_BYTES) {
+    throw new Error("production Presentation exceeds the Worker limit");
   }
   return fixture;
 }
@@ -192,8 +190,8 @@ async function verifyTlsn(workerOrigin, accessToken, session, deviceId, fixture,
   });
 }
 
-function item(status, detail, { artifactSha256 = null, authorityIdentity = "production-authority", verifierIdentity = "capture-harness" } = {}) {
-  return createEvidenceItem({ status, detail, artifactSha256, authorityIdentity, verifierIdentity });
+function item(requirement, status, detail, { artifactSha256 = null, authorityIdentity = "production-authority", verifierIdentity = "capture-harness" } = {}) {
+  return createProductionEvidenceItem(requirement, { status, detail, artifactSha256, authorityIdentity, verifierIdentity });
 }
 
 function parseJsonEnvironment(name) {
@@ -234,10 +232,19 @@ async function main() {
     const deviceId = required("TLSN_PRODUCTION_EVIDENCE_DEVICE_ID");
     const devicePrivateKey = await loadPrivateKeyFromEnvironment();
     const fixture = await readFixture(required("TLSN_PRODUCTION_EVIDENCE_FIXTURE_JSON"));
+    const presentationBytes = decodeBase64Url(fixture.presentation_base64, "fixture presentation");
     const health = await readHealth(workerOrigin);
     const user = await readSupabaseUser(supabaseOrigin, publishableKey, accessToken);
     const registryRaw = required("TLSN_PRODUCTION_RESULT_SIGNING_KEY_REGISTRY");
     const registry = parseJsonEnvironment("TLSN_PRODUCTION_RESULT_SIGNING_KEY_REGISTRY");
+    const notaryRegistryRaw = optional("TLSN_PRODUCTION_NOTARY_REGISTRY") ?? required("TLSN_CANDIDATE_NOTARY_REGISTRY");
+    const notaryRegistry = (() => {
+      try {
+        return JSON.parse(notaryRegistryRaw);
+      } catch {
+        throw new Error("production Notary registry must contain JSON");
+      }
+    })();
     const resultPublicKeySpki = required("TLSN_PRODUCTION_RESULT_PUBLIC_KEY_SPKI");
     const resultSignerKeyId = required("TLSN_PRODUCTION_RESULT_SIGNER_KEY_ID");
     assertSigningKeyRegistry(registry, {
@@ -247,11 +254,34 @@ async function main() {
     if (health.result_identity.result_public_key_spki !== resultPublicKeySpki) throw new Error("Worker result public key is not the published production key");
     if (health.result_identity.result_signer_key_id !== resultSignerKeyId) throw new Error("Worker result signer key ID is not the published production key");
     if (health.result_identity.result_key_registry_sha256 !== sha256Base64Url(registryRaw)) throw new Error("Worker result registry hash is not the supplied production registry");
-    if (health.security_identity.server_identity !== fixture.server_identity || health.security_identity.verifier_key_id !== fixture.verifier_key_id || health.security_identity.notary_key_id !== fixture.notary_key_id || health.security_identity.notary_registry_sha256 !== fixture.notary_registry_sha256) {
-      throw new Error("capture fixture trust identities do not match the production Worker");
+    if (health.security_identity.notary_registry_sha256 !== sha256Base64Url(notaryRegistryRaw)) {
+      throw new Error("Worker Notary registry hash is not the supplied production registry");
     }
 
     const session = await issueSession(workerOrigin, webOrigin, accessToken, deviceId, devicePrivateKey);
+    const trustRootDer = optional("TLSN_PRODUCTION_TRUST_ROOT_CERTIFICATE_DER");
+    const trustRootBytes = trustRootDer ? decodeBase64Url(trustRootDer, "production trust root") : null;
+    if (!health.deployment_identity.trust_root_certificate_sha256 || !trustRootDer) {
+      throw new Error("the production trust root is required for independent semantic verification");
+    }
+    if (
+      trustRootDer &&
+      health.deployment_identity.trust_root_certificate_sha256 !== sha256Base64Url(trustRootBytes)
+    ) {
+      throw new Error("production trust root does not match Worker health identity");
+    }
+    const semanticVerification = await verifyProductionPresentation({
+      presentationBytes,
+      serverIdentity: health.security_identity.server_identity,
+      profileSha256: health.security_identity.profile_sha256,
+      verifierKeyId: health.security_identity.verifier_key_id,
+      notaryKeyId: health.security_identity.notary_key_id,
+      canonicalUserId: user.id,
+      canonicalDeviceId: session.device_id,
+      deviceChallenge: session.device_challenge,
+      notaryRegistry,
+      trustAnchorDer: trustRootDer,
+    });
     const possessionProof = deviceProof(session, devicePrivateKey);
     const verification = await verifyTlsn(workerOrigin, accessToken, session, deviceId, fixture, possessionProof);
     if (verification.response.status !== 200 || verification.json?.verified !== true) {
@@ -266,14 +296,13 @@ async function main() {
     if (result.canonical_user_id !== user.id || result.device_id !== session.device_id || result.attestation_session_id !== session.session_id || result.binding_value !== session.binding) {
       throw new Error("production result subject or binding identity mismatch");
     }
-    if (result.verified_member_id !== fixture.expected_member_id) throw new Error("production member identity mismatch");
-    if (result.server_identity !== fixture.server_identity) throw new Error("production game server identity mismatch");
-    if (result.verifier_key_id !== fixture.verifier_key_id) throw new Error("production verifier key identity mismatch");
-    if (result.notary_key_id !== fixture.notary_key_id) throw new Error("production Notary key identity mismatch");
-    const requestBytes = decodeBase64Url(fixture.authenticated_request_base64, "fixture request");
-    const responseBytes = decodeBase64Url(fixture.authenticated_response_base64, "fixture response");
-    if (result.request_transcript_size !== String(requestBytes.length) || result.response_transcript_size !== String(responseBytes.length)) throw new Error("production transcript size mismatch");
-    if (result.request_transcript_sha256 !== sha256Base64Url(requestBytes) || result.response_transcript_sha256 !== sha256Base64Url(responseBytes)) throw new Error("production transcript hash mismatch");
+    assertSemanticResultMatches(result, semanticVerification);
+    if (
+      result.server_identity !== health.security_identity.server_identity ||
+      result.profile_sha256 !== health.security_identity.profile_sha256 ||
+      result.verifier_key_id !== health.security_identity.verifier_key_id ||
+      result.notary_key_id !== health.security_identity.notary_key_id
+    ) throw new Error("production result security identity mismatch");
     const subjectIdentity = {
       canonical_user_id_sha256: sha256Base64Url(result.canonical_user_id),
       device_id_sha256: sha256Base64Url(result.device_id),
@@ -286,7 +315,6 @@ async function main() {
     const replay = await verifyTlsn(workerOrigin, accessToken, session, deviceId, fixture, possessionProof);
     if (replay.response.status !== 409 || !["binding_consumed", "device_possession_replayed"].includes(replay.json?.error)) throw new Error("production replay was not rejected");
 
-    const presentationBytes = decodeBase64Url(fixture.presentation_base64, "fixture presentation");
     const resultBytes = Buffer.from(JSON.stringify(result));
     const healthBytes = Buffer.from(JSON.stringify(health));
     const subjectBytes = Buffer.from(JSON.stringify({
@@ -296,15 +324,38 @@ async function main() {
     }));
     const sessionBytes = Buffer.from(JSON.stringify(session));
     const possessionProofBytes = Buffer.from(JSON.stringify(possessionProof));
-    const replayBytes = Buffer.from(JSON.stringify({ status: replay.response.status, error: replay.json?.error ?? null }));
+    const replayBytes = Buffer.from(JSON.stringify({
+      session_id: session.session_id,
+      device_id: session.device_id,
+      binding: session.binding,
+      status: replay.response.status,
+      error: replay.json?.error ?? null,
+    }));
     const resultRegistryBytes = Buffer.from(registryRaw);
+    const notaryRegistryBytes = Buffer.from(notaryRegistryRaw);
+    const trustRootArtifactBytes = trustRootBytes;
+    const semanticVerificationArtifact = createSemanticVerificationArtifact({
+      presentationBytes,
+      semanticVerification,
+      result,
+      verifierIdentity: "capture-harness-semantic-verifier",
+    });
+    const semanticVerificationBytes = Buffer.from(JSON.stringify(semanticVerificationArtifact));
     const captureMetadataBytes = Buffer.from(JSON.stringify({
-      capture_provenance: fixture.capture_provenance,
-      synthetic: fixture.synthetic,
-      server_identity: fixture.server_identity,
-      verifier_key_id: fixture.verifier_key_id,
-      notary_key_id: fixture.notary_key_id,
-      notary_registry_sha256: fixture.notary_registry_sha256,
+      declared_capture_provenance: fixture.capture_provenance ?? null,
+      declared_synthetic: fixture.synthetic ?? null,
+      declared_expected_member_id: fixture.expected_member_id ?? null,
+      declared_server_identity: fixture.server_identity ?? null,
+      declared_verifier_key_id: fixture.verifier_key_id ?? null,
+      declared_notary_key_id: fixture.notary_key_id ?? null,
+      declared_notary_registry_sha256: fixture.notary_registry_sha256 ?? null,
+      diagnostics: {
+        expected_member_id_matches: fixture.expected_member_id === undefined || fixture.expected_member_id === result.verified_member_id,
+        server_identity_matches: fixture.server_identity === undefined || fixture.server_identity === result.server_identity,
+        verifier_key_id_matches: fixture.verifier_key_id === undefined || fixture.verifier_key_id === result.verifier_key_id,
+        notary_key_id_matches: fixture.notary_key_id === undefined || fixture.notary_key_id === result.notary_key_id,
+      },
+      authority: "diagnostic-only-fixture-metadata",
     }));
     artifactBytes = {
       presentation: presentationBytes,
@@ -315,8 +366,11 @@ async function main() {
       possession_proof: possessionProofBytes,
       replay: replayBytes,
       result_registry: resultRegistryBytes,
+      notary_registry: notaryRegistryBytes,
       capture_metadata: captureMetadataBytes,
+      semantic_verification: semanticVerificationBytes,
     };
+    if (trustRootArtifactBytes) artifactBytes.trust_root = trustRootArtifactBytes;
     const presentationArtifact = artifactDescriptor(presentationBytes, { mediaType: "application/tlsn-presentation" });
     const resultArtifact = artifactDescriptor(resultBytes, { mediaType: "application/json" });
     const healthArtifact = artifactDescriptor(healthBytes, { mediaType: "application/json" });
@@ -325,6 +379,11 @@ async function main() {
     const possessionProofArtifact = artifactDescriptor(possessionProofBytes, { mediaType: "application/json" });
     const replayArtifact = artifactDescriptor(replayBytes, { mediaType: "application/json" });
     const resultRegistryArtifact = artifactDescriptor(resultRegistryBytes, { mediaType: "application/json" });
+    const notaryRegistryArtifact = artifactDescriptor(notaryRegistryBytes, { mediaType: "application/json" });
+    const trustRootArtifact = trustRootArtifactBytes
+      ? artifactDescriptor(trustRootArtifactBytes, { mediaType: "application/pkix-cert" })
+      : null;
+    const semanticVerificationArtifactDescriptor = artifactDescriptor(semanticVerificationBytes, { mediaType: "application/json" });
     const captureMetadataArtifact = artifactDescriptor(captureMetadataBytes, { mediaType: "application/json" });
     manifest = {
       ...manifest,
@@ -343,20 +402,37 @@ async function main() {
         possession_proof: { ...possessionProofArtifact, path: `${captureId}-possession-proof.json` },
         replay: { ...replayArtifact, path: `${captureId}-replay.json` },
         result_registry: { ...resultRegistryArtifact, path: `${captureId}-result-registry.json` },
+        notary_registry: { ...notaryRegistryArtifact, path: `${captureId}-notary-registry.json` },
         capture_metadata: { ...captureMetadataArtifact, path: `${captureId}-capture-metadata.json` },
+        semantic_verification: {
+          ...semanticVerificationArtifactDescriptor,
+          path: `${captureId}-semantic-verification.json`,
+        },
+        ...(trustRootArtifact ? { trust_root: { ...trustRootArtifact, path: `${captureId}-trust-root.der` } } : {}),
       },
+      semantic_predicates: semanticVerificationArtifact.predicates,
+      semantic_verification: {
+        status: "VERIFIED",
+        artifact: "semantic_verification",
+        verifier_identity: semanticVerificationArtifact.verifier_identity,
+        verified_at: semanticVerificationArtifact.verified_at,
+      },
+      capture_status: "CAPTURED",
+      verification_status: "VERIFIED",
+      production_evidence_status: "BLOCKED",
+      p0_05_status: "BLOCKED",
       evidence: {
         ...manifest.evidence,
-        real_production_game_server_connection: item("PASS", "Worker verified the configured production server identity", { artifactSha256: presentationArtifact.artifact_sha256, authorityIdentity: health.security_identity.server_identity }),
-        real_production_tlsn_notary_interaction: item("PASS", "Worker verified the Presentation against the production Notary trust configuration", { artifactSha256: presentationArtifact.artifact_sha256, authorityIdentity: health.security_identity.notary_key_id }),
-        real_production_fusou_web_device_authentication: item("PASS", "Supabase user and FUSOU-WEB device challenge were accepted", { artifactSha256: subjectArtifact.artifact_sha256, authorityIdentity: "fusou-web-device-authentication" }),
-        real_production_device_possession_proof: item("PASS", "TLSN device possession proof was accepted by FUSOU-WEB", { artifactSha256: possessionProofArtifact.artifact_sha256, authorityIdentity: "fusou-web-tlsn-device-authentication" }),
-        real_production_replay_authority: item("PASS", "The consumed binding rejected the second verification", { artifactSha256: replayArtifact.artifact_sha256, authorityIdentity: health.security_identity.binding_authority }),
-        real_production_binding_authority: item("PASS", "Production Worker issued and consumed a one-shot binding", { artifactSha256: sessionArtifact.artifact_sha256, authorityIdentity: health.security_identity.binding_authority }),
-        real_production_verifier_trust_root: item("PASS", "Production Worker health identity exposed the expected trust-root identity", { artifactSha256: healthArtifact.artifact_sha256, authorityIdentity: health.deployment_identity.trust_root_certificate_sha256 }),
-        real_production_result_signing_key: item("PASS", "Result signature and active production key registry were independently verified", { artifactSha256: resultRegistryArtifact.artifact_sha256, authorityIdentity: resultVerification.result_signer_key_id }),
-        real_production_public_key_publication: item("PASS", "Worker health and the supplied production registry published the same result key", { artifactSha256: healthArtifact.artifact_sha256, authorityIdentity: "production-result-key-registry" }),
-        independently_captured_production_evidence: item("PASS", "Fixture and artifacts declared non-synthetic production provenance", { artifactSha256: captureMetadataArtifact.artifact_sha256, authorityIdentity: "production-capture-operator" }),
+        real_production_game_server_connection: item("real_production_game_server_connection", "PASS", "Independent alpha15 semantic verification derived the authenticated server identity", { artifactSha256: presentationArtifact.artifact_sha256, authorityIdentity: health.security_identity.server_identity }),
+        real_production_tlsn_notary_interaction: item("real_production_tlsn_notary_interaction", "PASS", "Independent alpha15 semantic verification matched the production Notary registry", { artifactSha256: presentationArtifact.artifact_sha256, authorityIdentity: health.security_identity.notary_key_id }),
+        real_production_fusou_web_device_authentication: item("real_production_fusou_web_device_authentication", "PASS", "Supabase user and FUSOU-WEB device challenge were accepted", { artifactSha256: subjectArtifact.artifact_sha256, authorityIdentity: "fusou-web-device-authentication" }),
+        real_production_device_possession_proof: item("real_production_device_possession_proof", "PASS", "TLSN device possession proof was accepted by FUSOU-WEB", { artifactSha256: possessionProofArtifact.artifact_sha256, authorityIdentity: "fusou-web-tlsn-device-authentication" }),
+        real_production_replay_authority: item("real_production_replay_authority", "PASS", "The consumed binding rejected the second verification", { artifactSha256: replayArtifact.artifact_sha256, authorityIdentity: health.security_identity.binding_authority }),
+        real_production_binding_authority: item("real_production_binding_authority", "PASS", "Production Worker issued and consumed a one-shot binding", { artifactSha256: sessionArtifact.artifact_sha256, authorityIdentity: health.security_identity.binding_authority }),
+        real_production_verifier_trust_root: item("real_production_verifier_trust_root", "PASS", "Production Worker health identity exposed the expected trust-root identity", { artifactSha256: healthArtifact.artifact_sha256, authorityIdentity: health.deployment_identity.trust_root_certificate_sha256 }),
+        real_production_result_signing_key: item("real_production_result_signing_key", "PASS", "Result signature and active production key registry were independently verified", { artifactSha256: resultRegistryArtifact.artifact_sha256, authorityIdentity: resultVerification.result_signer_key_id }),
+        real_production_public_key_publication: item("real_production_public_key_publication", "PASS", "Worker health and the supplied production registry published the same result key", { artifactSha256: healthArtifact.artifact_sha256, authorityIdentity: "production-result-key-registry" }),
+        independently_captured_production_evidence: item("independently_captured_production_evidence", "PASS", "Production endpoints and an independently verified Presentation were captured", { artifactSha256: semanticVerificationArtifactDescriptor.artifact_sha256, authorityIdentity: "production-capture-operator" }),
       },
       independent_verification: {
         status: "BLOCKED",

@@ -1,11 +1,12 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { generateKeyPairSync, sign } from "node:crypto";
-import { mkdtemp, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
   blockedProductionEvidenceManifest,
   createEvidenceItem,
+  createProductionEvidenceItem,
   PRODUCTION_EVIDENCE_REQUIREMENTS,
   assertProductionEvidenceManifest,
 } from "./production-evidence-contract.mjs";
@@ -20,6 +21,12 @@ import {
   resultSigningBytes,
 } from "./production-evidence.mjs";
 import { sha256Base64Url } from "./deployment-attestation.mjs";
+import {
+  assertSemanticResultMatches,
+  assertSemanticVerificationArtifact,
+  createSemanticVerificationArtifact,
+  verifyProductionPresentation,
+} from "./production-evidence-semantic.mjs";
 
 const now = new Date();
 const nowIso = now.toISOString();
@@ -117,7 +124,7 @@ manifest.artifacts = {
 };
 manifest.evidence = Object.fromEntries(PRODUCTION_EVIDENCE_REQUIREMENTS.map((name) => [
   name,
-  createEvidenceItem({
+  createProductionEvidenceItem(name, {
     status: "PASS",
     timestamp: nowIso,
     artifactSha256: name.includes("result") ? manifest.artifacts.result.artifact_sha256 : manifest.artifacts.presentation.artifact_sha256,
@@ -154,6 +161,61 @@ assertSignedResult(result, {
   now,
 });
 assertResultSubjectIdentity(result, subjectIdentity);
+
+const { signature: ignoredSignature, ...unsignedTestResult } = result;
+const semanticVerification = {
+  result: unsignedTestResult,
+  notary_key_sha256: Buffer.alloc(32, 7).toString("base64url"),
+};
+const semanticArtifact = createSemanticVerificationArtifact({
+  presentationBytes,
+  semanticVerification,
+  result,
+  verifierIdentity: "semantic-test-verifier",
+  verifiedAt: nowIso,
+});
+assertSemanticResultMatches(result, semanticVerification);
+assertSemanticVerificationArtifact(semanticArtifact, {
+  presentationBytes,
+  semanticVerification,
+  result,
+});
+rejects("semantic Presentation hash mutation", () => assertSemanticVerificationArtifact({
+  ...semanticArtifact,
+  input: { ...semanticArtifact.input, presentation_sha256: sha256Base64Url(Buffer.from("other-presentation")) },
+}, {
+  presentationBytes,
+  semanticVerification,
+  result,
+}));
+rejects("semantic Result member mutation", () => assertSemanticResultMatches({ ...result, verified_member_id: "26189463" }, semanticVerification));
+rejects("semantic predicate reuse", () => assertSemanticVerificationArtifact({
+  ...semanticArtifact,
+  predicates: {
+    ...semanticArtifact.predicates,
+    authenticated_member_id: { ...semanticArtifact.predicates.authenticated_member_id, status: "UNVERIFIED" },
+  },
+}, {
+  presentationBytes,
+  semanticVerification,
+  result,
+}));
+
+const upstreamPresentation = await readFile(new URL("../../FUSOU-TLSN-VERIFIER/fixtures/tlsn-alpha15-upstream-presentation.bin", import.meta.url));
+await assert.rejects(
+  verifyProductionPresentation({
+    presentationBytes: upstreamPresentation,
+    serverIdentity: securityIdentity.server_identity,
+    profileSha256: result.profile_sha256,
+    verifierKeyId: securityIdentity.verifier_key_id,
+    notaryKeyId: securityIdentity.notary_key_id,
+    canonicalUserId: result.canonical_user_id,
+    canonicalDeviceId: result.device_id,
+    deviceChallenge: result.device_challenge,
+    notaryRegistry: { [securityIdentity.notary_key_id]: Buffer.alloc(32, 8).toString("base64url") },
+  }),
+  /semantic Presentation verification failed/,
+);
 
 function rejects(label, action) {
   assert.throws(action, undefined, label);
@@ -197,6 +259,26 @@ rejects("missing evidence item", () => assertProductionEvidenceManifest({
   ...signedManifest,
   evidence: { ...signedManifest.evidence, [PRODUCTION_EVIDENCE_REQUIREMENTS[0]]: undefined },
 }));
+rejects("evidence artifact contract mutation", () => assertProductionEvidenceManifest({
+  ...signedManifest,
+  evidence: {
+    ...signedManifest.evidence,
+    real_production_game_server_connection: {
+      ...signedManifest.evidence.real_production_game_server_connection,
+      required_artifacts: ["presentation"],
+    },
+  },
+}));
+rejects("evidence field contract mutation", () => assertProductionEvidenceManifest({
+  ...signedManifest,
+  evidence: {
+    ...signedManifest.evidence,
+    real_production_tlsn_notary_interaction: {
+      ...signedManifest.evidence.real_production_tlsn_notary_interaction,
+      required_fields: ["notary_key_id"],
+    },
+  },
+}));
 rejects("production evidence promotion", () => assertProductionEvidenceManifest({ ...signedManifest, p0_05: "PASS" }));
 rejects("result signature mutation", () => assertSignedResult({ ...result, signature: `${result.signature.startsWith("A") ? "B" : "A"}${result.signature.slice(1)}` }, {
   publicKeySpki: resultPublicKeySpki,
@@ -239,7 +321,7 @@ const verifierProcess = spawnSync(process.execPath, ["scripts/verify-production-
     TLSN_PRODUCTION_RESULT_SIGNER_KEY_ID: "result-2026",
   },
 });
-assert.equal(verifierProcess.status, 0, verifierProcess.stderr);
-assert.match(verifierProcess.stdout, /"status":"BLOCKED"/);
+assert.equal(verifierProcess.status, 1, verifierProcess.stderr);
+assert.match(verifierProcess.stderr, /missing a required artifact|verifier-generated semantic artifact is required/);
 
-console.log("[tlsn-production-evidence] manifest, signer, artifact, freshness, identity, replay-block, synthetic, and result mutation matrix OK");
+console.log("[tlsn-production-evidence] manifest, signer, artifact, freshness, identity, semantic, replay-block, synthetic, and result mutation matrix OK");

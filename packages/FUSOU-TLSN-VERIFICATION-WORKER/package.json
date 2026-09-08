@@ -13,14 +13,14 @@
     "deploy:production": "node scripts/deploy-production.mjs",
     "preflight:production": "node scripts/deployment-preflight.mjs",
     "capture:deployment": "node scripts/capture-deployment.mjs",
-    "capture:production-evidence": "node scripts/capture-production-evidence.mjs",
+    "capture:production-evidence": "pnpm run build:wasm && node scripts/capture-production-evidence.mjs",
     "verify:deployment": "node scripts/verify-deployment.mjs",
-    "verify:production-evidence": "node scripts/verify-production-evidence.mjs",
+    "verify:production-evidence": "pnpm run build:wasm && node scripts/verify-production-evidence.mjs",
     "verify:previous-deployment": "node scripts/verify-previous-deployment.mjs",
     "validate:remote": "node scripts/remote-validation.mjs",
     "verify:remote-gate": "node scripts/verify-remote-gate.mjs",
     "types": "wrangler types",
-    "test": "node scripts/deployment-isolation-test.mjs && node scripts/deployment-attestation-test.mjs && node scripts/signing-key-registry-test.mjs && node scripts/previous-deployment-contract-test.mjs && node scripts/production-evidence-test.mjs && node scripts/test.mjs",
+    "test": "pnpm run build:wasm && node scripts/deployment-isolation-test.mjs && node scripts/deployment-attestation-test.mjs && node scripts/signing-key-registry-test.mjs && node scripts/previous-deployment-contract-test.mjs && node scripts/production-evidence-test.mjs && node scripts/test.mjs",
     "test:isolation": "node scripts/deployment-isolation-test.mjs"
   },
   "keywords": [

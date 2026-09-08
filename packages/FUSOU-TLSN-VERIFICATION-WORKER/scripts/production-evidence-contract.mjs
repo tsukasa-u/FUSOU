@@ -3,6 +3,16 @@ import { randomUUID } from "node:crypto";
 export const PRODUCTION_EVIDENCE_SCOPE = "tlsn-production-evidence";
 export const PRODUCTION_EVIDENCE_SCHEMA_VERSION = 1;
 export const PRODUCTION_EVIDENCE_ITEM_STATUSES = ["PASS", "UNVERIFIED", "BLOCKED", "FAIL"];
+export const PRODUCTION_EVIDENCE_CAPTURE_STATUSES = ["CAPTURED", "FAILED", "UNAVAILABLE"];
+export const PRODUCTION_EVIDENCE_VERIFICATION_STATUSES = ["VERIFIED", "UNVERIFIED", "FAILED"];
+export const PRODUCTION_EVIDENCE_SEMANTIC_PREDICATES = [
+  "presentation_cryptography",
+  "notary_identity",
+  "server_identity",
+  "require_info_http_profile",
+  "authenticated_member_id",
+  "result_presentation_binding",
+];
 export const PRODUCTION_EVIDENCE_REQUIREMENTS = [
   "real_production_game_server_connection",
   "real_production_tlsn_notary_interaction",
@@ -15,6 +25,58 @@ export const PRODUCTION_EVIDENCE_REQUIREMENTS = [
   "real_production_public_key_publication",
   "independently_captured_production_evidence",
 ];
+export const PRODUCTION_EVIDENCE_ITEM_DEFINITIONS = {
+  real_production_game_server_connection: {
+    required_artifacts: ["presentation", "semantic_verification"],
+    required_fields: ["server_identity", "profile_sha256", "tlsn_attestation_id"],
+    verification_method: "alpha15 Presentation verification derives the authenticated server identity",
+  },
+  real_production_tlsn_notary_interaction: {
+    required_artifacts: ["presentation", "notary_registry", "semantic_verification"],
+    required_fields: ["notary_key_id", "notary_key_sha256"],
+    verification_method: "alpha15 Presentation verifying key matches the production Notary registry",
+  },
+  real_production_fusou_web_device_authentication: {
+    required_artifacts: ["health", "subject", "session"],
+    required_fields: ["canonical_user_id", "device_id", "attestation_session_id"],
+    verification_method: "authenticated Supabase identity and FUSOU-WEB device challenge are captured",
+  },
+  real_production_device_possession_proof: {
+    required_artifacts: ["session", "possession_proof", "result"],
+    required_fields: ["device_challenge", "device_id", "binding_value"],
+    verification_method: "production Worker accepts the device possession proof for the issued binding",
+  },
+  real_production_replay_authority: {
+    required_artifacts: ["session", "replay"],
+    required_fields: ["session_id", "device_id", "binding"],
+    verification_method: "the consumed production binding rejects a second verification",
+  },
+  real_production_binding_authority: {
+    required_artifacts: ["session", "result"],
+    required_fields: ["session_id", "binding", "binding_nonce"],
+    verification_method: "production Worker binds the verified Result to a one-shot session",
+  },
+  real_production_verifier_trust_root: {
+    required_artifacts: ["health", "trust_root"],
+    required_fields: ["trust_root_certificate_sha256"],
+    verification_method: "captured trust root bytes match the deployed Worker identity",
+  },
+  real_production_result_signing_key: {
+    required_artifacts: ["result", "result_registry"],
+    required_fields: ["signature", "result_signer_key_id", "result_key_registry_sha256"],
+    verification_method: "signed Result verifies against the captured active result-key registry",
+  },
+  real_production_public_key_publication: {
+    required_artifacts: ["health", "result_registry"],
+    required_fields: ["result_public_key_spki", "result_signer_key_id", "result_key_registry_sha256"],
+    verification_method: "Worker health identity matches the captured published result-key registry",
+  },
+  independently_captured_production_evidence: {
+    required_artifacts: ["presentation", "semantic_verification", "result", "session"],
+    required_fields: ["presentation_sha256", "tlsn_attestation_id", "verified_member_id"],
+    verification_method: "capture harness independently verifies Presentation semantics and signed Result binding",
+  },
+};
 export const PRODUCTION_EVIDENCE_DOMAINS = {
   game_server: [
     "real_production_game_server_connection",
@@ -59,6 +121,9 @@ export function createEvidenceItem({
   verifierIdentity = "capture-harness",
   authorityIdentity = "production-authority-unverified",
   detail = "",
+  requiredArtifacts = [],
+  requiredFields = [],
+  verificationMethod = "independent production evidence verification",
 } = {}) {
   if (!UUID_PATTERN.test(evidenceId)) throw new Error("evidence_id must be a UUIDv4");
   if (!PRODUCTION_EVIDENCE_ITEM_STATUSES.includes(status)) {
@@ -71,6 +136,13 @@ export function createEvidenceItem({
   assertIdentity(verifierIdentity, "verifier_identity");
   assertIdentity(authorityIdentity, "authority_identity");
   if (typeof detail !== "string" || detail.length > 1024) throw new Error("evidence detail is invalid");
+  if (!Array.isArray(requiredArtifacts) || requiredArtifacts.some((value) => typeof value !== "string" || value.length === 0)) {
+    throw new Error("evidence required_artifacts is invalid");
+  }
+  if (!Array.isArray(requiredFields) || requiredFields.some((value) => typeof value !== "string" || value.length === 0)) {
+    throw new Error("evidence required_fields is invalid");
+  }
+  assertIdentity(verificationMethod, "verification_method");
   return {
     evidence_id: evidenceId,
     status,
@@ -79,7 +151,21 @@ export function createEvidenceItem({
     verifier_identity: verifierIdentity,
     authority_identity: authorityIdentity,
     detail,
+    required_artifacts: [...requiredArtifacts],
+    required_fields: [...requiredFields],
+    verification_method: verificationMethod,
   };
+}
+
+export function createProductionEvidenceItem(requirement, options = {}) {
+  const definition = PRODUCTION_EVIDENCE_ITEM_DEFINITIONS[requirement];
+  if (!definition) throw new Error(`unknown production evidence requirement: ${requirement}`);
+  return createEvidenceItem({
+    ...options,
+    requiredArtifacts: definition.required_artifacts,
+    requiredFields: definition.required_fields,
+    verificationMethod: definition.verification_method,
+  });
 }
 
 export function blockedProductionEvidenceManifest({
@@ -99,12 +185,16 @@ export function blockedProductionEvidenceManifest({
   }
   const evidence = Object.fromEntries(PRODUCTION_EVIDENCE_REQUIREMENTS.map((requirement) => [
     requirement,
-    createEvidenceItem({ timestamp: now, detail: `required evidence is not available: ${requirement}` }),
+    createProductionEvidenceItem(requirement, { timestamp: now, detail: `required evidence is not available: ${requirement}` }),
   ]));
   return {
     schema_version: PRODUCTION_EVIDENCE_SCHEMA_VERSION,
     scope: PRODUCTION_EVIDENCE_SCOPE,
     status: "BLOCKED",
+    capture_status: "UNAVAILABLE",
+    verification_status: "UNVERIFIED",
+    production_evidence_status: "BLOCKED",
+    p0_05_status: "BLOCKED",
     production_evidence: "BLOCKED",
     p0_05: "BLOCKED",
     capture_id: captureId,
@@ -118,6 +208,17 @@ export function blockedProductionEvidenceManifest({
     subject_identity: subjectIdentity,
     evidence_domains: PRODUCTION_EVIDENCE_DOMAINS,
     evidence,
+    semantic_predicates: Object.fromEntries(PRODUCTION_EVIDENCE_SEMANTIC_PREDICATES.map((predicate) => [
+      predicate,
+      {
+        status: "UNVERIFIED",
+        required_artifacts: ["presentation"],
+        required_fields: [],
+        verification_method: "independent alpha15 semantic verification",
+        authority_identity: "production-authority-unverified",
+      },
+    ])),
+    semantic_verification: null,
     artifacts: {},
     independent_verification: {
       status: "BLOCKED",
@@ -133,6 +234,10 @@ export function assertProductionEvidenceManifest(manifest) {
     manifest?.schema_version !== PRODUCTION_EVIDENCE_SCHEMA_VERSION ||
     manifest?.scope !== PRODUCTION_EVIDENCE_SCOPE ||
     manifest?.status !== "BLOCKED" ||
+    !PRODUCTION_EVIDENCE_CAPTURE_STATUSES.includes(manifest?.capture_status) ||
+    !PRODUCTION_EVIDENCE_VERIFICATION_STATUSES.includes(manifest?.verification_status) ||
+    manifest?.production_evidence_status !== "BLOCKED" ||
+    manifest?.p0_05_status !== "BLOCKED" ||
     manifest?.production_evidence !== "BLOCKED" ||
     manifest?.p0_05 !== "BLOCKED"
   ) {
@@ -152,7 +257,30 @@ export function assertProductionEvidenceManifest(manifest) {
   }
   for (const requirement of PRODUCTION_EVIDENCE_REQUIREMENTS) {
     if (!manifest.evidence?.[requirement]) throw new Error(`production evidence item is missing: ${requirement}`);
-    createEvidenceItem(manifest.evidence?.[requirement]);
+    const item = manifest.evidence[requirement];
+    const definition = PRODUCTION_EVIDENCE_ITEM_DEFINITIONS[requirement];
+    createEvidenceItem(item);
+    if (
+      JSON.stringify(item.required_artifacts) !== JSON.stringify(definition.required_artifacts) ||
+      JSON.stringify(item.required_fields) !== JSON.stringify(definition.required_fields) ||
+      item.verification_method !== definition.verification_method
+    ) {
+      throw new Error(`production evidence item contract is invalid: ${requirement}`);
+    }
+  }
+  for (const predicate of PRODUCTION_EVIDENCE_SEMANTIC_PREDICATES) {
+    const item = manifest.semantic_predicates?.[predicate];
+    if (!item || !["PASS", "UNVERIFIED", "BLOCKED", "FAIL"].includes(item.status)) {
+      throw new Error(`semantic evidence predicate is missing: ${predicate}`);
+    }
+    if (!Array.isArray(item.required_artifacts) || !Array.isArray(item.required_fields)) {
+      throw new Error(`semantic evidence predicate schema is invalid: ${predicate}`);
+    }
+    assertIdentity(item.verification_method, "semantic verification_method");
+    assertIdentity(item.authority_identity, "semantic authority_identity");
+  }
+  if (manifest.semantic_verification !== null && typeof manifest.semantic_verification !== "object") {
+    throw new Error("semantic verification artifact reference is invalid");
   }
   if (!manifest.independent_verification || manifest.independent_verification.status !== "BLOCKED") {
     throw new Error("independent production evidence verification must remain blocked");
