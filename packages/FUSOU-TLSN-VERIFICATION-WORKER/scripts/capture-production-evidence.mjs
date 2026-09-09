@@ -616,7 +616,7 @@ async function main() {
     const sessionBytes = Buffer.from(JSON.stringify(session));
     const deviceIdentityBytes = Buffer.from(JSON.stringify(issued.deviceIdentity));
     const deviceAuthenticationBytes = Buffer.from(JSON.stringify(issued.authentication));
-    const possessionProofBytes = Buffer.from(JSON.stringify(possessionProof));
+    const possessionProofBytes = Buffer.from(JSON.stringify(capturedPossessionProof));
     const consumeReceiptBytes = Buffer.from(JSON.stringify(verification.json.consume_receipt));
     const replayBytes = Buffer.from(JSON.stringify({
       session_id: session.session_id,
@@ -624,8 +624,8 @@ async function main() {
       binding: session.binding,
       status: replay.response.status,
       error: replay.json?.error ?? null,
-      replay_digest: possessionProof.replay_digest,
-      replay_digest_hex: possessionProof.replay_digest_hex,
+      replay_digest: capturedPossessionProof.replay_digest,
+      replay_digest_hex: capturedPossessionProof.replay_digest_hex,
       stored_replay_digest_hex: storedReplayDigestHex,
       consume_receipt_presentation_id: verification.json.consume_receipt.presentation_id,
     }));
