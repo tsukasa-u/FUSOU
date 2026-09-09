@@ -63,11 +63,7 @@ const year = new Date().getFullYear();
                 >クエスト - 推定クエストツリー閲覧</a
               >
             </div>
-            <div class="card-actions mt-1">
-              <a href="/battles" class="fusou-btn-primary w-full justify-center"
-                >データを見る</a
-              >
-            </div>
+
           </div>
         </div>
 
@@ -106,11 +102,7 @@ const year = new Date().getFullYear();
                 >艦/装備詳細 - 評価値・相性参照</a
               >
             </div>
-            <div class="card-actions mt-1">
-              <a href="/simulator" class="fusou-btn-secondary w-full justify-center"
-                >シミュレータを開く</a
-              >
-            </div>
+
           </div>
         </div>
       </div>
@@ -148,20 +140,46 @@ const year = new Date().getFullYear();
         </div>
       </div>
 
+
+      <!-- Hero CTA Buttons -->
       <div
-        class="mt-5 w-full sm:mt-6 flex flex-col sm:flex-row gap-3 justify-center"
+        class="mt-6 sm:mt-8 flex flex-col sm:flex-row gap-3 sm:gap-4 justify-center items-center w-full"
       >
         <a
-          class="fusou-btn-primary sm:btn-md w-full sm:w-auto shadow-lg"
+          class="btn btn-primary btn-md sm:btn-lg px-6 sm:px-8 font-semibold shadow-lg shadow-primary/25 hover:shadow-xl hover:shadow-primary/35 hover:-translate-y-0.5 transition-all duration-200 flex items-center justify-center gap-2 group w-full sm:w-auto"
           href="/docs/start/quick_start"
         >
-          Quick Start
+          <span>Quick Start</span>
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            class="h-5 w-5 transition-transform duration-200 group-hover:translate-x-1"
+            viewBox="0 0 20 20"
+            fill="currentColor"
+          >
+            <path
+              fill-rule="evenodd"
+              d="M10.293 3.293a1 1 0 011.414 0l6 6a1 1 0 010 1.414l-6 6a1 1 0 01-1.414-1.414L14.586 11H3a1 1 0 110-2h11.586l-4.293-4.293a1 1 0 010-1.414z"
+              clip-rule="evenodd"
+            ></path>
+          </svg>
         </a>
         <a
-          class="fusou-btn-secondary sm:btn-md w-full sm:w-auto"
+          class="btn btn-md sm:btn-lg px-6 sm:px-8 font-semibold bg-base-200/90 hover:bg-base-300 text-base-content border border-base-300 shadow-sm hover:shadow hover:-translate-y-0.5 transition-all duration-200 flex items-center justify-center gap-2 group w-full sm:w-auto"
           href="#project-guide"
         >
-          詳細を見る
+          <span>詳細を見る</span>
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            class="h-5 w-5 transition-transform duration-200 group-hover:translate-y-0.5 text-base-content/70"
+            viewBox="0 0 20 20"
+            fill="currentColor"
+          >
+            <path
+              fill-rule="evenodd"
+              d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z"
+              clip-rule="evenodd"
+            ></path>
+          </svg>
         </a>
       </div>
     </div>
