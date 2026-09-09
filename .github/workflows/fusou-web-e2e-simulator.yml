@@ -45,11 +45,8 @@ jobs:
       - name: Setup Rust environment for wasm build
         run: pnpm --dir packages/FUSOU-WEB run setup:rust-env
 
-      - name: Build avro-wasm
-        run: pnpm --filter @fusou/avro-wasm run build
-
-      - name: Build compaction core
-        run: pnpm --filter @fusou/compaction-core run build
+      - name: Build web dependencies (avro-wasm, compaction-core)
+        run: pnpm --dir packages/FUSOU-WEB run build:deps
 
       - name: Run DOM security check
         run: pnpm --dir packages/FUSOU-WEB run check:security:dom
@@ -107,11 +104,8 @@ jobs:
       - name: Setup Rust environment for wasm build
         run: pnpm --dir packages/FUSOU-WEB run setup:rust-env
 
-      - name: Build avro-wasm
-        run: pnpm --filter @fusou/avro-wasm run build
-
-      - name: Build compaction core
-        run: pnpm --filter @fusou/compaction-core run build
+      - name: Build web dependencies (avro-wasm, compaction-core)
+        run: pnpm --dir packages/FUSOU-WEB run build:deps
 
       - name: Install Playwright Chromium
         run: pnpm --dir packages/FUSOU-WEB exec playwright install --with-deps chromium
@@ -159,11 +153,8 @@ jobs:
       - name: Setup Rust environment for wasm build
         run: pnpm --dir packages/FUSOU-WEB run setup:rust-env
 
-      - name: Build avro-wasm
-        run: pnpm --filter @fusou/avro-wasm run build
-
-      - name: Build compaction core
-        run: pnpm --filter @fusou/compaction-core run build
+      - name: Build web dependencies (avro-wasm, compaction-core)
+        run: pnpm --dir packages/FUSOU-WEB run build:deps
 
       - name: Seed local D1/R2 for simulator
         run: pnpm --dir packages/FUSOU-WEB run seed:master-data

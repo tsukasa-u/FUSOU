@@ -16,7 +16,9 @@
     "env.decrypt": "dotenvx decrypt -fk ./packages/.env.keys -f ./packages/FUSOU-WEB/.env -f ./packages/FUSOU-APP/src-tauri/.env -f ./packages/FUSOU-APP/.env -f ./packages/fusou-auth/.env -f ./packages/FUSOU-WORKFLOW/.env -f ./packages/fusou-compaction-trigger/.env",
     "env.ls": "dotenvx ls",
     "license:generate": "node scripts/generate-license-docs.mjs",
-    "license:check": "node scripts/generate-license-docs.mjs --check"
+    "license:check": "node scripts/generate-license-docs.mjs --check",
+    "build:compaction-core": "pnpm --filter @fusou/compaction-core run build",
+    "test:web": "pnpm --filter fusou-web test"
   },
   "keywords": [],
   "author": "",

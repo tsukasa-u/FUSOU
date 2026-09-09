@@ -12,8 +12,8 @@
     "generate:graph-data": "node scripts/convert-dot-to-reactflow.mjs && node scripts/convert-schema-to-reactflow.mjs",
     "check:security:dom": "node scripts/check-security-dom.mjs",
     "generate:all": "pnpm run generate:rust-data && pnpm run generate:graph-data",
-    "build": "pnpm run setup:rust-env && pnpm run build:avro-wasm && pnpm run generate:all && pnpm run check:security:dom && astro check && CLOUDFLARE_INCLUDE_PROCESS_ENV=true dotenvx run -fk ../.env.keys -f .env --verbose --overload -- astro build",
-    "build.no.keys": "pnpm run setup:rust-env && pnpm run build:avro-wasm && pnpm run generate:all && pnpm run check:security:dom && astro check && CLOUDFLARE_INCLUDE_PROCESS_ENV=true dotenvx run -f .env --verbose --overload -- astro build",
+    "build": "pnpm run setup:rust-env && pnpm run build:deps && pnpm run generate:all && pnpm run check:security:dom && astro check && CLOUDFLARE_INCLUDE_PROCESS_ENV=true dotenvx run -fk ../.env.keys -f .env --verbose --overload -- astro build",
+    "build.no.keys": "pnpm run setup:rust-env && pnpm run build:deps && pnpm run generate:all && pnpm run check:security:dom && astro check && CLOUDFLARE_INCLUDE_PROCESS_ENV=true dotenvx run -f .env --verbose --overload -- astro build",
     "build:workers": "pnpm run build.no.keys && echo '_worker.js' > dist/.assetsignore",
     "deploy": "pnpm run build && echo '_worker.js' > dist/.assetsignore && wrangler deploy",
     "preview": "CLOUDFLARE_INCLUDE_PROCESS_ENV=true dotenvx run -fk ../.env.keys -f .env --verbose --overload -- astro preview",
@@ -70,7 +70,10 @@
     "purge:d1-member-data": "node scripts/purge-d1-member-data.mjs --remote",
     "purge:d1-member-data:apply": "node scripts/purge-d1-member-data.mjs --remote --apply",
     "purge:r2-fleet-data": "node scripts/purge-r2-fleet-data.mjs --remote",
-    "purge:r2-fleet-data:apply": "node scripts/purge-r2-fleet-data.mjs --remote --apply"
+    "purge:r2-fleet-data:apply": "node scripts/purge-r2-fleet-data.mjs --remote --apply",
+    "build:compaction-core": "pnpm --filter @fusou/compaction-core run build",
+    "build:deps": "pnpm run build:avro-wasm && pnpm run build:compaction-core",
+    "test": "pnpm run build:compaction-core && vitest run"
   },
   "dependencies": {
     "@astrojs/cloudflare": "^14.1.4",
