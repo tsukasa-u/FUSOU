@@ -74,6 +74,28 @@ E2E. This changes no mux frames or Attestation/Presentation format, but the
 larger per-connection window requires an explicit memory and concurrency review
 before Production deployment.
 
+An ignored local resource benchmark keeps `max_recv_data=4 MiB` fixed and
+varies only `max_sent_data`. The reported RSS is the combined Prover and Notary
+fixture process, so it is not a per-side allocation breakdown or Production
+safety evidence:
+
+| `max_sent_data` | AES keystream blocks | RSS after commit | RSS after cleanup | elapsed |
+| ---: | ---: | ---: | ---: | ---: |
+| 4 KiB | 258 | 375 MiB | 373 MiB | 6.98 s |
+| 16 KiB | 1,026 | 908 MiB | 511 MiB | 14.90 s |
+| 32 KiB | 2,050 | 1,599 MiB | 571 MiB | 25.78 s |
+| 64 KiB | 4,098 | 3,956 MiB | 1,125 MiB | 67.41 s |
+| 128 KiB | 8,194 | 5,833 MiB | 1,749 MiB | 91.49 s |
+
+Every cell passed the real alpha.15 MPC, Attestation signing, and Attestation
+validation flow. In the corrected 128 KiB run, the combined process reached a
+resident high-water mark of approximately 5.9 GiB and a virtual-address-space
+peak of approximately 9.8 GiB. The commit-phase growth tracks the number of
+AES keystream blocks, which is evidence for an MPC preprocessing/circuit
+footprint rather than eager allocation of the 4 MiB receive bound. The
+post-cleanup RSS also remained approximately 1.7 GiB, so allocator/runtime
+retention and per-side attribution still require investigation.
+
 ## Operations
 
 The service is self-hostable but not Production-ready merely because it
@@ -83,11 +105,11 @@ key registry entry, rotation/revocation procedures, and an independently
 verified FUSOU interoperability run.
 
 `NOTARY_MAX_CONCURRENT_SESSIONS` defaults to `1` because a fixture-backed
-FUSOU-bound alpha.15 session reached approximately 6.2 GiB peak RSS during
-local measurement. Connections beyond the configured semaphore are rejected
-before TLSNotary session setup. Increase this value only after measuring the
-deployed host's memory limit and reserving capacity for the mux, runtime, and
-kernel socket buffers.
+FUSOU-bound alpha.15 session reached approximately 5.9 GiB resident
+high-water mark during local measurement. Connections beyond the configured
+semaphore are rejected before TLSNotary session setup. Increase this value only
+after measuring the deployed host's memory limit and reserving capacity for the
+mux, runtime, and kernel socket buffers.
 
 Rotation is performed by deploying a new instance with a new `NOTARY_KEY_ID`
 and key, registering its public key before cutover, switching traffic, then
