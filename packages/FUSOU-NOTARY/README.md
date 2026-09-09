@@ -38,6 +38,7 @@ NOTARY_SIGNING_KEY_SOURCE=file
 NOTARY_SIGNING_KEY_FILE=/run/secrets/fusou-notary-signing-key
 NOTARY_SESSION_TIMEOUT_SECS=300
 NOTARY_MAX_ATTESTATION_REQUEST_BYTES=16777216
+NOTARY_MAX_CONCURRENT_SESSIONS=1
 ```
 
 The default listener is loopback (`127.0.0.1:7047`) so an accidental start is
@@ -80,6 +81,13 @@ builds. Production requires a deployed endpoint, private-network/L4 ACLs,
 operator ownership, a secret-manager-backed active key, an immutable public
 key registry entry, rotation/revocation procedures, and an independently
 verified FUSOU interoperability run.
+
+`NOTARY_MAX_CONCURRENT_SESSIONS` defaults to `1` because a fixture-backed
+FUSOU-bound alpha.15 session reached approximately 6.2 GiB peak RSS during
+local measurement. Connections beyond the configured semaphore are rejected
+before TLSNotary session setup. Increase this value only after measuring the
+deployed host's memory limit and reserving capacity for the mux, runtime, and
+kernel socket buffers.
 
 Rotation is performed by deploying a new instance with a new `NOTARY_KEY_ID`
 and key, registering its public key before cutover, switching traffic, then

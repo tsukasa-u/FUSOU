@@ -6,14 +6,17 @@ const DEFAULT_HOST: &str = "127.0.0.1";
 const DEFAULT_PORT: u16 = 7047;
 const DEFAULT_SESSION_TIMEOUT_SECS: u64 = 300;
 const DEFAULT_MAX_ATTESTATION_REQUEST_BYTES: usize = 16 * 1024 * 1024;
+const DEFAULT_MAX_CONCURRENT_SESSIONS: usize = 1;
 const MAX_SESSION_TIMEOUT_SECS: u64 = 3600;
 const MAX_ATTESTATION_REQUEST_BYTES: usize = 64 * 1024 * 1024;
+const MAX_CONCURRENT_SESSIONS: usize = 64;
 
 #[derive(Clone, Debug)]
 pub struct NotaryConfig {
     pub listen_addr: SocketAddr,
     pub session_timeout: Duration,
     pub max_attestation_request_bytes: usize,
+    pub max_concurrent_sessions: usize,
     pub key: KeyMaterial,
 }
 
@@ -43,10 +46,21 @@ impl NotaryConfig {
             ));
         }
 
+        let max_concurrent_sessions = parse_usize_env(
+            "NOTARY_MAX_CONCURRENT_SESSIONS",
+            DEFAULT_MAX_CONCURRENT_SESSIONS,
+        )?;
+        if max_concurrent_sessions == 0 || max_concurrent_sessions > MAX_CONCURRENT_SESSIONS {
+            return Err(anyhow!(
+                "NOTARY_MAX_CONCURRENT_SESSIONS must be between 1 and {MAX_CONCURRENT_SESSIONS}"
+            ));
+        }
+
         Ok(Self {
             listen_addr,
             session_timeout: Duration::from_secs(timeout_secs),
             max_attestation_request_bytes: max_request_bytes,
+            max_concurrent_sessions,
             key: KeyMaterial::from_env()?,
         })
     }
