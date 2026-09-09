@@ -10,8 +10,13 @@ import {
   useNodesState,
   useEdgesState,
 } from "@xyflow/react";
-import dagre from "@dagrejs/dagre";
-import ELK from "elkjs/lib/elk.bundled.js";
+import {
+  applyDagreLayout,
+  applyElkLayout,
+  type LayoutAlgo,
+  type LayoutDir,
+  type LayoutSpacing,
+} from "./schemaGraphLayout";
 
 import SchemaTableNode from "./SchemaTableNode";
 import EndpointNode from "./EndpointNode";
@@ -19,6 +24,13 @@ import VersionSelector from "./VersionSelector";
 import ApiGroupNav from "./ApiGroupNav";
 import NodeDetailPanel from "./NodeDetailPanel";
 import "./css/reactflow.css";
+import {
+  buildSearchString,
+  getLatestEpochFeature,
+  parseSelectionFromUrl,
+  sortEpochFeatures,
+  type SelectionMetadata,
+} from "./schemaGraphUrlParams";
 import {
   parseDbVersions,
   parseEndpointGraph,
@@ -67,135 +79,22 @@ const DEFAULT_VERSION =
   ALL_DB_VERSIONS[ALL_DB_VERSIONS.length - 1] ??
   "";
 
-const NODE_WIDTH = 300;
-const NODE_HEIGHT_BASE = 52;
-const NODE_HEIGHT_PER_FIELD = 24;
+const DEFAULT_ENDPOINT_VERSION = getLatestEpochFeature(
+  endpointGraphData.featureVariants.allFeatures,
+);
+
+const SELECTION_METADATA: SelectionMetadata = {
+  allDbVersions: ALL_DB_VERSIONS,
+  majorVersions: MAJOR_VERSIONS,
+  defaultMajor: DEFAULT_MAJOR,
+  defaultDbVersion: DEFAULT_VERSION,
+  endpointGroups: endpointGraphData.groups,
+  allFeatures: endpointGraphData.featureVariants.allFeatures,
+  activeFeatures: endpointGraphData.featureVariants.activeFeatures,
+  defaultEndpointVersion: DEFAULT_ENDPOINT_VERSION,
+};
 
 type EdgeStyle = "bezier" | "smoothstep" | "straight";
-type LayoutDir = "LR" | "TB";
-type LayoutSpacing = "compact" | "normal" | "spacious";
-type LayoutAlgo = "dagre" | "elk-layered" | "elk-mrtree";
-
-const SPACING_MAP: Record<
-  LayoutSpacing,
-  { nodesep: number; ranksep: number; edgesep: number }
-> = {
-  compact: { nodesep: 40, ranksep: 120, edgesep: 30 },
-  normal: { nodesep: 80, ranksep: 220, edgesep: 60 },
-  spacious: { nodesep: 130, ranksep: 340, edgesep: 90 },
-};
-
-const ELK_SPACING_MAP: Record<
-  LayoutSpacing,
-  { nodeSpacing: number; layerSpacing: number }
-> = {
-  compact: { nodeSpacing: 40, layerSpacing: 100 },
-  normal: { nodeSpacing: 80, layerSpacing: 200 },
-  spacious: { nodeSpacing: 130, layerSpacing: 320 },
-};
-
-const elk = new ELK();
-
-function estimateNodeHeight(node: GraphNode): number {
-  const fields = node.data.fields;
-  if (Array.isArray(fields)) {
-    return NODE_HEIGHT_BASE + fields.length * NODE_HEIGHT_PER_FIELD;
-  }
-  return NODE_HEIGHT_BASE + 3 * NODE_HEIGHT_PER_FIELD;
-}
-
-function applyDagreLayout(
-  nodes: GraphNode[],
-  edges: GraphEdge[],
-  direction: LayoutDir = "LR",
-  spacing: LayoutSpacing = "normal",
-): GraphNode[] {
-  if (nodes.length === 0) return nodes;
-  const g = new dagre.graphlib.Graph();
-  g.setDefaultEdgeLabel(() => ({}));
-  const s = SPACING_MAP[spacing];
-  g.setGraph({
-    rankdir: direction,
-    nodesep: s.nodesep,
-    ranksep: s.ranksep,
-    edgesep: s.edgesep,
-  });
-
-  for (const node of nodes) {
-    g.setNode(node.id, { width: NODE_WIDTH, height: estimateNodeHeight(node) });
-  }
-  for (const edge of edges) {
-    g.setEdge(edge.source, edge.target);
-  }
-
-  dagre.layout(g);
-
-  return nodes.map((node) => {
-    const pos = g.node(node.id);
-    if (!pos) return node;
-    return {
-      ...node,
-      position: {
-        x: pos.x - NODE_WIDTH / 2,
-        y: pos.y - estimateNodeHeight(node) / 2,
-      },
-    };
-  });
-}
-
-/**
- * ELK レイアウト — dagre より交差最小化が優秀。
- * ELK は非同期なので Promise を返す。
- */
-async function applyElkLayout(
-  nodes: GraphNode[],
-  edges: GraphEdge[],
-  algo: "elk-layered" | "elk-mrtree",
-  direction: LayoutDir,
-  spacing: LayoutSpacing,
-): Promise<GraphNode[]> {
-  if (nodes.length === 0) return nodes;
-  const s = ELK_SPACING_MAP[spacing];
-  const elkDir = direction === "LR" ? "RIGHT" : "DOWN";
-
-  const elkGraph = {
-    id: "root",
-    layoutOptions: {
-      "elk.algorithm": algo === "elk-layered" ? "layered" : "mrtree",
-      "elk.direction": elkDir,
-      "elk.spacing.nodeNode": String(s.nodeSpacing),
-      "elk.layered.spacing.nodeNodeBetweenLayers": String(s.layerSpacing),
-      // 交差最小化設定
-      "elk.layered.crossingMinimization.strategy": "LAYER_SWEEP",
-      "elk.layered.nodePlacement.strategy": "BRANDES_KOEPF",
-      "elk.layered.considerModelOrder.strategy": "NODES_AND_EDGES",
-    },
-    children: nodes.map((n) => ({
-      id: n.id,
-      width: NODE_WIDTH,
-      height: estimateNodeHeight(n),
-    })),
-    edges: edges.map((e) => ({
-      id: e.id,
-      sources: [e.source],
-      targets: [e.target],
-    })),
-  };
-
-  const laid = await elk.layout(elkGraph);
-  const posMap = new Map<string, { x: number; y: number }>();
-  for (const child of laid.children ?? []) {
-    if (child.x !== undefined && child.y !== undefined) {
-      posMap.set(child.id, { x: child.x, y: child.y });
-    }
-  }
-
-  return nodes.map((node) => {
-    const pos = posMap.get(node.id);
-    if (!pos) return node;
-    return { ...node, position: { x: pos.x, y: pos.y } };
-  });
-}
 
 const EDGE_BASE_COLOR = "oklch(0.65 0.15 250)";
 
@@ -357,7 +256,8 @@ function getEndpointGraphData(
   return { nodes: ep.nodes, edges: ep.edges };
 }
 
-export type GraphMode = "database" | "endpoints";
+import type { GraphMode } from "./schemaGraphTypes";
+export type { GraphMode };
 
 export interface SchemaGraphProps {
   initialMode?: GraphMode;
@@ -366,15 +266,29 @@ export interface SchemaGraphProps {
 export default function SchemaGraph({
   initialMode = "database",
 }: SchemaGraphProps) {
-  const [mode, setMode] = useState<GraphMode>(initialMode);
-  const [selectedMajor, setSelectedMajor] = useState(DEFAULT_MAJOR);
-  const [dbVersion, setDbVersion] = useState(DEFAULT_VERSION);
-  const [endpointVersion, setEndpointVersion] = useState<string>(() => {
-    const features = endpointGraphData.featureVariants.activeFeatures;
-    return features[features.length - 1] ?? "";
+  const [initialSelection] = useState(() => {
+    if (typeof window === "undefined") {
+      return parseSelectionFromUrl("", SELECTION_METADATA, initialMode);
+    }
+    return parseSelectionFromUrl(
+      window.location.search,
+      SELECTION_METADATA,
+      initialMode,
+    );
   });
-  const [selectedGroup, setSelectedGroup] = useState<string>("");
-  const [selectedEndpoint, setSelectedEndpoint] = useState<string>("");
+
+  const [mode, setMode] = useState<GraphMode>(initialSelection.mode);
+  const [selectedMajor, setSelectedMajor] = useState(initialSelection.selectedMajor);
+  const [dbVersion, setDbVersion] = useState(initialSelection.dbVersion);
+  const [endpointVersion, setEndpointVersion] = useState<string>(
+    initialSelection.endpointVersion,
+  );
+  const [selectedGroup, setSelectedGroup] = useState<string>(
+    initialSelection.selectedGroup,
+  );
+  const [selectedEndpoint, setSelectedEndpoint] = useState<string>(
+    initialSelection.selectedEndpoint,
+  );
   const [selectedNode, setSelectedNode] = useState<GraphNode | null>(null);
 
   // Layout controls
@@ -413,7 +327,7 @@ export default function SchemaGraph({
   }, [selectedGroup]);
 
   const endpointVersionList = useMemo(() => {
-    return endpointGraphData.featureVariants.allFeatures;
+    return sortEpochFeatures(endpointGraphData.featureVariants.allFeatures);
   }, []);
 
   const endpointVersionLabels = useMemo((): Record<string, string> => {
@@ -431,8 +345,8 @@ export default function SchemaGraph({
       return;
     }
     if (!endpointVersionList.includes(endpointVersion)) {
-      const firstVersion = endpointVersionList[0];
-      if (firstVersion !== undefined) setEndpointVersion(firstVersion);
+      const latestVersion = getLatestEpochFeature(endpointVersionList);
+      if (latestVersion !== "") setEndpointVersion(latestVersion);
     }
   }, [mode, endpointVersion, endpointVersionList]);
 
@@ -534,6 +448,49 @@ export default function SchemaGraph({
       if (firstEndpoint !== undefined) setSelectedEndpoint(firstEndpoint);
     }
   }, [endpointList, selectedEndpoint]);
+
+  // URL クエリパラメータの同期 (URLSearchParams + history.replaceState)
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const newSearch = buildSearchString(
+      {
+        mode,
+        selectedMajor,
+        dbVersion,
+        endpointVersion,
+        selectedGroup,
+        selectedEndpoint,
+      },
+      window.location.search,
+    );
+
+    const currentSearch = window.location.search.replace(/^\?/, "");
+    if (newSearch !== currentSearch) {
+      const newUrl = `${window.location.pathname}${newSearch ? `?${newSearch}` : ""}${window.location.hash}`;
+      window.history.replaceState(window.history.state, "", newUrl);
+    }
+  }, [mode, dbVersion, selectedMajor, selectedGroup, selectedEndpoint, endpointVersion]);
+
+  // ブラウザの「戻る / 進む」履歴遷移 (popstate) のハンドリング
+  useEffect(() => {
+    const handlePopState = () => {
+      const sel = parseSelectionFromUrl(
+        window.location.search,
+        SELECTION_METADATA,
+        initialMode,
+      );
+      setMode(sel.mode);
+      setSelectedMajor(sel.selectedMajor);
+      setDbVersion(sel.dbVersion);
+      setEndpointVersion(sel.endpointVersion);
+      if (sel.selectedGroup) setSelectedGroup(sel.selectedGroup);
+      if (sel.selectedEndpoint) setSelectedEndpoint(sel.selectedEndpoint);
+    };
+
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
+  }, [initialMode]);
 
   // 選択ノードに基づいて祖先・子孫をハイライト
   useEffect(() => {

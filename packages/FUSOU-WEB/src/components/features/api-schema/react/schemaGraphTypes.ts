@@ -1,3 +1,4 @@
+export type GraphMode = "database" | "endpoints";
 import { z } from "zod";
 import type { Edge, Node } from "@xyflow/react";
 
