@@ -3,6 +3,21 @@ use proxy_https::{
     bidirectional_channel::{Master, Slave, StatusInfo},
     edit_pac::edit_pac,
 };
+#[cfg(feature = "tlsn-production")]
+use proxy_https::{
+    production_tlsn::{
+        FilesystemPresentationArtifactSink, HandoffPresentationProvider, OriginTarget,
+        OriginTlsConfig, OriginTransportConfig, ProductionTlsnDependencies,
+        ServerIdentityPolicy, RuntimeIdentifiers,
+    },
+    real_tlsn::{
+        FilesystemResultDelivery, RealAlpha15DedicatedVerifier,
+        RealAlpha15OriginTransportFactory, RemoteSessionBindingProvider,
+        RemoteWorkerResultSigner,
+    },
+};
+#[cfg(feature = "tlsn-production")]
+use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use tauri::Url;
 
 use crate::{
@@ -12,6 +27,8 @@ use crate::{
     },
     cmd::native_cmd::{self, add_store_sync},
 };
+#[cfg(feature = "tlsn-production")]
+use crate::util::get_ROAMING_DIR;
 
 use fusou_auth::{AuthManager, FileStorage};
 use std::path::Path;
@@ -81,6 +98,117 @@ fn validate_custom_certificate_mode_settings() -> Result<(), String> {
     Ok(())
 }
 
+#[cfg(feature = "tlsn-production")]
+fn production_configuration_error(error: impl std::fmt::Display) -> Box<dyn std::error::Error> {
+    std::io::Error::new(std::io::ErrorKind::InvalidInput, error.to_string()).into()
+}
+
+#[cfg(feature = "tlsn-production")]
+fn build_production_tlsn_dependencies(
+    proxy_target: &str,
+    artifact_root: &str,
+    auth_manager: &AuthManager<FileStorage>,
+) -> Result<ProductionTlsnDependencies, Box<dyn std::error::Error>> {
+    let proxy_configs = configs::get_user_configs_for_proxy();
+    let server_identity = proxy_configs
+        .get_tlsn_server_identity()
+        .ok_or_else(|| production_configuration_error("tlsn_server_identity is required for production TLSN"))?;
+    let notary_endpoint = proxy_configs
+        .get_tlsn_notary_endpoint()
+        .ok_or_else(|| production_configuration_error("tlsn_notary_endpoint is required for production TLSN"))?;
+    let session_endpoint = proxy_configs
+        .get_tlsn_session_authority_endpoint()
+        .ok_or_else(|| production_configuration_error("tlsn_session_authority_endpoint is required for production TLSN"))?;
+    let verification_endpoint = proxy_configs
+        .get_tlsn_verification_endpoint()
+        .ok_or_else(|| production_configuration_error("tlsn_verification_endpoint is required for production TLSN"))?;
+    let session_authority_key_id = proxy_configs
+        .get_tlsn_session_authority_key_id()
+        .ok_or_else(|| production_configuration_error("tlsn_session_authority_key_id is required for production TLSN"))?;
+    let session_authority_public_key = URL_SAFE_NO_PAD
+        .decode(proxy_configs.get_tlsn_session_authority_public_key().ok_or_else(|| {
+            production_configuration_error(
+                "tlsn_session_authority_public_key is required for production TLSN",
+            )
+        })?)?;
+    let notary_key = URL_SAFE_NO_PAD.decode(
+        proxy_configs
+            .get_tlsn_notary_verifying_key()
+            .ok_or_else(|| production_configuration_error("tlsn_notary_verifying_key is required for production TLSN"))?,
+    )?;
+    let trusted_roots = proxy_configs
+        .get_tlsn_origin_trust_roots()
+        .into_iter()
+        .map(|root| URL_SAFE_NO_PAD.decode(root).map_err(Into::into))
+        .collect::<Result<Vec<_>, Box<dyn std::error::Error>>>()?;
+    if trusted_roots.is_empty() {
+        return Err(production_configuration_error(
+            "tlsn_origin_trust_roots is required for production TLSN",
+        ));
+    }
+    let artifact_root = std::path::PathBuf::from(artifact_root);
+    if artifact_root.as_os_str().is_empty() {
+        return Err(production_configuration_error(
+            "tlsn_artifact_output_path is required for production TLSN",
+        ));
+    }
+    let target = OriginTarget::new(
+        proxy_target.to_owned(),
+        proxy_configs.get_tlsn_origin_port(),
+        server_identity.clone(),
+    )
+    .map_err(production_configuration_error)?;
+    let origin = OriginTransportConfig::new(
+        target.clone(),
+        OriginTlsConfig::new(trusted_roots).map_err(production_configuration_error)?,
+        ServerIdentityPolicy::new(vec![server_identity.clone()])
+            .map_err(production_configuration_error)?,
+        true,
+    );
+    let handoff = proxy_https::production_tlsn::PresentationHandoff::new();
+    let binding_provider = std::sync::Arc::new(RemoteSessionBindingProvider::new(
+        session_endpoint,
+        auth_manager.clone(),
+        get_ROAMING_DIR().join("fusou-auth-device-key.json"),
+        session_authority_public_key,
+        session_authority_key_id,
+    )
+    .map_err(production_configuration_error)?);
+    let transport_factory = std::sync::Arc::new(RealAlpha15OriginTransportFactory::new(
+        notary_endpoint,
+        std::sync::Arc::clone(&handoff),
+    )
+    .map_err(production_configuration_error)?);
+    let dedicated_verifier = std::sync::Arc::new(RealAlpha15DedicatedVerifier::new(
+        server_identity,
+        notary_key,
+    )
+    .map_err(production_configuration_error)?);
+    let result_signer = std::sync::Arc::new(RemoteWorkerResultSigner::new(
+        verification_endpoint,
+        auth_manager.clone(),
+        get_ROAMING_DIR().join("fusou-auth-device-key.json"),
+        binding_provider.state(),
+        std::sync::Arc::clone(&handoff),
+    )
+    .map_err(|_| production_configuration_error("invalid TLSN verification endpoint configuration"))?);
+    Ok(ProductionTlsnDependencies::new(
+        origin,
+        binding_provider,
+        transport_factory,
+        std::sync::Arc::new(HandoffPresentationProvider::new(
+            std::sync::Arc::clone(&handoff),
+        )),
+        dedicated_verifier,
+        result_signer,
+        std::sync::Arc::new(FilesystemResultDelivery::new(artifact_root.join("results"))),
+    )
+    .with_presentation_artifact_sink(std::sync::Arc::new(
+        FilesystemPresentationArtifactSink::new(artifact_root),
+    ))
+    .with_identifiers(RuntimeIdentifiers::default()))
+}
+
 #[allow(clippy::too_many_arguments)]
 pub async fn serve_proxy<R>(
     proxy_target: String,
@@ -144,21 +272,52 @@ where
         Arc::new(guard.clone())
     };
 
-    let proxy_addr = proxy_https::proxy_server_https::serve_proxy(
-        0,
-        proxy_bidirectional_channel_slave,
-        proxy_log_bidirectional_channel_master,
-        save_path,
-        asset_sync_save_path,
-        ca_path,
-        file_prefix.unwrap_or("".to_string()),
-        auth_manager_for_proxy,
-        Some(proxy_https::capture::CaptureRuntimeMetadata {
-            app_version: env!("CARGO_PKG_VERSION").to_string(),
-            game_client: "FUSOU-APP external WebView/browser".to_string(),
-            allowlisted_game_server: proxy_target.clone(),
-        }),
-    );
+    let capture_runtime_metadata = Some(proxy_https::capture::CaptureRuntimeMetadata {
+        app_version: env!("CARGO_PKG_VERSION").to_string(),
+        game_client: "FUSOU-APP external WebView/browser".to_string(),
+        allowlisted_game_server: proxy_target.clone(),
+    });
+    let proxy_addr = if proxy_configs.get_tlsn_production_enabled() {
+        #[cfg(feature = "tlsn-production")]
+        {
+            let artifact_root = proxy_configs
+                .get_tlsn_artifact_output_path()
+                .ok_or("tlsn_artifact_output_path is required for production TLSN")?;
+            let dependencies = build_production_tlsn_dependencies(
+                &proxy_target,
+                &artifact_root,
+                &auth_manager_for_proxy,
+            )?;
+            proxy_https::proxy_server_https::serve_proxy_with_production_dependencies(
+                0,
+                proxy_bidirectional_channel_slave,
+                proxy_log_bidirectional_channel_master,
+                save_path,
+                asset_sync_save_path,
+                ca_path,
+                file_prefix.unwrap_or_default(),
+                auth_manager_for_proxy,
+                capture_runtime_metadata,
+                dependencies,
+            )
+        }
+        #[cfg(not(feature = "tlsn-production"))]
+        {
+            Err("production TLSN is enabled but the application was built without the tlsn-production feature".into())
+        }
+    } else {
+        proxy_https::proxy_server_https::serve_proxy(
+            0,
+            proxy_bidirectional_channel_slave,
+            proxy_log_bidirectional_channel_master,
+            save_path,
+            asset_sync_save_path,
+            ca_path,
+            file_prefix.unwrap_or_default(),
+            auth_manager_for_proxy,
+            capture_runtime_metadata,
+        )
+    };
 
     if proxy_addr.is_err() {
         return Err("Failed to start proxy server".into());

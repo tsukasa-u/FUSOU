@@ -49,7 +49,7 @@ uuid = { version = "1.16.0", features = ["v4"] }
 rustls = { version = "0.23.26", features = ["ring"] }
 warp = "0.3.7"
 regex = "1.9.6"
-futures = "0.3.31"
+futures = "0.3.34"
 http-body-util = "0.1.2"
 tokio-cron-scheduler = "0.14.0"
 tracing = "0.1.41"
@@ -74,6 +74,7 @@ custom-protocol = [ "tauri/custom-protocol" ]
 
 default = ["kc-api-epoch-20250627"]
 grpc-channel = ["proxy-https/grpc"]
+tlsn-production = ["proxy-https/alpha15-tlsn"]
 kc-api-epoch-genesis = [
 	"kc_api/genesis",
 	"proxy-https/kc-api-epoch-genesis",

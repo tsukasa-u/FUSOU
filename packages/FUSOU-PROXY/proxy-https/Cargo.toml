@@ -44,8 +44,10 @@ futures = { version = "0.3.34", optional = true }
 fusou-tlsn-verifier = { path = "../../FUSOU-TLSN-VERIFIER", optional = true }
 rcgen = { version = "0.13.2", optional = true }
 tlsn = { git = "https://github.com/tlsnotary/tlsn.git", rev = "47aee45b53e06648c1b2ad3689b367b8c923fdec", version = "0.1.0-alpha.15", optional = true }
+tlsn-formats = { git = "https://github.com/tlsnotary/tlsn.git", rev = "47aee45b53e06648c1b2ad3689b367b8c923fdec", version = "0.1.0-alpha.15", optional = true }
 tokio-rustls = { version = "0.26.4", default-features = false, features = ["ring"], optional = true }
 tokio-util = { version = "0.7", optional = true, features = ["compat"] }
+ring = { version = "0.17", optional = true }
 
 [build-dependencies]
 tonic-build = "0.9"
@@ -56,16 +58,18 @@ protoc-bin-vendored = "3"
 default = ["kc-api-epoch-20250627"]
 # enable grpc-based channel
 grpc = ["tonic", "prost", "tokio-stream"]
-synthetic-tlsn = [
+alpha15-tlsn = [
 	"bincode",
 	"base64",
 	"futures",
 	"fusou-tlsn-verifier",
-	"rcgen",
 	"tlsn",
+	"tlsn-formats",
 	"tokio-rustls",
 	"tokio-util",
+	"ring",
 ]
+synthetic-tlsn = ["alpha15-tlsn", "rcgen"]
 kc-api-epoch-genesis = ["fusou-storage/kc-api-epoch-genesis"]
 kc-api-epoch-20250627 = ["fusou-storage/kc-api-epoch-20250627"]
 

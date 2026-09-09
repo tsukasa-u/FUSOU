@@ -1023,6 +1023,17 @@ pub struct ConfigsProxy {
     allow_save_resources: Option<bool>,
     allow_save_main_js_local: Option<bool>,
     experimental_tlsn_enabled: Option<bool>,
+    tlsn_production_enabled: Option<bool>,
+    tlsn_notary_endpoint: Option<String>,
+    tlsn_session_authority_endpoint: Option<String>,
+    tlsn_session_authority_public_key: Option<String>,
+    tlsn_session_authority_key_id: Option<String>,
+    tlsn_verification_endpoint: Option<String>,
+    tlsn_notary_verifying_key: Option<String>,
+    tlsn_origin_port: Option<i64>,
+    tlsn_server_identity: Option<String>,
+    tlsn_origin_trust_roots: Option<Vec<String>>,
+    tlsn_artifact_output_path: Option<String>,
     capture_enabled: Option<bool>,
     capture_output_path: Option<String>,
     save_file_location: Option<String>,
@@ -1040,6 +1051,108 @@ impl ConfigsProxy {
                 .experimental_tlsn_enabled
                 .unwrap_or(false)
         })
+    }
+
+    pub fn get_tlsn_production_enabled(&self) -> bool {
+        self.tlsn_production_enabled.unwrap_or_else(|| {
+            get_default_configs()
+                .proxy
+                .tlsn_production_enabled
+                .unwrap_or(false)
+        })
+    }
+
+    pub fn get_tlsn_notary_endpoint(&self) -> Option<String> {
+        non_empty_string(
+            self.tlsn_notary_endpoint
+                .clone()
+                .or_else(|| get_default_configs().proxy.tlsn_notary_endpoint.clone()),
+        )
+    }
+
+    pub fn get_tlsn_session_authority_endpoint(&self) -> Option<String> {
+        non_empty_string(
+            self.tlsn_session_authority_endpoint.clone().or_else(|| {
+                get_default_configs()
+                    .proxy
+                    .tlsn_session_authority_endpoint
+                    .clone()
+            }),
+        )
+    }
+
+    pub fn get_tlsn_verification_endpoint(&self) -> Option<String> {
+        non_empty_string(
+            self.tlsn_verification_endpoint.clone().or_else(|| {
+                get_default_configs()
+                    .proxy
+                    .tlsn_verification_endpoint
+                    .clone()
+            }),
+        )
+    }
+
+    pub fn get_tlsn_session_authority_public_key(&self) -> Option<String> {
+        non_empty_string(
+            self.tlsn_session_authority_public_key.clone().or_else(|| {
+                get_default_configs()
+                    .proxy
+                    .tlsn_session_authority_public_key
+                    .clone()
+            }),
+        )
+    }
+
+    pub fn get_tlsn_session_authority_key_id(&self) -> Option<String> {
+        non_empty_string(
+            self.tlsn_session_authority_key_id.clone().or_else(|| {
+                get_default_configs()
+                    .proxy
+                    .tlsn_session_authority_key_id
+                    .clone()
+            }),
+        )
+    }
+
+    pub fn get_tlsn_notary_verifying_key(&self) -> Option<String> {
+        non_empty_string(
+            self.tlsn_notary_verifying_key
+                .clone()
+                .or_else(|| get_default_configs().proxy.tlsn_notary_verifying_key.clone()),
+        )
+    }
+
+    pub fn get_tlsn_origin_port(&self) -> u16 {
+        self.tlsn_origin_port
+            .or_else(|| get_default_configs().proxy.tlsn_origin_port)
+            .filter(|port| *port > 0 && *port <= 65535)
+            .unwrap_or(443) as u16
+    }
+
+    pub fn get_tlsn_server_identity(&self) -> Option<String> {
+        non_empty_string(
+            self.tlsn_server_identity
+                .clone()
+                .or_else(|| get_default_configs().proxy.tlsn_server_identity.clone()),
+        )
+    }
+
+    pub fn get_tlsn_origin_trust_roots(&self) -> Vec<String> {
+        self.tlsn_origin_trust_roots
+            .clone()
+            .or_else(|| get_default_configs().proxy.tlsn_origin_trust_roots.clone())
+            .unwrap_or_default()
+            .into_iter()
+            .filter_map(|value| non_empty_string(Some(value)))
+            .collect()
+    }
+
+    pub fn get_tlsn_artifact_output_path(&self) -> Option<String> {
+        non_empty_string(
+            self.tlsn_artifact_output_path
+                .clone()
+                .or_else(|| get_default_configs().proxy.tlsn_artifact_output_path.clone()),
+        )
     }
 
     pub fn get_allow_save_api_requests(&self) -> bool {
@@ -1104,6 +1217,13 @@ impl ConfigsProxy {
             .get_buffer_size()
             .or_else(|| get_default_configs().proxy.channel.get_buffer_size())
     }
+}
+
+fn non_empty_string(value: Option<String>) -> Option<String> {
+    value.and_then(|value| {
+        let trimmed = value.trim();
+        (!trimmed.is_empty()).then(|| trimmed.to_owned())
+    })
 }
 
 #[cfg(target_os = "linux")]
@@ -1411,6 +1531,17 @@ mod tests {
             allow_save_resources: None,
             allow_save_main_js_local: None,
             experimental_tlsn_enabled: None,
+            tlsn_production_enabled: None,
+            tlsn_notary_endpoint: None,
+            tlsn_session_authority_endpoint: None,
+            tlsn_session_authority_public_key: None,
+            tlsn_session_authority_key_id: None,
+            tlsn_verification_endpoint: None,
+            tlsn_notary_verifying_key: None,
+            tlsn_origin_port: None,
+            tlsn_server_identity: None,
+            tlsn_origin_trust_roots: None,
+            tlsn_artifact_output_path: None,
             capture_enabled: None,
             capture_output_path: None,
             save_file_location: None,

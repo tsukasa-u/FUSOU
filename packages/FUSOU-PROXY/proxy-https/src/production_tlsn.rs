@@ -10,7 +10,7 @@ use std::{
     pin::Pin,
     sync::{
         atomic::{AtomicBool, Ordering},
-        Arc,
+        Arc, Mutex,
     },
 };
 
@@ -499,6 +499,152 @@ impl PresentationProvider for UnconfiguredPresentationProvider {
     }
 }
 
+#[derive(Default)]
+pub struct PresentationHandoff {
+    pending: Mutex<Option<([u8; 32], String, Vec<u8>)>>,
+    consumed: Mutex<Option<TlsnPresentation>>,
+}
+
+impl PresentationHandoff {
+    pub fn new() -> Arc<Self> {
+        Arc::new(Self::default())
+    }
+
+    pub fn publish(
+        &self,
+        request_sha256: [u8; 32],
+        identifier: String,
+        bytes: Vec<u8>,
+    ) -> Result<(), PresentationError> {
+        if identifier.is_empty() || bytes.is_empty() {
+            return Err(PresentationError::Invalid);
+        }
+        let mut pending = self
+            .pending
+            .lock()
+            .map_err(|_| PresentationError::Invalid)?;
+        if pending.is_some() {
+            return Err(PresentationError::Invalid);
+        }
+        *pending = Some((request_sha256, identifier, bytes));
+        Ok(())
+    }
+
+    fn take_for(&self, request_sha256: &[u8; 32]) -> Result<TlsnPresentation, PresentationError> {
+        let mut pending = self
+            .pending
+            .lock()
+            .map_err(|_| PresentationError::Invalid)?;
+        let Some((published_request_sha256, identifier, bytes)) = pending.take() else {
+            return Err(PresentationError::Unavailable);
+        };
+        if &published_request_sha256 != request_sha256 {
+            return Err(PresentationError::Invalid);
+        }
+        let presentation = TlsnPresentation::new(identifier, bytes)?;
+        *self
+            .consumed
+            .lock()
+            .map_err(|_| PresentationError::Invalid)? = Some(presentation.clone());
+        Ok(presentation)
+    }
+
+    pub(crate) fn take_consumed(&self) -> Result<TlsnPresentation, PresentationError> {
+        self.consumed
+            .lock()
+            .map_err(|_| PresentationError::Invalid)?
+            .take()
+            .ok_or(PresentationError::Unavailable)
+    }
+}
+
+pub struct HandoffPresentationProvider {
+    handoff: Arc<PresentationHandoff>,
+}
+
+impl HandoffPresentationProvider {
+    pub fn new(handoff: Arc<PresentationHandoff>) -> Self {
+        Self { handoff }
+    }
+}
+
+impl PresentationProvider for HandoffPresentationProvider {
+    fn provide(&self, context: PresentationRequestContext) -> PresentationFuture {
+        let handoff = Arc::clone(&self.handoff);
+        Box::pin(async move { handoff.take_for(context.authenticated_request_sha256()) })
+    }
+}
+
+pub struct FilesystemPresentationArtifactSink {
+    root: std::path::PathBuf,
+}
+
+impl FilesystemPresentationArtifactSink {
+    pub fn new(root: impl Into<std::path::PathBuf>) -> Self {
+        Self { root: root.into() }
+    }
+}
+
+impl PresentationArtifactSink for FilesystemPresentationArtifactSink {
+    fn export(
+        &self,
+        context: PresentationRequestContext,
+        presentation: TlsnPresentation,
+    ) -> PresentationExportFuture {
+        let root = self.root.clone();
+        Box::pin(async move {
+            tokio::fs::create_dir_all(&root)
+                .await
+                .map_err(|_| PresentationExportError::Failed)?;
+            let directory = root.join(presentation.identifier());
+            tokio::fs::create_dir(&directory)
+                .await
+                .map_err(|_| PresentationExportError::Failed)?;
+
+            let metadata = serde_json::json!({
+                "schema_version": 1,
+                "presentation_sha256": hex_string(presentation.sha256()),
+                "presentation_size_bytes": presentation.bytes().len(),
+                "capture_timestamp": chrono::Utc::now().to_rfc3339(),
+                "connection_id": context.connection_id(),
+                "session_id": context.identifiers().session_id(),
+                "request_sha256": hex_string(context.request_sha256()),
+                "authenticated_request_sha256": hex_string(context.authenticated_request_sha256()),
+                "response_sha256": hex_string(context.response_sha256()),
+                "authenticated_response_sha256": hex_string(context.authenticated_response_sha256()),
+                "binding_identifier": hex_string(context.binding_identifier()),
+                "server_identity": context.server_identity(),
+                "request": context.request_profile().map(|profile| serde_json::json!({
+                    "method": profile.method(),
+                    "target": profile.target(),
+                    "http_version": profile.http_version(),
+                })),
+            });
+
+            tokio::fs::write(directory.join("presentation.bin"), presentation.bytes())
+                .await
+                .map_err(|_| PresentationExportError::Failed)?;
+            tokio::fs::write(
+                directory.join("metadata.json"),
+                serde_json::to_vec_pretty(&metadata)
+                    .map_err(|_| PresentationExportError::Failed)?,
+            )
+            .await
+            .map_err(|_| PresentationExportError::Failed)
+        })
+    }
+}
+
+fn hex_string(bytes: &[u8]) -> String {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    let mut output = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        output.push(HEX[(byte >> 4) as usize] as char);
+        output.push(HEX[(byte & 0x0f) as usize] as char);
+    }
+    output
+}
+
 pub trait DedicatedTlsnVerifier: Send + Sync {
     fn verify(
         &self,
@@ -749,12 +895,16 @@ impl ExperimentalResultBoundary for SignedResultBoundary {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ProductionConfigurationError {
     InvalidOrigin(OriginConfigurationError),
+    MissingPresentationArtifactSink,
 }
 
 impl std::fmt::Display for ProductionConfigurationError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::InvalidOrigin(error) => write!(formatter, "invalid production origin: {error}"),
+            Self::MissingPresentationArtifactSink => {
+                formatter.write_str("production TLSN requires a Presentation artifact sink")
+            }
         }
     }
 }
@@ -813,6 +963,9 @@ impl ProductionTlsnDependencies {
         self.origin
             .validate_for_experimental()
             .map_err(ProductionConfigurationError::InvalidOrigin)?;
+        let presentation_artifact_sink = self
+            .presentation_artifact_sink
+            .ok_or(ProductionConfigurationError::MissingPresentationArtifactSink)?;
         let transport = Arc::new(
             ProductionAlpha15OriginTransport::new(self.origin.clone(), self.transport_factory)
                 .map_err(ProductionConfigurationError::InvalidOrigin)?,
@@ -822,7 +975,7 @@ impl ProductionTlsnDependencies {
             self.dedicated_verifier,
             self.origin.target().clone(),
             self.identifiers,
-            self.presentation_artifact_sink,
+            Some(presentation_artifact_sink),
         );
         let result_boundary = SignedResultBoundary::new(self.signer, self.delivery);
         Ok(ExperimentalTlsnForwarder::new(
@@ -1088,6 +1241,11 @@ mod tests {
 
     #[tokio::test]
     async fn production_dependencies_build_explicitly_and_fail_closed_without_transport() {
+        let sink = Arc::new(RecordingPresentationArtifactSink {
+            calls: AtomicUsize::new(0),
+            context: Mutex::new(None),
+            presentation: Mutex::new(None),
+        });
         let forwarder = ProductionTlsnDependencies::new(
             origin_config(true),
             Arc::new(Binding),
@@ -1097,6 +1255,7 @@ mod tests {
             Arc::new(UnconfiguredProductionResultSigner),
             Arc::new(UnconfiguredProductionResultDelivery),
         )
+        .with_presentation_artifact_sink(sink)
         .build_forwarder()
         .unwrap();
         let request = hudsucker::hyper::Request::builder()
@@ -1109,6 +1268,29 @@ mod tests {
         assert_eq!(
             forwarder.forward(42, request).await.unwrap_err(),
             "TLSN origin transport is unavailable"
+        );
+    }
+
+    #[test]
+    fn production_dependencies_require_an_artifact_sink() {
+        let result = ProductionTlsnDependencies::new(
+            origin_config(true),
+            Arc::new(Binding),
+            Arc::new(UnconfiguredAlpha15OriginTransportFactory),
+            Arc::new(UnconfiguredPresentationProvider),
+            Arc::new(UnconfiguredDedicatedVerifier),
+            Arc::new(UnconfiguredProductionResultSigner),
+            Arc::new(UnconfiguredProductionResultDelivery),
+        )
+        .build_forwarder();
+
+        let error = match result {
+            Ok(_) => panic!("missing artifact sink must fail closed"),
+            Err(error) => error,
+        };
+        assert_eq!(
+            error.to_string(),
+            "production TLSN requires a Presentation artifact sink"
         );
     }
 

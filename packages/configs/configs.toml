@@ -18,6 +18,20 @@ allow_save_main_js_local = false
 # Session/Challenge authority, Notary, and Prover-owned origin transport are configured.
 experimental_tlsn_enabled = false
 
+# Enable the real alpha.15 Production Capture Path. Missing authority, Notary,
+# trust, and artifact settings fail closed when this is enabled.
+tlsn_production_enabled = false
+tlsn_notary_endpoint = ""
+tlsn_session_authority_endpoint = ""
+tlsn_session_authority_public_key = ""
+tlsn_session_authority_key_id = ""
+tlsn_verification_endpoint = ""
+tlsn_notary_verifying_key = ""
+tlsn_origin_port = 443
+tlsn_server_identity = ""
+tlsn_origin_trust_roots = []
+tlsn_artifact_output_path = ""
+
 # Capture require_info traffic into a private local-only artifact directory.
 # This is disabled by default and never writes to the evidence repository automatically.
 capture_enabled = false

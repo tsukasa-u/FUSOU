@@ -54,7 +54,7 @@ impl RequireInfoDisclosureProfile {
         &self.server_identity
     }
 
-    pub(crate) fn from_server_identity(server_identity: &str) -> Result<Self> {
+    pub fn from_server_identity(server_identity: &str) -> Result<Self> {
         validate_server_identity(server_identity)?;
         Ok(Self {
             server_identity: server_identity.to_owned(),
@@ -306,6 +306,17 @@ pub(crate) fn verify_alpha15_presentation_with_provider(
     provider: &CryptoProvider,
 ) -> Result<AuthenticatedTranscript> {
     verify_alpha15_presentation_with_provider_and_notary_key(presentation_bytes, provider, None)
+}
+
+pub fn verify_alpha15_presentation_with_trusted_notary_key(
+    presentation_bytes: &[u8],
+    trusted_notary_key: &[u8],
+) -> Result<AuthenticatedTranscript> {
+    verify_alpha15_presentation_with_provider_and_notary_key(
+        presentation_bytes,
+        &CryptoProvider::default(),
+        Some(trusted_notary_key),
+    )
 }
 
 pub(crate) fn verify_alpha15_presentation_with_provider_and_notary_key(
