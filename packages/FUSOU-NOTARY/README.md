@@ -61,17 +61,17 @@ handling, and request-size rejection. A protocol E2E using a real FUSOU
 client and a real alpha.15 server fixture is a separate gate; local tests or
 fixtures are not Production evidence.
 
-The protocol E2E currently uses the official alpha.15 example bounds
-(`max_sent_data=1<<12`, `max_recv_data=1<<14`) and passes through signed
-Attestation validation. The current FUSOU client requests larger bounds
-(`128 KiB` and `4 MiB`); at the frozen alpha.15 revision those values reach
-the upstream mux default of 512 streams during preprocessing. Each peer
-enforces its own local mux limit, and `tlsn::Session::new` does not expose a
-custom mux configuration. The standalone Notary cannot raise the peer
-client's mux limit, so unchanged-client FUSOU
-interoperability remains an explicit blocker until that client-side protocol
-configuration is resolved. This package does not silently claim that gate is
-passed.
+The protocol E2E covers both the official alpha.15 example bounds
+(`max_sent_data=1<<12`, `max_recv_data=1<<14`) and the current FUSOU bounds
+(`128 KiB` and `4 MiB`), with signed Attestation validation. At the frozen
+alpha.15 revision the FUSOU bounds reach the upstream mux default of 512
+streams during preprocessing. Both MPC endpoints now use the local
+alpha.15-compatible mux patch in `packages/tlsn-mux-alpha15`, which raises the
+local cap to 10240 and the receive window to 2.5 GiB. Measurements failed at
+2048, 4096, and 8192 streams and passed at 10240 for the fixture-backed FUSOU
+E2E. This changes no mux frames or Attestation/Presentation format, but the
+larger per-connection window requires an explicit memory and concurrency review
+before Production deployment.
 
 ## Operations
 

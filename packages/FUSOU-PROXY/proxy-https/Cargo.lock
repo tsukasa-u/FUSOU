@@ -7164,7 +7164,6 @@ dependencies = [
 [[package]]
 name = "tlsn-mux"
 version = "0.1.0"
-source = "git+https://github.com/tlsnotary/tlsn-utils?rev=64722f7#64722f7de999cbd41c0cab7312dade306d50ea5f"
 dependencies = [
  "blake3",
  "futures",

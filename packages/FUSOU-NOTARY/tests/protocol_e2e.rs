@@ -27,12 +27,22 @@ use tokio_util::compat::{FuturesAsyncReadCompatExt, TokioAsyncReadCompatExt};
 use fusou_notary::{protocol::serve_connection_with_root_store, KeyMaterial, KeyStatus};
 
 const TEST_SIGNING_KEY: &str = "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE";
-const MAX_SENT_DATA: usize = 1 << 12;
-const MAX_RECV_DATA: usize = 1 << 14;
+const FUSOU_MAX_SENT_DATA: usize = 128 * 1024;
+const FUSOU_MAX_RECV_DATA: usize = 4 * 1024 * 1024;
 
 /// PROTOCOL E2E TEST: prove, notarize, serialize, and validate alpha.15.
 #[tokio::test(flavor = "multi_thread", worker_threads = 8)]
-async fn alpha15_mpc_notary_signs_real_attestation() -> Result<()> {
+async fn alpha15_mpc_notary_signs_real_attestation_at_official_bounds() -> Result<()> {
+    run_protocol_e2e(1 << 12, 1 << 14).await
+}
+
+/// PROTOCOL E2E TEST: prove, notarize, serialize, and validate FUSOU capacity.
+#[tokio::test(flavor = "multi_thread", worker_threads = 8)]
+async fn alpha15_mpc_notary_signs_real_attestation_at_fusou_bounds() -> Result<()> {
+    run_protocol_e2e(FUSOU_MAX_SENT_DATA, FUSOU_MAX_RECV_DATA).await
+}
+
+async fn run_protocol_e2e(max_sent_data: usize, max_recv_data: usize) -> Result<()> {
     let key = Arc::new(KeyMaterial::from_encoded(
         "protocol-test".to_owned(),
         KeyStatus::Active,
@@ -62,8 +72,8 @@ async fn alpha15_mpc_notary_signs_real_attestation() -> Result<()> {
         .new_prover(ProverConfig::builder().build()?)?
         .commit(
             MpcTlsConfig::builder()
-                .max_sent_data(MAX_SENT_DATA)
-                .max_recv_data(MAX_RECV_DATA)
+                .max_sent_data(max_sent_data)
+                .max_recv_data(max_recv_data)
                 .build()?,
         )
         .await?;

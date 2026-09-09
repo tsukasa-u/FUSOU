@@ -84,3 +84,6 @@ name = "example"
 
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(TAURI_BUILD_DEBUG)'] }
+
+[patch."https://github.com/tlsnotary/tlsn-utils"]
+tlsn-mux = { path = "../../tlsn-mux-alpha15" }

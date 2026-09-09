@@ -35,3 +35,6 @@ rand = "0.9"
 tlsn-formats = { git = "https://github.com/tlsnotary/tlsn.git", rev = "47aee45b53e06648c1b2ad3689b367b8c923fdec" }
 tlsn-server-fixture = { git = "https://github.com/tlsnotary/tlsn.git", rev = "47aee45b53e06648c1b2ad3689b367b8c923fdec" }
 tlsn-server-fixture-certs = { git = "https://github.com/tlsnotary/tlsn.git", rev = "47aee45b53e06648c1b2ad3689b367b8c923fdec" }
+
+[patch."https://github.com/tlsnotary/tlsn-utils"]
+tlsn-mux = { path = "../tlsn-mux-alpha15" }
