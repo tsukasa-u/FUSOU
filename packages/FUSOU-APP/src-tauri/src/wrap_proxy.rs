@@ -190,6 +190,7 @@ fn build_production_tlsn_dependencies(
         get_ROAMING_DIR().join("fusou-auth-device-key.json"),
         binding_provider.state(),
         std::sync::Arc::clone(&handoff),
+        artifact_root.clone(),
     )
     .map_err(|_| production_configuration_error("invalid TLSN verification endpoint configuration"))?);
     Ok(ProductionTlsnDependencies::new(

@@ -16,7 +16,7 @@ use futures::io::{AsyncReadExt, AsyncWriteExt};
 use http::{HeaderMap, HeaderName, HeaderValue, StatusCode};
 use hyper::body::Bytes;
 use rand::RngCore;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::{
     future::IntoFuture,
     path::PathBuf,
@@ -64,7 +64,12 @@ pub struct SessionBindingContext {
     session_id: String,
     device_id: String,
     binding: String,
+    binding_challenge: String,
     device_challenge: String,
+    expires_at: String,
+    session_receipt: SessionReceipt,
+    device_auth_nonce: String,
+    device_auth_signature: String,
 }
 
 pub struct RemoteWorkerResultSigner {
@@ -74,6 +79,7 @@ pub struct RemoteWorkerResultSigner {
     device_key_path: PathBuf,
     binding_state: Arc<Mutex<Option<SessionBindingContext>>>,
     handoff: Arc<PresentationHandoff>,
+    artifact_root: PathBuf,
 }
 
 impl RemoteWorkerResultSigner {
@@ -83,6 +89,7 @@ impl RemoteWorkerResultSigner {
         device_key_path: PathBuf,
         binding_state: Arc<Mutex<Option<SessionBindingContext>>>,
         handoff: Arc<PresentationHandoff>,
+        artifact_root: PathBuf,
     ) -> Result<Self, crate::production_tlsn::ResultSignerError> {
         let parsed = reqwest::Url::parse(endpoint.trim())
             .map_err(|_| crate::production_tlsn::ResultSignerError::Unavailable)?;
@@ -101,6 +108,7 @@ impl RemoteWorkerResultSigner {
             device_key_path,
             binding_state,
             handoff,
+            artifact_root,
         })
     }
 }
@@ -108,7 +116,7 @@ impl RemoteWorkerResultSigner {
 impl crate::production_tlsn::ProductionResultSigner for RemoteWorkerResultSigner {
     fn sign(
         &self,
-        _evidence: crate::experimental_tlsn::VerifiedTlsnEvidence,
+        evidence: crate::experimental_tlsn::VerifiedTlsnEvidence,
     ) -> crate::production_tlsn::ResultSignerFuture {
         let endpoint = self.endpoint.clone();
         let client = self.client.clone();
@@ -116,6 +124,7 @@ impl crate::production_tlsn::ProductionResultSigner for RemoteWorkerResultSigner
         let device_key_path = self.device_key_path.clone();
         let binding_state = Arc::clone(&self.binding_state);
         let handoff = Arc::clone(&self.handoff);
+        let artifact_root = self.artifact_root.clone();
         Box::pin(async move {
             let session = binding_state
                 .lock()
@@ -123,7 +132,7 @@ impl crate::production_tlsn::ProductionResultSigner for RemoteWorkerResultSigner
                 .take()
                 .ok_or(crate::production_tlsn::ResultSignerError::Unavailable)?;
             let presentation = handoff
-                .take_consumed()
+                .take_consumed(evidence.request_sha256())
                 .map_err(|_| crate::production_tlsn::ResultSignerError::Unavailable)?;
             let device_key = DeviceKey::load_or_create(device_key_path)
                 .await
@@ -148,6 +157,7 @@ impl crate::production_tlsn::ProductionResultSigner for RemoteWorkerResultSigner
                 &challenge,
             )
             .map_err(|_| crate::production_tlsn::ResultSignerError::Failed)?;
+            let device_signature = device_key.sign_b64(&signing_bytes);
             let response = client
                 .post(endpoint)
                 .bearer_auth(access_token)
@@ -158,7 +168,7 @@ impl crate::production_tlsn::ProductionResultSigner for RemoteWorkerResultSigner
                     "binding": session.binding(),
                     "device_proof": {
                         "challenge": session.device_challenge(),
-                        "sig": device_key.sign_b64(&signing_bytes),
+                        "sig": device_signature,
                     },
                 }))
                 .send()
@@ -183,6 +193,15 @@ impl crate::production_tlsn::ProductionResultSigner for RemoteWorkerResultSigner
                 .ok_or(crate::production_tlsn::ResultSignerError::Failed)?;
             let bytes = serde_json::to_vec(&payload)
                 .map_err(|_| crate::production_tlsn::ResultSignerError::Failed)?;
+            write_production_capture_bundle(
+                &artifact_root,
+                &presentation,
+                &session,
+                &payload,
+                &device_signature,
+            )
+            .await
+            .map_err(|_| crate::production_tlsn::ResultSignerError::Failed)?;
             crate::production_tlsn::SignedTlsnResult::new(key_id.to_owned(), bytes)
                 .map_err(|_| crate::production_tlsn::ResultSignerError::Failed)
         })
@@ -265,6 +284,78 @@ impl SessionBindingContext {
     }
 }
 
+async fn write_production_capture_bundle(
+    artifact_root: &PathBuf,
+    presentation: &crate::production_tlsn::TlsnPresentation,
+    session: &SessionBindingContext,
+    worker_payload: &serde_json::Value,
+    device_signature: &str,
+) -> Result<(), std::io::Error> {
+    let directory = artifact_root.join(presentation.identifier());
+    tokio::fs::create_dir_all(&directory).await?;
+
+    let session_json = serde_json::json!({
+        "session_id": session.session_id(),
+        "challenge": session.binding_challenge,
+        "binding": session.binding(),
+        "device_id": session.device_id(),
+        "device_challenge": session.device_challenge(),
+        "expires_at": session.expires_at,
+        "session_receipt": &session.session_receipt,
+    });
+    let authentication_json = serde_json::json!({
+        "request": {
+            "device_id": session.device_id(),
+            "nonce": session.device_auth_nonce,
+            "sig": session.device_auth_signature,
+        },
+        "worker_acceptance": {
+            "status": 201,
+            "device_id": session.device_id(),
+            "session_id": session.session_id(),
+        },
+    });
+    let challenge = URL_SAFE_NO_PAD
+        .decode(session.device_challenge())
+        .map_err(|_| std::io::Error::new(std::io::ErrorKind::InvalidData, "invalid device challenge"))?;
+    let signing_bytes = tlsn_device_proof_signing_bytes(
+        session.device_id(),
+        session.session_id(),
+        session.binding(),
+        &challenge,
+    )
+    .map_err(|_| std::io::Error::new(std::io::ErrorKind::InvalidData, "invalid device proof"))?;
+    let digest = sha256(&signing_bytes);
+    let possession_json = serde_json::json!({
+        "device_id": session.device_id(),
+        "session_id": session.session_id(),
+        "binding_value": session.binding(),
+        "challenge": session.device_challenge(),
+        "sig": device_signature,
+        "message_sha256": URL_SAFE_NO_PAD.encode(digest),
+        "message_sha256_hex": hex_bytes(&digest),
+        "replay_digest": URL_SAFE_NO_PAD.encode(digest),
+        "replay_digest_hex": hex_bytes(&digest),
+    });
+    let result = worker_payload
+        .get("result")
+        .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::InvalidData, "Worker result missing"))?;
+    let consume_receipt = worker_payload
+        .get("consume_receipt")
+        .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::InvalidData, "consume receipt missing"))?;
+    for (name, value) in [
+        ("session.json", session_json),
+        ("device-authentication.json", authentication_json),
+        ("possession-proof.json", possession_json),
+        ("result.json", result.clone()),
+        ("consume-receipt.json", consume_receipt.clone()),
+        ("worker-verification.json", worker_payload.clone()),
+    ] {
+        tokio::fs::write(directory.join(name), serde_json::to_vec_pretty(&value)?).await?;
+    }
+    Ok(())
+}
+
 #[derive(Debug, Clone, Deserialize)]
 struct SessionAuthorityResponse {
     session_id: String,
@@ -276,7 +367,7 @@ struct SessionAuthorityResponse {
     session_receipt: SessionReceipt,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 struct SessionReceipt {
     schema_version: u8,
     #[serde(rename = "type")]
@@ -362,6 +453,7 @@ impl crate::experimental_tlsn::AttestationBindingProvider for RemoteSessionBindi
                 .iter()
                 .map(|byte| format!("{byte:02x}"))
                 .collect::<String>();
+            let device_auth_signature = device_key.sign_b64(nonce.as_bytes());
             let access_token = auth_manager
                 .get_access_token()
                 .await
@@ -372,7 +464,7 @@ impl crate::experimental_tlsn::AttestationBindingProvider for RemoteSessionBindi
                 .json(&serde_json::json!({
                     "device_id": device_id,
                     "nonce": nonce,
-                    "sig": device_key.sign_b64(nonce.as_bytes()),
+                    "sig": device_auth_signature,
                 }))
                 .send()
                 .await
@@ -384,8 +476,7 @@ impl crate::experimental_tlsn::AttestationBindingProvider for RemoteSessionBindi
                 .json::<SessionAuthorityResponse>()
                 .await
                 .map_err(|_| BindingError::InvalidBinding)?;
-            if authority.challenge != nonce
-                || authority.device_id != device_id
+            if authority.device_id != device_id
                 || authority.device_challenge.len() != 43
                 || !authority
                     .device_challenge
@@ -404,9 +495,13 @@ impl crate::experimental_tlsn::AttestationBindingProvider for RemoteSessionBindi
             if parsed_binding.session_id != session_id {
                 return Err(BindingError::InvalidBinding);
             }
+            if authority.challenge != URL_SAFE_NO_PAD.encode(parsed_binding.binding_nonce) {
+                return Err(BindingError::InvalidBinding);
+            }
             verify_session_receipt(
                 &authority.session_receipt,
                 &authority,
+                &nonce,
                 &session_authority_public_key,
                 &session_authority_key_id,
             )?;
@@ -418,7 +513,12 @@ impl crate::experimental_tlsn::AttestationBindingProvider for RemoteSessionBindi
                 session_id: authority.session_id,
                 device_id,
                 binding: authority.binding.clone(),
+                binding_challenge: authority.challenge,
                 device_challenge: authority.device_challenge,
+                expires_at: authority.expires_at,
+                session_receipt: authority.session_receipt,
+                device_auth_nonce: nonce,
+                device_auth_signature,
             });
             AttestationBinding::new(authority.binding).map_err(|_| BindingError::InvalidBinding)
         })
@@ -428,6 +528,7 @@ impl crate::experimental_tlsn::AttestationBindingProvider for RemoteSessionBindi
 fn verify_session_receipt(
     receipt: &SessionReceipt,
     authority: &SessionAuthorityResponse,
+    device_auth_nonce: &str,
     public_key_spki: &[u8],
     expected_key_id: &str,
 ) -> Result<(), BindingError> {
@@ -444,8 +545,9 @@ fn verify_session_receipt(
         || receipt.signer_key_id != expected_key_id
         || receipt.session_id != authority.session_id
         || receipt.device_id != authority.device_id
-        || receipt.device_auth_nonce != authority.challenge
+        || receipt.device_auth_nonce != device_auth_nonce
         || receipt.nonce != URL_SAFE_NO_PAD.encode(parsed_binding.binding_nonce)
+        || receipt.nonce != authority.challenge
         || receipt.device_challenge != authority.device_challenge
         || receipt.binding_value != authority.binding
         || receipt.expires_at != authority.expires_at
@@ -895,10 +997,14 @@ fn parse_http_response(raw: &[u8]) -> Result<ParsedHttpResponse, TlsnTransportEr
 }
 
 fn hex_identifier(bytes: &[u8]) -> String {
-    const HEX: &[u8; 16] = b"0123456789abcdef";
     let digest = sha256(bytes);
-    let mut output = String::with_capacity(digest.len() * 2);
-    for byte in digest {
+    hex_bytes(&digest)
+}
+
+fn hex_bytes(bytes: &[u8; 32]) -> String {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    let mut output = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
         output.push(HEX[(byte >> 4) as usize] as char);
         output.push(HEX[(byte & 0x0f) as usize] as char);
     }
@@ -962,7 +1068,7 @@ mod tests {
             URL_SAFE_NO_PAD.encode(key_pair.sign(&receipt_signing_bytes(&receipt).unwrap()));
         let authority = SessionAuthorityResponse {
             session_id: session_id.to_owned(),
-            challenge: receipt.device_auth_nonce.clone(),
+            challenge: receipt.nonce.clone(),
             binding,
             device_id: device_id.to_owned(),
             device_challenge: receipt.device_challenge.clone(),
@@ -989,6 +1095,7 @@ mod tests {
         verify_session_receipt(
             &authority.session_receipt,
             &authority,
+            &receipt.device_auth_nonce,
             &public_key_spki,
             "session-authority-2026",
         )
@@ -999,6 +1106,7 @@ mod tests {
         assert!(verify_session_receipt(
             &mutated_receipt,
             &authority,
+            &receipt.device_auth_nonce,
             &public_key_spki,
             "session-authority-2026",
         )

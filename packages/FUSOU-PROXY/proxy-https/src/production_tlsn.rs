@@ -6,6 +6,7 @@ use crate::experimental_tlsn::{
     VerifiedTlsnEvidence,
 };
 use std::{
+    collections::HashMap,
     future::Future,
     pin::Pin,
     sync::{
@@ -397,12 +398,20 @@ impl PresentationRequestContext {
         exchange: &TlsnOriginExchange,
         target: &OriginTarget,
     ) -> Self {
+        let request_sha256 = sha256(request.bytes());
+        let mut identifiers = identifiers;
+        if identifiers.session_id.is_none() {
+            identifiers.session_id = binding_session_id(binding.value());
+        }
+        if identifiers.request_id.is_none() {
+            identifiers.request_id = Some(base64url_string(&request_sha256));
+        }
         Self {
             identifiers,
             connection_id,
             request_profile: PresentationRequestProfile::from_serialized_request(request),
             binding_identifier: sha256(binding.value().as_bytes()),
-            request_sha256: sha256(request.bytes()),
+            request_sha256,
             authenticated_request_sha256: exchange.transcript.request_sha256,
             response_sha256: sha256(&exchange.response.raw_response_bytes),
             authenticated_response_sha256: exchange.transcript.response_sha256,
@@ -501,8 +510,8 @@ impl PresentationProvider for UnconfiguredPresentationProvider {
 
 #[derive(Default)]
 pub struct PresentationHandoff {
-    pending: Mutex<Option<([u8; 32], String, Vec<u8>)>>,
-    consumed: Mutex<Option<TlsnPresentation>>,
+    pending: Mutex<HashMap<[u8; 32], (String, Vec<u8>)>>,
+    consumed: Mutex<HashMap<[u8; 32], TlsnPresentation>>,
 }
 
 impl PresentationHandoff {
@@ -523,10 +532,10 @@ impl PresentationHandoff {
             .pending
             .lock()
             .map_err(|_| PresentationError::Invalid)?;
-        if pending.is_some() {
+        if pending.contains_key(&request_sha256) {
             return Err(PresentationError::Invalid);
         }
-        *pending = Some((request_sha256, identifier, bytes));
+        pending.insert(request_sha256, (identifier, bytes));
         Ok(())
     }
 
@@ -535,25 +544,26 @@ impl PresentationHandoff {
             .pending
             .lock()
             .map_err(|_| PresentationError::Invalid)?;
-        let Some((published_request_sha256, identifier, bytes)) = pending.take() else {
+        let Some((identifier, bytes)) = pending.remove(request_sha256) else {
             return Err(PresentationError::Unavailable);
         };
-        if &published_request_sha256 != request_sha256 {
-            return Err(PresentationError::Invalid);
-        }
         let presentation = TlsnPresentation::new(identifier, bytes)?;
-        *self
+        self
             .consumed
             .lock()
-            .map_err(|_| PresentationError::Invalid)? = Some(presentation.clone());
+            .map_err(|_| PresentationError::Invalid)?
+            .insert(*request_sha256, presentation.clone());
         Ok(presentation)
     }
 
-    pub(crate) fn take_consumed(&self) -> Result<TlsnPresentation, PresentationError> {
+    pub(crate) fn take_consumed(
+        &self,
+        request_sha256: &[u8; 32],
+    ) -> Result<TlsnPresentation, PresentationError> {
         self.consumed
             .lock()
             .map_err(|_| PresentationError::Invalid)?
-            .take()
+            .remove(request_sha256)
             .ok_or(PresentationError::Unavailable)
     }
 }
@@ -603,22 +613,58 @@ impl PresentationArtifactSink for FilesystemPresentationArtifactSink {
 
             let metadata = serde_json::json!({
                 "schema_version": 1,
-                "presentation_sha256": hex_string(presentation.sha256()),
+                "capture_provenance": "production",
+                "capture_source": "fusou-proxy-production-tlsn",
+                "synthetic": false,
+                "test": false,
+                "canary": false,
+                "local": false,
+                "presentation_sha256": base64url_string(presentation.sha256()),
                 "presentation_size_bytes": presentation.bytes().len(),
                 "capture_timestamp": chrono::Utc::now().to_rfc3339(),
                 "connection_id": context.connection_id(),
                 "session_id": context.identifiers().session_id(),
-                "request_sha256": hex_string(context.request_sha256()),
-                "authenticated_request_sha256": hex_string(context.authenticated_request_sha256()),
-                "response_sha256": hex_string(context.response_sha256()),
-                "authenticated_response_sha256": hex_string(context.authenticated_response_sha256()),
-                "binding_identifier": hex_string(context.binding_identifier()),
+                "request_id": context.identifiers().request_id(),
+                "request_sha256": base64url_string(context.request_sha256()),
+                "authenticated_request_sha256": base64url_string(context.authenticated_request_sha256()),
+                "response_sha256": base64url_string(context.response_sha256()),
+                "authenticated_response_sha256": base64url_string(context.authenticated_response_sha256()),
+                "binding_identifier": base64url_string(context.binding_identifier()),
                 "server_identity": context.server_identity(),
                 "request": context.request_profile().map(|profile| serde_json::json!({
                     "method": profile.method(),
                     "target": profile.target(),
                     "http_version": profile.http_version(),
                 })),
+                "proxy_provenance": {
+                    "declared": "production",
+                    "cryptographic_status": "UNVERIFIED",
+                    "proxy_identity": "fusou-proxy",
+                    "proxy_deployment_id": "runtime-artifact",
+                    "proxy_binary_identity": format!("proxy-https:{}", env!("CARGO_PKG_VERSION")),
+                    "presentation_sha256": base64url_string(presentation.sha256()),
+                    "created_at": chrono::Utc::now().to_rfc3339(),
+                    "capture_context": {
+                        "source": "FUSOU-APP client-facing TLS plaintext boundary",
+                        "request_origin": "FUSOU-APP normal game traffic",
+                        "no_standalone_game_server_request": true,
+                        "no_request_injection": true,
+                        "no_request_replay": true,
+                        "no_capture_generated_traffic": true,
+                        "method": context.request_profile().map(|profile| profile.method()),
+                        "target": context.request_profile().map(|profile| profile.target()),
+                        "http_version": context.request_profile().map(|profile| profile.http_version()),
+                        "connection_id": context.connection_id(),
+                        "request_sha256": base64url_string(context.request_sha256()),
+                        "authenticated_request_sha256": base64url_string(context.authenticated_request_sha256()),
+                    },
+                    "authority": {
+                        "type": "externally-pinned-production-proxy-key",
+                        "status": "UNVERIFIED",
+                    },
+                    "signer_key_id": null,
+                    "signature": null,
+                },
             });
 
             tokio::fs::write(directory.join("presentation.bin"), presentation.bytes())
@@ -635,12 +681,71 @@ impl PresentationArtifactSink for FilesystemPresentationArtifactSink {
     }
 }
 
-fn hex_string(bytes: &[u8]) -> String {
-    const HEX: &[u8; 16] = b"0123456789abcdef";
-    let mut output = String::with_capacity(bytes.len() * 2);
-    for byte in bytes {
-        output.push(HEX[(byte >> 4) as usize] as char);
-        output.push(HEX[(byte & 0x0f) as usize] as char);
+fn binding_session_id(value: &str) -> Option<String> {
+    const PREFIX: &[u8] = b"FUSOU-ATTESTATION-BINDING-V1\0";
+    let bytes = decode_base64url(value)?;
+    if bytes.len() != PREFIX.len() + 2 + 16 + 2 + 32 || !bytes.starts_with(PREFIX) {
+        return None;
+    }
+    let session_length = u16::from_be_bytes([bytes[PREFIX.len()], bytes[PREFIX.len() + 1]]);
+    if session_length != 16 {
+        return None;
+    }
+    uuid::Uuid::from_slice(&bytes[PREFIX.len() + 2..PREFIX.len() + 18])
+        .ok()
+        .map(|uuid| uuid.hyphenated().to_string())
+}
+
+fn decode_base64url(value: &str) -> Option<Vec<u8>> {
+    if value.is_empty() || value.contains('=') || !value.is_ascii() {
+        return None;
+    }
+    let mut output = Vec::with_capacity(value.len() * 3 / 4);
+    let mut accumulator = 0_u32;
+    let mut bits = 0_u8;
+    for byte in value.bytes() {
+        let value = match byte {
+            b'A'..=b'Z' => byte - b'A',
+            b'a'..=b'z' => byte - b'a' + 26,
+            b'0'..=b'9' => byte - b'0' + 52,
+            b'-' => 62,
+            b'_' => 63,
+            _ => return None,
+        };
+        accumulator = (accumulator << 6) | u32::from(value);
+        bits += 6;
+        if bits >= 8 {
+            bits -= 8;
+            output.push((accumulator >> bits) as u8);
+            accumulator &= (1 << bits) - 1;
+        }
+    }
+    if bits >= 6 || (bits > 0 && accumulator != 0) {
+        return None;
+    }
+    Some(output)
+}
+
+fn base64url_string(bytes: &[u8]) -> String {
+    const TABLE: &[u8; 64] =
+        b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+    let mut output = String::with_capacity((bytes.len() * 4 + 2) / 3);
+    for chunk in bytes.chunks(3) {
+        let first = chunk[0];
+        output.push(TABLE[(first >> 2) as usize] as char);
+        if chunk.len() == 1 {
+            output.push(TABLE[((first & 0x03) << 4) as usize] as char);
+        } else {
+            let second = chunk[1];
+            output.push(TABLE[(((first & 0x03) << 4) | (second >> 4)) as usize] as char);
+            if chunk.len() == 2 {
+                output.push(TABLE[((second & 0x0f) << 2) as usize] as char);
+            } else {
+                let third = chunk[2];
+                output.push(TABLE[(((second & 0x0f) << 2) | (third >> 6)) as usize] as char);
+                output.push(TABLE[(third & 0x3f) as usize] as char);
+            }
+        }
     }
     output
 }

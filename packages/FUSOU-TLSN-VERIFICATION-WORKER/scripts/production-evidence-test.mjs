@@ -1078,4 +1078,12 @@ assert.ok(!failureJson.includes("health-secret"), "failure bundle must omit heal
 assert.ok(!failureJson.includes("proxy-secret"), "failure bundle must omit provenance signatures");
 assert.ok(!failureJson.includes("context-secret"), "failure bundle must omit provenance credentials");
 
+const captureScriptSource = await readFile(new URL("./capture-production-evidence.mjs", import.meta.url), "utf8");
+const offlineVerifierSource = await readFile(new URL("./verify-production-evidence.mjs", import.meta.url), "utf8");
+for (const [name, source] of [["capture", captureScriptSource], ["offline verifier", offlineVerifierSource]]) {
+  assert.doesNotMatch(source, /\/kcsapi\//, `${name} must not contain a Game Server API path`);
+  assert.doesNotMatch(source, /TLSN_[A-Z0-9_]*GAME_SERVER/, `${name} must not accept a Game Server endpoint`);
+}
+assert.match(captureScriptSource, /captureAllowedOrigins = new Set\(\[workerOrigin, webOrigin, supabaseOrigin\]\)/);
+
 console.log("[tlsn-production-evidence] manifest, signer, artifact, freshness, identity, semantic, replay-block, synthetic, and result mutation matrix OK");

@@ -53,6 +53,7 @@ const packageDirectory = resolve(new URL("..", import.meta.url).pathname);
 const DEFAULT_OUTPUT_PATH = resolve(packageDirectory, "artifacts/tlsn-production-evidence.json");
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const MAX_PRESENTATION_BYTES = 8 * 1024 * 1024;
+let captureAllowedOrigins = new Set();
 
 function optional(name) {
   const value = process.env[name]?.trim();
@@ -104,6 +105,10 @@ async function loadPrivateKeyFromEnvironment() {
 }
 
 async function timedRequest(url, options = {}, failureBundle) {
+  const parsedUrl = new URL(url);
+  if (!captureAllowedOrigins.has(parsedUrl.origin)) {
+    throw new Error(`capture endpoint is outside the Worker/FUSOU-WEB/Supabase allowlist: ${parsedUrl.origin}`);
+  }
   try {
     const response = await fetch(url, { redirect: "error", ...options });
     const bytes = Buffer.from(await response.arrayBuffer());
@@ -122,8 +127,13 @@ async function timedRequest(url, options = {}, failureBundle) {
 }
 
 async function readProductionPresentation() {
-  const presentationPath = required("TLSN_PRODUCTION_EVIDENCE_PRESENTATION_PATH");
-  const provenancePath = required("TLSN_PRODUCTION_EVIDENCE_PRESENTATION_PROVENANCE_JSON");
+  const bundleRoot = optional("TLSN_PRODUCTION_EVIDENCE_BUNDLE_PATH")
+    ? resolve(required("TLSN_PRODUCTION_EVIDENCE_BUNDLE_PATH"))
+    : null;
+  const presentationPath = optional("TLSN_PRODUCTION_EVIDENCE_PRESENTATION_PATH")
+    ?? (bundleRoot ? resolve(bundleRoot, "presentation.bin") : required("TLSN_PRODUCTION_EVIDENCE_PRESENTATION_PATH"));
+  const provenancePath = optional("TLSN_PRODUCTION_EVIDENCE_PRESENTATION_PROVENANCE_JSON")
+    ?? (bundleRoot ? resolve(bundleRoot, "metadata.json") : required("TLSN_PRODUCTION_EVIDENCE_PRESENTATION_PROVENANCE_JSON"));
   const presentationBytes = await readFile(presentationPath);
   if (presentationBytes.length === 0 || presentationBytes.length > MAX_PRESENTATION_BYTES) {
     throw new Error("production Presentation size is invalid");
@@ -135,7 +145,36 @@ async function readProductionPresentation() {
     throw new Error("production Presentation provenance must be valid JSON");
   }
   assertProductionPresentationCaptureMetadata(provenance, presentationBytes);
-  return { presentationBytes, provenance };
+  return { presentationBytes, provenance, bundleRoot };
+}
+
+async function readJsonArtifact(bundleRoot, name) {
+  if (!bundleRoot) return null;
+  try {
+    return JSON.parse(await readFile(resolve(bundleRoot, name), "utf8"));
+  } catch {
+    throw new Error(`production capture bundle is missing valid ${name}`);
+  }
+}
+
+async function readProductionEvidenceBundle(bundleRoot) {
+  if (!bundleRoot) return null;
+  const session = await readJsonArtifact(bundleRoot, "session.json");
+  const authentication = await readJsonArtifact(bundleRoot, "device-authentication.json");
+  const possessionProof = await readJsonArtifact(bundleRoot, "possession-proof.json");
+  const verification = await readJsonArtifact(bundleRoot, "worker-verification.json");
+  const result = await readJsonArtifact(bundleRoot, "result.json");
+  const consumeReceipt = await readJsonArtifact(bundleRoot, "consume-receipt.json");
+  if (
+    verification?.verified !== true ||
+    verification.result === undefined ||
+    verification.consume_receipt === undefined ||
+    JSON.stringify(verification.result) !== JSON.stringify(result) ||
+    JSON.stringify(verification.consume_receipt) !== JSON.stringify(consumeReceipt)
+  ) {
+    throw new Error("production capture bundle Worker response is incomplete or inconsistent");
+  }
+  return { session, authentication, possessionProof, verification };
 }
 
 function deviceProof(session, devicePrivateKey) {
@@ -290,10 +329,12 @@ async function main() {
     const accessToken = required("TLSN_PRODUCTION_EVIDENCE_ACCESS_TOKEN");
     const publishableKey = required("TLSN_PRODUCTION_EVIDENCE_SUPABASE_PUBLISHABLE_KEY");
     const deviceId = required("TLSN_PRODUCTION_EVIDENCE_DEVICE_ID");
-    const devicePrivateKey = await loadPrivateKeyFromEnvironment();
+    captureAllowedOrigins = new Set([workerOrigin, webOrigin, supabaseOrigin]);
     failureStage = "presentation_capture";
     const productionPresentation = await readProductionPresentation();
     const { presentationBytes } = productionPresentation;
+    const productionBundle = await readProductionEvidenceBundle(productionPresentation.bundleRoot);
+    const devicePrivateKey = productionBundle ? null : await loadPrivateKeyFromEnvironment();
     recordHash(failureBundle, "presentation", presentationBytes);
     recordProvenance(failureBundle, productionPresentation.provenance);
     const proxyProvenancePin = optional("TLSN_PRODUCTION_PROXY_PROVENANCE_PIN_JSON")
@@ -360,7 +401,13 @@ async function main() {
     }
 
     failureStage = "session_issue";
-    const issued = await issueSession(workerOrigin, webOrigin, accessToken, deviceId, devicePrivateKey, failureBundle);
+    const issued = productionBundle
+      ? {
+          session: productionBundle.session,
+          deviceIdentity: await readDeviceIdentity(webOrigin, accessToken, deviceId, failureBundle),
+          authentication: productionBundle.authentication,
+        }
+      : await issueSession(workerOrigin, webOrigin, accessToken, deviceId, devicePrivateKey, failureBundle);
     const session = issued.session;
     verifyDeviceAuthentication(issued.authentication, issued.deviceIdentity, user.id, deviceId, session.session_id);
     verifySessionReceipt(
@@ -405,9 +452,11 @@ async function main() {
       notaryRegistry,
       trustAnchorDer: trustRootDer,
     });
-    const possessionProof = deviceProof(session, devicePrivateKey);
+    const possessionProof = devicePrivateKey ? deviceProof(session, devicePrivateKey) : null;
+    const capturedPossessionProof = productionBundle?.possessionProof ?? possessionProof;
+    if (!capturedPossessionProof) throw new Error("production possession proof is missing");
     verifyTlsnDevicePossession(
-      possessionProof,
+      capturedPossessionProof,
       issued.deviceIdentity,
       user.id,
       deviceId,
@@ -417,14 +466,16 @@ async function main() {
     );
     recordSession(failureBundle, session);
     failureStage = "tlsn_verify";
-    const verification = await verifyTlsn(workerOrigin, accessToken, session, deviceId, presentationBytes, possessionProof, failureBundle);
+    const verification = productionBundle
+      ? { response: { status: 200 }, json: productionBundle.verification }
+      : await verifyTlsn(workerOrigin, accessToken, session, deviceId, presentationBytes, capturedPossessionProof, failureBundle);
     recordHash(failureBundle, "result", Buffer.from(JSON.stringify(verification.json?.result ?? null)));
     recordConsume(failureBundle, verification.json?.consume_receipt);
     if (verification.response.status !== 200 || verification.json?.verified !== true) {
       throw new Error(`production TLSN verification did not pass: ${verification.response.status}`);
     }
     const storedReplayDigestHex = verification.json.device_replay_digest_hex;
-    if (!/^[a-f0-9]{64}$/.test(storedReplayDigestHex ?? "") || storedReplayDigestHex !== possessionProof.replay_digest_hex) {
+    if (!/^[a-f0-9]{64}$/.test(storedReplayDigestHex ?? "") || storedReplayDigestHex !== capturedPossessionProof.replay_digest_hex) {
       throw new Error("production Worker did not return the authoritative stored replay digest");
     }
     const result = verification.json.result;
@@ -516,13 +567,13 @@ async function main() {
     assertResultSubjectIdentity(result, subjectIdentity);
 
     failureStage = "tlsn_replay";
-    const replay = await verifyTlsn(workerOrigin, accessToken, session, deviceId, presentationBytes, possessionProof, failureBundle);
+    const replay = await verifyTlsn(workerOrigin, accessToken, session, deviceId, presentationBytes, capturedPossessionProof, failureBundle);
     if (replay.response.status !== 409 || !["binding_consumed", "device_possession_replayed"].includes(replay.json?.error)) throw new Error("production replay was not rejected");
     const devicePredicateResults = verifyDevicePredicates({
       deviceIdentity: issued.deviceIdentity,
       deviceAuthentication: issued.authentication,
       session,
-      possessionProof,
+      possessionProof: capturedPossessionProof,
       consumeReceipt: verification.json.consume_receipt,
       replay: {
         session_id: session.session_id,
@@ -530,8 +581,8 @@ async function main() {
         binding: session.binding,
         status: replay.response.status,
         error: replay.json?.error ?? null,
-        replay_digest: possessionProof.replay_digest,
-        replay_digest_hex: possessionProof.replay_digest_hex,
+        replay_digest: capturedPossessionProof.replay_digest,
+        replay_digest_hex: capturedPossessionProof.replay_digest_hex,
         stored_replay_digest_hex: storedReplayDigestHex,
         consume_receipt_presentation_id: verification.json.consume_receipt.presentation_id,
       },
