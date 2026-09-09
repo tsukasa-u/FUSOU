@@ -654,7 +654,7 @@ select::picker(select) {
 }
 
 .fusou-page-subtitle {
-  @apply text-sm sm:text-base text-base-content/60 mt-0.5 whitespace-nowrap;
+  @apply text-sm sm:text-base text-base-content/60 mt-0.5;
 }
 
 .fusou-page-subtitle-compact {
