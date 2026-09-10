@@ -97,8 +97,57 @@ post-cleanup RSS also remained approximately 1.7 GiB, so allocator/runtime
 retention and per-side attribution still require investigation.
 
 The process-separated benchmark uses the same local TLSN server fixture, but
-runs the Prover in the parent test process and the Notary in a separate
-loopback-only child process. At the FUSOU bounds it passed in 98.20 seconds:
+runs the Prover, Notary, and TLS fixture in separate processes connected only
+over loopback. Each matrix cell is an independent sequential run. The values
+below are the maximum observed `RSS/HWM` in KiB for each process; `sum HWM` is
+the sum of independent process high-water marks, not an instantaneous combined
+RSS measurement.
+
+With `max_recv_data=4 MiB`, the sent-capacity matrix was:
+
+| `max_sent_data` | Prover RSS/HWM KiB | Notary RSS/HWM KiB | Fixture RSS/HWM KiB | sum HWM KiB | elapsed |
+| ---: | ---: | ---: | ---: | ---: | ---: |
+| 99 B | 189088/189088 | 86728/142416 | 13668/13668 | 345172 | 6 s |
+| 256 B | 190240/190240 | 87296/143092 | 13780/13780 | 347112 | 6 s |
+| 512 B | 195124/195124 | 103408/143848 | 13928/13928 | 352900 | 7 s |
+| 1 KiB | 223200/223200 | 122640/159148 | 13708/13708 | 396056 | 7 s |
+| 2 KiB | 241464/241464 | 98680/191276 | 13316/13316 | 446056 | 7 s |
+| 4 KiB | 278860/278860 | 144204/245536 | 13536/13536 | 537932 | 10 s |
+| 8 KiB | 362748/365908 | 88076/380148 | 13472/13472 | 759528 | 12 s |
+| 16 KiB | 506396/506396 | 160648/556076 | 13668/13668 | 1076140 | 17 s |
+| 32 KiB | 769192/781444 | 291804/999460 | 13856/13856 | 1794760 | 29 s |
+| 64 KiB | 1890788/2548752 | 619292/2502536 | 13476/13476 | 5064764 | 72 s |
+| 128 KiB | 2552264/2715592 | 1223744/3613068 | 13476/13476 | 6342136 | 97 s |
+
+At the FUSOU bound, the independent HWM sum is approximately 6.05 GiB.
+The Prover and Notary are both material contributors, while the fixture
+process remains approximately 13 MiB. The growth is therefore not caused by
+the fixture's small HTTP response or by the fixture process itself.
+
+With `max_sent_data=99 B`, the receive-capacity matrix was:
+
+| `max_recv_data` | Prover RSS/HWM KiB | Notary RSS/HWM KiB | Fixture RSS/HWM KiB | sum HWM KiB | elapsed |
+| ---: | ---: | ---: | ---: | ---: | ---: |
+| 149 B | 190628/190628 | 88308/144844 | 13916/13916 | 349388 | 7 s |
+| 256 B | 193596/193596 | 86480/142352 | 13632/13632 | 349580 | 7 s |
+| 512 B | 190212/190212 | 87452/143052 | 13648/13648 | 346912 | 7 s |
+| 1 KiB | 189628/189628 | 86024/142892 | 13532/13532 | 346052 | 7 s |
+| 4 KiB | 197504/197504 | 88656/144128 | 13904/13904 | 355536 | 7 s |
+| 16 KiB | 192448/192448 | 91420/147172 | 13504/13504 | 353124 | 8 s |
+| 64 KiB | 182016/182016 | 82428/137864 | 13540/13540 | 333420 | 7 s |
+| 256 KiB | 185908/185908 | 91128/146204 | 13768/13768 | 345880 | 7 s |
+| 1 MiB | 190640/190640 | 89952/145852 | 13764/13764 | 350256 | 7 s |
+| 4 MiB | 190068/190068 | 89560/145408 | 13796/13796 | 349272 | 7 s |
+
+The receive matrix stayed within normal run-to-run variation while the sent
+matrix scaled sharply. This is local fixture evidence for sent-capacity-driven
+preprocessing, not proof that every future response fits in 4 MiB. The
+production receive bound still requires an observed, privacy-reviewed natural
+`require_info` response and a deployed memory-limit test.
+
+The benchmark also validates the signed alpha.15 Attestation at every passing
+cell. It does not connect to the Game Server, and it is not Production E2E
+evidence.
 
 ## Operations
 

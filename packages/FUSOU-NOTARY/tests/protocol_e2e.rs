@@ -36,7 +36,7 @@ impl<T> AsyncIo for T where T: futures::AsyncRead + futures::AsyncWrite {}
 
 type BoxedAsyncIo = Box<dyn AsyncIo + Send + Sync + Unpin>;
 
-fn read_proc_memory(phase: &str) {
+fn read_proc_memory(process: &str, phase: &str) {
     let status = fs::read_to_string("/proc/self/status").unwrap_or_default();
     let status_values = status
         .lines()
@@ -57,7 +57,7 @@ fn read_proc_memory(phase: &str) {
         .collect::<HashMap<_, _>>();
 
     eprintln!(
-        "phase={phase} rss_kib={} hwm_kib={} vm_peak_kib={} anon_kib={} private_dirty_kib={} private_clean_kib={}",
+        "process={process} phase={phase} rss_kib={} hwm_kib={} vm_peak_kib={} anon_kib={} private_dirty_kib={} private_clean_kib={}",
         status_values.get("VmRSS").copied().unwrap_or(0),
         status_values.get("VmHWM").copied().unwrap_or(0),
         status_values.get("VmPeak").copied().unwrap_or(0),
@@ -111,7 +111,7 @@ async fn alpha15_notary_process_benchmark_child() -> Result<()> {
         KeyStatus::Active,
         TEST_SIGNING_KEY,
     )?);
-    read_proc_memory("notary_child_before_session");
+    read_proc_memory("notary", "before_session");
     serve_connection_with_root_store(
         socket.compat(),
         key,
@@ -121,8 +121,61 @@ async fn alpha15_notary_process_benchmark_child() -> Result<()> {
         },
     )
     .await?;
-    read_proc_memory("notary_child_after_session");
+    read_proc_memory("notary", "after_session");
     Ok(())
+}
+
+#[tokio::test(flavor = "current_thread")]
+#[ignore = "spawned by the process-separated resource benchmark"]
+async fn alpha15_fixture_process_benchmark_child() -> Result<()> {
+    if env::var("FUSOU_FIXTURE_BENCH_CHILD").as_deref() != Ok("1") {
+        return Ok(());
+    }
+    let address = env::var("FUSOU_FIXTURE_BENCH_ADDR")?.parse::<std::net::SocketAddr>()?;
+    let listener = TcpListener::bind(address).await?;
+    println!("FUSOU_FIXTURE_READY {}", listener.local_addr()?);
+    read_proc_memory("fixture", "before_accept");
+    let (socket, _) = listener.accept().await?;
+    read_proc_memory("fixture", "after_accept");
+    tlsn_server_fixture::bind(socket.compat()).await?;
+    read_proc_memory("fixture", "after_session");
+    Ok(())
+}
+
+async fn spawn_benchmark_child(
+    test_name: &str,
+    ready_env: &str,
+    address_env: &str,
+) -> Result<(TcpStream, std::process::Child)> {
+    let reserved_listener = TcpListener::bind("127.0.0.1:0").await?;
+    let address = reserved_listener.local_addr()?;
+    drop(reserved_listener);
+    let mut child = std::process::Command::new(env::current_exe()?)
+        .arg("--exact")
+        .arg(test_name)
+        .arg("--ignored")
+        .arg("--nocapture")
+        .env(ready_env, "1")
+        .env(address_env, address.to_string())
+        .stdout(std::process::Stdio::inherit())
+        .stderr(std::process::Stdio::inherit())
+        .spawn()?;
+    for _ in 0..100 {
+        match TcpStream::connect(address).await {
+            Ok(socket) => return Ok((socket, child)),
+            Err(_) if child.try_wait()?.is_none() => {
+                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+            }
+            Err(error) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(anyhow!("benchmark child exited before connection: {error}"));
+            }
+        }
+    }
+    let _ = child.kill();
+    let _ = child.wait();
+    Err(anyhow!("benchmark child did not bind"))
 }
 
 async fn run_protocol_e2e(max_sent_data: usize, max_recv_data: usize) -> Result<()> {
@@ -138,50 +191,17 @@ async fn run_protocol_e2e_with_notary(
         "config max_sent_data={max_sent_data} max_recv_data={max_recv_data} aes_keystream_blocks={}",
         (max_sent_data + 32).div_ceil(16),
     );
-    read_proc_memory("before_session");
+    read_proc_memory("prover", "before_session");
     let mut notary_task = None;
+    let mut fixture_child = None;
     let (prover_socket, mut notary_child): (BoxedAsyncIo, Option<std::process::Child>) =
         if separate_notary {
-            let reserved_listener = TcpListener::bind("127.0.0.1:0").await?;
-            let address = reserved_listener.local_addr()?;
-            drop(reserved_listener);
-            let mut child = std::process::Command::new(env::current_exe()?)
-                .arg("--exact")
-                .arg("alpha15_notary_process_benchmark_child")
-                .arg("--ignored")
-                .arg("--nocapture")
-                .env("FUSOU_NOTARY_BENCH_CHILD", "1")
-                .env("FUSOU_NOTARY_BENCH_ADDR", address.to_string())
-                .stdout(std::process::Stdio::inherit())
-                .stderr(std::process::Stdio::inherit())
-                .spawn()?;
-            let mut socket = None;
-            for _ in 0..100 {
-                match TcpStream::connect(address).await {
-                    Ok(connected) => {
-                        socket = Some(connected);
-                        break;
-                    }
-                    Err(_) if child.try_wait()?.is_none() => {
-                        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-                    }
-                    Err(error) => {
-                        let _ = child.kill();
-                        let _ = child.wait();
-                        return Err(anyhow!(
-                            "Notary benchmark child exited before connection: {error}"
-                        ));
-                    }
-                }
-            }
-            let socket = match socket {
-                Some(socket) => socket,
-                None => {
-                    let _ = child.kill();
-                    let _ = child.wait();
-                    return Err(anyhow!("Notary benchmark child did not bind"));
-                }
-            };
+            let (socket, child) = spawn_benchmark_child(
+                "alpha15_notary_process_benchmark_child",
+                "FUSOU_NOTARY_BENCH_CHILD",
+                "FUSOU_NOTARY_BENCH_ADDR",
+            )
+            .await?;
             (Box::new(socket.compat()), Some(child))
         } else {
             let key = Arc::new(KeyMaterial::from_encoded(
@@ -201,15 +221,27 @@ async fn run_protocol_e2e_with_notary(
             (Box::new(prover_socket.compat()), None)
         };
 
-    let fixture_listener = TcpListener::bind("127.0.0.1:0").await?;
-    let fixture_addr = fixture_listener.local_addr()?;
-    let fixture_task = tokio::spawn(async move {
-        let (socket, _) = fixture_listener.accept().await?;
-        tlsn_server_fixture::bind(socket.compat()).await
-    });
+    let (fixture_task, fixture_socket) = if separate_notary {
+        let (socket, child) = spawn_benchmark_child(
+            "alpha15_fixture_process_benchmark_child",
+            "FUSOU_FIXTURE_BENCH_CHILD",
+            "FUSOU_FIXTURE_BENCH_ADDR",
+        )
+        .await?;
+        fixture_child = Some(child);
+        (None, socket)
+    } else {
+        let fixture_listener = TcpListener::bind("127.0.0.1:0").await?;
+        let fixture_addr = fixture_listener.local_addr()?;
+        let fixture_task = tokio::spawn(async move {
+            let (socket, _) = fixture_listener.accept().await?;
+            tlsn_server_fixture::bind(socket.compat()).await
+        });
+        (Some(fixture_task), TcpStream::connect(fixture_addr).await?)
+    };
 
     let session = Session::new(prover_socket);
-    read_proc_memory("after_session_new");
+    read_proc_memory("prover", "after_session_new");
     let (driver, mut handle) = session.split();
     let driver_task = tokio::spawn(driver);
     let prover = handle
@@ -221,9 +253,9 @@ async fn run_protocol_e2e_with_notary(
                 .build()?,
         )
         .await?;
-    read_proc_memory("after_prover_commit");
+    read_proc_memory("prover", "after_prover_commit");
 
-    let origin_socket = TcpStream::connect(fixture_addr).await?;
+    let origin_socket = fixture_socket;
     let (tls_connection, prover) = prover.connect(
         TlsClientConfig::builder()
             .server_name(ServerName::Dns(SERVER_DOMAIN.try_into()?))
@@ -233,7 +265,7 @@ async fn run_protocol_e2e_with_notary(
             .build()?,
         origin_socket.compat(),
     )?;
-    read_proc_memory("after_prover_connect");
+    read_proc_memory("prover", "after_prover_connect");
     let tls_connection = TokioIo::new(tls_connection.compat());
     let prover_task = tokio::spawn(prover.into_future());
     let (mut request_sender, connection) =
@@ -251,7 +283,7 @@ async fn run_protocol_e2e_with_notary(
     assert_eq!(response.status(), StatusCode::OK);
     let _response_body = response.into_body().collect().await?;
     connection_task.await??;
-    read_proc_memory("after_http_response");
+    read_proc_memory("prover", "after_http_response");
 
     let mut prover = prover_task.await??;
     eprintln!(
@@ -259,7 +291,7 @@ async fn run_protocol_e2e_with_notary(
         prover.transcript().sent().len(),
         prover.transcript().received().len(),
     );
-    read_proc_memory("after_prover_finish");
+    read_proc_memory("prover", "after_prover_finish");
     let transcript = HttpTranscript::parse(prover.transcript())?;
     let mut commit_builder = TranscriptCommitConfig::builder(prover.transcript());
     DefaultHttpCommitter::default().commit_transcript(&mut commit_builder, &transcript)?;
@@ -280,7 +312,7 @@ async fn run_protocol_e2e_with_notary(
         transcript_secrets,
         ..
     } = prover.prove(&prove_config).await?;
-    read_proc_memory("after_prove");
+    read_proc_memory("prover", "after_prove");
     let prover_transcript = prover.transcript().clone();
     let tls_transcript = prover.tls_transcript().clone();
     let handshake_data = HandshakeData {
@@ -301,7 +333,7 @@ async fn run_protocol_e2e_with_notary(
         .transcript(prover_transcript)
         .transcript_commitments(transcript_secrets, transcript_commitments);
     let (attestation_request, _secrets) = attestation_builder.build(&CryptoProvider::default())?;
-    read_proc_memory("after_attestation_request");
+    read_proc_memory("prover", "after_attestation_request");
     prover.close().await?;
 
     handle.close();
@@ -324,7 +356,15 @@ async fn run_protocol_e2e_with_notary(
             return Err(anyhow!("Notary benchmark child exited with {status}"));
         }
     }
-    fixture_task.await??;
-    read_proc_memory("after_cleanup");
+    if let Some(fixture_task) = fixture_task {
+        fixture_task.await??;
+    }
+    if let Some(mut fixture_child) = fixture_child.take() {
+        let status = fixture_child.wait()?;
+        if !status.success() {
+            return Err(anyhow!("fixture benchmark child exited with {status}"));
+        }
+    }
+    read_proc_memory("prover", "cleanup");
     Ok(())
 }

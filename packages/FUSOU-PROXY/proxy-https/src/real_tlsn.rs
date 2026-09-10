@@ -1031,6 +1031,20 @@ mod tests {
     }
 
     #[test]
+    fn max_sent_data_accepts_exact_absolute_capacity() {
+        let request = vec![0_u8; MAX_SENT_DATA];
+        assert_eq!(max_sent_data_for_request(&request), Ok(MAX_SENT_DATA));
+    }
+
+    #[test]
+    fn max_sent_data_rejects_empty_requests() {
+        assert_eq!(
+            max_sent_data_for_request(&[]),
+            Err(TlsnTransportError::RequestTooLarge)
+        );
+    }
+
+    #[test]
     fn max_sent_data_rejects_requests_over_absolute_capacity() {
         let request = vec![0_u8; MAX_SENT_DATA + 1];
         assert_eq!(
