@@ -363,6 +363,7 @@ pub struct TlsnOriginExchange {
 pub enum TlsnTransportError {
     Unavailable,
     AlreadySent,
+    RequestTooLarge,
     OriginConnectionFailed,
     ResponseReadFailed,
 }
@@ -372,6 +373,7 @@ impl std::fmt::Display for TlsnTransportError {
         let message = match self {
             Self::Unavailable => "TLSN origin transport is unavailable",
             Self::AlreadySent => "TLSN origin transport rejected a duplicate send",
+            Self::RequestTooLarge => "TLSN origin request exceeds the configured capacity",
             Self::OriginConnectionFailed => "TLSN origin connection failed",
             Self::ResponseReadFailed => "TLSN origin response read failed",
         };

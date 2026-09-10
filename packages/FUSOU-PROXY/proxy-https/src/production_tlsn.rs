@@ -458,6 +458,8 @@ impl PresentationRequestContext {
 
 pub trait PresentationProvider: Send + Sync {
     fn provide(&self, context: PresentationRequestContext) -> PresentationFuture;
+
+    fn discard(&self, _context: &PresentationRequestContext) {}
 }
 
 pub type PresentationExportFuture =
@@ -566,6 +568,12 @@ impl PresentationHandoff {
             .remove(request_sha256)
             .ok_or(PresentationError::Unavailable)
     }
+
+    fn discard_consumed(&self, request_sha256: &[u8; 32]) {
+        if let Ok(mut consumed) = self.consumed.lock() {
+            consumed.remove(request_sha256);
+        }
+    }
 }
 
 pub struct HandoffPresentationProvider {
@@ -582,6 +590,11 @@ impl PresentationProvider for HandoffPresentationProvider {
     fn provide(&self, context: PresentationRequestContext) -> PresentationFuture {
         let handoff = Arc::clone(&self.handoff);
         Box::pin(async move { handoff.take_for(context.authenticated_request_sha256()) })
+    }
+
+    fn discard(&self, context: &PresentationRequestContext) {
+        self.handoff
+            .discard_consumed(context.authenticated_request_sha256());
     }
 }
 
@@ -855,37 +868,44 @@ impl ExperimentalVerifierBoundary for PresentationVerifierBoundary {
                         }
                         PresentationError::Invalid => VerificationError::PresentationInvalid,
                     })?;
-            if let Some(artifact_sink) = artifact_sink {
-                artifact_sink
-                    .export(context.clone(), presentation.clone())
-                    .await
-                    .map_err(|error| match error {
-                        PresentationExportError::Unavailable => {
-                            VerificationError::PresentationExportUnavailable
-                        }
-                        PresentationExportError::Failed => {
-                            VerificationError::PresentationExportFailed
-                        }
-                    })?;
+            let result = async {
+                if let Some(artifact_sink) = artifact_sink {
+                    artifact_sink
+                        .export(context.clone(), presentation.clone())
+                        .await
+                        .map_err(|error| match error {
+                            PresentationExportError::Unavailable => {
+                                VerificationError::PresentationExportUnavailable
+                            }
+                            PresentationExportError::Failed => {
+                                VerificationError::PresentationExportFailed
+                            }
+                        })?;
+                }
+                let presentation_metadata = TlsnEvidenceMetadata::new(
+                    context.connection_id(),
+                    *context.binding_identifier(),
+                    Some(context.server_identity().to_owned()),
+                    *context.authenticated_request_sha256(),
+                    *context.authenticated_response_sha256(),
+                    Some(presentation.identifier().to_owned()),
+                    Some(*presentation.sha256()),
+                );
+                let evidence = verifier
+                    .verify(context.clone(), request, binding, exchange, presentation)
+                    .await?;
+                if evidence.request_sha256() != &request_sha256
+                    || evidence.response_sha256() != &response_sha256
+                {
+                    return Err(VerificationError::InvalidTranscript);
+                }
+                Ok(evidence.with_metadata(presentation_metadata))
             }
-            let presentation_metadata = TlsnEvidenceMetadata::new(
-                context.connection_id(),
-                *context.binding_identifier(),
-                Some(context.server_identity().to_owned()),
-                *context.authenticated_request_sha256(),
-                *context.authenticated_response_sha256(),
-                Some(presentation.identifier().to_owned()),
-                Some(*presentation.sha256()),
-            );
-            let evidence = verifier
-                .verify(context, request, binding, exchange, presentation)
-                .await?;
-            if evidence.request_sha256() != &request_sha256
-                || evidence.response_sha256() != &response_sha256
-            {
-                return Err(VerificationError::InvalidTranscript);
+            .await;
+            if result.is_err() {
+                provider.discard(&context);
             }
-            Ok(evidence.with_metadata(presentation_metadata))
+            result
         })
     }
 }
@@ -1604,11 +1624,16 @@ mod tests {
 
     #[tokio::test]
     async fn presentation_boundary_rejects_mismatched_verifier_evidence() {
+        let handoff = PresentationHandoff::new();
+        let request = request();
+        let binding = AttestationBinding::new("opaque".to_owned()).unwrap();
+        let exchange = exchange();
+        let request_sha256 = exchange.transcript.request_sha256;
+        handoff
+            .publish(request_sha256, "presentation-1".to_owned(), vec![9, 8, 7])
+            .unwrap();
         let boundary = PresentationVerifierBoundary::new(
-            Arc::new(RecordingPresentationProvider {
-                calls: AtomicUsize::new(0),
-                context: Mutex::new(None),
-            }),
+            Arc::new(HandoffPresentationProvider::new(Arc::clone(&handoff))),
             Arc::new(MismatchedDedicatedVerifier),
             OriginTarget::new(
                 "game.example.test".to_owned(),
@@ -1621,15 +1646,14 @@ mod tests {
 
         assert_eq!(
             boundary
-                .verify(
-                    1,
-                    request(),
-                    AttestationBinding::new("opaque".to_owned()).unwrap(),
-                    exchange(),
-                )
+                .verify(1, request, binding, exchange)
                 .await,
             Err(VerificationError::InvalidTranscript)
         );
+        assert!(matches!(
+            handoff.take_consumed(&request_sha256),
+            Err(PresentationError::Unavailable)
+        ));
     }
 
     #[tokio::test]

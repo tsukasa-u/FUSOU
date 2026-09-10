@@ -96,6 +96,10 @@ footprint rather than eager allocation of the 4 MiB receive bound. The
 post-cleanup RSS also remained approximately 1.7 GiB, so allocator/runtime
 retention and per-side attribution still require investigation.
 
+The process-separated benchmark uses the same local TLSN server fixture, but
+runs the Prover in the parent test process and the Notary in a separate
+loopback-only child process. At the FUSOU bounds it passed in 98.20 seconds:
+
 ## Operations
 
 The service is self-hostable but not Production-ready merely because it

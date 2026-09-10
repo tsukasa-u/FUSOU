@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use futures::{AsyncReadExt as _, AsyncWriteExt as _};
 use http_body_util::{BodyExt as _, Empty};
 use hyper::{body::Bytes, Request, StatusCode};
@@ -29,6 +29,12 @@ use fusou_notary::{protocol::serve_connection_with_root_store, KeyMaterial, KeyS
 const TEST_SIGNING_KEY: &str = "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE";
 const FUSOU_MAX_SENT_DATA: usize = 128 * 1024;
 const FUSOU_MAX_RECV_DATA: usize = 4 * 1024 * 1024;
+
+trait AsyncIo: futures::AsyncRead + futures::AsyncWrite {}
+
+impl<T> AsyncIo for T where T: futures::AsyncRead + futures::AsyncWrite {}
+
+type BoxedAsyncIo = Box<dyn AsyncIo + Send + Sync + Unpin>;
 
 fn read_proc_memory(phase: &str) {
     let status = fs::read_to_string("/proc/self/status").unwrap_or_default();
@@ -81,26 +87,119 @@ async fn alpha15_mpc_notary_resource_benchmark_cell() -> Result<()> {
     run_protocol_e2e(max_sent_data, max_recv_data).await
 }
 
-async fn run_protocol_e2e(max_sent_data: usize, max_recv_data: usize) -> Result<()> {
-    eprintln!(
-        "config max_sent_data={max_sent_data} max_recv_data={max_recv_data} aes_keystream_blocks={}",
-        (max_sent_data + 32).div_ceil(16),
-    );
-    read_proc_memory("before_session");
+#[tokio::test(flavor = "multi_thread", worker_threads = 8)]
+#[ignore = "explicit local resource benchmark"]
+async fn alpha15_mpc_notary_process_separated_resource_benchmark() -> Result<()> {
+    let max_sent_data = env::var("FUSOU_BENCH_MAX_SENT_DATA")?.parse::<usize>()?;
+    let max_recv_data = env::var("FUSOU_BENCH_MAX_RECV_DATA")?.parse::<usize>()?;
+    run_protocol_e2e_with_notary(max_sent_data, max_recv_data, true).await
+}
+
+#[tokio::test(flavor = "current_thread")]
+#[ignore = "spawned by the process-separated resource benchmark"]
+async fn alpha15_notary_process_benchmark_child() -> Result<()> {
+    if env::var("FUSOU_NOTARY_BENCH_CHILD").as_deref() != Ok("1") {
+        return Ok(());
+    }
+    let address = env::var("FUSOU_NOTARY_BENCH_ADDR")?.parse::<std::net::SocketAddr>()?;
+    let listener = TcpListener::bind(address).await?;
+    let address = listener.local_addr()?;
+    println!("FUSOU_NOTARY_READY {address}");
+    let (socket, _) = listener.accept().await?;
     let key = Arc::new(KeyMaterial::from_encoded(
-        "protocol-test".to_owned(),
+        "process-benchmark".to_owned(),
         KeyStatus::Active,
         TEST_SIGNING_KEY,
     )?);
-    let (notary_socket, prover_socket) = tokio::io::duplex(1 << 23);
-    let notary_task = tokio::spawn(serve_connection_with_root_store(
-        notary_socket.compat(),
+    read_proc_memory("notary_child_before_session");
+    serve_connection_with_root_store(
+        socket.compat(),
         key,
         16 * 1024 * 1024,
         RootCertStore {
             roots: vec![CertificateDer(CA_CERT_DER.to_vec())],
         },
-    ));
+    )
+    .await?;
+    read_proc_memory("notary_child_after_session");
+    Ok(())
+}
+
+async fn run_protocol_e2e(max_sent_data: usize, max_recv_data: usize) -> Result<()> {
+    run_protocol_e2e_with_notary(max_sent_data, max_recv_data, false).await
+}
+
+async fn run_protocol_e2e_with_notary(
+    max_sent_data: usize,
+    max_recv_data: usize,
+    separate_notary: bool,
+) -> Result<()> {
+    eprintln!(
+        "config max_sent_data={max_sent_data} max_recv_data={max_recv_data} aes_keystream_blocks={}",
+        (max_sent_data + 32).div_ceil(16),
+    );
+    read_proc_memory("before_session");
+    let mut notary_task = None;
+    let (prover_socket, mut notary_child): (BoxedAsyncIo, Option<std::process::Child>) =
+        if separate_notary {
+            let reserved_listener = TcpListener::bind("127.0.0.1:0").await?;
+            let address = reserved_listener.local_addr()?;
+            drop(reserved_listener);
+            let mut child = std::process::Command::new(env::current_exe()?)
+                .arg("--exact")
+                .arg("alpha15_notary_process_benchmark_child")
+                .arg("--ignored")
+                .arg("--nocapture")
+                .env("FUSOU_NOTARY_BENCH_CHILD", "1")
+                .env("FUSOU_NOTARY_BENCH_ADDR", address.to_string())
+                .stdout(std::process::Stdio::inherit())
+                .stderr(std::process::Stdio::inherit())
+                .spawn()?;
+            let mut socket = None;
+            for _ in 0..100 {
+                match TcpStream::connect(address).await {
+                    Ok(connected) => {
+                        socket = Some(connected);
+                        break;
+                    }
+                    Err(_) if child.try_wait()?.is_none() => {
+                        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+                    }
+                    Err(error) => {
+                        let _ = child.kill();
+                        let _ = child.wait();
+                        return Err(anyhow!(
+                            "Notary benchmark child exited before connection: {error}"
+                        ));
+                    }
+                }
+            }
+            let socket = match socket {
+                Some(socket) => socket,
+                None => {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return Err(anyhow!("Notary benchmark child did not bind"));
+                }
+            };
+            (Box::new(socket.compat()), Some(child))
+        } else {
+            let key = Arc::new(KeyMaterial::from_encoded(
+                "protocol-test".to_owned(),
+                KeyStatus::Active,
+                TEST_SIGNING_KEY,
+            )?);
+            let (notary_socket, prover_socket) = tokio::io::duplex(1 << 23);
+            notary_task = Some(tokio::spawn(serve_connection_with_root_store(
+                notary_socket.compat(),
+                key,
+                16 * 1024 * 1024,
+                RootCertStore {
+                    roots: vec![CertificateDer(CA_CERT_DER.to_vec())],
+                },
+            )));
+            (Box::new(prover_socket.compat()), None)
+        };
 
     let fixture_listener = TcpListener::bind("127.0.0.1:0").await?;
     let fixture_addr = fixture_listener.local_addr()?;
@@ -109,7 +208,7 @@ async fn run_protocol_e2e(max_sent_data: usize, max_recv_data: usize) -> Result<
         tlsn_server_fixture::bind(socket.compat()).await
     });
 
-    let session = Session::new(prover_socket.compat());
+    let session = Session::new(prover_socket);
     read_proc_memory("after_session_new");
     let (driver, mut handle) = session.split();
     let driver_task = tokio::spawn(driver);
@@ -216,7 +315,15 @@ async fn run_protocol_e2e(max_sent_data: usize, max_recv_data: usize) -> Result<
     let attestation: Attestation = bincode::deserialize(&attestation_bytes)?;
     attestation_request.validate(&attestation, &CryptoProvider::default())?;
 
-    notary_task.await??;
+    if let Some(notary_task) = notary_task {
+        notary_task.await??;
+    }
+    if let Some(mut notary_child) = notary_child.take() {
+        let status = notary_child.wait()?;
+        if !status.success() {
+            return Err(anyhow!("Notary benchmark child exited with {status}"));
+        }
+    }
     fixture_task.await??;
     read_proc_memory("after_cleanup");
     Ok(())

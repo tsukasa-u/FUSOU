@@ -44,6 +44,13 @@ use tokio_util::compat::TokioAsyncReadCompatExt;
 const MAX_SENT_DATA: usize = 128 * 1024;
 const MAX_RECV_DATA: usize = 4 * 1024 * 1024;
 
+fn max_sent_data_for_request(request: &[u8]) -> Result<usize, TlsnTransportError> {
+    if request.is_empty() || request.len() > MAX_SENT_DATA {
+        return Err(TlsnTransportError::RequestTooLarge);
+    }
+    Ok(request.len())
+}
+
 pub struct RealAlpha15OriginTransportFactory {
     notary_endpoint: String,
     handoff: Arc<PresentationHandoff>,
@@ -126,14 +133,14 @@ impl crate::production_tlsn::ProductionResultSigner for RemoteWorkerResultSigner
         let handoff = Arc::clone(&self.handoff);
         let artifact_root = self.artifact_root.clone();
         Box::pin(async move {
+            let presentation = handoff
+                .take_consumed(evidence.request_sha256())
+                .map_err(|_| crate::production_tlsn::ResultSignerError::Unavailable)?;
             let session = binding_state
                 .lock()
                 .map_err(|_| crate::production_tlsn::ResultSignerError::Failed)?
                 .take()
                 .ok_or(crate::production_tlsn::ResultSignerError::Unavailable)?;
-            let presentation = handoff
-                .take_consumed(evidence.request_sha256())
-                .map_err(|_| crate::production_tlsn::ResultSignerError::Unavailable)?;
             let device_key = DeviceKey::load_or_create(device_key_path)
                 .await
                 .map_err(|_| crate::production_tlsn::ResultSignerError::Unavailable)?;
@@ -721,6 +728,7 @@ async fn run_real_exchange(
         &ParserLimits::default(),
     )
     .map_err(|_| TlsnTransportError::OriginConnectionFailed)?;
+    let max_sent_data = max_sent_data_for_request(request.bytes())?;
 
     let origin_socket = TcpStream::connect((config.target().hostname(), config.target().port()))
         .await
@@ -741,7 +749,7 @@ async fn run_real_exchange(
         .map_err(|_| TlsnTransportError::OriginConnectionFailed)?
         .commit(
             MpcTlsConfig::builder()
-                .max_sent_data(MAX_SENT_DATA)
+                .max_sent_data(max_sent_data)
                 .max_recv_data(MAX_RECV_DATA)
                 .build()
                 .map_err(|_| TlsnTransportError::OriginConnectionFailed)?,
@@ -1015,6 +1023,21 @@ fn hex_bytes(bytes: &[u8; 32]) -> String {
 mod tests {
     use super::*;
     use ring::signature::{Ed25519KeyPair, KeyPair};
+
+    #[test]
+    fn max_sent_data_matches_request_length() {
+        let request = vec![0_u8; 99];
+        assert_eq!(max_sent_data_for_request(&request), Ok(99));
+    }
+
+    #[test]
+    fn max_sent_data_rejects_requests_over_absolute_capacity() {
+        let request = vec![0_u8; MAX_SENT_DATA + 1];
+        assert_eq!(
+            max_sent_data_for_request(&request),
+            Err(TlsnTransportError::RequestTooLarge)
+        );
+    }
 
     #[test]
     fn tlsn_device_proof_frames_challenge_with_length() {
