@@ -663,11 +663,9 @@ mod tests {
         let mut session_key = ED25519_SPKI_PREFIX.to_vec();
         session_key.extend_from_slice(&[7_u8; 32]);
 
-        let notary_signing_key = p256::ecdsa::SigningKey::from_slice(&[7_u8; 32]).unwrap();
-        let notary_key = notary_signing_key.verifying_key();
         let notary_key = tlsn_attestation::signing::VerifyingKey {
-            alg: tlsn_attestation::signing::KeyAlgId::P256,
-            data: notary_key.to_sec1_bytes().to_vec(),
+            alg: tlsn_attestation::signing::KeyAlgId::K256,
+            data: hex::decode("031b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f").unwrap(),
         };
 
         Fixture {
@@ -809,5 +807,18 @@ mod tests {
         let mut fixture = fixture();
         fixture.config.production_enabled = false;
         assert_error(&run_preflight(&fixture.config, &fixture.config_path), "tlsn_production_enabled");
+    }
+
+    #[ignore = "invoked by the offline Production trust-contract round-trip test"]
+    #[test]
+    fn generated_app_config_passes_offline_preflight() {
+        let config_path = std::env::var_os("FUSOU_TLSN_ROUNDTRIP_CONFIG_PATH")
+            .expect("FUSOU_TLSN_ROUNDTRIP_CONFIG_PATH must point to a generated APP config");
+        let config_path = Path::new(&config_path);
+        configs::set_user_config(config_path.to_str().expect("config path must be UTF-8")).unwrap();
+        let configs = configs::get_user_configs();
+        let config = TlsnPreflightConfig::from_proxy(&configs.proxy);
+        let report = run_preflight(&config, config_path);
+        assert!(report.ready, "{}", report.text());
     }
 }

@@ -272,7 +272,7 @@ assertSignedResult(result, {
 assertResultSubjectIdentity(result, subjectIdentity);
 
 const { signature: ignoredSignature, ...unsignedTestResult } = result;
-const notaryKey = Buffer.alloc(32, 7);
+const notaryKey = Buffer.from("ASEAAAAAAAAAAxuExVZ7EmRAmV0-1aq6BWXXHhg0YEgZ_5wX9enV3QeP", "base64url");
 const semanticVerification = {
   result: unsignedTestResult,
   presentation_sha256: sha256Base64Url(presentationBytes),

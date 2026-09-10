@@ -7,6 +7,7 @@ import {
   CANARY_INPUTS,
   COMMON_INPUTS,
   PRODUCTION_INPUTS,
+  PRODUCTION_EVIDENCE_INPUTS,
   PRODUCTION_GATE_INPUTS,
   REMOTE_ATTESTATION_SECRET_INPUTS,
   WORKFLOW_EVIDENCE_INPUTS,
@@ -129,15 +130,17 @@ async function main() {
   const workflowEvidenceInputs = Array.isArray(inputManifest.workflow_evidence_inputs) ? inputManifest.workflow_evidence_inputs : [];
   const canaryInputs = Array.isArray(inputManifest.canary_inputs) ? inputManifest.canary_inputs : [];
   const productionInputs = Array.isArray(inputManifest.production_inputs) ? inputManifest.production_inputs : [];
+  const productionEvidenceInputs = Array.isArray(inputManifest.production_evidence_inputs) ? inputManifest.production_evidence_inputs : [];
   const canarySecrets = Array.isArray(inputManifest.canary_secret_inputs) ? inputManifest.canary_secret_inputs : [];
   const productionSecrets = Array.isArray(inputManifest.production_secret_inputs) ? inputManifest.production_secret_inputs : [];
   if (
-    inputManifest.schema_version !== 2 ||
+    inputManifest.schema_version !== 3 ||
     inputManifest.scope !== "tlsn-deployment-inputs" ||
     JSON.stringify(commonInputs) !== JSON.stringify(COMMON_INPUTS) ||
     JSON.stringify(workflowEvidenceInputs) !== JSON.stringify(WORKFLOW_EVIDENCE_INPUTS) ||
     JSON.stringify(canaryInputs) !== JSON.stringify(CANARY_INPUTS) ||
     JSON.stringify(productionInputs) !== JSON.stringify(PRODUCTION_INPUTS) ||
+    JSON.stringify(productionEvidenceInputs) !== JSON.stringify(PRODUCTION_EVIDENCE_INPUTS) ||
     JSON.stringify(canarySecrets) !== JSON.stringify(["TLSN_CANARY_RESULT_SIGNING_PRIVATE_KEY_PKCS8", "TLSN_CANARY_SESSION_AUTHORITY_SIGNING_PRIVATE_KEY_PKCS8", "TLSN_CANARY_BINDING_AUTHORITY_SIGNING_PRIVATE_KEY_PKCS8", "TLSN_CANARY_TRUST_ROOT_CERTIFICATE_DER"]) ||
     JSON.stringify(productionSecrets) !== JSON.stringify(["TLSN_PRODUCTION_RESULT_SIGNING_PRIVATE_KEY_PKCS8", "TLSN_PRODUCTION_SESSION_AUTHORITY_SIGNING_PRIVATE_KEY_PKCS8", "TLSN_PRODUCTION_BINDING_AUTHORITY_SIGNING_PRIVATE_KEY_PKCS8", "TLSN_PRODUCTION_TRUST_ROOT_CERTIFICATE_DER"]) ||
     JSON.stringify(inputManifest.production_gate_inputs) !== JSON.stringify(PRODUCTION_GATE_INPUTS) ||

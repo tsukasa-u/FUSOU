@@ -110,5 +110,4 @@ gtk = "0.18"
 
 [dev-dependencies]
 rcgen = "0.13.2"
-p256 = "0.13"
 gdk = "0.18"

@@ -57,7 +57,7 @@ Configure these Worker values before deployment:
 
 ## Production Trust Contract
 
-The following values are the Production source of truth. The raw registry JSON is kept byte-for-byte identical wherever it is captured or compared; its hash is an identity field, not a replacement for the registry contents.
+The following values are the Production source of truth. The raw registry JSON is kept byte-for-byte identical wherever it is captured or compared; its hash is an identity field, not a replacement for the registry contents. Every Notary registry value is canonical base64url for the pinned alpha.15 bincode `tlsn_attestation::signing::VerifyingKey` using the FUSOU Notary `K256` algorithm and compressed SEC1 public key.
 
 | Authority | Public source | Private source | Consumers |
 | --- | --- | --- | --- |
@@ -112,6 +112,8 @@ pnpm run preflight:production
 The passing Production preflight also writes the public-only `tlsn-production-public-manifest.json`. It contains the Notary endpoint, selected Notary key ID and registry entry, Session Authority endpoint/key ID/public SPKI and registry hash, Verification Worker endpoint, server identity, trust-root DER bytes, and origin port. It contains no private key, bearer token, service credential, device key, or Cloudflare credential. Use `pnpm run render:app-config -- --manifest <manifest> --output <configs.toml> --artifact-output-path <local-directory>` to create an APP config; the artifact path is intentionally supplied separately because it is APP-local.
 
 Use `pnpm run deploy:production` for the guarded deploy entry point. It runs the preflight, captures the previous production identity, runs remote validation against the canary, verifies the fresh report, deploys only after that gate passes, and performs post-deploy identity and unauthenticated smoke checks. It injects non-secret manifest inputs through Wrangler `--var` and uploads the signing key and trust root through a temporary mode-600 secrets file. Wrangler authentication remains CLI-only; a failed prerequisite cannot deploy.
+
+The complete offline contract check is `pnpm run test:production-roundtrip`. It generates synthetic authority keys and an X.509 root, uses a pinned alpha.15 K256 key, runs Production preflight, validates the public manifest, renders the APP TLSN fragment, parses it through the APP config loader, and requires APP preflight `ready=true`. It does not contact a Game Server, Notary, Worker, Supabase, or any other remote service.
 
 ## Remote validation
 

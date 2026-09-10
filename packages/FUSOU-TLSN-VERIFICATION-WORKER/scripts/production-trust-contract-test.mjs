@@ -18,8 +18,13 @@ const workflowPath = resolve(packageDirectory, "../../.github/workflows/tlsn-pro
 const workflow = await readFile(workflowPath, "utf8");
 
 const notaryKeyId = "notary-production-2026";
-const notaryVerifyingKey = Buffer.from("synthetic-notary-public-key").toString("base64url");
-const notaryRegistryRaw = JSON.stringify({ [notaryKeyId]: notaryVerifyingKey });
+const notaryVerifyingKey = "ASEAAAAAAAAAAxuExVZ7EmRAmV0-1aq6BWXXHhg0YEgZ_5wX9enV3QeP";
+const previousNotaryKeyId = "notary-production-2025";
+const previousNotaryVerifyingKey = "ASEAAAAAAAAAAwdAv1ROf_qFyznpNgrsGYoIZ-ACK18PYlD8vV2IuVmO";
+const notaryRegistryRaw = JSON.stringify({
+  [notaryKeyId]: notaryVerifyingKey,
+  [previousNotaryKeyId]: previousNotaryVerifyingKey,
+});
 const { publicKey: sessionPublicKey, privateKey: sessionPrivateKey } = generateKeyPairSync("ed25519");
 const sessionPublicKeySpki = sessionPublicKey.export({ format: "der", type: "spki" }).toString("base64url");
 const sessionPrivateKeyPkcs8 = sessionPrivateKey.export({ format: "der", type: "pkcs8" }).toString("base64url");
@@ -59,6 +64,40 @@ assert.doesNotThrow(() => assertNotaryRegistryConsistency({
 
 assert.throws(() => assertNotaryRegistryConsistency({
   sourceRegistryRaw: notaryRegistryRaw,
+  workerRegistryRaw: JSON.stringify({
+    [previousNotaryKeyId]: previousNotaryVerifyingKey,
+    [notaryKeyId]: notaryVerifyingKey,
+  }),
+  evidenceRegistryRaw: notaryRegistryRaw,
+  keyId: notaryKeyId,
+}), /Worker Notary registry/);
+
+assert.throws(() => assertNotaryRegistryConsistency({
+  sourceRegistryRaw: notaryRegistryRaw,
+  workerRegistryRaw: `{ "${notaryKeyId}": "${notaryVerifyingKey}", "${previousNotaryKeyId}": "${previousNotaryVerifyingKey}" }`,
+  evidenceRegistryRaw: notaryRegistryRaw,
+  keyId: notaryKeyId,
+}), /Worker Notary registry/);
+
+assert.throws(() => assertNotaryRegistryConsistency({
+  sourceRegistryRaw: notaryRegistryRaw,
+  workerRegistryRaw: `${notaryRegistryRaw}\n`,
+  evidenceRegistryRaw: notaryRegistryRaw,
+  keyId: notaryKeyId,
+}), /Worker Notary registry/);
+
+assert.throws(() => assertNotaryRegistryConsistency({
+  sourceRegistryRaw: notaryRegistryRaw,
+  workerRegistryRaw: JSON.stringify({
+    [notaryKeyId]: previousNotaryVerifyingKey,
+    [previousNotaryKeyId]: previousNotaryVerifyingKey,
+  }),
+  evidenceRegistryRaw: notaryRegistryRaw,
+  keyId: notaryKeyId,
+}), /Worker Notary registry/);
+
+assert.throws(() => assertNotaryRegistryConsistency({
+  sourceRegistryRaw: notaryRegistryRaw,
   workerRegistryRaw: JSON.stringify({ [notaryKeyId]: Buffer.from("different-worker-key").toString("base64url") }),
   evidenceRegistryRaw: notaryRegistryRaw,
   keyId: notaryKeyId,
@@ -72,6 +111,11 @@ assert.throws(() => assertNotaryRegistryConsistency({
   keyId: notaryKeyId,
   appVerifyingKey: notaryVerifyingKey,
 }), /Evidence Notary registry/);
+
+assert.throws(() => assertNotaryRegistryConsistency({
+  sourceRegistryRaw: JSON.stringify({ [notaryKeyId]: Buffer.from("not-alpha15").toString("base64url") }),
+  keyId: notaryKeyId,
+}), /alpha\.15/);
 
 assert.throws(() => assertNotaryRegistryConsistency({
   sourceRegistryRaw: notaryRegistryRaw,
@@ -91,13 +135,35 @@ assert.throws(() => assertRequiredProductionSecrets({}, [
 assert.equal(typeof sessionPrivateKeyPkcs8, "string");
 
 assert.doesNotThrow(() => assertPublicManifest(validManifest));
+const manifestWithInvalidNotaryKey = structuredClone(validManifest);
+manifestWithInvalidNotaryKey.notary.verifying_key = Buffer.from("not-alpha15").toString("base64url");
+manifestWithInvalidNotaryKey.notary.registry_entry.verifying_key = manifestWithInvalidNotaryKey.notary.verifying_key;
+assert.throws(() => assertPublicManifest(manifestWithInvalidNotaryKey), /alpha\.15/);
 const manifestWithInvalidTrustRoot = structuredClone(validManifest);
 manifestWithInvalidTrustRoot.origin.trust_roots = [Buffer.from("not-a-certificate").toString("base64url")];
 assert.throws(() => assertPublicManifest(manifestWithInvalidTrustRoot), /DER X\.509 certificate/);
 const manifestWithPrivateField = structuredClone(validManifest);
 manifestWithPrivateField.session_authority.signing_private_key_pkcs8 = "must-never-be-published";
 assert.throws(() => assertPublicManifest(manifestWithPrivateField), /outside the public manifest schema/);
-assert.doesNotMatch(appConfigTomlFromManifest(validManifest, "/local/tlsn-artifacts"), /private|secret|token/i);
+for (const [section, field] of [
+  ["notary", "signing_private_key_pkcs8"],
+  ["session_authority", "signing_private_key_pkcs8"],
+  ["session_authority", "bearer_token"],
+  ["origin", "device_private_key_pkcs8"],
+  ["origin", "supabase_service_role_key"],
+  ["origin", "cloudflare_api_token"],
+]) {
+  const manifestWithPrivateCategory = structuredClone(validManifest);
+  manifestWithPrivateCategory[section][field] = `must-never-be-published-${field}`;
+  assert.throws(() => assertPublicManifest(manifestWithPrivateCategory), /outside the public manifest schema/);
+}
+const manifestWithBindingAuthority = structuredClone(validManifest);
+manifestWithBindingAuthority.binding_authority = { public_key_spki: "must-never-be-published" };
+assert.throws(() => assertPublicManifest(manifestWithBindingAuthority), /outside the public manifest schema/);
+assert.doesNotMatch(
+  appConfigTomlFromManifest(validManifest, "/local/tlsn-artifacts"),
+  /private|secret|token|bearer|supabase|device|cloudflare|binding/i,
+);
 
 const productionJob = workflow.slice(workflow.indexOf("\n  production:"));
 for (const name of [

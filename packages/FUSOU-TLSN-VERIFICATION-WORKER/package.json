@@ -21,8 +21,9 @@
     "validate:remote": "node scripts/remote-validation.mjs",
     "verify:remote-gate": "node scripts/verify-remote-gate.mjs",
     "types": "wrangler types",
-    "test": "pnpm run build:wasm && node scripts/production-trust-contract-test.mjs && node scripts/deployment-isolation-test.mjs && node scripts/deployment-attestation-test.mjs && node scripts/signing-key-registry-test.mjs && node scripts/previous-deployment-contract-test.mjs && node scripts/production-evidence-test.mjs && node scripts/test.mjs",
+    "test": "pnpm run build:wasm && node scripts/production-trust-contract-test.mjs && node scripts/production-roundtrip-test.mjs && node scripts/deployment-isolation-test.mjs && node scripts/deployment-attestation-test.mjs && node scripts/signing-key-registry-test.mjs && node scripts/previous-deployment-contract-test.mjs && node scripts/production-evidence-test.mjs && node scripts/test.mjs",
     "test:trust-contract": "node scripts/production-trust-contract-test.mjs",
+    "test:production-roundtrip": "node scripts/production-roundtrip-test.mjs",
     "test:isolation": "node scripts/deployment-isolation-test.mjs"
   },
   "keywords": [

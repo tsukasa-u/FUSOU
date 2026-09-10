@@ -14,6 +14,10 @@ const KEY_ID_PATTERN = /^[A-Za-z0-9._-]{1,128}$/;
 const DNS_HOSTNAME_PATTERN = /^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/;
 const SHA256_BASE64URL_LENGTH = 43;
 const PUBLIC_KEY_LENGTH = 59;
+const ALPHA15_K256_KEY_LENGTH = 42;
+const ALPHA15_K256_ALGORITHM_ID = 1;
+const ALPHA15_K256_PUBLIC_KEY_LENGTH = 33;
+const K256_SPKI_PREFIX = Buffer.from("3036301006072a8648ce3d020106052b8104000a032200", "hex");
 
 function canonicalize(value) {
   if (Array.isArray(value)) return value.map(canonicalize);
@@ -85,13 +89,37 @@ function assertPublicEd25519Spki(value, label) {
   }
 }
 
+export function assertAlpha15NotaryVerifyingKey(value, label = "Notary verifying key") {
+  const bytes = assertCanonicalBase64Url(value, label);
+  if (
+    bytes.length !== ALPHA15_K256_KEY_LENGTH ||
+    bytes[0] !== ALPHA15_K256_ALGORITHM_ID ||
+    Number(bytes.readBigUInt64LE(1)) !== ALPHA15_K256_PUBLIC_KEY_LENGTH ||
+    ![0x02, 0x03].includes(bytes[9])
+  ) {
+    throw new Error(`${label} must be a canonical TLSNotary alpha.15 K256 bincode VerifyingKey`);
+  }
+  try {
+    const key = createPublicKey({
+      key: Buffer.concat([K256_SPKI_PREFIX, bytes.subarray(9)]),
+      format: "der",
+      type: "spki",
+    });
+    if (key.asymmetricKeyType !== "ec" || key.asymmetricKeyDetails?.namedCurve !== "secp256k1") {
+      throw new Error("wrong key type");
+    }
+  } catch {
+    throw new Error(`${label} must contain a valid compressed secp256k1 public key`);
+  }
+}
+
 export function parseNotaryRegistry(raw, label = CANONICAL_NOTARY_REGISTRY_INPUT) {
   const registry = parseJsonObject(raw, label);
   const entries = Object.entries(registry);
   if (entries.length === 0) throw new Error(`${label} must contain at least one key`);
   for (const [keyId, publicKey] of entries) {
     if (!KEY_ID_PATTERN.test(keyId)) throw new Error(`${label} contains an invalid key ID`);
-    assertCanonicalBase64Url(publicKey, `${label} entry`);
+    assertAlpha15NotaryVerifyingKey(publicKey, `${label} entry`);
   }
   return registry;
 }
@@ -108,13 +136,12 @@ export function assertNotaryRegistryConsistency({
   appVerifyingKey,
 } = {}) {
   const sourceRegistry = parseNotaryRegistry(sourceRegistryRaw, "source Notary registry");
-  const workerRegistry = parseNotaryRegistry(workerRegistryRaw, "Worker Notary registry");
-  const evidenceRegistry = parseNotaryRegistry(evidenceRegistryRaw, "Evidence Notary registry");
-  const sourceCanonical = canonicalJson(sourceRegistry);
-  if (canonicalJson(workerRegistry) !== sourceCanonical) {
+  parseNotaryRegistry(workerRegistryRaw, "Worker Notary registry");
+  parseNotaryRegistry(evidenceRegistryRaw, "Evidence Notary registry");
+  if (workerRegistryRaw !== sourceRegistryRaw) {
     throw new Error("Worker Notary registry does not match the source registry");
   }
-  if (canonicalJson(evidenceRegistry) !== sourceCanonical) {
+  if (evidenceRegistryRaw !== sourceRegistryRaw) {
     throw new Error("Evidence Notary registry does not match the source registry");
   }
   if (!KEY_ID_PATTERN.test(keyId ?? "")) throw new Error("Notary key ID is invalid");
@@ -246,7 +273,7 @@ export function assertPublicManifest(manifest) {
   }
   assertRawNotaryEndpoint(manifest.notary.endpoint);
   if (!KEY_ID_PATTERN.test(manifest.notary.key_id)) throw new Error("manifest Notary key ID is invalid");
-  assertCanonicalBase64Url(manifest.notary.verifying_key, "manifest Notary verifying key");
+  assertAlpha15NotaryVerifyingKey(manifest.notary.verifying_key, "manifest Notary verifying key");
   assertSha256(manifest.notary.registry_sha256, "manifest Notary registry hash");
   assertExactKeys(manifest.session_authority, ["endpoint", "key_id", "public_key_spki", "key_registry_sha256"], "manifest.session_authority");
   assertCleanHttpsEndpoint(manifest.session_authority.endpoint, "/attestation/session", "manifest Session Authority endpoint");
