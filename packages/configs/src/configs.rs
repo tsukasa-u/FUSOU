@@ -1043,7 +1043,38 @@ pub struct ConfigsProxy {
     pub channel: ConfigsProxyChannel,
 }
 
+#[derive(Debug, Clone, Default)]
+pub struct TlsnProxyConfig {
+    pub production_enabled: Option<bool>,
+    pub notary_endpoint: Option<String>,
+    pub session_authority_endpoint: Option<String>,
+    pub session_authority_public_key: Option<String>,
+    pub session_authority_key_id: Option<String>,
+    pub verification_endpoint: Option<String>,
+    pub notary_verifying_key: Option<String>,
+    pub origin_port: Option<i64>,
+    pub server_identity: Option<String>,
+    pub origin_trust_roots: Option<Vec<String>>,
+    pub artifact_output_path: Option<String>,
+}
+
 impl ConfigsProxy {
+    pub fn get_tlsn_config(&self) -> TlsnProxyConfig {
+        TlsnProxyConfig {
+            production_enabled: self.tlsn_production_enabled,
+            notary_endpoint: self.tlsn_notary_endpoint.clone(),
+            session_authority_endpoint: self.tlsn_session_authority_endpoint.clone(),
+            session_authority_public_key: self.tlsn_session_authority_public_key.clone(),
+            session_authority_key_id: self.tlsn_session_authority_key_id.clone(),
+            verification_endpoint: self.tlsn_verification_endpoint.clone(),
+            notary_verifying_key: self.tlsn_notary_verifying_key.clone(),
+            origin_port: self.tlsn_origin_port,
+            server_identity: self.tlsn_server_identity.clone(),
+            origin_trust_roots: self.tlsn_origin_trust_roots.clone(),
+            artifact_output_path: self.tlsn_artifact_output_path.clone(),
+        }
+    }
+
     pub fn get_experimental_tlsn_enabled(&self) -> bool {
         self.experimental_tlsn_enabled.unwrap_or_else(|| {
             get_default_configs()
@@ -1071,55 +1102,48 @@ impl ConfigsProxy {
     }
 
     pub fn get_tlsn_session_authority_endpoint(&self) -> Option<String> {
-        non_empty_string(
-            self.tlsn_session_authority_endpoint.clone().or_else(|| {
-                get_default_configs()
-                    .proxy
-                    .tlsn_session_authority_endpoint
-                    .clone()
-            }),
-        )
+        non_empty_string(self.tlsn_session_authority_endpoint.clone().or_else(|| {
+            get_default_configs()
+                .proxy
+                .tlsn_session_authority_endpoint
+                .clone()
+        }))
     }
 
     pub fn get_tlsn_verification_endpoint(&self) -> Option<String> {
-        non_empty_string(
-            self.tlsn_verification_endpoint.clone().or_else(|| {
-                get_default_configs()
-                    .proxy
-                    .tlsn_verification_endpoint
-                    .clone()
-            }),
-        )
+        non_empty_string(self.tlsn_verification_endpoint.clone().or_else(|| {
+            get_default_configs()
+                .proxy
+                .tlsn_verification_endpoint
+                .clone()
+        }))
     }
 
     pub fn get_tlsn_session_authority_public_key(&self) -> Option<String> {
-        non_empty_string(
-            self.tlsn_session_authority_public_key.clone().or_else(|| {
-                get_default_configs()
-                    .proxy
-                    .tlsn_session_authority_public_key
-                    .clone()
-            }),
-        )
+        non_empty_string(self.tlsn_session_authority_public_key.clone().or_else(|| {
+            get_default_configs()
+                .proxy
+                .tlsn_session_authority_public_key
+                .clone()
+        }))
     }
 
     pub fn get_tlsn_session_authority_key_id(&self) -> Option<String> {
-        non_empty_string(
-            self.tlsn_session_authority_key_id.clone().or_else(|| {
-                get_default_configs()
-                    .proxy
-                    .tlsn_session_authority_key_id
-                    .clone()
-            }),
-        )
+        non_empty_string(self.tlsn_session_authority_key_id.clone().or_else(|| {
+            get_default_configs()
+                .proxy
+                .tlsn_session_authority_key_id
+                .clone()
+        }))
     }
 
     pub fn get_tlsn_notary_verifying_key(&self) -> Option<String> {
-        non_empty_string(
-            self.tlsn_notary_verifying_key
+        non_empty_string(self.tlsn_notary_verifying_key.clone().or_else(|| {
+            get_default_configs()
+                .proxy
+                .tlsn_notary_verifying_key
                 .clone()
-                .or_else(|| get_default_configs().proxy.tlsn_notary_verifying_key.clone()),
-        )
+        }))
     }
 
     pub fn get_tlsn_origin_port(&self) -> u16 {
@@ -1127,6 +1151,10 @@ impl ConfigsProxy {
             .or_else(|| get_default_configs().proxy.tlsn_origin_port)
             .filter(|port| *port > 0 && *port <= 65535)
             .unwrap_or(443) as u16
+    }
+
+    pub fn get_tlsn_origin_port_configured(&self) -> Option<i64> {
+        self.tlsn_origin_port
     }
 
     pub fn get_tlsn_server_identity(&self) -> Option<String> {
@@ -1148,11 +1176,12 @@ impl ConfigsProxy {
     }
 
     pub fn get_tlsn_artifact_output_path(&self) -> Option<String> {
-        non_empty_string(
-            self.tlsn_artifact_output_path
+        non_empty_string(self.tlsn_artifact_output_path.clone().or_else(|| {
+            get_default_configs()
+                .proxy
+                .tlsn_artifact_output_path
                 .clone()
-                .or_else(|| get_default_configs().proxy.tlsn_artifact_output_path.clone()),
-        )
+        }))
     }
 
     pub fn get_allow_save_api_requests(&self) -> bool {
@@ -1448,8 +1477,7 @@ mod tests {
 
     #[test]
     fn test_bundled_app_config_is_valid() {
-        let config_content =
-            include_str!("../../FUSOU-APP/src-tauri/resources/user/configs.toml");
+        let config_content = include_str!("../../FUSOU-APP/src-tauri/resources/user/configs.toml");
 
         toml::from_str::<Configs>(config_content)
             .expect("bundled FUSOU-APP configs.toml must match Configs");
@@ -1618,7 +1646,10 @@ mod tests {
 
         assert_eq!(
             empty_browser.get_external_screenshot_directory(),
-            default_configs.app.browser.get_external_screenshot_directory(),
+            default_configs
+                .app
+                .browser
+                .get_external_screenshot_directory(),
             "browser external_screenshot_directory getter should return configs.toml default"
         );
 

@@ -16,9 +16,11 @@ pub fn get_user_configs_for_app() -> configs::ConfigsApp {
     configs::get_user_configs().app.clone()
 }
 
+pub use configs::ChannelTransportKind;
 pub use configs::ConfigsAppAssetSync;
 pub use configs::ConfigsAppQuestTreeSender;
-pub use configs::ChannelTransportKind;
+pub use configs::ConfigsProxy;
+pub use configs::TlsnProxyConfig;
 
 #[cfg(target_os = "linux")]
 pub fn get_user_env() -> configs::ConfigEnv {

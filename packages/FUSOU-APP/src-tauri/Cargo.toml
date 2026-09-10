@@ -63,8 +63,10 @@ sha2 = "0.10"
 flate2 = "1.1.5"
 hex = "0.4"
 base64 = "0.22"
+bincode = { version = "1.3", optional = true }
 urlencoding = "2.1"
 cap-std = "3"
+tlsn-attestation = { git = "https://github.com/tlsnotary/tlsn.git", rev = "47aee45b53e06648c1b2ad3689b367b8c923fdec", version = "0.1.0-alpha.15", optional = true }
 
 [features]
 # this feature is used for production builds or when `devPath` points to the filesystem and the built-in dev server is disabled.
@@ -74,7 +76,7 @@ custom-protocol = [ "tauri/custom-protocol" ]
 
 default = ["kc-api-epoch-20250627"]
 grpc-channel = ["proxy-https/grpc"]
-tlsn-production = ["proxy-https/alpha15-tlsn"]
+tlsn-production = ["proxy-https/alpha15-tlsn", "dep:bincode", "dep:tlsn-attestation"]
 kc-api-epoch-genesis = [
 	"kc_api/genesis",
 	"proxy-https/kc-api-epoch-genesis",
@@ -103,5 +105,10 @@ windows-sys = { version = "0.59.0", features = ["Win32_Foundation", "Win32_Syste
 
 [target.'cfg(target_os = "linux")'.dependencies]
 webkit2gtk = "2.0.1"
+gdk = "0.18"
 gtk = "0.18"
+
+[dev-dependencies]
+rcgen = "0.13.2"
+p256 = "0.13"
 gdk = "0.18"

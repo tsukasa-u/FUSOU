@@ -14,6 +14,31 @@ allow_save_resources = true
 # Whether to save only main.js locally (JS is not uploaded by asset sync)
 allow_save_main_js_local = true
 
+# Experimental TLSNotary route. This remains disabled until a real
+# Session/Challenge authority, Notary, and Prover-owned origin transport are configured.
+experimental_tlsn_enabled = false
+
+# Enable the real alpha.15 Production Capture Path. Missing authority, Notary,
+# trust, and artifact settings fail closed when this is enabled.
+tlsn_production_enabled = false
+tlsn_notary_endpoint = ""
+tlsn_session_authority_endpoint = ""
+tlsn_session_authority_public_key = ""
+tlsn_session_authority_key_id = ""
+tlsn_verification_endpoint = ""
+tlsn_notary_verifying_key = ""
+tlsn_origin_port = 443
+tlsn_server_identity = ""
+tlsn_origin_trust_roots = []
+tlsn_artifact_output_path = ""
+
+# Capture require_info traffic into a private local-only artifact directory.
+# This is disabled by default and never writes to the evidence repository automatically.
+capture_enabled = false
+
+# The private directory for capture artifacts. Empty disables capture even when enabled.
+capture_output_path = ""
+
 # The location to save files
 # The default location is under the user's Documents directory
 # to use the default location, leave this empty

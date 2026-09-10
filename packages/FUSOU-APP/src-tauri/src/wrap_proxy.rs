@@ -234,6 +234,13 @@ where
     let proxy_configs = configs::get_user_configs_for_proxy();
     let use_generated_certs = proxy_configs.certificates.get_use_generated_certs();
 
+    if proxy_configs.get_tlsn_production_enabled() {
+        let report = crate::tlsn_preflight::run_current_config_preflight();
+        if !report.ready {
+            return Err(report.failure_summary().into());
+        }
+    }
+
     if use_generated_certs {
         let ca_check_result = proxy_https::proxy_server_https::check_ca(ca_path.clone());
 

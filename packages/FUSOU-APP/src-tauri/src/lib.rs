@@ -25,6 +25,7 @@ mod storage;
 mod util;
 mod window;
 mod wrap_proxy;
+pub mod tlsn_preflight;
 use senders::{quest_tree_sender, remodel_sender, ship_growth_sender, soku_speed_sender};
 
 use fusou_upload::PendingStore;
@@ -187,6 +188,7 @@ pub async fn run() {
             cmd::tauri_cmd::retry_pending_upload_item_now,
             cmd::tauri_cmd::delete_pending_upload_item,
             cmd::tauri_cmd::get_pending_upload_retry_status,
+            cmd::tauri_cmd::run_tlsn_production_preflight,
             cmd::tauri_cmd::get_ship_growth_suppression_status,
             cmd::tauri_cmd::get_quest_tree_suppression_status,
             cmd::tauri_cmd::get_remodel_suppression_status,
