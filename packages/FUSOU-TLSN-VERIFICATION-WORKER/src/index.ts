@@ -41,7 +41,7 @@ type Bindings = {
   TLSN_CANDIDATE_PROFILE_SHA256?: string;
   TLSN_CANDIDATE_VERIFIER_KEY_ID?: string;
   TLSN_CANDIDATE_NOTARY_KEY_ID?: string;
-  TLSN_CANDIDATE_NOTARY_REGISTRY?: string;
+  TLSN_PRODUCTION_NOTARY_REGISTRY?: string;
   TLSN_CANDIDATE_DEVICE_AUTH_ALLOWED_HOSTS?: string;
   TLSN_CANDIDATE_SUPABASE_ALLOWED_HOSTS?: string;
   TLSN_CANDIDATE_SUPABASE_URL?: string;
@@ -410,7 +410,7 @@ async function readConfig(env: Bindings): Promise<VerifierConfig | null> {
       ? env.TLSN_CANDIDATE_DEVICE_POSSESSION_AUTH_URL
       : env.TLSN_DEVICE_POSSESSION_AUTH_URL,
     deviceAuthAllowedHosts: production ? env.TLSN_CANDIDATE_DEVICE_AUTH_ALLOWED_HOSTS : undefined,
-    notaryRegistry: production ? env.TLSN_CANDIDATE_NOTARY_REGISTRY : env.TLSN_NOTARY_REGISTRY,
+    notaryRegistry: production ? env.TLSN_PRODUCTION_NOTARY_REGISTRY : env.TLSN_NOTARY_REGISTRY,
     resultSigningPrivateKeyPkcs8: signingPrivateKey,
     sessionAuthoritySigningPrivateKeyPkcs8: sessionAuthoritySigningPrivateKey,
     sessionAuthorityPublicKeySpki,
@@ -1009,7 +1009,7 @@ app.get("/health", async (c) => {
     ? c.env.TLSN_CANDIDATE_PROFILE_SHA256
     : c.env.TLSN_PROFILE_SHA256;
   const notaryRegistry = production
-    ? c.env.TLSN_CANDIDATE_NOTARY_REGISTRY
+    ? c.env.TLSN_PRODUCTION_NOTARY_REGISTRY
     : c.env.TLSN_NOTARY_REGISTRY;
   const notaryRegistrySha256 = notaryRegistry
     ? encodeBase64Url(new Uint8Array(await crypto.subtle.digest(

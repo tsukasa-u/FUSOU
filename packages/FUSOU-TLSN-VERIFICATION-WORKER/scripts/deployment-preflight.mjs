@@ -17,10 +17,16 @@ import {
 import { checkoutCommit, workflowContextFromEnvironment } from "./deployment-attestation.mjs";
 import { assertAuthorityKeyRegistry, authorityKeyRegistrySha256 } from "./authority-key-registry.mjs";
 import { assertSigningKeyRegistry, signingKeyRegistrySha256 } from "./signing-key-registry.mjs";
+import {
+  buildProductionPublicManifest,
+  LEGACY_NOTARY_REGISTRY_INPUTS,
+  parseNotaryRegistry,
+} from "./production-trust-contract.mjs";
 
 const packageDirectory = resolve(new URL("..", import.meta.url).pathname);
 const DEFAULT_REPORT_PATH = resolve(packageDirectory, "artifacts/tlsn-deployment-preflight.json");
 const DEFAULT_PROVENANCE_PATH = resolve(packageDirectory, "artifacts/tlsn-production-provenance.json");
+const DEFAULT_PUBLIC_MANIFEST_PATH = resolve(packageDirectory, "artifacts/tlsn-production-public-manifest.json");
 const INPUT_MANIFEST_PATH = resolve(packageDirectory, "scripts/production-inputs.json");
 const DNS_HOSTNAME_PATTERN = /^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/;
 const TEST_MARKER_PATTERN = /(?:^|[._-])(test|synthetic|fixture|local|staging)(?:$|[._-])/i;
@@ -171,7 +177,7 @@ async function main() {
   const forbiddenRoleInputs = role === "canary"
     ? ["TLSN_PRODUCTION_RESULT_SIGNING_PRIVATE_KEY_PKCS8", "TLSN_PRODUCTION_SESSION_AUTHORITY_SIGNING_PRIVATE_KEY_PKCS8", "TLSN_PRODUCTION_BINDING_AUTHORITY_SIGNING_PRIVATE_KEY_PKCS8", "TLSN_PRODUCTION_TRUST_ROOT_CERTIFICATE_DER", "TLSN_PRODUCTION_RESULT_PUBLIC_KEY_SPKI", "TLSN_PRODUCTION_RESULT_SIGNER_KEY_ID", "TLSN_PRODUCTION_RESULT_SIGNING_KEY_REGISTRY", "TLSN_PRODUCTION_SESSION_AUTHORITY_PUBLIC_KEY_SPKI", "TLSN_PRODUCTION_SESSION_AUTHORITY_KEY_ID", "TLSN_PRODUCTION_SESSION_AUTHORITY_KEY_REGISTRY", "TLSN_PRODUCTION_BINDING_AUTHORITY_PUBLIC_KEY_SPKI", "TLSN_PRODUCTION_BINDING_AUTHORITY_KEY_ID", "TLSN_PRODUCTION_BINDING_AUTHORITY_KEY_REGISTRY", "TLSN_PRODUCTION_DEPLOYMENT_ID", "TLSN_PRODUCTION_WORKER_NAME"]
     : ["TLSN_CANARY_RESULT_SIGNING_PRIVATE_KEY_PKCS8", "TLSN_CANARY_SESSION_AUTHORITY_SIGNING_PRIVATE_KEY_PKCS8", "TLSN_CANARY_BINDING_AUTHORITY_SIGNING_PRIVATE_KEY_PKCS8", "TLSN_CANARY_TRUST_ROOT_CERTIFICATE_DER", "TLSN_CANARY_RESULT_PUBLIC_KEY_SPKI", "TLSN_CANARY_RESULT_SIGNER_KEY_ID", "TLSN_CANARY_RESULT_SIGNING_KEY_REGISTRY", "TLSN_CANARY_SESSION_AUTHORITY_PUBLIC_KEY_SPKI", "TLSN_CANARY_SESSION_AUTHORITY_KEY_ID", "TLSN_CANARY_SESSION_AUTHORITY_KEY_REGISTRY", "TLSN_CANARY_BINDING_AUTHORITY_PUBLIC_KEY_SPKI", "TLSN_CANARY_BINDING_AUTHORITY_KEY_ID", "TLSN_CANARY_BINDING_AUTHORITY_KEY_REGISTRY", "TLSN_CANARY_DEPLOYMENT_ID", "TLSN_CANARY_WORKER_NAME", "TLSN_CANARY_BINDING_VALUE"];
-  for (const name of [...forbiddenRoleInputs, "TLSN_TEST_BINDING_VALUE", "TLSN_TEST_AUTH_USERS"]) {
+  for (const name of [...forbiddenRoleInputs, ...LEGACY_NOTARY_REGISTRY_INPUTS, "TLSN_TEST_BINDING_VALUE", "TLSN_TEST_AUTH_USERS"]) {
     if (process.env[name] !== undefined) addFailure(failures, name, "forbidden configuration is present for this deployment role");
   }
   for (const name of requiredInputs) {
@@ -224,10 +230,15 @@ async function main() {
   validatePublicKey(failures, sessionAuthorityKeyName);
   validatePublicKey(failures, bindingAuthorityKeyName);
   let registry;
-  const registryRaw = value("TLSN_CANDIDATE_NOTARY_REGISTRY");
-  try { registry = JSON.parse(registryRaw ?? ""); } catch { addFailure(failures, "TLSN_CANDIDATE_NOTARY_REGISTRY", "must be valid JSON"); }
-  if (!registry || typeof registry !== "object" || Array.isArray(registry)) addFailure(failures, "TLSN_CANDIDATE_NOTARY_REGISTRY", "must be a JSON object");
-  else if (!registry[value("TLSN_CANDIDATE_NOTARY_KEY_ID")]) addFailure(failures, "TLSN_CANDIDATE_NOTARY_REGISTRY", "must contain TLSN_CANDIDATE_NOTARY_KEY_ID");
+  const registryRaw = value("TLSN_PRODUCTION_NOTARY_REGISTRY");
+  try {
+    registry = parseNotaryRegistry(registryRaw, "TLSN_PRODUCTION_NOTARY_REGISTRY");
+    if (!registry[value("TLSN_CANDIDATE_NOTARY_KEY_ID")]) {
+      addFailure(failures, "TLSN_PRODUCTION_NOTARY_REGISTRY", "must contain TLSN_CANDIDATE_NOTARY_KEY_ID");
+    }
+  } catch (error) {
+    addFailure(failures, "TLSN_PRODUCTION_NOTARY_REGISTRY", error instanceof Error ? error.message : "Notary registry is invalid");
+  }
   const signingKeyRaw = value(secretInputs[0]);
   const trustRootHash = secretHash(value(secretInputs[3]));
   const signingKeyBytes = decodeBase64Url(signingKeyRaw);
@@ -315,6 +326,27 @@ async function main() {
     if (!Number.isSafeInteger(maxAge) || maxAge < 1 || maxAge > 86_400) addFailure(failures, "TLSN_MAX_ATTESTATION_AGE_SECONDS", "must be an integer from 1 through 86400");
   }
   const outboundUrlChecks = new Set(["TLSN_CANDIDATE_DEVICE_AUTH_URL", "TLSN_CANDIDATE_DEVICE_POSSESSION_AUTH_URL", "TLSN_CANDIDATE_SUPABASE_URL", "TLSN_CANDIDATE_DEVICE_AUTH_ALLOWED_HOSTS", "TLSN_CANDIDATE_SUPABASE_ALLOWED_HOSTS"]);
+  let publicManifest;
+  const publicManifestPath = value("TLSN_PUBLIC_MANIFEST_PATH") ?? DEFAULT_PUBLIC_MANIFEST_PATH;
+  if (role === "production" && failures.length === 0) {
+    try {
+      publicManifest = buildProductionPublicManifest({
+        notaryEndpoint: value("TLSN_PRODUCTION_NOTARY_ENDPOINT"),
+        notaryKeyId: value("TLSN_CANDIDATE_NOTARY_KEY_ID"),
+        notaryRegistryRaw: registryRaw,
+        sessionAuthorityEndpoint: value("TLSN_PRODUCTION_SESSION_AUTHORITY_ENDPOINT"),
+        sessionAuthorityKeyId: value("TLSN_PRODUCTION_SESSION_AUTHORITY_KEY_ID"),
+        sessionAuthorityPublicKeySpki: value("TLSN_PRODUCTION_SESSION_AUTHORITY_PUBLIC_KEY_SPKI"),
+        sessionAuthorityKeyRegistryRaw: value("TLSN_PRODUCTION_SESSION_AUTHORITY_KEY_REGISTRY"),
+        verificationEndpoint: value("TLSN_PRODUCTION_VERIFICATION_ENDPOINT"),
+        serverIdentity: value("TLSN_CANDIDATE_SERVER_IDENTITY"),
+        trustRootCertificateDer: value("TLSN_PRODUCTION_TRUST_ROOT_CERTIFICATE_DER"),
+        originPort: Number(value("TLSN_PRODUCTION_ORIGIN_PORT")),
+      });
+    } catch (error) {
+      addFailure(failures, "production_public_manifest", error instanceof Error ? error.message : "public manifest is invalid");
+    }
+  }
   const report = {
     schema_version: 2,
     generated_at: new Date().toISOString(),
@@ -387,6 +419,11 @@ async function main() {
   };
   await mkdir(dirname(reportPath), { recursive: true });
   await mkdir(dirname(provenancePath), { recursive: true });
+  if (publicManifest && failures.length === 0) {
+    await mkdir(dirname(publicManifestPath), { recursive: true });
+    await writeFile(publicManifestPath, `${JSON.stringify(publicManifest, null, 2)}\n`, "utf8");
+    report.public_manifest_path = publicManifestPath;
+  }
   await writeFile(provenancePath, `${JSON.stringify(provenance, null, 2)}\n`, "utf8");
   report.provenance_path = provenancePath;
   await writeFile(reportPath, `${JSON.stringify(report, null, 2)}\n`, "utf8");

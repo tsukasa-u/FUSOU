@@ -45,9 +45,21 @@ The Worker does not establish device authority itself. FUSOU-WEB remains the exi
 
 A valid alpha.15 proof authenticates the TLS connection, the disclosed server identity, and the disclosed transcript bytes. It does not by itself prove that a binding was issued for a FUSOU Session, that a proof is being used for the first time, or that the Notary is an approved FUSOU Notary.
 
-The Worker now enforces the Notary part with an explicit registry. `TLSN_NOTARY_KEY_ID` selects an entry in `TLSN_NOTARY_REGISTRY`. Each entry is URL-safe base64 of the exact bincode serialization of the pinned alpha.15 `tlsn_attestation::signing::VerifyingKey`. The WASM verifier compares that registry value with `Presentation::verifying_key()` before accepting the Presentation.
+The Worker now enforces the Notary part with an explicit registry. Test/non-production uses `TLSN_NOTARY_KEY_ID` and `TLSN_NOTARY_REGISTRY`; Production uses the canonical `TLSN_CANDIDATE_NOTARY_KEY_ID` selection from `TLSN_PRODUCTION_NOTARY_REGISTRY`. The same Production registry bytes are supplied to the offline evidence verifier, while the public manifest carries its selected entry and registry hash for APP configuration. Each entry is URL-safe base64 of the exact bincode serialization of the pinned alpha.15 `tlsn_attestation::signing::VerifyingKey`. The WASM verifier compares that registry value with `Presentation::verifying_key()` before accepting the Presentation.
 
 The result field `notary_key_id` is therefore meaningful only when the registry lookup succeeds. It is not, by itself, a trust anchor. The result also contains `canonical_user_id`, `device_id`, and the 32-byte `device_challenge`, which are generated or checked from the authenticated Supabase user, FUSOU-WEB device proof, and Session authority respectively and included in the canonical JSON and Ed25519 signing bytes.
+
+### Production authority contract
+
+Production has three separate signing authorities:
+
+- Session Authority: `TLSN_PRODUCTION_SESSION_AUTHORITY_KEY_ID`, public SPKI, and key registry are the public source of truth; `TLSN_PRODUCTION_SESSION_AUTHORITY_SIGNING_PRIVATE_KEY_PKCS8` is the Worker-only signing secret. The Worker issues Session receipts and the offline evidence verifier checks them against the same registry.
+- Binding Authority: `TLSN_PRODUCTION_BINDING_AUTHORITY_KEY_ID`, public SPKI, and key registry are the public source of truth; `TLSN_PRODUCTION_BINDING_AUTHORITY_SIGNING_PRIVATE_KEY_PKCS8` is the Worker-only signing secret. The Worker signs consume receipts and the offline evidence verifier checks them. APP receives none of this material.
+- Result signer: the role-specific Production Result public key, registry, and private key remain separate from both authority registries.
+
+The Production workflow supplies the public values as Worker configuration and the private values as secrets. A successful offline preflight emits `tlsn-production-public-manifest.json`, whose schema contains only the Notary endpoint/selected key/registry hash, Session endpoint/key/hash, Verification endpoint, server identity, trust-root DER bytes, and origin port. The APP renderer consumes that manifest and receives its artifact directory separately.
+
+Rotation is atomic at the configuration-contract level: publish the new registry and selected key, matching public SPKI/key ID and private secret, regenerate the manifest and APP config, then validate the new identities offline. The new authority key must be `ACTIVE`; the prior key may remain `VERIFY_ONLY` for historical receipt verification and must not issue new receipts. Keep the previous complete registry/configuration for rollback.
 
 ## Disclosure profile
 

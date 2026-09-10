@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 
+import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
+import { assertPublicManifest } from "./production-trust-contract.mjs";
 
 const securityIdentityFields = [
   "git_commit_sha",
@@ -28,6 +30,8 @@ function required(name) {
 
 async function main() {
   const manifest = JSON.parse(await readFile(required("TLSN_PROVENANCE_REPORT_PATH"), "utf8"));
+  const publicManifest = JSON.parse(await readFile(required("TLSN_PUBLIC_MANIFEST_PATH"), "utf8"));
+  assertPublicManifest(publicManifest);
   if (
     manifest?.schema_version !== 2 ||
     manifest?.scope !== "tlsn-deployment-provenance" ||
@@ -58,6 +62,20 @@ async function main() {
         throw new Error(`post-deploy identity mismatch: ${name}.${field}`);
       }
     }
+  }
+  const trustRootHash = createHash("sha256")
+    .update(Buffer.from(publicManifest.origin.trust_roots[0], "base64url"))
+    .digest("base64url");
+  if (
+    health.security_identity?.notary_key_id !== publicManifest.notary.key_id ||
+    health.security_identity?.notary_registry_sha256 !== publicManifest.notary.registry_sha256 ||
+    health.security_identity?.server_identity !== publicManifest.origin.server_identity ||
+    health.authority_identity?.session_authority?.key_id !== publicManifest.session_authority.key_id ||
+    health.authority_identity?.session_authority?.public_key_spki !== publicManifest.session_authority.public_key_spki ||
+    health.authority_identity?.session_authority?.key_registry_sha256 !== publicManifest.session_authority.key_registry_sha256 ||
+    health.deployment_identity?.trust_root_certificate_sha256 !== trustRootHash
+  ) {
+    throw new Error("deployed Worker trust identity does not match the public Production manifest");
   }
   const smokeResponse = await fetch(`${origin}/attestation/session`, {
     method: "POST",

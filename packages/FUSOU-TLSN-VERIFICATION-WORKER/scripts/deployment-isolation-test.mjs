@@ -94,7 +94,7 @@ assert.doesNotMatch(workflow, /environment: production/);
 const canaryJob = workflow.slice(workflow.indexOf("\n  canary:"), workflow.indexOf("\n  remote-validation:"));
 const remoteJob = workflow.slice(workflow.indexOf("\n  remote-validation:"), workflow.indexOf("\n  production:"));
 const productionJob = workflow.slice(workflow.indexOf("\n  production:"));
-assert.doesNotMatch(canaryJob, /TLSN_PRODUCTION_|PRODUCTION_SIGNING|PRODUCTION_TRUST/);
+assert.doesNotMatch(canaryJob, /TLSN_PRODUCTION_(?:RESULT|SESSION|BINDING|DEPLOYMENT|WORKER|TRUST)|PRODUCTION_SIGNING|PRODUCTION_TRUST/);
 assert.doesNotMatch(remoteJob, /TLSN_PRODUCTION_|PRODUCTION_SIGNING|PRODUCTION_TRUST/);
 assert.doesNotMatch(remoteJob, /TLSN_CANARY_RESULT_SIGNING_PRIVATE_KEY_PKCS8|TLSN_CANARY_TRUST_ROOT_CERTIFICATE_DER/);
 assert.doesNotMatch(productionJob, /TLSN_CANARY_|CANARY_SIGNING|CANARY_TRUST/);
