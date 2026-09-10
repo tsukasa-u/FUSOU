@@ -30,10 +30,10 @@ pub struct Req {
     pub api_btime: i64,
     /// Values: 0-5
     #[qs(rename = "api_l_value")]
-    pub api_l_value: Option<Vec<i64>>,
+    pub api_l_value: Option<Vec<DuoType<i64, String>>>,
     /// Values: 0-5
     #[qs(rename = "api_l_value3")]
-    pub api_l_value3: Option<Vec<i64>>,
+    pub api_l_value3: Option<Vec<DuoType<i64, String>>>,
 }
 
 #[derive(FieldSizeChecker, TraitForTest, TraitForRoot)]

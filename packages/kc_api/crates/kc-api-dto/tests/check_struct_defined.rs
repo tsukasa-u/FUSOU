@@ -10,14 +10,16 @@ use register_trait::REGISTER_STRUCT;
 struct TestConfig {}
 
 pub fn check_struct_defined(target_path: String) {
-    let target = path::PathBuf::from(target_path);
-    let files = target.read_dir().expect("read_dir call failed");
+    let files = register_trait::test::get_cached_test_data_files(&target_path);
     let mut books = HashSet::<String>::new();
-    for dir_entry in files {
-        let file_path = dir_entry.unwrap().path();
-        let file_path_splited: Vec<&str> = file_path.to_str().unwrap().split("@").collect();
+    for file_path in files {
+        let file_name = match file_path.file_name().and_then(|n| n.to_str()) {
+            Some(n) => n,
+            None => continue,
+        };
+        let file_path_splited: Vec<&str> = file_name.split("@").collect();
         let mut iter = file_path_splited.iter();
-        if iter.next().unwrap().ends_with("S") {
+        if iter.next().map(|s| s.ends_with("S")).unwrap_or(false) {
             let mut book = Vec::<String>::new();
             loop {
                 let element = iter.next();
@@ -33,13 +35,11 @@ pub fn check_struct_defined(target_path: String) {
                     }
                 }
             }
-
             let s: String = book.join("/");
             books.insert(s);
         }
     }
 
-    // let cfg: TestConfig = confy::load_path(path::PathBuf::from("./tests/struct_names")).unwrap();
     let cfg: TestConfig = confy::load(REGISTER_STRUCT, None).unwrap();
 
     let cfg_hash_set: HashSet<String, RandomState> = cfg.struct_name;

@@ -1,3 +1,4 @@
+pub mod change_name;
 pub mod cond_recovery;
 pub mod expand_base;
 pub mod set_action;

@@ -5,6 +5,7 @@
 #![doc = include_str!("../../../../../js/svg_pan_zoom.html")]
 
 use serde::{Deserialize, Serialize};
+use crate::common::custom_type::DuoType;
 use std::collections::HashMap;
 
 use register_trait::{add_field, register_struct};
@@ -96,7 +97,7 @@ pub struct ApiData {
     #[serde(rename = "api_cell_flavor")]
     pub api_cell_flavor: Option<ApiCellFlavor>,
     #[serde(rename = "api_itemget")]
-    pub api_itemget: Option<Vec<ApiItemget>>,
+    pub api_itemget: Option<DuoType<Vec<ApiItemget>, ApiItemget>>,
     #[serde(rename = "api_eventmap")]
     pub api_eventmap: Option<ApiEventmap>,
     #[serde(rename = "api_m1")]

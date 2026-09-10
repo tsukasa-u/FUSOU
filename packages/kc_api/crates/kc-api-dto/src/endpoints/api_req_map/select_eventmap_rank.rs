@@ -18,6 +18,12 @@ pub struct Req {
     pub api_token: String,
     #[qs(rename = "api_verno")]
     pub api_verno: i64,
+    #[qs(rename = "api_maparea_id")]
+    pub api_maparea_id: Option<i64>,
+    #[qs(rename = "api_map_no")]
+    pub api_map_no: Option<i64>,
+    #[qs(rename = "api_rank")]
+    pub api_rank: Option<i64>,
 }
 
 #[derive(FieldSizeChecker, TraitForTest, TraitForRoot)]

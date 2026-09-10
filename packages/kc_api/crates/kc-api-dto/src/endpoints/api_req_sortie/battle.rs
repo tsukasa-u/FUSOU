@@ -5,6 +5,7 @@
 #![doc = include_str!("../../../../../js/svg_pan_zoom.html")]
 
 use serde::{Deserialize, Serialize};
+use crate::common::custom_type::DuoType;
 
 use register_trait::{add_field, register_struct};
 use register_trait::{FieldSizeChecker, QueryWithExtra, TraitForRoot, TraitForTest};
@@ -66,9 +67,9 @@ pub struct ApiData {
     #[serde(rename = "api_formation")]
     pub api_formation: Vec<i64>,
     #[serde(rename = "api_f_nowhps")]
-    pub api_f_nowhps: Vec<i64>,
+    pub api_f_nowhps: Vec<DuoType<i64, String>>,
     #[serde(rename = "api_f_maxhps")]
-    pub api_f_maxhps: Vec<i64>,
+    pub api_f_maxhps: Vec<DuoType<i64, String>>,
     #[serde(rename = "api_fParam")]
     pub api_f_param: Vec<Vec<i64>>,
     #[serde(rename = "api_ship_ke")]
@@ -76,9 +77,9 @@ pub struct ApiData {
     #[serde(rename = "api_ship_lv")]
     pub api_ship_lv: Vec<i64>,
     #[serde(rename = "api_e_nowhps")]
-    pub api_e_nowhps: Vec<i64>,
+    pub api_e_nowhps: Vec<DuoType<i64, String>>,
     #[serde(rename = "api_e_maxhps")]
-    pub api_e_maxhps: Vec<i64>,
+    pub api_e_maxhps: Vec<DuoType<i64, String>>,
     #[serde(rename = "api_eSlot")]
     pub api_e_slot: Vec<Vec<i64>>,
     #[serde(rename = "api_eParam")]

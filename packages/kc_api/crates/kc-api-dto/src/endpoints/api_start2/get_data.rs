@@ -33,7 +33,7 @@ pub struct Res {
     #[serde(rename = "api_result_msg")]
     pub api_result_msg: String,
     #[serde(rename = "api_data")]
-    pub api_data: ApiData,
+    pub api_data: Option<ApiData>,
 }
 
 #[derive(FieldSizeChecker, TraitForTest)]
@@ -113,6 +113,8 @@ pub struct ApiMstStype {
     pub api_kcnt: i64,
     #[serde(rename = "api_equip_type")]
     pub api_equip_type: HashMap<String, i64>,
+    #[serde(rename = "api_max_slotplus")]
+    pub api_max_slotplus: Option<i64>,
 }
 
 #[derive(FieldSizeChecker, TraitForTest)]
