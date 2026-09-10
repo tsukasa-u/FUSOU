@@ -443,16 +443,22 @@ impl MidnightHougekiList {
         let new_data = MidnightHougekiList {
             env_uuid,
             uuid,
-            f_flare_pos: data.midnight_flare_pos.clone().map(|pos| pos[0] as i32),
+            f_flare_pos: data
+                .midnight_flare_pos
+                .as_ref()
+                .and_then(|pos| if pos[0] == -1 { None } else { Some(pos[0] as i32) }),
             f_touch_plane: data
                 .midnight_touchplane
-                .clone()
-                .map(|plane| plane[0] as i32),
-            e_flare_pos: data.midnight_flare_pos.clone().map(|pos| pos[1] as i32),
+                .as_ref()
+                .and_then(|plane| if plane[0] == -1 { None } else { Some(plane[0] as i32) }),
+            e_flare_pos: data
+                .midnight_flare_pos
+                .as_ref()
+                .and_then(|pos| if pos[1] == -1 { None } else { Some(pos[1] as i32) }),
             e_touch_plane: data
                 .midnight_touchplane
-                .clone()
-                .map(|plane| plane[1] as i32),
+                .as_ref()
+                .and_then(|plane| if plane[1] == -1 { None } else { Some(plane[1] as i32) }),
             midnight_hougeki: new_midnight_hougeki_wrap,
         };
 
@@ -2110,9 +2116,24 @@ pub struct Battle {
     pub closing_raigeki: Option<ClosingRaigekiId>,
     pub friendly_force_attack: Option<FriendlySupportHouraiListId>,
     pub midnight_hougeki: Option<MidnightHougekiListId>,
+    #[cfg(schema_since = "0.6.0")]
+    pub f_nowhps: Option<Vec<Option<i32>>>,
+    #[cfg(schema_until = "0.6.0")]
     pub f_nowhps: Option<Vec<i32>>,
+
+    #[cfg(schema_since = "0.6.0")]
+    pub e_nowhps: Option<Vec<Option<i32>>>,
+    #[cfg(schema_until = "0.6.0")]
     pub e_nowhps: Option<Vec<i32>>,
+
+    #[cfg(schema_since = "0.6.0")]
+    pub midnight_f_nowhps: Option<Vec<Option<i32>>>,
+    #[cfg(schema_until = "0.6.0")]
     pub midnight_f_nowhps: Option<Vec<i32>>,
+
+    #[cfg(schema_since = "0.6.0")]
+    pub midnight_e_nowhps: Option<Vec<Option<i32>>>,
+    #[cfg(schema_until = "0.6.0")]
     pub midnight_e_nowhps: Option<Vec<i32>>,
     #[cfg(schema_since = "0.5.0")]
     pub battle_result: Option<BattleResultId>,
@@ -2314,10 +2335,25 @@ impl Battle {
             MidnightHougekiList::new_ret_option(ts, uuid, data.clone(), table, env_uuid)
                 .map(|_| uuid)
         };
+        #[cfg(schema_since = "0.6.0")]
         let new_f_nowhps = data.clone().f_nowhps;
+        #[cfg(schema_until = "0.6.0")]
+        let new_f_nowhps = data.clone().f_nowhps.map(|v| v.into_iter().map(|x| x.unwrap_or(-1)).collect::<Vec<i64>>());
+
+        #[cfg(schema_since = "0.6.0")]
         let new_e_nowhps = data.clone().e_nowhps;
+        #[cfg(schema_until = "0.6.0")]
+        let new_e_nowhps = data.clone().e_nowhps.map(|v| v.into_iter().map(|x| x.unwrap_or(-1)).collect::<Vec<i64>>());
+
+        #[cfg(schema_since = "0.6.0")]
         let new_midnight_f_nowhps = data.clone().midnight_f_nowhps;
+        #[cfg(schema_until = "0.6.0")]
+        let new_midnight_f_nowhps = data.clone().midnight_f_nowhps.map(|v| v.into_iter().map(|x| x.unwrap_or(-1)).collect::<Vec<i64>>());
+
+        #[cfg(schema_since = "0.6.0")]
         let new_midnight_e_nowhps = data.clone().midnight_e_nowhps;
+        #[cfg(schema_until = "0.6.0")]
+        let new_midnight_e_nowhps = data.clone().midnight_e_nowhps.map(|v| v.into_iter().map(|x| x.unwrap_or(-1)).collect::<Vec<i64>>());
         #[cfg(schema_since = "0.5.0")]
         let new_battle_result = {
             let uuid = Uuid::new_v7(ts);
