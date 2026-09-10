@@ -204,6 +204,17 @@
         "removedFields": [],
         "status": "changed"
       },
+      "battle": {
+        "addedFields": [],
+        "changedFields": [
+          "e_nowhps",
+          "f_nowhps",
+          "midnight_e_nowhps",
+          "midnight_f_nowhps"
+        ],
+        "removedFields": [],
+        "status": "changed"
+      },
       "battle_result": {
         "addedFields": [
           "mvp_ship_indexes"

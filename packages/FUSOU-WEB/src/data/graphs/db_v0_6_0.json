@@ -1252,7 +1252,7 @@
             "isKey": false,
             "isUuid": false,
             "name": "e_nowhps",
-            "type": "int[]?"
+            "type": "int?[]?"
           },
           {
             "isEnvRef": false,
@@ -1308,7 +1308,7 @@
             "isKey": false,
             "isUuid": false,
             "name": "f_nowhps",
-            "type": "int[]?"
+            "type": "int?[]?"
           },
           {
             "isEnvRef": false,
@@ -1372,7 +1372,7 @@
             "isKey": false,
             "isUuid": false,
             "name": "midnight_e_nowhps",
-            "type": "int[]?"
+            "type": "int?[]?"
           },
           {
             "isEnvRef": false,
@@ -1388,7 +1388,7 @@
             "isKey": false,
             "isUuid": false,
             "name": "midnight_f_nowhps",
-            "type": "int[]?"
+            "type": "int?[]?"
           },
           {
             "isEnvRef": false,

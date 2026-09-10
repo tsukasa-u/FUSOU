@@ -2061,6 +2061,86 @@
         {
           "edges": [
             {
+              "id": "e-api_get_member__preset_dev_items__Res-api_data-api_get_member__preset_dev_items__ApiData-ApiData",
+              "label": "api_data",
+              "source": "api_get_member__preset_dev_items__Res",
+              "sourceHandle": "api_get_member__preset_dev_items__Res-api_data",
+              "target": "api_get_member__preset_dev_items__ApiData",
+              "targetHandle": "api_get_member__preset_dev_items__ApiData-ApiData"
+            }
+          ],
+          "label": "api_get_member / preset_dev_items",
+          "name": "preset_dev_items",
+          "nodes": [
+            {
+              "data": {
+                "fields": [
+                  {
+                    "name": "api_max_num",
+                    "type": "i64"
+                  }
+                ],
+                "isDataType": true,
+                "isReq": false,
+                "isRes": false,
+                "structName": "ApiData"
+              },
+              "id": "api_get_member__preset_dev_items__ApiData",
+              "position": {
+                "x": 0,
+                "y": 0
+              },
+              "type": "endpointNode"
+            },
+            {
+              "data": {
+                "fields": [],
+                "isDataType": false,
+                "isReq": true,
+                "isRes": false,
+                "structName": "Req"
+              },
+              "id": "api_get_member__preset_dev_items__Req",
+              "position": {
+                "x": 0,
+                "y": 0
+              },
+              "type": "endpointNode"
+            },
+            {
+              "data": {
+                "fields": [
+                  {
+                    "name": "api_data",
+                    "type": "Option<ApiData>"
+                  },
+                  {
+                    "name": "api_result",
+                    "type": "i64"
+                  },
+                  {
+                    "name": "api_result_msg",
+                    "type": "String"
+                  }
+                ],
+                "isDataType": false,
+                "isReq": false,
+                "isRes": true,
+                "structName": "Res"
+              },
+              "id": "api_get_member__preset_dev_items__Res",
+              "position": {
+                "x": 0,
+                "y": 0
+              },
+              "type": "endpointNode"
+            }
+          ],
+          "path": "api_get_member/preset_dev_items"
+        },
+        {
+          "edges": [
+            {
               "id": "e-api_get_member__preset_slot__ApiData-api_preset_items-api_get_member__preset_slot__ApiPresetItem-ApiPresetItem",
               "label": "api_preset_items",
               "source": "api_get_member__preset_slot__ApiData",
@@ -3677,7 +3757,7 @@
                   },
                   {
                     "name": "api_sp_effect_items",
-                    "type": "Vec<ApiSpEffectItem>"
+                    "type": "Option<Vec<ApiSpEffectItem>>"
                   },
                   {
                     "name": "api_srate",
@@ -4665,7 +4745,7 @@
                 "fields": [
                   {
                     "name": "api_data",
-                    "type": "ApiData"
+                    "type": "Option<ApiData>"
                   },
                   {
                     "name": "api_result",
@@ -5545,6 +5625,53 @@
     "api_req_air_corps": {
       "displayName": "api req air corps",
       "endpoints": [
+        {
+          "edges": [],
+          "label": "api_req_air_corps / change_name",
+          "name": "change_name",
+          "nodes": [
+            {
+              "data": {
+                "fields": [],
+                "isDataType": false,
+                "isReq": true,
+                "isRes": false,
+                "structName": "Req"
+              },
+              "id": "api_req_air_corps__change_name__Req",
+              "position": {
+                "x": 0,
+                "y": 0
+              },
+              "type": "endpointNode"
+            },
+            {
+              "data": {
+                "fields": [
+                  {
+                    "name": "api_result",
+                    "type": "i64"
+                  },
+                  {
+                    "name": "api_result_msg",
+                    "type": "String"
+                  }
+                ],
+                "isDataType": false,
+                "isReq": false,
+                "isRes": true,
+                "structName": "Res"
+              },
+              "id": "api_req_air_corps__change_name__Res",
+              "position": {
+                "x": 0,
+                "y": 0
+              },
+              "type": "endpointNode"
+            }
+          ],
+          "path": "api_req_air_corps/change_name"
+        },
         {
           "edges": [
             {
@@ -9870,11 +9997,11 @@
                 "fields": [
                   {
                     "name": "api_max_hp",
-                    "type": "String"
+                    "type": "DuoType<i64, String>"
                   },
                   {
                     "name": "api_now_hp",
-                    "type": "String"
+                    "type": "DuoType<i64, String>"
                   },
                   {
                     "name": "api_sub_value",
@@ -16106,7 +16233,7 @@
                 "fields": [
                   {
                     "name": "api_data",
-                    "type": "ApiData"
+                    "type": "Option<ApiData>"
                   },
                   {
                     "name": "api_result",
@@ -19730,7 +19857,7 @@
                   },
                   {
                     "name": "api_itemget",
-                    "type": "Option<Vec<ApiItemget>>"
+                    "type": "Option<DuoType<Vec<ApiItemget>, ApiItemget>>"
                   },
                   {
                     "name": "api_itemget_eo_comment",
@@ -20658,7 +20785,7 @@
                   },
                   {
                     "name": "api_itemget",
-                    "type": "Option<Vec<ApiItemget>>"
+                    "type": "Option<DuoType<Vec<ApiItemget>, ApiItemget>>"
                   },
                   {
                     "name": "api_limit_state",
@@ -23408,6 +23535,86 @@
         {
           "edges": [
             {
+              "id": "e-api_req_practice__change_matching_kind__Res-api_data-api_req_practice__change_matching_kind__ApiData-ApiData",
+              "label": "api_data",
+              "source": "api_req_practice__change_matching_kind__Res",
+              "sourceHandle": "api_req_practice__change_matching_kind__Res-api_data",
+              "target": "api_req_practice__change_matching_kind__ApiData",
+              "targetHandle": "api_req_practice__change_matching_kind__ApiData-ApiData"
+            }
+          ],
+          "label": "api_req_practice / change_matching_kind",
+          "name": "change_matching_kind",
+          "nodes": [
+            {
+              "data": {
+                "fields": [
+                  {
+                    "name": "api_update_flag",
+                    "type": "i64"
+                  }
+                ],
+                "isDataType": true,
+                "isReq": false,
+                "isRes": false,
+                "structName": "ApiData"
+              },
+              "id": "api_req_practice__change_matching_kind__ApiData",
+              "position": {
+                "x": 0,
+                "y": 0
+              },
+              "type": "endpointNode"
+            },
+            {
+              "data": {
+                "fields": [],
+                "isDataType": false,
+                "isReq": true,
+                "isRes": false,
+                "structName": "Req"
+              },
+              "id": "api_req_practice__change_matching_kind__Req",
+              "position": {
+                "x": 0,
+                "y": 0
+              },
+              "type": "endpointNode"
+            },
+            {
+              "data": {
+                "fields": [
+                  {
+                    "name": "api_data",
+                    "type": "Option<ApiData>"
+                  },
+                  {
+                    "name": "api_result",
+                    "type": "i64"
+                  },
+                  {
+                    "name": "api_result_msg",
+                    "type": "String"
+                  }
+                ],
+                "isDataType": false,
+                "isReq": false,
+                "isRes": true,
+                "structName": "Res"
+              },
+              "id": "api_req_practice__change_matching_kind__Res",
+              "position": {
+                "x": 0,
+                "y": 0
+              },
+              "type": "endpointNode"
+            }
+          ],
+          "path": "api_req_practice/change_matching_kind"
+        },
+        {
+          "edges": [
+            {
               "id": "e-api_req_practice__midnight_battle__ApiData-api_hougeki-common__common_midnight__ApiHougeki-ApiHougeki",
               "label": "api_hougeki",
               "source": "api_req_practice__midnight_battle__ApiData",
@@ -24776,11 +24983,11 @@
                   },
                   {
                     "name": "api_e_maxhps",
-                    "type": "Vec<i64>"
+                    "type": "Vec<DuoType<i64, String>>"
                   },
                   {
                     "name": "api_e_nowhps",
-                    "type": "Vec<i64>"
+                    "type": "Vec<DuoType<i64, String>>"
                   },
                   {
                     "name": "api_eParam",
@@ -24796,11 +25003,11 @@
                   },
                   {
                     "name": "api_f_maxhps",
-                    "type": "Vec<i64>"
+                    "type": "Vec<DuoType<i64, String>>"
                   },
                   {
                     "name": "api_f_nowhps",
-                    "type": "Vec<i64>"
+                    "type": "Vec<DuoType<i64, String>>"
                   },
                   {
                     "name": "api_flavor_info",
@@ -26055,11 +26262,11 @@
                 "fields": [
                   {
                     "name": "api_max_hp",
-                    "type": "String"
+                    "type": "DuoType<i64, String>"
                   },
                   {
                     "name": "api_now_hp",
-                    "type": "String"
+                    "type": "DuoType<i64, String>"
                   },
                   {
                     "name": "api_sub_value",
@@ -28303,6 +28510,10 @@
                     "type": "i64"
                   },
                   {
+                    "name": "api_max_slotplus",
+                    "type": "Option<i64>"
+                  },
+                  {
                     "name": "api_name",
                     "type": "String"
                   },
@@ -28411,7 +28622,7 @@
                 "fields": [
                   {
                     "name": "api_data",
-                    "type": "ApiData"
+                    "type": "Option<ApiData>"
                   },
                   {
                     "name": "api_result",
@@ -30172,11 +30383,11 @@
                 "fields": [
                   {
                     "name": "api_max_hp",
-                    "type": "String"
+                    "type": "DuoType<i64, String>"
                   },
                   {
                     "name": "api_now_hp",
-                    "type": "String"
+                    "type": "DuoType<i64, String>"
                   },
                   {
                     "name": "api_sub_value",
@@ -30209,6 +30420,6 @@
       "groupName": "common"
     }
   },
-  "totalEndpoints": 120,
+  "totalEndpoints": 123,
   "totalGroups": 21
 }
