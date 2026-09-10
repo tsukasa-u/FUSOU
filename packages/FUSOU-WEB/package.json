@@ -119,7 +119,7 @@
     "@types/d3-hierarchy": "^3.1.7",
     "@types/react": "^19.2.7",
     "@types/react-dom": "^19.2.3",
-    "astro": "^7.1.3",
+    "astro": "^7.2.8",
     "avsc": "^5.7.9",
     "baseline-browser-mapping": "^2.11.1",
     "msgpackr": "^1.11.8",
