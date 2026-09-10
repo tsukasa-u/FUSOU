@@ -12,10 +12,9 @@ import {
   assertSessionAuthorityIdentity,
   buildProductionPublicManifest,
 } from "./production-trust-contract.mjs";
+import { PRODUCTION_INPUTS, PRODUCTION_SECRET_INPUTS } from "./deployment-contract.mjs";
 
 const packageDirectory = resolve(new URL("..", import.meta.url).pathname);
-const workflowPath = resolve(packageDirectory, "../../.github/workflows/tlsn-production-deploy.yml");
-const workflow = await readFile(workflowPath, "utf8");
 
 const notaryKeyId = "notary-production-2026";
 const notaryVerifyingKey = "ASEAAAAAAAAAAxuExVZ7EmRAmV0-1aq6BWXXHhg0YEgZ_5wX9enV3QeP";
@@ -165,7 +164,6 @@ assert.doesNotMatch(
   /private|secret|token|bearer|supabase|device|cloudflare|binding/i,
 );
 
-const productionJob = workflow.slice(workflow.indexOf("\n  production:"));
 for (const name of [
   "TLSN_PRODUCTION_SESSION_AUTHORITY_SIGNING_PRIVATE_KEY_PKCS8",
   "TLSN_PRODUCTION_BINDING_AUTHORITY_SIGNING_PRIVATE_KEY_PKCS8",
@@ -176,7 +174,7 @@ for (const name of [
   "TLSN_PRODUCTION_BINDING_AUTHORITY_KEY_ID",
   "TLSN_PRODUCTION_BINDING_AUTHORITY_KEY_REGISTRY",
 ]) {
-  assert.match(productionJob, new RegExp(name));
+  assert.ok([...PRODUCTION_INPUTS, ...PRODUCTION_SECRET_INPUTS].includes(name), `${name} must be in the dotenvx deployment contract`);
 }
 
-console.log("[tlsn-production-trust-contract] registry, authority, workflow-secret, and public-manifest cases PASS");
+console.log("[tlsn-production-trust-contract] registry, authority, dotenvx-secret, and public-manifest cases PASS");

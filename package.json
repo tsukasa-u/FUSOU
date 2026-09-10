@@ -14,7 +14,12 @@
   "scripts": {
     "env.encrypt": "dotenvx encrypt -fk ./packages/.env.keys -f ./packages/FUSOU-WEB/.env -f ./packages/FUSOU-APP/src-tauri/.env -f ./packages/FUSOU-APP/.env -f ./packages/fusou-auth/.env -f ./packages/FUSOU-WORKFLOW/.env -f ./packages/fusou-compaction-trigger/.env",
     "env.decrypt": "dotenvx decrypt -fk ./packages/.env.keys -f ./packages/FUSOU-WEB/.env -f ./packages/FUSOU-APP/src-tauri/.env -f ./packages/FUSOU-APP/.env -f ./packages/fusou-auth/.env -f ./packages/FUSOU-WORKFLOW/.env -f ./packages/fusou-compaction-trigger/.env",
-    "env.ls": "dotenvx ls"
+    "env.ls": "dotenvx ls",
+    "tlsn:env.encrypt": "dotenvx encrypt -fk ./packages/.env.keys -f ./packages/FUSOU-TLSN-VERIFICATION-WORKER/.env",
+    "tlsn:env.decrypt": "dotenvx decrypt -fk ./packages/.env.keys -f ./packages/FUSOU-TLSN-VERIFICATION-WORKER/.env",
+    "tlsn:deploy:test": "dotenvx run --strict --overload -f ./packages/FUSOU-TLSN-VERIFICATION-WORKER/.env -fk ./packages/.env.keys -- pnpm --dir ./packages/FUSOU-TLSN-VERIFICATION-WORKER run deploy:test",
+    "tlsn:deploy:canary": "dotenvx run --strict --overload -f ./packages/FUSOU-TLSN-VERIFICATION-WORKER/.env -fk ./packages/.env.keys -- pnpm --dir ./packages/FUSOU-TLSN-VERIFICATION-WORKER run deploy:canary",
+    "tlsn:deploy:production": "dotenvx run --strict --overload -f ./packages/FUSOU-TLSN-VERIFICATION-WORKER/.env -fk ./packages/.env.keys -- pnpm --dir ./packages/FUSOU-TLSN-VERIFICATION-WORKER run deploy:production"
   },
   "keywords": [],
   "author": "",

@@ -58,7 +58,7 @@ const workflowContext = {
   workflow_run_attempt: "2",
   git_commit_sha: "a".repeat(40),
   repository: "tsukasa-u/FUSOU",
-  workflow_file_identity: "tsukasa-u/FUSOU/.github/workflows/tlsn-production-deploy.yml@refs/heads/main",
+  workflow_file_identity: "dotenvx+pnpm+wrangler",
   deployment_role: "production",
 };
 const deploymentIdentity = {

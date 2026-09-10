@@ -5,7 +5,7 @@ const BINDING_NONCE_BYTES = 32;
 const TLSN_DEVICE_CHALLENGE_BYTES = 32;
 const UUID_BYTES = 16;
 
-export type BindingStatus = "active" | "expired" | "consumed";
+export type BindingStatus = "active" | "processing" | "expired" | "consumed";
 
 export type BindingRecord = {
   binding_id: string;
@@ -19,6 +19,10 @@ export type BindingRecord = {
   created_at: string;
   expires_at: string;
   status: BindingStatus;
+  verification_job_id?: string;
+  verification_input_key?: string;
+  verification_result_key?: string;
+  device_replay_digest_hex?: string;
   used_at?: string;
   presentation_id?: string;
 };
@@ -43,6 +47,30 @@ type ConsumeInput = {
   binding_value: string;
   nonce: string;
   presentation_id: string;
+  verification_job_id?: string;
+  used_at?: string;
+  now: number;
+};
+
+type ClaimInput = {
+  session_id: string;
+  canonical_user_id: string;
+  device_id: string;
+  binding_value: string;
+  nonce: string;
+  presentation_id: string;
+  verification_job_id: string;
+  verification_input_key: string;
+  verification_result_key: string;
+  device_replay_digest_hex: string;
+  now: number;
+};
+
+type JobLookupInput = {
+  session_id: string;
+  canonical_user_id: string;
+  device_id: string;
+  verification_job_id: string;
   now: number;
 };
 
@@ -134,7 +162,7 @@ export function parseBindingValue(bindingValue: string): { sessionId: string; no
   };
 }
 
-async function hashBindingId(bindingValue: string): Promise<string> {
+export async function hashBindingId(bindingValue: string): Promise<string> {
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(bindingValue));
   return encodeBase64Url(new Uint8Array(digest));
 }
@@ -205,6 +233,15 @@ export class DurableObjectBindingAuthority {
     return this.call(bindingId, "/consume", input);
   }
 
+  async claimBinding(bindingValue: string, input: ClaimInput): Promise<BindingRecord> {
+    const bindingId = await hashBindingId(bindingValue);
+    return this.call(bindingId, "/claim", input);
+  }
+
+  async lookupVerificationJob(bindingId: string, input: JobLookupInput): Promise<BindingRecord> {
+    return this.call(bindingId, "/job", input);
+  }
+
   private async call<T extends object>(bindingId: string, path: string, body: T): Promise<BindingRecord> {
     let response: Response;
     try {
@@ -259,6 +296,10 @@ export class TlsnBindingAuthorityDurableObject extends DurableObject {
           return this.issue(body);
         case "/lookup":
           return this.lookup(body.session_id, body.canonical_user_id, body.device_id, body.now);
+        case "/claim":
+          return this.claim(body as unknown as ClaimInput);
+        case "/job":
+          return this.lookupJob(body as unknown as JobLookupInput);
         case "/consume":
           return this.consume(body as unknown as ConsumeInput);
         default:
@@ -272,7 +313,10 @@ export class TlsnBindingAuthorityDurableObject extends DurableObject {
   async alarm(): Promise<void> {
     await this.ctx.storage.transaction(async (transaction) => {
       const record = await transaction.get<BindingRecord>("binding");
-      if (record?.status === "active" && Date.parse(record.expires_at) <= Date.now()) {
+      if (
+        (record?.status === "active" || record?.status === "processing") &&
+        Date.parse(record.expires_at) <= Date.now()
+      ) {
         await transaction.put("binding", { ...record, status: "expired" });
       }
     });
@@ -318,7 +362,10 @@ export class TlsnBindingAuthorityDurableObject extends DurableObject {
         result = { ok: false, error: "device_mismatch" };
         return;
       }
-      if (record.status === "active" && Date.parse(record.expires_at) <= now) {
+      if (
+        (record.status === "active" || record.status === "processing") &&
+        Date.parse(record.expires_at) <= now
+      ) {
         const expired = { ...record, status: "expired" as const };
         await transaction.put("binding", expired);
         result = { ok: false, error: "binding_expired" };
@@ -364,7 +411,76 @@ export class TlsnBindingAuthorityDurableObject extends DurableObject {
         result = { ok: false, error: "nonce_mismatch" };
         return;
       }
-      if (record.status === "active" && Date.parse(record.expires_at) <= input.now) {
+      if (
+        (record.status === "active" || record.status === "processing") &&
+        Date.parse(record.expires_at) <= input.now
+      ) {
+        await transaction.put("binding", { ...record, status: "expired" });
+        result = { ok: false, error: "binding_expired" };
+        return;
+      }
+      if (record.status === "expired") {
+        result = { ok: false, error: "binding_expired" };
+        return;
+      }
+      if (record.status === "consumed") {
+        if (
+          input.verification_job_id !== undefined &&
+          record.verification_job_id === input.verification_job_id &&
+          record.presentation_id === input.presentation_id
+        ) {
+          result = { ok: true, record };
+          return;
+        }
+        result = { ok: false, error: "binding_consumed" };
+        return;
+      }
+      if (
+        (record.status === "processing" && record.verification_job_id !== input.verification_job_id) ||
+        (record.status !== "processing" && record.status !== "active")
+      ) {
+        result = { ok: false, error: "binding_conflict" };
+        return;
+      }
+      const consumed: BindingRecord = {
+        ...record,
+        status: "consumed",
+        used_at: input.used_at ?? new Date(input.now).toISOString(),
+        presentation_id: input.presentation_id,
+      };
+      await transaction.put("binding", consumed);
+      result = { ok: true, record: consumed };
+    });
+    return Response.json(result, { status: result.ok ? 200 : authorityStatus(result.error) });
+  }
+
+  private async claim(input: ClaimInput): Promise<Response> {
+    let result: AuthorityResponse = { ok: false, error: "binding_unknown" };
+    await this.ctx.storage.transaction(async (transaction) => {
+      const record = await transaction.get<BindingRecord>("binding");
+      if (!record) {
+        return;
+      }
+      if (record.session_id !== input.session_id) {
+        result = { ok: false, error: "session_mismatch" };
+        return;
+      }
+      if (record.canonical_user_id !== input.canonical_user_id) {
+        result = { ok: false, error: "user_mismatch" };
+        return;
+      }
+      if (record.device_id !== input.device_id) {
+        result = { ok: false, error: "device_mismatch" };
+        return;
+      }
+      if (record.binding_value !== input.binding_value || record.nonce !== input.nonce) {
+        result = { ok: false, error: "nonce_mismatch" };
+        return;
+      }
+      if (
+        (record.status === "active" || record.status === "processing") &&
+        Date.parse(record.expires_at) <= input.now
+      ) {
         await transaction.put("binding", { ...record, status: "expired" });
         result = { ok: false, error: "binding_expired" };
         return;
@@ -377,14 +493,64 @@ export class TlsnBindingAuthorityDurableObject extends DurableObject {
         result = { ok: false, error: "binding_consumed" };
         return;
       }
-      const consumed: BindingRecord = {
+      if (record.status === "processing") {
+        result = record.verification_job_id === input.verification_job_id
+          ? { ok: true, record }
+          : { ok: false, error: "binding_conflict" };
+        return;
+      }
+      const processing: BindingRecord = {
         ...record,
-        status: "consumed",
-        used_at: new Date(input.now).toISOString(),
+        status: "processing",
+        verification_job_id: input.verification_job_id,
+        verification_input_key: input.verification_input_key,
+        verification_result_key: input.verification_result_key,
+        device_replay_digest_hex: input.device_replay_digest_hex,
         presentation_id: input.presentation_id,
       };
-      await transaction.put("binding", consumed);
-      result = { ok: true, record: consumed };
+      await transaction.put("binding", processing);
+      result = { ok: true, record: processing };
+    });
+    return Response.json(result, { status: result.ok ? 200 : authorityStatus(result.error) });
+  }
+
+  private async lookupJob(input: JobLookupInput): Promise<Response> {
+    let result: AuthorityResponse = { ok: false, error: "binding_unknown" };
+    await this.ctx.storage.transaction(async (transaction) => {
+      const record = await transaction.get<BindingRecord>("binding");
+      if (!record) {
+        return;
+      }
+      if (record.session_id !== input.session_id) {
+        result = { ok: false, error: "session_mismatch" };
+        return;
+      }
+      if (record.canonical_user_id !== input.canonical_user_id) {
+        result = { ok: false, error: "user_mismatch" };
+        return;
+      }
+      if (record.device_id !== input.device_id) {
+        result = { ok: false, error: "device_mismatch" };
+        return;
+      }
+      if (record.verification_job_id !== input.verification_job_id) {
+        result = { ok: false, error: "binding_unknown" };
+        return;
+      }
+      if (
+        (record.status === "active" || record.status === "processing") &&
+        Date.parse(record.expires_at) <= input.now
+      ) {
+        const expired = { ...record, status: "expired" as const };
+        await transaction.put("binding", expired);
+        result = { ok: false, error: "binding_expired" };
+        return;
+      }
+      if (record.status === "expired") {
+        result = { ok: false, error: "binding_expired" };
+        return;
+      }
+      result = { ok: true, record };
     });
     return Response.json(result, { status: result.ok ? 200 : authorityStatus(result.error) });
   }

@@ -18,7 +18,7 @@ const context = {
   workflow_run_attempt: "2",
   git_commit_sha: "a".repeat(40),
   repository: "tsukasa-u/FUSOU",
-  workflow_file_identity: "tsukasa-u/FUSOU/.github/workflows/tlsn-production-deploy.yml@refs/heads/main",
+  workflow_file_identity: "dotenvx+pnpm+wrangler",
   deployment_role: "canary",
 };
 const securityIdentity = {
@@ -116,7 +116,7 @@ for (const field of ["workflow_run_id", "workflow_run_attempt", "git_commit_sha"
         : field === "repository"
           ? "other/repository"
           : field === "workflow_file_identity"
-            ? "other/repository/.github/workflows/other.yml@refs/heads/main"
+            ? "other-deployment-tool"
             : "999",
     },
     canaryProvenance,

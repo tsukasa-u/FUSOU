@@ -141,8 +141,8 @@ async function main() {
     JSON.stringify(canaryInputs) !== JSON.stringify(CANARY_INPUTS) ||
     JSON.stringify(productionInputs) !== JSON.stringify(PRODUCTION_INPUTS) ||
     JSON.stringify(productionEvidenceInputs) !== JSON.stringify(PRODUCTION_EVIDENCE_INPUTS) ||
-    JSON.stringify(canarySecrets) !== JSON.stringify(["TLSN_CANARY_RESULT_SIGNING_PRIVATE_KEY_PKCS8", "TLSN_CANARY_SESSION_AUTHORITY_SIGNING_PRIVATE_KEY_PKCS8", "TLSN_CANARY_BINDING_AUTHORITY_SIGNING_PRIVATE_KEY_PKCS8", "TLSN_CANARY_TRUST_ROOT_CERTIFICATE_DER"]) ||
-    JSON.stringify(productionSecrets) !== JSON.stringify(["TLSN_PRODUCTION_RESULT_SIGNING_PRIVATE_KEY_PKCS8", "TLSN_PRODUCTION_SESSION_AUTHORITY_SIGNING_PRIVATE_KEY_PKCS8", "TLSN_PRODUCTION_BINDING_AUTHORITY_SIGNING_PRIVATE_KEY_PKCS8", "TLSN_PRODUCTION_TRUST_ROOT_CERTIFICATE_DER"]) ||
+    JSON.stringify(canarySecrets) !== JSON.stringify(["TLSN_CANARY_RESULT_SIGNING_PRIVATE_KEY_PKCS8", "TLSN_CANARY_SESSION_AUTHORITY_SIGNING_PRIVATE_KEY_PKCS8", "TLSN_CANARY_BINDING_AUTHORITY_SIGNING_PRIVATE_KEY_PKCS8", "TLSN_CANARY_TRUST_ROOT_CERTIFICATE_DER", "TLSN_CANARY_TRIGGER_SECRET_KEY", "TLSN_CANARY_TRIGGER_CALLBACK_SECRET"]) ||
+    JSON.stringify(productionSecrets) !== JSON.stringify(["TLSN_PRODUCTION_RESULT_SIGNING_PRIVATE_KEY_PKCS8", "TLSN_PRODUCTION_SESSION_AUTHORITY_SIGNING_PRIVATE_KEY_PKCS8", "TLSN_PRODUCTION_BINDING_AUTHORITY_SIGNING_PRIVATE_KEY_PKCS8", "TLSN_PRODUCTION_TRUST_ROOT_CERTIFICATE_DER", "TLSN_PRODUCTION_TRIGGER_SECRET_KEY", "TLSN_PRODUCTION_TRIGGER_CALLBACK_SECRET"]) ||
     JSON.stringify(inputManifest.production_gate_inputs) !== JSON.stringify(PRODUCTION_GATE_INPUTS) ||
     JSON.stringify(inputManifest.remote_attestation_secret_inputs) !== JSON.stringify(REMOTE_ATTESTATION_SECRET_INPUTS)
   ) {
@@ -211,6 +211,22 @@ async function main() {
   parseCleanUrl(value("TLSN_CANDIDATE_DEVICE_AUTH_URL") ?? "", failures, "TLSN_CANDIDATE_DEVICE_AUTH_URL", "/api/auth/anonymous-sync/v2/device-proof", deviceHosts);
   parseCleanUrl(value("TLSN_CANDIDATE_DEVICE_POSSESSION_AUTH_URL") ?? "", failures, "TLSN_CANDIDATE_DEVICE_POSSESSION_AUTH_URL", "/api/auth/anonymous-sync/v2/tlsn-device-proof", deviceHosts);
   parseCleanUrl(value("TLSN_CANDIDATE_SUPABASE_URL") ?? "", failures, "TLSN_CANDIDATE_SUPABASE_URL", "/", supabaseHosts);
+  const triggerApiUrlName = role === "canary" ? "TLSN_CANARY_TRIGGER_API_URL" : "TLSN_PRODUCTION_TRIGGER_API_URL";
+  const triggerTaskIdName = role === "canary" ? "TLSN_CANARY_TRIGGER_TASK_ID" : "TLSN_PRODUCTION_TRIGGER_TASK_ID";
+  const triggerWorkerUrlName = role === "canary" ? "TLSN_CANARY_WORKER_INTERNAL_URL" : "TLSN_PRODUCTION_WORKER_INTERNAL_URL";
+  for (const [name, label] of [[triggerApiUrlName, "Trigger API"], [triggerWorkerUrlName, "Trigger Worker"]]) {
+    try {
+      const triggerUrl = new URL(value(name) ?? "");
+      if (triggerUrl.protocol !== "https:" || triggerUrl.username || triggerUrl.password || triggerUrl.port || triggerUrl.pathname !== "/" || triggerUrl.search || triggerUrl.hash) {
+        throw new Error(`invalid ${label} URL`);
+      }
+    } catch {
+      addFailure(failures, name, `must be a clean HTTPS ${label} origin`);
+    }
+  }
+  if (!/^[A-Za-z0-9._:-]{1,256}$/.test(value(triggerTaskIdName) ?? "")) {
+    addFailure(failures, triggerTaskIdName, "must be a valid Trigger task identifier");
+  }
   const ttl = Number(value("TLSN_BINDING_TTL_SECONDS"));
   if (!Number.isInteger(ttl) || ttl < 1 || ttl > 3600) addFailure(failures, "TLSN_BINDING_TTL_SECONDS", "must be an integer from 1 through 3600");
   if (!value("TLSN_CANDIDATE_SERVER_IDENTITY") || !DNS_HOSTNAME_PATTERN.test(value("TLSN_CANDIDATE_SERVER_IDENTITY"))) addFailure(failures, "TLSN_CANDIDATE_SERVER_IDENTITY", "must be a DNS hostname");

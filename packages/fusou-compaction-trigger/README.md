@@ -19,6 +19,43 @@ This package is a Trigger.dev execution package for battle Avro compaction jobs.
 - Fetches block OCF payloads and writes merged output to R2.
 - Registers output metadata back to battle index DB through internal API.
 
+### TLSN verification task
+
+This package also owns the heavy TLSNotary alpha.15 verification task with id
+`tlsn-verify-presentation`. The production boundary is deliberately split:
+
+- FUSOU-TLSN-VERIFICATION-WORKER authenticates the user/device, claims the
+  single-use binding atomically, stores the presentation in a dedicated private
+  R2 bucket, and keeps the result signer and binding authority on the Worker.
+- Trigger.dev receives only object references and binding metadata. It fetches
+  the presentation through an HMAC-authenticated internal Worker endpoint,
+  runs the pinned wasm verifier, and posts the unsigned prepared result back
+  through a second HMAC-authenticated endpoint.
+- The Worker validates the result-to-binding fields, signs and consumes the
+  binding exactly once, writes the private result object, and exposes it through
+  authenticated polling at `/verify/tlsn/status`.
+
+The presentation is never sent as a Trigger task payload. The Worker deletes
+the input object after a successful commit; configure an R2 lifecycle rule for
+the result prefix so abandoned or completed result objects do not become
+permanent storage.
+
+The TLSN task deploy requires these dotenvx-managed variables:
+
+- `TLSN_WORKER_INTERNAL_URL`
+- `TLSN_TRIGGER_CALLBACK_SECRET`
+- `TLSN_TRIGGER_SERVER_IDENTITY`
+- `TLSN_TRIGGER_PROFILE_SHA256`
+- `TLSN_TRIGGER_VERIFIER_KEY_ID`
+- `TLSN_TRIGGER_NOTARY_KEY_ID`
+- `TLSN_TRIGGER_NOTARY_REGISTRY`
+- `TLSN_TRIGGER_TRUST_ROOT_CERTIFICATE_DER`
+
+Deploy it with `pnpm run trigger:deploy:tlsn`. The command runs through the
+existing dotenvx wrapper and checks variable presence without printing values.
+The legacy Cloudflare Worker production workflow is blocked during this
+migration; no Worker production deploy should be used as a fallback.
+
 ## Runtime
 
 - Target runtime: Node.js on Trigger.dev.

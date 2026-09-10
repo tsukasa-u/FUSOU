@@ -20,6 +20,10 @@ fallthrough = true
 name = "TLSN_BINDINGS"
 class_name = "TlsnBindingAuthorityDurableObject"
 
+[[r2_buckets]]
+binding = "TLSN_PRESENTATIONS"
+bucket_name = "fusou-tlsn-verification-production"
+
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = ["TlsnBindingAuthorityDurableObject"]
@@ -30,6 +34,10 @@ name = "fusou-tlsn-verification-test"
 [[env.test.durable_objects.bindings]]
 name = "TLSN_BINDINGS"
 class_name = "TlsnBindingAuthorityDurableObject"
+
+[[env.test.r2_buckets]]
+binding = "TLSN_PRESENTATIONS"
+bucket_name = "fusou-tlsn-verification-test"
 
 [[env.test.migrations]]
 tag = "v1"
@@ -42,6 +50,10 @@ name = "fusou-tlsn-verification-canary"
 name = "TLSN_BINDINGS"
 class_name = "TlsnBindingAuthorityDurableObject"
 
+[[env.canary.r2_buckets]]
+binding = "TLSN_PRESENTATIONS"
+bucket_name = "fusou-tlsn-verification-canary"
+
 [[env.canary.migrations]]
 tag = "v1"
 new_sqlite_classes = ["TlsnBindingAuthorityDurableObject"]
@@ -52,6 +64,10 @@ name = "fusou-tlsn-verification-production"
 [[env.production.durable_objects.bindings]]
 name = "TLSN_BINDINGS"
 class_name = "TlsnBindingAuthorityDurableObject"
+
+[[env.production.r2_buckets]]
+binding = "TLSN_PRESENTATIONS"
+bucket_name = "fusou-tlsn-verification-production"
 
 [[env.production.migrations]]
 tag = "v1"

@@ -26,10 +26,11 @@ async fn main() {
         "POST /kcsapi/api_get_member/require_info HTTP/1.1\r\nHost: {SYNTHETIC_SERVER_IDENTITY}\r\nX-Attestation-Binding: {}\r\nContent-Length: 11\r\nConnection: close\r\n\r\nactual body",
         binding_value()
     );
-    transport
+    let capture = transport
         .send_once(SerializedOriginRequest::new(Bytes::from(request)).unwrap())
         .await
         .unwrap();
+    capture.proof.run().await.unwrap();
     let evidence = transport.wire_evidence().unwrap();
     println!(
         "{}",

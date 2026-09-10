@@ -1,12 +1,14 @@
 # FUSOU TLSNotary Verification Worker
 
-This Worker is the authoritative verification boundary for FUSOU TLSNotary alpha.15 `require_info` Presentations.
+This Worker is the authoritative authentication, binding, signing, and result-delivery boundary for FUSOU TLSNotary alpha.15 `require_info` Presentations. In production, heavy Presentation verification runs in the `fusou-compaction-trigger` Trigger.dev task; the Worker does not run the large WASM verification path.
 
 The Worker issues a one-shot, authenticated Session/Binding context at `/attestation/session`. Session issuance requires the existing FUSOU device proof (`device_id`, the HMAC challenge nonce, and the Ed25519 signature over that nonce). Every Session also receives a fresh 32-byte TLSN device challenge. `/verify/tlsn` requires `presentation_base64`, `session_id`, `device_id`, `binding`, and `device_proof` (`challenge`, `sig`); the signature covers the current device, Session, binding, and challenge context. Rust/WASM verifies the Presentation and derives `verified_member_id` from authenticated response bytes. Client-provided member IDs are not accepted. Synthetic wire data is never treated as verified.
 
 Both attestation endpoints require `Authorization: Bearer <Supabase access token>`. The Worker resolves the token through Supabase `/auth/v1/user`, uses the returned `auth.users.id` as the canonical user subject, rejects anonymous users, and never stores the raw token. For session issuance it forwards that bearer token and the existing device proof to the configured FUSOU-WEB generic device-proof endpoint. During verification it forwards the bearer token and TLSN-specific proof context to the dedicated `/api/auth/anonymous-sync/v2/tlsn-device-proof` endpoint. FUSOU-WEB remains the device-auth authority: both paths use `user_devices` owner and `revoked_at`; the TLSN path verifies Ed25519 over the canonical proof message and atomically consumes its SHA-256 digest through the existing nonce table. The Worker stores only the backend-derived device ID and TLSN challenge in the Durable Object. The canonical user ID, device ID, and device challenge are included in the signed verifier-result bytes. A binding issued to one user/device cannot be looked up or consumed under another user/device context.
 
 The Worker does not own a TLSN device registry, receive a Supabase service-role key, or receive a device private key. A client-supplied `device_id` is only a selector/proof input; the authoritative device identity comes from the FUSOU-WEB verification response and the Durable Object record. The generic device proof and TLSN proof are separate one-shot proofs and cannot be reused across Sessions or bindings.
+
+In Trigger mode, `/verify/tlsn` authenticates and atomically claims the binding, stores the raw Presentation in the private `TLSN_PRESENTATIONS` R2 bucket, and returns `202` with a job ID. Trigger fetches that object through `/internal/tlsn/verification-input` using the shared HMAC callback secret. The Worker signs and consumes the binding only after the HMAC-authenticated completion callback, stores the final result object, deletes the raw input object, and serves it through authenticated `/verify/tlsn/status` polling. `/verify/tlsn/retry` re-enqueues an accepted job without replaying the device proof.
 
 ## Local development
 
@@ -28,11 +30,24 @@ The build script discovers `clang`, `clang-18`, or `clang-17`. Set `CC_wasm32_un
 
 `pnpm test` runs Wrangler's local Worker runtime and checks device-proof session issuance plus verify-time TLSN possession through a synthetic FUSOU-WEB HTTP boundary, strict request validation, invalid/tampered Presentation rejection, user/device authority correlation, atomic single-use consumption including concurrent requests, expiry, identity and Notary fail-closed paths, and missing-configuration failure. FUSOU-WEB route tests cover the generic and TLSN device-auth primitives and reject revoked, invalid-signature, owner-mismatch, malformed-context, and replayed proofs. It does not contact the Game Server or Notary.
 
+### Manual test deployment
+
+The test Worker can be deployed from a developer machine without GitHub Actions. Copy `.env.example` to `.env`, fill the test values, and encrypt it with the repository key:
+
+```sh
+cp packages/FUSOU-TLSN-VERIFICATION-WORKER/.env.example packages/FUSOU-TLSN-VERIFICATION-WORKER/.env
+pnpm run tlsn:env.encrypt
+pnpm run tlsn:deploy:test
+```
+
+`tlsn:deploy:test` uses dotenvx to inject the environment, sends public values through Wrangler `--var`, and sends private values through a mode-600 temporary secrets file. The test deploy does not require a clean git worktree or GitHub Actions. Do not use this path for canary or production.
+
 ## Configuration
 
 Configure these Worker values before deployment:
 
 - `TLSN_BINDINGS` Durable Object binding for `TlsnBindingAuthorityDurableObject`
+- `TLSN_PRESENTATIONS` private R2 bucket binding for pending and completed job objects
 - `TLSN_BINDING_TTL_SECONDS` between `1` and `3600`
 - `TLSN_SERVER_IDENTITY`
 - `TLSN_PROFILE_SHA256`
@@ -47,6 +62,7 @@ Configure these Worker values before deployment:
 - Production public configuration additionally requires `TLSN_PRODUCTION_NOTARY_ENDPOINT`, `TLSN_PRODUCTION_SESSION_AUTHORITY_ENDPOINT`, `TLSN_PRODUCTION_VERIFICATION_ENDPOINT`, and `TLSN_PRODUCTION_ORIGIN_PORT`. These values are validated offline and emitted as `tlsn-production-public-manifest.json` after a passing preflight.
 - `TLSN_SECURITY_REGISTRY_SET_SHA256` for non-secret deployment and trust-registry identity
 - `TLSN_TEST_AUTH_USERS` only in `TLSN_ENVIRONMENT=test`, as a JSON map of test bearer tokens to non-anonymous user IDs
+- Production Trigger execution additionally requires `TLSN_TRIGGER_API_URL`, `TLSN_TRIGGER_TASK_ID`, `TLSN_TRIGGER_SECRET_KEY`, and `TLSN_TRIGGER_CALLBACK_SECRET` on the Worker, plus the matching `TLSN_WORKER_INTERNAL_URL`, `TLSN_TRIGGER_CALLBACK_SECRET`, `TLSN_TRIGGER_SERVER_IDENTITY`, `TLSN_TRIGGER_PROFILE_SHA256`, `TLSN_TRIGGER_VERIFIER_KEY_ID`, `TLSN_TRIGGER_NOTARY_KEY_ID`, `TLSN_TRIGGER_NOTARY_REGISTRY`, and `TLSN_TRIGGER_TRUST_ROOT_CERTIFICATE_DER` in the dotenvx-managed Trigger environment. These values are never returned by `/health` or embedded in task payloads.
 
 - Deployment roles use separate result-signing inputs. Canary requires `TLSN_CANARY_RESULT_SIGNING_PRIVATE_KEY_PKCS8`, `TLSN_CANARY_RESULT_PUBLIC_KEY_SPKI`, `TLSN_CANARY_RESULT_SIGNER_KEY_ID`, and `TLSN_CANARY_RESULT_SIGNING_KEY_REGISTRY`. Production requires the corresponding `TLSN_PRODUCTION_RESULT_SIGNING_PRIVATE_KEY_PKCS8`, `TLSN_PRODUCTION_RESULT_PUBLIC_KEY_SPKI`, `TLSN_PRODUCTION_RESULT_SIGNER_KEY_ID`, and `TLSN_PRODUCTION_RESULT_SIGNING_KEY_REGISTRY`. The private key is used only by the matching Worker; the public SPKI and registry are published for independent verification.
 - A result signing registry is a JSON object with `schema_version: 1`, `scope: "tlsn-result-signing-key-registry"`, and a non-empty `keys` array. Each entry has a unique `key_id`, Ed25519 `public_key_spki`, `status`, `not_before`, and nullable `not_after`. Valid statuses are `ACTIVE`, `VERIFY_ONLY`, `RETIRED`, and `REVOKED`. The configured signer must match an `ACTIVE` registry entry and be inside its validity window. Rotation adds the new `ACTIVE` key while retaining the previous key as `VERIFY_ONLY`; retired or revoked keys cannot sign new results.

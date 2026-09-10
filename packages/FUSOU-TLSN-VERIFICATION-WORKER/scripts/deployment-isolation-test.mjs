@@ -19,18 +19,19 @@ import {
 } from "./deployment-contract.mjs";
 
 const packageDirectory = resolve(new URL("..", import.meta.url).pathname);
-const workflowPath = resolve(packageDirectory, "../../.github/workflows/tlsn-production-deploy.yml");
 const manifest = JSON.parse(await readFile(resolve(packageDirectory, "scripts/production-inputs.json"), "utf8"));
-const workflow = await readFile(workflowPath, "utf8");
 const canaryWrapper = await readFile(resolve(packageDirectory, "scripts/deploy-canary.mjs"), "utf8");
 const productionWrapper = await readFile(resolve(packageDirectory, "scripts/deploy-production.mjs"), "utf8");
+const rootPackage = JSON.parse(await readFile(resolve(packageDirectory, "../../package.json"), "utf8"));
 
 assertManifest(manifest);
 assert.deepEqual(new Set(CANARY_INPUTS).intersection(new Set(PRODUCTION_INPUTS)), new Set());
 assert.deepEqual(new Set(CANARY_SECRET_INPUTS).intersection(new Set(PRODUCTION_SECRET_INPUTS)), new Set());
 assert.deepEqual(new Set(inputsForRole("canary")).intersection(new Set(PRODUCTION_INPUTS)), new Set());
 assert.deepEqual(new Set(inputsForRole("production")).intersection(new Set(CANARY_INPUTS)), new Set());
-assert.deepEqual(new Set(secretInputsForRole("canary")).intersection(new Set(secretInputsForRole("production"))), new Set());
+assert.deepEqual(new Set(CANARY_SECRET_INPUTS).intersection(new Set(PRODUCTION_SECRET_INPUTS)), new Set());
+assert.deepEqual(secretInputsForRole("canary"), [...CANARY_SECRET_INPUTS]);
+assert.deepEqual(secretInputsForRole("production"), [...PRODUCTION_SECRET_INPUTS]);
 
 const allInputs = Object.fromEntries(
   [...new Set([...COMMON_INPUTS, ...CANARY_INPUTS, ...PRODUCTION_INPUTS, ...CANARY_SECRET_INPUTS, ...PRODUCTION_SECRET_INPUTS])]
@@ -88,30 +89,12 @@ assert.doesNotThrow(() => assertDistinctResultKeys(
   productionProvenance,
 ));
 
-assert.match(workflow, /environment: tlsn-canary/);
-assert.match(workflow, /environment: tlsn-production/);
-assert.doesNotMatch(workflow, /environment: production/);
-const canaryJob = workflow.slice(workflow.indexOf("\n  canary:"), workflow.indexOf("\n  remote-validation:"));
-const remoteJob = workflow.slice(workflow.indexOf("\n  remote-validation:"), workflow.indexOf("\n  production:"));
-const productionJob = workflow.slice(workflow.indexOf("\n  production:"));
-assert.doesNotMatch(canaryJob, /TLSN_PRODUCTION_(?:RESULT|SESSION|BINDING|DEPLOYMENT|WORKER|TRUST)|PRODUCTION_SIGNING|PRODUCTION_TRUST/);
-assert.doesNotMatch(remoteJob, /TLSN_PRODUCTION_|PRODUCTION_SIGNING|PRODUCTION_TRUST/);
-assert.doesNotMatch(remoteJob, /TLSN_CANARY_RESULT_SIGNING_PRIVATE_KEY_PKCS8|TLSN_CANARY_TRUST_ROOT_CERTIFICATE_DER/);
-assert.doesNotMatch(productionJob, /TLSN_CANARY_|CANARY_SIGNING|CANARY_TRUST/);
-assert.match(productionJob, /TLSN_PRODUCTION_RESULT_SIGNING_PRIVATE_KEY_PKCS8/);
-assert.match(remoteJob, /TLSN_REMOTE_ATTESTATION_SIGNING_PRIVATE_KEY_PKCS8/);
-assert.doesNotMatch(productionJob, /TLSN_REMOTE_ATTESTATION_SIGNING_PRIVATE_KEY_PKCS8/);
-assert.match(productionJob, /TLSN_ATTESTATION_SIGNER_PUBLIC_KEY_SPKI/);
-assert.match(workflow, /remote-validation:\n\s+name:[\s\S]*?needs: canary/);
-assert.match(workflow, /production:\n\s+name:[\s\S]*?needs: remote-validation/);
-assert.match(remoteJob, /run: pnpm --filter fusou-tlsn-verification-worker run verify:remote-gate/);
-assert.match(remoteJob, /tlsn-remote-validation-attestation\.json/);
-assert.match(productionJob, /TLSN_REMOTE_ATTESTATION_PATH/);
-assert.doesNotMatch(workflow, /TLSN_REMOTE_ALLOW_DECLARED_BLOCKED/);
-for (const field of ["TLSN_WORKFLOW_RUN_ID", "TLSN_WORKFLOW_RUN_ATTEMPT", "TLSN_REPOSITORY", "TLSN_WORKFLOW_FILE_IDENTITY"]) {
-  assert.match(workflow, new RegExp(field));
+for (const name of ["tlsn:deploy:test", "tlsn:deploy:canary", "tlsn:deploy:production"]) {
+  assert.match(rootPackage.scripts[name], /^dotenvx run --strict --overload /, `${name} must use dotenvx`);
 }
+assert.doesNotMatch(rootPackage.scripts["tlsn:deploy:canary"], /github|actions/i);
+assert.doesNotMatch(rootPackage.scripts["tlsn:deploy:production"], /github|actions/i);
 assert.match(canaryWrapper, /wrangler", "deploy", "--env", "canary/);
 assert.match(productionWrapper, /wrangler", "deploy", "--env", "production/);
 
-console.log("[tlsn-deployment-isolation] role input, key, provenance, and workflow boundaries OK");
+console.log("[tlsn-deployment-isolation] role input, key, provenance, and dotenvx deployment boundaries OK");

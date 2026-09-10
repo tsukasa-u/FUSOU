@@ -3,7 +3,9 @@
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
-import { createHash, generateKeyPairSync, sign, verify as verifySignature } from "node:crypto";
+import { readFile } from "node:fs/promises";
+import { createHash, createHmac, generateKeyPairSync, sign, verify as verifySignature } from "node:crypto";
+import assert from "node:assert/strict";
 import { createServer } from "node:http";
 import { unstable_dev } from "wrangler";
 import { consumeReceiptSigningBytes, sessionReceiptSigningBytes } from "./device-evidence.mjs";
@@ -387,6 +389,221 @@ function localWorker(vars) {
   });
 }
 
+function internalRequestSignature(secret, jobId, body) {
+  const bodyDigest = createHash("sha256").update(body).digest("base64url");
+  return createHmac("sha256", secret)
+    .update(`FUSOU-TLSN-INTERNAL-V1\0${jobId}\0${bodyDigest}`)
+    .digest("base64url");
+}
+
+async function runAsyncTriggerSmokeTest() {
+  const callbackSecret = "callback-test-secret";
+  let worker;
+  let completionRequest;
+  const verifierModule = await import("../src/wasm/fusou_tlsn_verifier.js");
+  verifierModule.initSync(await readFile(resolve(packageDirectory, "src/wasm/fusou_tlsn_verifier_bg.wasm")));
+
+  const triggerServer = createServer(async (request, response) => {
+    try {
+      if (request.method !== "POST" || !request.url?.endsWith("/trigger")) {
+        response.writeHead(404);
+        response.end();
+        return;
+      }
+      const chunks = [];
+      for await (const chunk of request) chunks.push(chunk);
+      const requestBody = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+      const payload = requestBody.payload;
+      const inputBody = JSON.stringify({
+        job_id: payload.job_id,
+        binding_id: payload.binding_id,
+        session_id: payload.session_id,
+        canonical_user_id: payload.canonical_user_id,
+        device_id: payload.device_id,
+        verification_input_key: payload.verification_input_key,
+      });
+      const inputResponse = await worker.fetch("https://verify.test/internal/tlsn/verification-input", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-FUSOU-TLSN-Job-Id": payload.job_id,
+          "X-FUSOU-TLSN-Signature": internalRequestSignature(callbackSecret, payload.job_id, inputBody),
+        },
+        body: inputBody,
+      });
+      if (!inputResponse.ok) throw new Error(`async input handoff failed: ${inputResponse.status}`);
+      const presentation = new Uint8Array(await inputResponse.arrayBuffer());
+      const preparedResultJson = payload.device_challenge
+        ? verifierModule.verify_require_info_presentation_with_trust_anchor(
+            presentation,
+            testVars.TLSN_SERVER_IDENTITY,
+            Buffer.alloc(32),
+            testVars.TLSN_VERIFIER_KEY_ID,
+            testVars.TLSN_NOTARY_KEY_ID,
+            payload.canonical_user_id,
+            payload.device_id,
+            Buffer.from(payload.device_challenge, "base64url"),
+            Buffer.from(testVars.TLSN_TRUST_ROOT_CERTIFICATE_DER, "base64url"),
+            Buffer.from(syntheticFixture.notary_key_base64, "base64url"),
+          )
+        : "";
+      const preparedResult = JSON.parse(preparedResultJson);
+      const mismatchedSigningBytes = Buffer.from(preparedResult.signing_bytes, "base64url");
+      mismatchedSigningBytes[0] ^= 1;
+      const mismatchBody = JSON.stringify({
+        job_id: payload.job_id,
+        binding_id: payload.binding_id,
+        session_id: payload.session_id,
+        canonical_user_id: payload.canonical_user_id,
+        device_id: payload.device_id,
+        presentation_id: createHash("sha256").update(presentation).digest("base64url"),
+        prepared_result: {
+          unsigned_result: preparedResult.unsigned_result,
+          signing_bytes: mismatchedSigningBytes.toString("base64url"),
+        },
+      });
+      const mismatchResponse = await worker.fetch("https://verify.test/internal/tlsn/verification-complete", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-FUSOU-TLSN-Job-Id": payload.job_id,
+          "X-FUSOU-TLSN-Signature": internalRequestSignature(callbackSecret, payload.job_id, mismatchBody),
+        },
+        body: mismatchBody,
+      });
+      if (mismatchResponse.status !== 422 || (await mismatchResponse.json()).error !== "signing_bytes_mismatch") {
+        throw new Error("async completion accepted mismatched signing bytes");
+      }
+      const completionBody = JSON.stringify({
+        job_id: payload.job_id,
+        binding_id: payload.binding_id,
+        session_id: payload.session_id,
+        canonical_user_id: payload.canonical_user_id,
+        device_id: payload.device_id,
+        presentation_id: createHash("sha256").update(presentation).digest("base64url"),
+        prepared_result: {
+          unsigned_result: preparedResult.unsigned_result,
+          signing_bytes: preparedResult.signing_bytes,
+        },
+      });
+      completionRequest = {
+        body: completionBody,
+        signature: internalRequestSignature(callbackSecret, payload.job_id, completionBody),
+      };
+      const completionResponse = await worker.fetch("https://verify.test/internal/tlsn/verification-complete", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-FUSOU-TLSN-Job-Id": payload.job_id,
+          "X-FUSOU-TLSN-Signature": completionRequest.signature,
+        },
+        body: completionBody,
+      });
+      if (!completionResponse.ok) {
+        throw new Error(`async completion failed: ${completionResponse.status} ${await completionResponse.text()}`);
+      }
+      response.writeHead(200, { "Content-Type": "application/json" });
+      response.end(JSON.stringify({ id: payload.job_id }));
+    } catch (error) {
+      console.error(`[tlsn-async-test] ${error instanceof Error ? error.message : String(error)}`);
+      response.writeHead(500, { "Content-Type": "application/json" });
+      response.end(JSON.stringify({ error: error instanceof Error ? error.message : String(error) }));
+    }
+  });
+  await new Promise((resolveServer) => triggerServer.listen(0, "127.0.0.1", resolveServer));
+  triggerServer.unref();
+  const triggerUrl = `http://127.0.0.1:${triggerServer.address().port}`;
+
+  worker = await localWorker({
+    ...testVars,
+    TLSN_EXECUTION_MODE: "trigger",
+    TLSN_TRIGGER_API_URL: triggerUrl,
+    TLSN_TRIGGER_TASK_ID: "tlsn-verify-presentation",
+    TLSN_TRIGGER_SECRET_KEY: "trigger-test-secret",
+    TLSN_TRIGGER_CALLBACK_SECRET: callbackSecret,
+  });
+  try {
+    const sessionResponse = await worker.fetch("https://verify.test/attestation/session", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: "Bearer test-token-a" },
+      body: JSON.stringify({
+        device_id: deviceId,
+        nonce: deviceNonce,
+        sig: deviceSignature,
+      }),
+    });
+    assert.equal(sessionResponse.status, 201);
+    const session = await sessionResponse.json();
+    const deviceProof = {
+      device_id: session.device_id,
+      session_id: session.session_id,
+      binding_value: session.binding,
+      challenge: session.device_challenge,
+    };
+    deviceProof.sig = sign(
+      null,
+      tlsnDeviceProofMessage(
+        deviceProof.device_id,
+        deviceProof.session_id,
+        deviceProof.binding_value,
+        deviceProof.challenge,
+      ),
+      devicePrivateKey,
+    ).toString("base64url");
+    const verificationResponse = await worker.fetch("https://verify.test/verify/tlsn", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: "Bearer test-token-a" },
+      body: JSON.stringify({
+        presentation_base64: syntheticFixture.presentation_base64,
+        session_id: session.session_id,
+        binding: session.binding,
+        device_id: session.device_id,
+        device_proof: {
+          challenge: deviceProof.challenge,
+          sig: deviceProof.sig,
+        },
+      }),
+    });
+    assert.equal(verificationResponse.status, 202);
+    const queued = await verificationResponse.json();
+    assert.equal(queued.status, "queued");
+    assert.match(queued.job_id, /^[0-9a-f-]{36}$/);
+    assert.ok(completionRequest);
+
+    const statusResponse = await worker.fetch("https://verify.test/verify/tlsn/status", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: "Bearer test-token-a" },
+      body: JSON.stringify({
+        job_id: queued.job_id,
+        binding_id: createHash("sha256").update(syntheticFixture.binding_value).digest("base64url"),
+        session_id: session.session_id,
+        canonical_user_id: "11111111-1111-4111-8111-111111111111",
+        device_id: session.device_id,
+      }),
+    });
+    assert.equal(statusResponse.status, 200);
+    const finalResponse = await statusResponse.json();
+    assert.equal(finalResponse.verified, true);
+    assert.equal(finalResponse.result.verified_member_id, "16189463");
+
+    const duplicateCompletion = await worker.fetch("https://verify.test/internal/tlsn/verification-complete", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-FUSOU-TLSN-Job-Id": queued.job_id,
+        "X-FUSOU-TLSN-Signature": completionRequest.signature,
+      },
+      body: completionRequest.body,
+    });
+    assert.equal(duplicateCompletion.status, 200);
+    assert.deepEqual(await duplicateCompletion.json(), { accepted: true });
+  } finally {
+    await worker.stop();
+    await new Promise((resolveServer) => triggerServer.close(resolveServer));
+  }
+  console.log("[tlsn-verification-worker] async Trigger handoff, result polling, and idempotent completion paths OK");
+}
+
 async function runRedirectRegressionTest() {
   const modes = ["ok", "unauthorized", "server_error", "redirect_same", "redirect_cross", "redirect_chain"];
   const expectedSupabaseStatus = new Map([
@@ -625,6 +842,8 @@ try {
 } finally {
   await worker.stop();
 }
+
+await runAsyncTriggerSmokeTest();
 
 const concurrentWorker = await localWorker({
   ...testVars,

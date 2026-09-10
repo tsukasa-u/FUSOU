@@ -5,13 +5,26 @@ import {
   DurableObjectBindingAuthority,
   TlsnBindingAuthorityDurableObject,
   encodeBase64Url,
+  hashBindingId,
 } from "./binding_authority.js";
 import {
   attestationConsumeReceiptSigningBytes,
   attestationSessionReceiptSigningBytes,
 } from "./attestation_receipts.js";
+import {
+  verificationCallbackSchema,
+  verificationFinalResponseSchema,
+  verificationInputRequestSchema,
+  verificationObjectKey,
+  verificationStatusRequestSchema,
+  verificationTaskPayloadSchema,
+  type VerificationTaskPayload,
+  verifyInternalRequest,
+  internalRequestSignature,
+} from "./verification_jobs.js";
 import initVerifier, {
   attach_verifier_result_signature,
+  derive_verifier_result_signing_bytes,
   verify_require_info_presentation,
   verify_require_info_presentation_with_trust_anchor,
 } from "./wasm/fusou_tlsn_verifier.js";
@@ -20,7 +33,23 @@ import wasmModule from "./wasm/fusou_tlsn_verifier_bg.wasm";
 type Bindings = {
   TLSN_ENVIRONMENT: string;
   TLSN_BINDINGS: DurableObjectNamespace;
+  TLSN_PRESENTATIONS: R2Bucket;
   TLSN_BINDING_TTL_SECONDS: string;
+  TLSN_EXECUTION_MODE?: string;
+  TLSN_TRIGGER_API_URL?: string;
+  TLSN_TRIGGER_TASK_ID?: string;
+  TLSN_TRIGGER_SECRET_KEY?: string;
+  TLSN_TRIGGER_CALLBACK_SECRET?: string;
+  TLSN_CANARY_TRIGGER_API_URL?: string;
+  TLSN_CANARY_TRIGGER_TASK_ID?: string;
+  TLSN_CANARY_TRIGGER_SECRET_KEY?: string;
+  TLSN_CANARY_TRIGGER_CALLBACK_SECRET?: string;
+  TLSN_CANARY_WORKER_INTERNAL_URL?: string;
+  TLSN_PRODUCTION_TRIGGER_API_URL?: string;
+  TLSN_PRODUCTION_TRIGGER_TASK_ID?: string;
+  TLSN_PRODUCTION_TRIGGER_SECRET_KEY?: string;
+  TLSN_PRODUCTION_TRIGGER_CALLBACK_SECRET?: string;
+  TLSN_PRODUCTION_WORKER_INTERNAL_URL?: string;
   TLSN_SERVER_IDENTITY: string;
   TLSN_PROFILE_SHA256: string;
   TLSN_VERIFIER_KEY_ID: string;
@@ -93,6 +122,7 @@ const MAX_PRESENTATION_BYTES = 8 * 1024 * 1024;
 const MAX_REQUEST_JSON_BYTES = 12 * 1024 * 1024;
 const MAX_PRESENTATION_BASE64_LENGTH = Math.ceil(MAX_PRESENTATION_BYTES * 4 / 3) + 4;
 const MAX_RESULT_JSON_BYTES = 25_165_824;
+const MAX_INTERNAL_CALLBACK_JSON_BYTES = MAX_RESULT_JSON_BYTES + 4096;
 
 const requestSchema = z
   .object({
@@ -278,6 +308,15 @@ function decodeBase64Url(value: string, maximumBytes: number): Uint8Array {
     throw new Error("non-canonical base64url");
   }
   return bytes;
+}
+
+function hasSameBytes(left: Uint8Array, right: Uint8Array): boolean {
+  if (left.length !== right.length) return false;
+  let difference = 0;
+  for (let index = 0; index < left.length; index += 1) {
+    difference |= (left[index] ?? 0) ^ (right[index] ?? 0);
+  }
+  return difference === 0;
 }
 
 const DNS_HOSTNAME_PATTERN = /^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/;
@@ -736,15 +775,20 @@ async function signConsumeReceipt(
   };
 }
 
-async function readJsonBody(request: Request): Promise<unknown> {
+async function readRawBody(request: Request, maximumBytes: number): Promise<string> {
   const contentLength = request.headers.get("Content-Length");
-  if (contentLength !== null && Number(contentLength) > MAX_REQUEST_JSON_BYTES) {
+  if (contentLength !== null && Number(contentLength) > maximumBytes) {
     throw new Error("request body is too large");
   }
   const raw = await request.text();
-  if (raw.length > MAX_REQUEST_JSON_BYTES) {
+  if (raw.length > maximumBytes) {
     throw new Error("request body is too large");
   }
+  return raw;
+}
+
+async function readJsonBody(request: Request): Promise<unknown> {
+  const raw = await readRawBody(request, MAX_REQUEST_JSON_BYTES);
   return JSON.parse(raw) as unknown;
 }
 
@@ -995,6 +1039,277 @@ function bindingAuthorityStatus(error: unknown): BindingAuthorityHttpStatus {
   }
 }
 
+type TriggerExecutionConfig = {
+  apiUrl: string;
+  taskId: string;
+  secretKey: string;
+  callbackSecret: string;
+};
+
+function triggerExecutionConfig(env: Bindings): TriggerExecutionConfig | null {
+  const production = env.TLSN_ENVIRONMENT === "production";
+  const canary = env.TLSN_DEPLOYMENT_ROLE === "canary";
+  const apiUrl = (production
+    ? canary ? env.TLSN_CANARY_TRIGGER_API_URL : env.TLSN_PRODUCTION_TRIGGER_API_URL
+    : env.TLSN_TRIGGER_API_URL)?.replace(/\/$/, "");
+  const taskId = (production
+    ? canary ? env.TLSN_CANARY_TRIGGER_TASK_ID : env.TLSN_PRODUCTION_TRIGGER_TASK_ID
+    : env.TLSN_TRIGGER_TASK_ID)?.trim();
+  const secretKey = (production
+    ? canary ? env.TLSN_CANARY_TRIGGER_SECRET_KEY : env.TLSN_PRODUCTION_TRIGGER_SECRET_KEY
+    : env.TLSN_TRIGGER_SECRET_KEY)?.trim();
+  const callbackSecret = (production
+    ? canary ? env.TLSN_CANARY_TRIGGER_CALLBACK_SECRET : env.TLSN_PRODUCTION_TRIGGER_CALLBACK_SECRET
+    : env.TLSN_TRIGGER_CALLBACK_SECRET)?.trim();
+  const localTestApi = env.TLSN_ENVIRONMENT === "test" && typeof apiUrl === "string" && /^http:\/\/(?:127\.0\.0\.1|localhost)(?::[0-9]{1,5})?$/.test(apiUrl);
+  if (
+    !apiUrl ||
+    !taskId ||
+    !secretKey ||
+    !callbackSecret ||
+    (!/^https:\/\//.test(apiUrl) && !localTestApi) ||
+    !/^[A-Za-z0-9._:-]{1,256}$/.test(taskId)
+  ) {
+    return null;
+  }
+  return { apiUrl, taskId, secretKey, callbackSecret };
+}
+
+function shouldUseTriggerExecution(env: Bindings): boolean {
+  return env.TLSN_ENVIRONMENT === "production" || env.TLSN_EXECUTION_MODE === "trigger";
+}
+
+function triggerCallbackSecret(env: Bindings): string | undefined {
+  if (env.TLSN_ENVIRONMENT !== "production") return env.TLSN_TRIGGER_CALLBACK_SECRET;
+  return env.TLSN_DEPLOYMENT_ROLE === "canary"
+    ? env.TLSN_CANARY_TRIGGER_CALLBACK_SECRET
+    : env.TLSN_PRODUCTION_TRIGGER_CALLBACK_SECRET;
+}
+
+async function enqueueTriggerVerification(
+  config: TriggerExecutionConfig,
+  payload: VerificationTaskPayload,
+): Promise<void> {
+  const response = await fetch(
+    `${config.apiUrl}/api/v1/tasks/${encodeURIComponent(config.taskId)}/trigger`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${config.secretKey}`,
+      },
+      body: JSON.stringify({
+        payload,
+        options: {
+          idempotencyKey: payload.job_id,
+          queue: { name: "tlsn-verification", concurrencyLimit: 2 },
+          machine: "medium-1x",
+          maxAttempts: 3,
+          maxDuration: 600,
+        },
+      }),
+    },
+  );
+  if (!response.ok) {
+    throw new Error(`Trigger enqueue failed with status ${response.status}`);
+  }
+}
+
+app.post("/internal/tlsn/verification-input", async (c) => {
+  const rawBody = await readRawBody(c.req.raw, 64 * 1024).catch(() => null);
+  const jobId = c.req.header("X-FUSOU-TLSN-Job-Id") ?? "";
+  const signature = c.req.header("X-FUSOU-TLSN-Signature") ?? null;
+  const callbackSecret = triggerCallbackSecret(c.env);
+  if (
+    rawBody === null ||
+    !callbackSecret ||
+    !await verifyInternalRequest(callbackSecret, jobId, rawBody, signature)
+  ) {
+    return c.json({ error: "unauthorized" }, 401);
+  }
+
+  const parsed = verificationInputRequestSchema.safeParse(JSON.parse(rawBody) as unknown);
+  if (!parsed.success || parsed.data.job_id !== jobId) {
+    return c.json({ error: "invalid_request" }, 400);
+  }
+
+  const authority = new DurableObjectBindingAuthority(c.env.TLSN_BINDINGS);
+  let record;
+  try {
+    record = await authority.lookupVerificationJob(parsed.data.binding_id, {
+      session_id: parsed.data.session_id,
+      canonical_user_id: parsed.data.canonical_user_id,
+      device_id: parsed.data.device_id,
+      verification_job_id: parsed.data.job_id,
+      now: Date.now(),
+    });
+  } catch {
+    return c.json({ error: "job_unavailable" }, 409);
+  }
+  if (
+    record.status !== "processing" ||
+    record.verification_input_key !== parsed.data.verification_input_key
+  ) {
+    return c.json({ error: "job_unavailable" }, 409);
+  }
+
+  const object = await c.env.TLSN_PRESENTATIONS.get(record.verification_input_key);
+  if (!object || object.size > MAX_PRESENTATION_BYTES) {
+    return c.json({ error: "verification_input_unavailable" }, 503);
+  }
+  return new Response(object.body, {
+    headers: {
+      "Content-Type": "application/octet-stream",
+      "Cache-Control": "no-store",
+      "Content-Length": String(object.size),
+    },
+  });
+});
+
+app.post("/internal/tlsn/verification-complete", async (c) => {
+  const rawBody = await readRawBody(c.req.raw, MAX_INTERNAL_CALLBACK_JSON_BYTES).catch(() => null);
+  const jobId = c.req.header("X-FUSOU-TLSN-Job-Id") ?? "";
+  const signature = c.req.header("X-FUSOU-TLSN-Signature") ?? null;
+  const callbackSecret = triggerCallbackSecret(c.env);
+  if (
+    rawBody === null ||
+    !callbackSecret ||
+    !await verifyInternalRequest(callbackSecret, jobId, rawBody, signature)
+  ) {
+    return c.json({ error: "unauthorized" }, 401);
+  }
+
+  let callback;
+  try {
+    callback = verificationCallbackSchema.parse(JSON.parse(rawBody) as unknown);
+  } catch {
+    return c.json({ error: "invalid_request" }, 400);
+  }
+  if (callback.job_id !== jobId) {
+    return c.json({ error: "invalid_request" }, 400);
+  }
+
+  const config = await readConfig(c.env);
+  if (!config) {
+    return c.json({ error: "verifier_unconfigured" }, 503);
+  }
+  const authority = new DurableObjectBindingAuthority(c.env.TLSN_BINDINGS);
+  let record;
+  try {
+    record = await authority.lookupVerificationJob(callback.binding_id, {
+      session_id: callback.session_id,
+      canonical_user_id: callback.canonical_user_id,
+      device_id: callback.device_id,
+      verification_job_id: callback.job_id,
+      now: Date.now(),
+    });
+  } catch (error) {
+    return c.json({ error: error instanceof BindingAuthorityError ? error.code : "job_unavailable" }, 409);
+  }
+  if (
+    record.presentation_id !== callback.presentation_id ||
+    record.verification_result_key === undefined ||
+    record.device_replay_digest_hex === undefined
+  ) {
+    return c.json({ error: "verification_result_mismatch" }, 422);
+  }
+
+  if (record.status === "consumed") {
+    const existing = await c.env.TLSN_PRESENTATIONS.get(record.verification_result_key);
+    if (existing) {
+      try {
+        verificationFinalResponseSchema.parse(JSON.parse(await existing.text()) as unknown);
+        return c.json({ accepted: true });
+      } catch {
+        // Rebuild the result from the idempotent callback below.
+      }
+    }
+  }
+
+  if (record.status !== "processing" && record.status !== "consumed") {
+    return c.json({ error: "job_unavailable" }, 409);
+  }
+
+  try {
+    const authenticatedResult = authenticatedResultSchema.parse(
+      JSON.parse(callback.prepared_result.unsigned_result) as unknown,
+    );
+    if (
+      authenticatedResult.attestation_session_id !== record.session_id ||
+      authenticatedResult.canonical_user_id !== record.canonical_user_id ||
+      authenticatedResult.device_id !== record.device_id ||
+      authenticatedResult.device_challenge !== record.tlsn_device_challenge ||
+      authenticatedResult.binding_nonce !== record.nonce ||
+      authenticatedResult.binding_value !== record.binding_value
+    ) {
+      return c.json({ error: "binding_mismatch" }, 422);
+    }
+
+    const signingBytes = decodeBase64Url(callback.prepared_result.signing_bytes, MAX_RESULT_JSON_BYTES);
+    await ensureWasmInitialized();
+    const derivedSigningBytes = derive_verifier_result_signing_bytes(callback.prepared_result.unsigned_result);
+    if (!hasSameBytes(derivedSigningBytes, signingBytes)) {
+      return c.json({ error: "signing_bytes_mismatch" }, 422);
+    }
+    const signatureBytes = await signResult(config, signingBytes);
+    if (signatureBytes.length !== 64) {
+      return c.json({ error: "verifier_unavailable" }, 503);
+    }
+    const signedResult = JSON.parse(
+      attach_verifier_result_signature(callback.prepared_result.unsigned_result, signatureBytes),
+    ) as Record<string, unknown>;
+    const usedAt = record.status === "consumed"
+      ? record.used_at
+      : new Date(Date.now()).toISOString();
+    if (!usedAt) {
+      return c.json({ error: "verification_result_unavailable" }, 503);
+    }
+    const consumeReceipt = await signConsumeReceipt(config, {
+      session_id: record.session_id,
+      canonical_user_id: record.canonical_user_id,
+      device_id: record.device_id,
+      nonce: record.nonce,
+      binding_value: record.binding_value,
+      presentation_id: callback.presentation_id,
+      used_at: usedAt,
+    });
+    const finalResponse = verificationFinalResponseSchema.parse({
+      verified: true,
+      result: signedResult,
+      signature_algorithm: "Ed25519",
+      consume_receipt: consumeReceipt,
+      device_replay_digest_hex: record.device_replay_digest_hex,
+    });
+    await c.env.TLSN_PRESENTATIONS.put(
+      record.verification_result_key,
+      JSON.stringify(finalResponse),
+      { httpMetadata: { contentType: "application/json" } },
+    );
+    if (record.status === "processing") {
+      const consumedBinding = await authority.consumeBinding(record.binding_value, {
+        session_id: record.session_id,
+        canonical_user_id: record.canonical_user_id,
+        device_id: record.device_id,
+        binding_value: record.binding_value,
+        nonce: record.nonce,
+        presentation_id: callback.presentation_id,
+        verification_job_id: callback.job_id,
+        used_at: usedAt,
+        now: Date.now(),
+      });
+      if (consumedBinding.used_at !== usedAt) {
+        return c.json({ error: "verification_result_unavailable" }, 503);
+      }
+    }
+    if (record.verification_input_key) {
+      await c.env.TLSN_PRESENTATIONS.delete(record.verification_input_key).catch(() => undefined);
+    }
+    return c.json({ accepted: true });
+  } catch {
+    return c.json({ error: "verification_failed" }, 422);
+  }
+});
+
 app.get("/health", async (c) => {
   const production = c.env.TLSN_ENVIRONMENT === "production";
   const role = c.env.TLSN_DEPLOYMENT_ROLE ?? (production ? "production" : "synthetic-test");
@@ -1200,6 +1515,138 @@ app.post("/attestation/session", async (c) => {
   }
 });
 
+app.post("/verify/tlsn/status", async (c) => {
+  const authentication = requireAuthentication(await authenticateRequest(c.req.raw, c.env));
+  if (authentication instanceof Response) {
+    return authentication;
+  }
+
+  let requestBody: z.infer<typeof verificationStatusRequestSchema>;
+  try {
+    requestBody = verificationStatusRequestSchema.parse(await readJsonBody(c.req.raw));
+  } catch {
+    return c.json({ error: "invalid_request" }, 400);
+  }
+  if (requestBody.canonical_user_id !== authentication.canonicalUserId) {
+    return c.json({ error: "unauthorized" }, 401);
+  }
+
+  const authority = new DurableObjectBindingAuthority(c.env.TLSN_BINDINGS);
+  let record;
+  try {
+    record = await authority.lookupVerificationJob(requestBody.binding_id, {
+      session_id: requestBody.session_id,
+      canonical_user_id: authentication.canonicalUserId,
+      device_id: requestBody.device_id,
+      verification_job_id: requestBody.job_id,
+      now: Date.now(),
+    });
+  } catch (error) {
+    const message = error instanceof BindingAuthorityError ? error.code : "binding_unknown";
+    return c.json({ verified: false, error: message }, bindingAuthorityStatus(error));
+  }
+
+  if (record.status === "processing") {
+    c.header("Cache-Control", "no-store");
+    return c.json({ verified: false, status: "processing", job_id: requestBody.job_id }, 202);
+  }
+  if (record.status !== "consumed" || !record.verification_result_key) {
+    return c.json({ verified: false, error: "verification_unavailable" }, 503);
+  }
+
+  const object = await c.env.TLSN_PRESENTATIONS.get(record.verification_result_key);
+  if (!object || object.size > MAX_INTERNAL_CALLBACK_JSON_BYTES) {
+    return c.json({ verified: false, error: "verification_result_unavailable" }, 503);
+  }
+  try {
+    const finalResponse = verificationFinalResponseSchema.parse(
+      JSON.parse(await object.text()) as unknown,
+    );
+    c.header("Cache-Control", "no-store");
+    return c.json(finalResponse);
+  } catch {
+    return c.json({ verified: false, error: "verification_result_unavailable" }, 503);
+  }
+});
+
+app.post("/verify/tlsn/retry", async (c) => {
+  const authentication = requireAuthentication(await authenticateRequest(c.req.raw, c.env));
+  if (authentication instanceof Response) {
+    return authentication;
+  }
+  const trigger = triggerExecutionConfig(c.env);
+  if (!trigger) {
+    return c.json({ verified: false, error: "trigger_unconfigured" }, 503);
+  }
+
+  let requestBody: z.infer<typeof verificationStatusRequestSchema>;
+  try {
+    requestBody = verificationStatusRequestSchema.parse(await readJsonBody(c.req.raw));
+  } catch {
+    return c.json({ error: "invalid_request" }, 400);
+  }
+  if (requestBody.canonical_user_id !== authentication.canonicalUserId) {
+    return c.json({ error: "unauthorized" }, 401);
+  }
+
+  const authority = new DurableObjectBindingAuthority(c.env.TLSN_BINDINGS);
+  let record;
+  try {
+    record = await authority.lookupVerificationJob(requestBody.binding_id, {
+      session_id: requestBody.session_id,
+      canonical_user_id: authentication.canonicalUserId,
+      device_id: requestBody.device_id,
+      verification_job_id: requestBody.job_id,
+      now: Date.now(),
+    });
+  } catch (error) {
+    const message = error instanceof BindingAuthorityError ? error.code : "binding_unknown";
+    return c.json({ verified: false, error: message }, bindingAuthorityStatus(error));
+  }
+  if (
+    (record.status !== "processing" && record.status !== "consumed") ||
+    !record.verification_input_key ||
+    !record.verification_result_key
+  ) {
+    return c.json({ verified: false, error: "verification_unavailable" }, 409);
+  }
+
+  if (record.status === "consumed") {
+    const existing = await c.env.TLSN_PRESENTATIONS.get(record.verification_result_key);
+    if (existing) {
+      try {
+        verificationFinalResponseSchema.parse(JSON.parse(await existing.text()) as unknown);
+        return c.json({ verified: true, status: "completed", job_id: requestBody.job_id });
+      } catch {
+        // Queue a repair only if the original input is still available.
+      }
+    }
+    const input = await c.env.TLSN_PRESENTATIONS.get(record.verification_input_key);
+    if (!input) {
+      return c.json({ verified: false, error: "verification_result_unavailable" }, 503);
+    }
+  }
+
+  let payload: VerificationTaskPayload;
+  try {
+    payload = verificationTaskPayloadSchema.parse({
+      job_id: requestBody.job_id,
+      binding_id: requestBody.binding_id,
+      session_id: record.session_id,
+      canonical_user_id: record.canonical_user_id,
+      device_id: record.device_id,
+      device_challenge: record.tlsn_device_challenge,
+      verification_input_key: record.verification_input_key,
+      verification_result_key: record.verification_result_key,
+    });
+    await enqueueTriggerVerification(trigger, payload);
+  } catch {
+    return c.json({ verified: false, error: "trigger_unavailable", job_id: requestBody.job_id }, 503);
+  }
+  c.header("Cache-Control", "no-store");
+  return c.json({ verified: false, status: "queued", job_id: requestBody.job_id }, 202);
+});
+
 app.post("/verify/tlsn", async (c) => {
   const config = await readConfig(c.env);
   if (!config) {
@@ -1222,6 +1669,110 @@ app.post("/verify/tlsn", async (c) => {
     presentationBytes = decodeBase64Url(requestBody.presentation_base64, MAX_PRESENTATION_BYTES);
   } catch {
     return c.json({ error: "invalid_request" }, 400);
+  }
+
+  if (shouldUseTriggerExecution(c.env)) {
+    const trigger = triggerExecutionConfig(c.env);
+    if (!trigger) {
+      return c.json({ verified: false, error: "trigger_unconfigured" }, 503);
+    }
+
+    const authority = new DurableObjectBindingAuthority(c.env.TLSN_BINDINGS);
+    let issuedBinding;
+    try {
+      issuedBinding = await authority.lookupBinding(
+        requestBody.session_id,
+        requestBody.binding,
+        authentication.canonicalUserId,
+        requestBody.device_id,
+        Date.now(),
+      );
+    } catch (error) {
+      const message = error instanceof BindingAuthorityError ? error.code : "binding_unknown";
+      return c.json({ verified: false, error: message }, bindingAuthorityStatus(error));
+    }
+    if (requestBody.device_proof.challenge !== issuedBinding.tlsn_device_challenge) {
+      return c.json({ verified: false, error: "device_challenge_mismatch" }, 409);
+    }
+
+    let deviceChallengeBytes: Uint8Array;
+    try {
+      deviceChallengeBytes = decodeBase64Url(requestBody.device_proof.challenge, 32);
+    } catch {
+      return c.json({ error: "invalid_request" }, 400);
+    }
+    if (deviceChallengeBytes.length !== 32) {
+      return c.json({ error: "invalid_request" }, 400);
+    }
+    const devicePossession = await authenticateTlsnDeviceProof(
+      authentication,
+      {
+        device_id: issuedBinding.device_id,
+        session_id: issuedBinding.session_id,
+        binding_value: issuedBinding.binding_value,
+        challenge: requestBody.device_proof.challenge,
+        sig: requestBody.device_proof.sig,
+      },
+      config.devicePossessionAuthUrl,
+    );
+    if (!devicePossession.ok) {
+      return c.json({ verified: false, error: devicePossession.error }, devicePossession.status);
+    }
+    if (
+      devicePossession.canonicalUserId !== authentication.canonicalUserId ||
+      devicePossession.deviceId !== issuedBinding.device_id ||
+      devicePossession.deviceId !== requestBody.device_id
+    ) {
+      return c.json({ verified: false, error: "device_possession_owner_mismatch" }, 403);
+    }
+
+    const presentationId = encodeBase64Url(
+      new Uint8Array(await crypto.subtle.digest("SHA-256", presentationBytes)),
+    );
+    const jobId = crypto.randomUUID();
+    const verificationInputKey = verificationObjectKey(jobId, "presentation");
+    const verificationResultKey = verificationObjectKey(jobId, "result");
+    const bindingId = await hashBindingId(requestBody.binding);
+    const payload = verificationTaskPayloadSchema.parse({
+      job_id: jobId,
+      binding_id: bindingId,
+      session_id: issuedBinding.session_id,
+      canonical_user_id: authentication.canonicalUserId,
+      device_id: issuedBinding.device_id,
+      device_challenge: requestBody.device_proof.challenge,
+      verification_input_key: verificationInputKey,
+      verification_result_key: verificationResultKey,
+    });
+
+    try {
+      await c.env.TLSN_PRESENTATIONS.put(verificationInputKey, presentationBytes, {
+        httpMetadata: { contentType: "application/octet-stream" },
+      });
+      await authority.claimBinding(requestBody.binding, {
+        session_id: issuedBinding.session_id,
+        canonical_user_id: authentication.canonicalUserId,
+        device_id: issuedBinding.device_id,
+        binding_value: issuedBinding.binding_value,
+        nonce: issuedBinding.nonce,
+        presentation_id: presentationId,
+        verification_job_id: jobId,
+        verification_input_key: verificationInputKey,
+        verification_result_key: verificationResultKey,
+        device_replay_digest_hex: devicePossession.replayDigestHex,
+        now: Date.now(),
+      });
+    } catch {
+      await c.env.TLSN_PRESENTATIONS.delete(verificationInputKey).catch(() => undefined);
+      return c.json({ verified: false, error: "trigger_unavailable", job_id: jobId }, 503);
+    }
+    try {
+      await enqueueTriggerVerification(trigger, payload);
+    } catch {
+      return c.json({ verified: false, error: "trigger_unavailable", job_id: jobId }, 503);
+    }
+
+    c.header("Cache-Control", "no-store");
+    return c.json({ verified: false, status: "queued", job_id: jobId }, 202);
   }
 
   const authority = new DurableObjectBindingAuthority(c.env.TLSN_BINDINGS);
@@ -1327,6 +1878,10 @@ app.post("/verify/tlsn", async (c) => {
       new Uint8Array(await crypto.subtle.digest("SHA-256", presentationBytes)),
     );
     const signingBytes = decodeBase64Url(prepared.signing_bytes, MAX_RESULT_JSON_BYTES);
+    const derivedSigningBytes = derive_verifier_result_signing_bytes(prepared.unsigned_result);
+    if (!hasSameBytes(derivedSigningBytes, signingBytes)) {
+      return c.json({ verified: false, error: "signing_bytes_mismatch" }, 422);
+    }
     const signature = await signResult(config, signingBytes);
     if (signature.length !== 64) {
       return c.json({ error: "verifier_unavailable" }, 503);

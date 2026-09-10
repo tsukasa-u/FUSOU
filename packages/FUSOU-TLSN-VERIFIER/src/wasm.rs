@@ -236,3 +236,17 @@ pub fn attach_verifier_result_signature(
         .canonical_json()
         .map_err(|error| JsValue::from_str(&error.to_string()))
 }
+
+#[wasm_bindgen]
+pub fn derive_verifier_result_signing_bytes(
+    unsigned_result_json: &str,
+) -> Result<Vec<u8>, JsValue> {
+    let result = parse_verifier_result(
+        unsigned_result_json.as_bytes(),
+        &ParserLimits::default(),
+    )
+    .map_err(|error| JsValue::from_str(&error.to_string()))?;
+    result
+        .signing_bytes()
+        .map_err(|error| JsValue::from_str(&error.to_string()))
+}

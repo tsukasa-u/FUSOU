@@ -8,6 +8,7 @@
     "build:wasm": "node scripts/build-wasm.mjs",
     "typecheck": "pnpm run build:wasm && tsc --noEmit",
     "dev": "pnpm run build:wasm && wrangler dev",
+    "deploy:test": "node scripts/deploy-test.mjs",
     "deploy": "pnpm run deploy:production",
     "deploy:canary": "node scripts/deploy-canary.mjs",
     "deploy:production": "node scripts/deploy-production.mjs",

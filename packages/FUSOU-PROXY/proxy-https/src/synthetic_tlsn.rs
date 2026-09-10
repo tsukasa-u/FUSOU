@@ -568,14 +568,33 @@ async fn serve_synthetic_origin(
         }
     }
 
-    let body =
-        b"svdata={\"api_result\":1,\"api_data\":{\"api_basic\":{\"api_member_id\":16189463}}}";
+    let padding_bytes = std::env::var("FUSOU_SYNTHETIC_RESPONSE_PADDING_BYTES")
+        .ok()
+        .and_then(|value| value.parse::<usize>().ok())
+        .unwrap_or(0);
+    let body = if padding_bytes == 0 {
+        b"svdata={\"api_result\":1,\"api_data\":{\"api_basic\":{\"api_member_id\":16189463}}}"
+            .to_vec()
+    } else {
+        let mut padding_values = Vec::new();
+        let mut remaining = padding_bytes;
+        while remaining > 0 {
+            let chunk_size = remaining.min(64 * 1024);
+            padding_values.push(format!("\"{}\"", "a".repeat(chunk_size)));
+            remaining -= chunk_size;
+        }
+        format!(
+            "svdata={{\"api_result\":1,\"api_data\":{{\"api_basic\":{{\"api_member_id\":16189463}},\"padding\":[{}]}}}}",
+            padding_values.join(","),
+        )
+        .into_bytes()
+    };
     let mut response = format!(
         "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
         body.len()
     )
     .into_bytes();
-    response.extend_from_slice(body);
+    response.extend_from_slice(&body);
     stream.write_all(&response).await.map_err(|_| ())?;
     stream.shutdown().await.map_err(|_| ())?;
     Ok((request, response))

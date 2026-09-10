@@ -93,8 +93,8 @@ export function workflowContextFromEnvironment(environment, role) {
   }
   if (!GIT_COMMIT_PATTERN.test(context.git_commit_sha)) throw new Error("git_commit_sha must be a 40-character SHA");
   if (!/^[^/\s]+\/[^/\s]+$/.test(context.repository)) throw new Error("repository must be owner/name");
-  if (!/\.github\/workflows\/[^\s@]+\.ya?ml@[^\s]+$/.test(context.workflow_file_identity)) {
-    throw new Error("workflow_file_identity must identify a workflow file and ref");
+  if (context.workflow_file_identity !== "dotenvx+pnpm+wrangler") {
+    throw new Error("workflow_file_identity must be dotenvx+pnpm+wrangler");
   }
   if (role !== "canary" && role !== "production") throw new Error("deployment_role must be canary or production");
   return context;
