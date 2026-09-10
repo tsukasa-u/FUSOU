@@ -1,6 +1,7 @@
 use crate::experimental_tlsn::{
-    sha256, SerializedOriginRequest, TlsnOriginExchange, TlsnOriginResponse, TlsnOriginTransport,
-    TlsnTransportError, TlsnTransportFuture, UnverifiedTlsnTranscript,
+    sha256, ProofContinuation, ProofContinuationError, SerializedOriginRequest, TlsnOriginCapture,
+    TlsnOriginExchange, TlsnOriginResponse, TlsnOriginTransport, TlsnTransportError,
+    TlsnTransportFuture, UnverifiedTlsnTranscript,
 };
 use fusou_tlsn_verifier::{
     parse_require_info_request, prover_transport::ProverOwnedTlsTransport, ParserLimits,
@@ -16,6 +17,7 @@ use std::{
         atomic::{AtomicBool, Ordering},
         Arc, Mutex,
     },
+    time::{Duration, Instant},
 };
 use tlsn::{
     attestation::{
@@ -33,6 +35,7 @@ use tlsn::{
     Session,
 };
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::sync::oneshot;
 use tokio_rustls::{
     rustls::{pki_types::PrivateKeyDer, ServerConfig},
     TlsAcceptor,
@@ -53,6 +56,12 @@ pub struct SyntheticAlpha15WireEvidence {
     pub presentation_available: bool,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SyntheticAlpha15Timing {
+    pub origin_capture_latency: Duration,
+    pub proof_generation_latency: Option<Duration>,
+}
+
 pub struct SyntheticAlpha15OriginTransport {
     sent: AtomicBool,
     root_certificate: Arc<Vec<u8>>,
@@ -60,6 +69,7 @@ pub struct SyntheticAlpha15OriginTransport {
     private_key: Arc<Vec<u8>>,
     last_request: Mutex<Option<Vec<u8>>>,
     last_evidence: Arc<Mutex<Option<SyntheticAlpha15WireEvidence>>>,
+    last_timing: Arc<Mutex<Option<SyntheticAlpha15Timing>>>,
 }
 
 impl SyntheticAlpha15OriginTransport {
@@ -72,6 +82,7 @@ impl SyntheticAlpha15OriginTransport {
             private_key: Arc::new(private_key),
             last_request: Mutex::new(None),
             last_evidence: Arc::new(Mutex::new(None)),
+            last_timing: Arc::new(Mutex::new(None)),
         })
     }
 
@@ -87,6 +98,10 @@ impl SyntheticAlpha15OriginTransport {
             .lock()
             .ok()
             .and_then(|evidence| evidence.clone())
+    }
+
+    pub fn timing(&self) -> Option<SyntheticAlpha15Timing> {
+        self.last_timing.lock().ok().and_then(|timing| *timing)
     }
 }
 
@@ -104,19 +119,18 @@ impl TlsnOriginTransport for SyntheticAlpha15OriginTransport {
         let server_certificate = Arc::clone(&self.server_certificate);
         let private_key = Arc::clone(&self.private_key);
         let last_evidence = Arc::clone(&self.last_evidence);
+        let last_timing = Arc::clone(&self.last_timing);
         Box::pin(async move {
-            let (exchange, evidence) = run_synthetic_exchange(
+            run_synthetic_exchange(
                 SerializedOriginRequest::new(Bytes::from(request_bytes))
                     .map_err(|_| TlsnTransportError::OriginConnectionFailed)?,
                 root_certificate,
                 server_certificate,
                 private_key,
+                last_evidence,
+                last_timing,
             )
-            .await?;
-            if let Ok(mut stored_evidence) = last_evidence.lock() {
-                *stored_evidence = Some(evidence);
-            }
-            Ok(exchange)
+            .await
         })
     }
 }
@@ -126,7 +140,10 @@ async fn run_synthetic_exchange(
     root_certificate: Arc<Vec<u8>>,
     server_certificate: Arc<Vec<u8>>,
     private_key: Arc<Vec<u8>>,
-) -> Result<(TlsnOriginExchange, SyntheticAlpha15WireEvidence), TlsnTransportError> {
+    last_evidence: Arc<Mutex<Option<SyntheticAlpha15WireEvidence>>>,
+    last_timing: Arc<Mutex<Option<SyntheticAlpha15Timing>>>,
+) -> Result<TlsnOriginCapture, TlsnTransportError> {
+    let exchange_started = Instant::now();
     let _ = tokio_rustls::rustls::crypto::ring::default_provider().install_default();
     let proxy_config = ProxyTlsConfig::builder()
         .server_name(
@@ -175,6 +192,7 @@ async fn run_synthetic_exchange(
         (*server_certificate).clone(),
         (*private_key).clone(),
     ));
+    let (exchange_tx, exchange_rx) = oneshot::channel();
     let prover_root_store = root_store.clone();
     let request_for_prover = request.clone();
     let prover_task = tokio::spawn(async move {
@@ -204,9 +222,19 @@ async fn run_synthetic_exchange(
             )
             .await
             .map_err(|_| TlsnTransportError::OriginConnectionFailed)?;
-        transport
+        let raw_response = transport
             .read_response_to_end()
             .await
+            .map_err(|_| TlsnTransportError::ResponseReadFailed)?;
+        let response = parse_origin_response(&raw_response)?;
+        exchange_tx
+            .send(TlsnOriginExchange {
+                response,
+                transcript: UnverifiedTlsnTranscript {
+                    request_sha256: sha256(request_for_prover.bytes()),
+                    response_sha256: sha256(&raw_response),
+                },
+            })
             .map_err(|_| TlsnTransportError::ResponseReadFailed)?;
         transport
             .close()
@@ -325,101 +353,123 @@ async fn run_synthetic_exchange(
         Ok((sent, received, output, tls_transcript))
     });
 
-    let (prover_result, verifier_result, origin_result) =
-        tokio::join!(prover_task, verifier_task, origin_task);
-    prover_handle.close();
-    verifier_handle.close();
-    let (attestation_request, secrets) =
-        prover_result.map_err(|_| TlsnTransportError::OriginConnectionFailed)??;
-    let (authenticated_request, authenticated_response, verifier_output, verifier_tls_transcript) =
-        verifier_result.map_err(|_| TlsnTransportError::OriginConnectionFailed)??;
-    let (origin_request, raw_response) = origin_result
-        .map_err(|_| TlsnTransportError::ResponseReadFailed)?
+    let exchange = exchange_rx
+        .await
         .map_err(|_| TlsnTransportError::ResponseReadFailed)?;
-    if authenticated_request != origin_request || authenticated_response != raw_response {
-        return Err(TlsnTransportError::ResponseReadFailed);
+    let expected_request = request.bytes().to_vec();
+    if let Ok(mut timing) = last_timing.lock() {
+        *timing = Some(SyntheticAlpha15Timing {
+            origin_capture_latency: exchange_started.elapsed(),
+            proof_generation_latency: None,
+        });
     }
-    if origin_request != request.bytes() {
-        return Err(TlsnTransportError::OriginConnectionFailed);
-    }
-    let mut notary_provider = CryptoProvider::default();
-    notary_provider
-        .signer
-        .set_secp256k1(&[1_u8; 32])
-        .map_err(|_| TlsnTransportError::OriginConnectionFailed)?;
-    let mut attestation_config_builder = AttestationConfig::builder();
-    attestation_config_builder
-        .supported_signature_algs(notary_provider.signer.supported_algs().collect::<Vec<_>>());
-    let attestation_config = attestation_config_builder
-        .build()
-        .map_err(|_| TlsnTransportError::OriginConnectionFailed)?;
-    let attestation_request_for_validation = attestation_request.clone();
-    let mut attestation_builder = Attestation::builder(&attestation_config)
-        .accept_request(attestation_request)
-        .map_err(|_| TlsnTransportError::OriginConnectionFailed)?;
-    let CertBinding::V1_2(binding) = verifier_tls_transcript.certificate_binding() else {
-        return Err(TlsnTransportError::OriginConnectionFailed);
-    };
-    attestation_builder
-        .connection_info(ConnectionInfo {
-            time: verifier_tls_transcript.time(),
-            version: verifier_tls_transcript.version(),
-            transcript_length: TranscriptLength {
-                sent: application_data_length(&verifier_tls_transcript, true)?,
-                received: application_data_length(&verifier_tls_transcript, false)?,
-            },
-        })
-        .server_ephemeral_key(binding.server_ephemeral_key.clone())
-        .transcript_commitments(verifier_output.transcript_commitments);
-    let attestation = attestation_builder
-        .build(&notary_provider)
-        .map_err(|_| TlsnTransportError::OriginConnectionFailed)?;
-    attestation_request_for_validation
-        .validate(&attestation, &CryptoProvider::default())
-        .map_err(|_| TlsnTransportError::OriginConnectionFailed)?;
-    let (sent_len, received_len) = secrets.transcript().len();
-    let mut transcript_proof_builder = secrets.transcript_proof_builder();
-    transcript_proof_builder
-        .reveal_sent(0..sent_len)
-        .map_err(|_| TlsnTransportError::OriginConnectionFailed)?;
-    transcript_proof_builder
-        .reveal_recv(0..received_len)
-        .map_err(|_| TlsnTransportError::OriginConnectionFailed)?;
-    let transcript_proof = transcript_proof_builder
-        .build()
-        .map_err(|_| TlsnTransportError::OriginConnectionFailed)?;
-    let presentation_provider = CryptoProvider::default();
-    let mut presentation_builder = attestation.presentation_builder(&presentation_provider);
-    presentation_builder
-        .identity_proof(secrets.identity_proof())
-        .transcript_proof(transcript_proof);
-    let presentation = presentation_builder
-        .build()
-        .map_err(|_| TlsnTransportError::OriginConnectionFailed)?;
-    let notary_verifying_key = bincode::serialize(presentation.verifying_key())
-        .map_err(|_| TlsnTransportError::OriginConnectionFailed)?;
-    let presentation = bincode::serialize(&presentation)
-        .map_err(|_| TlsnTransportError::OriginConnectionFailed)?;
-    let response = parse_origin_response(&raw_response)?;
-    Ok((
-        TlsnOriginExchange {
-            response,
-            transcript: UnverifiedTlsnTranscript {
-                request_sha256: sha256(&origin_request),
-                response_sha256: sha256(&raw_response),
-            },
-        },
-        SyntheticAlpha15WireEvidence {
-            origin_request,
+    let proof_exchange = exchange.clone();
+    let proof = ProofContinuation::new(Box::pin(async move {
+        let proof_started = Instant::now();
+        let (prover_result, verifier_result, origin_result) =
+            tokio::join!(prover_task, verifier_task, origin_task);
+        prover_handle.close();
+        verifier_handle.close();
+        let (attestation_request, secrets) = prover_result
+            .map_err(|_| ProofContinuationError::ProverFinalization)?
+            .map_err(|_| ProofContinuationError::Prove)?;
+        let (
             authenticated_request,
-            origin_response: raw_response.clone(),
-            authenticated_response: raw_response,
-            presentation: Some(presentation),
-            root_certificate: Some((*root_certificate).clone()),
-            notary_verifying_key: Some(notary_verifying_key),
-            presentation_available: true,
-        },
-    ))
+            authenticated_response,
+            verifier_output,
+            verifier_tls_transcript,
+        ) = verifier_result
+            .map_err(|_| ProofContinuationError::Notary)?
+            .map_err(|_| ProofContinuationError::Notary)?;
+        let (origin_request, raw_response) = origin_result
+            .map_err(|_| ProofContinuationError::ProverFinalization)?
+            .map_err(|_| ProofContinuationError::ProverFinalization)?;
+        let expected_response = proof_exchange.response.raw_response_bytes.clone();
+        if authenticated_request != origin_request || authenticated_response != raw_response {
+            return Err(ProofContinuationError::ProverFinalization);
+        }
+        if origin_request != expected_request || raw_response != expected_response {
+            return Err(ProofContinuationError::ProverFinalization);
+        }
+        let mut notary_provider = CryptoProvider::default();
+        notary_provider
+            .signer
+            .set_secp256k1(&[1_u8; 32])
+            .map_err(|_| ProofContinuationError::Notary)?;
+        let mut attestation_config_builder = AttestationConfig::builder();
+        attestation_config_builder
+            .supported_signature_algs(notary_provider.signer.supported_algs().collect::<Vec<_>>());
+        let attestation_config = attestation_config_builder
+            .build()
+            .map_err(|_| ProofContinuationError::Notary)?;
+        let attestation_request_for_validation = attestation_request.clone();
+        let mut attestation_builder = Attestation::builder(&attestation_config)
+            .accept_request(attestation_request)
+            .map_err(|_| ProofContinuationError::AttestationRequest)?;
+        let CertBinding::V1_2(binding) = verifier_tls_transcript.certificate_binding() else {
+            return Err(ProofContinuationError::AttestationRequest);
+        };
+        let sent = application_data_length(&verifier_tls_transcript, true)
+            .map_err(|_| ProofContinuationError::AttestationRequest)?;
+        let received = application_data_length(&verifier_tls_transcript, false)
+            .map_err(|_| ProofContinuationError::AttestationRequest)?;
+        attestation_builder
+            .connection_info(ConnectionInfo {
+                time: verifier_tls_transcript.time(),
+                version: verifier_tls_transcript.version(),
+                transcript_length: TranscriptLength { sent, received },
+            })
+            .server_ephemeral_key(binding.server_ephemeral_key.clone())
+            .transcript_commitments(verifier_output.transcript_commitments);
+        let attestation = attestation_builder
+            .build(&notary_provider)
+            .map_err(|_| ProofContinuationError::Notary)?;
+        attestation_request_for_validation
+            .validate(&attestation, &CryptoProvider::default())
+            .map_err(|_| ProofContinuationError::AttestationValidation)?;
+        let (sent_len, received_len) = secrets.transcript().len();
+        let mut transcript_proof_builder = secrets.transcript_proof_builder();
+        transcript_proof_builder
+            .reveal_sent(0..sent_len)
+            .map_err(|_| ProofContinuationError::Presentation)?;
+        transcript_proof_builder
+            .reveal_recv(0..received_len)
+            .map_err(|_| ProofContinuationError::Presentation)?;
+        let transcript_proof = transcript_proof_builder
+            .build()
+            .map_err(|_| ProofContinuationError::Presentation)?;
+        let presentation_provider = CryptoProvider::default();
+        let mut presentation_builder = attestation.presentation_builder(&presentation_provider);
+        presentation_builder
+            .identity_proof(secrets.identity_proof())
+            .transcript_proof(transcript_proof);
+        let presentation = presentation_builder
+            .build()
+            .map_err(|_| ProofContinuationError::Presentation)?;
+        let notary_verifying_key = bincode::serialize(presentation.verifying_key())
+            .map_err(|_| ProofContinuationError::Presentation)?;
+        let presentation =
+            bincode::serialize(&presentation).map_err(|_| ProofContinuationError::Presentation)?;
+        if let Ok(mut stored_evidence) = last_evidence.lock() {
+            *stored_evidence = Some(SyntheticAlpha15WireEvidence {
+                origin_request,
+                authenticated_request,
+                origin_response: raw_response.clone(),
+                authenticated_response: raw_response,
+                presentation: Some(presentation),
+                root_certificate: Some((*root_certificate).clone()),
+                notary_verifying_key: Some(notary_verifying_key),
+                presentation_available: true,
+            });
+        }
+        if let Ok(mut timing) = last_timing.lock() {
+            if let Some(timing) = timing.as_mut() {
+                timing.proof_generation_latency = Some(proof_started.elapsed());
+            }
+        }
+        Ok(())
+    }));
+    Ok(TlsnOriginCapture { exchange, proof })
 }
 
 fn application_data_length(
@@ -436,8 +486,8 @@ fn application_data_length(
         .filter(|record| record.typ == ContentType::ApplicationData)
         .map(|record| record.ciphertext.len())
         .try_fold(0_u32, |total, length| {
-            let length = u32::try_from(length)
-                .map_err(|_| TlsnTransportError::OriginConnectionFailed)?;
+            let length =
+                u32::try_from(length).map_err(|_| TlsnTransportError::OriginConnectionFailed)?;
             total
                 .checked_add(length)
                 .ok_or(TlsnTransportError::OriginConnectionFailed)
@@ -604,7 +654,9 @@ mod tests {
         let transport = SyntheticAlpha15OriginTransport::new().unwrap();
         let request = request();
         let expected_request = request.bytes().to_vec();
-        let exchange = transport.send_once(request).await.unwrap();
+        let capture = transport.send_once(request).await.unwrap();
+        let exchange = capture.exchange;
+        capture.proof.run().await.unwrap();
 
         assert_eq!(
             transport.last_request().as_deref(),
@@ -624,8 +676,14 @@ mod tests {
         assert_eq!(evidence.authenticated_request, evidence.origin_request);
         assert_eq!(evidence.authenticated_response, evidence.origin_response);
         assert!(evidence.presentation_available);
-        assert!(evidence.presentation.as_ref().is_some_and(|bytes| !bytes.is_empty()));
-        assert!(evidence.root_certificate.as_ref().is_some_and(|bytes| !bytes.is_empty()));
+        assert!(evidence
+            .presentation
+            .as_ref()
+            .is_some_and(|bytes| !bytes.is_empty()));
+        assert!(evidence
+            .root_certificate
+            .as_ref()
+            .is_some_and(|bytes| !bytes.is_empty()));
         assert!(String::from_utf8_lossy(&exchange.response.body).contains("16189463"));
     }
 

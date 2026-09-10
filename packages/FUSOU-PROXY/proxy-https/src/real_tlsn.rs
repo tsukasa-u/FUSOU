@@ -1,7 +1,8 @@
 use crate::{
     experimental_tlsn::{
         sha256, AttestationBinding, BindingError, BindingFuture, BindingRequestContext,
-        SerializedOriginRequest, TlsnOriginExchange, TlsnOriginResponse, TlsnTransportError,
+        ProofContinuation, ProofContinuationError, SerializedOriginRequest, TlsnOriginCapture,
+        TlsnOriginExchange, TlsnOriginResponse, TlsnTransportError,
     },
     production_tlsn::{Alpha15OriginTransportFactory, OriginTransportConfig, PresentationHandoff},
 };
@@ -324,7 +325,9 @@ async fn write_production_capture_bundle(
     });
     let challenge = URL_SAFE_NO_PAD
         .decode(session.device_challenge())
-        .map_err(|_| std::io::Error::new(std::io::ErrorKind::InvalidData, "invalid device challenge"))?;
+        .map_err(|_| {
+            std::io::Error::new(std::io::ErrorKind::InvalidData, "invalid device challenge")
+        })?;
     let signing_bytes = tlsn_device_proof_signing_bytes(
         session.device_id(),
         session.session_id(),
@@ -344,12 +347,12 @@ async fn write_production_capture_bundle(
         "replay_digest": URL_SAFE_NO_PAD.encode(digest),
         "replay_digest_hex": hex_bytes(&digest),
     });
-    let result = worker_payload
-        .get("result")
-        .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::InvalidData, "Worker result missing"))?;
-    let consume_receipt = worker_payload
-        .get("consume_receipt")
-        .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::InvalidData, "consume receipt missing"))?;
+    let result = worker_payload.get("result").ok_or_else(|| {
+        std::io::Error::new(std::io::ErrorKind::InvalidData, "Worker result missing")
+    })?;
+    let consume_receipt = worker_payload.get("consume_receipt").ok_or_else(|| {
+        std::io::Error::new(std::io::ErrorKind::InvalidData, "consume receipt missing")
+    })?;
     for (name, value) in [
         ("session.json", session_json),
         ("device-authentication.json", authentication_json),
@@ -721,7 +724,7 @@ async fn run_real_exchange(
     request: SerializedOriginRequest,
     notary_endpoint: String,
     handoff: Arc<PresentationHandoff>,
-) -> Result<TlsnOriginExchange, TlsnTransportError> {
+) -> Result<TlsnOriginCapture, TlsnTransportError> {
     let parsed_request = parse_require_info_request(
         request.bytes(),
         config.target().server_identity(),
@@ -793,120 +796,9 @@ async fn run_real_exchange(
         .await
         .map_err(|_| TlsnTransportError::ResponseReadFailed)?;
     let response = parse_http_response(&raw_response)?;
-    transport
-        .close()
-        .await
-        .map_err(|_| TlsnTransportError::ResponseReadFailed)?;
-
-    let mut prover = prover_task
-        .await
-        .map_err(|_| TlsnTransportError::OriginConnectionFailed)?
-        .map_err(|_| TlsnTransportError::OriginConnectionFailed)?;
-    let transcript_commit = {
-        let transcript = HttpTranscript::parse(prover.transcript())
-            .map_err(|_| TlsnTransportError::ResponseReadFailed)?;
-        let mut commit_builder = TranscriptCommitConfig::builder(prover.transcript());
-        DefaultHttpCommitter::default()
-            .commit_transcript(&mut commit_builder, &transcript)
-            .map_err(|_| TlsnTransportError::ResponseReadFailed)?;
-        commit_builder
-            .build()
-            .map_err(|_| TlsnTransportError::ResponseReadFailed)?
-    };
-
-    let mut request_config_builder = RequestConfig::builder();
-    request_config_builder.transcript_commit(transcript_commit.clone());
-    let request_config = request_config_builder
-        .build()
-        .map_err(|_| TlsnTransportError::ResponseReadFailed)?;
-    let mut prove_builder = ProveConfig::builder(prover.transcript());
-    prove_builder
-        .transcript_commit(transcript_commit)
-        .server_identity();
-    prove_builder
-        .reveal_sent_all()
-        .map_err(|_| TlsnTransportError::ResponseReadFailed)?;
-    prove_builder
-        .reveal_recv_all()
-        .map_err(|_| TlsnTransportError::ResponseReadFailed)?;
-    let prove_config = prove_builder
-        .build()
-        .map_err(|_| TlsnTransportError::ResponseReadFailed)?;
-    let ProverOutput {
-        transcript_commitments,
-        transcript_secrets,
-        ..
-    } = prover
-        .prove(&prove_config)
-        .await
-        .map_err(|_| TlsnTransportError::ResponseReadFailed)?;
-    let prover_transcript = prover.transcript().clone();
-    let tls_transcript = prover.tls_transcript().clone();
-    let handshake_data = HandshakeData {
-        certs: tls_transcript
-            .server_cert_chain()
-            .ok_or(TlsnTransportError::ResponseReadFailed)?
-            .to_vec(),
-        sig: tls_transcript
-            .server_signature()
-            .ok_or(TlsnTransportError::ResponseReadFailed)?
-            .clone(),
-        binding: tls_transcript.certificate_binding().clone(),
-    };
-    let mut attestation_builder = AttestationRequest::builder(&request_config);
-    attestation_builder
-        .server_name(ServerName::Dns(
-            DnsName::try_from(config.target().server_identity())
-                .map_err(|_| TlsnTransportError::ResponseReadFailed)?,
-        ))
-        .handshake_data(handshake_data)
-        .transcript(prover_transcript)
-        .transcript_commitments(transcript_secrets, transcript_commitments);
-    let (attestation_request, secrets) = attestation_builder
-        .build(&CryptoProvider::default())
-        .map_err(|_| TlsnTransportError::ResponseReadFailed)?;
-    prover
-        .close()
-        .await
-        .map_err(|_| TlsnTransportError::ResponseReadFailed)?;
-
-    handle.close();
-    let mut notary_socket = driver_task
-        .await
-        .map_err(|_| TlsnTransportError::OriginConnectionFailed)?
-        .map_err(|_| TlsnTransportError::OriginConnectionFailed)?;
-    let request_bytes = bincode::serialize(&attestation_request)
-        .map_err(|_| TlsnTransportError::ResponseReadFailed)?;
-    notary_socket
-        .write_all(&request_bytes)
-        .await
-        .map_err(|_| TlsnTransportError::ResponseReadFailed)?;
-    notary_socket
-        .close()
-        .await
-        .map_err(|_| TlsnTransportError::ResponseReadFailed)?;
-    let mut attestation_bytes = Vec::new();
-    notary_socket
-        .read_to_end(&mut attestation_bytes)
-        .await
-        .map_err(|_| TlsnTransportError::ResponseReadFailed)?;
-    let attestation: Attestation = bincode::deserialize(&attestation_bytes)
-        .map_err(|_| TlsnTransportError::ResponseReadFailed)?;
-    attestation_request
-        .validate(&attestation, &CryptoProvider::default())
-        .map_err(|_| TlsnTransportError::ResponseReadFailed)?;
-    let presentation = build_presentation(&attestation, &secrets)?;
-    let presentation_bytes =
-        bincode::serialize(&presentation).map_err(|_| TlsnTransportError::ResponseReadFailed)?;
-    handoff
-        .publish(
-            sha256(request.bytes()),
-            hex_identifier(&presentation_bytes),
-            presentation_bytes,
-        )
-        .map_err(|_| TlsnTransportError::ResponseReadFailed)?;
-
-    Ok(TlsnOriginExchange {
+    let server_identity = config.target().server_identity().to_owned();
+    let request_sha256 = sha256(request.bytes());
+    let browser_exchange = TlsnOriginExchange {
         response: TlsnOriginResponse::new(
             response.status,
             response.headers,
@@ -914,9 +806,130 @@ async fn run_real_exchange(
             response.raw_response_bytes,
         ),
         transcript: crate::experimental_tlsn::UnverifiedTlsnTranscript {
-            request_sha256: sha256(request.bytes()),
+            request_sha256,
             response_sha256: sha256(&raw_response),
         },
+    };
+    let proof = ProofContinuation::new(Box::pin(async move {
+        transport
+            .close()
+            .await
+            .map_err(|_| ProofContinuationError::ProverFinalization)?;
+
+        let mut prover = prover_task
+            .await
+            .map_err(|_| ProofContinuationError::ProverFinalization)?
+            .map_err(|_| ProofContinuationError::ProverFinalization)?;
+        let transcript_commit = {
+            let transcript = HttpTranscript::parse(prover.transcript())
+                .map_err(|_| ProofContinuationError::TranscriptCommit)?;
+            let mut commit_builder = TranscriptCommitConfig::builder(prover.transcript());
+            DefaultHttpCommitter::default()
+                .commit_transcript(&mut commit_builder, &transcript)
+                .map_err(|_| ProofContinuationError::TranscriptCommit)?;
+            commit_builder
+                .build()
+                .map_err(|_| ProofContinuationError::TranscriptCommit)?
+        };
+
+        let mut request_config_builder = RequestConfig::builder();
+        request_config_builder.transcript_commit(transcript_commit.clone());
+        let request_config = request_config_builder
+            .build()
+            .map_err(|_| ProofContinuationError::AttestationRequest)?;
+        let mut prove_builder = ProveConfig::builder(prover.transcript());
+        prove_builder
+            .transcript_commit(transcript_commit)
+            .server_identity();
+        prove_builder
+            .reveal_sent_all()
+            .map_err(|_| ProofContinuationError::Prove)?;
+        prove_builder
+            .reveal_recv_all()
+            .map_err(|_| ProofContinuationError::Prove)?;
+        let prove_config = prove_builder
+            .build()
+            .map_err(|_| ProofContinuationError::Prove)?;
+        let ProverOutput {
+            transcript_commitments,
+            transcript_secrets,
+            ..
+        } = prover
+            .prove(&prove_config)
+            .await
+            .map_err(|_| ProofContinuationError::Prove)?;
+        let prover_transcript = prover.transcript().clone();
+        let tls_transcript = prover.tls_transcript().clone();
+        let handshake_data = HandshakeData {
+            certs: tls_transcript
+                .server_cert_chain()
+                .ok_or(ProofContinuationError::AttestationRequest)?
+                .to_vec(),
+            sig: tls_transcript
+                .server_signature()
+                .ok_or(ProofContinuationError::AttestationRequest)?
+                .clone(),
+            binding: tls_transcript.certificate_binding().clone(),
+        };
+        let mut attestation_builder = AttestationRequest::builder(&request_config);
+        attestation_builder
+            .server_name(ServerName::Dns(
+                DnsName::try_from(server_identity.as_str())
+                    .map_err(|_| ProofContinuationError::AttestationRequest)?,
+            ))
+            .handshake_data(handshake_data)
+            .transcript(prover_transcript)
+            .transcript_commitments(transcript_secrets, transcript_commitments);
+        let (attestation_request, secrets) = attestation_builder
+            .build(&CryptoProvider::default())
+            .map_err(|_| ProofContinuationError::AttestationRequest)?;
+        prover
+            .close()
+            .await
+            .map_err(|_| ProofContinuationError::ProverFinalization)?;
+
+        handle.close();
+        let mut notary_socket = driver_task
+            .await
+            .map_err(|_| ProofContinuationError::Notary)?
+            .map_err(|_| ProofContinuationError::Notary)?;
+        let request_bytes =
+            bincode::serialize(&attestation_request).map_err(|_| ProofContinuationError::Notary)?;
+        notary_socket
+            .write_all(&request_bytes)
+            .await
+            .map_err(|_| ProofContinuationError::Notary)?;
+        notary_socket
+            .close()
+            .await
+            .map_err(|_| ProofContinuationError::Notary)?;
+        let mut attestation_bytes = Vec::new();
+        notary_socket
+            .read_to_end(&mut attestation_bytes)
+            .await
+            .map_err(|_| ProofContinuationError::Notary)?;
+        let attestation: Attestation =
+            bincode::deserialize(&attestation_bytes).map_err(|_| ProofContinuationError::Notary)?;
+        attestation_request
+            .validate(&attestation, &CryptoProvider::default())
+            .map_err(|_| ProofContinuationError::AttestationValidation)?;
+        let presentation = build_presentation(&attestation, &secrets)
+            .map_err(|_| ProofContinuationError::Presentation)?;
+        let presentation_bytes =
+            bincode::serialize(&presentation).map_err(|_| ProofContinuationError::Presentation)?;
+        handoff
+            .publish(
+                request_sha256,
+                hex_identifier(&presentation_bytes),
+                presentation_bytes,
+            )
+            .map_err(|_| ProofContinuationError::Presentation)?;
+        Ok(())
+    }));
+
+    Ok(TlsnOriginCapture {
+        exchange: browser_exchange,
+        proof,
     })
 }
 

@@ -550,8 +550,7 @@ impl PresentationHandoff {
             return Err(PresentationError::Unavailable);
         };
         let presentation = TlsnPresentation::new(identifier, bytes)?;
-        self
-            .consumed
+        self.consumed
             .lock()
             .map_err(|_| PresentationError::Invalid)?
             .insert(*request_sha256, presentation.clone());
@@ -740,8 +739,7 @@ fn decode_base64url(value: &str) -> Option<Vec<u8>> {
 }
 
 fn base64url_string(bytes: &[u8]) -> String {
-    const TABLE: &[u8; 64] =
-        b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+    const TABLE: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
     let mut output = String::with_capacity((bytes.len() * 4 + 2) / 3);
     for chunk in bytes.chunks(3) {
         let first = chunk[0];
@@ -1120,6 +1118,7 @@ mod tests {
         AttestationBinding, BindingError, BindingFuture, ExperimentalRequireInfoForwarder,
         TlsnOriginResponse, VerifiedMemberId,
     };
+    use crate::experimental_tlsn::{ProofContinuation, TlsnOriginCapture};
     use http::{HeaderMap, HeaderValue, StatusCode};
     use hyper::body::Bytes;
     use std::sync::{atomic::AtomicUsize, Mutex};
@@ -1179,7 +1178,12 @@ mod tests {
         ) -> TlsnTransportFuture {
             self.calls.fetch_add(1, Ordering::SeqCst);
             *self.request.lock().unwrap() = Some(request.bytes().to_vec());
-            Box::pin(async { Ok(exchange()) })
+            Box::pin(async {
+                Ok(TlsnOriginCapture {
+                    exchange: exchange(),
+                    proof: ProofContinuation::completed(),
+                })
+            })
         }
     }
 
@@ -1358,10 +1362,10 @@ mod tests {
             Arc::new(UnconfiguredAlpha15OriginTransportFactory),
         )
         .unwrap();
-        assert_eq!(
+        assert!(matches!(
             transport.send_once(request()).await,
             Err(TlsnTransportError::Unavailable)
-        );
+        ));
     }
 
     #[tokio::test]
@@ -1645,9 +1649,7 @@ mod tests {
         );
 
         assert_eq!(
-            boundary
-                .verify(1, request, binding, exchange)
-                .await,
+            boundary.verify(1, request, binding, exchange).await,
             Err(VerificationError::InvalidTranscript)
         );
         assert!(matches!(

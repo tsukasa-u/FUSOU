@@ -22,7 +22,9 @@ pub type ExperimentalForwardFuture =
 pub type BindingFuture =
     Pin<Box<dyn Future<Output = Result<AttestationBinding, BindingError>> + Send>>;
 pub type TlsnTransportFuture =
-    Pin<Box<dyn Future<Output = Result<TlsnOriginExchange, TlsnTransportError>> + Send>>;
+    Pin<Box<dyn Future<Output = Result<TlsnOriginCapture, TlsnTransportError>> + Send>>;
+pub type ProofContinuationFuture =
+    Pin<Box<dyn Future<Output = Result<(), ProofContinuationError>> + Send>>;
 pub type VerificationFuture =
     Pin<Box<dyn Future<Output = Result<VerifiedTlsnEvidence, VerificationError>> + Send>>;
 pub type ResultBoundaryFuture =
@@ -368,6 +370,96 @@ pub enum TlsnTransportError {
     ResponseReadFailed,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProofContinuationError {
+    ProverFinalization,
+    TranscriptCommit,
+    Prove,
+    AttestationRequest,
+    Notary,
+    AttestationValidation,
+    Presentation,
+}
+
+impl std::fmt::Display for ProofContinuationError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(match self {
+            Self::ProverFinalization => "TLSN prover finalization failed",
+            Self::TranscriptCommit => "TLSN transcript commit failed",
+            Self::Prove => "TLSN prove failed",
+            Self::AttestationRequest => "TLSN AttestationRequest construction failed",
+            Self::Notary => "TLSN Notary exchange failed",
+            Self::AttestationValidation => "TLSN Attestation validation failed",
+            Self::Presentation => "TLSN Presentation construction failed",
+        })
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProofContinuationState {
+    Pending,
+    Running,
+    Succeeded,
+    Failed,
+}
+
+pub struct ProofContinuation {
+    future: Option<ProofContinuationFuture>,
+    state: Arc<Mutex<ProofContinuationState>>,
+}
+
+impl ProofContinuation {
+    pub fn new(future: ProofContinuationFuture) -> Self {
+        Self {
+            future: Some(future),
+            state: Arc::new(Mutex::new(ProofContinuationState::Pending)),
+        }
+    }
+
+    pub fn completed() -> Self {
+        Self::new(Box::pin(async { Ok(()) }))
+    }
+
+    pub fn state(&self) -> Result<ProofContinuationState, String> {
+        self.state
+            .lock()
+            .map(|state| *state)
+            .map_err(|_| "TLSN proof continuation state is poisoned".to_owned())
+    }
+
+    pub fn run(mut self) -> ProofContinuationFuture {
+        let future = self
+            .future
+            .take()
+            .expect("proof continuation must only be run once");
+        let state = Arc::clone(&self.state);
+        Box::pin(async move {
+            if let Ok(mut current) = state.lock() {
+                *current = ProofContinuationState::Running;
+            }
+            match future.await {
+                Ok(()) => {
+                    if let Ok(mut current) = state.lock() {
+                        *current = ProofContinuationState::Succeeded;
+                    }
+                    Ok(())
+                }
+                Err(error) => {
+                    if let Ok(mut current) = state.lock() {
+                        *current = ProofContinuationState::Failed;
+                    }
+                    Err(error)
+                }
+            }
+        })
+    }
+}
+
+pub struct TlsnOriginCapture {
+    pub exchange: TlsnOriginExchange,
+    pub proof: ProofContinuation,
+}
+
 impl std::fmt::Display for TlsnTransportError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let message = match self {
@@ -624,8 +716,22 @@ pub enum ExperimentalTlsnRuntimeState {
     Serialized,
     Sent,
     ResponseReceived,
+    ResponseReturned,
+    ProofStarted,
+    ProverFinalizationFailed,
+    TranscriptCommitFailed,
+    ProveFailed,
+    AttestationRequestFailed,
+    NotaryFailed,
+    AttestationValidationFailed,
+    PresentationFailed,
+    ProofFailed,
     EvidenceReady,
+    PresentationVerificationFailed,
+    WorkerVerificationFailed,
     Verified,
+    ResultSigningFailed,
+    ArtifactDeliveryFailed,
     ResultReady,
 }
 
@@ -678,20 +784,147 @@ impl ExperimentalTlsnForwarder {
         expected: ExperimentalTlsnRuntimeState,
         next: ExperimentalTlsnRuntimeState,
     ) -> Result<(), String> {
-        let mut state = self
-            .state
-            .lock()
-            .map_err(|_| "Experimental TLSN runtime state is poisoned".to_owned())?;
-        if *state != expected {
-            return Err(format!(
-                "invalid Experimental TLSN state transition: {:?} -> {:?}, expected {:?}",
-                *state, next, expected
-            ));
-        }
-        *state = next;
-        Ok(())
+        transition_state(&self.state, expected, next)
     }
 
+    fn transition_shared(
+        state: &Arc<Mutex<ExperimentalTlsnRuntimeState>>,
+        expected: ExperimentalTlsnRuntimeState,
+        next: ExperimentalTlsnRuntimeState,
+    ) -> Result<(), String> {
+        transition_state(state, expected, next)
+    }
+
+    async fn run_proof_pipeline(
+        state: Arc<Mutex<ExperimentalTlsnRuntimeState>>,
+        proof: ProofContinuation,
+        verifier: Arc<dyn ExperimentalVerifierBoundary>,
+        result_boundary: Arc<dyn ExperimentalResultBoundary>,
+        connection_id: u64,
+        serialized: SerializedOriginRequest,
+        binding: AttestationBinding,
+        exchange: TlsnOriginExchange,
+    ) {
+        if Self::transition_shared(
+            &state,
+            ExperimentalTlsnRuntimeState::ResponseReturned,
+            ExperimentalTlsnRuntimeState::ProofStarted,
+        )
+        .is_err()
+        {
+            return;
+        }
+        if let Err(error) = proof.run().await {
+            tracing::warn!(%error, "TLSN proof continuation failed after browser response");
+            let next = match error {
+                ProofContinuationError::ProverFinalization => {
+                    ExperimentalTlsnRuntimeState::ProverFinalizationFailed
+                }
+                ProofContinuationError::TranscriptCommit => {
+                    ExperimentalTlsnRuntimeState::TranscriptCommitFailed
+                }
+                ProofContinuationError::Prove => ExperimentalTlsnRuntimeState::ProveFailed,
+                ProofContinuationError::AttestationRequest => {
+                    ExperimentalTlsnRuntimeState::AttestationRequestFailed
+                }
+                ProofContinuationError::Notary => ExperimentalTlsnRuntimeState::NotaryFailed,
+                ProofContinuationError::AttestationValidation => {
+                    ExperimentalTlsnRuntimeState::AttestationValidationFailed
+                }
+                ProofContinuationError::Presentation => {
+                    ExperimentalTlsnRuntimeState::PresentationFailed
+                }
+            };
+            let _ =
+                Self::transition_shared(&state, ExperimentalTlsnRuntimeState::ProofStarted, next);
+            return;
+        }
+        if Self::transition_shared(
+            &state,
+            ExperimentalTlsnRuntimeState::ProofStarted,
+            ExperimentalTlsnRuntimeState::EvidenceReady,
+        )
+        .is_err()
+        {
+            return;
+        }
+
+        let verified = match verifier
+            .verify(connection_id, serialized, binding, exchange)
+            .await
+        {
+            Ok(verified) => verified,
+            Err(error) => {
+                tracing::warn!(%error, "TLSN Presentation or worker verification failed after browser response");
+                let next = match error {
+                    VerificationError::PresentationUnavailable
+                    | VerificationError::PresentationInvalid => {
+                        ExperimentalTlsnRuntimeState::PresentationVerificationFailed
+                    }
+                    VerificationError::PresentationExportUnavailable
+                    | VerificationError::PresentationExportFailed => {
+                        ExperimentalTlsnRuntimeState::ArtifactDeliveryFailed
+                    }
+                    _ => ExperimentalTlsnRuntimeState::WorkerVerificationFailed,
+                };
+                let _ = Self::transition_shared(
+                    &state,
+                    ExperimentalTlsnRuntimeState::EvidenceReady,
+                    next,
+                );
+                return;
+            }
+        };
+        if Self::transition_shared(
+            &state,
+            ExperimentalTlsnRuntimeState::EvidenceReady,
+            ExperimentalTlsnRuntimeState::Verified,
+        )
+        .is_err()
+        {
+            return;
+        }
+        if let Err(error) = result_boundary.accept(verified).await {
+            tracing::warn!(%error, "TLSN result signing or delivery failed after browser response");
+            let next = match error {
+                ResultBoundaryError::SigningUnavailable => {
+                    ExperimentalTlsnRuntimeState::ResultSigningFailed
+                }
+                ResultBoundaryError::DeliveryUnavailable => {
+                    ExperimentalTlsnRuntimeState::ArtifactDeliveryFailed
+                }
+                ResultBoundaryError::Unavailable => ExperimentalTlsnRuntimeState::ProofFailed,
+            };
+            let _ = Self::transition_shared(&state, ExperimentalTlsnRuntimeState::Verified, next);
+            return;
+        }
+        let _ = Self::transition_shared(
+            &state,
+            ExperimentalTlsnRuntimeState::Verified,
+            ExperimentalTlsnRuntimeState::ResultReady,
+        );
+    }
+}
+
+fn transition_state(
+    state: &Arc<Mutex<ExperimentalTlsnRuntimeState>>,
+    expected: ExperimentalTlsnRuntimeState,
+    next: ExperimentalTlsnRuntimeState,
+) -> Result<(), String> {
+    let mut state = state
+        .lock()
+        .map_err(|_| "Experimental TLSN runtime state is poisoned".to_owned())?;
+    if *state != expected {
+        return Err(format!(
+            "invalid Experimental TLSN state transition: {:?} -> {:?}, expected {:?}",
+            *state, next, expected
+        ));
+    }
+    *state = next;
+    Ok(())
+}
+
+impl ExperimentalTlsnForwarder {
     async fn forward_inner(
         self: Arc<Self>,
         connection_id: u64,
@@ -727,7 +960,7 @@ impl ExperimentalTlsnForwarder {
             ExperimentalTlsnRuntimeState::Serialized,
             ExperimentalTlsnRuntimeState::Sent,
         )?;
-        let exchange = self
+        let capture = self
             .transport
             .send_once(serialized.clone())
             .await
@@ -736,30 +969,32 @@ impl ExperimentalTlsnForwarder {
             ExperimentalTlsnRuntimeState::Sent,
             ExperimentalTlsnRuntimeState::ResponseReceived,
         )?;
+        let TlsnOriginCapture { exchange, proof } = capture;
         let browser_response = exchange.response.clone();
+        let response = response_from_origin(browser_response)?;
         self.transition(
             ExperimentalTlsnRuntimeState::ResponseReceived,
-            ExperimentalTlsnRuntimeState::EvidenceReady,
+            ExperimentalTlsnRuntimeState::ResponseReturned,
         )?;
-        let verified = self
-            .verifier
-            .verify(connection_id, serialized, binding, exchange)
-            .await
-            .map_err(|error| error.to_string())?;
-        self.transition(
-            ExperimentalTlsnRuntimeState::EvidenceReady,
-            ExperimentalTlsnRuntimeState::Verified,
-        )?;
-        self.result_boundary
-            .accept(verified)
-            .await
-            .map_err(|error| error.to_string())?;
-        self.transition(
-            ExperimentalTlsnRuntimeState::Verified,
-            ExperimentalTlsnRuntimeState::ResultReady,
-        )?;
+        let state = Arc::clone(&self.state);
+        let verifier = Arc::clone(&self.verifier);
+        let result_boundary = Arc::clone(&self.result_boundary);
+        tokio::spawn(async move {
+            tokio::task::yield_now().await;
+            Self::run_proof_pipeline(
+                state,
+                proof,
+                verifier,
+                result_boundary,
+                connection_id,
+                serialized,
+                binding,
+                exchange,
+            )
+            .await;
+        });
 
-        response_from_origin(browser_response)
+        Ok(response)
     }
 }
 
@@ -798,6 +1033,7 @@ pub fn sha256(bytes: &[u8]) -> [u8; 32] {
 mod tests {
     use super::*;
     use std::sync::atomic::{AtomicUsize, Ordering};
+    use tokio::sync::oneshot;
 
     fn request(binding: Option<&str>) -> Request<Bytes> {
         let mut builder = Request::builder()
@@ -837,6 +1073,7 @@ mod tests {
         request_bytes: Arc<Mutex<Vec<Vec<u8>>>>,
         response: TlsnOriginExchange,
         retained_response: Mutex<Option<TlsnOriginResponse>>,
+        proof_release: Mutex<Option<oneshot::Receiver<()>>>,
     }
 
     impl TlsnOriginTransport for MockTransport {
@@ -848,7 +1085,18 @@ mod tests {
                 .push(request.bytes().to_vec());
             *self.retained_response.lock().unwrap() = Some(self.response.response.clone());
             let response = self.response.clone();
-            Box::pin(async move { Ok(response) })
+            let proof_release = self.proof_release.lock().unwrap().take();
+            Box::pin(async move {
+                Ok(TlsnOriginCapture {
+                    exchange: response,
+                    proof: match proof_release {
+                        Some(release) => ProofContinuation::new(Box::pin(async move {
+                            release.await.map_err(|_| ProofContinuationError::Prove)
+                        })),
+                        None => ProofContinuation::completed(),
+                    },
+                })
+            })
         }
     }
 
@@ -977,6 +1225,7 @@ mod tests {
             request_bytes: Arc::clone(&request_bytes),
             response: origin_exchange,
             retained_response: Mutex::new(None),
+            proof_release: Mutex::new(None),
         });
         let forwarder = ExperimentalTlsnForwarder::new(
             Arc::new(MockBindingProvider {
@@ -998,6 +1247,16 @@ mod tests {
         assert_eq!(binding_calls.load(Ordering::SeqCst), 1);
         assert_eq!(connection_ids.lock().unwrap().as_slice(), [41]);
         assert_eq!(transport_calls.load(Ordering::SeqCst), 1);
+        tokio::time::timeout(std::time::Duration::from_secs(1), async {
+            loop {
+                if forwarder.state().unwrap() == ExperimentalTlsnRuntimeState::ResultReady {
+                    break;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("background proof pipeline did not complete");
         assert_eq!(verifier_calls.load(Ordering::SeqCst), 1);
         assert_eq!(result_calls.load(Ordering::SeqCst), 1);
         assert_eq!(
@@ -1013,6 +1272,119 @@ mod tests {
                 .count(),
             1
         );
+    }
+
+    #[tokio::test]
+    async fn forward_returns_before_proof_continuation_completes() {
+        let (release_tx, release_rx) = oneshot::channel();
+        let verifier_calls = Arc::new(AtomicUsize::new(0));
+        let result_calls = Arc::new(AtomicUsize::new(0));
+        let expected_request = Http1OriginRequestSerializer
+            .serialize(
+                &request(None).into_parts().0,
+                Bytes::from_static(b"abc"),
+                &binding(),
+            )
+            .unwrap();
+        let mut origin_exchange = exchange();
+        origin_exchange.transcript.request_sha256 = sha256(expected_request.bytes());
+        let transport = Arc::new(MockTransport {
+            calls: Arc::new(AtomicUsize::new(0)),
+            request_bytes: Arc::new(Mutex::new(Vec::new())),
+            response: origin_exchange,
+            retained_response: Mutex::new(None),
+            proof_release: Mutex::new(Some(release_rx)),
+        });
+        let forwarder = ExperimentalTlsnForwarder::new(
+            Arc::new(MockBindingProvider {
+                calls: Arc::new(AtomicUsize::new(0)),
+                connection_ids: Arc::new(Mutex::new(Vec::new())),
+            }),
+            Arc::new(Http1OriginRequestSerializer),
+            Arc::clone(&transport) as Arc<dyn TlsnOriginTransport>,
+            Arc::new(MockVerifier {
+                calls: Arc::clone(&verifier_calls),
+            }),
+            Arc::new(MockResultBoundary {
+                calls: Arc::clone(&result_calls),
+            }),
+        );
+
+        let response = forwarder.forward(41, request(None)).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            forwarder.state().unwrap(),
+            ExperimentalTlsnRuntimeState::ResponseReturned
+        );
+        assert_eq!(verifier_calls.load(Ordering::SeqCst), 0);
+        assert_eq!(result_calls.load(Ordering::SeqCst), 0);
+
+        release_tx.send(()).unwrap();
+        tokio::time::timeout(std::time::Duration::from_secs(1), async {
+            loop {
+                if forwarder.state().unwrap() == ExperimentalTlsnRuntimeState::ResultReady {
+                    break;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("background proof pipeline did not complete");
+        assert_eq!(verifier_calls.load(Ordering::SeqCst), 1);
+        assert_eq!(result_calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn proof_failure_records_stage_after_response_returns() {
+        let (release_tx, release_rx) = oneshot::channel();
+        drop(release_tx);
+        let expected_request = Http1OriginRequestSerializer
+            .serialize(
+                &request(None).into_parts().0,
+                Bytes::from_static(b"abc"),
+                &binding(),
+            )
+            .unwrap();
+        let mut origin_exchange = exchange();
+        origin_exchange.transcript.request_sha256 = sha256(expected_request.bytes());
+        let transport = Arc::new(MockTransport {
+            calls: Arc::new(AtomicUsize::new(0)),
+            request_bytes: Arc::new(Mutex::new(Vec::new())),
+            response: origin_exchange,
+            retained_response: Mutex::new(None),
+            proof_release: Mutex::new(Some(release_rx)),
+        });
+        let forwarder = ExperimentalTlsnForwarder::new(
+            Arc::new(MockBindingProvider {
+                calls: Arc::new(AtomicUsize::new(0)),
+                connection_ids: Arc::new(Mutex::new(Vec::new())),
+            }),
+            Arc::new(Http1OriginRequestSerializer),
+            Arc::clone(&transport) as Arc<dyn TlsnOriginTransport>,
+            Arc::new(MockVerifier {
+                calls: Arc::new(AtomicUsize::new(0)),
+            }),
+            Arc::new(MockResultBoundary {
+                calls: Arc::new(AtomicUsize::new(0)),
+            }),
+        );
+
+        let response = forwarder.forward(41, request(None)).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            forwarder.state().unwrap(),
+            ExperimentalTlsnRuntimeState::ResponseReturned
+        );
+        tokio::time::timeout(std::time::Duration::from_secs(1), async {
+            loop {
+                if forwarder.state().unwrap() == ExperimentalTlsnRuntimeState::ProveFailed {
+                    break;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("proof stage failure was not recorded");
     }
 
     #[tokio::test]
@@ -1034,6 +1406,7 @@ mod tests {
             request_bytes: Arc::new(Mutex::new(Vec::new())),
             response: exchange(),
             retained_response: Mutex::new(None),
+            proof_release: Mutex::new(None),
         });
         let forwarder = ExperimentalTlsnForwarder::new(
             Arc::new(MockBindingProvider {
@@ -1046,14 +1419,26 @@ mod tests {
             Arc::new(UnconfiguredResultBoundary),
         );
         let first = forwarder.forward(1, request(None)).await;
-        assert!(first.is_err());
+        assert!(first.is_ok());
         assert_eq!(transport_calls.load(Ordering::SeqCst), 1);
+        tokio::time::timeout(std::time::Duration::from_secs(1), async {
+            loop {
+                if forwarder.state().unwrap()
+                    == ExperimentalTlsnRuntimeState::WorkerVerificationFailed
+                {
+                    break;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("detached verifier failure was not recorded");
         let second = forwarder.forward(1, request(None)).await;
         assert!(second.is_err());
         assert_eq!(transport_calls.load(Ordering::SeqCst), 1);
         assert_eq!(
             forwarder.state().unwrap(),
-            ExperimentalTlsnRuntimeState::EvidenceReady
+            ExperimentalTlsnRuntimeState::WorkerVerificationFailed
         );
     }
 }

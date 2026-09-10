@@ -1860,6 +1860,7 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn actual_handler_runs_concrete_alpha15_transport_and_returns_origin_response() {
         use std::sync::atomic::{AtomicUsize, Ordering};
+        use std::time::Instant;
 
         let binding_value = integration_binding_value();
         let binding_calls = Arc::new(AtomicUsize::new(0));
@@ -1893,9 +1894,11 @@ mod tests {
         let mut handler = test_handler(route);
         let context = HttpContext::new("127.0.0.1:40002".parse().unwrap(), 73);
 
+        let request_started = Instant::now();
         let first = handler
             .handle_request(&context, actual_require_info_request())
             .await;
+        let browser_response_latency = request_started.elapsed();
         let hudsucker::RequestOrResponse::Response(first) = first else {
             panic!("actual require_info request did not use Experimental TLSN");
         };
@@ -1931,6 +1934,33 @@ mod tests {
                 &AttestationBinding::new(binding_value).expect("integration binding"),
             )
             .expect("serialized actual request");
+        tokio::time::timeout(std::time::Duration::from_secs(2), async {
+            loop {
+                if forwarder.state().expect("runtime state")
+                    == ExperimentalTlsnRuntimeState::ResultReady
+                {
+                    break;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("synthetic proof pipeline did not complete");
+        let total_latency = request_started.elapsed();
+        let timing = transport.timing().expect("synthetic timing");
+        let proof_generation_latency = timing
+            .proof_generation_latency
+            .expect("synthetic proof timing");
+        let additional_browser_latency =
+            browser_response_latency.saturating_sub(timing.origin_capture_latency);
+        eprintln!(
+            "synthetic alpha15 timing: game_server_response={:.3}ms browser_response={:.3}ms additional_browser={:.3}ms proof_generation={:.3}ms total={:.3}ms",
+            timing.origin_capture_latency.as_secs_f64() * 1000.0,
+            browser_response_latency.as_secs_f64() * 1000.0,
+            additional_browser_latency.as_secs_f64() * 1000.0,
+            proof_generation_latency.as_secs_f64() * 1000.0,
+            total_latency.as_secs_f64() * 1000.0,
+        );
         let wire = transport.wire_evidence().expect("synthetic wire evidence");
         let captured_exchange = exchange
             .lock()
@@ -1965,7 +1995,11 @@ mod tests {
         assert_eq!(wire.origin_request, expected_serialized.bytes());
         assert_eq!(wire.authenticated_request, expected_serialized.bytes());
         assert_eq!(wire.origin_response, wire.authenticated_response);
-        assert!(!wire.presentation_available);
+        assert!(wire.presentation_available);
+        assert!(wire
+            .presentation
+            .as_ref()
+            .is_some_and(|bytes| !bytes.is_empty()));
         assert_eq!(
             captured_exchange.transcript.request_sha256,
             sha256(&expected_serialized.bytes())

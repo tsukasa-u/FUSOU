@@ -2,9 +2,7 @@ use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use fusou_tlsn_verifier::BINDING_PREFIX;
 use hyper::body::Bytes;
 use proxy_https::experimental_tlsn::{SerializedOriginRequest, TlsnOriginTransport};
-use proxy_https::synthetic_tlsn::{
-    SYNTHETIC_SERVER_IDENTITY, SyntheticAlpha15OriginTransport,
-};
+use proxy_https::synthetic_tlsn::{SyntheticAlpha15OriginTransport, SYNTHETIC_SERVER_IDENTITY};
 use uuid::Uuid;
 
 fn binding_value() -> String {
