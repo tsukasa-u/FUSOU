@@ -6,9 +6,9 @@ use crate::{register_trait, TraitForConvert};
 
 register_trait!(
     Req,
-    (cond_recovery, expand_base, set_action, set_plane, supply)
+    (change_name, cond_recovery, expand_base, set_action, set_plane, supply)
 );
 register_trait!(
     Res,
-    (cond_recovery, expand_base, set_action, set_plane, supply)
+    (change_name, cond_recovery, expand_base, set_action, set_plane, supply)
 );

@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use kc_api_dto::common::custom_type::DuoType;
 
 use chrono::Local;
 
@@ -221,10 +222,15 @@ impl From<kcapi_main::api_req_map::next::ApiData> for InterfaceWrapper<Cell> {
             });
 
         let itemget: Option<Vec<Itemget>> = cells.api_itemget.map(|items| {
-            items
-                .into_iter()
-                .map(|item| InterfaceWrapper::<Itemget>::from(item).unwrap())
-                .collect()
+            match items {
+                DuoType::Type1(items) => items
+                    .into_iter()
+                    .map(|item| InterfaceWrapper::<Itemget>::from(item).unwrap())
+                    .collect(),
+                DuoType::Type2(item) => {
+                    vec![InterfaceWrapper::<Itemget>::from(item).unwrap()]
+                }
+            }
         });
 
         {
@@ -275,10 +281,15 @@ impl From<kcapi_main::api_req_map::start::ApiData> for InterfaceWrapper<Cell> {
             .map(|happening| InterfaceWrapper::<Happening>::from(happening).unwrap());
 
         let itemget: Option<Vec<Itemget>> = cells.api_itemget.map(|items| {
-            items
-                .into_iter()
-                .map(|item| InterfaceWrapper::<Itemget>::from(item).unwrap())
-                .collect()
+            match items {
+                DuoType::Type1(items) => items
+                    .into_iter()
+                    .map(|item| InterfaceWrapper::<Itemget>::from(item).unwrap())
+                    .collect(),
+                DuoType::Type2(item) => {
+                    vec![InterfaceWrapper::<Itemget>::from(item).unwrap()]
+                }
+            }
         });
 
         {

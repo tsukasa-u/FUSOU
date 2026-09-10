@@ -195,7 +195,7 @@ pub struct Battle {
     pub e_params: Option<Vec<Vec<i64>>>,
     pub f_params: Option<Vec<Vec<i64>>>,
     pub e_slot: Option<Vec<Vec<i64>>>,
-    pub e_hp_max: Option<Vec<i64>>,
+    pub e_hp_max: Option<Vec<Option<i64>>>,
     pub e_combined_flag: Option<i64>,
     pub f_total_damages: Option<Vec<i64>>,
     pub e_total_damages: Option<Vec<i64>>,
@@ -222,10 +222,10 @@ pub struct Battle {
     pub midnight_flare_pos: Option<Vec<i64>>,
     pub midnight_touchplane: Option<Vec<i64>>,
     pub midnight_hougeki: Option<MidnightHougeki>,
-    pub f_nowhps: Option<Vec<i64>>,
-    pub e_nowhps: Option<Vec<i64>>,
-    pub midnight_f_nowhps: Option<Vec<i64>>,
-    pub midnight_e_nowhps: Option<Vec<i64>>,
+    pub f_nowhps: Option<Vec<Option<i64>>>,
+    pub e_nowhps: Option<Vec<Option<i64>>>,
+    pub midnight_f_nowhps: Option<Vec<Option<i64>>>,
+    pub midnight_e_nowhps: Option<Vec<Option<i64>>>,
     pub battle_result: Option<BattleResult>,
 }
 
