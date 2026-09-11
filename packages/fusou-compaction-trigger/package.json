@@ -13,7 +13,6 @@
     "deploy": "pnpm run trigger:deploy",
     "trigger:dev": "dotenvx run -fk ../.env.keys -f .env --overload -- node scripts/trigger-dev.mjs",
     "trigger:deploy": "dotenvx run -fk ../.env.keys -f .env --overload -- node scripts/trigger-deploy.mjs",
-    "trigger:deploy:tlsn": "dotenvx run -fk ../.env.keys -f .env --overload -- node scripts/trigger-deploy-tlsn.mjs",
     "backfill": "dotenvx run -fk ../.env.keys -f .env --overload -- node scripts/trigger-backfill-compaction.mjs",
     "backfill:wait": "dotenvx run -fk ../.env.keys -f .env --overload -- node scripts/trigger-backfill-compaction-wait.mjs",
     "backfill:daily": "pnpm run backfill -- --tier daily",

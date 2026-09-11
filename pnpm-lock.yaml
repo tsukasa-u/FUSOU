@@ -460,6 +460,31 @@ importers:
         specifier: ^5.9.3
         version: 5.9.3
 
+  packages/fusou-tlsn-trigger:
+    dependencies:
+      '@dotenvx/dotenvx':
+        specifier: ^1.59.1
+        version: 1.59.1
+      '@trigger.dev/sdk':
+        specifier: 4.5.3
+        version: 4.5.3(react@19.2.0)(zod@3.25.76)
+      zod:
+        specifier: ^3.25.76
+        version: 3.25.76
+    devDependencies:
+      '@trigger.dev/build':
+        specifier: 4.5.3
+        version: 4.5.3(magicast@0.3.5)(supports-color@10.2.2)(typescript@5.9.3)
+      '@types/node':
+        specifier: ^22.15.30
+        version: 22.20.1
+      trigger.dev:
+        specifier: ^4.5.3
+        version: 4.5.3(react@19.2.0)(typescript@5.9.3)
+      typescript:
+        specifier: ^5.9.3
+        version: 5.9.3
+
 packages:
 
   '@adobe/css-tools@4.4.4':

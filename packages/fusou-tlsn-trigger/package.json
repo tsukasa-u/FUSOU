@@ -1,0 +1,26 @@
+{
+  "name": "fusou-tlsn-trigger",
+  "version": "0.0.1",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "typecheck:config": "tsc -p tsconfig.trigger.config.json --noEmit",
+    "dev": "pnpm run trigger:dev",
+    "deploy": "pnpm run trigger:deploy",
+    "trigger:dev": "dotenvx run -fk ../.env.keys -f .env --overload -- node scripts/trigger-dev.mjs",
+    "trigger:deploy": "dotenvx run -fk ../.env.keys -f .env --overload -- node scripts/trigger-deploy-tlsn.mjs"
+  },
+  "dependencies": {
+    "@dotenvx/dotenvx": "^1.59.1",
+    "@trigger.dev/sdk": "4.5.3",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@trigger.dev/build": "4.5.3",
+    "@types/node": "^22.15.30",
+    "trigger.dev": "^4.5.3",
+    "typescript": "^5.9.3"
+  }
+}

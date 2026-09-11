@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 
-import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import process from "node:process";
+import { spawnSync } from "node:child_process";
 
 const packageDirectory = resolve(fileURLToPath(new URL("..", import.meta.url)));
 
