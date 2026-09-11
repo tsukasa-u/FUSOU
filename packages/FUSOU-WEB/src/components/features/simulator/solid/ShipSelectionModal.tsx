@@ -15,6 +15,7 @@ import { masterDataStatusStore } from "@/features/simulator/data-loader";
 import {
   ShipGrowthBoundsResponseSchema,
   ShipGrowthSummaryResponseSchema,
+  selectLatestShipGrowthPeriod,
 } from "@/features/simulator/ship-growth-utils";
 import {
   PickerQuickAccess,
@@ -68,8 +69,7 @@ function getLatestShipGrowthPeriod(): Promise<{ period_tag: string; table_versio
     const parsed = ShipGrowthSummaryResponseSchema.safeParse(await res.json());
     if (!parsed.success || !parsed.data.ok) return null;
     const json = parsed.data;
-    const latest = json.periods?.[0];
-    return latest ? { period_tag: latest.period_tag, table_version: latest.table_version } : null;
+    return selectLatestShipGrowthPeriod(json.periods);
   })().catch(() => null);
   return _shipGrowthPeriodPromise;
 }

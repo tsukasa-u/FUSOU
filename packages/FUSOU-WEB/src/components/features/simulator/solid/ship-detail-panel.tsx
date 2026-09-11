@@ -35,6 +35,7 @@ import {
   mergeShipGrowthCaps,
   ShipGrowthBoundsResponseSchema,
   ShipGrowthSummaryResponseSchema,
+  selectLatestShipGrowthPeriod,
 } from "@/features/simulator/ship-growth-utils";
 import {
   statRangeLabel,
@@ -97,7 +98,7 @@ function ShipDetailPanel(props: {
         );
         if (!parsedSummary.success || !parsedSummary.data.ok) return;
         const summaryJson = parsedSummary.data;
-        const latest = summaryJson.periods?.[0];
+        const latest = selectLatestShipGrowthPeriod(summaryJson.periods);
         if (!latest) return;
 
         const boundsRes = await cachedFetch(

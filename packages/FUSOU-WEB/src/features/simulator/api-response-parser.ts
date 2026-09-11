@@ -71,6 +71,7 @@ interface ApiShipRaw {
   api_sakuteki: number[];
   api_lucky: number[];
   api_sally_area?: number;
+  api_sortie_tag?: number;
   api_sp_effect_items?: { api_kind: number; api_raig?: number; api_souk?: number; api_houg?: number; api_kaih?: number }[];
 }
 
@@ -180,6 +181,8 @@ function parseApiShip(record: Record<string, unknown>): ApiShipRaw | null {
   };
   const sallyArea = numberOf(record["api_sally_area"], Number.NaN);
   if (Number.isFinite(sallyArea)) result.api_sally_area = sallyArea;
+  const sortieTag = numberOf(record["api_sortie_tag"], Number.NaN);
+  if (Number.isFinite(sortieTag)) result.api_sortie_tag = sortieTag;
 
   const specialEffects = recordsOf(record["api_sp_effect_items"]).map((item) => {
     const effect: {
@@ -281,7 +284,7 @@ export function convertPortToSnapshot(portJson: Record<string, unknown>): {
     t4n: ship.api_taisen?.[0] ?? null,
     s6i: ship.api_sakuteki?.[0] ?? null,
     l3y: ship.api_lucky?.[0] ?? null,
-    s8a: ship.api_sally_area ?? null,
+    s8a: ship.api_sortie_tag ?? ship.api_sally_area ?? null,
     s13s: ship.api_sp_effect_items?.map((item) => ({
       k2d: item.api_kind,
       r2g: item.api_raig ?? null,
