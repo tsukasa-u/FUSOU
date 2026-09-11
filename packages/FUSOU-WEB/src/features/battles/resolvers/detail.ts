@@ -1,5 +1,5 @@
 import { bannerUrl } from "@/features/simulator/equip-calc";
-import { normalizeNullableNumber } from "@/features/battles/helpers";
+import { countValidHps, normalizeHpValue, normalizeNullableNumber } from "@/features/battles/helpers";
 import type { BattleDetailPayload, JsonRecord } from "../repository/types";
 import { battleRowIndexForSort, normalizeTimestamp } from "./indexes";
 
@@ -224,15 +224,20 @@ function hpScore(rows: JsonRecord[], snapshot: unknown[]): number {
       battleRowIndexForSort(left["index"]) -
       battleRowIndexForSort(right["index"]),
   );
+  const validSnapshotCount = countValidHps(snapshot);
   const length = Math.min(sorted.length, snapshot.length);
-  let score = Math.abs(sorted.length - snapshot.length) * 20;
+  let score = Math.abs(sorted.length - validSnapshotCount) * 20;
   for (let index = 0; index < length; index += 1) {
     const row = sorted[index];
     const snapshotValue = snapshot[index];
     if (!row || snapshotValue === undefined) continue;
-    const rowHp = normalizeNullableNumber(row["nowhp"] ?? row["maxhp"]);
-    const snapshotHp = normalizeNullableNumber(snapshotValue);
-    if (rowHp === null || snapshotHp === null) continue;
+    const rowHp = normalizeHpValue(row["nowhp"] ?? row["maxhp"]);
+    const snapshotHp = normalizeHpValue(snapshotValue);
+    if (rowHp === null && snapshotHp === null) continue;
+    if (rowHp === null || snapshotHp === null) {
+      score += 50;
+      continue;
+    }
     score += Math.abs(rowHp - snapshotHp);
   }
   return score;

@@ -29,4 +29,47 @@ describe("battle record parsers", () => {
     expect(records).toHaveLength(1);
     expect(battleResultOf(records[0]!)).toBeNull();
   });
+
+  it("normalizes mvp_ship_indexes from post-0.6.0 schema array", () => {
+    const records = parseBattleRecords([
+      {
+        cell_id: 1,
+        battle_result: {
+          win_rank: "S",
+          mvp_ship_indexes: [0, 2],
+        },
+      },
+    ]);
+
+    const result = battleResultOf(records[0]!);
+    expect(result).toMatchObject({
+      win_rank: "S",
+      mvp_ship_indexes: [0, 2],
+    });
+  });
+
+  it("falls back to api_mvp / mvp (1-indexed) to 0-indexed mvp_ship_indexes for pre-0.6.0 schema", () => {
+    const records = parseBattleRecords([
+      {
+        cell_id: 1,
+        battle_result: {
+          win_rank: "S",
+          api_mvp: 2,
+        },
+      },
+      {
+        cell_id: 2,
+        battle_result: {
+          win_rank: "A",
+          mvp: 1,
+        },
+      },
+    ]);
+
+    const res1 = battleResultOf(records[0]!);
+    expect(res1?.mvp_ship_indexes).toEqual([1]);
+
+    const res2 = battleResultOf(records[1]!);
+    expect(res2?.mvp_ship_indexes).toEqual([0]);
+  });
 });

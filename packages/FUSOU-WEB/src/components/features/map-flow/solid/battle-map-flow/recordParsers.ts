@@ -52,13 +52,22 @@ function parseBattleResult(value: unknown): BattleResultData | string | null {
   if (!isJsonRecord(value)) return null;
   const winRank = stringOrUndefined(value["win_rank"]);
   if (!winRank) return null;
+  let mvpIndexes: number[] | undefined = undefined;
+  if (Array.isArray(value["mvp_ship_indexes"])) {
+    mvpIndexes = value["mvp_ship_indexes"]
+      .map(Number)
+      .filter((n) => Number.isSafeInteger(n) && n >= 0);
+  } else {
+    const rawMvp = Number(value["api_mvp"] ?? value["mvp"]);
+    if (Number.isSafeInteger(rawMvp) && rawMvp > 0) {
+      mvpIndexes = [rawMvp - 1];
+    }
+  }
   return {
     ...value,
     win_rank: winRank,
     drop_ship_id: numberOrNull(value["drop_ship_id"]),
-    ...(Array.isArray(value["mvp_ship_indexes"])
-      ? { mvp_ship_indexes: value["mvp_ship_indexes"] }
-      : {}),
+    ...(mvpIndexes !== undefined ? { mvp_ship_indexes: mvpIndexes } : {}),
   };
 }
 

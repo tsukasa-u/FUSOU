@@ -49,6 +49,17 @@ export function normalizeNullableNumber(value: unknown): number | null {
   return parseFiniteNumber(value).value;
 }
 
+export function normalizeHpValue(value: unknown): number | null {
+  const parsed = parseFiniteNumber(value).value;
+  if (parsed === null || parsed < 0) return null;
+  return parsed;
+}
+
+export function countValidHps(snapshot: unknown[]): number {
+  if (!Array.isArray(snapshot)) return 0;
+  return snapshot.reduce<number>((count, v) => (normalizeHpValue(v) !== null ? count + 1 : count), 0);
+}
+
 export function formatNullableNumber(value: unknown): string {
   return String(parseFiniteNumber(value).value ?? "?");
 }
@@ -86,13 +97,17 @@ export function hpScoreForDeck(
   const sorted = [...ships].sort(
     (a, b) => battleRowIndexForSort(a.index) - battleRowIndexForSort(b.index),
   );
+  const validSnapshotCount = countValidHps(hpSnapshot);
   const len = Math.min(sorted.length, hpSnapshot.length);
-  let score = Math.abs(sorted.length - hpSnapshot.length) * 20;
+  let score = Math.abs(sorted.length - validSnapshotCount) * 20;
   for (let i = 0; i < len; i++) {
-    const nowhp = parseFiniteNumber(
+    const nowhp = normalizeHpValue(
       sorted[i]?.nowhp ?? sorted[i]?.maxhp,
-    ).value;
-    const target = parseFiniteNumber(hpSnapshot[i]).value;
+    );
+    const target = normalizeHpValue(hpSnapshot[i]);
+    if (nowhp === null && target === null) {
+      continue;
+    }
     if (nowhp === null || target === null) {
       score += 50;
       continue;

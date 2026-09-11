@@ -351,4 +351,65 @@ describe("resolveBattleDetail", () => {
       equipments: [expect.objectContaining({ level: 0 })],
     });
   });
+
+  it("resolves fleet with dummy hp slots matching both pre-0.6.0 (-1) and post-0.6.0 (null) schemas", () => {
+    // pre-0.6.0 with -1
+    const resultPre = resolveBattleDetail({
+      periodTag: "2026-08-11",
+      envUuid: "target-env",
+      battleIndex: 0,
+      tables: tables({
+        battle: [
+          {
+            env_uuid: "target-env",
+            index: 0,
+            cell_id: 101,
+            f_nowhps: [35, 40, -1, -1, -1, -1],
+          },
+        ],
+        cells: [{ env_uuid: "target-env", battle_index: [0], cell_index: [101] }],
+        ownDeck: [{ env_uuid: "target-env", uuid: "deck-1", ship_ids: ["fleet-group"] }],
+        ownShip: [
+          { env_uuid: "target-env", uuid: "fleet-group", index: 0, mst_ship_id: 1, nowhp: 35 },
+          { env_uuid: "target-env", uuid: "fleet-group", index: 1, mst_ship_id: 2, nowhp: 40 },
+        ],
+      }),
+      masterShips: [
+        { id: 1, name: "Ship1" },
+        { id: 2, name: "Ship2" },
+      ],
+    });
+
+    // post-0.6.0 with null
+    const resultPost = resolveBattleDetail({
+      periodTag: "2026-08-11",
+      envUuid: "target-env",
+      battleIndex: 0,
+      tables: tables({
+        battle: [
+          {
+            env_uuid: "target-env",
+            index: 0,
+            cell_id: 101,
+            f_nowhps: [35, 40, null, null, null, null],
+          },
+        ],
+        cells: [{ env_uuid: "target-env", battle_index: [0], cell_index: [101] }],
+        ownDeck: [{ env_uuid: "target-env", uuid: "deck-1", ship_ids: ["fleet-group"] }],
+        ownShip: [
+          { env_uuid: "target-env", uuid: "fleet-group", index: 0, mst_ship_id: 1, nowhp: 35 },
+          { env_uuid: "target-env", uuid: "fleet-group", index: 1, mst_ship_id: 2, nowhp: 40 },
+        ],
+      }),
+      masterShips: [
+        { id: 1, name: "Ship1" },
+        { id: 2, name: "Ship2" },
+      ],
+    });
+
+    expect(resultPre?.payload.derived?.friendly_fleet).toHaveLength(2);
+    expect(resultPost?.payload.derived?.friendly_fleet).toHaveLength(2);
+    expect(resultPre?.payload.derived?.friendly_fleet?.[0]?.["name"]).toBe("Ship1");
+    expect(resultPost?.payload.derived?.friendly_fleet?.[0]?.["name"]).toBe("Ship1");
+  });
 });

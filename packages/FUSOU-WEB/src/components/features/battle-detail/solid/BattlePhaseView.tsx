@@ -365,7 +365,13 @@ function AirAttackBatchRows(props: {
 
   const batchLabel = (rows: TimelineEvent[]): string => {
     const first = rows[0];
-    if (first?.actorRole === "airbase") return "基地航空隊";
+    if (first?.actorRole === "airbase") {
+      if (first.airbaseBaseNo) return `第${first.airbaseBaseNo}基地航空隊`;
+      if (first.airbaseBaseNos && first.airbaseBaseNos.length > 0) {
+        return `第${first.airbaseBaseNos.join(", ")}基地航空隊`;
+      }
+      return "基地航空隊";
+    }
     if (first?.actorRole === "support") return "支援航空攻撃";
     return "艦載機";
   };
@@ -624,6 +630,13 @@ function UnifiedAttackRows(props: {
     }
     if (ev.attackerIdx !== null) {
       return shipNameFromIndex(ev.attackerSide, ev.attackerIdx, props.fleets);
+    }
+    if (ev.actorRole === "airbase") {
+      if (ev.airbaseBaseNo) return `第${ev.airbaseBaseNo}基地航空隊`;
+      if (ev.airbaseBaseNos && ev.airbaseBaseNos.length > 0) {
+        return `第${ev.airbaseBaseNos.join(", ")}基地航空隊`;
+      }
+      return "基地航空隊";
     }
     if (ev.attackerMstShipId) {
       return (
