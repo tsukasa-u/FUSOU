@@ -3,7 +3,7 @@ use crate::experimental_tlsn::{
     ExperimentalVerifierBoundary, ResultBoundaryError, ResultBoundaryFuture,
     SerializedOriginRequest, TlsnEvidenceMetadata, TlsnOriginExchange, TlsnOriginTransport,
     TlsnTransportError, TlsnTransportFuture, VerificationError, VerificationFuture,
-    VerifiedTlsnEvidence,
+    VerificationOutcome, VerifiedTlsnEvidence, DeferredVerification,
 };
 use std::{
     collections::HashMap,
@@ -389,6 +389,71 @@ impl PresentationRequestProfile {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PresentationVerificationInput {
+    context: PresentationRequestContext,
+    request: SerializedOriginRequest,
+    binding: AttestationBinding,
+    exchange: TlsnOriginExchange,
+    presentation: TlsnPresentation,
+}
+
+impl PresentationVerificationInput {
+    pub fn new(
+        context: PresentationRequestContext,
+        request: SerializedOriginRequest,
+        binding: AttestationBinding,
+        exchange: TlsnOriginExchange,
+        presentation: TlsnPresentation,
+    ) -> Self {
+        Self {
+            context,
+            request,
+            binding,
+            exchange,
+            presentation,
+        }
+    }
+
+    pub fn context(&self) -> &PresentationRequestContext {
+        &self.context
+    }
+
+    pub fn request(&self) -> &SerializedOriginRequest {
+        &self.request
+    }
+
+    pub fn binding(&self) -> &AttestationBinding {
+        &self.binding
+    }
+
+    pub fn exchange(&self) -> &TlsnOriginExchange {
+        &self.exchange
+    }
+
+    pub fn presentation(&self) -> &TlsnPresentation {
+        &self.presentation
+    }
+
+    pub fn into_parts(
+        self,
+    ) -> (
+        PresentationRequestContext,
+        SerializedOriginRequest,
+        AttestationBinding,
+        TlsnOriginExchange,
+        TlsnPresentation,
+    ) {
+        (
+            self.context,
+            self.request,
+            self.binding,
+            self.exchange,
+            self.presentation,
+        )
+    }
+}
+
 impl PresentationRequestContext {
     fn from_exchange(
         identifiers: RuntimeIdentifiers,
@@ -555,17 +620,6 @@ impl PresentationHandoff {
             .map_err(|_| PresentationError::Invalid)?
             .insert(*request_sha256, presentation.clone());
         Ok(presentation)
-    }
-
-    pub(crate) fn take_consumed(
-        &self,
-        request_sha256: &[u8; 32],
-    ) -> Result<TlsnPresentation, PresentationError> {
-        self.consumed
-            .lock()
-            .map_err(|_| PresentationError::Invalid)?
-            .remove(request_sha256)
-            .ok_or(PresentationError::Unavailable)
     }
 
     fn discard_consumed(&self, request_sha256: &[u8; 32]) {
@@ -761,36 +815,42 @@ fn base64url_string(bytes: &[u8]) -> String {
     output
 }
 
-pub trait DedicatedTlsnVerifier: Send + Sync {
-    fn verify(
-        &self,
-        context: PresentationRequestContext,
-        request: SerializedOriginRequest,
-        binding: AttestationBinding,
-        exchange: TlsnOriginExchange,
-        presentation: TlsnPresentation,
-    ) -> VerificationFuture;
+pub trait TlsnVerificationBackend: Send + Sync {
+    fn verify(&self, input: PresentationVerificationInput) -> VerificationFuture;
 }
 
 #[derive(Debug, Default)]
 pub struct UnconfiguredDedicatedVerifier;
 
-impl DedicatedTlsnVerifier for UnconfiguredDedicatedVerifier {
-    fn verify(
-        &self,
-        _context: PresentationRequestContext,
-        _request: SerializedOriginRequest,
-        _binding: AttestationBinding,
-        _exchange: TlsnOriginExchange,
-        _presentation: TlsnPresentation,
-    ) -> VerificationFuture {
+impl TlsnVerificationBackend for UnconfiguredDedicatedVerifier {
+    fn verify(&self, _input: PresentationVerificationInput) -> VerificationFuture {
         Box::pin(async { Err(VerificationError::Unavailable) })
+    }
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct DeferredVerificationBackend {
+    verification: DeferredVerification,
+}
+
+impl DeferredVerificationBackend {
+    pub fn new(job_id: String) -> Result<Self, VerificationError> {
+        Ok(Self {
+            verification: DeferredVerification::new(job_id)?,
+        })
+    }
+}
+
+impl TlsnVerificationBackend for DeferredVerificationBackend {
+    fn verify(&self, _input: PresentationVerificationInput) -> VerificationFuture {
+        let verification = self.verification.clone();
+        Box::pin(async move { Ok(VerificationOutcome::Deferred(verification)) })
     }
 }
 
 pub struct PresentationVerifierBoundary {
     presentation_provider: Arc<dyn PresentationProvider>,
-    dedicated_verifier: Arc<dyn DedicatedTlsnVerifier>,
+    verification_backend: Arc<dyn TlsnVerificationBackend>,
     presentation_artifact_sink: Option<Arc<dyn PresentationArtifactSink>>,
     target: OriginTarget,
     identifiers: RuntimeIdentifiers,
@@ -799,13 +859,13 @@ pub struct PresentationVerifierBoundary {
 impl PresentationVerifierBoundary {
     pub fn new(
         presentation_provider: Arc<dyn PresentationProvider>,
-        dedicated_verifier: Arc<dyn DedicatedTlsnVerifier>,
+        verification_backend: Arc<dyn TlsnVerificationBackend>,
         target: OriginTarget,
         identifiers: RuntimeIdentifiers,
     ) -> Arc<Self> {
         Self::new_with_artifact_sink(
             presentation_provider,
-            dedicated_verifier,
+            verification_backend,
             target,
             identifiers,
             None,
@@ -814,14 +874,14 @@ impl PresentationVerifierBoundary {
 
     pub fn new_with_artifact_sink(
         presentation_provider: Arc<dyn PresentationProvider>,
-        dedicated_verifier: Arc<dyn DedicatedTlsnVerifier>,
+        verification_backend: Arc<dyn TlsnVerificationBackend>,
         target: OriginTarget,
         identifiers: RuntimeIdentifiers,
         presentation_artifact_sink: Option<Arc<dyn PresentationArtifactSink>>,
     ) -> Arc<Self> {
         Arc::new(Self {
             presentation_provider,
-            dedicated_verifier,
+            verification_backend,
             presentation_artifact_sink,
             target,
             identifiers,
@@ -845,7 +905,7 @@ impl ExperimentalVerifierBoundary for PresentationVerifierBoundary {
             return Box::pin(async { Err(VerificationError::InvalidTranscript) });
         }
         let provider = Arc::clone(&self.presentation_provider);
-        let verifier = Arc::clone(&self.dedicated_verifier);
+        let verification_backend = Arc::clone(&self.verification_backend);
         let artifact_sink = self.presentation_artifact_sink.clone();
         let context = PresentationRequestContext::from_exchange(
             self.identifiers.clone(),
@@ -889,20 +949,33 @@ impl ExperimentalVerifierBoundary for PresentationVerifierBoundary {
                     Some(presentation.identifier().to_owned()),
                     Some(*presentation.sha256()),
                 );
-                let evidence = verifier
-                    .verify(context.clone(), request, binding, exchange, presentation)
+                let outcome = verification_backend
+                    .verify(PresentationVerificationInput::new(
+                        context.clone(),
+                        request,
+                        binding,
+                        exchange,
+                        presentation,
+                    ))
                     .await?;
-                if evidence.request_sha256() != &request_sha256
-                    || evidence.response_sha256() != &response_sha256
-                {
-                    return Err(VerificationError::InvalidTranscript);
+                match outcome {
+                    VerificationOutcome::Verified(evidence) => {
+                        if evidence.request_sha256() != &request_sha256
+                            || evidence.response_sha256() != &response_sha256
+                        {
+                            return Err(VerificationError::InvalidTranscript);
+                        }
+                        Ok(VerificationOutcome::Verified(
+                            evidence.with_metadata(presentation_metadata),
+                        ))
+                    }
+                    VerificationOutcome::Deferred(deferred) => {
+                        Ok(VerificationOutcome::Deferred(deferred))
+                    }
                 }
-                Ok(evidence.with_metadata(presentation_metadata))
             }
             .await;
-            if result.is_err() {
-                provider.discard(&context);
-            }
+            provider.discard(&context);
             result
         })
     }
@@ -1038,7 +1111,7 @@ pub struct ProductionTlsnDependencies {
     transport_factory: Arc<dyn Alpha15OriginTransportFactory>,
     presentation_provider: Arc<dyn PresentationProvider>,
     presentation_artifact_sink: Option<Arc<dyn PresentationArtifactSink>>,
-    dedicated_verifier: Arc<dyn DedicatedTlsnVerifier>,
+    verification_backend: Arc<dyn TlsnVerificationBackend>,
     signer: Arc<dyn ProductionResultSigner>,
     delivery: Arc<dyn ProductionResultDelivery>,
     identifiers: RuntimeIdentifiers,
@@ -1050,7 +1123,7 @@ impl ProductionTlsnDependencies {
         binding_provider: Arc<dyn crate::experimental_tlsn::AttestationBindingProvider>,
         transport_factory: Arc<dyn Alpha15OriginTransportFactory>,
         presentation_provider: Arc<dyn PresentationProvider>,
-        dedicated_verifier: Arc<dyn DedicatedTlsnVerifier>,
+        verification_backend: Arc<dyn TlsnVerificationBackend>,
         signer: Arc<dyn ProductionResultSigner>,
         delivery: Arc<dyn ProductionResultDelivery>,
     ) -> Self {
@@ -1060,7 +1133,7 @@ impl ProductionTlsnDependencies {
             transport_factory,
             presentation_provider,
             presentation_artifact_sink: None,
-            dedicated_verifier,
+            verification_backend,
             signer,
             delivery,
             identifiers: RuntimeIdentifiers::default(),
@@ -1095,7 +1168,7 @@ impl ProductionTlsnDependencies {
         );
         let verifier = PresentationVerifierBoundary::new_with_artifact_sink(
             self.presentation_provider,
-            self.dedicated_verifier,
+            self.verification_backend,
             self.origin.target().clone(),
             self.identifiers,
             Some(presentation_artifact_sink),
@@ -1238,26 +1311,21 @@ mod tests {
         presentation: Mutex<Option<TlsnPresentation>>,
     }
 
-    impl DedicatedTlsnVerifier for RecordingDedicatedVerifier {
-        fn verify(
-            &self,
-            context: PresentationRequestContext,
-            request: SerializedOriginRequest,
-            _binding: AttestationBinding,
-            exchange: TlsnOriginExchange,
-            presentation: TlsnPresentation,
-        ) -> VerificationFuture {
+    impl TlsnVerificationBackend for RecordingDedicatedVerifier {
+        fn verify(&self, input: PresentationVerificationInput) -> VerificationFuture {
             self.calls.fetch_add(1, Ordering::SeqCst);
-            *self.presentation.lock().unwrap() = Some(presentation);
-            let request_sha256 = sha256(request.bytes());
-            let response_sha256 = sha256(&exchange.response.raw_response_bytes);
-            assert_eq!(context.request_sha256(), &request_sha256);
-            assert_eq!(context.response_sha256(), &response_sha256);
+            *self.presentation.lock().unwrap() = Some(input.presentation().clone());
+            let request_sha256 = sha256(input.request().bytes());
+            let response_sha256 = sha256(&input.exchange().response.raw_response_bytes);
+            assert_eq!(input.context().request_sha256(), &request_sha256);
+            assert_eq!(input.context().response_sha256(), &response_sha256);
             Box::pin(async move {
-                Ok(VerifiedTlsnEvidence::from_verifier(
-                    request_sha256,
-                    response_sha256,
-                    VerifiedMemberId::from_verifier("16189463".to_owned())?,
+                Ok(VerificationOutcome::Verified(
+                    VerifiedTlsnEvidence::from_verifier(
+                        request_sha256,
+                        response_sha256,
+                        VerifiedMemberId::from_verifier("16189463".to_owned())?,
+                    ),
                 ))
             })
         }
@@ -1265,20 +1333,15 @@ mod tests {
 
     struct MismatchedDedicatedVerifier;
 
-    impl DedicatedTlsnVerifier for MismatchedDedicatedVerifier {
-        fn verify(
-            &self,
-            _context: PresentationRequestContext,
-            _request: SerializedOriginRequest,
-            _binding: AttestationBinding,
-            _exchange: TlsnOriginExchange,
-            _presentation: TlsnPresentation,
-        ) -> VerificationFuture {
+    impl TlsnVerificationBackend for MismatchedDedicatedVerifier {
+        fn verify(&self, _input: PresentationVerificationInput) -> VerificationFuture {
             Box::pin(async {
-                Ok(VerifiedTlsnEvidence::from_verifier(
-                    [1_u8; 32],
-                    [2_u8; 32],
-                    VerifiedMemberId::from_verifier("16189463".to_owned())?,
+                Ok(VerificationOutcome::Verified(
+                    VerifiedTlsnEvidence::from_verifier(
+                        [1_u8; 32],
+                        [2_u8; 32],
+                        VerifiedMemberId::from_verifier("16189463".to_owned())?,
+                    ),
                 ))
             })
         }
@@ -1435,7 +1498,7 @@ mod tests {
         });
         let boundary = PresentationVerifierBoundary::new(
             Arc::clone(&provider) as Arc<dyn PresentationProvider>,
-            Arc::clone(&verifier) as Arc<dyn DedicatedTlsnVerifier>,
+            Arc::clone(&verifier) as Arc<dyn TlsnVerificationBackend>,
             OriginTarget::new(
                 "game.example.test".to_owned(),
                 443,
@@ -1453,10 +1516,13 @@ mod tests {
         let exchange = exchange();
         let authenticated_request_sha256 = exchange.transcript.request_sha256;
         let authenticated_response_sha256 = exchange.transcript.response_sha256;
-        let evidence = boundary
+        let outcome = boundary
             .verify(7, request.clone(), binding.clone(), exchange)
             .await
             .unwrap();
+        let VerificationOutcome::Verified(evidence) = outcome else {
+            panic!("recording backend unexpectedly deferred verification");
+        };
 
         assert_eq!(provider.calls.load(Ordering::SeqCst), 1);
         assert_eq!(verifier.calls.load(Ordering::SeqCst), 1);
@@ -1593,6 +1659,54 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn deferred_backend_returns_job_without_result_signing() {
+        let backend = DeferredVerificationBackend::new(
+            "123e4567-e89b-42d3-a456-426614174000".to_owned(),
+        )
+        .unwrap();
+        let binding = AttestationBinding::new("opaque".to_owned()).unwrap();
+        let request = request();
+        let exchange = exchange();
+        let target = OriginTarget::new(
+            "game.example.test".to_owned(),
+            443,
+            "game.example.test".to_owned(),
+        )
+        .unwrap();
+        let input = PresentationVerificationInput::new(
+            PresentationRequestContext::from_exchange(
+                RuntimeIdentifiers::default(),
+                1,
+                &binding,
+                &request,
+                &exchange,
+                &target,
+            ),
+            request,
+            binding,
+            exchange,
+            TlsnPresentation::new("presentation-1".to_owned(), vec![1]).unwrap(),
+        );
+
+        let outcome = backend.verify(input).await.unwrap();
+        assert_eq!(
+            outcome,
+            VerificationOutcome::Deferred(
+                DeferredVerification::new("123e4567-e89b-42d3-a456-426614174000".to_owned())
+                    .unwrap()
+            )
+        );
+    }
+
+    #[test]
+    fn deferred_backend_rejects_unsafe_job_id() {
+        assert_eq!(
+            DeferredVerificationBackend::new("job\nwith-control".to_owned()),
+            Err(VerificationError::InvalidDeferredJob)
+        );
+    }
+
+    #[tokio::test]
     async fn presentation_boundary_rejects_inconsistent_transcript_before_provider() {
         let provider = Arc::new(RecordingPresentationProvider {
             calls: AtomicUsize::new(0),
@@ -1653,7 +1767,7 @@ mod tests {
             Err(VerificationError::InvalidTranscript)
         );
         assert!(matches!(
-            handoff.take_consumed(&request_sha256),
+            handoff.take_for(&request_sha256),
             Err(PresentationError::Unavailable)
         ));
     }

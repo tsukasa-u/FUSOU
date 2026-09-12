@@ -2,9 +2,15 @@ use crate::{
     experimental_tlsn::{
         sha256, AttestationBinding, BindingError, BindingFuture, BindingRequestContext,
         ProofContinuation, ProofContinuationError, SerializedOriginRequest, TlsnOriginCapture,
-        TlsnOriginExchange, TlsnOriginResponse, TlsnTransportError,
+        TlsnOriginExchange, TlsnOriginResponse, TlsnTransportError, VerificationError,
+        VerificationFuture,
+        VerificationOutcome, VerifiedMemberId, VerifiedTlsnEvidence,
     },
-    production_tlsn::{Alpha15OriginTransportFactory, OriginTransportConfig, PresentationHandoff},
+    production_tlsn::{
+        Alpha15OriginTransportFactory, OriginTransportConfig, PresentationHandoff,
+        PresentationVerificationInput, ProductionResultSigner, ResultSignerError,
+        ResultSignerFuture, SignedTlsnResult, TlsnPresentation, TlsnVerificationBackend,
+    },
 };
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use chrono::{DateTime, Utc};
@@ -19,6 +25,7 @@ use hyper::body::Bytes;
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
 use std::{
+    collections::HashMap,
     future::IntoFuture,
     path::PathBuf,
     sync::{Arc, Mutex},
@@ -80,83 +87,243 @@ pub struct SessionBindingContext {
     device_auth_signature: String,
 }
 
-pub struct RemoteWorkerResultSigner {
+const WORKER_POLL_INTERVAL: Duration = Duration::from_millis(500);
+const WORKER_POLL_TIMEOUT: Duration = Duration::from_secs(660);
+
+struct RemoteWorkerResult {
+    presentation: TlsnPresentation,
+    session: SessionBindingContext,
+    device_signature: String,
+    payload: serde_json::Value,
+    key_id: String,
+}
+
+pub struct RemoteWorkerResultStore {
+    results: Mutex<HashMap<[u8; 32], RemoteWorkerResult>>,
+}
+
+impl RemoteWorkerResultStore {
+    pub fn new() -> Arc<Self> {
+        Arc::new(Self {
+            results: Mutex::new(HashMap::new()),
+        })
+    }
+
+    fn insert(
+        &self,
+        request_sha256: [u8; 32],
+        result: RemoteWorkerResult,
+    ) -> Result<(), VerificationError> {
+        self.results
+            .lock()
+            .map_err(|_| VerificationError::WorkerUnavailable)?
+            .insert(request_sha256, result);
+        Ok(())
+    }
+
+    fn take(&self, request_sha256: &[u8; 32]) -> Result<RemoteWorkerResult, ResultSignerError> {
+        self.results
+            .lock()
+            .map_err(|_| ResultSignerError::Failed)?
+            .remove(request_sha256)
+            .ok_or(ResultSignerError::Unavailable)
+    }
+}
+
+fn worker_endpoints(endpoint: &str) -> Result<(String, String), TlsnTransportError> {
+    let parsed = reqwest::Url::parse(endpoint.trim()).map_err(|_| TlsnTransportError::Unavailable)?;
+    if parsed.scheme() != "https"
+        || parsed.host_str().is_none()
+        || parsed.username() != ""
+        || parsed.password().is_some()
+        || parsed.query().is_some()
+        || parsed.fragment().is_some()
+    {
+        return Err(TlsnTransportError::Unavailable);
+    }
+    let path = parsed.path().trim_end_matches('/');
+    if path.is_empty() {
+        return Err(TlsnTransportError::Unavailable);
+    }
+    let mut status = parsed.clone();
+    status.set_path(&format!("{path}/status"));
+    Ok((parsed.to_string(), status.to_string()))
+}
+
+fn worker_http_error(status: reqwest::StatusCode, payload: &serde_json::Value) -> VerificationError {
+    if payload
+        .get("error")
+        .and_then(serde_json::Value::as_str)
+        .is_some_and(|error| error.starts_with("trigger_"))
+    {
+        return VerificationError::TriggerUnavailable;
+    }
+    if status.is_server_error() || status == reqwest::StatusCode::TOO_MANY_REQUESTS {
+        VerificationError::WorkerUnavailable
+    } else {
+        VerificationError::WorkerRejected
+    }
+}
+
+async fn worker_json(response: reqwest::Response) -> Result<serde_json::Value, VerificationError> {
+    response
+        .json()
+        .await
+        .map_err(|_| VerificationError::WorkerUnavailable)
+}
+
+fn queued_job_id(payload: &serde_json::Value) -> Result<String, VerificationError> {
+    if payload.get("verified") != Some(&serde_json::Value::Bool(false))
+        || !matches!(
+            payload.get("status").and_then(serde_json::Value::as_str),
+            Some("queued" | "processing")
+        )
+    {
+        return Err(VerificationError::WorkerRejected);
+    }
+    let job_id = payload
+        .get("job_id")
+        .and_then(serde_json::Value::as_str)
+        .ok_or(VerificationError::WorkerRejected)?;
+    uuid::Uuid::parse_str(job_id).map_err(|_| VerificationError::WorkerRejected)?;
+    Ok(job_id.to_owned())
+}
+
+fn verified_worker_payload(
+    payload: serde_json::Value,
+) -> Result<(serde_json::Value, String, VerifiedMemberId), VerificationError> {
+    if payload.get("verified") != Some(&serde_json::Value::Bool(true)) {
+        return Err(VerificationError::WorkerRejected);
+    }
+    let result = payload
+        .get("result")
+        .and_then(serde_json::Value::as_object)
+        .ok_or(VerificationError::WorkerRejected)?;
+    let key_id = result
+        .get("signer_key_id")
+        .and_then(serde_json::Value::as_str)
+        .ok_or(VerificationError::WorkerRejected)?
+        .to_owned();
+    let member_id = result
+        .get("verified_member_id")
+        .and_then(serde_json::Value::as_str)
+        .ok_or(VerificationError::WorkerRejected)
+        .and_then(|value| VerifiedMemberId::from_verifier(value.to_owned()))?;
+    Ok((payload, key_id, member_id))
+}
+
+async fn poll_worker_result(
+    client: &reqwest::Client,
+    status_endpoint: &str,
+    access_token: &str,
+    session: &SessionBindingContext,
+    job_id: &str,
+) -> Result<serde_json::Value, VerificationError> {
+    tokio::time::timeout(WORKER_POLL_TIMEOUT, async {
+        loop {
+            tokio::time::sleep(WORKER_POLL_INTERVAL).await;
+            let binding_id = URL_SAFE_NO_PAD.encode(sha256(session.binding().as_bytes()));
+            let response = client
+                .post(status_endpoint)
+                .bearer_auth(access_token)
+                .json(&serde_json::json!({
+                    "job_id": job_id,
+                    "session_id": session.session_id(),
+                    "binding_id": binding_id,
+                    "canonical_user_id": session.session_receipt.canonical_user_id.clone(),
+                    "device_id": session.device_id(),
+                }))
+                .send()
+                .await
+                .map_err(|_| VerificationError::WorkerUnavailable)?;
+            let status = response.status();
+            let payload = worker_json(response).await?;
+            if status == reqwest::StatusCode::ACCEPTED {
+                if queued_job_id(&payload)? != job_id {
+                    return Err(VerificationError::WorkerRejected);
+                }
+                continue;
+            }
+            if status.is_success() {
+                return Ok(payload);
+            }
+            return Err(worker_http_error(status, &payload));
+        }
+    })
+    .await
+    .map_err(|_| VerificationError::WorkerUnavailable)?
+}
+
+pub struct RemoteWorkerVerificationBackend {
     endpoint: String,
+    status_endpoint: String,
     client: reqwest::Client,
     auth_manager: AuthManager<FileStorage>,
     device_key_path: PathBuf,
     binding_state: Arc<Mutex<Option<SessionBindingContext>>>,
-    handoff: Arc<PresentationHandoff>,
-    artifact_root: PathBuf,
+    results: Arc<RemoteWorkerResultStore>,
 }
 
-impl RemoteWorkerResultSigner {
+impl RemoteWorkerVerificationBackend {
     pub fn new(
         endpoint: String,
         auth_manager: AuthManager<FileStorage>,
         device_key_path: PathBuf,
         binding_state: Arc<Mutex<Option<SessionBindingContext>>>,
-        handoff: Arc<PresentationHandoff>,
-        artifact_root: PathBuf,
-    ) -> Result<Self, crate::production_tlsn::ResultSignerError> {
-        let parsed = reqwest::Url::parse(endpoint.trim())
-            .map_err(|_| crate::production_tlsn::ResultSignerError::Unavailable)?;
-        if parsed.scheme() != "https" || parsed.host_str().is_none() {
-            return Err(crate::production_tlsn::ResultSignerError::Unavailable);
-        }
+        results: Arc<RemoteWorkerResultStore>,
+    ) -> Result<Self, TlsnTransportError> {
+        let (endpoint, status_endpoint) = worker_endpoints(&endpoint)?;
         let client = reqwest::Client::builder()
             .connect_timeout(Duration::from_secs(10))
             .timeout(Duration::from_secs(30))
             .build()
-            .map_err(|_| crate::production_tlsn::ResultSignerError::Unavailable)?;
+            .map_err(|_| TlsnTransportError::Unavailable)?;
         Ok(Self {
             endpoint,
+            status_endpoint,
             client,
             auth_manager,
             device_key_path,
             binding_state,
-            handoff,
-            artifact_root,
+            results,
         })
     }
 }
 
-impl crate::production_tlsn::ProductionResultSigner for RemoteWorkerResultSigner {
-    fn sign(
-        &self,
-        evidence: crate::experimental_tlsn::VerifiedTlsnEvidence,
-    ) -> crate::production_tlsn::ResultSignerFuture {
+impl TlsnVerificationBackend for RemoteWorkerVerificationBackend {
+    fn verify(&self, input: PresentationVerificationInput) -> VerificationFuture {
         let endpoint = self.endpoint.clone();
+        let status_endpoint = self.status_endpoint.clone();
         let client = self.client.clone();
         let auth_manager = self.auth_manager.clone();
         let device_key_path = self.device_key_path.clone();
         let binding_state = Arc::clone(&self.binding_state);
-        let handoff = Arc::clone(&self.handoff);
-        let artifact_root = self.artifact_root.clone();
+        let results = Arc::clone(&self.results);
         Box::pin(async move {
-            let presentation = handoff
-                .take_consumed(evidence.request_sha256())
-                .map_err(|_| crate::production_tlsn::ResultSignerError::Unavailable)?;
+            let (context, _request, binding, _exchange, presentation) = input.into_parts();
             let session = binding_state
                 .lock()
-                .map_err(|_| crate::production_tlsn::ResultSignerError::Failed)?
+                .map_err(|_| VerificationError::WorkerUnavailable)?
                 .take()
-                .ok_or(crate::production_tlsn::ResultSignerError::Unavailable)?;
+                .ok_or(VerificationError::WorkerUnavailable)?;
+            if binding.value() != session.binding() {
+                return Err(VerificationError::BindingMismatch);
+            }
             let device_key = DeviceKey::load_or_create(device_key_path)
                 .await
-                .map_err(|_| crate::production_tlsn::ResultSignerError::Unavailable)?;
+                .map_err(|_| VerificationError::WorkerUnavailable)?;
             if device_key.device_id() != Some(session.device_id()) {
-                return Err(crate::production_tlsn::ResultSignerError::Failed);
+                return Err(VerificationError::WorkerRejected);
             }
             let access_token = auth_manager
                 .get_access_token()
                 .await
-                .map_err(|_| crate::production_tlsn::ResultSignerError::Unavailable)?;
+                .map_err(|_| VerificationError::WorkerUnavailable)?;
             let challenge = URL_SAFE_NO_PAD
                 .decode(session.device_challenge())
-                .map_err(|_| crate::production_tlsn::ResultSignerError::Failed)?;
+                .map_err(|_| VerificationError::WorkerRejected)?;
             if challenge.len() != 32 {
-                return Err(crate::production_tlsn::ResultSignerError::Failed);
+                return Err(VerificationError::WorkerRejected);
             }
             let signing_bytes = tlsn_device_proof_signing_bytes(
                 session.device_id(),
@@ -164,11 +331,11 @@ impl crate::production_tlsn::ProductionResultSigner for RemoteWorkerResultSigner
                 session.binding(),
                 &challenge,
             )
-            .map_err(|_| crate::production_tlsn::ResultSignerError::Failed)?;
+            .map_err(|_| VerificationError::WorkerRejected)?;
             let device_signature = device_key.sign_b64(&signing_bytes);
             let response = client
                 .post(endpoint)
-                .bearer_auth(access_token)
+                .bearer_auth(access_token.clone())
                 .json(&serde_json::json!({
                     "presentation_base64": URL_SAFE_NO_PAD.encode(presentation.bytes()),
                     "session_id": session.session_id(),
@@ -181,37 +348,77 @@ impl crate::production_tlsn::ProductionResultSigner for RemoteWorkerResultSigner
                 }))
                 .send()
                 .await
-                .map_err(|_| crate::production_tlsn::ResultSignerError::Unavailable)?;
-            if !response.status().is_success() {
-                return Err(crate::production_tlsn::ResultSignerError::Failed);
-            }
-            let payload: serde_json::Value = response
-                .json()
-                .await
-                .map_err(|_| crate::production_tlsn::ResultSignerError::Failed)?;
-            if payload.get("verified") != Some(&serde_json::Value::Bool(true)) {
-                return Err(crate::production_tlsn::ResultSignerError::Failed);
-            }
-            let result = payload
-                .get("result")
-                .ok_or(crate::production_tlsn::ResultSignerError::Failed)?;
-            let key_id = result
-                .get("signer_key_id")
-                .and_then(serde_json::Value::as_str)
-                .ok_or(crate::production_tlsn::ResultSignerError::Failed)?;
-            let bytes = serde_json::to_vec(&payload)
-                .map_err(|_| crate::production_tlsn::ResultSignerError::Failed)?;
+                .map_err(|_| VerificationError::WorkerUnavailable)?;
+            let status = response.status();
+            let payload = worker_json(response).await?;
+            let payload = if status == reqwest::StatusCode::ACCEPTED {
+                let job_id = queued_job_id(&payload)?;
+                poll_worker_result(
+                    &client,
+                    &status_endpoint,
+                    &access_token,
+                    &session,
+                    &job_id,
+                )
+                .await?
+            } else if status.is_success() {
+                payload
+            } else {
+                return Err(worker_http_error(status, &payload));
+            };
+            let (payload, key_id, member_id) = verified_worker_payload(payload)?;
+            let request_sha256 = *context.request_sha256();
+            let response_sha256 = *context.response_sha256();
+            results.insert(
+                request_sha256,
+                RemoteWorkerResult {
+                    presentation,
+                    session,
+                    device_signature,
+                    payload,
+                    key_id,
+                },
+            )?;
+            Ok(VerificationOutcome::Verified(
+                VerifiedTlsnEvidence::from_verifier(request_sha256, response_sha256, member_id),
+            ))
+        })
+    }
+}
+
+pub struct RemoteWorkerResultSigner {
+    results: Arc<RemoteWorkerResultStore>,
+    artifact_root: PathBuf,
+}
+
+impl RemoteWorkerResultSigner {
+    pub fn new(results: Arc<RemoteWorkerResultStore>, artifact_root: PathBuf) -> Self {
+        Self {
+            results,
+            artifact_root,
+        }
+    }
+}
+
+impl ProductionResultSigner for RemoteWorkerResultSigner {
+    fn sign(&self, evidence: VerifiedTlsnEvidence) -> ResultSignerFuture {
+        let results = Arc::clone(&self.results);
+        let artifact_root = self.artifact_root.clone();
+        Box::pin(async move {
+            let result = results.take(evidence.request_sha256())?;
+            let bytes = serde_json::to_vec(&result.payload)
+                .map_err(|_| ResultSignerError::Failed)?;
             write_production_capture_bundle(
                 &artifact_root,
-                &presentation,
-                &session,
-                &payload,
-                &device_signature,
+                &result.presentation,
+                &result.session,
+                &result.payload,
+                &result.device_signature,
             )
             .await
-            .map_err(|_| crate::production_tlsn::ResultSignerError::Failed)?;
-            crate::production_tlsn::SignedTlsnResult::new(key_id.to_owned(), bytes)
-                .map_err(|_| crate::production_tlsn::ResultSignerError::Failed)
+            .map_err(|_| ResultSignerError::Failed)?;
+            SignedTlsnResult::new(result.key_id, bytes)
+                .map_err(|_| ResultSignerError::Failed)
         })
     }
 }
@@ -631,18 +838,15 @@ impl RealAlpha15DedicatedVerifier {
     }
 }
 
-impl crate::production_tlsn::DedicatedTlsnVerifier for RealAlpha15DedicatedVerifier {
+impl crate::production_tlsn::TlsnVerificationBackend for RealAlpha15DedicatedVerifier {
     fn verify(
         &self,
-        context: crate::production_tlsn::PresentationRequestContext,
-        request: SerializedOriginRequest,
-        binding: crate::experimental_tlsn::AttestationBinding,
-        exchange: TlsnOriginExchange,
-        presentation: crate::production_tlsn::TlsnPresentation,
+        input: crate::production_tlsn::PresentationVerificationInput,
     ) -> crate::experimental_tlsn::VerificationFuture {
         let server_identity = self.server_identity.clone();
         let notary_verifying_key = self.notary_verifying_key.clone();
         Box::pin(async move {
+            let (context, request, binding, exchange, presentation) = input.into_parts();
             if context.server_identity() != server_identity {
                 return Err(crate::experimental_tlsn::VerificationError::ServerIdentityMismatch);
             }
@@ -680,12 +884,14 @@ impl crate::production_tlsn::DedicatedTlsnVerifier for RealAlpha15DedicatedVerif
                 return Err(crate::experimental_tlsn::VerificationError::InvalidTranscript);
             }
             Ok(
-                crate::experimental_tlsn::VerifiedTlsnEvidence::from_verifier(
+                crate::experimental_tlsn::VerificationOutcome::Verified(
+                    crate::experimental_tlsn::VerifiedTlsnEvidence::from_verifier(
                     request_sha256,
                     response_sha256,
                     crate::experimental_tlsn::VerifiedMemberId::from_verifier(
                         verified.verified_member_id,
                     )?,
+                    ),
                 ),
             )
         })
@@ -1160,6 +1366,54 @@ mod tests {
             &public_key_spki,
             "session-authority-2026",
         )
+        .is_err());
+    }
+
+    #[test]
+    fn worker_endpoint_derives_status_path_without_query_or_fragment() {
+        assert_eq!(
+            worker_endpoints("https://worker.example.test/verify/tlsn").unwrap(),
+            (
+                "https://worker.example.test/verify/tlsn".to_owned(),
+                "https://worker.example.test/verify/tlsn/status".to_owned(),
+            )
+        );
+        assert!(worker_endpoints("https://worker.example.test/verify/tlsn?x=1").is_err());
+    }
+
+    #[test]
+    fn queued_worker_payload_requires_uuid_and_pending_status() {
+        let job_id = "550e8400-e29b-41d4-a716-446655440000";
+        let payload = serde_json::json!({
+            "verified": false,
+            "status": "queued",
+            "job_id": job_id,
+        });
+        assert_eq!(queued_job_id(&payload).unwrap(), job_id);
+        assert!(queued_job_id(&serde_json::json!({
+            "verified": false,
+            "status": "queued",
+            "job_id": "job-1",
+        }))
+        .is_err());
+    }
+
+    #[test]
+    fn worker_final_payload_requires_signed_canonical_member_result() {
+        let payload = serde_json::json!({
+            "verified": true,
+            "result": {
+                "signer_key_id": "result-signer-2026",
+                "verified_member_id": "16189463",
+            },
+        });
+        let (_, key_id, member_id) = verified_worker_payload(payload).unwrap();
+        assert_eq!(key_id, "result-signer-2026");
+        assert_eq!(member_id.as_str(), "16189463");
+        assert!(verified_worker_payload(serde_json::json!({
+            "verified": true,
+            "result": { "signer_key_id": "result-signer-2026", "verified_member_id": "01" },
+        }))
         .is_err());
     }
 }

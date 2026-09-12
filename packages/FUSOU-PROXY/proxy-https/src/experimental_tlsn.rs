@@ -26,7 +26,36 @@ pub type TlsnTransportFuture =
 pub type ProofContinuationFuture =
     Pin<Box<dyn Future<Output = Result<(), ProofContinuationError>> + Send>>;
 pub type VerificationFuture =
-    Pin<Box<dyn Future<Output = Result<VerifiedTlsnEvidence, VerificationError>> + Send>>;
+    Pin<Box<dyn Future<Output = Result<VerificationOutcome, VerificationError>> + Send>>;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DeferredVerification {
+    job_id: String,
+}
+
+impl DeferredVerification {
+    pub fn new(job_id: String) -> Result<Self, VerificationError> {
+        if job_id.is_empty()
+            || !job_id.is_ascii()
+            || job_id
+                .bytes()
+                .any(|byte| byte.is_ascii_control() || byte.is_ascii_whitespace())
+        {
+            return Err(VerificationError::InvalidDeferredJob);
+        }
+        Ok(Self { job_id })
+    }
+
+    pub fn job_id(&self) -> &str {
+        &self.job_id
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum VerificationOutcome {
+    Verified(VerifiedTlsnEvidence),
+    Deferred(DeferredVerification),
+}
 pub type ResultBoundaryFuture =
     Pin<Box<dyn Future<Output = Result<(), ResultBoundaryError>> + Send>>;
 
@@ -631,6 +660,10 @@ pub enum VerificationError {
     PresentationInvalid,
     PresentationExportUnavailable,
     PresentationExportFailed,
+    InvalidDeferredJob,
+    WorkerUnavailable,
+    TriggerUnavailable,
+    WorkerRejected,
 }
 
 impl std::fmt::Display for VerificationError {
@@ -647,6 +680,10 @@ impl std::fmt::Display for VerificationError {
                 "TLSN Presentation artifact export is unavailable"
             }
             Self::PresentationExportFailed => "TLSN Presentation artifact export failed",
+            Self::InvalidDeferredJob => "deferred TLSN verification job ID is invalid",
+            Self::WorkerUnavailable => "TLSN verification Worker is unavailable",
+            Self::TriggerUnavailable => "TLSN verification Trigger is unavailable",
+            Self::WorkerRejected => "TLSN verification Worker rejected the Presentation",
         };
         formatter.write_str(message)
     }
@@ -728,6 +765,9 @@ pub enum ExperimentalTlsnRuntimeState {
     ProofFailed,
     EvidenceReady,
     PresentationVerificationFailed,
+    VerificationDeferred,
+    WorkerUnavailable,
+    TriggerVerificationFailed,
     WorkerVerificationFailed,
     Verified,
     ResultSigningFailed,
@@ -849,11 +889,11 @@ impl ExperimentalTlsnForwarder {
             return;
         }
 
-        let verified = match verifier
+        let outcome = match verifier
             .verify(connection_id, serialized, binding, exchange)
             .await
         {
-            Ok(verified) => verified,
+            Ok(outcome) => outcome,
             Err(error) => {
                 tracing::warn!(%error, "TLSN Presentation or worker verification failed after browser response");
                 let next = match error {
@@ -865,12 +905,33 @@ impl ExperimentalTlsnForwarder {
                     | VerificationError::PresentationExportFailed => {
                         ExperimentalTlsnRuntimeState::ArtifactDeliveryFailed
                     }
+                    VerificationError::WorkerUnavailable => {
+                        ExperimentalTlsnRuntimeState::WorkerUnavailable
+                    }
+                    VerificationError::TriggerUnavailable => {
+                        ExperimentalTlsnRuntimeState::TriggerVerificationFailed
+                    }
                     _ => ExperimentalTlsnRuntimeState::WorkerVerificationFailed,
                 };
                 let _ = Self::transition_shared(
                     &state,
                     ExperimentalTlsnRuntimeState::EvidenceReady,
                     next,
+                );
+                return;
+            }
+        };
+        let verified = match outcome {
+            VerificationOutcome::Verified(evidence) => evidence,
+            VerificationOutcome::Deferred(deferred) => {
+                tracing::info!(
+                    job_id = deferred.job_id(),
+                    "TLSN Presentation verification deferred to the configured backend"
+                );
+                let _ = Self::transition_shared(
+                    &state,
+                    ExperimentalTlsnRuntimeState::EvidenceReady,
+                    ExperimentalTlsnRuntimeState::VerificationDeferred,
                 );
                 return;
             }
@@ -1120,10 +1181,33 @@ mod tests {
                 {
                     return Err(VerificationError::InvalidTranscript);
                 }
-                Ok(VerifiedTlsnEvidence::from_verifier(
-                    sha256(request.bytes()),
-                    sha256(&exchange.response.raw_response_bytes),
-                    VerifiedMemberId::from_verifier("16189463".to_owned())?,
+                Ok(VerificationOutcome::Verified(
+                    VerifiedTlsnEvidence::from_verifier(
+                        sha256(request.bytes()),
+                        sha256(&exchange.response.raw_response_bytes),
+                        VerifiedMemberId::from_verifier("16189463".to_owned())?,
+                    ),
+                ))
+            })
+        }
+    }
+
+    struct DeferredVerifier {
+        calls: Arc<AtomicUsize>,
+    }
+
+    impl ExperimentalVerifierBoundary for DeferredVerifier {
+        fn verify(
+            &self,
+            _connection_id: u64,
+            _request: SerializedOriginRequest,
+            _binding: AttestationBinding,
+            _exchange: TlsnOriginExchange,
+        ) -> VerificationFuture {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            Box::pin(async {
+                Ok(VerificationOutcome::Deferred(
+                    DeferredVerification::new("job-1".to_owned())?,
                 ))
             })
         }
@@ -1272,6 +1356,49 @@ mod tests {
                 .count(),
             1
         );
+    }
+
+    #[tokio::test]
+    async fn deferred_verification_stops_before_result_boundary() {
+        let verifier_calls = Arc::new(AtomicUsize::new(0));
+        let result_calls = Arc::new(AtomicUsize::new(0));
+        let transport = Arc::new(MockTransport {
+            calls: Arc::new(AtomicUsize::new(0)),
+            request_bytes: Arc::new(Mutex::new(Vec::new())),
+            response: exchange(),
+            retained_response: Mutex::new(None),
+            proof_release: Mutex::new(None),
+        });
+        let forwarder = ExperimentalTlsnForwarder::new(
+            Arc::new(MockBindingProvider {
+                calls: Arc::new(AtomicUsize::new(0)),
+                connection_ids: Arc::new(Mutex::new(Vec::new())),
+            }),
+            Arc::new(Http1OriginRequestSerializer),
+            Arc::clone(&transport) as Arc<dyn TlsnOriginTransport>,
+            Arc::new(DeferredVerifier {
+                calls: Arc::clone(&verifier_calls),
+            }),
+            Arc::new(MockResultBoundary {
+                calls: Arc::clone(&result_calls),
+            }),
+        );
+
+        let response = forwarder.forward(41, request(None)).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        tokio::time::timeout(std::time::Duration::from_secs(1), async {
+            loop {
+                if forwarder.state().unwrap() == ExperimentalTlsnRuntimeState::VerificationDeferred
+                {
+                    break;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("deferred verification state was not recorded");
+        assert_eq!(verifier_calls.load(Ordering::SeqCst), 1);
+        assert_eq!(result_calls.load(Ordering::SeqCst), 0);
     }
 
     #[tokio::test]

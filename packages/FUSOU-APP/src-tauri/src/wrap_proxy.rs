@@ -11,9 +11,9 @@ use proxy_https::{
         ServerIdentityPolicy, RuntimeIdentifiers,
     },
     real_tlsn::{
-        FilesystemResultDelivery, RealAlpha15DedicatedVerifier,
-        RealAlpha15OriginTransportFactory, RemoteSessionBindingProvider,
-        RemoteWorkerResultSigner,
+        FilesystemResultDelivery, RealAlpha15OriginTransportFactory,
+        RemoteSessionBindingProvider, RemoteWorkerResultSigner,
+        RemoteWorkerResultStore, RemoteWorkerVerificationBackend,
     },
 };
 #[cfg(feature = "tlsn-production")]
@@ -179,20 +179,21 @@ fn build_production_tlsn_dependencies(
         std::sync::Arc::clone(&handoff),
     )
     .map_err(production_configuration_error)?);
-    let dedicated_verifier = std::sync::Arc::new(RealAlpha15DedicatedVerifier::new(
-        server_identity,
-        notary_key,
-    )
-    .map_err(production_configuration_error)?);
+    let worker_results = RemoteWorkerResultStore::new();
+    let verification_backend = std::sync::Arc::new(
+        RemoteWorkerVerificationBackend::new(
+            verification_endpoint,
+            auth_manager.clone(),
+            get_ROAMING_DIR().join("fusou-auth-device-key.json"),
+            binding_provider.state(),
+            std::sync::Arc::clone(&worker_results),
+        )
+        .map_err(production_configuration_error)?,
+    );
     let result_signer = std::sync::Arc::new(RemoteWorkerResultSigner::new(
-        verification_endpoint,
-        auth_manager.clone(),
-        get_ROAMING_DIR().join("fusou-auth-device-key.json"),
-        binding_provider.state(),
-        std::sync::Arc::clone(&handoff),
+        worker_results,
         artifact_root.clone(),
-    )
-    .map_err(|_| production_configuration_error("invalid TLSN verification endpoint configuration"))?);
+    ));
     Ok(ProductionTlsnDependencies::new(
         origin,
         binding_provider,
@@ -200,7 +201,7 @@ fn build_production_tlsn_dependencies(
         std::sync::Arc::new(HandoffPresentationProvider::new(
             std::sync::Arc::clone(&handoff),
         )),
-        dedicated_verifier,
+        verification_backend,
         result_signer,
         std::sync::Arc::new(FilesystemResultDelivery::new(artifact_root.join("results"))),
     )

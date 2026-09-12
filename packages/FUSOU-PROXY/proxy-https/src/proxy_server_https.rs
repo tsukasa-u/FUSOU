@@ -95,7 +95,8 @@ impl ExperimentalRequireInfoRoute {
     fn decide(&self, parts: &request::Parts) -> ExperimentalRequireInfoDecision {
         if !self.enabled
             || parts.method != http::Method::POST
-            || parts.uri.path() != REQUIRE_INFO_TARGET
+            || parts.uri.path_and_query().map(|value| value.as_str())
+                != Some(REQUIRE_INFO_TARGET)
         {
             return ExperimentalRequireInfoDecision::Forward;
         }
@@ -1510,7 +1511,8 @@ mod tests {
         ExperimentalResultBoundary, ExperimentalTlsnRuntimeState, ExperimentalVerifierBoundary,
         Http1OriginRequestSerializer, OriginRequestSerializer, ResultBoundaryFuture,
         SerializedOriginRequest, TlsnEvidenceMetadata, TlsnOriginExchange, TlsnOriginTransport,
-        VerificationError, VerificationFuture, VerifiedMemberId, VerifiedTlsnEvidence,
+        VerificationError, VerificationFuture, VerificationOutcome, VerifiedMemberId,
+        VerifiedTlsnEvidence,
     };
     use http::{Request as HttpRequest, Response as HttpResponse, Uri};
     use http_body_util::BodyExt;
@@ -1582,14 +1584,24 @@ mod tests {
             .unwrap();
         let target = HttpRequest::builder()
             .method("POST")
+            .uri("https://game.example.test/kcsapi/api_get_member/require_info")
+            .body(())
+            .unwrap();
+        let query_target = HttpRequest::builder()
+            .method("POST")
             .uri("https://game.example.test/kcsapi/api_get_member/require_info?api_token=x")
             .body(())
             .unwrap();
         let (non_target_parts, ()) = non_target.into_parts();
         let (target_parts, ()) = target.into_parts();
+        let (query_target_parts, ()) = query_target.into_parts();
 
         assert_eq!(
             route.decide(&non_target_parts),
+            ExperimentalRequireInfoDecision::Forward
+        );
+        assert_eq!(
+            route.decide(&query_target_parts),
             ExperimentalRequireInfoDecision::Forward
         );
         assert_eq!(
@@ -1696,20 +1708,22 @@ mod tests {
                 {
                     return Err(VerificationError::InvalidTranscript);
                 }
-                Ok(VerifiedTlsnEvidence::from_verifier(
-                    request_sha256,
-                    response_sha256,
-                    VerifiedMemberId::from_verifier("16189463".to_owned())?,
-                )
-                .with_metadata(TlsnEvidenceMetadata::new(
-                    connection_id,
-                    binding_identifier,
-                    Some("game.example.test".to_owned()),
-                    request_sha256,
-                    response_sha256,
-                    None,
-                    None,
-                )))
+                Ok(VerificationOutcome::Verified(
+                    VerifiedTlsnEvidence::from_verifier(
+                        request_sha256,
+                        response_sha256,
+                        VerifiedMemberId::from_verifier("16189463".to_owned())?,
+                    )
+                    .with_metadata(TlsnEvidenceMetadata::new(
+                        connection_id,
+                        binding_identifier,
+                        Some("game.example.test".to_owned()),
+                        request_sha256,
+                        response_sha256,
+                        None,
+                        None,
+                    )),
+                ))
             })
         }
     }
