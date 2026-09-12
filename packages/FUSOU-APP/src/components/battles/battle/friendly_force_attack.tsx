@@ -181,24 +181,22 @@ export function FriendlyForceAttackComponent(props: FriendlyForceAttackProps) {
         return (
           <td>
             <div class="flex flex-col">
-              <div class="flex flex-nowrap">
-                <For each={df_list?.[at_index()]}>
-                  {(df, df_index) => (
-                    <div class="flex flex-nowrap">
-                      <ConnectedNumberedEnemyShip
-                        ship_idx={df}
-                        battle_selected={props.battle_selected}
-                        store_data_set_param_ship={
-                          props.store_data_set_param_ship
-                        }
-                      />
-                      <Show when={protect_flag?.[at_index()]?.[df_index()]}>
-                        <IconShield class="h-4 self-center ml-auto" />
-                      </Show>
-                    </div>
-                  )}
-                </For>
-              </div>
+              <For each={df_list?.[at_index()]}>
+                {(df, df_index) => (
+                  <div class="flex flex-nowrap">
+                    <ConnectedNumberedEnemyShip
+                      ship_idx={df}
+                      battle_selected={props.battle_selected}
+                      store_data_set_param_ship={
+                        props.store_data_set_param_ship
+                      }
+                    />
+                    <Show when={protect_flag?.[at_index()]?.[df_index()]}>
+                      <IconShield class="h-4 self-center ml-auto" />
+                    </Show>
+                  </div>
+                )}
+              </For>
             </div>
           </td>
         );
@@ -206,24 +204,22 @@ export function FriendlyForceAttackComponent(props: FriendlyForceAttackProps) {
         return (
           <td>
             <div class="flex flex-col">
-              <div class="flex flex-nowrap">
-                <For each={df_list?.[at_index()]}>
-                  {(df, df_index) => (
-                    <div class="flex flex-nowrap">
-                      <ConnectedNumberedFriendShip
-                        ship_idx={df}
-                        battle_selected={props.battle_selected}
-                        store_data_set_param_ship={
-                          props.store_data_set_param_ship
-                        }
-                      />
-                      <Show when={protect_flag?.[at_index()]?.[df_index()]}>
-                        <IconShield class="h-4 self-center ml-auto" />
-                      </Show>
-                    </div>
-                  )}
-                </For>
-              </div>
+              <For each={df_list?.[at_index()]}>
+                {(df, df_index) => (
+                  <div class="flex flex-nowrap">
+                    <ConnectedNumberedFriendShip
+                      ship_idx={df}
+                      battle_selected={props.battle_selected}
+                      store_data_set_param_ship={
+                        props.store_data_set_param_ship
+                      }
+                    />
+                    <Show when={protect_flag?.[at_index()]?.[df_index()]}>
+                      <IconShield class="h-4 self-center ml-auto" />
+                    </Show>
+                  </div>
+                )}
+              </For>
             </div>
           </td>
         );
@@ -373,7 +369,9 @@ export function FriendlyForceAttackComponent(props: FriendlyForceAttackProps) {
         <details open={true}>
           <summary>Friendly Force Attack</summary>
           <ul class="pl-0">
-            <div class="pl-2 text-xs flex felx-nowarp">{display_flare()}</div>
+            <div class="pl-2 text-xs flex flex-nowrap items-center">
+              {display_flare()}
+            </div>
             <table class="table table-xs">
               <thead>
                 <tr>
@@ -399,7 +397,7 @@ export function FriendlyForceAttackComponent(props: FriendlyForceAttackProps) {
                     }
                   >
                     {(at, at_index) => (
-                      <tr>
+                      <tr class="rounded">
                         {attacker_ship(at, at_index)}
                         {attacker_hp(at, at_index)}
                         {defenser_ships(at_index)}

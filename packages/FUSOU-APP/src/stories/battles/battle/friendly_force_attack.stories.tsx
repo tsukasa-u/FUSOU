@@ -1,4 +1,4 @@
-import { BattleSummaryComponent } from "../../../components/battles/battle/battle_summary.tsx";
+import { FriendlyForceAttackComponent } from "../../../components/battles/battle/friendly_force_attack.tsx";
 import {
   DeckBattlesContext,
   ShipsContext,
@@ -15,7 +15,6 @@ import { mst_ships } from "@fusou-testdata-ipc/mst_ships.ts";
 import { slot_items } from "@fusou-testdata-ipc/slot_items.ts";
 import { mst_slot_itmes } from "@fusou-testdata-ipc/mst_slot_items.ts";
 import { ports_3_5 } from "@fusou-testdata-ipc/3-5/ports.ts";
-import { cells_3_5 } from "@fusou-testdata-ipc/3-5/cells.ts";
 import { cells_with_friendly } from "./friendly_test_data.ts";
 import {
   get_deck_ship_id,
@@ -25,11 +24,11 @@ import {
 import { get_data_set_param_ship } from "../../../utility/get_data_set.tsx";
 
 export default {
-  title: "components/battles/battle/battle_summary",
-  component: BattleSummaryComponent,
+  title: "components/battles/battle/friendly_force_attack",
+  component: FriendlyForceAttackComponent,
   tags: ["autodocs"],
   args: {
-    battle_index: 1,
+    battle_index: 2,
     store_data_set_deck_ship: get_store_data_set_deck_ship,
     battle_selected: (x: number) => get_battle_selected(x),
     deck_ship_id: get_deck_ship_id,
@@ -38,7 +37,7 @@ export default {
   },
   render: function Render(args: any) {
     return (
-      <BattleSummaryComponent
+      <FriendlyForceAttackComponent
         store_data_set_deck_ship={args.store_data_set_deck_ship}
         deck_ship_id={args.deck_ship_id}
         battle_selected={() => args.battle_selected(args.battle_index)}
@@ -52,35 +51,6 @@ export default {
 
 export const WithDecorator = {
   args: {},
-  decorators: [
-    (Story: any, context: any) => {
-      return (
-        <ul class="menu menu-xs bg-base-100 w-full pl-0 flex pt-0">
-          <MstSlotItemsContext.Provider value={[mst_slot_itmes]}>
-            <SlotItemsContext.Provider value={[slot_items]}>
-              <ShipsContext.Provider value={[ships]}>
-                <MstShipsContext.Provider value={[mst_ships]}>
-                  <DeckBattlesContext.Provider value={[ports_3_5]}>
-                    <AirBasesBattlesContext.Provider value={[air_bases]}>
-                      <CellsContext.Provider value={[cells_3_5]}>
-                        <Story {...context.args} />
-                      </CellsContext.Provider>
-                    </AirBasesBattlesContext.Provider>
-                  </DeckBattlesContext.Provider>
-                </MstShipsContext.Provider>
-              </ShipsContext.Provider>
-            </SlotItemsContext.Provider>
-          </MstSlotItemsContext.Provider>
-        </ul>
-      );
-    },
-  ],
-};
-
-export const WithFriendlyForce = {
-  args: {
-    battle_index: 2,
-  },
   decorators: [
     (Story: any, context: any) => {
       return (
