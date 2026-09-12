@@ -1,5 +1,11 @@
 import type { JSX } from "solid-js";
-import { createContext, useContext, createEffect, onCleanup } from "solid-js";
+import {
+  createContext,
+  useContext,
+  createEffect,
+  onCleanup,
+  createSignal,
+} from "solid-js";
 import type { Part, SetStoreFunction } from "solid-js/store";
 import { createStore } from "solid-js/store";
 import type { UnlistenFn } from "@tauri-apps/api/event";
@@ -43,11 +49,26 @@ import { default_air_bases } from "@ipc-bindings/default_state/map_info";
 
 import type { Battle } from "@ipc-bindings/battle";
 
+function createVersionedStore<T extends object>(
+  initial: T,
+): [T, SetStoreFunction<T>, () => void] {
+  const [data, setData] = createStore<T>(initial);
+  const [version, setVersion] = createSignal(0);
+  const proxy = new Proxy(data, {
+    get(target, prop) {
+      version();
+      return target[prop as keyof T];
+    },
+  });
+  const notify = () => setVersion((v) => v + 1);
+  return [proxy, setData, notify];
+}
+
 export const ShipsContext =
   createContext<(Ships | SetStoreFunction<Ships>)[]>();
 
 export function ShipsProvider(props: { children: JSX.Element }) {
-  const [data, setData] = createStore<Ships>(
+  const [data, setData, notify] = createVersionedStore<Ships>(
     JSON.parse(JSON.stringify(default_ships)),
   );
   const setter = [data, setData];
@@ -59,6 +80,7 @@ export function ShipsProvider(props: { children: JSX.Element }) {
       unlisten_data_set = await listen<Ships>("set-kcs-ships", (event) => {
         if (import.meta.env.DEV) console.log("set-kcs-ships");
         setData(event.payload);
+        notify();
       });
       unlisten_data_add = await listen<Ships>("add-kcs-ships", (event) => {
         if (import.meta.env.DEV) console.log("add-kcs-ships");
@@ -76,6 +98,7 @@ export function ShipsProvider(props: { children: JSX.Element }) {
             });
           }
         });
+        notify();
       });
     })();
 
@@ -104,7 +127,7 @@ export const MstShipsContext =
   createContext<(MstShips | SetStoreFunction<MstShips>)[]>();
 
 export function MstShipsProvider(props: { children: JSX.Element }) {
-  const [data, setData] = createStore<MstShips>(
+  const [data, setData, notify] = createVersionedStore<MstShips>(
     JSON.parse(JSON.stringify(default_mst_ships)),
   );
   const setter = [data, setData];
@@ -115,6 +138,7 @@ export function MstShipsProvider(props: { children: JSX.Element }) {
       unlisten_data = await listen<MstShips>("set-kcs-mst-ships", (event) => {
         if (import.meta.env.DEV) console.log("set-kcs-mst-ships");
         setData(event.payload);
+        notify();
       });
     })();
 
@@ -142,7 +166,7 @@ export const SlotItemsContext =
   createContext<(SlotItems | SetStoreFunction<SlotItems>)[]>();
 
 export function SlotItemsProvider(props: { children: JSX.Element }) {
-  const [data, setData] = createStore<SlotItems>(
+  const [data, setData, notify] = createVersionedStore<SlotItems>(
     JSON.parse(JSON.stringify(default_slotitems)),
   );
   const setter = [data, setData];
@@ -153,6 +177,7 @@ export function SlotItemsProvider(props: { children: JSX.Element }) {
       unlisten_data = await listen<SlotItems>("set-kcs-slot-items", (event) => {
         if (import.meta.env.DEV) console.log("set-kcs-slot-items");
         setData(event.payload);
+        notify();
       });
     })();
 
@@ -180,7 +205,7 @@ export const MstSlotItemsContext =
   createContext<(MstSlotItems | SetStoreFunction<MstSlotItems>)[]>();
 
 export function MstSlotItemsProvider(props: { children: JSX.Element }) {
-  const [data, setData] = createStore<MstSlotItems>(
+  const [data, setData, notify] = createVersionedStore<MstSlotItems>(
     JSON.parse(JSON.stringify(default_mst_slot_items)),
   );
   const setter = [data, setData];
@@ -193,6 +218,7 @@ export function MstSlotItemsProvider(props: { children: JSX.Element }) {
         (event) => {
           if (import.meta.env.DEV) console.log("set-kcs-mst-slot-items");
           setData(event.payload);
+          notify();
         },
       );
     })();
@@ -223,7 +249,7 @@ const MstEquipExslotShipsContext =
   >();
 
 export function MstEquipExslotShipsProvider(props: { children: JSX.Element }) {
-  const [data, setData] = createStore<MstEquipExslotShips>(
+  const [data, setData, notify] = createVersionedStore<MstEquipExslotShips>(
     JSON.parse(JSON.stringify(default_mst_equip_exslot_ships)),
   );
   const setter = [data, setData];
@@ -237,6 +263,7 @@ export function MstEquipExslotShipsProvider(props: { children: JSX.Element }) {
           if (import.meta.env.DEV)
             console.log("set-kcs-mst-equip-exslot-ships");
           setData(event.payload);
+          notify();
         },
       );
     })();
@@ -274,7 +301,7 @@ export const MstSlotItemEquipTypesContext =
 export function MstSlotItemEquipTypesProvider(props: {
   children: JSX.Element;
 }) {
-  const [data, setData] = createStore<MstSlotItemEquipTypes>(
+  const [data, setData, notify] = createVersionedStore<MstSlotItemEquipTypes>(
     JSON.parse(JSON.stringify(default_mst_slotitem_equip_types)),
   );
   const setter = [data, setData];
@@ -288,6 +315,7 @@ export function MstSlotItemEquipTypesProvider(props: {
           if (import.meta.env.DEV)
             console.log("set-kcs-mst-slot-item-equip-types");
           setData(event.payload);
+          notify();
         },
       );
     })();
@@ -322,7 +350,7 @@ const MstEquipShipsContext =
   createContext<(MstEquipShips | SetStoreFunction<MstEquipShips>)[]>();
 
 export function MstEquipShipsProvider(props: { children: JSX.Element }) {
-  const [data, setData] = createStore<MstEquipShips>(
+  const [data, setData, notify] = createVersionedStore<MstEquipShips>(
     JSON.parse(JSON.stringify(default_mst_equip_ships)),
   );
   const setter = [data, setData];
@@ -335,6 +363,7 @@ export function MstEquipShipsProvider(props: { children: JSX.Element }) {
         (event) => {
           if (import.meta.env.DEV) console.log("set-kcs-mst-equip-ships");
           setData(event.payload);
+          notify();
         },
       );
     })();
@@ -363,7 +392,7 @@ export const MstStypesContext =
   createContext<(MstStypes | SetStoreFunction<MstStypes>)[]>();
 
 export function MstStypesProvider(props: { children: JSX.Element }) {
-  const [data, setData] = createStore<MstStypes>(
+  const [data, setData, notify] = createVersionedStore<MstStypes>(
     JSON.parse(JSON.stringify(default_mst_stypes)),
   );
   const setter = [data, setData];
@@ -374,6 +403,7 @@ export function MstStypesProvider(props: { children: JSX.Element }) {
       unlisten_data = await listen<MstStypes>("set-kcs-mst-stypes", (event) => {
         if (import.meta.env.DEV) console.log("set-kcs-mst-stypes");
         setData(event.payload);
+        notify();
       });
     })();
 
@@ -401,7 +431,7 @@ const MstUseItemsContext =
   createContext<(MstUseItems | SetStoreFunction<MstUseItems>)[]>();
 
 export function MstUseItemsProvider(props: { children: JSX.Element }) {
-  const [data, setData] = createStore<MstUseItems>(
+  const [data, setData, notify] = createVersionedStore<MstUseItems>(
     JSON.parse(JSON.stringify(default_mst_useitems)),
   );
   const setter = [data, setData];
@@ -414,6 +444,7 @@ export function MstUseItemsProvider(props: { children: JSX.Element }) {
         (event) => {
           if (import.meta.env.DEV) console.log("set-kcs-mst-use-items");
           setData(event.payload);
+          notify();
         },
       );
     })();
@@ -549,7 +580,7 @@ export const DeckPortsContext =
   createContext<(DeckPorts | SetStoreFunction<DeckPorts>)[]>();
 
 export function DeckPortsProvider(props: { children: JSX.Element }) {
-  const [data, setData] = createStore<DeckPorts>(
+  const [data, setData, notify] = createVersionedStore<DeckPorts>(
     JSON.parse(JSON.stringify(default_deck_ports)),
   );
   const setter = [data, setData];
@@ -560,6 +591,7 @@ export function DeckPortsProvider(props: { children: JSX.Element }) {
       unlisten_data = await listen<DeckPorts>("set-kcs-deck-ports", (event) => {
         if (import.meta.env.DEV) console.log("set-kcs-deck-ports");
         setData(event.payload);
+        notify();
       });
     })();
 
@@ -688,7 +720,7 @@ export const AirBasesPortsContext =
   createContext<(AirBases | SetStoreFunction<AirBases>)[]>();
 
 export function AirBasesPortsProvider(props: { children: JSX.Element }) {
-  const [data, setData] = createStore<AirBases>(
+  const [data, setData, notify] = createVersionedStore<AirBases>(
     JSON.parse(JSON.stringify(default_air_bases)),
   );
   const setter = [data, setData];
@@ -701,6 +733,7 @@ export function AirBasesPortsProvider(props: { children: JSX.Element }) {
         (event) => {
           if (import.meta.env.DEV) console.log("set-kcs-air-bases-ports");
           setData(event.payload);
+          notify();
         },
       );
     })();

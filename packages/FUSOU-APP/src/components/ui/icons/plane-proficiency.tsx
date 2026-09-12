@@ -17,8 +17,14 @@ const class_size = {
   none: "",
 };
 
-export const IconPlaneProficiency: Component<IconPlaneProficiencyProps> = (props) => {
+export const IconPlaneProficiency: Component<IconPlaneProficiencyProps> = (
+  props,
+) => {
   const size = () => props.size ?? "xs";
+  const svgClass = () =>
+    ["stroke-base-content aspect-square", class_size[size()], props.class]
+      .filter(Boolean)
+      .join(" ");
 
   return (
     <Switch fallback={<></>}>
@@ -31,7 +37,7 @@ export const IconPlaneProficiency: Component<IconPlaneProficiencyProps> = (props
           xmlns="http://www.w3.org/2000/svg"
           xmlns:xlink="http://www.w3.org/1999/xlink"
           overflow="hidden"
-          class={["stroke-base-content", class_size[size()]].join(" ")}
+          class={svgClass()}
         >
           <g>
             <rect
@@ -69,7 +75,7 @@ export const IconPlaneProficiency: Component<IconPlaneProficiencyProps> = (props
           xmlns="http://www.w3.org/2000/svg"
           xmlns:xlink="http://www.w3.org/1999/xlink"
           overflow="hidden"
-          class={["stroke-base-content", class_size[size()]].join(" ")}
+          class={svgClass()}
         >
           <g>
             <rect
@@ -107,7 +113,7 @@ export const IconPlaneProficiency: Component<IconPlaneProficiencyProps> = (props
           xmlns="http://www.w3.org/2000/svg"
           xmlns:xlink="http://www.w3.org/1999/xlink"
           overflow="hidden"
-          class={["stroke-base-content", class_size[size()]].join(" ")}
+          class={svgClass()}
         >
           <g>
             <rect
@@ -145,7 +151,7 @@ export const IconPlaneProficiency: Component<IconPlaneProficiencyProps> = (props
           xmlns="http://www.w3.org/2000/svg"
           xmlns:xlink="http://www.w3.org/1999/xlink"
           overflow="hidden"
-          class={["stroke-base-content", class_size[size()]].join(" ")}
+          class={svgClass()}
         >
           <g>
             <path
@@ -180,7 +186,7 @@ export const IconPlaneProficiency: Component<IconPlaneProficiencyProps> = (props
           xmlns="http://www.w3.org/2000/svg"
           xmlns:xlink="http://www.w3.org/1999/xlink"
           overflow="hidden"
-          class={["stroke-base-content", class_size[size()]].join(" ")}
+          class={svgClass()}
         >
           <g>
             <path
@@ -215,7 +221,7 @@ export const IconPlaneProficiency: Component<IconPlaneProficiencyProps> = (props
           xmlns="http://www.w3.org/2000/svg"
           xmlns:xlink="http://www.w3.org/1999/xlink"
           overflow="hidden"
-          class={["stroke-base-content", class_size[size()]].join(" ")}
+          class={svgClass()}
         >
           <g>
             <path
@@ -250,7 +256,7 @@ export const IconPlaneProficiency: Component<IconPlaneProficiencyProps> = (props
           xmlns="http://www.w3.org/2000/svg"
           xmlns:xlink="http://www.w3.org/1999/xlink"
           overflow="hidden"
-          class={["stroke-base-content", class_size[size()]].join(" ")}
+          class={svgClass()}
         >
           <g>
             <path

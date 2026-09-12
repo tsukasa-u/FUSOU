@@ -13,7 +13,14 @@ import { createEffect, createMemo, For, Show } from "solid-js";
 import "../../css/divider.css";
 import "../../css/back_slash.css";
 
-import { ComponentColorBar, ComponentColorBarLabel, ComponentEquipmentModal, ComponentShipModal, IconCautionFill, IconKira } from "ui";;
+import {
+  ComponentColorBar,
+  ComponentColorBarLabel,
+  ComponentEquipmentModal,
+  ComponentShipModal,
+  IconCautionFill,
+  IconKira,
+} from "ui";
 import type {
   MstShip,
   MstSlotItem,
@@ -196,7 +203,7 @@ export function DeckComponent(props: DeckPortProps) {
       nowfuel: number,
       maxfuel: number,
       nowbullet: number,
-      maxbullet: number
+      maxbullet: number,
     ): JSX.Element => {
       let fuel_bullet_state: JSX.Element = <></>;
       if (nowfuel == maxfuel && nowbullet == maxbullet)
@@ -225,7 +232,7 @@ export function DeckComponent(props: DeckPortProps) {
     const states: JSX.Element[] = [];
     ship_list().forEach((ship) => {
       const mst_ship = mst_ship_list().find(
-        (mst_ship) => mst_ship.id == ship.ship_id
+        (mst_ship) => mst_ship.id == ship.ship_id,
       );
       if (mst_ship) {
         states.push(
@@ -233,15 +240,14 @@ export function DeckComponent(props: DeckPortProps) {
             ship.bull ?? 0,
             mst_ship.bull_max ?? 0,
             ship.fuel ?? 0,
-            mst_ship.fuel_max ?? 0
-          )
+            mst_ship.fuel_max ?? 0,
+          ),
         );
       }
     });
 
     return states;
   });
-
 
   createEffect(() => {
     if (fleetOpenSignalMap[props.deck_id] == undefined) {
@@ -260,21 +266,22 @@ export function DeckComponent(props: DeckPortProps) {
   };
 
   const get_slot_item = (
-    ship_index: number,
-    slot_id: number
+    _ship_index: number,
+    slot_id: number,
   ): SlotItem | undefined => {
-    return slot_items_list()[ship_index].slot_items[slot_id];
+    return slot_items.slot_items[slot_id];
   };
 
-  const get_mst_slot_item = (ship_index: number, slot_id: number) => {
-    const slot_item_id = get_slot_item(ship_index, slot_id)?.slotitem_id;
+  const get_mst_slot_item = (_ship_index: number, slot_id: number) => {
+    const slot_item = get_slot_item(_ship_index, slot_id);
+    const slot_item_id = slot_item?.slotitem_id;
     return slot_item_id
-      ? mst_slot_itmes_list()[ship_index].mst_slot_items[slot_item_id]
+      ? mst_slot_items.mst_slot_items[slot_item_id]
       : undefined;
   };
 
   const get_onslot = (ship_index: number, slot_index: number) => {
-    const tmp = ship_list()[ship_index].onslot;
+    const tmp = ship_list()[ship_index]?.onslot;
     return tmp ? tmp[slot_index] : 0;
   };
 
@@ -411,7 +418,7 @@ export function DeckComponent(props: DeckPortProps) {
                           <For
                             each={ships.ships[shipId]?.slot?.slice(
                               0,
-                              ships.ships[shipId]?.slotnum ?? 0
+                              ships.ships[shipId]?.slotnum ?? 0,
                             )}
                           >
                             {(slotId, slotId_index) => (
@@ -433,15 +440,15 @@ export function DeckComponent(props: DeckPortProps) {
                                     name_flag={false}
                                     attr_onslot={get_onslot(
                                       ship_index(),
-                                      slotId_index()
+                                      slotId_index(),
                                     )}
                                     slot_item={get_slot_item(
                                       ship_index(),
-                                      slotId
+                                      slotId,
                                     )}
                                     mst_slot_item={get_mst_slot_item(
                                       ship_index(),
-                                      slotId
+                                      slotId,
                                     )}
                                   />
                                 </div>
@@ -451,7 +458,7 @@ export function DeckComponent(props: DeckPortProps) {
                           <For
                             each={[
                               ...Array(
-                                5 - (ships.ships[shipId]?.slotnum ?? 0)
+                                5 - (ships.ships[shipId]?.slotnum ?? 0),
                               ).keys(),
                             ]}
                           >
@@ -477,11 +484,11 @@ export function DeckComponent(props: DeckPortProps) {
                                 attr_onslot={undefined}
                                 slot_item={get_slot_item(
                                   ship_index(),
-                                  ship_list()[ship_index()].slot_ex ?? 0
+                                  ship_list()[ship_index()].slot_ex ?? 0,
                                 )}
                                 mst_slot_item={get_mst_slot_item(
                                   ship_index(),
-                                  ship_list()[ship_index()].slot_ex ?? 0
+                                  ship_list()[ship_index()].slot_ex ?? 0,
                                 )}
                                 ex_flag={true}
                               />
