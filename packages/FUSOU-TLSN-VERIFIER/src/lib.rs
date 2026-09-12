@@ -2,6 +2,7 @@
 
 pub mod experimental;
 pub mod experimental_correlation;
+pub mod evidence_bundle;
 pub mod prover_transport;
 pub mod tlsn_alpha15;
 pub mod wasm;

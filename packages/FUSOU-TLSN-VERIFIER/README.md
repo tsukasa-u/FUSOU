@@ -96,6 +96,74 @@ FUSOU Result signature or the Evidence Root registry envelope; those are
 verified by the separate production evidence verifier so the two trust
 boundaries remain explicit.
 
+The `verify_fusou_tlsn_evidence` binary is the independent post-hoc verifier
+for a captured Evidence Bundle. `--bundle` accepts either the manifest path or
+a directory containing `tlsn-production-evidence.json`. It reads only the
+artifact paths declared by that manifest and emits one machine-readable JSON
+object. A successful report contains `status: "VERIFIED"` and explicit trust
+edges for the Evidence Root, Result registry, Result signature, Result-to-TLSN
+binding, TLSN Presentation, Notary, and artifact manifest.
+
+The bundle is not a trust anchor. The verifier requires these external inputs:
+
+- `--evidence-root-key-id` and `--evidence-root-public-key-spki`: the
+  independently pinned Root identity;
+- `--trusted-notary-registry`: the known alpha.15 Notary registry file, which
+  must match the bundle byte-for-byte;
+- `--session-authority-registry`, `--session-authority-key-id`, and
+  `--session-authority-public-key-spki`, plus the equivalent three
+  `--binding-authority-*` options: independently pinned receipt authorities;
+- `--canonical-user-id`, `--device-id`, and `--device-public-key`: the
+  independently supplied authenticated subject/device identity;
+- `--server-identity`, `--profile-sha256`, and `--verifier-key-id`: the static
+  FUSOU profile configuration;
+- `--trust-anchor-der`: the externally supplied origin trust root, which must
+  match the captured `trust_root` artifact byte-for-byte.
+
+The verifier authenticates the exact raw Result registry bytes with the
+Evidence Root-signed registry envelope, derives the Result signer by testing
+the signed Result bytes against registry entries, and rejects ambiguous,
+revoked, expired, and future keys. `ACTIVE`, `VERIFY_ONLY`, and `RETIRED` keys
+are accepted when their validity window contains the manifest's
+`capture_finished_at`; `REVOKED` keys are always rejected. This uses capture
+time rather than the verifier's current clock, so historical evidence remains
+verifiable after a rotation.
+
+The Result schema currently does not carry a separate `signer_key_id` field.
+The Rust verifier therefore derives the signer ID cryptographically from the
+authenticated registry and requires it to match the manifest and health
+identities. The signed Result remains compatible with the existing APP-side
+signature verification; APP verification is runtime tamper detection, not the
+final independent evidence proof.
+
+Example offline invocation:
+
+```text
+cargo +1.95.0 run --offline --manifest-path packages/FUSOU-TLSN-VERIFIER/Cargo.toml --bin verify_fusou_tlsn_evidence -- \
+  --bundle evidence/tlsn-production-evidence.json \
+  --evidence-root-key-id evidence-root-2026 \
+  --evidence-root-public-key-spki ROOT_PUBLIC_KEY_SPKI_BASE64URL \
+  --trusted-notary-registry trusted/notary-registry.json \
+  --session-authority-registry trusted/session-authority-registry.json \
+  --session-authority-key-id session-authority-2026 \
+  --session-authority-public-key-spki SESSION_AUTHORITY_PUBLIC_KEY_SPKI_BASE64URL \
+  --binding-authority-registry trusted/binding-authority-registry.json \
+  --binding-authority-key-id binding-authority-2026 \
+  --binding-authority-public-key-spki BINDING_AUTHORITY_PUBLIC_KEY_SPKI_BASE64URL \
+  --canonical-user-id 11111111-1111-4111-8111-111111111111 \
+  --device-id 22222222-2222-4222-8222-222222222222 \
+  --device-public-key DEVICE_PUBLIC_KEY_BASE64URL \
+  --server-identity game.example.com \
+  --profile-sha256 PROFILE_SHA256_BASE64URL \
+  --verifier-key-id verifier-2026 \
+  --trust-anchor-der trusted/game-root.der
+```
+
+The command never contacts Worker, FUSOU-WEB, Supabase, Trigger.dev, a Game
+Server, or a Notary. On rejection it exits non-zero and prints a JSON object
+with the failing `trust_edge`, artifact, and when available the expected and
+actual values.
+
 Example invocation:
 
 ```text
