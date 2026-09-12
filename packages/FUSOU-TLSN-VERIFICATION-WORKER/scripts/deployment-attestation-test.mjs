@@ -50,6 +50,9 @@ const canaryProvenance = {
     result_public_key_spki: "canary-result-key",
     result_signer_key_id: "canary-result-2026",
     result_key_registry_sha256: "E".repeat(43),
+    result_key_registry_envelope_sha256: "F".repeat(43),
+    result_registry_root_key_id: "canary-result-registry-root-2026",
+    result_registry_root_public_key_spki: "canary-result-registry-root-key",
   },
 };
 const remoteReport = {

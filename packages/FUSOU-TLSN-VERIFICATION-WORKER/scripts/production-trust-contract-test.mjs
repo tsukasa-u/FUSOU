@@ -12,6 +12,7 @@ import {
   assertSessionAuthorityIdentity,
   buildProductionPublicManifest,
 } from "./production-trust-contract.mjs";
+import { createSignedResultRegistryEnvelope } from "./result-registry-envelope.mjs";
 import { PRODUCTION_INPUTS, PRODUCTION_SECRET_INPUTS } from "./deployment-contract.mjs";
 
 const packageDirectory = resolve(new URL("..", import.meta.url).pathname);
@@ -54,6 +55,17 @@ const resultRegistryRaw = JSON.stringify({
     not_after: null,
   }],
 });
+const { publicKey: resultRegistryRootPublicKey, privateKey: resultRegistryRootPrivateKey } = generateKeyPairSync("ed25519");
+const resultRegistryRootPublicKeySpki = resultRegistryRootPublicKey.export({ format: "der", type: "spki" }).toString("base64url");
+const resultRegistryRootPrivateKeyPkcs8 = resultRegistryRootPrivateKey.export({ format: "der", type: "pkcs8" }).toString("base64url");
+const resultRegistryRootKeyId = "result-registry-root-2026";
+const resultRegistryEnvelopeRaw = JSON.stringify(createSignedResultRegistryEnvelope({
+  registry: JSON.parse(resultRegistryRaw),
+  registryRaw: resultRegistryRaw,
+  rootKeyId: resultRegistryRootKeyId,
+  rootPublicKeySpki: resultRegistryRootPublicKeySpki,
+  rootPrivateKeyPkcs8: resultRegistryRootPrivateKeyPkcs8,
+}));
 const validManifest = buildProductionPublicManifest({
   notaryEndpoint: "notary.example.com:7047",
   notaryKeyId,
@@ -65,6 +77,9 @@ const validManifest = buildProductionPublicManifest({
   resultSignerKeyId: resultKeyId,
   resultPublicKeySpki,
   resultSigningKeyRegistryRaw: resultRegistryRaw,
+  resultSigningKeyRegistryEnvelopeRaw: resultRegistryEnvelopeRaw,
+  resultRegistryRootKeyId,
+  resultRegistryRootPublicKeySpki,
   verificationEndpoint: "https://worker.example.com/verify/tlsn",
   serverIdentity: "game.example.com",
   trustRootCertificateDer: "MIIDHTCCAgWgAwIBAgIURFLGpUM33H6qfikrMs9kAcoFXeAwDQYJKoZIhvcNAQELBQAwHjEcMBoGA1UEAwwTc3ludGhldGljLXJvb3QudGVzdDAeFw0yNjA5MTAxMDI1NTZaFw0yNjA5MTExMDI1NTZaMB4xHDAaBgNVBAMME3N5bnRoZXRpYy1yb290LnRlc3QwggEiMA0GCSqGSIb3DQEBAQUAA4IBDwAwggEKAoIBAQC18xeL1tLhMKNSDiGanvSR7FXt-CCAfEF60IWNN_hglz-0PA4JK-HWECRX0j3ojTsnyzGV6ZDNo5lEHB77_VyXYyx2Y5R28XbUOb0xGHbsYbiW4U_EzzUZj_0PHIHTQb_MLj_zAC8mqRaV3vHdkVI47nItFrZ2Rm1D3plOkcnBBKcrNxg9s3AnCTwjKPbt_P_5E44MMzOreDgvxtTlqZbUZn_6sHLXJlGHIX4zsNFF_K3x4Oy1cy7IpQbKZ5UNcR9H8zI2Q4hJJdHIJxd6rWWy_rtGNmyfYkDD4fEh-bD8qouy3LQ9PRfTfQrtgNc7DQed0l4Ixj36krAVCunZ0cxZAgMBAAGjUzBRMB0GA1UdDgQWBBRbvwVkpyDft-BSPr0wEm-4GBiwrjAfBgNVHSMEGDAWgBRbvwVkpyDft-BSPr0wEm-4GBiwrjAPBgNVHRMBAf8EBTADAQH_MA0GCSqGSIb3DQEBCwUAA4IBAQAUusLzQLfde1UR_BVsN9g3eI9zV05tlLkRbTz1RmHBqp1Yjwc7_MpjWy1a8nl6JZY4KgfBlomu8NnhDtmRcN7m2smPOTHyEi8mMZdl44N22ZAZAl77hZXWTzb3mLBrbgw72J44tsZDPPx3kT1SJ9saxSPm3Q23ZbycIdLcDhPhFj3TEKdX4gmV0r3BBA9K9qmmJrwO_fqu8-dUfAObbEIX2-o8EYEyXaicIm-ob7UonkrZebJuh7yMkNQTwZnj21ONAJ0ubp4hd49KQCDtqDr-yFjPoxZPfUh6jgEM4EhVr0Wq8M56q_Sz2cz4dcd6CeoL91rPyTo6n7U55fKH_vCv",
@@ -169,6 +184,9 @@ assert.throws(() => assertPublicManifest(manifestWithRevokedResultSigner), /curr
 const manifestWithMismatchedResultKey = structuredClone(validManifest);
 manifestWithMismatchedResultKey.result_signing.public_key_spki = sessionPublicKeySpki;
 assert.throws(() => assertPublicManifest(manifestWithMismatchedResultKey), /published registry key/);
+const manifestWithMismatchedResultRegistryRoot = structuredClone(validManifest);
+manifestWithMismatchedResultRegistryRoot.result_signing.result_registry_root_key_id = "";
+assert.throws(() => assertPublicManifest(manifestWithMismatchedResultRegistryRoot), /Result registry Root key ID/);
 const manifestWithPrivateField = structuredClone(validManifest);
 manifestWithPrivateField.session_authority.signing_private_key_pkcs8 = "must-never-be-published";
 assert.throws(() => assertPublicManifest(manifestWithPrivateField), /outside the public manifest schema/);

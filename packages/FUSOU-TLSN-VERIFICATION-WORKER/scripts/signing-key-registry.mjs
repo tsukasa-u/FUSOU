@@ -3,6 +3,7 @@ import {
   authorityKeyRegistrySha256,
   AUTHORITY_KEY_REGISTRY_SCHEMA_VERSION,
   AUTHORITY_KEY_STATUSES,
+  resolveAuthorityKey,
 } from "./authority-key-registry.mjs";
 
 export const SIGNING_KEY_REGISTRY_SCHEMA_VERSION = AUTHORITY_KEY_REGISTRY_SCHEMA_VERSION;
@@ -25,4 +26,13 @@ export function assertSigningKeyRegistry(registry, {
 
 export function signingKeyRegistrySha256(rawRegistry) {
   return authorityKeyRegistrySha256(rawRegistry);
+}
+
+export function resolveResultSigningKey(registry, { keyId, at } = {}) {
+  return resolveAuthorityKey(registry, {
+    scope: SIGNING_KEY_REGISTRY_SCOPE,
+    keyId,
+    at,
+    label: "result signing",
+  });
 }

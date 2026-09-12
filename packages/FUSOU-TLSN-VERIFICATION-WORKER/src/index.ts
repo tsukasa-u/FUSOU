@@ -85,6 +85,9 @@ type Bindings = {
   TLSN_CANARY_RESULT_PUBLIC_KEY_SPKI?: string;
   TLSN_CANARY_RESULT_SIGNER_KEY_ID?: string;
   TLSN_CANARY_RESULT_SIGNING_KEY_REGISTRY?: string;
+  TLSN_CANARY_RESULT_SIGNING_KEY_REGISTRY_ENVELOPE?: string;
+  TLSN_CANARY_RESULT_REGISTRY_ROOT_KEY_ID?: string;
+  TLSN_CANARY_RESULT_REGISTRY_ROOT_PUBLIC_KEY_SPKI?: string;
   TLSN_CANARY_SESSION_AUTHORITY_SIGNING_PRIVATE_KEY_PKCS8?: string;
   TLSN_CANARY_SESSION_AUTHORITY_PUBLIC_KEY_SPKI?: string;
   TLSN_CANARY_SESSION_AUTHORITY_KEY_ID?: string;
@@ -100,6 +103,9 @@ type Bindings = {
   TLSN_PRODUCTION_RESULT_PUBLIC_KEY_SPKI?: string;
   TLSN_PRODUCTION_RESULT_SIGNER_KEY_ID?: string;
   TLSN_PRODUCTION_RESULT_SIGNING_KEY_REGISTRY?: string;
+  TLSN_PRODUCTION_RESULT_SIGNING_KEY_REGISTRY_ENVELOPE?: string;
+  TLSN_PRODUCTION_RESULT_REGISTRY_ROOT_KEY_ID?: string;
+  TLSN_PRODUCTION_RESULT_REGISTRY_ROOT_PUBLIC_KEY_SPKI?: string;
   TLSN_PRODUCTION_SESSION_AUTHORITY_SIGNING_PRIVATE_KEY_PKCS8?: string;
   TLSN_PRODUCTION_SESSION_AUTHORITY_PUBLIC_KEY_SPKI?: string;
   TLSN_PRODUCTION_SESSION_AUTHORITY_KEY_ID?: string;
@@ -1276,6 +1282,7 @@ app.post("/internal/tlsn/verification-complete", async (c) => {
     const finalResponse = verificationFinalResponseSchema.parse({
       verified: true,
       result: signedResult,
+      signer_key_id: config.resultSignerKeyId ?? config.verifierKeyId,
       signature_algorithm: "Ed25519",
       consume_receipt: consumeReceipt,
       device_replay_digest_hex: record.device_replay_digest_hex,
@@ -1347,8 +1354,20 @@ app.get("/health", async (c) => {
   const resultSigningKeyRegistry = production
     ? canary ? c.env.TLSN_CANARY_RESULT_SIGNING_KEY_REGISTRY : c.env.TLSN_PRODUCTION_RESULT_SIGNING_KEY_REGISTRY
     : null;
+  const resultSigningKeyRegistryEnvelope = production
+    ? canary ? c.env.TLSN_CANARY_RESULT_SIGNING_KEY_REGISTRY_ENVELOPE : c.env.TLSN_PRODUCTION_RESULT_SIGNING_KEY_REGISTRY_ENVELOPE
+    : null;
+  const resultRegistryRootKeyId = production
+    ? canary ? c.env.TLSN_CANARY_RESULT_REGISTRY_ROOT_KEY_ID : c.env.TLSN_PRODUCTION_RESULT_REGISTRY_ROOT_KEY_ID
+    : null;
+  const resultRegistryRootPublicKeySpki = production
+    ? canary ? c.env.TLSN_CANARY_RESULT_REGISTRY_ROOT_PUBLIC_KEY_SPKI : c.env.TLSN_PRODUCTION_RESULT_REGISTRY_ROOT_PUBLIC_KEY_SPKI
+    : null;
   const resultKeyRegistrySha256 = resultSigningKeyRegistry
     ? encodeBase64Url(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(resultSigningKeyRegistry))))
+    : null;
+  const resultKeyRegistryEnvelopeSha256 = resultSigningKeyRegistryEnvelope
+    ? encodeBase64Url(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(resultSigningKeyRegistryEnvelope))))
     : null;
   const sessionAuthorityPublicKeySpki = production
     ? canary ? c.env.TLSN_CANARY_SESSION_AUTHORITY_PUBLIC_KEY_SPKI : c.env.TLSN_PRODUCTION_SESSION_AUTHORITY_PUBLIC_KEY_SPKI
@@ -1428,6 +1447,9 @@ app.get("/health", async (c) => {
         ? {
             result_signer_key_id: resultSignerKeyId,
             result_key_registry_sha256: resultKeyRegistrySha256,
+            result_key_registry_envelope_sha256: resultKeyRegistryEnvelopeSha256,
+            result_registry_root_key_id: resultRegistryRootKeyId,
+            result_registry_root_public_key_spki: resultRegistryRootPublicKeySpki,
           }
         : {}),
     },
@@ -1911,6 +1933,7 @@ app.post("/verify/tlsn", async (c) => {
     return c.json({
       verified: true,
       result: signedResult,
+      signer_key_id: config.resultSignerKeyId ?? config.verifierKeyId,
       signature_algorithm: "Ed25519",
       consume_receipt: consumeReceipt,
       device_replay_digest_hex: devicePossession.replayDigestHex,

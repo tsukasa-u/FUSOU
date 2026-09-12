@@ -29,6 +29,8 @@ pub enum Alpha15AdapterError {
     ServerIdentityNotAllowlisted,
     #[error("alpha.15 Presentation Notary key is not in the trusted registry")]
     NotaryKeyNotAllowlisted,
+    #[error("alpha.15 trust anchor is invalid: {0}")]
+    TrustAnchor(String),
     #[error("authenticated transcript is not covered by the FUSOU disclosure profile: {0}")]
     DisclosureProfileViolation(&'static str),
     #[error(transparent)]
@@ -315,6 +317,29 @@ pub fn verify_alpha15_presentation_with_trusted_notary_key(
     verify_alpha15_presentation_with_provider_and_notary_key(
         presentation_bytes,
         &CryptoProvider::default(),
+        Some(trusted_notary_key),
+    )
+}
+
+pub fn verify_alpha15_presentation_with_trusted_notary_key_and_trust_anchor(
+    presentation_bytes: &[u8],
+    trust_anchor_der: &[u8],
+    trusted_notary_key: &[u8],
+) -> Result<AuthenticatedTranscript> {
+    if trust_anchor_der.is_empty() {
+        return Err(Alpha15AdapterError::TrustAnchor(
+            "trust anchor must not be empty".to_owned(),
+        ));
+    }
+    let root_store = tlsn_core::webpki::RootCertStore {
+        roots: vec![tlsn_core::webpki::CertificateDer(trust_anchor_der.to_vec())],
+    };
+    let mut provider = tlsn_attestation::CryptoProvider::default();
+    provider.cert = tlsn::verifier::ServerCertVerifier::new(&root_store)
+        .map_err(|error| Alpha15AdapterError::TrustAnchor(error.to_string()))?;
+    verify_alpha15_presentation_with_provider_and_notary_key(
+        presentation_bytes,
+        &provider,
         Some(trusted_notary_key),
     )
 }

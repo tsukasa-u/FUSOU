@@ -85,6 +85,7 @@ export const PRODUCTION_EVIDENCE_SEMANTIC_PREDICATES = [
   "presentation_binding_to_session",
   "authenticated_member_id",
   "result_presentation_binding",
+  "result_registry_root_authentication",
   "result_signature",
   "result_key_publication",
   "trust_root_publication",
@@ -138,6 +139,13 @@ export const PRODUCTION_EVIDENCE_SEMANTIC_PREDICATE_DEFINITIONS = {
     verification_method: "independent Presentation-derived Result fields equal the Worker Result payload",
     authority_identity: "offline-production-evidence-verifier",
     derived_fields: ["verified_member_id", "tlsn_attestation_id", "server_identity", "request_transcript_sha256", "response_transcript_sha256"],
+  },
+  result_registry_root_authentication: {
+    required_artifacts: ["health", "result_registry", "result_registry_envelope"],
+    required_fields: ["result_key_registry_sha256", "result_key_registry_envelope_sha256", "result_registry_root_key_id", "result_registry_root_public_key_spki"],
+    verification_method: "externally pinned Evidence Root signature authenticates the exact Result registry bytes and published Root identity",
+    authority_identity: "fusou-result-registry-root",
+    derived_fields: ["result_key_registry_sha256", "result_key_registry_envelope_sha256", "result_registry_root_key_id", "result_registry_root_public_key_spki"],
   },
   result_signature: {
     required_artifacts: ["result", "result_registry"],
@@ -305,6 +313,11 @@ export const PRODUCTION_EVIDENCE_ITEM_DEFINITIONS = {
     required_fields: ["signature", "result_signer_key_id", "result_key_registry_sha256"],
     verification_method: "signed Result verifies against the captured active result-key registry",
   },
+  real_production_result_registry_authentication: {
+    required_artifacts: ["health", "result_registry", "result_registry_envelope"],
+    required_fields: ["result_key_registry_sha256", "result_key_registry_envelope_sha256", "result_registry_root_key_id", "result_registry_root_public_key_spki"],
+    verification_method: "Result registry bytes and the Result signer identity are authenticated by the externally pinned Evidence Root",
+  },
   real_production_public_key_publication: {
     required_artifacts: ["health", "result_registry"],
     required_fields: ["result_public_key_spki", "result_signer_key_id", "result_key_registry_sha256"],
@@ -328,6 +341,7 @@ export const PRODUCTION_EVIDENCE_REQUIREMENT_PREDICATES = {
   real_production_binding_receipt_authority: ["consume_receipt"],
   real_production_verifier_trust_root: ["trust_root_publication"],
   real_production_result_signing_key: ["result_signature"],
+  real_production_result_registry_authentication: ["result_registry_root_authentication"],
   real_production_public_key_publication: ["result_key_publication"],
   independently_captured_production_evidence: [
     "presentation_cryptography",
@@ -337,6 +351,7 @@ export const PRODUCTION_EVIDENCE_REQUIREMENT_PREDICATES = {
     "presentation_binding_to_session",
     "authenticated_member_id",
     "result_presentation_binding",
+    "result_registry_root_authentication",
     "result_signature",
     "result_key_publication",
     "trust_root_publication",
@@ -379,6 +394,7 @@ export const PRODUCTION_EVIDENCE_DOMAINS = {
   ],
   verifier_trust: [
     "real_production_verifier_trust_root",
+    "real_production_result_registry_authentication",
     "real_production_result_signing_key",
     "real_production_public_key_publication",
   ],
@@ -396,6 +412,8 @@ export const PRODUCTION_EVIDENCE_TRUST_GRAPH_NODE_DEFINITIONS = Object.freeze([
   ["presentation", "presentation", "tlsn-alpha15-verifier"],
   ["member-id", "member_id", "fusou-require-info-v1-response-parser"],
   ["tlsn-notary", "notary", "tlsn-alpha15-presentation-notary-key"],
+  ["result-registry-root", "result_registry_root", "fusou-result-registry-root"],
+  ["result-registry", "result_registry", "fusou-result-signing-key-registry"],
   ["result", "result", "fusou-tlsn-result-signer"],
   ["production-proxy", "proxy_provenance", "externally-pinned-production-proxy-provenance-authority"],
   ["production-evidence", "evidence_manifest", "production-evidence-signer"],
@@ -414,6 +432,8 @@ export const PRODUCTION_EVIDENCE_TRUST_GRAPH_EDGE_DEFINITIONS = Object.freeze([
   { id: "member-id-is-in-result", source: "member-id", target: "result", binding_fields: ["verified_member_id", "tlsn_attestation_id", "transcript_hashes"], evidence_artifact: "semantic_verification", verification_predicate: "result_presentation_binding", authority: "offline-production-evidence-verifier" },
   { id: "presentation-is-cryptographically-verified", source: "presentation", target: "result", binding_fields: ["presentation_sha256", "tlsn_attestation_id"], evidence_artifact: "semantic_verification", verification_predicate: "presentation_cryptography", authority: "tlsn-alpha15-verifier" },
   { id: "presentation-provenance-is-declared", source: "presentation", target: "production-proxy", binding_fields: ["presentation_sha256", "proxy_identity", "proxy_deployment_id", "proxy_binary_identity"], evidence_artifact: "capture_metadata", verification_predicate: "proxy_provenance_cryptographic_authentication", authority: "externally-pinned-production-proxy-provenance-authority" },
+  { id: "result-registry-root-authorizes-registry", source: "result-registry-root", target: "result-registry", binding_fields: ["result_key_registry_sha256", "result_key_registry_envelope_sha256", "result_registry_root_key_id"], evidence_artifact: "result_registry_envelope", verification_predicate: "result_registry_root_authentication", authority: "fusou-result-registry-root" },
+  { id: "result-registry-authorizes-result-signer", source: "result-registry", target: "result", binding_fields: ["result_key_registry_sha256", "result_signer_key_id", "result_public_key_spki"], evidence_artifact: "result_registry", verification_predicate: "result_key_publication", authority: "fusou-result-signing-key-registry" },
   { id: "result-is-signed", source: "result", target: "production-evidence", binding_fields: ["result_sha256", "result_signer_key_id"], evidence_artifact: "result", verification_predicate: "result_signature", authority: "fusou-tlsn-result-signer" },
   { id: "remote-attestation-is-unverified", source: "remote-attestation", target: "production-evidence", binding_fields: ["status"], evidence_artifact: "health", verification_predicate: "remote_attestation_unverified", authority: "remote-attestation-signer" },
 ]);
@@ -512,11 +532,15 @@ export function deriveProductionTrustGraph({
   result,
   resultBytes,
   resultSignerKeyId,
+  resultRegistrySha256,
+  resultRegistryEnvelopeSha256,
+  resultRegistryRootKeyId,
+  resultRegistryRootPublicKeySpki,
   proxyProvenance,
 }) {
   const verifiedPresentation = semanticVerification?.verified_presentation;
   const semanticResult = semanticVerification?.result;
-  if (!captureId || !authenticatedUserId || !deviceId || !devicePublicKeySha256 || !deviceAuthentication || !session || !presentationBytes || !verifiedPresentation || !semanticResult || !result || !resultBytes || !resultSignerKeyId || !proxyProvenance) {
+  if (!captureId || !authenticatedUserId || !deviceId || !devicePublicKeySha256 || !deviceAuthentication || !session || !presentationBytes || !verifiedPresentation || !semanticResult || !result || !resultBytes || !resultSignerKeyId || !resultRegistrySha256 || !resultRegistryEnvelopeSha256 || !resultRegistryRootKeyId || !resultRegistryRootPublicKeySpki || !proxyProvenance) {
     throw new Error("production trust graph derivation inputs are incomplete");
   }
   assertProductionProxyProvenanceShape(proxyProvenance);
@@ -529,6 +553,8 @@ export function deriveProductionTrustGraph({
     presentation: { presentation_sha256: sha256Base64Url(presentationBytes), attestation_id: verifiedPresentation.tlsn_attestation_id, binding_sha256: sha256Base64Url(semanticResult.binding_value) },
     "member-id": { verified_member_id: semanticResult.verified_member_id, response_transcript_sha256: semanticResult.response_transcript_sha256 },
     "tlsn-notary": { key_id: semanticResult.notary_key_id },
+    "result-registry-root": { key_id: resultRegistryRootKeyId, public_key_spki: resultRegistryRootPublicKeySpki },
+    "result-registry": { registry_sha256: resultRegistrySha256, envelope_sha256: resultRegistryEnvelopeSha256 },
     result: { result_sha256: sha256Base64Url(resultBytes), key_id: resultSignerKeyId },
     "production-proxy": { declared: proxyProvenance.declared, cryptographic_status: proxyProvenance.cryptographic_status, proxy_identity: proxyProvenance.proxy_identity, proxy_deployment_id: proxyProvenance.proxy_deployment_id, proxy_binary_identity: proxyProvenance.proxy_binary_identity },
     "production-evidence": { capture_id: captureId },
@@ -543,6 +569,8 @@ export function deriveProductionTrustGraph({
     presentation: "presentation",
     "member-id": "semantic_verification",
     "tlsn-notary": "notary_registry",
+    "result-registry-root": "result_registry_envelope",
+    "result-registry": "result_registry",
     result: "result",
     "production-proxy": "capture_metadata",
     "production-evidence": "health",

@@ -55,6 +55,9 @@ export const RESULT_IDENTITY_FIELDS = [
   "result_public_key_spki",
   "result_signer_key_id",
   "result_key_registry_sha256",
+  "result_key_registry_envelope_sha256",
+  "result_registry_root_key_id",
+  "result_registry_root_public_key_spki",
 ];
 const GIT_COMMIT_PATTERN = /^[0-9a-f]{40}$/i;
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;

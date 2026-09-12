@@ -269,6 +269,7 @@ export async function runSmokeTest(fetch, fixture, publicKeyDerBase64url, device
   assert.equal(validResponse.status, 200);
   const validPayload = await validResponse.json();
   assert.equal(validPayload.verified, true);
+  assert.equal(validPayload.signer_key_id, "worker-test");
   assert.equal(validPayload.signature_algorithm, "Ed25519");
   const result = validPayload.result;
   const requestBytes = decodeBase64Url(fixture.authenticated_request_base64);
@@ -411,6 +412,25 @@ export async function runBindingContextNegativeSmokeTest(fetch, fixture, deviceP
   }));
   assert.equal(wrongSessionResponse.status, 409);
   assert.deepEqual(await wrongSessionResponse.json(), { verified: false, error: "session_mismatch" });
+
+  const wrongDeviceResponse = await postVerification(fetch, verificationBody(
+    fixture.presentation_base64,
+    session,
+    devicePrivateKey,
+    { device_id: "44444444-4444-4444-8444-444444444444" },
+  ));
+  assert.equal(wrongDeviceResponse.status, 409);
+  assert.deepEqual(await wrongDeviceResponse.json(), { verified: false, error: "device_mismatch" });
+
+  const wrongChallenge = Buffer.alloc(32, 0x24).toString("base64url");
+  const wrongChallengeResponse = await postVerification(fetch, verificationBody(
+    fixture.presentation_base64,
+    session,
+    devicePrivateKey,
+    { device_proof: createDeviceProof(session, devicePrivateKey, { challenge: wrongChallenge }) },
+  ));
+  assert.equal(wrongChallengeResponse.status, 409);
+  assert.deepEqual(await wrongChallengeResponse.json(), { verified: false, error: "device_challenge_mismatch" });
 
   const unknownBindingResponse = await postVerification(fetch, JSON.stringify({
     presentation_base64: fixture.presentation_base64,

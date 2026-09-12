@@ -47,6 +47,7 @@ export const verificationStatusRequestSchema = verificationTaskPayloadSchema.pic
 export const verificationFinalResponseSchema = z.object({
   verified: z.literal(true),
   result: z.record(z.string(), z.unknown()),
+  signer_key_id: z.string().regex(/^[A-Za-z0-9._-]{1,128}$/),
   signature_algorithm: z.literal("Ed25519"),
   consume_receipt: z.record(z.string(), z.unknown()),
   device_replay_digest_hex: z.string().regex(/^[a-f0-9]{64}$/),

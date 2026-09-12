@@ -9,6 +9,7 @@ import initVerifier, {
   verify_require_info_presentation_with_trust_anchor,
 } from "../src/wasm/fusou_tlsn_verifier.js";
 import { assertSignedResult } from "./production-evidence.mjs";
+import { assertSignedResultRegistryEnvelope, resultRegistryEnvelopeHash } from "./result-registry-envelope.mjs";
 import { parseBindingValue } from "./device-evidence.mjs";
 import {
   PRODUCTION_EVIDENCE_REQUIREMENT_PREDICATES,
@@ -543,6 +544,42 @@ export function verifyResultSignature({ result, resultRegistry, resultPublicKeyS
   });
 }
 
+export function verifyResultRegistryRootAuthentication({
+  resultRegistry,
+  resultRegistryRaw,
+  resultRegistryEnvelope,
+  resultRegistryEnvelopeRaw,
+  resultRegistrySha256,
+  trustedInputs,
+  verifiedAt = new Date().toISOString(),
+}) {
+  return runPredicate("result_registry_root_authentication", verifiedAt, ["health", "result_registry", "result_registry_envelope"], () => {
+    assertSignedResultRegistryEnvelope(resultRegistryEnvelope, {
+      registry: resultRegistry,
+      registryRaw: resultRegistryRaw,
+      trustedRootKeyId: trustedInputs.result_registry_root_key_id,
+      trustedRootPublicKeySpki: trustedInputs.result_registry_root_public_key_spki,
+    });
+    const envelopeHash = resultRegistryEnvelopeHash(resultRegistryEnvelopeRaw);
+    if (
+      trustedInputs.result_key_registry_sha256 !== resultRegistrySha256 ||
+      trustedInputs.result_key_registry_envelope_sha256 !== envelopeHash ||
+      trustedInputs.result_registry_root_key_id !== resultRegistryEnvelope.root_key_id ||
+      trustedInputs.result_registry_root_public_key_spki !== resultRegistryEnvelope.root_public_key_spki
+    ) {
+      throw new Error("published Result registry Root identity does not match the authenticated envelope");
+    }
+    return {
+      observed: {
+        result_key_registry_sha256: resultRegistrySha256,
+        result_key_registry_envelope_sha256: envelopeHash,
+        result_registry_root_key_id: resultRegistryEnvelope.root_key_id,
+        result_registry_root_public_key_spki: resultRegistryEnvelope.root_public_key_spki,
+      },
+    };
+  });
+}
+
 export function verifyResultKeyPublication({ resultRegistry, resultRegistrySha256, resultPublicKeySpki, resultSignerKeyId, trustedInputs, verifiedAt = new Date().toISOString() }) {
   return runPredicate("result_key_publication", verifiedAt, ["health", "result_registry"], () => {
     assertSigningKeyRegistry(resultRegistry, {
@@ -586,6 +623,9 @@ export function verifySemanticPredicates({
   trustedInputs,
   notaryRegistry,
   resultRegistry,
+  resultRegistryRaw,
+  resultRegistryEnvelope,
+  resultRegistryEnvelopeRaw,
   resultRegistrySha256,
   resultPublicKeySpki,
   resultSignerKeyId,
@@ -615,6 +655,15 @@ export function verifySemanticPredicates({
     }),
     authenticated_member_id: deriveAuthenticatedMemberId({ semanticVerification, trustedServerIdentity: trustedInputs.server_identity, verifiedAt }),
     result_presentation_binding: verifyResultPresentationBinding({ semanticVerification, result, verifiedAt }),
+    result_registry_root_authentication: verifyResultRegistryRootAuthentication({
+      resultRegistry,
+      resultRegistryRaw,
+      resultRegistryEnvelope,
+      resultRegistryEnvelopeRaw,
+      resultRegistrySha256,
+      trustedInputs,
+      verifiedAt,
+    }),
     result_signature: includeResultSignature
       ? verifyResultSignature({ result, resultRegistry, resultPublicKeySpki, resultSignerKeyId, verifiedAt })
       : predicateResult("result_signature", {

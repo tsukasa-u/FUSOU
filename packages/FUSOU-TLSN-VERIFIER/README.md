@@ -85,6 +85,33 @@ signer, or privacy/runtime evidence. The implementation therefore does not
 change the P0-05 gate: P0-05 remains `BLOCKED` until an authenticated alpha.15
 FUSOU Presentation and its evidence fixtures exist.
 
+The `verify_tlsn_require_info` binary is an independent offline TLSN verifier
+for a serialized alpha.15 Presentation. It requires the Presentation bytes,
+trusted serialized Notary key, server identity, profile and session identity
+inputs, and optionally a DER origin trust root. It verifies alpha.15
+cryptography, complete disclosure, the fixed `require_info` HTTP profile, the
+binding value, and the response-derived member ID, then emits the canonical
+unsigned Result shape and its Result signing bytes. It does not verify the
+FUSOU Result signature or the Evidence Root registry envelope; those are
+verified by the separate production evidence verifier so the two trust
+boundaries remain explicit.
+
+Example invocation:
+
+```text
+cargo +1.95.0 run --offline --manifest-path packages/FUSOU-TLSN-VERIFIER/Cargo.toml --bin verify_tlsn_require_info -- \
+  --presentation presentation.bin \
+  --server-identity game.example.com \
+  --profile-sha256 PROFILE_SHA256_BASE64URL \
+  --verifier-key-id verifier-2026 \
+  --notary-key-id notary-2026 \
+  --canonical-user-id USER_UUID \
+  --canonical-device-id DEVICE_UUID \
+  --device-challenge DEVICE_CHALLENGE_BASE64URL \
+  --notary-key-base64url SERIALIZED_NOTARY_KEY_BASE64URL \
+  --trust-anchor-der trust-root.der
+```
+
 The experimental probe is not a production TLSN route and does not replace the
 Hyper/rustls production origin client. The FUSOU-PROXY gate consumes the normal
 MITM handler's actual request metadata only to select and block the request until

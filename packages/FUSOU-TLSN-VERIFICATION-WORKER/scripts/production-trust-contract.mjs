@@ -7,6 +7,10 @@ import {
   assertSigningKeyRegistry,
   signingKeyRegistrySha256,
 } from "./signing-key-registry.mjs";
+import {
+  assertSignedResultRegistryEnvelope,
+  resultRegistryEnvelopeHash,
+} from "./result-registry-envelope.mjs";
 
 export const PRODUCTION_PUBLIC_MANIFEST_SCHEMA_VERSION = 1;
 export const PRODUCTION_PUBLIC_MANIFEST_SCOPE = "tlsn-production-public-config";
@@ -190,6 +194,10 @@ export function assertResultSigningIdentity({
   registry,
   keyId,
   publicKeySpki,
+  registryEnvelope,
+  registryRaw,
+  registryRootKeyId,
+  registryRootPublicKeySpki,
   label = "Result signing",
 } = {}) {
   const parsedRegistry = typeof registry === "string"
@@ -200,12 +208,31 @@ export function assertResultSigningIdentity({
     currentPublicKeySpki: publicKeySpki,
     label,
   });
-  return {
+  const identity = {
     key_id: keyId,
     public_key_spki: publicKeySpki,
     key_registry: parsedRegistry,
     key_registry_sha256: typeof registry === "string" ? signingKeyRegistrySha256(registry) : null,
   };
+  const envelopeInputs = [registryEnvelope, registryRaw, registryRootKeyId, registryRootPublicKeySpki];
+  if (envelopeInputs.some((value) => value !== undefined)) {
+    if (envelopeInputs.some((value) => value === undefined)) {
+      throw new Error(`${label} registry envelope inputs are incomplete`);
+    }
+    const parsedEnvelope = typeof registryEnvelope === "string"
+      ? parseJsonObject(registryEnvelope, `${label} registry envelope`)
+      : registryEnvelope;
+    assertSignedResultRegistryEnvelope(parsedEnvelope, {
+      registry: parsedRegistry,
+      registryRaw,
+      trustedRootKeyId: registryRootKeyId,
+      trustedRootPublicKeySpki: registryRootPublicKeySpki,
+    });
+    identity.result_key_registry_envelope_sha256 = resultRegistryEnvelopeHash(registryEnvelope);
+    identity.result_registry_root_key_id = registryRootKeyId;
+    identity.result_registry_root_public_key_spki = registryRootPublicKeySpki;
+  }
+  return identity;
 }
 
 export function assertRequiredProductionSecrets(environment, names) {
@@ -306,13 +333,29 @@ export function assertPublicManifest(manifest) {
   if (!KEY_ID_PATTERN.test(manifest.session_authority.key_id)) throw new Error("manifest Session Authority key ID is invalid");
   assertPublicEd25519Spki(manifest.session_authority.public_key_spki, "manifest Session Authority public key");
   assertSha256(manifest.session_authority.key_registry_sha256, "manifest Session Authority registry hash");
-  assertExactKeys(manifest.result_signing, ["key_id", "public_key_spki", "key_registry", "key_registry_sha256"], "manifest.result_signing");
+  assertExactKeys(manifest.result_signing, [
+    "key_id",
+    "public_key_spki",
+    "key_registry",
+    "key_registry_sha256",
+    "result_key_registry_envelope_sha256",
+    "result_registry_root_key_id",
+    "result_registry_root_public_key_spki",
+  ], "manifest.result_signing");
   assertResultSigningIdentity({
     registry: manifest.result_signing.key_registry,
     keyId: manifest.result_signing.key_id,
     publicKeySpki: manifest.result_signing.public_key_spki,
   });
   assertSha256(manifest.result_signing.key_registry_sha256, "manifest Result signing registry hash");
+  assertSha256(manifest.result_signing.result_key_registry_envelope_sha256, "manifest Result registry envelope hash");
+  if (!KEY_ID_PATTERN.test(manifest.result_signing.result_registry_root_key_id)) {
+    throw new Error("manifest Result registry Root key ID is invalid");
+  }
+  assertPublicEd25519Spki(
+    manifest.result_signing.result_registry_root_public_key_spki,
+    "manifest Result registry Root public key",
+  );
   assertCleanHttpsEndpoint(manifest.verification_endpoint, "/verify/tlsn", "manifest Verification endpoint");
   assertExactKeys(manifest.origin, ["server_identity", "trust_roots", "port"], "manifest.origin");
   assertServerIdentity(manifest.origin.server_identity);
@@ -337,6 +380,9 @@ export function buildProductionPublicManifest({
   resultSignerKeyId,
   resultPublicKeySpki,
   resultSigningKeyRegistryRaw,
+  resultSigningKeyRegistryEnvelopeRaw,
+  resultRegistryRootKeyId,
+  resultRegistryRootPublicKeySpki,
   verificationEndpoint,
   serverIdentity,
   trustRootCertificateDer,
@@ -355,6 +401,10 @@ export function buildProductionPublicManifest({
     registry: resultSigningKeyRegistryRaw,
     keyId: resultSignerKeyId,
     publicKeySpki: resultPublicKeySpki,
+    registryEnvelope: resultSigningKeyRegistryEnvelopeRaw,
+    registryRaw: resultSigningKeyRegistryRaw,
+    registryRootKeyId: resultRegistryRootKeyId,
+    registryRootPublicKeySpki: resultRegistryRootPublicKeySpki,
   });
   assertRawNotaryEndpoint(notaryEndpoint);
   assertCleanHttpsEndpoint(sessionAuthorityEndpoint, "/attestation/session", "Session Authority endpoint");

@@ -15,6 +15,7 @@ import {
 import { assertProductionPresentationCaptureMetadata, assertVerifiedTrustGraph, deriveProductionTrustGraph, PRODUCTION_EVIDENCE_GOVERNANCE_ONLY_REQUIREMENTS, PRODUCTION_EVIDENCE_REQUIREMENTS, productionRequirementStatus } from "./production-evidence-contract.mjs";
 import { assertSigningKeyRegistry } from "./signing-key-registry.mjs";
 import { assertAuthorityKeyRegistry } from "./authority-key-registry.mjs";
+import { assertSignedResultRegistryEnvelope, resultRegistryEnvelopeHash } from "./result-registry-envelope.mjs";
 import { canonicalJson, workflowContextFromEnvironment } from "./deployment-attestation.mjs";
 import {
   assertSemanticResultMatches,
@@ -112,6 +113,10 @@ function assertCapturedTrustGraph(manifest, {
   result,
   resultBytes,
   resultSignerKeyId,
+  resultRegistrySha256,
+  resultRegistryEnvelopeSha256,
+  resultRegistryRootKeyId,
+  resultRegistryRootPublicKeySpki,
   deviceAuthentication,
   predicateResults,
   devicePredicateResults,
@@ -130,6 +135,10 @@ function assertCapturedTrustGraph(manifest, {
     result,
     resultBytes,
     resultSignerKeyId,
+    resultRegistrySha256,
+    resultRegistryEnvelopeSha256,
+    resultRegistryRootKeyId,
+    resultRegistryRootPublicKeySpki,
     proxyProvenance,
   });
   if (canonicalJson(rebuiltGraph) !== canonicalJson(manifest.trust_graph)) {
@@ -172,6 +181,7 @@ async function main() {
   if (!artifacts.result) throw new Error("production result artifact is required");
   if (!artifacts.semantic_verification) throw new Error("verifier-generated semantic artifact is required");
   if (!artifacts.result_registry) throw new Error("captured result registry artifact is required");
+  if (!artifacts.result_registry_envelope) throw new Error("captured result registry envelope artifact is required");
   if (!artifacts.session_authority_registry || !artifacts.binding_authority_registry || !artifacts.notary_registry) throw new Error("captured authority registries are required");
   const result = parseArtifactJson(artifacts, "result");
   const authenticatedUser = parseArtifactJson(artifacts, "authenticated_user");
@@ -260,11 +270,19 @@ async function main() {
     throw new Error("authoritative session root is internally inconsistent");
   }
   const publishedResultRegistryRaw = required("TLSN_PRODUCTION_RESULT_SIGNING_KEY_REGISTRY");
+  const publishedResultRegistryEnvelopeRaw = required("TLSN_PRODUCTION_RESULT_SIGNING_KEY_REGISTRY_ENVELOPE");
   const registry = parseJson("TLSN_PRODUCTION_RESULT_SIGNING_KEY_REGISTRY", publishedResultRegistryRaw);
   const capturedResultRegistryRaw = artifacts.result_registry.toString("utf8");
   const capturedResultRegistry = parseArtifactJson(artifacts, "result_registry");
+  const capturedResultRegistryEnvelopeRaw = artifacts.result_registry_envelope.toString("utf8");
+  const capturedResultRegistryEnvelope = parseArtifactJson(artifacts, "result_registry_envelope");
+  const resultRegistryRootKeyId = required("TLSN_PRODUCTION_RESULT_REGISTRY_ROOT_KEY_ID");
+  const resultRegistryRootPublicKeySpki = required("TLSN_PRODUCTION_RESULT_REGISTRY_ROOT_PUBLIC_KEY_SPKI");
   if (capturedResultRegistryRaw !== publishedResultRegistryRaw) {
     throw new Error("captured result registry does not match the published result registry");
+  }
+  if (capturedResultRegistryEnvelopeRaw !== publishedResultRegistryEnvelopeRaw) {
+    throw new Error("captured result registry envelope does not match the published result registry envelope");
   }
   if (manifest.result_identity?.result_key_registry_sha256 !== createHash("sha256").update(capturedResultRegistryRaw).digest("base64url")) {
     throw new Error("captured result registry does not match the signed Result identity");
@@ -273,6 +291,25 @@ async function main() {
     currentKeyId: required("TLSN_PRODUCTION_RESULT_SIGNER_KEY_ID"),
     currentPublicKeySpki: required("TLSN_PRODUCTION_RESULT_PUBLIC_KEY_SPKI"),
   });
+  assertSignedResultRegistryEnvelope(capturedResultRegistryEnvelope, {
+    registry: capturedResultRegistry,
+    registryRaw: capturedResultRegistryRaw,
+    trustedRootKeyId: resultRegistryRootKeyId,
+    trustedRootPublicKeySpki: resultRegistryRootPublicKeySpki,
+  });
+  const capturedResultRegistrySha256 = createHash("sha256").update(capturedResultRegistryRaw).digest("base64url");
+  const capturedResultRegistryEnvelopeSha256 = resultRegistryEnvelopeHash(capturedResultRegistryEnvelopeRaw);
+  if (
+    manifest.result_identity?.result_key_registry_sha256 !== capturedResultRegistrySha256 ||
+    manifest.result_identity?.result_key_registry_envelope_sha256 !== capturedResultRegistryEnvelopeSha256 ||
+    manifest.result_identity?.result_registry_root_key_id !== resultRegistryRootKeyId ||
+    manifest.result_identity?.result_registry_root_public_key_spki !== resultRegistryRootPublicKeySpki ||
+    health.result_identity?.result_key_registry_envelope_sha256 !== capturedResultRegistryEnvelopeSha256 ||
+    health.result_identity?.result_registry_root_key_id !== resultRegistryRootKeyId ||
+    health.result_identity?.result_registry_root_public_key_spki !== resultRegistryRootPublicKeySpki
+  ) {
+    throw new Error("captured Result registry Root identity does not match health, manifest, or trusted pin");
+  }
   const resultPublicKeySpki = required("TLSN_PRODUCTION_RESULT_PUBLIC_KEY_SPKI");
   const resultSignerKeyId = required("TLSN_PRODUCTION_RESULT_SIGNER_KEY_ID");
   assertSigningKeyRegistry(registry, {
@@ -409,6 +446,9 @@ async function main() {
     result_public_key_spki: manifest.result_identity.result_public_key_spki,
     result_signer_key_id: manifest.result_identity.result_signer_key_id,
     result_key_registry_sha256: manifest.result_identity.result_key_registry_sha256,
+    result_key_registry_envelope_sha256: manifest.result_identity.result_key_registry_envelope_sha256,
+    result_registry_root_key_id: manifest.result_identity.result_registry_root_key_id,
+    result_registry_root_public_key_spki: manifest.result_identity.result_registry_root_public_key_spki,
   };
   const preSignaturePredicateResults = verifySemanticPredicates({
     presentationBytes: presentation,
@@ -417,6 +457,8 @@ async function main() {
     trustedInputs,
     notaryRegistry,
     resultRegistry: capturedResultRegistry,
+    resultRegistryRaw: capturedResultRegistryRaw,
+    resultRegistryEnvelope: capturedResultRegistryEnvelope,
     resultRegistrySha256: createHash("sha256").update(capturedResultRegistryRaw).digest("base64url"),
     resultPublicKeySpki,
     resultSignerKeyId,
@@ -440,6 +482,8 @@ async function main() {
     trustedInputs,
     notaryRegistry,
     resultRegistry: capturedResultRegistry,
+    resultRegistryRaw: capturedResultRegistryRaw,
+    resultRegistryEnvelope: capturedResultRegistryEnvelope,
     resultRegistrySha256: createHash("sha256").update(capturedResultRegistryRaw).digest("base64url"),
     resultPublicKeySpki,
     resultSignerKeyId,
@@ -460,6 +504,10 @@ async function main() {
     result,
     resultBytes: artifacts.result,
     resultSignerKeyId,
+    resultRegistrySha256: capturedResultRegistrySha256,
+    resultRegistryEnvelopeSha256: capturedResultRegistryEnvelopeSha256,
+    resultRegistryRootKeyId,
+    resultRegistryRootPublicKeySpki,
     predicateResults,
     devicePredicateResults,
     capturePredicateResults,

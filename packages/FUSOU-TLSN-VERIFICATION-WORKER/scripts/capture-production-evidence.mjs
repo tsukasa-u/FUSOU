@@ -25,6 +25,7 @@ import {
 } from "./production-evidence-semantic.mjs";
 import { assertSigningKeyRegistry } from "./signing-key-registry.mjs";
 import { assertAuthorityKeyRegistry } from "./authority-key-registry.mjs";
+import { assertSignedResultRegistryEnvelope, resultRegistryEnvelopeHash } from "./result-registry-envelope.mjs";
 import { sha256Base64Url, workflowContextFromEnvironment } from "./deployment-attestation.mjs";
 import {
   deviceProofReplayDigest,
@@ -204,6 +205,9 @@ async function readHealth(workerOrigin, failureBundle) {
     json?.security_identity?.git_commit_sha === null ||
     json?.deployment_identity?.deployment_role !== "production" ||
     typeof json?.result_identity?.result_public_key_spki !== "string"
+    || typeof json?.result_identity?.result_key_registry_envelope_sha256 !== "string"
+    || typeof json?.result_identity?.result_registry_root_key_id !== "string"
+    || typeof json?.result_identity?.result_registry_root_public_key_spki !== "string"
     || typeof json?.authority_identity?.session_authority?.public_key_spki !== "string"
     || typeof json?.authority_identity?.binding_authority?.public_key_spki !== "string"
   ) throw new Error("target Worker is not a complete production identity");
@@ -357,6 +361,10 @@ async function main() {
     const user = await readSupabaseUser(supabaseOrigin, publishableKey, accessToken, failureBundle);
     const registryRaw = required("TLSN_PRODUCTION_RESULT_SIGNING_KEY_REGISTRY");
     const registry = parseJsonEnvironment("TLSN_PRODUCTION_RESULT_SIGNING_KEY_REGISTRY");
+    const registryEnvelopeRaw = required("TLSN_PRODUCTION_RESULT_SIGNING_KEY_REGISTRY_ENVELOPE");
+    const registryEnvelope = parseJsonEnvironment("TLSN_PRODUCTION_RESULT_SIGNING_KEY_REGISTRY_ENVELOPE");
+    const resultRegistryRootKeyId = required("TLSN_PRODUCTION_RESULT_REGISTRY_ROOT_KEY_ID");
+    const resultRegistryRootPublicKeySpki = required("TLSN_PRODUCTION_RESULT_REGISTRY_ROOT_PUBLIC_KEY_SPKI");
     const sessionAuthorityRegistryRaw = required("TLSN_PRODUCTION_SESSION_AUTHORITY_KEY_REGISTRY");
     const sessionAuthorityRegistry = parseJsonEnvironment("TLSN_PRODUCTION_SESSION_AUTHORITY_KEY_REGISTRY");
     const sessionAuthorityPublicKeySpki = required("TLSN_PRODUCTION_SESSION_AUTHORITY_PUBLIC_KEY_SPKI");
@@ -379,6 +387,12 @@ async function main() {
       currentKeyId: resultSignerKeyId,
       currentPublicKeySpki: resultPublicKeySpki,
     });
+    assertSignedResultRegistryEnvelope(registryEnvelope, {
+      registry,
+      registryRaw,
+      trustedRootKeyId: resultRegistryRootKeyId,
+      trustedRootPublicKeySpki: resultRegistryRootPublicKeySpki,
+    });
     assertAuthorityKeyRegistry(sessionAuthorityRegistry, {
       scope: "tlsn-session-authority-key-registry",
       currentKeyId: sessionAuthoritySignerKeyId,
@@ -394,6 +408,8 @@ async function main() {
     if (health.result_identity.result_public_key_spki !== resultPublicKeySpki) throw new Error("Worker result public key is not the published production key");
     if (health.result_identity.result_signer_key_id !== resultSignerKeyId) throw new Error("Worker result signer key ID is not the published production key");
     if (health.result_identity.result_key_registry_sha256 !== sha256Base64Url(registryRaw)) throw new Error("Worker result registry hash is not the supplied production registry");
+    if (health.result_identity.result_key_registry_envelope_sha256 !== resultRegistryEnvelopeHash(registryEnvelopeRaw)) throw new Error("Worker result registry envelope hash is not the supplied production envelope");
+    if (health.result_identity.result_registry_root_key_id !== resultRegistryRootKeyId || health.result_identity.result_registry_root_public_key_spki !== resultRegistryRootPublicKeySpki) throw new Error("Worker result registry Root identity is not the supplied production Root");
     if (health.authority_identity.session_authority.key_id !== sessionAuthoritySignerKeyId || health.authority_identity.session_authority.public_key_spki !== sessionAuthorityPublicKeySpki || health.authority_identity.session_authority.key_registry_sha256 !== sha256Base64Url(sessionAuthorityRegistryRaw)) throw new Error("Worker Session Authority identity is not the supplied registry");
     if (health.authority_identity.binding_authority.key_id !== bindingAuthoritySignerKeyId || health.authority_identity.binding_authority.public_key_spki !== bindingAuthorityPublicKeySpki || health.authority_identity.binding_authority.key_registry_sha256 !== sha256Base64Url(bindingAuthorityRegistryRaw)) throw new Error("Worker Binding Authority identity is not the supplied registry");
     if (health.security_identity.notary_registry_sha256 !== sha256Base64Url(notaryRegistryRaw)) {
@@ -507,6 +523,9 @@ async function main() {
       result_public_key_spki: health.result_identity.result_public_key_spki,
       result_signer_key_id: health.result_identity.result_signer_key_id,
       result_key_registry_sha256: health.result_identity.result_key_registry_sha256,
+      result_key_registry_envelope_sha256: health.result_identity.result_key_registry_envelope_sha256,
+      result_registry_root_key_id: health.result_identity.result_registry_root_key_id,
+      result_registry_root_public_key_spki: health.result_identity.result_registry_root_public_key_spki,
     };
     const preSignaturePredicateResults = verifySemanticPredicates({
       presentationBytes,
@@ -515,6 +534,8 @@ async function main() {
       trustedInputs,
       notaryRegistry,
       resultRegistry: registry,
+      resultRegistryRaw: registryRaw,
+      resultRegistryEnvelope: registryEnvelope,
       resultRegistrySha256: sha256Base64Url(Buffer.from(registryRaw)),
       resultPublicKeySpki,
       resultSignerKeyId,
@@ -538,6 +559,8 @@ async function main() {
       trustedInputs,
       notaryRegistry,
       resultRegistry: registry,
+      resultRegistryRaw: registryRaw,
+      resultRegistryEnvelope: registryEnvelope,
       resultRegistrySha256: sha256Base64Url(Buffer.from(registryRaw)),
       resultPublicKeySpki,
       resultSignerKeyId,
@@ -630,6 +653,7 @@ async function main() {
       consume_receipt_presentation_id: verification.json.consume_receipt.presentation_id,
     }));
     const resultRegistryBytes = Buffer.from(registryRaw);
+    const resultRegistryEnvelopeBytes = Buffer.from(registryEnvelopeRaw);
     const sessionAuthorityRegistryBytes = Buffer.from(sessionAuthorityRegistryRaw);
     const bindingAuthorityRegistryBytes = Buffer.from(bindingAuthorityRegistryRaw);
     const notaryRegistryBytes = Buffer.from(notaryRegistryRaw);
@@ -667,6 +691,7 @@ async function main() {
       consume_receipt: consumeReceiptBytes,
       replay: replayBytes,
       result_registry: resultRegistryBytes,
+      result_registry_envelope: resultRegistryEnvelopeBytes,
       session_authority_registry: sessionAuthorityRegistryBytes,
       binding_authority_registry: bindingAuthorityRegistryBytes,
       notary_registry: notaryRegistryBytes,
@@ -686,6 +711,7 @@ async function main() {
     const consumeReceiptArtifact = artifactDescriptor(consumeReceiptBytes, { mediaType: "application/json" });
     const replayArtifact = artifactDescriptor(replayBytes, { mediaType: "application/json" });
     const resultRegistryArtifact = artifactDescriptor(resultRegistryBytes, { mediaType: "application/json" });
+    const resultRegistryEnvelopeArtifact = artifactDescriptor(resultRegistryEnvelopeBytes, { mediaType: "application/json" });
     const sessionAuthorityRegistryArtifact = artifactDescriptor(sessionAuthorityRegistryBytes, { mediaType: "application/json" });
     const bindingAuthorityRegistryArtifact = artifactDescriptor(bindingAuthorityRegistryBytes, { mediaType: "application/json" });
     const notaryRegistryArtifact = artifactDescriptor(notaryRegistryBytes, { mediaType: "application/json" });
@@ -706,6 +732,10 @@ async function main() {
       result,
       resultBytes,
       resultSignerKeyId,
+      resultRegistrySha256: sha256Base64Url(registryRaw),
+      resultRegistryEnvelopeSha256: resultRegistryEnvelopeHash(registryEnvelopeRaw),
+      resultRegistryRootKeyId,
+      resultRegistryRootPublicKeySpki,
       proxyProvenance: productionPresentation.provenance.proxy_provenance,
     });
     assertVerifiedTrustGraph(trustGraph, {
@@ -737,6 +767,7 @@ async function main() {
         consume_receipt: { ...consumeReceiptArtifact, path: `${captureId}-consume-receipt.json` },
         replay: { ...replayArtifact, path: `${captureId}-replay.json` },
         result_registry: { ...resultRegistryArtifact, path: `${captureId}-result-registry.json` },
+        result_registry_envelope: { ...resultRegistryEnvelopeArtifact, path: `${captureId}-result-registry-envelope.json` },
         session_authority_registry: { ...sessionAuthorityRegistryArtifact, path: `${captureId}-session-authority-registry.json` },
         binding_authority_registry: { ...bindingAuthorityRegistryArtifact, path: `${captureId}-binding-authority-registry.json` },
         notary_registry: { ...notaryRegistryArtifact, path: `${captureId}-notary-registry.json` },
@@ -773,6 +804,7 @@ async function main() {
         real_production_binding_receipt_authority: item("real_production_binding_receipt_authority", productionRequirementStatus("real_production_binding_receipt_authority", allPredicateResults), "Consume receipt and the published Binding Authority registry were independently verified", { artifactSha256: bindingAuthorityRegistryArtifact.artifact_sha256, authorityIdentity: bindingAuthoritySignerKeyId }),
         real_production_verifier_trust_root: item("real_production_verifier_trust_root", productionRequirementStatus("real_production_verifier_trust_root", allPredicateResults), "Captured trust-root bytes matched the deployed Worker identity", { artifactSha256: trustRootArtifact?.artifact_sha256 ?? healthArtifact.artifact_sha256, authorityIdentity: health.deployment_identity.trust_root_certificate_sha256 }),
         real_production_result_signing_key: item("real_production_result_signing_key", productionRequirementStatus("real_production_result_signing_key", allPredicateResults), "Result signature and active production key registry were independently verified", { artifactSha256: resultRegistryArtifact.artifact_sha256, authorityIdentity: resultVerification.result_signer_key_id }),
+        real_production_result_registry_authentication: item("real_production_result_registry_authentication", productionRequirementStatus("real_production_result_registry_authentication", allPredicateResults), "The Result registry bytes and signer identity were authenticated by the externally pinned Evidence Root", { artifactSha256: resultRegistryEnvelopeArtifact.artifact_sha256, authorityIdentity: "fusou-result-registry-root" }),
         real_production_public_key_publication: item("real_production_public_key_publication", productionRequirementStatus("real_production_public_key_publication", allPredicateResults), "Worker health and the supplied production registry published the same result key", { artifactSha256: healthArtifact.artifact_sha256, authorityIdentity: "production-result-key-registry" }),
         independently_captured_production_evidence: item("independently_captured_production_evidence", productionRequirementStatus("independently_captured_production_evidence", allPredicateResults), "Production endpoints, device signatures, binding receipts, and an independently verified Presentation were captured", { artifactSha256: semanticVerificationArtifactDescriptor.artifact_sha256, authorityIdentity: "production-capture-operator" }),
       },

@@ -5,7 +5,7 @@ import {
   sign,
   verify,
 } from "node:crypto";
-import { assertSigningKeyRegistry } from "./signing-key-registry.mjs";
+import { assertSigningKeyRegistry, resolveResultSigningKey } from "./signing-key-registry.mjs";
 import {
   assertProductionEvidenceManifest,
   PRODUCTION_EVIDENCE_SCOPE,
@@ -255,16 +255,28 @@ export function assertSignedResult(result, {
   keyRegistry,
   signerKeyId,
   now = new Date(),
+  verificationTime,
 } = {}) {
   if (!result || result.version !== 1 || typeof result.signature !== "string") {
     throw new Error("production verifier result schema is invalid");
   }
-  const publicKey = publicKeyFromSpki(publicKeySpki, "production result public key");
-  assertSigningKeyRegistry(keyRegistry, {
-    currentKeyId: signerKeyId,
-    currentPublicKeySpki: publicKeySpki,
-    now,
-  });
+  let resolvedPublicKeySpki = publicKeySpki;
+  if (verificationTime !== undefined) {
+    resolvedPublicKeySpki = resolveResultSigningKey(keyRegistry, {
+      keyId: signerKeyId,
+      at: verificationTime,
+    });
+    if (publicKeySpki !== undefined && publicKeySpki !== resolvedPublicKeySpki) {
+      throw new Error("production result public key does not match the historical registry key");
+    }
+  } else {
+    assertSigningKeyRegistry(keyRegistry, {
+      currentKeyId: signerKeyId,
+      currentPublicKeySpki: publicKeySpki,
+      now,
+    });
+  }
+  const publicKey = publicKeyFromSpki(resolvedPublicKeySpki, "production result public key");
   if (result.verifier_key_id === "" || result.notary_key_id === "") throw new Error("production result key identity is missing");
   const signature = decodeBase64Url(result.signature, "production result signature", 64);
   if (!verify(null, resultSigningBytes(result), publicKey, signature)) {
@@ -274,6 +286,7 @@ export function assertSignedResult(result, {
     result_sha256: sha256Base64Url(JSON.stringify(result)),
     result_signature_valid: true,
     result_signer_key_id: signerKeyId,
+    result_signing_key_status: verificationTime === undefined ? "ACTIVE" : "HISTORICAL_VALID",
   };
 }
 

@@ -10,6 +10,7 @@ import {
   assertPublicManifest,
   notaryRegistrySha256,
 } from "./production-trust-contract.mjs";
+import { createSignedResultRegistryEnvelope } from "./result-registry-envelope.mjs";
 
 const packageDirectory = resolve(new URL("..", import.meta.url).pathname);
 const repositoryDirectory = resolve(packageDirectory, "../..");
@@ -117,6 +118,7 @@ try {
   const [alpha15K256NotaryKey, secondAlpha15K256NotaryKey] = generateAlpha15NotaryKeys();
   const rootCertificateDer = await createRootCertificate(rootDirectory);
   const result = keyMaterial();
+  const resultRegistryRoot = keyMaterial();
   const session = keyMaterial();
   const binding = keyMaterial();
   const attestation = keyMaterial();
@@ -142,6 +144,14 @@ try {
     resultKeyId,
     result.publicKeySpki,
   );
+  const resultRegistryRootKeyId = "result-registry-root-roundtrip";
+  const resultRegistryEnvelopeRaw = JSON.stringify(createSignedResultRegistryEnvelope({
+    registry: JSON.parse(resultRegistryRaw),
+    registryRaw: resultRegistryRaw,
+    rootKeyId: resultRegistryRootKeyId,
+    rootPublicKeySpki: resultRegistryRoot.publicKeySpki,
+    rootPrivateKeyPkcs8: resultRegistryRoot.privateKeyPkcs8,
+  }));
   const commitSha = execFileSync("git", ["rev-parse", "HEAD"], {
     cwd: repositoryDirectory,
     encoding: "utf8",
@@ -184,6 +194,9 @@ try {
     TLSN_PRODUCTION_RESULT_PUBLIC_KEY_SPKI: result.publicKeySpki,
     TLSN_PRODUCTION_RESULT_SIGNER_KEY_ID: resultKeyId,
     TLSN_PRODUCTION_RESULT_SIGNING_KEY_REGISTRY: resultRegistryRaw,
+    TLSN_PRODUCTION_RESULT_SIGNING_KEY_REGISTRY_ENVELOPE: resultRegistryEnvelopeRaw,
+    TLSN_PRODUCTION_RESULT_REGISTRY_ROOT_KEY_ID: resultRegistryRootKeyId,
+    TLSN_PRODUCTION_RESULT_REGISTRY_ROOT_PUBLIC_KEY_SPKI: resultRegistryRoot.publicKeySpki,
     TLSN_PRODUCTION_SESSION_AUTHORITY_PUBLIC_KEY_SPKI: session.publicKeySpki,
     TLSN_PRODUCTION_SESSION_AUTHORITY_KEY_ID: sessionKeyId,
     TLSN_PRODUCTION_SESSION_AUTHORITY_KEY_REGISTRY: sessionRegistryRaw,
@@ -219,6 +232,8 @@ try {
   assert.equal(manifest.session_authority.key_id, sessionKeyId);
   assert.equal(manifest.result_signing.key_id, resultKeyId);
   assert.equal(manifest.result_signing.public_key_spki, result.publicKeySpki);
+  assert.equal(manifest.result_signing.result_registry_root_key_id, resultRegistryRootKeyId);
+  assert.equal(manifest.result_signing.result_registry_root_public_key_spki, resultRegistryRoot.publicKeySpki);
   assert.equal(manifest.origin.server_identity, "game.example.com");
   const manifestText = JSON.stringify(manifest);
   for (const value of [

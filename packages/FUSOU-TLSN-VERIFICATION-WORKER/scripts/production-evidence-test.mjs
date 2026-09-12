@@ -33,6 +33,7 @@ import {
   verifySemanticPredicates,
   verifyProductionPresentation,
 } from "./production-evidence-semantic.mjs";
+import { createSignedResultRegistryEnvelope, resultRegistryEnvelopeHash } from "./result-registry-envelope.mjs";
 import {
   consumeReceiptSigningBytes,
   sessionReceiptSigningBytes,
@@ -108,6 +109,19 @@ const resultKeyRegistry = {
 };
 const resultKeyRegistryRaw = JSON.stringify(resultKeyRegistry);
 const resultKeyRegistrySha256 = sha256Base64Url(Buffer.from(resultKeyRegistryRaw));
+const { privateKey: resultRegistryRootPrivateKey, publicKey: resultRegistryRootPublicKey } = generateKeyPairSync("ed25519");
+const resultRegistryRootPublicKeySpki = resultRegistryRootPublicKey.export({ format: "der", type: "spki" }).toString("base64url");
+const resultRegistryRootPrivateKeyPkcs8 = resultRegistryRootPrivateKey.export({ format: "der", type: "pkcs8" }).toString("base64url");
+const resultRegistryRootKeyId = "result-registry-root-2026";
+const resultRegistryEnvelope = createSignedResultRegistryEnvelope({
+  registry: resultKeyRegistry,
+  registryRaw: resultKeyRegistryRaw,
+  rootKeyId: resultRegistryRootKeyId,
+  rootPublicKeySpki: resultRegistryRootPublicKeySpki,
+  rootPrivateKeyPkcs8: resultRegistryRootPrivateKeyPkcs8,
+});
+const resultRegistryEnvelopeBytes = Buffer.from(JSON.stringify(resultRegistryEnvelope));
+const resultRegistryEnvelopeSha256 = resultRegistryEnvelopeHash(resultRegistryEnvelopeBytes);
 const trustRootBytes = Buffer.from("test-trust-root");
 deploymentIdentity.trust_root_certificate_sha256 = sha256Base64Url(trustRootBytes);
 const sessionId = "123e4567-e89b-42d3-a456-426614174000";
@@ -165,6 +179,7 @@ const subjectIdentity = {
 
 const presentationBytes = Buffer.from("real-production-presentation");
 const resultBytes = Buffer.from(JSON.stringify(result));
+const resultRegistryBytes = Buffer.from(resultKeyRegistryRaw);
 const proxyProvenance = {
   declared: "production",
   cryptographic_status: "UNVERIFIED",
@@ -214,9 +229,17 @@ const manifest = blockedProductionEvidenceManifest({
 manifest.artifacts = {
   presentation: { ...artifactDescriptor(presentationBytes, { mediaType: "application/tlsn-presentation" }), path: "presentation.bin" },
   result: { ...artifactDescriptor(resultBytes, { mediaType: "application/json" }), path: "result.json" },
+  result_registry: { ...artifactDescriptor(resultRegistryBytes, { mediaType: "application/json" }), path: "result-registry.json" },
+  result_registry_envelope: { ...artifactDescriptor(resultRegistryEnvelopeBytes, { mediaType: "application/json" }), path: "result-registry-envelope.json" },
   capture_metadata: { ...artifactDescriptor(captureMetadataBytes, { mediaType: "application/json" }), path: "capture-metadata.json" },
 };
-const fixtureArtifacts = { presentation: presentationBytes, result: resultBytes, capture_metadata: captureMetadataBytes };
+const fixtureArtifacts = {
+  presentation: presentationBytes,
+  result: resultBytes,
+  result_registry: resultRegistryBytes,
+  result_registry_envelope: resultRegistryEnvelopeBytes,
+  capture_metadata: captureMetadataBytes,
+};
 for (const artifactName of ["authenticated_user", "device_identity", "device_authentication", "session", "consume_receipt", "semantic_verification", "notary_registry", "health"]) {
   const bytes = Buffer.from(`fixture-${artifactName}`);
   fixtureArtifacts[artifactName] = bytes;
@@ -300,6 +323,9 @@ const trustedInputs = {
   result_public_key_spki: resultPublicKeySpki,
   result_signer_key_id: "result-2026",
   result_key_registry_sha256: resultKeyRegistrySha256,
+  result_key_registry_envelope_sha256: resultRegistryEnvelopeSha256,
+  result_registry_root_key_id: resultRegistryRootKeyId,
+  result_registry_root_public_key_spki: resultRegistryRootPublicKeySpki,
 };
 const notaryRegistry = { [result.notary_key_id]: notaryKey.toString("base64url") };
 const predicateResults = verifySemanticPredicates({
@@ -309,6 +335,9 @@ const predicateResults = verifySemanticPredicates({
   trustedInputs,
   notaryRegistry,
   resultRegistry: resultKeyRegistry,
+  resultRegistryRaw: resultKeyRegistryRaw,
+  resultRegistryEnvelope,
+  resultRegistryEnvelopeRaw: resultRegistryEnvelopeBytes,
   resultPublicKeySpki,
   resultSignerKeyId: "result-2026",
   resultRegistrySha256: resultKeyRegistrySha256,
@@ -324,6 +353,8 @@ const predicateContext = {
   trustedInputs,
   notaryRegistry,
   resultRegistry: resultKeyRegistry,
+  resultRegistryRaw: resultKeyRegistryRaw,
+  resultRegistryEnvelope,
   resultRegistrySha256: resultKeyRegistrySha256,
   resultPublicKeySpki,
   resultSignerKeyId: "result-2026",
@@ -437,7 +468,13 @@ assertPredicateFailed("unrelated Result and Presentation pair", predicateMutatio
 }), ["result_presentation_binding", "result_signature"]);
 assertPredicateFailed("result registry substitution", predicateMutation({
   resultRegistry: { ...resultKeyRegistry, keys: [{ ...resultKeyRegistry.keys[0], key_id: "result-other" }] },
-}), ["result_signature"]);
+}), ["result_signature", "result_registry_root_authentication"]);
+assertPredicateFailed("result registry Root signature mutation", predicateMutation({
+  resultRegistryEnvelope: {
+    ...resultRegistryEnvelope,
+    signature_base64url: mutateBase64Url(resultRegistryEnvelope.signature_base64url),
+  },
+}), ["result_registry_root_authentication"]);
 
 const { privateKey: devicePrivateKey, publicKey: devicePublicKey } = generateKeyPairSync("ed25519");
 const devicePublicKeyBytes = devicePublicKey.export({ format: "der", type: "spki" }).subarray(-32);
@@ -601,6 +638,8 @@ const graphIdentities = {
   presentation: { presentation_sha256: sha256Base64Url(presentationBytes), attestation_id: result.tlsn_attestation_id },
   "member-id": { verified_member_id: result.verified_member_id, response_transcript_sha256: result.response_transcript_sha256 },
   "tlsn-notary": { key_id: result.notary_key_id },
+  "result-registry-root": { key_id: resultRegistryRootKeyId, public_key_spki: resultRegistryRootPublicKeySpki },
+  "result-registry": { registry_sha256: resultKeyRegistrySha256, envelope_sha256: resultRegistryEnvelopeSha256 },
   result: { result_sha256: sha256Base64Url(resultBytes), key_id: result.signer_key_id ?? "result-2026" },
   "production-proxy": {
     declared: proxyProvenance.declared,
@@ -621,6 +660,8 @@ const graphArtifactByNode = {
   presentation: "presentation",
   "member-id": "semantic_verification",
   "tlsn-notary": "notary_registry",
+  "result-registry-root": "result_registry_envelope",
+  "result-registry": "result_registry",
   result: "result",
   "production-proxy": "capture_metadata",
   "production-evidence": "health",
