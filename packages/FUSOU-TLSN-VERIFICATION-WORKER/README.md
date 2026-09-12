@@ -1,6 +1,6 @@
 # FUSOU TLSNotary Verification Worker
 
-This Worker is the authoritative authentication, binding, signing, and result-delivery boundary for FUSOU TLSNotary alpha.15 `require_info` Presentations. In production, heavy Presentation verification runs in the `fusou-compaction-trigger` Trigger.dev task; the Worker does not run the large WASM verification path.
+This Worker is the authoritative authentication, binding, signing, and result-delivery boundary for FUSOU TLSNotary alpha.15 `require_info` Presentations. In production, heavy Presentation verification runs in the `fusou-tlsn-trigger` Trigger.dev task; the Worker does not run the large WASM verification path.
 
 The Worker issues a one-shot, authenticated Session/Binding context at `/attestation/session`. Session issuance requires the existing FUSOU device proof (`device_id`, the HMAC challenge nonce, and the Ed25519 signature over that nonce). Every Session also receives a fresh 32-byte TLSN device challenge. `/verify/tlsn` requires `presentation_base64`, `session_id`, `device_id`, `binding`, and `device_proof` (`challenge`, `sig`); the signature covers the current device, Session, binding, and challenge context. Rust/WASM verifies the Presentation and derives `verified_member_id` from authenticated response bytes. Client-provided member IDs are not accepted. Synthetic wire data is never treated as verified.
 
@@ -8,7 +8,7 @@ Both attestation endpoints require `Authorization: Bearer <Supabase access token
 
 The Worker does not own a TLSN device registry, receive a Supabase service-role key, or receive a device private key. A client-supplied `device_id` is only a selector/proof input; the authoritative device identity comes from the FUSOU-WEB verification response and the Durable Object record. The generic device proof and TLSN proof are separate one-shot proofs and cannot be reused across Sessions or bindings.
 
-In Trigger mode, `/verify/tlsn` authenticates and atomically claims the binding, stores the raw Presentation in the private `TLSN_PRESENTATIONS` R2 bucket, and returns `202` with a job ID. Trigger fetches that object through `/internal/tlsn/verification-input` using the shared HMAC callback secret. The Worker signs and consumes the binding only after the HMAC-authenticated completion callback, stores the final result object, deletes the raw input object, and serves it through authenticated `/verify/tlsn/status` polling. `/verify/tlsn/retry` re-enqueues an accepted job without replaying the device proof.
+In Trigger mode, `/verify/tlsn` authenticates and atomically claims the binding, stores the raw Presentation in the private `TLSN_PRESENTATIONS` R2 bucket, and returns `202` with a job ID. Trigger fetches that object through `/internal/tlsn/verification-input` using the shared HMAC callback secret. The Worker signs and consumes the binding only after the HMAC-authenticated completion callback, stores the final result object, deletes the raw input object, and serves it through authenticated `/verify/tlsn/status` polling. A verified final response identifies the result-signing key with top-level `signer_key_id` alongside `signature_algorithm`; the signed result remains nested under `result`. `/verify/tlsn/retry` re-enqueues an accepted job without replaying the device proof.
 
 ## Local development
 
@@ -80,6 +80,7 @@ The following values are the Production source of truth. The raw registry JSON i
 | TLSN alpha.15 Notary | `TLSN_PRODUCTION_NOTARY_REGISTRY` plus selected `TLSN_CANDIDATE_NOTARY_KEY_ID` | Notary deployment only | Worker, offline evidence verifier, public manifest, APP selected verifying key |
 | Session Authority | `TLSN_PRODUCTION_SESSION_AUTHORITY_KEY_ID`, `TLSN_PRODUCTION_SESSION_AUTHORITY_PUBLIC_KEY_SPKI`, and `TLSN_PRODUCTION_SESSION_AUTHORITY_KEY_REGISTRY` | `TLSN_PRODUCTION_SESSION_AUTHORITY_SIGNING_PRIVATE_KEY_PKCS8` | Worker issuance, offline evidence verifier, public manifest |
 | Binding Authority | `TLSN_PRODUCTION_BINDING_AUTHORITY_KEY_ID`, `TLSN_PRODUCTION_BINDING_AUTHORITY_PUBLIC_KEY_SPKI`, and `TLSN_PRODUCTION_BINDING_AUTHORITY_KEY_REGISTRY` | `TLSN_PRODUCTION_BINDING_AUTHORITY_SIGNING_PRIVATE_KEY_PKCS8` | Worker consume receipts, offline evidence verifier; never APP |
+| Result signer | `TLSN_PRODUCTION_RESULT_SIGNER_KEY_ID`, `TLSN_PRODUCTION_RESULT_PUBLIC_KEY_SPKI`, and `TLSN_PRODUCTION_RESULT_SIGNING_KEY_REGISTRY` | `TLSN_PRODUCTION_RESULT_SIGNING_PRIVATE_KEY_PKCS8` | Worker result signing, offline evidence verifier, public manifest, APP result verification |
 
 The Production workflow connects those public values to preflight and Worker `--var` inputs, and connects the Session/Binding private keys and the existing Result signing private key to the temporary secrets file. No private authority material is written to the public manifest or sent to the APP.
 
@@ -102,6 +103,16 @@ The public manifest schema is:
 		"public_key_spki": "...",
 		"key_registry_sha256": "..."
 	},
+	"result_signing": {
+		"key_id": "...",
+		"public_key_spki": "...",
+		"key_registry": {
+			"schema_version": 1,
+			"scope": "tlsn-result-signing-key-registry",
+			"keys": []
+		},
+		"key_registry_sha256": "..."
+	},
 	"verification_endpoint": "https://.../verify/tlsn",
 	"origin": {
 		"server_identity": "...",
@@ -111,7 +122,7 @@ The public manifest schema is:
 }
 ```
 
-`pnpm run render:app-config` maps this manifest to APP public TLSN settings and receives the local artifact path as a separate argument. APP receives no Binding Authority registry, private key, bearer token, service credential, device key, or Cloudflare credential.
+`pnpm run render:app-config` maps this manifest to APP public TLSN settings, including the Result signer SPKI, signer key ID, and complete public registry, and receives the local artifact path as a separate argument. APP constructs its own fail-closed Result signature verifier from those public values. APP receives no Binding Authority registry, private key, bearer token, service credential, device key, or Cloudflare credential.
 
 For rotation, publish the new Notary registry and selected key together, then regenerate the public manifest and APP config. For Session or Binding Authority rotation, publish the new public SPKI, key ID, registry, and matching private secret as one deployment unit. The new key must be `ACTIVE`; the previous Session/Binding key may remain `VERIFY_ONLY` for historical receipt verification, but must not issue new receipts. Validate the old/new registry hashes and public-key identities offline before deployment, and retain the previous complete configuration for rollback.
 
@@ -125,7 +136,7 @@ pnpm run preflight:production
 
 `scripts/production-inputs.json` is the explicit production input contract and the deploy wrapper's allowlist. The preflight checks required production variables, clean HTTPS URLs and exact FUSOU-WEB paths, DNS allowlists, profile/security digests, Notary registry membership, result-key publication, and the absence of test fixtures, service-role keys, and device-private-key variables. It writes only non-secret failure metadata to `artifacts/tlsn-deployment-preflight.json` or `TLSN_PREFLIGHT_REPORT_PATH`, plus `artifacts/tlsn-production-provenance.json` or `TLSN_PROVENANCE_REPORT_PATH`; it never prints configuration values.
 
-The passing Production preflight also writes the public-only `tlsn-production-public-manifest.json`. It contains the Notary endpoint, selected Notary key ID and registry entry, Session Authority endpoint/key ID/public SPKI and registry hash, Verification Worker endpoint, server identity, trust-root DER bytes, and origin port. It contains no private key, bearer token, service credential, device key, or Cloudflare credential. Use `pnpm run render:app-config -- --manifest <manifest> --output <configs.toml> --artifact-output-path <local-directory>` to create an APP config; the artifact path is intentionally supplied separately because it is APP-local.
+The passing Production preflight also writes the public-only `tlsn-production-public-manifest.json`. It contains the Notary endpoint, selected Notary key ID and registry entry, Session Authority endpoint/key ID/public SPKI and registry hash, Result signer key ID/public SPKI/registry and registry hash, Verification Worker endpoint, server identity, trust-root DER bytes, and origin port. It contains no private key, bearer token, service credential, device key, or Cloudflare credential. Use `pnpm run render:app-config -- --manifest <manifest> --output <configs.toml> --artifact-output-path <local-directory>` to create an APP config; the artifact path is intentionally supplied separately because it is APP-local.
 
 Use `pnpm run deploy:production` for the guarded deploy entry point. It runs the preflight, captures the previous production identity, runs remote validation against the canary, verifies the fresh report, deploys only after that gate passes, and performs post-deploy identity and unauthenticated smoke checks. It injects non-secret manifest inputs through Wrangler `--var` and uploads the signing key and trust root through a temporary mode-600 secrets file. Wrangler authentication remains CLI-only; a failed prerequisite cannot deploy.
 

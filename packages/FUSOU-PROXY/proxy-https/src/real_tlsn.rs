@@ -3,8 +3,7 @@ use crate::{
         sha256, AttestationBinding, BindingError, BindingFuture, BindingRequestContext,
         ProofContinuation, ProofContinuationError, SerializedOriginRequest, TlsnOriginCapture,
         TlsnOriginExchange, TlsnOriginResponse, TlsnTransportError, VerificationError,
-        VerificationFuture,
-        VerificationOutcome, VerifiedMemberId, VerifiedTlsnEvidence,
+        VerificationFuture, VerificationOutcome, VerifiedMemberId, VerifiedTlsnEvidence,
     },
     production_tlsn::{
         Alpha15OriginTransportFactory, OriginTransportConfig, PresentationHandoff,
@@ -25,7 +24,7 @@ use hyper::body::Bytes;
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     future::IntoFuture,
     path::PathBuf,
     sync::{Arc, Mutex},
@@ -51,6 +50,153 @@ use tokio_util::compat::TokioAsyncReadCompatExt;
 
 const MAX_SENT_DATA: usize = 128 * 1024;
 const MAX_RECV_DATA: usize = 4 * 1024 * 1024;
+const ED25519_SPKI_PREFIX: &[u8; 12] = b"\x30\x2a\x30\x05\x06\x03\x2b\x65\x70\x03\x21\x00";
+const RESULT_SIGNING_KEY_REGISTRY_SCOPE: &str = "tlsn-result-signing-key-registry";
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ResultSigningKeyRegistry {
+    schema_version: u8,
+    scope: String,
+    keys: Vec<ResultSigningKeyEntry>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ResultSigningKeyEntry {
+    key_id: String,
+    public_key_spki: String,
+    status: String,
+    not_before: String,
+    not_after: Option<String>,
+}
+
+#[derive(Clone)]
+pub struct ResultSignatureVerifier {
+    expected_key_id: String,
+    public_key: [u8; 32],
+    not_before: DateTime<Utc>,
+    not_after: Option<DateTime<Utc>>,
+}
+
+impl ResultSignatureVerifier {
+    pub fn new(
+        public_key_spki: Vec<u8>,
+        expected_key_id: String,
+        registry_json: String,
+    ) -> Result<Self, TlsnTransportError> {
+        if !valid_result_key_id(&expected_key_id)
+            || public_key_spki.len() != ED25519_SPKI_PREFIX.len() + 32
+            || !public_key_spki.starts_with(ED25519_SPKI_PREFIX)
+        {
+            return Err(TlsnTransportError::Unavailable);
+        }
+        let registry: ResultSigningKeyRegistry = serde_json::from_str(&registry_json)
+            .map_err(|_| TlsnTransportError::Unavailable)?;
+        if registry.schema_version != 1
+            || registry.scope != RESULT_SIGNING_KEY_REGISTRY_SCOPE
+            || registry.keys.is_empty()
+        {
+            return Err(TlsnTransportError::Unavailable);
+        }
+        let mut seen_key_ids = HashSet::new();
+        let mut expected_entry = None;
+        for entry in registry.keys {
+            if !valid_result_key_id(&entry.key_id)
+                || !seen_key_ids.insert(entry.key_id.clone())
+                || !matches!(entry.status.as_str(), "ACTIVE" | "VERIFY_ONLY" | "RETIRED" | "REVOKED")
+            {
+                return Err(TlsnTransportError::Unavailable);
+            }
+            let not_before = DateTime::parse_from_rfc3339(&entry.not_before)
+                .map_err(|_| TlsnTransportError::Unavailable)?
+                .with_timezone(&Utc);
+            let not_after = entry
+                .not_after
+                .as_deref()
+                .map(DateTime::parse_from_rfc3339)
+                .transpose()
+                .map_err(|_| TlsnTransportError::Unavailable)?
+                .map(|value| value.with_timezone(&Utc));
+            if not_after.is_some_and(|value| value <= not_before) {
+                return Err(TlsnTransportError::Unavailable);
+            }
+            let public_key = decode_result_public_key(&entry.public_key_spki)
+                .ok_or(TlsnTransportError::Unavailable)?;
+            if entry.key_id == expected_key_id {
+                expected_entry = Some((entry.status, public_key, not_before, not_after));
+            }
+        }
+        let (status, registry_public_key, not_before, not_after) =
+            expected_entry.ok_or(TlsnTransportError::Unavailable)?;
+        let mut public_key = [0_u8; 32];
+        public_key.copy_from_slice(&public_key_spki[ED25519_SPKI_PREFIX.len()..]);
+        let now = Utc::now();
+        if status != "ACTIVE"
+            || registry_public_key != public_key
+            || not_before > now
+            || not_after.is_some_and(|value| value < now)
+        {
+            return Err(TlsnTransportError::Unavailable);
+        }
+        Ok(Self {
+            expected_key_id,
+            public_key,
+            not_before,
+            not_after,
+        })
+    }
+
+    fn verify(&self, payload: &serde_json::Value) -> Result<VerifiedMemberId, VerificationError> {
+        let now = Utc::now();
+        if self.not_before > now || self.not_after.is_some_and(|value| value < now) {
+            return Err(VerificationError::WorkerRejected);
+        }
+        if payload.get("signature_algorithm") != Some(&serde_json::Value::String("Ed25519".to_owned()))
+            || payload.get("signer_key_id")
+                != Some(&serde_json::Value::String(self.expected_key_id.clone()))
+        {
+            return Err(VerificationError::WorkerRejected);
+        }
+        let result = payload
+            .get("result")
+            .and_then(serde_json::Value::as_object)
+            .ok_or(VerificationError::WorkerRejected)?;
+        let result_bytes = serde_json::to_vec(result).map_err(|_| VerificationError::WorkerRejected)?;
+        let parsed = fusou_tlsn_verifier::parse_verifier_result(
+            &result_bytes,
+            &ParserLimits::default(),
+        )
+        .map_err(|_| VerificationError::WorkerRejected)?;
+        let signing_bytes = parsed
+            .signing_bytes()
+            .map_err(|_| VerificationError::WorkerRejected)?;
+        ring::signature::UnparsedPublicKey::new(&ring::signature::ED25519, &self.public_key)
+            .verify(&signing_bytes, &parsed.signature)
+            .map_err(|_| VerificationError::WorkerRejected)?;
+        VerifiedMemberId::from_verifier(parsed.verified_member_id)
+    }
+}
+
+fn valid_result_key_id(value: &str) -> bool {
+    (1..=128).contains(&value.len())
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-'))
+}
+
+fn decode_result_public_key(value: &str) -> Option<[u8; 32]> {
+    let decoded = URL_SAFE_NO_PAD.decode(value).ok()?;
+    if URL_SAFE_NO_PAD.encode(&decoded) != value
+        || decoded.len() != ED25519_SPKI_PREFIX.len() + 32
+        || !decoded.starts_with(ED25519_SPKI_PREFIX)
+    {
+        return None;
+    }
+    let mut public_key = [0_u8; 32];
+    public_key.copy_from_slice(&decoded[ED25519_SPKI_PREFIX.len()..]);
+    Some(public_key)
+}
 
 fn max_sent_data_for_request(request: &[u8]) -> Result<usize, TlsnTransportError> {
     if request.is_empty() || request.len() > MAX_SENT_DATA {
@@ -131,7 +277,8 @@ impl RemoteWorkerResultStore {
 }
 
 fn worker_endpoints(endpoint: &str) -> Result<(String, String), TlsnTransportError> {
-    let parsed = reqwest::Url::parse(endpoint.trim()).map_err(|_| TlsnTransportError::Unavailable)?;
+    let parsed =
+        reqwest::Url::parse(endpoint.trim()).map_err(|_| TlsnTransportError::Unavailable)?;
     if parsed.scheme() != "https"
         || parsed.host_str().is_none()
         || parsed.username() != ""
@@ -150,7 +297,10 @@ fn worker_endpoints(endpoint: &str) -> Result<(String, String), TlsnTransportErr
     Ok((parsed.to_string(), status.to_string()))
 }
 
-fn worker_http_error(status: reqwest::StatusCode, payload: &serde_json::Value) -> VerificationError {
+fn worker_http_error(
+    status: reqwest::StatusCode,
+    payload: &serde_json::Value,
+) -> VerificationError {
     if payload
         .get("error")
         .and_then(serde_json::Value::as_str)
@@ -199,7 +349,7 @@ fn verified_worker_payload(
         .get("result")
         .and_then(serde_json::Value::as_object)
         .ok_or(VerificationError::WorkerRejected)?;
-    let key_id = result
+    let key_id = payload
         .get("signer_key_id")
         .and_then(serde_json::Value::as_str)
         .ok_or(VerificationError::WorkerRejected)?
@@ -218,10 +368,12 @@ async fn poll_worker_result(
     access_token: &str,
     session: &SessionBindingContext,
     job_id: &str,
+    poll_interval: Duration,
+    poll_timeout: Duration,
 ) -> Result<serde_json::Value, VerificationError> {
-    tokio::time::timeout(WORKER_POLL_TIMEOUT, async {
+    tokio::time::timeout(poll_timeout, async {
         loop {
-            tokio::time::sleep(WORKER_POLL_INTERVAL).await;
+            tokio::time::sleep(poll_interval).await;
             let binding_id = URL_SAFE_NO_PAD.encode(sha256(session.binding().as_bytes()));
             let response = client
                 .post(status_endpoint)
@@ -262,6 +414,7 @@ pub struct RemoteWorkerVerificationBackend {
     device_key_path: PathBuf,
     binding_state: Arc<Mutex<Option<SessionBindingContext>>>,
     results: Arc<RemoteWorkerResultStore>,
+    result_verifier: Arc<ResultSignatureVerifier>,
 }
 
 impl RemoteWorkerVerificationBackend {
@@ -271,6 +424,7 @@ impl RemoteWorkerVerificationBackend {
         device_key_path: PathBuf,
         binding_state: Arc<Mutex<Option<SessionBindingContext>>>,
         results: Arc<RemoteWorkerResultStore>,
+        result_verifier: Arc<ResultSignatureVerifier>,
     ) -> Result<Self, TlsnTransportError> {
         let (endpoint, status_endpoint) = worker_endpoints(&endpoint)?;
         let client = reqwest::Client::builder()
@@ -286,6 +440,7 @@ impl RemoteWorkerVerificationBackend {
             device_key_path,
             binding_state,
             results,
+            result_verifier,
         })
     }
 }
@@ -299,6 +454,7 @@ impl TlsnVerificationBackend for RemoteWorkerVerificationBackend {
         let device_key_path = self.device_key_path.clone();
         let binding_state = Arc::clone(&self.binding_state);
         let results = Arc::clone(&self.results);
+        let result_verifier = Arc::clone(&self.result_verifier);
         Box::pin(async move {
             let (context, _request, binding, _exchange, presentation) = input.into_parts();
             let session = binding_state
@@ -359,6 +515,8 @@ impl TlsnVerificationBackend for RemoteWorkerVerificationBackend {
                     &access_token,
                     &session,
                     &job_id,
+                    WORKER_POLL_INTERVAL,
+                    WORKER_POLL_TIMEOUT,
                 )
                 .await?
             } else if status.is_success() {
@@ -366,7 +524,8 @@ impl TlsnVerificationBackend for RemoteWorkerVerificationBackend {
             } else {
                 return Err(worker_http_error(status, &payload));
             };
-            let (payload, key_id, member_id) = verified_worker_payload(payload)?;
+            let (payload, key_id, _member_id) = verified_worker_payload(payload)?;
+            let member_id = result_verifier.verify(&payload)?;
             let request_sha256 = *context.request_sha256();
             let response_sha256 = *context.response_sha256();
             results.insert(
@@ -406,8 +565,8 @@ impl ProductionResultSigner for RemoteWorkerResultSigner {
         let artifact_root = self.artifact_root.clone();
         Box::pin(async move {
             let result = results.take(evidence.request_sha256())?;
-            let bytes = serde_json::to_vec(&result.payload)
-                .map_err(|_| ResultSignerError::Failed)?;
+            let bytes =
+                serde_json::to_vec(&result.payload).map_err(|_| ResultSignerError::Failed)?;
             write_production_capture_bundle(
                 &artifact_root,
                 &result.presentation,
@@ -417,8 +576,7 @@ impl ProductionResultSigner for RemoteWorkerResultSigner {
             )
             .await
             .map_err(|_| ResultSignerError::Failed)?;
-            SignedTlsnResult::new(result.key_id, bytes)
-                .map_err(|_| ResultSignerError::Failed)
+            SignedTlsnResult::new(result.key_id, bytes).map_err(|_| ResultSignerError::Failed)
         })
     }
 }
@@ -883,17 +1041,15 @@ impl crate::production_tlsn::TlsnVerificationBackend for RealAlpha15DedicatedVer
             {
                 return Err(crate::experimental_tlsn::VerificationError::InvalidTranscript);
             }
-            Ok(
-                crate::experimental_tlsn::VerificationOutcome::Verified(
-                    crate::experimental_tlsn::VerifiedTlsnEvidence::from_verifier(
+            Ok(crate::experimental_tlsn::VerificationOutcome::Verified(
+                crate::experimental_tlsn::VerifiedTlsnEvidence::from_verifier(
                     request_sha256,
                     response_sha256,
                     crate::experimental_tlsn::VerifiedMemberId::from_verifier(
                         verified.verified_member_id,
                     )?,
-                    ),
                 ),
-            )
+            ))
         })
     }
 }
@@ -1241,7 +1397,340 @@ fn hex_bytes(bytes: &[u8; 32]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{
+        experimental_tlsn::ExperimentalVerifierBoundary,
+        production_tlsn::{
+            HandoffPresentationProvider, OriginTarget, PresentationVerifierBoundary,
+            RuntimeIdentifiers,
+        },
+    };
     use ring::signature::{Ed25519KeyPair, KeyPair};
+    use warp::Filter;
+
+    fn test_session_context() -> SessionBindingContext {
+        SessionBindingContext {
+            session_id: "550e8400-e29b-41d4-a716-446655440000".to_owned(),
+            device_id: "7c9e6679-7425-40de-944b-e07fc1f90ae7".to_owned(),
+            binding: "binding-value".to_owned(),
+            binding_challenge: URL_SAFE_NO_PAD.encode([7_u8; 32]),
+            device_challenge: URL_SAFE_NO_PAD.encode([9_u8; 32]),
+            expires_at: (Utc::now() + chrono::Duration::minutes(5)).to_rfc3339(),
+            session_receipt: SessionReceipt {
+                schema_version: 1,
+                receipt_type: "attestation-session-issued".to_owned(),
+                signer_key_id: "session-authority-2026".to_owned(),
+                signature_algorithm: "Ed25519".to_owned(),
+                session_id: "550e8400-e29b-41d4-a716-446655440000".to_owned(),
+                canonical_user_id: "11111111-1111-4111-8111-111111111111".to_owned(),
+                device_id: "7c9e6679-7425-40de-944b-e07fc1f90ae7".to_owned(),
+                device_auth_nonce: "a".repeat(64),
+                nonce: URL_SAFE_NO_PAD.encode([7_u8; 32]),
+                device_challenge: URL_SAFE_NO_PAD.encode([9_u8; 32]),
+                binding_value: "binding-value".to_owned(),
+                created_at: Utc::now().to_rfc3339(),
+                expires_at: (Utc::now() + chrono::Duration::minutes(5)).to_rfc3339(),
+                signature: URL_SAFE_NO_PAD.encode([3_u8; 64]),
+            },
+            device_auth_nonce: "a".repeat(64),
+            device_auth_signature: URL_SAFE_NO_PAD.encode([4_u8; 64]),
+        }
+    }
+
+    fn test_auth_manager(path: PathBuf) -> AuthManager<FileStorage> {
+        AuthManager::new(
+            fusou_auth::manager::AuthConfig {
+                supabase_url: "http://unused.invalid".to_owned(),
+                api_key: "unused".to_owned(),
+                refresh_path: "/auth/v1/token".to_owned(),
+                refresh_margin_secs: 30,
+            },
+            Arc::new(FileStorage::new(path)),
+        )
+    }
+
+    fn test_result_signature_verifier() -> Arc<ResultSignatureVerifier> {
+        let mut public_key_spki = ED25519_SPKI_PREFIX.to_vec();
+        public_key_spki.extend_from_slice(&[11_u8; 32]);
+        let public_key_spki_base64 = URL_SAFE_NO_PAD.encode(&public_key_spki);
+        let registry = serde_json::json!({
+            "schema_version": 1,
+            "scope": RESULT_SIGNING_KEY_REGISTRY_SCOPE,
+            "keys": [{
+                "key_id": "result-signer-2026",
+                "public_key_spki": public_key_spki_base64,
+                "status": "ACTIVE",
+                "not_before": "2020-01-01T00:00:00.000Z",
+                "not_after": null,
+            }],
+        });
+        Arc::new(
+            ResultSignatureVerifier::new(
+                public_key_spki,
+                "result-signer-2026".to_owned(),
+                registry.to_string(),
+            )
+            .unwrap(),
+        )
+    }
+
+    fn result_registry(public_key_spki: &[u8], status: &str, not_before: &str, not_after: Option<&str>) -> String {
+        serde_json::json!({
+            "schema_version": 1,
+            "scope": RESULT_SIGNING_KEY_REGISTRY_SCOPE,
+            "keys": [{
+                "key_id": "result-signer-2026",
+                "public_key_spki": URL_SAFE_NO_PAD.encode(public_key_spki),
+                "status": status,
+                "not_before": not_before,
+                "not_after": not_after,
+            }],
+        })
+        .to_string()
+    }
+
+    fn signed_result_payload() -> (serde_json::Value, Vec<u8>) {
+        let key_pair = Ed25519KeyPair::from_seed_unchecked(&[11_u8; 32]).unwrap();
+        let session_id = uuid::Uuid::parse_str("123e4567-e89b-42d3-a456-426614174000").unwrap();
+        let binding_nonce = [0x42_u8; 32];
+        let mut binding_bytes = Vec::new();
+        binding_bytes.extend_from_slice(fusou_tlsn_verifier::BINDING_PREFIX);
+        binding_bytes.extend_from_slice(&16_u16.to_be_bytes());
+        binding_bytes.extend_from_slice(session_id.as_bytes());
+        binding_bytes.extend_from_slice(&32_u16.to_be_bytes());
+        binding_bytes.extend_from_slice(&binding_nonce);
+        let response = b"HTTP/1.1 200 OK\r\n\r\n";
+        let mut result = fusou_tlsn_verifier::VerifierResult {
+            version: 1,
+            profile_id: fusou_tlsn_verifier::PROFILE_ID.to_owned(),
+            profile_sha256: [1_u8; 32],
+            issuer: fusou_tlsn_verifier::ISSUER.to_owned(),
+            proof_purpose: fusou_tlsn_verifier::PROOF_PURPOSE.to_owned(),
+            canonical_user_id: "11111111-1111-4111-8111-111111111111".to_owned(),
+            canonical_device_id: "22222222-2222-4222-8222-222222222222".to_owned(),
+            device_challenge: [6_u8; 32],
+            verified_member_id: "16189463".to_owned(),
+            attestation_session_id: session_id,
+            binding_nonce,
+            binding_value: URL_SAFE_NO_PAD.encode(binding_bytes),
+            verifier_key_id: "verifier-test".to_owned(),
+            notary_key_id: "notary-test".to_owned(),
+            tlsn_attestation_id: vec![2_u8; 16],
+            server_identity: "game.example.test".to_owned(),
+            request_transcript_size: 4,
+            request_transcript_sha256: [3_u8; 32],
+            response_transcript_size: response.len() as u64,
+            response_transcript_sha256: [4_u8; 32],
+            revealed_request_ranges: vec![fusou_tlsn_verifier::RevealedRange {
+                start: 0,
+                length: 4,
+                bytes: b"POST".to_vec(),
+            }],
+            revealed_response_ranges: vec![fusou_tlsn_verifier::RevealedRange {
+                start: 0,
+                length: response.len() as u64,
+                bytes: response.to_vec(),
+            }],
+            signature: [0_u8; 64],
+        };
+        let signing_bytes = result.signing_bytes().unwrap();
+        result.signature.copy_from_slice(key_pair.sign(&signing_bytes).as_ref());
+        let result_json: serde_json::Value =
+            serde_json::from_str(&result.canonical_json().unwrap()).unwrap();
+        let payload = serde_json::json!({
+            "verified": true,
+            "result": result_json,
+            "signer_key_id": "result-signer-2026",
+            "signature_algorithm": "Ed25519",
+        });
+        let mut public_key_spki = ED25519_SPKI_PREFIX.to_vec();
+        public_key_spki.extend_from_slice(key_pair.public_key().as_ref());
+        (payload, public_key_spki)
+    }
+
+    #[test]
+    fn result_signature_verifier_accepts_valid_signed_result() {
+        let (payload, public_key_spki) = signed_result_payload();
+        let verifier = ResultSignatureVerifier::new(
+            public_key_spki.clone(),
+            "result-signer-2026".to_owned(),
+            result_registry(&public_key_spki, "ACTIVE", "2020-01-01T00:00:00.000Z", None),
+        )
+        .unwrap();
+        assert!(verifier.verify(&payload).is_ok());
+    }
+
+    #[test]
+    fn result_signature_verifier_rejects_mutated_result_and_signature() {
+        let (payload, public_key_spki) = signed_result_payload();
+        let verifier = ResultSignatureVerifier::new(
+            public_key_spki.clone(),
+            "result-signer-2026".to_owned(),
+            result_registry(&public_key_spki, "ACTIVE", "2020-01-01T00:00:00.000Z", None),
+        )
+        .unwrap();
+
+        let mut mutated_result = payload.clone();
+        mutated_result["result"]["verified_member_id"] = serde_json::Value::String("16189464".to_owned());
+        assert!(verifier.verify(&mutated_result).is_err());
+
+        let mut mutated_signature = payload;
+        let signature = mutated_signature["result"]["signature"]
+            .as_str()
+            .unwrap();
+        let mut signature_bytes = URL_SAFE_NO_PAD.decode(signature).unwrap();
+        signature_bytes[0] ^= 1;
+        mutated_signature["result"]["signature"] =
+            serde_json::Value::String(URL_SAFE_NO_PAD.encode(signature_bytes));
+        assert!(verifier.verify(&mutated_signature).is_err());
+    }
+
+    #[test]
+    fn result_signature_verifier_rejects_wrong_outer_identity_and_key() {
+        let (payload, public_key_spki) = signed_result_payload();
+        let wrong_key_pair = Ed25519KeyPair::from_seed_unchecked(&[12_u8; 32]).unwrap();
+        let mut wrong_public_key_spki = ED25519_SPKI_PREFIX.to_vec();
+        wrong_public_key_spki.extend_from_slice(wrong_key_pair.public_key().as_ref());
+        let verifier = ResultSignatureVerifier::new(
+            wrong_public_key_spki.clone(),
+            "result-signer-2026".to_owned(),
+            result_registry(&wrong_public_key_spki, "ACTIVE", "2020-01-01T00:00:00.000Z", None),
+        )
+        .unwrap();
+        assert!(verifier.verify(&payload).is_err());
+
+        let mut unknown_signer = payload.clone();
+        unknown_signer["signer_key_id"] = serde_json::Value::String("unknown-signer".to_owned());
+        let expected_verifier = ResultSignatureVerifier::new(
+            public_key_spki.clone(),
+            "result-signer-2026".to_owned(),
+            result_registry(&public_key_spki, "ACTIVE", "2020-01-01T00:00:00.000Z", None),
+        )
+        .unwrap();
+        assert!(expected_verifier.verify(&unknown_signer).is_err());
+
+        let mut wrong_algorithm = payload;
+        wrong_algorithm["signature_algorithm"] = serde_json::Value::String("Ed25519ph".to_owned());
+        assert!(expected_verifier.verify(&wrong_algorithm).is_err());
+    }
+
+    #[test]
+    fn result_signature_verifier_rejects_invalid_current_registry_key() {
+        let (_, public_key_spki) = signed_result_payload();
+        for (status, not_before, not_after) in [
+            ("REVOKED", "2020-01-01T00:00:00.000Z", None),
+            ("RETIRED", "2020-01-01T00:00:00.000Z", None),
+            ("ACTIVE", "2099-01-01T00:00:00.000Z", None),
+            ("ACTIVE", "2020-01-01T00:00:00.000Z", Some("2020-01-02T00:00:00.000Z")),
+        ] {
+            assert!(ResultSignatureVerifier::new(
+                public_key_spki.clone(),
+                "result-signer-2026".to_owned(),
+                result_registry(&public_key_spki, status, not_before, not_after),
+            )
+            .is_err());
+        }
+        assert!(ResultSignatureVerifier::new(
+            public_key_spki,
+            "result-signer-2026".to_owned(),
+            "{}".to_owned(),
+        )
+        .is_err());
+    }
+
+    async fn verify_with_local_state(
+        session: SessionBindingContext,
+        binding: &str,
+        device_key_path: PathBuf,
+    ) -> Result<VerificationOutcome, VerificationError> {
+        let request = SerializedOriginRequest::new(Bytes::from_static(b"request")).unwrap();
+        let response_bytes = Bytes::from_static(b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n");
+        let exchange = TlsnOriginExchange {
+            response: TlsnOriginResponse::new(
+                StatusCode::OK,
+                HeaderMap::new(),
+                Bytes::new(),
+                response_bytes.clone(),
+            ),
+            transcript: crate::experimental_tlsn::UnverifiedTlsnTranscript {
+                request_sha256: sha256(request.bytes()),
+                response_sha256: sha256(&response_bytes),
+            },
+        };
+        let handoff = PresentationHandoff::new();
+        handoff
+            .publish(
+                exchange.transcript.request_sha256,
+                "test-presentation".to_owned(),
+                vec![1],
+            )
+            .unwrap();
+        let backend = Arc::new(RemoteWorkerVerificationBackend {
+            endpoint: "http://127.0.0.1:1/verify/tlsn".to_owned(),
+            status_endpoint: "http://127.0.0.1:1/verify/tlsn/status".to_owned(),
+            client: reqwest::Client::new(),
+            auth_manager: test_auth_manager(std::env::temp_dir().join(format!(
+                "fusou-tlsn-unused-session-{}.json",
+                uuid::Uuid::new_v4()
+            ))),
+            device_key_path,
+            binding_state: Arc::new(Mutex::new(Some(session))),
+            results: RemoteWorkerResultStore::new(),
+            result_verifier: test_result_signature_verifier(),
+        });
+        let boundary = PresentationVerifierBoundary::new(
+            Arc::new(HandoffPresentationProvider::new(handoff)),
+            backend,
+            OriginTarget::new(
+                "game.example.test".to_owned(),
+                443,
+                "game.example.test".to_owned(),
+            )
+            .unwrap(),
+            RuntimeIdentifiers::default(),
+        );
+        boundary
+            .verify(
+                1,
+                request,
+                AttestationBinding::new(binding.to_owned()).unwrap(),
+                exchange,
+            )
+            .await
+    }
+
+    #[tokio::test]
+    async fn remote_worker_rejects_binding_mismatch_before_network_io() {
+        let result = verify_with_local_state(
+            test_session_context(),
+            "different-binding",
+            std::env::temp_dir().join(format!(
+                "fusou-tlsn-unused-device-key-{}.json",
+                uuid::Uuid::new_v4()
+            )),
+        )
+        .await;
+        assert_eq!(result, Err(VerificationError::BindingMismatch));
+    }
+
+    #[tokio::test]
+    async fn remote_worker_rejects_local_device_mismatch_before_network_io() {
+        let directory = std::env::temp_dir().join(format!(
+            "fusou-tlsn-device-mismatch-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let device_key_path = directory.join("device-key.json");
+        let mut device_key = DeviceKey::load_or_create(device_key_path.clone())
+            .await
+            .unwrap();
+        device_key
+            .set_device_id("11111111-1111-4111-8111-111111111111".to_owned())
+            .await
+            .unwrap();
+        let result =
+            verify_with_local_state(test_session_context(), "binding-value", device_key_path).await;
+        let _ = tokio::fs::remove_dir_all(directory).await;
+        assert_eq!(result, Err(VerificationError::WorkerRejected));
+    }
 
     #[test]
     fn max_sent_data_matches_request_length() {
@@ -1378,7 +1867,76 @@ mod tests {
                 "https://worker.example.test/verify/tlsn/status".to_owned(),
             )
         );
+        assert!(worker_endpoints("not a URL").is_err());
+        assert!(worker_endpoints("http://worker.example.test/verify/tlsn").is_err());
+        assert!(worker_endpoints("https://user@worker.example.test/verify/tlsn").is_err());
         assert!(worker_endpoints("https://worker.example.test/verify/tlsn?x=1").is_err());
+        assert!(worker_endpoints("https://worker.example.test/verify/tlsn#fragment").is_err());
+    }
+
+    #[test]
+    fn worker_http_statuses_preserve_retry_and_trigger_boundaries() {
+        assert_eq!(
+            worker_http_error(
+                reqwest::StatusCode::INTERNAL_SERVER_ERROR,
+                &serde_json::json!({})
+            ),
+            VerificationError::WorkerUnavailable
+        );
+        assert_eq!(
+            worker_http_error(
+                reqwest::StatusCode::TOO_MANY_REQUESTS,
+                &serde_json::json!({})
+            ),
+            VerificationError::WorkerUnavailable
+        );
+        assert_eq!(
+            worker_http_error(reqwest::StatusCode::BAD_REQUEST, &serde_json::json!({})),
+            VerificationError::WorkerRejected
+        );
+        assert_eq!(
+            worker_http_error(
+                reqwest::StatusCode::SERVICE_UNAVAILABLE,
+                &serde_json::json!({ "error": "trigger_enqueue_failed" }),
+            ),
+            VerificationError::TriggerUnavailable
+        );
+        assert_eq!(
+            worker_http_error(
+                reqwest::StatusCode::SERVICE_UNAVAILABLE,
+                &serde_json::json!({ "error": "trigger_unavailable" }),
+            ),
+            VerificationError::TriggerUnavailable
+        );
+    }
+
+    #[tokio::test]
+    async fn worker_poll_timeout_is_reported_as_unavailable() {
+        let job_id = "550e8400-e29b-41d4-a716-446655440000";
+        let route = warp::post().map(move || {
+            warp::reply::with_status(
+                warp::reply::json(&serde_json::json!({
+                    "verified": false,
+                    "status": "processing",
+                    "job_id": job_id,
+                })),
+                warp::http::StatusCode::ACCEPTED,
+            )
+        });
+        let (address, server) = warp::serve(route).bind_ephemeral(([127, 0, 0, 1], 0));
+        let server = tokio::spawn(server);
+        let result = poll_worker_result(
+            &reqwest::Client::new(),
+            &format!("http://{address}/verify/tlsn/status"),
+            "test-token",
+            &test_session_context(),
+            job_id,
+            Duration::from_millis(1),
+            Duration::from_millis(20),
+        )
+        .await;
+        server.abort();
+        assert_eq!(result, Err(VerificationError::WorkerUnavailable));
     }
 
     #[test]
@@ -1402,18 +1960,355 @@ mod tests {
     fn worker_final_payload_requires_signed_canonical_member_result() {
         let payload = serde_json::json!({
             "verified": true,
+            "signer_key_id": "result-signer-2026",
             "result": {
-                "signer_key_id": "result-signer-2026",
                 "verified_member_id": "16189463",
             },
         });
         let (_, key_id, member_id) = verified_worker_payload(payload).unwrap();
         assert_eq!(key_id, "result-signer-2026");
         assert_eq!(member_id.as_str(), "16189463");
-        assert!(verified_worker_payload(serde_json::json!({
-            "verified": true,
-            "result": { "signer_key_id": "result-signer-2026", "verified_member_id": "01" },
-        }))
-        .is_err());
+        for invalid in [
+            serde_json::json!({
+                "verified": false,
+                "signer_key_id": "result-signer-2026",
+                "result": { "verified_member_id": "16189463" },
+            }),
+            serde_json::json!({
+                "verified": true,
+                "signer_key_id": "result-signer-2026",
+            }),
+            serde_json::json!({
+                "verified": true,
+                "result": { "verified_member_id": "16189463" },
+            }),
+            serde_json::json!({
+                "verified": true,
+                "signer_key_id": "result-signer-2026",
+                "result": { "verified_member_id": "01" },
+            }),
+            serde_json::json!("malformed final response"),
+        ] {
+            assert!(verified_worker_payload(invalid).is_err());
+        }
+    }
+
+    #[cfg(feature = "synthetic-tlsn")]
+    mod app_remote_worker_e2e {
+        use super::*;
+        use crate::{
+            experimental_tlsn::{
+                ExperimentalRequireInfoForwarder, ProofContinuation, ProofContinuationError,
+                TlsnOriginCapture, TlsnOriginExchange, UnverifiedTlsnTranscript,
+            },
+            production_tlsn::{
+                FilesystemPresentationArtifactSink, HandoffPresentationProvider, OriginTarget,
+                OriginTlsConfig, ProductionTlsnDependencies, RuntimeIdentifiers,
+                ServerIdentityPolicy,
+            },
+            synthetic_tlsn::{synthetic_require_info_request, SYNTHETIC_SERVER_IDENTITY},
+        };
+        use fusou_auth::manager::AuthConfig;
+        use http_body_util::BodyExt;
+        use std::{path::PathBuf, time::Instant};
+
+        #[derive(serde::Deserialize)]
+        struct SyntheticFixture {
+            binding_value: String,
+            presentation_base64: String,
+            root_certificate_base64: String,
+            authenticated_request_base64: String,
+            authenticated_response_base64: String,
+        }
+
+        struct FixtureAlpha15OriginTransportFactory {
+            handoff: Arc<PresentationHandoff>,
+            expected_request: Vec<u8>,
+            response: Vec<u8>,
+            presentation: Vec<u8>,
+            root_certificate: Vec<u8>,
+        }
+
+        impl Alpha15OriginTransportFactory for FixtureAlpha15OriginTransportFactory {
+            fn send_once(
+                &self,
+                config: OriginTransportConfig,
+                request: SerializedOriginRequest,
+            ) -> crate::experimental_tlsn::TlsnTransportFuture {
+                let handoff = Arc::clone(&self.handoff);
+                let expected_request = self.expected_request.clone();
+                let response = self.response.clone();
+                let presentation = self.presentation.clone();
+                let root_certificate = self.root_certificate.clone();
+                Box::pin(async move {
+                    if config.target().server_identity() != SYNTHETIC_SERVER_IDENTITY
+                        || config.tls().trusted_root_certificates() != [root_certificate]
+                        || request.bytes() != expected_request
+                    {
+                        return Err(TlsnTransportError::OriginConnectionFailed);
+                    }
+                    let parsed = parse_http_response(&response)?;
+                    let request_sha256 = sha256(request.bytes());
+                    let response_sha256 = sha256(&response);
+                    let presentation_identifier = URL_SAFE_NO_PAD.encode(sha256(&presentation));
+                    let proof = ProofContinuation::new(Box::pin(async move {
+                        handoff
+                            .publish(request_sha256, presentation_identifier, presentation)
+                            .map_err(|_| ProofContinuationError::Presentation)
+                    }));
+                    Ok(TlsnOriginCapture {
+                        exchange: TlsnOriginExchange {
+                            response: TlsnOriginResponse::new(
+                                parsed.status,
+                                parsed.headers,
+                                parsed.body,
+                                parsed.raw_response_bytes,
+                            ),
+                            transcript: UnverifiedTlsnTranscript {
+                                request_sha256,
+                                response_sha256,
+                            },
+                        },
+                        proof,
+                    })
+                })
+            }
+        }
+
+        fn required_env(name: &str) -> String {
+            std::env::var(name)
+                .unwrap_or_else(|_| panic!("{name} must be set by the APP E2E harness"))
+        }
+
+        #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+        #[ignore = "run with pnpm --dir packages/FUSOU-TLSN-VERIFICATION-WORKER test:app-roundtrip"]
+        async fn app_remote_worker_full_synthetic_e2e() {
+            let worker_origin = required_env("FUSOU_TLSN_APP_E2E_WORKER_ORIGIN");
+            let worker_url = reqwest::Url::parse(&worker_origin).expect("valid local Worker URL");
+            assert_eq!(worker_url.scheme(), "http");
+            assert!(worker_url
+                .host_str()
+                .is_some_and(|host| matches!(host, "127.0.0.1" | "localhost" | "::1")));
+
+            let fixture: SyntheticFixture = serde_json::from_slice(
+                &tokio::fs::read(required_env("FUSOU_TLSN_APP_E2E_FIXTURE_PATH"))
+                    .await
+                    .expect("read synthetic fixture"),
+            )
+            .expect("parse synthetic fixture");
+            let expected_request = URL_SAFE_NO_PAD
+                .decode(&fixture.authenticated_request_base64)
+                .expect("decode authenticated request");
+            let expected_response = URL_SAFE_NO_PAD
+                .decode(&fixture.authenticated_response_base64)
+                .expect("decode authenticated response");
+            let presentation = URL_SAFE_NO_PAD
+                .decode(&fixture.presentation_base64)
+                .expect("decode presentation");
+            let root_certificate = URL_SAFE_NO_PAD
+                .decode(&fixture.root_certificate_base64)
+                .expect("decode trust root");
+            let artifact_root = PathBuf::from(required_env("FUSOU_TLSN_APP_E2E_ARTIFACT_ROOT"));
+            let auth_manager = AuthManager::new(
+                AuthConfig {
+                    supabase_url: "http://unused.invalid".to_owned(),
+                    api_key: "unused".to_owned(),
+                    refresh_path: "/auth/v1/token".to_owned(),
+                    refresh_margin_secs: 30,
+                },
+                Arc::new(FileStorage::new(PathBuf::from(required_env(
+                    "FUSOU_TLSN_APP_E2E_AUTH_SESSION_PATH",
+                )))),
+            );
+            let device_key_path = PathBuf::from(required_env("FUSOU_TLSN_APP_E2E_DEVICE_KEY_PATH"));
+            let session_authority_public_key = URL_SAFE_NO_PAD
+                .decode(required_env(
+                    "FUSOU_TLSN_APP_E2E_SESSION_AUTHORITY_PUBLIC_KEY_SPKI",
+                ))
+                .expect("decode session authority public key");
+            let client = reqwest::Client::builder()
+                .connect_timeout(Duration::from_secs(10))
+                .timeout(Duration::from_secs(30))
+                .build()
+                .expect("build local Worker client");
+            let binding_state = Arc::new(Mutex::new(None));
+            let binding_provider = Arc::new(RemoteSessionBindingProvider {
+                endpoint: format!("{worker_origin}/attestation/session"),
+                client: client.clone(),
+                auth_manager: auth_manager.clone(),
+                device_key_path: device_key_path.clone(),
+                session_authority_public_key,
+                session_authority_key_id: required_env(
+                    "FUSOU_TLSN_APP_E2E_SESSION_AUTHORITY_KEY_ID",
+                ),
+                state: Arc::clone(&binding_state),
+            });
+            let worker_results = RemoteWorkerResultStore::new();
+            let verification_backend = Arc::new(RemoteWorkerVerificationBackend {
+                endpoint: format!("{worker_origin}/verify/tlsn"),
+                status_endpoint: format!("{worker_origin}/verify/tlsn/status"),
+                client,
+                auth_manager,
+                device_key_path,
+                binding_state,
+                results: Arc::clone(&worker_results),
+                result_verifier: Arc::new(
+                    ResultSignatureVerifier::new(
+                        URL_SAFE_NO_PAD
+                            .decode(required_env("FUSOU_TLSN_APP_E2E_RESULT_PUBLIC_KEY_SPKI"))
+                            .expect("decode result public key"),
+                        required_env("FUSOU_TLSN_APP_E2E_RESULT_SIGNER_KEY_ID"),
+                        required_env("FUSOU_TLSN_APP_E2E_RESULT_SIGNING_KEY_REGISTRY"),
+                    )
+                    .expect("valid result signing key registry"),
+                ),
+            });
+            let handoff = PresentationHandoff::new();
+            let origin = OriginTransportConfig::new(
+                OriginTarget::new(
+                    SYNTHETIC_SERVER_IDENTITY.to_owned(),
+                    443,
+                    SYNTHETIC_SERVER_IDENTITY.to_owned(),
+                )
+                .expect("valid synthetic target"),
+                OriginTlsConfig::new(vec![root_certificate.clone()])
+                    .expect("valid synthetic trust root"),
+                ServerIdentityPolicy::new(vec![SYNTHETIC_SERVER_IDENTITY.to_owned()])
+                    .expect("valid synthetic identity policy"),
+                true,
+            );
+            let forwarder = ProductionTlsnDependencies::new(
+                origin,
+                binding_provider,
+                Arc::new(FixtureAlpha15OriginTransportFactory {
+                    handoff: Arc::clone(&handoff),
+                    expected_request: expected_request.clone(),
+                    response: expected_response.clone(),
+                    presentation: presentation.clone(),
+                    root_certificate,
+                }),
+                Arc::new(HandoffPresentationProvider::new(Arc::clone(&handoff))),
+                verification_backend,
+                Arc::new(RemoteWorkerResultSigner::new(
+                    worker_results,
+                    artifact_root.clone(),
+                )),
+                Arc::new(FilesystemResultDelivery::new(artifact_root.join("results"))),
+            )
+            .with_presentation_artifact_sink(Arc::new(FilesystemPresentationArtifactSink::new(
+                artifact_root.clone(),
+            )))
+            .with_identifiers(RuntimeIdentifiers::new(
+                Some("app-worker-synthetic-e2e".to_owned()),
+                None,
+                None,
+            ))
+            .build_forwarder()
+            .expect("build production TLSN forwarder");
+
+            let response = forwarder
+                .forward(1, synthetic_require_info_request())
+                .await
+                .expect("forward synthetic request");
+            assert_eq!(response.status(), StatusCode::OK);
+            let response_body = response
+                .into_body()
+                .collect()
+                .await
+                .expect("read synthetic response")
+                .to_bytes();
+            assert!(String::from_utf8_lossy(&response_body).contains("16189463"));
+
+            let deadline = Instant::now() + Duration::from_secs(30);
+            loop {
+                let state = forwarder.state().expect("read forwarder state");
+                if state == crate::experimental_tlsn::ExperimentalTlsnRuntimeState::ResultReady {
+                    break;
+                }
+                assert!(
+                    Instant::now() < deadline,
+                    "APP TLSN pipeline did not reach ResultReady; final state: {state:?}"
+                );
+                tokio::time::sleep(Duration::from_millis(25)).await;
+            }
+
+            let presentation_identifier = URL_SAFE_NO_PAD.encode(sha256(&presentation));
+            let worker_payload: serde_json::Value = serde_json::from_slice(
+                &tokio::fs::read(
+                    artifact_root
+                        .join(&presentation_identifier)
+                        .join("worker-verification.json"),
+                )
+                .await
+                .expect("read Worker verification artifact"),
+            )
+            .expect("parse Worker verification artifact");
+            assert_eq!(
+                worker_payload.get("verified"),
+                Some(&serde_json::Value::Bool(true))
+            );
+            assert_eq!(
+                worker_payload
+                    .pointer("/result/verified_member_id")
+                    .and_then(serde_json::Value::as_str),
+                Some("16189463")
+            );
+            assert_eq!(
+                worker_payload
+                    .pointer("/result/binding_value")
+                    .and_then(serde_json::Value::as_str),
+                Some(fixture.binding_value.as_str())
+            );
+            assert_eq!(
+                worker_payload
+                    .pointer("/result/request_transcript_sha256")
+                    .and_then(serde_json::Value::as_str),
+                Some(URL_SAFE_NO_PAD.encode(sha256(&expected_request)).as_str())
+            );
+            assert_eq!(
+                worker_payload
+                    .pointer("/result/response_transcript_sha256")
+                    .and_then(serde_json::Value::as_str),
+                Some(URL_SAFE_NO_PAD.encode(sha256(&expected_response)).as_str())
+            );
+            assert_eq!(
+                worker_payload
+                    .get("signature_algorithm")
+                    .and_then(serde_json::Value::as_str),
+                Some("Ed25519")
+            );
+            assert_eq!(
+                worker_payload
+                    .get("signer_key_id")
+                    .and_then(serde_json::Value::as_str),
+                Some("worker-test")
+            );
+            assert!(worker_payload
+                .pointer("/result/signature")
+                .and_then(serde_json::Value::as_str)
+                .is_some_and(|signature| !signature.is_empty()));
+
+            let mut results = tokio::fs::read_dir(artifact_root.join("results"))
+                .await
+                .expect("read delivered results");
+            let delivered_path = results
+                .next_entry()
+                .await
+                .expect("read delivered result entry")
+                .expect("one delivered result")
+                .path();
+            assert!(results
+                .next_entry()
+                .await
+                .expect("read final delivered result entry")
+                .is_none());
+            let delivered_payload: serde_json::Value = serde_json::from_slice(
+                &tokio::fs::read(delivered_path)
+                    .await
+                    .expect("read delivered result"),
+            )
+            .expect("parse delivered result");
+            assert_eq!(delivered_payload, worker_payload);
+        }
     }
 }

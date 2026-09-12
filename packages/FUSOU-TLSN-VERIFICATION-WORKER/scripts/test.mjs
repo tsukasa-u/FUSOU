@@ -2,11 +2,12 @@
 
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { spawnSync } from "node:child_process";
-import { readFile } from "node:fs/promises";
+import { spawn, spawnSync } from "node:child_process";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { createHash, createHmac, generateKeyPairSync, sign, verify as verifySignature } from "node:crypto";
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
+import { tmpdir } from "node:os";
 import { unstable_dev } from "wrangler";
 import { consumeReceiptSigningBytes, sessionReceiptSigningBytes } from "./device-evidence.mjs";
 
@@ -33,6 +34,24 @@ function run(command, argumentsList) {
   if (result.status !== 0) {
     process.exit(result.status ?? 1);
   }
+}
+
+function runAsync(command, argumentsList, options = {}) {
+  return new Promise((resolveRun, rejectRun) => {
+    const child = spawn(command, argumentsList, {
+      cwd: packageDirectory,
+      stdio: "inherit",
+      ...options,
+    });
+    child.once("error", rejectRun);
+    child.once("exit", (code, signal) => {
+      if (code === 0) {
+        resolveRun();
+      } else {
+        rejectRun(new Error(`${command} exited with ${code ?? signal ?? "unknown status"}`));
+      }
+    });
+  });
 }
 
 function capture(command, argumentsList, cwd) {
@@ -107,6 +126,7 @@ const productionSigningPrivateKeyPkcs8 = productionPrivateKey
   .toString("base64url");
 const canaryResultPublicKeySpki = canaryPublicKey.export({ format: "der", type: "spki" }).toString("base64url");
 const productionResultPublicKeySpki = productionPublicKey.export({ format: "der", type: "spki" }).toString("base64url");
+const testResultPublicKeySpki = publicKey.export({ format: "der", type: "spki" }).toString("base64url");
 const sessionAuthorityPublicKeySpki = sessionAuthorityPublicKey.export({ format: "der", type: "spki" }).toString("base64url");
 const bindingAuthorityPublicKeySpki = bindingAuthorityPublicKey.export({ format: "der", type: "spki" }).toString("base64url");
 const sessionAuthorityKeyRegistry = JSON.stringify({
@@ -148,6 +168,17 @@ const productionResultSigningKeyRegistry = JSON.stringify({
   keys: [{
     key_id: "production-result-test",
     public_key_spki: productionResultPublicKeySpki,
+    status: "ACTIVE",
+    not_before: "2026-01-01T00:00:00.000Z",
+    not_after: null,
+  }],
+});
+const testResultSigningKeyRegistry = JSON.stringify({
+  schema_version: 1,
+  scope: "tlsn-result-signing-key-registry",
+  keys: [{
+    key_id: "worker-test",
+    public_key_spki: testResultPublicKeySpki,
     status: "ACTIVE",
     not_before: "2026-01-01T00:00:00.000Z",
     not_after: null,
@@ -296,10 +327,19 @@ const deviceAuthServer = createServer(async (request, response) => {
     );
     return;
   }
-  if (isSessionDeviceProof && (body.nonce !== deviceNonce || body.sig !== deviceSignature)) {
-    response.writeHead(401, { "Content-Type": "application/json" });
-    response.end(JSON.stringify({ error: "device_unauthorized" }));
-    return;
+  if (isSessionDeviceProof) {
+    const signature = Buffer.from(typeof body.sig === "string" ? body.sig : "", "base64");
+    const validFixtureProof = body.nonce === deviceNonce && body.sig === deviceSignature;
+    const validSignedProof =
+      typeof body.nonce === "string" &&
+      /^[0-9a-f]{64}$/.test(body.nonce) &&
+      signature.length === 64 &&
+      verifySignature(null, Buffer.from(body.nonce), devicePublicKey, signature);
+    if (!validFixtureProof && !validSignedProof) {
+      response.writeHead(401, { "Content-Type": "application/json" });
+      response.end(JSON.stringify({ error: "device_unauthorized" }));
+      return;
+    }
   }
   if (isTlsnDeviceProof) {
     const proofKey = `${body.device_id}:${body.session_id}:${body.challenge}`;
@@ -400,6 +440,10 @@ async function runAsyncTriggerSmokeTest() {
   const callbackSecret = "callback-test-secret";
   let worker;
   let completionRequest;
+  let triggerPayload;
+  let workerBridge;
+  let temporaryDirectory;
+  const appRequests = [];
   const verifierModule = await import("../src/wasm/fusou_tlsn_verifier.js");
   verifierModule.initSync(await readFile(resolve(packageDirectory, "src/wasm/fusou_tlsn_verifier_bg.wasm")));
 
@@ -414,6 +458,7 @@ async function runAsyncTriggerSmokeTest() {
       for await (const chunk of request) chunks.push(chunk);
       const requestBody = JSON.parse(Buffer.concat(chunks).toString("utf8"));
       const payload = requestBody.payload;
+      triggerPayload = payload;
       const inputBody = JSON.stringify({
         job_id: payload.job_id,
         binding_id: payload.binding_id,
@@ -523,62 +568,117 @@ async function runAsyncTriggerSmokeTest() {
     TLSN_TRIGGER_CALLBACK_SECRET: callbackSecret,
   });
   try {
-    const sessionResponse = await worker.fetch("https://verify.test/attestation/session", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: "Bearer test-token-a" },
-      body: JSON.stringify({
+    workerBridge = createServer(async (request, response) => {
+      try {
+        const chunks = [];
+        for await (const chunk of request) chunks.push(chunk);
+        const headers = new Headers();
+        for (const [name, value] of Object.entries(request.headers)) {
+          if (value === undefined || ["connection", "content-length", "host"].includes(name)) continue;
+          for (const item of Array.isArray(value) ? value : [value]) headers.append(name, item);
+        }
+        const body = Buffer.concat(chunks);
+        const workerResponse = await worker.fetch(`https://verify.test${request.url ?? "/"}`, {
+          method: request.method,
+          headers,
+          ...(body.length > 0 ? { body } : {}),
+        });
+        const responseBody = Buffer.from(await workerResponse.arrayBuffer());
+        const responseHeaders = {};
+        workerResponse.headers.forEach((value, name) => {
+          if (!["content-encoding", "content-length", "transfer-encoding"].includes(name)) {
+            responseHeaders[name] = value;
+          }
+        });
+        appRequests.push({ path: new URL(request.url ?? "/", "http://localhost").pathname, status: workerResponse.status });
+        response.writeHead(workerResponse.status, responseHeaders);
+        response.end(responseBody);
+      } catch (error) {
+        response.writeHead(500, { "Content-Type": "application/json" });
+        response.end(JSON.stringify({ error: error instanceof Error ? error.message : String(error) }));
+      }
+    });
+    await new Promise((resolveServer) => workerBridge.listen(0, "127.0.0.1", resolveServer));
+    workerBridge.unref();
+    const workerOrigin = `http://127.0.0.1:${workerBridge.address().port}`;
+
+    temporaryDirectory = await mkdtemp(resolve(tmpdir(), "fusou-tlsn-app-e2e-"));
+    const fixturePath = resolve(temporaryDirectory, "synthetic-fixture.json");
+    const authSessionPath = resolve(temporaryDirectory, "auth-session.json");
+    const deviceKeyPath = resolve(temporaryDirectory, "device-key.json");
+    const artifactRoot = resolve(temporaryDirectory, "artifacts");
+    const devicePrivateKeyPkcs8 = devicePrivateKey.export({ format: "der", type: "pkcs8" });
+    const devicePublicKeySpki = devicePublicKey.export({ format: "der", type: "spki" });
+    const deviceSecretKey = devicePrivateKeyPkcs8.subarray(devicePrivateKeyPkcs8.length - 32);
+    const devicePublicKeyRaw = devicePublicKeySpki.subarray(devicePublicKeySpki.length - 32);
+    assert.equal(deviceSecretKey.length, 32);
+    assert.equal(devicePublicKeyRaw.length, 32);
+    await Promise.all([
+      writeFile(fixturePath, JSON.stringify(syntheticFixture)),
+      writeFile(authSessionPath, JSON.stringify({
+        access_token: "test-token-a",
+        refresh_token: "unused-test-refresh-token",
+        expires_at: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+        token_type: "bearer",
+      })),
+      writeFile(deviceKeyPath, JSON.stringify({
         device_id: deviceId,
-        nonce: deviceNonce,
-        sig: deviceSignature,
-      }),
-    });
-    assert.equal(sessionResponse.status, 201);
-    const session = await sessionResponse.json();
-    const deviceProof = {
-      device_id: session.device_id,
-      session_id: session.session_id,
-      binding_value: session.binding,
-      challenge: session.device_challenge,
-    };
-    deviceProof.sig = sign(
-      null,
-      tlsnDeviceProofMessage(
-        deviceProof.device_id,
-        deviceProof.session_id,
-        deviceProof.binding_value,
-        deviceProof.challenge,
-      ),
-      devicePrivateKey,
-    ).toString("base64url");
-    const verificationResponse = await worker.fetch("https://verify.test/verify/tlsn", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: "Bearer test-token-a" },
-      body: JSON.stringify({
-        presentation_base64: syntheticFixture.presentation_base64,
-        session_id: session.session_id,
-        binding: session.binding,
-        device_id: session.device_id,
-        device_proof: {
-          challenge: deviceProof.challenge,
-          sig: deviceProof.sig,
+        secret_key: deviceSecretKey.toString("base64"),
+        public_key: devicePublicKeyRaw.toString("base64"),
+        created_at: new Date().toISOString(),
+      })),
+    ]);
+
+    await runAsync(
+      "cargo",
+      [
+        "+1.95.0",
+        "test",
+        "--quiet",
+        "--manifest-path",
+        proxyManifest,
+        "--features",
+        "synthetic-tlsn",
+        "--lib",
+        "real_tlsn::tests::app_remote_worker_e2e::app_remote_worker_full_synthetic_e2e",
+        "--",
+        "--ignored",
+        "--exact",
+        "--nocapture",
+      ],
+      {
+        cwd: repositoryDirectory,
+        env: {
+          ...process.env,
+          FUSOU_TLSN_APP_E2E_WORKER_ORIGIN: workerOrigin,
+          FUSOU_TLSN_APP_E2E_FIXTURE_PATH: fixturePath,
+          FUSOU_TLSN_APP_E2E_AUTH_SESSION_PATH: authSessionPath,
+          FUSOU_TLSN_APP_E2E_DEVICE_KEY_PATH: deviceKeyPath,
+          FUSOU_TLSN_APP_E2E_ARTIFACT_ROOT: artifactRoot,
+          FUSOU_TLSN_APP_E2E_SESSION_AUTHORITY_PUBLIC_KEY_SPKI: sessionAuthorityPublicKeySpki,
+          FUSOU_TLSN_APP_E2E_SESSION_AUTHORITY_KEY_ID: "session-authority-test",
+          FUSOU_TLSN_APP_E2E_RESULT_PUBLIC_KEY_SPKI: testResultPublicKeySpki,
+          FUSOU_TLSN_APP_E2E_RESULT_SIGNER_KEY_ID: "worker-test",
+          FUSOU_TLSN_APP_E2E_RESULT_SIGNING_KEY_REGISTRY: testResultSigningKeyRegistry,
         },
-      }),
-    });
-    assert.equal(verificationResponse.status, 202);
-    const queued = await verificationResponse.json();
-    assert.equal(queued.status, "queued");
-    assert.match(queued.job_id, /^[0-9a-f-]{36}$/);
+      },
+    );
+
+    assert.ok(appRequests.some(({ path, status }) => path === "/attestation/session" && status === 201));
+    assert.ok(appRequests.some(({ path, status }) => path === "/verify/tlsn" && status === 202));
+    assert.ok(appRequests.some(({ path, status }) => path === "/verify/tlsn/status" && status === 200));
+    assert.ok(triggerPayload);
     assert.ok(completionRequest);
 
     const statusResponse = await worker.fetch("https://verify.test/verify/tlsn/status", {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: "Bearer test-token-a" },
       body: JSON.stringify({
-        job_id: queued.job_id,
-        binding_id: createHash("sha256").update(syntheticFixture.binding_value).digest("base64url"),
-        session_id: session.session_id,
-        canonical_user_id: "11111111-1111-4111-8111-111111111111",
-        device_id: session.device_id,
+        job_id: triggerPayload.job_id,
+        binding_id: triggerPayload.binding_id,
+        session_id: triggerPayload.session_id,
+        canonical_user_id: triggerPayload.canonical_user_id,
+        device_id: triggerPayload.device_id,
       }),
     });
     assert.equal(statusResponse.status, 200);
@@ -590,7 +690,7 @@ async function runAsyncTriggerSmokeTest() {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "X-FUSOU-TLSN-Job-Id": queued.job_id,
+        "X-FUSOU-TLSN-Job-Id": triggerPayload.job_id,
         "X-FUSOU-TLSN-Signature": completionRequest.signature,
       },
       body: completionRequest.body,
@@ -598,10 +698,16 @@ async function runAsyncTriggerSmokeTest() {
     assert.equal(duplicateCompletion.status, 200);
     assert.deepEqual(await duplicateCompletion.json(), { accepted: true });
   } finally {
+    if (workerBridge?.listening) {
+      await new Promise((resolveServer) => workerBridge.close(resolveServer));
+    }
     await worker.stop();
     await new Promise((resolveServer) => triggerServer.close(resolveServer));
+    if (temporaryDirectory) {
+      await rm(temporaryDirectory, { recursive: true, force: true });
+    }
   }
-  console.log("[tlsn-verification-worker] async Trigger handoff, result polling, and idempotent completion paths OK");
+  console.log("[tlsn-verification-worker] APP remote backend, async Trigger/WASM, result boundary, and idempotent completion paths OK");
 }
 
 async function runRedirectRegressionTest() {
@@ -823,6 +929,9 @@ async function runRedirectRegressionTest() {
   console.log("[tlsn-verification-worker] upstream redirect and token leakage regression paths OK");
 }
 
+if (process.argv.includes("--app-roundtrip-only")) {
+  await runAsyncTriggerSmokeTest();
+} else {
 await runRedirectRegressionTest();
 
 upstreamState.deviceMode = "ok";
@@ -1082,6 +1191,7 @@ try {
   await runUnconfiguredSmokeTest(unconfiguredWorker.fetch);
 } finally {
   await unconfiguredWorker.stop();
+}
 }
 
 await new Promise((resolve) => deviceAuthServer.close(resolve));

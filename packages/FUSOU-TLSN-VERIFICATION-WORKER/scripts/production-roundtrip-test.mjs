@@ -101,7 +101,7 @@ function fullAppConfigFromFragment(template, fragment) {
     .trimEnd()
     .split("\n")
     .filter((line) => line.startsWith("tlsn_"));
-  assert.equal(fields.length, 11);
+  assert.equal(fields.length, 14);
   let result = template;
   for (const field of fields) {
     const name = field.slice(0, field.indexOf(" = "));
@@ -217,6 +217,8 @@ try {
   assert.equal(manifest.notary.registry_sha256, notaryRegistrySha256(notaryRegistryRaw));
   assert.equal(manifest.notary.verifying_key, alpha15K256NotaryKey);
   assert.equal(manifest.session_authority.key_id, sessionKeyId);
+  assert.equal(manifest.result_signing.key_id, resultKeyId);
+  assert.equal(manifest.result_signing.public_key_spki, result.publicKeySpki);
   assert.equal(manifest.origin.server_identity, "game.example.com");
   const manifestText = JSON.stringify(manifest);
   for (const value of [

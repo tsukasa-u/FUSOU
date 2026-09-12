@@ -13,7 +13,7 @@ use proxy_https::{
     real_tlsn::{
         FilesystemResultDelivery, RealAlpha15OriginTransportFactory,
         RemoteSessionBindingProvider, RemoteWorkerResultSigner,
-        RemoteWorkerResultStore, RemoteWorkerVerificationBackend,
+        RemoteWorkerResultStore, RemoteWorkerVerificationBackend, ResultSignatureVerifier,
     },
 };
 #[cfg(feature = "tlsn-production")]
@@ -131,6 +131,17 @@ fn build_production_tlsn_dependencies(
                 "tlsn_session_authority_public_key is required for production TLSN",
             )
         })?)?;
+    let result_public_key_spki = URL_SAFE_NO_PAD.decode(
+        proxy_configs
+            .get_tlsn_result_public_key_spki()
+            .ok_or_else(|| production_configuration_error("tlsn_result_public_key_spki is required for production TLSN"))?,
+    )?;
+    let result_signer_key_id = proxy_configs
+        .get_tlsn_result_signer_key_id()
+        .ok_or_else(|| production_configuration_error("tlsn_result_signer_key_id is required for production TLSN"))?;
+    let result_signing_key_registry = proxy_configs
+        .get_tlsn_result_signing_key_registry()
+        .ok_or_else(|| production_configuration_error("tlsn_result_signing_key_registry is required for production TLSN"))?;
     let notary_key = URL_SAFE_NO_PAD.decode(
         proxy_configs
             .get_tlsn_notary_verifying_key()
@@ -180,6 +191,14 @@ fn build_production_tlsn_dependencies(
     )
     .map_err(production_configuration_error)?);
     let worker_results = RemoteWorkerResultStore::new();
+    let result_verifier = std::sync::Arc::new(
+        ResultSignatureVerifier::new(
+            result_public_key_spki,
+            result_signer_key_id,
+            result_signing_key_registry,
+        )
+        .map_err(production_configuration_error)?,
+    );
     let verification_backend = std::sync::Arc::new(
         RemoteWorkerVerificationBackend::new(
             verification_endpoint,
@@ -187,6 +206,7 @@ fn build_production_tlsn_dependencies(
             get_ROAMING_DIR().join("fusou-auth-device-key.json"),
             binding_provider.state(),
             std::sync::Arc::clone(&worker_results),
+            result_verifier,
         )
         .map_err(production_configuration_error)?,
     );

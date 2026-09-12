@@ -8,6 +8,9 @@ use std::{
 };
 use url::Url;
 
+#[cfg(feature = "tlsn-production")]
+use proxy_https::real_tlsn::ResultSignatureVerifier;
+
 const ED25519_SPKI_PREFIX: &[u8; 12] = b"\x30\x2a\x30\x05\x06\x03\x2b\x65\x70\x03\x21\x00";
 
 #[derive(Debug, Clone)]
@@ -17,6 +20,9 @@ pub struct TlsnPreflightConfig {
     pub session_authority_endpoint: Option<String>,
     pub session_authority_key_id: Option<String>,
     pub session_authority_public_key: Option<String>,
+    pub result_public_key_spki: Option<String>,
+    pub result_signer_key_id: Option<String>,
+    pub result_signing_key_registry: Option<String>,
     pub verification_endpoint: Option<String>,
     pub notary_verifying_key: Option<String>,
     pub origin_trust_roots: Vec<String>,
@@ -34,6 +40,9 @@ impl TlsnPreflightConfig {
             session_authority_endpoint: proxy.get_tlsn_session_authority_endpoint(),
             session_authority_key_id: proxy.get_tlsn_session_authority_key_id(),
             session_authority_public_key: proxy.get_tlsn_session_authority_public_key(),
+            result_public_key_spki: proxy.get_tlsn_result_public_key_spki(),
+            result_signer_key_id: proxy.get_tlsn_result_signer_key_id(),
+            result_signing_key_registry: proxy.get_tlsn_result_signing_key_registry(),
             verification_endpoint: proxy.get_tlsn_verification_endpoint(),
             notary_verifying_key: proxy.get_tlsn_notary_verifying_key(),
             origin_trust_roots: proxy.get_tlsn_origin_trust_roots(),
@@ -226,6 +235,27 @@ pub fn run_preflight(config: &TlsnPreflightConfig, config_path: &Path) -> TlsnPr
     check_session_authority_public_key(
         &mut checks,
         config.session_authority_public_key.as_deref(),
+    );
+    match config.result_signer_key_id.as_deref() {
+        Some(value) if !value.trim().is_empty() => push_check(
+            &mut checks,
+            "tlsn_result_signer_key_id",
+            PreflightStatus::Pass,
+            format!("present; length={}", value.trim().len()),
+        ),
+        _ => push_check(
+            &mut checks,
+            "tlsn_result_signer_key_id",
+            PreflightStatus::Error,
+            "missing or empty",
+        ),
+    }
+    check_result_public_key(&mut checks, config.result_public_key_spki.as_deref());
+    check_result_signing_registry(
+        &mut checks,
+        config.result_public_key_spki.as_deref(),
+        config.result_signer_key_id.as_deref(),
+        config.result_signing_key_registry.as_deref(),
     );
     check_notary_verifying_key(&mut checks, config.notary_verifying_key.as_deref());
     check_trust_roots(&mut checks, &config.origin_trust_roots);
@@ -451,6 +481,93 @@ fn check_session_authority_public_key(checks: &mut Vec<PreflightCheck>, value: O
     }
 }
 
+fn check_result_public_key(checks: &mut Vec<PreflightCheck>, value: Option<&str>) {
+    match value {
+        Some(value) => match decode_unpadded_base64(value) {
+            Ok(bytes) if bytes.len() == ED25519_SPKI_PREFIX.len() + 32 && bytes.starts_with(ED25519_SPKI_PREFIX) => {
+                push_check(
+                    checks,
+                    "tlsn_result_public_key_spki",
+                    PreflightStatus::Pass,
+                    format!("base64url decoded; length={}; format=Ed25519-SPKI", bytes.len()),
+                )
+            }
+            Ok(bytes) => push_check(
+                checks,
+                "tlsn_result_public_key_spki",
+                PreflightStatus::Error,
+                format!("base64url decoded but Ed25519-SPKI format is invalid; decoded_length={}", bytes.len()),
+            ),
+            Err(detail) => push_check(
+                checks,
+                "tlsn_result_public_key_spki",
+                PreflightStatus::Error,
+                detail,
+            ),
+        },
+        None => push_check(
+            checks,
+            "tlsn_result_public_key_spki",
+            PreflightStatus::Error,
+            "missing",
+        ),
+    }
+}
+
+#[cfg(feature = "tlsn-production")]
+fn check_result_signing_registry(
+    checks: &mut Vec<PreflightCheck>,
+    public_key_spki: Option<&str>,
+    signer_key_id: Option<&str>,
+    registry: Option<&str>,
+) {
+    let valid = match (public_key_spki, signer_key_id, registry) {
+        (Some(public_key_spki), Some(signer_key_id), Some(registry)) => {
+            decode_unpadded_base64(public_key_spki)
+                .ok()
+                .and_then(|public_key| {
+                    ResultSignatureVerifier::new(
+                        public_key,
+                        signer_key_id.to_owned(),
+                        registry.to_owned(),
+                    )
+                    .ok()
+                })
+                .is_some()
+        }
+        _ => false,
+    };
+    push_check(
+        checks,
+        "tlsn_result_signing_key_registry",
+        if valid {
+            PreflightStatus::Pass
+        } else {
+            PreflightStatus::Error
+        },
+        if valid {
+            "registry schema, active signer, validity window, and SPKI match are valid"
+        } else {
+            "registry is invalid or does not match the active result signer"
+        },
+    );
+}
+
+#[cfg(not(feature = "tlsn-production"))]
+fn check_result_signing_registry(
+    checks: &mut Vec<PreflightCheck>,
+    _public_key_spki: Option<&str>,
+    _signer_key_id: Option<&str>,
+    _registry: Option<&str>,
+) {
+    push_check(
+        checks,
+        "tlsn_result_signing_key_registry",
+        PreflightStatus::Error,
+        "tlsn-production feature is disabled",
+    );
+}
+
 fn check_notary_verifying_key(checks: &mut Vec<PreflightCheck>, value: Option<&str>) {
     match value {
         Some(value) => match decode_unpadded_base64(value) {
@@ -662,6 +779,20 @@ mod tests {
 
         let mut session_key = ED25519_SPKI_PREFIX.to_vec();
         session_key.extend_from_slice(&[7_u8; 32]);
+        let mut result_key = ED25519_SPKI_PREFIX.to_vec();
+        result_key.extend_from_slice(&[8_u8; 32]);
+        let result_key_base64 = URL_SAFE_NO_PAD.encode(&result_key);
+        let result_registry = serde_json::json!({
+            "schema_version": 1,
+            "scope": "tlsn-result-signing-key-registry",
+            "keys": [{
+                "key_id": "result-signer-2026",
+                "public_key_spki": result_key_base64,
+                "status": "ACTIVE",
+                "not_before": "2020-01-01T00:00:00.000Z",
+                "not_after": null,
+            }],
+        });
 
         let notary_key = tlsn_attestation::signing::VerifyingKey {
             alg: tlsn_attestation::signing::KeyAlgId::K256,
@@ -678,6 +809,9 @@ mod tests {
                 ),
                 session_authority_key_id: Some("authority-key-2026".to_owned()),
                 session_authority_public_key: Some(URL_SAFE_NO_PAD.encode(session_key)),
+                result_public_key_spki: Some(URL_SAFE_NO_PAD.encode(result_key)),
+                result_signer_key_id: Some("result-signer-2026".to_owned()),
+                result_signing_key_registry: Some(result_registry.to_string()),
                 verification_endpoint: Some("https://worker.example.test/verify/tlsn".to_owned()),
                 notary_verifying_key: Some(URL_SAFE_NO_PAD.encode(bincode::serialize(&notary_key).unwrap())),
                 origin_trust_roots: vec![URL_SAFE_NO_PAD.encode(root_certificate.der())],

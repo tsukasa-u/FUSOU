@@ -1028,6 +1028,9 @@ pub struct ConfigsProxy {
     tlsn_session_authority_endpoint: Option<String>,
     tlsn_session_authority_public_key: Option<String>,
     tlsn_session_authority_key_id: Option<String>,
+    tlsn_result_public_key_spki: Option<String>,
+    tlsn_result_signer_key_id: Option<String>,
+    tlsn_result_signing_key_registry: Option<String>,
     tlsn_verification_endpoint: Option<String>,
     tlsn_notary_verifying_key: Option<String>,
     tlsn_origin_port: Option<i64>,
@@ -1050,6 +1053,9 @@ pub struct TlsnProxyConfig {
     pub session_authority_endpoint: Option<String>,
     pub session_authority_public_key: Option<String>,
     pub session_authority_key_id: Option<String>,
+    pub result_public_key_spki: Option<String>,
+    pub result_signer_key_id: Option<String>,
+    pub result_signing_key_registry: Option<String>,
     pub verification_endpoint: Option<String>,
     pub notary_verifying_key: Option<String>,
     pub origin_port: Option<i64>,
@@ -1066,6 +1072,9 @@ impl ConfigsProxy {
             session_authority_endpoint: self.tlsn_session_authority_endpoint.clone(),
             session_authority_public_key: self.tlsn_session_authority_public_key.clone(),
             session_authority_key_id: self.tlsn_session_authority_key_id.clone(),
+            result_public_key_spki: self.tlsn_result_public_key_spki.clone(),
+            result_signer_key_id: self.tlsn_result_signer_key_id.clone(),
+            result_signing_key_registry: self.tlsn_result_signing_key_registry.clone(),
             verification_endpoint: self.tlsn_verification_endpoint.clone(),
             notary_verifying_key: self.tlsn_notary_verifying_key.clone(),
             origin_port: self.tlsn_origin_port,
@@ -1134,6 +1143,24 @@ impl ConfigsProxy {
                 .proxy
                 .tlsn_session_authority_key_id
                 .clone()
+        }))
+    }
+
+    pub fn get_tlsn_result_public_key_spki(&self) -> Option<String> {
+        non_empty_string(self.tlsn_result_public_key_spki.clone().or_else(|| {
+            get_default_configs().proxy.tlsn_result_public_key_spki.clone()
+        }))
+    }
+
+    pub fn get_tlsn_result_signer_key_id(&self) -> Option<String> {
+        non_empty_string(self.tlsn_result_signer_key_id.clone().or_else(|| {
+            get_default_configs().proxy.tlsn_result_signer_key_id.clone()
+        }))
+    }
+
+    pub fn get_tlsn_result_signing_key_registry(&self) -> Option<String> {
+        non_empty_string(self.tlsn_result_signing_key_registry.clone().or_else(|| {
+            get_default_configs().proxy.tlsn_result_signing_key_registry.clone()
         }))
     }
 
@@ -1564,6 +1591,9 @@ mod tests {
             tlsn_session_authority_endpoint: None,
             tlsn_session_authority_public_key: None,
             tlsn_session_authority_key_id: None,
+            tlsn_result_public_key_spki: None,
+            tlsn_result_signer_key_id: None,
+            tlsn_result_signing_key_registry: None,
             tlsn_verification_endpoint: None,
             tlsn_notary_verifying_key: None,
             tlsn_origin_port: None,

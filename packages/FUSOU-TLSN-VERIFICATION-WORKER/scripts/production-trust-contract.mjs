@@ -3,6 +3,10 @@ import {
   assertAuthorityKeyRegistry,
   authorityKeyRegistrySha256,
 } from "./authority-key-registry.mjs";
+import {
+  assertSigningKeyRegistry,
+  signingKeyRegistrySha256,
+} from "./signing-key-registry.mjs";
 
 export const PRODUCTION_PUBLIC_MANIFEST_SCHEMA_VERSION = 1;
 export const PRODUCTION_PUBLIC_MANIFEST_SCOPE = "tlsn-production-public-config";
@@ -182,6 +186,28 @@ export function assertSessionAuthorityIdentity({
   };
 }
 
+export function assertResultSigningIdentity({
+  registry,
+  keyId,
+  publicKeySpki,
+  label = "Result signing",
+} = {}) {
+  const parsedRegistry = typeof registry === "string"
+    ? parseJsonObject(registry, `${label} registry`)
+    : registry;
+  assertSigningKeyRegistry(parsedRegistry, {
+    currentKeyId: keyId,
+    currentPublicKeySpki: publicKeySpki,
+    label,
+  });
+  return {
+    key_id: keyId,
+    public_key_spki: publicKeySpki,
+    key_registry: parsedRegistry,
+    key_registry_sha256: typeof registry === "string" ? signingKeyRegistrySha256(registry) : null,
+  };
+}
+
 export function assertRequiredProductionSecrets(environment, names) {
   const missing = names.filter((name) => !environment[name]?.trim());
   if (missing.length > 0) {
@@ -265,7 +291,7 @@ export function assertPublicManifest(manifest) {
   ) {
     throw new Error("public Production TLSN manifest schema is invalid");
   }
-  assertExactKeys(manifest, ["schema_version", "scope", "notary", "session_authority", "verification_endpoint", "origin"], "manifest");
+  assertExactKeys(manifest, ["schema_version", "scope", "notary", "session_authority", "result_signing", "verification_endpoint", "origin"], "manifest");
   assertExactKeys(manifest.notary, ["endpoint", "key_id", "verifying_key", "registry_entry", "registry_sha256"], "manifest.notary");
   assertExactKeys(manifest.notary.registry_entry, ["key_id", "verifying_key"], "manifest.notary.registry_entry");
   if (manifest.notary.registry_entry.key_id !== manifest.notary.key_id || manifest.notary.registry_entry.verifying_key !== manifest.notary.verifying_key) {
@@ -280,6 +306,13 @@ export function assertPublicManifest(manifest) {
   if (!KEY_ID_PATTERN.test(manifest.session_authority.key_id)) throw new Error("manifest Session Authority key ID is invalid");
   assertPublicEd25519Spki(manifest.session_authority.public_key_spki, "manifest Session Authority public key");
   assertSha256(manifest.session_authority.key_registry_sha256, "manifest Session Authority registry hash");
+  assertExactKeys(manifest.result_signing, ["key_id", "public_key_spki", "key_registry", "key_registry_sha256"], "manifest.result_signing");
+  assertResultSigningIdentity({
+    registry: manifest.result_signing.key_registry,
+    keyId: manifest.result_signing.key_id,
+    publicKeySpki: manifest.result_signing.public_key_spki,
+  });
+  assertSha256(manifest.result_signing.key_registry_sha256, "manifest Result signing registry hash");
   assertCleanHttpsEndpoint(manifest.verification_endpoint, "/verify/tlsn", "manifest Verification endpoint");
   assertExactKeys(manifest.origin, ["server_identity", "trust_roots", "port"], "manifest.origin");
   assertServerIdentity(manifest.origin.server_identity);
@@ -301,6 +334,9 @@ export function buildProductionPublicManifest({
   sessionAuthorityKeyId,
   sessionAuthorityPublicKeySpki,
   sessionAuthorityKeyRegistryRaw,
+  resultSignerKeyId,
+  resultPublicKeySpki,
+  resultSigningKeyRegistryRaw,
   verificationEndpoint,
   serverIdentity,
   trustRootCertificateDer,
@@ -314,6 +350,11 @@ export function buildProductionPublicManifest({
     registry: sessionAuthorityKeyRegistryRaw,
     keyId: sessionAuthorityKeyId,
     publicKeySpki: sessionAuthorityPublicKeySpki,
+  });
+  const resultSigning = assertResultSigningIdentity({
+    registry: resultSigningKeyRegistryRaw,
+    keyId: resultSignerKeyId,
+    publicKeySpki: resultPublicKeySpki,
   });
   assertRawNotaryEndpoint(notaryEndpoint);
   assertCleanHttpsEndpoint(sessionAuthorityEndpoint, "/attestation/session", "Session Authority endpoint");
@@ -335,6 +376,7 @@ export function buildProductionPublicManifest({
       ...sessionAuthority,
       key_registry_sha256: authorityKeyRegistrySha256(sessionAuthorityKeyRegistryRaw),
     },
+    result_signing: resultSigning,
     verification_endpoint: verificationEndpoint,
     origin: {
       server_identity: serverIdentity,
@@ -357,6 +399,9 @@ export function appConfigTomlFromManifest(manifest, artifactOutputPath) {
     `tlsn_session_authority_endpoint = ${quote(manifest.session_authority.endpoint)}`,
     `tlsn_session_authority_public_key = ${quote(manifest.session_authority.public_key_spki)}`,
     `tlsn_session_authority_key_id = ${quote(manifest.session_authority.key_id)}`,
+    `tlsn_result_public_key_spki = ${quote(manifest.result_signing.public_key_spki)}`,
+    `tlsn_result_signer_key_id = ${quote(manifest.result_signing.key_id)}`,
+    `tlsn_result_signing_key_registry = ${quote(JSON.stringify(manifest.result_signing.key_registry))}`,
     `tlsn_verification_endpoint = ${quote(manifest.verification_endpoint)}`,
     `tlsn_notary_verifying_key = ${quote(manifest.notary.verifying_key)}`,
     `tlsn_origin_port = ${manifest.origin.port}`,
