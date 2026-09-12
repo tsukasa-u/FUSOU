@@ -27,12 +27,19 @@ export function CarrierBaseAssaultComponent(props: AirDamageProps) {
   const show_air_attack = createMemo<boolean>(() => {
     if (!props.battle_selected()) return false;
     if (!props.battle_selected()?.deck_id) return false;
-    if (!props.battle_selected()?.carrier_base_assault) return false;
-    if (
-      !props.battle_selected()?.carrier_base_assault?.f_damage.plane_from &&
-      !props.battle_selected()?.carrier_base_assault?.e_damage.plane_from
-    )
+    const assault = props.battle_selected()?.carrier_base_assault;
+    if (!assault) return false;
+
+    const f_has_plane =
+      (assault.f_damage?.plane_from ?? []).some((idx) => idx >= 0) ||
+      (assault.f_damage?.total_plane1 ?? 0) > 0;
+    const e_has_plane =
+      (assault.e_damage?.plane_from ?? []).some((idx) => idx >= 0) ||
+      (assault.e_damage?.total_plane1 ?? 0) > 0;
+
+    if (!f_has_plane && !e_has_plane) {
       return false;
+    }
     return true;
   });
 
@@ -63,7 +70,7 @@ export function CarrierBaseAssaultComponent(props: AirDamageProps) {
       (
         props.battle_selected()?.carrier_base_assault?.f_damage?.plane_from ??
         []
-      ).length > 0
+      ).filter((idx) => idx >= 0).length > 0
     );
   };
 
@@ -72,7 +79,7 @@ export function CarrierBaseAssaultComponent(props: AirDamageProps) {
       (
         props.battle_selected()?.carrier_base_assault?.e_damage?.plane_from ??
         []
-      ).length > 0
+      ).filter((idx) => idx >= 0).length > 0
     );
   };
 
@@ -81,7 +88,7 @@ export function CarrierBaseAssaultComponent(props: AirDamageProps) {
     return (
       <td>
         <div class="flex flex-col">
-          <For each={carrier_base_assault?.f_damage.plane_from}>
+          <For each={carrier_base_assault?.f_damage.plane_from?.filter((ship_idx) => ship_idx >= 0)}>
             {(ship_idx, idx) => (
               <>
                 <Show when={idx() > 0}>
@@ -215,7 +222,7 @@ export function CarrierBaseAssaultComponent(props: AirDamageProps) {
     return (
       <td>
         <div class="flex flex-col">
-          <For each={carrier_base_assault?.e_damage.plane_from}>
+          <For each={carrier_base_assault?.e_damage.plane_from?.filter((ship_idx) => ship_idx >= 0)}>
             {(ship_idx, idx) => (
               <>
                 <Show when={idx() > 0}>
@@ -362,7 +369,9 @@ export function CarrierBaseAssaultComponent(props: AirDamageProps) {
         <details open={true}>
           <summary>Carrier Base Assault</summary>
           <ul class="pl-0">
-            {display_sprite_counts()}
+            <div class="flex flex-nowrap pl-2 items-center text-xs">
+              {display_sprite_counts()}
+            </div>
             <table class="table table-xs">
               <thead>
                 <tr>

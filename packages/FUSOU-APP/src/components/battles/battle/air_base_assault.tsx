@@ -3,7 +3,7 @@ import { createMemo, For, Show } from "solid-js";
 import type { Battle } from "@ipc-bindings/battle";
 import IconShield from "../../../icons/shield";
 import type { DataSetParamShip } from "../../../utility/get_data_set";
-import { AirStateComponent } from "../shared/air_state";
+import { SpriteMotionCounts } from "../shared/sprite_motion_counts";
 import {
   ConnectedEnemyShipHP,
   ConnectedMstPlaneEquip,
@@ -59,21 +59,7 @@ export function AirBaseAssaultComponent(props: AirDamageProps) {
     const assault = props.battle_selected()?.air_base_assault;
     if (!assault) return null;
 
-    const f_fly = assault.f_sprite_fly_count;
-    const e_fly = assault.e_sprite_fly_count;
-    const f_crash = assault.f_sprite_crash_count ?? "?";
-    const e_crash = assault.e_sprite_crash_count ?? "?";
-    const f_damage = assault.f_sprite_damage_count ?? "?";
-    const e_damage = assault.e_sprite_damage_count ?? "?";
-    const f_non_normal = assault.f_sprite_non_normal_count ?? "?";
-    const e_non_normal = assault.e_sprite_non_normal_count ?? "?";
-
-    return (
-      <div class="pl-2 text-xs">
-        Sprite - Fly: {f_fly ?? "?"}/{e_fly ?? "?"}, Crash: {f_crash}/{e_crash},
-        Damage: {f_damage}/{e_damage}, Non-Normal: {f_non_normal}/{e_non_normal}
-      </div>
-    );
+    return <SpriteMotionCounts counts={assault} />;
   };
 
   const attacker_planes = () => {
@@ -203,16 +189,14 @@ export function AirBaseAssaultComponent(props: AirDamageProps) {
         <details open={true}>
           <summary>Air Base Assault</summary>
           <ul class="pl-0">
-            <AirStateComponent
-              air_state={
-                props.battle_selected()?.air_base_assault?.air_superiority
-              }
-            />
-            {display_sprite_counts()}
+            <div class="flex flex-nowrap pl-2 items-center text-xs">
+              {display_sprite_counts()}
+            </div>
             <table class="table table-xs">
               <thead>
                 <tr>
-                  <th class="w-3/8">Attack</th>
+                  <th class="w-2/8">Attack</th>
+                  <th class="w-1/8">HP</th>
                   <th class="w-2/8">Defense</th>
                   <th class="w-1/8">HP</th>
                   <th class="w-1/8">Damage</th>
@@ -222,6 +206,7 @@ export function AirBaseAssaultComponent(props: AirDamageProps) {
               <tbody>
                 <tr class="rounded">
                   {attacker_planes()}
+                  <td />
                   {defenser_ships()}
                   {defenser_hps()}
                   {defenser_damages()}

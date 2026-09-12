@@ -21,7 +21,7 @@ export function SpriteMotionCounts(
 ): JSX.Element {
   return (
     <Show when={props.counts}>
-      <span class={props.class ?? "pl-2"}>
+      <span class={props.class !== undefined ? props.class : "text-xs"}>
         Sprite - Fly: {props.counts?.f_sprite_fly_count ?? "?"}/
         {props.counts?.e_sprite_fly_count ?? "?"}, Crash: {props.counts?.f_sprite_crash_count ?? "?"}/
         {props.counts?.e_sprite_crash_count ?? "?"}, Damage: {props.counts?.f_sprite_damage_count ?? "?"}/

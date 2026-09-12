@@ -333,9 +333,9 @@ export function SupportAttackComponent(props: SupportAttackProps) {
     if (!support_airatack) return null;
 
     return (
-      <div class="pl-2 text-xs font-mono">
+      <div class="pl-2 text-xs">
         <div>
-          <SpriteMotionCounts counts={support_airatack} class="" />
+          <SpriteMotionCounts counts={support_airatack} />
         </div>
         <div>
           Loss Plane (S1+S2):
