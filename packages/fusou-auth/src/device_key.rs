@@ -154,11 +154,8 @@ impl DeviceKey {
                 .mode(0o600)
                 .open(&self.storage_path)
                 .map_err(|e| AuthError::Other(e.to_string()))?;
-            std::fs::set_permissions(
-                &self.storage_path,
-                std::fs::Permissions::from_mode(0o600),
-            )
-            .map_err(|e| AuthError::Other(e.to_string()))?;
+            std::fs::set_permissions(&self.storage_path, std::fs::Permissions::from_mode(0o600))
+                .map_err(|e| AuthError::Other(e.to_string()))?;
         }
 
         tokio::fs::write(&self.storage_path, &json)
@@ -300,12 +297,11 @@ mod tests {
         let sig_bytes = B64.decode(&sig_b64).unwrap();
         let pub_bytes = B64.decode(key.public_key_b64()).unwrap();
 
-        let verifying = VerifyingKey::from_bytes(
-            <&[u8; 32]>::try_from(pub_bytes.as_slice()).unwrap(),
-        )
-        .unwrap();
-        let signature =
-            ed25519_dalek::Signature::from_bytes(<&[u8; 64]>::try_from(sig_bytes.as_slice()).unwrap());
+        let verifying =
+            VerifyingKey::from_bytes(<&[u8; 32]>::try_from(pub_bytes.as_slice()).unwrap()).unwrap();
+        let signature = ed25519_dalek::Signature::from_bytes(
+            <&[u8; 64]>::try_from(sig_bytes.as_slice()).unwrap(),
+        );
         assert!(verifying.verify_strict(message, &signature).is_ok());
 
         let _ = tokio::fs::remove_file(&path).await;

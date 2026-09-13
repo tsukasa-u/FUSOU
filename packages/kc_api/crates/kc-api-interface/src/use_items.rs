@@ -20,9 +20,8 @@ pub struct UseItems {
 #[ts(export, export_to = "require_info.ts")]
 pub struct UseItem {
     pub id: i64,
-    pub count: i64  ,
+    pub count: i64,
 }
-
 
 impl UseItems {
     pub fn load() -> Self {

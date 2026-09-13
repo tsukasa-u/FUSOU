@@ -31,5 +31,3 @@ impl From<(i64, Vec<i64>)> for InterfaceWrapper<MstEquipLimitExslot> {
         })
     }
 }
-
-

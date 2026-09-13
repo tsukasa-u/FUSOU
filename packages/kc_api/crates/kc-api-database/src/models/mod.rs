@@ -7,5 +7,5 @@ pub mod quest;
 pub mod remodel;
 pub mod ship;
 pub mod ship_growth;
-pub mod soku_speed_observed;
 pub mod slotitem;
+pub mod soku_speed_observed;

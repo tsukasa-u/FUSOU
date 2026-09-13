@@ -26,6 +26,8 @@ impl From<kcapi_main::api_start2::get_data::ApiData> for InterfaceWrapper<MstEqu
 
 impl From<i64> for InterfaceWrapper<MstEquipExslot> {
     fn from(equip: i64) -> Self {
-        Self(MstEquipExslot { equip: equip as i32 })
+        Self(MstEquipExslot {
+            equip: equip as i32,
+        })
     }
 }

@@ -1,11 +1,11 @@
 use crate::error::AuthError;
-use crate::types::{Session, MultiSession};
+use crate::types::{MultiSession, Session};
 use async_trait::async_trait;
-use std::sync::Arc;
-use tokio::sync::Mutex;
-use std::path::PathBuf;
-use tokio::fs;
 use std::io::ErrorKind;
+use std::path::PathBuf;
+use std::sync::Arc;
+use tokio::fs;
+use tokio::sync::Mutex;
 
 #[async_trait]
 pub trait Storage: Send + Sync {
@@ -91,7 +91,9 @@ impl Storage for FileStorage {
                 return Err(AuthError::Other(e.to_string()));
             }
         }
-        fs::write(&self.path, &s).await.map_err(|e| AuthError::Other(e.to_string()))?;
+        fs::write(&self.path, &s)
+            .await
+            .map_err(|e| AuthError::Other(e.to_string()))?;
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
@@ -153,7 +155,9 @@ impl MultiSessionStorage for MultiSessionFileStorage {
                 return Err(AuthError::Other(e.to_string()));
             }
         }
-        fs::write(&self.path, &s).await.map_err(|e| AuthError::Other(e.to_string()))?;
+        fs::write(&self.path, &s)
+            .await
+            .map_err(|e| AuthError::Other(e.to_string()))?;
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;

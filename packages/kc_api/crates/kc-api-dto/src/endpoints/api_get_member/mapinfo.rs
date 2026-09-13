@@ -195,9 +195,7 @@ mod tests {
 
         let req_and_res_pattern_str = "@api_get_member@mapinfo";
         let snap_path = format!("{snap_file_path}/kcsapi");
-        let mask_patterns = vec![
-            r"res\.api_data\.api_air_base\.api_name",
-        ];
+        let mask_patterns = vec![r"res\.api_data\.api_air_base\.api_name"];
         let log_path = "./src/endpoints/api_get_member/mapinfo@snap_data@S.log";
         glob_match_normalize::<Req, Res>(
             target_path.clone(),
@@ -218,5 +216,4 @@ mod tests {
             Some(mask_patterns.clone()),
         );
     }
-
 }

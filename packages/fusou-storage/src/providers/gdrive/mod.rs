@@ -1,7 +1,7 @@
 // Google Drive storage provider module
 
-pub mod client;
 pub mod api;
+pub mod client;
 pub mod cloud_storage_provider;
 
 // Re-export commonly used items

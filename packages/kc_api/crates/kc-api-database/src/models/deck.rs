@@ -177,7 +177,10 @@ impl SupportDeck {
                             if *ship_id == -1 {
                                 tracing::debug!("SupportDeck::new: empty slot for id {}", ship_id);
                             } else {
-                                tracing::warn!("SupportDeck::new: ship not found for id {}", ship_id);
+                                tracing::warn!(
+                                    "SupportDeck::new: ship not found for id {}",
+                                    ship_id
+                                );
                             }
                             return None;
                         }
@@ -200,7 +203,7 @@ impl SupportDeck {
                         table,
                         env_uuid,
                         ship_id_index,
-                        cashe
+                        cashe,
                     )
                 })
                 .collect::<Vec<_>>()
@@ -259,15 +262,9 @@ impl EnemyDeck {
                 .enumerate()
                 .map(|(ship_id_index, ship_id)| {
                     let props: EnemyShipProps = (
-                        data.e_lv
-                            .clone()
-                            .map(|lv| lv[ship_id_index] as i32),
-                        data.e_hp_max
-                            .clone()
-                            .map(|hp| hp[ship_id_index] as i32),
-                        data.e_hp_max
-                            .clone()
-                            .map(|hp| hp[ship_id_index] as i32),
+                        data.e_lv.clone().map(|lv| lv[ship_id_index] as i32),
+                        data.e_hp_max.clone().map(|hp| hp[ship_id_index] as i32),
+                        data.e_hp_max.clone().map(|hp| hp[ship_id_index] as i32),
                         data.e_slot.clone().map(|slot| {
                             slot[ship_id_index]
                                 .clone()
@@ -275,15 +272,13 @@ impl EnemyDeck {
                                 .map(|value| value as i32)
                                 .collect()
                         }),
-                        data.e_params
-                            .clone()
-                            .map(|param| {
-                                param[ship_id_index]
-                                    .clone()
-                                    .into_iter()
-                                    .map(|value| value as i32)
-                                    .collect()
-                            }),
+                        data.e_params.clone().map(|param| {
+                            param[ship_id_index]
+                                .clone()
+                                .into_iter()
+                                .map(|value| value as i32)
+                                .collect()
+                        }),
                         *ship_id as i32,
                     );
                     EnemyShip::new_ret_option(
@@ -329,23 +324,25 @@ impl EnemyDeck {
             .enumerate()
             .map(|(ship_id_index, ship_id)| {
                 let props: EnemyShipProps = (
-                    data.ship_lv.get(ship_id_index).copied().map(|value| value as i32),
-                    data.e_nowhps.get(ship_id_index).copied().map(|value| value as i32),
-                    data.e_maxhps.get(ship_id_index).copied().map(|value| value as i32),
-                    data.e_slot.get(ship_id_index).map(|slot| {
-                        slot.iter().map(|value| *value as i32).collect::<Vec<_>>()
-                    }),
+                    data.ship_lv
+                        .get(ship_id_index)
+                        .copied()
+                        .map(|value| value as i32),
+                    data.e_nowhps
+                        .get(ship_id_index)
+                        .copied()
+                        .map(|value| value as i32),
+                    data.e_maxhps
+                        .get(ship_id_index)
+                        .copied()
+                        .map(|value| value as i32),
+                    data.e_slot
+                        .get(ship_id_index)
+                        .map(|slot| slot.iter().map(|value| *value as i32).collect::<Vec<_>>()),
                     None,
                     *ship_id as i32,
                 );
-                EnemyShip::new_ret_option(
-                    ts,
-                    new_ship_ids,
-                    props,
-                    table,
-                    env_uuid,
-                    ship_id_index,
-                )
+                EnemyShip::new_ret_option(ts, new_ship_ids, props, table, env_uuid, ship_id_index)
             })
             .collect::<Vec<_>>();
 

@@ -1,15 +1,15 @@
 use apache_avro::AvroSchema;
 use kc_api_database::models::airbase::{AirBase, PlaneInfo};
+#[cfg(schema_since = "0.5.0")]
+use kc_api_database::models::battle::BattleResult;
+#[cfg(schema_since = "0.5.1")]
+use kc_api_database::models::battle::DestructionBattle;
 use kc_api_database::models::battle::{
     AirBaseAirAttack, AirBaseAirAttackList, AirBaseAssult, Battle, CarrierBaseAssault,
     ClosingRaigeki, FriendlySupportHourai, FriendlySupportHouraiList, Hougeki, HougekiList,
     MidnightHougeki, MidnightHougekiList, OpeningAirAttack, OpeningAirAttackList, OpeningRaigeki,
     OpeningTaisen, OpeningTaisenList, SupportAirattack, SupportHourai,
 };
-#[cfg(schema_since = "0.5.0")]
-use kc_api_database::models::battle::BattleResult;
-#[cfg(schema_since = "0.5.1")]
-use kc_api_database::models::battle::DestructionBattle;
 use kc_api_database::models::cell::Cells;
 use kc_api_database::models::deck::{EnemyDeck, FriendDeck, OwnDeck, SupportDeck};
 use kc_api_database::models::env_info::EnvInfo;

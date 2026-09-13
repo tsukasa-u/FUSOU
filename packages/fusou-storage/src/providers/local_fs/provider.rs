@@ -1,20 +1,18 @@
-use std::path::{Path, PathBuf};
 use std::collections::HashMap;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use cap_std::fs::Dir;
 use kc_api::database::table::PORT_TABLE_NAMES;
 use tokio::fs;
 
+use crate::common::{
+    generate_master_data_filename, generate_port_table_filename, get_all_get_data_tables,
+    get_all_port_tables, integrate_by_table_name, path_layout,
+};
 use crate::constants::LOCAL_STORAGE_PROVIDER_NAME;
 use crate::root_validator;
 use crate::service::{StorageError, StorageFuture, StorageProvider};
-use crate::common::{
-    get_all_get_data_tables, get_all_port_tables,
-    generate_port_table_filename, generate_master_data_filename,
-    integrate_by_table_name,
-    path_layout,
-};
 use fusou_upload::{PendingSaveOutcome, PendingStore, UploadContext, UploadRetryService};
 
 #[derive(Clone)]
@@ -35,9 +33,10 @@ impl LocalFileSystemProvider {
         retry_service: Arc<UploadRetryService>,
     ) -> Result<Self, StorageError> {
         let root = root_validator::resolve_root(output_directory);
-        let root_dir = Arc::new(root_validator::open_root_dir(&root).map_err(|e| {
-            StorageError::Io(std::io::Error::other(e.to_string()))
-        })?);
+        let root_dir = Arc::new(
+            root_validator::open_root_dir(&root)
+                .map_err(|e| StorageError::Io(std::io::Error::other(e.to_string())))?,
+        );
         Ok(Self {
             root,
             root_dir,
@@ -112,7 +111,9 @@ impl StorageProvider for LocalFileSystemProvider {
 
     fn supports_integration(&self) -> bool {
         // Local FS integrates when user enabled local storage in config
-        configs::get_user_configs_for_app().database.get_allow_data_to_local()
+        configs::get_user_configs_for_app()
+            .database
+            .get_allow_data_to_local()
     }
 
     fn write_get_data_table<'a>(
@@ -169,7 +170,9 @@ impl StorageProvider for LocalFileSystemProvider {
                     );
                     continue;
                 }
-                let table_dir = path_layout::table_dir(&self.root, period_tag, maparea_id, mapinfo_no, table_name);
+                let table_dir = path_layout::table_dir(
+                    &self.root, period_tag, maparea_id, mapinfo_no, table_name,
+                );
                 Self::ensure_dir(&table_dir).await?;
                 let file_path = table_dir.join(&file_name);
                 let relative = match file_path.strip_prefix(&self.root) {
@@ -267,10 +270,8 @@ impl StorageProvider for LocalFileSystemProvider {
                     }
 
                     // Limit files per integration batch (align with cloud provider)
-                    let files_to_process: Vec<_> = file_paths
-                        .into_iter()
-                        .take(batch_size as usize)
-                        .collect();
+                    let files_to_process: Vec<_> =
+                        file_paths.into_iter().take(batch_size as usize).collect();
 
                     if files_to_process.len() < 2 {
                         continue;
@@ -306,7 +307,9 @@ impl StorageProvider for LocalFileSystemProvider {
                             let dir = Arc::clone(&self.root_dir);
                             root_validator::write_at_relative_async(dir, relative, content)
                                 .await
-                                .map_err(|e| StorageError::Io(std::io::Error::other(e.to_string())))?;
+                                .map_err(|e| {
+                                    StorageError::Io(std::io::Error::other(e.to_string()))
+                                })?;
 
                             // Delete original files
                             for file_path in &files_to_process {

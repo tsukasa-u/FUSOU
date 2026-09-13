@@ -29,7 +29,7 @@ pub fn generate_field_size_checker(ast: &mut DeriveInput) -> Result<TokenStream,
 
     let expanded = quote! {
         impl #impl_generics FieldSizeChecker for #struct_name #ty_generics #where_clause {
-            
+
             fn check_number(&self, log_map: &mut register_trait::LogMapNumberSize, key: Option<(String, String, String)>) {
                 #(#filed_check_number)*
             }

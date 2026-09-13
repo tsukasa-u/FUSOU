@@ -136,7 +136,6 @@ fn emit_data(emit_data: EmitData) -> Option<ReturnType> {
     None
 }
 
-
 fn get_timestamp_from_file_content(file_path: PathBuf) -> String {
     let regex_timestamp = regex::Regex::new(r#"Timestamp: ([0-9]+)"#).unwrap();
     let file_content = std::fs::read_to_string(file_path.clone())
@@ -225,7 +224,9 @@ pub fn check_database_field_size() {
                 file_name.contains("@api_start2@getData")
             })
             .any(|file_path| {
-                let ts_int = get_timestamp_from_file_content(file_path.clone()).parse::<i64>() .expect("failed to get timestamp from file_ contnet");
+                let ts_int = get_timestamp_from_file_content(file_path.clone())
+                    .parse::<i64>()
+                    .expect("failed to get timestamp from file_ contnet");
                 let epoch_unix = kc_api_build_config::first_epoch_unix()
                     .expect("epoch transition unix is not defined in build-config");
                 #[cfg(since = "20250627")]
@@ -244,7 +245,7 @@ pub fn check_database_field_size() {
         if skip_flag {
             continue;
         }
-            
+
         for file_path in file_api_seq {
             let file_content = fs::read_to_string(file_path.clone())
                 .unwrap_or_else(|_| panic!("can not read the file({})", file_path.display()));
@@ -283,9 +284,9 @@ pub fn check_database_field_size() {
                         .replace("%5B", "[")
                         .replace("%5D", "]");
                     let emit_data_list: Vec<EmitData> =
-                        parser::request_parser(path_name, encoded_data).unwrap_or_else(
-                            |e| panic!("failed to parse the file({}), e: {e}", file_path.display()),
-                        );
+                        parser::request_parser(path_name, encoded_data).unwrap_or_else(|e| {
+                            panic!("failed to parse the file({}), e: {e}", file_path.display())
+                        });
                     emit_data_list
                 }
                 _ => {

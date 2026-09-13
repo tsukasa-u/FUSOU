@@ -1,6 +1,8 @@
 // Common logic for resolving table data from encoded tables
 
-use kc_api::database::table::{GetDataTableEncode, GetDataTableEnum, PortTableEncode, PortTableEnum};
+use kc_api::database::table::{
+    GetDataTableEncode, GetDataTableEnum, PortTableEncode, PortTableEnum,
+};
 
 /// Iterator over all get_data tables with their names and byte contents.
 ///

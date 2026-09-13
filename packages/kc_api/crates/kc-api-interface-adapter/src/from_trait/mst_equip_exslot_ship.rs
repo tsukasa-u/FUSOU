@@ -23,11 +23,17 @@ impl From<HashMap<String, kcapi_main::api_start2::get_data::ApiMstEquipExslotShi
     }
 }
 
-impl From<(String, kcapi_main::api_start2::get_data::ApiMstEquipExslotShip)>
-    for InterfaceWrapper<MstEquipExslotShip>
+impl
+    From<(
+        String,
+        kcapi_main::api_start2::get_data::ApiMstEquipExslotShip,
+    )> for InterfaceWrapper<MstEquipExslotShip>
 {
     fn from(
-        (idx, equip_ship): (String, kcapi_main::api_start2::get_data::ApiMstEquipExslotShip),
+        (idx, equip_ship): (
+            String,
+            kcapi_main::api_start2::get_data::ApiMstEquipExslotShip,
+        ),
     ) -> Self {
         Self(MstEquipExslotShip {
             slotitem_id: idx.parse::<i32>().unwrap_or(0),
@@ -50,5 +56,3 @@ impl From<(String, kcapi_main::api_start2::get_data::ApiMstEquipExslotShip)>
         })
     }
 }
-
-

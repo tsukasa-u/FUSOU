@@ -61,7 +61,6 @@ impl TraitForConvert for sp_midnight::Res {
     }
 }
 
-
 impl TraitForConvert for each_battle_water::Res {
     type Output = EmitData;
     fn convert(&self) -> Option<Vec<EmitData>> {
@@ -90,9 +89,7 @@ impl TraitForConvert for battle::Res {
     type Output = EmitData;
     fn convert(&self) -> Option<Vec<EmitData>> {
         let battle = InterfaceWrapper::<Battle>::from(self.api_data.clone()).unwrap();
-        Some(vec![
-            EmitData::Add(Add::Battle(battle)),
-        ])
+        Some(vec![EmitData::Add(Add::Battle(battle))])
     }
 }
 

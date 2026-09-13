@@ -59,7 +59,11 @@ impl From<kc_api_interface::quest::Quests> for QuestIngestSnapshot {
                     .unwrap_or_default();
                 elapsed.as_millis() as i64
             }),
-            page_no: if snapshot.page_no <= 0 { 1 } else { snapshot.page_no },
+            page_no: if snapshot.page_no <= 0 {
+                1
+            } else {
+                snapshot.page_no
+            },
             quests,
         }
     }

@@ -1,9 +1,9 @@
+use kc_api_interface::deck_port::DeckPorts;
 use kc_api_interface::interface::{EmitData, Set};
 use kc_api_interface::remodel::{
-    PENDING_DETAIL_REQ_CAP, RemodelDetail, RemodelSlotList, RemodelSlotListEntry,
-    PENDING_DETAIL_REQ,
+    RemodelDetail, RemodelSlotList, RemodelSlotListEntry, PENDING_DETAIL_REQ,
+    PENDING_DETAIL_REQ_CAP,
 };
-use kc_api_interface::deck_port::DeckPorts;
 use kc_api_interface::ship::Ships;
 
 use kc_api_dto::endpoints::api_req_kousyou::*;
@@ -68,9 +68,7 @@ impl TraitForConvert for remodel_slotlist::Res {
         let secretary = match get_secretary_ship_master_id() {
             Some(v) => v,
             None => {
-                eprintln!(
-                    "remodel_slotlist: secretary ship not found; skip"
-                );
+                eprintln!("remodel_slotlist: secretary ship not found; skip");
                 return Some(vec![]);
             }
         };
@@ -128,9 +126,7 @@ impl TraitForConvert for remodel_slotlist_detail::Res {
         let (master_id, step_id) = match ctx {
             Some(v) => v,
             None => {
-                eprintln!(
-                    "remodel_slotlist_detail: Req context not found (spawn race); skip"
-                );
+                eprintln!("remodel_slotlist_detail: Req context not found (spawn race); skip");
                 return Some(vec![]);
             }
         };

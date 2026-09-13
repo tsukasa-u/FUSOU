@@ -30,27 +30,27 @@ pub struct Ship {
     pub ship_id: Option<i64>,
     pub lv: Option<i64>, // レベル
     pub exp: Option<Vec<i64>>,
-    pub nowhp: Option<i64>,         // 現在HP
-    pub maxhp: Option<i64>,         // 最大HP
-    pub soku: Option<i64>,          // 速力
-    pub leng: Option<i64>,          // 射程
-    pub slot: Option<Vec<i64>>,     // 装備
-    pub onslot: Option<Vec<i64>>,   // 艦載機搭載数
-    pub slot_ex: Option<i64>,       // 補強増設
-    pub fuel: Option<i64>,          // 燃料
-    pub bull: Option<i64>,          // 弾薬
-    pub slotnum: Option<i64>,       // 装備スロット数
-    pub cond: Option<i64>,          // 疲労度
+    pub nowhp: Option<i64>,       // 現在HP
+    pub maxhp: Option<i64>,       // 最大HP
+    pub soku: Option<i64>,        // 速力
+    pub leng: Option<i64>,        // 射程
+    pub slot: Option<Vec<i64>>,   // 装備
+    pub onslot: Option<Vec<i64>>, // 艦載機搭載数
+    pub slot_ex: Option<i64>,     // 補強増設
+    pub fuel: Option<i64>,        // 燃料
+    pub bull: Option<i64>,        // 弾薬
+    pub slotnum: Option<i64>,     // 装備スロット数
+    pub cond: Option<i64>,        // 疲労度
     #[ts(optional)]
-    pub cond_state: Option<i64>,    // 0:red,1:orange,2:normal,3:kiralow,4:kiramid,5:kirahigh
-    pub karyoku: Option<Vec<i64>>,  // 火力
-    pub raisou: Option<Vec<i64>>,   // 雷装
-    pub taiku: Option<Vec<i64>>,    // 対空
-    pub soukou: Option<Vec<i64>>,   // 装甲
-    pub kaihi: Option<Vec<i64>>,    // 回避
-    pub taisen: Option<Vec<i64>>,   // 対潜
+    pub cond_state: Option<i64>, // 0:red,1:orange,2:normal,3:kiralow,4:kiramid,5:kirahigh
+    pub karyoku: Option<Vec<i64>>, // 火力
+    pub raisou: Option<Vec<i64>>, // 雷装
+    pub taiku: Option<Vec<i64>>,  // 対空
+    pub soukou: Option<Vec<i64>>, // 装甲
+    pub kaihi: Option<Vec<i64>>,  // 回避
+    pub taisen: Option<Vec<i64>>, // 対潜
     pub sakuteki: Option<Vec<i64>>, // 索敵
-    pub lucky: Option<Vec<i64>>,    // 運
+    pub lucky: Option<Vec<i64>>,  // 運
     pub sally_area: Option<i64>,
     pub sortie_tag_id: Option<i64>,
     pub sp_effect_items: Option<SpEffectItems>,

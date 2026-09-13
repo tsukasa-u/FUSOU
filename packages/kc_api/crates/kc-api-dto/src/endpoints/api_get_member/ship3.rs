@@ -231,5 +231,4 @@ mod tests {
             Some(mask_patterns.clone()),
         );
     }
-
 }

@@ -98,7 +98,10 @@ pub fn feature_to_unix(feature_name: &str) -> Option<i64> {
 }
 
 pub fn all_schema_features() -> Vec<&'static str> {
-    SCHEMA_FEATURES.iter().map(|(feature, _)| *feature).collect()
+    SCHEMA_FEATURES
+        .iter()
+        .map(|(feature, _)| *feature)
+        .collect()
 }
 
 pub fn schema_feature_to_version(feature_name: &str) -> Option<&'static str> {
@@ -203,7 +206,10 @@ fn parse_selected_epoch() -> SelectedEpoch {
                     .parse::<u32>()
                     .unwrap_or_else(|_| panic!("Invalid epoch date in feature name: {suffix}"));
 
-                if !EPOCH_BOUNDARIES.iter().any(|boundary| boundary.date == date) {
+                if !EPOCH_BOUNDARIES
+                    .iter()
+                    .any(|boundary| boundary.date == date)
+                {
                     panic!("Unknown epoch date in feature name: {date}");
                 }
 

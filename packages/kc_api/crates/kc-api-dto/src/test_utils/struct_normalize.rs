@@ -268,7 +268,11 @@ where
             })
         }
         FormatType::QueryString => {
-            let data_replaced = data_removed_metadata.replace("%5B", "[").replace("%5D", "]").replace("%2C", ",").replace("%3A", ":");
+            let data_replaced = data_removed_metadata
+                .replace("%5B", "[")
+                .replace("%5D", "]")
+                .replace("%2C", ",")
+                .replace("%3A", ":");
             let parsed: T = serde_qs::from_str(&data_replaced).unwrap_or_else(|_| {
                 panic!(
                     "failed to parse test data file as query string: {}",
@@ -345,12 +349,7 @@ fn store_key_and_value_set(
             for (k, v) in map {
                 let key_for_call = k.clone();
                 keys.push(key_for_call.clone());
-                store_key_and_value_set(
-                    key_for_call,
-                    v,
-                    keys,
-                    key_value_set,
-                );
+                store_key_and_value_set(key_for_call, v, keys, key_value_set);
                 keys.pop();
             }
         }
@@ -396,10 +395,7 @@ pub fn custom_match_normalize<T, U>(
         .collect();
     let snap_values_normalized: Vec<Value> = snap_values
         .iter()
-        .map(|v| normalize_for_test(
-            "req_or_res".to_string(),
-            v.clone(),
-        ))
+        .map(|v| normalize_for_test("req_or_res".to_string(), v.clone()))
         .collect();
     let mut snap_sotred_set: std::collections::HashSet<(String, Value)> =
         std::collections::HashSet::new();
@@ -424,10 +420,8 @@ pub fn custom_match_normalize<T, U>(
         let expected_value: Value =
             convert_content_to_value::<T, U>(test_data_path.clone(), format_type.clone());
 
-        let expected_value_normalized = normalize_for_test(
-            "req_or_res".to_string(),
-            expected_value.clone(),
-        );
+        let expected_value_normalized =
+            normalize_for_test("req_or_res".to_string(), expected_value.clone());
 
         let expected_stored_set: std::collections::HashSet<(String, Value)> = {
             let mut set: std::collections::HashSet<(String, Value)> =
@@ -616,9 +610,7 @@ pub fn glob_match_normalize_with_range<T, U>(
         .unwrap_or_else(|_| panic!("\x1b[38;5;{}m read_dir call failed\x1b[m ", 8));
     let snap_file_list = snap_files
         .map(|dir_entry| dir_entry.unwrap().path())
-        .filter(|file_path| {
-            file_path.to_str().unwrap().ends_with(&target_pattern)
-        })
+        .filter(|file_path| file_path.to_str().unwrap().ends_with(&target_pattern))
         .collect::<Vec<_>>();
 
     custom_match_normalize::<T, U>(

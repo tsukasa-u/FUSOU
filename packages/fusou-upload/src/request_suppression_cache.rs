@@ -145,11 +145,7 @@ impl LocalRequestSuppressionCache {
         entries.sort_by(|a, b| a.key.cmp(&b.key));
 
         SuppressionCacheStatus {
-            scope: self
-                .scope
-                .read()
-                .unwrap_or_else(|e| e.into_inner())
-                .clone(),
+            scope: self.scope.read().unwrap_or_else(|e| e.into_inner()).clone(),
             entries,
         }
     }
@@ -223,11 +219,7 @@ impl LocalRequestSuppressionCache {
             });
         }
 
-        let scope = self
-            .scope
-            .read()
-            .unwrap_or_else(|e| e.into_inner())
-            .clone();
+        let scope = self.scope.read().unwrap_or_else(|e| e.into_inner()).clone();
 
         let payload = PersistedState { scope, entries };
         let json = serde_json::to_string_pretty(&payload)

@@ -126,5 +126,4 @@ mod tests {
             Some(mask_patterns),
         );
     }
-
 }

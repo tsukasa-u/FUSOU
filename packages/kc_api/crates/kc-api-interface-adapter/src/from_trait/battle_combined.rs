@@ -5,13 +5,15 @@ use chrono::Local;
 use crate::InterfaceWrapper;
 use kc_api_dto::endpoints as kcapi_main;
 
-use super::battle::{apply_sprite_metrics, calc_dmg, calc_escape_idx, unwrap_into, parse_landing_hp};
-use kc_api_interface::battle::{BattleResult, BattleType};
+use super::battle::{
+    apply_sprite_metrics, calc_dmg, calc_escape_idx, parse_landing_hp, unwrap_into,
+};
 use kc_api_interface::battle::{
     AirBaseAirAttacks, AirBaseAssult, Battle, CarrierBaseAssault, ClosingRaigeki,
-    FriendlyForceAttack, Hougeki, MidnightHougeki, OpeningAirAttack, OpeningRaigeki, OpeningTaisen,
-    SupportAttack, NightSupportAttack,
+    FriendlyForceAttack, Hougeki, MidnightHougeki, NightSupportAttack, OpeningAirAttack,
+    OpeningRaigeki, OpeningTaisen, SupportAttack,
 };
+use kc_api_interface::battle::{BattleResult, BattleType};
 use kc_api_interface::cells::KCS_CELLS_INDEX;
 
 fn merge_optional_vec<T>(mut base: Vec<T>, extra: Option<Vec<T>>) -> Vec<T> {
@@ -21,11 +23,22 @@ fn merge_optional_vec<T>(mut base: Vec<T>, extra: Option<Vec<T>>) -> Vec<T> {
     base
 }
 
-impl From<kcapi_main::api_req_combined_battle::battleresult::ApiData> for InterfaceWrapper<BattleResult> {
+impl From<kcapi_main::api_req_combined_battle::battleresult::ApiData>
+    for InterfaceWrapper<BattleResult>
+{
     fn from(battle_result: kcapi_main::api_req_combined_battle::battleresult::ApiData) -> Self {
-        let landing_hp_now = battle_result.clone().api_landing_hp.and_then(|landing_hp| landing_hp.api_now_hp.trim().parse::<i64>().ok());
-        let landing_hp_max = battle_result.clone().api_landing_hp.and_then(|landing_hp| landing_hp.api_max_hp.trim().parse::<i64>().ok());
-        let landing_sub_value = battle_result.clone().api_landing_hp.and_then(|landing_hp| parse_landing_hp(landing_hp.api_sub_value));
+        let landing_hp_now = battle_result
+            .clone()
+            .api_landing_hp
+            .and_then(|landing_hp| landing_hp.api_now_hp.trim().parse::<i64>().ok());
+        let landing_hp_max = battle_result
+            .clone()
+            .api_landing_hp
+            .and_then(|landing_hp| landing_hp.api_max_hp.trim().parse::<i64>().ok());
+        let landing_sub_value = battle_result
+            .clone()
+            .api_landing_hp
+            .and_then(|landing_hp| parse_landing_hp(landing_hp.api_sub_value));
         let mut mvp_ship_indexes = vec![battle_result.api_mvp];
         if let Some(combined_index) = battle_result.api_mvp_combined {
             mvp_ship_indexes.push(combined_index);
@@ -43,12 +56,11 @@ impl From<kcapi_main::api_req_combined_battle::battleresult::ApiData> for Interf
 
 impl From<kcapi_main::api_req_combined_battle::battleresult::ApiData> for InterfaceWrapper<Battle> {
     fn from(battle_result: kcapi_main::api_req_combined_battle::battleresult::ApiData) -> Self {
-        
         let cell_no = KCS_CELLS_INDEX
             .lock()
             .map(|cells| *cells.last().unwrap_or(&0))
             .unwrap_or(0);
-        
+
         let result: BattleResult = InterfaceWrapper::from(battle_result).unwrap();
         Self(Battle {
             battle_order: None,
@@ -712,7 +724,8 @@ impl From<kcapi_main::api_req_combined_battle::ld_airbattle::ApiData> for Interf
         };
         let enemy_ship_id: Vec<i64> =
             merge_optional_vec(airbattle.api_ship_ke, airbattle.api_ship_ke_combined);
-        let e_lv: Vec<i64> = merge_optional_vec(airbattle.api_ship_lv, airbattle.api_ship_lv_combined);
+        let e_lv: Vec<i64> =
+            merge_optional_vec(airbattle.api_ship_lv, airbattle.api_ship_lv_combined);
         let e_params: Vec<Vec<i64>> =
             merge_optional_vec(airbattle.api_e_param, airbattle.api_e_param_combined);
         let e_slot: Vec<Vec<i64>> =
@@ -849,7 +862,8 @@ impl From<kcapi_main::api_req_combined_battle::sp_midnight::ApiData> for Interfa
         let midnight_hougeki: Option<MidnightHougeki> = Some(unwrap_into(battle.api_hougeki));
         let friendly_force_attack: Option<FriendlyForceAttack> = None;
         let has_night_support = battle.api_n_support_flag > 0;
-        let night_support_attack: Option<NightSupportAttack> = battle.api_n_support_info.map(unwrap_into);
+        let night_support_attack: Option<NightSupportAttack> =
+            battle.api_n_support_info.map(unwrap_into);
 
         let cell_no = KCS_CELLS_INDEX
             .lock()

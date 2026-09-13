@@ -75,17 +75,11 @@ fn count_friend_sprite_fly_from_map_squadrons(
     Some(sprite_count)
 }
 
-fn apply_destruction_sprite_metrics(
-    air_base_attack: &mut AirBaseAttack,
-    e_slots: Vec<Vec<i64>>,
-) {
-    let friend_capacity = count_friend_sprite_fly_from_map_squadrons(
-        &air_base_attack.map_squadron_plane,
-    );
-    let enemy_capacity = build_enemy_ship_sprite_capacity(
-        Some(e_slots),
-        SpritePlaneTypeSet::AirUnit,
-    );
+fn apply_destruction_sprite_metrics(air_base_attack: &mut AirBaseAttack, e_slots: Vec<Vec<i64>>) {
+    let friend_capacity =
+        count_friend_sprite_fly_from_map_squadrons(&air_base_attack.map_squadron_plane);
+    let enemy_capacity =
+        build_enemy_ship_sprite_capacity(Some(e_slots), SpritePlaneTypeSet::AirUnit);
 
     air_base_attack.f_sprite_fly_count = friend_capacity;
     air_base_attack.e_sprite_fly_count = count_sprite_fly_from_capacity(
@@ -175,11 +169,13 @@ impl From<kcapi_main::api_req_map::next::ApiDestructionBattle>
     for InterfaceWrapper<DestructionBattle>
 {
     fn from(destruction_battle: kcapi_main::api_req_map::next::ApiDestructionBattle) -> Self {
-        let mut air_base_attack = InterfaceWrapper::<AirBaseAttack>::from(
-            destruction_battle.api_air_base_attack,
-        )
-        .unwrap();
-        apply_destruction_sprite_metrics(&mut air_base_attack, destruction_battle.api_e_slot.clone());
+        let mut air_base_attack =
+            InterfaceWrapper::<AirBaseAttack>::from(destruction_battle.api_air_base_attack)
+                .unwrap();
+        apply_destruction_sprite_metrics(
+            &mut air_base_attack,
+            destruction_battle.api_e_slot.clone(),
+        );
 
         Self(DestructionBattle {
             formation: destruction_battle.api_formation,

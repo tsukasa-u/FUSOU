@@ -274,8 +274,8 @@ impl FieldSizeChecker for uuid::Uuid {}
 //-------------------------------------------------------------------------
 
 pub fn write_log_check_field_size(log_path: String, log_map: &LogMapNumberSize) -> usize {
-    let mut file =
-        File::create(&log_path).unwrap_or_else(|_| panic!("\x1b[38;5;{}m can not create file\x1b[m ", 8));
+    let mut file = File::create(&log_path)
+        .unwrap_or_else(|_| panic!("\x1b[38;5;{}m can not create file\x1b[m ", 8));
 
     let local: chrono::DateTime<chrono::Local> = chrono::Local::now();
     writeln!(file, "check number size result [{local}]")

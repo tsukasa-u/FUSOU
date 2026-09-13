@@ -196,8 +196,9 @@ impl DestructionBattle {
         cell_no: i64,
     ) -> Option<()> {
         let e_deck_uuid = Uuid::new_v7(_ts);
-        let e_deck_ids = EnemyDeck::new_ret_option_from_destruction(_ts, e_deck_uuid, &data, _table, env_uuid)
-            .map(|_| e_deck_uuid);
+        let e_deck_ids =
+            EnemyDeck::new_ret_option_from_destruction(_ts, e_deck_uuid, &data, _table, env_uuid)
+                .map(|_| e_deck_uuid);
         let f_airbase_nos = (!data.f_maxhps.is_empty()).then(|| {
             (1..=data.f_maxhps.len())
                 .map(|base_no| base_no as i32)
@@ -1145,13 +1146,8 @@ impl AirBaseAirAttack {
         index: usize,
     ) -> Option<()> {
         #[cfg(schema_until = "0.6.0")]
-        let new_airbase_id = resolve_airbase_uuid_from_base_no(
-            _ts,
-            _table,
-            _dedup,
-            env_uuid,
-            data.base_id,
-        );
+        let new_airbase_id =
+            resolve_airbase_uuid_from_base_no(_ts, _table, _dedup, env_uuid, data.base_id);
 
         #[cfg(schema_since = "0.6.0")]
         let new_airbase_base_no = (data.base_id > 0).then_some(data.base_id as i32);
@@ -1313,7 +1309,9 @@ impl AirBaseAssult {
         #[cfg(schema_since = "0.6.0")]
         let base_nos = {
             let base_count = data.squadron_count.len().max(1);
-            (1..=base_count).map(|base_no| base_no as i64).collect::<Vec<_>>()
+            (1..=base_count)
+                .map(|base_no| base_no as i64)
+                .collect::<Vec<_>>()
         };
 
         #[cfg(schema_since = "0.6.0")]
@@ -2323,15 +2321,7 @@ impl Battle {
             let uuid = Uuid::new_v7(ts);
             data.clone()
                 .battle_result
-                .and_then(|result| {
-                    BattleResult::new_ret_option(
-                        ts,
-                        uuid,
-                        result,
-                        table,
-                        env_uuid,
-                    )
-                })
+                .and_then(|result| BattleResult::new_ret_option(ts, uuid, result, table, env_uuid))
                 .map(|_| uuid)
         };
 

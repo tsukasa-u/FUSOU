@@ -5,10 +5,7 @@ use kc_api_dto::endpoints::api_req_sortie::*;
 
 use crate::{register_trait, InterfaceWrapper, TraitForConvert};
 
-register_trait!(
-    Req,
-    (airbattle, battle, goback_port, ld_airbattle)
-);
+register_trait!(Req, (airbattle, battle, goback_port, ld_airbattle));
 register_trait!(Res, (goback_port));
 
 impl TraitForConvert for battleresult::Req {

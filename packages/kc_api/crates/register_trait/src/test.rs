@@ -133,7 +133,10 @@ pub fn simple_root_test_with_range<T>(
             // file_path.exists();
             dir_entry.unwrap().path()
         })
-        .filter(|file_path| file_path.to_str().unwrap().ends_with(pattren_str.as_str()) && filter_range_start_end(file_path.clone(), range_start, range_end));
+        .filter(|file_path| {
+            file_path.to_str().unwrap().ends_with(pattren_str.as_str())
+                && filter_range_start_end(file_path.clone(), range_start, range_end)
+        });
 
     custom_root_test::<T>(file_list, log_path);
 }

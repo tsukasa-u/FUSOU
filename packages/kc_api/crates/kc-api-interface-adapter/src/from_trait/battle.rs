@@ -349,7 +349,10 @@ fn calc_sprite_motion_stage_counts_with_rng<R: Rng + ?Sized>(
     // - damaged: 0 < power < 1 (partial damage)
     // - non_normal = crashed + damaged (all affected sprites)
     let unique_crashed = powers.iter().filter(|&&p| p <= f64::EPSILON).count() as i64;
-    let unique_damaged = powers.iter().filter(|&&p| p > f64::EPSILON && p < 1.0).count() as i64;
+    let unique_damaged = powers
+        .iter()
+        .filter(|&&p| p > f64::EPSILON && p < 1.0)
+        .count() as i64;
     let unique_non_normal = unique_crashed + unique_damaged;
 
     (
@@ -372,14 +375,13 @@ fn calc_sprite_motion_total(
     total_stage2: i64,
 ) -> Option<(i64, i64, i64)> {
     fly_count?;
-    let (unique_crashed, unique_damaged, unique_non_normal) =
-        calc_sprite_motion_stage_counts(
-            fly_count,
-            loss_stage1,
-            total_stage1,
-            loss_stage2,
-            total_stage2,
-        );
+    let (unique_crashed, unique_damaged, unique_non_normal) = calc_sprite_motion_stage_counts(
+        fly_count,
+        loss_stage1,
+        total_stage1,
+        loss_stage2,
+        total_stage2,
+    );
     Some((
         unique_crashed.unwrap_or(0),
         unique_damaged.unwrap_or(0),
@@ -455,9 +457,10 @@ fn calc_sprite_crash_total(
 #[cfg(test)]
 mod tests {
     use super::{
-        calc_sprite_crash_stage_counts, calc_sprite_motion_stage_counts_with_rng,
-        calc_sprite_crash_total, count_friend_sprite_fly_from_optional_airbase_squadrons,
-        count_sprite_fly_from_capacity, parse_plane_from_side, should_include_friend_escort,
+        calc_sprite_crash_stage_counts, calc_sprite_crash_total,
+        calc_sprite_motion_stage_counts_with_rng,
+        count_friend_sprite_fly_from_optional_airbase_squadrons, count_sprite_fly_from_capacity,
+        parse_plane_from_side, should_include_friend_escort,
     };
     use rand::SeedableRng;
 
@@ -519,7 +522,10 @@ mod tests {
         // Ship at index 0 has no qualifying equipment.
         // Game creates 0 sprites → crash count must also be 0.
         let capacity: Vec<Option<i64>> = vec![Some(0), Some(2), Some(1)];
-        assert_eq!(count_sprite_fly_from_capacity(Some(&capacity), Some(&[0])), Some(0));
+        assert_eq!(
+            count_sprite_fly_from_capacity(Some(&capacity), Some(&[0])),
+            Some(0)
+        );
     }
 
     #[test]
@@ -528,7 +534,10 @@ mod tests {
         // Represented as Some([]) after the fix in calc_air_damage (tested via
         // count_sprite_fly_from_capacity with an empty slice).
         let capacity: Vec<Option<i64>> = vec![Some(2), Some(3)];
-        assert_eq!(count_sprite_fly_from_capacity(Some(&capacity), Some(&[])), Some(0));
+        assert_eq!(
+            count_sprite_fly_from_capacity(Some(&capacity), Some(&[])),
+            Some(0)
+        );
     }
 
     #[test]
@@ -557,14 +566,20 @@ mod tests {
     #[test]
     fn parse_plane_from_side_converts_to_zero_based() {
         let plane_from = vec![Some(vec![1, 3]), Some(vec![2])];
-        assert_eq!(parse_plane_from_side(Some(&plane_from), 0), Some(vec![0, 2]));
+        assert_eq!(
+            parse_plane_from_side(Some(&plane_from), 0),
+            Some(vec![0, 2])
+        );
         assert_eq!(parse_plane_from_side(Some(&plane_from), 1), Some(vec![1]));
     }
 
     #[test]
     fn parse_plane_from_side_matches_fixture_style_one_based_data() {
         let plane_from = vec![Some(vec![1, 2]), None];
-        assert_eq!(parse_plane_from_side(Some(&plane_from), 0), Some(vec![0, 1]));
+        assert_eq!(
+            parse_plane_from_side(Some(&plane_from), 0),
+            Some(vec![0, 1])
+        );
         assert_eq!(parse_plane_from_side(Some(&plane_from), 1), Some(vec![]));
     }
 
@@ -583,14 +598,12 @@ mod tests {
             let nn = non_normal.unwrap_or(0);
             // non_normal must equal crash + damage
             assert_eq!(
-                nn, c + d,
+                nn,
+                c + d,
                 "seed={seed}: non_normal={nn} != crash={c} + damage={d}"
             );
             // The sum must never exceed fly_count (conservation law holds)
-            assert!(
-                nn <= fly,
-                "seed={seed}: non_normal={nn} > fly={fly}"
-            );
+            assert!(nn <= fly, "seed={seed}: non_normal={nn} > fly={fly}");
         }
     }
 
@@ -662,16 +675,14 @@ pub(super) fn apply_sprite_metrics(battle: &mut Battle) {
                 e_air_war.as_ref(),
                 attack.e_damage.plane_from.as_deref(),
             );
-            let (f_crash, f_damage, f_non_normal) =
-                calc_sprite_motion_stage_counts(
+            let (f_crash, f_damage, f_non_normal) = calc_sprite_motion_stage_counts(
                 attack.f_sprite_fly_count,
                 attack.f_damage.loss_plane1,
                 attack.f_damage.total_plane1,
                 attack.f_damage.loss_plane2,
                 attack.f_damage.total_plane2,
             );
-            let (e_crash, e_damage, e_non_normal) =
-                calc_sprite_motion_stage_counts(
+            let (e_crash, e_damage, e_non_normal) = calc_sprite_motion_stage_counts(
                 attack.e_sprite_fly_count,
                 attack.e_damage.loss_plane1,
                 attack.e_damage.total_plane1,
@@ -757,16 +768,14 @@ pub(super) fn apply_sprite_metrics(battle: &mut Battle) {
                 e_air_unit.as_ref(),
                 attack.e_damage.plane_from.as_deref(),
             );
-            let (f_crash, f_damage, f_non_normal) =
-                calc_sprite_motion_stage_counts(
+            let (f_crash, f_damage, f_non_normal) = calc_sprite_motion_stage_counts(
                 attack.f_sprite_fly_count,
                 attack.f_damage.loss_plane1,
                 attack.f_damage.total_plane1,
                 attack.f_damage.loss_plane2,
                 attack.f_damage.total_plane2,
             );
-            let (e_crash, e_damage, e_non_normal) =
-                calc_sprite_motion_stage_counts(
+            let (e_crash, e_damage, e_non_normal) = calc_sprite_motion_stage_counts(
                 attack.e_sprite_fly_count,
                 attack.e_damage.loss_plane1,
                 attack.e_damage.total_plane1,
@@ -1074,7 +1083,10 @@ pub fn calc_air_damage(
     )
 }
 
-fn parse_plane_from_side(plane_from: Option<&Vec<Option<Vec<i64>>>>, side_idx: usize) -> Option<Vec<i64>> {
+fn parse_plane_from_side(
+    plane_from: Option<&Vec<Option<Vec<i64>>>>,
+    side_idx: usize,
+) -> Option<Vec<i64>> {
     let plane_from = plane_from?;
     let indices = plane_from
         .get(side_idx)
@@ -2323,16 +2335,15 @@ impl From<kcapi_main::api_req_battle_midnight::battle::ApiData> for InterfaceWra
     fn from(battle: kcapi_main::api_req_battle_midnight::battle::ApiData) -> Self {
         let midnight_hougeki: Option<MidnightHougeki> =
             Some(InterfaceWrapper::from(battle.api_hougeki).unwrap());
-        let friendly_force_attack: Option<FriendlyForceAttack> =
-            match (
-                battle.api_friendly_info.clone(),
-                battle.api_friendly_battle.clone(),
-            ) {
-                (Some(info), Some(friendly_battle)) => {
-                    Some(InterfaceWrapper::from_api_data(info, friendly_battle).unwrap())
-                }
-                _ => None,
-            };
+        let friendly_force_attack: Option<FriendlyForceAttack> = match (
+            battle.api_friendly_info.clone(),
+            battle.api_friendly_battle.clone(),
+        ) {
+            (Some(info), Some(friendly_battle)) => {
+                Some(InterfaceWrapper::from_api_data(info, friendly_battle).unwrap())
+            }
+            _ => None,
+        };
 
         let cell_no = KCS_CELLS_INDEX
             .lock()

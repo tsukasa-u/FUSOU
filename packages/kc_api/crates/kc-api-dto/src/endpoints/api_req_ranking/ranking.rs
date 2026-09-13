@@ -79,11 +79,11 @@ pub struct ApiList {
 
 #[cfg(test)]
 mod tests {
-    use std::path;
-    use crate::test_utils::struct_normalize::{FormatType, custom_match_normalize};
+    use crate::test_utils::struct_normalize::{custom_match_normalize, FormatType};
     use dotenvy::dotenv;
     use regex::Regex;
     use register_trait::custom_root_test;
+    use std::path;
 
     use super::*;
     #[test]
@@ -94,23 +94,26 @@ mod tests {
         let target = path::PathBuf::from(target_path);
         let files = target.read_dir().expect("read_dir call failed");
         let file_list = files
-            .map(|dir_entry| {
-                dir_entry.unwrap().path()
-            }).collect::<Vec<_>>();
+            .map(|dir_entry| dir_entry.unwrap().path())
+            .collect::<Vec<_>>();
 
         let pattern_str = Regex::new(r".*S@api_req_ranking@[a-z]*").unwrap();
         let log_path = "./src/endpoints/api_req_ranking/ranking@S.log";
         let binding = file_list.clone();
-        let res_file_list = binding.iter()
-            .filter(|file_path| pattern_str.is_match(file_path.to_str().unwrap())).map(|file_path| file_path.to_owned());
-        println!("{}",res_file_list.clone().count());
+        let res_file_list = binding
+            .iter()
+            .filter(|file_path| pattern_str.is_match(file_path.to_str().unwrap()))
+            .map(|file_path| file_path.to_owned());
+        println!("{}", res_file_list.clone().count());
         custom_root_test::<Res>(res_file_list, log_path.to_string());
 
         let pattern_str = Regex::new(r".*Q@api_req_ranking@[a-z]*").unwrap();
         let log_path = "./src/endpoints/api_req_ranking/ranking@Q.log";
         let binding = file_list.clone();
-        let req_file_list = binding.iter()
-            .filter(|file_path| pattern_str.is_match(file_path.to_str().unwrap())).map(|file_path| file_path.to_owned());
+        let req_file_list = binding
+            .iter()
+            .filter(|file_path| pattern_str.is_match(file_path.to_str().unwrap()))
+            .map(|file_path| file_path.to_owned());
         custom_root_test::<Req>(req_file_list, log_path.to_string());
     }
 
@@ -123,38 +126,47 @@ mod tests {
         let req_and_res_pattern_str = "@api_req_ranking@ranking";
         let snap_path = format!("{snap_file_path}/kcsapi");
 
-
         let target = path::PathBuf::from(target_path);
         let files = target.read_dir().expect("read_dir call failed");
         let file_list = files
-            .map(|dir_entry| {
-                dir_entry.unwrap().path()
-            }).collect::<Vec<_>>();
+            .map(|dir_entry| dir_entry.unwrap().path())
+            .collect::<Vec<_>>();
 
         let snap_target = path::PathBuf::from(snap_path);
         let snap_files = snap_target.read_dir().expect("read_dir call failed");
         let snap_file_list = snap_files
-            .map(|dir_entry| {
-                dir_entry.unwrap().path()
-            }).filter(|file_path| file_path.to_str().unwrap().contains(req_and_res_pattern_str))
+            .map(|dir_entry| dir_entry.unwrap().path())
+            .filter(|file_path| {
+                file_path
+                    .to_str()
+                    .unwrap()
+                    .contains(req_and_res_pattern_str)
+            })
             .collect::<Vec<_>>();
 
         let pattern_str = Regex::new(r".*S@api_req_ranking@[a-z]*").unwrap();
         let res_log_path = "./src/endpoints/api_req_ranking/ranking@snap_data@S.log";
         let binding = file_list.clone();
-        let res_file_list = binding.iter()
-            .filter(|file_path| pattern_str.is_match(file_path.to_str().unwrap())).map(|file_path| file_path.to_owned());
-        let snap_res_file_list = snap_file_list.iter()
-            .filter(|file_path| pattern_str.is_match(file_path.to_str().unwrap())).map(|file_path| file_path.to_owned());
-
+        let res_file_list = binding
+            .iter()
+            .filter(|file_path| pattern_str.is_match(file_path.to_str().unwrap()))
+            .map(|file_path| file_path.to_owned());
+        let snap_res_file_list = snap_file_list
+            .iter()
+            .filter(|file_path| pattern_str.is_match(file_path.to_str().unwrap()))
+            .map(|file_path| file_path.to_owned());
 
         let pattern_str = Regex::new(r".*Q@api_req_ranking@[a-z]*").unwrap();
         let req_log_path = "./src/endpoints/api_req_ranking/ranking@snap_data@Q.log";
         let binding = file_list.clone();
-        let req_file_list = binding.iter()
-            .filter(|file_path| pattern_str.is_match(file_path.to_str().unwrap())).map(|file_path| file_path.to_owned());
-        let snap_req_file_list = snap_file_list.iter()
-            .filter(|file_path| pattern_str.is_match(file_path.to_str().unwrap())).map(|file_path| file_path.to_owned());
+        let req_file_list = binding
+            .iter()
+            .filter(|file_path| pattern_str.is_match(file_path.to_str().unwrap()))
+            .map(|file_path| file_path.to_owned());
+        let snap_req_file_list = snap_file_list
+            .iter()
+            .filter(|file_path| pattern_str.is_match(file_path.to_str().unwrap()))
+            .map(|file_path| file_path.to_owned());
 
         let mask_patterns = Some(vec![
             r"req\.api_ranking",

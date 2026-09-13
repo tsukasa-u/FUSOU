@@ -1,9 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use crate::constants::{
-    MASTER_DATA_FOLDER_NAME,
-    PERIOD_ROOT_FOLDER_NAME,
-    TRANSACTION_DATA_FOLDER_NAME,
+    MASTER_DATA_FOLDER_NAME, PERIOD_ROOT_FOLDER_NAME, TRANSACTION_DATA_FOLDER_NAME,
 };
 
 // String-based layout helpers (for cloud providers)
@@ -25,18 +23,28 @@ pub fn transaction_root(period_tag: &str) -> String {
 // PathBuf-based layout helpers (for local filesystem providers)
 
 pub fn master_dir(root: &Path, period_tag: &str) -> PathBuf {
-    root.join(PERIOD_ROOT_FOLDER_NAME).join(period_tag).join(MASTER_DATA_FOLDER_NAME)
+    root.join(PERIOD_ROOT_FOLDER_NAME)
+        .join(period_tag)
+        .join(MASTER_DATA_FOLDER_NAME)
 }
 
 pub fn transaction_root_dir(root: &Path, period_tag: &str) -> PathBuf {
-    root.join(PERIOD_ROOT_FOLDER_NAME).join(period_tag).join(TRANSACTION_DATA_FOLDER_NAME)
+    root.join(PERIOD_ROOT_FOLDER_NAME)
+        .join(period_tag)
+        .join(TRANSACTION_DATA_FOLDER_NAME)
 }
 
 pub fn map_dir(root: &Path, period_tag: &str, maparea_id: i64, mapinfo_no: i64) -> PathBuf {
     transaction_root_dir(root, period_tag).join(format!("{}-{}", maparea_id, mapinfo_no))
 }
 
-pub fn table_dir(root: &Path, period_tag: &str, maparea_id: i64, mapinfo_no: i64, table_name: &str) -> PathBuf {
+pub fn table_dir(
+    root: &Path,
+    period_tag: &str,
+    maparea_id: i64,
+    mapinfo_no: i64,
+    table_name: &str,
+) -> PathBuf {
     map_dir(root, period_tag, maparea_id, mapinfo_no).join(table_name)
 }
 

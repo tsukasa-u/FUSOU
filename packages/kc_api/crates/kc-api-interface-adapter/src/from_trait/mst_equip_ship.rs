@@ -57,7 +57,9 @@ impl From<kcapi_main::api_start2::get_data::ApiMstEquipShip> for InterfaceWrappe
 impl From<(i64, kcapi_main::api_start2::get_data::ApiMstEquipShip)>
     for InterfaceWrapper<MstEquipShip>
 {
-    fn from((ship_id, equip_ship): (i64, kcapi_main::api_start2::get_data::ApiMstEquipShip)) -> Self {
+    fn from(
+        (ship_id, equip_ship): (i64, kcapi_main::api_start2::get_data::ApiMstEquipShip),
+    ) -> Self {
         Self(MstEquipShip {
             ship_id: ship_id as i32,
             equip_type: equip_ship
@@ -73,5 +75,3 @@ impl From<(i64, kcapi_main::api_start2::get_data::ApiMstEquipShip)>
         })
     }
 }
-
-

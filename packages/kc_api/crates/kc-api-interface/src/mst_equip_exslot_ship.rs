@@ -21,9 +21,7 @@ pub struct MstEquipExslotShips {
     pub mst_equip_ships: HashMap<String, MstEquipExslotShip>,
 }
 
-#[derive(
-    Debug, Clone, Deserialize, AvroSchema, TraitForEncode, TS, FieldSizeChecker,
-)]
+#[derive(Debug, Clone, Deserialize, AvroSchema, TraitForEncode, TS, FieldSizeChecker)]
 #[ts(export, export_to = "get_data.ts")]
 pub struct MstEquipExslotShip {
     pub slotitem_id: i32,

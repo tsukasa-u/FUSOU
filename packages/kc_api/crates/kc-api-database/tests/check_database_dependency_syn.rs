@@ -151,10 +151,7 @@ pub fn check_database_dependency_syn() {
                                 .cloned()
                                 .unwrap_or_else(|| "_".to_string());
 
-                            book.insert(
-                                field_name,
-                                (field_type_location, field_type, type_name),
-                            );
+                            book.insert(field_name, (field_type_location, field_type, type_name));
                         }
                     }
                     bookm.insert(struct_name, book);

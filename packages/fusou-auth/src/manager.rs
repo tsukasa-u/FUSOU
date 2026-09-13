@@ -557,7 +557,10 @@ impl<S: Storage> AuthManager<S> {
         });
 
         if let Err(e) = self.persist_dataset_token_store(&cache).await {
-            tracing::warn!("Failed to persist member-scoped dataset_token cleanup: {}", e);
+            tracing::warn!(
+                "Failed to persist member-scoped dataset_token cleanup: {}",
+                e
+            );
         }
 
         Ok(())
@@ -594,7 +597,10 @@ impl<S: Storage> AuthManager<S> {
         &self,
         preferred_dataset_id: Option<&str>,
     ) -> Option<String> {
-        if let Some(preferred) = preferred_dataset_id.map(str::trim).filter(|v| !v.is_empty()) {
+        if let Some(preferred) = preferred_dataset_id
+            .map(str::trim)
+            .filter(|v| !v.is_empty())
+        {
             return is_valid_public_id(preferred).then(|| preferred.to_string());
         }
 
@@ -716,14 +722,16 @@ struct DatasetTokenClaims {
 fn parse_dataset_token_metadata(token: &str) -> Result<(String, String, DateTime<Utc>), AuthError> {
     let mut segments = token.split('.');
     let _header = segments.next();
-    let payload = segments.next().ok_or_else(|| {
-        AuthError::Other("dataset_token payload is missing".to_string())
-    })?;
-    let _signature = segments.next().ok_or_else(|| {
-        AuthError::Other("dataset_token signature is missing".to_string())
-    })?;
+    let payload = segments
+        .next()
+        .ok_or_else(|| AuthError::Other("dataset_token payload is missing".to_string()))?;
+    let _signature = segments
+        .next()
+        .ok_or_else(|| AuthError::Other("dataset_token signature is missing".to_string()))?;
     if segments.next().is_some() {
-        return Err(AuthError::Other("dataset_token has invalid JWT shape".to_string()));
+        return Err(AuthError::Other(
+            "dataset_token has invalid JWT shape".to_string(),
+        ));
     }
 
     let payload_bytes = URL_SAFE_NO_PAD
@@ -731,19 +739,25 @@ fn parse_dataset_token_metadata(token: &str) -> Result<(String, String, DateTime
         .map_err(|_| AuthError::Other("dataset_token payload is not base64url".to_string()))?;
     let claims: DatasetTokenClaims = serde_json::from_slice(&payload_bytes)?;
     if claims.typ != "dataset" || claims.aud != "fusou-upload" {
-        return Err(AuthError::Other("dataset_token claims are invalid".to_string()));
+        return Err(AuthError::Other(
+            "dataset_token claims are invalid".to_string(),
+        ));
     }
 
     let uuid = Uuid::parse_str(claims.dataset_id.trim())
         .map_err(|_| AuthError::Other("dataset_token dataset_id is not a UUID".to_string()))?;
     if uuid.get_version_num() != 4 || uuid.get_variant() != Variant::RFC4122 {
-        return Err(AuthError::Other("dataset_token dataset_id is not a UUID v4".to_string()));
+        return Err(AuthError::Other(
+            "dataset_token dataset_id is not a UUID v4".to_string(),
+        ));
     }
 
     let device_uuid = Uuid::parse_str(claims.device_id.trim())
         .map_err(|_| AuthError::Other("dataset_token device_id is not a UUID".to_string()))?;
     if device_uuid.get_version_num() != 4 || device_uuid.get_variant() != Variant::RFC4122 {
-        return Err(AuthError::Other("dataset_token device_id is not a UUID v4".to_string()));
+        return Err(AuthError::Other(
+            "dataset_token device_id is not a UUID v4".to_string(),
+        ));
     }
 
     let expires_at = DateTime::from_timestamp(claims.exp, 0)
@@ -1059,9 +1073,9 @@ impl<S: Storage> AuthManager<S> {
             return Ok(token);
         }
 
-            if token_identity_mismatch && device_key.device_id().is_some() {
-                device_key.clear_device_id().await?;
-            }
+        if token_identity_mismatch && device_key.device_id().is_some() {
+            device_key.clear_device_id().await?;
+        }
 
         let result = if device_key.device_id().is_none() {
             tracing::info!("anonymous-sync v2: device not registered, calling /v2/register");

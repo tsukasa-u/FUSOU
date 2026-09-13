@@ -2,13 +2,14 @@
 // DEPRECATED: Google Drive authentication is deprecated since 0.4.0. Use anonymous authentication instead.
 
 use super::client::DriveClient;
-use crate::constants::{
-    GOOGLE_DRIVE_FOLDER_MIME_TYPE, GOOGLE_DRIVE_TRASHED_FILTER,
-};
+use crate::constants::{GOOGLE_DRIVE_FOLDER_MIME_TYPE, GOOGLE_DRIVE_TRASHED_FILTER};
 use http_body_util::BodyExt;
 use tokio::time::sleep;
 
-#[deprecated(since = "0.4.0", note = "Google Drive support is deprecated. Use anonymous authentication instead.")]
+#[deprecated(
+    since = "0.4.0",
+    note = "Google Drive support is deprecated. Use anonymous authentication instead."
+)]
 pub fn backoff_delay(attempt: u32) -> tokio::time::Duration {
     // 200ms, 500ms, 1s, 2s, 4s (cap)
     let millis = match attempt {
@@ -23,11 +24,11 @@ pub fn backoff_delay(attempt: u32) -> tokio::time::Duration {
 
 // Raw implementations without error handling wrapper
 
-#[deprecated(since = "0.4.0", note = "Google Drive support is deprecated. Use anonymous authentication instead.")]
-pub async fn get_file_content(
-    hub: &mut DriveClient,
-    file_id: String,
-) -> Option<Vec<u8>> {
+#[deprecated(
+    since = "0.4.0",
+    note = "Google Drive support is deprecated. Use anonymous authentication instead."
+)]
+pub async fn get_file_content(hub: &mut DriveClient, file_id: String) -> Option<Vec<u8>> {
     let mut last_err: Option<String> = None;
     for attempt in 0..5u32 {
         let result = hub.files().get(&file_id).param("alt", "media").doit().await;
@@ -60,7 +61,10 @@ pub async fn get_file_content(
     None
 }
 
-#[deprecated(since = "0.4.0", note = "Google Drive support is deprecated. Use anonymous authentication instead.")]
+#[deprecated(
+    since = "0.4.0",
+    note = "Google Drive support is deprecated. Use anonymous authentication instead."
+)]
 pub async fn check_folder(
     hub: &mut DriveClient,
     folder_name: String,
@@ -124,7 +128,10 @@ pub async fn check_folder(
     None
 }
 
-#[deprecated(since = "0.4.0", note = "Google Drive support is deprecated. Use anonymous authentication instead.")]
+#[deprecated(
+    since = "0.4.0",
+    note = "Google Drive support is deprecated. Use anonymous authentication instead."
+)]
 pub async fn check_file(
     hub: &mut DriveClient,
     file_name: String,
@@ -187,7 +194,10 @@ pub async fn check_file(
     None
 }
 
-#[deprecated(since = "0.4.0", note = "Google Drive support is deprecated. Use anonymous authentication instead.")]
+#[deprecated(
+    since = "0.4.0",
+    note = "Google Drive support is deprecated. Use anonymous authentication instead."
+)]
 pub async fn create_file_raw(
     hub: &mut DriveClient,
     file_name: String,
@@ -233,7 +243,7 @@ pub async fn create_file_raw(
                     attempt + 1,
                     msg
                 );
-                
+
                 // If 401/403, return immediately to let wrapper handle it
                 if let google_drive3::Error::Failure(resp) = &last_err {
                     let status = resp.status();
@@ -252,7 +262,10 @@ pub async fn create_file_raw(
     Err(last_err)
 }
 
-#[deprecated(since = "0.4.0", note = "Google Drive support is deprecated. Use anonymous authentication instead.")]
+#[deprecated(
+    since = "0.4.0",
+    note = "Google Drive support is deprecated. Use anonymous authentication instead."
+)]
 pub async fn create_or_replace_file_raw(
     hub: &mut DriveClient,
     file_name: String,
@@ -314,7 +327,10 @@ pub async fn create_or_replace_file_raw(
     create_file_raw(hub, file_name, mime_type, content, folder_id).await
 }
 
-#[deprecated(since = "0.4.0", note = "Google Drive support is deprecated. Use anonymous authentication instead.")]
+#[deprecated(
+    since = "0.4.0",
+    note = "Google Drive support is deprecated. Use anonymous authentication instead."
+)]
 pub async fn delete_file_raw(
     hub: &mut DriveClient,
     file_id: String,
@@ -332,7 +348,7 @@ pub async fn delete_file_raw(
                     attempt + 1,
                     msg
                 );
-                
+
                 if let google_drive3::Error::Failure(resp) = &last_err {
                     let status = resp.status();
                     if status == 401 || status == 403 {
@@ -350,7 +366,10 @@ pub async fn delete_file_raw(
     Err(last_err)
 }
 
-#[deprecated(since = "0.4.0", note = "Google Drive support is deprecated. Use anonymous authentication instead.")]
+#[deprecated(
+    since = "0.4.0",
+    note = "Google Drive support is deprecated. Use anonymous authentication instead."
+)]
 pub async fn check_or_create_folder(
     hub: &mut DriveClient,
     folder_name: String,

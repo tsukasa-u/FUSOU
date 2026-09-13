@@ -1,12 +1,12 @@
 use kc_api_interface::deck_port::DeckPort as InterfaceDeckPort;
 use kc_api_interface::ship::Ship as InterfaceShip;
 use kc_api_interface::ship::SpEffectItem as InterfaceSpEffectItem;
-use kc_api_interface::use_items::UseItem as InterfaceUseItem;
 use kc_api_interface::slot_item::SlotItem as InterfaceSlotItem;
+use kc_api_interface::use_items::UseItem as InterfaceUseItem;
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize)]
-pub struct FleetSnapshot{
+pub struct FleetSnapshot {
     #[serde(rename(serialize = "s3s"))]
     pub ships: Option<Vec<Ship>>,
     #[serde(rename(serialize = "u7s"))]
@@ -98,7 +98,12 @@ impl From<InterfaceShip> for Ship {
             // sortno: ship.sortno,
             ship_id: ship.ship_id.unwrap_or(0),
             lv: ship.lv.unwrap_or(0),
-            exp: ship.exp.as_ref().and_then(|x| x.get(0)).copied().unwrap_or(0),
+            exp: ship
+                .exp
+                .as_ref()
+                .and_then(|x| x.get(0))
+                .copied()
+                .unwrap_or(0),
             soku: ship.soku.unwrap_or(0),
             leng: ship.leng.unwrap_or(0),
             slot: ship.slot.unwrap_or_default(),
@@ -107,14 +112,54 @@ impl From<InterfaceShip> for Ship {
             // kyouka: ship.kyouka.unwrap_or(0),
             slotnum: ship.slotnum.unwrap_or(0),
             cond: ship.cond.unwrap_or(0),
-            karyoku: ship.karyoku.as_ref().and_then(|x| x.get(0)).copied().unwrap_or(0),
-            raisou: ship.raisou.as_ref().and_then(|x| x.get(0)).copied().unwrap_or(0),
-            taiku: ship.taiku.as_ref().and_then(|x| x.get(0)).copied().unwrap_or(0),
-            soukou: ship.soukou.as_ref().and_then(|x| x.get(0)).copied().unwrap_or(0),
-            kaihi: ship.kaihi.as_ref().and_then(|x| x.get(0)).copied().unwrap_or(0),
-            taisen: ship.taisen.as_ref().and_then(|x| x.get(0)).copied().unwrap_or(0),
-            sakuteki: ship.sakuteki.as_ref().and_then(|x| x.get(0)).copied().unwrap_or(0),
-            lucky: ship.lucky.as_ref().and_then(|x| x.get(0)).copied().unwrap_or(0),
+            karyoku: ship
+                .karyoku
+                .as_ref()
+                .and_then(|x| x.get(0))
+                .copied()
+                .unwrap_or(0),
+            raisou: ship
+                .raisou
+                .as_ref()
+                .and_then(|x| x.get(0))
+                .copied()
+                .unwrap_or(0),
+            taiku: ship
+                .taiku
+                .as_ref()
+                .and_then(|x| x.get(0))
+                .copied()
+                .unwrap_or(0),
+            soukou: ship
+                .soukou
+                .as_ref()
+                .and_then(|x| x.get(0))
+                .copied()
+                .unwrap_or(0),
+            kaihi: ship
+                .kaihi
+                .as_ref()
+                .and_then(|x| x.get(0))
+                .copied()
+                .unwrap_or(0),
+            taisen: ship
+                .taisen
+                .as_ref()
+                .and_then(|x| x.get(0))
+                .copied()
+                .unwrap_or(0),
+            sakuteki: ship
+                .sakuteki
+                .as_ref()
+                .and_then(|x| x.get(0))
+                .copied()
+                .unwrap_or(0),
+            lucky: ship
+                .lucky
+                .as_ref()
+                .and_then(|x| x.get(0))
+                .copied()
+                .unwrap_or(0),
             // locked: ship.locked,
             // locked_equip: ship.locked_equip,
             sally_area: ship.sally_area,

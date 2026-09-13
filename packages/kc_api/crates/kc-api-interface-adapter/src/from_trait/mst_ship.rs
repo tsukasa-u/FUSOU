@@ -7,7 +7,10 @@ impl From<Vec<kcapi_main::api_start2::get_data::ApiMstShip>> for InterfaceWrappe
     fn from(ships: Vec<kcapi_main::api_start2::get_data::ApiMstShip>) -> Self {
         let mut ship_map = HashMap::<i32, MstShip>::with_capacity(ships.len());
         for ship in ships {
-            ship_map.insert(ship.api_id as i32, InterfaceWrapper::<MstShip>::from(ship).unwrap());
+            ship_map.insert(
+                ship.api_id as i32,
+                InterfaceWrapper::<MstShip>::from(ship).unwrap(),
+            );
         }
         Self(MstShips {
             mst_ships: ship_map,

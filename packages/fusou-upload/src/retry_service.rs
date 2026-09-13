@@ -100,7 +100,9 @@ impl UploadRetryService {
 
     pub async fn retry_pending_item_now(&self, id: &str) -> Result<(), String> {
         if get_user_configs().app.auth.get_deny_auth() {
-            return Err("authentication and upload retries are disabled by configuration".to_string());
+            return Err(
+                "authentication and upload retries are disabled by configuration".to_string(),
+            );
         }
 
         if self

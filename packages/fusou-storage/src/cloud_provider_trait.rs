@@ -19,39 +19,39 @@ pub trait CloudStorageProvider: Send + Sync {
         &mut self,
         refresh_token: String,
     ) -> Pin<Box<dyn Future<Output = Result<(), Box<dyn std::error::Error>>> + Send + '_>>;
-    
+
     /// Upload file to cloud storage
     fn upload_file(
         &self,
         local_path: &Path,
         remote_path: &str,
     ) -> Pin<Box<dyn Future<Output = Result<String, Box<dyn std::error::Error>>> + Send + '_>>;
-    
+
     /// Download file from cloud storage
     fn download_file(
         &self,
         remote_path: &str,
         local_path: &Path,
     ) -> Pin<Box<dyn Future<Output = Result<(), Box<dyn std::error::Error>>> + Send + '_>>;
-    
+
     /// List files in a directory
     fn list_files(
         &self,
         remote_path: &str,
     ) -> Pin<Box<dyn Future<Output = Result<Vec<String>, Box<dyn std::error::Error>>> + Send + '_>>;
-    
+
     /// List folders (subdirectories) in a directory
     fn list_folders(
         &self,
         remote_path: &str,
     ) -> Pin<Box<dyn Future<Output = Result<Vec<String>, Box<dyn std::error::Error>>> + Send + '_>>;
-    
+
     /// Delete file from cloud storage
     fn delete_file(
         &self,
         remote_path: &str,
     ) -> Pin<Box<dyn Future<Output = Result<(), Box<dyn std::error::Error>>> + Send + '_>>;
-    
+
     /// Create folder in cloud storage
     fn create_folder(
         &self,
@@ -104,17 +104,17 @@ impl CloudProviderFactory {
             #[cfg(feature = "gdrive")]
             GOOGLE_PROVIDER_KEY => Ok(Box::new(GoogleDriveCloudStorageProvider::default())),
             #[cfg(not(feature = "gdrive"))]
-            GOOGLE_PROVIDER_KEY => {
-                Err("Provider 'google' is disabled in this build (enable feature 'gdrive')."
-                    .to_string())
-            }
+            GOOGLE_PROVIDER_KEY => Err(
+                "Provider 'google' is disabled in this build (enable feature 'gdrive')."
+                    .to_string(),
+            ),
             _ => Err(format!(
                 "Provider '{}' is recognized but not implemented in this build",
                 canonical_provider
             )),
         }
     }
-    
+
     /// List all supported providers
     pub fn supported_providers() -> Vec<&'static str> {
         vec![

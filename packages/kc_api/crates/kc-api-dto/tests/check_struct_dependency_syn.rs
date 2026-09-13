@@ -652,9 +652,8 @@ pub fn check_struct_dependency_syn() {
                     set_cluster(&mut cluster, api_name_1, api_name_2);
                     for (struct_name, fields) in fieldm.iter() {
                         let node_struct_name_id = {
-                            let mut node_struct_name = cluster.node_named(format!(
-                                "{api_name_1}__{api_name_2}__{struct_name}"
-                            ));
+                            let mut node_struct_name = cluster
+                                .node_named(format!("{api_name_1}__{api_name_2}__{struct_name}"));
                             set_node_struct_name(&mut node_struct_name, struct_name, fields);
 
                             node_struct_name.id()
@@ -776,9 +775,8 @@ pub fn check_struct_dependency_syn() {
                             .get(struct_name)
                             .unwrap();
                         let node_struct_name_id = {
-                            let mut node_struct_name = cluster.node_named(format!(
-                                "{api_name_1}__{api_name_2}__{struct_name}"
-                            ));
+                            let mut node_struct_name = cluster
+                                .node_named(format!("{api_name_1}__{api_name_2}__{struct_name}"));
                             set_node_struct_name(&mut node_struct_name, struct_name, fields);
 
                             node_struct_name.id()
@@ -900,9 +898,7 @@ fn get_struct_label(fields: &FieldTypeInfo) -> String {
 #[cfg(feature = "graphviz")]
 fn set_node_struct_name(node_struct_name: &mut Node, struct_name: &str, fields: &FieldTypeInfo) {
     let struct_label: String = get_struct_label(fields);
-    node_struct_name.set_label(&format!(
-        "<{struct_name}> {struct_name} {struct_label}"
-    ));
+    node_struct_name.set_label(&format!("<{struct_name}> {struct_name} {struct_label}"));
     node_struct_name.set_shape(Shape::Record);
 }
 

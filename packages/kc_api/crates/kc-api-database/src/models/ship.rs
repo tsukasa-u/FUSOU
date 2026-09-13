@@ -47,39 +47,39 @@ pub struct OwnShip {
     pub bull: Option<i32>,              // 弾薬
     pub cond: Option<i32>,              // 疲労度
     #[cfg(schema_since = "0.5.0")]
-    pub cond_state: Option<i32>,        // 0:red,1:orange,2:normal,3:kiralow,4:kiramid,5:kirahigh
+    pub cond_state: Option<i32>, // 0:red,1:orange,2:normal,3:kiralow,4:kiramid,5:kirahigh
     #[cfg(schema_until = "0.5.0")]
-    pub karyoku: Option<Vec<i32>>,      // 火力
+    pub karyoku: Option<Vec<i32>>, // 火力
     #[cfg(schema_since = "0.5.0")]
-    pub karyoku: Option<i32>,           // 火力
+    pub karyoku: Option<i32>, // 火力
     #[cfg(schema_until = "0.5.0")]
-    pub raisou: Option<Vec<i32>>,       // 雷装
+    pub raisou: Option<Vec<i32>>, // 雷装
     #[cfg(schema_since = "0.5.0")]
-    pub raisou: Option<i32>,            // 雷装
+    pub raisou: Option<i32>, // 雷装
     #[cfg(schema_until = "0.5.0")]
-    pub taiku: Option<Vec<i32>>,        // 対空
+    pub taiku: Option<Vec<i32>>, // 対空
     #[cfg(schema_since = "0.5.0")]
-    pub taiku: Option<i32>,             // 対空
+    pub taiku: Option<i32>, // 対空
     #[cfg(schema_until = "0.5.0")]
-    pub soukou: Option<Vec<i32>>,       // 装甲
+    pub soukou: Option<Vec<i32>>, // 装甲
     #[cfg(schema_since = "0.5.0")]
-    pub soukou: Option<i32>,            // 装甲
+    pub soukou: Option<i32>, // 装甲
     #[cfg(schema_until = "0.5.0")]
-    pub kaihi: Option<Vec<i32>>,        // 回避
+    pub kaihi: Option<Vec<i32>>, // 回避
     #[cfg(schema_since = "0.5.0")]
-    pub kaihi: Option<i32>,             // 回避
+    pub kaihi: Option<i32>, // 回避
     #[cfg(schema_until = "0.5.0")]
-    pub taisen: Option<Vec<i32>>,       // 対潜
+    pub taisen: Option<Vec<i32>>, // 対潜
     #[cfg(schema_since = "0.5.0")]
-    pub taisen: Option<i32>,            // 対潜
+    pub taisen: Option<i32>, // 対潜
     #[cfg(schema_until = "0.5.0")]
-    pub sakuteki: Option<Vec<i32>>,     // 索敵
+    pub sakuteki: Option<Vec<i32>>, // 索敵
     #[cfg(schema_since = "0.5.0")]
-    pub sakuteki: Option<i32>,          // 索敵
+    pub sakuteki: Option<i32>, // 索敵
     #[cfg(schema_until = "0.5.0")]
-    pub lucky: Option<Vec<i32>>,        // 運
+    pub lucky: Option<Vec<i32>>, // 運
     #[cfg(schema_since = "0.5.0")]
-    pub lucky: Option<i32>,             // 運
+    pub lucky: Option<i32>, // 運
     pub sally_area: Option<i32>,
     #[cfg(schema_since = "0.6.0")]
     pub sortie_tag_id: Option<i32>,
@@ -125,7 +125,10 @@ impl OwnShip {
                             if *slot_id <= 0 {
                                 tracing::debug!("OwnShip::new: empty slot_item for id {}", slot_id);
                             } else {
-                                tracing::warn!("OwnShip::new: slot_item not found for id {}", slot_id);
+                                tracing::warn!(
+                                    "OwnShip::new: slot_item not found for id {}",
+                                    slot_id
+                                );
                             }
                             return None;
                         }
@@ -154,7 +157,10 @@ impl OwnShip {
                     if slot_ex_id <= 0 {
                         tracing::debug!("OwnShip::new: empty slot_item for ex id {}", slot_ex_id);
                     } else {
-                        tracing::warn!("OwnShip::new: slot_item not found for ex id {}", slot_ex_id);
+                        tracing::warn!(
+                            "OwnShip::new: slot_item not found for ex id {}",
+                            slot_ex_id
+                        );
                     }
                     return None;
                 }
@@ -195,7 +201,7 @@ impl OwnShip {
             #[cfg(schema_since = "0.5.0")]
             karyoku: ship.karyoku.clone().map(|values| values[0] as i32),
             #[cfg(schema_until = "0.5.0")]
-          raisou: ship
+            raisou: ship
                 .raisou
                 .clone()
                 .map(|values| values.into_iter().map(|value| value as i32).collect()),

@@ -1,11 +1,11 @@
+use chrono::{DateTime, Utc};
+use object_store::ObjectStore;
+use reqwest::Client;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
-use chrono::{DateTime, Utc};
-use uuid::Uuid;
-use serde::{Deserialize, Serialize};
-use reqwest::Client;
-use object_store::ObjectStore;
 use tracing::{debug, info, warn};
+use uuid::Uuid;
 
 /// Metadata for a dataset file stored in R2
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -72,7 +72,7 @@ async fn convert_avro_to_parquet(data: Vec<u8>) -> ProcessingResult<Vec<u8>> {
     //
     // For MVP: Validate and return data as-is
     // Assumes input is already Parquet-compatible binary format
-    
+
     debug!("Processed/validated data: {} bytes", data.len());
     Ok(data)
 }
@@ -88,7 +88,7 @@ fn concatenate_parquet_files(
     for (table_name, parquet_bytes) in parquet_files {
         let start_offset = concatenated.len();
         let byte_length = parquet_bytes.len();
-        
+
         concatenated.extend_from_slice(&parquet_bytes);
         offsets.insert(table_name, (start_offset, byte_length));
 
@@ -229,10 +229,7 @@ fn extract_parquet_from_binary(
     }
 
     let extracted = data[start_byte..start_byte + byte_length].to_vec();
-    debug!(
-        "Extracted {} bytes from offset {}",
-        byte_length, start_byte
-    );
+    debug!("Extracted {} bytes from offset {}", byte_length, start_byte);
     Ok(extracted)
 }
 
@@ -240,9 +237,7 @@ fn extract_parquet_from_binary(
 ///
 /// This function reads multiple Parquet binaries, extracts their data,
 /// and merges them into a single optimized Parquet file using DataFusion SQL.
-async fn merge_parquet_files(
-    parquet_files: Vec<Vec<u8>>,
-) -> ProcessingResult<Vec<u8>> {
+async fn merge_parquet_files(parquet_files: Vec<Vec<u8>>) -> ProcessingResult<Vec<u8>> {
     if parquet_files.is_empty() {
         return Err(ProcessingError::ValidationError(
             "No parquet files to merge".to_string(),
@@ -258,17 +253,20 @@ async fn merge_parquet_files(
     //
     // For MVP: Simple concatenation with metadata
     // Production approach requires temporary file handling which is complex in WASM/cloud
-    
+
     let file_count = parquet_files.len();
     let mut merged = Vec::new();
     let mut total_bytes = 0;
-    
+
     for parquet_bytes in parquet_files {
         merged.extend_from_slice(&parquet_bytes);
         total_bytes += parquet_bytes.len();
     }
 
-    info!("Merged {} parquet files into {} bytes", file_count, total_bytes);
+    info!(
+        "Merged {} parquet files into {} bytes",
+        file_count, total_bytes
+    );
     Ok(merged)
 }
 
@@ -316,7 +314,11 @@ pub async fn compact_dataset_files(
     let mut new_metadata_vec = Vec::new();
 
     for (table_name, metadata_group) in table_groups {
-        debug!("Processing table: {} ({} fragments)", table_name, metadata_group.len());
+        debug!(
+            "Processing table: {} ({} fragments)",
+            table_name,
+            metadata_group.len()
+        );
 
         // Collect all parquet fragments for this table
         let mut parquet_fragments = Vec::new();
@@ -400,10 +402,7 @@ pub async fn compact_dataset_files(
 }
 
 /// Downloads a file from R2 storage
-async fn download_from_r2(
-    r2_client: &dyn ObjectStore,
-    path: &str,
-) -> ProcessingResult<Vec<u8>> {
+async fn download_from_r2(r2_client: &dyn ObjectStore, path: &str) -> ProcessingResult<Vec<u8>> {
     let object_path = object_store::path::Path::from(path);
 
     let bytes = r2_client
@@ -419,10 +418,7 @@ async fn download_from_r2(
 }
 
 /// Deletes a file from R2 storage
-async fn delete_from_r2(
-    r2_client: &dyn ObjectStore,
-    path: &str,
-) -> ProcessingResult<()> {
+async fn delete_from_r2(r2_client: &dyn ObjectStore, path: &str) -> ProcessingResult<()> {
     let object_path = object_store::path::Path::from(path);
 
     r2_client

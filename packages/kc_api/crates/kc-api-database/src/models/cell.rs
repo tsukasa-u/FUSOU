@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use uuid::Uuid;
 
+use crate::dedup::DedupCache;
 #[cfg(schema_since = "0.6.0")]
 use crate::models::airbase::AirBase;
 #[cfg(schema_since = "0.6.0")]
@@ -14,15 +15,14 @@ use crate::models::battle::DestructionBattle;
 #[cfg(schema_since = "0.5.1")]
 use crate::models::battle::DestructionBattleId;
 use crate::models::env_info::EnvInfoId;
-use crate::dedup::DedupCache;
 use crate::table::PortTable;
 #[cfg(schema_since = "0.6.0")]
 use kc_api_interface::air_base::AirBases;
 
 #[cfg(schema_since = "0.5.0")]
-use crate::models::deck::OwnDeckId;
-#[cfg(schema_since = "0.5.0")]
 use crate::models::deck::OwnDeck;
+#[cfg(schema_since = "0.5.0")]
+use crate::models::deck::OwnDeckId;
 
 use register_trait::{FieldSizeChecker, TraitForDecode, TraitForEncode};
 
@@ -138,8 +138,7 @@ impl Cells {
                 let Some(destruction_battle) = cell.destruction_battle.clone() else {
                     continue;
                 };
-                let Some(&destruction_battle_index) = battle_index_by_cell_no.get(cell_no)
-                else {
+                let Some(&destruction_battle_index) = battle_index_by_cell_no.get(cell_no) else {
                     continue;
                 };
 
@@ -161,9 +160,13 @@ impl Cells {
 
             has_destruction_battle.then_some(destruction_battle_uuid)
         };
-        
+
         #[cfg(schema_since = "0.5.0")]
-        let deck_id = data.clone().battles.values().find_map(|battle| battle.deck_id);
+        let deck_id = data
+            .clone()
+            .battles
+            .values()
+            .find_map(|battle| battle.deck_id);
         #[cfg(schema_since = "0.5.0")]
         let new_f_deck_before_id = {
             let cashe = true;
@@ -279,7 +282,10 @@ impl Cells {
             let base_no_from_destruction = data.cell_index.iter().find_map(|cell_no| {
                 let cell = data.cells.get(cell_no)?;
                 let destruction_battle = cell.destruction_battle.as_ref()?;
-                let map_squadron_plane = destruction_battle.air_base_attack.map_squadron_plane.as_ref()?;
+                let map_squadron_plane = destruction_battle
+                    .air_base_attack
+                    .map_squadron_plane
+                    .as_ref()?;
                 let mut base_nos = map_squadron_plane
                     .keys()
                     .filter_map(|base_no| base_no.parse::<i64>().ok())
@@ -298,17 +304,12 @@ impl Cells {
                 })
         };
 
-
         let new_data = Cells {
             env_uuid,
             uuid,
             maparea_id: data.maparea_id as i32,
             mapinfo_no: data.mapinfo_no as i32,
-            cell_index: data
-                .cell_index
-                .iter()
-                .map(|&index| index as i32)
-                .collect(),
+            cell_index: data.cell_index.iter().map(|&index| index as i32).collect(),
             battle_index: data
                 .battles
                 .keys()

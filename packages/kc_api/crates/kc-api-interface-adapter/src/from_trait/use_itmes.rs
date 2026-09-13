@@ -1,6 +1,6 @@
 use crate::InterfaceWrapper;
 use kc_api_dto::endpoints as kcapi_main;
-use kc_api_interface::use_items::{UseItems, UseItem};
+use kc_api_interface::use_items::{UseItem, UseItems};
 use std::collections::HashMap;
 
 impl From<Vec<kcapi_main::api_get_member::require_info::ApiUseitem>>

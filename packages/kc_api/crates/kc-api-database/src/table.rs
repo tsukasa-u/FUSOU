@@ -5,6 +5,8 @@ use std::str::FromStr;
 use crate::models::airbase::{AirBase, PlaneInfo};
 #[cfg(schema_since = "0.5.0")]
 use crate::models::battle::BattleResult;
+#[cfg(schema_since = "0.5.1")]
+use crate::models::battle::DestructionBattle;
 #[cfg(schema_since = "0.5.0")]
 use crate::models::battle::NightSupportHourai;
 use crate::models::battle::{
@@ -13,8 +15,6 @@ use crate::models::battle::{
     MidnightHougeki, MidnightHougekiList, OpeningAirAttack, OpeningAirAttackList, OpeningRaigeki,
     OpeningTaisen, OpeningTaisenList, SupportAirattack, SupportHourai,
 };
-#[cfg(schema_since = "0.5.1")]
-use crate::models::battle::DestructionBattle;
 
 use crate::models::cell::Cells;
 use crate::models::deck::{EnemyDeck, FriendDeck, OwnDeck, SupportDeck};
