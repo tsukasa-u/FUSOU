@@ -118,75 +118,163 @@ pub struct RevealedRange {
 }
 
 #[derive(Debug, Clone, Copy)]
-pub struct AuthenticatedByteSource<'a> {
-    bytes: &'a [u8],
-    ranges: &'a [Range<usize>],
+pub enum AuthenticatedByteSource<'a> {
+    Contiguous {
+        bytes: &'a [u8],
+        ranges: &'a [Range<usize>],
+    },
+    Sparse {
+        transcript: &'a tlsn_core::transcript::PartialTranscript,
+        direction: tlsn_core::transcript::Direction,
+    },
 }
 
 impl<'a> AuthenticatedByteSource<'a> {
     pub fn new(bytes: &'a [u8], ranges: &'a [Range<usize>]) -> Result<Self> {
-        if ranges.len() > MAX_AUTHENTICATED_RANGE_COUNT {
+        validate_authenticated_ranges(bytes.len(), ranges)?;
+        Ok(Self::Contiguous { bytes, ranges })
+    }
+
+    pub fn from_partial(
+        transcript: &'a tlsn_core::transcript::PartialTranscript,
+        direction: tlsn_core::transcript::Direction,
+    ) -> Result<Self> {
+        let ranges = match direction {
+            tlsn_core::transcript::Direction::Sent => transcript.sent_authed(),
+            tlsn_core::transcript::Direction::Received => transcript.received_authed(),
+        };
+        if ranges.iter().count() > MAX_AUTHENTICATED_RANGE_COUNT {
             return Err(VerifierError::LimitExceeded(
                 "too many authenticated ranges",
             ));
         }
-        let mut previous_end = 0;
-        let mut disclosed_bytes = 0_usize;
-        for range in ranges {
-            if range.start >= range.end || range.end > bytes.len() || range.start < previous_end {
-                return Err(VerifierError::InvalidRange(
-                    "authenticated ranges are invalid",
-                ));
-            }
-            disclosed_bytes =
-                disclosed_bytes
-                    .checked_add(range.len())
-                    .ok_or(VerifierError::InvalidRange(
-                        "authenticated range bytes overflow",
-                    ))?;
-            if disclosed_bytes > MAX_RESPONSE_TRANSCRIPT_BYTES {
-                return Err(VerifierError::LimitExceeded("authenticated range bytes"));
-            }
-            previous_end = range.end;
+        if ranges.len() > MAX_RESPONSE_TRANSCRIPT_BYTES {
+            return Err(VerifierError::LimitExceeded("authenticated range bytes"));
         }
-        Ok(Self { bytes, ranges })
+        Ok(Self::Sparse {
+            transcript,
+            direction,
+        })
     }
 
     pub fn len(&self) -> usize {
-        self.bytes.len()
+        match self {
+            Self::Contiguous { bytes, .. } => bytes.len(),
+            Self::Sparse {
+                transcript,
+                direction,
+            } => match direction {
+                tlsn_core::transcript::Direction::Sent => transcript.len_sent(),
+                tlsn_core::transcript::Direction::Received => transcript.len_received(),
+            },
+        }
     }
 
     pub fn disclosed_len(&self) -> usize {
-        self.ranges.iter().map(|range| range.len()).sum()
+        match self {
+            Self::Contiguous { ranges, .. } => ranges.iter().map(|range| range.len()).sum(),
+            Self::Sparse {
+                transcript,
+                direction,
+            } => match direction {
+                tlsn_core::transcript::Direction::Sent => transcript.sent_authed().len(),
+                tlsn_core::transcript::Direction::Received => transcript.received_authed().len(),
+            },
+        }
     }
 
     pub fn is_complete(&self) -> bool {
-        self.ranges.first().is_some_and(|range| range.start == 0)
+        self.disclosed_len() == self.len()
+            && self.ranges().first().is_some_and(|range| range.start == 0)
             && self
-                .ranges
+                .ranges()
                 .last()
-                .is_some_and(|range| range.end == self.bytes.len())
-            && self.disclosed_len() == self.bytes.len()
+                .is_some_and(|range| range.end == self.len())
     }
 
-    pub fn read(&self, range: Range<usize>) -> Result<&'a [u8]> {
-        if range.start > range.end || range.end > self.bytes.len() {
+    pub fn ranges(&self) -> Vec<Range<usize>> {
+        match self {
+            Self::Contiguous { ranges, .. } => ranges.to_vec(),
+            Self::Sparse {
+                transcript,
+                direction,
+            } => match direction {
+                tlsn_core::transcript::Direction::Sent => transcript.sent_authed().iter().collect(),
+                tlsn_core::transcript::Direction::Received => {
+                    transcript.received_authed().iter().collect()
+                }
+            },
+        }
+    }
+
+    pub fn read(&self, range: Range<usize>) -> Result<Vec<u8>> {
+        if range.start > range.end || range.end > self.len() {
             return Err(VerifierError::InvalidRange(
                 "authenticated read is outside the transcript",
             ));
         }
         if range.start == range.end {
-            return Ok(&self.bytes[range]);
+            return Ok(Vec::new());
         }
-        if !self.ranges.iter().any(|authenticated| {
-            authenticated.start <= range.start && range.end <= authenticated.end
-        }) {
+        match self {
+            Self::Contiguous { bytes, ranges } => {
+                if !ranges.iter().any(|authenticated| {
+                    authenticated.start <= range.start && range.end <= authenticated.end
+                }) {
+                    return Err(VerifierError::InvalidRange(
+                        "authenticated read crosses an undisclosed range",
+                    ));
+                }
+                Ok(bytes[range].to_vec())
+            }
+            Self::Sparse {
+                transcript,
+                direction,
+            } => {
+                let mut output = Vec::with_capacity(range.len());
+                transcript
+                    .copy_authenticated_to(
+                        *direction,
+                        &tlsn_core::rangeset::set::RangeSet::from(range),
+                        &mut output,
+                    )
+                    .map_err(|_| {
+                        VerifierError::InvalidRange(
+                            "authenticated read crosses an undisclosed range",
+                        )
+                    })?;
+                Ok(output)
+            }
+        }
+    }
+}
+
+fn validate_authenticated_ranges(transcript_len: usize, ranges: &[Range<usize>]) -> Result<()> {
+    if ranges.len() > MAX_AUTHENTICATED_RANGE_COUNT {
+        return Err(VerifierError::LimitExceeded(
+            "too many authenticated ranges",
+        ));
+    }
+    let mut previous_end = 0;
+    let mut disclosed_bytes = 0_usize;
+    for range in ranges {
+        if range.start >= range.end || range.end > transcript_len || range.start < previous_end {
             return Err(VerifierError::InvalidRange(
-                "authenticated read crosses an undisclosed range",
+                "authenticated ranges are invalid",
             ));
         }
-        Ok(&self.bytes[range])
+        disclosed_bytes =
+            disclosed_bytes
+                .checked_add(range.len())
+                .ok_or(VerifierError::InvalidRange(
+                    "authenticated range bytes overflow",
+                ))?;
+        if disclosed_bytes > MAX_RESPONSE_TRANSCRIPT_BYTES {
+            return Err(VerifierError::LimitExceeded("authenticated range bytes"));
+        }
+        previous_end = range.end;
     }
+    Ok(())
 }
 
 pub fn validate_ranges(ranges: &[RevealedRange], transcript_size: u64) -> Result<()> {
@@ -645,6 +733,29 @@ pub fn parse_require_info_response(raw: &[u8], limits: &ParserLimits) -> Result<
         ));
     }
     extract_member_id(&body[7..], limits)
+}
+
+pub fn parse_require_info_request_source(
+    source: &AuthenticatedByteSource<'_>,
+    expected_server_identity: &str,
+    limits: &ParserLimits,
+) -> Result<ParsedRequireInfoRequest> {
+    if source.len() > limits.request_transcript_bytes {
+        return Err(VerifierError::LimitExceeded("request transcript bytes"));
+    }
+    let raw = source.read(0..source.len())?;
+    parse_require_info_request(&raw, expected_server_identity, limits)
+}
+
+pub fn parse_require_info_response_source(
+    source: &AuthenticatedByteSource<'_>,
+    limits: &ParserLimits,
+) -> Result<ParsedRequireInfo> {
+    if source.len() > limits.response_transcript_bytes {
+        return Err(VerifierError::LimitExceeded("response transcript bytes"));
+    }
+    let raw = source.read(0..source.len())?;
+    parse_require_info_response(&raw, limits)
 }
 
 #[derive(Debug, Clone)]

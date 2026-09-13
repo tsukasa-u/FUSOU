@@ -33,6 +33,8 @@ pub enum CorrelationError {
         "alpha.15 authenticated output contains no cryptographic FUSOU Session/Challenge binding"
     )]
     HeaderlessSessionBindingUnavailable,
+    #[error("alpha.15 authenticated output does not contain a full transcript digest")]
+    FullTranscriptDigestUnavailable,
 }
 
 pub type Result<T> = std::result::Result<T, CorrelationError>;
@@ -112,8 +114,12 @@ impl ExperimentalBindingAuthority {
             session_id: expected_session_id,
             attestation_id: evidence.attestation_id,
             verified_member_id: evidence.verified_member_id.clone(),
-            request_transcript_sha256: evidence.request_transcript_sha256,
-            response_transcript_sha256: evidence.response_transcript_sha256,
+            request_transcript_sha256: evidence
+                .request_transcript_sha256
+                .ok_or(CorrelationError::FullTranscriptDigestUnavailable)?,
+            response_transcript_sha256: evidence
+                .response_transcript_sha256
+                .ok_or(CorrelationError::FullTranscriptDigestUnavailable)?,
         })
     }
 }
@@ -142,27 +148,37 @@ pub struct HeaderlessAuthenticatedProof {
     pub verified_member_id: Option<String>,
 }
 
-impl From<&AuthenticatedRequireInfo> for HeaderlessAuthenticatedProof {
-    fn from(evidence: &AuthenticatedRequireInfo) -> Self {
-        Self {
+impl TryFrom<&AuthenticatedRequireInfo> for HeaderlessAuthenticatedProof {
+    type Error = CorrelationError;
+
+    fn try_from(evidence: &AuthenticatedRequireInfo) -> Result<Self> {
+        Ok(Self {
             attestation_id: evidence.attestation_id,
-            request_transcript_sha256: evidence.request_transcript_sha256,
-            response_transcript_sha256: evidence.response_transcript_sha256,
+            request_transcript_sha256: evidence
+                .request_transcript_sha256
+                .ok_or(CorrelationError::FullTranscriptDigestUnavailable)?,
+            response_transcript_sha256: evidence
+                .response_transcript_sha256
+                .ok_or(CorrelationError::FullTranscriptDigestUnavailable)?,
             verified_member_id: Some(evidence.verified_member_id.clone()),
-        }
+        })
     }
 }
 
 impl HeaderlessAuthenticatedProof {
     pub fn from_authenticated_transcript(
         transcript: &AuthenticatedTranscript,
-    ) -> HeaderlessAuthenticatedProof {
-        HeaderlessAuthenticatedProof {
+    ) -> Result<HeaderlessAuthenticatedProof> {
+        Ok(HeaderlessAuthenticatedProof {
             attestation_id: *transcript.attestation_id(),
-            request_transcript_sha256: *transcript.request_transcript_sha256(),
-            response_transcript_sha256: *transcript.response_transcript_sha256(),
+            request_transcript_sha256: *transcript
+                .request_transcript_sha256()
+                .ok_or(CorrelationError::FullTranscriptDigestUnavailable)?,
+            response_transcript_sha256: *transcript
+                .response_transcript_sha256()
+                .ok_or(CorrelationError::FullTranscriptDigestUnavailable)?,
             verified_member_id: None,
-        }
+        })
     }
 }
 
@@ -222,8 +238,8 @@ mod tests {
             binding,
             server_identity: "game.example.test".to_owned(),
             attestation_id: [0x11; 16],
-            request_transcript_sha256: [0x21; 32],
-            response_transcript_sha256: [0x22; 32],
+            request_transcript_sha256: Some([0x21; 32]),
+            response_transcript_sha256: Some([0x22; 32]),
             request_transcript_size: 128,
             response_transcript_size: 256,
             revealed_request_ranges: Vec::new(),
@@ -361,7 +377,8 @@ mod tests {
             "../fixtures/tlsn-alpha15-upstream-presentation.bin"
         ))
         .unwrap();
-        let proof = HeaderlessAuthenticatedProof::from_authenticated_transcript(&transcript);
+        let proof =
+            HeaderlessAuthenticatedProof::from_authenticated_transcript(&transcript).unwrap();
         let context = HeaderlessCorrelationContext {
             session_id: session("123e4567-e89b-42d3-a456-426614174000"),
             proof_attempt_id: session("223e4567-e89b-42d3-a456-426614174000"),

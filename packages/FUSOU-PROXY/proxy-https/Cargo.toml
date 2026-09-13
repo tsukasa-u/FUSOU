@@ -87,3 +87,8 @@ unexpected_cfgs = { level = "warn", check-cfg = ['cfg(TAURI_BUILD_DEBUG)'] }
 
 [patch."https://github.com/tlsnotary/tlsn-utils"]
 tlsn-mux = { path = "../../tlsn-mux-alpha15" }
+
+[patch."https://github.com/tlsnotary/tlsn.git"]
+tlsn = { path = "../../tlsn-alpha15-sparse/crates/tlsn" }
+tlsn-attestation = { path = "../../tlsn-alpha15-sparse/crates/attestation" }
+tlsn-core = { path = "../../tlsn-alpha15-sparse/crates/core" }

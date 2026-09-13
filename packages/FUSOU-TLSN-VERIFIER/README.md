@@ -23,7 +23,8 @@ It currently provides:
 - a local alpha.15 Proxy-mode transport harness that validates caller-supplied
   serialized request bytes before the Prover-owned TLS write, rejects retries,
   captures the exact synthetic-origin request/response, and builds a test-only
-  serialized Presentation;
+  complete serialized Presentation plus a selectively disclosed serialized
+  Presentation whose authenticated gap is rejected by the strict parser;
 - an explicitly opt-in `experimental` origin probe that accepts only a
 -  Prover-owned alpha.15 `TlsConnection` and an actual serialized request,
   records the exact request/response, and extracts `api_member_id` with the
@@ -61,48 +62,56 @@ production Verifier service, or a Notary service.
 
 `verify_alpha15_presentation` deserializes an upstream bincode Presentation,
 rejects trailing bytes, calls `Presentation::verify`, and requires complete
-sent/received disclosure before strict parsing. Complete disclosure is
-intentional for the current `require_info` profile because its authenticated
-transcript SHA-256 and strict HTTP/JSON parsing cover the complete wire bytes.
-The adapter keeps authenticated range metadata and materializes range bytes
-only when exporting them. alpha.15 still allocates full-length partial
-transcript buffers internally; FUSOU does not treat zero-filled omitted bytes
-as authenticated. `AuthenticatedByteSource` is the fail-closed range boundary
-for future profiles: a read crossing an undisclosed range is rejected. It does
-not make the current profile selective, because the strict JSON parser must
-inspect the complete response body and the Result schema carries a full
-transcript SHA-256. It does not fabricate FUSOU evidence or signatures.
+sent/received disclosure for the current `require_info` Result profile. The
+adapter itself retains alpha.15's `PartialTranscript` as authenticated packed
+bytes plus total lengths; it does not materialize a full-length compatibility
+buffer during Presentation verification. `AuthenticatedByteSource` can read
+either legacy contiguous data or the verified sparse transcript, and rejects a
+read crossing an undisclosed range. The strict parser is connected to this
+reader, so sparse input fails closed at the first unauthenticated read. A raw
+full-transcript SHA-256 is populated only when every byte is authenticated;
+the existing Result schema refuses sparse output rather than encoding a fake
+digest. It does not fabricate FUSOU evidence or signatures.
+
+The synthetic proxy test verifies the selectively disclosed serialized
+Presentation with its test root certificate and trusted Notary key. It checks
+that alpha.15 verification succeeds, full transcript digests remain absent,
+and the strict parser rejects the first read that crosses the undisclosed
+range. This is a generated integration fixture, not production evidence.
 
 ## Selective disclosure status
 
-The current alpha.15 backend was inspected at commit
+The local alpha.15 fork is pinned to commit
 `47aee45b53e06648c1b2ad3689b367b8c923fdec`. `ProveConfig::reveal_sent` and
-`reveal_recv` select authenticated ranges, but `PartialTranscript` still
-allocates a zero-filled `Vec<u8>` for the full sent and received transcript
-length. `Presentation::verify` returns that representation, and does not
-provide a range-only byte source or a proof of the contents of omitted bytes.
+`reveal_recv` now produce a packed sparse `PartialTranscript`; proof
+verification reads only the requested authenticated ranges. The live verifier
+also assigns disclosed ranges directly and keeps undisclosed committed ranges
+blind. `materialize_sent` and `materialize_received` remain explicit
+compatibility operations and are outside the cryptographic verification path.
 
-FUSOU therefore keeps complete disclosure for `require_info`. Replacing it
-with a sparse range list would be unsound for the current profile: omitted
-HTTP/JSON bytes could contain framing, duplicate keys, escapes, or structural
-tokens that the strict parser cannot inspect, and a SHA-256 of the complete
-transcript cannot be computed from disclosed ranges alone. The implementation
-classifies this as an upstream TLSN limitation combined with a current-profile
-incompatibility, not as successful selective disclosure.
+FUSOU's range reader and strict parser are connected to the verified sparse
+output. The current `require_info` Result profile still requires the complete
+HTTP request and response because hidden HTTP/JSON bytes could contain
+framing, duplicate keys, escapes, or structural tokens, and the Result schema
+commits to a raw full-transcript SHA-256. A sparse presentation may therefore
+be inspected safely, but it is rejected for this profile unless the parser's
+requested bytes are fully authenticated and a raw digest can be independently
+computed. Sparse omitted bytes are never represented as authenticated zeros.
 
 The memory probe makes the unavoidable alpha.15 allocation visible without
 contacting any external service:
 
 ```text
-for size in 1048576 4194304 8388608 16777216; do
+for size in 1048576 4194304 8388608 16777216 33554432; do
   cargo +1.95.0 run --offline --manifest-path packages/FUSOU-TLSN-VERIFIER/Cargo.toml --example alpha15_partial_memory -- "$size"
 done
 ```
 
-On Linux, `VmRSS` can remain nearly flat because zero-initialized pages are
-shared until written. The probe therefore reports `VmSize` and `VmData` too;
-those values expose the full-length virtual/data allocation and must not be
-reclassified as bounded semantic-verifier memory.
+The probe creates 1/4/8/16/32 MiB total lengths per direction while disclosing
+only two bytes per direction. The measured `VmSize` and `VmData` deltas were
+zero for all five sizes in the sparse representation. This measures storage
+behavior, not a complete large Presentation verification fixture; the checked
+in alpha.15 fixture remains small.
 
 The checked-in
 `fixtures/tlsn-alpha15-upstream-presentation.bin` is a legitimate upstream

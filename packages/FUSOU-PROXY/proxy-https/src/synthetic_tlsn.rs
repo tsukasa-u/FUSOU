@@ -1,8 +1,8 @@
 use crate::experimental_tlsn::{
     sha256, AttestationBinding, Http1OriginRequestSerializer, OriginRequestSerializer,
-    ProofContinuation, ProofContinuationError, ProofContinuationState, SerializationError,
-    SerializedOriginRequest, TlsnOriginCapture, TlsnOriginExchange, TlsnOriginResponse,
-    TlsnOriginTransport, TlsnTransportError, TlsnTransportFuture, UnverifiedTlsnTranscript,
+    ProofContinuation, ProofContinuationError, SerializationError, SerializedOriginRequest,
+    TlsnOriginCapture, TlsnOriginExchange, TlsnOriginResponse, TlsnOriginTransport,
+    TlsnTransportError, TlsnTransportFuture, UnverifiedTlsnTranscript,
 };
 use fusou_tlsn_verifier::{
     parse_require_info_request, prover_transport::ProverOwnedTlsTransport, ParserLimits,
@@ -73,6 +73,7 @@ pub struct SyntheticAlpha15WireEvidence {
     pub origin_response: Vec<u8>,
     pub authenticated_response: Vec<u8>,
     pub presentation: Option<Vec<u8>>,
+    pub sparse_presentation: Option<Vec<u8>>,
     pub root_certificate: Option<Vec<u8>>,
     pub notary_verifying_key: Option<Vec<u8>>,
     pub presentation_available: bool,
@@ -270,10 +271,16 @@ async fn run_synthetic_exchange(
             .map_err(|_| TlsnTransportError::OriginConnectionFailed)?;
         let mut transcript_commit = TranscriptCommitConfig::builder(prover.transcript());
         transcript_commit
-            .commit_sent(0..prover.transcript().sent().len())
+            .commit_sent(0..1)
             .map_err(|_| TlsnTransportError::OriginConnectionFailed)?;
         transcript_commit
-            .commit_recv(0..prover.transcript().received().len())
+            .commit_sent(1..prover.transcript().sent().len())
+            .map_err(|_| TlsnTransportError::OriginConnectionFailed)?;
+        transcript_commit
+            .commit_recv(0..1)
+            .map_err(|_| TlsnTransportError::OriginConnectionFailed)?;
+        transcript_commit
+            .commit_recv(1..prover.transcript().received().len())
             .map_err(|_| TlsnTransportError::OriginConnectionFailed)?;
         let transcript_commit = transcript_commit
             .build()
@@ -368,8 +375,8 @@ async fn run_synthetic_exchange(
             .transcript
             .as_ref()
             .ok_or(TlsnTransportError::ResponseReadFailed)?;
-        let sent = transcript.sent_unsafe().to_vec();
-        let received = transcript.received_unsafe().to_vec();
+        let sent = transcript.materialize_sent();
+        let received = transcript.materialize_received();
         let tls_transcript = verifier.tls_transcript().clone();
         verifier
             .close()
@@ -475,6 +482,26 @@ async fn run_synthetic_exchange(
             .map_err(|_| ProofContinuationError::Presentation)?;
         let presentation =
             bincode::serialize(&presentation).map_err(|_| ProofContinuationError::Presentation)?;
+        let mut sparse_transcript_proof = secrets.transcript_proof_builder();
+        sparse_transcript_proof
+            .reveal_sent(0..1)
+            .map_err(|_| ProofContinuationError::Presentation)?;
+        sparse_transcript_proof
+            .reveal_recv(0..1)
+            .map_err(|_| ProofContinuationError::Presentation)?;
+        let sparse_transcript_proof = sparse_transcript_proof
+            .build()
+            .map_err(|_| ProofContinuationError::Presentation)?;
+        let mut sparse_presentation_builder =
+            attestation.presentation_builder(&presentation_provider);
+        sparse_presentation_builder
+            .identity_proof(secrets.identity_proof())
+            .transcript_proof(sparse_transcript_proof);
+        let sparse_presentation = sparse_presentation_builder
+            .build()
+            .map_err(|_| ProofContinuationError::Presentation)?;
+        let sparse_presentation = bincode::serialize(&sparse_presentation)
+            .map_err(|_| ProofContinuationError::Presentation)?;
         if let Ok(mut stored_evidence) = last_evidence.lock() {
             *stored_evidence = Some(SyntheticAlpha15WireEvidence {
                 origin_request,
@@ -482,6 +509,7 @@ async fn run_synthetic_exchange(
                 origin_response: raw_response.clone(),
                 authenticated_response: raw_response,
                 presentation: Some(presentation),
+                sparse_presentation: Some(sparse_presentation),
                 root_certificate: Some((*root_certificate).clone()),
                 notary_verifying_key: Some(notary_verifying_key),
                 presentation_available: true,
@@ -671,6 +699,7 @@ fn parse_origin_response(raw_response: Vec<u8>) -> Result<TlsnOriginResponse, Tl
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::experimental_tlsn::ProofContinuationState;
     use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
     use fusou_tlsn_verifier::BINDING_PREFIX;
     use uuid::Uuid;
@@ -729,6 +758,42 @@ mod tests {
             .presentation
             .as_ref()
             .is_some_and(|bytes| !bytes.is_empty()));
+        let sparse_presentation = evidence
+            .sparse_presentation
+            .as_ref()
+            .expect("sparse Presentation");
+        let notary_verifying_key = evidence
+            .notary_verifying_key
+            .as_ref()
+            .expect("Notary verifying key");
+        let root_certificate = evidence
+            .root_certificate
+            .as_ref()
+            .expect("root certificate");
+        let sparse_transcript =
+            fusou_tlsn_verifier::tlsn_alpha15::verify_alpha15_presentation_with_trusted_notary_key_and_trust_anchor(
+                sparse_presentation,
+                root_certificate,
+                notary_verifying_key,
+            )
+            .unwrap();
+        assert_eq!(sparse_transcript.request_transcript_sha256(), None);
+        assert_eq!(sparse_transcript.response_transcript_sha256(), None);
+        let profile =
+            fusou_tlsn_verifier::tlsn_alpha15::RequireInfoDisclosureProfile::from_server_identity(
+                SYNTHETIC_SERVER_IDENTITY,
+            )
+            .unwrap();
+        assert_eq!(
+            sparse_transcript.verify_require_info(&profile, &ParserLimits::default()),
+            Err(
+                fusou_tlsn_verifier::tlsn_alpha15::Alpha15AdapterError::Parser(
+                    fusou_tlsn_verifier::VerifierError::InvalidRange(
+                        "authenticated read crosses an undisclosed range"
+                    )
+                )
+            )
+        );
         assert!(evidence
             .root_certificate
             .as_ref()

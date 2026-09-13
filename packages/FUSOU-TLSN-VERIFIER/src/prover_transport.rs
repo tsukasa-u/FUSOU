@@ -589,8 +589,11 @@ mod tests {
 
         let transcript = verifier_output.transcript.unwrap();
         assert!(transcript.is_complete());
-        assert_eq!(transcript.sent_unsafe(), expected_request.as_slice());
-        assert_eq!(transcript.received_unsafe(), origin_response.as_slice());
+        assert_eq!(transcript.materialize_sent(), expected_request.as_slice());
+        assert_eq!(
+            transcript.materialize_received(),
+            origin_response.as_slice()
+        );
 
         let mut provider = CryptoProvider::default();
         provider.cert = ServerCertVerifier::new(&root_store).unwrap();

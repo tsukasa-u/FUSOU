@@ -11,8 +11,10 @@ TLSN source inspected locally at:
 - commit: `47aee45b53e06648c1b2ad3689b367b8c923fdec`
 
 This report distinguishes cryptographic requirements from the alpha.15
-representation/API. It does not treat zero-filled bytes as authenticated and
-does not change the current FUSOU `require_info` profile to sparse disclosure.
+representation/API. The local alpha.15 fork now uses sparse authenticated
+storage and does not treat zero-filled bytes as authenticated. The current
+FUSOU `require_info` Result profile remains complete-disclosure because its
+raw full-transcript digest contract is unchanged.
 
 ## Upstream investigation
 
@@ -25,9 +27,7 @@ bincode::deserialize::<Presentation>
   -> serde deserializes TranscriptProof
   -> serde deserializes PartialTranscript
   -> CompressedPartialTranscript::into
-       -> vec![0; sent_total]
-       -> vec![0; recv_total]
-       -> copy disclosed bytes into those vectors
+       -> retain total lengths, RangeSets, and packed disclosed bytes
 Presentation::verify
   -> AttestationProof::verify
        -> BodyProof::verify_with_provider
@@ -37,8 +37,8 @@ Presentation::verify
        -> verify the certificate/server identity binding
   -> TranscriptProof::verify_with_provider
        -> check transcript lengths
-       -> for each PlaintextHashSecret:
-            read plaintext[idx]
+        -> for each PlaintextHashSecret:
+          read packed authenticated plaintext[idx]
             hash plaintext[idx] || blinder
             compare with a Notary transcript commitment
        -> compare the authenticated range sets
@@ -50,30 +50,27 @@ The relevant upstream source is:
 - `crates/attestation/src/presentation.rs:66-107`: `Presentation::verify`.
   This method invokes the attestation, identity, and transcript verifiers. It
   does not itself allocate the full transcript vector.
-- `crates/core/src/transcript.rs:133-155`: `Transcript::to_partial`. The
-  Prover-side proof builder calls this and allocates zero-filled vectors of the
-  complete transcript lengths before copying disclosed ranges.
+- `crates/core/src/transcript.rs`: `Transcript::to_partial`. The local fork
+  collects only disclosed bytes in range order and retains total lengths.
 - `crates/core/src/transcript.rs:166-250`: `PartialTranscript` and its
   compressed serialization form. Deserializing the compressed form expands it
   into full-length vectors.
-- `crates/core/src/transcript.rs:253-320`: `PartialTranscript::new`,
-  `sent_unsafe`, `received_unsafe`, and authenticated range accessors.
-- `crates/core/src/transcript/proof.rs:50-137`:
-  `TranscriptProof::verify_with_provider`. It uses the full slices for length
-  checks and indexes disclosed opening ranges, then verifies the hash openings
-  and authenticated range sets.
+- `crates/core/src/transcript.rs`: `PartialTranscript::new`, explicit
+  `materialize_*` compatibility methods, and `copy_authenticated_to`.
+- `crates/core/src/transcript/proof.rs`: the local
+  `TranscriptProof::verify_with_provider` reads each opening through the sparse
+  authenticated reader, then verifies the hash openings and authenticated
+  range sets.
 - `crates/core/src/transcript/proof.rs:230-366`:
   `TranscriptProofBuilder::build`. It calls `Transcript::to_partial` and then
   serializes the disclosed bytes and range metadata.
 - `crates/attestation/src/proof.rs:51-76` and `:101-128`: Notary attestation
   signature and body Merkle verification.
-- `crates/tlsn/src/verifier/verify.rs:41-157`: live TLS verifier handling of
-  the received `PartialTranscript`. It passes the full slices into plaintext
-  authentication, although the partial path allocates and assigns only the
-  `commit` union `reveal` ranges to the ZK VM.
-- `crates/tlsn/src/transcript_internal/auth.rs:85-177`: the live plaintext
-  verifier reads `plaintext[range]` for disclosed ranges and uses blind VM
-  slices for undisclosed committed ranges.
+- `crates/tlsn/src/verifier/verify.rs`: live TLS verifier handling of the
+  received `PartialTranscript`.
+- `crates/tlsn/src/transcript_internal/auth.rs`: the live plaintext verifier
+  copies only authenticated ranges for both partial and complete disclosure;
+  undisclosed committed ranges remain blind VM slices.
 
 ### Why the full-length vectors exist
 
@@ -84,26 +81,23 @@ API promises contiguous `sent_unsafe()` and `received_unsafe()` slices and
 implements `len_sent`, `len_received`, `contains`, `iter`, and range indexing
 against those vectors.
 
-Therefore:
+Therefore, in the local fork:
 
 - The transcript lengths are cryptographically relevant metadata and must be
   retained.
 - The disclosed bytes, ranges, hash algorithm, blinder/opening, and matching
   Notary commitment are cryptographically relevant for a disclosed range.
 - Materializing zero-filled bytes for every undisclosed offset is not required
-  by the hash-opening check.
-- The current `TranscriptProof::verify_with_provider` uses a contiguous slice
-  because that is the existing `PartialTranscript` API, not because it hashes
-  undisclosed zero-filled bytes.
-- `Presentation::verify` returns the already expanded `PartialTranscript`; the
-  allocation is therefore an upstream representation/API consequence around
-  verification, not an independent cryptographic operation inside
-  `Presentation::verify`.
+  by the hash-opening check and is no longer done by the local fork.
+- `TranscriptProof::verify_with_provider` uses
+  `copy_authenticated_to`; a requested opening that crosses a gap fails.
+- The live verifier uses the same reader for disclosed ranges and blind VM
+  slices for omitted committed ranges.
 
-Classification: **C + D**, with a smaller **B-shaped** API requirement. The
-cryptographic verifier needs total lengths and disclosed range material, but
-not a materialized byte for every undisclosed offset. alpha.15's public type
-and compatibility accessors force the materialization.
+Classification: **local sparse fork implemented**. The cryptographic verifier
+needs total lengths and disclosed range material, but not a materialized byte
+for every undisclosed offset. Explicit `materialize_*` methods remain only for
+compatibility callers outside cryptographic verification.
 
 ### Authentication relation
 
@@ -135,10 +129,11 @@ current FUSOU full transcript SHA-256 cannot be recomputed from sparse ranges.
 
 ### Existing API reusable
 
-**NO** for a memory-bounded verifier boundary. The existing API exposes
-`sent_unsafe()` and `received_unsafe()` as full contiguous slices. The existing
+**NO** for a memory-bounded verifier boundary in upstream alpha.15. Its API
+exposes `sent_unsafe()` and `received_unsafe()` as full contiguous slices. Its
 `sent_authed()` and `received_authed()` expose range metadata, but not a
-range-only authenticated byte source.
+range-only authenticated byte source. The local fork replaces that internal
+representation with packed authenticated bytes and explicit total lengths.
 
 **YES** for the cryptographic opening semantics. The existing proof already
 contains the range, algorithm, blinder, disclosed bytes, and commitment match
@@ -194,14 +189,16 @@ it changes only how authenticated bytes are stored and read.
 
 The FUSOU `AuthenticatedByteSource` is a fail-closed semantic boundary. It
 validates range ordering, bounds, range count, disclosed-byte limits, and
-rejects reads crossing an undisclosed gap. It currently wraps alpha.15's
-already materialized bytes, so it is **not** an actual range-only
-`Presentation::verify` result. `from_verified_alpha15_partial` rejects
-incomplete alpha.15 disclosure. This is intentional: the current profile is
-not allowed to silently accept a zero-filled sparse transcript.
+rejects reads crossing an undisclosed gap. It now has a real sparse
+`PartialTranscript` backend. `Presentation::verify` output is retained as
+packed authenticated bytes, and the strict FUSOU parser is called through the
+same reader. Tests cover a complete sparse fixture path and a gap crossing
+that is rejected by the parser.
 
-A cryptographically connected sparse prototype therefore requires the
-upstream patch above. No fake local adapter was added.
+The current Result profile still requires complete parser input and a raw
+full-transcript SHA-256. Incomplete sparse output is inspectable for range
+metadata but cannot be converted to that Result; no digest is fabricated from
+omitted bytes.
 
 ## Omitted-byte tamper experiment
 
@@ -210,29 +207,28 @@ mutation:
 
 1. The serialized partial transcript contains disclosed bytes, range metadata,
    and total lengths, not bytes for omitted offsets.
-2. `CompressedPartialTranscript::into` creates zero-filled compatibility
-   storage for omitted offsets only after deserialization.
-3. `TranscriptProof::verify_with_provider` hashes bytes at each opening index;
-   it does not hash the zero-filled gaps.
+2. `CompressedPartialTranscript::into` retains packed disclosed bytes and
+  total lengths; it does not create omitted-byte storage.
+3. `TranscriptProof::verify_with_provider` hashes bytes at each requested
+  opening index through the authenticated range reader.
 4. Changing a disclosed byte or opening metadata causes the hash opening or
    range-set check to fail.
-5. Changing a byte in the compatibility zero-filled gap is not a change to the
-   serialized Presentation and is not observed by the proof verifier.
+5. There is no mutable compatibility byte in an omitted gap for a verifier to
+  accidentally inspect or modify.
 
 Thus the result is not `PASS` for the requested omitted-byte mutation test.
-It is **NOT TESTED / not representable through the current wire model**, and
-zero-filled omitted bytes must not be called authenticated. The proposed
-upstream range-only API would preserve this property by having no mutable
-omitted-byte storage at all. It would authenticate disclosed ranges against
-Notary commitments; it would not claim semantic authentication of values that
-were intentionally not disclosed.
+It is **NOT TESTED / not representable through the current wire model** as a
+mutation of an omitted plaintext byte. The sparse implementation preserves the
+correct security property by having no omitted-byte storage at all. It
+authenticates disclosed ranges against Notary commitments; it does not claim
+semantic authentication of values that were intentionally not disclosed.
 
 ## Semantic parser
 
-- Sparse request parser: **FAIL / not implemented**.
-- Sparse response parser: **FAIL / not implemented**.
-- Full transcript materialization in the current `require_info` profile:
-  **YES**.
+- Sparse request/response source boundary: **PASS / connected and fail-closed**.
+- Gap-crossing strict parse: **PASS / tested**.
+- Partial sparse `require_info` Result: **REJECTED by contract** because the
+  current Result carries a raw full transcript SHA-256.
 
 The current profile intentionally requires complete request and response
 disclosure because it validates HTTP framing, duplicate headers, compression,
@@ -242,29 +238,30 @@ which omitted bytes are allowed and would not be able to preserve the current
 full raw transcript digest without an additional cryptographic commitment
 primitive.
 
-The current FUSOU range boundary remains fail-closed and preserves the
-existing strict parser checks. It is not connected to a sparse Presentation
-until the upstream API exposes authenticated range bytes without full-vector
-materialization.
+The parser currently requests the complete HTTP message bytes. This preserves
+the existing framing, duplicate-header, compression, JSON, and raw-digest
+guarantees. A gap therefore produces an authenticated-read error before any
+hidden bytes can affect semantic parsing. A future selective profile would
+need an explicit syntax-range contract and a separate authenticated digest
+model.
 
 ## Memory
 
-The scaling probe allocates `PartialTranscript::new(size, size)` and touches
-both directions in one process. `VmHWM` is included as the process peak
-resident metric. Values are KiB; each requested size is per direction.
+The scaling probe creates `PartialTranscript::new(size, size)`, discloses two
+bytes per direction, reads those authenticated ranges, and reports
+`VmSize`, `VmData`, `VmRSS`, and `VmHWM`. Values are KiB; each requested size
+is per direction.
 
 | Each direction | VmSize before -> after | VmData before -> after | VmRSS before -> after | VmHWM before -> after |
 | --- | ---: | ---: | ---: | ---: |
-| 1 MiB | 3332 -> 5388 (+2056) | 236 -> 2292 (+2056) | 2112 -> 2120 (+8) | 2112 -> 2120 (+8) |
-| 4 MiB | 3332 -> 11532 (+8200) | 236 -> 8436 (+8200) | 2112 -> 2120 (+8) | 2112 -> 2120 (+8) |
-| 8 MiB | 3332 -> 19724 (+16392) | 236 -> 16628 (+16392) | 2112 -> 2120 (+8) | 2112 -> 2120 (+8) |
-| 16 MiB | 3332 -> 36108 (+32776) | 236 -> 33012 (+32776) | 2112 -> 2120 (+8) | 2112 -> 2120 (+8) |
-| 32 MiB | 3332 -> 68876 (+65544) | 236 -> 65780 (+65544) | 2116 -> 2124 (+8) | 2116 -> 2124 (+8) |
+| 1 MiB | 3404 -> 3404 (+0) | 236 -> 236 (+0) | 2224 -> 2224 (+0) | 2224 -> 2224 (+0) |
+| 4 MiB | 3404 -> 3404 (+0) | 236 -> 236 (+0) | 2276 -> 2276 (+0) | 2276 -> 2276 (+0) |
+| 8 MiB | 3404 -> 3404 (+0) | 236 -> 236 (+0) | 2276 -> 2276 (+0) | 2276 -> 2276 (+0) |
+| 16 MiB | 3404 -> 3404 (+0) | 236 -> 236 (+0) | 2220 -> 2220 (+0) | 2220 -> 2220 (+0) |
+| 32 MiB | 3404 -> 3404 (+0) | 236 -> 236 (+0) | 2280 -> 2280 (+0) | 2280 -> 2280 (+0) |
 
-The VmData/VmSize delta is approximately twice the requested size because the
-probe creates one full vector per direction. Linux zero pages make RSS/HWM a
-poor indicator until those pages are written, so the virtual/data metrics are
-the relevant evidence for this allocation path.
+Each run retained only two disclosed bytes per direction. The zero deltas show
+that total transcript length is metadata and does not allocate a full vector.
 
 The actual Presentation probe also ran the FUSOU alpha.15 adapter through
 `Presentation::verify` using the checked-in fixture:
@@ -281,52 +278,57 @@ VmHWM delta=1592 KiB
 ```
 
 This fixture is intentionally tiny and does not establish a 1/4/8/16/32 MiB
-full-Presentation scaling curve. The scaling probe isolates the upstream
-full-vector allocation, while the fixture probe confirms the actual
-Presentation verification path and its process-lifetime peak metric.
+full-Presentation scaling curve. The scaling probe measures sparse storage;
+the fixture probe confirms the actual Presentation verification path and its
+process-lifetime peak metric.
 
 ## Before / after benchmark status
 
-### Current alpha.15
+### Local alpha.15 sparse fork
 
 ```text
-Presentation -> PartialTranscript full vectors -> disclosed-range hash checks
+Presentation -> sparse PartialTranscript -> authenticated range reader
+             -> disclosed-range hash checks
 ```
 
-- Memory: linear in total sent plus received transcript length at the
-  `PartialTranscript` representation boundary.
-- CPU: hash-opening work is proportional to disclosed/opened bytes; vector
-  zero-initialization/copy adds representation overhead.
-- Disclosed bytes: current FUSOU profile reveals 100% of both directions.
-- Transcript size: retained in full vectors and metadata.
-
-### Proposed range-only verifier
-
-```text
-Presentation -> sparse authenticated ranges -> range-based semantic parser
-```
-
-- Memory: proportional to disclosed bytes, range metadata, and parser working
-  state, if the upstream storage and verifier changes above are implemented.
-- CPU: hash-opening work remains proportional to disclosed/opened bytes; range
+- Memory: proportional to disclosed bytes and range metadata; total lengths do
+  not allocate transcript-sized vectors.
+- CPU: hash-opening work is proportional to disclosed/opened bytes; range
   lookup adds bounded metadata work.
-- Disclosed bytes: profile-defined ranges only.
+- Disclosed bytes: current FUSOU profile reveals 100% of both directions.
+- Transcript size: retained as metadata plus packed authenticated bytes.
+
+### FUSOU semantic boundary
+
+```text
+Presentation -> sparse authenticated ranges -> gap-rejecting reader
+             -> strict HTTP/JSON parser
+```
+
+- Memory: proportional to authenticated bytes read by the strict parser and
+  parser working state; sparse storage remains disclosure-sized.
+- Disclosed bytes: profile-defined ranges, with the current Result profile
+  requiring complete parser input.
 - Full transcript digest: must be supplied through a separately designed
   authenticated commitment or removed from the sparse profile contract.
 
-No before/after performance claim is made because the upstream range-only
-verifier is not implemented in this repository.
+The range-only verifier is implemented in the local alpha.15 fork. The proxy
+synthetic test also generates and verifies a serialized sparse Presentation,
+then confirms that the current strict parser rejects a gap-crossing read. No
+claim is made that the current FUSOU Result profile accepts an incomplete
+disclosure.
 
 ## Final classification
 
-**Case B: upstream API change required.**
+**Case B: local fork required; sparse implementation complete for the
+cryptographic and reader boundary.**
 
 The alpha.15 cryptographic model can verify disclosed ranges without reading a
-materialized byte for every omitted offset, but the current public and
-serialized `PartialTranscript` API expands sparse data into full-length
-vectors. A safe implementation needs the upstream storage/accessor and
-verifier changes described above. FUSOU must remain complete-disclosure until
-that API and a compatible semantic profile exist.
+materialized byte for every omitted offset. The local fork implements the
+storage/accessor and verifier changes while preserving hash-opening, Notary,
+server-identity, and blind-ZK semantics. FUSOU remains complete-disclosure for
+the existing Result schema until a sparse profile defines authenticated digest
+semantics.
 
 ## Security regressions
 
@@ -340,16 +342,12 @@ that API and a compatible semantic profile exist.
 
 ## Remaining work
 
-1. Propose and review the alpha.15 upstream `PartialTranscript` sparse storage
-   and range-reader patch.
-2. Adapt `TranscriptProof::verify_with_provider` and the live verifier plaintext
-   path to the range reader.
-3. Define whether the sparse profile retains a full raw transcript SHA-256;
+1. Upstream the local alpha.15 sparse `PartialTranscript` and range-reader
+  changes if compatibility with the public TLSN repository is required.
+2. Define whether a future sparse FUSOU profile retains a full raw transcript SHA-256;
    if so, add a separate authenticated full-transcript commitment/opening
    protocol.
-4. Implement a sparse strict HTTP/JSON parser only after the authenticated
-   range API and profile contract are complete.
-5. Add a real range-only Presentation fixture and test disclosed-byte tamper
+3. Add a serialized sparse Presentation fixture and test disclosed-byte tamper
    failure plus range metadata/opening tamper failure.
-6. Measure full Presentation verification at 1/4/8/16/32 MiB using generated
-   authenticated fixtures after the upstream patch.
+4. Measure full Presentation verification at 1/4/8/16/32 MiB using generated
+  authenticated fixtures; the current probe measures sparse storage only.

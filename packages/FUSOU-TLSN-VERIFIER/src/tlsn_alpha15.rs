@@ -1,7 +1,8 @@
 use crate::{
-    parse_require_info_request, parse_require_info_response, sha256, validate_server_identity,
-    verify_transcript_digest, AuthenticatedByteSource, ParsedBinding, ParserLimits, RevealedRange,
-    VerifierError, MAX_ATTESTATION_ID_BYTES, PROFILE_ID, REQUIRE_INFO_TARGET,
+    parse_require_info_request_source, parse_require_info_response_source, sha256,
+    validate_server_identity, verify_transcript_digest, AuthenticatedByteSource, ParsedBinding,
+    ParserLimits, RevealedRange, VerifierError, MAX_ATTESTATION_ID_BYTES, PROFILE_ID,
+    REQUIRE_INFO_TARGET,
 };
 use std::{io::Cursor, ops::Range};
 use thiserror::Error;
@@ -86,8 +87,13 @@ impl RequireInfoDisclosureProfile {
 
 #[derive(Debug, Clone)]
 enum AuthenticatedTranscriptStorage {
-    Owned { sent: Vec<u8>, received: Vec<u8> },
-    Alpha15(tlsn_core::transcript::PartialTranscript),
+    Owned {
+        sent: Vec<u8>,
+        received: Vec<u8>,
+    },
+    Sparse {
+        transcript: tlsn_core::transcript::PartialTranscript,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -96,9 +102,9 @@ pub struct AuthenticatedTranscript {
     attestation_id: [u8; MAX_ATTESTATION_ID_BYTES],
     notary_key_sha256: [u8; 32],
     transcript: AuthenticatedTranscriptStorage,
-    sent_digest: [u8; 32],
+    sent_digest: Option<[u8; 32]>,
     sent_ranges: Vec<Range<usize>>,
-    received_digest: [u8; 32],
+    received_digest: Option<[u8; 32]>,
     received_ranges: Vec<Range<usize>>,
 }
 
@@ -108,8 +114,8 @@ pub struct AuthenticatedRequireInfo {
     pub binding: ParsedBinding,
     pub server_identity: String,
     pub attestation_id: [u8; MAX_ATTESTATION_ID_BYTES],
-    pub request_transcript_sha256: [u8; 32],
-    pub response_transcript_sha256: [u8; 32],
+    pub request_transcript_sha256: Option<[u8; 32]>,
+    pub response_transcript_sha256: Option<[u8; 32]>,
     pub request_transcript_size: u64,
     pub response_transcript_size: u64,
     pub revealed_request_ranges: Vec<RevealedRange>,
@@ -127,6 +133,16 @@ impl AuthenticatedRequireInfo {
         device_challenge: [u8; 32],
         signature: [u8; 64],
     ) -> Result<crate::VerifierResult> {
+        let request_transcript_sha256 = self.request_transcript_sha256.ok_or(
+            Alpha15AdapterError::DisclosureProfileViolation(
+                "full request transcript digest is unavailable for sparse disclosure",
+            ),
+        )?;
+        let response_transcript_sha256 = self.response_transcript_sha256.ok_or(
+            Alpha15AdapterError::DisclosureProfileViolation(
+                "full response transcript digest is unavailable for sparse disclosure",
+            ),
+        )?;
         let result = crate::VerifierResult {
             version: 1,
             profile_id: PROFILE_ID.to_owned(),
@@ -145,9 +161,9 @@ impl AuthenticatedRequireInfo {
             tlsn_attestation_id: self.attestation_id.to_vec(),
             server_identity: self.server_identity,
             request_transcript_size: self.request_transcript_size,
-            request_transcript_sha256: self.request_transcript_sha256,
+            request_transcript_sha256,
             response_transcript_size: self.response_transcript_size,
-            response_transcript_sha256: self.response_transcript_sha256,
+            response_transcript_sha256,
             revealed_request_ranges: self.revealed_request_ranges,
             revealed_response_ranges: self.revealed_response_ranges,
             signature,
@@ -234,9 +250,9 @@ impl AuthenticatedTranscript {
                 sent: sent_transcript,
                 received: received_transcript,
             },
-            sent_digest,
+            sent_digest: Some(sent_digest),
             sent_ranges,
-            received_digest,
+            received_digest: Some(received_digest),
             received_ranges,
         })
     }
@@ -253,34 +269,23 @@ impl AuthenticatedTranscript {
             ));
         }
         validate_server_identity(&server_identity)?;
-        if !transcript.is_complete() {
-            return Err(Alpha15AdapterError::DisclosureProfileViolation(
-                "alpha.15 transcript disclosure is incomplete",
-            ));
-        }
-        let sent_ranges =
-            map_authenticated_ranges(transcript.sent_authed().iter(), transcript.sent_unsafe())?;
-        let received_ranges = map_authenticated_ranges(
-            transcript.received_authed().iter(),
-            transcript.received_unsafe(),
+        let sent_source = AuthenticatedByteSource::from_partial(
+            &transcript,
+            tlsn_core::transcript::Direction::Sent,
         )?;
-        let sent_digest = sha256(transcript.sent_unsafe());
-        let received_digest = sha256(transcript.received_unsafe());
-        validate_authenticated_direction_metadata(
-            transcript.sent_unsafe(),
-            sent_digest,
-            &sent_ranges,
+        let received_source = AuthenticatedByteSource::from_partial(
+            &transcript,
+            tlsn_core::transcript::Direction::Received,
         )?;
-        validate_authenticated_direction_metadata(
-            transcript.received_unsafe(),
-            received_digest,
-            &received_ranges,
-        )?;
+        let sent_ranges = sent_source.ranges();
+        let received_ranges = received_source.ranges();
+        let sent_digest = complete_transcript_digest(&sent_source)?;
+        let received_digest = complete_transcript_digest(&received_source)?;
         Ok(Self {
             server_identity,
             attestation_id,
             notary_key_sha256,
-            transcript: AuthenticatedTranscriptStorage::Alpha15(transcript),
+            transcript: AuthenticatedTranscriptStorage::Sparse { transcript },
             sent_digest,
             sent_ranges,
             received_digest,
@@ -288,34 +293,42 @@ impl AuthenticatedTranscript {
         })
     }
 
-    fn transcript_bytes(&self, sent: bool) -> &[u8] {
+    fn source(&self, sent: bool) -> Result<AuthenticatedByteSource<'_>> {
         match (&self.transcript, sent) {
-            (AuthenticatedTranscriptStorage::Owned { sent, .. }, true) => sent,
-            (AuthenticatedTranscriptStorage::Owned { received, .. }, false) => received,
-            (AuthenticatedTranscriptStorage::Alpha15(transcript), true) => transcript.sent_unsafe(),
-            (AuthenticatedTranscriptStorage::Alpha15(transcript), false) => {
-                transcript.received_unsafe()
+            (AuthenticatedTranscriptStorage::Owned { sent, .. }, true) => {
+                Ok(AuthenticatedByteSource::new(sent, &self.sent_ranges)?)
+            }
+            (AuthenticatedTranscriptStorage::Owned { received, .. }, false) => Ok(
+                AuthenticatedByteSource::new(received, &self.received_ranges)?,
+            ),
+            (AuthenticatedTranscriptStorage::Sparse { transcript }, true) => {
+                Ok(AuthenticatedByteSource::from_partial(
+                    transcript,
+                    tlsn_core::transcript::Direction::Sent,
+                )?)
+            }
+            (AuthenticatedTranscriptStorage::Sparse { transcript }, false) => {
+                Ok(AuthenticatedByteSource::from_partial(
+                    transcript,
+                    tlsn_core::transcript::Direction::Received,
+                )?)
             }
         }
     }
 
     fn revealed_ranges(&self, sent: bool) -> Vec<RevealedRange> {
-        let ranges = if sent {
-            &self.sent_ranges
-        } else {
-            &self.received_ranges
-        };
-        let source = AuthenticatedByteSource::new(self.transcript_bytes(sent), ranges)
+        let source = self
+            .source(sent)
             .expect("authenticated transcript range metadata was validated at construction");
-        ranges
+        source
+            .ranges()
             .iter()
             .map(|range| RevealedRange {
                 start: range.start as u64,
                 length: range.len() as u64,
                 bytes: source
                     .read(range.clone())
-                    .expect("authenticated range metadata was validated at construction")
-                    .to_vec(),
+                    .expect("authenticated range metadata was validated at construction"),
             })
             .collect()
     }
@@ -332,20 +345,24 @@ impl AuthenticatedTranscript {
         &self.notary_key_sha256
     }
 
-    pub fn request_transcript_sha256(&self) -> &[u8; 32] {
-        &self.sent_digest
+    pub fn request_transcript_sha256(&self) -> Option<&[u8; 32]> {
+        self.sent_digest.as_ref()
     }
 
     pub fn request_transcript_size(&self) -> usize {
-        self.transcript_bytes(true).len()
+        self.source(true)
+            .expect("authenticated transcript range metadata was validated at construction")
+            .len()
     }
 
-    pub fn response_transcript_sha256(&self) -> &[u8; 32] {
-        &self.received_digest
+    pub fn response_transcript_sha256(&self) -> Option<&[u8; 32]> {
+        self.received_digest.as_ref()
     }
 
     pub fn response_transcript_size(&self) -> usize {
-        self.transcript_bytes(false).len()
+        self.source(false)
+            .expect("authenticated transcript range metadata was validated at construction")
+            .len()
     }
 
     pub fn revealed_request_ranges(&self) -> Vec<RevealedRange> {
@@ -364,10 +381,12 @@ impl AuthenticatedTranscript {
         if self.server_identity != profile.server_identity {
             return Err(Alpha15AdapterError::ServerIdentityNotAllowlisted);
         }
+        let request_source = self.source(true)?;
         let request =
-            parse_require_info_request(self.transcript_bytes(true), &self.server_identity, limits)
+            parse_require_info_request_source(&request_source, &self.server_identity, limits)
                 .map_err(Alpha15AdapterError::Parser)?;
-        let response = parse_require_info_response(self.transcript_bytes(false), limits)
+        let response_source = self.source(false)?;
+        let response = parse_require_info_response_source(&response_source, limits)
             .map_err(Alpha15AdapterError::Parser)?;
         Ok(AuthenticatedRequireInfo {
             verified_member_id: response.verified_member_id,
@@ -376,12 +395,20 @@ impl AuthenticatedTranscript {
             attestation_id: self.attestation_id,
             request_transcript_sha256: self.sent_digest,
             response_transcript_sha256: self.received_digest,
-            request_transcript_size: self.transcript_bytes(true).len() as u64,
-            response_transcript_size: self.transcript_bytes(false).len() as u64,
+            request_transcript_size: request_source.len() as u64,
+            response_transcript_size: response_source.len() as u64,
             revealed_request_ranges: self.revealed_ranges(true),
             revealed_response_ranges: self.revealed_ranges(false),
         })
     }
+}
+
+fn complete_transcript_digest(source: &AuthenticatedByteSource<'_>) -> Result<Option<[u8; 32]>> {
+    if !source.is_complete() {
+        return Ok(None);
+    }
+    let bytes = source.read(0..source.len())?;
+    Ok(Some(sha256(&bytes)))
 }
 
 #[allow(dead_code)]
@@ -562,26 +589,14 @@ pub(crate) fn verify_alpha15_presentation_with_provider_and_notary_key(
     )
 }
 
-fn map_authenticated_ranges(
-    ranges: impl Iterator<Item = Range<usize>>,
-    transcript: &[u8],
-) -> Result<Vec<Range<usize>>> {
-    ranges
-        .map(|range| {
-            transcript.get(range.clone()).ok_or(
-                Alpha15AdapterError::DisclosureProfileViolation(
-                    "alpha.15 disclosed range is outside the transcript",
-                ),
-            )?;
-            Ok(range)
-        })
-        .collect()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
+    use tlsn_core::{
+        rangeset::set::RangeSet,
+        transcript::{Direction, Transcript},
+    };
     use uuid::Uuid;
 
     fn mock_binding() -> String {
@@ -647,19 +662,19 @@ mod tests {
         assert_eq!(transcript.server_identity(), "tlsnotary.org");
         assert_eq!(
             transcript.request_transcript_sha256(),
-            &[
+            Some(&[
                 0xc3, 0x63, 0xbe, 0x30, 0x7b, 0x84, 0xf4, 0x38, 0x9c, 0xf1, 0x23, 0xe9, 0x7d, 0x68,
                 0xf0, 0x66, 0x60, 0x0c, 0x09, 0x64, 0xd3, 0xae, 0x4d, 0x1d, 0x9b, 0x2b, 0x67, 0xe2,
                 0xe6, 0x92, 0x38, 0xf8
-            ]
+            ])
         );
         assert_eq!(
             transcript.response_transcript_sha256(),
-            &[
+            Some(&[
                 0xb4, 0xbb, 0x12, 0x6c, 0x97, 0x9e, 0xee, 0xb4, 0xd6, 0x83, 0x2d, 0x3b, 0xb9, 0x78,
                 0x49, 0xb9, 0xe9, 0x98, 0x47, 0x49, 0x08, 0xe6, 0x50, 0x0b, 0x2a, 0x2c, 0xcb, 0xef,
                 0xf2, 0x5b, 0x26, 0x2f
-            ]
+            ])
         );
         assert_eq!(
             transcript.revealed_request_ranges(),
@@ -767,19 +782,105 @@ mod tests {
     }
 
     #[test]
-    fn rejects_alpha15_zero_filled_partial_transcript() {
+    fn sparse_alpha15_transcript_is_retained_without_zero_fill() {
         let transcript = tlsn_core::transcript::PartialTranscript::new(128, 256);
-        assert!(matches!(
-            AuthenticatedTranscript::from_verified_alpha15_partial(
-                "game.example.test".to_owned(),
-                [0x11_u8; MAX_ATTESTATION_ID_BYTES],
-                [0x12_u8; 32],
-                transcript,
-            ),
-            Err(Alpha15AdapterError::DisclosureProfileViolation(
-                "alpha.15 transcript disclosure is incomplete"
-            ))
-        ));
+        let authenticated = AuthenticatedTranscript::from_verified_alpha15_partial(
+            "game.example.test".to_owned(),
+            [0x11_u8; MAX_ATTESTATION_ID_BYTES],
+            [0x12_u8; 32],
+            transcript,
+        )
+        .unwrap();
+        assert_eq!(authenticated.request_transcript_size(), 128);
+        assert_eq!(authenticated.response_transcript_size(), 256);
+        assert_eq!(authenticated.request_transcript_sha256(), None);
+        assert_eq!(authenticated.response_transcript_sha256(), None);
+    }
+
+    #[test]
+    fn sparse_alpha15_reader_reaches_strict_parser_and_rejects_gaps() {
+        let output = mock_output();
+        let request_len = output.sent_transcript.len();
+        let response_len = output.received_transcript.len();
+        let transcript = Transcript::new(output.sent_transcript, output.received_transcript)
+            .to_partial(
+                RangeSet::from(0..request_len - 1),
+                RangeSet::from(0..response_len),
+            );
+        let authenticated = AuthenticatedTranscript::from_verified_alpha15_partial(
+            "game.example.test".to_owned(),
+            [0x11_u8; MAX_ATTESTATION_ID_BYTES],
+            [0x12_u8; 32],
+            transcript,
+        )
+        .unwrap();
+        let profile =
+            RequireInfoDisclosureProfile::for_mock_tlsn_verification("game.example.test").unwrap();
+        assert_eq!(
+            authenticated.verify_require_info(&profile, &ParserLimits::default()),
+            Err(Alpha15AdapterError::Parser(VerifierError::InvalidRange(
+                "authenticated read crosses an undisclosed range"
+            )))
+        );
+    }
+
+    #[test]
+    fn complete_sparse_alpha15_reader_reaches_strict_parser() {
+        let output = mock_output();
+        let request_len = output.sent_transcript.len();
+        let response_len = output.received_transcript.len();
+        let transcript = Transcript::new(output.sent_transcript, output.received_transcript)
+            .to_partial(
+                RangeSet::from(0..request_len),
+                RangeSet::from(0..response_len),
+            );
+        let authenticated = AuthenticatedTranscript::from_verified_alpha15_partial(
+            "game.example.test".to_owned(),
+            [0x11_u8; MAX_ATTESTATION_ID_BYTES],
+            [0x12_u8; 32],
+            transcript,
+        )
+        .unwrap();
+        let profile =
+            RequireInfoDisclosureProfile::for_mock_tlsn_verification("game.example.test").unwrap();
+        let result = authenticated
+            .verify_require_info(&profile, &ParserLimits::default())
+            .unwrap();
+        assert_eq!(result.verified_member_id, "16189463");
+        assert!(result.request_transcript_sha256.is_some());
+        assert!(result.response_transcript_sha256.is_some());
+    }
+
+    #[test]
+    fn sparse_alpha15_reader_accepts_only_authenticated_ranges() {
+        let transcript = Transcript::new(vec![0x11; 512], vec![0x22; 512]);
+        let partial = transcript.to_partial(
+            RangeSet::from([100..150, 200..250]),
+            RangeSet::from([100..150, 200..250]),
+        );
+
+        let mut bytes = Vec::new();
+        partial
+            .copy_authenticated_to(Direction::Sent, &RangeSet::from(100..150), &mut bytes)
+            .unwrap();
+        assert_eq!(bytes, vec![0x11; 50]);
+
+        let mut bytes = Vec::new();
+        partial
+            .copy_authenticated_to(Direction::Sent, &RangeSet::from(150..200), &mut bytes)
+            .unwrap_err();
+        partial
+            .copy_authenticated_to(Direction::Sent, &RangeSet::from(200..250), &mut bytes)
+            .unwrap();
+        assert_eq!(bytes, vec![0x11; 50]);
+
+        for range in [50..150, 150..250, 100..201, usize::MAX - 1..usize::MAX] {
+            let mut bytes = Vec::new();
+            assert!(partial
+                .copy_authenticated_to(Direction::Sent, &RangeSet::from(range), &mut bytes)
+                .is_err());
+            assert!(bytes.is_empty());
+        }
     }
 
     #[test]
@@ -843,13 +944,17 @@ mod tests {
     #[test]
     fn keeps_request_and_response_in_one_authenticated_object() {
         let transcript = AuthenticatedTranscript::from_verified_alpha15(mock_output()).unwrap();
+        let request_source = transcript.source(true).unwrap();
+        let response_source = transcript.source(false).unwrap();
+        let request_digest = sha256(&request_source.read(0..request_source.len()).unwrap());
+        let response_digest = sha256(&response_source.read(0..response_source.len()).unwrap());
         assert_eq!(
             transcript.request_transcript_sha256(),
-            &sha256(transcript.transcript_bytes(true))
+            Some(&request_digest)
         );
         assert_eq!(
             transcript.response_transcript_sha256(),
-            &sha256(transcript.transcript_bytes(false))
+            Some(&response_digest)
         );
     }
 

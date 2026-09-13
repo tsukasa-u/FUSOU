@@ -1017,9 +1017,10 @@ impl crate::production_tlsn::TlsnVerificationBackend for RealAlpha15DedicatedVer
             )
             .map_err(|_| crate::experimental_tlsn::VerificationError::PresentationInvalid)?;
             if transcript.server_identity() != server_identity
-                || transcript.request_transcript_sha256() != context.authenticated_request_sha256()
+                || transcript.request_transcript_sha256()
+                    != Some(context.authenticated_request_sha256())
                 || transcript.response_transcript_sha256()
-                    != context.authenticated_response_sha256()
+                    != Some(context.authenticated_response_sha256())
             {
                 return Err(crate::experimental_tlsn::VerificationError::InvalidTranscript);
             }

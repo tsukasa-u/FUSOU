@@ -37,3 +37,8 @@ tokio-util = { version = "0.7", features = ["compat"] }
 
 [lints.rust]
 unsafe_code = "forbid"
+
+[patch."https://github.com/tlsnotary/tlsn.git"]
+tlsn = { path = "../tlsn-alpha15-sparse/crates/tlsn" }
+tlsn-attestation = { path = "../tlsn-alpha15-sparse/crates/attestation" }
+tlsn-core = { path = "../tlsn-alpha15-sparse/crates/core" }

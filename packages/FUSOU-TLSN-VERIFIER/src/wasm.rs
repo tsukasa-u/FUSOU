@@ -43,22 +43,18 @@ fn verified_presentation_json(transcript: &AuthenticatedTranscript) -> Result<St
         "server_identity": transcript.server_identity(),
         "tlsn_attestation_id": URL_SAFE_NO_PAD.encode(transcript.attestation_id()),
         "notary_key_sha256": URL_SAFE_NO_PAD.encode(transcript.notary_key_sha256()),
-        "request_transcript_size": request_ranges
-            .iter()
-            .map(|range| range.length)
-            .sum::<u64>()
-            .to_string(),
-        "request_transcript_sha256": URL_SAFE_NO_PAD.encode(transcript.request_transcript_sha256()),
+        "request_transcript_size": transcript.request_transcript_size().to_string(),
+        "request_transcript_sha256": transcript
+            .request_transcript_sha256()
+            .map(|digest| URL_SAFE_NO_PAD.encode(digest)),
         "revealed_request_ranges": request_ranges
             .iter()
             .map(range_json)
             .collect::<Vec<_>>(),
-        "response_transcript_size": response_ranges
-            .iter()
-            .map(|range| range.length)
-            .sum::<u64>()
-            .to_string(),
-        "response_transcript_sha256": URL_SAFE_NO_PAD.encode(transcript.response_transcript_sha256()),
+        "response_transcript_size": transcript.response_transcript_size().to_string(),
+        "response_transcript_sha256": transcript
+            .response_transcript_sha256()
+            .map(|digest| URL_SAFE_NO_PAD.encode(digest)),
         "revealed_response_ranges": response_ranges
             .iter()
             .map(range_json)
