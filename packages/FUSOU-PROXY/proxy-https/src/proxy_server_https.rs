@@ -95,8 +95,7 @@ impl ExperimentalRequireInfoRoute {
     fn decide(&self, parts: &request::Parts) -> ExperimentalRequireInfoDecision {
         if !self.enabled
             || parts.method != http::Method::POST
-            || parts.uri.path_and_query().map(|value| value.as_str())
-                != Some(REQUIRE_INFO_TARGET)
+            || parts.uri.path_and_query().map(|value| value.as_str()) != Some(REQUIRE_INFO_TARGET)
         {
             return ExperimentalRequireInfoDecision::Forward;
         }

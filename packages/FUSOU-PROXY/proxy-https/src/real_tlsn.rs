@@ -91,8 +91,8 @@ impl ResultSignatureVerifier {
         {
             return Err(TlsnTransportError::Unavailable);
         }
-        let registry: ResultSigningKeyRegistry = serde_json::from_str(&registry_json)
-            .map_err(|_| TlsnTransportError::Unavailable)?;
+        let registry: ResultSigningKeyRegistry =
+            serde_json::from_str(&registry_json).map_err(|_| TlsnTransportError::Unavailable)?;
         if registry.schema_version != 1
             || registry.scope != RESULT_SIGNING_KEY_REGISTRY_SCOPE
             || registry.keys.is_empty()
@@ -104,7 +104,10 @@ impl ResultSignatureVerifier {
         for entry in registry.keys {
             if !valid_result_key_id(&entry.key_id)
                 || !seen_key_ids.insert(entry.key_id.clone())
-                || !matches!(entry.status.as_str(), "ACTIVE" | "VERIFY_ONLY" | "RETIRED" | "REVOKED")
+                || !matches!(
+                    entry.status.as_str(),
+                    "ACTIVE" | "VERIFY_ONLY" | "RETIRED" | "REVOKED"
+                )
             {
                 return Err(TlsnTransportError::Unavailable);
             }
@@ -152,7 +155,8 @@ impl ResultSignatureVerifier {
         if self.not_before > now || self.not_after.is_some_and(|value| value < now) {
             return Err(VerificationError::WorkerRejected);
         }
-        if payload.get("signature_algorithm") != Some(&serde_json::Value::String("Ed25519".to_owned()))
+        if payload.get("signature_algorithm")
+            != Some(&serde_json::Value::String("Ed25519".to_owned()))
             || payload.get("signer_key_id")
                 != Some(&serde_json::Value::String(self.expected_key_id.clone()))
         {
@@ -162,12 +166,11 @@ impl ResultSignatureVerifier {
             .get("result")
             .and_then(serde_json::Value::as_object)
             .ok_or(VerificationError::WorkerRejected)?;
-        let result_bytes = serde_json::to_vec(result).map_err(|_| VerificationError::WorkerRejected)?;
-        let parsed = fusou_tlsn_verifier::parse_verifier_result(
-            &result_bytes,
-            &ParserLimits::default(),
-        )
-        .map_err(|_| VerificationError::WorkerRejected)?;
+        let result_bytes =
+            serde_json::to_vec(result).map_err(|_| VerificationError::WorkerRejected)?;
+        let parsed =
+            fusou_tlsn_verifier::parse_verifier_result(&result_bytes, &ParserLimits::default())
+                .map_err(|_| VerificationError::WorkerRejected)?;
         let signing_bytes = parsed
             .signing_bytes()
             .map_err(|_| VerificationError::WorkerRejected)?;
@@ -1157,9 +1160,10 @@ async fn run_real_exchange(
         .read_response_to_end()
         .await
         .map_err(|_| TlsnTransportError::ResponseReadFailed)?;
-    let response = parse_http_response(&raw_response)?;
+    let response = parse_http_response(raw_response)?;
     let server_identity = config.target().server_identity().to_owned();
     let request_sha256 = sha256(request.bytes());
+    let response_sha256 = sha256(&response.raw_response_bytes);
     let browser_exchange = TlsnOriginExchange {
         response: TlsnOriginResponse::new(
             response.status,
@@ -1169,7 +1173,7 @@ async fn run_real_exchange(
         ),
         transcript: crate::experimental_tlsn::UnverifiedTlsnTranscript {
             request_sha256,
-            response_sha256: sha256(&raw_response),
+            response_sha256,
         },
     };
     let proof = ProofContinuation::new(Box::pin(async move {
@@ -1203,11 +1207,13 @@ async fn run_real_exchange(
         prove_builder
             .transcript_commit(transcript_commit)
             .server_identity();
+        let sent_len = prover.transcript().sent().len();
+        let received_len = prover.transcript().received().len();
         prove_builder
-            .reveal_sent_all()
+            .reveal_sent(0..sent_len)
             .map_err(|_| ProofContinuationError::Prove)?;
         prove_builder
-            .reveal_recv_all()
+            .reveal_recv(0..received_len)
             .map_err(|_| ProofContinuationError::Prove)?;
         let prove_config = prove_builder
             .build()
@@ -1325,13 +1331,14 @@ struct ParsedHttpResponse {
     raw_response_bytes: Bytes,
 }
 
-fn parse_http_response(raw: &[u8]) -> Result<ParsedHttpResponse, TlsnTransportError> {
+fn parse_http_response(raw: Vec<u8>) -> Result<ParsedHttpResponse, TlsnTransportError> {
+    let raw = Bytes::from(raw);
     let header_end = raw
         .windows(4)
         .position(|window| window == b"\r\n\r\n")
         .ok_or(TlsnTransportError::ResponseReadFailed)?;
     let head = &raw[..header_end];
-    let body = &raw[header_end + 4..];
+    let body = raw.slice(header_end + 4..);
     let mut lines = head.split(|byte| *byte == b'\r' || *byte == b'\n');
     let status_line = lines.next().ok_or(TlsnTransportError::ResponseReadFailed)?;
     let mut status_fields = status_line.splitn(3, |byte| *byte == b' ');
@@ -1374,8 +1381,8 @@ fn parse_http_response(raw: &[u8]) -> Result<ParsedHttpResponse, TlsnTransportEr
         status: StatusCode::from_u16(status_code)
             .map_err(|_| TlsnTransportError::ResponseReadFailed)?,
         headers,
-        body: Bytes::copy_from_slice(body),
-        raw_response_bytes: Bytes::copy_from_slice(raw),
+        body,
+        raw_response_bytes: raw,
     })
 }
 
@@ -1473,7 +1480,12 @@ mod tests {
         )
     }
 
-    fn result_registry(public_key_spki: &[u8], status: &str, not_before: &str, not_after: Option<&str>) -> String {
+    fn result_registry(
+        public_key_spki: &[u8],
+        status: &str,
+        not_before: &str,
+        not_after: Option<&str>,
+    ) -> String {
         serde_json::json!({
             "schema_version": 1,
             "scope": RESULT_SIGNING_KEY_REGISTRY_SCOPE,
@@ -1533,7 +1545,9 @@ mod tests {
             signature: [0_u8; 64],
         };
         let signing_bytes = result.signing_bytes().unwrap();
-        result.signature.copy_from_slice(key_pair.sign(&signing_bytes).as_ref());
+        result
+            .signature
+            .copy_from_slice(key_pair.sign(&signing_bytes).as_ref());
         let result_json: serde_json::Value =
             serde_json::from_str(&result.canonical_json().unwrap()).unwrap();
         let payload = serde_json::json!({
@@ -1570,13 +1584,12 @@ mod tests {
         .unwrap();
 
         let mut mutated_result = payload.clone();
-        mutated_result["result"]["verified_member_id"] = serde_json::Value::String("16189464".to_owned());
+        mutated_result["result"]["verified_member_id"] =
+            serde_json::Value::String("16189464".to_owned());
         assert!(verifier.verify(&mutated_result).is_err());
 
         let mut mutated_signature = payload;
-        let signature = mutated_signature["result"]["signature"]
-            .as_str()
-            .unwrap();
+        let signature = mutated_signature["result"]["signature"].as_str().unwrap();
         let mut signature_bytes = URL_SAFE_NO_PAD.decode(signature).unwrap();
         signature_bytes[0] ^= 1;
         mutated_signature["result"]["signature"] =
@@ -1593,7 +1606,12 @@ mod tests {
         let verifier = ResultSignatureVerifier::new(
             wrong_public_key_spki.clone(),
             "result-signer-2026".to_owned(),
-            result_registry(&wrong_public_key_spki, "ACTIVE", "2020-01-01T00:00:00.000Z", None),
+            result_registry(
+                &wrong_public_key_spki,
+                "ACTIVE",
+                "2020-01-01T00:00:00.000Z",
+                None,
+            ),
         )
         .unwrap();
         assert!(verifier.verify(&payload).is_err());
@@ -1620,7 +1638,11 @@ mod tests {
             ("REVOKED", "2020-01-01T00:00:00.000Z", None),
             ("RETIRED", "2020-01-01T00:00:00.000Z", None),
             ("ACTIVE", "2099-01-01T00:00:00.000Z", None),
-            ("ACTIVE", "2020-01-01T00:00:00.000Z", Some("2020-01-02T00:00:00.000Z")),
+            (
+                "ACTIVE",
+                "2020-01-01T00:00:00.000Z",
+                Some("2020-01-02T00:00:00.000Z"),
+            ),
         ] {
             assert!(ResultSignatureVerifier::new(
                 public_key_spki.clone(),
@@ -2047,9 +2069,9 @@ mod tests {
                     {
                         return Err(TlsnTransportError::OriginConnectionFailed);
                     }
-                    let parsed = parse_http_response(&response)?;
                     let request_sha256 = sha256(request.bytes());
                     let response_sha256 = sha256(&response);
+                    let parsed = parse_http_response(response)?;
                     let presentation_identifier = URL_SAFE_NO_PAD.encode(sha256(&presentation));
                     let proof = ProofContinuation::new(Box::pin(async move {
                         handoff

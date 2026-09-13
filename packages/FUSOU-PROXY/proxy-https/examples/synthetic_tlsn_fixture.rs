@@ -1,8 +1,9 @@
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use fusou_tlsn_verifier::BINDING_PREFIX;
-use hyper::body::Bytes;
-use proxy_https::experimental_tlsn::{SerializedOriginRequest, TlsnOriginTransport};
-use proxy_https::synthetic_tlsn::{SyntheticAlpha15OriginTransport, SYNTHETIC_SERVER_IDENTITY};
+use proxy_https::experimental_tlsn::{AttestationBinding, TlsnOriginTransport};
+use proxy_https::synthetic_tlsn::{
+    synthetic_serialized_require_info_request, SyntheticAlpha15OriginTransport,
+};
 use uuid::Uuid;
 
 fn binding_value() -> String {
@@ -22,12 +23,9 @@ fn binding_value() -> String {
 #[tokio::main]
 async fn main() {
     let transport = SyntheticAlpha15OriginTransport::new().unwrap();
-    let request = format!(
-        "POST /kcsapi/api_get_member/require_info HTTP/1.1\r\nHost: {SYNTHETIC_SERVER_IDENTITY}\r\nX-Attestation-Binding: {}\r\nContent-Length: 11\r\nConnection: close\r\n\r\nactual body",
-        binding_value()
-    );
+    let binding = AttestationBinding::new(binding_value()).unwrap();
     let capture = transport
-        .send_once(SerializedOriginRequest::new(Bytes::from(request)).unwrap())
+        .send_once(synthetic_serialized_require_info_request(&binding).unwrap())
         .await
         .unwrap();
     capture.proof.run().await.unwrap();

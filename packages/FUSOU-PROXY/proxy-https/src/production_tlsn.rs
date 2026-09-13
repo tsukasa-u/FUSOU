@@ -1,9 +1,9 @@
 use crate::experimental_tlsn::{
-    sha256, AttestationBinding, ExperimentalResultBoundary, ExperimentalTlsnForwarder,
-    ExperimentalVerifierBoundary, ResultBoundaryError, ResultBoundaryFuture,
-    SerializedOriginRequest, TlsnEvidenceMetadata, TlsnOriginExchange, TlsnOriginTransport,
-    TlsnTransportError, TlsnTransportFuture, VerificationError, VerificationFuture,
-    VerificationOutcome, VerifiedTlsnEvidence, DeferredVerification,
+    sha256, AttestationBinding, DeferredVerification, ExperimentalResultBoundary,
+    ExperimentalTlsnForwarder, ExperimentalVerifierBoundary, ResultBoundaryError,
+    ResultBoundaryFuture, SerializedOriginRequest, TlsnEvidenceMetadata, TlsnOriginExchange,
+    TlsnOriginTransport, TlsnTransportError, TlsnTransportFuture, VerificationError,
+    VerificationFuture, VerificationOutcome, VerifiedTlsnEvidence,
 };
 use std::{
     collections::HashMap,
@@ -1660,10 +1660,9 @@ mod tests {
 
     #[tokio::test]
     async fn deferred_backend_returns_job_without_result_signing() {
-        let backend = DeferredVerificationBackend::new(
-            "123e4567-e89b-42d3-a456-426614174000".to_owned(),
-        )
-        .unwrap();
+        let backend =
+            DeferredVerificationBackend::new("123e4567-e89b-42d3-a456-426614174000".to_owned())
+                .unwrap();
         let binding = AttestationBinding::new("opaque".to_owned()).unwrap();
         let request = request();
         let exchange = exchange();

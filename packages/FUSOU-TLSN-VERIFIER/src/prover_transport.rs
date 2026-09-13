@@ -2,7 +2,7 @@
 
 use crate::{
     parse_require_info_request, validate_server_identity, ParsedBinding, ParserLimits,
-    VerifierError,
+    VerifierError, MAX_HTTP_HEADER_BYTES, MAX_RESPONSE_TRANSCRIPT_BYTES,
 };
 use futures::io::{AsyncReadExt, AsyncWriteExt};
 use thiserror::Error;
@@ -20,6 +20,14 @@ pub enum ProverTransportError {
     RequestNotSent,
     #[error("response has already been read")]
     ResponseAlreadyRead,
+    #[error("response headers exceeded the configured limit")]
+    ResponseHeadersTooLarge,
+    #[error("response body exceeded the configured limit")]
+    ResponseBodyTooLarge,
+    #[error("response ended before the Content-Length body was complete")]
+    ResponseEofBeforeComplete,
+    #[error("response must use a single Content-Length framing header")]
+    UnsupportedResponseFraming,
     #[error("prover-owned TLS connection is closed")]
     ConnectionClosed,
     #[error("prover-owned TLS I/O failed: {0}")]
@@ -94,8 +102,39 @@ impl ProverOwnedTlsTransport {
             .ok_or(ProverTransportError::ConnectionClosed)?;
 
         self.response_read = true;
-        let mut response = Vec::new();
-        connection.read_to_end(&mut response).await?;
+        let mut response = Vec::with_capacity(4096);
+        let header_end = loop {
+            let mut byte = [0_u8; 1];
+            let count = connection.read(&mut byte).await?;
+            if count == 0 {
+                return Err(ProverTransportError::ResponseEofBeforeComplete);
+            }
+            response.push(byte[0]);
+            if response.len() > MAX_HTTP_HEADER_BYTES {
+                return Err(ProverTransportError::ResponseHeadersTooLarge);
+            }
+            if response.ends_with(b"\r\n\r\n") {
+                break response.len();
+            }
+        };
+        let body_length = parse_content_length(&response[..header_end])?;
+        let total_length = header_end
+            .checked_add(body_length)
+            .ok_or(ProverTransportError::ResponseBodyTooLarge)?;
+        if total_length > MAX_RESPONSE_TRANSCRIPT_BYTES {
+            return Err(ProverTransportError::ResponseBodyTooLarge);
+        }
+        response.resize(total_length, 0);
+        connection
+            .read_exact(&mut response[header_end..])
+            .await
+            .map_err(|error| {
+                if error.kind() == std::io::ErrorKind::UnexpectedEof {
+                    ProverTransportError::ResponseEofBeforeComplete
+                } else {
+                    ProverTransportError::Io(error)
+                }
+            })?;
         Ok(response)
     }
 
@@ -106,6 +145,60 @@ impl ProverOwnedTlsTransport {
         connection.close().await?;
         Ok(())
     }
+}
+
+fn parse_content_length(headers: &[u8]) -> Result<usize> {
+    let first_line_end = headers
+        .windows(2)
+        .position(|window| window == b"\r\n")
+        .ok_or(ProverTransportError::UnsupportedResponseFraming)?;
+    if !headers[..first_line_end].starts_with(b"HTTP/1.1 ") {
+        return Err(ProverTransportError::UnsupportedResponseFraming);
+    }
+
+    let mut content_length = None;
+    let mut cursor = first_line_end + 2;
+    while cursor < headers.len() {
+        let line_end = headers[cursor..]
+            .windows(2)
+            .position(|window| window == b"\r\n")
+            .map(|offset| cursor + offset)
+            .ok_or(ProverTransportError::UnsupportedResponseFraming)?;
+        if line_end == cursor {
+            if cursor + 2 != headers.len() {
+                return Err(ProverTransportError::UnsupportedResponseFraming);
+            }
+            break;
+        }
+        let line = &headers[cursor..line_end];
+        let colon = line
+            .iter()
+            .position(|byte| *byte == b':')
+            .ok_or(ProverTransportError::UnsupportedResponseFraming)?;
+        let name = &line[..colon];
+        let value = line[colon + 1..]
+            .iter()
+            .copied()
+            .skip_while(|byte| matches!(byte, b' ' | b'\t'))
+            .collect::<Vec<_>>();
+        if name.eq_ignore_ascii_case(b"transfer-encoding") {
+            return Err(ProverTransportError::UnsupportedResponseFraming);
+        }
+        if name.eq_ignore_ascii_case(b"content-length") {
+            if content_length.is_some() {
+                return Err(ProverTransportError::UnsupportedResponseFraming);
+            }
+            let value = std::str::from_utf8(&value)
+                .ok()
+                .and_then(|value| crate::parse_uint64_decimal(value).ok())
+                .and_then(|value| usize::try_from(value).ok())
+                .ok_or(ProverTransportError::UnsupportedResponseFraming)?;
+            content_length = Some(value);
+        }
+        cursor = line_end + 2;
+    }
+
+    content_length.ok_or(ProverTransportError::UnsupportedResponseFraming)
 }
 
 #[cfg(test)]
@@ -137,7 +230,10 @@ mod tests {
         webpki::{CertificateDer, RootCertStore, ServerCertVerifier},
         Session,
     };
-    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::{
+        io::{AsyncReadExt, AsyncWriteExt},
+        sync::oneshot,
+    };
     use tokio_rustls::{
         rustls::{pki_types::PrivateKeyDer, ServerConfig},
         TlsAcceptor,
@@ -189,6 +285,7 @@ mod tests {
         socket: tokio::io::DuplexStream,
         certificate: Vec<u8>,
         private_key: Vec<u8>,
+        release_close: Option<oneshot::Receiver<()>>,
     ) -> (Vec<u8>, Vec<u8>) {
         let config = ServerConfig::builder()
             .with_no_client_auth()
@@ -214,14 +311,33 @@ mod tests {
         let body =
             b"svdata={\"api_result\":1,\"api_data\":{\"api_basic\":{\"api_member_id\":16189463}}}";
         let mut response = format!(
-            "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+            "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: keep-alive\r\n\r\n",
             body.len()
         )
         .into_bytes();
         response.extend_from_slice(body);
         stream.write_all(&response).await.unwrap();
+        if let Some(release_close) = release_close {
+            release_close.await.unwrap();
+        }
         stream.shutdown().await.unwrap();
         (request, response)
+    }
+
+    #[test]
+    fn content_length_framing_rejects_eof_dependent_responses() {
+        assert!(matches!(
+            parse_content_length(b"HTTP/1.1 200 OK\r\nContent-Length: 3\r\n\r\n"),
+            Ok(3)
+        ));
+        assert!(matches!(
+            parse_content_length(b"HTTP/1.1 200 OK\r\n\r\n"),
+            Err(ProverTransportError::UnsupportedResponseFraming)
+        ));
+        assert!(matches!(
+            parse_content_length(b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n"),
+            Err(ProverTransportError::UnsupportedResponseFraming)
+        ));
     }
 
     #[test]
@@ -327,8 +443,13 @@ mod tests {
         tokio::spawn(verifier_driver);
 
         let (origin_socket, verifier_origin_socket) = tokio::io::duplex(2 << 16);
-        let origin_task =
-            tokio::spawn(serve_origin(origin_socket, server_certificate, private_key));
+        let (release_close, release_close_rx) = oneshot::channel();
+        let origin_task = tokio::spawn(serve_origin(
+            origin_socket,
+            server_certificate,
+            private_key,
+            Some(release_close_rx),
+        ));
         let prover_root_store = root_store.clone();
 
         let prover_task = tokio::spawn(async move {
@@ -359,12 +480,20 @@ mod tests {
                     .await,
                 Err(ProverTransportError::RequestAlreadySent)
             ));
-            let response = transport.read_response_to_end().await.unwrap();
+            let response = tokio::time::timeout(
+                std::time::Duration::from_secs(2),
+                transport.read_response_to_end(),
+            )
+            .await
+            .expect("Content-Length response must complete before EOF")
+            .unwrap();
             assert!(matches!(
                 transport.read_response_to_end().await,
                 Err(ProverTransportError::ResponseAlreadyRead)
             ));
-            transport.close().await.unwrap();
+            release_close
+                .send(())
+                .expect("origin must still be waiting for EOF release");
             let evidence = ExperimentalRequireInfoEvidence {
                 request: probe.request().to_vec(),
                 binding: probe.binding().clone(),
@@ -389,8 +518,10 @@ mod tests {
             let mut prove_config = ProveConfig::builder(prover.transcript());
             prove_config.transcript_commit(transcript_commit.build().unwrap());
             prove_config.server_identity();
-            prove_config.reveal_sent_all().unwrap();
-            prove_config.reveal_recv_all().unwrap();
+            let sent_len = prover.transcript().sent().len();
+            let received_len = prover.transcript().received().len();
+            prove_config.reveal_sent(0..sent_len).unwrap();
+            prove_config.reveal_recv(0..received_len).unwrap();
             let prove_config = prove_config.build().unwrap();
             let prover_output = prover.prove(&prove_config).await.unwrap();
             let prover_transcript = prover.transcript().clone();
@@ -585,8 +716,12 @@ mod tests {
         tokio::spawn(verifier_driver);
 
         let (origin_socket, verifier_origin_socket) = tokio::io::duplex(2 << 16);
-        let origin_task =
-            tokio::spawn(serve_origin(origin_socket, server_certificate, private_key));
+        let origin_task = tokio::spawn(serve_origin(
+            origin_socket,
+            server_certificate,
+            private_key,
+            None,
+        ));
         let prover_root_store = root_store;
         let prover_task = tokio::spawn(async move {
             let prover = prover.commit(proxy_config).await.unwrap();
@@ -612,8 +747,10 @@ mod tests {
             let mut prove_config = ProveConfig::builder(prover.transcript());
             prove_config.transcript_commit(transcript_commit.build().unwrap());
             prove_config.server_identity();
-            prove_config.reveal_sent_all().unwrap();
-            prove_config.reveal_recv_all().unwrap();
+            let sent_len = prover.transcript().sent().len();
+            let received_len = prover.transcript().received().len();
+            prove_config.reveal_sent(0..sent_len).unwrap();
+            prove_config.reveal_recv(0..received_len).unwrap();
             let prove_config = prove_config.build().unwrap();
             let mut prover = prover;
             prover.prove(&prove_config).await.unwrap();

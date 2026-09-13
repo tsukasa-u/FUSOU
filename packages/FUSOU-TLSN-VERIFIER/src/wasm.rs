@@ -37,31 +37,29 @@ fn range_json(range: &crate::RevealedRange) -> serde_json::Value {
 }
 
 fn verified_presentation_json(transcript: &AuthenticatedTranscript) -> Result<String, JsValue> {
+    let request_ranges = transcript.revealed_request_ranges();
+    let response_ranges = transcript.revealed_response_ranges();
     serde_json::to_string(&serde_json::json!({
         "server_identity": transcript.server_identity(),
         "tlsn_attestation_id": URL_SAFE_NO_PAD.encode(transcript.attestation_id()),
         "notary_key_sha256": URL_SAFE_NO_PAD.encode(transcript.notary_key_sha256()),
-        "request_transcript_size": transcript
-            .revealed_request_ranges()
+        "request_transcript_size": request_ranges
             .iter()
             .map(|range| range.length)
             .sum::<u64>()
             .to_string(),
         "request_transcript_sha256": URL_SAFE_NO_PAD.encode(transcript.request_transcript_sha256()),
-        "revealed_request_ranges": transcript
-            .revealed_request_ranges()
+        "revealed_request_ranges": request_ranges
             .iter()
             .map(range_json)
             .collect::<Vec<_>>(),
-        "response_transcript_size": transcript
-            .revealed_response_ranges()
+        "response_transcript_size": response_ranges
             .iter()
             .map(|range| range.length)
             .sum::<u64>()
             .to_string(),
         "response_transcript_sha256": URL_SAFE_NO_PAD.encode(transcript.response_transcript_sha256()),
-        "revealed_response_ranges": transcript
-            .revealed_response_ranges()
+        "revealed_response_ranges": response_ranges
             .iter()
             .map(range_json)
             .collect::<Vec<_>>(),
@@ -241,11 +239,8 @@ pub fn attach_verifier_result_signature(
 pub fn derive_verifier_result_signing_bytes(
     unsigned_result_json: &str,
 ) -> Result<Vec<u8>, JsValue> {
-    let result = parse_verifier_result(
-        unsigned_result_json.as_bytes(),
-        &ParserLimits::default(),
-    )
-    .map_err(|error| JsValue::from_str(&error.to_string()))?;
+    let result = parse_verifier_result(unsigned_result_json.as_bytes(), &ParserLimits::default())
+        .map_err(|error| JsValue::from_str(&error.to_string()))?;
     result
         .signing_bytes()
         .map_err(|error| JsValue::from_str(&error.to_string()))

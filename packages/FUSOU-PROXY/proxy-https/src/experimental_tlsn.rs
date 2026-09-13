@@ -1206,9 +1206,9 @@ mod tests {
         ) -> VerificationFuture {
             self.calls.fetch_add(1, Ordering::SeqCst);
             Box::pin(async {
-                Ok(VerificationOutcome::Deferred(
-                    DeferredVerification::new("job-1".to_owned())?,
-                ))
+                Ok(VerificationOutcome::Deferred(DeferredVerification::new(
+                    "job-1".to_owned(),
+                )?))
             })
         }
     }

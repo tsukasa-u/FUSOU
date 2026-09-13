@@ -84,21 +84,22 @@ impl RequireInfoDisclosureProfile {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct AuthenticatedDirection {
-    transcript: Vec<u8>,
-    digest: [u8; 32],
-    ranges: Vec<RevealedRange>,
+#[derive(Debug, Clone)]
+enum AuthenticatedTranscriptStorage {
+    Owned { sent: Vec<u8>, received: Vec<u8> },
+    Alpha15(tlsn_core::transcript::PartialTranscript),
 }
 
-#[allow(dead_code)]
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub struct AuthenticatedTranscript {
     server_identity: String,
     attestation_id: [u8; MAX_ATTESTATION_ID_BYTES],
     notary_key_sha256: [u8; 32],
-    sent: AuthenticatedDirection,
-    received: AuthenticatedDirection,
+    transcript: AuthenticatedTranscriptStorage,
+    sent_digest: [u8; 32],
+    sent_ranges: Vec<Range<usize>>,
+    received_digest: [u8; 32],
+    received_ranges: Vec<Range<usize>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -189,21 +190,130 @@ impl AuthenticatedTranscript {
             output.received_digest,
             &output.received_ranges,
         )?;
+        Self::from_verified_alpha15_parts(
+            output.server_identity,
+            output.attestation_id,
+            output.notary_key_sha256,
+            output.sent_transcript,
+            output.sent_digest,
+            revealed_range_metadata(&output.sent_ranges)?,
+            output.received_transcript,
+            output.received_digest,
+            revealed_range_metadata(&output.received_ranges)?,
+        )
+    }
+
+    fn from_verified_alpha15_parts(
+        server_identity: String,
+        attestation_id: [u8; MAX_ATTESTATION_ID_BYTES],
+        notary_key_sha256: [u8; 32],
+        sent_transcript: Vec<u8>,
+        sent_digest: [u8; 32],
+        sent_ranges: Vec<Range<usize>>,
+        received_transcript: Vec<u8>,
+        received_digest: [u8; 32],
+        received_ranges: Vec<Range<usize>>,
+    ) -> Result<Self> {
+        if attestation_id.len() != MAX_ATTESTATION_ID_BYTES {
+            return Err(Alpha15AdapterError::InvalidVerifiedOutput(
+                "attestation ID must be exactly 16 bytes",
+            ));
+        }
+        validate_server_identity(&server_identity)?;
+        validate_authenticated_direction_metadata(&sent_transcript, sent_digest, &sent_ranges)?;
+        validate_authenticated_direction_metadata(
+            &received_transcript,
+            received_digest,
+            &received_ranges,
+        )?;
         Ok(Self {
-            server_identity: output.server_identity,
-            attestation_id: output.attestation_id,
-            notary_key_sha256: output.notary_key_sha256,
-            sent: AuthenticatedDirection {
-                transcript: output.sent_transcript,
-                digest: output.sent_digest,
-                ranges: output.sent_ranges,
+            server_identity,
+            attestation_id,
+            notary_key_sha256,
+            transcript: AuthenticatedTranscriptStorage::Owned {
+                sent: sent_transcript,
+                received: received_transcript,
             },
-            received: AuthenticatedDirection {
-                transcript: output.received_transcript,
-                digest: output.received_digest,
-                ranges: output.received_ranges,
-            },
+            sent_digest,
+            sent_ranges,
+            received_digest,
+            received_ranges,
         })
+    }
+
+    fn from_verified_alpha15_partial(
+        server_identity: String,
+        attestation_id: [u8; MAX_ATTESTATION_ID_BYTES],
+        notary_key_sha256: [u8; 32],
+        transcript: tlsn_core::transcript::PartialTranscript,
+    ) -> Result<Self> {
+        if attestation_id.len() != MAX_ATTESTATION_ID_BYTES {
+            return Err(Alpha15AdapterError::InvalidVerifiedOutput(
+                "attestation ID must be exactly 16 bytes",
+            ));
+        }
+        validate_server_identity(&server_identity)?;
+        if !transcript.is_complete() {
+            return Err(Alpha15AdapterError::DisclosureProfileViolation(
+                "alpha.15 transcript disclosure is incomplete",
+            ));
+        }
+        let sent_ranges =
+            map_authenticated_ranges(transcript.sent_authed().iter(), transcript.sent_unsafe())?;
+        let received_ranges = map_authenticated_ranges(
+            transcript.received_authed().iter(),
+            transcript.received_unsafe(),
+        )?;
+        let sent_digest = sha256(transcript.sent_unsafe());
+        let received_digest = sha256(transcript.received_unsafe());
+        validate_authenticated_direction_metadata(
+            transcript.sent_unsafe(),
+            sent_digest,
+            &sent_ranges,
+        )?;
+        validate_authenticated_direction_metadata(
+            transcript.received_unsafe(),
+            received_digest,
+            &received_ranges,
+        )?;
+        Ok(Self {
+            server_identity,
+            attestation_id,
+            notary_key_sha256,
+            transcript: AuthenticatedTranscriptStorage::Alpha15(transcript),
+            sent_digest,
+            sent_ranges,
+            received_digest,
+            received_ranges,
+        })
+    }
+
+    fn transcript_bytes(&self, sent: bool) -> &[u8] {
+        match (&self.transcript, sent) {
+            (AuthenticatedTranscriptStorage::Owned { sent, .. }, true) => sent,
+            (AuthenticatedTranscriptStorage::Owned { received, .. }, false) => received,
+            (AuthenticatedTranscriptStorage::Alpha15(transcript), true) => transcript.sent_unsafe(),
+            (AuthenticatedTranscriptStorage::Alpha15(transcript), false) => {
+                transcript.received_unsafe()
+            }
+        }
+    }
+
+    fn revealed_ranges(&self, sent: bool) -> Vec<RevealedRange> {
+        let ranges = if sent {
+            &self.sent_ranges
+        } else {
+            &self.received_ranges
+        };
+        let transcript = self.transcript_bytes(sent);
+        ranges
+            .iter()
+            .map(|range| RevealedRange {
+                start: range.start as u64,
+                length: range.len() as u64,
+                bytes: transcript[range.clone()].to_vec(),
+            })
+            .collect()
     }
 
     pub fn server_identity(&self) -> &str {
@@ -219,19 +329,19 @@ impl AuthenticatedTranscript {
     }
 
     pub fn request_transcript_sha256(&self) -> &[u8; 32] {
-        &self.sent.digest
+        &self.sent_digest
     }
 
     pub fn response_transcript_sha256(&self) -> &[u8; 32] {
-        &self.received.digest
+        &self.received_digest
     }
 
-    pub fn revealed_request_ranges(&self) -> &[RevealedRange] {
-        &self.sent.ranges
+    pub fn revealed_request_ranges(&self) -> Vec<RevealedRange> {
+        self.revealed_ranges(true)
     }
 
-    pub fn revealed_response_ranges(&self) -> &[RevealedRange] {
-        &self.received.ranges
+    pub fn revealed_response_ranges(&self) -> Vec<RevealedRange> {
+        self.revealed_ranges(false)
     }
 
     pub fn verify_require_info(
@@ -243,21 +353,21 @@ impl AuthenticatedTranscript {
             return Err(Alpha15AdapterError::ServerIdentityNotAllowlisted);
         }
         let request =
-            parse_require_info_request(&self.sent.transcript, &self.server_identity, limits)
+            parse_require_info_request(self.transcript_bytes(true), &self.server_identity, limits)
                 .map_err(Alpha15AdapterError::Parser)?;
-        let response = parse_require_info_response(&self.received.transcript, limits)
+        let response = parse_require_info_response(self.transcript_bytes(false), limits)
             .map_err(Alpha15AdapterError::Parser)?;
         Ok(AuthenticatedRequireInfo {
             verified_member_id: response.verified_member_id,
             binding: request.binding,
             server_identity: self.server_identity.clone(),
             attestation_id: self.attestation_id,
-            request_transcript_sha256: self.sent.digest,
-            response_transcript_sha256: self.received.digest,
-            request_transcript_size: self.sent.transcript.len() as u64,
-            response_transcript_size: self.received.transcript.len() as u64,
-            revealed_request_ranges: self.sent.ranges.clone(),
-            revealed_response_ranges: self.received.ranges.clone(),
+            request_transcript_sha256: self.sent_digest,
+            response_transcript_sha256: self.received_digest,
+            request_transcript_size: self.transcript_bytes(true).len() as u64,
+            response_transcript_size: self.transcript_bytes(false).len() as u64,
+            revealed_request_ranges: self.revealed_ranges(true),
+            revealed_response_ranges: self.revealed_ranges(false),
         })
     }
 }
@@ -297,6 +407,62 @@ fn validate_authenticated_direction(
             }
             Ok(())
         })
+}
+
+fn validate_authenticated_direction_metadata(
+    transcript: &[u8],
+    digest: [u8; 32],
+    ranges: &[Range<usize>],
+) -> Result<()> {
+    if transcript.is_empty() {
+        return Err(Alpha15AdapterError::InvalidVerifiedOutput(
+            "authenticated transcript is empty",
+        ));
+    }
+    if sha256(transcript) != digest {
+        return Err(Alpha15AdapterError::InvalidVerifiedOutput(
+            "transcript digest does not match verified output",
+        ));
+    }
+    let mut next_start = 0;
+    for range in ranges {
+        if range.start != next_start || range.start >= range.end || range.end > transcript.len() {
+            return Err(Alpha15AdapterError::DisclosureProfileViolation(
+                "strict parser input is not fully disclosed",
+            ));
+        }
+        next_start = range.end;
+    }
+    if next_start != transcript.len() {
+        return Err(Alpha15AdapterError::DisclosureProfileViolation(
+            "strict parser input is not fully disclosed",
+        ));
+    }
+    Ok(())
+}
+
+fn revealed_range_metadata(ranges: &[RevealedRange]) -> Result<Vec<Range<usize>>> {
+    ranges
+        .iter()
+        .map(|range| {
+            let start = usize::try_from(range.start).map_err(|_| {
+                Alpha15AdapterError::DisclosureProfileViolation(
+                    "disclosed range start does not fit usize",
+                )
+            })?;
+            let length = usize::try_from(range.length).map_err(|_| {
+                Alpha15AdapterError::DisclosureProfileViolation(
+                    "disclosed range length does not fit usize",
+                )
+            })?;
+            let end = start.checked_add(length).ok_or(
+                Alpha15AdapterError::DisclosureProfileViolation(
+                    "disclosed range end overflows usize",
+                ),
+            )?;
+            Ok(start..end)
+        })
+        .collect()
 }
 
 pub fn verify_alpha15_presentation(presentation_bytes: &[u8]) -> Result<AuthenticatedTranscript> {
@@ -375,47 +541,27 @@ pub(crate) fn verify_alpha15_presentation_with_provider_and_notary_key(
     let transcript = output
         .transcript
         .ok_or(Alpha15AdapterError::MissingTranscript)?;
-    if !transcript.is_complete() {
-        return Err(Alpha15AdapterError::DisclosureProfileViolation(
-            "alpha.15 transcript disclosure is incomplete",
-        ));
-    }
-
-    let sent_transcript = transcript.sent_unsafe().to_vec();
-    let received_transcript = transcript.received_unsafe().to_vec();
-    let sent_ranges = map_authenticated_ranges(transcript.sent_authed().iter(), &sent_transcript)?;
-    let received_ranges =
-        map_authenticated_ranges(transcript.received_authed().iter(), &received_transcript)?;
-
-    AuthenticatedTranscript::from_verified_alpha15(Alpha15VerifiedOutput {
+    let attestation_id = output.attestation.header.id.0;
+    AuthenticatedTranscript::from_verified_alpha15_partial(
         server_identity,
-        attestation_id: output.attestation.header.id.0,
+        attestation_id,
         notary_key_sha256,
-        sent_digest: sha256(&sent_transcript),
-        sent_ranges,
-        sent_transcript,
-        received_digest: sha256(&received_transcript),
-        received_ranges,
-        received_transcript,
-    })
+        transcript,
+    )
 }
 
 fn map_authenticated_ranges(
     ranges: impl Iterator<Item = Range<usize>>,
     transcript: &[u8],
-) -> Result<Vec<RevealedRange>> {
+) -> Result<Vec<Range<usize>>> {
     ranges
         .map(|range| {
-            let bytes = transcript.get(range.clone()).ok_or(
+            transcript.get(range.clone()).ok_or(
                 Alpha15AdapterError::DisclosureProfileViolation(
                     "alpha.15 disclosed range is outside the transcript",
                 ),
             )?;
-            Ok(RevealedRange {
-                start: range.start as u64,
-                length: range.len() as u64,
-                bytes: bytes.to_vec(),
-            })
+            Ok(range)
         })
         .collect()
 }
@@ -671,11 +817,11 @@ mod tests {
         let transcript = AuthenticatedTranscript::from_verified_alpha15(mock_output()).unwrap();
         assert_eq!(
             transcript.request_transcript_sha256(),
-            &sha256(&transcript.sent.transcript)
+            &sha256(transcript.transcript_bytes(true))
         );
         assert_eq!(
             transcript.response_transcript_sha256(),
-            &sha256(&transcript.received.transcript)
+            &sha256(transcript.transcript_bytes(false))
         );
     }
 

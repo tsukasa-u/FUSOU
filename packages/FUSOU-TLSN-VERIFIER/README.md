@@ -30,6 +30,12 @@ It currently provides:
   strict parser;
 - an offline TLS fixture proving that the verifier-owned origin forwarding path
 	receives the exact request and response bytes.
+- a Prover-owned response transport that completes a strict single
+  `Content-Length` response without waiting for keep-alive EOF, and fails closed
+  for `Transfer-Encoding`, missing framing, oversized headers/bodies, and
+  incomplete bodies;
+- a deferred proof boundary: the browser-visible response capture completes
+  before TLSN prover/notary finalization runs in the background continuation.
 
 FUSOU-PROXY also contains a default-off request-selection gate controlled by
 `proxy.experimental_tlsn_enabled`. When explicitly enabled, it detects the
@@ -54,10 +60,14 @@ offline tests. It is not wired into a production FUSOU-App origin transport, a
 production Verifier service, or a Notary service.
 
 `verify_alpha15_presentation` deserializes an upstream bincode Presentation,
-rejects trailing bytes, calls `Presentation::verify`, requires complete
-sent/received disclosure, and maps only the verified server identity,
-Attestation ID, transcript bytes, digests, and authenticated ranges into the
-sealed adapter type. It does not fabricate FUSOU evidence or signatures.
+rejects trailing bytes, calls `Presentation::verify`, and requires complete
+sent/received disclosure before strict parsing. Complete disclosure is
+intentional for the current `require_info` profile because its authenticated
+transcript SHA-256 and strict HTTP/JSON parsing cover the complete wire bytes.
+The adapter keeps authenticated range metadata and materializes range bytes
+only when exporting them. alpha.15 still allocates full-length partial
+transcript buffers internally; FUSOU does not treat zero-filled omitted bytes
+as authenticated. It does not fabricate FUSOU evidence or signatures.
 
 The checked-in
 `fixtures/tlsn-alpha15-upstream-presentation.bin` is a legitimate upstream

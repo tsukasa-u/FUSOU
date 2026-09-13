@@ -1,12 +1,13 @@
 use crate::experimental_tlsn::{
-    sha256, ProofContinuation, ProofContinuationError, SerializedOriginRequest, TlsnOriginCapture,
-    TlsnOriginExchange, TlsnOriginResponse, TlsnOriginTransport, TlsnTransportError,
-    TlsnTransportFuture, UnverifiedTlsnTranscript,
+    sha256, AttestationBinding, Http1OriginRequestSerializer, OriginRequestSerializer,
+    ProofContinuation, ProofContinuationError, ProofContinuationState, SerializationError,
+    SerializedOriginRequest, TlsnOriginCapture, TlsnOriginExchange, TlsnOriginResponse,
+    TlsnOriginTransport, TlsnTransportError, TlsnTransportFuture, UnverifiedTlsnTranscript,
 };
 use fusou_tlsn_verifier::{
     parse_require_info_request, prover_transport::ProverOwnedTlsTransport, ParserLimits,
 };
-use http::{HeaderMap, HeaderName, HeaderValue, StatusCode};
+use http::{HeaderMap, HeaderName, HeaderValue, Method, Request, StatusCode, Version};
 use hyper::body::Bytes;
 use rcgen::{
     BasicConstraints, CertificateParams, ExtendedKeyUsagePurpose, IsCa, KeyPair, KeyUsagePurpose,
@@ -43,6 +44,27 @@ use tokio_rustls::{
 use tokio_util::compat::TokioAsyncReadCompatExt;
 
 pub const SYNTHETIC_SERVER_IDENTITY: &str = "game.example.test";
+
+pub fn synthetic_require_info_request() -> Request<Bytes> {
+    Request::builder()
+        .method(Method::POST)
+        .uri(format!(
+            "https://{SYNTHETIC_SERVER_IDENTITY}/kcsapi/api_get_member/require_info"
+        ))
+        .version(Version::HTTP_11)
+        .header("Host", SYNTHETIC_SERVER_IDENTITY)
+        .header("Content-Length", "11")
+        .header("Connection", "close")
+        .body(Bytes::from_static(b"actual body"))
+        .expect("synthetic request must be valid")
+}
+
+pub fn synthetic_serialized_require_info_request(
+    binding: &AttestationBinding,
+) -> Result<SerializedOriginRequest, SerializationError> {
+    let (parts, body) = synthetic_require_info_request().into_parts();
+    Http1OriginRequestSerializer.serialize(&parts, body, binding)
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SyntheticAlpha15WireEvidence {
@@ -226,13 +248,14 @@ async fn run_synthetic_exchange(
             .read_response_to_end()
             .await
             .map_err(|_| TlsnTransportError::ResponseReadFailed)?;
-        let response = parse_origin_response(&raw_response)?;
+        let response_sha256 = sha256(&raw_response);
+        let response = parse_origin_response(raw_response)?;
         exchange_tx
             .send(TlsnOriginExchange {
                 response,
                 transcript: UnverifiedTlsnTranscript {
                     request_sha256: sha256(request_for_prover.bytes()),
-                    response_sha256: sha256(&raw_response),
+                    response_sha256,
                 },
             })
             .map_err(|_| TlsnTransportError::ResponseReadFailed)?;
@@ -264,11 +287,13 @@ async fn run_synthetic_exchange(
         prove_config
             .transcript_commit(transcript_commit)
             .server_identity();
+        let sent_len = prover.transcript().sent().len();
+        let received_len = prover.transcript().received().len();
         prove_config
-            .reveal_sent_all()
+            .reveal_sent(0..sent_len)
             .map_err(|_| TlsnTransportError::OriginConnectionFailed)?;
         prove_config
-            .reveal_recv_all()
+            .reveal_recv(0..received_len)
             .map_err(|_| TlsnTransportError::OriginConnectionFailed)?;
         let prove_config = prove_config
             .build()
@@ -600,7 +625,7 @@ async fn serve_synthetic_origin(
     Ok((request, response))
 }
 
-fn parse_origin_response(raw_response: &[u8]) -> Result<TlsnOriginResponse, TlsnTransportError> {
+fn parse_origin_response(raw_response: Vec<u8>) -> Result<TlsnOriginResponse, TlsnTransportError> {
     let position = raw_response
         .windows(4)
         .position(|window| window == b"\r\n\r\n")
@@ -625,7 +650,8 @@ fn parse_origin_response(raw_response: &[u8]) -> Result<TlsnOriginResponse, Tlsn
             .map_err(|_| TlsnTransportError::ResponseReadFailed)?;
         headers.append(name, value);
     }
-    let body = Bytes::copy_from_slice(&raw_response[header_end..]);
+    let raw_response = Bytes::from(raw_response);
+    let body = raw_response.slice(header_end..);
     if headers
         .get("content-length")
         .and_then(|value| value.to_str().ok())
@@ -638,7 +664,7 @@ fn parse_origin_response(raw_response: &[u8]) -> Result<TlsnOriginResponse, Tlsn
         StatusCode::from_u16(status_code).map_err(|_| TlsnTransportError::ResponseReadFailed)?,
         headers,
         body,
-        Bytes::copy_from_slice(raw_response),
+        raw_response,
     ))
 }
 
@@ -661,10 +687,9 @@ mod tests {
     }
 
     fn request() -> SerializedOriginRequest {
-        SerializedOriginRequest::new(Bytes::from(format!(
-            "POST /kcsapi/api_get_member/require_info HTTP/1.1\r\nHost: {SYNTHETIC_SERVER_IDENTITY}\r\nX-Attestation-Binding: {}\r\nContent-Length: 11\r\nConnection: close\r\n\r\nactual body",
-            binding_value()
-        )))
+        synthetic_serialized_require_info_request(
+            &AttestationBinding::new(binding_value()).unwrap(),
+        )
         .unwrap()
     }
 
@@ -674,6 +699,11 @@ mod tests {
         let request = request();
         let expected_request = request.bytes().to_vec();
         let capture = transport.send_once(request).await.unwrap();
+        assert_eq!(
+            capture.proof.state().unwrap(),
+            ProofContinuationState::Pending
+        );
+        assert!(transport.wire_evidence().is_none());
         let exchange = capture.exchange;
         capture.proof.run().await.unwrap();
 

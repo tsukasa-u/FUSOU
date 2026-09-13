@@ -31,7 +31,7 @@ rustls-pki-types = { version = "1.12", features = ["web"] }
 
 [dev-dependencies]
 rcgen = "0.13"
-tokio = { version = "1.38", features = ["io-util", "macros", "net", "rt-multi-thread"] }
+tokio = { version = "1.38", features = ["io-util", "macros", "net", "rt-multi-thread", "time"] }
 tokio-rustls = { version = "0.26.4", default-features = false, features = ["ring"] }
 tokio-util = { version = "0.7", features = ["compat"] }
 
