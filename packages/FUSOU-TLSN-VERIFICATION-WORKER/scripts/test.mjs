@@ -1045,6 +1045,7 @@ const productionTrustRootVars = {
   TLSN_BINDING_TTL_SECONDS: "60",
   TLSN_CANDIDATE_SERVER_IDENTITY: "game.example.com",
   TLSN_CANDIDATE_PROFILE_SHA256: Buffer.alloc(32).toString("base64url"),
+  TLSN_CANDIDATE_SPARSE_PROFILE_SHA256: Buffer.alloc(32, 9).toString("base64url"),
   TLSN_CANDIDATE_VERIFIER_KEY_ID: "worker-prod",
   TLSN_CANDIDATE_NOTARY_KEY_ID: "notary-prod",
   TLSN_PRODUCTION_NOTARY_REGISTRY: JSON.stringify({ "notary-prod": syntheticFixture.notary_key_base64 }),

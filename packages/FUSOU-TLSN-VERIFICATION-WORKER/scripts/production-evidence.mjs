@@ -250,6 +250,58 @@ export function resultSigningBytes(result) {
   return Buffer.concat(chunks);
 }
 
+export function sparseResultSigningBytes(result) {
+  const chunks = [Buffer.from("FUSOU-VERIFIER-SPARSE-RESULT-V1\0")];
+  pushU16(chunks, result.version);
+  pushLengthPrefixed(chunks, result.profile_id);
+  pushLengthPrefixed(chunks, result.disclosure_mode);
+  pushLengthPrefixed(chunks, decodeResultValue(result.profile_sha256, "sparse result profile_sha256"));
+  pushLengthPrefixed(chunks, result.issuer);
+  pushLengthPrefixed(chunks, result.proof_purpose);
+  pushLengthPrefixed(chunks, result.canonical_user_id);
+  pushLengthPrefixed(chunks, result.device_id);
+  pushLengthPrefixed(chunks, decodeResultValue(result.device_challenge, "sparse result device_challenge"));
+  pushLengthPrefixed(chunks, result.verified_member_id);
+  pushLengthPrefixed(chunks, Buffer.from(result.attestation_session_id.replaceAll("-", ""), "hex"));
+  pushLengthPrefixed(chunks, decodeResultValue(result.binding_nonce, "sparse result binding_nonce"));
+  pushLengthPrefixed(chunks, result.binding_value);
+  pushLengthPrefixed(chunks, result.verifier_key_id);
+  pushLengthPrefixed(chunks, result.notary_key_id);
+  pushLengthPrefixed(chunks, decodeResultValue(result.notary_key_sha256, "sparse result Notary hash"));
+  pushLengthPrefixed(chunks, decodeResultValue(result.tlsn_attestation_id, "sparse result attestation ID"));
+  pushLengthPrefixed(chunks, decodeResultValue(result.presentation_sha256, "sparse result Presentation hash"));
+  pushLengthPrefixed(chunks, result.server_identity);
+  pushU64(chunks, result.request_transcript_size);
+  pushRanges(chunks, result.revealed_request_ranges);
+  pushU64(chunks, result.response_transcript_size);
+  pushRanges(chunks, result.revealed_response_ranges);
+  return Buffer.concat(chunks);
+}
+
+function sparseResultRanges(ranges, size, label) {
+  if (!Array.isArray(ranges) || typeof size !== "string" || !/^(?:0|[1-9][0-9]*)$/.test(size)) {
+    throw new Error(`${label} sparse range shape is invalid`);
+  }
+  const transcriptSize = BigInt(size);
+  let previousEnd = 0n;
+  let complete = true;
+  for (const [index, range] of ranges.entries()) {
+    if (typeof range?.start !== "string" || !/^(?:0|[1-9][0-9]*)$/.test(range.start) || typeof range?.length !== "string" || !/^(?:0|[1-9][0-9]*)$/.test(range.length)) {
+      throw new Error(`${label} sparse range ${index} metadata is invalid`);
+    }
+    const start = BigInt(range.start);
+    const length = BigInt(range.length);
+    const bytes = decodeResultValue(range.bytes, `${label} sparse range bytes`);
+    const end = start + length;
+    if (length === 0n || start < previousEnd || end > transcriptSize || BigInt(bytes.length) !== length) {
+      throw new Error(`${label} sparse range ${index} is invalid`);
+    }
+    if (start !== previousEnd) complete = false;
+    previousEnd = end;
+  }
+  return complete && previousEnd === transcriptSize;
+}
+
 export function assertSignedResult(result, {
   publicKeySpki,
   keyRegistry,
@@ -281,6 +333,62 @@ export function assertSignedResult(result, {
   const signature = decodeBase64Url(result.signature, "production result signature", 64);
   if (!verify(null, resultSigningBytes(result), publicKey, signature)) {
     throw new Error("production verifier result signature is invalid");
+  }
+  return {
+    result_sha256: sha256Base64Url(JSON.stringify(result)),
+    result_signature_valid: true,
+    result_signer_key_id: signerKeyId,
+    result_signing_key_status: verificationTime === undefined ? "ACTIVE" : "HISTORICAL_VALID",
+  };
+}
+
+export function assertSignedSparseResult(result, {
+  publicKeySpki,
+  keyRegistry,
+  signerKeyId,
+  now = new Date(),
+  verificationTime,
+} = {}) {
+  if (
+    !result ||
+    result.version !== 2 ||
+    result.profile_id !== "fusou-require-info-v2-sparse" ||
+    result.disclosure_mode !== "sparse" ||
+    typeof result.signature !== "string"
+  ) {
+    throw new Error("production sparse verifier result schema is invalid");
+  }
+  if (Object.hasOwn(result, "request_transcript_sha256") || Object.hasOwn(result, "response_transcript_sha256")) {
+    throw new Error("production sparse verifier result must not contain full transcript digests");
+  }
+  const requestComplete = sparseResultRanges(result.revealed_request_ranges, result.request_transcript_size, "request transcript");
+  const responseComplete = sparseResultRanges(result.revealed_response_ranges, result.response_transcript_size, "response transcript");
+  if (requestComplete && responseComplete) {
+    throw new Error("production sparse verifier result must retain an undisclosed transcript range");
+  }
+  let resolvedPublicKeySpki = publicKeySpki;
+  if (verificationTime !== undefined) {
+    resolvedPublicKeySpki = resolveResultSigningKey(keyRegistry, {
+      keyId: signerKeyId,
+      at: verificationTime,
+    });
+    if (publicKeySpki !== undefined && publicKeySpki !== resolvedPublicKeySpki) {
+      throw new Error("production sparse result public key does not match the historical registry key");
+    }
+  } else {
+    assertSigningKeyRegistry(keyRegistry, {
+      currentKeyId: signerKeyId,
+      currentPublicKeySpki: publicKeySpki,
+      now,
+    });
+  }
+  const publicKey = publicKeyFromSpki(resolvedPublicKeySpki, "production sparse result public key");
+  if (result.verifier_key_id === "" || result.notary_key_id === "") {
+    throw new Error("production sparse result key identity is missing");
+  }
+  const signature = decodeBase64Url(result.signature, "production sparse result signature", 64);
+  if (!verify(null, sparseResultSigningBytes(result), publicKey, signature)) {
+    throw new Error("production sparse verifier result signature is invalid");
   }
   return {
     result_sha256: sha256Base64Url(JSON.stringify(result)),

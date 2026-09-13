@@ -169,6 +169,61 @@ export const PRODUCTION_EVIDENCE_SEMANTIC_PREDICATE_DEFINITIONS = {
     derived_fields: ["trust_root_certificate_sha256"],
   },
 };
+export const PRODUCTION_EVIDENCE_SPARSE_SEMANTIC_PREDICATE_DEFINITIONS = {
+  presentation_cryptography: {
+    required_artifacts: ["presentation"],
+    required_fields: ["presentation_sha256", "tlsn_attestation_id", "revealed_request_ranges", "revealed_response_ranges"],
+    verification_method: "alpha15 Presentation::verify with authenticated sparse transcript ranges",
+    authority_identity: "tlsn-alpha15-verifier",
+    derived_fields: ["presentation_sha256", "tlsn_attestation_id", "request_transcript_size", "response_transcript_size", "revealed_request_ranges", "revealed_response_ranges"],
+  },
+  notary_identity: {
+    required_artifacts: ["presentation", "health", "notary_registry"],
+    required_fields: ["notary_key_id", "notary_key_sha256"],
+    verification_method: "Presentation verifying key fingerprint equals the trusted Notary registry entry",
+    authority_identity: "tlsn-alpha15-presentation-notary-key",
+    derived_fields: ["notary_key_sha256", "notary_key_id"],
+  },
+  server_identity: {
+    required_artifacts: ["presentation", "health"],
+    required_fields: ["server_identity"],
+    verification_method: "alpha15 verified server_name equals the trusted production server identity",
+    authority_identity: "tlsn-alpha15-presentation-server-identity",
+    derived_fields: ["server_identity"],
+  },
+  require_info_http_profile: {
+    required_artifacts: ["presentation"],
+    required_fields: ["profile_id", "profile_sha256", "disclosure_mode", "http_profile", "request_transcript_size", "response_transcript_size", "revealed_request_ranges", "revealed_response_ranges"],
+    verification_method: "strict sparse parser over authenticated HTTP headers and JSON ranges; hidden ranges fail closed",
+    authority_identity: "fusou-require-info-v2-sparse",
+    derived_fields: ["server_identity", "request_transcript_size", "response_transcript_size", "revealed_request_ranges", "revealed_response_ranges"],
+  },
+  presentation_binding_to_session: {
+    required_artifacts: ["presentation", "session", "result"],
+    required_fields: ["session_id", "binding_value", "revealed_request_ranges"],
+    verification_method: "authenticated sparse request headers bind X-Attestation-Binding to the current Session Authority binding",
+    authority_identity: "offline-production-evidence-verifier",
+    derived_fields: ["attestation_session_id", "binding_value", "revealed_request_ranges"],
+  },
+  authenticated_member_id: {
+    required_artifacts: ["presentation"],
+    required_fields: ["verified_member_id", "revealed_response_ranges"],
+    verification_method: "api_member_id derived by the strict alpha15 sparse response parser",
+    authority_identity: "fusou-require-info-v2-sparse-response-parser",
+    derived_fields: ["verified_member_id", "revealed_response_ranges"],
+  },
+  result_presentation_binding: {
+    required_artifacts: ["presentation", "result"],
+    required_fields: ["tlsn_attestation_id", "presentation_sha256", "verified_member_id", "binding_value", "revealed_request_ranges", "revealed_response_ranges"],
+    verification_method: "independent sparse Presentation-derived Result fields equal the Worker Result payload",
+    authority_identity: "offline-production-evidence-verifier",
+    derived_fields: ["verified_member_id", "tlsn_attestation_id", "server_identity", "presentation_sha256", "revealed_request_ranges", "revealed_response_ranges"],
+  },
+  result_registry_root_authentication: PRODUCTION_EVIDENCE_SEMANTIC_PREDICATE_DEFINITIONS.result_registry_root_authentication,
+  result_signature: PRODUCTION_EVIDENCE_SEMANTIC_PREDICATE_DEFINITIONS.result_signature,
+  result_key_publication: PRODUCTION_EVIDENCE_SEMANTIC_PREDICATE_DEFINITIONS.result_key_publication,
+  trust_root_publication: PRODUCTION_EVIDENCE_SEMANTIC_PREDICATE_DEFINITIONS.trust_root_publication,
+};
 export const PRODUCTION_EVIDENCE_DEVICE_PREDICATE_DEFINITIONS = {
   device_identity_ownership: {
     required_artifacts: ["device_identity"],
@@ -437,8 +492,33 @@ export const PRODUCTION_EVIDENCE_TRUST_GRAPH_EDGE_DEFINITIONS = Object.freeze([
   { id: "result-is-signed", source: "result", target: "production-evidence", binding_fields: ["result_sha256", "result_signer_key_id"], evidence_artifact: "result", verification_predicate: "result_signature", authority: "fusou-tlsn-result-signer" },
   { id: "remote-attestation-is-unverified", source: "remote-attestation", target: "production-evidence", binding_fields: ["status"], evidence_artifact: "health", verification_predicate: "remote_attestation_unverified", authority: "remote-attestation-signer" },
 ]);
+export const PRODUCTION_EVIDENCE_SPARSE_TRUST_GRAPH_EDGE_DEFINITIONS = Object.freeze(
+  PRODUCTION_EVIDENCE_TRUST_GRAPH_EDGE_DEFINITIONS.map((edge) => {
+    if (edge.id === "session-binding-authenticates-presentation") {
+      return Object.freeze({ ...edge, binding_fields: ["session_id", "binding_value", "revealed_request_ranges"] });
+    }
+    if (edge.id === "presentation-derives-member-id") {
+      return Object.freeze({ ...edge, binding_fields: ["verified_member_id", "revealed_response_ranges"], authority: "fusou-require-info-v2-sparse-response-parser" });
+    }
+    if (edge.id === "member-id-is-in-result") {
+      return Object.freeze({ ...edge, binding_fields: ["verified_member_id", "tlsn_attestation_id", "revealed_response_ranges"] });
+    }
+    return Object.freeze({ ...edge });
+  }),
+);
 export const PRODUCTION_EVIDENCE_TRUST_GRAPH_EDGE_IDS = PRODUCTION_EVIDENCE_TRUST_GRAPH_EDGE_DEFINITIONS.map(({ id }) => id);
-export const PRODUCTION_EVIDENCE_TRUST_GRAPH_PREDICATES = Object.keys(PRODUCTION_EVIDENCE_PREDICATE_DEFINITIONS);
+export const PRODUCTION_EVIDENCE_TRUST_GRAPH_PREDICATES = [
+  ...new Set([
+    ...Object.keys(PRODUCTION_EVIDENCE_PREDICATE_DEFINITIONS),
+    ...Object.keys(PRODUCTION_EVIDENCE_SPARSE_SEMANTIC_PREDICATE_DEFINITIONS),
+  ]),
+];
+
+function trustGraphEdgeDefinitions(graph) {
+  return graph?.edges?.some((edge) => edge?.binding_fields?.includes("revealed_request_ranges"))
+    ? PRODUCTION_EVIDENCE_SPARSE_TRUST_GRAPH_EDGE_DEFINITIONS
+    : PRODUCTION_EVIDENCE_TRUST_GRAPH_EDGE_DEFINITIONS;
+}
 
 function assertTimestamp(value, label) {
   if (typeof value !== "string" || !Number.isFinite(Date.parse(value))) {
@@ -544,6 +624,10 @@ export function deriveProductionTrustGraph({
     throw new Error("production trust graph derivation inputs are incomplete");
   }
   assertProductionProxyProvenanceShape(proxyProvenance);
+  const sparse = semanticResult.disclosure_mode === "sparse";
+  const edgeDefinitions = sparse
+    ? PRODUCTION_EVIDENCE_SPARSE_TRUST_GRAPH_EDGE_DEFINITIONS
+    : PRODUCTION_EVIDENCE_TRUST_GRAPH_EDGE_DEFINITIONS;
   const identities = {
     "authenticated-user": { user_id: authenticatedUserId },
     device: { user_id: authenticatedUserId, device_id: deviceId, public_key_sha256: devicePublicKeySha256 },
@@ -551,7 +635,9 @@ export function deriveProductionTrustGraph({
     session: { session_id: session.session_id, key_id: session.session_receipt.signer_key_id, binding_sha256: sha256Base64Url(session.binding) },
     binding: { binding_sha256: sha256Base64Url(session.binding), nonce_sha256: sha256Base64Url(session.challenge) },
     presentation: { presentation_sha256: sha256Base64Url(presentationBytes), attestation_id: verifiedPresentation.tlsn_attestation_id, binding_sha256: sha256Base64Url(semanticResult.binding_value) },
-    "member-id": { verified_member_id: semanticResult.verified_member_id, response_transcript_sha256: semanticResult.response_transcript_sha256 },
+    "member-id": sparse
+      ? { verified_member_id: semanticResult.verified_member_id, revealed_response_ranges: semanticResult.revealed_response_ranges }
+      : { verified_member_id: semanticResult.verified_member_id, response_transcript_sha256: semanticResult.response_transcript_sha256 },
     "tlsn-notary": { key_id: semanticResult.notary_key_id },
     "result-registry-root": { key_id: resultRegistryRootKeyId, public_key_spki: resultRegistryRootPublicKeySpki },
     "result-registry": { registry_sha256: resultRegistrySha256, envelope_sha256: resultRegistryEnvelopeSha256 },
@@ -584,7 +670,7 @@ export function deriveProductionTrustGraph({
       identity: identities[id],
       evidence_artifact: evidenceArtifacts[id],
     })),
-    edges: PRODUCTION_EVIDENCE_TRUST_GRAPH_EDGE_DEFINITIONS.map((edge) => ({ ...edge })),
+    edges: edgeDefinitions.map((edge) => ({ ...edge })),
   });
 }
 
@@ -618,12 +704,13 @@ export function assertTrustGraph(graph, { artifactNames = null } = {}) {
   if (nodeIds.size !== PRODUCTION_EVIDENCE_TRUST_GRAPH_NODE_IDS.length) {
     throw new Error("production evidence trust graph must contain every required node");
   }
-  if (graph.edges.length !== PRODUCTION_EVIDENCE_TRUST_GRAPH_EDGE_DEFINITIONS.length) {
+  const edgeDefinitions = trustGraphEdgeDefinitions(graph);
+  if (graph.edges.length !== edgeDefinitions.length) {
     throw new Error("production evidence trust graph edge topology is invalid");
   }
   const edgeIds = new Set();
   for (const edge of graph.edges) {
-    const definition = PRODUCTION_EVIDENCE_TRUST_GRAPH_EDGE_DEFINITIONS.find((candidate) => candidate.id === edge?.id);
+    const definition = edgeDefinitions.find((candidate) => candidate.id === edge?.id);
     if (!definition || edgeIds.has(edge.id)) throw new Error("trust graph edge ID is invalid");
     if (edge.source !== definition.source || edge.target !== definition.target || JSON.stringify(edge.binding_fields) !== JSON.stringify(definition.binding_fields) || edge.evidence_artifact !== definition.evidence_artifact || edge.verification_predicate !== definition.verification_predicate || edge.authority !== definition.authority) {
       throw new Error(`trust graph edge protocol mismatch: ${edge.id}`);
@@ -642,7 +729,7 @@ export function assertTrustGraph(graph, { artifactNames = null } = {}) {
     }
     edgeIds.add(edge.id);
   }
-  if (edgeIds.size !== PRODUCTION_EVIDENCE_TRUST_GRAPH_EDGE_IDS.length) {
+  if (edgeIds.size !== edgeDefinitions.length) {
     throw new Error("production evidence trust graph must contain every required edge");
   }
   const directedReachable = new Set(["authenticated-user"]);
@@ -681,7 +768,7 @@ export function assertTrustGraph(graph, { artifactNames = null } = {}) {
 export function assertVerifiedTrustGraph(graph, predicateResults) {
   assertTrustGraph(graph);
   const allowedUnverified = new Set(["remote_attestation_unverified", "proxy_provenance_cryptographic_authentication"]);
-  for (const edge of PRODUCTION_EVIDENCE_TRUST_GRAPH_EDGE_DEFINITIONS) {
+  for (const edge of trustGraphEdgeDefinitions(graph)) {
     const predicate = predicateResults?.[edge.verification_predicate];
     if (allowedUnverified.has(edge.verification_predicate)) {
       if (predicate?.status !== "UNVERIFIED") throw new Error(`governance-only trust graph predicate must remain UNVERIFIED: ${edge.verification_predicate}`);

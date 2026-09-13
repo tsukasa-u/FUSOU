@@ -2,7 +2,7 @@
 
 This Worker is the authoritative authentication, binding, signing, and result-delivery boundary for FUSOU TLSNotary alpha.15 `require_info` Presentations. In production, heavy Presentation verification runs in the `fusou-tlsn-trigger` Trigger.dev task; the Worker does not run the large WASM verification path.
 
-The Worker issues a one-shot, authenticated Session/Binding context at `/attestation/session`. Session issuance requires the existing FUSOU device proof (`device_id`, the HMAC challenge nonce, and the Ed25519 signature over that nonce). Every Session also receives a fresh 32-byte TLSN device challenge. `/verify/tlsn` requires `presentation_base64`, `session_id`, `device_id`, `binding`, and `device_proof` (`challenge`, `sig`); the signature covers the current device, Session, binding, and challenge context. Rust/WASM verifies the Presentation and derives `verified_member_id` from authenticated response bytes. Client-provided member IDs are not accepted. Synthetic wire data is never treated as verified.
+The Worker issues a one-shot, authenticated Session/Binding context at `/attestation/session`. Session issuance requires the existing FUSOU device proof (`device_id`, the HMAC challenge nonce, and the Ed25519 signature over that nonce). Every Session also receives a fresh 32-byte TLSN device challenge. `/verify/tlsn` requires `presentation_base64`, `session_id`, `device_id`, `binding`, and `device_proof` (`challenge`, `sig`); the signature covers the current device, Session, binding, and challenge context. Rust/WASM verifies the Presentation and derives `verified_member_id` from authenticated response bytes. Client-provided member IDs are not accepted. Synthetic wire data is never treated as verified. `/verify/tlsn` emits the complete-disclosure Result profile. `/verify/tlsn/sparse` is a separate sparse profile endpoint, requires `TLSN_SPARSE_PROFILE_SHA256`, uses a separate Result signing domain, and is unavailable in Trigger mode until its async payload contract is deployed.
 
 Both attestation endpoints require `Authorization: Bearer <Supabase access token>`. The Worker resolves the token through Supabase `/auth/v1/user`, uses the returned `auth.users.id` as the canonical user subject, rejects anonymous users, and never stores the raw token. For session issuance it forwards that bearer token and the existing device proof to the configured FUSOU-WEB generic device-proof endpoint. During verification it forwards the bearer token and TLSN-specific proof context to the dedicated `/api/auth/anonymous-sync/v2/tlsn-device-proof` endpoint. FUSOU-WEB remains the device-auth authority: both paths use `user_devices` owner and `revoked_at`; the TLSN path verifies Ed25519 over the canonical proof message and atomically consumes its SHA-256 digest through the existing nonce table. The Worker stores only the backend-derived device ID and TLSN challenge in the Durable Object. The canonical user ID, device ID, and device challenge are included in the signed verifier-result bytes. A binding issued to one user/device cannot be looked up or consumed under another user/device context.
 
@@ -51,13 +51,14 @@ Configure these Worker values before deployment:
 - `TLSN_BINDING_TTL_SECONDS` between `1` and `3600`
 - `TLSN_SERVER_IDENTITY`
 - `TLSN_PROFILE_SHA256`
+- `TLSN_SPARSE_PROFILE_SHA256` when enabling `/verify/tlsn/sparse`; this is a separate trusted profile hash and is never used as a client-selected mode switch
 - `TLSN_VERIFIER_KEY_ID`
 - `TLSN_NOTARY_KEY_ID`
 - `TLSN_NOTARY_REGISTRY`
 - `TLSN_TRUST_ROOT_CERTIFICATE_DER` when the configured verification profile requires a custom trust root
 - `TLSN_DEVICE_AUTH_URL` set to the FUSOU-WEB device-proof endpoint (`/api/auth/anonymous-sync/v2/device-proof` in the deployed API) for the test/non-production runtime
 - `TLSN_DEVICE_POSSESSION_AUTH_URL` set to the dedicated FUSOU-WEB TLSN possession endpoint (`/api/auth/anonymous-sync/v2/tlsn-device-proof` in the deployed API) for the test/non-production runtime
-- `TLSN_CANDIDATE_*` deployment values for the production candidate identity, FUSOU-WEB endpoints, Supabase URL/key, and host allowlists
+- `TLSN_CANDIDATE_*` deployment values for the production candidate identity, FUSOU-WEB endpoints, Supabase URL/key, host allowlists, and both complete and sparse profile hashes
 - `TLSN_PRODUCTION_NOTARY_REGISTRY` is the single public Notary registry input for the Production Worker, production evidence verifier, and APP public manifest. The selected `TLSN_CANDIDATE_NOTARY_KEY_ID` entry must be the same alpha.15 public verifying key passed to the APP.
 - Production public configuration additionally requires `TLSN_PRODUCTION_NOTARY_ENDPOINT`, `TLSN_PRODUCTION_SESSION_AUTHORITY_ENDPOINT`, `TLSN_PRODUCTION_VERIFICATION_ENDPOINT`, and `TLSN_PRODUCTION_ORIGIN_PORT`. These values are validated offline and emitted as `tlsn-production-public-manifest.json` after a passing preflight.
 - `TLSN_SECURITY_REGISTRY_SET_SHA256` for non-secret deployment and trust-registry identity
@@ -163,6 +164,8 @@ Run it with:
 ```sh
 pnpm run validate:remote
 ```
+
+Remote validation currently exercises `/verify/tlsn` and verifies the complete Result profile only. The sparse endpoint is validated by the offline sparse contract tests until its remote fixture and production capture flow are available.
 
 Status: authenticated user ownership `PASS`; authenticated device ownership `PASS`; current device possession proof `PASS, local synthetic scope`; TLSN/device cryptographic binding `PASS, local synthetic scope`; replay/expiry `PASS`; production evidence `BLOCKED`; `P0-05` `BLOCKED`. The remote report always records `production_evidence` and `p0_05` as `BLOCKED`, even when every synthetic check passes. The production trust contract is not complete until the deployed FUSOU-WEB endpoints, production device registry/revocation behavior, production trust material, a Notary key registry, replay/session authority, result-key publication and rotation, and performance evidence are exercised remotely. The test Worker and synthetic evidence do not satisfy that contract.
 

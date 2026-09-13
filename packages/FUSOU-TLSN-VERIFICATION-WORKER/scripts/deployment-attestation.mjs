@@ -38,6 +38,7 @@ export const SECURITY_IDENTITY_FIELDS = [
   "git_commit_sha",
   "server_identity",
   "profile_sha256",
+  "sparse_profile_sha256",
   "verifier_key_id",
   "notary_key_id",
   "security_registry_set_sha256",

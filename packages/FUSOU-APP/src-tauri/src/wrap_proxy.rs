@@ -142,6 +142,12 @@ fn build_production_tlsn_dependencies(
     let result_signing_key_registry = proxy_configs
         .get_tlsn_result_signing_key_registry()
         .ok_or_else(|| production_configuration_error("tlsn_result_signing_key_registry is required for production TLSN"))?;
+    let disclosure_mode = proxy_configs.get_tlsn_disclosure_mode();
+    if !matches!(disclosure_mode.as_str(), "complete" | "sparse") {
+        return Err(production_configuration_error(
+            "tlsn_disclosure_mode must be complete or sparse",
+        ));
+    }
     let notary_key = URL_SAFE_NO_PAD.decode(
         proxy_configs
             .get_tlsn_notary_verifying_key()
@@ -192,11 +198,19 @@ fn build_production_tlsn_dependencies(
     .map_err(production_configuration_error)?);
     let worker_results = RemoteWorkerResultStore::new();
     let result_verifier = std::sync::Arc::new(
-        ResultSignatureVerifier::new(
-            result_public_key_spki,
-            result_signer_key_id,
-            result_signing_key_registry,
-        )
+        if disclosure_mode == "sparse" {
+            ResultSignatureVerifier::new_sparse(
+                result_public_key_spki,
+                result_signer_key_id,
+                result_signing_key_registry,
+            )
+        } else {
+            ResultSignatureVerifier::new(
+                result_public_key_spki,
+                result_signer_key_id,
+                result_signing_key_registry,
+            )
+        }
         .map_err(production_configuration_error)?,
     );
     let verification_backend = std::sync::Arc::new(

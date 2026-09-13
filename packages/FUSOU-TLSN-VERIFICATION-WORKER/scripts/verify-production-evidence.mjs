@@ -11,6 +11,7 @@ import {
   assertResultSubjectIdentity,
   assertSignedProductionEvidenceManifest,
   assertSignedResult,
+  assertSignedSparseResult,
 } from "./production-evidence.mjs";
 import { assertProductionPresentationCaptureMetadata, assertVerifiedTrustGraph, deriveProductionTrustGraph, PRODUCTION_EVIDENCE_GOVERNANCE_ONLY_REQUIREMENTS, PRODUCTION_EVIDENCE_REQUIREMENTS, productionRequirementStatus } from "./production-evidence-contract.mjs";
 import { assertSigningKeyRegistry } from "./signing-key-registry.mjs";
@@ -45,6 +46,12 @@ function required(name) {
 function optional(name) {
   const value = process.env[name]?.trim();
   return value || undefined;
+}
+
+function configuredDisclosureMode() {
+  const mode = optional("TLSN_PRODUCTION_DISCLOSURE_MODE") ?? "complete";
+  if (mode !== "complete" && mode !== "sparse") throw new Error("TLSN_PRODUCTION_DISCLOSURE_MODE must be complete or sparse");
+  return mode;
 }
 
 function parseArtifactJson(artifacts, name) {
@@ -153,6 +160,7 @@ function assertCapturedTrustGraph(manifest, {
 }
 
 async function main() {
+  const disclosureMode = configuredDisclosureMode();
   const { path: manifestPath, manifest } = await readManifest();
   const expectedWorkflow = expectedWorkflowContext();
   const expectedDeployment = parseJson("TLSN_PRODUCTION_EVIDENCE_EXPECTED_DEPLOYMENT_IDENTITY_JSON");
@@ -426,7 +434,7 @@ async function main() {
   const semanticVerification = await verifyProductionPresentation({
     presentationBytes: presentation,
     serverIdentity: expectedSecurity.server_identity,
-    profileSha256: expectedSecurity.profile_sha256,
+    profileSha256: disclosureMode === "sparse" ? manifest.security_identity?.sparse_profile_sha256 : expectedSecurity.profile_sha256,
     verifierKeyId: expectedSecurity.verifier_key_id,
     notaryKeyId: expectedSecurity.notary_key_id,
     canonicalUserId: authoritativeUserId,
@@ -434,11 +442,12 @@ async function main() {
     deviceChallenge: session.device_challenge,
     notaryRegistry,
     trustAnchorDer: trustRootDer,
+    disclosureMode,
   });
   const trustedInputs = {
     server_identity: expectedSecurity.server_identity,
-    profile_id: "fusou-require-info-v1",
-    profile_sha256: expectedSecurity.profile_sha256,
+    profile_id: disclosureMode === "sparse" ? "fusou-require-info-v2-sparse" : "fusou-require-info-v1",
+    profile_sha256: disclosureMode === "sparse" ? manifest.security_identity?.sparse_profile_sha256 : expectedSecurity.profile_sha256,
     verifier_key_id: expectedSecurity.verifier_key_id,
     notary_key_id: expectedSecurity.notary_key_id,
     notary_key_sha256: createHash("sha256").update(Buffer.from(notaryRegistry[expectedSecurity.notary_key_id], "base64url")).digest("base64url"),
@@ -470,7 +479,7 @@ async function main() {
   if (Object.entries(preSignaturePredicateResults).some(([name, predicate]) => name !== "result_signature" && predicate.status !== "PASS")) {
     throw new Error("recomputed independent Presentation predicates did not pass");
   }
-  assertSignedResult(result, {
+  (disclosureMode === "sparse" ? assertSignedSparseResult : assertSignedResult)(result, {
     publicKeySpki: resultPublicKeySpki,
     keyRegistry: capturedResultRegistry,
     signerKeyId: resultSignerKeyId,

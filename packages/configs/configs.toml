@@ -29,6 +29,8 @@ tlsn_result_public_key_spki = ""
 tlsn_result_signer_key_id = ""
 tlsn_result_signing_key_registry = ""
 tlsn_verification_endpoint = ""
+# complete preserves full transcript digests; sparse selects /verify/tlsn/sparse.
+tlsn_disclosure_mode = "complete"
 tlsn_notary_verifying_key = ""
 tlsn_origin_port = 443
 tlsn_server_identity = ""

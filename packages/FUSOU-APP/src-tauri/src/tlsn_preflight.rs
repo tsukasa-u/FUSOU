@@ -24,6 +24,7 @@ pub struct TlsnPreflightConfig {
     pub result_signer_key_id: Option<String>,
     pub result_signing_key_registry: Option<String>,
     pub verification_endpoint: Option<String>,
+    pub disclosure_mode: String,
     pub notary_verifying_key: Option<String>,
     pub origin_trust_roots: Vec<String>,
     pub server_identity: Option<String>,
@@ -44,6 +45,7 @@ impl TlsnPreflightConfig {
             result_signer_key_id: proxy.get_tlsn_result_signer_key_id(),
             result_signing_key_registry: proxy.get_tlsn_result_signing_key_registry(),
             verification_endpoint: proxy.get_tlsn_verification_endpoint(),
+            disclosure_mode: proxy.get_tlsn_disclosure_mode(),
             notary_verifying_key: proxy.get_tlsn_notary_verifying_key(),
             origin_trust_roots: proxy.get_tlsn_origin_trust_roots(),
             server_identity: proxy.get_tlsn_server_identity(),
@@ -216,6 +218,34 @@ pub fn run_preflight(config: &TlsnPreflightConfig, config_path: &Path) -> TlsnPr
         "tlsn_verification_endpoint",
         config.verification_endpoint.as_deref(),
     );
+    let disclosure_mode_valid = matches!(config.disclosure_mode.as_str(), "complete" | "sparse");
+    push_check(
+        &mut checks,
+        "tlsn_disclosure_mode",
+        if disclosure_mode_valid {
+            PreflightStatus::Pass
+        } else {
+            PreflightStatus::Error
+        },
+        if disclosure_mode_valid {
+            config.disclosure_mode.as_str()
+        } else {
+            "must be complete or sparse"
+        },
+    );
+    if config.disclosure_mode == "sparse"
+        && !config
+            .verification_endpoint
+            .as_deref()
+            .is_some_and(|endpoint| endpoint.trim_end_matches('/').ends_with("/verify/tlsn/sparse"))
+    {
+        push_check(
+            &mut checks,
+            "tlsn_sparse_endpoint",
+            PreflightStatus::Error,
+            "sparse mode requires a verification endpoint ending in /verify/tlsn/sparse",
+        );
+    }
 
     match config.session_authority_key_id.as_deref() {
         Some(value) if !value.trim().is_empty() => push_check(
@@ -803,6 +833,7 @@ mod tests {
             root,
             config: TlsnPreflightConfig {
                 production_enabled: true,
+                disclosure_mode: "complete".to_owned(),
                 notary_endpoint: Some("notary.example.test:7047".to_owned()),
                 session_authority_endpoint: Some(
                     "https://authority.example.test/attestation/session".to_owned(),

@@ -13,6 +13,7 @@ import {
   assertTrustGraph,
   assertTrustGraphNodeIdentities,
   assertVerifiedTrustGraph,
+  deriveProductionTrustGraph,
   PRODUCTION_EVIDENCE_TRUST_GRAPH_NODE_DEFINITIONS,
 } from "./production-evidence-contract.mjs";
 import {
@@ -22,14 +23,18 @@ import {
   assertResultSubjectIdentity,
   assertSignedProductionEvidenceManifest,
   assertSignedResult,
+  assertSignedSparseResult,
   createSignedProductionEvidenceManifest,
   resultSigningBytes,
+  sparseResultSigningBytes,
 } from "./production-evidence.mjs";
 import { sha256Base64Url } from "./deployment-attestation.mjs";
 import {
   assertSemanticResultMatches,
   assertSemanticVerificationArtifact,
   createSemanticVerificationArtifact,
+  parseSparseProfileTranscripts,
+  verifySparseResultSignature,
   verifySemanticPredicates,
   verifyProductionPresentation,
 } from "./production-evidence-semantic.mjs";
@@ -857,6 +862,234 @@ rejects("semantic predicate reuse", () => assertSemanticVerificationArtifact({
 }));
 
 const upstreamPresentation = await readFile(new URL("../../FUSOU-TLSN-VERIFIER/fixtures/tlsn-alpha15-upstream-presentation.bin", import.meta.url));
+
+const sparsePresentationMetadata = {
+  verified_presentation: {
+    request_transcript_size: String(requestTranscript.length),
+    response_transcript_size: String(responseTranscript.length),
+    revealed_request_ranges: rangeFor(requestTranscript),
+    revealed_response_ranges: rangeFor(responseTranscript),
+  },
+};
+assert.equal(
+  parseSparseProfileTranscripts(sparsePresentationMetadata, "game.example.com", bindingValue).memberId,
+  result.verified_member_id,
+);
+const responseGap = responseTranscript.indexOf(responseBody);
+const responseGapRanges = [
+  { start: "0", length: String(responseGap + 2), bytes: responseTranscript.subarray(0, responseGap + 2).toString("base64url") },
+  { start: String(responseGap + 3), length: String(responseTranscript.length - responseGap - 3), bytes: responseTranscript.subarray(responseGap + 3).toString("base64url") },
+];
+assert.throws(
+  () => parseSparseProfileTranscripts({
+    verified_presentation: {
+      ...sparsePresentationMetadata.verified_presentation,
+      revealed_response_ranges: responseGapRanges,
+    },
+  }, "game.example.com", bindingValue),
+  /undisclosed range|invalid trailing bytes|member ID/,
+);
+const duplicateResponseBody = Buffer.from("svdata={\"api_result\":1,\"api_result\":1,\"api_data\":{\"api_basic\":{\"api_member_id\":16189463}}}");
+const duplicateResponseTranscript = Buffer.concat([
+  Buffer.from(`HTTP/1.1 200 OK\r\nContent-Length: ${duplicateResponseBody.length}\r\n\r\n`),
+  duplicateResponseBody,
+]);
+assert.throws(
+  () => parseSparseProfileTranscripts({
+    verified_presentation: {
+      ...sparsePresentationMetadata.verified_presentation,
+      response_transcript_size: String(duplicateResponseTranscript.length),
+      revealed_response_ranges: rangeFor(duplicateResponseTranscript),
+    },
+  }, "game.example.com", bindingValue),
+  /duplicate key/,
+);
+const sparseProfileSha256 = Buffer.alloc(32, 9).toString("base64url");
+const fullSparseResult = {
+  version: 2,
+  profile_id: "fusou-require-info-v2-sparse",
+  disclosure_mode: "sparse",
+  profile_sha256: sparseProfileSha256,
+  issuer: result.issuer,
+  proof_purpose: result.proof_purpose,
+  canonical_user_id: result.canonical_user_id,
+  device_id: result.device_id,
+  device_challenge: result.device_challenge,
+  verified_member_id: result.verified_member_id,
+  attestation_session_id: result.attestation_session_id,
+  binding_nonce: result.binding_nonce,
+  binding_value: result.binding_value,
+  verifier_key_id: result.verifier_key_id,
+  notary_key_id: result.notary_key_id,
+  notary_key_sha256: sha256Base64Url(notaryKey),
+  tlsn_attestation_id: result.tlsn_attestation_id,
+  presentation_sha256: sha256Base64Url(presentationBytes),
+  server_identity: result.server_identity,
+  request_transcript_size: result.request_transcript_size,
+  revealed_request_ranges: result.revealed_request_ranges,
+  response_transcript_size: result.response_transcript_size,
+  revealed_response_ranges: result.revealed_response_ranges,
+};
+const fullSparseSemanticVerification = {
+  result: fullSparseResult,
+  presentation_sha256: sha256Base64Url(presentationBytes),
+  verified_presentation: {
+    server_identity: result.server_identity,
+    tlsn_attestation_id: result.tlsn_attestation_id,
+    notary_key_sha256: sha256Base64Url(notaryKey),
+    request_transcript_size: result.request_transcript_size,
+    revealed_request_ranges: result.revealed_request_ranges,
+    response_transcript_size: result.response_transcript_size,
+    revealed_response_ranges: result.revealed_response_ranges,
+  },
+  notary_key_sha256: sha256Base64Url(notaryKey),
+};
+const sparseTrustedInputs = {
+  ...trustedInputs,
+  profile_id: fullSparseResult.profile_id,
+  profile_sha256: sparseProfileSha256,
+};
+const sparsePredicateResults = verifySemanticPredicates({
+  presentationBytes,
+  semanticVerification: fullSparseSemanticVerification,
+  result: fullSparseResult,
+  trustedInputs: sparseTrustedInputs,
+  notaryRegistry,
+  resultRegistry: resultKeyRegistry,
+  resultRegistryRaw: resultKeyRegistryRaw,
+  resultRegistryEnvelope,
+  resultRegistryEnvelopeRaw: resultRegistryEnvelopeBytes,
+  resultPublicKeySpki,
+  resultSignerKeyId: "result-2026",
+  resultRegistrySha256: resultKeyRegistrySha256,
+  trustRootCertificateBytes: trustRootBytes,
+  sessionBinding: bindingValue,
+  sessionId,
+  includeResultSignature: false,
+  verifiedAt: nowIso,
+});
+for (const [name, predicate] of Object.entries(sparsePredicateResults)) {
+  assert.equal(predicate.status, name === "result_signature" ? "UNVERIFIED" : "PASS", `sparse predicate: ${name}`);
+}
+const sparseRequestRanges = [{
+  start: "0",
+  length: "1",
+  bytes: requestTranscript.subarray(0, 1).toString("base64url"),
+}];
+const sparseResult = {
+  ...fullSparseResult,
+  revealed_request_ranges: sparseRequestRanges,
+};
+sparseResult.signature = sign(null, sparseResultSigningBytes(sparseResult), resultPrivateKey).toString("base64url");
+assertSignedSparseResult(sparseResult, {
+  publicKeySpki: resultPublicKeySpki,
+  keyRegistry: resultKeyRegistry,
+  signerKeyId: "result-2026",
+  now,
+});
+const sparseSignaturePredicate = verifySparseResultSignature({
+  result: sparseResult,
+  resultRegistry: resultKeyRegistry,
+  resultPublicKeySpki,
+  resultSignerKeyId: "result-2026",
+  verifiedAt: nowIso,
+});
+assert.equal(sparseSignaturePredicate.status, "PASS");
+assert.throws(
+  () => assertSignedSparseResult({
+    ...sparseResult,
+    revealed_request_ranges: result.revealed_request_ranges,
+  }, {
+    publicKeySpki: resultPublicKeySpki,
+    keyRegistry: resultKeyRegistry,
+    signerKeyId: "result-2026",
+    now,
+  }),
+  /undisclosed transcript range/,
+);
+assert.throws(
+  () => assertSignedSparseResult({ ...sparseResult, response_transcript_sha256: result.response_transcript_sha256 }, {
+    publicKeySpki: resultPublicKeySpki,
+    keyRegistry: resultKeyRegistry,
+    signerKeyId: "result-2026",
+    now,
+  }),
+  /must not contain full transcript digests/,
+);
+assert.throws(
+  () => assertSignedSparseResult({
+    ...sparseResult,
+    signature: sign(null, resultSigningBytes(result), resultPrivateKey).toString("base64url"),
+  }, {
+    publicKeySpki: resultPublicKeySpki,
+    keyRegistry: resultKeyRegistry,
+    signerKeyId: "result-2026",
+    now,
+  }),
+  /signature is invalid/,
+);
+const sparseOverlapResult = {
+  ...sparseResult,
+  revealed_request_ranges: [
+    sparseRequestRanges[0],
+    { start: "0", length: "1", bytes: requestTranscript.subarray(0, 1).toString("base64url") },
+  ],
+};
+sparseOverlapResult.signature = sign(null, sparseResultSigningBytes(sparseOverlapResult), resultPrivateKey).toString("base64url");
+assert.throws(
+  () => assertSignedSparseResult(sparseOverlapResult, {
+    publicKeySpki: resultPublicKeySpki,
+    keyRegistry: resultKeyRegistry,
+    signerKeyId: "result-2026",
+    now,
+  }),
+  /range 1 is invalid/,
+);
+const sparseSemanticForGraph = {
+  ...fullSparseSemanticVerification,
+  result: (() => {
+    const unsigned = { ...sparseResult };
+    delete unsigned.signature;
+    return unsigned;
+  })(),
+  verified_presentation: {
+    ...fullSparseSemanticVerification.verified_presentation,
+    revealed_request_ranges: sparseResult.revealed_request_ranges,
+  },
+};
+const sparseResultBytes = Buffer.from(JSON.stringify(sparseResult));
+const sparseGraph = deriveProductionTrustGraph({
+  captureId: manifest.capture_id,
+  authenticatedUserId: result.canonical_user_id,
+  deviceId: result.device_id,
+  devicePublicKeySha256: deviceIdentity.device_public_key_sha256,
+  deviceAuthentication,
+  session,
+  presentationBytes,
+  semanticVerification: sparseSemanticForGraph,
+  result: sparseResult,
+  resultBytes: sparseResultBytes,
+  resultSignerKeyId: "result-2026",
+  resultRegistrySha256: resultKeyRegistrySha256,
+  resultRegistryEnvelopeSha256,
+  resultRegistryRootKeyId,
+  resultRegistryRootPublicKeySpki,
+  proxyProvenance,
+});
+assertTrustGraph(sparseGraph, { artifactNames: new Set(Object.keys(manifest.artifacts)) });
+assertTrustGraphNodeIdentities(sparseGraph, {
+  "member-id": {
+    verified_member_id: result.verified_member_id,
+    revealed_response_ranges: result.revealed_response_ranges,
+  },
+});
+assertVerifiedTrustGraph(sparseGraph, {
+  ...sparsePredicateResults,
+  result_signature: sparseSignaturePredicate,
+  ...devicePredicateResults,
+  proxy_provenance_cryptographic_authentication: { status: "UNVERIFIED" },
+  remote_attestation_unverified: { status: "UNVERIFIED" },
+});
 await assert.rejects(
   verifyProductionPresentation({
     presentationBytes: upstreamPresentation,

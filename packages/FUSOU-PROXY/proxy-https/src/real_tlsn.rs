@@ -77,6 +77,7 @@ pub struct ResultSignatureVerifier {
     public_key: [u8; 32],
     not_before: DateTime<Utc>,
     not_after: Option<DateTime<Utc>>,
+    sparse: bool,
 }
 
 impl ResultSignatureVerifier {
@@ -84,6 +85,23 @@ impl ResultSignatureVerifier {
         public_key_spki: Vec<u8>,
         expected_key_id: String,
         registry_json: String,
+    ) -> Result<Self, TlsnTransportError> {
+        Self::new_with_profile(public_key_spki, expected_key_id, registry_json, false)
+    }
+
+    pub fn new_sparse(
+        public_key_spki: Vec<u8>,
+        expected_key_id: String,
+        registry_json: String,
+    ) -> Result<Self, TlsnTransportError> {
+        Self::new_with_profile(public_key_spki, expected_key_id, registry_json, true)
+    }
+
+    fn new_with_profile(
+        public_key_spki: Vec<u8>,
+        expected_key_id: String,
+        registry_json: String,
+        sparse: bool,
     ) -> Result<Self, TlsnTransportError> {
         if !valid_result_key_id(&expected_key_id)
             || public_key_spki.len() != ED25519_SPKI_PREFIX.len() + 32
@@ -147,6 +165,7 @@ impl ResultSignatureVerifier {
             public_key,
             not_before,
             not_after,
+            sparse,
         })
     }
 
@@ -168,16 +187,34 @@ impl ResultSignatureVerifier {
             .ok_or(VerificationError::WorkerRejected)?;
         let result_bytes =
             serde_json::to_vec(result).map_err(|_| VerificationError::WorkerRejected)?;
-        let parsed =
-            fusou_tlsn_verifier::parse_verifier_result(&result_bytes, &ParserLimits::default())
+        let verified_member_id = if self.sparse {
+            let parsed = fusou_tlsn_verifier::sparse_result::parse_sparse_verifier_result(
+                &result_bytes,
+                &ParserLimits::default(),
+            )
+            .map_err(|_| VerificationError::WorkerRejected)?;
+            let signing_bytes = parsed
+                .signing_bytes()
                 .map_err(|_| VerificationError::WorkerRejected)?;
-        let signing_bytes = parsed
-            .signing_bytes()
+            ring::signature::UnparsedPublicKey::new(&ring::signature::ED25519, &self.public_key)
+                .verify(&signing_bytes, &parsed.signature)
+                .map_err(|_| VerificationError::WorkerRejected)?;
+            parsed.verified_member_id
+        } else {
+            let parsed = fusou_tlsn_verifier::parse_verifier_result(
+                &result_bytes,
+                &ParserLimits::default(),
+            )
             .map_err(|_| VerificationError::WorkerRejected)?;
-        ring::signature::UnparsedPublicKey::new(&ring::signature::ED25519, &self.public_key)
-            .verify(&signing_bytes, &parsed.signature)
-            .map_err(|_| VerificationError::WorkerRejected)?;
-        VerifiedMemberId::from_verifier(parsed.verified_member_id)
+            let signing_bytes = parsed
+                .signing_bytes()
+                .map_err(|_| VerificationError::WorkerRejected)?;
+            ring::signature::UnparsedPublicKey::new(&ring::signature::ED25519, &self.public_key)
+                .verify(&signing_bytes, &parsed.signature)
+                .map_err(|_| VerificationError::WorkerRejected)?;
+            parsed.verified_member_id
+        };
+        VerifiedMemberId::from_verifier(verified_member_id)
     }
 }
 

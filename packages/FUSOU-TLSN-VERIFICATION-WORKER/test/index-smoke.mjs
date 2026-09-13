@@ -171,6 +171,7 @@ export async function runSmokeTest(fetch, fixture, publicKeyDerBase64url, device
     verifier_key_id: "worker-test",
     notary_key_id: "notary-test",
     profile_sha256: base64Url(Buffer.alloc(32)),
+    sparse_profile_sha256: null,
     deployment_id: null,
     security_registry_set_sha256: null,
     notary_registry_sha256: base64Url(createHash("sha256").update(
@@ -182,6 +183,7 @@ export async function runSmokeTest(fetch, fixture, publicKeyDerBase64url, device
       git_commit_sha: null,
       server_identity: "game.example.test",
       profile_sha256: base64Url(Buffer.alloc(32)),
+      sparse_profile_sha256: null,
       verifier_key_id: "worker-test",
       notary_key_id: "notary-test",
       security_registry_set_sha256: null,

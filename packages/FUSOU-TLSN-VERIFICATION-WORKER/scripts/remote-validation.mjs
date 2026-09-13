@@ -55,6 +55,7 @@ const SECURITY_IDENTITY_FIELDS = [
   "git_commit_sha",
   "server_identity",
   "profile_sha256",
+  "sparse_profile_sha256",
   "verifier_key_id",
   "notary_key_id",
   "security_registry_set_sha256",
@@ -271,6 +272,7 @@ function signDeviceProof(session, privateKey, overrides = {}) {
 function verifyExternalResult(result, fixture, publicKey, expected) {
   assert.equal(result.version, 1);
   assert.equal(result.profile_id, "fusou-require-info-v1");
+  assert.equal(result.disclosure_mode, undefined, "remote validation supports complete Results only");
   assert.equal(result.canonical_user_id, expected.userId);
   assert.equal(result.device_id, expected.deviceId);
   assert.equal(result.verified_member_id, expected.memberId);

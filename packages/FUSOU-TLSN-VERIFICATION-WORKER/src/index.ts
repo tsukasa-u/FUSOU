@@ -1,4 +1,4 @@
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
 import { z } from "zod";
 import {
   BindingAuthorityError,
@@ -24,9 +24,13 @@ import {
 } from "./verification_jobs.js";
 import initVerifier, {
   attach_verifier_result_signature,
+  attach_sparse_verifier_result_signature,
   derive_verifier_result_signing_bytes,
+  derive_sparse_verifier_result_signing_bytes,
   verify_require_info_presentation,
   verify_require_info_presentation_with_trust_anchor,
+  verify_sparse_require_info_presentation,
+  verify_sparse_require_info_presentation_with_trust_anchor,
 } from "./wasm/fusou_tlsn_verifier.js";
 import wasmModule from "./wasm/fusou_tlsn_verifier_bg.wasm";
 
@@ -52,6 +56,7 @@ type Bindings = {
   TLSN_PRODUCTION_WORKER_INTERNAL_URL?: string;
   TLSN_SERVER_IDENTITY: string;
   TLSN_PROFILE_SHA256: string;
+  TLSN_SPARSE_PROFILE_SHA256?: string;
   TLSN_VERIFIER_KEY_ID: string;
   TLSN_NOTARY_KEY_ID: string;
   TLSN_NOTARY_REGISTRY: string;
@@ -68,6 +73,7 @@ type Bindings = {
   TLSN_TEST_BINDING_VALUE?: string;
   TLSN_CANDIDATE_SERVER_IDENTITY?: string;
   TLSN_CANDIDATE_PROFILE_SHA256?: string;
+  TLSN_CANDIDATE_SPARSE_PROFILE_SHA256?: string;
   TLSN_CANDIDATE_VERIFIER_KEY_ID?: string;
   TLSN_CANDIDATE_NOTARY_KEY_ID?: string;
   TLSN_PRODUCTION_NOTARY_REGISTRY?: string;
@@ -176,6 +182,7 @@ const configSchema = z.object({
   environment: z.enum(["test", "production"]),
   serverIdentity: z.string().min(1).max(253),
   profileSha256: z.string().regex(/^[A-Za-z0-9_-]+$/),
+  sparseProfileSha256: z.string().regex(/^[A-Za-z0-9_-]+$/).optional(),
   verifierKeyId: z.string().regex(/^[A-Za-z0-9._-]{1,64}$/),
   notaryKeyId: z.string().regex(/^[A-Za-z0-9._-]{1,64}$/),
   deviceAuthUrl: z.string().url(),
@@ -289,6 +296,7 @@ const notaryRegistrySchema = z.record(
 
 type VerifierConfig = z.infer<typeof configSchema> & {
   profileSha256Bytes: Uint8Array;
+  sparseProfileSha256Bytes: Uint8Array | undefined;
   notaryKeyBytes: Uint8Array;
   resultSigningPrivateKeyBytes: Uint8Array;
   sessionAuthoritySigningPrivateKeyBytes: Uint8Array;
@@ -448,6 +456,9 @@ async function readConfig(env: Bindings): Promise<VerifierConfig | null> {
     environment: env.TLSN_ENVIRONMENT,
     serverIdentity: production ? env.TLSN_CANDIDATE_SERVER_IDENTITY : env.TLSN_SERVER_IDENTITY,
     profileSha256: production ? env.TLSN_CANDIDATE_PROFILE_SHA256 : env.TLSN_PROFILE_SHA256,
+    sparseProfileSha256: production
+      ? env.TLSN_CANDIDATE_SPARSE_PROFILE_SHA256
+      : env.TLSN_SPARSE_PROFILE_SHA256,
     verifierKeyId: production ? env.TLSN_CANDIDATE_VERIFIER_KEY_ID : env.TLSN_VERIFIER_KEY_ID,
     notaryKeyId: production ? env.TLSN_CANDIDATE_NOTARY_KEY_ID : env.TLSN_NOTARY_KEY_ID,
     deviceAuthUrl: production ? env.TLSN_CANDIDATE_DEVICE_AUTH_URL : env.TLSN_DEVICE_AUTH_URL,
@@ -609,6 +620,12 @@ async function readConfig(env: Bindings): Promise<VerifierConfig | null> {
     if (profileSha256Bytes.length !== 32) {
       return null;
     }
+    const sparseProfileSha256Bytes = parsed.data.sparseProfileSha256
+      ? decodeBase64Url(parsed.data.sparseProfileSha256, 32)
+      : undefined;
+    if (sparseProfileSha256Bytes && sparseProfileSha256Bytes.length !== 32) {
+      return null;
+    }
     const notaryKeyBytes = decodeBase64Url(notaryKeyValue, 4096);
     const resultSigningPrivateKeyBytes = decodeBase64Url(parsed.data.resultSigningPrivateKeyPkcs8, 4096);
     const sessionAuthoritySigningPrivateKeyBytes = decodeBase64Url(parsed.data.sessionAuthoritySigningPrivateKeyPkcs8, 4096);
@@ -626,6 +643,7 @@ async function readConfig(env: Bindings): Promise<VerifierConfig | null> {
     return {
       ...parsed.data,
       profileSha256Bytes,
+      sparseProfileSha256Bytes,
       notaryKeyBytes,
       resultSigningPrivateKeyBytes,
       sessionAuthoritySigningPrivateKeyBytes,
@@ -684,6 +702,13 @@ async function signBindingAuthorityReceipt(config: VerifierConfig, signingBytes:
 async function signResult(config: VerifierConfig, signingBytes: Uint8Array): Promise<Uint8Array> {
   if (!hasPrefix(signingBytes, "FUSOU-VERIFIER-RESULT-V1\0")) {
     throw new Error("Result Signer received a non-Result payload");
+  }
+  return signSigningBytes(signingBytes, config.resultSigningPrivateKeyBytes);
+}
+
+async function signSparseResult(config: VerifierConfig, signingBytes: Uint8Array): Promise<Uint8Array> {
+  if (!hasPrefix(signingBytes, "FUSOU-VERIFIER-SPARSE-RESULT-V1\0")) {
+    throw new Error("Result Signer received a non-sparse Result payload");
   }
   return signSigningBytes(signingBytes, config.resultSigningPrivateKeyBytes);
 }
@@ -1330,6 +1355,9 @@ app.get("/health", async (c) => {
   const profileSha256 = production
     ? c.env.TLSN_CANDIDATE_PROFILE_SHA256
     : c.env.TLSN_PROFILE_SHA256;
+  const sparseProfileSha256 = production
+    ? c.env.TLSN_CANDIDATE_SPARSE_PROFILE_SHA256
+    : c.env.TLSN_SPARSE_PROFILE_SHA256;
   const notaryRegistry = production
     ? c.env.TLSN_PRODUCTION_NOTARY_REGISTRY
     : c.env.TLSN_NOTARY_REGISTRY;
@@ -1410,6 +1438,7 @@ app.get("/health", async (c) => {
     verifier_key_id: verifierKeyId ?? null,
     notary_key_id: notaryKeyId ?? null,
     profile_sha256: profileSha256 ?? null,
+    sparse_profile_sha256: sparseProfileSha256 ?? null,
     deployment_id: deploymentId,
     security_registry_set_sha256: c.env.TLSN_SECURITY_REGISTRY_SET_SHA256 ?? null,
     notary_registry_sha256: notaryRegistrySha256,
@@ -1419,6 +1448,7 @@ app.get("/health", async (c) => {
       git_commit_sha: c.env.TLSN_GIT_COMMIT_SHA ?? null,
       server_identity: production ? c.env.TLSN_CANDIDATE_SERVER_IDENTITY ?? null : c.env.TLSN_SERVER_IDENTITY,
       profile_sha256: profileSha256 ?? null,
+      sparse_profile_sha256: sparseProfileSha256 ?? null,
       verifier_key_id: verifierKeyId ?? null,
       notary_key_id: notaryKeyId ?? null,
       security_registry_set_sha256: c.env.TLSN_SECURITY_REGISTRY_SET_SHA256 ?? null,
@@ -1669,10 +1699,14 @@ app.post("/verify/tlsn/retry", async (c) => {
   return c.json({ verified: false, status: "queued", job_id: requestBody.job_id }, 202);
 });
 
-app.post("/verify/tlsn", async (c) => {
+const handleTlsnVerification = async (c: Context<{ Bindings: Bindings }>) => {
   const config = await readConfig(c.env);
   if (!config) {
     return c.json({ error: "verifier_unconfigured" }, 503);
+  }
+  const sparseProfile = c.req.path === "/verify/tlsn/sparse";
+  if (sparseProfile && !config.sparseProfileSha256Bytes) {
+    return c.json({ error: "sparse_verifier_unconfigured" }, 503);
   }
   const authentication = requireAuthentication(await authenticateRequest(c.req.raw, c.env));
   if (authentication instanceof Response) {
@@ -1694,6 +1728,9 @@ app.post("/verify/tlsn", async (c) => {
   }
 
   if (shouldUseTriggerExecution(c.env)) {
+    if (sparseProfile) {
+      return c.json({ verified: false, error: "sparse_trigger_unavailable" }, 503);
+    }
     const trigger = triggerExecutionConfig(c.env);
     if (!trigger) {
       return c.json({ verified: false, error: "trigger_unconfigured" }, 503);
@@ -1832,32 +1869,58 @@ app.post("/verify/tlsn", async (c) => {
   }
 
   try {
+    const preparedJson = sparseProfile
+      ? config.trustRootCertificateDerBytes
+        ? verify_sparse_require_info_presentation_with_trust_anchor(
+            presentationBytes,
+            config.serverIdentity,
+            config.sparseProfileSha256Bytes!,
+            config.verifierKeyId,
+            config.notaryKeyId,
+            authentication.canonicalUserId,
+            requestBody.device_id,
+            deviceChallengeBytes,
+            config.trustRootCertificateDerBytes,
+            config.notaryKeyBytes,
+          )
+        : verify_sparse_require_info_presentation(
+            presentationBytes,
+            config.serverIdentity,
+            config.sparseProfileSha256Bytes!,
+            config.verifierKeyId,
+            config.notaryKeyId,
+            authentication.canonicalUserId,
+            requestBody.device_id,
+            deviceChallengeBytes,
+            config.notaryKeyBytes,
+          )
+      : config.trustRootCertificateDerBytes
+        ? verify_require_info_presentation_with_trust_anchor(
+            presentationBytes,
+            config.serverIdentity,
+            config.profileSha256Bytes,
+            config.verifierKeyId,
+            config.notaryKeyId,
+            authentication.canonicalUserId,
+            requestBody.device_id,
+            deviceChallengeBytes,
+            config.trustRootCertificateDerBytes,
+            config.notaryKeyBytes,
+          )
+        : verify_require_info_presentation(
+            presentationBytes,
+            config.serverIdentity,
+            config.profileSha256Bytes,
+            config.verifierKeyId,
+            config.notaryKeyId,
+            authentication.canonicalUserId,
+            requestBody.device_id,
+            deviceChallengeBytes,
+            config.notaryKeyBytes,
+          );
     const prepared = preparedResultSchema.parse(
       JSON.parse(
-        config.trustRootCertificateDerBytes
-          ? verify_require_info_presentation_with_trust_anchor(
-              presentationBytes,
-              config.serverIdentity,
-              config.profileSha256Bytes,
-              config.verifierKeyId,
-              config.notaryKeyId,
-              authentication.canonicalUserId,
-              requestBody.device_id,
-              deviceChallengeBytes,
-              config.trustRootCertificateDerBytes,
-              config.notaryKeyBytes,
-            )
-          : verify_require_info_presentation(
-              presentationBytes,
-              config.serverIdentity,
-              config.profileSha256Bytes,
-              config.verifierKeyId,
-              config.notaryKeyId,
-              authentication.canonicalUserId,
-              requestBody.device_id,
-              deviceChallengeBytes,
-              config.notaryKeyBytes,
-            ),
+        preparedJson,
       ) as unknown,
     );
     const authenticatedResult = authenticatedResultSchema.parse(
@@ -1900,11 +1963,13 @@ app.post("/verify/tlsn", async (c) => {
       new Uint8Array(await crypto.subtle.digest("SHA-256", presentationBytes)),
     );
     const signingBytes = decodeBase64Url(prepared.signing_bytes, MAX_RESULT_JSON_BYTES);
-    const derivedSigningBytes = derive_verifier_result_signing_bytes(prepared.unsigned_result);
+    const derivedSigningBytes = sparseProfile
+      ? derive_sparse_verifier_result_signing_bytes(prepared.unsigned_result)
+      : derive_verifier_result_signing_bytes(prepared.unsigned_result);
     if (!hasSameBytes(derivedSigningBytes, signingBytes)) {
       return c.json({ verified: false, error: "signing_bytes_mismatch" }, 422);
     }
-    const signature = await signResult(config, signingBytes);
+    const signature = await (sparseProfile ? signSparseResult(config, signingBytes) : signResult(config, signingBytes));
     if (signature.length !== 64) {
       return c.json({ error: "verifier_unavailable" }, 503);
     }
@@ -1924,10 +1989,9 @@ app.post("/verify/tlsn", async (c) => {
       return c.json({ verified: false, error: message }, bindingAuthorityStatus(error));
     }
     const consumeReceipt = await signConsumeReceipt(config, consumedBinding);
-    const signedResultJson = attach_verifier_result_signature(
-      prepared.unsigned_result,
-      signature,
-    );
+    const signedResultJson = sparseProfile
+      ? attach_sparse_verifier_result_signature(prepared.unsigned_result, signature)
+      : attach_verifier_result_signature(prepared.unsigned_result, signature);
     const signedResult = JSON.parse(signedResultJson) as Record<string, unknown>;
     c.header("Cache-Control", "no-store");
     return c.json({
@@ -1941,7 +2005,10 @@ app.post("/verify/tlsn", async (c) => {
   } catch {
     return c.json({ verified: false, error: "verification_failed" }, 422);
   }
-});
+};
+
+app.post("/verify/tlsn", handleTlsnVerification);
+app.post("/verify/tlsn/sparse", handleTlsnVerification);
 
 export { app, TlsnBindingAuthorityDurableObject };
 export default app;

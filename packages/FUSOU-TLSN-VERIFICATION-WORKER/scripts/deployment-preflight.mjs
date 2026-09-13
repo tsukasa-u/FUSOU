@@ -234,6 +234,7 @@ async function main() {
   const deploymentIdName = role === "canary" ? "TLSN_CANARY_DEPLOYMENT_ID" : "TLSN_PRODUCTION_DEPLOYMENT_ID";
   if (!value(deploymentIdName) || !/^[A-Za-z0-9._-]{1,128}$/.test(value(deploymentIdName))) addFailure(failures, deploymentIdName, "must be an alphanumeric deployment identifier");
   requireBase64UrlLength(failures, "TLSN_CANDIDATE_PROFILE_SHA256", 43);
+  requireBase64UrlLength(failures, "TLSN_CANDIDATE_SPARSE_PROFILE_SHA256", 43);
   requireBase64UrlLength(failures, "TLSN_SECURITY_REGISTRY_SET_SHA256", 43);
   const resultKeyName = role === "canary" ? "TLSN_CANARY_RESULT_PUBLIC_KEY_SPKI" : "TLSN_PRODUCTION_RESULT_PUBLIC_KEY_SPKI";
   const resultSignerKeyIdName = role === "canary" ? "TLSN_CANARY_RESULT_SIGNER_KEY_ID" : "TLSN_PRODUCTION_RESULT_SIGNER_KEY_ID";
@@ -426,6 +427,7 @@ async function main() {
       git_commit_sha: value("TLSN_GIT_COMMIT_SHA") ?? null,
       server_identity: value("TLSN_CANDIDATE_SERVER_IDENTITY") ?? null,
       profile_sha256: value("TLSN_CANDIDATE_PROFILE_SHA256") ?? null,
+      sparse_profile_sha256: value("TLSN_CANDIDATE_SPARSE_PROFILE_SHA256") ?? null,
       verifier_key_id: value("TLSN_CANDIDATE_VERIFIER_KEY_ID") ?? null,
       notary_key_id: value("TLSN_CANDIDATE_NOTARY_KEY_ID") ?? null,
       security_registry_set_sha256: value("TLSN_SECURITY_REGISTRY_SET_SHA256") ?? null,

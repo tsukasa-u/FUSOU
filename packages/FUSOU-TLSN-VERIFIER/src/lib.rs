@@ -4,6 +4,7 @@ pub mod evidence_bundle;
 pub mod experimental;
 pub mod experimental_correlation;
 pub mod prover_transport;
+pub mod sparse_result;
 pub mod tlsn_alpha15;
 pub mod wasm;
 
@@ -47,6 +48,8 @@ pub enum VerifierError {
     InvalidHttp(&'static str),
     #[error("invalid JSON transcript: {0}")]
     InvalidJson(&'static str),
+    #[error("sparse require_info profile is unsupported: {0}")]
+    SparseProfileUnsupported(&'static str),
     #[error("invalid binding value: {0}")]
     InvalidBinding(&'static str),
     #[error("invalid Verifier Result: {0}")]
@@ -758,6 +761,159 @@ pub fn parse_require_info_response_source(
     parse_require_info_response(&raw, limits)
 }
 
+fn authenticated_prefix(
+    source: &AuthenticatedByteSource<'_>,
+    max_bytes: usize,
+) -> Result<Vec<u8>> {
+    let ranges = source.ranges();
+    let Some(first) = ranges.first() else {
+        return Err(VerifierError::InvalidRange(
+            "sparse transcript does not disclose an authenticated prefix",
+        ));
+    };
+    if first.start != 0 {
+        return Err(VerifierError::InvalidRange(
+            "sparse transcript does not disclose an authenticated prefix",
+        ));
+    }
+    let mut end = first.end;
+    for range in ranges.iter().skip(1) {
+        if range.start != end {
+            break;
+        }
+        end = range.end;
+    }
+    let end = end.min(max_bytes);
+    source.read(0..end)
+}
+
+fn parse_sparse_message_head(
+    source: &AuthenticatedByteSource<'_>,
+    expected_start_line: &[u8],
+    limits: &ParserLimits,
+) -> Result<(Vec<Header>, usize)> {
+    let prefix = authenticated_prefix(source, limits.http_header_bytes)?;
+    parse_message_head(&prefix, expected_start_line, limits)
+}
+
+fn sparse_body_range(
+    headers: &[Header],
+    body_start: usize,
+    transcript_len: usize,
+    max_body: usize,
+) -> Result<Range<usize>> {
+    let content_lengths = header_values(headers, b"content-length");
+    let transfer_encodings = header_values(headers, b"transfer-encoding");
+    if content_lengths.len() > 1 || transfer_encodings.len() > 1 {
+        return Err(VerifierError::InvalidHttp("duplicate framing header"));
+    }
+    if !transfer_encodings.is_empty() {
+        return Err(VerifierError::SparseProfileUnsupported(
+            "chunked transfer encoding requires an authenticated framing scan",
+        ));
+    }
+    let Some(content_length) = content_lengths.first() else {
+        return Err(VerifierError::InvalidHttp("missing body framing"));
+    };
+    let length = parse_ascii_u64(&content_length.value)
+        .map_err(|_| VerifierError::InvalidHttp("invalid Content-Length"))?;
+    let length = usize::try_from(length)
+        .map_err(|_| VerifierError::InvalidHttp("Content-Length does not fit usize"))?;
+    if length > max_body {
+        return Err(VerifierError::LimitExceeded("decompressed body bytes"));
+    }
+    let body_end = body_start
+        .checked_add(length)
+        .ok_or(VerifierError::InvalidHttp("Content-Length overflows transcript"))?;
+    if body_end != transcript_len {
+        return Err(VerifierError::InvalidHttp(
+            "Content-Length does not match transcript length",
+        ));
+    }
+    Ok(body_start..body_end)
+}
+
+pub fn parse_require_info_request_sparse_source(
+    source: &AuthenticatedByteSource<'_>,
+    expected_server_identity: &str,
+    limits: &ParserLimits,
+) -> Result<ParsedRequireInfoRequest> {
+    if source.len() > limits.request_transcript_bytes {
+        return Err(VerifierError::LimitExceeded("request transcript bytes"));
+    }
+    let start_line = format!("POST {REQUIRE_INFO_TARGET} HTTP/1.1");
+    let (headers, body_start) =
+        parse_sparse_message_head(source, start_line.as_bytes(), limits)?;
+    let hosts = header_values(&headers, b"host");
+    if hosts.len() != 1 || hosts[0].value != expected_server_identity.as_bytes() {
+        return Err(VerifierError::InvalidHttp("Host does not match allowlist"));
+    }
+    let bindings = header_values(&headers, BINDING_HEADER.to_ascii_lowercase().as_bytes());
+    if bindings.len() != 1 {
+        return Err(VerifierError::InvalidHttp(
+            "binding header cardinality is invalid",
+        ));
+    }
+    let binding_header = bindings[0];
+    let mut expected_raw = vec![b' '];
+    expected_raw.extend_from_slice(&binding_header.value);
+    if binding_header.raw_value != expected_raw {
+        return Err(VerifierError::InvalidBinding(
+            "binding header must use one leading ASCII space and no trailing OWS",
+        ));
+    }
+    let binding_value = std::str::from_utf8(&binding_header.value)
+        .map_err(|_| VerifierError::InvalidBinding("binding is not ASCII"))?;
+    let binding = parse_binding_value(binding_value)?;
+    let body = sparse_body_range(
+        &headers,
+        body_start,
+        source.len(),
+        limits.request_transcript_bytes,
+    )?;
+    if !body.is_empty() {
+        return Err(VerifierError::SparseProfileUnsupported(
+            "require_info request bodies are not part of the sparse semantic contract",
+        ));
+    }
+    Ok(ParsedRequireInfoRequest { binding })
+}
+
+pub fn parse_require_info_response_sparse_source(
+    source: &AuthenticatedByteSource<'_>,
+    limits: &ParserLimits,
+) -> Result<ParsedRequireInfo> {
+    if source.len() > limits.response_transcript_bytes {
+        return Err(VerifierError::LimitExceeded("response transcript bytes"));
+    }
+    let (headers, body_start) =
+        parse_sparse_message_head(source, b"HTTP/1.1 200 OK", limits)?;
+    let body_range = sparse_body_range(
+        &headers,
+        body_start,
+        source.len(),
+        limits.response_transcript_bytes,
+    )?;
+    let encodings = header_values(&headers, b"content-encoding");
+    if encodings.len() > 1 {
+        return Err(VerifierError::InvalidHttp("duplicate Content-Encoding"));
+    }
+    if encodings
+        .first()
+        .is_some_and(|header| !ascii_case_insensitive_eq(&header.value, b"identity"))
+    {
+        return Err(VerifierError::SparseProfileUnsupported(
+            "compressed response bodies do not have independently authenticated JSON token ranges",
+        ));
+    }
+    if body_range.len() < 7 || source.read(body_range.start..body_range.start + 7)? != b"svdata=" {
+        return Err(VerifierError::InvalidHttp(
+            "body lacks exact svdata= prefix",
+        ));
+    }
+    extract_member_id_sparse(source, body_range.start + 7..body_range.end, limits)
+}
+
 #[derive(Debug, Clone)]
 struct ParsedJsonString {
     value: String,
@@ -1110,6 +1266,480 @@ fn extract_member_id(json: &[u8], limits: &ParserLimits) -> Result<ParsedRequire
     let verified_member_id =
         member_id.ok_or(VerifierError::InvalidJson("api_member_id is missing"))?;
     Ok(ParsedRequireInfo { verified_member_id })
+}
+
+struct SparseJsonCursor<'source, 'transcript> {
+    source: &'source AuthenticatedByteSource<'transcript>,
+    end: usize,
+    position: usize,
+    buffer_start: usize,
+    buffer: Vec<u8>,
+    limits: &'source ParserLimits,
+}
+
+impl<'source, 'transcript> SparseJsonCursor<'source, 'transcript> {
+    fn new(
+        source: &'source AuthenticatedByteSource<'transcript>,
+        range: Range<usize>,
+        limits: &'source ParserLimits,
+    ) -> Self {
+        Self {
+            source,
+            end: range.end,
+            position: range.start,
+            buffer_start: range.end,
+            buffer: Vec::new(),
+            limits,
+        }
+    }
+
+    fn fill_buffer(&mut self) -> Result<()> {
+        if self.position >= self.end
+            || (self.buffer_start..self.buffer_start + self.buffer.len())
+                .contains(&self.position)
+        {
+            return Ok(());
+        }
+        let range = self
+            .source
+            .ranges()
+            .into_iter()
+            .find(|range| range.start <= self.position && self.position < range.end)
+            .ok_or(VerifierError::InvalidRange(
+                "sparse JSON read crosses an undisclosed range",
+            ))?;
+        let chunk_end = range.end.min(self.end).min(self.position.saturating_add(8192));
+        self.buffer = self.source.read(self.position..chunk_end)?;
+        self.buffer_start = self.position;
+        Ok(())
+    }
+
+    fn peek(&mut self) -> Result<Option<u8>> {
+        self.fill_buffer()?;
+        Ok(self
+            .buffer
+            .get(self.position.saturating_sub(self.buffer_start))
+            .copied())
+    }
+
+    fn next(&mut self) -> Result<u8> {
+        let byte = self
+            .peek()?
+            .ok_or(VerifierError::InvalidJson("unexpected end of JSON"))?;
+        self.position += 1;
+        Ok(byte)
+    }
+
+    fn expect_byte(&mut self, expected: u8) -> Result<()> {
+        if self.next()? == expected {
+            Ok(())
+        } else {
+            Err(VerifierError::InvalidJson("unexpected JSON byte"))
+        }
+    }
+
+    fn skip_whitespace(&mut self) -> Result<()> {
+        while matches!(self.peek()?, Some(b' ' | b'\t' | b'\r' | b'\n')) {
+            self.position += 1;
+        }
+        Ok(())
+    }
+
+    fn parse_string(&mut self) -> Result<ParsedJsonString> {
+        self.expect_byte(b'"')?;
+        let source_start = self.position;
+        let mut value = String::new();
+        let mut had_escape = false;
+        loop {
+            let byte = self.next()?;
+            match byte {
+                b'"' => return Ok(ParsedJsonString { value, had_escape }),
+                b'\\' => {
+                    had_escape = true;
+                    self.parse_escape(&mut value)?;
+                }
+                byte if byte < 0x20 => {
+                    return Err(VerifierError::InvalidJson("control byte in JSON string"));
+                }
+                byte if byte < 0x80 => value.push(byte as char),
+                first => {
+                    let width = if first & 0xe0 == 0xc0 {
+                        2
+                    } else if first & 0xf0 == 0xe0 {
+                        3
+                    } else if first & 0xf8 == 0xf0 {
+                        4
+                    } else {
+                        return Err(VerifierError::InvalidJson("invalid UTF-8 string"));
+                    };
+                    let mut bytes = vec![first];
+                    for _ in 1..width {
+                        bytes.push(self.next()?);
+                    }
+                    let character = std::str::from_utf8(&bytes)
+                        .map_err(|_| VerifierError::InvalidJson("invalid UTF-8 string"))?;
+                    value.push_str(character);
+                }
+            }
+            if self.position - source_start > self.limits.game_json_string_bytes
+                || value.len() > self.limits.game_json_string_bytes
+            {
+                return Err(VerifierError::LimitExceeded("JSON string bytes"));
+            }
+        }
+    }
+
+    fn parse_escape(&mut self, value: &mut String) -> Result<()> {
+        match self.next()? {
+            b'"' => value.push('"'),
+            b'\\' => value.push('\\'),
+            b'/' => value.push('/'),
+            b'b' => value.push('\u{0008}'),
+            b'f' => value.push('\u{000c}'),
+            b'n' => value.push('\n'),
+            b'r' => value.push('\r'),
+            b't' => value.push('\t'),
+            b'u' => {
+                let high = self.parse_hex_quad()?;
+                let character = if (0xD800..=0xDBFF).contains(&high) {
+                    self.expect_byte(b'\\')?;
+                    self.expect_byte(b'u')?;
+                    let low = self.parse_hex_quad()?;
+                    if !(0xDC00..=0xDFFF).contains(&low) {
+                        return Err(VerifierError::InvalidJson(
+                            "invalid surrogate pair in JSON string",
+                        ));
+                    }
+                    let scalar = 0x1_0000_u32
+                        + (u32::from(high - 0xD800) << 10)
+                        + u32::from(low - 0xDC00);
+                    char::from_u32(scalar)
+                        .ok_or(VerifierError::InvalidJson("invalid Unicode scalar"))?
+                } else if (0xDC00..=0xDFFF).contains(&high) {
+                    return Err(VerifierError::InvalidJson(
+                        "unpaired low surrogate in JSON string",
+                    ));
+                } else {
+                    char::from_u32(high as u32)
+                        .ok_or(VerifierError::InvalidJson("invalid Unicode scalar"))?
+                };
+                value.push(character);
+            }
+            _ => return Err(VerifierError::InvalidJson("invalid JSON escape")),
+        }
+        Ok(())
+    }
+
+    fn parse_hex_quad(&mut self) -> Result<u16> {
+        let mut bytes = [0_u8; 4];
+        for byte in &mut bytes {
+            *byte = self.next()?;
+            if !byte.is_ascii_hexdigit() {
+                return Err(VerifierError::InvalidJson("invalid Unicode escape"));
+            }
+        }
+        u16::from_str_radix(
+            std::str::from_utf8(&bytes)
+                .map_err(|_| VerifierError::InvalidJson("invalid Unicode escape"))?,
+            16,
+        )
+        .map_err(|_| VerifierError::InvalidJson("invalid Unicode escape"))
+    }
+
+    fn parse_number(&mut self) -> Result<Vec<u8>> {
+        let mut value = Vec::new();
+        if self.peek()? == Some(b'-') {
+            value.push(self.next()?);
+        }
+        match self.peek()? {
+            Some(b'0') => value.push(self.next()?),
+            Some(b'1'..=b'9') => {
+                value.push(self.next()?);
+                while matches!(self.peek()?, Some(b'0'..=b'9')) {
+                    value.push(self.next()?);
+                }
+            }
+            _ => return Err(VerifierError::InvalidJson("invalid JSON number")),
+        }
+        if self.peek()? == Some(b'.') {
+            value.push(self.next()?);
+            let fraction_start = value.len();
+            while matches!(self.peek()?, Some(b'0'..=b'9')) {
+                value.push(self.next()?);
+            }
+            if value.len() == fraction_start {
+                return Err(VerifierError::InvalidJson("invalid JSON number fraction"));
+            }
+        }
+        if matches!(self.peek()?, Some(b'e' | b'E')) {
+            value.push(self.next()?);
+            if matches!(self.peek()?, Some(b'+' | b'-')) {
+                value.push(self.next()?);
+            }
+            let exponent_start = value.len();
+            while matches!(self.peek()?, Some(b'0'..=b'9')) {
+                value.push(self.next()?);
+            }
+            if value.len() == exponent_start {
+                return Err(VerifierError::InvalidJson("invalid JSON number exponent"));
+            }
+        }
+        Ok(value)
+    }
+
+    fn parse_literal(&mut self, literal: &[u8]) -> Result<()> {
+        for expected in literal {
+            if self.next()? != *expected {
+                return Err(VerifierError::InvalidJson("invalid JSON literal"));
+            }
+        }
+        Ok(())
+    }
+
+    fn skip_value(&mut self, depth: usize) -> Result<()> {
+        if depth > self.limits.json_depth {
+            return Err(VerifierError::LimitExceeded("JSON depth"));
+        }
+        self.skip_whitespace()?;
+        match self.peek()? {
+            Some(b'"') => {
+                self.parse_string()?;
+                Ok(())
+            }
+            Some(b'{') => self.skip_object(depth + 1),
+            Some(b'[') => self.skip_array(depth + 1),
+            Some(b't') => self.parse_literal(b"true"),
+            Some(b'f') => self.parse_literal(b"false"),
+            Some(b'n') => self.parse_literal(b"null"),
+            Some(b'-' | b'0'..=b'9') => {
+                self.parse_number()?;
+                Ok(())
+            }
+            _ => Err(VerifierError::InvalidJson("invalid JSON value")),
+        }
+    }
+
+    fn skip_object(&mut self, depth: usize) -> Result<()> {
+        self.expect_byte(b'{')?;
+        let mut keys = Vec::new();
+        self.skip_whitespace()?;
+        if self.peek()? == Some(b'}') {
+            self.position += 1;
+            return Ok(());
+        }
+        loop {
+            let key = self.parse_string()?;
+            if keys.iter().any(|known: &String| known == &key.value) {
+                return Err(VerifierError::InvalidJson("duplicate JSON object key"));
+            }
+            keys.push(key.value);
+            self.skip_whitespace()?;
+            self.expect_byte(b':')?;
+            self.skip_value(depth)?;
+            self.skip_whitespace()?;
+            match self.peek()? {
+                Some(b',') => {
+                    self.position += 1;
+                    self.skip_whitespace()?;
+                }
+                Some(b'}') => {
+                    self.position += 1;
+                    return Ok(());
+                }
+                _ => return Err(VerifierError::InvalidJson("invalid JSON object separator")),
+            }
+        }
+    }
+
+    fn skip_array(&mut self, depth: usize) -> Result<()> {
+        self.expect_byte(b'[')?;
+        self.skip_whitespace()?;
+        if self.peek()? == Some(b']') {
+            self.position += 1;
+            return Ok(());
+        }
+        loop {
+            self.skip_value(depth)?;
+            self.skip_whitespace()?;
+            match self.peek()? {
+                Some(b',') => {
+                    self.position += 1;
+                    self.skip_whitespace()?;
+                }
+                Some(b']') => {
+                    self.position += 1;
+                    return Ok(());
+                }
+                _ => return Err(VerifierError::InvalidJson("invalid JSON array separator")),
+            }
+        }
+    }
+}
+
+fn extract_member_id_sparse(
+    source: &AuthenticatedByteSource<'_>,
+    json_range: Range<usize>,
+    limits: &ParserLimits,
+) -> Result<ParsedRequireInfo> {
+    let mut cursor = SparseJsonCursor::new(source, json_range, limits);
+    let mut keys = Vec::new();
+    let mut result_seen = false;
+    let mut member_id = None;
+    let mut data_seen = false;
+    cursor.expect_byte(b'{')?;
+    cursor.skip_whitespace()?;
+    if cursor.peek()? == Some(b'}') {
+        return Err(VerifierError::InvalidJson("required JSON members are missing"));
+    }
+    loop {
+        let key = cursor.parse_string()?;
+        if keys.iter().any(|known: &String| known == &key.value) {
+            return Err(VerifierError::InvalidJson("duplicate JSON object key"));
+        }
+        keys.push(key.value.clone());
+        cursor.skip_whitespace()?;
+        cursor.expect_byte(b':')?;
+        cursor.skip_whitespace()?;
+        if target_key(&key, "api_result")? {
+            if cursor.parse_number()? != b"1" {
+                return Err(VerifierError::InvalidJson("api_result is not number 1"));
+            }
+            result_seen = true;
+        } else if target_key(&key, "api_data")? {
+            parse_api_data_sparse(&mut cursor, &mut member_id, limits)?;
+            data_seen = true;
+        } else {
+            cursor.skip_value(1)?;
+        }
+        cursor.skip_whitespace()?;
+        match cursor.peek()? {
+            Some(b',') => {
+                cursor.position += 1;
+                cursor.skip_whitespace()?;
+            }
+            Some(b'}') => {
+                cursor.position += 1;
+                break;
+            }
+            _ => return Err(VerifierError::InvalidJson("invalid root object separator")),
+        }
+    }
+    if cursor.position != cursor.end {
+        return Err(VerifierError::InvalidJson("trailing JSON bytes are not allowed"));
+    }
+    if !result_seen || !data_seen {
+        return Err(VerifierError::InvalidJson("required JSON members are missing"));
+    }
+    Ok(ParsedRequireInfo {
+        verified_member_id: member_id
+            .ok_or(VerifierError::InvalidJson("api_member_id is missing"))?,
+    })
+}
+
+fn parse_api_data_sparse(
+    cursor: &mut SparseJsonCursor<'_, '_>,
+    member_id: &mut Option<String>,
+    limits: &ParserLimits,
+) -> Result<()> {
+    cursor.expect_byte(b'{')?;
+    let mut keys = Vec::new();
+    let mut basic_seen = false;
+    cursor.skip_whitespace()?;
+    if cursor.peek()? == Some(b'}') {
+        return Err(VerifierError::InvalidJson("api_basic is missing"));
+    }
+    loop {
+        let key = cursor.parse_string()?;
+        if keys.iter().any(|known: &String| known == &key.value) {
+            return Err(VerifierError::InvalidJson("duplicate JSON object key"));
+        }
+        keys.push(key.value.clone());
+        cursor.skip_whitespace()?;
+        cursor.expect_byte(b':')?;
+        cursor.skip_whitespace()?;
+        if target_key(&key, "api_basic")? {
+            parse_api_basic_sparse(cursor, member_id, limits)?;
+            basic_seen = true;
+        } else {
+            cursor.skip_value(2)?;
+        }
+        cursor.skip_whitespace()?;
+        match cursor.peek()? {
+            Some(b',') => {
+                cursor.position += 1;
+                cursor.skip_whitespace()?;
+            }
+            Some(b'}') => {
+                cursor.position += 1;
+                break;
+            }
+            _ => return Err(VerifierError::InvalidJson("invalid api_data separator")),
+        }
+    }
+    if !basic_seen {
+        return Err(VerifierError::InvalidJson("api_basic is missing"));
+    }
+    Ok(())
+}
+
+fn parse_api_basic_sparse(
+    cursor: &mut SparseJsonCursor<'_, '_>,
+    member_id: &mut Option<String>,
+    _limits: &ParserLimits,
+) -> Result<()> {
+    cursor.expect_byte(b'{')?;
+    let mut keys = Vec::new();
+    let mut member_seen = false;
+    cursor.skip_whitespace()?;
+    if cursor.peek()? == Some(b'}') {
+        return Err(VerifierError::InvalidJson("api_member_id is missing"));
+    }
+    loop {
+        let key = cursor.parse_string()?;
+        if keys.iter().any(|known: &String| known == &key.value) {
+            return Err(VerifierError::InvalidJson("duplicate JSON object key"));
+        }
+        keys.push(key.value.clone());
+        cursor.skip_whitespace()?;
+        cursor.expect_byte(b':')?;
+        cursor.skip_whitespace()?;
+        if target_key(&key, "api_member_id")? {
+            let token = cursor.parse_number()?;
+            if token.is_empty()
+                || token[0] == b'0'
+                || token.len() > 16
+                || !token.iter().all(|byte| byte.is_ascii_digit())
+            {
+                return Err(VerifierError::InvalidJson(
+                    "api_member_id is not a canonical decimal number",
+                ));
+            }
+            *member_id = Some(
+                std::str::from_utf8(&token)
+                    .map_err(|_| VerifierError::InvalidJson("api_member_id is not ASCII"))?
+                    .to_owned(),
+            );
+            member_seen = true;
+        } else {
+            cursor.skip_value(3)?;
+        }
+        cursor.skip_whitespace()?;
+        match cursor.peek()? {
+            Some(b',') => {
+                cursor.position += 1;
+                cursor.skip_whitespace()?;
+            }
+            Some(b'}') => {
+                cursor.position += 1;
+                break;
+            }
+            _ => return Err(VerifierError::InvalidJson("invalid api_basic separator")),
+        }
+    }
+    if !member_seen {
+        return Err(VerifierError::InvalidJson("api_member_id is missing"));
+    }
+    Ok(())
 }
 
 fn parse_api_data(
@@ -2025,6 +2655,53 @@ mod tests {
         assert!(source.read(2..3).is_err());
         assert_eq!(source.disclosed_len(), 4);
         assert!(!source.is_complete());
+    }
+
+    #[test]
+    fn sparse_request_reads_only_authenticated_headers_and_rejects_body_semantics() {
+        let value = binding();
+        let header = format!(
+            "POST {REQUIRE_INFO_TARGET} HTTP/1.1\r\nHost: game.example.test\r\nX-Attestation-Binding: {value}\r\nContent-Length: 3\r\n\r\n"
+        );
+        let mut transcript = header.as_bytes().to_vec();
+        transcript.extend_from_slice(b"abc");
+        let ranges = vec![0..header.len()];
+        let source = AuthenticatedByteSource::new(&transcript, &ranges).unwrap();
+        assert!(matches!(
+            parse_require_info_request_sparse_source(&source, "game.example.test", &default_limits()),
+            Err(VerifierError::SparseProfileUnsupported(_))
+        ));
+    }
+
+    #[test]
+    fn sparse_response_rejects_hidden_duplicate_json_keys() {
+        let body = b"svdata={\"api_result\":1,\"api_data\":{\"api_basic\":{\"api_member_id\":1}},\"api_result\":1}";
+        let response = content_length_response(body);
+        let body_start = response
+            .windows(4)
+            .position(|window| window == b"\r\n\r\n")
+            .unwrap()
+            + 4;
+        let ranges = vec![
+            0..body_start,
+            body_start..body_start + b"svdata={\"api_result\":1".len(),
+        ];
+        let source = AuthenticatedByteSource::new(&response, &ranges).unwrap();
+        assert!(matches!(
+            parse_require_info_response_sparse_source(&source, &default_limits()),
+            Err(VerifierError::InvalidRange(_))
+        ));
+    }
+
+    #[test]
+    fn sparse_response_preserves_strict_json_policy_when_body_is_authenticated() {
+        let body = b"svdata={\"api_result\":1,\"api_data\":{\"api_basic\":{\"api_member_id\":16189463}}}";
+        let response = content_length_response(body);
+        let ranges = vec![0..response.len()];
+        let source = AuthenticatedByteSource::new(&response, &ranges).unwrap();
+        let parsed =
+            parse_require_info_response_sparse_source(&source, &default_limits()).unwrap();
+        assert_eq!(parsed.verified_member_id, "16189463");
     }
 
     #[test]

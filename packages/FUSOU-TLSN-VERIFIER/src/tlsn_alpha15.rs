@@ -1,5 +1,6 @@
 use crate::{
-    parse_require_info_request_source, parse_require_info_response_source, sha256,
+    parse_require_info_request_source, parse_require_info_request_sparse_source,
+    parse_require_info_response_source, parse_require_info_response_sparse_source, sha256,
     validate_server_identity, verify_transcript_digest, AuthenticatedByteSource, ParsedBinding,
     ParserLimits, RevealedRange, VerifierError, MAX_ATTESTATION_ID_BYTES, PROFILE_ID,
     REQUIRE_INFO_TARGET,
@@ -78,6 +79,41 @@ impl RequireInfoDisclosureProfile {
 
     #[cfg(test)]
     pub(crate) fn for_mock_tlsn_verification(server_identity: &str) -> Result<Self> {
+        validate_server_identity(server_identity)?;
+        Ok(Self {
+            server_identity: server_identity.to_owned(),
+        })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SparseRequireInfoDisclosureProfile {
+    server_identity: String,
+}
+
+impl SparseRequireInfoDisclosureProfile {
+    pub const ID: &'static str = "fusou-require-info-v2-sparse";
+    pub const VERSION: u16 = 2;
+    pub const DISCLOSURE_MODE: &'static str = "sparse";
+    pub const TARGET: &'static str = REQUIRE_INFO_TARGET;
+
+    pub fn id(&self) -> &'static str {
+        Self::ID
+    }
+
+    pub fn version(&self) -> u16 {
+        Self::VERSION
+    }
+
+    pub fn disclosure_mode(&self) -> &'static str {
+        Self::DISCLOSURE_MODE
+    }
+
+    pub fn server_identity(&self) -> &str {
+        &self.server_identity
+    }
+
+    pub fn from_server_identity(server_identity: &str) -> Result<Self> {
         validate_server_identity(server_identity)?;
         Ok(Self {
             server_identity: server_identity.to_owned(),
@@ -387,6 +423,38 @@ impl AuthenticatedTranscript {
                 .map_err(Alpha15AdapterError::Parser)?;
         let response_source = self.source(false)?;
         let response = parse_require_info_response_source(&response_source, limits)
+            .map_err(Alpha15AdapterError::Parser)?;
+        Ok(AuthenticatedRequireInfo {
+            verified_member_id: response.verified_member_id,
+            binding: request.binding,
+            server_identity: self.server_identity.clone(),
+            attestation_id: self.attestation_id,
+            request_transcript_sha256: self.sent_digest,
+            response_transcript_sha256: self.received_digest,
+            request_transcript_size: request_source.len() as u64,
+            response_transcript_size: response_source.len() as u64,
+            revealed_request_ranges: self.revealed_ranges(true),
+            revealed_response_ranges: self.revealed_ranges(false),
+        })
+    }
+
+    pub fn verify_require_info_sparse(
+        &self,
+        profile: &SparseRequireInfoDisclosureProfile,
+        limits: &ParserLimits,
+    ) -> Result<AuthenticatedRequireInfo> {
+        if self.server_identity != profile.server_identity {
+            return Err(Alpha15AdapterError::ServerIdentityNotAllowlisted);
+        }
+        let request_source = self.source(true)?;
+        let request = parse_require_info_request_sparse_source(
+            &request_source,
+            &self.server_identity,
+            limits,
+        )
+        .map_err(Alpha15AdapterError::Parser)?;
+        let response_source = self.source(false)?;
+        let response = parse_require_info_response_sparse_source(&response_source, limits)
             .map_err(Alpha15AdapterError::Parser)?;
         Ok(AuthenticatedRequireInfo {
             verified_member_id: response.verified_member_id,

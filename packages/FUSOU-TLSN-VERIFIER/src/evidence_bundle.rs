@@ -1,8 +1,9 @@
 use crate::tlsn_alpha15::{
     verify_alpha15_presentation_with_trusted_notary_key_and_trust_anchor,
-    RequireInfoDisclosureProfile,
+    RequireInfoDisclosureProfile, SparseRequireInfoDisclosureProfile,
 };
 use crate::{parse_verifier_result, sha256, VerifierResult};
+use crate::sparse_result::SparseVerifierResult;
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use k256::PublicKey;
 use ring::signature::{UnparsedPublicKey, ED25519};
@@ -48,8 +49,121 @@ pub struct BundleVerifierOptions {
     pub device_public_key: String,
     pub server_identity: String,
     pub profile_sha256: String,
+    pub sparse_profile_sha256: Option<String>,
     pub verifier_key_id: String,
     pub trust_anchor_der: Vec<u8>,
+}
+
+enum ParsedVerifierResult {
+    Complete(VerifierResult),
+    Sparse(SparseVerifierResult),
+}
+
+trait EvidenceResultView {
+    fn unsigned_canonical_json(&self) -> Result<String>;
+    fn signing_bytes(&self) -> Result<Vec<u8>>;
+    fn signature(&self) -> &[u8; 64];
+    fn profile_sha256(&self) -> &[u8; 32];
+    fn canonical_user_id(&self) -> &str;
+    fn canonical_device_id(&self) -> &str;
+    fn device_challenge(&self) -> &[u8; 32];
+    fn verified_member_id(&self) -> &str;
+    fn attestation_session_id(&self) -> uuid::Uuid;
+    fn binding_nonce(&self) -> &[u8; 32];
+    fn binding_value(&self) -> &str;
+    fn verifier_key_id(&self) -> &str;
+    fn notary_key_id(&self) -> &str;
+    fn tlsn_attestation_id(&self) -> &[u8];
+    fn server_identity(&self) -> &str;
+    fn request_transcript_size(&self) -> u64;
+    fn response_transcript_size(&self) -> u64;
+    fn revealed_request_ranges(&self) -> &[crate::RevealedRange];
+    fn revealed_response_ranges(&self) -> &[crate::RevealedRange];
+    fn is_sparse(&self) -> bool;
+    fn full_transcript_sha256(&self) -> Option<(&[u8; 32], &[u8; 32])>;
+}
+
+impl EvidenceResultView for VerifierResult {
+    fn unsigned_canonical_json(&self) -> Result<String> {
+        let mut value = self.clone();
+        value.signature = [0; 64];
+        value.canonical_json().map_err(|error| {
+            BundleVerificationError::new("result_evidence_binding", Some("result"), error.to_string())
+        })
+    }
+
+    fn signing_bytes(&self) -> Result<Vec<u8>> {
+        self.signing_bytes().map_err(|error| {
+            BundleVerificationError::new("result_signature", Some("result"), error.to_string())
+        })
+    }
+
+    fn signature(&self) -> &[u8; 64] { &self.signature }
+    fn profile_sha256(&self) -> &[u8; 32] { &self.profile_sha256 }
+    fn canonical_user_id(&self) -> &str { &self.canonical_user_id }
+    fn canonical_device_id(&self) -> &str { &self.canonical_device_id }
+    fn device_challenge(&self) -> &[u8; 32] { &self.device_challenge }
+    fn verified_member_id(&self) -> &str { &self.verified_member_id }
+    fn attestation_session_id(&self) -> uuid::Uuid { self.attestation_session_id }
+    fn binding_nonce(&self) -> &[u8; 32] { &self.binding_nonce }
+    fn binding_value(&self) -> &str { &self.binding_value }
+    fn verifier_key_id(&self) -> &str { &self.verifier_key_id }
+    fn notary_key_id(&self) -> &str { &self.notary_key_id }
+    fn tlsn_attestation_id(&self) -> &[u8] { &self.tlsn_attestation_id }
+    fn server_identity(&self) -> &str { &self.server_identity }
+    fn request_transcript_size(&self) -> u64 { self.request_transcript_size }
+    fn response_transcript_size(&self) -> u64 { self.response_transcript_size }
+    fn revealed_request_ranges(&self) -> &[crate::RevealedRange] { &self.revealed_request_ranges }
+    fn revealed_response_ranges(&self) -> &[crate::RevealedRange] { &self.revealed_response_ranges }
+    fn is_sparse(&self) -> bool { false }
+    fn full_transcript_sha256(&self) -> Option<(&[u8; 32], &[u8; 32])> {
+        Some((&self.request_transcript_sha256, &self.response_transcript_sha256))
+    }
+}
+
+impl EvidenceResultView for SparseVerifierResult {
+    fn unsigned_canonical_json(&self) -> Result<String> {
+        let mut value = self.clone();
+        value.signature = [0; 64];
+        value.canonical_json().map_err(|error| {
+            BundleVerificationError::new("result_evidence_binding", Some("result"), error.to_string())
+        })
+    }
+
+    fn signing_bytes(&self) -> Result<Vec<u8>> {
+        self.signing_bytes().map_err(|error| {
+            BundleVerificationError::new("result_signature", Some("result"), error.to_string())
+        })
+    }
+
+    fn signature(&self) -> &[u8; 64] { &self.signature }
+    fn profile_sha256(&self) -> &[u8; 32] { &self.profile_sha256 }
+    fn canonical_user_id(&self) -> &str { &self.canonical_user_id }
+    fn canonical_device_id(&self) -> &str { &self.canonical_device_id }
+    fn device_challenge(&self) -> &[u8; 32] { &self.device_challenge }
+    fn verified_member_id(&self) -> &str { &self.verified_member_id }
+    fn attestation_session_id(&self) -> uuid::Uuid { self.attestation_session_id }
+    fn binding_nonce(&self) -> &[u8; 32] { &self.binding_nonce }
+    fn binding_value(&self) -> &str { &self.binding_value }
+    fn verifier_key_id(&self) -> &str { &self.verifier_key_id }
+    fn notary_key_id(&self) -> &str { &self.notary_key_id }
+    fn tlsn_attestation_id(&self) -> &[u8] { &self.tlsn_attestation_id }
+    fn server_identity(&self) -> &str { &self.server_identity }
+    fn request_transcript_size(&self) -> u64 { self.request_transcript_size }
+    fn response_transcript_size(&self) -> u64 { self.response_transcript_size }
+    fn revealed_request_ranges(&self) -> &[crate::RevealedRange] { &self.revealed_request_ranges }
+    fn revealed_response_ranges(&self) -> &[crate::RevealedRange] { &self.revealed_response_ranges }
+    fn is_sparse(&self) -> bool { true }
+    fn full_transcript_sha256(&self) -> Option<(&[u8; 32], &[u8; 32])> { None }
+}
+
+impl ParsedVerifierResult {
+    fn view(&self) -> &dyn EvidenceResultView {
+        match self {
+            Self::Complete(result) => result,
+            Self::Sparse(result) => result,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -236,10 +350,8 @@ pub fn verify_bundle(
         "binding_authority_registry",
         "binding_authority",
     )?;
-    let result =
-        parse_verifier_result(result_bytes, &crate::ParserLimits::default()).map_err(|error| {
-            BundleVerificationError::new("result_signature", Some("result"), error.to_string())
-        })?;
+    let result = parse_result_profile(result_bytes)?;
+    let result_view = result.view();
     let capture_time =
         manifest_string(&bundle.manifest, "capture_finished_at", "result_key_window")?;
     let capture_time = parse_timestamp(capture_time).map_err(|message| {
@@ -258,7 +370,7 @@ pub fn verify_bundle(
     let registry_keys = validate_result_registry(&registry)?;
     let resolved_key = verify_result_signature(
         &bundle.manifest,
-        &result,
+        result_view,
         &registry_keys,
         &registry_sha256,
         capture_time,
@@ -278,21 +390,23 @@ pub fn verify_bundle(
         "binding authority",
     )?;
 
-    let notary_key_id = result.notary_key_id.as_str();
+    let notary_key_id = result_view.notary_key_id();
     let notary_key = validate_notary_registry(&notary_registry, notary_key_id)?;
     let notary_registry_sha256 = sha256_base64url(bundle_notary_registry_raw);
     verify_notary_publication(&bundle.manifest, &notary_registry_sha256, notary_key_id)?;
 
-    let profile_sha256 =
-        decode_fixed_base64::<32>(&options.profile_sha256, "profile SHA-256", "require_info")?;
-    let profile = RequireInfoDisclosureProfile::from_server_identity(&options.server_identity)
-        .map_err(|error| {
+    let profile_sha256 = if result_view.is_sparse() {
+        let encoded = options.sparse_profile_sha256.as_deref().ok_or_else(|| {
             BundleVerificationError::new(
-                "tlsn_presentation",
-                Some("presentation"),
-                error.to_string(),
+                "require_info_profile",
+                Some("options"),
+                "sparse profile SHA-256 is not configured",
             )
         })?;
+        decode_fixed_base64::<32>(encoded, "sparse profile SHA-256", "require_info")?
+    } else {
+        decode_fixed_base64::<32>(&options.profile_sha256, "profile SHA-256", "require_info")?
+    };
     let transcript = verify_alpha15_presentation_with_trusted_notary_key_and_trust_anchor(
         presentation,
         trust_root,
@@ -301,43 +415,30 @@ pub fn verify_bundle(
     .map_err(|error| {
         BundleVerificationError::new("tlsn_presentation", Some("presentation"), error.to_string())
     })?;
-    let authenticated = transcript
-        .verify_require_info(&profile, &crate::ParserLimits::default())
-        .map_err(|error| {
-            BundleVerificationError::new(
-                "require_info_profile",
-                Some("presentation"),
-                error.to_string(),
-            )
-        })?;
-    let derived_result = authenticated
-        .into_verifier_result(
-            profile_sha256,
-            result.verifier_key_id.clone(),
-            result.notary_key_id.clone(),
-            result.canonical_user_id.clone(),
-            result.canonical_device_id.clone(),
-            result.device_challenge,
-            [0; 64],
-        )
-        .map_err(|error| {
-            BundleVerificationError::new(
-                "result_evidence_binding",
-                Some("presentation"),
-                error.to_string(),
-            )
-        })?;
-    assert_unsigned_result_matches(&result, &derived_result)?;
-    if result.server_identity != options.server_identity {
+    let authenticated = if result_view.is_sparse() {
+        let profile = SparseRequireInfoDisclosureProfile::from_server_identity(&options.server_identity)
+            .map_err(|error| BundleVerificationError::new("tlsn_presentation", Some("presentation"), error.to_string()))?;
+        transcript
+            .verify_require_info_sparse(&profile, &crate::ParserLimits::default())
+            .map_err(|error| BundleVerificationError::new("require_info_profile", Some("presentation"), error.to_string()))?
+    } else {
+        let profile = RequireInfoDisclosureProfile::from_server_identity(&options.server_identity)
+            .map_err(|error| BundleVerificationError::new("tlsn_presentation", Some("presentation"), error.to_string()))?;
+        transcript
+            .verify_require_info(&profile, &crate::ParserLimits::default())
+            .map_err(|error| BundleVerificationError::new("require_info_profile", Some("presentation"), error.to_string()))?
+    };
+    if result_view.server_identity() != options.server_identity {
         return Err(BundleVerificationError::mismatch(
             "server_identity",
             Some("result"),
             "signed Result server identity does not match the external verifier configuration",
             &options.server_identity,
-            &result.server_identity,
+            result_view.server_identity(),
         ));
     }
-    if result.profile_sha256 != profile_sha256 || result.verifier_key_id != options.verifier_key_id
+    if result_view.profile_sha256() != &profile_sha256
+        || result_view.verifier_key_id() != options.verifier_key_id
     {
         return Err(BundleVerificationError::new(
             "result_evidence_binding",
@@ -345,10 +446,35 @@ pub fn verify_bundle(
             "signed Result verifier profile identity does not match external configuration",
         ));
     }
-    verify_session_binding(&bundle, &result)?;
+    let derived_result = if result_view.is_sparse() {
+        ParsedVerifierResult::Sparse(SparseVerifierResult::from_authenticated(
+            &authenticated,
+            profile_sha256,
+            result_view.verifier_key_id().to_owned(),
+            result_view.notary_key_id().to_owned(),
+            sha256(&notary_key),
+            sha256(presentation),
+            result_view.canonical_user_id().to_owned(),
+            result_view.canonical_device_id().to_owned(),
+            *result_view.device_challenge(),
+            [0; 64],
+        ).map_err(|error| BundleVerificationError::new("result_evidence_binding", Some("presentation"), error.to_string()))?)
+    } else {
+        ParsedVerifierResult::Complete(authenticated.into_verifier_result(
+            profile_sha256,
+            result_view.verifier_key_id().to_owned(),
+            result_view.notary_key_id().to_owned(),
+            result_view.canonical_user_id().to_owned(),
+            result_view.canonical_device_id().to_owned(),
+            *result_view.device_challenge(),
+            [0; 64],
+        ).map_err(|error| BundleVerificationError::new("result_evidence_binding", Some("presentation"), error.to_string()))?)
+    };
+    assert_unsigned_result_matches(result_view, derived_result.view())?;
+    verify_session_binding(&bundle, result_view)?;
     verify_authority_artifacts(
         &bundle,
-        &result,
+        result_view,
         &options.canonical_user_id,
         &options.device_id,
         &options.device_public_key,
@@ -359,11 +485,11 @@ pub fn verify_bundle(
         &options.binding_authority_key_id,
         &options.binding_authority_public_key_spki,
     )?;
-    verify_semantic_artifact(&bundle, &result, &notary_key)?;
+    verify_semantic_artifact(&bundle, result_view, &notary_key)?;
     verify_capture_metadata(&bundle, presentation)?;
     verify_health_identities(
         &bundle,
-        &result,
+        result_view,
         &resolved_key,
         &registry_sha256,
         &sha256_base64url(envelope_raw),
@@ -376,10 +502,10 @@ pub fn verify_bundle(
         &options.binding_authority_key_id,
         &options.binding_authority_public_key_spki,
     )?;
-    verify_subject_artifact(&bundle, &result)?;
+    verify_subject_artifact(&bundle, result_view)?;
     verify_trust_graph(
         &bundle,
-        &result,
+        result_view,
         &resolved_key,
         &registry_sha256,
         &notary_key_id,
@@ -408,14 +534,38 @@ pub fn verify_bundle(
             "result_registry_root_key_id": object_string(&envelope, "root_key_id", "result_registry_root", "result_registry_envelope")?,
             "notary_key_id": notary_key_id,
             "notary_key_sha256": sha256_base64url(&notary_key),
-            "tlsn_attestation_id": URL_SAFE_NO_PAD.encode(result.tlsn_attestation_id),
-            "verified_member_id": result.verified_member_id,
-            "server_identity": result.server_identity,
-            "request_transcript_sha256": URL_SAFE_NO_PAD.encode(result.request_transcript_sha256),
-            "response_transcript_sha256": URL_SAFE_NO_PAD.encode(result.response_transcript_sha256),
+            "tlsn_attestation_id": URL_SAFE_NO_PAD.encode(result_view.tlsn_attestation_id()),
+            "verified_member_id": result_view.verified_member_id(),
+            "server_identity": result_view.server_identity(),
         },
     });
+    let mut report = report;
+    if let Some((request_digest, response_digest)) = result_view.full_transcript_sha256() {
+        report["derived"]["request_transcript_sha256"] =
+            Value::String(URL_SAFE_NO_PAD.encode(request_digest));
+        report["derived"]["response_transcript_sha256"] =
+            Value::String(URL_SAFE_NO_PAD.encode(response_digest));
+    } else {
+        report["derived"]["disclosure_mode"] = Value::String("sparse".to_owned());
+    }
     Ok(report)
+}
+
+fn parse_result_profile(input: &[u8]) -> Result<ParsedVerifierResult> {
+    match parse_verifier_result(input, &crate::ParserLimits::default()) {
+        Ok(result) => Ok(ParsedVerifierResult::Complete(result)),
+        Err(complete_error) => match crate::sparse_result::parse_sparse_verifier_result(
+            input,
+            &crate::ParserLimits::default(),
+        ) {
+            Ok(result) => Ok(ParsedVerifierResult::Sparse(result)),
+            Err(sparse_error) => Err(BundleVerificationError::new(
+                "result_signature",
+                Some("result"),
+                format!("unsupported Result profile: complete={complete_error}; sparse={sparse_error}"),
+            )),
+        },
+    }
 }
 
 fn load_bundle(bundle_path: &Path) -> Result<LoadedBundle> {
@@ -1182,7 +1332,7 @@ fn validate_result_registry(registry: &Value) -> Result<Vec<RegistryKey>> {
 
 fn verify_result_signature(
     manifest: &Value,
-    result: &VerifierResult,
+    result: &dyn EvidenceResultView,
     keys: &[RegistryKey],
     registry_sha256: &str,
     capture_time: i128,
@@ -1207,16 +1357,14 @@ fn verify_result_signature(
             expected_registry_hash,
         ));
     }
-    let signing_bytes = result.signing_bytes().map_err(|error| {
-        BundleVerificationError::new("result_signature", Some("result"), error.to_string())
-    })?;
+    let signing_bytes = result.signing_bytes()?;
     let mut valid = Vec::new();
     let mut revoked_match = false;
     for key in keys {
         let matches_signature = verify_ed25519(
             &key.public_key_spki,
             &signing_bytes,
-            &result.signature,
+            result.signature(),
             "result_signature",
             "result",
         )
@@ -1418,21 +1566,11 @@ fn is_key_id(value: &str) -> bool {
 }
 
 fn assert_unsigned_result_matches(
-    actual: &VerifierResult,
-    expected: &VerifierResult,
+    actual: &dyn EvidenceResultView,
+    expected: &dyn EvidenceResultView,
 ) -> Result<()> {
-    let mut actual_unsigned = actual.clone();
-    actual_unsigned.signature = [0; 64];
-    let actual_json = actual_unsigned.canonical_json().map_err(|error| {
-        BundleVerificationError::new("result_evidence_binding", Some("result"), error.to_string())
-    })?;
-    let expected_json = expected.canonical_json().map_err(|error| {
-        BundleVerificationError::new(
-            "result_evidence_binding",
-            Some("presentation"),
-            error.to_string(),
-        )
-    })?;
+    let actual_json = actual.unsigned_canonical_json()?;
+    let expected_json = expected.unsigned_canonical_json()?;
     if actual_json != expected_json {
         return Err(BundleVerificationError::new(
             "result_evidence_binding",
@@ -1443,21 +1581,21 @@ fn assert_unsigned_result_matches(
     Ok(())
 }
 
-fn verify_session_binding(bundle: &LoadedBundle, result: &VerifierResult) -> Result<()> {
+fn verify_session_binding(bundle: &LoadedBundle, result: &dyn EvidenceResultView) -> Result<()> {
     let session = parse_json(
         artifact_bytes(bundle, "session")?,
         "session",
         "result_evidence_binding",
     )?;
     for (field, expected) in [
-        ("session_id", result.attestation_session_id.to_string()),
-        ("device_id", result.canonical_device_id.clone()),
-        ("binding", result.binding_value.clone()),
+        ("session_id", result.attestation_session_id().to_string()),
+        ("device_id", result.canonical_device_id().to_owned()),
+        ("binding", result.binding_value().to_owned()),
         (
             "device_challenge",
-            URL_SAFE_NO_PAD.encode(result.device_challenge),
+            URL_SAFE_NO_PAD.encode(result.device_challenge()),
         ),
-        ("challenge", URL_SAFE_NO_PAD.encode(result.binding_nonce)),
+        ("challenge", URL_SAFE_NO_PAD.encode(result.binding_nonce())),
     ] {
         if session.get(field).and_then(Value::as_str) != Some(expected.as_str()) {
             return Err(BundleVerificationError::mismatch(
@@ -1630,7 +1768,7 @@ fn resolve_authority_key(registry: &Value, key_id: &str, at: &str, label: &str) 
 
 fn verify_authority_artifacts(
     bundle: &LoadedBundle,
-    result: &VerifierResult,
+    result: &dyn EvidenceResultView,
     canonical_user_id: &str,
     device_id: &str,
     device_public_key: &str,
@@ -1657,7 +1795,7 @@ fn verify_authority_artifacts(
             "authenticated user is not the externally pinned user",
         ));
     }
-    if result.canonical_user_id != canonical_user_id || result.canonical_device_id != device_id {
+    if result.canonical_user_id() != canonical_user_id || result.canonical_device_id() != device_id {
         return Err(BundleVerificationError::new(
             "result_evidence_binding",
             Some("result"),
@@ -1778,8 +1916,8 @@ fn verify_authority_artifacts(
     let challenge = object_string(&session, "challenge", "session", "session")?;
     let device_challenge = object_string(&session, "device_challenge", "session", "session")?;
     if object_string(&session, "device_id", "session", "session")? != device_id
-        || session_id != &result.attestation_session_id.to_string()
-        || binding != &result.binding_value
+        || session_id != &result.attestation_session_id().to_string()
+        || binding != result.binding_value()
     {
         return Err(BundleVerificationError::new(
             "session_binding",
@@ -1792,7 +1930,7 @@ fn verify_authority_artifacts(
     })?;
     if parsed_binding.session_id.to_string() != session_id
         || URL_SAFE_NO_PAD.encode(parsed_binding.binding_nonce) != challenge
-        || challenge != URL_SAFE_NO_PAD.encode(result.binding_nonce)
+        || challenge != URL_SAFE_NO_PAD.encode(result.binding_nonce())
     {
         return Err(BundleVerificationError::new(
             "binding_framing",
@@ -2252,7 +2390,7 @@ fn hex_digest(bytes: &[u8]) -> String {
 
 fn verify_semantic_artifact(
     bundle: &LoadedBundle,
-    result: &VerifierResult,
+    result: &dyn EvidenceResultView,
     notary_key: &[u8],
 ) -> Result<()> {
     let semantic = parse_json(
@@ -2330,18 +2468,9 @@ fn verify_semantic_artifact(
         ));
     }
 
-    let mut unsigned_result = result.clone();
-    unsigned_result.signature = [0; 64];
     let expected_semantic_result = parse_json(
-        unsigned_result
-            .canonical_json()
-            .map_err(|error| {
-                BundleVerificationError::new(
-                    "semantic_verification",
-                    Some("result"),
-                    error.to_string(),
-                )
-            })?
+        result
+            .unsigned_canonical_json()?
             .as_bytes(),
         "result",
         "semantic_verification",
@@ -2376,26 +2505,18 @@ fn verify_semantic_artifact(
         ("presentation_sha256", presentation_sha256),
         (
             "tlsn_attestation_id",
-            URL_SAFE_NO_PAD.encode(&result.tlsn_attestation_id),
+            URL_SAFE_NO_PAD.encode(result.tlsn_attestation_id()),
         ),
-        ("server_identity", result.server_identity.clone()),
+        ("server_identity", result.server_identity().to_owned()),
         ("notary_key_sha256", sha256_base64url(notary_key)),
-        ("verified_member_id", result.verified_member_id.clone()),
+        ("verified_member_id", result.verified_member_id().to_owned()),
         (
             "request_transcript_size",
-            result.request_transcript_size.to_string(),
-        ),
-        (
-            "request_transcript_sha256",
-            URL_SAFE_NO_PAD.encode(result.request_transcript_sha256),
+            result.request_transcript_size().to_string(),
         ),
         (
             "response_transcript_size",
-            result.response_transcript_size.to_string(),
-        ),
-        (
-            "response_transcript_sha256",
-            URL_SAFE_NO_PAD.encode(result.response_transcript_sha256),
+            result.response_transcript_size().to_string(),
         ),
     ];
     for (field, expected) in expected_derived {
@@ -2412,14 +2533,40 @@ fn verify_semantic_artifact(
             ));
         }
     }
+    if let Some((request_digest, response_digest)) = result.full_transcript_sha256() {
+        for (field, expected) in [
+            ("request_transcript_sha256", URL_SAFE_NO_PAD.encode(request_digest)),
+            ("response_transcript_sha256", URL_SAFE_NO_PAD.encode(response_digest)),
+        ] {
+            if derived.get(field).and_then(Value::as_str) != Some(expected.as_str()) {
+                return Err(BundleVerificationError::mismatch(
+                    "semantic_verification",
+                    Some("semantic_verification"),
+                    &format!("Presentation-derived semantic field does not match the Result: {field}"),
+                    expected,
+                    derived.get(field).and_then(Value::as_str).unwrap_or("<missing>"),
+                ));
+            }
+        }
+    } else if derived
+        .get("request_transcript_sha256")
+        .is_some()
+        || derived.get("response_transcript_sha256").is_some()
+    {
+        return Err(BundleVerificationError::new(
+            "semantic_verification",
+            Some("semantic_verification"),
+            "sparse semantic verification must not contain full transcript digests",
+        ));
+    }
     for (field, expected) in [
         (
             "revealed_request_ranges",
-            revealed_ranges_value(&result.revealed_request_ranges),
+            revealed_ranges_value(result.revealed_request_ranges()),
         ),
         (
             "revealed_response_ranges",
-            revealed_ranges_value(&result.revealed_response_ranges),
+            revealed_ranges_value(result.revealed_response_ranges()),
         ),
     ] {
         if derived.get(field).map(canonical_json).transpose()? != Some(canonical_json(&expected)?) {
@@ -2450,7 +2597,7 @@ fn verify_semantic_artifact(
             "response_member_path",
             "svdata.api_data.api_basic.api_member_id",
         ),
-        ("host", result.server_identity.as_str()),
+        ("host", result.server_identity()),
     ] {
         if http_profile.get(field).and_then(Value::as_str) != Some(expected) {
             return Err(BundleVerificationError::new(
@@ -2662,7 +2809,7 @@ fn verify_capture_metadata(bundle: &LoadedBundle, presentation: &[u8]) -> Result
 
 fn verify_health_identities(
     bundle: &LoadedBundle,
-    result: &VerifierResult,
+    result: &dyn EvidenceResultView,
     resolved_key: &ResolvedResultKey,
     registry_sha256: &str,
     envelope_sha256: &str,
@@ -2731,13 +2878,13 @@ fn verify_health_identities(
         )
     })?;
     if security.get("server_identity").and_then(Value::as_str)
-        != Some(result.server_identity.as_str())
+        != Some(result.server_identity())
         || security.get("profile_sha256").and_then(Value::as_str)
-            != Some(URL_SAFE_NO_PAD.encode(result.profile_sha256).as_str())
+            != Some(URL_SAFE_NO_PAD.encode(result.profile_sha256()).as_str())
         || security.get("verifier_key_id").and_then(Value::as_str)
-            != Some(result.verifier_key_id.as_str())
+            != Some(result.verifier_key_id())
         || security.get("notary_key_id").and_then(Value::as_str)
-            != Some(result.notary_key_id.as_str())
+            != Some(result.notary_key_id())
         || security
             .get("notary_registry_sha256")
             .and_then(Value::as_str)
@@ -2798,7 +2945,7 @@ fn verify_health_identities(
     Ok(())
 }
 
-fn verify_subject_artifact(bundle: &LoadedBundle, result: &VerifierResult) -> Result<()> {
+fn verify_subject_artifact(bundle: &LoadedBundle, result: &dyn EvidenceResultView) -> Result<()> {
     let subject = parse_json(
         artifact_bytes(bundle, "subject")?,
         "subject",
@@ -2807,18 +2954,18 @@ fn verify_subject_artifact(bundle: &LoadedBundle, result: &VerifierResult) -> Re
     for (field, value) in [
         (
             "canonical_user_id_sha256",
-            result.canonical_user_id.as_bytes(),
+            result.canonical_user_id().as_bytes(),
         ),
-        ("device_id_sha256", result.canonical_device_id.as_bytes()),
+        ("device_id_sha256", result.canonical_device_id().as_bytes()),
         (
             "attestation_session_id_sha256",
-            result.attestation_session_id.to_string().as_bytes(),
+            result.attestation_session_id().to_string().as_bytes(),
         ),
         (
             "verified_member_id_sha256",
-            result.verified_member_id.as_bytes(),
+            result.verified_member_id().as_bytes(),
         ),
-        ("binding_value_sha256", result.binding_value.as_bytes()),
+        ("binding_value_sha256", result.binding_value().as_bytes()),
     ] {
         let expected = sha256_base64url(value);
         if subject.get(field).and_then(Value::as_str) != Some(expected.as_str()) {
@@ -2839,7 +2986,7 @@ fn verify_subject_artifact(bundle: &LoadedBundle, result: &VerifierResult) -> Re
 
 fn verify_trust_graph(
     bundle: &LoadedBundle,
-    result: &VerifierResult,
+    result: &dyn EvidenceResultView,
     resolved_key: &ResolvedResultKey,
     registry_sha256: &str,
     notary_key_id: &str,
@@ -2870,7 +3017,7 @@ fn verify_trust_graph(
                 "trust graph edges are missing",
             )
         })?;
-    let expected_edges: &[(&str, &str, &str, &[&str], &str, &str, &str)] = &[
+    let mut expected_edges: Vec<(&str, &str, &str, &[&str], &str, &str, &str)> = vec![
         (
             "user-owns-device",
             "authenticated-user",
@@ -3024,6 +3171,46 @@ fn verify_trust_graph(
             "remote-attestation-signer",
         ),
     ];
+    if result.is_sparse() {
+        for edge in &mut expected_edges {
+            match edge.0 {
+                "session-binding-authenticates-presentation" => {
+                    *edge = (
+                        edge.0,
+                        edge.1,
+                        edge.2,
+                        &["session_id", "binding_value", "revealed_request_ranges"],
+                        edge.4,
+                        edge.5,
+                        edge.6,
+                    );
+                }
+                "presentation-derives-member-id" => {
+                    *edge = (
+                        edge.0,
+                        edge.1,
+                        edge.2,
+                        &["verified_member_id", "revealed_response_ranges"],
+                        edge.4,
+                        edge.5,
+                        "fusou-require-info-v2-sparse-response-parser",
+                    );
+                }
+                "member-id-is-in-result" => {
+                    *edge = (
+                        edge.0,
+                        edge.1,
+                        edge.2,
+                        &["verified_member_id", "tlsn_attestation_id", "revealed_response_ranges"],
+                        edge.4,
+                        edge.5,
+                        edge.6,
+                    );
+                }
+                _ => {}
+            }
+        }
+    }
     if edges.len() != expected_edges.len() {
         return Err(BundleVerificationError::new(
             "trust_graph",
@@ -3035,7 +3222,7 @@ fn verify_trust_graph(
     {
         let edge = edges
             .iter()
-            .find(|edge| edge.get("id").and_then(Value::as_str) == Some(*edge_id))
+            .find(|edge| edge.get("id").and_then(Value::as_str) == Some(edge_id))
             .ok_or_else(|| {
                 BundleVerificationError::new(
                     "trust_graph",
@@ -3049,11 +3236,11 @@ fn verify_trust_graph(
                 .map(|field| Value::String((*field).to_owned()))
                 .collect(),
         );
-        if edge.get("source").and_then(Value::as_str) != Some(*source)
-            || edge.get("target").and_then(Value::as_str) != Some(*target)
-            || edge.get("evidence_artifact").and_then(Value::as_str) != Some(*artifact)
-            || edge.get("verification_predicate").and_then(Value::as_str) != Some(*predicate)
-            || edge.get("authority").and_then(Value::as_str) != Some(*authority)
+        if edge.get("source").and_then(Value::as_str) != Some(source)
+            || edge.get("target").and_then(Value::as_str) != Some(target)
+            || edge.get("evidence_artifact").and_then(Value::as_str) != Some(artifact)
+            || edge.get("verification_predicate").and_then(Value::as_str) != Some(predicate)
+            || edge.get("authority").and_then(Value::as_str) != Some(authority)
             || edge.get("binding_fields").map(canonical_json).transpose()?
                 != Some(canonical_json(&expected_binding_fields)?)
         {
@@ -3325,12 +3512,12 @@ fn verify_trust_graph(
         (
             "device",
             "user_id",
-            Value::String(result.canonical_user_id.clone()),
+                Value::String(result.canonical_user_id().to_owned()),
         ),
         (
             "device",
             "device_id",
-            Value::String(result.canonical_device_id.clone()),
+                Value::String(result.canonical_device_id().to_owned()),
         ),
         (
             "device",
@@ -3391,22 +3578,17 @@ fn verify_trust_graph(
         (
             "presentation",
             "attestation_id",
-            Value::String(URL_SAFE_NO_PAD.encode(&result.tlsn_attestation_id)),
+            Value::String(URL_SAFE_NO_PAD.encode(result.tlsn_attestation_id())),
         ),
         (
             "presentation",
             "binding_sha256",
-            Value::String(sha256_base64url(result.binding_value.as_bytes())),
+            Value::String(sha256_base64url(result.binding_value().as_bytes())),
         ),
         (
             "member-id",
             "verified_member_id",
-            Value::String(result.verified_member_id.clone()),
-        ),
-        (
-            "member-id",
-            "response_transcript_sha256",
-            Value::String(URL_SAFE_NO_PAD.encode(result.response_transcript_sha256)),
+            Value::String(result.verified_member_id().to_owned()),
         ),
         (
             "tlsn-notary",
@@ -3472,6 +3654,21 @@ fn verify_trust_graph(
         ),
     ] {
         verify_graph_identity_value(nodes, node_id, field, &expected)?;
+    }
+    if let Some((_, response_digest)) = result.full_transcript_sha256() {
+        verify_graph_identity_value(
+            nodes,
+            "member-id",
+            "response_transcript_sha256",
+            &Value::String(URL_SAFE_NO_PAD.encode(response_digest)),
+        )?;
+    } else {
+        verify_graph_identity_value(
+            nodes,
+            "member-id",
+            "revealed_response_ranges",
+            &revealed_ranges_value(result.revealed_response_ranges()),
+        )?;
     }
     Ok(())
 }

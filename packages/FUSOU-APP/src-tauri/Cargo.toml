@@ -111,3 +111,11 @@ gtk = "0.18"
 [dev-dependencies]
 rcgen = "0.13.2"
 gdk = "0.18"
+
+[patch."https://github.com/tlsnotary/tlsn-utils"]
+tlsn-mux = { path = "../../tlsn-mux-alpha15" }
+
+[patch."https://github.com/tlsnotary/tlsn.git"]
+tlsn = { path = "../../tlsn-alpha15-sparse/crates/tlsn" }
+tlsn-attestation = { path = "../../tlsn-alpha15-sparse/crates/attestation" }
+tlsn-core = { path = "../../tlsn-alpha15-sparse/crates/core" }

@@ -46,6 +46,7 @@ const securityIdentity = {
   git_commit_sha: "a".repeat(40),
   server_identity: "game.example.com",
   profile_sha256: "A".repeat(43),
+  sparse_profile_sha256: "D".repeat(43),
   verifier_key_id: "verifier",
   notary_key_id: "notary",
   security_registry_set_sha256: "B".repeat(43),

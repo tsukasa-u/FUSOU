@@ -16,6 +16,7 @@ import {
   artifactDescriptor,
   assertResultSubjectIdentity,
   assertSignedResult,
+  assertSignedSparseResult,
 } from "./production-evidence.mjs";
 import { EvidenceSigner } from "./authority-signers.mjs";
 import {
@@ -59,6 +60,12 @@ let captureAllowedOrigins = new Set();
 function optional(name) {
   const value = process.env[name]?.trim();
   return value || undefined;
+}
+
+function configuredDisclosureMode() {
+  const mode = optional("TLSN_PRODUCTION_DISCLOSURE_MODE") ?? "complete";
+  if (mode !== "complete" && mode !== "sparse") throw new Error("TLSN_PRODUCTION_DISCLOSURE_MODE must be complete or sparse");
+  return mode;
 }
 
 function required(name) {
@@ -312,6 +319,7 @@ function expectedProductionContext() {
 }
 
 async function main() {
+  const disclosureMode = configuredDisclosureMode();
   const outputPath = optional("TLSN_PRODUCTION_EVIDENCE_OUTPUT_PATH") ?? DEFAULT_OUTPUT_PATH;
   const captureId = randomUUID();
   const now = new Date().toISOString();
@@ -459,7 +467,7 @@ async function main() {
     const semanticVerification = await verifyProductionPresentation({
       presentationBytes,
       serverIdentity: health.security_identity.server_identity,
-      profileSha256: health.security_identity.profile_sha256,
+      profileSha256: disclosureMode === "sparse" ? health.security_identity.sparse_profile_sha256 : health.security_identity.profile_sha256,
       verifierKeyId: health.security_identity.verifier_key_id,
       notaryKeyId: health.security_identity.notary_key_id,
       canonicalUserId: user.id,
@@ -467,6 +475,7 @@ async function main() {
       deviceChallenge: session.device_challenge,
       notaryRegistry,
       trustAnchorDer: trustRootDer,
+      disclosureMode,
     });
     const possessionProof = devicePrivateKey ? deviceProof(session, devicePrivateKey) : null;
     const capturedPossessionProof = productionBundle?.possessionProof ?? possessionProof;
@@ -514,8 +523,8 @@ async function main() {
     );
     const trustedInputs = {
       server_identity: health.security_identity.server_identity,
-      profile_id: "fusou-require-info-v1",
-      profile_sha256: health.security_identity.profile_sha256,
+      profile_id: disclosureMode === "sparse" ? "fusou-require-info-v2-sparse" : "fusou-require-info-v1",
+      profile_sha256: disclosureMode === "sparse" ? health.security_identity.sparse_profile_sha256 : health.security_identity.profile_sha256,
       verifier_key_id: health.security_identity.verifier_key_id,
       notary_key_id: health.security_identity.notary_key_id,
       notary_key_sha256: sha256Base64Url(Buffer.from(notaryRegistry[health.security_identity.notary_key_id], "base64url")),
@@ -547,7 +556,7 @@ async function main() {
     if (Object.entries(preSignaturePredicateResults).some(([name, predicate]) => name !== "result_signature" && predicate.status !== "PASS")) {
       throw new Error("one or more independent Presentation predicates did not pass");
     }
-    const resultVerification = assertSignedResult(result, {
+    const resultVerification = (disclosureMode === "sparse" ? assertSignedSparseResult : assertSignedResult)(result, {
       publicKeySpki: resultPublicKeySpki,
       keyRegistry: registry,
       signerKeyId: resultSignerKeyId,
@@ -576,7 +585,7 @@ async function main() {
     }
     if (
       result.server_identity !== health.security_identity.server_identity ||
-      result.profile_sha256 !== health.security_identity.profile_sha256 ||
+      result.profile_sha256 !== (disclosureMode === "sparse" ? health.security_identity.sparse_profile_sha256 : health.security_identity.profile_sha256) ||
       result.verifier_key_id !== health.security_identity.verifier_key_id ||
       result.notary_key_id !== health.security_identity.notary_key_id
     ) throw new Error("production result security identity mismatch");
