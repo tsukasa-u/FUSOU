@@ -336,8 +336,16 @@ impl AuthenticatedTranscript {
         &self.sent_digest
     }
 
+    pub fn request_transcript_size(&self) -> usize {
+        self.transcript_bytes(true).len()
+    }
+
     pub fn response_transcript_sha256(&self) -> &[u8; 32] {
         &self.received_digest
+    }
+
+    pub fn response_transcript_size(&self) -> usize {
+        self.transcript_bytes(false).len()
     }
 
     pub fn revealed_request_ranges(&self) -> Vec<RevealedRange> {
