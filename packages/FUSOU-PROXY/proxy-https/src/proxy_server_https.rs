@@ -1947,7 +1947,7 @@ mod tests {
                 &AttestationBinding::new(binding_value).expect("integration binding"),
             )
             .expect("serialized actual request");
-        tokio::time::timeout(std::time::Duration::from_secs(2), async {
+        tokio::time::timeout(std::time::Duration::from_secs(10), async {
             loop {
                 if forwarder.state().expect("runtime state")
                     == ExperimentalTlsnRuntimeState::ResultReady

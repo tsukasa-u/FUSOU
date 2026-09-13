@@ -67,7 +67,42 @@ transcript SHA-256 and strict HTTP/JSON parsing cover the complete wire bytes.
 The adapter keeps authenticated range metadata and materializes range bytes
 only when exporting them. alpha.15 still allocates full-length partial
 transcript buffers internally; FUSOU does not treat zero-filled omitted bytes
-as authenticated. It does not fabricate FUSOU evidence or signatures.
+as authenticated. `AuthenticatedByteSource` is the fail-closed range boundary
+for future profiles: a read crossing an undisclosed range is rejected. It does
+not make the current profile selective, because the strict JSON parser must
+inspect the complete response body and the Result schema carries a full
+transcript SHA-256. It does not fabricate FUSOU evidence or signatures.
+
+## Selective disclosure status
+
+The current alpha.15 backend was inspected at commit
+`47aee45b53e06648c1b2ad3689b367b8c923fdec`. `ProveConfig::reveal_sent` and
+`reveal_recv` select authenticated ranges, but `PartialTranscript` still
+allocates a zero-filled `Vec<u8>` for the full sent and received transcript
+length. `Presentation::verify` returns that representation, and does not
+provide a range-only byte source or a proof of the contents of omitted bytes.
+
+FUSOU therefore keeps complete disclosure for `require_info`. Replacing it
+with a sparse range list would be unsound for the current profile: omitted
+HTTP/JSON bytes could contain framing, duplicate keys, escapes, or structural
+tokens that the strict parser cannot inspect, and a SHA-256 of the complete
+transcript cannot be computed from disclosed ranges alone. The implementation
+classifies this as an upstream TLSN limitation combined with a current-profile
+incompatibility, not as successful selective disclosure.
+
+The memory probe makes the unavoidable alpha.15 allocation visible without
+contacting any external service:
+
+```text
+for size in 1048576 4194304 8388608 16777216; do
+  cargo +1.95.0 run --offline --manifest-path packages/FUSOU-TLSN-VERIFIER/Cargo.toml --example alpha15_partial_memory -- "$size"
+done
+```
+
+On Linux, `VmRSS` can remain nearly flat because zero-initialized pages are
+shared until written. The probe therefore reports `VmSize` and `VmData` too;
+those values expose the full-length virtual/data allocation and must not be
+reclassified as bounded semantic-verifier memory.
 
 The checked-in
 `fixtures/tlsn-alpha15-upstream-presentation.bin` is a legitimate upstream

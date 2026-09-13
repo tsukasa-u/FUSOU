@@ -1,7 +1,7 @@
 use crate::{
     parse_require_info_request, parse_require_info_response, sha256, validate_server_identity,
-    verify_transcript_digest, ParsedBinding, ParserLimits, RevealedRange, VerifierError,
-    MAX_ATTESTATION_ID_BYTES, PROFILE_ID, REQUIRE_INFO_TARGET,
+    verify_transcript_digest, AuthenticatedByteSource, ParsedBinding, ParserLimits, RevealedRange,
+    VerifierError, MAX_ATTESTATION_ID_BYTES, PROFILE_ID, REQUIRE_INFO_TARGET,
 };
 use std::{io::Cursor, ops::Range};
 use thiserror::Error;
@@ -305,13 +305,17 @@ impl AuthenticatedTranscript {
         } else {
             &self.received_ranges
         };
-        let transcript = self.transcript_bytes(sent);
+        let source = AuthenticatedByteSource::new(self.transcript_bytes(sent), ranges)
+            .expect("authenticated transcript range metadata was validated at construction");
         ranges
             .iter()
             .map(|range| RevealedRange {
                 start: range.start as u64,
                 length: range.len() as u64,
-                bytes: transcript[range.clone()].to_vec(),
+                bytes: source
+                    .read(range.clone())
+                    .expect("authenticated range metadata was validated at construction")
+                    .to_vec(),
             })
             .collect()
     }
@@ -751,6 +755,22 @@ mod tests {
         assert!(matches!(
             AuthenticatedTranscript::from_verified_alpha15(output),
             Err(Alpha15AdapterError::DisclosureProfileViolation(_))
+        ));
+    }
+
+    #[test]
+    fn rejects_alpha15_zero_filled_partial_transcript() {
+        let transcript = tlsn_core::transcript::PartialTranscript::new(128, 256);
+        assert!(matches!(
+            AuthenticatedTranscript::from_verified_alpha15_partial(
+                "game.example.test".to_owned(),
+                [0x11_u8; MAX_ATTESTATION_ID_BYTES],
+                [0x12_u8; 32],
+                transcript,
+            ),
+            Err(Alpha15AdapterError::DisclosureProfileViolation(
+                "alpha.15 transcript disclosure is incomplete"
+            ))
         ));
     }
 

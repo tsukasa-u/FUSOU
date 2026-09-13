@@ -1,8 +1,8 @@
 #![forbid(unsafe_code)]
 
+pub mod evidence_bundle;
 pub mod experimental;
 pub mod experimental_correlation;
-pub mod evidence_bundle;
 pub mod prover_transport;
 pub mod tlsn_alpha15;
 pub mod wasm;
@@ -10,7 +10,7 @@ pub mod wasm;
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use flate2::read::GzDecoder;
 use sha2::{Digest, Sha256};
-use std::{fmt::Write as _, io::Read};
+use std::{fmt::Write as _, io::Read, ops::Range};
 use thiserror::Error;
 use uuid::Uuid;
 
@@ -31,6 +31,7 @@ pub const MAX_DECOMPRESSED_BODY_BYTES: usize = 16_777_216;
 pub const MAX_JSON_DEPTH: usize = 64;
 pub const MAX_GAME_JSON_STRING_BYTES: usize = 1_048_576;
 pub const MAX_ATTESTATION_ID_BYTES: usize = 16;
+pub const MAX_AUTHENTICATED_RANGE_COUNT: usize = 4096;
 
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum VerifierError {
@@ -114,6 +115,78 @@ pub struct RevealedRange {
     pub start: u64,
     pub length: u64,
     pub bytes: Vec<u8>,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct AuthenticatedByteSource<'a> {
+    bytes: &'a [u8],
+    ranges: &'a [Range<usize>],
+}
+
+impl<'a> AuthenticatedByteSource<'a> {
+    pub fn new(bytes: &'a [u8], ranges: &'a [Range<usize>]) -> Result<Self> {
+        if ranges.len() > MAX_AUTHENTICATED_RANGE_COUNT {
+            return Err(VerifierError::LimitExceeded(
+                "too many authenticated ranges",
+            ));
+        }
+        let mut previous_end = 0;
+        let mut disclosed_bytes = 0_usize;
+        for range in ranges {
+            if range.start >= range.end || range.end > bytes.len() || range.start < previous_end {
+                return Err(VerifierError::InvalidRange(
+                    "authenticated ranges are invalid",
+                ));
+            }
+            disclosed_bytes =
+                disclosed_bytes
+                    .checked_add(range.len())
+                    .ok_or(VerifierError::InvalidRange(
+                        "authenticated range bytes overflow",
+                    ))?;
+            if disclosed_bytes > MAX_RESPONSE_TRANSCRIPT_BYTES {
+                return Err(VerifierError::LimitExceeded("authenticated range bytes"));
+            }
+            previous_end = range.end;
+        }
+        Ok(Self { bytes, ranges })
+    }
+
+    pub fn len(&self) -> usize {
+        self.bytes.len()
+    }
+
+    pub fn disclosed_len(&self) -> usize {
+        self.ranges.iter().map(|range| range.len()).sum()
+    }
+
+    pub fn is_complete(&self) -> bool {
+        self.ranges.first().is_some_and(|range| range.start == 0)
+            && self
+                .ranges
+                .last()
+                .is_some_and(|range| range.end == self.bytes.len())
+            && self.disclosed_len() == self.bytes.len()
+    }
+
+    pub fn read(&self, range: Range<usize>) -> Result<&'a [u8]> {
+        if range.start > range.end || range.end > self.bytes.len() {
+            return Err(VerifierError::InvalidRange(
+                "authenticated read is outside the transcript",
+            ));
+        }
+        if range.start == range.end {
+            return Ok(&self.bytes[range]);
+        }
+        if !self.ranges.iter().any(|authenticated| {
+            authenticated.start <= range.start && range.end <= authenticated.end
+        }) {
+            return Err(VerifierError::InvalidRange(
+                "authenticated read crosses an undisclosed range",
+            ));
+        }
+        Ok(&self.bytes[range])
+    }
 }
 
 pub fn validate_ranges(ranges: &[RevealedRange], transcript_size: u64) -> Result<()> {
@@ -1829,6 +1902,18 @@ mod tests {
             bytes: b"ab".to_vec(),
         }];
         assert!(validate_ranges(&mismatch, 3).is_err());
+    }
+
+    #[test]
+    fn authenticated_byte_source_rejects_reads_across_undisclosed_ranges() {
+        let bytes = b"abcdefgh";
+        let ranges = vec![0..2, 4..6];
+        let source = AuthenticatedByteSource::new(bytes, &ranges).unwrap();
+        assert_eq!(source.read(0..2).unwrap(), b"ab");
+        assert_eq!(source.read(4..6).unwrap(), b"ef");
+        assert!(source.read(2..3).is_err());
+        assert_eq!(source.disclosed_len(), 4);
+        assert!(!source.is_complete());
     }
 
     #[test]
