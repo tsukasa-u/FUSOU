@@ -5,7 +5,8 @@ use crate::experimental_tlsn::{
     TlsnTransportError, TlsnTransportFuture, UnverifiedTlsnTranscript,
 };
 use fusou_tlsn_verifier::{
-    parse_require_info_request, prover_transport::ProverOwnedTlsTransport, ParserLimits,
+    parse_require_info_request, plan_require_info_response_sparse_ranges,
+    prover_transport::ProverOwnedTlsTransport, ParserLimits,
 };
 use http::{HeaderMap, HeaderName, HeaderValue, Method, Request, StatusCode, Version};
 use hyper::body::Bytes;
@@ -75,6 +76,10 @@ pub struct SyntheticAlpha15WireEvidence {
     pub authenticated_response: Vec<u8>,
     pub committed_request_bytes: usize,
     pub committed_response_bytes: usize,
+    pub committed_response_range_count: usize,
+    pub committed_response_largest_range_bytes: usize,
+    pub disclosed_response_range_count: usize,
+    pub disclosed_response_largest_range_bytes: usize,
     pub presentation: Option<Vec<u8>>,
     pub sparse_presentation: Option<Vec<u8>>,
     pub root_certificate: Option<Vec<u8>>,
@@ -378,9 +383,9 @@ async fn run_synthetic_exchange(
             .commit_sent(0..sent_len)
             .map_err(|_| TlsnTransportError::OriginConnectionFailed)?;
         let response_commitment_ranges = if sparse_proof {
-            sparse_response_ranges(&raw_response)
+            sparse_response_ranges(&raw_response)?
         } else {
-            response_commitment_ranges(&raw_response)
+            response_commitment_ranges(&raw_response)?
         };
         for range in response_commitment_ranges {
             transcript_commit
@@ -409,7 +414,7 @@ async fn run_synthetic_exchange(
             .reveal_sent(0..sent_len)
             .map_err(|_| TlsnTransportError::OriginConnectionFailed)?;
         if sparse_proof {
-            for range in sparse_response_ranges(&raw_response) {
+            for range in sparse_response_ranges(&raw_response)? {
                 prove_config
                     .reveal_recv(range)
                     .map_err(|_| TlsnTransportError::OriginConnectionFailed)?;
@@ -541,11 +546,13 @@ async fn run_synthetic_exchange(
         let (origin_request, raw_response) = origin_result
             .map_err(|_| ProofContinuationError::ProverFinalization)?
             .map_err(|_| ProofContinuationError::ProverFinalization)?;
+        let sparse_ranges = sparse_response_ranges(&raw_response)
+            .map_err(|_| ProofContinuationError::ProverFinalization)?;
         let expected_response = proof_exchange.response.raw_response_bytes.clone();
         let response_matches = authenticated_response.len() == raw_response.len()
             && if sparse_proof {
-                sparse_response_ranges(&raw_response).into_iter().all(|range| {
-                    authenticated_response.get(range.clone()) == raw_response.get(range)
+                sparse_ranges.iter().all(|range| {
+                    authenticated_response.get(range.clone()) == raw_response.get(range.clone())
                 })
             } else {
                 authenticated_response == raw_response
@@ -627,9 +634,9 @@ async fn run_synthetic_exchange(
         sparse_transcript_proof
             .reveal_sent(0..origin_request.len())
             .map_err(|_| ProofContinuationError::Presentation)?;
-        for range in sparse_response_ranges(&raw_response) {
+        for range in &sparse_ranges {
             sparse_transcript_proof
-                .reveal_recv(range)
+                .reveal_recv(range.clone())
                 .map_err(|_| ProofContinuationError::Presentation)?;
         }
         let sparse_transcript_proof = sparse_transcript_proof
@@ -662,8 +669,14 @@ async fn run_synthetic_exchange(
             timing.memory_after_presentation_serialization = Some(SyntheticAlpha15Memory::current());
         });
         if let Ok(mut stored_evidence) = last_evidence.lock() {
+            let committed_response_ranges = if sparse_proof {
+                sparse_ranges.clone()
+            } else {
+                response_commitment_ranges(&raw_response)
+                    .map_err(|_| ProofContinuationError::ProverFinalization)?
+            };
             let committed_response_bytes = if sparse_proof {
-                sparse_response_ranges(&raw_response)
+                sparse_ranges
                     .iter()
                     .map(Range::len)
                     .sum()
@@ -677,11 +690,23 @@ async fn run_synthetic_exchange(
                 authenticated_response: raw_response,
                 committed_request_bytes: expected_request.len(),
                 committed_response_bytes,
+                committed_response_range_count: committed_response_ranges.len(),
+                committed_response_largest_range_bytes: committed_response_ranges
+                    .iter()
+                    .map(Range::len)
+                    .max()
+                    .unwrap_or(0),
+                disclosed_response_range_count: sparse_ranges.len(),
+                disclosed_response_largest_range_bytes: sparse_ranges
+                    .iter()
+                    .map(Range::len)
+                    .max()
+                    .unwrap_or(0),
                 presentation,
                 sparse_presentation: Some(sparse_presentation),
                 root_certificate: Some((*root_certificate).clone()),
                 notary_verifying_key: Some(notary_verifying_key),
-                presentation_available: true,
+                presentation_available: !sparse_proof,
             });
         }
         if let Ok(mut timing) = last_timing.lock() {
@@ -848,65 +873,26 @@ fn synthetic_response_body() -> Result<Vec<u8>, ()> {
     .into_bytes())
 }
 
-fn sparse_hidden_string_range(response: &[u8]) -> Option<Range<usize>> {
-    let body_start = response
-        .windows(4)
-        .position(|window| window == b"\r\n\r\n")
-        .map(|position| position + 4)?;
-    let mut position = body_start;
-    let mut longest = None;
-    while position < response.len() {
-        if response[position] != b'"' {
-            position += 1;
-            continue;
-        }
-        let string_start = position;
-        position += 1;
-        let string_end = loop {
-            let byte = *response.get(position)?;
-            match byte {
-                b'\\' => {
-                    position = position.checked_add(2)?;
-                }
-                b'"' => break position,
-                _ => position += 1,
-            }
-        };
-        position += 1;
-        let next_non_whitespace = response[position..]
-            .iter()
-            .copied()
-            .find(|byte| !byte.is_ascii_whitespace());
-        if next_non_whitespace == Some(b':') {
-            continue;
-        }
-        let hidden = string_start + 1..string_end;
-        if hidden.start < hidden.end
-            && longest
-                .as_ref()
-                .is_none_or(|candidate: &Range<usize>| hidden.len() > candidate.len())
-        {
-            longest = Some(hidden);
-        }
-    }
-    longest
+fn sparse_response_ranges(response: &[u8]) -> Result<Vec<Range<usize>>, TlsnTransportError> {
+    plan_require_info_response_sparse_ranges(response, &ParserLimits::default())
+        .map_err(|_| TlsnTransportError::ResponseReadFailed)
 }
 
-fn sparse_response_ranges(response: &[u8]) -> Vec<Range<usize>> {
-    let Some(hidden) = sparse_hidden_string_range(response) else {
-        return vec![0..response.len()];
-    };
-    vec![0..hidden.start, hidden.end..response.len()]
-}
-
-fn response_commitment_ranges(response: &[u8]) -> Vec<Range<usize>> {
-    let sparse_ranges = sparse_response_ranges(response);
-    if sparse_ranges.len() == 1 {
-        return sparse_ranges;
+fn response_commitment_ranges(response: &[u8]) -> Result<Vec<Range<usize>>, TlsnTransportError> {
+    let sparse_ranges = sparse_response_ranges(response)?;
+    let mut ranges = Vec::new();
+    let mut cursor = 0;
+    for range in sparse_ranges {
+        if cursor < range.start {
+            ranges.push(cursor..range.start);
+        }
+        ranges.push(range.clone());
+        cursor = range.end;
     }
-    let hidden_start = sparse_ranges[0].end;
-    let hidden_end = sparse_ranges[1].start;
-    vec![0..hidden_start, hidden_start..hidden_end, hidden_end..response.len()]
+    if cursor < response.len() {
+        ranges.push(cursor..response.len());
+    }
+    Ok(ranges)
 }
 
 fn parse_origin_response(raw_response: Vec<u8>) -> Result<TlsnOriginResponse, TlsnTransportError> {
@@ -1006,19 +992,32 @@ mod tests {
             sha256(&exchange.response.raw_response_bytes)
         );
         let evidence = transport.wire_evidence().expect("wire evidence");
+        let sparse_mode =
+            std::env::var("FUSOU_SYNTHETIC_PROOF_MODE").is_ok_and(|mode| mode == "sparse");
         assert_eq!(evidence.origin_request, expected_request);
         assert_eq!(evidence.authenticated_request, evidence.origin_request);
         assert_eq!(evidence.authenticated_response, evidence.origin_response);
         assert_eq!(evidence.committed_request_bytes, evidence.origin_request.len());
+        if sparse_mode {
+            assert!(evidence.committed_response_bytes < evidence.origin_response.len());
+            assert_eq!(
+                evidence.committed_response_range_count,
+                evidence.disclosed_response_range_count
+            );
+        } else {
+            assert_eq!(
+                evidence.committed_response_bytes,
+                evidence.origin_response.len()
+            );
+        }
+        assert_eq!(evidence.presentation_available, !sparse_mode);
         assert_eq!(
-            evidence.committed_response_bytes,
-            evidence.origin_response.len()
+            evidence
+                .presentation
+                .as_ref()
+                .is_some_and(|bytes| !bytes.is_empty()),
+            !sparse_mode
         );
-        assert!(evidence.presentation_available);
-        assert!(evidence
-            .presentation
-            .as_ref()
-            .is_some_and(|bytes| !bytes.is_empty()));
         let sparse_presentation = evidence
             .sparse_presentation
             .as_ref()

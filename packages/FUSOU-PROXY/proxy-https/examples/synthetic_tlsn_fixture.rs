@@ -89,6 +89,10 @@ async fn main() {
             "origin_response_size": evidence.origin_response.len(),
             "committed_request_bytes": evidence.committed_request_bytes,
             "committed_response_bytes": evidence.committed_response_bytes,
+            "committed_response_range_count": evidence.committed_response_range_count,
+            "committed_response_largest_range_bytes": evidence.committed_response_largest_range_bytes,
+            "disclosed_response_range_count": evidence.disclosed_response_range_count,
+            "disclosed_response_largest_range_bytes": evidence.disclosed_response_largest_range_bytes,
             "generation_elapsed_milliseconds": started.elapsed().as_secs_f64() * 1000.0,
             "generation_timing": timing_json(transport.timing()),
         })

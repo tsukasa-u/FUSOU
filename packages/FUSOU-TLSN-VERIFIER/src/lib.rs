@@ -914,6 +914,67 @@ pub fn parse_require_info_response_sparse_source(
     extract_member_id_sparse(source, body_range.start + 7..body_range.end, limits)
 }
 
+pub fn plan_require_info_response_sparse_ranges(
+    raw: &[u8],
+    limits: &ParserLimits,
+) -> Result<Vec<Range<usize>>> {
+    if raw.len() > limits.response_transcript_bytes {
+        return Err(VerifierError::LimitExceeded("response transcript bytes"));
+    }
+    let (headers, body_start) = parse_message_head(raw, b"HTTP/1.1 200 OK", limits)?;
+    let body_range = sparse_body_range(
+        &headers,
+        body_start,
+        raw.len(),
+        limits.response_transcript_bytes,
+    )?;
+    let encodings = header_values(&headers, b"content-encoding");
+    if encodings.len() > 1 {
+        return Err(VerifierError::InvalidHttp("duplicate Content-Encoding"));
+    }
+    if encodings
+        .first()
+        .is_some_and(|header| !ascii_case_insensitive_eq(&header.value, b"identity"))
+    {
+        return Err(VerifierError::SparseProfileUnsupported(
+            "compressed response bodies do not have independently authenticated JSON token ranges",
+        ));
+    }
+    if body_range.len() < 7 || &raw[body_range.start..body_range.start + 7] != b"svdata=" {
+        return Err(VerifierError::InvalidHttp(
+            "body lacks exact svdata= prefix",
+        ));
+    }
+
+    let mut ranges = Vec::new();
+    append_merged_range(&mut ranges, 0..body_start);
+    append_merged_range(&mut ranges, body_range.start..body_range.start + 7);
+    let mut collector = SemanticJsonRangeCollector::new(
+        raw,
+        body_range.start + 7..body_range.end,
+        limits,
+    );
+    collector.collect()?;
+    for range in collector.ranges {
+        append_merged_range(&mut ranges, range);
+    }
+    validate_authenticated_ranges(raw.len(), &ranges)?;
+    Ok(ranges)
+}
+
+fn append_merged_range(ranges: &mut Vec<Range<usize>>, range: Range<usize>) {
+    if range.start == range.end {
+        return;
+    }
+    if let Some(previous) = ranges.last_mut() {
+        if previous.end >= range.start {
+            previous.end = previous.end.max(range.end);
+            return;
+        }
+    }
+    ranges.push(range);
+}
+
 #[derive(Debug, Clone)]
 struct ParsedJsonString {
     value: String,
@@ -924,6 +985,225 @@ struct JsonCursor<'a> {
     bytes: &'a [u8],
     position: usize,
     limits: &'a ParserLimits,
+}
+
+struct SemanticJsonRangeCollector<'a> {
+    cursor: JsonCursor<'a>,
+    base: usize,
+    ranges: Vec<Range<usize>>,
+}
+
+impl<'a> SemanticJsonRangeCollector<'a> {
+    fn new(bytes: &'a [u8], range: Range<usize>, limits: &'a ParserLimits) -> Self {
+        Self {
+            cursor: JsonCursor::new(&bytes[range.clone()], limits),
+            base: range.start,
+            ranges: Vec::new(),
+        }
+    }
+
+    fn claim(&mut self, range: Range<usize>) {
+        if range.start == range.end {
+            return;
+        }
+        let range = (self.base + range.start)..(self.base + range.end);
+        if let Some(previous) = self.ranges.last_mut() {
+            if previous.end >= range.start {
+                previous.end = previous.end.max(range.end);
+                return;
+            }
+        }
+        self.ranges.push(range);
+    }
+
+    fn skip_whitespace(&mut self) {
+        let start = self.cursor.position;
+        self.cursor.skip_whitespace();
+        self.claim(start..self.cursor.position);
+    }
+
+    fn expect_byte(&mut self, expected: u8) -> Result<()> {
+        let start = self.cursor.position;
+        let result = self.cursor.expect_byte(expected);
+        if result.is_ok() {
+            self.claim(start..self.cursor.position);
+        }
+        result
+    }
+
+    fn parse_string(&mut self) -> Result<ParsedJsonString> {
+        let start = self.cursor.position;
+        let parsed = self.cursor.parse_string()?;
+        self.claim(start..self.cursor.position);
+        Ok(parsed)
+    }
+
+    fn parse_number(&mut self) -> Result<&'a [u8]> {
+        let start = self.cursor.position;
+        let token = self.cursor.parse_number()?;
+        self.claim(start..self.cursor.position);
+        Ok(token)
+    }
+
+    fn skip_opaque_value(&mut self, depth: usize) -> Result<()> {
+        let start = self.cursor.position;
+        let mut opaque = JsonCursor::new(&self.cursor.bytes[start..], self.cursor.limits);
+        opaque.skip_value(depth)?;
+        self.cursor.position = start + opaque.position;
+        Ok(())
+    }
+
+    fn collect(&mut self) -> Result<()> {
+        if self.cursor.bytes.starts_with(&[0xEF, 0xBB, 0xBF]) {
+            return Err(VerifierError::InvalidJson("JSON BOM is not allowed"));
+        }
+        self.collect_root()?;
+        if self.cursor.position != self.cursor.bytes.len() {
+            return Err(VerifierError::InvalidJson(
+                "trailing JSON bytes are not allowed",
+            ));
+        }
+        Ok(())
+    }
+
+    fn collect_root(&mut self) -> Result<()> {
+        self.expect_byte(b'{')?;
+        let mut keys = Vec::new();
+        let mut result_seen = false;
+        let mut data_seen = false;
+        self.skip_whitespace();
+        if self.cursor.peek() == Some(b'}') {
+            return Err(VerifierError::InvalidJson(
+                "required JSON members are missing",
+            ));
+        }
+        loop {
+            let key = self.parse_string()?;
+            if keys.iter().any(|known: &String| known == &key.value) {
+                return Err(VerifierError::InvalidJson("duplicate JSON object key"));
+            }
+            keys.push(key.value.clone());
+            self.skip_whitespace();
+            self.expect_byte(b':')?;
+            self.skip_whitespace();
+            if target_key(&key, "api_result")? {
+                if self.parse_number()? != b"1" {
+                    return Err(VerifierError::InvalidJson("api_result is not number 1"));
+                }
+                result_seen = true;
+            } else if target_key(&key, "api_data")? {
+                self.collect_api_data()?;
+                data_seen = true;
+            } else {
+                self.skip_opaque_value(1)?;
+            }
+            self.skip_whitespace();
+            match self.cursor.peek() {
+                Some(b',') => self.expect_byte(b',')?,
+                Some(b'}') => {
+                    self.expect_byte(b'}')?;
+                    break;
+                }
+                _ => return Err(VerifierError::InvalidJson("invalid root object separator")),
+            }
+            self.skip_whitespace();
+        }
+        if !result_seen || !data_seen {
+            return Err(VerifierError::InvalidJson(
+                "required JSON members are missing",
+            ));
+        }
+        Ok(())
+    }
+
+    fn collect_api_data(&mut self) -> Result<()> {
+        self.expect_byte(b'{')?;
+        let mut keys = Vec::new();
+        let mut basic_seen = false;
+        self.skip_whitespace();
+        if self.cursor.peek() == Some(b'}') {
+            return Err(VerifierError::InvalidJson("api_basic is missing"));
+        }
+        loop {
+            let key = self.parse_string()?;
+            if keys.iter().any(|known: &String| known == &key.value) {
+                return Err(VerifierError::InvalidJson("duplicate JSON object key"));
+            }
+            keys.push(key.value.clone());
+            self.skip_whitespace();
+            self.expect_byte(b':')?;
+            self.skip_whitespace();
+            if target_key(&key, "api_basic")? {
+                self.collect_api_basic()?;
+                basic_seen = true;
+            } else {
+                self.skip_opaque_value(2)?;
+            }
+            self.skip_whitespace();
+            match self.cursor.peek() {
+                Some(b',') => self.expect_byte(b',')?,
+                Some(b'}') => {
+                    self.expect_byte(b'}')?;
+                    break;
+                }
+                _ => return Err(VerifierError::InvalidJson("invalid api_data separator")),
+            }
+            self.skip_whitespace();
+        }
+        if !basic_seen {
+            return Err(VerifierError::InvalidJson("api_basic is missing"));
+        }
+        Ok(())
+    }
+
+    fn collect_api_basic(&mut self) -> Result<()> {
+        self.expect_byte(b'{')?;
+        let mut keys = Vec::new();
+        let mut member_seen = false;
+        self.skip_whitespace();
+        if self.cursor.peek() == Some(b'}') {
+            return Err(VerifierError::InvalidJson("api_member_id is missing"));
+        }
+        loop {
+            let key = self.parse_string()?;
+            if keys.iter().any(|known: &String| known == &key.value) {
+                return Err(VerifierError::InvalidJson("duplicate JSON object key"));
+            }
+            keys.push(key.value.clone());
+            self.skip_whitespace();
+            self.expect_byte(b':')?;
+            self.skip_whitespace();
+            if target_key(&key, "api_member_id")? {
+                let token = self.parse_number()?;
+                if token.is_empty()
+                    || token[0] == b'0'
+                    || token.len() > 16
+                    || !token.iter().all(|byte| byte.is_ascii_digit())
+                {
+                    return Err(VerifierError::InvalidJson(
+                        "api_member_id is not a canonical decimal number",
+                    ));
+                }
+                member_seen = true;
+            } else {
+                self.skip_opaque_value(3)?;
+            }
+            self.skip_whitespace();
+            match self.cursor.peek() {
+                Some(b',') => self.expect_byte(b',')?,
+                Some(b'}') => {
+                    self.expect_byte(b'}')?;
+                    break;
+                }
+                _ => return Err(VerifierError::InvalidJson("invalid api_basic separator")),
+            }
+            self.skip_whitespace();
+        }
+        if !member_seen {
+            return Err(VerifierError::InvalidJson("api_member_id is missing"));
+        }
+        Ok(())
+    }
 }
 
 impl<'a> JsonCursor<'a> {
@@ -1339,7 +1619,13 @@ impl<'source, 'transcript> SparseJsonCursor<'source, 'transcript> {
     }
 
     fn skip_whitespace(&mut self) -> Result<()> {
-        while matches!(self.peek()?, Some(b' ' | b'\t' | b'\r' | b'\n')) {
+        while self
+            .source
+            .ranges()
+            .into_iter()
+            .any(|range| range.start <= self.position && self.position < range.end)
+            && matches!(self.peek()?, Some(b' ' | b'\t' | b'\r' | b'\n'))
+        {
             self.position += 1;
         }
         Ok(())
@@ -1501,6 +1787,21 @@ impl<'source, 'transcript> SparseJsonCursor<'source, 'transcript> {
             return Err(VerifierError::LimitExceeded("JSON depth"));
         }
         self.skip_whitespace()?;
+        let disclosed = self
+            .source
+            .ranges()
+            .into_iter()
+            .any(|range| range.start <= self.position && self.position < range.end);
+        if !disclosed {
+            self.position = self
+                .source
+                .ranges()
+                .into_iter()
+                .find(|range| range.start > self.position)
+                .map(|range| range.start)
+                .unwrap_or(self.end);
+            return Ok(());
+        }
         match self.peek()? {
             Some(b'"') => {
                 self.skip_opaque_string()?;
@@ -2763,6 +3064,24 @@ mod tests {
         let body = b"svdata={\"api_result\":1,\"api_data\":{\"api_basic\":{\"api_member_id\":16189463}}}";
         let response = content_length_response(body);
         let ranges = vec![0..response.len()];
+        let source = AuthenticatedByteSource::new(&response, &ranges).unwrap();
+        let parsed =
+            parse_require_info_response_sparse_source(&source, &default_limits()).unwrap();
+        assert_eq!(parsed.verified_member_id, "16189463");
+    }
+
+    #[test]
+    fn semantic_sparse_ranges_exclude_unknown_values_but_verify_target_path() {
+        let padding = "x".repeat(16 * 1024);
+        let body = format!(
+            "svdata={{\"noise\":{{\"payload\":\"{padding}\"}},\"api_result\":1,\"api_data\":{{\"opaque\":[1,{{\"payload\":\"{padding}\"}}],\"api_basic\":{{\"other\":\"{padding}\",\"api_member_id\":16189463}}}},\"tail\":\"{padding}\"}}"
+        );
+        let response = content_length_response(body.as_bytes());
+        let ranges = plan_require_info_response_sparse_ranges(&response, &default_limits()).unwrap();
+        let disclosed_bytes: usize = ranges.iter().map(Range::len).sum();
+        assert!(ranges.len() > 1);
+        assert!(disclosed_bytes < response.len() / 4);
+
         let source = AuthenticatedByteSource::new(&response, &ranges).unwrap();
         let parsed =
             parse_require_info_response_sparse_source(&source, &default_limits()).unwrap();

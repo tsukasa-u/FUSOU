@@ -151,6 +151,33 @@ function mutateVisibleByte(bytes, range, mutation) {
   return mutated;
 }
 
+function mutateHiddenStringInterior(bytes, range) {
+  const mutated = Buffer.from(bytes);
+  for (let position = range.start; position < range.end; position += 1) {
+    if (bytes[position] === 0x5c
+      && bytes[position + 1] === 0x75
+      && position + 5 < range.end
+      && [...bytes.subarray(position + 2, position + 6)].every((byte) => {
+        return (byte >= 0x30 && byte <= 0x39)
+          || (byte >= 0x41 && byte <= 0x46)
+          || (byte >= 0x61 && byte <= 0x66);
+      })) {
+      const digitPosition = position + 5;
+      mutated[digitPosition] = bytes[digitPosition] === 0x30 ? 0x31 : 0x30;
+      return mutated;
+    }
+    if (bytes[position] >= 0x20
+      && bytes[position] < 0x80
+      && bytes[position] !== 0x22
+      && bytes[position] !== 0x5c
+      && bytes[position - 1] !== 0x5c) {
+      mutated[position] = bytes[position] === 0x61 ? 0x62 : 0x61;
+      return mutated;
+    }
+  }
+  throw new Error("no safe hidden mutation byte found");
+}
+
 function collectRealResponseFixtures() {
   const records = [];
   for (const epoch of readdirSync(realDataRoot).sort()) {
@@ -275,6 +302,10 @@ function fixtureMetadata(paddingBytes, fixture, rawBytes, wallClockMilliseconds,
     originResponseBytes: fixture.origin_response_size,
     committedRequestBytes,
     committedResponseBytes,
+    committedResponseRangeCount: fixture.committed_response_range_count,
+    committedResponseLargestRangeBytes: fixture.committed_response_largest_range_bytes,
+    disclosedResponseRangeCount: fixture.disclosed_response_range_count,
+    disclosedResponseLargestRangeBytes: fixture.disclosed_response_largest_range_bytes,
     committedBytes: committedRequestBytes + committedResponseBytes,
     fullPresentationBytes: encodedByteLength(fixture.presentation_base64),
     sparsePresentationBytes: encodedByteLength(fixture.sparse_presentation_base64),
@@ -328,6 +359,10 @@ function runRealGeneration() {
       originResponseBytes: generated.fixture.origin_response_size,
       committedRequestBytes: generated.fixture.committed_request_bytes,
       committedResponseBytes: generated.fixture.committed_response_bytes,
+      committedResponseRangeCount: generated.fixture.committed_response_range_count,
+      committedResponseLargestRangeBytes: generated.fixture.committed_response_largest_range_bytes,
+      disclosedResponseRangeCount: generated.fixture.disclosed_response_range_count,
+      disclosedResponseLargestRangeBytes: generated.fixture.disclosed_response_largest_range_bytes,
       committedBytes: generated.fixture.committed_request_bytes + generated.fixture.committed_response_bytes,
       sparsePresentationBytes: encodedByteLength(generated.fixture.sparse_presentation_base64),
       generationTiming: generated.fixture.generation_timing,
@@ -369,7 +404,9 @@ function writeMutatedSourceFixture(directory, source, mutation) {
     ? longestStringInterior(payload, 7)
     : memberIdDigits(payload);
   if (!range) throw new Error(`real response has no ${mutation} mutation range`);
-  const mutatedPayload = mutateVisibleByte(payload, range, mutation === "hidden" ? "hidden" : "member-id");
+  const mutatedPayload = mutation === "hidden"
+    ? mutateHiddenStringInterior(payload, range)
+    : mutateVisibleByte(payload, range, "member-id");
   const mutatedBytes = Buffer.from(rawBytes);
   mutatedPayload.copy(mutatedBytes, metadataBytes);
   const fixturePath = resolve(directory, `real-${mutation}-source`);
@@ -710,12 +747,23 @@ function runChild(fixturePath, requestedPaddingBytes, expectedSha256, mode, case
       .reduce((total, range) => total + Number.parseInt(range.length, 10), 0);
     const requestTranscriptBytes = Number.parseInt(unsignedResult.request_transcript_size, 10);
     const responseTranscriptBytes = Number.parseInt(unsignedResult.response_transcript_size, 10);
+    const responseBytes = Buffer.from(fixture.authenticated_response_base64, "base64url");
+    const responseHeaderEnd = responseBytes.indexOf(Buffer.from("\r\n\r\n", "ascii"));
+    const responseHeaderBytes = responseHeaderEnd < 0 ? null : responseHeaderEnd + 4;
     const committedRequestBytes = fixture.committed_request_bytes ?? null;
     const committedResponseBytes = fixture.committed_response_bytes ?? null;
     const committedBytes = committedRequestBytes == null || committedResponseBytes == null
       ? null
       : committedRequestBytes + committedResponseBytes;
     const transcriptBytes = requestTranscriptBytes + responseTranscriptBytes;
+    const disclosedResponseRangeLengths = unsignedResult.revealed_response_ranges
+      .map((range) => Number.parseInt(range.length, 10));
+    const disclosedResponseBodyBytes = responseHeaderBytes == null
+      ? null
+      : disclosedResponseBytes - responseHeaderBytes;
+    const committedResponseBodyBytes = committedResponseBytes == null || responseHeaderBytes == null
+      ? null
+      : committedResponseBytes - responseHeaderBytes;
     const disclosedResponseSha256 = sha256(Buffer.concat(
       unsignedResult.revealed_response_ranges.map((range) => Buffer.from(range.bytes, "base64url")),
     ));
@@ -730,15 +778,29 @@ function runChild(fixturePath, requestedPaddingBytes, expectedSha256, mode, case
       fullPresentationBytes: encodedByteLength(fixture.presentation_base64),
       sparsePresentationBytes: encodedByteLength(fixture.sparse_presentation_base64),
       originResponseBytes: fixture.origin_response_size ?? null,
+      responseHeaderBytes,
+      responseBodyBytes: responseHeaderBytes == null ? null : responseTranscriptBytes - responseHeaderBytes,
       requestTranscriptBytes,
       responseTranscriptBytes,
       transcriptBytes,
       committedRequestBytes,
       committedResponseBytes,
+      committedResponseRangeCount: fixture.committed_response_range_count ?? null,
+      committedResponseLargestRangeBytes: fixture.committed_response_largest_range_bytes ?? null,
+      committedResponseBodyBytes,
+      committedResponseBodyRatio: committedResponseBodyBytes == null || responseHeaderBytes == null
+        ? null
+        : committedResponseBodyBytes / (responseTranscriptBytes - responseHeaderBytes),
       committedBytes,
       committedRatio: committedBytes == null ? null : committedBytes / transcriptBytes,
       disclosedRequestBytes,
       disclosedResponseBytes,
+      disclosedResponseRangeCount: disclosedResponseRangeLengths.length,
+      disclosedResponseLargestRangeBytes: Math.max(0, ...disclosedResponseRangeLengths),
+      disclosedResponseBodyBytes,
+      disclosedResponseBodyRatio: disclosedResponseBodyBytes == null || responseHeaderBytes == null
+        ? null
+        : disclosedResponseBodyBytes / (responseTranscriptBytes - responseHeaderBytes),
       disclosedBytes: disclosedRequestBytes + disclosedResponseBytes,
       disclosedRatio: disclosedResponseBytes / responseTranscriptBytes,
       disclosureRatio: disclosedResponseBytes / responseTranscriptBytes,

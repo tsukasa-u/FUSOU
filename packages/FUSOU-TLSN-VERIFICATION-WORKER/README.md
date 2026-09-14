@@ -76,12 +76,14 @@ sparse semantic contract rejects non-empty `require_info` request bodies. The
 corpus therefore remains `requestTranscriptStatus: NOT_ESTABLISHED`, and these
 measurements are not production wire evidence.
 
-On Linux with Node `v22.21.1`, one offline run produced the following real-body
-measurements. `prover peak RSS` is captured during alpha.15 `prover.prove`;
-verification and signing are the WASM verifier child process. The 12-byte gap
-between the response transcript and disclosed/committed response is the largest
-JSON string interior that the current sparse parser can skip in each selected
-body; the rest of the JSON structure and numeric values remain authenticated.
+The real-body measurements below preserve the old run as a BEFORE baseline.
+`prover peak RSS` is captured during alpha.15 `prover.prove`; verification and
+signing are the WASM verifier child process.
+
+BEFORE (longest-string heuristic): the 12-byte gap between the response
+transcript and disclosed/committed response was the largest JSON string interior
+that the sparse parser could skip. This left nearly the entire real response in
+the cryptographic claim.
 
 | Case | Body | Reconstructed response | Committed response | Disclosed | Disclosure ratio | Sparse Presentation | Generation | `prover.prove` | Prover peak RSS | WASM verify | Sign |
 | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
@@ -90,13 +92,29 @@ body; the rest of the JSON structure and numeric values remain authenticated.
 | P99 | 165,751 B | 165,813 B | 165,801 B | 165,801 B | 0.999928 | 167,575 B | 16,480.08 ms | 15,955.91 ms | 8,098,877,440 B | 22.99 ms | 26.91 ms |
 | Max | 165,752 B | 165,814 B | 165,802 B | 165,802 B | 0.999928 | 167,575 B | 16,272.91 ms | 15,741.69 ms | 8,067,039,232 B | 22.48 ms | 26.70 ms |
 
-All four real cases passed sparse cryptographic and semantic verification. Each
-child independently rejected 8/8 signed Result mutations and 2/2 disclosed
-range mutations. The real-data regression kept a hidden response mutation
-valid with the same disclosed bytes and member ID, while disclosed-header,
-member-ID, and Presentation mutations were all `BLOCKED`. The high prover RSS
-is an important result: with the current parser profile, a real body is not a
-low-memory sparse proving case even though its Presentation is sparse.
+AFTER (semantic range planner): synthetic and real paths use the same
+verifier-owned planner. The response claim includes HTTP framing, `svdata=`,
+JSON structure, `api_result`, the `api_data.api_basic` path, and the canonical
+`api_member_id` value. Unknown value interiors are outside the claim scope and
+are not verified. Ratios below are against the response body, excluding the
+reconstructed HTTP headers; the range column is `count / largest range`.
+
+| Case | Body | Reconstructed response | Committed response | Committed body ratio | Disclosed response | Disclosed body ratio | Ranges | Sparse Presentation | Generation | `prover.prove` | Prover peak RSS | WASM verify | Sign |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| P50 | 150,080 B | 150,142 B | 324 B | 0.001746 | 324 B | 0.001746 | 12 / 102 B | 3,477 B | 209.49 ms | 66.67 ms | 200,712,192 B | 10.81 ms | 3.01 ms |
+| P95 | 165,258 B | 165,320 B | 324 B | 0.001585 | 324 B | 0.001585 | 12 / 102 B | 3,479 B | 211.53 ms | 71.89 ms | 201,392,128 B | 11.01 ms | 2.90 ms |
+| P99 | 165,751 B | 165,813 B | 324 B | 0.001581 | 324 B | 0.001581 | 12 / 102 B | 3,477 B | 204.71 ms | 65.49 ms | 196,603,904 B | 10.96 ms | 2.80 ms |
+| Max | 165,752 B | 165,814 B | 324 B | 0.001581 | 324 B | 0.001581 | 12 / 102 B | 3,477 B | 218.01 ms | 75.00 ms | 211,972,096 B | 10.47 ms | 3.04 ms |
+
+All four AFTER cases passed sparse cryptographic and semantic verification. Each
+child rejected 8/8 signed Result mutations and 2/2 disclosed-range mutations.
+The real-data regression kept a valid hidden response mutation with the same
+disclosed bytes and member ID, while disclosed-header, member-ID, and
+Presentation mutations were all `BLOCKED`; the hidden mutation also preserved
+the disclosed response digest. The new scope is substantially smaller, but
+alpha.15 still used about 197-212 MiB peak RSS for these real-body proving
+runs. The reconstructed HTTP status, headers, and TLS framing remain local test
+inputs, not production wire evidence.
 
 On Linux with Node `v22.21.1`, the parser benchmark produced the following measurements. `additional.rssBytes` is the child-process RSS increase during parsing.
 
@@ -108,18 +126,30 @@ On Linux with Node `v22.21.1`, the parser benchmark produced the following measu
 | 16 MiB | 135 B | 0.0000080466 | 1.285620 ms | 53,248 B | 17.224014 ms | 33,570,816 B |
 | 32 MiB | 135 B | 0.0000040233 | 1.042368 ms | 57,344 B | 42.031784 ms | 67,125,248 B |
 
-The sparse crypto benchmark forces sparse proof generation in the child Cargo process and records committed bytes separately from disclosed bytes. The required six-case matrix was measured offline:
+The sparse crypto benchmark forces sparse proof generation in the child Cargo
+process and records committed bytes separately from disclosed bytes. The
+required six-case matrix was measured offline with the semantic range planner:
 
-| Padding | Transcript | Committed | Committed ratio | Disclosed | Disclosed ratio | Sparse Presentation | Fixture generation | `prover.prove` | Prover peak RSS | VmData | VmSize | WASM verify | Status |
-| ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
-| 4 KiB | 4,493 B | 397 B | 0.088360 | 397 B | 0.034873 | 1,921 B | 190.584 ms | 48.522 ms | 165,486,592 B | 323,162,112 B | 4,507,070,464 B | 12.693 ms | PASS |
-| 16 KiB | 16,782 B | 398 B | 0.023716 | 398 B | 0.009012 | 1,921 B | 179.714 ms | 41.225 ms | 144,867,328 B | 269,107,200 B | 4,507,070,464 B | 12.172 ms | PASS |
-| 64 KiB | 65,934 B | 398 B | 0.006036 | 398 B | 0.002268 | 1,921 B | 184.438 ms | 45.184 ms | 163,127,296 B | 313,229,312 B | 4,507,070,464 B | 12.307 ms | PASS |
-| 256 KiB | 262,543 B | 399 B | 0.001520 | 399 B | 0.000572 | 1,923 B | 184.624 ms | 42.119 ms | 173,256,704 B | 321,888,256 B | 4,507,070,464 B | 12.435 ms | PASS |
-| 512 KiB | 524,687 B | 399 B | 0.000760 | 399 B | 0.000286 | 1,924 B | 199.998 ms | 16.305 ms | 188,887,040 B | 373,219,328 B | 4,507,070,464 B | 10.954 ms | PASS |
-| 1 MiB | 1,048,976 B | 400 B | 0.000381 | 400 B | 0.000144 | 1,924 B | 219.725 ms | 29.161 ms | 220,073,984 B | 358,289,408 B | 4,508,643,328 B | 11.060 ms | PASS |
+| Padding | Response transcript | Committed/disclosed response | Ranges (largest) | Body ratio | Sparse Presentation | Fixture generation | `prover.prove` | Prover peak RSS | WASM verify | Sign | Status |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| 4 KiB | 4,244 B | 146 / 146 B | 2 / 145 B | 0.020554 | 1,919 B | 202.21 ms | 46.20 ms | 154,406,912 B | 12.95 ms | 3.03 ms | PASS |
+| 16 KiB | 16,533 B | 147 / 147 B | 2 / 146 B | 0.005221 | 1,921 B | 223.68 ms | 56.06 ms | 145,682,432 B | 12.45 ms | 2.74 ms | PASS |
+| 64 KiB | 65,685 B | 147 / 147 B | 2 / 146 B | 0.001310 | 1,919 B | 185.59 ms | 45.01 ms | 162,619,392 B | 12.76 ms | 2.68 ms | PASS |
+| 256 KiB | 262,294 B | 148 / 148 B | 2 / 147 B | 0.000328 | 1,921 B | 205.02 ms | 54.25 ms | 173,248,512 B | 10.99 ms | 2.49 ms | PASS |
+| 512 KiB | 524,438 B | 148 / 148 B | 2 / 147 B | 0.000164 | 1,920 B | 203.15 ms | 10.05 ms | 167,067,648 B | 11.03 ms | 2.44 ms | PASS |
+| 1 MiB | 1,048,727 B | 149 / 149 B | 2 / 148 B | 0.000082 | 1,922 B | 249.28 ms | 8.69 ms | 236,163,072 B | 10.79 ms | 2.43 ms | PASS |
 
-The disclosure ratio is relative to the response transcript; the committed ratio is relative to the combined request and response transcript. The sparse Result signature was independently verified and rejected all 8/8 general mutations plus 2/2 disclosed-range mutations in every verified child. The scope regression generated equal-length sparse responses with different hidden middle bytes: both Results remained valid, disclosed response bytes and their digest stayed identical, and the verified member ID stayed `16189463`. This is expected because hidden bytes are outside the sparse cryptographic claim scope. Mutating `response_transcript_size` was rejected by the signed Result contract. A 4 KiB complete fixture passed complete verification with the same member ID; full-Presentation/sparse-verifier and sparse-Presentation/full-verifier cross-profile checks were both blocked.
+The committed and disclosed response ranges are equal in sparse mode. Body
+ratios exclude the reconstructed response headers; the request is committed and
+disclosed separately. The sparse Result signature was independently verified
+and rejected all 8/8 general mutations plus 2/2 disclosed-range mutations in
+every child. The scope regression generated equal-length sparse responses with
+different hidden middle bytes: both Results remained valid, disclosed response
+bytes and their digest stayed identical, and the verified member ID stayed
+`16189463`. Mutating `response_transcript_size` was rejected by the signed
+Result contract. A 4 KiB complete fixture passed complete verification with the
+same member ID; full-Presentation/sparse-verifier and sparse-Presentation/full-
+verifier cross-profile checks were both blocked.
 
 The 4/8/16/32 MiB cases were not forced. Full Presentation memory remains `BLOCKED` because the sparse fixtures intentionally contain no full Presentation. These are synthetic/offline measurements, not production evidence.
 
@@ -144,7 +174,7 @@ Before:
 
 After:
 
-- 1 MiB -> 220,073,984 B peak RSS (about 210 MiB) / 29.16 ms `prover.prove` in the current matrix run.
+- 1 MiB -> 236,163,072 B peak RSS (about 225 MiB) / 8.69 ms `prover.prove` in the current matrix run.
 
 Sparse cryptographic verification: `PASS` for the local synthetic 1 MiB case.
 
