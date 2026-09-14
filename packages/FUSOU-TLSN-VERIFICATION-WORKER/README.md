@@ -43,6 +43,21 @@ TLSN_SPARSE_CRYPTO_BENCHMARK_PADDING_BYTES=4096,16384,65536,262144,524288,104857
 pnpm run benchmark:sparse-scope
 ```
 
+The repository-local `require_info` fixture corpus can be measured separately:
+
+```sh
+pnpm run stats:require-info-fixtures
+```
+
+That command inspected 373 request/response pairs across 16 epochs without
+printing tokens or response bodies. Response fixture bodies were 144,022 to
+165,752 bytes (P50 150,080, P95 165,258, P99 165,751); JSON bytes after the
+`svdata=` prefix were 144,015 to 165,745 bytes. These are metadata-plus-API-body
+fixtures, not HTTP transcripts: status lines, headers, TLS framing, and a proven
+wire transcript boundary are absent, so HTTP transcript size is
+`NOT_ESTABLISHED`. The 1 MiB and 32 MiB cases below remain synthetic stress
+measurements; 32 MiB is not justified by this corpus.
+
 On Linux with Node `v22.21.1`, the parser benchmark produced the following measurements. `additional.rssBytes` is the child-process RSS increase during parsing.
 
 | Transcript | Sparse disclosed | Sparse ratio | Sparse parse | Sparse RSS | Materialized parse | Materialized RSS |

@@ -20,6 +20,7 @@
     "verify:production-evidence": "pnpm run build:wasm && node scripts/verify-production-evidence.mjs",
     "verify:previous-deployment": "node scripts/verify-previous-deployment.mjs",
     "benchmark:sparse-parser": "node scripts/sparse-parser-memory-benchmark.mjs",
+    "stats:require-info-fixtures": "node scripts/require-info-fixture-stats.mjs",
     "generate:sparse-fixtures": "node scripts/sparse-crypto-benchmark.mjs --generate",
     "benchmark:sparse-scope": "node scripts/sparse-crypto-benchmark.mjs --scope-regression",
     "validate:remote": "node scripts/remote-validation.mjs",

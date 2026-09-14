@@ -40,6 +40,9 @@ TLSN_SPARSE_CRYPTO_BENCHMARK_PADDING_BYTES=4096,16384,65536,262144,524288,104857
 TLSN_SPARSE_CRYPTO_BENCHMARK_PADDING_BYTES=4096,16384,65536,262144,524288,1048576 node --expose-gc scripts/sparse-crypto-benchmark.mjs
 node scripts/sparse-parser-memory-benchmark.mjs
 pnpm run benchmark:sparse-scope
+
+# Real repository fixture statistics; no network or credentials are used.
+pnpm run stats:require-info-fixtures
 ```
 
 Rust regression commands from the repository root:
@@ -58,6 +61,39 @@ CARGO_NET_OFFLINE=true cargo +1.95.0 test --quiet --manifest-path packages/FUSOU
 - Sparse scope regression: PASS. Equal-length hidden response mutation remained valid; disclosed-range mutations rejected 2/2; transcript-size and general Result mutations rejected 8/8; complete-mode sanity passed; cross-profile verification was blocked.
 - Synthetic proxy alpha.15 focused test: PASS, 3 passed, 0 failed.
 - `git diff --check`: PASS.
+
+## Real `require_info` Fixture Statistics
+
+The offline `stats:require-info-fixtures` command inspected the repository-local
+`packages/FUSOU-PROXY-DATA/<epoch>/kcsapi` corpus. It found 373 Q fixtures and
+373 S fixtures across 16 epochs. Q/S pairing is reported only by ordinal within
+each epoch; the Q and S metadata timestamps are not asserted equal.
+
+These files are API fixtures, not raw HTTP transcripts. Each file contains a
+metadata preamble followed by a query-string request or an `svdata=` response
+body. They do not contain an HTTP status line, HTTP headers, TLS framing, or a
+proven request/response transcript boundary. Therefore the HTTP transcript size
+for this corpus is `NOT_ESTABLISHED`.
+
+| Measurement | Min | P50 | P90 | P95 | P99 | P99.9 | Max | Mean |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Request fixture body bytes | 62 | 62 | 62 | 62 | 62 | 62 | 62 | 62.00 |
+| Response fixture body bytes | 144,022 | 150,080 | 164,515 | 165,258 | 165,751 | 165,752 | 165,752 | 152,803.86 |
+| Response JSON bytes after `svdata=` | 144,015 | 150,073 | 164,508 | 165,251 | 165,744 | 165,745 | 165,745 | 152,796.86 |
+
+All 373 responses began with `svdata=`, parsed as JSON, had `api_result == 1`,
+and contained every required `api_data` path used by the DTO and sparse semantic
+validation, including `api_data.api_basic.api_member_id`. Metadata preambles were
+54, 91, or 118 bytes. The script prints no query values, tokens, or response
+bodies.
+
+The largest observed fixture body is 165,752 bytes, so it is below the current
+16 MiB `MAX_RESPONSE_TRANSCRIPT_BYTES` candidate by 16,611,464 bytes. This is
+body-size headroom only; it does not validate the candidate limit or establish a
+wire transcript limit. The real corpus supports production-representative API
+body measurements at roughly 141-162 KiB. The existing 1 MiB and 32 MiB sparse
+measurements remain synthetic stress cases, not representative real payload
+sizes; 32 MiB has no corpus-based justification.
 
 ## Parser Memory Measurement
 
