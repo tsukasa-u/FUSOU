@@ -1,9 +1,9 @@
+use crate::sparse_result::SparseVerifierResult;
 use crate::tlsn_alpha15::{
     verify_alpha15_presentation_with_trusted_notary_key_and_trust_anchor,
     RequireInfoDisclosureProfile, SparseRequireInfoDisclosureProfile,
 };
 use crate::{parse_verifier_result, sha256, VerifierResult};
-use crate::sparse_result::SparseVerifierResult;
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use k256::PublicKey;
 use ring::signature::{UnparsedPublicKey, ED25519};
@@ -88,7 +88,11 @@ impl EvidenceResultView for VerifierResult {
         let mut value = self.clone();
         value.signature = [0; 64];
         value.canonical_json().map_err(|error| {
-            BundleVerificationError::new("result_evidence_binding", Some("result"), error.to_string())
+            BundleVerificationError::new(
+                "result_evidence_binding",
+                Some("result"),
+                error.to_string(),
+            )
         })
     }
 
@@ -98,26 +102,65 @@ impl EvidenceResultView for VerifierResult {
         })
     }
 
-    fn signature(&self) -> &[u8; 64] { &self.signature }
-    fn profile_sha256(&self) -> &[u8; 32] { &self.profile_sha256 }
-    fn canonical_user_id(&self) -> &str { &self.canonical_user_id }
-    fn canonical_device_id(&self) -> &str { &self.canonical_device_id }
-    fn device_challenge(&self) -> &[u8; 32] { &self.device_challenge }
-    fn verified_member_id(&self) -> &str { &self.verified_member_id }
-    fn attestation_session_id(&self) -> uuid::Uuid { self.attestation_session_id }
-    fn binding_nonce(&self) -> &[u8; 32] { &self.binding_nonce }
-    fn binding_value(&self) -> &str { &self.binding_value }
-    fn verifier_key_id(&self) -> &str { &self.verifier_key_id }
-    fn notary_key_id(&self) -> &str { &self.notary_key_id }
-    fn tlsn_attestation_id(&self) -> &[u8] { &self.tlsn_attestation_id }
-    fn server_identity(&self) -> &str { &self.server_identity }
-    fn request_transcript_size(&self) -> u64 { self.request_transcript_size }
-    fn response_transcript_size(&self) -> u64 { self.response_transcript_size }
-    fn revealed_request_ranges(&self) -> &[crate::RevealedRange] { &self.revealed_request_ranges }
-    fn revealed_response_ranges(&self) -> &[crate::RevealedRange] { &self.revealed_response_ranges }
-    fn is_sparse(&self) -> bool { false }
+    fn signature(&self) -> &[u8; 64] {
+        &self.signature
+    }
+    fn profile_sha256(&self) -> &[u8; 32] {
+        &self.profile_sha256
+    }
+    fn canonical_user_id(&self) -> &str {
+        &self.canonical_user_id
+    }
+    fn canonical_device_id(&self) -> &str {
+        &self.canonical_device_id
+    }
+    fn device_challenge(&self) -> &[u8; 32] {
+        &self.device_challenge
+    }
+    fn verified_member_id(&self) -> &str {
+        &self.verified_member_id
+    }
+    fn attestation_session_id(&self) -> uuid::Uuid {
+        self.attestation_session_id
+    }
+    fn binding_nonce(&self) -> &[u8; 32] {
+        &self.binding_nonce
+    }
+    fn binding_value(&self) -> &str {
+        &self.binding_value
+    }
+    fn verifier_key_id(&self) -> &str {
+        &self.verifier_key_id
+    }
+    fn notary_key_id(&self) -> &str {
+        &self.notary_key_id
+    }
+    fn tlsn_attestation_id(&self) -> &[u8] {
+        &self.tlsn_attestation_id
+    }
+    fn server_identity(&self) -> &str {
+        &self.server_identity
+    }
+    fn request_transcript_size(&self) -> u64 {
+        self.request_transcript_size
+    }
+    fn response_transcript_size(&self) -> u64 {
+        self.response_transcript_size
+    }
+    fn revealed_request_ranges(&self) -> &[crate::RevealedRange] {
+        &self.revealed_request_ranges
+    }
+    fn revealed_response_ranges(&self) -> &[crate::RevealedRange] {
+        &self.revealed_response_ranges
+    }
+    fn is_sparse(&self) -> bool {
+        false
+    }
     fn full_transcript_sha256(&self) -> Option<(&[u8; 32], &[u8; 32])> {
-        Some((&self.request_transcript_sha256, &self.response_transcript_sha256))
+        Some((
+            &self.request_transcript_sha256,
+            &self.response_transcript_sha256,
+        ))
     }
 }
 
@@ -126,7 +169,11 @@ impl EvidenceResultView for SparseVerifierResult {
         let mut value = self.clone();
         value.signature = [0; 64];
         value.canonical_json().map_err(|error| {
-            BundleVerificationError::new("result_evidence_binding", Some("result"), error.to_string())
+            BundleVerificationError::new(
+                "result_evidence_binding",
+                Some("result"),
+                error.to_string(),
+            )
         })
     }
 
@@ -136,25 +183,63 @@ impl EvidenceResultView for SparseVerifierResult {
         })
     }
 
-    fn signature(&self) -> &[u8; 64] { &self.signature }
-    fn profile_sha256(&self) -> &[u8; 32] { &self.profile_sha256 }
-    fn canonical_user_id(&self) -> &str { &self.canonical_user_id }
-    fn canonical_device_id(&self) -> &str { &self.canonical_device_id }
-    fn device_challenge(&self) -> &[u8; 32] { &self.device_challenge }
-    fn verified_member_id(&self) -> &str { &self.verified_member_id }
-    fn attestation_session_id(&self) -> uuid::Uuid { self.attestation_session_id }
-    fn binding_nonce(&self) -> &[u8; 32] { &self.binding_nonce }
-    fn binding_value(&self) -> &str { &self.binding_value }
-    fn verifier_key_id(&self) -> &str { &self.verifier_key_id }
-    fn notary_key_id(&self) -> &str { &self.notary_key_id }
-    fn tlsn_attestation_id(&self) -> &[u8] { &self.tlsn_attestation_id }
-    fn server_identity(&self) -> &str { &self.server_identity }
-    fn request_transcript_size(&self) -> u64 { self.request_transcript_size }
-    fn response_transcript_size(&self) -> u64 { self.response_transcript_size }
-    fn revealed_request_ranges(&self) -> &[crate::RevealedRange] { &self.revealed_request_ranges }
-    fn revealed_response_ranges(&self) -> &[crate::RevealedRange] { &self.revealed_response_ranges }
-    fn is_sparse(&self) -> bool { true }
-    fn full_transcript_sha256(&self) -> Option<(&[u8; 32], &[u8; 32])> { None }
+    fn signature(&self) -> &[u8; 64] {
+        &self.signature
+    }
+    fn profile_sha256(&self) -> &[u8; 32] {
+        &self.profile_sha256
+    }
+    fn canonical_user_id(&self) -> &str {
+        &self.canonical_user_id
+    }
+    fn canonical_device_id(&self) -> &str {
+        &self.canonical_device_id
+    }
+    fn device_challenge(&self) -> &[u8; 32] {
+        &self.device_challenge
+    }
+    fn verified_member_id(&self) -> &str {
+        &self.verified_member_id
+    }
+    fn attestation_session_id(&self) -> uuid::Uuid {
+        self.attestation_session_id
+    }
+    fn binding_nonce(&self) -> &[u8; 32] {
+        &self.binding_nonce
+    }
+    fn binding_value(&self) -> &str {
+        &self.binding_value
+    }
+    fn verifier_key_id(&self) -> &str {
+        &self.verifier_key_id
+    }
+    fn notary_key_id(&self) -> &str {
+        &self.notary_key_id
+    }
+    fn tlsn_attestation_id(&self) -> &[u8] {
+        &self.tlsn_attestation_id
+    }
+    fn server_identity(&self) -> &str {
+        &self.server_identity
+    }
+    fn request_transcript_size(&self) -> u64 {
+        self.request_transcript_size
+    }
+    fn response_transcript_size(&self) -> u64 {
+        self.response_transcript_size
+    }
+    fn revealed_request_ranges(&self) -> &[crate::RevealedRange] {
+        &self.revealed_request_ranges
+    }
+    fn revealed_response_ranges(&self) -> &[crate::RevealedRange] {
+        &self.revealed_response_ranges
+    }
+    fn is_sparse(&self) -> bool {
+        true
+    }
+    fn full_transcript_sha256(&self) -> Option<(&[u8; 32], &[u8; 32])> {
+        None
+    }
 }
 
 impl ParsedVerifierResult {
@@ -416,17 +501,42 @@ pub fn verify_bundle(
         BundleVerificationError::new("tlsn_presentation", Some("presentation"), error.to_string())
     })?;
     let authenticated = if result_view.is_sparse() {
-        let profile = SparseRequireInfoDisclosureProfile::from_server_identity(&options.server_identity)
-            .map_err(|error| BundleVerificationError::new("tlsn_presentation", Some("presentation"), error.to_string()))?;
+        let profile =
+            SparseRequireInfoDisclosureProfile::from_server_identity(&options.server_identity)
+                .map_err(|error| {
+                    BundleVerificationError::new(
+                        "tlsn_presentation",
+                        Some("presentation"),
+                        error.to_string(),
+                    )
+                })?;
         transcript
             .verify_require_info_sparse(&profile, &crate::ParserLimits::default())
-            .map_err(|error| BundleVerificationError::new("require_info_profile", Some("presentation"), error.to_string()))?
+            .map_err(|error| {
+                BundleVerificationError::new(
+                    "require_info_profile",
+                    Some("presentation"),
+                    error.to_string(),
+                )
+            })?
     } else {
         let profile = RequireInfoDisclosureProfile::from_server_identity(&options.server_identity)
-            .map_err(|error| BundleVerificationError::new("tlsn_presentation", Some("presentation"), error.to_string()))?;
+            .map_err(|error| {
+                BundleVerificationError::new(
+                    "tlsn_presentation",
+                    Some("presentation"),
+                    error.to_string(),
+                )
+            })?;
         transcript
             .verify_require_info(&profile, &crate::ParserLimits::default())
-            .map_err(|error| BundleVerificationError::new("require_info_profile", Some("presentation"), error.to_string()))?
+            .map_err(|error| {
+                BundleVerificationError::new(
+                    "require_info_profile",
+                    Some("presentation"),
+                    error.to_string(),
+                )
+            })?
     };
     if result_view.server_identity() != options.server_identity {
         return Err(BundleVerificationError::mismatch(
@@ -447,28 +557,47 @@ pub fn verify_bundle(
         ));
     }
     let derived_result = if result_view.is_sparse() {
-        ParsedVerifierResult::Sparse(SparseVerifierResult::from_authenticated(
-            &authenticated,
-            profile_sha256,
-            result_view.verifier_key_id().to_owned(),
-            result_view.notary_key_id().to_owned(),
-            sha256(&notary_key),
-            sha256(presentation),
-            result_view.canonical_user_id().to_owned(),
-            result_view.canonical_device_id().to_owned(),
-            *result_view.device_challenge(),
-            [0; 64],
-        ).map_err(|error| BundleVerificationError::new("result_evidence_binding", Some("presentation"), error.to_string()))?)
+        ParsedVerifierResult::Sparse(
+            SparseVerifierResult::from_authenticated(
+                &authenticated,
+                profile_sha256,
+                result_view.verifier_key_id().to_owned(),
+                result_view.notary_key_id().to_owned(),
+                sha256(&notary_key),
+                sha256(presentation),
+                result_view.canonical_user_id().to_owned(),
+                result_view.canonical_device_id().to_owned(),
+                *result_view.device_challenge(),
+                [0; 64],
+            )
+            .map_err(|error| {
+                BundleVerificationError::new(
+                    "result_evidence_binding",
+                    Some("presentation"),
+                    error.to_string(),
+                )
+            })?,
+        )
     } else {
-        ParsedVerifierResult::Complete(authenticated.into_verifier_result(
-            profile_sha256,
-            result_view.verifier_key_id().to_owned(),
-            result_view.notary_key_id().to_owned(),
-            result_view.canonical_user_id().to_owned(),
-            result_view.canonical_device_id().to_owned(),
-            *result_view.device_challenge(),
-            [0; 64],
-        ).map_err(|error| BundleVerificationError::new("result_evidence_binding", Some("presentation"), error.to_string()))?)
+        ParsedVerifierResult::Complete(
+            authenticated
+                .into_verifier_result(
+                    profile_sha256,
+                    result_view.verifier_key_id().to_owned(),
+                    result_view.notary_key_id().to_owned(),
+                    result_view.canonical_user_id().to_owned(),
+                    result_view.canonical_device_id().to_owned(),
+                    *result_view.device_challenge(),
+                    [0; 64],
+                )
+                .map_err(|error| {
+                    BundleVerificationError::new(
+                        "result_evidence_binding",
+                        Some("presentation"),
+                        error.to_string(),
+                    )
+                })?,
+        )
     };
     assert_unsigned_result_matches(result_view, derived_result.view())?;
     verify_session_binding(&bundle, result_view)?;
@@ -562,7 +691,9 @@ fn parse_result_profile(input: &[u8]) -> Result<ParsedVerifierResult> {
             Err(sparse_error) => Err(BundleVerificationError::new(
                 "result_signature",
                 Some("result"),
-                format!("unsupported Result profile: complete={complete_error}; sparse={sparse_error}"),
+                format!(
+                    "unsupported Result profile: complete={complete_error}; sparse={sparse_error}"
+                ),
             )),
         },
     }
@@ -1795,7 +1926,8 @@ fn verify_authority_artifacts(
             "authenticated user is not the externally pinned user",
         ));
     }
-    if result.canonical_user_id() != canonical_user_id || result.canonical_device_id() != device_id {
+    if result.canonical_user_id() != canonical_user_id || result.canonical_device_id() != device_id
+    {
         return Err(BundleVerificationError::new(
             "result_evidence_binding",
             Some("result"),
@@ -2469,9 +2601,7 @@ fn verify_semantic_artifact(
     }
 
     let expected_semantic_result = parse_json(
-        result
-            .unsigned_canonical_json()?
-            .as_bytes(),
+        result.unsigned_canonical_json()?.as_bytes(),
         "result",
         "semantic_verification",
     )?;
@@ -2535,22 +2665,31 @@ fn verify_semantic_artifact(
     }
     if let Some((request_digest, response_digest)) = result.full_transcript_sha256() {
         for (field, expected) in [
-            ("request_transcript_sha256", URL_SAFE_NO_PAD.encode(request_digest)),
-            ("response_transcript_sha256", URL_SAFE_NO_PAD.encode(response_digest)),
+            (
+                "request_transcript_sha256",
+                URL_SAFE_NO_PAD.encode(request_digest),
+            ),
+            (
+                "response_transcript_sha256",
+                URL_SAFE_NO_PAD.encode(response_digest),
+            ),
         ] {
             if derived.get(field).and_then(Value::as_str) != Some(expected.as_str()) {
                 return Err(BundleVerificationError::mismatch(
                     "semantic_verification",
                     Some("semantic_verification"),
-                    &format!("Presentation-derived semantic field does not match the Result: {field}"),
+                    &format!(
+                        "Presentation-derived semantic field does not match the Result: {field}"
+                    ),
                     expected,
-                    derived.get(field).and_then(Value::as_str).unwrap_or("<missing>"),
+                    derived
+                        .get(field)
+                        .and_then(Value::as_str)
+                        .unwrap_or("<missing>"),
                 ));
             }
         }
-    } else if derived
-        .get("request_transcript_sha256")
-        .is_some()
+    } else if derived.get("request_transcript_sha256").is_some()
         || derived.get("response_transcript_sha256").is_some()
     {
         return Err(BundleVerificationError::new(
@@ -2877,14 +3016,11 @@ fn verify_health_identities(
             "health security identity is missing",
         )
     })?;
-    if security.get("server_identity").and_then(Value::as_str)
-        != Some(result.server_identity())
+    if security.get("server_identity").and_then(Value::as_str) != Some(result.server_identity())
         || security.get("profile_sha256").and_then(Value::as_str)
             != Some(URL_SAFE_NO_PAD.encode(result.profile_sha256()).as_str())
-        || security.get("verifier_key_id").and_then(Value::as_str)
-            != Some(result.verifier_key_id())
-        || security.get("notary_key_id").and_then(Value::as_str)
-            != Some(result.notary_key_id())
+        || security.get("verifier_key_id").and_then(Value::as_str) != Some(result.verifier_key_id())
+        || security.get("notary_key_id").and_then(Value::as_str) != Some(result.notary_key_id())
         || security
             .get("notary_registry_sha256")
             .and_then(Value::as_str)
@@ -3201,7 +3337,11 @@ fn verify_trust_graph(
                         edge.0,
                         edge.1,
                         edge.2,
-                        &["verified_member_id", "tlsn_attestation_id", "revealed_response_ranges"],
+                        &[
+                            "verified_member_id",
+                            "tlsn_attestation_id",
+                            "revealed_response_ranges",
+                        ],
                         edge.4,
                         edge.5,
                         edge.6,
@@ -3512,12 +3652,12 @@ fn verify_trust_graph(
         (
             "device",
             "user_id",
-                Value::String(result.canonical_user_id().to_owned()),
+            Value::String(result.canonical_user_id().to_owned()),
         ),
         (
             "device",
             "device_id",
-                Value::String(result.canonical_device_id().to_owned()),
+            Value::String(result.canonical_device_id().to_owned()),
         ),
         (
             "device",

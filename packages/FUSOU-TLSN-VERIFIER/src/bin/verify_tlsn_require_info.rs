@@ -70,24 +70,38 @@ fn parse_arguments() -> Result<Arguments, String> {
             "--notary-key-id" => notary_key_id = Some(value),
             "--canonical-user-id" => canonical_user_id = Some(value),
             "--canonical-device-id" => canonical_device_id = Some(value),
-            "--device-challenge" => device_challenge = Some(fixed_base64(&value, "device challenge")?),
+            "--device-challenge" => {
+                device_challenge = Some(fixed_base64(&value, "device challenge")?)
+            }
             "--notary-key-base64url" => {
-                notary_key = Some(decode_strict_base64url(&value).map_err(|error| format!("Notary key: {error}"))?)
+                notary_key = Some(
+                    decode_strict_base64url(&value)
+                        .map_err(|error| format!("Notary key: {error}"))?,
+                )
             }
             "--trust-anchor-der" => trust_anchor_path = Some(value),
             _ => return Err(format!("unknown argument: {flag}\n{}", usage())),
         }
     }
     Ok(Arguments {
-        presentation_path: presentation_path.ok_or_else(|| format!("missing --presentation\n{}", usage()))?,
-        server_identity: server_identity.ok_or_else(|| format!("missing --server-identity\n{}", usage()))?,
-        profile_sha256: profile_sha256.ok_or_else(|| format!("missing --profile-sha256\n{}", usage()))?,
-        verifier_key_id: verifier_key_id.ok_or_else(|| format!("missing --verifier-key-id\n{}", usage()))?,
-        notary_key_id: notary_key_id.ok_or_else(|| format!("missing --notary-key-id\n{}", usage()))?,
-        canonical_user_id: canonical_user_id.ok_or_else(|| format!("missing --canonical-user-id\n{}", usage()))?,
-        canonical_device_id: canonical_device_id.ok_or_else(|| format!("missing --canonical-device-id\n{}", usage()))?,
-        device_challenge: device_challenge.ok_or_else(|| format!("missing --device-challenge\n{}", usage()))?,
-        notary_key: notary_key.ok_or_else(|| format!("missing --notary-key-base64url\n{}", usage()))?,
+        presentation_path: presentation_path
+            .ok_or_else(|| format!("missing --presentation\n{}", usage()))?,
+        server_identity: server_identity
+            .ok_or_else(|| format!("missing --server-identity\n{}", usage()))?,
+        profile_sha256: profile_sha256
+            .ok_or_else(|| format!("missing --profile-sha256\n{}", usage()))?,
+        verifier_key_id: verifier_key_id
+            .ok_or_else(|| format!("missing --verifier-key-id\n{}", usage()))?,
+        notary_key_id: notary_key_id
+            .ok_or_else(|| format!("missing --notary-key-id\n{}", usage()))?,
+        canonical_user_id: canonical_user_id
+            .ok_or_else(|| format!("missing --canonical-user-id\n{}", usage()))?,
+        canonical_device_id: canonical_device_id
+            .ok_or_else(|| format!("missing --canonical-device-id\n{}", usage()))?,
+        device_challenge: device_challenge
+            .ok_or_else(|| format!("missing --device-challenge\n{}", usage()))?,
+        notary_key: notary_key
+            .ok_or_else(|| format!("missing --notary-key-base64url\n{}", usage()))?,
         trust_anchor_path,
     })
 }
@@ -105,11 +119,8 @@ fn run() -> Result<(), String> {
         )
         .map_err(|error| error.to_string())?
     } else {
-        verify_alpha15_presentation_with_trusted_notary_key(
-            &presentation,
-            &arguments.notary_key,
-        )
-        .map_err(|error| error.to_string())?
+        verify_alpha15_presentation_with_trusted_notary_key(&presentation, &arguments.notary_key)
+            .map_err(|error| error.to_string())?
     };
     let profile = RequireInfoDisclosureProfile::from_server_identity(&arguments.server_identity)
         .map_err(|error| error.to_string())?;
@@ -127,10 +138,9 @@ fn run() -> Result<(), String> {
             [0; 64],
         )
         .map_err(|error| error.to_string())?;
-    let unsigned_result: serde_json::Value = serde_json::from_str(
-        &result.canonical_json().map_err(|error| error.to_string())?,
-    )
-    .map_err(|error| format!("serialize unsigned Result: {error}"))?;
+    let unsigned_result: serde_json::Value =
+        serde_json::from_str(&result.canonical_json().map_err(|error| error.to_string())?)
+            .map_err(|error| format!("serialize unsigned Result: {error}"))?;
     let output = json!({
         "status": "VERIFIED",
         "verification": "REAL_ALPHA15_FUSOU_REQUIRE_INFO",
@@ -145,7 +155,10 @@ fn run() -> Result<(), String> {
         "unsigned_result": unsigned_result,
         "signing_bytes": URL_SAFE_NO_PAD.encode(result.signing_bytes().map_err(|error| error.to_string())?),
     });
-    println!("{}", serde_json::to_string(&output).map_err(|error| error.to_string())?);
+    println!(
+        "{}",
+        serde_json::to_string(&output).map_err(|error| error.to_string())?
+    );
     Ok(())
 }
 

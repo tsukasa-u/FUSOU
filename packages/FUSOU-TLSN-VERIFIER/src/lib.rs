@@ -2799,6 +2799,13 @@ mod tests {
         ranges
     }
 
+    fn malicious_disclosure_schedule(
+        bytes: &[u8],
+        excluded_spans: &[Range<usize>],
+    ) -> Vec<Range<usize>> {
+        ranges_excluding_spans(bytes, excluded_spans)
+    }
+
     fn gzip_response(body: &[u8]) -> Vec<u8> {
         let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
         encoder.write_all(body).unwrap();
@@ -3322,6 +3329,126 @@ mod tests {
                 parse_require_info_response_sparse_source(&source, &default_limits()).is_err(),
                 "hidden required marker {:?} was accepted",
                 std::str::from_utf8(marker).unwrap()
+            );
+        }
+    }
+
+    #[test]
+    fn sparse_parser_rejects_malicious_disclosure_schedule_for_required_bytes() {
+        let body = b"svdata={\"opaque\":[1],\"api_result\":1,\"api_data\":{\"api_basic\":{\"api_member_id\":16189463}}}";
+        let response = content_length_response(body);
+        let body_start = response
+            .windows(4)
+            .position(|window| window == b"\r\n\r\n")
+            .unwrap()
+            + 4;
+        let mut omissions = Vec::new();
+
+        for position in 0..body_start {
+            omissions.push((
+                format!("HTTP header byte {position}"),
+                position..position + 1,
+            ));
+        }
+        let prefix_start = response[body_start..]
+            .windows(b"svdata=".len())
+            .position(|window| window == b"svdata=")
+            .map(|position| body_start + position)
+            .unwrap();
+        for offset in 0..b"svdata=".len() {
+            omissions.push((
+                format!("svdata prefix byte {offset}"),
+                prefix_start + offset..prefix_start + offset + 1,
+            ));
+        }
+
+        for marker in [
+            b"api_result".as_slice(),
+            b"api_data".as_slice(),
+            b"api_basic".as_slice(),
+            b"api_member_id".as_slice(),
+        ] {
+            let start = response
+                .windows(marker.len())
+                .position(|window| window == marker)
+                .unwrap();
+            for offset in 0..marker.len() {
+                omissions.push((
+                    format!(
+                        "required key {} byte {offset}",
+                        std::str::from_utf8(marker).unwrap()
+                    ),
+                    start + offset..start + offset + 1,
+                ));
+            }
+        }
+
+        let api_result_marker = b"\"api_result\":1";
+        let api_result_start = response
+            .windows(api_result_marker.len())
+            .position(|window| window == api_result_marker)
+            .unwrap();
+        let api_result_digit = api_result_start + b"\"api_result\":".len();
+        omissions.push((
+            "api_result digit".to_owned(),
+            api_result_digit..api_result_digit + 1,
+        ));
+        omissions.push((
+            "api_result digit and separator".to_owned(),
+            api_result_digit..api_result_digit + 2,
+        ));
+
+        let member_marker = b"16189463";
+        let member_start = response
+            .windows(member_marker.len())
+            .position(|window| window == member_marker)
+            .unwrap();
+        for (label, span) in [
+            ("member ID first digit", member_start..member_start + 1),
+            ("member ID middle digit", member_start + 4..member_start + 5),
+            ("member ID last digit", member_start + 7..member_start + 8),
+            (
+                "member ID multiple digits",
+                member_start + 2..member_start + 6,
+            ),
+            (
+                "member ID all digits",
+                member_start..member_start + member_marker.len(),
+            ),
+        ] {
+            omissions.push((label.to_owned(), span));
+        }
+
+        for (label, position) in [
+            ("root opening brace", body_start + b"svdata=".len()),
+            ("root closing brace", response.len() - 1),
+            (
+                "opaque array opening bracket",
+                response
+                    .windows(1)
+                    .position(|window| window == b"[")
+                    .unwrap(),
+            ),
+            (
+                "opaque array closing bracket",
+                response
+                    .windows(1)
+                    .position(|window| window == b"]")
+                    .unwrap(),
+            ),
+            ("required colon", api_result_start + b"\"api_result\"".len()),
+            ("required comma", api_result_digit + 1),
+            ("required string quote", api_result_start),
+        ] {
+            omissions.push((label.to_owned(), position..position + 1));
+        }
+
+        for (label, excluded) in omissions {
+            let ranges = malicious_disclosure_schedule(&response, &[excluded]);
+            let source = AuthenticatedByteSource::new(&response, &ranges).unwrap();
+            assert!(
+                parse_require_info_response_sparse_source(&source, &default_limits()).is_err(),
+                "malicious disclosure schedule was accepted: {label}"
             );
         }
     }

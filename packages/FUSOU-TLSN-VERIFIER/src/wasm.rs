@@ -3,11 +3,11 @@ use wasm_bindgen::prelude::*;
 
 use crate::{
     parse_verifier_result,
+    sparse_result::{parse_sparse_verifier_result, presentation_sha256, SparseVerifierResult},
     tlsn_alpha15::{
         verify_alpha15_presentation_with_provider_and_notary_key, AuthenticatedTranscript,
         RequireInfoDisclosureProfile, SparseRequireInfoDisclosureProfile,
     },
-    sparse_result::{parse_sparse_verifier_result, presentation_sha256, SparseVerifierResult},
     ParserLimits, VerifierResult,
 };
 
@@ -163,8 +163,9 @@ fn verify_sparse_require_info_presentation_inner(
     if trusted_notary_key.is_empty() {
         return Err(JsValue::from_str("trusted Notary key must not be empty"));
     }
-    let profile = SparseRequireInfoDisclosureProfile::from_server_identity(expected_server_identity)
-        .map_err(|error| JsValue::from_str(&error.to_string()))?;
+    let profile =
+        SparseRequireInfoDisclosureProfile::from_server_identity(expected_server_identity)
+            .map_err(|error| JsValue::from_str(&error.to_string()))?;
     let provider = create_crypto_provider(trust_anchor_der)?;
     let transcript = verify_alpha15_presentation_with_provider_and_notary_key(
         presentation_bytes,
@@ -377,11 +378,9 @@ pub fn derive_verifier_result_signing_bytes(
 pub fn derive_sparse_verifier_result_signing_bytes(
     unsigned_result_json: &str,
 ) -> Result<Vec<u8>, JsValue> {
-    let result = parse_sparse_verifier_result(
-        unsigned_result_json.as_bytes(),
-        &ParserLimits::default(),
-    )
-    .map_err(|error| JsValue::from_str(&error.to_string()))?;
+    let result =
+        parse_sparse_verifier_result(unsigned_result_json.as_bytes(), &ParserLimits::default())
+            .map_err(|error| JsValue::from_str(&error.to_string()))?;
     result
         .signing_bytes()
         .map_err(|error| JsValue::from_str(&error.to_string()))

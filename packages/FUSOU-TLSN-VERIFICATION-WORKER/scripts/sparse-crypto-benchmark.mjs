@@ -14,6 +14,7 @@ import {
   verify_require_info_presentation_with_trust_anchor,
   verify_sparse_require_info_presentation_with_trust_anchor,
 } from "../src/wasm/fusou_tlsn_verifier.js";
+import { parseSparseProfileTranscripts } from "./production-evidence-semantic.mjs";
 
 const packageDirectory = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const repositoryDirectory = resolve(packageDirectory, "../..");
@@ -193,6 +194,50 @@ function memberIdDigits(payload) {
     position += 1;
   }
   if (start === position) throw new Error("api_member_id value is not a decimal number");
+  return { start, end: position };
+}
+
+function maliciousDisclosureSchedule(bytes, spans) {
+  const sortedSpans = [...spans].sort((left, right) => left.start - right.start);
+  const ranges = [];
+  let cursor = 0;
+  for (const span of sortedSpans) {
+    if (span.start < cursor || span.end > bytes.length) throw new Error("invalid malicious disclosure span");
+    if (cursor < span.start) {
+      ranges.push({
+        start: String(cursor),
+        length: String(span.start - cursor),
+        bytes: bytes.subarray(cursor, span.start).toString("base64url"),
+      });
+    }
+    cursor = span.end;
+  }
+  if (cursor < bytes.length) {
+    ranges.push({
+      start: String(cursor),
+      length: String(bytes.length - cursor),
+      bytes: bytes.subarray(cursor).toString("base64url"),
+    });
+  }
+  return ranges;
+}
+
+function completeDisclosureSchedule(bytes) {
+  return maliciousDisclosureSchedule(bytes, []);
+}
+
+function jsonNumberSpan(payload, key) {
+  const marker = Buffer.from(`"${key}"`, "ascii");
+  const markerStart = payload.indexOf(marker);
+  if (markerStart < 0) throw new Error(`real response lacks ${key} key`);
+  let position = markerStart + marker.length;
+  while (position < payload.length && Buffer.from(" \t\r\n", "ascii").includes(payload[position])) position += 1;
+  if (payload[position] !== 0x3a) throw new Error(`${key} key lacks colon`);
+  position += 1;
+  while (position < payload.length && Buffer.from(" \t\r\n", "ascii").includes(payload[position])) position += 1;
+  const start = position;
+  while (position < payload.length && payload[position] >= 0x30 && payload[position] <= 0x39) position += 1;
+  if (start === position) throw new Error(`${key} value is not a decimal number`);
   return { start, end: position };
 }
 
@@ -524,6 +569,108 @@ function writeMutatedPresentationFixture(directory, sourceFixture, mutation) {
   return { fixturePath, fixtureSha256: sha256(rawBytes) };
 }
 
+function runRealMaliciousDisclosureRegression(fixture) {
+  const request = Buffer.from(fixture.authenticated_request_base64, "base64url");
+  const response = Buffer.from(fixture.authenticated_response_base64, "base64url");
+  const bodyStart = response.indexOf(Buffer.from("svdata=", "ascii"));
+  if (bodyStart < 0) throw new Error("real sparse response lacks svdata= body");
+  const body = response.subarray(bodyStart);
+  const omissions = [];
+  const addBodyBytes = (label, span) => {
+    for (let position = span.start; position < span.end; position += 1) {
+      omissions.push({
+        label: `${label} byte ${position - span.start}`,
+        span: { start: bodyStart + position, end: bodyStart + position + 1 },
+      });
+    }
+  };
+  for (let position = 0; position < bodyStart; position += 1) {
+    omissions.push({
+      label: `HTTP status/header byte ${position}`,
+      span: { start: position, end: position + 1 },
+    });
+  }
+  addBodyBytes("svdata prefix", { start: 0, end: Buffer.byteLength("svdata=") });
+
+  for (const key of ["api_result", "api_data", "api_basic", "api_member_id"]) {
+    const marker = Buffer.from(`"${key}"`, "ascii");
+    const start = body.indexOf(marker);
+    if (start < 0) throw new Error(`real sparse response lacks ${key} key`);
+    addBodyBytes(`${key} key`, { start, end: start + marker.length });
+  }
+
+  const apiResult = jsonNumberSpan(body, "api_result");
+  addBodyBytes("api_result digit", apiResult);
+  let apiResultSeparator = apiResult.end;
+  while (apiResultSeparator < body.length && Buffer.from(" \t\r\n", "ascii").includes(body[apiResultSeparator])) {
+    apiResultSeparator += 1;
+  }
+  if (body[apiResultSeparator] !== 0x2c) throw new Error("real api_result value lacks a separator");
+  omissions.push({
+    label: "api_result digit and separator",
+    span: { start: bodyStart + apiResult.end - 1, end: bodyStart + apiResultSeparator + 1 },
+  });
+
+  const member = memberIdDigits(body);
+  for (const [label, start, end] of [
+    ["member ID first digit", member.start, member.start + 1],
+    ["member ID middle digit", member.start + Math.floor((member.end - member.start) / 2), member.start + Math.floor((member.end - member.start) / 2) + 1],
+    ["member ID last digit", member.end - 1, member.end],
+    ["member ID multiple digits", member.start, Math.min(member.end, member.start + 3)],
+    ["member ID all digits", member.start, member.end],
+  ]) {
+    omissions.push({
+      label,
+      span: { start: bodyStart + start, end: bodyStart + end },
+    });
+  }
+
+  const apiResultKeyStart = body.indexOf(Buffer.from('"api_result"', "ascii"));
+  const apiResultColon = apiResultKeyStart + Buffer.byteLength('"api_result"');
+  for (const [label, position] of [
+    ["root opening brace", body.indexOf(0x7b, Buffer.byteLength("svdata="))],
+    ["root closing brace", body.length - 1],
+    ["required colon", apiResultColon],
+    ["required comma", apiResultSeparator],
+    ["required opening quote", apiResultKeyStart],
+    ["required closing quote", apiResultKeyStart + Buffer.byteLength('"api_result')],
+  ]) {
+    omissions.push({ label, span: { start: bodyStart + position, end: bodyStart + position + 1 } });
+  }
+  const arrayStart = body.indexOf(0x5b, Buffer.byteLength("svdata="));
+  if (arrayStart >= 0) {
+    const arrayEnd = body.indexOf(0x5d, arrayStart);
+    if (arrayEnd < 0) throw new Error("real sparse response array is not closed");
+    omissions.push(
+      { label: "array opening bracket", span: { start: bodyStart + arrayStart, end: bodyStart + arrayStart + 1 } },
+      { label: "array closing bracket", span: { start: bodyStart + arrayEnd, end: bodyStart + arrayEnd + 1 } },
+    );
+  }
+
+  const results = omissions.map(({ label, span }) => {
+    const schedule = maliciousDisclosureSchedule(response, [span]);
+    const semanticVerification = {
+      verified_presentation: {
+        request_transcript_size: String(request.length),
+        response_transcript_size: String(response.length),
+        revealed_request_ranges: completeDisclosureSchedule(request),
+        revealed_response_ranges: schedule,
+      },
+    };
+    try {
+      parseSparseProfileTranscripts(semanticVerification, "game.example.test", fixture.binding_value);
+      return { label, blocked: false };
+    } catch (error) {
+      return { label, blocked: true, error: String(error?.message ?? error) };
+    }
+  });
+  const blocked = results.filter((entry) => entry.blocked).length;
+  if (blocked !== results.length) {
+    throw new Error(`real max malicious disclosure schedule regression failed: ${JSON.stringify(results.filter((entry) => !entry.blocked))}`);
+  }
+  return { checks: results.length, blocked, allBlocked: blocked === results.length };
+}
+
 function runRealRegression() {
   const directory = mkdtempSync(resolve(tmpdir(), "tlsn-sparse-real-scope-"));
   try {
@@ -547,6 +694,7 @@ function runRealRegression() {
       original.fixtureSha256,
       "sparse",
     );
+    const maliciousDisclosure = runRealMaliciousDisclosureRegression(original.fixture);
     const hiddenResult = runChildResult(
       hidden.fixturePath,
       sourceCase.sourceFixtureBodyBytes,
@@ -591,14 +739,16 @@ function runRealRegression() {
       scopeRejected: originalResult.scopeMutationRejected,
     };
     if (Object.values(mutationResults).some((result) => !result.rejected)
+      || !maliciousDisclosure.allBlocked
       || signedResultMutation.rejected !== signedResultMutation.checks
       || signedResultMutation.scopeRejected !== signedResultMutation.scopeChecks) {
-      throw new Error(`real presentation mutation regression failed: ${JSON.stringify({ mutationResults, signedResultMutation })}`);
+      throw new Error(`real presentation mutation regression failed: ${JSON.stringify({ mutationResults, maliciousDisclosure, signedResultMutation })}`);
     }
     console.log(JSON.stringify({
       status: "PASS",
       sourceCase: sourceCase.caseLabel,
       hiddenMutation,
+      maliciousDisclosure,
       presentationMutations: mutationResults,
       signedResultMutation,
     }, null, 2));

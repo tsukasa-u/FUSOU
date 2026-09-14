@@ -1,12 +1,12 @@
+use crate::tlsn_alpha15::AuthenticatedRequireInfo;
 use crate::{
     append_json_string_field, append_range_field, is_canonical_member_id, parse_binding_value,
     parse_fixed_base64, parse_range_array, parse_result_string, parse_result_uint64,
-    push_len_prefixed, push_ranges, push_u16, push_u64, sha256, validate_key_id,
-    validate_ranges, validate_server_identity, ParserLimits, RevealedRange,
-    Result as VerifierResultType, VerifierError, ISSUER, PROOF_PURPOSE,
+    push_len_prefixed, push_ranges, push_u16, push_u64, sha256, validate_key_id, validate_ranges,
+    validate_server_identity, ParserLimits, Result as VerifierResultType, RevealedRange,
+    VerifierError, ISSUER, PROOF_PURPOSE,
 };
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
-use crate::tlsn_alpha15::AuthenticatedRequireInfo;
 use uuid::Uuid;
 
 pub const SPARSE_RESULT_VERSION: u16 = 2;
@@ -58,12 +58,13 @@ impl SparseVerifierResult {
         if (evidence.request_transcript_sha256.is_some()
             && evidence.response_transcript_sha256.is_some())
             || ranges_cover_transcript(
-            &evidence.revealed_request_ranges,
-            evidence.request_transcript_size,
-        ) && ranges_cover_transcript(
-            &evidence.revealed_response_ranges,
-            evidence.response_transcript_size,
-        ) {
+                &evidence.revealed_request_ranges,
+                evidence.request_transcript_size,
+            ) && ranges_cover_transcript(
+                &evidence.revealed_response_ranges,
+                evidence.response_transcript_size,
+            )
+        {
             return Err(VerifierError::InvalidResult(
                 "sparse Result requires at least one incomplete transcript digest",
             ));
@@ -100,16 +101,22 @@ impl SparseVerifierResult {
 
     pub fn validate(&self) -> VerifierResultType<()> {
         if self.version != SPARSE_RESULT_VERSION {
-            return Err(VerifierError::InvalidResult("unsupported sparse Result version"));
+            return Err(VerifierError::InvalidResult(
+                "unsupported sparse Result version",
+            ));
         }
         if self.profile_id != SPARSE_PROFILE_ID {
             return Err(VerifierError::InvalidResult("unexpected sparse profile ID"));
         }
         if self.disclosure_mode != SPARSE_DISCLOSURE_MODE {
-            return Err(VerifierError::InvalidResult("unexpected sparse disclosure mode"));
+            return Err(VerifierError::InvalidResult(
+                "unexpected sparse disclosure mode",
+            ));
         }
         if self.issuer != ISSUER || self.proof_purpose != PROOF_PURPOSE {
-            return Err(VerifierError::InvalidResult("unexpected sparse Result identity"));
+            return Err(VerifierError::InvalidResult(
+                "unexpected sparse Result identity",
+            ));
         }
         if !is_canonical_member_id(&self.verified_member_id) {
             return Err(VerifierError::InvalidResult("invalid verified member ID"));
@@ -143,7 +150,10 @@ impl SparseVerifierResult {
         }
         validate_server_identity(&self.server_identity)?;
         validate_ranges(&self.revealed_request_ranges, self.request_transcript_size)?;
-        validate_ranges(&self.revealed_response_ranges, self.response_transcript_size)?;
+        validate_ranges(
+            &self.revealed_response_ranges,
+            self.response_transcript_size,
+        )?;
         Ok(())
     }
 
@@ -283,7 +293,9 @@ pub fn parse_sparse_verifier_result(
     cursor.expect_byte(b'{')?;
     crate::expect_result_field(&mut cursor, "version", false)?;
     if cursor.parse_number()? != b"2" {
-        return Err(VerifierError::InvalidResult("unexpected sparse Result number"));
+        return Err(VerifierError::InvalidResult(
+            "unexpected sparse Result number",
+        ));
     }
     crate::expect_result_field(&mut cursor, "profile_id", true)?;
     let profile_id = parse_result_string(&mut cursor)?;
@@ -433,10 +445,24 @@ mod tests {
         )
         .unwrap();
         let json = result.canonical_json().unwrap();
-        assert_eq!(parse_sparse_verifier_result(json.as_bytes(), &ParserLimits::default()).unwrap(), result);
-        assert!(result.signing_bytes().unwrap().starts_with(SPARSE_SIGNING_DOMAIN));
-        assert!(!result.signing_bytes().unwrap().starts_with(crate::SIGNING_DOMAIN));
-        assert_eq!(parse_binding_value(&result.binding_value).unwrap().binding_nonce, [0x42; 32]);
+        assert_eq!(
+            parse_sparse_verifier_result(json.as_bytes(), &ParserLimits::default()).unwrap(),
+            result
+        );
+        assert!(result
+            .signing_bytes()
+            .unwrap()
+            .starts_with(SPARSE_SIGNING_DOMAIN));
+        assert!(!result
+            .signing_bytes()
+            .unwrap()
+            .starts_with(crate::SIGNING_DOMAIN));
+        assert_eq!(
+            parse_binding_value(&result.binding_value)
+                .unwrap()
+                .binding_nonce,
+            [0x42; 32]
+        );
     }
 
     #[test]

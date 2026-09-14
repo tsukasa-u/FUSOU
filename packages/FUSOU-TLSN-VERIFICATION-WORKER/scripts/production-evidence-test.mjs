@@ -888,7 +888,7 @@ function sparseResponseCase(responseBodyBytes) {
     },
   };
 }
-function rangesExcludingSpans(bytes, spans) {
+function maliciousDisclosureSchedule(bytes, spans) {
   const sortedSpans = [...spans].sort((left, right) => left.start - right.start);
   const ranges = [];
   let cursor = 0;
@@ -922,7 +922,7 @@ function sparseResponseCaseWithExcludedSpans(responseBodyBytes, spans) {
     semanticVerification: {
       verified_presentation: {
         ...sparseCase.semanticVerification.verified_presentation,
-        revealed_response_ranges: rangesExcludingSpans(sparseCase.transcript, spans.map((span) => ({
+        revealed_response_ranges: maliciousDisclosureSchedule(sparseCase.transcript, spans.map((span) => ({
           start: bodyStart + span.start,
           end: bodyStart + span.end,
         }))),
@@ -1132,6 +1132,72 @@ for (const [label, marker] of [
     /JSON|member ID|undisclosed range|separator/,
     label,
   );
+}
+const maliciousScheduleBody = Buffer.from("svdata={\"opaque\":[1],\"api_result\":1,\"api_data\":{\"api_basic\":{\"api_member_id\":16189463}}}");
+const maliciousScheduleCase = sparseResponseCase(maliciousScheduleBody);
+const maliciousScheduleBodyStart = maliciousScheduleCase.transcript.length - maliciousScheduleBody.length;
+function assertMaliciousScheduleBlocked(label, transcriptSpans) {
+  const maliciousVerification = {
+    verified_presentation: {
+      ...maliciousScheduleCase.semanticVerification.verified_presentation,
+      revealed_response_ranges: maliciousDisclosureSchedule(
+        maliciousScheduleCase.transcript,
+        transcriptSpans.map(([start, end]) => ({ start, end })),
+      ),
+    },
+  };
+  assert.throws(
+    () => parseSparseProfileTranscripts(maliciousVerification, "game.example.com", bindingValue),
+    /JSON|member ID|undisclosed range|separator|invalid|body lacks exact|authenticated prefix|header is not CRLF terminated/,
+    label,
+  );
+}
+for (let position = 0; position < maliciousScheduleBodyStart; position += 1) {
+  assertMaliciousScheduleBlocked(`HTTP status/header byte ${position}`, [[position, position + 1]]);
+}
+for (let offset = 0; offset < Buffer.byteLength("svdata="); offset += 1) {
+  assertMaliciousScheduleBlocked(`svdata prefix byte ${offset}`, [[maliciousScheduleBodyStart + offset, maliciousScheduleBodyStart + offset + 1]]);
+}
+for (const marker of ["api_result", "api_data", "api_basic", "api_member_id"]) {
+  const markerBytes = Buffer.from(`"${marker}"`);
+  const markerStart = maliciousScheduleCase.transcript.indexOf(markerBytes);
+  assert.notEqual(markerStart, -1, `${marker} key is missing from malicious schedule fixture`);
+  for (let offset = 0; offset < markerBytes.length; offset += 1) {
+    assertMaliciousScheduleBlocked(
+      `${marker} key byte ${offset}`,
+      [[markerStart + offset, markerStart + offset + 1]],
+    );
+  }
+}
+const maliciousApiResultStart = maliciousScheduleCase.transcript.indexOf(Buffer.from("\"api_result\":1"));
+const maliciousApiResultDigit = maliciousApiResultStart + Buffer.byteLength("\"api_result\":");
+assertMaliciousScheduleBlocked("api_result digit", [[maliciousApiResultDigit, maliciousApiResultDigit + 1]]);
+assertMaliciousScheduleBlocked("api_result digit and separator", [[maliciousApiResultDigit, maliciousApiResultDigit + 2]]);
+const maliciousMemberStart = maliciousScheduleCase.transcript.indexOf(Buffer.from("16189463"));
+for (const [label, start, end] of [
+  ["member ID first digit", maliciousMemberStart, maliciousMemberStart + 1],
+  ["member ID middle digit", maliciousMemberStart + 4, maliciousMemberStart + 5],
+  ["member ID last digit", maliciousMemberStart + 7, maliciousMemberStart + 8],
+  ["member ID multiple digits", maliciousMemberStart + 2, maliciousMemberStart + 6],
+  ["member ID all digits", maliciousMemberStart, maliciousMemberStart + 8],
+]) {
+  assertMaliciousScheduleBlocked(label, [[start, end]]);
+}
+const maliciousRootStart = maliciousScheduleCase.transcript.indexOf(0x7b, maliciousScheduleBodyStart + Buffer.byteLength("svdata="));
+const maliciousArrayStart = maliciousScheduleCase.transcript.indexOf(0x5b, maliciousScheduleBodyStart);
+const maliciousArrayEnd = maliciousScheduleCase.transcript.indexOf(0x5d, maliciousArrayStart);
+const maliciousApiResultColon = maliciousApiResultStart + Buffer.byteLength("\"api_result\"");
+for (const [label, position] of [
+  ["root opening brace", maliciousRootStart],
+  ["root closing brace", maliciousScheduleCase.transcript.length - 1],
+  ["opaque array opening bracket", maliciousArrayStart],
+  ["opaque array closing bracket", maliciousArrayEnd],
+  ["required colon", maliciousApiResultColon],
+  ["required comma", maliciousApiResultDigit + 1],
+  ["required opening quote", maliciousApiResultStart],
+  ["required closing quote", maliciousApiResultStart + Buffer.byteLength("\"api_result")],
+]) {
+  assertMaliciousScheduleBlocked(label, [[position, position + 1]]);
 }
 const largeUnrelatedResponse = sparseResponseCase(Buffer.from(JSON.stringify({
   api_result: 1,
