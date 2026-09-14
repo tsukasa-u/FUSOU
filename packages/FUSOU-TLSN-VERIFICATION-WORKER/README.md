@@ -38,7 +38,8 @@ These commands are offline and use synthetic alpha.15 data. They are reproducibl
 
 ```sh
 node scripts/sparse-parser-memory-benchmark.mjs
-TLSN_SPARSE_CRYPTO_BENCHMARK_PADDING_BYTES=0,1024 node --expose-gc scripts/sparse-crypto-benchmark.mjs
+FUSOU_SYNTHETIC_PROOF_MODE=sparse TLSN_SPARSE_CRYPTO_BENCHMARK_PADDING_BYTES=1048576 pnpm run generate:sparse-fixtures
+TLSN_SPARSE_CRYPTO_BENCHMARK_PADDING_BYTES=1048576 node --expose-gc scripts/sparse-crypto-benchmark.mjs
 ```
 
 On Linux with Node `v22.21.1`, the parser benchmark produced the following measurements. `additional.rssBytes` is the child-process RSS increase during parsing.
@@ -51,7 +52,7 @@ On Linux with Node `v22.21.1`, the parser benchmark produced the following measu
 | 16 MiB | 135 B | 0.0000080466 | 1.285620 ms | 53,248 B | 17.224014 ms | 33,570,816 B |
 | 32 MiB | 135 B | 0.0000040233 | 1.042368 ms | 57,344 B | 42.031784 ms | 67,125,248 B |
 
-In the latest run, the sparse crypto benchmark verified the generated Ed25519 signature and rejected all 8 signed-Result mutations for both `0` and `1024` bytes of synthetic response padding. It measured 1,999 and 1,998 Presentation bytes respectively, with 12.94 ms and 13.32 ms for WASM verification, Result signing, signature verification, and mutation checks. Presentation size and timing can vary slightly because the synthetic fixture is generated per run; the command above is the reproducible source of truth. Alpha.15 synthetic Presentation generation currently exceeds the 180-second fixture-generation budget at 1 MiB and larger, so large cryptographic verification and full-Presentation memory behavior remain `PARTIAL/BLOCKED`, not measured claims.
+In the latest cached run, the sparse crypto benchmark verified the Ed25519 signature and rejected all 8 signed-Result mutations for a 1 MiB synthetic response padding case. The response transcript was 1,048,727 bytes, the sparse Presentation was 2,002 bytes, 400 bytes were disclosed, WASM verification took 11.73 ms, and Result signing took 2.45 ms. Sparse fixture generation took 387.93 seconds wall-clock, including 384.92 seconds in `prover.prove`; the Rust process peak RSS was 21,728,813,056 bytes. The fixture SHA-256 was `0c3e4cf4c1c0837fe8cb1162f7edf831bf7096fd57306b18bba35b6b24b7e394`. The 4/8/16/32 MiB cases were not forced after this resource cost, and the sparse-only fixture has no full Presentation, so larger cryptographic verification and full-Presentation memory behavior remain `PARTIAL/BLOCKED`, not measured claims.
 
 ### Manual test deployment
 

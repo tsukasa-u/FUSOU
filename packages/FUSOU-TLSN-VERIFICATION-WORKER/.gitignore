@@ -1,5 +1,6 @@
 src/wasm/*
 .wrangler/
+.cache/sparse-crypto-fixtures/
 .env
 .env.*
 !.env.example

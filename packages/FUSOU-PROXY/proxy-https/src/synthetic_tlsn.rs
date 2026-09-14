@@ -81,9 +81,94 @@ pub struct SyntheticAlpha15WireEvidence {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SyntheticAlpha15Memory {
+    pub rss_bytes: Option<u64>,
+    pub peak_rss_bytes: Option<u64>,
+    pub data_bytes: Option<u64>,
+    pub virtual_bytes: Option<u64>,
+}
+
+impl SyntheticAlpha15Memory {
+    fn current() -> Self {
+        let Ok(status) = std::fs::read_to_string("/proc/self/status") else {
+            return Self {
+                rss_bytes: None,
+                peak_rss_bytes: None,
+                data_bytes: None,
+                virtual_bytes: None,
+            };
+        };
+        let read_kilobytes = |name: &str| {
+            status
+                .lines()
+                .find_map(|line| line.strip_prefix(&format!("{name}:")))
+                .and_then(|value| value.split_whitespace().next())
+                .and_then(|value| value.parse::<u64>().ok())
+                .map(|value| value * 1024)
+        };
+        Self {
+            rss_bytes: read_kilobytes("VmRSS"),
+            peak_rss_bytes: read_kilobytes("VmHWM"),
+            data_bytes: read_kilobytes("VmData"),
+            virtual_bytes: read_kilobytes("VmSize"),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SyntheticAlpha15Timing {
     pub origin_capture_latency: Duration,
     pub proof_generation_latency: Option<Duration>,
+    pub prover_commit_latency: Option<Duration>,
+    pub prover_connect_latency: Option<Duration>,
+    pub transcript_commit_latency: Option<Duration>,
+    pub prove_config_latency: Option<Duration>,
+    pub prove_latency: Option<Duration>,
+    pub attestation_latency: Option<Duration>,
+    pub presentation_build_latency: Option<Duration>,
+    pub presentation_serialization_latency: Option<Duration>,
+    pub memory_after_exchange: SyntheticAlpha15Memory,
+    pub memory_after_transcript_commit: Option<SyntheticAlpha15Memory>,
+    pub memory_after_prove_config: Option<SyntheticAlpha15Memory>,
+    pub memory_after_prove: Option<SyntheticAlpha15Memory>,
+    pub memory_after_attestation: Option<SyntheticAlpha15Memory>,
+    pub memory_after_presentation_build: Option<SyntheticAlpha15Memory>,
+    pub memory_after_presentation_serialization: Option<SyntheticAlpha15Memory>,
+}
+
+impl Default for SyntheticAlpha15Timing {
+    fn default() -> Self {
+        Self {
+            origin_capture_latency: Duration::ZERO,
+            proof_generation_latency: None,
+            prover_commit_latency: None,
+            prover_connect_latency: None,
+            transcript_commit_latency: None,
+            prove_config_latency: None,
+            prove_latency: None,
+            attestation_latency: None,
+            presentation_build_latency: None,
+            presentation_serialization_latency: None,
+            memory_after_exchange: SyntheticAlpha15Memory::current(),
+            memory_after_transcript_commit: None,
+            memory_after_prove_config: None,
+            memory_after_prove: None,
+            memory_after_attestation: None,
+            memory_after_presentation_build: None,
+            memory_after_presentation_serialization: None,
+        }
+    }
+}
+
+fn update_timing(
+    last_timing: &Arc<Mutex<Option<SyntheticAlpha15Timing>>>,
+    update: impl FnOnce(&mut SyntheticAlpha15Timing),
+) {
+    if let Ok(mut timing) = last_timing.lock() {
+        if let Some(timing) = timing.as_mut() {
+            update(timing);
+        }
+    }
 }
 
 pub struct SyntheticAlpha15OriginTransport {
@@ -217,13 +302,24 @@ async fn run_synthetic_exchange(
         (*private_key).clone(),
     ));
     let (exchange_tx, exchange_rx) = oneshot::channel();
+    if let Ok(mut timing) = last_timing.lock() {
+        *timing = Some(SyntheticAlpha15Timing::default());
+    }
+    let sparse_proof = std::env::var("FUSOU_SYNTHETIC_PROOF_MODE")
+        .is_ok_and(|mode| mode == "sparse");
     let prover_root_store = root_store.clone();
     let request_for_prover = request.clone();
+    let prover_timing = Arc::clone(&last_timing);
     let prover_task = tokio::spawn(async move {
+        let prover_commit_started = Instant::now();
         let prover = prover
             .commit(proxy_config)
             .await
             .map_err(|_| TlsnTransportError::OriginConnectionFailed)?;
+        update_timing(&prover_timing, |timing| {
+            timing.prover_commit_latency = Some(prover_commit_started.elapsed());
+        });
+        let prover_connect_started = Instant::now();
         let (connection, prover) = prover
             .connect(
                 TlsClientConfig::builder()
@@ -236,6 +332,9 @@ async fn run_synthetic_exchange(
                     .map_err(|_| TlsnTransportError::OriginConnectionFailed)?,
             )
             .map_err(|_| TlsnTransportError::OriginConnectionFailed)?;
+        update_timing(&prover_timing, |timing| {
+            timing.prover_connect_latency = Some(prover_connect_started.elapsed());
+        });
         let prover_task = tokio::spawn(prover.into_future());
         let mut transport = ProverOwnedTlsTransport::new(connection);
         transport
@@ -270,6 +369,7 @@ async fn run_synthetic_exchange(
             .await
             .map_err(|_| TlsnTransportError::OriginConnectionFailed)?
             .map_err(|_| TlsnTransportError::OriginConnectionFailed)?;
+        let transcript_commit_started = Instant::now();
         let mut transcript_commit = TranscriptCommitConfig::builder(prover.transcript());
         let sent_len = prover.transcript().sent().len();
         transcript_commit
@@ -283,11 +383,16 @@ async fn run_synthetic_exchange(
         let transcript_commit = transcript_commit
             .build()
             .map_err(|_| TlsnTransportError::OriginConnectionFailed)?;
+        update_timing(&prover_timing, |timing| {
+            timing.transcript_commit_latency = Some(transcript_commit_started.elapsed());
+            timing.memory_after_transcript_commit = Some(SyntheticAlpha15Memory::current());
+        });
         let mut request_config_builder = RequestConfig::builder();
         request_config_builder.transcript_commit(transcript_commit.clone());
         let request_config = request_config_builder
             .build()
             .map_err(|_| TlsnTransportError::OriginConnectionFailed)?;
+        let prove_config_started = Instant::now();
         let mut prove_config = tlsn::config::prove::ProveConfig::builder(prover.transcript());
         prove_config
             .transcript_commit(transcript_commit)
@@ -296,16 +401,33 @@ async fn run_synthetic_exchange(
         prove_config
             .reveal_sent(0..sent_len)
             .map_err(|_| TlsnTransportError::OriginConnectionFailed)?;
-        prove_config
-            .reveal_recv(0..received_len)
-            .map_err(|_| TlsnTransportError::OriginConnectionFailed)?;
+        if sparse_proof {
+            for range in sparse_response_ranges(&raw_response) {
+                prove_config
+                    .reveal_recv(range)
+                    .map_err(|_| TlsnTransportError::OriginConnectionFailed)?;
+            }
+        } else {
+            prove_config
+                .reveal_recv(0..received_len)
+                .map_err(|_| TlsnTransportError::OriginConnectionFailed)?;
+        }
         let prove_config = prove_config
             .build()
             .map_err(|_| TlsnTransportError::OriginConnectionFailed)?;
+        update_timing(&prover_timing, |timing| {
+            timing.prove_config_latency = Some(prove_config_started.elapsed());
+            timing.memory_after_prove_config = Some(SyntheticAlpha15Memory::current());
+        });
+        let prove_started = Instant::now();
         let prover_output = prover
             .prove(&prove_config)
             .await
             .map_err(|_| TlsnTransportError::OriginConnectionFailed)?;
+        update_timing(&prover_timing, |timing| {
+            timing.prove_latency = Some(prove_started.elapsed());
+            timing.memory_after_prove = Some(SyntheticAlpha15Memory::current());
+        });
         let prover_transcript = prover.transcript().clone();
         let tls_transcript = prover.tls_transcript().clone();
         let server_name = ServerName::Dns(
@@ -386,13 +508,12 @@ async fn run_synthetic_exchange(
         .await
         .map_err(|_| TlsnTransportError::ResponseReadFailed)?;
     let expected_request = request.bytes().to_vec();
-    if let Ok(mut timing) = last_timing.lock() {
-        *timing = Some(SyntheticAlpha15Timing {
-            origin_capture_latency: exchange_started.elapsed(),
-            proof_generation_latency: None,
-        });
-    }
+    update_timing(&last_timing, |timing| {
+        timing.origin_capture_latency = exchange_started.elapsed();
+        timing.memory_after_exchange = SyntheticAlpha15Memory::current();
+    });
     let proof_exchange = exchange.clone();
+    let proof_timing = Arc::clone(&last_timing);
     let proof = ProofContinuation::new(Box::pin(async move {
         let proof_started = Instant::now();
         let (prover_result, verifier_result, origin_result) =
@@ -414,12 +535,21 @@ async fn run_synthetic_exchange(
             .map_err(|_| ProofContinuationError::ProverFinalization)?
             .map_err(|_| ProofContinuationError::ProverFinalization)?;
         let expected_response = proof_exchange.response.raw_response_bytes.clone();
-        if authenticated_request != origin_request || authenticated_response != raw_response {
+        let response_matches = authenticated_response.len() == raw_response.len()
+            && if sparse_proof {
+                sparse_response_ranges(&raw_response).into_iter().all(|range| {
+                    authenticated_response.get(range.clone()) == raw_response.get(range)
+                })
+            } else {
+                authenticated_response == raw_response
+            };
+        if authenticated_request != origin_request || !response_matches {
             return Err(ProofContinuationError::ProverFinalization);
         }
         if origin_request != expected_request || raw_response != expected_response {
             return Err(ProofContinuationError::ProverFinalization);
         }
+        let attestation_started = Instant::now();
         let mut notary_provider = CryptoProvider::default();
         notary_provider
             .signer
@@ -456,29 +586,36 @@ async fn run_synthetic_exchange(
         attestation_request_for_validation
             .validate(&attestation, &CryptoProvider::default())
             .map_err(|_| ProofContinuationError::AttestationValidation)?;
+        update_timing(&proof_timing, |timing| {
+            timing.attestation_latency = Some(attestation_started.elapsed());
+            timing.memory_after_attestation = Some(SyntheticAlpha15Memory::current());
+        });
         let (sent_len, received_len) = secrets.transcript().len();
-        let mut transcript_proof_builder = secrets.transcript_proof_builder();
-        transcript_proof_builder
-            .reveal_sent(0..sent_len)
-            .map_err(|_| ProofContinuationError::Presentation)?;
-        transcript_proof_builder
-            .reveal_recv(0..received_len)
-            .map_err(|_| ProofContinuationError::Presentation)?;
-        let transcript_proof = transcript_proof_builder
-            .build()
-            .map_err(|_| ProofContinuationError::Presentation)?;
         let presentation_provider = CryptoProvider::default();
-        let mut presentation_builder = attestation.presentation_builder(&presentation_provider);
-        presentation_builder
-            .identity_proof(secrets.identity_proof())
-            .transcript_proof(transcript_proof);
-        let presentation = presentation_builder
-            .build()
-            .map_err(|_| ProofContinuationError::Presentation)?;
-        let notary_verifying_key = bincode::serialize(presentation.verifying_key())
-            .map_err(|_| ProofContinuationError::Presentation)?;
-        let presentation =
-            bincode::serialize(&presentation).map_err(|_| ProofContinuationError::Presentation)?;
+        let presentation_build_started = Instant::now();
+        let presentation = if sparse_proof {
+            None
+        } else {
+            let mut transcript_proof_builder = secrets.transcript_proof_builder();
+            transcript_proof_builder
+                .reveal_sent(0..sent_len)
+                .map_err(|_| ProofContinuationError::Presentation)?;
+            transcript_proof_builder
+                .reveal_recv(0..received_len)
+                .map_err(|_| ProofContinuationError::Presentation)?;
+            let transcript_proof = transcript_proof_builder
+                .build()
+                .map_err(|_| ProofContinuationError::Presentation)?;
+            let mut presentation_builder = attestation.presentation_builder(&presentation_provider);
+            presentation_builder
+                .identity_proof(secrets.identity_proof())
+                .transcript_proof(transcript_proof);
+            Some(
+                presentation_builder
+                    .build()
+                    .map_err(|_| ProofContinuationError::Presentation)?,
+            )
+        };
         let mut sparse_transcript_proof = secrets.transcript_proof_builder();
         sparse_transcript_proof
             .reveal_sent(0..origin_request.len())
@@ -499,15 +636,31 @@ async fn run_synthetic_exchange(
         let sparse_presentation = sparse_presentation_builder
             .build()
             .map_err(|_| ProofContinuationError::Presentation)?;
+        update_timing(&proof_timing, |timing| {
+            timing.presentation_build_latency = Some(presentation_build_started.elapsed());
+            timing.memory_after_presentation_build = Some(SyntheticAlpha15Memory::current());
+        });
+        let presentation_serialization_started = Instant::now();
+        let notary_verifying_key = bincode::serialize(sparse_presentation.verifying_key())
+            .map_err(|_| ProofContinuationError::Presentation)?;
+        let presentation = presentation
+            .map(|presentation| bincode::serialize(&presentation))
+            .transpose()
+            .map_err(|_| ProofContinuationError::Presentation)?;
         let sparse_presentation = bincode::serialize(&sparse_presentation)
             .map_err(|_| ProofContinuationError::Presentation)?;
+        update_timing(&proof_timing, |timing| {
+            timing.presentation_serialization_latency =
+                Some(presentation_serialization_started.elapsed());
+            timing.memory_after_presentation_serialization = Some(SyntheticAlpha15Memory::current());
+        });
         if let Ok(mut stored_evidence) = last_evidence.lock() {
             *stored_evidence = Some(SyntheticAlpha15WireEvidence {
                 origin_request,
                 authenticated_request,
                 origin_response: raw_response.clone(),
                 authenticated_response: raw_response,
-                presentation: Some(presentation),
+                presentation,
                 sparse_presentation: Some(sparse_presentation),
                 root_certificate: Some((*root_certificate).clone()),
                 notary_verifying_key: Some(notary_verifying_key),

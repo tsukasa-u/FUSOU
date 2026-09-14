@@ -20,6 +20,7 @@
     "verify:production-evidence": "pnpm run build:wasm && node scripts/verify-production-evidence.mjs",
     "verify:previous-deployment": "node scripts/verify-previous-deployment.mjs",
     "benchmark:sparse-parser": "node scripts/sparse-parser-memory-benchmark.mjs",
+    "generate:sparse-fixtures": "node scripts/sparse-crypto-benchmark.mjs --generate",
     "validate:remote": "node scripts/remote-validation.mjs",
     "verify:remote-gate": "node scripts/verify-remote-gate.mjs",
     "types": "wrangler types",

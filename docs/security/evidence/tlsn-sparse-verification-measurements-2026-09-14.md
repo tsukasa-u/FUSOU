@@ -12,8 +12,8 @@ Scope: repository-owned TLSN alpha.15 sparse verification, sparse Result signing
 | Sparse Result schema and signing | PASS | Ed25519 signing, verification, mutation matrix, and cross-profile rejection passed offline |
 | Worker/Trigger profile integrity | PASS | Local Wrangler Worker and synthetic Trigger callback passed complete/sparse retry matrix |
 | Sparse parser memory behavior | PASS | Synthetic 1/4/8/16/32 MiB parser benchmark |
-| Sparse cryptographic scaling | PARTIAL | 0 and 1 KiB synthetic padding cases passed; 1 MiB and larger fixture generation exceeded the current 180-second budget |
-| Full Presentation memory behavior | BLOCKED | No valid large alpha.15 cryptographic fixture was produced |
+| Sparse cryptographic scaling | PARTIAL | 1 MiB sparse fixture generation and cached verification passed; 4/8/16/32 MiB cases remain unmeasured |
+| Full Presentation memory behavior | BLOCKED | The measured 1 MiB sparse fixture intentionally has no full Presentation; no large full-Presentation fixture was produced |
 | Production evidence | BLOCKED | No Game Server, Notary, production Worker, or production Trigger execution was contacted |
 
 PASS in this report means that the repository property was verified within the stated synthetic/offline boundary. It does not promote synthetic evidence to production evidence.
@@ -35,7 +35,8 @@ node scripts/production-evidence-test.mjs
 pnpm run typecheck
 node scripts/test.mjs --app-roundtrip-only
 pnpm run build:wasm
-TLSN_SPARSE_CRYPTO_BENCHMARK_PADDING_BYTES=0,1024 node --expose-gc scripts/sparse-crypto-benchmark.mjs
+FUSOU_SYNTHETIC_PROOF_MODE=sparse TLSN_SPARSE_CRYPTO_BENCHMARK_PADDING_BYTES=1048576 pnpm run generate:sparse-fixtures
+TLSN_SPARSE_CRYPTO_BENCHMARK_PADDING_BYTES=1048576 node --expose-gc scripts/sparse-crypto-benchmark.mjs
 node scripts/sparse-parser-memory-benchmark.mjs
 ```
 
@@ -71,16 +72,15 @@ The sparse parser retained only the disclosed semantic boundaries. The materiali
 
 ## Sparse Cryptographic Measurement
 
-Latest recorded run with synthetic response padding:
+Latest recorded cached run with synthetic response padding:
 
-| Padding | Presentation bytes | Result bytes | Elapsed | Signature verified | Mutation checks | Mutations rejected |
-| ---: | ---: | ---: | ---: | --- | ---: | ---: |
-| 0 B | 1,999 B | 1,836 B | 12.94 ms | true | 8 | 8 |
-| 1,024 B | 1,998 B | 1,839 B | 13.32 ms | true | 8 | 8 |
+| Padding | Response transcript | Presentation bytes | Disclosed bytes | WASM verify | Result signing | Mutation checks | Mutations rejected |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 1 MiB | 1,048,727 B | 2,002 B | 400 B | 11.73 ms | 2.45 ms | 8 | 8 |
 
-The mutation set covers revealed range bytes, transcript size, profile hash, disclosure mode, Presentation hash, binding value, profile ID, and range boundary. Presentation size and timing may vary slightly because a synthetic fixture is generated for each run.
+The cached fixture SHA-256 was `0c3e4cf4c1c0837fe8cb1162f7edf831bf7096fd57306b18bba35b6b24b7e394`. The sparse Presentation has no full Presentation counterpart because it was generated in opt-in sparse mode. The mutation set covers revealed range bytes, transcript size, profile hash, disclosure mode, Presentation hash, binding value, profile ID, and range boundary.
 
-A 1 MiB synthetic alpha.15 fixture and larger cases did not complete within the current 180-second fixture-generation budget. No large cryptographic latency or memory claim is made from those blocked cases. The existing 16 MiB Rust response limit and 8 MiB Trigger Presentation input limit were not raised to force the measurement.
+The 1 MiB synthetic alpha.15 fixture required 387.93 seconds wall-clock, with 387.79 seconds in proof generation and 384.92 seconds in `prover.prove`. Its peak Rust process RSS was 21,728,813,056 B and RSS after proving was 20,793,606,144 B. The 4/8/16/32 MiB cases were not forced after this result; no larger cryptographic latency or memory claim is made. The existing 16 MiB Rust response limit and 8 MiB Trigger Presentation input limit were not raised to force the measurement.
 
 ## Production Boundary
 
