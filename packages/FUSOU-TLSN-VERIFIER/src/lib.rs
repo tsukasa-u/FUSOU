@@ -2783,6 +2783,22 @@ mod tests {
         response
     }
 
+    fn ranges_excluding_spans(bytes: &[u8], spans: &[Range<usize>]) -> Vec<Range<usize>> {
+        let mut ranges = Vec::new();
+        let mut cursor = 0;
+        for span in spans {
+            assert!(span.start >= cursor && span.end <= bytes.len());
+            if cursor < span.start {
+                ranges.push(cursor..span.start);
+            }
+            cursor = span.end;
+        }
+        if cursor < bytes.len() {
+            ranges.push(cursor..bytes.len());
+        }
+        ranges
+    }
+
     fn gzip_response(body: &[u8]) -> Vec<u8> {
         let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
         encoder.write_all(body).unwrap();
@@ -3202,6 +3218,115 @@ mod tests {
     }
 
     #[test]
+    fn sparse_parser_enforces_opaque_value_boundaries() {
+        let body = b"svdata={\"opaque\":\"hidden\",\"api_result\":1,\"api_data\":{\"api_basic\":{\"api_member_id\":16189463}}}";
+        let response = content_length_response(body);
+        let value_start = response
+            .windows(b"\"hidden\"".len())
+            .position(|window| window == b"\"hidden\"")
+            .unwrap();
+        let value_end = value_start + b"\"hidden\"".len();
+        let api_result_start = response
+            .windows(b"\"api_result\"".len())
+            .position(|window| window == b"\"api_result\"")
+            .unwrap();
+        let cases = [
+            ("full opaque value", value_start..value_end, true),
+            (
+                "opaque string interior",
+                value_start + 1..value_end - 1,
+                true,
+            ),
+            (
+                "opaque string closing quote",
+                value_start + 1..value_end,
+                false,
+            ),
+            (
+                "opaque value plus separator",
+                value_start..value_end + 1,
+                false,
+            ),
+            (
+                "opaque value plus required key boundary",
+                value_start..api_result_start,
+                false,
+            ),
+        ];
+        for (label, excluded, expected_to_pass) in cases {
+            let ranges = ranges_excluding_spans(&response, &[excluded]);
+            let source = AuthenticatedByteSource::new(&response, &ranges).unwrap();
+            let parsed = parse_require_info_response_sparse_source(&source, &default_limits());
+            assert_eq!(parsed.is_ok(), expected_to_pass, "{label}");
+            if expected_to_pass {
+                assert_eq!(parsed.unwrap().verified_member_id, "16189463", "{label}");
+            }
+        }
+    }
+
+    #[test]
+    fn sparse_parser_enforces_nested_opaque_value_boundaries() {
+        for (label, value) in [
+            ("opaque number", b"12345".as_slice()),
+            ("opaque object", b"{\"nested\":[1]}".as_slice()),
+            ("opaque array", b"[1,{\"nested\":2}]".as_slice()),
+        ] {
+            let body = [
+                b"svdata={\"opaque\":".as_slice(),
+                value,
+                b",\"api_result\":1,\"api_data\":{\"api_basic\":{\"api_member_id\":16189463}}}"
+                    .as_slice(),
+            ]
+            .concat();
+            let response = content_length_response(&body);
+            let value_start = response
+                .windows(value.len())
+                .position(|window| window == value)
+                .unwrap();
+            let value_end = value_start + value.len();
+
+            let full_ranges = ranges_excluding_spans(&response, &[value_start..value_end]);
+            let full_source = AuthenticatedByteSource::new(&response, &full_ranges).unwrap();
+            assert_eq!(
+                parse_require_info_response_sparse_source(&full_source, &default_limits())
+                    .unwrap()
+                    .verified_member_id,
+                "16189463",
+                "{label}: full value"
+            );
+
+            let crossing_ranges = ranges_excluding_spans(&response, &[value_start..value_end + 1]);
+            let crossing_source =
+                AuthenticatedByteSource::new(&response, &crossing_ranges).unwrap();
+            assert!(
+                parse_require_info_response_sparse_source(&crossing_source, &default_limits())
+                    .is_err(),
+                "{label}: delimiter crossing"
+            );
+        }
+    }
+
+    #[test]
+    fn sparse_parser_rejects_hidden_required_tokens() {
+        let body = b"svdata={\"opaque\":\"hidden\",\"api_result\":1,\"api_data\":{\"api_basic\":{\"api_member_id\":16189463}}}";
+        let response = content_length_response(body);
+        for marker in [b"\"api_result\"".as_slice(), b"16189463".as_slice()] {
+            let marker_start = response
+                .windows(marker.len())
+                .position(|window| window == marker)
+                .unwrap();
+            let ranges =
+                ranges_excluding_spans(&response, &[marker_start..marker_start + marker.len()]);
+            let source = AuthenticatedByteSource::new(&response, &ranges).unwrap();
+            assert!(
+                parse_require_info_response_sparse_source(&source, &default_limits()).is_err(),
+                "hidden required marker {:?} was accepted",
+                std::str::from_utf8(marker).unwrap()
+            );
+        }
+    }
+
+    #[test]
     fn sparse_range_report_marks_only_required_semantic_tokens() {
         let body = b"svdata={\"opaque\":{\"nested\":[123,\"hidden\"]},\"api_result\":1,\"api_data\":{\"api_basic\":{\"api_member_id\":16189463}}}";
         let response = content_length_response(body);
@@ -3229,9 +3354,10 @@ mod tests {
             .iter()
             .any(|entry| entry.kind == SparseResponseRangeKind::ApiMemberIdValue));
 
-        let hidden_start = response.windows(b"{\"nested\"".len()).position(|window| {
-            window == b"{\"nested\""
-        }).unwrap();
+        let hidden_start = response
+            .windows(b"{\"nested\"".len())
+            .position(|window| window == b"{\"nested\"")
+            .unwrap();
         let hidden_end = response[hidden_start..]
             .iter()
             .position(|byte| *byte == b'}')
@@ -3243,21 +3369,68 @@ mod tests {
     }
 
     #[test]
+    fn sparse_planner_report_matches_verifier_consumption() {
+        let body = b"svdata={\"opaque\":{\"nested\":[123,\"hidden\"]},\"api_result\":1,\"api_data\":{\"api_basic\":{\"api_member_id\":16189463}}}";
+        let response = content_length_response(body);
+        let (ranges, report) =
+            plan_require_info_response_sparse_range_report(&response, &default_limits()).unwrap();
+
+        let mut previous_end = 0;
+        for entry in &report {
+            assert!(entry.length > 0);
+            assert!(entry.start >= previous_end);
+            assert!(entry.start + entry.length <= response.len());
+            previous_end = entry.start + entry.length;
+        }
+
+        let source = AuthenticatedByteSource::new(&response, &ranges).unwrap();
+        assert_eq!(
+            parse_require_info_response_sparse_source(&source, &default_limits())
+                .unwrap()
+                .verified_member_id,
+            "16189463"
+        );
+
+        for entry in report {
+            let excluded = entry.start..entry.start + entry.length;
+            let altered_ranges = ranges_excluding_spans(&response, &[excluded]);
+            let altered_source = AuthenticatedByteSource::new(&response, &altered_ranges).unwrap();
+            assert!(
+                parse_require_info_response_sparse_source(&altered_source, &default_limits())
+                    .is_err(),
+                "report segment {:?} was not required",
+                entry.kind
+            );
+        }
+    }
+
+    #[test]
     fn sparse_projection_excludes_opaque_value_interiors_but_covers_required_mutations() {
         let body = b"svdata={\"string\":\"hidden\",\"number\":12345,\"object\":{\"value\":7},\"array\":[1,2,3],\"api_result\":1,\"api_data\":{\"api_basic\":{\"api_member_id\":16189463}}}";
         let response = content_length_response(body);
-        let ranges = plan_require_info_response_sparse_ranges(&response, &default_limits()).unwrap();
+        let ranges =
+            plan_require_info_response_sparse_ranges(&response, &default_limits()).unwrap();
 
         for marker in [b"hidden".as_slice(), b"12345", b"\"value\":7", b"1,2,3"] {
-            let start = response.windows(marker.len()).position(|window| window == marker).unwrap();
+            let start = response
+                .windows(marker.len())
+                .position(|window| window == marker)
+                .unwrap();
             let end = start + marker.len();
-            assert!(!ranges.iter().any(|range| range.start < end && start < range.end));
+            assert!(!ranges
+                .iter()
+                .any(|range| range.start < end && start < range.end));
         }
 
         for marker in [b"\"api_result\":1".as_slice(), b"16189463".as_slice()] {
-            let start = response.windows(marker.len()).position(|window| window == marker).unwrap();
+            let start = response
+                .windows(marker.len())
+                .position(|window| window == marker)
+                .unwrap();
             let end = start + marker.len();
-            assert!(ranges.iter().any(|range| range.start <= start && end <= range.end));
+            assert!(ranges
+                .iter()
+                .any(|range| range.start <= start && end <= range.end));
         }
     }
 

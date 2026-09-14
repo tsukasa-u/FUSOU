@@ -1,9 +1,12 @@
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
-use fusou_tlsn_verifier::BINDING_PREFIX;
+use fusou_tlsn_verifier::{
+    plan_require_info_response_sparse_range_report, ParserLimits, SparseResponseRangeKind,
+    BINDING_PREFIX,
+};
 use proxy_https::experimental_tlsn::{AttestationBinding, TlsnOriginTransport};
 use proxy_https::synthetic_tlsn::{
-    synthetic_serialized_require_info_request, SyntheticAlpha15Memory, SyntheticAlpha15OriginTransport,
-    SyntheticAlpha15Timing,
+    synthetic_serialized_require_info_request, SyntheticAlpha15Memory,
+    SyntheticAlpha15OriginTransport, SyntheticAlpha15Timing,
 };
 use std::time::Instant;
 use uuid::Uuid;
@@ -62,6 +65,32 @@ fn timing_json(timing: Option<SyntheticAlpha15Timing>) -> serde_json::Value {
     })
 }
 
+fn sparse_response_range_report(response: &[u8]) -> Vec<serde_json::Value> {
+    let (_, report) =
+        plan_require_info_response_sparse_range_report(response, &ParserLimits::default())
+            .expect("synthetic response must produce a sparse range report");
+    report
+        .into_iter()
+        .map(|entry| {
+            let kind = match entry.kind {
+                SparseResponseRangeKind::HttpHeaders => "http_headers",
+                SparseResponseRangeKind::SvdataPrefix => "svdata_prefix",
+                SparseResponseRangeKind::JsonStructure => "json_structure",
+                SparseResponseRangeKind::RootKey => "root_key",
+                SparseResponseRangeKind::ApiResultValue => "api_result_value",
+                SparseResponseRangeKind::ApiDataKey => "api_data_key",
+                SparseResponseRangeKind::ApiBasicKey => "api_basic_key",
+                SparseResponseRangeKind::ApiMemberIdValue => "api_member_id_value",
+            };
+            serde_json::json!({
+                "kind": kind,
+                "start": entry.start,
+                "length": entry.length,
+            })
+        })
+        .collect()
+}
+
 #[tokio::main]
 async fn main() {
     let started = Instant::now();
@@ -73,6 +102,7 @@ async fn main() {
         .unwrap();
     capture.proof.run().await.unwrap();
     let evidence = transport.wire_evidence().unwrap();
+    let sparse_range_report = sparse_response_range_report(&evidence.authenticated_response);
     println!(
         "{}",
         serde_json::json!({
@@ -87,6 +117,7 @@ async fn main() {
             "authenticated_response_base64": URL_SAFE_NO_PAD.encode(evidence.authenticated_response),
             "origin_request_size": evidence.origin_request.len(),
             "origin_response_size": evidence.origin_response.len(),
+            "sparse_response_range_report": sparse_range_report,
             "committed_request_bytes": evidence.committed_request_bytes,
             "committed_response_bytes": evidence.committed_response_bytes,
             "committed_response_range_count": evidence.committed_response_range_count,

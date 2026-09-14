@@ -113,6 +113,68 @@ function longestStringInterior(bytes, start = 0) {
   return longest;
 }
 
+const SPARSE_RANGE_REPORT_KINDS = new Set([
+  "http_headers",
+  "svdata_prefix",
+  "json_structure",
+  "root_key",
+  "api_result_value",
+  "api_data_key",
+  "api_basic_key",
+  "api_member_id_value",
+]);
+
+function validateSparseResponseRangeReport(fixture, response) {
+  const report = fixture.sparse_response_range_report;
+  if (!Array.isArray(report) || report.length === 0) {
+    throw new Error("sparse response range report is missing");
+  }
+  const mergedRanges = [];
+  const seenKinds = new Set();
+  let previousEnd = 0;
+  for (const [index, entry] of report.entries()) {
+    if (Object.keys(entry).sort().join(",") !== "kind,length,start") {
+      throw new Error(`sparse response range report entry ${index} contains non-report fields`);
+    }
+    if (typeof entry.kind !== "string" || !SPARSE_RANGE_REPORT_KINDS.has(entry.kind)) {
+      throw new Error(`sparse response range report entry ${index} has an invalid kind`);
+    }
+    if (!Number.isSafeInteger(entry.start) || !Number.isSafeInteger(entry.length) || entry.start < 0 || entry.length <= 0) {
+      throw new Error(`sparse response range report entry ${index} has invalid bounds`);
+    }
+    const end = entry.start + entry.length;
+    if (!Number.isSafeInteger(end) || entry.start < previousEnd || end > response.length) {
+      throw new Error(`sparse response range report entry ${index} is not ordered or is out of bounds`);
+    }
+    previousEnd = end;
+    seenKinds.add(entry.kind);
+    const last = mergedRanges.at(-1);
+    if (last && last.end >= entry.start) {
+      last.end = Math.max(last.end, end);
+    } else {
+      mergedRanges.push({ start: entry.start, end });
+    }
+  }
+  for (const kind of SPARSE_RANGE_REPORT_KINDS) {
+    if (!seenKinds.has(kind)) throw new Error(`sparse response range report lacks ${kind}`);
+  }
+  const bodyStart = response.indexOf(Buffer.from("svdata=", "ascii"));
+  if (bodyStart < 0) throw new Error("sparse response lacks svdata= body");
+  const longestUnrelatedStringInterior = longestStringInterior(response, bodyStart + 7);
+  if (longestUnrelatedStringInterior && report.some((entry) => {
+    const end = entry.start + entry.length;
+    return entry.start < longestUnrelatedStringInterior.end && longestUnrelatedStringInterior.start < end;
+  })) {
+    throw new Error("sparse response range report intersects an opaque string interior");
+  }
+  return {
+    report,
+    mergedRanges,
+    kinds: [...seenKinds].sort(),
+    longestUnrelatedStringInterior,
+  };
+}
+
 function memberIdDigits(payload) {
   const marker = Buffer.from('"api_member_id"', "ascii");
   const markerStart = payload.indexOf(marker);
@@ -293,6 +355,10 @@ function fixtureFileName(paddingBytes, proofMode = "sparse", hiddenByte = "a", h
 function fixtureMetadata(paddingBytes, fixture, rawBytes, wallClockMilliseconds, proofMode = "sparse", hiddenByte = "a") {
   const committedRequestBytes = fixture.committed_request_bytes;
   const committedResponseBytes = fixture.committed_response_bytes;
+  const sparseReport = validateSparseResponseRangeReport(
+    fixture,
+    Buffer.from(fixture.authenticated_response_base64, "base64url"),
+  );
   return {
     paddingBytes,
     proofMode,
@@ -309,6 +375,9 @@ function fixtureMetadata(paddingBytes, fixture, rawBytes, wallClockMilliseconds,
     committedResponseLargestRangeBytes: fixture.committed_response_largest_range_bytes,
     disclosedResponseRangeCount: fixture.disclosed_response_range_count,
     disclosedResponseLargestRangeBytes: fixture.disclosed_response_largest_range_bytes,
+    sparseResponseRangeReport: sparseReport.report,
+    sparseResponseRangeReportKinds: sparseReport.kinds,
+    sparseResponseRangeReportLongestUnrelatedStringInterior: sparseReport.longestUnrelatedStringInterior,
     committedBytes: committedRequestBytes + committedResponseBytes,
     fullPresentationBytes: encodedByteLength(fixture.presentation_base64),
     sparsePresentationBytes: encodedByteLength(fixture.sparse_presentation_base64),
@@ -366,6 +435,7 @@ function runRealGeneration() {
       committedResponseLargestRangeBytes: generated.fixture.committed_response_largest_range_bytes,
       disclosedResponseRangeCount: generated.fixture.disclosed_response_range_count,
       disclosedResponseLargestRangeBytes: generated.fixture.disclosed_response_largest_range_bytes,
+      sparseResponseRangeReport: generated.fixture.sparse_response_range_report,
       committedBytes: generated.fixture.committed_request_bytes + generated.fixture.committed_response_bytes,
       sparsePresentationBytes: encodedByteLength(generated.fixture.sparse_presentation_base64),
       generationTiming: generated.fixture.generation_timing,
@@ -751,6 +821,16 @@ function runChild(fixturePath, requestedPaddingBytes, expectedSha256, mode, case
     const requestTranscriptBytes = Number.parseInt(unsignedResult.request_transcript_size, 10);
     const responseTranscriptBytes = Number.parseInt(unsignedResult.response_transcript_size, 10);
     const responseBytes = Buffer.from(fixture.authenticated_response_base64, "base64url");
+    const sparseReport = validateSparseResponseRangeReport(fixture, responseBytes);
+    if (mode === "sparse") {
+      const disclosedRanges = unsignedResult.revealed_response_ranges.map((range) => ({
+        start: Number.parseInt(range.start, 10),
+        end: Number.parseInt(range.start, 10) + Number.parseInt(range.length, 10),
+      }));
+      if (JSON.stringify(disclosedRanges) !== JSON.stringify(sparseReport.mergedRanges)) {
+        throw new Error("verifier disclosed ranges do not match the planner range report");
+      }
+    }
     const responseHeaderEnd = responseBytes.indexOf(Buffer.from("\r\n\r\n", "ascii"));
     const responseHeaderBytes = responseHeaderEnd < 0 ? null : responseHeaderEnd + 4;
     const committedRequestBytes = fixture.committed_request_bytes ?? null;
@@ -808,6 +888,9 @@ function runChild(fixturePath, requestedPaddingBytes, expectedSha256, mode, case
       disclosedRatio: disclosedResponseBytes / responseTranscriptBytes,
       disclosureRatio: disclosedResponseBytes / responseTranscriptBytes,
       disclosedResponseSha256,
+      sparseResponseRangeReportCount: sparseReport.report.length,
+      sparseResponseRangeReportKinds: sparseReport.kinds,
+      sparseResponseRangeReportLongestUnrelatedStringInterior: sparseReport.longestUnrelatedStringInterior,
       verifiedMemberId: unsignedResult.verified_member_id,
       resultBytes: Buffer.byteLength(unsignedResultJson),
       signingBytes: signed?.signingBytes ?? null,

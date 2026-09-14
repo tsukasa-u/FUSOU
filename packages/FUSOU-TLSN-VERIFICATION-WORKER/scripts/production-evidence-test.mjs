@@ -949,6 +949,15 @@ const gappedReader = new AuthenticatedForwardReader([
 ], 30, "gapped reader");
 assert.equal(gappedReader.readBytes(0, 10).toString(), "0123456789");
 assert.throws(() => gappedReader.readBytes(10, 10), /undisclosed range/);
+const gapContractReader = new AuthenticatedForwardReader([
+  { start: "0", length: "10", bytes: Buffer.from("0123456789").toString("base64url") },
+  { start: "20", length: "10", bytes: Buffer.from("KLMNOPQRST").toString("base64url") },
+], 30, "gap contract reader");
+assert.equal(gapContractReader.skipUndisclosedGap(0), null);
+assert.equal(gapContractReader.skipUndisclosedGap(10), 20n);
+assert.equal(gapContractReader.readByte(20), "K".charCodeAt(0));
+assert.equal(gapContractReader.skipUndisclosedGap(20), null);
+assert.equal(gapContractReader.skipUndisclosedGap(29), null);
 const responseGap = responseTranscript.indexOf(responseBody);
 const responseGapRanges = [
   { start: "0", length: String(responseGap + 2), bytes: responseTranscript.subarray(0, responseGap + 2).toString("base64url") },
@@ -1054,6 +1063,73 @@ for (const [label, replacement] of [
   assert.throws(
     () => parseSparseProfileTranscripts(mutatedCase.semanticVerification, "game.example.com", bindingValue),
     /api_result|required JSON members|api_basic|api_member_id|member ID|JSON byte|separator|invalid/,
+    label,
+  );
+}
+const sparseBoundaryBody = Buffer.from("svdata={\"opaque\":\"hidden\",\"api_result\":1,\"api_data\":{\"api_basic\":{\"api_member_id\":16189463}}}");
+const sparseBoundaryValueStart = sparseBoundaryBody.indexOf(Buffer.from("\"hidden\""));
+const sparseBoundaryValueEnd = sparseBoundaryValueStart + Buffer.byteLength("\"hidden\"");
+const sparseBoundaryApiResultStart = sparseBoundaryBody.indexOf(Buffer.from("\"api_result\""));
+const sparseBoundaryCases = [
+  ["full opaque value", sparseBoundaryValueStart, sparseBoundaryValueEnd, true],
+  ["opaque string interior", sparseBoundaryValueStart + 1, sparseBoundaryValueEnd - 1, true],
+  ["opaque string closing quote", sparseBoundaryValueStart + 1, sparseBoundaryValueEnd, false],
+  ["opaque value plus separator", sparseBoundaryValueStart, sparseBoundaryValueEnd + 1, false],
+  ["opaque value plus required key boundary", sparseBoundaryValueStart, sparseBoundaryApiResultStart, false],
+];
+for (const [label, start, end, expectedToPass] of sparseBoundaryCases) {
+  const boundaryCase = sparseResponseCaseWithExcludedSpans(sparseBoundaryBody, [{ start, end }]);
+  if (expectedToPass) {
+    assert.equal(
+      parseSparseProfileTranscripts(boundaryCase.semanticVerification, "game.example.com", bindingValue).memberId,
+      result.verified_member_id,
+      label,
+    );
+  } else {
+    assert.throws(
+      () => parseSparseProfileTranscripts(boundaryCase.semanticVerification, "game.example.com", bindingValue),
+      /JSON|member ID|undisclosed range|separator/,
+      label,
+    );
+  }
+}
+for (const [label, value] of [
+  ["opaque number boundary", Buffer.from("12345")],
+  ["opaque object boundary", Buffer.from("{\"nested\":[1]}")],
+  ["opaque array boundary", Buffer.from("[1,{\"nested\":2}]")],
+]) {
+  const nestedBody = Buffer.concat([
+    Buffer.from("svdata={\"opaque\":"),
+    value,
+    Buffer.from(",\"api_result\":1,\"api_data\":{\"api_basic\":{\"api_member_id\":16189463}}}"),
+  ]);
+  const nestedValueStart = nestedBody.indexOf(value);
+  const nestedValueEnd = nestedValueStart + value.length;
+  const nestedPass = sparseResponseCaseWithExcludedSpans(nestedBody, [{ start: nestedValueStart, end: nestedValueEnd }]);
+  assert.equal(
+    parseSparseProfileTranscripts(nestedPass.semanticVerification, "game.example.com", bindingValue).memberId,
+    result.verified_member_id,
+    `${label}: full value`,
+  );
+  const nestedBoundary = sparseResponseCaseWithExcludedSpans(nestedBody, [{ start: nestedValueStart, end: nestedValueEnd + 1 }]);
+  assert.throws(
+    () => parseSparseProfileTranscripts(nestedBoundary.semanticVerification, "game.example.com", bindingValue),
+    /JSON|member ID|undisclosed range|separator/,
+    `${label}: delimiter crossing`,
+  );
+}
+for (const [label, marker] of [
+  ["required api_result key", Buffer.from("\"api_result\"")],
+  ["required api_member_id value", Buffer.from("16189463")],
+]) {
+  const markerStart = sparseBoundaryBody.indexOf(marker);
+  const requiredGap = sparseResponseCaseWithExcludedSpans(sparseBoundaryBody, [{
+    start: markerStart,
+    end: markerStart + marker.length,
+  }]);
+  assert.throws(
+    () => parseSparseProfileTranscripts(requiredGap.semanticVerification, "game.example.com", bindingValue),
+    /JSON|member ID|undisclosed range|separator/,
     label,
   );
 }
