@@ -862,13 +862,27 @@ fn synthetic_response_body() -> Result<Vec<u8>, ()> {
         .and_then(|value| value.bytes().next())
         .filter(u8::is_ascii_graphic)
         .unwrap_or(b'a');
+    let hidden_kind = std::env::var("FUSOU_SYNTHETIC_RESPONSE_HIDDEN_KIND")
+        .unwrap_or_else(|_| "string".to_owned());
     let padding = if padding_bytes == 0 {
         "synthetic-padding".to_owned()
     } else {
-        char::from(padding_byte).to_string().repeat(padding_bytes)
+        let byte = if hidden_kind == "number" && !padding_byte.is_ascii_digit() {
+            b'1'
+        } else {
+            padding_byte
+        };
+        char::from(byte).to_string().repeat(padding_bytes)
+    };
+    let hidden_value = match hidden_kind.as_str() {
+        "string" => format!("\"{padding}\""),
+        "number" => padding,
+        "object" => format!("{{\"nested\":\"{padding}\"}}"),
+        "array" => format!("[\"{padding}\"]"),
+        _ => return Err(()),
     };
     Ok(format!(
-        "svdata={{\"api_result\":1,\"api_data\":{{\"api_basic\":{{\"api_member_id\":16189463}}}},\"padding\":\"{padding}\"}}"
+        "svdata={{\"api_result\":1,\"api_data\":{{\"api_basic\":{{\"api_member_id\":16189463}}}},\"padding\":{hidden_value}}}"
     )
     .into_bytes())
 }

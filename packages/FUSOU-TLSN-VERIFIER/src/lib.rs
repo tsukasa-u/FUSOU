@@ -120,6 +120,25 @@ pub struct RevealedRange {
     pub bytes: Vec<u8>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SparseResponseRangeKind {
+    HttpHeaders,
+    SvdataPrefix,
+    JsonStructure,
+    RootKey,
+    ApiResultValue,
+    ApiDataKey,
+    ApiBasicKey,
+    ApiMemberIdValue,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SparseResponseRangeReport {
+    pub start: usize,
+    pub length: usize,
+    pub kind: SparseResponseRangeKind,
+}
+
 #[derive(Debug, Clone, Copy)]
 pub enum AuthenticatedByteSource<'a> {
     Contiguous {
@@ -918,6 +937,14 @@ pub fn plan_require_info_response_sparse_ranges(
     raw: &[u8],
     limits: &ParserLimits,
 ) -> Result<Vec<Range<usize>>> {
+    let (ranges, _) = plan_require_info_response_sparse_range_report(raw, limits)?;
+    Ok(ranges)
+}
+
+pub fn plan_require_info_response_sparse_range_report(
+    raw: &[u8],
+    limits: &ParserLimits,
+) -> Result<(Vec<Range<usize>>, Vec<SparseResponseRangeReport>)> {
     if raw.len() > limits.response_transcript_bytes {
         return Err(VerifierError::LimitExceeded("response transcript bytes"));
     }
@@ -946,20 +973,36 @@ pub fn plan_require_info_response_sparse_ranges(
         ));
     }
 
-    let mut ranges = Vec::new();
-    append_merged_range(&mut ranges, 0..body_start);
-    append_merged_range(&mut ranges, body_range.start..body_range.start + 7);
+    let mut report = vec![SparseResponseRangeReport {
+        start: 0,
+        length: body_start,
+        kind: SparseResponseRangeKind::HttpHeaders,
+    }];
+    report.push(SparseResponseRangeReport {
+        start: body_range.start,
+        length: 7,
+        kind: SparseResponseRangeKind::SvdataPrefix,
+    });
     let mut collector = SemanticJsonRangeCollector::new(
         raw,
         body_range.start + 7..body_range.end,
         limits,
     );
     collector.collect()?;
-    for range in collector.ranges {
-        append_merged_range(&mut ranges, range);
-    }
+    report.extend(collector.report);
+    let ranges = merge_sparse_response_range_report(&report);
     validate_authenticated_ranges(raw.len(), &ranges)?;
-    Ok(ranges)
+    Ok((ranges, report))
+}
+
+fn merge_sparse_response_range_report(
+    report: &[SparseResponseRangeReport],
+) -> Vec<Range<usize>> {
+    let mut ranges = Vec::new();
+    for entry in report {
+        append_merged_range(&mut ranges, entry.start..entry.start + entry.length);
+    }
+    ranges
 }
 
 fn append_merged_range(ranges: &mut Vec<Range<usize>>, range: Range<usize>) {
@@ -990,7 +1033,7 @@ struct JsonCursor<'a> {
 struct SemanticJsonRangeCollector<'a> {
     cursor: JsonCursor<'a>,
     base: usize,
-    ranges: Vec<Range<usize>>,
+    report: Vec<SparseResponseRangeReport>,
 }
 
 impl<'a> SemanticJsonRangeCollector<'a> {
@@ -998,50 +1041,48 @@ impl<'a> SemanticJsonRangeCollector<'a> {
         Self {
             cursor: JsonCursor::new(&bytes[range.clone()], limits),
             base: range.start,
-            ranges: Vec::new(),
+            report: Vec::new(),
         }
     }
 
-    fn claim(&mut self, range: Range<usize>) {
+    fn claim(&mut self, range: Range<usize>, kind: SparseResponseRangeKind) {
         if range.start == range.end {
             return;
         }
         let range = (self.base + range.start)..(self.base + range.end);
-        if let Some(previous) = self.ranges.last_mut() {
-            if previous.end >= range.start {
-                previous.end = previous.end.max(range.end);
-                return;
-            }
-        }
-        self.ranges.push(range);
+        self.report.push(SparseResponseRangeReport {
+            start: range.start,
+            length: range.len(),
+            kind,
+        });
     }
 
     fn skip_whitespace(&mut self) {
         let start = self.cursor.position;
         self.cursor.skip_whitespace();
-        self.claim(start..self.cursor.position);
+        self.claim(start..self.cursor.position, SparseResponseRangeKind::JsonStructure);
     }
 
     fn expect_byte(&mut self, expected: u8) -> Result<()> {
         let start = self.cursor.position;
         let result = self.cursor.expect_byte(expected);
         if result.is_ok() {
-            self.claim(start..self.cursor.position);
+            self.claim(start..self.cursor.position, SparseResponseRangeKind::JsonStructure);
         }
         result
     }
 
-    fn parse_string(&mut self) -> Result<ParsedJsonString> {
+    fn parse_key(&mut self, kind: SparseResponseRangeKind) -> Result<ParsedJsonString> {
         let start = self.cursor.position;
         let parsed = self.cursor.parse_string()?;
-        self.claim(start..self.cursor.position);
+        self.claim(start..self.cursor.position, kind);
         Ok(parsed)
     }
 
-    fn parse_number(&mut self) -> Result<&'a [u8]> {
+    fn parse_number(&mut self, kind: SparseResponseRangeKind) -> Result<&'a [u8]> {
         let start = self.cursor.position;
         let token = self.cursor.parse_number()?;
-        self.claim(start..self.cursor.position);
+        self.claim(start..self.cursor.position, kind);
         Ok(token)
     }
 
@@ -1078,7 +1119,7 @@ impl<'a> SemanticJsonRangeCollector<'a> {
             ));
         }
         loop {
-            let key = self.parse_string()?;
+            let key = self.parse_key(SparseResponseRangeKind::RootKey)?;
             if keys.iter().any(|known: &String| known == &key.value) {
                 return Err(VerifierError::InvalidJson("duplicate JSON object key"));
             }
@@ -1087,7 +1128,7 @@ impl<'a> SemanticJsonRangeCollector<'a> {
             self.expect_byte(b':')?;
             self.skip_whitespace();
             if target_key(&key, "api_result")? {
-                if self.parse_number()? != b"1" {
+                if self.parse_number(SparseResponseRangeKind::ApiResultValue)? != b"1" {
                     return Err(VerifierError::InvalidJson("api_result is not number 1"));
                 }
                 result_seen = true;
@@ -1125,7 +1166,7 @@ impl<'a> SemanticJsonRangeCollector<'a> {
             return Err(VerifierError::InvalidJson("api_basic is missing"));
         }
         loop {
-            let key = self.parse_string()?;
+            let key = self.parse_key(SparseResponseRangeKind::ApiDataKey)?;
             if keys.iter().any(|known: &String| known == &key.value) {
                 return Err(VerifierError::InvalidJson("duplicate JSON object key"));
             }
@@ -1165,7 +1206,7 @@ impl<'a> SemanticJsonRangeCollector<'a> {
             return Err(VerifierError::InvalidJson("api_member_id is missing"));
         }
         loop {
-            let key = self.parse_string()?;
+            let key = self.parse_key(SparseResponseRangeKind::ApiBasicKey)?;
             if keys.iter().any(|known: &String| known == &key.value) {
                 return Err(VerifierError::InvalidJson("duplicate JSON object key"));
             }
@@ -1174,7 +1215,7 @@ impl<'a> SemanticJsonRangeCollector<'a> {
             self.expect_byte(b':')?;
             self.skip_whitespace();
             if target_key(&key, "api_member_id")? {
-                let token = self.parse_number()?;
+                let token = self.parse_number(SparseResponseRangeKind::ApiMemberIdValue)?;
                 if token.is_empty()
                     || token[0] == b'0'
                     || token.len() > 16
@@ -2825,6 +2866,26 @@ mod tests {
     }
 
     #[test]
+    fn rejects_duplicate_required_json_keys_at_each_path() {
+        for body in [
+            b"svdata={\"api_result\":1,\"api_result\":1,\"api_data\":{\"api_basic\":{\"api_member_id\":1}}}".as_slice(),
+            b"svdata={\"api_result\":1,\"api_data\":{\"api_basic\":{\"api_member_id\":1}},\"api_data\":{\"api_basic\":{\"api_member_id\":1}}}".as_slice(),
+            b"svdata={\"api_result\":1,\"api_data\":{\"api_basic\":{\"api_member_id\":1},\"api_basic\":{\"api_member_id\":1}}}".as_slice(),
+            b"svdata={\"api_result\":1,\"api_data\":{\"api_basic\":{\"api_member_id\":1,\"api_member_id\":1}}}".as_slice(),
+        ] {
+            let response = content_length_response(body);
+            assert!(matches!(
+                parse_require_info_response(&response, &default_limits()),
+                Err(VerifierError::InvalidJson(_))
+            ));
+            assert!(matches!(
+                plan_require_info_response_sparse_ranges(&response, &default_limits()),
+                Err(VerifierError::InvalidJson(_))
+            ));
+        }
+    }
+
+    #[test]
     fn rejects_member_id_string_and_noncanonical_numbers() {
         for body in [
             b"svdata={\"api_result\":1,\"api_data\":{\"api_basic\":{\"api_member_id\":\"16189463\"}}}".as_slice(),
@@ -3086,6 +3147,118 @@ mod tests {
         let parsed =
             parse_require_info_response_sparse_source(&source, &default_limits()).unwrap();
         assert_eq!(parsed.verified_member_id, "16189463");
+    }
+
+    #[test]
+    fn sparse_parser_does_not_read_opaque_value_interiors() {
+        let body = b"svdata={\"string\":\"hidden\",\"number\":12345,\"object\":{\"value\":7},\"array\":[1,2,3],\"api_result\":1,\"api_data\":{\"api_basic\":{\"api_member_id\":16189463}}}";
+        let response = content_length_response(body);
+        let ranges = plan_require_info_response_sparse_ranges(&response, &default_limits()).unwrap();
+        let mut mutated = response.clone();
+        for marker in [
+            b"hidden".as_slice(),
+            b"12345".as_slice(),
+            b"\"value\":7".as_slice(),
+            b"1,2,3".as_slice(),
+        ] {
+            let start = mutated
+                .windows(marker.len())
+                .position(|window| window == marker)
+                .unwrap();
+            mutated[start] = if mutated[start] == b'a' { b'b' } else { b'a' };
+        }
+        let source = AuthenticatedByteSource::new(&mutated, &ranges).unwrap();
+        let parsed =
+            parse_require_info_response_sparse_source(&source, &default_limits()).unwrap();
+        assert_eq!(parsed.verified_member_id, "16189463");
+    }
+
+    #[test]
+    fn sparse_parser_rejects_required_path_and_structure_mutations() {
+        let body = b"svdata={\"api_result\":1,\"api_data\":{\"api_basic\":{\"api_member_id\":16189463}}}";
+        let response = content_length_response(body);
+        let ranges = plan_require_info_response_sparse_ranges(&response, &default_limits()).unwrap();
+        for (needle, replacement) in [
+            (b"\"api_result\":1".as_slice(), b"\"api_result\":0".as_slice()),
+            (b"\"api_data\"".as_slice(), b"\"api_datu\"".as_slice()),
+            (b"\"api_basic\"".as_slice(), b"\"api_basiX\"".as_slice()),
+            (b"\"api_member_id\"".as_slice(), b"\"api_member_iX\"".as_slice()),
+            (b"\"api_data\":{".as_slice(), b"\"api_data\":[".as_slice()),
+            (b"\"api_result\":1,".as_slice(), b"\"api_result\":1;".as_slice()),
+        ] {
+            let mut mutated = response.clone();
+            let start = mutated
+                .windows(needle.len())
+                .position(|window| window == needle)
+                .unwrap();
+            mutated.splice(start..start + needle.len(), replacement.iter().copied());
+            let source = AuthenticatedByteSource::new(&mutated, &ranges).unwrap();
+            assert!(
+                parse_require_info_response_sparse_source(&source, &default_limits()).is_err(),
+                "mutation {:?} was accepted",
+                std::str::from_utf8(needle).unwrap()
+            );
+        }
+    }
+
+    #[test]
+    fn sparse_range_report_marks_only_required_semantic_tokens() {
+        let body = b"svdata={\"opaque\":{\"nested\":[123,\"hidden\"]},\"api_result\":1,\"api_data\":{\"api_basic\":{\"api_member_id\":16189463}}}";
+        let response = content_length_response(body);
+        let (ranges, report) =
+            plan_require_info_response_sparse_range_report(&response, &default_limits()).unwrap();
+
+        assert_eq!(report[0].kind, SparseResponseRangeKind::HttpHeaders);
+        assert_eq!(report[1].kind, SparseResponseRangeKind::SvdataPrefix);
+        assert!(report
+            .iter()
+            .any(|entry| entry.kind == SparseResponseRangeKind::ApiResultValue));
+        assert!(report
+            .iter()
+            .any(|entry| entry.kind == SparseResponseRangeKind::JsonStructure));
+        assert!(report
+            .iter()
+            .any(|entry| entry.kind == SparseResponseRangeKind::RootKey));
+        assert!(report
+            .iter()
+            .any(|entry| entry.kind == SparseResponseRangeKind::ApiDataKey));
+        assert!(report
+            .iter()
+            .any(|entry| entry.kind == SparseResponseRangeKind::ApiBasicKey));
+        assert!(report
+            .iter()
+            .any(|entry| entry.kind == SparseResponseRangeKind::ApiMemberIdValue));
+
+        let hidden_start = response.windows(b"{\"nested\"".len()).position(|window| {
+            window == b"{\"nested\""
+        }).unwrap();
+        let hidden_end = response[hidden_start..]
+            .iter()
+            .position(|byte| *byte == b'}')
+            .map(|offset| hidden_start + offset + 1)
+            .unwrap();
+        assert!(!ranges
+            .iter()
+            .any(|range| range.start < hidden_end && hidden_start < range.end));
+    }
+
+    #[test]
+    fn sparse_projection_excludes_opaque_value_interiors_but_covers_required_mutations() {
+        let body = b"svdata={\"string\":\"hidden\",\"number\":12345,\"object\":{\"value\":7},\"array\":[1,2,3],\"api_result\":1,\"api_data\":{\"api_basic\":{\"api_member_id\":16189463}}}";
+        let response = content_length_response(body);
+        let ranges = plan_require_info_response_sparse_ranges(&response, &default_limits()).unwrap();
+
+        for marker in [b"hidden".as_slice(), b"12345", b"\"value\":7", b"1,2,3"] {
+            let start = response.windows(marker.len()).position(|window| window == marker).unwrap();
+            let end = start + marker.len();
+            assert!(!ranges.iter().any(|range| range.start < end && start < range.end));
+        }
+
+        for marker in [b"\"api_result\":1".as_slice(), b"16189463".as_slice()] {
+            let start = response.windows(marker.len()).position(|window| window == marker).unwrap();
+            let end = start + marker.len();
+            assert!(ranges.iter().any(|range| range.start <= start && end <= range.end));
+        }
     }
 
     #[test]

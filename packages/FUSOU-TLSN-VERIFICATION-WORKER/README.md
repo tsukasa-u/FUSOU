@@ -8,7 +8,7 @@ Both attestation endpoints require `Authorization: Bearer <Supabase access token
 
 The Worker does not own a TLSN device registry, receive a Supabase service-role key, or receive a device private key. A client-supplied `device_id` is only a selector/proof input; the authoritative device identity comes from the FUSOU-WEB verification response and the Durable Object record. The generic device proof and TLSN proof are separate one-shot proofs and cannot be reused across Sessions or bindings.
 
-Sparse semantic parsing uses an authenticated forward-only range reader. Parser reads must advance through disclosed ranges in ascending order; a gap or backward read is rejected. The reader is not a random-access API. This keeps the range cursor aligned with the parser's one-pass traversal and makes hidden bytes fail closed. The sparse cryptographic claim covers only transcript ranges explicitly committed by the prover and disclosed in the sparse Result. Undisclosed transcript bytes are outside that claim scope. Request/response transcript sizes remain signed metadata, so changing a total size without changing the disclosed bytes invalidates the Result.
+Sparse semantic parsing uses an authenticated forward-only range reader. Parser reads must advance through disclosed ranges in ascending order; a gap where the parser needs HTTP framing, the `svdata=` prefix, a required JSON key/value, or a required delimiter is rejected. A gap at a non-required opaque JSON value is the explicit exception: the cursor skips that entire value span and continues at the next disclosed structural token. The reader is not a random-access API. The sparse cryptographic claim is an explicit semantic projection, not a claim over the JSON document as a whole. It covers the HTTP framing, exact `svdata=` prefix, and the disclosed JSON tokens needed to establish `api_result == 1` and `api_data.api_basic.api_member_id`. Opaque string, number, object, and array interiors are outside that claim scope and are not cryptographically authenticated. The planner may scan the origin bytes to locate valid token boundaries, but that local scan does not authenticate undisclosed bytes. Request/response transcript sizes remain signed metadata, so changing a total size without changing the disclosed bytes invalidates the Result.
 
 In Trigger mode, `/verify/tlsn` authenticates and atomically claims the binding, stores the raw Presentation in the private `TLSN_PRESENTATIONS` R2 bucket, and returns `202` with a job ID. Trigger fetches that object through `/internal/tlsn/verification-input` using the shared HMAC callback secret. The Worker signs and consumes the binding only after the HMAC-authenticated completion callback, stores the final result object, deletes the raw input object, and serves it through authenticated `/verify/tlsn/status` polling. A verified final response identifies the result-signing key with top-level `signer_key_id` alongside `signature_algorithm`; the signed result remains nested under `result`. `/verify/tlsn/retry` re-enqueues an accepted job without replaying the device proof.
 
@@ -93,11 +93,18 @@ the cryptographic claim.
 | Max | 165,752 B | 165,814 B | 165,802 B | 165,802 B | 0.999928 | 167,575 B | 16,272.91 ms | 15,741.69 ms | 8,067,039,232 B | 22.48 ms | 26.70 ms |
 
 AFTER (semantic range planner): synthetic and real paths use the same
-verifier-owned planner. The response claim includes HTTP framing, `svdata=`,
-JSON structure, `api_result`, the `api_data.api_basic` path, and the canonical
-`api_member_id` value. Unknown value interiors are outside the claim scope and
-are not verified. Ratios below are against the response body, excluding the
-reconstructed HTTP headers; the range column is `count / largest range`.
+verifier-owned planner. The response claim includes HTTP framing, the exact
+`svdata=` prefix, and the disclosed JSON structure, keys, and values needed to
+establish `api_result == 1`, the `api_data.api_basic` path, and the canonical
+`api_member_id` value. It does not claim the JSON document as a whole. The
+interiors of non-required opaque strings, numbers, objects, and arrays are
+outside the claim scope; the sparse verifier skips those complete value spans
+and does not cryptographically authenticate them. The planner's local syntax
+scan is boundary discovery, not authentication of opaque bytes. The companion
+range report exposes only kind, offset, and length for auditability and never
+includes response body bytes. Ratios below are against the response body,
+excluding the reconstructed HTTP headers; the range column is `count / largest
+range`.
 
 | Case | Body | Reconstructed response | Committed response | Committed body ratio | Disclosed response | Disclosed body ratio | Ranges | Sparse Presentation | Generation | `prover.prove` | Prover peak RSS | WASM verify | Sign |
 | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
@@ -144,12 +151,13 @@ ratios exclude the reconstructed response headers; the request is committed and
 disclosed separately. The sparse Result signature was independently verified
 and rejected all 8/8 general mutations plus 2/2 disclosed-range mutations in
 every child. The scope regression generated equal-length sparse responses with
-different hidden middle bytes: both Results remained valid, disclosed response
-bytes and their digest stayed identical, and the verified member ID stayed
-`16189463`. Mutating `response_transcript_size` was rejected by the signed
-Result contract. A 4 KiB complete fixture passed complete verification with the
-same member ID; full-Presentation/sparse-verifier and sparse-Presentation/full-
-verifier cross-profile checks were both blocked.
+different hidden interiors for string, number, object, and array values: both
+Results remained valid for every kind, disclosed response bytes and their digest
+stayed identical, and the verified member ID stayed `16189463`. Mutating
+`response_transcript_size` was rejected by the signed Result contract. A 4 KiB
+complete fixture passed complete verification with the same member ID;
+full-Presentation/sparse-verifier and sparse-Presentation/full-verifier
+cross-profile checks were both blocked.
 
 The 4/8/16/32 MiB cases were not forced. Full Presentation memory remains `BLOCKED` because the sparse fixtures intentionally contain no full Presentation. These are synthetic/offline measurements, not production evidence.
 

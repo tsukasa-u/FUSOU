@@ -504,7 +504,9 @@ class SparseJsonCursor {
   }
 
   skipWhitespace() {
-    while (this.position < this.end && sparseJsonWhitespace(this.reader.readByte(this.position))) {
+    while (this.position < this.end) {
+      if (this.reader.skipUndisclosedGap(this.position) !== null) return;
+      if (!sparseJsonWhitespace(this.reader.readByte(this.position))) return;
       this.position += 1n;
     }
   }
@@ -636,7 +638,17 @@ class SparseJsonCursor {
 
   parseValue(depth = 0) {
     if (depth > MAX_SPARSE_JSON_DEPTH) throw new Error(`${this.label} JSON nesting is too deep`);
+    let disclosedPosition = this.reader.skipUndisclosedGap(this.position);
+    if (disclosedPosition !== null) {
+      this.position = BigInt(disclosedPosition);
+      return;
+    }
     this.skipWhitespace();
+    disclosedPosition = this.reader.skipUndisclosedGap(this.position);
+    if (disclosedPosition !== null) {
+      this.position = BigInt(disclosedPosition);
+      return;
+    }
     switch (this.peek()) {
       case 0x22: this.parseString(false, MAX_SPARSE_JSON_STRING_BYTES); return;
       case 0x7b: this.parseObject(depth); return;

@@ -237,7 +237,7 @@ function encodedByteLength(value) {
   return value == null ? null : Buffer.from(value, "base64url").length;
 }
 
-function generateFixture(paddingBytes, proofMode = "sparse", hiddenByte = "a", responseFixturePath = null) {
+function generateFixture(paddingBytes, proofMode = "sparse", hiddenByte = "a", responseFixturePath = null, hiddenKind = "string") {
   const startedAt = performance.now();
   const result = spawnSync(
     "cargo",
@@ -261,6 +261,7 @@ function generateFixture(paddingBytes, proofMode = "sparse", hiddenByte = "a", r
         FUSOU_SYNTHETIC_PROOF_MODE: proofMode,
         FUSOU_SYNTHETIC_RESPONSE_PADDING_BYTES: String(paddingBytes),
         FUSOU_SYNTHETIC_RESPONSE_HIDDEN_BYTE: hiddenByte,
+        FUSOU_SYNTHETIC_RESPONSE_HIDDEN_KIND: hiddenKind,
         ...(responseFixturePath
           ? { FUSOU_SYNTHETIC_RESPONSE_FIXTURE_PATH: responseFixturePath }
           : {}),
@@ -282,8 +283,10 @@ function generateFixture(paddingBytes, proofMode = "sparse", hiddenByte = "a", r
   };
 }
 
-function fixtureFileName(paddingBytes, proofMode = "sparse", hiddenByte = "a") {
-  const suffix = proofMode === "sparse" && hiddenByte === "a" ? "" : `-${proofMode}-${hiddenByte}`;
+function fixtureFileName(paddingBytes, proofMode = "sparse", hiddenByte = "a", hiddenKind = "string") {
+  const suffix = proofMode === "sparse" && hiddenByte === "a" && hiddenKind === "string"
+    ? ""
+    : `-${proofMode}-${hiddenKind}-${hiddenByte}`;
   return `fixture-${paddingBytes}${suffix}.json`;
 }
 
@@ -871,10 +874,10 @@ function runChildResult(fixturePath, requestedPaddingBytes, expectedSha256, mode
   return JSON.parse(result.stdout.trim().split(/\r?\n/).at(-1));
 }
 
-function writeGeneratedFixture(directory, paddingBytes, proofMode, hiddenByte) {
-  const generated = generateFixture(paddingBytes, proofMode, hiddenByte);
+function writeGeneratedFixture(directory, paddingBytes, proofMode, hiddenByte, hiddenKind = "string") {
+  const generated = generateFixture(paddingBytes, proofMode, hiddenByte, null, hiddenKind);
   const rawBytes = Buffer.from(JSON.stringify(generated.fixture));
-  const fixturePath = resolve(directory, fixtureFileName(paddingBytes, proofMode, hiddenByte));
+  const fixturePath = resolve(directory, fixtureFileName(paddingBytes, proofMode, hiddenByte, hiddenKind));
   writeFileSync(fixturePath, rawBytes, { mode: 0o600 });
   return {
     fixture: generated.fixture,
@@ -886,30 +889,44 @@ function writeGeneratedFixture(directory, paddingBytes, proofMode, hiddenByte) {
 function runScopeRegression() {
   const directory = mkdtempSync(resolve(tmpdir(), "tlsn-sparse-scope-"));
   try {
-    const hiddenA = writeGeneratedFixture(directory, 4096, "sparse", "a");
-    const hiddenB = writeGeneratedFixture(directory, 4096, "sparse", "b");
-    const hiddenAResult = runChildResult(hiddenA.fixturePath, 4096, hiddenA.fixtureSha256, "sparse");
-    const hiddenBResult = runChildResult(hiddenB.fixturePath, 4096, hiddenB.fixtureSha256, "sparse");
-    const hiddenMutation = {
-      originalStatus: hiddenAResult.status,
-      mutatedStatus: hiddenBResult.status,
-      rawResponseChanged: sha256(Buffer.from(hiddenA.fixture.authenticated_response_base64, "base64url"))
-        !== sha256(Buffer.from(hiddenB.fixture.authenticated_response_base64, "base64url")),
-      sameTranscriptBytes: hiddenAResult.responseTranscriptBytes === hiddenBResult.responseTranscriptBytes,
-      sameDisclosedResponseBytes: hiddenAResult.disclosedResponseBytes === hiddenBResult.disclosedResponseBytes,
-      sameDisclosedResponseSha256: hiddenAResult.disclosedResponseSha256 === hiddenBResult.disclosedResponseSha256,
-      sameVerifiedMemberId: hiddenAResult.verifiedMemberId === hiddenBResult.verifiedMemberId,
-      bothSparseResultsSigned: hiddenAResult.signatureVerified === true && hiddenBResult.signatureVerified === true,
-    };
-    if (!hiddenMutation.rawResponseChanged
-      || hiddenMutation.originalStatus !== "PASS"
-      || hiddenMutation.mutatedStatus !== "PASS"
-      || !hiddenMutation.sameTranscriptBytes
-      || !hiddenMutation.sameDisclosedResponseBytes
-      || !hiddenMutation.sameDisclosedResponseSha256
-      || !hiddenMutation.sameVerifiedMemberId
-      || !hiddenMutation.bothSparseResultsSigned) {
-      throw new Error(`hidden response mutation regression failed: ${JSON.stringify(hiddenMutation)}`);
+    const hiddenKinds = [
+      ["string", "a", "b"],
+      ["number", "1", "2"],
+      ["object", "a", "b"],
+      ["array", "a", "b"],
+    ];
+    const hiddenMutations = {};
+    let hiddenAResult;
+    for (const [hiddenKind, originalByte, mutatedByte] of hiddenKinds) {
+      const original = writeGeneratedFixture(directory, 4096, "sparse", originalByte, hiddenKind);
+      const mutated = writeGeneratedFixture(directory, 4096, "sparse", mutatedByte, hiddenKind);
+      const originalResult = runChildResult(original.fixturePath, 4096, original.fixtureSha256, "sparse");
+      const mutatedResult = runChildResult(mutated.fixturePath, 4096, mutated.fixtureSha256, "sparse");
+      const hiddenMutation = {
+        originalStatus: originalResult.status,
+        mutatedStatus: mutatedResult.status,
+        rawResponseChanged: sha256(Buffer.from(original.fixture.authenticated_response_base64, "base64url"))
+          !== sha256(Buffer.from(mutated.fixture.authenticated_response_base64, "base64url")),
+        sameTranscriptBytes: originalResult.responseTranscriptBytes === mutatedResult.responseTranscriptBytes,
+        sameDisclosedResponseBytes: originalResult.disclosedResponseBytes === mutatedResult.disclosedResponseBytes,
+        sameDisclosedResponseSha256: originalResult.disclosedResponseSha256 === mutatedResult.disclosedResponseSha256,
+        sameVerifiedMemberId: originalResult.verifiedMemberId === mutatedResult.verifiedMemberId,
+        bothSparseResultsSigned: originalResult.signatureVerified === true && mutatedResult.signatureVerified === true,
+      };
+      if (!hiddenMutation.rawResponseChanged
+        || hiddenMutation.originalStatus !== "PASS"
+        || hiddenMutation.mutatedStatus !== "PASS"
+        || !hiddenMutation.sameTranscriptBytes
+        || !hiddenMutation.sameDisclosedResponseBytes
+        || !hiddenMutation.sameDisclosedResponseSha256
+        || !hiddenMutation.sameVerifiedMemberId
+        || !hiddenMutation.bothSparseResultsSigned) {
+        throw new Error(`hidden ${hiddenKind} response mutation regression failed: ${JSON.stringify(hiddenMutation)}`);
+      }
+      hiddenMutations[hiddenKind] = hiddenMutation;
+      if (hiddenAResult === undefined) {
+        hiddenAResult = originalResult;
+      }
     }
 
     const complete = writeGeneratedFixture(directory, 4096, "full", "a");
@@ -936,7 +953,7 @@ function runScopeRegression() {
 
     console.log(JSON.stringify({
       status: "PASS",
-      hiddenResponseMutation: hiddenMutation,
+      hiddenResponseMutations: hiddenMutations,
       revealedRangeMutation: {
         checks: hiddenAResult.scopeMutationChecks,
         rejected: hiddenAResult.scopeMutationRejected,

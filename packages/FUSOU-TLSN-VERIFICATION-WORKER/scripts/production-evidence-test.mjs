@@ -888,6 +888,48 @@ function sparseResponseCase(responseBodyBytes) {
     },
   };
 }
+function rangesExcludingSpans(bytes, spans) {
+  const sortedSpans = [...spans].sort((left, right) => left.start - right.start);
+  const ranges = [];
+  let cursor = 0;
+  for (const span of sortedSpans) {
+    assert.equal(bytes.subarray(span.start, span.end).length, span.end - span.start);
+    if (span.start < cursor || span.end > bytes.length) throw new Error("invalid excluded span");
+    if (cursor < span.start) {
+      ranges.push({
+        start: String(cursor),
+        length: String(span.start - cursor),
+        bytes: bytes.subarray(cursor, span.start).toString("base64url"),
+      });
+    }
+    cursor = span.end;
+  }
+  if (cursor < bytes.length) {
+    ranges.push({
+      start: String(cursor),
+      length: String(bytes.length - cursor),
+      bytes: bytes.subarray(cursor).toString("base64url"),
+    });
+  }
+  return ranges;
+}
+
+function sparseResponseCaseWithExcludedSpans(responseBodyBytes, spans) {
+  const sparseCase = sparseResponseCase(responseBodyBytes);
+  const bodyStart = sparseCase.transcript.length - responseBodyBytes.length;
+  return {
+    ...sparseCase,
+    semanticVerification: {
+      verified_presentation: {
+        ...sparseCase.semanticVerification.verified_presentation,
+        revealed_response_ranges: rangesExcludingSpans(sparseCase.transcript, spans.map((span) => ({
+          start: bodyStart + span.start,
+          end: bodyStart + span.end,
+        }))),
+      },
+    },
+  };
+}
 assert.equal(
   parseSparseProfileTranscripts(sparsePresentationMetadata, "game.example.com", bindingValue).memberId,
   result.verified_member_id,
@@ -963,6 +1005,58 @@ assert.throws(
   }, "game.example.com", bindingValue),
   /duplicate key/,
 );
+for (const [label, body] of [
+  ["duplicate api_result", Buffer.from("svdata={\"api_result\":1,\"api_result\":1,\"api_data\":{\"api_basic\":{\"api_member_id\":16189463}}}")],
+  ["duplicate api_data", Buffer.from("svdata={\"api_result\":1,\"api_data\":{\"api_basic\":{\"api_member_id\":16189463}},\"api_data\":{\"api_basic\":{\"api_member_id\":16189463}}}")],
+  ["duplicate api_basic", Buffer.from("svdata={\"api_result\":1,\"api_data\":{\"api_basic\":{\"api_member_id\":16189463},\"api_basic\":{\"api_member_id\":16189463}}}")],
+  ["duplicate api_member_id", Buffer.from("svdata={\"api_result\":1,\"api_data\":{\"api_basic\":{\"api_member_id\":16189463,\"api_member_id\":16189463}}}")],
+]) {
+  const duplicateCase = sparseResponseCase(body);
+  assert.throws(
+    () => parseSparseProfileTranscripts(duplicateCase.semanticVerification, "game.example.com", bindingValue),
+    /duplicate key/,
+    label,
+  );
+}
+for (const [label, body, value] of [
+  ["opaque string", Buffer.from("svdata={\"opaque\":\"hidden\",\"api_result\":1,\"api_data\":{\"api_basic\":{\"api_member_id\":16189463}}}"), Buffer.from("\"hidden\"")],
+  ["opaque number", Buffer.from("svdata={\"opaque\":12345,\"api_result\":1,\"api_data\":{\"api_basic\":{\"api_member_id\":16189463}}}"), Buffer.from("12345")],
+  ["opaque object", Buffer.from("svdata={\"opaque\":{\"nested\":\"hidden\"},\"api_result\":1,\"api_data\":{\"api_basic\":{\"api_member_id\":16189463}}}"), Buffer.from("{\"nested\":\"hidden\"}")],
+  ["opaque array", Buffer.from("svdata={\"opaque\":[1,\"hidden\",{\"nested\":2}],\"api_result\":1,\"api_data\":{\"api_basic\":{\"api_member_id\":16189463}}}"), Buffer.from("[1,\"hidden\",{\"nested\":2}]")],
+]) {
+  const opaqueCase = sparseResponseCase(Buffer.concat([
+    Buffer.from("svdata={\"opaque\":", "ascii"),
+    value,
+    Buffer.from(",\"api_result\":1,\"api_data\":{\"api_basic\":{\"api_member_id\":16189463}}}", "ascii"),
+  ]));
+  const valueStart = opaqueCase.transcript.indexOf(value);
+  const valueEnd = valueStart + value.length;
+  const sparseOpaqueCase = sparseResponseCaseWithExcludedSpans(opaqueCase.transcript.subarray(opaqueCase.transcript.indexOf(Buffer.from("svdata="))), [{
+    start: valueStart - opaqueCase.transcript.indexOf(Buffer.from("svdata=")),
+    end: valueEnd - opaqueCase.transcript.indexOf(Buffer.from("svdata=")),
+  }]);
+  assert.equal(
+    parseSparseProfileTranscripts(sparseOpaqueCase.semanticVerification, "game.example.com", bindingValue).memberId,
+    result.verified_member_id,
+    label,
+  );
+}
+for (const [label, replacement] of [
+  ["api_result value", ["\"api_result\":1", "\"api_result\":0"]],
+  ["api_data key", ["\"api_data\"", "\"api_datu\""]],
+  ["api_basic key", ["\"api_basic\"", "\"api_basiX\""]],
+  ["api_member_id key", ["\"api_member_id\"", "\"api_member_iX\""]],
+  ["required object delimiter", ["\"api_data\":{", "\"api_data\":["]],
+  ["required separator", ["\"api_result\":1,", "\"api_result\":1;"]],
+]) {
+  const mutatedBody = Buffer.from(responseBody.toString("utf8").replace(...replacement));
+  const mutatedCase = sparseResponseCase(mutatedBody);
+  assert.throws(
+    () => parseSparseProfileTranscripts(mutatedCase.semanticVerification, "game.example.com", bindingValue),
+    /api_result|required JSON members|api_basic|api_member_id|member ID|JSON byte|separator|invalid/,
+    label,
+  );
+}
 const largeUnrelatedResponse = sparseResponseCase(Buffer.from(JSON.stringify({
   api_result: 1,
   unrelated: "x".repeat(2 * 1024 * 1024),
