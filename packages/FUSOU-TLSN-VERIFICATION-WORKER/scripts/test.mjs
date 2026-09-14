@@ -924,6 +924,171 @@ async function runAsyncTriggerSmokeTest() {
   console.log("[tlsn-verification-worker] APP remote backend, async Trigger/WASM, result boundary, and idempotent completion paths OK");
 }
 
+async function runLeaseFencingSmokeTest() {
+  const callbackSecret = "lease-callback-test-secret";
+  const deferredPayloads = [];
+  let triggerServer;
+  let worker;
+  triggerServer = createServer(async (request, response) => {
+    try {
+      if (request.method !== "POST" || !request.url?.endsWith("/trigger")) {
+        response.writeHead(404);
+        response.end();
+        return;
+      }
+      const chunks = [];
+      for await (const chunk of request) chunks.push(chunk);
+      const requestBody = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+      deferredPayloads.push(requestBody.payload);
+      response.writeHead(200, { "Content-Type": "application/json" });
+      response.end(JSON.stringify({ id: requestBody.payload.job_id }));
+    } catch (error) {
+      response.writeHead(500, { "Content-Type": "application/json" });
+      response.end(JSON.stringify({ error: error instanceof Error ? error.message : String(error) }));
+    }
+  });
+  await new Promise((resolveServer) => triggerServer.listen(0, "127.0.0.1", resolveServer));
+  triggerServer.unref();
+  const triggerUrl = `http://127.0.0.1:${triggerServer.address().port}`;
+  worker = await localWorker({
+    ...testVars,
+    TLSN_EXECUTION_MODE: "trigger",
+    TLSN_TRIGGER_API_URL: triggerUrl,
+    TLSN_TRIGGER_TASK_ID: "tlsn-verify-presentation",
+    TLSN_TRIGGER_SECRET_KEY: "trigger-test-secret",
+    TLSN_TRIGGER_CALLBACK_SECRET: callbackSecret,
+    TLSN_TEST_COMPLETION_DELAY_MS: "100",
+    TLSN_TEST_COMPLETION_DELAY_ONCE: "true",
+    TLSN_TEST_VERIFICATION_LEASE_MS: "50",
+    TLSN_TEST_POST_RESULT_DELAY_MS: "150",
+    TLSN_TEST_POST_RESULT_DELAY_ONCE: "true",
+  });
+  const complete = async (payload) => {
+    const body = JSON.stringify({
+      job_id: payload.job_id,
+      binding_id: payload.binding_id,
+      session_id: payload.session_id,
+      canonical_user_id: payload.canonical_user_id,
+      device_id: payload.device_id,
+      presentation_id: createHash("sha256").update(decodeBase64Url(syntheticFixture.presentation_base64)).digest("base64url"),
+      verification_status: "verified",
+      profile: payload.profile,
+      disclosure_mode: payload.disclosure_mode,
+    });
+    return worker.fetch("https://verify.test/internal/tlsn/verification-complete", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-FUSOU-TLSN-Job-Id": payload.job_id,
+        "X-FUSOU-TLSN-Signature": internalRequestSignature(callbackSecret, payload.job_id, body),
+      },
+      body,
+    });
+  };
+  try {
+    const sessionResponse = await worker.fetch("https://verify.test/attestation/session", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: "Bearer test-token-a" },
+      body: JSON.stringify({ device_id: deviceId, nonce: deviceNonce, sig: deviceSignature }),
+    });
+    assert.equal(sessionResponse.status, 201);
+    const session = await sessionResponse.json();
+    const deviceProof = {
+      device_id: deviceId,
+      session_id: session.session_id,
+      binding_value: session.binding,
+      challenge: session.device_challenge,
+    };
+    deviceProof.sig = sign(
+      null,
+      tlsnDeviceProofMessage(
+        deviceProof.device_id,
+        deviceProof.session_id,
+        deviceProof.binding_value,
+        deviceProof.challenge,
+      ),
+      devicePrivateKey,
+    ).toString("base64url");
+    const verificationResponse = await worker.fetch("https://verify.test/verify/tlsn", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: "Bearer test-token-a" },
+      body: JSON.stringify({
+        presentation_base64: syntheticFixture.presentation_base64,
+        session_id: session.session_id,
+        binding: session.binding,
+        device_id: deviceId,
+        device_proof: { challenge: deviceProof.challenge, sig: deviceProof.sig },
+      }),
+    });
+    assert.equal(verificationResponse.status, 202);
+    assert.equal(deferredPayloads.length, 1);
+    const attemptAPayload = deferredPayloads[0];
+    const attemptACompletion = complete(attemptAPayload);
+    await new Promise((resolveDelay) => setTimeout(resolveDelay, 10));
+
+    const activeRetryResponse = await worker.fetch("https://verify.test/verify/tlsn/retry", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: "Bearer test-token-a" },
+      body: JSON.stringify({
+        job_id: attemptAPayload.job_id,
+        binding_id: attemptAPayload.binding_id,
+        session_id: attemptAPayload.session_id,
+        canonical_user_id: attemptAPayload.canonical_user_id,
+        device_id: attemptAPayload.device_id,
+      }),
+    });
+    assert.equal(activeRetryResponse.status, 202);
+    assert.equal((await activeRetryResponse.json()).status, "processing");
+    assert.equal(deferredPayloads.length, 1);
+    await new Promise((resolveDelay) => setTimeout(resolveDelay, 150));
+
+    const retryResponse = await worker.fetch("https://verify.test/verify/tlsn/retry", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: "Bearer test-token-a" },
+      body: JSON.stringify({
+        job_id: attemptAPayload.job_id,
+        binding_id: attemptAPayload.binding_id,
+        session_id: attemptAPayload.session_id,
+        canonical_user_id: attemptAPayload.canonical_user_id,
+        device_id: attemptAPayload.device_id,
+      }),
+    });
+    assert.equal(retryResponse.status, 202);
+    assert.equal((await retryResponse.json()).status, "queued");
+    assert.equal(deferredPayloads.length, 2);
+    const attemptBPayload = deferredPayloads[1];
+    const attemptBResponse = await complete(attemptBPayload);
+    assert.equal(attemptBResponse.status, 200);
+    assert.deepEqual(await attemptBResponse.json(), { accepted: true });
+
+    const attemptAResponse = await attemptACompletion;
+    assert.equal(attemptAResponse.status, 422);
+    assert.deepEqual(await attemptAResponse.json(), { error: "verification_failed" });
+
+    const statusResponse = await worker.fetch("https://verify.test/verify/tlsn/status", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: "Bearer test-token-a" },
+      body: JSON.stringify({
+        job_id: attemptBPayload.job_id,
+        binding_id: attemptBPayload.binding_id,
+        session_id: attemptBPayload.session_id,
+        canonical_user_id: attemptBPayload.canonical_user_id,
+        device_id: attemptBPayload.device_id,
+      }),
+    });
+    assert.equal(statusResponse.status, 200);
+    assert.equal((await statusResponse.json()).verified, true);
+
+    const lateAttemptAResponse = await complete(attemptAPayload);
+    assert.equal(lateAttemptAResponse.status, 200);
+    assert.deepEqual(await lateAttemptAResponse.json(), { accepted: true });
+  } finally {
+    await worker.stop();
+    await new Promise((resolveServer) => triggerServer.close(resolveServer));
+  }
+  console.log("[tlsn-verification-worker] lease expiry, stale attempt fencing, Result promotion, and retry recovery paths OK");
+}
+
 async function runRedirectRegressionTest() {
   const modes = ["ok", "unauthorized", "server_error", "redirect_same", "redirect_cross", "redirect_chain"];
   const expectedSupabaseStatus = new Map([
@@ -1145,6 +1310,8 @@ async function runRedirectRegressionTest() {
 
 if (process.argv.includes("--app-roundtrip-only")) {
   await runAsyncTriggerSmokeTest();
+} else if (process.argv.includes("--lease-fencing-only")) {
+  await runLeaseFencingSmokeTest();
 } else {
 await runRedirectRegressionTest();
 
@@ -1167,6 +1334,7 @@ try {
 }
 
 await runAsyncTriggerSmokeTest();
+await runLeaseFencingSmokeTest();
 
 const concurrentWorker = await localWorker({
   ...testVars,

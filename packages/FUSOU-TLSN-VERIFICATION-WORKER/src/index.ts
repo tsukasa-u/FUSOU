@@ -46,6 +46,10 @@ type Bindings = {
   TLSN_TRIGGER_SECRET_KEY?: string;
   TLSN_TRIGGER_CALLBACK_SECRET?: string;
   TLSN_TEST_COMPLETION_DELAY_MS?: string;
+  TLSN_TEST_COMPLETION_DELAY_ONCE?: string;
+  TLSN_TEST_VERIFICATION_LEASE_MS?: string;
+  TLSN_TEST_POST_RESULT_DELAY_MS?: string;
+  TLSN_TEST_POST_RESULT_DELAY_ONCE?: string;
   TLSN_CANARY_TRIGGER_API_URL?: string;
   TLSN_CANARY_TRIGGER_TASK_ID?: string;
   TLSN_CANARY_TRIGGER_SECRET_KEY?: string;
@@ -310,11 +314,38 @@ type VerifierConfig = z.infer<typeof configSchema> & {
 
 const app = new Hono<{ Bindings: Bindings }>();
 let wasmInitialization: Promise<void> | undefined;
+let testCompletionDelayUsed = false;
+let testPostResultDelayUsed = false;
 
 async function delayTestCompletion(env: Bindings): Promise<void> {
   if (env.TLSN_ENVIRONMENT !== "test" || env.TLSN_TEST_COMPLETION_DELAY_MS === undefined) return;
   const delayMs = Number(env.TLSN_TEST_COMPLETION_DELAY_MS);
   if (!Number.isInteger(delayMs) || delayMs <= 0 || delayMs > 5_000) return;
+  if (env.TLSN_TEST_COMPLETION_DELAY_ONCE === "true") {
+    if (testCompletionDelayUsed) return;
+    testCompletionDelayUsed = true;
+  }
+  await new Promise<void>((resolve) => setTimeout(resolve, delayMs));
+}
+
+function verificationLeaseMs(env: Bindings): number {
+  if (env.TLSN_ENVIRONMENT !== "test" || env.TLSN_TEST_VERIFICATION_LEASE_MS === undefined) {
+    return VERIFICATION_LEASE_MS;
+  }
+  const leaseMs = Number(env.TLSN_TEST_VERIFICATION_LEASE_MS);
+  return Number.isInteger(leaseMs) && leaseMs > 0 && leaseMs <= VERIFICATION_LEASE_MS
+    ? leaseMs
+    : VERIFICATION_LEASE_MS;
+}
+
+async function delayAfterResultPersistence(env: Bindings): Promise<void> {
+  if (env.TLSN_ENVIRONMENT !== "test" || env.TLSN_TEST_POST_RESULT_DELAY_MS === undefined) return;
+  const delayMs = Number(env.TLSN_TEST_POST_RESULT_DELAY_MS);
+  if (!Number.isInteger(delayMs) || delayMs <= 0 || delayMs > 5_000) return;
+  if (env.TLSN_TEST_POST_RESULT_DELAY_ONCE === "true") {
+    if (testPostResultDelayUsed) return;
+    testPostResultDelayUsed = true;
+  }
   await new Promise<void>((resolve) => setTimeout(resolve, delayMs));
 }
 
@@ -1334,7 +1365,7 @@ app.post("/internal/tlsn/verification-complete", async (c) => {
     if (!resultRecord.result_sha256) {
       return c.json({ error: "verification_result_unavailable" }, 503);
     }
-    const resultObjectKey = resultRecord.result_object_key ?? resultRecord.verification_result_key;
+    const resultObjectKey = resultRecord.result_object_key;
     if (!resultObjectKey) {
       return c.json({ error: "verification_result_unavailable" }, 503);
     }
@@ -1375,7 +1406,7 @@ app.post("/internal/tlsn/verification-complete", async (c) => {
       verification_job_id: callback.job_id,
       presentation_id: callback.presentation_id,
       verification_attempt_id: verificationAttemptId,
-      verification_lease_expires_at: new Date(Date.now() + VERIFICATION_LEASE_MS).toISOString(),
+      verification_lease_expires_at: new Date(Date.now() + verificationLeaseMs(c.env)).toISOString(),
       result_object_key: attemptResultKey,
       now: Date.now(),
     });
@@ -1535,6 +1566,7 @@ app.post("/internal/tlsn/verification-complete", async (c) => {
       { httpMetadata: { contentType: "application/json" } },
     );
     resultPersisted = true;
+    await delayAfterResultPersistence(c.env);
     let consumedBinding: BindingRecord;
     try {
       consumedBinding = await authority.consumeBinding(completionRecord.binding_value, {
@@ -1834,7 +1866,7 @@ app.post("/verify/tlsn/status", async (c) => {
     c.header("Cache-Control", "no-store");
     return c.json({ verified: false, status: "processing", job_id: requestBody.job_id }, 202);
   }
-  const resultObjectKey = record.result_object_key ?? record.verification_result_key;
+  const resultObjectKey = record.result_object_key;
   if (record.status !== "consumed" || !resultObjectKey) {
     return c.json({ verified: false, error: "verification_unavailable" }, 503);
   }
@@ -1915,7 +1947,7 @@ app.post("/verify/tlsn/retry", async (c) => {
   }
 
   if (record.status === "consumed") {
-    const resultObjectKey = record.result_object_key ?? record.verification_result_key;
+    const resultObjectKey = record.result_object_key;
     const existing = resultObjectKey
       ? await c.env.TLSN_PRESENTATIONS.get(resultObjectKey)
       : null;
@@ -1929,13 +1961,10 @@ app.post("/verify/tlsn/retry", async (c) => {
         verificationFinalResponseSchema.parse(JSON.parse(resultBody) as unknown);
         return c.json({ verified: true, status: "completed", job_id: requestBody.job_id });
       } catch {
-        // Queue a repair only if the original input is still available.
+        return c.json({ verified: false, error: "verification_result_unavailable" }, 503);
       }
     }
-    const input = await c.env.TLSN_PRESENTATIONS.get(record.verification_input_key);
-    if (!input) {
-      return c.json({ verified: false, error: "verification_result_unavailable" }, 503);
-    }
+    return c.json({ verified: false, error: "verification_result_unavailable" }, 503);
   }
 
   let payload: VerificationTaskPayload;

@@ -503,8 +503,11 @@ export class TlsnBindingAuthorityDurableObject extends DurableObject {
         if (
           input.verification_job_id === undefined ||
           input.verification_attempt_id === undefined ||
+          input.result_sha256 === undefined ||
+          input.result_object_key === undefined ||
           record.verification_job_id !== input.verification_job_id ||
           record.verification_attempt_id !== input.verification_attempt_id ||
+          record.result_object_key !== input.result_object_key ||
           !record.verification_lease_expires_at ||
           Date.parse(record.verification_lease_expires_at) <= input.now
         ) {
