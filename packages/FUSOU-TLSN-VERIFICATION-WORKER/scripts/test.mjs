@@ -445,6 +445,7 @@ async function runAsyncTriggerSmokeTest() {
   let triggerPayload;
   const triggerPayloads = [];
   let workerBridge;
+  let workerOrigin;
   let temporaryDirectory;
   const appRequests = [];
   const verifierModule = await import("../src/wasm/fusou_tlsn_verifier.js");
@@ -564,18 +565,28 @@ async function runAsyncTriggerSmokeTest() {
         body: completionBody,
         signature: internalRequestSignature(callbackSecret, payload.job_id, completionBody),
       };
-      const completionResponse = await activeWorker.fetch("https://verify.test/internal/tlsn/verification-complete", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "X-FUSOU-TLSN-Job-Id": payload.job_id,
-          "X-FUSOU-TLSN-Signature": completionRequest.signature,
-        },
-        body: completionBody,
-      });
-      if (!completionResponse.ok) {
-        throw new Error(`async completion failed: ${completionResponse.status} ${await completionResponse.text()}`);
-      }
+      const completionResponses = await Promise.all(
+        Array.from({ length: 100 }, () => fetch(
+          `${workerOrigin}/internal/tlsn/verification-complete`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "X-FUSOU-TLSN-Job-Id": payload.job_id,
+              "X-FUSOU-TLSN-Signature": completionRequest.signature,
+            },
+            body: completionBody,
+          },
+        )),
+      );
+      const completionBodies = await Promise.all(completionResponses.map((item) => item.json()));
+      const completionStatusCounts = completionResponses.reduce((counts, item) => {
+        counts[item.status] = (counts[item.status] ?? 0) + 1;
+        return counts;
+      }, {});
+      assert.equal(completionResponses.filter((item) => item.status === 200).length, 1, JSON.stringify(completionStatusCounts));
+      assert.equal(completionResponses.filter((item) => item.status === 202).length, 99, JSON.stringify({ completionStatusCounts, completionBodies }));
+      assert.equal(completionBodies.filter((body) => body.accepted === true).length, 1, JSON.stringify({ completionStatusCounts, completionBodies }));
       response.writeHead(200, { "Content-Type": "application/json" });
       response.end(JSON.stringify({ id: payload.job_id }));
     } catch (error) {
@@ -596,6 +607,7 @@ async function runAsyncTriggerSmokeTest() {
     TLSN_TRIGGER_TASK_ID: "tlsn-verify-presentation",
     TLSN_TRIGGER_SECRET_KEY: "trigger-test-secret",
     TLSN_TRIGGER_CALLBACK_SECRET: callbackSecret,
+    TLSN_TEST_COMPLETION_DELAY_MS: "1000",
   });
   activeWorker = worker;
   try {
@@ -609,7 +621,7 @@ async function runAsyncTriggerSmokeTest() {
           for (const item of Array.isArray(value) ? value : [value]) headers.append(name, item);
         }
         const body = Buffer.concat(chunks);
-        const workerResponse = await worker.fetch(`https://verify.test${request.url ?? "/"}`, {
+        const workerResponse = await activeWorker.fetch(`https://verify.test${request.url ?? "/"}`, {
           method: request.method,
           headers,
           ...(body.length > 0 ? { body } : {}),
@@ -631,7 +643,7 @@ async function runAsyncTriggerSmokeTest() {
     });
     await new Promise((resolveServer) => workerBridge.listen(0, "127.0.0.1", resolveServer));
     workerBridge.unref();
-    const workerOrigin = `http://127.0.0.1:${workerBridge.address().port}`;
+    workerOrigin = `http://127.0.0.1:${workerBridge.address().port}`;
 
     temporaryDirectory = await mkdtemp(resolve(tmpdir(), "fusou-tlsn-app-e2e-"));
     const fixturePath = resolve(temporaryDirectory, "synthetic-fixture.json");
@@ -799,6 +811,7 @@ async function runAsyncTriggerSmokeTest() {
       TLSN_TRIGGER_TASK_ID: "tlsn-verify-presentation",
       TLSN_TRIGGER_SECRET_KEY: "trigger-test-secret",
       TLSN_TRIGGER_CALLBACK_SECRET: callbackSecret,
+      TLSN_TEST_COMPLETION_DELAY_MS: "1000",
     });
     activeWorker = sparseWorker;
     const sparseSessionResponse = await sparseWorker.fetch("https://verify.test/attestation/session", {

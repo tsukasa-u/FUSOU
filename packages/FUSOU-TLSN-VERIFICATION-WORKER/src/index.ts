@@ -6,6 +6,7 @@ import {
   TlsnBindingAuthorityDurableObject,
   encodeBase64Url,
   hashBindingId,
+  type BindingRecord,
 } from "./binding_authority.js";
 import {
   attestationConsumeReceiptSigningBytes,
@@ -44,6 +45,7 @@ type Bindings = {
   TLSN_TRIGGER_TASK_ID?: string;
   TLSN_TRIGGER_SECRET_KEY?: string;
   TLSN_TRIGGER_CALLBACK_SECRET?: string;
+  TLSN_TEST_COMPLETION_DELAY_MS?: string;
   TLSN_CANARY_TRIGGER_API_URL?: string;
   TLSN_CANARY_TRIGGER_TASK_ID?: string;
   TLSN_CANARY_TRIGGER_SECRET_KEY?: string;
@@ -135,6 +137,7 @@ const MAX_REQUEST_JSON_BYTES = 12 * 1024 * 1024;
 const MAX_PRESENTATION_BASE64_LENGTH = Math.ceil(MAX_PRESENTATION_BYTES * 4 / 3) + 4;
 const MAX_RESULT_JSON_BYTES = 25_165_824;
 const MAX_INTERNAL_CALLBACK_JSON_BYTES = 64 * 1024;
+const VERIFICATION_LEASE_MS = 10 * 60 * 1000;
 
 const requestSchema = z
   .object({
@@ -307,6 +310,13 @@ type VerifierConfig = z.infer<typeof configSchema> & {
 
 const app = new Hono<{ Bindings: Bindings }>();
 let wasmInitialization: Promise<void> | undefined;
+
+async function delayTestCompletion(env: Bindings): Promise<void> {
+  if (env.TLSN_ENVIRONMENT !== "test" || env.TLSN_TEST_COMPLETION_DELAY_MS === undefined) return;
+  const delayMs = Number(env.TLSN_TEST_COMPLETION_DELAY_MS);
+  if (!Number.isInteger(delayMs) || delayMs <= 0 || delayMs > 5_000) return;
+  await new Promise<void>((resolve) => setTimeout(resolve, delayMs));
+}
 
 function decodeBase64Url(value: string, maximumBytes: number): Uint8Array {
   if (!/^[A-Za-z0-9_-]+$/.test(value) || value.length % 4 === 1) {
@@ -1231,7 +1241,7 @@ app.post("/internal/tlsn/verification-input", async (c) => {
   }
 
   const authority = new DurableObjectBindingAuthority(c.env.TLSN_BINDINGS);
-  let record;
+  let record: BindingRecord;
   try {
     record = await authority.lookupVerificationJob(parsed.data.binding_id, {
       session_id: parsed.data.session_id,
@@ -1244,7 +1254,7 @@ app.post("/internal/tlsn/verification-input", async (c) => {
     return c.json({ error: "job_unavailable" }, 409);
   }
   if (
-    record.status !== "processing" ||
+    (record.status !== "processing" && record.status !== "verifying") ||
     record.verification_input_key !== parsed.data.verification_input_key
   ) {
     return c.json({ error: "job_unavailable" }, 409);
@@ -1312,22 +1322,6 @@ app.post("/internal/tlsn/verification-complete", async (c) => {
     return c.json({ error: "verification_result_mismatch" }, 422);
   }
 
-  if (record.status === "consumed") {
-    const existing = await c.env.TLSN_PRESENTATIONS.get(record.verification_result_key);
-    if (existing) {
-      try {
-        verificationFinalResponseSchema.parse(JSON.parse(await existing.text()) as unknown);
-        return c.json({ accepted: true });
-      } catch {
-        // Rebuild the result from the idempotent callback below.
-      }
-    }
-  }
-
-  if (record.status !== "processing" && record.status !== "consumed") {
-    return c.json({ error: "job_unavailable" }, 409);
-  }
-
   const expectedProfile = record.verification_profile ?? "complete";
   if (
     callback.profile !== expectedProfile ||
@@ -1336,15 +1330,116 @@ app.post("/internal/tlsn/verification-complete", async (c) => {
     return c.json({ error: "verification_profile_mismatch" }, 422);
   }
 
-  const presentationObject = await c.env.TLSN_PRESENTATIONS.get(record.verification_input_key);
-  if (!presentationObject || presentationObject.size > MAX_PRESENTATION_BYTES) {
+  const readConsumedResult = async (resultRecord: BindingRecord): Promise<Response> => {
+    if (!resultRecord.result_sha256) {
+      return c.json({ error: "verification_result_unavailable" }, 503);
+    }
+    const resultObjectKey = resultRecord.result_object_key ?? resultRecord.verification_result_key;
+    if (!resultObjectKey) {
+      return c.json({ error: "verification_result_unavailable" }, 503);
+    }
+    const existing = await c.env.TLSN_PRESENTATIONS.get(resultObjectKey);
+    if (!existing || existing.size > MAX_INTERNAL_CALLBACK_JSON_BYTES) {
+      return c.json({ error: "verification_result_unavailable" }, 503);
+    }
+    const resultBody = await existing.text();
+    const resultSha256 = encodeBase64Url(
+      new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(resultBody))),
+    );
+    if (resultSha256 !== resultRecord.result_sha256) {
+      return c.json({ error: "verification_result_unavailable" }, 503);
+    }
+    try {
+      verificationFinalResponseSchema.parse(JSON.parse(resultBody) as unknown);
+      return c.json({ accepted: true });
+    } catch {
+      return c.json({ error: "verification_result_unavailable" }, 503);
+    }
+  };
+
+  if (record.status === "consumed") {
+    return readConsumedResult(record);
+  }
+  if (record.status !== "processing" && record.status !== "verifying") {
+    return c.json({ error: "job_unavailable" }, 409);
+  }
+
+  const verificationAttemptId = crypto.randomUUID();
+  const attemptResultKey = verificationObjectKey(verificationAttemptId, "result");
+  let verificationRecord;
+  try {
+    verificationRecord = await authority.acquireVerification(callback.binding_id, {
+      session_id: record.session_id,
+      canonical_user_id: record.canonical_user_id,
+      device_id: record.device_id,
+      verification_job_id: callback.job_id,
+      presentation_id: callback.presentation_id,
+      verification_attempt_id: verificationAttemptId,
+      verification_lease_expires_at: new Date(Date.now() + VERIFICATION_LEASE_MS).toISOString(),
+      result_object_key: attemptResultKey,
+      now: Date.now(),
+    });
+  } catch (error) {
+    return c.json({ error: error instanceof BindingAuthorityError ? error.code : "job_unavailable" }, 409);
+  }
+  if (verificationRecord.status === "consumed") {
+    return readConsumedResult(verificationRecord);
+  }
+  if (
+    verificationRecord.status !== "verifying" ||
+    verificationRecord.verification_attempt_id !== verificationAttemptId
+  ) {
+    return c.json({ accepted: false, status: "processing" }, 202);
+  }
+  if (
+    verificationRecord.verification_input_key === undefined ||
+    verificationRecord.verification_result_key === undefined ||
+    verificationRecord.device_replay_digest_hex === undefined
+  ) {
+    return c.json({ error: "verification_result_mismatch" }, 422);
+  }
+  const verificationInputKey = verificationRecord.verification_input_key;
+  const verificationResultKey = verificationRecord.verification_result_key;
+  const deviceReplayDigestHex = verificationRecord.device_replay_digest_hex;
+  const completionRecord = {
+    ...verificationRecord,
+    verification_input_key: verificationInputKey,
+    verification_result_key: verificationResultKey,
+    device_replay_digest_hex: deviceReplayDigestHex,
+  };
+  let completionConsumed = false;
+  let resultPersisted = false;
+  let preserveAttemptResult = false;
+  const releaseVerificationLease = async (): Promise<void> => {
+    await authority.releaseVerification(callback.binding_id, {
+      session_id: completionRecord.session_id,
+      canonical_user_id: completionRecord.canonical_user_id,
+      device_id: completionRecord.device_id,
+      verification_job_id: callback.job_id,
+      verification_attempt_id: verificationAttemptId,
+      now: Date.now(),
+    }).catch(() => undefined);
+  };
+  await delayTestCompletion(c.env);
+
+  let storedPresentation: Uint8Array;
+  let storedPresentationId: string;
+  try {
+    const presentationObject = await c.env.TLSN_PRESENTATIONS.get(completionRecord.verification_input_key);
+    if (!presentationObject || presentationObject.size > MAX_PRESENTATION_BYTES) {
+      await releaseVerificationLease();
+      return c.json({ error: "verification_input_unavailable" }, 503);
+    }
+    storedPresentation = new Uint8Array(await presentationObject.arrayBuffer());
+    storedPresentationId = encodeBase64Url(
+      new Uint8Array(await crypto.subtle.digest("SHA-256", storedPresentation)),
+    );
+  } catch {
+    await releaseVerificationLease();
     return c.json({ error: "verification_input_unavailable" }, 503);
   }
-  const storedPresentation = new Uint8Array(await presentationObject.arrayBuffer());
-  const storedPresentationId = encodeBase64Url(
-    new Uint8Array(await crypto.subtle.digest("SHA-256", storedPresentation)),
-  );
-  if (storedPresentationId !== record.presentation_id || storedPresentationId !== callback.presentation_id) {
+  if (storedPresentationId !== completionRecord.presentation_id || storedPresentationId !== callback.presentation_id) {
+    await releaseVerificationLease();
     return c.json({ error: "verification_result_mismatch" }, 422);
   }
 
@@ -1355,9 +1450,9 @@ app.post("/internal/tlsn/verification-complete", async (c) => {
       config,
       expectedProfile,
       storedPresentation,
-      record.canonical_user_id,
-      record.device_id,
-      decodeBase64Url(record.tlsn_device_challenge, 32),
+      completionRecord.canonical_user_id,
+      completionRecord.device_id,
+      decodeBase64Url(completionRecord.tlsn_device_challenge, 32),
     );
     const preparedUnsignedResult = JSON.parse(prepared.unsigned_result) as Record<string, unknown>;
     const expectedProfileId = sparseProfile ? "fusou-require-info-v2-sparse" : "fusou-require-info-v1";
@@ -1379,12 +1474,12 @@ app.post("/internal/tlsn/verification-complete", async (c) => {
       preparedUnsignedResult,
     );
     if (
-      authenticatedResult.attestation_session_id !== record.session_id ||
-      authenticatedResult.canonical_user_id !== record.canonical_user_id ||
-      authenticatedResult.device_id !== record.device_id ||
-      authenticatedResult.device_challenge !== record.tlsn_device_challenge ||
-      authenticatedResult.binding_nonce !== record.nonce ||
-      authenticatedResult.binding_value !== record.binding_value
+      authenticatedResult.attestation_session_id !== completionRecord.session_id ||
+      authenticatedResult.canonical_user_id !== completionRecord.canonical_user_id ||
+      authenticatedResult.device_id !== completionRecord.device_id ||
+      authenticatedResult.device_challenge !== completionRecord.tlsn_device_challenge ||
+      authenticatedResult.binding_nonce !== completionRecord.nonce ||
+      authenticatedResult.binding_value !== completionRecord.binding_value
     ) {
       return c.json({ error: "binding_mismatch" }, 422);
     }
@@ -1407,18 +1502,18 @@ app.post("/internal/tlsn/verification-complete", async (c) => {
         ? attach_sparse_verifier_result_signature(prepared.unsigned_result, signatureBytes)
         : attach_verifier_result_signature(prepared.unsigned_result, signatureBytes),
     ) as Record<string, unknown>;
-    const usedAt = record.status === "consumed"
-      ? record.used_at
+    const usedAt = completionRecord.status === "consumed"
+      ? completionRecord.used_at
       : new Date(Date.now()).toISOString();
     if (!usedAt) {
       return c.json({ error: "verification_result_unavailable" }, 503);
     }
     const consumeReceipt = await signConsumeReceipt(config, {
-      session_id: record.session_id,
-      canonical_user_id: record.canonical_user_id,
-      device_id: record.device_id,
-      nonce: record.nonce,
-      binding_value: record.binding_value,
+      session_id: completionRecord.session_id,
+      canonical_user_id: completionRecord.canonical_user_id,
+      device_id: completionRecord.device_id,
+      nonce: completionRecord.nonce,
+      binding_value: completionRecord.binding_value,
       presentation_id: storedPresentationId,
       used_at: usedAt,
     });
@@ -1428,35 +1523,54 @@ app.post("/internal/tlsn/verification-complete", async (c) => {
       signer_key_id: config.resultSignerKeyId ?? config.verifierKeyId,
       signature_algorithm: "Ed25519",
       consume_receipt: consumeReceipt,
-      device_replay_digest_hex: record.device_replay_digest_hex,
+      device_replay_digest_hex: completionRecord.device_replay_digest_hex,
     });
+    const finalResponseBody = JSON.stringify(finalResponse);
+    const resultSha256 = encodeBase64Url(
+      new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(finalResponseBody))),
+    );
     await c.env.TLSN_PRESENTATIONS.put(
-      record.verification_result_key,
-      JSON.stringify(finalResponse),
+      attemptResultKey,
+      finalResponseBody,
       { httpMetadata: { contentType: "application/json" } },
     );
-    if (record.status === "processing") {
-      const consumedBinding = await authority.consumeBinding(record.binding_value, {
-        session_id: record.session_id,
-        canonical_user_id: record.canonical_user_id,
-        device_id: record.device_id,
-        binding_value: record.binding_value,
-        nonce: record.nonce,
+    resultPersisted = true;
+    let consumedBinding: BindingRecord;
+    try {
+      consumedBinding = await authority.consumeBinding(completionRecord.binding_value, {
+        session_id: completionRecord.session_id,
+        canonical_user_id: completionRecord.canonical_user_id,
+        device_id: completionRecord.device_id,
+        binding_value: completionRecord.binding_value,
+        nonce: completionRecord.nonce,
         presentation_id: storedPresentationId,
+        verification_attempt_id: verificationAttemptId,
         verification_job_id: callback.job_id,
+        result_sha256: resultSha256,
+        result_object_key: attemptResultKey,
         used_at: usedAt,
         now: Date.now(),
       });
-      if (consumedBinding.used_at !== usedAt) {
-        return c.json({ error: "verification_result_unavailable" }, 503);
-      }
+    } catch (error) {
+      preserveAttemptResult = !(error instanceof BindingAuthorityError) || error.code === "authority_unavailable";
+      throw error;
     }
-    if (record.verification_input_key) {
-      await c.env.TLSN_PRESENTATIONS.delete(record.verification_input_key).catch(() => undefined);
+    if (consumedBinding.used_at !== usedAt || consumedBinding.result_sha256 !== resultSha256) {
+      preserveAttemptResult = consumedBinding.status === "consumed";
+      return c.json({ error: "verification_result_unavailable" }, 503);
+    }
+    completionConsumed = true;
+    if (completionRecord.verification_input_key) {
+      await c.env.TLSN_PRESENTATIONS.delete(completionRecord.verification_input_key).catch(() => undefined);
     }
     return c.json({ accepted: true });
   } catch {
     return c.json({ error: "verification_failed" }, 422);
+  } finally {
+    await releaseVerificationLease();
+    if (resultPersisted && !completionConsumed && !preserveAttemptResult) {
+      await c.env.TLSN_PRESENTATIONS.delete(attemptResultKey).catch(() => undefined);
+    }
   }
 });
 
@@ -1716,22 +1830,31 @@ app.post("/verify/tlsn/status", async (c) => {
     return c.json({ verified: false, error: message }, bindingAuthorityStatus(error));
   }
 
-  if (record.status === "processing") {
+  if (record.status === "processing" || record.status === "verifying") {
     c.header("Cache-Control", "no-store");
     return c.json({ verified: false, status: "processing", job_id: requestBody.job_id }, 202);
   }
-  if (record.status !== "consumed" || !record.verification_result_key) {
+  const resultObjectKey = record.result_object_key ?? record.verification_result_key;
+  if (record.status !== "consumed" || !resultObjectKey) {
     return c.json({ verified: false, error: "verification_unavailable" }, 503);
   }
+  if (!record.result_sha256) {
+    return c.json({ verified: false, error: "verification_result_unavailable" }, 503);
+  }
 
-  const object = await c.env.TLSN_PRESENTATIONS.get(record.verification_result_key);
+  const object = await c.env.TLSN_PRESENTATIONS.get(resultObjectKey);
   if (!object || object.size > MAX_INTERNAL_CALLBACK_JSON_BYTES) {
     return c.json({ verified: false, error: "verification_result_unavailable" }, 503);
   }
   try {
-    const finalResponse = verificationFinalResponseSchema.parse(
-      JSON.parse(await object.text()) as unknown,
+    const resultBody = await object.text();
+    const resultSha256 = encodeBase64Url(
+      new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(resultBody))),
     );
+    if (resultSha256 !== record.result_sha256) {
+      return c.json({ verified: false, error: "verification_result_unavailable" }, 503);
+    }
+    const finalResponse = verificationFinalResponseSchema.parse(JSON.parse(resultBody) as unknown);
     c.header("Cache-Control", "no-store");
     return c.json(finalResponse);
   } catch {
@@ -1774,7 +1897,7 @@ app.post("/verify/tlsn/retry", async (c) => {
     return c.json({ verified: false, error: message }, bindingAuthorityStatus(error));
   }
   if (
-    (record.status !== "processing" && record.status !== "consumed") ||
+    (record.status !== "processing" && record.status !== "verifying" && record.status !== "consumed") ||
     !record.verification_input_key ||
     !record.verification_result_key
   ) {
@@ -1786,11 +1909,24 @@ app.post("/verify/tlsn/retry", async (c) => {
     return c.json({ verified: false, error: "verification_profile_mismatch" }, 409);
   }
 
+  if (record.status === "verifying") {
+    c.header("Cache-Control", "no-store");
+    return c.json({ verified: false, status: "processing", job_id: requestBody.job_id }, 202);
+  }
+
   if (record.status === "consumed") {
-    const existing = await c.env.TLSN_PRESENTATIONS.get(record.verification_result_key);
-    if (existing) {
+    const resultObjectKey = record.result_object_key ?? record.verification_result_key;
+    const existing = resultObjectKey
+      ? await c.env.TLSN_PRESENTATIONS.get(resultObjectKey)
+      : null;
+    if (existing && record.result_sha256) {
       try {
-        verificationFinalResponseSchema.parse(JSON.parse(await existing.text()) as unknown);
+        const resultBody = await existing.text();
+        const resultSha256 = encodeBase64Url(
+          new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(resultBody))),
+        );
+        if (resultSha256 !== record.result_sha256) throw new Error("result hash mismatch");
+        verificationFinalResponseSchema.parse(JSON.parse(resultBody) as unknown);
         return c.json({ verified: true, status: "completed", job_id: requestBody.job_id });
       } catch {
         // Queue a repair only if the original input is still available.
