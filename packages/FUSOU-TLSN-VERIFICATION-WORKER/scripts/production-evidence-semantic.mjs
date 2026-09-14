@@ -39,6 +39,12 @@ const REQUIRE_INFO_HTTP_PROFILE = {
   response_member_path: "svdata.api_data.api_basic.api_member_id",
 };
 
+const MAX_SPARSE_REQUEST_TRANSCRIPT_BYTES = 512_000;
+const MAX_SPARSE_RESPONSE_TRANSCRIPT_BYTES = 32 * 1024 * 1024;
+const MAX_SPARSE_HTTP_HEADER_COUNT = 128;
+const MAX_SPARSE_HTTP_HEADER_BYTES = 64 * 1024;
+const MAX_SPARSE_RANGE_COUNT = 4096;
+
 export const RESULT_PRESENTATION_BINDING_FIELDS = [
   ["verified_member_id", "verified_member_id"],
   ["tlsn_attestation_id", "tlsn_attestation_id"],
@@ -363,12 +369,17 @@ function parseHttpHead(raw, expectedStartLine, label) {
   if (firstEnd < 0 || raw.subarray(0, firstEnd).toString("ascii") !== expectedStartLine) {
     throw new Error(`${label} start line is invalid`);
   }
+  if (firstEnd + 2 > MAX_SPARSE_HTTP_HEADER_BYTES) throw new Error(`${label} headers are too large`);
   const headers = [];
   let cursor = firstEnd + 2;
   while (true) {
     const lineEnd = findCrlf(raw, cursor);
     if (lineEnd < 0) throw new Error(`${label} header is not CRLF terminated`);
-    if (lineEnd === cursor) return { headers, bodyStart: cursor + 2 };
+    if (lineEnd === cursor) {
+      if (lineEnd + 2 > MAX_SPARSE_HTTP_HEADER_BYTES) throw new Error(`${label} headers are too large`);
+      return { headers, bodyStart: cursor + 2 };
+    }
+    if (lineEnd + 2 > MAX_SPARSE_HTTP_HEADER_BYTES) throw new Error(`${label} headers are too large`);
     const line = raw.subarray(cursor, lineEnd);
     const colon = line.indexOf(0x3a);
     if (colon <= 0 || line.subarray(0, colon).some((byte) => byte <= 0x20 || byte === 0x7f)) {
@@ -383,12 +394,16 @@ function parseHttpHead(raw, expectedStartLine, label) {
       rawValue,
       value: rawValue.toString("ascii").replace(/^[ \t]+|[ \t]+$/g, ""),
     });
+    if (headers.length > MAX_SPARSE_HTTP_HEADER_COUNT) throw new Error(`${label} has too many headers`);
     cursor = lineEnd + 2;
   }
 }
 
 class SparseRangeReader {
   constructor(ranges, size, label) {
+    if (!Array.isArray(ranges) || ranges.length > MAX_SPARSE_RANGE_COUNT) {
+      throw new Error(`${label} has too many ranges`);
+    }
     let previousEnd = 0n;
     this.ranges = ranges.map((range, index) => {
       const start = parseUint64(range?.start, `${label} range ${index} start`);
@@ -402,22 +417,47 @@ class SparseRangeReader {
     });
     this.size = size;
     this.label = label;
+    this.rangeIndex = 0;
+  }
+
+  rangeFor(position) {
+    const offset = BigInt(position);
+    if (offset < 0n || offset >= this.size) throw new Error(`${this.label} read is outside the transcript`);
+    while (this.rangeIndex < this.ranges.length && offset >= this.ranges[this.rangeIndex].end) {
+      this.rangeIndex += 1;
+    }
+    const range = this.ranges[this.rangeIndex];
+    if (!range || offset < range.start) {
+      throw new Error(`${this.label} read crosses an undisclosed range at ${offset}`);
+    }
+    return range;
   }
 
   readByte(position) {
     const offset = BigInt(position);
-    if (offset < 0n || offset >= this.size) throw new Error(`${this.label} read is outside the transcript`);
-    const range = this.ranges.find((candidate) => candidate.start <= offset && offset < candidate.end);
-    if (!range) throw new Error(`${this.label} read crosses an undisclosed range at ${offset}`);
+    const range = this.rangeFor(offset);
     return range.bytes[Number(offset - range.start)];
   }
 
   readBytes(start, length) {
     const first = BigInt(start);
     const count = BigInt(length);
-    if (count < 0n || first + count > this.size) throw new Error(`${this.label} read is outside the transcript`);
+    if (count < 0n || first < 0n || first + count > this.size || count > BigInt(Number.MAX_SAFE_INTEGER)) {
+      throw new Error(`${this.label} read is outside the transcript`);
+    }
+    if (count === 0n) return Buffer.alloc(0);
     const output = Buffer.alloc(Number(count));
-    for (let index = 0n; index < count; index += 1n) output[Number(index)] = this.readByte(first + index);
+    const end = first + count;
+    let position = first;
+    let outputOffset = 0;
+    while (position < end) {
+      const range = this.rangeFor(position);
+      const rangeEnd = range.end < end ? range.end : end;
+      const copyLength = Number(rangeEnd - position);
+      range.bytes.copy(output, outputOffset, Number(position - range.start), Number(position - range.start) + copyLength);
+      position = rangeEnd;
+      outputOffset += copyLength;
+    }
     return output;
   }
 }
@@ -426,135 +466,348 @@ function sparseJsonWhitespace(byte) {
   return byte === 0x20 || byte === 0x09 || byte === 0x0a || byte === 0x0d;
 }
 
-function sparseJsonString(reader, cursor, label) {
-  const start = cursor.position;
-  if (reader.readByte(cursor.position) !== 0x22) throw new Error(`${label} JSON string is missing`);
-  cursor.position += 1n;
-  while (true) {
-    const byte = reader.readByte(cursor.position);
-    if (byte === 0x22) {
-      cursor.position += 1n;
-      const raw = reader.readBytes(start, cursor.position - start);
-      let value;
-      try {
-        value = JSON.parse(decodeUtf8(raw, `${label} JSON string`));
-      } catch {
-        throw new Error(`${label} JSON string is invalid`);
-      }
-      return value;
+const MAX_SPARSE_JSON_DEPTH = 64;
+const MAX_SPARSE_JSON_STRING_BYTES = 32 * 1024 * 1024;
+const MAX_SPARSE_JSON_KEY_BYTES = 4096;
+const MAX_SPARSE_JSON_NUMBER_BYTES = 256;
+
+class SparseJsonCursor {
+  constructor(reader, start, end, label) {
+    this.reader = reader;
+    this.position = BigInt(start);
+    this.end = BigInt(end);
+    this.label = label;
+  }
+
+  peek() {
+    return this.position < this.end ? this.reader.readByte(this.position) : null;
+  }
+
+  next() {
+    const byte = this.peek();
+    if (byte === null) throw new Error(`${this.label} JSON ended unexpectedly`);
+    this.position += 1n;
+    return byte;
+  }
+
+  expect(expected) {
+    if (this.next() !== expected) throw new Error(`${this.label} JSON byte is invalid`);
+  }
+
+  skipWhitespace() {
+    while (this.position < this.end && sparseJsonWhitespace(this.reader.readByte(this.position))) {
+      this.position += 1n;
     }
-    if (byte < 0x20) throw new Error(`${label} JSON string contains a control byte`);
-    if (byte === 0x5c) {
-      cursor.position += 1n;
-      const escape = reader.readByte(cursor.position);
-      if (![0x22, 0x5c, 0x2f, 0x62, 0x66, 0x6e, 0x72, 0x74, 0x75].includes(escape)) {
-        throw new Error(`${label} JSON string escape is invalid`);
-      }
-      cursor.position += 1n;
-      if (escape === 0x75) {
-        for (let index = 0; index < 4; index += 1) {
-          if (!/[0-9a-fA-F]/.test(String.fromCharCode(reader.readByte(cursor.position)))) {
-            throw new Error(`${label} JSON Unicode escape is invalid`);
+  }
+
+  parseHexQuad() {
+    let value = 0;
+    for (let index = 0; index < 4; index += 1) {
+      const byte = this.next();
+      const digit = String.fromCharCode(byte);
+      if (!/[0-9a-fA-F]/.test(digit)) throw new Error(`${this.label} JSON Unicode escape is invalid`);
+      value = value * 16 + Number.parseInt(digit, 16);
+    }
+    return value;
+  }
+
+  parseEscape(capture) {
+    switch (this.next()) {
+      case 0x22: return '"';
+      case 0x5c: return "\\";
+      case 0x2f: return "/";
+      case 0x62: return "\b";
+      case 0x66: return "\f";
+      case 0x6e: return "\n";
+      case 0x72: return "\r";
+      case 0x74: return "\t";
+      case 0x75: {
+        const high = this.parseHexQuad();
+        if (high >= 0xd800 && high <= 0xdbff) {
+          if (this.next() !== 0x5c || this.next() !== 0x75) {
+            throw new Error(`${this.label} JSON surrogate pair is invalid`);
           }
-          cursor.position += 1n;
+          const low = this.parseHexQuad();
+          if (low < 0xdc00 || low > 0xdfff) throw new Error(`${this.label} JSON surrogate pair is invalid`);
+          return capture ? String.fromCodePoint(0x10000 + ((high - 0xd800) << 10) + (low - 0xdc00)) : null;
         }
+        if (high >= 0xdc00 && high <= 0xdfff) throw new Error(`${this.label} JSON surrogate pair is invalid`);
+        return capture ? String.fromCodePoint(high) : null;
       }
+      default: throw new Error(`${this.label} JSON string escape is invalid`);
+    }
+  }
+
+  parseUtf8CodePoint(first, capture) {
+    const width = first >= 0xc2 && first <= 0xdf ? 2 : first >= 0xe0 && first <= 0xef ? 3 : first >= 0xf0 && first <= 0xf4 ? 4 : 0;
+    if (width === 0) throw new Error(`${this.label} JSON string UTF-8 is invalid`);
+    let codePoint = first & (width === 2 ? 0x1f : width === 3 ? 0x0f : 0x07);
+    for (let index = 1; index < width; index += 1) {
+      const byte = this.next();
+      if ((byte & 0xc0) !== 0x80) throw new Error(`${this.label} JSON string UTF-8 is invalid`);
+      codePoint = (codePoint << 6) | (byte & 0x3f);
+    }
+    if (
+      (width === 2 && codePoint < 0x80) ||
+      (width === 3 && codePoint < 0x800) ||
+      (width === 4 && codePoint < 0x10000) ||
+      (codePoint >= 0xd800 && codePoint <= 0xdfff) ||
+      codePoint > 0x10ffff
+    ) {
+      throw new Error(`${this.label} JSON string UTF-8 is invalid`);
+    }
+    return capture ? String.fromCodePoint(codePoint) : null;
+  }
+
+  parseString(capture, maxBytes) {
+    this.expect(0x22);
+    const start = this.position;
+    let value = capture ? "" : null;
+    let hadEscape = false;
+    while (true) {
+      const byte = this.next();
+      if (byte === 0x22) {
+        if (this.position - start > BigInt(maxBytes)) throw new Error(`${this.label} JSON string is too large`);
+        return { value, hadEscape };
+      }
+      if (byte < 0x20) throw new Error(`${this.label} JSON string contains a control byte`);
+      if (byte === 0x5c) {
+        hadEscape = true;
+        const escaped = this.parseEscape(capture);
+        if (capture && escaped !== null) value += escaped;
+      } else {
+        const decoded = byte < 0x80 ? String.fromCharCode(byte) : this.parseUtf8CodePoint(byte, capture);
+        if (capture && decoded !== null) value += decoded;
+      }
+    }
+  }
+
+  consumeNumberByte(parts) {
+    if (parts.length >= MAX_SPARSE_JSON_NUMBER_BYTES) throw new Error(`${this.label} JSON number is too long`);
+    const byte = this.next();
+    parts.push(String.fromCharCode(byte));
+    return byte;
+  }
+
+  parseNumber(capture) {
+    const parts = [];
+    const consume = () => this.consumeNumberByte(parts);
+    if (this.peek() === 0x2d) consume();
+    if (this.peek() === 0x30) {
+      consume();
+    } else if (this.peek() !== null && this.peek() >= 0x31 && this.peek() <= 0x39) {
+      consume();
+      while (this.peek() !== null && this.peek() >= 0x30 && this.peek() <= 0x39) consume();
     } else {
-      cursor.position += 1n;
+      throw new Error(`${this.label} JSON number is invalid`);
+    }
+    if (this.peek() === 0x2e) {
+      consume();
+      const fractionStart = parts.length;
+      while (this.peek() !== null && this.peek() >= 0x30 && this.peek() <= 0x39) consume();
+      if (parts.length === fractionStart) throw new Error(`${this.label} JSON number fraction is invalid`);
+    }
+    if (this.peek() === 0x65 || this.peek() === 0x45) {
+      consume();
+      if (this.peek() === 0x2b || this.peek() === 0x2d) consume();
+      const exponentStart = parts.length;
+      while (this.peek() !== null && this.peek() >= 0x30 && this.peek() <= 0x39) consume();
+      if (parts.length === exponentStart) throw new Error(`${this.label} JSON number exponent is invalid`);
+    }
+    return capture ? parts.join("") : null;
+  }
+
+  parseLiteral(literal) {
+    for (const byte of Buffer.from(literal)) this.expect(byte);
+  }
+
+  parseValue(depth = 0) {
+    if (depth > MAX_SPARSE_JSON_DEPTH) throw new Error(`${this.label} JSON nesting is too deep`);
+    this.skipWhitespace();
+    switch (this.peek()) {
+      case 0x22: this.parseString(false, MAX_SPARSE_JSON_STRING_BYTES); return;
+      case 0x7b: this.parseObject(depth); return;
+      case 0x5b: this.parseArray(depth); return;
+      case 0x74: this.parseLiteral("true"); return;
+      case 0x66: this.parseLiteral("false"); return;
+      case 0x6e: this.parseLiteral("null"); return;
+      case 0x2d:
+      case 0x30:
+      case 0x31:
+      case 0x32:
+      case 0x33:
+      case 0x34:
+      case 0x35:
+      case 0x36:
+      case 0x37:
+      case 0x38:
+      case 0x39: this.parseNumber(false); return;
+      default: throw new Error(`${this.label} JSON value is invalid`);
     }
   }
-}
 
-function sparseJsonNumber(reader, cursor, label) {
-  const start = cursor.position;
-  while (cursor.position < reader.size) {
-    const byte = reader.readByte(cursor.position);
-    if (sparseJsonWhitespace(byte) || [0x2c, 0x5d, 0x7d].includes(byte)) break;
-    cursor.position += 1n;
-  }
-  const raw = decodeUtf8(reader.readBytes(start, cursor.position - start), `${label} JSON number`);
-  if (!/^-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?$/.test(raw)) {
-    throw new Error(`${label} JSON number is invalid`);
-  }
-  return { kind: "number", raw };
-}
-
-function parseSparseJsonValue(reader, cursor, label, depth = 0) {
-  if (depth > 128) throw new Error(`${label} JSON nesting is too deep`);
-  while (cursor.position < reader.size && sparseJsonWhitespace(reader.readByte(cursor.position))) cursor.position += 1n;
-  const byte = reader.readByte(cursor.position);
-  if (byte === 0x22) return sparseJsonString(reader, cursor, label);
-  if (byte === 0x7b) {
-    const object = {};
+  parseObject(depth) {
+    this.expect(0x7b);
     const keys = new Set();
-    cursor.position += 1n;
+    this.skipWhitespace();
+    if (this.peek() === 0x7d) {
+      this.position += 1n;
+      return;
+    }
     while (true) {
-      while (cursor.position < reader.size && sparseJsonWhitespace(reader.readByte(cursor.position))) cursor.position += 1n;
-      if (reader.readByte(cursor.position) === 0x7d) {
-        cursor.position += 1n;
-        return object;
-      }
-      const key = sparseJsonString(reader, cursor, label);
-      if (keys.has(key)) throw new Error(`${label} JSON object contains a duplicate key`);
+      const parsedKey = this.parseString(true, MAX_SPARSE_JSON_KEY_BYTES);
+      const key = parsedKey.value;
+      if (keys.has(key)) throw new Error(`${this.label} JSON object contains a duplicate key`);
       keys.add(key);
-      while (cursor.position < reader.size && sparseJsonWhitespace(reader.readByte(cursor.position))) cursor.position += 1n;
-      if (reader.readByte(cursor.position) !== 0x3a) throw new Error(`${label} JSON object colon is missing`);
-      cursor.position += 1n;
-      object[key] = parseSparseJsonValue(reader, cursor, label, depth + 1);
-      while (cursor.position < reader.size && sparseJsonWhitespace(reader.readByte(cursor.position))) cursor.position += 1n;
-      const separator = reader.readByte(cursor.position);
-      if (separator === 0x2c) {
-        cursor.position += 1n;
-        continue;
-      }
-      if (separator === 0x7d) {
-        cursor.position += 1n;
-        return object;
-      }
-      throw new Error(`${label} JSON object separator is invalid`);
+      this.skipWhitespace();
+      this.expect(0x3a);
+      this.parseValue(depth + 1);
+      this.skipWhitespace();
+      const separator = this.next();
+      if (separator === 0x7d) return;
+      if (separator !== 0x2c) throw new Error(`${this.label} JSON object separator is invalid`);
+      this.skipWhitespace();
     }
   }
-  if (byte === 0x5b) {
-    const array = [];
-    cursor.position += 1n;
+
+  parseArray(depth) {
+    this.expect(0x5b);
+    this.skipWhitespace();
+    if (this.peek() === 0x5d) {
+      this.position += 1n;
+      return;
+    }
     while (true) {
-      while (cursor.position < reader.size && sparseJsonWhitespace(reader.readByte(cursor.position))) cursor.position += 1n;
-      if (reader.readByte(cursor.position) === 0x5d) {
-        cursor.position += 1n;
-        return array;
-      }
-      array.push(parseSparseJsonValue(reader, cursor, label, depth + 1));
-      while (cursor.position < reader.size && sparseJsonWhitespace(reader.readByte(cursor.position))) cursor.position += 1n;
-      const separator = reader.readByte(cursor.position);
-      if (separator === 0x2c) {
-        cursor.position += 1n;
-        continue;
-      }
-      if (separator === 0x5d) {
-        cursor.position += 1n;
-        return array;
-      }
-      throw new Error(`${label} JSON array separator is invalid`);
+      this.parseValue(depth + 1);
+      this.skipWhitespace();
+      const separator = this.next();
+      if (separator === 0x5d) return;
+      if (separator !== 0x2c) throw new Error(`${this.label} JSON array separator is invalid`);
+      this.skipWhitespace();
     }
   }
-  if (byte === 0x74 && reader.readBytes(cursor.position, 4).toString("ascii") === "true") {
-    cursor.position += 4n;
-    return true;
+
+  parseRoot() {
+    this.expect(0x7b);
+    const keys = new Set();
+    let resultSeen = false;
+    let dataSeen = false;
+    let memberId;
+    this.skipWhitespace();
+    if (this.peek() === 0x7d) throw new Error(`${this.label} required JSON members are missing`);
+    while (true) {
+      const parsedKey = this.parseString(true, MAX_SPARSE_JSON_KEY_BYTES);
+      const key = parsedKey.value;
+      if (parsedKey.hadEscape && (key === "api_result" || key === "api_data")) {
+        throw new Error(`${this.label} authenticated semantic keys must not use JSON escapes`);
+      }
+      if (keys.has(key)) throw new Error(`${this.label} JSON object contains a duplicate key`);
+      keys.add(key);
+      this.skipWhitespace();
+      this.expect(0x3a);
+      this.skipWhitespace();
+      if (key === "api_result") {
+        if (this.parseNumber(true) !== "1") throw new Error(`${this.label} api_result is not number 1`);
+        resultSeen = true;
+      } else if (key === "api_data") {
+        memberId = this.parseApiData(1);
+        dataSeen = true;
+      } else {
+        this.parseValue(1);
+      }
+      this.skipWhitespace();
+      const separator = this.next();
+      if (separator === 0x7d) break;
+      if (separator !== 0x2c) throw new Error(`${this.label} root JSON separator is invalid`);
+      this.skipWhitespace();
+    }
+    this.skipWhitespace();
+    if (this.position !== this.end) throw new Error(`${this.label} JSON has invalid trailing bytes`);
+    if (!resultSeen || !dataSeen || memberId === undefined) throw new Error(`${this.label} required JSON members are missing`);
+    return memberId;
   }
-  if (byte === 0x66 && reader.readBytes(cursor.position, 5).toString("ascii") === "false") {
-    cursor.position += 5n;
-    return false;
+
+  parseApiData(depth) {
+    this.expect(0x7b);
+    const keys = new Set();
+    let basicSeen = false;
+    let memberId;
+    this.skipWhitespace();
+    if (this.peek() === 0x7d) throw new Error(`${this.label} api_basic is missing`);
+    while (true) {
+      const parsedKey = this.parseString(true, MAX_SPARSE_JSON_KEY_BYTES);
+      const key = parsedKey.value;
+      if (parsedKey.hadEscape && key === "api_basic") {
+        throw new Error(`${this.label} authenticated semantic keys must not use JSON escapes`);
+      }
+      if (keys.has(key)) throw new Error(`${this.label} JSON object contains a duplicate key`);
+      keys.add(key);
+      this.skipWhitespace();
+      this.expect(0x3a);
+      this.skipWhitespace();
+      if (key === "api_basic") {
+        memberId = this.parseApiBasic(depth + 1);
+        basicSeen = true;
+      } else {
+        this.parseValue(depth + 1);
+      }
+      this.skipWhitespace();
+      const separator = this.next();
+      if (separator === 0x7d) break;
+      if (separator !== 0x2c) throw new Error(`${this.label} api_data separator is invalid`);
+      this.skipWhitespace();
+    }
+    if (!basicSeen || memberId === undefined) throw new Error(`${this.label} api_basic is missing`);
+    return memberId;
   }
-  if (byte === 0x6e && reader.readBytes(cursor.position, 4).toString("ascii") === "null") {
-    cursor.position += 4n;
-    return null;
+
+  parseApiBasic(depth) {
+    this.expect(0x7b);
+    const keys = new Set();
+    let memberId;
+    this.skipWhitespace();
+    if (this.peek() === 0x7d) throw new Error(`${this.label} api_member_id is missing`);
+    while (true) {
+      const parsedKey = this.parseString(true, MAX_SPARSE_JSON_KEY_BYTES);
+      const key = parsedKey.value;
+      if (parsedKey.hadEscape && key === "api_member_id") {
+        throw new Error(`${this.label} authenticated semantic keys must not use JSON escapes`);
+      }
+      if (keys.has(key)) throw new Error(`${this.label} JSON object contains a duplicate key`);
+      keys.add(key);
+      this.skipWhitespace();
+      this.expect(0x3a);
+      this.skipWhitespace();
+      if (key === "api_member_id") {
+        const token = this.parseNumber(true);
+        if (!/^[1-9][0-9]{0,15}$/.test(token)) {
+          throw new Error(`${this.label} api_member_id is not a canonical decimal number`);
+        }
+        memberId = token;
+      } else {
+        this.parseValue(depth + 1);
+      }
+      this.skipWhitespace();
+      const separator = this.next();
+      if (separator === 0x7d) break;
+      if (separator !== 0x2c) throw new Error(`${this.label} api_basic separator is invalid`);
+      this.skipWhitespace();
+    }
+    if (memberId === undefined) throw new Error(`${this.label} api_member_id is missing`);
+    return memberId;
   }
-  if (byte === 0x2d || (byte >= 0x30 && byte <= 0x39)) return sparseJsonNumber(reader, cursor, label);
-  throw new Error(`${label} JSON value is invalid`);
 }
 
 export function parseSparseProfileTranscripts(semanticVerification, trustedServerIdentity, expectedBindingValue) {
   const verifiedPresentation = semanticVerification.verified_presentation;
+  const requestTranscriptSize = parseUint64(verifiedPresentation.request_transcript_size, "request transcript size");
+  const responseTranscriptSize = parseUint64(verifiedPresentation.response_transcript_size, "response transcript size");
+  if (requestTranscriptSize > BigInt(MAX_SPARSE_REQUEST_TRANSCRIPT_BYTES)) {
+    throw new Error("request transcript exceeds sparse limit");
+  }
+  if (responseTranscriptSize > BigInt(MAX_SPARSE_RESPONSE_TRANSCRIPT_BYTES)) {
+    throw new Error("response transcript exceeds sparse limit");
+  }
   const requestPrefix = sparseRangePrefix(verifiedPresentation.revealed_request_ranges, 65_536, "request transcript");
   const responsePrefix = sparseRangePrefix(verifiedPresentation.revealed_response_ranges, 65_536, "response transcript");
   const request = parseHttpHead(requestPrefix, `POST ${REQUIRE_INFO_HTTP_PROFILE.request_target} HTTP/1.1`, "require_info request");
@@ -573,7 +826,7 @@ export function parseSparseProfileTranscripts(semanticVerification, trustedServe
   if (requestLengths.length !== 1 || requestTransfers.length !== 0 || parseUint64(requestLengths[0].value, "request content length") !== 0n) {
     throw new Error("sparse require_info request framing is unsupported");
   }
-  if (BigInt(request.bodyStart) !== parseUint64(verifiedPresentation.request_transcript_size, "request transcript size")) {
+  if (BigInt(request.bodyStart) !== requestTranscriptSize) {
     throw new Error("request Content-Length does not match the authenticated transcript size");
   }
   const responseLengths = headerValues(response.headers, "content-length");
@@ -582,32 +835,29 @@ export function parseSparseProfileTranscripts(semanticVerification, trustedServe
     throw new Error("sparse require_info response framing is unsupported");
   }
   const responseLength = parseUint64(responseLengths[0].value, "response content length");
-  if (BigInt(response.bodyStart) + responseLength !== parseUint64(verifiedPresentation.response_transcript_size, "response transcript size")) {
+  if (BigInt(response.bodyStart) + responseLength !== responseTranscriptSize) {
     throw new Error("response Content-Length does not match the authenticated transcript size");
   }
   const contentEncodings = headerValues(response.headers, "content-encoding");
   if (contentEncodings.length > 1 || (contentEncodings.length === 1 && contentEncodings[0].value.toLowerCase() !== "identity")) {
     throw new Error("sparse compressed response bodies are unsupported");
   }
-  const responseBodyStart = BigInt(response.bodyStart);
-  const responseTranscriptSize = parseUint64(verifiedPresentation.response_transcript_size, "response transcript size");
   const responseReader = new SparseRangeReader(verifiedPresentation.revealed_response_ranges, responseTranscriptSize, "response transcript");
   const prefix = Buffer.from("svdata=");
+  const responseBodyStart = BigInt(response.bodyStart);
+  if (responseBodyStart + BigInt(prefix.length) > responseTranscriptSize) {
+    throw new Error("response body prefix exceeds the authenticated transcript");
+  }
   if (!responseReader.readBytes(responseBodyStart, BigInt(prefix.length)).equals(prefix)) {
     throw new Error("response body lacks exact svdata= prefix");
   }
-  const cursor = { position: responseBodyStart + BigInt(prefix.length) };
-  const parsed = parseSparseJsonValue(responseReader, cursor, "require_info JSON");
-  while (cursor.position < responseTranscriptSize && sparseJsonWhitespace(responseReader.readByte(cursor.position))) cursor.position += 1n;
-  if (cursor.position !== responseTranscriptSize) throw new Error("require_info JSON has invalid trailing bytes");
-  if (!parsed || parsed.api_result?.kind !== "number" || parsed.api_result.raw !== "1") {
-    throw new Error("require_info JSON api_result is invalid");
-  }
-  const member = parsed.api_data?.api_basic?.api_member_id;
-  if (!member || member.kind !== "number" || !/^[1-9][0-9]{0,15}$/.test(member.raw)) {
-    throw new Error("authenticated api_member_id path is invalid");
-  }
-  return { request, response, memberId: member.raw };
+  const cursor = new SparseJsonCursor(
+    responseReader,
+    responseBodyStart + BigInt(prefix.length),
+    responseTranscriptSize,
+    "require_info JSON",
+  );
+  return { request, response, memberId: cursor.parseRoot() };
 }
 
 function unsignedResult(result) {

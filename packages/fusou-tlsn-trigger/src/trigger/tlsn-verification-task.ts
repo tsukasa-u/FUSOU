@@ -8,6 +8,8 @@ import {
   initSync,
   verify_require_info_presentation,
   verify_require_info_presentation_with_trust_anchor,
+  verify_sparse_require_info_presentation,
+  verify_sparse_require_info_presentation_with_trust_anchor,
 } from "../../../FUSOU-TLSN-VERIFICATION-WORKER/src/wasm/fusou_tlsn_verifier.js";
 
 const MAX_PRESENTATION_BYTES = 8 * 1024 * 1024;
@@ -21,7 +23,18 @@ const verificationTaskPayloadSchema = z.object({
   device_challenge: z.string().regex(/^[A-Za-z0-9_-]{43}$/),
   verification_input_key: z.string().regex(/^tlsn-verification\/[0-9a-f-]+\/presentation\.bin$/),
   verification_result_key: z.string().regex(/^tlsn-verification\/[0-9a-f-]+\/result\.json$/),
-}).strict();
+  profile: z.enum(["complete", "sparse"]),
+  disclosure_mode: z.enum(["full", "sparse"]),
+}).strict().superRefine((payload, context) => {
+  const expectedDisclosureMode = payload.profile === "sparse" ? "sparse" : "full";
+  if (payload.disclosure_mode !== expectedDisclosureMode) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["disclosure_mode"],
+      message: "disclosure_mode does not match profile",
+    });
+  }
+});
 type VerificationTaskPayload = z.infer<typeof verificationTaskPayloadSchema>;
 const preparedResultSchema = z.object({
   unsigned_result: z.string().min(1).max(MAX_RESULT_JSON_BYTES),
@@ -77,7 +90,7 @@ function initializeVerifier(): void {
   initSync(readFileSync(wasmPath()));
 }
 
-function verifierConfig(): {
+function verifierConfig(profile: "complete" | "sparse"): {
   serverIdentity: string;
   profileSha256: Uint8Array;
   verifierKeyId: string;
@@ -93,7 +106,10 @@ function verifierConfig(): {
   if (!notaryKeyValue) throw new Error("TLSN_TRIGGER_NOTARY_KEY_ID is absent from the notary registry");
   return {
     serverIdentity: requiredEnv("TLSN_TRIGGER_SERVER_IDENTITY"),
-    profileSha256: decodeBase64Url(requiredEnv("TLSN_TRIGGER_PROFILE_SHA256"), 32),
+    profileSha256: decodeBase64Url(
+      requiredEnv(profile === "sparse" ? "TLSN_TRIGGER_SPARSE_PROFILE_SHA256" : "TLSN_TRIGGER_PROFILE_SHA256"),
+      32,
+    ),
     verifierKeyId: requiredEnv("TLSN_TRIGGER_VERIFIER_KEY_ID"),
     notaryKeyId: requiredEnv("TLSN_TRIGGER_NOTARY_KEY_ID"),
     notaryKey: decodeBase64Url(notaryKeyValue, 4096),
@@ -137,6 +153,8 @@ async function postCompletion(payload: VerificationTaskPayload, presentationId: 
     canonical_user_id: payload.canonical_user_id,
     device_id: payload.device_id,
     presentation_id: presentationId,
+    profile: payload.profile,
+    disclosure_mode: payload.disclosure_mode,
     prepared_result: preparedResult,
   });
   const response = await fetch(`${workerBaseUrl()}/internal/tlsn/verification-complete`, {
@@ -168,10 +186,11 @@ export const verifyTlsnPresentation = task({
     const presentationId = createHash("sha256").update(presentation).digest("base64url");
     initializeVerifier();
 
-    const config = verifierConfig();
+    const config = verifierConfig(payload.profile);
     const deviceChallenge = decodeBase64Url(payload.device_challenge, 32);
-    const preparedResultJson = config.trustRoot
-      ? verify_require_info_presentation_with_trust_anchor(
+    const preparedResultJson = payload.profile === "sparse"
+      ? config.trustRoot
+        ? verify_sparse_require_info_presentation_with_trust_anchor(
           presentation,
           config.serverIdentity,
           config.profileSha256,
@@ -183,7 +202,31 @@ export const verifyTlsnPresentation = task({
           config.trustRoot,
           config.notaryKey,
         )
-      : verify_require_info_presentation(
+        : verify_sparse_require_info_presentation(
+          presentation,
+          config.serverIdentity,
+          config.profileSha256,
+          config.verifierKeyId,
+          config.notaryKeyId,
+          payload.canonical_user_id,
+          payload.device_id,
+          deviceChallenge,
+          config.notaryKey,
+        )
+      : config.trustRoot
+        ? verify_require_info_presentation_with_trust_anchor(
+          presentation,
+          config.serverIdentity,
+          config.profileSha256,
+          config.verifierKeyId,
+          config.notaryKeyId,
+          payload.canonical_user_id,
+          payload.device_id,
+          deviceChallenge,
+          config.trustRoot,
+          config.notaryKey,
+        )
+        : verify_require_info_presentation(
           presentation,
           config.serverIdentity,
           config.profileSha256,

@@ -502,6 +502,8 @@ async function runAsyncTriggerSmokeTest() {
         canonical_user_id: payload.canonical_user_id,
         device_id: payload.device_id,
         presentation_id: createHash("sha256").update(presentation).digest("base64url"),
+        profile: "complete",
+        disclosure_mode: "full",
         prepared_result: {
           unsigned_result: preparedResult.unsigned_result,
           signing_bytes: mismatchedSigningBytes.toString("base64url"),
@@ -526,6 +528,8 @@ async function runAsyncTriggerSmokeTest() {
         canonical_user_id: payload.canonical_user_id,
         device_id: payload.device_id,
         presentation_id: createHash("sha256").update(presentation).digest("base64url"),
+        profile: "complete",
+        disclosure_mode: "full",
         prepared_result: {
           unsigned_result: preparedResult.unsigned_result,
           signing_bytes: preparedResult.signing_bytes,
@@ -668,6 +672,8 @@ async function runAsyncTriggerSmokeTest() {
     assert.ok(appRequests.some(({ path, status }) => path === "/verify/tlsn" && status === 202));
     assert.ok(appRequests.some(({ path, status }) => path === "/verify/tlsn/status" && status === 200));
     assert.ok(triggerPayload);
+    assert.equal(triggerPayload.profile, "complete");
+    assert.equal(triggerPayload.disclosure_mode, "full");
     assert.ok(completionRequest);
 
     const statusResponse = await worker.fetch("https://verify.test/verify/tlsn/status", {

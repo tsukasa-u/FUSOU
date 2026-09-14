@@ -1262,8 +1262,25 @@ app.post("/internal/tlsn/verification-complete", async (c) => {
   }
 
   try {
+    const sparseProfile = callback.profile === "sparse";
+    const preparedUnsignedResult = JSON.parse(callback.prepared_result.unsigned_result) as Record<string, unknown>;
+    const expectedProfileId = sparseProfile ? "fusou-require-info-v2-sparse" : "fusou-require-info-v1";
+    const expectedVersion = sparseProfile ? 2 : 1;
+    const expectedProfileSha256 = sparseProfile ? config.sparseProfileSha256 : config.profileSha256;
+    if (
+      preparedUnsignedResult["version"] !== expectedVersion ||
+      preparedUnsignedResult["profile_id"] !== expectedProfileId ||
+      preparedUnsignedResult["profile_sha256"] !== expectedProfileSha256 ||
+      (sparseProfile
+        ? preparedUnsignedResult["disclosure_mode"] !== "sparse" ||
+          Object.hasOwn(preparedUnsignedResult, "request_transcript_sha256") ||
+          Object.hasOwn(preparedUnsignedResult, "response_transcript_sha256")
+        : Object.hasOwn(preparedUnsignedResult, "disclosure_mode"))
+    ) {
+      return c.json({ error: "verification_profile_mismatch" }, 422);
+    }
     const authenticatedResult = authenticatedResultSchema.parse(
-      JSON.parse(callback.prepared_result.unsigned_result) as unknown,
+      preparedUnsignedResult,
     );
     if (
       authenticatedResult.attestation_session_id !== record.session_id ||
@@ -1278,16 +1295,22 @@ app.post("/internal/tlsn/verification-complete", async (c) => {
 
     const signingBytes = decodeBase64Url(callback.prepared_result.signing_bytes, MAX_RESULT_JSON_BYTES);
     await ensureWasmInitialized();
-    const derivedSigningBytes = derive_verifier_result_signing_bytes(callback.prepared_result.unsigned_result);
+    const derivedSigningBytes = sparseProfile
+      ? derive_sparse_verifier_result_signing_bytes(callback.prepared_result.unsigned_result)
+      : derive_verifier_result_signing_bytes(callback.prepared_result.unsigned_result);
     if (!hasSameBytes(derivedSigningBytes, signingBytes)) {
       return c.json({ error: "signing_bytes_mismatch" }, 422);
     }
-    const signatureBytes = await signResult(config, signingBytes);
+    const signatureBytes = await (sparseProfile
+      ? signSparseResult(config, signingBytes)
+      : signResult(config, signingBytes));
     if (signatureBytes.length !== 64) {
       return c.json({ error: "verifier_unavailable" }, 503);
     }
     const signedResult = JSON.parse(
-      attach_verifier_result_signature(callback.prepared_result.unsigned_result, signatureBytes),
+      sparseProfile
+        ? attach_sparse_verifier_result_signature(callback.prepared_result.unsigned_result, signatureBytes)
+        : attach_verifier_result_signature(callback.prepared_result.unsigned_result, signatureBytes),
     ) as Record<string, unknown>;
     const usedAt = record.status === "consumed"
       ? record.used_at
@@ -1690,6 +1713,8 @@ app.post("/verify/tlsn/retry", async (c) => {
       device_challenge: record.tlsn_device_challenge,
       verification_input_key: record.verification_input_key,
       verification_result_key: record.verification_result_key,
+      profile: requestBody.profile ?? "complete",
+      disclosure_mode: requestBody.profile === "sparse" ? "sparse" : "full",
     });
     await enqueueTriggerVerification(trigger, payload);
   } catch {
@@ -1728,9 +1753,6 @@ const handleTlsnVerification = async (c: Context<{ Bindings: Bindings }>) => {
   }
 
   if (shouldUseTriggerExecution(c.env)) {
-    if (sparseProfile) {
-      return c.json({ verified: false, error: "sparse_trigger_unavailable" }, 503);
-    }
     const trigger = triggerExecutionConfig(c.env);
     if (!trigger) {
       return c.json({ verified: false, error: "trigger_unconfigured" }, 503);
@@ -1801,6 +1823,8 @@ const handleTlsnVerification = async (c: Context<{ Bindings: Bindings }>) => {
       device_challenge: requestBody.device_proof.challenge,
       verification_input_key: verificationInputKey,
       verification_result_key: verificationResultKey,
+      profile: sparseProfile ? "sparse" : "complete",
+      disclosure_mode: sparseProfile ? "sparse" : "full",
     });
 
     try {

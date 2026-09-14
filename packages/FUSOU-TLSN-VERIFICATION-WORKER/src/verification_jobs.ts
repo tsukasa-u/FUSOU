@@ -2,8 +2,26 @@ import { z } from "zod";
 
 const JOB_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const OBJECT_KEY_PATTERN = /^tlsn-verification\/[0-9a-f-]+\/(?:presentation|result)\.(?:bin|json)$/;
+const VERIFICATION_PROFILE_SCHEMA = z.enum(["complete", "sparse"]);
+const DISCLOSURE_MODE_SCHEMA = z.enum(["full", "sparse"]);
 
-export const verificationTaskPayloadSchema = z.object({
+const verificationProfileFields = {
+  profile: VERIFICATION_PROFILE_SCHEMA,
+  disclosure_mode: DISCLOSURE_MODE_SCHEMA,
+};
+
+function assertVerificationProfile(payload: { profile: "complete" | "sparse"; disclosure_mode: "full" | "sparse" }, context: z.RefinementCtx): void {
+  const expectedDisclosureMode = payload.profile === "sparse" ? "sparse" : "full";
+  if (payload.disclosure_mode !== expectedDisclosureMode) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["disclosure_mode"],
+      message: "disclosure_mode does not match profile",
+    });
+  }
+}
+
+const verificationTaskPayloadObject = z.object({
   job_id: z.string().regex(JOB_ID_PATTERN),
   binding_id: z.string().regex(/^[A-Za-z0-9_-]{43}$/),
   session_id: z.string().uuid(),
@@ -12,9 +30,12 @@ export const verificationTaskPayloadSchema = z.object({
   device_challenge: z.string().regex(/^[A-Za-z0-9_-]{43}$/),
   verification_input_key: z.string().regex(OBJECT_KEY_PATTERN),
   verification_result_key: z.string().regex(OBJECT_KEY_PATTERN),
+  ...verificationProfileFields,
 }).strict();
 
-export const verificationInputRequestSchema = verificationTaskPayloadSchema.pick({
+export const verificationTaskPayloadSchema = verificationTaskPayloadObject.superRefine(assertVerificationProfile);
+
+export const verificationInputRequestSchema = verificationTaskPayloadObject.pick({
   job_id: true,
   binding_id: true,
   session_id: true,
@@ -30,18 +51,21 @@ export const verificationCallbackSchema = z.object({
   canonical_user_id: z.string().uuid(),
   device_id: z.string().uuid(),
   presentation_id: z.string().regex(/^[A-Za-z0-9_-]{43}$/),
+  ...verificationProfileFields,
   prepared_result: z.object({
     unsigned_result: z.string().min(1).max(25_165_824),
     signing_bytes: z.string().min(1).regex(/^[A-Za-z0-9_-]+$/),
   }).strict(),
-}).strict();
+}).strict().superRefine(assertVerificationProfile);
 
-export const verificationStatusRequestSchema = verificationTaskPayloadSchema.pick({
+export const verificationStatusRequestSchema = verificationTaskPayloadObject.pick({
   job_id: true,
   session_id: true,
   binding_id: true,
   canonical_user_id: true,
   device_id: true,
+}).extend({
+  profile: VERIFICATION_PROFILE_SCHEMA.optional(),
 });
 
 export const verificationFinalResponseSchema = z.object({

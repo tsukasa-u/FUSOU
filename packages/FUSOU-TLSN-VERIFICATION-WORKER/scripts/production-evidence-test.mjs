@@ -871,6 +871,22 @@ const sparsePresentationMetadata = {
     revealed_response_ranges: rangeFor(responseTranscript),
   },
 };
+function sparseResponseCase(responseBodyBytes) {
+  const transcript = Buffer.concat([
+    Buffer.from(`HTTP/1.1 200 OK\r\nContent-Length: ${responseBodyBytes.length}\r\n\r\n`),
+    responseBodyBytes,
+  ]);
+  return {
+    transcript,
+    semanticVerification: {
+      verified_presentation: {
+        ...sparsePresentationMetadata.verified_presentation,
+        response_transcript_size: String(transcript.length),
+        revealed_response_ranges: rangeFor(transcript),
+      },
+    },
+  };
+}
 assert.equal(
   parseSparseProfileTranscripts(sparsePresentationMetadata, "game.example.com", bindingValue).memberId,
   result.verified_member_id,
@@ -903,6 +919,51 @@ assert.throws(
     },
   }, "game.example.com", bindingValue),
   /duplicate key/,
+);
+const largeUnrelatedResponse = sparseResponseCase(Buffer.from(JSON.stringify({
+  api_result: 1,
+  unrelated: "x".repeat(2 * 1024 * 1024),
+  api_data: { api_basic: { api_member_id: 16189463 } },
+}).replace(/^/, "svdata=")));
+assert.equal(
+  parseSparseProfileTranscripts(largeUnrelatedResponse.semanticVerification, "game.example.com", bindingValue).memberId,
+  result.verified_member_id,
+);
+const escapedMemberKeyResponse = sparseResponseCase(Buffer.from(String.raw`svdata={"api_result":1,"api_data":{"api_basic":{"api_\u006dember_id":16189463}}}`));
+assert.throws(
+  () => parseSparseProfileTranscripts(escapedMemberKeyResponse.semanticVerification, "game.example.com", bindingValue),
+  /authenticated semantic keys must not use JSON escapes/,
+);
+const nonCanonicalMemberIdResponse = sparseResponseCase(Buffer.from('svdata={"api_result":1,"api_data":{"api_basic":{"api_member_id":1.0}}}'));
+assert.throws(
+  () => parseSparseProfileTranscripts(nonCanonicalMemberIdResponse.semanticVerification, "game.example.com", bindingValue),
+  /canonical decimal number|separator is invalid/,
+);
+const malformedJsonResponse = sparseResponseCase(Buffer.from('svdata={"api_result":1,"api_data":{"api_basic":{"api_member_id":16189463}}'));
+assert.throws(
+  () => parseSparseProfileTranscripts(malformedJsonResponse.semanticVerification, "game.example.com", bindingValue),
+  /JSON ended unexpectedly|JSON byte is invalid/,
+);
+const invalidUtf8Body = Buffer.concat([
+  Buffer.from('svdata={"api_result":1,"api_data":{"api_basic":{"api_member_id":16189463,"name":"'),
+  Buffer.from([0xff]),
+  Buffer.from('"}}}'),
+]);
+const invalidUtf8Response = sparseResponseCase(invalidUtf8Body);
+assert.throws(
+  () => parseSparseProfileTranscripts(invalidUtf8Response.semanticVerification, "game.example.com", bindingValue),
+  /JSON string UTF-8 is invalid/,
+);
+const emptyResponseTranscript = Buffer.from("HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n");
+assert.throws(
+  () => parseSparseProfileTranscripts({
+    verified_presentation: {
+      ...sparsePresentationMetadata.verified_presentation,
+      response_transcript_size: String(emptyResponseTranscript.length),
+      revealed_response_ranges: rangeFor(emptyResponseTranscript),
+    },
+  }, "game.example.com", bindingValue),
+  /response body prefix exceeds the authenticated transcript/,
 );
 const sparseProfileSha256 = Buffer.alloc(32, 9).toString("base64url");
 const fullSparseResult = {
