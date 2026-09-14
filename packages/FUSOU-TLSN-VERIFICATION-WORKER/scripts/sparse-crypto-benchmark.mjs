@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -30,6 +30,16 @@ const fixtureDirectory = resolve(
   process.env.TLSN_SPARSE_FIXTURE_DIR ?? ".cache/sparse-crypto-fixtures",
 );
 const fixtureManifestPath = resolve(fixtureDirectory, "manifest.json");
+const realFixtureDirectory = resolve(
+  packageDirectory,
+  process.env.TLSN_SPARSE_REAL_FIXTURE_DIR ?? ".cache/sparse-crypto-real-fixtures",
+);
+const realFixtureManifestPath = resolve(realFixtureDirectory, "manifest.json");
+const realDataRoot = resolve(
+  repositoryDirectory,
+  process.env.FUSOU_PROXY_DATA_PATH ?? "packages/FUSOU-PROXY-DATA",
+);
+const requireInfoSuffix = "S@api_get_member@require_info";
 
 function parseCases() {
   const configured = process.env.TLSN_SPARSE_CRYPTO_BENCHMARK_PADDING_BYTES
@@ -47,11 +57,160 @@ function sha256(bytes) {
   return createHash("sha256").update(bytes).digest("hex");
 }
 
+function extractFixturePayload(bytes, filePath) {
+  const opening = bytes.subarray(0, 5).equals(Buffer.from("---\r\n", "ascii"))
+    ? 5
+    : bytes.subarray(0, 4).equals(Buffer.from("---\n", "ascii"))
+      ? 4
+      : -1;
+  if (opening < 0) throw new Error(`${filePath}: missing metadata opening delimiter`);
+  const closingStart = bytes.indexOf(Buffer.from("\n---", "ascii"), opening);
+  if (closingStart < 0) throw new Error(`${filePath}: missing metadata closing delimiter`);
+  const delimiterEnd = closingStart + 4;
+  const payloadStart = bytes.subarray(delimiterEnd, delimiterEnd + 2).equals(Buffer.from("\r\n", "ascii"))
+    ? delimiterEnd + 2
+    : bytes[delimiterEnd] === 0x0a
+      ? delimiterEnd + 1
+      : -1;
+  if (payloadStart < 0) throw new Error(`${filePath}: metadata closing delimiter is not newline terminated`);
+  return { metadataBytes: payloadStart, payload: bytes.subarray(payloadStart) };
+}
+
+function longestStringInterior(bytes, start = 0) {
+  let position = start;
+  let longest = null;
+  while (position < bytes.length) {
+    if (bytes[position] !== 0x22) {
+      position += 1;
+      continue;
+    }
+    const stringStart = position;
+    position += 1;
+    while (position < bytes.length) {
+      if (bytes[position] === 0x5c) {
+        position += 2;
+      } else if (bytes[position] === 0x22) {
+        break;
+      } else {
+        position += 1;
+      }
+    }
+    if (position >= bytes.length) break;
+    const stringEnd = position;
+    position += 1;
+    let next = position;
+    while (next < bytes.length && (bytes[next] === 0x20 || bytes[next] === 0x09
+      || bytes[next] === 0x0a || bytes[next] === 0x0d)) {
+      next += 1;
+    }
+    if (bytes[next] === 0x3a) continue;
+    const interior = { start: stringStart + 1, end: stringEnd };
+    if (interior.start < interior.end
+      && (longest == null || interior.end - interior.start > longest.end - longest.start)) {
+      longest = interior;
+    }
+  }
+  return longest;
+}
+
+function memberIdDigits(payload) {
+  const marker = Buffer.from('"api_member_id"', "ascii");
+  const markerStart = payload.indexOf(marker);
+  if (markerStart < 0) throw new Error("real response lacks api_member_id key");
+  let position = markerStart + marker.length;
+  while (position < payload.length && Buffer.from(" \t\r\n", "ascii").includes(payload[position])) {
+    position += 1;
+  }
+  if (payload[position] !== 0x3a) throw new Error("api_member_id key lacks colon");
+  position += 1;
+  while (position < payload.length && Buffer.from(" \t\r\n", "ascii").includes(payload[position])) {
+    position += 1;
+  }
+  const start = position;
+  while (position < payload.length && payload[position] >= 0x30 && payload[position] <= 0x39) {
+    position += 1;
+  }
+  if (start === position) throw new Error("api_member_id value is not a decimal number");
+  return { start, end: position };
+}
+
+function mutateVisibleByte(bytes, range, mutation) {
+  const mutated = Buffer.from(bytes);
+  const position = mutation === "member-id"
+    ? range.start
+    : [...Array(range.end - range.start).keys()]
+      .map((offset) => range.start + offset)
+      .find((candidate) => bytes[candidate] >= 0x20
+        && bytes[candidate] < 0x80
+        && bytes[candidate] !== 0x22
+        && bytes[candidate] !== 0x5c);
+  if (position == null) throw new Error(`no safe ${mutation} mutation byte found`);
+  mutated[position] = mutation === "member-id"
+    ? (bytes[position] === 0x39 ? 0x38 : bytes[position] + 1)
+    : (bytes[position] === 0x61 ? 0x62 : 0x61);
+  return mutated;
+}
+
+function collectRealResponseFixtures() {
+  const records = [];
+  for (const epoch of readdirSync(realDataRoot).sort()) {
+    const kcsapiDirectory = resolve(realDataRoot, epoch, "kcsapi");
+    let fileNames;
+    try {
+      fileNames = readdirSync(kcsapiDirectory).sort();
+    } catch {
+      continue;
+    }
+    for (const fileName of fileNames) {
+      if (!fileName.endsWith(requireInfoSuffix)) continue;
+      const fixturePath = resolve(kcsapiDirectory, fileName);
+      const rawBytes = readFileSync(fixturePath);
+      const { metadataBytes, payload } = extractFixturePayload(rawBytes, fixturePath);
+      if (!payload.subarray(0, 7).equals(Buffer.from("svdata=", "ascii"))) {
+        throw new Error(`${fixturePath}: response does not start with svdata=`);
+      }
+      const response = JSON.parse(payload.subarray(7).toString("utf8"));
+      if (response.api_result !== 1 || response.api_data?.api_basic == null) {
+        throw new Error(`${fixturePath}: response lacks require_info api_result/api_basic`);
+      }
+      memberIdDigits(payload);
+      records.push({
+        epoch,
+        fileName,
+        fixturePath,
+        metadataBytes,
+        bodyBytes: payload.length,
+        bodySha256: sha256(payload),
+      });
+    }
+  }
+  if (records.length === 0) throw new Error(`no require_info response fixtures under ${realDataRoot}`);
+  return records;
+}
+
+function percentileIndex(length, fraction) {
+  return Math.max(0, Math.ceil(length * fraction) - 1);
+}
+
+function selectRealResponseCases() {
+  const records = collectRealResponseFixtures()
+    .sort((left, right) => left.bodyBytes - right.bodyBytes || left.fixturePath.localeCompare(right.fixturePath));
+  return [
+    ["p50", 0.5],
+    ["p95", 0.95],
+    ["p99", 0.99],
+    ["max", 1],
+  ].map(([caseLabel, fraction]) => {
+    const source = records[percentileIndex(records.length, fraction)];
+    return { caseLabel, percentile: fraction, source };
+  });
+}
+
 function encodedByteLength(value) {
   return value == null ? null : Buffer.from(value, "base64url").length;
 }
 
-function generateFixture(paddingBytes, proofMode = "sparse", hiddenByte = "a") {
+function generateFixture(paddingBytes, proofMode = "sparse", hiddenByte = "a", responseFixturePath = null) {
   const startedAt = performance.now();
   const result = spawnSync(
     "cargo",
@@ -75,6 +234,9 @@ function generateFixture(paddingBytes, proofMode = "sparse", hiddenByte = "a") {
         FUSOU_SYNTHETIC_PROOF_MODE: proofMode,
         FUSOU_SYNTHETIC_RESPONSE_PADDING_BYTES: String(paddingBytes),
         FUSOU_SYNTHETIC_RESPONSE_HIDDEN_BYTE: hiddenByte,
+        ...(responseFixturePath
+          ? { FUSOU_SYNTHETIC_RESPONSE_FIXTURE_PATH: responseFixturePath }
+          : {}),
       },
       encoding: "utf8",
       maxBuffer: 512 * 1024 * 1024,
@@ -138,6 +300,201 @@ function runGeneration() {
   };
   writeFileSync(fixtureManifestPath, `${JSON.stringify(manifest, null, 2)}\n`, { mode: 0o600 });
   console.log(JSON.stringify({ fixtureDirectory, manifest }, null, 2));
+}
+
+function runRealGeneration() {
+  mkdirSync(realFixtureDirectory, { recursive: true, mode: 0o700 });
+  const selectedCases = selectRealResponseCases();
+  const cases = selectedCases.map(({ caseLabel, percentile, source }) => {
+    const generated = generateFixture(0, "sparse", "a", source.fixturePath);
+    const rawBytes = Buffer.from(JSON.stringify(generated.fixture));
+    const fixtureFile = `real-${caseLabel}.json`;
+    writeFileSync(resolve(realFixtureDirectory, fixtureFile), rawBytes, { mode: 0o600 });
+    return {
+      caseLabel,
+      percentile,
+      sourceEpoch: source.epoch,
+      sourceFileName: source.fileName,
+      sourceFixtureBodyBytes: source.bodyBytes,
+      sourceFixtureBodySha256: source.bodySha256,
+      sourceMetadataBytes: source.metadataBytes,
+      sourceSemantics: "real require_info API body; HTTP status, headers, and TLS framing are reconstructed locally",
+      requestTranscriptStatus: "NOT_ESTABLISHED",
+      fixtureFile,
+      fixtureBytes: rawBytes.length,
+      fixtureSha256: sha256(rawBytes),
+      wallClockMilliseconds: generated.wallClockMilliseconds,
+      generationElapsedMilliseconds: generated.fixture.generation_elapsed_milliseconds,
+      originResponseBytes: generated.fixture.origin_response_size,
+      committedRequestBytes: generated.fixture.committed_request_bytes,
+      committedResponseBytes: generated.fixture.committed_response_bytes,
+      committedBytes: generated.fixture.committed_request_bytes + generated.fixture.committed_response_bytes,
+      sparsePresentationBytes: encodedByteLength(generated.fixture.sparse_presentation_base64),
+      generationTiming: generated.fixture.generation_timing,
+    };
+  });
+  const manifest = {
+    benchmark: "tlsn-worker-sparse-crypto-real-fixtures-v1",
+    schemaVersion: 1,
+    generator: "synthetic_tlsn_fixture",
+    cargoProfile: "release",
+    offline: true,
+    source: {
+      path: realDataRoot,
+      fixtureSemantics: "metadata plus API body; HTTP status, headers, and TLS framing are absent",
+      httpTranscriptSize: "NOT_ESTABLISHED",
+    },
+    cases,
+  };
+  writeFileSync(realFixtureManifestPath, `${JSON.stringify(manifest, null, 2)}\n`, { mode: 0o600 });
+  console.log(JSON.stringify({ realFixtureDirectory, manifest }, null, 2));
+}
+
+function writeGeneratedRealFixture(directory, sourcePath, fixtureFile) {
+  const generated = generateFixture(0, "sparse", "a", sourcePath);
+  const rawBytes = Buffer.from(JSON.stringify(generated.fixture));
+  const fixturePath = resolve(directory, fixtureFile);
+  writeFileSync(fixturePath, rawBytes, { mode: 0o600 });
+  return {
+    fixture: generated.fixture,
+    fixturePath,
+    fixtureSha256: sha256(rawBytes),
+  };
+}
+
+function writeMutatedSourceFixture(directory, source, mutation) {
+  const rawBytes = readFileSync(source.fixturePath);
+  const { metadataBytes, payload } = extractFixturePayload(rawBytes, source.fixturePath);
+  const range = mutation === "hidden"
+    ? longestStringInterior(payload, 7)
+    : memberIdDigits(payload);
+  if (!range) throw new Error(`real response has no ${mutation} mutation range`);
+  const mutatedPayload = mutateVisibleByte(payload, range, mutation === "hidden" ? "hidden" : "member-id");
+  const mutatedBytes = Buffer.from(rawBytes);
+  mutatedPayload.copy(mutatedBytes, metadataBytes);
+  const fixturePath = resolve(directory, `real-${mutation}-source`);
+  writeFileSync(fixturePath, mutatedBytes, { mode: 0o600 });
+  return fixturePath;
+}
+
+function writeMutatedPresentationFixture(directory, sourceFixture, mutation) {
+  const fixture = structuredClone(sourceFixture.fixture);
+  const presentation = Buffer.from(fixture.sparse_presentation_base64, "base64url");
+  const response = Buffer.from(fixture.authenticated_response_base64, "base64url");
+  let mutatedPresentation;
+  if (mutation === "member-id") {
+    const bodyStart = response.indexOf(Buffer.from("svdata=", "ascii"));
+    const memberRange = memberIdDigits(response.subarray(bodyStart + 7));
+    const memberBytes = response.subarray(bodyStart + 7 + memberRange.start, bodyStart + 7 + memberRange.end);
+    const presentationStart = presentation.indexOf(memberBytes);
+    if (presentationStart < 0) throw new Error("sparse Presentation lacks disclosed member ID bytes");
+    mutatedPresentation = mutateVisibleByte(
+      presentation,
+      { start: presentationStart, end: presentationStart + memberBytes.length },
+      "member-id",
+    );
+  } else if (mutation === "disclosed") {
+    const disclosedBytes = Buffer.from("HTTP/1.1 200 OK", "ascii");
+    const presentationStart = presentation.indexOf(disclosedBytes);
+    if (presentationStart < 0) throw new Error("sparse Presentation lacks disclosed response headers");
+    mutatedPresentation = mutateVisibleByte(
+      presentation,
+      { start: presentationStart, end: presentationStart + disclosedBytes.length },
+      "disclosed",
+    );
+  } else {
+    const lastByte = presentation.length - 1;
+    mutatedPresentation = Buffer.from(presentation);
+    mutatedPresentation[lastByte] ^= 1;
+  }
+  fixture.sparse_presentation_base64 = mutatedPresentation.toString("base64url");
+  const rawBytes = Buffer.from(JSON.stringify(fixture));
+  const fixturePath = resolve(directory, `real-${mutation}-presentation.json`);
+  writeFileSync(fixturePath, rawBytes, { mode: 0o600 });
+  return { fixturePath, fixtureSha256: sha256(rawBytes) };
+}
+
+function runRealRegression() {
+  const directory = mkdtempSync(resolve(tmpdir(), "tlsn-sparse-real-scope-"));
+  try {
+    const manifest = JSON.parse(readFileSync(realFixtureManifestPath, "utf8"));
+    const sourceCase = manifest.cases.find((entry) => entry.caseLabel === "max") ?? manifest.cases.at(-1);
+    if (!sourceCase) throw new Error("real sparse manifest has no cases");
+    const originalPath = resolve(realFixtureDirectory, sourceCase.fixtureFile);
+    const originalBytes = readFileSync(originalPath);
+    const original = {
+      fixture: JSON.parse(originalBytes.toString("utf8")),
+      fixturePath: originalPath,
+      fixtureSha256: sha256(originalBytes),
+    };
+    const mutatedSourcePath = writeMutatedSourceFixture(directory, {
+      fixturePath: resolve(realDataRoot, sourceCase.sourceEpoch, "kcsapi", sourceCase.sourceFileName),
+    }, "hidden");
+    const hidden = writeGeneratedRealFixture(directory, mutatedSourcePath, "real-hidden-generated.json");
+    const originalResult = runChildResult(
+      original.fixturePath,
+      sourceCase.sourceFixtureBodyBytes,
+      original.fixtureSha256,
+      "sparse",
+    );
+    const hiddenResult = runChildResult(
+      hidden.fixturePath,
+      sourceCase.sourceFixtureBodyBytes,
+      hidden.fixtureSha256,
+      "sparse",
+    );
+    const hiddenMutation = {
+      originalStatus: originalResult.status,
+      mutatedStatus: hiddenResult.status,
+      rawResponseChanged: sha256(Buffer.from(original.fixture.authenticated_response_base64, "base64url"))
+        !== sha256(Buffer.from(hidden.fixture.authenticated_response_base64, "base64url")),
+      sameTranscriptBytes: originalResult.responseTranscriptBytes === hiddenResult.responseTranscriptBytes,
+      sameDisclosedResponseBytes: originalResult.disclosedResponseBytes === hiddenResult.disclosedResponseBytes,
+      sameDisclosedResponseSha256: originalResult.disclosedResponseSha256 === hiddenResult.disclosedResponseSha256,
+      sameVerifiedMemberId: originalResult.verifiedMemberId === hiddenResult.verifiedMemberId,
+    };
+    if (hiddenMutation.originalStatus !== "PASS"
+      || hiddenMutation.mutatedStatus !== "PASS"
+      || !hiddenMutation.rawResponseChanged
+      || !hiddenMutation.sameTranscriptBytes
+      || !hiddenMutation.sameDisclosedResponseBytes
+      || !hiddenMutation.sameDisclosedResponseSha256
+      || !hiddenMutation.sameVerifiedMemberId) {
+      throw new Error(`real hidden response mutation regression failed: ${JSON.stringify(hiddenMutation)}`);
+    }
+
+    const mutationResults = {};
+    for (const mutation of ["disclosed", "member-id", "presentation"]) {
+      const mutated = writeMutatedPresentationFixture(directory, original, mutation);
+      const result = runChildResult(
+        mutated.fixturePath,
+        sourceCase.sourceFixtureBodyBytes,
+        mutated.fixtureSha256,
+        "sparse",
+      );
+      mutationResults[mutation] = { status: result.status, rejected: result.status === "BLOCKED" };
+    }
+    const signedResultMutation = {
+      checks: originalResult.mutationChecks,
+      rejected: originalResult.mutationRejected,
+      scopeChecks: originalResult.scopeMutationChecks,
+      scopeRejected: originalResult.scopeMutationRejected,
+    };
+    if (Object.values(mutationResults).some((result) => !result.rejected)
+      || signedResultMutation.rejected !== signedResultMutation.checks
+      || signedResultMutation.scopeRejected !== signedResultMutation.scopeChecks) {
+      throw new Error(`real presentation mutation regression failed: ${JSON.stringify({ mutationResults, signedResultMutation })}`);
+    }
+    console.log(JSON.stringify({
+      status: "PASS",
+      sourceCase: sourceCase.caseLabel,
+      hiddenMutation,
+      presentationMutations: mutationResults,
+      signedResultMutation,
+    }, null, 2));
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
 }
 
 function residentMemory() {
@@ -274,7 +631,7 @@ function signSparseResult(unsignedResultJson, signingBytes) {
   };
 }
 
-function runChild(fixturePath, requestedPaddingBytes, expectedSha256, mode) {
+function runChild(fixturePath, requestedPaddingBytes, expectedSha256, mode, caseMetadata = {}) {
   const fixtureBytes = readFileSync(fixturePath);
   const actualSha256 = sha256(fixtureBytes);
   if (expectedSha256 && actualSha256 !== expectedSha256) {
@@ -296,6 +653,7 @@ function runChild(fixturePath, requestedPaddingBytes, expectedSha256, mode) {
       mode,
       verifierMode,
       presentationMode,
+      ...caseMetadata,
       fixtureSha256: actualSha256,
       requestedPaddingBytes,
       presentationBytes: null,
@@ -371,6 +729,7 @@ function runChild(fixturePath, requestedPaddingBytes, expectedSha256, mode) {
       presentationBytes: presentation.length,
       fullPresentationBytes: encodedByteLength(fixture.presentation_base64),
       sparsePresentationBytes: encodedByteLength(fixture.sparse_presentation_base64),
+      originResponseBytes: fixture.origin_response_size ?? null,
       requestTranscriptBytes,
       responseTranscriptBytes,
       transcriptBytes,
@@ -562,10 +921,57 @@ function runParent() {
   }, null, 2));
 }
 
+function runRealParent() {
+  const manifest = JSON.parse(readFileSync(realFixtureManifestPath, "utf8"));
+  if (manifest.schemaVersion !== 1 || !Array.isArray(manifest.cases)) {
+    throw new Error(`invalid real sparse fixture manifest: ${realFixtureManifestPath}`);
+  }
+  const cases = manifest.cases.map((entry) => {
+    const fixturePath = resolve(realFixtureDirectory, entry.fixtureFile);
+    const rawBytes = readFileSync(fixturePath);
+    const actualSha256 = sha256(rawBytes);
+    if (actualSha256 !== entry.fixtureSha256) {
+      throw new Error(`real fixture SHA-256 mismatch for ${entry.caseLabel}: expected ${entry.fixtureSha256}, got ${actualSha256}`);
+    }
+    const result = runChildResult(
+      fixturePath,
+      entry.sourceFixtureBodyBytes,
+      entry.fixtureSha256,
+      "sparse",
+    );
+    return {
+      ...result,
+      caseLabel: entry.caseLabel,
+      percentile: entry.percentile,
+      sourceEpoch: entry.sourceEpoch,
+      sourceFileName: entry.sourceFileName,
+      sourceFixtureBodyBytes: entry.sourceFixtureBodyBytes,
+      sourceFixtureBodySha256: entry.sourceFixtureBodySha256,
+      sourceSemantics: entry.sourceSemantics,
+      requestTranscriptStatus: entry.requestTranscriptStatus,
+    };
+  });
+  console.log(JSON.stringify({
+    benchmark: "tlsn-worker-sparse-crypto-real-v1",
+    runtime: process.version,
+    platform: process.platform,
+    realFixtureDirectory,
+    realFixtureManifestSha256: sha256(readFileSync(realFixtureManifestPath)),
+    realFixtureManifest: manifest,
+    cases,
+  }, null, 2));
+}
+
 if (process.argv[2] === "--child") {
   runChild(process.argv[3], Number.parseInt(process.argv[4], 10), process.argv[5], process.argv[6] ?? "sparse");
 } else if (process.argv[2] === "--generate") {
   runGeneration();
+} else if (process.argv[2] === "--generate-real") {
+  runRealGeneration();
+} else if (process.argv[2] === "--real") {
+  runRealParent();
+} else if (process.argv[2] === "--real-regression") {
+  runRealRegression();
 } else if (process.argv[2] === "--scope-regression") {
   runScopeRegression();
 } else {

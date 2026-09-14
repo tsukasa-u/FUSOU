@@ -58,6 +58,46 @@ wire transcript boundary are absent, so HTTP transcript size is
 `NOT_ESTABLISHED`. The 1 MiB and 32 MiB cases below remain synthetic stress
 measurements; 32 MiB is not justified by this corpus.
 
+The real-body alpha.15 path is separate from the synthetic stress matrix:
+
+```sh
+pnpm run generate:sparse-real-fixtures
+pnpm run benchmark:sparse-real
+pnpm run benchmark:sparse-real-regression
+```
+
+The generator selects deterministic `S@api_get_member@require_info` fixtures at
+P50/P95/P99/max body size and records the source epoch, filename, body size, and
+SHA-256 in the local machine-readable manifest. Rust removes only the fixture
+metadata delimiter and sends the remaining bytes unchanged. The local origin
+reconstructs `HTTP/1.1 200 OK`, `Content-Length`, and `Connection: close`; the
+request still uses the existing empty-body synthetic serializer because the
+sparse semantic contract rejects non-empty `require_info` request bodies. The
+corpus therefore remains `requestTranscriptStatus: NOT_ESTABLISHED`, and these
+measurements are not production wire evidence.
+
+On Linux with Node `v22.21.1`, one offline run produced the following real-body
+measurements. `prover peak RSS` is captured during alpha.15 `prover.prove`;
+verification and signing are the WASM verifier child process. The 12-byte gap
+between the response transcript and disclosed/committed response is the largest
+JSON string interior that the current sparse parser can skip in each selected
+body; the rest of the JSON structure and numeric values remain authenticated.
+
+| Case | Body | Reconstructed response | Committed response | Disclosed | Disclosure ratio | Sparse Presentation | Generation | `prover.prove` | Prover peak RSS | WASM verify | Sign |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| P50 | 150,080 B | 150,142 B | 150,130 B | 150,130 B | 0.999920 | 151,904 B | 14,351.22 ms | 13,850.24 ms | 7,783,522,304 B | 21.06 ms | 24.92 ms |
+| P95 | 165,258 B | 165,320 B | 165,308 B | 165,308 B | 0.999927 | 167,082 B | 16,246.35 ms | 15,741.47 ms | 8,059,215,872 B | 22.33 ms | 27.93 ms |
+| P99 | 165,751 B | 165,813 B | 165,801 B | 165,801 B | 0.999928 | 167,575 B | 16,480.08 ms | 15,955.91 ms | 8,098,877,440 B | 22.99 ms | 26.91 ms |
+| Max | 165,752 B | 165,814 B | 165,802 B | 165,802 B | 0.999928 | 167,575 B | 16,272.91 ms | 15,741.69 ms | 8,067,039,232 B | 22.48 ms | 26.70 ms |
+
+All four real cases passed sparse cryptographic and semantic verification. Each
+child independently rejected 8/8 signed Result mutations and 2/2 disclosed
+range mutations. The real-data regression kept a hidden response mutation
+valid with the same disclosed bytes and member ID, while disclosed-header,
+member-ID, and Presentation mutations were all `BLOCKED`. The high prover RSS
+is an important result: with the current parser profile, a real body is not a
+low-memory sparse proving case even though its Presentation is sparse.
+
 On Linux with Node `v22.21.1`, the parser benchmark produced the following measurements. `additional.rssBytes` is the child-process RSS increase during parsing.
 
 | Transcript | Sparse disclosed | Sparse ratio | Sparse parse | Sparse RSS | Materialized parse | Materialized RSS |

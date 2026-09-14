@@ -790,6 +790,44 @@ async fn serve_synthetic_origin(
         }
     }
 
+    let body = synthetic_response_body()?;
+    let mut response = format!(
+        "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+        body.len()
+    )
+    .into_bytes();
+    response.extend_from_slice(&body);
+    stream.write_all(&response).await.map_err(|_| ())?;
+    stream.shutdown().await.map_err(|_| ())?;
+    Ok((request, response))
+}
+
+fn synthetic_response_body() -> Result<Vec<u8>, ()> {
+    if let Ok(path) = std::env::var("FUSOU_SYNTHETIC_RESPONSE_FIXTURE_PATH") {
+        let bytes = std::fs::read(path).map_err(|_| ())?;
+        let opening = if bytes.starts_with(b"---\r\n") {
+            5
+        } else if bytes.starts_with(b"---\n") {
+            4
+        } else {
+            return Err(());
+        };
+        let closing_start = bytes[opening..]
+            .windows(4)
+            .position(|window| window == b"\n---")
+            .map(|position| opening + position)
+            .ok_or(())?;
+        let delimiter_end = closing_start.checked_add(4).ok_or(())?;
+        let payload_start = if bytes.get(delimiter_end..delimiter_end + 2) == Some(b"\r\n") {
+            delimiter_end + 2
+        } else if bytes.get(delimiter_end..delimiter_end + 1) == Some(b"\n") {
+            delimiter_end + 1
+        } else {
+            return Err(());
+        };
+        return Ok(bytes[payload_start..].to_vec());
+    }
+
     let padding_bytes = std::env::var("FUSOU_SYNTHETIC_RESPONSE_PADDING_BYTES")
         .ok()
         .and_then(|value| value.parse::<usize>().ok())
@@ -804,41 +842,71 @@ async fn serve_synthetic_origin(
     } else {
         char::from(padding_byte).to_string().repeat(padding_bytes)
     };
-    let body = format!(
+    Ok(format!(
         "svdata={{\"api_result\":1,\"api_data\":{{\"api_basic\":{{\"api_member_id\":16189463}}}},\"padding\":\"{padding}\"}}"
     )
-    .into_bytes();
-    let mut response = format!(
-        "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
-        body.len()
-    )
-    .into_bytes();
-    response.extend_from_slice(&body);
-    stream.write_all(&response).await.map_err(|_| ())?;
-    stream.shutdown().await.map_err(|_| ())?;
-    Ok((request, response))
+    .into_bytes())
+}
+
+fn sparse_hidden_string_range(response: &[u8]) -> Option<Range<usize>> {
+    let body_start = response
+        .windows(4)
+        .position(|window| window == b"\r\n\r\n")
+        .map(|position| position + 4)?;
+    let mut position = body_start;
+    let mut longest = None;
+    while position < response.len() {
+        if response[position] != b'"' {
+            position += 1;
+            continue;
+        }
+        let string_start = position;
+        position += 1;
+        let string_end = loop {
+            let byte = *response.get(position)?;
+            match byte {
+                b'\\' => {
+                    position = position.checked_add(2)?;
+                }
+                b'"' => break position,
+                _ => position += 1,
+            }
+        };
+        position += 1;
+        let next_non_whitespace = response[position..]
+            .iter()
+            .copied()
+            .find(|byte| !byte.is_ascii_whitespace());
+        if next_non_whitespace == Some(b':') {
+            continue;
+        }
+        let hidden = string_start + 1..string_end;
+        if hidden.start < hidden.end
+            && longest
+                .as_ref()
+                .is_none_or(|candidate: &Range<usize>| hidden.len() > candidate.len())
+        {
+            longest = Some(hidden);
+        }
+    }
+    longest
 }
 
 fn sparse_response_ranges(response: &[u8]) -> Vec<Range<usize>> {
-    let marker = b"\"padding\":\"";
-    let value_start = response
-        .windows(marker.len())
-        .position(|window| window == marker)
-        .map(|position| position + marker.len())
-        .expect("synthetic response must contain padding string");
-    let value_end = response[value_start..]
-        .iter()
-        .position(|byte| *byte == b'"')
-        .map(|offset| value_start + offset)
-        .expect("synthetic padding string must be terminated");
-    vec![0..value_start, value_end..response.len()]
+    let Some(hidden) = sparse_hidden_string_range(response) else {
+        return vec![0..response.len()];
+    };
+    vec![0..hidden.start, hidden.end..response.len()]
 }
 
 fn response_commitment_ranges(response: &[u8]) -> Vec<Range<usize>> {
     let sparse_ranges = sparse_response_ranges(response);
-    let value_start = sparse_ranges[0].end;
-    let value_end = sparse_ranges[1].start;
-    vec![0..value_start, value_start..value_end, value_end..response.len()]
+    if sparse_ranges.len() == 1 {
+        return sparse_ranges;
+    }
+    let hidden_start = sparse_ranges[0].end;
+    let hidden_end = sparse_ranges[1].start;
+    vec![0..hidden_start, hidden_start..hidden_end, hidden_end..response.len()]
 }
 
 fn parse_origin_response(raw_response: Vec<u8>) -> Result<TlsnOriginResponse, TlsnTransportError> {
