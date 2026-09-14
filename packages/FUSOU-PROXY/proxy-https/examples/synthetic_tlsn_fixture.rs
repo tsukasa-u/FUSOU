@@ -87,6 +87,8 @@ async fn main() {
             "authenticated_response_base64": URL_SAFE_NO_PAD.encode(evidence.authenticated_response),
             "origin_request_size": evidence.origin_request.len(),
             "origin_response_size": evidence.origin_response.len(),
+            "committed_request_bytes": evidence.committed_request_bytes,
+            "committed_response_bytes": evidence.committed_response_bytes,
             "generation_elapsed_milliseconds": started.elapsed().as_secs_f64() * 1000.0,
             "generation_timing": timing_json(transport.timing()),
         })

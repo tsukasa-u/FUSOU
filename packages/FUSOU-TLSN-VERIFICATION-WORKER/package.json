@@ -21,6 +21,7 @@
     "verify:previous-deployment": "node scripts/verify-previous-deployment.mjs",
     "benchmark:sparse-parser": "node scripts/sparse-parser-memory-benchmark.mjs",
     "generate:sparse-fixtures": "node scripts/sparse-crypto-benchmark.mjs --generate",
+    "benchmark:sparse-scope": "node scripts/sparse-crypto-benchmark.mjs --scope-regression",
     "validate:remote": "node scripts/remote-validation.mjs",
     "verify:remote-gate": "node scripts/verify-remote-gate.mjs",
     "types": "wrangler types",

@@ -73,6 +73,8 @@ pub struct SyntheticAlpha15WireEvidence {
     pub authenticated_request: Vec<u8>,
     pub origin_response: Vec<u8>,
     pub authenticated_response: Vec<u8>,
+    pub committed_request_bytes: usize,
+    pub committed_response_bytes: usize,
     pub presentation: Option<Vec<u8>>,
     pub sparse_presentation: Option<Vec<u8>>,
     pub root_certificate: Option<Vec<u8>>,
@@ -660,11 +662,21 @@ async fn run_synthetic_exchange(
             timing.memory_after_presentation_serialization = Some(SyntheticAlpha15Memory::current());
         });
         if let Ok(mut stored_evidence) = last_evidence.lock() {
+            let committed_response_bytes = if sparse_proof {
+                sparse_response_ranges(&raw_response)
+                    .iter()
+                    .map(Range::len)
+                    .sum()
+            } else {
+                raw_response.len()
+            };
             *stored_evidence = Some(SyntheticAlpha15WireEvidence {
                 origin_request,
                 authenticated_request,
                 origin_response: raw_response.clone(),
                 authenticated_response: raw_response,
+                committed_request_bytes: expected_request.len(),
+                committed_response_bytes,
                 presentation,
                 sparse_presentation: Some(sparse_presentation),
                 root_certificate: Some((*root_certificate).clone()),
@@ -782,10 +794,15 @@ async fn serve_synthetic_origin(
         .ok()
         .and_then(|value| value.parse::<usize>().ok())
         .unwrap_or(0);
+    let padding_byte = std::env::var("FUSOU_SYNTHETIC_RESPONSE_HIDDEN_BYTE")
+        .ok()
+        .and_then(|value| value.bytes().next())
+        .filter(u8::is_ascii_graphic)
+        .unwrap_or(b'a');
     let padding = if padding_bytes == 0 {
         "synthetic-padding".to_owned()
     } else {
-        "a".repeat(padding_bytes)
+        char::from(padding_byte).to_string().repeat(padding_bytes)
     };
     let body = format!(
         "svdata={{\"api_result\":1,\"api_data\":{{\"api_basic\":{{\"api_member_id\":16189463}}}},\"padding\":\"{padding}\"}}"
@@ -924,6 +941,11 @@ mod tests {
         assert_eq!(evidence.origin_request, expected_request);
         assert_eq!(evidence.authenticated_request, evidence.origin_request);
         assert_eq!(evidence.authenticated_response, evidence.origin_response);
+        assert_eq!(evidence.committed_request_bytes, evidence.origin_request.len());
+        assert_eq!(
+            evidence.committed_response_bytes,
+            evidence.origin_response.len()
+        );
         assert!(evidence.presentation_available);
         assert!(evidence
             .presentation

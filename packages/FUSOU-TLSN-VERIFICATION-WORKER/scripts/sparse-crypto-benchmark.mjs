@@ -1,10 +1,11 @@
 #!/usr/bin/env node
 
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
+import { tmpdir } from "node:os";
 import { generateKeyPairSync, sign, verify } from "node:crypto";
 import {
   attach_sparse_verifier_result_signature,
@@ -50,7 +51,7 @@ function encodedByteLength(value) {
   return value == null ? null : Buffer.from(value, "base64url").length;
 }
 
-function generateFixture(paddingBytes) {
+function generateFixture(paddingBytes, proofMode = "sparse", hiddenByte = "a") {
   const startedAt = performance.now();
   const result = spawnSync(
     "cargo",
@@ -71,8 +72,9 @@ function generateFixture(paddingBytes) {
       env: {
         ...process.env,
         CARGO_NET_OFFLINE: "true",
-        FUSOU_SYNTHETIC_PROOF_MODE: "sparse",
+        FUSOU_SYNTHETIC_PROOF_MODE: proofMode,
         FUSOU_SYNTHETIC_RESPONSE_PADDING_BYTES: String(paddingBytes),
+        FUSOU_SYNTHETIC_RESPONSE_HIDDEN_BYTE: hiddenByte,
       },
       encoding: "utf8",
       maxBuffer: 512 * 1024 * 1024,
@@ -91,19 +93,27 @@ function generateFixture(paddingBytes) {
   };
 }
 
-function fixtureFileName(paddingBytes) {
-  return `fixture-${paddingBytes}.json`;
+function fixtureFileName(paddingBytes, proofMode = "sparse", hiddenByte = "a") {
+  const suffix = proofMode === "sparse" && hiddenByte === "a" ? "" : `-${proofMode}-${hiddenByte}`;
+  return `fixture-${paddingBytes}${suffix}.json`;
 }
 
-function fixtureMetadata(paddingBytes, fixture, rawBytes, wallClockMilliseconds) {
+function fixtureMetadata(paddingBytes, fixture, rawBytes, wallClockMilliseconds, proofMode = "sparse", hiddenByte = "a") {
+  const committedRequestBytes = fixture.committed_request_bytes;
+  const committedResponseBytes = fixture.committed_response_bytes;
   return {
     paddingBytes,
-    fixtureFile: fixtureFileName(paddingBytes),
+    proofMode,
+    hiddenByte,
+    fixtureFile: fixtureFileName(paddingBytes, proofMode, hiddenByte),
     fixtureBytes: rawBytes.length,
     fixtureSha256: sha256(rawBytes),
     wallClockMilliseconds,
     generationElapsedMilliseconds: fixture.generation_elapsed_milliseconds,
     originResponseBytes: fixture.origin_response_size,
+    committedRequestBytes,
+    committedResponseBytes,
+    committedBytes: committedRequestBytes + committedResponseBytes,
     fullPresentationBytes: encodedByteLength(fixture.presentation_base64),
     sparsePresentationBytes: encodedByteLength(fixture.sparse_presentation_base64),
     generationTiming: fixture.generation_timing,
@@ -119,8 +129,8 @@ function runGeneration() {
     return fixtureMetadata(paddingBytes, generated.fixture, rawBytes, generated.wallClockMilliseconds);
   });
   const manifest = {
-    benchmark: "tlsn-worker-sparse-crypto-fixtures-v2",
-    schemaVersion: 2,
+    benchmark: "tlsn-worker-sparse-crypto-fixtures-v3",
+    schemaVersion: 3,
     generator: "synthetic_tlsn_fixture",
     cargoProfile: "release",
     offline: true,
@@ -206,17 +216,50 @@ function signSparseResult(unsignedResultJson, signingBytes) {
       mutated.revealed_response_ranges[0].start = "1";
     }],
   ];
+  const scopeMutationCases = [
+    ["revealed_response_prefix_bytes", (mutated) => {
+      const bytes = Buffer.from(mutated.revealed_response_ranges[0].bytes, "base64url");
+      bytes[0] ^= 1;
+      mutated.revealed_response_ranges[0].bytes = bytes.toString("base64url");
+    }],
+    ["revealed_response_suffix_bytes", (mutated) => {
+      const last = mutated.revealed_response_ranges.at(-1);
+      const bytes = Buffer.from(last.bytes, "base64url");
+      bytes[bytes.length - 1] ^= 1;
+      last.bytes = bytes.toString("base64url");
+    }],
+  ];
   let mutationRejected = 0;
+  const mutationResults = [];
   for (const [, mutate] of mutationCases) {
     const mutated = structuredClone(signedResult);
     mutate(mutated);
     delete mutated.signature;
+    let rejected = false;
     try {
       const mutatedSigningBytes = derive_sparse_verifier_result_signing_bytes(JSON.stringify(mutated));
-      if (!verify(null, mutatedSigningBytes, publicKey, signature)) mutationRejected += 1;
+      rejected = !verify(null, mutatedSigningBytes, publicKey, signature);
     } catch {
-      mutationRejected += 1;
+      rejected = true;
     }
+    if (rejected) mutationRejected += 1;
+    mutationResults.push({ name: mutationCases[mutationResults.length][0], rejected });
+  }
+  let scopeMutationRejected = 0;
+  const scopeMutationResults = [];
+  for (const [, mutate] of scopeMutationCases) {
+    const mutated = structuredClone(signedResult);
+    mutate(mutated);
+    delete mutated.signature;
+    let rejected = false;
+    try {
+      const mutatedSigningBytes = derive_sparse_verifier_result_signing_bytes(JSON.stringify(mutated));
+      rejected = !verify(null, mutatedSigningBytes, publicKey, signature);
+    } catch {
+      rejected = true;
+    }
+    if (rejected) scopeMutationRejected += 1;
+    scopeMutationResults.push({ name: scopeMutationCases[scopeMutationResults.length][0], rejected });
   }
   return {
     signedJsonBytes: Buffer.byteLength(signedJson),
@@ -224,6 +267,10 @@ function signSparseResult(unsignedResultJson, signingBytes) {
     signatureVerified: true,
     mutationChecks: mutationCases.length,
     mutationRejected,
+    mutationResults,
+    scopeMutationChecks: scopeMutationCases.length,
+    scopeMutationRejected,
+    scopeMutationResults,
   };
 }
 
@@ -238,13 +285,17 @@ function runChild(fixturePath, requestedPaddingBytes, expectedSha256, mode) {
   const wasm = initSync(readFileSync(wasmPath));
   globalThis.gc?.();
   const before = snapshot(wasm);
-  const presentationBase64 = mode === "full"
+  const verifierMode = mode === "full" || mode === "full-sparse" ? "full" : "sparse";
+  const presentationMode = mode === "full" || mode === "sparse-full" ? "full" : "sparse";
+  const presentationBase64 = presentationMode === "full"
     ? fixture.presentation_base64
     : fixture.sparse_presentation_base64;
   if (presentationBase64 == null) {
     console.log(JSON.stringify({
       status: "BLOCKED",
       mode,
+      verifierMode,
+      presentationMode,
       fixtureSha256: actualSha256,
       requestedPaddingBytes,
       presentationBytes: null,
@@ -258,7 +309,7 @@ function runChild(fixturePath, requestedPaddingBytes, expectedSha256, mode) {
   const afterDeserialize = snapshot(wasm);
   const startedAt = performance.now();
   try {
-    const verifyPresentation = mode === "full"
+    const verifyPresentation = verifierMode === "full"
       ? verify_require_info_presentation_with_trust_anchor
       : verify_sparse_require_info_presentation_with_trust_anchor;
     const verificationStarted = performance.now();
@@ -299,20 +350,41 @@ function runChild(fixturePath, requestedPaddingBytes, expectedSha256, mode) {
       .reduce((total, range) => total + Number.parseInt(range.length, 10), 0);
     const disclosedResponseBytes = unsignedResult.revealed_response_ranges
       .reduce((total, range) => total + Number.parseInt(range.length, 10), 0);
+    const requestTranscriptBytes = Number.parseInt(unsignedResult.request_transcript_size, 10);
+    const responseTranscriptBytes = Number.parseInt(unsignedResult.response_transcript_size, 10);
+    const committedRequestBytes = fixture.committed_request_bytes ?? null;
+    const committedResponseBytes = fixture.committed_response_bytes ?? null;
+    const committedBytes = committedRequestBytes == null || committedResponseBytes == null
+      ? null
+      : committedRequestBytes + committedResponseBytes;
+    const transcriptBytes = requestTranscriptBytes + responseTranscriptBytes;
+    const disclosedResponseSha256 = sha256(Buffer.concat(
+      unsignedResult.revealed_response_ranges.map((range) => Buffer.from(range.bytes, "base64url")),
+    ));
     console.log(JSON.stringify({
       status: "PASS",
       mode,
+      verifierMode,
+      presentationMode,
       fixtureSha256: actualSha256,
       requestedPaddingBytes,
       presentationBytes: presentation.length,
       fullPresentationBytes: encodedByteLength(fixture.presentation_base64),
       sparsePresentationBytes: encodedByteLength(fixture.sparse_presentation_base64),
-      requestTranscriptBytes: Number.parseInt(unsignedResult.request_transcript_size, 10),
-      responseTranscriptBytes: Number.parseInt(unsignedResult.response_transcript_size, 10),
+      requestTranscriptBytes,
+      responseTranscriptBytes,
+      transcriptBytes,
+      committedRequestBytes,
+      committedResponseBytes,
+      committedBytes,
+      committedRatio: committedBytes == null ? null : committedBytes / transcriptBytes,
       disclosedRequestBytes,
       disclosedResponseBytes,
       disclosedBytes: disclosedRequestBytes + disclosedResponseBytes,
-      disclosureRatio: disclosedResponseBytes / Number.parseInt(unsignedResult.response_transcript_size, 10),
+      disclosedRatio: disclosedResponseBytes / responseTranscriptBytes,
+      disclosureRatio: disclosedResponseBytes / responseTranscriptBytes,
+      disclosedResponseSha256,
+      verifiedMemberId: unsignedResult.verified_member_id,
       resultBytes: Buffer.byteLength(unsignedResultJson),
       signingBytes: signed?.signingBytes ?? null,
       signatureBytes: signed?.signatureBytes ?? null,
@@ -320,6 +392,10 @@ function runChild(fixturePath, requestedPaddingBytes, expectedSha256, mode) {
       signatureVerified: signed?.signatureVerified ?? null,
       mutationChecks: signed?.mutationChecks ?? null,
       mutationRejected: signed?.mutationRejected ?? null,
+      mutationResults: signed?.mutationResults ?? null,
+      scopeMutationChecks: signed?.scopeMutationChecks ?? null,
+      scopeMutationRejected: signed?.scopeMutationRejected ?? null,
+      scopeMutationResults: signed?.scopeMutationResults ?? null,
       verificationElapsedMilliseconds,
       semanticParseElapsedMilliseconds,
       signingElapsedMilliseconds: signed?.signingElapsedMilliseconds ?? null,
@@ -347,6 +423,8 @@ function runChild(fixturePath, requestedPaddingBytes, expectedSha256, mode) {
     console.log(JSON.stringify({
       status: "BLOCKED",
       mode,
+      verifierMode,
+      presentationMode,
       fixtureSha256: actualSha256,
       requestedPaddingBytes,
       presentationBytes: presentation.length,
@@ -359,9 +437,104 @@ function runChild(fixturePath, requestedPaddingBytes, expectedSha256, mode) {
   }
 }
 
+function runChildResult(fixturePath, requestedPaddingBytes, expectedSha256, mode) {
+  const result = spawnSync(
+    process.execPath,
+    ["--expose-gc", scriptPath, "--child", fixturePath, String(requestedPaddingBytes), expectedSha256, mode],
+    { cwd: packageDirectory, encoding: "utf8", maxBuffer: 16 * 1024 * 1024 },
+  );
+  if (result.error) throw result.error;
+  if (result.status !== 0) {
+    throw new Error(result.stderr || `sparse crypto child failed for ${mode}/${requestedPaddingBytes}`);
+  }
+  return JSON.parse(result.stdout.trim().split(/\r?\n/).at(-1));
+}
+
+function writeGeneratedFixture(directory, paddingBytes, proofMode, hiddenByte) {
+  const generated = generateFixture(paddingBytes, proofMode, hiddenByte);
+  const rawBytes = Buffer.from(JSON.stringify(generated.fixture));
+  const fixturePath = resolve(directory, fixtureFileName(paddingBytes, proofMode, hiddenByte));
+  writeFileSync(fixturePath, rawBytes, { mode: 0o600 });
+  return {
+    fixture: generated.fixture,
+    fixturePath,
+    fixtureSha256: sha256(rawBytes),
+  };
+}
+
+function runScopeRegression() {
+  const directory = mkdtempSync(resolve(tmpdir(), "tlsn-sparse-scope-"));
+  try {
+    const hiddenA = writeGeneratedFixture(directory, 4096, "sparse", "a");
+    const hiddenB = writeGeneratedFixture(directory, 4096, "sparse", "b");
+    const hiddenAResult = runChildResult(hiddenA.fixturePath, 4096, hiddenA.fixtureSha256, "sparse");
+    const hiddenBResult = runChildResult(hiddenB.fixturePath, 4096, hiddenB.fixtureSha256, "sparse");
+    const hiddenMutation = {
+      originalStatus: hiddenAResult.status,
+      mutatedStatus: hiddenBResult.status,
+      rawResponseChanged: sha256(Buffer.from(hiddenA.fixture.authenticated_response_base64, "base64url"))
+        !== sha256(Buffer.from(hiddenB.fixture.authenticated_response_base64, "base64url")),
+      sameTranscriptBytes: hiddenAResult.responseTranscriptBytes === hiddenBResult.responseTranscriptBytes,
+      sameDisclosedResponseBytes: hiddenAResult.disclosedResponseBytes === hiddenBResult.disclosedResponseBytes,
+      sameDisclosedResponseSha256: hiddenAResult.disclosedResponseSha256 === hiddenBResult.disclosedResponseSha256,
+      sameVerifiedMemberId: hiddenAResult.verifiedMemberId === hiddenBResult.verifiedMemberId,
+      bothSparseResultsSigned: hiddenAResult.signatureVerified === true && hiddenBResult.signatureVerified === true,
+    };
+    if (!hiddenMutation.rawResponseChanged
+      || hiddenMutation.originalStatus !== "PASS"
+      || hiddenMutation.mutatedStatus !== "PASS"
+      || !hiddenMutation.sameTranscriptBytes
+      || !hiddenMutation.sameDisclosedResponseBytes
+      || !hiddenMutation.sameDisclosedResponseSha256
+      || !hiddenMutation.sameVerifiedMemberId
+      || !hiddenMutation.bothSparseResultsSigned) {
+      throw new Error(`hidden response mutation regression failed: ${JSON.stringify(hiddenMutation)}`);
+    }
+
+    const complete = writeGeneratedFixture(directory, 4096, "full", "a");
+    const completeResult = runChildResult(complete.fixturePath, 4096, complete.fixtureSha256, "full");
+    const crossSparseFull = runChildResult(complete.fixturePath, 4096, complete.fixtureSha256, "sparse-full");
+    const crossFullSparse = runChildResult(complete.fixturePath, 4096, complete.fixtureSha256, "full-sparse");
+    const completeMode = {
+      status: completeResult.status,
+      verifiedMemberId: completeResult.verifiedMemberId,
+      sparseStatus: hiddenAResult.status,
+      sameVerifiedMemberId: completeResult.verifiedMemberId === hiddenAResult.verifiedMemberId,
+    };
+    if (completeMode.status !== "PASS" || completeMode.sparseStatus !== "PASS" || !completeMode.sameVerifiedMemberId) {
+      throw new Error(`complete/sparse semantic regression failed: ${JSON.stringify(completeMode)}`);
+    }
+    const crossProfile = {
+      fullPresentationWithSparseVerifier: crossSparseFull.status,
+      sparsePresentationWithFullVerifier: crossFullSparse.status,
+      rejected: crossSparseFull.status === "BLOCKED" && crossFullSparse.status === "BLOCKED",
+    };
+    if (!crossProfile.rejected) {
+      throw new Error(`cross-profile confusion regression failed: ${JSON.stringify(crossProfile)}`);
+    }
+
+    console.log(JSON.stringify({
+      status: "PASS",
+      hiddenResponseMutation: hiddenMutation,
+      revealedRangeMutation: {
+        checks: hiddenAResult.scopeMutationChecks,
+        rejected: hiddenAResult.scopeMutationRejected,
+      },
+      transcriptSizeMutation: {
+        checks: hiddenAResult.mutationChecks,
+        rejected: hiddenAResult.mutationRejected,
+      },
+      completeMode,
+      crossProfile,
+    }, null, 2));
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+}
+
 function runParent() {
   const manifest = JSON.parse(readFileSync(fixtureManifestPath, "utf8"));
-  if (manifest.schemaVersion !== 2 || !Array.isArray(manifest.cases)) {
+  if (manifest.schemaVersion !== 3 || !Array.isArray(manifest.cases)) {
     throw new Error(`invalid sparse fixture manifest: ${fixtureManifestPath}`);
   }
   const entries = parseCases().map((paddingBytes) => {
@@ -376,17 +549,10 @@ function runParent() {
     return { ...entry, fixturePath };
   });
   const cases = ["sparse", "full"].flatMap((mode) => entries.map((entry) => {
-    const result = spawnSync(
-      process.execPath,
-      ["--expose-gc", scriptPath, "--child", entry.fixturePath, String(entry.paddingBytes), entry.fixtureSha256, mode],
-      { cwd: packageDirectory, encoding: "utf8", maxBuffer: 16 * 1024 * 1024 },
-    );
-    if (result.error) throw result.error;
-    if (result.status !== 0) throw new Error(result.stderr || `sparse crypto child failed for ${mode}/${entry.paddingBytes}`);
-    return JSON.parse(result.stdout.trim().split(/\r?\n/).at(-1));
+    return runChildResult(entry.fixturePath, entry.paddingBytes, entry.fixtureSha256, mode);
   }));
   console.log(JSON.stringify({
-    benchmark: "tlsn-worker-sparse-crypto-v2",
+    benchmark: "tlsn-worker-sparse-crypto-v3",
     runtime: process.version,
     platform: process.platform,
     fixtureDirectory,
@@ -400,6 +566,8 @@ if (process.argv[2] === "--child") {
   runChild(process.argv[3], Number.parseInt(process.argv[4], 10), process.argv[5], process.argv[6] ?? "sparse");
 } else if (process.argv[2] === "--generate") {
   runGeneration();
+} else if (process.argv[2] === "--scope-regression") {
+  runScopeRegression();
 } else {
   runParent();
 }

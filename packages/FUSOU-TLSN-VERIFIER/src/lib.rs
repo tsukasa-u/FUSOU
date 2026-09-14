@@ -2721,6 +2721,24 @@ mod tests {
     }
 
     #[test]
+    fn sparse_request_rejects_hidden_binding_bytes() {
+        let value = binding();
+        let request = format!(
+            "POST {REQUIRE_INFO_TARGET} HTTP/1.1\r\nHost: game.example.test\r\nX-Attestation-Binding: {value}\r\nContent-Length: 0\r\n\r\n"
+        );
+        let binding_start = request.find(&value).unwrap();
+        let binding_end = binding_start + value.len();
+        let ranges = vec![0..binding_start, binding_end..request.len()];
+        let source = AuthenticatedByteSource::new(request.as_bytes(), &ranges).unwrap();
+        assert!(parse_require_info_request_sparse_source(
+            &source,
+            "game.example.test",
+            &default_limits()
+        )
+        .is_err());
+    }
+
+    #[test]
     fn sparse_response_rejects_hidden_duplicate_json_keys() {
         let body = b"svdata={\"api_result\":1,\"api_data\":{\"api_basic\":{\"api_member_id\":1}},\"api_result\":1}";
         let response = content_length_response(body);

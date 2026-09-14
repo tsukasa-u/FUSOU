@@ -12,7 +12,7 @@ Scope: repository-owned TLSN alpha.15 sparse verification, sparse Result signing
 | Sparse Result schema and signing | PASS | Ed25519 signing, verification, mutation matrix, and cross-profile rejection passed offline |
 | Worker/Trigger profile integrity | PASS | Local Wrangler Worker and synthetic Trigger callback passed complete/sparse retry matrix |
 | Sparse parser memory behavior | PASS | Synthetic 1/4/8/16/32 MiB parser benchmark |
-| Sparse cryptographic scaling | PARTIAL | 1 MiB sparse fixture generation and cached verification passed; 4/8/16/32 MiB cases remain unmeasured |
+| Sparse cryptographic scaling | PASS | Required 4 KiB/16 KiB/64 KiB/256 KiB/512 KiB/1 MiB sparse matrix passed offline; 4/8/16/32 MiB extensions remain unmeasured |
 | Full Presentation memory behavior | BLOCKED | The measured 1 MiB sparse fixture intentionally has no full Presentation; no large full-Presentation fixture was produced |
 | Production evidence | BLOCKED | No Game Server, Notary, production Worker, or production Trigger execution was contacted |
 
@@ -23,8 +23,9 @@ PASS in this report means that the repository property was verified within the s
 - Sparse semantic parsing now skips undisclosed bytes only inside unknown JSON string values. Required HTTP structure, semantic keys, member ID bytes, JSON framing, and malformed gaps remain fail-closed.
 - Sparse Result signing uses profile `fusou-require-info-v2-sparse`, version `2`, disclosure mode `sparse`, and domain `FUSOU-VERIFIER-SPARSE-RESULT-V1\0`.
 - Sparse Result signatures cover profile identity, subject identity, binding fields, Presentation hash, transcript sizes, and revealed range metadata/bytes.
+- The sparse cryptographic claim covers only transcript ranges explicitly committed by the prover and disclosed in the sparse Result. Undisclosed transcript bytes are outside the claim scope; total transcript sizes remain signed metadata.
 - Worker and Trigger payloads carry explicit `profile` and `disclosure_mode`. Retry inherits the persisted profile; an explicit opposite profile is rejected with `409 verification_profile_mismatch`.
-- The benchmark verifies generated Ed25519 signatures and checks rejection of signed-Result mutations.
+- The benchmark verifies generated Ed25519 signatures and checks rejection of named signed-Result mutations, including disclosed bytes, range boundaries, and transcript sizes.
 
 ## Reproduction Commands
 
@@ -35,9 +36,10 @@ node scripts/production-evidence-test.mjs
 pnpm run typecheck
 node scripts/test.mjs --app-roundtrip-only
 pnpm run build:wasm
-FUSOU_SYNTHETIC_PROOF_MODE=sparse TLSN_SPARSE_CRYPTO_BENCHMARK_PADDING_BYTES=1048576 pnpm run generate:sparse-fixtures
-TLSN_SPARSE_CRYPTO_BENCHMARK_PADDING_BYTES=1048576 node --expose-gc scripts/sparse-crypto-benchmark.mjs
+TLSN_SPARSE_CRYPTO_BENCHMARK_PADDING_BYTES=4096,16384,65536,262144,524288,1048576 pnpm run generate:sparse-fixtures
+TLSN_SPARSE_CRYPTO_BENCHMARK_PADDING_BYTES=4096,16384,65536,262144,524288,1048576 node --expose-gc scripts/sparse-crypto-benchmark.mjs
 node scripts/sparse-parser-memory-benchmark.mjs
+pnpm run benchmark:sparse-scope
 ```
 
 Rust regression commands from the repository root:
@@ -52,8 +54,9 @@ CARGO_NET_OFFLINE=true cargo +1.95.0 test --quiet --manifest-path packages/FUSOU
 - `node scripts/production-evidence-test.mjs`: PASS. Manifest, semantic, sparse Result, identity, replay, registry, and mutation checks completed successfully.
 - `pnpm run typecheck`: PASS. WASM build and TypeScript checks completed successfully.
 - `node scripts/test.mjs --app-roundtrip-only`: PASS. Complete and sparse Trigger flows, sparse Result version/profile, retry inheritance, and opposite-profile `409` rejection completed successfully.
-- Rust verifier library tests: PASS, 61 passed, 0 failed.
-- Synthetic proxy alpha.15 focused test: PASS, 1 passed, 0 failed.
+- Rust verifier library tests: PASS, 62 passed, 0 failed.
+- Sparse scope regression: PASS. Equal-length hidden response mutation remained valid; disclosed-range mutations rejected 2/2; transcript-size and general Result mutations rejected 8/8; complete-mode sanity passed; cross-profile verification was blocked.
+- Synthetic proxy alpha.15 focused test: PASS, 3 passed, 0 failed.
 - `git diff --check`: PASS.
 
 ## Parser Memory Measurement
@@ -74,13 +77,18 @@ The sparse parser retained only the disclosed semantic boundaries. The materiali
 
 Latest recorded cached run with synthetic response padding:
 
-| Padding | Response transcript | Presentation bytes | Disclosed bytes | WASM verify | Result signing | Mutation checks | Mutations rejected |
-| ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| 1 MiB | 1,048,727 B | 1,924 B | 400 B | 10.85 ms | 2.31 ms | 8 | 8 |
+| Padding | Transcript | Committed | Committed ratio | Disclosed | Disclosed ratio | Sparse Presentation | Fixture generation | `prover.prove` | Prover peak RSS | VmData | VmSize | WASM verify | Status |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| 4 KiB | 4,493 B | 397 B | 0.088360 | 397 B | 0.034873 | 1,921 B | 190.584 ms | 48.522 ms | 165,486,592 B | 323,162,112 B | 4,507,070,464 B | 12.693 ms | PASS |
+| 16 KiB | 16,782 B | 398 B | 0.023716 | 398 B | 0.009012 | 1,921 B | 179.714 ms | 41.225 ms | 144,867,328 B | 269,107,200 B | 4,507,070,464 B | 12.172 ms | PASS |
+| 64 KiB | 65,934 B | 398 B | 0.006036 | 398 B | 0.002268 | 1,921 B | 184.438 ms | 45.184 ms | 163,127,296 B | 313,229,312 B | 4,507,070,464 B | 12.307 ms | PASS |
+| 256 KiB | 262,543 B | 399 B | 0.001520 | 399 B | 0.000572 | 1,923 B | 184.624 ms | 42.119 ms | 173,256,704 B | 321,888,256 B | 4,507,070,464 B | 12.435 ms | PASS |
+| 512 KiB | 524,687 B | 399 B | 0.000760 | 399 B | 0.000286 | 1,924 B | 199.998 ms | 16.305 ms | 188,887,040 B | 373,219,328 B | 4,507,070,464 B | 10.954 ms | PASS |
+| 1 MiB | 1,048,976 B | 400 B | 0.000381 | 400 B | 0.000144 | 1,924 B | 219.725 ms | 29.161 ms | 220,073,984 B | 358,289,408 B | 4,508,643,328 B | 11.060 ms | PASS |
 
-The post-fix fixture SHA-256 was `557fcebd813ba26e4efbc947e8f0d050fff869e771412e8e867b545bf780a9a9`. The sparse Presentation has no full Presentation counterpart because it was generated in sparse mode. The mutation set covers revealed range bytes, transcript size, profile hash, disclosure mode, Presentation hash, binding value, profile ID, and range boundary.
+The disclosed ratio is relative to the response transcript; the committed ratio is relative to the combined request and response transcript. The sparse Presentation has no full Presentation counterpart because it was generated in sparse mode. The named mutation set covers revealed range bytes, transcript size, profile hash, disclosure mode, Presentation hash, binding value, profile ID, and range boundary. The request-side parser also rejects a sparse request when the authenticated `X-Attestation-Binding` value is hidden from the disclosed ranges.
 
-The 1 MiB synthetic alpha.15 fixture took 243.36 ms wall-clock, with 131.66 ms in proof generation and 29.06 ms in `prover.prove`. Its peak Rust process RSS was 229,822,464 B. The 4/8/16/32 MiB cases were not forced; no larger cryptographic latency or memory claim is made. The existing 16 MiB Rust response limit and 8 MiB Trigger Presentation input limit were not raised to force the measurement.
+The current 1 MiB synthetic alpha.15 fixture took 219.725 ms inside the fixture generator, with 120.166 ms in proof generation and 29.161 ms in `prover.prove`. Its peak Rust process RSS was 220,073,984 B. The 4/8/16/32 MiB cases were not forced; no larger cryptographic latency or memory claim is made. The existing 16 MiB Rust response limit and 8 MiB Trigger Presentation input limit were not raised to force the measurement.
 
 ### Sparse prover allocation root cause
 
@@ -104,13 +112,17 @@ Before:
 
 After:
 
-- 1 MiB -> 229,822,464 B peak RSS (about 219 MiB) / 29.06 ms `prover.prove`.
+- 1 MiB -> 220,073,984 B peak RSS (about 210 MiB) / 29.16 ms `prover.prove` in the current matrix run.
 
 Sparse cryptographic verification: `PASS` for the local synthetic 1 MiB case.
 
 Sparse semantic verification: `PASS` in the local synthetic scope.
 
-Sparse Result signing: `PASS`; 8/8 signed-Result mutations rejected.
+Sparse Result signing: `PASS`; 8/8 general signed-Result mutations and 2/2 disclosed-range mutations rejected.
+
+Sparse claim scope regression: `PASS`; equal-length hidden response mutation changed raw response bytes but preserved the transcript size, disclosed ranges, disclosed-byte digest, and verified member ID. Both sparse Results remained valid by design. Changing disclosed bytes, range boundaries, or signed transcript size was rejected.
+
+Complete-mode sanity: `PASS` for a separate 4 KiB complete fixture and the complete verifier. Sparse and complete fixtures produced the same verified member ID (`16189463`); applying the wrong verifier to the wrong Presentation profile was blocked.
 
 Full Presentation memory: `BLOCKED`; sparse fixtures intentionally do not contain a full Presentation.
 

@@ -8,7 +8,7 @@ Both attestation endpoints require `Authorization: Bearer <Supabase access token
 
 The Worker does not own a TLSN device registry, receive a Supabase service-role key, or receive a device private key. A client-supplied `device_id` is only a selector/proof input; the authoritative device identity comes from the FUSOU-WEB verification response and the Durable Object record. The generic device proof and TLSN proof are separate one-shot proofs and cannot be reused across Sessions or bindings.
 
-Sparse semantic parsing uses an authenticated forward-only range reader. Parser reads must advance through disclosed ranges in ascending order; a gap or backward read is rejected. The reader is not a random-access API. This keeps the range cursor aligned with the parser's one-pass traversal and makes hidden bytes fail closed.
+Sparse semantic parsing uses an authenticated forward-only range reader. Parser reads must advance through disclosed ranges in ascending order; a gap or backward read is rejected. The reader is not a random-access API. This keeps the range cursor aligned with the parser's one-pass traversal and makes hidden bytes fail closed. The sparse cryptographic claim covers only transcript ranges explicitly committed by the prover and disclosed in the sparse Result. Undisclosed transcript bytes are outside that claim scope. Request/response transcript sizes remain signed metadata, so changing a total size without changing the disclosed bytes invalidates the Result.
 
 In Trigger mode, `/verify/tlsn` authenticates and atomically claims the binding, stores the raw Presentation in the private `TLSN_PRESENTATIONS` R2 bucket, and returns `202` with a job ID. Trigger fetches that object through `/internal/tlsn/verification-input` using the shared HMAC callback secret. The Worker signs and consumes the binding only after the HMAC-authenticated completion callback, stores the final result object, deletes the raw input object, and serves it through authenticated `/verify/tlsn/status` polling. A verified final response identifies the result-signing key with top-level `signer_key_id` alongside `signature_algorithm`; the signed result remains nested under `result`. `/verify/tlsn/retry` re-enqueues an accepted job without replaying the device proof.
 
@@ -38,8 +38,9 @@ These commands are offline and use synthetic alpha.15 data. They are reproducibl
 
 ```sh
 node scripts/sparse-parser-memory-benchmark.mjs
-FUSOU_SYNTHETIC_PROOF_MODE=sparse TLSN_SPARSE_CRYPTO_BENCHMARK_PADDING_BYTES=1048576 pnpm run generate:sparse-fixtures
-TLSN_SPARSE_CRYPTO_BENCHMARK_PADDING_BYTES=1048576 node --expose-gc scripts/sparse-crypto-benchmark.mjs
+TLSN_SPARSE_CRYPTO_BENCHMARK_PADDING_BYTES=4096,16384,65536,262144,524288,1048576 pnpm run generate:sparse-fixtures
+TLSN_SPARSE_CRYPTO_BENCHMARK_PADDING_BYTES=4096,16384,65536,262144,524288,1048576 node --expose-gc scripts/sparse-crypto-benchmark.mjs
+pnpm run benchmark:sparse-scope
 ```
 
 On Linux with Node `v22.21.1`, the parser benchmark produced the following measurements. `additional.rssBytes` is the child-process RSS increase during parsing.
@@ -52,7 +53,20 @@ On Linux with Node `v22.21.1`, the parser benchmark produced the following measu
 | 16 MiB | 135 B | 0.0000080466 | 1.285620 ms | 53,248 B | 17.224014 ms | 33,570,816 B |
 | 32 MiB | 135 B | 0.0000040233 | 1.042368 ms | 57,344 B | 42.031784 ms | 67,125,248 B |
 
-The sparse crypto benchmark now forces sparse proof generation in the child Cargo process. In the latest cached run, it verified the Ed25519 signature and rejected all 8 signed-Result mutations for a 1 MiB synthetic response padding case. The response transcript was 1,048,727 bytes, the sparse Presentation was 1,924 bytes, 400 bytes were disclosed, WASM verification took 10.85 ms, and Result signing took 2.31 ms. Sparse fixture generation took 243.36 ms wall-clock, including 29.06 ms in `prover.prove`; the Rust process peak RSS was 229,822,464 bytes. The fixture SHA-256 was `557fcebd813ba26e4efbc947e8f0d050fff869e771412e8e867b545bf780a9a9`. The 4/8/16/32 MiB cases were not forced, and the sparse-only fixture has no full Presentation, so larger cryptographic verification and full-Presentation memory behavior remain `PARTIAL/BLOCKED`, not measured claims.
+The sparse crypto benchmark forces sparse proof generation in the child Cargo process and records committed bytes separately from disclosed bytes. The required six-case matrix was measured offline:
+
+| Padding | Transcript | Committed | Committed ratio | Disclosed | Disclosed ratio | Sparse Presentation | Fixture generation | `prover.prove` | Prover peak RSS | VmData | VmSize | WASM verify | Status |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| 4 KiB | 4,493 B | 397 B | 0.088360 | 397 B | 0.034873 | 1,921 B | 190.584 ms | 48.522 ms | 165,486,592 B | 323,162,112 B | 4,507,070,464 B | 12.693 ms | PASS |
+| 16 KiB | 16,782 B | 398 B | 0.023716 | 398 B | 0.009012 | 1,921 B | 179.714 ms | 41.225 ms | 144,867,328 B | 269,107,200 B | 4,507,070,464 B | 12.172 ms | PASS |
+| 64 KiB | 65,934 B | 398 B | 0.006036 | 398 B | 0.002268 | 1,921 B | 184.438 ms | 45.184 ms | 163,127,296 B | 313,229,312 B | 4,507,070,464 B | 12.307 ms | PASS |
+| 256 KiB | 262,543 B | 399 B | 0.001520 | 399 B | 0.000572 | 1,923 B | 184.624 ms | 42.119 ms | 173,256,704 B | 321,888,256 B | 4,507,070,464 B | 12.435 ms | PASS |
+| 512 KiB | 524,687 B | 399 B | 0.000760 | 399 B | 0.000286 | 1,924 B | 199.998 ms | 16.305 ms | 188,887,040 B | 373,219,328 B | 4,507,070,464 B | 10.954 ms | PASS |
+| 1 MiB | 1,048,976 B | 400 B | 0.000381 | 400 B | 0.000144 | 1,924 B | 219.725 ms | 29.161 ms | 220,073,984 B | 358,289,408 B | 4,508,643,328 B | 11.060 ms | PASS |
+
+The disclosure ratio is relative to the response transcript; the committed ratio is relative to the combined request and response transcript. The sparse Result signature was independently verified and rejected all 8/8 general mutations plus 2/2 disclosed-range mutations in every verified child. The scope regression generated equal-length sparse responses with different hidden middle bytes: both Results remained valid, disclosed response bytes and their digest stayed identical, and the verified member ID stayed `16189463`. This is expected because hidden bytes are outside the sparse cryptographic claim scope. Mutating `response_transcript_size` was rejected by the signed Result contract. A 4 KiB complete fixture passed complete verification with the same member ID; full-Presentation/sparse-verifier and sparse-Presentation/full-verifier cross-profile checks were both blocked.
+
+The 4/8/16/32 MiB cases were not forced. Full Presentation memory remains `BLOCKED` because the sparse fixtures intentionally contain no full Presentation. These are synthetic/offline measurements, not production evidence.
 
 ### Sparse prover allocation investigation
 
@@ -75,13 +89,15 @@ Before:
 
 After:
 
-- 1 MiB -> 229,822,464 B peak RSS (about 219 MiB) / 29.06 ms `prover.prove`.
+- 1 MiB -> 220,073,984 B peak RSS (about 210 MiB) / 29.16 ms `prover.prove` in the current matrix run.
 
 Sparse cryptographic verification: `PASS` for the local synthetic 1 MiB case.
 
 Sparse semantic verification: `PASS` in the local synthetic scope.
 
-Sparse Result signing: `PASS`; 8/8 signed-Result mutations rejected.
+Sparse Result signing: `PASS`; 8/8 general signed-Result mutations and 2/2 disclosed-range mutations rejected.
+
+Sparse claim scope regression: `PASS`; equal-length hidden response mutation remained valid while disclosed bytes, range metadata, and signed transcript sizes remained protected.
 
 Full Presentation memory: `BLOCKED`; sparse fixtures intentionally do not contain a full Presentation.
 
