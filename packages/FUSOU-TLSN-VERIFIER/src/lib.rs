@@ -1503,7 +1503,7 @@ impl<'source, 'transcript> SparseJsonCursor<'source, 'transcript> {
         self.skip_whitespace()?;
         match self.peek()? {
             Some(b'"') => {
-                self.parse_string()?;
+                self.skip_opaque_string()?;
                 Ok(())
             }
             Some(b'{') => self.skip_object(depth + 1),
@@ -1516,6 +1516,53 @@ impl<'source, 'transcript> SparseJsonCursor<'source, 'transcript> {
                 Ok(())
             }
             _ => Err(VerifierError::InvalidJson("invalid JSON value")),
+        }
+    }
+
+    fn skip_opaque_string(&mut self) -> Result<()> {
+        self.expect_byte(b'"')?;
+        loop {
+            if self.position < self.end {
+                let disclosed = self
+                    .source
+                    .ranges()
+                    .into_iter()
+                    .any(|range| range.start <= self.position && self.position < range.end);
+                if !disclosed {
+                    self.position = self
+                        .source
+                        .ranges()
+                        .into_iter()
+                        .find(|range| range.start > self.position)
+                        .map(|range| range.start)
+                        .ok_or(VerifierError::InvalidJson("unexpected end of JSON"))?;
+                }
+            }
+            match self.next()? {
+                b'"' => return Ok(()),
+                b'\\' => self.parse_escape(&mut String::new())?,
+                byte if byte < 0x20 => {
+                    return Err(VerifierError::InvalidJson("control byte in JSON string"));
+                }
+                byte if byte < 0x80 => {}
+                first => {
+                    let width = if first & 0xe0 == 0xc0 {
+                        2
+                    } else if first & 0xf0 == 0xe0 {
+                        3
+                    } else if first & 0xf8 == 0xf0 {
+                        4
+                    } else {
+                        return Err(VerifierError::InvalidJson("invalid UTF-8 string"));
+                    };
+                    let mut bytes = vec![first];
+                    for _ in 1..width {
+                        bytes.push(self.next()?);
+                    }
+                    std::str::from_utf8(&bytes)
+                        .map_err(|_| VerifierError::InvalidJson("invalid UTF-8 string"))?;
+                }
+            }
         }
     }
 

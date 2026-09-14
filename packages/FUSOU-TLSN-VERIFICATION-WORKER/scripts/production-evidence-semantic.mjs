@@ -460,6 +460,15 @@ export class AuthenticatedForwardReader {
     }
     return output;
   }
+
+  skipUndisclosedGap(position) {
+    const offset = BigInt(position);
+    while (this.rangeIndex < this.ranges.length && offset >= this.ranges[this.rangeIndex].end) {
+      this.rangeIndex += 1;
+    }
+    const range = this.ranges[this.rangeIndex];
+    return range && offset < range.start ? range.start : null;
+  }
 }
 
 function sparseJsonWhitespace(byte) {
@@ -565,6 +574,10 @@ class SparseJsonCursor {
     let value = capture ? "" : null;
     let hadEscape = false;
     while (true) {
+      if (!capture) {
+        const disclosedPosition = this.reader.skipUndisclosedGap(this.position);
+        if (disclosedPosition !== null) this.position = disclosedPosition;
+      }
       const byte = this.next();
       if (byte === 0x22) {
         if (this.position - start > BigInt(maxBytes)) throw new Error(`${this.label} JSON string is too large`);

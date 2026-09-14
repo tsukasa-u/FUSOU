@@ -21,8 +21,21 @@ function parseCases() {
   return [...new Set(values)];
 }
 
-function rangeFor(bytes) {
+function fullRangeFor(bytes) {
   return [{ start: "0", length: String(bytes.length), bytes: bytes.toString("base64url") }];
+}
+
+function sparseResponseRanges(response) {
+  const unrelatedKey = Buffer.from('"unrelated":"', "ascii");
+  const keyStart = response.indexOf(unrelatedKey);
+  if (keyStart < 0) throw new Error("sparse benchmark response lacks unrelated string");
+  const gapStart = keyStart + unrelatedKey.length;
+  const gapEnd = response.indexOf(0x22, gapStart);
+  if (response[gapEnd] !== 0x22) throw new Error("sparse benchmark unrelated string boundary is invalid");
+  return [
+    { start: "0", length: String(gapStart), bytes: response.subarray(0, gapStart).toString("base64url") },
+    { start: String(gapEnd), length: String(response.length - gapEnd), bytes: response.subarray(gapEnd).toString("base64url") },
+  ];
 }
 
 function requestTranscript() {
@@ -95,15 +108,20 @@ function memorySnapshot() {
 
 function runChild(targetBytes, mode) {
   const request = requestTranscript();
-  const response = responseTranscript(targetBytes);
+  let response = responseTranscript(targetBytes);
+  const responseRanges = mode === "sparse"
+    ? sparseResponseRanges(response)
+    : fullRangeFor(response);
   const semanticVerification = {
     verified_presentation: {
       request_transcript_size: String(request.length),
-      response_transcript_size: String(response.length),
-      revealed_request_ranges: rangeFor(request),
-      revealed_response_ranges: rangeFor(response),
+      response_transcript_size: String(targetBytes),
+      revealed_request_ranges: fullRangeFor(request),
+      revealed_response_ranges: responseRanges,
     },
   };
+  const constructionAfter = memorySnapshot();
+  if (mode === "sparse") response = undefined;
   globalThis.gc?.();
   const before = memorySnapshot();
   const startedAt = performance.now();
@@ -117,22 +135,31 @@ function runChild(targetBytes, mode) {
   const elapsedMilliseconds = performance.now() - startedAt;
   if (parsedMemberId !== MEMBER_ID) throw new Error("sparse parser returned the wrong member ID");
   const after = memorySnapshot();
+  const additional = (beforeSnapshot, afterSnapshot) => ({
+    rssBytes: afterSnapshot.rssBytes === null || beforeSnapshot.rssBytes === null ? null : afterSnapshot.rssBytes - beforeSnapshot.rssBytes,
+    vmDataBytes: afterSnapshot.dataBytes === null || beforeSnapshot.dataBytes === null ? null : afterSnapshot.dataBytes - beforeSnapshot.dataBytes,
+    vmSizeBytes: afterSnapshot.virtualBytes === null || beforeSnapshot.virtualBytes === null ? null : afterSnapshot.virtualBytes - beforeSnapshot.virtualBytes,
+    heapBytes: afterSnapshot.heapUsedBytes - beforeSnapshot.heapUsedBytes,
+    externalBytes: afterSnapshot.externalBytes - beforeSnapshot.externalBytes,
+    arrayBuffersBytes: afterSnapshot.arrayBuffersBytes - beforeSnapshot.arrayBuffersBytes,
+  });
   console.log(JSON.stringify({
     mode,
-    targetBytes,
-    responseTranscriptBytes: response.length,
-    disclosedResponseBytes: semanticVerification.verified_presentation.revealed_response_ranges
+    transcriptBytes: targetBytes,
+    disclosedBytes: semanticVerification.verified_presentation.revealed_response_ranges
       .reduce((total, range) => total + Number.parseInt(range.length, 10), 0),
+    disclosureRatio: semanticVerification.verified_presentation.revealed_response_ranges
+      .reduce((total, range) => total + Number.parseInt(range.length, 10), 0) / targetBytes,
     elapsedMilliseconds,
+    constructionAfter,
     before,
     after,
-    deltaHeapUsedBytes: after.heapUsedBytes - before.heapUsedBytes,
-    deltaExternalBytes: after.externalBytes - before.externalBytes,
+    additional: additional(before, after),
   }));
 }
 
 function runParent() {
-  const cases = ["streaming", "materialized"].flatMap((mode) => parseCases().map((targetBytes) => {
+  const cases = ["sparse", "materialized"].flatMap((mode) => parseCases().map((targetBytes) => {
     const result = spawnSync(process.execPath, ["--expose-gc", scriptPath, "--child", String(targetBytes), mode], {
       encoding: "utf8",
       maxBuffer: 4 * 1024 * 1024,

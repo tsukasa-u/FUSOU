@@ -14,6 +14,7 @@ use rcgen::{
 };
 use std::{
     future::IntoFuture,
+    ops::Range,
     sync::{
         atomic::{AtomicBool, Ordering},
         Arc, Mutex,
@@ -250,7 +251,7 @@ async fn run_synthetic_exchange(
             .await
             .map_err(|_| TlsnTransportError::ResponseReadFailed)?;
         let response_sha256 = sha256(&raw_response);
-        let response = parse_origin_response(raw_response)?;
+        let response = parse_origin_response(raw_response.clone())?;
         exchange_tx
             .send(TlsnOriginExchange {
                 response,
@@ -270,18 +271,15 @@ async fn run_synthetic_exchange(
             .map_err(|_| TlsnTransportError::OriginConnectionFailed)?
             .map_err(|_| TlsnTransportError::OriginConnectionFailed)?;
         let mut transcript_commit = TranscriptCommitConfig::builder(prover.transcript());
+        let sent_len = prover.transcript().sent().len();
         transcript_commit
-            .commit_sent(0..1)
+            .commit_sent(0..sent_len)
             .map_err(|_| TlsnTransportError::OriginConnectionFailed)?;
-        transcript_commit
-            .commit_sent(1..prover.transcript().sent().len())
-            .map_err(|_| TlsnTransportError::OriginConnectionFailed)?;
-        transcript_commit
-            .commit_recv(0..1)
-            .map_err(|_| TlsnTransportError::OriginConnectionFailed)?;
-        transcript_commit
-            .commit_recv(1..prover.transcript().received().len())
-            .map_err(|_| TlsnTransportError::OriginConnectionFailed)?;
+        for range in response_commitment_ranges(&raw_response) {
+            transcript_commit
+                .commit_recv(range)
+                .map_err(|_| TlsnTransportError::OriginConnectionFailed)?;
+        }
         let transcript_commit = transcript_commit
             .build()
             .map_err(|_| TlsnTransportError::OriginConnectionFailed)?;
@@ -294,7 +292,6 @@ async fn run_synthetic_exchange(
         prove_config
             .transcript_commit(transcript_commit)
             .server_identity();
-        let sent_len = prover.transcript().sent().len();
         let received_len = prover.transcript().received().len();
         prove_config
             .reveal_sent(0..sent_len)
@@ -484,11 +481,13 @@ async fn run_synthetic_exchange(
             bincode::serialize(&presentation).map_err(|_| ProofContinuationError::Presentation)?;
         let mut sparse_transcript_proof = secrets.transcript_proof_builder();
         sparse_transcript_proof
-            .reveal_sent(0..1)
+            .reveal_sent(0..origin_request.len())
             .map_err(|_| ProofContinuationError::Presentation)?;
-        sparse_transcript_proof
-            .reveal_recv(0..1)
-            .map_err(|_| ProofContinuationError::Presentation)?;
+        for range in sparse_response_ranges(&raw_response) {
+            sparse_transcript_proof
+                .reveal_recv(range)
+                .map_err(|_| ProofContinuationError::Presentation)?;
+        }
         let sparse_transcript_proof = sparse_transcript_proof
             .build()
             .map_err(|_| ProofContinuationError::Presentation)?;
@@ -625,23 +624,15 @@ async fn serve_synthetic_origin(
         .ok()
         .and_then(|value| value.parse::<usize>().ok())
         .unwrap_or(0);
-    let body = if padding_bytes == 0 {
-        b"svdata={\"api_result\":1,\"api_data\":{\"api_basic\":{\"api_member_id\":16189463}}}"
-            .to_vec()
+    let padding = if padding_bytes == 0 {
+        "synthetic-padding".to_owned()
     } else {
-        let mut padding_values = Vec::new();
-        let mut remaining = padding_bytes;
-        while remaining > 0 {
-            let chunk_size = remaining.min(64 * 1024);
-            padding_values.push(format!("\"{}\"", "a".repeat(chunk_size)));
-            remaining -= chunk_size;
-        }
-        format!(
-            "svdata={{\"api_result\":1,\"api_data\":{{\"api_basic\":{{\"api_member_id\":16189463}},\"padding\":[{}]}}}}",
-            padding_values.join(","),
-        )
-        .into_bytes()
+        "a".repeat(padding_bytes)
     };
+    let body = format!(
+        "svdata={{\"api_result\":1,\"api_data\":{{\"api_basic\":{{\"api_member_id\":16189463}}}},\"padding\":\"{padding}\"}}"
+    )
+    .into_bytes();
     let mut response = format!(
         "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
         body.len()
@@ -651,6 +642,28 @@ async fn serve_synthetic_origin(
     stream.write_all(&response).await.map_err(|_| ())?;
     stream.shutdown().await.map_err(|_| ())?;
     Ok((request, response))
+}
+
+fn sparse_response_ranges(response: &[u8]) -> Vec<Range<usize>> {
+    let marker = b"\"padding\":\"";
+    let value_start = response
+        .windows(marker.len())
+        .position(|window| window == marker)
+        .map(|position| position + marker.len())
+        .expect("synthetic response must contain padding string");
+    let value_end = response[value_start..]
+        .iter()
+        .position(|byte| *byte == b'"')
+        .map(|offset| value_start + offset)
+        .expect("synthetic padding string must be terminated");
+    vec![0..value_start, value_end..response.len()]
+}
+
+fn response_commitment_ranges(response: &[u8]) -> Vec<Range<usize>> {
+    let sparse_ranges = sparse_response_ranges(response);
+    let value_start = sparse_ranges[0].end;
+    let value_end = sparse_ranges[1].start;
+    vec![0..value_start, value_start..value_end, value_end..response.len()]
 }
 
 fn parse_origin_response(raw_response: Vec<u8>) -> Result<TlsnOriginResponse, TlsnTransportError> {
@@ -777,7 +790,7 @@ mod tests {
                 notary_verifying_key,
             )
             .unwrap();
-        assert_eq!(sparse_transcript.request_transcript_sha256(), None);
+        assert!(sparse_transcript.request_transcript_sha256().is_some());
         assert_eq!(sparse_transcript.response_transcript_sha256(), None);
         let profile =
             fusou_tlsn_verifier::tlsn_alpha15::RequireInfoDisclosureProfile::from_server_identity(
@@ -794,6 +807,22 @@ mod tests {
                 )
             )
         );
+        let sparse_profile =
+            fusou_tlsn_verifier::tlsn_alpha15::SparseRequireInfoDisclosureProfile::from_server_identity(
+                SYNTHETIC_SERVER_IDENTITY,
+            )
+            .unwrap();
+        let sparse_result = sparse_transcript
+            .verify_require_info_sparse(&sparse_profile, &ParserLimits::default())
+            .unwrap();
+        assert_eq!(sparse_result.verified_member_id, "16189463");
+        assert!(sparse_result.response_transcript_sha256.is_none());
+        assert!(sparse_result
+            .revealed_response_ranges
+            .iter()
+            .map(|range| range.length)
+            .sum::<u64>()
+            < sparse_result.response_transcript_size);
         assert!(evidence
             .root_certificate
             .as_ref()

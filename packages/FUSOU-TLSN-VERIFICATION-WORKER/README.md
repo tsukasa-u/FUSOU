@@ -32,6 +32,27 @@ The build script discovers `clang`, `clang-18`, or `clang-17`. Set `CC_wasm32_un
 
 `pnpm test` runs Wrangler's local Worker runtime and checks device-proof session issuance plus verify-time TLSN possession through a synthetic FUSOU-WEB HTTP boundary, strict request validation, invalid/tampered Presentation rejection, user/device authority correlation, atomic single-use consumption including concurrent requests, expiry, identity and Notary fail-closed paths, and missing-configuration failure. FUSOU-WEB route tests cover the generic and TLSN device-auth primitives and reject revoked, invalid-signature, owner-mismatch, malformed-context, and replayed proofs. It does not contact the Game Server or Notary.
 
+### Offline sparse measurements
+
+These commands are offline and use synthetic alpha.15 data. They are reproducible parser and signing-path measurements, not production evidence:
+
+```sh
+node scripts/sparse-parser-memory-benchmark.mjs
+TLSN_SPARSE_CRYPTO_BENCHMARK_PADDING_BYTES=0,1024 node --expose-gc scripts/sparse-crypto-benchmark.mjs
+```
+
+On Linux with Node `v22.21.1`, the parser benchmark produced the following measurements. `additional.rssBytes` is the child-process RSS increase during parsing.
+
+| Transcript | Sparse disclosed | Sparse ratio | Sparse parse | Sparse RSS | Materialized parse | Materialized RSS |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 1 MiB | 134 B | 0.0001277924 | 1.168753 ms | 61,440 B | 1.044763 ms | 2,113,536 B |
+| 4 MiB | 134 B | 0.0000319481 | 1.315778 ms | 57,344 B | 3.834926 ms | 8,409,088 B |
+| 8 MiB | 134 B | 0.0000159740 | 0.987403 ms | 36,864 B | 7.996145 ms | 16,793,600 B |
+| 16 MiB | 135 B | 0.0000080466 | 1.285620 ms | 53,248 B | 17.224014 ms | 33,570,816 B |
+| 32 MiB | 135 B | 0.0000040233 | 1.042368 ms | 57,344 B | 42.031784 ms | 67,125,248 B |
+
+In the latest run, the sparse crypto benchmark verified the generated Ed25519 signature and rejected all 8 signed-Result mutations for both `0` and `1024` bytes of synthetic response padding. It measured 1,999 and 1,998 Presentation bytes respectively, with 12.94 ms and 13.32 ms for WASM verification, Result signing, signature verification, and mutation checks. Presentation size and timing can vary slightly because the synthetic fixture is generated per run; the command above is the reproducible source of truth. Alpha.15 synthetic Presentation generation currently exceeds the 180-second fixture-generation budget at 1 MiB and larger, so large cryptographic verification and full-Presentation memory behavior remain `PARTIAL/BLOCKED`, not measured claims.
+
 ### Manual test deployment
 
 The test Worker can be deployed from a developer machine without GitHub Actions. Copy `.env.example` to `.env`, fill the test values, and encrypt it with the repository key:

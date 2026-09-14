@@ -972,6 +972,57 @@ assert.equal(
   parseSparseProfileTranscripts(largeUnrelatedResponse.semanticVerification, "game.example.com", bindingValue).memberId,
   result.verified_member_id,
 );
+const sparseUnrelatedBody = Buffer.from(JSON.stringify({
+  api_result: 1,
+  unrelated: "x".repeat(2 * 1024 * 1024),
+  api_data: { api_basic: { api_member_id: 16189463 } },
+}).replace(/^/, "svdata="));
+const sparseUnrelatedCase = sparseResponseCase(sparseUnrelatedBody);
+const sparseUnrelatedKeyStart = sparseUnrelatedCase.transcript.indexOf(Buffer.from('"unrelated":"', "ascii"));
+const sparseUnrelatedGapStart = sparseUnrelatedKeyStart + Buffer.byteLength('"unrelated":"');
+const sparseUnrelatedGapEnd = sparseUnrelatedCase.transcript.indexOf(0x22, sparseUnrelatedGapStart);
+const sparseUnrelatedVerification = {
+  verified_presentation: {
+    ...sparseUnrelatedCase.semanticVerification.verified_presentation,
+    revealed_response_ranges: [
+      {
+        start: "0",
+        length: String(sparseUnrelatedGapStart),
+        bytes: sparseUnrelatedCase.transcript.subarray(0, sparseUnrelatedGapStart).toString("base64url"),
+      },
+      {
+        start: String(sparseUnrelatedGapEnd),
+        length: String(sparseUnrelatedCase.transcript.length - sparseUnrelatedGapEnd),
+        bytes: sparseUnrelatedCase.transcript.subarray(sparseUnrelatedGapEnd).toString("base64url"),
+      },
+    ],
+  },
+};
+assert.equal(
+  parseSparseProfileTranscripts(sparseUnrelatedVerification, "game.example.com", bindingValue).memberId,
+  result.verified_member_id,
+);
+const requiredMemberGap = sparseUnrelatedCase.transcript.indexOf(Buffer.from("16189463", "ascii"));
+assert.throws(
+  () => parseSparseProfileTranscripts({
+    verified_presentation: {
+      ...sparseUnrelatedVerification.verified_presentation,
+      revealed_response_ranges: [
+        {
+          start: "0",
+          length: String(requiredMemberGap),
+          bytes: sparseUnrelatedCase.transcript.subarray(0, requiredMemberGap).toString("base64url"),
+        },
+        {
+          start: String(requiredMemberGap + 1),
+          length: String(sparseUnrelatedCase.transcript.length - requiredMemberGap - 1),
+          bytes: sparseUnrelatedCase.transcript.subarray(requiredMemberGap + 1).toString("base64url"),
+        },
+      ],
+    },
+  }, "game.example.com", bindingValue),
+  /undisclosed range|JSON number/,
+);
 const escapedMemberKeyResponse = sparseResponseCase(Buffer.from(String.raw`svdata={"api_result":1,"api_data":{"api_basic":{"api_\u006dember_id":16189463}}}`));
 assert.throws(
   () => parseSparseProfileTranscripts(escapedMemberKeyResponse.semanticVerification, "game.example.com", bindingValue),
@@ -1131,6 +1182,26 @@ assertSignedSparseResult(sparseResult, {
   signerKeyId: "result-2026",
   now,
 });
+assert.throws(
+  () => assertSignedResult(sparseResult, {
+    publicKeySpki: resultPublicKeySpki,
+    keyRegistry: resultKeyRegistry,
+    signerKeyId: "result-2026",
+    now,
+  }),
+  /schema is invalid/,
+  "complete Result verification must reject sparse Result",
+);
+assert.throws(
+  () => assertSignedSparseResult(result, {
+    publicKeySpki: resultPublicKeySpki,
+    keyRegistry: resultKeyRegistry,
+    signerKeyId: "result-2026",
+    now,
+  }),
+  /schema is invalid/,
+  "sparse Result verification must reject complete Result",
+);
 const sparseSignaturePredicate = verifySparseResultSignature({
   result: sparseResult,
   resultRegistry: resultKeyRegistry,
@@ -1172,6 +1243,52 @@ assert.throws(
   }),
   /signature is invalid/,
 );
+const sparseResultMutationCases = [
+  ["revealed request range bytes", (mutated) => {
+    mutated.revealed_request_ranges[0].bytes = mutateBase64Url(mutated.revealed_request_ranges[0].bytes);
+  }],
+  ["request transcript size", (mutated) => {
+    mutated.request_transcript_size = String(Number.parseInt(mutated.request_transcript_size, 10) + 1);
+  }],
+  ["response transcript size", (mutated) => {
+    mutated.response_transcript_size = String(Number.parseInt(mutated.response_transcript_size, 10) + 1);
+  }],
+  ["profile hash", (mutated) => {
+    mutated.profile_sha256 = mutateBase64Url(mutated.profile_sha256);
+  }],
+  ["disclosure mode", (mutated) => {
+    mutated.disclosure_mode = "full";
+  }],
+  ["Presentation hash", (mutated) => {
+    mutated.presentation_sha256 = mutateBase64Url(mutated.presentation_sha256);
+  }],
+  ["binding value", (mutated) => {
+    mutated.binding_value = `${mutated.binding_value.slice(0, -1)}${mutated.binding_value.endsWith("A") ? "B" : "A"}`;
+  }],
+  ["binding nonce", (mutated) => {
+    mutated.binding_nonce = mutateBase64Url(mutated.binding_nonce);
+  }],
+  ["profile ID", (mutated) => {
+    mutated.profile_id = "fusou-require-info-v2-other";
+  }],
+  ["transcript range boundary", (mutated) => {
+    mutated.revealed_request_ranges[0].start = "1";
+  }],
+];
+for (const [label, mutate] of sparseResultMutationCases) {
+  const mutated = structuredClone(sparseResult);
+  mutate(mutated);
+  assert.throws(
+    () => assertSignedSparseResult(mutated, {
+      publicKeySpki: resultPublicKeySpki,
+      keyRegistry: resultKeyRegistry,
+      signerKeyId: "result-2026",
+      now,
+    }),
+    undefined,
+    `sparse Result ${label} mutation must be rejected`,
+  );
+}
 const sparseOverlapResult = {
   ...sparseResult,
   revealed_request_ranges: [

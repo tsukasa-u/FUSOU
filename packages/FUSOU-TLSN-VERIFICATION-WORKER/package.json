@@ -27,7 +27,8 @@
     "test:app-roundtrip": "node scripts/test.mjs --app-roundtrip-only",
     "test:trust-contract": "node scripts/production-trust-contract-test.mjs",
     "test:production-roundtrip": "node scripts/production-roundtrip-test.mjs",
-    "test:isolation": "node scripts/deployment-isolation-test.mjs"
+    "test:isolation": "node scripts/deployment-isolation-test.mjs",
+    "benchmark:sparse-crypto": "pnpm run build:wasm && node scripts/sparse-crypto-benchmark.mjs"
   },
   "keywords": [
     "cloudflare",

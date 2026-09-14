@@ -439,8 +439,11 @@ function internalRequestSignature(secret, jobId, body) {
 async function runAsyncTriggerSmokeTest() {
   const callbackSecret = "callback-test-secret";
   let worker;
+  let sparseWorker;
+  let activeWorker;
   let completionRequest;
   let triggerPayload;
+  const triggerPayloads = [];
   let workerBridge;
   let temporaryDirectory;
   const appRequests = [];
@@ -459,6 +462,7 @@ async function runAsyncTriggerSmokeTest() {
       const requestBody = JSON.parse(Buffer.concat(chunks).toString("utf8"));
       const payload = requestBody.payload;
       triggerPayload = payload;
+      triggerPayloads.push(payload);
       const inputBody = JSON.stringify({
         job_id: payload.job_id,
         binding_id: payload.binding_id,
@@ -467,7 +471,7 @@ async function runAsyncTriggerSmokeTest() {
         device_id: payload.device_id,
         verification_input_key: payload.verification_input_key,
       });
-      const inputResponse = await worker.fetch("https://verify.test/internal/tlsn/verification-input", {
+      const inputResponse = await activeWorker.fetch("https://verify.test/internal/tlsn/verification-input", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -479,7 +483,20 @@ async function runAsyncTriggerSmokeTest() {
       if (!inputResponse.ok) throw new Error(`async input handoff failed: ${inputResponse.status}`);
       const presentation = new Uint8Array(await inputResponse.arrayBuffer());
       const preparedResultJson = payload.device_challenge
-        ? verifierModule.verify_require_info_presentation_with_trust_anchor(
+        ? (payload.profile === "sparse"
+          ? verifierModule.verify_sparse_require_info_presentation_with_trust_anchor(
+              presentation,
+              testVars.TLSN_SERVER_IDENTITY,
+              Buffer.alloc(32, 9),
+              testVars.TLSN_VERIFIER_KEY_ID,
+              testVars.TLSN_NOTARY_KEY_ID,
+              payload.canonical_user_id,
+              payload.device_id,
+              Buffer.from(payload.device_challenge, "base64url"),
+              Buffer.from(testVars.TLSN_TRUST_ROOT_CERTIFICATE_DER, "base64url"),
+              Buffer.from(syntheticFixture.notary_key_base64, "base64url"),
+            )
+          : verifierModule.verify_require_info_presentation_with_trust_anchor(
             presentation,
             testVars.TLSN_SERVER_IDENTITY,
             Buffer.alloc(32),
@@ -490,7 +507,7 @@ async function runAsyncTriggerSmokeTest() {
             Buffer.from(payload.device_challenge, "base64url"),
             Buffer.from(testVars.TLSN_TRUST_ROOT_CERTIFICATE_DER, "base64url"),
             Buffer.from(syntheticFixture.notary_key_base64, "base64url"),
-          )
+          ))
         : "";
       const preparedResult = JSON.parse(preparedResultJson);
       const mismatchedSigningBytes = Buffer.from(preparedResult.signing_bytes, "base64url");
@@ -502,14 +519,14 @@ async function runAsyncTriggerSmokeTest() {
         canonical_user_id: payload.canonical_user_id,
         device_id: payload.device_id,
         presentation_id: createHash("sha256").update(presentation).digest("base64url"),
-        profile: "complete",
-        disclosure_mode: "full",
+        profile: payload.profile,
+        disclosure_mode: payload.disclosure_mode,
         prepared_result: {
           unsigned_result: preparedResult.unsigned_result,
           signing_bytes: mismatchedSigningBytes.toString("base64url"),
         },
       });
-      const mismatchResponse = await worker.fetch("https://verify.test/internal/tlsn/verification-complete", {
+      const mismatchResponse = await activeWorker.fetch("https://verify.test/internal/tlsn/verification-complete", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -528,8 +545,8 @@ async function runAsyncTriggerSmokeTest() {
         canonical_user_id: payload.canonical_user_id,
         device_id: payload.device_id,
         presentation_id: createHash("sha256").update(presentation).digest("base64url"),
-        profile: "complete",
-        disclosure_mode: "full",
+        profile: payload.profile,
+        disclosure_mode: payload.disclosure_mode,
         prepared_result: {
           unsigned_result: preparedResult.unsigned_result,
           signing_bytes: preparedResult.signing_bytes,
@@ -539,7 +556,7 @@ async function runAsyncTriggerSmokeTest() {
         body: completionBody,
         signature: internalRequestSignature(callbackSecret, payload.job_id, completionBody),
       };
-      const completionResponse = await worker.fetch("https://verify.test/internal/tlsn/verification-complete", {
+      const completionResponse = await activeWorker.fetch("https://verify.test/internal/tlsn/verification-complete", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -565,12 +582,14 @@ async function runAsyncTriggerSmokeTest() {
 
   worker = await localWorker({
     ...testVars,
+    TLSN_SPARSE_PROFILE_SHA256: Buffer.alloc(32, 9).toString("base64url"),
     TLSN_EXECUTION_MODE: "trigger",
     TLSN_TRIGGER_API_URL: triggerUrl,
     TLSN_TRIGGER_TASK_ID: "tlsn-verify-presentation",
     TLSN_TRIGGER_SECRET_KEY: "trigger-test-secret",
     TLSN_TRIGGER_CALLBACK_SECRET: callbackSecret,
   });
+  activeWorker = worker;
   try {
     workerBridge = createServer(async (request, response) => {
       try {
@@ -675,6 +694,7 @@ async function runAsyncTriggerSmokeTest() {
     assert.equal(triggerPayload.profile, "complete");
     assert.equal(triggerPayload.disclosure_mode, "full");
     assert.ok(completionRequest);
+    const completePayload = triggerPayload;
 
     const statusResponse = await worker.fetch("https://verify.test/verify/tlsn/status", {
       method: "POST",
@@ -691,6 +711,22 @@ async function runAsyncTriggerSmokeTest() {
     const finalResponse = await statusResponse.json();
     assert.equal(finalResponse.verified, true);
     assert.equal(finalResponse.result.verified_member_id, "16189463");
+
+    const completeTriggerCount = triggerPayloads.length;
+    const completeRetryWithoutProfile = await worker.fetch("https://verify.test/verify/tlsn/retry", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: "Bearer test-token-a" },
+      body: JSON.stringify({
+        job_id: completePayload.job_id,
+        binding_id: completePayload.binding_id,
+        session_id: completePayload.session_id,
+        canonical_user_id: completePayload.canonical_user_id,
+        device_id: completePayload.device_id,
+      }),
+    });
+    assert.equal(completeRetryWithoutProfile.status, 200);
+    assert.equal((await completeRetryWithoutProfile.json()).verified, true);
+    assert.equal(triggerPayloads.length, completeTriggerCount);
 
     const retryProfileMismatch = await worker.fetch("https://verify.test/verify/tlsn/retry", {
       method: "POST",
@@ -721,9 +757,117 @@ async function runAsyncTriggerSmokeTest() {
     });
     assert.equal(duplicateCompletion.status, 200);
     assert.deepEqual(await duplicateCompletion.json(), { accepted: true });
+
+    sparseWorker = await localWorker({
+      ...testVars,
+      TLSN_SPARSE_PROFILE_SHA256: Buffer.alloc(32, 9).toString("base64url"),
+      TLSN_EXECUTION_MODE: "trigger",
+      TLSN_TRIGGER_API_URL: triggerUrl,
+      TLSN_TRIGGER_TASK_ID: "tlsn-verify-presentation",
+      TLSN_TRIGGER_SECRET_KEY: "trigger-test-secret",
+      TLSN_TRIGGER_CALLBACK_SECRET: callbackSecret,
+    });
+    activeWorker = sparseWorker;
+    const sparseSessionResponse = await sparseWorker.fetch("https://verify.test/attestation/session", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: "Bearer test-token-a" },
+      body: JSON.stringify({
+        device_id: deviceId,
+        nonce: deviceNonce,
+        sig: deviceSignature,
+      }),
+    });
+    if (sparseSessionResponse.status !== 201) {
+      throw new Error(`sparse Session issuance failed: ${sparseSessionResponse.status} ${await sparseSessionResponse.text()}`);
+    }
+    const sparseSession = await sparseSessionResponse.json();
+    const sparseDeviceProof = {
+      device_id: deviceId,
+      session_id: sparseSession.session_id,
+      binding_value: sparseSession.binding,
+      challenge: sparseSession.device_challenge,
+    };
+    sparseDeviceProof.sig = sign(
+      null,
+      tlsnDeviceProofMessage(
+        sparseDeviceProof.device_id,
+        sparseDeviceProof.session_id,
+        sparseDeviceProof.binding_value,
+        sparseDeviceProof.challenge,
+      ),
+      devicePrivateKey,
+    ).toString("base64url");
+    const sparseVerificationResponse = await sparseWorker.fetch("https://verify.test/verify/tlsn/sparse", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: "Bearer test-token-a" },
+      body: JSON.stringify({
+        presentation_base64: syntheticFixture.sparse_presentation_base64,
+        session_id: sparseSession.session_id,
+        binding: sparseSession.binding,
+        device_id: deviceId,
+        device_proof: { challenge: sparseDeviceProof.challenge, sig: sparseDeviceProof.sig },
+      }),
+    });
+    assert.equal(sparseVerificationResponse.status, 202);
+    const sparsePayload = triggerPayloads.at(-1);
+    assert.equal(sparsePayload.profile, "sparse");
+    assert.equal(sparsePayload.disclosure_mode, "sparse");
+    const sparseStatusResponse = await sparseWorker.fetch("https://verify.test/verify/tlsn/status", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: "Bearer test-token-a" },
+      body: JSON.stringify({
+        job_id: sparsePayload.job_id,
+        binding_id: sparsePayload.binding_id,
+        session_id: sparsePayload.session_id,
+        canonical_user_id: sparsePayload.canonical_user_id,
+        device_id: sparsePayload.device_id,
+      }),
+    });
+    assert.equal(sparseStatusResponse.status, 200);
+    const sparseFinalResponse = await sparseStatusResponse.json();
+    assert.equal(sparseFinalResponse.verified, true);
+    assert.equal(sparseFinalResponse.result.version, 2);
+    assert.equal(sparseFinalResponse.result.profile_id, "fusou-require-info-v2-sparse");
+    assert.equal(sparseFinalResponse.result.disclosure_mode, "sparse");
+
+    const sparseTriggerCount = triggerPayloads.length;
+    const sparseRetryWithoutProfile = await sparseWorker.fetch("https://verify.test/verify/tlsn/retry", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: "Bearer test-token-a" },
+      body: JSON.stringify({
+        job_id: sparsePayload.job_id,
+        binding_id: sparsePayload.binding_id,
+        session_id: sparsePayload.session_id,
+        canonical_user_id: sparsePayload.canonical_user_id,
+        device_id: sparsePayload.device_id,
+      }),
+    });
+    assert.equal(sparseRetryWithoutProfile.status, 200);
+    assert.equal((await sparseRetryWithoutProfile.json()).verified, true);
+    assert.equal(triggerPayloads.length, sparseTriggerCount);
+    const sparseRetryProfileMismatch = await sparseWorker.fetch("https://verify.test/verify/tlsn/retry", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: "Bearer test-token-a" },
+      body: JSON.stringify({
+        job_id: sparsePayload.job_id,
+        binding_id: sparsePayload.binding_id,
+        session_id: sparsePayload.session_id,
+        canonical_user_id: sparsePayload.canonical_user_id,
+        device_id: sparsePayload.device_id,
+        profile: "complete",
+      }),
+    });
+    assert.equal(sparseRetryProfileMismatch.status, 409);
+    assert.deepEqual(await sparseRetryProfileMismatch.json(), {
+      verified: false,
+      error: "verification_profile_mismatch",
+    });
   } finally {
     if (workerBridge?.listening) {
       await new Promise((resolveServer) => workerBridge.close(resolveServer));
+    }
+    if (sparseWorker) {
+      await sparseWorker.stop();
     }
     await worker.stop();
     await new Promise((resolveServer) => triggerServer.close(resolveServer));
