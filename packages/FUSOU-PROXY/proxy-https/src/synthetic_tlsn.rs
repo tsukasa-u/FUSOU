@@ -53,9 +53,9 @@ pub fn synthetic_require_info_request() -> Request<Bytes> {
         ))
         .version(Version::HTTP_11)
         .header("Host", SYNTHETIC_SERVER_IDENTITY)
-        .header("Content-Length", "11")
+        .header("Content-Length", "0")
         .header("Connection", "close")
-        .body(Bytes::from_static(b"actual body"))
+        .body(Bytes::new())
         .expect("synthetic request must be valid")
 }
 

@@ -6,6 +6,7 @@ const TLSN_DEVICE_CHALLENGE_BYTES = 32;
 const UUID_BYTES = 16;
 
 export type BindingStatus = "active" | "processing" | "expired" | "consumed";
+export type VerificationProfile = "complete" | "sparse";
 
 export type BindingRecord = {
   binding_id: string;
@@ -22,6 +23,7 @@ export type BindingRecord = {
   verification_job_id?: string;
   verification_input_key?: string;
   verification_result_key?: string;
+  verification_profile?: VerificationProfile;
   device_replay_digest_hex?: string;
   used_at?: string;
   presentation_id?: string;
@@ -62,6 +64,7 @@ type ClaimInput = {
   verification_job_id: string;
   verification_input_key: string;
   verification_result_key: string;
+  verification_profile: VerificationProfile;
   device_replay_digest_hex: string;
   now: number;
 };
@@ -505,6 +508,7 @@ export class TlsnBindingAuthorityDurableObject extends DurableObject {
         verification_job_id: input.verification_job_id,
         verification_input_key: input.verification_input_key,
         verification_result_key: input.verification_result_key,
+        verification_profile: input.verification_profile,
         device_replay_digest_hex: input.device_replay_digest_hex,
         presentation_id: input.presentation_id,
       };

@@ -33,6 +33,7 @@ import {
   assertSemanticResultMatches,
   assertSemanticVerificationArtifact,
   createSemanticVerificationArtifact,
+  AuthenticatedForwardReader,
   parseSparseProfileTranscripts,
   verifySparseResultSignature,
   verifySemanticPredicates,
@@ -891,6 +892,21 @@ assert.equal(
   parseSparseProfileTranscripts(sparsePresentationMetadata, "game.example.com", bindingValue).memberId,
   result.verified_member_id,
 );
+const sequentialReader = new AuthenticatedForwardReader([
+  { start: "0", length: "10", bytes: Buffer.from("0123456789").toString("base64url") },
+  { start: "10", length: "10", bytes: Buffer.from("abcdefghij").toString("base64url") },
+  { start: "20", length: "10", bytes: Buffer.from("KLMNOPQRST").toString("base64url") },
+], 30, "forward reader");
+assert.equal(sequentialReader.readBytes(0, 10).toString(), "0123456789");
+assert.equal(sequentialReader.readBytes(10, 10).toString(), "abcdefghij");
+assert.equal(sequentialReader.readBytes(20, 10).toString(), "KLMNOPQRST");
+assert.throws(() => sequentialReader.readBytes(10, 1), /undisclosed range/);
+const gappedReader = new AuthenticatedForwardReader([
+  { start: "0", length: "10", bytes: Buffer.from("0123456789").toString("base64url") },
+  { start: "20", length: "10", bytes: Buffer.from("KLMNOPQRST").toString("base64url") },
+], 30, "gapped reader");
+assert.equal(gappedReader.readBytes(0, 10).toString(), "0123456789");
+assert.throws(() => gappedReader.readBytes(10, 10), /undisclosed range/);
 const responseGap = responseTranscript.indexOf(responseBody);
 const responseGapRanges = [
   { start: "0", length: String(responseGap + 2), bytes: responseTranscript.subarray(0, responseGap + 2).toString("base64url") },
@@ -901,6 +917,33 @@ assert.throws(
     verified_presentation: {
       ...sparsePresentationMetadata.verified_presentation,
       revealed_response_ranges: responseGapRanges,
+    },
+  }, "game.example.com", bindingValue),
+  /undisclosed range|invalid trailing bytes|member ID/,
+);
+const requestGapRanges = [
+  { start: "0", length: String(requestTranscript.indexOf("X-Attestation-Binding") + 2), bytes: requestTranscript.subarray(0, requestTranscript.indexOf("X-Attestation-Binding") + 2).toString("base64url") },
+  { start: String(requestTranscript.indexOf("X-Attestation-Binding") + 3), length: String(requestTranscript.length - requestTranscript.indexOf("X-Attestation-Binding") - 3), bytes: requestTranscript.subarray(requestTranscript.indexOf("X-Attestation-Binding") + 3).toString("base64url") },
+];
+assert.throws(
+  () => parseSparseProfileTranscripts({
+    verified_presentation: {
+      ...sparsePresentationMetadata.verified_presentation,
+      revealed_request_ranges: requestGapRanges,
+    },
+  }, "game.example.com", bindingValue),
+  /undisclosed range|header is not CRLF terminated|binding/,
+);
+const unrelatedGapStart = responseTranscript.indexOf("16189463") - 2;
+const unrelatedGapRanges = [
+  { start: "0", length: String(unrelatedGapStart), bytes: responseTranscript.subarray(0, unrelatedGapStart).toString("base64url") },
+  { start: String(unrelatedGapStart + 2), length: String(responseTranscript.length - unrelatedGapStart - 2), bytes: responseTranscript.subarray(unrelatedGapStart + 2).toString("base64url") },
+];
+assert.throws(
+  () => parseSparseProfileTranscripts({
+    verified_presentation: {
+      ...sparsePresentationMetadata.verified_presentation,
+      revealed_response_ranges: unrelatedGapRanges,
     },
   }, "game.example.com", bindingValue),
   /undisclosed range|invalid trailing bytes|member ID/,
@@ -939,6 +982,13 @@ assert.throws(
   () => parseSparseProfileTranscripts(nonCanonicalMemberIdResponse.semanticVerification, "game.example.com", bindingValue),
   /canonical decimal number|separator is invalid/,
 );
+for (const invalidNumber of ["01", "1.", "1e"]) {
+  const invalidNumberResponse = sparseResponseCase(Buffer.from(`svdata={"api_result":1,"api_data":{"api_basic":{"api_member_id":${invalidNumber}}}}`));
+  assert.throws(
+    () => parseSparseProfileTranscripts(invalidNumberResponse.semanticVerification, "game.example.com", bindingValue),
+    /JSON number|separator|canonical decimal number/,
+  );
+}
 const malformedJsonResponse = sparseResponseCase(Buffer.from('svdata={"api_result":1,"api_data":{"api_basic":{"api_member_id":16189463}}'));
 assert.throws(
   () => parseSparseProfileTranscripts(malformedJsonResponse.semanticVerification, "game.example.com", bindingValue),
@@ -953,6 +1003,39 @@ const invalidUtf8Response = sparseResponseCase(invalidUtf8Body);
 assert.throws(
   () => parseSparseProfileTranscripts(invalidUtf8Response.semanticVerification, "game.example.com", bindingValue),
   /JSON string UTF-8 is invalid/,
+);
+for (const invalidSurrogate of [String.raw`\ud800`, String.raw`\udc00`, String.raw`\ud800\u0061`]) {
+  const invalidSurrogateResponse = sparseResponseCase(Buffer.from(`svdata={"api_result":1,"api_data":{"api_basic":{"api_member_id":16189463,"name":"${invalidSurrogate}"}}}`));
+  assert.throws(
+    () => parseSparseProfileTranscripts(invalidSurrogateResponse.semanticVerification, "game.example.com", bindingValue),
+    /JSON surrogate pair is invalid/,
+  );
+}
+const trailingGarbageResponse = sparseResponseCase(Buffer.from('svdata={"api_result":1,"api_data":{"api_basic":{"api_member_id":16189463}}} garbage'));
+assert.throws(
+  () => parseSparseProfileTranscripts(trailingGarbageResponse.semanticVerification, "game.example.com", bindingValue),
+  /JSON has invalid trailing bytes|JSON byte is invalid/,
+);
+function nestedArrayResponse(arrayDepth) {
+  const nested = `${"[".repeat(arrayDepth)}0${"]".repeat(arrayDepth)}`;
+  return sparseResponseCase(Buffer.from(`svdata={"api_result":1,"unrelated":${nested},"api_data":{"api_basic":{"api_member_id":16189463}}}`));
+}
+assert.equal(
+  parseSparseProfileTranscripts(nestedArrayResponse(63).semanticVerification, "game.example.com", bindingValue).memberId,
+  result.verified_member_id,
+);
+assert.throws(
+  () => parseSparseProfileTranscripts(nestedArrayResponse(64).semanticVerification, "game.example.com", bindingValue),
+  /JSON nesting is too deep/,
+);
+const largeUnrelatedArrayResponse = sparseResponseCase(Buffer.from(JSON.stringify({
+  api_result: 1,
+  unrelated: new Array(512 * 1024).fill(0),
+  api_data: { api_basic: { api_member_id: 16189463 } },
+}).replace(/^/, "svdata=")));
+assert.equal(
+  parseSparseProfileTranscripts(largeUnrelatedArrayResponse.semanticVerification, "game.example.com", bindingValue).memberId,
+  result.verified_member_id,
 );
 const emptyResponseTranscript = Buffer.from("HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n");
 assert.throws(

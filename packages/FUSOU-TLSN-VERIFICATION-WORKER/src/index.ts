@@ -1686,6 +1686,11 @@ app.post("/verify/tlsn/retry", async (c) => {
     return c.json({ verified: false, error: "verification_unavailable" }, 409);
   }
 
+  const storedProfile = record.verification_profile ?? "complete";
+  if (requestBody.profile !== undefined && requestBody.profile !== storedProfile) {
+    return c.json({ verified: false, error: "verification_profile_mismatch" }, 409);
+  }
+
   if (record.status === "consumed") {
     const existing = await c.env.TLSN_PRESENTATIONS.get(record.verification_result_key);
     if (existing) {
@@ -1713,8 +1718,8 @@ app.post("/verify/tlsn/retry", async (c) => {
       device_challenge: record.tlsn_device_challenge,
       verification_input_key: record.verification_input_key,
       verification_result_key: record.verification_result_key,
-      profile: requestBody.profile ?? "complete",
-      disclosure_mode: requestBody.profile === "sparse" ? "sparse" : "full",
+      profile: storedProfile,
+      disclosure_mode: storedProfile === "sparse" ? "sparse" : "full",
     });
     await enqueueTriggerVerification(trigger, payload);
   } catch {
@@ -1841,6 +1846,7 @@ const handleTlsnVerification = async (c: Context<{ Bindings: Bindings }>) => {
         verification_job_id: jobId,
         verification_input_key: verificationInputKey,
         verification_result_key: verificationResultKey,
+        verification_profile: sparseProfile ? "sparse" : "complete",
         device_replay_digest_hex: devicePossession.replayDigestHex,
         now: Date.now(),
       });

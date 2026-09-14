@@ -399,7 +399,7 @@ function parseHttpHead(raw, expectedStartLine, label) {
   }
 }
 
-class SparseRangeReader {
+export class AuthenticatedForwardReader {
   constructor(ranges, size, label) {
     if (!Array.isArray(ranges) || ranges.length > MAX_SPARSE_RANGE_COUNT) {
       throw new Error(`${label} has too many ranges`);
@@ -842,7 +842,7 @@ export function parseSparseProfileTranscripts(semanticVerification, trustedServe
   if (contentEncodings.length > 1 || (contentEncodings.length === 1 && contentEncodings[0].value.toLowerCase() !== "identity")) {
     throw new Error("sparse compressed response bodies are unsupported");
   }
-  const responseReader = new SparseRangeReader(verifiedPresentation.revealed_response_ranges, responseTranscriptSize, "response transcript");
+  const responseReader = new AuthenticatedForwardReader(verifiedPresentation.revealed_response_ranges, responseTranscriptSize, "response transcript");
   const prefix = Buffer.from("svdata=");
   const responseBodyStart = BigInt(response.bodyStart);
   if (responseBodyStart + BigInt(prefix.length) > responseTranscriptSize) {

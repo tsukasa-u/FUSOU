@@ -70,9 +70,16 @@ function residentMemory() {
     return {
       rssBytes: readKilobytes("VmRSS"),
       peakRssBytes: readKilobytes("VmHWM"),
+      dataBytes: readKilobytes("VmData"),
+      virtualBytes: readKilobytes("VmSize"),
     };
   } catch {
-    return { rssBytes: null, peakRssBytes: null };
+    return {
+      rssBytes: null,
+      peakRssBytes: null,
+      dataBytes: null,
+      virtualBytes: null,
+    };
   }
 }
 
@@ -114,6 +121,8 @@ function runChild(targetBytes, mode) {
     mode,
     targetBytes,
     responseTranscriptBytes: response.length,
+    disclosedResponseBytes: semanticVerification.verified_presentation.revealed_response_ranges
+      .reduce((total, range) => total + Number.parseInt(range.length, 10), 0),
     elapsedMilliseconds,
     before,
     after,

@@ -692,6 +692,24 @@ async function runAsyncTriggerSmokeTest() {
     assert.equal(finalResponse.verified, true);
     assert.equal(finalResponse.result.verified_member_id, "16189463");
 
+    const retryProfileMismatch = await worker.fetch("https://verify.test/verify/tlsn/retry", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: "Bearer test-token-a" },
+      body: JSON.stringify({
+        job_id: triggerPayload.job_id,
+        binding_id: triggerPayload.binding_id,
+        session_id: triggerPayload.session_id,
+        canonical_user_id: triggerPayload.canonical_user_id,
+        device_id: triggerPayload.device_id,
+        profile: "sparse",
+      }),
+    });
+    assert.equal(retryProfileMismatch.status, 409);
+    assert.deepEqual(await retryProfileMismatch.json(), {
+      verified: false,
+      error: "verification_profile_mismatch",
+    });
+
     const duplicateCompletion = await worker.fetch("https://verify.test/internal/tlsn/verification-complete", {
       method: "POST",
       headers: {
