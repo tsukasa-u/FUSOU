@@ -375,7 +375,12 @@ async fn run_synthetic_exchange(
         transcript_commit
             .commit_sent(0..sent_len)
             .map_err(|_| TlsnTransportError::OriginConnectionFailed)?;
-        for range in response_commitment_ranges(&raw_response) {
+        let response_commitment_ranges = if sparse_proof {
+            sparse_response_ranges(&raw_response)
+        } else {
+            response_commitment_ranges(&raw_response)
+        };
+        for range in response_commitment_ranges {
             transcript_commit
                 .commit_recv(range)
                 .map_err(|_| TlsnTransportError::OriginConnectionFailed)?;

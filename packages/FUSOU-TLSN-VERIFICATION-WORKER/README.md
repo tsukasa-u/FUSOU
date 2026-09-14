@@ -52,7 +52,40 @@ On Linux with Node `v22.21.1`, the parser benchmark produced the following measu
 | 16 MiB | 135 B | 0.0000080466 | 1.285620 ms | 53,248 B | 17.224014 ms | 33,570,816 B |
 | 32 MiB | 135 B | 0.0000040233 | 1.042368 ms | 57,344 B | 42.031784 ms | 67,125,248 B |
 
-In the latest cached run, the sparse crypto benchmark verified the Ed25519 signature and rejected all 8 signed-Result mutations for a 1 MiB synthetic response padding case. The response transcript was 1,048,727 bytes, the sparse Presentation was 2,002 bytes, 400 bytes were disclosed, WASM verification took 11.73 ms, and Result signing took 2.45 ms. Sparse fixture generation took 387.93 seconds wall-clock, including 384.92 seconds in `prover.prove`; the Rust process peak RSS was 21,728,813,056 bytes. The fixture SHA-256 was `0c3e4cf4c1c0837fe8cb1162f7edf831bf7096fd57306b18bba35b6b24b7e394`. The 4/8/16/32 MiB cases were not forced after this resource cost, and the sparse-only fixture has no full Presentation, so larger cryptographic verification and full-Presentation memory behavior remain `PARTIAL/BLOCKED`, not measured claims.
+The sparse crypto benchmark now forces sparse proof generation in the child Cargo process. In the latest cached run, it verified the Ed25519 signature and rejected all 8 signed-Result mutations for a 1 MiB synthetic response padding case. The response transcript was 1,048,727 bytes, the sparse Presentation was 1,924 bytes, 400 bytes were disclosed, WASM verification took 10.85 ms, and Result signing took 2.31 ms. Sparse fixture generation took 243.36 ms wall-clock, including 29.06 ms in `prover.prove`; the Rust process peak RSS was 229,822,464 bytes. The fixture SHA-256 was `557fcebd813ba26e4efbc947e8f0d050fff869e771412e8e867b545bf780a9a9`. The 4/8/16/32 MiB cases were not forced, and the sparse-only fixture has no full Presentation, so larger cryptographic verification and full-Presentation memory behavior remain `PARTIAL/BLOCKED`, not measured claims.
+
+### Sparse prover allocation investigation
+
+Root cause:
+
+- Before the fix, sparse mode committed the hidden response padding as well as the disclosed prefix and suffix. Alpha.15 `prove_plaintext` computes `commit union reveal`, allocates that union in the MPC VM, and builds the AES/ciphertext circuit over every allocated byte. The packed sparse `PartialTranscript` and the verifier's compatibility materialization were not the source of the 20 GiB peak.
+- The sparse path now commits only the response ranges that it reveals. Hidden padding remains undisclosed and is not represented as an authenticated claim in the sparse profile.
+
+Affected phase:
+
+- `prover.prove`, specifically plaintext allocation and ciphertext/keystream circuit construction.
+
+Complexity:
+
+- At the TLSN layer, memory and circuit work are `O(C + R)`, where `C` is the committed plaintext range length and `R` is the revealed range length. The alpha.15 MPC VM has a large per-byte constant, so committing a 1 MiB hidden range is not a memory-bounded sparse operation.
+
+Before:
+
+- 1 MiB -> 21,728,813,056 B peak RSS (about 20.24 GiB) / 384.92 s `prover.prove`.
+
+After:
+
+- 1 MiB -> 229,822,464 B peak RSS (about 219 MiB) / 29.06 ms `prover.prove`.
+
+Sparse cryptographic verification: `PASS` for the local synthetic 1 MiB case.
+
+Sparse semantic verification: `PASS` in the local synthetic scope.
+
+Sparse Result signing: `PASS`; 8/8 signed-Result mutations rejected.
+
+Full Presentation memory: `BLOCKED`; sparse fixtures intentionally do not contain a full Presentation.
+
+Production evidence: `BLOCKED`; no Game Server, Notary, Worker, or Trigger execution was used.
 
 ### Manual test deployment
 

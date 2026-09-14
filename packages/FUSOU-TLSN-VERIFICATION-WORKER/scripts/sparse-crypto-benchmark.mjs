@@ -71,6 +71,7 @@ function generateFixture(paddingBytes) {
       env: {
         ...process.env,
         CARGO_NET_OFFLINE: "true",
+        FUSOU_SYNTHETIC_PROOF_MODE: "sparse",
         FUSOU_SYNTHETIC_RESPONSE_PADDING_BYTES: String(paddingBytes),
       },
       encoding: "utf8",

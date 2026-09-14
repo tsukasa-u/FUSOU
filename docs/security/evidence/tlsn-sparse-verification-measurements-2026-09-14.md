@@ -76,11 +76,45 @@ Latest recorded cached run with synthetic response padding:
 
 | Padding | Response transcript | Presentation bytes | Disclosed bytes | WASM verify | Result signing | Mutation checks | Mutations rejected |
 | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| 1 MiB | 1,048,727 B | 2,002 B | 400 B | 11.73 ms | 2.45 ms | 8 | 8 |
+| 1 MiB | 1,048,727 B | 1,924 B | 400 B | 10.85 ms | 2.31 ms | 8 | 8 |
 
-The cached fixture SHA-256 was `0c3e4cf4c1c0837fe8cb1162f7edf831bf7096fd57306b18bba35b6b24b7e394`. The sparse Presentation has no full Presentation counterpart because it was generated in opt-in sparse mode. The mutation set covers revealed range bytes, transcript size, profile hash, disclosure mode, Presentation hash, binding value, profile ID, and range boundary.
+The post-fix fixture SHA-256 was `557fcebd813ba26e4efbc947e8f0d050fff869e771412e8e867b545bf780a9a9`. The sparse Presentation has no full Presentation counterpart because it was generated in sparse mode. The mutation set covers revealed range bytes, transcript size, profile hash, disclosure mode, Presentation hash, binding value, profile ID, and range boundary.
 
-The 1 MiB synthetic alpha.15 fixture required 387.93 seconds wall-clock, with 387.79 seconds in proof generation and 384.92 seconds in `prover.prove`. Its peak Rust process RSS was 21,728,813,056 B and RSS after proving was 20,793,606,144 B. The 4/8/16/32 MiB cases were not forced after this result; no larger cryptographic latency or memory claim is made. The existing 16 MiB Rust response limit and 8 MiB Trigger Presentation input limit were not raised to force the measurement.
+The 1 MiB synthetic alpha.15 fixture took 243.36 ms wall-clock, with 131.66 ms in proof generation and 29.06 ms in `prover.prove`. Its peak Rust process RSS was 229,822,464 B. The 4/8/16/32 MiB cases were not forced; no larger cryptographic latency or memory claim is made. The existing 16 MiB Rust response limit and 8 MiB Trigger Presentation input limit were not raised to force the measurement.
+
+### Sparse prover allocation root cause
+
+Root cause:
+
+- Before the fix, sparse mode committed the hidden response padding as well as the disclosed prefix and suffix. Alpha.15 `prove_plaintext` computes `commit union reveal`, allocates that union in the MPC VM, and builds the AES/ciphertext circuit over every allocated byte.
+- The packed sparse `PartialTranscript` and the verifier's compatibility materialization were not the source of the 20 GiB peak. The large allocation occurred in the prover's ZK VM path.
+- The sparse path now commits only the response ranges that it reveals. Hidden padding remains undisclosed and is not represented as an authenticated claim in the sparse profile.
+
+Affected phase:
+
+- `prover.prove`, specifically plaintext allocation and ciphertext/keystream circuit construction.
+
+Complexity:
+
+- At the TLSN layer, memory and circuit work are `O(C + R)`, where `C` is the committed plaintext range length and `R` is the revealed range length. The alpha.15 MPC VM has a large per-byte constant, so committing a 1 MiB hidden range is not a memory-bounded sparse operation.
+
+Before:
+
+- 1 MiB -> 21,728,813,056 B peak RSS (about 20.24 GiB) / 384.92 s `prover.prove`.
+
+After:
+
+- 1 MiB -> 229,822,464 B peak RSS (about 219 MiB) / 29.06 ms `prover.prove`.
+
+Sparse cryptographic verification: `PASS` for the local synthetic 1 MiB case.
+
+Sparse semantic verification: `PASS` in the local synthetic scope.
+
+Sparse Result signing: `PASS`; 8/8 signed-Result mutations rejected.
+
+Full Presentation memory: `BLOCKED`; sparse fixtures intentionally do not contain a full Presentation.
+
+Production evidence: `BLOCKED`; no Game Server, Notary, Worker, or Trigger execution was used.
 
 ## Production Boundary
 
