@@ -13,7 +13,6 @@ import {
 } from "../../../FUSOU-TLSN-VERIFICATION-WORKER/src/wasm/fusou_tlsn_verifier.js";
 
 const MAX_PRESENTATION_BYTES = 8 * 1024 * 1024;
-const MAX_RESULT_JSON_BYTES = 25_165_824;
 const verificationTaskPayloadSchema = z.object({
   job_id: z.string().regex(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i),
   binding_id: z.string().regex(/^[A-Za-z0-9_-]{43}$/),
@@ -36,10 +35,6 @@ const verificationTaskPayloadSchema = z.object({
   }
 });
 type VerificationTaskPayload = z.infer<typeof verificationTaskPayloadSchema>;
-const preparedResultSchema = z.object({
-  unsigned_result: z.string().min(1).max(MAX_RESULT_JSON_BYTES),
-  signing_bytes: z.string().min(1).regex(/^[A-Za-z0-9_-]+$/),
-}).strict();
 
 function requiredEnv(name: string): string {
   const value = process.env[name]?.trim();
@@ -145,7 +140,7 @@ async function fetchPresentation(payload: VerificationTaskPayload): Promise<Uint
   return bytes;
 }
 
-async function postCompletion(payload: VerificationTaskPayload, presentationId: string, preparedResult: unknown): Promise<void> {
+async function postCompletion(payload: VerificationTaskPayload, presentationId: string): Promise<void> {
   const body = JSON.stringify({
     job_id: payload.job_id,
     binding_id: payload.binding_id,
@@ -153,9 +148,9 @@ async function postCompletion(payload: VerificationTaskPayload, presentationId: 
     canonical_user_id: payload.canonical_user_id,
     device_id: payload.device_id,
     presentation_id: presentationId,
+    verification_status: "verified",
     profile: payload.profile,
     disclosure_mode: payload.disclosure_mode,
-    prepared_result: preparedResult,
   });
   const response = await fetch(`${workerBaseUrl()}/internal/tlsn/verification-complete`, {
     method: "POST",
@@ -237,8 +232,8 @@ export const verifyTlsnPresentation = task({
           deviceChallenge,
           config.notaryKey,
         );
-    const preparedResult = preparedResultSchema.parse(JSON.parse(preparedResultJson) as unknown);
-    await postCompletion(payload, presentationId, preparedResult);
+    JSON.parse(preparedResultJson);
+    await postCompletion(payload, presentationId);
     return { accepted: true, presentation_id: presentationId };
   },
 });

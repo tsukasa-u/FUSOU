@@ -509,49 +509,57 @@ async function runAsyncTriggerSmokeTest() {
             Buffer.from(syntheticFixture.notary_key_base64, "base64url"),
           ))
         : "";
-      const preparedResult = JSON.parse(preparedResultJson);
-      const mismatchedSigningBytes = Buffer.from(preparedResult.signing_bytes, "base64url");
-      mismatchedSigningBytes[0] ^= 1;
-      const mismatchBody = JSON.stringify({
+      JSON.parse(preparedResultJson);
+      const completionBase = {
         job_id: payload.job_id,
         binding_id: payload.binding_id,
         session_id: payload.session_id,
         canonical_user_id: payload.canonical_user_id,
         device_id: payload.device_id,
         presentation_id: createHash("sha256").update(presentation).digest("base64url"),
+        verification_status: "verified",
         profile: payload.profile,
         disclosure_mode: payload.disclosure_mode,
-        prepared_result: {
-          unsigned_result: preparedResult.unsigned_result,
-          signing_bytes: mismatchedSigningBytes.toString("base64url"),
-        },
+      };
+      for (const [field, value] of [
+        ["prepared_result", { unsigned_result: "{}", signing_bytes: "AA" }],
+        ["verified_member_id", "99999999"],
+        ["revealed_response_ranges", []],
+        ["response_transcript_size", "0"],
+        ["profile_sha256", Buffer.alloc(32, 7).toString("base64url")],
+        ["server_identity", "attacker.example"],
+      ]) {
+        const forgedBody = JSON.stringify({ ...completionBase, [field]: value });
+        const forgedResponse = await activeWorker.fetch("https://verify.test/internal/tlsn/verification-complete", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "X-FUSOU-TLSN-Job-Id": payload.job_id,
+            "X-FUSOU-TLSN-Signature": internalRequestSignature(callbackSecret, payload.job_id, forgedBody),
+          },
+          body: forgedBody,
+        });
+        if (forgedResponse.status !== 400 || (await forgedResponse.json()).error !== "invalid_request") {
+          throw new Error(`async completion accepted forged callback field: ${field}`);
+        }
+      }
+      const substitutionBody = JSON.stringify({
+        ...completionBase,
+        presentation_id: Buffer.alloc(32, 8).toString("base64url"),
       });
-      const mismatchResponse = await activeWorker.fetch("https://verify.test/internal/tlsn/verification-complete", {
+      const substitutionResponse = await activeWorker.fetch("https://verify.test/internal/tlsn/verification-complete", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           "X-FUSOU-TLSN-Job-Id": payload.job_id,
-          "X-FUSOU-TLSN-Signature": internalRequestSignature(callbackSecret, payload.job_id, mismatchBody),
+          "X-FUSOU-TLSN-Signature": internalRequestSignature(callbackSecret, payload.job_id, substitutionBody),
         },
-        body: mismatchBody,
+        body: substitutionBody,
       });
-      if (mismatchResponse.status !== 422 || (await mismatchResponse.json()).error !== "signing_bytes_mismatch") {
-        throw new Error("async completion accepted mismatched signing bytes");
+      if (substitutionResponse.status !== 422 || (await substitutionResponse.json()).error !== "verification_result_mismatch") {
+        throw new Error("async completion accepted a substituted Presentation hash");
       }
-      const completionBody = JSON.stringify({
-        job_id: payload.job_id,
-        binding_id: payload.binding_id,
-        session_id: payload.session_id,
-        canonical_user_id: payload.canonical_user_id,
-        device_id: payload.device_id,
-        presentation_id: createHash("sha256").update(presentation).digest("base64url"),
-        profile: payload.profile,
-        disclosure_mode: payload.disclosure_mode,
-        prepared_result: {
-          unsigned_result: preparedResult.unsigned_result,
-          signing_bytes: preparedResult.signing_bytes,
-        },
-      });
+      const completionBody = JSON.stringify(completionBase);
       completionRequest = {
         body: completionBody,
         signature: internalRequestSignature(callbackSecret, payload.job_id, completionBody),
@@ -757,6 +765,31 @@ async function runAsyncTriggerSmokeTest() {
     });
     assert.equal(duplicateCompletion.status, 200);
     assert.deepEqual(await duplicateCompletion.json(), { accepted: true });
+
+    const concurrentDuplicateCompletions = await Promise.all([
+      worker.fetch("https://verify.test/internal/tlsn/verification-complete", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-FUSOU-TLSN-Job-Id": triggerPayload.job_id,
+          "X-FUSOU-TLSN-Signature": completionRequest.signature,
+        },
+        body: completionRequest.body,
+      }),
+      worker.fetch("https://verify.test/internal/tlsn/verification-complete", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-FUSOU-TLSN-Job-Id": triggerPayload.job_id,
+          "X-FUSOU-TLSN-Signature": completionRequest.signature,
+        },
+        body: completionRequest.body,
+      }),
+    ]);
+    for (const response of concurrentDuplicateCompletions) {
+      assert.equal(response.status, 200);
+      assert.deepEqual(await response.json(), { accepted: true });
+    }
 
     sparseWorker = await localWorker({
       ...testVars,

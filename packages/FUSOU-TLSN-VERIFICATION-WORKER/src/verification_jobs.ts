@@ -51,11 +51,8 @@ export const verificationCallbackSchema = z.object({
   canonical_user_id: z.string().uuid(),
   device_id: z.string().uuid(),
   presentation_id: z.string().regex(/^[A-Za-z0-9_-]{43}$/),
+  verification_status: z.literal("verified"),
   ...verificationProfileFields,
-  prepared_result: z.object({
-    unsigned_result: z.string().min(1).max(25_165_824),
-    signing_bytes: z.string().min(1).regex(/^[A-Za-z0-9_-]+$/),
-  }).strict(),
 }).strict().superRefine(assertVerificationProfile);
 
 export const verificationStatusRequestSchema = verificationTaskPayloadObject.pick({

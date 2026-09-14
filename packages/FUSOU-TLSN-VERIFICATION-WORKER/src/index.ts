@@ -134,7 +134,7 @@ const MAX_PRESENTATION_BYTES = 8 * 1024 * 1024;
 const MAX_REQUEST_JSON_BYTES = 12 * 1024 * 1024;
 const MAX_PRESENTATION_BASE64_LENGTH = Math.ceil(MAX_PRESENTATION_BYTES * 4 / 3) + 4;
 const MAX_RESULT_JSON_BYTES = 25_165_824;
-const MAX_INTERNAL_CALLBACK_JSON_BYTES = MAX_RESULT_JSON_BYTES + 4096;
+const MAX_INTERNAL_CALLBACK_JSON_BYTES = 64 * 1024;
 
 const requestSchema = z
   .object({
@@ -659,6 +659,72 @@ async function readConfig(env: Bindings): Promise<VerifierConfig | null> {
 async function ensureWasmInitialized(): Promise<void> {
   wasmInitialization ??= initVerifier({ module_or_path: wasmModule }).then(() => undefined);
   return wasmInitialization;
+}
+
+type VerificationProfile = "complete" | "sparse";
+
+function verifyPresentationToPreparedResult(
+  config: VerifierConfig,
+  profile: VerificationProfile,
+  presentationBytes: Uint8Array,
+  canonicalUserId: string,
+  deviceId: string,
+  deviceChallengeBytes: Uint8Array,
+): z.infer<typeof preparedResultSchema> {
+  const preparedJson = profile === "sparse"
+    ? config.sparseProfileSha256Bytes
+      ? config.trustRootCertificateDerBytes
+        ? verify_sparse_require_info_presentation_with_trust_anchor(
+            presentationBytes,
+            config.serverIdentity,
+            config.sparseProfileSha256Bytes,
+            config.verifierKeyId,
+            config.notaryKeyId,
+            canonicalUserId,
+            deviceId,
+            deviceChallengeBytes,
+            config.trustRootCertificateDerBytes,
+            config.notaryKeyBytes,
+          )
+        : verify_sparse_require_info_presentation(
+            presentationBytes,
+            config.serverIdentity,
+            config.sparseProfileSha256Bytes,
+            config.verifierKeyId,
+            config.notaryKeyId,
+            canonicalUserId,
+            deviceId,
+            deviceChallengeBytes,
+            config.notaryKeyBytes,
+          )
+      : (() => {
+          throw new Error("sparse verifier is unconfigured");
+        })()
+    : config.trustRootCertificateDerBytes
+      ? verify_require_info_presentation_with_trust_anchor(
+          presentationBytes,
+          config.serverIdentity,
+          config.profileSha256Bytes,
+          config.verifierKeyId,
+          config.notaryKeyId,
+          canonicalUserId,
+          deviceId,
+          deviceChallengeBytes,
+          config.trustRootCertificateDerBytes,
+          config.notaryKeyBytes,
+        )
+      : verify_require_info_presentation(
+          presentationBytes,
+          config.serverIdentity,
+          config.profileSha256Bytes,
+          config.verifierKeyId,
+          config.notaryKeyId,
+          canonicalUserId,
+          deviceId,
+          deviceChallengeBytes,
+          config.notaryKeyBytes,
+        );
+  return preparedResultSchema.parse(JSON.parse(preparedJson) as unknown);
 }
 
 async function signSigningBytes(
@@ -1239,6 +1305,7 @@ app.post("/internal/tlsn/verification-complete", async (c) => {
   }
   if (
     record.presentation_id !== callback.presentation_id ||
+    record.verification_input_key === undefined ||
     record.verification_result_key === undefined ||
     record.device_replay_digest_hex === undefined
   ) {
@@ -1261,9 +1328,38 @@ app.post("/internal/tlsn/verification-complete", async (c) => {
     return c.json({ error: "job_unavailable" }, 409);
   }
 
+  const expectedProfile = record.verification_profile ?? "complete";
+  if (
+    callback.profile !== expectedProfile ||
+    callback.disclosure_mode !== (expectedProfile === "sparse" ? "sparse" : "full")
+  ) {
+    return c.json({ error: "verification_profile_mismatch" }, 422);
+  }
+
+  const presentationObject = await c.env.TLSN_PRESENTATIONS.get(record.verification_input_key);
+  if (!presentationObject || presentationObject.size > MAX_PRESENTATION_BYTES) {
+    return c.json({ error: "verification_input_unavailable" }, 503);
+  }
+  const storedPresentation = new Uint8Array(await presentationObject.arrayBuffer());
+  const storedPresentationId = encodeBase64Url(
+    new Uint8Array(await crypto.subtle.digest("SHA-256", storedPresentation)),
+  );
+  if (storedPresentationId !== record.presentation_id || storedPresentationId !== callback.presentation_id) {
+    return c.json({ error: "verification_result_mismatch" }, 422);
+  }
+
   try {
-    const sparseProfile = callback.profile === "sparse";
-    const preparedUnsignedResult = JSON.parse(callback.prepared_result.unsigned_result) as Record<string, unknown>;
+    const sparseProfile = expectedProfile === "sparse";
+    await ensureWasmInitialized();
+    const prepared = verifyPresentationToPreparedResult(
+      config,
+      expectedProfile,
+      storedPresentation,
+      record.canonical_user_id,
+      record.device_id,
+      decodeBase64Url(record.tlsn_device_challenge, 32),
+    );
+    const preparedUnsignedResult = JSON.parse(prepared.unsigned_result) as Record<string, unknown>;
     const expectedProfileId = sparseProfile ? "fusou-require-info-v2-sparse" : "fusou-require-info-v1";
     const expectedVersion = sparseProfile ? 2 : 1;
     const expectedProfileSha256 = sparseProfile ? config.sparseProfileSha256 : config.profileSha256;
@@ -1293,11 +1389,10 @@ app.post("/internal/tlsn/verification-complete", async (c) => {
       return c.json({ error: "binding_mismatch" }, 422);
     }
 
-    const signingBytes = decodeBase64Url(callback.prepared_result.signing_bytes, MAX_RESULT_JSON_BYTES);
-    await ensureWasmInitialized();
+    const signingBytes = decodeBase64Url(prepared.signing_bytes, MAX_RESULT_JSON_BYTES);
     const derivedSigningBytes = sparseProfile
-      ? derive_sparse_verifier_result_signing_bytes(callback.prepared_result.unsigned_result)
-      : derive_verifier_result_signing_bytes(callback.prepared_result.unsigned_result);
+      ? derive_sparse_verifier_result_signing_bytes(prepared.unsigned_result)
+      : derive_verifier_result_signing_bytes(prepared.unsigned_result);
     if (!hasSameBytes(derivedSigningBytes, signingBytes)) {
       return c.json({ error: "signing_bytes_mismatch" }, 422);
     }
@@ -1309,8 +1404,8 @@ app.post("/internal/tlsn/verification-complete", async (c) => {
     }
     const signedResult = JSON.parse(
       sparseProfile
-        ? attach_sparse_verifier_result_signature(callback.prepared_result.unsigned_result, signatureBytes)
-        : attach_verifier_result_signature(callback.prepared_result.unsigned_result, signatureBytes),
+        ? attach_sparse_verifier_result_signature(prepared.unsigned_result, signatureBytes)
+        : attach_verifier_result_signature(prepared.unsigned_result, signatureBytes),
     ) as Record<string, unknown>;
     const usedAt = record.status === "consumed"
       ? record.used_at
@@ -1324,7 +1419,7 @@ app.post("/internal/tlsn/verification-complete", async (c) => {
       device_id: record.device_id,
       nonce: record.nonce,
       binding_value: record.binding_value,
-      presentation_id: callback.presentation_id,
+      presentation_id: storedPresentationId,
       used_at: usedAt,
     });
     const finalResponse = verificationFinalResponseSchema.parse({
@@ -1347,7 +1442,7 @@ app.post("/internal/tlsn/verification-complete", async (c) => {
         device_id: record.device_id,
         binding_value: record.binding_value,
         nonce: record.nonce,
-        presentation_id: callback.presentation_id,
+        presentation_id: storedPresentationId,
         verification_job_id: callback.job_id,
         used_at: usedAt,
         now: Date.now(),
@@ -1899,59 +1994,13 @@ const handleTlsnVerification = async (c: Context<{ Bindings: Bindings }>) => {
   }
 
   try {
-    const preparedJson = sparseProfile
-      ? config.trustRootCertificateDerBytes
-        ? verify_sparse_require_info_presentation_with_trust_anchor(
-            presentationBytes,
-            config.serverIdentity,
-            config.sparseProfileSha256Bytes!,
-            config.verifierKeyId,
-            config.notaryKeyId,
-            authentication.canonicalUserId,
-            requestBody.device_id,
-            deviceChallengeBytes,
-            config.trustRootCertificateDerBytes,
-            config.notaryKeyBytes,
-          )
-        : verify_sparse_require_info_presentation(
-            presentationBytes,
-            config.serverIdentity,
-            config.sparseProfileSha256Bytes!,
-            config.verifierKeyId,
-            config.notaryKeyId,
-            authentication.canonicalUserId,
-            requestBody.device_id,
-            deviceChallengeBytes,
-            config.notaryKeyBytes,
-          )
-      : config.trustRootCertificateDerBytes
-        ? verify_require_info_presentation_with_trust_anchor(
-            presentationBytes,
-            config.serverIdentity,
-            config.profileSha256Bytes,
-            config.verifierKeyId,
-            config.notaryKeyId,
-            authentication.canonicalUserId,
-            requestBody.device_id,
-            deviceChallengeBytes,
-            config.trustRootCertificateDerBytes,
-            config.notaryKeyBytes,
-          )
-        : verify_require_info_presentation(
-            presentationBytes,
-            config.serverIdentity,
-            config.profileSha256Bytes,
-            config.verifierKeyId,
-            config.notaryKeyId,
-            authentication.canonicalUserId,
-            requestBody.device_id,
-            deviceChallengeBytes,
-            config.notaryKeyBytes,
-          );
-    const prepared = preparedResultSchema.parse(
-      JSON.parse(
-        preparedJson,
-      ) as unknown,
+    const prepared = verifyPresentationToPreparedResult(
+      config,
+      sparseProfile ? "sparse" : "complete",
+      presentationBytes,
+      authentication.canonicalUserId,
+      requestBody.device_id,
+      deviceChallengeBytes,
     );
     const authenticatedResult = authenticatedResultSchema.parse(
       JSON.parse(prepared.unsigned_result) as unknown,
