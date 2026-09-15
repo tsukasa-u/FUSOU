@@ -77,6 +77,8 @@ type Bindings = {
   TLSN_BINDING_AUTHORITY_KEY_REGISTRY: string;
   TLSN_TRUST_ROOT_CERTIFICATE_DER?: string;
   TLSN_TEST_BINDING_VALUE?: string;
+  TLSN_TEST_BINDING_VALUES?: string;
+  TLSN_BENCHMARK_TIMINGS?: string;
   TLSN_CANDIDATE_SERVER_IDENTITY?: string;
   TLSN_CANDIDATE_PROFILE_SHA256?: string;
   TLSN_CANDIDATE_SPARSE_PROFILE_SHA256?: string;
@@ -142,6 +144,29 @@ const MAX_PRESENTATION_BASE64_LENGTH = Math.ceil(MAX_PRESENTATION_BYTES * 4 / 3)
 const MAX_RESULT_JSON_BYTES = 25_165_824;
 const MAX_INTERNAL_CALLBACK_JSON_BYTES = 64 * 1024;
 const VERIFICATION_LEASE_MS = 10 * 60 * 1000;
+
+type BenchmarkTimingStage =
+  | "t0_accepted"
+  | "t1_presentation_persisted"
+  | "t2_trigger_submitted"
+  | "t3_callback_accepted"
+  | "t4_lease_acquired"
+  | "t5_presentation_read"
+  | "t6_wasm_verification_completed"
+  | "t7_result_signing_completed"
+  | "t8_result_persisted"
+  | "t9_consume_completed"
+  | "t10_status_verified";
+
+type BenchmarkTimingRecord = {
+  timestamps: Partial<Record<BenchmarkTimingStage, number>>;
+  r2_operations: Record<string, number>;
+  max_verifier_concurrency: number;
+};
+
+const benchmarkTimingRecords = new Map<string, BenchmarkTimingRecord>();
+let benchmarkActiveVerifierCount = 0;
+let benchmarkMaxVerifierConcurrency = 0;
 
 const requestSchema = z
   .object({
@@ -316,6 +341,67 @@ const app = new Hono<{ Bindings: Bindings }>();
 let wasmInitialization: Promise<void> | undefined;
 let testCompletionDelayUsed = false;
 let testPostResultDelayUsed = false;
+
+function benchmarkEnabled(env: Bindings): boolean {
+  return env.TLSN_ENVIRONMENT === "test" && env.TLSN_BENCHMARK_TIMINGS === "true";
+}
+
+function benchmarkRecord(env: Bindings, jobId: string, stage: BenchmarkTimingStage, timestamp = Date.now()): void {
+  if (!benchmarkEnabled(env)) return;
+  const record = benchmarkTimingRecords.get(jobId) ?? {
+    timestamps: {},
+    r2_operations: {},
+    max_verifier_concurrency: benchmarkMaxVerifierConcurrency,
+  };
+  record.timestamps[stage] = timestamp;
+  record.max_verifier_concurrency = benchmarkMaxVerifierConcurrency;
+  benchmarkTimingRecords.set(jobId, record);
+}
+
+function benchmarkR2Operation(env: Bindings, jobId: string, operation: string): void {
+  if (!benchmarkEnabled(env)) return;
+  const record = benchmarkTimingRecords.get(jobId) ?? {
+    timestamps: {},
+    r2_operations: {},
+    max_verifier_concurrency: benchmarkMaxVerifierConcurrency,
+  };
+  record.r2_operations[operation] = (record.r2_operations[operation] ?? 0) + 1;
+  record.max_verifier_concurrency = benchmarkMaxVerifierConcurrency;
+  benchmarkTimingRecords.set(jobId, record);
+}
+
+function benchmarkVerifierStart(env: Bindings, jobId: string): void {
+  if (!benchmarkEnabled(env)) return;
+  benchmarkActiveVerifierCount += 1;
+  benchmarkMaxVerifierConcurrency = Math.max(benchmarkMaxVerifierConcurrency, benchmarkActiveVerifierCount);
+  benchmarkRecord(env, jobId, "t4_lease_acquired");
+}
+
+function benchmarkVerifierEnd(env: Bindings, jobId: string): void {
+  if (!benchmarkEnabled(env)) return;
+  benchmarkActiveVerifierCount = Math.max(0, benchmarkActiveVerifierCount - 1);
+}
+
+function attachBenchmarkTimingHeader(c: Context<{ Bindings: Bindings }>, env: Bindings, jobId: string): void {
+  if (!benchmarkEnabled(env)) return;
+  const record = benchmarkTimingRecords.get(jobId);
+  if (!record) return;
+  c.header(
+    "X-FUSOU-TLSN-Benchmark-Timing",
+    encodeBase64Url(new TextEncoder().encode(JSON.stringify({
+      ...record,
+      max_verifier_concurrency: benchmarkMaxVerifierConcurrency,
+    }))),
+  );
+}
+
+function testBindingValueForRequest(env: Bindings, request: Request): string | undefined {
+  if (env.TLSN_ENVIRONMENT !== "test") return undefined;
+  if (env.TLSN_TEST_BINDING_VALUES === undefined) return env.TLSN_TEST_BINDING_VALUE;
+  const requested = request.headers.get("X-FUSOU-TLSN-Test-Binding")?.trim();
+  const allowed = env.TLSN_TEST_BINDING_VALUES.split(",").map((value) => value.trim()).filter(Boolean);
+  return requested && allowed.includes(requested) ? requested : undefined;
+}
 
 async function delayTestCompletion(env: Bindings): Promise<void> {
   if (env.TLSN_ENVIRONMENT !== "test" || env.TLSN_TEST_COMPLETION_DELAY_MS === undefined) return;
@@ -1292,6 +1378,7 @@ app.post("/internal/tlsn/verification-input", async (c) => {
   }
 
   const object = await c.env.TLSN_PRESENTATIONS.get(record.verification_input_key);
+  benchmarkR2Operation(c.env, parsed.data.job_id, "trigger_input_get");
   if (!object || object.size > MAX_PRESENTATION_BYTES) {
     return c.json({ error: "verification_input_unavailable" }, 503);
   }
@@ -1326,6 +1413,7 @@ app.post("/internal/tlsn/verification-complete", async (c) => {
   if (callback.job_id !== jobId) {
     return c.json({ error: "invalid_request" }, 400);
   }
+  benchmarkRecord(c.env, callback.job_id, "t3_callback_accepted");
 
   const config = await readConfig(c.env);
   if (!config) {
@@ -1429,6 +1517,7 @@ app.post("/internal/tlsn/verification-complete", async (c) => {
   ) {
     return c.json({ error: "verification_result_mismatch" }, 422);
   }
+  benchmarkVerifierStart(c.env, callback.job_id);
   const verificationInputKey = verificationRecord.verification_input_key;
   const verificationResultKey = verificationRecord.verification_result_key;
   const deviceReplayDigestHex = verificationRecord.device_replay_digest_hex;
@@ -1441,6 +1530,7 @@ app.post("/internal/tlsn/verification-complete", async (c) => {
   let completionConsumed = false;
   let resultPersisted = false;
   let preserveAttemptResult = false;
+  let benchmarkVerifierStarted = true;
   const releaseVerificationLease = async (): Promise<void> => {
     await authority.releaseVerification(callback.binding_id, {
       session_id: completionRecord.session_id,
@@ -1462,6 +1552,8 @@ app.post("/internal/tlsn/verification-complete", async (c) => {
       return c.json({ error: "verification_input_unavailable" }, 503);
     }
     storedPresentation = new Uint8Array(await presentationObject.arrayBuffer());
+    benchmarkR2Operation(c.env, callback.job_id, "worker_presentation_get");
+    benchmarkRecord(c.env, callback.job_id, "t5_presentation_read");
     storedPresentationId = encodeBase64Url(
       new Uint8Array(await crypto.subtle.digest("SHA-256", storedPresentation)),
     );
@@ -1485,6 +1577,7 @@ app.post("/internal/tlsn/verification-complete", async (c) => {
       completionRecord.device_id,
       decodeBase64Url(completionRecord.tlsn_device_challenge, 32),
     );
+    benchmarkRecord(c.env, callback.job_id, "t6_wasm_verification_completed");
     const preparedUnsignedResult = JSON.parse(prepared.unsigned_result) as Record<string, unknown>;
     const expectedProfileId = sparseProfile ? "fusou-require-info-v2-sparse" : "fusou-require-info-v1";
     const expectedVersion = sparseProfile ? 2 : 1;
@@ -1556,6 +1649,7 @@ app.post("/internal/tlsn/verification-complete", async (c) => {
       consume_receipt: consumeReceipt,
       device_replay_digest_hex: completionRecord.device_replay_digest_hex,
     });
+    benchmarkRecord(c.env, callback.job_id, "t7_result_signing_completed");
     const finalResponseBody = JSON.stringify(finalResponse);
     const resultSha256 = encodeBase64Url(
       new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(finalResponseBody))),
@@ -1566,6 +1660,8 @@ app.post("/internal/tlsn/verification-complete", async (c) => {
       { httpMetadata: { contentType: "application/json" } },
     );
     resultPersisted = true;
+    benchmarkR2Operation(c.env, callback.job_id, "result_put");
+    benchmarkRecord(c.env, callback.job_id, "t8_result_persisted");
     await delayAfterResultPersistence(c.env);
     let consumedBinding: BindingRecord;
     try {
@@ -1592,6 +1688,7 @@ app.post("/internal/tlsn/verification-complete", async (c) => {
       return c.json({ error: "verification_result_unavailable" }, 503);
     }
     completionConsumed = true;
+    benchmarkRecord(c.env, callback.job_id, "t9_consume_completed");
     if (completionRecord.verification_input_key) {
       await c.env.TLSN_PRESENTATIONS.delete(completionRecord.verification_input_key).catch(() => undefined);
     }
@@ -1600,6 +1697,10 @@ app.post("/internal/tlsn/verification-complete", async (c) => {
     return c.json({ error: "verification_failed" }, 422);
   } finally {
     await releaseVerificationLease();
+    if (benchmarkVerifierStarted) {
+      benchmarkVerifierEnd(c.env, callback.job_id);
+      benchmarkVerifierStarted = false;
+    }
     if (resultPersisted && !completionConsumed && !preserveAttemptResult) {
       await c.env.TLSN_PRESENTATIONS.delete(attemptResultKey).catch(() => undefined);
     }
@@ -1810,7 +1911,7 @@ app.post("/attestation/session", async (c) => {
       deviceAuthentication.deviceId,
       requestBody.nonce,
       c.env.TLSN_ENVIRONMENT === "test"
-        ? c.env.TLSN_TEST_BINDING_VALUE
+        ? testBindingValueForRequest(c.env, c.req.raw)
         : c.env.TLSN_DEPLOYMENT_ROLE === "canary"
           ? c.env.TLSN_CANARY_BINDING_VALUE
           : undefined,
@@ -1864,6 +1965,7 @@ app.post("/verify/tlsn/status", async (c) => {
 
   if (record.status === "processing" || record.status === "verifying") {
     c.header("Cache-Control", "no-store");
+    attachBenchmarkTimingHeader(c, c.env, requestBody.job_id);
     return c.json({ verified: false, status: "processing", job_id: requestBody.job_id }, 202);
   }
   const resultObjectKey = record.result_object_key;
@@ -1875,6 +1977,7 @@ app.post("/verify/tlsn/status", async (c) => {
   }
 
   const object = await c.env.TLSN_PRESENTATIONS.get(resultObjectKey);
+  benchmarkR2Operation(c.env, requestBody.job_id, "status_result_get");
   if (!object || object.size > MAX_INTERNAL_CALLBACK_JSON_BYTES) {
     return c.json({ verified: false, error: "verification_result_unavailable" }, 503);
   }
@@ -1887,6 +1990,8 @@ app.post("/verify/tlsn/status", async (c) => {
       return c.json({ verified: false, error: "verification_result_unavailable" }, 503);
     }
     const finalResponse = verificationFinalResponseSchema.parse(JSON.parse(resultBody) as unknown);
+    benchmarkRecord(c.env, requestBody.job_id, "t10_status_verified");
+    attachBenchmarkTimingHeader(c, c.env, requestBody.job_id);
     c.header("Cache-Control", "no-store");
     return c.json(finalResponse);
   } catch {
@@ -2076,6 +2181,7 @@ const handleTlsnVerification = async (c: Context<{ Bindings: Bindings }>) => {
       new Uint8Array(await crypto.subtle.digest("SHA-256", presentationBytes)),
     );
     const jobId = crypto.randomUUID();
+    benchmarkRecord(c.env, jobId, "t0_accepted");
     const verificationInputKey = verificationObjectKey(jobId, "presentation");
     const verificationResultKey = verificationObjectKey(jobId, "result");
     const bindingId = await hashBindingId(requestBody.binding);
@@ -2096,6 +2202,8 @@ const handleTlsnVerification = async (c: Context<{ Bindings: Bindings }>) => {
       await c.env.TLSN_PRESENTATIONS.put(verificationInputKey, presentationBytes, {
         httpMetadata: { contentType: "application/octet-stream" },
       });
+      benchmarkR2Operation(c.env, jobId, "input_put");
+      benchmarkRecord(c.env, jobId, "t1_presentation_persisted");
       await authority.claimBinding(requestBody.binding, {
         session_id: issuedBinding.session_id,
         canonical_user_id: authentication.canonicalUserId,
@@ -2116,6 +2224,7 @@ const handleTlsnVerification = async (c: Context<{ Bindings: Bindings }>) => {
     }
     try {
       await enqueueTriggerVerification(trigger, payload);
+      benchmarkRecord(c.env, jobId, "t2_trigger_submitted");
     } catch {
       return c.json({ verified: false, error: "trigger_unavailable", job_id: jobId }, 503);
     }

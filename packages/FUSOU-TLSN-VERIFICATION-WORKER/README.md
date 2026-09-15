@@ -181,6 +181,71 @@ cross-profile checks were both blocked.
 
 The 4/8/16/32 MiB cases were not forced. Full Presentation memory remains `BLOCKED` because the sparse fixtures intentionally contain no full Presentation. These are synthetic/offline measurements, not production evidence.
 
+### Worker E2E latency measurement
+
+The full asynchronous Worker path can be measured with real-body sparse fixtures:
+
+```sh
+pnpm run benchmark:tlsn-e2e
+```
+
+The benchmark runs Wrangler `unstable_dev` with local R2 and Durable Object
+storage, a local Trigger HTTP mock, and the actual Worker WASM verifier. The
+mock returns the Trigger acceptance response before it performs input handoff,
+first-pass WASM verification, and a metadata-only completion callback. The
+benchmark then polls `/verify/tlsn/status` until the authoritative Result is
+returned. It does not contact Trigger.dev, Cloudflare production services, the
+Game Server, or the Notary.
+
+The opt-in timing header is emitted only when
+`TLSN_ENVIRONMENT=test` and `TLSN_BENCHMARK_TIMINGS=true`. Its stages are:
+
+- `T0` job accepted after request, authentication, Binding, and device-proof validation and before the Presentation R2 put.
+- `T1` Presentation persisted to R2; `T2` Trigger request completed.
+- `T3` callback HMAC/schema accepted; `T4` verification lease acquired.
+- `T5` Worker Presentation R2 read completed; `T6` Worker WASM verification completed.
+- `T7` Result signing completed; `T8` Result persisted; `T9` Durable Object consume completed.
+- `T10` authenticated status polling returned the verified Result.
+
+`Accept 202` is the client request duration through the queued response.
+`Poll total` is the client-visible duration from that `202` response until the
+final status response. `Accept 202 + Poll total` is the complete client-observed
+latency used for target classification. `Queue`, `Worker WASM`, and `Finalize`
+are derived from the stage timestamps. `E2E` is the internal `T0..T10` span; the
+machine-readable JSON also contains client-latency samples, R2 operation counts,
+per-isolate verifier concurrency, and all raw timestamps. RSS is the benchmark
+harness process; Worker isolate RSS is `NOT_ESTABLISHED` because Wrangler does
+not expose that boundary.
+
+The target is informational: approximately 2-3 seconds for complete client
+latency, not a correctness gate. Values below were measured on Linux with
+Node `v22.21.1`; table values are per-row medians from the P50/P95/P99/max
+real-body cases. `C=2` and `C=4` use independent local Worker instances so
+each generated Presentation can retain its matching synthetic trust anchor;
+the request still traverses the actual Worker/R2/DO/WASM path. They measure
+effective concurrent Worker instances, while the telemetry reports the
+per-isolate verifier concurrency separately.
+
+| Case | Body | Presentation | C | Accept 202 | Poll total | Queue | Worker WASM | Finalize | E2E | Peak harness RSS | Result |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| P50 | 150,080 B | 3,477 B | 1 | 26 ms | 49 ms | 21 ms | 13 ms | 7 ms | 70 ms | 281.5 MB (+13.0 MB) | MEASURED WITHIN TARGET |
+| P95 | 165,258 B | 3,478 B | 1 | 25 ms | 37 ms | 11 ms | 12 ms | 7 ms | 58 ms | 294.2 MB (+10.4 MB) | MEASURED WITHIN TARGET |
+| P99 | 165,751 B | 3,476 B | 1 | 25 ms | 36 ms | 9 ms | 12 ms | 7 ms | 56 ms | 297.0 MB (+0.3 MB) | MEASURED WITHIN TARGET |
+| Max | 165,752 B | 3,477 B | 1 | 24 ms | 35 ms | 9 ms | 11 ms | 7 ms | 54 ms | 299.7 MB (+0 MB) | MEASURED WITHIN TARGET |
+| P50 | 150,080 B | 3,477 B | 2 | 35 ms | 41 ms | 13 ms | 12 ms | 9 ms | 71 ms | 308.3 MB (+0.1 MB) | MEASURED WITHIN TARGET |
+| P95 | 165,258 B | 3,478 B | 2 | 36 ms | 42 ms | 13 ms | 12 ms | 9 ms | 73 ms | 314.1 MB (+0 MB) | MEASURED WITHIN TARGET |
+| P99 | 165,751 B | 3,476 B | 2 | 31 ms | 40 ms | 11 ms | 12 ms | 9 ms | 67 ms | 320.1 MB (+0.1 MB) | MEASURED WITHIN TARGET |
+| Max | 165,752 B | 3,477 B | 2 | 35 ms | 42 ms | 14 ms | 13 ms | 10 ms | 73 ms | 325.2 MB (+0 MB) | MEASURED WITHIN TARGET |
+| P50 | 150,080 B | 3,477 B | 4 | 36 ms | 32 ms | 11 ms | 14 ms | 9 ms | 70 ms | 343.8 MB (+25.4 MB) | MEASURED WITHIN TARGET |
+| P95 | 165,258 B | 3,478 B | 4 | 38 ms | 37 ms | 10 ms | 15 ms | 11 ms | 78 ms | 346.8 MB (+1.9 MB) | MEASURED WITHIN TARGET |
+| P99 | 165,751 B | 3,476 B | 4 | 38 ms | 32 ms | 11 ms | 14 ms | 8 ms | 75 ms | 361.0 MB (+4 MB) | MEASURED WITHIN TARGET |
+| Max | 165,752 B | 3,477 B | 4 | 37 ms | 48 ms | 16 ms | 15 ms | 9 ms | 80 ms | 360.8 MB (+2.3 MB) | MEASURED WITHIN TARGET |
+
+These results establish the local path only. Trigger.dev scheduling latency,
+Cloudflare production R2/DO latency, Worker isolate RSS, and production
+concurrency behavior remain `NOT_ESTABLISHED`; a production-like deployment
+measurement is still required before using this as an operational SLO.
+
 ### Sparse prover allocation investigation
 
 Root cause:
@@ -249,6 +314,8 @@ Configure these Worker values before deployment:
 - Production public configuration additionally requires `TLSN_PRODUCTION_NOTARY_ENDPOINT`, `TLSN_PRODUCTION_SESSION_AUTHORITY_ENDPOINT`, `TLSN_PRODUCTION_VERIFICATION_ENDPOINT`, and `TLSN_PRODUCTION_ORIGIN_PORT`. These values are validated offline and emitted as `tlsn-production-public-manifest.json` after a passing preflight.
 - `TLSN_SECURITY_REGISTRY_SET_SHA256` for non-secret deployment and trust-registry identity
 - `TLSN_TEST_AUTH_USERS` only in `TLSN_ENVIRONMENT=test`, as a JSON map of test bearer tokens to non-anonymous user IDs
+- `TLSN_BENCHMARK_TIMINGS=true` only in `TLSN_ENVIRONMENT=test`; it enables the opt-in E2E timing header and is ignored otherwise
+- `TLSN_TEST_BINDING_VALUE` only in `TLSN_ENVIRONMENT=test`; the local E2E benchmark supplies one matching fixture binding to each independent Worker through the `X-FUSOU-TLSN-Test-Binding` session header
 - `TLSN_TEST_VERIFICATION_LEASE_MS`, `TLSN_TEST_COMPLETION_DELAY_MS`, and `TLSN_TEST_POST_RESULT_DELAY_MS` are bounded test-only race controls; they are ignored outside `TLSN_ENVIRONMENT=test`. The corresponding `*_ONCE=true` values delay only the first completion in a local test Worker.
 - Production Trigger execution additionally requires `TLSN_TRIGGER_API_URL`, `TLSN_TRIGGER_TASK_ID`, `TLSN_TRIGGER_SECRET_KEY`, and `TLSN_TRIGGER_CALLBACK_SECRET` on the Worker, plus the matching `TLSN_WORKER_INTERNAL_URL`, `TLSN_TRIGGER_CALLBACK_SECRET`, `TLSN_TRIGGER_SERVER_IDENTITY`, `TLSN_TRIGGER_PROFILE_SHA256`, `TLSN_TRIGGER_SPARSE_PROFILE_SHA256`, `TLSN_TRIGGER_VERIFIER_KEY_ID`, `TLSN_TRIGGER_NOTARY_KEY_ID`, `TLSN_TRIGGER_NOTARY_REGISTRY`, and `TLSN_TRIGGER_TRUST_ROOT_CERTIFICATE_DER` in the dotenvx-managed Trigger environment. These values are never returned by `/health` or embedded in task payloads. Trigger task payloads carry an explicit `profile` and `disclosure_mode`; sparse jobs use the sparse verifier and sparse result signer path.
 
