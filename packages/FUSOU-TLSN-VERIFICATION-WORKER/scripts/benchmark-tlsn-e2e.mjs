@@ -3,16 +3,17 @@
 import { createHash, createHmac, generateKeyPairSync, sign, verify as verifySignature } from "node:crypto";
 import { createServer } from "node:http";
 import { readFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
-import { spawnSync } from "node:child_process";
+import { resolve } from "node:path";
 import { unstable_dev } from "wrangler";
+import {
+  fixtureDirectory,
+  fixtureSourcePath,
+  generateRealFixture,
+  loadRealFixture,
+  packageDirectory,
+  readRealFixtureManifest,
+} from "./tlsn-benchmark-fixtures.mjs";
 
-const packageDirectory = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const repositoryDirectory = resolve(packageDirectory, "../..");
-const fixtureDirectory = resolve(packageDirectory, ".cache/sparse-crypto-real-fixtures");
-const fixtureManifestPath = resolve(fixtureDirectory, "manifest.json");
-const proxyManifest = resolve(repositoryDirectory, "packages/FUSOU-PROXY/proxy-https/Cargo.toml");
 const wranglerConfig = resolve(packageDirectory, "wrangler.toml");
 const USER_ID = "11111111-1111-4111-8111-111111111111";
 const DEVICE_ID = "33333333-3333-4333-8333-333333333333";
@@ -97,66 +98,13 @@ function signedDeviceProof(privateKey, sessionId, binding, challenge) {
     .toString("base64url");
 }
 
-function generateFixture(sourcePath, binding) {
-  const result = spawnSync(
-    "cargo",
-    [
-      "+1.95.0",
-      "run",
-      "--quiet",
-      "--release",
-      "--manifest-path",
-      proxyManifest,
-      "--features",
-      "synthetic-tlsn",
-      "--example",
-      "synthetic_tlsn_fixture",
-    ],
-    {
-      cwd: repositoryDirectory,
-      env: {
-        ...process.env,
-        CARGO_NET_OFFLINE: "true",
-        FUSOU_SYNTHETIC_PROOF_MODE: "sparse",
-        FUSOU_SYNTHETIC_RESPONSE_FIXTURE_PATH: sourcePath,
-        FUSOU_SYNTHETIC_BINDING_VALUE: binding,
-      },
-      encoding: "utf8",
-      maxBuffer: 512 * 1024 * 1024,
-    },
-  );
-  if (result.error) throw result.error;
-  if (result.status !== 0) {
-    throw new Error(`real fixture generation failed:\n${result.stderr.slice(-4000)}`);
-  }
-  const output = result.stdout.trim().split(/\r?\n/).at(-1);
-  if (!output) throw new Error("fixture generator returned no JSON");
-  return JSON.parse(output);
-}
-
-function readManifest() {
-  const manifest = JSON.parse(readFileSync(fixtureManifestPath, "utf8"));
-  const entries = new Map(manifest.cases.map((entry) => [entry.caseLabel, entry]));
-  return { manifest, entries };
-}
-
-function fixtureSourcePath(manifest, entry) {
-  return resolve(
-    repositoryDirectory,
-    manifest.source.path,
-    entry.sourceEpoch,
-    "kcsapi",
-    entry.sourceFileName,
-  );
-}
-
 function prepareFixtures(manifest, entry, concurrency) {
   const fixtures = [];
   for (let index = 0; index < concurrency; index += 1) {
     if (index === 0) {
-      fixtures.push(JSON.parse(readFileSync(resolve(fixtureDirectory, entry.fixtureFile), "utf8")));
+      fixtures.push(loadRealFixture(entry));
     } else {
-      fixtures.push(generateFixture(fixtureSourcePath(manifest, entry), bindingValue()));
+      fixtures.push(generateRealFixture(fixtureSourcePath(manifest, entry), bindingValue()));
     }
   }
   return fixtures;
@@ -539,7 +487,7 @@ async function runCase({ manifest, entry, concurrency, authServer, verifierModul
 
 async function main() {
   if (requestedCases.length === 0 || requestedConcurrency.length === 0) throw new Error("TLSN_E2E_CASES and TLSN_E2E_CONCURRENCY must not be empty");
-  const { manifest, entries } = readManifest();
+  const { manifest, entries } = readRealFixtureManifest();
   const missing = requestedCases.filter((caseLabel) => !entries.has(caseLabel));
   if (missing.length > 0) throw new Error(`unknown real fixture cases: ${missing.join(", ")}`);
   const { publicKey: initialDevicePublicKey } = generateKeyPairSync("ed25519");

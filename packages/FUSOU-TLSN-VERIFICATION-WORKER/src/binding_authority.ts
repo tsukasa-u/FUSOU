@@ -213,11 +213,12 @@ export class DurableObjectBindingAuthority {
     deviceAuthNonce: string,
     configuredBindingValue?: string,
   ): Promise<BindingRecord> {
-    const sessionId = configuredBindingValue ? parseBindingValue(configuredBindingValue).sessionId : crypto.randomUUID();
-    const nonce = configuredBindingValue
-      ? parseBindingValue(configuredBindingValue).nonce
+    const configuredBinding = configuredBindingValue?.trim() || undefined;
+    const sessionId = configuredBinding ? parseBindingValue(configuredBinding).sessionId : crypto.randomUUID();
+    const nonce = configuredBinding
+      ? parseBindingValue(configuredBinding).nonce
       : randomBase64Url(BINDING_NONCE_BYTES);
-    const bindingValue = configuredBindingValue ?? createBindingValue(sessionId, nonce);
+    const bindingValue = configuredBinding ?? createBindingValue(sessionId, nonce);
     const record: BindingOperation = {
       binding_id: await hashBindingId(bindingValue),
       session_id: sessionId,

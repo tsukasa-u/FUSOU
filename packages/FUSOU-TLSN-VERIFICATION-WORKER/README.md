@@ -4,7 +4,9 @@ This Worker is the authoritative authentication, binding, evidence-verification,
 
 The Worker issues a one-shot, authenticated Session/Binding context at `/attestation/session`. Session issuance requires the existing FUSOU device proof (`device_id`, the HMAC challenge nonce, and the Ed25519 signature over that nonce). Every Session also receives a fresh 32-byte TLSN device challenge. `/verify/tlsn` requires `presentation_base64`, `session_id`, `device_id`, `binding`, and `device_proof` (`challenge`, `sig`); the signature covers the current device, Session, binding, and challenge context. Rust/WASM verifies the Presentation and derives `verified_member_id` from authenticated response bytes. Client-provided member IDs are not accepted. Synthetic wire data is never treated as verified. `/verify/tlsn` emits the complete-disclosure Result profile. `/verify/tlsn/sparse` is a separate sparse profile endpoint, requires `TLSN_SPARSE_PROFILE_SHA256`, uses a separate Result signing domain, and carries the explicit sparse profile through Trigger mode.
 
-Both attestation endpoints require `Authorization: Bearer <Supabase access token>`. The Worker resolves the token through Supabase `/auth/v1/user`, uses the returned `auth.users.id` as the canonical user subject, rejects anonymous users, and never stores the raw token. For session issuance it forwards that bearer token and the existing device proof to the configured FUSOU-WEB generic device-proof endpoint. During verification it forwards the bearer token and TLSN-specific proof context to the dedicated `/api/auth/anonymous-sync/v2/tlsn-device-proof` endpoint. FUSOU-WEB remains the device-auth authority: both paths use `user_devices` owner and `revoked_at`; the TLSN path verifies Ed25519 over the canonical proof message and atomically consumes its SHA-256 digest through the existing nonce table. The Worker stores only the backend-derived device ID and TLSN challenge in the Durable Object. The canonical user ID, device ID, and device challenge are included in the signed verifier-result bytes. A binding issued to one user/device cannot be looked up or consumed under another user/device context.
+In production, both attestation endpoints require `Authorization: Bearer <Supabase access token>`. The Worker resolves the token through Supabase `/auth/v1/user`, uses the returned `auth.users.id` as the canonical user subject, rejects anonymous users, and never stores the raw token. For session issuance it forwards that bearer token and the existing device proof to the configured FUSOU-WEB generic device-proof endpoint. During verification it forwards the bearer token and TLSN-specific proof context to the dedicated `/api/auth/anonymous-sync/v2/tlsn-device-proof` endpoint. FUSOU-WEB remains the device-auth authority: both paths use `user_devices` owner and `revoked_at`; the TLSN path verifies Ed25519 over the canonical proof message and atomically consumes its SHA-256 digest through the existing nonce table. The Worker stores only the backend-derived device ID and TLSN challenge in the Durable Object. The canonical user ID, device ID, and device challenge are included in the signed verifier-result bytes. A binding issued to one user/device cannot be looked up or consumed under another user/device context.
+
+Test deployments may opt into a self-contained test-only path by setting `TLSN_TEST_AUTH_USERS`, `TLSN_TEST_DEVICE_ID`, and `TLSN_TEST_DEVICE_PUBLIC_KEY`. The bearer token then maps to a synthetic non-anonymous user in the Worker, and both device proofs are verified with the configured Ed25519 public key. This path is available only when `TLSN_ENVIRONMENT=test`; it does not contact Supabase or FUSOU-WEB and is never accepted by production configuration validation.
 
 The Worker does not own a TLSN device registry, receive a Supabase service-role key, or receive a device private key. A client-supplied `device_id` is only a selector/proof input; the authoritative device identity comes from the FUSOU-WEB verification response and the Durable Object record. The generic device proof and TLSN proof are separate one-shot proofs and cannot be reused across Sessions or bindings.
 
@@ -198,7 +200,8 @@ returned. It does not contact Trigger.dev, Cloudflare production services, the
 Game Server, or the Notary.
 
 The opt-in timing header is emitted only when
-`TLSN_ENVIRONMENT=test` and `TLSN_BENCHMARK_TIMINGS=true`. Its stages are:
+`TLSN_BENCHMARK_TIMINGS=true` and the Worker is a test deployment or an
+explicitly opted-in production canary. Its legacy local stages are:
 
 - `T0` job accepted after request, authentication, Binding, and device-proof validation and before the Presentation R2 put.
 - `T1` Presentation persisted to R2; `T2` Trigger request completed.
@@ -245,6 +248,138 @@ These results establish the local path only. Trigger.dev scheduling latency,
 Cloudflare production R2/DO latency, Worker isolate RSS, and production
 concurrency behavior remain `NOT_ESTABLISHED`; a production-like deployment
 measurement is still required before using this as an operational SLO.
+
+### Production-like Worker E2E measurement
+
+The production-like measurement has a separate entry point and must not be
+confused with the local mock benchmark:
+
+```sh
+pnpm run benchmark:tlsn-remote
+```
+
+This command requires an already deployed test/staging Worker with real
+Cloudflare R2 and Durable Object bindings, the real deployed Trigger.dev task,
+and a random-binding configuration. A fixed canary binding is intentionally
+rejected because each binding is one-shot and cannot provide a 20-sample
+latency distribution. The Worker must have the opt-in public variable
+`TLSN_BENCHMARK_TIMINGS=true`; normal production deployments do not enable this
+telemetry.
+
+In the default `supabase` mode, the benchmark reads all credentials and
+device key material from the environment. It requires
+`TLSN_REMOTE_BENCHMARK_WORKER_URL`, `TLSN_REMOTE_WEB_ORIGIN`,
+`TLSN_REMOTE_SUPABASE_URL`, `TLSN_REMOTE_SUPABASE_PUBLISHABLE_KEY`,
+`TLSN_REMOTE_ACCESS_TOKEN_A`, and `TLSN_REMOTE_DEVICE_ID_A`, plus either
+`TLSN_REMOTE_DEVICE_A_PRIVATE_KEY_PKCS8_FILE` or
+`TLSN_REMOTE_DEVICE_A_PRIVATE_KEY_PKCS8_B64URL`. In `test` mode, only the
+deployed Worker URL, the generated test token/user map, test device ID/public
+key, and generated PKCS#8 private key are needed; Supabase and FUSOU-WEB are
+skipped. It does not store these values, print them, or include them in the
+JSON report.
+
+The real P50/P95/P99/max fixture sources and manifest above are reused. For
+each sample, the benchmark issues a fresh remote Session, generates an
+ephemeral sparse Presentation from the existing source fixture using that
+Session's binding, and excludes fixture generation from T0-T11. Defaults are
+20 samples per case/concurrency and `C=1,2,4,8`; use
+`TLSN_REMOTE_SAMPLE_COUNT`, `TLSN_REMOTE_CASES`, and
+`TLSN_REMOTE_CONCURRENCY` to change the matrix. The report is written to
+`artifacts/tlsn-remote-benchmark.json` or
+`TLSN_REMOTE_BENCHMARK_REPORT_PATH`.
+
+The client records T0 at `/verify/tlsn/sparse` request start, T1 when the 202
+response is received, and T11 when verified status is received. The Worker
+telemetry records T2 after the Trigger API accepts the task, T4 at callback
+receipt, T5 at lease acquisition, T6 after the Worker R2 read, T7 after WASM,
+T8 after signing, T9 after Result persistence, T10 after Durable Object
+consume, and T11 at the final status response. The Trigger task records T3 at
+the first task-code instruction and sends it as authenticated callback
+metadata. Trigger's platform scheduler timestamp is not exposed by the current
+SDK and remains `NOT_ESTABLISHED`; T2-T3 is therefore reported as a
+cross-clock wall-time observation, without clock-skew correction.
+
+In the current Worker ordering, Trigger task acceptance completes before the
+client receives 202. The report records the Worker-side 202-send timestamp
+separately rather than pretending that T2 occurs after client T1. Client
+visible latency is always measured directly as `T11 - T0` by the benchmark
+process.
+
+The formal decision is based only on remote client-visible samples: every
+requested sample must have all required timestamps, and each row's P95, P99,
+and Max must be at most 3 seconds. The only outcomes are
+`MEASURED WITHIN TARGET`, `EXCEEDS TARGET`, and `NOT ESTABLISHED`. Until this
+command has been run against a real deployed Worker and Trigger.dev task, the
+production-like result is `NOT ESTABLISHED`; the local 54-80 ms result is not
+used as evidence for the remote target.
+
+The remote report separates these boundaries:
+
+| Boundary | Status before remote run |
+| --- | --- |
+| Client-visible Worker-to-status latency | `NOT_ESTABLISHED` |
+| Trigger task start and queue observation | `NOT_ESTABLISHED` |
+| Cloudflare R2/DO path | `NOT_ESTABLISHED` |
+| Worker isolate RSS | `NOT_ESTABLISHED` |
+| Production scheduler timestamp | `NOT_ESTABLISHED` |
+
+This benchmark adds timing metadata only. It does not change
+`VERIFICATION_LEASE_MS`, retry semantics, Durable Object transitions, timeout
+policy, verification failure semantics, Result signing, attempt fencing, or
+authoritative Result pointer/hash rules.
+
+### Remote benchmark setup
+
+The repository provides a self-contained test credential generator and a
+dotenvx-backed encrypted environment for the remote measurement. Set the
+Trigger API key once; deploy and benchmark commands load it automatically:
+
+```sh
+cp packages/FUSOU-TLSN-VERIFICATION-WORKER/.env.example \
+	packages/FUSOU-TLSN-VERIFICATION-WORKER/.env
+pnpm run tlsn:benchmark:remote:setup
+read -rsp 'Trigger API key: ' TLSN_TRIGGER_SECRET_KEY; echo
+pnpm exec dotenvx set TLSN_TRIGGER_SECRET_KEY "$TLSN_TRIGGER_SECRET_KEY" \
+	-f packages/FUSOU-TLSN-VERIFICATION-WORKER/.env \
+	-fk packages/.env.keys
+unset TLSN_TRIGGER_SECRET_KEY
+pnpm run tlsn:deploy:test:self-contained
+pnpm exec dotenvx set TLSN_WORKER_INTERNAL_URL \
+	https://your-test-worker.example \
+	-f packages/FUSOU-TLSN-VERIFICATION-WORKER/.env \
+	-fk packages/.env.keys
+pnpm exec dotenvx set TLSN_REMOTE_BENCHMARK_WORKER_URL \
+	https://your-test-worker.example \
+	-f packages/FUSOU-TLSN-VERIFICATION-WORKER/.env \
+	-fk packages/.env.keys
+pnpm run tlsn:trigger:deploy:self-contained
+pnpm run tlsn:benchmark:remote:self-contained:preflight
+pnpm run tlsn:benchmark:remote:self-contained
+```
+
+`tlsn:deploy:test` now forwards the sparse profile hash and benchmark timing
+flag. Leave `TLSN_TEST_BINDING_VALUE` empty so the test Worker uses random
+bindings; the benchmark rejects fixed bindings. The Trigger values must point
+to the deployed `tlsn-verification` task and its callback secret must match the
+Worker. `TLSN_REMOTE_BENCHMARK_WORKER_URL` is the HTTPS URL of the deployed
+test Worker, usually the `workers.dev` URL printed by Wrangler.
+
+`tlsn:benchmark:remote:setup` generates a UUID v4 synthetic user, a UUID v4
+device, an Ed25519 keypair, and a random bearer token. It writes the test-only
+values into `.env` using `packages/.env.keys`; the temporary plaintext source is
+removed after encryption.
+Only `TLSN_WORKER_INTERNAL_URL` and `TLSN_REMOTE_BENCHMARK_WORKER_URL` remain
+deployment-specific because a Worker may use a custom domain instead of its
+`workers.dev` URL. The preflight
+validates the generated values and fixture paths without contacting any
+service. It does not access the Game Server or replay a Game Server request;
+the benchmark only submits existing sparse fixture-derived Presentations to
+the deployed verification Worker.
+
+The root-level commands load the encrypted Worker `.env` through dotenvx, so
+remote credentials need not be exported in the shell. The preflight output
+contains only origins, the device ID, fixture labels, and matrix settings. It
+does not print tokens, private keys, or response bodies.
 
 ### Sparse prover allocation investigation
 
@@ -314,7 +449,7 @@ Configure these Worker values before deployment:
 - Production public configuration additionally requires `TLSN_PRODUCTION_NOTARY_ENDPOINT`, `TLSN_PRODUCTION_SESSION_AUTHORITY_ENDPOINT`, `TLSN_PRODUCTION_VERIFICATION_ENDPOINT`, and `TLSN_PRODUCTION_ORIGIN_PORT`. These values are validated offline and emitted as `tlsn-production-public-manifest.json` after a passing preflight.
 - `TLSN_SECURITY_REGISTRY_SET_SHA256` for non-secret deployment and trust-registry identity
 - `TLSN_TEST_AUTH_USERS` only in `TLSN_ENVIRONMENT=test`, as a JSON map of test bearer tokens to non-anonymous user IDs
-- `TLSN_BENCHMARK_TIMINGS=true` only in `TLSN_ENVIRONMENT=test`; it enables the opt-in E2E timing header and is ignored otherwise
+- `TLSN_BENCHMARK_TIMINGS=true` only in `TLSN_ENVIRONMENT=test` or an explicit canary deployment; it enables the opt-in E2E timing header and is ignored in normal production deployments
 - `TLSN_TEST_BINDING_VALUE` only in `TLSN_ENVIRONMENT=test`; the local E2E benchmark supplies one matching fixture binding to each independent Worker through the `X-FUSOU-TLSN-Test-Binding` session header
 - `TLSN_TEST_VERIFICATION_LEASE_MS`, `TLSN_TEST_COMPLETION_DELAY_MS`, and `TLSN_TEST_POST_RESULT_DELAY_MS` are bounded test-only race controls; they are ignored outside `TLSN_ENVIRONMENT=test`. The corresponding `*_ONCE=true` values delay only the first completion in a local test Worker.
 - Production Trigger execution additionally requires `TLSN_TRIGGER_API_URL`, `TLSN_TRIGGER_TASK_ID`, `TLSN_TRIGGER_SECRET_KEY`, and `TLSN_TRIGGER_CALLBACK_SECRET` on the Worker, plus the matching `TLSN_WORKER_INTERNAL_URL`, `TLSN_TRIGGER_CALLBACK_SECRET`, `TLSN_TRIGGER_SERVER_IDENTITY`, `TLSN_TRIGGER_PROFILE_SHA256`, `TLSN_TRIGGER_SPARSE_PROFILE_SHA256`, `TLSN_TRIGGER_VERIFIER_KEY_ID`, `TLSN_TRIGGER_NOTARY_KEY_ID`, `TLSN_TRIGGER_NOTARY_REGISTRY`, and `TLSN_TRIGGER_TRUST_ROOT_CERTIFICATE_DER` in the dotenvx-managed Trigger environment. These values are never returned by `/health` or embedded in task payloads. Trigger task payloads carry an explicit `profile` and `disclosure_mode`; sparse jobs use the sparse verifier and sparse result signer path.

@@ -140,7 +140,11 @@ async function fetchPresentation(payload: VerificationTaskPayload): Promise<Uint
   return bytes;
 }
 
-async function postCompletion(payload: VerificationTaskPayload, presentationId: string): Promise<void> {
+async function postCompletion(
+  payload: VerificationTaskPayload,
+  presentationId: string,
+  triggerExecutionStartedAt: number,
+): Promise<void> {
   const body = JSON.stringify({
     job_id: payload.job_id,
     binding_id: payload.binding_id,
@@ -149,6 +153,7 @@ async function postCompletion(payload: VerificationTaskPayload, presentationId: 
     device_id: payload.device_id,
     presentation_id: presentationId,
     verification_status: "verified",
+    trigger_execution_started_at: triggerExecutionStartedAt,
     profile: payload.profile,
     disclosure_mode: payload.disclosure_mode,
   });
@@ -176,6 +181,7 @@ export const verifyTlsnPresentation = task({
   retry: { maxAttempts: 3 },
   maxDuration: 600,
   run: async (input: VerificationTaskPayload) => {
+    const triggerExecutionStartedAt = Date.now();
     const payload = verificationTaskPayloadSchema.parse(input);
     const presentation = await fetchPresentation(payload);
     const presentationId = createHash("sha256").update(presentation).digest("base64url");
@@ -233,7 +239,7 @@ export const verifyTlsnPresentation = task({
           config.notaryKey,
         );
     JSON.parse(preparedResultJson);
-    await postCompletion(payload, presentationId);
+    await postCompletion(payload, presentationId, triggerExecutionStartedAt);
     return { accepted: true, presentation_id: presentationId };
   },
 });

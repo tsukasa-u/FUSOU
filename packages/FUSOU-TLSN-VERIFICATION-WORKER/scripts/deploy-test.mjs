@@ -12,6 +12,7 @@ const PUBLIC_INPUTS = [
   "TLSN_BINDING_TTL_SECONDS",
   "TLSN_SERVER_IDENTITY",
   "TLSN_PROFILE_SHA256",
+  "TLSN_SPARSE_PROFILE_SHA256",
   "TLSN_VERIFIER_KEY_ID",
   "TLSN_NOTARY_KEY_ID",
   "TLSN_NOTARY_REGISTRY",
@@ -23,11 +24,14 @@ const PUBLIC_INPUTS = [
   "TLSN_BINDING_AUTHORITY_KEY_REGISTRY",
   "TLSN_DEVICE_AUTH_URL",
   "TLSN_DEVICE_POSSESSION_AUTH_URL",
+  "TLSN_TEST_DEVICE_ID",
+  "TLSN_TEST_DEVICE_PUBLIC_KEY",
   "TLSN_SUPABASE_URL",
   "TLSN_SUPABASE_PUBLISHABLE_KEY",
   "TLSN_EXECUTION_MODE",
   "TLSN_TRIGGER_API_URL",
   "TLSN_TRIGGER_TASK_ID",
+  "TLSN_BENCHMARK_TIMINGS",
 ];
 
 const SECRET_INPUTS = [
@@ -48,6 +52,8 @@ const REQUIRED_PUBLIC_INPUTS = PUBLIC_INPUTS.filter((name) => ![
   "TLSN_EXECUTION_MODE",
   "TLSN_TRIGGER_API_URL",
   "TLSN_TRIGGER_TASK_ID",
+  "TLSN_TEST_DEVICE_ID",
+  "TLSN_TEST_DEVICE_PUBLIC_KEY",
 ].includes(name));
 
 function fail(message) {
@@ -84,8 +90,11 @@ async function main() {
   if (!/^[a-z][a-z0-9-]{1,62}[a-z0-9]$/.test(workerName)) {
     throw new Error("TLSN_TEST_WORKER_NAME must be a valid Worker name");
   }
-  required("CLOUDFLARE_API_TOKEN");
-  required("CLOUDFLARE_ACCOUNT_ID");
+  const cloudflareApiToken = process.env.CLOUDFLARE_API_TOKEN?.trim();
+  const cloudflareAccountId = process.env.CLOUDFLARE_ACCOUNT_ID?.trim();
+  if (cloudflareApiToken && !cloudflareAccountId) {
+    throw new Error("CLOUDFLARE_ACCOUNT_ID is required when CLOUDFLARE_API_TOKEN is set");
+  }
   for (const name of REQUIRED_PUBLIC_INPUTS) required(name);
   for (const name of [
     "TLSN_RESULT_SIGNING_PRIVATE_KEY_PKCS8",
@@ -102,6 +111,11 @@ async function main() {
   }
   if (!process.env.TLSN_TEST_AUTH_USERS && (!process.env.TLSN_SUPABASE_URL || !process.env.TLSN_SUPABASE_PUBLISHABLE_KEY)) {
     throw new Error("set TLSN_TEST_AUTH_USERS or both TLSN_SUPABASE_URL and TLSN_SUPABASE_PUBLISHABLE_KEY");
+  }
+  const testDeviceId = process.env.TLSN_TEST_DEVICE_ID?.trim();
+  const testDevicePublicKey = process.env.TLSN_TEST_DEVICE_PUBLIC_KEY?.trim();
+  if ((testDeviceId && !testDevicePublicKey) || (!testDeviceId && testDevicePublicKey)) {
+    throw new Error("set both TLSN_TEST_DEVICE_ID and TLSN_TEST_DEVICE_PUBLIC_KEY for self-contained test device auth");
   }
 
   const deploymentEnvironment = {
@@ -129,8 +143,8 @@ async function main() {
     const childEnvironment = {
       PATH: process.env.PATH,
       HOME: process.env.HOME,
-      CLOUDFLARE_API_TOKEN: process.env.CLOUDFLARE_API_TOKEN,
-      CLOUDFLARE_ACCOUNT_ID: process.env.CLOUDFLARE_ACCOUNT_ID,
+      ...(cloudflareApiToken ? { CLOUDFLARE_API_TOKEN: cloudflareApiToken } : {}),
+      ...(cloudflareAccountId ? { CLOUDFLARE_ACCOUNT_ID: cloudflareAccountId } : {}),
     };
     run("pnpm", deployArguments, childEnvironment);
   } finally {

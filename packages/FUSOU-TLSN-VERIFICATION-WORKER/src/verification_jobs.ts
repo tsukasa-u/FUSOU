@@ -52,6 +52,7 @@ export const verificationCallbackSchema = z.object({
   device_id: z.string().uuid(),
   presentation_id: z.string().regex(/^[A-Za-z0-9_-]{43}$/),
   verification_status: z.literal("verified"),
+  trigger_execution_started_at: z.number().int().positive().optional(),
   ...verificationProfileFields,
 }).strict().superRefine(assertVerificationProfile);
 

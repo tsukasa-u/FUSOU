@@ -4,3 +4,4 @@ src/wasm/*
 .env
 .env.*
 !.env.example
+.cache/tlsn-remote-test.env

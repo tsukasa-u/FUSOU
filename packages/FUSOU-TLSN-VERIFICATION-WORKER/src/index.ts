@@ -78,6 +78,8 @@ type Bindings = {
   TLSN_TRUST_ROOT_CERTIFICATE_DER?: string;
   TLSN_TEST_BINDING_VALUE?: string;
   TLSN_TEST_BINDING_VALUES?: string;
+  TLSN_TEST_DEVICE_ID?: string;
+  TLSN_TEST_DEVICE_PUBLIC_KEY?: string;
   TLSN_BENCHMARK_TIMINGS?: string;
   TLSN_CANDIDATE_SERVER_IDENTITY?: string;
   TLSN_CANDIDATE_PROFILE_SHA256?: string;
@@ -148,15 +150,26 @@ const VERIFICATION_LEASE_MS = 10 * 60 * 1000;
 type BenchmarkTimingStage =
   | "t0_accepted"
   | "t1_presentation_persisted"
+  | "t1_202_response_sent"
   | "t2_trigger_submitted"
+  | "t2_trigger_task_accepted"
   | "t3_callback_accepted"
+  | "t3_trigger_execution_started"
   | "t4_lease_acquired"
+  | "t4_callback_accepted"
   | "t5_presentation_read"
+  | "t5_lease_acquired"
   | "t6_wasm_verification_completed"
+  | "t6_presentation_read"
   | "t7_result_signing_completed"
+  | "t7_wasm_verification_completed"
   | "t8_result_persisted"
+  | "t8_result_signing_completed"
   | "t9_consume_completed"
-  | "t10_status_verified";
+  | "t9_result_persisted"
+  | "t10_status_verified"
+  | "t10_consume_completed"
+  | "t11_status_verified";
 
 type BenchmarkTimingRecord = {
   timestamps: Partial<Record<BenchmarkTimingStage, number>>;
@@ -165,6 +178,8 @@ type BenchmarkTimingRecord = {
 };
 
 const benchmarkTimingRecords = new Map<string, BenchmarkTimingRecord>();
+const testDeviceAuthNonces = new Set<string>();
+const testDeviceProofDigests = new Set<string>();
 let benchmarkActiveVerifierCount = 0;
 let benchmarkMaxVerifierConcurrency = 0;
 
@@ -343,7 +358,10 @@ let testCompletionDelayUsed = false;
 let testPostResultDelayUsed = false;
 
 function benchmarkEnabled(env: Bindings): boolean {
-  return env.TLSN_ENVIRONMENT === "test" && env.TLSN_BENCHMARK_TIMINGS === "true";
+  return env.TLSN_BENCHMARK_TIMINGS === "true" && (
+    env.TLSN_ENVIRONMENT === "test" ||
+    (env.TLSN_ENVIRONMENT === "production" && env.TLSN_DEPLOYMENT_ROLE === "canary")
+  );
 }
 
 function benchmarkRecord(env: Bindings, jobId: string, stage: BenchmarkTimingStage, timestamp = Date.now()): void {
@@ -397,7 +415,7 @@ function attachBenchmarkTimingHeader(c: Context<{ Bindings: Bindings }>, env: Bi
 
 function testBindingValueForRequest(env: Bindings, request: Request): string | undefined {
   if (env.TLSN_ENVIRONMENT !== "test") return undefined;
-  if (env.TLSN_TEST_BINDING_VALUES === undefined) return env.TLSN_TEST_BINDING_VALUE;
+  if (env.TLSN_TEST_BINDING_VALUES === undefined) return env.TLSN_TEST_BINDING_VALUE?.trim() || undefined;
   const requested = request.headers.get("X-FUSOU-TLSN-Test-Binding")?.trim();
   const allowed = env.TLSN_TEST_BINDING_VALUES.split(",").map((value) => value.trim()).filter(Boolean);
   return requested && allowed.includes(requested) ? requested : undefined;
@@ -644,6 +662,9 @@ async function readConfig(env: Bindings): Promise<VerifierConfig | null> {
       return null;
     }
     if (production && env.TLSN_TEST_AUTH_USERS) {
+      return null;
+    }
+    if (production && (env.TLSN_TEST_DEVICE_ID || env.TLSN_TEST_DEVICE_PUBLIC_KEY)) {
       return null;
     }
     if (
@@ -1175,6 +1196,135 @@ async function authenticateDeviceProof(
   }
 }
 
+function testDeviceAuthenticationEnabled(env: Bindings): boolean {
+  return env.TLSN_ENVIRONMENT === "test" &&
+    Boolean(env.TLSN_TEST_DEVICE_ID?.trim()) &&
+    Boolean(env.TLSN_TEST_DEVICE_PUBLIC_KEY?.trim());
+}
+
+function rememberTestDeviceValue(values: Set<string>, value: string): boolean {
+  if (values.has(value)) return false;
+  values.add(value);
+  if (values.size > 4096) {
+    const oldest = values.values().next().value;
+    if (typeof oldest === "string") values.delete(oldest);
+  }
+  return true;
+}
+
+async function verifyTestDeviceSignature(
+  publicKey: string,
+  message: Uint8Array,
+  signature: string,
+): Promise<boolean> {
+  try {
+    const publicKeyBytes = decodeBase64Url(publicKey, 32);
+    const signatureBytes = decodeBase64Url(signature, 64);
+    if (publicKeyBytes.length !== 32 || signatureBytes.length !== 64) return false;
+    const key = await crypto.subtle.importKey(
+      "raw",
+      publicKeyBytes,
+      { name: "Ed25519" },
+      false,
+      ["verify"],
+    );
+    return await crypto.subtle.verify(
+      { name: "Ed25519" },
+      key,
+      signatureBytes,
+      message,
+    );
+  } catch {
+    return false;
+  }
+}
+
+function testTlsnDeviceProofMessage(proof: {
+  device_id: string;
+  session_id: string;
+  binding_value: string;
+  challenge: string;
+}): Uint8Array {
+  const encoder = new TextEncoder();
+  const chunks = [encoder.encode("FUSOU-TLSN-DEVICE-PROOF-V1\0")];
+  for (const value of [
+    encoder.encode(proof.device_id),
+    encoder.encode(proof.session_id),
+    encoder.encode(proof.binding_value),
+    decodeBase64Url(proof.challenge, 32),
+  ]) {
+    const length = new Uint8Array([value.length >> 8, value.length & 0xff]);
+    chunks.push(length, value);
+  }
+  const message = new Uint8Array(chunks.reduce((total, chunk) => total + chunk.length, 0));
+  let offset = 0;
+  for (const chunk of chunks) {
+    message.set(chunk, offset);
+    offset += chunk.length;
+  }
+  return message;
+}
+
+async function authenticateTestDeviceProof(
+  subject: AuthenticatedSubject,
+  proof: z.infer<typeof deviceProofRequestSchema>,
+  env: Bindings,
+): Promise<DeviceAuthenticationResult> {
+  if (!testDeviceAuthenticationEnabled(env) || proof.device_id !== env.TLSN_TEST_DEVICE_ID) {
+    return { ok: false, status: 503, error: "device_auth_unconfigured" };
+  }
+  const valid = await verifyTestDeviceSignature(
+    env.TLSN_TEST_DEVICE_PUBLIC_KEY!,
+    new TextEncoder().encode(proof.nonce),
+    proof.sig,
+  );
+  if (!valid) return { ok: false, status: 401, error: "device_unauthorized" };
+  if (!rememberTestDeviceValue(testDeviceAuthNonces, `${subject.canonicalUserId}\0${proof.nonce}`)) {
+    return { ok: false, status: 409, error: "device_nonce_replayed" };
+  }
+  return {
+    ok: true,
+    canonicalUserId: subject.canonicalUserId,
+    deviceId: proof.device_id,
+  };
+}
+
+async function authenticateTestTlsnDeviceProof(
+  subject: AuthenticatedSubject,
+  proof: {
+    device_id: string;
+    session_id: string;
+    binding_value: string;
+    challenge: string;
+    sig: string;
+  },
+  env: Bindings,
+): Promise<DevicePossessionAuthenticationResult> {
+  if (!testDeviceAuthenticationEnabled(env) || proof.device_id !== env.TLSN_TEST_DEVICE_ID) {
+    return { ok: false, status: 503, error: "device_possession_unavailable" };
+  }
+  let message: Uint8Array;
+  try {
+    message = testTlsnDeviceProofMessage(proof);
+  } catch {
+    return { ok: false, status: 401, error: "device_possession_unauthorized" };
+  }
+  const replayDigestHex = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", message)))
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
+  const valid = await verifyTestDeviceSignature(env.TLSN_TEST_DEVICE_PUBLIC_KEY!, message, proof.sig);
+  if (!valid) return { ok: false, status: 401, error: "device_possession_unauthorized" };
+  if (!rememberTestDeviceValue(testDeviceProofDigests, `${subject.canonicalUserId}\0${replayDigestHex}`)) {
+    return { ok: false, status: 409, error: "device_possession_replayed" };
+  }
+  return {
+    ok: true,
+    canonicalUserId: subject.canonicalUserId,
+    deviceId: proof.device_id,
+    replayDigestHex,
+  };
+}
+
 async function authenticateTlsnDeviceProof(
   subject: AuthenticatedSubject,
   proof: {
@@ -1414,6 +1564,10 @@ app.post("/internal/tlsn/verification-complete", async (c) => {
     return c.json({ error: "invalid_request" }, 400);
   }
   benchmarkRecord(c.env, callback.job_id, "t3_callback_accepted");
+  benchmarkRecord(c.env, callback.job_id, "t4_callback_accepted");
+  if (callback.trigger_execution_started_at !== undefined) {
+    benchmarkRecord(c.env, callback.job_id, "t3_trigger_execution_started", callback.trigger_execution_started_at);
+  }
 
   const config = await readConfig(c.env);
   if (!config) {
@@ -1518,6 +1672,7 @@ app.post("/internal/tlsn/verification-complete", async (c) => {
     return c.json({ error: "verification_result_mismatch" }, 422);
   }
   benchmarkVerifierStart(c.env, callback.job_id);
+  benchmarkRecord(c.env, callback.job_id, "t5_lease_acquired");
   const verificationInputKey = verificationRecord.verification_input_key;
   const verificationResultKey = verificationRecord.verification_result_key;
   const deviceReplayDigestHex = verificationRecord.device_replay_digest_hex;
@@ -1554,6 +1709,7 @@ app.post("/internal/tlsn/verification-complete", async (c) => {
     storedPresentation = new Uint8Array(await presentationObject.arrayBuffer());
     benchmarkR2Operation(c.env, callback.job_id, "worker_presentation_get");
     benchmarkRecord(c.env, callback.job_id, "t5_presentation_read");
+    benchmarkRecord(c.env, callback.job_id, "t6_presentation_read");
     storedPresentationId = encodeBase64Url(
       new Uint8Array(await crypto.subtle.digest("SHA-256", storedPresentation)),
     );
@@ -1578,6 +1734,7 @@ app.post("/internal/tlsn/verification-complete", async (c) => {
       decodeBase64Url(completionRecord.tlsn_device_challenge, 32),
     );
     benchmarkRecord(c.env, callback.job_id, "t6_wasm_verification_completed");
+    benchmarkRecord(c.env, callback.job_id, "t7_wasm_verification_completed");
     const preparedUnsignedResult = JSON.parse(prepared.unsigned_result) as Record<string, unknown>;
     const expectedProfileId = sparseProfile ? "fusou-require-info-v2-sparse" : "fusou-require-info-v1";
     const expectedVersion = sparseProfile ? 2 : 1;
@@ -1650,6 +1807,7 @@ app.post("/internal/tlsn/verification-complete", async (c) => {
       device_replay_digest_hex: completionRecord.device_replay_digest_hex,
     });
     benchmarkRecord(c.env, callback.job_id, "t7_result_signing_completed");
+    benchmarkRecord(c.env, callback.job_id, "t8_result_signing_completed");
     const finalResponseBody = JSON.stringify(finalResponse);
     const resultSha256 = encodeBase64Url(
       new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(finalResponseBody))),
@@ -1662,6 +1820,7 @@ app.post("/internal/tlsn/verification-complete", async (c) => {
     resultPersisted = true;
     benchmarkR2Operation(c.env, callback.job_id, "result_put");
     benchmarkRecord(c.env, callback.job_id, "t8_result_persisted");
+    benchmarkRecord(c.env, callback.job_id, "t9_result_persisted");
     await delayAfterResultPersistence(c.env);
     let consumedBinding: BindingRecord;
     try {
@@ -1689,6 +1848,7 @@ app.post("/internal/tlsn/verification-complete", async (c) => {
     }
     completionConsumed = true;
     benchmarkRecord(c.env, callback.job_id, "t9_consume_completed");
+    benchmarkRecord(c.env, callback.job_id, "t10_consume_completed");
     if (completionRecord.verification_input_key) {
       await c.env.TLSN_PRESENTATIONS.delete(completionRecord.verification_input_key).catch(() => undefined);
     }
@@ -1798,6 +1958,12 @@ app.get("/health", async (c) => {
     ok: true,
     verifier: "tlsn-alpha15-wasm",
     environment: c.env.TLSN_ENVIRONMENT,
+    auth_mode: c.env.TLSN_ENVIRONMENT === "test" && c.env.TLSN_TEST_AUTH_USERS
+      ? "test-token"
+      : "supabase",
+    device_auth_mode: testDeviceAuthenticationEnabled(c.env)
+      ? "test-ed25519"
+      : "external-endpoint",
     deployment_role: role,
     git_commit_sha: c.env.TLSN_GIT_COMMIT_SHA ?? null,
     verifier_key_id: verifierKeyId ?? null,
@@ -1892,11 +2058,9 @@ app.post("/attestation/session", async (c) => {
     return c.json({ error: "invalid_request" }, 400);
   }
   try {
-    const deviceAuthentication = await authenticateDeviceProof(
-      authentication,
-      requestBody,
-      config.deviceAuthUrl,
-    );
+    const deviceAuthentication = testDeviceAuthenticationEnabled(c.env)
+      ? await authenticateTestDeviceProof(authentication, requestBody, c.env)
+      : await authenticateDeviceProof(authentication, requestBody, config.deviceAuthUrl);
     if (!deviceAuthentication.ok) {
       return c.json({ error: deviceAuthentication.error }, deviceAuthentication.status);
     }
@@ -1916,7 +2080,7 @@ app.post("/attestation/session", async (c) => {
           ? c.env.TLSN_CANARY_BINDING_VALUE
           : undefined,
     );
-        const sessionReceipt = await signSessionReceipt(config, record);
+    const sessionReceipt = await signSessionReceipt(config, record);
     c.header("Cache-Control", "no-store");
     return c.json({
       session_id: record.session_id,
@@ -1991,6 +2155,7 @@ app.post("/verify/tlsn/status", async (c) => {
     }
     const finalResponse = verificationFinalResponseSchema.parse(JSON.parse(resultBody) as unknown);
     benchmarkRecord(c.env, requestBody.job_id, "t10_status_verified");
+    benchmarkRecord(c.env, requestBody.job_id, "t11_status_verified");
     attachBenchmarkTimingHeader(c, c.env, requestBody.job_id);
     c.header("Cache-Control", "no-store");
     return c.json(finalResponse);
@@ -2155,17 +2320,16 @@ const handleTlsnVerification = async (c: Context<{ Bindings: Bindings }>) => {
     if (deviceChallengeBytes.length !== 32) {
       return c.json({ error: "invalid_request" }, 400);
     }
-    const devicePossession = await authenticateTlsnDeviceProof(
-      authentication,
-      {
-        device_id: issuedBinding.device_id,
-        session_id: issuedBinding.session_id,
-        binding_value: issuedBinding.binding_value,
-        challenge: requestBody.device_proof.challenge,
-        sig: requestBody.device_proof.sig,
-      },
-      config.devicePossessionAuthUrl,
-    );
+    const devicePossessionProof = {
+      device_id: issuedBinding.device_id,
+      session_id: issuedBinding.session_id,
+      binding_value: issuedBinding.binding_value,
+      challenge: requestBody.device_proof.challenge,
+      sig: requestBody.device_proof.sig,
+    };
+    const devicePossession = testDeviceAuthenticationEnabled(c.env)
+      ? await authenticateTestTlsnDeviceProof(authentication, devicePossessionProof, c.env)
+      : await authenticateTlsnDeviceProof(authentication, devicePossessionProof, config.devicePossessionAuthUrl);
     if (!devicePossession.ok) {
       return c.json({ verified: false, error: devicePossession.error }, devicePossession.status);
     }
@@ -2225,11 +2389,13 @@ const handleTlsnVerification = async (c: Context<{ Bindings: Bindings }>) => {
     try {
       await enqueueTriggerVerification(trigger, payload);
       benchmarkRecord(c.env, jobId, "t2_trigger_submitted");
+      benchmarkRecord(c.env, jobId, "t2_trigger_task_accepted");
     } catch {
       return c.json({ verified: false, error: "trigger_unavailable", job_id: jobId }, 503);
     }
 
     c.header("Cache-Control", "no-store");
+  benchmarkRecord(c.env, jobId, "t1_202_response_sent");
     return c.json({ verified: false, status: "queued", job_id: jobId }, 202);
   }
 
