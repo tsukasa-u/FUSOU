@@ -47,7 +47,7 @@ queue = "fusou-tlsn-verification-test"
 queue = "fusou-tlsn-verification-test"
 max_batch_size = 1
 max_batch_timeout = 0
-max_retries = 3
+max_retries = 0
 
 [[env.test.services]]
 binding = "TLSN_DIRECT_VERIFIER"

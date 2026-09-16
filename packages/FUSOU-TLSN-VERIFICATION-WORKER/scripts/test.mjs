@@ -413,8 +413,8 @@ const testVars = {
   }),
 };
 
-function localWorker(vars) {
-  return unstable_dev(resolve(packageDirectory, "src/index.ts"), {
+function localWorker(vars, serviceBindings = {}) {
+  const options = {
     config: resolve(packageDirectory, "wrangler.toml"),
     vars,
     persist: false,
@@ -426,7 +426,11 @@ function localWorker(vars) {
       forceLocal: true,
       testMode: true,
     },
-  });
+  };
+  if (Object.keys(serviceBindings).length > 0) {
+    options.serviceBindings = serviceBindings;
+  }
+  return unstable_dev(resolve(packageDirectory, "src/index.ts"), options);
 }
 
 function internalRequestSignature(secret, jobId, body) {
@@ -1037,12 +1041,20 @@ async function runLeaseFencingSmokeTest() {
         device_id: attemptAPayload.device_id,
       }),
     });
-    assert.equal(activeRetryResponse.status, 202);
-    assert.equal((await activeRetryResponse.json()).status, "processing");
+    assert.equal(activeRetryResponse.status, 409);
+    assert.deepEqual(await activeRetryResponse.json(), {
+      verified: false,
+      status: "not_verified",
+      error: "verification_retry_disabled",
+    });
     assert.equal(deferredPayloads.length, 1);
     await new Promise((resolveDelay) => setTimeout(resolveDelay, 150));
 
-    const retryResponse = await worker.fetch("https://verify.test/verify/tlsn/retry", {
+    const attemptAResponse = await attemptACompletion;
+    assert.equal(attemptAResponse.status, 422);
+    assert.deepEqual(await attemptAResponse.json(), { error: "verification_failed" });
+
+    const statusResponse = await worker.fetch("https://verify.test/verify/tlsn/status", {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: "Bearer test-token-a" },
       body: JSON.stringify({
@@ -1053,40 +1065,135 @@ async function runLeaseFencingSmokeTest() {
         device_id: attemptAPayload.device_id,
       }),
     });
-    assert.equal(retryResponse.status, 202);
-    assert.equal((await retryResponse.json()).status, "queued");
-    assert.equal(deferredPayloads.length, 2);
-    const attemptBPayload = deferredPayloads[1];
-    const attemptBResponse = await complete(attemptBPayload);
-    assert.equal(attemptBResponse.status, 200);
-    assert.deepEqual(await attemptBResponse.json(), { accepted: true });
-
-    const attemptAResponse = await attemptACompletion;
-    assert.equal(attemptAResponse.status, 422);
-    assert.deepEqual(await attemptAResponse.json(), { error: "verification_failed" });
-
-    const statusResponse = await worker.fetch("https://verify.test/verify/tlsn/status", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: "Bearer test-token-a" },
-      body: JSON.stringify({
-        job_id: attemptBPayload.job_id,
-        binding_id: attemptBPayload.binding_id,
-        session_id: attemptBPayload.session_id,
-        canonical_user_id: attemptBPayload.canonical_user_id,
-        device_id: attemptBPayload.device_id,
-      }),
-    });
     assert.equal(statusResponse.status, 200);
-    assert.equal((await statusResponse.json()).verified, true);
+    assert.deepEqual(await statusResponse.json(), {
+      verified: false,
+      status: "not_verified",
+      job_id: attemptAPayload.job_id,
+    });
 
     const lateAttemptAResponse = await complete(attemptAPayload);
-    assert.equal(lateAttemptAResponse.status, 200);
-    assert.deepEqual(await lateAttemptAResponse.json(), { accepted: true });
+    assert.equal(lateAttemptAResponse.status, 409);
+    assert.deepEqual(await lateAttemptAResponse.json(), { error: "verification_failed" });
   } finally {
     await worker.stop();
     await new Promise((resolveServer) => triggerServer.close(resolveServer));
   }
-  console.log("[tlsn-verification-worker] lease expiry, stale attempt fencing, Result promotion, and retry recovery paths OK");
+  console.log("[tlsn-verification-worker] lease expiry, stale attempt fencing, terminal failure, and retry-disabled paths OK");
+}
+
+async function runDirectFailureSmokeTest() {
+  const callbackSecret = "direct-callback-test-secret";
+  const runScenario = async (mode) => {
+    let worker;
+    let directCalls = 0;
+    const directService = async (request) => {
+      directCalls += 1;
+      if (mode === "failure") {
+        return new Response(null, { status: 503 });
+      }
+      if (mode === "timeout") {
+        return new Promise((resolve, reject) => {
+          const timer = setTimeout(() => resolve(new Response(null, { status: 200 })), 200);
+          request.signal.addEventListener("abort", () => {
+            clearTimeout(timer);
+            reject(new Error("direct invocation aborted"));
+          }, { once: true });
+        });
+      }
+      return worker.fetch(request);
+    };
+    worker = await localWorker({
+      ...testVars,
+      TLSN_EXECUTION_MODE: "direct",
+      TLSN_DIRECT_CALLBACK_SECRET: callbackSecret,
+      TLSN_TEST_DIRECT_INVOCATION_TIMEOUT_MS: "25",
+    }, {
+      TLSN_DIRECT_VERIFIER: directService,
+    });
+    try {
+      const sessionResponse = await worker.fetch("https://verify.test/attestation/session", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: "Bearer test-token-a" },
+        body: JSON.stringify({ device_id: deviceId, nonce: deviceNonce, sig: deviceSignature }),
+      });
+      assert.equal(sessionResponse.status, 201);
+      const session = await sessionResponse.json();
+      const proof = {
+        device_id: deviceId,
+        session_id: session.session_id,
+        binding_value: session.binding,
+        challenge: session.device_challenge,
+      };
+      proof.sig = sign(
+        null,
+        tlsnDeviceProofMessage(proof.device_id, proof.session_id, proof.binding_value, proof.challenge),
+        devicePrivateKey,
+      ).toString("base64url");
+      const verificationResponse = await worker.fetch("https://verify.test/verify/tlsn", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: "Bearer test-token-a" },
+        body: JSON.stringify({
+          presentation_base64: syntheticFixture.presentation_base64,
+          session_id: session.session_id,
+          binding: session.binding,
+          device_id: deviceId,
+          device_proof: { challenge: proof.challenge, sig: proof.sig },
+        }),
+      });
+      assert.equal(verificationResponse.status, 202);
+      const queued = await verificationResponse.json();
+      const bindingId = createHash("sha256").update(session.binding).digest("base64url");
+      let statusResponse;
+      let statusPayload;
+      for (let attempt = 0; attempt < 100; attempt += 1) {
+        statusResponse = await worker.fetch("https://verify.test/verify/tlsn/status", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: "Bearer test-token-a" },
+          body: JSON.stringify({
+            job_id: queued.job_id,
+            binding_id: bindingId,
+            session_id: session.session_id,
+            canonical_user_id: "11111111-1111-4111-8111-111111111111",
+            device_id: deviceId,
+          }),
+        });
+        statusPayload = await statusResponse.json();
+        if (statusResponse.status !== 202) break;
+        await new Promise((resolveDelay) => setTimeout(resolveDelay, 10));
+      }
+      assert.equal(directCalls, 1);
+      if (mode === "success") {
+        assert.equal(statusResponse.status, 200);
+        assert.equal(statusPayload.verified, true);
+      } else {
+        assert.equal(statusResponse.status, 200);
+        assert.deepEqual(statusPayload, {
+          verified: false,
+          status: "not_verified",
+          job_id: queued.job_id,
+        });
+        const retryResponse = await worker.fetch("https://verify.test/verify/tlsn/retry", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: "Bearer test-token-a" },
+          body: JSON.stringify({}),
+        });
+        assert.equal(retryResponse.status, 409);
+        assert.deepEqual(await retryResponse.json(), {
+          verified: false,
+          status: "not_verified",
+          error: "verification_retry_disabled",
+        });
+      }
+    } finally {
+      await worker.stop();
+    }
+  };
+
+  await runScenario("success");
+  await runScenario("failure");
+  await runScenario("timeout");
+  console.log("[tlsn-verification-worker] Direct success, service-binding failure, timeout, and retry-disabled paths OK");
 }
 
 async function runRedirectRegressionTest() {
@@ -1126,7 +1233,7 @@ async function runRedirectRegressionTest() {
         body: JSON.stringify({ device_id: deviceId, nonce: deviceNonce, sig: deviceSignature }),
       });
       if (response.status !== expectedSupabaseStatus.get(mode)) {
-        throw new Error(`Supabase ${mode} expected ${expectedSupabaseStatus.get(mode)}, got ${response.status}`);
+        throw new Error(`Supabase ${mode} expected ${expectedSupabaseStatus.get(mode)}, got ${response.status}: ${await response.text()}`);
       }
       const supabaseRequest = upstreamState.intendedRequests.find((entry) => entry.kind === "supabase");
       if (supabaseRequest?.authorization !== "Bearer remote-token" || supabaseRequest.apikey !== "publishable-test-key") {
@@ -1312,6 +1419,8 @@ if (process.argv.includes("--app-roundtrip-only")) {
   await runAsyncTriggerSmokeTest();
 } else if (process.argv.includes("--lease-fencing-only")) {
   await runLeaseFencingSmokeTest();
+} else if (process.argv.includes("--direct-only")) {
+  await runDirectFailureSmokeTest();
 } else {
 await runRedirectRegressionTest();
 
@@ -1335,6 +1444,7 @@ try {
 
 await runAsyncTriggerSmokeTest();
 await runLeaseFencingSmokeTest();
+await runDirectFailureSmokeTest();
 
 const concurrentWorker = await localWorker({
   ...testVars,

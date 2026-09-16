@@ -636,13 +636,15 @@ timestamps cross runtime/Worker clocks and are not clock-skew corrected; the
 exact Direct startup value is therefore directional, while the server
 completion measurement remains the primary comparison.
 
-Direct dispatch is test-only and does not yet have Queue-style delivery
-retry semantics. The Request Worker schedules it with `waitUntil`, and the
-current failure handler intentionally swallows a rejected or failed Service
-Binding invocation after the request has returned `202`. A failed Direct
-attempt therefore requires a separate recovery mechanism before this path
-could be considered production-ready. This availability limitation does not
-change the completion-path security checks when an invocation does arrive.
+Direct dispatch is test-only and is now one-shot. The Request Worker schedules
+it with `waitUntil`; a rejected or non-OK Service Binding invocation records a
+bounded internal `verification_failure_code` and transitions the authority to
+`failed`. The public status is then HTTP `200` with
+`{ verified: false, status: "not_verified", job_id }`. The compatibility retry
+endpoint returns `verification_retry_disabled` and never re-enqueues the job.
+This preserves the distinction between a failed verification attempt and an
+expired binding while keeping failure reasons out of the unsigned external
+status response.
 
 The Direct artifact reported these additional phases:
 
@@ -707,3 +709,37 @@ Binding exists only under the test Wrangler environment. The test environment
 was restored to Queue defaults after the benchmark (`TLSN_EXECUTION_MODE=queue`
 and `TLSN_REMOTE_EXECUTION_MODE=queue`). Switching to Direct or Trigger still
 uses the same production/canary-independent test Worker deployment commands.
+
+## Phase 13: one-shot terminal failure semantics
+
+The test-only verification state machine now treats a failed verification
+attempt as terminal:
+
+- `processing` and `verifying` can transition to `failed` exactly once, with a
+	bounded internal code such as `service_binding_failed`, `verifier_failed`,
+	`presentation_read_failed`, `result_persistence_failed`, or
+	`lease_expired`.
+- A failed record cannot be claimed again, acquired again, or released back to
+	`processing`. Failure finalization is idempotent for already `failed` and
+	`consumed` records, so a late callback cannot overwrite a successful consume.
+- Lease expiry finalizes `failed`; binding TTL expiry remains `expired`.
+- Test Queue messages are acknowledged after a completion failure and the test
+	Wrangler consumer is configured with `max_retries = 0`. Trigger test tasks
+	use `maxAttempts = 1`. Production and canary retry configuration was not
+	changed.
+- The external failure response intentionally contains no raw error, stack,
+	binding value, presentation bytes, or sensitive verifier data.
+
+Local verification after the change:
+
+| Check | Result |
+| --- | --- |
+| Worker `tsc --noEmit` | PASS |
+| Test harness `node --check` | PASS |
+| Local package suite | BLOCKED before Direct cases by existing local Wrangler `NoBindingAuthority`; the session path returned `503 verifier_unconfigured` |
+| Remote deployment/benchmark | NOT RUN; no permission was requested or granted for external traffic |
+
+The Direct success/failure/timeout harness is present but remains
+`NOT_ESTABLISHED` until the local Durable Object binding setup is repaired or a
+test deployment is explicitly authorized. Existing remote Direct latency
+figures above are unchanged and do not include this terminal-failure change.

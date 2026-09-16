@@ -6,8 +6,18 @@ const TLSN_DEVICE_CHALLENGE_BYTES = 32;
 const UUID_BYTES = 16;
 const BENCHMARK_TIMING_KEY = "benchmark-timing";
 
-export type BindingStatus = "active" | "processing" | "verifying" | "expired" | "consumed";
+export type BindingStatus = "active" | "processing" | "verifying" | "failed" | "expired" | "consumed";
 export type VerificationProfile = "complete" | "sparse";
+export type VerificationFailureCode =
+  | "service_binding_failed"
+  | "verifier_failed"
+  | "presentation_read_failed"
+  | "presentation_hash_mismatch"
+  | "result_persistence_failed"
+  | "authority_error"
+  | "lease_expired"
+  | "worker_exception"
+  | "callback_failed";
 
 export type BindingRecord = {
   binding_id: string;
@@ -28,6 +38,7 @@ export type BindingRecord = {
   device_replay_digest_hex?: string;
   verification_attempt_id?: string;
   verification_lease_expires_at?: string;
+  verification_failure_code?: VerificationFailureCode;
   result_sha256?: string;
   result_object_key?: string;
   used_at?: string;
@@ -122,6 +133,11 @@ type ReleaseVerificationInput = JobLookupInput & {
   verification_attempt_id: string;
 };
 
+type FailVerificationInput = JobLookupInput & {
+  verification_attempt_id?: string;
+  failure_code: VerificationFailureCode;
+};
+
 type AuthorityResponse =
   | { ok: true; record: BindingRecord }
   | { ok: false; error: AuthorityErrorCode };
@@ -131,6 +147,7 @@ export type AuthorityErrorCode =
   | "binding_unknown"
   | "binding_expired"
   | "binding_consumed"
+  | "verification_failed"
   | "session_mismatch"
   | "user_mismatch"
   | "device_mismatch"
@@ -301,6 +318,10 @@ export class DurableObjectBindingAuthority {
     return this.call(bindingId, "/release", input);
   }
 
+  async failVerification(bindingId: string, input: FailVerificationInput): Promise<BindingRecord> {
+    return this.call(bindingId, "/fail", input);
+  }
+
   async mergeBenchmarkTiming(bindingId: string, input: BenchmarkTimingMergeInput): Promise<void> {
     let response: Response;
     try {
@@ -410,6 +431,8 @@ export class TlsnBindingAuthorityDurableObject extends DurableObject {
           return this.acquireVerification(body as unknown as AcquireVerificationInput);
         case "/release":
           return this.releaseVerification(body as unknown as ReleaseVerificationInput);
+        case "/fail":
+          return this.failVerification(body as unknown as FailVerificationInput);
         case "/job":
           return this.lookupJob(body as unknown as JobLookupInput);
         case "/consume":
@@ -449,13 +472,7 @@ export class TlsnBindingAuthorityDurableObject extends DurableObject {
         record.verification_lease_expires_at &&
         Date.parse(record.verification_lease_expires_at) <= now
       ) {
-        const {
-          verification_attempt_id: _verificationAttemptId,
-          verification_lease_expires_at: _verificationLeaseExpiresAt,
-          result_object_key: _resultObjectKey,
-          ...processingRecord
-        } = record;
-        await transaction.put("binding", { ...processingRecord, status: "processing" });
+        await transaction.put("binding", failedRecord(record, "lease_expired"));
         if (Number.isFinite(bindingExpiry) && bindingExpiry > now) nextAlarm = bindingExpiry;
         return;
       }
@@ -525,6 +542,10 @@ export class TlsnBindingAuthorityDurableObject extends DurableObject {
         result = { ok: false, error: "binding_consumed" };
         return;
       }
+      if (record.status === "failed") {
+        result = { ok: false, error: "verification_failed" };
+        return;
+      }
       result = { ok: true, record };
     });
     return Response.json(result, { status: result.ok ? 200 : authorityStatus(result.error) });
@@ -581,6 +602,10 @@ export class TlsnBindingAuthorityDurableObject extends DurableObject {
           return;
         }
         result = { ok: false, error: "binding_consumed" };
+        return;
+      }
+      if (record.status === "failed") {
+        result = { ok: false, error: "verification_failed" };
         return;
       }
       if (record.status === "verifying") {
@@ -682,6 +707,10 @@ export class TlsnBindingAuthorityDurableObject extends DurableObject {
         result = { ok: true, record };
         return;
       }
+      if (record.status === "failed") {
+        result = { ok: false, error: "verification_failed" };
+        return;
+      }
       if (
         record.status === "verifying" &&
         record.verification_lease_expires_at !== undefined &&
@@ -749,6 +778,10 @@ export class TlsnBindingAuthorityDurableObject extends DurableObject {
         result = { ok: true, record };
         return;
       }
+      if (record.status === "failed") {
+        result = { ok: true, record };
+        return;
+      }
       if (
         record.status !== "verifying" ||
         record.verification_attempt_id !== input.verification_attempt_id
@@ -765,6 +798,55 @@ export class TlsnBindingAuthorityDurableObject extends DurableObject {
       const processing: BindingRecord = { ...processingRecord, status: "processing" };
       await transaction.put("binding", processing);
       result = { ok: true, record: processing };
+    });
+    return Response.json(result, { status: result.ok ? 200 : authorityStatus(result.error) });
+  }
+
+  private async failVerification(input: FailVerificationInput): Promise<Response> {
+    let result: AuthorityResponse = { ok: false, error: "binding_unknown" };
+    await this.ctx.storage.transaction(async (transaction) => {
+      const record = await transaction.get<BindingRecord>("binding");
+      if (!record) {
+        return;
+      }
+      if (record.session_id !== input.session_id) {
+        result = { ok: false, error: "session_mismatch" };
+        return;
+      }
+      if (record.canonical_user_id !== input.canonical_user_id) {
+        result = { ok: false, error: "user_mismatch" };
+        return;
+      }
+      if (record.device_id !== input.device_id) {
+        result = { ok: false, error: "device_mismatch" };
+        return;
+      }
+      if (record.verification_job_id !== input.verification_job_id) {
+        result = { ok: false, error: "binding_unknown" };
+        return;
+      }
+      if (record.status === "consumed" || record.status === "failed") {
+        result = { ok: true, record };
+        return;
+      }
+      if (record.status === "expired") {
+        result = { ok: false, error: "binding_expired" };
+        return;
+      }
+      if (
+        record.status === "verifying" &&
+        (!input.verification_attempt_id || record.verification_attempt_id !== input.verification_attempt_id)
+      ) {
+        result = { ok: false, error: "binding_conflict" };
+        return;
+      }
+      if (record.status !== "processing" && record.status !== "verifying") {
+        result = { ok: false, error: "binding_conflict" };
+        return;
+      }
+      const failed = failedRecord(record, input.failure_code);
+      await transaction.put("binding", failed);
+      result = { ok: true, record: failed };
     });
     return Response.json(result, { status: result.ok ? 200 : authorityStatus(result.error) });
   }
@@ -859,6 +941,10 @@ export class TlsnBindingAuthorityDurableObject extends DurableObject {
         result = { ok: false, error: "binding_consumed" };
         return;
       }
+      if (record.status === "failed") {
+        result = { ok: false, error: "verification_failed" };
+        return;
+      }
       if (record.status === "processing") {
         result = record.verification_job_id === input.verification_job_id
           ? { ok: true, record }
@@ -925,14 +1011,9 @@ export class TlsnBindingAuthorityDurableObject extends DurableObject {
         record.status === "verifying" &&
         (!record.verification_lease_expires_at || Date.parse(record.verification_lease_expires_at) <= input.now)
       ) {
-        const {
-          verification_attempt_id: _verificationAttemptId,
-          verification_lease_expires_at: _verificationLeaseExpiresAt,
-          ...processingRecord
-        } = record;
-        const processing: BindingRecord = { ...processingRecord, status: "processing" };
-        await transaction.put("binding", processing);
-        result = { ok: true, record: processing };
+        const failed = failedRecord(record, "lease_expired");
+        await transaction.put("binding", failed);
+        result = { ok: true, record: failed };
         return;
       }
       result = { ok: true, record };
@@ -946,6 +1027,7 @@ function authorityStatus(error: AuthorityErrorCode): number {
     case "binding_expired":
       return 410;
     case "binding_consumed":
+    case "verification_failed":
     case "binding_conflict":
     case "verification_result_mismatch":
     case "verification_profile_mismatch":
@@ -959,4 +1041,20 @@ function authorityStatus(error: AuthorityErrorCode): number {
     case "authority_unavailable":
       return 503;
   }
+}
+
+function failedRecord(record: BindingRecord, failureCode: VerificationFailureCode): BindingRecord {
+  const {
+    verification_attempt_id: _verificationAttemptId,
+    verification_lease_expires_at: _verificationLeaseExpiresAt,
+    result_sha256: _resultSha256,
+    result_object_key: _resultObjectKey,
+    used_at: _usedAt,
+    ...withoutAttemptAuthority
+  } = record;
+  return {
+    ...withoutAttemptAuthority,
+    status: "failed",
+    verification_failure_code: failureCode,
+  };
 }
