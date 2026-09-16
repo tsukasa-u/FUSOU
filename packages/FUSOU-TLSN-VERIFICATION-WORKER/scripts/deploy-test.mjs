@@ -43,6 +43,7 @@ const SECRET_INPUTS = [
   "TLSN_TEST_BINDING_VALUE",
   "TLSN_TRIGGER_SECRET_KEY",
   "TLSN_TRIGGER_CALLBACK_SECRET",
+  "TLSN_QUEUE_CALLBACK_SECRET",
 ];
 
 const REQUIRED_PUBLIC_INPUTS = PUBLIC_INPUTS.filter((name) => ![
@@ -102,12 +103,20 @@ async function main() {
     "TLSN_BINDING_AUTHORITY_SIGNING_PRIVATE_KEY_PKCS8",
   ]) required(name);
 
-  const triggerMode = process.env.TLSN_EXECUTION_MODE === "trigger";
+  const executionMode = process.env.TLSN_EXECUTION_MODE?.trim() || "sync";
+  if (!new Set(["sync", "trigger", "queue"]).has(executionMode)) {
+    throw new Error("TLSN_EXECUTION_MODE must be sync, trigger, or queue");
+  }
+  const triggerMode = executionMode === "trigger";
+  const queueMode = executionMode === "queue";
   if (triggerMode) {
     required("TLSN_TRIGGER_API_URL");
     required("TLSN_TRIGGER_TASK_ID");
     required("TLSN_TRIGGER_SECRET_KEY");
     required("TLSN_TRIGGER_CALLBACK_SECRET");
+  }
+  if (queueMode) {
+    required("TLSN_QUEUE_CALLBACK_SECRET");
   }
   if (!process.env.TLSN_TEST_AUTH_USERS && (!process.env.TLSN_SUPABASE_URL || !process.env.TLSN_SUPABASE_PUBLISHABLE_KEY)) {
     throw new Error("set TLSN_TEST_AUTH_USERS or both TLSN_SUPABASE_URL and TLSN_SUPABASE_PUBLISHABLE_KEY");

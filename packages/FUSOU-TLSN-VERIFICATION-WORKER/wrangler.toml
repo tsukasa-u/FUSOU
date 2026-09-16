@@ -39,6 +39,16 @@ class_name = "TlsnBindingAuthorityDurableObject"
 binding = "TLSN_PRESENTATIONS"
 bucket_name = "fusou-tlsn-verification-test"
 
+[[env.test.queues.producers]]
+binding = "TLSN_VERIFICATION_QUEUE"
+queue = "fusou-tlsn-verification-test"
+
+[[env.test.queues.consumers]]
+queue = "fusou-tlsn-verification-test"
+max_batch_size = 1
+max_batch_timeout = 0
+max_retries = 3
+
 [[env.test.migrations]]
 tag = "v1"
 new_sqlite_classes = ["TlsnBindingAuthorityDurableObject"]

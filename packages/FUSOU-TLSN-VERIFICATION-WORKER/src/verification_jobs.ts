@@ -37,6 +37,11 @@ const verificationTaskPayloadObject = z.object({
 
 export const verificationTaskPayloadSchema = verificationTaskPayloadObject.superRefine(assertVerificationProfile);
 
+export const verificationQueueMessageSchema = verificationTaskPayloadObject.extend({
+  message_type: z.literal("tlsn-verification-v1"),
+  presentation_id: z.string().regex(/^[A-Za-z0-9_-]{43}$/),
+}).strict().superRefine(assertVerificationProfile);
+
 export const verificationInputRequestSchema = verificationTaskPayloadObject.pick({
   job_id: true,
   binding_id: true,
@@ -55,13 +60,18 @@ export const verificationCallbackSchema = z.object({
   device_id: z.string().uuid(),
   presentation_id: z.string().regex(/^[A-Za-z0-9_-]{43}$/),
   verification_status: z.literal("verified"),
-  trigger_execution_started_at: z.number().int().positive().optional(),
+  trigger_execution_started_at: z.number().positive().optional(),
+  benchmark_module_timing: z.object({
+    module_evaluation_completed_at: z.number().positive(),
+  }).strict().optional(),
   benchmark_timing: z.object({
-    input_fetch_started_at: z.number().int().positive(),
-    input_fetch_completed_at: z.number().int().positive(),
-    verifier_started_at: z.number().int().positive(),
-    verifier_completed_at: z.number().int().positive(),
-    callback_request_started_at: z.number().int().positive(),
+    input_fetch_started_at: z.number().positive(),
+    input_fetch_completed_at: z.number().positive(),
+    verifier_initialization_started_at: z.number().positive(),
+    verifier_initialization_completed_at: z.number().positive(),
+    verifier_started_at: z.number().positive(),
+    verifier_completed_at: z.number().positive(),
+    callback_request_started_at: z.number().positive(),
   }).strict().optional(),
   benchmark_trace_id: z.string().regex(BENCHMARK_TRACE_ID_PATTERN).optional(),
   ...verificationProfileFields,
@@ -88,6 +98,7 @@ export const verificationFinalResponseSchema = z.object({
 }).strict();
 
 export type VerificationTaskPayload = z.infer<typeof verificationTaskPayloadSchema>;
+export type VerificationQueueMessage = z.infer<typeof verificationQueueMessageSchema>;
 export type VerificationCallback = z.infer<typeof verificationCallbackSchema>;
 
 export function verificationObjectKey(jobId: string, kind: "presentation" | "result"): string {

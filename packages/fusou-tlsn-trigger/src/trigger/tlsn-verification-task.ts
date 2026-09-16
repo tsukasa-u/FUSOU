@@ -38,12 +38,18 @@ const verificationTaskPayloadSchema = z.object({
 type VerificationTaskPayload = z.infer<typeof verificationTaskPayloadSchema>;
 
 const benchmarkTimingSchema = z.object({
-  input_fetch_started_at: z.number().int().positive(),
-  input_fetch_completed_at: z.number().int().positive(),
-  verifier_started_at: z.number().int().positive(),
-  verifier_completed_at: z.number().int().positive(),
-  callback_request_started_at: z.number().int().positive(),
+  input_fetch_started_at: z.number().positive(),
+  input_fetch_completed_at: z.number().positive(),
+  verifier_initialization_started_at: z.number().positive(),
+  verifier_initialization_completed_at: z.number().positive(),
+  verifier_started_at: z.number().positive(),
+  verifier_completed_at: z.number().positive(),
+  callback_request_started_at: z.number().positive(),
 }).strict();
+
+function wallClockNow(): number {
+  return performance.timeOrigin + performance.now();
+}
 
 function requiredEnv(name: string): string {
   const value = process.env[name]?.trim();
@@ -95,7 +101,7 @@ function logPhase(
   console.info("[tlsn-verification]", {
     job_id_hash: jobIdHash(payload.job_id),
     phase,
-    elapsed_ms: Date.now() - startedAt,
+    elapsed_ms: wallClockNow() - startedAt,
     ...details,
   });
 }
@@ -177,8 +183,9 @@ async function postCompletion(
   presentationId: string,
   triggerExecutionStartedAt: number,
   benchmarkTiming: z.infer<typeof benchmarkTimingSchema> | undefined,
+  moduleEvaluationCompletedAt: number,
 ): Promise<void> {
-  const callbackRequestStartedAt = Date.now();
+  const callbackRequestStartedAt = wallClockNow();
   const body = JSON.stringify({
     job_id: payload.job_id,
     binding_id: payload.binding_id,
@@ -197,6 +204,9 @@ async function postCompletion(
           },
         }
       : {}),
+    ...(payload.benchmark_trace_id
+      ? { benchmark_module_timing: { module_evaluation_completed_at: moduleEvaluationCompletedAt } }
+      : {}),
     profile: payload.profile,
     disclosure_mode: payload.disclosure_mode,
   });
@@ -214,6 +224,8 @@ async function postCompletion(
   }
 }
 
+const moduleEvaluationCompletedAt = wallClockNow();
+
 export const verifyTlsnPresentation = task({
   id: "tlsn-verify-presentation",
   queue: {
@@ -224,10 +236,10 @@ export const verifyTlsnPresentation = task({
   retry: { maxAttempts: 3 },
   maxDuration: 600,
   run: async (input: VerificationTaskPayload) => {
-    const triggerExecutionStartedAt = Date.now();
+    const triggerExecutionStartedAt = wallClockNow();
     const payload = verificationTaskPayloadSchema.parse(input);
     logPhase(payload, "started", triggerExecutionStartedAt);
-    const inputFetchStartedAt = Date.now();
+    const inputFetchStartedAt = wallClockNow();
     logPhase(payload, "input_fetch_start", triggerExecutionStartedAt);
     let presentation: Uint8Array;
     try {
@@ -236,13 +248,16 @@ export const verifyTlsnPresentation = task({
       logPhase(payload, "input_fetch_error", triggerExecutionStartedAt, { error_class: errorClass(error) });
       throw error;
     }
-    const inputFetchCompletedAt = Date.now();
+    const inputFetchCompletedAt = wallClockNow();
     logPhase(payload, "input_fetch_ok", triggerExecutionStartedAt, { byte_length: presentation.byteLength });
     const presentationId = createHash("sha256").update(presentation).digest("base64url");
-    const verifierStartedAt = Date.now();
+    const verifierStartedAt = wallClockNow();
     logPhase(payload, "verifier_start", triggerExecutionStartedAt, { profile: payload.profile });
+    const verifierInitializationStartedAt = wallClockNow();
+    let verifierInitializationCompletedAt = verifierInitializationStartedAt;
     try {
       initializeVerifier();
+      verifierInitializationCompletedAt = wallClockNow();
 
       const config = verifierConfig(payload.profile);
       const deviceChallenge = decodeBase64Url(payload.device_challenge, 32);
@@ -300,7 +315,7 @@ export const verifyTlsnPresentation = task({
       logPhase(payload, "verifier_error", triggerExecutionStartedAt, { error_class: errorClass(error) });
       throw error;
     }
-    const verifierCompletedAt = Date.now();
+    const verifierCompletedAt = wallClockNow();
     logPhase(payload, "verifier_ok", triggerExecutionStartedAt);
     logPhase(payload, "callback_start", triggerExecutionStartedAt);
     try {
@@ -312,11 +327,14 @@ export const verifyTlsnPresentation = task({
           ? benchmarkTimingSchema.parse({
               input_fetch_started_at: inputFetchStartedAt,
               input_fetch_completed_at: inputFetchCompletedAt,
+              verifier_initialization_started_at: verifierInitializationStartedAt,
+              verifier_initialization_completed_at: verifierInitializationCompletedAt,
               verifier_started_at: verifierStartedAt,
               verifier_completed_at: verifierCompletedAt,
-              callback_request_started_at: Date.now(),
+              callback_request_started_at: wallClockNow(),
             })
           : undefined,
+        moduleEvaluationCompletedAt,
       );
     } catch (error) {
       logPhase(payload, "callback_error", triggerExecutionStartedAt, { error_class: errorClass(error) });

@@ -17,11 +17,9 @@ const DEFAULT_POLL_INTERVAL_MS = 250;
 const DEFAULT_MAX_POLL_MS = 300_000;
 const RESULT_TARGET_MS = 3_000;
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-const REQUIRED_TIMING_STAGES = [
+const COMMON_REQUIRED_TIMING_STAGES = [
   "t0_accepted",
   "t1_202_response_sent",
-  "t2_trigger_task_accepted",
-  "t3_trigger_execution_started",
   "t4_callback_accepted",
   "t5_lease_acquired",
   "t6_presentation_read",
@@ -32,13 +30,33 @@ const REQUIRED_TIMING_STAGES = [
   "t9_consume_completed",
   "t10_consume_completed",
   "t11_status_verified",
-  "t3_trigger_input_fetch_started",
-  "t3_trigger_input_fetch_completed",
-  "t3_trigger_verifier_started",
-  "t3_trigger_verifier_completed",
-  "t3_trigger_callback_request_started",
   "t10_callback_response_ready",
 ];
+
+const REQUIRED_TIMING_STAGES_BY_MODE = {
+  trigger: [
+    ...COMMON_REQUIRED_TIMING_STAGES,
+    "t2_trigger_task_accepted",
+    "t3_trigger_execution_started",
+    "t3_trigger_module_initialized",
+    "t3_trigger_input_fetch_started",
+    "t3_trigger_input_fetch_completed",
+    "t3_trigger_verifier_initialization_started",
+    "t3_trigger_verifier_initialization_completed",
+    "t3_trigger_verifier_started",
+    "t3_trigger_verifier_completed",
+    "t3_trigger_callback_request_started",
+  ],
+  queue: [
+    ...COMMON_REQUIRED_TIMING_STAGES,
+    "t2_queue_message_accepted",
+    "t3_queue_execution_started",
+    "t3_queue_verifier_started",
+    "t3_queue_verifier_completed",
+    "t3_queue_callback_dispatch_started",
+    "t3_queue_callback_response_received",
+  ],
+};
 
 function required(name) {
   const value = process.env[name]?.trim();
@@ -246,7 +264,7 @@ async function submitVerification(workerOrigin, accessToken, body) {
   };
 }
 
-async function pollStatus(workerOrigin, accessToken, userId, device, session, jobId, benchmarkTraceId, pollIntervalMs, maxPollMs) {
+async function pollStatus(workerOrigin, accessToken, userId, device, session, jobId, benchmarkTraceId, pollIntervalMs, maxPollMs, executionMode) {
   const pollStartedAt = performance.now();
   const deadline = pollStartedAt + maxPollMs;
   let pollCount = 0;
@@ -278,7 +296,7 @@ async function pollStatus(workerOrigin, accessToken, userId, device, session, jo
           timing,
         };
       }
-      if (requiredTimingStagesPresent(timing)) {
+      if (requiredTimingStagesPresent(timing, executionMode)) {
         return {
           ...firstVerifiedResponse,
           timing,
@@ -308,8 +326,8 @@ function phaseMilliseconds(timing, start, end) {
   return startValue !== null && endValue !== null ? endValue - startValue : null;
 }
 
-function requiredTimingStagesPresent(timing) {
-  return REQUIRED_TIMING_STAGES.every((stage) => stageTimestamp(timing, stage) !== null);
+function requiredTimingStagesPresent(timing, executionMode) {
+  return REQUIRED_TIMING_STAGES_BY_MODE[executionMode].every((stage) => stageTimestamp(timing, stage) !== null);
 }
 
 function pQuantile(values, quantile) {
@@ -343,7 +361,10 @@ function summarizePhases(samples) {
     callback_response: summarize(samples, "callbackResponseMilliseconds"),
     trigger_input_fetch: summarize(samples, "triggerInputFetchMilliseconds"),
     trigger_verifier: summarize(samples, "triggerVerifierMilliseconds"),
+    trigger_verifier_initialization: summarize(samples, "triggerVerifierInitializationMilliseconds"),
     trigger_to_callback_request: summarize(samples, "triggerToCallbackRequestMilliseconds"),
+    queue_verifier: summarize(samples, "queueVerifierMilliseconds"),
+    queue_callback_dispatch: summarize(samples, "queueCallbackDispatchMilliseconds"),
     status_polling: summarize(samples, "statusPollingMilliseconds"),
     client_visible: summarize(samples, "clientVisibleMilliseconds"),
   };
@@ -359,7 +380,7 @@ function rowDecision(row) {
     : "EXCEEDS TARGET";
 }
 
-async function runBatch({ workerOrigin, webOrigin, accessToken, userId, device, privateKey, manifest, entry, concurrency, sampleCount, pollIntervalMs, maxPollMs }) {
+async function runBatch({ workerOrigin, webOrigin, accessToken, userId, device, privateKey, manifest, entry, concurrency, sampleCount, pollIntervalMs, maxPollMs, executionMode }) {
   const sourcePath = fixtureSourcePath(manifest, entry);
   const samples = [];
   let preparationMilliseconds = 0;
@@ -391,6 +412,7 @@ async function runBatch({ workerOrigin, webOrigin, accessToken, userId, device, 
         submission.benchmarkTraceId,
         pollIntervalMs,
         maxPollMs,
+        executionMode,
       )
     )));
     for (let index = 0; index < concurrency; index += 1) {
@@ -399,8 +421,8 @@ async function runBatch({ workerOrigin, webOrigin, accessToken, userId, device, 
       const timing = completion.timing;
       const timestamps = timing?.timestamps ?? {};
       const t1Server = stageTimestamp(timing, "t1_202_response_sent");
-      const t2 = stageTimestamp(timing, "t2_trigger_task_accepted");
-      const t3 = stageTimestamp(timing, "t3_trigger_execution_started");
+      const t2 = stageTimestamp(timing, executionMode === "queue" ? "t2_queue_message_accepted" : "t2_trigger_task_accepted");
+      const t3 = stageTimestamp(timing, executionMode === "queue" ? "t3_queue_execution_started" : "t3_trigger_execution_started");
       const t4 = stageTimestamp(timing, "t4_callback_accepted");
       const t5 = stageTimestamp(timing, "t5_lease_acquired");
       const t6 = stageTimestamp(timing, "t6_presentation_read");
@@ -410,7 +432,13 @@ async function runBatch({ workerOrigin, webOrigin, accessToken, userId, device, 
       const t9 = stageTimestamp(timing, "t9_consume_completed");
       const t10 = stageTimestamp(timing, "t10_consume_completed");
       const t10CallbackResponse = stageTimestamp(timing, "t10_callback_response_ready");
-      const observed = requiredTimingStagesPresent(timing);
+      const observed = requiredTimingStagesPresent(timing, executionMode);
+      const queueVerifierStarted = stageTimestamp(timing, "t3_queue_verifier_started");
+      const queueVerifierCompleted = stageTimestamp(timing, "t3_queue_verifier_completed");
+      const queueCallbackDispatchStarted = stageTimestamp(timing, "t3_queue_callback_dispatch_started");
+      const queueCallbackResponseReceived = stageTimestamp(timing, "t3_queue_callback_response_received");
+      const triggerVerifierInitializationStarted = stageTimestamp(timing, "t3_trigger_verifier_initialization_started");
+      const triggerVerifierInitializationCompleted = stageTimestamp(timing, "t3_trigger_verifier_initialization_completed");
       samples.push({
         case_label: entry.caseLabel,
         body_bytes: entry.sourceFixtureBodyBytes,
@@ -433,8 +461,17 @@ async function runBatch({ workerOrigin, webOrigin, accessToken, userId, device, 
         callbackResponseMilliseconds: t10 !== null && t10CallbackResponse !== null ? t10CallbackResponse - t10 : null,
         triggerInputFetchMilliseconds: phaseMilliseconds(timing, "t3_trigger_input_fetch_started", "t3_trigger_input_fetch_completed"),
         triggerVerifierMilliseconds: phaseMilliseconds(timing, "t3_trigger_verifier_started", "t3_trigger_verifier_completed"),
+        triggerVerifierInitializationMilliseconds: triggerVerifierInitializationStarted !== null && triggerVerifierInitializationCompleted !== null
+          ? triggerVerifierInitializationCompleted - triggerVerifierInitializationStarted
+          : null,
         triggerToCallbackRequestMilliseconds: t3 !== null && stageTimestamp(timing, "t3_trigger_callback_request_started") !== null
           ? stageTimestamp(timing, "t3_trigger_callback_request_started") - t3
+          : null,
+        queueVerifierMilliseconds: queueVerifierStarted !== null && queueVerifierCompleted !== null
+          ? queueVerifierCompleted - queueVerifierStarted
+          : null,
+        queueCallbackDispatchMilliseconds: queueCallbackDispatchStarted !== null && queueCallbackResponseReceived !== null
+          ? queueCallbackResponseReceived - queueCallbackDispatchStarted
           : null,
         resultFinalizationMilliseconds: phaseMilliseconds(timing, "t7_wasm_verification_completed", "t10_consume_completed"),
         timing_complete: observed,
@@ -476,7 +513,10 @@ async function runBatch({ workerOrigin, webOrigin, accessToken, userId, device, 
         callback_response: sample.callbackResponseMilliseconds,
         trigger_input_fetch: sample.triggerInputFetchMilliseconds,
         trigger_verifier: sample.triggerVerifierMilliseconds,
+        trigger_verifier_initialization: sample.triggerVerifierInitializationMilliseconds,
         trigger_to_callback_request: sample.triggerToCallbackRequestMilliseconds,
+        queue_verifier: sample.queueVerifierMilliseconds,
+        queue_callback_dispatch: sample.queueCallbackDispatchMilliseconds,
         status_polling: sample.statusPollingMilliseconds,
         poll_count: sample.pollCount,
       },
@@ -496,6 +536,10 @@ async function main() {
   const sampleCount = parseInteger("TLSN_REMOTE_SAMPLE_COUNT", DEFAULT_SAMPLE_COUNT, 1, 1_000);
   const pollIntervalMs = parseInteger("TLSN_REMOTE_POLL_INTERVAL_MS", DEFAULT_POLL_INTERVAL_MS, 25, 5_000);
   const maxPollMs = parseInteger("TLSN_REMOTE_MAX_POLL_MS", DEFAULT_MAX_POLL_MS, 1_000, 300_000);
+  const executionMode = optional("TLSN_REMOTE_EXECUTION_MODE") ?? "trigger";
+  if (!Object.hasOwn(REQUIRED_TIMING_STAGES_BY_MODE, executionMode)) {
+    throw new Error("TLSN_REMOTE_EXECUTION_MODE must be trigger or queue");
+  }
   const cases = parseList("TLSN_REMOTE_CASES", DEFAULT_CASES, (value) => value || undefined);
   const concurrencyValues = parseList("TLSN_REMOTE_CONCURRENCY", DEFAULT_CONCURRENCY, (value) => {
     const number = Number(value);
@@ -548,6 +592,7 @@ async function main() {
         sampleCount,
         pollIntervalMs,
         maxPollMs,
+        executionMode,
       });
       rows.push(row);
       console.log(JSON.stringify({
@@ -556,6 +601,7 @@ async function main() {
         samples: row.successful_samples,
         client_visible: row.phases.client_visible,
         trigger_queue_start: row.phases.trigger_queue_start,
+        queue_verifier: row.phases.queue_verifier,
         result: row.result,
       }));
     }
@@ -587,14 +633,19 @@ async function main() {
       poll_interval_ms: pollIntervalMs,
       max_poll_ms: maxPollMs,
       target_ms: RESULT_TARGET_MS,
+      execution_mode: executionMode,
     },
     boundaries: {
       worker_r2_do: "MEASURED BY OPT-IN WORKER TELEMETRY",
-      trigger_task_start: "MEASURED AT FIRST TRIGGER TASK CODE USING TRIGGER CLOCK",
+      trigger_task_start: executionMode === "trigger"
+        ? "MEASURED AT FIRST TRIGGER TASK CODE USING TRIGGER CLOCK"
+        : "NOT APPLICABLE",
       trigger_platform_scheduler_timestamp: "NOT_ESTABLISHED",
       production_worker_isolate_rss: "NOT_ESTABLISHED",
       client_visible_clock: "MEASURED BY BENCHMARK PROCESS",
-      trigger_queue_start_clock_note: "T2 and T3 are wall-clock timestamps from Worker and Trigger environments; clock skew is not corrected",
+      trigger_queue_start_clock_note: executionMode === "trigger"
+        ? "T2 and T3 are wall-clock timestamps from Worker and Trigger environments; clock skew is not corrected"
+        : "Queue T2 and T3 are wall-clock timestamps from the same Worker environment",
       fixture_generation: "EXCLUDED FROM T0-T11; generated from existing real corpus with each issued binding",
     },
     target_decision: result,

@@ -20,7 +20,9 @@ import {
   verificationObjectKey,
   verificationStatusRequestSchema,
   verificationTaskPayloadSchema,
+  verificationQueueMessageSchema,
   type VerificationTaskPayload,
+  type VerificationQueueMessage,
   verifyInternalRequest,
   internalRequestSignature,
 } from "./verification_jobs.js";
@@ -46,6 +48,8 @@ type Bindings = {
   TLSN_TRIGGER_TASK_ID?: string;
   TLSN_TRIGGER_SECRET_KEY?: string;
   TLSN_TRIGGER_CALLBACK_SECRET?: string;
+  TLSN_QUEUE_CALLBACK_SECRET?: string;
+  TLSN_VERIFICATION_QUEUE?: Queue<VerificationQueueMessage>;
   TLSN_TEST_COMPLETION_DELAY_MS?: string;
   TLSN_TEST_COMPLETION_DELAY_ONCE?: string;
   TLSN_TEST_VERIFICATION_LEASE_MS?: string;
@@ -154,8 +158,18 @@ type BenchmarkTimingStage =
   | "t1_202_response_sent"
   | "t2_trigger_submitted"
   | "t2_trigger_task_accepted"
+  | "t2_queue_submitted"
+  | "t2_queue_message_accepted"
   | "t3_callback_accepted"
   | "t3_trigger_execution_started"
+  | "t3_trigger_module_initialized"
+  | "t3_trigger_verifier_initialization_started"
+  | "t3_trigger_verifier_initialization_completed"
+  | "t3_queue_execution_started"
+  | "t3_queue_verifier_started"
+  | "t3_queue_verifier_completed"
+  | "t3_queue_callback_dispatch_started"
+  | "t3_queue_callback_response_received"
   | "t4_lease_acquired"
   | "t4_callback_accepted"
   | "t5_presentation_read"
@@ -182,6 +196,7 @@ type BenchmarkPersistence = {
   authority: DurableObjectBindingAuthority;
   bindingId: string;
   traceId: string;
+  executionMode: "trigger" | "queue";
 };
 
 const benchmarkTimingRecords = new Map<string, DurableBenchmarkTimingRecord>();
@@ -378,14 +393,16 @@ function benchmarkRegister(
   authority: DurableObjectBindingAuthority,
   bindingId: string,
   traceId: string | undefined,
+  executionMode: "trigger" | "queue" = "trigger",
 ): void {
   if (!benchmarkEnabled(env) || !traceId) return;
-  benchmarkPersistences.set(jobId, { authority, bindingId, traceId });
+  benchmarkPersistences.set(jobId, { authority, bindingId, traceId, executionMode });
   if (!benchmarkTimingRecords.has(jobId)) {
     benchmarkTimingRecords.set(jobId, {
       schema_version: 1,
       trace_id: traceId,
       job_id: jobId,
+      execution_mode: executionMode,
       timestamps: {},
       r2_operations: {},
       max_verifier_concurrency: benchmarkMaxVerifierConcurrency,
@@ -400,14 +417,15 @@ async function benchmarkRegisterFromCallback(
   authority: DurableObjectBindingAuthority,
   bindingId: string,
   traceId: string | undefined,
+  executionMode: "trigger" | "queue" = "trigger",
 ): Promise<void> {
   if (!benchmarkEnabled(env)) return;
   if (traceId) {
-    benchmarkRegister(env, jobId, authority, bindingId, traceId);
+    benchmarkRegister(env, jobId, authority, bindingId, traceId, executionMode);
     return;
   }
   const existing = await authority.getBenchmarkTimingByJobId(bindingId, jobId).catch(() => null);
-  benchmarkRegister(env, jobId, authority, bindingId, existing?.trace_id);
+  benchmarkRegister(env, jobId, authority, bindingId, existing?.trace_id, executionMode);
 }
 
 function benchmarkRecord(env: Bindings, jobId: string, stage: BenchmarkTimingStage, timestamp = Date.now()): void {
@@ -457,6 +475,7 @@ async function benchmarkFlush(env: Bindings, jobId: string): Promise<void> {
     schema_version: 1,
     trace_id: persistence.traceId,
     job_id: jobId,
+    execution_mode: persistence.executionMode,
     timestamps: {
       ...(durable?.timestamps ?? {}),
       ...local.timestamps,
@@ -477,6 +496,11 @@ async function benchmarkFlush(env: Bindings, jobId: string): Promise<void> {
   };
   benchmarkTimingRecords.set(jobId, record);
   await persistence.authority.mergeBenchmarkTiming(persistence.bindingId, record).catch(() => undefined);
+}
+
+function deferBenchmarkFlush(c: Context<{ Bindings: Bindings }>, jobId: string): void {
+  if (!benchmarkEnabled(c.env)) return;
+  c.executionCtx.waitUntil(benchmarkFlush(c.env, jobId));
 }
 
 async function attachBenchmarkTimingHeader(c: Context<{ Bindings: Bindings }>, env: Bindings, jobId: string): Promise<void> {
@@ -1545,11 +1569,19 @@ function shouldUseTriggerExecution(env: Bindings): boolean {
   return env.TLSN_ENVIRONMENT === "production" || env.TLSN_EXECUTION_MODE === "trigger";
 }
 
+function shouldUseQueueExecution(env: Bindings): boolean {
+  return env.TLSN_ENVIRONMENT === "test" && env.TLSN_EXECUTION_MODE === "queue";
+}
+
 function triggerCallbackSecret(env: Bindings): string | undefined {
   if (env.TLSN_ENVIRONMENT !== "production") return env.TLSN_TRIGGER_CALLBACK_SECRET;
   return env.TLSN_DEPLOYMENT_ROLE === "canary"
     ? env.TLSN_CANARY_TRIGGER_CALLBACK_SECRET
     : env.TLSN_PRODUCTION_TRIGGER_CALLBACK_SECRET;
+}
+
+function queueCallbackSecret(env: Bindings): string | undefined {
+  return env.TLSN_ENVIRONMENT === "test" ? env.TLSN_QUEUE_CALLBACK_SECRET : undefined;
 }
 
 function internalRequestAuthFailure(
@@ -1590,6 +1622,13 @@ async function enqueueTriggerVerification(
     throw new Error(`Trigger enqueue failed with status ${response.status}`);
   }
   return response.json().catch(() => null);
+}
+
+async function enqueueQueueVerification(
+  queue: Queue<VerificationQueueMessage>,
+  message: VerificationQueueMessage,
+): Promise<void> {
+  await queue.send(message);
 }
 
 app.post("/internal/tlsn/verification-input", async (c) => {
@@ -1637,7 +1676,7 @@ app.post("/internal/tlsn/verification-input", async (c) => {
   if (!object || object.size > MAX_PRESENTATION_BYTES) {
     return c.json({ error: "verification_input_unavailable" }, 503);
   }
-  await benchmarkFlush(c.env, parsed.data.job_id);
+  deferBenchmarkFlush(c, parsed.data.job_id);
   return new Response(object.body, {
     headers: {
       "Content-Type": "application/octet-stream",
@@ -1651,7 +1690,12 @@ app.post("/internal/tlsn/verification-complete", async (c) => {
   const rawBody = await readRawBody(c.req.raw, MAX_INTERNAL_CALLBACK_JSON_BYTES).catch(() => null);
   const jobId = c.req.header("X-FUSOU-TLSN-Job-Id") ?? "";
   const signature = c.req.header("X-FUSOU-TLSN-Signature") ?? null;
-  const callbackSecret = triggerCallbackSecret(c.env);
+  const executionMode = c.env.TLSN_ENVIRONMENT === "test" && c.req.header("X-FUSOU-TLSN-Execution-Mode") === "queue"
+    ? "queue"
+    : "trigger";
+  const callbackSecret = executionMode === "queue"
+    ? queueCallbackSecret(c.env)
+    : triggerCallbackSecret(c.env);
   if (rawBody === null) return internalRequestAuthFailure(c, "signature_invalid");
   if (!callbackSecret) return internalRequestAuthFailure(c, "callback_secret_unconfigured");
   if (!signature || !/^[A-Za-z0-9_-]{43}$/.test(signature)) {
@@ -1682,15 +1726,26 @@ app.post("/internal/tlsn/verification-complete", async (c) => {
     authority,
     callback.binding_id,
     callback.benchmark_trace_id,
+    executionMode,
   );
   benchmarkRecord(c.env, callback.job_id, "t3_callback_accepted");
   benchmarkRecord(c.env, callback.job_id, "t4_callback_accepted");
-  if (callback.trigger_execution_started_at !== undefined) {
+  if (executionMode !== "queue" && callback.trigger_execution_started_at !== undefined) {
     benchmarkRecord(c.env, callback.job_id, "t3_trigger_execution_started", callback.trigger_execution_started_at);
+  }
+  if (callback.benchmark_module_timing) {
+    benchmarkRecord(
+      c.env,
+      callback.job_id,
+      "t3_trigger_module_initialized",
+      callback.benchmark_module_timing.module_evaluation_completed_at,
+    );
   }
   if (callback.benchmark_timing) {
     benchmarkRecord(c.env, callback.job_id, "t3_trigger_input_fetch_started", callback.benchmark_timing.input_fetch_started_at);
     benchmarkRecord(c.env, callback.job_id, "t3_trigger_input_fetch_completed", callback.benchmark_timing.input_fetch_completed_at);
+    benchmarkRecord(c.env, callback.job_id, "t3_trigger_verifier_initialization_started", callback.benchmark_timing.verifier_initialization_started_at);
+    benchmarkRecord(c.env, callback.job_id, "t3_trigger_verifier_initialization_completed", callback.benchmark_timing.verifier_initialization_completed_at);
     benchmarkRecord(c.env, callback.job_id, "t3_trigger_verifier_started", callback.benchmark_timing.verifier_started_at);
     benchmarkRecord(c.env, callback.job_id, "t3_trigger_verifier_completed", callback.benchmark_timing.verifier_completed_at);
     benchmarkRecord(c.env, callback.job_id, "t3_trigger_callback_request_started", callback.benchmark_timing.callback_request_started_at);
@@ -1752,7 +1807,7 @@ app.post("/internal/tlsn/verification-complete", async (c) => {
   };
 
   if (record.status === "consumed") {
-    await benchmarkFlush(c.env, callback.job_id);
+    deferBenchmarkFlush(c, callback.job_id);
     return readConsumedResult(record);
   }
   if (record.status !== "processing" && record.status !== "verifying") {
@@ -1778,7 +1833,7 @@ app.post("/internal/tlsn/verification-complete", async (c) => {
     return c.json({ error: error instanceof BindingAuthorityError ? error.code : "job_unavailable" }, 409);
   }
   if (verificationRecord.status === "consumed") {
-    await benchmarkFlush(c.env, callback.job_id);
+    deferBenchmarkFlush(c, callback.job_id);
     return readConsumedResult(verificationRecord);
   }
   if (
@@ -1793,6 +1848,9 @@ app.post("/internal/tlsn/verification-complete", async (c) => {
     verificationRecord.device_replay_digest_hex === undefined
   ) {
     return c.json({ error: "verification_result_mismatch" }, 422);
+  }
+  if (executionMode === "queue") {
+    benchmarkRecord(c.env, callback.job_id, "t3_queue_verifier_started");
   }
   benchmarkVerifierStart(c.env, callback.job_id);
   benchmarkRecord(c.env, callback.job_id, "t5_lease_acquired");
@@ -1858,6 +1916,9 @@ app.post("/internal/tlsn/verification-complete", async (c) => {
     );
     benchmarkRecord(c.env, callback.job_id, "t6_wasm_verification_completed");
     benchmarkRecord(c.env, callback.job_id, "t7_wasm_verification_completed");
+    if (executionMode === "queue") {
+      benchmarkRecord(c.env, callback.job_id, "t3_queue_verifier_completed");
+    }
     const preparedUnsignedResult = JSON.parse(prepared.unsigned_result) as Record<string, unknown>;
     const expectedProfileId = sparseProfile ? "fusou-require-info-v2-sparse" : "fusou-require-info-v1";
     const expectedVersion = sparseProfile ? 2 : 1;
@@ -1976,7 +2037,7 @@ app.post("/internal/tlsn/verification-complete", async (c) => {
       await c.env.TLSN_PRESENTATIONS.delete(completionRecord.verification_input_key).catch(() => undefined);
     }
     benchmarkRecord(c.env, callback.job_id, "t10_callback_response_ready");
-    await benchmarkFlush(c.env, callback.job_id);
+    deferBenchmarkFlush(c, callback.job_id);
     return c.json({ accepted: true });
   } catch {
     return c.json({ error: "verification_failed" }, 422);
@@ -1989,7 +2050,7 @@ app.post("/internal/tlsn/verification-complete", async (c) => {
     if (resultPersisted && !completionConsumed && !preserveAttemptResult) {
       await c.env.TLSN_PRESENTATIONS.delete(attemptResultKey).catch(() => undefined);
     }
-    await benchmarkFlush(c.env, callback.job_id);
+    deferBenchmarkFlush(c, callback.job_id);
   }
 });
 
@@ -2283,7 +2344,7 @@ app.post("/verify/tlsn/status", async (c) => {
     const finalResponse = verificationFinalResponseSchema.parse(JSON.parse(resultBody) as unknown);
     benchmarkRecord(c.env, requestBody.job_id, "t10_status_verified");
     benchmarkRecord(c.env, requestBody.job_id, "t11_status_verified");
-    await benchmarkFlush(c.env, requestBody.job_id);
+    deferBenchmarkFlush(c, requestBody.job_id);
     await attachBenchmarkTimingHeader(c, c.env, requestBody.job_id);
     c.header("Cache-Control", "no-store");
     return c.json(finalResponse);
@@ -2297,9 +2358,13 @@ app.post("/verify/tlsn/retry", async (c) => {
   if (authentication instanceof Response) {
     return authentication;
   }
-  const trigger = triggerExecutionConfig(c.env);
-  if (!trigger) {
-    return c.json({ verified: false, error: "trigger_unconfigured" }, 503);
+  const trigger = shouldUseTriggerExecution(c.env) ? triggerExecutionConfig(c.env) : null;
+  const queue = shouldUseQueueExecution(c.env) ? c.env.TLSN_VERIFICATION_QUEUE : undefined;
+  if (!trigger && !queue) {
+    return c.json({
+      verified: false,
+      error: shouldUseQueueExecution(c.env) ? "queue_unconfigured" : "trigger_unconfigured",
+    }, 503);
   }
 
   let requestBody: z.infer<typeof verificationStatusRequestSchema>;
@@ -2313,6 +2378,7 @@ app.post("/verify/tlsn/retry", async (c) => {
   }
 
   const authority = new DurableObjectBindingAuthority(c.env.TLSN_BINDINGS);
+  benchmarkRegister(c.env, requestBody.job_id, authority, requestBody.binding_id, requestBody.benchmark_trace_id, queue ? "queue" : "trigger");
   let record;
   try {
     record = await authority.lookupVerificationJob(requestBody.binding_id, {
@@ -2380,9 +2446,28 @@ app.post("/verify/tlsn/retry", async (c) => {
       profile: storedProfile,
       disclosure_mode: storedProfile === "sparse" ? "sparse" : "full",
     });
-    await enqueueTriggerVerification(trigger, payload);
+    if (queue) {
+      if (!record.presentation_id) {
+        return c.json({ verified: false, error: "verification_unavailable" }, 409);
+      }
+      await enqueueQueueVerification(queue, verificationQueueMessageSchema.parse({
+        ...payload,
+        message_type: "tlsn-verification-v1",
+        presentation_id: record.presentation_id,
+      }));
+      benchmarkRecord(c.env, requestBody.job_id, "t2_queue_submitted");
+      benchmarkRecord(c.env, requestBody.job_id, "t2_queue_message_accepted");
+    } else if (trigger) {
+      await enqueueTriggerVerification(trigger, payload);
+      benchmarkRecord(c.env, requestBody.job_id, "t2_trigger_submitted");
+      benchmarkRecord(c.env, requestBody.job_id, "t2_trigger_task_accepted");
+    }
   } catch {
-    return c.json({ verified: false, error: "trigger_unavailable", job_id: requestBody.job_id }, 503);
+    return c.json({
+      verified: false,
+      error: queue ? "queue_unavailable" : "trigger_unavailable",
+      job_id: requestBody.job_id,
+    }, 503);
   }
   c.header("Cache-Control", "no-store");
   return c.json({ verified: false, status: "queued", job_id: requestBody.job_id }, 202);
@@ -2416,10 +2501,14 @@ const handleTlsnVerification = async (c: Context<{ Bindings: Bindings }>) => {
     return c.json({ error: "invalid_request" }, 400);
   }
 
-  if (shouldUseTriggerExecution(c.env)) {
-    const trigger = triggerExecutionConfig(c.env);
-    if (!trigger) {
-      return c.json({ verified: false, error: "trigger_unconfigured" }, 503);
+  if (shouldUseTriggerExecution(c.env) || shouldUseQueueExecution(c.env)) {
+    const trigger = shouldUseTriggerExecution(c.env) ? triggerExecutionConfig(c.env) : null;
+    const queue = shouldUseQueueExecution(c.env) ? c.env.TLSN_VERIFICATION_QUEUE : undefined;
+    if (!trigger && !queue) {
+      return c.json({
+        verified: false,
+        error: shouldUseQueueExecution(c.env) ? "queue_unconfigured" : "trigger_unconfigured",
+      }, 503);
     }
 
     const authority = new DurableObjectBindingAuthority(c.env.TLSN_BINDINGS);
@@ -2478,7 +2567,14 @@ const handleTlsnVerification = async (c: Context<{ Bindings: Bindings }>) => {
     const verificationInputKey = verificationObjectKey(jobId, "presentation");
     const verificationResultKey = verificationObjectKey(jobId, "result");
     const bindingId = await hashBindingId(requestBody.binding);
-    benchmarkRegister(c.env, jobId, authority, bindingId, benchmarkTraceId);
+    benchmarkRegister(
+      c.env,
+      jobId,
+      authority,
+      bindingId,
+      benchmarkTraceId,
+      queue ? "queue" : "trigger",
+    );
     benchmarkRecord(c.env, jobId, "t0_accepted");
     const payload = verificationTaskPayloadSchema.parse({
       job_id: jobId,
@@ -2518,16 +2614,31 @@ const handleTlsnVerification = async (c: Context<{ Bindings: Bindings }>) => {
       return c.json({ verified: false, error: "trigger_unavailable", job_id: jobId }, 503);
     }
     try {
-      await enqueueTriggerVerification(trigger, payload);
-      benchmarkRecord(c.env, jobId, "t2_trigger_submitted");
-      benchmarkRecord(c.env, jobId, "t2_trigger_task_accepted");
+      if (queue) {
+        const queueMessage = verificationQueueMessageSchema.parse({
+          ...payload,
+          message_type: "tlsn-verification-v1",
+          presentation_id: presentationId,
+        });
+        await enqueueQueueVerification(queue, queueMessage);
+        benchmarkRecord(c.env, jobId, "t2_queue_submitted");
+        benchmarkRecord(c.env, jobId, "t2_queue_message_accepted");
+      } else if (trigger) {
+        await enqueueTriggerVerification(trigger, payload);
+        benchmarkRecord(c.env, jobId, "t2_trigger_submitted");
+        benchmarkRecord(c.env, jobId, "t2_trigger_task_accepted");
+      }
     } catch {
-      return c.json({ verified: false, error: "trigger_unavailable", job_id: jobId }, 503);
+      return c.json({
+        verified: false,
+        error: queue ? "queue_unavailable" : "trigger_unavailable",
+        job_id: jobId,
+      }, 503);
     }
 
     c.header("Cache-Control", "no-store");
     benchmarkRecord(c.env, jobId, "t1_202_response_sent");
-    await benchmarkFlush(c.env, jobId);
+    deferBenchmarkFlush(c, jobId);
     return c.json({
       verified: false,
       status: "queued",
@@ -2666,5 +2777,80 @@ const handleTlsnVerification = async (c: Context<{ Bindings: Bindings }>) => {
 app.post("/verify/tlsn", handleTlsnVerification);
 app.post("/verify/tlsn/sparse", handleTlsnVerification);
 
+async function handleVerificationQueue(
+  batch: MessageBatch<VerificationQueueMessage>,
+  env: Bindings,
+  ctx: ExecutionContext,
+): Promise<void> {
+  const callbackSecret = queueCallbackSecret(env);
+  if (!callbackSecret) {
+    for (const message of batch.messages) message.retry();
+    return;
+  }
+
+  for (const message of batch.messages) {
+    const parsed = verificationQueueMessageSchema.safeParse(message.body);
+    if (!parsed.success) {
+      message.ack();
+      continue;
+    }
+    const queueMessage = parsed.data;
+    const authority = new DurableObjectBindingAuthority(env.TLSN_BINDINGS);
+    benchmarkRegister(
+      env,
+      queueMessage.job_id,
+      authority,
+      queueMessage.binding_id,
+      queueMessage.benchmark_trace_id,
+      "queue",
+    );
+    benchmarkRecord(env, queueMessage.job_id, "t3_queue_execution_started");
+    const callbackBody = JSON.stringify({
+      job_id: queueMessage.job_id,
+      binding_id: queueMessage.binding_id,
+      session_id: queueMessage.session_id,
+      canonical_user_id: queueMessage.canonical_user_id,
+      device_id: queueMessage.device_id,
+      presentation_id: queueMessage.presentation_id,
+      verification_status: "verified",
+      profile: queueMessage.profile,
+      disclosure_mode: queueMessage.disclosure_mode,
+      ...(queueMessage.benchmark_trace_id
+        ? { benchmark_trace_id: queueMessage.benchmark_trace_id }
+        : {}),
+    });
+    try {
+      const signature = await internalRequestSignature(callbackSecret, queueMessage.job_id, callbackBody);
+      benchmarkRecord(env, queueMessage.job_id, "t3_queue_callback_dispatch_started");
+      const response = await app.fetch(
+        new Request("https://tlsn-queue.internal/internal/tlsn/verification-complete", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "X-FUSOU-TLSN-Job-Id": queueMessage.job_id,
+            "X-FUSOU-TLSN-Signature": signature,
+            "X-FUSOU-TLSN-Execution-Mode": "queue",
+          },
+          body: callbackBody,
+        }),
+        env,
+        ctx,
+      );
+      benchmarkRecord(env, queueMessage.job_id, "t3_queue_callback_response_received");
+      ctx.waitUntil(benchmarkFlush(env, queueMessage.job_id));
+      if (response.status === 409 || response.status >= 500) {
+        message.retry();
+      } else {
+        message.ack();
+      }
+    } catch {
+      message.retry();
+    }
+  }
+}
+
 export { app, TlsnBindingAuthorityDurableObject };
-export default app;
+export default {
+  fetch: app.fetch,
+  queue: handleVerificationQueue,
+};

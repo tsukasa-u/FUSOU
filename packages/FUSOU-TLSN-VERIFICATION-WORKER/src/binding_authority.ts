@@ -38,6 +38,7 @@ export type BenchmarkTimingRecord = {
   schema_version: 1;
   trace_id: string;
   job_id: string;
+  execution_mode?: "trigger" | "queue";
   timestamps: Record<string, number>;
   r2_operations: Record<string, number>;
   diagnostics?: Record<string, boolean | number>;
@@ -48,6 +49,7 @@ export type BenchmarkTimingRecord = {
 export type BenchmarkTimingMergeInput = {
   trace_id: string;
   job_id: string;
+  execution_mode?: "trigger" | "queue";
   timestamps: Record<string, number>;
   r2_operations: Record<string, number>;
   diagnostics?: Record<string, boolean | number>;
@@ -769,6 +771,7 @@ export class TlsnBindingAuthorityDurableObject extends DurableObject {
         schema_version: 1,
         trace_id: input.trace_id,
         job_id: input.job_id,
+        execution_mode: input.execution_mode ?? existing?.execution_mode ?? "trigger",
         timestamps,
         r2_operations: r2Operations,
         diagnostics,

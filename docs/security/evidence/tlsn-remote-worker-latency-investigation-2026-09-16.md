@@ -244,3 +244,95 @@ The benchmark client now tolerates the observed ordering where the binding
 becomes `consumed` before the callback's final durable timing flush is visible.
 Temporary Trigger run ID and callback diagnostic fields used during diagnosis
 were removed after the evidence was captured.
+
+## Test-only Queue A/B preparation
+
+The Worker now has a test-only Queue execution mode, selected with
+`TLSN_EXECUTION_MODE=queue`. The test Wrangler environment declares the
+`TLSN_VERIFICATION_QUEUE` producer and consumer with batch size `1`; the base,
+canary, and production environments remain unchanged.
+
+Queue messages contain only the job metadata, profile, and Presentation hash.
+The consumer validates the message schema, signs an in-process callback, and
+routes it through the existing authenticated completion path. The completion
+path still performs the Durable Object lookup and lease, R2 Presentation read
+and hash check, Worker WASM verification, Result signing, Result persistence,
+attempt-fenced consume, and input cleanup. The Queue message is therefore a
+dispatch hint and is not an authorization source.
+
+The remote benchmark accepts `TLSN_REMOTE_EXECUTION_MODE=trigger|queue` and
+uses mode-specific required timing stages. Trigger timing now includes module
+evaluation completion and WASM verifier initialization start/end. Queue timing
+includes consumer start, Worker verifier start/end, and in-process callback
+dispatch/response stages. Both modes use the same fixture generation,
+authentication, profile, polling, Result schema, and target decision.
+
+The Queue resource, test Worker deployment, and remote A/B traffic were then
+performed using the same p50 fixture at concurrency `1` and five samples. The
+results and the deferred benchmark-telemetry follow-up are recorded below.
+
+## Test-only Queue A/B measurement and deferred telemetry follow-up
+
+The initial Queue comparison used `max_batch_timeout = 0` and completed five
+samples with test Worker version `909f5606-790e-4370-affe-23ebb201f68f`. The
+Trigger comparison used test Worker version
+`43a7367e-93bd-4a71-9622-6b6f9b478b45` and Trigger deployment `20260916.7`.
+Both runs used the p50 fixture, concurrency `1`, a 100 ms polling interval,
+and complete durable timing records.
+
+| Execution mode | Timing complete | Client P50 | P95 | Max | Decision |
+| --- | ---: | ---: | ---: | ---: | --- |
+| Queue, `max_batch_timeout=0` | 5/5 | 3349 ms | 6795 ms | 6795 ms | EXCEEDS TARGET |
+| Trigger baseline | 5/5 | 5220 ms | 7906 ms | 7906 ms | EXCEEDS TARGET |
+
+The largest Queue phases in the baseline were Queue delivery (`trigger_queue_start`)
+at P50 `1042 ms` and P95 `4033 ms`, followed by client-side status polling at
+P50 `2562 ms` and P95 `5770 ms` in the saved artifact. Worker Queue verifier
+time was P50 `246 ms` and P95 `289 ms`, so WASM verification was not the
+dominant latency source.
+
+The benchmark durable timing flush was then moved from the synchronous response
+path to `ExecutionContext.waitUntil`. Queue test Worker version
+`213f5fd6-168d-42df-8326-14e4152d00f9` completed five further samples:
+
+| Execution mode | Timing complete | Client P50 | P95 | Max | Queue wait P50 | Queue wait P95 | Decision |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| Queue, deferred flush | 5/5 | 3181 ms | 7445 ms | 7445 ms | 641 ms | 5245 ms | EXCEEDS TARGET |
+
+The deferred-flush run reduced P50 by approximately `168 ms`, but worsened the
+observed tail by approximately `650 ms`; this five-sample result does not show
+a statistically reliable latency improvement. Queue callback dispatch remained
+approximately `1684 ms` at P50, while Queue verifier time remained only
+`323 ms` at P50 and `368 ms` at P95. The single post-change smoke sample was
+also complete but remained above target at approximately `5138 ms`.
+
+A matching five-sample Trigger run was attempted with Worker version
+`734ccf72-9e0f-40a2-87d3-8c38a62f9036` and Trigger deployment `20260916.8`.
+Four of five samples had complete timing. One sample reached `verified` before
+the final callback timing flush became visible; another complete sample had a
+Trigger scheduling delay of approximately `46464 ms`. The run therefore has
+`NOT ESTABLISHED` target status and is not used as a replacement for the
+complete Trigger baseline.
+
+The current evidence identifies the optimization boundary:
+
+- Queue delivery tail latency and Trigger platform scheduling are the largest
+	asynchronous costs.
+- The Queue callback path, including R2 and Durable Object operations, is the
+	next significant cost.
+- Worker WASM verification is comparatively small.
+- Deferring benchmark persistence removes measurement overhead from the
+	response path, but does not reduce Queue delivery or platform scheduling
+	latency.
+
+The Queue path has a lower observed P50 than the Trigger baseline, but both
+paths exceed the 3000 ms P95/P99/Max gate, and the Queue tail remains highly
+variable. This test-only evidence does not support replacing Trigger in
+production. No production or canary Worker was deployed or modified.
+
+Evidence artifacts:
+
+- `packages/FUSOU-TLSN-VERIFICATION-WORKER/artifacts/tlsn-remote-benchmark-queue-0timeout-p50-c1-poll100-5.json`
+- `packages/FUSOU-TLSN-VERIFICATION-WORKER/artifacts/tlsn-remote-benchmark-trigger-p50-c1-poll100-5.json`
+- `packages/FUSOU-TLSN-VERIFICATION-WORKER/artifacts/tlsn-remote-benchmark-queue-deferred-flush-p50-c1-poll100-5.json`
+- `packages/FUSOU-TLSN-VERIFICATION-WORKER/artifacts/tlsn-remote-benchmark-trigger-deferred-flush-p50-c1-poll100-5.json`
