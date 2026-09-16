@@ -406,3 +406,161 @@ Local validation after the implementation passed `pnpm run typecheck`,
 regression assertions because its Supabase setup returned HTTP `503` instead
 of the expected session `201`; this is an environment blocker, not a passed
 security regression result.
+
+## Completion path I/O integration investigation
+
+The investigation was continued from commit
+`cf9a8cec80e1b05f8c73f891526b952ae00f08ea`. Only the test Worker was deployed;
+production and canary were not deployed or modified. The first optimization
+was deliberately limited to the safest authority-side integration:
+`lookupVerificationJob` and `acquireVerification` were combined into the
+existing atomic Durable Object transaction used by `acquireVerification`.
+
+### Phase 1: dependency and ordering map
+
+The completion path has the following ownership and dependency model:
+
+| Step | Owner/type | Depends on | Security-required ordering | Implementation-only serialization |
+| --- | --- | --- | --- | --- |
+| Queue receive | Cloudflare Queue dispatch | Queue send | No authority decision is made; the message is only a dispatch hint | Queue scheduling is outside the Worker completion code |
+| Binding lookup + lease | One Durable Object transaction | Authenticated callback identity, job ID, presentation ID, profile, current status | Yes. Identity, binding, expiry, duplicate state, and attempt fencing must be checked before granting verifier ownership | The previous separate job lookup was redundant |
+| Presentation GET | R2 GET | A valid acquired lease and the authority's input key | Yes. Reading before ownership would permit work for a stale or duplicate callback and can race cleanup | The GET itself cannot be parallelized with lease acquisition because the input key is authority state |
+| Presentation SHA-256 | Worker CPU/Web Crypto | Presentation bytes from R2 | Yes. The digest must match the authority-bound presentation ID before verification | No meaningful remote I/O is involved |
+| WASM verification | Worker CPU/WASM | Valid lease, verified Presentation bytes, profile and identity fields | Yes. Skipping or moving it after result persistence would weaken result authority | No remote I/O dependency |
+| Result signing | Worker CPU/Web Crypto | Verified prepared result and derived signing bytes | Yes. The signed result is the only result eligible for persistence | No meaningful remote I/O is involved |
+| Result PUT | R2 PUT | Signed final response and its SHA-256 | Yes. It must complete before authoritative consume records its object key and hash | It cannot safely race consume |
+| DO consume | Durable Object transaction | Result PUT, result SHA-256, object key, lease attempt ID | Yes. This is the authoritative terminal transition and rejects stale owners | None without changing result authority |
+| Input cleanup | R2 DELETE, plus failure lease release | Successful consume for input deletion; active lease for failure release | Successful cleanup must not precede consume; failure release must remain attempt-fenced | The successful-path DELETE can be deferred after consume, but was not changed in this one-optimization experiment |
+| Status becomes verified | DO lookup followed by R2 GET/hash/parse on status polling | Consumed record, result key/hash, persisted Result | Yes. Client response is verified only after the authoritative record and persisted Result agree | Polling observation is separate from server completion |
+
+The optimized path is therefore:
+
+```text
+Queue receive
+	-> shared authenticated completion (HMAC + schema, no same-Worker HTTP hop)
+	-> one DO transaction: lookup, identity/profile/presentation checks, expiry check, lease
+	-> Presentation R2 GET + SHA-256 validation
+	-> WASM verification
+	-> Result signing
+	-> Result R2 PUT
+	-> DO authoritative consume with result SHA/key and attempt fencing
+	-> input cleanup and failure-safe lease release
+	-> status polling: DO lookup + Result R2 GET/hash/parse
+	-> verified response
+```
+
+### Phase 2: binding lookup and lease integration
+
+The authority transaction now validates session ID, canonical user ID, device
+ID, verification job ID, presentation ID, profile, required input/result keys,
+replay digest presence, binding expiry, consumed state, and an existing live
+lease before writing `status: verifying`. A new attempt ID and result key are
+written in the same transaction. The completion path still requires the
+returned record to be `verifying` and to contain the requested attempt ID
+before it reads R2 or runs WASM.
+
+This preserves the relevant invariants:
+
+- A stale attempt cannot consume because consume still requires the stored
+	attempt ID, job ID, result key, result SHA-256, and live lease.
+- A duplicate callback observes an existing lease or consumed state and does
+	not obtain a second verifier owner.
+- Expired, processing, verifying, consumed, and binding-expired states retain
+	their existing authority decisions.
+- Queue fields remain dispatch hints; the authority record remains the source
+	of binding ID, session ID, canonical user ID, device ID, profile, and object
+	keys.
+
+### Phase 3: Presentation GET ordering
+
+The three candidate orderings were evaluated as follows:
+
+| Option | Decision | Reason |
+| --- | --- | --- |
+| A. Lease -> R2 GET -> verify | KEEP | The lease fences duplicate callbacks and stale attempts before remote input work. Hash binding and WASM verification remain mandatory. |
+| B. R2 GET -> hash -> lease -> verify | DO NOT USE | The input key still comes from authority state, so this does not remove the DO dependency. It permits stale/duplicate callbacks to consume R2 work before ownership and makes cleanup races harder to reason about. |
+| C. R2 GET and DO lease in parallel | DO NOT USE | The R2 key is authority-owned, and a pre-lease read can race expiry, duplicate ownership, or input deletion. Even if the final lease check rejects the work, the optimization spends remote I/O before the security gate and does not safely reduce the required authority interaction. |
+
+Presentation substitution remains blocked by comparing the R2 bytes' SHA-256
+with the authority-bound `presentation_id` and callback `presentation_id`.
+Result authority remains independent of the Queue message.
+
+### Phase 4 and 5: Result and R2 dependency review
+
+The completion success path uses these R2 operations:
+
+| Operation | Required? | Role |
+| --- | --- | --- |
+| Presentation GET | Yes | Supplies the bytes for hash binding and WASM verification |
+| Presentation hash | Yes | Binds the fetched bytes to the claimed Presentation |
+| Result PUT | Yes | Persists the exact signed response before DO consume |
+| Result GET during status | Yes | Revalidates the persisted bytes against the authoritative Result SHA-256 before returning verified |
+| Result GET on duplicate consumed callback | Yes | Prevents an accepted callback response from bypassing persisted-result integrity checks |
+| R2 HEAD or metadata lookup | Not used | No separate HEAD or metadata-only access exists in this path |
+| Input DELETE | Required cleanup | Removes the input after authoritative consume; failure cleanup removes an unconsumed attempt Result |
+
+There is no duplicate Presentation GET, Result PUT, Result HEAD, or metadata
+lookup in the successful completion request. Result PUT cannot be parallelized
+with consume: consuming first would allow the DO to become authoritative for a
+Result that is not yet durable. The current `finally` path also invokes the
+attempt-fenced release method after success; the authority treats release on a
+consumed record as a no-op. Removing that post-consume no-op is a possible next
+small change, but it was intentionally not combined with this experiment.
+
+### Phase 6: server completion versus client observation
+
+The benchmark now reports both `server_completion` and `client_observation`.
+`server_completion` is measured from the accepted `202` timestamp to
+`t10_consume_completed`, the authoritative DO transition. `client_observation`
+is measured from the client receiving the accepted response until the client
+receives the first verified status response. `client_visible` includes request
+acceptance as well.
+
+The repaired test deployment was
+`88c49f12-395d-4bcc-941f-510495d93128`. The run used p50, concurrency `1`,
+100 ms polling, and five samples. All five samples reached complete timing.
+
+| Phase | P50 | P95 | P99/Max | Interpretation |
+| --- | ---: | ---: | ---: | --- |
+| Queue send | 163 ms | 620 ms | 620 ms | Producer request to Queue acceptance |
+| Queue delivery/start | 441 ms | 3742 ms | 3742 ms | Dominant tail before consumer entry |
+| Fused DO lookup + lease | 447 ms | 488 ms | 488 ms | One authoritative DO interaction |
+| Presentation R2 input | 345 ms | 680 ms | 680 ms | Includes R2 GET; hash was below 1 ms in the report |
+| WASM verification | 0 ms | 0 ms | 0 ms | Below effective millisecond reporting resolution |
+| Result persistence | 585 ms | 1036 ms | 1036 ms | Signed Result R2 PUT |
+| DO consume | 152 ms | 161 ms | 161 ms | Authoritative consume transaction |
+| Completion response | 198 ms | 214 ms | 214 ms | Includes the measured response-readiness phase |
+| Server authoritative completion | 2014 ms | 5622 ms | 5622 ms | Accepted `202` to DO consume |
+| Client observation | 2013 ms | 5642 ms | 5642 ms | Accepted response to first verified status |
+| Client-visible | 2527 ms | 6505 ms | 6505 ms | Includes request acceptance and polling |
+
+The artifact is:
+
+- `packages/FUSOU-TLSN-VERIFICATION-WORKER/packages/FUSOU-TLSN-VERIFICATION-WORKER/artifacts/tlsn-remote-benchmark-do-fused-repaired-p50-c1-poll100-5.json`
+
+The run exited with status `1` because the target gate was exceeded. This is a
+completed measurement, not a benchmark execution failure. With five samples,
+these values are directional evidence only and are not population estimates.
+
+### Phase 9 and 10: result and next action
+
+| Path | Phase structure |
+| --- | --- |
+| Current before this experiment | `Queue -> DO lookup -> DO lease -> R2 GET/hash -> WASM -> sign -> R2 PUT -> DO consume -> cleanup -> poll/status Result GET` |
+| Optimized test path | `Queue -> shared HMAC/schema completion -> one DO lookup+validation+lease -> R2 GET/hash -> WASM -> sign -> R2 PUT -> DO consume -> cleanup -> poll/status Result GET` |
+
+Compared with the earlier direct-completion run, this five-sample run measured
+client-visible P50 `2527 ms` and P95 `6505 ms`. The earlier run measured
+`3231/4110 ms`; the difference is not attributable solely to DO fusion because
+Queue scheduling and R2 timing varied between runs. Relative to the same
+repaired run's server completion, the remaining P95 is dominated by Queue
+delivery (`3742 ms`), while the largest completion-path I/O phase is Result
+persistence (`1036 ms`). The 3000 ms target was not reached at P95 or Max.
+
+The next single change should be the safe removal of the post-consume no-op
+lease release. Failure-path lease release must remain attempt-fenced. Input
+cleanup should remain a separate later experiment rather than being combined
+with this change. The no-op release removal must be measured separately before
+any parallel R2/DO change is considered. No verification skip, binding skip,
+hash skip, result-authority weakening, or production/canary deployment is
+justified by the current five-sample evidence.

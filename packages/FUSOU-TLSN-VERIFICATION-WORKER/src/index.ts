@@ -202,6 +202,8 @@ type BenchmarkTimingStage =
   | "queue_callback_authentication_completed"
   | "queue_callback_schema_validated"
   | "queue_completion_entered"
+  | "queue_binding_lookup_and_lease_started"
+  | "queue_binding_lookup_and_lease_completed"
   | "queue_binding_lookup_started"
   | "queue_binding_lookup_completed"
   | "queue_lease_acquire_started"
@@ -1883,41 +1885,6 @@ async function completeVerification(
     benchmarkRecord(c.env, callback.job_id, "t3_trigger_verifier_completed", callback.benchmark_timing.verifier_completed_at);
     benchmarkRecord(c.env, callback.job_id, "t3_trigger_callback_request_started", callback.benchmark_timing.callback_request_started_at);
   }
-  let record;
-  const bindingLookupStartedAt = executionMode === "queue" ? performance.now() : null;
-  if (executionMode === "queue") benchmarkRecord(c.env, callback.job_id, "queue_binding_lookup_started");
-  try {
-    record = await authority.lookupVerificationJob(callback.binding_id, {
-      session_id: callback.session_id,
-      canonical_user_id: callback.canonical_user_id,
-      device_id: callback.device_id,
-      verification_job_id: callback.job_id,
-      now: Date.now(),
-    });
-  } catch (error) {
-    return c.json({ error: error instanceof BindingAuthorityError ? error.code : "job_unavailable" }, 409);
-  }
-  if (executionMode === "queue") {
-    benchmarkRecord(c.env, callback.job_id, "queue_binding_lookup_completed");
-    benchmarkDuration(c.env, callback.job_id, "queue_binding_lookup", performance.now() - (bindingLookupStartedAt ?? performance.now()));
-  }
-  if (
-    record.presentation_id !== callback.presentation_id ||
-    record.verification_input_key === undefined ||
-    record.verification_result_key === undefined ||
-    record.device_replay_digest_hex === undefined
-  ) {
-    return c.json({ error: "verification_result_mismatch" }, 422);
-  }
-
-  const expectedProfile = record.verification_profile ?? "complete";
-  if (
-    callback.profile !== expectedProfile ||
-    callback.disclosure_mode !== (expectedProfile === "sparse" ? "sparse" : "full")
-  ) {
-    return c.json({ error: "verification_profile_mismatch" }, 422);
-  }
-
   const readConsumedResult = async (resultRecord: BindingRecord): Promise<Response> => {
     if (!resultRecord.result_sha256) {
       return c.json({ error: "verification_result_unavailable" }, 503);
@@ -1945,38 +1912,43 @@ async function completeVerification(
     }
   };
 
-  if (record.status === "consumed") {
-    deferBenchmarkFlush(c, callback.job_id);
-    return readConsumedResult(record);
-  }
-  if (record.status !== "processing" && record.status !== "verifying") {
-    return c.json({ error: "job_unavailable" }, 409);
-  }
-
   const verificationAttemptId = crypto.randomUUID();
   const attemptResultKey = verificationObjectKey(verificationAttemptId, "result");
   let verificationRecord;
-  const leaseAcquireStartedAt = executionMode === "queue" ? performance.now() : null;
-  if (executionMode === "queue") benchmarkRecord(c.env, callback.job_id, "queue_lease_acquire_started");
+  const bindingLookupAndLeaseStartedAt = executionMode === "queue" ? performance.now() : null;
+  if (executionMode === "queue") benchmarkRecord(c.env, callback.job_id, "queue_binding_lookup_and_lease_started");
   try {
     verificationRecord = await authority.acquireVerification(callback.binding_id, {
-      session_id: record.session_id,
-      canonical_user_id: record.canonical_user_id,
-      device_id: record.device_id,
+      session_id: callback.session_id,
+      canonical_user_id: callback.canonical_user_id,
+      device_id: callback.device_id,
       verification_job_id: callback.job_id,
       presentation_id: callback.presentation_id,
+      verification_profile: callback.profile,
       verification_attempt_id: verificationAttemptId,
       verification_lease_expires_at: new Date(Date.now() + verificationLeaseMs(c.env)).toISOString(),
       result_object_key: attemptResultKey,
       now: Date.now(),
     });
   } catch (error) {
+    if (
+      error instanceof BindingAuthorityError &&
+      (error.code === "verification_result_mismatch" || error.code === "verification_profile_mismatch")
+    ) {
+      return c.json({ error: error.code }, 422);
+    }
     return c.json({ error: error instanceof BindingAuthorityError ? error.code : "job_unavailable" }, 409);
   }
   if (executionMode === "queue") {
-    benchmarkRecord(c.env, callback.job_id, "queue_lease_acquire_completed");
-    benchmarkDuration(c.env, callback.job_id, "queue_lease_acquire", performance.now() - (leaseAcquireStartedAt ?? performance.now()));
+    benchmarkRecord(c.env, callback.job_id, "queue_binding_lookup_and_lease_completed");
+    benchmarkDuration(
+      c.env,
+      callback.job_id,
+      "queue_binding_lookup_and_lease",
+      performance.now() - (bindingLookupAndLeaseStartedAt ?? performance.now()),
+    );
   }
+  const expectedProfile = callback.profile;
   if (verificationRecord.status === "consumed") {
     deferBenchmarkFlush(c, callback.job_id);
     return readConsumedResult(verificationRecord);

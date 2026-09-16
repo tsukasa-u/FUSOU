@@ -112,6 +112,7 @@ type JobLookupInput = {
 
 type AcquireVerificationInput = JobLookupInput & {
   presentation_id: string;
+  verification_profile: VerificationProfile;
   verification_attempt_id: string;
   verification_lease_expires_at: string;
   result_object_key: string;
@@ -134,6 +135,8 @@ export type AuthorityErrorCode =
   | "user_mismatch"
   | "device_mismatch"
   | "nonce_mismatch"
+  | "verification_result_mismatch"
+  | "verification_profile_mismatch"
   | "binding_conflict";
 
 export class BindingAuthorityError extends Error {
@@ -648,7 +651,19 @@ export class TlsnBindingAuthorityDurableObject extends DurableObject {
         return;
       }
       if (record.presentation_id !== input.presentation_id) {
-        result = { ok: false, error: "binding_conflict" };
+        result = { ok: false, error: "verification_result_mismatch" };
+        return;
+      }
+      if (
+        record.verification_input_key === undefined ||
+        record.verification_result_key === undefined ||
+        record.device_replay_digest_hex === undefined
+      ) {
+        result = { ok: false, error: "verification_result_mismatch" };
+        return;
+      }
+      if ((record.verification_profile ?? "complete") !== input.verification_profile) {
+        result = { ok: false, error: "verification_profile_mismatch" };
         return;
       }
       if (
@@ -932,6 +947,8 @@ function authorityStatus(error: AuthorityErrorCode): number {
       return 410;
     case "binding_consumed":
     case "binding_conflict":
+    case "verification_result_mismatch":
+    case "verification_profile_mismatch":
     case "session_mismatch":
     case "user_mismatch":
     case "device_mismatch":
