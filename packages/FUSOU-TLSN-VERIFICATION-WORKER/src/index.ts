@@ -38,7 +38,7 @@ import initVerifier, {
 } from "./wasm/fusou_tlsn_verifier.js";
 import wasmModule from "./wasm/fusou_tlsn_verifier_bg.wasm";
 
-type Bindings = {
+export type Bindings = {
   TLSN_ENVIRONMENT: string;
   TLSN_BINDINGS: DurableObjectNamespace;
   TLSN_PRESENTATIONS: R2Bucket;
@@ -49,6 +49,8 @@ type Bindings = {
   TLSN_TRIGGER_SECRET_KEY?: string;
   TLSN_TRIGGER_CALLBACK_SECRET?: string;
   TLSN_QUEUE_CALLBACK_SECRET?: string;
+  TLSN_DIRECT_CALLBACK_SECRET?: string;
+  TLSN_DIRECT_VERIFIER?: Fetcher;
   TLSN_VERIFICATION_QUEUE?: Queue<VerificationQueueMessage>;
   TLSN_TEST_COMPLETION_DELAY_MS?: string;
   TLSN_TEST_COMPLETION_DELAY_ONCE?: string;
@@ -219,13 +221,20 @@ type BenchmarkTimingStage =
   | "queue_result_persistence_completed"
   | "queue_consume_started"
   | "queue_consume_completed"
-  | "queue_completion_response_ready";
+  | "queue_completion_response_ready"
+  | "direct_dispatch_started"
+  | "direct_invocation_accepted"
+  | "t3_direct_execution_started"
+  | "t5_presentation_hash_started"
+  | "t5_presentation_hash_completed";
+
+type ExecutionMode = "trigger" | "queue" | "direct";
 
 type BenchmarkPersistence = {
   authority: DurableObjectBindingAuthority;
   bindingId: string;
   traceId: string;
-  executionMode: "trigger" | "queue";
+  executionMode: ExecutionMode;
 };
 
 const benchmarkTimingRecords = new Map<string, DurableBenchmarkTimingRecord>();
@@ -422,7 +431,7 @@ function benchmarkRegister(
   authority: DurableObjectBindingAuthority,
   bindingId: string,
   traceId: string | undefined,
-  executionMode: "trigger" | "queue" = "trigger",
+  executionMode: ExecutionMode = "trigger",
 ): void {
   if (!benchmarkEnabled(env) || !traceId) return;
   benchmarkPersistences.set(jobId, { authority, bindingId, traceId, executionMode });
@@ -447,7 +456,7 @@ async function benchmarkRegisterFromCallback(
   authority: DurableObjectBindingAuthority,
   bindingId: string,
   traceId: string | undefined,
-  executionMode: "trigger" | "queue" = "trigger",
+  executionMode: ExecutionMode = "trigger",
 ): Promise<void> {
   if (!benchmarkEnabled(env)) return;
   if (traceId) {
@@ -1194,7 +1203,7 @@ async function signConsumeReceipt(
   };
 }
 
-async function readRawBody(request: Request, maximumBytes: number): Promise<string> {
+export async function readRawBody(request: Request, maximumBytes: number): Promise<string> {
   const contentLength = request.headers.get("Content-Length");
   if (contentLength !== null && Number(contentLength) > maximumBytes) {
     throw new Error("request body is too large");
@@ -1631,6 +1640,10 @@ function shouldUseQueueExecution(env: Bindings): boolean {
   return env.TLSN_ENVIRONMENT === "test" && env.TLSN_EXECUTION_MODE === "queue";
 }
 
+function shouldUseDirectExecution(env: Bindings): boolean {
+  return env.TLSN_ENVIRONMENT === "test" && env.TLSN_EXECUTION_MODE === "direct";
+}
+
 function triggerCallbackSecret(env: Bindings): string | undefined {
   if (env.TLSN_ENVIRONMENT !== "production") return env.TLSN_TRIGGER_CALLBACK_SECRET;
   return env.TLSN_DEPLOYMENT_ROLE === "canary"
@@ -1640,6 +1653,10 @@ function triggerCallbackSecret(env: Bindings): string | undefined {
 
 function queueCallbackSecret(env: Bindings): string | undefined {
   return env.TLSN_ENVIRONMENT === "test" ? env.TLSN_QUEUE_CALLBACK_SECRET : undefined;
+}
+
+function directCallbackSecret(env: Bindings): string | undefined {
+  return env.TLSN_ENVIRONMENT === "test" ? env.TLSN_DIRECT_CALLBACK_SECRET : undefined;
 }
 
 function internalRequestAuthFailure(
@@ -1689,14 +1706,55 @@ async function enqueueQueueVerification(
   await queue.send(message);
 }
 
-type VerificationCompletionContext = {
+async function dispatchDirectVerification(
+  env: Bindings,
+  jobId: string,
+  payload: VerificationTaskPayload,
+  presentationId: string,
+): Promise<void> {
+  const verifier = env.TLSN_DIRECT_VERIFIER;
+  const callbackSecret = directCallbackSecret(env);
+  if (!verifier || !callbackSecret) {
+    throw new Error("direct verifier is unconfigured");
+  }
+  const callbackBody = JSON.stringify({
+    job_id: payload.job_id,
+    binding_id: payload.binding_id,
+    session_id: payload.session_id,
+    canonical_user_id: payload.canonical_user_id,
+    device_id: payload.device_id,
+    presentation_id: presentationId,
+    verification_status: "verified",
+    profile: payload.profile,
+    disclosure_mode: payload.disclosure_mode,
+    ...(payload.benchmark_trace_id ? { benchmark_trace_id: payload.benchmark_trace_id } : {}),
+  });
+  const signature = await internalRequestSignature(callbackSecret, jobId, callbackBody);
+  const response = await verifier.fetch(new Request("https://tlsn-direct-verifier/internal/tlsn/verification-complete", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-FUSOU-TLSN-Job-Id": jobId,
+      "X-FUSOU-TLSN-Signature": signature,
+      "X-FUSOU-TLSN-Execution-Mode": "direct",
+    },
+    body: callbackBody,
+  }));
+  if (!response.ok) {
+    throw new Error(`direct verifier failed with status ${response.status}`);
+  }
+  benchmarkRecord(env, jobId, "direct_invocation_accepted");
+  await benchmarkFlush(env, jobId);
+}
+
+export type VerificationCompletionContext = {
   env: Bindings;
   executionCtx: ExecutionContext;
   json: (body: unknown, status?: number) => Response;
   header: (name: string, value: string) => void;
 };
 
-function verificationCompletionContextFromHono(c: Context<{ Bindings: Bindings }>): VerificationCompletionContext {
+export function verificationCompletionContextFromHono(c: Context<{ Bindings: Bindings }>): VerificationCompletionContext {
   return {
     env: c.env,
     executionCtx: c.executionCtx,
@@ -1729,19 +1787,22 @@ function completionAuthFailure(
   return c.json({ error: "unauthorized" }, 401);
 }
 
-async function processVerificationCompletion(
+export async function processVerificationCompletion(
   c: VerificationCompletionContext,
   rawBody: string,
   jobId: string,
   signature: string | null,
-  executionMode: "trigger" | "queue",
+  executionMode: ExecutionMode,
   diagnosticHmac: boolean,
+  executionStartedAt?: number,
 ): Promise<Response> {
   const callbackAuthenticationStartedAt = executionMode === "queue" ? performance.now() : null;
   if (executionMode === "queue") benchmarkRecord(c.env, jobId, "queue_callback_authentication_started");
   const callbackSecret = executionMode === "queue"
     ? queueCallbackSecret(c.env)
-    : triggerCallbackSecret(c.env);
+    : executionMode === "direct"
+      ? directCallbackSecret(c.env)
+      : triggerCallbackSecret(c.env);
   if (!callbackSecret) return completionAuthFailure(c, "callback_secret_unconfigured", diagnosticHmac);
   if (!signature || !/^[A-Za-z0-9_-]{43}$/.test(signature)) {
     return completionAuthFailure(c, "signature_invalid", diagnosticHmac);
@@ -1768,7 +1829,7 @@ async function processVerificationCompletion(
     benchmarkRecord(c.env, jobId, "queue_callback_schema_validated");
     benchmarkDuration(c.env, jobId, "queue_callback_schema", performance.now() - (callbackSchemaStartedAt ?? performance.now()));
   }
-  return completeVerification(c, callback, executionMode);
+  return completeVerification(c, callback, executionMode, executionStartedAt);
 }
 
 app.post("/internal/tlsn/verification-input", async (c) => {
@@ -1847,7 +1908,8 @@ app.post("/internal/tlsn/verification-complete", async (c) => {
 async function completeVerification(
   c: VerificationCompletionContext,
   callback: z.infer<typeof verificationCallbackSchema>,
-  executionMode: "trigger" | "queue",
+  executionMode: ExecutionMode,
+  executionStartedAt?: number,
 ): Promise<Response> {
   const config = await readConfig(c.env);
   if (!config) {
@@ -1863,6 +1925,9 @@ async function completeVerification(
     executionMode,
   );
   if (executionMode === "queue") benchmarkRecord(c.env, callback.job_id, "queue_completion_entered");
+  if (executionMode === "direct" && executionStartedAt !== undefined) {
+    benchmarkRecord(c.env, callback.job_id, "t3_direct_execution_started", executionStartedAt);
+  }
   benchmarkRecord(c.env, callback.job_id, "t3_callback_accepted");
   benchmarkRecord(c.env, callback.job_id, "t4_callback_accepted");
   if (executionMode !== "queue" && callback.trigger_execution_started_at !== undefined) {
@@ -2009,15 +2074,17 @@ async function completeVerification(
     storedPresentation = new Uint8Array(await presentationObject.arrayBuffer());
     benchmarkR2Operation(c.env, callback.job_id, "worker_presentation_get");
     benchmarkRecord(c.env, callback.job_id, "t5_presentation_read");
-    benchmarkRecord(c.env, callback.job_id, "t6_presentation_read");
     if (executionMode === "queue") {
       benchmarkRecord(c.env, callback.job_id, "queue_presentation_read_completed");
       benchmarkDuration(c.env, callback.job_id, "queue_presentation_read", performance.now() - (presentationReadStartedAt ?? performance.now()));
     }
+    benchmarkRecord(c.env, callback.job_id, "t5_presentation_hash_started");
     const presentationHashStartedAt = executionMode === "queue" ? performance.now() : null;
     storedPresentationId = encodeBase64Url(
       new Uint8Array(await crypto.subtle.digest("SHA-256", storedPresentation)),
     );
+    benchmarkRecord(c.env, callback.job_id, "t5_presentation_hash_completed");
+    benchmarkRecord(c.env, callback.job_id, "t6_presentation_read");
     if (executionMode === "queue") {
       benchmarkRecord(c.env, callback.job_id, "queue_presentation_hash_completed");
       benchmarkDuration(c.env, callback.job_id, "queue_presentation_hash", performance.now() - (presentationHashStartedAt ?? performance.now()));
@@ -2455,7 +2522,14 @@ app.post("/verify/tlsn/status", async (c) => {
   }
 
   const authority = new DurableObjectBindingAuthority(c.env.TLSN_BINDINGS);
-  benchmarkRegister(c.env, requestBody.job_id, authority, requestBody.binding_id, requestBody.benchmark_trace_id);
+  benchmarkRegister(
+    c.env,
+    requestBody.job_id,
+    authority,
+    requestBody.binding_id,
+    requestBody.benchmark_trace_id,
+    shouldUseQueueExecution(c.env) ? "queue" : shouldUseDirectExecution(c.env) ? "direct" : "trigger",
+  );
   let record;
   try {
     record = await authority.lookupVerificationJob(requestBody.binding_id, {
@@ -2656,13 +2730,22 @@ const handleTlsnVerification = async (c: Context<{ Bindings: Bindings }>) => {
     return c.json({ error: "invalid_request" }, 400);
   }
 
-  if (shouldUseTriggerExecution(c.env) || shouldUseQueueExecution(c.env)) {
+  if (
+    shouldUseTriggerExecution(c.env) ||
+    shouldUseQueueExecution(c.env) ||
+    shouldUseDirectExecution(c.env)
+  ) {
     const trigger = shouldUseTriggerExecution(c.env) ? triggerExecutionConfig(c.env) : null;
     const queue = shouldUseQueueExecution(c.env) ? c.env.TLSN_VERIFICATION_QUEUE : undefined;
-    if (!trigger && !queue) {
+    const direct = shouldUseDirectExecution(c.env) ? c.env.TLSN_DIRECT_VERIFIER : undefined;
+    if (!trigger && !queue && !direct) {
       return c.json({
         verified: false,
-        error: shouldUseQueueExecution(c.env) ? "queue_unconfigured" : "trigger_unconfigured",
+        error: shouldUseQueueExecution(c.env)
+          ? "queue_unconfigured"
+          : shouldUseDirectExecution(c.env)
+            ? "direct_unconfigured"
+            : "trigger_unconfigured",
       }, 503);
     }
 
@@ -2728,7 +2811,7 @@ const handleTlsnVerification = async (c: Context<{ Bindings: Bindings }>) => {
       authority,
       bindingId,
       benchmarkTraceId,
-      queue ? "queue" : "trigger",
+      queue ? "queue" : direct ? "direct" : "trigger",
     );
     benchmarkRecord(c.env, jobId, "t0_accepted");
     const payload = verificationTaskPayloadSchema.parse({
@@ -2787,11 +2870,16 @@ const handleTlsnVerification = async (c: Context<{ Bindings: Bindings }>) => {
         await enqueueTriggerVerification(trigger, payload);
         benchmarkRecord(c.env, jobId, "t2_trigger_submitted");
         benchmarkRecord(c.env, jobId, "t2_trigger_task_accepted");
+      } else if (direct) {
+        benchmarkRecord(c.env, jobId, "direct_dispatch_started");
+        c.executionCtx.waitUntil(
+          dispatchDirectVerification(c.env, jobId, payload, presentationId).catch(() => undefined),
+        );
       }
     } catch {
       return c.json({
         verified: false,
-        error: queue ? "queue_unavailable" : "trigger_unavailable",
+        error: queue ? "queue_unavailable" : direct ? "direct_unavailable" : "trigger_unavailable",
         job_id: jobId,
       }, 503);
     }

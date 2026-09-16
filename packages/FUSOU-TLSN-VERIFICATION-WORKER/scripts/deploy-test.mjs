@@ -44,6 +44,7 @@ const SECRET_INPUTS = [
   "TLSN_TRIGGER_SECRET_KEY",
   "TLSN_TRIGGER_CALLBACK_SECRET",
   "TLSN_QUEUE_CALLBACK_SECRET",
+  "TLSN_DIRECT_CALLBACK_SECRET",
 ];
 
 const REQUIRED_PUBLIC_INPUTS = PUBLIC_INPUTS.filter((name) => ![
@@ -104,8 +105,8 @@ async function main() {
   ]) required(name);
 
   const executionMode = process.env.TLSN_EXECUTION_MODE?.trim() || "sync";
-  if (!new Set(["sync", "trigger", "queue"]).has(executionMode)) {
-    throw new Error("TLSN_EXECUTION_MODE must be sync, trigger, or queue");
+  if (!new Set(["sync", "trigger", "queue", "direct"]).has(executionMode)) {
+    throw new Error("TLSN_EXECUTION_MODE must be sync, trigger, queue, or direct");
   }
   const triggerMode = executionMode === "trigger";
   const queueMode = executionMode === "queue";
@@ -117,6 +118,13 @@ async function main() {
   }
   if (queueMode) {
     required("TLSN_QUEUE_CALLBACK_SECRET");
+  }
+  const directMode = executionMode === "direct";
+  if (directMode) {
+    required("TLSN_DIRECT_CALLBACK_SECRET");
+    if (workerName !== "fusou-tlsn-verification-test") {
+      throw new Error("direct test deployment requires TLSN_TEST_WORKER_NAME=fusou-tlsn-verification-test");
+    }
   }
   if (!process.env.TLSN_TEST_AUTH_USERS && (!process.env.TLSN_SUPABASE_URL || !process.env.TLSN_SUPABASE_PUBLISHABLE_KEY)) {
     throw new Error("set TLSN_TEST_AUTH_USERS or both TLSN_SUPABASE_URL and TLSN_SUPABASE_PUBLISHABLE_KEY");
@@ -134,9 +142,21 @@ async function main() {
   run("pnpm", ["run", "build:wasm"], deploymentEnvironment);
 
   const deployArguments = ["exec", "wrangler", "deploy", "--env", "test", "--name", workerName];
+  const verifierDeployArguments = [
+    "exec",
+    "wrangler",
+    "deploy",
+    "--config",
+    "wrangler.verifier-test.toml",
+    "--name",
+    "fusou-tlsn-verifier-test",
+  ];
   for (const name of PUBLIC_INPUTS) {
     const value = deploymentEnvironment[name];
-    if (value !== undefined && value !== "") deployArguments.push("--var", `${name}:${value}`);
+    if (value !== undefined && value !== "") {
+      deployArguments.push("--var", `${name}:${value}`);
+      verifierDeployArguments.push("--var", `${name}:${value}`);
+    }
   }
 
   const secretDirectory = await mkdtemp(join(tmpdir(), "tlsn-test-secrets-"));
@@ -155,6 +175,10 @@ async function main() {
       ...(cloudflareApiToken ? { CLOUDFLARE_API_TOKEN: cloudflareApiToken } : {}),
       ...(cloudflareAccountId ? { CLOUDFLARE_ACCOUNT_ID: cloudflareAccountId } : {}),
     };
+    if (directMode) {
+      verifierDeployArguments.push("--secrets-file", secretsPath);
+      run("pnpm", verifierDeployArguments, childEnvironment);
+    }
     run("pnpm", deployArguments, childEnvironment);
   } finally {
     await rm(secretDirectory, { recursive: true, force: true });

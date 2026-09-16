@@ -38,7 +38,7 @@ export type BenchmarkTimingRecord = {
   schema_version: 1;
   trace_id: string;
   job_id: string;
-  execution_mode?: "trigger" | "queue";
+  execution_mode?: "trigger" | "queue" | "direct";
   timestamps: Record<string, number>;
   durations: Record<string, number>;
   r2_operations: Record<string, number>;
@@ -50,7 +50,7 @@ export type BenchmarkTimingRecord = {
 export type BenchmarkTimingMergeInput = {
   trace_id: string;
   job_id: string;
-  execution_mode?: "trigger" | "queue";
+  execution_mode?: "trigger" | "queue" | "direct";
   timestamps: Record<string, number>;
   durations: Record<string, number>;
   r2_operations: Record<string, number>;

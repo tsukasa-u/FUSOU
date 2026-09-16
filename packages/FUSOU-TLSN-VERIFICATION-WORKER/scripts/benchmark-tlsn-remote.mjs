@@ -23,6 +23,8 @@ const COMMON_REQUIRED_TIMING_STAGES = [
   "t4_callback_accepted",
   "t5_lease_acquired",
   "t6_presentation_read",
+  "t5_presentation_hash_started",
+  "t5_presentation_hash_completed",
   "t7_wasm_verification_completed",
   "t8_result_signing_completed",
   "t8_result_persisted",
@@ -79,6 +81,12 @@ const REQUIRED_TIMING_STAGES_BY_MODE = {
     "t3_queue_verifier_completed",
     "t3_queue_callback_dispatch_started",
     "t3_queue_callback_response_received",
+  ],
+  direct: [
+    ...COMMON_REQUIRED_TIMING_STAGES,
+    "direct_dispatch_started",
+    "direct_invocation_accepted",
+    "t3_direct_execution_started",
   ],
 };
 
@@ -379,9 +387,12 @@ function summarizePhases(samples) {
     request_acceptance: summarize(samples, "requestAcceptanceMilliseconds"),
     trigger_accept_to_202_send: summarize(samples, "triggerAcceptTo202SendMilliseconds"),
     trigger_queue_start: summarize(samples, "triggerQueueStartMilliseconds"),
+    direct_invocation_startup: summarize(samples, "directInvocationStartupMilliseconds"),
+    direct_invocation_acceptance: summarize(samples, "directInvocationAcceptanceMilliseconds"),
     trigger_start_to_callback: summarize(samples, "triggerStartToCallbackMilliseconds"),
     callback_entry_to_lease: summarize(samples, "callbackEntryToLeaseMilliseconds"),
     worker_r2_input: summarize(samples, "workerR2InputMilliseconds"),
+    presentation_hash: summarize(samples, "presentationHashMilliseconds"),
     wasm_verification: summarize(samples, "wasmVerificationMilliseconds"),
     result_signing: summarize(samples, "resultSigningMilliseconds"),
     result_persistence: summarize(samples, "resultPersistenceMilliseconds"),
@@ -465,8 +476,23 @@ async function runBatch({ workerOrigin, webOrigin, accessToken, userId, device, 
       const durations = timing?.durations ?? {};
       const diagnostics = timing?.diagnostics ?? {};
       const t1Server = stageTimestamp(timing, "t1_202_response_sent");
-      const t2 = stageTimestamp(timing, executionMode === "queue" ? "t2_queue_message_accepted" : "t2_trigger_task_accepted");
-      const t3 = stageTimestamp(timing, executionMode === "queue" ? "t3_queue_execution_started" : "t3_trigger_execution_started");
+      const t2 = stageTimestamp(
+        timing,
+        executionMode === "queue"
+          ? "t2_queue_message_accepted"
+          : executionMode === "direct"
+            ? "direct_dispatch_started"
+            : "t2_trigger_task_accepted",
+      );
+      const t3 = stageTimestamp(
+        timing,
+        executionMode === "queue"
+          ? "t3_queue_execution_started"
+          : executionMode === "direct"
+            ? "t3_direct_execution_started"
+            : "t3_trigger_execution_started",
+      );
+      const directInvocationAccepted = stageTimestamp(timing, "direct_invocation_accepted");
       const t4 = stageTimestamp(timing, "t4_callback_accepted");
       const t5 = stageTimestamp(timing, "t5_lease_acquired");
       const t6 = stageTimestamp(timing, "t6_presentation_read");
@@ -497,9 +523,14 @@ async function runBatch({ workerOrigin, webOrigin, accessToken, userId, device, 
         clientObservationMilliseconds: completion.clientT11 - submission.clientT1,
         triggerAcceptTo202SendMilliseconds: t1Server !== null && t2 !== null ? t1Server - t2 : null,
         triggerQueueStartMilliseconds: t2 !== null && t3 !== null ? t3 - t2 : null,
+        directInvocationStartupMilliseconds: executionMode === "direct" && t2 !== null && t3 !== null ? t3 - t2 : null,
+        directInvocationAcceptanceMilliseconds: executionMode === "direct" && t2 !== null && directInvocationAccepted !== null
+          ? directInvocationAccepted - t2
+          : null,
         triggerStartToCallbackMilliseconds: t3 !== null && t4 !== null ? t4 - t3 : null,
         callbackEntryToLeaseMilliseconds: t4 !== null && t5 !== null ? t5 - t4 : null,
-        workerR2InputMilliseconds: phaseMilliseconds(timing, "t5_lease_acquired", "t6_presentation_read"),
+        workerR2InputMilliseconds: phaseMilliseconds(timing, "t5_lease_acquired", "t5_presentation_read"),
+        presentationHashMilliseconds: phaseMilliseconds(timing, "t5_presentation_hash_started", "t5_presentation_hash_completed"),
         wasmVerificationMilliseconds: phaseMilliseconds(timing, "t6_presentation_read", "t7_wasm_verification_completed"),
         resultSigningMilliseconds: t8Signing !== null ? t8Signing - t7 : null,
         resultPersistenceMilliseconds: t8Signing !== null && t8Persisted !== null ? t8Persisted - t8Signing : null,
@@ -571,9 +602,12 @@ async function runBatch({ workerOrigin, webOrigin, accessToken, userId, device, 
         request_acceptance: sample.requestAcceptanceMilliseconds,
         trigger_accept_to_202_send: sample.triggerAcceptTo202SendMilliseconds,
         trigger_queue_start: sample.triggerQueueStartMilliseconds,
+        direct_invocation_startup: sample.directInvocationStartupMilliseconds,
+        direct_invocation_acceptance: sample.directInvocationAcceptanceMilliseconds,
         trigger_start_to_callback: sample.triggerStartToCallbackMilliseconds,
         callback_entry_to_lease: sample.callbackEntryToLeaseMilliseconds,
         worker_r2_input: sample.workerR2InputMilliseconds,
+        presentation_hash: sample.presentationHashMilliseconds,
         wasm_verification: sample.wasmVerificationMilliseconds,
         result_signing: sample.resultSigningMilliseconds,
         result_persistence: sample.resultPersistenceMilliseconds,
@@ -622,7 +656,7 @@ async function main() {
   const maxPollMs = parseInteger("TLSN_REMOTE_MAX_POLL_MS", DEFAULT_MAX_POLL_MS, 1_000, 300_000);
   const executionMode = optional("TLSN_REMOTE_EXECUTION_MODE") ?? "trigger";
   if (!Object.hasOwn(REQUIRED_TIMING_STAGES_BY_MODE, executionMode)) {
-    throw new Error("TLSN_REMOTE_EXECUTION_MODE must be trigger or queue");
+    throw new Error("TLSN_REMOTE_EXECUTION_MODE must be trigger, queue, or direct");
   }
   const cases = parseList("TLSN_REMOTE_CASES", DEFAULT_CASES, (value) => value || undefined);
   const concurrencyValues = parseList("TLSN_REMOTE_CONCURRENCY", DEFAULT_CONCURRENCY, (value) => {
@@ -687,7 +721,9 @@ async function main() {
         server_completion: row.phases.server_completion,
         client_observation: row.phases.client_observation,
         trigger_queue_start: row.phases.trigger_queue_start,
+        direct_invocation_startup: row.phases.direct_invocation_startup,
         queue_verifier: row.phases.queue_verifier,
+        presentation_hash: row.phases.presentation_hash,
         result: row.result,
       }));
     }
@@ -726,12 +762,17 @@ async function main() {
       trigger_task_start: executionMode === "trigger"
         ? "MEASURED AT FIRST TRIGGER TASK CODE USING TRIGGER CLOCK"
         : "NOT APPLICABLE",
+      direct_service_binding_start: executionMode === "direct"
+        ? "MEASURED FROM Request Worker dispatch start TO verifier Worker execution start"
+        : "NOT APPLICABLE",
       trigger_platform_scheduler_timestamp: "NOT_ESTABLISHED",
       production_worker_isolate_rss: "NOT_ESTABLISHED",
       client_visible_clock: "MEASURED BY BENCHMARK PROCESS",
       trigger_queue_start_clock_note: executionMode === "trigger"
         ? "T2 and T3 are wall-clock timestamps from Worker and Trigger environments; clock skew is not corrected"
-        : "Queue T2 and T3 are wall-clock timestamps from the same Worker environment",
+        : executionMode === "queue"
+          ? "Queue T2 and T3 are wall-clock timestamps from the same Worker environment"
+          : "Direct T2 and T3 are wall-clock timestamps from Request and verifier Workers; clock skew is not corrected",
       queue_message_timestamp_note: executionMode === "queue"
         ? "queue_consumer_scheduled is Message.timestamp, the Queue message creation timestamp; Cloudflare does not expose a consumer scheduling timestamp, so this value is not used as a cross-runtime delivery duration"
         : "NOT APPLICABLE",

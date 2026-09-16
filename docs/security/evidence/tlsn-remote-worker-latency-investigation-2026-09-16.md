@@ -564,3 +564,146 @@ with this change. The no-op release removal must be measured separately before
 any parallel R2/DO change is considered. No verification skip, binding skip,
 hash skip, result-authority weakening, or production/canary deployment is
 justified by the current five-sample evidence.
+
+## Phase 11: test-only Direct Worker execution path
+
+The next experiment replaced only the dispatch mechanism. The Queue baseline
+request path remained unchanged, while a separate test-only Verifier Worker was
+added behind a Cloudflare Service Binding:
+
+```text
+Request Worker
+	 -> TLSN_DIRECT_VERIFIER Service Binding
+	 -> fusou-tlsn-verifier-test
+	 -> shared authenticated completion
+	 -> test Durable Object namespace + test R2 bucket
+```
+
+The Request Worker still authenticates the user and device, derives the
+Presentation ID, persists the Presentation, claims the binding, and returns
+`202`. It schedules the Service Binding invocation with `ExecutionContext` so
+the request is not held open by verifier execution. The verifier Worker accepts
+only the bounded, HMAC-authenticated internal completion request and then calls
+the existing completion implementation. Its Durable Object binding references
+the Request Worker's test namespace, and both Workers use the test R2 bucket.
+The Service Binding is therefore a dispatch boundary, not an authorization
+source.
+
+The Direct path preserves the same security ordering and invariants as Queue:
+
+- binding authority remains the source of truth;
+- session, canonical user, device, job, profile, disclosure mode, and
+  Presentation ID remain authority-bound;
+- the Presentation is fetched only after the verification lease is acquired;
+- Presentation SHA-256, WASM verification, result signing, Result SHA-256,
+  Result R2 PUT, authoritative DO consume, attempt fencing, stale-attempt
+  rejection, failure release, and input cleanup remain enabled;
+- the dedicated `TLSN_DIRECT_CALLBACK_SECRET` authenticates dispatch, but does
+  not authorize a binding or result.
+
+The test-only deployment sequence was:
+
+| Component | Version | Scope |
+| --- | --- | --- |
+| Verifier Worker `fusou-tlsn-verifier-test` | `88878e23-e0e2-4943-b073-306529fa8b71` | Direct service target |
+| Request Worker Direct deployment | `f29351d3-4143-4e13-af8e-783bfe28b36c` | Direct path |
+| Request Worker Queue baseline | `be434c29-c52e-48ce-9a99-093a6a8e1739` | Queue path |
+| Request Worker Trigger comparison | `48b9bd7b-729f-4fd0-b7d8-c55f6dd69d5f` | Trigger path |
+
+All measurements used the p50 fixture, concurrency `1`, 100 ms polling, and
+five samples. Every row completed `5/5` samples with `5/5` complete timing. The
+primary metric is server completion, from accepted `202` to authoritative DO
+consume. The secondary metric is client-visible, from client request start to
+the first verified status response. These results are directional evidence
+only, not statistical generalizations from five observations.
+
+| Execution path | Dispatch P50/P95 | Server completion P50/P95 | Client-visible P50/P95 | Decision |
+| --- | ---: | ---: | ---: | --- |
+| Trigger | `301/3018 ms` | `3485/6358 ms` | `4424/7392 ms` | EXCEEDS TARGET |
+| Queue | `438/1870 ms` | `1704/3168 ms` | `2283/3841 ms` | EXCEEDS TARGET |
+| Direct Worker | `7/58 ms` | `241/326 ms` | `635/708 ms` | MEASURED WITHIN TARGET |
+| Durable Object immediate execution | `NOT_ESTABLISHED` | `NOT_ESTABLISHED` | `NOT_ESTABLISHED` | NOT RUN |
+
+For Queue, dispatch is Queue message acceptance to Queue consumer execution
+start. For Trigger, it is Trigger task acceptance to Trigger execution start.
+For Direct, it is Request Worker dispatch start to Verifier Worker execution
+start. The Direct Worker route currently awaits the shared completion path
+before returning its Service Binding response. Consequently,
+`direct_invocation_accepted` is recorded after completion and is not a valid
+startup timestamp; `direct_invocation_startup` is the valid dispatch-to-
+`t3_direct_execution_started` measurement used above. Trigger and Direct
+timestamps cross runtime/Worker clocks and are not clock-skew corrected; the
+exact Direct startup value is therefore directional, while the server
+completion measurement remains the primary comparison.
+
+Direct dispatch is test-only and does not yet have Queue-style delivery
+retry semantics. The Request Worker schedules it with `waitUntil`, and the
+current failure handler intentionally swallows a rejected or failed Service
+Binding invocation after the request has returned `202`. A failed Direct
+attempt therefore requires a separate recovery mechanism before this path
+could be considered production-ready. This availability limitation does not
+change the completion-path security checks when an invocation does arrive.
+
+The Direct artifact reported these additional phases:
+
+| Direct phase | P50 | P95 |
+| --- | ---: | ---: |
+| Service Binding invocation startup | 7 ms | 58 ms |
+| Presentation R2 input | 45 ms | 72 ms |
+| Presentation hash | 0 ms | 0 ms |
+| Result persistence | 124 ms | 198 ms |
+| DO consume | 19 ms | 26 ms |
+| Client observation | 387 ms | 500 ms |
+
+The corresponding Queue artifact reported Queue send `154/413 ms`, Queue
+delivery/start `438/1870 ms`, Presentation R2 input `278/326 ms`, Result
+persistence `451/827 ms`, and DO consume `111/115 ms`. The Queue delivery tail
+is therefore removed from the critical path by Direct invocation in this run;
+the Direct server P95 is approximately `2.84 s` lower than Queue, and the
+client-visible P95 is approximately `3.13 s` lower. The Direct path also stayed
+below the 3000 ms target for both reported server completion and client-visible
+P95/Max gates.
+
+The Trigger comparison is included for architectural context, not as a claim
+that five samples characterize Trigger scheduling. Its dispatch P95 was
+`3018 ms`, and its server completion P95 was `6358 ms`; the Trigger platform
+startup tail remains separate from the Worker completion phases.
+
+Durable Object immediate execution was not implemented or deployed. The
+repository does not yet establish that the Durable Object runtime can safely
+execute the TLSN WASM verifier under the required execution time and memory
+conditions. Its runtime suitability is therefore explicitly `NOT_ESTABLISHED`,
+and the Service Binding path is sufficient for this experiment.
+
+Evidence artifacts:
+
+- `packages/FUSOU-TLSN-VERIFICATION-WORKER/artifacts/tlsn-remote-benchmark-queue-ab-p50-c1-poll100-5.json`
+- `packages/FUSOU-TLSN-VERIFICATION-WORKER/artifacts/tlsn-remote-benchmark-trigger-ab-p50-c1-poll100-5.json`
+- `packages/FUSOU-TLSN-VERIFICATION-WORKER/artifacts/tlsn-remote-benchmark-direct-ab-p50-c1-poll100-5.json`
+
+The first attempted Direct benchmark command did not propagate
+`TLSN_REMOTE_EXECUTION_MODE` through dotenvx and produced a Queue-mode artifact;
+that artifact is excluded above. The corrected Direct artifact explicitly
+records `configuration.execution_mode: "direct"`.
+
+## Phase 12: conclusion and next action
+
+1. Queue delivery tail is a real bottleneck in this test-only comparison. The
+	Queue dispatch P95 was `1870 ms`, while Direct startup P95 was `58 ms`; the
+	Direct path reduced server completion P95 from `3168 ms` to `326 ms`.
+2. Direct Worker invocation improved server completion P50/P95 from
+	`1704/3168 ms` to `241/326 ms`, and client-visible P50/P95 from
+	`2283/3841 ms` to `635/708 ms`.
+3. The Direct path reached the 3000 ms target under this five-sample test-only
+	run. This is strong evidence for the hypothesis, but not a population-level
+	performance claim.
+4. The next optimization should remain the previously identified
+	post-consume no-op lease release removal, measured separately. Result PUT,
+	DO consume, input cleanup, status schema, and Result authority must not be
+	changed in that experiment.
+
+No production or canary Worker was deployed or modified. The Direct Service
+Binding exists only under the test Wrangler environment. The test environment
+was restored to Queue defaults after the benchmark (`TLSN_EXECUTION_MODE=queue`
+and `TLSN_REMOTE_EXECUTION_MODE=queue`). Switching to Direct or Trigger still
+uses the same production/canary-independent test Worker deployment commands.
