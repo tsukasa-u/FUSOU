@@ -1,21 +1,21 @@
 # TLSN Remote Worker Latency Investigation
 
 Date: 2026-09-16
-Status: test-only timing measurement complete; 3000 ms target exceeded
-Scope: self-contained test Worker, test Durable Object, test R2, and dedicated Trigger.dev project
+Status: post-one-shot Direct audit complete; production promotion NOT APPROVED
+Scope: test-only Direct Service Binding, test Durable Object, and test R2; production and canary unchanged
 
 ## Executive Status
 
 | Area | Status | Evidence |
 | --- | --- | --- |
-| dotenvx secret/config persistence | PASS | Encrypted Worker environment and key file were used; secrets were not printed |
-| Test Worker deployment | PASS | Latest test deployment `c6d0913e-2394-4d10-aad7-9be139979d42` |
-| Trigger deployment | PASS | Dedicated project deployment `20260916.7` |
-| Remote preflight | PASS | Full matrix accepted: 20 samples, `p50,p95,p99,max`, concurrency `1,2,4,8` |
-| Session issuance | PASS | `/attestation/session` returned HTTP `201`; final binding TTL was approximately 900 seconds |
-| Remote asynchronous verification | PASS | 15/15 test-only samples reached `verified: true` |
-| Latency report artifact | PASS | Three 5-sample reports contain complete timing records |
-| 3000 ms target decision | EXCEEDS TARGET | All three polling conditions exceeded the 3000 ms P95/P99/Max gate |
+| HEAD baseline | PASS | `2014e18b2321cd44878d77e24ad61d330e9b16af` |
+| Direct concurrency matrix | PASS | `65/65` samples successful and timing-complete at concurrency `1,4,8` |
+| Direct latency target | MEASURED WITHIN TARGET | Client-visible P99/Max was `626/626`, `662/662`, and `817/817 ms` for concurrency `1,4,8` |
+| Direct terminal failure and no retry | PASS | Remote Service Binding failure and timeout both became terminal `not_verified`; retry returned `409` |
+| Result PUT -> consume rejection race | NOT_ESTABLISHED | Remote race attempt observed `result_put_count: 0`; no claim is made |
+| State-machine and public response audit | PASS / CODE-AUDITED | Local lease, stale callback, terminal failure, result-authority, and response assertions passed |
+| Production/canary separation | PASS | Direct Service Binding and fault controls exist only in test configuration |
+| Production promotion decision | NOT APPROVED | Production RSS, hard limits, production concurrency/SLO, malicious callback, and mixed-failure evidence remain incomplete |
 
 The benchmark did not access the Game Server and did not replay a Game Server request. The fixture generator used repository-local synthetic TLSN fixture material with a newly issued remote binding for each session.
 
@@ -904,3 +904,192 @@ This audit is test-only evidence plus a source-level invariant review. It is
 not a production SLO, a remote malicious-Prover penetration test, or proof of
 the unobserved Result-persistence race. No production or canary Worker was
 deployed or modified.
+
+## Phase 16: final post-one-shot Direct audit
+
+The final audit was performed from HEAD
+`2014e18b2321cd44878d77e24ad61d330e9b16af`. The requested constraints were
+held throughout this phase: no architecture change, no Queue or Trigger
+reintroduction, no retry mechanism, no production or canary deployment, and no
+security-invariant relaxation.
+
+### Direct concurrency matrix
+
+The run used the real `p50` fixture, five samples per concurrency level, 100 ms
+status polling, and the test-only Direct execution mode. The benchmark artifact
+is `packages/FUSOU-TLSN-VERIFICATION-WORKER/artifacts/tlsn-remote-direct-concurrency-1-4-8-p50-5.json`.
+
+| Request concurrency | Samples | Server completion P50/P95/P99/Max | Client-visible P50/P95/P99/Max | Direct startup P50/P95/P99/Max | Target |
+| ---: | ---: | --- | --- | --- | --- |
+| 1 | 5/5 complete | `226/249/249/249 ms` | `514.71/626.23/626.23/626.23 ms` | `5/39/39/39 ms` | MEASURED WITHIN TARGET |
+| 4 | 20/20 complete | `191/359/405/405 ms` | `529.51/658.37/662.06/662.06 ms` | `5/36/40/40 ms` | MEASURED WITHIN TARGET |
+| 8 | 40/40 complete | `205/327/379/379 ms` | `573.65/736.93/817.01/817.01 ms` | `5/56/59/59 ms` | MEASURED WITHIN TARGET |
+
+Secondary phase metrics were complete for every sample. The relevant P50/P95/P99/Max
+values were:
+
+| Request concurrency | Worker R2 input | WASM verification | Result persistence | DO consume |
+| ---: | --- | --- | --- |
+| 1 | `45/111/111/111 ms` | `0/0/0/0 ms` | `86/146/146/146 ms` | `18/24/24/24 ms` |
+| 4 | `39/51/69/69 ms` | `0/0/0/0 ms` | `83/259/299/299 ms` | `22/24/26/26 ms` |
+| 8 | `42/89/244/244 ms` | `0/0/0/0 ms` | `97/157/273/273 ms` | `22/26/29/29 ms` |
+
+The zero-valued WASM phase means below the deployed millisecond timing
+resolution; it is not a proof of zero CPU cost. The observed maximum verifier
+concurrency was `1` at request concurrency `1`, and `1..2` at request
+concurrency `4` and `8`. This is an observation from this deployment, not a
+Cloudflare isolate limit or a production capacity guarantee.
+
+### State-machine audit
+
+The Durable Object remains the only authority for the binding and Result
+terminal state. The audited transitions are:
+
+| From | To | Authority operation | Audit result |
+| --- | --- | --- | --- |
+| `active` | `processing` | `claim` | Identity, nonce, expiry, profile, and job fields are checked in one transaction |
+| `processing` | `verifying` | `acquire` | Attempt ID, lease expiry, result key, profile, and binding expiry are fenced atomically |
+| `verifying` | `consumed` | `consume` | Live lease, attempt ID, job ID, result key, Result SHA-256, identity, and Presentation ID are required |
+| `processing` or `verifying` | `failed` | `fail` or lease-expiry alarm | Failure is terminal and removes attempt authority fields |
+| `active`, `processing`, or `verifying` | `expired` | Binding TTL check or alarm | Binding expiry is distinct from verification failure |
+| `failed` | terminal | all later claim/acquire/consume paths | Later work receives `verification_failed` or a bounded conflict |
+| `consumed` | terminal | duplicate consume only when the same Result authority matches | A late callback cannot overwrite the consumed record |
+
+The `release` operation can only return the current `verifying` attempt to
+`processing` when its attempt ID matches. It is a no-op for `failed` and
+`consumed`; it cannot revive a terminal failure. The local lease-fencing,
+stale-callback, terminal-failure, retry-disabled, and Result-authority tests
+passed. The remote timeout also remained terminal after its delayed callback.
+
+### Public response leakage audit
+
+The public routes expose bounded response shapes:
+
+| Route/state | External response | Leakage assessment |
+| --- | --- | --- |
+| Initial asynchronous accept | `202` with `verified: false`, `status: queued`, `job_id`, and optional test benchmark trace | No Presentation, binding value, token, signature, stack, or raw exception |
+| Status `processing` | `202` with `verified: false`, `status: processing`, `job_id` | No internal failure code or Result body |
+| Status `failed` | `200` with `verified: false`, `status: not_verified`, `job_id` | Internal `VerificationFailureCode` is withheld |
+| Status `consumed` | Strict signed final response schema | Only the intended signed Result, signer metadata, consume receipt, and device replay digest are returned |
+| Retry endpoint | `409` with `verification_retry_disabled` | No re-enqueue or attempt mutation occurs |
+| Internal callback authentication failure | `401 unauthorized` outside test HMAC diagnostics | Callback secrets and HMAC mismatch details are not public |
+| Unexpected completion exception | `422 verification_failed` internally, terminal public status | Raw exception and stack are withheld |
+
+Authentication and input rejection may return bounded codes such as
+`invalid_request`, `unauthorized`, `device_challenge_mismatch`, or
+`verification_result_unavailable`. These are contract-level classifications,
+not raw authority records or exception text. The test-only HMAC diagnostic
+header is gated by `TLSN_ENVIRONMENT=test` and is not a production response
+path.
+
+### Direct Service Binding and malicious callback audit
+
+The Direct Service Binding is a dispatch boundary only. The Request Worker
+constructs the callback body and signs the job ID plus body digest with the
+test-only Direct callback secret. The verifier route requires the matching job
+header, HMAC signature, strict callback schema, and then performs the shared
+completion path. The callback payload cannot authorize a binding by itself:
+the Durable Object rechecks session, user, device, job, profile, Presentation
+ID, lease, attempt, and Result authority.
+
+Local malicious-callback and tamper coverage passed for callback signature,
+callback identity, callback profile, Presentation substitution, Result
+substitution, stale attempts, and replay after consume. A dedicated remote
+malicious-callback corpus was not run and is therefore `NOT_ESTABLISHED`.
+The remote timeout callback was not malicious, but it did confirm that a late
+callback does not change the terminal failed state.
+
+The Wrangler configuration confirms that `TLSN_DIRECT_VERIFIER` and the
+dedicated verifier Worker are present only under `[env.test]`. Canary and
+production have no Direct Service Binding, no Direct callback secret, and no
+test fault controls. The test verifier references the test Durable Object
+namespace and test R2 bucket. Production and canary configuration were not
+changed.
+
+### Result PUT to consume race
+
+The source ordering remains correct: the signed final response is hashed, the
+Result is persisted to R2, and only then does the authority consume transaction
+record the Result object key and SHA-256. Status reads require both the
+authoritative consumed record and a matching persisted Result hash.
+
+The remote race attempt deliberately used a longer post-Result delay and a
+shorter verification lease. It reached terminal `not_verified`, but its safe
+diagnostics reported `result_put_count: 0` and `consume_completed: false`.
+The run therefore did not observe a completed Result PUT followed by a
+lease-fenced consume rejection. This requested race remains:
+
+```text
+NOT_ESTABLISHED
+```
+
+The implementation was not changed to make the race easier to reproduce, and
+no result-authority ordering was relaxed.
+
+### Mixed-failure concurrency
+
+The existing test fault control is global to the verifier Worker and does not
+provide deterministic request-level failure selection. A test-only fail-once
+experiment produced `4/4` verified requests because a Worker isolate-global
+counter cannot be treated as a cross-isolate coordination primitive. Adding a
+new Durable Object or R2 fault-control protocol would change the test
+architecture and was rejected under the task constraints.
+
+Mixed failure concurrency is therefore:
+
+```text
+NOT_ESTABLISHED
+```
+
+The single-request Direct failure, timeout, terminal state, late callback, and
+retry-disabled behavior remain remotely established as documented above.
+
+### Worker resources and observability
+
+The concurrency artifact measured a `150080` byte source fixture and
+approximately `3459-3460` byte sparse Presentations. It measured timing phases,
+R2 operation counts, terminal state, Result SHA-256 presence, Direct invocation
+count, trace matching, and observed verifier concurrency. It did not measure
+Worker isolate RSS, WASM linear-memory peak, CPU time at sub-millisecond
+resolution, platform hard memory/CPU limits, production concurrency, or
+production cold-start behavior. No such limits are configured in the test,
+canary, or production Wrangler files.
+
+Production operational telemetry should be added or verified before promotion
+without recording sensitive payloads. The minimum bounded fields are:
+
+- deployment identity, execution mode, hashed job/trace identifiers, and profile;
+- request acceptance, Direct dispatch start/finish, lease acquisition, R2 input/result operations, consume, and status-observation durations;
+- terminal state and bounded failure code, including service-binding failure, lease expiry, Result persistence failure, and consume rejection;
+- Result PUT count, consume outcome, late-callback count, and observed verifier concurrency;
+- sampled p50/p95/p99/max latency and an age alert for jobs remaining `processing` or `verifying`.
+
+Telemetry must exclude access tokens, callback secrets, binding values, nonce
+values, Presentation bytes, raw Result bodies, signatures, stack traces, and
+unbounded exception text. Alerts should cover terminal-failure rate,
+`result_put_before_consume_rejected`, lease-expiry rate, Direct dispatch
+non-OK/timeout rate, missing Result objects, and latency SLO burn.
+
+### SLO boundary and production decision
+
+The 3000 ms boundary was measured for the test-only Direct path at request
+concurrency `1`, `4`, and `8`; every row was below the boundary for server
+completion and client-visible P95/P99/Max. This establishes a test-environment
+performance result for the `p50` fixture. It does not establish a production
+SLO because production traffic, production isolate resources, production
+concurrency, production cold starts, and production telemetry were not used.
+
+| Decision item | Status | Reason |
+| --- | --- | --- |
+| Keep Direct implementation test-only | APPROVED | Success, failure, timeout, fencing, and concurrency evidence are available |
+| Change production or canary configuration | NOT DONE | Explicit task constraint; Direct binding remains absent there |
+| Claim production 3000 ms SLO | NOT APPROVED | Only test-only measurements exist |
+| Claim Result PUT -> consume race proof | NOT APPROVED | Remote evidence observed no Result PUT before failure |
+| Claim remote malicious callback resistance | NOT APPROVED | Local coverage passed; no dedicated remote malicious corpus |
+| Claim mixed-failure concurrency isolation | NOT APPROVED | No deterministic request-level test control exists without new coordination |
+| Promote Direct to production | NOT APPROVED | Resource, observability, and the three evidence gaps above remain |
+
+The final status is therefore **test-only Direct evidence complete; production
+promotion not approved**. This conclusion preserves the existing authority,
+one-shot terminal failure, Result ordering, and no-retry behavior and does not
+reintroduce Queue or Trigger execution.

@@ -15,6 +15,7 @@ const deviceId = required("TLSN_REMOTE_DEVICE_ID_A");
 const expectedMode = required("TLSN_REMOTE_DIRECT_EXPECTED_MODE");
 const pollIntervalMs = Number(process.env.TLSN_REMOTE_POLL_INTERVAL_MS ?? "100");
 const maxPollMs = Number(process.env.TLSN_REMOTE_MAX_POLL_MS ?? "15000");
+const resultRaceSettleMs = Number(process.env.TLSN_REMOTE_RESULT_RACE_SETTLE_MS ?? "90000");
 
 function required(name) {
   const value = process.env[name]?.trim();
@@ -120,6 +121,42 @@ async function pollTerminalStatus(session, userId, jobId, traceId) {
   throw new Error("status polling exceeded configured maximum");
 }
 
+async function pollResultRaceDiagnostics(session, userId, jobId, traceId, bindingId) {
+  const deadline = Date.now() + resultRaceSettleMs;
+  let lastResult;
+  while (Date.now() < deadline) {
+    lastResult = await requestJson("/verify/tlsn/status", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${accessToken}`,
+      },
+      body: JSON.stringify({
+        job_id: jobId,
+        binding_id: bindingId,
+        session_id: session.session_id,
+        canonical_user_id: userId,
+        device_id: deviceId,
+        ...(traceId ? { benchmark_trace_id: traceId } : {}),
+      }),
+    });
+    const timing = parseTimingHeader(lastResult.response) ?? {};
+    const diagnostics = timing.diagnostics ?? {};
+    if (
+      typeof diagnostics.completion_failure_code === "string"
+      || Number(diagnostics.direct_invocation_count ?? 0) > 0 && (
+        Number(timing.r2_operations?.result_put ?? 0) > 0
+        || diagnostics.result_sha256_present === true
+        || diagnostics.result_put_before_consume_rejected === true
+      )
+    ) {
+      return lastResult;
+    }
+    await new Promise((resolveDelay) => setTimeout(resolveDelay, pollIntervalMs));
+  }
+  return lastResult;
+}
+
 async function main() {
   if (process.env.TLSN_REMOTE_AUTH_MODE !== "test") {
     throw new Error("TLSN_REMOTE_AUTH_MODE must be test");
@@ -169,12 +206,20 @@ async function main() {
   if (expectedMode === "timeout") {
     await new Promise((resolveDelay) => setTimeout(resolveDelay, 500));
   }
-  const stable = await pollTerminalStatus(
-    session,
-    user.id,
-    verification.json.job_id,
-    verification.json.benchmark_trace_id,
-  );
+  const stable = expectedMode === "result_race"
+    ? await pollResultRaceDiagnostics(
+      session,
+      user.id,
+      verification.json.job_id,
+      verification.json.benchmark_trace_id,
+      final.bindingId,
+    )
+    : await pollTerminalStatus(
+      session,
+      user.id,
+      verification.json.job_id,
+      verification.json.benchmark_trace_id,
+    );
   const retry = await requestJson("/verify/tlsn/retry", {
     method: "POST",
     headers: {
@@ -193,6 +238,9 @@ async function main() {
   const timestamps = timing.timestamps ?? {};
   const directInvocationCount = Number(timing.diagnostics?.direct_invocation_count ?? 0);
   const resultPutCount = Number(timing.r2_operations?.result_put ?? 0);
+  const resultSha256 = typeof timing.diagnostics?.result_sha256 === "string"
+    ? timing.diagnostics.result_sha256
+    : null;
   const result = {
     expected_mode: expectedMode,
     submission_status: verification.response.status,
@@ -208,6 +256,12 @@ async function main() {
     direct_invocation_accepted: Number.isFinite(timestamps.direct_invocation_accepted),
     result_persisted: Number.isFinite(timestamps.t8_result_persisted) || resultPutCount > 0,
     result_put_count: resultPutCount,
+    result_sha256_present: timing.diagnostics?.result_sha256_present === true,
+    result_sha256: resultSha256,
+    completion_failure_code: typeof timing.diagnostics?.completion_failure_code === "string"
+      ? timing.diagnostics.completion_failure_code
+      : null,
+    result_put_before_consume_rejected: timing.diagnostics?.result_put_before_consume_rejected === true,
     consume_completed: Number.isFinite(timestamps.t10_consume_completed),
     retry_status: retry.response.status,
     retry_payload: retry.json,

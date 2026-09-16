@@ -574,6 +574,9 @@ async function runBatch({ workerOrigin, webOrigin, accessToken, userId, device, 
         timing_complete: observed,
         timing_trace_id_present: typeof timing?.trace_id === "string",
         timing_trace_id_matches_submission: typeof timing?.trace_id === "string" && timing.trace_id === submission.benchmarkTraceId,
+        maxVerifierConcurrency: Number.isFinite(timing?.max_verifier_concurrency)
+          ? timing.max_verifier_concurrency
+          : null,
         server_timestamps: timestamps,
         server_durations: durations,
         queue_message_diagnostics: diagnostics,
@@ -597,6 +600,7 @@ async function runBatch({ workerOrigin, webOrigin, accessToken, userId, device, 
       timing_complete: sample.timing_complete,
       timing_trace_id_present: sample.timing_trace_id_present,
       timing_trace_id_matches_submission: sample.timing_trace_id_matches_submission,
+      max_verifier_concurrency: sample.maxVerifierConcurrency,
       presentation_bytes: sample.presentation_bytes,
       phases_ms: {
         request_acceptance: sample.requestAcceptanceMilliseconds,

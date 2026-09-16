@@ -654,7 +654,7 @@ function directInvocationTimeoutMs(env: Bindings): number {
 async function delayAfterResultPersistence(env: Bindings): Promise<void> {
   if (env.TLSN_ENVIRONMENT !== "test" || env.TLSN_TEST_POST_RESULT_DELAY_MS === undefined) return;
   const delayMs = Number(env.TLSN_TEST_POST_RESULT_DELAY_MS);
-  if (!Number.isInteger(delayMs) || delayMs <= 0 || delayMs > 30_000) return;
+  if (!Number.isInteger(delayMs) || delayMs <= 0 || delayMs > 120_000) return;
   if (env.TLSN_TEST_POST_RESULT_DELAY_ONCE === "true") {
     if (testPostResultDelayUsed) return;
     testPostResultDelayUsed = true;
@@ -2143,6 +2143,7 @@ async function completeVerification(
   };
   const finalizeAttemptFailure = async (failureCode: VerificationFailureCode): Promise<void> => {
     failurePathEntered = true;
+    benchmarkDiagnostic(c.env, callback.job_id, "completion_failure_code", failureCode);
     await finalizeVerificationFailure(c.env, {
       bindingId: completionRecord.binding_id,
       sessionId: completionRecord.session_id,
@@ -2316,6 +2317,8 @@ async function completeVerification(
     const resultSha256 = encodeBase64Url(
       new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(finalResponseBody))),
     );
+    benchmarkDiagnostic(c.env, callback.job_id, "result_sha256", resultSha256);
+    benchmarkDiagnostic(c.env, callback.job_id, "result_sha256_present", true);
     const resultPersistenceStartedAt = executionMode === "queue" ? performance.now() : null;
     if (executionMode === "queue") benchmarkRecord(c.env, callback.job_id, "queue_result_persistence_started");
     attemptFailureCode = "result_persistence_failed";
@@ -2381,6 +2384,9 @@ async function completeVerification(
     return c.json({ accepted: true });
   } catch {
     failurePathEntered = true;
+    if (resultPersisted && !completionConsumed) {
+      benchmarkDiagnostic(c.env, callback.job_id, "result_put_before_consume_rejected", true);
+    }
     await finalizeAttemptFailure(attemptFailureCode);
     return c.json({ error: "verification_failed" }, 422);
   } finally {
