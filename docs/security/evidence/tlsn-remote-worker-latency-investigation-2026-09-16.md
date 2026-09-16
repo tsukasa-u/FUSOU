@@ -736,10 +736,54 @@ Local verification after the change:
 | --- | --- |
 | Worker `tsc --noEmit` | PASS |
 | Test harness `node --check` | PASS |
-| Local package suite | BLOCKED before Direct cases by existing local Wrangler `NoBindingAuthority`; the session path returned `503 verifier_unconfigured` |
-| Remote deployment/benchmark | NOT RUN; no permission was requested or granted for external traffic |
+| Local Direct success/failure/timeout and exactly-once checks | PASS |
+| Local Trigger app roundtrip, retry-disabled, and result-authority checks | PASS |
+| Local lease expiry, stale callback, and terminal failure checks | PASS |
+| Local package suite | PASS |
+| Remote failure/timeout validation | NOT_ESTABLISHED; no dedicated remote failure/timeout run was completed |
+| Earlier remote Direct/Queue five-sample benchmark | NOT_ESTABLISHED; the key was loaded successfully, but the deployed endpoint emitted Trigger timing (`t2_trigger_*`) while the benchmark was configured for Direct or Queue, so timing completeness was never established |
 
-The Direct success/failure/timeout harness is present but remains
-`NOT_ESTABLISHED` until the local Durable Object binding setup is repaired or a
-test deployment is explicitly authorized. Existing remote Direct latency
-figures above are unchanged and do not include this terminal-failure change.
+The local Direct success/failure/timeout harness is established, including
+Service Binding connectivity through the named test verifier Worker. The local
+Trigger roundtrip now reaches the valid Result state before exercising
+`verification_result_mismatch`; a substituted callback after consume is
+rejected and cannot overwrite the consumed Result. Existing remote Direct
+latency figures above are unchanged and do not include this terminal-failure
+change. The later remote one-sample diagnostic confirmed that the deployed
+endpoint is currently Trigger-backed: the Result became observable in about
+5.8 seconds, but the report contained only `t2_trigger_submitted` and
+`t2_trigger_task_accepted` among the execution-mode-specific stages. No
+production or canary deployment was performed.
+
+## Phase 14: current remote Trigger verification
+
+The current test endpoint was verified with the execution mode that its timing
+records actually expose. The command used the encrypted environment from
+`packages/.env.keys`, overrode only the benchmark mode to `trigger`, and ran
+the p50 fixture at concurrency `1` for five samples. No production or canary
+Worker was deployed or modified.
+
+| Check | Result |
+| --- | --- |
+| Remote auth and preflight | PASS; test auth, random binding mode, and p50 fixture accepted |
+| Remote verification completion | PASS; `5/5` samples reached `verified: true` |
+| Durable timing completeness | PASS; `5/5` samples complete, trace IDs present and submission-matched |
+| Client-visible latency | P50 `3727 ms`, P95/P99/Max `4012 ms` |
+| Server completion | P50 `3045 ms`, P95 `3210 ms`, Max `3210 ms` |
+| 3000 ms target | `EXCEEDS TARGET` |
+
+The report contains all required Trigger timing stages for every sample. The
+largest measured P50 phases were Trigger input fetch (`1079 ms`), Trigger task
+start to callback (`1214 ms`), Result persistence (`654 ms`), and callback
+entry to lease (`519 ms`). Trigger verifier execution itself was approximately
+`24 ms` at P50, so the target miss is not caused by WASM verification time.
+
+Evidence artifact:
+
+- `packages/FUSOU-TLSN-VERIFICATION-WORKER/artifacts/tlsn-remote-benchmark-trigger-current-p50-c1-5.json`
+
+This run establishes successful remote verification and a test-only latency
+result. It does not establish a production latency SLO, because the run used
+the synthetic test Worker, test Durable Object/R2, test authentication, and
+the dedicated Trigger path. The benchmark's non-zero exit code is intentional:
+`EXCEEDS TARGET` is a completed measurement, not a verification failure.
