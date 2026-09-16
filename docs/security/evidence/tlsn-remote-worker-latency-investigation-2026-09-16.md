@@ -787,3 +787,120 @@ result. It does not establish a production latency SLO, because the run used
 the synthetic test Worker, test Durable Object/R2, test authentication, and
 the dedicated Trigger path. The benchmark's non-zero exit code is intentional:
 `EXCEEDS TARGET` is a completed measurement, not a verification failure.
+
+## Phase 15: post-one-shot Direct remote proof
+
+The post-one-shot Direct path was deployed and exercised only in the test
+environment. The final normal Direct deployment used Request Worker version
+`c7802f8d-9ec6-4235-a0a9-0c373c2a3bf2` and Verifier Worker version
+`e2091310-573a-4423-b60d-b8375579d83e`. Production and canary were not
+deployed or modified.
+
+### Direct success benchmark
+
+The run used the real `p50` fixture, concurrency `1`, five samples, and 100 ms
+status polling. The artifact explicitly records
+`configuration.execution_mode: "direct"`.
+
+| Check | Result |
+| --- | --- |
+| Successful samples | `5/5` |
+| Timing-complete samples | `5/5` |
+| Submission/durable trace match | `5/5` |
+| Server completion P50/P95/Max | `192/225/225 ms` |
+| Client-visible P50/P95/P99/Max | `477/564/564/564 ms` |
+| Direct startup P50/P95/Max | `5/40/40 ms` |
+| Direct invocation diagnostic count | `1` for every sample |
+| Signed Result, Result SHA-256, authoritative consume | PASS for every sample |
+| 3000 ms target | `MEASURED WITHIN TARGET` |
+
+Evidence artifact:
+
+- `packages/FUSOU-TLSN-VERIFICATION-WORKER/artifacts/tlsn-remote-direct-post-one-shot.json`
+
+The current post-one-shot Direct result is compared with the current remote
+Trigger baseline above, not with the historical pre-one-shot Direct sample:
+
+| Execution mode | Server completion P50/P95 | Client-visible P50/P95 | Target |
+| --- | ---: | ---: | --- |
+| Direct, post-one-shot | `192/225 ms` | `477/564 ms` | MEASURED WITHIN TARGET |
+| Trigger, current baseline | `3045/3210 ms` | `3727/4012 ms` | EXCEEDS TARGET |
+| Direct, pre-one-shot historical sample | `241/326 ms` | `635/708 ms` | historical only |
+
+The three rows are not a controlled statistical comparison: the Direct and
+Trigger runs are five-sample test-only measurements taken at different times,
+and the historical Direct row predates one-shot failure semantics. They do
+establish that the corrected post-one-shot Direct deployment completed the
+requested remote success path without Queue or Trigger timing stages.
+
+### Direct failure, timeout, and retry proof
+
+The test-only Direct verifier has bounded fault controls. They are gated by
+`TLSN_ENVIRONMENT=test`; no production or canary configuration contains these
+controls. The remote scenario harness emits only status shapes, timing markers,
+invocation count, and retry result; it does not emit presentations, tokens,
+signatures, Result bodies, Result hashes, or internal failure codes.
+
+| Scenario | Deployment controls | Submit | Terminal state | Direct invocation count | Late/accepted callback | Retry |
+| --- | --- | ---: | --- | ---: | --- | --- |
+| Service Binding failure | Verifier returns `503` | `202` | `200 not_verified` | `1` | accepted `false` | `409 verification_retry_disabled` |
+| Direct timeout | Verifier delay `250 ms`, Request timeout `50 ms` | `202` | `200 not_verified` | `1` | stable after late-callback window; accepted `false` | `409 verification_retry_disabled` |
+
+The failure run used Request/Verifier versions
+`8f48b43c-4481-452f-a103-95dcad083012` /
+`38eca0b9-e915-4ae3-9708-c75c22bc229d`; the timeout run used
+`83184f58-8515-41b8-aa3d-8ab29dd1330b` /
+`78b0d276-3da8-44c4-93e6-1a16d3679ec5`. Both runs returned the exact retry
+schema:
+
+```json
+{
+	"verified": false,
+	"status": "not_verified",
+	"error": "verification_retry_disabled"
+}
+```
+
+The timeout run waited through the delayed verifier callback and then read the
+terminal state again. The failed authority state remained terminal, with no
+Result PUT or consume marker, so the late callback did not create an
+authoritative Result.
+
+### Result persistence race boundary
+
+A separate test-only attempt used a 10-second verification lease and a
+12-second post-Result delay. It reached terminal `not_verified` and retry
+`409`, but the safe timing diagnostics reported `result_put_count: 0` and
+`consume_completed: false`. The run therefore did not prove the narrower
+“Result PUT completed before consume rejected by lease expiry” race.
+
+| Requested race | Result |
+| --- | --- |
+| Lease expiry with late Direct callback | PASS; remote timeout scenario above |
+| Result persisted before consume failure | `NOT_ESTABLISHED`; Result PUT was not observed |
+
+No claim is made for the Result-persisted-before-consume race. The existing
+ordering remains code-audited: Result PUT and its SHA-256 are required before
+the Durable Object consume transition, and status verification requires the
+authoritative record plus a matching persisted Result.
+
+### Security invariant audit
+
+| Invariant | Assessment | Evidence boundary |
+| --- | --- | --- |
+| Service Binding is dispatch only, not authority | PASS | Test Direct success/failure; completion rechecks the Durable Object |
+| Durable Object is the source of truth | PASS | Success consume and terminal failure status; code audit |
+| Presentation ID and fetched-byte SHA-256 binding | PASS | Completion code and local substitution tests; no remote malicious substitution run |
+| Profile/disclosure binding | PASS | Authority checks and local sparse/complete tests |
+| Malicious Prover cannot bypass verification | CODE-AUDITED | Profile, Presentation hash, verifier, signing, and consume gates remain mandatory; no remote adversarial corpus was run |
+| Lease and attempt fencing | PASS | Local lease/stale-attempt tests and remote timeout terminal state |
+| Stale callback cannot overwrite terminal state | PASS | Remote delayed timeout callback remained `not_verified`; local stale callback test |
+| Signed Result and Result SHA-256 | PASS | All five Direct success samples had signed Result, Result SHA, and consume evidence |
+| Consume-before-cleanup ordering | CODE-AUDITED | Completion orders consume before input cleanup; Result race remote proof is not established |
+| Terminal failure and no retry | PASS | Remote failure and timeout both returned terminal `not_verified` and exact retry-disabled `409` |
+| Lease expiry becomes failed/not verified | PASS | Local lease-expiry test and remote Direct timeout behavior |
+
+This audit is test-only evidence plus a source-level invariant review. It is
+not a production SLO, a remote malicious-Prover penetration test, or proof of
+the unobserved Result-persistence race. No production or canary Worker was
+deployed or modified.

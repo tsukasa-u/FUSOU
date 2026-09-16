@@ -58,6 +58,8 @@ export type Bindings = {
   TLSN_TEST_POST_RESULT_DELAY_MS?: string;
   TLSN_TEST_POST_RESULT_DELAY_ONCE?: string;
   TLSN_TEST_DIRECT_INVOCATION_TIMEOUT_MS?: string;
+  TLSN_TEST_DIRECT_VERIFIER_MODE?: string;
+  TLSN_TEST_DIRECT_VERIFIER_DELAY_MS?: string;
   TLSN_CANARY_TRIGGER_API_URL?: string;
   TLSN_CANARY_TRIGGER_TASK_ID?: string;
   TLSN_CANARY_TRIGGER_SECRET_KEY?: string;
@@ -224,6 +226,7 @@ type BenchmarkTimingStage =
   | "queue_consume_completed"
   | "queue_completion_response_ready"
   | "direct_dispatch_started"
+  | "direct_invocation_started"
   | "direct_invocation_accepted"
   | "t3_direct_execution_started"
   | "t5_presentation_hash_started"
@@ -502,6 +505,19 @@ function benchmarkDiagnostic(env: Bindings, jobId: string, name: string, value: 
   record.updated_at = Date.now();
 }
 
+function benchmarkIncrementDiagnostic(env: Bindings, jobId: string, name: string): void {
+  if (!benchmarkEnabled(env)) return;
+  const persistence = benchmarkPersistences.get(jobId);
+  if (!persistence) return;
+  const record = benchmarkTimingRecords.get(jobId);
+  if (!record) return;
+  record.diagnostics ??= {};
+  const current = record.diagnostics[name];
+  record.diagnostics[name] = typeof current === "number" ? current + 1 : 1;
+  record.max_verifier_concurrency = benchmarkMaxVerifierConcurrency;
+  record.updated_at = Date.now();
+}
+
 function benchmarkR2Operation(env: Bindings, jobId: string, operation: string): void {
   if (!benchmarkEnabled(env)) return;
   const persistence = benchmarkPersistences.get(jobId);
@@ -638,7 +654,7 @@ function directInvocationTimeoutMs(env: Bindings): number {
 async function delayAfterResultPersistence(env: Bindings): Promise<void> {
   if (env.TLSN_ENVIRONMENT !== "test" || env.TLSN_TEST_POST_RESULT_DELAY_MS === undefined) return;
   const delayMs = Number(env.TLSN_TEST_POST_RESULT_DELAY_MS);
-  if (!Number.isInteger(delayMs) || delayMs <= 0 || delayMs > 5_000) return;
+  if (!Number.isInteger(delayMs) || delayMs <= 0 || delayMs > 30_000) return;
   if (env.TLSN_TEST_POST_RESULT_DELAY_ONCE === "true") {
     if (testPostResultDelayUsed) return;
     testPostResultDelayUsed = true;
@@ -1780,6 +1796,8 @@ async function dispatchDirectVerification(
   const timeout = setTimeout(() => controller.abort(), directInvocationTimeoutMs(env));
   let response: Response;
   try {
+    benchmarkRecord(env, jobId, "direct_invocation_started");
+    benchmarkIncrementDiagnostic(env, jobId, "direct_invocation_count");
     response = await verifier.fetch(new Request("https://tlsn-direct-verifier/internal/tlsn/verification-complete", {
       method: "POST",
       headers: {
@@ -2655,6 +2673,7 @@ app.post("/verify/tlsn/status", async (c) => {
   }
   if (record.status === "failed") {
     c.header("Cache-Control", "no-store");
+    await attachBenchmarkTimingHeader(c, c.env, requestBody.job_id);
     return c.json({ verified: false, status: "not_verified", job_id: requestBody.job_id }, 200);
   }
   const resultObjectKey = record.result_object_key;
