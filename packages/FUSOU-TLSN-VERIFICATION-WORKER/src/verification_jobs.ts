@@ -2,6 +2,7 @@ import { z } from "zod";
 
 const JOB_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const OBJECT_KEY_PATTERN = /^tlsn-verification\/[0-9a-f-]+\/(?:presentation|result)\.(?:bin|json)$/;
+const BENCHMARK_TRACE_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const VERIFICATION_PROFILE_SCHEMA = z.enum(["complete", "sparse"]);
 const DISCLOSURE_MODE_SCHEMA = z.enum(["full", "sparse"]);
 
@@ -30,6 +31,7 @@ const verificationTaskPayloadObject = z.object({
   device_challenge: z.string().regex(/^[A-Za-z0-9_-]{43}$/),
   verification_input_key: z.string().regex(OBJECT_KEY_PATTERN),
   verification_result_key: z.string().regex(OBJECT_KEY_PATTERN),
+  benchmark_trace_id: z.string().regex(BENCHMARK_TRACE_ID_PATTERN).optional(),
   ...verificationProfileFields,
 }).strict();
 
@@ -42,6 +44,7 @@ export const verificationInputRequestSchema = verificationTaskPayloadObject.pick
   canonical_user_id: true,
   device_id: true,
   verification_input_key: true,
+  benchmark_trace_id: true,
 });
 
 export const verificationCallbackSchema = z.object({
@@ -53,6 +56,14 @@ export const verificationCallbackSchema = z.object({
   presentation_id: z.string().regex(/^[A-Za-z0-9_-]{43}$/),
   verification_status: z.literal("verified"),
   trigger_execution_started_at: z.number().int().positive().optional(),
+  benchmark_timing: z.object({
+    input_fetch_started_at: z.number().int().positive(),
+    input_fetch_completed_at: z.number().int().positive(),
+    verifier_started_at: z.number().int().positive(),
+    verifier_completed_at: z.number().int().positive(),
+    callback_request_started_at: z.number().int().positive(),
+  }).strict().optional(),
+  benchmark_trace_id: z.string().regex(BENCHMARK_TRACE_ID_PATTERN).optional(),
   ...verificationProfileFields,
 }).strict().superRefine(assertVerificationProfile);
 
@@ -64,6 +75,7 @@ export const verificationStatusRequestSchema = verificationTaskPayloadObject.pic
   device_id: true,
 }).extend({
   profile: VERIFICATION_PROFILE_SCHEMA.optional(),
+  benchmark_trace_id: z.string().regex(BENCHMARK_TRACE_ID_PATTERN).optional(),
 });
 
 export const verificationFinalResponseSchema = z.object({

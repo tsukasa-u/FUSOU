@@ -22,6 +22,7 @@ const verificationTaskPayloadSchema = z.object({
   device_challenge: z.string().regex(/^[A-Za-z0-9_-]{43}$/),
   verification_input_key: z.string().regex(/^tlsn-verification\/[0-9a-f-]+\/presentation\.bin$/),
   verification_result_key: z.string().regex(/^tlsn-verification\/[0-9a-f-]+\/result\.json$/),
+  benchmark_trace_id: z.string().uuid().optional(),
   profile: z.enum(["complete", "sparse"]),
   disclosure_mode: z.enum(["full", "sparse"]),
 }).strict().superRefine((payload, context) => {
@@ -35,6 +36,14 @@ const verificationTaskPayloadSchema = z.object({
   }
 });
 type VerificationTaskPayload = z.infer<typeof verificationTaskPayloadSchema>;
+
+const benchmarkTimingSchema = z.object({
+  input_fetch_started_at: z.number().int().positive(),
+  input_fetch_completed_at: z.number().int().positive(),
+  verifier_started_at: z.number().int().positive(),
+  verifier_completed_at: z.number().int().positive(),
+  callback_request_started_at: z.number().int().positive(),
+}).strict();
 
 function requiredEnv(name: string): string {
   const value = process.env[name]?.trim();
@@ -142,6 +151,7 @@ async function fetchPresentation(payload: VerificationTaskPayload): Promise<Uint
     canonical_user_id: payload.canonical_user_id,
     device_id: payload.device_id,
     verification_input_key: payload.verification_input_key,
+    ...(payload.benchmark_trace_id ? { benchmark_trace_id: payload.benchmark_trace_id } : {}),
   });
   const response = await fetch(`${workerBaseUrl()}/internal/tlsn/verification-input`, {
     method: "POST",
@@ -166,7 +176,9 @@ async function postCompletion(
   payload: VerificationTaskPayload,
   presentationId: string,
   triggerExecutionStartedAt: number,
+  benchmarkTiming: z.infer<typeof benchmarkTimingSchema> | undefined,
 ): Promise<void> {
+  const callbackRequestStartedAt = Date.now();
   const body = JSON.stringify({
     job_id: payload.job_id,
     binding_id: payload.binding_id,
@@ -176,6 +188,15 @@ async function postCompletion(
     presentation_id: presentationId,
     verification_status: "verified",
     trigger_execution_started_at: triggerExecutionStartedAt,
+    ...(payload.benchmark_trace_id ? { benchmark_trace_id: payload.benchmark_trace_id } : {}),
+    ...(payload.benchmark_trace_id && benchmarkTiming
+      ? {
+          benchmark_timing: {
+            ...benchmarkTiming,
+            callback_request_started_at: callbackRequestStartedAt,
+          },
+        }
+      : {}),
     profile: payload.profile,
     disclosure_mode: payload.disclosure_mode,
   });
@@ -206,6 +227,7 @@ export const verifyTlsnPresentation = task({
     const triggerExecutionStartedAt = Date.now();
     const payload = verificationTaskPayloadSchema.parse(input);
     logPhase(payload, "started", triggerExecutionStartedAt);
+    const inputFetchStartedAt = Date.now();
     logPhase(payload, "input_fetch_start", triggerExecutionStartedAt);
     let presentation: Uint8Array;
     try {
@@ -214,8 +236,10 @@ export const verifyTlsnPresentation = task({
       logPhase(payload, "input_fetch_error", triggerExecutionStartedAt, { error_class: errorClass(error) });
       throw error;
     }
+    const inputFetchCompletedAt = Date.now();
     logPhase(payload, "input_fetch_ok", triggerExecutionStartedAt, { byte_length: presentation.byteLength });
     const presentationId = createHash("sha256").update(presentation).digest("base64url");
+    const verifierStartedAt = Date.now();
     logPhase(payload, "verifier_start", triggerExecutionStartedAt, { profile: payload.profile });
     try {
       initializeVerifier();
@@ -276,10 +300,24 @@ export const verifyTlsnPresentation = task({
       logPhase(payload, "verifier_error", triggerExecutionStartedAt, { error_class: errorClass(error) });
       throw error;
     }
+    const verifierCompletedAt = Date.now();
     logPhase(payload, "verifier_ok", triggerExecutionStartedAt);
     logPhase(payload, "callback_start", triggerExecutionStartedAt);
     try {
-      await postCompletion(payload, presentationId, triggerExecutionStartedAt);
+      await postCompletion(
+        payload,
+        presentationId,
+        triggerExecutionStartedAt,
+        payload.benchmark_trace_id
+          ? benchmarkTimingSchema.parse({
+              input_fetch_started_at: inputFetchStartedAt,
+              input_fetch_completed_at: inputFetchCompletedAt,
+              verifier_started_at: verifierStartedAt,
+              verifier_completed_at: verifierCompletedAt,
+              callback_request_started_at: Date.now(),
+            })
+          : undefined,
+      );
     } catch (error) {
       logPhase(payload, "callback_error", triggerExecutionStartedAt, { error_class: errorClass(error) });
       throw error;

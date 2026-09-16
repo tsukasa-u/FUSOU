@@ -27,9 +27,17 @@ const REQUIRED_TIMING_STAGES = [
   "t6_presentation_read",
   "t7_wasm_verification_completed",
   "t8_result_signing_completed",
+  "t8_result_persisted",
   "t9_result_persisted",
+  "t9_consume_completed",
   "t10_consume_completed",
   "t11_status_verified",
+  "t3_trigger_input_fetch_started",
+  "t3_trigger_input_fetch_completed",
+  "t3_trigger_verifier_started",
+  "t3_trigger_verifier_completed",
+  "t3_trigger_callback_request_started",
+  "t10_callback_response_ready",
 ];
 
 function required(name) {
@@ -231,16 +239,18 @@ async function submitVerification(workerOrigin, accessToken, body) {
   }
   return {
     jobId: result.json.job_id,
+    benchmarkTraceId: typeof result.json.benchmark_trace_id === "string" ? result.json.benchmark_trace_id : null,
     clientT0,
     clientT1,
     requestAcceptanceMilliseconds: clientT1 - clientT0,
   };
 }
 
-async function pollStatus(workerOrigin, accessToken, userId, device, session, jobId, pollIntervalMs, maxPollMs) {
+async function pollStatus(workerOrigin, accessToken, userId, device, session, jobId, benchmarkTraceId, pollIntervalMs, maxPollMs) {
   const pollStartedAt = performance.now();
   const deadline = pollStartedAt + maxPollMs;
   let pollCount = 0;
+  let firstVerifiedResponse;
   while (performance.now() < deadline) {
     const result = await timedJsonRequest(endpoint(workerOrigin, "/verify/tlsn/status"), {
       method: "POST",
@@ -254,23 +264,36 @@ async function pollStatus(workerOrigin, accessToken, userId, device, session, jo
         session_id: session.session_id,
         canonical_user_id: userId,
         device_id: device.id,
+        ...(benchmarkTraceId ? { benchmark_trace_id: benchmarkTraceId } : {}),
       }),
     });
     pollCount += 1;
     if (result.status === 200 && result.json?.verified === true) {
       const clientT11 = performance.now();
-      return {
-        clientT11,
-        statusPollingMilliseconds: clientT11 - pollStartedAt,
-        timing: parseTimingHeader(result.response),
-        pollCount,
-      };
-    }
-    if (result.status !== 202) {
+      const timing = parseTimingHeader(result.response);
+      if (!firstVerifiedResponse) {
+        firstVerifiedResponse = {
+          clientT11,
+          statusPollingMilliseconds: clientT11 - pollStartedAt,
+          timing,
+        };
+      }
+      if (requiredTimingStagesPresent(timing)) {
+        return {
+          ...firstVerifiedResponse,
+          timing,
+          pollCount,
+        };
+      }
+    } else if (result.status !== 202) {
       throw new Error(`remote status polling failed with status ${result.status}`);
+    }
+    if (firstVerifiedResponse && performance.now() >= deadline) {
+      return { ...firstVerifiedResponse, pollCount };
     }
     await new Promise((resolveSleep) => setTimeout(resolveSleep, pollIntervalMs));
   }
+  if (firstVerifiedResponse) return { ...firstVerifiedResponse, pollCount };
   throw new Error("remote status polling exceeded configured maximum");
 }
 
@@ -311,9 +334,16 @@ function summarizePhases(samples) {
     trigger_accept_to_202_send: summarize(samples, "triggerAcceptTo202SendMilliseconds"),
     trigger_queue_start: summarize(samples, "triggerQueueStartMilliseconds"),
     trigger_start_to_callback: summarize(samples, "triggerStartToCallbackMilliseconds"),
+    callback_entry_to_lease: summarize(samples, "callbackEntryToLeaseMilliseconds"),
     worker_r2_input: summarize(samples, "workerR2InputMilliseconds"),
     wasm_verification: summarize(samples, "wasmVerificationMilliseconds"),
-    result_finalization: summarize(samples, "resultFinalizationMilliseconds"),
+    result_signing: summarize(samples, "resultSigningMilliseconds"),
+    result_persistence: summarize(samples, "resultPersistenceMilliseconds"),
+    do_consume: summarize(samples, "doConsumeMilliseconds"),
+    callback_response: summarize(samples, "callbackResponseMilliseconds"),
+    trigger_input_fetch: summarize(samples, "triggerInputFetchMilliseconds"),
+    trigger_verifier: summarize(samples, "triggerVerifierMilliseconds"),
+    trigger_to_callback_request: summarize(samples, "triggerToCallbackRequestMilliseconds"),
     status_polling: summarize(samples, "statusPollingMilliseconds"),
     client_visible: summarize(samples, "clientVisibleMilliseconds"),
   };
@@ -358,6 +388,7 @@ async function runBatch({ workerOrigin, webOrigin, accessToken, userId, device, 
         device,
         sessions[index],
         submission.jobId,
+        submission.benchmarkTraceId,
         pollIntervalMs,
         maxPollMs,
       )
@@ -374,7 +405,11 @@ async function runBatch({ workerOrigin, webOrigin, accessToken, userId, device, 
       const t5 = stageTimestamp(timing, "t5_lease_acquired");
       const t6 = stageTimestamp(timing, "t6_presentation_read");
       const t7 = stageTimestamp(timing, "t7_wasm_verification_completed");
+      const t8Signing = stageTimestamp(timing, "t8_result_signing_completed");
+      const t8Persisted = stageTimestamp(timing, "t8_result_persisted");
+      const t9 = stageTimestamp(timing, "t9_consume_completed");
       const t10 = stageTimestamp(timing, "t10_consume_completed");
+      const t10CallbackResponse = stageTimestamp(timing, "t10_callback_response_ready");
       const observed = requiredTimingStagesPresent(timing);
       samples.push({
         case_label: entry.caseLabel,
@@ -389,10 +424,22 @@ async function runBatch({ workerOrigin, webOrigin, accessToken, userId, device, 
         triggerAcceptTo202SendMilliseconds: t1Server !== null && t2 !== null ? t1Server - t2 : null,
         triggerQueueStartMilliseconds: t2 !== null && t3 !== null ? t3 - t2 : null,
         triggerStartToCallbackMilliseconds: t3 !== null && t4 !== null ? t4 - t3 : null,
+        callbackEntryToLeaseMilliseconds: t4 !== null && t5 !== null ? t5 - t4 : null,
         workerR2InputMilliseconds: phaseMilliseconds(timing, "t5_lease_acquired", "t6_presentation_read"),
         wasmVerificationMilliseconds: phaseMilliseconds(timing, "t6_presentation_read", "t7_wasm_verification_completed"),
+        resultSigningMilliseconds: t8Signing !== null ? t8Signing - t7 : null,
+        resultPersistenceMilliseconds: t8Signing !== null && t8Persisted !== null ? t8Persisted - t8Signing : null,
+        doConsumeMilliseconds: t8Persisted !== null && t10 !== null ? t10 - t8Persisted : null,
+        callbackResponseMilliseconds: t10 !== null && t10CallbackResponse !== null ? t10CallbackResponse - t10 : null,
+        triggerInputFetchMilliseconds: phaseMilliseconds(timing, "t3_trigger_input_fetch_started", "t3_trigger_input_fetch_completed"),
+        triggerVerifierMilliseconds: phaseMilliseconds(timing, "t3_trigger_verifier_started", "t3_trigger_verifier_completed"),
+        triggerToCallbackRequestMilliseconds: t3 !== null && stageTimestamp(timing, "t3_trigger_callback_request_started") !== null
+          ? stageTimestamp(timing, "t3_trigger_callback_request_started") - t3
+          : null,
         resultFinalizationMilliseconds: phaseMilliseconds(timing, "t7_wasm_verification_completed", "t10_consume_completed"),
         timing_complete: observed,
+        timing_trace_id_present: typeof timing?.trace_id === "string",
+        timing_trace_id_matches_submission: typeof timing?.trace_id === "string" && timing.trace_id === submission.benchmarkTraceId,
         server_timestamps: timestamps,
       });
     }
@@ -412,17 +459,26 @@ async function runBatch({ workerOrigin, webOrigin, accessToken, userId, device, 
       concurrency: sample.concurrency,
       client_visible_ms: sample.clientVisibleMilliseconds,
       timing_complete: sample.timing_complete,
+      timing_trace_id_present: sample.timing_trace_id_present,
+      timing_trace_id_matches_submission: sample.timing_trace_id_matches_submission,
       presentation_bytes: sample.presentation_bytes,
       phases_ms: {
         request_acceptance: sample.requestAcceptanceMilliseconds,
         trigger_accept_to_202_send: sample.triggerAcceptTo202SendMilliseconds,
         trigger_queue_start: sample.triggerQueueStartMilliseconds,
         trigger_start_to_callback: sample.triggerStartToCallbackMilliseconds,
+        callback_entry_to_lease: sample.callbackEntryToLeaseMilliseconds,
         worker_r2_input: sample.workerR2InputMilliseconds,
         wasm_verification: sample.wasmVerificationMilliseconds,
-        result_finalization: sample.resultFinalizationMilliseconds,
+        result_signing: sample.resultSigningMilliseconds,
+        result_persistence: sample.resultPersistenceMilliseconds,
+        do_consume: sample.doConsumeMilliseconds,
+        callback_response: sample.callbackResponseMilliseconds,
+        trigger_input_fetch: sample.triggerInputFetchMilliseconds,
+        trigger_verifier: sample.triggerVerifierMilliseconds,
+        trigger_to_callback_request: sample.triggerToCallbackRequestMilliseconds,
         status_polling: sample.statusPollingMilliseconds,
-          poll_count: sample.pollCount,
+        poll_count: sample.pollCount,
       },
       server_timestamps: sample.server_timestamps,
     })),

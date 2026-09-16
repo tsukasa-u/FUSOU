@@ -1,7 +1,7 @@
 # TLSN Remote Worker Latency Investigation
 
 Date: 2026-09-16
-Status: measurement blocked; no latency result established
+Status: test-only timing measurement complete; 3000 ms target exceeded
 Scope: self-contained test Worker, test Durable Object, test R2, and dedicated Trigger.dev project
 
 ## Executive Status
@@ -9,13 +9,13 @@ Scope: self-contained test Worker, test Durable Object, test R2, and dedicated T
 | Area | Status | Evidence |
 | --- | --- | --- |
 | dotenvx secret/config persistence | PASS | Encrypted Worker environment and key file were used; secrets were not printed |
-| Test Worker deployment | PASS | Final deployment `e38c3df9-7f0f-4c58-ba9f-272d5b8f7cf6` |
-| Trigger deployment | PASS | Dedicated project deployment `20260915.3` |
+| Test Worker deployment | PASS | Latest test deployment `c6d0913e-2394-4d10-aad7-9be139979d42` |
+| Trigger deployment | PASS | Dedicated project deployment `20260916.7` |
 | Remote preflight | PASS | Full matrix accepted: 20 samples, `p50,p95,p99,max`, concurrency `1,2,4,8` |
 | Session issuance | PASS | `/attestation/session` returned HTTP `201`; final binding TTL was approximately 900 seconds |
-| Remote asynchronous verification | BLOCKED | Status polling remained `202` until the five-minute limit |
-| Latency report artifact | NOT GENERATED | The benchmark writes the report only after a complete row; no artifact was produced |
-| 3000 ms target decision | NOT ESTABLISHED | No complete sample set or percentile summary exists |
+| Remote asynchronous verification | PASS | 15/15 test-only samples reached `verified: true` |
+| Latency report artifact | PASS | Three 5-sample reports contain complete timing records |
+| 3000 ms target decision | EXCEEDS TARGET | All three polling conditions exceeded the 3000 ms P95/P99/Max gate |
 
 The benchmark did not access the Game Server and did not replay a Game Server request. The fixture generator used repository-local synthetic TLSN fixture material with a newly issued remote binding for each session.
 
@@ -211,3 +211,36 @@ ineligible for phase-complete latency percentiles.
 
 No full matrix was run, no retry was used to obtain this result, and no latency
 target decision was made.
+
+## Final test-only timing-complete measurement
+
+The durable timing path was completed with the current test Worker deployment
+`c6d0913e-2394-4d10-aad7-9be139979d42` and Trigger deployment `20260916.7`.
+The benchmark used the `p50` fixture, concurrency `1`, and five samples for
+each polling interval. It records the first verified response's client clock,
+then performs additional status reads until the durable timing record contains
+all required stages. This avoids extending the client-visible measurement while
+waiting for the callback flush to become observable.
+
+| Poll interval | Samples | Timing complete | Client-visible P50 | P95 | Max | Cold sample | Warm P50 (samples 1-4) | Decision |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| 100 ms | 5/5 | 5/5 | 4301 ms | 4820 ms | 4930 ms | 4295 ms | 4341 ms | EXCEEDS TARGET |
+| 250 ms | 5/5 | 5/5 | 4551 ms | 4753 ms | 4763 ms | 4713 ms | 4424 ms | EXCEEDS TARGET |
+| 500 ms | 5/5 | 5/5 | 4620 ms | 4665 ms | 4672 ms | 4567 ms | 4630 ms | EXCEEDS TARGET |
+
+Evidence artifacts:
+
+- `packages/FUSOU-TLSN-VERIFICATION-WORKER/artifacts/tlsn-remote-benchmark-100ms-5.json`
+- `packages/FUSOU-TLSN-VERIFICATION-WORKER/artifacts/tlsn-remote-benchmark-250ms-5.json`
+- `packages/FUSOU-TLSN-VERIFICATION-WORKER/artifacts/tlsn-remote-benchmark-500ms-5.json`
+
+All 15 samples had matching submission and durable timing trace IDs. The
+callback supplied all five timing fields in every sample, and every required
+T0-T11 stage was present. The target is therefore established as
+`EXCEEDS TARGET`, not `NOT ESTABLISHED`. This is test-only evidence; no
+production or canary deployment was changed.
+
+The benchmark client now tolerates the observed ordering where the binding
+becomes `consumed` before the callback's final durable timing flush is visible.
+Temporary Trigger run ID and callback diagnostic fields used during diagnosis
+were removed after the evidence was captured.

@@ -4,6 +4,7 @@ const BINDING_PREFIX = new TextEncoder().encode("FUSOU-ATTESTATION-BINDING-V1\0"
 const BINDING_NONCE_BYTES = 32;
 const TLSN_DEVICE_CHALLENGE_BYTES = 32;
 const UUID_BYTES = 16;
+const BENCHMARK_TIMING_KEY = "benchmark-timing";
 
 export type BindingStatus = "active" | "processing" | "verifying" | "expired" | "consumed";
 export type VerificationProfile = "complete" | "sparse";
@@ -31,6 +32,27 @@ export type BindingRecord = {
   result_object_key?: string;
   used_at?: string;
   presentation_id?: string;
+};
+
+export type BenchmarkTimingRecord = {
+  schema_version: 1;
+  trace_id: string;
+  job_id: string;
+  timestamps: Record<string, number>;
+  r2_operations: Record<string, number>;
+  diagnostics?: Record<string, boolean | number>;
+  max_verifier_concurrency: number;
+  updated_at: number;
+};
+
+export type BenchmarkTimingMergeInput = {
+  trace_id: string;
+  job_id: string;
+  timestamps: Record<string, number>;
+  r2_operations: Record<string, number>;
+  diagnostics?: Record<string, boolean | number>;
+  max_verifier_concurrency: number;
+  updated_at: number;
 };
 
 type BindingOperation = {
@@ -272,6 +294,55 @@ export class DurableObjectBindingAuthority {
     return this.call(bindingId, "/release", input);
   }
 
+  async mergeBenchmarkTiming(bindingId: string, input: BenchmarkTimingMergeInput): Promise<void> {
+    let response: Response;
+    try {
+      const stub = this.namespace.getByName(bindingId);
+      response = await stub.fetch("https://binding.internal/benchmark-timing", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(input),
+      });
+    } catch {
+      throw new BindingAuthorityError("authority_unavailable");
+    }
+    if (!response.ok) throw new BindingAuthorityError("authority_unavailable");
+  }
+
+  async getBenchmarkTiming(bindingId: string, traceId: string): Promise<BenchmarkTimingRecord | null> {
+    let response: Response;
+    try {
+      const stub = this.namespace.getByName(bindingId);
+      response = await stub.fetch("https://binding.internal/benchmark-timing/get", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ trace_id: traceId }),
+      });
+    } catch {
+      throw new BindingAuthorityError("authority_unavailable");
+    }
+    if (!response.ok) throw new BindingAuthorityError("authority_unavailable");
+    const body = await response.json<{ ok: true; record: BenchmarkTimingRecord | null }>();
+    return body.record;
+  }
+
+  async getBenchmarkTimingByJobId(bindingId: string, jobId: string): Promise<BenchmarkTimingRecord | null> {
+    let response: Response;
+    try {
+      const stub = this.namespace.getByName(bindingId);
+      response = await stub.fetch("https://binding.internal/benchmark-timing/by-job", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ job_id: jobId }),
+      });
+    } catch {
+      throw new BindingAuthorityError("authority_unavailable");
+    }
+    if (!response.ok) throw new BindingAuthorityError("authority_unavailable");
+    const body = await response.json<{ ok: true; record: BenchmarkTimingRecord | null }>();
+    return body.record;
+  }
+
   private async call<T extends object>(bindingId: string, path: string, body: T): Promise<BindingRecord> {
     let response: Response;
     try {
@@ -336,6 +407,12 @@ export class TlsnBindingAuthorityDurableObject extends DurableObject {
           return this.lookupJob(body as unknown as JobLookupInput);
         case "/consume":
           return this.consume(body as unknown as ConsumeInput);
+        case "/benchmark-timing":
+          return this.mergeBenchmarkTiming(body as unknown as BenchmarkTimingMergeInput);
+        case "/benchmark-timing/get":
+          return this.getBenchmarkTiming(body as unknown as { trace_id: string });
+        case "/benchmark-timing/by-job":
+          return this.getBenchmarkTimingByJobId(body as unknown as { job_id: string });
         default:
           return Response.json({ ok: false, error: "binding_unknown" }, { status: 404 });
       }
@@ -352,11 +429,12 @@ export class TlsnBindingAuthorityDurableObject extends DurableObject {
         return;
       }
       const now = Date.now();
-      if (
-        (record.status === "active" || record.status === "processing" || record.status === "verifying") &&
-        Date.parse(record.expires_at) <= now
-      ) {
-        await transaction.put("binding", { ...record, status: "expired" });
+      const bindingExpiry = Date.parse(record.expires_at);
+      if (Number.isFinite(bindingExpiry) && bindingExpiry <= now) {
+        await transaction.delete(BENCHMARK_TIMING_KEY);
+        if (record.status === "active" || record.status === "processing" || record.status === "verifying") {
+          await transaction.put("binding", { ...record, status: "expired" });
+        }
         return;
       }
       if (
@@ -371,11 +449,9 @@ export class TlsnBindingAuthorityDurableObject extends DurableObject {
           ...processingRecord
         } = record;
         await transaction.put("binding", { ...processingRecord, status: "processing" });
-        const bindingExpiry = Date.parse(record.expires_at);
         if (Number.isFinite(bindingExpiry) && bindingExpiry > now) nextAlarm = bindingExpiry;
         return;
       }
-      const bindingExpiry = Date.parse(record.expires_at);
       const leaseExpiry = record.verification_lease_expires_at
         ? Date.parse(record.verification_lease_expires_at)
         : Number.POSITIVE_INFINITY;
@@ -672,6 +748,51 @@ export class TlsnBindingAuthorityDurableObject extends DurableObject {
       result = { ok: true, record: processing };
     });
     return Response.json(result, { status: result.ok ? 200 : authorityStatus(result.error) });
+  }
+
+  private async mergeBenchmarkTiming(input: BenchmarkTimingMergeInput): Promise<Response> {
+    await this.ctx.storage.transaction(async (transaction) => {
+      const existing = await transaction.get<BenchmarkTimingRecord>(BENCHMARK_TIMING_KEY);
+      const timestamps = {
+        ...(existing?.trace_id === input.trace_id ? existing.timestamps : {}),
+        ...input.timestamps,
+      };
+      const r2Operations = { ...(existing?.trace_id === input.trace_id ? existing.r2_operations : {}) };
+      for (const [operation, count] of Object.entries(input.r2_operations)) {
+        r2Operations[operation] = Math.max(r2Operations[operation] ?? 0, count);
+      }
+      const diagnostics = {
+        ...(existing?.trace_id === input.trace_id ? existing.diagnostics : {}),
+        ...(input.diagnostics ?? {}),
+      };
+      await transaction.put(BENCHMARK_TIMING_KEY, {
+        schema_version: 1,
+        trace_id: input.trace_id,
+        job_id: input.job_id,
+        timestamps,
+        r2_operations: r2Operations,
+        diagnostics,
+        max_verifier_concurrency: Math.max(existing?.max_verifier_concurrency ?? 0, input.max_verifier_concurrency),
+        updated_at: input.updated_at,
+      } satisfies BenchmarkTimingRecord);
+    });
+    return Response.json({ ok: true });
+  }
+
+  private async getBenchmarkTiming(input: { trace_id: string }): Promise<Response> {
+    const record = await this.ctx.storage.get<BenchmarkTimingRecord>(BENCHMARK_TIMING_KEY);
+    return Response.json({
+      ok: true,
+      record: record?.trace_id === input.trace_id ? record : null,
+    });
+  }
+
+  private async getBenchmarkTimingByJobId(input: { job_id: string }): Promise<Response> {
+    const record = await this.ctx.storage.get<BenchmarkTimingRecord>(BENCHMARK_TIMING_KEY);
+    return Response.json({
+      ok: true,
+      record: record?.job_id === input.job_id ? record : null,
+    });
   }
 
   private async claim(input: ClaimInput): Promise<Response> {

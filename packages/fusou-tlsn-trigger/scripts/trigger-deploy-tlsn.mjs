@@ -30,6 +30,19 @@ if (String(process.env.TRIGGER_PROJECT_REF).startsWith("encrypted:")) {
   process.exit(1);
 }
 
+const buildResult = spawnSync(
+  process.platform === "win32" ? "pnpm.cmd" : "pnpm",
+  ["run", "build"],
+  { cwd: packageDirectory, stdio: "inherit", env: process.env },
+);
+if (buildResult.error) {
+  console.error(buildResult.error.message);
+  process.exit(1);
+}
+if (buildResult.status !== 0) {
+  process.exit(buildResult.status ?? 1);
+}
+
 const missingAssets = [
   resolve(packageDirectory, "../FUSOU-TLSN-VERIFICATION-WORKER/src/wasm/fusou_tlsn_verifier.js"),
   resolve(packageDirectory, "../FUSOU-TLSN-VERIFICATION-WORKER/src/wasm/fusou_tlsn_verifier_bg.wasm"),
