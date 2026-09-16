@@ -172,7 +172,7 @@ async function main() {
     const parsed = Number(item);
     return Number.isSafeInteger(parsed) && parsed > 0 && parsed <= 32 ? parsed : undefined;
   });
-  const sampleCount = parseInteger("TLSN_REMOTE_SAMPLE_COUNT", DEFAULT_SAMPLE_COUNT, DEFAULT_SAMPLE_COUNT, 1_000);
+  const sampleCount = parseInteger("TLSN_REMOTE_SAMPLE_COUNT", DEFAULT_SAMPLE_COUNT, 1, 1_000);
   const privateKey = await validatePrivateKey();
   const userId = mode === "test"
     ? validateTestAuth(required("TLSN_REMOTE_ACCESS_TOKEN_A"), deviceId, privateKey)

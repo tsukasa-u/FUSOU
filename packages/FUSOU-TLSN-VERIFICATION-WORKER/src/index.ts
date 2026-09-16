@@ -1460,6 +1460,16 @@ function triggerCallbackSecret(env: Bindings): string | undefined {
     : env.TLSN_PRODUCTION_TRIGGER_CALLBACK_SECRET;
 }
 
+function internalRequestAuthFailure(
+  c: Context<{ Bindings: Bindings }>,
+  reason: "callback_secret_unconfigured" | "signature_invalid" | "signature_mismatch",
+): Response {
+  if (c.env.TLSN_ENVIRONMENT === "test" && c.req.header("X-FUSOU-TLSN-Diagnostic") === "hmac") {
+    return c.json({ error: reason }, 401);
+  }
+  return c.json({ error: "unauthorized" }, 401);
+}
+
 async function enqueueTriggerVerification(
   config: TriggerExecutionConfig,
   payload: VerificationTaskPayload,
@@ -1494,12 +1504,13 @@ app.post("/internal/tlsn/verification-input", async (c) => {
   const jobId = c.req.header("X-FUSOU-TLSN-Job-Id") ?? "";
   const signature = c.req.header("X-FUSOU-TLSN-Signature") ?? null;
   const callbackSecret = triggerCallbackSecret(c.env);
-  if (
-    rawBody === null ||
-    !callbackSecret ||
-    !await verifyInternalRequest(callbackSecret, jobId, rawBody, signature)
-  ) {
-    return c.json({ error: "unauthorized" }, 401);
+  if (rawBody === null) return internalRequestAuthFailure(c, "signature_invalid");
+  if (!callbackSecret) return internalRequestAuthFailure(c, "callback_secret_unconfigured");
+  if (!signature || !/^[A-Za-z0-9_-]{43}$/.test(signature)) {
+    return internalRequestAuthFailure(c, "signature_invalid");
+  }
+  if (!await verifyInternalRequest(callbackSecret, jobId, rawBody, signature)) {
+    return internalRequestAuthFailure(c, "signature_mismatch");
   }
 
   const parsed = verificationInputRequestSchema.safeParse(JSON.parse(rawBody) as unknown);
@@ -1546,12 +1557,13 @@ app.post("/internal/tlsn/verification-complete", async (c) => {
   const jobId = c.req.header("X-FUSOU-TLSN-Job-Id") ?? "";
   const signature = c.req.header("X-FUSOU-TLSN-Signature") ?? null;
   const callbackSecret = triggerCallbackSecret(c.env);
-  if (
-    rawBody === null ||
-    !callbackSecret ||
-    !await verifyInternalRequest(callbackSecret, jobId, rawBody, signature)
-  ) {
-    return c.json({ error: "unauthorized" }, 401);
+  if (rawBody === null) return internalRequestAuthFailure(c, "signature_invalid");
+  if (!callbackSecret) return internalRequestAuthFailure(c, "callback_secret_unconfigured");
+  if (!signature || !/^[A-Za-z0-9_-]{43}$/.test(signature)) {
+    return internalRequestAuthFailure(c, "signature_invalid");
+  }
+  if (!await verifyInternalRequest(callbackSecret, jobId, rawBody, signature)) {
+    return internalRequestAuthFailure(c, "signature_mismatch");
   }
 
   let callback;

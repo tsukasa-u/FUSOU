@@ -4,6 +4,7 @@ use crate::experimental_tlsn::{
     TlsnOriginCapture, TlsnOriginExchange, TlsnOriginResponse, TlsnOriginTransport,
     TlsnTransportError, TlsnTransportFuture, UnverifiedTlsnTranscript,
 };
+use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use fusou_tlsn_verifier::{
     parse_require_info_request, plan_require_info_response_sparse_ranges,
     prover_transport::ProverOwnedTlsTransport, ParserLimits,
@@ -745,8 +746,17 @@ fn server_credentials() -> Result<(Vec<u8>, Vec<u8>, Vec<u8>), TlsnTransportErro
     let mut root_params = CertificateParams::default();
     root_params.is_ca = IsCa::Ca(BasicConstraints::Unconstrained);
     root_params.key_usages = vec![KeyUsagePurpose::KeyCertSign];
-    let root_key_pair =
-        KeyPair::generate().map_err(|_| TlsnTransportError::OriginConnectionFailed)?;
+    let root_key_pair = match std::env::var("FUSOU_SYNTHETIC_ROOT_KEY_PKCS8") {
+        Ok(value) => {
+            let key_der = URL_SAFE_NO_PAD
+                .decode(value)
+                .map_err(|_| TlsnTransportError::OriginConnectionFailed)?;
+            KeyPair::try_from(key_der)
+                .map_err(|_| TlsnTransportError::OriginConnectionFailed)?
+        }
+        Err(_) => KeyPair::generate()
+            .map_err(|_| TlsnTransportError::OriginConnectionFailed)?,
+    };
     let root_certificate = root_params
         .self_signed(&root_key_pair)
         .map_err(|_| TlsnTransportError::OriginConnectionFailed)?;

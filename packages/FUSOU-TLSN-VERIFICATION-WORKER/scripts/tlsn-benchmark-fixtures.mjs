@@ -33,6 +33,9 @@ export function generateRealFixture(sourcePath, binding) {
         FUSOU_SYNTHETIC_PROOF_MODE: "sparse",
         FUSOU_SYNTHETIC_RESPONSE_FIXTURE_PATH: sourcePath,
         FUSOU_SYNTHETIC_BINDING_VALUE: binding,
+        ...(process.env.FUSOU_SYNTHETIC_ROOT_KEY_PKCS8
+          ? { FUSOU_SYNTHETIC_ROOT_KEY_PKCS8: process.env.FUSOU_SYNTHETIC_ROOT_KEY_PKCS8 }
+          : {}),
       },
       encoding: "utf8",
       maxBuffer: 512 * 1024 * 1024,

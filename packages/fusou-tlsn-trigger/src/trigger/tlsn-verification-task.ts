@@ -69,6 +69,28 @@ function internalSignature(secret: string, jobId: string, body: string): string 
     .digest("base64url");
 }
 
+function jobIdHash(jobId: string): string {
+  return createHash("sha256").update(jobId).digest("hex").slice(0, 16);
+}
+
+function errorClass(error: unknown): string {
+  return error instanceof Error && error.name ? error.name : typeof error;
+}
+
+function logPhase(
+  payload: VerificationTaskPayload,
+  phase: string,
+  startedAt: number,
+  details: Record<string, unknown> = {},
+): void {
+  console.info("[tlsn-verification]", {
+    job_id_hash: jobIdHash(payload.job_id),
+    phase,
+    elapsed_ms: Date.now() - startedAt,
+    ...details,
+  });
+}
+
 function wasmPath(): string {
   const relativePath = "FUSOU-TLSN-VERIFICATION-WORKER/src/wasm/fusou_tlsn_verifier_bg.wasm";
   const candidates = [
@@ -183,63 +205,86 @@ export const verifyTlsnPresentation = task({
   run: async (input: VerificationTaskPayload) => {
     const triggerExecutionStartedAt = Date.now();
     const payload = verificationTaskPayloadSchema.parse(input);
-    const presentation = await fetchPresentation(payload);
+    logPhase(payload, "started", triggerExecutionStartedAt);
+    logPhase(payload, "input_fetch_start", triggerExecutionStartedAt);
+    let presentation: Uint8Array;
+    try {
+      presentation = await fetchPresentation(payload);
+    } catch (error) {
+      logPhase(payload, "input_fetch_error", triggerExecutionStartedAt, { error_class: errorClass(error) });
+      throw error;
+    }
+    logPhase(payload, "input_fetch_ok", triggerExecutionStartedAt, { byte_length: presentation.byteLength });
     const presentationId = createHash("sha256").update(presentation).digest("base64url");
-    initializeVerifier();
+    logPhase(payload, "verifier_start", triggerExecutionStartedAt, { profile: payload.profile });
+    try {
+      initializeVerifier();
 
-    const config = verifierConfig(payload.profile);
-    const deviceChallenge = decodeBase64Url(payload.device_challenge, 32);
-    const preparedResultJson = payload.profile === "sparse"
-      ? config.trustRoot
-        ? verify_sparse_require_info_presentation_with_trust_anchor(
-          presentation,
-          config.serverIdentity,
-          config.profileSha256,
-          config.verifierKeyId,
-          config.notaryKeyId,
-          payload.canonical_user_id,
-          payload.device_id,
-          deviceChallenge,
-          config.trustRoot,
-          config.notaryKey,
-        )
-        : verify_sparse_require_info_presentation(
-          presentation,
-          config.serverIdentity,
-          config.profileSha256,
-          config.verifierKeyId,
-          config.notaryKeyId,
-          payload.canonical_user_id,
-          payload.device_id,
-          deviceChallenge,
-          config.notaryKey,
-        )
-      : config.trustRoot
-        ? verify_require_info_presentation_with_trust_anchor(
-          presentation,
-          config.serverIdentity,
-          config.profileSha256,
-          config.verifierKeyId,
-          config.notaryKeyId,
-          payload.canonical_user_id,
-          payload.device_id,
-          deviceChallenge,
-          config.trustRoot,
-          config.notaryKey,
-        )
-        : verify_require_info_presentation(
-          presentation,
-          config.serverIdentity,
-          config.profileSha256,
-          config.verifierKeyId,
-          config.notaryKeyId,
-          payload.canonical_user_id,
-          payload.device_id,
-          deviceChallenge,
-          config.notaryKey,
-        );
-    JSON.parse(preparedResultJson);
-    await postCompletion(payload, presentationId, triggerExecutionStartedAt);
+      const config = verifierConfig(payload.profile);
+      const deviceChallenge = decodeBase64Url(payload.device_challenge, 32);
+      const preparedResultJson = payload.profile === "sparse"
+        ? config.trustRoot
+          ? verify_sparse_require_info_presentation_with_trust_anchor(
+            presentation,
+            config.serverIdentity,
+            config.profileSha256,
+            config.verifierKeyId,
+            config.notaryKeyId,
+            payload.canonical_user_id,
+            payload.device_id,
+            deviceChallenge,
+            config.trustRoot,
+            config.notaryKey,
+          )
+          : verify_sparse_require_info_presentation(
+            presentation,
+            config.serverIdentity,
+            config.profileSha256,
+            config.verifierKeyId,
+            config.notaryKeyId,
+            payload.canonical_user_id,
+            payload.device_id,
+            deviceChallenge,
+            config.notaryKey,
+          )
+        : config.trustRoot
+          ? verify_require_info_presentation_with_trust_anchor(
+            presentation,
+            config.serverIdentity,
+            config.profileSha256,
+            config.verifierKeyId,
+            config.notaryKeyId,
+            payload.canonical_user_id,
+            payload.device_id,
+            deviceChallenge,
+            config.trustRoot,
+            config.notaryKey,
+          )
+          : verify_require_info_presentation(
+            presentation,
+            config.serverIdentity,
+            config.profileSha256,
+            config.verifierKeyId,
+            config.notaryKeyId,
+            payload.canonical_user_id,
+            payload.device_id,
+            deviceChallenge,
+            config.notaryKey,
+          );
+      JSON.parse(preparedResultJson);
+    } catch (error) {
+      logPhase(payload, "verifier_error", triggerExecutionStartedAt, { error_class: errorClass(error) });
+      throw error;
+    }
+    logPhase(payload, "verifier_ok", triggerExecutionStartedAt);
+    logPhase(payload, "callback_start", triggerExecutionStartedAt);
+    try {
+      await postCompletion(payload, presentationId, triggerExecutionStartedAt);
+    } catch (error) {
+      logPhase(payload, "callback_error", triggerExecutionStartedAt, { error_class: errorClass(error) });
+      throw error;
+    }
+    logPhase(payload, "callback_ok", triggerExecutionStartedAt);
     return { accepted: true, presentation_id: presentationId };
   },
 });

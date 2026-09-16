@@ -136,3 +136,78 @@ NOT ESTABLISHED
 ```
 
 No production conclusion should be drawn from this run. The next useful measurement is a single remote job with safe phase/state diagnostics and Trigger run inspection. Once one job reaches `verified`, the full matrix can be rerun without changing the target definition.
+
+## Follow-up: Single-job terminal-state diagnosis
+
+The next single-job run reached a Trigger run and failed after approximately
+three seconds. The terminal error was:
+
+```text
+failed to verify certificate path to provided trust anchors
+```
+
+This establishes that the earlier persistent `202 processing` state was not a
+slow verification result. The Trigger task reached WASM certificate-path
+verification and failed before sending the completion callback, leaving the
+Worker Durable Object record in `processing`.
+
+The local synthetic fixture path then identified a test-only trust-root defect:
+the setup command generated the Worker/Trigger trust root in one synthetic
+fixture invocation, while the P50 sparse Presentation was generated in a
+different invocation with a newly generated random root CA. The certificate
+bytes therefore did not match. The fix adds an encrypted test-only
+`FUSOU_SYNTHETIC_ROOT_KEY_PKCS8` input and reuses that PKCS#8 Ed25519 root key
+when generating synthetic fixtures. Local P50 verification confirmed that the
+Worker trust root, Trigger trust root, and regenerated fixture certificate all
+matched at 332 bytes with SHA-256 prefix `5428ebc3d8c190cc`.
+
+The current remote test Worker could not be redeployed because Wrangler
+required an interactive Cloudflare OAuth login and no deployment version was
+produced. The subsequent observed `503` with
+`tlsn_session_binding_issue_failed` therefore belongs to the older deployed
+version and is a binding-authority issuance failure, not evidence against the
+trust-root fix. No second remote verification job was run after the local
+trust-root correction, and latency remains `NOT ESTABLISHED`.
+
+## Post-fix single-job rerun
+
+The Worker and Trigger were redeployed after the stable synthetic trust-root
+change:
+
+| Component | Deployed version | Result |
+| --- | --- | --- |
+| Test Worker | `f2e2220c-db29-4435-9030-a7c9782119c6` | deployment succeeded |
+| Trigger task | `20260916.1` | deployment succeeded |
+
+Exactly one remote job was then run with `p50`, sample count `1`, concurrency
+`1`, a 500 ms polling interval, and a 120-second maximum polling window. The
+Worker status endpoint reached the terminal response `verified: true` after 12
+polls. The sample's client-visible elapsed time was approximately 7194 ms,
+with approximately 1107 ms for request acceptance and 6087 ms for status
+polling.
+
+The timing header contained only `t10_status_verified` and
+`t11_status_verified`; the earlier Trigger, R2, and WASM stage timestamps were
+absent. Therefore the sample proves that the trust-root mismatch no longer
+blocks the Worker completion path, but it does not establish a complete
+phase-by-phase timing measurement or the 3000 ms target. The benchmark result
+was `NOT ESTABLISHED`.
+
+The Trigger dashboard independently confirmed the corresponding run:
+`run_06gajk1kc127v5dqbnnhi5va01`, deployment `20260916.1`, status `Completed`,
+with one completed attempt. Its safe task log showed `input_fetch_ok` at 1094
+ms for a 3459-byte presentation, `verifier_start` at 1095 ms, `verifier_ok`
+at 1118 ms, `callback_start` at 1118 ms, and `callback_ok` at 3266 ms. The
+dashboard displayed 2.6 seconds from trigger to dequeue, 3.8 seconds from
+start to finish, and 6.4 seconds total. The task output was accepted and the
+Worker status endpoint observed `verified: true`.
+
+The benchmark's Worker timing header still contained only
+`t10_status_verified` and `t11_status_verified`; the earlier Trigger, R2, and
+WASM stage timestamps were absent because those clocks are not propagated into
+that header. The Trigger dashboard log is therefore the authoritative
+terminal-state evidence for this one job, while the benchmark sample remains
+ineligible for phase-complete latency percentiles.
+
+No full matrix was run, no retry was used to obtain this result, and no latency
+target decision was made.

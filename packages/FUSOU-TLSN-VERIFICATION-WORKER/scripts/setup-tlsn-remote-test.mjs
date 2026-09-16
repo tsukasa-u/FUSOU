@@ -19,10 +19,11 @@ const outputPath = resolve(
 const REMOTE_BENCHMARK_BINDING_TTL_SECONDS = "900";
 const force = process.argv.includes("--force");
 
-function captureJson(command, argumentsList, cwd) {
+function captureJson(command, argumentsList, cwd, env = process.env) {
   const result = spawnSync(command, argumentsList, {
     cwd,
     encoding: "utf8",
+    env,
   });
   if (result.error) throw result.error;
   if (result.status !== 0) {
@@ -71,6 +72,7 @@ async function main() {
     if (error?.code !== "ENOENT") throw error;
   }
 
+  const syntheticRootKey = keyMaterial();
   const syntheticFixture = captureJson(
     "cargo",
     [
@@ -85,6 +87,10 @@ async function main() {
       "synthetic_tlsn_fixture",
     ],
     repositoryDirectory,
+    {
+      ...process.env,
+      FUSOU_SYNTHETIC_ROOT_KEY_PKCS8: syntheticRootKey.privateKeyPkcs8,
+    },
   );
   const resultSigning = keyMaterial();
   const sessionAuthority = keyMaterial();
@@ -126,6 +132,7 @@ async function main() {
     envLine("TLSN_BINDING_AUTHORITY_KEY_ID", bindingAuthorityKeyId),
     envLine("TLSN_BINDING_AUTHORITY_KEY_REGISTRY", keyRegistry("tlsn-binding-authority-key-registry", bindingAuthorityKeyId, bindingAuthority.publicKeySpki)),
     envLine("TLSN_TRUST_ROOT_CERTIFICATE_DER", syntheticFixture.root_certificate_base64),
+    envLine("FUSOU_SYNTHETIC_ROOT_KEY_PKCS8", syntheticRootKey.privateKeyPkcs8),
     envLine("TLSN_DEVICE_AUTH_URL", "https://tlsn-test-device-auth.invalid/device-proof"),
     envLine("TLSN_DEVICE_POSSESSION_AUTH_URL", "https://tlsn-test-device-auth.invalid/tlsn-device-proof"),
     envLine("TLSN_TEST_AUTH_USERS", authUsers),
