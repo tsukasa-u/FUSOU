@@ -49,6 +49,32 @@ const REQUIRED_TIMING_STAGES_BY_MODE = {
   ],
   queue: [
     ...COMMON_REQUIRED_TIMING_STAGES,
+    "queue_send_start",
+    "queue_send_completed",
+    "queue_message_accepted",
+    "queue_consumer_scheduled",
+    "queue_consumer_started",
+    "queue_handler_entered",
+    "queue_callback_authentication_started",
+    "queue_callback_authentication_completed",
+    "queue_callback_schema_validated",
+    "queue_completion_entered",
+    "queue_binding_lookup_started",
+    "queue_binding_lookup_completed",
+    "queue_lease_acquire_started",
+    "queue_lease_acquire_completed",
+    "queue_presentation_read_started",
+    "queue_presentation_read_completed",
+    "queue_presentation_hash_completed",
+    "queue_wasm_verification_started",
+    "queue_wasm_verification_completed",
+    "queue_result_signing_started",
+    "queue_result_signing_completed",
+    "queue_result_persistence_started",
+    "queue_result_persistence_completed",
+    "queue_consume_started",
+    "queue_consume_completed",
+    "queue_completion_response_ready",
     "t2_queue_message_accepted",
     "t3_queue_execution_started",
     "t3_queue_verifier_started",
@@ -326,6 +352,10 @@ function phaseMilliseconds(timing, start, end) {
   return startValue !== null && endValue !== null ? endValue - startValue : null;
 }
 
+function measuredPhaseMilliseconds(timing, durations, name, start, end) {
+  return Number.isFinite(durations?.[name]) ? durations[name] : phaseMilliseconds(timing, start, end);
+}
+
 function requiredTimingStagesPresent(timing, executionMode) {
   return REQUIRED_TIMING_STAGES_BY_MODE[executionMode].every((stage) => stageTimestamp(timing, stage) !== null);
 }
@@ -365,6 +395,19 @@ function summarizePhases(samples) {
     trigger_to_callback_request: summarize(samples, "triggerToCallbackRequestMilliseconds"),
     queue_verifier: summarize(samples, "queueVerifierMilliseconds"),
     queue_callback_dispatch: summarize(samples, "queueCallbackDispatchMilliseconds"),
+    queue_send: summarize(samples, "queueSendMilliseconds"),
+    queue_batch_to_handler: summarize(samples, "queueBatchToHandlerMilliseconds"),
+    queue_callback_authentication: summarize(samples, "queueCallbackAuthenticationMilliseconds"),
+    queue_callback_schema: summarize(samples, "queueCallbackSchemaMilliseconds"),
+    queue_binding_lookup: summarize(samples, "queueBindingLookupMilliseconds"),
+    queue_lease_acquire: summarize(samples, "queueLeaseAcquireMilliseconds"),
+    queue_presentation_read: summarize(samples, "queuePresentationReadMilliseconds"),
+    queue_presentation_hash: summarize(samples, "queuePresentationHashMilliseconds"),
+    queue_wasm_verification_detailed: summarize(samples, "queueWasmVerificationDetailedMilliseconds"),
+    queue_result_signing_detailed: summarize(samples, "queueResultSigningDetailedMilliseconds"),
+    queue_result_persistence_detailed: summarize(samples, "queueResultPersistenceDetailedMilliseconds"),
+    queue_consume_detailed: summarize(samples, "queueConsumeDetailedMilliseconds"),
+    queue_completion_response: summarize(samples, "queueCompletionResponseMilliseconds"),
     status_polling: summarize(samples, "statusPollingMilliseconds"),
     client_visible: summarize(samples, "clientVisibleMilliseconds"),
   };
@@ -420,6 +463,8 @@ async function runBatch({ workerOrigin, webOrigin, accessToken, userId, device, 
       const completion = completions[index];
       const timing = completion.timing;
       const timestamps = timing?.timestamps ?? {};
+      const durations = timing?.durations ?? {};
+      const diagnostics = timing?.diagnostics ?? {};
       const t1Server = stageTimestamp(timing, "t1_202_response_sent");
       const t2 = stageTimestamp(timing, executionMode === "queue" ? "t2_queue_message_accepted" : "t2_trigger_task_accepted");
       const t3 = stageTimestamp(timing, executionMode === "queue" ? "t3_queue_execution_started" : "t3_trigger_execution_started");
@@ -473,11 +518,28 @@ async function runBatch({ workerOrigin, webOrigin, accessToken, userId, device, 
         queueCallbackDispatchMilliseconds: queueCallbackDispatchStarted !== null && queueCallbackResponseReceived !== null
           ? queueCallbackResponseReceived - queueCallbackDispatchStarted
           : null,
+        queueSendMilliseconds: Number.isFinite(durations.queue_send) ? durations.queue_send : null,
+        queueBatchToHandlerMilliseconds: Number.isFinite(durations.queue_batch_to_handler)
+          ? durations.queue_batch_to_handler
+          : null,
+        queueCallbackAuthenticationMilliseconds: measuredPhaseMilliseconds(timing, durations, "queue_callback_authentication", "queue_callback_authentication_started", "queue_callback_authentication_completed"),
+        queueCallbackSchemaMilliseconds: measuredPhaseMilliseconds(timing, durations, "queue_callback_schema", "queue_callback_authentication_completed", "queue_callback_schema_validated"),
+        queueBindingLookupMilliseconds: measuredPhaseMilliseconds(timing, durations, "queue_binding_lookup", "queue_binding_lookup_started", "queue_binding_lookup_completed"),
+        queueLeaseAcquireMilliseconds: measuredPhaseMilliseconds(timing, durations, "queue_lease_acquire", "queue_lease_acquire_started", "queue_lease_acquire_completed"),
+        queuePresentationReadMilliseconds: measuredPhaseMilliseconds(timing, durations, "queue_presentation_read", "queue_presentation_read_started", "queue_presentation_read_completed"),
+        queuePresentationHashMilliseconds: measuredPhaseMilliseconds(timing, durations, "queue_presentation_hash", "queue_presentation_read_completed", "queue_presentation_hash_completed"),
+        queueWasmVerificationDetailedMilliseconds: measuredPhaseMilliseconds(timing, durations, "queue_wasm_verification", "queue_wasm_verification_started", "queue_wasm_verification_completed"),
+        queueResultSigningDetailedMilliseconds: measuredPhaseMilliseconds(timing, durations, "queue_result_signing", "queue_result_signing_started", "queue_result_signing_completed"),
+        queueResultPersistenceDetailedMilliseconds: measuredPhaseMilliseconds(timing, durations, "queue_result_persistence", "queue_result_persistence_started", "queue_result_persistence_completed"),
+        queueConsumeDetailedMilliseconds: measuredPhaseMilliseconds(timing, durations, "queue_consume", "queue_consume_started", "queue_consume_completed"),
+        queueCompletionResponseMilliseconds: measuredPhaseMilliseconds(timing, durations, "queue_completion_response", "queue_consume_completed", "queue_completion_response_ready"),
         resultFinalizationMilliseconds: phaseMilliseconds(timing, "t7_wasm_verification_completed", "t10_consume_completed"),
         timing_complete: observed,
         timing_trace_id_present: typeof timing?.trace_id === "string",
         timing_trace_id_matches_submission: typeof timing?.trace_id === "string" && timing.trace_id === submission.benchmarkTraceId,
         server_timestamps: timestamps,
+        server_durations: durations,
+        queue_message_diagnostics: diagnostics,
       });
     }
   }
@@ -517,10 +579,25 @@ async function runBatch({ workerOrigin, webOrigin, accessToken, userId, device, 
         trigger_to_callback_request: sample.triggerToCallbackRequestMilliseconds,
         queue_verifier: sample.queueVerifierMilliseconds,
         queue_callback_dispatch: sample.queueCallbackDispatchMilliseconds,
+        queue_send: sample.queueSendMilliseconds,
+        queue_batch_to_handler: sample.queueBatchToHandlerMilliseconds,
+          queue_callback_authentication: sample.queueCallbackAuthenticationMilliseconds,
+          queue_callback_schema: sample.queueCallbackSchemaMilliseconds,
+          queue_binding_lookup: sample.queueBindingLookupMilliseconds,
+          queue_lease_acquire: sample.queueLeaseAcquireMilliseconds,
+          queue_presentation_read: sample.queuePresentationReadMilliseconds,
+          queue_presentation_hash: sample.queuePresentationHashMilliseconds,
+          queue_wasm_verification_detailed: sample.queueWasmVerificationDetailedMilliseconds,
+          queue_result_signing_detailed: sample.queueResultSigningDetailedMilliseconds,
+          queue_result_persistence_detailed: sample.queueResultPersistenceDetailedMilliseconds,
+          queue_consume_detailed: sample.queueConsumeDetailedMilliseconds,
+          queue_completion_response: sample.queueCompletionResponseMilliseconds,
         status_polling: sample.statusPollingMilliseconds,
         poll_count: sample.pollCount,
       },
       server_timestamps: sample.server_timestamps,
+      server_durations: sample.server_durations,
+      queue_message_diagnostics: sample.queue_message_diagnostics,
     })),
   };
   row.result = rowDecision(row);
@@ -646,6 +723,9 @@ async function main() {
       trigger_queue_start_clock_note: executionMode === "trigger"
         ? "T2 and T3 are wall-clock timestamps from Worker and Trigger environments; clock skew is not corrected"
         : "Queue T2 and T3 are wall-clock timestamps from the same Worker environment",
+      queue_message_timestamp_note: executionMode === "queue"
+        ? "queue_consumer_scheduled is Message.timestamp, the Queue message creation timestamp; Cloudflare does not expose a consumer scheduling timestamp, so this value is not used as a cross-runtime delivery duration"
+        : "NOT APPLICABLE",
       fixture_generation: "EXCLUDED FROM T0-T11; generated from existing real corpus with each issued binding",
     },
     target_decision: result,

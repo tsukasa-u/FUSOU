@@ -40,8 +40,9 @@ export type BenchmarkTimingRecord = {
   job_id: string;
   execution_mode?: "trigger" | "queue";
   timestamps: Record<string, number>;
+  durations: Record<string, number>;
   r2_operations: Record<string, number>;
-  diagnostics?: Record<string, boolean | number>;
+  diagnostics?: Record<string, boolean | number | string>;
   max_verifier_concurrency: number;
   updated_at: number;
 };
@@ -51,8 +52,9 @@ export type BenchmarkTimingMergeInput = {
   job_id: string;
   execution_mode?: "trigger" | "queue";
   timestamps: Record<string, number>;
+  durations: Record<string, number>;
   r2_operations: Record<string, number>;
-  diagnostics?: Record<string, boolean | number>;
+  diagnostics?: Record<string, boolean | number | string>;
   max_verifier_concurrency: number;
   updated_at: number;
 };
@@ -759,6 +761,10 @@ export class TlsnBindingAuthorityDurableObject extends DurableObject {
         ...(existing?.trace_id === input.trace_id ? existing.timestamps : {}),
         ...input.timestamps,
       };
+      const durations = {
+        ...(existing?.trace_id === input.trace_id ? existing.durations : {}),
+        ...input.durations,
+      };
       const r2Operations = { ...(existing?.trace_id === input.trace_id ? existing.r2_operations : {}) };
       for (const [operation, count] of Object.entries(input.r2_operations)) {
         r2Operations[operation] = Math.max(r2Operations[operation] ?? 0, count);
@@ -773,6 +779,7 @@ export class TlsnBindingAuthorityDurableObject extends DurableObject {
         job_id: input.job_id,
         execution_mode: input.execution_mode ?? existing?.execution_mode ?? "trigger",
         timestamps,
+        durations,
         r2_operations: r2Operations,
         diagnostics,
         max_verifier_concurrency: Math.max(existing?.max_verifier_concurrency ?? 0, input.max_verifier_concurrency),

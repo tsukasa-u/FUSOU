@@ -336,3 +336,73 @@ Evidence artifacts:
 - `packages/FUSOU-TLSN-VERIFICATION-WORKER/artifacts/tlsn-remote-benchmark-trigger-p50-c1-poll100-5.json`
 - `packages/FUSOU-TLSN-VERIFICATION-WORKER/artifacts/tlsn-remote-benchmark-queue-deferred-flush-p50-c1-poll100-5.json`
 - `packages/FUSOU-TLSN-VERIFICATION-WORKER/artifacts/tlsn-remote-benchmark-trigger-deferred-flush-p50-c1-poll100-5.json`
+
+## Queue delivery and callback decomposition
+
+The requested Phase A/B instrumentation was added to the test Worker and
+deployed as test deployment `71c15de1-8a45-43a7-b46f-e5ce27af9eea`. It records
+Queue producer send start/completion, Queue message acceptance, the consumer
+entry points, `Message.id`, `Message.timestamp`, and `Message.attempts`. The
+message timestamp is retained as metadata only: it is the message creation
+timestamp, not a Cloudflare consumer scheduling timestamp. Cloudflare does not
+expose the latter through the standard Queue `Message` API, so no
+cross-runtime delivery duration is derived from it.
+
+The callback breakdown records HMAC authentication, callback schema parsing,
+completion entry, Durable Object binding lookup, lease acquisition, R2
+Presentation read and hash, WASM verification, Result signing, Result R2
+persistence, Durable Object consume, and completion response readiness. The
+benchmark report retains raw timestamps, high-resolution durations where the
+runtime exposes them, and safe Queue message diagnostics. Fast sub-millisecond
+stages may appear as `0 ms` in the current Worker runtime's timing resolution;
+they are not interpreted as absent work.
+
+## Queue direct completion experiment
+
+The Queue consumer no longer performs an `app.fetch()` call to the same
+Worker's `/internal/tlsn/verification-complete` route. The HTTP route still
+owns raw-body size limiting, HMAC verification, callback schema validation, and
+execution-mode selection. Queue delivery constructs the same callback body and
+HMAC, then invokes the shared authenticated completion implementation directly.
+The shared implementation preserves binding authority lookup, profile and
+identity checks, lease ownership, Presentation hash validation, WASM
+verification, Result signing, private Result persistence, attempt-fenced
+consume, input cleanup, and deferred timing persistence. Queue messages remain
+dispatch hints and are not authorization sources.
+
+The direct path was measured with the same requested conditions as the earlier
+Queue baseline: p50 fixture, concurrency `1`, 100 ms polling, and five samples.
+The test Worker deployment was `71c15de1-8a45-43a7-b46f-e5ce27af9eea`.
+
+| Queue path | Timing complete | Client P50 | P95 | P99 | Max | Queue delivery P50 | Queue delivery P95 | Callback dispatch P50 | Callback dispatch P95 | Decision |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| HTTP completion hop baseline | 5/5 | 3349 ms | 6795 ms | 6795 ms | 6795 ms | 1042 ms | 4033 ms | 2126 ms | 2262 ms | EXCEEDS TARGET |
+| Direct shared completion | 5/5 | 3231 ms | 4110 ms | 4110 ms | 4110 ms | 418 ms | 1646 ms | 1800 ms | 2479 ms | EXCEEDS TARGET |
+
+The direct run's detailed P50/P95 phases were: Queue send `411/815 ms`, DO
+binding lookup `424/479 ms`, lease acquisition `137/145 ms`, Presentation R2
+read `304/373 ms`, Result persistence `455/1128 ms`, DO consume `118/132 ms`,
+and completion response `178/197 ms`. Queue verifier time was `304/373 ms`.
+The callback authentication, schema, Presentation hash, WASM, and signing
+durations were below the deployed runtime's millisecond resolution in this
+five-sample run. The aggregate direct callback dispatch remained
+`1800/2479 ms`, so removing the local HTTP route hop did not bring the client
+latency under the 3000 ms gate.
+
+The before/after samples are matched on benchmark configuration but were taken
+at different times and have only five observations each. The lower direct-path
+P50 and improved P95 are therefore evidence that the hop can be removed, not a
+controlled estimate of the hop's exact causal savings; Queue delivery itself
+varied substantially between runs. The result does not support a production
+Queue migration, and no production or canary configuration was changed.
+
+The latest direct-path report is:
+
+- `packages/FUSOU-TLSN-VERIFICATION-WORKER/artifacts/tlsn-remote-benchmark.json`
+
+Local validation after the implementation passed `pnpm run typecheck`,
+`pnpm exec tsc --noEmit`, benchmark script syntax checking, and `git diff
+--check`. The existing `pnpm test` suite could not reach its callback/lease
+regression assertions because its Supabase setup returned HTTP `503` instead
+of the expected session `201`; this is an environment blocker, not a passed
+security regression result.

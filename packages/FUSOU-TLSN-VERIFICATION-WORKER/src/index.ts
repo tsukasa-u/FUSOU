@@ -190,7 +190,34 @@ type BenchmarkTimingStage =
   | "t3_trigger_verifier_started"
   | "t3_trigger_verifier_completed"
   | "t3_trigger_callback_request_started"
-  | "t10_callback_response_ready";
+  | "queue_send_start"
+  | "queue_send_completed"
+  | "queue_message_accepted"
+  | "queue_consumer_scheduled"
+  | "queue_consumer_started"
+  | "queue_handler_entered"
+  | "queue_verifier_started"
+  | "t10_callback_response_ready"
+  | "queue_callback_authentication_started"
+  | "queue_callback_authentication_completed"
+  | "queue_callback_schema_validated"
+  | "queue_completion_entered"
+  | "queue_binding_lookup_started"
+  | "queue_binding_lookup_completed"
+  | "queue_lease_acquire_started"
+  | "queue_lease_acquire_completed"
+  | "queue_presentation_read_started"
+  | "queue_presentation_read_completed"
+  | "queue_presentation_hash_completed"
+  | "queue_wasm_verification_started"
+  | "queue_wasm_verification_completed"
+  | "queue_result_signing_started"
+  | "queue_result_signing_completed"
+  | "queue_result_persistence_started"
+  | "queue_result_persistence_completed"
+  | "queue_consume_started"
+  | "queue_consume_completed"
+  | "queue_completion_response_ready";
 
 type BenchmarkPersistence = {
   authority: DurableObjectBindingAuthority;
@@ -404,6 +431,7 @@ function benchmarkRegister(
       job_id: jobId,
       execution_mode: executionMode,
       timestamps: {},
+      durations: {},
       r2_operations: {},
       max_verifier_concurrency: benchmarkMaxVerifierConcurrency,
       updated_at: Date.now(),
@@ -435,6 +463,29 @@ function benchmarkRecord(env: Bindings, jobId: string, stage: BenchmarkTimingSta
   const record = benchmarkTimingRecords.get(jobId);
   if (!record) return;
   record.timestamps[stage] = timestamp;
+  record.max_verifier_concurrency = benchmarkMaxVerifierConcurrency;
+  record.updated_at = Date.now();
+}
+
+function benchmarkDuration(env: Bindings, jobId: string, name: string, milliseconds: number): void {
+  if (!benchmarkEnabled(env) || !Number.isFinite(milliseconds) || milliseconds < 0) return;
+  const persistence = benchmarkPersistences.get(jobId);
+  if (!persistence) return;
+  const record = benchmarkTimingRecords.get(jobId);
+  if (!record) return;
+  record.durations[name] = milliseconds;
+  record.max_verifier_concurrency = benchmarkMaxVerifierConcurrency;
+  record.updated_at = Date.now();
+}
+
+function benchmarkDiagnostic(env: Bindings, jobId: string, name: string, value: boolean | number | string): void {
+  if (!benchmarkEnabled(env)) return;
+  const persistence = benchmarkPersistences.get(jobId);
+  if (!persistence) return;
+  const record = benchmarkTimingRecords.get(jobId);
+  if (!record) return;
+  record.diagnostics ??= {};
+  record.diagnostics[name] = value;
   record.max_verifier_concurrency = benchmarkMaxVerifierConcurrency;
   record.updated_at = Date.now();
 }
@@ -480,6 +531,10 @@ async function benchmarkFlush(env: Bindings, jobId: string): Promise<void> {
       ...(durable?.timestamps ?? {}),
       ...local.timestamps,
     },
+    durations: {
+      ...(durable?.durations ?? {}),
+      ...local.durations,
+    },
     r2_operations: {
       ...(durable?.r2_operations ?? {}),
       ...local.r2_operations,
@@ -498,7 +553,7 @@ async function benchmarkFlush(env: Bindings, jobId: string): Promise<void> {
   await persistence.authority.mergeBenchmarkTiming(persistence.bindingId, record).catch(() => undefined);
 }
 
-function deferBenchmarkFlush(c: Context<{ Bindings: Bindings }>, jobId: string): void {
+function deferBenchmarkFlush(c: { env: Bindings; executionCtx: ExecutionContext }, jobId: string): void {
   if (!benchmarkEnabled(c.env)) return;
   c.executionCtx.waitUntil(benchmarkFlush(c.env, jobId));
 }
@@ -514,6 +569,7 @@ async function attachBenchmarkTimingHeader(c: Context<{ Bindings: Bindings }>, e
     ? {
         ...(durable ?? local),
         timestamps: { ...(durable?.timestamps ?? {}), ...(local?.timestamps ?? {}) },
+          durations: { ...(durable?.durations ?? {}), ...(local?.durations ?? {}) },
         r2_operations: { ...(durable?.r2_operations ?? {}), ...(local?.r2_operations ?? {}) },
         diagnostics: { ...(durable?.diagnostics ?? {}), ...(local?.diagnostics ?? {}) },
         max_verifier_concurrency: Math.max(
@@ -1631,6 +1687,88 @@ async function enqueueQueueVerification(
   await queue.send(message);
 }
 
+type VerificationCompletionContext = {
+  env: Bindings;
+  executionCtx: ExecutionContext;
+  json: (body: unknown, status?: number) => Response;
+  header: (name: string, value: string) => void;
+};
+
+function verificationCompletionContextFromHono(c: Context<{ Bindings: Bindings }>): VerificationCompletionContext {
+  return {
+    env: c.env,
+    executionCtx: c.executionCtx,
+    json: (body, status) => c.json(body as never, status as never),
+    header: (name, value) => c.header(name, value),
+  };
+}
+
+function directVerificationCompletionContext(
+  env: Bindings,
+  executionCtx: ExecutionContext,
+): VerificationCompletionContext {
+  const headers = new Headers();
+  return {
+    env,
+    executionCtx,
+    json: (body, status) => Response.json(body, { ...(status === undefined ? {} : { status }), headers }),
+    header: (name, value) => headers.set(name, value),
+  };
+}
+
+function completionAuthFailure(
+  c: VerificationCompletionContext,
+  reason: "callback_secret_unconfigured" | "signature_invalid" | "signature_mismatch",
+  diagnosticHmac: boolean,
+): Response {
+  if (c.env.TLSN_ENVIRONMENT === "test" && diagnosticHmac) {
+    return c.json({ error: reason }, 401);
+  }
+  return c.json({ error: "unauthorized" }, 401);
+}
+
+async function processVerificationCompletion(
+  c: VerificationCompletionContext,
+  rawBody: string,
+  jobId: string,
+  signature: string | null,
+  executionMode: "trigger" | "queue",
+  diagnosticHmac: boolean,
+): Promise<Response> {
+  const callbackAuthenticationStartedAt = executionMode === "queue" ? performance.now() : null;
+  if (executionMode === "queue") benchmarkRecord(c.env, jobId, "queue_callback_authentication_started");
+  const callbackSecret = executionMode === "queue"
+    ? queueCallbackSecret(c.env)
+    : triggerCallbackSecret(c.env);
+  if (!callbackSecret) return completionAuthFailure(c, "callback_secret_unconfigured", diagnosticHmac);
+  if (!signature || !/^[A-Za-z0-9_-]{43}$/.test(signature)) {
+    return completionAuthFailure(c, "signature_invalid", diagnosticHmac);
+  }
+  if (!await verifyInternalRequest(callbackSecret, jobId, rawBody, signature)) {
+    return completionAuthFailure(c, "signature_mismatch", diagnosticHmac);
+  }
+  if (executionMode === "queue") {
+    benchmarkRecord(c.env, jobId, "queue_callback_authentication_completed");
+    benchmarkDuration(c.env, jobId, "queue_callback_authentication", performance.now() - (callbackAuthenticationStartedAt ?? performance.now()));
+  }
+
+  const callbackSchemaStartedAt = executionMode === "queue" ? performance.now() : null;
+  let callback;
+  try {
+    callback = verificationCallbackSchema.parse(JSON.parse(rawBody) as unknown);
+  } catch {
+    return c.json({ error: "invalid_request" }, 400);
+  }
+  if (callback.job_id !== jobId) {
+    return c.json({ error: "invalid_request" }, 400);
+  }
+  if (executionMode === "queue") {
+    benchmarkRecord(c.env, jobId, "queue_callback_schema_validated");
+    benchmarkDuration(c.env, jobId, "queue_callback_schema", performance.now() - (callbackSchemaStartedAt ?? performance.now()));
+  }
+  return completeVerification(c, callback, executionMode);
+}
+
 app.post("/internal/tlsn/verification-input", async (c) => {
   const rawBody = await readRawBody(c.req.raw, 64 * 1024).catch(() => null);
   const jobId = c.req.header("X-FUSOU-TLSN-Job-Id") ?? "";
@@ -1693,28 +1831,22 @@ app.post("/internal/tlsn/verification-complete", async (c) => {
   const executionMode = c.env.TLSN_ENVIRONMENT === "test" && c.req.header("X-FUSOU-TLSN-Execution-Mode") === "queue"
     ? "queue"
     : "trigger";
-  const callbackSecret = executionMode === "queue"
-    ? queueCallbackSecret(c.env)
-    : triggerCallbackSecret(c.env);
   if (rawBody === null) return internalRequestAuthFailure(c, "signature_invalid");
-  if (!callbackSecret) return internalRequestAuthFailure(c, "callback_secret_unconfigured");
-  if (!signature || !/^[A-Za-z0-9_-]{43}$/.test(signature)) {
-    return internalRequestAuthFailure(c, "signature_invalid");
-  }
-  if (!await verifyInternalRequest(callbackSecret, jobId, rawBody, signature)) {
-    return internalRequestAuthFailure(c, "signature_mismatch");
-  }
+  return processVerificationCompletion(
+    verificationCompletionContextFromHono(c),
+    rawBody,
+    jobId,
+    signature,
+    executionMode,
+    c.env.TLSN_ENVIRONMENT === "test" && c.req.header("X-FUSOU-TLSN-Diagnostic") === "hmac",
+  );
+});
 
-  let callback;
-  try {
-    callback = verificationCallbackSchema.parse(JSON.parse(rawBody) as unknown);
-  } catch {
-    return c.json({ error: "invalid_request" }, 400);
-  }
-  if (callback.job_id !== jobId) {
-    return c.json({ error: "invalid_request" }, 400);
-  }
-
+async function completeVerification(
+  c: VerificationCompletionContext,
+  callback: z.infer<typeof verificationCallbackSchema>,
+  executionMode: "trigger" | "queue",
+): Promise<Response> {
   const config = await readConfig(c.env);
   if (!config) {
     return c.json({ error: "verifier_unconfigured" }, 503);
@@ -1728,6 +1860,7 @@ app.post("/internal/tlsn/verification-complete", async (c) => {
     callback.benchmark_trace_id,
     executionMode,
   );
+  if (executionMode === "queue") benchmarkRecord(c.env, callback.job_id, "queue_completion_entered");
   benchmarkRecord(c.env, callback.job_id, "t3_callback_accepted");
   benchmarkRecord(c.env, callback.job_id, "t4_callback_accepted");
   if (executionMode !== "queue" && callback.trigger_execution_started_at !== undefined) {
@@ -1751,6 +1884,8 @@ app.post("/internal/tlsn/verification-complete", async (c) => {
     benchmarkRecord(c.env, callback.job_id, "t3_trigger_callback_request_started", callback.benchmark_timing.callback_request_started_at);
   }
   let record;
+  const bindingLookupStartedAt = executionMode === "queue" ? performance.now() : null;
+  if (executionMode === "queue") benchmarkRecord(c.env, callback.job_id, "queue_binding_lookup_started");
   try {
     record = await authority.lookupVerificationJob(callback.binding_id, {
       session_id: callback.session_id,
@@ -1761,6 +1896,10 @@ app.post("/internal/tlsn/verification-complete", async (c) => {
     });
   } catch (error) {
     return c.json({ error: error instanceof BindingAuthorityError ? error.code : "job_unavailable" }, 409);
+  }
+  if (executionMode === "queue") {
+    benchmarkRecord(c.env, callback.job_id, "queue_binding_lookup_completed");
+    benchmarkDuration(c.env, callback.job_id, "queue_binding_lookup", performance.now() - (bindingLookupStartedAt ?? performance.now()));
   }
   if (
     record.presentation_id !== callback.presentation_id ||
@@ -1817,6 +1956,8 @@ app.post("/internal/tlsn/verification-complete", async (c) => {
   const verificationAttemptId = crypto.randomUUID();
   const attemptResultKey = verificationObjectKey(verificationAttemptId, "result");
   let verificationRecord;
+  const leaseAcquireStartedAt = executionMode === "queue" ? performance.now() : null;
+  if (executionMode === "queue") benchmarkRecord(c.env, callback.job_id, "queue_lease_acquire_started");
   try {
     verificationRecord = await authority.acquireVerification(callback.binding_id, {
       session_id: record.session_id,
@@ -1831,6 +1972,10 @@ app.post("/internal/tlsn/verification-complete", async (c) => {
     });
   } catch (error) {
     return c.json({ error: error instanceof BindingAuthorityError ? error.code : "job_unavailable" }, 409);
+  }
+  if (executionMode === "queue") {
+    benchmarkRecord(c.env, callback.job_id, "queue_lease_acquire_completed");
+    benchmarkDuration(c.env, callback.job_id, "queue_lease_acquire", performance.now() - (leaseAcquireStartedAt ?? performance.now()));
   }
   if (verificationRecord.status === "consumed") {
     deferBenchmarkFlush(c, callback.job_id);
@@ -1881,6 +2026,8 @@ app.post("/internal/tlsn/verification-complete", async (c) => {
 
   let storedPresentation: Uint8Array;
   let storedPresentationId: string;
+  const presentationReadStartedAt = executionMode === "queue" ? performance.now() : null;
+  if (executionMode === "queue") benchmarkRecord(c.env, callback.job_id, "queue_presentation_read_started");
   try {
     const presentationObject = await c.env.TLSN_PRESENTATIONS.get(completionRecord.verification_input_key);
     if (!presentationObject || presentationObject.size > MAX_PRESENTATION_BYTES) {
@@ -1891,9 +2038,18 @@ app.post("/internal/tlsn/verification-complete", async (c) => {
     benchmarkR2Operation(c.env, callback.job_id, "worker_presentation_get");
     benchmarkRecord(c.env, callback.job_id, "t5_presentation_read");
     benchmarkRecord(c.env, callback.job_id, "t6_presentation_read");
+    if (executionMode === "queue") {
+      benchmarkRecord(c.env, callback.job_id, "queue_presentation_read_completed");
+      benchmarkDuration(c.env, callback.job_id, "queue_presentation_read", performance.now() - (presentationReadStartedAt ?? performance.now()));
+    }
+    const presentationHashStartedAt = executionMode === "queue" ? performance.now() : null;
     storedPresentationId = encodeBase64Url(
       new Uint8Array(await crypto.subtle.digest("SHA-256", storedPresentation)),
     );
+    if (executionMode === "queue") {
+      benchmarkRecord(c.env, callback.job_id, "queue_presentation_hash_completed");
+      benchmarkDuration(c.env, callback.job_id, "queue_presentation_hash", performance.now() - (presentationHashStartedAt ?? performance.now()));
+    }
   } catch {
     await releaseVerificationLease();
     return c.json({ error: "verification_input_unavailable" }, 503);
@@ -1905,6 +2061,8 @@ app.post("/internal/tlsn/verification-complete", async (c) => {
 
   try {
     const sparseProfile = expectedProfile === "sparse";
+    const wasmVerificationStartedAt = executionMode === "queue" ? performance.now() : null;
+    if (executionMode === "queue") benchmarkRecord(c.env, callback.job_id, "queue_wasm_verification_started");
     await ensureWasmInitialized();
     const prepared = verifyPresentationToPreparedResult(
       config,
@@ -1918,6 +2076,8 @@ app.post("/internal/tlsn/verification-complete", async (c) => {
     benchmarkRecord(c.env, callback.job_id, "t7_wasm_verification_completed");
     if (executionMode === "queue") {
       benchmarkRecord(c.env, callback.job_id, "t3_queue_verifier_completed");
+      benchmarkRecord(c.env, callback.job_id, "queue_wasm_verification_completed");
+      benchmarkDuration(c.env, callback.job_id, "queue_wasm_verification", performance.now() - (wasmVerificationStartedAt ?? performance.now()));
     }
     const preparedUnsignedResult = JSON.parse(prepared.unsigned_result) as Record<string, unknown>;
     const expectedProfileId = sparseProfile ? "fusou-require-info-v2-sparse" : "fusou-require-info-v1";
@@ -1956,6 +2116,8 @@ app.post("/internal/tlsn/verification-complete", async (c) => {
     if (!hasSameBytes(derivedSigningBytes, signingBytes)) {
       return c.json({ error: "signing_bytes_mismatch" }, 422);
     }
+    const resultSigningStartedAt = executionMode === "queue" ? performance.now() : null;
+    if (executionMode === "queue") benchmarkRecord(c.env, callback.job_id, "queue_result_signing_started");
     const signatureBytes = await (sparseProfile
       ? signSparseResult(config, signingBytes)
       : signResult(config, signingBytes));
@@ -1982,6 +2144,10 @@ app.post("/internal/tlsn/verification-complete", async (c) => {
       presentation_id: storedPresentationId,
       used_at: usedAt,
     });
+    if (executionMode === "queue") {
+      benchmarkRecord(c.env, callback.job_id, "queue_result_signing_completed");
+      benchmarkDuration(c.env, callback.job_id, "queue_result_signing", performance.now() - (resultSigningStartedAt ?? performance.now()));
+    }
     const finalResponse = verificationFinalResponseSchema.parse({
       verified: true,
       result: signedResult,
@@ -1996,6 +2162,8 @@ app.post("/internal/tlsn/verification-complete", async (c) => {
     const resultSha256 = encodeBase64Url(
       new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(finalResponseBody))),
     );
+    const resultPersistenceStartedAt = executionMode === "queue" ? performance.now() : null;
+    if (executionMode === "queue") benchmarkRecord(c.env, callback.job_id, "queue_result_persistence_started");
     await c.env.TLSN_PRESENTATIONS.put(
       attemptResultKey,
       finalResponseBody,
@@ -2005,8 +2173,14 @@ app.post("/internal/tlsn/verification-complete", async (c) => {
     benchmarkR2Operation(c.env, callback.job_id, "result_put");
     benchmarkRecord(c.env, callback.job_id, "t8_result_persisted");
     benchmarkRecord(c.env, callback.job_id, "t9_result_persisted");
+    if (executionMode === "queue") {
+      benchmarkRecord(c.env, callback.job_id, "queue_result_persistence_completed");
+      benchmarkDuration(c.env, callback.job_id, "queue_result_persistence", performance.now() - (resultPersistenceStartedAt ?? performance.now()));
+    }
     await delayAfterResultPersistence(c.env);
     let consumedBinding: BindingRecord;
+    const consumeStartedAt = executionMode === "queue" ? performance.now() : null;
+    if (executionMode === "queue") benchmarkRecord(c.env, callback.job_id, "queue_consume_started");
     try {
       consumedBinding = await authority.consumeBinding(completionRecord.binding_value, {
         session_id: completionRecord.session_id,
@@ -2033,10 +2207,19 @@ app.post("/internal/tlsn/verification-complete", async (c) => {
     completionConsumed = true;
     benchmarkRecord(c.env, callback.job_id, "t9_consume_completed");
     benchmarkRecord(c.env, callback.job_id, "t10_consume_completed");
+    if (executionMode === "queue") {
+      benchmarkRecord(c.env, callback.job_id, "queue_consume_completed");
+      benchmarkDuration(c.env, callback.job_id, "queue_consume", performance.now() - (consumeStartedAt ?? performance.now()));
+    }
+    const completionResponseStartedAt = executionMode === "queue" ? performance.now() : null;
     if (completionRecord.verification_input_key) {
       await c.env.TLSN_PRESENTATIONS.delete(completionRecord.verification_input_key).catch(() => undefined);
     }
     benchmarkRecord(c.env, callback.job_id, "t10_callback_response_ready");
+    if (executionMode === "queue") {
+      benchmarkRecord(c.env, callback.job_id, "queue_completion_response_ready");
+      benchmarkDuration(c.env, callback.job_id, "queue_completion_response", performance.now() - (completionResponseStartedAt ?? performance.now()));
+    }
     deferBenchmarkFlush(c, callback.job_id);
     return c.json({ accepted: true });
   } catch {
@@ -2052,7 +2235,7 @@ app.post("/internal/tlsn/verification-complete", async (c) => {
     }
     deferBenchmarkFlush(c, callback.job_id);
   }
-});
+}
 
 app.get("/health", async (c) => {
   const production = c.env.TLSN_ENVIRONMENT === "production";
@@ -2620,7 +2803,12 @@ const handleTlsnVerification = async (c: Context<{ Bindings: Bindings }>) => {
           message_type: "tlsn-verification-v1",
           presentation_id: presentationId,
         });
+        const queueSendStartedAt = performance.now();
+        benchmarkRecord(c.env, jobId, "queue_send_start");
         await enqueueQueueVerification(queue, queueMessage);
+        benchmarkDuration(c.env, jobId, "queue_send", performance.now() - queueSendStartedAt);
+        benchmarkRecord(c.env, jobId, "queue_send_completed");
+        benchmarkRecord(c.env, jobId, "queue_message_accepted");
         benchmarkRecord(c.env, jobId, "t2_queue_submitted");
         benchmarkRecord(c.env, jobId, "t2_queue_message_accepted");
       } else if (trigger) {
@@ -2782,6 +2970,8 @@ async function handleVerificationQueue(
   env: Bindings,
   ctx: ExecutionContext,
 ): Promise<void> {
+  const consumerStartedAt = Date.now();
+  const consumerStartedPerformanceAt = performance.now();
   const callbackSecret = queueCallbackSecret(env);
   if (!callbackSecret) {
     for (const message of batch.messages) message.retry();
@@ -2804,6 +2994,18 @@ async function handleVerificationQueue(
       queueMessage.benchmark_trace_id,
       "queue",
     );
+    benchmarkRecord(env, queueMessage.job_id, "queue_consumer_scheduled", message.timestamp.getTime());
+    benchmarkRecord(env, queueMessage.job_id, "queue_consumer_started", consumerStartedAt);
+    benchmarkRecord(env, queueMessage.job_id, "queue_handler_entered");
+    benchmarkDuration(
+      env,
+      queueMessage.job_id,
+      "queue_batch_to_handler",
+      performance.now() - consumerStartedPerformanceAt,
+    );
+    benchmarkDiagnostic(env, queueMessage.job_id, "queue_message_id", message.id);
+    benchmarkDiagnostic(env, queueMessage.job_id, "queue_message_timestamp_ms", message.timestamp.getTime());
+    benchmarkDiagnostic(env, queueMessage.job_id, "queue_message_attempts", message.attempts);
     benchmarkRecord(env, queueMessage.job_id, "t3_queue_execution_started");
     const callbackBody = JSON.stringify({
       job_id: queueMessage.job_id,
@@ -2822,19 +3024,13 @@ async function handleVerificationQueue(
     try {
       const signature = await internalRequestSignature(callbackSecret, queueMessage.job_id, callbackBody);
       benchmarkRecord(env, queueMessage.job_id, "t3_queue_callback_dispatch_started");
-      const response = await app.fetch(
-        new Request("https://tlsn-queue.internal/internal/tlsn/verification-complete", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "X-FUSOU-TLSN-Job-Id": queueMessage.job_id,
-            "X-FUSOU-TLSN-Signature": signature,
-            "X-FUSOU-TLSN-Execution-Mode": "queue",
-          },
-          body: callbackBody,
-        }),
-        env,
-        ctx,
+      const response = await processVerificationCompletion(
+        directVerificationCompletionContext(env, ctx),
+        callbackBody,
+        queueMessage.job_id,
+        signature,
+        "queue",
+        false,
       );
       benchmarkRecord(env, queueMessage.job_id, "t3_queue_callback_response_received");
       ctx.waitUntil(benchmarkFlush(env, queueMessage.job_id));
