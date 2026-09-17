@@ -57,6 +57,25 @@ service = "fusou-tlsn-verifier-test"
 tag = "v1"
 new_sqlite_classes = ["TlsnBindingAuthorityDurableObject"]
 
+[env.evidence]
+name = "fusou-tlsn-verification-evidence"
+
+[[env.evidence.durable_objects.bindings]]
+name = "TLSN_BINDINGS"
+class_name = "TlsnBindingAuthorityDurableObject"
+
+[[env.evidence.r2_buckets]]
+binding = "TLSN_PRESENTATIONS"
+bucket_name = "fusou-tlsn-verification-evidence"
+
+[[env.evidence.services]]
+binding = "TLSN_DIRECT_VERIFIER"
+service = "fusou-tlsn-verifier-evidence"
+
+[[env.evidence.migrations]]
+tag = "v1"
+new_sqlite_classes = ["TlsnBindingAuthorityDurableObject"]
+
 [env.canary]
 name = "fusou-tlsn-verification-canary"
 

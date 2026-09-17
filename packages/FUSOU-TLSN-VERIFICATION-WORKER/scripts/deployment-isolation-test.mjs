@@ -112,14 +112,21 @@ assert.match(canaryWrapper, /wrangler", "deploy", "--env", "canary/);
 assert.match(productionWrapper, /wrangler", "deploy", "--env", "production/);
 
 const testEnvironment = environmentSection("test");
+const evidenceEnvironment = environmentSection("evidence");
 const canaryEnvironment = environmentSection("canary");
 const productionEnvironment = environmentSection("production");
 assert.match(testEnvironment, /binding = "TLSN_DIRECT_VERIFIER"/);
+assert.match(evidenceEnvironment, /binding = "TLSN_DIRECT_VERIFIER"/);
+assert.match(evidenceEnvironment, /service = "fusou-tlsn-verifier-evidence"/);
+assert.match(evidenceEnvironment, /bucket_name = "fusou-tlsn-verification-evidence"/);
 assert.doesNotMatch(canaryEnvironment, /TLSN_DIRECT_VERIFIER|fusou-tlsn-verifier-test|fusou-tlsn-verification-test/);
 assert.doesNotMatch(productionEnvironment, /TLSN_DIRECT_VERIFIER|fusou-tlsn-verifier-test|fusou-tlsn-verification-test/);
+assert.doesNotMatch(canaryEnvironment, /fusou-tlsn-verifier-evidence|fusou-tlsn-verification-evidence/);
+assert.doesNotMatch(productionEnvironment, /fusou-tlsn-verifier-evidence|fusou-tlsn-verification-evidence/);
 assert.match(testEnvironment, /bucket_name = "fusou-tlsn-verification-test"/);
 assert.match(canaryEnvironment, /bucket_name = "fusou-tlsn-verification-canary"/);
 assert.match(productionEnvironment, /bucket_name = "fusou-tlsn-verification-production"/);
+assert.match(rootPackage.scripts["tlsn:deploy:evidence"], /^dotenvx run --strict --overload /);
 assert.notEqual(canaryEnvironment.match(/^name = "([^"]+)"/m)?.[1], productionEnvironment.match(/^name = "([^"]+)"/m)?.[1]);
 
 console.log("[tlsn-deployment-isolation] role input, key, provenance, and dotenvx deployment boundaries OK");

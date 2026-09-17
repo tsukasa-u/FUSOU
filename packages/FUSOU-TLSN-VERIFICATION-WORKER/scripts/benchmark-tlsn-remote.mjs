@@ -16,6 +16,7 @@ const DEFAULT_CONCURRENCY = "1,2,4,8";
 const DEFAULT_POLL_INTERVAL_MS = 250;
 const DEFAULT_MAX_POLL_MS = 300_000;
 const RESULT_TARGET_MS = 3_000;
+const ALLOWED_EXPECTED_ENVIRONMENTS = new Set(["test", "evidence", "production"]);
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const COMMON_REQUIRED_TIMING_STAGES = [
   "t0_accepted",
@@ -193,11 +194,25 @@ async function loadHealth(workerOrigin) {
   if (result.status !== 200 || result.json?.ok !== true) {
     throw new Error(`remote Worker health failed with status ${result.status}`);
   }
-  if (!['test', 'production'].includes(result.json.environment)) {
-    throw new Error("remote Worker environment is not test or production");
+  const expectedEnvironment = optional("TLSN_REMOTE_EXPECTED_ENVIRONMENT") ?? "test";
+  if (!ALLOWED_EXPECTED_ENVIRONMENTS.has(expectedEnvironment)) {
+    throw new Error("TLSN_REMOTE_EXPECTED_ENVIRONMENT must be test, evidence, or production");
+  }
+  const environmentMatches = expectedEnvironment === "evidence"
+    ? result.json.environment === "test" && result.json.deployment_role === "evidence"
+    : result.json.environment === expectedEnvironment;
+  if (!environmentMatches) {
+    throw new Error(`remote Worker is not the expected ${expectedEnvironment} environment`);
   }
   if (result.json.binding_mode !== "random") {
     throw new Error("remote benchmark requires a random-binding Worker; fixed canary bindings are one-shot");
+  }
+  const expectedExecutionMode = optional("TLSN_REMOTE_EXECUTION_MODE") ?? "trigger";
+  if (!["trigger", "queue", "direct"].includes(expectedExecutionMode)) {
+    throw new Error("TLSN_REMOTE_EXECUTION_MODE must be trigger, queue, or direct");
+  }
+  if (result.json.execution_mode !== expectedExecutionMode) {
+    throw new Error(`remote Worker execution mode is ${result.json.execution_mode ?? "unset"}, expected ${expectedExecutionMode}`);
   }
   if (typeof result.json.sparse_profile_sha256 !== "string") {
     throw new Error("remote Worker does not expose the sparse profile");
@@ -206,7 +221,7 @@ async function loadHealth(workerOrigin) {
   if (authMode === "test" && (result.json.auth_mode !== "test-token" || result.json.device_auth_mode !== "test-ed25519")) {
     throw new Error("remote Worker is not configured for self-contained test auth");
   }
-  return result.json;
+  return { ...result.json, expected_environment: expectedEnvironment };
 }
 
 async function loadAuthenticatedUser(supabaseOrigin, publishableKey, accessToken) {
@@ -423,6 +438,33 @@ function summarizePhases(samples) {
   };
 }
 
+function summarizeResourceObservations(samples) {
+  const countOperations = (operation) => samples.reduce(
+    (total, sample) => total + (Number.isFinite(sample.r2_operations?.[operation]) ? sample.r2_operations[operation] : 0),
+    0,
+  );
+  const countDiagnostic = (name) => samples.reduce(
+    (total, sample) => total + (Number.isFinite(sample.diagnostics?.[name]) ? sample.diagnostics[name] : 0),
+    0,
+  );
+  return {
+    requested_samples: samples.length,
+    input_put_count: countOperations("input_put"),
+    result_put_count: countOperations("result_put"),
+    result_delete_count: countOperations("result_delete"),
+    status_result_get_count: countOperations("status_result_get"),
+    direct_invocation_count: countDiagnostic("direct_invocation_count"),
+    late_callback_count: countDiagnostic("late_callback_count"),
+    verified_count: samples.filter((sample) => sample.diagnostics?.terminal_outcome === "verified").length,
+    not_verified_count: samples.filter((sample) => sample.diagnostics?.terminal_outcome === "not_verified").length,
+    consumed_count: samples.filter((sample) => sample.diagnostics?.consume_outcome === "consumed").length,
+    max_verifier_concurrency: samples.reduce(
+      (maximum, sample) => Math.max(maximum, Number.isFinite(sample.maxVerifierConcurrency) ? sample.maxVerifierConcurrency : 0),
+      0,
+    ),
+  };
+}
+
 function rowDecision(row) {
   if (row.successful_samples !== row.requested_samples || row.timing_complete_samples !== row.requested_samples) {
     return "NOT ESTABLISHED";
@@ -579,6 +621,8 @@ async function runBatch({ workerOrigin, webOrigin, accessToken, userId, device, 
         maxVerifierConcurrency: Number.isFinite(timing?.max_verifier_concurrency)
           ? timing.max_verifier_concurrency
           : null,
+        r2_operations: timing?.r2_operations ?? {},
+        diagnostics,
         server_timestamps: timestamps,
         server_durations: durations,
         queue_message_diagnostics: diagnostics,
@@ -594,6 +638,9 @@ async function runBatch({ workerOrigin, webOrigin, accessToken, userId, device, 
     timing_complete_samples: samples.filter((sample) => sample.timing_complete).length,
     preparation_milliseconds_excluded: preparationMilliseconds,
     phases: summarizePhases(samples),
+    resource_observations: summarizeResourceObservations(samples),
+    cold_start_observation: samples.filter((sample) => sample.sample_index === 0).length,
+    warm_observation_count: samples.filter((sample) => sample.sample_index > 0).length,
     result: null,
     samples: samples.map((sample) => ({
       sample_index: sample.sample_index,
@@ -605,6 +652,8 @@ async function runBatch({ workerOrigin, webOrigin, accessToken, userId, device, 
       timing_job_id_hashed: sample.timing_job_id_hashed,
       timing_job_id_matches_submission: sample.timing_job_id_matches_submission,
       max_verifier_concurrency: sample.maxVerifierConcurrency,
+      r2_operations: sample.r2_operations,
+      diagnostics: sample.diagnostics,
       presentation_bytes: sample.presentation_bytes,
       phases_ms: {
         request_acceptance: sample.requestAcceptanceMilliseconds,
@@ -665,6 +714,13 @@ async function main() {
   const executionMode = optional("TLSN_REMOTE_EXECUTION_MODE") ?? "trigger";
   if (!Object.hasOwn(REQUIRED_TIMING_STAGES_BY_MODE, executionMode)) {
     throw new Error("TLSN_REMOTE_EXECUTION_MODE must be trigger, queue, or direct");
+  }
+  const expectedEnvironment = optional("TLSN_REMOTE_EXPECTED_ENVIRONMENT") ?? "test";
+  if (!ALLOWED_EXPECTED_ENVIRONMENTS.has(expectedEnvironment)) {
+    throw new Error("TLSN_REMOTE_EXPECTED_ENVIRONMENT must be test, evidence, or production");
+  }
+  if (expectedEnvironment === "evidence" && executionMode !== "direct") {
+    throw new Error("evidence benchmark requires TLSN_REMOTE_EXECUTION_MODE=direct");
   }
   const cases = parseList("TLSN_REMOTE_CASES", DEFAULT_CASES, (value) => value || undefined);
   const concurrencyValues = parseList("TLSN_REMOTE_CONCURRENCY", DEFAULT_CONCURRENCY, (value) => {
@@ -763,7 +819,10 @@ async function main() {
       poll_interval_ms: pollIntervalMs,
       max_poll_ms: maxPollMs,
       target_ms: RESULT_TARGET_MS,
+      target_basis: "existing benchmark regression target; not a production SLO",
+      formal_slo_decision: "NOT_ESTABLISHED",
       execution_mode: executionMode,
+      expected_environment: expectedEnvironment,
     },
     boundaries: {
       worker_r2_do: "MEASURED BY OPT-IN WORKER TELEMETRY",
@@ -775,6 +834,11 @@ async function main() {
         : "NOT APPLICABLE",
       trigger_platform_scheduler_timestamp: "NOT_ESTABLISHED",
       production_worker_isolate_rss: "NOT_ESTABLISHED",
+      evidence_environment: expectedEnvironment === "evidence"
+        ? "MEASURED BY DEDICATED NON-PRODUCTION WORKER, DO, R2, AND DIRECT VERIFIER"
+        : "NOT APPLICABLE",
+      cold_start_boundary: "first benchmark sample after the health probe; isolate coldness is not independently observable",
+      cold_start_decision: "OBSERVED_PROXY_ONLY",
       client_visible_clock: "MEASURED BY BENCHMARK PROCESS",
       trigger_queue_start_clock_note: executionMode === "trigger"
         ? "T2 and T3 are wall-clock timestamps from Worker and Trigger environments; clock skew is not corrected"
@@ -787,6 +851,7 @@ async function main() {
       fixture_generation: "EXCLUDED FROM T0-T11; generated from existing real corpus with each issued binding",
     },
     target_decision: result,
+    formal_slo_decision: "NOT_ESTABLISHED",
     results: rows,
   };
   const reportPath = optional("TLSN_REMOTE_BENCHMARK_REPORT_PATH")

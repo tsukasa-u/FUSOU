@@ -18,6 +18,7 @@
     "tlsn:env.encrypt": "dotenvx encrypt -fk ./packages/.env.keys -f ./packages/FUSOU-TLSN-VERIFICATION-WORKER/.env",
     "tlsn:env.decrypt": "dotenvx decrypt -fk ./packages/.env.keys -f ./packages/FUSOU-TLSN-VERIFICATION-WORKER/.env",
     "tlsn:deploy:test": "dotenvx run --strict --overload -f ./packages/FUSOU-TLSN-VERIFICATION-WORKER/.env -fk ./packages/.env.keys -- pnpm --dir ./packages/FUSOU-TLSN-VERIFICATION-WORKER run deploy:test",
+    "tlsn:deploy:evidence": "dotenvx run --strict --overload -f ./packages/FUSOU-TLSN-VERIFICATION-WORKER/.env -fk ./packages/.env.keys -- pnpm --dir ./packages/FUSOU-TLSN-VERIFICATION-WORKER run deploy:evidence",
     "tlsn:deploy:test:self-contained": "dotenvx run --strict --overload -f ./packages/FUSOU-TLSN-VERIFICATION-WORKER/.env -fk ./packages/.env.keys -- pnpm --dir ./packages/FUSOU-TLSN-VERIFICATION-WORKER run deploy:test",
     "tlsn:deploy:canary": "dotenvx run --strict --overload -f ./packages/FUSOU-TLSN-VERIFICATION-WORKER/.env -fk ./packages/.env.keys -- pnpm --dir ./packages/FUSOU-TLSN-VERIFICATION-WORKER run deploy:canary",
     "tlsn:deploy:production": "dotenvx run --strict --overload -f ./packages/FUSOU-TLSN-VERIFICATION-WORKER/.env -fk ./packages/.env.keys -- pnpm --dir ./packages/FUSOU-TLSN-VERIFICATION-WORKER run deploy:production",

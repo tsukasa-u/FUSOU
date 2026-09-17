@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "evidence": "tlsn-stuck-job-age-alert-dry-run",
+  "generated_at": "2026-09-17T05:41:57.507Z",
+  "decision": "PASS",
+  "detector": {
+    "observed_at": "2026-09-17T12:00:00.000Z",
+    "threshold_ms": 300000,
+    "state_counts": {
+      "processing": 1,
+      "verifying": 1,
+      "failed": 1,
+      "consumed": 1
+    },
+    "alert_count": 1,
+    "alert_state_counts": {
+      "verifying": 1
+    },
+    "alert_age_ms": [
+      600000
+    ]
+  },
+  "test_scope": "pure test-only detector contract; no production job query or alert delivery",
+  "production_alert_delivery": "NOT_ESTABLISHED",
+  "formal_slo_decision": "NOT_ESTABLISHED",
+  "payload_privacy": "bounded counts, states, and ages only; raw IDs and secrets excluded"
+}

@@ -1,7 +1,7 @@
 # TLSN Direct Production Promotion Gate
 
 Date: 2026-09-17
-Baseline: `b6defa83b7a7c0c5ce3a58ecb585d129d15778eb`
+Baseline: `846cf669af2ce499f8b6bc0d97fb4ddc917a3ad2`
 Scope: test-only Direct Service Binding path and promotion evidence; no canary or production deployment
 
 ## Decision
@@ -14,7 +14,8 @@ The Direct architecture remains test-valid. This document does not approve a pro
 
 | Gate | Status | Evidence or blocker |
 | --- | --- | --- |
-| Direct architecture remains test-only | PASS | `wrangler.toml` defines `TLSN_DIRECT_VERIFIER` only under `[env.test]`; canary and production have no Direct Service Binding |
+| Direct architecture remains test/evidence-only | PASS | `wrangler.toml` defines `TLSN_DIRECT_VERIFIER` only under the test/evidence environments; canary and production have no Direct Service Binding |
+| Isolated evidence deployment | PASS | Dedicated evidence Worker/verifier, evidence R2/DO resources, `environment=test`, `deployment_role=evidence`, random bindings, and `execution_mode=direct`; deploy command: `pnpm -w run tlsn:deploy:evidence` |
 | Test Direct success/failure/timeout | PASS | `scripts/test.mjs`, `Direct success, service-binding failure, timeout` assertions |
 | Request-scoped mixed fault control | PASS | `X-FUSOU-TLSN-Test-Fault` is accepted only when `TLSN_ENVIRONMENT` is `test`; local `header_failure` and `header_timeout` cases pass |
 | Result PUT before consume rejection | PASS | local Result race: `result_put=1`, `result_delete=0`, `result_put_before_consume_rejected=true`, `result_object_retained=true`, no consume completion; remote harness sends the same test-only pause control |
@@ -25,10 +26,14 @@ The Direct architecture remains test-valid. This document does not approve a pro
 | Remote malicious callback corpus | PASS | Test Worker report `packages/FUSOU-TLSN-VERIFICATION-WORKER/artifacts/tlsn-remote-malicious-callback.json`: all 10 forged callbacks returned bounded rejection outcomes; failed binding remained `not_verified`; consumed duplicate was accepted idempotently; mutated callback returned `422 verification_result_mismatch`; consumed binding remained verified |
 | Remote mixed failure concurrency 4 | PASS | remote test Worker exit `0`: failure, timeout, and two successes each used an independent canonical binding; every attempt had one Direct invocation and matching hashed telemetry |
 | Remote mixed failure concurrency 8 | PASS | remote test Worker exit `0`: failure and timeout remained `not_verified` with zero Result PUT; six successes were verified with one Result PUT and consumed authority state; all attempts had matching hashed telemetry |
+| Remote Direct evidence resource behavior | PASS | [`tlsn-remote-evidence-direct-c1-c4-c8.json`](../../../packages/FUSOU-TLSN-VERIFICATION-WORKER/artifacts/tlsn-remote-evidence-direct-c1-c4-c8.json): 65/65 samples completed and consumed; no Result deletes; max verifier concurrency 1/2/3 at C=1/4/8; cold/warm proxy observations 1+4, 4+16, and 8+32 |
+| Remote Direct latency regression target | PASS | Same artifact: client-visible max 2522.9 ms at C=1, 2626.4 ms at C=4, and 2922.5 ms at C=8; every row is `MEASURED WITHIN TARGET` against the existing 3000 ms benchmark target |
+| Remote stale-attempt and lease fencing | PASS | [`tlsn-remote-evidence-stale-attempt.json`](../../../packages/FUSOU-TLSN-VERIFICATION-WORKER/artifacts/tlsn-remote-evidence-stale-attempt.json): lease 5000 ms, post-result pause 7000 ms, Result PUT 1, consume rejected, retained Result, late callback 1, stale attempt rejected, terminal `lease_expired`, retry 409 |
 | Test/canary/production fault-control separation | PASS | test deploy allowlist contains test controls; canary/production deployment contracts do not contain them; canary/production Wrangler environments have no Direct binding |
+| Stuck-job age detector dry run | PASS | [`tlsn-stuck-job-age-alert-dry-run.json`](../../../packages/FUSOU-TLSN-VERIFICATION-WORKER/artifacts/tlsn-stuck-job-age-alert-dry-run.json): bounded processing/verifying state counts and one verifying age alert were classified; production delivery remains `NOT_ESTABLISHED` |
 | Production resource and SLO evidence | NOT_ESTABLISHED | no production deployment, production traffic, production isolate measurement, or production SLO sample was collected |
 | Bounded benchmark telemetry contract | PASS | public benchmark headers omit raw `job_id` and `trace_id`; they expose fixed-length SHA-256 identifiers, bounded diagnostics, timings, R2 counts, and terminal outcome; local regression asserts raw identifiers are absent |
-| Production operational telemetry and age alerts | NOT_ESTABLISHED | bounded telemetry contract is implemented for verification evidence, but production collection, stuck-job detection, and alert delivery are not evidenced |
+| Production operational telemetry and age alerts | NOT_ESTABLISHED | bounded telemetry and the test-only age-detector dry run are evidenced, but production collection and alert delivery are not |
 | Promotion decision | NOT_ESTABLISHED | production-resource, production SLO, and operational alert gates remain open |
 
 ## Evidence Contract
@@ -61,6 +66,20 @@ pnpm run benchmark:tlsn-remote:malicious-callback
 It requires two independent test binding values, a test-only callback secret, and encrypted dotenv inputs. It creates a failed binding, sends invalid-signature and valid-HMAC forged callbacks for wrong job, binding, session, user, device, Presentation, and profile, then verifies that the binding remains `not_verified`. It also creates a separate successful binding, checks a valid duplicate callback, sends a mutated callback, and verifies that the binding remains verified.
 
 The command was executed against the configured test Worker. The bounded report is `packages/FUSOU-TLSN-VERIFICATION-WORKER/artifacts/tlsn-remote-malicious-callback.json`; it is evidence only for the test Worker and cannot establish a production SLO.
+
+The isolated Direct evidence benchmark was run with:
+
+```sh
+pnpm exec dotenvx run --strict --overload -f packages/FUSOU-TLSN-VERIFICATION-WORKER/.env -fk packages/.env.keys -- env TLSN_REMOTE_BENCHMARK_WORKER_URL=https://fusou-tlsn-verification-evidence.ogu-hide-u-425.workers.dev TLSN_REMOTE_AUTH_MODE=test TLSN_REMOTE_EXPECTED_ENVIRONMENT=evidence TLSN_REMOTE_EXECUTION_MODE=direct TLSN_REMOTE_CONCURRENCY=1,4,8 TLSN_REMOTE_SAMPLE_COUNT=5 TLSN_REMOTE_CASES=p50 TLSN_REMOTE_BENCHMARK_REPORT_PATH=packages/FUSOU-TLSN-VERIFICATION-WORKER/artifacts/tlsn-remote-evidence-direct-c1-c4-c8.json pnpm --dir packages/FUSOU-TLSN-VERIFICATION-WORKER run benchmark:tlsn-remote
+```
+
+The stale-attempt evidence was run against the same evidence Worker after an evidence-only deploy with `TLSN_TEST_VERIFICATION_LEASE_MS=5000` and `TLSN_TEST_POST_RESULT_DELAY_MS=7000`:
+
+```sh
+pnpm exec dotenvx run --strict --overload -f packages/FUSOU-TLSN-VERIFICATION-WORKER/.env -fk packages/.env.keys -- env TLSN_REMOTE_BENCHMARK_WORKER_URL=https://fusou-tlsn-verification-evidence.ogu-hide-u-425.workers.dev TLSN_REMOTE_AUTH_MODE=test TLSN_REMOTE_EXPECTED_ENVIRONMENT=evidence TLSN_REMOTE_EXPECTED_LEASE_MS=5000 TLSN_REMOTE_STALE_SETTLE_MS=8000 TLSN_REMOTE_STALE_REPORT_PATH=packages/FUSOU-TLSN-VERIFICATION-WORKER/artifacts/tlsn-remote-evidence-stale-attempt.json pnpm --dir packages/FUSOU-TLSN-VERIFICATION-WORKER run benchmark:tlsn-remote:stale-attempt
+```
+
+The age-alert dry run command was `pnpm --dir packages/FUSOU-TLSN-VERIFICATION-WORKER run test:stuck-job-age-alert`; its report is `packages/FUSOU-TLSN-VERIFICATION-WORKER/artifacts/tlsn-stuck-job-age-alert-dry-run.json`.
 
 ## Canary Entry Criteria
 
@@ -112,16 +131,15 @@ The local race deliberately pauses after the Result PUT while the lease expires.
 
 ## Remaining Gaps
 
-- A remote stale-attempt representation, including an independently evidenced expired lease, has not been collected.
-- Production-like resource, cold-start, concurrency, latency, and SLO evidence remains absent.
-- Stuck-job age alert delivery and dry-run observation remain unverified.
+- Production-like resource, cold-start, concurrency, latency, and SLO evidence remains absent; the measured resource and latency artifact is isolated evidence only.
+- Stuck-job age alert delivery remains unverified; only the bounded test-only detector dry run is PASS.
 - The configuration audit proves environment binding and fault-control separation, but role-separated production key and trust-root provenance still requires an independently captured deployment record.
 
 ## SLO Boundary
 
-The existing test-only Direct latency measurements are useful for implementation comparison, but they do not prove production performance. Production SLO status remains NOT_ESTABLISHED because production traffic, production Durable Object/R2 resources, production concurrency, cold starts, resource limits, callback delivery, and operational telemetry were not measured.
+The isolated evidence Worker recorded Direct latency within the existing 3000 ms benchmark regression target at C=1/4/8, but this does not prove production performance. Production SLO status remains NOT_ESTABLISHED because production traffic, production Durable Object/R2 resources, production concurrency, cold starts, resource limits, callback delivery, and operational telemetry were not measured.
 
-No claim is made that Direct meets a production latency target. The remote malicious callback corpus passes for the test Worker; no claim is made that remote mixed failures pass until their remote report exists.
+No claim is made that Direct meets a production latency target. The remote malicious callback corpus, mixed-failure evidence, Direct benchmark, stale-attempt evidence, and age-detector dry run are all test/evidence-environment results only.
 
 ## Rollout and Rollback
 

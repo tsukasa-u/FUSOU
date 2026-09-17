@@ -1532,8 +1532,11 @@ async function authenticateTestTlsnDeviceProof(
   },
   env: Bindings,
 ): Promise<DevicePossessionAuthenticationResult> {
-  if (!testDeviceAuthenticationEnabled(env) || proof.device_id !== env.TLSN_TEST_DEVICE_ID) {
+  if (!testDeviceAuthenticationEnabled(env)) {
     return { ok: false, status: 503, error: "device_possession_unavailable" };
+  }
+  if (proof.device_id !== env.TLSN_TEST_DEVICE_ID) {
+    return { ok: false, status: 403, error: "device_possession_owner_mismatch" };
   }
   let message: Uint8Array;
   try {
@@ -2405,6 +2408,7 @@ async function completeVerification(
     benchmarkDiagnostic(c.env, callback.job_id, "consume_outcome", resultPersisted ? "rejected" : "not_attempted");
     if (error instanceof BindingAuthorityError && (error.code === "verification_failed" || error.code === "binding_expired")) {
       benchmarkIncrementDiagnostic(c.env, callback.job_id, "late_callback_count");
+      benchmarkDiagnostic(c.env, callback.job_id, "stale_attempt_rejected", true);
     }
     if (resultPersisted && !completionConsumed) {
       benchmarkDiagnostic(c.env, callback.job_id, "result_put_before_consume_rejected", true);
@@ -2524,6 +2528,13 @@ app.get("/health", async (c) => {
     : c.env.TLSN_TEST_BINDING_VALUE
       ? "fixed_test"
       : "random";
+  const executionMode = shouldUseTriggerExecution(c.env)
+    ? "trigger"
+    : shouldUseQueueExecution(c.env)
+      ? "queue"
+      : shouldUseDirectExecution(c.env)
+        ? "direct"
+        : "sync";
   return c.json({
     schema_version: 2,
     ok: true,
@@ -2546,6 +2557,7 @@ app.get("/health", async (c) => {
     notary_registry_sha256: notaryRegistrySha256,
     result_public_key_spki: resultPublicKeySpki,
     binding_mode: bindingMode,
+    execution_mode: executionMode,
     security_identity: {
       git_commit_sha: c.env.TLSN_GIT_COMMIT_SHA ?? null,
       server_identity: production ? c.env.TLSN_CANDIDATE_SERVER_IDENTITY ?? null : c.env.TLSN_SERVER_IDENTITY,
@@ -2713,6 +2725,9 @@ app.post("/verify/tlsn/status", async (c) => {
   }
   if (record.status === "failed") {
     benchmarkDiagnostic(c.env, requestBody.job_id, "terminal_outcome", "not_verified");
+    if (record.verification_failure_code) {
+      benchmarkDiagnostic(c.env, requestBody.job_id, "terminal_failure_code", record.verification_failure_code);
+    }
     c.header("Cache-Control", "no-store");
     await attachBenchmarkTimingHeader(c, c.env, requestBody.job_id);
     return c.json({ verified: false, status: "not_verified", job_id: requestBody.job_id }, 200);
