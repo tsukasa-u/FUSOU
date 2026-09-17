@@ -7,6 +7,7 @@ import {
   fixtureSourcePath,
   generateRealFixture,
   packageDirectory,
+  repositoryDirectory,
   readRealFixtureManifest,
 } from "./tlsn-benchmark-fixtures.mjs";
 
@@ -16,6 +17,14 @@ const DEFAULT_CONCURRENCY = "1,2,4,8";
 const DEFAULT_POLL_INTERVAL_MS = 250;
 const DEFAULT_MAX_POLL_MS = 300_000;
 const RESULT_TARGET_MS = 3_000;
+const PAYLOAD_SCALING_BANDS = [
+  { label: "4KiB-16KiB", minimum: 4 * 1024, maximum: 16 * 1024 },
+  { label: "16KiB-64KiB", minimum: 16 * 1024, maximum: 64 * 1024 },
+  { label: "64KiB-256KiB", minimum: 64 * 1024, maximum: 256 * 1024 },
+  { label: "256KiB-1MiB", minimum: 256 * 1024, maximum: 1024 * 1024 },
+  { label: "1MiB-4MiB", minimum: 1024 * 1024, maximum: 4 * 1024 * 1024 },
+  { label: "4MiB-8MiB", minimum: 4 * 1024 * 1024, maximum: 8 * 1024 * 1024 },
+];
 const ALLOWED_EXPECTED_ENVIRONMENTS = new Set(["test", "evidence", "production"]);
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const COMMON_REQUIRED_TIMING_STAGES = [
@@ -34,6 +43,16 @@ const COMMON_REQUIRED_TIMING_STAGES = [
   "t10_consume_completed",
   "t11_status_verified",
   "t10_callback_response_ready",
+  "result_canonicalization_started",
+  "result_canonicalization_completed",
+  "result_signing_started",
+  "result_signing_completed",
+  "result_construction_started",
+  "result_construction_completed",
+  "result_persistence_started",
+  "result_persistence_completed",
+  "do_consume_started",
+  "do_consume_completed",
 ];
 
 const REQUIRED_TIMING_STAGES_BY_MODE = {
@@ -88,6 +107,9 @@ const REQUIRED_TIMING_STAGES_BY_MODE = {
     "direct_dispatch_started",
     "direct_invocation_accepted",
     "t3_direct_execution_started",
+    "direct_presentation_read_started",
+    "direct_presentation_read_completed",
+    "direct_presentation_received",
   ],
 };
 
@@ -186,7 +208,13 @@ async function timedJsonRequest(url, options = {}) {
   } catch {
     json = undefined;
   }
-  return { response, status: response.status, json, elapsedMilliseconds };
+  return {
+    response,
+    status: response.status,
+    json,
+    elapsedMilliseconds,
+    responseBodyBytes: Buffer.byteLength(body),
+  };
 }
 
 async function loadHealth(workerOrigin) {
@@ -307,6 +335,7 @@ async function submitVerification(workerOrigin, accessToken, body) {
     benchmarkTraceId: typeof result.json.benchmark_trace_id === "string" ? result.json.benchmark_trace_id : null,
     clientT0,
     clientT1,
+    requestBodyBytes: Buffer.byteLength(body),
     requestAcceptanceMilliseconds: clientT1 - clientT0,
   };
 }
@@ -340,6 +369,7 @@ async function pollStatus(workerOrigin, accessToken, userId, device, session, jo
         firstVerifiedResponse = {
           clientT11,
           statusPollingMilliseconds: clientT11 - pollStartedAt,
+          clientResponseBytes: result.responseBodyBytes,
           timing,
         };
       }
@@ -351,7 +381,38 @@ async function pollStatus(workerOrigin, accessToken, userId, device, session, jo
         };
       }
     } else if (result.status !== 202) {
-      throw new Error(`remote status polling failed with status ${result.status}`);
+      const boundedStatus = result.json && typeof result.json === "object"
+        ? {
+          verified: result.json.verified === true,
+          ...(typeof result.json.status === "string" ? { status: result.json.status } : {}),
+          ...(typeof result.json.error === "string" ? { error: result.json.error } : {}),
+        }
+        : null;
+      const timing = parseTimingHeader(result.response);
+      const boundedDiagnostics = timing?.diagnostics && typeof timing.diagnostics === "object"
+        ? Object.fromEntries(
+          [
+            "completion_failure_code",
+            "terminal_failure_code",
+            "terminal_outcome",
+            "direct_invocation_count",
+            "presentation_bytes",
+            "presentation_transfer_bytes",
+          ]
+            .filter((name) => Object.prototype.hasOwnProperty.call(timing.diagnostics, name))
+            .map((name) => [name, timing.diagnostics[name]]),
+        )
+        : null;
+      const completedStages = timing?.timestamps && typeof timing.timestamps === "object"
+        ? Object.keys(timing.timestamps).filter((stage) => stage.startsWith("direct_") || stage.startsWith("t5_") || stage.startsWith("t6_") || stage.startsWith("t7_") || stage.startsWith("t8_") || stage.startsWith("t9_") || stage.startsWith("t10_") || stage.startsWith("t11_") || stage.startsWith("result_") || stage.startsWith("do_consume_") || stage.startsWith("input_cleanup_"))
+        : null;
+      throw new Error(`remote status polling failed with status ${result.status}: ${JSON.stringify({
+        status: boundedStatus,
+        diagnostics: boundedDiagnostics,
+        r2_operations: timing?.r2_operations ?? null,
+        durations: timing?.durations ?? null,
+        completed_stages: completedStages,
+      })}`);
     }
     if (firstVerifiedResponse && performance.now() >= deadline) {
       return { ...firstVerifiedResponse, pollCount };
@@ -403,6 +464,7 @@ function summarizePhases(samples) {
     trigger_accept_to_202_send: summarize(samples, "triggerAcceptTo202SendMilliseconds"),
     trigger_queue_start: summarize(samples, "triggerQueueStartMilliseconds"),
     direct_invocation_startup: summarize(samples, "directInvocationStartupMilliseconds"),
+    direct_presentation_transfer: summarize(samples, "directPresentationTransferMilliseconds"),
     direct_invocation_acceptance: summarize(samples, "directInvocationAcceptanceMilliseconds"),
     trigger_start_to_callback: summarize(samples, "triggerStartToCallbackMilliseconds"),
     callback_entry_to_lease: summarize(samples, "callbackEntryToLeaseMilliseconds"),
@@ -410,8 +472,13 @@ function summarizePhases(samples) {
     presentation_hash: summarize(samples, "presentationHashMilliseconds"),
     wasm_verification: summarize(samples, "wasmVerificationMilliseconds"),
     result_signing: summarize(samples, "resultSigningMilliseconds"),
+    result_canonicalization: summarize(samples, "resultCanonicalizationMilliseconds"),
+    result_signing_detailed: summarize(samples, "resultSigningDetailedMilliseconds"),
+    result_construction: summarize(samples, "resultConstructionMilliseconds"),
     result_persistence: summarize(samples, "resultPersistenceMilliseconds"),
+    result_persistence_detailed: summarize(samples, "resultPersistenceDetailedMilliseconds"),
     do_consume: summarize(samples, "doConsumeMilliseconds"),
+    do_consume_detailed: summarize(samples, "doConsumeDetailedMilliseconds"),
     callback_response: summarize(samples, "callbackResponseMilliseconds"),
     trigger_input_fetch: summarize(samples, "triggerInputFetchMilliseconds"),
     trigger_verifier: summarize(samples, "triggerVerifierMilliseconds"),
@@ -438,6 +505,42 @@ function summarizePhases(samples) {
   };
 }
 
+function repositoryRelativePath(value) {
+  const relative = resolve(value).startsWith(`${repositoryDirectory}/`)
+    ? resolve(value).slice(repositoryDirectory.length + 1)
+    : null;
+  return relative ?? "EXTERNAL_SOURCE_NOT_RECORDED";
+}
+
+function payloadScalingReport(rows) {
+  const observations = rows.flatMap((row) => row.samples.map((sample) => ({
+    case_label: row.case_label,
+    concurrency: row.concurrency,
+    presentation_bytes: sample.presentation_bytes,
+    result_bytes: sample.result_bytes,
+  })));
+  const measuredBands = new Set(
+    observations
+      .map((observation) => PAYLOAD_SCALING_BANDS.find(
+        (band) => observation.presentation_bytes >= band.minimum && observation.presentation_bytes < band.maximum,
+      )?.label)
+      .filter(Boolean),
+  );
+  return {
+    status: "MEASURED_ONLY_FOR_AVAILABLE_REAL_FIXTURES",
+    synthetic_padding_used: false,
+    arbitrary_payload_append_used: false,
+    target_bands: PAYLOAD_SCALING_BANDS.map((band) => ({
+      ...band,
+      status: measuredBands.has(band.label) ? "MEASURED" : "NOT_ESTABLISHED",
+      observations: observations.filter(
+        (observation) => observation.presentation_bytes >= band.minimum && observation.presentation_bytes < band.maximum,
+      ).length,
+    })),
+    observations,
+  };
+}
+
 function summarizeResourceObservations(samples) {
   const countOperations = (operation) => samples.reduce(
     (total, sample) => total + (Number.isFinite(sample.r2_operations?.[operation]) ? sample.r2_operations[operation] : 0),
@@ -450,6 +553,7 @@ function summarizeResourceObservations(samples) {
   return {
     requested_samples: samples.length,
     input_put_count: countOperations("input_put"),
+    input_delete_count: countOperations("input_delete"),
     result_put_count: countOperations("result_put"),
     result_delete_count: countOperations("result_delete"),
     status_result_get_count: countOperations("status_result_get"),
@@ -557,6 +661,9 @@ async function runBatch({ workerOrigin, webOrigin, accessToken, userId, device, 
         presentation_bytes: Buffer.from(fixtures[index].sparse_presentation_base64, "base64url").length,
         concurrency,
         sample_index: sampleIndex,
+        requestBodyBytes: submission.requestBodyBytes,
+        resultBytes: Number.isFinite(diagnostics.result_bytes) ? diagnostics.result_bytes : null,
+        clientResponseBytes: completion.clientResponseBytes,
         requestAcceptanceMilliseconds: submission.requestAcceptanceMilliseconds,
         statusPollingMilliseconds: completion.statusPollingMilliseconds,
         pollCount: completion.pollCount,
@@ -569,6 +676,13 @@ async function runBatch({ workerOrigin, webOrigin, accessToken, userId, device, 
         directInvocationAcceptanceMilliseconds: executionMode === "direct" && t2 !== null && directInvocationAccepted !== null
           ? directInvocationAccepted - t2
           : null,
+        directPresentationTransferMilliseconds: measuredPhaseMilliseconds(
+          timing,
+          durations,
+          "direct_presentation_transfer",
+          "direct_presentation_read_started",
+          "direct_presentation_read_completed",
+        ),
         triggerStartToCallbackMilliseconds: t3 !== null && t4 !== null ? t4 - t3 : null,
         callbackEntryToLeaseMilliseconds: t4 !== null && t5 !== null ? t5 - t4 : null,
         workerR2InputMilliseconds: phaseMilliseconds(timing, "t5_lease_acquired", "t5_presentation_read"),
@@ -577,6 +691,41 @@ async function runBatch({ workerOrigin, webOrigin, accessToken, userId, device, 
         resultSigningMilliseconds: t8Signing !== null ? t8Signing - t7 : null,
         resultPersistenceMilliseconds: t8Signing !== null && t8Persisted !== null ? t8Persisted - t8Signing : null,
         doConsumeMilliseconds: t8Persisted !== null && t10 !== null ? t10 - t8Persisted : null,
+        resultCanonicalizationMilliseconds: measuredPhaseMilliseconds(
+          timing,
+          durations,
+          "result_canonicalization",
+          "result_canonicalization_started",
+          "result_canonicalization_completed",
+        ),
+        resultSigningDetailedMilliseconds: measuredPhaseMilliseconds(
+          timing,
+          durations,
+          "result_signing",
+          "result_signing_started",
+          "result_signing_completed",
+        ),
+        resultConstructionMilliseconds: measuredPhaseMilliseconds(
+          timing,
+          durations,
+          "result_construction",
+          "result_construction_started",
+          "result_construction_completed",
+        ),
+        resultPersistenceDetailedMilliseconds: measuredPhaseMilliseconds(
+          timing,
+          durations,
+          "result_persistence",
+          "result_persistence_started",
+          "result_persistence_completed",
+        ),
+        doConsumeDetailedMilliseconds: measuredPhaseMilliseconds(
+          timing,
+          durations,
+          "do_consume",
+          "do_consume_started",
+          "do_consume_completed",
+        ),
         callbackResponseMilliseconds: t10 !== null && t10CallbackResponse !== null ? t10CallbackResponse - t10 : null,
         triggerInputFetchMilliseconds: phaseMilliseconds(timing, "t3_trigger_input_fetch_started", "t3_trigger_input_fetch_completed"),
         triggerVerifierMilliseconds: phaseMilliseconds(timing, "t3_trigger_verifier_started", "t3_trigger_verifier_completed"),
@@ -637,6 +786,12 @@ async function runBatch({ workerOrigin, webOrigin, accessToken, userId, device, 
     successful_samples: samples.length,
     timing_complete_samples: samples.filter((sample) => sample.timing_complete).length,
     preparation_milliseconds_excluded: preparationMilliseconds,
+    payload_sizes: {
+      request_body_bytes: summarize(samples, "requestBodyBytes"),
+      presentation_bytes: summarize(samples, "presentation_bytes"),
+      result_bytes: summarize(samples, "resultBytes"),
+      client_response_bytes: summarize(samples, "clientResponseBytes"),
+    },
     phases: summarizePhases(samples),
     resource_observations: summarizeResourceObservations(samples),
     cold_start_observation: samples.filter((sample) => sample.sample_index === 0).length,
@@ -655,11 +810,14 @@ async function runBatch({ workerOrigin, webOrigin, accessToken, userId, device, 
       r2_operations: sample.r2_operations,
       diagnostics: sample.diagnostics,
       presentation_bytes: sample.presentation_bytes,
+      result_bytes: sample.resultBytes,
+      client_response_bytes: sample.clientResponseBytes,
       phases_ms: {
         request_acceptance: sample.requestAcceptanceMilliseconds,
         trigger_accept_to_202_send: sample.triggerAcceptTo202SendMilliseconds,
         trigger_queue_start: sample.triggerQueueStartMilliseconds,
         direct_invocation_startup: sample.directInvocationStartupMilliseconds,
+        direct_presentation_transfer: sample.directPresentationTransferMilliseconds,
         direct_invocation_acceptance: sample.directInvocationAcceptanceMilliseconds,
         trigger_start_to_callback: sample.triggerStartToCallbackMilliseconds,
         callback_entry_to_lease: sample.callbackEntryToLeaseMilliseconds,
@@ -667,8 +825,13 @@ async function runBatch({ workerOrigin, webOrigin, accessToken, userId, device, 
         presentation_hash: sample.presentationHashMilliseconds,
         wasm_verification: sample.wasmVerificationMilliseconds,
         result_signing: sample.resultSigningMilliseconds,
+        result_canonicalization: sample.resultCanonicalizationMilliseconds,
+        result_signing_detailed: sample.resultSigningDetailedMilliseconds,
+        result_construction: sample.resultConstructionMilliseconds,
         result_persistence: sample.resultPersistenceMilliseconds,
+        result_persistence_detailed: sample.resultPersistenceDetailedMilliseconds,
         do_consume: sample.doConsumeMilliseconds,
+        do_consume_detailed: sample.doConsumeDetailedMilliseconds,
         callback_response: sample.callbackResponseMilliseconds,
         trigger_input_fetch: sample.triggerInputFetchMilliseconds,
         trigger_verifier: sample.triggerVerifierMilliseconds,
@@ -797,6 +960,7 @@ async function main() {
   const report = {
     schema_version: 1,
     benchmark: "tlsn-worker-remote-e2e",
+    architecture_variant: optional("TLSN_REMOTE_BENCHMARK_VARIANT") ?? "current",
     generated_at: new Date().toISOString(),
     worker_origin: workerOrigin,
     worker_health: {
@@ -810,7 +974,7 @@ async function main() {
     fixture_corpus: {
       manifest: "packages/FUSOU-TLSN-VERIFICATION-WORKER/.cache/sparse-crypto-real-fixtures/manifest.json",
       cases,
-      source_path: manifest.source.path,
+      source_path: repositoryRelativePath(manifest.source.path),
       request_transcript_status: "NOT_ESTABLISHED",
     },
     configuration: {
@@ -823,6 +987,7 @@ async function main() {
       formal_slo_decision: "NOT_ESTABLISHED",
       execution_mode: executionMode,
       expected_environment: expectedEnvironment,
+      payload_scaling_status: "MEASURED_ONLY_FOR_AVAILABLE_REAL_FIXTURES",
     },
     boundaries: {
       worker_r2_do: "MEASURED BY OPT-IN WORKER TELEMETRY",
@@ -852,6 +1017,7 @@ async function main() {
     },
     target_decision: result,
     formal_slo_decision: "NOT_ESTABLISHED",
+    payload_scaling: payloadScalingReport(rows),
     results: rows,
   };
   const reportPath = optional("TLSN_REMOTE_BENCHMARK_REPORT_PATH")

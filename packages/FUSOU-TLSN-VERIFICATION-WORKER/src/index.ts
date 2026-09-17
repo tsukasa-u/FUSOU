@@ -229,6 +229,21 @@ type BenchmarkTimingStage =
   | "direct_invocation_started"
   | "direct_invocation_accepted"
   | "t3_direct_execution_started"
+  | "direct_presentation_read_started"
+  | "direct_presentation_read_completed"
+  | "direct_presentation_received"
+  | "result_canonicalization_started"
+  | "result_canonicalization_completed"
+  | "result_signing_started"
+  | "result_signing_completed"
+  | "result_construction_started"
+  | "result_construction_completed"
+  | "result_persistence_started"
+  | "result_persistence_completed"
+  | "do_consume_started"
+  | "do_consume_completed"
+  | "input_cleanup_started"
+  | "input_cleanup_completed"
   | "t5_presentation_hash_started"
   | "t5_presentation_hash_completed";
 
@@ -685,7 +700,7 @@ async function delayAfterResultPersistence(env: Bindings, testFault?: TestDirect
   await new Promise<void>((resolve) => setTimeout(resolve, delayMs));
 }
 
-function decodeBase64Url(value: string, maximumBytes: number): Uint8Array {
+export function decodeBase64Url(value: string, maximumBytes: number): Uint8Array {
   if (!/^[A-Za-z0-9_-]+$/.test(value) || value.length % 4 === 1) {
     throw new Error("invalid base64url");
   }
@@ -1252,16 +1267,25 @@ async function signConsumeReceipt(
   };
 }
 
-export async function readRawBody(request: Request, maximumBytes: number): Promise<string> {
+export async function readRawBytes(request: Request, maximumBytes: number): Promise<Uint8Array> {
   const contentLength = request.headers.get("Content-Length");
   if (contentLength !== null && Number(contentLength) > maximumBytes) {
     throw new Error("request body is too large");
   }
-  const raw = await request.text();
-  if (raw.length > maximumBytes) {
+  const raw = new Uint8Array(await request.arrayBuffer());
+  if (raw.length === 0 || raw.length > maximumBytes) {
     throw new Error("request body is too large");
   }
   return raw;
+}
+
+export async function readRawBody(request: Request, maximumBytes: number): Promise<string> {
+  const raw = await readRawBytes(request, maximumBytes);
+  const body = new TextDecoder().decode(raw);
+  if (new TextEncoder().encode(body).byteLength !== raw.byteLength) {
+    throw new Error("request body is not valid UTF-8");
+  }
+  return body;
 }
 
 async function readJsonBody(request: Request): Promise<unknown> {
@@ -1799,6 +1823,7 @@ async function dispatchDirectVerification(
   jobId: string,
   payload: VerificationTaskPayload,
   presentationId: string,
+  presentationBytes: Uint8Array,
   testFault: TestDirectFault | undefined,
 ): Promise<void> {
   const verifier = env.TLSN_DIRECT_VERIFIER;
@@ -1819,6 +1844,7 @@ async function dispatchDirectVerification(
     ...(payload.benchmark_trace_id ? { benchmark_trace_id: payload.benchmark_trace_id } : {}),
   });
   const signature = await internalRequestSignature(callbackSecret, jobId, callbackBody);
+  const metadataHeader = encodeBase64Url(new TextEncoder().encode(callbackBody));
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), directInvocationTimeoutMs(env));
   let response: Response;
@@ -1828,13 +1854,14 @@ async function dispatchDirectVerification(
     response = await verifier.fetch(new Request("https://tlsn-direct-verifier/internal/tlsn/verification-complete", {
       method: "POST",
       headers: {
-        "Content-Type": "application/json",
+        "Content-Type": "application/octet-stream",
         "X-FUSOU-TLSN-Job-Id": jobId,
         "X-FUSOU-TLSN-Signature": signature,
         "X-FUSOU-TLSN-Execution-Mode": "direct",
+        "X-FUSOU-TLSN-Direct-Metadata": metadataHeader,
         ...(testFault ? { "X-FUSOU-TLSN-Test-Fault": testFault } : {}),
       },
-      body: callbackBody,
+      body: presentationBytes,
       signal: controller.signal,
     }));
   } finally {
@@ -1896,6 +1923,8 @@ export async function processVerificationCompletion(
   diagnosticHmac: boolean,
   executionStartedAt?: number,
   testFault?: TestDirectFault,
+  directPresentationBytes?: Uint8Array,
+  directPresentationTiming?: { readStartedAt: number; readCompletedAt: number },
 ): Promise<Response> {
   const callbackAuthenticationStartedAt = executionMode === "queue" ? performance.now() : null;
   if (executionMode === "queue") benchmarkRecord(c.env, jobId, "queue_callback_authentication_started");
@@ -1930,7 +1959,15 @@ export async function processVerificationCompletion(
     benchmarkRecord(c.env, jobId, "queue_callback_schema_validated");
     benchmarkDuration(c.env, jobId, "queue_callback_schema", performance.now() - (callbackSchemaStartedAt ?? performance.now()));
   }
-  return completeVerification(c, callback, executionMode, executionStartedAt, testFault);
+  return completeVerification(
+    c,
+    callback,
+    executionMode,
+    executionStartedAt,
+    testFault,
+    directPresentationBytes,
+    directPresentationTiming,
+  );
 }
 
 app.post("/internal/tlsn/verification-input", async (c) => {
@@ -2017,6 +2054,8 @@ async function completeVerification(
   executionMode: ExecutionMode,
   executionStartedAt?: number,
   testFault?: TestDirectFault,
+  directPresentationBytes?: Uint8Array,
+  directPresentationTiming?: { readStartedAt: number; readCompletedAt: number },
 ): Promise<Response> {
   const config = await readConfig(c.env);
   if (!config) {
@@ -2034,6 +2073,16 @@ async function completeVerification(
   if (executionMode === "queue") benchmarkRecord(c.env, callback.job_id, "queue_completion_entered");
   if (executionMode === "direct" && executionStartedAt !== undefined) {
     benchmarkRecord(c.env, callback.job_id, "t3_direct_execution_started", executionStartedAt);
+  }
+  if (executionMode === "direct" && directPresentationTiming) {
+    benchmarkRecord(c.env, callback.job_id, "direct_presentation_read_started", directPresentationTiming.readStartedAt);
+    benchmarkRecord(c.env, callback.job_id, "direct_presentation_read_completed", directPresentationTiming.readCompletedAt);
+    benchmarkDuration(
+      c.env,
+      callback.job_id,
+      "direct_presentation_transfer",
+      directPresentationTiming.readCompletedAt - directPresentationTiming.readStartedAt,
+    );
   }
   benchmarkRecord(c.env, callback.job_id, "t3_callback_accepted");
   benchmarkRecord(c.env, callback.job_id, "t4_callback_accepted");
@@ -2198,13 +2247,20 @@ async function completeVerification(
   const presentationReadStartedAt = executionMode === "queue" ? performance.now() : null;
   if (executionMode === "queue") benchmarkRecord(c.env, callback.job_id, "queue_presentation_read_started");
   try {
-    const presentationObject = await c.env.TLSN_PRESENTATIONS.get(completionRecord.verification_input_key);
-    if (!presentationObject || presentationObject.size > MAX_PRESENTATION_BYTES) {
-      await finalizeAttemptFailure("presentation_read_failed");
-      return c.json({ error: "verification_input_unavailable" }, 503);
+    if (directPresentationBytes) {
+      storedPresentation = directPresentationBytes;
+      benchmarkRecord(c.env, callback.job_id, "direct_presentation_received");
+      benchmarkDiagnostic(c.env, callback.job_id, "presentation_transfer_bytes", storedPresentation.byteLength);
+    } else {
+      const presentationObject = await c.env.TLSN_PRESENTATIONS.get(completionRecord.verification_input_key);
+      if (!presentationObject || presentationObject.size > MAX_PRESENTATION_BYTES) {
+        await finalizeAttemptFailure("presentation_read_failed");
+        return c.json({ error: "verification_input_unavailable" }, 503);
+      }
+      storedPresentation = new Uint8Array(await presentationObject.arrayBuffer());
+      benchmarkR2Operation(c.env, callback.job_id, "worker_presentation_get");
     }
-    storedPresentation = new Uint8Array(await presentationObject.arrayBuffer());
-    benchmarkR2Operation(c.env, callback.job_id, "worker_presentation_get");
+    benchmarkDiagnostic(c.env, callback.job_id, "presentation_bytes", storedPresentation.byteLength);
     benchmarkRecord(c.env, callback.job_id, "t5_presentation_read");
     if (executionMode === "queue") {
       benchmarkRecord(c.env, callback.job_id, "queue_presentation_read_completed");
@@ -2282,6 +2338,8 @@ async function completeVerification(
       return c.json({ error: "binding_mismatch" }, 422);
     }
 
+    const resultCanonicalizationStartedAt = performance.now();
+    benchmarkRecord(c.env, callback.job_id, "result_canonicalization_started");
     const signingBytes = decodeBase64Url(prepared.signing_bytes, MAX_RESULT_JSON_BYTES);
     const derivedSigningBytes = sparseProfile
       ? derive_sparse_verifier_result_signing_bytes(prepared.unsigned_result)
@@ -2290,7 +2348,15 @@ async function completeVerification(
       await finalizeAttemptFailure("verifier_failed");
       return c.json({ error: "signing_bytes_mismatch" }, 422);
     }
-    const resultSigningStartedAt = executionMode === "queue" ? performance.now() : null;
+    benchmarkRecord(c.env, callback.job_id, "result_canonicalization_completed");
+    benchmarkDuration(
+      c.env,
+      callback.job_id,
+      "result_canonicalization",
+      performance.now() - resultCanonicalizationStartedAt,
+    );
+    const resultSigningStartedAt = performance.now();
+    benchmarkRecord(c.env, callback.job_id, "result_signing_started");
     if (executionMode === "queue") benchmarkRecord(c.env, callback.job_id, "queue_result_signing_started");
     const signatureBytes = await (sparseProfile
       ? signSparseResult(config, signingBytes)
@@ -2320,10 +2386,14 @@ async function completeVerification(
       presentation_id: storedPresentationId,
       used_at: usedAt,
     });
+    benchmarkRecord(c.env, callback.job_id, "result_signing_completed");
+    benchmarkDuration(c.env, callback.job_id, "result_signing", performance.now() - resultSigningStartedAt);
     if (executionMode === "queue") {
       benchmarkRecord(c.env, callback.job_id, "queue_result_signing_completed");
-      benchmarkDuration(c.env, callback.job_id, "queue_result_signing", performance.now() - (resultSigningStartedAt ?? performance.now()));
+      benchmarkDuration(c.env, callback.job_id, "queue_result_signing", performance.now() - resultSigningStartedAt);
     }
+    const resultConstructionStartedAt = performance.now();
+    benchmarkRecord(c.env, callback.job_id, "result_construction_started");
     const finalResponse = verificationFinalResponseSchema.parse({
       verified: true,
       result: signedResult,
@@ -2335,11 +2405,15 @@ async function completeVerification(
     benchmarkRecord(c.env, callback.job_id, "t7_result_signing_completed");
     benchmarkRecord(c.env, callback.job_id, "t8_result_signing_completed");
     const finalResponseBody = JSON.stringify(finalResponse);
+    benchmarkRecord(c.env, callback.job_id, "result_construction_completed");
+    benchmarkDiagnostic(c.env, callback.job_id, "result_bytes", new TextEncoder().encode(finalResponseBody).byteLength);
+    benchmarkDuration(c.env, callback.job_id, "result_construction", performance.now() - resultConstructionStartedAt);
     const resultSha256 = encodeBase64Url(
       new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(finalResponseBody))),
     );
     benchmarkDiagnostic(c.env, callback.job_id, "result_sha256_present", true);
-    const resultPersistenceStartedAt = executionMode === "queue" ? performance.now() : null;
+    const resultPersistenceStartedAt = performance.now();
+    benchmarkRecord(c.env, callback.job_id, "result_persistence_started");
     if (executionMode === "queue") benchmarkRecord(c.env, callback.job_id, "queue_result_persistence_started");
     attemptFailureCode = "result_persistence_failed";
     await c.env.TLSN_PRESENTATIONS.put(
@@ -2349,16 +2423,19 @@ async function completeVerification(
     );
     resultPersisted = true;
     benchmarkR2Operation(c.env, callback.job_id, "result_put");
+    benchmarkRecord(c.env, callback.job_id, "result_persistence_completed");
+    benchmarkDuration(c.env, callback.job_id, "result_persistence", performance.now() - resultPersistenceStartedAt);
     benchmarkRecord(c.env, callback.job_id, "t8_result_persisted");
     benchmarkRecord(c.env, callback.job_id, "t9_result_persisted");
     if (executionMode === "queue") {
       benchmarkRecord(c.env, callback.job_id, "queue_result_persistence_completed");
-      benchmarkDuration(c.env, callback.job_id, "queue_result_persistence", performance.now() - (resultPersistenceStartedAt ?? performance.now()));
+      benchmarkDuration(c.env, callback.job_id, "queue_result_persistence", performance.now() - resultPersistenceStartedAt);
     }
     await delayAfterResultPersistence(c.env, testFault);
     let consumedBinding: BindingRecord;
     attemptFailureCode = "authority_error";
-    const consumeStartedAt = executionMode === "queue" ? performance.now() : null;
+    const consumeStartedAt = performance.now();
+    benchmarkRecord(c.env, callback.job_id, "do_consume_started");
     if (executionMode === "queue") benchmarkRecord(c.env, callback.job_id, "queue_consume_started");
     try {
       consumedBinding = await authority.consumeBinding(completionRecord.binding_value, {
@@ -2386,20 +2463,33 @@ async function completeVerification(
     }
     completionConsumed = true;
     benchmarkDiagnostic(c.env, callback.job_id, "consume_outcome", "consumed");
+    benchmarkRecord(c.env, callback.job_id, "do_consume_completed");
+    benchmarkDuration(c.env, callback.job_id, "do_consume", performance.now() - consumeStartedAt);
     benchmarkRecord(c.env, callback.job_id, "t9_consume_completed");
     benchmarkRecord(c.env, callback.job_id, "t10_consume_completed");
     if (executionMode === "queue") {
       benchmarkRecord(c.env, callback.job_id, "queue_consume_completed");
-      benchmarkDuration(c.env, callback.job_id, "queue_consume", performance.now() - (consumeStartedAt ?? performance.now()));
+      benchmarkDuration(c.env, callback.job_id, "queue_consume", performance.now() - consumeStartedAt);
     }
     const completionResponseStartedAt = executionMode === "queue" ? performance.now() : null;
-    if (completionRecord.verification_input_key) {
-      await c.env.TLSN_PRESENTATIONS.delete(completionRecord.verification_input_key).catch(() => undefined);
-    }
     benchmarkRecord(c.env, callback.job_id, "t10_callback_response_ready");
     if (executionMode === "queue") {
       benchmarkRecord(c.env, callback.job_id, "queue_completion_response_ready");
       benchmarkDuration(c.env, callback.job_id, "queue_completion_response", performance.now() - (completionResponseStartedAt ?? performance.now()));
+    }
+    const cleanupInput = async (): Promise<void> => {
+      benchmarkRecord(c.env, callback.job_id, "input_cleanup_started");
+      if (completionRecord.verification_input_key) {
+        benchmarkR2Operation(c.env, callback.job_id, "input_delete");
+        await c.env.TLSN_PRESENTATIONS.delete(completionRecord.verification_input_key).catch(() => undefined);
+      }
+      benchmarkRecord(c.env, callback.job_id, "input_cleanup_completed");
+      await benchmarkFlush(c.env, callback.job_id);
+    };
+    if (executionMode === "direct") {
+      c.executionCtx.waitUntil(cleanupInput());
+    } else {
+      await cleanupInput();
     }
     deferBenchmarkFlush(c, callback.job_id);
     return c.json({ accepted: true });
@@ -2952,6 +3042,7 @@ const handleTlsnVerification = async (c: Context<{ Bindings: Bindings }>) => {
             jobId,
             payload,
             presentationId,
+            presentationBytes,
             testDirectFaultForRequest(c.env, c.req.raw),
           ).catch(async () => {
             await finalizeVerificationFailure(c.env, {

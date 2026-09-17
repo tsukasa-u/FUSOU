@@ -1,3 +1,9 @@
+function decodeBase64Url(value) {
+  const padded = value.replaceAll("-", "+").replaceAll("_", "/").padEnd(Math.ceil(value.length / 4) * 4, "=");
+  const binary = atob(padded);
+  return Uint8Array.from(binary, (character) => character.charCodeAt(0));
+}
+
 export default {
   async fetch(request, env) {
     const requestedMode = request.headers.get("X-FUSOU-TLSN-Test-Fault");
@@ -19,12 +25,20 @@ export default {
     if (!callbackOrigin) {
       return new Response(null, { status: 500 });
     }
+    const metadata = request.headers.get("X-FUSOU-TLSN-Direct-Metadata");
+    const callbackBody = metadata ? decodeBase64Url(metadata) : request.body;
+    const callbackHeaders = new Headers(request.headers);
+    if (metadata) {
+      callbackHeaders.delete("Content-Length");
+      callbackHeaders.delete("X-FUSOU-TLSN-Direct-Metadata");
+      callbackHeaders.set("Content-Type", "application/json");
+    }
     const callbackResponse = await fetch(
       `${callbackOrigin}/internal/tlsn/verification-complete`,
       {
         method: request.method,
-        headers: request.headers,
-        body: request.body,
+        headers: callbackHeaders,
+        body: callbackBody,
       },
     );
     return new Response(null, { status: callbackResponse.status });

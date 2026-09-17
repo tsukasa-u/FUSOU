@@ -1,7 +1,9 @@
 import { Hono } from "hono";
 import {
   processVerificationCompletion,
+  decodeBase64Url,
   readRawBody,
+  readRawBytes,
   verificationCompletionContextFromHono,
   type Bindings,
   type TestDirectFault,
@@ -9,6 +11,8 @@ import {
 } from "./index.js";
 
 const MAX_INTERNAL_CALLBACK_JSON_BYTES = 64 * 1024;
+const MAX_PRESENTATION_BYTES = 8 * 1024 * 1024;
+const DIRECT_METADATA_HEADER = "X-FUSOU-TLSN-Direct-Metadata";
 
 const app = new Hono<{ Bindings: Bindings }>();
 
@@ -36,10 +40,31 @@ app.post("/internal/tlsn/verification-complete", async (c) => {
     }
   }
   const executionStartedAt = Date.now();
-  const rawBody = await readRawBody(c.req.raw, MAX_INTERNAL_CALLBACK_JSON_BYTES).catch(() => null);
+  const encodedMetadata = c.req.header(DIRECT_METADATA_HEADER);
+  let rawBody: string | null = null;
+  let presentationBytes: Uint8Array | undefined;
+  let presentationReadTiming: { readStartedAt: number; readCompletedAt: number } | undefined;
+  if (encodedMetadata) {
+    const presentationReadStartedAt = Date.now();
+    presentationBytes = await readRawBytes(c.req.raw, MAX_PRESENTATION_BYTES).catch(() => undefined);
+    const presentationReadCompletedAt = Date.now();
+    try {
+      rawBody = new TextDecoder("utf-8", { fatal: true, ignoreBOM: false }).decode(
+        decodeBase64Url(encodedMetadata, MAX_INTERNAL_CALLBACK_JSON_BYTES),
+      );
+      presentationReadTiming = {
+        readStartedAt: presentationReadStartedAt,
+        readCompletedAt: presentationReadCompletedAt,
+      };
+    } catch {
+      rawBody = null;
+    }
+  } else {
+    rawBody = await readRawBody(c.req.raw, MAX_INTERNAL_CALLBACK_JSON_BYTES).catch(() => null);
+  }
   const jobId = c.req.header("X-FUSOU-TLSN-Job-Id") ?? "";
   const signature = c.req.header("X-FUSOU-TLSN-Signature") ?? null;
-  if (rawBody === null || !jobId || !signature) {
+  if (rawBody === null || (encodedMetadata && !presentationBytes) || !jobId || !signature) {
     return c.json({ error: "unauthorized" }, 401);
   }
   return processVerificationCompletion(
@@ -51,6 +76,8 @@ app.post("/internal/tlsn/verification-complete", async (c) => {
     false,
     executionStartedAt,
     mode,
+    presentationBytes,
+    presentationReadTiming,
   );
 });
 

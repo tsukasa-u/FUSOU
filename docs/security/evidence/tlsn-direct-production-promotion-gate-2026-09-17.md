@@ -28,6 +28,10 @@ The Direct architecture remains test-valid. This document does not approve a pro
 | Remote mixed failure concurrency 8 | PASS | remote test Worker exit `0`: failure and timeout remained `not_verified` with zero Result PUT; six successes were verified with one Result PUT and consumed authority state; all attempts had matching hashed telemetry |
 | Remote Direct evidence resource behavior | PASS | [`tlsn-remote-evidence-direct-c1-c4-c8.json`](../../../packages/FUSOU-TLSN-VERIFICATION-WORKER/artifacts/tlsn-remote-evidence-direct-c1-c4-c8.json): 65/65 samples completed and consumed; no Result deletes; max verifier concurrency 1/2/3 at C=1/4/8; cold/warm proxy observations 1+4, 4+16, and 8+32 |
 | Remote Direct latency regression target | PASS | Same artifact: client-visible max 2522.9 ms at C=1, 2626.4 ms at C=4, and 2922.5 ms at C=8; every row is `MEASURED WITHIN TARGET` against the existing 3000 ms benchmark target |
+| Direct Presentation byte fast path | PASS (local) | Direct keeps the initial input R2 PUT, sends the original Presentation bytes through the Service Binding with signed metadata, verifies the received SHA-256, and skips only the verifier-side input R2 GET; local Direct Case A/B/C and mixed-failure suites pass |
+| Optimized remote Direct resource behavior | PASS (evidence only) | [`tlsn-remote-direct-fastpath-c1-c4-c8.json`](../../../packages/FUSOU-TLSN-VERIFICATION-WORKER/artifacts/tlsn-remote-direct-fastpath-c1-c4-c8.json): 65/65 samples completed and consumed; input PUT/DELETE and Result PUT matched every successful sample, Result DELETE remained zero, and verifier-side `worker_presentation_get` was absent |
+| Optimized remote Direct latency | PASS (evidence only) | Same artifact: client-visible p50 was 2421.8 ms at C=1, 2276.7 ms at C=4, and 2238.7 ms at C=8; maxima were 2730.3, 2617.8, and 2716.7 ms, respectively, within the existing 3000 ms regression target |
+| Real Presentation payload scaling | NOT_ESTABLISHED | [`tlsn-remote-direct-payload-scaling.json`](../../../packages/FUSOU-TLSN-VERIFICATION-WORKER/artifacts/tlsn-remote-direct-payload-scaling.json) and the optimized remote artifact: available real sparse Presentations were approximately 3.5 KiB (3459-3461 bytes); all 4 KiB-8 MiB target bands lack sufficient real fixture coverage; no padding was used |
 | Remote stale-attempt and lease fencing | PASS | [`tlsn-remote-evidence-stale-attempt.json`](../../../packages/FUSOU-TLSN-VERIFICATION-WORKER/artifacts/tlsn-remote-evidence-stale-attempt.json): lease 5000 ms, post-result pause 7000 ms, Result PUT 1, consume rejected, retained Result, late callback 1, stale attempt rejected, terminal `lease_expired`, retry 409 |
 | Test/canary/production fault-control separation | PASS | test deploy allowlist contains test controls; canary/production deployment contracts do not contain them; canary/production Wrangler environments have no Direct binding |
 | Stuck-job age detector dry run | PASS | [`tlsn-stuck-job-age-alert-dry-run.json`](../../../packages/FUSOU-TLSN-VERIFICATION-WORKER/artifacts/tlsn-stuck-job-age-alert-dry-run.json): bounded processing/verifying state counts and one verifying age alert were classified; production delivery remains `NOT_ESTABLISHED` |
@@ -50,6 +54,8 @@ Public and remote artifacts may contain only:
 - timing values and aggregate concurrency.
 
 Artifacts must not contain callback bodies, HMAC values, callback secrets, access tokens, binding values, nonces, Presentation bytes, signed Result JSON, signatures, or raw exception text.
+
+Benchmark artifacts may additionally contain bounded Presentation, Result, request, and client-response byte counts, plus aggregate phase durations. These counts do not include payload contents or cryptographic material.
 
 Benchmark headers may contain `job_id_sha256` and `trace_id_sha256` as fixed-length base64url SHA-256 correlation values. They must not contain the corresponding raw identifiers. Diagnostic values are limited to enumerated outcomes and booleans; queue message identifiers are represented only as a presence boolean.
 
@@ -80,6 +86,10 @@ pnpm exec dotenvx run --strict --overload -f packages/FUSOU-TLSN-VERIFICATION-WO
 ```
 
 The age-alert dry run command was `pnpm --dir packages/FUSOU-TLSN-VERIFICATION-WORKER run test:stuck-job-age-alert`; its report is `packages/FUSOU-TLSN-VERIFICATION-WORKER/artifacts/tlsn-stuck-job-age-alert-dry-run.json`.
+
+The optimized Direct path was deployed and measured only on the isolated evidence Worker. The report is `packages/FUSOU-TLSN-VERIFICATION-WORKER/artifacts/tlsn-remote-direct-fastpath-c1-c4-c8.json`; it contains 65/65 successful samples across C=1/4/8, bounded byte telemetry, and no verifier-side `worker_presentation_get`. The benchmark used cached real sparse fixtures without padding or arbitrary payload append. No canary or production binding/configuration is part of this change.
+
+There was no separate production callback HTTP hop to remove. The optimization removes the verifier-side Presentation R2 GET by carrying the original bytes in the existing Service Binding invocation. The initial input R2 PUT, signed metadata HMAC, Presentation hash binding, Result PUT, and Durable Object consume remain authoritative checks.
 
 ## Canary Entry Criteria
 
@@ -132,6 +142,7 @@ The local race deliberately pauses after the Result PUT while the lease expires.
 ## Remaining Gaps
 
 - Production-like resource, cold-start, concurrency, latency, and SLO evidence remains absent; the measured resource and latency artifact is isolated evidence only.
+- Real large Presentation fixtures and request-transcript coverage remain absent; the payload scaling artifact deliberately reports those bands as NOT_ESTABLISHED.
 - Stuck-job age alert delivery remains unverified; only the bounded test-only detector dry run is PASS.
 - The configuration audit proves environment binding and fault-control separation, but role-separated production key and trust-root provenance still requires an independently captured deployment record.
 

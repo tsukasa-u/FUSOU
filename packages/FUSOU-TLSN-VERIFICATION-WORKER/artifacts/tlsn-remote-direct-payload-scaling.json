@@ -1,0 +1,112 @@
+{
+  "schema_version": 1,
+  "benchmark": "tlsn-worker-direct-payload-scaling",
+  "generated_at": "2026-09-17T07:23:11.688Z",
+  "execution": {
+    "remote_latency": "NOT_RUN",
+    "remote_latency_requires_explicit_external_access_approval": true,
+    "synthetic_padding_used": false,
+    "arbitrary_payload_append_used": false
+  },
+  "fixture_corpus": {
+    "manifest": "packages/FUSOU-TLSN-VERIFICATION-WORKER/.cache/sparse-crypto-real-fixtures/manifest.json",
+    "source_path": "packages/FUSOU-PROXY-DATA",
+    "request_transcript_status": "NOT_ESTABLISHED",
+    "fixture_semantics": "metadata plus API body; HTTP status, headers, and TLS framing are absent"
+  },
+  "payload_definition": {
+    "measured_bytes": "sparse Presentation bytes sent to the verifier",
+    "source_response_bytes": "reported for context only; not used as Presentation size",
+    "limit_bytes": 8388608
+  },
+  "target_bands": [
+    {
+      "label": "4KiB-16KiB",
+      "minimum": 4096,
+      "maximum": 16384,
+      "status": "NOT_ESTABLISHED",
+      "cases": []
+    },
+    {
+      "label": "16KiB-64KiB",
+      "minimum": 16384,
+      "maximum": 65536,
+      "status": "NOT_ESTABLISHED",
+      "cases": []
+    },
+    {
+      "label": "64KiB-256KiB",
+      "minimum": 65536,
+      "maximum": 262144,
+      "status": "NOT_ESTABLISHED",
+      "cases": []
+    },
+    {
+      "label": "256KiB-1MiB",
+      "minimum": 262144,
+      "maximum": 1048576,
+      "status": "NOT_ESTABLISHED",
+      "cases": []
+    },
+    {
+      "label": "1MiB-4MiB",
+      "minimum": 1048576,
+      "maximum": 4194304,
+      "status": "NOT_ESTABLISHED",
+      "cases": []
+    },
+    {
+      "label": "4MiB-8MiB",
+      "minimum": 4194304,
+      "maximum": 8388608,
+      "status": "NOT_ESTABLISHED",
+      "cases": []
+    }
+  ],
+  "observed_presentation_bytes": {
+    "count": 4,
+    "minimum": 3476,
+    "maximum": 3478
+  },
+  "observed_source_response_bytes": {
+    "count": 4,
+    "minimum": 150080,
+    "maximum": 165752
+  },
+  "observations": [
+    {
+      "case_label": "p50",
+      "source_fixture_body_bytes": 150080,
+      "presentation_bytes": 3477,
+      "presentation_band": null,
+      "source_epoch": "2025-12-27",
+      "source_file": "20260121_025057788S@api_get_member@require_info"
+    },
+    {
+      "case_label": "p95",
+      "source_fixture_body_bytes": 165258,
+      "presentation_bytes": 3478,
+      "presentation_band": null,
+      "source_epoch": "2026-07-08",
+      "source_file": "20260726_203346641S@api_get_member@require_info"
+    },
+    {
+      "case_label": "p99",
+      "source_fixture_body_bytes": 165751,
+      "presentation_bytes": 3476,
+      "presentation_band": null,
+      "source_epoch": "2026-07-08",
+      "source_file": "20260729_222044119S@api_get_member@require_info"
+    },
+    {
+      "case_label": "max",
+      "source_fixture_body_bytes": 165752,
+      "presentation_bytes": 3477,
+      "presentation_band": null,
+      "source_epoch": "2026-08-05",
+      "source_file": "20260824_233846945S@api_get_member@require_info"
+    }
+  ],
+  "interpretation": "No available real fixture falls within the requested scaling bands.",
+  "report_path": "/home/ogu-h/Documents/GitHub/FUSOU/packages/FUSOU-TLSN-VERIFICATION-WORKER/artifacts/tlsn-remote-direct-payload-scaling.json"
+}
