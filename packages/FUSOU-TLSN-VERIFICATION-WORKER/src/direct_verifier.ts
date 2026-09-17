@@ -4,6 +4,7 @@ import {
   readRawBody,
   verificationCompletionContextFromHono,
   type Bindings,
+  type TestDirectFault,
   TlsnBindingAuthorityDurableObject,
 } from "./index.js";
 
@@ -19,11 +20,14 @@ async function delayTestDirectVerifier(env: Bindings): Promise<void> {
 }
 
 app.post("/internal/tlsn/verification-complete", async (c) => {
+  const requestedMode = c.req.header("X-FUSOU-TLSN-Test-Fault")?.trim();
+  const configuredMode = c.env.TLSN_TEST_DIRECT_VERIFIER_MODE?.trim();
+  const mode: TestDirectFault | undefined = requestedMode === "failure" || requestedMode === "timeout" || requestedMode === "late_success" || requestedMode === "pause_after_result_put"
+    ? requestedMode
+    : configuredMode === "failure" || configuredMode === "timeout" || configuredMode === "late_success" || configuredMode === "pause_after_result_put"
+      ? configuredMode
+      : undefined;
   if (c.env.TLSN_ENVIRONMENT === "test") {
-    const requestedMode = c.req.header("X-FUSOU-TLSN-Test-Fault")?.trim();
-    const mode = requestedMode === "failure" || requestedMode === "timeout" || requestedMode === "late_success"
-      ? requestedMode
-      : c.env.TLSN_TEST_DIRECT_VERIFIER_MODE?.trim();
     if (mode === "failure") {
       return new Response(null, { status: 503 });
     }
@@ -46,6 +50,7 @@ app.post("/internal/tlsn/verification-complete", async (c) => {
     "direct",
     false,
     executionStartedAt,
+    mode,
   );
 });
 

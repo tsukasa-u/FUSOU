@@ -14,6 +14,7 @@ import {
   FORBIDDEN_PRODUCTION_INPUTS,
   PRODUCTION_INPUTS,
   PRODUCTION_SECRET_INPUTS,
+  TEST_ONLY_INPUTS,
   inputsForRole,
   secretInputsForRole,
 } from "./deployment-contract.mjs";
@@ -22,7 +23,15 @@ const packageDirectory = resolve(new URL("..", import.meta.url).pathname);
 const manifest = JSON.parse(await readFile(resolve(packageDirectory, "scripts/production-inputs.json"), "utf8"));
 const canaryWrapper = await readFile(resolve(packageDirectory, "scripts/deploy-canary.mjs"), "utf8");
 const productionWrapper = await readFile(resolve(packageDirectory, "scripts/deploy-production.mjs"), "utf8");
+const wrangler = await readFile(resolve(packageDirectory, "wrangler.toml"), "utf8");
 const rootPackage = JSON.parse(await readFile(resolve(packageDirectory, "../../package.json"), "utf8"));
+
+function environmentSection(name) {
+  const start = wrangler.indexOf(`[env.${name}]`);
+  assert.notEqual(start, -1, `missing Wrangler environment ${name}`);
+  const nextEnvironment = wrangler.indexOf("\n[env.", start + 1);
+  return wrangler.slice(start, nextEnvironment === -1 ? undefined : nextEnvironment);
+}
 
 assertManifest(manifest);
 assert.deepEqual(new Set(CANARY_INPUTS).intersection(new Set(PRODUCTION_INPUTS)), new Set());
@@ -34,13 +43,17 @@ assert.deepEqual(secretInputsForRole("canary"), [...CANARY_SECRET_INPUTS]);
 assert.deepEqual(secretInputsForRole("production"), [...PRODUCTION_SECRET_INPUTS]);
 
 const allInputs = Object.fromEntries(
-  [...new Set([...COMMON_INPUTS, ...CANARY_INPUTS, ...PRODUCTION_INPUTS, ...CANARY_SECRET_INPUTS, ...PRODUCTION_SECRET_INPUTS])]
+  [...new Set([...COMMON_INPUTS, ...CANARY_INPUTS, ...PRODUCTION_INPUTS, ...CANARY_SECRET_INPUTS, ...PRODUCTION_SECRET_INPUTS, ...TEST_ONLY_INPUTS])]
     .map((name) => [name, `fixture-${name}`]),
 );
 const canaryChildEnvironment = environmentForNames(allInputs, [...COMMON_INPUTS, ...CANARY_INPUTS, ...CANARY_SECRET_INPUTS]);
 const productionChildEnvironment = environmentForNames(allInputs, [...COMMON_INPUTS, ...PRODUCTION_INPUTS, ...PRODUCTION_SECRET_INPUTS]);
 for (const name of FORBIDDEN_CANARY_INPUTS) assert.equal(canaryChildEnvironment[name], undefined, `Canary received ${name}`);
 for (const name of FORBIDDEN_PRODUCTION_INPUTS) assert.equal(productionChildEnvironment[name], undefined, `Production received ${name}`);
+for (const name of TEST_ONLY_INPUTS) {
+  assert.equal(canaryChildEnvironment[name], undefined, `Canary received test-only input ${name}`);
+  assert.equal(productionChildEnvironment[name], undefined, `Production received test-only input ${name}`);
+}
 
 const securityIdentity = {
   git_commit_sha: "a".repeat(40),
@@ -97,5 +110,16 @@ assert.doesNotMatch(rootPackage.scripts["tlsn:deploy:canary"], /github|actions/i
 assert.doesNotMatch(rootPackage.scripts["tlsn:deploy:production"], /github|actions/i);
 assert.match(canaryWrapper, /wrangler", "deploy", "--env", "canary/);
 assert.match(productionWrapper, /wrangler", "deploy", "--env", "production/);
+
+const testEnvironment = environmentSection("test");
+const canaryEnvironment = environmentSection("canary");
+const productionEnvironment = environmentSection("production");
+assert.match(testEnvironment, /binding = "TLSN_DIRECT_VERIFIER"/);
+assert.doesNotMatch(canaryEnvironment, /TLSN_DIRECT_VERIFIER|fusou-tlsn-verifier-test|fusou-tlsn-verification-test/);
+assert.doesNotMatch(productionEnvironment, /TLSN_DIRECT_VERIFIER|fusou-tlsn-verifier-test|fusou-tlsn-verification-test/);
+assert.match(testEnvironment, /bucket_name = "fusou-tlsn-verification-test"/);
+assert.match(canaryEnvironment, /bucket_name = "fusou-tlsn-verification-canary"/);
+assert.match(productionEnvironment, /bucket_name = "fusou-tlsn-verification-production"/);
+assert.notEqual(canaryEnvironment.match(/^name = "([^"]+)"/m)?.[1], productionEnvironment.match(/^name = "([^"]+)"/m)?.[1]);
 
 console.log("[tlsn-deployment-isolation] role input, key, provenance, and dotenvx deployment boundaries OK");

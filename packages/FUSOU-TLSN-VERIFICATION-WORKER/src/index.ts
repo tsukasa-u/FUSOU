@@ -233,6 +233,7 @@ type BenchmarkTimingStage =
   | "t5_presentation_hash_completed";
 
 type ExecutionMode = "trigger" | "queue" | "direct";
+export type TestDirectFault = "failure" | "timeout" | "late_success" | "pause_after_result_put";
 
 type BenchmarkPersistence = {
   authority: DurableObjectBindingAuthority;
@@ -607,9 +608,19 @@ async function attachBenchmarkTimingHeader(c: Context<{ Bindings: Bindings }>, e
       }
     : null;
   if (!record) return;
+  const [jobIdSha256, traceIdSha256] = await Promise.all(
+    [record.job_id, record.trace_id].map(async (value) => encodeBase64Url(
+      new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value))),
+    )),
+  );
+  const { job_id: _jobId, trace_id: _traceId, ...sanitizedRecord } = record;
   c.header(
     "X-FUSOU-TLSN-Benchmark-Timing",
-    encodeBase64Url(new TextEncoder().encode(JSON.stringify(record))),
+    encodeBase64Url(new TextEncoder().encode(JSON.stringify({
+      ...sanitizedRecord,
+      job_id_sha256: jobIdSha256,
+      trace_id_sha256: traceIdSha256,
+    }))),
   );
 }
 
@@ -624,10 +635,10 @@ function testBindingValueForRequest(env: Bindings, request: Request): string | u
 function testDirectFaultForRequest(
   env: Bindings,
   request: Request,
-): "failure" | "timeout" | "late_success" | undefined {
+): TestDirectFault | undefined {
   if (env.TLSN_ENVIRONMENT !== "test") return undefined;
   const requested = request.headers.get("X-FUSOU-TLSN-Test-Fault")?.trim();
-  return requested === "failure" || requested === "timeout" || requested === "late_success"
+  return requested === "failure" || requested === "timeout" || requested === "late_success" || requested === "pause_after_result_put"
     ? requested
     : undefined;
 }
@@ -662,8 +673,9 @@ function directInvocationTimeoutMs(env: Bindings): number {
     : VERIFICATION_LEASE_MS;
 }
 
-async function delayAfterResultPersistence(env: Bindings): Promise<void> {
+async function delayAfterResultPersistence(env: Bindings, testFault?: TestDirectFault): Promise<void> {
   if (env.TLSN_ENVIRONMENT !== "test" || env.TLSN_TEST_POST_RESULT_DELAY_MS === undefined) return;
+  if (testFault !== undefined && testFault !== "pause_after_result_put") return;
   const delayMs = Number(env.TLSN_TEST_POST_RESULT_DELAY_MS);
   if (!Number.isInteger(delayMs) || delayMs <= 0 || delayMs > 120_000) return;
   if (env.TLSN_TEST_POST_RESULT_DELAY_ONCE === "true") {
@@ -1784,7 +1796,7 @@ async function dispatchDirectVerification(
   jobId: string,
   payload: VerificationTaskPayload,
   presentationId: string,
-  testFault: "failure" | "timeout" | "late_success" | undefined,
+  testFault: TestDirectFault | undefined,
 ): Promise<void> {
   const verifier = env.TLSN_DIRECT_VERIFIER;
   const callbackSecret = directCallbackSecret(env);
@@ -1880,6 +1892,7 @@ export async function processVerificationCompletion(
   executionMode: ExecutionMode,
   diagnosticHmac: boolean,
   executionStartedAt?: number,
+  testFault?: TestDirectFault,
 ): Promise<Response> {
   const callbackAuthenticationStartedAt = executionMode === "queue" ? performance.now() : null;
   if (executionMode === "queue") benchmarkRecord(c.env, jobId, "queue_callback_authentication_started");
@@ -1914,7 +1927,7 @@ export async function processVerificationCompletion(
     benchmarkRecord(c.env, jobId, "queue_callback_schema_validated");
     benchmarkDuration(c.env, jobId, "queue_callback_schema", performance.now() - (callbackSchemaStartedAt ?? performance.now()));
   }
-  return completeVerification(c, callback, executionMode, executionStartedAt);
+  return completeVerification(c, callback, executionMode, executionStartedAt, testFault);
 }
 
 app.post("/internal/tlsn/verification-input", async (c) => {
@@ -2000,6 +2013,7 @@ async function completeVerification(
   callback: z.infer<typeof verificationCallbackSchema>,
   executionMode: ExecutionMode,
   executionStartedAt?: number,
+  testFault?: TestDirectFault,
 ): Promise<Response> {
   const config = await readConfig(c.env);
   if (!config) {
@@ -2105,6 +2119,7 @@ async function completeVerification(
   }
   const expectedProfile = callback.profile;
   if (verificationRecord.status === "consumed") {
+    benchmarkIncrementDiagnostic(c.env, callback.job_id, "late_callback_count");
     deferBenchmarkFlush(c, callback.job_id);
     return readConsumedResult(verificationRecord);
   }
@@ -2337,7 +2352,7 @@ async function completeVerification(
       benchmarkRecord(c.env, callback.job_id, "queue_result_persistence_completed");
       benchmarkDuration(c.env, callback.job_id, "queue_result_persistence", performance.now() - (resultPersistenceStartedAt ?? performance.now()));
     }
-    await delayAfterResultPersistence(c.env);
+    await delayAfterResultPersistence(c.env, testFault);
     let consumedBinding: BindingRecord;
     attemptFailureCode = "authority_error";
     const consumeStartedAt = executionMode === "queue" ? performance.now() : null;
@@ -2367,6 +2382,7 @@ async function completeVerification(
       return c.json({ error: "verification_result_unavailable" }, 503);
     }
     completionConsumed = true;
+    benchmarkDiagnostic(c.env, callback.job_id, "consume_outcome", "consumed");
     benchmarkRecord(c.env, callback.job_id, "t9_consume_completed");
     benchmarkRecord(c.env, callback.job_id, "t10_consume_completed");
     if (executionMode === "queue") {
@@ -2386,6 +2402,10 @@ async function completeVerification(
     return c.json({ accepted: true });
   } catch (error) {
     failurePathEntered = true;
+    benchmarkDiagnostic(c.env, callback.job_id, "consume_outcome", resultPersisted ? "rejected" : "not_attempted");
+    if (error instanceof BindingAuthorityError && (error.code === "verification_failed" || error.code === "binding_expired")) {
+      benchmarkIncrementDiagnostic(c.env, callback.job_id, "late_callback_count");
+    }
     if (resultPersisted && !completionConsumed) {
       benchmarkDiagnostic(c.env, callback.job_id, "result_put_before_consume_rejected", true);
     }
@@ -2692,6 +2712,7 @@ app.post("/verify/tlsn/status", async (c) => {
     return c.json({ verified: false, status: "processing", job_id: requestBody.job_id }, 202);
   }
   if (record.status === "failed") {
+    benchmarkDiagnostic(c.env, requestBody.job_id, "terminal_outcome", "not_verified");
     c.header("Cache-Control", "no-store");
     await attachBenchmarkTimingHeader(c, c.env, requestBody.job_id);
     return c.json({ verified: false, status: "not_verified", job_id: requestBody.job_id }, 200);
@@ -2720,6 +2741,7 @@ app.post("/verify/tlsn/status", async (c) => {
     const finalResponse = verificationFinalResponseSchema.parse(JSON.parse(resultBody) as unknown);
     benchmarkRecord(c.env, requestBody.job_id, "t10_status_verified");
     benchmarkRecord(c.env, requestBody.job_id, "t11_status_verified");
+    benchmarkDiagnostic(c.env, requestBody.job_id, "terminal_outcome", "verified");
     deferBenchmarkFlush(c, requestBody.job_id);
     await attachBenchmarkTimingHeader(c, c.env, requestBody.job_id);
     c.header("Cache-Control", "no-store");
@@ -2849,6 +2871,7 @@ const handleTlsnVerification = async (c: Context<{ Bindings: Bindings }>) => {
       benchmarkTraceId,
       queue ? "queue" : direct ? "direct" : "trigger",
     );
+    benchmarkDiagnostic(c.env, jobId, "profile", sparseProfile ? "sparse" : "complete");
     benchmarkRecord(c.env, jobId, "t0_accepted");
     const payload = verificationTaskPayloadSchema.parse({
       job_id: jobId,
@@ -3157,7 +3180,7 @@ async function handleVerificationQueue(
       "queue_batch_to_handler",
       performance.now() - consumerStartedPerformanceAt,
     );
-    benchmarkDiagnostic(env, queueMessage.job_id, "queue_message_id", message.id);
+    benchmarkDiagnostic(env, queueMessage.job_id, "queue_message_id_present", typeof message.id === "string");
     benchmarkDiagnostic(env, queueMessage.job_id, "queue_message_timestamp_ms", message.timestamp.getTime());
     benchmarkDiagnostic(env, queueMessage.job_id, "queue_message_attempts", message.attempts);
     benchmarkRecord(env, queueMessage.job_id, "t3_queue_execution_started");

@@ -39,6 +39,10 @@ function decodeBase64Url(value) {
   return Buffer.from(value, "base64url");
 }
 
+function sha256Base64Url(value) {
+  return createHash("sha256").update(value).digest("base64url");
+}
+
 function pushLengthPrefixed(chunks, value) {
   const bytes = Buffer.isBuffer(value) ? value : Buffer.from(value);
   const length = Buffer.alloc(2);
@@ -180,6 +184,9 @@ async function main() {
     headers: {
       "Content-Type": "application/json",
       Authorization: `Bearer ${accessToken}`,
+      ...(expectedMode === "result_race"
+        ? { "X-FUSOU-TLSN-Test-Fault": "pause_after_result_put" }
+        : {}),
     },
     body: JSON.stringify({
       presentation_base64: fixture.sparse_presentation_base64,
@@ -261,6 +268,13 @@ async function main() {
     result_object_retained: timing.diagnostics?.result_object_retained === true,
     result_delete_count: Number(timing.r2_operations?.result_delete ?? 0),
     consume_completed: Number.isFinite(timestamps.t10_consume_completed),
+    timing_job_id_hashed: typeof timing.job_id_sha256 === "string",
+    timing_job_id_matches_submission: typeof timing.job_id_sha256 === "string"
+      && timing.job_id_sha256 === sha256Base64Url(verification.json.job_id),
+    timing_trace_id_hashed: typeof timing.trace_id_sha256 === "string",
+    timing_trace_id_matches_submission: typeof timing.trace_id_sha256 === "string"
+      && typeof verification.json.benchmark_trace_id === "string"
+      && timing.trace_id_sha256 === sha256Base64Url(verification.json.benchmark_trace_id),
     retry_status: retry.response.status,
     retry_payload: retry.json,
     no_retry_attempt: retry.response.status === 409 && retry.json?.error === "verification_retry_disabled",
@@ -275,8 +289,8 @@ async function main() {
       result.result_delete_count === 0
     );
   console.log(JSON.stringify(result));
-  if (!result.stable_terminal_status || !result.no_retry_attempt || result.direct_invocation_count !== 1 || result.direct_invocation_accepted || !resultRacePassed) {
-    throw new Error("remote Direct terminal or retry invariant failed");
+  if (!result.stable_terminal_status || !result.no_retry_attempt || result.direct_invocation_count !== 1 || result.direct_invocation_accepted || !resultRacePassed || !result.timing_job_id_matches_submission || !result.timing_trace_id_matches_submission) {
+    throw new Error("remote Direct terminal, retry, or telemetry invariant failed");
   }
 }
 
