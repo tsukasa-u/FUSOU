@@ -238,9 +238,6 @@ async function main() {
   const timestamps = timing.timestamps ?? {};
   const directInvocationCount = Number(timing.diagnostics?.direct_invocation_count ?? 0);
   const resultPutCount = Number(timing.r2_operations?.result_put ?? 0);
-  const resultSha256 = typeof timing.diagnostics?.result_sha256 === "string"
-    ? timing.diagnostics.result_sha256
-    : null;
   const result = {
     expected_mode: expectedMode,
     submission_status: verification.response.status,
@@ -257,18 +254,26 @@ async function main() {
     result_persisted: Number.isFinite(timestamps.t8_result_persisted) || resultPutCount > 0,
     result_put_count: resultPutCount,
     result_sha256_present: timing.diagnostics?.result_sha256_present === true,
-    result_sha256: resultSha256,
     completion_failure_code: typeof timing.diagnostics?.completion_failure_code === "string"
       ? timing.diagnostics.completion_failure_code
       : null,
     result_put_before_consume_rejected: timing.diagnostics?.result_put_before_consume_rejected === true,
+    result_object_retained: timing.diagnostics?.result_object_retained === true,
+    result_delete_count: Number(timing.r2_operations?.result_delete ?? 0),
     consume_completed: Number.isFinite(timestamps.t10_consume_completed),
     retry_status: retry.response.status,
     retry_payload: retry.json,
     no_retry_attempt: retry.response.status === 409 && retry.json?.error === "verification_retry_disabled",
   };
   const resultRacePassed = expectedMode !== "result_race"
-    || (result.result_persisted && !result.consume_completed);
+    || (
+      result.result_persisted &&
+      result.result_put_count === 1 &&
+      !result.consume_completed &&
+      result.result_put_before_consume_rejected &&
+      result.result_object_retained &&
+      result.result_delete_count === 0
+    );
   console.log(JSON.stringify(result));
   if (!result.stable_terminal_status || !result.no_retry_attempt || result.direct_invocation_count !== 1 || result.direct_invocation_accepted || !resultRacePassed) {
     throw new Error("remote Direct terminal or retry invariant failed");

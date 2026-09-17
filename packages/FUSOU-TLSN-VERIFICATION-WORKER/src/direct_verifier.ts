@@ -20,7 +20,10 @@ async function delayTestDirectVerifier(env: Bindings): Promise<void> {
 
 app.post("/internal/tlsn/verification-complete", async (c) => {
   if (c.env.TLSN_ENVIRONMENT === "test") {
-    const mode = c.env.TLSN_TEST_DIRECT_VERIFIER_MODE?.trim();
+    const requestedMode = c.req.header("X-FUSOU-TLSN-Test-Fault")?.trim();
+    const mode = requestedMode === "failure" || requestedMode === "timeout" || requestedMode === "late_success"
+      ? requestedMode
+      : c.env.TLSN_TEST_DIRECT_VERIFIER_MODE?.trim();
     if (mode === "failure") {
       return new Response(null, { status: 503 });
     }

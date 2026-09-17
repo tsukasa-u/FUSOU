@@ -30,6 +30,7 @@
       "benchmark:tlsn-remote:preflight": "node scripts/benchmark-tlsn-remote-preflight.mjs",
       "benchmark:tlsn-remote:setup": "node scripts/setup-tlsn-remote-test.mjs",
       "benchmark:tlsn-remote:configure": "node scripts/configure-tlsn-remote-env.mjs",
+      "benchmark:tlsn-remote:malicious-callback": "node scripts/remote-direct-malicious-callback.mjs",
       "benchmark:tlsn-remote": "pnpm run benchmark:tlsn-remote:preflight && pnpm run build:wasm && node scripts/benchmark-tlsn-remote.mjs",
     "validate:remote": "node scripts/remote-validation.mjs",
     "verify:remote-gate": "node scripts/verify-remote-gate.mjs",

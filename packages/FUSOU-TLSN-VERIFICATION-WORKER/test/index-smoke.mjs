@@ -166,6 +166,8 @@ export async function runSmokeTest(fetch, fixture, publicKeyDerBase64url, device
     ok: true,
     verifier: "tlsn-alpha15-wasm",
     environment: "test",
+    auth_mode: "test-token",
+    device_auth_mode: "external-endpoint",
     deployment_role: "synthetic-test",
     git_commit_sha: null,
     verifier_key_id: "worker-test",

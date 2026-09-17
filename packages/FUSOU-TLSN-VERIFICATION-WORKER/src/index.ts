@@ -621,6 +621,17 @@ function testBindingValueForRequest(env: Bindings, request: Request): string | u
   return requested && allowed.includes(requested) ? requested : undefined;
 }
 
+function testDirectFaultForRequest(
+  env: Bindings,
+  request: Request,
+): "failure" | "timeout" | "late_success" | undefined {
+  if (env.TLSN_ENVIRONMENT !== "test") return undefined;
+  const requested = request.headers.get("X-FUSOU-TLSN-Test-Fault")?.trim();
+  return requested === "failure" || requested === "timeout" || requested === "late_success"
+    ? requested
+    : undefined;
+}
+
 async function delayTestCompletion(env: Bindings): Promise<void> {
   if (env.TLSN_ENVIRONMENT !== "test" || env.TLSN_TEST_COMPLETION_DELAY_MS === undefined) return;
   const delayMs = Number(env.TLSN_TEST_COMPLETION_DELAY_MS);
@@ -1773,6 +1784,7 @@ async function dispatchDirectVerification(
   jobId: string,
   payload: VerificationTaskPayload,
   presentationId: string,
+  testFault: "failure" | "timeout" | "late_success" | undefined,
 ): Promise<void> {
   const verifier = env.TLSN_DIRECT_VERIFIER;
   const callbackSecret = directCallbackSecret(env);
@@ -1805,6 +1817,7 @@ async function dispatchDirectVerification(
         "X-FUSOU-TLSN-Job-Id": jobId,
         "X-FUSOU-TLSN-Signature": signature,
         "X-FUSOU-TLSN-Execution-Mode": "direct",
+        ...(testFault ? { "X-FUSOU-TLSN-Test-Fault": testFault } : {}),
       },
       body: callbackBody,
       signal: controller.signal,
@@ -2077,16 +2090,6 @@ async function completeVerification(
       error instanceof BindingAuthorityError &&
       (error.code === "verification_result_mismatch" || error.code === "verification_profile_mismatch")
     ) {
-      await finalizeVerificationFailure(c.env, {
-        bindingId: callback.binding_id,
-        sessionId: callback.session_id,
-        canonicalUserId: callback.canonical_user_id,
-        deviceId: callback.device_id,
-        jobId: callback.job_id,
-        failureCode: error.code === "verification_result_mismatch"
-          ? "presentation_hash_mismatch"
-          : "verifier_failed",
-      });
       return c.json({ error: error.code }, 422);
     }
     return c.json({ error: error instanceof BindingAuthorityError ? error.code : "job_unavailable" }, 409);
@@ -2317,7 +2320,6 @@ async function completeVerification(
     const resultSha256 = encodeBase64Url(
       new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(finalResponseBody))),
     );
-    benchmarkDiagnostic(c.env, callback.job_id, "result_sha256", resultSha256);
     benchmarkDiagnostic(c.env, callback.job_id, "result_sha256_present", true);
     const resultPersistenceStartedAt = executionMode === "queue" ? performance.now() : null;
     if (executionMode === "queue") benchmarkRecord(c.env, callback.job_id, "queue_result_persistence_started");
@@ -2382,10 +2384,18 @@ async function completeVerification(
     }
     deferBenchmarkFlush(c, callback.job_id);
     return c.json({ accepted: true });
-  } catch {
+  } catch (error) {
     failurePathEntered = true;
     if (resultPersisted && !completionConsumed) {
       benchmarkDiagnostic(c.env, callback.job_id, "result_put_before_consume_rejected", true);
+    }
+    if (
+      resultPersisted &&
+      c.env.TLSN_ENVIRONMENT === "test" &&
+      error instanceof BindingAuthorityError &&
+      (error.code === "verification_failed" || error.code === "binding_conflict" || error.code === "binding_expired")
+    ) {
+      preserveAttemptResult = true;
     }
     await finalizeAttemptFailure(attemptFailureCode);
     return c.json({ error: "verification_failed" }, 422);
@@ -2398,7 +2408,11 @@ async function completeVerification(
       benchmarkVerifierStarted = false;
     }
     if (resultPersisted && !completionConsumed && !preserveAttemptResult) {
+      benchmarkR2Operation(c.env, callback.job_id, "result_delete");
       await c.env.TLSN_PRESENTATIONS.delete(attemptResultKey).catch(() => undefined);
+    }
+    if (resultPersisted && !completionConsumed) {
+      benchmarkDiagnostic(c.env, callback.job_id, "result_object_retained", preserveAttemptResult);
     }
     deferBenchmarkFlush(c, callback.job_id);
   }
@@ -2895,7 +2909,13 @@ const handleTlsnVerification = async (c: Context<{ Bindings: Bindings }>) => {
       } else if (direct) {
         benchmarkRecord(c.env, jobId, "direct_dispatch_started");
         c.executionCtx.waitUntil(
-          dispatchDirectVerification(c.env, jobId, payload, presentationId).catch(async () => {
+          dispatchDirectVerification(
+            c.env,
+            jobId,
+            payload,
+            presentationId,
+            testDirectFaultForRequest(c.env, c.req.raw),
+          ).catch(async () => {
             await finalizeVerificationFailure(c.env, {
               bindingId: payload.binding_id,
               sessionId: payload.session_id,

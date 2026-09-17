@@ -4,6 +4,9 @@ Date: 2026-09-16
 Status: post-one-shot Direct audit complete; production promotion NOT APPROVED
 Scope: test-only Direct Service Binding, test Durable Object, and test R2; production and canary unchanged
 
+The current promotion gate and follow-up evidence contract are tracked in
+`docs/security/evidence/tlsn-direct-production-promotion-gate-2026-09-17.md`.
+
 ## Executive Status
 
 | Area | Status | Evidence |

@@ -413,9 +413,11 @@ const testVars = {
   }),
 };
 
-function localWorker(vars, serviceBindings = {}) {
+function localWorker(vars) {
   const options = {
     config: resolve(packageDirectory, "wrangler.toml"),
+    env: "test",
+    envFiles: [],
     vars,
     persist: false,
     bundle: true,
@@ -426,9 +428,6 @@ function localWorker(vars, serviceBindings = {}) {
       forceLocal: true,
       testMode: true,
     },
-  };
-  if (Object.keys(serviceBindings).length > 0) {
-    options.serviceBindings = serviceBindings;
   }
   return unstable_dev(resolve(packageDirectory, "src/index.ts"), options);
 }
@@ -438,6 +437,11 @@ function internalRequestSignature(secret, jobId, body) {
   return createHmac("sha256", secret)
     .update(`FUSOU-TLSN-INTERNAL-V1\0${jobId}\0${bodyDigest}`)
     .digest("base64url");
+}
+
+function benchmarkTiming(response) {
+  const encoded = response.headers.get("X-FUSOU-TLSN-Benchmark-Timing");
+  return encoded ? JSON.parse(Buffer.from(encoded, "base64url").toString("utf8")) : null;
 }
 
 async function runAsyncTriggerSmokeTest() {
@@ -548,21 +552,28 @@ async function runAsyncTriggerSmokeTest() {
           throw new Error(`async completion accepted forged callback field: ${field}`);
         }
       }
-      const substitutionBody = JSON.stringify({
-        ...completionBase,
-        presentation_id: Buffer.alloc(32, 8).toString("base64url"),
-      });
-      const substitutionResponse = await activeWorker.fetch("https://verify.test/internal/tlsn/verification-complete", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "X-FUSOU-TLSN-Job-Id": payload.job_id,
-          "X-FUSOU-TLSN-Signature": internalRequestSignature(callbackSecret, payload.job_id, substitutionBody),
-        },
-        body: substitutionBody,
-      });
-      if (substitutionResponse.status !== 422 || (await substitutionResponse.json()).error !== "verification_result_mismatch") {
-        throw new Error("async completion accepted a substituted Presentation hash");
+      const alternateProfile = payload.profile === "sparse" ? "complete" : "sparse";
+      const alternateDisclosureMode = alternateProfile === "sparse" ? "sparse" : "full";
+      for (const [name, changes, expectedStatus, expectedError] of [
+        ["presentation", { presentation_id: Buffer.alloc(32, 8).toString("base64url") }, 422, "verification_result_mismatch"],
+        ["profile", { profile: alternateProfile, disclosure_mode: alternateDisclosureMode }, 422, "verification_profile_mismatch"],
+        ["session", { session_id: "22222222-2222-4222-8222-222222222222" }, 409, "session_mismatch"],
+        ["user", { canonical_user_id: "22222222-2222-4222-8222-222222222222" }, 409, "user_mismatch"],
+        ["device", { device_id: "44444444-4444-4444-8444-444444444444" }, 409, "device_mismatch"],
+      ]) {
+        const forgedBody = JSON.stringify({ ...completionBase, ...changes });
+        const forgedResponse = await activeWorker.fetch("https://verify.test/internal/tlsn/verification-complete", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "X-FUSOU-TLSN-Job-Id": payload.job_id,
+            "X-FUSOU-TLSN-Signature": internalRequestSignature(callbackSecret, payload.job_id, forgedBody),
+          },
+          body: forgedBody,
+        });
+        const forgedPayload = await forgedResponse.json();
+        assert.equal(forgedResponse.status, expectedStatus, `${name}: ${forgedPayload.error ?? "no_error"}`);
+        assert.equal(forgedPayload.error, expectedError);
       }
       const completionBody = JSON.stringify(completionBase);
       completionRequest = {
@@ -736,6 +747,35 @@ async function runAsyncTriggerSmokeTest() {
     assert.equal(finalResponse.verified, true);
     assert.equal(finalResponse.result.verified_member_id, "16189463");
 
+    const substitutionBody = JSON.stringify({
+      ...JSON.parse(completionRequest.body),
+      presentation_id: Buffer.alloc(32, 8).toString("base64url"),
+    });
+    const substitutionResponse = await worker.fetch("https://verify.test/internal/tlsn/verification-complete", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-FUSOU-TLSN-Job-Id": completePayload.job_id,
+        "X-FUSOU-TLSN-Signature": internalRequestSignature(callbackSecret, completePayload.job_id, substitutionBody),
+      },
+      body: substitutionBody,
+    });
+    assert.equal(substitutionResponse.status, 422);
+    assert.deepEqual(await substitutionResponse.json(), { error: "verification_result_mismatch" });
+    const statusAfterSubstitution = await worker.fetch("https://verify.test/verify/tlsn/status", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: "Bearer test-token-a" },
+      body: JSON.stringify({
+        job_id: completePayload.job_id,
+        binding_id: completePayload.binding_id,
+        session_id: completePayload.session_id,
+        canonical_user_id: completePayload.canonical_user_id,
+        device_id: completePayload.device_id,
+      }),
+    });
+    assert.equal(statusAfterSubstitution.status, 200);
+    assert.equal((await statusAfterSubstitution.json()).verified, true);
+
     const completeTriggerCount = triggerPayloads.length;
     const completeRetryWithoutProfile = await worker.fetch("https://verify.test/verify/tlsn/retry", {
       method: "POST",
@@ -748,11 +788,15 @@ async function runAsyncTriggerSmokeTest() {
         device_id: completePayload.device_id,
       }),
     });
-    assert.equal(completeRetryWithoutProfile.status, 200);
-    assert.equal((await completeRetryWithoutProfile.json()).verified, true);
+    assert.equal(completeRetryWithoutProfile.status, 409);
+    assert.deepEqual(await completeRetryWithoutProfile.json(), {
+      verified: false,
+      status: "not_verified",
+      error: "verification_retry_disabled",
+    });
     assert.equal(triggerPayloads.length, completeTriggerCount);
 
-    const retryProfileMismatch = await worker.fetch("https://verify.test/verify/tlsn/retry", {
+    const completeRetryWithProfile = await worker.fetch("https://verify.test/verify/tlsn/retry", {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: "Bearer test-token-a" },
       body: JSON.stringify({
@@ -764,11 +808,13 @@ async function runAsyncTriggerSmokeTest() {
         profile: "sparse",
       }),
     });
-    assert.equal(retryProfileMismatch.status, 409);
-    assert.deepEqual(await retryProfileMismatch.json(), {
+    assert.equal(completeRetryWithProfile.status, 409);
+    assert.deepEqual(await completeRetryWithProfile.json(), {
       verified: false,
-      error: "verification_profile_mismatch",
+      status: "not_verified",
+      error: "verification_retry_disabled",
     });
+    assert.equal(triggerPayloads.length, completeTriggerCount);
 
     const duplicateCompletion = await worker.fetch("https://verify.test/internal/tlsn/verification-complete", {
       method: "POST",
@@ -892,10 +938,14 @@ async function runAsyncTriggerSmokeTest() {
         device_id: sparsePayload.device_id,
       }),
     });
-    assert.equal(sparseRetryWithoutProfile.status, 200);
-    assert.equal((await sparseRetryWithoutProfile.json()).verified, true);
+    assert.equal(sparseRetryWithoutProfile.status, 409);
+    assert.deepEqual(await sparseRetryWithoutProfile.json(), {
+      verified: false,
+      status: "not_verified",
+      error: "verification_retry_disabled",
+    });
     assert.equal(triggerPayloads.length, sparseTriggerCount);
-    const sparseRetryProfileMismatch = await sparseWorker.fetch("https://verify.test/verify/tlsn/retry", {
+    const sparseRetryWithProfile = await sparseWorker.fetch("https://verify.test/verify/tlsn/retry", {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: "Bearer test-token-a" },
       body: JSON.stringify({
@@ -907,11 +957,13 @@ async function runAsyncTriggerSmokeTest() {
         profile: "complete",
       }),
     });
-    assert.equal(sparseRetryProfileMismatch.status, 409);
-    assert.deepEqual(await sparseRetryProfileMismatch.json(), {
+    assert.equal(sparseRetryWithProfile.status, 409);
+    assert.deepEqual(await sparseRetryWithProfile.json(), {
       verified: false,
-      error: "verification_profile_mismatch",
+      status: "not_verified",
+      error: "verification_retry_disabled",
     });
+    assert.equal(triggerPayloads.length, sparseTriggerCount);
   } finally {
     if (workerBridge?.listening) {
       await new Promise((resolveServer) => workerBridge.close(resolveServer));
@@ -1086,30 +1138,71 @@ async function runDirectFailureSmokeTest() {
   const callbackSecret = "direct-callback-test-secret";
   const runScenario = async (mode) => {
     let worker;
+    let verifierWorker;
+    let callbackServer;
     let directCalls = 0;
-    const directService = async (request) => {
-      directCalls += 1;
-      if (mode === "failure") {
-        return new Response(null, { status: 503 });
+    callbackServer = createServer(async (request, response) => {
+      if (request.method === "POST" && request.url === "/direct-call") {
+        directCalls += 1;
+        response.writeHead(204);
+        response.end();
+        return;
       }
-      if (mode === "timeout") {
-        return new Promise((resolve, reject) => {
-          const timer = setTimeout(() => resolve(new Response(null, { status: 200 })), 200);
-          request.signal.addEventListener("abort", () => {
-            clearTimeout(timer);
-            reject(new Error("direct invocation aborted"));
-          }, { once: true });
+      try {
+        const chunks = [];
+        for await (const chunk of request) chunks.push(chunk);
+        const headers = new Headers();
+        for (const [name, value] of Object.entries(request.headers)) {
+          if (value === undefined || ["connection", "content-length", "host"].includes(name)) continue;
+          headers.set(name, Array.isArray(value) ? value.join(",") : value);
+        }
+        const callbackResponse = await worker.fetch(`https://verify.test${request.url}`, {
+          method: request.method,
+          headers,
+          body: chunks.length > 0 ? Buffer.concat(chunks) : undefined,
         });
+        response.writeHead(callbackResponse.status, { "Content-Type": "application/json" });
+        response.end(await callbackResponse.text());
+      } catch (error) {
+        response.writeHead(500, { "Content-Type": "application/json" });
+        response.end(JSON.stringify({ error: error instanceof Error ? error.message : String(error) }));
       }
-      return worker.fetch(request);
-    };
+    });
+    await new Promise((resolveServer) => callbackServer.listen(0, "127.0.0.1", resolveServer));
+    callbackServer.unref();
+    const callbackOrigin = `http://127.0.0.1:${callbackServer.address().port}`;
+    verifierWorker = await unstable_dev(resolve(packageDirectory, "scripts/direct-verifier-fixture.mjs"), {
+      config: resolve(packageDirectory, "scripts/direct-verifier-fixture.wrangler.toml"),
+      name: "fusou-tlsn-verifier-test",
+      envFiles: [],
+      vars: {
+        TLSN_DIRECT_FIXTURE_MODE: mode.startsWith("header_") ? "success" : mode,
+        TLSN_DIRECT_TRACE_ORIGIN: callbackOrigin,
+        TLSN_DIRECT_CALLBACK_ORIGIN: callbackOrigin,
+      },
+      persist: false,
+      bundle: true,
+      local: true,
+      compatibilityDate: "2026-07-29",
+      experimental: {
+        disableExperimentalWarning: true,
+        forceLocal: true,
+        testMode: true,
+      },
+    });
     worker = await localWorker({
       ...testVars,
       TLSN_EXECUTION_MODE: "direct",
       TLSN_DIRECT_CALLBACK_SECRET: callbackSecret,
-      TLSN_TEST_DIRECT_INVOCATION_TIMEOUT_MS: "25",
-    }, {
-      TLSN_DIRECT_VERIFIER: directService,
+      ...(mode === "race"
+        ? {
+          TLSN_BENCHMARK_TIMINGS: "true",
+            TLSN_TEST_VERIFICATION_LEASE_MS: "50",
+            TLSN_TEST_POST_RESULT_DELAY_MS: "150",
+            TLSN_TEST_POST_RESULT_DELAY_ONCE: "true",
+            TLSN_TEST_DIRECT_INVOCATION_TIMEOUT_MS: "1000",
+          }
+        : { TLSN_TEST_DIRECT_INVOCATION_TIMEOUT_MS: "25" }),
     });
     try {
       const sessionResponse = await worker.fetch("https://verify.test/attestation/session", {
@@ -1132,7 +1225,12 @@ async function runDirectFailureSmokeTest() {
       ).toString("base64url");
       const verificationResponse = await worker.fetch("https://verify.test/verify/tlsn", {
         method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: "Bearer test-token-a" },
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer test-token-a",
+          ...(mode === "header_failure" ? { "X-FUSOU-TLSN-Test-Fault": "failure" } : {}),
+          ...(mode === "header_timeout" ? { "X-FUSOU-TLSN-Test-Fault": "timeout" } : {}),
+        },
         body: JSON.stringify({
           presentation_base64: syntheticFixture.presentation_base64,
           session_id: session.session_id,
@@ -1162,6 +1260,21 @@ async function runDirectFailureSmokeTest() {
         if (statusResponse.status !== 202) break;
         await new Promise((resolveDelay) => setTimeout(resolveDelay, 10));
       }
+      if (mode === "race") {
+        await new Promise((resolveDelay) => setTimeout(resolveDelay, 250));
+        statusResponse = await worker.fetch("https://verify.test/verify/tlsn/status", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: "Bearer test-token-a" },
+          body: JSON.stringify({
+            job_id: queued.job_id,
+            binding_id: bindingId,
+            session_id: session.session_id,
+            canonical_user_id: "11111111-1111-4111-8111-111111111111",
+            device_id: deviceId,
+          }),
+        });
+        statusPayload = await statusResponse.json();
+      }
       assert.equal(directCalls, 1);
       if (mode === "success") {
         assert.equal(statusResponse.status, 200);
@@ -1184,16 +1297,30 @@ async function runDirectFailureSmokeTest() {
           status: "not_verified",
           error: "verification_retry_disabled",
         });
+        if (mode === "race") {
+          const timing = benchmarkTiming(statusResponse);
+          assert.equal(timing?.r2_operations?.result_put, 1);
+          assert.equal(timing?.r2_operations?.result_delete ?? 0, 0);
+          assert.equal(timing?.diagnostics?.result_sha256_present, true);
+          assert.equal(timing?.diagnostics?.result_put_before_consume_rejected, true);
+          assert.equal(timing?.diagnostics?.result_object_retained, true);
+          assert.equal(Number.isFinite(timing?.timestamps?.t10_consume_completed), false);
+        }
       }
     } finally {
       await worker.stop();
+      await verifierWorker.stop();
+      await new Promise((resolveServer) => callbackServer.close(resolveServer));
     }
   };
 
   await runScenario("success");
   await runScenario("failure");
   await runScenario("timeout");
-  console.log("[tlsn-verification-worker] Direct success, service-binding failure, timeout, and retry-disabled paths OK");
+  await runScenario("race");
+  await runScenario("header_failure");
+  await runScenario("header_timeout");
+  console.log("[tlsn-verification-worker] Direct success, service-binding failure, timeout, Result race, request-scoped faults, and retry-disabled paths OK");
 }
 
 async function runRedirectRegressionTest() {
@@ -1507,6 +1634,8 @@ const wrongNotaryKey = Buffer.from(syntheticFixture.notary_key_base64, "base64ur
 wrongNotaryKey[wrongNotaryKey.length - 1] ^= 1;
 const mismatchedNotaryWorker = await unstable_dev(resolve(packageDirectory, "src/index.ts"), {
   config: resolve(packageDirectory, "wrangler.toml"),
+  env: "test",
+  envFiles: [],
   vars: {
     ...testVars,
     TLSN_NOTARY_KEY_ID: "notary-test",
@@ -1567,6 +1696,8 @@ const productionTrustRootVars = {
 
 const productionTrustRootWorker = await unstable_dev(resolve(packageDirectory, "src/index.ts"), {
   config: resolve(packageDirectory, "wrangler.toml"),
+  env: "production",
+  envFiles: [],
   vars: productionTrustRootVars,
   persist: false,
   bundle: true,
@@ -1591,6 +1722,8 @@ malformedProductionRegistry.keys.push({ ...malformedProductionRegistry.keys[0] }
 malformedProductionRegistry.keys[0].not_before = "not-a-timestamp";
 const malformedProductionRegistryWorker = await unstable_dev(resolve(packageDirectory, "src/index.ts"), {
   config: resolve(packageDirectory, "wrangler.toml"),
+  env: "production",
+  envFiles: [],
   vars: {
     ...productionTrustRootVars,
     TLSN_PRODUCTION_RESULT_SIGNING_KEY_REGISTRY: JSON.stringify(malformedProductionRegistry),
@@ -1615,6 +1748,8 @@ try {
 
 const invalidProductionEndpointWorker = await unstable_dev(resolve(packageDirectory, "src/index.ts"), {
   config: resolve(packageDirectory, "wrangler.toml"),
+  env: "production",
+  envFiles: [],
   vars: {
     TLSN_ENVIRONMENT: "production",
     TLSN_DEPLOYMENT_ROLE: "production",

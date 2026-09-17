@@ -1,0 +1,83 @@
+{
+  "failed_binding": {
+    "terminal_status": 200,
+    "terminal_not_verified": true,
+    "attacks": [
+      {
+        "name": "missing_signature",
+        "http_status": 401,
+        "error": "unauthorized",
+        "accepted": false
+      },
+      {
+        "name": "invalid_signature",
+        "http_status": 401,
+        "error": "unauthorized",
+        "accepted": false
+      },
+      {
+        "name": "wrong_job",
+        "http_status": 400,
+        "error": "invalid_request",
+        "accepted": false
+      },
+      {
+        "name": "wrong_binding",
+        "http_status": 409,
+        "error": "binding_unknown",
+        "accepted": false
+      },
+      {
+        "name": "wrong_session",
+        "http_status": 409,
+        "error": "session_mismatch",
+        "accepted": false
+      },
+      {
+        "name": "wrong_user",
+        "http_status": 409,
+        "error": "user_mismatch",
+        "accepted": false
+      },
+      {
+        "name": "wrong_device",
+        "http_status": 409,
+        "error": "device_mismatch",
+        "accepted": false
+      },
+      {
+        "name": "wrong_presentation",
+        "http_status": 422,
+        "error": "verification_result_mismatch",
+        "accepted": false
+      },
+      {
+        "name": "wrong_profile",
+        "http_status": 422,
+        "error": "verification_profile_mismatch",
+        "accepted": false
+      },
+      {
+        "name": "late_failed_callback",
+        "http_status": 409,
+        "error": "verification_failed",
+        "accepted": false
+      }
+    ],
+    "remains_not_verified": true
+  },
+  "consumed_binding": {
+    "terminal_status": 200,
+    "duplicate_callback": {
+      "http_status": 200,
+      "error": null,
+      "accepted": true
+    },
+    "mutated_callback": {
+      "http_status": 422,
+      "error": "verification_result_mismatch",
+      "accepted": false
+    },
+    "remains_verified": true
+  }
+}

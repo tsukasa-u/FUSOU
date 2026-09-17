@@ -58,6 +58,9 @@
 		},
 		{
 			"path": "packages/FUSOU-DATABASE"
+		},
+		{
+			"path": "packages/FUSOU-TLSN-VERIFICATION-WORKER"
 		}
 	],
 	"settings": {
