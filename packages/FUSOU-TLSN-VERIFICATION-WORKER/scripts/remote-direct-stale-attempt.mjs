@@ -223,6 +223,10 @@ async function main() {
       direct_invocation_count: Number(diagnostics.direct_invocation_count ?? 0),
       direct_invocation_accepted: Number.isFinite(timestamps.direct_invocation_accepted),
       result_put_count: Number(r2Operations.result_put ?? 0),
+      input_put_count: Number(r2Operations.input_put ?? 0),
+      input_get_count: Number(r2Operations.trigger_input_get ?? 0)
+        + Number(r2Operations.worker_presentation_get ?? 0),
+      input_delete_count: Number(r2Operations.input_delete ?? 0),
       consume_completed: Number.isFinite(timestamps.t10_consume_completed),
       consume_outcome: diagnostics.consume_outcome ?? null,
       result_object_retained: diagnostics.result_object_retained === true,
@@ -245,6 +249,9 @@ async function main() {
     && result.observations.direct_invocation_count === 1
     && !result.observations.direct_invocation_accepted
     && result.observations.result_put_count === 1
+    && result.observations.input_put_count === 0
+    && result.observations.input_get_count === 0
+    && result.observations.input_delete_count === 0
     && !result.observations.consume_completed
     && result.observations.consume_outcome === "rejected"
     && result.observations.result_object_retained

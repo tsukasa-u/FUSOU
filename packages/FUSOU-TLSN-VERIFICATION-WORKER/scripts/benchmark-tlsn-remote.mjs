@@ -49,6 +49,8 @@ const COMMON_REQUIRED_TIMING_STAGES = [
   "result_signing_completed",
   "result_construction_started",
   "result_construction_completed",
+  "result_hash_started",
+  "result_hash_completed",
   "result_persistence_started",
   "result_persistence_completed",
   "do_consume_started",
@@ -104,6 +106,7 @@ const REQUIRED_TIMING_STAGES_BY_MODE = {
   ],
   direct: [
     ...COMMON_REQUIRED_TIMING_STAGES,
+    "t1_direct_input_bound",
     "direct_dispatch_started",
     "direct_invocation_accepted",
     "t3_direct_execution_started",
@@ -463,6 +466,7 @@ function summarizePhases(samples) {
     request_acceptance: summarize(samples, "requestAcceptanceMilliseconds"),
     trigger_accept_to_202_send: summarize(samples, "triggerAcceptTo202SendMilliseconds"),
     trigger_queue_start: summarize(samples, "triggerQueueStartMilliseconds"),
+    direct_input_binding: summarize(samples, "directInputBindingMilliseconds"),
     direct_invocation_startup: summarize(samples, "directInvocationStartupMilliseconds"),
     direct_presentation_transfer: summarize(samples, "directPresentationTransferMilliseconds"),
     direct_invocation_acceptance: summarize(samples, "directInvocationAcceptanceMilliseconds"),
@@ -475,6 +479,7 @@ function summarizePhases(samples) {
     result_canonicalization: summarize(samples, "resultCanonicalizationMilliseconds"),
     result_signing_detailed: summarize(samples, "resultSigningDetailedMilliseconds"),
     result_construction: summarize(samples, "resultConstructionMilliseconds"),
+    result_hash: summarize(samples, "resultHashMilliseconds"),
     result_persistence: summarize(samples, "resultPersistenceMilliseconds"),
     result_persistence_detailed: summarize(samples, "resultPersistenceDetailedMilliseconds"),
     do_consume: summarize(samples, "doConsumeMilliseconds"),
@@ -516,8 +521,11 @@ function payloadScalingReport(rows) {
   const observations = rows.flatMap((row) => row.samples.map((sample) => ({
     case_label: row.case_label,
     concurrency: row.concurrency,
+    source_response_bytes: sample.source_response_bytes,
+    request_body_bytes: sample.request_body_bytes,
     presentation_bytes: sample.presentation_bytes,
     result_bytes: sample.result_bytes,
+    client_response_bytes: sample.client_response_bytes,
   })));
   const measuredBands = new Set(
     observations
@@ -553,6 +561,7 @@ function summarizeResourceObservations(samples) {
   return {
     requested_samples: samples.length,
     input_put_count: countOperations("input_put"),
+    input_get_count: countOperations("trigger_input_get") + countOperations("worker_presentation_get"),
     input_delete_count: countOperations("input_delete"),
     result_put_count: countOperations("result_put"),
     result_delete_count: countOperations("result_delete"),
@@ -622,6 +631,7 @@ async function runBatch({ workerOrigin, webOrigin, accessToken, userId, device, 
       const durations = timing?.durations ?? {};
       const diagnostics = timing?.diagnostics ?? {};
       const t1Server = stageTimestamp(timing, "t1_202_response_sent");
+      const t1DirectInputBound = stageTimestamp(timing, "t1_direct_input_bound");
       const t2 = stageTimestamp(
         timing,
         executionMode === "queue"
@@ -645,6 +655,8 @@ async function runBatch({ workerOrigin, webOrigin, accessToken, userId, device, 
       const t7 = stageTimestamp(timing, "t7_wasm_verification_completed");
       const t8Signing = stageTimestamp(timing, "t8_result_signing_completed");
       const t8Persisted = stageTimestamp(timing, "t8_result_persisted");
+      const resultHashStarted = stageTimestamp(timing, "result_hash_started");
+      const resultHashCompleted = stageTimestamp(timing, "result_hash_completed");
       const t9 = stageTimestamp(timing, "t9_consume_completed");
       const t10 = stageTimestamp(timing, "t10_consume_completed");
       const t10CallbackResponse = stageTimestamp(timing, "t10_callback_response_ready");
@@ -658,6 +670,7 @@ async function runBatch({ workerOrigin, webOrigin, accessToken, userId, device, 
       samples.push({
         case_label: entry.caseLabel,
         body_bytes: entry.sourceFixtureBodyBytes,
+        sourceResponseBytes: entry.sourceFixtureBodyBytes,
         presentation_bytes: Buffer.from(fixtures[index].sparse_presentation_base64, "base64url").length,
         concurrency,
         sample_index: sampleIndex,
@@ -672,6 +685,9 @@ async function runBatch({ workerOrigin, webOrigin, accessToken, userId, device, 
         clientObservationMilliseconds: completion.clientT11 - submission.clientT1,
         triggerAcceptTo202SendMilliseconds: t1Server !== null && t2 !== null ? t1Server - t2 : null,
         triggerQueueStartMilliseconds: t2 !== null && t3 !== null ? t3 - t2 : null,
+        directInputBindingMilliseconds: t1DirectInputBound !== null && stageTimestamp(timing, "t0_accepted") !== null
+          ? t1DirectInputBound - stageTimestamp(timing, "t0_accepted")
+          : null,
         directInvocationStartupMilliseconds: executionMode === "direct" && t2 !== null && t3 !== null ? t3 - t2 : null,
         directInvocationAcceptanceMilliseconds: executionMode === "direct" && t2 !== null && directInvocationAccepted !== null
           ? directInvocationAccepted - t2
@@ -712,6 +728,13 @@ async function runBatch({ workerOrigin, webOrigin, accessToken, userId, device, 
           "result_construction_started",
           "result_construction_completed",
         ),
+        resultHashMilliseconds: measuredPhaseMilliseconds(
+          timing,
+          durations,
+          "result_hash",
+          "result_hash_started",
+          "result_hash_completed",
+        ) ?? (resultHashStarted !== null && resultHashCompleted !== null ? resultHashCompleted - resultHashStarted : null),
         resultPersistenceDetailedMilliseconds: measuredPhaseMilliseconds(
           timing,
           durations,
@@ -787,6 +810,7 @@ async function runBatch({ workerOrigin, webOrigin, accessToken, userId, device, 
     timing_complete_samples: samples.filter((sample) => sample.timing_complete).length,
     preparation_milliseconds_excluded: preparationMilliseconds,
     payload_sizes: {
+      source_response_bytes: summarize(samples, "sourceResponseBytes"),
       request_body_bytes: summarize(samples, "requestBodyBytes"),
       presentation_bytes: summarize(samples, "presentation_bytes"),
       result_bytes: summarize(samples, "resultBytes"),
@@ -809,12 +833,15 @@ async function runBatch({ workerOrigin, webOrigin, accessToken, userId, device, 
       max_verifier_concurrency: sample.maxVerifierConcurrency,
       r2_operations: sample.r2_operations,
       diagnostics: sample.diagnostics,
+      request_body_bytes: sample.requestBodyBytes,
       presentation_bytes: sample.presentation_bytes,
+      source_response_bytes: sample.sourceResponseBytes,
       result_bytes: sample.resultBytes,
       client_response_bytes: sample.clientResponseBytes,
       phases_ms: {
         request_acceptance: sample.requestAcceptanceMilliseconds,
         trigger_accept_to_202_send: sample.triggerAcceptTo202SendMilliseconds,
+        direct_input_binding: sample.directInputBindingMilliseconds,
         trigger_queue_start: sample.triggerQueueStartMilliseconds,
         direct_invocation_startup: sample.directInvocationStartupMilliseconds,
         direct_presentation_transfer: sample.directPresentationTransferMilliseconds,

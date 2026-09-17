@@ -8,6 +8,7 @@ const BENCHMARK_TIMING_KEY = "benchmark-timing";
 
 export type BindingStatus = "active" | "processing" | "verifying" | "failed" | "expired" | "consumed";
 export type VerificationProfile = "complete" | "sparse";
+export type VerificationInputSource = "r2" | "direct";
 export type VerificationFailureCode =
   | "service_binding_failed"
   | "verifier_failed"
@@ -32,6 +33,7 @@ export type BindingRecord = {
   expires_at: string;
   status: BindingStatus;
   verification_job_id?: string;
+  verification_input_source?: VerificationInputSource;
   verification_input_key?: string;
   verification_result_key?: string;
   verification_profile?: VerificationProfile;
@@ -106,10 +108,12 @@ type ClaimInput = {
   nonce: string;
   presentation_id: string;
   verification_job_id: string;
-  verification_input_key: string;
+  verification_input_key?: string;
+  verification_input_source: VerificationInputSource;
   verification_result_key: string;
   verification_profile: VerificationProfile;
   device_replay_digest_hex: string;
+  verification_attempt_id?: string;
   now: number;
 };
 
@@ -302,6 +306,9 @@ export class DurableObjectBindingAuthority {
   }
 
   async claimBinding(bindingValue: string, input: ClaimInput): Promise<BindingRecord> {
+    if (input.verification_input_source === "direct" && input.verification_attempt_id === undefined) {
+      throw new BindingAuthorityError("verification_result_mismatch");
+    }
     const bindingId = await hashBindingId(bindingValue);
     return this.call(bindingId, "/claim", input);
   }
@@ -679,10 +686,11 @@ export class TlsnBindingAuthorityDurableObject extends DurableObject {
         result = { ok: false, error: "verification_result_mismatch" };
         return;
       }
+      const verificationInputSource = record.verification_input_source ?? "r2";
       if (
-        record.verification_input_key === undefined ||
         record.verification_result_key === undefined ||
-        record.device_replay_digest_hex === undefined
+        record.device_replay_digest_hex === undefined ||
+        (verificationInputSource === "r2" && record.verification_input_key === undefined)
       ) {
         result = { ok: false, error: "verification_result_mismatch" };
         return;
@@ -716,10 +724,25 @@ export class TlsnBindingAuthorityDurableObject extends DurableObject {
         record.verification_lease_expires_at !== undefined &&
         Date.parse(record.verification_lease_expires_at) > input.now
       ) {
+        if (
+          (record.verification_input_source ?? "r2") === "direct" &&
+          record.verification_attempt_id !== input.verification_attempt_id
+        ) {
+          result = { ok: false, error: "binding_conflict" };
+          return;
+        }
         result = { ok: true, record };
         return;
       }
       if (record.status !== "processing" && record.status !== "verifying") {
+        result = { ok: false, error: "binding_conflict" };
+        return;
+      }
+      if (
+        (record.verification_input_source ?? "r2") === "direct" &&
+        record.verification_attempt_id !== undefined &&
+        record.verification_attempt_id !== input.verification_attempt_id
+      ) {
         result = { ok: false, error: "binding_conflict" };
         return;
       }
@@ -955,15 +978,24 @@ export class TlsnBindingAuthorityDurableObject extends DurableObject {
         result = { ok: false, error: "binding_conflict" };
         return;
       }
+      if (
+        (input.verification_input_source === "r2" && input.verification_input_key === undefined) ||
+        (input.verification_input_source === "direct" && input.verification_input_key !== undefined)
+      ) {
+        result = { ok: false, error: "verification_result_mismatch" };
+        return;
+      }
       const processing: BindingRecord = {
         ...record,
         status: "processing",
         verification_job_id: input.verification_job_id,
-        verification_input_key: input.verification_input_key,
+        ...(input.verification_input_key ? { verification_input_key: input.verification_input_key } : {}),
+        verification_input_source: input.verification_input_source,
         verification_result_key: input.verification_result_key,
         verification_profile: input.verification_profile,
         device_replay_digest_hex: input.device_replay_digest_hex,
         presentation_id: input.presentation_id,
+        ...(input.verification_attempt_id ? { verification_attempt_id: input.verification_attempt_id } : {}),
       };
       await transaction.put("binding", processing);
       result = { ok: true, record: processing };

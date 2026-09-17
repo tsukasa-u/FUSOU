@@ -13,8 +13,8 @@ const workerOrigin = required("TLSN_REMOTE_BENCHMARK_WORKER_URL");
 const accessToken = required("TLSN_REMOTE_ACCESS_TOKEN_A");
 const deviceId = required("TLSN_REMOTE_DEVICE_ID_A");
 const callbackSecret = required("TLSN_REMOTE_DIRECT_CALLBACK_SECRET");
-const failureBinding = required("TLSN_REMOTE_TEST_BINDING_FAILURE");
-const successBinding = required("TLSN_REMOTE_TEST_BINDING_SUCCESS");
+const failureBinding = process.env.TLSN_REMOTE_TEST_BINDING_FAILURE?.trim() || undefined;
+const successBinding = process.env.TLSN_REMOTE_TEST_BINDING_SUCCESS?.trim() || undefined;
 const pollIntervalMs = Number(process.env.TLSN_REMOTE_POLL_INTERVAL_MS ?? "100");
 const maxPollMs = Number(process.env.TLSN_REMOTE_MAX_POLL_MS ?? "15000");
 const reportPath = process.env.TLSN_REMOTE_MALICIOUS_CALLBACK_REPORT_PATH?.trim();
@@ -86,7 +86,7 @@ async function issueSession(privateKey, bindingSelector) {
     headers: {
       "Content-Type": "application/json",
       Authorization: `Bearer ${accessToken}`,
-      "X-FUSOU-TLSN-Test-Binding": bindingSelector,
+      ...(bindingSelector ? { "X-FUSOU-TLSN-Test-Binding": bindingSelector } : {}),
     },
     body: JSON.stringify({ device_id: deviceId, nonce, sig: signature }),
   });
@@ -105,7 +105,7 @@ async function submitVerification(privateKey, session, fixture, fault, bindingSe
   const headers = {
     "Content-Type": "application/json",
     Authorization: `Bearer ${accessToken}`,
-    "X-FUSOU-TLSN-Test-Binding": bindingSelector,
+    ...(bindingSelector ? { "X-FUSOU-TLSN-Test-Binding": bindingSelector } : {}),
   };
   if (fault) headers["X-FUSOU-TLSN-Test-Fault"] = fault;
   const result = await requestJson("/verify/tlsn/sparse", {
@@ -157,6 +157,9 @@ function callbackBody(base, changes = {}) {
     canonical_user_id: base.canonical_user_id,
     device_id: base.device_id,
     presentation_id: base.presentation_id,
+    execution_mode: "direct",
+    verification_input_source: "direct",
+    verification_attempt_id: randomUUID(),
     verification_status: "verified",
     profile: "sparse",
     disclosure_mode: "sparse",

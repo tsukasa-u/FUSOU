@@ -169,6 +169,7 @@ export async function runSmokeTest(fetch, fixture, publicKeyDerBase64url, device
     auth_mode: "test-token",
     device_auth_mode: "external-endpoint",
     deployment_role: "synthetic-test",
+    execution_mode: "sync",
     git_commit_sha: null,
     verifier_key_id: "worker-test",
     notary_key_id: "notary-test",

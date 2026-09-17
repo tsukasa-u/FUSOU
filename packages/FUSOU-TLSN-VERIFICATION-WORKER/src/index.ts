@@ -226,6 +226,7 @@ type BenchmarkTimingStage =
   | "queue_consume_completed"
   | "queue_completion_response_ready"
   | "direct_dispatch_started"
+  | "t1_direct_input_bound"
   | "direct_invocation_started"
   | "direct_invocation_accepted"
   | "t3_direct_execution_started"
@@ -238,6 +239,8 @@ type BenchmarkTimingStage =
   | "result_signing_completed"
   | "result_construction_started"
   | "result_construction_completed"
+  | "result_hash_started"
+  | "result_hash_completed"
   | "result_persistence_started"
   | "result_persistence_completed"
   | "do_consume_started"
@@ -1823,6 +1826,7 @@ async function dispatchDirectVerification(
   jobId: string,
   payload: VerificationTaskPayload,
   presentationId: string,
+  verificationAttemptId: string,
   presentationBytes: Uint8Array,
   testFault: TestDirectFault | undefined,
 ): Promise<void> {
@@ -1838,6 +1842,9 @@ async function dispatchDirectVerification(
     canonical_user_id: payload.canonical_user_id,
     device_id: payload.device_id,
     presentation_id: presentationId,
+    execution_mode: "direct",
+    verification_input_source: "direct",
+    verification_attempt_id: verificationAttemptId,
     verification_status: "verified",
     profile: payload.profile,
     disclosure_mode: payload.disclosure_mode,
@@ -2005,6 +2012,7 @@ app.post("/internal/tlsn/verification-input", async (c) => {
   }
   if (
     (record.status !== "processing" && record.status !== "verifying") ||
+    (record.verification_input_source ?? "r2") !== "r2" ||
     record.verification_input_key !== parsed.data.verification_input_key
   ) {
     return c.json({ error: "job_unavailable" }, 409);
@@ -2026,7 +2034,6 @@ app.post("/internal/tlsn/verification-input", async (c) => {
 });
 
 app.post("/internal/tlsn/verification-complete", async (c) => {
-  const rawBody = await readRawBody(c.req.raw, MAX_INTERNAL_CALLBACK_JSON_BYTES).catch(() => null);
   const jobId = c.req.header("X-FUSOU-TLSN-Job-Id") ?? "";
   const signature = c.req.header("X-FUSOU-TLSN-Signature") ?? null;
   const executionHeader = c.req.header("X-FUSOU-TLSN-Execution-Mode");
@@ -2037,6 +2044,28 @@ app.post("/internal/tlsn/verification-complete", async (c) => {
         ? "direct"
         : "trigger"
     : "trigger";
+  const encodedMetadata = c.req.header("X-FUSOU-TLSN-Direct-Metadata");
+  let rawBody: string | null = null;
+  let directPresentationBytes: Uint8Array | undefined;
+  let directPresentationTiming: { readStartedAt: number; readCompletedAt: number } | undefined;
+  if (encodedMetadata && executionMode === "direct") {
+    const presentationReadStartedAt = Date.now();
+    directPresentationBytes = await readRawBytes(c.req.raw, MAX_PRESENTATION_BYTES).catch(() => undefined);
+    const presentationReadCompletedAt = Date.now();
+    try {
+      rawBody = new TextDecoder("utf-8", { fatal: true, ignoreBOM: false }).decode(
+        decodeBase64Url(encodedMetadata, MAX_INTERNAL_CALLBACK_JSON_BYTES),
+      );
+      directPresentationTiming = {
+        readStartedAt: presentationReadStartedAt,
+        readCompletedAt: presentationReadCompletedAt,
+      };
+    } catch {
+      rawBody = null;
+    }
+  } else {
+    rawBody = await readRawBody(c.req.raw, MAX_INTERNAL_CALLBACK_JSON_BYTES).catch(() => null);
+  }
   if (rawBody === null) return internalRequestAuthFailure(c, "signature_invalid");
   return processVerificationCompletion(
     verificationCompletionContextFromHono(c),
@@ -2045,6 +2074,10 @@ app.post("/internal/tlsn/verification-complete", async (c) => {
     signature,
     executionMode,
     c.env.TLSN_ENVIRONMENT === "test" && c.req.header("X-FUSOU-TLSN-Diagnostic") === "hmac",
+    undefined,
+    undefined,
+    directPresentationBytes,
+    directPresentationTiming,
   );
 });
 
@@ -2133,7 +2166,7 @@ async function completeVerification(
     }
   };
 
-  const verificationAttemptId = crypto.randomUUID();
+  const verificationAttemptId = callback.verification_attempt_id ?? crypto.randomUUID();
   const attemptResultKey = verificationObjectKey(verificationAttemptId, "result");
   let verificationRecord;
   const bindingLookupAndLeaseStartedAt = executionMode === "queue" ? performance.now() : null;
@@ -2181,10 +2214,11 @@ async function completeVerification(
   ) {
     return c.json({ accepted: false, status: "processing" }, 202);
   }
+  const verificationInputSource = verificationRecord.verification_input_source ?? "r2";
   if (
-    verificationRecord.verification_input_key === undefined ||
     verificationRecord.verification_result_key === undefined ||
-    verificationRecord.device_replay_digest_hex === undefined
+    verificationRecord.device_replay_digest_hex === undefined ||
+    (verificationInputSource === "r2" && verificationRecord.verification_input_key === undefined)
   ) {
     await finalizeVerificationFailure(c.env, {
       bindingId: callback.binding_id,
@@ -2211,6 +2245,12 @@ async function completeVerification(
     verification_result_key: verificationResultKey,
     device_replay_digest_hex: deviceReplayDigestHex,
   };
+  let completionConsumed = false;
+  let failurePathEntered = false;
+  let resultPersisted = false;
+  let preserveAttemptResult = false;
+  let attemptFailureCode: VerificationFailureCode = "verifier_failed";
+  let benchmarkVerifierStarted = true;
   const finalizeAttemptFailure = async (failureCode: VerificationFailureCode): Promise<void> => {
     failurePathEntered = true;
     benchmarkDiagnostic(c.env, callback.job_id, "completion_failure_code", failureCode);
@@ -2224,12 +2264,18 @@ async function completeVerification(
       failureCode,
     });
   };
-  let completionConsumed = false;
-  let failurePathEntered = false;
-  let resultPersisted = false;
-  let preserveAttemptResult = false;
-  let attemptFailureCode: VerificationFailureCode = "verifier_failed";
-  let benchmarkVerifierStarted = true;
+  if (
+    executionMode === "direct" &&
+    (
+      verificationInputSource !== "direct" ||
+      callback.execution_mode !== "direct" ||
+      callback.verification_input_source !== "direct" ||
+      callback.verification_attempt_id !== verificationAttemptId
+    )
+  ) {
+    await finalizeAttemptFailure("verifier_failed");
+    return c.json({ error: "verification_result_mismatch" }, 422);
+  }
   const releaseVerificationLease = async (): Promise<void> => {
     await authority.releaseVerification(callback.binding_id, {
       session_id: completionRecord.session_id,
@@ -2247,11 +2293,19 @@ async function completeVerification(
   const presentationReadStartedAt = executionMode === "queue" ? performance.now() : null;
   if (executionMode === "queue") benchmarkRecord(c.env, callback.job_id, "queue_presentation_read_started");
   try {
-    if (directPresentationBytes) {
+    if (executionMode === "direct") {
+      if (verificationInputSource !== "direct" || !directPresentationBytes) {
+        await finalizeAttemptFailure("presentation_read_failed");
+        return c.json({ error: "verification_input_unavailable" }, 503);
+      }
       storedPresentation = directPresentationBytes;
       benchmarkRecord(c.env, callback.job_id, "direct_presentation_received");
       benchmarkDiagnostic(c.env, callback.job_id, "presentation_transfer_bytes", storedPresentation.byteLength);
     } else {
+      if (verificationInputSource !== "r2" || !completionRecord.verification_input_key) {
+        await finalizeAttemptFailure("presentation_read_failed");
+        return c.json({ error: "verification_input_unavailable" }, 503);
+      }
       const presentationObject = await c.env.TLSN_PRESENTATIONS.get(completionRecord.verification_input_key);
       if (!presentationObject || presentationObject.size > MAX_PRESENTATION_BYTES) {
         await finalizeAttemptFailure("presentation_read_failed");
@@ -2408,9 +2462,13 @@ async function completeVerification(
     benchmarkRecord(c.env, callback.job_id, "result_construction_completed");
     benchmarkDiagnostic(c.env, callback.job_id, "result_bytes", new TextEncoder().encode(finalResponseBody).byteLength);
     benchmarkDuration(c.env, callback.job_id, "result_construction", performance.now() - resultConstructionStartedAt);
+    const resultHashStartedAt = performance.now();
+    benchmarkRecord(c.env, callback.job_id, "result_hash_started");
     const resultSha256 = encodeBase64Url(
       new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(finalResponseBody))),
     );
+    benchmarkRecord(c.env, callback.job_id, "result_hash_completed");
+    benchmarkDuration(c.env, callback.job_id, "result_hash", performance.now() - resultHashStartedAt);
     benchmarkDiagnostic(c.env, callback.job_id, "result_sha256_present", true);
     const resultPersistenceStartedAt = performance.now();
     benchmarkRecord(c.env, callback.job_id, "result_persistence_started");
@@ -2478,11 +2536,10 @@ async function completeVerification(
       benchmarkDuration(c.env, callback.job_id, "queue_completion_response", performance.now() - (completionResponseStartedAt ?? performance.now()));
     }
     const cleanupInput = async (): Promise<void> => {
+      if (verificationInputSource !== "r2" || !completionRecord.verification_input_key) return;
       benchmarkRecord(c.env, callback.job_id, "input_cleanup_started");
-      if (completionRecord.verification_input_key) {
-        benchmarkR2Operation(c.env, callback.job_id, "input_delete");
-        await c.env.TLSN_PRESENTATIONS.delete(completionRecord.verification_input_key).catch(() => undefined);
-      }
+      benchmarkR2Operation(c.env, callback.job_id, "input_delete");
+      await c.env.TLSN_PRESENTATIONS.delete(completionRecord.verification_input_key).catch(() => undefined);
       benchmarkRecord(c.env, callback.job_id, "input_cleanup_completed");
       await benchmarkFlush(c.env, callback.job_id);
     };
@@ -2901,6 +2958,7 @@ const handleTlsnVerification = async (c: Context<{ Bindings: Bindings }>) => {
     const trigger = shouldUseTriggerExecution(c.env) ? triggerExecutionConfig(c.env) : null;
     const queue = shouldUseQueueExecution(c.env) ? c.env.TLSN_VERIFICATION_QUEUE : undefined;
     const direct = shouldUseDirectExecution(c.env) ? c.env.TLSN_DIRECT_VERIFIER : undefined;
+    const directVerificationAttemptId = direct ? crypto.randomUUID() : undefined;
     if (!trigger && !queue && !direct) {
       return c.json({
         verified: false,
@@ -2965,7 +3023,7 @@ const handleTlsnVerification = async (c: Context<{ Bindings: Bindings }>) => {
     );
     const jobId = crypto.randomUUID();
     const benchmarkTraceId = benchmarkEnabled(c.env) ? crypto.randomUUID() : undefined;
-    const verificationInputKey = verificationObjectKey(jobId, "presentation");
+    const verificationInputKey = direct ? undefined : verificationObjectKey(jobId, "presentation");
     const verificationResultKey = verificationObjectKey(jobId, "result");
     const bindingId = await hashBindingId(requestBody.binding);
     benchmarkRegister(
@@ -2977,6 +3035,7 @@ const handleTlsnVerification = async (c: Context<{ Bindings: Bindings }>) => {
       queue ? "queue" : direct ? "direct" : "trigger",
     );
     benchmarkDiagnostic(c.env, jobId, "profile", sparseProfile ? "sparse" : "complete");
+    benchmarkDiagnostic(c.env, jobId, "input_source", direct ? "direct" : "r2");
     benchmarkRecord(c.env, jobId, "t0_accepted");
     const payload = verificationTaskPayloadSchema.parse({
       job_id: jobId,
@@ -2985,18 +3044,21 @@ const handleTlsnVerification = async (c: Context<{ Bindings: Bindings }>) => {
       canonical_user_id: authentication.canonicalUserId,
       device_id: issuedBinding.device_id,
       device_challenge: requestBody.device_proof.challenge,
-      verification_input_key: verificationInputKey,
+      verification_input_source: direct ? "direct" : "r2",
+      ...(verificationInputKey ? { verification_input_key: verificationInputKey } : {}),
       verification_result_key: verificationResultKey,
       ...(benchmarkTraceId ? { benchmark_trace_id: benchmarkTraceId } : {}),
       profile: sparseProfile ? "sparse" : "complete",
       disclosure_mode: sparseProfile ? "sparse" : "full",
     });
     try {
-      await c.env.TLSN_PRESENTATIONS.put(verificationInputKey, presentationBytes, {
-        httpMetadata: { contentType: "application/octet-stream" },
-      });
-      benchmarkR2Operation(c.env, jobId, "input_put");
-      benchmarkRecord(c.env, jobId, "t1_presentation_persisted");
+      if (verificationInputKey) {
+        await c.env.TLSN_PRESENTATIONS.put(verificationInputKey, presentationBytes, {
+          httpMetadata: { contentType: "application/octet-stream" },
+        });
+        benchmarkR2Operation(c.env, jobId, "input_put");
+        benchmarkRecord(c.env, jobId, "t1_presentation_persisted");
+      }
       await authority.claimBinding(requestBody.binding, {
         session_id: issuedBinding.session_id,
         canonical_user_id: authentication.canonicalUserId,
@@ -3005,14 +3067,19 @@ const handleTlsnVerification = async (c: Context<{ Bindings: Bindings }>) => {
         nonce: issuedBinding.nonce,
         presentation_id: presentationId,
         verification_job_id: jobId,
-        verification_input_key: verificationInputKey,
+        verification_input_source: direct ? "direct" : "r2",
+        ...(verificationInputKey ? { verification_input_key: verificationInputKey } : {}),
         verification_result_key: verificationResultKey,
         verification_profile: sparseProfile ? "sparse" : "complete",
         device_replay_digest_hex: devicePossession.replayDigestHex,
+        ...(directVerificationAttemptId ? { verification_attempt_id: directVerificationAttemptId } : {}),
         now: Date.now(),
       });
+      if (direct) benchmarkRecord(c.env, jobId, "t1_direct_input_bound");
     } catch {
-      await c.env.TLSN_PRESENTATIONS.delete(verificationInputKey).catch(() => undefined);
+      if (verificationInputKey) {
+        await c.env.TLSN_PRESENTATIONS.delete(verificationInputKey).catch(() => undefined);
+      }
       return c.json({ verified: false, error: "trigger_unavailable", job_id: jobId }, 503);
     }
     try {
@@ -3042,6 +3109,7 @@ const handleTlsnVerification = async (c: Context<{ Bindings: Bindings }>) => {
             jobId,
             payload,
             presentationId,
+            directVerificationAttemptId ?? "",
             presentationBytes,
             testDirectFaultForRequest(c.env, c.req.raw),
           ).catch(async () => {

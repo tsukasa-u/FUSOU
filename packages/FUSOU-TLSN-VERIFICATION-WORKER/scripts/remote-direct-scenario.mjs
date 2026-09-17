@@ -43,6 +43,15 @@ function sha256Base64Url(value) {
   return createHash("sha256").update(value).digest("base64url");
 }
 
+function directInputR2Operations(timing) {
+  return {
+    input_put_count: Number(timing?.r2_operations?.input_put ?? 0),
+    input_get_count: Number(timing?.r2_operations?.trigger_input_get ?? 0)
+      + Number(timing?.r2_operations?.worker_presentation_get ?? 0),
+    input_delete_count: Number(timing?.r2_operations?.input_delete ?? 0),
+  };
+}
+
 function pushLengthPrefixed(chunks, value) {
   const bytes = Buffer.isBuffer(value) ? value : Buffer.from(value);
   const length = Buffer.alloc(2);
@@ -208,12 +217,16 @@ async function runMixedAttempt({ fault, session, userId, privateKey, manifest, e
     timing_trace_id_matches_submission: typeof timing.trace_id_sha256 === "string"
       && typeof verification.json.benchmark_trace_id === "string"
       && timing.trace_id_sha256 === sha256Base64Url(verification.json.benchmark_trace_id),
+    ...directInputR2Operations(timing),
   };
   if (
     !terminalMatches
     || result.direct_invocation_count !== 1
     || !result.timing_job_id_matches_submission
     || !result.timing_trace_id_matches_submission
+    || result.input_put_count !== 0
+    || result.input_get_count !== 0
+    || result.input_delete_count !== 0
     || (expectedSuccess && (!result.consume_completed || result.result_put_count !== 1))
     || (!expectedSuccess && result.result_put_count !== 0)
   ) {
@@ -239,18 +252,18 @@ async function main() {
   const mixedMatch = /^mixed-(4|8)$/.exec(expectedMode);
   if (mixedMatch) {
     const concurrency = Number(mixedMatch[1]);
-    const bindings = required("TLSN_REMOTE_TEST_BINDING_VALUES")
+    const configuredBindings = (process.env.TLSN_REMOTE_TEST_BINDING_VALUES ?? "")
       .split(",")
       .map((value) => value.trim())
       .filter(Boolean);
-    if (new Set(bindings).size < concurrency) {
-      throw new Error(`TLSN_REMOTE_TEST_BINDING_VALUES must contain ${concurrency} distinct values`);
-    }
+    const bindings = new Set(configuredBindings).size >= concurrency
+      ? configuredBindings.slice(0, concurrency)
+      : Array.from({ length: concurrency }, () => undefined);
     const faults = ["failure", "timeout", ...Array.from({ length: concurrency - 2 }, () => "success")];
     const sessions = [];
-    for (const binding of bindings.slice(0, concurrency)) {
+    for (const binding of bindings) {
       const session = await issueSession(privateKey, binding);
-      if (session.binding !== binding) throw new Error("remote mixed binding selection failed");
+      if (binding && session.binding !== binding) throw new Error("remote mixed binding selection failed");
       sessions.push(session);
     }
     const results = await Promise.all(faults.map((fault, index) => runMixedAttempt({
@@ -275,6 +288,8 @@ async function main() {
       Authorization: `Bearer ${accessToken}`,
       ...(expectedMode === "result_race"
         ? { "X-FUSOU-TLSN-Test-Fault": "pause_after_result_put" }
+        : expectedMode === "failure" || expectedMode === "timeout"
+          ? { "X-FUSOU-TLSN-Test-Fault": expectedMode }
         : {}),
     },
     body: JSON.stringify({
@@ -356,6 +371,7 @@ async function main() {
     result_put_before_consume_rejected: timing.diagnostics?.result_put_before_consume_rejected === true,
     result_object_retained: timing.diagnostics?.result_object_retained === true,
     result_delete_count: Number(timing.r2_operations?.result_delete ?? 0),
+    ...directInputR2Operations(timing),
     consume_completed: Number.isFinite(timestamps.t10_consume_completed),
     timing_job_id_hashed: typeof timing.job_id_sha256 === "string",
     timing_job_id_matches_submission: typeof timing.job_id_sha256 === "string"
@@ -378,7 +394,7 @@ async function main() {
       result.result_delete_count === 0
     );
   console.log(JSON.stringify(result));
-  if (!result.stable_terminal_status || !result.no_retry_attempt || result.direct_invocation_count !== 1 || result.direct_invocation_accepted || !resultRacePassed || !result.timing_job_id_matches_submission || !result.timing_trace_id_matches_submission) {
+  if (!result.stable_terminal_status || !result.no_retry_attempt || result.direct_invocation_count !== 1 || result.direct_invocation_accepted || !resultRacePassed || !result.timing_job_id_matches_submission || !result.timing_trace_id_matches_submission || result.input_put_count !== 0 || result.input_get_count !== 0 || result.input_delete_count !== 0) {
     throw new Error("remote Direct terminal, retry, or telemetry invariant failed");
   }
 }

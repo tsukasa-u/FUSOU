@@ -53,7 +53,10 @@ async function main() {
     observations.push({
       case_label: entry.caseLabel,
       source_fixture_body_bytes: entry.sourceFixtureBodyBytes,
+      request_body_bytes: null,
       presentation_bytes: presentationBytes,
+      result_bytes: null,
+      client_response_bytes: null,
       presentation_band: bandFor(presentationBytes),
       source_epoch: entry.sourceEpoch,
       source_file: entry.sourceFileName,
@@ -78,8 +81,11 @@ async function main() {
       fixture_semantics: manifest.source.fixtureSemantics,
     },
     payload_definition: {
-      measured_bytes: "sparse Presentation bytes sent to the verifier",
-      source_response_bytes: "reported for context only; not used as Presentation size",
+      source_response_bytes: "measured from the real fixture source corpus; not used as Presentation size",
+      request_body_bytes: "NOT_RUN; requires remote request execution",
+      presentation_bytes: "measured sparse Presentation bytes sent to the verifier",
+      result_bytes: "NOT_RUN; requires remote verification",
+      client_response_bytes: "NOT_RUN; requires remote verification",
       limit_bytes: 8 * 1024 * 1024,
     },
     target_bands: TARGET_BANDS.map((band) => ({
@@ -91,6 +97,9 @@ async function main() {
     })),
     observed_presentation_bytes: summarize(observations.map((observation) => observation.presentation_bytes)),
     observed_source_response_bytes: summarize(observations.map((observation) => observation.source_fixture_body_bytes)),
+    observed_request_body_bytes: summarize(observations.map((observation) => observation.request_body_bytes)),
+    observed_result_bytes: summarize(observations.map((observation) => observation.result_bytes)),
+    observed_client_response_bytes: summarize(observations.map((observation) => observation.client_response_bytes)),
     observations,
     interpretation: measuredBands.size === 0
       ? "No available real fixture falls within the requested scaling bands."

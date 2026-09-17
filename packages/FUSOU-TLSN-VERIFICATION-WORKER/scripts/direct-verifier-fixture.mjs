@@ -26,19 +26,17 @@ export default {
       return new Response(null, { status: 500 });
     }
     const metadata = request.headers.get("X-FUSOU-TLSN-Direct-Metadata");
-    const callbackBody = metadata ? decodeBase64Url(metadata) : request.body;
+    const presentationBody = await request.arrayBuffer();
     const callbackHeaders = new Headers(request.headers);
     if (metadata) {
-      callbackHeaders.delete("Content-Length");
-      callbackHeaders.delete("X-FUSOU-TLSN-Direct-Metadata");
-      callbackHeaders.set("Content-Type", "application/json");
+      callbackHeaders.set("Content-Type", "application/octet-stream");
     }
     const callbackResponse = await fetch(
       `${callbackOrigin}/internal/tlsn/verification-complete`,
       {
         method: request.method,
         headers: callbackHeaders,
-        body: callbackBody,
+        body: presentationBody,
       },
     );
     return new Response(null, { status: callbackResponse.status });

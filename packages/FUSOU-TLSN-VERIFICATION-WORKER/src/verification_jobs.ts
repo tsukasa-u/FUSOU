@@ -5,6 +5,7 @@ const OBJECT_KEY_PATTERN = /^tlsn-verification\/[0-9a-f-]+\/(?:presentation|resu
 const BENCHMARK_TRACE_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const VERIFICATION_PROFILE_SCHEMA = z.enum(["complete", "sparse"]);
 const DISCLOSURE_MODE_SCHEMA = z.enum(["full", "sparse"]);
+const VERIFICATION_INPUT_SOURCE_SCHEMA = z.enum(["r2", "direct"]);
 
 const verificationProfileFields = {
   profile: VERIFICATION_PROFILE_SCHEMA,
@@ -22,6 +23,27 @@ function assertVerificationProfile(payload: { profile: "complete" | "sparse"; di
   }
 }
 
+function assertVerificationInputSource(
+  payload: { verification_input_source?: "r2" | "direct" | undefined; verification_input_key?: string | undefined },
+  context: z.RefinementCtx,
+): void {
+  const source = payload.verification_input_source ?? "r2";
+  if (source === "r2" && !payload.verification_input_key) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["verification_input_key"],
+      message: "R2 verification input requires an object key",
+    });
+  }
+  if (source === "direct" && payload.verification_input_key !== undefined) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["verification_input_key"],
+      message: "Direct verification input must not carry an R2 object key",
+    });
+  }
+}
+
 const verificationTaskPayloadObject = z.object({
   job_id: z.string().regex(JOB_ID_PATTERN),
   binding_id: z.string().regex(/^[A-Za-z0-9_-]{43}$/),
@@ -29,28 +51,43 @@ const verificationTaskPayloadObject = z.object({
   canonical_user_id: z.string().uuid(),
   device_id: z.string().uuid(),
   device_challenge: z.string().regex(/^[A-Za-z0-9_-]{43}$/),
-  verification_input_key: z.string().regex(OBJECT_KEY_PATTERN),
+  verification_input_source: VERIFICATION_INPUT_SOURCE_SCHEMA.optional(),
+  verification_input_key: z.string().regex(OBJECT_KEY_PATTERN).optional(),
   verification_result_key: z.string().regex(OBJECT_KEY_PATTERN),
   benchmark_trace_id: z.string().regex(BENCHMARK_TRACE_ID_PATTERN).optional(),
   ...verificationProfileFields,
 }).strict();
 
-export const verificationTaskPayloadSchema = verificationTaskPayloadObject.superRefine(assertVerificationProfile);
+export const verificationTaskPayloadSchema = verificationTaskPayloadObject
+  .superRefine(assertVerificationProfile)
+  .superRefine(assertVerificationInputSource);
 
 export const verificationQueueMessageSchema = verificationTaskPayloadObject.extend({
   message_type: z.literal("tlsn-verification-v1"),
   presentation_id: z.string().regex(/^[A-Za-z0-9_-]{43}$/),
-}).strict().superRefine(assertVerificationProfile);
+}).strict()
+  .superRefine(assertVerificationProfile)
+  .superRefine(assertVerificationInputSource)
+  .superRefine((payload, context) => {
+    if ((payload.verification_input_source ?? "r2") !== "r2") {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["verification_input_source"],
+        message: "Queue verification requires R2 input",
+      });
+    }
+  });
 
-export const verificationInputRequestSchema = verificationTaskPayloadObject.pick({
-  job_id: true,
-  binding_id: true,
-  session_id: true,
-  canonical_user_id: true,
-  device_id: true,
-  verification_input_key: true,
-  benchmark_trace_id: true,
-});
+export const verificationInputRequestSchema = z.object({
+  job_id: z.string().regex(JOB_ID_PATTERN),
+  binding_id: z.string().regex(/^[A-Za-z0-9_-]{43}$/),
+  session_id: z.string().uuid(),
+  canonical_user_id: z.string().uuid(),
+  device_id: z.string().uuid(),
+  verification_input_source: z.literal("r2").optional(),
+  verification_input_key: z.string().regex(OBJECT_KEY_PATTERN),
+  benchmark_trace_id: z.string().regex(BENCHMARK_TRACE_ID_PATTERN).optional(),
+}).strict();
 
 export const verificationCallbackSchema = z.object({
   job_id: z.string().regex(JOB_ID_PATTERN),
@@ -59,6 +96,9 @@ export const verificationCallbackSchema = z.object({
   canonical_user_id: z.string().uuid(),
   device_id: z.string().uuid(),
   presentation_id: z.string().regex(/^[A-Za-z0-9_-]{43}$/),
+  execution_mode: z.enum(["trigger", "queue", "direct"]).optional(),
+  verification_input_source: z.literal("direct").optional(),
+  verification_attempt_id: z.string().uuid().optional(),
   verification_status: z.literal("verified"),
   trigger_execution_started_at: z.number().positive().optional(),
   benchmark_module_timing: z.object({
@@ -75,7 +115,25 @@ export const verificationCallbackSchema = z.object({
   }).strict().optional(),
   benchmark_trace_id: z.string().regex(BENCHMARK_TRACE_ID_PATTERN).optional(),
   ...verificationProfileFields,
-}).strict().superRefine(assertVerificationProfile);
+}).strict()
+  .superRefine(assertVerificationProfile)
+  .superRefine((payload, context) => {
+    if (payload.execution_mode !== "direct") return;
+    if (payload.verification_input_source !== "direct") {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["verification_input_source"],
+        message: "Direct verification callback requires a direct input source",
+      });
+    }
+    if (payload.verification_attempt_id === undefined) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["verification_attempt_id"],
+        message: "Direct verification callback requires an attempt ID",
+      });
+    }
+  });
 
 export const verificationStatusRequestSchema = verificationTaskPayloadObject.pick({
   job_id: true,

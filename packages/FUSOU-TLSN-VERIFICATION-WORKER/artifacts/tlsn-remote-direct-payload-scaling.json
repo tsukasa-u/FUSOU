@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "benchmark": "tlsn-worker-direct-payload-scaling",
-  "generated_at": "2026-09-17T07:23:11.688Z",
+  "generated_at": "2026-09-17T10:45:00.604Z",
   "execution": {
     "remote_latency": "NOT_RUN",
     "remote_latency_requires_explicit_external_access_approval": true,
@@ -15,8 +15,11 @@
     "fixture_semantics": "metadata plus API body; HTTP status, headers, and TLS framing are absent"
   },
   "payload_definition": {
-    "measured_bytes": "sparse Presentation bytes sent to the verifier",
-    "source_response_bytes": "reported for context only; not used as Presentation size",
+    "source_response_bytes": "measured from the real fixture source corpus; not used as Presentation size",
+    "request_body_bytes": "NOT_RUN; requires remote request execution",
+    "presentation_bytes": "measured sparse Presentation bytes sent to the verifier",
+    "result_bytes": "NOT_RUN; requires remote verification",
+    "client_response_bytes": "NOT_RUN; requires remote verification",
     "limit_bytes": 8388608
   },
   "target_bands": [
@@ -73,11 +76,29 @@
     "minimum": 150080,
     "maximum": 165752
   },
+  "observed_request_body_bytes": {
+    "count": 0,
+    "minimum": null,
+    "maximum": null
+  },
+  "observed_result_bytes": {
+    "count": 0,
+    "minimum": null,
+    "maximum": null
+  },
+  "observed_client_response_bytes": {
+    "count": 0,
+    "minimum": null,
+    "maximum": null
+  },
   "observations": [
     {
       "case_label": "p50",
       "source_fixture_body_bytes": 150080,
+      "request_body_bytes": null,
       "presentation_bytes": 3477,
+      "result_bytes": null,
+      "client_response_bytes": null,
       "presentation_band": null,
       "source_epoch": "2025-12-27",
       "source_file": "20260121_025057788S@api_get_member@require_info"
@@ -85,7 +106,10 @@
     {
       "case_label": "p95",
       "source_fixture_body_bytes": 165258,
+      "request_body_bytes": null,
       "presentation_bytes": 3478,
+      "result_bytes": null,
+      "client_response_bytes": null,
       "presentation_band": null,
       "source_epoch": "2026-07-08",
       "source_file": "20260726_203346641S@api_get_member@require_info"
@@ -93,7 +117,10 @@
     {
       "case_label": "p99",
       "source_fixture_body_bytes": 165751,
+      "request_body_bytes": null,
       "presentation_bytes": 3476,
+      "result_bytes": null,
+      "client_response_bytes": null,
       "presentation_band": null,
       "source_epoch": "2026-07-08",
       "source_file": "20260729_222044119S@api_get_member@require_info"
@@ -101,7 +128,10 @@
     {
       "case_label": "max",
       "source_fixture_body_bytes": 165752,
+      "request_body_bytes": null,
       "presentation_bytes": 3477,
+      "result_bytes": null,
+      "client_response_bytes": null,
       "presentation_band": null,
       "source_epoch": "2026-08-05",
       "source_file": "20260824_233846945S@api_get_member@require_info"

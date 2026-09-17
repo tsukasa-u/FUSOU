@@ -1351,10 +1351,15 @@ async function runDirectFailureSmokeTest() {
         statusPayload = await statusResponse.json();
       }
       if (scenarioModes.length === 1) assert.equal(directCalls, 1);
+      const directTiming = benchmarkTiming(statusResponse);
+      assert.equal(directTiming?.r2_operations?.input_put ?? 0, 0);
+      assert.equal(directTiming?.r2_operations?.trigger_input_get ?? 0, 0);
+      assert.equal(directTiming?.r2_operations?.worker_presentation_get ?? 0, 0);
+      assert.equal(directTiming?.r2_operations?.input_delete ?? 0, 0);
       if (scenarioMode === "success") {
         assert.equal(statusResponse.status, 200);
         assert.equal(statusPayload.verified, true, `${scenarioMode} attempt failed: ${JSON.stringify(statusPayload)} timing=${JSON.stringify(benchmarkTiming(statusResponse))}`);
-        const successTiming = benchmarkTiming(statusResponse);
+        const successTiming = directTiming;
         assert.equal(typeof successTiming?.job_id, "undefined");
         assert.equal(typeof successTiming?.trace_id, "undefined");
         assert.match(successTiming?.job_id_sha256 ?? "", /^[A-Za-z0-9_-]{43}$/);
