@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "benchmark": "tlsn-worker-result-storage-scaling-v1",
-  "generated_at": "2026-09-17T17:41:36.061Z",
+  "generated_at": "2026-09-17T18:37:56.896Z",
   "verification_semantics": "NOT_TESTED",
   "storage_backend": "local-filesystem-proxy",
   "network_access": false,
@@ -26,13 +26,13 @@
           "signed_result_bytes": 3791,
           "r2_object_bytes": 4096,
           "client_response_bytes": 4096,
-          "result_construction_ms": 0.09642700000000204,
-          "result_hash_ms": 0.27687600000000145,
-          "result_persistence_ms": 0.3612490000000008,
-          "status_result_read_ms": 0.1741969999999995,
-          "status_result_hash_ms": 0.01039000000000101,
-          "status_result_parse_ms": 0.016761999999999944,
-          "status_success_path_ms": 0.20134900000000044
+          "result_construction_ms": 0.09385300000000285,
+          "result_hash_ms": 0.32631600000000205,
+          "result_persistence_ms": 0.3825359999999982,
+          "status_result_read_ms": 0.1861929999999994,
+          "status_result_hash_ms": 0.011822999999999695,
+          "status_result_parse_ms": 0.021370999999998475,
+          "status_success_path_ms": 0.21938699999999756
         },
         {
           "target_bytes": 4096,
@@ -40,13 +40,13 @@
           "signed_result_bytes": 3791,
           "r2_object_bytes": 4096,
           "client_response_bytes": 4096,
-          "result_construction_ms": 0.037221999999999866,
-          "result_hash_ms": 0.005760999999999683,
-          "result_persistence_ms": 0.06688899999999975,
-          "status_result_read_ms": 0.06081800000000115,
-          "status_result_hash_ms": 0.006091999999998876,
-          "status_result_parse_ms": 0.011773000000001588,
-          "status_success_path_ms": 0.07868300000000161
+          "result_construction_ms": 0.03871499999999983,
+          "result_hash_ms": 0.006192999999999671,
+          "result_persistence_ms": 0.09346200000000238,
+          "status_result_read_ms": 0.5913819999999994,
+          "status_result_hash_ms": 0.010310000000000485,
+          "status_result_parse_ms": 0.014609000000000094,
+          "status_success_path_ms": 0.616301
         },
         {
           "target_bytes": 4096,
@@ -54,57 +54,57 @@
           "signed_result_bytes": 3791,
           "r2_object_bytes": 4096,
           "client_response_bytes": 4096,
-          "result_construction_ms": 0.034065999999999264,
-          "result_hash_ms": 0.005169999999999675,
-          "result_persistence_ms": 0.42902999999999736,
-          "status_result_read_ms": 0.06886300000000034,
-          "status_result_hash_ms": 0.00803499999999957,
-          "status_result_parse_ms": 0.008736999999999995,
-          "status_success_path_ms": 0.0856349999999999
+          "result_construction_ms": 0.038835000000002395,
+          "result_hash_ms": 0.014528000000002095,
+          "result_persistence_ms": 0.07331299999999885,
+          "status_result_read_ms": 0.06569799999999759,
+          "status_result_hash_ms": 0.009739000000003273,
+          "status_result_parse_ms": 0.009648999999999575,
+          "status_success_path_ms": 0.08508600000000044
         }
       ],
       "timings_ms": {
         "result_construction_ms": {
           "count": 3,
-          "p50_ms": 0.037221999999999866,
-          "p95_ms": 0.09642700000000204,
-          "maximum_ms": 0.09642700000000204
+          "p50_ms": 0.038835000000002395,
+          "p95_ms": 0.09385300000000285,
+          "maximum_ms": 0.09385300000000285
         },
         "result_hash_ms": {
           "count": 3,
-          "p50_ms": 0.005760999999999683,
-          "p95_ms": 0.27687600000000145,
-          "maximum_ms": 0.27687600000000145
+          "p50_ms": 0.014528000000002095,
+          "p95_ms": 0.32631600000000205,
+          "maximum_ms": 0.32631600000000205
         },
         "result_persistence_ms": {
           "count": 3,
-          "p50_ms": 0.3612490000000008,
-          "p95_ms": 0.42902999999999736,
-          "maximum_ms": 0.42902999999999736
+          "p50_ms": 0.09346200000000238,
+          "p95_ms": 0.3825359999999982,
+          "maximum_ms": 0.3825359999999982
         },
         "status_result_read_ms": {
           "count": 3,
-          "p50_ms": 0.06886300000000034,
-          "p95_ms": 0.1741969999999995,
-          "maximum_ms": 0.1741969999999995
+          "p50_ms": 0.1861929999999994,
+          "p95_ms": 0.5913819999999994,
+          "maximum_ms": 0.5913819999999994
         },
         "status_result_hash_ms": {
           "count": 3,
-          "p50_ms": 0.00803499999999957,
-          "p95_ms": 0.01039000000000101,
-          "maximum_ms": 0.01039000000000101
+          "p50_ms": 0.010310000000000485,
+          "p95_ms": 0.011822999999999695,
+          "maximum_ms": 0.011822999999999695
         },
         "status_result_parse_ms": {
           "count": 3,
-          "p50_ms": 0.011773000000001588,
-          "p95_ms": 0.016761999999999944,
-          "maximum_ms": 0.016761999999999944
+          "p50_ms": 0.014609000000000094,
+          "p95_ms": 0.021370999999998475,
+          "maximum_ms": 0.021370999999998475
         },
         "status_success_path_ms": {
           "count": 3,
-          "p50_ms": 0.0856349999999999,
-          "p95_ms": 0.20134900000000044,
-          "maximum_ms": 0.20134900000000044
+          "p50_ms": 0.21938699999999756,
+          "p95_ms": 0.616301,
+          "maximum_ms": 0.616301
         }
       },
       "sizes_bytes": {
@@ -123,13 +123,13 @@
           "signed_result_bytes": 16079,
           "r2_object_bytes": 16384,
           "client_response_bytes": 16384,
-          "result_construction_ms": 0.14490099999999728,
-          "result_hash_ms": 0.012413999999999703,
-          "result_persistence_ms": 0.0862569999999998,
-          "status_result_read_ms": 0.0533229999999989,
-          "status_result_hash_ms": 0.011482999999998356,
-          "status_result_parse_ms": 0.02321500000000043,
-          "status_success_path_ms": 0.08802099999999768
+          "result_construction_ms": 0.1482290000000006,
+          "result_hash_ms": 0.014067000000000718,
+          "result_persistence_ms": 0.09271000000000029,
+          "status_result_read_ms": 0.09313099999999963,
+          "status_result_hash_ms": 0.014728999999999104,
+          "status_result_parse_ms": 0.03464800000000068,
+          "status_success_path_ms": 0.1425079999999994
         },
         {
           "target_bytes": 16384,
@@ -137,13 +137,13 @@
           "signed_result_bytes": 16079,
           "r2_object_bytes": 16384,
           "client_response_bytes": 16384,
-          "result_construction_ms": 0.0990719999999996,
-          "result_hash_ms": 0.06377400000000222,
-          "result_persistence_ms": 0.10653599999999841,
-          "status_result_read_ms": 0.1095019999999991,
-          "status_result_hash_ms": 0.022363999999999606,
-          "status_result_parse_ms": 0.022442999999999103,
-          "status_success_path_ms": 0.1543089999999978
+          "result_construction_ms": 0.11620599999999826,
+          "result_hash_ms": 0.0849650000000004,
+          "result_persistence_ms": 0.15061299999999989,
+          "status_result_read_ms": 0.13616499999999832,
+          "status_result_hash_ms": 0.028595999999996735,
+          "status_result_parse_ms": 0.03289399999999887,
+          "status_success_path_ms": 0.19765499999999392
         },
         {
           "target_bytes": 16384,
@@ -151,57 +151,57 @@
           "signed_result_bytes": 16079,
           "r2_object_bytes": 16384,
           "client_response_bytes": 16384,
-          "result_construction_ms": 0.10453200000000251,
-          "result_hash_ms": 0.012533999999998713,
-          "result_persistence_ms": 0.06881299999999868,
-          "status_result_read_ms": 0.05557699999999954,
-          "status_result_hash_ms": 0.011210999999999416,
-          "status_result_parse_ms": 0.022763999999998674,
-          "status_success_path_ms": 0.08955199999999763
+          "result_construction_ms": 0.11008500000000154,
+          "result_hash_ms": 0.016251999999997935,
+          "result_persistence_ms": 0.1071390000000001,
+          "status_result_read_ms": 0.07057800000000114,
+          "status_result_hash_ms": 0.013076000000001642,
+          "status_result_parse_ms": 0.06674999999999898,
+          "status_success_path_ms": 0.15040400000000176
         }
       ],
       "timings_ms": {
         "result_construction_ms": {
           "count": 3,
-          "p50_ms": 0.10453200000000251,
-          "p95_ms": 0.14490099999999728,
-          "maximum_ms": 0.14490099999999728
+          "p50_ms": 0.11620599999999826,
+          "p95_ms": 0.1482290000000006,
+          "maximum_ms": 0.1482290000000006
         },
         "result_hash_ms": {
           "count": 3,
-          "p50_ms": 0.012533999999998713,
-          "p95_ms": 0.06377400000000222,
-          "maximum_ms": 0.06377400000000222
+          "p50_ms": 0.016251999999997935,
+          "p95_ms": 0.0849650000000004,
+          "maximum_ms": 0.0849650000000004
         },
         "result_persistence_ms": {
           "count": 3,
-          "p50_ms": 0.0862569999999998,
-          "p95_ms": 0.10653599999999841,
-          "maximum_ms": 0.10653599999999841
+          "p50_ms": 0.1071390000000001,
+          "p95_ms": 0.15061299999999989,
+          "maximum_ms": 0.15061299999999989
         },
         "status_result_read_ms": {
           "count": 3,
-          "p50_ms": 0.05557699999999954,
-          "p95_ms": 0.1095019999999991,
-          "maximum_ms": 0.1095019999999991
+          "p50_ms": 0.09313099999999963,
+          "p95_ms": 0.13616499999999832,
+          "maximum_ms": 0.13616499999999832
         },
         "status_result_hash_ms": {
           "count": 3,
-          "p50_ms": 0.011482999999998356,
-          "p95_ms": 0.022363999999999606,
-          "maximum_ms": 0.022363999999999606
+          "p50_ms": 0.014728999999999104,
+          "p95_ms": 0.028595999999996735,
+          "maximum_ms": 0.028595999999996735
         },
         "status_result_parse_ms": {
           "count": 3,
-          "p50_ms": 0.022763999999998674,
-          "p95_ms": 0.02321500000000043,
-          "maximum_ms": 0.02321500000000043
+          "p50_ms": 0.03464800000000068,
+          "p95_ms": 0.06674999999999898,
+          "maximum_ms": 0.06674999999999898
         },
         "status_success_path_ms": {
           "count": 3,
-          "p50_ms": 0.08955199999999763,
-          "p95_ms": 0.1543089999999978,
-          "maximum_ms": 0.1543089999999978
+          "p50_ms": 0.15040400000000176,
+          "p95_ms": 0.19765499999999392,
+          "maximum_ms": 0.19765499999999392
         }
       },
       "sizes_bytes": {
@@ -220,13 +220,13 @@
           "signed_result_bytes": 65231,
           "r2_object_bytes": 65536,
           "client_response_bytes": 65536,
-          "result_construction_ms": 0.38227999999999795,
-          "result_hash_ms": 0.032682999999998685,
-          "result_persistence_ms": 0.3726510000000012,
-          "status_result_read_ms": 0.06410400000000038,
-          "status_result_hash_ms": 0.03298400000000257,
-          "status_result_parse_ms": 0.02612099999999984,
-          "status_success_path_ms": 0.12320900000000279
+          "result_construction_ms": 0.4190170000000002,
+          "result_hash_ms": 0.03428699999999907,
+          "result_persistence_ms": 0.44802299999999917,
+          "status_result_read_ms": 0.08473499999999845,
+          "status_result_hash_ms": 0.03363599999999778,
+          "status_result_parse_ms": 0.026692000000000604,
+          "status_success_path_ms": 0.14506299999999683
         },
         {
           "target_bytes": 65536,
@@ -234,13 +234,13 @@
           "signed_result_bytes": 65231,
           "r2_object_bytes": 65536,
           "client_response_bytes": 65536,
-          "result_construction_ms": 0.3005209999999998,
-          "result_hash_ms": 0.031160000000003407,
-          "result_persistence_ms": 0.0893429999999995,
-          "status_result_read_ms": 0.05453600000000236,
-          "status_result_hash_ms": 0.031721000000001,
-          "status_result_parse_ms": 0.026951999999997867,
-          "status_success_path_ms": 0.11320900000000123
+          "result_construction_ms": 0.30590600000000023,
+          "result_hash_ms": 0.03156099999999995,
+          "result_persistence_ms": 0.09600700000000018,
+          "status_result_read_ms": 0.0812589999999993,
+          "status_result_hash_ms": 0.033515000000001294,
+          "status_result_parse_ms": 0.03349500000000205,
+          "status_success_path_ms": 0.14826900000000265
         },
         {
           "target_bytes": 65536,
@@ -248,57 +248,57 @@
           "signed_result_bytes": 65231,
           "r2_object_bytes": 65536,
           "client_response_bytes": 65536,
-          "result_construction_ms": 0.3563699999999983,
-          "result_hash_ms": 0.031420999999998145,
-          "result_persistence_ms": 0.15621200000000002,
-          "status_result_read_ms": 0.05877299999999863,
-          "status_result_hash_ms": 0.03300400000000181,
-          "status_result_parse_ms": 0.07000499999999832,
-          "status_success_path_ms": 0.16178199999999876
+          "result_construction_ms": 0.3959609999999998,
+          "result_hash_ms": 0.033485999999999905,
+          "result_persistence_ms": 0.22231299999999976,
+          "status_result_read_ms": 0.17887899999999846,
+          "status_result_hash_ms": 0.0375729999999983,
+          "status_result_parse_ms": 0.07704999999999984,
+          "status_success_path_ms": 0.2935019999999966
         }
       ],
       "timings_ms": {
         "result_construction_ms": {
           "count": 3,
-          "p50_ms": 0.3563699999999983,
-          "p95_ms": 0.38227999999999795,
-          "maximum_ms": 0.38227999999999795
+          "p50_ms": 0.3959609999999998,
+          "p95_ms": 0.4190170000000002,
+          "maximum_ms": 0.4190170000000002
         },
         "result_hash_ms": {
           "count": 3,
-          "p50_ms": 0.031420999999998145,
-          "p95_ms": 0.032682999999998685,
-          "maximum_ms": 0.032682999999998685
+          "p50_ms": 0.033485999999999905,
+          "p95_ms": 0.03428699999999907,
+          "maximum_ms": 0.03428699999999907
         },
         "result_persistence_ms": {
           "count": 3,
-          "p50_ms": 0.15621200000000002,
-          "p95_ms": 0.3726510000000012,
-          "maximum_ms": 0.3726510000000012
+          "p50_ms": 0.22231299999999976,
+          "p95_ms": 0.44802299999999917,
+          "maximum_ms": 0.44802299999999917
         },
         "status_result_read_ms": {
           "count": 3,
-          "p50_ms": 0.05877299999999863,
-          "p95_ms": 0.06410400000000038,
-          "maximum_ms": 0.06410400000000038
+          "p50_ms": 0.08473499999999845,
+          "p95_ms": 0.17887899999999846,
+          "maximum_ms": 0.17887899999999846
         },
         "status_result_hash_ms": {
           "count": 3,
-          "p50_ms": 0.03298400000000257,
-          "p95_ms": 0.03300400000000181,
-          "maximum_ms": 0.03300400000000181
+          "p50_ms": 0.03363599999999778,
+          "p95_ms": 0.0375729999999983,
+          "maximum_ms": 0.0375729999999983
         },
         "status_result_parse_ms": {
           "count": 3,
-          "p50_ms": 0.026951999999997867,
-          "p95_ms": 0.07000499999999832,
-          "maximum_ms": 0.07000499999999832
+          "p50_ms": 0.03349500000000205,
+          "p95_ms": 0.07704999999999984,
+          "maximum_ms": 0.07704999999999984
         },
         "status_success_path_ms": {
           "count": 3,
-          "p50_ms": 0.12320900000000279,
-          "p95_ms": 0.16178199999999876,
-          "maximum_ms": 0.16178199999999876
+          "p50_ms": 0.14826900000000265,
+          "p95_ms": 0.2935019999999966,
+          "maximum_ms": 0.2935019999999966
         }
       },
       "sizes_bytes": {
@@ -317,13 +317,13 @@
           "signed_result_bytes": 261839,
           "r2_object_bytes": 262144,
           "client_response_bytes": 262144,
-          "result_construction_ms": 1.9070999999999998,
-          "result_hash_ms": 0.12232699999999852,
-          "result_persistence_ms": 0.27056400000000025,
-          "status_result_read_ms": 0.07567699999999888,
-          "status_result_hash_ms": 0.11933099999999897,
-          "status_result_parse_ms": 0.2831879999999991,
-          "status_success_path_ms": 0.47819599999999696
+          "result_construction_ms": 1.9994270000000007,
+          "result_hash_ms": 0.12210800000000077,
+          "result_persistence_ms": 0.2922600000000024,
+          "status_result_read_ms": 0.07885399999999976,
+          "status_result_hash_ms": 0.12089600000000189,
+          "status_result_parse_ms": 0.26750200000000035,
+          "status_success_path_ms": 0.467252000000002
         },
         {
           "target_bytes": 262144,
@@ -331,13 +331,13 @@
           "signed_result_bytes": 261839,
           "r2_object_bytes": 262144,
           "client_response_bytes": 262144,
-          "result_construction_ms": 1.8993059999999993,
-          "result_hash_ms": 0.12753699999999668,
-          "result_persistence_ms": 0.18208299999999866,
-          "status_result_read_ms": 0.11957100000000054,
-          "status_result_hash_ms": 0.12967099999999832,
-          "status_result_parse_ms": 0.4201130000000006,
-          "status_success_path_ms": 0.6693549999999995
+          "result_construction_ms": 1.6226720000000014,
+          "result_hash_ms": 0.11946299999999965,
+          "result_persistence_ms": 0.15658499999999975,
+          "status_result_read_ms": 0.0963169999999991,
+          "status_result_hash_ms": 0.11402199999999851,
+          "status_result_parse_ms": 0.3614650000000026,
+          "status_success_path_ms": 0.5718040000000002
         },
         {
           "target_bytes": 262144,
@@ -345,57 +345,57 @@
           "signed_result_bytes": 261839,
           "r2_object_bytes": 262144,
           "client_response_bytes": 262144,
-          "result_construction_ms": 2.0493559999999995,
-          "result_hash_ms": 0.13710499999999826,
-          "result_persistence_ms": 0.2082329999999999,
-          "status_result_read_ms": 0.12098399999999998,
-          "status_result_hash_ms": 0.12644500000000036,
-          "status_result_parse_ms": 0.3783329999999978,
-          "status_success_path_ms": 0.6257619999999982
+          "result_construction_ms": 1.7374360000000024,
+          "result_hash_ms": 0.11988399999999899,
+          "result_persistence_ms": 0.13061500000000237,
+          "status_result_read_ms": 0.0716399999999986,
+          "status_result_hash_ms": 0.11579599999999957,
+          "status_result_parse_ms": 0.28598699999999866,
+          "status_success_path_ms": 0.4734229999999968
         }
       ],
       "timings_ms": {
         "result_construction_ms": {
           "count": 3,
-          "p50_ms": 1.9070999999999998,
-          "p95_ms": 2.0493559999999995,
-          "maximum_ms": 2.0493559999999995
+          "p50_ms": 1.7374360000000024,
+          "p95_ms": 1.9994270000000007,
+          "maximum_ms": 1.9994270000000007
         },
         "result_hash_ms": {
           "count": 3,
-          "p50_ms": 0.12753699999999668,
-          "p95_ms": 0.13710499999999826,
-          "maximum_ms": 0.13710499999999826
+          "p50_ms": 0.11988399999999899,
+          "p95_ms": 0.12210800000000077,
+          "maximum_ms": 0.12210800000000077
         },
         "result_persistence_ms": {
           "count": 3,
-          "p50_ms": 0.2082329999999999,
-          "p95_ms": 0.27056400000000025,
-          "maximum_ms": 0.27056400000000025
+          "p50_ms": 0.15658499999999975,
+          "p95_ms": 0.2922600000000024,
+          "maximum_ms": 0.2922600000000024
         },
         "status_result_read_ms": {
           "count": 3,
-          "p50_ms": 0.11957100000000054,
-          "p95_ms": 0.12098399999999998,
-          "maximum_ms": 0.12098399999999998
+          "p50_ms": 0.07885399999999976,
+          "p95_ms": 0.0963169999999991,
+          "maximum_ms": 0.0963169999999991
         },
         "status_result_hash_ms": {
           "count": 3,
-          "p50_ms": 0.12644500000000036,
-          "p95_ms": 0.12967099999999832,
-          "maximum_ms": 0.12967099999999832
+          "p50_ms": 0.11579599999999957,
+          "p95_ms": 0.12089600000000189,
+          "maximum_ms": 0.12089600000000189
         },
         "status_result_parse_ms": {
           "count": 3,
-          "p50_ms": 0.3783329999999978,
-          "p95_ms": 0.4201130000000006,
-          "maximum_ms": 0.4201130000000006
+          "p50_ms": 0.28598699999999866,
+          "p95_ms": 0.3614650000000026,
+          "maximum_ms": 0.3614650000000026
         },
         "status_success_path_ms": {
           "count": 3,
-          "p50_ms": 0.6257619999999982,
-          "p95_ms": 0.6693549999999995,
-          "maximum_ms": 0.6693549999999995
+          "p50_ms": 0.4734229999999968,
+          "p95_ms": 0.5718040000000002,
+          "maximum_ms": 0.5718040000000002
         }
       },
       "sizes_bytes": {
@@ -414,13 +414,13 @@
           "signed_result_bytes": 1048271,
           "r2_object_bytes": 1048576,
           "client_response_bytes": 1048576,
-          "result_construction_ms": 8.070911000000002,
-          "result_hash_ms": 0.4915810000000036,
-          "result_persistence_ms": 0.41016399999999464,
-          "status_result_read_ms": 0.16549000000000547,
-          "status_result_hash_ms": 0.46693400000000196,
-          "status_result_parse_ms": 1.2794060000000016,
-          "status_success_path_ms": 1.911830000000009
+          "result_construction_ms": 7.660478999999999,
+          "result_hash_ms": 0.5814439999999976,
+          "result_persistence_ms": 0.6581130000000002,
+          "status_result_read_ms": 0.19363799999999998,
+          "status_result_hash_ms": 0.48230000000000217,
+          "status_result_parse_ms": 1.3629060000000024,
+          "status_success_path_ms": 2.0388440000000045
         },
         {
           "target_bytes": 1048576,
@@ -428,13 +428,13 @@
           "signed_result_bytes": 1048271,
           "r2_object_bytes": 1048576,
           "client_response_bytes": 1048576,
-          "result_construction_ms": 6.910605000000004,
-          "result_hash_ms": 0.4927729999999997,
-          "result_persistence_ms": 0.38626800000000117,
-          "status_result_read_ms": 0.17127200000000187,
-          "status_result_hash_ms": 0.4593190000000007,
-          "status_result_parse_ms": 1.331347000000001,
-          "status_success_path_ms": 1.9619380000000035
+          "result_construction_ms": 5.925557999999995,
+          "result_hash_ms": 0.47344299999999606,
+          "result_persistence_ms": 0.32325999999999766,
+          "status_result_read_ms": 0.12133599999999944,
+          "status_result_hash_ms": 0.4657179999999954,
+          "status_result_parse_ms": 1.4050790000000006,
+          "status_success_path_ms": 1.9921329999999955
         },
         {
           "target_bytes": 1048576,
@@ -442,57 +442,57 @@
           "signed_result_bytes": 1048271,
           "r2_object_bytes": 1048576,
           "client_response_bytes": 1048576,
-          "result_construction_ms": 6.296025999999998,
-          "result_hash_ms": 0.4833150000000046,
-          "result_persistence_ms": 0.5838600000000014,
-          "status_result_read_ms": 0.3785929999999951,
-          "status_result_hash_ms": 0.471974000000003,
-          "status_result_parse_ms": 1.5421749999999932,
-          "status_success_path_ms": 2.3927419999999913
+          "result_construction_ms": 6.575744999999998,
+          "result_hash_ms": 0.5001250000000041,
+          "result_persistence_ms": 0.7495100000000008,
+          "status_result_read_ms": 1.1937059999999988,
+          "status_result_hash_ms": 0.47334200000000237,
+          "status_result_parse_ms": 1.0870080000000044,
+          "status_success_path_ms": 2.7540560000000056
         }
       ],
       "timings_ms": {
         "result_construction_ms": {
           "count": 3,
-          "p50_ms": 6.910605000000004,
-          "p95_ms": 8.070911000000002,
-          "maximum_ms": 8.070911000000002
+          "p50_ms": 6.575744999999998,
+          "p95_ms": 7.660478999999999,
+          "maximum_ms": 7.660478999999999
         },
         "result_hash_ms": {
           "count": 3,
-          "p50_ms": 0.4915810000000036,
-          "p95_ms": 0.4927729999999997,
-          "maximum_ms": 0.4927729999999997
+          "p50_ms": 0.5001250000000041,
+          "p95_ms": 0.5814439999999976,
+          "maximum_ms": 0.5814439999999976
         },
         "result_persistence_ms": {
           "count": 3,
-          "p50_ms": 0.41016399999999464,
-          "p95_ms": 0.5838600000000014,
-          "maximum_ms": 0.5838600000000014
+          "p50_ms": 0.6581130000000002,
+          "p95_ms": 0.7495100000000008,
+          "maximum_ms": 0.7495100000000008
         },
         "status_result_read_ms": {
           "count": 3,
-          "p50_ms": 0.17127200000000187,
-          "p95_ms": 0.3785929999999951,
-          "maximum_ms": 0.3785929999999951
+          "p50_ms": 0.19363799999999998,
+          "p95_ms": 1.1937059999999988,
+          "maximum_ms": 1.1937059999999988
         },
         "status_result_hash_ms": {
           "count": 3,
-          "p50_ms": 0.46693400000000196,
-          "p95_ms": 0.471974000000003,
-          "maximum_ms": 0.471974000000003
+          "p50_ms": 0.47334200000000237,
+          "p95_ms": 0.48230000000000217,
+          "maximum_ms": 0.48230000000000217
         },
         "status_result_parse_ms": {
           "count": 3,
-          "p50_ms": 1.331347000000001,
-          "p95_ms": 1.5421749999999932,
-          "maximum_ms": 1.5421749999999932
+          "p50_ms": 1.3629060000000024,
+          "p95_ms": 1.4050790000000006,
+          "maximum_ms": 1.4050790000000006
         },
         "status_success_path_ms": {
           "count": 3,
-          "p50_ms": 1.9619380000000035,
-          "p95_ms": 2.3927419999999913,
-          "maximum_ms": 2.3927419999999913
+          "p50_ms": 2.0388440000000045,
+          "p95_ms": 2.7540560000000056,
+          "maximum_ms": 2.7540560000000056
         }
       },
       "sizes_bytes": {
@@ -511,13 +511,13 @@
           "signed_result_bytes": 4193999,
           "r2_object_bytes": 4194304,
           "client_response_bytes": 4194304,
-          "result_construction_ms": 30.947005999999995,
-          "result_hash_ms": 1.8067769999999967,
-          "result_persistence_ms": 2.379525000000001,
-          "status_result_read_ms": 0.688943000000009,
-          "status_result_hash_ms": 1.8084400000000045,
-          "status_result_parse_ms": 4.354087000000007,
-          "status_success_path_ms": 6.85147000000002
+          "result_construction_ms": 31.150647000000006,
+          "result_hash_ms": 1.9200419999999951,
+          "result_persistence_ms": 0.9604519999999894,
+          "status_result_read_ms": 0.7351529999999968,
+          "status_result_hash_ms": 1.7773839999999979,
+          "status_result_parse_ms": 5.146979999999999,
+          "status_success_path_ms": 7.659516999999994
         },
         {
           "target_bytes": 4194304,
@@ -525,13 +525,13 @@
           "signed_result_bytes": 4193999,
           "r2_object_bytes": 4194304,
           "client_response_bytes": 4194304,
-          "result_construction_ms": 26.885824999999997,
-          "result_hash_ms": 1.9089849999999728,
-          "result_persistence_ms": 1.002299999999991,
-          "status_result_read_ms": 0.5210679999999854,
-          "status_result_hash_ms": 1.8605110000000025,
-          "status_result_parse_ms": 5.0028230000000065,
-          "status_success_path_ms": 7.384401999999994
+          "result_construction_ms": 27.235366999999982,
+          "result_hash_ms": 1.8542939999999817,
+          "result_persistence_ms": 3.5814790000000016,
+          "status_result_read_ms": 0.5569749999999942,
+          "status_result_hash_ms": 1.8403969999999958,
+          "status_result_parse_ms": 4.341791999999998,
+          "status_success_path_ms": 6.739163999999988
         },
         {
           "target_bytes": 4194304,
@@ -539,57 +539,57 @@
           "signed_result_bytes": 4193999,
           "r2_object_bytes": 4194304,
           "client_response_bytes": 4194304,
-          "result_construction_ms": 27.344583,
-          "result_hash_ms": 1.7741539999999816,
-          "result_persistence_ms": 4.938088000000022,
-          "status_result_read_ms": 0.39001500000000533,
-          "status_result_hash_ms": 1.7749049999999897,
-          "status_result_parse_ms": 4.654939000000013,
-          "status_success_path_ms": 6.819859000000008
+          "result_construction_ms": 24.23602199999999,
+          "result_hash_ms": 1.8196770000000129,
+          "result_persistence_ms": 1.241439000000014,
+          "status_result_read_ms": 0.5526969999999949,
+          "status_result_hash_ms": 1.7893669999999986,
+          "status_result_parse_ms": 4.291173000000015,
+          "status_success_path_ms": 6.633237000000008
         }
       ],
       "timings_ms": {
         "result_construction_ms": {
           "count": 3,
-          "p50_ms": 27.344583,
-          "p95_ms": 30.947005999999995,
-          "maximum_ms": 30.947005999999995
+          "p50_ms": 27.235366999999982,
+          "p95_ms": 31.150647000000006,
+          "maximum_ms": 31.150647000000006
         },
         "result_hash_ms": {
           "count": 3,
-          "p50_ms": 1.8067769999999967,
-          "p95_ms": 1.9089849999999728,
-          "maximum_ms": 1.9089849999999728
+          "p50_ms": 1.8542939999999817,
+          "p95_ms": 1.9200419999999951,
+          "maximum_ms": 1.9200419999999951
         },
         "result_persistence_ms": {
           "count": 3,
-          "p50_ms": 2.379525000000001,
-          "p95_ms": 4.938088000000022,
-          "maximum_ms": 4.938088000000022
+          "p50_ms": 1.241439000000014,
+          "p95_ms": 3.5814790000000016,
+          "maximum_ms": 3.5814790000000016
         },
         "status_result_read_ms": {
           "count": 3,
-          "p50_ms": 0.5210679999999854,
-          "p95_ms": 0.688943000000009,
-          "maximum_ms": 0.688943000000009
+          "p50_ms": 0.5569749999999942,
+          "p95_ms": 0.7351529999999968,
+          "maximum_ms": 0.7351529999999968
         },
         "status_result_hash_ms": {
           "count": 3,
-          "p50_ms": 1.8084400000000045,
-          "p95_ms": 1.8605110000000025,
-          "maximum_ms": 1.8605110000000025
+          "p50_ms": 1.7893669999999986,
+          "p95_ms": 1.8403969999999958,
+          "maximum_ms": 1.8403969999999958
         },
         "status_result_parse_ms": {
           "count": 3,
-          "p50_ms": 4.654939000000013,
-          "p95_ms": 5.0028230000000065,
-          "maximum_ms": 5.0028230000000065
+          "p50_ms": 4.341791999999998,
+          "p95_ms": 5.146979999999999,
+          "maximum_ms": 5.146979999999999
         },
         "status_success_path_ms": {
           "count": 3,
-          "p50_ms": 6.85147000000002,
-          "p95_ms": 7.384401999999994,
-          "maximum_ms": 7.384401999999994
+          "p50_ms": 6.739163999999988,
+          "p95_ms": 7.659516999999994,
+          "maximum_ms": 7.659516999999994
         }
       },
       "sizes_bytes": {
@@ -608,13 +608,13 @@
           "signed_result_bytes": 16776911,
           "r2_object_bytes": 16777216,
           "client_response_bytes": 16777216,
-          "result_construction_ms": 121.96008499999999,
-          "result_hash_ms": 7.129938999999979,
-          "result_persistence_ms": 11.336390999999992,
-          "status_result_read_ms": 2.410494999999969,
-          "status_result_hash_ms": 7.491479999999967,
-          "status_result_parse_ms": 25.83709600000003,
-          "status_success_path_ms": 35.73907099999997
+          "result_construction_ms": 120.19851500000001,
+          "result_hash_ms": 7.239188000000013,
+          "result_persistence_ms": 7.666369999999972,
+          "status_result_read_ms": 1.9334080000000426,
+          "status_result_hash_ms": 7.111157999999989,
+          "status_result_parse_ms": 19.654733999999962,
+          "status_success_path_ms": 28.699299999999994
         },
         {
           "target_bytes": 16777216,
@@ -622,13 +622,13 @@
           "signed_result_bytes": 16776911,
           "r2_object_bytes": 16777216,
           "client_response_bytes": 16777216,
-          "result_construction_ms": 153.565023,
-          "result_hash_ms": 7.829203000000007,
-          "result_persistence_ms": 5.31710099999998,
-          "status_result_read_ms": 12.704298999999992,
-          "status_result_hash_ms": 7.156150000000025,
-          "status_result_parse_ms": 19.685159,
-          "status_success_path_ms": 39.545608000000016
+          "result_construction_ms": 129.83574699999997,
+          "result_hash_ms": 7.366414999999961,
+          "result_persistence_ms": 3.587921999999992,
+          "status_result_read_ms": 9.170370999999989,
+          "status_result_hash_ms": 7.448646000000053,
+          "status_result_parse_ms": 17.419728000000077,
+          "status_success_path_ms": 34.03874500000012
         },
         {
           "target_bytes": 16777216,
@@ -636,57 +636,57 @@
           "signed_result_bytes": 16776911,
           "r2_object_bytes": 16777216,
           "client_response_bytes": 16777216,
-          "result_construction_ms": 138.40952100000004,
-          "result_hash_ms": 7.055254999999988,
-          "result_persistence_ms": 3.9045869999999923,
-          "status_result_read_ms": 13.744791999999961,
-          "status_result_hash_ms": 7.096694999999954,
-          "status_result_parse_ms": 18.804174000000103,
-          "status_success_path_ms": 39.64566100000002
+          "result_construction_ms": 135.39294800000005,
+          "result_hash_ms": 7.221783000000073,
+          "result_persistence_ms": 3.55906600000003,
+          "status_result_read_ms": 14.126710000000003,
+          "status_result_hash_ms": 7.063285999999948,
+          "status_result_parse_ms": 18.571421999999984,
+          "status_success_path_ms": 39.761417999999935
         }
       ],
       "timings_ms": {
         "result_construction_ms": {
           "count": 3,
-          "p50_ms": 138.40952100000004,
-          "p95_ms": 153.565023,
-          "maximum_ms": 153.565023
+          "p50_ms": 129.83574699999997,
+          "p95_ms": 135.39294800000005,
+          "maximum_ms": 135.39294800000005
         },
         "result_hash_ms": {
           "count": 3,
-          "p50_ms": 7.129938999999979,
-          "p95_ms": 7.829203000000007,
-          "maximum_ms": 7.829203000000007
+          "p50_ms": 7.239188000000013,
+          "p95_ms": 7.366414999999961,
+          "maximum_ms": 7.366414999999961
         },
         "result_persistence_ms": {
           "count": 3,
-          "p50_ms": 5.31710099999998,
-          "p95_ms": 11.336390999999992,
-          "maximum_ms": 11.336390999999992
+          "p50_ms": 3.587921999999992,
+          "p95_ms": 7.666369999999972,
+          "maximum_ms": 7.666369999999972
         },
         "status_result_read_ms": {
           "count": 3,
-          "p50_ms": 12.704298999999992,
-          "p95_ms": 13.744791999999961,
-          "maximum_ms": 13.744791999999961
+          "p50_ms": 9.170370999999989,
+          "p95_ms": 14.126710000000003,
+          "maximum_ms": 14.126710000000003
         },
         "status_result_hash_ms": {
           "count": 3,
-          "p50_ms": 7.156150000000025,
-          "p95_ms": 7.491479999999967,
-          "maximum_ms": 7.491479999999967
+          "p50_ms": 7.111157999999989,
+          "p95_ms": 7.448646000000053,
+          "maximum_ms": 7.448646000000053
         },
         "status_result_parse_ms": {
           "count": 3,
-          "p50_ms": 19.685159,
-          "p95_ms": 25.83709600000003,
-          "maximum_ms": 25.83709600000003
+          "p50_ms": 18.571421999999984,
+          "p95_ms": 19.654733999999962,
+          "maximum_ms": 19.654733999999962
         },
         "status_success_path_ms": {
           "count": 3,
-          "p50_ms": 39.545608000000016,
-          "p95_ms": 39.64566100000002,
-          "maximum_ms": 39.64566100000002
+          "p50_ms": 34.03874500000012,
+          "p95_ms": 39.761417999999935,
+          "maximum_ms": 39.761417999999935
         }
       },
       "sizes_bytes": {

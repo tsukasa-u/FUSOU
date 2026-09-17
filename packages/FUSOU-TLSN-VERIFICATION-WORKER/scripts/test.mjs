@@ -1143,7 +1143,7 @@ async function runDirectFailureSmokeTest() {
       : mode === "mixed-8"
         ? ["failure", "timeout", "success", "success", "success", "success", "success", "success"]
         : [mode];
-    const fixtureMode = scenarioModes.length > 1 ? "success" : mode;
+    const fixtureMode = scenarioModes.length > 1 || mode === "synchronous" ? "success" : mode;
     const mixedBindingValues = scenarioModes.map((_, index) => {
       const bytes = decodeBase64Url(syntheticFixture.binding_value);
       bytes[bytes.length - 1] = (bytes[bytes.length - 1] + index + 1) & 0xff;
@@ -1174,6 +1174,7 @@ async function runDirectFailureSmokeTest() {
     let verifierWorker;
     let callbackServer;
     let directCalls = 0;
+    let lastCallbackJobId;
     const workerByJobId = new Map();
     callbackServer = createServer(async (request, response) => {
       if (request.method === "POST" && request.url === "/direct-call") {
@@ -1191,13 +1192,20 @@ async function runDirectFailureSmokeTest() {
           headers.set(name, Array.isArray(value) ? value.join(",") : value);
         }
         const targetWorker = workerByJobId.get(headers.get("X-FUSOU-TLSN-Job-Id")) ?? worker;
+        lastCallbackJobId = headers.get("X-FUSOU-TLSN-Job-Id") ?? undefined;
         const callbackResponse = await targetWorker.fetch(`https://verify.test${request.url}`, {
           method: request.method,
           headers,
           body: chunks.length > 0 ? Buffer.concat(chunks) : undefined,
         });
-        response.writeHead(callbackResponse.status, { "Content-Type": "application/json" });
-        response.end(await callbackResponse.text());
+        const responseHeaders = {};
+        for (const [name, value] of callbackResponse.headers) {
+          if (!["connection", "content-encoding", "content-length", "transfer-encoding"].includes(name)) {
+            responseHeaders[name] = value;
+          }
+        }
+        response.writeHead(callbackResponse.status, responseHeaders);
+        response.end(Buffer.from(await callbackResponse.arrayBuffer()));
       } catch (error) {
         response.writeHead(500, { "Content-Type": "application/json" });
         response.end(JSON.stringify({ error: error instanceof Error ? error.message : String(error) }));
@@ -1236,6 +1244,7 @@ async function runDirectFailureSmokeTest() {
         : {}),
       TLSN_EXECUTION_MODE: "direct",
       TLSN_DIRECT_CALLBACK_SECRET: callbackSecret,
+      ...(scenarioModes.includes("synchronous") ? { TLSN_TEST_DIRECT_SYNCHRONOUS_CANDIDATE: "true" } : {}),
       ...(scenarioModes.includes("race")
         ? {
           TLSN_BENCHMARK_TIMINGS: "true",
@@ -1244,6 +1253,11 @@ async function runDirectFailureSmokeTest() {
           TLSN_TEST_POST_RESULT_DELAY_ONCE: "true",
           TLSN_TEST_DIRECT_INVOCATION_TIMEOUT_MS: "1000",
         }
+        : scenarioModes.includes("synchronous")
+          ? {
+            TLSN_BENCHMARK_TIMINGS: "true",
+            TLSN_TEST_DIRECT_INVOCATION_TIMEOUT_MS: "1000",
+          }
         : scenarioModes.length > 1
           ? {
             TLSN_BENCHMARK_TIMINGS: "true",
@@ -1313,25 +1327,37 @@ async function runDirectFailureSmokeTest() {
           device_proof: { challenge: proof.challenge, sig: proof.sig },
         }),
       });
-      assert.equal(verificationResponse.status, 202);
-      const queued = await verificationResponse.json();
-      workerByJobId.set(queued.job_id, attemptWorker);
+      const synchronousCandidate = scenarioMode === "synchronous";
+      assert.equal(
+        verificationResponse.status,
+        synchronousCandidate ? 200 : 202,
+        `${scenarioMode} response body=${await verificationResponse.clone().text()}`,
+      );
+      const verificationResponseBytes = synchronousCandidate
+        ? Buffer.from(await verificationResponse.arrayBuffer())
+        : undefined;
+      const queued = synchronousCandidate ? undefined : await verificationResponse.json();
+      const jobId = synchronousCandidate ? lastCallbackJobId : queued.job_id;
+      assert.match(jobId ?? "", /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
+      workerByJobId.set(jobId, attemptWorker);
       const bindingId = createHash("sha256").update(session.binding).digest("base64url");
       let statusResponse;
       let statusPayload;
+      let statusResponseBytes;
       for (let attempt = 0; attempt < 100; attempt += 1) {
         statusResponse = await attemptWorker.fetch("https://verify.test/verify/tlsn/status", {
           method: "POST",
           headers: { "Content-Type": "application/json", Authorization: "Bearer test-token-a" },
           body: JSON.stringify({
-            job_id: queued.job_id,
+            job_id: jobId,
             binding_id: bindingId,
             session_id: session.session_id,
             canonical_user_id: "11111111-1111-4111-8111-111111111111",
             device_id: deviceId,
           }),
         });
-        statusPayload = await statusResponse.json();
+        statusResponseBytes = Buffer.from(await statusResponse.arrayBuffer());
+        statusPayload = JSON.parse(statusResponseBytes.toString("utf8"));
         if (statusResponse.status !== 202) break;
         await new Promise((resolveDelay) => setTimeout(resolveDelay, 10));
       }
@@ -1341,23 +1367,34 @@ async function runDirectFailureSmokeTest() {
           method: "POST",
           headers: { "Content-Type": "application/json", Authorization: "Bearer test-token-a" },
           body: JSON.stringify({
-            job_id: queued.job_id,
+            job_id: jobId,
             binding_id: bindingId,
             session_id: session.session_id,
             canonical_user_id: "11111111-1111-4111-8111-111111111111",
             device_id: deviceId,
           }),
         });
-        statusPayload = await statusResponse.json();
+        statusResponseBytes = Buffer.from(await statusResponse.arrayBuffer());
+        statusPayload = JSON.parse(statusResponseBytes.toString("utf8"));
       }
       if (scenarioModes.length === 1) assert.equal(directCalls, 1);
-      const directTiming = benchmarkTiming(statusResponse);
+      const directTiming = benchmarkTiming(synchronousCandidate ? verificationResponse : statusResponse);
       assert.equal(directTiming?.r2_operations?.input_put ?? 0, 0);
       assert.equal(directTiming?.r2_operations?.trigger_input_get ?? 0, 0);
       assert.equal(directTiming?.r2_operations?.worker_presentation_get ?? 0, 0);
       assert.equal(directTiming?.r2_operations?.input_delete ?? 0, 0);
-      if (scenarioMode === "success") {
+      if (scenarioMode === "synchronous") {
         assert.equal(statusResponse.status, 200);
+        assert.equal(statusPayload.verified, true, `${scenarioMode} attempt failed: ${JSON.stringify(statusPayload)} timing=${JSON.stringify(directTiming)}`);
+        assert.equal(verificationResponseBytes?.toString("utf8"), statusResponseBytes?.toString("utf8"));
+        assert.equal(directTiming?.r2_operations?.result_put, 1);
+        assert.equal(directTiming?.r2_operations?.status_result_get ?? 0, 0);
+        assert.equal(directTiming?.r2_operations?.input_delete ?? 0, 0);
+        assert.equal(directTiming?.diagnostics?.result_sha256_present, true);
+        assert.equal(directTiming?.diagnostics?.synchronous_success_path, "established");
+        assert.equal(directTiming?.timestamps?.t1_200_response_sent > 0, true);
+      } else if (scenarioMode === "success") {
+        assert.equal(statusResponse.status, 200, `success status body=${statusResponseBytes?.toString("utf8")}`);
         assert.equal(statusPayload.verified, true, `${scenarioMode} attempt failed: ${JSON.stringify(statusPayload)} timing=${JSON.stringify(benchmarkTiming(statusResponse))}`);
         const successTiming = directTiming;
         assert.equal(typeof successTiming?.job_id, "undefined");
@@ -1365,7 +1402,7 @@ async function runDirectFailureSmokeTest() {
         assert.match(successTiming?.job_id_sha256 ?? "", /^[A-Za-z0-9_-]{43}$/);
         assert.match(successTiming?.trace_id_sha256 ?? "", /^[A-Za-z0-9_-]{43}$/);
         const callbackBody = JSON.stringify({
-          job_id: queued.job_id,
+          job_id: jobId,
           binding_id: bindingId,
           session_id: session.session_id,
           canonical_user_id: "11111111-1111-4111-8111-111111111111",
@@ -1379,8 +1416,8 @@ async function runDirectFailureSmokeTest() {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            "X-FUSOU-TLSN-Job-Id": queued.job_id,
-            "X-FUSOU-TLSN-Signature": internalRequestSignature(callbackSecret, queued.job_id, callbackBody),
+            "X-FUSOU-TLSN-Job-Id": jobId,
+            "X-FUSOU-TLSN-Signature": internalRequestSignature(callbackSecret, jobId, callbackBody),
             "X-FUSOU-TLSN-Execution-Mode": "direct",
           },
           body: callbackBody,
@@ -1392,7 +1429,7 @@ async function runDirectFailureSmokeTest() {
         assert.deepEqual(statusPayload, {
           verified: false,
           status: "not_verified",
-          job_id: queued.job_id,
+          job_id: jobId,
         });
         const retryResponse = await attemptWorker.fetch("https://verify.test/verify/tlsn/retry", {
           method: "POST",
@@ -1416,7 +1453,7 @@ async function runDirectFailureSmokeTest() {
         }
         if (scenarioMode === "failure" || scenarioMode === "header_failure") {
           const callbackBody = JSON.stringify({
-            job_id: queued.job_id,
+            job_id: jobId,
             binding_id: bindingId,
             session_id: session.session_id,
             canonical_user_id: "11111111-1111-4111-8111-111111111111",
@@ -1430,8 +1467,8 @@ async function runDirectFailureSmokeTest() {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
-              "X-FUSOU-TLSN-Job-Id": queued.job_id,
-              "X-FUSOU-TLSN-Signature": internalRequestSignature(callbackSecret, queued.job_id, callbackBody),
+              "X-FUSOU-TLSN-Job-Id": jobId,
+              "X-FUSOU-TLSN-Signature": internalRequestSignature(callbackSecret, jobId, callbackBody),
               "X-FUSOU-TLSN-Execution-Mode": "direct",
             },
             body: callbackBody,
@@ -1453,6 +1490,7 @@ async function runDirectFailureSmokeTest() {
   };
 
   await runScenario("success");
+  await runScenario("synchronous");
   await runScenario("failure");
   await runScenario("timeout");
   await runScenario("race");

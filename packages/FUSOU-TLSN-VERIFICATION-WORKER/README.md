@@ -199,6 +199,16 @@ benchmark then polls `/verify/tlsn/status` until the authoritative Result is
 returned. It does not contact Trigger.dev, Cloudflare production services, the
 Game Server, or the Notary.
 
+The Direct path also has a test-only synchronous candidate. Set
+`TLSN_TEST_DIRECT_SYNCHRONOUS_CANDIDATE=true` on a non-production test Worker
+and run `node scripts/test.mjs --direct-only`. The candidate preserves the
+Durable Object consume and private Result R2 write ordering, then relays the
+exact serialized Result bytes in the same `POST` response. The test compares
+those bytes with authenticated status recovery and checks that the first
+response performs no status Result GET. The normal Direct path remains `202`
+plus status polling, and the candidate is ignored outside
+`TLSN_ENVIRONMENT=test`.
+
 The opt-in timing header is emitted only when
 `TLSN_BENCHMARK_TIMINGS=true` and the Worker is a test deployment or an
 explicitly opted-in production canary. Its legacy local stages are:
@@ -268,11 +278,11 @@ The current local three-repeat run measured these p50 values:
 
 | Result object | Local write | Status read/hash/parse |
 | ---: | ---: | ---: |
-| 4 KiB | 0.36 ms | 0.09 ms |
-| 64 KiB | 0.16 ms | 0.12 ms |
-| 1 MiB | 0.41 ms | 1.96 ms |
-| 4 MiB | 2.38 ms | 6.85 ms |
-| 16 MiB | 5.32 ms | 39.55 ms |
+| 4 KiB | 0.09 ms | 0.22 ms |
+| 64 KiB | 0.22 ms | 0.15 ms |
+| 1 MiB | 0.66 ms | 2.04 ms |
+| 4 MiB | 1.24 ms | 6.74 ms |
+| 16 MiB | 3.59 ms | 34.04 ms |
 
 These values are sizing evidence only. They indicate that large
 `battle_data` Results need separate production R2 and status-response evidence;
@@ -351,6 +361,16 @@ The remote report separates these boundaries:
 | Cloudflare R2/DO path | `NOT_ESTABLISHED` |
 | Worker isolate RSS | `NOT_ESTABLISHED` |
 | Production scheduler timestamp | `NOT_ESTABLISHED` |
+
+Remote timing records may also contain optional Result serialization,
+Result-R2 PUT request/response, and synchronous-response phases. Older Worker
+timing records remain valid because these phases are not required for the
+legacy `timing_complete` decision. Setting
+`TLSN_REMOTE_DIRECT_SYNCHRONOUS_CANDIDATE=true` makes the remote harness expect
+an explicit Direct `POST 200` response and skip status polling for that run;
+the report marks `status_recovery_measurement` as `NOT_MEASURED`. This option is
+restricted to `test` or dedicated non-production `evidence` environments and
+must not be used as production/canary evidence.
 
 This benchmark adds timing metadata only. It does not change
 `VERIFICATION_LEASE_MS`, retry semantics, Durable Object transitions, timeout

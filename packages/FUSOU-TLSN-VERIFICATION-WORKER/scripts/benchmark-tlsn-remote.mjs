@@ -115,6 +115,13 @@ const REQUIRED_TIMING_STAGES_BY_MODE = {
     "direct_presentation_received",
   ],
 };
+const SYNCHRONOUS_REQUIRED_TIMING_STAGES = [
+  ...REQUIRED_TIMING_STAGES_BY_MODE.direct.filter(
+    (stage) => stage !== "t1_202_response_sent" && stage !== "t11_status_verified",
+  ),
+  "direct_synchronous_response_started",
+  "t1_200_response_sent",
+];
 
 function required(name) {
   const value = process.env[name]?.trim();
@@ -319,7 +326,7 @@ function parseTimingHeader(response) {
   }
 }
 
-async function submitVerification(workerOrigin, accessToken, body) {
+async function submitVerification(workerOrigin, accessToken, body, synchronousCandidate) {
   const clientT0 = performance.now();
   const result = await timedJsonRequest(endpoint(workerOrigin, "/verify/tlsn/sparse"), {
     method: "POST",
@@ -330,16 +337,23 @@ async function submitVerification(workerOrigin, accessToken, body) {
     body,
   });
   const clientT1 = performance.now();
-  if (result.status !== 202 || typeof result.json?.job_id !== "string") {
-    throw new Error(`remote verification was not queued: status ${result.status}, body ${JSON.stringify(result.json ?? null)}`);
+  const expectedStatus = synchronousCandidate ? 200 : 202;
+  if (
+    result.status !== expectedStatus ||
+    (synchronousCandidate ? result.json?.verified !== true : typeof result.json?.job_id !== "string")
+  ) {
+    throw new Error(`remote verification response was invalid: status ${result.status}, body ${JSON.stringify(result.json ?? null)}`);
   }
   return {
-    jobId: result.json.job_id,
+    jobId: synchronousCandidate ? null : result.json.job_id,
     benchmarkTraceId: typeof result.json.benchmark_trace_id === "string" ? result.json.benchmark_trace_id : null,
     clientT0,
     clientT1,
     requestBodyBytes: Buffer.byteLength(body),
     requestAcceptanceMilliseconds: clientT1 - clientT0,
+    responseMode: synchronousCandidate ? "direct_synchronous" : "queued_202",
+    responseBodyBytes: result.responseBodyBytes,
+    synchronousTiming: synchronousCandidate ? parseTimingHeader(result.response) : null,
   };
 }
 
@@ -445,8 +459,11 @@ function measuredPhaseMilliseconds(timing, durations, name, start, end) {
   return Number.isFinite(durations?.[name]) ? durations[name] : phaseMilliseconds(timing, start, end);
 }
 
-function requiredTimingStagesPresent(timing, executionMode) {
-  return REQUIRED_TIMING_STAGES_BY_MODE[executionMode].every((stage) => stageTimestamp(timing, stage) !== null);
+function requiredTimingStagesPresent(timing, executionMode, synchronousCandidate = false) {
+  const requiredStages = synchronousCandidate
+    ? SYNCHRONOUS_REQUIRED_TIMING_STAGES
+    : REQUIRED_TIMING_STAGES_BY_MODE[executionMode];
+  return requiredStages.every((stage) => stageTimestamp(timing, stage) !== null);
 }
 
 function pQuantile(values, quantile) {
@@ -483,9 +500,12 @@ function summarizePhases(samples) {
     result_canonicalization: summarize(samples, "resultCanonicalizationMilliseconds"),
     result_signing_detailed: summarize(samples, "resultSigningDetailedMilliseconds"),
     result_construction: summarize(samples, "resultConstructionMilliseconds"),
+    result_serialization: summarize(samples, "resultSerializationMilliseconds"),
     result_hash: summarize(samples, "resultHashMilliseconds"),
     result_persistence: summarize(samples, "resultPersistenceMilliseconds"),
     result_persistence_detailed: summarize(samples, "resultPersistenceDetailedMilliseconds"),
+    result_r2_put_request: summarize(samples, "resultR2PutRequestMilliseconds"),
+    result_r2_put_response: summarize(samples, "resultR2PutResponseMilliseconds"),
     status_result_get: summarize(samples, "statusResultGetMilliseconds"),
     status_result_read: summarize(samples, "statusResultReadMilliseconds"),
     status_result_hash: summarize(samples, "statusResultHashMilliseconds"),
@@ -514,6 +534,7 @@ function summarizePhases(samples) {
     server_completion: summarize(samples, "serverCompletionMilliseconds"),
     client_observation: summarize(samples, "clientObservationMilliseconds"),
     status_polling: summarize(samples, "statusPollingMilliseconds"),
+    synchronous_response: summarize(samples, "synchronousResponseMilliseconds"),
     client_visible: summarize(samples, "clientVisibleMilliseconds"),
   };
 }
@@ -599,7 +620,7 @@ function rowDecision(row) {
     : "EXCEEDS TARGET";
 }
 
-async function runBatch({ workerOrigin, webOrigin, accessToken, userId, device, privateKey, manifest, entry, concurrency, sampleCount, pollIntervalMs, maxPollMs, executionMode }) {
+async function runBatch({ workerOrigin, webOrigin, accessToken, userId, device, privateKey, manifest, entry, concurrency, sampleCount, pollIntervalMs, maxPollMs, executionMode, synchronousCandidate }) {
   const sourcePath = fixtureSourcePath(manifest, entry);
   const samples = [];
   let preparationMilliseconds = 0;
@@ -618,22 +639,35 @@ async function runBatch({ workerOrigin, webOrigin, accessToken, userId, device, 
     preparationMilliseconds += performance.now() - preparationStartedAt;
 
     const submissions = await Promise.all(sessions.map((session, index) => (
-      submitVerification(workerOrigin, accessToken, verificationBody(session, device, privateKey, fixtures[index]))
-    )));
-    const completions = await Promise.all(submissions.map((submission, index) => (
-      pollStatus(
+      submitVerification(
         workerOrigin,
         accessToken,
-        userId,
-        device,
-        sessions[index],
-        submission.jobId,
-        submission.benchmarkTraceId,
-        pollIntervalMs,
-        maxPollMs,
-        executionMode,
+        verificationBody(session, device, privateKey, fixtures[index]),
+        synchronousCandidate,
       )
     )));
+    const completions = synchronousCandidate
+      ? submissions.map((submission) => ({
+        clientT11: submission.clientT1,
+        statusPollingMilliseconds: null,
+        pollCount: 0,
+        clientResponseBytes: submission.responseBodyBytes,
+        timing: submission.synchronousTiming,
+      }))
+      : await Promise.all(submissions.map((submission, index) => (
+        pollStatus(
+          workerOrigin,
+          accessToken,
+          userId,
+          device,
+          sessions[index],
+          submission.jobId,
+          submission.benchmarkTraceId,
+          pollIntervalMs,
+          maxPollMs,
+          executionMode,
+        )
+      )));
     for (let index = 0; index < concurrency; index += 1) {
       const submission = submissions[index];
       const completion = completions[index];
@@ -671,7 +705,7 @@ async function runBatch({ workerOrigin, webOrigin, accessToken, userId, device, 
       const t9 = stageTimestamp(timing, "t9_consume_completed");
       const t10 = stageTimestamp(timing, "t10_consume_completed");
       const t10CallbackResponse = stageTimestamp(timing, "t10_callback_response_ready");
-      const observed = requiredTimingStagesPresent(timing, executionMode);
+      const observed = requiredTimingStagesPresent(timing, executionMode, synchronousCandidate);
       const queueVerifierStarted = stageTimestamp(timing, "t3_queue_verifier_started");
       const queueVerifierCompleted = stageTimestamp(timing, "t3_queue_verifier_completed");
       const queueCallbackDispatchStarted = stageTimestamp(timing, "t3_queue_callback_dispatch_started");
@@ -685,6 +719,8 @@ async function runBatch({ workerOrigin, webOrigin, accessToken, userId, device, 
         presentation_bytes: Buffer.from(fixtures[index].sparse_presentation_base64, "base64url").length,
         concurrency,
         sample_index: sampleIndex,
+        responseMode: submission.responseMode,
+        statusRecoveryMeasured: !synchronousCandidate,
         requestBodyBytes: submission.requestBodyBytes,
         resultBytes: Number.isFinite(diagnostics.result_bytes) ? diagnostics.result_bytes : null,
         payloadBytes: Number.isFinite(diagnostics.payload_bytes) ? diagnostics.payload_bytes : null,
@@ -743,6 +779,13 @@ async function runBatch({ workerOrigin, webOrigin, accessToken, userId, device, 
           "result_construction_started",
           "result_construction_completed",
         ),
+        resultSerializationMilliseconds: measuredPhaseMilliseconds(
+          timing,
+          durations,
+          "result_serialization",
+          "result_serialization_started",
+          "result_serialization_completed",
+        ),
         resultHashMilliseconds: measuredPhaseMilliseconds(
           timing,
           durations,
@@ -756,6 +799,20 @@ async function runBatch({ workerOrigin, webOrigin, accessToken, userId, device, 
           "result_persistence",
           "result_persistence_started",
           "result_persistence_completed",
+        ),
+        resultR2PutRequestMilliseconds: measuredPhaseMilliseconds(
+          timing,
+          durations,
+          "result_r2_put_request",
+          "result_r2_put_request_started",
+          "result_r2_put_request_completed",
+        ),
+        resultR2PutResponseMilliseconds: measuredPhaseMilliseconds(
+          timing,
+          durations,
+          "result_r2_put_response",
+          "result_r2_put_response_started",
+          "result_r2_put_response_completed",
         ),
         statusResultGetMilliseconds: measuredPhaseMilliseconds(
           timing,
@@ -793,6 +850,9 @@ async function runBatch({ workerOrigin, webOrigin, accessToken, userId, device, 
           "do_consume_completed",
         ),
         callbackResponseMilliseconds: t10 !== null && t10CallbackResponse !== null ? t10CallbackResponse - t10 : null,
+        synchronousResponseMilliseconds: synchronousCandidate
+          ? phaseMilliseconds(timing, "direct_synchronous_response_started", "t1_200_response_sent")
+          : null,
         triggerInputFetchMilliseconds: phaseMilliseconds(timing, "t3_trigger_input_fetch_started", "t3_trigger_input_fetch_completed"),
         triggerVerifierMilliseconds: phaseMilliseconds(timing, "t3_trigger_verifier_started", "t3_trigger_verifier_completed"),
         triggerVerifierInitializationMilliseconds: triggerVerifierInitializationStarted !== null && triggerVerifierInitializationCompleted !== null
@@ -832,7 +892,9 @@ async function runBatch({ workerOrigin, webOrigin, accessToken, userId, device, 
         timing_trace_id_present: typeof timing?.trace_id_sha256 === "string",
         timing_trace_id_matches_submission: typeof timing?.trace_id_sha256 === "string" && timing.trace_id_sha256 === sha256Base64Url(submission.benchmarkTraceId ?? ""),
         timing_job_id_hashed: typeof timing?.job_id_sha256 === "string",
-        timing_job_id_matches_submission: typeof timing?.job_id_sha256 === "string" && timing.job_id_sha256 === sha256Base64Url(submission.jobId),
+        timing_job_id_matches_submission: typeof timing?.job_id_sha256 === "string"
+          && typeof submission.jobId === "string"
+          && timing.job_id_sha256 === sha256Base64Url(submission.jobId),
         maxVerifierConcurrency: Number.isFinite(timing?.max_verifier_concurrency)
           ? timing.max_verifier_concurrency
           : null,
@@ -887,6 +949,8 @@ async function runBatch({ workerOrigin, webOrigin, accessToken, userId, device, 
       signed_result_bytes: sample.signedResultBytes,
       r2_object_bytes: sample.r2ObjectBytes,
       client_response_bytes: sample.clientResponseBytes,
+      response_mode: sample.responseMode,
+      status_recovery_measured: sample.statusRecoveryMeasured,
       phases_ms: {
         request_acceptance: sample.requestAcceptanceMilliseconds,
         trigger_accept_to_202_send: sample.triggerAcceptTo202SendMilliseconds,
@@ -904,8 +968,11 @@ async function runBatch({ workerOrigin, webOrigin, accessToken, userId, device, 
         result_canonicalization: sample.resultCanonicalizationMilliseconds,
         result_signing_detailed: sample.resultSigningDetailedMilliseconds,
         result_construction: sample.resultConstructionMilliseconds,
+        result_serialization: sample.resultSerializationMilliseconds,
         result_persistence: sample.resultPersistenceMilliseconds,
         result_persistence_detailed: sample.resultPersistenceDetailedMilliseconds,
+        result_r2_put_request: sample.resultR2PutRequestMilliseconds,
+        result_r2_put_response: sample.resultR2PutResponseMilliseconds,
         status_result_get: sample.statusResultGetMilliseconds,
         status_result_read: sample.statusResultReadMilliseconds,
         status_result_hash: sample.statusResultHashMilliseconds,
@@ -934,6 +1001,7 @@ async function runBatch({ workerOrigin, webOrigin, accessToken, userId, device, 
           server_completion: sample.serverCompletionMilliseconds,
           client_observation: sample.clientObservationMilliseconds,
         status_polling: sample.statusPollingMilliseconds,
+        synchronous_response: sample.synchronousResponseMilliseconds,
         poll_count: sample.pollCount,
       },
       server_timestamps: sample.server_timestamps,
@@ -958,12 +1026,17 @@ async function main() {
   if (!Object.hasOwn(REQUIRED_TIMING_STAGES_BY_MODE, executionMode)) {
     throw new Error("TLSN_REMOTE_EXECUTION_MODE must be trigger, queue, or direct");
   }
+  const synchronousCandidate = executionMode === "direct"
+    && optional("TLSN_REMOTE_DIRECT_SYNCHRONOUS_CANDIDATE") === "true";
   const expectedEnvironment = optional("TLSN_REMOTE_EXPECTED_ENVIRONMENT") ?? "test";
   if (!ALLOWED_EXPECTED_ENVIRONMENTS.has(expectedEnvironment)) {
     throw new Error("TLSN_REMOTE_EXPECTED_ENVIRONMENT must be test, evidence, or production");
   }
   if (expectedEnvironment === "evidence" && executionMode !== "direct") {
     throw new Error("evidence benchmark requires TLSN_REMOTE_EXECUTION_MODE=direct");
+  }
+  if (synchronousCandidate && expectedEnvironment === "production") {
+    throw new Error("TLSN_REMOTE_DIRECT_SYNCHRONOUS_CANDIDATE is restricted to test or evidence environments");
   }
   const cases = parseList("TLSN_REMOTE_CASES", DEFAULT_CASES, (value) => value || undefined);
   const concurrencyValues = parseList("TLSN_REMOTE_CONCURRENCY", DEFAULT_CONCURRENCY, (value) => {
@@ -1018,6 +1091,7 @@ async function main() {
         pollIntervalMs,
         maxPollMs,
         executionMode,
+        synchronousCandidate,
       });
       rows.push(row);
       console.log(JSON.stringify({
@@ -1030,6 +1104,10 @@ async function main() {
         trigger_queue_start: row.phases.trigger_queue_start,
         direct_invocation_startup: row.phases.direct_invocation_startup,
         queue_verifier: row.phases.queue_verifier,
+        result_serialization: row.phases.result_serialization,
+        result_r2_put_request: row.phases.result_r2_put_request,
+        result_r2_put_response: row.phases.result_r2_put_response,
+        synchronous_response: row.phases.synchronous_response,
         presentation_hash: row.phases.presentation_hash,
         result: row.result,
       }));
@@ -1066,6 +1144,8 @@ async function main() {
       target_basis: "existing benchmark regression target; not a production SLO",
       formal_slo_decision: "NOT_ESTABLISHED",
       execution_mode: executionMode,
+      response_mode: synchronousCandidate ? "direct_synchronous_candidate" : "queued_202_status_poll",
+      status_recovery_measurement: synchronousCandidate ? "NOT_MEASURED" : "MEASURED",
       expected_environment: expectedEnvironment,
       payload_scaling_status: "MEASURED_ONLY_FOR_AVAILABLE_REAL_FIXTURES",
     },

@@ -39,6 +39,6 @@ export default {
         body: presentationBody,
       },
     );
-    return new Response(null, { status: callbackResponse.status });
+      return callbackResponse;
   },
 };
