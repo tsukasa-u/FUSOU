@@ -34,6 +34,7 @@
       "benchmark:tlsn-remote:malicious-callback": "node scripts/remote-direct-malicious-callback.mjs",
       "benchmark:tlsn-remote:stale-attempt": "node scripts/remote-direct-stale-attempt.mjs",
       "benchmark:tlsn-payload-scaling": "node scripts/benchmark-tlsn-payload-scaling.mjs",
+      "benchmark:tlsn-result-storage": "node scripts/benchmark-tlsn-result-storage.mjs",
       "test:stuck-job-age-alert": "node scripts/stuck-job-age-alert-dry-run.mjs",
       "benchmark:tlsn-remote": "pnpm run benchmark:tlsn-remote:preflight && pnpm run build:wasm && node scripts/benchmark-tlsn-remote.mjs",
     "validate:remote": "node scripts/remote-validation.mjs",

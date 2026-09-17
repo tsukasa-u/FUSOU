@@ -1,0 +1,701 @@
+{
+  "schema_version": 1,
+  "benchmark": "tlsn-worker-result-storage-scaling-v1",
+  "generated_at": "2026-09-17T17:41:36.061Z",
+  "verification_semantics": "NOT_TESTED",
+  "storage_backend": "local-filesystem-proxy",
+  "network_access": false,
+  "repeats": 3,
+  "target_sizes_bytes": [
+    4096,
+    16384,
+    65536,
+    262144,
+    1048576,
+    4194304,
+    16777216
+  ],
+  "interpretation": "Synthetic JSON envelope only. This measures byte copying, hashing, local persistence, and status parsing; it does not verify TLSN evidence or measure remote R2.",
+  "cases": [
+    {
+      "target_bytes": 4096,
+      "observations": [
+        {
+          "target_bytes": 4096,
+          "payload_bytes": 3610,
+          "signed_result_bytes": 3791,
+          "r2_object_bytes": 4096,
+          "client_response_bytes": 4096,
+          "result_construction_ms": 0.09642700000000204,
+          "result_hash_ms": 0.27687600000000145,
+          "result_persistence_ms": 0.3612490000000008,
+          "status_result_read_ms": 0.1741969999999995,
+          "status_result_hash_ms": 0.01039000000000101,
+          "status_result_parse_ms": 0.016761999999999944,
+          "status_success_path_ms": 0.20134900000000044
+        },
+        {
+          "target_bytes": 4096,
+          "payload_bytes": 3610,
+          "signed_result_bytes": 3791,
+          "r2_object_bytes": 4096,
+          "client_response_bytes": 4096,
+          "result_construction_ms": 0.037221999999999866,
+          "result_hash_ms": 0.005760999999999683,
+          "result_persistence_ms": 0.06688899999999975,
+          "status_result_read_ms": 0.06081800000000115,
+          "status_result_hash_ms": 0.006091999999998876,
+          "status_result_parse_ms": 0.011773000000001588,
+          "status_success_path_ms": 0.07868300000000161
+        },
+        {
+          "target_bytes": 4096,
+          "payload_bytes": 3610,
+          "signed_result_bytes": 3791,
+          "r2_object_bytes": 4096,
+          "client_response_bytes": 4096,
+          "result_construction_ms": 0.034065999999999264,
+          "result_hash_ms": 0.005169999999999675,
+          "result_persistence_ms": 0.42902999999999736,
+          "status_result_read_ms": 0.06886300000000034,
+          "status_result_hash_ms": 0.00803499999999957,
+          "status_result_parse_ms": 0.008736999999999995,
+          "status_success_path_ms": 0.0856349999999999
+        }
+      ],
+      "timings_ms": {
+        "result_construction_ms": {
+          "count": 3,
+          "p50_ms": 0.037221999999999866,
+          "p95_ms": 0.09642700000000204,
+          "maximum_ms": 0.09642700000000204
+        },
+        "result_hash_ms": {
+          "count": 3,
+          "p50_ms": 0.005760999999999683,
+          "p95_ms": 0.27687600000000145,
+          "maximum_ms": 0.27687600000000145
+        },
+        "result_persistence_ms": {
+          "count": 3,
+          "p50_ms": 0.3612490000000008,
+          "p95_ms": 0.42902999999999736,
+          "maximum_ms": 0.42902999999999736
+        },
+        "status_result_read_ms": {
+          "count": 3,
+          "p50_ms": 0.06886300000000034,
+          "p95_ms": 0.1741969999999995,
+          "maximum_ms": 0.1741969999999995
+        },
+        "status_result_hash_ms": {
+          "count": 3,
+          "p50_ms": 0.00803499999999957,
+          "p95_ms": 0.01039000000000101,
+          "maximum_ms": 0.01039000000000101
+        },
+        "status_result_parse_ms": {
+          "count": 3,
+          "p50_ms": 0.011773000000001588,
+          "p95_ms": 0.016761999999999944,
+          "maximum_ms": 0.016761999999999944
+        },
+        "status_success_path_ms": {
+          "count": 3,
+          "p50_ms": 0.0856349999999999,
+          "p95_ms": 0.20134900000000044,
+          "maximum_ms": 0.20134900000000044
+        }
+      },
+      "sizes_bytes": {
+        "payload": 3610,
+        "signed_result": 3791,
+        "r2_object": 4096,
+        "client_response": 4096
+      }
+    },
+    {
+      "target_bytes": 16384,
+      "observations": [
+        {
+          "target_bytes": 16384,
+          "payload_bytes": 15898,
+          "signed_result_bytes": 16079,
+          "r2_object_bytes": 16384,
+          "client_response_bytes": 16384,
+          "result_construction_ms": 0.14490099999999728,
+          "result_hash_ms": 0.012413999999999703,
+          "result_persistence_ms": 0.0862569999999998,
+          "status_result_read_ms": 0.0533229999999989,
+          "status_result_hash_ms": 0.011482999999998356,
+          "status_result_parse_ms": 0.02321500000000043,
+          "status_success_path_ms": 0.08802099999999768
+        },
+        {
+          "target_bytes": 16384,
+          "payload_bytes": 15898,
+          "signed_result_bytes": 16079,
+          "r2_object_bytes": 16384,
+          "client_response_bytes": 16384,
+          "result_construction_ms": 0.0990719999999996,
+          "result_hash_ms": 0.06377400000000222,
+          "result_persistence_ms": 0.10653599999999841,
+          "status_result_read_ms": 0.1095019999999991,
+          "status_result_hash_ms": 0.022363999999999606,
+          "status_result_parse_ms": 0.022442999999999103,
+          "status_success_path_ms": 0.1543089999999978
+        },
+        {
+          "target_bytes": 16384,
+          "payload_bytes": 15898,
+          "signed_result_bytes": 16079,
+          "r2_object_bytes": 16384,
+          "client_response_bytes": 16384,
+          "result_construction_ms": 0.10453200000000251,
+          "result_hash_ms": 0.012533999999998713,
+          "result_persistence_ms": 0.06881299999999868,
+          "status_result_read_ms": 0.05557699999999954,
+          "status_result_hash_ms": 0.011210999999999416,
+          "status_result_parse_ms": 0.022763999999998674,
+          "status_success_path_ms": 0.08955199999999763
+        }
+      ],
+      "timings_ms": {
+        "result_construction_ms": {
+          "count": 3,
+          "p50_ms": 0.10453200000000251,
+          "p95_ms": 0.14490099999999728,
+          "maximum_ms": 0.14490099999999728
+        },
+        "result_hash_ms": {
+          "count": 3,
+          "p50_ms": 0.012533999999998713,
+          "p95_ms": 0.06377400000000222,
+          "maximum_ms": 0.06377400000000222
+        },
+        "result_persistence_ms": {
+          "count": 3,
+          "p50_ms": 0.0862569999999998,
+          "p95_ms": 0.10653599999999841,
+          "maximum_ms": 0.10653599999999841
+        },
+        "status_result_read_ms": {
+          "count": 3,
+          "p50_ms": 0.05557699999999954,
+          "p95_ms": 0.1095019999999991,
+          "maximum_ms": 0.1095019999999991
+        },
+        "status_result_hash_ms": {
+          "count": 3,
+          "p50_ms": 0.011482999999998356,
+          "p95_ms": 0.022363999999999606,
+          "maximum_ms": 0.022363999999999606
+        },
+        "status_result_parse_ms": {
+          "count": 3,
+          "p50_ms": 0.022763999999998674,
+          "p95_ms": 0.02321500000000043,
+          "maximum_ms": 0.02321500000000043
+        },
+        "status_success_path_ms": {
+          "count": 3,
+          "p50_ms": 0.08955199999999763,
+          "p95_ms": 0.1543089999999978,
+          "maximum_ms": 0.1543089999999978
+        }
+      },
+      "sizes_bytes": {
+        "payload": 15898,
+        "signed_result": 16079,
+        "r2_object": 16384,
+        "client_response": 16384
+      }
+    },
+    {
+      "target_bytes": 65536,
+      "observations": [
+        {
+          "target_bytes": 65536,
+          "payload_bytes": 65050,
+          "signed_result_bytes": 65231,
+          "r2_object_bytes": 65536,
+          "client_response_bytes": 65536,
+          "result_construction_ms": 0.38227999999999795,
+          "result_hash_ms": 0.032682999999998685,
+          "result_persistence_ms": 0.3726510000000012,
+          "status_result_read_ms": 0.06410400000000038,
+          "status_result_hash_ms": 0.03298400000000257,
+          "status_result_parse_ms": 0.02612099999999984,
+          "status_success_path_ms": 0.12320900000000279
+        },
+        {
+          "target_bytes": 65536,
+          "payload_bytes": 65050,
+          "signed_result_bytes": 65231,
+          "r2_object_bytes": 65536,
+          "client_response_bytes": 65536,
+          "result_construction_ms": 0.3005209999999998,
+          "result_hash_ms": 0.031160000000003407,
+          "result_persistence_ms": 0.0893429999999995,
+          "status_result_read_ms": 0.05453600000000236,
+          "status_result_hash_ms": 0.031721000000001,
+          "status_result_parse_ms": 0.026951999999997867,
+          "status_success_path_ms": 0.11320900000000123
+        },
+        {
+          "target_bytes": 65536,
+          "payload_bytes": 65050,
+          "signed_result_bytes": 65231,
+          "r2_object_bytes": 65536,
+          "client_response_bytes": 65536,
+          "result_construction_ms": 0.3563699999999983,
+          "result_hash_ms": 0.031420999999998145,
+          "result_persistence_ms": 0.15621200000000002,
+          "status_result_read_ms": 0.05877299999999863,
+          "status_result_hash_ms": 0.03300400000000181,
+          "status_result_parse_ms": 0.07000499999999832,
+          "status_success_path_ms": 0.16178199999999876
+        }
+      ],
+      "timings_ms": {
+        "result_construction_ms": {
+          "count": 3,
+          "p50_ms": 0.3563699999999983,
+          "p95_ms": 0.38227999999999795,
+          "maximum_ms": 0.38227999999999795
+        },
+        "result_hash_ms": {
+          "count": 3,
+          "p50_ms": 0.031420999999998145,
+          "p95_ms": 0.032682999999998685,
+          "maximum_ms": 0.032682999999998685
+        },
+        "result_persistence_ms": {
+          "count": 3,
+          "p50_ms": 0.15621200000000002,
+          "p95_ms": 0.3726510000000012,
+          "maximum_ms": 0.3726510000000012
+        },
+        "status_result_read_ms": {
+          "count": 3,
+          "p50_ms": 0.05877299999999863,
+          "p95_ms": 0.06410400000000038,
+          "maximum_ms": 0.06410400000000038
+        },
+        "status_result_hash_ms": {
+          "count": 3,
+          "p50_ms": 0.03298400000000257,
+          "p95_ms": 0.03300400000000181,
+          "maximum_ms": 0.03300400000000181
+        },
+        "status_result_parse_ms": {
+          "count": 3,
+          "p50_ms": 0.026951999999997867,
+          "p95_ms": 0.07000499999999832,
+          "maximum_ms": 0.07000499999999832
+        },
+        "status_success_path_ms": {
+          "count": 3,
+          "p50_ms": 0.12320900000000279,
+          "p95_ms": 0.16178199999999876,
+          "maximum_ms": 0.16178199999999876
+        }
+      },
+      "sizes_bytes": {
+        "payload": 65050,
+        "signed_result": 65231,
+        "r2_object": 65536,
+        "client_response": 65536
+      }
+    },
+    {
+      "target_bytes": 262144,
+      "observations": [
+        {
+          "target_bytes": 262144,
+          "payload_bytes": 261658,
+          "signed_result_bytes": 261839,
+          "r2_object_bytes": 262144,
+          "client_response_bytes": 262144,
+          "result_construction_ms": 1.9070999999999998,
+          "result_hash_ms": 0.12232699999999852,
+          "result_persistence_ms": 0.27056400000000025,
+          "status_result_read_ms": 0.07567699999999888,
+          "status_result_hash_ms": 0.11933099999999897,
+          "status_result_parse_ms": 0.2831879999999991,
+          "status_success_path_ms": 0.47819599999999696
+        },
+        {
+          "target_bytes": 262144,
+          "payload_bytes": 261658,
+          "signed_result_bytes": 261839,
+          "r2_object_bytes": 262144,
+          "client_response_bytes": 262144,
+          "result_construction_ms": 1.8993059999999993,
+          "result_hash_ms": 0.12753699999999668,
+          "result_persistence_ms": 0.18208299999999866,
+          "status_result_read_ms": 0.11957100000000054,
+          "status_result_hash_ms": 0.12967099999999832,
+          "status_result_parse_ms": 0.4201130000000006,
+          "status_success_path_ms": 0.6693549999999995
+        },
+        {
+          "target_bytes": 262144,
+          "payload_bytes": 261658,
+          "signed_result_bytes": 261839,
+          "r2_object_bytes": 262144,
+          "client_response_bytes": 262144,
+          "result_construction_ms": 2.0493559999999995,
+          "result_hash_ms": 0.13710499999999826,
+          "result_persistence_ms": 0.2082329999999999,
+          "status_result_read_ms": 0.12098399999999998,
+          "status_result_hash_ms": 0.12644500000000036,
+          "status_result_parse_ms": 0.3783329999999978,
+          "status_success_path_ms": 0.6257619999999982
+        }
+      ],
+      "timings_ms": {
+        "result_construction_ms": {
+          "count": 3,
+          "p50_ms": 1.9070999999999998,
+          "p95_ms": 2.0493559999999995,
+          "maximum_ms": 2.0493559999999995
+        },
+        "result_hash_ms": {
+          "count": 3,
+          "p50_ms": 0.12753699999999668,
+          "p95_ms": 0.13710499999999826,
+          "maximum_ms": 0.13710499999999826
+        },
+        "result_persistence_ms": {
+          "count": 3,
+          "p50_ms": 0.2082329999999999,
+          "p95_ms": 0.27056400000000025,
+          "maximum_ms": 0.27056400000000025
+        },
+        "status_result_read_ms": {
+          "count": 3,
+          "p50_ms": 0.11957100000000054,
+          "p95_ms": 0.12098399999999998,
+          "maximum_ms": 0.12098399999999998
+        },
+        "status_result_hash_ms": {
+          "count": 3,
+          "p50_ms": 0.12644500000000036,
+          "p95_ms": 0.12967099999999832,
+          "maximum_ms": 0.12967099999999832
+        },
+        "status_result_parse_ms": {
+          "count": 3,
+          "p50_ms": 0.3783329999999978,
+          "p95_ms": 0.4201130000000006,
+          "maximum_ms": 0.4201130000000006
+        },
+        "status_success_path_ms": {
+          "count": 3,
+          "p50_ms": 0.6257619999999982,
+          "p95_ms": 0.6693549999999995,
+          "maximum_ms": 0.6693549999999995
+        }
+      },
+      "sizes_bytes": {
+        "payload": 261658,
+        "signed_result": 261839,
+        "r2_object": 262144,
+        "client_response": 262144
+      }
+    },
+    {
+      "target_bytes": 1048576,
+      "observations": [
+        {
+          "target_bytes": 1048576,
+          "payload_bytes": 1048090,
+          "signed_result_bytes": 1048271,
+          "r2_object_bytes": 1048576,
+          "client_response_bytes": 1048576,
+          "result_construction_ms": 8.070911000000002,
+          "result_hash_ms": 0.4915810000000036,
+          "result_persistence_ms": 0.41016399999999464,
+          "status_result_read_ms": 0.16549000000000547,
+          "status_result_hash_ms": 0.46693400000000196,
+          "status_result_parse_ms": 1.2794060000000016,
+          "status_success_path_ms": 1.911830000000009
+        },
+        {
+          "target_bytes": 1048576,
+          "payload_bytes": 1048090,
+          "signed_result_bytes": 1048271,
+          "r2_object_bytes": 1048576,
+          "client_response_bytes": 1048576,
+          "result_construction_ms": 6.910605000000004,
+          "result_hash_ms": 0.4927729999999997,
+          "result_persistence_ms": 0.38626800000000117,
+          "status_result_read_ms": 0.17127200000000187,
+          "status_result_hash_ms": 0.4593190000000007,
+          "status_result_parse_ms": 1.331347000000001,
+          "status_success_path_ms": 1.9619380000000035
+        },
+        {
+          "target_bytes": 1048576,
+          "payload_bytes": 1048090,
+          "signed_result_bytes": 1048271,
+          "r2_object_bytes": 1048576,
+          "client_response_bytes": 1048576,
+          "result_construction_ms": 6.296025999999998,
+          "result_hash_ms": 0.4833150000000046,
+          "result_persistence_ms": 0.5838600000000014,
+          "status_result_read_ms": 0.3785929999999951,
+          "status_result_hash_ms": 0.471974000000003,
+          "status_result_parse_ms": 1.5421749999999932,
+          "status_success_path_ms": 2.3927419999999913
+        }
+      ],
+      "timings_ms": {
+        "result_construction_ms": {
+          "count": 3,
+          "p50_ms": 6.910605000000004,
+          "p95_ms": 8.070911000000002,
+          "maximum_ms": 8.070911000000002
+        },
+        "result_hash_ms": {
+          "count": 3,
+          "p50_ms": 0.4915810000000036,
+          "p95_ms": 0.4927729999999997,
+          "maximum_ms": 0.4927729999999997
+        },
+        "result_persistence_ms": {
+          "count": 3,
+          "p50_ms": 0.41016399999999464,
+          "p95_ms": 0.5838600000000014,
+          "maximum_ms": 0.5838600000000014
+        },
+        "status_result_read_ms": {
+          "count": 3,
+          "p50_ms": 0.17127200000000187,
+          "p95_ms": 0.3785929999999951,
+          "maximum_ms": 0.3785929999999951
+        },
+        "status_result_hash_ms": {
+          "count": 3,
+          "p50_ms": 0.46693400000000196,
+          "p95_ms": 0.471974000000003,
+          "maximum_ms": 0.471974000000003
+        },
+        "status_result_parse_ms": {
+          "count": 3,
+          "p50_ms": 1.331347000000001,
+          "p95_ms": 1.5421749999999932,
+          "maximum_ms": 1.5421749999999932
+        },
+        "status_success_path_ms": {
+          "count": 3,
+          "p50_ms": 1.9619380000000035,
+          "p95_ms": 2.3927419999999913,
+          "maximum_ms": 2.3927419999999913
+        }
+      },
+      "sizes_bytes": {
+        "payload": 1048090,
+        "signed_result": 1048271,
+        "r2_object": 1048576,
+        "client_response": 1048576
+      }
+    },
+    {
+      "target_bytes": 4194304,
+      "observations": [
+        {
+          "target_bytes": 4194304,
+          "payload_bytes": 4193818,
+          "signed_result_bytes": 4193999,
+          "r2_object_bytes": 4194304,
+          "client_response_bytes": 4194304,
+          "result_construction_ms": 30.947005999999995,
+          "result_hash_ms": 1.8067769999999967,
+          "result_persistence_ms": 2.379525000000001,
+          "status_result_read_ms": 0.688943000000009,
+          "status_result_hash_ms": 1.8084400000000045,
+          "status_result_parse_ms": 4.354087000000007,
+          "status_success_path_ms": 6.85147000000002
+        },
+        {
+          "target_bytes": 4194304,
+          "payload_bytes": 4193818,
+          "signed_result_bytes": 4193999,
+          "r2_object_bytes": 4194304,
+          "client_response_bytes": 4194304,
+          "result_construction_ms": 26.885824999999997,
+          "result_hash_ms": 1.9089849999999728,
+          "result_persistence_ms": 1.002299999999991,
+          "status_result_read_ms": 0.5210679999999854,
+          "status_result_hash_ms": 1.8605110000000025,
+          "status_result_parse_ms": 5.0028230000000065,
+          "status_success_path_ms": 7.384401999999994
+        },
+        {
+          "target_bytes": 4194304,
+          "payload_bytes": 4193818,
+          "signed_result_bytes": 4193999,
+          "r2_object_bytes": 4194304,
+          "client_response_bytes": 4194304,
+          "result_construction_ms": 27.344583,
+          "result_hash_ms": 1.7741539999999816,
+          "result_persistence_ms": 4.938088000000022,
+          "status_result_read_ms": 0.39001500000000533,
+          "status_result_hash_ms": 1.7749049999999897,
+          "status_result_parse_ms": 4.654939000000013,
+          "status_success_path_ms": 6.819859000000008
+        }
+      ],
+      "timings_ms": {
+        "result_construction_ms": {
+          "count": 3,
+          "p50_ms": 27.344583,
+          "p95_ms": 30.947005999999995,
+          "maximum_ms": 30.947005999999995
+        },
+        "result_hash_ms": {
+          "count": 3,
+          "p50_ms": 1.8067769999999967,
+          "p95_ms": 1.9089849999999728,
+          "maximum_ms": 1.9089849999999728
+        },
+        "result_persistence_ms": {
+          "count": 3,
+          "p50_ms": 2.379525000000001,
+          "p95_ms": 4.938088000000022,
+          "maximum_ms": 4.938088000000022
+        },
+        "status_result_read_ms": {
+          "count": 3,
+          "p50_ms": 0.5210679999999854,
+          "p95_ms": 0.688943000000009,
+          "maximum_ms": 0.688943000000009
+        },
+        "status_result_hash_ms": {
+          "count": 3,
+          "p50_ms": 1.8084400000000045,
+          "p95_ms": 1.8605110000000025,
+          "maximum_ms": 1.8605110000000025
+        },
+        "status_result_parse_ms": {
+          "count": 3,
+          "p50_ms": 4.654939000000013,
+          "p95_ms": 5.0028230000000065,
+          "maximum_ms": 5.0028230000000065
+        },
+        "status_success_path_ms": {
+          "count": 3,
+          "p50_ms": 6.85147000000002,
+          "p95_ms": 7.384401999999994,
+          "maximum_ms": 7.384401999999994
+        }
+      },
+      "sizes_bytes": {
+        "payload": 4193818,
+        "signed_result": 4193999,
+        "r2_object": 4194304,
+        "client_response": 4194304
+      }
+    },
+    {
+      "target_bytes": 16777216,
+      "observations": [
+        {
+          "target_bytes": 16777216,
+          "payload_bytes": 16776730,
+          "signed_result_bytes": 16776911,
+          "r2_object_bytes": 16777216,
+          "client_response_bytes": 16777216,
+          "result_construction_ms": 121.96008499999999,
+          "result_hash_ms": 7.129938999999979,
+          "result_persistence_ms": 11.336390999999992,
+          "status_result_read_ms": 2.410494999999969,
+          "status_result_hash_ms": 7.491479999999967,
+          "status_result_parse_ms": 25.83709600000003,
+          "status_success_path_ms": 35.73907099999997
+        },
+        {
+          "target_bytes": 16777216,
+          "payload_bytes": 16776730,
+          "signed_result_bytes": 16776911,
+          "r2_object_bytes": 16777216,
+          "client_response_bytes": 16777216,
+          "result_construction_ms": 153.565023,
+          "result_hash_ms": 7.829203000000007,
+          "result_persistence_ms": 5.31710099999998,
+          "status_result_read_ms": 12.704298999999992,
+          "status_result_hash_ms": 7.156150000000025,
+          "status_result_parse_ms": 19.685159,
+          "status_success_path_ms": 39.545608000000016
+        },
+        {
+          "target_bytes": 16777216,
+          "payload_bytes": 16776730,
+          "signed_result_bytes": 16776911,
+          "r2_object_bytes": 16777216,
+          "client_response_bytes": 16777216,
+          "result_construction_ms": 138.40952100000004,
+          "result_hash_ms": 7.055254999999988,
+          "result_persistence_ms": 3.9045869999999923,
+          "status_result_read_ms": 13.744791999999961,
+          "status_result_hash_ms": 7.096694999999954,
+          "status_result_parse_ms": 18.804174000000103,
+          "status_success_path_ms": 39.64566100000002
+        }
+      ],
+      "timings_ms": {
+        "result_construction_ms": {
+          "count": 3,
+          "p50_ms": 138.40952100000004,
+          "p95_ms": 153.565023,
+          "maximum_ms": 153.565023
+        },
+        "result_hash_ms": {
+          "count": 3,
+          "p50_ms": 7.129938999999979,
+          "p95_ms": 7.829203000000007,
+          "maximum_ms": 7.829203000000007
+        },
+        "result_persistence_ms": {
+          "count": 3,
+          "p50_ms": 5.31710099999998,
+          "p95_ms": 11.336390999999992,
+          "maximum_ms": 11.336390999999992
+        },
+        "status_result_read_ms": {
+          "count": 3,
+          "p50_ms": 12.704298999999992,
+          "p95_ms": 13.744791999999961,
+          "maximum_ms": 13.744791999999961
+        },
+        "status_result_hash_ms": {
+          "count": 3,
+          "p50_ms": 7.156150000000025,
+          "p95_ms": 7.491479999999967,
+          "maximum_ms": 7.491479999999967
+        },
+        "status_result_parse_ms": {
+          "count": 3,
+          "p50_ms": 19.685159,
+          "p95_ms": 25.83709600000003,
+          "maximum_ms": 25.83709600000003
+        },
+        "status_success_path_ms": {
+          "count": 3,
+          "p50_ms": 39.545608000000016,
+          "p95_ms": 39.64566100000002,
+          "maximum_ms": 39.64566100000002
+        }
+      },
+      "sizes_bytes": {
+        "payload": 16776730,
+        "signed_result": 16776911,
+        "r2_object": 16777216,
+        "client_response": 16777216
+      }
+    }
+  ],
+  "report_path": "/home/ogu-h/Documents/GitHub/FUSOU/packages/FUSOU-TLSN-VERIFICATION-WORKER/artifacts/tlsn-result-storage-scaling.json"
+}

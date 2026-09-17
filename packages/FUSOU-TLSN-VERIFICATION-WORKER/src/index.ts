@@ -154,6 +154,7 @@ const MAX_PRESENTATION_BYTES = 8 * 1024 * 1024;
 const MAX_REQUEST_JSON_BYTES = 12 * 1024 * 1024;
 const MAX_PRESENTATION_BASE64_LENGTH = Math.ceil(MAX_PRESENTATION_BYTES * 4 / 3) + 4;
 const MAX_RESULT_JSON_BYTES = 25_165_824;
+const MAX_RESULT_OBJECT_BYTES = MAX_RESULT_JSON_BYTES + 256 * 1024;
 const MAX_INTERNAL_CALLBACK_JSON_BYTES = 64 * 1024;
 const VERIFICATION_LEASE_MS = 10 * 60 * 1000;
 
@@ -247,6 +248,14 @@ type BenchmarkTimingStage =
   | "do_consume_completed"
   | "input_cleanup_started"
   | "input_cleanup_completed"
+  | "status_result_get_started"
+  | "status_result_get_completed"
+  | "status_result_read_started"
+  | "status_result_read_completed"
+  | "status_result_hash_started"
+  | "status_result_hash_completed"
+  | "status_result_parse_started"
+  | "status_result_parse_completed"
   | "t5_presentation_hash_started"
   | "t5_presentation_hash_completed";
 
@@ -2148,17 +2157,18 @@ async function completeVerification(
       return c.json({ error: "verification_result_unavailable" }, 503);
     }
     const existing = await c.env.TLSN_PRESENTATIONS.get(resultObjectKey);
-    if (!existing || existing.size > MAX_INTERNAL_CALLBACK_JSON_BYTES) {
+    if (!existing || existing.size > MAX_RESULT_OBJECT_BYTES) {
       return c.json({ error: "verification_result_unavailable" }, 503);
     }
-    const resultBody = await existing.text();
+    const resultBytes = new Uint8Array(await existing.arrayBuffer());
     const resultSha256 = encodeBase64Url(
-      new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(resultBody))),
+      new Uint8Array(await crypto.subtle.digest("SHA-256", resultBytes)),
     );
     if (resultSha256 !== resultRecord.result_sha256) {
       return c.json({ error: "verification_result_unavailable" }, 503);
     }
     try {
+      const resultBody = new TextDecoder().decode(resultBytes);
       verificationFinalResponseSchema.parse(JSON.parse(resultBody) as unknown);
       return c.json({ accepted: true });
     } catch {
@@ -2315,6 +2325,7 @@ async function completeVerification(
       benchmarkR2Operation(c.env, callback.job_id, "worker_presentation_get");
     }
     benchmarkDiagnostic(c.env, callback.job_id, "presentation_bytes", storedPresentation.byteLength);
+    benchmarkDiagnostic(c.env, callback.job_id, "payload_bytes", storedPresentation.byteLength);
     benchmarkRecord(c.env, callback.job_id, "t5_presentation_read");
     if (executionMode === "queue") {
       benchmarkRecord(c.env, callback.job_id, "queue_presentation_read_completed");
@@ -2419,11 +2430,13 @@ async function completeVerification(
       await finalizeAttemptFailure("verifier_failed");
       return c.json({ error: "verifier_unavailable" }, 503);
     }
-    const signedResult = JSON.parse(
-      sparseProfile
-        ? attach_sparse_verifier_result_signature(prepared.unsigned_result, signatureBytes)
-        : attach_verifier_result_signature(prepared.unsigned_result, signatureBytes),
-    ) as Record<string, unknown>;
+    const signedResultBody = sparseProfile
+      ? attach_sparse_verifier_result_signature(prepared.unsigned_result, signatureBytes)
+      : attach_verifier_result_signature(prepared.unsigned_result, signatureBytes);
+    const signedResult = JSON.parse(signedResultBody) as Record<string, unknown>;
+    if (benchmarkEnabled(c.env)) {
+      benchmarkDiagnostic(c.env, callback.job_id, "signed_result_bytes", new TextEncoder().encode(signedResultBody).byteLength);
+    }
     const usedAt = completionRecord.status === "consumed"
       ? completionRecord.used_at
       : new Date(Date.now()).toISOString();
@@ -2459,13 +2472,15 @@ async function completeVerification(
     benchmarkRecord(c.env, callback.job_id, "t7_result_signing_completed");
     benchmarkRecord(c.env, callback.job_id, "t8_result_signing_completed");
     const finalResponseBody = JSON.stringify(finalResponse);
+    const finalResponseBytes = new TextEncoder().encode(finalResponseBody);
     benchmarkRecord(c.env, callback.job_id, "result_construction_completed");
-    benchmarkDiagnostic(c.env, callback.job_id, "result_bytes", new TextEncoder().encode(finalResponseBody).byteLength);
+    benchmarkDiagnostic(c.env, callback.job_id, "result_bytes", finalResponseBytes.byteLength);
+    benchmarkDiagnostic(c.env, callback.job_id, "r2_object_bytes", finalResponseBytes.byteLength);
     benchmarkDuration(c.env, callback.job_id, "result_construction", performance.now() - resultConstructionStartedAt);
     const resultHashStartedAt = performance.now();
     benchmarkRecord(c.env, callback.job_id, "result_hash_started");
     const resultSha256 = encodeBase64Url(
-      new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(finalResponseBody))),
+      new Uint8Array(await crypto.subtle.digest("SHA-256", finalResponseBytes)),
     );
     benchmarkRecord(c.env, callback.job_id, "result_hash_completed");
     benchmarkDuration(c.env, callback.job_id, "result_hash", performance.now() - resultHashStartedAt);
@@ -2476,7 +2491,7 @@ async function completeVerification(
     attemptFailureCode = "result_persistence_failed";
     await c.env.TLSN_PRESENTATIONS.put(
       attemptResultKey,
-      finalResponseBody,
+      finalResponseBytes,
       { httpMetadata: { contentType: "application/json" } },
     );
     resultPersisted = true;
@@ -2887,27 +2902,45 @@ app.post("/verify/tlsn/status", async (c) => {
     return c.json({ verified: false, error: "verification_result_unavailable" }, 503);
   }
 
+  const resultGetStartedAt = performance.now();
+  benchmarkRecord(c.env, requestBody.job_id, "status_result_get_started");
   const object = await c.env.TLSN_PRESENTATIONS.get(resultObjectKey);
+  benchmarkRecord(c.env, requestBody.job_id, "status_result_get_completed");
+  benchmarkDuration(c.env, requestBody.job_id, "status_result_get", performance.now() - resultGetStartedAt);
   benchmarkR2Operation(c.env, requestBody.job_id, "status_result_get");
-  if (!object || object.size > MAX_INTERNAL_CALLBACK_JSON_BYTES) {
+  if (!object || object.size > MAX_RESULT_OBJECT_BYTES) {
     return c.json({ verified: false, error: "verification_result_unavailable" }, 503);
   }
   try {
-    const resultBody = await object.text();
+    const resultReadStartedAt = performance.now();
+    benchmarkRecord(c.env, requestBody.job_id, "status_result_read_started");
+    const resultBytes = new Uint8Array(await object.arrayBuffer());
+    benchmarkRecord(c.env, requestBody.job_id, "status_result_read_completed");
+    benchmarkDuration(c.env, requestBody.job_id, "status_result_read", performance.now() - resultReadStartedAt);
+    const resultBody = new TextDecoder().decode(resultBytes);
+    const resultHashStartedAt = performance.now();
+    benchmarkRecord(c.env, requestBody.job_id, "status_result_hash_started");
     const resultSha256 = encodeBase64Url(
-      new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(resultBody))),
+      new Uint8Array(await crypto.subtle.digest("SHA-256", resultBytes)),
     );
+    benchmarkRecord(c.env, requestBody.job_id, "status_result_hash_completed");
+    benchmarkDuration(c.env, requestBody.job_id, "status_result_hash", performance.now() - resultHashStartedAt);
     if (resultSha256 !== record.result_sha256) {
       return c.json({ verified: false, error: "verification_result_unavailable" }, 503);
     }
+    const resultParseStartedAt = performance.now();
+    benchmarkRecord(c.env, requestBody.job_id, "status_result_parse_started");
     const finalResponse = verificationFinalResponseSchema.parse(JSON.parse(resultBody) as unknown);
+    benchmarkRecord(c.env, requestBody.job_id, "status_result_parse_completed");
+    benchmarkDuration(c.env, requestBody.job_id, "status_result_parse", performance.now() - resultParseStartedAt);
+    benchmarkDiagnostic(c.env, requestBody.job_id, "status_result_bytes", resultBytes.byteLength);
     benchmarkRecord(c.env, requestBody.job_id, "t10_status_verified");
     benchmarkRecord(c.env, requestBody.job_id, "t11_status_verified");
     benchmarkDiagnostic(c.env, requestBody.job_id, "terminal_outcome", "verified");
     deferBenchmarkFlush(c, requestBody.job_id);
     await attachBenchmarkTimingHeader(c, c.env, requestBody.job_id);
     c.header("Cache-Control", "no-store");
-    return c.json(finalResponse);
+    return c.body(resultBody, 200);
   } catch {
     return c.json({ verified: false, error: "verification_result_unavailable" }, 503);
   }

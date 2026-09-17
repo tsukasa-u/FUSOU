@@ -249,6 +249,35 @@ Cloudflare production R2/DO latency, Worker isolate RSS, and production
 concurrency behavior remain `NOT_ESTABLISHED`; a production-like deployment
 measurement is still required before using this as an operational SLO.
 
+### Result storage scaling
+
+Result byte growth can be measured without external access:
+
+```sh
+pnpm run benchmark:tlsn-result-storage
+```
+
+This benchmark uses a synthetic JSON Result and a local filesystem persistence
+proxy. It reports `payload_bytes`, `signed_result_bytes`, `r2_object_bytes`, and
+`client_response_bytes`, plus Result construction/hash/write and successful
+status read/hash/parse timings. Its report is deliberately marked
+`verification_semantics: NOT_TESTED`; it does not perform TLSN verification,
+Durable Object claim/consume, or remote R2 measurement.
+
+The current local three-repeat run measured these p50 values:
+
+| Result object | Local write | Status read/hash/parse |
+| ---: | ---: | ---: |
+| 4 KiB | 0.36 ms | 0.09 ms |
+| 64 KiB | 0.16 ms | 0.12 ms |
+| 1 MiB | 0.41 ms | 1.96 ms |
+| 4 MiB | 2.38 ms | 6.85 ms |
+| 16 MiB | 5.32 ms | 39.55 ms |
+
+These values are sizing evidence only. They indicate that large
+`battle_data` Results need separate production R2 and status-response evidence;
+they do not establish a production or canary latency gate.
+
 ### Production-like Worker E2E measurement
 
 The production-like measurement has a separate entry point and must not be
