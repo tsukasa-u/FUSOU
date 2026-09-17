@@ -451,7 +451,7 @@ app.post("/fetch-block-ocf", async (c) => {
   } = parsedBody.data;
 
   if (!filePath) return c.json({ error: "file_path is required" }, 400);
-  if (startByte === undefined || startByte < 0) {
+  if (startByte === undefined || startByte <= 0) {
     return c.json({ error: "start_byte is invalid" }, 400);
   }
   if (length === undefined || length <= 0) {
@@ -1043,7 +1043,7 @@ app.post("/cleanup-consumed-sources", async (c) => {
 
   const outputRowResult = await db
     .prepare(
-      `SELECT id, lifecycle_state, output_verified_at_ms
+      `SELECT id, lifecycle_state, output_verified_at_ms, compaction_tier, lock_owner_run_key
        FROM archived_files
        WHERE file_path = ?
        LIMIT 1`,
@@ -1233,6 +1233,35 @@ app.post("/cleanup-consumed-sources", async (c) => {
          WHERE id = ?`,
       )
       .bind(now, now, outputFileId),
+  );
+
+  const compactionTier = outputRow?.compaction_tier ?? "unknown";
+  const runKey =
+    (typeof outputRow?.lock_owner_run_key === "string" && outputRow.lock_owner_run_key.trim()) ||
+    `${compactionTier}:${sourceTier}:${tableName}:${periodTag}:${windowStart}:${windowEnd}`;
+
+  statements.push(
+    db
+      .prepare(
+        `INSERT INTO compaction_runs (
+           run_key, tier, status, period_tag, window_start_ms, window_end_ms,
+           triggered_by, source_tier, created_at_ms, completed_at_ms, table_name
+         ) VALUES (?, ?, 'completed', ?, ?, ?, 'compactor', ?, ?, ?, ?)
+         ON CONFLICT(run_key) DO UPDATE SET
+           status = 'completed',
+           completed_at_ms = excluded.completed_at_ms`,
+      )
+      .bind(
+        runKey,
+        compactionTier,
+        periodTag,
+        windowStart,
+        windowEnd,
+        sourceTier,
+        now,
+        now,
+        tableName,
+      ),
   );
 
   if (statements.length > 0) {

@@ -17,12 +17,14 @@ if (projectRef.startsWith("encrypted:")) {
   process.exit(1);
 }
 
+const triggerBin = process.platform === "win32" ? "node_modules\\.bin\\trigger.cmd" : "./node_modules/.bin/trigger";
 const result = spawnSync(
-  "./node_modules/.bin/trigger",
+  triggerBin,
   ["deploy", "--project-ref", projectRef, ...normalizedArgs],
   {
     stdio: "inherit",
     env: process.env,
+    shell: process.platform === "win32",
   },
 );
 

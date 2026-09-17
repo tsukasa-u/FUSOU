@@ -39,13 +39,19 @@ function runNpx(args, cwd = process.cwd()) {
     encoding: "utf8",
     stdio: ["pipe", "pipe", "pipe"],
     maxBuffer: 64 * 1024 * 1024,
+    shell: true,
   });
 }
 
 function d1Query(db, remote, sql) {
+  const normalizedSql = sql.replace(/\s+/g, " ").trim();
   const args = ["wrangler", "d1", "execute", db];
   if (remote) args.push("--remote");
-  args.push("--command", sql, "--json");
+  if (process.platform === "win32") {
+    args.push("--command", `"${normalizedSql.replace(/"/g, "\\\"")}"`, "--json");
+  } else {
+    args.push("--command", normalizedSql, "--json");
+  }
   const out = runNpx(args, WEB_PACKAGE_DIR);
   const parsed = JSON.parse(out);
   return parsed?.[0]?.results || [];
