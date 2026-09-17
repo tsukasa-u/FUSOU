@@ -18,16 +18,18 @@ The Direct architecture remains test-valid. This document does not approve a pro
 | Test Direct success/failure/timeout | PASS | `scripts/test.mjs`, `Direct success, service-binding failure, timeout` assertions |
 | Request-scoped mixed fault control | PASS | `X-FUSOU-TLSN-Test-Fault` is accepted only when `TLSN_ENVIRONMENT` is `test`; local `header_failure` and `header_timeout` cases pass |
 | Result PUT before consume rejection | PASS | local Result race: `result_put=1`, `result_delete=0`, `result_put_before_consume_rejected=true`, `result_object_retained=true`, no consume completion; remote harness sends the same test-only pause control |
+| Remote Result-race evidence | PASS | remote test Worker exit `0`: one Direct invocation, Result PUT retained before rejected consume, no delete, retry returned `409 verification_retry_disabled`, and hashed job/trace telemetry correlated with the submitted values |
 | Failed Result is not authoritative | PASS | failed public status remains `not_verified`; retained test object is not exposed by status |
 | Consumed binding resists late failure/mutation | PASS | local duplicate completion remains idempotent; mismatched callback after consumed does not change verified status |
 | Authenticated malformed callback is non-mutating | PASS | wrong Presentation/profile acquisition returns a bounded error without finalizing the binding |
 | Remote malicious callback corpus | PASS | Test Worker report `packages/FUSOU-TLSN-VERIFICATION-WORKER/artifacts/tlsn-remote-malicious-callback.json`: all 10 forged callbacks returned bounded rejection outcomes; failed binding remained `not_verified`; consumed duplicate was accepted idempotently; mutated callback returned `422 verification_result_mismatch`; consumed binding remained verified |
-| Remote mixed failure concurrency | NOT_ESTABLISHED | local request-scoped controls pass; remote concurrency evidence has not been collected |
+| Remote mixed failure concurrency 4 | PASS | remote test Worker exit `0`: failure, timeout, and two successes each used an independent canonical binding; every attempt had one Direct invocation and matching hashed telemetry |
+| Remote mixed failure concurrency 8 | PASS | remote test Worker exit `0`: failure and timeout remained `not_verified` with zero Result PUT; six successes were verified with one Result PUT and consumed authority state; all attempts had matching hashed telemetry |
 | Test/canary/production fault-control separation | PASS | test deploy allowlist contains test controls; canary/production deployment contracts do not contain them; canary/production Wrangler environments have no Direct binding |
 | Production resource and SLO evidence | NOT_ESTABLISHED | no production deployment, production traffic, production isolate measurement, or production SLO sample was collected |
 | Bounded benchmark telemetry contract | PASS | public benchmark headers omit raw `job_id` and `trace_id`; they expose fixed-length SHA-256 identifiers, bounded diagnostics, timings, R2 counts, and terminal outcome; local regression asserts raw identifiers are absent |
 | Production operational telemetry and age alerts | NOT_ESTABLISHED | bounded telemetry contract is implemented for verification evidence, but production collection, stuck-job detection, and alert delivery are not evidenced |
-| Promotion decision | NOT_ESTABLISHED | remote mixed-failure, production-resource, and operational gates remain open |
+| Promotion decision | NOT_ESTABLISHED | production-resource, production SLO, and operational alert gates remain open |
 
 ## Evidence Contract
 
@@ -110,7 +112,6 @@ The local race deliberately pauses after the Result PUT while the lease expires.
 
 ## Remaining Gaps
 
-- Remote mixed-failure concurrency at bounded concurrency 4 and 8 has not been collected.
 - A remote stale-attempt representation, including an independently evidenced expired lease, has not been collected.
 - Production-like resource, cold-start, concurrency, latency, and SLO evidence remains absent.
 - Stuck-job age alert delivery and dry-run observation remain unverified.

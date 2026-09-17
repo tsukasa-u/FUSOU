@@ -82,7 +82,7 @@ async function loadPrivateKey() {
   return createPrivateKey({ key: decodeBase64Url(encoded), format: "der", type: "pkcs8" });
 }
 
-async function issueSession(privateKey) {
+async function issueSession(privateKey, requestedBinding) {
   const nonce = randomBytes(32).toString("hex");
   const signature = sign(null, Buffer.from(nonce), privateKey).toString("base64url");
   const result = await requestJson("/attestation/session", {
@@ -90,6 +90,7 @@ async function issueSession(privateKey) {
     headers: {
       "Content-Type": "application/json",
       Authorization: `Bearer ${accessToken}`,
+      ...(requestedBinding ? { "X-FUSOU-TLSN-Test-Binding": requestedBinding } : {}),
     },
     body: JSON.stringify({ device_id: deviceId, nonce, sig: signature }),
   });
@@ -147,8 +148,7 @@ async function pollResultRaceDiagnostics(session, userId, jobId, traceId, bindin
     const timing = parseTimingHeader(lastResult.response) ?? {};
     const diagnostics = timing.diagnostics ?? {};
     if (
-      typeof diagnostics.completion_failure_code === "string"
-      || Number(diagnostics.direct_invocation_count ?? 0) > 0 && (
+      Number(diagnostics.direct_invocation_count ?? 0) > 0 && (
         Number(timing.r2_operations?.result_put ?? 0) > 0
         || diagnostics.result_sha256_present === true
         || diagnostics.result_put_before_consume_rejected === true
@@ -159,6 +159,67 @@ async function pollResultRaceDiagnostics(session, userId, jobId, traceId, bindin
     await new Promise((resolveDelay) => setTimeout(resolveDelay, pollIntervalMs));
   }
   return lastResult;
+}
+
+async function runMixedAttempt({ fault, session, userId, privateKey, manifest, entry }) {
+  const fixture = generateRealFixture(fixtureSourcePath(manifest, entry), session.binding);
+  const deviceProof = sign(null, deviceProofMessage(session, session.binding), privateKey).toString("base64url");
+  const verification = await requestJson("/verify/tlsn/sparse", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${accessToken}`,
+      ...(fault !== "success" ? { "X-FUSOU-TLSN-Test-Fault": fault } : {}),
+    },
+    body: JSON.stringify({
+      presentation_base64: fixture.sparse_presentation_base64,
+      session_id: session.session_id,
+      binding: session.binding,
+      device_id: deviceId,
+      device_proof: { challenge: session.device_challenge, sig: deviceProof },
+    }),
+  });
+  if (verification.response.status !== 202 || typeof verification.json?.job_id !== "string") {
+    throw new Error(`remote mixed ${fault} submission failed with status ${verification.response.status}`);
+  }
+  const final = await pollTerminalStatus(
+    session,
+    userId,
+    verification.json.job_id,
+    verification.json.benchmark_trace_id,
+  );
+  const timing = parseTimingHeader(final.response) ?? {};
+  const timestamps = timing.timestamps ?? {};
+  const expectedSuccess = fault === "success";
+  const terminalMatches = expectedSuccess
+    ? final.response.status === 200 && final.json?.verified === true
+    : final.response.status === 200 && final.json?.verified === false && final.json?.status === "not_verified";
+  const result = {
+    fault,
+    submission_status: verification.response.status,
+    terminal_status: final.response.status,
+    terminal_verified: final.json?.verified === true,
+    terminal_not_verified: final.json?.verified === false && final.json?.status === "not_verified",
+    direct_invocation_count: Number(timing.diagnostics?.direct_invocation_count ?? 0),
+    result_put_count: Number(timing.r2_operations?.result_put ?? 0),
+    consume_completed: Number.isFinite(timestamps.t10_consume_completed),
+    timing_job_id_matches_submission: typeof timing.job_id_sha256 === "string"
+      && timing.job_id_sha256 === sha256Base64Url(verification.json.job_id),
+    timing_trace_id_matches_submission: typeof timing.trace_id_sha256 === "string"
+      && typeof verification.json.benchmark_trace_id === "string"
+      && timing.trace_id_sha256 === sha256Base64Url(verification.json.benchmark_trace_id),
+  };
+  if (
+    !terminalMatches
+    || result.direct_invocation_count !== 1
+    || !result.timing_job_id_matches_submission
+    || !result.timing_trace_id_matches_submission
+    || (expectedSuccess && (!result.consume_completed || result.result_put_count !== 1))
+    || (!expectedSuccess && result.result_put_count !== 0)
+  ) {
+    throw new Error(`remote mixed ${fault} invariant failed`);
+  }
+  return result;
 }
 
 async function main() {
@@ -174,8 +235,36 @@ async function main() {
     throw new Error("remote test token is not a configured non-anonymous user");
   }
   const privateKey = await loadPrivateKey();
-  const session = await issueSession(privateKey);
   const { manifest, entries } = readRealFixtureManifest();
+  const mixedMatch = /^mixed-(4|8)$/.exec(expectedMode);
+  if (mixedMatch) {
+    const concurrency = Number(mixedMatch[1]);
+    const bindings = required("TLSN_REMOTE_TEST_BINDING_VALUES")
+      .split(",")
+      .map((value) => value.trim())
+      .filter(Boolean);
+    if (new Set(bindings).size < concurrency) {
+      throw new Error(`TLSN_REMOTE_TEST_BINDING_VALUES must contain ${concurrency} distinct values`);
+    }
+    const faults = ["failure", "timeout", ...Array.from({ length: concurrency - 2 }, () => "success")];
+    const sessions = [];
+    for (const binding of bindings.slice(0, concurrency)) {
+      const session = await issueSession(privateKey, binding);
+      if (session.binding !== binding) throw new Error("remote mixed binding selection failed");
+      sessions.push(session);
+    }
+    const results = await Promise.all(faults.map((fault, index) => runMixedAttempt({
+      fault,
+      session: sessions[index],
+      userId: user.id,
+      privateKey,
+      manifest,
+      entry: entries.get("p50"),
+    })));
+    console.log(JSON.stringify({ expected_mode: expectedMode, concurrency, attempts: results }));
+    return;
+  }
+  const session = await issueSession(privateKey);
   const entry = entries.get("p50");
   const fixture = generateRealFixture(fixtureSourcePath(manifest, entry), session.binding);
   const deviceProof = sign(null, deviceProofMessage(session, session.binding), privateKey).toString("base64url");
