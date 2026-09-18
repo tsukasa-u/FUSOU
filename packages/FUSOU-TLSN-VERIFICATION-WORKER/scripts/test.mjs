@@ -1265,6 +1265,12 @@ async function runDirectFailureSmokeTest() {
             TLSN_BENCHMARK_TIMINGS: "true",
             TLSN_TEST_DIRECT_INVOCATION_TIMEOUT_MS: "1000",
           }
+        : mode === "pause_before_result_commit"
+          ? {
+            TLSN_BENCHMARK_TIMINGS: "true",
+            TLSN_TEST_POST_RESULT_DELAY_MS: "100",
+            TLSN_TEST_DIRECT_INVOCATION_TIMEOUT_MS: "1000",
+          }
         : {
           TLSN_BENCHMARK_TIMINGS: "true",
           TLSN_TEST_DIRECT_INVOCATION_TIMEOUT_MS: mode === "success" ? "1000" : "25",
@@ -1336,6 +1342,9 @@ async function runDirectFailureSmokeTest() {
           ...(scenarioMode === "header_timeout" || (scenarioMode === "timeout" && scenarioModes.length > 1)
             ? { "X-FUSOU-TLSN-Test-Fault": "timeout" }
             : {}),
+          ...(scenarioMode === "pause_before_result_commit"
+            ? { "X-FUSOU-TLSN-Test-Fault": "pause_before_result_commit" }
+            : {}),
         },
           body: verificationRequestBody,
       });
@@ -1398,7 +1407,8 @@ async function runDirectFailureSmokeTest() {
         "request_device_possession",
         "request_presentation_hash",
         "request_start_verification",
-        "direct_invocation_acceptance",
+        "direct_service_binding_round_trip",
+        "direct_callback_processing",
         "direct_callback_entry_to_lease",
         "direct_presentation_transfer",
         "direct_presentation_hash",
@@ -1409,6 +1419,8 @@ async function runDirectFailureSmokeTest() {
         "result_serialization",
         "result_hash",
         "result_persistence",
+        "result_persistence_preparation",
+        "result_persistence_post_commit",
         "do_commit_verified_result",
       ];
       const directTimingComplete = (timing) => requiredDirectDurationNames.every(
@@ -1530,10 +1542,19 @@ async function runDirectFailureSmokeTest() {
         assert.equal(unavailableStatus.status, 503);
         assert.deepEqual(await unavailableStatus.json(), { verified: false, error: "verification_result_unavailable" });
         if (scenarioModes.length === 1) assert.equal(directCalls, 1);
-      } else if (scenarioMode === "success") {
+      } else if (scenarioMode === "success" || scenarioMode === "pause_before_result_commit") {
         assert.equal(statusResponse.status, 200, `success status body=${statusResponseBytes?.toString("utf8")}`);
         assert.equal(statusPayload.verified, true, `${scenarioMode} attempt failed: ${JSON.stringify(statusPayload)} timing=${JSON.stringify(benchmarkTiming(statusResponse))}`);
         const successTiming = directTiming;
+        if (scenarioMode === "pause_before_result_commit") {
+          const resultPersistence = successTiming?.durations?.result_persistence;
+          const resultPersistencePreparation = successTiming?.durations?.result_persistence_preparation;
+          const doCommit = successTiming?.durations?.do_commit_verified_result;
+          assert.equal(Number.isFinite(resultPersistence) && resultPersistence >= 50, true);
+          assert.equal(Number.isFinite(resultPersistencePreparation) && resultPersistencePreparation >= 50, true);
+          assert.equal(Number.isFinite(doCommit) && doCommit < 100, true);
+          assert.equal(resultPersistence >= doCommit + 50, true);
+        }
         assert.equal(typeof successTiming?.job_id, "undefined");
         assert.equal(typeof successTiming?.trace_id, "undefined");
         assert.match(successTiming?.job_id_sha256 ?? "", /^[A-Za-z0-9_-]{43}$/);
@@ -1644,6 +1665,7 @@ async function runDirectFailureSmokeTest() {
   };
 
   await runScenario("success");
+  await runScenario("pause_before_result_commit");
   await runScenario("synchronous");
   await runScenario("synchronous_missing");
   await runScenario("synchronous_corrupt");

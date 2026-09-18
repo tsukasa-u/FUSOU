@@ -235,7 +235,7 @@ type BenchmarkTimingStage =
   | "direct_dispatch_started"
   | "t1_direct_input_bound"
   | "direct_invocation_started"
-  | "direct_invocation_accepted"
+  | "direct_invocation_completed"
   | "t3_direct_execution_started"
   | "direct_presentation_read_started"
   | "direct_presentation_read_completed"
@@ -272,6 +272,12 @@ export type TestDirectFault =
   | "late_success"
   | "pause_before_result_commit"
   | "pause_after_result_commit";
+
+type DirectPresentationTiming = {
+  readStartedAt: number;
+  readCompletedAt: number;
+  readDurationMilliseconds: number;
+};
 
 type BenchmarkPersistence = {
   authority: DurableObjectBindingAuthority;
@@ -522,7 +528,7 @@ function benchmarkRecord(env: Bindings, jobId: string, stage: BenchmarkTimingSta
   record.updated_at = Date.now();
 }
 
-function benchmarkDuration(env: Bindings, jobId: string, name: string, milliseconds: number): void {
+export function benchmarkDuration(env: Bindings, jobId: string, name: string, milliseconds: number): void {
   if (!benchmarkEnabled(env) || !Number.isFinite(milliseconds) || milliseconds < 0) return;
   const persistence = benchmarkPersistences.get(jobId);
   if (!persistence) return;
@@ -2059,6 +2065,7 @@ async function dispatchDirectVerification(
   if (!verifier || !callbackSecret) {
     throw new Error("direct verifier is unconfigured");
   }
+  const dispatchPreparationStartedAt = benchmarkEnabled(env) ? performance.now() : undefined;
   const callbackBody = JSON.stringify({
     job_id: payload.job_id,
     binding_id: payload.binding_id,
@@ -2080,6 +2087,14 @@ async function dispatchDirectVerification(
   const timeout = setTimeout(() => controller.abort(), directInvocationTimeoutMs(env));
   let response: Response;
   const invocationStartedAt = benchmarkEnabled(env) ? performance.now() : undefined;
+  benchmarkDuration(
+    env,
+    jobId,
+    "request_direct_dispatch",
+    dispatchPreparationStartedAt === undefined || invocationStartedAt === undefined
+      ? Number.NaN
+      : invocationStartedAt - dispatchPreparationStartedAt,
+  );
   try {
     benchmarkRecord(env, jobId, "direct_invocation_started");
     benchmarkIncrementDiagnostic(env, jobId, "direct_invocation_count");
@@ -2099,17 +2114,17 @@ async function dispatchDirectVerification(
     }));
   } finally {
     clearTimeout(timeout);
+    benchmarkDuration(
+      env,
+      jobId,
+      "direct_service_binding_round_trip",
+      invocationStartedAt === undefined ? Number.NaN : performance.now() - invocationStartedAt,
+    );
   }
   if (!response.ok) {
     throw new Error(`direct verifier failed with status ${response.status}`);
   }
-  benchmarkRecord(env, jobId, "direct_invocation_accepted");
-  benchmarkDuration(
-    env,
-    jobId,
-    "direct_invocation_acceptance",
-    invocationStartedAt === undefined ? Number.NaN : performance.now() - invocationStartedAt,
-  );
+  benchmarkRecord(env, jobId, "direct_invocation_completed");
   await benchmarkFlush(env, jobId);
   return response;
 }
@@ -2167,11 +2182,8 @@ export async function processVerificationCompletion(
   executionStartedAt?: number,
   testFault?: TestDirectFault,
   directPresentationBytes?: Uint8Array,
-  directPresentationTiming?: {
-    readStartedAt: number;
-    readCompletedAt: number;
-    readDurationMilliseconds: number;
-  },
+  directPresentationTiming?: DirectPresentationTiming,
+  directCallbackEntryStartedAt?: number,
   synchronousCandidate = false,
 ): Promise<Response> {
   const callbackAuthenticationStartedAt = executionMode === "queue" ? performance.now() : null;
@@ -2207,7 +2219,7 @@ export async function processVerificationCompletion(
     benchmarkRecord(c.env, jobId, "queue_callback_schema_validated");
     benchmarkDuration(c.env, jobId, "queue_callback_schema", performance.now() - (callbackSchemaStartedAt ?? performance.now()));
   }
-  return completeVerification(
+  const response = await completeVerification(
     c,
     callback,
     executionMode,
@@ -2215,8 +2227,14 @@ export async function processVerificationCompletion(
     testFault,
     directPresentationBytes,
     directPresentationTiming,
+    directCallbackEntryStartedAt,
     synchronousCandidate,
   );
+  if (executionMode === "direct" && directCallbackEntryStartedAt !== undefined) {
+    benchmarkDuration(c.env, jobId, "direct_callback_processing", performance.now() - directCallbackEntryStartedAt);
+    deferBenchmarkFlush(c, jobId);
+  }
+  return response;
 }
 
 app.post("/internal/tlsn/verification-input", async (c) => {
@@ -2276,6 +2294,15 @@ app.post("/internal/tlsn/verification-input", async (c) => {
 });
 
 app.post("/internal/tlsn/verification-complete", async (c) => {
+  const callbackEntryStartedAt = performance.now();
+  const requestedTestFault = c.req.header("X-FUSOU-TLSN-Test-Fault")?.trim();
+  const testFault: TestDirectFault | undefined = requestedTestFault === "failure"
+    || requestedTestFault === "timeout"
+    || requestedTestFault === "late_success"
+    || requestedTestFault === "pause_before_result_commit"
+    || requestedTestFault === "pause_after_result_commit"
+    ? requestedTestFault
+    : undefined;
   const jobId = c.req.header("X-FUSOU-TLSN-Job-Id") ?? "";
   const signature = c.req.header("X-FUSOU-TLSN-Signature") ?? null;
   const executionHeader = c.req.header("X-FUSOU-TLSN-Execution-Mode");
@@ -2291,11 +2318,7 @@ app.post("/internal/tlsn/verification-complete", async (c) => {
     && c.req.header("X-FUSOU-TLSN-Synchronous-Candidate") === "true";
   let rawBody: string | null = null;
   let directPresentationBytes: Uint8Array | undefined;
-  let directPresentationTiming: {
-    readStartedAt: number;
-    readCompletedAt: number;
-    readDurationMilliseconds: number;
-  } | undefined;
+  let directPresentationTiming: DirectPresentationTiming | undefined;
   if (encodedMetadata && executionMode === "direct") {
     const presentationReadStartedAt = performance.now();
     const presentationReadStartedWallClock = Date.now();
@@ -2318,7 +2341,7 @@ app.post("/internal/tlsn/verification-complete", async (c) => {
     rawBody = await readRawBody(c.req.raw, MAX_INTERNAL_CALLBACK_JSON_BYTES).catch(() => null);
   }
   if (rawBody === null) return internalRequestAuthFailure(c, "signature_invalid");
-  return processVerificationCompletion(
+  const response = await processVerificationCompletion(
     verificationCompletionContextFromHono(c),
     rawBody,
     jobId,
@@ -2326,11 +2349,13 @@ app.post("/internal/tlsn/verification-complete", async (c) => {
     executionMode,
     c.env.TLSN_ENVIRONMENT === "test" && c.req.header("X-FUSOU-TLSN-Diagnostic") === "hmac",
     undefined,
-    undefined,
+    testFault,
     directPresentationBytes,
     directPresentationTiming,
+    executionMode === "direct" ? callbackEntryStartedAt : undefined,
     synchronousCandidate,
   );
+  return response;
 });
 
 async function completeVerification(
@@ -2340,15 +2365,12 @@ async function completeVerification(
   executionStartedAt?: number,
   testFault?: TestDirectFault,
   directPresentationBytes?: Uint8Array,
-  directPresentationTiming?: {
-    readStartedAt: number;
-    readCompletedAt: number;
-    readDurationMilliseconds: number;
-  },
+  directPresentationTiming?: DirectPresentationTiming,
+  directCallbackEntryStartedAt?: number,
   synchronousCandidate = false,
 ): Promise<Response> {
   const directCallbackEntryToLeaseStartedAt = executionMode === "direct" && benchmarkEnabled(c.env)
-    ? performance.now()
+    ? directCallbackEntryStartedAt ?? performance.now()
     : null;
   const config = await readConfig(c.env);
   if (!config) {
@@ -2747,7 +2769,6 @@ async function completeVerification(
     benchmarkRecord(c.env, callback.job_id, "result_persistence_started");
     if (executionMode === "queue") benchmarkRecord(c.env, callback.job_id, "queue_result_persistence_started");
     attemptFailureCode = "result_persistence_failed";
-    const commitStartedAt = performance.now();
     let committedBinding: BindingRecord;
     const commitInput: CommitVerifiedResultInput = {
       session_id: completionRecord.session_id,
@@ -2767,8 +2788,10 @@ async function completeVerification(
       now: Date.now(),
     };
     await delayBeforeResultCommit(c.env, testFault);
+    const doCommitStartedAt = performance.now();
     benchmarkDOOperation(c.env, callback.job_id, "commit_verified_result");
     committedBinding = await authority.commitVerifiedResult(callback.binding_id, commitInput);
+    const doCommitCompletedAt = performance.now();
     resultCommitted = true;
     completionConsumed = true;
     if (committedBinding.used_at !== usedAt || committedBinding.result_sha256 !== resultSha256) {
@@ -2783,9 +2806,12 @@ async function completeVerification(
         { httpMetadata: { contentType: "application/json" } },
       ).catch(() => undefined);
     })());
+    const resultPersistenceCompletedAt = performance.now();
     benchmarkRecord(c.env, callback.job_id, "result_persistence_completed");
-    benchmarkDuration(c.env, callback.job_id, "result_persistence", performance.now() - resultPersistenceStartedAt);
-    benchmarkDuration(c.env, callback.job_id, "do_commit_verified_result", performance.now() - commitStartedAt);
+    benchmarkDuration(c.env, callback.job_id, "result_persistence", resultPersistenceCompletedAt - resultPersistenceStartedAt);
+    benchmarkDuration(c.env, callback.job_id, "result_persistence_preparation", doCommitStartedAt - resultPersistenceStartedAt);
+    benchmarkDuration(c.env, callback.job_id, "do_commit_verified_result", doCommitCompletedAt - doCommitStartedAt);
+    benchmarkDuration(c.env, callback.job_id, "result_persistence_post_commit", resultPersistenceCompletedAt - doCommitCompletedAt);
     benchmarkRecord(c.env, callback.job_id, "t8_result_persisted");
     benchmarkRecord(c.env, callback.job_id, "t9_result_persisted");
     if (executionMode === "queue") {
@@ -2799,7 +2825,7 @@ async function completeVerification(
     benchmarkRecord(c.env, callback.job_id, "t10_consume_completed");
     if (executionMode === "queue") {
       benchmarkRecord(c.env, callback.job_id, "queue_consume_completed");
-      benchmarkDuration(c.env, callback.job_id, "queue_consume", performance.now() - commitStartedAt);
+      benchmarkDuration(c.env, callback.job_id, "queue_consume", performance.now() - doCommitStartedAt);
     }
     const completionResponseStartedAt = executionMode === "queue" ? performance.now() : null;
     benchmarkRecord(c.env, callback.job_id, "t10_callback_response_ready");

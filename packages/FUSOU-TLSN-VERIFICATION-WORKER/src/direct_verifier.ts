@@ -24,6 +24,7 @@ async function delayTestDirectVerifier(env: Bindings): Promise<void> {
 }
 
 app.post("/internal/tlsn/verification-complete", async (c) => {
+  const callbackEntryStartedAt = performance.now();
   const requestedMode = c.req.header("X-FUSOU-TLSN-Test-Fault")?.trim();
   const configuredMode = c.env.TLSN_TEST_DIRECT_VERIFIER_MODE?.trim();
   const mode: TestDirectFault | undefined = requestedMode === "failure" || requestedMode === "timeout" || requestedMode === "late_success" || requestedMode === "pause_before_result_commit" || requestedMode === "pause_after_result_commit"
@@ -76,7 +77,7 @@ app.post("/internal/tlsn/verification-complete", async (c) => {
   if (rawBody === null || (encodedMetadata && !presentationBytes) || !jobId || !signature) {
     return c.json({ error: "unauthorized" }, 401);
   }
-  return processVerificationCompletion(
+  const response = await processVerificationCompletion(
     verificationCompletionContextFromHono(c),
     rawBody,
     jobId,
@@ -87,8 +88,10 @@ app.post("/internal/tlsn/verification-complete", async (c) => {
     mode,
     presentationBytes,
     presentationReadTiming,
+    callbackEntryStartedAt,
     synchronousCandidate,
   );
+  return response;
 });
 
 export { app, TlsnBindingAuthorityDurableObject };

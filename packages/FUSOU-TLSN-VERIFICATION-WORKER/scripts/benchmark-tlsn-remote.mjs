@@ -109,7 +109,7 @@ const REQUIRED_TIMING_STAGES_BY_MODE = {
     ...COMMON_REQUIRED_TIMING_STAGES,
     "t1_direct_input_bound",
     "direct_dispatch_started",
-    "direct_invocation_accepted",
+    "direct_invocation_completed",
     "t3_direct_execution_started",
     "direct_presentation_read_started",
     "direct_presentation_read_completed",
@@ -570,7 +570,8 @@ const REQUIRED_DIRECT_TIMING_DURATIONS = [
   "request_device_possession",
   "request_presentation_hash",
   "request_start_verification",
-  "direct_invocation_acceptance",
+  "direct_service_binding_round_trip",
+  "direct_callback_processing",
   "direct_callback_entry_to_lease",
   "direct_presentation_transfer",
   "direct_presentation_hash",
@@ -581,6 +582,8 @@ const REQUIRED_DIRECT_TIMING_DURATIONS = [
   "result_serialization",
   "result_hash",
   "result_persistence",
+  "result_persistence_preparation",
+  "result_persistence_post_commit",
   "do_commit_verified_result",
 ];
 
@@ -656,7 +659,8 @@ function summarizePhases(samples) {
     direct_input_binding: summarize(samples, "directInputBindingMilliseconds"),
     direct_invocation_startup: summarize(samples, "directInvocationStartupMilliseconds"),
     direct_presentation_transfer: summarize(samples, "directPresentationTransferMilliseconds"),
-    direct_invocation_acceptance: summarize(samples, "directInvocationAcceptanceMilliseconds"),
+    direct_service_binding_round_trip: summarize(samples, "directServiceBindingRoundTripMilliseconds"),
+    direct_callback_processing: summarize(samples, "directCallbackProcessingMilliseconds"),
     direct_callback_entry_to_lease: summarize(samples, "directCallbackEntryToLeaseMilliseconds"),
     trigger_start_to_callback: summarize(samples, "triggerStartToCallbackMilliseconds"),
     callback_entry_to_lease: summarize(samples, "callbackEntryToLeaseMilliseconds"),
@@ -670,6 +674,8 @@ function summarizePhases(samples) {
     result_serialization: summarize(samples, "resultSerializationMilliseconds"),
     result_hash: summarize(samples, "resultHashMilliseconds"),
     result_persistence: summarize(samples, "resultPersistenceMilliseconds"),
+    result_persistence_preparation: summarize(samples, "resultPersistencePreparationMilliseconds"),
+    result_persistence_post_commit: summarize(samples, "resultPersistencePostCommitMilliseconds"),
     result_persistence_detailed: summarize(samples, "resultPersistenceDetailedMilliseconds"),
     status_result_read: summarize(samples, "statusResultReadMilliseconds"),
     status_result_hash: summarize(samples, "statusResultHashMilliseconds"),
@@ -925,7 +931,6 @@ async function runBatch({ workerOrigin, webOrigin, accessToken, userId, device, 
             ? "t3_direct_execution_started"
             : "t3_trigger_execution_started",
       );
-      const directInvocationAccepted = stageTimestamp(timing, "direct_invocation_accepted");
       const t4 = stageTimestamp(timing, "t4_callback_accepted");
       const t5 = stageTimestamp(timing, "t5_lease_acquired");
       const t6 = stageTimestamp(timing, "t6_presentation_read");
@@ -1022,8 +1027,11 @@ async function runBatch({ workerOrigin, webOrigin, accessToken, userId, device, 
           ? t1DirectInputBound - stageTimestamp(timing, "t0_accepted")
           : null,
         directInvocationStartupMilliseconds: executionMode === "direct" && t2 !== null && t3 !== null ? t3 - t2 : null,
-        directInvocationAcceptanceMilliseconds: executionMode === "direct"
-          ? Number.isFinite(durations.direct_invocation_acceptance) ? durations.direct_invocation_acceptance : null
+        directServiceBindingRoundTripMilliseconds: executionMode === "direct"
+          ? Number.isFinite(durations.direct_service_binding_round_trip) ? durations.direct_service_binding_round_trip : null
+          : null,
+        directCallbackProcessingMilliseconds: executionMode === "direct"
+          ? Number.isFinite(durations.direct_callback_processing) ? durations.direct_callback_processing : null
           : null,
         directCallbackEntryToLeaseMilliseconds: executionMode === "direct"
           ? Number.isFinite(durations.direct_callback_entry_to_lease) ? durations.direct_callback_entry_to_lease : null
@@ -1041,8 +1049,8 @@ async function runBatch({ workerOrigin, webOrigin, accessToken, userId, device, 
           ? Number.isFinite(durations.direct_wasm_verification) ? durations.direct_wasm_verification : null
           : phaseMilliseconds(timing, "t6_presentation_read", "t7_wasm_verification_completed"),
         resultSigningMilliseconds: t8Signing !== null ? t8Signing - t7 : null,
-        resultPersistenceMilliseconds: t8Signing !== null && t8Persisted !== null ? t8Persisted - t8Signing : null,
-        doCommitMilliseconds: t8Persisted !== null && t10 !== null ? t10 - t8Persisted : null,
+        resultPersistenceMilliseconds: Number.isFinite(durations.result_persistence) ? durations.result_persistence : null,
+        doCommitMilliseconds: Number.isFinite(durations.do_commit_verified_result) ? durations.do_commit_verified_result : null,
         resultCanonicalizationMilliseconds: measuredPhaseMilliseconds(
           timing,
           durations,
@@ -1085,6 +1093,12 @@ async function runBatch({ workerOrigin, webOrigin, accessToken, userId, device, 
           "result_persistence_started",
           "result_persistence_completed",
         ),
+        resultPersistencePreparationMilliseconds: Number.isFinite(durations.result_persistence_preparation)
+          ? durations.result_persistence_preparation
+          : null,
+        resultPersistencePostCommitMilliseconds: Number.isFinite(durations.result_persistence_post_commit)
+          ? durations.result_persistence_post_commit
+          : null,
         statusResultReadMilliseconds: measuredPhaseMilliseconds(
           timing,
           durations,
@@ -1250,7 +1264,8 @@ async function runBatch({ workerOrigin, webOrigin, accessToken, userId, device, 
         trigger_queue_start: sample.triggerQueueStartMilliseconds,
         direct_invocation_startup: sample.directInvocationStartupMilliseconds,
         direct_presentation_transfer: sample.directPresentationTransferMilliseconds,
-        direct_invocation_acceptance: sample.directInvocationAcceptanceMilliseconds,
+        direct_service_binding_round_trip: sample.directServiceBindingRoundTripMilliseconds,
+        direct_callback_processing: sample.directCallbackProcessingMilliseconds,
         direct_callback_entry_to_lease: sample.directCallbackEntryToLeaseMilliseconds,
         trigger_start_to_callback: sample.triggerStartToCallbackMilliseconds,
         callback_entry_to_lease: sample.callbackEntryToLeaseMilliseconds,
@@ -1264,6 +1279,8 @@ async function runBatch({ workerOrigin, webOrigin, accessToken, userId, device, 
         result_serialization: sample.resultSerializationMilliseconds,
         result_persistence: sample.resultPersistenceMilliseconds,
         result_persistence_detailed: sample.resultPersistenceDetailedMilliseconds,
+        result_persistence_preparation: sample.resultPersistencePreparationMilliseconds,
+        result_persistence_post_commit: sample.resultPersistencePostCommitMilliseconds,
         status_result_read: sample.statusResultReadMilliseconds,
         status_result_hash: sample.statusResultHashMilliseconds,
         status_result_parse: sample.statusResultParseMilliseconds,
@@ -1412,7 +1429,7 @@ async function main() {
 
   const result = reportDecision(rows);
   const report = {
-    schema_version: 1,
+    schema_version: 2,
     benchmark: "tlsn-worker-remote-e2e",
     architecture_variant: optional("TLSN_REMOTE_BENCHMARK_VARIANT") ?? "current",
     generated_at: new Date().toISOString(),
@@ -1430,6 +1447,40 @@ async function main() {
       cases,
       source_path: repositoryRelativePath(manifest.source.path),
       request_transcript_status: "NOT_ESTABLISHED",
+    },
+    phase_semantics: {
+      unit: "milliseconds",
+      aggregation_rule: "Do not sum inclusive phases with their nested phases or with the end-to-end client-visible phase.",
+      intervals: {
+        request_direct_dispatch: {
+          relation: "precedes",
+          meaning: "Request Worker preparation from direct dispatch function entry until the Service Binding fetch is invoked.",
+        },
+        direct_service_binding_round_trip: {
+          relation: "inclusive",
+          includes: ["direct_callback_processing"],
+          meaning: "Elapsed time around verifier.fetch(), including Service Binding transport and the verifier callback handler.",
+        },
+        direct_callback_processing: {
+          relation: "inclusive",
+          includes: ["direct_callback_entry_to_lease", "direct_presentation_transfer", "direct_presentation_hash", "direct_wasm_verification", "result_signing", "result_persistence"],
+          meaning: "Direct verifier handler entry through creation of its completion response; excludes client/network delivery after fetch returns.",
+        },
+        result_persistence: {
+          relation: "inclusive",
+          includes: ["result_persistence_preparation", "do_commit_verified_result", "result_persistence_post_commit"],
+          meaning: "Result persistence preparation, authoritative DO commit, and post-commit bookkeeping/archive scheduling.",
+        },
+        do_commit_verified_result: {
+          relation: "nested",
+          within: "result_persistence",
+          meaning: "Only the benchmarkDOOperation marker plus authority.commitVerifiedResult call interval; excludes commit input construction and injected pre-commit delay.",
+        },
+        direct_synchronous_response: {
+          relation: "terminal_server_phase",
+          meaning: "Server-side response preparation from the synchronous response marker until the handler returns; excludes client/network delivery.",
+        },
+      },
     },
     configuration: {
       requested_samples_per_case_and_concurrency: sampleCount,
@@ -1457,7 +1508,7 @@ async function main() {
         ? "MEASURED AT FIRST TRIGGER TASK CODE USING TRIGGER CLOCK"
         : "NOT APPLICABLE",
       direct_service_binding_start: executionMode === "direct"
-        ? "MEASURED FROM Request Worker dispatch start TO verifier Worker execution start"
+        ? "MEASURED AS request_direct_dispatch preparation, direct_service_binding_round_trip around verifier.fetch(), and direct_callback_processing inside the verifier Worker"
         : "NOT APPLICABLE",
       trigger_platform_scheduler_timestamp: "NOT_ESTABLISHED",
       production_worker_isolate_rss: "NOT_ESTABLISHED",
