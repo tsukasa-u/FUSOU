@@ -1143,7 +1143,7 @@ async function runDirectFailureSmokeTest() {
       : mode === "mixed-8"
         ? ["failure", "timeout", "success", "success", "success", "success", "success", "success"]
         : [mode];
-    const fixtureMode = scenarioModes.length > 1 || mode === "synchronous" ? "success" : mode;
+    const fixtureMode = scenarioModes.length > 1 || mode.startsWith("synchronous") ? "success" : mode;
     const mixedBindingValues = scenarioModes.map((_, index) => {
       const bytes = decodeBase64Url(syntheticFixture.binding_value);
       bytes[bytes.length - 1] = (bytes[bytes.length - 1] + index + 1) & 0xff;
@@ -1244,7 +1244,9 @@ async function runDirectFailureSmokeTest() {
         : {}),
       TLSN_EXECUTION_MODE: "direct",
       TLSN_DIRECT_CALLBACK_SECRET: callbackSecret,
-      ...(scenarioModes.includes("synchronous") ? { TLSN_TEST_DIRECT_SYNCHRONOUS_CANDIDATE: "true" } : {}),
+      ...(scenarioModes.some((scenarioMode) => scenarioMode.startsWith("synchronous"))
+        ? { TLSN_TEST_DIRECT_SYNCHRONOUS_CANDIDATE: "true" }
+        : {}),
       ...(scenarioModes.includes("race")
         ? {
           TLSN_BENCHMARK_TIMINGS: "true",
@@ -1253,7 +1255,7 @@ async function runDirectFailureSmokeTest() {
           TLSN_TEST_POST_RESULT_DELAY_ONCE: "true",
           TLSN_TEST_DIRECT_INVOCATION_TIMEOUT_MS: "1000",
         }
-        : scenarioModes.includes("synchronous")
+        : scenarioModes.some((scenarioMode) => scenarioMode.startsWith("synchronous"))
           ? {
             TLSN_BENCHMARK_TIMINGS: "true",
             TLSN_TEST_DIRECT_INVOCATION_TIMEOUT_MS: "1000",
@@ -1306,7 +1308,14 @@ async function runDirectFailureSmokeTest() {
         tlsnDeviceProofMessage(proof.device_id, proof.session_id, proof.binding_value, proof.challenge),
         devicePrivateKey,
       ).toString("base64url");
-      const verificationResponse = await attemptWorker.fetch("https://verify.test/verify/tlsn", {
+        const verificationRequestBody = JSON.stringify({
+          presentation_base64: scenarioFixture.presentation_base64,
+          session_id: session.session_id,
+          binding: session.binding,
+          device_id: deviceId,
+          device_proof: { challenge: proof.challenge, sig: proof.sig },
+        });
+        const verificationResponse = await attemptWorker.fetch("https://verify.test/verify/tlsn", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -1319,15 +1328,9 @@ async function runDirectFailureSmokeTest() {
             ? { "X-FUSOU-TLSN-Test-Fault": "timeout" }
             : {}),
         },
-        body: JSON.stringify({
-            presentation_base64: scenarioFixture.presentation_base64,
-          session_id: session.session_id,
-          binding: session.binding,
-          device_id: deviceId,
-          device_proof: { challenge: proof.challenge, sig: proof.sig },
-        }),
+          body: verificationRequestBody,
       });
-      const synchronousCandidate = scenarioMode === "synchronous";
+      const synchronousCandidate = scenarioMode.startsWith("synchronous");
       assert.equal(
         verificationResponse.status,
         synchronousCandidate ? 200 : 202,
@@ -1384,15 +1387,72 @@ async function runDirectFailureSmokeTest() {
       assert.equal(directTiming?.r2_operations?.worker_presentation_get ?? 0, 0);
       assert.equal(directTiming?.r2_operations?.input_delete ?? 0, 0);
       if (scenarioMode === "synchronous") {
-        assert.equal(statusResponse.status, 200);
+        assert.equal(statusResponse.status, 200, `${scenarioMode} status=${JSON.stringify(statusPayload)} job_id=${jobId}`);
         assert.equal(statusPayload.verified, true, `${scenarioMode} attempt failed: ${JSON.stringify(statusPayload)} timing=${JSON.stringify(directTiming)}`);
         assert.equal(verificationResponseBytes?.toString("utf8"), statusResponseBytes?.toString("utf8"));
+        const replayResponse = await attemptWorker.fetch("https://verify.test/verify/tlsn", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: "Bearer test-token-a" },
+          body: verificationRequestBody,
+        });
+        const replayResponseBytes = Buffer.from(await replayResponse.arrayBuffer());
+        assert.equal(replayResponse.status, 200);
+        assert.deepEqual(replayResponseBytes, verificationResponseBytes);
+        assert.equal(replayResponse.headers.get("X-FUSOU-TLSN-Test-Job-Id"), jobId);
+        const replayTiming = benchmarkTiming(replayResponse);
+        assert.equal(replayTiming?.diagnostics?.synchronous_replay_path, "established");
+        assert.equal(replayTiming?.diagnostics?.synchronous_replay_count, 1);
+        assert.equal(replayTiming?.diagnostics?.direct_invocation_count, 1);
+        assert.equal(replayTiming?.diagnostics?.do_consume_count, 1);
+        assert.equal(replayTiming?.r2_operations?.result_put, 1);
+        assert.equal(replayTiming?.r2_operations?.replay_result_get, 1);
+        assert.equal(createHash("sha256").update(replayResponseBytes).digest("base64url"), directTiming?.diagnostics?.result_sha256);
+        const mismatchedPresentation = Buffer.from(decodeBase64Url(scenarioFixture.presentation_base64));
+        mismatchedPresentation[0] = mismatchedPresentation[0] ^ 0x01;
+        const mismatchResponse = await attemptWorker.fetch("https://verify.test/verify/tlsn", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: "Bearer test-token-a" },
+          body: JSON.stringify({
+            ...JSON.parse(verificationRequestBody),
+            presentation_base64: mismatchedPresentation.toString("base64url"),
+          }),
+        });
+        assert.equal(mismatchResponse.status, 422);
+        assert.deepEqual(await mismatchResponse.json(), { verified: false, error: "verification_result_mismatch" });
         assert.equal(directTiming?.r2_operations?.result_put, 1);
         assert.equal(directTiming?.r2_operations?.status_result_get ?? 0, 0);
         assert.equal(directTiming?.r2_operations?.input_delete ?? 0, 0);
         assert.equal(directTiming?.diagnostics?.result_sha256_present, true);
         assert.equal(directTiming?.diagnostics?.synchronous_success_path, "established");
         assert.equal(directTiming?.timestamps?.t1_200_response_sent > 0, true);
+      } else if (scenarioMode === "synchronous_missing" || scenarioMode === "synchronous_corrupt") {
+        assert.equal(statusResponse.status, 200);
+        assert.equal(statusPayload.verified, true);
+        const replayResponse = await attemptWorker.fetch("https://verify.test/verify/tlsn", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: "Bearer test-token-a",
+            "X-FUSOU-TLSN-Test-Replay-Fault": scenarioMode === "synchronous_missing" ? "result_missing" : "result_corrupt",
+          },
+          body: verificationRequestBody,
+        });
+        assert.equal(replayResponse.status, 503);
+        assert.deepEqual(await replayResponse.json(), { verified: false, error: "verification_result_unavailable" });
+        const unavailableStatus = await attemptWorker.fetch("https://verify.test/verify/tlsn/status", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: "Bearer test-token-a" },
+          body: JSON.stringify({
+            job_id: jobId,
+            binding_id: bindingId,
+            session_id: session.session_id,
+            canonical_user_id: "11111111-1111-4111-8111-111111111111",
+            device_id: deviceId,
+          }),
+        });
+        assert.equal(unavailableStatus.status, 503);
+        assert.deepEqual(await unavailableStatus.json(), { verified: false, error: "verification_result_unavailable" });
+        if (scenarioModes.length === 1) assert.equal(directCalls, 1);
       } else if (scenarioMode === "success") {
         assert.equal(statusResponse.status, 200, `success status body=${statusResponseBytes?.toString("utf8")}`);
         assert.equal(statusPayload.verified, true, `${scenarioMode} attempt failed: ${JSON.stringify(statusPayload)} timing=${JSON.stringify(benchmarkTiming(statusResponse))}`);
@@ -1442,6 +1502,14 @@ async function runDirectFailureSmokeTest() {
           status: "not_verified",
           error: "verification_retry_disabled",
         });
+        const failedDuplicate = await attemptWorker.fetch("https://verify.test/verify/tlsn", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: "Bearer test-token-a" },
+          body: verificationRequestBody,
+        });
+        assert.equal(failedDuplicate.status, 422, `${scenarioMode} duplicate body=${await failedDuplicate.clone().text()}`);
+        assert.deepEqual(await failedDuplicate.json(), { verified: false, error: "verification_failed" });
+        if (scenarioModes.length === 1) assert.equal(directCalls, 1);
         if (scenarioMode === "race") {
           const timing = benchmarkTiming(statusResponse);
           assert.equal(timing?.r2_operations?.result_put, 1);
@@ -1491,6 +1559,8 @@ async function runDirectFailureSmokeTest() {
 
   await runScenario("success");
   await runScenario("synchronous");
+  await runScenario("synchronous_missing");
+  await runScenario("synchronous_corrupt");
   await runScenario("failure");
   await runScenario("timeout");
   await runScenario("race");

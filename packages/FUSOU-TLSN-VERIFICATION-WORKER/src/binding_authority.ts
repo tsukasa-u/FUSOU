@@ -125,6 +125,10 @@ type JobLookupInput = {
   now: number;
 };
 
+type BindingLookupOptions = {
+  allow_consumed?: boolean;
+};
+
 type AcquireVerificationInput = JobLookupInput & {
   presentation_id: string;
   verification_profile: VerificationProfile;
@@ -290,6 +294,7 @@ export class DurableObjectBindingAuthority {
     canonicalUserId: string,
     deviceId: string,
     now: number,
+    options: BindingLookupOptions = {},
   ): Promise<BindingRecord> {
     const bindingId = await hashBindingId(bindingValue);
     return this.call(bindingId, "/lookup", {
@@ -297,6 +302,7 @@ export class DurableObjectBindingAuthority {
       canonical_user_id: canonicalUserId,
       device_id: deviceId,
       now,
+      allow_consumed: options.allow_consumed === true,
     });
   }
 
@@ -426,12 +432,22 @@ export class TlsnBindingAuthorityDurableObject extends DurableObject {
       return Response.json({ ok: false, error: "binding_unknown" }, { status: 405 });
     }
     try {
-      const body = await request.json<BindingOperation & { session_id: string; now: number }>();
+      const body = await request.json<BindingOperation & {
+        session_id: string;
+        now: number;
+        allow_consumed?: boolean;
+      }>();
       switch (new URL(request.url).pathname) {
         case "/issue":
           return this.issue(body);
         case "/lookup":
-          return this.lookup(body.session_id, body.canonical_user_id, body.device_id, body.now);
+          return this.lookup(
+            body.session_id,
+            body.canonical_user_id,
+            body.device_id,
+            body.now,
+            body.allow_consumed === true,
+          );
         case "/claim":
           return this.claim(body as unknown as ClaimInput);
         case "/acquire":
@@ -513,6 +529,7 @@ export class TlsnBindingAuthorityDurableObject extends DurableObject {
     canonicalUserId: string,
     deviceId: string,
     now: number,
+    allowConsumed: boolean,
   ): Promise<Response> {
     let result: AuthorityResponse = { ok: false, error: "binding_unknown" };
     await this.ctx.storage.transaction(async (transaction) => {
@@ -546,7 +563,9 @@ export class TlsnBindingAuthorityDurableObject extends DurableObject {
         return;
       }
       if (record.status === "consumed") {
-        result = { ok: false, error: "binding_consumed" };
+        result = allowConsumed
+          ? { ok: true, record }
+          : { ok: false, error: "binding_consumed" };
         return;
       }
       if (record.status === "failed") {

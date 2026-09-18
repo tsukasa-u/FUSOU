@@ -209,6 +209,50 @@ response performs no status Result GET. The normal Direct path remains `202`
 plus status polling, and the candidate is ignored outside
 `TLSN_ENVIRONMENT=test`.
 
+To measure recovery when the initial synchronous `200` is lost at the client
+boundary, enable the evidence-only benchmark mode with
+`TLSN_REMOTE_DIRECT_RESPONSE_LOSS_RECOVERY=true`. The harness completes the
+first request, discards that response as the simulated loss, then sends the
+identical `POST /verify/tlsn/sparse` body again. It requires a `200`, exact
+response byte and SHA-256 equality, `synchronous_replay_path=established`, one
+direct invocation, one Durable Object consume, one Result R2 put, and one
+replay Result R2 get. The replay path never invokes TLSN verification again and
+does not consume the binding again. Reports contain only bounded sizes, hashes,
+timings, and diagnostics; they do not contain access tokens, job IDs, trace
+IDs, proof signatures, or Result bodies.
+
+Run the recovery evidence matrix against the dedicated non-production evidence
+Worker only:
+
+```sh
+TLSN_REMOTE_EXPECTED_ENVIRONMENT=evidence \
+TLSN_REMOTE_EXECUTION_MODE=direct \
+TLSN_REMOTE_DIRECT_SYNCHRONOUS_CANDIDATE=true \
+TLSN_REMOTE_DIRECT_RESPONSE_LOSS_RECOVERY=true \
+TLSN_REMOTE_CONCURRENCY=1 TLSN_REMOTE_SAMPLE_COUNT=5 \
+TLSN_REMOTE_BENCHMARK_REPORT_PATH=artifacts/tlsn-remote-recovery-c1.json \
+pnpm run benchmark:tlsn-remote
+
+TLSN_REMOTE_EXPECTED_ENVIRONMENT=evidence \
+TLSN_REMOTE_EXECUTION_MODE=direct \
+TLSN_REMOTE_DIRECT_SYNCHRONOUS_CANDIDATE=true \
+TLSN_REMOTE_DIRECT_RESPONSE_LOSS_RECOVERY=true \
+TLSN_REMOTE_CONCURRENCY=4 TLSN_REMOTE_SAMPLE_COUNT=20 \
+TLSN_REMOTE_BENCHMARK_REPORT_PATH=artifacts/tlsn-remote-recovery-c4.json \
+pnpm run benchmark:tlsn-remote
+
+TLSN_REMOTE_EXPECTED_ENVIRONMENT=evidence \
+TLSN_REMOTE_EXECUTION_MODE=direct \
+TLSN_REMOTE_DIRECT_SYNCHRONOUS_CANDIDATE=true \
+TLSN_REMOTE_DIRECT_RESPONSE_LOSS_RECOVERY=true \
+TLSN_REMOTE_CONCURRENCY=8 TLSN_REMOTE_SAMPLE_COUNT=40 \
+TLSN_REMOTE_BENCHMARK_REPORT_PATH=artifacts/tlsn-remote-recovery-c8.json \
+pnpm run benchmark:tlsn-remote
+```
+
+The benchmark rejects this flag when the synchronous candidate is disabled,
+and the synchronous candidate remains rejected for production.
+
 The opt-in timing header is emitted only when
 `TLSN_BENCHMARK_TIMINGS=true` and the Worker is a test deployment or an
 explicitly opted-in production canary. Its legacy local stages are:

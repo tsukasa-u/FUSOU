@@ -663,6 +663,34 @@ async function attachBenchmarkTimingHeader(c: Context<{ Bindings: Bindings }>, e
   if (value) c.header("X-FUSOU-TLSN-Benchmark-Timing", value);
 }
 
+type AuthoritativeVerificationResult = {
+  bytes: Uint8Array;
+  value: z.infer<typeof verificationFinalResponseSchema>;
+};
+
+async function readAuthoritativeVerificationResult(
+  env: Bindings,
+  resultRecord: BindingRecord,
+): Promise<AuthoritativeVerificationResult | null> {
+  if (!resultRecord.result_sha256 || !resultRecord.result_object_key) return null;
+  const object = await env.TLSN_PRESENTATIONS.get(resultRecord.result_object_key);
+  if (!object || object.size > MAX_RESULT_OBJECT_BYTES) return null;
+  try {
+    const bytes = new Uint8Array(await object.arrayBuffer());
+    const sha256 = encodeBase64Url(
+      new Uint8Array(await crypto.subtle.digest("SHA-256", bytes)),
+    );
+    if (sha256 !== resultRecord.result_sha256) return null;
+    const body = new TextDecoder("utf-8", { fatal: true, ignoreBOM: false }).decode(bytes);
+    return {
+      bytes,
+      value: verificationFinalResponseSchema.parse(JSON.parse(body) as unknown),
+    };
+  } catch {
+    return null;
+  }
+}
+
 function testBindingValueForRequest(env: Bindings, request: Request): string | undefined {
   if (env.TLSN_ENVIRONMENT !== "test") return undefined;
   if (env.TLSN_TEST_BINDING_VALUES === undefined) return env.TLSN_TEST_BINDING_VALUE?.trim() || undefined;
@@ -680,6 +708,36 @@ function testDirectFaultForRequest(
   return requested === "failure" || requested === "timeout" || requested === "late_success" || requested === "pause_after_result_put"
     ? requested
     : undefined;
+}
+
+type TestReplayResultFault = "result_missing" | "result_corrupt";
+
+function testReplayResultFaultForRequest(
+  env: Bindings,
+  request: Request,
+): TestReplayResultFault | undefined {
+  if (env.TLSN_ENVIRONMENT !== "test") return undefined;
+  const requested = request.headers.get("X-FUSOU-TLSN-Test-Replay-Fault")?.trim();
+  return requested === "result_missing" || requested === "result_corrupt" ? requested : undefined;
+}
+
+async function applyTestReplayResultFault(
+  env: Bindings,
+  record: BindingRecord,
+  fault: TestReplayResultFault,
+): Promise<void> {
+  if (!record.result_object_key) return;
+  if (fault === "result_missing") {
+    await env.TLSN_PRESENTATIONS.delete(record.result_object_key);
+    return;
+  }
+  const existing = await env.TLSN_PRESENTATIONS.get(record.result_object_key);
+  if (!existing || existing.size > MAX_RESULT_OBJECT_BYTES) return;
+  const bytes = new Uint8Array(await existing.arrayBuffer());
+  if (bytes.length > 0) bytes[0] = (bytes[0] ?? 0) ^ 0x01;
+  await env.TLSN_PRESENTATIONS.put(record.result_object_key, bytes, {
+    httpMetadata: { contentType: "application/json" },
+  });
 }
 
 async function delayTestCompletion(env: Bindings): Promise<void> {
@@ -1579,6 +1637,7 @@ async function authenticateTestTlsnDeviceProof(
     sig: string;
   },
   env: Bindings,
+  expectedReplayDigestHex?: string,
 ): Promise<DevicePossessionAuthenticationResult> {
   if (!testDeviceAuthenticationEnabled(env)) {
     return { ok: false, status: 503, error: "device_possession_unavailable" };
@@ -1597,7 +1656,8 @@ async function authenticateTestTlsnDeviceProof(
     .join("");
   const valid = await verifyTestDeviceSignature(env.TLSN_TEST_DEVICE_PUBLIC_KEY!, message, proof.sig);
   if (!valid) return { ok: false, status: 401, error: "device_possession_unauthorized" };
-  if (!rememberTestDeviceValue(testDeviceProofDigests, `${subject.canonicalUserId}\0${replayDigestHex}`)) {
+  const firstUse = rememberTestDeviceValue(testDeviceProofDigests, `${subject.canonicalUserId}\0${replayDigestHex}`);
+  if (!firstUse && replayDigestHex !== expectedReplayDigestHex) {
     return { ok: false, status: 409, error: "device_possession_replayed" };
   }
   return {
@@ -1618,7 +1678,19 @@ async function authenticateTlsnDeviceProof(
     sig: string;
   },
   endpoint: string,
+  expectedReplayDigestHex?: string,
 ): Promise<DevicePossessionAuthenticationResult> {
+  let replayDigestHex: string | undefined;
+  if (expectedReplayDigestHex) {
+    try {
+      const message = testTlsnDeviceProofMessage(proof);
+      replayDigestHex = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", message)))
+        .map((byte) => byte.toString(16).padStart(2, "0"))
+        .join("");
+    } catch {
+      return { ok: false, status: 401, error: "device_possession_unauthorized" };
+    }
+  }
   try {
     const response = await fetch(endpoint, {
       method: "POST",
@@ -1642,6 +1714,14 @@ async function authenticateTlsnDeviceProof(
         return { ok: false, status: 409, error: "device_possession_revoked" };
       }
       if (response.status === 409 && error === "device_proof_replayed") {
+        if (replayDigestHex && replayDigestHex === expectedReplayDigestHex) {
+          return {
+            ok: true,
+            canonicalUserId: subject.canonicalUserId,
+            deviceId: proof.device_id,
+            replayDigestHex,
+          };
+        }
         return { ok: false, status: 409, error: "device_possession_replayed" };
       }
       if (response.status >= 500) {
@@ -2177,31 +2257,9 @@ async function completeVerification(
     benchmarkRecord(c.env, callback.job_id, "t3_trigger_callback_request_started", callback.benchmark_timing.callback_request_started_at);
   }
   const readConsumedResult = async (resultRecord: BindingRecord): Promise<Response> => {
-    if (!resultRecord.result_sha256) {
-      return c.json({ error: "verification_result_unavailable" }, 503);
-    }
-    const resultObjectKey = resultRecord.result_object_key;
-    if (!resultObjectKey) {
-      return c.json({ error: "verification_result_unavailable" }, 503);
-    }
-    const existing = await c.env.TLSN_PRESENTATIONS.get(resultObjectKey);
-    if (!existing || existing.size > MAX_RESULT_OBJECT_BYTES) {
-      return c.json({ error: "verification_result_unavailable" }, 503);
-    }
-    const resultBytes = new Uint8Array(await existing.arrayBuffer());
-    const resultSha256 = encodeBase64Url(
-      new Uint8Array(await crypto.subtle.digest("SHA-256", resultBytes)),
-    );
-    if (resultSha256 !== resultRecord.result_sha256) {
-      return c.json({ error: "verification_result_unavailable" }, 503);
-    }
-    try {
-      const resultBody = new TextDecoder().decode(resultBytes);
-      verificationFinalResponseSchema.parse(JSON.parse(resultBody) as unknown);
-      return c.json({ accepted: true });
-    } catch {
-      return c.json({ error: "verification_result_unavailable" }, 503);
-    }
+    return await readAuthoritativeVerificationResult(c.env, resultRecord)
+      ? c.json({ accepted: true })
+      : c.json({ error: "verification_result_unavailable" }, 503);
   };
 
   const verificationAttemptId = callback.verification_attempt_id ?? crypto.randomUUID();
@@ -2578,6 +2636,7 @@ async function completeVerification(
     }
     completionConsumed = true;
     benchmarkDiagnostic(c.env, callback.job_id, "consume_outcome", "consumed");
+    benchmarkIncrementDiagnostic(c.env, callback.job_id, "do_consume_count");
     benchmarkRecord(c.env, callback.job_id, "do_consume_completed");
     benchmarkDuration(c.env, callback.job_id, "do_consume", performance.now() - consumeStartedAt);
     benchmarkRecord(c.env, callback.job_id, "t9_consume_completed");
@@ -2965,46 +3024,22 @@ app.post("/verify/tlsn/status", async (c) => {
 
   const resultGetStartedAt = performance.now();
   benchmarkRecord(c.env, requestBody.job_id, "status_result_get_started");
-  const object = await c.env.TLSN_PRESENTATIONS.get(resultObjectKey);
+  const authoritativeResult = await readAuthoritativeVerificationResult(c.env, record);
   benchmarkRecord(c.env, requestBody.job_id, "status_result_get_completed");
   benchmarkDuration(c.env, requestBody.job_id, "status_result_get", performance.now() - resultGetStartedAt);
   benchmarkR2Operation(c.env, requestBody.job_id, "status_result_get");
-  if (!object || object.size > MAX_RESULT_OBJECT_BYTES) {
+  if (!authoritativeResult) {
     return c.json({ verified: false, error: "verification_result_unavailable" }, 503);
   }
-  try {
-    const resultReadStartedAt = performance.now();
-    benchmarkRecord(c.env, requestBody.job_id, "status_result_read_started");
-    const resultBytes = new Uint8Array(await object.arrayBuffer());
-    benchmarkRecord(c.env, requestBody.job_id, "status_result_read_completed");
-    benchmarkDuration(c.env, requestBody.job_id, "status_result_read", performance.now() - resultReadStartedAt);
-    const resultBody = new TextDecoder().decode(resultBytes);
-    const resultHashStartedAt = performance.now();
-    benchmarkRecord(c.env, requestBody.job_id, "status_result_hash_started");
-    const resultSha256 = encodeBase64Url(
-      new Uint8Array(await crypto.subtle.digest("SHA-256", resultBytes)),
-    );
-    benchmarkRecord(c.env, requestBody.job_id, "status_result_hash_completed");
-    benchmarkDuration(c.env, requestBody.job_id, "status_result_hash", performance.now() - resultHashStartedAt);
-    if (resultSha256 !== record.result_sha256) {
-      return c.json({ verified: false, error: "verification_result_unavailable" }, 503);
-    }
-    const resultParseStartedAt = performance.now();
-    benchmarkRecord(c.env, requestBody.job_id, "status_result_parse_started");
-    const finalResponse = verificationFinalResponseSchema.parse(JSON.parse(resultBody) as unknown);
-    benchmarkRecord(c.env, requestBody.job_id, "status_result_parse_completed");
-    benchmarkDuration(c.env, requestBody.job_id, "status_result_parse", performance.now() - resultParseStartedAt);
-    benchmarkDiagnostic(c.env, requestBody.job_id, "status_result_bytes", resultBytes.byteLength);
-    benchmarkRecord(c.env, requestBody.job_id, "t10_status_verified");
-    benchmarkRecord(c.env, requestBody.job_id, "t11_status_verified");
-    benchmarkDiagnostic(c.env, requestBody.job_id, "terminal_outcome", "verified");
-    deferBenchmarkFlush(c, requestBody.job_id);
-    await attachBenchmarkTimingHeader(c, c.env, requestBody.job_id);
-    c.header("Cache-Control", "no-store");
-    return c.body(resultBody, 200);
-  } catch {
-    return c.json({ verified: false, error: "verification_result_unavailable" }, 503);
-  }
+  benchmarkDiagnostic(c.env, requestBody.job_id, "status_result_bytes", authoritativeResult.bytes.byteLength);
+  benchmarkRecord(c.env, requestBody.job_id, "t10_status_verified");
+  benchmarkRecord(c.env, requestBody.job_id, "t11_status_verified");
+  benchmarkDiagnostic(c.env, requestBody.job_id, "terminal_outcome", "verified");
+  deferBenchmarkFlush(c, requestBody.job_id);
+  await attachBenchmarkTimingHeader(c, c.env, requestBody.job_id);
+  c.header("Cache-Control", "no-store");
+  c.header("Content-Type", "application/json");
+  return new Response(authoritativeResult.bytes, { status: 200, headers: c.res.headers });
 });
 
 app.post("/verify/tlsn/retry", async (c) => {
@@ -3052,7 +3087,7 @@ const handleTlsnVerification = async (c: Context<{ Bindings: Bindings }>) => {
     const trigger = shouldUseTriggerExecution(c.env) ? triggerExecutionConfig(c.env) : null;
     const queue = shouldUseQueueExecution(c.env) ? c.env.TLSN_VERIFICATION_QUEUE : undefined;
     const direct = shouldUseDirectExecution(c.env) ? c.env.TLSN_DIRECT_VERIFIER : undefined;
-    const directVerificationAttemptId = direct ? crypto.randomUUID() : undefined;
+    const synchronousDirect = shouldUseSynchronousDirectResponse(c.env);
     if (!trigger && !queue && !direct) {
       return c.json({
         verified: false,
@@ -3073,6 +3108,7 @@ const handleTlsnVerification = async (c: Context<{ Bindings: Bindings }>) => {
         authentication.canonicalUserId,
         requestBody.device_id,
         Date.now(),
+        { allow_consumed: synchronousDirect },
       );
     } catch (error) {
       const message = error instanceof BindingAuthorityError ? error.code : "binding_unknown";
@@ -3098,9 +3134,12 @@ const handleTlsnVerification = async (c: Context<{ Bindings: Bindings }>) => {
       challenge: requestBody.device_proof.challenge,
       sig: requestBody.device_proof.sig,
     };
+    const expectedReplayDigestHex = synchronousDirect && issuedBinding.status === "consumed"
+      ? issuedBinding.device_replay_digest_hex
+      : undefined;
     const devicePossession = testDeviceAuthenticationEnabled(c.env)
-      ? await authenticateTestTlsnDeviceProof(authentication, devicePossessionProof, c.env)
-      : await authenticateTlsnDeviceProof(authentication, devicePossessionProof, config.devicePossessionAuthUrl);
+      ? await authenticateTestTlsnDeviceProof(authentication, devicePossessionProof, c.env, expectedReplayDigestHex)
+      : await authenticateTlsnDeviceProof(authentication, devicePossessionProof, config.devicePossessionAuthUrl, expectedReplayDigestHex);
     if (!devicePossession.ok) {
       return c.json({ verified: false, error: devicePossession.error }, devicePossession.status);
     }
@@ -3115,7 +3154,61 @@ const handleTlsnVerification = async (c: Context<{ Bindings: Bindings }>) => {
     const presentationId = encodeBase64Url(
       new Uint8Array(await crypto.subtle.digest("SHA-256", presentationBytes)),
     );
+    if (issuedBinding.status === "consumed") {
+      if (
+        !synchronousDirect ||
+        issuedBinding.presentation_id !== presentationId ||
+        (issuedBinding.verification_profile ?? "complete") !== (sparseProfile ? "sparse" : "complete") ||
+        !issuedBinding.result_object_key ||
+        !issuedBinding.result_sha256 ||
+        !issuedBinding.device_replay_digest_hex ||
+        devicePossession.replayDigestHex !== issuedBinding.device_replay_digest_hex
+      ) {
+        return c.json({ verified: false, error: "verification_result_mismatch" }, 422);
+      }
+      const replayJobId = issuedBinding.verification_job_id;
+      if (!replayJobId) {
+        return c.json({ verified: false, error: "verification_result_mismatch" }, 422);
+      }
+      if (benchmarkEnabled(c.env)) {
+        await benchmarkRegisterFromCallback(
+          c.env,
+          replayJobId,
+          authority,
+          issuedBinding.binding_id,
+          undefined,
+          "direct",
+        );
+        benchmarkIncrementDiagnostic(c.env, replayJobId, "synchronous_replay_count");
+        benchmarkDiagnostic(c.env, replayJobId, "synchronous_replay_path", "established");
+        benchmarkR2Operation(c.env, replayJobId, "replay_result_get");
+      }
+      const replayFault = testReplayResultFaultForRequest(c.env, c.req.raw);
+      if (replayFault) {
+        await applyTestReplayResultFault(c.env, issuedBinding, replayFault);
+      }
+      const authoritativeResult = await readAuthoritativeVerificationResult(c.env, issuedBinding);
+      if (!authoritativeResult) {
+        return c.json({ verified: false, error: "verification_result_unavailable" }, 503);
+      }
+      if (benchmarkEnabled(c.env)) {
+        await benchmarkFlush(c.env, replayJobId);
+      }
+      const headers = new Headers({
+        "Cache-Control": "no-store",
+        "Content-Type": "application/json",
+      });
+      if (benchmarkEnabled(c.env)) {
+        const timingHeader = await benchmarkTimingHeaderValue(c.env, replayJobId);
+        if (timingHeader) headers.set("X-FUSOU-TLSN-Benchmark-Timing", timingHeader);
+        headers.set("X-FUSOU-TLSN-Test-Job-Id", replayJobId);
+        const replayPersistence = benchmarkPersistences.get(replayJobId);
+        if (replayPersistence) headers.set("X-FUSOU-TLSN-Test-Benchmark-Trace-Id", replayPersistence.traceId);
+      }
+      return new Response(authoritativeResult.bytes, { status: 200, headers });
+    }
     const jobId = crypto.randomUUID();
+    const directVerificationAttemptId = direct ? crypto.randomUUID() : undefined;
     const benchmarkTraceId = benchmarkEnabled(c.env) ? crypto.randomUUID() : undefined;
     const verificationInputKey = direct ? undefined : verificationObjectKey(jobId, "presentation");
     const verificationResultKey = verificationObjectKey(jobId, "result");

@@ -230,6 +230,7 @@ async function timedJsonRequest(url, options = {}) {
   }
   return {
     response,
+    responseBytes,
     status: response.status,
     json,
     elapsedMilliseconds,
@@ -383,9 +384,53 @@ async function submitVerification(workerOrigin, accessToken, body, synchronousCa
     requestBodyBytes: Buffer.byteLength(body),
     requestAcceptanceMilliseconds: clientT1 - clientT0,
     responseMode: synchronousCandidate ? "direct_synchronous" : "queued_202",
+    requestBody: body,
+    responseBytes: result.responseBytes,
     responseBodyBytes: result.responseBodyBytes,
     responseBodySha256: result.responseBodySha256,
     synchronousTiming: synchronousCandidate ? parseTimingHeader(result.response) : null,
+  };
+}
+
+async function replaySynchronousVerification(workerOrigin, accessToken, submission) {
+  const result = await timedJsonRequest(endpoint(workerOrigin, "/verify/tlsn/sparse"), {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${accessToken}`,
+    },
+    body: submission.requestBody,
+  });
+  const timing = parseTimingHeader(result.response);
+  if (result.status !== 200 || result.json?.verified !== true) {
+    throw new Error(`remote synchronous replay failed with status ${result.status}, body ${JSON.stringify(result.json ?? null)}`);
+  }
+  if (
+    result.responseBodyBytes !== submission.responseBodyBytes ||
+    result.responseBodySha256 !== submission.responseBodySha256 ||
+    !result.responseBytes.equals(submission.responseBytes)
+  ) {
+    throw new Error("remote synchronous replay response bytes did not match the initial response");
+  }
+  if (
+    timing?.diagnostics?.synchronous_replay_path !== "established" ||
+    timing?.diagnostics?.direct_invocation_count !== 1 ||
+    timing?.diagnostics?.do_consume_count !== 1 ||
+    timing?.r2_operations?.result_put !== 1 ||
+    timing?.r2_operations?.replay_result_get !== 1
+  ) {
+    throw new Error(`remote synchronous replay diagnostics were invalid: ${JSON.stringify({
+      diagnostics: timing?.diagnostics ?? null,
+      r2_operations: timing?.r2_operations ?? null,
+    })}`);
+  }
+  return {
+    response: result.response,
+    responseBytes: result.responseBytes,
+    responseBodyBytes: result.responseBodyBytes,
+    responseBodySha256: result.responseBodySha256,
+    timing,
+    replayMilliseconds: result.elapsedMilliseconds,
   };
 }
 
@@ -633,7 +678,10 @@ function summarizeResourceObservations(samples) {
     result_put_count: countOperations("result_put"),
     result_delete_count: countOperations("result_delete"),
     status_result_get_count: countOperations("status_result_get"),
+    replay_result_get_count: countOperations("replay_result_get"),
     direct_invocation_count: countDiagnostic("direct_invocation_count"),
+    synchronous_replay_count: countDiagnostic("synchronous_replay_count"),
+    do_consume_count: countDiagnostic("do_consume_count"),
     late_callback_count: countDiagnostic("late_callback_count"),
     verified_count: samples.filter((sample) => sample.diagnostics?.terminal_outcome === "verified").length,
     not_verified_count: samples.filter((sample) => sample.diagnostics?.terminal_outcome === "not_verified").length,
@@ -655,7 +703,7 @@ function rowDecision(row) {
     : "EXCEEDS TARGET";
 }
 
-async function runBatch({ workerOrigin, webOrigin, accessToken, userId, device, privateKey, manifest, entry, concurrency, sampleCount, pollIntervalMs, maxPollMs, executionMode, synchronousCandidate }) {
+async function runBatch({ workerOrigin, webOrigin, accessToken, userId, device, privateKey, manifest, entry, concurrency, sampleCount, pollIntervalMs, maxPollMs, executionMode, synchronousCandidate, responseLossRecovery }) {
   const sourcePath = fixtureSourcePath(manifest, entry);
   const samples = [];
   let preparationMilliseconds = 0;
@@ -687,7 +735,24 @@ async function runBatch({ workerOrigin, webOrigin, accessToken, userId, device, 
         synchronousCandidate,
       )
     )));
-    const completions = synchronousCandidate
+    const completions = responseLossRecovery
+      ? (await Promise.all(
+        submissions.map((submission) => replaySynchronousVerification(workerOrigin, accessToken, submission)),
+      )).map((recovery, index) => ({
+        ...recovery,
+        clientT11: performance.now(),
+        clientResponseBytes: recovery.responseBodyBytes,
+        clientResponseSha256: recovery.responseBodySha256,
+        statusPollingMilliseconds: recovery.replayMilliseconds,
+        pollCount: 0,
+        statusRecoveryResponseBytes: recovery.responseBodyBytes,
+        statusRecoveryResponseSha256: recovery.responseBodySha256,
+        timing: recovery.timing,
+        responseMode: "direct_synchronous_response_loss_recovery",
+        initialResponseBytes: submissions[index].responseBodyBytes,
+        initialResponseSha256: submissions[index].responseBodySha256,
+      }))
+      : synchronousCandidate
       ? (await Promise.all(
         submissions.map((submission, index) => pollStatus(
           workerOrigin,
@@ -779,30 +844,42 @@ async function runBatch({ workerOrigin, webOrigin, accessToken, userId, device, 
         presentation_bytes: Buffer.from(fixtures[index].sparse_presentation_base64, "base64url").length,
         concurrency,
         sample_index: sampleIndex,
-        responseMode: submission.responseMode,
+        responseMode: responseLossRecovery ? completion.responseMode : submission.responseMode,
         statusRecoveryMeasured: true,
+        responseLossRecoveryMeasured: responseLossRecovery,
         requestBodyBytes: submission.requestBodyBytes,
         resultBytes: Number.isFinite(diagnostics.result_bytes) ? diagnostics.result_bytes : null,
         payloadBytes: Number.isFinite(diagnostics.payload_bytes) ? diagnostics.payload_bytes : null,
         signedResultBytes: Number.isFinite(diagnostics.signed_result_bytes) ? diagnostics.signed_result_bytes : null,
         r2ObjectBytes: Number.isFinite(diagnostics.r2_object_bytes) ? diagnostics.r2_object_bytes : null,
         statusResultBytes: Number.isFinite(diagnostics.status_result_bytes) ? diagnostics.status_result_bytes : null,
-        clientResponseBytes: completion.clientResponseBytes,
-        clientResponseSha256: completion.clientResponseSha256 ?? submission.responseBodySha256,
-        statusRecoveryResponseBytes: completion.statusRecoveryResponseBytes ?? completion.clientResponseBytes,
-        statusRecoveryResponseSha256: completion.statusRecoveryResponseSha256 ?? completion.clientResponseSha256 ?? submission.responseBodySha256,
+        clientResponseBytes: responseLossRecovery ? submission.responseBodyBytes : completion.clientResponseBytes,
+        clientResponseSha256: responseLossRecovery ? submission.responseBodySha256 : completion.clientResponseSha256 ?? submission.responseBodySha256,
+        statusRecoveryResponseBytes: responseLossRecovery
+          ? completion.statusRecoveryResponseBytes
+          : completion.statusRecoveryResponseBytes ?? completion.clientResponseBytes,
+        statusRecoveryResponseSha256: responseLossRecovery
+          ? completion.statusRecoveryResponseSha256
+          : completion.statusRecoveryResponseSha256 ?? completion.clientResponseSha256 ?? submission.responseBodySha256,
+        responseLossRecoveryResponseBytes: responseLossRecovery ? completion.responseBodyBytes : null,
+        responseLossRecoveryResponseSha256: responseLossRecovery ? completion.responseBodySha256 : null,
         resultSha256: typeof diagnostics.result_sha256 === "string" ? diagnostics.result_sha256 : null,
         responseBytesMatchResultHash: typeof diagnostics.result_sha256 === "string"
-          && (completion.clientResponseSha256 ?? submission.responseBodySha256) === diagnostics.result_sha256,
+          && (responseLossRecovery ? submission.responseBodySha256 : completion.clientResponseSha256 ?? submission.responseBodySha256) === diagnostics.result_sha256,
         responseBytesMatchResultBytes: Number.isFinite(diagnostics.result_bytes)
           && completion.clientResponseBytes === diagnostics.result_bytes,
-        statusRecoveryBytesMatchResponse: (completion.statusRecoveryResponseSha256 ?? completion.clientResponseSha256 ?? submission.responseBodySha256)
-          === (completion.clientResponseSha256 ?? submission.responseBodySha256)
-          && (completion.statusRecoveryResponseBytes ?? completion.clientResponseBytes) === completion.clientResponseBytes,
+        statusRecoveryBytesMatchResponse: (responseLossRecovery
+          ? completion.statusRecoveryResponseSha256
+          : completion.statusRecoveryResponseSha256 ?? completion.clientResponseSha256 ?? submission.responseBodySha256)
+          === (responseLossRecovery ? submission.responseBodySha256 : completion.clientResponseSha256 ?? submission.responseBodySha256)
+          && (responseLossRecovery ? completion.statusRecoveryResponseBytes : completion.statusRecoveryResponseBytes ?? completion.clientResponseBytes)
+            === (responseLossRecovery ? submission.responseBodyBytes : completion.clientResponseBytes),
         statusRecoveryBytesMatchResultHash: typeof diagnostics.result_sha256 === "string"
-          && (completion.statusRecoveryResponseSha256 ?? completion.clientResponseSha256 ?? submission.responseBodySha256) === diagnostics.result_sha256,
+          && (responseLossRecovery
+            ? completion.statusRecoveryResponseSha256
+            : completion.statusRecoveryResponseSha256 ?? completion.clientResponseSha256 ?? submission.responseBodySha256) === diagnostics.result_sha256,
         statusRecoveryBytesMatchResultBytes: Number.isFinite(diagnostics.result_bytes)
-          && (completion.statusRecoveryResponseBytes ?? completion.clientResponseBytes) === diagnostics.result_bytes,
+          && (responseLossRecovery ? completion.statusRecoveryResponseBytes : completion.statusRecoveryResponseBytes ?? completion.clientResponseBytes) === diagnostics.result_bytes,
         requestAcceptanceMilliseconds: submission.requestAcceptanceMilliseconds,
         statusPollingMilliseconds: completion.statusPollingMilliseconds,
         pollCount: completion.pollCount,
@@ -930,7 +1007,9 @@ async function runBatch({ workerOrigin, webOrigin, accessToken, userId, device, 
         ),
         callbackResponseMilliseconds: t10 !== null && t10CallbackResponse !== null ? t10CallbackResponse - t10 : null,
         synchronousResponseMilliseconds: synchronousCandidate
-          ? phaseMilliseconds(timing, "direct_synchronous_response_started", "t1_200_response_sent")
+          ? responseLossRecovery
+            ? completion.replayMilliseconds
+            : phaseMilliseconds(timing, "direct_synchronous_response_started", "t1_200_response_sent")
           : null,
         triggerInputFetchMilliseconds: phaseMilliseconds(timing, "t3_trigger_input_fetch_started", "t3_trigger_input_fetch_completed"),
         triggerVerifierMilliseconds: phaseMilliseconds(timing, "t3_trigger_verifier_started", "t3_trigger_verifier_completed"),
@@ -1031,6 +1110,8 @@ async function runBatch({ workerOrigin, webOrigin, accessToken, userId, device, 
       client_response_sha256: sample.clientResponseSha256,
       status_recovery_response_bytes: sample.statusRecoveryResponseBytes,
       status_recovery_response_sha256: sample.statusRecoveryResponseSha256,
+      response_loss_recovery_response_bytes: sample.responseLossRecoveryResponseBytes,
+      response_loss_recovery_response_sha256: sample.responseLossRecoveryResponseSha256,
       result_sha256: sample.resultSha256,
       response_bytes_match_result_hash: sample.responseBytesMatchResultHash,
       response_bytes_match_result_bytes: sample.responseBytesMatchResultBytes,
@@ -1116,6 +1197,11 @@ async function main() {
   }
   const synchronousCandidate = executionMode === "direct"
     && optional("TLSN_REMOTE_DIRECT_SYNCHRONOUS_CANDIDATE") === "true";
+  const responseLossRecoveryRequested = optional("TLSN_REMOTE_DIRECT_RESPONSE_LOSS_RECOVERY") === "true";
+  if (responseLossRecoveryRequested && !synchronousCandidate) {
+    throw new Error("TLSN_REMOTE_DIRECT_RESPONSE_LOSS_RECOVERY requires TLSN_REMOTE_DIRECT_SYNCHRONOUS_CANDIDATE=true");
+  }
+  const responseLossRecovery = responseLossRecoveryRequested;
   const expectedEnvironment = optional("TLSN_REMOTE_EXPECTED_ENVIRONMENT") ?? "test";
   if (!ALLOWED_EXPECTED_ENVIRONMENTS.has(expectedEnvironment)) {
     throw new Error("TLSN_REMOTE_EXPECTED_ENVIRONMENT must be test, evidence, or production");
@@ -1180,6 +1266,7 @@ async function main() {
         maxPollMs,
         executionMode,
         synchronousCandidate,
+        responseLossRecovery,
       });
       rows.push(row);
       console.log(JSON.stringify({
@@ -1232,8 +1319,13 @@ async function main() {
       target_basis: "existing benchmark regression target; not a production SLO",
       formal_slo_decision: "NOT_ESTABLISHED",
       execution_mode: executionMode,
-      response_mode: synchronousCandidate ? "direct_synchronous_candidate" : "queued_202_status_poll",
-      status_recovery_measurement: "MEASURED",
+      response_mode: responseLossRecovery
+        ? "direct_synchronous_response_loss_recovery"
+        : synchronousCandidate
+          ? "direct_synchronous_candidate"
+          : "queued_202_status_poll",
+      status_recovery_measurement: responseLossRecovery ? "NOT_USED" : "MEASURED",
+      response_loss_recovery_measurement: responseLossRecovery ? "MEASURED" : "NOT_REQUESTED",
       expected_environment: expectedEnvironment,
       payload_scaling_status: "MEASURED_ONLY_FOR_AVAILABLE_REAL_FIXTURES",
     },
