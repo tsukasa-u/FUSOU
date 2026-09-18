@@ -158,9 +158,9 @@ async function pollResultRaceDiagnostics(session, userId, jobId, traceId, bindin
     const diagnostics = timing.diagnostics ?? {};
     if (
       Number(diagnostics.direct_invocation_count ?? 0) > 0 && (
-        Number(timing.r2_operations?.result_put ?? 0) > 0
+        Number(timing.r2_operations?.result_archive_put ?? 0) > 0
         || diagnostics.result_sha256_present === true
-        || diagnostics.result_put_before_consume_rejected === true
+        || Number(timing.do_operations?.commit_verified_result ?? 0) > 0
       )
     ) {
       return lastResult;
@@ -210,7 +210,11 @@ async function runMixedAttempt({ fault, session, userId, privateKey, manifest, e
     terminal_verified: final.json?.verified === true,
     terminal_not_verified: final.json?.verified === false && final.json?.status === "not_verified",
     direct_invocation_count: Number(timing.diagnostics?.direct_invocation_count ?? 0),
-    result_put_count: Number(timing.r2_operations?.result_put ?? 0),
+    result_archive_put_count: Number(timing.r2_operations?.result_archive_put ?? 0),
+    result_r2_read_count: Number(timing.r2_operations?.result_get ?? 0)
+      + Number(timing.r2_operations?.status_result_get ?? 0)
+      + Number(timing.r2_operations?.replay_result_get ?? 0),
+    do_commit_verified_result_count: Number(timing.do_operations?.commit_verified_result ?? 0),
     consume_completed: Number.isFinite(timestamps.t10_consume_completed),
     timing_job_id_matches_submission: typeof timing.job_id_sha256 === "string"
       && timing.job_id_sha256 === sha256Base64Url(verification.json.job_id),
@@ -227,8 +231,8 @@ async function runMixedAttempt({ fault, session, userId, privateKey, manifest, e
     || result.input_put_count !== 0
     || result.input_get_count !== 0
     || result.input_delete_count !== 0
-    || (expectedSuccess && (!result.consume_completed || result.result_put_count !== 1))
-    || (!expectedSuccess && result.result_put_count !== 0)
+    || (expectedSuccess && (!result.consume_completed || result.do_commit_verified_result_count !== 1 || result.result_archive_put_count !== 1 || result.result_r2_read_count !== 0))
+    || (!expectedSuccess && (result.do_commit_verified_result_count !== 0 || result.result_archive_put_count !== 0))
   ) {
     throw new Error(`remote mixed ${fault} invariant failed`);
   }
@@ -287,7 +291,7 @@ async function main() {
       "Content-Type": "application/json",
       Authorization: `Bearer ${accessToken}`,
       ...(expectedMode === "result_race"
-        ? { "X-FUSOU-TLSN-Test-Fault": "pause_after_result_put" }
+        ? { "X-FUSOU-TLSN-Test-Fault": "pause_after_result_commit" }
         : expectedMode === "failure" || expectedMode === "timeout"
           ? { "X-FUSOU-TLSN-Test-Fault": expectedMode }
         : {}),
@@ -310,8 +314,14 @@ async function main() {
     verification.json.job_id,
     verification.json.benchmark_trace_id,
   );
-  if (final.response.status !== 200 || final.json?.verified !== false || final.json?.status !== "not_verified") {
-    throw new Error(`expected terminal not_verified, received status ${final.response.status}`);
+  const expectedRaceSuccess = expectedMode === "result_race";
+  if (
+    final.response.status !== 200 ||
+    (expectedRaceSuccess
+      ? final.json?.verified !== true
+      : final.json?.verified !== false || final.json?.status !== "not_verified")
+  ) {
+    throw new Error(`unexpected terminal response: status ${final.response.status}, body ${JSON.stringify(final.json)}`);
   }
 
   if (expectedMode === "timeout") {
@@ -348,7 +358,11 @@ async function main() {
   const timing = parseTimingHeader(stable.response) ?? parseTimingHeader(final.response) ?? {};
   const timestamps = timing.timestamps ?? {};
   const directInvocationCount = Number(timing.diagnostics?.direct_invocation_count ?? 0);
-  const resultPutCount = Number(timing.r2_operations?.result_put ?? 0);
+  const resultArchivePutCount = Number(timing.r2_operations?.result_archive_put ?? 0);
+  const resultR2ReadCount = Number(timing.r2_operations?.result_get ?? 0)
+    + Number(timing.r2_operations?.status_result_get ?? 0)
+    + Number(timing.r2_operations?.replay_result_get ?? 0);
+  const doCommitVerifiedResultCount = Number(timing.do_operations?.commit_verified_result ?? 0);
   const result = {
     expected_mode: expectedMode,
     submission_status: verification.response.status,
@@ -358,18 +372,18 @@ async function main() {
       status: final.json?.status === "not_verified",
       job_id_present: typeof final.json?.job_id === "string",
     },
-    stable_terminal_status: stable.response.status === 200 && stable.json?.status === "not_verified",
+    stable_terminal_status: stable.response.status === 200 && (expectedRaceSuccess ? stable.json?.verified === true : stable.json?.status === "not_verified"),
     direct_invocation_started: Number.isFinite(timestamps.direct_invocation_started),
     direct_invocation_count: directInvocationCount,
     direct_invocation_accepted: Number.isFinite(timestamps.direct_invocation_accepted),
-    result_persisted: Number.isFinite(timestamps.t8_result_persisted) || resultPutCount > 0,
-    result_put_count: resultPutCount,
+    result_persisted: Number.isFinite(timestamps.t8_result_persisted) || doCommitVerifiedResultCount > 0,
+    result_archive_put_count: resultArchivePutCount,
+    result_r2_read_count: resultR2ReadCount,
+    do_commit_verified_result_count: doCommitVerifiedResultCount,
     result_sha256_present: timing.diagnostics?.result_sha256_present === true,
     completion_failure_code: typeof timing.diagnostics?.completion_failure_code === "string"
       ? timing.diagnostics.completion_failure_code
       : null,
-    result_put_before_consume_rejected: timing.diagnostics?.result_put_before_consume_rejected === true,
-    result_object_retained: timing.diagnostics?.result_object_retained === true,
     result_delete_count: Number(timing.r2_operations?.result_delete ?? 0),
     ...directInputR2Operations(timing),
     consume_completed: Number.isFinite(timestamps.t10_consume_completed),
@@ -387,14 +401,15 @@ async function main() {
   const resultRacePassed = expectedMode !== "result_race"
     || (
       result.result_persisted &&
-      result.result_put_count === 1 &&
-      !result.consume_completed &&
-      result.result_put_before_consume_rejected &&
-      result.result_object_retained &&
+      result.result_archive_put_count === 1 &&
+      result.result_r2_read_count === 0 &&
+      result.do_commit_verified_result_count === 1 &&
+      result.consume_completed &&
       result.result_delete_count === 0
     );
+  const expectedDirectInvocationAccepted = expectedMode === "result_race";
   console.log(JSON.stringify(result));
-  if (!result.stable_terminal_status || !result.no_retry_attempt || result.direct_invocation_count !== 1 || result.direct_invocation_accepted || !resultRacePassed || !result.timing_job_id_matches_submission || !result.timing_trace_id_matches_submission || result.input_put_count !== 0 || result.input_get_count !== 0 || result.input_delete_count !== 0) {
+  if (!result.stable_terminal_status || !result.no_retry_attempt || result.direct_invocation_count !== 1 || result.direct_invocation_accepted !== expectedDirectInvocationAccepted || !resultRacePassed || !result.timing_job_id_matches_submission || !result.timing_trace_id_matches_submission || result.input_put_count !== 0 || result.input_get_count !== 0 || result.input_delete_count !== 0) {
     throw new Error("remote Direct terminal, retry, or telemetry invariant failed");
   }
 }

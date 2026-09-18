@@ -26,9 +26,9 @@ async function delayTestDirectVerifier(env: Bindings): Promise<void> {
 app.post("/internal/tlsn/verification-complete", async (c) => {
   const requestedMode = c.req.header("X-FUSOU-TLSN-Test-Fault")?.trim();
   const configuredMode = c.env.TLSN_TEST_DIRECT_VERIFIER_MODE?.trim();
-  const mode: TestDirectFault | undefined = requestedMode === "failure" || requestedMode === "timeout" || requestedMode === "late_success" || requestedMode === "pause_after_result_put"
+  const mode: TestDirectFault | undefined = requestedMode === "failure" || requestedMode === "timeout" || requestedMode === "late_success" || requestedMode === "pause_before_result_commit" || requestedMode === "pause_after_result_commit"
     ? requestedMode
-    : configuredMode === "failure" || configuredMode === "timeout" || configuredMode === "late_success" || configuredMode === "pause_after_result_put"
+    : configuredMode === "failure" || configuredMode === "timeout" || configuredMode === "late_success" || configuredMode === "pause_before_result_commit" || configuredMode === "pause_after_result_commit"
       ? configuredMode
       : undefined;
   if (c.env.TLSN_ENVIRONMENT === "test") {

@@ -1320,7 +1320,7 @@ async function runDirectFailureSmokeTest() {
         headers: {
           "Content-Type": "application/json",
           Authorization: "Bearer test-token-a",
-          ...(scenarioMode === "race" ? { "X-FUSOU-TLSN-Test-Fault": "pause_after_result_put" } : {}),
+          ...(scenarioMode === "race" ? { "X-FUSOU-TLSN-Test-Fault": "pause_after_result_commit" } : {}),
           ...(scenarioMode === "header_failure" || (scenarioMode === "failure" && scenarioModes.length > 1)
             ? { "X-FUSOU-TLSN-Test-Fault": "failure" }
             : {}),
@@ -1403,9 +1403,13 @@ async function runDirectFailureSmokeTest() {
         assert.equal(replayTiming?.diagnostics?.synchronous_replay_path, "established");
         assert.equal(replayTiming?.diagnostics?.synchronous_replay_count, 1);
         assert.equal(replayTiming?.diagnostics?.direct_invocation_count, 1);
-        assert.equal(replayTiming?.diagnostics?.do_consume_count, 1);
-        assert.equal(replayTiming?.r2_operations?.result_put, 1);
-        assert.equal(replayTiming?.r2_operations?.replay_result_get, 1);
+        assert.equal(replayTiming?.do_operations?.start_verification, 1);
+        assert.equal(replayTiming?.do_operations?.acquire_verification, 1);
+        assert.equal(replayTiming?.do_operations?.commit_verified_result, 1);
+        assert.equal(replayTiming?.do_operations?.result_read, 2);
+        assert.equal(replayTiming?.r2_operations?.result_archive_put, 1);
+        assert.equal(replayTiming?.r2_operations?.result_get ?? 0, 0);
+        assert.equal(replayTiming?.r2_operations?.replay_result_get ?? 0, 0);
         assert.equal(createHash("sha256").update(replayResponseBytes).digest("base64url"), directTiming?.diagnostics?.result_sha256);
         const mismatchedPresentation = Buffer.from(decodeBase64Url(scenarioFixture.presentation_base64));
         mismatchedPresentation[0] = mismatchedPresentation[0] ^ 0x01;
@@ -1419,7 +1423,9 @@ async function runDirectFailureSmokeTest() {
         });
         assert.equal(mismatchResponse.status, 422);
         assert.deepEqual(await mismatchResponse.json(), { verified: false, error: "verification_result_mismatch" });
-        assert.equal(directTiming?.r2_operations?.result_put, 1);
+        assert.equal(directTiming?.do_operations?.result_read ?? 0, 0);
+        assert.equal(directTiming?.r2_operations?.result_archive_put, 1);
+        assert.equal(directTiming?.r2_operations?.result_get ?? 0, 0);
         assert.equal(directTiming?.r2_operations?.status_result_get ?? 0, 0);
         assert.equal(directTiming?.r2_operations?.input_delete ?? 0, 0);
         assert.equal(directTiming?.diagnostics?.result_sha256_present, true);
@@ -1484,6 +1490,23 @@ async function runDirectFailureSmokeTest() {
         });
         assert.equal(duplicateCompletion.status, 200);
         assert.deepEqual(await duplicateCompletion.json(), { accepted: true });
+      } else if (scenarioMode === "race") {
+        assert.equal(statusResponse.status, 200);
+        assert.equal(statusPayload.verified, true);
+        const timing = benchmarkTiming(statusResponse);
+        assert.equal(timing?.do_operations?.start_verification, 1);
+        assert.equal(timing?.do_operations?.acquire_verification, 1);
+        assert.equal(timing?.do_operations?.commit_verified_result, 1);
+        assert.equal(timing?.r2_operations?.result_archive_put, 1);
+        assert.equal(timing?.r2_operations?.result_get ?? 0, 0);
+        assert.equal(Number.isFinite(timing?.timestamps?.t10_consume_completed), true);
+        const duplicateResponse = await attemptWorker.fetch("https://verify.test/verify/tlsn", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: "Bearer test-token-a" },
+          body: verificationRequestBody,
+        });
+        assert.equal(duplicateResponse.status, 409);
+        assert.deepEqual(await duplicateResponse.json(), { verified: false, error: "binding_consumed" });
       } else {
         assert.equal(statusResponse.status, 200);
         assert.deepEqual(statusPayload, {
@@ -1510,15 +1533,6 @@ async function runDirectFailureSmokeTest() {
         assert.equal(failedDuplicate.status, 422, `${scenarioMode} duplicate body=${await failedDuplicate.clone().text()}`);
         assert.deepEqual(await failedDuplicate.json(), { verified: false, error: "verification_failed" });
         if (scenarioModes.length === 1) assert.equal(directCalls, 1);
-        if (scenarioMode === "race") {
-          const timing = benchmarkTiming(statusResponse);
-          assert.equal(timing?.r2_operations?.result_put, 1);
-          assert.equal(timing?.r2_operations?.result_delete ?? 0, 0);
-          assert.equal(timing?.diagnostics?.result_sha256_present, true);
-          assert.equal(timing?.diagnostics?.result_put_before_consume_rejected, true);
-          assert.equal(timing?.diagnostics?.result_object_retained, true);
-          assert.equal(Number.isFinite(timing?.timestamps?.t10_consume_completed), false);
-        }
         if (scenarioMode === "failure" || scenarioMode === "header_failure") {
           const callbackBody = JSON.stringify({
             job_id: jobId,
@@ -1544,7 +1558,8 @@ async function runDirectFailureSmokeTest() {
           assert.equal(lateCallback.status, 409);
           assert.deepEqual(await lateCallback.json(), { error: "verification_failed" });
           const failureTiming = benchmarkTiming(statusResponse);
-          assert.equal(failureTiming?.r2_operations?.result_put ?? 0, 0);
+          assert.equal(failureTiming?.r2_operations?.result_archive_put ?? 0, 0);
+          assert.equal(failureTiming?.do_operations?.commit_verified_result ?? 0, 0);
         }
       }
       };

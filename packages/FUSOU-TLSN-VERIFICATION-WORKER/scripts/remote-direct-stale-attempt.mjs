@@ -137,6 +137,33 @@ async function pollStatus(session, userId, jobId, traceId, untilTerminal) {
   throw new Error("stale attempt status polling exceeded configured maximum");
 }
 
+async function pollStaleDiagnostics(session, userId, jobId, traceId) {
+  const deadline = Date.now() + maxPollMs;
+  let last;
+  while (Date.now() < deadline) {
+    last = await requestJson("/verify/tlsn/status", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${accessToken}`,
+      },
+      body: JSON.stringify({
+        job_id: jobId,
+        binding_id: sha256Base64Url(session.binding),
+        session_id: session.session_id,
+        canonical_user_id: userId,
+        device_id: deviceId,
+        ...(traceId ? { benchmark_trace_id: traceId } : {}),
+      }),
+    });
+    const timing = timingFrom(last.response);
+    const diagnostics = timing.diagnostics ?? {};
+    if (last.response.status === 200 && diagnostics.stale_attempt_rejected === true) return last;
+    await new Promise((resolveDelay) => setTimeout(resolveDelay, pollIntervalMs));
+  }
+  return last;
+}
+
 async function main() {
   if (process.env.TLSN_REMOTE_AUTH_MODE !== "test") throw new Error("TLSN_REMOTE_AUTH_MODE must be test");
   if (expectedEnvironment !== "evidence") throw new Error("stale attempt evidence requires TLSN_REMOTE_EXPECTED_ENVIRONMENT=evidence");
@@ -161,7 +188,7 @@ async function main() {
     headers: {
       "Content-Type": "application/json",
       Authorization: `Bearer ${accessToken}`,
-      "X-FUSOU-TLSN-Test-Fault": "pause_after_result_put",
+      "X-FUSOU-TLSN-Test-Fault": "pause_before_result_commit",
     },
     body: JSON.stringify({
       presentation_base64: fixture.sparse_presentation_base64,
@@ -177,7 +204,7 @@ async function main() {
 
   const terminal = await pollStatus(session, user.id, verification.json.job_id, verification.json.benchmark_trace_id, true);
   await new Promise((resolveDelay) => setTimeout(resolveDelay, settleMs));
-  const settled = await pollStatus(session, user.id, verification.json.job_id, verification.json.benchmark_trace_id, false);
+  const settled = await pollStaleDiagnostics(session, user.id, verification.json.job_id, verification.json.benchmark_trace_id);
   const timing = timingFrom(settled.response);
   const diagnostics = timing.diagnostics ?? {};
   const r2Operations = timing.r2_operations ?? {};
@@ -212,7 +239,7 @@ async function main() {
       expected_environment: expectedEnvironment,
       expected_lease_ms: expectedLeaseMs,
       settle_ms: settleMs,
-      fault: "pause_after_result_put",
+      fault: "pause_before_result_commit",
     },
     observations: {
       submission_status: verification.response.status,
@@ -222,14 +249,18 @@ async function main() {
       settled_not_verified: settled.json?.verified === false && settled.json?.status === "not_verified",
       direct_invocation_count: Number(diagnostics.direct_invocation_count ?? 0),
       direct_invocation_accepted: Number.isFinite(timestamps.direct_invocation_accepted),
-      result_put_count: Number(r2Operations.result_put ?? 0),
+      result_archive_put_count: Number(r2Operations.result_archive_put ?? 0),
+      result_r2_read_count: Number(r2Operations.result_get ?? 0)
+        + Number(r2Operations.status_result_get ?? 0)
+        + Number(r2Operations.replay_result_get ?? 0),
+      do_commit_verified_result_attempt_count: Number(timing.do_operations?.commit_verified_result ?? 0),
+      do_commit_verified_result_count: Number(diagnostics.do_commit_verified_result_count ?? 0),
       input_put_count: Number(r2Operations.input_put ?? 0),
       input_get_count: Number(r2Operations.trigger_input_get ?? 0)
         + Number(r2Operations.worker_presentation_get ?? 0),
       input_delete_count: Number(r2Operations.input_delete ?? 0),
       consume_completed: Number.isFinite(timestamps.t10_consume_completed),
       consume_outcome: diagnostics.consume_outcome ?? null,
-      result_object_retained: diagnostics.result_object_retained === true,
       late_callback_count: Number(diagnostics.late_callback_count ?? 0),
       stale_attempt_rejected: diagnostics.stale_attempt_rejected === true,
       terminal_failure_code: diagnostics.terminal_failure_code ?? null,
@@ -248,13 +279,15 @@ async function main() {
     && result.observations.settled_not_verified
     && result.observations.direct_invocation_count === 1
     && !result.observations.direct_invocation_accepted
-    && result.observations.result_put_count === 1
+    && result.observations.result_archive_put_count === 0
+    && result.observations.result_r2_read_count === 0
+    && result.observations.do_commit_verified_result_attempt_count === 1
+    && result.observations.do_commit_verified_result_count === 0
     && result.observations.input_put_count === 0
     && result.observations.input_get_count === 0
     && result.observations.input_delete_count === 0
     && !result.observations.consume_completed
-    && result.observations.consume_outcome === "rejected"
-    && result.observations.result_object_retained
+    && result.observations.consume_outcome === "not_attempted"
     && result.observations.late_callback_count >= 1
     && result.observations.stale_attempt_rejected
     && result.observations.terminal_failure_code === "lease_expired"

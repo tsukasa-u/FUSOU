@@ -2,6 +2,7 @@ import { Hono, type Context } from "hono";
 import { z } from "zod";
 import {
   BindingAuthorityError,
+  type CommitVerifiedResultInput,
   DurableObjectBindingAuthority,
   TlsnBindingAuthorityDurableObject,
   encodeBase64Url,
@@ -9,6 +10,7 @@ import {
   type BindingRecord,
   type BenchmarkTimingRecord as DurableBenchmarkTimingRecord,
   type VerificationFailureCode,
+  type VerificationResultLookupInput,
 } from "./binding_authority.js";
 import {
   attestationConsumeReceiptSigningBytes,
@@ -250,16 +252,8 @@ type BenchmarkTimingStage =
   | "result_hash_completed"
   | "result_persistence_started"
   | "result_persistence_completed"
-  | "result_r2_put_request_started"
-  | "result_r2_put_request_completed"
-  | "result_r2_put_response_started"
-  | "result_r2_put_response_completed"
-  | "do_consume_started"
-  | "do_consume_completed"
   | "input_cleanup_started"
   | "input_cleanup_completed"
-  | "status_result_get_started"
-  | "status_result_get_completed"
   | "status_result_read_started"
   | "status_result_read_completed"
   | "status_result_hash_started"
@@ -270,7 +264,12 @@ type BenchmarkTimingStage =
   | "t5_presentation_hash_completed";
 
 type ExecutionMode = "trigger" | "queue" | "direct";
-export type TestDirectFault = "failure" | "timeout" | "late_success" | "pause_after_result_put";
+export type TestDirectFault =
+  | "failure"
+  | "timeout"
+  | "late_success"
+  | "pause_before_result_commit"
+  | "pause_after_result_commit";
 
 type BenchmarkPersistence = {
   authority: DurableObjectBindingAuthority;
@@ -486,6 +485,7 @@ function benchmarkRegister(
       timestamps: {},
       durations: {},
       r2_operations: {},
+      do_operations: {},
       max_verifier_concurrency: benchmarkMaxVerifierConcurrency,
       updated_at: Date.now(),
     });
@@ -567,6 +567,17 @@ function benchmarkR2Operation(env: Bindings, jobId: string, operation: string): 
   record.updated_at = Date.now();
 }
 
+function benchmarkDOOperation(env: Bindings, jobId: string, operation: string): void {
+  if (!benchmarkEnabled(env)) return;
+  const persistence = benchmarkPersistences.get(jobId);
+  if (!persistence) return;
+  const record = benchmarkTimingRecords.get(jobId);
+  if (!record) return;
+  record.do_operations[operation] = (record.do_operations[operation] ?? 0) + 1;
+  record.max_verifier_concurrency = benchmarkMaxVerifierConcurrency;
+  record.updated_at = Date.now();
+}
+
 function benchmarkVerifierStart(env: Bindings, jobId: string): void {
   if (!benchmarkEnabled(env)) return;
   benchmarkActiveVerifierCount += 1;
@@ -605,6 +616,10 @@ async function benchmarkFlush(env: Bindings, jobId: string): Promise<void> {
       ...(durable?.r2_operations ?? {}),
       ...local.r2_operations,
     },
+    do_operations: {
+      ...(durable?.do_operations ?? {}),
+      ...local.do_operations,
+    },
     diagnostics: {
       ...(durable?.diagnostics ?? {}),
       ...(local.diagnostics ?? {}),
@@ -635,8 +650,9 @@ async function benchmarkTimingHeaderValue(env: Bindings, jobId: string): Promise
     ? {
         ...(durable ?? local),
         timestamps: { ...(durable?.timestamps ?? {}), ...(local?.timestamps ?? {}) },
-          durations: { ...(durable?.durations ?? {}), ...(local?.durations ?? {}) },
+        durations: { ...(durable?.durations ?? {}), ...(local?.durations ?? {}) },
         r2_operations: { ...(durable?.r2_operations ?? {}), ...(local?.r2_operations ?? {}) },
+        do_operations: { ...(durable?.do_operations ?? {}), ...(local?.do_operations ?? {}) },
         diagnostics: { ...(durable?.diagnostics ?? {}), ...(local?.diagnostics ?? {}) },
         max_verifier_concurrency: Math.max(
           durable?.max_verifier_concurrency ?? 0,
@@ -669,18 +685,14 @@ type AuthoritativeVerificationResult = {
 };
 
 async function readAuthoritativeVerificationResult(
-  env: Bindings,
-  resultRecord: BindingRecord,
+  authority: DurableObjectBindingAuthority,
+  bindingId: string,
+  input: VerificationResultLookupInput,
 ): Promise<AuthoritativeVerificationResult | null> {
-  if (!resultRecord.result_sha256 || !resultRecord.result_object_key) return null;
-  const object = await env.TLSN_PRESENTATIONS.get(resultRecord.result_object_key);
-  if (!object || object.size > MAX_RESULT_OBJECT_BYTES) return null;
+  const storedResult = await authority.getConsumedVerificationResult(bindingId, input);
+  if (!storedResult || storedResult.bytes.byteLength > MAX_RESULT_OBJECT_BYTES) return null;
   try {
-    const bytes = new Uint8Array(await object.arrayBuffer());
-    const sha256 = encodeBase64Url(
-      new Uint8Array(await crypto.subtle.digest("SHA-256", bytes)),
-    );
-    if (sha256 !== resultRecord.result_sha256) return null;
+    const bytes = storedResult.bytes;
     const body = new TextDecoder("utf-8", { fatal: true, ignoreBOM: false }).decode(bytes);
     return {
       bytes,
@@ -705,7 +717,7 @@ function testDirectFaultForRequest(
 ): TestDirectFault | undefined {
   if (env.TLSN_ENVIRONMENT !== "test") return undefined;
   const requested = request.headers.get("X-FUSOU-TLSN-Test-Fault")?.trim();
-  return requested === "failure" || requested === "timeout" || requested === "late_success" || requested === "pause_after_result_put"
+  return requested === "failure" || requested === "timeout" || requested === "late_success" || requested === "pause_before_result_commit" || requested === "pause_after_result_commit"
     ? requested
     : undefined;
 }
@@ -722,21 +734,21 @@ function testReplayResultFaultForRequest(
 }
 
 async function applyTestReplayResultFault(
-  env: Bindings,
+  authority: DurableObjectBindingAuthority,
+  bindingId: string,
   record: BindingRecord,
   fault: TestReplayResultFault,
 ): Promise<void> {
-  if (!record.result_object_key) return;
-  if (fault === "result_missing") {
-    await env.TLSN_PRESENTATIONS.delete(record.result_object_key);
-    return;
-  }
-  const existing = await env.TLSN_PRESENTATIONS.get(record.result_object_key);
-  if (!existing || existing.size > MAX_RESULT_OBJECT_BYTES) return;
-  const bytes = new Uint8Array(await existing.arrayBuffer());
-  if (bytes.length > 0) bytes[0] = (bytes[0] ?? 0) ^ 0x01;
-  await env.TLSN_PRESENTATIONS.put(record.result_object_key, bytes, {
-    httpMetadata: { contentType: "application/json" },
+  if (!record.verification_job_id) return;
+  await authority.applyTestResultFault(bindingId, {
+    session_id: record.session_id,
+    canonical_user_id: record.canonical_user_id,
+    device_id: record.device_id,
+    verification_job_id: record.verification_job_id,
+    ...(record.result_sha256 ? { result_sha256: record.result_sha256 } : {}),
+    ...(record.result_object_key ? { result_object_key: record.result_object_key } : {}),
+    fault,
+    now: Date.now(),
   });
 }
 
@@ -770,9 +782,9 @@ function directInvocationTimeoutMs(env: Bindings): number {
     : VERIFICATION_LEASE_MS;
 }
 
-async function delayAfterResultPersistence(env: Bindings, testFault?: TestDirectFault): Promise<void> {
+async function delayAtResultCommit(env: Bindings, testFault: TestDirectFault | undefined, expectedFault: TestDirectFault): Promise<void> {
   if (env.TLSN_ENVIRONMENT !== "test" || env.TLSN_TEST_POST_RESULT_DELAY_MS === undefined) return;
-  if (testFault !== undefined && testFault !== "pause_after_result_put") return;
+  if (testFault !== expectedFault) return;
   const delayMs = Number(env.TLSN_TEST_POST_RESULT_DELAY_MS);
   if (!Number.isInteger(delayMs) || delayMs <= 0 || delayMs > 120_000) return;
   if (env.TLSN_TEST_POST_RESULT_DELAY_ONCE === "true") {
@@ -780,6 +792,14 @@ async function delayAfterResultPersistence(env: Bindings, testFault?: TestDirect
     testPostResultDelayUsed = true;
   }
   await new Promise<void>((resolve) => setTimeout(resolve, delayMs));
+}
+
+async function delayBeforeResultCommit(env: Bindings, testFault?: TestDirectFault): Promise<void> {
+  await delayAtResultCommit(env, testFault, "pause_before_result_commit");
+}
+
+async function delayAfterResultCommit(env: Bindings, testFault?: TestDirectFault): Promise<void> {
+  await delayAtResultCommit(env, testFault, "pause_after_result_commit");
 }
 
 export function decodeBase64Url(value: string, maximumBytes: number): Uint8Array {
@@ -2257,7 +2277,17 @@ async function completeVerification(
     benchmarkRecord(c.env, callback.job_id, "t3_trigger_callback_request_started", callback.benchmark_timing.callback_request_started_at);
   }
   const readConsumedResult = async (resultRecord: BindingRecord): Promise<Response> => {
-    return await readAuthoritativeVerificationResult(c.env, resultRecord)
+    const authoritativeResult = await readAuthoritativeVerificationResult(authority, callback.binding_id, {
+      session_id: callback.session_id,
+      canonical_user_id: callback.canonical_user_id,
+      device_id: callback.device_id,
+      verification_job_id: callback.job_id,
+      ...(resultRecord.result_sha256 ? { result_sha256: resultRecord.result_sha256 } : {}),
+      ...(resultRecord.result_object_key ? { result_object_key: resultRecord.result_object_key } : {}),
+      now: Date.now(),
+    })
+      .catch(() => null);
+    return authoritativeResult
       ? c.json({ accepted: true })
       : c.json({ error: "verification_result_unavailable" }, 503);
   };
@@ -2267,6 +2297,7 @@ async function completeVerification(
   let verificationRecord;
   const bindingLookupAndLeaseStartedAt = executionMode === "queue" ? performance.now() : null;
   if (executionMode === "queue") benchmarkRecord(c.env, callback.job_id, "queue_binding_lookup_and_lease_started");
+  benchmarkDOOperation(c.env, callback.job_id, "acquire_verification");
   try {
     verificationRecord = await authority.acquireVerification(callback.binding_id, {
       session_id: callback.session_id,
@@ -2343,8 +2374,7 @@ async function completeVerification(
   };
   let completionConsumed = false;
   let failurePathEntered = false;
-  let resultPersisted = false;
-  let preserveAttemptResult = false;
+  let resultCommitted = false;
   let attemptFailureCode: VerificationFailureCode = "verifier_failed";
   let benchmarkVerifierStarted = true;
   const finalizeAttemptFailure = async (failureCode: VerificationFailureCode): Promise<void> => {
@@ -2566,7 +2596,7 @@ async function completeVerification(
     benchmarkRecord(c.env, callback.job_id, "result_serialization_completed");
     benchmarkDuration(c.env, callback.job_id, "result_serialization", performance.now() - resultSerializationStartedAt);
     benchmarkDiagnostic(c.env, callback.job_id, "result_bytes", finalResponseBytes.byteLength);
-    benchmarkDiagnostic(c.env, callback.job_id, "r2_object_bytes", finalResponseBytes.byteLength);
+    benchmarkDiagnostic(c.env, callback.job_id, "result_authority_bytes", finalResponseBytes.byteLength);
     const resultHashStartedAt = performance.now();
     benchmarkRecord(c.env, callback.job_id, "result_hash_started");
     const resultSha256 = encodeBase64Url(
@@ -2580,70 +2610,59 @@ async function completeVerification(
     benchmarkRecord(c.env, callback.job_id, "result_persistence_started");
     if (executionMode === "queue") benchmarkRecord(c.env, callback.job_id, "queue_result_persistence_started");
     attemptFailureCode = "result_persistence_failed";
-    const resultPutRequestStartedAt = performance.now();
-    benchmarkRecord(c.env, callback.job_id, "result_r2_put_request_started");
-    const resultPutPromise = c.env.TLSN_PRESENTATIONS.put(
-      attemptResultKey,
-      finalResponseBytes,
-      { httpMetadata: { contentType: "application/json" } },
-    );
-    benchmarkRecord(c.env, callback.job_id, "result_r2_put_request_completed");
-    benchmarkDuration(c.env, callback.job_id, "result_r2_put_request", performance.now() - resultPutRequestStartedAt);
-    const resultPutResponseStartedAt = performance.now();
-    benchmarkRecord(c.env, callback.job_id, "result_r2_put_response_started");
-    await resultPutPromise;
-    benchmarkRecord(c.env, callback.job_id, "result_r2_put_response_completed");
-    benchmarkDuration(c.env, callback.job_id, "result_r2_put_response", performance.now() - resultPutResponseStartedAt);
-    resultPersisted = true;
-    benchmarkR2Operation(c.env, callback.job_id, "result_put");
+    const commitStartedAt = performance.now();
+    let committedBinding: BindingRecord;
+    const commitInput: CommitVerifiedResultInput = {
+      session_id: completionRecord.session_id,
+      canonical_user_id: completionRecord.canonical_user_id,
+      device_id: completionRecord.device_id,
+      binding_value: completionRecord.binding_value,
+      nonce: completionRecord.nonce,
+      presentation_id: storedPresentationId,
+      verification_attempt_id: verificationAttemptId,
+      verification_job_id: callback.job_id,
+      verification_profile: expectedProfile,
+      verification_result_key: completionRecord.verification_result_key,
+      result_sha256: resultSha256,
+      result_object_key: attemptResultKey,
+      result_bytes: finalResponseBytes,
+      used_at: usedAt,
+      now: Date.now(),
+    };
+    await delayBeforeResultCommit(c.env, testFault);
+    benchmarkDOOperation(c.env, callback.job_id, "commit_verified_result");
+    committedBinding = await authority.commitVerifiedResult(callback.binding_id, commitInput);
+    resultCommitted = true;
+    completionConsumed = true;
+    if (committedBinding.used_at !== usedAt || committedBinding.result_sha256 !== resultSha256) {
+      await finalizeAttemptFailure("authority_error");
+      return c.json({ error: "verification_result_unavailable" }, 503);
+    }
+    c.executionCtx.waitUntil((async () => {
+      benchmarkR2Operation(c.env, callback.job_id, "result_archive_put");
+      await c.env.TLSN_PRESENTATIONS.put(
+        attemptResultKey,
+        finalResponseBytes,
+        { httpMetadata: { contentType: "application/json" } },
+      ).catch(() => undefined);
+    })());
     benchmarkRecord(c.env, callback.job_id, "result_persistence_completed");
     benchmarkDuration(c.env, callback.job_id, "result_persistence", performance.now() - resultPersistenceStartedAt);
+    benchmarkDuration(c.env, callback.job_id, "do_commit_verified_result", performance.now() - commitStartedAt);
     benchmarkRecord(c.env, callback.job_id, "t8_result_persisted");
     benchmarkRecord(c.env, callback.job_id, "t9_result_persisted");
     if (executionMode === "queue") {
       benchmarkRecord(c.env, callback.job_id, "queue_result_persistence_completed");
       benchmarkDuration(c.env, callback.job_id, "queue_result_persistence", performance.now() - resultPersistenceStartedAt);
     }
-    await delayAfterResultPersistence(c.env, testFault);
-    let consumedBinding: BindingRecord;
-    attemptFailureCode = "authority_error";
-    const consumeStartedAt = performance.now();
-    benchmarkRecord(c.env, callback.job_id, "do_consume_started");
-    if (executionMode === "queue") benchmarkRecord(c.env, callback.job_id, "queue_consume_started");
-    try {
-      consumedBinding = await authority.consumeBinding(completionRecord.binding_value, {
-        session_id: completionRecord.session_id,
-        canonical_user_id: completionRecord.canonical_user_id,
-        device_id: completionRecord.device_id,
-        binding_value: completionRecord.binding_value,
-        nonce: completionRecord.nonce,
-        presentation_id: storedPresentationId,
-        verification_attempt_id: verificationAttemptId,
-        verification_job_id: callback.job_id,
-        result_sha256: resultSha256,
-        result_object_key: attemptResultKey,
-        used_at: usedAt,
-        now: Date.now(),
-      });
-    } catch (error) {
-      preserveAttemptResult = !(error instanceof BindingAuthorityError) || error.code === "authority_unavailable";
-      throw error;
-    }
-    if (consumedBinding.used_at !== usedAt || consumedBinding.result_sha256 !== resultSha256) {
-      preserveAttemptResult = consumedBinding.status === "consumed";
-      await finalizeAttemptFailure("authority_error");
-      return c.json({ error: "verification_result_unavailable" }, 503);
-    }
-    completionConsumed = true;
+    await delayAfterResultCommit(c.env, testFault);
     benchmarkDiagnostic(c.env, callback.job_id, "consume_outcome", "consumed");
-    benchmarkIncrementDiagnostic(c.env, callback.job_id, "do_consume_count");
-    benchmarkRecord(c.env, callback.job_id, "do_consume_completed");
-    benchmarkDuration(c.env, callback.job_id, "do_consume", performance.now() - consumeStartedAt);
+    benchmarkIncrementDiagnostic(c.env, callback.job_id, "do_commit_verified_result_count");
     benchmarkRecord(c.env, callback.job_id, "t9_consume_completed");
     benchmarkRecord(c.env, callback.job_id, "t10_consume_completed");
     if (executionMode === "queue") {
       benchmarkRecord(c.env, callback.job_id, "queue_consume_completed");
-      benchmarkDuration(c.env, callback.job_id, "queue_consume", performance.now() - consumeStartedAt);
+      benchmarkDuration(c.env, callback.job_id, "queue_consume", performance.now() - commitStartedAt);
     }
     const completionResponseStartedAt = executionMode === "queue" ? performance.now() : null;
     benchmarkRecord(c.env, callback.job_id, "t10_callback_response_ready");
@@ -2687,21 +2706,10 @@ async function completeVerification(
     return c.json({ accepted: true });
   } catch (error) {
     failurePathEntered = true;
-    benchmarkDiagnostic(c.env, callback.job_id, "consume_outcome", resultPersisted ? "rejected" : "not_attempted");
-    if (error instanceof BindingAuthorityError && (error.code === "verification_failed" || error.code === "binding_expired")) {
+    benchmarkDiagnostic(c.env, callback.job_id, "consume_outcome", resultCommitted ? "committed" : "not_attempted");
+    if (error instanceof BindingAuthorityError && (error.code === "verification_failed" || error.code === "binding_expired" || error.code === "binding_conflict")) {
       benchmarkIncrementDiagnostic(c.env, callback.job_id, "late_callback_count");
       benchmarkDiagnostic(c.env, callback.job_id, "stale_attempt_rejected", true);
-    }
-    if (resultPersisted && !completionConsumed) {
-      benchmarkDiagnostic(c.env, callback.job_id, "result_put_before_consume_rejected", true);
-    }
-    if (
-      resultPersisted &&
-      c.env.TLSN_ENVIRONMENT === "test" &&
-      error instanceof BindingAuthorityError &&
-      (error.code === "verification_failed" || error.code === "binding_conflict" || error.code === "binding_expired")
-    ) {
-      preserveAttemptResult = true;
     }
     await finalizeAttemptFailure(attemptFailureCode);
     return c.json({ error: "verification_failed" }, 422);
@@ -2712,13 +2720,6 @@ async function completeVerification(
     if (benchmarkVerifierStarted) {
       benchmarkVerifierEnd(c.env, callback.job_id);
       benchmarkVerifierStarted = false;
-    }
-    if (resultPersisted && !completionConsumed && !preserveAttemptResult) {
-      benchmarkR2Operation(c.env, callback.job_id, "result_delete");
-      await c.env.TLSN_PRESENTATIONS.delete(attemptResultKey).catch(() => undefined);
-    }
-    if (resultPersisted && !completionConsumed) {
-      benchmarkDiagnostic(c.env, callback.job_id, "result_object_retained", preserveAttemptResult);
     }
     deferBenchmarkFlush(c, callback.job_id);
   }
@@ -3014,8 +3015,7 @@ app.post("/verify/tlsn/status", async (c) => {
     await attachBenchmarkTimingHeader(c, c.env, requestBody.job_id);
     return c.json({ verified: false, status: "not_verified", job_id: requestBody.job_id }, 200);
   }
-  const resultObjectKey = record.result_object_key;
-  if (record.status !== "consumed" || !resultObjectKey) {
+  if (record.status !== "consumed" || !record.result_object_key) {
     return c.json({ verified: false, error: "verification_unavailable" }, 503);
   }
   if (!record.result_sha256) {
@@ -3023,11 +3023,19 @@ app.post("/verify/tlsn/status", async (c) => {
   }
 
   const resultGetStartedAt = performance.now();
-  benchmarkRecord(c.env, requestBody.job_id, "status_result_get_started");
-  const authoritativeResult = await readAuthoritativeVerificationResult(c.env, record);
-  benchmarkRecord(c.env, requestBody.job_id, "status_result_get_completed");
-  benchmarkDuration(c.env, requestBody.job_id, "status_result_get", performance.now() - resultGetStartedAt);
-  benchmarkR2Operation(c.env, requestBody.job_id, "status_result_get");
+  benchmarkRecord(c.env, requestBody.job_id, "status_result_read_started");
+  benchmarkDOOperation(c.env, requestBody.job_id, "result_read");
+  const authoritativeResult = await readAuthoritativeVerificationResult(authority, requestBody.binding_id, {
+    session_id: requestBody.session_id,
+    canonical_user_id: authentication.canonicalUserId,
+    device_id: requestBody.device_id,
+    verification_job_id: requestBody.job_id,
+    result_sha256: record.result_sha256,
+    result_object_key: record.result_object_key,
+    now: Date.now(),
+  }).catch(() => null);
+  benchmarkRecord(c.env, requestBody.job_id, "status_result_read_completed");
+  benchmarkDuration(c.env, requestBody.job_id, "status_result_read", performance.now() - resultGetStartedAt);
   if (!authoritativeResult) {
     return c.json({ verified: false, error: "verification_result_unavailable" }, 503);
   }
@@ -3127,6 +3135,7 @@ const handleTlsnVerification = async (c: Context<{ Bindings: Bindings }>) => {
     if (deviceChallengeBytes.length !== 32) {
       return c.json({ error: "invalid_request" }, 400);
     }
+
     const devicePossessionProof = {
       device_id: issuedBinding.device_id,
       session_id: issuedBinding.session_id,
@@ -3181,13 +3190,21 @@ const handleTlsnVerification = async (c: Context<{ Bindings: Bindings }>) => {
         );
         benchmarkIncrementDiagnostic(c.env, replayJobId, "synchronous_replay_count");
         benchmarkDiagnostic(c.env, replayJobId, "synchronous_replay_path", "established");
-        benchmarkR2Operation(c.env, replayJobId, "replay_result_get");
+        benchmarkDOOperation(c.env, replayJobId, "result_read");
       }
       const replayFault = testReplayResultFaultForRequest(c.env, c.req.raw);
       if (replayFault) {
-        await applyTestReplayResultFault(c.env, issuedBinding, replayFault);
+        await applyTestReplayResultFault(authority, issuedBinding.binding_id, issuedBinding, replayFault);
       }
-      const authoritativeResult = await readAuthoritativeVerificationResult(c.env, issuedBinding);
+      const authoritativeResult = await readAuthoritativeVerificationResult(authority, issuedBinding.binding_id, {
+        session_id: issuedBinding.session_id,
+        canonical_user_id: authentication.canonicalUserId,
+        device_id: issuedBinding.device_id,
+        verification_job_id: replayJobId,
+        result_sha256: issuedBinding.result_sha256,
+        result_object_key: issuedBinding.result_object_key,
+        now: Date.now(),
+      }).catch(() => null);
       if (!authoritativeResult) {
         return c.json({ verified: false, error: "verification_result_unavailable" }, 503);
       }
@@ -3246,7 +3263,8 @@ const handleTlsnVerification = async (c: Context<{ Bindings: Bindings }>) => {
         benchmarkR2Operation(c.env, jobId, "input_put");
         benchmarkRecord(c.env, jobId, "t1_presentation_persisted");
       }
-      await authority.claimBinding(requestBody.binding, {
+      benchmarkDOOperation(c.env, jobId, "start_verification");
+      await authority.startVerification(requestBody.binding, {
         session_id: issuedBinding.session_id,
         canonical_user_id: authentication.canonicalUserId,
         device_id: issuedBinding.device_id,
@@ -3379,6 +3397,10 @@ const handleTlsnVerification = async (c: Context<{ Bindings: Bindings }>) => {
     return c.json({ verified: false, error: message }, bindingAuthorityStatus(error));
   }
 
+  const synchronousJobId = crypto.randomUUID();
+  const synchronousAttemptId = crypto.randomUUID();
+  const synchronousResultKey = verificationObjectKey(synchronousJobId, "result");
+
   if (requestBody.device_proof.challenge !== issuedBinding.tlsn_device_challenge) {
     return c.json({ verified: false, error: "device_challenge_mismatch" }, 409);
   }
@@ -3446,6 +3468,35 @@ const handleTlsnVerification = async (c: Context<{ Bindings: Bindings }>) => {
     const presentationId = encodeBase64Url(
       new Uint8Array(await crypto.subtle.digest("SHA-256", presentationBytes)),
     );
+    benchmarkDOOperation(c.env, synchronousJobId, "start_verification");
+    await authority.startVerification(requestBody.binding, {
+      session_id: issuedBinding.session_id,
+      canonical_user_id: authentication.canonicalUserId,
+      device_id: issuedBinding.device_id,
+      binding_value: issuedBinding.binding_value,
+      nonce: issuedBinding.nonce,
+      presentation_id: presentationId,
+      verification_job_id: synchronousJobId,
+      verification_input_source: "direct",
+      verification_result_key: synchronousResultKey,
+      verification_profile: sparseProfile ? "sparse" : "complete",
+      device_replay_digest_hex: devicePossession.replayDigestHex,
+      verification_attempt_id: synchronousAttemptId,
+      now: Date.now(),
+    });
+    benchmarkDOOperation(c.env, synchronousJobId, "acquire_verification");
+    await authority.acquireVerification(issuedBinding.binding_id, {
+      session_id: issuedBinding.session_id,
+      canonical_user_id: authentication.canonicalUserId,
+      device_id: issuedBinding.device_id,
+      verification_job_id: synchronousJobId,
+      presentation_id: presentationId,
+      verification_profile: sparseProfile ? "sparse" : "complete",
+      verification_attempt_id: synchronousAttemptId,
+      verification_lease_expires_at: new Date(Date.now() + verificationLeaseMs(c.env)).toISOString(),
+      result_object_key: synchronousResultKey,
+      now: Date.now(),
+    });
     const signingBytes = decodeBase64Url(prepared.signing_bytes, MAX_RESULT_JSON_BYTES);
     const derivedSigningBytes = sparseProfile
       ? derive_sparse_verifier_result_signing_bytes(prepared.unsigned_result)
@@ -3457,28 +3508,21 @@ const handleTlsnVerification = async (c: Context<{ Bindings: Bindings }>) => {
     if (signature.length !== 64) {
       return c.json({ error: "verifier_unavailable" }, 503);
     }
-    let consumedBinding;
-    try {
-      consumedBinding = await authority.consumeBinding(requestBody.binding, {
-        session_id: requestBody.session_id,
-        canonical_user_id: authentication.canonicalUserId,
-        device_id: requestBody.device_id,
-        binding_value: requestBody.binding,
-        nonce: authenticatedResult.binding_nonce,
-        presentation_id: presentationId,
-        now: Date.now(),
-      });
-    } catch (error) {
-      const message = error instanceof BindingAuthorityError ? error.code : "binding_unknown";
-      return c.json({ verified: false, error: message }, bindingAuthorityStatus(error));
-    }
-    const consumeReceipt = await signConsumeReceipt(config, consumedBinding);
     const signedResultJson = sparseProfile
       ? attach_sparse_verifier_result_signature(prepared.unsigned_result, signature)
       : attach_verifier_result_signature(prepared.unsigned_result, signature);
     const signedResult = JSON.parse(signedResultJson) as Record<string, unknown>;
-    c.header("Cache-Control", "no-store");
-    return c.json({
+    const usedAt = new Date().toISOString();
+    const consumeReceipt = await signConsumeReceipt(config, {
+      session_id: issuedBinding.session_id,
+      canonical_user_id: authentication.canonicalUserId,
+      device_id: issuedBinding.device_id,
+      nonce: issuedBinding.nonce,
+      binding_value: issuedBinding.binding_value,
+      presentation_id: presentationId,
+      used_at: usedAt,
+    });
+    const finalResponse = verificationFinalResponseSchema.parse({
       verified: true,
       result: signedResult,
       signer_key_id: config.resultSignerKeyId ?? config.verifierKeyId,
@@ -3486,7 +3530,47 @@ const handleTlsnVerification = async (c: Context<{ Bindings: Bindings }>) => {
       consume_receipt: consumeReceipt,
       device_replay_digest_hex: devicePossession.replayDigestHex,
     });
+    const finalResponseBody = JSON.stringify(finalResponse);
+    const finalResponseBytes = new TextEncoder().encode(finalResponseBody);
+    const resultSha256 = encodeBase64Url(
+      new Uint8Array(await crypto.subtle.digest("SHA-256", finalResponseBytes)),
+    );
+    benchmarkDOOperation(c.env, synchronousJobId, "commit_verified_result");
+    await authority.commitVerifiedResult(issuedBinding.binding_id, {
+      session_id: issuedBinding.session_id,
+      canonical_user_id: authentication.canonicalUserId,
+      device_id: issuedBinding.device_id,
+      binding_value: issuedBinding.binding_value,
+      nonce: issuedBinding.nonce,
+      presentation_id: presentationId,
+      verification_attempt_id: synchronousAttemptId,
+      verification_job_id: synchronousJobId,
+      verification_profile: sparseProfile ? "sparse" : "complete",
+      verification_result_key: synchronousResultKey,
+      result_sha256: resultSha256,
+      result_object_key: synchronousResultKey,
+      result_bytes: finalResponseBytes,
+      used_at: usedAt,
+      now: Date.now(),
+    });
+    c.executionCtx.waitUntil(c.env.TLSN_PRESENTATIONS.put(
+      synchronousResultKey,
+      finalResponseBytes,
+      { httpMetadata: { contentType: "application/json" } },
+    ).catch(() => undefined));
+    c.header("Cache-Control", "no-store");
+    c.header("Content-Type", "application/json");
+    return c.body(finalResponseBody, 200);
   } catch {
+    await finalizeVerificationFailure(c.env, {
+      bindingId: issuedBinding.binding_id,
+      sessionId: issuedBinding.session_id,
+      canonicalUserId: authentication.canonicalUserId,
+      deviceId: issuedBinding.device_id,
+      jobId: synchronousJobId,
+      verificationAttemptId: synchronousAttemptId,
+      failureCode: "verifier_failed",
+    });
     return c.json({ verified: false, error: "verification_failed" }, 422);
   }
 };

@@ -7,7 +7,7 @@ function decodeBase64Url(value) {
 export default {
   async fetch(request, env) {
     const requestedMode = request.headers.get("X-FUSOU-TLSN-Test-Fault");
-    const mode = requestedMode === "failure" || requestedMode === "timeout" || requestedMode === "late_success" || requestedMode === "pause_after_result_put"
+    const mode = requestedMode === "failure" || requestedMode === "timeout" || requestedMode === "late_success" || requestedMode === "pause_before_result_commit" || requestedMode === "pause_after_result_commit"
       ? requestedMode
       : env.TLSN_DIRECT_FIXTURE_MODE;
     const traceOrigin = env.TLSN_DIRECT_TRACE_ORIGIN;

@@ -54,8 +54,8 @@ const COMMON_REQUIRED_TIMING_STAGES = [
   "result_hash_completed",
   "result_persistence_started",
   "result_persistence_completed",
-  "do_consume_started",
-  "do_consume_completed",
+  "status_result_read_started",
+  "status_result_read_completed",
 ];
 
 const REQUIRED_TIMING_STAGES_BY_MODE = {
@@ -415,9 +415,14 @@ async function replaySynchronousVerification(workerOrigin, accessToken, submissi
   if (
     timing?.diagnostics?.synchronous_replay_path !== "established" ||
     timing?.diagnostics?.direct_invocation_count !== 1 ||
-    timing?.diagnostics?.do_consume_count !== 1 ||
-    timing?.r2_operations?.result_put !== 1 ||
-    timing?.r2_operations?.replay_result_get !== 1
+    timing?.do_operations?.start_verification !== 1 ||
+    timing?.do_operations?.acquire_verification !== 1 ||
+    timing?.do_operations?.commit_verified_result !== 1 ||
+    timing?.do_operations?.result_read !== 1 ||
+    timing?.r2_operations?.result_archive_put !== 1 ||
+    Object.keys(timing?.r2_operations ?? {}).some((operation) =>
+      ["result_get", "status_result_get", "replay_result_get"].includes(operation),
+    )
   ) {
     throw new Error(`remote synchronous replay diagnostics were invalid: ${JSON.stringify({
       diagnostics: timing?.diagnostics ?? null,
@@ -503,7 +508,7 @@ async function pollStatus(workerOrigin, accessToken, userId, device, session, jo
         )
         : null;
       const completedStages = timing?.timestamps && typeof timing.timestamps === "object"
-        ? Object.keys(timing.timestamps).filter((stage) => stage.startsWith("direct_") || stage.startsWith("t5_") || stage.startsWith("t6_") || stage.startsWith("t7_") || stage.startsWith("t8_") || stage.startsWith("t9_") || stage.startsWith("t10_") || stage.startsWith("t11_") || stage.startsWith("result_") || stage.startsWith("do_consume_") || stage.startsWith("input_cleanup_"))
+        ? Object.keys(timing.timestamps).filter((stage) => stage.startsWith("direct_") || stage.startsWith("t5_") || stage.startsWith("t6_") || stage.startsWith("t7_") || stage.startsWith("t8_") || stage.startsWith("t9_") || stage.startsWith("t10_") || stage.startsWith("t11_") || stage.startsWith("result_") || stage.startsWith("status_result_read_") || stage.startsWith("input_cleanup_"))
         : null;
       throw new Error(`remote status polling failed with status ${result.status}: ${JSON.stringify({
         status: boundedStatus,
@@ -584,14 +589,11 @@ function summarizePhases(samples) {
     result_hash: summarize(samples, "resultHashMilliseconds"),
     result_persistence: summarize(samples, "resultPersistenceMilliseconds"),
     result_persistence_detailed: summarize(samples, "resultPersistenceDetailedMilliseconds"),
-    result_r2_put_request: summarize(samples, "resultR2PutRequestMilliseconds"),
-    result_r2_put_response: summarize(samples, "resultR2PutResponseMilliseconds"),
-    status_result_get: summarize(samples, "statusResultGetMilliseconds"),
     status_result_read: summarize(samples, "statusResultReadMilliseconds"),
     status_result_hash: summarize(samples, "statusResultHashMilliseconds"),
     status_result_parse: summarize(samples, "statusResultParseMilliseconds"),
-    do_consume: summarize(samples, "doConsumeMilliseconds"),
-    do_consume_detailed: summarize(samples, "doConsumeDetailedMilliseconds"),
+    do_commit: summarize(samples, "doCommitMilliseconds"),
+    do_commit_detailed: summarize(samples, "doCommitDetailedMilliseconds"),
     callback_response: summarize(samples, "callbackResponseMilliseconds"),
     trigger_input_fetch: summarize(samples, "triggerInputFetchMilliseconds"),
     trigger_verifier: summarize(samples, "triggerVerifierMilliseconds"),
@@ -670,18 +672,27 @@ function summarizeResourceObservations(samples) {
     (total, sample) => total + (Number.isFinite(sample.diagnostics?.[name]) ? sample.diagnostics[name] : 0),
     0,
   );
+  const countDOOperations = (operation) => samples.reduce(
+    (total, sample) => total + (Number.isFinite(sample.do_operations?.[operation]) ? sample.do_operations[operation] : 0),
+    0,
+  );
+  const resultR2ReadCount = ["result_get", "status_result_get", "replay_result_get"].reduce(
+    (total, operation) => total + countOperations(operation),
+    0,
+  );
   return {
     requested_samples: samples.length,
     input_put_count: countOperations("input_put"),
     input_get_count: countOperations("trigger_input_get") + countOperations("worker_presentation_get"),
     input_delete_count: countOperations("input_delete"),
-    result_put_count: countOperations("result_put"),
-    result_delete_count: countOperations("result_delete"),
-    status_result_get_count: countOperations("status_result_get"),
-    replay_result_get_count: countOperations("replay_result_get"),
+    result_archive_put_count: countOperations("result_archive_put"),
+    result_r2_read_count: resultR2ReadCount,
+    do_start_verification_count: countDOOperations("start_verification"),
+    do_acquire_verification_count: countDOOperations("acquire_verification"),
+    do_commit_verified_result_count: countDOOperations("commit_verified_result"),
+    do_result_read_count: countDOOperations("result_read"),
     direct_invocation_count: countDiagnostic("direct_invocation_count"),
     synchronous_replay_count: countDiagnostic("synchronous_replay_count"),
-    do_consume_count: countDiagnostic("do_consume_count"),
     late_callback_count: countDiagnostic("late_callback_count"),
     verified_count: samples.filter((sample) => sample.diagnostics?.terminal_outcome === "verified").length,
     not_verified_count: samples.filter((sample) => sample.diagnostics?.terminal_outcome === "not_verified").length,
@@ -913,7 +924,7 @@ async function runBatch({ workerOrigin, webOrigin, accessToken, userId, device, 
         wasmVerificationMilliseconds: phaseMilliseconds(timing, "t6_presentation_read", "t7_wasm_verification_completed"),
         resultSigningMilliseconds: t8Signing !== null ? t8Signing - t7 : null,
         resultPersistenceMilliseconds: t8Signing !== null && t8Persisted !== null ? t8Persisted - t8Signing : null,
-        doConsumeMilliseconds: t8Persisted !== null && t10 !== null ? t10 - t8Persisted : null,
+        doCommitMilliseconds: t8Persisted !== null && t10 !== null ? t10 - t8Persisted : null,
         resultCanonicalizationMilliseconds: measuredPhaseMilliseconds(
           timing,
           durations,
@@ -956,27 +967,6 @@ async function runBatch({ workerOrigin, webOrigin, accessToken, userId, device, 
           "result_persistence_started",
           "result_persistence_completed",
         ),
-        resultR2PutRequestMilliseconds: measuredPhaseMilliseconds(
-          timing,
-          durations,
-          "result_r2_put_request",
-          "result_r2_put_request_started",
-          "result_r2_put_request_completed",
-        ),
-        resultR2PutResponseMilliseconds: measuredPhaseMilliseconds(
-          timing,
-          durations,
-          "result_r2_put_response",
-          "result_r2_put_response_started",
-          "result_r2_put_response_completed",
-        ),
-        statusResultGetMilliseconds: measuredPhaseMilliseconds(
-          timing,
-          durations,
-          "status_result_get",
-          "status_result_get_started",
-          "status_result_get_completed",
-        ),
         statusResultReadMilliseconds: measuredPhaseMilliseconds(
           timing,
           durations,
@@ -998,12 +988,12 @@ async function runBatch({ workerOrigin, webOrigin, accessToken, userId, device, 
           "status_result_parse_started",
           "status_result_parse_completed",
         ),
-        doConsumeDetailedMilliseconds: measuredPhaseMilliseconds(
+        doCommitDetailedMilliseconds: measuredPhaseMilliseconds(
           timing,
           durations,
-          "do_consume",
-          "do_consume_started",
-          "do_consume_completed",
+          "do_commit_verified_result",
+          "result_persistence_started",
+          "result_persistence_completed",
         ),
         callbackResponseMilliseconds: t10 !== null && t10CallbackResponse !== null ? t10CallbackResponse - t10 : null,
         synchronousResponseMilliseconds: synchronousCandidate
@@ -1057,6 +1047,7 @@ async function runBatch({ workerOrigin, webOrigin, accessToken, userId, device, 
           ? timing.max_verifier_concurrency
           : null,
         r2_operations: timing?.r2_operations ?? {},
+        do_operations: timing?.do_operations ?? {},
         diagnostics,
         server_timestamps: timestamps,
         server_durations: durations,
@@ -1098,6 +1089,7 @@ async function runBatch({ workerOrigin, webOrigin, accessToken, userId, device, 
       timing_job_id_matches_submission: sample.timing_job_id_matches_submission,
       max_verifier_concurrency: sample.maxVerifierConcurrency,
       r2_operations: sample.r2_operations,
+      do_operations: sample.do_operations,
       diagnostics: sample.diagnostics,
       request_body_bytes: sample.requestBodyBytes,
       presentation_bytes: sample.presentation_bytes,
@@ -1140,14 +1132,11 @@ async function runBatch({ workerOrigin, webOrigin, accessToken, userId, device, 
         result_serialization: sample.resultSerializationMilliseconds,
         result_persistence: sample.resultPersistenceMilliseconds,
         result_persistence_detailed: sample.resultPersistenceDetailedMilliseconds,
-        result_r2_put_request: sample.resultR2PutRequestMilliseconds,
-        result_r2_put_response: sample.resultR2PutResponseMilliseconds,
-        status_result_get: sample.statusResultGetMilliseconds,
         status_result_read: sample.statusResultReadMilliseconds,
         status_result_hash: sample.statusResultHashMilliseconds,
         status_result_parse: sample.statusResultParseMilliseconds,
-        do_consume: sample.doConsumeMilliseconds,
-        do_consume_detailed: sample.doConsumeDetailedMilliseconds,
+        do_commit: sample.doCommitMilliseconds,
+        do_commit_detailed: sample.doCommitDetailedMilliseconds,
         callback_response: sample.callbackResponseMilliseconds,
         trigger_input_fetch: sample.triggerInputFetchMilliseconds,
         trigger_verifier: sample.triggerVerifierMilliseconds,
@@ -1280,8 +1269,8 @@ async function main() {
         direct_invocation_startup: row.phases.direct_invocation_startup,
         queue_verifier: row.phases.queue_verifier,
         result_serialization: row.phases.result_serialization,
-        result_r2_put_request: row.phases.result_r2_put_request,
-        result_r2_put_response: row.phases.result_r2_put_response,
+        result_persistence: row.phases.result_persistence,
+        do_commit: row.phases.do_commit,
         synchronous_response: row.phases.synchronous_response,
         presentation_hash: row.phases.presentation_hash,
         result: row.result,

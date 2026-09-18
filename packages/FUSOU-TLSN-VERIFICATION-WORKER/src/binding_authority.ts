@@ -5,6 +5,8 @@ const BINDING_NONCE_BYTES = 32;
 const TLSN_DEVICE_CHALLENGE_BYTES = 32;
 const UUID_BYTES = 16;
 const BENCHMARK_TIMING_KEY = "benchmark-timing";
+export const VERIFICATION_RESULT_STORAGE_KEY = "verification-result";
+const MAX_VERIFICATION_RESULT_BYTES = 2 * 1024 * 1024 - new TextEncoder().encode(VERIFICATION_RESULT_STORAGE_KEY).byteLength;
 
 export type BindingStatus = "active" | "processing" | "verifying" | "failed" | "expired" | "consumed";
 export type VerificationProfile = "complete" | "sparse";
@@ -55,6 +57,7 @@ export type BenchmarkTimingRecord = {
   timestamps: Record<string, number>;
   durations: Record<string, number>;
   r2_operations: Record<string, number>;
+  do_operations: Record<string, number>;
   diagnostics?: Record<string, boolean | number | string>;
   max_verifier_concurrency: number;
   updated_at: number;
@@ -67,6 +70,7 @@ export type BenchmarkTimingMergeInput = {
   timestamps: Record<string, number>;
   durations: Record<string, number>;
   r2_operations: Record<string, number>;
+  do_operations: Record<string, number>;
   diagnostics?: Record<string, boolean | number | string>;
   max_verifier_concurrency: number;
   updated_at: number;
@@ -98,6 +102,48 @@ type ConsumeInput = {
   verification_job_id?: string;
   used_at?: string;
   now: number;
+};
+
+export type CommitVerifiedResultInput = {
+  session_id: string;
+  canonical_user_id: string;
+  device_id: string;
+  binding_value: string;
+  nonce: string;
+  presentation_id: string;
+  verification_attempt_id: string;
+  verification_job_id: string;
+  verification_profile: VerificationProfile;
+  verification_result_key: string;
+  result_sha256: string;
+  result_object_key: string;
+  result_bytes: Uint8Array;
+  used_at: string;
+  now: number;
+};
+
+export type VerificationResultLookupInput = JobLookupInput & {
+  result_sha256?: string;
+  result_object_key?: string;
+};
+
+export type ConsumedVerificationResult = {
+  record: BindingRecord;
+  bytes: Uint8Array;
+};
+
+type VerificationResultResponse =
+  | { ok: true; result: ConsumedVerificationResult }
+  | { ok: false; error: AuthorityErrorCode };
+
+type TestResultFaultInput = VerificationResultLookupInput & {
+  fault: "result_missing" | "result_corrupt";
+};
+
+type RpcAuthorityStub = {
+  commitVerifiedResult(input: CommitVerifiedResultInput): Promise<AuthorityResponse>;
+  getConsumedVerificationResult(input: VerificationResultLookupInput): Promise<VerificationResultResponse>;
+  applyTestResultFault(input: TestResultFaultInput): Promise<AuthorityResponse>;
 };
 
 type ClaimInput = {
@@ -162,6 +208,8 @@ export type AuthorityErrorCode =
   | "nonce_mismatch"
   | "verification_result_mismatch"
   | "verification_profile_mismatch"
+  | "verification_result_unavailable"
+  | "result_too_large"
   | "binding_conflict";
 
 export class BindingAuthorityError extends Error {
@@ -311,12 +359,54 @@ export class DurableObjectBindingAuthority {
     return this.call(bindingId, "/consume", input);
   }
 
+  async commitVerifiedResult(bindingId: string, input: CommitVerifiedResultInput): Promise<BindingRecord> {
+    let response: AuthorityResponse;
+    try {
+      const stub = this.namespace.getByName(bindingId) as unknown as RpcAuthorityStub;
+      response = await stub.commitVerifiedResult(input);
+    } catch {
+      throw new BindingAuthorityError("authority_unavailable");
+    }
+    if (!response.ok) throw new BindingAuthorityError(response.error);
+    return response.record;
+  }
+
+  async getConsumedVerificationResult(
+    bindingId: string,
+    input: VerificationResultLookupInput,
+  ): Promise<ConsumedVerificationResult | null> {
+    let response: VerificationResultResponse;
+    try {
+      const stub = this.namespace.getByName(bindingId) as unknown as RpcAuthorityStub;
+      response = await stub.getConsumedVerificationResult(input);
+    } catch {
+      throw new BindingAuthorityError("authority_unavailable");
+    }
+    if (!response.ok) throw new BindingAuthorityError(response.error);
+    return response.result;
+  }
+
+  async applyTestResultFault(bindingId: string, input: TestResultFaultInput): Promise<void> {
+    let response: AuthorityResponse;
+    try {
+      const stub = this.namespace.getByName(bindingId) as unknown as RpcAuthorityStub;
+      response = await stub.applyTestResultFault(input);
+    } catch {
+      throw new BindingAuthorityError("authority_unavailable");
+    }
+    if (!response.ok) throw new BindingAuthorityError(response.error);
+  }
+
   async claimBinding(bindingValue: string, input: ClaimInput): Promise<BindingRecord> {
+    return this.startVerification(bindingValue, input);
+  }
+
+  async startVerification(bindingValue: string, input: ClaimInput): Promise<BindingRecord> {
     if (input.verification_input_source === "direct" && input.verification_attempt_id === undefined) {
       throw new BindingAuthorityError("verification_result_mismatch");
     }
     const bindingId = await hashBindingId(bindingValue);
-    return this.call(bindingId, "/claim", input);
+    return this.call(bindingId, "/start", input);
   }
 
   async lookupVerificationJob(bindingId: string, input: JobLookupInput): Promise<BindingRecord> {
@@ -449,6 +539,8 @@ export class TlsnBindingAuthorityDurableObject extends DurableObject {
             body.allow_consumed === true,
           );
         case "/claim":
+          return this.claim(body as unknown as ClaimInput);
+        case "/start":
           return this.claim(body as unknown as ClaimInput);
         case "/acquire":
           return this.acquireVerification(body as unknown as AcquireVerificationInput);
@@ -675,6 +767,158 @@ export class TlsnBindingAuthorityDurableObject extends DurableObject {
       result = { ok: true, record: consumed };
     });
     return Response.json(result, { status: result.ok ? 200 : authorityStatus(result.error) });
+  }
+
+  async commitVerifiedResult(input: CommitVerifiedResultInput): Promise<AuthorityResponse> {
+    if (!(input.result_bytes instanceof Uint8Array)) {
+      return { ok: false, error: "verification_result_mismatch" };
+    }
+    if (input.result_bytes.byteLength > MAX_VERIFICATION_RESULT_BYTES) {
+      return { ok: false, error: "result_too_large" };
+    }
+    const resultSha256 = encodeBase64Url(
+      new Uint8Array(await crypto.subtle.digest("SHA-256", input.result_bytes)),
+    );
+    if (resultSha256 !== input.result_sha256) {
+      return { ok: false, error: "verification_result_mismatch" };
+    }
+
+    let result: AuthorityResponse = { ok: false, error: "binding_unknown" };
+    await this.ctx.storage.transaction(async (transaction) => {
+      const record = await transaction.get<BindingRecord>("binding");
+      if (!record) return;
+      if (record.session_id !== input.session_id) {
+        result = { ok: false, error: "session_mismatch" };
+        return;
+      }
+      if (record.canonical_user_id !== input.canonical_user_id) {
+        result = { ok: false, error: "user_mismatch" };
+        return;
+      }
+      if (record.device_id !== input.device_id) {
+        result = { ok: false, error: "device_mismatch" };
+        return;
+      }
+      if (record.binding_value !== input.binding_value || record.nonce !== input.nonce) {
+        result = { ok: false, error: "nonce_mismatch" };
+        return;
+      }
+      if (record.status === "consumed") {
+        const storedBytes = await transaction.get<Uint8Array>(VERIFICATION_RESULT_STORAGE_KEY);
+        if (
+          record.verification_job_id === input.verification_job_id &&
+          record.verification_attempt_id === input.verification_attempt_id &&
+          record.presentation_id === input.presentation_id &&
+          record.verification_profile === input.verification_profile &&
+          record.verification_result_key === input.verification_result_key &&
+          record.result_sha256 === input.result_sha256 &&
+          record.result_object_key === input.result_object_key &&
+          storedBytes instanceof Uint8Array
+        ) {
+          result = { ok: true, record };
+          return;
+        }
+        result = { ok: false, error: "binding_consumed" };
+        return;
+      }
+      if (record.status === "expired") {
+        result = { ok: false, error: "binding_expired" };
+        return;
+      }
+      if (record.status === "failed") {
+        result = { ok: false, error: "verification_failed" };
+        return;
+      }
+      if (
+        record.status !== "verifying" ||
+        record.verification_job_id !== input.verification_job_id ||
+        record.verification_attempt_id !== input.verification_attempt_id ||
+        record.presentation_id !== input.presentation_id ||
+        record.verification_profile !== input.verification_profile ||
+        record.verification_result_key !== input.verification_result_key ||
+        record.result_object_key !== input.result_object_key ||
+        !record.verification_lease_expires_at ||
+        Date.parse(record.verification_lease_expires_at) <= input.now
+      ) {
+        result = { ok: false, error: "binding_conflict" };
+        return;
+      }
+      const consumed: BindingRecord = {
+        ...record,
+        status: "consumed",
+        used_at: input.used_at,
+        result_sha256: input.result_sha256,
+        result_object_key: input.result_object_key,
+      };
+      await transaction.put(VERIFICATION_RESULT_STORAGE_KEY, input.result_bytes);
+      await transaction.put("binding", consumed);
+      result = { ok: true, record: consumed };
+    });
+    return result;
+  }
+
+  async getConsumedVerificationResult(
+    input: VerificationResultLookupInput,
+  ): Promise<VerificationResultResponse> {
+    let candidate: ConsumedVerificationResult | null = null;
+    await this.ctx.storage.transaction(async (transaction) => {
+      const record = await transaction.get<BindingRecord>("binding");
+      if (
+        !record ||
+        record.status !== "consumed" ||
+        record.session_id !== input.session_id ||
+        record.canonical_user_id !== input.canonical_user_id ||
+        record.device_id !== input.device_id ||
+        record.verification_job_id !== input.verification_job_id ||
+        (input.result_sha256 !== undefined && record.result_sha256 !== input.result_sha256) ||
+        (input.result_object_key !== undefined && record.result_object_key !== input.result_object_key) ||
+        !record.result_sha256
+      ) {
+        return;
+      }
+      const bytes = await transaction.get<Uint8Array>(VERIFICATION_RESULT_STORAGE_KEY);
+      if (bytes instanceof Uint8Array) candidate = { record, bytes };
+    });
+    const resolvedCandidate = candidate as ConsumedVerificationResult | null;
+    if (!resolvedCandidate) return { ok: false, error: "verification_result_unavailable" };
+    const sha256 = encodeBase64Url(
+      new Uint8Array(await crypto.subtle.digest("SHA-256", resolvedCandidate.bytes)),
+    );
+    return sha256 === resolvedCandidate.record.result_sha256
+      ? { ok: true, result: resolvedCandidate }
+      : { ok: false, error: "verification_result_unavailable" };
+  }
+
+  async applyTestResultFault(input: TestResultFaultInput): Promise<AuthorityResponse> {
+    let result: AuthorityResponse = { ok: false, error: "binding_unknown" };
+    await this.ctx.storage.transaction(async (transaction) => {
+      const record = await transaction.get<BindingRecord>("binding");
+      if (
+        !record ||
+        record.status !== "consumed" ||
+        record.session_id !== input.session_id ||
+        record.canonical_user_id !== input.canonical_user_id ||
+        record.device_id !== input.device_id ||
+        record.verification_job_id !== input.verification_job_id
+      ) {
+        result = { ok: false, error: "verification_result_unavailable" };
+        return;
+      }
+      if (input.fault === "result_missing") {
+        await transaction.delete(VERIFICATION_RESULT_STORAGE_KEY);
+      } else {
+        const bytes = await transaction.get<Uint8Array>(VERIFICATION_RESULT_STORAGE_KEY);
+        if (!(bytes instanceof Uint8Array)) {
+          result = { ok: false, error: "verification_result_unavailable" };
+          return;
+        }
+        const corrupted = new Uint8Array(bytes);
+        if (corrupted.length > 0) corrupted[0] = (corrupted[0] ?? 0) ^ 0x01;
+        await transaction.put(VERIFICATION_RESULT_STORAGE_KEY, corrupted);
+      }
+      result = { ok: true, record };
+    });
+    return result;
   }
 
   private async acquireVerification(input: AcquireVerificationInput): Promise<Response> {
@@ -908,6 +1152,10 @@ export class TlsnBindingAuthorityDurableObject extends DurableObject {
       for (const [operation, count] of Object.entries(input.r2_operations)) {
         r2Operations[operation] = Math.max(r2Operations[operation] ?? 0, count);
       }
+      const doOperations = { ...(existing?.trace_id === input.trace_id ? existing.do_operations : {}) };
+      for (const [operation, count] of Object.entries(input.do_operations)) {
+        doOperations[operation] = Math.max(doOperations[operation] ?? 0, count);
+      }
       const diagnostics = {
         ...(existing?.trace_id === input.trace_id ? existing.diagnostics : {}),
         ...(input.diagnostics ?? {}),
@@ -920,6 +1168,7 @@ export class TlsnBindingAuthorityDurableObject extends DurableObject {
         timestamps,
         durations,
         r2_operations: r2Operations,
+        do_operations: doOperations,
         diagnostics,
         max_verifier_concurrency: Math.max(existing?.max_verifier_concurrency ?? 0, input.max_verifier_concurrency),
         updated_at: input.updated_at,
@@ -1089,6 +1338,10 @@ function authorityStatus(error: AuthorityErrorCode): number {
       return 409;
     case "binding_unknown":
       return 404;
+    case "verification_result_unavailable":
+      return 503;
+    case "result_too_large":
+      return 413;
     case "authority_unavailable":
       return 503;
   }

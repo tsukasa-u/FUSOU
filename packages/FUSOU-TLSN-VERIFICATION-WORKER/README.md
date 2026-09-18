@@ -1,6 +1,6 @@
 # FUSOU TLSNotary Verification Worker
 
-This Worker is the authoritative authentication, binding, evidence-verification, signing, and result-delivery boundary for FUSOU TLSNotary alpha.15 `require_info` Presentations. In production, the `fusou-tlsn-trigger` Trigger.dev task performs the first verification pass, but the Worker independently re-fetches the stored Presentation and runs the profile-specific WASM verifier again before it signs or persists a Result. The Trigger callback is metadata-only; its HMAC authenticates the callback transport and does not authorize any Result fields.
+This Worker is the authoritative authentication, binding, evidence-verification, signing, and result-delivery boundary for FUSOU TLSNotary alpha.15 `require_info` Presentations. In production, the `fusou-tlsn-trigger` Trigger.dev task performs the first verification pass, but the Worker independently re-fetches the stored Presentation and runs the profile-specific WASM verifier again before it signs or commits a Result. The Trigger callback is metadata-only; its HMAC authenticates the callback transport and does not authorize any Result fields.
 
 The Worker issues a one-shot, authenticated Session/Binding context at `/attestation/session`. Session issuance requires the existing FUSOU device proof (`device_id`, the HMAC challenge nonce, and the Ed25519 signature over that nonce). Every Session also receives a fresh 32-byte TLSN device challenge. `/verify/tlsn` requires `presentation_base64`, `session_id`, `device_id`, `binding`, and `device_proof` (`challenge`, `sig`); the signature covers the current device, Session, binding, and challenge context. Rust/WASM verifies the Presentation and derives `verified_member_id` from authenticated response bytes. Client-provided member IDs are not accepted. Synthetic wire data is never treated as verified. `/verify/tlsn` emits the complete-disclosure Result profile. `/verify/tlsn/sparse` is a separate sparse profile endpoint, requires `TLSN_SPARSE_PROFILE_SHA256`, uses a separate Result signing domain, and carries the explicit sparse profile through Trigger mode.
 
@@ -10,19 +10,19 @@ Test deployments may opt into a self-contained test-only path by setting `TLSN_T
 
 The Worker does not own a TLSN device registry, receive a Supabase service-role key, or receive a device private key. A client-supplied `device_id` is only a selector/proof input; the authoritative device identity comes from the FUSOU-WEB verification response and the Durable Object record. The generic device proof and TLSN proof are separate one-shot proofs and cannot be reused across Sessions or bindings.
 
-Completion replay has a separate availability boundary. A Trigger callback is accepted only as metadata, after HMAC and schema validation. The Durable Object atomically moves a job from `processing` to `verifying` and assigns a short-lived verification attempt lease before the Worker reads R2 or invokes WASM. Only that lease owner may verify, sign, write a private attempt Result, and move the binding to `consumed`; concurrent duplicates receive `202` with `status: processing` and do not start another verifier. A lease-expired or failed owner returns the job to `processing`, allowing a later callback or retry to recover. A stale owner cannot consume a newer attempt; non-authoritative attempt Results are deleted on known failed completion, while ambiguous persistence/authority failures retain the object to avoid deleting a Result that may already be authoritative. The consumed record stores the authoritative Result object key and SHA-256; status, retry, and callback replay paths verify both before returning a Result.
+Completion replay has a separate availability boundary. A Trigger callback is accepted only as metadata, after HMAC and schema validation. The Durable Object atomically moves a job from `processing` to `verifying` and assigns a short-lived verification attempt lease before the Worker reads R2 or invokes WASM. Only that lease owner may verify, sign, and commit a Result; concurrent duplicates receive `202` with `status: processing` and do not start another verifier. A lease-expired or failed owner returns the job to `processing`, allowing a later callback or retry to recover. A stale owner cannot commit a newer attempt. The Result bytes, exact SHA-256, consumed status, attempt identifiers, and binding metadata are committed together in one Durable Object transaction.
 
-The authoritative Result is exact and non-transitive: it exists only when the Durable Object is `consumed`, `result_object_key` points to the attempt-specific R2 object, and `result_sha256` matches that object's exact bytes. The Worker never falls back to the original job-level `verification_result_key`. If a consumed Result is missing, malformed, or hash-mismatched, status and retry fail closed with `verification_result_unavailable`; retry does not enqueue an unrepairable completion for an already-consumed binding. A known stale-owner consume failure deletes that attempt's private Result, while an ambiguous authority failure retains it for investigation and possible recovery. Retention does not make the object authoritative.
+The authoritative Result is exact and non-transitive: it exists only when the Durable Object is `consumed`, the stored Result bytes are present, and their SHA-256 matches the committed digest. Status, direct replay, and callback replay read and validate those bytes from the Durable Object; they never perform a Result R2 GET. R2 is an optional asynchronous archive after a successful DO commit. An archive failure does not undo or delay authority, and an archive object is never evidence by itself. Result bytes are limited to slightly less than 2 MiB per Durable Object storage entry because the storage key consumes part of the platform's 2 MiB value budget; oversized Results fail closed before commit.
 
 This bounds active duplicate amplification per binding to one Worker verification at a time, but it is not a global denial-of-service control. The Worker does not currently provide a global callback rate limiter or a per-principal quota; an authenticated caller or holder of the callback secret can still consume request, Durable Object, R2, Trigger, and platform quota. Lease expiry, Trigger retries, and configured binding TTL remain operational limits. These controls protect false-Result authority and concurrent work ownership; they do not make an untrusted callback endpoint unlimited-resource safe.
 
 The availability and security boundaries are intentionally separate:
 
-- False-result security: callback metadata, callback-supplied Result fields, stale attempts, and unbound R2 objects cannot promote a Result; promotion requires fresh WASM verification plus an atomic Durable Object consume.
+- False-result security: callback metadata, callback-supplied Result fields, stale attempts, and unbound R2 objects cannot promote a Result; promotion requires fresh WASM verification plus an atomic Durable Object Result commit.
 - Per-binding availability: one active verification lease bounds duplicate callback work for one binding. A lease expiry permits one later owner to recover the binding.
 - Lease and fencing: attempt IDs, job IDs, lease expiry, and exact attempt Result keys fence late owners. The binding expiry always wins over lease recovery.
 - Global availability: there is no global callback limiter, principal quota, or cross-binding verifier budget. N independent bindings may therefore run up to N verifiers, subject to Trigger and platform limits.
-- Persistence safety: Result promotion is a pointer-plus-hash protocol. Definite stale failures clean up; ambiguous authority failures preserve the object, but preservation is not authority.
+- Persistence safety: Result promotion is a bytes-plus-hash transaction in the Durable Object. R2 archival is best effort and never participates in authority.
 
 Sparse semantic parsing uses an authenticated forward-only range reader. Parser reads must advance through disclosed ranges in ascending order; a gap where the parser needs HTTP framing, the `svdata=` prefix, a required JSON key/value, or a required delimiter is rejected. A gap at a non-required opaque JSON value is the explicit exception: the cursor skips that entire value span and continues at the next disclosed structural token. The reader is not a random-access API. The sparse cryptographic claim is an explicit semantic projection, not a claim over the JSON document as a whole. It covers the HTTP framing, exact `svdata=` prefix, and the disclosed JSON tokens needed to establish `api_result == 1` and `api_data.api_basic.api_member_id`. Opaque string, number, object, and array interiors are outside that claim scope and are not cryptographically authenticated. The planner may scan the origin bytes to locate valid token boundaries, but that local scan does not authenticate undisclosed bytes. Request/response transcript sizes remain signed metadata, so changing a total size without changing the disclosed bytes invalidates the Result.
 
@@ -32,7 +32,7 @@ The sparse threat model treats the Prover as malicious: it may omit arbitrary ra
 
 The Prover-compromise and Trigger-compromise properties are separate. Against a malicious Prover, forged TLSN bytes, missing required semantic bytes, and malicious disclosure schedules remain blocked by the Presentation verifier and sparse parser. Against a compromised Trigger process or leaked callback HMAC, the Worker does not trust `prepared_result` data because completion callbacks contain no Result fields. It authenticates the callback, looks up the one-shot job, loads the exact private R2 Presentation, checks its SHA-256 against the binding's stored `presentation_id`, re-runs the configured complete or sparse verifier, re-checks binding/profile fields in the fresh verifier output, and only then derives and signs the Result. A valid callback HMAC alone therefore cannot mint a false Result. The Result signing key means "the Worker independently verified this Presentation under this policy," not merely "the Worker received a callback."
 
-In Trigger mode, `/verify/tlsn` authenticates and atomically claims the binding, stores the raw Presentation in the private `TLSN_PRESENTATIONS` R2 bucket, records its SHA-256 as `presentation_id`, and returns `202` with a job ID. Trigger fetches that object through `/internal/tlsn/verification-input` using the shared HMAC callback secret, performs its work, and sends only job/binding/profile/status metadata to `/internal/tlsn/verification-complete`. The Worker independently fetches and verifies the stored object before signing and consuming the binding, stores the final result object, deletes the raw input object, and serves it through authenticated `/verify/tlsn/status` polling. A verified final response identifies the result-signing key with top-level `signer_key_id` alongside `signature_algorithm`; the signed result remains nested under `result`. `/verify/tlsn/retry` re-enqueues an accepted job without replaying the device proof; each new completion callback causes fresh verification from the stored Presentation.
+In Trigger mode, `/verify/tlsn` authenticates and atomically claims the binding, stores the raw Presentation in the private `TLSN_PRESENTATIONS` R2 bucket, records its SHA-256 as `presentation_id`, and returns `202` with a job ID. Trigger fetches that object through `/internal/tlsn/verification-input` using the shared HMAC callback secret, performs its work, and sends only job/binding/profile/status metadata to `/internal/tlsn/verification-complete`. The Worker independently fetches and verifies the stored object before signing and committing the Result to the Durable Object, then deletes the raw input object. A verified final response identifies the result-signing key with top-level `signer_key_id` alongside `signature_algorithm`; the signed result remains nested under `result`. `/verify/tlsn/retry` re-enqueues an accepted job without replaying the device proof; each new completion callback causes fresh verification from the stored Presentation.
 
 ## Local development
 
@@ -201,12 +201,11 @@ Game Server, or the Notary.
 
 The Direct path also has a test-only synchronous candidate. Set
 `TLSN_TEST_DIRECT_SYNCHRONOUS_CANDIDATE=true` on a non-production test Worker
-and run `node scripts/test.mjs --direct-only`. The candidate preserves the
-Durable Object consume and private Result R2 write ordering, then relays the
-exact serialized Result bytes in the same `POST` response. The test compares
-those bytes with authenticated status recovery and checks that the first
-response performs no status Result GET. The normal Direct path remains `202`
-plus status polling, and the candidate is ignored outside
+and run `node scripts/test.mjs --direct-only`. The candidate commits the
+serialized Result bytes to the Durable Object, then relays those exact bytes
+in the same `POST` response. The test compares them with authenticated status
+recovery and checks that the first response performs no Result R2 GET. The
+normal Direct path remains `202` plus status polling, and the candidate is ignored outside
 `TLSN_ENVIRONMENT=test`.
 
 To measure recovery when the initial synchronous `200` is lost at the client
@@ -215,11 +214,11 @@ boundary, enable the evidence-only benchmark mode with
 first request, discards that response as the simulated loss, then sends the
 identical `POST /verify/tlsn/sparse` body again. It requires a `200`, exact
 response byte and SHA-256 equality, `synchronous_replay_path=established`, one
-direct invocation, one Durable Object consume, one Result R2 put, and one
-replay Result R2 get. The replay path never invokes TLSN verification again and
-does not consume the binding again. Reports contain only bounded sizes, hashes,
-timings, and diagnostics; they do not contain access tokens, job IDs, trace
-IDs, proof signatures, or Result bodies.
+direct invocation, one DO `commit_verified_result`, one DO `result_read`, one
+optional `result_archive_put`, and zero Result R2 reads. The replay path never
+invokes TLSN verification again and does not commit the binding again. Reports
+contain only bounded sizes, hashes, timings, and diagnostics; they do not
+contain access tokens, job IDs, trace IDs, proof signatures, or Result bodies.
 
 Run the recovery evidence matrix against the dedicated non-production evidence
 Worker only:
@@ -261,8 +260,16 @@ explicitly opted-in production canary. Its legacy local stages are:
 - `T1` Presentation persisted to R2; `T2` Trigger request completed.
 - `T3` callback HMAC/schema accepted; `T4` verification lease acquired.
 - `T5` Worker Presentation R2 read completed; `T6` Worker WASM verification completed.
-- `T7` Result signing completed; `T8` Result persisted; `T9` Durable Object consume completed.
+- `T7` Result signing completed; `T8` Result committed to the Durable Object; `T9` the commit path completed.
 - `T10` authenticated status polling returned the verified Result.
+
+The machine-readable timing header separates `do_operations` from
+`r2_operations`. Result authority uses `start_verification`,
+`acquire_verification`, `commit_verified_result`, and `result_read` under
+`do_operations`. The only Result R2 operation is the optional asynchronous
+`result_archive_put`; Result R2 reads are expected to remain zero. The archive
+write is scheduled with `waitUntil()` after the DO transaction and is not part
+of the client-visible authority path.
 
 `Accept 202` is the client request duration through the queued response.
 `Poll total` is the client-visible duration from that `202` response until the
@@ -303,6 +310,13 @@ Cloudflare production R2/DO latency, Worker isolate RSS, and production
 concurrency behavior remain `NOT_ESTABLISHED`; a production-like deployment
 measurement is still required before using this as an operational SLO.
 
+Result authority has a hard storage boundary: the DO stores the exact final
+response bytes under one storage key, with a maximum slightly below 2 MiB after
+the `verification-result` key overhead is deducted. The full Result, including
+the signed verifier payload and consume receipt, must fit this limit. R2
+archive bytes may be larger only if the DO commit already fits; they are
+operational copies and are never used by status or replay.
+
 ### Result storage scaling
 
 Result byte growth can be measured without external access:
@@ -312,11 +326,12 @@ pnpm run benchmark:tlsn-result-storage
 ```
 
 This benchmark uses a synthetic JSON Result and a local filesystem persistence
-proxy. It reports `payload_bytes`, `signed_result_bytes`, `r2_object_bytes`, and
-`client_response_bytes`, plus Result construction/hash/write and successful
-status read/hash/parse timings. Its report is deliberately marked
+proxy. It reports `payload_bytes`, `signed_result_bytes`, archive-object bytes,
+and `client_response_bytes`, plus Result construction/hash/write timings. Its
+report is deliberately marked
 `verification_semantics: NOT_TESTED`; it does not perform TLSN verification,
-Durable Object claim/consume, or remote R2 measurement.
+Durable Object commit/read, or remote R2 measurement. It must not be used to
+infer that a Result larger than the DO limit is authoritative.
 
 The current local three-repeat run measured these p50 values:
 
