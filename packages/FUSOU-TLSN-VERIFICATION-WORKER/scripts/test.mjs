@@ -1267,7 +1267,7 @@ async function runDirectFailureSmokeTest() {
           }
         : {
           TLSN_BENCHMARK_TIMINGS: "true",
-          TLSN_TEST_DIRECT_INVOCATION_TIMEOUT_MS: "25",
+          TLSN_TEST_DIRECT_INVOCATION_TIMEOUT_MS: mode === "success" ? "1000" : "25",
         }),
     });
     const workers = scenarioModes.length > 1
@@ -1295,6 +1295,15 @@ async function runDirectFailureSmokeTest() {
         body: JSON.stringify({ device_id: deviceId, nonce: sessionNonce, sig: sessionSignature }),
       });
       assert.equal(sessionResponse.status, 201);
+      for (const headerName of [
+        "X-FUSOU-TLSN-Benchmark-Session-Config-Ms",
+        "X-FUSOU-TLSN-Benchmark-Session-Authority-Ms",
+        "X-FUSOU-TLSN-Benchmark-Session-Binding-Ms",
+        "X-FUSOU-TLSN-Benchmark-Session-Receipt-Ms",
+      ]) {
+        const headerValue = Number(sessionResponse.headers.get(headerName));
+        assert.equal(Number.isFinite(headerValue) && headerValue >= 0, true, `${scenarioMode} missing finite ${headerName}`);
+      }
       const session = await sessionResponse.json();
       assert.equal(session.binding, scenarioFixture.binding_value, `${scenarioMode} binding fixture mismatch`);
       const proof = {
@@ -1381,7 +1390,67 @@ async function runDirectFailureSmokeTest() {
         statusPayload = JSON.parse(statusResponseBytes.toString("utf8"));
       }
       if (scenarioModes.length === 1) assert.equal(directCalls, 1);
-      const directTiming = benchmarkTiming(synchronousCandidate ? verificationResponse : statusResponse);
+      const requiredDirectDurationNames = [
+        "request_authentication",
+        "request_body_read",
+        "request_body_parse",
+        "request_presentation_decode",
+        "request_device_possession",
+        "request_presentation_hash",
+        "request_start_verification",
+        "direct_invocation_acceptance",
+        "direct_callback_entry_to_lease",
+        "direct_presentation_transfer",
+        "direct_presentation_hash",
+        "direct_wasm_verification",
+        "result_canonicalization",
+        "result_signing",
+        "result_construction",
+        "result_serialization",
+        "result_hash",
+        "result_persistence",
+        "do_commit_verified_result",
+      ];
+      const directTimingComplete = (timing) => requiredDirectDurationNames.every(
+        (name) => Number.isFinite(timing?.durations?.[name]) && timing.durations[name] >= 0,
+      ) && (!synchronousCandidate || (
+        Number.isFinite(timing?.durations?.request_direct_dispatch) &&
+        Number.isFinite(timing?.durations?.direct_synchronous_response)
+      ));
+      let directTiming = benchmarkTiming(synchronousCandidate ? verificationResponse : statusResponse);
+      if (!synchronousCandidate && (scenarioMode === "success" || scenarioMode === "race")) {
+        for (let attempt = 0; attempt < 100 && !directTimingComplete(directTiming); attempt += 1) {
+          await new Promise((resolveDelay) => setTimeout(resolveDelay, 10));
+          statusResponse = await attemptWorker.fetch("https://verify.test/verify/tlsn/status", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: "Bearer test-token-a" },
+            body: JSON.stringify({
+              job_id: jobId,
+              binding_id: bindingId,
+              session_id: session.session_id,
+              canonical_user_id: "11111111-1111-4111-8111-111111111111",
+              device_id: deviceId,
+            }),
+          });
+          statusResponseBytes = Buffer.from(await statusResponse.arrayBuffer());
+          statusPayload = JSON.parse(statusResponseBytes.toString("utf8"));
+          directTiming = benchmarkTiming(statusResponse);
+        }
+      }
+      if (scenarioMode === "success" || scenarioMode === "race" || synchronousCandidate) {
+        for (const durationName of requiredDirectDurationNames) {
+          const durationValue = directTiming?.durations?.[durationName];
+          assert.equal(
+            Number.isFinite(durationValue) && durationValue >= 0,
+            true,
+            `${scenarioMode} missing finite ${durationName} durations=${JSON.stringify(directTiming?.durations ?? {})}`,
+          );
+        }
+      }
+      if (synchronousCandidate) {
+        assert.equal(Number.isFinite(directTiming?.durations?.request_direct_dispatch), true, `${scenarioMode} missing request_direct_dispatch`);
+        assert.equal(Number.isFinite(directTiming?.durations?.direct_synchronous_response), true, `${scenarioMode} missing direct_synchronous_response`);
+      }
       assert.equal(directTiming?.do_operations?.lookup_binding ?? 0, 0);
       assert.equal(directTiming?.r2_operations?.input_put ?? 0, 0);
       assert.equal(directTiming?.r2_operations?.trigger_input_get ?? 0, 0);

@@ -43,18 +43,25 @@ app.post("/internal/tlsn/verification-complete", async (c) => {
   const encodedMetadata = c.req.header(DIRECT_METADATA_HEADER);
   let rawBody: string | null = null;
   let presentationBytes: Uint8Array | undefined;
-  let presentationReadTiming: { readStartedAt: number; readCompletedAt: number } | undefined;
+  let presentationReadTiming: {
+    readStartedAt: number;
+    readCompletedAt: number;
+    readDurationMilliseconds: number;
+  } | undefined;
   if (encodedMetadata) {
-    const presentationReadStartedAt = Date.now();
+    const presentationReadStartedAt = performance.now();
+    const presentationReadStartedWallClock = Date.now();
     presentationBytes = await readRawBytes(c.req.raw, MAX_PRESENTATION_BYTES).catch(() => undefined);
-    const presentationReadCompletedAt = Date.now();
+    const presentationReadCompletedAt = performance.now();
+    const presentationReadCompletedWallClock = Date.now();
     try {
       rawBody = new TextDecoder("utf-8", { fatal: true, ignoreBOM: false }).decode(
         decodeBase64Url(encodedMetadata, MAX_INTERNAL_CALLBACK_JSON_BYTES),
       );
       presentationReadTiming = {
-        readStartedAt: presentationReadStartedAt,
-        readCompletedAt: presentationReadCompletedAt,
+        readStartedAt: presentationReadStartedWallClock,
+        readCompletedAt: presentationReadCompletedWallClock,
+        readDurationMilliseconds: presentationReadCompletedAt - presentationReadStartedAt,
       };
     } catch {
       rawBody = null;

@@ -322,12 +322,19 @@ async function issueSession(workerOrigin, webOrigin, accessToken, device, privat
   if (result.status !== 201 || !UUID_PATTERN.test(result.json?.session_id ?? "")) {
     throw new Error(`remote session issuance failed with status ${result.status}`);
   }
+  const timingHeaderMilliseconds = (name) => {
+    const raw = result.response.headers.get(name);
+    if (raw === null || raw.trim() === "") return null;
+    const value = Number(raw);
+    return Number.isFinite(value) && value >= 0 ? value : null;
+  };
   return {
     ...result.json,
-    sessionConfigMilliseconds: Number(result.response.headers.get("X-FUSOU-TLSN-Benchmark-Session-Config-Ms")),
-    sessionAuthorityMilliseconds: Number(result.response.headers.get("X-FUSOU-TLSN-Benchmark-Session-Authority-Ms")),
-    sessionBindingMilliseconds: Number(result.response.headers.get("X-FUSOU-TLSN-Benchmark-Session-Binding-Ms")),
-    sessionReceiptMilliseconds: Number(result.response.headers.get("X-FUSOU-TLSN-Benchmark-Session-Receipt-Ms")),
+    sessionIssuanceMilliseconds: result.elapsedMilliseconds,
+    sessionConfigMilliseconds: timingHeaderMilliseconds("X-FUSOU-TLSN-Benchmark-Session-Config-Ms"),
+    sessionAuthorityMilliseconds: timingHeaderMilliseconds("X-FUSOU-TLSN-Benchmark-Session-Authority-Ms"),
+    sessionBindingMilliseconds: timingHeaderMilliseconds("X-FUSOU-TLSN-Benchmark-Session-Binding-Ms"),
+    sessionReceiptMilliseconds: timingHeaderMilliseconds("X-FUSOU-TLSN-Benchmark-Session-Receipt-Ms"),
   };
 }
 
@@ -548,13 +555,68 @@ function measuredPhaseMilliseconds(timing, durations, name, start, end) {
   return Number.isFinite(durations?.[name]) ? durations[name] : phaseMilliseconds(timing, start, end);
 }
 
-function requiredTimingStagesPresent(timing, executionMode, synchronousCandidate = false, statusRecovery = false) {
+const REQUIRED_SESSION_TIMING_FIELDS = [
+  "configMilliseconds",
+  "authorityMilliseconds",
+  "bindingMilliseconds",
+  "receiptMilliseconds",
+];
+
+const REQUIRED_DIRECT_TIMING_DURATIONS = [
+  "request_authentication",
+  "request_body_read",
+  "request_body_parse",
+  "request_presentation_decode",
+  "request_device_possession",
+  "request_presentation_hash",
+  "request_start_verification",
+  "direct_invocation_acceptance",
+  "direct_callback_entry_to_lease",
+  "direct_presentation_transfer",
+  "direct_presentation_hash",
+  "direct_wasm_verification",
+  "result_canonicalization",
+  "result_signing",
+  "result_construction",
+  "result_serialization",
+  "result_hash",
+  "result_persistence",
+  "do_commit_verified_result",
+];
+
+function requiredSessionTimingPresent(sessionMeasurement) {
+  return sessionMeasurement !== undefined && REQUIRED_SESSION_TIMING_FIELDS.every(
+    (field) => Number.isFinite(sessionMeasurement[field]) && sessionMeasurement[field] >= 0,
+  );
+}
+
+function requiredTimingDurationsPresent(timing, executionMode, synchronousCandidate) {
+  const requiredDurations = executionMode === "direct"
+    ? [
+      ...REQUIRED_DIRECT_TIMING_DURATIONS,
+      ...(synchronousCandidate ? ["request_direct_dispatch", "direct_synchronous_response"] : []),
+    ]
+    : [];
+  return requiredDurations.every(
+    (name) => Number.isFinite(timing?.durations?.[name]) && timing.durations[name] >= 0,
+  );
+}
+
+function requiredTimingStagesPresent(
+  timing,
+  executionMode,
+  synchronousCandidate = false,
+  statusRecovery = false,
+  sessionMeasurement,
+) {
   const requiredStages = synchronousCandidate
     ? statusRecovery
       ? [...SYNCHRONOUS_REQUIRED_TIMING_STAGES, "t11_status_verified"]
       : SYNCHRONOUS_REQUIRED_TIMING_STAGES
     : REQUIRED_TIMING_STAGES_BY_MODE[executionMode];
-  return requiredStages.every((stage) => stageTimestamp(timing, stage) !== null);
+  return requiredStages.every((stage) => stageTimestamp(timing, stage) !== null)
+    && requiredTimingDurationsPresent(timing, executionMode, synchronousCandidate)
+    && (sessionMeasurement === undefined || requiredSessionTimingPresent(sessionMeasurement));
 }
 
 function pQuantile(values, quantile) {
@@ -581,6 +643,14 @@ function summarizePhases(samples) {
     session_binding: summarize(samples, "sessionBindingMilliseconds"),
     session_receipt: summarize(samples, "sessionReceiptMilliseconds"),
     request_acceptance: summarize(samples, "requestAcceptanceMilliseconds"),
+    request_authentication: summarize(samples, "requestAuthenticationMilliseconds"),
+    request_body_read: summarize(samples, "requestBodyReadMilliseconds"),
+    request_body_parse: summarize(samples, "requestBodyParseMilliseconds"),
+    request_presentation_decode: summarize(samples, "requestPresentationDecodeMilliseconds"),
+    request_device_possession: summarize(samples, "requestDevicePossessionMilliseconds"),
+    request_presentation_hash: summarize(samples, "requestPresentationHashMilliseconds"),
+    request_start_verification: summarize(samples, "requestStartVerificationMilliseconds"),
+    request_direct_dispatch: summarize(samples, "requestDirectDispatchMilliseconds"),
     trigger_accept_to_202_send: summarize(samples, "triggerAcceptTo202SendMilliseconds"),
     trigger_queue_start: summarize(samples, "triggerQueueStartMilliseconds"),
     direct_input_binding: summarize(samples, "directInputBindingMilliseconds"),
@@ -733,7 +803,6 @@ async function runBatch({ workerOrigin, webOrigin, accessToken, userId, device, 
   for (let sampleIndex = 0; sampleIndex < sampleCount; sampleIndex += 1) {
     const sessionMeasurements = await Promise.all(
       Array.from({ length: concurrency }, async () => {
-        const startedAt = performance.now();
         const session = await issueSession(
           workerOrigin,
           webOrigin,
@@ -744,7 +813,7 @@ async function runBatch({ workerOrigin, webOrigin, accessToken, userId, device, 
         );
         return {
           session,
-          milliseconds: performance.now() - startedAt,
+          milliseconds: session.sessionIssuanceMilliseconds,
           configMilliseconds: session.sessionConfigMilliseconds,
           authorityMilliseconds: session.sessionAuthorityMilliseconds,
           bindingMilliseconds: session.sessionBindingMilliseconds,
@@ -868,7 +937,13 @@ async function runBatch({ workerOrigin, webOrigin, accessToken, userId, device, 
       const t9 = stageTimestamp(timing, "t9_consume_completed");
       const t10 = stageTimestamp(timing, "t10_consume_completed");
       const t10CallbackResponse = stageTimestamp(timing, "t10_callback_response_ready");
-      const observed = requiredTimingStagesPresent(timing, executionMode, synchronousCandidate);
+      const observed = requiredTimingStagesPresent(
+        timing,
+        executionMode,
+        synchronousCandidate,
+        false,
+        sessionMeasurements[index],
+      );
       const queueVerifierStarted = stageTimestamp(timing, "t3_queue_verifier_started");
       const queueVerifierCompleted = stageTimestamp(timing, "t3_queue_verifier_completed");
       const queueCallbackDispatchStarted = stageTimestamp(timing, "t3_queue_callback_dispatch_started");
@@ -919,6 +994,14 @@ async function runBatch({ workerOrigin, webOrigin, accessToken, userId, device, 
         statusRecoveryBytesMatchResultBytes: Number.isFinite(diagnostics.result_bytes)
           && (responseLossRecovery ? completion.statusRecoveryResponseBytes : completion.statusRecoveryResponseBytes ?? completion.clientResponseBytes) === diagnostics.result_bytes,
         requestAcceptanceMilliseconds: submission.requestAcceptanceMilliseconds,
+        requestAuthenticationMilliseconds: Number.isFinite(durations.request_authentication) ? durations.request_authentication : null,
+        requestBodyReadMilliseconds: Number.isFinite(durations.request_body_read) ? durations.request_body_read : null,
+        requestBodyParseMilliseconds: Number.isFinite(durations.request_body_parse) ? durations.request_body_parse : null,
+        requestPresentationDecodeMilliseconds: Number.isFinite(durations.request_presentation_decode) ? durations.request_presentation_decode : null,
+        requestDevicePossessionMilliseconds: Number.isFinite(durations.request_device_possession) ? durations.request_device_possession : null,
+        requestPresentationHashMilliseconds: Number.isFinite(durations.request_presentation_hash) ? durations.request_presentation_hash : null,
+        requestStartVerificationMilliseconds: Number.isFinite(durations.request_start_verification) ? durations.request_start_verification : null,
+        requestDirectDispatchMilliseconds: Number.isFinite(durations.request_direct_dispatch) ? durations.request_direct_dispatch : null,
         sessionIssuanceMilliseconds: sessionMeasurements[index].milliseconds,
         sessionConfigMilliseconds: sessionMeasurements[index].configMilliseconds,
         sessionAuthorityMilliseconds: sessionMeasurements[index].authorityMilliseconds,
@@ -940,32 +1023,22 @@ async function runBatch({ workerOrigin, webOrigin, accessToken, userId, device, 
           : null,
         directInvocationStartupMilliseconds: executionMode === "direct" && t2 !== null && t3 !== null ? t3 - t2 : null,
         directInvocationAcceptanceMilliseconds: executionMode === "direct"
-          ? measuredPhaseMilliseconds(
-            timing,
-            durations,
-            "direct_invocation_acceptance",
-            "direct_invocation_started",
-            "direct_invocation_accepted",
-          )
+          ? Number.isFinite(durations.direct_invocation_acceptance) ? durations.direct_invocation_acceptance : null
           : null,
         directCallbackEntryToLeaseMilliseconds: executionMode === "direct"
-          ? durations.direct_callback_entry_to_lease ?? null
+          ? Number.isFinite(durations.direct_callback_entry_to_lease) ? durations.direct_callback_entry_to_lease : null
           : null,
-        directPresentationTransferMilliseconds: measuredPhaseMilliseconds(
-          timing,
-          durations,
-          "direct_presentation_transfer",
-          "direct_presentation_read_started",
-          "direct_presentation_read_completed",
-        ),
+        directPresentationTransferMilliseconds: executionMode === "direct"
+          ? Number.isFinite(durations.direct_presentation_transfer) ? durations.direct_presentation_transfer : null
+          : null,
         triggerStartToCallbackMilliseconds: t3 !== null && t4 !== null ? t4 - t3 : null,
         callbackEntryToLeaseMilliseconds: t4 !== null && t5 !== null ? t5 - t4 : null,
         workerR2InputMilliseconds: phaseMilliseconds(timing, "t5_lease_acquired", "t5_presentation_read"),
         presentationHashMilliseconds: executionMode === "direct"
-          ? measuredPhaseMilliseconds(timing, durations, "direct_presentation_hash", "t5_presentation_hash_started", "t5_presentation_hash_completed")
+          ? Number.isFinite(durations.direct_presentation_hash) ? durations.direct_presentation_hash : null
           : phaseMilliseconds(timing, "t5_presentation_hash_started", "t5_presentation_hash_completed"),
         wasmVerificationMilliseconds: executionMode === "direct"
-          ? measuredPhaseMilliseconds(timing, durations, "direct_wasm_verification", "t6_presentation_read", "t7_wasm_verification_completed")
+          ? Number.isFinite(durations.direct_wasm_verification) ? durations.direct_wasm_verification : null
           : phaseMilliseconds(timing, "t6_presentation_read", "t7_wasm_verification_completed"),
         resultSigningMilliseconds: t8Signing !== null ? t8Signing - t7 : null,
         resultPersistenceMilliseconds: t8Signing !== null && t8Persisted !== null ? t8Persisted - t8Signing : null,
@@ -1044,7 +1117,7 @@ async function runBatch({ workerOrigin, webOrigin, accessToken, userId, device, 
         synchronousResponseMilliseconds: synchronousCandidate
           ? responseLossRecovery
             ? completion.replayMilliseconds
-            : phaseMilliseconds(timing, "direct_synchronous_response_started", "t1_200_response_sent")
+            : Number.isFinite(durations.direct_synchronous_response) ? durations.direct_synchronous_response : null
           : null,
         triggerInputFetchMilliseconds: phaseMilliseconds(timing, "t3_trigger_input_fetch_started", "t3_trigger_input_fetch_completed"),
         triggerVerifierMilliseconds: phaseMilliseconds(timing, "t3_trigger_verifier_started", "t3_trigger_verifier_completed"),
@@ -1164,6 +1237,14 @@ async function runBatch({ workerOrigin, webOrigin, accessToken, userId, device, 
         session_binding: sample.sessionBindingMilliseconds,
         session_receipt: sample.sessionReceiptMilliseconds,
         request_acceptance: sample.requestAcceptanceMilliseconds,
+        request_authentication: sample.requestAuthenticationMilliseconds,
+        request_body_read: sample.requestBodyReadMilliseconds,
+        request_body_parse: sample.requestBodyParseMilliseconds,
+        request_presentation_decode: sample.requestPresentationDecodeMilliseconds,
+        request_device_possession: sample.requestDevicePossessionMilliseconds,
+        request_presentation_hash: sample.requestPresentationHashMilliseconds,
+        request_start_verification: sample.requestStartVerificationMilliseconds,
+        request_direct_dispatch: sample.requestDirectDispatchMilliseconds,
         trigger_accept_to_202_send: sample.triggerAcceptTo202SendMilliseconds,
         direct_input_binding: sample.directInputBindingMilliseconds,
         trigger_queue_start: sample.triggerQueueStartMilliseconds,

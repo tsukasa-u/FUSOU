@@ -533,6 +533,16 @@ function benchmarkDuration(env: Bindings, jobId: string, name: string, milliseco
   record.updated_at = Date.now();
 }
 
+function benchmarkDurationHeader(
+  c: Context<{ Bindings: Bindings }>,
+  env: Bindings,
+  name: string,
+  milliseconds: number | undefined,
+): void {
+  if (!benchmarkEnabled(env) || milliseconds === undefined || !Number.isFinite(milliseconds) || milliseconds < 0) return;
+  c.header(`X-FUSOU-TLSN-Benchmark-${name}-Ms`, String(milliseconds));
+}
+
 function benchmarkDiagnostic(env: Bindings, jobId: string, name: string, value: boolean | number | string): void {
   if (!benchmarkEnabled(env)) return;
   const persistence = benchmarkPersistences.get(jobId);
@@ -2069,6 +2079,7 @@ async function dispatchDirectVerification(
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), directInvocationTimeoutMs(env));
   let response: Response;
+  const invocationStartedAt = benchmarkEnabled(env) ? performance.now() : undefined;
   try {
     benchmarkRecord(env, jobId, "direct_invocation_started");
     benchmarkIncrementDiagnostic(env, jobId, "direct_invocation_count");
@@ -2093,6 +2104,12 @@ async function dispatchDirectVerification(
     throw new Error(`direct verifier failed with status ${response.status}`);
   }
   benchmarkRecord(env, jobId, "direct_invocation_accepted");
+  benchmarkDuration(
+    env,
+    jobId,
+    "direct_invocation_acceptance",
+    invocationStartedAt === undefined ? Number.NaN : performance.now() - invocationStartedAt,
+  );
   await benchmarkFlush(env, jobId);
   return response;
 }
@@ -2150,7 +2167,11 @@ export async function processVerificationCompletion(
   executionStartedAt?: number,
   testFault?: TestDirectFault,
   directPresentationBytes?: Uint8Array,
-  directPresentationTiming?: { readStartedAt: number; readCompletedAt: number },
+  directPresentationTiming?: {
+    readStartedAt: number;
+    readCompletedAt: number;
+    readDurationMilliseconds: number;
+  },
   synchronousCandidate = false,
 ): Promise<Response> {
   const callbackAuthenticationStartedAt = executionMode === "queue" ? performance.now() : null;
@@ -2270,18 +2291,25 @@ app.post("/internal/tlsn/verification-complete", async (c) => {
     && c.req.header("X-FUSOU-TLSN-Synchronous-Candidate") === "true";
   let rawBody: string | null = null;
   let directPresentationBytes: Uint8Array | undefined;
-  let directPresentationTiming: { readStartedAt: number; readCompletedAt: number } | undefined;
+  let directPresentationTiming: {
+    readStartedAt: number;
+    readCompletedAt: number;
+    readDurationMilliseconds: number;
+  } | undefined;
   if (encodedMetadata && executionMode === "direct") {
-    const presentationReadStartedAt = Date.now();
+    const presentationReadStartedAt = performance.now();
+    const presentationReadStartedWallClock = Date.now();
     directPresentationBytes = await readRawBytes(c.req.raw, MAX_PRESENTATION_BYTES).catch(() => undefined);
-    const presentationReadCompletedAt = Date.now();
+    const presentationReadCompletedAt = performance.now();
+    const presentationReadCompletedWallClock = Date.now();
     try {
       rawBody = new TextDecoder("utf-8", { fatal: true, ignoreBOM: false }).decode(
         decodeBase64Url(encodedMetadata, MAX_INTERNAL_CALLBACK_JSON_BYTES),
       );
       directPresentationTiming = {
-        readStartedAt: presentationReadStartedAt,
-        readCompletedAt: presentationReadCompletedAt,
+        readStartedAt: presentationReadStartedWallClock,
+        readCompletedAt: presentationReadCompletedWallClock,
+        readDurationMilliseconds: presentationReadCompletedAt - presentationReadStartedAt,
       };
     } catch {
       rawBody = null;
@@ -2312,9 +2340,16 @@ async function completeVerification(
   executionStartedAt?: number,
   testFault?: TestDirectFault,
   directPresentationBytes?: Uint8Array,
-  directPresentationTiming?: { readStartedAt: number; readCompletedAt: number },
+  directPresentationTiming?: {
+    readStartedAt: number;
+    readCompletedAt: number;
+    readDurationMilliseconds: number;
+  },
   synchronousCandidate = false,
 ): Promise<Response> {
+  const directCallbackEntryToLeaseStartedAt = executionMode === "direct" && benchmarkEnabled(c.env)
+    ? performance.now()
+    : null;
   const config = await readConfig(c.env);
   if (!config) {
     return c.json({ error: "verifier_unconfigured" }, 503);
@@ -2339,7 +2374,7 @@ async function completeVerification(
       c.env,
       callback.job_id,
       "direct_presentation_transfer",
-      directPresentationTiming.readCompletedAt - directPresentationTiming.readStartedAt,
+      directPresentationTiming.readDurationMilliseconds,
     );
   }
   benchmarkRecord(c.env, callback.job_id, "t3_callback_accepted");
@@ -2399,6 +2434,16 @@ async function completeVerification(
       result_object_key: attemptResultKey,
       now: Date.now(),
     });
+    if (executionMode === "direct") {
+      benchmarkDuration(
+        c.env,
+        callback.job_id,
+        "direct_callback_entry_to_lease",
+        directCallbackEntryToLeaseStartedAt === null
+          ? Number.NaN
+          : performance.now() - directCallbackEntryToLeaseStartedAt,
+      );
+    }
   } catch (error) {
     if (
       error instanceof BindingAuthorityError &&
@@ -2536,7 +2581,7 @@ async function completeVerification(
       benchmarkDuration(c.env, callback.job_id, "queue_presentation_read", performance.now() - (presentationReadStartedAt ?? performance.now()));
     }
     benchmarkRecord(c.env, callback.job_id, "t5_presentation_hash_started");
-    const presentationHashStartedAt = executionMode === "queue" ? performance.now() : null;
+    const presentationHashStartedAt = benchmarkEnabled(c.env) ? performance.now() : null;
     storedPresentationId = encodeBase64Url(
       new Uint8Array(await crypto.subtle.digest("SHA-256", storedPresentation)),
     );
@@ -2545,6 +2590,8 @@ async function completeVerification(
     if (executionMode === "queue") {
       benchmarkRecord(c.env, callback.job_id, "queue_presentation_hash_completed");
       benchmarkDuration(c.env, callback.job_id, "queue_presentation_hash", performance.now() - (presentationHashStartedAt ?? performance.now()));
+    } else if (executionMode === "direct") {
+      benchmarkDuration(c.env, callback.job_id, "direct_presentation_hash", performance.now() - (presentationHashStartedAt ?? performance.now()));
     }
   } catch {
     await finalizeAttemptFailure("presentation_read_failed");
@@ -2557,7 +2604,7 @@ async function completeVerification(
 
   try {
     const sparseProfile = expectedProfile === "sparse";
-    const wasmVerificationStartedAt = executionMode === "queue" ? performance.now() : null;
+    const wasmVerificationStartedAt = benchmarkEnabled(c.env) ? performance.now() : null;
     if (executionMode === "queue") benchmarkRecord(c.env, callback.job_id, "queue_wasm_verification_started");
     await ensureWasmInitialized();
     const prepared = verifyPresentationToPreparedResult(
@@ -2574,6 +2621,8 @@ async function completeVerification(
       benchmarkRecord(c.env, callback.job_id, "t3_queue_verifier_completed");
       benchmarkRecord(c.env, callback.job_id, "queue_wasm_verification_completed");
       benchmarkDuration(c.env, callback.job_id, "queue_wasm_verification", performance.now() - (wasmVerificationStartedAt ?? performance.now()));
+    } else if (executionMode === "direct") {
+      benchmarkDuration(c.env, callback.job_id, "direct_wasm_verification", performance.now() - (wasmVerificationStartedAt ?? performance.now()));
     }
     const preparedUnsignedResult = JSON.parse(prepared.unsigned_result) as Record<string, unknown>;
     const expectedProfileId = sparseProfile ? "fusou-require-info-v2-sparse" : "fusou-require-info-v1";
@@ -2766,6 +2815,9 @@ async function completeVerification(
       benchmarkRecord(c.env, callback.job_id, "input_cleanup_completed");
       await benchmarkFlush(c.env, callback.job_id);
     };
+    const synchronousResponseStartedAt = synchronousCandidate && benchmarkEnabled(c.env)
+      ? performance.now()
+      : null;
     if (synchronousCandidate) {
       benchmarkRecord(c.env, callback.job_id, "direct_synchronous_response_started");
     }
@@ -2778,6 +2830,12 @@ async function completeVerification(
     if (synchronousCandidate) {
       benchmarkRecord(c.env, callback.job_id, "t1_200_response_sent");
       benchmarkRecord(c.env, callback.job_id, "direct_synchronous_response_completed");
+      benchmarkDuration(
+        c.env,
+        callback.job_id,
+        "direct_synchronous_response",
+        synchronousResponseStartedAt === null ? Number.NaN : performance.now() - synchronousResponseStartedAt,
+      );
       benchmarkDiagnostic(c.env, callback.job_id, "synchronous_success_path", "established");
       benchmarkDiagnostic(c.env, callback.job_id, "terminal_outcome", "verified");
       if (benchmarkEnabled(c.env)) {
@@ -2997,10 +3055,15 @@ app.get("/health", async (c) => {
 });
 
 app.post("/attestation/session", async (c) => {
+  const sessionBenchmarkEnabled = benchmarkEnabled(c.env);
+  const sessionStartedAt = sessionBenchmarkEnabled ? performance.now() : undefined;
   const config = await readConfig(c.env);
   if (!config) {
     return c.json({ error: "verifier_unconfigured" }, 503);
   }
+  const sessionConfigMilliseconds = sessionStartedAt === undefined
+    ? undefined
+    : performance.now() - sessionStartedAt;
   const authentication = requireAuthentication(await authenticateRequest(c.req.raw, c.env));
   if (authentication instanceof Response) {
     return authentication;
@@ -3011,6 +3074,7 @@ app.post("/attestation/session", async (c) => {
   } catch {
     return c.json({ error: "invalid_request" }, 400);
   }
+  const sessionAuthorityStartedAt = sessionBenchmarkEnabled ? performance.now() : undefined;
   try {
     const deviceAuthentication = testDeviceAuthenticationEnabled(c.env)
       ? await authenticateTestDeviceProof(authentication, requestBody, c.env)
@@ -3021,7 +3085,11 @@ app.post("/attestation/session", async (c) => {
     if (deviceAuthentication.canonicalUserId !== authentication.canonicalUserId) {
       return c.json({ error: "device_owner_mismatch" }, 403);
     }
+    const sessionAuthorityMilliseconds = sessionAuthorityStartedAt === undefined
+      ? undefined
+      : performance.now() - sessionAuthorityStartedAt;
     const authority = new DurableObjectBindingAuthority(c.env.TLSN_BINDINGS);
+    const sessionBindingStartedAt = sessionBenchmarkEnabled ? performance.now() : undefined;
     const record = await authority.issueBinding(
       Date.now(),
       config.bindingTtlSeconds,
@@ -3034,7 +3102,18 @@ app.post("/attestation/session", async (c) => {
           ? c.env.TLSN_CANARY_BINDING_VALUE
           : undefined,
     );
+    const sessionBindingMilliseconds = sessionBindingStartedAt === undefined
+      ? undefined
+      : performance.now() - sessionBindingStartedAt;
+    const sessionReceiptStartedAt = sessionBenchmarkEnabled ? performance.now() : undefined;
     const sessionReceipt = await signSessionReceipt(config, record);
+    const sessionReceiptMilliseconds = sessionReceiptStartedAt === undefined
+      ? undefined
+      : performance.now() - sessionReceiptStartedAt;
+    benchmarkDurationHeader(c, c.env, "Session-Config", sessionConfigMilliseconds);
+    benchmarkDurationHeader(c, c.env, "Session-Authority", sessionAuthorityMilliseconds);
+    benchmarkDurationHeader(c, c.env, "Session-Binding", sessionBindingMilliseconds);
+    benchmarkDurationHeader(c, c.env, "Session-Receipt", sessionReceiptMilliseconds);
     c.header("Cache-Control", "no-store");
     return c.json({
       session_id: record.session_id,
@@ -3156,21 +3235,42 @@ const handleTlsnVerification = async (c: Context<{ Bindings: Bindings }>) => {
   if (sparseProfile && !config.sparseProfileSha256Bytes) {
     return c.json({ error: "sparse_verifier_unconfigured" }, 503);
   }
+  const requestBenchmarkEnabled = benchmarkEnabled(c.env);
+  const requestAuthenticationStartedAt = requestBenchmarkEnabled ? performance.now() : undefined;
   const authentication = requireAuthentication(await authenticateRequest(c.req.raw, c.env));
+  const requestAuthenticationMilliseconds = requestAuthenticationStartedAt === undefined
+    ? undefined
+    : performance.now() - requestAuthenticationStartedAt;
   if (authentication instanceof Response) {
     return authentication;
   }
 
   let requestBody: z.infer<typeof requestSchema>;
+  let requestBodyReadMilliseconds: number | undefined;
+  let requestBodyParseMilliseconds: number | undefined;
   try {
-    requestBody = requestSchema.parse(await readJsonBody(c.req.raw));
+    const requestBodyReadStartedAt = requestBenchmarkEnabled ? performance.now() : undefined;
+    const rawRequestBody = await readRawBody(c.req.raw, MAX_REQUEST_JSON_BYTES);
+    requestBodyReadMilliseconds = requestBodyReadStartedAt === undefined
+      ? undefined
+      : performance.now() - requestBodyReadStartedAt;
+    const requestBodyParseStartedAt = requestBenchmarkEnabled ? performance.now() : undefined;
+    requestBody = requestSchema.parse(JSON.parse(rawRequestBody) as unknown);
+    requestBodyParseMilliseconds = requestBodyParseStartedAt === undefined
+      ? undefined
+      : performance.now() - requestBodyParseStartedAt;
   } catch {
     return c.json({ error: "invalid_request" }, 400);
   }
 
   let presentationBytes: Uint8Array;
+  let presentationDecodeMilliseconds: number | undefined;
   try {
+    const presentationDecodeStartedAt = requestBenchmarkEnabled ? performance.now() : undefined;
     presentationBytes = decodeBase64Url(requestBody.presentation_base64, MAX_PRESENTATION_BYTES);
+    presentationDecodeMilliseconds = presentationDecodeStartedAt === undefined
+      ? undefined
+      : performance.now() - presentationDecodeStartedAt;
   } catch {
     return c.json({ error: "invalid_request" }, 400);
   }
@@ -3220,9 +3320,13 @@ const handleTlsnVerification = async (c: Context<{ Bindings: Bindings }>) => {
       challenge: requestBody.device_proof.challenge,
       sig: requestBody.device_proof.sig,
     };
+    const devicePossessionStartedAt = requestBenchmarkEnabled ? performance.now() : undefined;
     const devicePossession = testDeviceAuthenticationEnabled(c.env)
       ? await authenticateTestTlsnDeviceProof(authentication, devicePossessionProof, c.env)
       : await authenticateTlsnDeviceProof(authentication, devicePossessionProof, config.devicePossessionAuthUrl);
+    const devicePossessionMilliseconds = devicePossessionStartedAt === undefined
+      ? undefined
+      : performance.now() - devicePossessionStartedAt;
     if (!devicePossession.ok) {
       if (synchronousDirect && devicePossession.error === "device_possession_replayed") {
         const replayPresentationId = encodeBase64Url(
@@ -3272,9 +3376,13 @@ const handleTlsnVerification = async (c: Context<{ Bindings: Bindings }>) => {
       return c.json({ verified: false, error: "device_possession_owner_mismatch" }, 403);
     }
 
+    const presentationHashStartedAt = requestBenchmarkEnabled ? performance.now() : undefined;
     const presentationId = encodeBase64Url(
       new Uint8Array(await crypto.subtle.digest("SHA-256", presentationBytes)),
     );
+    const requestPresentationHashMilliseconds = presentationHashStartedAt === undefined
+      ? undefined
+      : performance.now() - presentationHashStartedAt;
     const jobId = crypto.randomUUID();
     const directVerificationAttemptId = direct ? crypto.randomUUID() : undefined;
     const benchmarkTraceId = benchmarkEnabled(c.env) ? crypto.randomUUID() : undefined;
@@ -3291,6 +3399,12 @@ const handleTlsnVerification = async (c: Context<{ Bindings: Bindings }>) => {
     );
     benchmarkDiagnostic(c.env, jobId, "profile", sparseProfile ? "sparse" : "complete");
     benchmarkDiagnostic(c.env, jobId, "input_source", direct ? "direct" : "r2");
+    benchmarkDuration(c.env, jobId, "request_authentication", requestAuthenticationMilliseconds ?? Number.NaN);
+    benchmarkDuration(c.env, jobId, "request_body_read", requestBodyReadMilliseconds ?? Number.NaN);
+    benchmarkDuration(c.env, jobId, "request_body_parse", requestBodyParseMilliseconds ?? Number.NaN);
+    benchmarkDuration(c.env, jobId, "request_presentation_decode", presentationDecodeMilliseconds ?? Number.NaN);
+    benchmarkDuration(c.env, jobId, "request_device_possession", devicePossessionMilliseconds ?? Number.NaN);
+    benchmarkDuration(c.env, jobId, "request_presentation_hash", requestPresentationHashMilliseconds ?? Number.NaN);
     benchmarkRecord(c.env, jobId, "t0_accepted");
     const payload = verificationTaskPayloadSchema.parse({
       job_id: jobId,
@@ -3314,6 +3428,7 @@ const handleTlsnVerification = async (c: Context<{ Bindings: Bindings }>) => {
         benchmarkR2Operation(c.env, jobId, "input_put");
         benchmarkRecord(c.env, jobId, "t1_presentation_persisted");
       }
+      const startVerificationStartedAt = requestBenchmarkEnabled ? performance.now() : undefined;
       benchmarkDOOperation(c.env, jobId, "start_verification");
       await authority.startVerification(requestBody.binding, {
         session_id: requestBody.session_id,
@@ -3332,6 +3447,12 @@ const handleTlsnVerification = async (c: Context<{ Bindings: Bindings }>) => {
         ...(directVerificationAttemptId ? { verification_attempt_id: directVerificationAttemptId } : {}),
         now: Date.now(),
       });
+      benchmarkDuration(
+        c.env,
+        jobId,
+        "request_start_verification",
+        startVerificationStartedAt === undefined ? Number.NaN : performance.now() - startVerificationStartedAt,
+      );
       if (direct) benchmarkRecord(c.env, jobId, "t1_direct_input_bound");
     } catch (error) {
       if (verificationInputKey) {
@@ -3363,6 +3484,7 @@ const handleTlsnVerification = async (c: Context<{ Bindings: Bindings }>) => {
         benchmarkRecord(c.env, jobId, "t2_trigger_task_accepted");
       } else if (direct) {
         benchmarkRecord(c.env, jobId, "direct_dispatch_started");
+        const directDispatchStartedAt = requestBenchmarkEnabled ? performance.now() : undefined;
         const directDispatch = dispatchDirectVerification(
           c.env,
           jobId,
@@ -3376,6 +3498,12 @@ const handleTlsnVerification = async (c: Context<{ Bindings: Bindings }>) => {
         if (shouldUseSynchronousDirectResponse(c.env)) {
           try {
             const directResponse = await directDispatch;
+            benchmarkDuration(
+              c.env,
+              jobId,
+              "request_direct_dispatch",
+              directDispatchStartedAt === undefined ? Number.NaN : performance.now() - directDispatchStartedAt,
+            );
             if (!directResponse.ok) throw new Error(`direct verifier failed with status ${directResponse.status}`);
             await benchmarkFlush(c.env, jobId);
             const timingHeader = await benchmarkTimingHeaderValue(c.env, jobId);
