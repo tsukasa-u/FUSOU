@@ -367,10 +367,13 @@ Result-R2 PUT request/response, and synchronous-response phases. Older Worker
 timing records remain valid because these phases are not required for the
 legacy `timing_complete` decision. Setting
 `TLSN_REMOTE_DIRECT_SYNCHRONOUS_CANDIDATE=true` makes the remote harness expect
-an explicit Direct `POST 200` response and skip status polling for that run;
-the report marks `status_recovery_measurement` as `NOT_MEASURED`. This option is
-restricted to `test` or dedicated non-production `evidence` environments and
-must not be used as production/canary evidence.
+an explicit Direct `POST 200` response. A latency-only report generated before
+recovery validation may mark `status_recovery_measurement` as `NOT_MEASURED`;
+the recovery-validation run uses test-only response headers to recover the same
+job through the authenticated status endpoint and compares response bytes,
+Result hash, and Result byte count. This option is restricted to `test` or
+dedicated non-production `evidence` environments and must not be used as
+production/canary evidence.
 
 This benchmark adds timing metadata only. It does not change
 `VERIFICATION_LEASE_MS`, retry semantics, Durable Object transitions, timeout

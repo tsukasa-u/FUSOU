@@ -2517,6 +2517,7 @@ async function completeVerification(
     benchmarkRecord(c.env, callback.job_id, "result_hash_completed");
     benchmarkDuration(c.env, callback.job_id, "result_hash", performance.now() - resultHashStartedAt);
     benchmarkDiagnostic(c.env, callback.job_id, "result_sha256_present", true);
+    benchmarkDiagnostic(c.env, callback.job_id, "result_sha256", resultSha256);
     const resultPersistenceStartedAt = performance.now();
     benchmarkRecord(c.env, callback.job_id, "result_persistence_started");
     if (executionMode === "queue") benchmarkRecord(c.env, callback.job_id, "queue_result_persistence_started");
@@ -2612,6 +2613,14 @@ async function completeVerification(
       benchmarkRecord(c.env, callback.job_id, "t1_200_response_sent");
       benchmarkRecord(c.env, callback.job_id, "direct_synchronous_response_completed");
       benchmarkDiagnostic(c.env, callback.job_id, "synchronous_success_path", "established");
+      benchmarkDiagnostic(c.env, callback.job_id, "terminal_outcome", "verified");
+      if (benchmarkEnabled(c.env)) {
+        const benchmarkPersistence = benchmarkPersistences.get(callback.job_id);
+        c.header("X-FUSOU-TLSN-Test-Job-Id", callback.job_id);
+        if (benchmarkPersistence) {
+          c.header("X-FUSOU-TLSN-Test-Benchmark-Trace-Id", benchmarkPersistence.traceId);
+        }
+      }
       c.header("Cache-Control", "no-store");
       c.header("Content-Type", "application/json");
       return c.body(finalResponseBody, 200);
