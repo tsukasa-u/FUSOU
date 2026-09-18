@@ -995,6 +995,17 @@ async function privateKeyMatchesPublicKey(privateKeyBytes: Uint8Array, publicKey
   }
 }
 
+const privateKeyMatchCache = new Map<string, Promise<boolean>>();
+
+function cachedPrivateKeyMatchesPublicKey(privateKeyBytes: Uint8Array, publicKeySpki: string): Promise<boolean> {
+  const cacheKey = `${encodeBase64Url(privateKeyBytes)}:${publicKeySpki}`;
+  const cached = privateKeyMatchCache.get(cacheKey);
+  if (cached) return cached;
+  const result = privateKeyMatchesPublicKey(privateKeyBytes, publicKeySpki);
+  privateKeyMatchCache.set(cacheKey, result);
+  return result;
+}
+
 async function readConfig(env: Bindings): Promise<VerifierConfig | null> {
   const production = env.TLSN_ENVIRONMENT === "production";
   const role = env.TLSN_DEPLOYMENT_ROLE;
@@ -1220,9 +1231,9 @@ async function readConfig(env: Bindings): Promise<VerifierConfig | null> {
     const sessionAuthoritySigningPrivateKeyBytes = decodeBase64Url(parsed.data.sessionAuthoritySigningPrivateKeyPkcs8, 4096);
     const bindingAuthoritySigningPrivateKeyBytes = decodeBase64Url(parsed.data.bindingAuthoritySigningPrivateKeyPkcs8, 4096);
     if (
-      !await privateKeyMatchesPublicKey(sessionAuthoritySigningPrivateKeyBytes, parsed.data.sessionAuthorityPublicKeySpki) ||
-      !await privateKeyMatchesPublicKey(bindingAuthoritySigningPrivateKeyBytes, parsed.data.bindingAuthorityPublicKeySpki) ||
-      (production && !await privateKeyMatchesPublicKey(resultSigningPrivateKeyBytes, parsed.data.resultPublicKeySpki ?? ""))
+      !await cachedPrivateKeyMatchesPublicKey(sessionAuthoritySigningPrivateKeyBytes, parsed.data.sessionAuthorityPublicKeySpki) ||
+      !await cachedPrivateKeyMatchesPublicKey(bindingAuthoritySigningPrivateKeyBytes, parsed.data.bindingAuthorityPublicKeySpki) ||
+      (production && !await cachedPrivateKeyMatchesPublicKey(resultSigningPrivateKeyBytes, parsed.data.resultPublicKeySpki ?? ""))
     ) {
       return null;
     }
