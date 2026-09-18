@@ -19,6 +19,10 @@ import {
   attestationSessionReceiptSigningBytes,
 } from "./attestation_receipts.js";
 import {
+  PrivateKeyValidationCache,
+  type PrivateKeyValidationObservation,
+} from "./private_key_validation_cache.js";
+import {
   verificationCallbackSchema,
   verificationFinalResponseSchema,
   verificationInputRequestSchema,
@@ -574,6 +578,34 @@ function benchmarkIncrementDiagnostic(env: Bindings, jobId: string, name: string
   record.updated_at = Date.now();
 }
 
+function benchmarkConfigValidation(
+  env: Bindings,
+  jobId: string,
+  observations: ReadonlyArray<PrivateKeyValidationObservation>,
+  source: "request" | "callback",
+): void {
+  if (observations.length === 0) return;
+  benchmarkDuration(
+    env,
+    jobId,
+    `config_validation_${source}`,
+    observations.reduce((total, observation) => total + observation.elapsedMilliseconds, 0),
+  );
+  for (const observation of observations) {
+    benchmarkIncrementDiagnostic(env, jobId, `config_validation_${source}_count`);
+    benchmarkIncrementDiagnostic(
+      env,
+      jobId,
+      observation.cacheHit
+        ? `config_validation_${source}_cache_hit_count`
+        : `config_validation_${source}_cache_miss_count`,
+    );
+    if (observation.concurrentDeduplication) {
+      benchmarkIncrementDiagnostic(env, jobId, `config_validation_${source}_concurrent_dedup_count`);
+    }
+  }
+}
+
 function benchmarkR2Operation(env: Bindings, jobId: string, operation: string): void {
   if (!benchmarkEnabled(env)) return;
   const persistence = benchmarkPersistences.get(jobId);
@@ -971,45 +1003,15 @@ function isPublicKeyBase64Url(value: string | undefined): boolean {
   return typeof value === "string" && /^[A-Za-z0-9_-]{59}$/.test(value);
 }
 
-async function privateKeyMatchesPublicKey(privateKeyBytes: Uint8Array, publicKeySpki: string): Promise<boolean> {
-  try {
-    const privateKey = await crypto.subtle.importKey(
-      "pkcs8",
-      privateKeyBytes,
-      { name: "Ed25519" },
-      false,
-      ["sign"],
-    );
-    const publicKey = await crypto.subtle.importKey(
-      "spki",
-      decodeBase64Url(publicKeySpki, 4096),
-      { name: "Ed25519" },
-      false,
-      ["verify"],
-    );
-    const probe = new TextEncoder().encode("FUSOU-TLSN-AUTHORITY-KEY-CHECK-V1");
-    const signature = await crypto.subtle.sign({ name: "Ed25519" }, privateKey, probe);
-    return await crypto.subtle.verify({ name: "Ed25519" }, publicKey, signature, probe);
-  } catch {
-    return false;
-  }
-}
+const privateKeyMatchCache = new PrivateKeyValidationCache();
 
-const privateKeyMatchCache = new Map<string, Promise<boolean>>();
+type ConfigValidationObserver = (observation: PrivateKeyValidationObservation) => void;
 
-function cachedPrivateKeyMatchesPublicKey(privateKeyBytes: Uint8Array, publicKeySpki: string): Promise<boolean> {
-  const cacheKey = `${encodeBase64Url(privateKeyBytes)}:${publicKeySpki}`;
-  const cached = privateKeyMatchCache.get(cacheKey);
-  if (cached) return cached;
-  const result = privateKeyMatchesPublicKey(privateKeyBytes, publicKeySpki);
-  privateKeyMatchCache.set(cacheKey, result);
-  return result;
-}
-
-async function readConfig(env: Bindings): Promise<VerifierConfig | null> {
+async function readConfig(env: Bindings, onValidation?: ConfigValidationObserver): Promise<VerifierConfig | null> {
   const production = env.TLSN_ENVIRONMENT === "production";
   const role = env.TLSN_DEPLOYMENT_ROLE;
   const canary = production && role === "canary";
+  const configScope = `${env.TLSN_ENVIRONMENT}:${role ?? "default"}`;
   const signingPrivateKey = production
     ? canary ? env.TLSN_CANARY_RESULT_SIGNING_PRIVATE_KEY_PKCS8 : env.TLSN_PRODUCTION_RESULT_SIGNING_PRIVATE_KEY_PKCS8
     : env.TLSN_RESULT_SIGNING_PRIVATE_KEY_PKCS8;
@@ -1230,10 +1232,23 @@ async function readConfig(env: Bindings): Promise<VerifierConfig | null> {
     const resultSigningPrivateKeyBytes = decodeBase64Url(parsed.data.resultSigningPrivateKeyPkcs8, 4096);
     const sessionAuthoritySigningPrivateKeyBytes = decodeBase64Url(parsed.data.sessionAuthoritySigningPrivateKeyPkcs8, 4096);
     const bindingAuthoritySigningPrivateKeyBytes = decodeBase64Url(parsed.data.bindingAuthoritySigningPrivateKeyPkcs8, 4096);
+    const validateKeyPair = async (
+      privateKeyBytes: Uint8Array,
+      publicKeySpki: string,
+      authorityScope: string,
+    ): Promise<boolean> => {
+      const observation = await privateKeyMatchCache.validate(
+        privateKeyBytes,
+        publicKeySpki,
+        `${configScope}:${authorityScope}`,
+      );
+      onValidation?.(observation);
+      return observation.valid;
+    };
     if (
-      !await cachedPrivateKeyMatchesPublicKey(sessionAuthoritySigningPrivateKeyBytes, parsed.data.sessionAuthorityPublicKeySpki) ||
-      !await cachedPrivateKeyMatchesPublicKey(bindingAuthoritySigningPrivateKeyBytes, parsed.data.bindingAuthorityPublicKeySpki) ||
-      (production && !await cachedPrivateKeyMatchesPublicKey(resultSigningPrivateKeyBytes, parsed.data.resultPublicKeySpki ?? ""))
+      !await validateKeyPair(sessionAuthoritySigningPrivateKeyBytes, parsed.data.sessionAuthorityPublicKeySpki, "session-authority") ||
+      !await validateKeyPair(bindingAuthoritySigningPrivateKeyBytes, parsed.data.bindingAuthorityPublicKeySpki, "binding-authority") ||
+      (production && !await validateKeyPair(resultSigningPrivateKeyBytes, parsed.data.resultPublicKeySpki ?? "", "result-signer"))
     ) {
       return null;
     }
@@ -2383,7 +2398,8 @@ async function completeVerification(
   const directCallbackEntryToLeaseStartedAt = executionMode === "direct" && benchmarkEnabled(c.env)
     ? directCallbackEntryStartedAt ?? performance.now()
     : null;
-  const config = await readConfig(c.env);
+  const configValidationObservations: PrivateKeyValidationObservation[] = [];
+  const config = await readConfig(c.env, (observation) => configValidationObservations.push(observation));
   if (!config) {
     return c.json({ error: "verifier_unconfigured" }, 503);
   }
@@ -2396,6 +2412,7 @@ async function completeVerification(
     callback.benchmark_trace_id,
     executionMode,
   );
+  benchmarkConfigValidation(c.env, callback.job_id, configValidationObservations, "callback");
   if (executionMode === "queue") benchmarkRecord(c.env, callback.job_id, "queue_completion_entered");
   if (executionMode === "direct" && executionStartedAt !== undefined) {
     benchmarkRecord(c.env, callback.job_id, "t3_direct_execution_started", executionStartedAt);
@@ -3264,7 +3281,8 @@ app.post("/verify/tlsn/retry", async (c) => {
 });
 
 const handleTlsnVerification = async (c: Context<{ Bindings: Bindings }>) => {
-  const config = await readConfig(c.env);
+  const configValidationObservations: PrivateKeyValidationObservation[] = [];
+  const config = await readConfig(c.env, (observation) => configValidationObservations.push(observation));
   if (!config) {
     return c.json({ error: "verifier_unconfigured" }, 503);
   }
@@ -3434,6 +3452,7 @@ const handleTlsnVerification = async (c: Context<{ Bindings: Bindings }>) => {
       benchmarkTraceId,
       queue ? "queue" : direct ? "direct" : "trigger",
     );
+    benchmarkConfigValidation(c.env, jobId, configValidationObservations, "request");
     benchmarkDiagnostic(c.env, jobId, "profile", sparseProfile ? "sparse" : "complete");
     benchmarkDiagnostic(c.env, jobId, "input_source", direct ? "direct" : "r2");
     benchmarkDuration(c.env, jobId, "request_authentication", requestAuthenticationMilliseconds ?? Number.NaN);

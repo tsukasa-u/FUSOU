@@ -640,6 +640,7 @@ function summarize(samples, field) {
 
 function summarizePhases(samples) {
   return {
+    config_validation: summarize(samples, "configValidationMilliseconds"),
     session_issuance: summarize(samples, "sessionIssuanceMilliseconds"),
     session_config: summarize(samples, "sessionConfigMilliseconds"),
     session_authority: summarize(samples, "sessionAuthorityMilliseconds"),
@@ -706,6 +707,19 @@ function summarizePhases(samples) {
     status_polling: summarize(samples, "statusPollingMilliseconds"),
     synchronous_response: summarize(samples, "synchronousResponseMilliseconds"),
     client_visible: summarize(samples, "clientVisibleMilliseconds"),
+  };
+}
+
+function summarizeConfigValidation(samples) {
+  const sumDiagnostic = (...names) => names.reduce((total, name) => total + samples.reduce(
+    (sampleTotal, sample) => sampleTotal + (Number.isFinite(sample.diagnostics?.[name]) ? sample.diagnostics[name] : 0),
+    0,
+  ), 0);
+  return {
+    validation_count: sumDiagnostic("config_validation_request_count", "config_validation_callback_count"),
+    cache_hit_count: sumDiagnostic("config_validation_request_cache_hit_count", "config_validation_callback_cache_hit_count"),
+    cache_miss_count: sumDiagnostic("config_validation_request_cache_miss_count", "config_validation_callback_cache_miss_count"),
+    concurrent_dedup_count: sumDiagnostic("config_validation_request_concurrent_dedup_count", "config_validation_callback_concurrent_dedup_count"),
   };
 }
 
@@ -1008,6 +1022,9 @@ async function runBatch({ workerOrigin, webOrigin, accessToken, userId, device, 
         requestStartVerificationMilliseconds: Number.isFinite(durations.request_start_verification) ? durations.request_start_verification : null,
         requestDirectDispatchMilliseconds: Number.isFinite(durations.request_direct_dispatch) ? durations.request_direct_dispatch : null,
         sessionIssuanceMilliseconds: sessionMeasurements[index].milliseconds,
+        configValidationMilliseconds: Number.isFinite(durations.config_validation_request) || Number.isFinite(durations.config_validation_callback)
+          ? (durations.config_validation_request ?? 0) + (durations.config_validation_callback ?? 0)
+          : null,
         sessionConfigMilliseconds: sessionMeasurements[index].configMilliseconds,
         sessionAuthorityMilliseconds: sessionMeasurements[index].authorityMilliseconds,
         sessionBindingMilliseconds: sessionMeasurements[index].bindingMilliseconds,
@@ -1206,6 +1223,7 @@ async function runBatch({ workerOrigin, webOrigin, accessToken, userId, device, 
       client_response_bytes: summarize(samples, "clientResponseBytes"),
     },
     phases: summarizePhases(samples),
+    config_validation: summarizeConfigValidation(samples),
     resource_observations: summarizeResourceObservations(samples),
     cold_start_observation: samples.filter((sample) => sample.sample_index === 0).length,
     warm_observation_count: samples.filter((sample) => sample.sample_index > 0).length,

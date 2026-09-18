@@ -1463,6 +1463,22 @@ async function runDirectFailureSmokeTest() {
         assert.equal(Number.isFinite(directTiming?.durations?.request_direct_dispatch), true, `${scenarioMode} missing request_direct_dispatch`);
         assert.equal(Number.isFinite(directTiming?.durations?.direct_synchronous_response), true, `${scenarioMode} missing direct_synchronous_response`);
       }
+      if (scenarioMode === "success" || scenarioMode === "race" || synchronousCandidate) {
+        const configValidationMilliseconds = (directTiming?.durations?.config_validation_request ?? 0)
+          + (directTiming?.durations?.config_validation_callback ?? 0);
+        assert.equal(Number.isFinite(configValidationMilliseconds) && configValidationMilliseconds >= 0, true, `${scenarioMode} missing config_validation durations=${JSON.stringify(directTiming?.durations ?? {})} diagnostics=${JSON.stringify(directTiming?.diagnostics ?? {})}`);
+        const configValidationCount = (directTiming?.diagnostics?.config_validation_request_count ?? 0)
+          + (directTiming?.diagnostics?.config_validation_callback_count ?? 0);
+        const configValidationHits = (directTiming?.diagnostics?.config_validation_request_cache_hit_count ?? 0)
+          + (directTiming?.diagnostics?.config_validation_callback_cache_hit_count ?? 0);
+        const configValidationMisses = (directTiming?.diagnostics?.config_validation_request_cache_miss_count ?? 0)
+          + (directTiming?.diagnostics?.config_validation_callback_cache_miss_count ?? 0);
+        assert.equal(Number.isInteger(configValidationCount) && configValidationCount > 0, true);
+        assert.equal(configValidationHits + configValidationMisses, configValidationCount);
+        assert.equal(typeof directTiming?.job_id, "undefined");
+        assert.equal(typeof directTiming?.trace_id, "undefined");
+        assert.equal(JSON.stringify(directTiming).includes(signingPrivateKeyPkcs8), false);
+      }
       assert.equal(directTiming?.do_operations?.lookup_binding ?? 0, 0);
       assert.equal(directTiming?.r2_operations?.input_put ?? 0, 0);
       assert.equal(directTiming?.r2_operations?.trigger_input_get ?? 0, 0);
