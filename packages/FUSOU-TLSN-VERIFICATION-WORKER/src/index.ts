@@ -3,10 +3,12 @@ import { z } from "zod";
 import {
   BindingAuthorityError,
   type CommitVerifiedResultInput,
+  type ConsumedVerificationReplayInput,
   DurableObjectBindingAuthority,
   TlsnBindingAuthorityDurableObject,
   encodeBase64Url,
   hashBindingId,
+  parseBindingValue,
   type BindingRecord,
   type BenchmarkTimingRecord as DurableBenchmarkTimingRecord,
   type VerificationFailureCode,
@@ -684,15 +686,9 @@ type AuthoritativeVerificationResult = {
   value: z.infer<typeof verificationFinalResponseSchema>;
 };
 
-async function readAuthoritativeVerificationResult(
-  authority: DurableObjectBindingAuthority,
-  bindingId: string,
-  input: VerificationResultLookupInput,
-): Promise<AuthoritativeVerificationResult | null> {
-  const storedResult = await authority.getConsumedVerificationResult(bindingId, input);
-  if (!storedResult || storedResult.bytes.byteLength > MAX_RESULT_OBJECT_BYTES) return null;
+function parseAuthoritativeVerificationResultBytes(bytes: Uint8Array): AuthoritativeVerificationResult | null {
+  if (bytes.byteLength > MAX_RESULT_OBJECT_BYTES) return null;
   try {
-    const bytes = storedResult.bytes;
     const body = new TextDecoder("utf-8", { fatal: true, ignoreBOM: false }).decode(bytes);
     return {
       bytes,
@@ -701,6 +697,15 @@ async function readAuthoritativeVerificationResult(
   } catch {
     return null;
   }
+}
+
+async function readAuthoritativeVerificationResult(
+  authority: DurableObjectBindingAuthority,
+  bindingId: string,
+  input: VerificationResultLookupInput,
+): Promise<AuthoritativeVerificationResult | null> {
+  const storedResult = await authority.getConsumedVerificationResult(bindingId, input);
+  return storedResult ? parseAuthoritativeVerificationResultBytes(storedResult.bytes) : null;
 }
 
 function testBindingValueForRequest(env: Bindings, request: Request): string | undefined {
@@ -750,6 +755,77 @@ async function applyTestReplayResultFault(
     fault,
     now: Date.now(),
   });
+}
+
+async function replayConsumedVerificationResult(
+  c: Context<{ Bindings: Bindings }>,
+  authority: DurableObjectBindingAuthority,
+  bindingValue: string,
+  input: ConsumedVerificationReplayInput,
+  replayFault: TestReplayResultFault | undefined,
+): Promise<Response | null> {
+  let storedResult;
+  try {
+    storedResult = await authority.getConsumedVerificationResultForReplay(bindingValue, input);
+  } catch (error) {
+    if (error instanceof BindingAuthorityError && error.code === "verification_result_mismatch") {
+      return c.json({ verified: false, error: error.code }, 422);
+    }
+    return c.json({ verified: false, error: "verification_result_unavailable" }, 503);
+  }
+  if (!storedResult || !storedResult.record.verification_job_id) return null;
+
+  const replayJobId = storedResult.record.verification_job_id;
+  if (benchmarkEnabled(c.env)) {
+    await benchmarkRegisterFromCallback(
+      c.env,
+      replayJobId,
+      authority,
+      storedResult.record.binding_id,
+      undefined,
+      "direct",
+    );
+    benchmarkIncrementDiagnostic(c.env, replayJobId, "synchronous_replay_count");
+    benchmarkDiagnostic(c.env, replayJobId, "synchronous_replay_path", "established");
+    benchmarkDOOperation(c.env, replayJobId, "replay_result_read");
+  }
+
+  let authoritativeResult = parseAuthoritativeVerificationResultBytes(storedResult.bytes);
+  if (replayFault) {
+    await applyTestReplayResultFault(
+      authority,
+      storedResult.record.binding_id,
+      storedResult.record,
+      replayFault,
+    );
+    authoritativeResult = await readAuthoritativeVerificationResult(authority, storedResult.record.binding_id, {
+      session_id: input.session_id,
+      canonical_user_id: input.canonical_user_id,
+      device_id: input.device_id,
+      verification_job_id: replayJobId,
+      ...(storedResult.record.result_sha256 ? { result_sha256: storedResult.record.result_sha256 } : {}),
+      ...(storedResult.record.result_object_key ? { result_object_key: storedResult.record.result_object_key } : {}),
+      now: Date.now(),
+    }).catch(() => null);
+  }
+  if (!authoritativeResult) {
+    return c.json({ verified: false, error: "verification_result_unavailable" }, 503);
+  }
+  if (benchmarkEnabled(c.env)) {
+    await benchmarkFlush(c.env, replayJobId);
+  }
+  const headers = new Headers({
+    "Cache-Control": "no-store",
+    "Content-Type": "application/json",
+  });
+  if (benchmarkEnabled(c.env)) {
+    const timingHeader = await benchmarkTimingHeaderValue(c.env, replayJobId);
+    if (timingHeader) headers.set("X-FUSOU-TLSN-Benchmark-Timing", timingHeader);
+    headers.set("X-FUSOU-TLSN-Test-Job-Id", replayJobId);
+    const replayPersistence = benchmarkPersistences.get(replayJobId);
+    if (replayPersistence) headers.set("X-FUSOU-TLSN-Test-Benchmark-Trace-Id", replayPersistence.traceId);
+  }
+  return new Response(authoritativeResult.bytes, { status: 200, headers });
 }
 
 async function delayTestCompletion(env: Bindings): Promise<void> {
@@ -1621,6 +1697,18 @@ function testTlsnDeviceProofMessage(proof: {
     offset += chunk.length;
   }
   return message;
+}
+
+async function deviceProofReplayDigestHex(proof: {
+  device_id: string;
+  session_id: string;
+  binding_value: string;
+  challenge: string;
+}): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", testTlsnDeviceProofMessage(proof));
+  return Array.from(new Uint8Array(digest))
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
 }
 
 async function authenticateTestDeviceProof(
@@ -3108,22 +3196,11 @@ const handleTlsnVerification = async (c: Context<{ Bindings: Bindings }>) => {
     }
 
     const authority = new DurableObjectBindingAuthority(c.env.TLSN_BINDINGS);
-    let issuedBinding;
+    let bindingParts: ReturnType<typeof parseBindingValue>;
     try {
-      issuedBinding = await authority.lookupBinding(
-        requestBody.session_id,
-        requestBody.binding,
-        authentication.canonicalUserId,
-        requestBody.device_id,
-        Date.now(),
-        { allow_consumed: synchronousDirect },
-      );
-    } catch (error) {
-      const message = error instanceof BindingAuthorityError ? error.code : "binding_unknown";
-      return c.json({ verified: false, error: message }, bindingAuthorityStatus(error));
-    }
-    if (requestBody.device_proof.challenge !== issuedBinding.tlsn_device_challenge) {
-      return c.json({ verified: false, error: "device_challenge_mismatch" }, 409);
+      bindingParts = parseBindingValue(requestBody.binding);
+    } catch {
+      return c.json({ verified: false, error: "binding_mismatch" }, 422);
     }
 
     let deviceChallengeBytes: Uint8Array;
@@ -3137,24 +3214,59 @@ const handleTlsnVerification = async (c: Context<{ Bindings: Bindings }>) => {
     }
 
     const devicePossessionProof = {
-      device_id: issuedBinding.device_id,
-      session_id: issuedBinding.session_id,
-      binding_value: issuedBinding.binding_value,
+      device_id: requestBody.device_id,
+      session_id: requestBody.session_id,
+      binding_value: requestBody.binding,
       challenge: requestBody.device_proof.challenge,
       sig: requestBody.device_proof.sig,
     };
-    const expectedReplayDigestHex = synchronousDirect && issuedBinding.status === "consumed"
-      ? issuedBinding.device_replay_digest_hex
-      : undefined;
     const devicePossession = testDeviceAuthenticationEnabled(c.env)
-      ? await authenticateTestTlsnDeviceProof(authentication, devicePossessionProof, c.env, expectedReplayDigestHex)
-      : await authenticateTlsnDeviceProof(authentication, devicePossessionProof, config.devicePossessionAuthUrl, expectedReplayDigestHex);
+      ? await authenticateTestTlsnDeviceProof(authentication, devicePossessionProof, c.env)
+      : await authenticateTlsnDeviceProof(authentication, devicePossessionProof, config.devicePossessionAuthUrl);
     if (!devicePossession.ok) {
+      if (synchronousDirect && devicePossession.error === "device_possession_replayed") {
+        const replayPresentationId = encodeBase64Url(
+          new Uint8Array(await crypto.subtle.digest("SHA-256", presentationBytes)),
+        );
+        const replayDigestHex = await deviceProofReplayDigestHex(devicePossessionProof).catch(() => null);
+        if (replayDigestHex) {
+          const replayResponse = await replayConsumedVerificationResult(c, authority, requestBody.binding, {
+            session_id: requestBody.session_id,
+            canonical_user_id: authentication.canonicalUserId,
+            device_id: requestBody.device_id,
+            binding_value: requestBody.binding,
+            tlsn_device_challenge: requestBody.device_proof.challenge,
+            presentation_id: replayPresentationId,
+            verification_profile: sparseProfile ? "sparse" : "complete",
+            device_replay_digest_hex: replayDigestHex,
+            now: Date.now(),
+          }, testReplayResultFaultForRequest(c.env, c.req.raw));
+          if (replayResponse) return replayResponse;
+        }
+      }
+      if (devicePossession.error === "device_possession_replayed") {
+        try {
+          const replayBinding = await authority.lookupBinding(
+            requestBody.session_id,
+            requestBody.binding,
+            authentication.canonicalUserId,
+            requestBody.device_id,
+            Date.now(),
+            { allow_consumed: true },
+          );
+          if (!synchronousDirect && replayBinding.status === "consumed") {
+            return c.json({ verified: false, error: "binding_consumed" }, 409);
+          }
+        } catch (error) {
+          if (error instanceof BindingAuthorityError && error.code === "verification_failed") {
+            return c.json({ verified: false, error: "verification_failed" }, 422);
+          }
+        }
+      }
       return c.json({ verified: false, error: devicePossession.error }, devicePossession.status);
     }
     if (
       devicePossession.canonicalUserId !== authentication.canonicalUserId ||
-      devicePossession.deviceId !== issuedBinding.device_id ||
       devicePossession.deviceId !== requestBody.device_id
     ) {
       return c.json({ verified: false, error: "device_possession_owner_mismatch" }, 403);
@@ -3163,67 +3275,6 @@ const handleTlsnVerification = async (c: Context<{ Bindings: Bindings }>) => {
     const presentationId = encodeBase64Url(
       new Uint8Array(await crypto.subtle.digest("SHA-256", presentationBytes)),
     );
-    if (issuedBinding.status === "consumed") {
-      if (
-        !synchronousDirect ||
-        issuedBinding.presentation_id !== presentationId ||
-        (issuedBinding.verification_profile ?? "complete") !== (sparseProfile ? "sparse" : "complete") ||
-        !issuedBinding.result_object_key ||
-        !issuedBinding.result_sha256 ||
-        !issuedBinding.device_replay_digest_hex ||
-        devicePossession.replayDigestHex !== issuedBinding.device_replay_digest_hex
-      ) {
-        return c.json({ verified: false, error: "verification_result_mismatch" }, 422);
-      }
-      const replayJobId = issuedBinding.verification_job_id;
-      if (!replayJobId) {
-        return c.json({ verified: false, error: "verification_result_mismatch" }, 422);
-      }
-      if (benchmarkEnabled(c.env)) {
-        await benchmarkRegisterFromCallback(
-          c.env,
-          replayJobId,
-          authority,
-          issuedBinding.binding_id,
-          undefined,
-          "direct",
-        );
-        benchmarkIncrementDiagnostic(c.env, replayJobId, "synchronous_replay_count");
-        benchmarkDiagnostic(c.env, replayJobId, "synchronous_replay_path", "established");
-        benchmarkDOOperation(c.env, replayJobId, "result_read");
-      }
-      const replayFault = testReplayResultFaultForRequest(c.env, c.req.raw);
-      if (replayFault) {
-        await applyTestReplayResultFault(authority, issuedBinding.binding_id, issuedBinding, replayFault);
-      }
-      const authoritativeResult = await readAuthoritativeVerificationResult(authority, issuedBinding.binding_id, {
-        session_id: issuedBinding.session_id,
-        canonical_user_id: authentication.canonicalUserId,
-        device_id: issuedBinding.device_id,
-        verification_job_id: replayJobId,
-        result_sha256: issuedBinding.result_sha256,
-        result_object_key: issuedBinding.result_object_key,
-        now: Date.now(),
-      }).catch(() => null);
-      if (!authoritativeResult) {
-        return c.json({ verified: false, error: "verification_result_unavailable" }, 503);
-      }
-      if (benchmarkEnabled(c.env)) {
-        await benchmarkFlush(c.env, replayJobId);
-      }
-      const headers = new Headers({
-        "Cache-Control": "no-store",
-        "Content-Type": "application/json",
-      });
-      if (benchmarkEnabled(c.env)) {
-        const timingHeader = await benchmarkTimingHeaderValue(c.env, replayJobId);
-        if (timingHeader) headers.set("X-FUSOU-TLSN-Benchmark-Timing", timingHeader);
-        headers.set("X-FUSOU-TLSN-Test-Job-Id", replayJobId);
-        const replayPersistence = benchmarkPersistences.get(replayJobId);
-        if (replayPersistence) headers.set("X-FUSOU-TLSN-Test-Benchmark-Trace-Id", replayPersistence.traceId);
-      }
-      return new Response(authoritativeResult.bytes, { status: 200, headers });
-    }
     const jobId = crypto.randomUUID();
     const directVerificationAttemptId = direct ? crypto.randomUUID() : undefined;
     const benchmarkTraceId = benchmarkEnabled(c.env) ? crypto.randomUUID() : undefined;
@@ -3244,9 +3295,9 @@ const handleTlsnVerification = async (c: Context<{ Bindings: Bindings }>) => {
     const payload = verificationTaskPayloadSchema.parse({
       job_id: jobId,
       binding_id: bindingId,
-      session_id: issuedBinding.session_id,
+      session_id: requestBody.session_id,
       canonical_user_id: authentication.canonicalUserId,
-      device_id: issuedBinding.device_id,
+      device_id: requestBody.device_id,
       device_challenge: requestBody.device_proof.challenge,
       verification_input_source: direct ? "direct" : "r2",
       ...(verificationInputKey ? { verification_input_key: verificationInputKey } : {}),
@@ -3265,11 +3316,12 @@ const handleTlsnVerification = async (c: Context<{ Bindings: Bindings }>) => {
       }
       benchmarkDOOperation(c.env, jobId, "start_verification");
       await authority.startVerification(requestBody.binding, {
-        session_id: issuedBinding.session_id,
+        session_id: requestBody.session_id,
         canonical_user_id: authentication.canonicalUserId,
-        device_id: issuedBinding.device_id,
-        binding_value: issuedBinding.binding_value,
-        nonce: issuedBinding.nonce,
+        device_id: requestBody.device_id,
+        binding_value: requestBody.binding,
+        nonce: bindingParts.nonce,
+        tlsn_device_challenge: requestBody.device_proof.challenge,
         presentation_id: presentationId,
         verification_job_id: jobId,
         verification_input_source: direct ? "direct" : "r2",
@@ -3281,9 +3333,12 @@ const handleTlsnVerification = async (c: Context<{ Bindings: Bindings }>) => {
         now: Date.now(),
       });
       if (direct) benchmarkRecord(c.env, jobId, "t1_direct_input_bound");
-    } catch {
+    } catch (error) {
       if (verificationInputKey) {
         await c.env.TLSN_PRESENTATIONS.delete(verificationInputKey).catch(() => undefined);
+      }
+      if (error instanceof BindingAuthorityError) {
+        return c.json({ verified: false, error: error.code, job_id: jobId }, bindingAuthorityStatus(error));
       }
       return c.json({ verified: false, error: "trigger_unavailable", job_id: jobId }, 503);
     }
@@ -3383,9 +3438,9 @@ const handleTlsnVerification = async (c: Context<{ Bindings: Bindings }>) => {
   }
 
   const authority = new DurableObjectBindingAuthority(c.env.TLSN_BINDINGS);
-  let issuedBinding;
+  let fallbackBinding: BindingRecord;
   try {
-    issuedBinding = await authority.lookupBinding(
+    fallbackBinding = await authority.lookupBinding(
       requestBody.session_id,
       requestBody.binding,
       authentication.canonicalUserId,
@@ -3396,14 +3451,21 @@ const handleTlsnVerification = async (c: Context<{ Bindings: Bindings }>) => {
     const message = error instanceof BindingAuthorityError ? error.code : "binding_unknown";
     return c.json({ verified: false, error: message }, bindingAuthorityStatus(error));
   }
+  if (requestBody.device_proof.challenge !== fallbackBinding.tlsn_device_challenge) {
+    return c.json({ verified: false, error: "device_challenge_mismatch" }, 409);
+  }
+  let bindingParts: ReturnType<typeof parseBindingValue>;
+  try {
+    bindingParts = parseBindingValue(requestBody.binding);
+  } catch {
+    return c.json({ verified: false, error: "binding_mismatch" }, 422);
+  }
 
   const synchronousJobId = crypto.randomUUID();
   const synchronousAttemptId = crypto.randomUUID();
   const synchronousResultKey = verificationObjectKey(synchronousJobId, "result");
+  const synchronousBindingId = await hashBindingId(requestBody.binding);
 
-  if (requestBody.device_proof.challenge !== issuedBinding.tlsn_device_challenge) {
-    return c.json({ verified: false, error: "device_challenge_mismatch" }, 409);
-  }
   let deviceChallengeBytes: Uint8Array;
   try {
     deviceChallengeBytes = decodeBase64Url(requestBody.device_proof.challenge, 32);
@@ -3433,34 +3495,30 @@ const handleTlsnVerification = async (c: Context<{ Bindings: Bindings }>) => {
       JSON.parse(prepared.unsigned_result) as unknown,
     );
     if (
-      authenticatedResult.attestation_session_id !== issuedBinding.session_id ||
       authenticatedResult.attestation_session_id !== requestBody.session_id ||
       authenticatedResult.canonical_user_id !== authentication.canonicalUserId ||
       authenticatedResult.device_id !== requestBody.device_id ||
       authenticatedResult.device_challenge !== requestBody.device_proof.challenge ||
-      authenticatedResult.binding_nonce !== issuedBinding.nonce ||
-      authenticatedResult.binding_value !== issuedBinding.binding_value ||
+      authenticatedResult.binding_nonce !== bindingParts.nonce ||
       authenticatedResult.binding_value !== requestBody.binding
     ) {
       return c.json({ verified: false, error: "binding_mismatch" }, 422);
     }
-    const devicePossession = await authenticateTlsnDeviceProof(
-      authentication,
-      {
-        device_id: issuedBinding.device_id,
-        session_id: issuedBinding.session_id,
-        binding_value: issuedBinding.binding_value,
-        challenge: requestBody.device_proof.challenge,
-        sig: requestBody.device_proof.sig,
-      },
-      config.devicePossessionAuthUrl,
-    );
+    const devicePossessionProof = {
+      device_id: requestBody.device_id,
+      session_id: requestBody.session_id,
+      binding_value: requestBody.binding,
+      challenge: requestBody.device_proof.challenge,
+      sig: requestBody.device_proof.sig,
+    };
+    const devicePossession = testDeviceAuthenticationEnabled(c.env)
+      ? await authenticateTestTlsnDeviceProof(authentication, devicePossessionProof, c.env)
+      : await authenticateTlsnDeviceProof(authentication, devicePossessionProof, config.devicePossessionAuthUrl);
     if (!devicePossession.ok) {
       return c.json({ verified: false, error: devicePossession.error }, devicePossession.status);
     }
     if (
       devicePossession.canonicalUserId !== authentication.canonicalUserId ||
-      devicePossession.deviceId !== issuedBinding.device_id ||
       devicePossession.deviceId !== requestBody.device_id
     ) {
       return c.json({ verified: false, error: "device_possession_owner_mismatch" }, 403);
@@ -3470,11 +3528,12 @@ const handleTlsnVerification = async (c: Context<{ Bindings: Bindings }>) => {
     );
     benchmarkDOOperation(c.env, synchronousJobId, "start_verification");
     await authority.startVerification(requestBody.binding, {
-      session_id: issuedBinding.session_id,
+      session_id: requestBody.session_id,
       canonical_user_id: authentication.canonicalUserId,
-      device_id: issuedBinding.device_id,
-      binding_value: issuedBinding.binding_value,
-      nonce: issuedBinding.nonce,
+      device_id: requestBody.device_id,
+      binding_value: requestBody.binding,
+      nonce: bindingParts.nonce,
+      tlsn_device_challenge: requestBody.device_proof.challenge,
       presentation_id: presentationId,
       verification_job_id: synchronousJobId,
       verification_input_source: "direct",
@@ -3485,10 +3544,10 @@ const handleTlsnVerification = async (c: Context<{ Bindings: Bindings }>) => {
       now: Date.now(),
     });
     benchmarkDOOperation(c.env, synchronousJobId, "acquire_verification");
-    await authority.acquireVerification(issuedBinding.binding_id, {
-      session_id: issuedBinding.session_id,
+    await authority.acquireVerification(synchronousBindingId, {
+      session_id: requestBody.session_id,
       canonical_user_id: authentication.canonicalUserId,
-      device_id: issuedBinding.device_id,
+      device_id: requestBody.device_id,
       verification_job_id: synchronousJobId,
       presentation_id: presentationId,
       verification_profile: sparseProfile ? "sparse" : "complete",
@@ -3514,11 +3573,11 @@ const handleTlsnVerification = async (c: Context<{ Bindings: Bindings }>) => {
     const signedResult = JSON.parse(signedResultJson) as Record<string, unknown>;
     const usedAt = new Date().toISOString();
     const consumeReceipt = await signConsumeReceipt(config, {
-      session_id: issuedBinding.session_id,
+      session_id: requestBody.session_id,
       canonical_user_id: authentication.canonicalUserId,
-      device_id: issuedBinding.device_id,
-      nonce: issuedBinding.nonce,
-      binding_value: issuedBinding.binding_value,
+      device_id: requestBody.device_id,
+      nonce: bindingParts.nonce,
+      binding_value: requestBody.binding,
       presentation_id: presentationId,
       used_at: usedAt,
     });
@@ -3536,12 +3595,12 @@ const handleTlsnVerification = async (c: Context<{ Bindings: Bindings }>) => {
       new Uint8Array(await crypto.subtle.digest("SHA-256", finalResponseBytes)),
     );
     benchmarkDOOperation(c.env, synchronousJobId, "commit_verified_result");
-    await authority.commitVerifiedResult(issuedBinding.binding_id, {
-      session_id: issuedBinding.session_id,
+    await authority.commitVerifiedResult(synchronousBindingId, {
+      session_id: requestBody.session_id,
       canonical_user_id: authentication.canonicalUserId,
-      device_id: issuedBinding.device_id,
-      binding_value: issuedBinding.binding_value,
-      nonce: issuedBinding.nonce,
+      device_id: requestBody.device_id,
+      binding_value: requestBody.binding,
+      nonce: bindingParts.nonce,
       presentation_id: presentationId,
       verification_attempt_id: synchronousAttemptId,
       verification_job_id: synchronousJobId,
@@ -3563,10 +3622,10 @@ const handleTlsnVerification = async (c: Context<{ Bindings: Bindings }>) => {
     return c.body(finalResponseBody, 200);
   } catch {
     await finalizeVerificationFailure(c.env, {
-      bindingId: issuedBinding.binding_id,
-      sessionId: issuedBinding.session_id,
+      bindingId: synchronousBindingId,
+      sessionId: requestBody.session_id,
       canonicalUserId: authentication.canonicalUserId,
-      deviceId: issuedBinding.device_id,
+      deviceId: requestBody.device_id,
       jobId: synchronousJobId,
       verificationAttemptId: synchronousAttemptId,
       failureCode: "verifier_failed",

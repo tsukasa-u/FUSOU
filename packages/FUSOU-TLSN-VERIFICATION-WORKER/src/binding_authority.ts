@@ -127,6 +127,18 @@ export type VerificationResultLookupInput = JobLookupInput & {
   result_object_key?: string;
 };
 
+export type ConsumedVerificationReplayInput = {
+  session_id: string;
+  canonical_user_id: string;
+  device_id: string;
+  binding_value: string;
+  tlsn_device_challenge: string;
+  presentation_id: string;
+  verification_profile: VerificationProfile;
+  device_replay_digest_hex: string;
+  now: number;
+};
+
 export type ConsumedVerificationResult = {
   record: BindingRecord;
   bytes: Uint8Array;
@@ -143,6 +155,7 @@ type TestResultFaultInput = VerificationResultLookupInput & {
 type RpcAuthorityStub = {
   commitVerifiedResult(input: CommitVerifiedResultInput): Promise<AuthorityResponse>;
   getConsumedVerificationResult(input: VerificationResultLookupInput): Promise<VerificationResultResponse>;
+  getConsumedVerificationResultForReplay(input: ConsumedVerificationReplayInput): Promise<VerificationResultResponse>;
   applyTestResultFault(input: TestResultFaultInput): Promise<AuthorityResponse>;
 };
 
@@ -152,6 +165,7 @@ type ClaimInput = {
   device_id: string;
   binding_value: string;
   nonce: string;
+  tlsn_device_challenge: string;
   presentation_id: string;
   verification_job_id: string;
   verification_input_key?: string;
@@ -379,6 +393,21 @@ export class DurableObjectBindingAuthority {
     try {
       const stub = this.namespace.getByName(bindingId) as unknown as RpcAuthorityStub;
       response = await stub.getConsumedVerificationResult(input);
+    } catch {
+      throw new BindingAuthorityError("authority_unavailable");
+    }
+    if (!response.ok) throw new BindingAuthorityError(response.error);
+    return response.result;
+  }
+
+  async getConsumedVerificationResultForReplay(
+    bindingValue: string,
+    input: ConsumedVerificationReplayInput,
+  ): Promise<ConsumedVerificationResult | null> {
+    let response: VerificationResultResponse;
+    try {
+      const stub = this.namespace.getByName(await hashBindingId(bindingValue)) as unknown as RpcAuthorityStub;
+      response = await stub.getConsumedVerificationResultForReplay(input);
     } catch {
       throw new BindingAuthorityError("authority_unavailable");
     }
@@ -889,6 +918,48 @@ export class TlsnBindingAuthorityDurableObject extends DurableObject {
       : { ok: false, error: "verification_result_unavailable" };
   }
 
+  async getConsumedVerificationResultForReplay(
+    input: ConsumedVerificationReplayInput,
+  ): Promise<VerificationResultResponse> {
+    let candidate: ConsumedVerificationResult | null = null;
+    let metadataMismatch = false;
+    await this.ctx.storage.transaction(async (transaction) => {
+      const record = await transaction.get<BindingRecord>("binding");
+      if (
+        !record ||
+        record.status !== "consumed" ||
+        record.session_id !== input.session_id ||
+        record.canonical_user_id !== input.canonical_user_id ||
+        record.device_id !== input.device_id ||
+        record.binding_value !== input.binding_value ||
+        !record.result_sha256 ||
+        !record.result_object_key
+      ) {
+        return;
+      }
+      if (
+        record.tlsn_device_challenge !== input.tlsn_device_challenge ||
+        record.presentation_id !== input.presentation_id ||
+        (record.verification_profile ?? "complete") !== input.verification_profile ||
+        record.device_replay_digest_hex !== input.device_replay_digest_hex
+      ) {
+        metadataMismatch = true;
+        return;
+      }
+      const bytes = await transaction.get<Uint8Array>(VERIFICATION_RESULT_STORAGE_KEY);
+      if (bytes instanceof Uint8Array) candidate = { record, bytes };
+    });
+    const resolvedCandidate = candidate as ConsumedVerificationResult | null;
+    if (metadataMismatch) return { ok: false, error: "verification_result_mismatch" };
+    if (!resolvedCandidate) return { ok: false, error: "verification_result_unavailable" };
+    const sha256 = encodeBase64Url(
+      new Uint8Array(await crypto.subtle.digest("SHA-256", resolvedCandidate.bytes)),
+    );
+    return sha256 === resolvedCandidate.record.result_sha256
+      ? { ok: true, result: resolvedCandidate }
+      : { ok: false, error: "verification_result_unavailable" };
+  }
+
   async applyTestResultFault(input: TestResultFaultInput): Promise<AuthorityResponse> {
     let result: AuthorityResponse = { ok: false, error: "binding_unknown" };
     await this.ctx.storage.transaction(async (transaction) => {
@@ -1210,6 +1281,10 @@ export class TlsnBindingAuthorityDurableObject extends DurableObject {
       }
       if (record.device_id !== input.device_id) {
         result = { ok: false, error: "device_mismatch" };
+        return;
+      }
+      if (record.tlsn_device_challenge !== input.tlsn_device_challenge) {
+        result = { ok: false, error: "verification_result_mismatch" };
         return;
       }
       if (record.binding_value !== input.binding_value || record.nonce !== input.nonce) {

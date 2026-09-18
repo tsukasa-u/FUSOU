@@ -208,6 +208,15 @@ recovery and checks that the first response performs no Result R2 GET. The
 normal Direct path remains `202` plus status polling, and the candidate is ignored outside
 `TLSN_ENVIRONMENT=test`.
 
+Fresh Direct requests no longer perform a preliminary Durable Object binding
+lookup. After device-possession authentication, the Worker sends the request
+metadata, parsed binding nonce, and TLSN device challenge directly to the
+authoritative `startVerification` transaction, reducing the ordinary synchronous
+success path to `startVerification`, `acquireVerification`, and
+`commitVerifiedResult`. A repeated synchronous Direct proof uses the dedicated
+consumed-Result replay RPC, which validates replay metadata and returns the exact
+Durable Object Result bytes without starting verification again.
+
 To measure recovery when the initial synchronous `200` is lost at the client
 boundary, enable the evidence-only benchmark mode with
 `TLSN_REMOTE_DIRECT_RESPONSE_LOSS_RECOVERY=true`. The harness completes the

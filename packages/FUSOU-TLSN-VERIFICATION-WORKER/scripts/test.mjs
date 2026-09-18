@@ -1382,6 +1382,7 @@ async function runDirectFailureSmokeTest() {
       }
       if (scenarioModes.length === 1) assert.equal(directCalls, 1);
       const directTiming = benchmarkTiming(synchronousCandidate ? verificationResponse : statusResponse);
+      assert.equal(directTiming?.do_operations?.lookup_binding ?? 0, 0);
       assert.equal(directTiming?.r2_operations?.input_put ?? 0, 0);
       assert.equal(directTiming?.r2_operations?.trigger_input_get ?? 0, 0);
       assert.equal(directTiming?.r2_operations?.worker_presentation_get ?? 0, 0);
@@ -1406,7 +1407,8 @@ async function runDirectFailureSmokeTest() {
         assert.equal(replayTiming?.do_operations?.start_verification, 1);
         assert.equal(replayTiming?.do_operations?.acquire_verification, 1);
         assert.equal(replayTiming?.do_operations?.commit_verified_result, 1);
-        assert.equal(replayTiming?.do_operations?.result_read, 2);
+        assert.equal(replayTiming?.do_operations?.result_read, 1);
+        assert.equal(replayTiming?.do_operations?.replay_result_read, 1);
         assert.equal(replayTiming?.r2_operations?.result_archive_put, 1);
         assert.equal(replayTiming?.r2_operations?.result_get ?? 0, 0);
         assert.equal(replayTiming?.r2_operations?.replay_result_get ?? 0, 0);

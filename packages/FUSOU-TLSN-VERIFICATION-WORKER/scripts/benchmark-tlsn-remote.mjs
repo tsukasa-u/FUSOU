@@ -418,7 +418,7 @@ async function replaySynchronousVerification(workerOrigin, accessToken, submissi
     timing?.do_operations?.start_verification !== 1 ||
     timing?.do_operations?.acquire_verification !== 1 ||
     timing?.do_operations?.commit_verified_result !== 1 ||
-    timing?.do_operations?.result_read !== 1 ||
+    timing?.do_operations?.replay_result_read !== 1 ||
     timing?.r2_operations?.result_archive_put !== 1 ||
     Object.keys(timing?.r2_operations ?? {}).some((operation) =>
       ["result_get", "status_result_get", "replay_result_get"].includes(operation),
@@ -808,6 +808,9 @@ async function runBatch({ workerOrigin, webOrigin, accessToken, userId, device, 
       const timestamps = timing?.timestamps ?? {};
       const durations = timing?.durations ?? {};
       const diagnostics = timing?.diagnostics ?? {};
+      if (executionMode === "direct" && (timing?.do_operations?.lookup_binding ?? 0) !== 0) {
+        throw new Error(`fresh Direct path performed lookup_binding: ${JSON.stringify(timing?.do_operations ?? {})}`);
+      }
       const t1Server = stageTimestamp(
         timing,
         synchronousCandidate ? "t0_accepted" : "t1_202_response_sent",
