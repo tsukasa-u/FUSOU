@@ -59,6 +59,18 @@ const publicKeyB = "public-key-b";
   let calls = 0;
   const cache = new PrivateKeyValidationCache(4, async () => {
     calls += 1;
+    return true;
+  });
+  await cache.validate(keyA, publicKeyA, "production:production");
+  const rotated = await cache.validate(keyB, publicKeyA, "production:production");
+  assert.equal(rotated.cacheHit, false);
+  assert.equal(calls, 2);
+}
+
+{
+  let calls = 0;
+  const cache = new PrivateKeyValidationCache(4, async () => {
+    calls += 1;
     if (calls === 1) throw new Error("transient validation failure");
     return true;
   });
@@ -102,7 +114,8 @@ const publicKeyB = "public-key-b";
   });
   await cache.validate(keyA, publicKeyA, "test:session");
   await cache.validate(keyA, publicKeyA, "production:canary");
-  assert.equal(calls, 2);
+  await cache.validate(keyA, publicKeyA, "production:production");
+  assert.equal(calls, 3);
 }
 
 console.log("private key validation cache tests passed");

@@ -1467,14 +1467,47 @@ async function runDirectFailureSmokeTest() {
         const configValidationMilliseconds = (directTiming?.durations?.config_validation_request ?? 0)
           + (directTiming?.durations?.config_validation_callback ?? 0);
         assert.equal(Number.isFinite(configValidationMilliseconds) && configValidationMilliseconds >= 0, true, `${scenarioMode} missing config_validation durations=${JSON.stringify(directTiming?.durations ?? {})} diagnostics=${JSON.stringify(directTiming?.diagnostics ?? {})}`);
+        for (const durationName of [
+          "config_validation_request",
+          "config_validation_callback",
+          "config_validation_request_private_key",
+          "config_validation_callback_private_key",
+          "config_validation_request_fingerprint",
+          "config_validation_callback_fingerprint",
+          "config_validation_request_crypto",
+          "config_validation_callback_crypto",
+          "config_validation_request_cache_hit",
+          "config_validation_callback_cache_hit",
+          "config_validation_request_full_miss",
+          "config_validation_callback_full_miss",
+          "config_validation_request_concurrent_dedup",
+          "config_validation_callback_concurrent_dedup",
+          "config_validation_request_schema_validation",
+          "config_validation_callback_schema_validation",
+          "config_validation_request_registry_parsing",
+          "config_validation_callback_registry_parsing",
+          "config_validation_request_registry_lookup",
+          "config_validation_callback_registry_lookup",
+          "config_validation_request_base64_decoding",
+          "config_validation_callback_base64_decoding",
+          "config_validation_request_hostname_allowlist",
+          "config_validation_callback_hostname_allowlist",
+          "config_validation_request_other",
+          "config_validation_callback_other",
+        ]) {
+          assert.equal(Number.isFinite(directTiming?.durations?.[durationName]), true, `${scenarioMode} missing ${durationName}`);
+        }
         const configValidationCount = (directTiming?.diagnostics?.config_validation_request_count ?? 0)
           + (directTiming?.diagnostics?.config_validation_callback_count ?? 0);
         const configValidationHits = (directTiming?.diagnostics?.config_validation_request_cache_hit_count ?? 0)
           + (directTiming?.diagnostics?.config_validation_callback_cache_hit_count ?? 0);
         const configValidationMisses = (directTiming?.diagnostics?.config_validation_request_cache_miss_count ?? 0)
           + (directTiming?.diagnostics?.config_validation_callback_cache_miss_count ?? 0);
+        const configValidationFullMisses = (directTiming?.diagnostics?.config_validation_request_full_miss_count ?? 0)
+          + (directTiming?.diagnostics?.config_validation_callback_full_miss_count ?? 0);
         assert.equal(Number.isInteger(configValidationCount) && configValidationCount > 0, true);
         assert.equal(configValidationHits + configValidationMisses, configValidationCount);
+        assert.equal(configValidationFullMisses <= configValidationMisses, true);
         assert.equal(typeof directTiming?.job_id, "undefined");
         assert.equal(typeof directTiming?.trace_id, "undefined");
         assert.equal(JSON.stringify(directTiming).includes(signingPrivateKeyPkcs8), false);

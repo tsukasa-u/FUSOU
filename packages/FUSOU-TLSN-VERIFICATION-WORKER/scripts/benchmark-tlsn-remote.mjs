@@ -638,9 +638,18 @@ function summarize(samples, field) {
   };
 }
 
+function summarizeServerDuration(samples, name) {
+  return summarize(
+    samples.map((sample) => ({ value: sample.server_durations?.[name] })),
+    "value",
+  );
+}
+
 function summarizePhases(samples) {
   return {
     config_validation: summarize(samples, "configValidationMilliseconds"),
+    config_validation_request: summarizeServerDuration(samples, "config_validation_request"),
+    config_validation_callback: summarizeServerDuration(samples, "config_validation_callback"),
     session_issuance: summarize(samples, "sessionIssuanceMilliseconds"),
     session_config: summarize(samples, "sessionConfigMilliseconds"),
     session_authority: summarize(samples, "sessionAuthorityMilliseconds"),
@@ -719,8 +728,34 @@ function summarizeConfigValidation(samples) {
     validation_count: sumDiagnostic("config_validation_request_count", "config_validation_callback_count"),
     cache_hit_count: sumDiagnostic("config_validation_request_cache_hit_count", "config_validation_callback_cache_hit_count"),
     cache_miss_count: sumDiagnostic("config_validation_request_cache_miss_count", "config_validation_callback_cache_miss_count"),
+    full_miss_count: sumDiagnostic("config_validation_request_full_miss_count", "config_validation_callback_full_miss_count"),
     concurrent_dedup_count: sumDiagnostic("config_validation_request_concurrent_dedup_count", "config_validation_callback_concurrent_dedup_count"),
   };
+}
+
+function summarizeConfigValidationBreakdown(samples) {
+  const components = [
+    ["total", ""],
+    ["private_key", "_private_key"],
+    ["fingerprint", "_fingerprint"],
+    ["crypto", "_crypto"],
+    ["cache_hit", "_cache_hit"],
+    ["full_miss", "_full_miss"],
+    ["concurrent_dedup", "_concurrent_dedup"],
+    ["schema_validation", "_schema_validation"],
+    ["registry_parsing", "_registry_parsing"],
+    ["registry_lookup", "_registry_lookup"],
+    ["base64_decoding", "_base64_decoding"],
+    ["hostname_allowlist", "_hostname_allowlist"],
+    ["other", "_other"],
+  ];
+  return Object.fromEntries(["request", "callback"].map((source) => [
+    source,
+    Object.fromEntries(components.map(([label, suffix]) => [
+      label,
+      summarizeServerDuration(samples, `config_validation_${source}${suffix}`),
+    ])),
+  ]));
 }
 
 function repositoryRelativePath(value) {
@@ -1224,6 +1259,7 @@ async function runBatch({ workerOrigin, webOrigin, accessToken, userId, device, 
     },
     phases: summarizePhases(samples),
     config_validation: summarizeConfigValidation(samples),
+    config_validation_breakdown: summarizeConfigValidationBreakdown(samples),
     resource_observations: summarizeResourceObservations(samples),
     cold_start_observation: samples.filter((sample) => sample.sample_index === 0).length,
     warm_observation_count: samples.filter((sample) => sample.sample_index > 0).length,
@@ -1471,8 +1507,9 @@ async function main() {
       aggregation_rule: "Do not sum inclusive phases with their nested phases or with the end-to-end client-visible phase.",
       intervals: {
         request_direct_dispatch: {
-          relation: "precedes",
-          meaning: "Request Worker preparation from direct dispatch function entry until the Service Binding fetch is invoked.",
+          relation: "inclusive",
+          includes: ["direct_service_binding_round_trip", "direct_callback_processing"],
+          meaning: "Request Worker elapsed time from Direct dispatch start until the verifier response is received; excludes the final request-side benchmark flush.",
         },
         direct_service_binding_round_trip: {
           relation: "inclusive",

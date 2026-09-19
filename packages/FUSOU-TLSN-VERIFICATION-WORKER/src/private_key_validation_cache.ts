@@ -6,6 +6,8 @@ export type PrivateKeyPairValidator = (
 export type PrivateKeyValidationObservation = {
   valid: boolean;
   elapsedMilliseconds: number;
+  fingerprintElapsedMilliseconds: number;
+  cryptoElapsedMilliseconds: number;
   cacheHit: boolean;
   concurrentDeduplication: boolean;
 };
@@ -76,16 +78,20 @@ export class PrivateKeyValidationCache {
     scope = "default",
   ): Promise<PrivateKeyValidationObservation> {
     const startedAt = performance.now();
+    const fingerprintStartedAt = performance.now();
     const [privateKeyFingerprint, publicKeyFingerprint] = await Promise.all([
       sha256Hex(privateKeyBytes),
       sha256Hex(new TextEncoder().encode(publicKeySpki)),
     ]);
+    const fingerprintElapsedMilliseconds = performance.now() - fingerprintStartedAt;
     const identity = `${scope}:${privateKeyFingerprint}:${publicKeyFingerprint}`;
     if (this.successfulEntries.has(identity)) {
       this.touch(identity);
       return {
         valid: true,
         elapsedMilliseconds: performance.now() - startedAt,
+        fingerprintElapsedMilliseconds,
+        cryptoElapsedMilliseconds: 0,
         cacheHit: true,
         concurrentDeduplication: false,
       };
@@ -96,11 +102,14 @@ export class PrivateKeyValidationCache {
       return {
         valid,
         elapsedMilliseconds: performance.now() - startedAt,
+        fingerprintElapsedMilliseconds,
+        cryptoElapsedMilliseconds: 0,
         cacheHit: false,
         concurrentDeduplication: true,
       };
     }
 
+    const cryptoStartedAt = performance.now();
     const validation = Promise.resolve().then(() => this.validator(privateKeyBytes, publicKeySpki));
     this.inFlightEntries.set(identity, validation);
     try {
@@ -113,6 +122,8 @@ export class PrivateKeyValidationCache {
       return {
         valid,
         elapsedMilliseconds: performance.now() - startedAt,
+        fingerprintElapsedMilliseconds,
+        cryptoElapsedMilliseconds: performance.now() - cryptoStartedAt,
         cacheHit: false,
         concurrentDeduplication: false,
       };

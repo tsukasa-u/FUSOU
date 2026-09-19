@@ -578,18 +578,103 @@ function benchmarkIncrementDiagnostic(env: Bindings, jobId: string, name: string
   record.updated_at = Date.now();
 }
 
+type ConfigValidationComponent =
+  | "schema_validation"
+  | "registry_parsing"
+  | "registry_lookup"
+  | "base64_decoding"
+  | "hostname_allowlist";
+
+const CONFIG_VALIDATION_COMPONENTS: ConfigValidationComponent[] = [
+  "schema_validation",
+  "registry_parsing",
+  "registry_lookup",
+  "base64_decoding",
+  "hostname_allowlist",
+];
+
+type ConfigValidationTimings = Partial<Record<ConfigValidationComponent, number>>;
+
+function addConfigValidationTiming(
+  timings: ConfigValidationTimings,
+  component: ConfigValidationComponent,
+  milliseconds: number,
+): void {
+  timings[component] = (timings[component] ?? 0) + milliseconds;
+}
+
 function benchmarkConfigValidation(
   env: Bindings,
   jobId: string,
   observations: ReadonlyArray<PrivateKeyValidationObservation>,
   source: "request" | "callback",
+  totalMilliseconds: number,
+  timings: ConfigValidationTimings,
 ): void {
-  if (observations.length === 0) return;
   benchmarkDuration(
     env,
     jobId,
     `config_validation_${source}`,
-    observations.reduce((total, observation) => total + observation.elapsedMilliseconds, 0),
+    totalMilliseconds,
+  );
+  const privateKeyMilliseconds = observations.reduce(
+    (total, observation) => total + observation.elapsedMilliseconds,
+    0,
+  );
+  benchmarkDuration(env, jobId, `config_validation_${source}_private_key`, privateKeyMilliseconds);
+  benchmarkDuration(
+    env,
+    jobId,
+    `config_validation_${source}_fingerprint`,
+    observations.reduce((total, observation) => total + observation.fingerprintElapsedMilliseconds, 0),
+  );
+  benchmarkDuration(
+    env,
+    jobId,
+    `config_validation_${source}_crypto`,
+    observations.reduce((total, observation) => total + observation.cryptoElapsedMilliseconds, 0),
+  );
+  benchmarkDuration(
+    env,
+    jobId,
+    `config_validation_${source}_cache_hit`,
+    observations
+      .filter((observation) => observation.cacheHit)
+      .reduce((total, observation) => total + observation.elapsedMilliseconds, 0),
+  );
+  benchmarkDuration(
+    env,
+    jobId,
+    `config_validation_${source}_full_miss`,
+    observations
+      .filter((observation) => !observation.cacheHit && !observation.concurrentDeduplication)
+      .reduce((total, observation) => total + observation.elapsedMilliseconds, 0),
+  );
+  benchmarkDuration(
+    env,
+    jobId,
+    `config_validation_${source}_concurrent_dedup`,
+    observations
+      .filter((observation) => observation.concurrentDeduplication)
+      .reduce((total, observation) => total + observation.elapsedMilliseconds, 0),
+  );
+  for (const component of CONFIG_VALIDATION_COMPONENTS) {
+    benchmarkDuration(
+      env,
+      jobId,
+      `config_validation_${source}_${component}`,
+      timings[component] ?? 0,
+    );
+  }
+  const measuredComponents = Object.values(timings).reduce(
+    (total, milliseconds) => total + (milliseconds ?? 0),
+    0,
+  );
+  benchmarkDuration(
+    env,
+    jobId,
+    `config_validation_${source}_other`,
+    Math.max(0, totalMilliseconds - privateKeyMilliseconds - measuredComponents),
   );
   for (const observation of observations) {
     benchmarkIncrementDiagnostic(env, jobId, `config_validation_${source}_count`);
@@ -602,6 +687,8 @@ function benchmarkConfigValidation(
     );
     if (observation.concurrentDeduplication) {
       benchmarkIncrementDiagnostic(env, jobId, `config_validation_${source}_concurrent_dedup_count`);
+    } else if (!observation.cacheHit) {
+      benchmarkIncrementDiagnostic(env, jobId, `config_validation_${source}_full_miss_count`);
     }
   }
 }
@@ -1006,8 +1093,13 @@ function isPublicKeyBase64Url(value: string | undefined): boolean {
 const privateKeyMatchCache = new PrivateKeyValidationCache();
 
 type ConfigValidationObserver = (observation: PrivateKeyValidationObservation) => void;
+type ConfigValidationTimingObserver = (component: ConfigValidationComponent, milliseconds: number) => void;
 
-async function readConfig(env: Bindings, onValidation?: ConfigValidationObserver): Promise<VerifierConfig | null> {
+async function readConfig(
+  env: Bindings,
+  onValidation?: ConfigValidationObserver,
+  onTiming?: ConfigValidationTimingObserver,
+): Promise<VerifierConfig | null> {
   const production = env.TLSN_ENVIRONMENT === "production";
   const role = env.TLSN_DEPLOYMENT_ROLE;
   const canary = production && role === "canary";
@@ -1051,6 +1143,7 @@ async function readConfig(env: Bindings, onValidation?: ConfigValidationObserver
   const resultSigningKeyRegistry = production
     ? canary ? env.TLSN_CANARY_RESULT_SIGNING_KEY_REGISTRY : env.TLSN_PRODUCTION_RESULT_SIGNING_KEY_REGISTRY
     : undefined;
+  const schemaValidationStartedAt = onTiming ? performance.now() : undefined;
   const parsed = configSchema.safeParse({
     environment: env.TLSN_ENVIRONMENT,
     serverIdentity: production ? env.TLSN_CANDIDATE_SERVER_IDENTITY : env.TLSN_SERVER_IDENTITY,
@@ -1080,6 +1173,9 @@ async function readConfig(env: Bindings, onValidation?: ConfigValidationObserver
     resultSignerKeyId,
     resultSigningKeyRegistry,
   });
+  if (schemaValidationStartedAt !== undefined) {
+    onTiming?.("schema_validation", performance.now() - schemaValidationStartedAt);
+  }
   if (!parsed.success) {
     return null;
   }
@@ -1141,28 +1237,42 @@ async function readConfig(env: Bindings, onValidation?: ConfigValidationObserver
       return null;
     }
     if (production) {
+      const resultRegistryParsingStartedAt = onTiming ? performance.now() : undefined;
       const resultRegistry = resultSigningKeyRegistrySchema.safeParse(JSON.parse(parsed.data.resultSigningKeyRegistry ?? ""));
+      if (resultRegistryParsingStartedAt !== undefined) {
+        onTiming?.("registry_parsing", performance.now() - resultRegistryParsingStartedAt);
+      }
       if (!resultRegistry.success) return null;
+      const resultRegistryLookupStartedAt = onTiming ? performance.now() : undefined;
       const currentResultKey = resultRegistry.data.keys.find((key) => key.key_id === parsed.data.resultSignerKeyId);
       const now = Date.now();
-      if (
+      const resultRegistryInvalid = Boolean(
         !currentResultKey ||
         currentResultKey.public_key_spki !== parsed.data.resultPublicKeySpki ||
         currentResultKey.status !== "ACTIVE" ||
         Date.parse(currentResultKey.not_before) > now ||
         (currentResultKey.not_after !== null && Date.parse(currentResultKey.not_after) < now)
-      ) return null;
+      );
+      if (resultRegistryLookupStartedAt !== undefined) {
+        onTiming?.("registry_lookup", performance.now() - resultRegistryLookupStartedAt);
+      }
+      if (resultRegistryInvalid) return null;
     }
+    const authorityRegistryParsingStartedAt = onTiming ? performance.now() : undefined;
     const sessionRegistry = authorityKeyRegistrySchema.safeParse(JSON.parse(parsed.data.sessionAuthorityKeyRegistry));
     const bindingRegistry = authorityKeyRegistrySchema.safeParse(JSON.parse(parsed.data.bindingAuthorityKeyRegistry));
+    if (authorityRegistryParsingStartedAt !== undefined) {
+      onTiming?.("registry_parsing", performance.now() - authorityRegistryParsingStartedAt);
+    }
     const now = Date.now();
+    const authorityRegistryLookupStartedAt = onTiming ? performance.now() : undefined;
     const currentSessionKey = sessionRegistry.success
       ? sessionRegistry.data.keys.find((key) => key.key_id === parsed.data.sessionAuthorityKeyId)
       : null;
     const currentBindingKey = bindingRegistry.success
       ? bindingRegistry.data.keys.find((key) => key.key_id === parsed.data.bindingAuthorityKeyId)
       : null;
-    if (
+    const authorityRegistryInvalid = (
       !sessionRegistry.success ||
       sessionRegistry.data.scope !== "tlsn-session-authority-key-registry" ||
       !currentSessionKey ||
@@ -1177,7 +1287,11 @@ async function readConfig(env: Bindings, onValidation?: ConfigValidationObserver
       currentBindingKey.status !== "ACTIVE" ||
       Date.parse(currentBindingKey.not_before) > now ||
       (currentBindingKey.not_after !== null && Date.parse(currentBindingKey.not_after) < now)
-    ) return null;
+    );
+    if (authorityRegistryLookupStartedAt !== undefined) {
+      onTiming?.("registry_lookup", performance.now() - authorityRegistryLookupStartedAt);
+    }
+    if (authorityRegistryInvalid) return null;
     if (
       parsed.data.sessionAuthorityPublicKeySpki === parsed.data.bindingAuthorityPublicKeySpki ||
       (production && (
@@ -1186,8 +1300,12 @@ async function readConfig(env: Bindings, onValidation?: ConfigValidationObserver
       ))
     ) return null;
     if (production) {
+      const hostnameAllowlistStartedAt = onTiming ? performance.now() : undefined;
       const deviceAuthAllowedHosts = parseHostnameAllowlist(parsed.data.deviceAuthAllowedHosts);
       const supabaseAllowedHosts = parseHostnameAllowlist(env.TLSN_CANDIDATE_SUPABASE_ALLOWED_HOSTS);
+      if (hostnameAllowlistStartedAt !== undefined) {
+        onTiming?.("hostname_allowlist", performance.now() - hostnameAllowlistStartedAt);
+      }
       if (
         !deviceAuthAllowedHosts ||
         !supabaseAllowedHosts ||
@@ -1210,14 +1328,23 @@ async function readConfig(env: Bindings, onValidation?: ConfigValidationObserver
         return null;
       }
     }
+    const notaryRegistryParsingStartedAt = onTiming ? performance.now() : undefined;
     const notaryRegistry = notaryRegistrySchema.safeParse(JSON.parse(parsed.data.notaryRegistry));
+    if (notaryRegistryParsingStartedAt !== undefined) {
+      onTiming?.("registry_parsing", performance.now() - notaryRegistryParsingStartedAt);
+    }
     if (!notaryRegistry.success) {
       return null;
     }
+    const notaryRegistryLookupStartedAt = onTiming ? performance.now() : undefined;
     const notaryKeyValue = notaryRegistry.data[parsed.data.notaryKeyId];
+    if (notaryRegistryLookupStartedAt !== undefined) {
+      onTiming?.("registry_lookup", performance.now() - notaryRegistryLookupStartedAt);
+    }
     if (!notaryKeyValue) {
       return null;
     }
+    const base64DecodingStartedAt = onTiming ? performance.now() : undefined;
     const profileSha256Bytes = decodeBase64Url(parsed.data.profileSha256, 32);
     if (profileSha256Bytes.length !== 32) {
       return null;
@@ -1232,6 +1359,9 @@ async function readConfig(env: Bindings, onValidation?: ConfigValidationObserver
     const resultSigningPrivateKeyBytes = decodeBase64Url(parsed.data.resultSigningPrivateKeyPkcs8, 4096);
     const sessionAuthoritySigningPrivateKeyBytes = decodeBase64Url(parsed.data.sessionAuthoritySigningPrivateKeyPkcs8, 4096);
     const bindingAuthoritySigningPrivateKeyBytes = decodeBase64Url(parsed.data.bindingAuthoritySigningPrivateKeyPkcs8, 4096);
+    if (base64DecodingStartedAt !== undefined) {
+      onTiming?.("base64_decoding", performance.now() - base64DecodingStartedAt);
+    }
     const validateKeyPair = async (
       privateKeyBytes: Uint8Array,
       publicKeySpki: string,
@@ -1252,9 +1382,15 @@ async function readConfig(env: Bindings, onValidation?: ConfigValidationObserver
     ) {
       return null;
     }
+    const trustRootDecodingStartedAt = onTiming && parsed.data.trustRootCertificateDer
+      ? performance.now()
+      : undefined;
     const trustRootCertificateDerBytes = parsed.data.trustRootCertificateDer
       ? decodeBase64Url(parsed.data.trustRootCertificateDer, 4096)
       : undefined;
+    if (trustRootDecodingStartedAt !== undefined) {
+      onTiming?.("base64_decoding", performance.now() - trustRootDecodingStartedAt);
+    }
     return {
       ...parsed.data,
       profileSha256Bytes,
@@ -2083,6 +2219,7 @@ async function dispatchDirectVerification(
   presentationId: string,
   verificationAttemptId: string,
   presentationBytes: Uint8Array,
+  requestDirectDispatchStartedAt: number | undefined,
   testFault: TestDirectFault | undefined,
   synchronousCandidate = false,
 ): Promise<Response> {
@@ -2091,7 +2228,6 @@ async function dispatchDirectVerification(
   if (!verifier || !callbackSecret) {
     throw new Error("direct verifier is unconfigured");
   }
-  const dispatchPreparationStartedAt = benchmarkEnabled(env) ? performance.now() : undefined;
   const callbackBody = JSON.stringify({
     job_id: payload.job_id,
     binding_id: payload.binding_id,
@@ -2113,14 +2249,6 @@ async function dispatchDirectVerification(
   const timeout = setTimeout(() => controller.abort(), directInvocationTimeoutMs(env));
   let response: Response;
   const invocationStartedAt = benchmarkEnabled(env) ? performance.now() : undefined;
-  benchmarkDuration(
-    env,
-    jobId,
-    "request_direct_dispatch",
-    dispatchPreparationStartedAt === undefined || invocationStartedAt === undefined
-      ? Number.NaN
-      : invocationStartedAt - dispatchPreparationStartedAt,
-  );
   try {
     benchmarkRecord(env, jobId, "direct_invocation_started");
     benchmarkIncrementDiagnostic(env, jobId, "direct_invocation_count");
@@ -2151,6 +2279,14 @@ async function dispatchDirectVerification(
     throw new Error(`direct verifier failed with status ${response.status}`);
   }
   benchmarkRecord(env, jobId, "direct_invocation_completed");
+  benchmarkDuration(
+    env,
+    jobId,
+    "request_direct_dispatch",
+    requestDirectDispatchStartedAt === undefined
+      ? Number.NaN
+      : performance.now() - requestDirectDispatchStartedAt,
+  );
   await benchmarkFlush(env, jobId);
   return response;
 }
@@ -2399,7 +2535,18 @@ async function completeVerification(
     ? directCallbackEntryStartedAt ?? performance.now()
     : null;
   const configValidationObservations: PrivateKeyValidationObservation[] = [];
-  const config = await readConfig(c.env, (observation) => configValidationObservations.push(observation));
+  const configValidationTimings: ConfigValidationTimings = {};
+  const configValidationStartedAt = benchmarkEnabled(c.env) ? performance.now() : undefined;
+  const config = await readConfig(
+    c.env,
+    (observation) => configValidationObservations.push(observation),
+    benchmarkEnabled(c.env)
+      ? (component, milliseconds) => addConfigValidationTiming(configValidationTimings, component, milliseconds)
+      : undefined,
+  );
+  const configValidationMilliseconds = configValidationStartedAt === undefined
+    ? Number.NaN
+    : performance.now() - configValidationStartedAt;
   if (!config) {
     return c.json({ error: "verifier_unconfigured" }, 503);
   }
@@ -2412,7 +2559,14 @@ async function completeVerification(
     callback.benchmark_trace_id,
     executionMode,
   );
-  benchmarkConfigValidation(c.env, callback.job_id, configValidationObservations, "callback");
+  benchmarkConfigValidation(
+    c.env,
+    callback.job_id,
+    configValidationObservations,
+    "callback",
+    configValidationMilliseconds,
+    configValidationTimings,
+  );
   if (executionMode === "queue") benchmarkRecord(c.env, callback.job_id, "queue_completion_entered");
   if (executionMode === "direct" && executionStartedAt !== undefined) {
     benchmarkRecord(c.env, callback.job_id, "t3_direct_execution_started", executionStartedAt);
@@ -3281,8 +3435,20 @@ app.post("/verify/tlsn/retry", async (c) => {
 });
 
 const handleTlsnVerification = async (c: Context<{ Bindings: Bindings }>) => {
+  const requestBenchmarkEnabled = benchmarkEnabled(c.env);
   const configValidationObservations: PrivateKeyValidationObservation[] = [];
-  const config = await readConfig(c.env, (observation) => configValidationObservations.push(observation));
+  const configValidationTimings: ConfigValidationTimings = {};
+  const configValidationStartedAt = requestBenchmarkEnabled ? performance.now() : undefined;
+  const config = await readConfig(
+    c.env,
+    (observation) => configValidationObservations.push(observation),
+    requestBenchmarkEnabled
+      ? (component, milliseconds) => addConfigValidationTiming(configValidationTimings, component, milliseconds)
+      : undefined,
+  );
+  const configValidationMilliseconds = configValidationStartedAt === undefined
+    ? Number.NaN
+    : performance.now() - configValidationStartedAt;
   if (!config) {
     return c.json({ error: "verifier_unconfigured" }, 503);
   }
@@ -3290,7 +3456,6 @@ const handleTlsnVerification = async (c: Context<{ Bindings: Bindings }>) => {
   if (sparseProfile && !config.sparseProfileSha256Bytes) {
     return c.json({ error: "sparse_verifier_unconfigured" }, 503);
   }
-  const requestBenchmarkEnabled = benchmarkEnabled(c.env);
   const requestAuthenticationStartedAt = requestBenchmarkEnabled ? performance.now() : undefined;
   const authentication = requireAuthentication(await authenticateRequest(c.req.raw, c.env));
   const requestAuthenticationMilliseconds = requestAuthenticationStartedAt === undefined
@@ -3452,7 +3617,14 @@ const handleTlsnVerification = async (c: Context<{ Bindings: Bindings }>) => {
       benchmarkTraceId,
       queue ? "queue" : direct ? "direct" : "trigger",
     );
-    benchmarkConfigValidation(c.env, jobId, configValidationObservations, "request");
+    benchmarkConfigValidation(
+      c.env,
+      jobId,
+      configValidationObservations,
+      "request",
+      configValidationMilliseconds,
+      configValidationTimings,
+    );
     benchmarkDiagnostic(c.env, jobId, "profile", sparseProfile ? "sparse" : "complete");
     benchmarkDiagnostic(c.env, jobId, "input_source", direct ? "direct" : "r2");
     benchmarkDuration(c.env, jobId, "request_authentication", requestAuthenticationMilliseconds ?? Number.NaN);
@@ -3548,20 +3720,14 @@ const handleTlsnVerification = async (c: Context<{ Bindings: Bindings }>) => {
           presentationId,
           directVerificationAttemptId ?? "",
           presentationBytes,
+          directDispatchStartedAt,
           testDirectFaultForRequest(c.env, c.req.raw),
           shouldUseSynchronousDirectResponse(c.env),
         );
         if (shouldUseSynchronousDirectResponse(c.env)) {
           try {
             const directResponse = await directDispatch;
-            benchmarkDuration(
-              c.env,
-              jobId,
-              "request_direct_dispatch",
-              directDispatchStartedAt === undefined ? Number.NaN : performance.now() - directDispatchStartedAt,
-            );
             if (!directResponse.ok) throw new Error(`direct verifier failed with status ${directResponse.status}`);
-            await benchmarkFlush(c.env, jobId);
             const timingHeader = await benchmarkTimingHeaderValue(c.env, jobId);
             const headers = new Headers(directResponse.headers);
             headers.set("Cache-Control", "no-store");
