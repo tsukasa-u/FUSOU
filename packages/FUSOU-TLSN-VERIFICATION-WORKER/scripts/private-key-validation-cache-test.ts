@@ -27,13 +27,25 @@ const publicKeyB = "public-key-b";
   const validationStarted = new Promise<void>((resolve) => { started = resolve; });
   const cache = new PrivateKeyValidationCache(4, async () => {
     calls += 1;
+    const validation = new Promise<boolean>((resolve) => { release = resolve; });
     started();
-    return new Promise<boolean>((resolve) => { release = resolve; });
+    return validation;
   });
   const firstPromise = cache.validate(keyA, publicKeyA, "test:session");
-  const secondPromise = cache.validate(keyA, publicKeyA, "test:session");
   await validationStarted;
-  await new Promise<void>((resolve) => setImmediate(resolve));
+  const cacheState = cache as unknown as {
+    inFlightEntries: Map<string, Promise<boolean>>;
+  };
+  let dedupLookup!: () => void;
+  const dedupLookupObserved = new Promise<void>((resolve) => { dedupLookup = resolve; });
+  const inFlightGet = cacheState.inFlightEntries.get.bind(cacheState.inFlightEntries);
+  cacheState.inFlightEntries.get = (identity) => {
+    const validation = inFlightGet(identity);
+    if (validation) dedupLookup();
+    return validation;
+  };
+  const secondPromise = cache.validate(keyA, publicKeyA, "test:session");
+  await dedupLookupObserved;
   assert.equal(calls, 1);
   release(true);
   const [, second] = await Promise.all([firstPromise, secondPromise]);
