@@ -573,6 +573,9 @@ const REQUIRED_DIRECT_TIMING_DURATIONS = [
   "direct_service_binding_round_trip",
   "direct_callback_processing",
   "direct_callback_entry_to_lease",
+  "direct_callback_config_validation",
+  "direct_callback_benchmark_registration",
+  "direct_acquire_verification",
   "direct_presentation_transfer",
   "direct_presentation_hash",
   "direct_wasm_verification",
@@ -669,9 +672,14 @@ function summarizePhases(samples) {
     direct_input_binding: summarize(samples, "directInputBindingMilliseconds"),
     direct_invocation_startup: summarize(samples, "directInvocationStartupMilliseconds"),
     direct_presentation_transfer: summarize(samples, "directPresentationTransferMilliseconds"),
+    direct_presentation_hash: summarize(samples, "presentationHashMilliseconds"),
+    direct_wasm_verification: summarize(samples, "wasmVerificationMilliseconds"),
     direct_service_binding_round_trip: summarize(samples, "directServiceBindingRoundTripMilliseconds"),
     direct_callback_processing: summarize(samples, "directCallbackProcessingMilliseconds"),
     direct_callback_entry_to_lease: summarize(samples, "directCallbackEntryToLeaseMilliseconds"),
+    direct_callback_config_validation: summarize(samples, "directCallbackConfigValidationMilliseconds"),
+    direct_callback_benchmark_registration: summarize(samples, "directCallbackBenchmarkRegistrationMilliseconds"),
+    direct_acquire_verification: summarize(samples, "directAcquireVerificationMilliseconds"),
     trigger_start_to_callback: summarize(samples, "triggerStartToCallbackMilliseconds"),
     callback_entry_to_lease: summarize(samples, "callbackEntryToLeaseMilliseconds"),
     worker_r2_input: summarize(samples, "workerR2InputMilliseconds"),
@@ -693,6 +701,7 @@ function summarizePhases(samples) {
     do_commit: summarize(samples, "doCommitMilliseconds"),
     do_commit_detailed: summarize(samples, "doCommitDetailedMilliseconds"),
     callback_response: summarize(samples, "callbackResponseMilliseconds"),
+    direct_synchronous_response: summarize(samples, "synchronousResponseMilliseconds"),
     trigger_input_fetch: summarize(samples, "triggerInputFetchMilliseconds"),
     trigger_verifier: summarize(samples, "triggerVerifierMilliseconds"),
     trigger_verifier_initialization: summarize(samples, "triggerVerifierInitializationMilliseconds"),
@@ -959,6 +968,16 @@ async function runBatch({ workerOrigin, webOrigin, accessToken, userId, device, 
       if (executionMode === "direct" && (timing?.do_operations?.lookup_binding ?? 0) !== 0) {
         throw new Error(`fresh Direct path performed lookup_binding: ${JSON.stringify(timing?.do_operations ?? {})}`);
       }
+      if (
+        executionMode === "direct"
+        && (
+          timing?.do_operations?.start_verification !== 1
+          || timing?.do_operations?.acquire_verification !== 1
+          || timing?.do_operations?.commit_verified_result !== 1
+        )
+      ) {
+        throw new Error(`fresh Direct path authority operation invariant failed: ${JSON.stringify(timing?.do_operations ?? {})}`);
+      }
       const t1Server = stageTimestamp(
         timing,
         synchronousCandidate ? "t0_accepted" : "t1_202_response_sent",
@@ -1087,6 +1106,15 @@ async function runBatch({ workerOrigin, webOrigin, accessToken, userId, device, 
           : null,
         directCallbackEntryToLeaseMilliseconds: executionMode === "direct"
           ? Number.isFinite(durations.direct_callback_entry_to_lease) ? durations.direct_callback_entry_to_lease : null
+          : null,
+        directCallbackConfigValidationMilliseconds: executionMode === "direct"
+          ? Number.isFinite(durations.direct_callback_config_validation) ? durations.direct_callback_config_validation : null
+          : null,
+        directCallbackBenchmarkRegistrationMilliseconds: executionMode === "direct"
+          ? Number.isFinite(durations.direct_callback_benchmark_registration) ? durations.direct_callback_benchmark_registration : null
+          : null,
+        directAcquireVerificationMilliseconds: executionMode === "direct"
+          ? Number.isFinite(durations.direct_acquire_verification) ? durations.direct_acquire_verification : null
           : null,
         directPresentationTransferMilliseconds: executionMode === "direct"
           ? Number.isFinite(durations.direct_presentation_transfer) ? durations.direct_presentation_transfer : null
@@ -1321,9 +1349,14 @@ async function runBatch({ workerOrigin, webOrigin, accessToken, userId, device, 
         direct_service_binding_round_trip: sample.directServiceBindingRoundTripMilliseconds,
         direct_callback_processing: sample.directCallbackProcessingMilliseconds,
         direct_callback_entry_to_lease: sample.directCallbackEntryToLeaseMilliseconds,
+        direct_callback_config_validation: sample.directCallbackConfigValidationMilliseconds,
+        direct_callback_benchmark_registration: sample.directCallbackBenchmarkRegistrationMilliseconds,
+        direct_acquire_verification: sample.directAcquireVerificationMilliseconds,
         trigger_start_to_callback: sample.triggerStartToCallbackMilliseconds,
         callback_entry_to_lease: sample.callbackEntryToLeaseMilliseconds,
         worker_r2_input: sample.workerR2InputMilliseconds,
+        direct_presentation_hash: sample.presentationHashMilliseconds,
+        direct_wasm_verification: sample.wasmVerificationMilliseconds,
         presentation_hash: sample.presentationHashMilliseconds,
         wasm_verification: sample.wasmVerificationMilliseconds,
         result_signing: sample.resultSigningMilliseconds,
@@ -1362,6 +1395,7 @@ async function runBatch({ workerOrigin, webOrigin, accessToken, userId, device, 
           server_completion: sample.serverCompletionMilliseconds,
           client_observation: sample.clientObservationMilliseconds,
         status_polling: sample.statusPollingMilliseconds,
+        direct_synchronous_response: sample.synchronousResponseMilliseconds,
         synchronous_response: sample.synchronousResponseMilliseconds,
         poll_count: sample.pollCount,
       },
@@ -1483,7 +1517,7 @@ async function main() {
 
   const result = reportDecision(rows);
   const report = {
-    schema_version: 2,
+    schema_version: 3,
     benchmark: "tlsn-worker-remote-e2e",
     architecture_variant: optional("TLSN_REMOTE_BENCHMARK_VARIANT") ?? "current",
     generated_at: new Date().toISOString(),
@@ -1505,11 +1539,31 @@ async function main() {
     phase_semantics: {
       unit: "milliseconds",
       aggregation_rule: "Do not sum inclusive phases with their nested phases or with the end-to-end client-visible phase.",
+      optimization_comparison: {
+        excluded_phases: ["request_direct_dispatch"],
+        primary_direct_phases: [
+          "direct_service_binding_round_trip",
+          "direct_callback_processing",
+          "direct_callback_entry_to_lease",
+          "direct_callback_config_validation",
+          "direct_callback_benchmark_registration",
+          "direct_acquire_verification",
+          "direct_presentation_transfer",
+          "direct_presentation_hash",
+          "direct_wasm_verification",
+          "result_signing",
+          "result_persistence",
+          "direct_synchronous_response",
+          "client_visible",
+        ],
+        rationale: "request_direct_dispatch has a baseline/current flush-boundary mismatch and must not be used for historical regression or improvement claims.",
+      },
       intervals: {
         request_direct_dispatch: {
           relation: "inclusive",
           includes: ["direct_service_binding_round_trip", "direct_callback_processing"],
-          meaning: "Request Worker elapsed time from Direct dispatch start until the verifier response is received; excludes the final request-side benchmark flush.",
+          comparison: "NOT_COMPARABLE_TO_218E5EC_BASELINE",
+          meaning: "Current Request Worker elapsed time from Direct dispatch start until the verifier response is received; excludes the final request-side benchmark flush.",
         },
         direct_service_binding_round_trip: {
           relation: "inclusive",
@@ -1518,8 +1572,28 @@ async function main() {
         },
         direct_callback_processing: {
           relation: "inclusive",
-          includes: ["direct_callback_entry_to_lease", "direct_presentation_transfer", "direct_presentation_hash", "direct_wasm_verification", "result_signing", "result_persistence"],
+          includes: ["direct_callback_entry_to_lease", "direct_callback_config_validation", "direct_callback_benchmark_registration", "direct_acquire_verification", "direct_presentation_transfer", "direct_presentation_hash", "direct_wasm_verification", "result_signing", "result_persistence"],
           meaning: "Direct verifier handler entry through creation of its completion response; excludes client/network delivery after fetch returns.",
+        },
+        direct_callback_entry_to_lease: {
+          relation: "inclusive",
+          includes: ["direct_callback_config_validation", "direct_callback_benchmark_registration", "direct_acquire_verification"],
+          meaning: "Direct callback entry through completion of the authoritative acquireVerification call; includes callback setup and benchmark registration, excludes presentation processing and benchmark flush.",
+        },
+        direct_callback_config_validation: {
+          relation: "source_metric",
+          source: "config_validation_callback",
+          meaning: "Existing callback readConfig validation duration; no duplicate config validation is performed.",
+        },
+        direct_callback_benchmark_registration: {
+          relation: "nested",
+          within: "direct_callback_entry_to_lease",
+          meaning: "Only the benchmarkRegisterFromCallback call; recorded only when benchmark instrumentation is enabled.",
+        },
+        direct_acquire_verification: {
+          relation: "nested",
+          within: "direct_callback_entry_to_lease",
+          meaning: "From immediately before benchmarkDOOperation and authority.acquireVerification through Promise completion; excludes config, registration, presentation processing, result processing, and benchmark flush.",
         },
         result_persistence: {
           relation: "inclusive",

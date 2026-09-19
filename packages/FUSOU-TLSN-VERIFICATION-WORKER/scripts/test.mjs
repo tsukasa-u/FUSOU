@@ -1410,6 +1410,9 @@ async function runDirectFailureSmokeTest() {
         "direct_service_binding_round_trip",
         "direct_callback_processing",
         "direct_callback_entry_to_lease",
+        "direct_callback_config_validation",
+        "direct_callback_benchmark_registration",
+        "direct_acquire_verification",
         "direct_presentation_transfer",
         "direct_presentation_hash",
         "direct_wasm_verification",
@@ -1513,6 +1516,11 @@ async function runDirectFailureSmokeTest() {
         assert.equal(JSON.stringify(directTiming).includes(signingPrivateKeyPkcs8), false);
       }
       assert.equal(directTiming?.do_operations?.lookup_binding ?? 0, 0);
+      if (scenarioMode === "success" || scenarioMode === "race" || synchronousCandidate) {
+        assert.equal(directTiming?.do_operations?.start_verification, 1);
+        assert.equal(directTiming?.do_operations?.acquire_verification, 1);
+        assert.equal(directTiming?.do_operations?.commit_verified_result, 1);
+      }
       assert.equal(directTiming?.r2_operations?.input_put ?? 0, 0);
       assert.equal(directTiming?.r2_operations?.trigger_input_get ?? 0, 0);
       assert.equal(directTiming?.r2_operations?.worker_presentation_get ?? 0, 0);

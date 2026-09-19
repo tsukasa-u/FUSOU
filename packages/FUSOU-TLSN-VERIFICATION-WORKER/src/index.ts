@@ -2551,6 +2551,9 @@ async function completeVerification(
     return c.json({ error: "verifier_unconfigured" }, 503);
   }
   const authority = new DurableObjectBindingAuthority(c.env.TLSN_BINDINGS);
+  const directCallbackBenchmarkRegistrationStartedAt = executionMode === "direct" && benchmarkEnabled(c.env)
+    ? performance.now()
+    : null;
   await benchmarkRegisterFromCallback(
     c.env,
     callback.job_id,
@@ -2559,6 +2562,14 @@ async function completeVerification(
     callback.benchmark_trace_id,
     executionMode,
   );
+  if (directCallbackBenchmarkRegistrationStartedAt !== null) {
+    benchmarkDuration(
+      c.env,
+      callback.job_id,
+      "direct_callback_benchmark_registration",
+      performance.now() - directCallbackBenchmarkRegistrationStartedAt,
+    );
+  }
   benchmarkConfigValidation(
     c.env,
     callback.job_id,
@@ -2567,6 +2578,9 @@ async function completeVerification(
     configValidationMilliseconds,
     configValidationTimings,
   );
+  if (executionMode === "direct") {
+    benchmarkDuration(c.env, callback.job_id, "direct_callback_config_validation", configValidationMilliseconds);
+  }
   if (executionMode === "queue") benchmarkRecord(c.env, callback.job_id, "queue_completion_entered");
   if (executionMode === "direct" && executionStartedAt !== undefined) {
     benchmarkRecord(c.env, callback.job_id, "t3_direct_execution_started", executionStartedAt);
@@ -2624,6 +2638,9 @@ async function completeVerification(
   let verificationRecord;
   const bindingLookupAndLeaseStartedAt = executionMode === "queue" ? performance.now() : null;
   if (executionMode === "queue") benchmarkRecord(c.env, callback.job_id, "queue_binding_lookup_and_lease_started");
+  const directAcquireStartedAt = executionMode === "direct" && benchmarkEnabled(c.env)
+    ? performance.now()
+    : null;
   benchmarkDOOperation(c.env, callback.job_id, "acquire_verification");
   try {
     verificationRecord = await authority.acquireVerification(callback.binding_id, {
@@ -2638,6 +2655,14 @@ async function completeVerification(
       result_object_key: attemptResultKey,
       now: Date.now(),
     });
+    if (directAcquireStartedAt !== null) {
+      benchmarkDuration(
+        c.env,
+        callback.job_id,
+        "direct_acquire_verification",
+        performance.now() - directAcquireStartedAt,
+      );
+    }
     if (executionMode === "direct") {
       benchmarkDuration(
         c.env,
