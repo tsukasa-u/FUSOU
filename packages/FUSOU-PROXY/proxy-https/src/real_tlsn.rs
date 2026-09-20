@@ -446,6 +446,29 @@ async fn poll_worker_result(
     .map_err(|_| VerificationError::WorkerUnavailable)?
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RemoteWorkerResponseMode {
+    Async,
+    Sync,
+}
+
+impl RemoteWorkerResponseMode {
+    fn parse(value: &str) -> Result<Self, TlsnTransportError> {
+        match value {
+            "async" => Ok(Self::Async),
+            "sync" => Ok(Self::Sync),
+            _ => Err(TlsnTransportError::Unavailable),
+        }
+    }
+
+    fn header_value(self) -> &'static str {
+        match self {
+            Self::Async => "async",
+            Self::Sync => "sync",
+        }
+    }
+}
+
 pub struct RemoteWorkerVerificationBackend {
     endpoint: String,
     status_endpoint: String,
@@ -455,6 +478,7 @@ pub struct RemoteWorkerVerificationBackend {
     binding_state: Arc<Mutex<Option<SessionBindingContext>>>,
     results: Arc<RemoteWorkerResultStore>,
     result_verifier: Arc<ResultSignatureVerifier>,
+    response_mode: RemoteWorkerResponseMode,
 }
 
 impl RemoteWorkerVerificationBackend {
@@ -465,8 +489,10 @@ impl RemoteWorkerVerificationBackend {
         binding_state: Arc<Mutex<Option<SessionBindingContext>>>,
         results: Arc<RemoteWorkerResultStore>,
         result_verifier: Arc<ResultSignatureVerifier>,
+        response_mode: String,
     ) -> Result<Self, TlsnTransportError> {
         let (endpoint, status_endpoint) = worker_endpoints(&endpoint)?;
+        let response_mode = RemoteWorkerResponseMode::parse(&response_mode)?;
         let client = reqwest::Client::builder()
             .connect_timeout(Duration::from_secs(10))
             .timeout(Duration::from_secs(30))
@@ -481,6 +507,7 @@ impl RemoteWorkerVerificationBackend {
             binding_state,
             results,
             result_verifier,
+            response_mode,
         })
     }
 }
@@ -495,6 +522,7 @@ impl TlsnVerificationBackend for RemoteWorkerVerificationBackend {
         let binding_state = Arc::clone(&self.binding_state);
         let results = Arc::clone(&self.results);
         let result_verifier = Arc::clone(&self.result_verifier);
+        let response_mode = self.response_mode;
         Box::pin(async move {
             let (context, _request, binding, _exchange, presentation) = input.into_parts();
             let session = binding_state
@@ -532,6 +560,7 @@ impl TlsnVerificationBackend for RemoteWorkerVerificationBackend {
             let response = client
                 .post(endpoint)
                 .bearer_auth(access_token.clone())
+                .header("X-FUSOU-TLSN-Response-Mode", response_mode.header_value())
                 .json(&serde_json::json!({
                     "presentation_base64": URL_SAFE_NO_PAD.encode(presentation.bytes()),
                     "session_id": session.session_id(),
@@ -1736,6 +1765,7 @@ mod tests {
             binding_state: Arc::new(Mutex::new(Some(session))),
             results: RemoteWorkerResultStore::new(),
             result_verifier: test_result_signature_verifier(),
+            response_mode: RemoteWorkerResponseMode::Async,
         });
         let boundary = PresentationVerifierBoundary::new(
             Arc::new(HandoffPresentationProvider::new(handoff)),
@@ -2222,6 +2252,7 @@ mod tests {
                     )
                     .expect("valid result signing key registry"),
                 ),
+                response_mode: RemoteWorkerResponseMode::Async,
             });
             let handoff = PresentationHandoff::new();
             let origin = OriginTransportConfig::new(

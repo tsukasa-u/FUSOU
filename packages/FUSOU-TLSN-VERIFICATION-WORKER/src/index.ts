@@ -73,6 +73,8 @@ export type Bindings = {
   TLSN_CANARY_TRIGGER_TASK_ID?: string;
   TLSN_CANARY_TRIGGER_SECRET_KEY?: string;
   TLSN_CANARY_TRIGGER_CALLBACK_SECRET?: string;
+  TLSN_CANARY_DIRECT_CALLBACK_SECRET?: string;
+  TLSN_CANARY_SYNCHRONOUS_RESPONSE_ENABLED?: string;
   TLSN_CANARY_WORKER_INTERNAL_URL?: string;
   TLSN_PRODUCTION_TRIGGER_API_URL?: string;
   TLSN_PRODUCTION_TRIGGER_TASK_ID?: string;
@@ -2202,8 +2204,17 @@ function queueCallbackSecret(env: Bindings): string | undefined {
   return env.TLSN_ENVIRONMENT === "test" ? env.TLSN_QUEUE_CALLBACK_SECRET : undefined;
 }
 
+export function canarySynchronousResponseEnabled(env: Bindings): boolean {
+  return env.TLSN_ENVIRONMENT === "production"
+    && env.TLSN_DEPLOYMENT_ROLE === "canary"
+    && env.TLSN_CANARY_SYNCHRONOUS_RESPONSE_ENABLED === "true";
+}
+
 function directCallbackSecret(env: Bindings): string | undefined {
-  return env.TLSN_ENVIRONMENT === "test" ? env.TLSN_DIRECT_CALLBACK_SECRET : undefined;
+  if (env.TLSN_ENVIRONMENT === "test") return env.TLSN_DIRECT_CALLBACK_SECRET;
+  return env.TLSN_ENVIRONMENT === "production" && env.TLSN_DEPLOYMENT_ROLE === "canary"
+    ? env.TLSN_CANARY_DIRECT_CALLBACK_SECRET
+    : undefined;
 }
 
 function internalRequestAuthFailure(
@@ -2342,7 +2353,10 @@ async function dispatchDirectVerification(
         "X-FUSOU-TLSN-Signature": signature,
         "X-FUSOU-TLSN-Execution-Mode": "direct",
         "X-FUSOU-TLSN-Direct-Metadata": metadataHeader,
-        ...(synchronousCandidate ? { "X-FUSOU-TLSN-Synchronous-Candidate": "true" } : {}),
+        ...(synchronousCandidate ? { "X-FUSOU-TLSN-Synchronous-Response": "true" } : {}),
+        ...(synchronousCandidate && env.TLSN_ENVIRONMENT === "test"
+          ? { "X-FUSOU-TLSN-Synchronous-Candidate": "true" }
+          : {}),
         ...(testFault ? { "X-FUSOU-TLSN-Test-Fault": testFault } : {}),
       },
       body: presentationBytes,
@@ -2376,6 +2390,20 @@ async function dispatchDirectVerification(
   }
   if (!response.ok) {
     throw new Error(`direct verifier failed with status ${response.status}`);
+  }
+  if (synchronousCandidate) {
+    if (response.status !== 200) {
+      throw new Error(`direct verifier returned unexpected synchronous status ${response.status}`);
+    }
+    let synchronousResult: unknown;
+    try {
+      synchronousResult = JSON.parse(await response.clone().text()) as unknown;
+    } catch {
+      throw new Error("direct verifier returned malformed synchronous response");
+    }
+    if (!verificationFinalResponseSchema.safeParse(synchronousResult).success) {
+      throw new Error("direct verifier returned invalid synchronous result");
+    }
   }
   const callbackProcessingMilliseconds = benchmarkEnabled(env)
     ? readBenchmarkResponseDurationHeader(response, DIRECT_CALLBACK_PROCESSING_HEADER)
@@ -3774,15 +3802,31 @@ const handleTlsnVerification = async (c: Context<{ Bindings: Bindings }>) => {
     return c.json({ error: "invalid_request" }, 400);
   }
 
+  const requestedResponseMode = c.req.header("X-FUSOU-TLSN-Response-Mode")?.trim() || "async";
+  if (requestedResponseMode !== "async" && requestedResponseMode !== "sync") {
+    return c.json({ verified: false, error: "invalid_response_mode" }, 400);
+  }
+  const synchronousResponseRequested = requestedResponseMode === "sync";
+  const synchronousDirect = synchronousResponseRequested
+    && canarySynchronousResponseEnabled(c.env)
+    && c.env.TLSN_DIRECT_VERIFIER !== undefined
+    && directCallbackSecret(c.env) !== undefined;
+  if (synchronousResponseRequested && !synchronousDirect && c.env.TLSN_ENVIRONMENT !== "test") {
+    return c.json({ verified: false, error: "sync_unavailable" }, 503);
+  }
+  const useDirectExecution = synchronousDirect || shouldUseDirectExecution(c.env);
+  const useTriggerExecution = !synchronousDirect && shouldUseTriggerExecution(c.env);
+
   if (
-    shouldUseTriggerExecution(c.env) ||
+    useTriggerExecution ||
     shouldUseQueueExecution(c.env) ||
-    shouldUseDirectExecution(c.env)
+    useDirectExecution
   ) {
-    const trigger = shouldUseTriggerExecution(c.env) ? triggerExecutionConfig(c.env) : null;
+    const trigger = useTriggerExecution ? triggerExecutionConfig(c.env) : null;
     const queue = shouldUseQueueExecution(c.env) ? c.env.TLSN_VERIFICATION_QUEUE : undefined;
-    const direct = shouldUseDirectExecution(c.env) ? c.env.TLSN_DIRECT_VERIFIER : undefined;
-    const synchronousDirect = shouldUseSynchronousDirectResponse(c.env);
+    const direct = useDirectExecution ? c.env.TLSN_DIRECT_VERIFIER : undefined;
+    const testSynchronousCandidate = shouldUseSynchronousDirectResponse(c.env);
+    const synchronousResponse = synchronousDirect || testSynchronousCandidate;
     if (!trigger && !queue && !direct) {
       return c.json({
         verified: false,
@@ -3827,7 +3871,7 @@ const handleTlsnVerification = async (c: Context<{ Bindings: Bindings }>) => {
       ? undefined
       : performance.now() - devicePossessionStartedAt;
     if (!devicePossession.ok) {
-      if (synchronousDirect && devicePossession.error === "device_possession_replayed") {
+      if (synchronousResponse && devicePossession.error === "device_possession_replayed") {
         const replayPresentationId = encodeBase64Url(
           new Uint8Array(await crypto.subtle.digest("SHA-256", presentationBytes)),
         );
@@ -4001,9 +4045,9 @@ const handleTlsnVerification = async (c: Context<{ Bindings: Bindings }>) => {
           presentationBytes,
           directDispatchStartedAt,
           testDirectFaultForRequest(c.env, c.req.raw),
-          shouldUseSynchronousDirectResponse(c.env),
+          synchronousResponse,
         );
-        if (shouldUseSynchronousDirectResponse(c.env)) {
+        if (synchronousResponse) {
           try {
             const directResponse = await directDispatch;
             if (!directResponse.ok) throw new Error(`direct verifier failed with status ${directResponse.status}`);

@@ -24,6 +24,8 @@ const manifest = JSON.parse(await readFile(resolve(packageDirectory, "scripts/pr
 const canaryWrapper = await readFile(resolve(packageDirectory, "scripts/deploy-canary.mjs"), "utf8");
 const productionWrapper = await readFile(resolve(packageDirectory, "scripts/deploy-production.mjs"), "utf8");
 const wrangler = await readFile(resolve(packageDirectory, "wrangler.toml"), "utf8");
+const canaryBootstrapWrangler = await readFile(resolve(packageDirectory, "wrangler.canary-bootstrap.toml"), "utf8");
+const canaryVerifierWrangler = await readFile(resolve(packageDirectory, "wrangler.verifier-canary.toml"), "utf8");
 const rootPackage = JSON.parse(await readFile(resolve(packageDirectory, "../../package.json"), "utf8"));
 
 function environmentSection(name) {
@@ -109,6 +111,9 @@ for (const name of ["tlsn:deploy:test", "tlsn:deploy:canary", "tlsn:deploy:produ
 assert.doesNotMatch(rootPackage.scripts["tlsn:deploy:canary"], /github|actions/i);
 assert.doesNotMatch(rootPackage.scripts["tlsn:deploy:production"], /github|actions/i);
 assert.match(canaryWrapper, /wrangler", "deploy", "--env", "canary/);
+assert.match(canaryWrapper, /wrangler\.canary-bootstrap\.toml/);
+assert.match(canaryWrapper, /bootstrapDeploy/);
+assert.match(canaryWrapper, /verifierConfigPath/);
 assert.match(productionWrapper, /wrangler", "deploy", "--env", "production/);
 
 const testEnvironment = environmentSection("test");
@@ -119,10 +124,16 @@ assert.match(testEnvironment, /binding = "TLSN_DIRECT_VERIFIER"/);
 assert.match(evidenceEnvironment, /binding = "TLSN_DIRECT_VERIFIER"/);
 assert.match(evidenceEnvironment, /service = "fusou-tlsn-verifier-evidence"/);
 assert.match(evidenceEnvironment, /bucket_name = "fusou-tlsn-verification-evidence"/);
-assert.doesNotMatch(canaryEnvironment, /TLSN_DIRECT_VERIFIER|fusou-tlsn-verifier-test|fusou-tlsn-verification-test/);
+assert.match(canaryEnvironment, /binding = "TLSN_DIRECT_VERIFIER"/);
+assert.match(canaryEnvironment, /service = "fusou-tlsn-verifier-canary"/);
+assert.doesNotMatch(canaryEnvironment, /fusou-tlsn-verifier-test|fusou-tlsn-verification-test/);
 assert.doesNotMatch(productionEnvironment, /TLSN_DIRECT_VERIFIER|fusou-tlsn-verifier-test|fusou-tlsn-verification-test/);
 assert.doesNotMatch(canaryEnvironment, /fusou-tlsn-verifier-evidence|fusou-tlsn-verification-evidence/);
 assert.doesNotMatch(productionEnvironment, /fusou-tlsn-verifier-evidence|fusou-tlsn-verification-evidence/);
+assert.match(canaryVerifierWrangler, /script_name = "fusou-tlsn-verification-canary"/);
+assert.match(canaryVerifierWrangler, /bucket_name = "fusou-tlsn-verification-canary"/);
+assert.doesNotMatch(canaryBootstrapWrangler, /TLSN_DIRECT_VERIFIER|fusou-tlsn-verifier-canary/);
+assert.match(canaryBootstrapWrangler, /bucket_name = "fusou-tlsn-verification-canary"/);
 assert.match(testEnvironment, /bucket_name = "fusou-tlsn-verification-test"/);
 assert.match(canaryEnvironment, /bucket_name = "fusou-tlsn-verification-canary"/);
 assert.match(productionEnvironment, /bucket_name = "fusou-tlsn-verification-production"/);

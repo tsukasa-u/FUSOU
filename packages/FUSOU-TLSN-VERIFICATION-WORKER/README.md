@@ -199,14 +199,24 @@ benchmark then polls `/verify/tlsn/status` until the authoritative Result is
 returned. It does not contact Trigger.dev, Cloudflare production services, the
 Game Server, or the Notary.
 
-The Direct path also has a test-only synchronous candidate. Set
-`TLSN_TEST_DIRECT_SYNCHRONOUS_CANDIDATE=true` on a non-production test Worker
-and run `node scripts/test.mjs --direct-only`. The candidate commits the
-serialized Result bytes to the Durable Object, then relays those exact bytes
-in the same `POST` response. The test compares them with authenticated status
-recovery and checks that the first response performs no Result R2 GET. The
-normal Direct path remains `202` plus status polling, and the candidate is ignored outside
-`TLSN_ENVIRONMENT=test`.
+The Direct path has a test-only synchronous candidate and a production canary
+capability. Set `TLSN_TEST_DIRECT_SYNCHRONOUS_CANDIDATE=true` on a
+non-production test Worker and run `node scripts/test.mjs --direct-only`. The
+candidate commits the serialized Result bytes to the Durable Object, then
+relays those exact bytes in the same `POST` response. The test compares them
+with authenticated status recovery and checks that the first response performs
+no Result R2 GET.
+
+`POST /verify/tlsn` and `/verify/tlsn/sparse` negotiate the response contract
+with `X-FUSOU-TLSN-Response-Mode: async|sync`. An omitted header and explicit
+`async` are equivalent: the production default remains `202` plus status
+polling. `sync` is accepted only by a canary Worker with
+`TLSN_CANARY_SYNCHRONOUS_RESPONSE_ENABLED=true`, the canary Direct service
+binding, and `TLSN_CANARY_DIRECT_CALLBACK_SECRET`; the Worker returns the
+authoritative committed Result bytes as `200` and validates the complete final
+Result schema before exposing them. A sync request that does not satisfy that
+gate returns `503 sync_unavailable` and never falls back to async. The normal
+production deployment has no Direct service binding and remains async-only.
 
 Fresh Direct requests no longer perform a preliminary Durable Object binding
 lookup. After device-possession authentication, the Worker sends the request
@@ -258,8 +268,37 @@ TLSN_REMOTE_BENCHMARK_REPORT_PATH=artifacts/tlsn-remote-recovery-c8.json \
 pnpm run benchmark:tlsn-remote
 ```
 
-The benchmark rejects this flag when the synchronous candidate is disabled,
-and the synchronous candidate remains rejected for production.
+The benchmark rejects this flag when the synchronous candidate is disabled.
+For a controlled canary readiness run, additionally set
+`TLSN_REMOTE_EXPECTED_ENVIRONMENT=production` and
+`TLSN_REMOTE_PRODUCTION_SYNC_CANARY=true`; the harness then requires the
+remote `/health` response to identify the canary deployment role before it
+sends the sync header. This is a readiness measurement only and does not
+change the production default.
+
+The canary deploy wrapper bootstraps the canary Worker without the Direct
+binding, deploys the canary verifier service, then redeploys the canary Worker
+with the binding. Its generated verifier config targets the configured
+`TLSN_CANARY_WORKER_NAME`, so the service binding is not silently attached to
+another Worker. To roll back the sync candidate, stop sending `sync`, disable
+the canary capability flag, or deploy the previous canary inputs; the ordinary
+production Worker is not changed by that rollback.
+
+The production canary readiness matrix is intentionally manual and requires
+explicit approval for remote access:
+
+```sh
+TLSN_REMOTE_EXPECTED_ENVIRONMENT=production \
+TLSN_REMOTE_EXECUTION_MODE=direct \
+TLSN_REMOTE_DIRECT_SYNCHRONOUS_CANDIDATE=true \
+TLSN_REMOTE_PRODUCTION_SYNC_CANARY=true \
+TLSN_REMOTE_CONCURRENCY=1,2,4,8 TLSN_REMOTE_SAMPLE_COUNT=20 \
+pnpm run benchmark:tlsn-remote
+```
+
+Do not run this matrix against the ordinary production Worker. It requires
+the isolated canary URL, random bindings, the canary Direct verifier, and the
+same authenticated remote benchmark inputs as the async measurement.
 
 The opt-in timing header is emitted only when
 `TLSN_BENCHMARK_TIMINGS=true` and the Worker is a test deployment or an

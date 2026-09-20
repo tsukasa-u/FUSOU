@@ -87,6 +87,10 @@ class_name = "TlsnBindingAuthorityDurableObject"
 binding = "TLSN_PRESENTATIONS"
 bucket_name = "fusou-tlsn-verification-canary"
 
+[[env.canary.services]]
+binding = "TLSN_DIRECT_VERIFIER"
+service = "fusou-tlsn-verifier-canary"
+
 [[env.canary.migrations]]
 tag = "v1"
 new_sqlite_classes = ["TlsnBindingAuthorityDurableObject"]

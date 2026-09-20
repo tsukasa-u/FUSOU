@@ -1330,6 +1330,22 @@ async function runDirectFailureSmokeTest() {
           device_id: deviceId,
           device_proof: { challenge: proof.challenge, sig: proof.sig },
         });
+        if (scenarioMode === "success") {
+          const invalidResponseMode = await attemptWorker.fetch("https://verify.test/verify/tlsn", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: "Bearer test-token-a",
+              "X-FUSOU-TLSN-Response-Mode": "invalid",
+            },
+            body: verificationRequestBody,
+          });
+          assert.equal(invalidResponseMode.status, 400);
+          assert.deepEqual(await invalidResponseMode.json(), {
+            verified: false,
+            error: "invalid_response_mode",
+          });
+        }
         const verificationResponse = await attemptWorker.fetch("https://verify.test/verify/tlsn", {
         method: "POST",
         headers: {
@@ -1344,6 +1360,11 @@ async function runDirectFailureSmokeTest() {
             : {}),
           ...(scenarioMode === "pause_before_result_commit"
             ? { "X-FUSOU-TLSN-Test-Fault": "pause_before_result_commit" }
+            : {}),
+          ...(scenarioMode.startsWith("synchronous")
+            ? { "X-FUSOU-TLSN-Response-Mode": "sync" }
+            : scenarioMode === "pause_before_result_commit"
+              ? { "X-FUSOU-TLSN-Response-Mode": "async" }
             : {}),
         },
           body: verificationRequestBody,
@@ -1572,7 +1593,11 @@ async function runDirectFailureSmokeTest() {
         assert.equal(verificationResponseBytes?.toString("utf8"), statusResponseBytes?.toString("utf8"));
         const replayResponse = await attemptWorker.fetch("https://verify.test/verify/tlsn", {
           method: "POST",
-          headers: { "Content-Type": "application/json", Authorization: "Bearer test-token-a" },
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: "Bearer test-token-a",
+            "X-FUSOU-TLSN-Response-Mode": "sync",
+          },
           body: verificationRequestBody,
         });
         const replayResponseBytes = Buffer.from(await replayResponse.arrayBuffer());

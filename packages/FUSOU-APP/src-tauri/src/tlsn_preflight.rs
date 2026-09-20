@@ -25,6 +25,7 @@ pub struct TlsnPreflightConfig {
     pub result_signing_key_registry: Option<String>,
     pub verification_endpoint: Option<String>,
     pub disclosure_mode: String,
+    pub response_mode: String,
     pub notary_verifying_key: Option<String>,
     pub origin_trust_roots: Vec<String>,
     pub server_identity: Option<String>,
@@ -46,6 +47,7 @@ impl TlsnPreflightConfig {
             result_signing_key_registry: proxy.get_tlsn_result_signing_key_registry(),
             verification_endpoint: proxy.get_tlsn_verification_endpoint(),
             disclosure_mode: proxy.get_tlsn_disclosure_mode(),
+            response_mode: proxy.get_tlsn_response_mode(),
             notary_verifying_key: proxy.get_tlsn_notary_verifying_key(),
             origin_trust_roots: proxy.get_tlsn_origin_trust_roots(),
             server_identity: proxy.get_tlsn_server_identity(),
@@ -231,6 +233,21 @@ pub fn run_preflight(config: &TlsnPreflightConfig, config_path: &Path) -> TlsnPr
             config.disclosure_mode.as_str()
         } else {
             "must be complete or sparse"
+        },
+    );
+    let response_mode_valid = matches!(config.response_mode.as_str(), "async" | "sync");
+    push_check(
+        &mut checks,
+        "tlsn_response_mode",
+        if response_mode_valid {
+            PreflightStatus::Pass
+        } else {
+            PreflightStatus::Error
+        },
+        if response_mode_valid {
+            config.response_mode.as_str()
+        } else {
+            "must be async or sync"
         },
     );
     if config.disclosure_mode == "sparse"
@@ -834,6 +851,7 @@ mod tests {
             config: TlsnPreflightConfig {
                 production_enabled: true,
                 disclosure_mode: "complete".to_owned(),
+                response_mode: "async".to_owned(),
                 notary_endpoint: Some("notary.example.test:7047".to_owned()),
                 session_authority_endpoint: Some(
                     "https://authority.example.test/attestation/session".to_owned(),

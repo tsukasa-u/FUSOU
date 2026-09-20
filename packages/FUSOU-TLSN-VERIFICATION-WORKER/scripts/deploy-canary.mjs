@@ -71,15 +71,44 @@ async function main() {
   const childEnvironment = Object.fromEntries(
     Object.entries(deploymentEnvironment).filter(([name]) => allowedChildEnvironment.has(name) && !secretInputs.has(name)),
   );
+  const bootstrapDeployArguments = [
+    "exec", "wrangler", "deploy", "--config", "wrangler.canary-bootstrap.toml", "--name", workerName,
+  ];
   const deployArguments = ["exec", "wrangler", "deploy", "--env", "canary", "--name", workerName];
+  const verifierDeployArguments = [
+    "exec", "wrangler", "deploy", "--name", "fusou-tlsn-verifier-canary",
+  ];
   for (const name of allowedInputs) {
-    if (!secretInputs.has(name)) deployArguments.push("--var", `${name}:${deploymentEnvironment[name]}`);
+    if (!secretInputs.has(name)) {
+      bootstrapDeployArguments.push("--var", `${name}:${deploymentEnvironment[name]}`);
+      deployArguments.push("--var", `${name}:${deploymentEnvironment[name]}`);
+      verifierDeployArguments.push("--var", `${name}:${deploymentEnvironment[name]}`);
+    }
   }
   const secretDirectory = await mkdtemp(join(tmpdir(), "tlsn-canary-secrets-"));
   const secretsPath = join(secretDirectory, "secrets.json");
+  const verifierConfigPath = join(secretDirectory, "wrangler.verifier-canary.toml");
   try {
+    const verifierConfig = (await readFile(resolve(packageDirectory, "wrangler.verifier-canary.toml"), "utf8"))
+      .replace('script_name = "fusou-tlsn-verification-canary"', `script_name = "${workerName}"`);
+    await writeFile(verifierConfigPath, verifierConfig, "utf8");
+    verifierDeployArguments.push("--config", verifierConfigPath);
     await writeFile(secretsPath, JSON.stringify(Object.fromEntries([...secretInputs].map((name) => [name, deploymentEnvironment[name]]))), { encoding: "utf8", mode: 0o600 });
+    bootstrapDeployArguments.push("--secrets-file", secretsPath);
     deployArguments.push("--secrets-file", secretsPath);
+    verifierDeployArguments.push("--secrets-file", secretsPath);
+    const bootstrapDeploy = spawnSync("pnpm", bootstrapDeployArguments, { cwd: packageDirectory, env: childEnvironment, stdio: "inherit" });
+    if (bootstrapDeploy.error) throw bootstrapDeploy.error;
+    if (bootstrapDeploy.status !== 0) {
+      process.exitCode = bootstrapDeploy.status ?? 1;
+      return;
+    }
+    const verifierDeploy = spawnSync("pnpm", verifierDeployArguments, { cwd: packageDirectory, env: childEnvironment, stdio: "inherit" });
+    if (verifierDeploy.error) throw verifierDeploy.error;
+    if (verifierDeploy.status !== 0) {
+      process.exitCode = verifierDeploy.status ?? 1;
+      return;
+    }
     const deploy = spawnSync("pnpm", deployArguments, { cwd: packageDirectory, env: childEnvironment, stdio: "inherit" });
     if (deploy.error) throw deploy.error;
     process.exitCode = deploy.status ?? 1;

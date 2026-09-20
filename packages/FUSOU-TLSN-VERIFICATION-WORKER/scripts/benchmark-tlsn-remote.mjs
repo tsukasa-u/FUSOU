@@ -119,7 +119,10 @@ const REQUIRED_TIMING_STAGES_BY_MODE = {
 };
 const SYNCHRONOUS_REQUIRED_TIMING_STAGES = [
   ...REQUIRED_TIMING_STAGES_BY_MODE.direct.filter(
-    (stage) => stage !== "t1_202_response_sent" && stage !== "t11_status_verified",
+    (stage) => stage !== "t1_202_response_sent"
+      && stage !== "t11_status_verified"
+      && stage !== "status_result_read_started"
+      && stage !== "status_result_read_completed",
   ),
   "direct_synchronous_response_started",
   "t1_200_response_sent",
@@ -421,6 +424,7 @@ async function submitVerification(workerOrigin, accessToken, body, synchronousCa
     headers: {
       "Content-Type": "application/json",
       Authorization: `Bearer ${accessToken}`,
+      "X-FUSOU-TLSN-Response-Mode": synchronousCandidate ? "sync" : "async",
     },
     body,
   });
@@ -453,6 +457,7 @@ async function submitVerification(workerOrigin, accessToken, body, synchronousCa
     requestAcceptanceMilliseconds: clientT1 - clientT0,
     responseMode: synchronousCandidate ? "direct_synchronous" : "queued_202",
     requestBody: body,
+    response: result.response,
     responseBytes: result.responseBytes,
     responseBodyBytes: result.responseBodyBytes,
     responseBodySha256: result.responseBodySha256,
@@ -498,6 +503,7 @@ async function replaySynchronousVerification(workerOrigin, accessToken, submissi
     headers: {
       "Content-Type": "application/json",
       Authorization: `Bearer ${accessToken}`,
+      "X-FUSOU-TLSN-Response-Mode": "sync",
     },
     body: submission.requestBody,
   });
@@ -1881,7 +1887,9 @@ async function runBatch({ workerOrigin, webOrigin, accessToken, userId, device, 
         statusRecoveryBytesMatchResultBytes: Number.isFinite(diagnostics.result_bytes)
           && !(synchronousCandidate && !responseLossRecovery)
           && (responseLossRecovery ? completion.statusRecoveryResponseBytes : completion.statusRecoveryResponseBytes ?? completion.clientResponseBytes) === diagnostics.result_bytes,
-        responseBytesMatchCommittedResult: Number.isFinite(diagnostics.result_bytes)
+        responseBytesMatchCommittedResult: typeof diagnostics.result_sha256 === "string"
+          && completion.clientResponseSha256 === diagnostics.result_sha256
+          && Number.isFinite(diagnostics.result_bytes)
           && completion.clientResponseBytes === diagnostics.result_bytes,
         requestAcceptanceMilliseconds: submission.requestAcceptanceMilliseconds,
         requestAuthenticationMilliseconds: Number.isFinite(durations.request_authentication) ? durations.request_authentication : null,
@@ -2382,7 +2390,12 @@ async function main() {
     throw new Error("evidence benchmark requires TLSN_REMOTE_EXECUTION_MODE=direct");
   }
   if (synchronousCandidate && expectedEnvironment === "production") {
-    throw new Error("TLSN_REMOTE_DIRECT_SYNCHRONOUS_CANDIDATE is restricted to test or evidence environments");
+    if (optional("TLSN_REMOTE_PRODUCTION_SYNC_CANARY") !== "true") {
+      throw new Error("production synchronous benchmark requires TLSN_REMOTE_PRODUCTION_SYNC_CANARY=true");
+    }
+    if (manifest.deployment_role !== "canary") {
+      throw new Error("production synchronous benchmark requires the canary deployment role");
+    }
   }
   const cases = parseList("TLSN_REMOTE_CASES", DEFAULT_CASES, (value) => value || undefined);
   const concurrencyValues = parseList("TLSN_REMOTE_CONCURRENCY", DEFAULT_CONCURRENCY, (value) => {

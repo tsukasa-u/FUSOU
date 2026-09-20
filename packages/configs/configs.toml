@@ -31,6 +31,8 @@ tlsn_result_signing_key_registry = ""
 tlsn_verification_endpoint = ""
 # complete preserves full transcript digests; sparse selects /verify/tlsn/sparse.
 tlsn_disclosure_mode = "complete"
+# async preserves the production polling contract; sync is an explicit canary opt-in.
+tlsn_response_mode = "async"
 tlsn_notary_verifying_key = ""
 tlsn_origin_port = 443
 tlsn_server_identity = ""

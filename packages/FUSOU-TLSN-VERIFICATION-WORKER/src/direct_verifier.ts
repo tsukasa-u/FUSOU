@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import {
   processVerificationCompletion,
   benchmarkEnabled,
+  canarySynchronousResponseEnabled,
   decodeBase64Url,
   readRawBody,
   readRawBytes,
@@ -76,8 +77,10 @@ app.post("/internal/tlsn/verification-complete", async (c) => {
   }
   const jobId = c.req.header("X-FUSOU-TLSN-Job-Id") ?? "";
   const signature = c.req.header("X-FUSOU-TLSN-Signature") ?? null;
-  const synchronousCandidate = c.env.TLSN_ENVIRONMENT === "test"
-    && c.req.header("X-FUSOU-TLSN-Synchronous-Candidate") === "true";
+  const synchronousCandidate = (c.env.TLSN_ENVIRONMENT === "test"
+    && c.req.header("X-FUSOU-TLSN-Synchronous-Candidate") === "true")
+    || (canarySynchronousResponseEnabled(c.env)
+      && c.req.header("X-FUSOU-TLSN-Synchronous-Response") === "true");
   if (rawBody === null || (encodedMetadata && !presentationBytes) || !jobId || !signature) {
     return c.json({ error: "unauthorized" }, 401);
   }

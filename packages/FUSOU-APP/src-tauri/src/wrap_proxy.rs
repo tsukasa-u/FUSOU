@@ -221,6 +221,7 @@ fn build_production_tlsn_dependencies(
             binding_provider.state(),
             std::sync::Arc::clone(&worker_results),
             result_verifier,
+            proxy_configs.get_tlsn_response_mode(),
         )
         .map_err(production_configuration_error)?,
     );

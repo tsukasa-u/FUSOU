@@ -1033,6 +1033,7 @@ pub struct ConfigsProxy {
     tlsn_result_signing_key_registry: Option<String>,
     tlsn_verification_endpoint: Option<String>,
     tlsn_disclosure_mode: Option<String>,
+    tlsn_response_mode: Option<String>,
     tlsn_notary_verifying_key: Option<String>,
     tlsn_origin_port: Option<i64>,
     tlsn_server_identity: Option<String>,
@@ -1059,6 +1060,7 @@ pub struct TlsnProxyConfig {
     pub result_signing_key_registry: Option<String>,
     pub verification_endpoint: Option<String>,
     pub disclosure_mode: Option<String>,
+    pub response_mode: Option<String>,
     pub notary_verifying_key: Option<String>,
     pub origin_port: Option<i64>,
     pub server_identity: Option<String>,
@@ -1079,6 +1081,7 @@ impl ConfigsProxy {
             result_signing_key_registry: self.tlsn_result_signing_key_registry.clone(),
             verification_endpoint: self.tlsn_verification_endpoint.clone(),
             disclosure_mode: self.tlsn_disclosure_mode.clone(),
+            response_mode: self.tlsn_response_mode.clone(),
             notary_verifying_key: self.tlsn_notary_verifying_key.clone(),
             origin_port: self.tlsn_origin_port,
             server_identity: self.tlsn_server_identity.clone(),
@@ -1136,6 +1139,13 @@ impl ConfigsProxy {
             get_default_configs().proxy.tlsn_disclosure_mode.clone()
         }))
         .unwrap_or_else(|| "complete".to_owned())
+    }
+
+    pub fn get_tlsn_response_mode(&self) -> String {
+        non_empty_string(self.tlsn_response_mode.clone().or_else(|| {
+            get_default_configs().proxy.tlsn_response_mode.clone()
+        }))
+        .unwrap_or_else(|| "async".to_owned())
     }
 
     pub fn get_tlsn_session_authority_public_key(&self) -> Option<String> {
@@ -1606,6 +1616,7 @@ mod tests {
             tlsn_result_signing_key_registry: None,
             tlsn_verification_endpoint: None,
             tlsn_disclosure_mode: None,
+            tlsn_response_mode: None,
             tlsn_notary_verifying_key: None,
             tlsn_origin_port: None,
             tlsn_server_identity: None,
@@ -1626,6 +1637,7 @@ mod tests {
             "allow_save_api_requests getter should return configs.toml default"
         );
         assert!(!empty_proxy_fields.get_experimental_tlsn_enabled());
+        assert_eq!(empty_proxy_fields.get_tlsn_response_mode(), "async");
         assert_eq!(
             empty_proxy_fields.get_allow_save_api_responses(),
             default_configs.proxy.get_allow_save_api_responses(),

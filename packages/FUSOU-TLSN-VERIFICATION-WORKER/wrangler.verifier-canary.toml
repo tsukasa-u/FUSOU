@@ -1,0 +1,17 @@
+name = "fusou-tlsn-verifier-canary"
+main = "src/direct_verifier.ts"
+compatibility_date = "2026-09-07"
+
+[[rules]]
+type = "CompiledWasm"
+globs = ["**/*.wasm"]
+fallthrough = true
+
+[[durable_objects.bindings]]
+name = "TLSN_BINDINGS"
+class_name = "TlsnBindingAuthorityDurableObject"
+script_name = "fusou-tlsn-verification-canary"
+
+[[r2_buckets]]
+binding = "TLSN_PRESENTATIONS"
+bucket_name = "fusou-tlsn-verification-canary"
