@@ -169,7 +169,9 @@ try {
       complete.generatedEnv[publicKeyName],
     );
     assert.equal(complete.generatedEnv[name], expectedKeyId, `${name} must follow the deterministic generated ID contract`);
-    const mutatedPublicKey = `${complete.generatedEnv[publicKeyName].slice(0, -1)}${complete.generatedEnv[publicKeyName].endsWith("A") ? "B" : "A"}`;
+    const mutatedPublicKeyBytes = Buffer.from(complete.generatedEnv[publicKeyName], "base64url");
+    mutatedPublicKeyBytes[0] ^= 1;
+    const mutatedPublicKey = mutatedPublicKeyBytes.toString("base64url");
     assert.notEqual(
       expectedGeneratedCanaryKeyId(complete.generatedEnv.TLSN_CANARY_DEPLOYMENT_ID, purpose, mutatedPublicKey),
       complete.generatedEnv[name],
