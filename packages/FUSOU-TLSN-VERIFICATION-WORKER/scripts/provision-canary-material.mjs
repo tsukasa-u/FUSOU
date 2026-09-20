@@ -6,6 +6,7 @@ import { execFileSync } from "node:child_process";
 import { join, resolve } from "node:path";
 import { createSignedResultRegistryEnvelope } from "./result-registry-envelope.mjs";
 import { canonicalJson, notaryRegistrySha256, parseNotaryRegistry } from "./production-trust-contract.mjs";
+import { securityRegistrySetHash } from "./security-registry-set-contract.mjs";
 import {
   FIXTURE_SERVER_IDENTITY,
   canonicalProfileHash,
@@ -269,14 +270,15 @@ async function main() {
   const notaryRegistryRaw = fixtureOnly
     ? JSON.stringify({ [notaryKeyId]: fixture.notary_key_base64 })
     : await readNotaryRegistry(options["notary-registry-file"], notaryKeyId);
-  const securityRegistrySetSha256 = fixtureOnly
-    ? createHash("sha256").update(canonicalJson({
-        notary_registry: JSON.parse(notaryRegistryRaw),
-        profile_sha256: completeProfile?.sha256,
-        server_identity: serverIdentity,
-        sparse_profile_sha256: sparseProfile?.sha256,
-      })).digest("base64url")
-    : undefined;
+  const securityRegistrySet = notaryRegistryRaw && completeProfile && sparseProfile && serverIdentity
+    ? securityRegistrySetHash({
+        notaryRegistryRaw,
+        profileSha256: completeProfile.sha256,
+        serverIdentity,
+        sparseProfileSha256: sparseProfile.sha256,
+      })
+    : null;
+  const securityRegistrySetSha256 = securityRegistrySet?.sha256;
   const siteOrigin = fixtureOnly ? null : publicOrigin(
     process.env.PUBLIC_SITE_URL_PRODUCTION ?? process.env.PUBLIC_SITE_URL,
     "PUBLIC_SITE_URL",
@@ -403,6 +405,10 @@ async function main() {
           ? "explicit_input_file"
           : "unresolved_explicit_input",
     },
+    security_registry_set_sha256: securityRegistrySetSha256 ?? null,
+    security_registry_set_source: securityRegistrySetSha256
+      ? "derived-from-explicit-inputs"
+      : "unresolved-explicit-inputs",
     fixture_provenance: fixtureProvenanceValue,
     generated_public_identity: {
       deployment_id: deploymentId ?? null,

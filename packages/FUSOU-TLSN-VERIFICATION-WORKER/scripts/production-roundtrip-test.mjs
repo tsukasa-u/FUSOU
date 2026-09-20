@@ -12,6 +12,7 @@ import {
 } from "./production-trust-contract.mjs";
 import { createSignedResultRegistryEnvelope } from "./result-registry-envelope.mjs";
 import { profilesForServerIdentity } from "./profile-canonical-contract.mjs";
+import { securityRegistrySetHash } from "./security-registry-set-contract.mjs";
 
 const packageDirectory = resolve(new URL("..", import.meta.url).pathname);
 const repositoryDirectory = resolve(packageDirectory, "../..");
@@ -164,6 +165,12 @@ try {
   const fragmentPath = join(rootDirectory, "rendered-proxy-config.toml");
   const configPath = join(rootDirectory, "app-config.toml");
   const artifactPath = join(rootDirectory, "app-artifacts");
+  const securityRegistrySetSha256 = securityRegistrySetHash({
+    notaryRegistryRaw,
+    profileSha256: productionProfiles.complete.sha256,
+    serverIdentity: "game.example.com",
+    sparseProfileSha256: productionProfiles.sparse.sha256,
+  }).sha256;
   const env = {
     PATH: process.env.PATH,
     HOME: process.env.HOME,
@@ -184,7 +191,7 @@ try {
     TLSN_CANDIDATE_SUPABASE_ALLOWED_HOSTS: "supabase.example.com",
     TLSN_CANDIDATE_SUPABASE_URL: "https://supabase.example.com/",
     TLSN_CANDIDATE_SUPABASE_PUBLISHABLE_KEY: "synthetic-publishable-key",
-    TLSN_SECURITY_REGISTRY_SET_SHA256: Buffer.alloc(32, 2).toString("base64url"),
+    TLSN_SECURITY_REGISTRY_SET_SHA256: securityRegistrySetSha256,
     TLSN_WORKFLOW_RUN_ID: "1",
     TLSN_WORKFLOW_RUN_ATTEMPT: "1",
     TLSN_REPOSITORY: "tsukasa-u/FUSOU",
@@ -228,6 +235,34 @@ try {
   const report = JSON.parse(await readFile(reportPath, "utf8"));
   assert.equal(report.status, "PASS");
   assert.equal(report.failure_count, 0);
+  const mutatedReportPath = join(rootDirectory, "mutated-preflight.json");
+  const mutatedPreflight = spawnSync(process.execPath, ["scripts/deployment-preflight.mjs"], {
+    cwd: packageDirectory,
+    encoding: "utf8",
+    env: {
+      ...env,
+      TLSN_SECURITY_REGISTRY_SET_SHA256: Buffer.alloc(32, 0x7f).toString("base64url"),
+      TLSN_PREFLIGHT_REPORT_PATH: mutatedReportPath,
+    },
+  });
+  assert.notEqual(mutatedPreflight.status, 0, `${mutatedPreflight.stdout}\n${mutatedPreflight.stderr}`);
+  const mutatedReport = JSON.parse(await readFile(mutatedReportPath, "utf8"));
+  assert.equal(mutatedReport.status, "FAIL");
+  assert.ok(mutatedReport.failures.some(({ check }) => check === "TLSN_SECURITY_REGISTRY_SET_SHA256"));
+  const missingReportPath = join(rootDirectory, "missing-security-hash-preflight.json");
+  const { TLSN_SECURITY_REGISTRY_SET_SHA256: _ignoredSecurityRegistrySetSha256, ...envWithoutSecurityRegistrySetSha256 } = env;
+  const missingSecurityRegistrySet = spawnSync(process.execPath, ["scripts/deployment-preflight.mjs"], {
+    cwd: packageDirectory,
+    encoding: "utf8",
+    env: {
+      ...envWithoutSecurityRegistrySetSha256,
+      TLSN_PREFLIGHT_REPORT_PATH: missingReportPath,
+    },
+  });
+  assert.notEqual(missingSecurityRegistrySet.status, 0, `${missingSecurityRegistrySet.stdout}\n${missingSecurityRegistrySet.stderr}`);
+  const missingReport = JSON.parse(await readFile(missingReportPath, "utf8"));
+  assert.equal(missingReport.status, "FAIL");
+  assert.ok(missingReport.failures.some(({ check }) => check === "TLSN_SECURITY_REGISTRY_SET_SHA256"));
   const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
   assertPublicManifest(manifest);
   assert.equal(manifest.notary.registry_sha256, notaryRegistrySha256(notaryRegistryRaw));

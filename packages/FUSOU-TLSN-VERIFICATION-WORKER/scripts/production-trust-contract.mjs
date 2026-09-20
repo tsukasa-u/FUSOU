@@ -132,6 +132,10 @@ export function parseNotaryRegistry(raw, label = CANONICAL_NOTARY_REGISTRY_INPUT
   return registry;
 }
 
+export function canonicalNotaryRegistryJson(raw, label = CANONICAL_NOTARY_REGISTRY_INPUT) {
+  return canonicalJson(parseNotaryRegistry(raw, label));
+}
+
 export function notaryRegistrySha256(raw) {
   return createHash("sha256").update(raw).digest("base64url");
 }

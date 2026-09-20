@@ -1,4 +1,5 @@
 import { PROFILE_CONTRACT_INPUT_MANIFEST } from "./profile-canonical-contract.mjs";
+import { SECURITY_REGISTRY_SET_CONTRACT } from "./security-registry-set-contract.mjs";
 
 export const COMMON_INPUTS = [
   "TLSN_ENVIRONMENT",
@@ -235,6 +236,7 @@ export function assertManifest(manifest) {
     manifest?.schema_version !== 3 ||
     manifest?.scope !== "tlsn-deployment-inputs" ||
     !same(manifest.profile_contract, PROFILE_CONTRACT_INPUT_MANIFEST) ||
+    !same(manifest.security_registry_set_contract, SECURITY_REGISTRY_SET_CONTRACT) ||
     !same(manifest.common_inputs, COMMON_INPUTS) ||
     !same(manifest.canary_inputs, CANARY_INPUTS) ||
     !same(manifest.production_inputs, PRODUCTION_INPUTS) ||

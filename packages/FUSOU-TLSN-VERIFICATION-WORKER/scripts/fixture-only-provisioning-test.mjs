@@ -13,6 +13,7 @@ import {
   assertManifest,
 } from "./deployment-contract.mjs";
 import { profileContractArtifact, profilesForServerIdentity } from "./profile-canonical-contract.mjs";
+import { canonicalJson } from "./production-trust-contract.mjs";
 import { loadRealFixture, readRealFixtureManifest } from "./tlsn-benchmark-fixtures.mjs";
 
 const packageDirectory = resolve(new URL("..", import.meta.url).pathname);
@@ -184,6 +185,15 @@ async function inspectProvisionedOutput(outputDirectory, fixtureManifest, fixtur
   assert.equal(JSON.parse(generatedEnv.TLSN_PRODUCTION_NOTARY_REGISTRY)[manifest.notary.key_id], fixture.notary_key_base64);
   assert.equal(generatedEnv.TLSN_CANDIDATE_PROFILE_SHA256, manifest.supplied_candidate_inputs.profile_sha256);
   assert.equal(generatedEnv.TLSN_CANDIDATE_SPARSE_PROFILE_SHA256, manifest.supplied_candidate_inputs.sparse_profile_sha256);
+  const legacyFixtureSecurityRegistrySetSha256 = createHash("sha256").update(canonicalJson({
+    notary_registry: JSON.parse(generatedEnv.TLSN_PRODUCTION_NOTARY_REGISTRY),
+    profile_sha256: generatedEnv.TLSN_CANDIDATE_PROFILE_SHA256,
+    server_identity: generatedEnv.TLSN_CANDIDATE_SERVER_IDENTITY,
+    sparse_profile_sha256: generatedEnv.TLSN_CANDIDATE_SPARSE_PROFILE_SHA256,
+  })).digest("base64url");
+  assert.equal(generatedEnv.TLSN_SECURITY_REGISTRY_SET_SHA256, legacyFixtureSecurityRegistrySetSha256);
+  assert.equal(manifest.security_registry_set_sha256, legacyFixtureSecurityRegistrySetSha256);
+  assert.equal(manifest.security_registry_set_source, "derived-from-explicit-inputs");
   assert.equal(generatedEnv.TLSN_CANARY_TRUST_ROOT_CERTIFICATE_DER, fixture.root_certificate_base64);
   assert.equal(manifest.supplied_candidate_inputs.trust_root_sha256, sha256Base64Url(rootCertificate));
   assert.deepEqual(await readFile(join(outputDirectory, "trust-root.der")), rootCertificate);
@@ -252,6 +262,46 @@ async function inspectProvisionedOutput(outputDirectory, fixtureManifest, fixtur
   return { manifest, generatedEnv };
 }
 
+async function runFixturePreflight(outputDirectory, generatedEnv) {
+  const reportPath = join(outputDirectory, "preflight.json");
+  const privateKeyFiles = {
+    TLSN_CANARY_RESULT_SIGNING_PRIVATE_KEY_PKCS8: "canary-result-signing-private-key.pkcs8.base64url",
+    TLSN_CANARY_SESSION_AUTHORITY_SIGNING_PRIVATE_KEY_PKCS8: "canary-session-authority-private-key.pkcs8.base64url",
+    TLSN_CANARY_BINDING_AUTHORITY_SIGNING_PRIVATE_KEY_PKCS8: "canary-binding-authority-private-key.pkcs8.base64url",
+  };
+  const privateKeyEnvironment = Object.fromEntries(await Promise.all(
+    Object.entries(privateKeyFiles).map(async ([name, fileName]) => [name, (await readFile(join(outputDirectory, fileName), "utf8")).trim()]),
+  ));
+  const result = spawnSync(process.execPath, [resolve(packageDirectory, "scripts/deployment-preflight.mjs")], {
+    cwd: packageDirectory,
+    encoding: "utf8",
+    env: {
+      PATH: process.env.PATH ?? "/usr/bin:/bin",
+      HOME: process.env.HOME ?? tmpdir(),
+      ...generatedEnv,
+      ...privateKeyEnvironment,
+      TLSN_WORKFLOW_RUN_ID: "1",
+      TLSN_WORKFLOW_RUN_ATTEMPT: "1",
+      TLSN_REPOSITORY: "fixture/example",
+      TLSN_WORKFLOW_FILE_IDENTITY: "dotenvx+pnpm+wrangler",
+      TLSN_CANDIDATE_DEVICE_AUTH_URL: "https://api.example.com/api/auth/anonymous-sync/v2/device-proof",
+      TLSN_CANDIDATE_DEVICE_POSSESSION_AUTH_URL: "https://api.example.com/api/auth/anonymous-sync/v2/tlsn-device-proof",
+      TLSN_CANDIDATE_DEVICE_AUTH_ALLOWED_HOSTS: "api.example.com",
+      TLSN_CANDIDATE_SUPABASE_ALLOWED_HOSTS: "supabase.example.com",
+      TLSN_CANDIDATE_SUPABASE_URL: "https://supabase.example.com/",
+      TLSN_CANDIDATE_SUPABASE_PUBLISHABLE_KEY: "synthetic-publishable-key",
+      TLSN_CANARY_TRIGGER_API_URL: "https://trigger.example.com/",
+      TLSN_CANARY_TRIGGER_TASK_ID: "verifyTlsnPresentation",
+      TLSN_CANARY_WORKER_INTERNAL_URL: "https://worker.example.com/",
+      TLSN_PREFLIGHT_REPORT_PATH: reportPath,
+    },
+  });
+  assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
+  const report = JSON.parse(await readFile(reportPath, "utf8"));
+  assert.equal(report.status, "PASS");
+  assert.equal(report.failure_count, 0);
+}
+
 async function runTest() {
   const { manifest: fixtureManifest, entries } = readRealFixtureManifest();
   const fixtureEntry = entries.get("p50");
@@ -285,6 +335,7 @@ async function runTest() {
     assert.equal(secondRun.status, 0, `${secondRun.errorOutput}\n${secondRun.output}`);
     const second = await inspectProvisionedOutput(secondDirectory, fixtureManifest, fixtureEntry, fixture);
     assert.deepEqual(deterministicSnapshot(first.manifest, first.generatedEnv), deterministicSnapshot(second.manifest, second.generatedEnv));
+    await runFixturePreflight(firstDirectory, first.generatedEnv);
 
     const mixedInputRun = await runProvisionerChild(
       join(rootDirectory, "mixed-input"),

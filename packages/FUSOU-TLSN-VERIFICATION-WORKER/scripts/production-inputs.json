@@ -52,6 +52,33 @@
       "response_mode": "request-time delivery selection: async or sync"
     }
   },
+  "security_registry_set_contract": {
+    "schema_version": 1,
+    "source_of_truth": "scripts/security-registry-set-contract.mjs",
+    "canonicalization": "canonicalJson",
+    "encoding": "UTF-8",
+    "whitespace": "none",
+    "hash_algorithm": "SHA-256",
+    "digest_encoding": "base64url without padding",
+    "fields": [
+      "notary_registry",
+      "profile_sha256",
+      "server_identity",
+      "sparse_profile_sha256"
+    ],
+    "profile_hash_semantics": "supplied canonical profile hashes; profile bytes are not recomputed here",
+    "notary_registry_semantics": "validated JSON object canonicalized with canonicalJson inside the security registry set payload; runtime receives the normalized registry string separately",
+    "exclusions": [
+      "deployment_id",
+      "response_mode",
+      "worker_name",
+      "trust_root",
+      "signing keys",
+      "private keys",
+      "callback secrets",
+      "access tokens"
+    ]
+  },
   "common_inputs": [
     "TLSN_ENVIRONMENT",
     "TLSN_DEPLOYMENT_ROLE",

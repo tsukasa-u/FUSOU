@@ -29,6 +29,7 @@ import {
   assertProfileContractInputs,
   profileContractArtifact,
 } from "./profile-canonical-contract.mjs";
+import { securityRegistrySetHash } from "./security-registry-set-contract.mjs";
 
 const packageDirectory = resolve(new URL("..", import.meta.url).pathname);
 const DEFAULT_REPORT_PATH = resolve(packageDirectory, "artifacts/tlsn-deployment-preflight.json");
@@ -248,6 +249,7 @@ async function main() {
   if (fixtureOnlyCanary && value("TLSN_CANDIDATE_SERVER_IDENTITY") !== "game.example.test") {
     addFailure(failures, "TLSN_CANDIDATE_SERVER_IDENTITY", "fixture-only canary must use the repository synthetic identity game.example.test");
   }
+  const registryRaw = value("TLSN_PRODUCTION_NOTARY_REGISTRY");
   const deploymentIdName = role === "canary" ? "TLSN_CANARY_DEPLOYMENT_ID" : "TLSN_PRODUCTION_DEPLOYMENT_ID";
   if (!value(deploymentIdName) || !/^[A-Za-z0-9._-]{1,128}$/.test(value(deploymentIdName))) addFailure(failures, deploymentIdName, "must be an alphanumeric deployment identifier");
   requireBase64UrlLength(failures, "TLSN_CANDIDATE_PROFILE_SHA256", 43);
@@ -263,6 +265,26 @@ async function main() {
     addFailure(failures, "profile_contract", error instanceof Error ? error.message : "profile contract is invalid");
   }
   requireBase64UrlLength(failures, "TLSN_SECURITY_REGISTRY_SET_SHA256", 43);
+  if (
+    registryRaw &&
+    value("TLSN_CANDIDATE_PROFILE_SHA256") &&
+    value("TLSN_CANDIDATE_SERVER_IDENTITY") &&
+    value("TLSN_CANDIDATE_SPARSE_PROFILE_SHA256")
+  ) {
+    try {
+      const expectedSecurityRegistrySetSha256 = securityRegistrySetHash({
+        notaryRegistryRaw: registryRaw,
+        profileSha256: value("TLSN_CANDIDATE_PROFILE_SHA256"),
+        serverIdentity: value("TLSN_CANDIDATE_SERVER_IDENTITY"),
+        sparseProfileSha256: value("TLSN_CANDIDATE_SPARSE_PROFILE_SHA256"),
+      }).sha256;
+      if (value("TLSN_SECURITY_REGISTRY_SET_SHA256") !== expectedSecurityRegistrySetSha256) {
+        addFailure(failures, "TLSN_SECURITY_REGISTRY_SET_SHA256", "must match the canonical security registry set derived from the supplied inputs");
+      }
+    } catch (error) {
+      addFailure(failures, "TLSN_SECURITY_REGISTRY_SET_SHA256", error instanceof Error ? error.message : "security registry set inputs are invalid");
+    }
+  }
   const resultKeyName = role === "canary" ? "TLSN_CANARY_RESULT_PUBLIC_KEY_SPKI" : "TLSN_PRODUCTION_RESULT_PUBLIC_KEY_SPKI";
   const resultSignerKeyIdName = role === "canary" ? "TLSN_CANARY_RESULT_SIGNER_KEY_ID" : "TLSN_PRODUCTION_RESULT_SIGNER_KEY_ID";
   const resultKeyRegistryName = role === "canary" ? "TLSN_CANARY_RESULT_SIGNING_KEY_REGISTRY" : "TLSN_PRODUCTION_RESULT_SIGNING_KEY_REGISTRY";
@@ -282,7 +304,6 @@ async function main() {
   validatePublicKey(failures, sessionAuthorityKeyName);
   validatePublicKey(failures, bindingAuthorityKeyName);
   let registry;
-  const registryRaw = value("TLSN_PRODUCTION_NOTARY_REGISTRY");
   try {
     registry = parseNotaryRegistry(registryRaw, "TLSN_PRODUCTION_NOTARY_REGISTRY");
     if (!registry[value("TLSN_CANDIDATE_NOTARY_KEY_ID")]) {

@@ -6,6 +6,7 @@ import { spawnSync } from "node:child_process";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { profilesForServerIdentity } from "./profile-canonical-contract.mjs";
+import { securityRegistrySetHash } from "./security-registry-set-contract.mjs";
 import { loadRealFixture, readRealFixtureManifest } from "./tlsn-benchmark-fixtures.mjs";
 
 const packageDirectory = resolve(new URL("..", import.meta.url).pathname);
@@ -102,6 +103,32 @@ try {
   });
   assert.equal(complete.generatedEnv.TLSN_CANARY_DEPLOYMENT_ID, "canary-explicit-2026");
   assert.equal(complete.generatedEnv.TLSN_CANARY_WORKER_NAME, "fusou-tlsn-verification-canary-2026");
+  const expectedSecurityRegistrySet = securityRegistrySetHash({
+    notaryRegistryRaw: complete.generatedEnv.TLSN_PRODUCTION_NOTARY_REGISTRY,
+    profileSha256: profiles.complete.sha256,
+    serverIdentity: "canary.example.net",
+    sparseProfileSha256: profiles.sparse.sha256,
+  });
+  assert.equal(complete.generatedEnv.TLSN_SECURITY_REGISTRY_SET_SHA256, expectedSecurityRegistrySet.sha256);
+  assert.equal(complete.manifest.security_registry_set_sha256, expectedSecurityRegistrySet.sha256);
+  assert.equal(complete.manifest.security_registry_set_source, "derived-from-explicit-inputs");
+  for (const [label, inputs] of [
+    ["Notary registry", { notaryRegistryRaw: JSON.stringify({ "notary-production-2027": fixture.notary_key_base64 }) }],
+    ["complete profile", { profileSha256: Buffer.alloc(32, 1).toString("base64url") }],
+    ["server identity", { serverIdentity: "other.example.net" }],
+    ["sparse profile", { sparseProfileSha256: Buffer.alloc(32, 2).toString("base64url") }],
+  ]) {
+    assert.notEqual(
+      securityRegistrySetHash({
+        notaryRegistryRaw: inputs.notaryRegistryRaw ?? complete.generatedEnv.TLSN_PRODUCTION_NOTARY_REGISTRY,
+        profileSha256: inputs.profileSha256 ?? profiles.complete.sha256,
+        serverIdentity: inputs.serverIdentity ?? "canary.example.net",
+        sparseProfileSha256: inputs.sparseProfileSha256 ?? profiles.sparse.sha256,
+      }).sha256,
+      expectedSecurityRegistrySet.sha256,
+      `${label} mutation must change the security registry set hash`,
+    );
+  }
   assert.equal(complete.manifest.notary.source, "explicit_input_file");
   assert.equal(complete.manifest.generated_public_identity.deployment_id, "canary-explicit-2026");
   assert.equal(complete.manifest.generated_public_identity.worker_name, "fusou-tlsn-verification-canary-2026");
