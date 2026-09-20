@@ -1080,7 +1080,9 @@ function buildPollingAnalysis({
   expectedEnvironment,
   reportPath,
 }) {
-  const samples = rows.flatMap((row) => row.samples).map(derivePollingSample);
+  const samples = rows
+    .flatMap((row) => row.polling_samples ?? row.samples)
+    .map(derivePollingSample);
   const byConcurrency = concurrencyValues.map((concurrency) => {
     const group = samples.filter((sample) => sample.concurrency === concurrency);
     const diagnosis = diagnosePollingSchedule(group);
@@ -2153,6 +2155,7 @@ async function runBatch({ workerOrigin, webOrigin, accessToken, userId, device, 
     result: null,
     diagnosis: diagnoseNormalLatency(samples),
     failures,
+    polling_samples: samples,
     samples: samples.map((sample) => ({
       sample_index: sample.sample_index,
       concurrency: sample.concurrency,
@@ -2680,6 +2683,7 @@ async function main() {
     expectedEnvironment,
     reportPath,
   });
+  for (const row of rows) delete row.polling_samples;
   await mkdir(dirname(reportPath), { recursive: true });
   await mkdir(dirname(failureArtifactPath), { recursive: true });
   await mkdir(dirname(pollingAnalysisPath), { recursive: true });

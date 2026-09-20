@@ -67,6 +67,7 @@ const authoritative = derivePollingSample(sample({
 }));
 assert.equal(authoritative.completion_to_terminal_poll_start_ms, 50);
 assert.equal(authoritative.terminal_observation_delay_ms, 60);
+assert.equal(Object.hasOwn(authoritative, "poll_events"), false);
 assert.equal(diagnosePollingSchedule([authoritative]).classification, "polling-schedule-dominated");
 
 const negative = derivePollingSample(sample({
