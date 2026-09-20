@@ -2,8 +2,8 @@
 title: fusou-datasets Getting Started
 contributors: ["antigravity-ai"]
 description: >-
-  fusou-datasetsライブラリを使って艦これ研究データを取得するための初心者向けクイックスタートガイド。3分で始められるシンプルな手順を紹介。
-date: 2026-01-01
+  fusou-datasets ライブラリを使って艦これ研究データを取得するための初心者向けクイックスタートガイド。3ステップで始める手順、データ分割、シナジーデータの活用法を紹介。
+date: 2026-09-20
 slug: guide/fusou_datasets/getting_started
 tags: [guide, fusou_datasets, python, data_analysis]
 ---
@@ -12,13 +12,14 @@ tags: [guide, fusou_datasets, python, data_analysis]
 
 fusou-datasets は、FUSOU プロジェクトが収集・公開する艦これ研究データセットに簡単にアクセスするための Python ライブラリです。
 
-## fusou-datasets とは？
+## 主な特徴
 
-- **目的**: 艦これのゲームデータを pandas DataFrame として簡単に取得
-- **対象者**: データ分析や研究を行いたいユーザー
-- **特徴**: Device Trust 認証によるセキュアなアクセス
+- **簡単なデータ取得**: 戦闘ログ、マス遷移、編成データを pandas DataFrame として直接ロード
+- **3分割データセット**: `train`（学習・探索用 70%）、`validation`（公開検証用 20%）、`test`（ブラインド評価用 10%）により再現性と科学的妥当性を担保
+- **ローカルキャッシュ**: Apache Parquet / JSON による高速なローカルキャッシュとオフライン対応
+- **シナジー＆成長データ**: 装備特効・シナジーボーナスおよびレベル別成長曲線の標準サポート
 
-## 3 分で始める
+## 3ステップで始める
 
 ### 1. インストール
 
@@ -26,67 +27,59 @@ fusou-datasets は、FUSOU プロジェクトが収集・公開する艦これ�
 pip install fusou-datasets
 ```
 
-### 2. API キーを設定
-
-```bash
-export FUSOU_API_KEY="your_api_key_here"
-```
-
-> [!TIP]\
-> API キーは [FUSOU ウェブサイト](https://fusou.dev) で取得できます。取得方法は [API キー管理ガイド](../dashboard/api_keys) を参照してください。
-
-### 3. データを取得
+### 2. 初期設定（APIキー・キャッシュ）
 
 ```python
-import fusou_datasets
+import fusou_datasets as fd
 
-# 利用可能なテーブル一覧を確認
-tables = fusou_datasets.list_tables()
-print(tables)
-
-# 艦種データを取得
-df = fusou_datasets.load("ship_type")
-print(df.head())
+# セッション共通設定（キャッシュ先、期間、スキーマバージョン）
+fd.configure(
+    api_key="your_api_key",     # または環境変数 FUSOU_API_KEY
+    cache_dir="./data/cache",   # ローカルキャッシュディレクトリ
+    period_tag="latest",       # 最新期間データ
+    table_version="0.6.0"      # スキーマバージョン
+)
 ```
 
-## Google Colab で実行
+> [!TIP]> API キーは [FUSOU Web サイト](https://fusou.dev) のダッシュボードから取得できます。
 
-Google Colab では、アカウント認証が自動化されています。
-
-[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com)
+### 3. データの取得と検証
 
 ```python
-# Colab用セットアップ
+# 1. 戦闘マスデータの取得（train分割）
+train_df = fd.load("cells", split="train")
+print("Train records:", len(train_df))
+
+# 2. 公開検証用データの取得（validation分割）
+val_df = fd.load("cells", split="validation")
+print("Validation records:", len(val_df))
+
+# 3. 装備シナジーデータの取得
+synergy = fd.load_synergy(period_tag="latest")
+print(synergy.single_bonuses.head())
+```
+
+## Google Colab での実行
+
+Google Colab では Google アカウント認証による Device Trust に対応しています。
+
+```python
 !pip install fusou-datasets
 
-import fusou_datasets
-
-# API キーを設定（Secretsから読み込む場合）
+import fusou_datasets as fd
 from google.colab import userdata
-fusou_datasets.configure(api_key=userdata.get('FUSOU_API_KEY'))
 
-# データを取得
-df = fusou_datasets.load("ship_type")
+fd.configure(
+    api_key=userdata.get('FUSOU_API_KEY'),
+    cache_dir="/content/cache"
+)
+
+df = fd.load("cells", split="train")
 df.head()
-```
-
-> [!NOTE]\
-> Google Colab では、Google アカウントのメールアドレスが API キーと一致する場合、デバイス認証が自動で行われます。
-
-## 基本的なデータ取得フロー
-
-```mermaid
-flowchart LR
-    A[API キー設定] --> B[テーブル一覧取得]
-    B --> C[期間タグ確認]
-    C --> D[データ読み込み]
-    D --> E[pandas DataFrame]
-    E --> F[分析・可視化]
 ```
 
 ## 次のステップ
 
-- [インストール詳細](./installation) - 詳しいインストール方法
-- [認証設定](./authentication) - API キー・デバイス認証の詳細
-- [API リファレンス](./api_reference) - 全関数の完全リファレンス
-- [サンプルコード](./examples) - 実践的なデータ分析例
+- [API リファレンス](./api_reference) - 全関数の仕様・引数・戻り値
+- [認証とDevice Trust](./authentication) - APIキーおよび端末認証の詳細
+- [検証サンプルコード](./examples) - 砲撃戦ダメージ、夜戦キャップ、命中回避の検証ノートブック
