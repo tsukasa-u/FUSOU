@@ -263,11 +263,11 @@ impl EnemyDeck {
                             .clone()
                             .map(|lv| lv[ship_id_index] as i32),
                         data.e_hp_max
-                            .clone()
-                            .map(|hp| hp[ship_id_index] as i32),
+                            .as_ref()
+                            .and_then(|hp| hp.get(ship_id_index).copied().flatten().map(|v| v as i32)),
                         data.e_hp_max
-                            .clone()
-                            .map(|hp| hp[ship_id_index] as i32),
+                            .as_ref()
+                            .and_then(|hp| hp.get(ship_id_index).copied().flatten().map(|v| v as i32)),
                         data.e_slot.clone().map(|slot| {
                             slot[ship_id_index]
                                 .clone()

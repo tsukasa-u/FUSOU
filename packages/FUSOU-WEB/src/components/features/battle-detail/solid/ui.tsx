@@ -15,44 +15,9 @@ import {
 } from "@/features/battles/helpers";
 import { nullableNumberArray } from "@/features/battles/payload-guards";
 import { getWeaponIconCaches } from "@/features/battles/data-service";
-import { isSafeImageUrl } from "@/utils/security";
 
-/**
- * Ship banner `<img>` with graceful loading:
- * - A neutral placeholder background is always visible via the wrapper.
- * - The image starts invisible and fades in on load.
- * - On error the `<img>` is hidden so no broken-icon flickers.
- */
-export function ShipBanner(props: {
-  src: string | undefined;
-  alt: string;
-  class?: string;
-}): JSX.Element {
-  const outerClass = props.class ?? "h-6 w-24";
-  return (
-    <span
-      class={`${outerClass} inline-block flex-none rounded overflow-hidden`}
-    >
-      <Show when={props.src && isSafeImageUrl(props.src)}>
-        <img
-          src={props.src}
-          alt={props.alt}
-          class="h-full w-full rounded object-cover opacity-0 transition-opacity duration-200"
-          loading="lazy"
-          onLoad={(e) => {
-            (e.currentTarget as HTMLImageElement).classList.replace(
-              "opacity-0",
-              "opacity-100",
-            );
-          }}
-          onError={(e) => {
-            (e.currentTarget as HTMLImageElement).style.display = "none";
-          }}
-        />
-      </Show>
-    </span>
-  );
-}
+import { ShipBanner } from "@/components/common/solid/ShipBanner";
+export { ShipBanner };
 
 // ── Pure helpers (no JSX) ─────────────────────────────────────────────────
 

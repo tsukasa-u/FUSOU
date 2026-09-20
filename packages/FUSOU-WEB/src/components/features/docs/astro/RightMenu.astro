@@ -12,7 +12,7 @@ const tocHeadings = headings.filter((heading) => heading.depth >= 2);
 ---
 
 <div class="sticky top-20">
-  <div class="max-h-[calc(100vh-6rem)] overflow-y-auto pr-2 bg-base-100 rounded-xl border border-base-300/70 p-3">
+  <div class="max-h-[calc(100vh-6rem)] overflow-y-auto overflow-x-hidden pr-2 bg-base-100 rounded-xl border border-base-300/70 p-3">
     <div class="flex items-center justify-between mb-2">
       <h2 class="text-lg font-bold text-base-content">On this page</h2>
       <span class="text-xs text-base-content/60">{tocHeadings.length} sections</span>
@@ -47,6 +47,10 @@ const tocHeadings = headings.filter((heading) => heading.depth >= 2);
 <style>
   .toc-link {
     display: block;
+    white-space: normal;
+    word-break: break-word;
+    overflow-wrap: anywhere;
+    line-height: 1.35;
     border-left: 2px solid transparent;
     padding: 0.2rem 0.35rem 0.2rem 0.55rem;
     border-radius: 0.35rem;

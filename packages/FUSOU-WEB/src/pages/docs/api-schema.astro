@@ -1,23 +1,11 @@
 ---
-import "@/assets/app.css";
+import PageLayout from "@/layouts/Layout.astro";
 import Navigation from "@/components/common/astro/layout/Navigation.astro";
-import LeftMenu from "@/components/features/docs/astro/LeftMenu.astro";
-import RightMenu from "@/components/features/docs/astro/RightMenu.astro";
-import Breadcrumb from "@/components/features/docs/astro/Breadcrumb.astro";
-import Layout from "@/layouts/Layout.astro";
+import PageShell from "@/components/common/astro/ui/PageShell.astro";
+import PageHeader from "@/components/common/astro/ui/PageHeader.astro";
 import SchemaGraph from "@/components/features/api-schema/react/SchemaGraph";
 
-const pageEntry = {
-  data: {
-    title: "API Schema Explorer",
-  },
-};
-
-const pageHeadings = [
-  { slug: "schema-overview", text: "Overview", depth: 2 },
-  { slug: "schema-explorer", text: "Explorer canvas", depth: 2 },
-  { slug: "schema-related-links", text: "Related links", depth: 2 },
-];
+export const prerender = true;
 
 const tutorialGuide = {
   id: "docs-api-schema",
@@ -124,56 +112,21 @@ const tutorialGuide = {
 };
 ---
 
-<Layout title="API Schema | FUSOU" tutorial={tutorialGuide}>
-  <div class="h-16"></div>
-  <div class="flex">
-    <div class="flex-1 min-w-0"></div>
-    <div class="grid grid-cols-24 gap-x-4 sm:gap-x-6 md:gap-x-8 pt-4 max-w-[1600px] w-full px-4 sm:px-6 md:px-8">
-      <aside
-        class="hidden md:block md:col-span-8 md:col-start-1 xl:col-span-5 xl:col-start-2 pr-4 sticky top-20 self-start h-fit"
-      >
-        <LeftMenu />
-      </aside>
-      <main class="py-4 px-2 sm:px-6 md:px-4 xl:px-12 col-span-24 md:col-span-16 xl:col-span-12 min-w-0">
-        <Breadcrumb entry={pageEntry} />
-        <header id="schema-overview" class="mb-5 rounded-xl border border-base-300/70 bg-base-100/90 p-4 sm:p-5">
-          <h1 class="text-2xl sm:text-3xl font-bold text-base-content tracking-tight">
-            kc-api Schema Explorer
-          </h1>
-          <p class="mt-1 text-sm sm:text-base text-base-content/70 max-w-[72ch]">
-            Interactive visualization of database tables and API endpoint structures, version by version.
-            Switch mode, direction, spacing, and layout algorithm to inspect dependencies efficiently.
-          </p>
-          <div class="mt-3 flex flex-wrap gap-2 text-xs sm:text-sm">
-            <span class="rounded-full border border-base-300 px-3 py-1 text-base-content/75">3 min read</span>
-            <span class="rounded-full border border-base-300 px-3 py-1 text-base-content/75">3 sections</span>
-            <span class="rounded-full border border-base-300 px-3 py-1 text-base-content/75">Updated 2026年4月29日</span>
-          </div>
-        </header>
-        <details class="xl:hidden mb-4 rounded-xl border border-base-300/70 bg-base-100 p-3">
-          <summary class="cursor-pointer text-sm font-semibold text-base-content">On this page (3)</summary>
-          <ul class="mt-3 space-y-1 text-sm text-base-content/80">
-            <li><a href="#schema-overview" class="link link-hover">Overview</a></li>
-            <li><a href="#schema-explorer" class="link link-hover">Explorer canvas</a></li>
-            <li><a href="#schema-related-links" class="link link-hover">Related links</a></li>
-          </ul>
-        </details>
-        <section id="schema-explorer">
-          <SchemaGraph client:only="react" />
-        </section>
-        <section id="schema-related-links" class="mt-4 rounded-xl border border-base-300/70 bg-base-100 p-4 text-sm">
-          <h2 class="text-base font-semibold text-base-content">Related links</h2>
-          <ul class="mt-2 space-y-1">
-            <li><a href="/docs" class="link link-hover">Back to Docs Index</a></li>
-            <li><a href="/docs/kc-api/full" class="link link-hover">kc-api full reference</a></li>
-          </ul>
-        </section>
-      </main>
-      <aside class="hidden xl:block xl:col-span-5 pl-4 sticky top-20 self-start h-fit">
-        <RightMenu headings={pageHeadings} />
-      </aside>
+<PageLayout
+  title="API Schema Explorer | FUSOU"
+  description="Interactive visualization of kc-api database tables and API endpoint structures, version by version."
+  tutorial={tutorialGuide}
+>
+  <Navigation filled={true} />
+
+  <PageShell container="wide" paddingY="8">
+    <PageHeader
+      title="kc-api Schema Explorer"
+      subtitle="Interactive visualization of database tables and API endpoint structures, version by version. Switch mode, direction, spacing, and layout algorithm to inspect dependencies efficiently."
+    />
+
+    <div class="mt-4">
+      <SchemaGraph client:only="react" />
     </div>
-    <div class="flex-1 min-w-0"></div>
-  </div>
-  <Navigation />
-</Layout>
+  </PageShell>
+</PageLayout>

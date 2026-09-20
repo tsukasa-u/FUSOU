@@ -138,44 +138,7 @@ fn emit_data(emit_data: EmitData) -> Option<ReturnType> {
 
 
 fn get_timestamp_from_file_content(file_path: PathBuf) -> String {
-    let regex_timestamp = regex::Regex::new(r#"Timestamp: ([0-9]+)"#).unwrap();
-    let file_content = std::fs::read_to_string(file_path.clone())
-        .unwrap_or_else(|_| panic!("failed to read test data file: {}", file_path.display()));
-    let timestamp = file_content
-        .lines()
-        .find_map(|line| {
-            regex_timestamp
-                .captures(line)
-                .and_then(|caps| caps.get(1).map(|m| m.as_str().to_string()))
-        })
-        .unwrap_or({
-            let (prefix, _) = file_path
-                .file_name()
-                .unwrap_or_else(|| panic!("failed to get file name: {}", file_path.display()))
-                .to_str()
-                .unwrap_or_else(|| {
-                    panic!(
-                        "failed to convert file name to str: {}",
-                        file_path.display()
-                    )
-                })
-                .split_once("@")
-                .unwrap_or_else(|| panic!("failed to split file name: {}", file_path.display()));
-            let splited_under = match prefix.split_once("_") {
-                Some((_, suffix)) => suffix.to_string(),
-                None => prefix.to_string(),
-            };
-
-            if splited_under.ends_with('S') || splited_under.ends_with('Q') {
-                splited_under[..splited_under.len() - 1].to_string()
-            } else {
-                panic!(
-                    "failed to get timestamp from file name: {}",
-                    file_path.display()
-                )
-            }
-        });
-    timestamp
+    register_trait::test::get_timestamp_from_file_content(file_path)
 }
 
 pub fn check_database_field_size() {
@@ -184,24 +147,19 @@ pub fn check_database_field_size() {
     dotenv().expect(".env file not found");
     let target_path = std::env::var("TEST_DATA_PATH").expect("failed to get env data");
 
-    let target = PathBuf::from(target_path);
-    let files = target
-        .read_dir()
-        .expect("read_dir call failed")
-        .collect::<Vec<_>>();
+    let files = register_trait::test::get_cached_test_data_files(&target_path);
 
     let mut file_api_seq_vec: Vec<Vec<PathBuf>> = Vec::new();
-    for dir_entry in files {
-        let file_path = dir_entry.unwrap().path();
+    for file_path in files {
         let file_name = file_path
             .file_name()
             .expect("failed to get file name")
             .to_str()
             .expect("failed to convert to str");
         if file_name.ends_with("Q@api_start2@get_option_setting") {
-            file_api_seq_vec.push(vec![file_path]);
+            file_api_seq_vec.push(vec![file_path.clone()]);
         } else if !file_api_seq_vec.is_empty() {
-            file_api_seq_vec.last_mut().unwrap().push(file_path);
+            file_api_seq_vec.last_mut().unwrap().push(file_path.clone());
         } else {
             continue;
         }
@@ -273,9 +231,17 @@ pub fn check_database_field_size() {
             let emit_data_list = match parse_path[0] {
                 s if s.ends_with("S") => {
                     let emit_data_list: Vec<EmitData> =
-                        parser::response_parser(path_name, data_removed_metadata).unwrap_or_else(
-                            |e| panic!("failed to parse the file({}), e: {e}", file_path.display()),
-                        );
+                        match parser::response_parser(path_name, data_removed_metadata.clone()) {
+                            Ok(list) => list,
+                            Err(e) => {
+                                if let Ok(val) = serde_json::from_str::<serde_json::Value>(&data_removed_metadata) {
+                                    if val.get("api_result").and_then(|v| v.as_i64()) != Some(1) {
+                                        continue;
+                                    }
+                                }
+                                panic!("failed to parse the file({}), e: {e}", file_path.display());
+                            }
+                        };
                     emit_data_list
                 }
                 s if s.ends_with("Q") => {

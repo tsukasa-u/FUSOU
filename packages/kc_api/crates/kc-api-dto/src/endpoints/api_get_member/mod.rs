@@ -11,6 +11,7 @@ pub mod payitem;
 pub mod picture_book;
 pub mod practice;
 pub mod preset_deck;
+pub mod preset_dev_items;
 pub mod preset_slot;
 pub mod questlist;
 pub mod record;

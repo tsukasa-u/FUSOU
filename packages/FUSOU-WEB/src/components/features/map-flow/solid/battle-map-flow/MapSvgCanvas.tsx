@@ -131,7 +131,7 @@ export default function MapSvgCanvas(props: Props) {
                 font-weight="700"
                 dominant-baseline="middle"
               >
-                海域画像の読込に失敗しました。ルート情報のみ表示しています。
+                海域画像を読み込めませんでした。
               </text>
             </g>
           </Show>

@@ -76,7 +76,24 @@ function main() {
     );
   }
 
-  const output = run(WRANGLER_COMMAND, ["secret", "list", "--format", "json"]);
+  let output;
+  try {
+    output = run(WRANGLER_COMMAND, ["secret", "list", "--format", "json"]);
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error);
+    const isAuthError =
+      /Invalid access token|Authentication error|code:\s*(10000|9109)/i.test(
+        msg,
+      );
+    if (isAuthError) {
+      console.warn(
+        `::warning::[check-cloudflare-required-secrets] Cloudflare API authentication failed (invalid or expired token, code 9109/10000). Skipping secret registration check. Please update CLOUDFLARE_API_TOKEN in repository secrets.`,
+      );
+      console.warn(msg);
+      return;
+    }
+    throw error;
+  }
 
   const registeredNames = new Set(parseSecretNames(output));
   const missing = REQUIRED_SECRET_NAMES.filter(

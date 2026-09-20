@@ -5,6 +5,7 @@
 #![doc = include_str!("../../../../../js/svg_pan_zoom.html")]
 
 use serde::{Deserialize, Serialize};
+use crate::common::custom_type::DuoType;
 
 use register_trait::{add_field, register_struct};
 use register_trait::{FieldSizeChecker, QueryWithExtra, TraitForRoot, TraitForTest};
@@ -96,7 +97,7 @@ pub struct ApiData {
     #[serde(rename = "api_select_route")]
     pub api_select_route: Option<ApiSelectRoute>,
     #[serde(rename = "api_itemget")]
-    pub api_itemget: Option<Vec<ApiItemget>>,
+    pub api_itemget: Option<DuoType<Vec<ApiItemget>, ApiItemget>>,
     #[serde(rename = "api_happening")]
     pub api_happening: Option<ApiHappening>,
 }

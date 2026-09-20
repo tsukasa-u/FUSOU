@@ -28,9 +28,9 @@ const year = new Date().getFullYear();
 
       <div class="grid grid-cols-1 sm:grid-cols-2 gap-5 w-full">
         <div
-          class="card bg-base-100 shadow-2xl border border-base-200 border-t-4 border-t-primary"
+          class="fusou-card border-t-4 border-t-primary shadow-xl"
         >
-          <div class="card-body gap-4">
+          <div class="fusou-card-body gap-4">
             <div class="flex items-center gap-3">
               <div class="p-2 rounded-lg bg-primary/10">
                 <svg
@@ -51,30 +51,26 @@ const year = new Date().getFullYear();
             <div class="flex flex-col gap-1.5">
               <a
                 href="/battles"
-                class="btn btn-sm btn-ghost justify-start gap-2"
+                class="fusou-btn-ghost justify-start gap-2 border-transparent hover:border-base-300"
                 >Battles - 戦闘記録閲覧</a
               >
               <a
                 href="/ship-growth"
-                class="btn btn-sm btn-ghost justify-start gap-2"
+                class="fusou-btn-ghost justify-start gap-2 border-transparent hover:border-base-300"
                 >パラメータ推移 - 艦レベル・パラメータ成長</a
               >
-              <a href="/quests" class="btn btn-sm btn-ghost justify-start gap-2"
+              <a href="/quests" class="fusou-btn-ghost justify-start gap-2 border-transparent hover:border-base-300"
                 >クエスト - 推定クエストツリー閲覧</a
               >
             </div>
-            <div class="card-actions mt-1">
-              <a href="/battles" class="btn btn-primary btn-sm w-full"
-                >データを見る</a
-              >
-            </div>
+
           </div>
         </div>
 
         <div
-          class="card bg-base-100 shadow-2xl border border-base-200 border-t-4 border-t-secondary"
+          class="fusou-card border-t-4 border-t-secondary shadow-xl"
         >
-          <div class="card-body gap-4">
+          <div class="fusou-card-body gap-4">
             <div class="flex items-center gap-3">
               <div class="p-2 rounded-lg bg-secondary/10">
                 <svg
@@ -97,26 +93,22 @@ const year = new Date().getFullYear();
             <div class="flex flex-col gap-1.5">
               <a
                 href="/simulator"
-                class="btn btn-sm btn-ghost justify-start gap-2"
+                class="fusou-btn-ghost justify-start gap-2 border-transparent hover:border-base-300"
                 >編成シミュレータ - 編成を組む</a
               >
               <a
                 href="/simulator/details"
-                class="btn btn-sm btn-ghost justify-start gap-2"
+                class="fusou-btn-ghost justify-start gap-2 border-transparent hover:border-base-300"
                 >艦/装備詳細 - 評価値・相性参照</a
               >
             </div>
-            <div class="card-actions mt-1">
-              <a href="/simulator" class="btn btn-secondary btn-sm w-full"
-                >シミュレータを開く</a
-              >
-            </div>
+
           </div>
         </div>
       </div>
 
       <div
-        class="card bg-base-100 shadow-2xl border border-base-200 border-t-4 border-t-accent w-full mt-5 sm:mt-6"
+        class="fusou-card border-t-4 border-t-accent shadow-xl w-full mt-5 sm:mt-6"
       >
         <div
           class="flex flex-col sm:flex-row items-start sm:items-center gap-4 p-4 sm:p-5"
@@ -131,7 +123,7 @@ const year = new Date().getFullYear();
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 my-auto">
               <a
                 href="/docs/start/quick_start#app-installation"
-                class="btn btn-sm w-full"
+                class="fusou-btn-secondary w-full justify-center"
               >
                 ローカル連携
               </a>
@@ -139,7 +131,7 @@ const year = new Date().getFullYear();
                 href="/download"
                 target="_blank"
                 rel="noreferrer"
-                class="btn btn-accent btn-sm"
+                class="fusou-btn-primary w-full justify-center"
               >
                 ダウンロード
               </a>
@@ -148,20 +140,46 @@ const year = new Date().getFullYear();
         </div>
       </div>
 
+
+      <!-- Hero CTA Buttons -->
       <div
-        class="mt-5 w-full sm:mt-6 flex flex-col sm:flex-row gap-3 justify-center"
+        class="mt-6 sm:mt-8 flex flex-col sm:flex-row gap-3 sm:gap-4 justify-center items-center w-full"
       >
         <a
-          class="btn btn-primary btn-sm sm:btn-md w-full sm:w-auto shadow-lg border border-primary/30"
+          class="btn btn-primary btn-md sm:btn-lg px-6 sm:px-8 font-semibold shadow-lg shadow-primary/25 hover:shadow-xl hover:shadow-primary/35 hover:-translate-y-0.5 transition-all duration-200 flex items-center justify-center gap-2 group w-full sm:w-auto"
           href="/docs/start/quick_start"
         >
-          Quick Start
+          <span>Quick Start</span>
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            class="h-5 w-5 transition-transform duration-200 group-hover:translate-x-1"
+            viewBox="0 0 20 20"
+            fill="currentColor"
+          >
+            <path
+              fill-rule="evenodd"
+              d="M10.293 3.293a1 1 0 011.414 0l6 6a1 1 0 010 1.414l-6 6a1 1 0 01-1.414-1.414L14.586 11H3a1 1 0 110-2h11.586l-4.293-4.293a1 1 0 010-1.414z"
+              clip-rule="evenodd"
+            ></path>
+          </svg>
         </a>
         <a
-          class="btn btn-outline btn-sm sm:btn-md w-full sm:w-auto"
+          class="btn btn-md sm:btn-lg px-6 sm:px-8 font-semibold bg-base-200/90 hover:bg-base-300 text-base-content border border-base-300 shadow-sm hover:shadow hover:-translate-y-0.5 transition-all duration-200 flex items-center justify-center gap-2 group w-full sm:w-auto"
           href="#project-guide"
         >
-          詳細を見る
+          <span>詳細を見る</span>
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            class="h-5 w-5 transition-transform duration-200 group-hover:translate-y-0.5 text-base-content/70"
+            viewBox="0 0 20 20"
+            fill="currentColor"
+          >
+            <path
+              fill-rule="evenodd"
+              d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z"
+              clip-rule="evenodd"
+            ></path>
+          </svg>
         </a>
       </div>
     </div>

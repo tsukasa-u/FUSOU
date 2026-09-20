@@ -72,6 +72,7 @@ import type {
 import {
   ShipGrowthBoundsResponseSchema,
   ShipGrowthSummaryResponseSchema,
+  selectLatestShipGrowthPeriod,
   normalizeShipGrowthCaps,
   deriveShipGrowthCapsFromBounds,
   mergeShipGrowthCaps,
@@ -101,10 +102,7 @@ async function getLatestShipGrowthPeriod(): Promise<{
     const parsed = ShipGrowthSummaryResponseSchema.safeParse(await res.json());
     if (!parsed.success || !parsed.data.ok) return null;
     const json = parsed.data;
-    const latest = json.periods?.[0];
-    return latest
-      ? { period_tag: latest.period_tag, table_version: latest.table_version }
-      : null;
+    return selectLatestShipGrowthPeriod(json.periods);
   })().catch(() => null);
   return shipGrowthPeriodPromise;
 }

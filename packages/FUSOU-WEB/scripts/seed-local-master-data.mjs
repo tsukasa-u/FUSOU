@@ -376,10 +376,65 @@ async function main() {
   }
 
   // Cleanup
-  rmSync(TMP_DIR, { recursive: true });
+  if (existsSync(TMP_DIR)) rmSync(TMP_DIR, { recursive: true });
+
+  // Step 5: Seed synergy manifest and files (if available)
+  console.log("[5/5] Checking and seeding synergy data from remote D1/R2...");
+  try {
+    const synergyOutput = d1ExecuteSql(
+      "SELECT id, period_tag, period_revision, content_hash, sp_effect_sha256, api_start2_batch_hash, generator_version, generated_at, upload_status, created_at, completed_at FROM synergy_manifest WHERE upload_status = 'completed' ORDER BY completed_at DESC LIMIT 1;",
+      { remote: true, json: true },
+    );
+    const parsedSynergy = JSON.parse(synergyOutput);
+    const synergyRows = parsedSynergy?.[0]?.results || [];
+    if (synergyRows.length > 0) {
+      const syn = synergyRows[0];
+      console.log(`  Found remote synergy: period=${syn.period_tag} rev=${syn.period_revision}`);
+
+      // Ensure local schema
+      runQuiet(
+        `npx wrangler d1 execute ${DB_NAME} --command "${quoteForCommand(
+          "CREATE TABLE IF NOT EXISTS synergy_manifest (id INTEGER PRIMARY KEY, period_tag TEXT NOT NULL, period_revision INTEGER NOT NULL, content_hash TEXT NOT NULL, sp_effect_sha256 TEXT NOT NULL, api_start2_batch_hash TEXT NOT NULL, generator_version TEXT NOT NULL, generated_at INTEGER NOT NULL, upload_status TEXT NOT NULL DEFAULT 'pending', created_at INTEGER NOT NULL DEFAULT (CAST(strftime('%s', 'now') AS INTEGER)), completed_at INTEGER, UNIQUE(period_tag, period_revision)); CREATE INDEX IF NOT EXISTS idx_synergy_manifest_period_completed ON synergy_manifest(period_tag, upload_status, period_revision DESC); CREATE INDEX IF NOT EXISTS idx_synergy_manifest_hash ON synergy_manifest(period_tag, content_hash);"
+        )}"`,
+      );
+
+      // Insert into local D1
+      d1ExecuteSql(
+        `INSERT OR REPLACE INTO synergy_manifest (id, period_tag, period_revision, content_hash, sp_effect_sha256, api_start2_batch_hash, generator_version, generated_at, upload_status, created_at, completed_at) VALUES (${syn.id}, '${sqlQuote(syn.period_tag)}', ${syn.period_revision}, '${sqlQuote(syn.content_hash)}', '${sqlQuote(syn.sp_effect_sha256)}', '${sqlQuote(syn.api_start2_batch_hash)}', '${sqlQuote(syn.generator_version)}', ${toSafeInt(syn.generated_at)}, '${sqlQuote(syn.upload_status)}', ${toSafeInt(syn.created_at)}, ${toSafeInt(syn.completed_at)});`
+      );
+
+      // Download and seed synergy JSON to local R2
+      const spKey = `master_data_meta/sp_effect/${syn.period_tag}/rev${syn.period_revision}/${syn.content_hash}.json`;
+      const mfKey = `master_data_meta/manifest/${syn.period_tag}/rev${syn.period_revision}/${syn.content_hash}.manifest.json`;
+      if (!existsSync(TMP_DIR)) mkdirSync(TMP_DIR, { recursive: true });
+      const localSpFile = join(TMP_DIR, "synergy.json");
+      const localMfFile = join(TMP_DIR, "synergy.manifest.json");
+
+      process.stdout.write("  Downloading synergy payload from remote R2...");
+      try {
+        run(`npx wrangler r2 object get ${shellQuote(`${BUCKET}/${spKey}`)} --file ${shellQuote(localSpFile)} --remote`);
+        run(`npx wrangler r2 object put ${shellQuote(`${BUCKET}/${spKey}`)} --file ${shellQuote(localSpFile)}`);
+        console.log(" OK");
+      } catch (e) {
+        console.log(` SKIP (${e.message})`);
+      }
+
+      try {
+        run(`npx wrangler r2 object get ${shellQuote(`${BUCKET}/${mfKey}`)} --file ${shellQuote(localMfFile)} --remote`);
+        run(`npx wrangler r2 object put ${shellQuote(`${BUCKET}/${mfKey}`)} --file ${shellQuote(localMfFile)}`);
+      } catch {}
+
+      if (existsSync(TMP_DIR)) rmSync(TMP_DIR, { recursive: true, force: true });
+      console.log("  Synergy data seeded successfully.");
+    } else {
+      console.log("  No completed synergy manifest found in remote D1.");
+    }
+  } catch (e) {
+    console.warn("  Warning: failed to seed synergy data:", e.message);
+  }
 
   console.log();
-  console.log("Done! Local D1/R2 seeded with master data.");
+  console.log("Done! Local D1/R2 seeded with master data and synergy.");
   console.log("Run `pnpm dev` to start the dev server.");
 }
 

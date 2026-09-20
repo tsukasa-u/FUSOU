@@ -757,7 +757,7 @@ export function updateDataStatus() {
     synergyMetaText: getSlotItemEffectsMetaForStatus(),
     masterPeriodTag: _masterDataPeriodTag,
     masterPeriodRevision: _masterDataPeriodRevision,
-    results: [..._dataLoadResults],
+    results: _dataLoadResults.map((r) => ({ ...r })),
   });
 }
 
@@ -967,169 +967,144 @@ export async function loadMasterData(renderAll: () => void) {
     { name: "mst_equip_limit_exslot", status: "pending" },
     { name: "synergy-data", status: "pending" },
   ];
+  updateDataStatus();
 
-  beginBulkLoad();
-  try {
-    const [
-      synergyBundle,
-      shipData,
-      equipData,
-      bannerMapData,
-      cardMapData,
-      shipIconMapData,
-      equipImageData,
-      iconFrameData,
-      shipTypeIconFrameData,
-      equipTypeData,
-      stypeData,
-      equipExslotData,
-      equipShipData,
-      equipExslotShipData,
-      equipLimitExslotData,
-    ] = await Promise.all([
-      fetchSynergyDataWithMeta(),
-      fetchJsonSafe(
-        "/api/master-data/json?table_name=mst_ship",
-        "mst_ship",
-        MasterShipResponseSchema,
-      ),
-      fetchJsonSafe(
-        "/api/master-data/json?table_name=mst_slotitem",
-        "mst_slotitem",
-        MasterSlotItemResponseSchema,
-      ),
-      fetchJsonSafe(
-        "/api/asset-sync/ship-banner-map",
-        "ship-banner-map",
-        AssetMapResponseSchema,
-      ),
-      fetchJsonSafe(
-        "/api/asset-sync/ship-card-map",
-        "ship-card-map",
-        CardMapResponseSchema,
-      ),
-      fetchJsonSafe(
-        "/api/asset-sync/ship-icon-map",
-        "ship-icon-map",
-        ShipIconMapResponseSchema,
-      ),
-      fetchJsonSafe(
-        "/api/asset-sync/equip-image-map",
-        "equip-image-map",
-        EquipImageMapResponseSchema,
-      ),
-      fetchJsonSafe(
-        "/api/asset-sync/weapon-icon-frames?v=2",
-        "weapon-icon-frames",
-        IconFramesResponseSchema,
-      ),
-      fetchJsonSafe(
-        "/api/asset-sync/ship-type-icon-frames?v=1",
-        "ship-type-icon-frames",
-        IconFramesResponseSchema,
-      ),
-      fetchJsonSafe(
-        "/api/master-data/json?table_name=mst_slotitem_equiptype",
-        "mst_slotitem_equiptype",
-        MasterSlotItemEquipTypeResponseSchema,
-      ),
-      fetchJsonSafe(
-        "/api/master-data/json?table_name=mst_stype",
-        "mst_stype",
-        MasterStypeResponseSchema,
-      ),
-      fetchJsonSafe(
-        "/api/master-data/json?table_name=mst_equip_exslot",
-        "mst_equip_exslot",
-        MasterEquipExslotResponseSchema,
-      ),
-      fetchJsonSafe(
-        "/api/master-data/json?table_name=mst_equip_ship",
-        "mst_equip_ship",
-        MasterEquipShipResponseSchema,
-      ),
-      fetchJsonSafe(
-        "/api/master-data/json?table_name=mst_equip_exslot_ship",
-        "mst_equip_exslot_ship",
-        MasterEquipExslotShipResponseSchema,
-      ),
-      fetchJsonSafe(
-        "/api/master-data/json?table_name=mst_equip_limit_exslot",
-        "mst_equip_limit_exslot",
-        MasterEquipLimitExslotResponseSchema,
-      ),
-    ]);
-
-    // Record load results for each table
-    const updateLoadResult = (name: string, data: unknown) => {
-      const result = _dataLoadResults.find((r) => r.name === name);
-      if (result) {
-        const records =
-          data !== null && typeof data === "object" && "records" in data
-            ? data.records
-            : undefined;
-        if (Array.isArray(records)) {
-          result.status = "success";
-          result.recordCount = records.length;
-        } else if (data) {
-          result.status = "success";
-          // Non-records data (assets, synergy): omit recordCount so display shows name only
-        } else {
-          result.status = "failed";
-        }
-        result.loadedAt = Date.now();
+  const updateLoadResult = (name: string, data: unknown) => {
+    const result = _dataLoadResults.find((r) => r.name === name);
+    if (result) {
+      const records =
+        data !== null && typeof data === "object" && "records" in data
+          ? (data as any).records
+          : undefined;
+      if (Array.isArray(records)) {
+        result.status = "success";
+        result.recordCount = records.length;
+      } else if (data) {
+        result.status = "success";
+      } else {
+        result.status = "failed";
       }
-    };
+      result.loadedAt = Date.now();
+      console.info(`[data-loader] updated result for ${name}: ${result.status} (records: ${result.recordCount ?? 0})`);
+      updateDataStatus();
+    }
+  };
 
+  // 1. mst_ship (艦娘マスター: 最優先・即時反映)
+  const shipTask = (async () => {
+    const shipData = await fetchJsonSafe(
+      "/api/master-data/json?table_name=mst_ship",
+      "mst_ship",
+      MasterShipResponseSchema,
+    );
     updateLoadResult("mst_ship", shipData);
-    updateLoadResult("mst_slotitem", equipData);
-    updateLoadResult("ship-banner-map", bannerMapData);
-    updateLoadResult("ship-card-map", cardMapData);
-    updateLoadResult("ship-icon-map", shipIconMapData);
-    updateLoadResult("equip-image-map", equipImageData);
-    updateLoadResult("weapon-icon-frames", iconFrameData);
-    updateLoadResult("ship-type-icon-frames", shipTypeIconFrameData);
-    updateLoadResult("mst_slotitem_equiptype", equipTypeData);
-    updateLoadResult("mst_stype", stypeData);
-    updateLoadResult("mst_equip_exslot", equipExslotData);
-    updateLoadResult("mst_equip_ship", equipShipData);
-    updateLoadResult("mst_equip_exslot_ship", equipExslotShipData);
-    updateLoadResult("mst_equip_limit_exslot", equipLimitExslotData);
-    updateLoadResult("synergy-data", synergyBundle.data);
-
     if (shipData?.records) {
-      for (const s of shipData.records) {
-        if (s && s.id != null && s.name) setMasterShip(normalizeMstShip(s));
+      beginBulkLoad();
+      try {
+        for (const s of shipData.records) {
+          if (s && s.id != null && s.name) setMasterShip(normalizeMstShip(s));
+        }
+      } finally {
+        endBulkLoad("fleet");
       }
     }
     _masterDataPeriodTag = shipData?.period_tag ?? null;
     _masterDataPeriodRevision = shipData?.period_revision ?? null;
     _masterDataTableVersion = shipData?.table_version ?? null;
+    updateDataStatus();
+    renderAll();
+    return shipData;
+  })();
 
+  // 2. mst_slotitem (装備マスター: 最優先・即時反映)
+  const equipTask = (async () => {
+    const equipData = await fetchJsonSafe(
+      "/api/master-data/json?table_name=mst_slotitem",
+      "mst_slotitem",
+      MasterSlotItemResponseSchema,
+    );
+    updateLoadResult("mst_slotitem", equipData);
     if (equipData?.records) {
-      for (const e of equipData.records) {
-        if (e && e.id != null && e.name)
-          setMasterSlotItem(normalizeMstSlotItem(e));
+      beginBulkLoad();
+      try {
+        for (const e of equipData.records) {
+          if (e && e.id != null && e.name)
+            setMasterSlotItem(normalizeMstSlotItem(e));
+        }
+      } finally {
+        endBulkLoad("fleet");
       }
     }
+    updateDataStatus();
+    renderAll();
+    return equipData;
+  })();
 
+  // 3. ship-banner-map
+  const bannerMapTask = (async () => {
+    const bannerMapData = await fetchJsonSafe(
+      "/api/asset-sync/ship-banner-map",
+      "ship-banner-map",
+      AssetMapResponseSchema,
+    );
+    updateLoadResult("ship-banner-map", bannerMapData);
     if (bannerMapData?.base_url) setAssetBaseUrl(bannerMapData.base_url);
     if (bannerMapData?.banners) setBannerMap(bannerMapData.banners);
+    renderAll();
+  })();
 
+  // 4. ship-card-map
+  const cardMapTask = (async () => {
+    const cardMapData = await fetchJsonSafe(
+      "/api/asset-sync/ship-card-map",
+      "ship-card-map",
+      CardMapResponseSchema,
+    );
+    updateLoadResult("ship-card-map", cardMapData);
     if (cardMapData?.base_url && !getAssetBaseUrl())
       setAssetBaseUrl(cardMapData.base_url);
     if (cardMapData?.cards) setCardMap(cardMapData.cards);
+    renderAll();
+  })();
 
+  // 5. ship-icon-map
+  const shipIconMapTask = (async () => {
+    const shipIconMapData = await fetchJsonSafe(
+      "/api/asset-sync/ship-icon-map",
+      "ship-icon-map",
+      ShipIconMapResponseSchema,
+    );
+    updateLoadResult("ship-icon-map", shipIconMapData);
     if (shipIconMapData?.base_url && !getAssetBaseUrl())
       setAssetBaseUrl(shipIconMapData.base_url);
     if (shipIconMapData?.icons) setShipIconMap(shipIconMapData.icons);
+    renderAll();
+  })();
 
+  // 6. equip-image-map
+  const equipImageMapTask = (async () => {
+    const equipImageData = await fetchJsonSafe(
+      "/api/asset-sync/equip-image-map",
+      "equip-image-map",
+      EquipImageMapResponseSchema,
+    );
+    updateLoadResult("equip-image-map", equipImageData);
     if (equipImageData?.base_url && !getAssetBaseUrl())
       setAssetBaseUrl(equipImageData.base_url);
     if (equipImageData?.card) setEquipCardMap(equipImageData.card);
     if (equipImageData?.item_on) setEquipItemOnMap(equipImageData.item_on);
     if (equipImageData?.item_up) setEquipItemUpMap(equipImageData.item_up);
+    renderAll();
+  })();
 
+  // 7. weapon-icon-frames & sprite
+  const weaponIconTask = (async () => {
+    const iconFrameData = await fetchJsonSafe(
+      "/api/asset-sync/weapon-icon-frames?v=2",
+      "weapon-icon-frames",
+      IconFramesResponseSchema,
+    );
+    updateLoadResult("weapon-icon-frames", iconFrameData);
     if (iconFrameData?.frames) {
       resetWeaponIconFrames();
       for (const [name, entry] of Object.entries(iconFrameData.frames)) {
@@ -1140,98 +1115,12 @@ export async function loadMasterData(renderAll: () => void) {
         setWeaponIconFrame(parseInt(idText, 10), [x, y, w, h]);
       }
     }
-
     if (iconFrameData?.meta?.size) {
       setSpriteSheetMeta(
         iconFrameData.meta.size.w ?? 0,
         iconFrameData.meta.size.h ?? 0,
       );
     }
-
-    if (shipTypeIconFrameData?.frames) {
-      resetShipTypeIconFrames();
-
-      const portShipFrameByIndex = new Map<
-        number,
-        [number, number, number, number]
-      >();
-      for (const [name, entry] of Object.entries(
-        shipTypeIconFrameData.frames,
-      )) {
-        const portMatch = name.match(/^port_ships_(\d+)$/);
-        const portIndexText = portMatch?.[1];
-        if (portIndexText === undefined) continue;
-        const idx = Number.parseInt(portIndexText, 10);
-        if (!Number.isFinite(idx) || idx < 0) continue;
-        const { x, y, w, h } = entry.frame;
-        portShipFrameByIndex.set(idx, [x, y, w, h]);
-      }
-
-      // 根拠: 艦これクライアント側 deobfuscated コードの
-      // _getTextureName(classType, shipTypeID) で定義されている対応を採用。
-      // 参照: packages/equip_synergy_detector/output/deobfuscated.js
-      const stypeToPortShipsFrameIndex: Record<number, number> = {
-        1: 14,
-        2: 0,
-        3: 11,
-        4: 16,
-        5: 15,
-        6: 17,
-        7: 20,
-        8: 18,
-        9: 18,
-        10: 19,
-        11: 21,
-        12: 18,
-        13: 1,
-        14: 2,
-        15: 9,
-        16: 3,
-        17: 7,
-        18: 5,
-        19: 6,
-        20: 4,
-        21: 8,
-        22: 9,
-      };
-
-      if (portShipFrameByIndex.size > 0) {
-        for (const [stypeRaw, frameIdx] of Object.entries(
-          stypeToPortShipsFrameIndex,
-        )) {
-          const stype = Number.parseInt(stypeRaw, 10);
-          const frame = portShipFrameByIndex.get(frameIdx);
-          if (!frame || !Number.isFinite(stype) || stype <= 0) continue;
-          setShipTypeIconFrame(stype, frame);
-        }
-      }
-
-      // organize_ship_* 等の従来形式は末尾数字を stype として扱う。
-      for (const [name, entry] of Object.entries(
-        shipTypeIconFrameData.frames,
-      )) {
-        if (/^port_ships_\d+$/.test(name)) continue;
-        const genericMatch = name.match(/_([0-9]+)$/);
-        const stypeText = genericMatch?.[1];
-        if (stypeText === undefined) continue;
-        const stype = Number.parseInt(stypeText, 10);
-        if (!Number.isFinite(stype) || stype <= 0) continue;
-        if (portShipFrameByIndex.size > 0 && stypeToPortShipsFrameIndex[stype]) {
-          // port_ships がある場合はゲームコード由来マッピングを優先。
-          continue;
-        }
-        const { x, y, w, h } = entry.frame;
-        setShipTypeIconFrame(stype, [x, y, w, h]);
-      }
-    }
-
-    if (shipTypeIconFrameData?.meta?.size) {
-      setShipTypeSpriteSheetMeta(
-        shipTypeIconFrameData.meta.size.w ?? 0,
-        shipTypeIconFrameData.meta.size.h ?? 0,
-      );
-    }
-
     if (iconFrameData) {
       const pngKey = "assets/kcs2/img/common/common_icon_weapon.png";
       if (_weaponIconDataUrl) {
@@ -1253,7 +1142,7 @@ export async function loadMasterData(renderAll: () => void) {
             const assetBaseUrl = getAssetBaseUrl();
             setSpriteSheetUrl(
               assetBaseUrl
-                ? `${assetBaseUrl}/${pngKey}`
+                ? assetBaseUrl + "/" + pngKey
                 : "/api/asset-sync/weapon-icons",
             );
           }
@@ -1261,13 +1150,65 @@ export async function loadMasterData(renderAll: () => void) {
           const assetBaseUrl = getAssetBaseUrl();
           setSpriteSheetUrl(
             assetBaseUrl
-              ? `${assetBaseUrl}/${pngKey}`
+              ? assetBaseUrl + "/" + pngKey
               : "/api/asset-sync/weapon-icons",
           );
         }
       }
     }
+    renderAll();
+  })();
 
+  // 8. ship-type-icon-frames & sprite
+  const shipTypeIconTask = (async () => {
+    const shipTypeIconFrameData = await fetchJsonSafe(
+      "/api/asset-sync/ship-type-icon-frames?v=1",
+      "ship-type-icon-frames",
+      IconFramesResponseSchema,
+    );
+    updateLoadResult("ship-type-icon-frames", shipTypeIconFrameData);
+    if (shipTypeIconFrameData?.frames) {
+      resetShipTypeIconFrames();
+      const portShipFrameByIndex = new Map<number, [number, number, number, number]>();
+      for (const [name, entry] of Object.entries(shipTypeIconFrameData.frames)) {
+        const portMatch = name.match(/^port_ships_(\d+)$/);
+        const portIndexText = portMatch?.[1];
+        if (portIndexText === undefined) continue;
+        const idx = Number.parseInt(portIndexText, 10);
+        if (!Number.isFinite(idx) || idx < 0) continue;
+        const { x, y, w, h } = entry.frame;
+        portShipFrameByIndex.set(idx, [x, y, w, h]);
+      }
+      const stypeToPortShipsFrameIndex: Record<number, number> = {
+        1: 14, 2: 0, 3: 11, 4: 16, 5: 15, 6: 17, 7: 20, 8: 18, 9: 18, 10: 19,
+        11: 21, 12: 18, 13: 1, 14: 2, 15: 9, 16: 3, 17: 7, 18: 5, 19: 6, 20: 4, 21: 8, 22: 9,
+      };
+      if (portShipFrameByIndex.size > 0) {
+        for (const [stypeRaw, frameIdx] of Object.entries(stypeToPortShipsFrameIndex)) {
+          const stype = Number.parseInt(stypeRaw, 10);
+          const frame = portShipFrameByIndex.get(frameIdx);
+          if (!frame || !Number.isFinite(stype) || stype <= 0) continue;
+          setShipTypeIconFrame(stype, frame);
+        }
+      }
+      for (const [name, entry] of Object.entries(shipTypeIconFrameData.frames)) {
+        if (/^port_ships_\d+$/.test(name)) continue;
+        const genericMatch = name.match(/_([0-9]+)$/);
+        const stypeText = genericMatch?.[1];
+        if (stypeText === undefined) continue;
+        const stype = Number.parseInt(stypeText, 10);
+        if (!Number.isFinite(stype) || stype <= 0) continue;
+        if (portShipFrameByIndex.size > 0 && stypeToPortShipsFrameIndex[stype]) continue;
+        const { x, y, w, h } = entry.frame;
+        setShipTypeIconFrame(stype, [x, y, w, h]);
+      }
+    }
+    if (shipTypeIconFrameData?.meta?.size) {
+      setShipTypeSpriteSheetMeta(
+        shipTypeIconFrameData.meta.size.w ?? 0,
+        shipTypeIconFrameData.meta.size.h ?? 0,
+      );
+    }
     if (shipTypeIconFrameData) {
       const pngKey = "assets/kcs2/img/port/port_ships.png";
       if (_shipTypeIconDataUrl) {
@@ -1288,30 +1229,128 @@ export async function loadMasterData(renderAll: () => void) {
           } else {
             const assetBaseUrl = getAssetBaseUrl();
             setShipTypeSpriteSheetUrl(
-              assetBaseUrl
-                ? `${assetBaseUrl}/${pngKey}`
-                : "/api/asset-sync/ship-type-icons",
+              assetBaseUrl ? assetBaseUrl + "/" + pngKey : "/api/asset-sync/ship-type-icons",
             );
           }
         } catch {
           const assetBaseUrl = getAssetBaseUrl();
           setShipTypeSpriteSheetUrl(
-            assetBaseUrl
-              ? `${assetBaseUrl}/${pngKey}`
-              : "/api/asset-sync/ship-type-icons",
+            assetBaseUrl ? assetBaseUrl + "/" + pngKey : "/api/asset-sync/ship-type-icons",
           );
         }
       }
     }
+    renderAll();
+  })();
 
+  // 9. mst_slotitem_equiptype
+  const equipTypeTask = (async () => {
+    const equipTypeData = await fetchJsonSafe(
+      "/api/master-data/json?table_name=mst_slotitem_equiptype",
+      "mst_slotitem_equiptype",
+      MasterSlotItemEquipTypeResponseSchema,
+    );
+    updateLoadResult("mst_slotitem_equiptype", equipTypeData);
+    if (equipTypeData?.records) {
+      for (const t of equipTypeData.records) {
+        if (t && t.id != null && t.name) setMasterEquipType(t);
+      }
+    }
+    renderAll();
+  })();
+
+  // 10. mst_stype
+  const stypeTask = (async () => {
+    const stypeData = await fetchJsonSafe(
+      "/api/master-data/json?table_name=mst_stype",
+      "mst_stype",
+      MasterStypeResponseSchema,
+    );
+    updateLoadResult("mst_stype", stypeData);
+    if (stypeData?.records) {
+      for (const s of stypeData.records) {
+        if (s && s.id != null) setMasterStype(s);
+      }
+    }
+    renderAll();
+  })();
+
+  // 11. mst_equip_exslot
+  const equipExslotTask = (async () => {
+    const equipExslotData = await fetchJsonSafe(
+      "/api/master-data/json?table_name=mst_equip_exslot",
+      "mst_equip_exslot",
+      MasterEquipExslotResponseSchema,
+    );
+    updateLoadResult("mst_equip_exslot", equipExslotData);
+    if (equipExslotData?.records) {
+      for (const e of equipExslotData.records) {
+        if (e && e.equip != null) addEquipExslotId(e.equip);
+      }
+    }
+    renderAll();
+  })();
+
+  // 12. mst_equip_ship
+  const equipShipTask = (async () => {
+    const equipShipData = await fetchJsonSafe(
+      "/api/master-data/json?table_name=mst_equip_ship",
+      "mst_equip_ship",
+      MasterEquipShipResponseSchema,
+    );
+    updateLoadResult("mst_equip_ship", equipShipData);
+    if (equipShipData?.records) {
+      for (const r of equipShipData.records) {
+        if (r && r.ship_id != null && r.equip_type) setMasterEquipShip(r);
+      }
+    }
+    renderAll();
+  })();
+
+  // 13. mst_equip_exslot_ship
+  const equipExslotShipTask = (async () => {
+    const equipExslotShipData = await fetchJsonSafe(
+      "/api/master-data/json?table_name=mst_equip_exslot_ship",
+      "mst_equip_exslot_ship",
+      MasterEquipExslotShipResponseSchema,
+    );
+    updateLoadResult("mst_equip_exslot_ship", equipExslotShipData);
+    if (equipExslotShipData?.records) {
+      for (const r of equipExslotShipData.records) {
+        if (r && r.slotitem_id != null) setMasterEquipExslotShip(r);
+      }
+    }
+    renderAll();
+  })();
+
+  // 14. mst_equip_limit_exslot
+  const equipLimitExslotTask = (async () => {
+    const equipLimitExslotData = await fetchJsonSafe(
+      "/api/master-data/json?table_name=mst_equip_limit_exslot",
+      "mst_equip_limit_exslot",
+      MasterEquipLimitExslotResponseSchema,
+    );
+    updateLoadResult("mst_equip_limit_exslot", equipLimitExslotData);
+    if (equipLimitExslotData?.records) {
+      for (const r of equipLimitExslotData.records) {
+        if (r && r.ship_id != null && r.equip) setMasterEquipLimitExslot(r);
+      }
+    }
+    renderAll();
+  })();
+
+  // 15. synergy & speed upgrade
+  const synergyTask = (async () => {
+    const synergyBundle = await fetchSynergyDataWithMeta();
+    updateLoadResult("synergy-data", synergyBundle.data);
     setSlotItemEffects(
-      synergyBundle.data &&
-        (synergyBundle.data.effect_rules ?? synergyBundle.data.effects)
+      synergyBundle.data && (synergyBundle.data.effect_rules ?? synergyBundle.data.effects)
         ? synergyBundle.data
         : null,
     );
     setSlotItemEffectsMeta(synergyBundle.meta);
 
+    const shipData = await shipTask;
     const speedUpgradeUrl = new URL(
       "/api/soku-speed-observed/speed-upgrade",
       window.location.origin,
@@ -1330,57 +1369,30 @@ export async function loadMasterData(renderAll: () => void) {
         ? speedUpgradeData.data
         : null,
     );
+    updateDataStatus();
+    renderAll();
+  })();
 
-    if (equipTypeData?.records) {
-      for (const t of equipTypeData.records) {
-        if (t && t.id != null && t.name) {
-          setMasterEquipType(t);
-        }
-      }
-    }
+  // Wait for all progressive tasks to settle
+  await Promise.allSettled([
+    shipTask,
+    equipTask,
+    bannerMapTask,
+    cardMapTask,
+    shipIconMapTask,
+    equipImageMapTask,
+    weaponIconTask,
+    shipTypeIconTask,
+    equipTypeTask,
+    stypeTask,
+    equipExslotTask,
+    equipShipTask,
+    equipExslotShipTask,
+    equipLimitExslotTask,
+    synergyTask,
+  ]);
 
-    // ── Equipment filtering tables ──
-    if (stypeData?.records) {
-      for (const s of stypeData.records) {
-        if (s && s.id != null) setMasterStype(s);
-      }
-    }
-
-    if (equipExslotData?.records) {
-      for (const e of equipExslotData.records) {
-        if (e && e.equip != null) addEquipExslotId(e.equip);
-      }
-    }
-
-    if (equipShipData?.records) {
-      for (const r of equipShipData.records) {
-        if (r && r.ship_id != null && r.equip_type) {
-          setMasterEquipShip(r);
-        }
-      }
-    }
-
-    if (equipExslotShipData?.records) {
-      for (const r of equipExslotShipData.records) {
-        if (r && r.slotitem_id != null) {
-          setMasterEquipExslotShip(r);
-        }
-      }
-    }
-
-    if (equipLimitExslotData?.records) {
-      for (const r of equipLimitExslotData.records) {
-        if (r && r.ship_id != null && r.equip) {
-          setMasterEquipLimitExslot(r);
-        }
-      }
-    }
-
-    console.info("[simulator] master data load summary", getMasterDataCounts());
-
-  } finally {
-    endBulkLoad("all");
-  }
+  console.info("[simulator] master data load summary", getMasterDataCounts());
   renderAll();
   updateDataStatus();
 }

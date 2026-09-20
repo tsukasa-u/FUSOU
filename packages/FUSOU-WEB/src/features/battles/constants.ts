@@ -1,3 +1,7 @@
+﻿/**
+ * Common battle and fleet domain constants for FUSOU.
+ */
+
 export const PHASE_NAMES: Record<string, string> = {
   AirBaseAssult: "基地航空隊強襲",
   CarrierBaseAssault: "基地航空隊ジェット攻撃",
@@ -8,8 +12,8 @@ export const PHASE_NAMES: Record<string, string> = {
   OpeningRaigeki: "開幕雷撃",
   Hougeki: "砲撃戦",
   ClosingRaigeki: "閉幕雷撃",
-  FriendlyForceAttack: "友軍艦隊",
-  NightSupportAttack: "夜間支援",
+  FriendlyForceAttack: "友軍艦隊攻撃",
+  NightSupportAttack: "夜間支援攻撃",
   MidnightHougeki: "夜戦",
 };
 
@@ -34,6 +38,14 @@ export const AIR_STATE: Record<number, { label: string; cls: string }> = {
   4: { label: "制空権喪失", cls: "text-error" },
 };
 
+export const AIR_SUPERIORITY_NAMES: Record<number, string> = {
+  0: "制空拮抗",
+  1: "制空権確保",
+  2: "航空優勢",
+  3: "航空劣勢",
+  4: "制空権喪失",
+};
+
 export const RANK_COLORS: Record<string, string> = {
   S: "text-success",
   A: "text-info",
@@ -41,6 +53,34 @@ export const RANK_COLORS: Record<string, string> = {
   C: "text-error",
   D: "text-error",
   E: "text-error",
+};
+
+export const RANK_HEX_COLORS: Record<string, string> = {
+  S: "#22c55e",
+  A: "#3b82f6",
+  B: "#f59e0b",
+  C: "#ef4444",
+  D: "#b91c1c",
+  E: "#7f1d1d",
+  未記録: "#94a3b8",
+};
+
+export const WIN_RANK_BADGES: Record<string, string> = {
+  S: "badge-success",
+  A: "badge-info",
+  B: "badge-warning",
+  C: "badge-error",
+  D: "badge-error",
+  E: "badge-error",
+};
+
+export const AIR_COLORS: Record<string, string> = {
+  制空権確保: "#22c55e",
+  航空優勢: "#3b82f6",
+  制空拮抗: "#eab308",
+  航空劣勢: "#f97316",
+  制空権喪失: "#ef4444",
+  不明: "#94a3b8",
 };
 
 export const FRIEND_COLORS = [

@@ -4,6 +4,7 @@
  */
 
 import { z } from "zod";
+import { compareTableVersions } from "@/features/battles/helpers";
 
 export type ShipGrowthSummary = {
   ok: boolean;
@@ -195,4 +196,17 @@ export function mergeShipGrowthCaps(
 export function needsStatFallback(value: number[] | null | undefined): boolean {
   if (!Array.isArray(value) || value.length === 0) return true;
   return value.every((v) => !Number.isFinite(v) || v <= 0);
+}
+
+export function selectLatestShipGrowthPeriod(
+  periods: Array<{ period_tag: string; table_version: string }> | undefined | null,
+): { period_tag: string; table_version: string } | null {
+  if (!Array.isArray(periods) || periods.length === 0) return null;
+  const sorted = [...periods].sort((a, b) => {
+    const pCmp = b.period_tag.localeCompare(a.period_tag);
+    if (pCmp !== 0) return pCmp;
+    return compareTableVersions(b.table_version, a.table_version);
+  });
+  const latest = sorted[0];
+  return latest ? { period_tag: latest.period_tag, table_version: latest.table_version } : null;
 }

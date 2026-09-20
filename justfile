@@ -27,3 +27,10 @@ clean_workspace:
     just clean_auth
     just clean_avro_wasm
     just clean_fusou-upload
+
+license_generate:
+    node scripts/generate-license-docs.mjs
+
+license_check:
+    node scripts/generate-license-docs.mjs --check
+

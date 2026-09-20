@@ -24,6 +24,12 @@ pub mod util;
 pub use test::custom_root_test;
 pub use test::simple_root_test;
 pub use test::simple_root_test_with_range;
+pub use test::active_epoch_range;
+pub use test::collect_test_data_files;
+pub use test::filter_range_start_end;
+pub use test::get_cached_test_data_files;
+pub use test::get_timestamp_from_file;
+pub use test::get_timestamp_from_file_content;
 
 pub const REGISTER_STRUCT: &str = "tests-register_struct_name_env";
 

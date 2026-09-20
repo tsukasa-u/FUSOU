@@ -34,7 +34,7 @@ pub struct Res {
     #[serde(rename = "api_result_msg")]
     pub api_result_msg: String,
     #[serde(rename = "api_data")]
-    pub api_data: ApiData,
+    pub api_data: Option<ApiData>,
 }
 
 #[derive(FieldSizeChecker, TraitForTest)]

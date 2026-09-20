@@ -8,7 +8,7 @@ import { equipImageUrl, computeEquipBonuses } from "@/features/simulator/equip-c
 import { filterForNormalSlot, filterForExslot, getExslotSelectionRequirement } from "@/features/simulator/equip-filter";
 import { EQUIP_ROW_PITCH, HEADER_HEIGHT } from "@/features/simulator/virtual-scroll";
 import { consumeEquipModalCallback, setEquipModalSideFilter, setEquipModalSource } from "@/features/simulator/simulator-mutations";
-import { getEquipModalCurrentId, getEquipModalSideFilter, getEquipModalSource, getEquipModalTarget, getMasterEquipTypeName, getMasterShip, getMasterSlotItem, getMasterSlotItems, getSlotItemEffects, getSnapshotSlotItems, getSpriteSheetMeta, getWeaponIconFrame, hasMasterData, hasSnapshotSlotItems, isAirBaseEquipModalTarget, isWorkspaceReadOnly } from "@/features/simulator/simulator-selectors";
+import { getEquipModalCurrentId, getEquipModalSideFilter, getEquipModalSource, getEquipModalTarget, getMasterEquipTypeName, getMasterShip, getMasterSlotItem, getMasterSlotItems, getSlotItemEffects, getSnapshotSlotItems, getSpriteSheetMeta, getWeaponIconFrame, hasSnapshotSlotItems, isAirBaseEquipModalTarget, isWorkspaceReadOnly } from "@/features/simulator/simulator-selectors";
 import { masterDataStatusStore } from "@/features/simulator/data-loader";
 import {
   PickerQuickAccess,
@@ -16,6 +16,10 @@ import {
 } from "./picker-quick-access";
 import { StatPill, WeaponIcon } from "./shared-ui";
 import { SelectionModalShell } from "./selection-modal-shell";
+import { AircraftProficiencyBadge, EquipLevelBadge } from "@/components/common/solid/EquipBadges";
+import { LoadingState } from "@/components/common/solid/LoadingState";
+import { EmptyState } from "@/components/common/solid/EmptyState";
+import { ActiveFilterChips, type FilterChipItem } from "@/components/common/solid/ActiveFilterChips";
 
 export const [equipModalTrigger, setEquipModalTrigger] = createSignal(0);
 
@@ -97,10 +101,46 @@ export function EquipSelectionModal() {
     return [...types.entries()].sort((a, b) => a[0] - b[0]);
   });
 
+  const activeFilterItems = createMemo((): FilterChipItem[] => {
+    const items: FilterChipItem[] = [];
+    const s = search().trim();
+    if (s) {
+      items.push({
+        key: "search",
+        label: "検索",
+        value: s,
+        onRemove: () => setSearch(""),
+      });
+    }
+    const t = typeFilter();
+    if (t) {
+      items.push({
+        key: "type",
+        label: "装備種",
+        value: getMasterEquipTypeName(Number(t)) || `Type ${t}`,
+        onRemove: () => setTypeFilter(""),
+      });
+    }
+    const side = sideFilter();
+    if (side !== "ally") {
+      items.push({
+        key: "side",
+        label: "陣営",
+        value: side === "enemy" ? "敵のみ" : "全て",
+        onRemove: () => {
+          setSideFilter("ally");
+          setEquipModalSideFilter("ally");
+        },
+      });
+    }
+    return items;
+  });
+
   const filteredEquips = createMemo(() => {
     masterDataStatus();
     equipModalTrigger();
-    if (!hasMasterData()) return [];
+    const hasEquips = Object.keys(getMasterSlotItems()).length > 0 || hasSnapshotSlotItems();
+    if (!hasEquips) return [];
     let items: EquipRuntimeMeta[];
     const isAirBase = isAirBaseEquipModalTarget();
     
@@ -297,6 +337,16 @@ export function EquipSelectionModal() {
               <button class={`tab tab-sm ${source() === "master" ? "tab-active" : ""}`} onClick={() => { setSource("master"); setEquipModalSource("master"); }}>マスターデータ</button>
             </div>
           </Show>
+          <ActiveFilterChips
+            items={activeFilterItems()}
+            onClearAll={() => {
+              setSearch("");
+              setTypeFilter("");
+              setSideFilter("ally");
+              setEquipModalSideFilter("ally");
+            }}
+            class="mt-2"
+          />
         </div>
 
         <div class="flex flex-1 min-h-0">
@@ -317,7 +367,18 @@ export function EquipSelectionModal() {
                </div>
              </Show>
              <Show when={listData().rows.length === 0}>
-                <p class="text-sm text-base-content/30 text-center py-12">該当する装備が見つかりません</p>
+               <Show
+                 when={Object.keys(getMasterSlotItems()).length === 0 && !hasSnapshotSlotItems()}
+                 fallback={
+                   <div class="py-12">
+                     <EmptyState message="該当する装備が見つかりません" size="compact" />
+                   </div>
+                 }
+               >
+                 <div class="py-12">
+                   <LoadingState message="装備一覧を準備中..." size="md" minHeight="min-h-[160px]" />
+                 </div>
+               </Show>
              </Show>
              <div id="equip-modal-grid" class="flex-1 min-h-0 overflow-hidden">
               <VList data={listData().rows} ref={setVlistRef} style={{ height: "100%" }} class="overflow-x-hidden" onScroll={updateActiveQuickAccessByOffset}>
@@ -356,8 +417,8 @@ export function EquipSelectionModal() {
                                </Show>
                              </span>
                              <Show when={isSnapshot}>
-                               <span class={`text-right font-mono ${snapshotAlv > 0 ? (snapshotAlv <= 3 ? "text-blue-700 font-bold" : snapshotAlv <= 6 ? "text-amber-700 font-bold" : "text-orange-700 font-bold") : "text-base-content/30"}`}>{snapshotAlv > 0 ? (profSymbols[snapshotAlv] ?? ">>") : ""}</span>
-                               <span class={`text-right font-mono ${snapshotLevel > 0 ? "text-teal-700 font-bold" : "text-base-content/30"}`}>{snapshotLevel > 0 ? `★${snapshotLevel}` : ""}</span>
+                               <AircraftProficiencyBadge alv={snapshotAlv} />
+                               <EquipLevelBadge level={snapshotLevel} />
                                <span class={`text-right font-mono ${snapshotCount > 1 ? "font-bold text-base-content/60" : "text-base-content/30"}`}>{snapshotCount > 1 ? `×${snapshotCount}` : ""}</span>
                              </Show>
                            </div>

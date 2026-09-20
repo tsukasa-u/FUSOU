@@ -1,4 +1,5 @@
-/* @jsxImportSource solid-js */
+/** @jsxImportSource solid-js */
+import { AlertMessage } from "@/components/common/solid/AlertMessage";
 import { createSignal, onMount, onCleanup, Show } from "solid-js";
 import { useStore } from "@nanostores/solid";
 import { simulatorDisplayRevision, simulatorCombinedFleetType } from "@/features/simulator/state";
@@ -73,9 +74,10 @@ export function SimulatorFleetTab() {
 
       <div id="deck-capture-area">
         <Show when={!combinedValidation().ok}>
-          <div id="combined-fleet-validation" class="alert alert-warning mb-4 py-2 flex">
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" class="stroke-current shrink-0 w-5 h-5"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01M10.29 3.86l-7.5 13A1 1 0 003.67 18h16.66a1 1 0 00.88-1.5l-7.5-13a1 1 0 00-1.74 0z"></path></svg>
-            <span id="combined-fleet-validation-text" class="text-sm">{combinedValidation().text}</span>
+          <div id="combined-fleet-validation" class="mb-4">
+            <AlertMessage type="warning">
+              <span id="combined-fleet-validation-text" class="text-sm">{combinedValidation().text}</span>
+            </AlertMessage>
           </div>
         </Show>
 

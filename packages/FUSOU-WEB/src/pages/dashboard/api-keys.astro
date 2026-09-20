@@ -84,7 +84,7 @@ if (!user) {
       description="fusou-datasetsで使うAPIキーを管理します。"
     />
 
-    <div class="rounded-lg border border-base-300 bg-base-100 p-6">
+    <div class="fusou-card p-6">
       <AuthPageSection
         title="利用開始前の確認"
         description="APIキーを作成する前に、次の準備を完了してください。"
@@ -183,7 +183,7 @@ if (!user) {
           >
             <AlertBox type="warning" title="Game identifier required" class="text-sm">
               <p>関連付けは公開用 UUID の管理に使用します。ゲームアカウントの本人確認ではありません。</p>
-              <a href="/auth/local/signin?return_to=%2Fdashboard%2Fapi-keys" class="btn btn-sm btn-warning btn-outline mt-3">
+              <a href="/auth/local/signin?return_to=%2Fdashboard%2Fapi-keys" class="fusou-btn-secondary inline-flex mt-3">
                 Link Identifier →
               </a>
             </AlertBox>
@@ -220,7 +220,7 @@ if (!user) {
           <div class="flex justify-between items-center mb-4">
             <button
               id="create-key-btn"
-              class="btn btn-sm btn-primary border border-primary-content"
+              class="fusou-btn-primary"
             >
               <svg
                 xmlns="http://www.w3.org/2000/svg"
@@ -237,7 +237,7 @@ if (!user) {
           </div>
 
           <div id="api-keys-list" class="space-y-2">
-            <div class="text-center py-4 text-base-content/60">Loading...</div>
+            <div class="flex items-center justify-center gap-2 py-6 text-base-content/60"><span class="loading loading-spinner loading-sm"></span><span>Loading...</span></div>
           </div>
 
           <!-- Error Alert -->
@@ -275,7 +275,7 @@ if (!user) {
             ></code>
             <button
               id="copy-key-btn"
-              class="btn btn-sm btn-ghost border border-base-300"
+              class="fusou-btn-ghost"
             >
               <!-- Copy icon -->
               <svg
@@ -314,7 +314,7 @@ if (!user) {
         class="mt-6"
       >
           <div id="devices-list" class="space-y-2">
-            <div class="text-center py-4 text-base-content/60">Loading...</div>
+            <div class="flex items-center justify-center gap-2 py-6 text-base-content/60"><span class="loading loading-spinner loading-sm"></span><span>Loading...</span></div>
           </div>
       </AuthPageSection>
 
@@ -323,18 +323,18 @@ if (!user) {
 </Layout>
 
 <!-- Delete Confirmation Modal -->
-<dialog id="delete-modal" class="modal">
-  <div class="modal-box">
+<dialog id="delete-modal" class="modal modal-bottom sm:modal-middle">
+  <div class="modal-box rounded-xl bg-base-100 border border-base-300 shadow-2xl">
     <h3 class="font-bold text-lg">Confirm Deletion</h3>
-    <p class="py-4" id="delete-modal-message">
+    <p class="py-4 text-sm text-base-content/70" id="delete-modal-message">
       Are you sure you want to delete this item?
     </p>
     <div class="modal-action">
-      <button class="btn border border-base-300" id="delete-modal-cancel"
+      <button class="fusou-btn-ghost" id="delete-modal-cancel"
         >Cancel</button
       >
       <button
-        class="btn btn-error bg-error-content text-error border border-error hover:bg-error hover:text-error-content"
+        class="fusou-btn-danger"
         id="delete-modal-confirm">Delete</button
       >
     </div>

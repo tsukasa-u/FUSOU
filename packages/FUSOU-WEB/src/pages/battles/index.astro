@@ -2,6 +2,7 @@
 import PageLayout from "@/layouts/Layout.astro";
 import Navigation from "@/components/common/astro/layout/Navigation.astro";
 import BattleSourceSwitcher from "@/components/features/battles/solid/BattleSourceSwitcher";
+import PageShell from "@/components/common/astro/ui/PageShell.astro";
 
 export const prerender = false;
 ---
@@ -52,5 +53,7 @@ export const prerender = false;
   }}
 >
   <Navigation filled={true} />
-  <BattleSourceSwitcher client:only="solid-js" />
+  <PageShell>
+    <BattleSourceSwitcher client:only="solid-js" />
+  </PageShell>
 </PageLayout>

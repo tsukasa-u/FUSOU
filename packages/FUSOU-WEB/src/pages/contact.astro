@@ -7,12 +7,12 @@ import PageHeader from "@/components/common/astro/ui/PageHeader.astro";
 
 <PageLayout title="FUSOU - お問い合わせ・削除申請">
   <Navigation filled={true} />
-  <PageShell container="narrow" paddingY="12">
-    <PageHeader
-      title="お問い合わせ・削除申請"
-      subtitle="Contact & Takedown Request"
-      compact={true}
-    />
+  <PageShell container="default" paddingY="8">
+    <div class="max-w-3xl mx-auto">
+      <PageHeader
+        title="お問い合わせ・削除申請"
+        subtitle="Contact & Takedown Request"
+      />
 
     <!-- Copyright Notice -->
     <section class="fusou-card fusou-card-body mb-6">
@@ -169,7 +169,7 @@ import PageHeader from "@/components/common/astro/ui/PageHeader.astro";
     </section>
 
     <!-- Response Policy -->
-    <section class="bg-base-100 rounded-xl border border-base-300/60 p-6">
+    <section class="fusou-card fusou-card-body">
       <h2 class="text-base font-semibold mb-3">対応ポリシー</h2>
       <ul class="text-sm text-base-content/70 space-y-2 leading-relaxed">
         <li class="flex gap-2">
@@ -186,5 +186,6 @@ import PageHeader from "@/components/common/astro/ui/PageHeader.astro";
         </li>
       </ul>
     </section>
+    </div>
   </PageShell>
 </PageLayout>

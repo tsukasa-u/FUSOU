@@ -51,6 +51,7 @@ import type {
 import {
   ShipGrowthBoundsResponseSchema,
   ShipGrowthSummaryResponseSchema,
+  selectLatestShipGrowthPeriod,
 } from "@/features/simulator/ship-growth-utils";
 import { ShortUrlResponseSchema } from "@/features/simulator/api-response-schemas";
 
@@ -405,10 +406,7 @@ async function getOptimizerShipGrowthPeriod(): Promise<ShipGrowthPeriod | null> 
     const parsed = ShipGrowthSummaryResponseSchema.safeParse(await res.json());
     if (!parsed.success || !parsed.data.ok) return null;
     const json = parsed.data;
-    const latest = json.periods?.[0];
-    return latest
-      ? { period_tag: latest.period_tag, table_version: latest.table_version }
-      : null;
+    return selectLatestShipGrowthPeriod(json.periods);
   })().catch(() => null);
 
   return _optimizerShipGrowthPeriodPromise;

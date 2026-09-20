@@ -89,12 +89,21 @@ export default defineConfig({
     imageService: "cloudflare",
   }),
   vite: {
+    cacheDir: process.argv.includes("dev")
+      ? "./node_modules/.vite-dev"
+      : "./node_modules/.vite-prod",
     optimizeDeps: {
       // Vite 8/Rolldown may mis-scan Astro app source TSX entries as plain TS
       // during automatic dependency discovery under the Cloudflare dev runtime.
       // Keep prebundling opt-in until upstream parsing stabilizes.
       noDiscovery: true,
       include: [
+        "react",
+        "react-dom",
+        "react-dom/client",
+        "react/jsx-runtime",
+        "react/jsx-dev-runtime",
+        "@astrojs/react/client.js",
         "hono",
         "hono/logger",
         "@xyflow/react",

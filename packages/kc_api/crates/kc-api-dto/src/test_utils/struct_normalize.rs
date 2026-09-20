@@ -554,7 +554,7 @@ fn filter_range_start_end(
         (Some(start), Some(end)) => ts_int >= start && ts_int < end,
         (Some(start), None) => ts_int >= start,
         (None, Some(end)) => ts_int < end,
-        (None, None) => panic!("either range_start or range_end must be Some value"),
+        (None, None) => true,
     }
 }
 
@@ -571,10 +571,6 @@ pub fn glob_match_normalize_with_range<T, U>(
     T: serde::de::DeserializeOwned + serde::Serialize,
     U: serde::de::DeserializeOwned + serde::Serialize,
 {
-    if range_end.is_none() && range_start.is_none() {
-        panic!("either range_start or range_end must be Some value");
-    }
-
     let target_pattern = match format_type {
         FormatType::Json => format!("S{pattern_str}"),
         FormatType::QueryString => format!("Q{pattern_str}"),
@@ -584,31 +580,27 @@ pub fn glob_match_normalize_with_range<T, U>(
         FormatType::QueryString => format!("S{pattern_str}"),
     };
 
-    let target = path::PathBuf::from(test_data_path.clone());
-    let target_files = target
-        .read_dir()
-        .unwrap_or_else(|_| panic!("\x1b[38;5;{}m read_dir call failed\x1b[m ", 8));
+    let target_files = register_trait::test::get_cached_test_data_files(&test_data_path);
     let target_file_list = target_files
-        .map(|dir_entry| dir_entry.unwrap().path())
+        .iter()
         .filter(|file_path| {
-            file_path.to_str().unwrap().ends_with(&target_pattern)
-                && filter_range_start_end(file_path.clone(), range_start, range_end)
+            let s = file_path.to_str().unwrap_or("");
+            let base = s.strip_suffix(".json").unwrap_or(s);
+            base.ends_with(&target_pattern)
+                && filter_range_start_end((*file_path).clone(), range_start, range_end)
         })
+        .cloned()
         .collect::<Vec<_>>();
 
-    let another_target = path::PathBuf::from(test_data_path.clone());
-    let another_target_files = another_target
-        .read_dir()
-        .unwrap_or_else(|_| panic!("\x1b[38;5;{}m read_dir call failed\x1b[m ", 8));
-    let another_target_file_list = another_target_files
-        .map(|dir_entry| dir_entry.unwrap().path())
+    let another_target_file_list = target_files
+        .iter()
         .filter(|file_path| {
-            file_path
-                .to_str()
-                .unwrap()
-                .ends_with(&another_target_pattern)
-                && filter_range_start_end(file_path.clone(), range_start, range_end)
+            let s = file_path.to_str().unwrap_or("");
+            let base = s.strip_suffix(".json").unwrap_or(s);
+            base.ends_with(&another_target_pattern)
+                && filter_range_start_end((*file_path).clone(), range_start, range_end)
         })
+        .cloned()
         .collect::<Vec<_>>();
 
     let snap_files = path::PathBuf::from(snap_file_path.clone())
@@ -617,7 +609,10 @@ pub fn glob_match_normalize_with_range<T, U>(
     let snap_file_list = snap_files
         .map(|dir_entry| dir_entry.unwrap().path())
         .filter(|file_path| {
-            file_path.to_str().unwrap().ends_with(&target_pattern)
+            let s = file_path.to_str().unwrap_or("");
+            let base = s.strip_suffix(".json").unwrap_or(s);
+            base.ends_with(&target_pattern)
+                && filter_range_start_end((*file_path).clone(), range_start, range_end)
         })
         .collect::<Vec<_>>();
 
@@ -647,57 +642,15 @@ pub fn glob_match_normalize<T, U>(
     T: serde::de::DeserializeOwned + serde::Serialize,
     U: serde::de::DeserializeOwned + serde::Serialize,
 {
-    let target_pattern = match format_type {
-        FormatType::Json => format!("S{pattern_str}"),
-        FormatType::QueryString => format!("Q{pattern_str}"),
-    };
-    let another_target_pattern = match format_type {
-        FormatType::Json => format!("Q{pattern_str}"),
-        FormatType::QueryString => format!("S{pattern_str}"),
-    };
-
-    let target = path::PathBuf::from(test_data_path.clone());
-    let target_files = target
-        .read_dir()
-        .unwrap_or_else(|_| panic!("\x1b[38;5;{}m read_dir call failed\x1b[m ", 8));
-    let target_file_list = target_files
-        .map(|dir_entry| dir_entry.unwrap().path())
-        .filter(|file_path| file_path.to_str().unwrap().ends_with(&target_pattern))
-        .collect::<Vec<_>>();
-
-    let another_target = path::PathBuf::from(test_data_path.clone());
-    let another_target_files = another_target
-        .read_dir()
-        .unwrap_or_else(|_| panic!("\x1b[38;5;{}m read_dir call failed\x1b[m ", 8));
-    let another_target_file_list = another_target_files
-        .map(|dir_entry| dir_entry.unwrap().path())
-        .filter(|file_path| {
-            file_path
-                .to_str()
-                .unwrap()
-                .ends_with(&another_target_pattern)
-        })
-        .collect::<Vec<_>>();
-
-    let snap_files = path::PathBuf::from(snap_file_path.clone())
-        .read_dir()
-        .unwrap_or_else(|_| panic!("\x1b[38;5;{}m read_dir call failed\x1b[m ", 8));
-    let snap_file_list = snap_files
-        .map(|dir_entry| dir_entry.unwrap().path())
-        .filter(|file_path| file_path.to_str().unwrap().ends_with(&target_pattern))
-        .collect::<Vec<_>>();
-
-    custom_match_normalize::<T, U>(
-        target_file_list.into_iter(),
-        another_target_file_list.into_iter(),
-        snap_file_list.into_iter(),
+    let (range_start, range_end) = register_trait::test::active_epoch_range();
+    glob_match_normalize_with_range::<T, U>(
+        test_data_path,
+        pattern_str,
         snap_file_path,
         format_type,
-        log_path.clone(),
-        mask_patterns.unwrap_or_default(),
-    );
-    println!(
-        "\x1b[38;5;{}m completed test data normalization for target pattern: {}\x1b[m ",
-        10, target_pattern
+        log_path,
+        range_start,
+        range_end,
+        mask_patterns,
     );
 }

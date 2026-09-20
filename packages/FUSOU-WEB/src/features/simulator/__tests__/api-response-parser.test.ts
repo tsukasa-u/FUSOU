@@ -60,6 +60,49 @@ describe("simulator API response parser", () => {
     expect(result.s3s[0]).toMatchObject({ k5u: 0, r4u: null });
   });
 
+  it("extracts sortie tag with fallback between api_sortie_tag (post-0.6.0) and api_sally_area (pre-0.6.0)", () => {
+    const result = convertPortToSnapshot({
+      api_data: {
+        api_ship: [
+          // post-0.6.0: api_sortie_tag
+          {
+            api_id: 101,
+            api_ship_id: 1,
+            api_lv: 1,
+            api_sortie_tag: 4,
+          },
+          // pre-0.6.0: api_sally_area
+          {
+            api_id: 102,
+            api_ship_id: 2,
+            api_lv: 1,
+            api_sally_area: 2,
+          },
+          // both present: api_sortie_tag takes precedence
+          {
+            api_id: 103,
+            api_ship_id: 3,
+            api_lv: 1,
+            api_sortie_tag: 5,
+            api_sally_area: 1,
+          },
+          // neither present
+          {
+            api_id: 104,
+            api_ship_id: 4,
+            api_lv: 1,
+          },
+        ],
+        api_deck_port: [],
+      },
+    });
+
+    expect(result.s3s[0]?.["s8a"]).toBe(4);
+    expect(result.s3s[1]?.["s8a"]).toBe(2);
+    expect(result.s3s[2]?.["s8a"]).toBe(5);
+    expect(result.s3s[3]?.["s8a"]).toBeNull();
+  });
+
   it("normalizes require_info records before snapshot conversion", () => {
     expect(
       convertRequireInfoToSnapshot({

@@ -1,0 +1,7 @@
+# Reproducible execution environment for fusou-datasets
+-e ./python
+jupyterlab>=4.0.0
+papermill>=2.4.0
+matplotlib>=3.7.0
+seaborn>=0.12.0
+scipy>=1.10.0

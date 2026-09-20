@@ -3,10 +3,20 @@ name = "register_trait"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+build = "build.rs"
 
 [dependencies]
+kc-api-build-config = { path = "../kc-api-build-config" }
 chrono = { workspace = true }
 register_macro_derive_and_attr = { workspace = true }
 serde_json = { workspace = true }
 uuid = { workspace = true }
 regex = { workspace = true }
+
+[build-dependencies]
+kc-api-build-config = { path = "../kc-api-build-config" }
+
+[features]
+default = [ "genesis" ]
+genesis = []
+epoch_20250627 = []

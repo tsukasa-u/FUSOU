@@ -1,10 +1,11 @@
 /** @jsxImportSource solid-js */
 
 import type { JSX } from "solid-js";
-import { Show, createSignal, createEffect } from "solid-js";
+import { Show } from "solid-js";
 import { bannerUrl } from "@/features/simulator/equip-calc";
 import { STYPE_NAMES } from "@/features/simulator/constants";
-import { StatPill } from "@/components/features/simulator/solid/shared-ui";
+import { StatPill } from "@/components/common/solid/StatPill";
+import { ShipBanner } from "@/components/common/solid/ShipBanner";
 
 export type ShipListItem = {
   id: number;
@@ -39,11 +40,7 @@ export function ShipListRow(props: {
   };
 
   const imgSrc = () => bannerUrl(props.ship.id, { f: "auto" });
-  const [imgErrored, setImgErrored] = createSignal(!imgSrc());
-  createEffect(() => {
-    setImgErrored(!imgSrc());
-  });
-
+  
   return (
     <button
       class={`w-full h-[52px] flex items-center gap-2 px-2.5 py-2 rounded-lg transition border overflow-hidden cursor-pointer ${
@@ -56,22 +53,11 @@ export function ShipListRow(props: {
       onMouseEnter={props.onPreview}
       onFocusIn={props.onPreview}
     >
-      <Show
-        when={!imgErrored()}
-        fallback={
-          <div class="w-28 h-8 rounded shrink-0 bg-base-200 flex items-center justify-center">
-            <span class="text-[10px] font-bold tracking-wide text-base-content/45">No Image</span>
-          </div>
-        }
-      >
-        <img
-          src={imgSrc()}
-          alt={props.ship.name}
-          class="w-28 h-8 rounded shrink-0 object-cover"
-          loading="lazy"
-          onError={() => setImgErrored(true)}
-        />
-      </Show>
+      <ShipBanner
+        src={imgSrc()}
+        alt={props.ship.name}
+        class="w-28 h-8 rounded shrink-0 object-cover"
+      />
       <div class="min-w-0 text-left">
         <p class="text-sm leading-tight truncate font-medium" title={props.ship.name}>{props.ship.name}</p>
         <div class="text-[11px] text-base-content/45 leading-tight mt-0.5 min-w-0 flex items-center gap-1.5 whitespace-nowrap">

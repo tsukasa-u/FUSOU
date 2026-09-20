@@ -1,0 +1,17 @@
+---
+import ErrorView from "@/components/common/astro/ui/ErrorView.astro";
+
+interface Props {
+  error?: unknown;
+}
+
+const { error } = Astro.props;
+const detailMessage = error instanceof Error ? error.message : typeof error === "string" ? error : undefined;
+---
+
+<ErrorView
+  code="502"
+  title="Bad Gateway"
+  message="サーバーとの通信で一時的なエラーが発生しました。しばらく待ってから再度アクセスしてください。"
+  detail={detailMessage}
+/>

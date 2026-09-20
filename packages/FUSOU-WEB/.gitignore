@@ -36,3 +36,9 @@ pnpm-debug.log*
 playwright-report/
 test-results/
 
+# UI design snapshots & visual verification artifacts
+.design-snapshots/
+design-snapshots/
+
+# Temporary developer tools and ad-hoc verification scripts
+tools/

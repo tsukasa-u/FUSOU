@@ -1,4 +1,7 @@
 /** @jsxImportSource solid-js */
+import { FusouPageHeader } from "@/components/common/solid/FusouPageHeader";
+import { EmptyState } from "@/components/common/solid/EmptyState";
+import { LoadingState } from "@/components/common/solid/LoadingState";
 import {
   batch,
   createEffect,
@@ -19,7 +22,6 @@ import {
 import { cachedFetch } from "@/utils/fetchCache";
 import {
   ENEMY_ID_THRESHOLD,
-  STYPE_NAMES,
 } from "@/features/simulator/constants";
 import {
   ShipGrowthAllPeriodsResponseSchema,
@@ -32,14 +34,13 @@ import {
 } from "@/features/simulator/api-response-schemas";
 import { buildShareGrowthUrl } from "@/utils/share-url";
 import { copyToClipboard } from "@/utils/clipboard";
-import { ShipListRow, type ShipListItem } from "@/components/common/solid/ship-list-row";
 import { AlertMessage } from "@/components/common/solid/AlertMessage";
 import { ShareUrlButton } from "@/components/common/solid/ShareUrlButton";
 import {
   MasterDataLoadStatusAlert,
   type MasterDataLoadStatusItem,
 } from "@/components/common/solid/MasterDataLoadStatusAlert";
-import { VList, type VListHandle } from "virtua/solid";
+import { ShipCatalogPicker } from "@/components/common/solid/ShipCatalogPicker";
 
 Chart.register(...registerables);
 
@@ -131,9 +132,6 @@ type ShipMasterRow = {
 };
 
 type AnyRecord = Record<string, unknown>;
-type FlatShipItem =
-  | { type: "header"; key: string }
-  | { type: "ship"; data: ShipListItem };
 
 // ── Helpers ────────────────────────────────────────────────────────
 
@@ -497,6 +495,7 @@ function buildAllPeriodsBoundsChartData(
 
 const CHART_OPTIONS_EXP = {
   responsive: true,
+  maintainAspectRatio: false,
   animation: false as const,
   plugins: {
     legend: { display: false },
@@ -514,6 +513,7 @@ const CHART_OPTIONS_EXP = {
 
 const CHART_OPTIONS_BOUNDS: ChartOptions<"line"> = {
   responsive: true,
+  maintainAspectRatio: false,
   animation: false as const,
   plugins: {
     legend: { display: true, position: "top" as const },
@@ -535,6 +535,7 @@ const CHART_OPTIONS_BOUNDS: ChartOptions<"line"> = {
 // which is unreadable when many archive periods are present.
 const CHART_OPTIONS_BOUNDS_ALL_PERIODS: ChartOptions<"line"> = {
   responsive: true,
+  maintainAspectRatio: false,
   animation: false as const,
   interaction: {
     mode: "nearest" as const,
@@ -562,6 +563,7 @@ const CHART_OPTIONS_BOUNDS_ALL_PERIODS: ChartOptions<"line"> = {
 // showing which period contributed the minimum ("winning") value.
 const CHART_OPTIONS_BOUNDS_CUMULATIVE: ChartOptions<"line"> = {
   responsive: true,
+  maintainAspectRatio: false,
   animation: false as const,
   plugins: {
     legend: { display: true, position: "top" as const },
@@ -592,8 +594,6 @@ export default function ShipGrowthPanel() {
   const [periods, setPeriods] = createSignal<PeriodSummary[]>([]);
   const [selectedPeriodIdx, setSelectedPeriodIdx] = createSignal(0);
   const [shipMasterRows, setShipMasterRows] = createSignal<ShipMasterRow[]>([]);
-  const [shipSearchKeyword, setShipSearchKeyword] = createSignal("");
-  const [selectedShipCategory, setSelectedShipCategory] = createSignal("all");
   const [selectedMasterId, setSelectedMasterId] = createSignal<number | null>(
     null,
   );
@@ -647,77 +647,14 @@ export default function ShipGrowthPanel() {
     return shipMasterRows().find((ship) => ship.id === id) ?? null;
   });
 
-  const shipCategories = createMemo(() => {
-    const categories = new Set<string>();
-    for (const ship of shipMasterRows()) {
-      categories.add(
-        ship.stype != null
-          ? (STYPE_NAMES[ship.stype] ?? `艦種${ship.stype}`)
-          : "その他",
-      );
+  const hasBoundsData = createMemo(() => {
+    if (isAllPeriodsPeriod(selectedPeriod())) {
+      return boundsChartData().datasets.length > 0;
     }
-    return Array.from(categories).sort((a, b) => a.localeCompare(b, "ja"));
+    return boundRows().length > 0;
   });
 
-  const filteredShips = createMemo(() => {
-    const keyword = shipSearchKeyword().trim().toLowerCase();
-    const selectedCategory = selectedShipCategory();
 
-    return shipMasterRows().filter((ship) => {
-      const category =
-        ship.stype != null
-          ? (STYPE_NAMES[ship.stype] ?? `艦種${ship.stype}`)
-          : "その他";
-      if (selectedCategory !== "all" && category !== selectedCategory)
-        return false;
-      if (!keyword) return true;
-      return (
-        ship.name.toLowerCase().includes(keyword) ||
-        `${ship.id}`.includes(keyword)
-      );
-    });
-  });
-
-  const groupedShips = createMemo(() => {
-    const map = new Map<string, ShipListItem[]>();
-    for (const ship of filteredShips()) {
-      const key =
-        ship.stype != null
-          ? (STYPE_NAMES[ship.stype] ?? `艦種${ship.stype}`)
-          : "その他";
-      const rows = map.get(key);
-      if (rows) rows.push(ship);
-      else map.set(key, [ship]);
-    }
-    return Array.from(map.entries())
-      .sort((a, b) => a[0].localeCompare(b[0], "ja"))
-      .map(([key, items]) => ({ key, items }));
-  });
-
-  const flatShips = createMemo(() => {
-    const flat: FlatShipItem[] = [];
-    for (const group of groupedShips()) {
-      flat.push({ type: "header", key: group.key });
-      for (const ship of group.items) {
-        flat.push({ type: "ship", data: ship });
-      }
-    }
-    return flat;
-  });
-
-  let shipVListRef: VListHandle | undefined;
-
-  let hasScrolledInitialShip = false;
-  createEffect(() => {
-    const id = selectedMasterId();
-    if (id != null && shipVListRef && !hasScrolledInitialShip) {
-      const idx = flatShips().findIndex((r) => r.type === "ship" && r.data.id === id);
-      if (idx >= 0) {
-        hasScrolledInitialShip = true;
-        shipVListRef.scrollToIndex(idx, { align: "center" });
-      }
-    }
-  });
 
   async function fetchSummary() {
     setLoadingPeriods(true);
@@ -1281,12 +1218,11 @@ export default function ShipGrowthPanel() {
 
   return (
     <div class="space-y-6">
-      <div class="fusou-page-header flex flex-col md:flex-row md:items-end gap-4 pb-0 mb-2 border-none">
-        <div class="flex-1">
-          <h1 class="fusou-page-title">パラメータ推移</h1>
-          <p class="fusou-page-subtitle">収集された経験値テーブルと naked パラメータ成長の可視化</p>
-        </div>
-        <div class="fusou-page-actions flex-wrap items-end">
+      <FusouPageHeader
+        class="pb-0 mb-2 border-none"
+        title="パラメータ推移"
+        subtitle="収集された経験値テーブルと naked パラメータ成長の可視化"
+        actions={<>
           <div class="form-control">
             <select
               class="select select-bordered select-sm min-w-40"
@@ -1328,7 +1264,7 @@ export default function ShipGrowthPanel() {
 
           <ShareUrlButton
             id="ship-growth-share-btn"
-            class="btn-outline"
+            class="fusou-btn-secondary"
             disabled={
               loadingPeriods() ||
               loadingShips() ||
@@ -1338,8 +1274,8 @@ export default function ShipGrowthPanel() {
             }
             onShare={() => issueShareUrl()}
           />
-        </div>
-      </div>
+        </>}
+      />
 
       <Show when={error()}>
         <AlertMessage type="error" class="mb-4">
@@ -1349,197 +1285,124 @@ export default function ShipGrowthPanel() {
 
       <MasterDataLoadStatusAlert items={masterDataStatus()} />
 
-      {/* Ship list + charts */}
-      <div class="grid grid-cols-1 xl:grid-cols-[minmax(0,380px)_minmax(0,1fr)] gap-4 items-start">
-        <aside class="rounded-xl border border-base-300/70 bg-base-100 shadow-sm overflow-hidden">
-          <div class="p-3 border-b border-base-200 bg-base-50/50 space-y-2">
-            <select
-              class="select select-bordered select-sm w-full"
-              value={selectedShipCategory()}
-              onChange={(event) =>
-                setSelectedShipCategory(event.currentTarget.value)
-              }
-            >
-              <option value="all">すべての艦種</option>
-              <For each={shipCategories()}>
-                {(category) => <option value={category}>{category}</option>}
-              </For>
-            </select>
-            <input
-              class="input input-bordered input-sm w-full"
-              placeholder="艦名 / ID で検索"
-              value={shipSearchKeyword()}
-              onInput={(event) =>
-                setShipSearchKeyword(event.currentTarget.value)
-              }
-            />
-          </div>
-          <div class="card-body p-2">
-            <div class="flex items-center justify-between px-2 pb-2">
-              <h3 class="text-sm font-semibold">艦一覧</h3>
-              <span class="text-xs text-base-content/50">
-                {filteredShips().length} 件
-              </span>
+      {/* Ship picker + charts */}
+      <ShipCatalogPicker
+        idPrefix="ship-growth"
+        ships={shipMasterRows()}
+        selectedShipId={selectedMasterId()}
+        onSelectShip={(id) => selectShip(id)}
+        loading={loadingShips()}
+      >
+        <div class="space-y-4">
+          {/* Loading state for main content */}
+          <Show when={loadingData() || ((loadingPeriods() || loadingShips()) && expRows().length === 0)}>
+            <div class="fusou-card">
+              <div class="fusou-card-body">
+                <LoadingState message="パラメータ推移データを集計中..." size="lg" minHeight="min-h-[360px]" />
+              </div>
             </div>
-            <Show when={loadingShips()}>
-              <div class="py-8 text-center text-base-content/60">
-                <span class="loading loading-spinner loading-sm" />
+          </Show>
+
+          <Show when={!loadingData()}>
+            {/* Exp chart */}
+            <Show when={expRows().length > 0}>
+              <div class="fusou-card">
+                <div class="fusou-card-body">
+                  <h2 class="card-title text-lg">経験値テーブル (累積)</h2>
+                  <p class="text-sm text-base-content/60">
+                    期間: {(expSourcePeriod() ?? selectedPeriod())?.period_tag} /
+                    v{(expSourcePeriod() ?? selectedPeriod())?.table_version} / Lv{" "}
+                    {expRows()[0]?.lv}〜{expRows()[expRows().length - 1]?.lv} (
+                    {expRows().length} 行)
+                  </p>
+                  <div class="relative w-full h-[320px] sm:h-[380px] lg:h-[420px]">
+                    <canvas ref={setExpCanvas} class="w-full h-full block" />
+                  </div>
+                </div>
               </div>
             </Show>
-            <Show when={!loadingShips()}>
-              <div class="h-[74vh] pr-1">
-                <VList ref={(el) => { shipVListRef = el; }} data={flatShips()} class="h-full overflow-y-auto overflow-x-hidden">
-                  {(item: FlatShipItem) =>
-                    item.type === "header" ? (
-                      <div class="mb-2 mt-1 first:mt-0">
-                        <h4 class="px-2.5 py-1 text-[11px] font-semibold tracking-wide text-base-content/45 uppercase bg-base-100/95 backdrop-blur-sm z-10">
-                          {item.key}
-                        </h4>
-                      </div>
-                    ) : (
-                      <div class="mb-0.5">
-                        <ShipListRow
-                          ship={item.data}
-                          active={selectedMasterId() === item.data.id}
-                          onSelect={() => selectShip(item.data.id)}
+
+            {/* Bounds chart & Empty/Error state */}
+            <Show when={selectedMasterId() != null}>
+              <div class="fusou-card">
+                <div class="fusou-card-body">
+                  <div class="flex items-center justify-between pb-2 border-b border-base-200/60">
+                    <h2 class="card-title text-lg">レベル別パラメータ推移</h2>
+                    <Show when={selectedShip()}>
+                      {(ship) => (
+                        <span class="text-sm font-medium text-base-content/70">
+                          {ship().name} (ID: {ship().id})
+                        </span>
+                      )}
+                    </Show>
+                  </div>
+
+                  <Show
+                    when={hasBoundsData()}
+                    fallback={
+                      <div class="py-12 flex flex-col items-center justify-center">
+                        <EmptyState
+                          message={
+                            error()
+                              ? "データの読み込みに失敗しました"
+                              : "選択した艦のパラメータデータがありません。"
+                          }
+                          hint={
+                            error()
+                              ? error()!
+                              : isCumulativePeriod(selectedPeriod())
+                                ? "現在の期間 (ライブ) では存在する可能性があります。期間を切り替えてご確認ください。"
+                                : isAllPeriodsPeriod(selectedPeriod())
+                                  ? "全期間のアーカイブにこの艦の記録が存在しません。別の艦または期間をお試しください。"
+                                  : "この期間には該当する艦のパラメータ成長データが記録されていません。別の期間や全期間比較をお試しください。"
+                          }
+                          size="large"
                         />
                       </div>
-                    )
-                  }
-                </VList>
+                    }
+                  >
+                    <Show when={isAllPeriodsPeriod(selectedPeriod())}>
+                      <p class="text-sm text-base-content/60">
+                        {Math.round(boundsChartData().datasets.length / 3)}{" "}
+                        期間分の履歴 (全 {allPeriodsEntries().length} 期間中)
+                      </p>
+                    </Show>
+                    <Show when={!isAllPeriodsPeriod(selectedPeriod())}>
+                      <p class="text-sm text-base-content/60">
+                        Lv {boundRows()[0]?.lv}〜
+                        {boundRows()[boundRows().length - 1]?.lv} (
+                        {boundRows().length} 行)
+                      </p>
+                    </Show>
+                    <div class="relative w-full h-[360px] sm:h-[420px] lg:h-[480px]">
+                      <canvas ref={setBoundsCanvas} class="w-full h-full block" />
+                    </div>
+                  </Show>
+                </div>
               </div>
             </Show>
-          </div>
-        </aside>
 
-        <div class="space-y-4">
-          {/* Exp chart */}
-          <Show when={expRows().length > 0}>
-            <div class="card bg-base-100 shadow-sm">
-              <div class="card-body">
-                <h2 class="card-title text-lg">経験値テーブル (累積)</h2>
-                <p class="text-sm text-base-content/60">
-                  期間: {(expSourcePeriod() ?? selectedPeriod())?.period_tag} /
-                  v{(expSourcePeriod() ?? selectedPeriod())?.table_version} / Lv{" "}
-                  {expRows()[0]?.lv}〜{expRows()[expRows().length - 1]?.lv} (
-                  {expRows().length} 行)
-                </p>
-                <div class="w-full overflow-x-auto">
-                  <div style="min-width: 400px; min-height: 320px;">
-                    <canvas ref={setExpCanvas} width={800} height={320} />
-                  </div>
+            {/* Empty state — only when truly no ship selected */}
+            <Show
+              when={
+                selectedMasterId() == null &&
+                !loadingPeriods() &&
+                !loadingShips()
+              }
+            >
+              <div class="fusou-card min-h-[400px] xl:min-h-[calc(100vh-14rem)] flex items-center justify-center">
+                <div class="fusou-card-body w-full flex items-center justify-center">
+                  <EmptyState
+                    message="期間と艦を選択するとグラフを表示します。"
+                    hint="経験値はmaster_idに依存せず、レベル別パラメータは選択中の艦で表示します。"
+                    size="large"
+                  />
                 </div>
               </div>
-            </div>
-          </Show>
-
-          {/* Bounds chart — shown when single-period has rows, OR all-periods
-               mode has at least one period with data for the selected ship. */}
-          <Show
-            when={
-              boundRows().length > 0 ||
-              (isAllPeriodsPeriod(selectedPeriod()) &&
-                boundsChartData().datasets.length > 0)
-            }
-          >
-            <div class="card bg-base-100 shadow-sm">
-              <div class="card-body">
-                <h2 class="card-title text-lg">レベル別パラメータ推移</h2>
-                <Show when={isAllPeriodsPeriod(selectedPeriod())}>
-                  <p class="text-sm text-base-content/60">
-                    艦: {selectedShip()?.name ?? "-"} /{" "}
-                    {Math.round(boundsChartData().datasets.length / 3)}{" "}
-                    期間分の履歴 (全 {allPeriodsEntries().length} 期間中)
-                  </p>
-                </Show>
-                <Show when={!isAllPeriodsPeriod(selectedPeriod())}>
-                  <p class="text-sm text-base-content/60">
-                    艦: {selectedShip()?.name ?? "-"} (ID:{" "}
-                    {boundRows()[0]?.master_id}) / Lv {boundRows()[0]?.lv}〜
-                    {boundRows()[boundRows().length - 1]?.lv} (
-                    {boundRows().length} 行)
-                  </p>
-                </Show>
-                <div class="w-full overflow-x-auto">
-                  <div style="min-width: 400px; min-height: 320px;">
-                    <canvas ref={setBoundsCanvas} width={800} height={320} />
-                  </div>
-                </div>
-              </div>
-            </div>
-          </Show>
-
-          {/* Cumulative mode: archive data exists but selected ship absent */}
-          <Show
-            when={
-              isCumulativePeriod(selectedPeriod()) &&
-              allBoundRows().length > 0 &&
-              boundRows().length === 0 &&
-              !loadingData()
-            }
-          >
-            <div class="card bg-base-100 shadow-sm">
-              <div class="card-body items-center text-center py-16">
-                <p class="text-base-content/50">
-                  選択した艦のデータは累積アーカイブに存在しません。
-                </p>
-                <p class="text-base-content/40 text-sm mt-1">
-                  現在の期間 (ライブ)
-                  では存在する可能性があります。期間を切り替えてご確認ください。
-                </p>
-              </div>
-            </div>
-          </Show>
-
-          {/* All-periods mode: archive data exists but selected ship absent */}
-          <Show
-            when={
-              isAllPeriodsPeriod(selectedPeriod()) &&
-              allPeriodsEntries().length > 0 &&
-              boundsChartData().datasets.length === 0 &&
-              !loadingData()
-            }
-          >
-            <div class="card bg-base-100 shadow-sm">
-              <div class="card-body items-center text-center py-16">
-                <p class="text-base-content/50">
-                  選択した艦のデータは全期間のアーカイブに存在しません。
-                </p>
-                <p class="text-base-content/40 text-sm mt-1">
-                  現在の期間 (ライブ)
-                  では存在する可能性があります。期間を切り替えてご確認ください。
-                </p>
-              </div>
-            </div>
-          </Show>
-
-          {/* Empty state — only when truly no data loaded at all (not the
-               same as "data loaded but selected ship absent", which is handled
-               by the Bug M / all-periods no-data cards above). */}
-          <Show
-            when={
-              expRows().length === 0 &&
-              boundRows().length === 0 &&
-              allBoundRows().length === 0 &&
-              allPeriodsEntries().length === 0 &&
-              !loadingData() &&
-              !loadingPeriods() &&
-              !loadingShips()
-            }
-          >
-            <div class="card bg-base-100 shadow-sm">
-              <div class="card-body items-center text-center py-16">
-                <p class="text-base-content/50">
-                  期間と艦を選択するとグラフを表示します。
-                </p>
-                <p class="text-base-content/40 text-sm mt-1">
-                  経験値はmaster_idに依存せず、レベル別パラメータは選択中の艦で表示します。
-                </p>
-              </div>
-            </div>
+            </Show>
           </Show>
         </div>
-      </div>
+      </ShipCatalogPicker>
     </div>
   );
 }

@@ -5,7 +5,7 @@ use chrono::Local;
 use crate::InterfaceWrapper;
 use kc_api_dto::endpoints as kcapi_main;
 
-use super::battle::{apply_sprite_metrics, calc_dmg, calc_escape_idx, unwrap_into, parse_landing_hp};
+use super::battle::{apply_sprite_metrics, calc_dmg, calc_escape_idx, parse_landing_hp, unwrap_into, wrap_hps};
 use kc_api_interface::battle::{BattleResult, BattleType};
 use kc_api_interface::battle::{
     AirBaseAirAttacks, AirBaseAssult, Battle, CarrierBaseAssault, ClosingRaigeki,
@@ -23,17 +23,27 @@ fn merge_optional_vec<T>(mut base: Vec<T>, extra: Option<Vec<T>>) -> Vec<T> {
 
 impl From<kcapi_main::api_req_combined_battle::battleresult::ApiData> for InterfaceWrapper<BattleResult> {
     fn from(battle_result: kcapi_main::api_req_combined_battle::battleresult::ApiData) -> Self {
-        let landing_hp_now = battle_result.clone().api_landing_hp.and_then(|landing_hp| landing_hp.api_now_hp.trim().parse::<i64>().ok());
-        let landing_hp_max = battle_result.clone().api_landing_hp.and_then(|landing_hp| landing_hp.api_max_hp.trim().parse::<i64>().ok());
+        let landing_hp_now = battle_result.clone().api_landing_hp.and_then(|landing_hp| parse_landing_hp(landing_hp.api_now_hp));
+        let landing_hp_max = battle_result.clone().api_landing_hp.and_then(|landing_hp| parse_landing_hp(landing_hp.api_max_hp));
         let landing_sub_value = battle_result.clone().api_landing_hp.and_then(|landing_hp| parse_landing_hp(landing_hp.api_sub_value));
-        let mut mvp_ship_indexes = vec![battle_result.api_mvp];
-        if let Some(combined_index) = battle_result.api_mvp_combined {
-            mvp_ship_indexes.push(combined_index);
+        let mut mvp_ship_indexes = Vec::new();
+        if battle_result.api_mvp > 0 {
+            mvp_ship_indexes.push(battle_result.api_mvp);
         }
+        if let Some(combined_index) = battle_result.api_mvp_combined {
+            if combined_index > 0 {
+                mvp_ship_indexes.push(combined_index);
+            }
+        }
+        let mvp_ship_indexes = if mvp_ship_indexes.is_empty() {
+            None
+        } else {
+            Some(mvp_ship_indexes)
+        };
         Self(BattleResult {
             win_rank: battle_result.api_win_rank,
             drop_ship_id: battle_result.api_get_ship.map(|ship| ship.api_ship_id),
-            mvp_ship_indexes: Some(mvp_ship_indexes),
+            mvp_ship_indexes,
             landing_hp_now,
             landing_hp_max,
             landing_sub_value,
@@ -155,7 +165,7 @@ impl From<kcapi_main::api_req_combined_battle::ec_battle::ApiData> for Interface
             e_params: Some([battle.api_e_param, battle.api_e_param_combined].concat()),
             f_params: Some(battle.api_f_param),
             e_slot: Some([battle.api_e_slot, battle.api_e_slot_combined].concat()),
-            e_hp_max: Some([battle.api_e_maxhps, battle.api_e_maxhps_combined].concat()),
+            e_hp_max: Some(wrap_hps([battle.api_e_maxhps, battle.api_e_maxhps_combined].concat())),
             e_combined_flag: Some(1),
             f_total_damages: None,
             e_total_damages: None,
@@ -181,8 +191,8 @@ impl From<kcapi_main::api_req_combined_battle::ec_battle::ApiData> for Interface
             midnight_flare_pos: None,
             midnight_touchplane: None,
             midnight_hougeki: None,
-            f_nowhps: Some(battle.api_f_nowhps),
-            e_nowhps: Some([battle.api_e_nowhps, battle.api_e_nowhps_combined].concat()),
+            f_nowhps: Some(wrap_hps(battle.api_f_nowhps)),
+            e_nowhps: Some(wrap_hps([battle.api_e_nowhps, battle.api_e_nowhps_combined].concat())),
             midnight_f_nowhps: None,
             midnight_e_nowhps: None,
             battle_result: None,
@@ -236,7 +246,7 @@ impl From<kcapi_main::api_req_combined_battle::ec_midnight_battle::ApiData>
             e_params: Some([battle.api_e_param, battle.api_e_param_combined].concat()),
             f_params: Some(battle.api_f_param),
             e_slot: Some([battle.api_e_slot, battle.api_e_slot_combined].concat()),
-            e_hp_max: Some([battle.api_e_maxhps, battle.api_e_maxhps_combined].concat()),
+            e_hp_max: Some(wrap_hps([battle.api_e_maxhps, battle.api_e_maxhps_combined].concat())),
             e_combined_flag: Some(1),
             f_total_damages: None,
             e_total_damages: None,
@@ -264,8 +274,8 @@ impl From<kcapi_main::api_req_combined_battle::ec_midnight_battle::ApiData>
             midnight_hougeki,
             f_nowhps: None,
             e_nowhps: None,
-            midnight_f_nowhps: Some(battle.api_f_nowhps),
-            midnight_e_nowhps: Some([battle.api_e_nowhps, battle.api_e_nowhps_combined].concat()),
+            midnight_f_nowhps: Some(wrap_hps(battle.api_f_nowhps)),
+            midnight_e_nowhps: Some(wrap_hps([battle.api_e_nowhps, battle.api_e_nowhps_combined].concat())),
             battle_result: None,
         })
         .unwrap();
@@ -334,7 +344,7 @@ impl From<kcapi_main::api_req_combined_battle::battle_water::ApiData> for Interf
             e_params: Some(battle.api_e_param),
             f_params: Some([battle.api_f_param, battle.api_f_param_combined].concat()),
             e_slot: Some(battle.api_e_slot),
-            e_hp_max: Some(battle.api_e_maxhps),
+            e_hp_max: Some(wrap_hps(battle.api_e_maxhps)),
             e_combined_flag: Some(0),
             f_total_damages: None,
             e_total_damages: None,
@@ -360,8 +370,8 @@ impl From<kcapi_main::api_req_combined_battle::battle_water::ApiData> for Interf
             midnight_flare_pos: None,
             midnight_touchplane: None,
             midnight_hougeki: None,
-            f_nowhps: Some([battle.api_f_nowhps, battle.api_f_nowhps_combined].concat()),
-            e_nowhps: Some(battle.api_e_nowhps),
+            f_nowhps: Some(wrap_hps([battle.api_f_nowhps, battle.api_f_nowhps_combined].concat())),
+            e_nowhps: Some(wrap_hps(battle.api_e_nowhps)),
             midnight_f_nowhps: None,
             midnight_e_nowhps: None,
             battle_result: None,
@@ -432,7 +442,7 @@ impl From<kcapi_main::api_req_combined_battle::battle::ApiData> for InterfaceWra
             e_params: Some(battle.api_e_param),
             f_params: Some([battle.api_f_param, battle.api_f_param_combined].concat()),
             e_slot: Some(battle.api_e_slot),
-            e_hp_max: Some(battle.api_e_maxhps),
+            e_hp_max: Some(wrap_hps(battle.api_e_maxhps)),
             e_combined_flag: Some(0),
             f_total_damages: None,
             e_total_damages: None,
@@ -458,8 +468,8 @@ impl From<kcapi_main::api_req_combined_battle::battle::ApiData> for InterfaceWra
             midnight_flare_pos: None,
             midnight_touchplane: None,
             midnight_hougeki: None,
-            f_nowhps: Some([battle.api_f_nowhps, battle.api_f_nowhps_combined].concat()),
-            e_nowhps: Some(battle.api_e_nowhps),
+            f_nowhps: Some(wrap_hps([battle.api_f_nowhps, battle.api_f_nowhps_combined].concat())),
+            e_nowhps: Some(wrap_hps(battle.api_e_nowhps)),
             midnight_f_nowhps: None,
             midnight_e_nowhps: None,
             battle_result: None,
@@ -532,7 +542,7 @@ impl From<kcapi_main::api_req_combined_battle::each_battle_water::ApiData>
             e_params: Some([battle.api_e_param, battle.api_e_param_combined].concat()),
             f_params: Some([battle.api_f_param, battle.api_f_param_combined].concat()),
             e_slot: Some([battle.api_e_slot, battle.api_e_slot_combined].concat()),
-            e_hp_max: Some([battle.api_e_maxhps, battle.api_e_maxhps_combined].concat()),
+            e_hp_max: Some(wrap_hps([battle.api_e_maxhps, battle.api_e_maxhps_combined].concat())),
             e_combined_flag: Some(1),
             f_total_damages: None,
             e_total_damages: None,
@@ -558,8 +568,8 @@ impl From<kcapi_main::api_req_combined_battle::each_battle_water::ApiData>
             midnight_flare_pos: None,
             midnight_touchplane: None,
             midnight_hougeki: None,
-            f_nowhps: Some([battle.api_f_nowhps, battle.api_f_nowhps_combined].concat()),
-            e_nowhps: Some([battle.api_e_nowhps, battle.api_e_nowhps_combined].concat()),
+            f_nowhps: Some(wrap_hps([battle.api_f_nowhps, battle.api_f_nowhps_combined].concat())),
+            e_nowhps: Some(wrap_hps([battle.api_e_nowhps, battle.api_e_nowhps_combined].concat())),
             midnight_f_nowhps: None,
             midnight_e_nowhps: None,
             battle_result: None,
@@ -630,7 +640,7 @@ impl From<kcapi_main::api_req_combined_battle::each_battle::ApiData> for Interfa
             e_params: Some([battle.api_e_param, battle.api_e_param_combined].concat()),
             f_params: Some([battle.api_f_param, battle.api_f_param_combined].concat()),
             e_slot: Some([battle.api_e_slot, battle.api_e_slot_combined].concat()),
-            e_hp_max: Some([battle.api_e_maxhps, battle.api_e_maxhps_combined].concat()),
+            e_hp_max: Some(wrap_hps([battle.api_e_maxhps, battle.api_e_maxhps_combined].concat())),
             e_combined_flag: Some(1),
             f_total_damages: None,
             e_total_damages: None,
@@ -656,8 +666,8 @@ impl From<kcapi_main::api_req_combined_battle::each_battle::ApiData> for Interfa
             midnight_flare_pos: None,
             midnight_touchplane: None,
             midnight_hougeki: None,
-            f_nowhps: Some([battle.api_f_nowhps, battle.api_f_nowhps_combined].concat()),
-            e_nowhps: Some([battle.api_e_nowhps, battle.api_e_nowhps_combined].concat()),
+            f_nowhps: Some(wrap_hps([battle.api_f_nowhps, battle.api_f_nowhps_combined].concat())),
+            e_nowhps: Some(wrap_hps([battle.api_e_nowhps, battle.api_e_nowhps_combined].concat())),
             midnight_f_nowhps: None,
             midnight_e_nowhps: None,
             battle_result: None,
@@ -734,7 +744,7 @@ impl From<kcapi_main::api_req_combined_battle::ld_airbattle::ApiData> for Interf
             e_params: Some(e_params),
             f_params: Some([airbattle.api_f_param, airbattle.api_f_param_combined].concat()),
             e_slot: Some(e_slot),
-            e_hp_max: Some(e_hp_max),
+            e_hp_max: Some(wrap_hps(e_hp_max)),
             e_combined_flag: Some(e_combined_flag),
             f_total_damages: None,
             e_total_damages: None,
@@ -760,8 +770,8 @@ impl From<kcapi_main::api_req_combined_battle::ld_airbattle::ApiData> for Interf
             midnight_flare_pos: None,
             midnight_touchplane: None,
             midnight_hougeki: None,
-            f_nowhps: Some([airbattle.api_f_nowhps, airbattle.api_f_nowhps_combined].concat()),
-            e_nowhps: Some(e_nowhps),
+            f_nowhps: Some(wrap_hps([airbattle.api_f_nowhps, airbattle.api_f_nowhps_combined].concat())),
+            e_nowhps: Some(wrap_hps(e_nowhps)),
             midnight_f_nowhps: None,
             midnight_e_nowhps: None,
             battle_result: None,
@@ -805,7 +815,7 @@ impl From<kcapi_main::api_req_combined_battle::midnight_battle::ApiData>
             e_params: Some(battle.api_e_param),
             f_params: Some([battle.api_f_param, battle.api_f_param_combined].concat()),
             e_slot: Some(battle.api_e_slot),
-            e_hp_max: Some(battle.api_e_maxhps),
+            e_hp_max: Some(wrap_hps(battle.api_e_maxhps)),
             e_combined_flag: Some(0),
             f_total_damages: None,
             e_total_damages: None,
@@ -833,8 +843,8 @@ impl From<kcapi_main::api_req_combined_battle::midnight_battle::ApiData>
             midnight_hougeki,
             f_nowhps: None,
             e_nowhps: None,
-            midnight_f_nowhps: Some([battle.api_f_nowhps, battle.api_f_nowhps_combined].concat()),
-            midnight_e_nowhps: Some(battle.api_e_nowhps),
+            midnight_f_nowhps: Some(wrap_hps([battle.api_f_nowhps, battle.api_f_nowhps_combined].concat())),
+            midnight_e_nowhps: Some(wrap_hps(battle.api_e_nowhps)),
             battle_result: None,
         })
         .unwrap();
@@ -879,7 +889,7 @@ impl From<kcapi_main::api_req_combined_battle::sp_midnight::ApiData> for Interfa
             e_params: Some(battle.api_e_param),
             f_params: Some([battle.api_f_param, battle.api_f_param_combined].concat()),
             e_slot: Some(battle.api_e_slot),
-            e_hp_max: Some(battle.api_e_maxhps),
+            e_hp_max: Some(wrap_hps(battle.api_e_maxhps)),
             e_combined_flag: Some(0),
             f_total_damages: None,
             e_total_damages: None,
@@ -907,8 +917,8 @@ impl From<kcapi_main::api_req_combined_battle::sp_midnight::ApiData> for Interfa
             midnight_hougeki,
             f_nowhps: None,
             e_nowhps: None,
-            midnight_f_nowhps: Some([battle.api_f_nowhps, battle.api_f_nowhps_combined].concat()),
-            midnight_e_nowhps: Some(battle.api_e_nowhps),
+            midnight_f_nowhps: Some(wrap_hps([battle.api_f_nowhps, battle.api_f_nowhps_combined].concat())),
+            midnight_e_nowhps: Some(wrap_hps(battle.api_e_nowhps)),
             battle_result: None,
         })
         .unwrap();

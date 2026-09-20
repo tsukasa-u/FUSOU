@@ -70,7 +70,9 @@ const class_size = {
   },
 };
 
-export const ComponentEquipment: Component<ComponentEquipmentProps> = (props) => {
+export const ComponentEquipment: Component<ComponentEquipmentProps> = (
+  props,
+) => {
   const show_onslot = (mst_slot_item: MstSlotItem) => {
     const type = mst_slot_item.type[1];
     return (
@@ -99,7 +101,7 @@ export const ComponentEquipment: Component<ComponentEquipmentProps> = (props) =>
           <>
             <div
               class={[
-                "grid w-4 place-content-center",
+                "flex items-center justify-center w-4",
                 class_size[props.size].proficiency_onslot_h,
               ].join(" ")}
             >
@@ -111,7 +113,7 @@ export const ComponentEquipment: Component<ComponentEquipmentProps> = (props) =>
             </div>
             <div
               class={[
-                "grid w-4 place-content-center cursor-inherit",
+                "flex items-center justify-center w-4 cursor-inherit",
                 class_size[props.size].proficiency_onslot_h,
                 class_size[props.size].onslot_text,
               ].join(" ")}
@@ -142,7 +144,9 @@ export const ComponentEquipment: Component<ComponentEquipmentProps> = (props) =>
   };
 
   const levelTemplate = () => {
-    return props.slot_item && (props.slot_item.level ?? 0 > 0) && !props.empty_flag ? (
+    return props.slot_item &&
+      (props.slot_item.level ?? 0) > 0 &&
+      !props.empty_flag ? (
       <div
         class={[
           "badge badge-ghost w-0 rounded-full grid place-content-center text-accent",
@@ -158,40 +162,11 @@ export const ComponentEquipment: Component<ComponentEquipmentProps> = (props) =>
     <Show
       when={(props.mst_slot_item && props.slot_item) || props.empty_flag}
       fallback={
-        <div class="flex flex-nowarp w-full">
+        <div class="flex flex-nowrap w-full">
           <div class="outline-error outline-2 rounded bg-error-content">
             <IconError size={props.size} ratio={1} />
           </div>
-          {!props.ex_flag ? (
-            <>
-              <div
-                class={[
-                  "flex-none",
-                  class_size[props.size].proficiency_onslot_pl,
-                  class_size[props.size].proficiency_onslot_mt,
-                ].join(" ")}
-              >
-                {proficiencyOnslotTemplete()}
-              </div>
-              {nameTemplete()}
-            </>
-          ) : null}
-        </div>
-      }
-    >
-      <div class="flex flex-nowarp w-full">
-        <div class="indicator">
-          <span class="indicator-item">{levelTemplate()}</span>
-          <IconEquipment
-            category_number={props.mst_slot_item?.type[1] ?? 0}
-            icon_number={props.mst_slot_item?.type[3] ?? 0}
-            size={props.size}
-            empty_flag={props.empty_flag}
-          />
-        </div>
-
-        {!props.ex_flag ? (
-          <>
+          <Show when={!props.ex_flag}>
             <div
               class={[
                 "flex-none",
@@ -202,8 +177,33 @@ export const ComponentEquipment: Component<ComponentEquipmentProps> = (props) =>
               {proficiencyOnslotTemplete()}
             </div>
             {nameTemplete()}
-          </>
-        ) : null}
+          </Show>
+        </div>
+      }
+    >
+      <div class="flex flex-nowrap w-full">
+        <div class="indicator">
+          <span class="indicator-item">{levelTemplate()}</span>
+          <IconEquipment
+            category_number={props.mst_slot_item?.type[1] ?? 0}
+            icon_number={props.mst_slot_item?.type[3] ?? 0}
+            size={props.size}
+            empty_flag={props.empty_flag}
+          />
+        </div>
+
+        <Show when={!props.ex_flag}>
+          <div
+            class={[
+              "flex-none",
+              class_size[props.size].proficiency_onslot_pl,
+              class_size[props.size].proficiency_onslot_mt,
+            ].join(" ")}
+          >
+            {proficiencyOnslotTemplete()}
+          </div>
+          {nameTemplete()}
+        </Show>
       </div>
     </Show>
   );

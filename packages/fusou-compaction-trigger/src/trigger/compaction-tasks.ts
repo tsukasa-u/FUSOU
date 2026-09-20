@@ -26,7 +26,7 @@ function buildInternalClient(): InternalCompactionClient {
   return new InternalCompactionClient({ baseUrl, token });
 }
 
-function buildWindow(tier: CompactionTier, now = Date.now()): Window {
+export function buildWindow(tier: CompactionTier, now = Date.now()): Window {
   if (tier === "hourly") {
     const end = Math.floor(now / 3_600_000) * 3_600_000;
     return { start: end - 3_600_000, end };
@@ -36,8 +36,10 @@ function buildWindow(tier: CompactionTier, now = Date.now()): Window {
     return { start: end - 86_400_000, end };
   }
   if (tier === "weekly") {
-    const end = Math.floor(now / (7 * 86_400_000)) * 7 * 86_400_000;
-    return { start: end - 7 * 86_400_000, end };
+    const WEEK_MS = 7 * 86_400_000;
+    const MONDAY_OFFSET_MS = 4 * 86_400_000; // 1970-01-05 00:00:00 UTC was Monday
+    const end = Math.floor((now - MONDAY_OFFSET_MS) / WEEK_MS) * WEEK_MS + MONDAY_OFFSET_MS;
+    return { start: end - WEEK_MS, end };
   }
   return { start: 0, end: Number.MAX_SAFE_INTEGER };
 }
@@ -245,23 +247,20 @@ async function runTierForAllTables(tier: CompactionTier, sourceTier: CompactionT
       window_end_ms: window.end,
     });
 
-    const latestGroup = pickLatestSourceGroup(groups);
-    if (!latestGroup) {
-      continue;
+    for (const group of groups) {
+      await runCompactionJob({
+        run_key: `${tier}:${sourceTier}:${group.period_tag}:${group.table_version}:${window.start}:${window.end}`,
+        tier,
+        source_tier: sourceTier,
+        output_group_key: outputGroupKey,
+        table_name: tableName,
+        period_tag: group.period_tag,
+        table_version: group.table_version,
+        window_start_ms: window.start,
+        window_end_ms: window.end,
+        chunk_limit: 200,
+      });
     }
-
-    await runCompactionJob({
-      run_key: `${tier}:${sourceTier}:${latestGroup.period_tag}:${latestGroup.table_version}:${window.start}:${window.end}`,
-      tier,
-      source_tier: sourceTier,
-      output_group_key: outputGroupKey,
-      table_name: tableName,
-      period_tag: latestGroup.period_tag,
-      table_version: latestGroup.table_version,
-      window_start_ms: window.start,
-      window_end_ms: window.end,
-      chunk_limit: 200,
-    });
   }
 }
 

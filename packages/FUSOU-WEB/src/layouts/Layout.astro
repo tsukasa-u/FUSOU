@@ -1,4 +1,4 @@
----
+﻿---
 import "@/assets/app.css";
 import FocusBehavior from "@/components/common/astro/ui/FocusBehavior.astro";
 import TutorialModal from "@/components/common/astro/ui/TutorialModal.astro";
@@ -80,6 +80,7 @@ const canonicalUrl = Astro.url.toString();
         />
       )
     }
+    <slot name="head" />
   </head>
   <body>
     <FocusBehavior />

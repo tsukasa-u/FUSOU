@@ -821,11 +821,11 @@ impl From<kcapi_main::api_req_sortie::battleresult::ApiData> for InterfaceWrappe
         let landing_hp_now = battle_result
             .clone()
             .api_landing_hp
-            .and_then(|landing_hp| landing_hp.api_now_hp.trim().parse::<i64>().ok());
+            .and_then(|landing_hp| parse_landing_hp(landing_hp.api_now_hp));
         let landing_hp_max = battle_result
             .clone()
             .api_landing_hp
-            .and_then(|landing_hp| landing_hp.api_max_hp.trim().parse::<i64>().ok());
+            .and_then(|landing_hp| parse_landing_hp(landing_hp.api_max_hp));
         let landing_sub_value = battle_result
             .clone()
             .api_landing_hp
@@ -833,7 +833,11 @@ impl From<kcapi_main::api_req_sortie::battleresult::ApiData> for InterfaceWrappe
         Self(BattleResult {
             win_rank: battle_result.api_win_rank,
             drop_ship_id: battle_result.api_get_ship.map(|ship| ship.api_ship_id),
-            mvp_ship_indexes: Some(vec![battle_result.api_mvp]),
+            mvp_ship_indexes: if battle_result.api_mvp > 0 {
+                Some(vec![battle_result.api_mvp])
+            } else {
+                None
+            },
             landing_hp_now,
             landing_hp_max,
             landing_sub_value,
@@ -1026,7 +1030,15 @@ pub fn calc_air_damage(
             plane_from: f_plane_from,
             touch_plane: stage1
                 .clone()
-                .and_then(|stage1| stage1.api_touch_plane.map(|touch_plane| touch_plane[0])),
+                .and_then(|stage1| {
+                    stage1.api_touch_plane.and_then(|touch_plane| {
+                        if touch_plane[0] == -1 {
+                            None
+                        } else {
+                            Some(touch_plane[0])
+                        }
+                    })
+                }),
             total_plane1: stage1.clone().map(|stage1| stage1.api_f_count).unwrap_or(0),
             loss_plane1: stage1
                 .clone()
@@ -1049,7 +1061,15 @@ pub fn calc_air_damage(
             plane_from: e_plane_from,
             touch_plane: stage1
                 .clone()
-                .and_then(|stage1| stage1.api_touch_plane.map(|touch_plane| touch_plane[1])),
+                .and_then(|stage1| {
+                    stage1.api_touch_plane.and_then(|touch_plane| {
+                        if touch_plane[1] == -1 {
+                            None
+                        } else {
+                            Some(touch_plane[1])
+                        }
+                    })
+                }),
             total_plane1: stage1.clone().map(|stage1| stage1.api_e_count).unwrap_or(0),
             loss_plane1: stage1
                 .clone()
@@ -1675,10 +1695,26 @@ pub fn calc_dmg(battle: &mut Battle) {
     let mut midnight_f_total_damages: Vec<i64> = vec![0; 12];
     let mut midnight_e_total_damages: Vec<i64> = vec![0; 12];
 
-    let f_nowhps: Vec<i64> = battle.f_nowhps.clone().unwrap_or(vec![0; 12]);
-    let e_nowhps: Vec<i64> = battle.e_nowhps.clone().unwrap_or(vec![0; 12]);
-    let midnight_f_nowhps: Vec<i64> = battle.midnight_f_nowhps.clone().unwrap_or(vec![0; 12]);
-    let midnight_e_nowhps: Vec<i64> = battle.midnight_e_nowhps.clone().unwrap_or(vec![0; 12]);
+    let f_nowhps: Vec<i64> = battle
+        .f_nowhps
+        .clone()
+        .map(|hps| hps.into_iter().map(|hp| hp.unwrap_or(0)).collect())
+        .unwrap_or(vec![0; 12]);
+    let e_nowhps: Vec<i64> = battle
+        .e_nowhps
+        .clone()
+        .map(|hps| hps.into_iter().map(|hp| hp.unwrap_or(0)).collect())
+        .unwrap_or(vec![0; 12]);
+    let midnight_f_nowhps: Vec<i64> = battle
+        .midnight_f_nowhps
+        .clone()
+        .map(|hps| hps.into_iter().map(|hp| hp.unwrap_or(0)).collect())
+        .unwrap_or(vec![0; 12]);
+    let midnight_e_nowhps: Vec<i64> = battle
+        .midnight_e_nowhps
+        .clone()
+        .map(|hps| hps.into_iter().map(|hp| hp.unwrap_or(0)).collect())
+        .unwrap_or(vec![0; 12]);
     let friend_nowhps: Vec<i64> = battle
         .friendly_force_attack
         .clone()
@@ -2281,7 +2317,7 @@ impl From<kcapi_main::api_req_sortie::battle::ApiData> for InterfaceWrapper<Batt
             e_params: Some(battle.api_e_param),
             f_params: Some(battle.api_f_param),
             e_slot: Some(battle.api_e_slot),
-            e_hp_max: Some(battle.api_e_maxhps),
+            e_hp_max: Some(convert_hps(battle.api_e_maxhps)),
             e_combined_flag: Some(0),
             f_total_damages: None,
             e_total_damages: None,
@@ -2307,8 +2343,8 @@ impl From<kcapi_main::api_req_sortie::battle::ApiData> for InterfaceWrapper<Batt
             midnight_flare_pos: None,
             midnight_touchplane: None,
             midnight_hougeki: None,
-            f_nowhps: Some(battle.api_f_nowhps),
-            e_nowhps: Some(battle.api_e_nowhps),
+            f_nowhps: Some(convert_hps(battle.api_f_nowhps)),
+            e_nowhps: Some(convert_hps(battle.api_e_nowhps)),
             midnight_f_nowhps: None,
             midnight_e_nowhps: None,
             battle_result: None,
@@ -2358,7 +2394,7 @@ impl From<kcapi_main::api_req_battle_midnight::battle::ApiData> for InterfaceWra
             e_params: Some(battle.api_e_param),
             f_params: Some(battle.api_f_param),
             e_slot: Some(battle.api_e_slot),
-            e_hp_max: Some(battle.api_e_maxhps),
+            e_hp_max: Some(wrap_hps(battle.api_e_maxhps)),
             e_combined_flag: Some(0),
             f_total_damages: None,
             e_total_damages: None,
@@ -2386,8 +2422,8 @@ impl From<kcapi_main::api_req_battle_midnight::battle::ApiData> for InterfaceWra
             midnight_hougeki,
             f_nowhps: None,
             e_nowhps: None,
-            midnight_f_nowhps: Some(battle.api_f_nowhps),
-            midnight_e_nowhps: Some(battle.api_e_nowhps),
+            midnight_f_nowhps: Some(wrap_hps(battle.api_f_nowhps)),
+            midnight_e_nowhps: Some(wrap_hps(battle.api_e_nowhps)),
             battle_result: None,
         });
         apply_sprite_metrics(&mut ret.0);
@@ -2432,7 +2468,7 @@ impl From<kcapi_main::api_req_battle_midnight::sp_midnight::ApiData> for Interfa
             e_params: Some(battle.api_e_param),
             f_params: Some(battle.api_f_param),
             e_slot: Some(battle.api_e_slot),
-            e_hp_max: Some(battle.api_e_maxhps),
+            e_hp_max: Some(wrap_hps(battle.api_e_maxhps)),
             e_combined_flag: Some(0),
             f_total_damages: None,
             e_total_damages: None,
@@ -2460,8 +2496,8 @@ impl From<kcapi_main::api_req_battle_midnight::sp_midnight::ApiData> for Interfa
             midnight_hougeki,
             f_nowhps: None,
             e_nowhps: None,
-            midnight_f_nowhps: Some(battle.api_f_nowhps),
-            midnight_e_nowhps: Some(battle.api_e_nowhps),
+            midnight_f_nowhps: Some(wrap_hps(battle.api_f_nowhps)),
+            midnight_e_nowhps: Some(wrap_hps(battle.api_e_nowhps)),
             battle_result: None,
         });
         apply_sprite_metrics(&mut ret.0);
@@ -2512,7 +2548,7 @@ impl From<kcapi_main::api_req_sortie::ld_airbattle::ApiData> for InterfaceWrappe
             e_params: Some(airbattle.api_e_param),
             f_params: Some(airbattle.api_f_param),
             e_slot: Some(airbattle.api_e_slot),
-            e_hp_max: Some(airbattle.api_e_maxhps),
+            e_hp_max: Some(wrap_hps(airbattle.api_e_maxhps)),
             e_combined_flag: Some(0),
             f_total_damages: None,
             e_total_damages: None,
@@ -2538,8 +2574,8 @@ impl From<kcapi_main::api_req_sortie::ld_airbattle::ApiData> for InterfaceWrappe
             midnight_flare_pos: None,
             midnight_touchplane: None,
             midnight_hougeki: None,
-            f_nowhps: Some(airbattle.api_f_nowhps),
-            e_nowhps: Some(airbattle.api_e_nowhps),
+            f_nowhps: Some(wrap_hps(airbattle.api_f_nowhps)),
+            e_nowhps: Some(wrap_hps(airbattle.api_e_nowhps)),
             midnight_f_nowhps: None,
             midnight_e_nowhps: None,
             battle_result: None,
@@ -2594,7 +2630,7 @@ impl From<kcapi_main::api_req_sortie::airbattle::ApiData> for InterfaceWrapper<B
             e_params: Some(airbattle.api_e_param),
             f_params: Some(airbattle.api_f_param),
             e_slot: Some(airbattle.api_e_slot),
-            e_hp_max: Some(airbattle.api_e_maxhps),
+            e_hp_max: Some(wrap_hps(airbattle.api_e_maxhps)),
             e_combined_flag: Some(0),
             f_total_damages: None,
             e_total_damages: None,
@@ -2620,8 +2656,8 @@ impl From<kcapi_main::api_req_sortie::airbattle::ApiData> for InterfaceWrapper<B
             midnight_flare_pos: None,
             midnight_touchplane: None,
             midnight_hougeki: None,
-            f_nowhps: Some(airbattle.api_f_nowhps),
-            e_nowhps: Some(airbattle.api_e_nowhps),
+            f_nowhps: Some(wrap_hps(airbattle.api_f_nowhps)),
+            e_nowhps: Some(wrap_hps(airbattle.api_e_nowhps)),
             midnight_f_nowhps: None,
             midnight_e_nowhps: None,
             battle_result: None,
@@ -2730,6 +2766,21 @@ pub fn parse_landing_hp(landing_hp: DuoType<i64, String>) -> Option<i64> {
         DuoType::Type1(num) => Some(num),
         DuoType::Type2(s) => s.trim().parse::<i64>().ok(),
     }
+}
+
+pub fn parse_hp(hp: DuoType<i64, String>) -> Option<i64> {
+    match hp {
+        DuoType::Type1(num) => Some(num),
+        DuoType::Type2(s) => s.trim().parse::<i64>().ok(),
+    }
+}
+
+pub fn convert_hps(hps: Vec<DuoType<i64, String>>) -> Vec<Option<i64>> {
+    hps.into_iter().map(parse_hp).collect()
+}
+
+pub fn wrap_hps(hps: Vec<i64>) -> Vec<Option<i64>> {
+    hps.into_iter().map(Some).collect()
 }
 
 impl From<kcapi_common::common_battle::ApiSupportInfo> for InterfaceWrapper<NightSupportAttack> {

@@ -33,13 +33,20 @@ export function OpeningAirAttackComponent(props: AirDamageProps) {
     if (!props.battle_selected()) return false;
     if (!props.battle_selected()?.deck_id) return false;
     if (!props.battle_selected()?.opening_air_attack) return false;
-    if (
-      !props.battle_selected()?.opening_air_attack?.[props.attack_index]
-        ?.f_damage.plane_from &&
-      !props.battle_selected()?.opening_air_attack?.[props.attack_index]
-        ?.e_damage.plane_from
-    )
+    const attack =
+      props.battle_selected()?.opening_air_attack?.[props.attack_index];
+    if (!attack) return false;
+
+    const f_has_plane =
+      (attack.f_damage?.plane_from ?? []).some((idx) => idx >= 0) ||
+      (attack.f_damage?.total_plane1 ?? 0) > 0;
+    const e_has_plane =
+      (attack.e_damage?.plane_from ?? []).some((idx) => idx >= 0) ||
+      (attack.e_damage?.total_plane1 ?? 0) > 0;
+
+    if (!f_has_plane && !e_has_plane) {
       return false;
+    }
     return true;
   });
 
@@ -148,22 +155,28 @@ export function OpeningAirAttackComponent(props: AirDamageProps) {
   };
 
   const display_sprite_counts = () => {
-    return <SpriteMotionCounts counts={airattack()} class="pl-1" />;
+    return <SpriteMotionCounts counts={airattack()} />;
   };
 
   const show_f_plane_from = () => {
-    return (airattack()?.f_damage?.plane_from ?? []).length > 0;
+    return (
+      (airattack()?.f_damage?.plane_from ?? []).filter((idx) => idx >= 0)
+        .length > 0
+    );
   };
 
   const show_e_plane_from = () => {
-    return (airattack()?.e_damage?.plane_from ?? []).length > 0;
+    return (
+      (airattack()?.e_damage?.plane_from ?? []).filter((idx) => idx >= 0)
+        .length > 0
+    );
   };
 
   const f_attacker_ships = () => {
     return (
       <td>
         <div class="flex flex-col">
-          <For each={airattack()?.f_damage?.plane_from}>
+          <For each={airattack()?.f_damage?.plane_from?.filter((ship_idx) => ship_idx >= 0)}>
             {(ship_idx, idx) => (
               <>
                 <Show when={idx() > 0}>
@@ -189,7 +202,7 @@ export function OpeningAirAttackComponent(props: AirDamageProps) {
     return (
       <td>
         <div class="flex flex-col">
-          <For each={airattack()?.f_damage?.plane_from}>
+          <For each={airattack()?.f_damage?.plane_from?.filter((ship_idx) => ship_idx >= 0)}>
             {(ship_idx, idx) => (
               <>
                 <Show when={idx() > 0}>
@@ -293,7 +306,7 @@ export function OpeningAirAttackComponent(props: AirDamageProps) {
     return (
       <td>
         <div class="flex flex-col">
-          <For each={airattack()?.e_damage?.plane_from}>
+          <For each={airattack()?.e_damage?.plane_from?.filter((ship_idx) => ship_idx >= 0)}>
             {(ship_idx, idx) => (
               <>
                 <Show when={idx() > 0}>
@@ -318,7 +331,7 @@ export function OpeningAirAttackComponent(props: AirDamageProps) {
     return (
       <td>
         <div class="flex flex-col">
-          <For each={airattack()?.e_damage.plane_from}>
+          <For each={airattack()?.e_damage?.plane_from?.filter((ship_idx) => ship_idx >= 0)}>
             {(ship_idx, idx) => (
               <>
                 <Show when={idx() > 0}>

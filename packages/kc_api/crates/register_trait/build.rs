@@ -1,3 +1,3 @@
 fn main() {
-    println!("cargo:rustc-env=RUST_TEST_NOCAPTURE=1");
+    kc_api_build_config::emit_epoch_cfg();
 }

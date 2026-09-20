@@ -152,6 +152,8 @@ export function buildTimelineEvents(
     friendlyForceNowHps?: Array<number | null>;
     friendlyForceMaxHps?: Array<number | null>;
     airBatchId?: number;
+    airbaseBaseNo?: number;
+    airbaseBaseNos?: number[];
   };
 
   function extractShellingEvents(
@@ -266,8 +268,12 @@ export function buildTimelineEvents(
       (bakFlags[index] ?? 0) > 0;
     const fFrom = safeNumberArray(d["f_plane_from"]).filter((v) => v >= 0);
     const eFrom = safeNumberArray(d["e_plane_from"]).filter((v) => v >= 0);
-    const fNow = nullableNumberArray(d["f_now_hps"] ?? d["f_nowhps"]);
-    const eNow = nullableNumberArray(d["e_now_hps"] ?? d["e_nowhps"]);
+    const fNow = nullableNumberArray(d["f_now_hps"] ?? d["f_nowhps"]).map((v) =>
+      v === null || v < 0 ? null : v,
+    );
+    const eNow = nullableNumberArray(d["e_now_hps"] ?? d["e_nowhps"]).map((v) =>
+      v === null || v < 0 ? null : v,
+    );
     const effectiveSlotItems = slotItemOverride ?? [];
     const airBatchId = options?.airBatchId;
     let eventCount = 0;
@@ -305,6 +311,8 @@ export function buildTimelineEvents(
         fHps: fNow,
         eHps: eNow,
         ...(airBatchId === undefined ? {} : { airBatchId }),
+        ...(options?.airbaseBaseNo !== undefined ? { airbaseBaseNo: options.airbaseBaseNo } : {}),
+        ...(options?.airbaseBaseNos !== undefined ? { airbaseBaseNos: options.airbaseBaseNos } : {}),
       });
       eventCount++;
     }
@@ -341,6 +349,8 @@ export function buildTimelineEvents(
         fHps: fNow,
         eHps: eNow,
         ...(airBatchId === undefined ? {} : { airBatchId }),
+        ...(options?.airbaseBaseNo !== undefined ? { airbaseBaseNo: options.airbaseBaseNo } : {}),
+        ...(options?.airbaseBaseNos !== undefined ? { airbaseBaseNos: options.airbaseBaseNos } : {}),
       });
       eventCount++;
     }
@@ -363,6 +373,8 @@ export function buildTimelineEvents(
         fHps: fNow,
         eHps: eNow,
         ...(airBatchId === undefined ? {} : { airBatchId }),
+        ...(options?.airbaseBaseNo !== undefined ? { airbaseBaseNo: options.airbaseBaseNo } : {}),
+        ...(options?.airbaseBaseNos !== undefined ? { airbaseBaseNos: options.airbaseBaseNos } : {}),
       });
     }
   }
@@ -390,8 +402,12 @@ export function buildTimelineEvents(
       eRai = unknownArrayOf(d["erai_list_items"]);
     }
 
-    const fNow = nullableNumberArray(d["f_now_hps"] ?? d["f_nowhps"]);
-    const eNow = nullableNumberArray(d["e_now_hps"] ?? d["e_nowhps"]);
+    const fNow = nullableNumberArray(d["f_now_hps"] ?? d["f_nowhps"]).map((v) =>
+      v === null || v < 0 ? null : v,
+    );
+    const eNow = nullableNumberArray(d["e_now_hps"] ?? d["e_nowhps"]).map((v) =>
+      v === null || v < 0 ? null : v,
+    );
     const friendLimit =
       fleets?.friendlyShips && fleets.friendlyShips.length > 0
         ? fleets.friendlyShips.length
@@ -887,12 +903,14 @@ export function buildTimelineEvents(
   } else {
     // Air base / carrier base assaults (processed first in battle flow)
     if (battle["air_base_assault"]) {
+      const assault = jsonRecordOf(battle["air_base_assault"]);
       const squads =
-        (jsonRecordOf(battle["air_base_assault"])?.["squadron_plane"] as
+        (assault?.["squadron_plane"] as
           | unknown[]
           | undefined)
           ?.map(Number)
           .filter((n) => n > 0) ?? [];
+      const airbaseBaseNos = safeNumberArray(assault?.["airbase_base_nos"]).filter((n) => n > 0);
       extractAirAttackEvents(
         battle["air_base_assault"],
         phaseName("AirBaseAssult"),
@@ -901,6 +919,7 @@ export function buildTimelineEvents(
           actorRole: "airbase",
           affectsHp: false,
           airBatchId: ++airBatchSeq,
+          ...(airbaseBaseNos.length > 0 ? { airbaseBaseNos } : {}),
         },
       );
     }
@@ -925,6 +944,7 @@ export function buildTimelineEvents(
         const squads = safeNumberArray(attack?.["squadron_plane"]).filter(
           (n) => n > 0,
         );
+        const baseNo = safeNumberOrNull(attack?.["airbase_base_no"]);
         extractAirAttackEvents(
           attack ?? {},
             phaseName("AirBaseAirAttack"),
@@ -933,6 +953,7 @@ export function buildTimelineEvents(
             actorRole: "airbase",
             affectsHp: false,
             airBatchId: ++airBatchSeq,
+            ...(baseNo !== null && baseNo > 0 ? { airbaseBaseNo: baseNo } : {}),
           },
         );
       });
@@ -1191,10 +1212,15 @@ export function buildInitialHps(battle: Record<string, unknown>): {
   fInit: Array<number | null>;
   eInit: Array<number | null>;
 } {
-  const fInit = nullableNumberArray(
+  const normalizeHps = (raw: unknown): Array<number | null> => {
+    return nullableNumberArray(raw).map((val) =>
+      val === null || val < 0 ? null : val,
+    );
+  };
+  const fInit = normalizeHps(
     battle["f_nowhps"] ?? battle["midnight_f_nowhps"],
   );
-  const eInit = nullableNumberArray(
+  const eInit = normalizeHps(
     battle["e_nowhps"] ?? battle["midnight_e_nowhps"],
   );
   return { fInit, eInit };

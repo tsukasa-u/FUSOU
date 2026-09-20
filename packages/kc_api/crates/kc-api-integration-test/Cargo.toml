@@ -6,6 +6,7 @@ build = "build.rs"
 
 
 [dev-dependencies]
+serde_json = { workspace = true }
 kc-api-build-config = { path = "../kc-api-build-config" }
 chrono = { workspace = true }
 kc-api-database = { workspace = true, features = ["full", "schema_v0_5"] }

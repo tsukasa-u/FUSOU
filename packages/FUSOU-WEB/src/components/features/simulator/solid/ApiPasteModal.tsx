@@ -1,4 +1,5 @@
-/* @jsxImportSource solid-js */
+/** @jsxImportSource solid-js */
+import { FusouModal } from "@/components/common/solid/FusouModal";
 import { createSignal } from "solid-js";
 import { renderAll } from "@/features/simulator/airbase-renderer";
 import { loadMasterDataFromJson } from "@/features/simulator/data-loader";
@@ -129,13 +130,25 @@ export function ApiPasteModal() {
   };
 
   return (
-    <dialog id="api-paste-modal" class="modal" ref={(el) => apiPasteModalRef.current = el}>
-      <div class="modal-box max-w-2xl">
-        <h3 class="font-bold text-lg mb-2">APIレスポンス貼り付け</h3>
-        <p class="text-sm text-base-content/60 mb-4">
+    <FusouModal
+      id="api-paste-modal"
+      ref={apiPasteModalRef}
+      title="APIレスポンス貼り付け"
+      description={
+        <span>
           各エンドポイントのレスポンスJSONを貼り付けてください。<code class="text-xs">svdata=</code>プレフィックス付きでも使用可能です。
-        </p>
-
+        </span>
+      }
+      maxWidth="2xl"
+      actions={
+        <>
+          <button type="button" class="fusou-btn-primary" onClick={handleApply}>適用</button>
+          <form method="dialog">
+            <button class="fusou-btn-ghost">閉じる</button>
+          </form>
+        </>
+      }
+    >
         {/* port */}
         <div class="mb-4">
           <div class="flex items-center justify-between mb-1">
@@ -202,16 +215,6 @@ export function ApiPasteModal() {
           </p>
         </div>
 
-        <div class="modal-action">
-          <button type="button" class="btn btn-primary btn-sm" onClick={handleApply}>適用</button>
-          <form method="dialog">
-            <button class="btn btn-ghost btn-sm">閉じる</button>
-          </form>
-        </div>
-      </div>
-      <form method="dialog" class="modal-backdrop">
-        <button>close</button>
-      </form>
-    </dialog>
+        </FusouModal>
   );
 }

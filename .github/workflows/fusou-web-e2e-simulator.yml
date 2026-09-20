@@ -45,11 +45,8 @@ jobs:
       - name: Setup Rust environment for wasm build
         run: pnpm --dir packages/FUSOU-WEB run setup:rust-env
 
-      - name: Build avro-wasm
-        run: pnpm --filter @fusou/avro-wasm run build
-
-      - name: Build compaction core
-        run: pnpm --filter @fusou/compaction-core run build
+      - name: Build web dependencies (avro-wasm, compaction-core)
+        run: pnpm --dir packages/FUSOU-WEB run build:deps
 
       - name: Run DOM security check
         run: pnpm --dir packages/FUSOU-WEB run check:security:dom
@@ -58,16 +55,16 @@ jobs:
         run: pnpm --dir packages/FUSOU-WEB run audit:anon-sync-v1
 
       - name: Verify required Cloudflare Worker secrets
-        if: secrets.CLOUDFLARE_API_TOKEN != '' && secrets.CLOUDFLARE_ACCOUNT_ID != ''
+        continue-on-error: true
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        run: pnpm --dir packages/FUSOU-WEB run check:cloudflare:required-secrets
-
-      - name: Skip Cloudflare secret verification (credentials unavailable)
-        if: secrets.CLOUDFLARE_API_TOKEN == '' || secrets.CLOUDFLARE_ACCOUNT_ID == ''
         run: |
-          echo "Skipping Cloudflare secret registration check: CLOUDFLARE_API_TOKEN/CLOUDFLARE_ACCOUNT_ID not available in this run."
+          if [ -n "$CLOUDFLARE_API_TOKEN" ] && [ -n "$CLOUDFLARE_ACCOUNT_ID" ]; then
+            pnpm --dir packages/FUSOU-WEB run check:cloudflare:required-secrets
+          else
+            echo "Skipping Cloudflare secret registration check: CLOUDFLARE_API_TOKEN/CLOUDFLARE_ACCOUNT_ID not available in this run."
+          fi
 
       - name: Run Astro check
         run: pnpm --dir packages/FUSOU-WEB exec astro check
@@ -107,11 +104,8 @@ jobs:
       - name: Setup Rust environment for wasm build
         run: pnpm --dir packages/FUSOU-WEB run setup:rust-env
 
-      - name: Build avro-wasm
-        run: pnpm --filter @fusou/avro-wasm run build
-
-      - name: Build compaction core
-        run: pnpm --filter @fusou/compaction-core run build
+      - name: Build web dependencies (avro-wasm, compaction-core)
+        run: pnpm --dir packages/FUSOU-WEB run build:deps
 
       - name: Install Playwright Chromium
         run: pnpm --dir packages/FUSOU-WEB exec playwright install --with-deps chromium
@@ -159,11 +153,8 @@ jobs:
       - name: Setup Rust environment for wasm build
         run: pnpm --dir packages/FUSOU-WEB run setup:rust-env
 
-      - name: Build avro-wasm
-        run: pnpm --filter @fusou/avro-wasm run build
-
-      - name: Build compaction core
-        run: pnpm --filter @fusou/compaction-core run build
+      - name: Build web dependencies (avro-wasm, compaction-core)
+        run: pnpm --dir packages/FUSOU-WEB run build:deps
 
       - name: Seed local D1/R2 for simulator
         run: pnpm --dir packages/FUSOU-WEB run seed:master-data

@@ -127,7 +127,7 @@ export function WorkspacePanel() {
         <div class="flex items-center gap-0.5 shrink-0">
           <button
             id="btn-workspace-add-current"
-            class="btn btn-ghost btn-xs gap-1"
+            class="fusou-btn-xs-ghost gap-1"
             title="現在の画面の編成を新しいデッキとしてワークスペースに追加（別名で保存）"
             onClick={handleAddCurrent}
           >
@@ -138,7 +138,7 @@ export function WorkspacePanel() {
           </button>
           <button
             id="btn-workspace-add"
-            class="btn btn-ghost btn-xs gap-1"
+            class="fusou-btn-xs-ghost gap-1"
             title="共有URLをワークスペースに追加"
             onClick={() => {
               workspaceEditTarget[1](null);
@@ -239,13 +239,13 @@ export function WorkspacePanel() {
                       <LockIcon locked={entry.locked || false} />
                     </button>
 
-                    <button class="btn btn-ghost btn-xs shrink-0 px-1.5" title="現在の内容で複製（別名で保存）" onClick={(e) => handleDuplicate(e, entry)}>
+                    <button class="fusou-btn-xs-ghost shrink-0 px-1.5" title="現在の内容で複製（別名で保存）" onClick={(e) => handleDuplicate(e, entry)}>
                       複製
                     </button>
-                    <button class="btn btn-ghost btn-xs shrink-0 px-1.5" disabled={entry.locked} title={entry.locked ? "ロック中は編集できません" : "表示名やメモの編集"} onClick={(e) => handleEdit(e, entry)}>
+                    <button class="fusou-btn-xs-ghost shrink-0 px-1.5" disabled={entry.locked} title={entry.locked ? "ロック中は編集できません" : "表示名やメモの編集"} onClick={(e) => handleEdit(e, entry)}>
                       編集
                     </button>
-                    <button class="btn btn-ghost btn-xs shrink-0 px-1" title="削除" onClick={(e) => handleDelete(e, entry)}>
+                    <button class="fusou-btn-xs-ghost shrink-0 px-1" title="削除" onClick={(e) => handleDelete(e, entry)}>
                       ×
                     </button>
                   </div>
@@ -258,7 +258,7 @@ export function WorkspacePanel() {
         <Show when={hiddenCount() > 0}>
           <div class="mt-2 flex items-center justify-between gap-2">
             <span class="text-xs text-base-content/55">他 {hiddenCount()}件が非表示</span>
-            <button class="btn btn-xs" onClick={() => setExpanded(true)}>
+            <button class="fusou-btn-xs" onClick={() => setExpanded(true)}>
               すべて表示する
             </button>
           </div>

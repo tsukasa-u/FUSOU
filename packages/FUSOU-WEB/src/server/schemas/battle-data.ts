@@ -1,5 +1,4 @@
 import { z } from "zod";
-import { PublicIdSchema } from "./public-id";
 
 export const BattleMasterDataRowSchema = z
   .object({
@@ -37,7 +36,7 @@ export const BattleBlockRowsSchema = z.array(
   z
     .object({
       id: z.number().int(),
-      dataset_id: PublicIdSchema,
+      dataset_id: z.string().min(1),
       start_byte: z.number().int(),
       length: z.number().int(),
       start_timestamp: z.number().int().nullable(),

@@ -1,19 +1,15 @@
-
 #cy {
   width: 100%;
   height: 100dvh;
-  /* position: relative;
-  margin: auto; */
-  background: #fafafa;
-  background-image: radial-gradient(#dedede 1px, transparent 0);
+  background-color: var(--color-base-100, #18181b);
+  background-image: radial-gradient(var(--color-base-300, #3f3f46) 1px, transparent 0);
   background-size: 32px 32px;
 }
 
-
-/*Ovveride Navigator border and background:*/
+/* Override Navigator border and background */
 .cytoscape-navigator {
-  border: 2px solid #eeeeee !important;
-  background: white !important;
+  border: 2px solid var(--color-base-300, #3f3f46) !important;
+  background: var(--color-base-200, #27272a) !important;
   height: 25dvh !important;
   width: 25dvw !important;
   margin-bottom: 24px;
@@ -21,20 +17,20 @@
   border-radius: 5px;
 }
 
-/*Add border to View container:*/
+/* Add border to View container */
 .cytoscape-navigator .cytoscape-navigatorView {
-  border: 2px solid #9e9e9e;
+  border: 2px solid var(--color-primary, #3ecf8e);
   background: transparent;
 }
 
-/*Overide overlay container when mouse is over Navigator*/
-.cytoscape-navigator:hover /*.cytoscape-navigatorOverlay*/ {
-  border: 2px solid #bebebe !important;
+/* Override overlay container when mouse is over Navigator */
+.cytoscape-navigator:hover {
+  border: 2px solid var(--color-primary, #3ecf8e) !important;
   background: transparent;
 }
 
-/*Overide view's container when mouse is over view*/
+/* Override view's container when mouse is over view */
 .cytoscape-navigator.mouseover-view .cytoscape-navigatorView {
-    border-radius: 5px;
+  border-radius: 5px;
   background-color: rgba(127, 127, 127, 0.3);
 }

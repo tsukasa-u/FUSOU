@@ -4,7 +4,6 @@ import type { AirBaseAirAttack, Battle } from "@ipc-bindings/battle";
 import { useAirBasesBattles } from "../../../utility/provider";
 import IconShield from "../../../icons/shield";
 import type { DataSetParamShip } from "../../../utility/get_data_set";
-import { AirStateComponent } from "../shared/air_state.tsx";
 import { SpriteMotionCounts } from "../shared/sprite_motion_counts";
 import {
   ConnectedCIMstEquip,
@@ -212,38 +211,38 @@ export function AirBaseAirAttackComponent(props: AirDamageProps) {
         <details open={true}>
           <summary>Air Base Air Attack</summary>
           <ul class="pl-0">
-            <table class="table table-xs">
-              <thead>
-                <tr>
-                  <th class="w-3/8">Attack</th>
-                  <th class="w-2/8">Defense</th>
-                  <th class="w-1/8">HP</th>
-                  <th class="w-1/8">Damage</th>
-                  <th class="w-1/8" />
-                </tr>
-              </thead>
-              <tbody>
-                <For
-                  each={air_base_attacks()}
-                >
-                  {(attack, attack_idx) => (
-                    <>
-                      <div class="flex flex-nowrap pl-2 items-center text-xs">
-                        <AirStateComponent air_state={attack.air_superiority} />
-                        {display_touch(attack)}
-                        {display_sprite_counts(attack)}
-                      </div>
+            <For each={air_base_attacks()}>
+              {(attack, attack_idx) => (
+                <>
+                  <div class="flex flex-nowrap pl-2 items-center text-xs">
+                    {display_touch(attack)}
+                    <div class="divider divider-horizontal mr-0 ml-0" />
+                    {display_sprite_counts(attack)}
+                  </div>
+                  <table class="table table-xs">
+                    <thead>
+                      <tr>
+                        <th class="w-2/8">Attack</th>
+                        <th class="w-1/8">HP</th>
+                        <th class="w-2/8">Defense</th>
+                        <th class="w-1/8">HP</th>
+                        <th class="w-1/8">Damage</th>
+                        <th class="w-1/8" />
+                      </tr>
+                    </thead>
+                    <tbody>
                       <tr class="rounded">
                         {attacker_planes(attack)}
+                        <td />
                         {defenser_ships(attack, attack_idx)}
                         {defenser_hps(attack, attack_idx)}
                         {defenser_damages(attack, attack_idx)}
                       </tr>
-                    </>
-                  )}
-                </For>
-              </tbody>
-            </table>
+                    </tbody>
+                  </table>
+                </>
+              )}
+            </For>
           </ul>
         </details>
       </li>

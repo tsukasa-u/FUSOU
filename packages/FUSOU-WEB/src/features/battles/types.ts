@@ -71,6 +71,10 @@ export interface TimelineEvent {
   separator?: boolean;
   /** Air-attack invocation group id (one extractAirAttackEvents call). */
   airBatchId?: number;
+  /** Air-base squadron base number (schema_since 0.6.0). */
+  airbaseBaseNo?: number;
+  /** Air-base squadron base numbers for assault (schema_since 0.6.0). */
+  airbaseBaseNos?: number[];
 }
 
 export interface TimelineStep {

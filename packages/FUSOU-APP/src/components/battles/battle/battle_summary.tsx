@@ -8,7 +8,12 @@ import type {
   DataSetShip,
 } from "../../../utility/get_data_set";
 import type { DeckShipIds } from "../../../utility/battles";
-import { ComponentColorBarLabel, ComponentShipMaskedModal, ComponentShipModal, IconFleetNumber } from "ui";;
+import {
+  ComponentColorBarLabel,
+  ComponentShipMaskedModal,
+  ComponentShipModal,
+  IconFleetNumber,
+} from "ui";
 
 const friendly_force_number = 5;
 
@@ -139,11 +144,11 @@ export function BattleSummaryComponent(props: ButtleSummaryProps) {
 
     const f_damage: number[] = add_array(
       battle.f_total_damages ?? [],
-      battle.midnight_f_total_damages ?? []
+      battle.midnight_f_total_damages ?? [],
     );
     const e_damage: number[] = add_array(
       battle.e_total_damages ?? [],
-      battle.midnight_e_total_damages ?? []
+      battle.midnight_e_total_damages ?? [],
     );
 
     const f_now_hps: number[] = select_min(day_f_now_hps, midnight_f_now_hps);
@@ -535,39 +540,43 @@ export function BattleSummaryComponent(props: ButtleSummaryProps) {
         }
       >
         <td>
-          <IconFleetNumber
-            e_flag={0}
-            fleet_number={friendly_force_number}
-            ship_number={idx + 1}
-            combined_flag={false}
-            size="xs"
-          />
-          <ComponentShipMaskedModal
-            size="xs"
-            empty_flag={false}
-            name_flag={true}
-            color={props.store_data_set_param_ship().f_friend_color[idx]}
-            ship_param={
-              props.store_data_set_param_ship().f_friend_ship_param[idx]
-            }
-            ship_slot={
-              props.store_data_set_param_ship().f_friend_ship_slot[idx]
-            }
-            ship_max_hp={
-              props.store_data_set_param_ship().f_friend_ship_max_hp[idx]
-            }
-            mst_ship={props.store_data_set_param_ship().f_friend_mst_ship[idx]}
-            mst_slot_items={
-              props.store_data_set_param_ship().f_friend_mst_slot_items[idx]
-            }
-          />
+          <div class="flex flex-nowrap">
+            <IconFleetNumber
+              e_flag={0}
+              fleet_number={friendly_force_number}
+              ship_number={idx + 1}
+              combined_flag={false}
+              size="xs"
+            />
+            <ComponentShipMaskedModal
+              size="xs"
+              empty_flag={false}
+              name_flag={true}
+              color={props.store_data_set_param_ship().f_friend_color[idx]}
+              ship_param={
+                props.store_data_set_param_ship().f_friend_ship_param[idx]
+              }
+              ship_slot={
+                props.store_data_set_param_ship().f_friend_ship_slot[idx]
+              }
+              ship_max_hp={
+                props.store_data_set_param_ship().f_friend_ship_max_hp[idx]
+              }
+              mst_ship={
+                props.store_data_set_param_ship().f_friend_mst_ship[idx]
+              }
+              mst_slot_items={
+                props.store_data_set_param_ship().f_friend_mst_slot_items[idx]
+              }
+            />
+          </div>
         </td>
         <td>
           <div class="flex-none">
             <ComponentColorBarLabel
               size="xs"
-              v_max={fleet_info().friend_nowhps[idx] ?? 0}
-              v_now={fleet_info().friend_maxhps[idx] ?? 0}
+              v_now={fleet_info().friend_nowhps[idx] ?? 0}
+              v_max={fleet_info().friend_maxhps[idx] ?? 0}
             />
           </div>
         </td>
@@ -599,8 +608,8 @@ export function BattleSummaryComponent(props: ButtleSummaryProps) {
                     0,
                     Math.max(
                       fleet_info().f_main_ship_id.length,
-                      fleet_info().e_main_ship_id.length
-                    )
+                      fleet_info().e_main_ship_id.length,
+                    ),
                   )}
                 >
                   {(idx) => (
@@ -615,8 +624,8 @@ export function BattleSummaryComponent(props: ButtleSummaryProps) {
                     0,
                     Math.max(
                       fleet_info().f_escort_ship_id.length,
-                      fleet_info().e_escort_ship_id.length
-                    )
+                      fleet_info().e_escort_ship_id.length,
+                    ),
                   )}
                 >
                   {(idx) => (
@@ -627,7 +636,12 @@ export function BattleSummaryComponent(props: ButtleSummaryProps) {
                   )}
                 </For>
                 <Show when={props.battle_selected()?.friendly_force_attack}>
-                  <For each={[0, 1, 2, 3, 4, 5]}>
+                  <For
+                    each={[0, 1, 2, 3, 4, 5, 6].slice(
+                      0,
+                      fleet_info().friend_ship_id.length,
+                    )}
+                  >
                     {(idx) => (
                       <tr class="rounded">
                         {f_friendly_table_line(idx)}

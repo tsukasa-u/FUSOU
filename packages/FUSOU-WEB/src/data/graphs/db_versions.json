@@ -186,6 +186,7 @@
       },
       "airbase_airattack": {
         "addedFields": [
+          "air_superiority",
           "airbase_base_no"
         ],
         "changedFields": [],
@@ -196,9 +197,21 @@
       },
       "airbase_assult": {
         "addedFields": [
+          "air_superiority",
           "airbase_base_nos"
         ],
         "changedFields": [],
+        "removedFields": [],
+        "status": "changed"
+      },
+      "battle": {
+        "addedFields": [],
+        "changedFields": [
+          "e_nowhps",
+          "f_nowhps",
+          "midnight_e_nowhps",
+          "midnight_f_nowhps"
+        ],
         "removedFields": [],
         "status": "changed"
       },

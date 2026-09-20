@@ -1,4 +1,5 @@
 /** @jsxImportSource solid-js */
+import { EmptyState } from "@/components/common/solid/EmptyState";
 import { For, Show } from "solid-js";
 import type { SelectedCellDetails } from "./types";
 import { WIN_RANK_BADGES } from "./constants";
@@ -20,7 +21,7 @@ export default function CellDetailsPanel(props: Props) {
           <div class="text-sm font-semibold">{d().mapKey} / {d().label} の戦闘と進路</div>
           <div class="text-xs text-base-content/70">対象セル: {d().label}</div>
         </div>
-        <button class="btn btn-ghost btn-xs" onClick={props.onClear}>選択解除</button>
+        <button class="fusou-btn-xs-ghost" onClick={props.onClear}>選択解除</button>
       </div>
 
       <Show
@@ -60,7 +61,7 @@ export default function CellDetailsPanel(props: Props) {
               <div class="font-semibold text-sm mb-2">よく遭遇する敵艦隊</div>
               <Show
                 when={d().topEnemyLabels.length > 0}
-                fallback={<div class="text-xs text-base-content/50">戦闘記録はありません</div>}
+                fallback={<EmptyState size="compact" message="戦闘記録はありません" />}
               >
                 <div class="space-y-1.5">
                   <For each={d().topEnemyLabels}>

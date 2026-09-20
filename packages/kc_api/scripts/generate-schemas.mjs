@@ -8,6 +8,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { dirname, resolve } from "node:path";
+import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 
@@ -225,12 +226,7 @@ function generateFingerprints(schemaFiles) {
 }
 
 function hashFileSha256(filePath) {
-  const result = runCapture("sha256sum", [filePath], { cwd: KC_API_ROOT });
-  if (result.error || result.status !== 0) {
-    throw new Error(`Failed to hash file: ${filePath}`);
-  }
-  const output = (result.stdout || "").trim();
-  return output.split(/\s+/)[0] || "";
+  return createHash("sha256").update(readFileSync(filePath)).digest("hex");
 }
 
 function collectProtectedSchemaHashes() {

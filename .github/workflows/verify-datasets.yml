@@ -1,0 +1,68 @@
+name: Scheduled Dataset Verification & Static Report
+
+on:
+  schedule:
+    - cron: '0 0 * * 1'  # Weekly on Monday at 00:00 UTC
+  workflow_dispatch:
+    inputs:
+      period_tag:
+        description: 'Dataset period tag to verify (e.g. latest, 2026-09)'
+        required: false
+        default: 'latest'
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Run Verification Notebooks
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: "latest"
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install 3.11
+
+      - name: Install fusou-datasets and verification tools
+        run: |
+          uv pip install --system -e ./packages/fusou-datasets/python
+          uv pip install --system papermill nbconvert matplotlib seaborn scipy
+
+      - name: Run verification notebooks with Papermill
+        env:
+          FUSOU_API_KEY: ${{ secrets.FUSOU_API_KEY }}
+        run: |
+          mkdir -p _reports/html _reports/notebooks
+          
+          for nb in packages/fusou-datasets/examples/verify_*.ipynb; do
+            if [ -f "$nb" ]; then
+              nb_base=$(basename "$nb" .ipynb)
+              echo "=== Executing $nb_base ==="
+              papermill "$nb" "_reports/notebooks/${nb_base}_executed.ipynb" \
+                -p PERIOD_TAG "${{ github.event.inputs.period_tag || 'latest' }}" \
+                -p STRICT_MODE true
+              
+              jupyter nbconvert \
+                --to html \
+                --no-input \
+                "_reports/notebooks/${nb_base}_executed.ipynb" \
+                --output-dir=_reports/html \
+                --output="${nb_base}.html"
+            fi
+          done
+
+      - name: Upload verification report artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: dataset-verification-report
+          path: _reports/
+          retention-days: 30

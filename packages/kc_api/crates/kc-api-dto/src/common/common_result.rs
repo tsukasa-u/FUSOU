@@ -57,9 +57,9 @@ pub struct ApiGetEventitem {
 #[serde(rename_all = "camelCase")]
 pub struct ApiLandingHp {
     #[serde(rename = "api_now_hp")]
-    pub api_now_hp: String,
+    pub api_now_hp: DuoType<i64, String>,
     #[serde(rename = "api_max_hp")]
-    pub api_max_hp: String,
+    pub api_max_hp: DuoType<i64, String>,
     #[serde(rename = "api_sub_value")]
     pub api_sub_value: DuoType<i64, String>,
 }

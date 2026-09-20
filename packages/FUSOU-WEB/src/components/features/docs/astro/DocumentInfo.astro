@@ -19,7 +19,7 @@ const safeExternalHttpUrl = (value?: string): string | undefined => {
 
 {
   lastUpdated && (
-    <div class="text-md text-gray-600">
+    <div class="text-sm text-base-content/70">
       Last updated: &nbsp;{" "}
       {new Date(lastUpdated).toLocaleDateString(undefined, {
         year: "numeric",
@@ -32,7 +32,7 @@ const safeExternalHttpUrl = (value?: string): string | undefined => {
 {
   contributors && contributors.length > 0 && (
     <div class="my-4 flex">
-      <h3 class="text-md text-gray-600 content-center">
+      <h3 class="text-sm text-base-content/70 content-center">
         Contributors: &nbsp;&nbsp;
       </h3>
       <ul class="list-none p-0 m-0 flex flex-row gap-4 flex-wrap">
@@ -62,21 +62,21 @@ const safeExternalHttpUrl = (value?: string): string | undefined => {
                   class="size-8 rounded-full mr-2"
                 />
               ) : (
-                <div class="size-8 rounded-full bg-gray-300 flex items-center justify-center text-gray-600 mr-2">
+                <div class="size-8 rounded-full bg-base-300 flex items-center justify-center text-base-content/70 mr-2">
                   {contributor.data.github_username.charAt(0).toUpperCase()}
                 </div>
               )}
               {safeProfileUrl ? (
                 <a
                   href={safeProfileUrl}
-                  class="text-md text-blue-500 hover:underline"
+                  class="text-sm link link-primary hover:underline"
                   target="_blank"
                   rel="noopener noreferrer"
                 >
                   {contributor.data.github_username}
                 </a>
               ) : (
-                <span class="text-md text-gray-800">
+                <span class="text-sm text-base-content">
                   {contributor.data.github_username}
                 </span>
               )}

@@ -4,7 +4,6 @@ import "../../../css/divider.css";
 import { useAirBasesBattles } from "../../../utility/provider";
 import type { Cell } from "@ipc-bindings/cells";
 import type { DataSetParamShip } from "../../../utility/get_data_set";
-import { AirStateComponent } from "../shared/air_state.tsx";
 import { FormationComponent } from "../shared/formation.tsx";
 import { SpriteMotionCounts } from "../shared/sprite_motion_counts";
 import {
@@ -138,13 +137,7 @@ export function DestructionBattleComponent(props: DestructionBattleProps) {
     const attack = destruction_battle?.air_base_attack;
     if (!attack) return null;
 
-    return (
-      <div class="pl-2 text-xs">
-        <div>
-          <SpriteMotionCounts counts={attack} class="" />
-        </div>
-      </div>
-    );
+    return <SpriteMotionCounts counts={attack} />;
   };
 
   const base_attacker_planes = () => {
@@ -406,14 +399,6 @@ export function DestructionBattleComponent(props: DestructionBattleProps) {
           <div class="flex flex-nowrap text-xs py-0.5 pl-4 items-center">
             {display_formation()}
             <div class="divider divider-horizontal mr-0 ml-0" />
-            <AirStateComponent
-              air_state={
-                props.cell()?.destruction_battle?.air_base_attack
-                  .air_superiority
-              }
-              fallback={<div class="w-6 flex justify-center">_</div>}
-            />
-            <div class="divider divider-horizontal mr-0 ml-0" />
             {display_touch()}
           </div>
           <div class="flex flex-nowrap text-xs py-0.5 pl-4 items-center">
@@ -427,11 +412,12 @@ export function DestructionBattleComponent(props: DestructionBattleProps) {
             <table class="table table-xs">
               <thead>
                 <tr>
-                  <th>Attack</th>
-                  <th>HP</th>
-                  <th>Defense</th>
-                  <th>HP</th>
-                  <th>Damage</th>
+                  <th class="w-2/8">Attack</th>
+                  <th class="w-1/8">HP</th>
+                  <th class="w-2/8">Defense</th>
+                  <th class="w-1/8">HP</th>
+                  <th class="w-1/8">Damage</th>
+                  <th class="w-1/8" />
                 </tr>
               </thead>
               <tbody>

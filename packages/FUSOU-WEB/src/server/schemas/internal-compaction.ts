@@ -71,6 +71,8 @@ export const CleanupOutputRowSchema = z
     id: z.number().int().positive(),
     lifecycle_state: z.string().min(1),
     output_verified_at_ms: NullableNumberSchema,
+    compaction_tier: CompactionTierSchema.optional(),
+    lock_owner_run_key: z.string().nullable().optional(),
   })
   .passthrough();
 

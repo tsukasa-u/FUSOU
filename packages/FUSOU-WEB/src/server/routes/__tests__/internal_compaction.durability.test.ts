@@ -133,4 +133,142 @@ describe("internal compaction D1/R2 durability", () => {
     );
     expect(batch).not.toHaveBeenCalled();
   });
+  it("records completed run into compaction_runs upon successful cleanup", async () => {
+    const executedStatements: Array<{ sql: string; params: unknown[] }> = [];
+    const createBoundStatement = (sql: string) => {
+      const stmt = {
+        sql,
+        params: [] as unknown[],
+        bind: vi.fn(function (...args: unknown[]) {
+          stmt.params = args;
+          return stmt;
+        }),
+        first: vi.fn(async () => {
+          if (sql.includes("FROM archived_files") && sql.includes("WHERE file_path = ?")) {
+            return {
+              id: 7,
+              lifecycle_state: "registered",
+              output_verified_at_ms: 100,
+              compaction_tier: "daily",
+              lock_owner_run_key: "test-run-key-1",
+            };
+          }
+          return null;
+        }),
+        all: vi.fn(async () => {
+          if (sql.includes("FROM compaction_output_sources")) {
+            return {
+              results: [
+                {
+                  source_file_id: 12,
+                  source_file_path: "1.0.0/2026-08/123/battle-001.avro",
+                  archived_source_path: "compacted/1.0.0/2026-08/123/battle-001.avro",
+                },
+              ],
+            };
+          }
+          if (sql.includes("FROM archived_files af") && sql.includes("JOIN block_indexes bi")) {
+            return {
+              results: [
+                {
+                  file_id: 12,
+                  file_path: "1.0.0/2026-08/123/battle-001.avro",
+                },
+              ],
+            };
+          }
+          return { results: [] };
+        }),
+      };
+      return stmt;
+    };
+
+    const prepare = vi.fn((sql: string) => {
+      const stmt = createBoundStatement(sql);
+      executedStatements.push(stmt);
+      return stmt;
+    });
+
+    const batch = vi.fn(async (stmts: Array<{ sql: string; params: unknown[] }>) => {
+      return stmts.map(() => ({ success: true }));
+    });
+
+    const db = { prepare, batch };
+    const bucket = {
+      head: vi.fn(async () => {
+        return { size: 10 };
+      }),
+    };
+
+    const response = await internalCompactionApp.fetch(
+      new Request("https://example.com/cleanup-consumed-sources", {
+        method: "POST",
+        headers: authHeaders,
+        body: JSON.stringify({
+          output_file_path: "1.0.0/2026-08/daily/run/battle-001.avro",
+          source_tier: "hourly",
+          table_name: "battle",
+          period_tag: "2026-08",
+          table_version: "1.0.0",
+          window_start_ms: 1000,
+          window_end_ms: 2000,
+          source_file_ids: [12],
+        }),
+      }),
+      {
+        INTERNAL_COMPACTION_TOKEN: "test-token",
+        BATTLE_INDEX_DB: db,
+        BATTLE_DATA_BUCKET: bucket,
+      },
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      success: true,
+      lifecycle_state: "completed",
+      deleted_source_files: 1,
+    });
+
+    expect(batch).toHaveBeenCalledTimes(1);
+    const firstBatchCall = batch.mock.calls[0];
+    expect(firstBatchCall).toBeDefined();
+    const batchStmts = (firstBatchCall ? firstBatchCall[0] : []) as Array<{ sql: string; params: unknown[] }>;
+    const compactionRunStmt = batchStmts.find((s) => s.sql.includes("INSERT INTO compaction_runs"));
+    expect(compactionRunStmt).toBeDefined();
+    expect(compactionRunStmt?.params[0]).toBe("test-run-key-1");
+    expect(compactionRunStmt?.params[1]).toBe("daily");
+    expect(compactionRunStmt?.params[2]).toBe("2026-08");
+    expect(compactionRunStmt?.params[3]).toBe(1000);
+    expect(compactionRunStmt?.params[4]).toBe(2000);
+    expect(compactionRunStmt?.params[5]).toBe("hourly");
+    expect(compactionRunStmt?.params[8]).toBe("battle");
+  });
+
+  it("rejects fetch-block-ocf when start_byte is <= 0", async () => {
+    const bucket = { get: vi.fn() };
+    const db = { prepare: vi.fn(), batch: vi.fn() };
+
+    const response = await internalCompactionApp.fetch(
+      new Request("https://example.com/fetch-block-ocf", {
+        method: "POST",
+        headers: authHeaders,
+        body: JSON.stringify({
+          file_path: "1.0.0/2026-08/battle-001.avro",
+          start_byte: 0,
+          length: 100,
+        }),
+      }),
+      {
+        INTERNAL_COMPACTION_TOKEN: "test-token",
+        BATTLE_INDEX_DB: db,
+        BATTLE_DATA_BUCKET: bucket,
+      },
+    );
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toMatchObject({
+      error: "start_byte is invalid",
+    });
+    expect(bucket.get).not.toHaveBeenCalled();
+  });
 });

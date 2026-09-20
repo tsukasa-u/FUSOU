@@ -3,13 +3,15 @@ interface Props {
   title: string;
   subtitle?: string;
   compact?: boolean;
+  align?: "left" | "center";
 }
 
-const { title, subtitle = "", compact = false } = Astro.props as Props;
+const { title, subtitle = "", compact = false, align = "left" } = Astro.props as Props;
+const isCenter = align === "center";
 ---
 
-<div class="fusou-page-header">
-  <div>
+<div class:list={["fusou-page-header", isCenter && "text-center items-center justify-center"]}>
+  <div class:list={[isCenter && "max-w-2xl mx-auto"]}>
     <h1
       class:list={[compact ? "fusou-page-title-compact" : "fusou-page-title"]}
     >

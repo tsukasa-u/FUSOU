@@ -1,0 +1,65 @@
+---
+import Layout from "@/layouts/Layout.astro";
+import Navigation from "@/components/common/astro/layout/Navigation.astro";
+import PageShell from "@/components/common/astro/ui/PageShell.astro";
+
+interface Props {
+  code: string | number;
+  title: string;
+  message?: string;
+  detail?: string | undefined;
+}
+
+const {
+  code,
+  title,
+  message = "お探しのページが見つからないか、エラーが発生しました。",
+  detail,
+} = Astro.props as Props;
+---
+
+<Layout title={`FUSOU - ${code} ${title}`}>
+  <Navigation filled={true} />
+  <PageShell
+    container="narrow"
+    paddingY="8"
+    class="flex flex-col items-center justify-center min-h-[calc(100vh-6rem)]"
+  >
+    <div
+      class="fusou-card max-w-xl w-full p-6 sm:p-8 flex flex-col items-center text-center shadow-lg border border-base-300/80"
+    >
+      <div class="mb-4 flex flex-col items-center justify-center pt-2 select-none">
+        <span
+          class="text-7xl sm:text-8xl font-black text-error tracking-wider drop-shadow-sm font-mono"
+        >
+          {code}
+        </span>
+      </div>
+
+      <h1 class="text-2xl sm:text-3xl font-bold text-base-content mb-3">
+        {title}
+      </h1>
+
+      <p class="text-sm sm:text-base text-base-content/75 max-w-md leading-relaxed mb-4">
+        {message}
+      </p>
+
+      {
+        detail && (
+          <div class="w-full p-3 mb-4 rounded-lg bg-base-200 border border-base-300 font-mono text-xs text-error text-left break-all">
+            {detail}
+          </div>
+        )
+      }
+
+      <div class="pt-2 flex flex-wrap gap-3 justify-center">
+        <a id="error-home-link" href="/" class="fusou-btn-primary">
+          Back to App Page
+        </a>
+        <a href="/battles" class="fusou-btn-ghost">
+          戦闘一覧
+        </a>
+      </div>
+    </div>
+  </PageShell>
+</Layout>

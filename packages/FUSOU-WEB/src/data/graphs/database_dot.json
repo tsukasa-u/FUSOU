@@ -544,6 +544,13 @@
             "isEnvRef": false,
             "isFk": false,
             "isKey": false,
+            "name": "air_superiority",
+            "type": "Option<i32>"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
             "name": "airbase_base_no",
             "type": "Option<i32>"
           },
@@ -807,6 +814,13 @@
     {
       "data": {
         "fields": [
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "name": "air_superiority",
+            "type": "Option<i32>"
+          },
           {
             "isEnvRef": false,
             "isFk": false,

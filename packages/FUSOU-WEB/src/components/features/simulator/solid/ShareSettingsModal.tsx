@@ -1,4 +1,5 @@
-/* @jsxImportSource solid-js */
+/** @jsxImportSource solid-js */
+import { FusouModal } from "@/components/common/solid/FusouModal";
 import { createSignal, createEffect } from "solid-js";
 import { useStore } from "@nanostores/solid";
 import { createShareUrl } from "@/features/simulator/io-handlers";
@@ -57,13 +58,42 @@ export function ShareSettingsModal() {
   };
 
   return (
-    <dialog id="share-settings-modal" class="modal" ref={(el) => shareSettingsModalRef.current = el}>
-      <div class="modal-box rounded-xl">
-        <h3 class="font-bold text-lg mb-2">共有URL設定</h3>
-        <p class="text-xs text-base-content/60 mb-4">
-          共有時に含める情報を選択できます。詳細を含めるほど、URL生成が重くなる場合があります。
-        </p>
-
+    <FusouModal
+      id="share-settings-modal"
+      ref={shareSettingsModalRef}
+      title="共有URL設定"
+      description="共有時に含める情報を選択できます。詳細を含めるほど、URL生成が重くなる場合があります。"
+      maxWidth="md"
+      actions={
+        <>
+          <button 
+            type="button" 
+            class={`btn btn-sm w-48 ${shareStatus() === "success" ? "btn-success" : shareStatus() === "error" ? "btn-error" : "fusou-btn-primary"}`}
+            disabled={shareStatus() === "loading"} 
+            onClick={handleShare}
+          >
+            {shareStatus() === "loading" ? (
+              <>
+                <span class="loading loading-spinner loading-xs"></span>
+                生成中...
+              </>
+            ) : shareStatus() === "success" ? (
+              <>
+                <svg xmlns="http://www.w3.org/2000/svg" class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                コピー完了
+              </>
+            ) : shareStatus() === "error" ? (
+              "生成失敗"
+            ) : (
+              "URLをコピーして共有"
+            )}
+          </button>
+          <form method="dialog">
+            <button class="fusou-btn-ghost" disabled={shareStatus() === "loading"}>キャンセル</button>
+          </form>
+        </>
+      }
+    >
         <div class="space-y-2.5 text-sm">
           <label class="label cursor-pointer justify-start gap-2 py-0">
             <input
@@ -108,37 +138,6 @@ export function ShareSettingsModal() {
           </div>
         )}
 
-        <div class="modal-action mt-6">
-          <button 
-            type="button" 
-            class={`btn btn-sm w-48 ${shareStatus() === "success" ? "btn-success" : shareStatus() === "error" ? "btn-error" : "btn-primary"}`}
-            disabled={shareStatus() === "loading"} 
-            onClick={handleShare}
-          >
-            {shareStatus() === "loading" ? (
-              <>
-                <span class="loading loading-spinner loading-xs"></span>
-                生成中...
-              </>
-            ) : shareStatus() === "success" ? (
-              <>
-                <svg xmlns="http://www.w3.org/2000/svg" class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg>
-                コピー完了
-              </>
-            ) : shareStatus() === "error" ? (
-              "生成失敗"
-            ) : (
-              "URLをコピーして共有"
-            )}
-          </button>
-          <form method="dialog">
-            <button class="btn btn-ghost btn-sm" disabled={shareStatus() === "loading"}>キャンセル</button>
-          </form>
-        </div>
-      </div>
-      <form method="dialog" class="modal-backdrop">
-        <button disabled={shareStatus() === "loading"}>close</button>
-      </form>
-    </dialog>
+        </FusouModal>
   );
 }

@@ -154,6 +154,8 @@ fn setup_tray(
     //     .build(app)?;
     let open_launch_page =
         MenuItemBuilder::with_id("open-launch-page".to_string(), "Open Launch Page").build(app)?;
+    let open_license =
+        MenuItemBuilder::with_id("open-license".to_string(), "License Information").build(app)?;
 
     let open_configs =
         MenuItemBuilder::with_id("open-configs".to_string(), "Open Configs").build(app)?;
@@ -253,6 +255,7 @@ fn setup_tray(
         .item(&main_open_close)
         .item(&external_open_close)
         .item(&open_launch_page)
+        .item(&open_license)
         .separator()
         .item(&advanced_sub_menu)
         .separator()
@@ -437,6 +440,16 @@ fn setup_tray(
                     //     let browser = SHARED_BROWSER.lock().unwrap().get_browser();
                     //     let _ = open_browser(browser, "https://github.com/tsukasa-u").is_ok();
                     // }
+                    "open-license" => {
+                        #[cfg(dev)]
+                        let url = "http://localhost:4321/docs/license/fusou_app";
+                        #[cfg(not(dev))]
+                        let url = "https://fusou.dev/docs/license/fusou_app";
+
+                        if let Err(e) = tray.app_handle().opener().open_url(url, None::<&str>) {
+                            tracing::error!("Failed to open license url: {}", e);
+                        }
+                    }
                     "open-launch-page" => {
                         let window = tray.get_webview_window("main");
                         match window {
