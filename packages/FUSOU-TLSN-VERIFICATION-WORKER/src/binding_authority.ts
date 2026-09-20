@@ -5,6 +5,7 @@ const BINDING_NONCE_BYTES = 32;
 const TLSN_DEVICE_CHALLENGE_BYTES = 32;
 const UUID_BYTES = 16;
 const BENCHMARK_TIMING_KEY = "benchmark-timing";
+const ACQUIRE_VERIFICATION_TIMING_HEADER = "X-FUSOU-TLSN-Acquire-Timing";
 export const VERIFICATION_RESULT_STORAGE_KEY = "verification-result";
 const MAX_VERIFICATION_RESULT_BYTES = 2 * 1024 * 1024 - new TextEncoder().encode(VERIFICATION_RESULT_STORAGE_KEY).byteLength;
 
@@ -42,6 +43,13 @@ export type BindingRecord = {
   device_replay_digest_hex?: string;
   verification_attempt_id?: string;
   verification_lease_expires_at?: string;
+  benchmark_lease_started_at?: string;
+  benchmark_lease_expires_at?: string;
+  benchmark_persistence_started_at?: string;
+  benchmark_persistence_remaining_ms?: number;
+  benchmark_server_completion_at?: string;
+  benchmark_terminal_failure_at?: string;
+  benchmark_terminal_failure_remaining_ms?: number;
   verification_failure_code?: VerificationFailureCode;
   result_sha256?: string;
   result_object_key?: string;
@@ -74,6 +82,21 @@ export type BenchmarkTimingMergeInput = {
   diagnostics?: Record<string, boolean | number | string>;
   max_verifier_concurrency: number;
   updated_at: number;
+};
+
+type AcquireVerificationTimingName =
+  | "acquire_verification_rpc"
+  | "acquire_verification_transaction"
+  | "acquire_verification_storage_get"
+  | "acquire_verification_validation"
+  | "acquire_verification_storage_put"
+  | "acquire_verification_set_alarm";
+
+type AcquireVerificationTiming = Partial<Record<AcquireVerificationTimingName, number>>;
+
+type AcquireVerificationOptions = {
+  benchmarkTiming?: boolean;
+  onBenchmarkTiming?: (timing: Readonly<AcquireVerificationTiming>) => void;
 };
 
 type BindingOperation = {
@@ -120,6 +143,9 @@ export type CommitVerifiedResultInput = {
   result_bytes: Uint8Array;
   used_at: string;
   now: number;
+  benchmark_timing?: boolean;
+  benchmark_persistence_started_at?: string;
+  benchmark_persistence_remaining_ms?: number;
 };
 
 export type VerificationResultLookupInput = JobLookupInput & {
@@ -195,6 +221,7 @@ type AcquireVerificationInput = JobLookupInput & {
   verification_attempt_id: string;
   verification_lease_expires_at: string;
   result_object_key: string;
+  benchmark_timing?: boolean;
 };
 
 type ReleaseVerificationInput = JobLookupInput & {
@@ -204,6 +231,9 @@ type ReleaseVerificationInput = JobLookupInput & {
 type FailVerificationInput = JobLookupInput & {
   verification_attempt_id?: string;
   failure_code: VerificationFailureCode;
+  benchmark_timing?: boolean;
+  benchmark_persistence_started_at?: string;
+  benchmark_persistence_remaining_ms?: number;
 };
 
 type AuthorityResponse =
@@ -442,8 +472,64 @@ export class DurableObjectBindingAuthority {
     return this.call(bindingId, "/job", input);
   }
 
-  async acquireVerification(bindingId: string, input: AcquireVerificationInput): Promise<BindingRecord> {
-    return this.call(bindingId, "/acquire", input);
+  async acquireVerification(
+    bindingId: string,
+    input: AcquireVerificationInput,
+    options: AcquireVerificationOptions = {},
+  ): Promise<BindingRecord> {
+    let response: Response;
+    try {
+      const headers = new Headers({ "Content-Type": "application/json" });
+      if (options.benchmarkTiming) {
+        headers.set(ACQUIRE_VERIFICATION_TIMING_HEADER, "true");
+      }
+      const stub = this.namespace.getByName(bindingId);
+      response = await stub.fetch("https://binding.internal/acquire", {
+        method: "POST",
+        headers,
+        body: JSON.stringify(input),
+      });
+    } catch {
+      throw new BindingAuthorityError("authority_unavailable");
+    }
+    if (!response.ok) {
+      return responseError(response);
+    }
+    const bodyResponse = await response.json<AuthorityResponse>();
+    if (!bodyResponse.ok) {
+      throw new BindingAuthorityError(bodyResponse.error);
+    }
+    if (options.onBenchmarkTiming) {
+      const encodedTiming = response.headers.get(ACQUIRE_VERIFICATION_TIMING_HEADER);
+      if (encodedTiming) {
+        try {
+          const parsed = JSON.parse(
+            new TextDecoder().decode(decodeBase64Url(encodedTiming)),
+          ) as unknown;
+          if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+            const timing: AcquireVerificationTiming = {};
+            for (const [name, value] of Object.entries(parsed)) {
+              if (
+                (name === "acquire_verification_rpc" ||
+                  name === "acquire_verification_transaction" ||
+                  name === "acquire_verification_storage_get" ||
+                  name === "acquire_verification_validation" ||
+                  name === "acquire_verification_storage_put" ||
+                  name === "acquire_verification_set_alarm") &&
+                typeof value === "number" &&
+                Number.isFinite(value) &&
+                value >= 0
+              ) {
+                timing[name] = value;
+              }
+            }
+            options.onBenchmarkTiming(timing);
+          }
+        } catch {
+        }
+      }
+    }
+    return bodyResponse.record;
   }
 
   async releaseVerification(bindingId: string, input: ReleaseVerificationInput): Promise<BindingRecord> {
@@ -550,13 +636,17 @@ export class TlsnBindingAuthorityDurableObject extends DurableObject {
     if (request.method !== "POST") {
       return Response.json({ ok: false, error: "binding_unknown" }, { status: 405 });
     }
+    const path = new URL(request.url).pathname;
+    const acquireRpcStartedAt = path === "/acquire" && request.headers.get(ACQUIRE_VERIFICATION_TIMING_HEADER) === "true"
+      ? performance.now()
+      : undefined;
     try {
       const body = await request.json<BindingOperation & {
         session_id: string;
         now: number;
         allow_consumed?: boolean;
       }>();
-      switch (new URL(request.url).pathname) {
+      switch (path) {
         case "/issue":
           return this.issue(body);
         case "/lookup":
@@ -572,7 +662,7 @@ export class TlsnBindingAuthorityDurableObject extends DurableObject {
         case "/start":
           return this.claim(body as unknown as ClaimInput);
         case "/acquire":
-          return this.acquireVerification(body as unknown as AcquireVerificationInput);
+          return this.acquireVerification(body as unknown as AcquireVerificationInput, acquireRpcStartedAt);
         case "/release":
           return this.releaseVerification(body as unknown as ReleaseVerificationInput);
         case "/fail":
@@ -616,7 +706,7 @@ export class TlsnBindingAuthorityDurableObject extends DurableObject {
         record.verification_lease_expires_at &&
         Date.parse(record.verification_lease_expires_at) <= now
       ) {
-        await transaction.put("binding", failedRecord(record, "lease_expired"));
+        await transaction.put("binding", failedRecord(record, "lease_expired", now));
         if (Number.isFinite(bindingExpiry) && bindingExpiry > now) nextAlarm = bindingExpiry;
         return;
       }
@@ -878,6 +968,17 @@ export class TlsnBindingAuthorityDurableObject extends DurableObject {
         used_at: input.used_at,
         result_sha256: input.result_sha256,
         result_object_key: input.result_object_key,
+        ...(input.benchmark_timing
+          ? {
+            ...(input.benchmark_persistence_started_at
+              ? { benchmark_persistence_started_at: input.benchmark_persistence_started_at }
+              : {}),
+            ...(input.benchmark_persistence_remaining_ms !== undefined
+              ? { benchmark_persistence_remaining_ms: input.benchmark_persistence_remaining_ms }
+              : {}),
+            benchmark_server_completion_at: new Date(Date.now()).toISOString(),
+          }
+          : {}),
       };
       await transaction.put(VERIFICATION_RESULT_STORAGE_KEY, input.result_bytes);
       await transaction.put("binding", consumed);
@@ -992,14 +1093,21 @@ export class TlsnBindingAuthorityDurableObject extends DurableObject {
     return result;
   }
 
-  private async acquireVerification(input: AcquireVerificationInput): Promise<Response> {
+  private async acquireVerification(input: AcquireVerificationInput, acquireRpcStartedAt?: number): Promise<Response> {
     let result: AuthorityResponse = { ok: false, error: "binding_unknown" };
     let acquiredLeaseExpiresAt: string | undefined;
+    const acquireTiming: AcquireVerificationTiming | undefined = acquireRpcStartedAt === undefined ? undefined : {};
+    const transactionStartedAt = acquireTiming ? performance.now() : undefined;
     await this.ctx.storage.transaction(async (transaction) => {
+      const storageGetStartedAt = acquireTiming ? performance.now() : undefined;
       const record = await transaction.get<BindingRecord>("binding");
+      if (acquireTiming && storageGetStartedAt !== undefined) {
+        acquireTiming.acquire_verification_storage_get = performance.now() - storageGetStartedAt;
+      }
       if (!record) {
         return;
       }
+      const validationStartedAt = acquireTiming ? performance.now() : undefined;
       if (record.session_id !== input.session_id) {
         result = { ok: false, error: "session_mismatch" };
         return;
@@ -1097,15 +1205,43 @@ export class TlsnBindingAuthorityDurableObject extends DurableObject {
         verification_attempt_id: input.verification_attempt_id,
         verification_lease_expires_at: leaseExpiresAt,
         result_object_key: input.result_object_key,
+        ...(input.benchmark_timing
+          ? {
+            benchmark_lease_started_at: new Date(input.now).toISOString(),
+            benchmark_lease_expires_at: leaseExpiresAt,
+          }
+          : {}),
       };
+      if (acquireTiming && validationStartedAt !== undefined) {
+        acquireTiming.acquire_verification_validation = performance.now() - validationStartedAt;
+      }
+      const storagePutStartedAt = acquireTiming ? performance.now() : undefined;
       await transaction.put("binding", verifying);
+      if (acquireTiming && storagePutStartedAt !== undefined) {
+        acquireTiming.acquire_verification_storage_put = performance.now() - storagePutStartedAt;
+      }
       acquiredLeaseExpiresAt = leaseExpiresAt;
       result = { ok: true, record: verifying };
     });
-    if (acquiredLeaseExpiresAt) {
-      await this.ctx.storage.setAlarm(Date.parse(acquiredLeaseExpiresAt));
+    if (acquireTiming && transactionStartedAt !== undefined) {
+      acquireTiming.acquire_verification_transaction = performance.now() - transactionStartedAt;
     }
-    return Response.json(result, { status: result.ok ? 200 : authorityStatus(result.error) });
+    if (acquiredLeaseExpiresAt) {
+      const setAlarmStartedAt = acquireTiming ? performance.now() : undefined;
+      await this.ctx.storage.setAlarm(Date.parse(acquiredLeaseExpiresAt));
+      if (acquireTiming && setAlarmStartedAt !== undefined) {
+        acquireTiming.acquire_verification_set_alarm = performance.now() - setAlarmStartedAt;
+      }
+    }
+    const response = Response.json(result, { status: result.ok ? 200 : authorityStatus(result.error) });
+    if (acquireTiming && acquireRpcStartedAt !== undefined) {
+      acquireTiming.acquire_verification_rpc = performance.now() - acquireRpcStartedAt;
+      response.headers.set(
+        ACQUIRE_VERIFICATION_TIMING_HEADER,
+        encodeBase64Url(new TextEncoder().encode(JSON.stringify(acquireTiming))),
+      );
+    }
+    return response;
   }
 
   private async releaseVerification(input: ReleaseVerificationInput): Promise<Response> {
@@ -1201,7 +1337,20 @@ export class TlsnBindingAuthorityDurableObject extends DurableObject {
         result = { ok: false, error: "binding_conflict" };
         return;
       }
-      const failed = failedRecord(record, input.failure_code);
+      const failed = failedRecord(
+        record,
+        input.failure_code,
+        input.now,
+        input.benchmark_timing === true,
+        {
+          ...(input.benchmark_persistence_started_at
+            ? { persistenceStartedAt: input.benchmark_persistence_started_at }
+            : {}),
+          ...(input.benchmark_persistence_remaining_ms !== undefined
+            ? { persistenceRemainingMilliseconds: input.benchmark_persistence_remaining_ms }
+            : {}),
+        },
+      );
       await transaction.put("binding", failed);
       result = { ok: true, record: failed };
     });
@@ -1386,7 +1535,7 @@ export class TlsnBindingAuthorityDurableObject extends DurableObject {
         record.status === "verifying" &&
         (!record.verification_lease_expires_at || Date.parse(record.verification_lease_expires_at) <= input.now)
       ) {
-        const failed = failedRecord(record, "lease_expired");
+        const failed = failedRecord(record, "lease_expired", input.now);
         await transaction.put("binding", failed);
         result = { ok: true, record: failed };
         return;
@@ -1422,7 +1571,16 @@ function authorityStatus(error: AuthorityErrorCode): number {
   }
 }
 
-function failedRecord(record: BindingRecord, failureCode: VerificationFailureCode): BindingRecord {
+function failedRecord(
+  record: BindingRecord,
+  failureCode: VerificationFailureCode,
+  completedAt = Date.now(),
+  benchmarkTiming = true,
+  benchmarkPersistence: {
+    persistenceStartedAt?: string;
+    persistenceRemainingMilliseconds?: number;
+  } = {},
+): BindingRecord {
   const {
     verification_attempt_id: _verificationAttemptId,
     verification_lease_expires_at: _verificationLeaseExpiresAt,
@@ -1435,5 +1593,21 @@ function failedRecord(record: BindingRecord, failureCode: VerificationFailureCod
     ...withoutAttemptAuthority,
     status: "failed",
     verification_failure_code: failureCode,
+    ...(benchmarkTiming && record.benchmark_lease_started_at
+      ? {
+        ...(benchmarkPersistence.persistenceStartedAt
+          ? { benchmark_persistence_started_at: benchmarkPersistence.persistenceStartedAt }
+          : {}),
+        ...(benchmarkPersistence.persistenceRemainingMilliseconds !== undefined
+          ? { benchmark_persistence_remaining_ms: benchmarkPersistence.persistenceRemainingMilliseconds }
+          : {}),
+        benchmark_server_completion_at: new Date(completedAt).toISOString(),
+        benchmark_terminal_failure_at: new Date(completedAt).toISOString(),
+        benchmark_terminal_failure_remaining_ms: Math.max(
+          0,
+          Date.parse(record.benchmark_lease_expires_at ?? record.verification_lease_expires_at ?? "") - completedAt,
+        ),
+      }
+      : {}),
   };
 }

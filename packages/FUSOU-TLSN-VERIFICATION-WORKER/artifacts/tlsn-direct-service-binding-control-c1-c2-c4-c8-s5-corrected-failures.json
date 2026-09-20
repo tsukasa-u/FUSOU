@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "benchmark": "tlsn-worker-remote-e2e-failures",
+  "generated_at": "2026-09-19T18:07:03.148Z",
+  "worker_origin": "https://fusou-tlsn-verification-evidence.ogu-hide-u-425.workers.dev",
+  "configuration": {
+    "execution_mode": "direct",
+    "poll_interval_ms": 100,
+    "max_poll_ms": 300000
+  },
+  "failures": []
+}

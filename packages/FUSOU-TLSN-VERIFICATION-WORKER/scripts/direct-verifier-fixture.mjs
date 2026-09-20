@@ -6,6 +6,13 @@ function decodeBase64Url(value) {
 
 export default {
   async fetch(request, env) {
+    if (new URL(request.url).pathname === "/internal/tlsn/direct-control") {
+      if (request.headers.get("X-FUSOU-TLSN-Benchmark-Control") !== "direct-service-binding-v1") {
+        return new Response(null, { status: 404 });
+      }
+      const receivedBytes = (await request.arrayBuffer()).byteLength;
+      return Response.json({ ok: true, control: "direct-service-binding-v1", received_bytes: receivedBytes });
+    }
     const requestedMode = request.headers.get("X-FUSOU-TLSN-Test-Fault");
     const mode = requestedMode === "failure" || requestedMode === "timeout" || requestedMode === "late_success" || requestedMode === "pause_before_result_commit" || requestedMode === "pause_after_result_commit"
       ? requestedMode

@@ -1399,6 +1399,30 @@ async function runDirectFailureSmokeTest() {
         statusPayload = JSON.parse(statusResponseBytes.toString("utf8"));
       }
       if (scenarioModes.length === 1) assert.equal(directCalls, 1);
+      const directControlResponse = await attemptWorker.fetch("https://verify.test/internal/tlsn/direct-control", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/octet-stream",
+          Authorization: "Bearer test-token-a",
+        },
+        body: Buffer.from(scenarioFixture.presentation_base64, "base64url"),
+      });
+      assert.equal(directControlResponse.status, 200, `${scenarioMode} direct control status`);
+      const directControlPayload = await directControlResponse.json();
+      assert.equal(directControlPayload.control, "direct-service-binding-v1");
+      assert.equal(
+        directControlPayload.presentation_bytes,
+        Buffer.from(scenarioFixture.presentation_base64, "base64url").byteLength,
+      );
+      for (const field of [
+        "request_construction_ms",
+        "service_binding_fetch_wait_ms",
+        "service_binding_round_trip_ms",
+        "response_body_consumption_ms",
+        "response_decode_ms",
+      ]) {
+        assert.equal(Number.isFinite(directControlPayload[field]) && directControlPayload[field] >= 0, true, `${scenarioMode} direct control ${field}`);
+      }
       const requiredDirectDurationNames = [
         "request_authentication",
         "request_body_read",
@@ -1407,12 +1431,23 @@ async function runDirectFailureSmokeTest() {
         "request_device_possession",
         "request_presentation_hash",
         "request_start_verification",
+        "direct_request_construction",
+        "direct_service_binding_fetch_wait",
         "direct_service_binding_round_trip",
+        "direct_response_body_consumption",
+        "direct_response_decode",
         "direct_callback_processing",
+        "transport_residual",
         "direct_callback_entry_to_lease",
         "direct_callback_config_validation",
         "direct_callback_benchmark_registration",
         "direct_acquire_verification",
+        "acquire_verification_rpc",
+        "acquire_verification_transaction",
+        "acquire_verification_storage_get",
+        "acquire_verification_validation",
+        "acquire_verification_storage_put",
+        "acquire_verification_set_alarm",
         "direct_presentation_transfer",
         "direct_presentation_hash",
         "direct_wasm_verification",
@@ -1461,6 +1496,12 @@ async function runDirectFailureSmokeTest() {
             `${scenarioMode} missing finite ${durationName} durations=${JSON.stringify(directTiming?.durations ?? {})}`,
           );
         }
+        assert.equal(
+          Number.isInteger(directTiming?.diagnostics?.transport_residual_negative_count)
+            && directTiming.diagnostics.transport_residual_negative_count >= 0,
+          true,
+          `${scenarioMode} missing transport residual diagnostic`,
+        );
       }
       if (synchronousCandidate) {
         assert.equal(Number.isFinite(directTiming?.durations?.request_direct_dispatch), true, `${scenarioMode} missing request_direct_dispatch`);

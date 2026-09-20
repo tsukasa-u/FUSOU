@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import {
   processVerificationCompletion,
+  benchmarkEnabled,
   decodeBase64Url,
   readRawBody,
   readRawBytes,
@@ -9,10 +10,13 @@ import {
   type TestDirectFault,
   TlsnBindingAuthorityDurableObject,
 } from "./index.js";
+import { verifyInternalRequest } from "./verification_jobs.js";
 
 const MAX_INTERNAL_CALLBACK_JSON_BYTES = 64 * 1024;
 const MAX_PRESENTATION_BYTES = 8 * 1024 * 1024;
+const MAX_CONTROL_METADATA_BYTES = 64 * 1024;
 const DIRECT_METADATA_HEADER = "X-FUSOU-TLSN-Direct-Metadata";
+const DIRECT_CONTROL_HEADER = "X-FUSOU-TLSN-Benchmark-Control";
 
 const app = new Hono<{ Bindings: Bindings }>();
 
@@ -92,6 +96,41 @@ app.post("/internal/tlsn/verification-complete", async (c) => {
     synchronousCandidate,
   );
   return response;
+});
+
+app.post("/internal/tlsn/direct-control", async (c) => {
+  if (!benchmarkEnabled(c.env) || c.env.TLSN_ENVIRONMENT !== "test") {
+    return c.json({ error: "not_found" }, 404);
+  }
+  if (c.req.header(DIRECT_CONTROL_HEADER) !== "direct-service-binding-v1") {
+    return c.json({ error: "not_found" }, 404);
+  }
+  const encodedMetadata = c.req.header(DIRECT_METADATA_HEADER);
+  const rawBody = await readRawBytes(c.req.raw, MAX_PRESENTATION_BYTES).catch(() => undefined);
+  const jobId = c.req.header("X-FUSOU-TLSN-Job-Id") ?? "";
+  const signature = c.req.header("X-FUSOU-TLSN-Signature") ?? null;
+  const callbackSecret = c.env.TLSN_DIRECT_CALLBACK_SECRET;
+  if (!encodedMetadata || !rawBody || !jobId || !signature || !callbackSecret) {
+    return c.json({ error: "unauthorized" }, 401);
+  }
+  let metadata: unknown;
+  try {
+    metadata = JSON.parse(new TextDecoder("utf-8", { fatal: true, ignoreBOM: false }).decode(
+      decodeBase64Url(encodedMetadata, MAX_CONTROL_METADATA_BYTES),
+    ));
+  } catch {
+    return c.json({ error: "unauthorized" }, 401);
+  }
+  if (
+    typeof metadata !== "object"
+    || metadata === null
+    || (metadata as { schema_version?: unknown }).schema_version !== 1
+    || (metadata as { control?: unknown }).control !== "direct-service-binding"
+    || !await verifyInternalRequest(callbackSecret, jobId, JSON.stringify(metadata), signature)
+  ) {
+    return c.json({ error: "unauthorized" }, 401);
+  }
+  return c.json({ ok: true, control: "direct-service-binding-v1", received_bytes: rawBody.byteLength });
 });
 
 export { app, TlsnBindingAuthorityDurableObject };

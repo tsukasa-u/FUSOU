@@ -210,6 +210,7 @@ function signedDeviceProof(device, session, privateKey) {
 
 async function timedJsonRequest(url, options = {}) {
   const startedAt = performance.now();
+  const requestStartedEpochMilliseconds = Date.now();
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), requestTimeoutMilliseconds());
   let response;
@@ -220,6 +221,7 @@ async function timedJsonRequest(url, options = {}) {
   } finally {
     clearTimeout(timeout);
   }
+  const responseReceivedEpochMilliseconds = Date.now();
   const body = responseBytes.toString("utf8");
   const elapsedMilliseconds = performance.now() - startedAt;
   let json;
@@ -236,6 +238,8 @@ async function timedJsonRequest(url, options = {}) {
     elapsedMilliseconds,
     responseBodyBytes: responseBytes.length,
     responseBodySha256: createHash("sha256").update(responseBytes).digest("base64url"),
+    requestStartedEpochMilliseconds,
+    responseReceivedEpochMilliseconds,
   };
 }
 
@@ -394,6 +398,8 @@ async function submitVerification(workerOrigin, accessToken, body, synchronousCa
       : testBenchmarkTraceId,
     clientT0,
     clientT1,
+    clientT0EpochMilliseconds: result.requestStartedEpochMilliseconds,
+    clientT1EpochMilliseconds: result.responseReceivedEpochMilliseconds,
     requestBodyBytes: Buffer.byteLength(body),
     requestAcceptanceMilliseconds: clientT1 - clientT0,
     responseMode: synchronousCandidate ? "direct_synchronous" : "queued_202",
@@ -402,6 +408,38 @@ async function submitVerification(workerOrigin, accessToken, body, synchronousCa
     responseBodyBytes: result.responseBodyBytes,
     responseBodySha256: result.responseBodySha256,
     synchronousTiming: synchronousCandidate ? parseTimingHeader(result.response) : null,
+  };
+}
+
+async function submitDirectControl(workerOrigin, accessToken, presentationBytes) {
+  const result = await timedJsonRequest(endpoint(workerOrigin, "/internal/tlsn/direct-control"), {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/octet-stream",
+      Authorization: `Bearer ${accessToken}`,
+    },
+    body: presentationBytes,
+  });
+  const requiredFields = [
+    "request_construction_ms",
+    "service_binding_fetch_wait_ms",
+    "service_binding_round_trip_ms",
+    "response_body_consumption_ms",
+    "response_decode_ms",
+  ];
+  if (result.status !== 200 || result.json?.control !== "direct-service-binding-v1" || requiredFields.some(
+    (field) => !Number.isFinite(result.json?.[field]) || result.json[field] < 0,
+  )) {
+    throw new Error(`remote Direct control response was invalid: status ${result.status}, body ${JSON.stringify(result.json ?? null)}`);
+  }
+  return {
+    requestConstructionMilliseconds: result.json.request_construction_ms,
+    serviceBindingFetchWaitMilliseconds: result.json.service_binding_fetch_wait_ms,
+    serviceBindingRoundTripMilliseconds: result.json.service_binding_round_trip_ms,
+    responseBodyConsumptionMilliseconds: result.json.response_body_consumption_ms,
+    responseDecodeMilliseconds: result.json.response_decode_ms,
+    clientRoundTripMilliseconds: result.elapsedMilliseconds,
+    responseBodyBytes: result.responseBodyBytes,
   };
 }
 
@@ -457,26 +495,113 @@ async function pollStatus(workerOrigin, accessToken, userId, device, session, jo
   const deadline = pollStartedAt + maxPollMs;
   let pollCount = 0;
   let firstVerifiedResponse;
+  let previousResponseAt = pollStartedAt;
+  let waitBeforeFirstStatusRequestMilliseconds = null;
+  let waitBetweenStatusRequestsMilliseconds = 0;
+  let statusRequestRoundTripMilliseconds = 0;
+  let clientTerminalObservedEpochMilliseconds = null;
+  let benchmarkServerCompletionEpochMilliseconds = null;
+  let benchmarkServerCompletionEpochSource = null;
+  const pollEvents = [];
+  const complete = (value) => ({
+    ...value,
+    pollingTotalElapsedMilliseconds: performance.now() - pollStartedAt,
+    pollingWaitBeforeFirstStatusRequestMilliseconds: waitBeforeFirstStatusRequestMilliseconds,
+    pollingWaitBetweenStatusRequestsMilliseconds: waitBetweenStatusRequestsMilliseconds,
+    pollingStatusRequestRoundTripMilliseconds: statusRequestRoundTripMilliseconds,
+    pollingStatusRequestCount: pollCount,
+    clientTerminalObservedEpochMilliseconds,
+    benchmarkServerCompletionEpochMilliseconds,
+    benchmarkServerCompletionEpochSource,
+    pollEvents,
+  });
   while (performance.now() < deadline) {
-    const result = await timedJsonRequest(endpoint(workerOrigin, "/verify/tlsn/status"), {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${accessToken}`,
-      },
-      body: JSON.stringify({
-        job_id: jobId,
-        binding_id: sha256Base64Url(session.binding),
-        session_id: session.session_id,
-        canonical_user_id: userId,
-        device_id: device.id,
-        ...(benchmarkTraceId ? { benchmark_trace_id: benchmarkTraceId } : {}),
-      }),
-    });
+    const statusRequestStartedAt = performance.now();
+    const waitBeforeRequestMilliseconds = statusRequestStartedAt - previousResponseAt;
+    if (pollCount === 0) {
+      waitBeforeFirstStatusRequestMilliseconds = waitBeforeRequestMilliseconds;
+    } else {
+      waitBetweenStatusRequestsMilliseconds += waitBeforeRequestMilliseconds;
+    }
+    let result;
+    try {
+      result = await timedJsonRequest(endpoint(workerOrigin, "/verify/tlsn/status"), {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({
+          job_id: jobId,
+          binding_id: sha256Base64Url(session.binding),
+          session_id: session.session_id,
+          canonical_user_id: userId,
+          device_id: device.id,
+          ...(benchmarkTraceId ? { benchmark_trace_id: benchmarkTraceId } : {}),
+        }),
+      });
+    } catch (error) {
+      const responseReceivedAt = performance.now();
+      pollCount += 1;
+      statusRequestRoundTripMilliseconds += responseReceivedAt - statusRequestStartedAt;
+      pollEvents.push({
+        request_started_epoch_ms: Date.now() - Math.max(0, responseReceivedAt - statusRequestStartedAt),
+        response_received_epoch_ms: Date.now(),
+        status: null,
+        terminal: true,
+        request_round_trip_ms: responseReceivedAt - statusRequestStartedAt,
+        wait_before_request_ms: waitBeforeRequestMilliseconds,
+        error: error instanceof Error ? error.name : "request_failed",
+      });
+      clientTerminalObservedEpochMilliseconds = Date.now();
+      return complete({
+        outcome: "request_error",
+        failureCode: "status_poll_request_failed",
+        error: error instanceof Error ? error.message : "status_poll_request_failed",
+        timing: null,
+        pollCount,
+      });
+    }
     pollCount += 1;
+    const responseReceivedAt = performance.now();
+    previousResponseAt = responseReceivedAt;
+    statusRequestRoundTripMilliseconds += result.elapsedMilliseconds;
+    const timing = parseTimingHeader(result.response);
+    const headerServerCompletionEpochRaw = result.response.headers.get(
+      "X-FUSOU-TLSN-Benchmark-Server-Completion-Epoch-Ms",
+    );
+    const headerServerCompletionEpochMilliseconds = headerServerCompletionEpochRaw === null
+      ? null
+      : Number(headerServerCompletionEpochRaw);
+    const diagnosticServerCompletionEpochMilliseconds = typeof timing?.diagnostics?.server_completion_epoch_ms === "number"
+      ? timing.diagnostics.server_completion_epoch_ms
+      : null;
+    const directInvocationCompletionEpochMilliseconds = executionMode === "direct"
+      && typeof timing?.timestamps?.direct_invocation_completed === "number"
+      ? timing.timestamps.direct_invocation_completed
+      : null;
+    if (Number.isFinite(headerServerCompletionEpochMilliseconds) && headerServerCompletionEpochMilliseconds > 0) {
+      benchmarkServerCompletionEpochMilliseconds = headerServerCompletionEpochMilliseconds;
+      benchmarkServerCompletionEpochSource = "completion_header";
+    } else if (Number.isFinite(diagnosticServerCompletionEpochMilliseconds) && diagnosticServerCompletionEpochMilliseconds > 0) {
+      benchmarkServerCompletionEpochMilliseconds = diagnosticServerCompletionEpochMilliseconds;
+      benchmarkServerCompletionEpochSource = "timing_diagnostics";
+    } else if (Number.isFinite(directInvocationCompletionEpochMilliseconds) && directInvocationCompletionEpochMilliseconds > 0) {
+      benchmarkServerCompletionEpochMilliseconds = directInvocationCompletionEpochMilliseconds;
+      benchmarkServerCompletionEpochSource = "direct_invocation_completed_fallback";
+    }
+    const terminal = result.status !== 202;
+    pollEvents.push({
+      request_started_epoch_ms: result.requestStartedEpochMilliseconds,
+      response_received_epoch_ms: result.responseReceivedEpochMilliseconds,
+      status: result.status,
+      terminal,
+      request_round_trip_ms: result.elapsedMilliseconds,
+      wait_before_request_ms: waitBeforeRequestMilliseconds,
+    });
     if (result.status === 200 && result.json?.verified === true) {
       const clientT11 = performance.now();
-      const timing = parseTimingHeader(result.response);
+      clientTerminalObservedEpochMilliseconds ??= result.responseReceivedEpochMilliseconds;
       if (!firstVerifiedResponse) {
         firstVerifiedResponse = {
           clientT11,
@@ -487,11 +612,12 @@ async function pollStatus(workerOrigin, accessToken, userId, device, session, jo
         };
       }
       if (requiredTimingStagesPresent(timing, executionMode, synchronousCandidate, synchronousCandidate)) {
-        return {
+        return complete({
+          outcome: "verified",
           ...firstVerifiedResponse,
           timing,
           pollCount,
-        };
+        });
       }
     } else if (result.status !== 202) {
       const boundedStatus = result.json && typeof result.json === "object"
@@ -501,7 +627,6 @@ async function pollStatus(workerOrigin, accessToken, userId, device, session, jo
           ...(typeof result.json.error === "string" ? { error: result.json.error } : {}),
         }
         : null;
-      const timing = parseTimingHeader(result.response);
       const boundedDiagnostics = timing?.diagnostics && typeof timing.diagnostics === "object"
         ? Object.fromEntries(
           [
@@ -515,6 +640,13 @@ async function pollStatus(workerOrigin, accessToken, userId, device, session, jo
             "signed_result_bytes",
             "r2_object_bytes",
             "status_result_bytes",
+            "lease_started_epoch_ms",
+            "lease_expires_epoch_ms",
+            "persistence_started_epoch_ms",
+            "lease_remaining_at_persistence_start_ms",
+            "terminal_failure_epoch_ms",
+            "lease_remaining_at_terminal_failure_ms",
+            "server_completion_epoch_ms",
           ]
             .filter((name) => Object.prototype.hasOwnProperty.call(timing.diagnostics, name))
             .map((name) => [name, timing.diagnostics[name]]),
@@ -523,21 +655,33 @@ async function pollStatus(workerOrigin, accessToken, userId, device, session, jo
       const completedStages = timing?.timestamps && typeof timing.timestamps === "object"
         ? Object.keys(timing.timestamps).filter((stage) => stage.startsWith("direct_") || stage.startsWith("t5_") || stage.startsWith("t6_") || stage.startsWith("t7_") || stage.startsWith("t8_") || stage.startsWith("t9_") || stage.startsWith("t10_") || stage.startsWith("t11_") || stage.startsWith("result_") || stage.startsWith("status_result_read_") || stage.startsWith("input_cleanup_"))
         : null;
-      throw new Error(`remote status polling failed with status ${result.status}: ${JSON.stringify({
-        status: boundedStatus,
+      clientTerminalObservedEpochMilliseconds ??= result.responseReceivedEpochMilliseconds;
+      return complete({
+        outcome: "terminal_failure",
+        failureCode: boundedStatus?.status ?? boundedStatus?.error ?? `status_${result.status}`,
+        terminalStatus: result.status,
+        terminalResponse: boundedStatus,
+        timing,
         diagnostics: boundedDiagnostics,
-        r2_operations: timing?.r2_operations ?? null,
+        completedStages,
+        r2Operations: timing?.r2_operations ?? null,
         durations: timing?.durations ?? null,
-        completed_stages: completedStages,
-      })}`);
+        pollCount,
+      });
     }
     if (firstVerifiedResponse && performance.now() >= deadline) {
-      return { ...firstVerifiedResponse, pollCount };
+      return complete({ outcome: "verified", ...firstVerifiedResponse, pollCount });
     }
     await new Promise((resolveSleep) => setTimeout(resolveSleep, pollIntervalMs));
   }
-  if (firstVerifiedResponse) return { ...firstVerifiedResponse, pollCount };
-  throw new Error("remote status polling exceeded configured maximum");
+  if (firstVerifiedResponse) return complete({ outcome: "verified", ...firstVerifiedResponse, pollCount });
+  clientTerminalObservedEpochMilliseconds ??= Date.now();
+  return complete({
+    outcome: "poll_timeout",
+    failureCode: "poll_timeout",
+    timing: null,
+    pollCount,
+  });
 }
 
 function stageTimestamp(timing, stage) {
@@ -570,12 +714,23 @@ const REQUIRED_DIRECT_TIMING_DURATIONS = [
   "request_device_possession",
   "request_presentation_hash",
   "request_start_verification",
+  "direct_request_construction",
+  "direct_service_binding_fetch_wait",
   "direct_service_binding_round_trip",
+  "direct_response_body_consumption",
+  "direct_response_decode",
   "direct_callback_processing",
+  "transport_residual",
   "direct_callback_entry_to_lease",
   "direct_callback_config_validation",
   "direct_callback_benchmark_registration",
   "direct_acquire_verification",
+  "acquire_verification_rpc",
+  "acquire_verification_transaction",
+  "acquire_verification_storage_get",
+  "acquire_verification_validation",
+  "acquire_verification_storage_put",
+  "acquire_verification_set_alarm",
   "direct_presentation_transfer",
   "direct_presentation_hash",
   "direct_wasm_verification",
@@ -641,6 +796,367 @@ function summarize(samples, field) {
   };
 }
 
+function pairedCorrelation(samples, leftField, rightField) {
+  const pairs = samples
+    .map((sample) => [sample[leftField], sample[rightField]])
+    .filter(([left, right]) => Number.isFinite(left) && Number.isFinite(right));
+  if (pairs.length === 0) {
+    return { count: 0, pearson_r: null };
+  }
+  const leftMean = pairs.reduce((total, [left]) => total + left, 0) / pairs.length;
+  const rightMean = pairs.reduce((total, [, right]) => total + right, 0) / pairs.length;
+  const centered = pairs.map(([left, right]) => [left - leftMean, right - rightMean]);
+  const numerator = centered.reduce((total, [left, right]) => total + left * right, 0);
+  const leftNorm = Math.sqrt(centered.reduce((total, [left]) => total + left * left, 0));
+  const rightNorm = Math.sqrt(centered.reduce((total, [, right]) => total + right * right, 0));
+  return {
+    count: pairs.length,
+    pearson_r: leftNorm > 0 && rightNorm > 0 ? numerator / (leftNorm * rightNorm) : null,
+  };
+}
+
+function sumFinite(values) {
+  return values.reduce(
+    (total, value) => total + (Number.isFinite(value) ? value : 0),
+    0,
+  );
+}
+
+function nonNegativeEpochDelta(end, start) {
+  if (!Number.isFinite(end) || !Number.isFinite(start)) return null;
+  const delta = end - start;
+  return delta >= 0 ? delta : null;
+}
+
+function derivePollingSample(sample) {
+  const events = Array.isArray(sample.poll_events) ? sample.poll_events : [];
+  const firstEvent = events[0] ?? null;
+  const terminalEvent = events.find((event) => event.terminal === true) ?? null;
+  const completionEpoch = sample.benchmark_server_completion_epoch_ms;
+  const firstPollDelay = nonNegativeEpochDelta(
+    firstEvent?.request_started_epoch_ms,
+    sample.initial_202_response_received_epoch_ms,
+  );
+  const nextPollAfterCompletion = Number.isFinite(completionEpoch)
+    ? events.find((event) => event.request_started_epoch_ms >= completionEpoch) ?? null
+    : null;
+  const completionDuringStatusRequest = Number.isFinite(completionEpoch)
+    ? events.find((event) => (
+      Number.isFinite(event.request_started_epoch_ms)
+      && Number.isFinite(event.response_received_epoch_ms)
+      && event.request_started_epoch_ms < completionEpoch
+      && completionEpoch <= event.response_received_epoch_ms
+    )) ?? null
+    : null;
+  let completionRelativeToPollSchedule = "inconclusive_clock_order";
+  if (Number.isFinite(completionEpoch) && firstEvent?.request_started_epoch_ms >= completionEpoch) {
+    completionRelativeToPollSchedule = "before_first_status_request";
+  } else if (completionDuringStatusRequest) {
+    completionRelativeToPollSchedule = "during_status_request";
+  } else if (nextPollAfterCompletion) {
+    completionRelativeToPollSchedule = "between_status_requests";
+  } else if (
+    terminalEvent
+    && Number.isFinite(completionEpoch)
+    && Number.isFinite(terminalEvent.response_received_epoch_ms)
+    && terminalEvent.response_received_epoch_ms < completionEpoch
+  ) {
+    completionRelativeToPollSchedule = "after_terminal_observation";
+  }
+  const terminalResponseAfterCompletionMilliseconds = terminalEvent
+    ? nonNegativeEpochDelta(
+      terminalEvent.response_received_epoch_ms,
+      Math.max(completionEpoch, terminalEvent.request_started_epoch_ms),
+    )
+    : null;
+  const completionToTerminalPollStartMilliseconds = terminalEvent
+    ? nonNegativeEpochDelta(terminalEvent.request_started_epoch_ms, completionEpoch)
+    : null;
+  const statusRequestCount = events.length || sample.polling_status_request_count || 0;
+  return {
+    case_label: sample.case_label,
+    concurrency: sample.concurrency,
+    sample_index: sample.sample_index,
+    outcome: "verified",
+    completion_marker_source: sample.server_completion_epoch_source ?? null,
+    verification_start_request_start_epoch_ms: sample.verification_start_request_started_epoch_ms ?? null,
+    initial_202_response_received_epoch_ms: sample.initial_202_response_received_epoch_ms ?? null,
+    client_terminal_observed_epoch_ms: sample.client_terminal_observed_epoch_ms ?? null,
+    benchmark_server_completion_epoch_ms: completionEpoch ?? null,
+    first_poll_delay_ms: firstPollDelay ?? sample.polling_wait_before_first_status_request_ms ?? null,
+    polling_wait_before_first_status_request_ms: sample.polling_wait_before_first_status_request_ms ?? null,
+    polling_wait_between_status_requests_ms: sample.polling_wait_between_status_requests_ms ?? null,
+    total_poll_wait_ms: sumFinite(events.map((event) => event.wait_before_request_ms)),
+    total_status_request_round_trip_ms: sumFinite(events.map((event) => event.request_round_trip_ms)),
+    terminal_status_request_round_trip_ms: terminalEvent?.request_round_trip_ms ?? null,
+    terminal_response_after_completion_ms: terminalResponseAfterCompletionMilliseconds,
+    terminal_observation_delay_ms: sample.server_to_client_observation_delay_ms ?? null,
+    completion_to_next_status_request_delay_ms: nextPollAfterCompletion
+      ? nonNegativeEpochDelta(nextPollAfterCompletion.request_started_epoch_ms, completionEpoch)
+      : null,
+    completion_to_next_poll_request_ms: nextPollAfterCompletion
+      ? nonNegativeEpochDelta(nextPollAfterCompletion.request_started_epoch_ms, completionEpoch)
+      : null,
+    completion_to_terminal_poll_start_ms: completionToTerminalPollStartMilliseconds,
+    completion_relative_to_poll_schedule: completionRelativeToPollSchedule,
+    poll_count: statusRequestCount,
+    status_request_count: statusRequestCount,
+    total_http_request_count: 1 + statusRequestCount,
+    requests_per_completed_verification: 1 + statusRequestCount,
+    client_visible_ms: sample.client_visible_ms ?? null,
+    server_completion_ms: sample.phases_ms?.server_completion ?? null,
+    server_to_client_observation_delay_ms: sample.server_to_client_observation_delay_ms ?? null,
+    do_operations: sample.do_operations ?? {},
+    r2_operations: sample.r2_operations ?? {},
+    response_bytes_match_result_hash: sample.response_bytes_match_result_hash ?? null,
+    status_recovery_bytes_match_result_hash: sample.status_recovery_bytes_match_result_hash ?? null,
+    poll_events: events,
+  };
+}
+
+function summarizePollingField(samples, field) {
+  return summarize(samples.map((sample) => ({ value: sample[field] })), "value");
+}
+
+function diagnosePollingSchedule(samples) {
+  const scheduleValues = samples
+    .map((sample) => sample.completion_to_terminal_poll_start_ms)
+    .filter(Number.isFinite);
+  const terminalExchangeValues = samples
+    .map((sample) => sample.terminal_status_request_round_trip_ms)
+    .filter(Number.isFinite);
+  const scheduleP95 = pQuantile(scheduleValues, 0.95);
+  const terminalExchangeP95 = pQuantile(terminalExchangeValues, 0.95);
+  if (!Number.isFinite(scheduleP95) || !Number.isFinite(terminalExchangeP95)) {
+    return {
+      classification: "inconclusive",
+      basis: "missing_sample_level_completion_to_terminal_poll_start_or_terminal_status_round_trip",
+      schedule_component_p95_ms: scheduleP95,
+      terminal_exchange_component_p95_ms: terminalExchangeP95,
+      schedule_component_sample_count: scheduleValues.length,
+      terminal_exchange_component_sample_count: terminalExchangeValues.length,
+    };
+  }
+  const classification = scheduleP95 > terminalExchangeP95 * 1.5
+    ? "polling-schedule-dominated"
+    : terminalExchangeP95 > scheduleP95 * 1.5
+      ? "polling-round-trip-dominated"
+      : "mixed";
+  return {
+    classification,
+    basis: "sample_level_p95_completion_to_terminal_poll_start_vs_terminal_status_request_round_trip",
+    schedule_component_p95_ms: scheduleP95,
+    terminal_exchange_component_p95_ms: terminalExchangeP95,
+    schedule_component_sample_count: scheduleValues.length,
+    terminal_exchange_component_sample_count: terminalExchangeValues.length,
+  };
+}
+
+function sumResourceOperation(samples, operation, resource) {
+  return samples.reduce((total, sample) => {
+    const value = sample[resource]?.[operation];
+    return total + (Number.isFinite(value) ? value : 0);
+  }, 0);
+}
+
+function buildPollingAuthoritySummary(samples, executionMode) {
+  const all = (predicate) => samples.length > 0 && samples.every(predicate);
+  const resultR2GetCount = ["result_get", "status_result_get", "replay_result_get"].reduce(
+    (total, operation) => total + sumResourceOperation(samples, operation, "r2_operations"),
+    0,
+  );
+  return {
+    expected_semantics: {
+      start_verification: 1,
+      acquire_verification: 1,
+      commit_verified_result: 1,
+      fresh_direct_lookup_binding: 0,
+      result_authority: "durable_object_commit",
+      result_r2_get: 0,
+      result_r2_put: "async_archive_only",
+      polling_role: "observe_authoritative_result_only",
+    },
+    observed_counts: {
+      start_verification: sumResourceOperation(samples, "start_verification", "do_operations"),
+      acquire_verification: sumResourceOperation(samples, "acquire_verification", "do_operations"),
+      commit_verified_result: sumResourceOperation(samples, "commit_verified_result", "do_operations"),
+      fresh_direct_lookup_binding: sumResourceOperation(samples, "lookup_binding", "do_operations"),
+      result_r2_get: resultR2GetCount,
+      result_r2_put_archive: sumResourceOperation(samples, "result_archive_put", "r2_operations"),
+    },
+    invariant_checks: {
+      start_verification_exactly_once: all((sample) => sample.do_operations?.start_verification === 1),
+      acquire_verification_exactly_once: all((sample) => sample.do_operations?.acquire_verification === 1),
+      commit_verified_result_exactly_once: all((sample) => sample.do_operations?.commit_verified_result === 1),
+      fresh_direct_lookup_binding_zero: executionMode !== "direct"
+        || all((sample) => (sample.do_operations?.lookup_binding ?? 0) === 0),
+      result_r2_get_zero: resultR2GetCount === 0,
+      result_bytes_match_result_hash: all((sample) => sample.response_bytes_match_result_hash === true),
+      status_recovery_bytes_match_result_hash: all((sample) => sample.status_recovery_bytes_match_result_hash === true),
+    },
+    replay_semantics: "not_exercised_by_this_baseline; status polling only observes the committed result",
+    callback_authority_semantics: "unchanged; this measurement does not promote polling to an authority mechanism",
+  };
+}
+
+function buildPollingAnalysis({
+  rows,
+  failures,
+  workerOrigin,
+  health,
+  cases,
+  concurrencyValues,
+  sampleCount,
+  pollIntervalMs,
+  maxPollMs,
+  executionMode,
+  authMode,
+  expectedEnvironment,
+  reportPath,
+}) {
+  const samples = rows.flatMap((row) => row.samples).map(derivePollingSample);
+  const byConcurrency = concurrencyValues.map((concurrency) => {
+    const group = samples.filter((sample) => sample.concurrency === concurrency);
+    const diagnosis = diagnosePollingSchedule(group);
+    return {
+      concurrency,
+      case_count: cases.length,
+      requested_samples_per_case: sampleCount,
+      requested_invocations: sampleCount * concurrency * cases.length,
+      normal_verified_sample_records: group.length,
+      timing_complete_sample_records: group.length,
+      metrics: {
+        client_visible: summarizePollingField(group, "client_visible_ms"),
+        server_completion: summarizePollingField(group, "server_completion_ms"),
+        total_poll_wait: summarizePollingField(group, "total_poll_wait_ms"),
+        polling_wait_between_status_requests: summarizePollingField(group, "polling_wait_between_status_requests_ms"),
+        total_status_request_round_trip: summarizePollingField(group, "total_status_request_round_trip_ms"),
+        terminal_observation_delay: summarizePollingField(group, "terminal_observation_delay_ms"),
+        poll_count: summarizePollingField(group, "poll_count"),
+        status_request_count: summarizePollingField(group, "status_request_count"),
+        total_http_request_count: summarizePollingField(group, "total_http_request_count"),
+        requests_per_completed_verification: summarizePollingField(group, "requests_per_completed_verification"),
+        completion_to_next_status_request_delay: summarizePollingField(group, "completion_to_next_status_request_delay_ms"),
+        completion_to_next_poll_request: summarizePollingField(group, "completion_to_next_poll_request_ms"),
+        completion_to_terminal_poll_start: summarizePollingField(group, "completion_to_terminal_poll_start_ms"),
+        terminal_status_request_round_trip: summarizePollingField(group, "terminal_status_request_round_trip_ms"),
+        terminal_response_after_completion: summarizePollingField(group, "terminal_response_after_completion_ms"),
+      },
+      correlations: {
+        client_visible_vs_total_poll_wait: pairedCorrelation(group, "client_visible_ms", "total_poll_wait_ms"),
+        client_visible_vs_polling_wait_between_status_requests: pairedCorrelation(group, "client_visible_ms", "polling_wait_between_status_requests_ms"),
+        client_visible_vs_completion_to_next_poll_request: pairedCorrelation(group, "client_visible_ms", "completion_to_next_poll_request_ms"),
+        client_visible_vs_terminal_status_request_round_trip: pairedCorrelation(group, "client_visible_ms", "terminal_status_request_round_trip_ms"),
+        client_visible_vs_terminal_observation_delay: pairedCorrelation(group, "client_visible_ms", "terminal_observation_delay_ms"),
+        client_visible_vs_poll_count: pairedCorrelation(group, "client_visible_ms", "poll_count"),
+        server_completion_vs_client_visible: pairedCorrelation(group, "server_completion_ms", "client_visible_ms"),
+      },
+      completion_relative_to_poll_schedule: Object.fromEntries(
+        [...new Set(group.map((sample) => sample.completion_relative_to_poll_schedule))]
+          .map((phase) => [phase, group.filter((sample) => sample.completion_relative_to_poll_schedule === phase).length]),
+      ),
+      diagnosis,
+    };
+  });
+  const completionMarkerSources = Object.fromEntries(
+    ["completion_header", "timing_diagnostics", "direct_invocation_completed_fallback"]
+      .map((source) => [source, samples.filter((sample) => sample.completion_marker_source === source).length]),
+  );
+  completionMarkerSources.missing = samples.filter((sample) => !sample.completion_marker_source).length;
+  const globalDiagnosis = diagnosePollingSchedule(samples);
+  return {
+    schema_version: 1,
+    benchmark: "tlsn-direct-polling-analysis",
+    generated_at: new Date().toISOString(),
+    source_report: repositoryRelativePath(reportPath),
+    worker_origin: workerOrigin,
+    worker_health: {
+      environment: health.environment,
+      deployment_role: health.deployment_role,
+      deployment_id: health.deployment_id,
+      git_commit_sha: health.git_commit_sha,
+    },
+    current_algorithm: {
+      initial_status_request_delay_ms: 0,
+      initial_status_request_behavior: "issue immediately after the initial 202 response is received",
+      poll_interval_ms: pollIntervalMs,
+      schedule: "fixed interval after each non-terminal status response",
+      retry_or_backoff: "none; a status request error is terminal for the sample",
+      non_terminal_status: 202,
+      terminal_status: "any status other than 202",
+      successful_terminal_condition: "status 200, verified true, and required timing metadata present",
+      timeout_ms: maxPollMs,
+      timeout_condition: "pollStatus deadline expires before a verified terminal response",
+    },
+    configuration: {
+      execution_mode: executionMode,
+      session_auth_mode: authMode,
+      expected_environment: expectedEnvironment,
+      cases,
+      concurrency: concurrencyValues,
+      requested_samples_per_case_and_concurrency: sampleCount,
+      poll_interval_ms: pollIntervalMs,
+      max_poll_ms: maxPollMs,
+      sample_count_semantics: "requested samples are multiplied by concurrency and case count; internal timing records are not the same as requested sample count",
+    },
+    deployment_completion_marker: {
+      source_counts: completionMarkerSources,
+      fallback_count: completionMarkerSources.direct_invocation_completed_fallback,
+      header_count: completionMarkerSources.completion_header,
+      diagnostic_count: completionMarkerSources.timing_diagnostics,
+      timestamp_semantics: "completion_header is preferred, then timing diagnostics, then direct_invocation_completed fallback; Worker epoch and client epoch are compared without clock-skew correction",
+      old_deployment_compatibility: completionMarkerSources.direct_invocation_completed_fallback > 0
+        ? "old deployment fallback was used"
+        : "no completion marker fallback was used",
+    },
+    baseline: {
+      normal_verified_sample_records: samples.length,
+      failure_count: failures.length,
+      timing_complete_sample_records: samples.length,
+      by_concurrency: byConcurrency,
+      global: {
+        client_visible: summarizePollingField(samples, "client_visible_ms"),
+        server_completion: summarizePollingField(samples, "server_completion_ms"),
+        total_poll_wait: summarizePollingField(samples, "total_poll_wait_ms"),
+        polling_wait_between_status_requests: summarizePollingField(samples, "polling_wait_between_status_requests_ms"),
+        total_status_request_round_trip: summarizePollingField(samples, "total_status_request_round_trip_ms"),
+        terminal_observation_delay: summarizePollingField(samples, "terminal_observation_delay_ms"),
+        poll_count: summarizePollingField(samples, "poll_count"),
+        status_request_count: summarizePollingField(samples, "status_request_count"),
+        total_http_request_count: summarizePollingField(samples, "total_http_request_count"),
+        requests_per_completed_verification: summarizePollingField(samples, "requests_per_completed_verification"),
+        completion_to_next_status_request_delay: summarizePollingField(samples, "completion_to_next_status_request_delay_ms"),
+        completion_to_next_poll_request: summarizePollingField(samples, "completion_to_next_poll_request_ms"),
+        completion_to_terminal_poll_start: summarizePollingField(samples, "completion_to_terminal_poll_start_ms"),
+        terminal_status_request_round_trip: summarizePollingField(samples, "terminal_status_request_round_trip_ms"),
+        terminal_response_after_completion: summarizePollingField(samples, "terminal_response_after_completion_ms"),
+      },
+      correlations: {
+        client_visible_vs_total_poll_wait: pairedCorrelation(samples, "client_visible_ms", "total_poll_wait_ms"),
+        client_visible_vs_polling_wait_between_status_requests: pairedCorrelation(samples, "client_visible_ms", "polling_wait_between_status_requests_ms"),
+        client_visible_vs_completion_to_next_poll_request: pairedCorrelation(samples, "client_visible_ms", "completion_to_next_poll_request_ms"),
+        client_visible_vs_terminal_status_request_round_trip: pairedCorrelation(samples, "client_visible_ms", "terminal_status_request_round_trip_ms"),
+        client_visible_vs_terminal_observation_delay: pairedCorrelation(samples, "client_visible_ms", "terminal_observation_delay_ms"),
+        client_visible_vs_poll_count: pairedCorrelation(samples, "client_visible_ms", "poll_count"),
+        server_completion_vs_client_visible: pairedCorrelation(samples, "server_completion_ms", "client_visible_ms"),
+      },
+      diagnosis: globalDiagnosis,
+    },
+    authority_invariants: buildPollingAuthoritySummary(samples, executionMode),
+    samples,
+    failures: failures.map((failure) => ({
+      case_label: failure.case_label,
+      concurrency: failure.concurrency,
+      sample_index: failure.sample_index,
+      outcome: failure.outcome,
+      failure_code: failure.failure_code,
+      poll_count: failure.poll_count,
+      polling_total_elapsed_ms: failure.polling_total_elapsed_ms,
+    })),
+    optimization: "measurement-only; no runtime optimization retained",
+  };
+}
+
 function summarizeServerDuration(samples, name) {
   return summarize(
     samples.map((sample) => ({ value: sample.server_durations?.[name] })),
@@ -671,15 +1187,32 @@ function summarizePhases(samples) {
     trigger_queue_start: summarize(samples, "triggerQueueStartMilliseconds"),
     direct_input_binding: summarize(samples, "directInputBindingMilliseconds"),
     direct_invocation_startup: summarize(samples, "directInvocationStartupMilliseconds"),
+    direct_request_construction: summarize(samples, "directRequestConstructionMilliseconds"),
+    direct_service_binding_fetch_wait: summarize(samples, "directServiceBindingFetchWaitMilliseconds"),
     direct_presentation_transfer: summarize(samples, "directPresentationTransferMilliseconds"),
     direct_presentation_hash: summarize(samples, "presentationHashMilliseconds"),
     direct_wasm_verification: summarize(samples, "wasmVerificationMilliseconds"),
     direct_service_binding_round_trip: summarize(samples, "directServiceBindingRoundTripMilliseconds"),
+    direct_response_body_consumption: summarize(samples, "directResponseBodyConsumptionMilliseconds"),
+    direct_response_decode: summarize(samples, "directResponseDecodeMilliseconds"),
+    direct_control_request_construction: summarize(samples, "directControlRequestConstructionMilliseconds"),
+    direct_control_service_binding_fetch_wait: summarize(samples, "directControlServiceBindingFetchWaitMilliseconds"),
+    direct_control_service_binding_round_trip: summarize(samples, "directControlServiceBindingRoundTripMilliseconds"),
+    direct_control_response_body_consumption: summarize(samples, "directControlResponseBodyConsumptionMilliseconds"),
+    direct_control_response_decode: summarize(samples, "directControlResponseDecodeMilliseconds"),
+    direct_control_client_round_trip: summarize(samples, "directControlClientRoundTripMilliseconds"),
     direct_callback_processing: summarize(samples, "directCallbackProcessingMilliseconds"),
+    transport_residual: summarize(samples, "transportResidualMilliseconds"),
     direct_callback_entry_to_lease: summarize(samples, "directCallbackEntryToLeaseMilliseconds"),
     direct_callback_config_validation: summarize(samples, "directCallbackConfigValidationMilliseconds"),
     direct_callback_benchmark_registration: summarize(samples, "directCallbackBenchmarkRegistrationMilliseconds"),
     direct_acquire_verification: summarize(samples, "directAcquireVerificationMilliseconds"),
+    acquire_verification_rpc: summarize(samples, "acquireVerificationRpcMilliseconds"),
+    acquire_verification_transaction: summarize(samples, "acquireVerificationTransactionMilliseconds"),
+    acquire_verification_storage_get: summarize(samples, "acquireVerificationStorageGetMilliseconds"),
+    acquire_verification_validation: summarize(samples, "acquireVerificationValidationMilliseconds"),
+    acquire_verification_storage_put: summarize(samples, "acquireVerificationStoragePutMilliseconds"),
+    acquire_verification_set_alarm: summarize(samples, "acquireVerificationSetAlarmMilliseconds"),
     trigger_start_to_callback: summarize(samples, "triggerStartToCallbackMilliseconds"),
     callback_entry_to_lease: summarize(samples, "callbackEntryToLeaseMilliseconds"),
     worker_r2_input: summarize(samples, "workerR2InputMilliseconds"),
@@ -723,8 +1256,58 @@ function summarizePhases(samples) {
     server_completion: summarize(samples, "serverCompletionMilliseconds"),
     client_observation: summarize(samples, "clientObservationMilliseconds"),
     status_polling: summarize(samples, "statusPollingMilliseconds"),
+    polling_initial_response_round_trip: summarize(samples, "pollingInitialResponseRoundTripMilliseconds"),
+    polling_wait_before_first_status_request: summarize(samples, "pollingWaitBeforeFirstStatusRequestMilliseconds"),
+    polling_wait_between_status_requests: summarize(samples, "pollingWaitBetweenStatusRequestsMilliseconds"),
+    polling_status_request_round_trip: summarize(samples, "pollingStatusRequestRoundTripMilliseconds"),
+    polling_total_elapsed: summarize(samples, "pollingTotalElapsedMilliseconds"),
+    polling_status_request_count: summarize(samples, "pollingStatusRequestCount"),
+    server_to_client_observation_delay: summarize(samples, "serverToClientObservationDelayMilliseconds"),
     synchronous_response: summarize(samples, "synchronousResponseMilliseconds"),
     client_visible: summarize(samples, "clientVisibleMilliseconds"),
+  };
+}
+
+function diagnoseNormalLatency(samples) {
+  const completeSamples = samples.filter((sample) =>
+    Number.isFinite(sample.clientVisibleMilliseconds)
+    && Number.isFinite(sample.serverCompletionMilliseconds)
+    && Number.isFinite(sample.serverToClientObservationDelayMilliseconds),
+  );
+  if (completeSamples.length === 0) {
+    return {
+      classification: "inconclusive",
+      basis: "no_verified_samples_with_server_and_observation_epochs",
+      sample_count: 0,
+    };
+  }
+  const pollingValues = completeSamples.map((sample) =>
+    (sample.pollingWaitBeforeFirstStatusRequestMilliseconds ?? 0)
+    + (sample.pollingWaitBetweenStatusRequestsMilliseconds ?? 0)
+    + Math.max(0, sample.serverToClientObservationDelayMilliseconds),
+  );
+  const serverValues = completeSamples.map((sample) => sample.serverCompletionMilliseconds);
+  const pollingP95 = pQuantile(pollingValues, 0.95);
+  const serverP95 = pQuantile(serverValues, 0.95);
+  if (!Number.isFinite(pollingP95) || !Number.isFinite(serverP95)) {
+    return {
+      classification: "inconclusive",
+      basis: "incomplete_verified_phase_measurements",
+      sample_count: completeSamples.length,
+    };
+  }
+  const classification = pollingP95 > serverP95 * 1.5
+    ? "polling-observation-dominated"
+    : serverP95 > pollingP95 * 1.5
+      ? "server-processing-dominated"
+      : "mixed";
+  return {
+    classification,
+    basis: "verified_sample_p95_component_comparison",
+    sample_count: completeSamples.length,
+    polling_observation_component_p95_ms: pollingP95,
+    server_processing_component_p95_ms: serverP95,
+    clock_skew_caveat: "server epoch and client epoch are compared as coarse wall-clock markers; cross-runtime clock skew is not corrected",
   };
 }
 
@@ -838,6 +1421,7 @@ function summarizeResourceObservations(samples) {
     do_commit_verified_result_count: countDOOperations("commit_verified_result"),
     do_result_read_count: countDOOperations("result_read"),
     direct_invocation_count: countDiagnostic("direct_invocation_count"),
+    transport_residual_negative_count: countDiagnostic("transport_residual_negative_count"),
     synchronous_replay_count: countDiagnostic("synchronous_replay_count"),
     late_callback_count: countDiagnostic("late_callback_count"),
     verified_count: samples.filter((sample) => sample.diagnostics?.terminal_outcome === "verified").length,
@@ -863,6 +1447,7 @@ function rowDecision(row) {
 async function runBatch({ workerOrigin, webOrigin, accessToken, userId, device, privateKey, manifest, entry, concurrency, sampleCount, pollIntervalMs, maxPollMs, executionMode, synchronousCandidate, responseLossRecovery }) {
   const sourcePath = fixtureSourcePath(manifest, entry);
   const samples = [];
+  const failures = [];
   let preparationMilliseconds = 0;
   for (let sampleIndex = 0; sampleIndex < sampleCount; sampleIndex += 1) {
     const sessionMeasurements = await Promise.all(
@@ -958,9 +1543,91 @@ async function runBatch({ workerOrigin, webOrigin, accessToken, userId, device, 
           false,
         )),
       );
+    const controlMeasurements = executionMode === "direct"
+      ? await Promise.all(fixtures.map((fixture) => submitDirectControl(
+        workerOrigin,
+        accessToken,
+        Buffer.from(fixture.sparse_presentation_base64, "base64url"),
+      )))
+      : fixtures.map(() => null);
     for (let index = 0; index < concurrency; index += 1) {
       const submission = submissions[index];
       const completion = completions[index];
+      const controlMeasurement = controlMeasurements[index];
+      if (completion.outcome !== "verified") {
+        const failureTiming = completion.timing;
+        const failureDiagnostics = failureTiming?.diagnostics ?? completion.diagnostics ?? {};
+        failures.push({
+          case_label: entry.caseLabel,
+          concurrency,
+          sample_index: sampleIndex,
+          worker_sample_index: index,
+          job_id_sha256: submission?.jobId ? sha256Base64Url(submission.jobId) : null,
+          outcome: completion.outcome,
+          failure_code: completion.failureCode ?? "unknown_failure",
+          terminal_status: completion.terminalStatus ?? null,
+          terminal_response: completion.terminalResponse ?? null,
+          elapsed_ms: Number.isFinite(completion.pollingTotalElapsedMilliseconds)
+            ? completion.pollingTotalElapsedMilliseconds
+            : null,
+          request_acceptance_ms: submission?.requestAcceptanceMilliseconds ?? null,
+          poll_count: completion.pollCount ?? 0,
+          polling_wait_before_first_status_request_ms: completion.pollingWaitBeforeFirstStatusRequestMilliseconds ?? null,
+          polling_wait_between_status_requests_ms: completion.pollingWaitBetweenStatusRequestsMilliseconds ?? null,
+          polling_status_request_round_trip_ms: completion.pollingStatusRequestRoundTripMilliseconds ?? null,
+          polling_total_elapsed_ms: completion.pollingTotalElapsedMilliseconds ?? null,
+          client_terminal_observed_epoch_ms: completion.clientTerminalObservedEpochMilliseconds ?? null,
+          benchmark_server_completion_epoch_ms: completion.benchmarkServerCompletionEpochMilliseconds ?? null,
+          server_to_client_observation_delay_ms: Number.isFinite(completion.benchmarkServerCompletionEpochMilliseconds)
+            && Number.isFinite(completion.clientTerminalObservedEpochMilliseconds)
+            ? completion.clientTerminalObservedEpochMilliseconds - completion.benchmarkServerCompletionEpochMilliseconds
+            : null,
+          diagnostics: failureDiagnostics,
+          direct_acquire_verification_ms: Number.isFinite(failureTiming?.durations?.direct_acquire_verification)
+            ? failureTiming.durations.direct_acquire_verification
+            : null,
+          direct_callback_processing_ms: Number.isFinite(failureTiming?.durations?.direct_callback_processing)
+            ? failureTiming.durations.direct_callback_processing
+            : null,
+          transport_residual_ms: Number.isFinite(failureTiming?.durations?.transport_residual)
+            ? failureTiming.durations.transport_residual
+            : null,
+          result_persistence_ms: Number.isFinite(failureTiming?.durations?.result_persistence)
+            ? failureTiming.durations.result_persistence
+            : null,
+          result_persistence_preparation_ms: Number.isFinite(failureTiming?.durations?.result_persistence_preparation)
+            ? failureTiming.durations.result_persistence_preparation
+            : null,
+          do_commit_verified_result_ms: Number.isFinite(failureTiming?.durations?.do_commit_verified_result)
+            ? failureTiming.durations.do_commit_verified_result
+            : null,
+          lease_started_epoch_ms: Number.isFinite(failureDiagnostics.lease_started_epoch_ms)
+            ? failureDiagnostics.lease_started_epoch_ms
+            : null,
+          lease_expires_epoch_ms: Number.isFinite(failureDiagnostics.lease_expires_epoch_ms)
+            ? failureDiagnostics.lease_expires_epoch_ms
+            : null,
+          persistence_started_epoch_ms: Number.isFinite(failureDiagnostics.persistence_started_epoch_ms)
+            ? failureDiagnostics.persistence_started_epoch_ms
+            : null,
+          lease_remaining_at_persistence_start_ms: Number.isFinite(failureDiagnostics.lease_remaining_at_persistence_start_ms)
+            ? failureDiagnostics.lease_remaining_at_persistence_start_ms
+            : null,
+          terminal_failure_epoch_ms: Number.isFinite(failureDiagnostics.terminal_failure_epoch_ms)
+            ? failureDiagnostics.terminal_failure_epoch_ms
+            : null,
+          lease_remaining_at_terminal_failure_ms: Number.isFinite(failureDiagnostics.lease_remaining_at_terminal_failure_ms)
+            ? failureDiagnostics.lease_remaining_at_terminal_failure_ms
+            : null,
+          server_completion_epoch_ms: Number.isFinite(failureDiagnostics.server_completion_epoch_ms)
+            ? failureDiagnostics.server_completion_epoch_ms
+            : completion.benchmarkServerCompletionEpochMilliseconds ?? null,
+          server_timestamps: failureTiming?.timestamps ?? {},
+          server_durations: failureTiming?.durations ?? {},
+          poll_events: completion.pollEvents ?? [],
+        });
+        continue;
+      }
       const timing = completion.timing;
       const timestamps = timing?.timestamps ?? {};
       const durations = timing?.durations ?? {};
@@ -1083,8 +1750,24 @@ async function runBatch({ workerOrigin, webOrigin, accessToken, userId, device, 
         sessionAuthorityMilliseconds: sessionMeasurements[index].authorityMilliseconds,
         sessionBindingMilliseconds: sessionMeasurements[index].bindingMilliseconds,
         sessionReceiptMilliseconds: sessionMeasurements[index].receiptMilliseconds,
+        verificationStartRequestStartedEpochMilliseconds: submission.clientT0EpochMilliseconds,
+        initial202ResponseReceivedEpochMilliseconds: submission.clientT1EpochMilliseconds,
         statusPollingMilliseconds: completion.statusPollingMilliseconds,
         pollCount: completion.pollCount,
+        pollingInitialResponseRoundTripMilliseconds: submission.requestAcceptanceMilliseconds,
+        pollingWaitBeforeFirstStatusRequestMilliseconds: completion.pollingWaitBeforeFirstStatusRequestMilliseconds,
+        pollingWaitBetweenStatusRequestsMilliseconds: completion.pollingWaitBetweenStatusRequestsMilliseconds,
+        pollingStatusRequestRoundTripMilliseconds: completion.pollingStatusRequestRoundTripMilliseconds,
+        pollingTotalElapsedMilliseconds: completion.pollingTotalElapsedMilliseconds,
+        pollingStatusRequestCount: completion.pollingStatusRequestCount,
+        clientTerminalObservedEpochMilliseconds: completion.clientTerminalObservedEpochMilliseconds,
+        benchmarkServerCompletionEpochMilliseconds: completion.benchmarkServerCompletionEpochMilliseconds,
+        benchmarkServerCompletionEpochSource: completion.benchmarkServerCompletionEpochSource,
+        serverToClientObservationDelayMilliseconds: Number.isFinite(completion.benchmarkServerCompletionEpochMilliseconds)
+          && Number.isFinite(completion.clientTerminalObservedEpochMilliseconds)
+          ? completion.clientTerminalObservedEpochMilliseconds - completion.benchmarkServerCompletionEpochMilliseconds
+          : null,
+        pollEvents: completion.pollEvents,
         clientVisibleMilliseconds: completion.clientT11 - submission.clientT0,
         serverCompletionMilliseconds: t1Server !== null && t10 !== null ? t10 - t1Server : null,
         clientObservationMilliseconds: completion.clientT11 - submission.clientT1,
@@ -1098,12 +1781,37 @@ async function runBatch({ workerOrigin, webOrigin, accessToken, userId, device, 
           ? t1DirectInputBound - stageTimestamp(timing, "t0_accepted")
           : null,
         directInvocationStartupMilliseconds: executionMode === "direct" && t2 !== null && t3 !== null ? t3 - t2 : null,
+        directRequestConstructionMilliseconds: executionMode === "direct"
+          ? Number.isFinite(durations.direct_request_construction) ? durations.direct_request_construction : null
+          : null,
+        directServiceBindingFetchWaitMilliseconds: executionMode === "direct"
+          ? Number.isFinite(durations.direct_service_binding_fetch_wait) ? durations.direct_service_binding_fetch_wait : null
+          : null,
         directServiceBindingRoundTripMilliseconds: executionMode === "direct"
           ? Number.isFinite(durations.direct_service_binding_round_trip) ? durations.direct_service_binding_round_trip : null
           : null,
+        directResponseBodyConsumptionMilliseconds: executionMode === "direct"
+          ? Number.isFinite(durations.direct_response_body_consumption) ? durations.direct_response_body_consumption : null
+          : null,
+        directResponseDecodeMilliseconds: executionMode === "direct"
+          ? Number.isFinite(durations.direct_response_decode) ? durations.direct_response_decode : null
+          : null,
+        directControlRequestConstructionMilliseconds: controlMeasurement?.requestConstructionMilliseconds ?? null,
+        directControlServiceBindingFetchWaitMilliseconds: controlMeasurement?.serviceBindingFetchWaitMilliseconds ?? null,
+        directControlServiceBindingRoundTripMilliseconds: controlMeasurement?.serviceBindingRoundTripMilliseconds ?? null,
+        directControlResponseBodyConsumptionMilliseconds: controlMeasurement?.responseBodyConsumptionMilliseconds ?? null,
+        directControlResponseDecodeMilliseconds: controlMeasurement?.responseDecodeMilliseconds ?? null,
+        directControlClientRoundTripMilliseconds: controlMeasurement?.clientRoundTripMilliseconds ?? null,
+        directControlResponseBodyBytes: controlMeasurement?.responseBodyBytes ?? null,
         directCallbackProcessingMilliseconds: executionMode === "direct"
           ? Number.isFinite(durations.direct_callback_processing) ? durations.direct_callback_processing : null
           : null,
+        transportResidualMilliseconds: executionMode === "direct"
+          ? Number.isFinite(durations.transport_residual) ? durations.transport_residual : null
+          : null,
+        transportResidualNegativeCount: executionMode === "direct"
+          ? Number.isFinite(diagnostics.transport_residual_negative_count) ? diagnostics.transport_residual_negative_count : 0
+          : 0,
         directCallbackEntryToLeaseMilliseconds: executionMode === "direct"
           ? Number.isFinite(durations.direct_callback_entry_to_lease) ? durations.direct_callback_entry_to_lease : null
           : null,
@@ -1115,6 +1823,24 @@ async function runBatch({ workerOrigin, webOrigin, accessToken, userId, device, 
           : null,
         directAcquireVerificationMilliseconds: executionMode === "direct"
           ? Number.isFinite(durations.direct_acquire_verification) ? durations.direct_acquire_verification : null
+          : null,
+        acquireVerificationRpcMilliseconds: executionMode === "direct"
+          ? Number.isFinite(durations.acquire_verification_rpc) ? durations.acquire_verification_rpc : null
+          : null,
+        acquireVerificationTransactionMilliseconds: executionMode === "direct"
+          ? Number.isFinite(durations.acquire_verification_transaction) ? durations.acquire_verification_transaction : null
+          : null,
+        acquireVerificationStorageGetMilliseconds: executionMode === "direct"
+          ? Number.isFinite(durations.acquire_verification_storage_get) ? durations.acquire_verification_storage_get : null
+          : null,
+        acquireVerificationValidationMilliseconds: executionMode === "direct"
+          ? Number.isFinite(durations.acquire_verification_validation) ? durations.acquire_verification_validation : null
+          : null,
+        acquireVerificationStoragePutMilliseconds: executionMode === "direct"
+          ? Number.isFinite(durations.acquire_verification_storage_put) ? durations.acquire_verification_storage_put : null
+          : null,
+        acquireVerificationSetAlarmMilliseconds: executionMode === "direct"
+          ? Number.isFinite(durations.acquire_verification_set_alarm) ? durations.acquire_verification_set_alarm : null
           : null,
         directPresentationTransferMilliseconds: executionMode === "direct"
           ? Number.isFinite(durations.direct_presentation_transfer) ? durations.direct_presentation_transfer : null
@@ -1273,6 +1999,7 @@ async function runBatch({ workerOrigin, webOrigin, accessToken, userId, device, 
     concurrency,
     requested_samples: sampleCount * concurrency,
     successful_samples: samples.length,
+    failure_samples: failures.length,
     timing_complete_samples: samples.filter((sample) => sample.timing_complete).length,
     preparation_milliseconds_excluded: preparationMilliseconds,
     payload_sizes: {
@@ -1289,13 +2016,60 @@ async function runBatch({ workerOrigin, webOrigin, accessToken, userId, device, 
     config_validation: summarizeConfigValidation(samples),
     config_validation_breakdown: summarizeConfigValidationBreakdown(samples),
     resource_observations: summarizeResourceObservations(samples),
+    correlations: {
+      direct_service_binding_round_trip_vs_control: pairedCorrelation(
+        samples,
+        "directServiceBindingRoundTripMilliseconds",
+        "directControlServiceBindingRoundTripMilliseconds",
+      ),
+      transport_residual_vs_control: pairedCorrelation(
+        samples,
+        "transportResidualMilliseconds",
+        "directControlServiceBindingRoundTripMilliseconds",
+      ),
+      client_visible_vs_polling_wait: pairedCorrelation(
+        samples,
+        "clientVisibleMilliseconds",
+        "pollingWaitBetweenStatusRequestsMilliseconds",
+      ),
+      client_visible_vs_observation_delay: pairedCorrelation(
+        samples,
+        "clientVisibleMilliseconds",
+        "serverToClientObservationDelayMilliseconds",
+      ),
+      client_visible_vs_server_processing: pairedCorrelation(
+        samples,
+        "clientVisibleMilliseconds",
+        "serverCompletionMilliseconds",
+      ),
+      client_visible_vs_poll_count: pairedCorrelation(
+        samples,
+        "clientVisibleMilliseconds",
+        "pollingStatusRequestCount",
+      ),
+    },
     cold_start_observation: samples.filter((sample) => sample.sample_index === 0).length,
     warm_observation_count: samples.filter((sample) => sample.sample_index > 0).length,
     result: null,
+    diagnosis: diagnoseNormalLatency(samples),
+    failures,
     samples: samples.map((sample) => ({
       sample_index: sample.sample_index,
       concurrency: sample.concurrency,
+      verification_start_request_started_epoch_ms: sample.verificationStartRequestStartedEpochMilliseconds,
+      initial_202_response_received_epoch_ms: sample.initial202ResponseReceivedEpochMilliseconds,
       client_visible_ms: sample.clientVisibleMilliseconds,
+      polling_initial_response_round_trip_ms: sample.pollingInitialResponseRoundTripMilliseconds,
+      polling_wait_before_first_status_request_ms: sample.pollingWaitBeforeFirstStatusRequestMilliseconds,
+      polling_wait_between_status_requests_ms: sample.pollingWaitBetweenStatusRequestsMilliseconds,
+      polling_status_request_round_trip_ms: sample.pollingStatusRequestRoundTripMilliseconds,
+      polling_total_elapsed_ms: sample.pollingTotalElapsedMilliseconds,
+      polling_status_request_count: sample.pollingStatusRequestCount,
+      client_terminal_observed_epoch_ms: sample.clientTerminalObservedEpochMilliseconds,
+      benchmark_server_completion_epoch_ms: sample.benchmarkServerCompletionEpochMilliseconds,
+      server_completion_epoch_source: sample.benchmarkServerCompletionEpochSource,
+      server_to_client_observation_delay_ms: sample.serverToClientObservationDelayMilliseconds,
+      poll_events: sample.pollEvents,
       timing_complete: sample.timing_complete,
       timing_trace_id_present: sample.timing_trace_id_present,
       timing_trace_id_matches_submission: sample.timing_trace_id_matches_submission,
@@ -1305,6 +2079,7 @@ async function runBatch({ workerOrigin, webOrigin, accessToken, userId, device, 
       r2_operations: sample.r2_operations,
       do_operations: sample.do_operations,
       diagnostics: sample.diagnostics,
+      transport_residual_negative_count: sample.transportResidualNegativeCount,
       request_body_bytes: sample.requestBodyBytes,
       presentation_bytes: sample.presentation_bytes,
       source_response_bytes: sample.sourceResponseBytes,
@@ -1345,13 +2120,30 @@ async function runBatch({ workerOrigin, webOrigin, accessToken, userId, device, 
         direct_input_binding: sample.directInputBindingMilliseconds,
         trigger_queue_start: sample.triggerQueueStartMilliseconds,
         direct_invocation_startup: sample.directInvocationStartupMilliseconds,
+        direct_request_construction: sample.directRequestConstructionMilliseconds,
+        direct_service_binding_fetch_wait: sample.directServiceBindingFetchWaitMilliseconds,
         direct_presentation_transfer: sample.directPresentationTransferMilliseconds,
         direct_service_binding_round_trip: sample.directServiceBindingRoundTripMilliseconds,
+        direct_response_body_consumption: sample.directResponseBodyConsumptionMilliseconds,
+        direct_response_decode: sample.directResponseDecodeMilliseconds,
+        direct_control_request_construction: sample.directControlRequestConstructionMilliseconds,
+        direct_control_service_binding_fetch_wait: sample.directControlServiceBindingFetchWaitMilliseconds,
+        direct_control_service_binding_round_trip: sample.directControlServiceBindingRoundTripMilliseconds,
+        direct_control_response_body_consumption: sample.directControlResponseBodyConsumptionMilliseconds,
+        direct_control_response_decode: sample.directControlResponseDecodeMilliseconds,
+        direct_control_client_round_trip: sample.directControlClientRoundTripMilliseconds,
         direct_callback_processing: sample.directCallbackProcessingMilliseconds,
+        transport_residual: sample.transportResidualMilliseconds,
         direct_callback_entry_to_lease: sample.directCallbackEntryToLeaseMilliseconds,
         direct_callback_config_validation: sample.directCallbackConfigValidationMilliseconds,
         direct_callback_benchmark_registration: sample.directCallbackBenchmarkRegistrationMilliseconds,
         direct_acquire_verification: sample.directAcquireVerificationMilliseconds,
+        acquire_verification_rpc: sample.acquireVerificationRpcMilliseconds,
+        acquire_verification_transaction: sample.acquireVerificationTransactionMilliseconds,
+        acquire_verification_storage_get: sample.acquireVerificationStorageGetMilliseconds,
+        acquire_verification_validation: sample.acquireVerificationValidationMilliseconds,
+        acquire_verification_storage_put: sample.acquireVerificationStoragePutMilliseconds,
+        acquire_verification_set_alarm: sample.acquireVerificationSetAlarmMilliseconds,
         trigger_start_to_callback: sample.triggerStartToCallbackMilliseconds,
         callback_entry_to_lease: sample.callbackEntryToLeaseMilliseconds,
         worker_r2_input: sample.workerR2InputMilliseconds,
@@ -1516,8 +2308,11 @@ async function main() {
   }
 
   const result = reportDecision(rows);
+  const failureArtifactPath = optional("TLSN_REMOTE_BENCHMARK_FAILURE_REPORT_PATH")
+    ?? resolve(packageDirectory, "artifacts/tlsn-remote-benchmark-failures.json");
+  const failures = rows.flatMap((row) => row.failures);
   const report = {
-    schema_version: 3,
+    schema_version: 7,
     benchmark: "tlsn-worker-remote-e2e",
     architecture_variant: optional("TLSN_REMOTE_BENCHMARK_VARIANT") ?? "current",
     generated_at: new Date().toISOString(),
@@ -1542,12 +2337,26 @@ async function main() {
       optimization_comparison: {
         excluded_phases: ["request_direct_dispatch"],
         primary_direct_phases: [
+          "direct_request_construction",
+          "direct_service_binding_fetch_wait",
           "direct_service_binding_round_trip",
+          "direct_response_body_consumption",
+          "direct_response_decode",
           "direct_callback_processing",
+          "transport_residual",
+          "direct_control_service_binding_round_trip",
+          "direct_control_response_body_consumption",
+          "direct_control_response_decode",
           "direct_callback_entry_to_lease",
           "direct_callback_config_validation",
           "direct_callback_benchmark_registration",
           "direct_acquire_verification",
+          "acquire_verification_rpc",
+          "acquire_verification_transaction",
+          "acquire_verification_storage_get",
+          "acquire_verification_validation",
+          "acquire_verification_storage_put",
+          "acquire_verification_set_alarm",
           "direct_presentation_transfer",
           "direct_presentation_hash",
           "direct_wasm_verification",
@@ -1561,19 +2370,47 @@ async function main() {
       intervals: {
         request_direct_dispatch: {
           relation: "inclusive",
-          includes: ["direct_service_binding_round_trip", "direct_callback_processing"],
+          includes: ["direct_service_binding_round_trip", "direct_callback_processing", "direct_response_body_consumption", "direct_response_decode"],
           comparison: "NOT_COMPARABLE_TO_218E5EC_BASELINE",
           meaning: "Current Request Worker elapsed time from Direct dispatch start until the verifier response is received; excludes the final request-side benchmark flush.",
         },
         direct_service_binding_round_trip: {
           relation: "inclusive",
           includes: ["direct_callback_processing"],
-          meaning: "Elapsed time around verifier.fetch(), including Service Binding transport and the verifier callback handler.",
+          meaning: "Elapsed time from immediately before Request Worker verifier.fetch(new Request(...)) through the returned Response object; includes Service Binding transport and verifier callback processing, but excludes response body consumption and decode.",
+        },
+        direct_request_construction: {
+          relation: "caller_phase",
+          within: "request_direct_dispatch",
+          meaning: "Request Worker construction of the Direct verifier Request, measured immediately before new Request(...) through construction completion.",
+        },
+        direct_service_binding_fetch_wait: {
+          relation: "caller_phase",
+          within: "direct_service_binding_round_trip",
+          meaning: "Request Worker elapsed time awaiting verifier.fetch(...) after the Request object has been constructed; it is a caller-side boundary and is not a cross-Worker pure transport clock.",
+        },
+        direct_response_body_consumption: {
+          relation: "caller_phase",
+          after: "direct_service_binding_round_trip",
+          meaning: "Benchmark-only consumption of a clone of the returned Response body; the production Response body remains untouched.",
+        },
+        direct_response_decode: {
+          relation: "caller_phase",
+          after: "direct_response_body_consumption",
+          meaning: "Benchmark-only UTF-8 decode of the consumed Response body bytes.",
         },
         direct_callback_processing: {
           relation: "inclusive",
           includes: ["direct_callback_entry_to_lease", "direct_callback_config_validation", "direct_callback_benchmark_registration", "direct_acquire_verification", "direct_presentation_transfer", "direct_presentation_hash", "direct_wasm_verification", "result_signing", "result_persistence"],
           meaning: "Direct verifier handler entry through creation of its completion response; excludes client/network delivery after fetch returns.",
+        },
+        transport_residual: {
+          relation: "derived_non_negative",
+          within: "direct_service_binding_round_trip",
+          raw_inputs: ["direct_service_binding_round_trip", "direct_callback_processing"],
+          formula: "max(0, direct_service_binding_round_trip - direct_callback_processing)",
+          meaning: "Service Binding, inter-Worker, response delivery, scheduling, and measurement-boundary residual; not pure network latency.",
+          negative_raw_diagnostic: "transport_residual_negative_count",
         },
         direct_callback_entry_to_lease: {
           relation: "inclusive",
@@ -1595,6 +2432,39 @@ async function main() {
           within: "direct_callback_entry_to_lease",
           meaning: "From immediately before benchmarkDOOperation and authority.acquireVerification through Promise completion; excludes config, registration, presentation processing, result processing, and benchmark flush.",
         },
+        acquire_verification_rpc: {
+          relation: "inclusive",
+          within: "direct_acquire_verification",
+          includes: ["acquire_verification_transaction", "acquire_verification_set_alarm"],
+          meaning: "Durable Object /acquire request from before JSON parsing until the response is ready; benchmark-only response-header telemetry.",
+        },
+        acquire_verification_transaction: {
+          relation: "inclusive",
+          within: "acquire_verification_rpc",
+          includes: ["acquire_verification_storage_get", "acquire_verification_validation", "acquire_verification_storage_put"],
+          meaning: "The authoritative storage transaction from transaction start through transaction completion.",
+        },
+        acquire_verification_storage_get: {
+          relation: "nested",
+          within: "acquire_verification_transaction",
+          meaning: "Only the binding record transaction.get operation.",
+        },
+        acquire_verification_validation: {
+          relation: "nested",
+          within: "acquire_verification_transaction",
+          meaning: "Successful acquire validation from binding read completion until immediately before transaction.put; validation order and authority checks are unchanged.",
+        },
+        acquire_verification_storage_put: {
+          relation: "nested",
+          within: "acquire_verification_transaction",
+          meaning: "Only the successful binding record transaction.put operation.",
+        },
+        acquire_verification_set_alarm: {
+          relation: "nested",
+          within: "acquire_verification_rpc",
+          excludes: ["acquire_verification_transaction"],
+          meaning: "Only the post-transaction storage.setAlarm operation; alarm placement is unchanged.",
+        },
         result_persistence: {
           relation: "inclusive",
           includes: ["result_persistence_preparation", "do_commit_verified_result", "result_persistence_post_commit"],
@@ -1608,6 +2478,20 @@ async function main() {
         direct_synchronous_response: {
           relation: "terminal_server_phase",
           meaning: "Server-side response preparation from the synchronous response marker until the handler returns; excludes client/network delivery.",
+        },
+        direct_control_service_binding_round_trip: {
+          relation: "control_metric",
+          meaning: "Same Request Worker Service Binding invocation boundary as the actual Direct path, targeting a verifier endpoint that reads the request body, validates the benchmark HMAC envelope, and returns a fixed JSON response without DO, R2, authority, or TLSN verification work.",
+        },
+        direct_control_response_body_consumption: {
+          relation: "control_metric",
+          after: "direct_control_service_binding_round_trip",
+          meaning: "Control caller consumption of the fixed JSON response body.",
+        },
+        direct_control_response_decode: {
+          relation: "control_metric",
+          after: "direct_control_response_body_consumption",
+          meaning: "Control caller UTF-8 decode of the fixed JSON response body bytes.",
         },
       },
     },
@@ -1637,7 +2521,7 @@ async function main() {
         ? "MEASURED AT FIRST TRIGGER TASK CODE USING TRIGGER CLOCK"
         : "NOT APPLICABLE",
       direct_service_binding_start: executionMode === "direct"
-        ? "MEASURED AS request_direct_dispatch preparation, direct_service_binding_round_trip around verifier.fetch(), and direct_callback_processing inside the verifier Worker"
+        ? "MEASURED AS caller request construction, fetch wait, Response-object round trip, clone body consumption/decode, and verifier callback processing; the separate control path removes callback verification and persistence work"
         : "NOT APPLICABLE",
       trigger_platform_scheduler_timestamp: "NOT_ESTABLISHED",
       production_worker_isolate_rss: "NOT_ESTABLISHED",
@@ -1659,14 +2543,63 @@ async function main() {
     },
     target_decision: result,
     formal_slo_decision: "NOT_ESTABLISHED",
+    diagnosis: {
+      normal_verified_samples_only: true,
+      classifications: rows.map((row) => ({
+        case_label: row.case_label,
+        concurrency: row.concurrency,
+        classification: row.diagnosis.classification,
+      })),
+      failure_population: {
+        count: failures.length,
+        artifact: repositoryRelativePath(failureArtifactPath),
+      },
+      prohibited_conclusion: "Service Binding transport-dominated",
+    },
     payload_scaling: payloadScalingReport(rows),
     results: rows,
   };
   const reportPath = optional("TLSN_REMOTE_BENCHMARK_REPORT_PATH")
     ?? resolve(packageDirectory, "artifacts/tlsn-remote-benchmark.json");
+  const pollingAnalysisPath = optional("TLSN_REMOTE_POLLING_ANALYSIS_REPORT_PATH")
+    ?? resolve(packageDirectory, "artifacts/tlsn-direct-polling-analysis-c1-c2-c4-c8.json");
+  const pollingAnalysis = buildPollingAnalysis({
+    rows,
+    failures,
+    workerOrigin,
+    health,
+    cases,
+    concurrencyValues,
+    sampleCount,
+    pollIntervalMs,
+    maxPollMs,
+    executionMode,
+    authMode,
+    expectedEnvironment,
+    reportPath,
+  });
   await mkdir(dirname(reportPath), { recursive: true });
+  await mkdir(dirname(failureArtifactPath), { recursive: true });
+  await mkdir(dirname(pollingAnalysisPath), { recursive: true });
   await writeFile(reportPath, `${JSON.stringify(report, null, 2)}\n`, "utf8");
-  console.log(JSON.stringify({ report_path: reportPath, target_decision: result }));
+  await writeFile(pollingAnalysisPath, `${JSON.stringify(pollingAnalysis, null, 2)}\n`, "utf8");
+  await writeFile(failureArtifactPath, `${JSON.stringify({
+    schema_version: 1,
+    benchmark: "tlsn-worker-remote-e2e-failures",
+    generated_at: new Date().toISOString(),
+    worker_origin: workerOrigin,
+    configuration: {
+      execution_mode: executionMode,
+      poll_interval_ms: pollIntervalMs,
+      max_poll_ms: maxPollMs,
+    },
+    failures,
+  }, null, 2)}\n`, "utf8");
+  console.log(JSON.stringify({
+    report_path: reportPath,
+    polling_analysis_path: pollingAnalysisPath,
+    target_decision: result,
+  }));
   if (result === "EXCEEDS TARGET") process.exitCode = 1;
   if (result === "NOT ESTABLISHED") process.exitCode = 2;
 }
