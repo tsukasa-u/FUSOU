@@ -13,7 +13,7 @@ import {
   assertManifest,
 } from "./deployment-contract.mjs";
 import { profileContractArtifact, profilesForServerIdentity } from "./profile-canonical-contract.mjs";
-import { canonicalJson } from "./production-trust-contract.mjs";
+import { securityRegistrySetHash } from "./security-registry-set-contract.mjs";
 import { loadRealFixture, readRealFixtureManifest } from "./tlsn-benchmark-fixtures.mjs";
 
 const packageDirectory = resolve(new URL("..", import.meta.url).pathname);
@@ -185,14 +185,15 @@ async function inspectProvisionedOutput(outputDirectory, fixtureManifest, fixtur
   assert.equal(JSON.parse(generatedEnv.TLSN_PRODUCTION_NOTARY_REGISTRY)[manifest.notary.key_id], fixture.notary_key_base64);
   assert.equal(generatedEnv.TLSN_CANDIDATE_PROFILE_SHA256, manifest.supplied_candidate_inputs.profile_sha256);
   assert.equal(generatedEnv.TLSN_CANDIDATE_SPARSE_PROFILE_SHA256, manifest.supplied_candidate_inputs.sparse_profile_sha256);
-  const legacyFixtureSecurityRegistrySetSha256 = createHash("sha256").update(canonicalJson({
-    notary_registry: JSON.parse(generatedEnv.TLSN_PRODUCTION_NOTARY_REGISTRY),
-    profile_sha256: generatedEnv.TLSN_CANDIDATE_PROFILE_SHA256,
-    server_identity: generatedEnv.TLSN_CANDIDATE_SERVER_IDENTITY,
-    sparse_profile_sha256: generatedEnv.TLSN_CANDIDATE_SPARSE_PROFILE_SHA256,
-  })).digest("base64url");
-  assert.equal(generatedEnv.TLSN_SECURITY_REGISTRY_SET_SHA256, legacyFixtureSecurityRegistrySetSha256);
-  assert.equal(manifest.security_registry_set_sha256, legacyFixtureSecurityRegistrySetSha256);
+  const expectedFixtureSecurityRegistrySet = securityRegistrySetHash({
+    notaryKeyId: generatedEnv.TLSN_CANDIDATE_NOTARY_KEY_ID,
+    notaryRegistryRaw: generatedEnv.TLSN_PRODUCTION_NOTARY_REGISTRY,
+    profileSha256: generatedEnv.TLSN_CANDIDATE_PROFILE_SHA256,
+    serverIdentity: generatedEnv.TLSN_CANDIDATE_SERVER_IDENTITY,
+    sparseProfileSha256: generatedEnv.TLSN_CANDIDATE_SPARSE_PROFILE_SHA256,
+  });
+  assert.equal(generatedEnv.TLSN_SECURITY_REGISTRY_SET_SHA256, expectedFixtureSecurityRegistrySet.sha256);
+  assert.equal(manifest.security_registry_set_sha256, expectedFixtureSecurityRegistrySet.sha256);
   assert.equal(manifest.security_registry_set_source, "derived-from-explicit-inputs");
   assert.equal(generatedEnv.TLSN_CANARY_TRUST_ROOT_CERTIFICATE_DER, fixture.root_certificate_base64);
   assert.equal(manifest.supplied_candidate_inputs.trust_root_sha256, sha256Base64Url(rootCertificate));

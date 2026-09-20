@@ -166,6 +166,7 @@ try {
   const configPath = join(rootDirectory, "app-config.toml");
   const artifactPath = join(rootDirectory, "app-artifacts");
   const securityRegistrySetSha256 = securityRegistrySetHash({
+    notaryKeyId: "notary-production-2026",
     notaryRegistryRaw,
     profileSha256: productionProfiles.complete.sha256,
     serverIdentity: "game.example.com",

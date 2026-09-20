@@ -19,6 +19,7 @@ import { loadRealFixture, readRealFixtureManifest } from "./tlsn-benchmark-fixtu
 const packageDirectory = resolve(new URL("..", import.meta.url).pathname);
 const repositoryDirectory = resolve(packageDirectory, "../..");
 const FIXTURE_PROVENANCE_SOURCE = "repository-local-synthetic-fixture";
+const DEPLOYMENT_ID_PATTERN = /^[A-Za-z0-9._-]{1,128}$/;
 
 function parseArguments(argumentsList) {
   const options = {};
@@ -67,6 +68,23 @@ function keyMaterial() {
     privateKeyPkcs8: privateKey.export({ format: "der", type: "pkcs8" }).toString("base64url"),
     publicKeySpki: publicKey.export({ format: "der", type: "spki" }).toString("base64url"),
   };
+}
+
+function generatedCanaryKeyId(deploymentIdentity, purpose, publicKeySpki) {
+  const deploymentPart = deploymentIdentity.length <= 80
+    ? deploymentIdentity
+    : createHash("sha256").update(deploymentIdentity, "utf8").digest("base64url").slice(0, 24);
+  const materialFingerprint = createHash("sha256")
+    .update(Buffer.from(publicKeySpki, "base64url"))
+    .digest("base64url")
+    .slice(0, 16);
+  return `canary-${deploymentPart}-${purpose}-${materialFingerprint}`;
+}
+
+function assertDeploymentId(value) {
+  if (typeof value !== "string" || !DEPLOYMENT_ID_PATTERN.test(value)) {
+    throw new Error("--deployment-id must be an alphanumeric deployment identifier");
+  }
 }
 
 function authorityRegistry(scope, keyId, publicKeySpki) {
@@ -215,14 +233,17 @@ async function main() {
   await chmod(outputDirectory, 0o700);
 
   const notaryKeyId = options["notary-key-id"] ?? (fixtureOnly ? "notary-canary-2026" : undefined);
+  const deploymentId = options["deployment-id"] ?? (fixtureOnly ? `canary-${new Date().toISOString().replace(/[-:.TZ]/g, "")}` : undefined);
+  if (deploymentId) assertDeploymentId(deploymentId);
+  const deploymentIdentity = deploymentId ?? `unresolved-${randomBytes(12).toString("hex")}`;
   const result = keyMaterial();
   const resultRoot = keyMaterial();
   const session = keyMaterial();
   const binding = keyMaterial();
-  const resultKeyId = "result-canary-2026";
-  const resultRootKeyId = "result-registry-root-canary-2026";
-  const sessionKeyId = "session-canary-2026";
-  const bindingKeyId = "binding-canary-2026";
+  const resultKeyId = generatedCanaryKeyId(deploymentIdentity, "result", result.publicKeySpki);
+  const resultRootKeyId = generatedCanaryKeyId(deploymentIdentity, "result-root", resultRoot.publicKeySpki);
+  const sessionKeyId = generatedCanaryKeyId(deploymentIdentity, "session", session.publicKeySpki);
+  const bindingKeyId = generatedCanaryKeyId(deploymentIdentity, "binding", binding.publicKeySpki);
   const resultRegistryRaw = authorityRegistry(
     "tlsn-result-signing-key-registry",
     resultKeyId,
@@ -261,7 +282,6 @@ async function main() {
     cwd: repositoryDirectory,
     encoding: "utf8",
   }).trim();
-  const deploymentId = options["deployment-id"] ?? (fixtureOnly ? `canary-${new Date().toISOString().replace(/[-:.TZ]/g, "")}` : undefined);
   const workerName = options["worker-name"] ?? (fixtureOnly ? "fusou-tlsn-verification-canary" : undefined);
   const bindingValue = `canary-binding-${randomBytes(18).toString("base64url")}`;
   const trustRoot = options["trust-root-file"]
@@ -272,6 +292,7 @@ async function main() {
     : await readNotaryRegistry(options["notary-registry-file"], notaryKeyId);
   const securityRegistrySet = notaryRegistryRaw && completeProfile && sparseProfile && serverIdentity
     ? securityRegistrySetHash({
+        notaryKeyId,
         notaryRegistryRaw,
         profileSha256: completeProfile.sha256,
         serverIdentity,
@@ -414,8 +435,10 @@ async function main() {
       deployment_id: deploymentId ?? null,
       worker_name: workerName ?? null,
       result_signer_key_id: resultKeyId,
+      result_registry_root_key_id: resultRootKeyId,
       session_authority_key_id: sessionKeyId,
       binding_authority_key_id: bindingKeyId,
+      key_id_strategy: "deployment-id-plus-public-key-sha256-prefix",
     },
     supplied_candidate_inputs: {
       server_identity: generatedEnv.TLSN_CANDIDATE_SERVER_IDENTITY ?? null,

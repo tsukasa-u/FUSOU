@@ -80,7 +80,7 @@ try {
   await writeFile(join(profileDirectory, "notary-registry.json"), `${JSON.stringify({ "notary-production-2026": fixture.notary_key_base64 })}\n`);
 
   const completeDirectory = join(rootDirectory, "complete");
-  runProvisioner(completeDirectory, [
+  const explicitArguments = [
     "--fixture-only", "false",
     "--server-identity", "canary.example.net",
     "--profile-file", join(profileDirectory, "complete.json"),
@@ -91,7 +91,8 @@ try {
     "--verifier-key-id", "verifier-production-2026",
     "--deployment-id", "canary-explicit-2026",
     "--worker-name", "fusou-tlsn-verification-canary-2026",
-  ]);
+  ];
+  runProvisioner(completeDirectory, explicitArguments);
   const complete = await readProvisioned(completeDirectory);
   assert.equal(complete.generatedEnv.TLSN_CANARY_FIXTURE_ONLY, "false");
   assert.equal(complete.generatedEnv.TLSN_CANDIDATE_SERVER_IDENTITY, "canary.example.net");
@@ -104,6 +105,7 @@ try {
   assert.equal(complete.generatedEnv.TLSN_CANARY_DEPLOYMENT_ID, "canary-explicit-2026");
   assert.equal(complete.generatedEnv.TLSN_CANARY_WORKER_NAME, "fusou-tlsn-verification-canary-2026");
   const expectedSecurityRegistrySet = securityRegistrySetHash({
+    notaryKeyId: "notary-production-2026",
     notaryRegistryRaw: complete.generatedEnv.TLSN_PRODUCTION_NOTARY_REGISTRY,
     profileSha256: profiles.complete.sha256,
     serverIdentity: "canary.example.net",
@@ -112,14 +114,20 @@ try {
   assert.equal(complete.generatedEnv.TLSN_SECURITY_REGISTRY_SET_SHA256, expectedSecurityRegistrySet.sha256);
   assert.equal(complete.manifest.security_registry_set_sha256, expectedSecurityRegistrySet.sha256);
   assert.equal(complete.manifest.security_registry_set_source, "derived-from-explicit-inputs");
+  const mutationNotaryRegistry = JSON.stringify({
+    "notary-production-2026": fixture.notary_key_base64,
+    "notary-production-2027": fixture.notary_key_base64,
+  });
   for (const [label, inputs] of [
-    ["Notary registry", { notaryRegistryRaw: JSON.stringify({ "notary-production-2027": fixture.notary_key_base64 }) }],
+    ["Notary registry", { notaryRegistryRaw: mutationNotaryRegistry }],
+    ["Notary key ID", { notaryKeyId: "notary-production-2027", notaryRegistryRaw: mutationNotaryRegistry }],
     ["complete profile", { profileSha256: Buffer.alloc(32, 1).toString("base64url") }],
     ["server identity", { serverIdentity: "other.example.net" }],
     ["sparse profile", { sparseProfileSha256: Buffer.alloc(32, 2).toString("base64url") }],
   ]) {
     assert.notEqual(
       securityRegistrySetHash({
+        notaryKeyId: inputs.notaryKeyId ?? "notary-production-2026",
         notaryRegistryRaw: inputs.notaryRegistryRaw ?? complete.generatedEnv.TLSN_PRODUCTION_NOTARY_REGISTRY,
         profileSha256: inputs.profileSha256 ?? profiles.complete.sha256,
         serverIdentity: inputs.serverIdentity ?? "canary.example.net",
@@ -132,8 +140,30 @@ try {
   assert.equal(complete.manifest.notary.source, "explicit_input_file");
   assert.equal(complete.manifest.generated_public_identity.deployment_id, "canary-explicit-2026");
   assert.equal(complete.manifest.generated_public_identity.worker_name, "fusou-tlsn-verification-canary-2026");
+  assert.equal(
+    complete.manifest.generated_public_identity.key_id_strategy,
+    "deployment-id-plus-public-key-sha256-prefix",
+  );
+  const generatedKeyIdNames = [
+    "TLSN_CANARY_RESULT_SIGNER_KEY_ID",
+    "TLSN_CANARY_RESULT_REGISTRY_ROOT_KEY_ID",
+    "TLSN_CANARY_SESSION_AUTHORITY_KEY_ID",
+    "TLSN_CANARY_BINDING_AUTHORITY_KEY_ID",
+  ];
+  for (const name of generatedKeyIdNames) {
+    assert.match(complete.generatedEnv[name], /^canary-canary-explicit-2026-/);
+  }
+  const repeatedDirectory = join(rootDirectory, "repeated");
+  runProvisioner(repeatedDirectory, explicitArguments);
+  const repeated = await readProvisioned(repeatedDirectory);
+  for (const name of generatedKeyIdNames) {
+    assert.notEqual(
+      complete.generatedEnv[name],
+      repeated.generatedEnv[name],
+      `${name} must not be reused across reprovisioning with fresh key material`,
+    );
+  }
   for (const name of [
-    "TLSN_CANARY_DEPLOYMENT_ID",
     "TLSN_CANARY_WORKER_NAME",
     "TLSN_PRODUCTION_NOTARY_REGISTRY",
     "TLSN_CANDIDATE_SERVER_IDENTITY",

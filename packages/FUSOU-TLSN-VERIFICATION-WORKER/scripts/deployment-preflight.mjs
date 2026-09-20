@@ -273,6 +273,7 @@ async function main() {
   ) {
     try {
       const expectedSecurityRegistrySetSha256 = securityRegistrySetHash({
+        notaryKeyId: value("TLSN_CANDIDATE_NOTARY_KEY_ID"),
         notaryRegistryRaw: registryRaw,
         profileSha256: value("TLSN_CANDIDATE_PROFILE_SHA256"),
         serverIdentity: value("TLSN_CANDIDATE_SERVER_IDENTITY"),
