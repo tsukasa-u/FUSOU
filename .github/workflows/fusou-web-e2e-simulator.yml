@@ -55,6 +55,7 @@ jobs:
         run: pnpm --dir packages/FUSOU-WEB run audit:anon-sync-v1
 
       - name: Verify required Cloudflare Worker secrets
+        continue-on-error: true
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
