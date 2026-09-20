@@ -118,6 +118,8 @@ export default defineConfig({
         "zustand/traditional",
         "use-sync-external-store/shim/with-selector",
         "@supabase/supabase-js",
+        "astro/app/manifest",
+        "astro/assets/services/noop",
       ],
       exclude: ["solid-chartjs"],
     },
