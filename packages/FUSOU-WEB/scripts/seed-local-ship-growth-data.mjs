@@ -193,21 +193,17 @@ async function syncR2Archive(remoteBucketName, localBucketName, archivePrefix, w
   console.log(`R2 archive sync complete: ${synced} synced, ${skipped} skipped.`);
 }
 
-function quoteForCommand(cmd) {
-  return cmd.replace(/"/g, '\\\"');
-}
-
 function runWrangler(dbName, mode, commandOrFile) {
-  let cmd = `npx wrangler d1 execute ${dbName} ${mode} --json`;
+  const args = ["wrangler", "d1", "execute", dbName, mode, "--json"];
   if (commandOrFile.command) {
-    cmd += ` --command "${quoteForCommand(commandOrFile.command)}"`;
+    args.push("--command", commandOrFile.command);
   } else if (commandOrFile.file) {
-    cmd += ` --file "${commandOrFile.file}"`;
+    args.push("--file", commandOrFile.file);
   } else {
     throw new Error("commandOrFile must include command or file");
   }
 
-  const stdout = execSync(cmd, {
+  const stdout = execFileSync("npx", args, {
     encoding: "utf8",
     stdio: ["pipe", "pipe", "pipe"],
   });
