@@ -76,7 +76,7 @@
     "test": "pnpm run build:compaction-core && vitest run"
   },
   "dependencies": {
-    "@astrojs/cloudflare": "^14.1.4",
+    "@astrojs/cloudflare": "^14.3.2",
     "@dagrejs/dagre": "^2.0.4",
     "@fusou/avro-wasm": "workspace:*",
     "@fusou/compaction-core": "workspace:*",
@@ -131,6 +131,6 @@
     "tailwindcss": "^4.3.3",
     "typescript": "^5.9.3",
     "vitest": "^4.1.2",
-    "wrangler": "^4.83.0"
+    "wrangler": "^4.135.0"
   }
 }
