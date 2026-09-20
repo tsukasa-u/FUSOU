@@ -92,11 +92,17 @@ export default defineConfig({
     cacheDir: process.argv.includes("dev")
       ? "./node_modules/.vite-dev"
       : "./node_modules/.vite-prod",
+    environments: {
+      client: {
+        optimizeDeps: {
+          // Vite 8/Rolldown may mis-scan Astro app source TSX entries as plain TS
+          // during automatic dependency discovery under the Cloudflare dev runtime.
+          // Keep client prebundling opt-in until upstream parsing stabilizes.
+          noDiscovery: true,
+        },
+      },
+    },
     optimizeDeps: {
-      // Vite 8/Rolldown may mis-scan Astro app source TSX entries as plain TS
-      // during automatic dependency discovery under the Cloudflare dev runtime.
-      // Keep prebundling opt-in until upstream parsing stabilizes.
-      noDiscovery: true,
       include: [
         "react",
         "react-dom",
@@ -112,6 +118,8 @@ export default defineConfig({
         "zustand/traditional",
         "use-sync-external-store/shim/with-selector",
         "@supabase/supabase-js",
+        "astro/app/manifest",
+        "astro/assets/services/noop",
       ],
       exclude: ["solid-chartjs"],
     },
