@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { spawnSync } from "node:child_process";
 import { join, resolve } from "node:path";
@@ -35,6 +36,17 @@ function runProvisioner(outputDirectory, argumentsList) {
     },
   });
   assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
+}
+
+function expectedGeneratedCanaryKeyId(deploymentId, purpose, publicKeySpki) {
+  const deploymentPart = deploymentId.length <= 80
+    ? deploymentId
+    : createHash("sha256").update(deploymentId, "utf8").digest("base64url").slice(0, 24);
+  const materialFingerprint = createHash("sha256")
+    .update(Buffer.from(publicKeySpki, "base64url"))
+    .digest("base64url")
+    .slice(0, 16);
+  return `canary-${deploymentPart}-${purpose}-${materialFingerprint}`;
 }
 
 async function readProvisioned(outputDirectory) {
@@ -145,18 +157,29 @@ try {
     "deployment-id-plus-public-key-sha256-prefix",
   );
   const generatedKeyIdNames = [
-    "TLSN_CANARY_RESULT_SIGNER_KEY_ID",
-    "TLSN_CANARY_RESULT_REGISTRY_ROOT_KEY_ID",
-    "TLSN_CANARY_SESSION_AUTHORITY_KEY_ID",
-    "TLSN_CANARY_BINDING_AUTHORITY_KEY_ID",
+    ["TLSN_CANARY_RESULT_SIGNER_KEY_ID", "result", "TLSN_CANARY_RESULT_PUBLIC_KEY_SPKI"],
+    ["TLSN_CANARY_RESULT_REGISTRY_ROOT_KEY_ID", "result-root", "TLSN_CANARY_RESULT_REGISTRY_ROOT_PUBLIC_KEY_SPKI"],
+    ["TLSN_CANARY_SESSION_AUTHORITY_KEY_ID", "session", "TLSN_CANARY_SESSION_AUTHORITY_PUBLIC_KEY_SPKI"],
+    ["TLSN_CANARY_BINDING_AUTHORITY_KEY_ID", "binding", "TLSN_CANARY_BINDING_AUTHORITY_PUBLIC_KEY_SPKI"],
   ];
-  for (const name of generatedKeyIdNames) {
-    assert.match(complete.generatedEnv[name], /^canary-canary-explicit-2026-/);
+  for (const [name, purpose, publicKeyName] of generatedKeyIdNames) {
+    const expectedKeyId = expectedGeneratedCanaryKeyId(
+      complete.generatedEnv.TLSN_CANARY_DEPLOYMENT_ID,
+      purpose,
+      complete.generatedEnv[publicKeyName],
+    );
+    assert.equal(complete.generatedEnv[name], expectedKeyId, `${name} must follow the deterministic generated ID contract`);
+    const mutatedPublicKey = `${complete.generatedEnv[publicKeyName].slice(0, -1)}${complete.generatedEnv[publicKeyName].endsWith("A") ? "B" : "A"}`;
+    assert.notEqual(
+      expectedGeneratedCanaryKeyId(complete.generatedEnv.TLSN_CANARY_DEPLOYMENT_ID, purpose, mutatedPublicKey),
+      complete.generatedEnv[name],
+      `${name} must bind the public-key fingerprint into the ID`,
+    );
   }
   const repeatedDirectory = join(rootDirectory, "repeated");
   runProvisioner(repeatedDirectory, explicitArguments);
   const repeated = await readProvisioned(repeatedDirectory);
-  for (const name of generatedKeyIdNames) {
+  for (const [name] of generatedKeyIdNames) {
     assert.notEqual(
       complete.generatedEnv[name],
       repeated.generatedEnv[name],
