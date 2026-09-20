@@ -366,6 +366,54 @@ function parseTimingHeader(response) {
   }
 }
 
+function synchronousCompletion(submission, executionMode) {
+  const timing = submission.synchronousTiming;
+  const completionHeader = Number(submission.response.headers.get(
+    "X-FUSOU-TLSN-Benchmark-Server-Completion-Epoch-Ms",
+  ));
+  const diagnosticCompletion = typeof timing?.diagnostics?.server_completion_epoch_ms === "number"
+    ? timing.diagnostics.server_completion_epoch_ms
+    : null;
+  const callerCompletion = executionMode === "direct"
+    && typeof timing?.timestamps?.direct_invocation_completed === "number"
+    ? timing.timestamps.direct_invocation_completed
+    : null;
+  const hasCompletionHeader = Number.isFinite(completionHeader) && completionHeader > 0;
+  const hasDiagnosticCompletion = Number.isFinite(diagnosticCompletion) && diagnosticCompletion > 0;
+  const hasCallerCompletion = Number.isFinite(callerCompletion) && callerCompletion > 0;
+  return {
+    outcome: "verified",
+    clientT11: submission.clientT1,
+    clientResponseBytes: submission.responseBodyBytes,
+    clientResponseSha256: submission.responseBodySha256,
+    statusRecoveryResponseBytes: submission.responseBodyBytes,
+    statusRecoveryResponseSha256: submission.responseBodySha256,
+    statusPollingMilliseconds: 0,
+    pollCount: 0,
+    pollingTotalElapsedMilliseconds: 0,
+    pollingWaitBeforeFirstStatusRequestMilliseconds: 0,
+    pollingWaitBetweenStatusRequestsMilliseconds: 0,
+    pollingStatusRequestRoundTripMilliseconds: 0,
+    pollingStatusRequestCount: 0,
+    clientTerminalObservedEpochMilliseconds: submission.clientT1EpochMilliseconds,
+    benchmarkServerCompletionEpochMilliseconds: hasCompletionHeader
+      ? completionHeader
+      : hasDiagnosticCompletion
+        ? diagnosticCompletion
+        : null,
+    benchmarkServerCompletionEpochSource: hasCompletionHeader
+      ? "completion_header"
+      : hasDiagnosticCompletion
+        ? "timing_diagnostics"
+        : hasCallerCompletion
+          ? "caller_direct_invocation_fallback"
+          : "missing",
+    callerDirectInvocationCompletedEpochMilliseconds: hasCallerCompletion ? callerCompletion : null,
+    timing,
+    pollEvents: [],
+  };
+}
+
 async function submitVerification(workerOrigin, accessToken, body, synchronousCandidate) {
   const clientT0 = performance.now();
   const result = await timedJsonRequest(endpoint(workerOrigin, "/verify/tlsn/sparse"), {
@@ -1599,27 +1647,8 @@ async function runBatch({ workerOrigin, webOrigin, accessToken, userId, device, 
       }))
       : synchronousCandidate
       ? (await Promise.all(
-        submissions.map((submission, index) => pollStatus(
-          workerOrigin,
-          accessToken,
-          userId,
-          device,
-          sessions[index],
-          submission.jobId,
-          submission.benchmarkTraceId,
-          pollIntervalMs,
-          maxPollMs,
-          executionMode,
-          true,
-        )),
-      )).map((recovery, index) => ({
-        ...recovery,
-        clientT11: submissions[index].clientT1,
-        clientResponseBytes: submissions[index].responseBodyBytes,
-        clientResponseSha256: submissions[index].responseBodySha256,
-        statusRecoveryResponseBytes: recovery.clientResponseBytes,
-        statusRecoveryResponseSha256: recovery.clientResponseSha256,
-      }))
+        submissions.map((submission) => synchronousCompletion(submission, executionMode)),
+      ))
       : await Promise.all(
         submissions.map((submission, index) => pollStatus(
           workerOrigin,
@@ -1646,6 +1675,17 @@ async function runBatch({ workerOrigin, webOrigin, accessToken, userId, device, 
       const submission = submissions[index];
       const completion = completions[index];
       const controlMeasurement = controlMeasurements[index];
+      if (synchronousCandidate && (
+        completion.pollCount !== 0
+        || completion.pollingStatusRequestCount !== 0
+        || completion.pollingTotalElapsedMilliseconds !== 0
+        || completion.pollingWaitBeforeFirstStatusRequestMilliseconds !== 0
+        || completion.pollingWaitBetweenStatusRequestsMilliseconds !== 0
+        || completion.pollingStatusRequestRoundTripMilliseconds !== 0
+        || completion.pollEvents.length !== 0
+      )) {
+        throw new Error("synchronous candidate performed status polling");
+      }
       if (completion.outcome !== "verified") {
         const failureTiming = completion.timing;
         const failureDiagnostics = failureTiming?.diagnostics ?? completion.diagnostics ?? {};
@@ -1798,7 +1838,7 @@ async function runBatch({ workerOrigin, webOrigin, accessToken, userId, device, 
         concurrency,
         sample_index: sampleIndex,
         responseMode: responseLossRecovery ? completion.responseMode : submission.responseMode,
-        statusRecoveryMeasured: true,
+        statusRecoveryMeasured: responseLossRecovery || !synchronousCandidate,
         responseLossRecoveryMeasured: responseLossRecovery,
         requestBodyBytes: submission.requestBodyBytes,
         resultBytes: Number.isFinite(diagnostics.result_bytes) ? diagnostics.result_bytes : null,
@@ -1808,12 +1848,16 @@ async function runBatch({ workerOrigin, webOrigin, accessToken, userId, device, 
         statusResultBytes: Number.isFinite(diagnostics.status_result_bytes) ? diagnostics.status_result_bytes : null,
         clientResponseBytes: responseLossRecovery ? submission.responseBodyBytes : completion.clientResponseBytes,
         clientResponseSha256: responseLossRecovery ? submission.responseBodySha256 : completion.clientResponseSha256 ?? submission.responseBodySha256,
-        statusRecoveryResponseBytes: responseLossRecovery
-          ? completion.statusRecoveryResponseBytes
-          : completion.statusRecoveryResponseBytes ?? completion.clientResponseBytes,
-        statusRecoveryResponseSha256: responseLossRecovery
-          ? completion.statusRecoveryResponseSha256
-          : completion.statusRecoveryResponseSha256 ?? completion.clientResponseSha256 ?? submission.responseBodySha256,
+        statusRecoveryResponseBytes: synchronousCandidate && !responseLossRecovery
+          ? null
+          : responseLossRecovery
+            ? completion.statusRecoveryResponseBytes
+            : completion.statusRecoveryResponseBytes ?? completion.clientResponseBytes,
+        statusRecoveryResponseSha256: synchronousCandidate && !responseLossRecovery
+          ? null
+          : responseLossRecovery
+            ? completion.statusRecoveryResponseSha256
+            : completion.statusRecoveryResponseSha256 ?? completion.clientResponseSha256 ?? submission.responseBodySha256,
         responseLossRecoveryResponseBytes: responseLossRecovery ? completion.responseBodyBytes : null,
         responseLossRecoveryResponseSha256: responseLossRecovery ? completion.responseBodySha256 : null,
         resultSha256: typeof diagnostics.result_sha256 === "string" ? diagnostics.result_sha256 : null,
@@ -1821,18 +1865,24 @@ async function runBatch({ workerOrigin, webOrigin, accessToken, userId, device, 
           && (responseLossRecovery ? submission.responseBodySha256 : completion.clientResponseSha256 ?? submission.responseBodySha256) === diagnostics.result_sha256,
         responseBytesMatchResultBytes: Number.isFinite(diagnostics.result_bytes)
           && completion.clientResponseBytes === diagnostics.result_bytes,
-        statusRecoveryBytesMatchResponse: (responseLossRecovery
-          ? completion.statusRecoveryResponseSha256
-          : completion.statusRecoveryResponseSha256 ?? completion.clientResponseSha256 ?? submission.responseBodySha256)
-          === (responseLossRecovery ? submission.responseBodySha256 : completion.clientResponseSha256 ?? submission.responseBodySha256)
-          && (responseLossRecovery ? completion.statusRecoveryResponseBytes : completion.statusRecoveryResponseBytes ?? completion.clientResponseBytes)
-            === (responseLossRecovery ? submission.responseBodyBytes : completion.clientResponseBytes),
+        statusRecoveryBytesMatchResponse: synchronousCandidate && !responseLossRecovery
+          ? null
+          : (responseLossRecovery
+            ? completion.statusRecoveryResponseSha256
+            : completion.statusRecoveryResponseSha256 ?? completion.clientResponseSha256 ?? submission.responseBodySha256)
+            === (responseLossRecovery ? submission.responseBodySha256 : completion.clientResponseSha256 ?? submission.responseBodySha256)
+            && (responseLossRecovery ? completion.statusRecoveryResponseBytes : completion.statusRecoveryResponseBytes ?? completion.clientResponseBytes)
+              === (responseLossRecovery ? submission.responseBodyBytes : completion.clientResponseBytes),
         statusRecoveryBytesMatchResultHash: typeof diagnostics.result_sha256 === "string"
+          && !(synchronousCandidate && !responseLossRecovery)
           && (responseLossRecovery
             ? completion.statusRecoveryResponseSha256
             : completion.statusRecoveryResponseSha256 ?? completion.clientResponseSha256 ?? submission.responseBodySha256) === diagnostics.result_sha256,
         statusRecoveryBytesMatchResultBytes: Number.isFinite(diagnostics.result_bytes)
+          && !(synchronousCandidate && !responseLossRecovery)
           && (responseLossRecovery ? completion.statusRecoveryResponseBytes : completion.statusRecoveryResponseBytes ?? completion.clientResponseBytes) === diagnostics.result_bytes,
+        responseBytesMatchCommittedResult: Number.isFinite(diagnostics.result_bytes)
+          && completion.clientResponseBytes === diagnostics.result_bytes,
         requestAcceptanceMilliseconds: submission.requestAcceptanceMilliseconds,
         requestAuthenticationMilliseconds: Number.isFinite(durations.request_authentication) ? durations.request_authentication : null,
         requestBodyReadMilliseconds: Number.isFinite(durations.request_body_read) ? durations.request_body_read : null,
@@ -1854,7 +1904,7 @@ async function runBatch({ workerOrigin, webOrigin, accessToken, userId, device, 
         initial202ResponseReceivedEpochMilliseconds: submission.clientT1EpochMilliseconds,
         statusPollingMilliseconds: completion.statusPollingMilliseconds,
         pollCount: completion.pollCount,
-        pollingInitialResponseRoundTripMilliseconds: submission.requestAcceptanceMilliseconds,
+        pollingInitialResponseRoundTripMilliseconds: synchronousCandidate ? null : submission.requestAcceptanceMilliseconds,
         pollingWaitBeforeFirstStatusRequestMilliseconds: completion.pollingWaitBeforeFirstStatusRequestMilliseconds,
         pollingWaitBetweenStatusRequestsMilliseconds: completion.pollingWaitBetweenStatusRequestsMilliseconds,
         pollingStatusRequestRoundTripMilliseconds: completion.pollingStatusRequestRoundTripMilliseconds,
@@ -2199,6 +2249,7 @@ async function runBatch({ workerOrigin, webOrigin, accessToken, userId, device, 
       result_sha256: sample.resultSha256,
       response_bytes_match_result_hash: sample.responseBytesMatchResultHash,
       response_bytes_match_result_bytes: sample.responseBytesMatchResultBytes,
+      response_bytes_match_committed_result: sample.responseBytesMatchCommittedResult,
       status_recovery_bytes_match_response: sample.statusRecoveryBytesMatchResponse,
       status_recovery_bytes_match_result_hash: sample.statusRecoveryBytesMatchResultHash,
       status_recovery_bytes_match_result_bytes: sample.statusRecoveryBytesMatchResultBytes,
@@ -2710,7 +2761,7 @@ async function main() {
   if (result === "NOT ESTABLISHED") process.exitCode = 2;
 }
 
-export { derivePollingSample, diagnosePollingSchedule };
+export { derivePollingSample, diagnosePollingSchedule, synchronousCompletion };
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   main().catch((error) => {

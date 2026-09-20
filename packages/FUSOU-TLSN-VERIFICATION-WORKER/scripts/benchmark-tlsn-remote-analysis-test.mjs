@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import assert from "node:assert/strict";
-import { derivePollingSample, diagnosePollingSchedule } from "./benchmark-tlsn-remote.mjs";
+import { derivePollingSample, diagnosePollingSchedule, synchronousCompletion } from "./benchmark-tlsn-remote.mjs";
 
 function sample(overrides = {}) {
   return {
@@ -69,6 +69,32 @@ assert.equal(authoritative.completion_to_terminal_poll_start_ms, 50);
 assert.equal(authoritative.terminal_observation_delay_ms, 60);
 assert.equal(Object.hasOwn(authoritative, "poll_events"), false);
 assert.equal(diagnosePollingSchedule([authoritative]).classification, "polling-schedule-dominated");
+
+const synchronous = synchronousCompletion({
+  clientT1: 1_240,
+  clientT1EpochMilliseconds: 1_240,
+  response: new Response(null, {
+    headers: {
+      "X-FUSOU-TLSN-Benchmark-Server-Completion-Epoch-Ms": "1200",
+    },
+  }),
+  responseBodyBytes: 512,
+  responseBodySha256: "result-sha256",
+  synchronousTiming: {
+    timestamps: { direct_invocation_completed: 1_190 },
+    diagnostics: { server_completion_epoch_ms: 1_200 },
+  },
+}, "direct");
+assert.equal(synchronous.outcome, "verified");
+assert.equal(synchronous.pollCount, 0);
+assert.equal(synchronous.pollingStatusRequestCount, 0);
+assert.equal(synchronous.pollingTotalElapsedMilliseconds, 0);
+assert.equal(synchronous.pollingWaitBeforeFirstStatusRequestMilliseconds, 0);
+assert.equal(synchronous.pollingWaitBetweenStatusRequestsMilliseconds, 0);
+assert.equal(synchronous.pollingStatusRequestRoundTripMilliseconds, 0);
+assert.deepEqual(synchronous.pollEvents, []);
+assert.equal(synchronous.benchmarkServerCompletionEpochMilliseconds, 1_200);
+assert.equal(synchronous.benchmarkServerCompletionEpochSource, "completion_header");
 
 const negative = derivePollingSample(sample({
   client_terminal_observed_epoch_ms: 1_070,
