@@ -2,42 +2,6 @@
 
 import assert from "node:assert/strict";
 import { createHash, createPrivateKey, createPublicKey, randomUUID, sign, verify } from "node:crypto";
-    if (!replayOrigin || replayOrigin === workerOrigin) {
-      blocked(
-        checks,
-        "remote_concurrent_replay",
-        "Set TLSN_REMOTE_REPLAY_WORKER_URL to a separate fixed-binding Worker for the concurrent replay matrix.",
-      );
-    } else {
-      await runCheck(checks, "remote_concurrent_replay", async () => {
-        const replayHealth = await timedRequest(endpoint(replayOrigin, "/health"), {});
-        assert.equal(replayHealth.status, 200);
-        assert.equal(replayHealth.json?.binding_mode, "fixed");
-        const replaySession = await issueSession(replayOrigin, webOrigin, deviceA, tokenA);
-        assert.equal(replaySession.session.binding, fixture.binding_value);
-        const requests = await Promise.all(
-          Array.from({ length: 8 }, () => postVerification(
-            replayOrigin,
-            tokenA,
-            verificationBody(replaySession.session, deviceA, fixture),
-          )),
-        );
-        const successes = requests.filter((response) => response.status === 200);
-        const conflicts = requests.filter((response) => response.status === 409);
-        assert.equal(successes.length, 1);
-        assert.equal(conflicts.length, requests.length - 1);
-        for (const response of conflicts) {
-          assert.ok(["binding_consumed", "device_possession_replayed"].includes(response.json?.error));
-        }
-        return {
-          requests: requests.length,
-          successful_verifications: successes.length,
-          conflict_responses: conflicts.length,
-          conflict_codes: [...new Set(conflicts.map((response) => response.json?.error))],
-        };
-      });
-    }
-
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { blockedProductionEvidenceContract } from "./production-evidence-contract.mjs";
@@ -951,6 +915,42 @@ async function main() {
       assert.equal(response.json?.error, "binding_consumed");
       return { status_code: response.status, failure_code: response.json.error };
     });
+
+    if (!replayOrigin || replayOrigin === workerOrigin) {
+      blocked(
+        checks,
+        "remote_concurrent_replay",
+        "Set TLSN_REMOTE_REPLAY_WORKER_URL to a separate fixed-binding Worker for the concurrent replay matrix.",
+      );
+    } else {
+      await runCheck(checks, "remote_concurrent_replay", async () => {
+        const replayHealth = await timedRequest(endpoint(replayOrigin, "/health"), {});
+        assert.equal(replayHealth.status, 200);
+        assert.equal(replayHealth.json?.binding_mode, "fixed");
+        const replaySession = await issueSession(replayOrigin, webOrigin, deviceA, tokenA);
+        assert.equal(replaySession.session.binding, fixture.binding_value);
+        const requests = await Promise.all(
+          Array.from({ length: 8 }, () => postVerification(
+            replayOrigin,
+            tokenA,
+            verificationBody(replaySession.session, deviceA, fixture),
+          )),
+        );
+        const successes = requests.filter((response) => response.status === 200);
+        const conflicts = requests.filter((response) => response.status === 409);
+        assert.equal(successes.length, 1);
+        assert.equal(conflicts.length, requests.length - 1);
+        for (const response of conflicts) {
+          assert.ok(["binding_consumed", "device_possession_replayed"].includes(response.json?.error));
+        }
+        return {
+          requests: requests.length,
+          successful_verifications: successes.length,
+          conflict_responses: conflicts.length,
+          conflict_codes: [...new Set(conflicts.map((response) => response.json?.error))],
+        };
+      });
+    }
   } else {
     blocked(checks, "remote_context_swapping", "Requires a remotely issued session.");
     blocked(checks, "remote_cross_user_attacks", "Requires a remotely issued session.");
