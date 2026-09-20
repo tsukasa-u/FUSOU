@@ -33,12 +33,28 @@
   "pnpm": {
     "overrides": {
       "axios": ">=1.12.0",
-      "form-data": ">=4.0.4",
-      "devalue": ">=5.6.2",
-      "seroval": ">=1.4.1",
+      "form-data": ">=4.0.6",
+      "devalue": ">=5.9.2",
+      "seroval": ">=1.5.4",
       "hono": ">=4.12.7",
-      "dompurify": ">=3.3.2",
-      "lodash-es": ">=4.17.23"
+      "dompurify": ">=3.4.13",
+      "lodash-es": ">=4.18.0",
+      "tar": ">=7.5.21",
+      "brace-expansion@1": ">=1.1.18",
+      "brace-expansion@2": ">=2.1.4",
+      "js-yaml": ">=4.3.2",
+      "browserslist": ">=4.28.7",
+      "mermaid": ">=11.16.1",
+      "fast-uri": ">=3.1.6",
+      "esbuild": ">=0.28.1",
+      "ws": ">=8.21.1",
+      "deepmerge-ts": ">=8.0.0",
+      "defu": ">=6.1.7",
+      "@humanfs/node": ">=0.16.8",
+      "diff": ">=4.0.4",
+      "webpack": "^5.104.1",
+      "@babel/core": ">=7.29.6",
+      "@storybook/csf-plugin>webpack": "^5.104.1"
     }
   }
 }

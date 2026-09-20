@@ -23,7 +23,7 @@
     "upload:local:no-br:force": "dotenvx run -fk ../.env.keys -f ../FUSOU-WEB/.env -- node ../FUSOU-WEB/scripts/upload-synergy.mjs --env development --no-br --force"
   },
   "dependencies": {
-    "jsdom": "^25.0.0"
+    "jsdom": "^30.1.0"
   },
   "devDependencies": {
     "@dotenvx/dotenvx": "^1.59.1",
