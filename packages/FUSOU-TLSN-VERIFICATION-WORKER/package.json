@@ -37,6 +37,7 @@
       "benchmark:tlsn-result-storage": "node scripts/benchmark-tlsn-result-storage.mjs",
       "test:stuck-job-age-alert": "node scripts/stuck-job-age-alert-dry-run.mjs",
       "benchmark:tlsn-remote": "pnpm run benchmark:tlsn-remote:preflight && pnpm run build:wasm && node scripts/benchmark-tlsn-remote.mjs",
+      "test:tlsn-remote-analysis": "node scripts/benchmark-tlsn-remote-analysis-test.mjs",
     "validate:remote": "node scripts/remote-validation.mjs",
     "verify:remote-gate": "node scripts/verify-remote-gate.mjs",
     "types": "wrangler types",

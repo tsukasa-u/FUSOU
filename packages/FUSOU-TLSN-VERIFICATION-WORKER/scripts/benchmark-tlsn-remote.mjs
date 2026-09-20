@@ -3,6 +3,7 @@
 import { createHash, createPrivateKey, randomBytes, sign } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   fixtureSourcePath,
   generateRealFixture,
@@ -501,7 +502,8 @@ async function pollStatus(workerOrigin, accessToken, userId, device, session, jo
   let statusRequestRoundTripMilliseconds = 0;
   let clientTerminalObservedEpochMilliseconds = null;
   let benchmarkServerCompletionEpochMilliseconds = null;
-  let benchmarkServerCompletionEpochSource = null;
+  let benchmarkServerCompletionEpochSource = "missing";
+  let callerDirectInvocationCompletedEpochMilliseconds = null;
   const pollEvents = [];
   const complete = (value) => ({
     ...value,
@@ -513,6 +515,7 @@ async function pollStatus(workerOrigin, accessToken, userId, device, session, jo
     clientTerminalObservedEpochMilliseconds,
     benchmarkServerCompletionEpochMilliseconds,
     benchmarkServerCompletionEpochSource,
+    callerDirectInvocationCompletedEpochMilliseconds,
     pollEvents,
   });
   while (performance.now() < deadline) {
@@ -580,15 +583,24 @@ async function pollStatus(workerOrigin, accessToken, userId, device, session, jo
       && typeof timing?.timestamps?.direct_invocation_completed === "number"
       ? timing.timestamps.direct_invocation_completed
       : null;
+    if (Number.isFinite(directInvocationCompletionEpochMilliseconds) && directInvocationCompletionEpochMilliseconds > 0) {
+      callerDirectInvocationCompletedEpochMilliseconds = directInvocationCompletionEpochMilliseconds;
+    }
     if (Number.isFinite(headerServerCompletionEpochMilliseconds) && headerServerCompletionEpochMilliseconds > 0) {
       benchmarkServerCompletionEpochMilliseconds = headerServerCompletionEpochMilliseconds;
       benchmarkServerCompletionEpochSource = "completion_header";
-    } else if (Number.isFinite(diagnosticServerCompletionEpochMilliseconds) && diagnosticServerCompletionEpochMilliseconds > 0) {
+    } else if (
+      benchmarkServerCompletionEpochSource !== "completion_header"
+      && Number.isFinite(diagnosticServerCompletionEpochMilliseconds)
+      && diagnosticServerCompletionEpochMilliseconds > 0
+    ) {
       benchmarkServerCompletionEpochMilliseconds = diagnosticServerCompletionEpochMilliseconds;
       benchmarkServerCompletionEpochSource = "timing_diagnostics";
-    } else if (Number.isFinite(directInvocationCompletionEpochMilliseconds) && directInvocationCompletionEpochMilliseconds > 0) {
-      benchmarkServerCompletionEpochMilliseconds = directInvocationCompletionEpochMilliseconds;
-      benchmarkServerCompletionEpochSource = "direct_invocation_completed_fallback";
+    } else if (
+      benchmarkServerCompletionEpochSource === "missing"
+      && Number.isFinite(callerDirectInvocationCompletedEpochMilliseconds)
+    ) {
+      benchmarkServerCompletionEpochSource = "caller_direct_invocation_fallback";
     }
     const terminal = result.status !== 202;
     pollEvents.push({
@@ -822,18 +834,31 @@ function sumFinite(values) {
   );
 }
 
-function nonNegativeEpochDelta(end, start) {
-  if (!Number.isFinite(end) || !Number.isFinite(start)) return null;
-  const delta = end - start;
-  return delta >= 0 ? delta : null;
+function epochDelta(end, start) {
+  if (!Number.isFinite(end) || !Number.isFinite(start)) {
+    return { value: null, raw: null, invalid: false };
+  }
+  const raw = end - start;
+  return { value: raw >= 0 ? raw : null, raw, invalid: raw < 0 };
+}
+
+function hasAuthoritativeCompletionEpoch(sample) {
+  const source = sample.server_completion_epoch_source ?? sample.completion_marker_source;
+  return (
+    (source === "completion_header" || source === "timing_diagnostics")
+    && Number.isFinite(sample.benchmark_server_completion_epoch_ms)
+  );
 }
 
 function derivePollingSample(sample) {
   const events = Array.isArray(sample.poll_events) ? sample.poll_events : [];
   const firstEvent = events[0] ?? null;
   const terminalEvent = events.find((event) => event.terminal === true) ?? null;
-  const completionEpoch = sample.benchmark_server_completion_epoch_ms;
-  const firstPollDelay = nonNegativeEpochDelta(
+  const completionEpoch = hasAuthoritativeCompletionEpoch(sample)
+    ? sample.benchmark_server_completion_epoch_ms
+    : null;
+  const completionMarkerSource = sample.server_completion_epoch_source ?? "missing";
+  const firstPollDelay = epochDelta(
     firstEvent?.request_started_epoch_ms,
     sample.initial_202_response_received_epoch_ms,
   );
@@ -863,42 +888,67 @@ function derivePollingSample(sample) {
   ) {
     completionRelativeToPollSchedule = "after_terminal_observation";
   }
-  const terminalResponseAfterCompletionMilliseconds = terminalEvent
-    ? nonNegativeEpochDelta(
+  const terminalResponseAfterCompletion = terminalEvent && Number.isFinite(completionEpoch)
+    ? epochDelta(
       terminalEvent.response_received_epoch_ms,
       Math.max(completionEpoch, terminalEvent.request_started_epoch_ms),
     )
-    : null;
-  const completionToTerminalPollStartMilliseconds = terminalEvent
-    ? nonNegativeEpochDelta(terminalEvent.request_started_epoch_ms, completionEpoch)
-    : null;
+    : { value: null, raw: null, invalid: false };
+  const completionToTerminalPollStart = terminalEvent && Number.isFinite(completionEpoch)
+    ? epochDelta(terminalEvent.request_started_epoch_ms, completionEpoch)
+    : { value: null, raw: null, invalid: false };
+  const completionToNextStatusRequest = nextPollAfterCompletion
+    ? epochDelta(nextPollAfterCompletion.request_started_epoch_ms, completionEpoch)
+    : { value: null, raw: null, invalid: false };
+  const serverToClientObservation = epochDelta(
+    sample.client_terminal_observed_epoch_ms,
+    completionEpoch,
+  );
+  const invalidEpochDeltas = [
+    ["first_poll_delay", firstPollDelay],
+    ["terminal_response_after_completion", terminalResponseAfterCompletion],
+    ["completion_to_next_status_request", completionToNextStatusRequest],
+    ["completion_to_terminal_poll_start", completionToTerminalPollStart],
+    ["server_to_client_observation_delay", serverToClientObservation],
+  ]
+    .filter(([, delta]) => delta.invalid)
+    .map(([name]) => name);
   const statusRequestCount = events.length || sample.polling_status_request_count || 0;
   return {
     case_label: sample.case_label,
     concurrency: sample.concurrency,
     sample_index: sample.sample_index,
     outcome: "verified",
-    completion_marker_source: sample.server_completion_epoch_source ?? null,
+    completion_marker_source: completionMarkerSource,
     verification_start_request_start_epoch_ms: sample.verification_start_request_started_epoch_ms ?? null,
     initial_202_response_received_epoch_ms: sample.initial_202_response_received_epoch_ms ?? null,
     client_terminal_observed_epoch_ms: sample.client_terminal_observed_epoch_ms ?? null,
     benchmark_server_completion_epoch_ms: completionEpoch ?? null,
-    first_poll_delay_ms: firstPollDelay ?? sample.polling_wait_before_first_status_request_ms ?? null,
+    caller_direct_invocation_completed_epoch_ms: sample.caller_direct_invocation_completed_epoch_ms ?? null,
+    first_poll_delay_ms: firstPollDelay.invalid
+      ? null
+      : firstPollDelay.value ?? sample.polling_wait_before_first_status_request_ms ?? null,
+    first_poll_delay_raw_ms: firstPollDelay.raw,
     polling_wait_before_first_status_request_ms: sample.polling_wait_before_first_status_request_ms ?? null,
     polling_wait_between_status_requests_ms: sample.polling_wait_between_status_requests_ms ?? null,
     total_poll_wait_ms: sumFinite(events.map((event) => event.wait_before_request_ms)),
     total_status_request_round_trip_ms: sumFinite(events.map((event) => event.request_round_trip_ms)),
     terminal_status_request_round_trip_ms: terminalEvent?.request_round_trip_ms ?? null,
-    terminal_response_after_completion_ms: terminalResponseAfterCompletionMilliseconds,
-    terminal_observation_delay_ms: sample.server_to_client_observation_delay_ms ?? null,
-    completion_to_next_status_request_delay_ms: nextPollAfterCompletion
-      ? nonNegativeEpochDelta(nextPollAfterCompletion.request_started_epoch_ms, completionEpoch)
-      : null,
-    completion_to_next_poll_request_ms: nextPollAfterCompletion
-      ? nonNegativeEpochDelta(nextPollAfterCompletion.request_started_epoch_ms, completionEpoch)
-      : null,
-    completion_to_terminal_poll_start_ms: completionToTerminalPollStartMilliseconds,
-    completion_relative_to_poll_schedule: completionRelativeToPollSchedule,
+    terminal_response_after_completion_ms: terminalResponseAfterCompletion.value,
+    terminal_response_after_completion_raw_ms: terminalResponseAfterCompletion.raw,
+    terminal_observation_delay_ms: serverToClientObservation.value,
+    terminal_observation_delay_raw_ms: serverToClientObservation.raw,
+    completion_to_next_status_request_delay_ms: completionToNextStatusRequest.value,
+    completion_to_next_status_request_delay_raw_ms: completionToNextStatusRequest.raw,
+    completion_to_next_poll_request_ms: completionToNextStatusRequest.value,
+    completion_to_next_poll_request_raw_ms: completionToNextStatusRequest.raw,
+    completion_to_terminal_poll_start_ms: completionToTerminalPollStart.value,
+    completion_to_terminal_poll_start_raw_ms: completionToTerminalPollStart.raw,
+    completion_relative_to_poll_schedule: Number.isFinite(completionEpoch)
+      ? completionRelativeToPollSchedule
+      : "inconclusive_server_completion_epoch_unavailable",
+    invalid_epoch_deltas: invalidEpochDeltas,
+    invalid_epoch_delta_count: invalidEpochDeltas.length,
     poll_count: statusRequestCount,
     status_request_count: statusRequestCount,
     total_http_request_count: 1 + statusRequestCount,
@@ -910,7 +960,6 @@ function derivePollingSample(sample) {
     r2_operations: sample.r2_operations ?? {},
     response_bytes_match_result_hash: sample.response_bytes_match_result_hash ?? null,
     status_recovery_bytes_match_result_hash: sample.status_recovery_bytes_match_result_hash ?? null,
-    poll_events: events,
   };
 }
 
@@ -919,10 +968,23 @@ function summarizePollingField(samples, field) {
 }
 
 function diagnosePollingSchedule(samples) {
-  const scheduleValues = samples
+  const authoritativeSamples = samples.filter(hasAuthoritativeCompletionEpoch);
+  if (authoritativeSamples.length === 0) {
+    return {
+      classification: "inconclusive",
+      basis: "server_completion_epoch_unavailable",
+      authoritative_completion_epoch_sample_count: 0,
+      unavailable_completion_epoch_sample_count: samples.length,
+      schedule_component_p95_ms: null,
+      terminal_exchange_component_p95_ms: null,
+      schedule_component_sample_count: 0,
+      terminal_exchange_component_sample_count: 0,
+    };
+  }
+  const scheduleValues = authoritativeSamples
     .map((sample) => sample.completion_to_terminal_poll_start_ms)
     .filter(Number.isFinite);
-  const terminalExchangeValues = samples
+  const terminalExchangeValues = authoritativeSamples
     .map((sample) => sample.terminal_status_request_round_trip_ms)
     .filter(Number.isFinite);
   const scheduleP95 = pQuantile(scheduleValues, 0.95);
@@ -931,6 +993,8 @@ function diagnosePollingSchedule(samples) {
     return {
       classification: "inconclusive",
       basis: "missing_sample_level_completion_to_terminal_poll_start_or_terminal_status_round_trip",
+      authoritative_completion_epoch_sample_count: authoritativeSamples.length,
+      unavailable_completion_epoch_sample_count: samples.length - authoritativeSamples.length,
       schedule_component_p95_ms: scheduleP95,
       terminal_exchange_component_p95_ms: terminalExchangeP95,
       schedule_component_sample_count: scheduleValues.length,
@@ -945,6 +1009,8 @@ function diagnosePollingSchedule(samples) {
   return {
     classification,
     basis: "sample_level_p95_completion_to_terminal_poll_start_vs_terminal_status_request_round_trip",
+    authoritative_completion_epoch_sample_count: authoritativeSamples.length,
+    unavailable_completion_epoch_sample_count: samples.length - authoritativeSamples.length,
     schedule_component_p95_ms: scheduleP95,
     terminal_exchange_component_p95_ms: terminalExchangeP95,
     schedule_component_sample_count: scheduleValues.length,
@@ -1032,6 +1098,7 @@ function buildPollingAnalysis({
         polling_wait_between_status_requests: summarizePollingField(group, "polling_wait_between_status_requests_ms"),
         total_status_request_round_trip: summarizePollingField(group, "total_status_request_round_trip_ms"),
         terminal_observation_delay: summarizePollingField(group, "terminal_observation_delay_ms"),
+        terminal_observation_delay_raw: summarizePollingField(group, "terminal_observation_delay_raw_ms"),
         poll_count: summarizePollingField(group, "poll_count"),
         status_request_count: summarizePollingField(group, "status_request_count"),
         total_http_request_count: summarizePollingField(group, "total_http_request_count"),
@@ -1039,8 +1106,10 @@ function buildPollingAnalysis({
         completion_to_next_status_request_delay: summarizePollingField(group, "completion_to_next_status_request_delay_ms"),
         completion_to_next_poll_request: summarizePollingField(group, "completion_to_next_poll_request_ms"),
         completion_to_terminal_poll_start: summarizePollingField(group, "completion_to_terminal_poll_start_ms"),
+        completion_to_terminal_poll_start_raw: summarizePollingField(group, "completion_to_terminal_poll_start_raw_ms"),
         terminal_status_request_round_trip: summarizePollingField(group, "terminal_status_request_round_trip_ms"),
         terminal_response_after_completion: summarizePollingField(group, "terminal_response_after_completion_ms"),
+        invalid_epoch_delta_count: summarizePollingField(group, "invalid_epoch_delta_count"),
       },
       correlations: {
         client_visible_vs_total_poll_wait: pairedCorrelation(group, "client_visible_ms", "total_poll_wait_ms"),
@@ -1058,14 +1127,26 @@ function buildPollingAnalysis({
       diagnosis,
     };
   });
+  const invalidEpochDeltaNames = [
+    "first_poll_delay",
+    "terminal_response_after_completion",
+    "completion_to_next_status_request",
+    "completion_to_terminal_poll_start",
+    "server_to_client_observation_delay",
+  ];
+  const invalidEpochDeltaCounts = Object.fromEntries(
+    invalidEpochDeltaNames.map((name) => [
+      name,
+      samples.filter((sample) => sample.invalid_epoch_deltas.includes(name)).length,
+    ]),
+  );
   const completionMarkerSources = Object.fromEntries(
-    ["completion_header", "timing_diagnostics", "direct_invocation_completed_fallback"]
+    ["completion_header", "timing_diagnostics", "caller_direct_invocation_fallback", "missing"]
       .map((source) => [source, samples.filter((sample) => sample.completion_marker_source === source).length]),
   );
-  completionMarkerSources.missing = samples.filter((sample) => !sample.completion_marker_source).length;
   const globalDiagnosis = diagnosePollingSchedule(samples);
   return {
-    schema_version: 1,
+    schema_version: 2,
     benchmark: "tlsn-direct-polling-analysis",
     generated_at: new Date().toISOString(),
     source_report: repositoryRelativePath(reportPath),
@@ -1101,13 +1182,21 @@ function buildPollingAnalysis({
     },
     deployment_completion_marker: {
       source_counts: completionMarkerSources,
-      fallback_count: completionMarkerSources.direct_invocation_completed_fallback,
-      header_count: completionMarkerSources.completion_header,
-      diagnostic_count: completionMarkerSources.timing_diagnostics,
-      timestamp_semantics: "completion_header is preferred, then timing diagnostics, then direct_invocation_completed fallback; Worker epoch and client epoch are compared without clock-skew correction",
-      old_deployment_compatibility: completionMarkerSources.direct_invocation_completed_fallback > 0
+      completion_header_count: completionMarkerSources.completion_header,
+      timing_diagnostics_count: completionMarkerSources.timing_diagnostics,
+      caller_fallback_count: completionMarkerSources.caller_direct_invocation_fallback,
+      missing_count: completionMarkerSources.missing,
+      timestamp_semantics: "completion_header is authoritative, timing diagnostics are secondary, and direct_invocation_completed is caller-only telemetry; Worker epoch and client epoch are compared without clock-skew correction",
+      old_deployment_compatibility: completionMarkerSources.caller_direct_invocation_fallback > 0
         ? "old deployment fallback was used"
         : "no completion marker fallback was used",
+    },
+    clock_order_anomalies: {
+      invalid_epoch_delta_counts: invalidEpochDeltaCounts,
+      total_invalid_epoch_delta_count: samples.reduce(
+        (total, sample) => total + sample.invalid_epoch_delta_count,
+        0,
+      ),
     },
     baseline: {
       normal_verified_sample_records: samples.length,
@@ -1121,6 +1210,7 @@ function buildPollingAnalysis({
         polling_wait_between_status_requests: summarizePollingField(samples, "polling_wait_between_status_requests_ms"),
         total_status_request_round_trip: summarizePollingField(samples, "total_status_request_round_trip_ms"),
         terminal_observation_delay: summarizePollingField(samples, "terminal_observation_delay_ms"),
+        terminal_observation_delay_raw: summarizePollingField(samples, "terminal_observation_delay_raw_ms"),
         poll_count: summarizePollingField(samples, "poll_count"),
         status_request_count: summarizePollingField(samples, "status_request_count"),
         total_http_request_count: summarizePollingField(samples, "total_http_request_count"),
@@ -1128,8 +1218,10 @@ function buildPollingAnalysis({
         completion_to_next_status_request_delay: summarizePollingField(samples, "completion_to_next_status_request_delay_ms"),
         completion_to_next_poll_request: summarizePollingField(samples, "completion_to_next_poll_request_ms"),
         completion_to_terminal_poll_start: summarizePollingField(samples, "completion_to_terminal_poll_start_ms"),
+        completion_to_terminal_poll_start_raw: summarizePollingField(samples, "completion_to_terminal_poll_start_raw_ms"),
         terminal_status_request_round_trip: summarizePollingField(samples, "terminal_status_request_round_trip_ms"),
         terminal_response_after_completion: summarizePollingField(samples, "terminal_response_after_completion_ms"),
+        invalid_epoch_delta_count: summarizePollingField(samples, "invalid_epoch_delta_count"),
       },
       correlations: {
         client_visible_vs_total_poll_wait: pairedCorrelation(samples, "client_visible_ms", "total_poll_wait_ms"),
@@ -1557,6 +1649,10 @@ async function runBatch({ workerOrigin, webOrigin, accessToken, userId, device, 
       if (completion.outcome !== "verified") {
         const failureTiming = completion.timing;
         const failureDiagnostics = failureTiming?.diagnostics ?? completion.diagnostics ?? {};
+        const failureServerToClientObservation = epochDelta(
+          completion.clientTerminalObservedEpochMilliseconds,
+          completion.benchmarkServerCompletionEpochMilliseconds,
+        );
         failures.push({
           case_label: entry.caseLabel,
           concurrency,
@@ -1578,10 +1674,11 @@ async function runBatch({ workerOrigin, webOrigin, accessToken, userId, device, 
           polling_total_elapsed_ms: completion.pollingTotalElapsedMilliseconds ?? null,
           client_terminal_observed_epoch_ms: completion.clientTerminalObservedEpochMilliseconds ?? null,
           benchmark_server_completion_epoch_ms: completion.benchmarkServerCompletionEpochMilliseconds ?? null,
-          server_to_client_observation_delay_ms: Number.isFinite(completion.benchmarkServerCompletionEpochMilliseconds)
-            && Number.isFinite(completion.clientTerminalObservedEpochMilliseconds)
-            ? completion.clientTerminalObservedEpochMilliseconds - completion.benchmarkServerCompletionEpochMilliseconds
-            : null,
+          server_completion_epoch_source: completion.benchmarkServerCompletionEpochSource ?? "missing",
+          caller_direct_invocation_completed_epoch_ms: completion.callerDirectInvocationCompletedEpochMilliseconds ?? null,
+          server_to_client_observation_delay_ms: failureServerToClientObservation.value,
+          server_to_client_observation_delay_raw_ms: failureServerToClientObservation.raw,
+          server_to_client_observation_epoch_delta_invalid: failureServerToClientObservation.invalid,
           diagnostics: failureDiagnostics,
           direct_acquire_verification_ms: Number.isFinite(failureTiming?.durations?.direct_acquire_verification)
             ? failureTiming.durations.direct_acquire_verification
@@ -1624,7 +1721,6 @@ async function runBatch({ workerOrigin, webOrigin, accessToken, userId, device, 
             : completion.benchmarkServerCompletionEpochMilliseconds ?? null,
           server_timestamps: failureTiming?.timestamps ?? {},
           server_durations: failureTiming?.durations ?? {},
-          poll_events: completion.pollEvents ?? [],
         });
         continue;
       }
@@ -1690,6 +1786,10 @@ async function runBatch({ workerOrigin, webOrigin, accessToken, userId, device, 
       const queueCallbackResponseReceived = stageTimestamp(timing, "t3_queue_callback_response_received");
       const triggerVerifierInitializationStarted = stageTimestamp(timing, "t3_trigger_verifier_initialization_started");
       const triggerVerifierInitializationCompleted = stageTimestamp(timing, "t3_trigger_verifier_initialization_completed");
+      const serverToClientObservation = epochDelta(
+        completion.clientTerminalObservedEpochMilliseconds,
+        completion.benchmarkServerCompletionEpochMilliseconds,
+      );
       samples.push({
         case_label: entry.caseLabel,
         body_bytes: entry.sourceFixtureBodyBytes,
@@ -1762,11 +1862,11 @@ async function runBatch({ workerOrigin, webOrigin, accessToken, userId, device, 
         pollingStatusRequestCount: completion.pollingStatusRequestCount,
         clientTerminalObservedEpochMilliseconds: completion.clientTerminalObservedEpochMilliseconds,
         benchmarkServerCompletionEpochMilliseconds: completion.benchmarkServerCompletionEpochMilliseconds,
-        benchmarkServerCompletionEpochSource: completion.benchmarkServerCompletionEpochSource,
-        serverToClientObservationDelayMilliseconds: Number.isFinite(completion.benchmarkServerCompletionEpochMilliseconds)
-          && Number.isFinite(completion.clientTerminalObservedEpochMilliseconds)
-          ? completion.clientTerminalObservedEpochMilliseconds - completion.benchmarkServerCompletionEpochMilliseconds
-          : null,
+        benchmarkServerCompletionEpochSource: completion.benchmarkServerCompletionEpochSource ?? "missing",
+        callerDirectInvocationCompletedEpochMilliseconds: completion.callerDirectInvocationCompletedEpochMilliseconds ?? null,
+        serverToClientObservationDelayMilliseconds: serverToClientObservation.value,
+        serverToClientObservationDelayRawMilliseconds: serverToClientObservation.raw,
+        serverToClientObservationEpochDeltaInvalid: serverToClientObservation.invalid,
         pollEvents: completion.pollEvents,
         clientVisibleMilliseconds: completion.clientT11 - submission.clientT0,
         serverCompletionMilliseconds: t1Server !== null && t10 !== null ? t10 - t1Server : null,
@@ -2068,8 +2168,10 @@ async function runBatch({ workerOrigin, webOrigin, accessToken, userId, device, 
       client_terminal_observed_epoch_ms: sample.clientTerminalObservedEpochMilliseconds,
       benchmark_server_completion_epoch_ms: sample.benchmarkServerCompletionEpochMilliseconds,
       server_completion_epoch_source: sample.benchmarkServerCompletionEpochSource,
+      caller_direct_invocation_completed_epoch_ms: sample.callerDirectInvocationCompletedEpochMilliseconds,
       server_to_client_observation_delay_ms: sample.serverToClientObservationDelayMilliseconds,
-      poll_events: sample.pollEvents,
+      server_to_client_observation_delay_raw_ms: sample.serverToClientObservationDelayRawMilliseconds,
+      server_to_client_observation_epoch_delta_invalid: sample.serverToClientObservationEpochDeltaInvalid,
       timing_complete: sample.timing_complete,
       timing_trace_id_present: sample.timing_trace_id_present,
       timing_trace_id_matches_submission: sample.timing_trace_id_matches_submission,
@@ -2312,7 +2414,7 @@ async function main() {
     ?? resolve(packageDirectory, "artifacts/tlsn-remote-benchmark-failures.json");
   const failures = rows.flatMap((row) => row.failures);
   const report = {
-    schema_version: 7,
+    schema_version: 8,
     benchmark: "tlsn-worker-remote-e2e",
     architecture_variant: optional("TLSN_REMOTE_BENCHMARK_VARIANT") ?? "current",
     generated_at: new Date().toISOString(),
@@ -2584,7 +2686,7 @@ async function main() {
   await writeFile(reportPath, `${JSON.stringify(report, null, 2)}\n`, "utf8");
   await writeFile(pollingAnalysisPath, `${JSON.stringify(pollingAnalysis, null, 2)}\n`, "utf8");
   await writeFile(failureArtifactPath, `${JSON.stringify({
-    schema_version: 1,
+    schema_version: 2,
     benchmark: "tlsn-worker-remote-e2e-failures",
     generated_at: new Date().toISOString(),
     worker_origin: workerOrigin,
@@ -2604,7 +2706,11 @@ async function main() {
   if (result === "NOT ESTABLISHED") process.exitCode = 2;
 }
 
-main().catch((error) => {
-  console.error(`[tlsn-remote-benchmark] ${error instanceof Error ? error.message : "measurement_failed"}`);
-  process.exitCode = 2;
-});
+export { derivePollingSample, diagnosePollingSchedule };
+
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  main().catch((error) => {
+    console.error(`[tlsn-remote-benchmark] ${error instanceof Error ? error.message : "measurement_failed"}`);
+    process.exitCode = 2;
+  });
+}
