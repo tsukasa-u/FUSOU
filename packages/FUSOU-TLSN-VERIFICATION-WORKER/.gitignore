@@ -1,6 +1,9 @@
 src/wasm/*
 .wrangler/
-.cache/sparse-crypto-fixtures/
+.cache/
+artifacts/
+packages/
+**/*.base64url
 .env
 .env.*
 !.env.example

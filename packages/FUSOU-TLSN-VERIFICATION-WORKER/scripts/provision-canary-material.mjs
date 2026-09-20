@@ -12,6 +12,7 @@ const packageDirectory = resolve(new URL("..", import.meta.url).pathname);
 const repositoryDirectory = resolve(packageDirectory, "../..");
 const SYNTHETIC_SERVER_IDENTITY = "game.example.test";
 const REQUIRE_INFO_TARGET = "/kcsapi/api_get_member/require_info";
+const FIXTURE_PROVENANCE_SOURCE = "repository-local-synthetic-fixture";
 
 function parseArguments(argumentsList) {
   const options = {};
@@ -90,6 +91,11 @@ function notaryKeyMaterial() {
   };
 }
 
+function generatedNotaryKeyMaterial(fixtureOnly) {
+  if (fixtureOnly) throw new Error("fixture-only mode forbids Notary private-key generation");
+  return notaryKeyMaterial();
+}
+
 function randomSecret() {
   return randomBytes(32).toString("base64url");
 }
@@ -99,6 +105,39 @@ function profileHash(document) {
   return {
     canonical,
     sha256: createHash("sha256").update(canonical).digest("base64url"),
+  };
+}
+
+function fixtureBytes(raw, label) {
+  const bytes = Buffer.from(raw, "base64url");
+  if (bytes.length === 0 || bytes.toString("base64url") !== raw) {
+    throw new Error(`synthetic fixture ${label} must be canonical base64url`);
+  }
+  return bytes;
+}
+
+function sha256Base64Url(bytes) {
+  return createHash("sha256").update(bytes).digest("base64url");
+}
+
+function fixtureProvenance(fixtureManifest, fixtureEntry, fixture) {
+  const presentationField = typeof fixture.presentation_base64 === "string"
+    ? "presentation_base64"
+    : "sparse_presentation_base64";
+  const presentation = fixtureBytes(fixture[presentationField], presentationField);
+  const rootCertificate = fixtureBytes(fixture.root_certificate_base64, "root_certificate_base64");
+  const notaryPublicKey = fixtureBytes(fixture.notary_key_base64, "notary_key_base64");
+  return {
+    source: FIXTURE_PROVENANCE_SOURCE,
+    benchmark: fixtureManifest.benchmark,
+    fixture_case: fixtureEntry.caseLabel,
+    fixture_file: fixtureEntry.fixtureFile,
+    source_epoch: fixtureEntry.sourceEpoch,
+    source_file_name: fixtureEntry.sourceFileName,
+    presentation_kind: presentationField === "presentation_base64" ? "complete" : "sparse",
+    presentation_sha256: sha256Base64Url(presentation),
+    root_certificate_sha256: sha256Base64Url(rootCertificate),
+    notary_public_key_sha256: sha256Base64Url(notaryPublicKey),
   };
 }
 
@@ -158,16 +197,27 @@ async function main() {
     throw new Error("--fixture-only must be true or false");
   }
   const fixtureOnly = options["fixture-only"] === "true";
+  if (fixtureOnly) {
+    const forbiddenFixtureOptions = ["profile-file", "sparse-profile-file", "trust-root-file"];
+    const suppliedFixtureOptions = forbiddenFixtureOptions.filter((name) => options[name] !== undefined);
+    if (suppliedFixtureOptions.length > 0) {
+      throw new Error(`fixture-only mode owns local profile and trust-root inputs; remove ${suppliedFixtureOptions.join(", ")}`);
+    }
+  }
   let fixture;
+  let fixtureManifest;
+  let fixtureEntry;
+  let fixtureCase;
   if (fixtureOnly) {
     if (options["server-identity"] && options["server-identity"] !== SYNTHETIC_SERVER_IDENTITY) {
       throw new Error(`fixture-only canary must use ${SYNTHETIC_SERVER_IDENTITY}`);
     }
-    const { entries } = readRealFixtureManifest();
-    const fixtureCase = options["fixture-case"] ?? "p50";
-    const entry = entries.get(fixtureCase);
-    if (!entry) throw new Error(`unknown synthetic fixture case: ${fixtureCase}`);
-    fixture = loadRealFixture(entry);
+    const loadedFixtureManifest = readRealFixtureManifest();
+    fixtureManifest = loadedFixtureManifest.manifest;
+    fixtureCase = options["fixture-case"] ?? "p50";
+    fixtureEntry = loadedFixtureManifest.entries.get(fixtureCase);
+    if (!fixtureEntry) throw new Error(`unknown synthetic fixture case: ${fixtureCase}`);
+    fixture = loadRealFixture(fixtureEntry);
     for (const field of ["sparse_presentation_base64", "root_certificate_base64", "notary_key_base64"]) {
       if (typeof fixture[field] !== "string" || fixture[field].length === 0) {
         throw new Error(`synthetic fixture is missing ${field}`);
@@ -179,7 +229,7 @@ async function main() {
   await mkdir(outputDirectory, { recursive: true, mode: 0o700 });
   await chmod(outputDirectory, 0o700);
 
-  const notary = fixtureOnly ? null : notaryKeyMaterial();
+  const notary = fixtureOnly ? null : generatedNotaryKeyMaterial(fixtureOnly);
   const notaryKeyId = options["notary-key-id"] ?? "notary-canary-2026";
   const result = keyMaterial();
   const resultRoot = keyMaterial();
@@ -228,6 +278,7 @@ async function main() {
     ? (await readFile(resolve(options["trust-root-file"]))).toString("base64url")
     : fixture?.root_certificate_base64;
   const notaryRegistryKey = fixture?.notary_key_base64 ?? notary?.verifyingKeyBase64url;
+  if (!notaryRegistryKey) throw new Error("Notary registry key is unavailable");
   const notaryRegistryRaw = JSON.stringify({ [notaryKeyId]: notaryRegistryKey });
   const securityRegistrySetSha256 = fixtureOnly
     ? createHash("sha256").update(canonicalJson({
@@ -237,11 +288,11 @@ async function main() {
         sparse_profile_sha256: sparseProfile?.sha256,
       })).digest("base64url")
     : undefined;
-  const siteOrigin = publicOrigin(
+  const siteOrigin = fixtureOnly ? null : publicOrigin(
     process.env.PUBLIC_SITE_URL_PRODUCTION ?? process.env.PUBLIC_SITE_URL,
     "PUBLIC_SITE_URL",
   );
-  const supabaseOrigin = publicOrigin(process.env.PUBLIC_SUPABASE_URL, "PUBLIC_SUPABASE_URL");
+  const supabaseOrigin = fixtureOnly ? null : publicOrigin(process.env.PUBLIC_SUPABASE_URL, "PUBLIC_SUPABASE_URL");
   const deviceAuthUrl = siteOrigin
     ? `${siteOrigin.origin}/api/auth/anonymous-sync/v2/device-proof`
     : undefined;
@@ -312,6 +363,10 @@ async function main() {
   if (sparseProfile) await writeFile(join(outputDirectory, "sparse-profile.canonical.json"), `${sparseProfile.canonical}\n`, { mode: 0o644 });
   if (trustRoot) await writeFile(join(outputDirectory, "trust-root.der"), Buffer.from(trustRoot, "base64url"), { mode: 0o644 });
 
+  const fixtureProvenanceValue = fixtureOnly
+    ? fixtureProvenance(fixtureManifest, fixtureEntry, fixture)
+    : null;
+
   const unresolvedInputs = [
     "TLSN_WORKFLOW_RUN_ID",
     "TLSN_WORKFLOW_RUN_ATTEMPT",
@@ -338,6 +393,7 @@ async function main() {
   const manifest = {
     schema_version: 1,
     artifact: "tlsn-canary-provisioning",
+    mode: fixtureOnly ? "fixture-only" : "supplied",
     status: unresolvedInputs.length === 0 ? "complete" : "incomplete",
     generated_at: new Date().toISOString(),
     commit_sha: commitSha,
@@ -348,6 +404,7 @@ async function main() {
       source: fixtureOnly ? "embedded_fixture_presentation" : "generated_canary_material",
       ...(notary ? { private_key_file: "notary-signing-key.base64url" } : {}),
     },
+    fixture_provenance: fixtureProvenanceValue,
     generated_public_identity: {
       deployment_id: deploymentId,
       worker_name: workerName,
