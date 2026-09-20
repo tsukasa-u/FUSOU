@@ -1,11 +1,11 @@
 #!/usr/bin/env node
 
-import { createECDH, createHash, generateKeyPairSync, randomBytes } from "node:crypto";
+import { createHash, generateKeyPairSync, randomBytes } from "node:crypto";
 import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
 import { execFileSync } from "node:child_process";
 import { join, resolve } from "node:path";
 import { createSignedResultRegistryEnvelope } from "./result-registry-envelope.mjs";
-import { canonicalJson } from "./production-trust-contract.mjs";
+import { canonicalJson, notaryRegistrySha256, parseNotaryRegistry } from "./production-trust-contract.mjs";
 import {
   FIXTURE_SERVER_IDENTITY,
   canonicalProfileHash,
@@ -48,11 +48,12 @@ function usage() {
     "  --server-identity HOST        candidate origin identity",
     "  --profile-file FILE           canonical complete profile JSON",
     "  --sparse-profile-file FILE    canonical sparse profile JSON",
-    "  --trust-root-file FILE       DER trust root for the candidate origin",
-    "  --notary-key-id ID            generated Notary key ID",
+    "  --trust-root-file FILE        DER trust root for the candidate origin",
+    "  --notary-registry-file FILE  explicit alpha15 Notary registry JSON",
+    "  --notary-key-id ID           explicit Notary key ID in that registry",
     "  --verifier-key-id ID         candidate verifier key ID",
-    "  --deployment-id ID            generated canary deployment ID",
-    "  --worker-name NAME            generated canary Worker name",
+    "  --deployment-id ID           explicit canary deployment ID",
+    "  --worker-name NAME           explicit canary Worker name",
     "  --fixture-only true|false     use a repository-local synthetic fixture only",
     "  --fixture-case CASE           synthetic fixture case (default: p50)",
     "",
@@ -79,26 +80,6 @@ function authorityRegistry(scope, keyId, publicKeySpki) {
       not_after: null,
     }],
   });
-}
-
-function notaryKeyMaterial() {
-  const ecdh = createECDH("secp256k1");
-  ecdh.generateKeys();
-  const privateKey = ecdh.getPrivateKey();
-  const compressedPublicKey = ecdh.getPublicKey(undefined, "compressed");
-  const serializedVerifyingKey = Buffer.alloc(42);
-  serializedVerifyingKey[0] = 1;
-  serializedVerifyingKey.writeBigUInt64LE(33n, 1);
-  compressedPublicKey.copy(serializedVerifyingKey, 9);
-  return {
-    privateKeyBase64url: privateKey.toString("base64url"),
-    verifyingKeyBase64url: serializedVerifyingKey.toString("base64url"),
-  };
-}
-
-function generatedNotaryKeyMaterial(fixtureOnly) {
-  if (fixtureOnly) throw new Error("fixture-only mode forbids Notary private-key generation");
-  return notaryKeyMaterial();
 }
 
 function randomSecret() {
@@ -157,6 +138,20 @@ async function readProfile(path, label, kind, expectedServerIdentity) {
   return profile;
 }
 
+async function readNotaryRegistry(path, keyId) {
+  if (!path) return null;
+  if (!keyId) throw new Error("--notary-key-id is required with --notary-registry-file");
+  let raw;
+  try {
+    raw = (await readFile(resolve(path), "utf8")).trim();
+  } catch (error) {
+    throw new Error(`--notary-registry-file must be readable JSON: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  const registry = parseNotaryRegistry(raw, "--notary-registry-file");
+  if (!registry[keyId]) throw new Error(`--notary-registry-file does not contain --notary-key-id ${keyId}`);
+  return JSON.stringify(registry);
+}
+
 function writeEnvValue(name, value) {
   return `${name}=${JSON.stringify(value)}`;
 }
@@ -187,10 +182,10 @@ async function main() {
   }
   const fixtureOnly = options["fixture-only"] === "true";
   if (fixtureOnly) {
-    const forbiddenFixtureOptions = ["profile-file", "sparse-profile-file", "trust-root-file"];
+    const forbiddenFixtureOptions = ["profile-file", "sparse-profile-file", "trust-root-file", "notary-registry-file"];
     const suppliedFixtureOptions = forbiddenFixtureOptions.filter((name) => options[name] !== undefined);
     if (suppliedFixtureOptions.length > 0) {
-      throw new Error(`fixture-only mode owns local profile and trust-root inputs; remove ${suppliedFixtureOptions.join(", ")}`);
+      throw new Error(`fixture-only mode owns local profile, trust-root, and Notary inputs; remove ${suppliedFixtureOptions.join(", ")}`);
     }
   }
   let fixture;
@@ -218,8 +213,7 @@ async function main() {
   await mkdir(outputDirectory, { recursive: true, mode: 0o700 });
   await chmod(outputDirectory, 0o700);
 
-  const notary = fixtureOnly ? null : generatedNotaryKeyMaterial(fixtureOnly);
-  const notaryKeyId = options["notary-key-id"] ?? "notary-canary-2026";
+  const notaryKeyId = options["notary-key-id"] ?? (fixtureOnly ? "notary-canary-2026" : undefined);
   const result = keyMaterial();
   const resultRoot = keyMaterial();
   const session = keyMaterial();
@@ -266,15 +260,15 @@ async function main() {
     cwd: repositoryDirectory,
     encoding: "utf8",
   }).trim();
-  const deploymentId = options["deployment-id"] ?? `canary-${new Date().toISOString().replace(/[-:.TZ]/g, "")}`;
-  const workerName = options["worker-name"] ?? "fusou-tlsn-verification-canary";
+  const deploymentId = options["deployment-id"] ?? (fixtureOnly ? `canary-${new Date().toISOString().replace(/[-:.TZ]/g, "")}` : undefined);
+  const workerName = options["worker-name"] ?? (fixtureOnly ? "fusou-tlsn-verification-canary" : undefined);
   const bindingValue = `canary-binding-${randomBytes(18).toString("base64url")}`;
   const trustRoot = options["trust-root-file"]
     ? (await readFile(resolve(options["trust-root-file"]))).toString("base64url")
     : fixture?.root_certificate_base64;
-  const notaryRegistryKey = fixture?.notary_key_base64 ?? notary?.verifyingKeyBase64url;
-  if (!notaryRegistryKey) throw new Error("Notary registry key is unavailable");
-  const notaryRegistryRaw = JSON.stringify({ [notaryKeyId]: notaryRegistryKey });
+  const notaryRegistryRaw = fixtureOnly
+    ? JSON.stringify({ [notaryKeyId]: fixture.notary_key_base64 })
+    : await readNotaryRegistry(options["notary-registry-file"], notaryKeyId);
   const securityRegistrySetSha256 = fixtureOnly
     ? createHash("sha256").update(canonicalJson({
         notary_registry: JSON.parse(notaryRegistryRaw),
@@ -300,9 +294,11 @@ async function main() {
     TLSN_DEPLOYMENT_ROLE: "canary",
     TLSN_BINDING_TTL_SECONDS: "900",
     TLSN_GIT_COMMIT_SHA: commitSha,
-    TLSN_PRODUCTION_NOTARY_REGISTRY: notaryRegistryRaw,
-    ...(fixtureOnly ? { TLSN_CANARY_FIXTURE_ONLY: "true" } : {}),
-    TLSN_CANARY_DEPLOYMENT_ID: deploymentId,
+    ...(notaryRegistryRaw ? { TLSN_PRODUCTION_NOTARY_REGISTRY: notaryRegistryRaw } : {}),
+    ...(fixtureOnly
+      ? { TLSN_CANARY_FIXTURE_ONLY: "true" }
+      : { TLSN_CANARY_FIXTURE_ONLY: "false" }),
+    ...(deploymentId ? { TLSN_CANARY_DEPLOYMENT_ID: deploymentId } : {}),
     TLSN_CANARY_RESULT_PUBLIC_KEY_SPKI: result.publicKeySpki,
     TLSN_CANARY_RESULT_SIGNER_KEY_ID: resultKeyId,
     TLSN_CANARY_RESULT_SIGNING_KEY_REGISTRY: resultRegistryRaw,
@@ -316,14 +312,14 @@ async function main() {
     TLSN_CANARY_BINDING_AUTHORITY_KEY_ID: bindingKeyId,
     TLSN_CANARY_BINDING_AUTHORITY_KEY_REGISTRY: bindingRegistryRaw,
     TLSN_CANARY_BINDING_VALUE: bindingValue,
-    TLSN_CANARY_WORKER_NAME: workerName,
+    ...(workerName ? { TLSN_CANARY_WORKER_NAME: workerName } : {}),
     TLSN_CANARY_SYNCHRONOUS_RESPONSE_ENABLED: "true",
     TLSN_BENCHMARK_TIMINGS: "true",
     ...(options["verifier-key-id"] || fixtureOnly ? {
       TLSN_CANDIDATE_VERIFIER_KEY_ID: options["verifier-key-id"] ?? "verifier-canary-2026",
     } : {}),
     ...(serverIdentity ? { TLSN_CANDIDATE_SERVER_IDENTITY: serverIdentity } : {}),
-    ...(fixtureOnly ? { TLSN_CANDIDATE_NOTARY_KEY_ID: notaryKeyId } : {}),
+    ...(notaryKeyId ? { TLSN_CANDIDATE_NOTARY_KEY_ID: notaryKeyId } : {}),
     ...(securityRegistrySetSha256 ? { TLSN_SECURITY_REGISTRY_SET_SHA256: securityRegistrySetSha256 } : {}),
     TLSN_CANARY_TRIGGER_SECRET_KEY: randomSecret(),
     TLSN_CANARY_TRIGGER_CALLBACK_SECRET: randomSecret(),
@@ -343,7 +339,6 @@ async function main() {
     ...(trustRoot ? { TLSN_CANARY_TRUST_ROOT_CERTIFICATE_DER: trustRoot } : {}),
   };
   const privateFiles = {
-    ...(notary ? { "notary-signing-key.base64url": `${notary.privateKeyBase64url}\n` } : {}),
     "canary-result-signing-private-key.pkcs8.base64url": `${result.privateKeyPkcs8}\n`,
     "canary-session-authority-private-key.pkcs8.base64url": `${session.privateKeyPkcs8}\n`,
     "canary-binding-authority-private-key.pkcs8.base64url": `${binding.privateKeyPkcs8}\n`,
@@ -363,6 +358,9 @@ async function main() {
     : null;
 
   const unresolvedInputs = [
+    "TLSN_CANARY_DEPLOYMENT_ID",
+    "TLSN_CANARY_WORKER_NAME",
+    "TLSN_PRODUCTION_NOTARY_REGISTRY",
     "TLSN_WORKFLOW_RUN_ID",
     "TLSN_WORKFLOW_RUN_ATTEMPT",
     "TLSN_REPOSITORY",
@@ -385,6 +383,9 @@ async function main() {
   if (!generatedEnv.TLSN_CANDIDATE_PROFILE_SHA256) unresolvedInputs.push("TLSN_CANDIDATE_PROFILE_SHA256");
   if (!generatedEnv.TLSN_CANDIDATE_SPARSE_PROFILE_SHA256) unresolvedInputs.push("TLSN_CANDIDATE_SPARSE_PROFILE_SHA256");
   if (!generatedEnv.TLSN_CANARY_TRUST_ROOT_CERTIFICATE_DER) unresolvedInputs.push("TLSN_CANARY_TRUST_ROOT_CERTIFICATE_DER");
+  if (!generatedEnv.TLSN_CANARY_DEPLOYMENT_ID) unresolvedInputs.push("TLSN_CANARY_DEPLOYMENT_ID");
+  if (!generatedEnv.TLSN_CANARY_WORKER_NAME) unresolvedInputs.push("TLSN_CANARY_WORKER_NAME");
+  if (!generatedEnv.TLSN_PRODUCTION_NOTARY_REGISTRY) unresolvedInputs.push("TLSN_PRODUCTION_NOTARY_REGISTRY");
   const manifest = {
     schema_version: 1,
     artifact: "tlsn-canary-provisioning",
@@ -394,15 +395,18 @@ async function main() {
     commit_sha: commitSha,
     output_directory: outputDirectory,
     notary: {
-      key_id: notaryKeyId,
-      registry_sha256: createHash("sha256").update(generatedEnv.TLSN_PRODUCTION_NOTARY_REGISTRY).digest("base64url"),
-      source: fixtureOnly ? "embedded_fixture_presentation" : "generated_canary_material",
-      ...(notary ? { private_key_file: "notary-signing-key.base64url" } : {}),
+      key_id: notaryKeyId ?? null,
+      registry_sha256: notaryRegistryRaw ? notaryRegistrySha256(notaryRegistryRaw) : null,
+      source: fixtureOnly
+        ? "embedded_fixture_presentation"
+        : notaryRegistryRaw
+          ? "explicit_input_file"
+          : "unresolved_explicit_input",
     },
     fixture_provenance: fixtureProvenanceValue,
     generated_public_identity: {
-      deployment_id: deploymentId,
-      worker_name: workerName,
+      deployment_id: deploymentId ?? null,
+      worker_name: workerName ?? null,
       result_signer_key_id: resultKeyId,
       session_authority_key_id: sessionKeyId,
       binding_authority_key_id: bindingKeyId,

@@ -264,7 +264,7 @@ async function runTest() {
   assert.ok(CANARY_INPUTS.includes(fixtureOnlyFlag));
   assert.deepEqual(deploymentManifest.canary_inputs, CANARY_INPUTS);
   assert.match(provisionerSource, /TLSN_CANARY_FIXTURE_ONLY:\s*"true"/);
-  assert.match(provisionerSource, /fixture-only mode forbids Notary private-key generation/);
+  assert.doesNotMatch(provisionerSource, /createECDH|notaryKeyMaterial|notary-signing-key/);
   assert.match(deploymentContract, /TLSN_CANARY_FIXTURE_ONLY/);
 
   const rootDirectory = await mkdtemp(join(tmpdir(), "tlsn-fixture-only-provisioning-test-"));
@@ -292,7 +292,7 @@ async function runTest() {
       isolatedEnvironment,
     );
     assert.notEqual(mixedInputRun.status, 0);
-    assert.match(mixedInputRun.errorOutput, /fixture-only mode owns local profile and trust-root inputs/);
+    assert.match(mixedInputRun.errorOutput, /fixture-only mode owns local profile, trust-root, and Notary inputs/);
 
     const realIdentityRun = await runProvisionerChild(
       join(rootDirectory, "real-identity"),
