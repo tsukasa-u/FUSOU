@@ -2,7 +2,7 @@
 
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { spawnSync } from "node:child_process";
-import { join, resolve } from "node:path";
+import { basename, join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import {
   assertManifest,
@@ -87,7 +87,10 @@ async function main() {
   }
   const secretDirectory = await mkdtemp(join(tmpdir(), "tlsn-canary-secrets-"));
   const secretsPath = join(secretDirectory, "secrets.json");
-  const verifierConfigPath = join(secretDirectory, "wrangler.verifier-canary.toml");
+  const verifierConfigPath = join(
+    packageDirectory,
+    `.wrangler.verifier-canary-${basename(secretDirectory)}.toml`,
+  );
   try {
     const verifierConfig = (await readFile(resolve(packageDirectory, "wrangler.verifier-canary.toml"), "utf8"))
       .replace('script_name = "fusou-tlsn-verification-canary"', `script_name = "${workerName}"`);
@@ -113,6 +116,7 @@ async function main() {
     if (deploy.error) throw deploy.error;
     process.exitCode = deploy.status ?? 1;
   } finally {
+    await rm(verifierConfigPath, { force: true });
     await rm(secretDirectory, { recursive: true, force: true });
   }
 }
