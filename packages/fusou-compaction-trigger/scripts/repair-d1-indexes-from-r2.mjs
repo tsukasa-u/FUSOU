@@ -48,7 +48,8 @@ function d1Query(db, remote, sql) {
   const args = ["wrangler", "d1", "execute", db];
   if (remote) args.push("--remote");
   if (process.platform === "win32") {
-    args.push("--command", `"${normalizedSql.replace(/"/g, "\\\"")}"`, "--json");
+    const escapedSql = normalizedSql.replace(/\\/g, "\\\\").replace(/"/g, "\\\"");
+    args.push("--command", `"${escapedSql}"`, "--json");
   } else {
     args.push("--command", normalizedSql, "--json");
   }
