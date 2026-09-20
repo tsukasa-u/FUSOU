@@ -11,6 +11,7 @@ import {
   notaryRegistrySha256,
 } from "./production-trust-contract.mjs";
 import { createSignedResultRegistryEnvelope } from "./result-registry-envelope.mjs";
+import { profilesForServerIdentity } from "./profile-canonical-contract.mjs";
 
 const packageDirectory = resolve(new URL("..", import.meta.url).pathname);
 const repositoryDirectory = resolve(packageDirectory, "../..");
@@ -152,6 +153,7 @@ try {
     rootPublicKeySpki: resultRegistryRoot.publicKeySpki,
     rootPrivateKeyPkcs8: resultRegistryRoot.privateKeyPkcs8,
   }));
+  const productionProfiles = profilesForServerIdentity("game.example.com");
   const commitSha = execFileSync("git", ["rev-parse", "HEAD"], {
     cwd: repositoryDirectory,
     encoding: "utf8",
@@ -171,8 +173,8 @@ try {
     TLSN_BINDING_TTL_SECONDS: "900",
     TLSN_GIT_COMMIT_SHA: commitSha,
     TLSN_CANDIDATE_SERVER_IDENTITY: "game.example.com",
-    TLSN_CANDIDATE_PROFILE_SHA256: Buffer.alloc(32, 1).toString("base64url"),
-    TLSN_CANDIDATE_SPARSE_PROFILE_SHA256: Buffer.alloc(32, 9).toString("base64url"),
+    TLSN_CANDIDATE_PROFILE_SHA256: productionProfiles.complete.sha256,
+    TLSN_CANDIDATE_SPARSE_PROFILE_SHA256: productionProfiles.sparse.sha256,
     TLSN_CANDIDATE_VERIFIER_KEY_ID: "verifier-production-roundtrip",
     TLSN_CANDIDATE_NOTARY_KEY_ID: "notary-production-2026",
     TLSN_PRODUCTION_NOTARY_REGISTRY: notaryRegistryRaw,

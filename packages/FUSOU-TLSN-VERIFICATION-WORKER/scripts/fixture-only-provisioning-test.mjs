@@ -8,11 +8,11 @@ import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { spawnSync } from "node:child_process";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
-import { canonicalJson } from "./production-trust-contract.mjs";
 import {
   CANARY_INPUTS,
   assertManifest,
 } from "./deployment-contract.mjs";
+import { profileContractArtifact, profilesForServerIdentity } from "./profile-canonical-contract.mjs";
 import { loadRealFixture, readRealFixtureManifest } from "./tlsn-benchmark-fixtures.mjs";
 
 const packageDirectory = resolve(new URL("..", import.meta.url).pathname);
@@ -138,6 +138,8 @@ function deterministicSnapshot(manifest, generatedEnv) {
       notary: manifest.notary,
       fixture_provenance: manifest.fixture_provenance,
       supplied_candidate_inputs: manifest.supplied_candidate_inputs,
+      profile_contract: manifest.profile_contract,
+      canary_contract: manifest.canary_contract,
       unresolved_inputs: manifest.unresolved_inputs,
       secret_values_written: manifest.secret_values_written,
       secret_values_in_manifest: manifest.secret_values_in_manifest,
@@ -191,22 +193,30 @@ async function inspectProvisionedOutput(outputDirectory, fixtureManifest, fixtur
   const sparseProfileRaw = await readFile(join(outputDirectory, "sparse-profile.canonical.json"), "utf8");
   const completeProfile = JSON.parse(completeProfileRaw);
   const sparseProfile = JSON.parse(sparseProfileRaw);
-  assert.deepEqual(completeProfile, {
-    id: "fusou-require-info-v1",
-    server_identity: syntheticServerIdentity,
-    target: "/kcsapi/api_get_member/require_info",
+  const expectedProfiles = profilesForServerIdentity(syntheticServerIdentity);
+  assert.deepEqual(completeProfile, expectedProfiles.complete.profile);
+  assert.deepEqual(sparseProfile, expectedProfiles.sparse.profile);
+  assert.equal(completeProfileRaw, `${expectedProfiles.complete.canonical}\n`);
+  assert.equal(sparseProfileRaw, `${expectedProfiles.sparse.canonical}\n`);
+  assert.equal(generatedEnv.TLSN_CANDIDATE_PROFILE_SHA256, expectedProfiles.complete.sha256);
+  assert.equal(generatedEnv.TLSN_CANDIDATE_SPARSE_PROFILE_SHA256, expectedProfiles.sparse.sha256);
+  assert.deepEqual(manifest.profile_contract, profileContractArtifact({
+    serverIdentity: syntheticServerIdentity,
+    profileSha256: expectedProfiles.complete.sha256,
+    sparseProfileSha256: expectedProfiles.sparse.sha256,
+    disclosureMode: "full|sparse",
+    responseModeCapabilities: ["async", "sync"],
+  }));
+  assert.deepEqual(manifest.canary_contract, {
+    environment: "production",
+    deployment_role: "canary",
+    fixture_only: true,
+    response_mode_capabilities: ["async", "sync"],
+    profile_hashes_exact: {
+      complete: expectedProfiles.complete.sha256,
+      sparse: expectedProfiles.sparse.sha256,
+    },
   });
-  assert.deepEqual(sparseProfile, {
-    disclosure_mode: "sparse",
-    id: "fusou-require-info-v2-sparse",
-    server_identity: syntheticServerIdentity,
-    target: "/kcsapi/api_get_member/require_info",
-    version: 2,
-  });
-  assert.equal(completeProfileRaw, `${canonicalJson(completeProfile)}\n`);
-  assert.equal(sparseProfileRaw, `${canonicalJson(sparseProfile)}\n`);
-  assert.equal(generatedEnv.TLSN_CANDIDATE_PROFILE_SHA256, sha256Base64Url(Buffer.from(canonicalJson(completeProfile))));
-  assert.equal(generatedEnv.TLSN_CANDIDATE_SPARSE_PROFILE_SHA256, sha256Base64Url(Buffer.from(canonicalJson(sparseProfile))));
   assert.notEqual(generatedEnv.TLSN_CANDIDATE_PROFILE_SHA256, generatedEnv.TLSN_CANDIDATE_SPARSE_PROFILE_SHA256);
   assert.equal(completeProfile.server_identity, sparseProfile.server_identity);
   assert.equal(completeProfile.target, sparseProfile.target);

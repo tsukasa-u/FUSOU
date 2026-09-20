@@ -6,12 +6,17 @@ import { execFileSync } from "node:child_process";
 import { join, resolve } from "node:path";
 import { createSignedResultRegistryEnvelope } from "./result-registry-envelope.mjs";
 import { canonicalJson } from "./production-trust-contract.mjs";
+import {
+  FIXTURE_SERVER_IDENTITY,
+  canonicalProfileHash,
+  parseProfileDocument,
+  profileContractArtifact,
+  profilesForServerIdentity,
+} from "./profile-canonical-contract.mjs";
 import { loadRealFixture, readRealFixtureManifest } from "./tlsn-benchmark-fixtures.mjs";
 
 const packageDirectory = resolve(new URL("..", import.meta.url).pathname);
 const repositoryDirectory = resolve(packageDirectory, "../..");
-const SYNTHETIC_SERVER_IDENTITY = "game.example.test";
-const REQUIRE_INFO_TARGET = "/kcsapi/api_get_member/require_info";
 const FIXTURE_PROVENANCE_SOURCE = "repository-local-synthetic-fixture";
 
 function parseArguments(argumentsList) {
@@ -100,14 +105,6 @@ function randomSecret() {
   return randomBytes(32).toString("base64url");
 }
 
-function profileHash(document) {
-  const canonical = canonicalJson(document);
-  return {
-    canonical,
-    sha256: createHash("sha256").update(canonical).digest("base64url"),
-  };
-}
-
 function fixtureBytes(raw, label) {
   const bytes = Buffer.from(raw, "base64url");
   if (bytes.length === 0 || bytes.toString("base64url") !== raw) {
@@ -142,22 +139,10 @@ function fixtureProvenance(fixtureManifest, fixtureEntry, fixture) {
 }
 
 function fixtureProfile(serverIdentity, sparse) {
-  return profileHash(sparse
-    ? {
-        disclosure_mode: "sparse",
-        id: "fusou-require-info-v2-sparse",
-        server_identity: serverIdentity,
-        target: REQUIRE_INFO_TARGET,
-        version: 2,
-      }
-    : {
-        id: "fusou-require-info-v1",
-        server_identity: serverIdentity,
-        target: REQUIRE_INFO_TARGET,
-      });
+  return profilesForServerIdentity(serverIdentity)[sparse ? "sparse" : "complete"];
 }
 
-async function readProfile(path, label) {
+async function readProfile(path, label, kind, expectedServerIdentity) {
   if (!path) return null;
   let parsed;
   try {
@@ -165,7 +150,11 @@ async function readProfile(path, label) {
   } catch (error) {
     throw new Error(`${label} must be readable JSON: ${error instanceof Error ? error.message : String(error)}`);
   }
-  return profileHash(parsed);
+  const profile = canonicalProfileHash(parsed, kind);
+  if (expectedServerIdentity !== undefined && profile.profile.server_identity !== expectedServerIdentity) {
+    throw new Error(`${label} server_identity does not match --server-identity`);
+  }
+  return profile;
 }
 
 function writeEnvValue(name, value) {
@@ -209,8 +198,8 @@ async function main() {
   let fixtureEntry;
   let fixtureCase;
   if (fixtureOnly) {
-    if (options["server-identity"] && options["server-identity"] !== SYNTHETIC_SERVER_IDENTITY) {
-      throw new Error(`fixture-only canary must use ${SYNTHETIC_SERVER_IDENTITY}`);
+    if (options["server-identity"] && options["server-identity"] !== FIXTURE_SERVER_IDENTITY) {
+      throw new Error(`fixture-only canary must use ${FIXTURE_SERVER_IDENTITY}`);
     }
     const loadedFixtureManifest = readRealFixtureManifest();
     fixtureManifest = loadedFixtureManifest.manifest;
@@ -262,11 +251,17 @@ async function main() {
     bindingKeyId,
     binding.publicKeySpki,
   );
-  const serverIdentity = options["server-identity"] ?? (fixtureOnly ? SYNTHETIC_SERVER_IDENTITY : undefined);
-  const completeProfile = await readProfile(options["profile-file"], "--profile-file")
+  const serverIdentity = options["server-identity"] ?? (fixtureOnly ? FIXTURE_SERVER_IDENTITY : undefined);
+  if ((options["profile-file"] || options["sparse-profile-file"]) && !serverIdentity) {
+    throw new Error("--server-identity is required when profile files are supplied");
+  }
+  const completeProfile = await readProfile(options["profile-file"], "--profile-file", "complete", serverIdentity)
     ?? (fixtureOnly ? fixtureProfile(serverIdentity, false) : null);
-  const sparseProfile = await readProfile(options["sparse-profile-file"], "--sparse-profile-file")
+  const sparseProfile = await readProfile(options["sparse-profile-file"], "--sparse-profile-file", "sparse", serverIdentity)
     ?? (fixtureOnly ? fixtureProfile(serverIdentity, true) : null);
+  if ((completeProfile && !sparseProfile) || (!completeProfile && sparseProfile)) {
+    throw new Error("complete and sparse profile inputs must be supplied together");
+  }
   const commitSha = execFileSync("git", ["rev-parse", "HEAD"], {
     cwd: repositoryDirectory,
     encoding: "utf8",
@@ -417,6 +412,27 @@ async function main() {
       profile_sha256: generatedEnv.TLSN_CANDIDATE_PROFILE_SHA256 ?? null,
       sparse_profile_sha256: generatedEnv.TLSN_CANDIDATE_SPARSE_PROFILE_SHA256 ?? null,
       trust_root_sha256: trustRoot ? createHash("sha256").update(Buffer.from(trustRoot, "base64url")).digest("base64url") : null,
+    },
+    profile_contract: completeProfile && sparseProfile
+      ? profileContractArtifact({
+          serverIdentity,
+          profileSha256: completeProfile.sha256,
+          sparseProfileSha256: sparseProfile.sha256,
+          disclosureMode: "full|sparse",
+          responseModeCapabilities: ["async", "sync"],
+        })
+      : null,
+    canary_contract: {
+      environment: "production",
+      deployment_role: "canary",
+      fixture_only: fixtureOnly,
+      response_mode_capabilities: ["async", "sync"],
+      profile_hashes_exact: completeProfile && sparseProfile
+        ? {
+            complete: completeProfile.sha256,
+            sparse: sparseProfile.sha256,
+          }
+        : null,
     },
     unresolved_inputs: [...new Set(unresolvedInputs)],
     secret_values_written: true,
