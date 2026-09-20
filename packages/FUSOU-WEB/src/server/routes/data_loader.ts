@@ -419,6 +419,31 @@ app.get("/data/:table", async (c) => {
     );
   }
 
+  // Validate split parameter (3-tier data distribution)
+  const splitParamRaw = c.req.query("split") || "train";
+  const validSplits = ["train", "validation", "test", "train+validation"];
+  if (!validSplits.includes(splitParamRaw)) {
+    return jsonResponse(
+      {
+        error: "INVALID_SPLIT",
+        message: `split must be one of: ${validSplits.join(", ")}`,
+      },
+      400,
+    );
+  }
+
+  // 'test' split is strictly forbidden for public API access (holdout verification)
+  if (splitParamRaw === "test") {
+    return jsonResponse(
+      {
+        error: "FORBIDDEN_SPLIT",
+        message:
+          "The 'test' split is reserved for private benchmark evaluation and cannot be downloaded.",
+      },
+      403,
+    );
+  }
+
   if (tierParamRaw && !compactionTier) {
     return jsonResponse(
       {
@@ -878,11 +903,34 @@ app.get("/data/:table", async (c) => {
       );
     }
 
+    // Audit log access to validation split for reproducibility
+    if (splitParamRaw === "validation" && apiKeyData?.user_id) {
+      try {
+        await indexDb
+          .prepare(
+            `INSERT INTO dataset_access_log (user_id, client_id, table_name, period_tag, split, record_count)
+             VALUES (?, ?, ?, ?, ?, ?)`
+          )
+          .bind(
+            apiKeyData.user_id,
+            clientId,
+            tableName,
+            periodTagParam === "all" ? "all" : periodTag || "latest",
+            splitParamRaw,
+            files.reduce((acc, f) => acc + (f.record_count || 0), 0)
+          )
+          .run();
+      } catch (logErr) {
+        console.warn("[data-loader] Failed to write dataset access audit log:", logErr);
+      }
+    }
+
     return jsonResponse(
       {
         success: true,
         table: tableName,
         period_tag: periodTagParam === "all" ? "all" : periodTag,
+        split: splitParamRaw,
         tier: effectiveTier,
         window_start_ms: windowStartMs,
         window_end_ms: windowEndMs,
