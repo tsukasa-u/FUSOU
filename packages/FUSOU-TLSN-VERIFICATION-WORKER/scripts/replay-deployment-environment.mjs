@@ -115,6 +115,7 @@ export function normalizeReplayDeploymentEnvironment(inputEnvironment) {
     TLSN_DEPLOYMENT_ROLE: "replay",
     TLSN_EXECUTION_MODE: "direct",
     TLSN_BENCHMARK_TIMINGS: "true",
+    TLSN_TEST_DIRECT_SYNCHRONOUS_CANDIDATE: "true",
     TLSN_REPLAY_DEPLOYMENT_ID: deploymentId,
     TLSN_REPLAY_WORKER_NAME: workerName,
     TLSN_SUPABASE_URL: replaySupabaseUrl,
