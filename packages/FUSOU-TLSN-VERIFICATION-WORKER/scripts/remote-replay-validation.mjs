@@ -108,7 +108,10 @@ function parseTiming(response) {
 
 async function requestJson(url, options = {}) {
   const startedAt = performance.now();
-  const response = await fetch(url, { redirect: "error", ...options });
+  const headers = new Headers(options.headers);
+  if (!headers.has("Accept")) headers.set("Accept", "application/json");
+  if (!headers.has("User-Agent")) headers.set("User-Agent", "fusou-tlsn-replay-validator/1");
+  const response = await fetch(url, { redirect: "error", ...options, headers });
   const body = await response.text();
   let json;
   try {
