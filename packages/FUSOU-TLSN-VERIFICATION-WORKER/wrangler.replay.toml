@@ -15,6 +15,10 @@ class_name = "TlsnBindingAuthorityDurableObject"
 binding = "TLSN_PRESENTATIONS"
 bucket_name = "fusou-tlsn-verification-replay"
 
+[[services]]
+binding = "TLSN_DIRECT_VERIFIER"
+service = "fusou-tlsn-verifier-replay"
+
 [[migrations]]
 tag = "replay-v1"
 new_sqlite_classes = ["TlsnBindingAuthorityDurableObject"]

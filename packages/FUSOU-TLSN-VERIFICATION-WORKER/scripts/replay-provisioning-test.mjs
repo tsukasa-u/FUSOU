@@ -143,6 +143,8 @@ assert.match(replayVerifierConfig, /name = "fusou-tlsn-verifier-replay"/);
 assert.match(replayVerifierConfig, /script_name = "fusou-tlsn-verification-replay"/);
 assert.match(replayVerifierConfig, /bucket_name = "fusou-tlsn-verification-replay"/);
 assert.doesNotMatch(replayVerifierConfig, /fusou-tlsn-verifier-(?:test|canary|evidence)/);
+assert.match(replayConfig, /binding = "TLSN_DIRECT_VERIFIER"/);
+assert.match(replayConfig, /service = "fusou-tlsn-verifier-replay"/);
 
 assert.match(source, /role === "replay"/);
 assert.match(source, /bindingMode[\s\S]*?"fixed"/);
