@@ -99,7 +99,6 @@ async function main() {
       ["TLSN_BINDING_AUTHORITY_KEY_REGISTRY", required(generated, "TLSN_BINDING_AUTHORITY_KEY_REGISTRY")],
       ["TLSN_TRUST_ROOT_CERTIFICATE_DER", required(generated, "TLSN_TRUST_ROOT_CERTIFICATE_DER")],
       ["TLSN_DIRECT_CALLBACK_SECRET", required(generated, "TLSN_TRIGGER_CALLBACK_SECRET")],
-      ["TLSN_TEST_BINDING_VALUE", bindingValue],
       ["FUSOU_SYNTHETIC_ROOT_KEY_PKCS8", required(generated, "FUSOU_SYNTHETIC_ROOT_KEY_PKCS8")],
       ["TLSN_REPLAY_ENVIRONMENT_CONFIRMATION", "non-production-synthetic"],
       ["TLSN_REPLAY_DEPLOYMENT_ID", deploymentId],

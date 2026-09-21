@@ -146,6 +146,7 @@ assert.match(source, /env\.TLSN_REPLAY_DEVICE_ID/);
 assert.match(source, /env\.TLSN_REPLAY_DEVICE_PUBLIC_KEY/);
 assert.match(replayProvisioning, /setup-tlsn-remote-test\.mjs/);
 assert.match(replayProvisioning, /TLSN_REPLAY_AUTH_USERS/);
+assert.doesNotMatch(replayProvisioning, /\["TLSN_TEST_BINDING_VALUE"/);
 assert.doesNotMatch(replayProvisioning, /TLSN_TEST_AUTH_USERS=.*TLSN_TEST_AUTH_USERS/);
 assert.match(replayValidation, /deployment_role, "replay"/);
 assert.match(replayValidation, /successful_verifications: successes\.length/);
