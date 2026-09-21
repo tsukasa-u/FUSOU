@@ -984,6 +984,7 @@ async function replayConsumedVerificationResult(
     if (error instanceof BindingAuthorityError && error.code === "verification_result_mismatch") {
       return c.json({ verified: false, error: error.code }, 422);
     }
+    if (!replayFault) return null;
     return c.json({ verified: false, error: "verification_result_unavailable" }, 503);
   }
   if (!storedResult || !storedResult.record.verification_job_id) return null;
@@ -1022,6 +1023,7 @@ async function replayConsumedVerificationResult(
     }).catch(() => null);
   }
   if (!authoritativeResult) {
+    if (!replayFault) return null;
     return c.json({ verified: false, error: "verification_result_unavailable" }, 503);
   }
   if (benchmarkEnabled(c.env)) {
@@ -4062,7 +4064,8 @@ const handleTlsnVerification = async (c: Context<{ Bindings: Bindings }>) => {
         await c.env.TLSN_PRESENTATIONS.delete(verificationInputKey).catch(() => undefined);
       }
       if (error instanceof BindingAuthorityError) {
-        return c.json({ verified: false, error: error.code, job_id: jobId }, bindingAuthorityStatus(error));
+        const replayConflict = direct && c.env.TLSN_DEPLOYMENT_ROLE === "replay" && error.code === "binding_conflict";
+        return c.json({ verified: false, error: replayConflict ? "binding_consumed" : error.code, job_id: jobId }, bindingAuthorityStatus(error));
       }
       return c.json({ verified: false, error: "trigger_unavailable", job_id: jobId }, 503);
     }
