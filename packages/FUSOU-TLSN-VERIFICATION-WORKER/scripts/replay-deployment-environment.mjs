@@ -57,6 +57,15 @@ function requiredHttpsUrl(name, environment, pathname) {
   return value;
 }
 
+export function decodeReplayEnvironmentValues(environment) {
+  return Object.fromEntries(Object.entries(environment).map(([name, value]) => {
+    if (typeof value !== "string" || !value.startsWith("base64json:")) {
+      return [name, value];
+    }
+    return [name, Buffer.from(value.slice("base64json:".length), "base64url").toString("utf8")];
+  }));
+}
+
 export function normalizeReplayDeploymentEnvironment(inputEnvironment) {
   const environment = inputEnvironment ?? {};
   if (environment.TLSN_ENVIRONMENT && environment.TLSN_ENVIRONMENT !== "test") {

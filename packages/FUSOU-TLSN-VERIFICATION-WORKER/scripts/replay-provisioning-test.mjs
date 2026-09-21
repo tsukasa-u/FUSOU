@@ -3,7 +3,10 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
-import { normalizeReplayDeploymentEnvironment } from "./replay-deployment-environment.mjs";
+import {
+  decodeReplayEnvironmentValues,
+  normalizeReplayDeploymentEnvironment,
+} from "./replay-deployment-environment.mjs";
 
 const packageDirectory = resolve(new URL("..", import.meta.url).pathname);
 const deployReplay = await readFile(resolve(packageDirectory, "scripts/deploy-replay.mjs"), "utf8");
@@ -20,7 +23,7 @@ assert.match(packageJson.scripts["deploy:replay"], /deploy-replay\.mjs/);
 assert.match(packageJson.scripts["test:replay-provisioning"], /replay-provisioning-test\.mjs/);
 assert.match(packageJson.scripts["provision:replay"], /provision-tlsn-replay\.mjs/);
 assert.match(packageJson.scripts["validate:replay"], /remote-replay-validation\.mjs/);
-assert.match(deployReplay, /normalizeReplayDeploymentEnvironment\(process\.env\)/);
+assert.match(deployReplay, /normalizeReplayDeploymentEnvironment\(decodeReplayEnvironmentValues\(process\.env\)\)/);
 assert.match(deployReplay, /gitOutput\(\["status", "--porcelain=v1"\]\)/);
 assert.match(deployReplay, /gitOutput\(\["rev-parse", "HEAD"\]\)/);
 for (const input of [
@@ -50,6 +53,13 @@ const replayInput = {
   TLSN_REPLAY_WORKER_NAME: "fusou-tlsn-verification-replay",
 };
 const normalized = normalizeReplayDeploymentEnvironment(replayInput);
+const encodedEnvironment = {
+  TLSN_NOTARY_REGISTRY: `base64json:${Buffer.from(JSON.stringify({ "notary-test": "synthetic-key" })).toString("base64url")}`,
+  TLSN_SESSION_AUTHORITY_KEY_REGISTRY: `base64json:${Buffer.from(JSON.stringify({ schema_version: 1 })).toString("base64url")}`,
+};
+const decodedEnvironment = decodeReplayEnvironmentValues(encodedEnvironment);
+assert.deepEqual(JSON.parse(decodedEnvironment.TLSN_NOTARY_REGISTRY), { "notary-test": "synthetic-key" });
+assert.deepEqual(JSON.parse(decodedEnvironment.TLSN_SESSION_AUTHORITY_KEY_REGISTRY), { schema_version: 1 });
 assert.equal(normalized.TLSN_SUPABASE_URL, replayInput.TLSN_REPLAY_SUPABASE_URL);
 assert.equal(normalized.TLSN_SUPABASE_PUBLISHABLE_KEY, replayInput.TLSN_REPLAY_SUPABASE_PUBLISHABLE_KEY);
 assert.equal(normalized.TLSN_DEVICE_AUTH_URL, replayInput.TLSN_REPLAY_DEVICE_AUTH_URL);

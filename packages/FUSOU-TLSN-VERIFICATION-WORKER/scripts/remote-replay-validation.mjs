@@ -9,21 +9,23 @@ import {
   generateRealFixture,
   readRealFixtureManifest,
 } from "./tlsn-benchmark-fixtures.mjs";
+import { decodeReplayEnvironmentValues } from "./replay-deployment-environment.mjs";
 
 const packageDirectory = resolve(new URL("..", import.meta.url).pathname);
+const replayEnvironment = decodeReplayEnvironmentValues(process.env);
 const reportPath = resolve(
   packageDirectory,
   process.env.TLSN_REPLAY_REPORT_PATH ?? "artifacts/tlsn-replay-evidence-current.json",
 );
 
 function required(name) {
-  const value = process.env[name]?.trim();
+  const value = replayEnvironment[name]?.trim();
   if (!value) throw new Error(`missing required replay validation input: ${name}`);
   return value;
 }
 
 function optional(name) {
-  const value = process.env[name]?.trim();
+  const value = replayEnvironment[name]?.trim();
   return value || undefined;
 }
 

@@ -12,6 +12,12 @@ const outputPath = resolve(
   process.env.TLSN_REPLAY_ENV_FILE ?? ".cache/tlsn-replay.env",
 );
 const force = process.argv.includes("--force");
+const encodedJsonNames = new Set([
+  "TLSN_NOTARY_REGISTRY",
+  "TLSN_SESSION_AUTHORITY_KEY_REGISTRY",
+  "TLSN_BINDING_AUTHORITY_KEY_REGISTRY",
+  "TLSN_REPLAY_AUTH_USERS",
+]);
 
 function runSetup(sourcePath) {
   const result = spawnSync(
@@ -76,6 +82,16 @@ function isCanonicalBindingValue(value) {
   } catch {
     return false;
   }
+}
+
+function formatEnvValue(name, value) {
+  if (encodedJsonNames.has(name)) {
+    return `base64json:${Buffer.from(value).toString("base64url")}`;
+  }
+  if (value.includes("'")) {
+    throw new Error("generated replay env values must not contain single quotes");
+  }
+  return `'${value}'`;
 }
 
 function gitCommitSha() {
@@ -158,7 +174,7 @@ async function main() {
 
     await writeFile(
       outputPath,
-      `${[...output].map(([name, value]) => `${name}=${value}`).join("\n")}\n`,
+      `${[...output].map(([name, value]) => `${name}=${formatEnvValue(name, value)}`).join("\n")}\n`,
       { encoding: "utf8", mode: 0o600 },
     );
     await chmod(outputPath, 0o600);

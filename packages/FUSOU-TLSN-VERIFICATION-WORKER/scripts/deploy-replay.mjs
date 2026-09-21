@@ -4,7 +4,10 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { spawnSync } from "node:child_process";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
-import { normalizeReplayDeploymentEnvironment } from "./replay-deployment-environment.mjs";
+import {
+  decodeReplayEnvironmentValues,
+  normalizeReplayDeploymentEnvironment,
+} from "./replay-deployment-environment.mjs";
 
 const packageDirectory = resolve(new URL("..", import.meta.url).pathname);
 const publicInputs = [
@@ -73,7 +76,7 @@ function gitOutput(argumentsList) {
 }
 
 async function main() {
-  const deploymentEnvironment = normalizeReplayDeploymentEnvironment(process.env);
+  const deploymentEnvironment = normalizeReplayDeploymentEnvironment(decodeReplayEnvironmentValues(process.env));
   const deploymentId = deploymentEnvironment.TLSN_REPLAY_DEPLOYMENT_ID;
   const workerName = deploymentEnvironment.TLSN_REPLAY_WORKER_NAME;
   required("TLSN_DIRECT_CALLBACK_SECRET");
