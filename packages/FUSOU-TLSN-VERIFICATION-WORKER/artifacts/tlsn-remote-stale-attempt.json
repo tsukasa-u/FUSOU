@@ -1,0 +1,48 @@
+{
+  "schema_version": 1,
+  "evidence": "tlsn-direct-remote-stale-attempt",
+  "generated_at": "2026-09-21T01:08:48.146Z",
+  "worker_origin": "https://fusou-tlsn-verification-evidence.ogu-hide-u-425.workers.dev",
+  "worker_health": {
+    "environment": "test",
+    "deployment_role": "evidence",
+    "deployment_id": null,
+    "binding_mode": "random",
+    "git_commit_sha": null
+  },
+  "configuration": {
+    "expected_environment": "evidence",
+    "expected_lease_ms": 3000,
+    "settle_ms": 4000,
+    "fault": "pause_before_result_commit"
+  },
+  "observations": {
+    "submission_status": 202,
+    "terminal_status": 200,
+    "terminal_not_verified": true,
+    "settled_status": 200,
+    "settled_not_verified": true,
+    "direct_invocation_count": 1,
+    "direct_invocation_accepted": false,
+    "result_archive_put_count": 0,
+    "result_r2_read_count": 0,
+    "do_commit_verified_result_attempt_count": 1,
+    "do_commit_verified_result_count": 0,
+    "input_put_count": 0,
+    "input_get_count": 0,
+    "input_delete_count": 0,
+    "consume_completed": false,
+    "consume_outcome": "not_attempted",
+    "late_callback_count": 1,
+    "stale_attempt_rejected": true,
+    "terminal_failure_code": "lease_expired",
+    "retry_status": 409,
+    "retry_disabled": true,
+    "timing_job_id_hashed": true,
+    "timing_job_id_matches_submission": true,
+    "timing_trace_id_hashed": true,
+    "timing_trace_id_matches_submission": true
+  },
+  "production_alert_delivery": "NOT_ESTABLISHED",
+  "decision": "PASS"
+}

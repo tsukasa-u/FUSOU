@@ -1,0 +1,235 @@
+{
+  "schema_version": 1,
+  "scope": "tlsn-canary-evidence-chain",
+  "status": "CANARY_EVIDENCE_CHAIN_BLOCKED",
+  "generated_at": "2026-09-21T10:09:29+09:00",
+  "current_head": "7c88e95aaeaca1c99cabbba880a63ce3b93a31ae",
+  "safety": {
+    "fixture_only": true,
+    "server_identity": "game.example.test",
+    "real_game_server_contact": false,
+    "production_worker_deployment": false,
+    "canary_worker_deployment": true,
+    "production_promotion": false,
+    "raw_secrets_retained": false,
+    "raw_presentations_retained": false,
+    "raw_transcripts_retained": false
+  },
+  "artifact_classification": {
+    "scanned_json_artifacts": 105,
+    "current_canary_evidence": 0,
+    "current_candidates": 0,
+    "historical_references": 1,
+    "invalid_as_current_evidence": 104,
+    "historical_artifacts_reused": false
+  },
+  "completed_phases": [
+    {
+      "name": "current_checkout",
+      "status": "PASS",
+      "git_commit_sha": "7c88e95aaeaca1c99cabbba880a63ce3b93a31ae"
+    },
+    {
+      "name": "fixture_only_provisioning",
+      "status": "PASS",
+      "manifest_status": "incomplete",
+      "fixture_server_identity": "game.example.test",
+      "complete_profile_sha256": "J-wctsF_XXLyRZ-2Ap1VTeHdsXluWXWEY6pJ2lohCJk",
+      "sparse_profile_sha256": "6wu8nk0fn6OCQp7Rbpk3yJ0-dyPXAy2uO8aU1vvvcBA",
+      "security_registry_set_sha256": "3nMbr94sZBFlTbGRRow6Vc9dfzu-MiCAFqdnZ-hrHR4"
+    },
+    {
+      "name": "local_security_registry_contract",
+      "status": "PASS",
+      "command": "pnpm run test:security-registry-set-contract"
+    },
+    {
+      "name": "local_canary_provisioning_contract",
+      "status": "PASS",
+      "command": "pnpm run test:production-canary-provisioning"
+    },
+    {
+      "name": "local_deployment_attestation_and_mutation_defenses",
+      "status": "PASS",
+      "command": "node scripts/deployment-attestation-test.mjs"
+    },
+    {
+      "name": "local_isolation_contract",
+      "status": "PASS",
+      "command": "pnpm run test:isolation"
+    },
+    {
+      "name": "local_typecheck",
+      "status": "PASS",
+      "command": "pnpm run typecheck"
+    },
+    {
+      "name": "local_worker_test_suite",
+      "status": "PASS",
+      "command": "pnpm test"
+    },
+    {
+      "name": "wrangler_authentication",
+      "status": "PASS",
+      "note": "OAuth authentication is available; authentication alone does not provide the missing production inputs."
+    },
+    {
+      "name": "project_local_encrypted_configuration",
+      "status": "PASS",
+      "key_file": "packages/.env.keys",
+      "decryption_verified": true,
+      "note": "dotenvx decrypted the existing TLSN, FUSOU-WEB, and Trigger project environments; no plaintext secrets were recorded."
+    },
+    {
+      "name": "production_preflight",
+      "status": "PASS",
+      "mode": "fixture-only-composed-environment",
+      "failure_count": 0,
+      "git_commit_sha": "7c88e95aaeaca1c99cabbba880a63ce3b93a31ae",
+      "workflow_run_id": "35547401883",
+      "workflow_run_attempt": "1"
+    },
+    {
+      "name": "canary_deployment",
+      "status": "PASS",
+      "worker_url": "https://fusou-tlsn-verification-canary.ogu-hide-u-425.workers.dev",
+      "worker_version_id": "debd0ecd-88e3-423f-a0d8-d1473cb74e0e",
+      "verifier_version_id": "d546aace-4e2c-4bf4-b303-08d2da6e6a6c",
+      "bootstrap_version_id": "fcf6a921-532b-49ee-8457-c8f1c3d7244d",
+      "deployment_id": "canary-20260921003811673",
+      "fixture_only": true
+    },
+    {
+      "name": "current_canary_health",
+      "status": "PASS",
+      "worker_url": "https://fusou-tlsn-verification-canary.ogu-hide-u-425.workers.dev",
+      "git_commit_sha": "7c88e95aaeaca1c99cabbba880a63ce3b93a31ae",
+      "deployment_role": "canary",
+      "binding_mode": "fixed_canary",
+      "execution_mode": "trigger",
+      "server_identity": "game.example.test",
+      "profile_sha256": "J-wctsF_XXLyRZ-2Ap1VTeHdsXluWXWEY6pJ2lohCJk",
+      "sparse_profile_sha256": "6wu8nk0fn6OCQp7Rbpk3yJ0-dyPXAy2uO8aU1vvvcBA"
+    },
+    {
+      "name": "matching_trigger_task_deployment",
+      "status": "PASS",
+      "task_id": "tlsn-verify-presentation",
+      "deployment_version": "20260921.1",
+      "fixture_only": true
+    },
+    {
+      "name": "isolated_evidence_worker_deployment",
+      "status": "PASS",
+      "worker_url": "https://fusou-tlsn-verification-evidence.ogu-hide-u-425.workers.dev",
+      "worker_version_id": "d858f242-b0e4-4d8f-874e-66c9ea2b9099",
+      "verifier_version_id": "b1d89882-6eae-4e7a-8eb9-9e899c3a46eb",
+      "bootstrap_version_id": "d7246a62-23b0-4e9d-b1fd-2b9b827acbbe",
+      "environment": "test",
+      "deployment_role": "evidence",
+      "binding_mode": "random",
+      "execution_mode": "direct",
+      "fixture_only": true,
+      "production_canary": false
+    },
+    {
+      "name": "isolated_stale_attempt",
+      "status": "PASS",
+      "report_path": "packages/FUSOU-TLSN-VERIFICATION-WORKER/artifacts/tlsn-remote-stale-attempt.json",
+      "worker_url": "https://fusou-tlsn-verification-evidence.ogu-hide-u-425.workers.dev",
+      "deployment_role": "evidence",
+      "binding_mode": "random",
+      "execution_mode": "direct",
+      "fixture_only": true,
+      "production_canary": false,
+      "decision": "PASS"
+    },
+    {
+      "name": "isolated_malicious_callback",
+      "status": "PASS",
+      "report_path": "packages/FUSOU-TLSN-VERIFICATION-WORKER/artifacts/tlsn-remote-malicious-callback.json",
+      "worker_url": "https://fusou-tlsn-verification-evidence.ogu-hide-u-425.workers.dev",
+      "deployment_role": "evidence",
+      "binding_mode": "random",
+      "execution_mode": "direct",
+      "fixture_only": true,
+      "production_canary": false,
+      "decision": "PASS"
+    }
+  ],
+  "blocked_phases": [
+    {
+      "name": "production_input_discovery",
+      "status": "BLOCKED",
+      "reason": "dotenvx decryption succeeded with packages/.env.keys. The remaining discovery gap is an approved synthetic Supabase User A/device credential set for the production-auth canary; existing TLSN_REMOTE_* values are test placeholders, not usable current credentials."
+    },
+    {
+      "name": "current_remote_validation",
+      "status": "BLOCKED",
+      "reason": "Current canary health and origins are available, but the repository has no approved synthetic Supabase User A/device material for production authentication; existing remote token and origins are placeholders."
+    },
+    {
+      "name": "separate_fixed_binding_replay_worker",
+      "status": "BLOCKED",
+      "reason": "Repository search found the TLSN_REMOTE_REPLAY_WORKER_URL contract in remote-validation.mjs but no configured or deployed separate fixed-binding replay Worker with isolated state."
+    },
+    {
+      "name": "concurrent_replay",
+      "status": "BLOCKED",
+      "reason": "Requires TLSN_REMOTE_REPLAY_WORKER_URL targeting a separate current Worker whose /health reports binding_mode=fixed."
+    },
+    {
+      "name": "current_attestation_and_remote_gate",
+      "status": "BLOCKED",
+      "reason": "Requires a current remote validation report and signed attestation; no remote validation was run because synthetic production-auth inputs are unavailable."
+    },
+    {
+      "name": "sync_measurement",
+      "status": "BLOCKED",
+      "reason": "Requires a current authenticated remote canary and approved synthetic fixture; no sync-capable canary deployment exists for this HEAD."
+    },
+    {
+      "name": "three_hundred_twenty_sample_sync_matrix",
+      "status": "BLOCKED",
+      "reason": "Requires the unavailable current authenticated remote benchmark environment and current canary deployment."
+    },
+    {
+      "name": "remote_authority_invariants",
+      "status": "BLOCKED",
+      "reason": "Remote authority invariants require current committed Result, binding consumption, replay, callback fencing, and current deployment identities."
+    },
+    {
+      "name": "independent_trust_verification",
+      "status": "BLOCKED",
+      "reason": "Requires current remote Result and identity material from the canary deployment; fixture-only hashes are not deployment evidence."
+    }
+  ],
+  "historical_artifact_regression": {
+    "status": "PASS",
+    "historical_artifact_reused_as_current": false,
+    "stale_current_head_rejected": true,
+    "mutation_defenses": "covered by local deployment-attestation and production-evidence contract tests"
+  },
+  "blocking": {
+    "BLOCKED_PHASE": "current_remote_validation",
+    "BLOCKING_RESOURCE": "An approved synthetic Supabase User A/device credential set for the production-auth canary, plus a separately deployed fixed-binding replay Worker and a successful TLSN evidence workflow context.",
+    "REPOSITORY_SEARCH_RESULT": "The repository defines the replay variable TLSN_REMOTE_REPLAY_WORKER_URL and stale/malicious callback scripts, but contains no current replay deployment identity or approved production-auth synthetic credentials. The only exact-HEAD GitHub run is the failed fusou-web-e2e-simulator workflow, not a successful TLSN evidence workflow.",
+    "EXACT_COMMAND_TO_RESUME": "Run remote validation only after supplying approved synthetic Supabase User A/device material and TLSN_REMOTE_REPLAY_WORKER_URL; then execute pnpm --dir packages/FUSOU-TLSN-VERIFICATION-WORKER run validate:remote"
+  },
+  "validation_notes": {
+    "current_canary_deployment_attempted": true,
+    "current_remote_validation_attempted": false,
+    "current_canary_health_attempted": true,
+    "matching_trigger_deployment_attempted": true,
+    "isolated_evidence_deployment_attempted": true,
+    "isolated_stale_attempt_attempted": true,
+    "isolated_stale_attempt_status": "PASS",
+    "isolated_malicious_callback_attempted": true,
+    "isolated_malicious_callback_status": "PASS",
+    "game_server_requests_made": false,
+    "production_promotion_attempted": false,
+    "secrets_or_private_keys_in_record": false,
+    "dirty_worktree_preserved": true,
+    "historical_canary_origins_used": false
+  }
+}
