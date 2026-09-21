@@ -61,8 +61,8 @@ const forbiddenNames = [
   "TLSN_DEVICE_POSSESSION_AUTH_URL",
 ];
 
-function required(name) {
-  const value = process.env[name]?.trim();
+function required(name, environment = process.env) {
+  const value = environment[name]?.trim();
   if (!value) throw new Error(`missing required replay input: ${name}`);
   return value;
 }
@@ -148,9 +148,24 @@ async function main() {
     "TLSN_REPLAY_DEVICE_POSSESSION_AUTH_URL",
     "/api/auth/anonymous-sync/v2/tlsn-device-proof",
   );
-  required("TLSN_REPLAY_SUPABASE_PUBLISHABLE_KEY");
-  required("TLSN_REPLAY_BINDING_VALUE");
+  const replaySupabasePublishableKey = required("TLSN_REPLAY_SUPABASE_PUBLISHABLE_KEY");
+  const replayBindingValue = required("TLSN_REPLAY_BINDING_VALUE");
   required("TLSN_DIRECT_CALLBACK_SECRET");
+
+  const deploymentEnvironment = {
+    ...process.env,
+    TLSN_ENVIRONMENT: "test",
+    TLSN_DEPLOYMENT_ROLE: "replay",
+    TLSN_EXECUTION_MODE: "direct",
+    TLSN_BENCHMARK_TIMINGS: "true",
+    TLSN_REPLAY_DEPLOYMENT_ID: deploymentId,
+    TLSN_REPLAY_WORKER_NAME: workerName,
+    TLSN_SUPABASE_URL: replaySupabaseUrl,
+    TLSN_SUPABASE_PUBLISHABLE_KEY: replaySupabasePublishableKey,
+    TLSN_DEVICE_AUTH_URL: replayDeviceAuthUrl,
+    TLSN_DEVICE_POSSESSION_AUTH_URL: replayDevicePossessionAuthUrl,
+    TLSN_TEST_BINDING_VALUE: replayBindingValue,
+  };
   if (gitOutput(["status", "--porcelain=v1"])) {
     throw new Error("refusing replay deploy from a dirty git worktree");
   }
@@ -166,28 +181,16 @@ async function main() {
     "TLSN_GIT_COMMIT_SHA",
     "TLSN_REPLAY_WORKER_NAME",
     "TLSN_REPLAY_DEPLOYMENT_ID",
-  ].includes(input))) required(name);
-  for (const name of secretInputs.filter((input) => input !== "TLSN_TEST_BINDING_VALUE")) required(name);
+  ].includes(input))) required(name, deploymentEnvironment);
+  for (const name of secretInputs.filter((input) => input !== "TLSN_TEST_BINDING_VALUE")) {
+    required(name, deploymentEnvironment);
+  }
 
   const cloudflareApiToken = process.env.CLOUDFLARE_API_TOKEN?.trim();
   const cloudflareAccountId = process.env.CLOUDFLARE_ACCOUNT_ID?.trim();
   if (cloudflareApiToken && !cloudflareAccountId) {
     throw new Error("CLOUDFLARE_ACCOUNT_ID is required when CLOUDFLARE_API_TOKEN is set");
   }
-  const deploymentEnvironment = {
-    ...process.env,
-    TLSN_ENVIRONMENT: "test",
-    TLSN_DEPLOYMENT_ROLE: "replay",
-    TLSN_EXECUTION_MODE: "direct",
-    TLSN_BENCHMARK_TIMINGS: "true",
-    TLSN_REPLAY_DEPLOYMENT_ID: deploymentId,
-    TLSN_REPLAY_WORKER_NAME: workerName,
-    TLSN_SUPABASE_URL: replaySupabaseUrl,
-    TLSN_SUPABASE_PUBLISHABLE_KEY: process.env.TLSN_REPLAY_SUPABASE_PUBLISHABLE_KEY,
-    TLSN_DEVICE_AUTH_URL: replayDeviceAuthUrl,
-    TLSN_DEVICE_POSSESSION_AUTH_URL: replayDevicePossessionAuthUrl,
-    TLSN_TEST_BINDING_VALUE: process.env.TLSN_REPLAY_BINDING_VALUE,
-  };
   run("pnpm", ["run", "build:wasm"], deploymentEnvironment);
 
   const deployArguments = ["exec", "wrangler", "deploy", "--config", "wrangler.replay.toml", "--name", workerName];
