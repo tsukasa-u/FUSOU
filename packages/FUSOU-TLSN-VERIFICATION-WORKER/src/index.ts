@@ -3925,7 +3925,7 @@ const handleTlsnVerification = async (c: Context<{ Bindings: Bindings }>) => {
       ? undefined
       : performance.now() - devicePossessionStartedAt;
     if (!devicePossession.ok) {
-      if (synchronousResponse && devicePossession.error === "device_possession_replayed") {
+      if (synchronousResponse && c.env.TLSN_DEPLOYMENT_ROLE !== "replay" && devicePossession.error === "device_possession_replayed") {
         const replayPresentationId = encodeBase64Url(
           new Uint8Array(await crypto.subtle.digest("SHA-256", presentationBytes)),
         );
