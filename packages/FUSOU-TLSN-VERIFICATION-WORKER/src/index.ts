@@ -69,6 +69,8 @@ export type Bindings = {
   TLSN_TEST_DIRECT_VERIFIER_MODE?: string;
   TLSN_TEST_DIRECT_VERIFIER_DELAY_MS?: string;
   TLSN_TEST_DIRECT_SYNCHRONOUS_CANDIDATE?: string;
+  TLSN_REPLAY_DEPLOYMENT_ID?: string;
+  TLSN_REPLAY_WORKER_NAME?: string;
   TLSN_CANARY_TRIGGER_API_URL?: string;
   TLSN_CANARY_TRIGGER_TASK_ID?: string;
   TLSN_CANARY_TRIGGER_SECRET_KEY?: string;
@@ -1155,6 +1157,10 @@ function isSafeDeploymentId(value: string | undefined): boolean {
   return typeof value === "string" && /^[A-Za-z0-9._-]{1,128}$/.test(value);
 }
 
+function isSafeWorkerName(value: string | undefined): boolean {
+  return typeof value === "string" && /^[a-z][a-z0-9-]{1,62}[a-z0-9]$/.test(value);
+}
+
 function isSha256Base64Url(value: string | undefined): boolean {
   return typeof value === "string" && /^[A-Za-z0-9_-]{43}$/.test(value);
 }
@@ -1176,6 +1182,7 @@ async function readConfig(
   const production = env.TLSN_ENVIRONMENT === "production";
   const role = env.TLSN_DEPLOYMENT_ROLE;
   const canary = production && role === "canary";
+  const replay = !production && role === "replay";
   const configScope = `${env.TLSN_ENVIRONMENT}:${role ?? "default"}`;
   const signingPrivateKey = production
     ? canary ? env.TLSN_CANARY_RESULT_SIGNING_PRIVATE_KEY_PKCS8 : env.TLSN_PRODUCTION_RESULT_SIGNING_PRIVATE_KEY_PKCS8
@@ -1288,6 +1295,17 @@ async function readConfig(
       return null;
     }
     if (production && (env.TLSN_TEST_DEVICE_ID || env.TLSN_TEST_DEVICE_PUBLIC_KEY)) {
+      return null;
+    }
+    if (
+      replay &&
+      (!isSafeDeploymentId(env.TLSN_REPLAY_DEPLOYMENT_ID) ||
+        !isSafeWorkerName(env.TLSN_REPLAY_WORKER_NAME) ||
+        !env.TLSN_TEST_BINDING_VALUE ||
+        env.TLSN_TEST_AUTH_USERS ||
+        env.TLSN_TEST_DEVICE_ID ||
+        env.TLSN_TEST_DEVICE_PUBLIC_KEY)
+    ) {
       return null;
     }
     const fixtureOnlyCanary = canary && env.TLSN_CANARY_FIXTURE_ONLY === "true";
@@ -3393,6 +3411,7 @@ app.get("/health", async (c) => {
   const production = c.env.TLSN_ENVIRONMENT === "production";
   const role = c.env.TLSN_DEPLOYMENT_ROLE ?? (production ? "production" : "synthetic-test");
   const canary = production && role === "canary";
+  const replay = !production && role === "replay";
   const verifierKeyId = production
     ? c.env.TLSN_CANDIDATE_VERIFIER_KEY_ID
     : c.env.TLSN_VERIFIER_KEY_ID;
@@ -3469,9 +3488,11 @@ app.get("/health", async (c) => {
   const bindingAuthorityKeyRegistrySha256 = await authorityRegistrySha256(bindingAuthorityKeyRegistry);
   const deploymentId = production
     ? canary ? c.env.TLSN_CANARY_DEPLOYMENT_ID : c.env.TLSN_PRODUCTION_DEPLOYMENT_ID
-    : null;
+    : replay ? c.env.TLSN_REPLAY_DEPLOYMENT_ID : null;
   const bindingMode = production && canary && c.env.TLSN_CANARY_BINDING_VALUE
     ? "fixed_canary"
+    : replay && c.env.TLSN_TEST_BINDING_VALUE
+      ? "fixed"
     : c.env.TLSN_TEST_BINDING_VALUE
       ? "fixed_test"
       : "random";
@@ -3527,7 +3548,7 @@ app.get("/health", async (c) => {
       trust_root_certificate_sha256: trustRootCertificateSha256,
       worker_name: production
         ? canary ? c.env.TLSN_CANARY_WORKER_NAME ?? null : c.env.TLSN_PRODUCTION_WORKER_NAME ?? null
-        : null,
+        : replay ? c.env.TLSN_REPLAY_WORKER_NAME ?? null : null,
     },
     result_identity: {
       result_public_key_spki: resultPublicKeySpki,

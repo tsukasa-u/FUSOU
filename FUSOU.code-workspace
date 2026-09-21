@@ -10,9 +10,6 @@
 			"path": "packages/FUSOU-WEB"
 		},
 		{
-			"path": "packages/shared-ui"
-		},
-		{
 			"path": "packages/kc_api"
 		},
 		{
@@ -61,6 +58,36 @@
 		},
 		{
 			"path": "packages/FUSOU-TLSN-VERIFICATION-WORKER"
+		},
+		{
+			"path": "packages/FUSOU-NOTARY"
+		},
+		{
+			"path": "packages/FUSOU-PROXY-DATA"
+		},
+		{
+			"path": "packages/FUSOU-TLSN-VERIFIER"
+		},
+		{
+			"path": "packages/fusou-formula-miner"
+		},
+		{
+			"path": "packages/fusou-formula-server"
+		},
+		{
+			"path": "packages/fusou-terminal"
+		},
+		{
+			"path": "packages/fusou-tlsn-trigger"
+		},
+		{
+			"path": "packages/shared-components"
+		},
+		{
+			"path": "packages/tlsn-alpha15-sparse"
+		},
+		{
+			"path": "packages/tlsn-mux-alpha15"
 		}
 	],
 	"settings": {
