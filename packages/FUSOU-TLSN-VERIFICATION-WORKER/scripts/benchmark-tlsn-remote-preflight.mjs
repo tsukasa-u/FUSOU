@@ -7,6 +7,7 @@ import { fixtureSourcePath, readRealFixtureManifest } from "./tlsn-benchmark-fix
 const DEFAULT_SAMPLE_COUNT = 20;
 const DEFAULT_CASES = "p50,p95,p99,max";
 const DEFAULT_CONCURRENCY = "1,2,4,8";
+const FORBIDDEN_GAME_SERVER_HOST_PATTERN = /(?:^|\.)(?:kancolle-server\.com|kancolle\.dmm\.com)$/i;
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const COMMON_REQUIRED_ENVIRONMENT = [
   "TLSN_REMOTE_BENCHMARK_WORKER_URL",
@@ -76,6 +77,14 @@ function requireHttpsOrigin(name) {
     throw new Error(`${name} must be an HTTPS origin without credentials, port, path, query, or fragment`);
   }
   return parsed.origin;
+}
+
+function assertReadinessOrigin(name, origin) {
+  const hostname = new URL(origin).hostname;
+  if (FORBIDDEN_GAME_SERVER_HOST_PATTERN.test(hostname) || hostname.includes("kancolle")) {
+    throw new Error(`${name} must not target a game-server hostname during canary readiness`);
+  }
+  return origin;
 }
 
 async function validatePrivateKey() {
@@ -151,17 +160,20 @@ async function main() {
   if (missing.length > 0) {
     throw new Error(`missing required environment variables: ${missing.join(", ")}`);
   }
+
+  const workerOrigin = assertReadinessOrigin(
+    "TLSN_REMOTE_BENCHMARK_WORKER_URL",
+    requireHttpsOrigin("TLSN_REMOTE_BENCHMARK_WORKER_URL"),
+  );
+  const webOrigin = mode === "supabase"
+    ? assertReadinessOrigin("TLSN_REMOTE_WEB_ORIGIN", requireHttpsOrigin("TLSN_REMOTE_WEB_ORIGIN"))
+    : null;
+  const supabaseOrigin = mode === "supabase"
+    ? assertReadinessOrigin("TLSN_REMOTE_SUPABASE_URL", requireHttpsOrigin("TLSN_REMOTE_SUPABASE_URL"))
+    : null;
   if (configuredPrivateKeys.length !== 1) {
     throw new Error(`set exactly one of ${PRIVATE_KEY_ENVIRONMENT.join(" and ")}`);
   }
-
-  const workerOrigin = requireHttpsOrigin("TLSN_REMOTE_BENCHMARK_WORKER_URL");
-  const webOrigin = mode === "supabase"
-    ? requireHttpsOrigin("TLSN_REMOTE_WEB_ORIGIN")
-    : null;
-  const supabaseOrigin = mode === "supabase"
-    ? requireHttpsOrigin("TLSN_REMOTE_SUPABASE_URL")
-    : null;
   if (mode === "supabase") {
     required("TLSN_REMOTE_SUPABASE_PUBLISHABLE_KEY");
   }

@@ -15,6 +15,7 @@ const packageDirectory = resolve(new URL("..", import.meta.url).pathname);
 const DEFAULT_SAMPLE_COUNT = 100;
 const DEFAULT_REPORT_PATH = resolve(packageDirectory, "artifacts/tlsn-remote-validation.json");
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+const FORBIDDEN_GAME_SERVER_HOST_PATTERN = /(?:^|\.)(?:kancolle-server\.com|kancolle\.dmm\.com)$/i;
 const SECURITY_IDENTITY_FIELDS = [
   "git_commit_sha",
   "server_identity",
@@ -93,6 +94,9 @@ function requireOrigin(name) {
   if (url.pathname !== "/" && url.pathname !== "") {
     throw new Error(`${name} must not contain a path`);
   }
+  if (FORBIDDEN_GAME_SERVER_HOST_PATTERN.test(url.hostname) || url.hostname.includes("kancolle")) {
+    throw new Error(`${name} must not target a game-server hostname during canary readiness`);
+  }
   return url.origin;
 }
 
@@ -130,6 +134,11 @@ async function loadFixture(file) {
     }
   }
   return parsed;
+}
+
+async function loadOptionalFixture(name) {
+  const file = optional(name);
+  return file ? loadFixture(file) : undefined;
 }
 
 function pushU16(chunks, value) {

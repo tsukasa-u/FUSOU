@@ -75,6 +75,7 @@ export type Bindings = {
   TLSN_CANARY_TRIGGER_CALLBACK_SECRET?: string;
   TLSN_CANARY_DIRECT_CALLBACK_SECRET?: string;
   TLSN_CANARY_SYNCHRONOUS_RESPONSE_ENABLED?: string;
+  TLSN_CANARY_FIXTURE_ONLY?: string;
   TLSN_CANARY_WORKER_INTERNAL_URL?: string;
   TLSN_PRODUCTION_TRIGGER_API_URL?: string;
   TLSN_PRODUCTION_TRIGGER_TASK_ID?: string;
@@ -1289,13 +1290,19 @@ async function readConfig(
     if (production && (env.TLSN_TEST_DEVICE_ID || env.TLSN_TEST_DEVICE_PUBLIC_KEY)) {
       return null;
     }
+    const fixtureOnlyCanary = canary && env.TLSN_CANARY_FIXTURE_ONLY === "true";
+    if (fixtureOnlyCanary && parsed.data.serverIdentity !== "game.example.test") {
+      return null;
+    }
     if (
       production &&
       (!isSafeDeploymentId(canary ? env.TLSN_CANARY_DEPLOYMENT_ID : env.TLSN_PRODUCTION_DEPLOYMENT_ID) ||
         !isSha256Base64Url(env.TLSN_SECURITY_REGISTRY_SET_SHA256) ||
-        containsTestFixtureMarker(parsed.data.verifierKeyId) ||
-        containsTestFixtureMarker(parsed.data.notaryKeyId) ||
-        containsTestFixtureMarker(parsed.data.serverIdentity))
+        (!fixtureOnlyCanary && (
+          containsTestFixtureMarker(parsed.data.verifierKeyId) ||
+          containsTestFixtureMarker(parsed.data.notaryKeyId) ||
+          containsTestFixtureMarker(parsed.data.serverIdentity)
+        )))
     ) {
       return null;
     }

@@ -28,6 +28,7 @@ const PAYLOAD_SCALING_BANDS = [
   { label: "4MiB-8MiB", minimum: 4 * 1024 * 1024, maximum: 8 * 1024 * 1024 },
 ];
 const ALLOWED_EXPECTED_ENVIRONMENTS = new Set(["test", "evidence", "production"]);
+const FORBIDDEN_GAME_SERVER_HOST_PATTERN = /(?:^|\.)(?:kancolle-server\.com|kancolle\.dmm\.com)$/i;
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const COMMON_REQUIRED_TIMING_STAGES = [
   "t0_accepted",
@@ -168,6 +169,14 @@ function requireOrigin(name) {
   return url.origin;
 }
 
+function assertReadinessOrigin(name, origin) {
+  const hostname = new URL(origin).hostname;
+  if (FORBIDDEN_GAME_SERVER_HOST_PATTERN.test(hostname) || hostname.includes("kancolle")) {
+    throw new Error(`${name} must not target a game-server hostname during canary readiness`);
+  }
+  return origin;
+}
+
 function endpoint(origin, pathname) {
   return new URL(pathname, `${origin}/`).toString();
 }
@@ -281,6 +290,9 @@ async function loadHealth(workerOrigin) {
   }
   if (result.json.execution_mode !== expectedExecutionMode) {
     throw new Error(`remote Worker execution mode is ${result.json.execution_mode ?? "unset"}, expected ${expectedExecutionMode}`);
+  }
+  if (expectedEnvironment === "production" && result.json.deployment_role !== "canary") {
+    throw new Error("production readiness benchmark requires an isolated canary deployment role");
   }
   if (typeof result.json.sparse_profile_sha256 !== "string") {
     throw new Error("remote Worker does not expose the sparse profile");
@@ -2406,14 +2418,21 @@ async function main() {
 
   const authMode = optional("TLSN_REMOTE_AUTH_MODE") ?? "supabase";
   if (authMode !== "test" && authMode !== "supabase") throw new Error("TLSN_REMOTE_AUTH_MODE must be test or supabase");
-  const workerOrigin = requireOrigin("TLSN_REMOTE_BENCHMARK_WORKER_URL");
-  const webOrigin = authMode === "supabase" ? requireOrigin("TLSN_REMOTE_WEB_ORIGIN") : undefined;
-  const supabaseOrigin = authMode === "supabase" ? requireOrigin("TLSN_REMOTE_SUPABASE_URL") : undefined;
+  const { manifest, entries } = readRealFixtureManifest();
+  const workerOrigin = assertReadinessOrigin(
+    "TLSN_REMOTE_BENCHMARK_WORKER_URL",
+    requireOrigin("TLSN_REMOTE_BENCHMARK_WORKER_URL"),
+  );
+  const webOrigin = authMode === "supabase"
+    ? assertReadinessOrigin("TLSN_REMOTE_WEB_ORIGIN", requireOrigin("TLSN_REMOTE_WEB_ORIGIN"))
+    : undefined;
+  const supabaseOrigin = authMode === "supabase"
+    ? assertReadinessOrigin("TLSN_REMOTE_SUPABASE_URL", requireOrigin("TLSN_REMOTE_SUPABASE_URL"))
+    : undefined;
   const accessToken = required("TLSN_REMOTE_ACCESS_TOKEN_A");
   const device = { id: required("TLSN_REMOTE_DEVICE_ID_A") };
   const privateKey = await loadPrivateKey("TLSN_REMOTE_DEVICE_A");
   const publishableKey = authMode === "supabase" ? required("TLSN_REMOTE_SUPABASE_PUBLISHABLE_KEY") : undefined;
-  const { manifest, entries } = readRealFixtureManifest();
   const missingCases = cases.filter((caseLabel) => !entries.has(caseLabel));
   if (missingCases.length > 0) throw new Error(`unknown real fixture cases: ${missingCases.join(", ")}`);
 
