@@ -18,7 +18,8 @@
     "license:generate": "node scripts/generate-license-docs.mjs",
     "license:check": "node scripts/generate-license-docs.mjs --check",
     "build:compaction-core": "pnpm --filter @fusou/compaction-core run build",
-    "test:web": "pnpm --filter fusou-web test"
+    "test:web": "pnpm --filter fusou-web test",
+    "scout:formulas": "node scripts/scout-formulas.mjs"
   },
   "keywords": [],
   "author": "",
@@ -53,7 +54,7 @@
       "@humanfs/node": ">=0.16.8",
       "diff": ">=4.0.4",
       "webpack": "^5.104.1",
-      "@babel/core": ">=7.29.6",
+      "@babel/core": "^7.29.6",
       "@storybook/csf-plugin>webpack": "^5.104.1"
     }
   }
