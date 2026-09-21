@@ -103,6 +103,34 @@ function resultSigningBytes(result) {
   return Buffer.concat(chunks);
 }
 
+function sparseResultSigningBytes(result) {
+  const chunks = [Buffer.from("FUSOU-VERIFIER-SPARSE-RESULT-V1\0")];
+  pushU16(chunks, result.version);
+  pushLengthPrefixed(chunks, result.profile_id);
+  pushLengthPrefixed(chunks, result.disclosure_mode);
+  pushLengthPrefixed(chunks, decodeBase64Url(result.profile_sha256));
+  pushLengthPrefixed(chunks, result.issuer);
+  pushLengthPrefixed(chunks, result.proof_purpose);
+  pushLengthPrefixed(chunks, result.canonical_user_id);
+  pushLengthPrefixed(chunks, result.device_id);
+  pushLengthPrefixed(chunks, decodeBase64Url(result.device_challenge));
+  pushLengthPrefixed(chunks, result.verified_member_id);
+  pushLengthPrefixed(chunks, Buffer.from(result.attestation_session_id.replaceAll("-", ""), "hex"));
+  pushLengthPrefixed(chunks, decodeBase64Url(result.binding_nonce));
+  pushLengthPrefixed(chunks, result.binding_value);
+  pushLengthPrefixed(chunks, result.verifier_key_id);
+  pushLengthPrefixed(chunks, result.notary_key_id);
+  pushLengthPrefixed(chunks, decodeBase64Url(result.notary_key_sha256));
+  pushLengthPrefixed(chunks, decodeBase64Url(result.tlsn_attestation_id));
+  pushLengthPrefixed(chunks, decodeBase64Url(result.presentation_sha256));
+  pushLengthPrefixed(chunks, result.server_identity);
+  pushU64(chunks, result.request_transcript_size);
+  pushRanges(chunks, result.revealed_request_ranges);
+  pushU64(chunks, result.response_transcript_size);
+  pushRanges(chunks, result.revealed_response_ranges);
+  return Buffer.concat(chunks);
+}
+
 function parseTiming(response) {
   const encoded = response.headers.get("X-FUSOU-TLSN-Benchmark-Timing");
   return encoded ? JSON.parse(Buffer.from(encoded, "base64url").toString("utf8")) : null;
@@ -172,14 +200,14 @@ function verificationBody(session, fixture, deviceId, privateKey) {
 }
 
 function verifyCurrentResult(result, fixture, session, deviceId, userId, publicKey) {
-  assert.equal(result.version, 1);
+  assert.equal(result.version, 2);
   assert.equal(result.canonical_user_id, userId);
   assert.equal(result.device_id, deviceId);
   assert.equal(result.attestation_session_id, session.session_id);
   assert.equal(result.binding_value, fixture.binding_value);
-  assert.equal(result.profile_id, "fusou-require-info-v1");
+  assert.equal(result.profile_id, "fusou-require-info-v2-sparse");
   assert.equal(typeof result.signature, "string");
-  assert.equal(verify(null, resultSigningBytes(result), publicKey, decodeBase64Url(result.signature)), true);
+  assert.equal(verify(null, sparseResultSigningBytes(result), publicKey, decodeBase64Url(result.signature)), true);
   return {
     signature_valid: true,
     canonical_user_id_sha256: hash(result.canonical_user_id),
