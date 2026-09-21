@@ -96,6 +96,9 @@ export function normalizeReplayDeploymentEnvironment(inputEnvironment) {
   );
   const replaySupabasePublishableKey = required("TLSN_REPLAY_SUPABASE_PUBLISHABLE_KEY", environment);
   const replayBindingValue = required("TLSN_REPLAY_BINDING_VALUE", environment);
+  const replayAuthUsers = required("TLSN_REPLAY_AUTH_USERS", environment);
+  const replayDeviceId = required("TLSN_REPLAY_DEVICE_ID", environment);
+  const replayDevicePublicKey = required("TLSN_REPLAY_DEVICE_PUBLIC_KEY", environment);
 
   return {
     ...environment,
@@ -110,5 +113,8 @@ export function normalizeReplayDeploymentEnvironment(inputEnvironment) {
     TLSN_DEVICE_AUTH_URL: replayDeviceAuthUrl,
     TLSN_DEVICE_POSSESSION_AUTH_URL: replayDevicePossessionAuthUrl,
     TLSN_TEST_BINDING_VALUE: replayBindingValue,
+    TLSN_REPLAY_AUTH_USERS: replayAuthUsers,
+    TLSN_REPLAY_DEVICE_ID: replayDeviceId,
+    TLSN_REPLAY_DEVICE_PUBLIC_KEY: replayDevicePublicKey,
   };
 }

@@ -7,6 +7,8 @@ import { normalizeReplayDeploymentEnvironment } from "./replay-deployment-enviro
 
 const packageDirectory = resolve(new URL("..", import.meta.url).pathname);
 const deployReplay = await readFile(resolve(packageDirectory, "scripts/deploy-replay.mjs"), "utf8");
+const replayProvisioning = await readFile(resolve(packageDirectory, "scripts/provision-tlsn-replay.mjs"), "utf8");
+const replayValidation = await readFile(resolve(packageDirectory, "scripts/remote-replay-validation.mjs"), "utf8");
 const replayConfig = await readFile(resolve(packageDirectory, "wrangler.replay.toml"), "utf8");
 const replayBootstrapConfig = await readFile(resolve(packageDirectory, "wrangler.replay-bootstrap.toml"), "utf8");
 const replayVerifierConfig = await readFile(resolve(packageDirectory, "wrangler.verifier-replay.toml"), "utf8");
@@ -16,6 +18,8 @@ const packageJson = JSON.parse(await readFile(resolve(packageDirectory, "package
 
 assert.match(packageJson.scripts["deploy:replay"], /deploy-replay\.mjs/);
 assert.match(packageJson.scripts["test:replay-provisioning"], /replay-provisioning-test\.mjs/);
+assert.match(packageJson.scripts["provision:replay"], /provision-tlsn-replay\.mjs/);
+assert.match(packageJson.scripts["validate:replay"], /remote-replay-validation\.mjs/);
 assert.match(deployReplay, /normalizeReplayDeploymentEnvironment\(process\.env\)/);
 assert.match(deployReplay, /gitOutput\(\["status", "--porcelain=v1"\]\)/);
 assert.match(deployReplay, /gitOutput\(\["rev-parse", "HEAD"\]\)/);
@@ -25,6 +29,9 @@ for (const input of [
   "TLSN_REPLAY_SUPABASE_PUBLISHABLE_KEY",
   "TLSN_REPLAY_DEVICE_AUTH_URL",
   "TLSN_REPLAY_DEVICE_POSSESSION_AUTH_URL",
+  "TLSN_REPLAY_AUTH_USERS",
+  "TLSN_REPLAY_DEVICE_ID",
+  "TLSN_REPLAY_DEVICE_PUBLIC_KEY",
 ]) {
   assert.match(envExample, new RegExp(`^${input}=`, "m"));
 }
@@ -35,6 +42,9 @@ const replayInput = {
   TLSN_REPLAY_SUPABASE_PUBLISHABLE_KEY: "synthetic-publishable-key",
   TLSN_REPLAY_DEVICE_AUTH_URL: "https://auth.synthetic.local/api/auth/anonymous-sync/v2/device-proof",
   TLSN_REPLAY_DEVICE_POSSESSION_AUTH_URL: "https://auth.synthetic.local/api/auth/anonymous-sync/v2/tlsn-device-proof",
+  TLSN_REPLAY_AUTH_USERS: JSON.stringify({ "synthetic-token": { id: "55555555-5555-4555-8555-555555555555", is_anonymous: false } }),
+  TLSN_REPLAY_DEVICE_ID: "33333333-3333-4333-8333-333333333333",
+  TLSN_REPLAY_DEVICE_PUBLIC_KEY: "A".repeat(43),
   TLSN_REPLAY_BINDING_VALUE: "synthetic-binding-value",
   TLSN_REPLAY_DEPLOYMENT_ID: "replay-current-test",
   TLSN_REPLAY_WORKER_NAME: "fusou-tlsn-verification-replay",
@@ -45,6 +55,9 @@ assert.equal(normalized.TLSN_SUPABASE_PUBLISHABLE_KEY, replayInput.TLSN_REPLAY_S
 assert.equal(normalized.TLSN_DEVICE_AUTH_URL, replayInput.TLSN_REPLAY_DEVICE_AUTH_URL);
 assert.equal(normalized.TLSN_DEVICE_POSSESSION_AUTH_URL, replayInput.TLSN_REPLAY_DEVICE_POSSESSION_AUTH_URL);
 assert.equal(normalized.TLSN_TEST_BINDING_VALUE, replayInput.TLSN_REPLAY_BINDING_VALUE);
+assert.equal(normalized.TLSN_REPLAY_AUTH_USERS, replayInput.TLSN_REPLAY_AUTH_USERS);
+assert.equal(normalized.TLSN_REPLAY_DEVICE_ID, replayInput.TLSN_REPLAY_DEVICE_ID);
+assert.equal(normalized.TLSN_REPLAY_DEVICE_PUBLIC_KEY, replayInput.TLSN_REPLAY_DEVICE_PUBLIC_KEY);
 assert.equal(normalized.TLSN_ENVIRONMENT, "test");
 assert.equal(normalized.TLSN_DEPLOYMENT_ROLE, "replay");
 assert.equal(normalized.TLSN_EXECUTION_MODE, "direct");
@@ -128,5 +141,14 @@ assert.match(source, /TLSN_REPLAY_WORKER_NAME/);
 assert.match(source, /env\.TLSN_TEST_AUTH_USERS/);
 assert.match(source, /env\.TLSN_TEST_DEVICE_ID/);
 assert.match(source, /env\.TLSN_TEST_DEVICE_PUBLIC_KEY/);
+assert.match(source, /env\.TLSN_REPLAY_AUTH_USERS/);
+assert.match(source, /env\.TLSN_REPLAY_DEVICE_ID/);
+assert.match(source, /env\.TLSN_REPLAY_DEVICE_PUBLIC_KEY/);
+assert.match(replayProvisioning, /setup-tlsn-remote-test\.mjs/);
+assert.match(replayProvisioning, /TLSN_REPLAY_AUTH_USERS/);
+assert.doesNotMatch(replayProvisioning, /TLSN_TEST_AUTH_USERS=.*TLSN_TEST_AUTH_USERS/);
+assert.match(replayValidation, /deployment_role, "replay"/);
+assert.match(replayValidation, /successful_verifications: successes\.length/);
+assert.match(replayValidation, /commit_verified_result/);
 
 console.log("[tlsn-replay-provisioning] isolated fixed-binding replay contract OK");

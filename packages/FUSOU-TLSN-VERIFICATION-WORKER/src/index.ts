@@ -71,6 +71,9 @@ export type Bindings = {
   TLSN_TEST_DIRECT_SYNCHRONOUS_CANDIDATE?: string;
   TLSN_REPLAY_DEPLOYMENT_ID?: string;
   TLSN_REPLAY_WORKER_NAME?: string;
+  TLSN_REPLAY_AUTH_USERS?: string;
+  TLSN_REPLAY_DEVICE_ID?: string;
+  TLSN_REPLAY_DEVICE_PUBLIC_KEY?: string;
   TLSN_CANARY_TRIGGER_API_URL?: string;
   TLSN_CANARY_TRIGGER_TASK_ID?: string;
   TLSN_CANARY_TRIGGER_SECRET_KEY?: string;
@@ -1302,6 +1305,9 @@ async function readConfig(
       (!isSafeDeploymentId(env.TLSN_REPLAY_DEPLOYMENT_ID) ||
         !isSafeWorkerName(env.TLSN_REPLAY_WORKER_NAME) ||
         !env.TLSN_TEST_BINDING_VALUE ||
+        !env.TLSN_REPLAY_AUTH_USERS ||
+        !env.TLSN_REPLAY_DEVICE_ID ||
+        !env.TLSN_REPLAY_DEVICE_PUBLIC_KEY ||
         env.TLSN_TEST_AUTH_USERS ||
         env.TLSN_TEST_DEVICE_ID ||
         env.TLSN_TEST_DEVICE_PUBLIC_KEY)
@@ -1763,9 +1769,12 @@ async function authenticateRequest(
   env: Bindings,
 ): Promise<AuthenticationResult> {
   const token = extractBearerToken(request);
-  if (env.TLSN_ENVIRONMENT === "test" && env.TLSN_TEST_AUTH_USERS) {
+  const syntheticAuthUsers = env.TLSN_DEPLOYMENT_ROLE === "replay"
+    ? env.TLSN_REPLAY_AUTH_USERS
+    : env.TLSN_TEST_AUTH_USERS;
+  if (env.TLSN_ENVIRONMENT === "test" && syntheticAuthUsers) {
     try {
-      const users = testAuthUsersSchema.parse(JSON.parse(env.TLSN_TEST_AUTH_USERS));
+      const users = testAuthUsersSchema.parse(JSON.parse(syntheticAuthUsers));
       const user = token ? users[token] : undefined;
       if (!token || !user || user.is_anonymous === true) {
         return authenticationFailure("unauthorized");
@@ -1906,9 +1915,20 @@ async function authenticateDeviceProof(
 }
 
 function testDeviceAuthenticationEnabled(env: Bindings): boolean {
+  const device = configuredTestDevice(env);
   return env.TLSN_ENVIRONMENT === "test" &&
-    Boolean(env.TLSN_TEST_DEVICE_ID?.trim()) &&
-    Boolean(env.TLSN_TEST_DEVICE_PUBLIC_KEY?.trim());
+    Boolean(device?.id) &&
+    Boolean(device?.publicKey);
+}
+
+function configuredTestDevice(env: Bindings): { id: string; publicKey: string } | null {
+  const id = env.TLSN_DEPLOYMENT_ROLE === "replay"
+    ? env.TLSN_REPLAY_DEVICE_ID?.trim()
+    : env.TLSN_TEST_DEVICE_ID?.trim();
+  const publicKey = env.TLSN_DEPLOYMENT_ROLE === "replay"
+    ? env.TLSN_REPLAY_DEVICE_PUBLIC_KEY?.trim()
+    : env.TLSN_TEST_DEVICE_PUBLIC_KEY?.trim();
+  return id && publicKey ? { id, publicKey } : null;
 }
 
 function rememberTestDeviceValue(values: Set<string>, value: string): boolean {
@@ -1991,11 +2011,12 @@ async function authenticateTestDeviceProof(
   proof: z.infer<typeof deviceProofRequestSchema>,
   env: Bindings,
 ): Promise<DeviceAuthenticationResult> {
-  if (!testDeviceAuthenticationEnabled(env) || proof.device_id !== env.TLSN_TEST_DEVICE_ID) {
+  const device = configuredTestDevice(env);
+  if (!testDeviceAuthenticationEnabled(env) || !device || proof.device_id !== device.id) {
     return { ok: false, status: 503, error: "device_auth_unconfigured" };
   }
   const valid = await verifyTestDeviceSignature(
-    env.TLSN_TEST_DEVICE_PUBLIC_KEY!,
+    device.publicKey,
     new TextEncoder().encode(proof.nonce),
     proof.sig,
   );
@@ -2022,10 +2043,11 @@ async function authenticateTestTlsnDeviceProof(
   env: Bindings,
   expectedReplayDigestHex?: string,
 ): Promise<DevicePossessionAuthenticationResult> {
-  if (!testDeviceAuthenticationEnabled(env)) {
+  const device = configuredTestDevice(env);
+  if (!testDeviceAuthenticationEnabled(env) || !device) {
     return { ok: false, status: 503, error: "device_possession_unavailable" };
   }
-  if (proof.device_id !== env.TLSN_TEST_DEVICE_ID) {
+  if (proof.device_id !== device.id) {
     return { ok: false, status: 403, error: "device_possession_owner_mismatch" };
   }
   let message: Uint8Array;
@@ -2037,7 +2059,7 @@ async function authenticateTestTlsnDeviceProof(
   const replayDigestHex = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", message)))
     .map((byte) => byte.toString(16).padStart(2, "0"))
     .join("");
-  const valid = await verifyTestDeviceSignature(env.TLSN_TEST_DEVICE_PUBLIC_KEY!, message, proof.sig);
+  const valid = await verifyTestDeviceSignature(device.publicKey, message, proof.sig);
   if (!valid) return { ok: false, status: 401, error: "device_possession_unauthorized" };
   const firstUse = rememberTestDeviceValue(testDeviceProofDigests, `${subject.canonicalUserId}\0${replayDigestHex}`);
   if (!firstUse && replayDigestHex !== expectedReplayDigestHex) {
@@ -3508,7 +3530,9 @@ app.get("/health", async (c) => {
     ok: true,
     verifier: "tlsn-alpha15-wasm",
     environment: c.env.TLSN_ENVIRONMENT,
-    auth_mode: c.env.TLSN_ENVIRONMENT === "test" && c.env.TLSN_TEST_AUTH_USERS
+    auth_mode: c.env.TLSN_ENVIRONMENT === "test" && (replay
+      ? c.env.TLSN_REPLAY_AUTH_USERS
+      : c.env.TLSN_TEST_AUTH_USERS)
       ? "test-token"
       : "supabase",
     device_auth_mode: testDeviceAuthenticationEnabled(c.env)
