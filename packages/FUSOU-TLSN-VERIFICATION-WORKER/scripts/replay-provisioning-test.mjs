@@ -50,6 +50,12 @@ assert.equal(normalized.TLSN_DEPLOYMENT_ROLE, "replay");
 assert.equal(normalized.TLSN_EXECUTION_MODE, "direct");
 assert.equal(normalized.TLSN_BENCHMARK_TIMINGS, "true");
 assert.equal(replayInput.TLSN_SUPABASE_URL, undefined);
+const replayInputWithoutWorkerName = { ...replayInput };
+delete replayInputWithoutWorkerName.TLSN_REPLAY_WORKER_NAME;
+assert.equal(
+  normalizeReplayDeploymentEnvironment(replayInputWithoutWorkerName).TLSN_REPLAY_WORKER_NAME,
+  "fusou-tlsn-verification-replay",
+);
 
 function assertRejectsWithoutSecret(environment, pattern, secret) {
   assert.throws(() => normalizeReplayDeploymentEnvironment(environment), (error) => {
