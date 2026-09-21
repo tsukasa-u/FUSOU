@@ -4034,7 +4034,6 @@ const handleTlsnVerification = async (c: Context<{ Bindings: Bindings }>) => {
         benchmarkRecord(c.env, jobId, "t1_presentation_persisted");
       }
       const startVerificationStartedAt = requestBenchmarkEnabled ? performance.now() : undefined;
-      benchmarkDOOperation(c.env, jobId, "start_verification");
       await authority.startVerification(requestBody.binding, {
         session_id: requestBody.session_id,
         canonical_user_id: authentication.canonicalUserId,
@@ -4052,6 +4051,7 @@ const handleTlsnVerification = async (c: Context<{ Bindings: Bindings }>) => {
         ...(directVerificationAttemptId ? { verification_attempt_id: directVerificationAttemptId } : {}),
         now: Date.now(),
       });
+      benchmarkDOOperation(c.env, jobId, "start_verification");
       benchmarkDuration(
         c.env,
         jobId,
