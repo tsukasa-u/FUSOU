@@ -4,6 +4,7 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { spawnSync } from "node:child_process";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
+import { normalizeReplayDeploymentEnvironment } from "./replay-deployment-environment.mjs";
 
 const packageDirectory = resolve(new URL("..", import.meta.url).pathname);
 const publicInputs = [
@@ -40,26 +41,6 @@ const secretInputs = [
   "TLSN_TEST_BINDING_VALUE",
   "TLSN_DIRECT_CALLBACK_SECRET",
 ];
-const forbiddenPrefixes = ["TLSN_CANARY_", "TLSN_PRODUCTION_", "TLSN_CANDIDATE_"];
-const forbiddenNames = [
-  "TLSN_TEST_AUTH_USERS",
-  "TLSN_TEST_DEVICE_ID",
-  "TLSN_TEST_DEVICE_PUBLIC_KEY",
-  "TLSN_TEST_BINDING_VALUES",
-  "TLSN_TEST_COMPLETION_DELAY_MS",
-  "TLSN_TEST_COMPLETION_DELAY_ONCE",
-  "TLSN_TEST_POST_RESULT_DELAY_MS",
-  "TLSN_TEST_POST_RESULT_DELAY_ONCE",
-  "TLSN_TEST_DIRECT_INVOCATION_TIMEOUT_MS",
-  "TLSN_TEST_DIRECT_VERIFIER_MODE",
-  "TLSN_TEST_DIRECT_VERIFIER_DELAY_MS",
-  "TLSN_TEST_VERIFICATION_LEASE_MS",
-  "TLSN_TEST_BINDING_VALUE",
-  "TLSN_SUPABASE_URL",
-  "TLSN_SUPABASE_PUBLISHABLE_KEY",
-  "TLSN_DEVICE_AUTH_URL",
-  "TLSN_DEVICE_POSSESSION_AUTH_URL",
-];
 
 function required(name, environment = process.env) {
   const value = environment[name]?.trim();
@@ -88,84 +69,11 @@ function gitOutput(argumentsList) {
   return result.stdout.trim();
 }
 
-function assertWorkerName(name, variable) {
-  if (!/^[a-z][a-z0-9-]{1,62}[a-z0-9]$/.test(name)) {
-    throw new Error(`${variable} must be a valid Worker name`);
-  }
-}
-
-function requiredHttpsUrl(name, pathname) {
-  const value = required(name);
-  const url = new URL(value);
-  if (
-    url.protocol !== "https:" ||
-    url.username ||
-    url.password ||
-    url.port ||
-    url.search ||
-    url.hash ||
-    url.hostname.includes("kancolle") ||
-    /(?:^|\.)(?:example|invalid)$/i.test(url.hostname)
-  ) {
-    throw new Error(`${name} must be a non-placeholder HTTPS URL`);
-  }
-  if (pathname !== undefined && url.pathname !== pathname) {
-    throw new Error(`${name} must use the exact path ${pathname}`);
-  }
-  return value;
-}
-
 async function main() {
-  if (process.env.TLSN_ENVIRONMENT && process.env.TLSN_ENVIRONMENT !== "test") {
-    throw new Error("TLSN_ENVIRONMENT must be test for the replay deployment");
-  }
-  if (process.env.TLSN_DEPLOYMENT_ROLE && process.env.TLSN_DEPLOYMENT_ROLE !== "replay") {
-    throw new Error("TLSN_DEPLOYMENT_ROLE must be replay for the replay deployment");
-  }
-  for (const prefix of forbiddenPrefixes) {
-    const forbidden = Object.keys(process.env).find((name) => name.startsWith(prefix));
-    if (forbidden) throw new Error(`${forbidden} must not be present in a replay deployment environment`);
-  }
-  for (const name of forbiddenNames) {
-    if (process.env[name] !== undefined) throw new Error(`${name} must not be present in a replay deployment environment`);
-  }
-
-  const workerName = process.env.TLSN_REPLAY_WORKER_NAME?.trim() || "fusou-tlsn-verification-replay";
-  const deploymentId = process.env.TLSN_REPLAY_DEPLOYMENT_ID?.trim();
-  assertWorkerName(workerName, "TLSN_REPLAY_WORKER_NAME");
-  if (!deploymentId || !/^[A-Za-z0-9._-]{1,128}$/.test(deploymentId)) {
-    throw new Error("TLSN_REPLAY_DEPLOYMENT_ID must be a safe deployment identity");
-  }
-  if (process.env.TLSN_REPLAY_ENVIRONMENT_CONFIRMATION !== "non-production-synthetic") {
-    throw new Error("TLSN_REPLAY_ENVIRONMENT_CONFIRMATION must be non-production-synthetic");
-  }
-  const replaySupabaseUrl = requiredHttpsUrl("TLSN_REPLAY_SUPABASE_URL");
-  const replayDeviceAuthUrl = requiredHttpsUrl(
-    "TLSN_REPLAY_DEVICE_AUTH_URL",
-    "/api/auth/anonymous-sync/v2/device-proof",
-  );
-  const replayDevicePossessionAuthUrl = requiredHttpsUrl(
-    "TLSN_REPLAY_DEVICE_POSSESSION_AUTH_URL",
-    "/api/auth/anonymous-sync/v2/tlsn-device-proof",
-  );
-  const replaySupabasePublishableKey = required("TLSN_REPLAY_SUPABASE_PUBLISHABLE_KEY");
-  const replayBindingValue = required("TLSN_REPLAY_BINDING_VALUE");
+  const deploymentEnvironment = normalizeReplayDeploymentEnvironment(process.env);
+  const deploymentId = deploymentEnvironment.TLSN_REPLAY_DEPLOYMENT_ID;
+  const workerName = deploymentEnvironment.TLSN_REPLAY_WORKER_NAME;
   required("TLSN_DIRECT_CALLBACK_SECRET");
-
-  const deploymentEnvironment = {
-    ...process.env,
-    TLSN_ENVIRONMENT: "test",
-    TLSN_DEPLOYMENT_ROLE: "replay",
-    TLSN_EXECUTION_MODE: "direct",
-    TLSN_BENCHMARK_TIMINGS: "true",
-    TLSN_REPLAY_DEPLOYMENT_ID: deploymentId,
-    TLSN_REPLAY_WORKER_NAME: workerName,
-    TLSN_SUPABASE_URL: replaySupabaseUrl,
-    TLSN_SUPABASE_PUBLISHABLE_KEY: replaySupabasePublishableKey,
-    TLSN_DEVICE_AUTH_URL: replayDeviceAuthUrl,
-    TLSN_DEVICE_POSSESSION_AUTH_URL: replayDevicePossessionAuthUrl,
-    TLSN_TEST_BINDING_VALUE: replayBindingValue,
-  };
   if (gitOutput(["status", "--porcelain=v1"])) {
     throw new Error("refusing replay deploy from a dirty git worktree");
   }

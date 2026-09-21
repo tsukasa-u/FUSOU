@@ -3,6 +3,7 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
+import { normalizeReplayDeploymentEnvironment } from "./replay-deployment-environment.mjs";
 
 const packageDirectory = resolve(new URL("..", import.meta.url).pathname);
 const deployReplay = await readFile(resolve(packageDirectory, "scripts/deploy-replay.mjs"), "utf8");
@@ -15,28 +16,7 @@ const packageJson = JSON.parse(await readFile(resolve(packageDirectory, "package
 
 assert.match(packageJson.scripts["deploy:replay"], /deploy-replay\.mjs/);
 assert.match(packageJson.scripts["test:replay-provisioning"], /replay-provisioning-test\.mjs/);
-assert.match(deployReplay, /TLSN_REPLAY_BINDING_VALUE/);
-assert.match(deployReplay, /TLSN_REPLAY_DEPLOYMENT_ID/);
-assert.match(deployReplay, /TLSN_REPLAY_WORKER_NAME/);
-assert.match(deployReplay, /function required\(name, environment = process\.env\)/);
-assert.match(deployReplay, /required\(name, deploymentEnvironment\)/);
-assert.match(deployReplay, /TLSN_SUPABASE_URL: replaySupabaseUrl/);
-assert.match(deployReplay, /TLSN_SUPABASE_PUBLISHABLE_KEY: replaySupabasePublishableKey/);
-assert.match(deployReplay, /TLSN_DEVICE_AUTH_URL: replayDeviceAuthUrl/);
-assert.match(deployReplay, /TLSN_DEVICE_POSSESSION_AUTH_URL: replayDevicePossessionAuthUrl/);
-assert.match(deployReplay, /TLSN_TEST_BINDING_VALUE: replayBindingValue/);
-for (const forbiddenInput of [
-  "TLSN_SUPABASE_URL",
-  "TLSN_SUPABASE_PUBLISHABLE_KEY",
-  "TLSN_DEVICE_AUTH_URL",
-  "TLSN_DEVICE_POSSESSION_AUTH_URL",
-]) {
-  assert.match(deployReplay, new RegExp(`"${forbiddenInput}"`));
-}
-assert.match(deployReplay, /TLSN_TEST_AUTH_USERS/);
-assert.match(deployReplay, /TLSN_TEST_DEVICE_ID/);
-assert.match(deployReplay, /TLSN_TEST_DEVICE_PUBLIC_KEY/);
-assert.match(deployReplay, /TLSN_CANDIDATE_/);
+assert.match(deployReplay, /normalizeReplayDeploymentEnvironment\(process\.env\)/);
 assert.match(deployReplay, /gitOutput\(\["status", "--porcelain=v1"\]\)/);
 assert.match(deployReplay, /gitOutput\(\["rev-parse", "HEAD"\]\)/);
 for (const input of [
@@ -48,12 +28,80 @@ for (const input of [
 ]) {
   assert.match(envExample, new RegExp(`^${input}=`, "m"));
 }
-const replayValidationOffset = deployReplay.indexOf("const replaySupabaseUrl = requiredHttpsUrl");
-const runtimeNormalizationOffset = deployReplay.indexOf("TLSN_SUPABASE_URL: replaySupabaseUrl");
-const genericValidationOffset = deployReplay.indexOf("for (const name of publicInputs.filter");
-assert.ok(replayValidationOffset >= 0);
-assert.ok(runtimeNormalizationOffset > replayValidationOffset);
-assert.ok(genericValidationOffset > runtimeNormalizationOffset);
+
+const replayInput = {
+  TLSN_REPLAY_ENVIRONMENT_CONFIRMATION: "non-production-synthetic",
+  TLSN_REPLAY_SUPABASE_URL: "https://supabase.synthetic.local",
+  TLSN_REPLAY_SUPABASE_PUBLISHABLE_KEY: "synthetic-publishable-key",
+  TLSN_REPLAY_DEVICE_AUTH_URL: "https://auth.synthetic.local/api/auth/anonymous-sync/v2/device-proof",
+  TLSN_REPLAY_DEVICE_POSSESSION_AUTH_URL: "https://auth.synthetic.local/api/auth/anonymous-sync/v2/tlsn-device-proof",
+  TLSN_REPLAY_BINDING_VALUE: "synthetic-binding-value",
+  TLSN_REPLAY_DEPLOYMENT_ID: "replay-current-test",
+  TLSN_REPLAY_WORKER_NAME: "fusou-tlsn-verification-replay",
+};
+const normalized = normalizeReplayDeploymentEnvironment(replayInput);
+assert.equal(normalized.TLSN_SUPABASE_URL, replayInput.TLSN_REPLAY_SUPABASE_URL);
+assert.equal(normalized.TLSN_SUPABASE_PUBLISHABLE_KEY, replayInput.TLSN_REPLAY_SUPABASE_PUBLISHABLE_KEY);
+assert.equal(normalized.TLSN_DEVICE_AUTH_URL, replayInput.TLSN_REPLAY_DEVICE_AUTH_URL);
+assert.equal(normalized.TLSN_DEVICE_POSSESSION_AUTH_URL, replayInput.TLSN_REPLAY_DEVICE_POSSESSION_AUTH_URL);
+assert.equal(normalized.TLSN_TEST_BINDING_VALUE, replayInput.TLSN_REPLAY_BINDING_VALUE);
+assert.equal(normalized.TLSN_ENVIRONMENT, "test");
+assert.equal(normalized.TLSN_DEPLOYMENT_ROLE, "replay");
+assert.equal(normalized.TLSN_EXECUTION_MODE, "direct");
+assert.equal(normalized.TLSN_BENCHMARK_TIMINGS, "true");
+assert.equal(replayInput.TLSN_SUPABASE_URL, undefined);
+
+function assertRejectsWithoutSecret(environment, pattern, secret) {
+  assert.throws(() => normalizeReplayDeploymentEnvironment(environment), (error) => {
+    assert.match(error.message, pattern);
+    assert.equal(error.message.includes(secret), false);
+    return true;
+  });
+}
+
+for (const forbiddenInput of [
+  "TLSN_SUPABASE_URL",
+  "TLSN_SUPABASE_PUBLISHABLE_KEY",
+  "TLSN_DEVICE_AUTH_URL",
+  "TLSN_DEVICE_POSSESSION_AUTH_URL",
+]) {
+  assertRejectsWithoutSecret(
+    { ...replayInput, [forbiddenInput]: "caller-internal-secret" },
+    new RegExp(`${forbiddenInput} must not be present`),
+    "caller-internal-secret",
+  );
+}
+for (const forbiddenPrefix of ["TLSN_CANARY_", "TLSN_PRODUCTION_", "TLSN_CANDIDATE_"]) {
+  assertRejectsWithoutSecret(
+    { ...replayInput, [`${forbiddenPrefix}BACKEND_URL`]: "contamination" },
+    new RegExp(`${forbiddenPrefix}BACKEND_URL must not be present`),
+    "contamination",
+  );
+}
+
+for (const invalidUrl of [
+  "http://auth.synthetic.local",
+  "https://user:password@auth.synthetic.local",
+  "https://auth.synthetic.local:8443",
+  "https://auth.synthetic.local?query=1",
+  "https://auth.synthetic.local#fragment",
+  "https://auth.example",
+  "https://kancolle-server.com",
+]) {
+  assertRejectsWithoutSecret(
+    { ...replayInput, TLSN_REPLAY_SUPABASE_URL: invalidUrl },
+    /TLSN_REPLAY_SUPABASE_URL must be a non-placeholder HTTPS URL/,
+    invalidUrl,
+  );
+}
+assertRejectsWithoutSecret(
+  {
+    ...replayInput,
+    TLSN_REPLAY_DEVICE_AUTH_URL: "https://auth.synthetic.local/wrong-path",
+  },
+  /TLSN_REPLAY_DEVICE_AUTH_URL must use the exact path/,
+  "wrong-path",
+);
 
 for (const config of [replayConfig, replayBootstrapConfig]) {
   assert.match(config, /fusou-tlsn-verification-replay/);
