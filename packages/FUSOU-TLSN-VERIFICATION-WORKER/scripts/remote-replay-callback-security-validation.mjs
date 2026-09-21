@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { createHash, createPrivateKey, createHmac, randomBytes, randomUUID, sign } from "node:crypto";
+import { createHash, createPrivateKey, createHmac, randomBytes, sign } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import {
@@ -14,8 +14,9 @@ import { decodeReplayEnvironmentValues } from "./replay-deployment-environment.m
 const replayEnvironment = decodeReplayEnvironmentValues(process.env);
 const reportPath = resolve(
   packageDirectory,
-  replayEnvironment.TLSN_REPLAY_CALLBACK_REPORT_PATH ?? "artifacts/tlsn-replay-callback-security-current.json",
+  replayEnvironment.TLSN_REPLAY_CALLBACK_REPORT_PATH ?? "artifacts/tlsn-replay-callback-security-genuine-stale-current.json",
 );
+const verificationAttemptHeader = "X-FUSOU-TLSN-Test-Verification-Attempt-Id";
 
 function required(name) {
   const value = replayEnvironment[name]?.trim();
@@ -96,7 +97,7 @@ async function issueSession(origin, token, deviceId, privateKey) {
   return response;
 }
 
-async function submitVerification(origin, token, session, deviceId, privateKey, fixture) {
+async function submitVerification(origin, token, session, deviceId, privateKey, fixture, options = {}) {
   const proof = sign(
     null,
     deviceProofMessage(session, session.binding, deviceId),
@@ -104,7 +105,11 @@ async function submitVerification(origin, token, session, deviceId, privateKey, 
   ).toString("base64url");
   return requestJson(origin, "/verify/tlsn/sparse", {
     method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+      ...(options.testFault ? { "X-FUSOU-TLSN-Test-Fault": options.testFault } : {}),
+    },
     body: JSON.stringify({
       presentation_base64: fixture.sparse_presentation_base64,
       session_id: session.session_id,
@@ -147,7 +152,7 @@ function callbackBody(base, changes = {}) {
     presentation_id: base.presentation_id,
     execution_mode: "direct",
     verification_input_source: "direct",
-    verification_attempt_id: randomUUID(),
+    verification_attempt_id: base.verification_attempt_id,
     verification_status: "verified",
     profile: "sparse",
     disclosure_mode: "sparse",
@@ -178,7 +183,7 @@ async function sendCallback(origin, secret, body, jobId, options = {}) {
   };
 }
 
-function baseCallback(session, userId, jobId, fixture) {
+function baseCallback(session, userId, jobId, fixture, verificationAttemptId) {
   return {
     job_id: jobId,
     binding_id: sha256Base64Url(session.binding),
@@ -186,6 +191,25 @@ function baseCallback(session, userId, jobId, fixture) {
     canonical_user_id: userId,
     device_id: required("TLSN_REPLAY_DEVICE_ID"),
     presentation_id: sha256Base64Url(decodeBase64Url(fixture.sparse_presentation_base64)),
+    verification_attempt_id: verificationAttemptId,
+  };
+}
+
+function attemptIdFrom(response) {
+  return response.headers.get(verificationAttemptHeader);
+}
+
+function callbackIdentity(base) {
+  return {
+    source: `replay response header ${verificationAttemptHeader}`,
+    job_id: base.job_id,
+    verification_attempt_id: base.verification_attempt_id,
+    binding_id: base.binding_id,
+    session_id: base.session_id,
+    canonical_user_id: base.canonical_user_id,
+    device_id: base.device_id,
+    presentation_id: base.presentation_id,
+    real_attempt: typeof base.verification_attempt_id === "string",
   };
 }
 
@@ -206,12 +230,34 @@ async function writeReport(report) {
   await writeFile(reportPath, `${JSON.stringify(report, null, 2)}\n`, "utf8");
 }
 
+function replayHealthContract(health, expectedCommit) {
+  return health?.response?.status === 200
+    && health.json?.environment === "test"
+    && health.json?.deployment_role === "replay"
+    && health.json?.binding_mode === "fixed"
+    && health.json?.execution_mode === "direct"
+    && health.json?.git_commit_sha === expectedCommit;
+}
+
+async function writeBlocked(reportBase, blockedReason, details = {}) {
+  const report = {
+    ...reportBase,
+    status: "BLOCKED",
+    blocked_reason: blockedReason,
+    ...details,
+  };
+  await writeReport(report);
+  console.log(JSON.stringify({ report_path: reportPath, status: report.status, blocked_reason: blockedReason }));
+  process.exitCode = 3;
+}
+
 async function main() {
   const workerOrigin = required("TLSN_REPLAY_WORKER_URL");
   const token = required("TLSN_REPLAY_ACCESS_TOKEN");
   const deviceId = required("TLSN_REPLAY_DEVICE_ID");
   const callbackSecret = required("TLSN_DIRECT_CALLBACK_SECRET");
   const expectedCommit = required("TLSN_GIT_COMMIT_SHA");
+  const staleWorkerOrigin = replayEnvironment.TLSN_REPLAY_STALE_WORKER_URL?.trim();
   const health = await requestJson(workerOrigin, "/health");
   const reportBase = {
     schema_version: 1,
@@ -222,18 +268,30 @@ async function main() {
     worker_origin: workerOrigin,
     health: health.json ?? null,
   };
-  if (
-    health.response.status !== 200
-    || health.json?.environment !== "test"
-    || health.json?.deployment_role !== "replay"
-    || health.json?.binding_mode !== "fixed"
-    || health.json?.execution_mode !== "direct"
-    || health.json?.git_commit_sha !== expectedCommit
-  ) {
-    const report = { ...reportBase, status: "BLOCKED", blocked_reason: "replay_health_contract_mismatch" };
-    await writeReport(report);
-    console.log(JSON.stringify({ report_path: reportPath, status: report.status, blocked_reason: report.blocked_reason }));
-    process.exitCode = 3;
+  if (!replayHealthContract(health, expectedCommit)) {
+    await writeBlocked(reportBase, "replay_health_contract_mismatch");
+    return;
+  }
+  if (!staleWorkerOrigin) {
+    await writeBlocked(reportBase, "stale_replay_worker_required", {
+      required_interface: "TLSN_REPLAY_STALE_WORKER_URL",
+      reason: "A genuine stale callback requires an independent fresh replay binding; the fixed normal binding is consumed by the normal callback test.",
+    });
+    return;
+  }
+  const staleBinding = replayEnvironment.TLSN_REPLAY_STALE_BINDING_VALUE?.trim();
+  if (!staleBinding) {
+    await writeBlocked(reportBase, "stale_replay_binding_required", {
+      required_interface: "TLSN_REPLAY_STALE_BINDING_VALUE",
+      reason: "A genuine stale callback requires a fresh fixed binding distinct from the normal callback binding.",
+    });
+    return;
+  }
+  const staleHealth = await requestJson(staleWorkerOrigin, "/health");
+  reportBase.stale_worker_origin = staleWorkerOrigin;
+  reportBase.stale_health = staleHealth.json ?? null;
+  if (!replayHealthContract(staleHealth, expectedCommit)) {
+    await writeBlocked(reportBase, "stale_replay_health_contract_mismatch");
     return;
   }
 
@@ -286,11 +344,16 @@ async function main() {
   if (terminal.response.status !== 200 || terminal.json?.verified !== true) {
     throw new Error(`normal callback did not reach verified: ${JSON.stringify(normalCallback)}`);
   }
+  const normalAttemptId = attemptIdFrom(submission.response);
+  if (typeof normalAttemptId !== "string") {
+    await writeBlocked(reportBase, "verification_attempt_identity_not_exposed", {
+      required_interface: verificationAttemptHeader,
+      reason: "The normal replay response did not expose the real verification attempt ID needed to reproduce its authenticated callback.",
+    });
+    return;
+  }
 
-  const base = baseCallback(session, userId, submissionJobId, fixture);
-  const staleJobId = randomUUID();
-  const staleBody = callbackBody(base, { job_id: staleJobId });
-  const staleCallback = await sendCallback(workerOrigin, callbackSecret, staleBody, staleJobId);
+  const base = baseCallback(session, userId, submissionJobId, fixture, normalAttemptId);
   const missingSignature = await sendCallback(
     workerOrigin,
     callbackSecret,
@@ -321,9 +384,95 @@ async function main() {
   );
   const timing = parseTiming(stable.response) ?? parseTiming(terminal.response) ?? {};
   const observations = observationsFromTiming(timing);
+
+  const staleSessionResponse = await issueSession(staleWorkerOrigin, token, deviceId, privateKey);
+  if (staleSessionResponse.response.status !== 201) {
+    await writeBlocked(reportBase, "stale_session_issuance_failed", {
+      stale_session_response: { status: staleSessionResponse.response.status, body: staleSessionResponse.json },
+    });
+    return;
+  }
+  const staleSession = staleSessionResponse.json;
+  if (staleSession.binding !== staleBinding) {
+    await writeBlocked(reportBase, "stale_binding_contract_mismatch", {
+      expected_stale_binding: staleBinding,
+      actual_stale_binding: staleSession.binding,
+    });
+    return;
+  }
+  const staleFixture = generateRealFixture(fixtureSourcePath(manifest, entries.get("p50")), staleSession.binding);
+  const staleSubmission = await submitVerification(
+    staleWorkerOrigin,
+    token,
+    staleSession,
+    deviceId,
+    privateKey,
+    staleFixture,
+    { testFault: "failure" },
+  );
+  const staleJobId = typeof staleSubmission.json?.job_id === "string"
+    ? staleSubmission.json.job_id
+    : staleSubmission.response.headers.get("X-FUSOU-TLSN-Test-Job-Id");
+  const staleTraceId = typeof staleSubmission.json?.benchmark_trace_id === "string"
+    ? staleSubmission.json.benchmark_trace_id
+    : staleSubmission.response.headers.get("X-FUSOU-TLSN-Test-Benchmark-Trace-Id");
+  const staleAttemptId = attemptIdFrom(staleSubmission.response);
+  if (
+    staleSubmission.response.status !== 202
+    || typeof staleJobId !== "string"
+    || typeof staleAttemptId !== "string"
+  ) {
+    await writeBlocked(reportBase, "verification_attempt_identity_not_exposed", {
+      required_interface: verificationAttemptHeader,
+      stale_submission: { status: staleSubmission.response.status, body: staleSubmission.json },
+      reason: "The stale replay submission did not expose the real attempt identity needed to reproduce its old callback.",
+    });
+    return;
+  }
+  const staleTerminal = await pollStatus(
+    staleWorkerOrigin,
+    token,
+    staleSession,
+    userId,
+    staleJobId,
+    staleTraceId,
+    deviceId,
+  );
+  if (staleTerminal.response.status !== 200 || staleTerminal.json?.status !== "not_verified") {
+    throw new Error(`stale attempt did not reach a terminal failed state: ${staleTerminal.response.status}`);
+  }
+  const staleBefore = observationsFromTiming(parseTiming(staleTerminal.response) ?? {});
+  const staleBase = baseCallback(staleSession, userId, staleJobId, staleFixture, staleAttemptId);
+  const staleBody = callbackBody(staleBase);
+  const staleCallback = await sendCallback(staleWorkerOrigin, callbackSecret, staleBody, staleJobId);
+  const staleStable = await pollStatus(
+    staleWorkerOrigin,
+    token,
+    staleSession,
+    userId,
+    staleJobId,
+    staleTraceId,
+    deviceId,
+  );
+  const staleTiming = parseTiming(staleStable.response) ?? parseTiming(staleTerminal.response) ?? {};
+  const staleAfter = observationsFromTiming(staleTiming);
+  const staleCommitDelta = staleAfter.do_commit_verified_result - staleBefore.do_commit_verified_result;
+  const staleArchiveDelta = staleAfter.result_archive_put - staleBefore.result_archive_put;
+  const staleResultR2GetDelta = staleAfter.result_r2_get - staleBefore.result_r2_get;
+  const staleFinalState = staleStable.json?.status === "not_verified"
+    && typeof staleTiming.diagnostics?.terminal_failure_code === "string"
+    ? "failed"
+    : staleStable.json?.status ?? "unknown";
+
   const checks = {
     normal_callback_verified: normalCallback.terminal_verified,
-    stale_callback_rejected: staleCallback.http_status === 409 && staleCallback.error === "binding_unknown",
+    stale_callback_identity_real: callbackIdentity(staleBase).real_attempt,
+    stale_callback_rejected: staleCallback.http_status === 409 && staleCallback.error === "verification_failed",
+    stale_no_resurrection: staleStable.response.status === 200 && staleStable.json?.verified === false,
+    stale_terminal_state: staleFinalState === "failed",
+    stale_commit_delta_zero: staleCommitDelta === 0,
+    stale_archive_delta_zero: staleArchiveDelta === 0,
+    stale_no_result_r2_get: staleResultR2GetDelta === 0,
     missing_signature_rejected: missingSignature.http_status === 401 && missingSignature.error === "signature_invalid",
     mutated_callback_rejected: mutatedCallback.http_status === 422 && mutatedCallback.error === "verification_result_mismatch",
     duplicate_callback_idempotent: duplicateCallback.http_status === 200 && duplicateCallback.accepted,
@@ -342,12 +491,24 @@ async function main() {
     deployment_id: health.json.deployment_id,
     worker_version_id: replayEnvironment.TLSN_REPLAY_WORKER_VERSION_ID ?? null,
     verifier_version_id: replayEnvironment.TLSN_REPLAY_VERIFIER_VERSION_ID ?? null,
+    stale_deployment_id: staleHealth.json.deployment_id,
+    stale_worker_version_id: replayEnvironment.TLSN_REPLAY_STALE_WORKER_VERSION_ID ?? null,
+    stale_verifier_version_id: replayEnvironment.TLSN_REPLAY_STALE_VERIFIER_VERSION_ID ?? null,
     normal_callback: normalCallback,
     callback_cases: {
       stale_callback: staleCallback,
       missing_signature: missingSignature,
       mutated_callback: mutatedCallback,
       duplicate_callback: duplicateCallback,
+    },
+    stale_callback_identity: callbackIdentity(staleBase),
+    stale_final_state: staleFinalState,
+    commit_delta_caused_by_stale_callback: staleCommitDelta,
+    result_r2_get_delta_caused_by_stale_callback: staleResultR2GetDelta,
+    stale_observations: {
+      before_callback: staleBefore,
+      after_callback: staleAfter,
+      terminal_failure_code: staleTiming.diagnostics?.terminal_failure_code ?? null,
     },
     observations,
     checks,

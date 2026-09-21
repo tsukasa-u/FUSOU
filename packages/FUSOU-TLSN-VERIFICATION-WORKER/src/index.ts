@@ -176,6 +176,7 @@ const MAX_INTERNAL_CALLBACK_JSON_BYTES = 64 * 1024;
 const VERIFICATION_LEASE_MS = 10 * 60 * 1000;
 const DIRECT_CALLBACK_PROCESSING_HEADER = "X-FUSOU-TLSN-Benchmark-Direct-Callback-Processing-Ms";
 const SERVER_COMPLETION_EPOCH_HEADER = "X-FUSOU-TLSN-Benchmark-Server-Completion-Epoch-Ms";
+const REPLAY_VERIFICATION_ATTEMPT_HEADER = "X-FUSOU-TLSN-Test-Verification-Attempt-Id";
 
 type BenchmarkTimingStage =
   | "t0_accepted"
@@ -626,6 +627,21 @@ function benchmarkServerCompletionHeader(
   if (!benchmarkEnabled(env)) return;
   const completionAt = Date.parse(record.benchmark_server_completion_at ?? "");
   if (Number.isFinite(completionAt)) c.header(SERVER_COMPLETION_EPOCH_HEADER, String(completionAt));
+}
+
+function replayVerificationAttemptHeader(
+  headers: Headers,
+  env: Bindings,
+  verificationAttemptId: string | undefined,
+): void {
+  if (
+    env.TLSN_ENVIRONMENT === "test"
+    && env.TLSN_DEPLOYMENT_ROLE === "replay"
+    && benchmarkEnabled(env)
+    && verificationAttemptId !== undefined
+  ) {
+    headers.set(REPLAY_VERIFICATION_ATTEMPT_HEADER, verificationAttemptId);
+  }
 }
 
 function benchmarkIncrementDiagnostic(env: Bindings, jobId: string, name: string): void {
@@ -4110,6 +4126,7 @@ const handleTlsnVerification = async (c: Context<{ Bindings: Bindings }>) => {
             const headers = new Headers(directResponse.headers);
             headers.set("Cache-Control", "no-store");
             if (timingHeader) headers.set("X-FUSOU-TLSN-Benchmark-Timing", timingHeader);
+            replayVerificationAttemptHeader(headers, c.env, directVerificationAttemptId);
             return new Response(directResponse.body, {
               status: directResponse.status,
               statusText: directResponse.statusText,
@@ -4155,6 +4172,9 @@ const handleTlsnVerification = async (c: Context<{ Bindings: Bindings }>) => {
     }
 
     c.header("Cache-Control", "no-store");
+    if (directVerificationAttemptId !== undefined) {
+      c.header(REPLAY_VERIFICATION_ATTEMPT_HEADER, directVerificationAttemptId);
+    }
     benchmarkRecord(c.env, jobId, "t1_202_response_sent");
     deferBenchmarkFlush(c, jobId);
     return c.json({
