@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { createPrivateKey, createPublicKey, randomBytes } from "node:crypto";
+import { createPrivateKey, createPublicKey, randomBytes, randomUUID } from "node:crypto";
 import { chmod, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { tmpdir } from "node:os";
@@ -45,6 +45,39 @@ function required(values, name) {
   return value;
 }
 
+function createBindingValue() {
+  const prefix = Buffer.from("FUSOU-ATTESTATION-BINDING-V1\0");
+  const sessionId = Buffer.from(randomUUID().replaceAll("-", ""), "hex");
+  const nonce = randomBytes(32);
+  const binding = Buffer.alloc(prefix.length + 2 + sessionId.length + 2 + nonce.length);
+  let offset = 0;
+  prefix.copy(binding, offset);
+  offset += prefix.length;
+  binding.writeUInt16BE(sessionId.length, offset);
+  offset += 2;
+  sessionId.copy(binding, offset);
+  offset += sessionId.length;
+  binding.writeUInt16BE(nonce.length, offset);
+  offset += 2;
+  nonce.copy(binding, offset);
+  return binding.toString("base64url");
+}
+
+function isCanonicalBindingValue(value) {
+  try {
+    const bytes = Buffer.from(value, "base64url");
+    const prefix = Buffer.from("FUSOU-ATTESTATION-BINDING-V1\0");
+    const expectedLength = prefix.length + 2 + 16 + 2 + 32;
+    return bytes.length === expectedLength
+      && bytes.toString("base64url") === value
+      && bytes.subarray(0, prefix.length).equals(prefix)
+      && bytes.readUInt16BE(prefix.length) === 16
+      && bytes.readUInt16BE(prefix.length + 2 + 16) === 32;
+  } catch {
+    return false;
+  }
+}
+
 function gitCommitSha() {
   const result = spawnSync("git", ["rev-parse", "HEAD"], {
     cwd: resolve(packageDirectory, "../.."),
@@ -72,8 +105,10 @@ async function main() {
     const commitSha = gitCommitSha();
     const deploymentId = process.env.TLSN_REPLAY_DEPLOYMENT_ID?.trim() || `replay-${commitSha.slice(0, 12)}`;
     const workerName = process.env.TLSN_REPLAY_WORKER_NAME?.trim() || "fusou-tlsn-verification-replay";
-    const bindingValue = process.env.TLSN_REPLAY_BINDING_VALUE?.trim()
-      || randomBytes(32).toString("base64url");
+    const bindingValue = process.env.TLSN_REPLAY_BINDING_VALUE?.trim() || createBindingValue();
+    if (!isCanonicalBindingValue(bindingValue)) {
+      throw new Error("TLSN_REPLAY_BINDING_VALUE must be a canonical fixed binding value");
+    }
     const authOrigin = "https://replay-auth.synthetic.local";
     const output = new Map([
       ["TLSN_ENVIRONMENT", "test"],
