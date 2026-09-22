@@ -103,7 +103,93 @@ The minimum package that must come from outside the FUSOU generator consists of:
 - Approved trust material: trust-root certificate/fingerprint, canonical Notary registry, Notary key ID, and verifier key/deployment identity.
 - Approved authentication configuration: candidate device-auth and Supabase policy inputs, plus the approved remote device identity.
 - An approved Canary binding identity, distinct from Replay identities.
-- Secret-provider references for the short-lived remote token and exactly one device private-key representation. These are required for later remote validation, not deployment preflight, and their values must never be recorded in the package.
+- A secret-provider reference for the short-lived remote token and exactly one device private-key representation. These are required for later remote validation, not deployment preflight, and their values must never be recorded in the package.
+
+### Machine-Verifiable External Package
+
+The operator handoff is a directory whose manifest is selected with `TLSN_CANARY_EXTERNAL_PACKAGE_MANIFEST`. The offline validator is:
+
+```text
+pnpm run check:canary-external-package
+```
+
+The package layout is fixed:
+
+```text
+canary-external-package/
+   manifest.json
+   artifacts/
+      target-approval.json
+      complete-profile.json
+      sparse-profile.json
+      notary-registry.json
+      trust-root.json
+      verifier-identity.json
+      authentication-policy.json
+      binding-approval.json
+```
+
+`manifest.json` has `schema_version=1` and `scope=tlsn-canary-external-input-package`. Its required top-level sections are `target`, `workflow`, `inputs`, `artifacts`, and `secret_provider`:
+
+```json
+{
+   "schema_version": 1,
+   "scope": "tlsn-canary-external-input-package",
+   "package_id": "approval-package-YYYY-MM-DD",
+   "issued_at": "2026-09-22T00:00:00.000Z",
+   "expires_at": "2026-09-23T00:00:00.000Z",
+   "target": {
+      "server_identity": "approved.example.com",
+      "environment": "production",
+      "deployment_role": "canary",
+      "binding_identity": "approved-canary-binding"
+   },
+   "workflow": {
+      "repository": "owner/repository",
+      "run_id": "12345",
+      "run_attempt": "1",
+      "workflow_file_identity": "dotenvx+pnpm+wrangler",
+      "commit_sha": "40-character-current-commit-sha"
+   },
+   "inputs": [
+      {
+         "name": "TLSN_CANDIDATE_SERVER_IDENTITY",
+         "value_sha256": "43-character-unpadded-base64url-sha256",
+         "approval_reference": "approval/target-2026-09-22",
+         "provenance_reference": "provenance/target-2026-09-22",
+         "evidence_level": "AUTHORITY_SIGNED"
+      }
+   ],
+   "artifacts": [
+      {
+         "name": "target-approval",
+         "path": "artifacts/target-approval.json",
+         "sha256": "43-character-unpadded-base64url-sha256",
+         "current": true,
+         "fixture_only": false,
+         "historical": false
+      }
+   ],
+   "secret_provider": {
+      "access_token": {
+         "input_name": "TLSN_REMOTE_ACCESS_TOKEN_A",
+         "provider_ref": "secret-provider/user-a/access-token",
+         "issued_at": "2026-09-22T00:00:00.000Z",
+         "expires_at": "2026-09-22T01:00:00.000Z"
+      },
+      "private_key": {
+         "selected_input_name": "TLSN_REMOTE_DEVICE_A_PRIVATE_KEY_PKCS8_B64URL",
+         "provider_ref": "secret-provider/user-a/device-key-b64url",
+         "issued_at": "2026-09-22T00:00:00.000Z",
+         "expires_at": "2026-09-22T01:00:00.000Z"
+      }
+   }
+}
+```
+
+The real manifest contains all 21 public external package inputs, all eight current artifact records, and the two secret-provider references. Public input fingerprints use trimmed UTF-8, canonical JSON for the approved contract and Notary registry, and decoded DER bytes for the trust root. The validator compares these fingerprints with the current environment, verifies every artifact hash beneath the package directory, checks target/environment/role/binding/workflow/current HEAD, rejects expired or fixture/historical records, and rejects both private-key representations being present. The access token, private key, bearer material, and callback secrets are never accepted as manifest fields.
+
+`AUTHORITY_SIGNED`, `AUTHORITY_ATTESTED`, and `OPERATOR_APPROVED` are the allowed evidence levels. An `approved=true` flag, hostname-only metadata, an R2/archive copy, a deployment response, a fixture, a historical report, or a remote-test report is not an acceptable substitute for the required approval/provenance records.
 
 The workflow run context and deployment naming/Trigger configuration are FUSOU-owned execution inputs, not external approval evidence. Remote reports, attestations, and runtime URLs are produced or selected after the deployment boundary and are not part of the minimum pre-deployment approval package.
 
@@ -119,7 +205,7 @@ FUSOU may produce/configure the following after the external package is accepted
 
 Generated key material, derived hashes, and deployment configuration do not constitute external approval. The provisioner must leave unresolved external target, trust, profile, verifier, authentication, and binding approvals unresolved rather than fabricate them.
 
-For the current empty local environment, the dry-run reports `68` inventory entries and `65` missing contract fields, but only `21` missing external-dependency fields plus `1` unmet external one-of group. It also reports `32` locally generable missing fields. These numbers explain why raw `missing=65` must not be interpreted as “65 external approvals required.”
+For the current empty local environment, the dry-run reports `68` inventory entries, `66` missing contract fields, `22` missing external-dependency fields, and `1` unmet external one-of group. The 22 external dependencies comprise the 21 public package inputs and the separately required remote access-token secret-provider input. It also reports `32` locally generable missing fields. These numbers explain why raw `missing=66` must not be interpreted as “66 external approvals required.”
 
 ## Intake Dry-Run
 

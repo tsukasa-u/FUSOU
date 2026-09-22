@@ -46,6 +46,11 @@ for (const name of CANARY_SECRET_INPUTS) {
 
 assert.equal(canaryInputIntakeEntry("TLSN_REMOTE_DEVICE_ID_A").secret, false);
 assert.equal(canaryInputIntakeEntry("TLSN_REMOTE_DEVICE_ID_A").ownership, "EXTERNAL_APPROVAL_REQUIRED");
+assert.equal(canaryInputIntakeEntry("TLSN_REMOTE_ACCESS_TOKEN_A").required, true);
+assert.equal(canaryInputIntakeEntry("TLSN_REMOTE_ACCESS_TOKEN_A").required_group, undefined);
+assert.equal(canaryInputIntakeEntry("TLSN_REMOTE_DEVICE_A_PRIVATE_KEY_PKCS8_FILE").required, false);
+assert.equal(canaryInputIntakeEntry("TLSN_REMOTE_DEVICE_A_PRIVATE_KEY_PKCS8_FILE").required_group, "REMOTE_DEVICE_PRIVATE_KEY_ONE_OF");
+assert.equal(canaryInputIntakeEntry("TLSN_REMOTE_DEVICE_A_PRIVATE_KEY_PKCS8_B64URL").required_group, "REMOTE_DEVICE_PRIVATE_KEY_ONE_OF");
 assert.equal(canaryInputIntakeEntry("TLSN_CANDIDATE_PROFILE_SHA256").ownership, "DERIVED");
 assert.equal(canaryInputIntakeEntry("TLSN_CANDIDATE_PROFILE_SHA256").external_dependency, true);
 assert.equal(canaryInputIntakeEntry("TLSN_CANARY_DEPLOYMENT_ID").ownership, "DEPLOYMENT_GENERATED");

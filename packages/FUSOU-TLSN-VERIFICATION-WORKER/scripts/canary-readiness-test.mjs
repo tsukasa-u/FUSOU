@@ -233,12 +233,11 @@ function trustStatus() {
 }
 
 function authStatus() {
-  const privateKeyPresent = present("TLSN_REMOTE_DEVICE_A_PRIVATE_KEY_PKCS8_FILE")
-    || present("TLSN_REMOTE_DEVICE_A_PRIVATE_KEY_PKCS8_B64URL");
+  const privateKeyCount = REMOTE_DEVICE_PRIVATE_KEY_INPUTS.filter(present).length;
   const requiredWithoutPrivateKeyAlternative = AUTH_INPUTS.filter(
     (name) => !REMOTE_DEVICE_PRIVATE_KEY_INPUTS.includes(name),
   );
-  if (!allPresent(requiredWithoutPrivateKeyAlternative) || !privateKeyPresent) return "MISSING";
+  if (!allPresent(requiredWithoutPrivateKeyAlternative) || privateKeyCount !== 1) return "MISSING";
   return "PRESENT_UNAPPROVED";
 }
 
@@ -328,12 +327,9 @@ function missingInputNames() {
   const names = CANARY_EXTERNAL_INPUT_INTAKE
     .map((entry) => entry.name)
     .filter((name) => !present(name));
-  const remoteDevicePrivateKeyMissing = REMOTE_DEVICE_PRIVATE_KEY_INPUTS.every((name) => !present(name));
-  if (!remoteDevicePrivateKeyMissing) {
-    return names.filter((name) => !REMOTE_DEVICE_PRIVATE_KEY_INPUTS.includes(name));
-  }
-  names.push(...REMOTE_DEVICE_PRIVATE_KEY_INPUTS);
-  if (!REMOTE_DEVICE_PRIVATE_KEY_INPUTS.some(present)) names.push(...REMOTE_DEVICE_PRIVATE_KEY_INPUTS);
+  const privateKeyCount = REMOTE_DEVICE_PRIVATE_KEY_INPUTS.filter(present).length;
+  if (privateKeyCount === 0) names.push(...REMOTE_DEVICE_PRIVATE_KEY_INPUTS);
+  if (privateKeyCount > 1) names.push("REMOTE_DEVICE_PRIVATE_KEY_ONE_OF:exactly-one");
   return names.filter((name, index, values) => values.indexOf(name) === index);
 }
 

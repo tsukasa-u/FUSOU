@@ -12,9 +12,10 @@ import {
 } from "./canary-external-input-intake.mjs";
 import { assertCanaryApprovedInputContract } from "./canary-approved-input-contract.mjs";
 import { canonicalJson } from "./production-trust-contract.mjs";
+import { CANARY_EXTERNAL_PACKAGE_MANIFEST_INPUT, loadCanaryExternalPackageManifest } from "./canary-external-package.mjs";
 
 const packageDirectory = resolve(new URL("..", import.meta.url).pathname);
-const CANARY_CONTROL_INPUTS = new Set(["TLSN_CANARY_READINESS_REPORT_PATH"]);
+const CANARY_CONTROL_INPUTS = new Set(["TLSN_CANARY_READINESS_REPORT_PATH", CANARY_EXTERNAL_PACKAGE_MANIFEST_INPUT]);
 const BASE64URL_PATTERN = /^[A-Za-z0-9_-]+$/;
 const HASH_PATTERN = /^[A-Za-z0-9_-]{43}$/;
 const PUBLIC_KEY_LENGTH = 59;
@@ -80,6 +81,7 @@ function missingRequired(environment) {
   const missing = CANARY_EXTERNAL_INPUT_INTAKE
     .filter((entry) => entry.required && !present(environment, entry.name))
     .map((entry) => entry.name);
+  const invalidGroups = [];
   const groups = new Map();
   for (const entry of CANARY_EXTERNAL_INPUT_INTAKE) {
     if (!entry.required_group) continue;
@@ -87,9 +89,14 @@ function missingRequired(environment) {
     groups.get(entry.required_group).push(entry.name);
   }
   for (const [group, names] of groups) {
-    if (!names.some((name) => present(environment, name))) missing.push(`${group}:one-of:${names.join(",")}`);
+    const presentNames = names.filter((name) => present(environment, name));
+    if (presentNames.length === 0) missing.push(`${group}:one-of:${names.join(",")}`);
+    if (presentNames.length > 1) invalidGroups.push(`${group}:exactly-one:${names.join(",")}`);
   }
-  return [...new Set(missing)].sort();
+  return {
+    missing: [...new Set(missing)].sort(),
+    invalidGroups: invalidGroups.sort(),
+  };
 }
 
 function ownershipSummary(environment, missing) {
@@ -227,7 +234,7 @@ export async function inspectCanaryExternalInput(environment = process.env) {
       reason: formatError ?? (inputPresent ? "presence and basic format accepted" : "required input is absent"),
     };
   });
-  const missing = missingRequired(environment);
+  const { missing, invalidGroups } = missingRequired(environment);
   const formatFailures = entries.filter((entry) => entry.status === "INVALID").map((entry) => entry.name);
   const unexpected = unexpectedInputNames(environment);
   let approvedContractStatus = "ABSENT";
@@ -249,9 +256,25 @@ export async function inspectCanaryExternalInput(environment = process.env) {
     "TLSN_REMOTE_ATTESTATION_PATH",
     "TLSN_REMOTE_ATTESTATION_OUTPUT_PATH",
   ]) artifactStatuses[name] = await artifactPathStatus(environment, name);
-  const structuralFailures = [...formatFailures, ...unexpected];
+  let externalPackage = { status: "ABSENT" };
+  const externalPackagePath = value(environment, CANARY_EXTERNAL_PACKAGE_MANIFEST_INPUT);
+  if (externalPackagePath) {
+    try {
+      await loadCanaryExternalPackageManifest(externalPackagePath, { environment, currentHead });
+      externalPackage = { status: "VALID" };
+    } catch (error) {
+      externalPackage = {
+        status: "INVALID",
+        reason: error instanceof Error ? error.message : "external package validation failed",
+      };
+    }
+  }
+  const structuralFailures = [...formatFailures, ...unexpected, ...invalidGroups];
+  if (externalPackage.status === "INVALID") structuralFailures.push(CANARY_EXTERNAL_PACKAGE_MANIFEST_INPUT);
   const validation = structuralFailures.length === 0 ? "PASS" : "FAIL";
-  const readiness = missing.length === 0 && approvedContractStatus === "APPROVED" ? "REQUIRES_CANARY_READINESS_GATE" : "BLOCKED";
+  const readiness = missing.length === 0 && approvedContractStatus === "APPROVED" && externalPackage.status !== "INVALID"
+    ? "REQUIRES_CANARY_READINESS_GATE"
+    : "BLOCKED";
   return {
     schema_version: 1,
     scope: "tlsn-canary-external-input-dry-run",
@@ -262,7 +285,9 @@ export async function inspectCanaryExternalInput(environment = process.env) {
     deployment_executed: false,
     current_head: currentHead,
     approved_input_contract: { status: approvedContractStatus },
+    external_package: externalPackage,
     missing_required_inputs: missing,
+    invalid_required_groups: invalidGroups,
     ownership_summary: ownershipSummary(environment, missing),
     unexpected_input_names: unexpected,
     artifact_paths: artifactStatuses,

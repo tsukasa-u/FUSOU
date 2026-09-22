@@ -327,6 +327,20 @@ export const CANARY_EXTERNAL_INPUT_INTAKE = Object.freeze([
   }),
   ...entries("DEVICE", [
     "TLSN_REMOTE_ACCESS_TOKEN_A",
+  ], {
+    source: "SECRET_PROVIDER",
+    secret: true,
+    phase: "REMOTE_VALIDATION_ONLY",
+    representation: "short-lived access token",
+    consumer: "remote-validation only; never deployment-preflight or deploy-canary child environment",
+    validator: "remote-validation and device proof verification",
+    classification: "REMOTE_VALIDATION_ONLY",
+    approval_required: true,
+    approval_provenance: "credential_policy secret_provider_ref and remote device proof result",
+    validity_period: "short-lived credential policy window",
+    failure_conditions: ["MISSING", "PRESENT_INVALID", "PRESENT_EXPIRED", "PRESENT_MISMATCHED"],
+  }),
+  ...entries("DEVICE", [
     "TLSN_REMOTE_DEVICE_A_PRIVATE_KEY_PKCS8_FILE",
     "TLSN_REMOTE_DEVICE_A_PRIVATE_KEY_PKCS8_B64URL",
   ], {
@@ -737,6 +751,22 @@ export function assertCanaryExternalInputIntakeContract() {
     if (!entry.secret && entry.exposure !== "PUBLIC") throw new Error(`Canary intake entry ${entry.name} has an invalid public exposure`);
     if (!Array.isArray(entry.failure_conditions) || entry.failure_conditions.length === 0) throw new Error(`Canary intake entry ${entry.name} has no failure conditions`);
   }
+  const groupedInputs = new Map();
+  for (const entry of CANARY_EXTERNAL_INPUT_INTAKE) {
+    if (!entry.required_group) continue;
+    if (entry.required) throw new Error(`Canary intake one-of entry ${entry.name} must not be individually required`);
+    if (!groupedInputs.has(entry.required_group)) groupedInputs.set(entry.required_group, []);
+    groupedInputs.get(entry.required_group).push(entry.name);
+  }
+  for (const [group, names] of groupedInputs) {
+    if (names.length < 2) throw new Error(`Canary intake one-of group ${group} must have at least two members`);
+  }
+  const privateKeyGroup = groupedInputs.get("REMOTE_DEVICE_PRIVATE_KEY_ONE_OF") ?? [];
+  if (JSON.stringify([...privateKeyGroup].sort()) !== JSON.stringify([
+    "TLSN_REMOTE_DEVICE_A_PRIVATE_KEY_PKCS8_B64URL",
+    "TLSN_REMOTE_DEVICE_A_PRIVATE_KEY_PKCS8_FILE",
+  ])) throw new Error("Canary intake private-key one-of group is invalid");
+  if (!canaryInputIntakeEntry("TLSN_REMOTE_ACCESS_TOKEN_A")?.required) throw new Error("Canary intake remote access token must be individually required");
   for (const artifact of CANARY_EXTERNAL_ARTIFACT_INTAKE) {
     for (const field of ["name", "category", "source", "classification", "purpose", "representation", "format", "canonicalization", "fingerprint", "issuer", "validity", "current_head_relation", "consumer", "validator", "readiness_effect"]) {
       if (typeof artifact[field] !== "string" || artifact[field].length === 0) throw new Error(`Canary artifact ${artifact.name ?? "unknown"} is missing ${field}`);

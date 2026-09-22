@@ -23,6 +23,8 @@
     "test:canary-input-intake": "node scripts/canary-external-input-intake-test.mjs",
     "check:canary-input-intake": "node scripts/canary-external-input-dry-run.mjs",
     "test:canary-input-dry-run": "node scripts/canary-external-input-dry-run-test.mjs",
+    "check:canary-external-package": "node scripts/canary-external-package.mjs",
+    "test:canary-external-package": "node scripts/canary-external-package-test.mjs",
     "provision:canary": "node scripts/provision-canary-material.mjs",
     "render:app-config": "node scripts/render-app-config.mjs",
     "capture:deployment": "node scripts/capture-deployment.mjs",
