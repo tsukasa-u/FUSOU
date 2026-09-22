@@ -14,6 +14,10 @@ import {
   profileContractArtifact,
   profilesForServerIdentity,
 } from "./profile-canonical-contract.mjs";
+import {
+  CANARY_APPROVED_INPUT_CONTRACT_SCOPE,
+  CANARY_APPROVED_INPUT_CONTRACT_SCHEMA_VERSION,
+} from "./canary-approved-input-contract.mjs";
 import { loadRealFixture, readRealFixtureManifest } from "./tlsn-benchmark-fixtures.mjs";
 
 const packageDirectory = resolve(new URL("..", import.meta.url).pathname);
@@ -142,6 +146,117 @@ function fixtureProfile(serverIdentity, sparse) {
   return profilesForServerIdentity(serverIdentity)[sparse ? "sparse" : "complete"];
 }
 
+function fixtureApprovedInputContract({
+  commitSha,
+  deploymentId,
+  verifierDeploymentId,
+  verifierPublicKeySpki,
+  bindingKeyId,
+  bindingIdentity,
+  fixedBindingId,
+  profileCompleteSha256,
+  profileSparseSha256,
+  securityRegistrySetSha256,
+  trustRootCertificateSha256,
+  notaryRegistrySha256: fixtureNotaryRegistrySha256,
+  resultRegistryRootKeyId,
+  fixturePresentationSha256,
+}) {
+  const approvedAt = new Date();
+  const expiresAt = new Date(approvedAt.getTime() + 1800_000);
+  return {
+    schema_version: CANARY_APPROVED_INPUT_CONTRACT_SCHEMA_VERSION,
+    scope: CANARY_APPROVED_INPUT_CONTRACT_SCOPE,
+    status: "FIXTURE_ONLY",
+    fixture_only: true,
+    target_approval: {
+      target_identity: FIXTURE_SERVER_IDENTITY,
+      target_hostname: FIXTURE_SERVER_IDENTITY,
+      provenance: { scope: FIXTURE_PROVENANCE_SOURCE, artifact_sha256: fixturePresentationSha256 },
+      approval_reference: "fixture:approval",
+      approver: "fixture",
+      approved_at: approvedAt.toISOString(),
+      expires_at: expiresAt.toISOString(),
+      environment: "canary",
+      profile: { complete_sha256: profileCompleteSha256, sparse_sha256: profileSparseSha256 },
+      trust: {
+        security_registry_set_sha256: securityRegistrySetSha256,
+        trust_root_certificate_sha256: trustRootCertificateSha256,
+        notary_registry_sha256: fixtureNotaryRegistrySha256,
+        notary_key_id: "notary-canary-2026",
+        result_registry_root_key_id: resultRegistryRootKeyId,
+      },
+      verifier_key_id: "verifier-canary-2026",
+      workflow_repository: "fixture/example",
+      not_production: true,
+    },
+    verifier: {
+      key_id: "verifier-canary-2026",
+      public_key_spki: verifierPublicKeySpki,
+      algorithm: "Ed25519",
+      environment: "canary",
+      purpose: "tlsn-result-verification",
+      not_before: approvedAt.toISOString(),
+      not_after: null,
+      registry_reference: "fixture:verifier-registry",
+      deployment_id: verifierDeploymentId,
+      binding_identity: bindingIdentity,
+    },
+    credential_policy: {
+      schema_version: 1,
+      scope: "tlsn-canary-credential-lifetime-policy",
+      credentials: [{
+        credential_id: "fixture-user-a-device",
+        purpose: "synthetic User A device authentication",
+        environment: "canary",
+        issuer: "repository-fixture",
+        issued_at: approvedAt.toISOString(),
+        expires_at: expiresAt.toISOString(),
+        max_lifetime_seconds: 3600,
+        rotation: { mode: "on_expiry", rotate_before_expiry_seconds: 300 },
+        revocation_conditions: ["fixture-reset", "target-change"],
+        allowed_consumers: ["fixture-validation"],
+        secret_provider_ref: "fixture:user-a-device",
+      }],
+    },
+    authentication: {
+      user_a_identity: "fixture-user-a",
+      device_identity: "fixture-device-a",
+      supabase_project_identity: "fixture-supabase",
+      credentials: [{ credential_id: "fixture-user-a-device", secret_provider_ref: "fixture:user-a-device", allowed_consumer: "fixture-validation" }],
+    },
+    binding: {
+      environment: "canary",
+      binding_identity: bindingIdentity,
+      fixed_binding_id: fixedBindingId,
+      authority_key_id: bindingKeyId,
+      replay_binding_identity: "replay-binding-fixture",
+      verifier_binding_identity: bindingIdentity,
+    },
+    workflow: {
+      run_id: "1",
+      attempt: "1",
+      repository: "fixture/example",
+      workflow_file_identity: "dotenvx+pnpm+wrangler",
+      commit_sha: commitSha,
+      approval_reference: "fixture:approval",
+    },
+    identity_separation: {
+      replay_binding_identity: "replay-binding-fixture",
+      canary_binding_identity: bindingIdentity,
+      replay_trust_identity: "replay-trust-fixture",
+      canary_trust_identity: "canary-trust-fixture",
+      fixture_target_identity: FIXTURE_SERVER_IDENTITY,
+      canary_target_identity: FIXTURE_SERVER_IDENTITY,
+      not_production: true,
+    },
+    evidence_semantics: {
+      authority: ["evidence_root", "approved_trust_registry", "cryptographic_signatures", "verified_tlsn_presentation_binding", "independent_verifier_result"],
+      non_authority_metadata: ["callback_metadata", "workflow_metadata", "r2_archive", "deployment_response", "http_status", "worker_self_reported_identity"],
+    },
+  };
+}
+
 async function readProfile(path, label, kind, expectedServerIdentity) {
   if (!path) return null;
   let parsed;
@@ -240,10 +355,12 @@ async function main() {
   const resultRoot = keyMaterial();
   const session = keyMaterial();
   const binding = keyMaterial();
+  const verifier = fixtureOnly ? keyMaterial() : null;
   const resultKeyId = generatedCanaryKeyId(deploymentIdentity, "result", result.publicKeySpki);
   const resultRootKeyId = generatedCanaryKeyId(deploymentIdentity, "result-root", resultRoot.publicKeySpki);
   const sessionKeyId = generatedCanaryKeyId(deploymentIdentity, "session", session.publicKeySpki);
   const bindingKeyId = generatedCanaryKeyId(deploymentIdentity, "binding", binding.publicKeySpki);
+  const verifierDeploymentId = deploymentId ? `${deploymentId}-verifier` : null;
   const resultRegistryRaw = authorityRegistry(
     "tlsn-result-signing-key-registry",
     resultKeyId,
@@ -300,6 +417,12 @@ async function main() {
       })
     : null;
   const securityRegistrySetSha256 = securityRegistrySet?.sha256;
+  const trustRootCertificateSha256 = trustRoot
+    ? createHash("sha256").update(Buffer.from(trustRoot, "base64url")).digest("base64url")
+    : null;
+  const fixturePresentationSha256 = fixtureOnly
+    ? sha256Base64Url(fixtureBytes(fixture.sparse_presentation_base64, "sparse_presentation_base64"))
+    : null;
   const siteOrigin = fixtureOnly ? null : publicOrigin(
     process.env.PUBLIC_SITE_URL_PRODUCTION ?? process.env.PUBLIC_SITE_URL,
     "PUBLIC_SITE_URL",
@@ -328,12 +451,17 @@ async function main() {
     TLSN_CANARY_RESULT_SIGNING_KEY_REGISTRY_ENVELOPE: resultRegistryEnvelopeRaw,
     TLSN_CANARY_RESULT_REGISTRY_ROOT_KEY_ID: resultRootKeyId,
     TLSN_CANARY_RESULT_REGISTRY_ROOT_PUBLIC_KEY_SPKI: resultRoot.publicKeySpki,
+    ...(verifier ? {
+      TLSN_CANARY_VERIFIER_PUBLIC_KEY_SPKI: verifier.publicKeySpki,
+      TLSN_CANARY_VERIFIER_DEPLOYMENT_ID: verifierDeploymentId,
+    } : {}),
     TLSN_CANARY_SESSION_AUTHORITY_PUBLIC_KEY_SPKI: session.publicKeySpki,
     TLSN_CANARY_SESSION_AUTHORITY_KEY_ID: sessionKeyId,
     TLSN_CANARY_SESSION_AUTHORITY_KEY_REGISTRY: sessionRegistryRaw,
     TLSN_CANARY_BINDING_AUTHORITY_PUBLIC_KEY_SPKI: binding.publicKeySpki,
     TLSN_CANARY_BINDING_AUTHORITY_KEY_ID: bindingKeyId,
     TLSN_CANARY_BINDING_AUTHORITY_KEY_REGISTRY: bindingRegistryRaw,
+    ...(fixtureOnly ? { TLSN_CANARY_BINDING_IDENTITY: `canary-binding-${deploymentId}` } : {}),
     TLSN_CANARY_BINDING_VALUE: bindingValue,
     ...(workerName ? { TLSN_CANARY_WORKER_NAME: workerName } : {}),
     TLSN_CANARY_SYNCHRONOUS_RESPONSE_ENABLED: "true",
@@ -361,6 +489,24 @@ async function main() {
     ...(sparseProfile ? { TLSN_CANDIDATE_SPARSE_PROFILE_SHA256: sparseProfile.sha256 } : {}),
     ...(trustRoot ? { TLSN_CANARY_TRUST_ROOT_CERTIFICATE_DER: trustRoot } : {}),
   };
+  if (fixtureOnly) {
+    generatedEnv.TLSN_CANARY_APPROVED_INPUT_CONTRACT_JSON = JSON.stringify(fixtureApprovedInputContract({
+      commitSha,
+      deploymentId,
+      verifierDeploymentId,
+      verifierPublicKeySpki: verifier.publicKeySpki,
+      bindingKeyId,
+      bindingIdentity: `canary-binding-${deploymentId}`,
+      fixedBindingId: `canary-fixed-binding-${deploymentId}`,
+      profileCompleteSha256: completeProfile.sha256,
+      profileSparseSha256: sparseProfile.sha256,
+      securityRegistrySetSha256,
+      trustRootCertificateSha256,
+      notaryRegistrySha256: notaryRegistrySha256(notaryRegistryRaw),
+      resultRegistryRootKeyId: resultRootKeyId,
+      fixturePresentationSha256,
+    }));
+  }
   const privateFiles = {
     "canary-result-signing-private-key.pkcs8.base64url": `${result.privateKeyPkcs8}\n`,
     "canary-session-authority-private-key.pkcs8.base64url": `${session.privateKeyPkcs8}\n`,
@@ -399,6 +545,9 @@ async function main() {
     "TLSN_CANARY_TRIGGER_API_URL",
     "TLSN_CANARY_TRIGGER_TASK_ID",
     "TLSN_CANARY_WORKER_INTERNAL_URL",
+    "TLSN_CANARY_APPROVED_INPUT_CONTRACT_JSON",
+    "TLSN_CANARY_VERIFIER_PUBLIC_KEY_SPKI",
+    "TLSN_CANARY_VERIFIER_DEPLOYMENT_ID",
   ].filter((name) => generatedEnv[name] === undefined);
   if (!generatedEnv.TLSN_CANDIDATE_SERVER_IDENTITY) unresolvedInputs.push("TLSN_CANDIDATE_SERVER_IDENTITY");
   if (!generatedEnv.TLSN_CANDIDATE_VERIFIER_KEY_ID) unresolvedInputs.push("TLSN_CANDIDATE_VERIFIER_KEY_ID");
