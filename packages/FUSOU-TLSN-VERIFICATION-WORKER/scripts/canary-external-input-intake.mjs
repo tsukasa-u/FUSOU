@@ -8,6 +8,18 @@ import {
 
 export const CANARY_EXTERNAL_INPUT_INTAKE_SCHEMA_VERSION = 1;
 export const CANARY_EXTERNAL_INPUT_INTAKE_SCOPE = "tlsn-canary-external-input-intake";
+export const CANARY_INPUT_CLASSIFICATIONS = Object.freeze([
+  "REPOSITORY_STATIC",
+  "EXTERNAL_APPROVAL",
+  "SECRET_PROVIDER",
+  "WORKFLOW_CONTEXT",
+  "DEPLOYMENT_GENERATED",
+  "CANARY_GENERATED",
+  "TARGET_RUNTIME",
+  "FIXTURE_ONLY",
+  "HISTORICAL_ONLY",
+  "REMOTE_VALIDATION_ONLY",
+]);
 
 const REMOTE_VALIDATION_INPUTS = [
   "TLSN_REMOTE_EXPECTED_PROVENANCE_JSON",
@@ -23,20 +35,42 @@ const REMOTE_VALIDATION_INPUTS = [
 ];
 
 const COMMON_METADATA = {
+  phase: "DEPLOYMENT_PREFLIGHT",
   representation: "environment variable; strings are trimmed before validation",
   approval_requirement: "must be supplied by the declared source and pass the named validator",
   lifetime: "per deployment or validation run",
   rotation: "rotate with the owning deployment, credential, or approval record",
   protected_input_channel: false,
+  required: true,
+  approval_required: false,
+  validity_period: "current deployment or validation run",
+  canonicalization: "trimmed UTF-8 environment value",
+  fingerprint: "not applicable",
+  readiness_effect: "BLOCKS_CANARY_READINESS",
 };
 
 function entries(category, names, metadata) {
-  return names.map((name) => ({
+  return names.map((name) => {
+    const entry = {
     name,
     category,
     ...COMMON_METADATA,
     ...metadata,
-  }));
+    };
+    entry.classification = entry.classification
+      ?? (entry.phase === "REMOTE_VALIDATION_ONLY"
+        ? "REMOTE_VALIDATION_ONLY"
+        : entry.source);
+    entry.exposure = entry.secret ? "SECRET" : "PUBLIC";
+    entry.purpose = entry.purpose ?? `${category} input required by the Canary contract`;
+    entry.format = entry.format ?? entry.representation;
+    entry.approval_required = entry.approval_required ?? entry.source === "EXTERNAL_APPROVAL";
+    entry.approval_provenance = entry.approval_provenance
+      ?? (entry.source === "EXTERNAL_APPROVAL"
+        ? "approved input contract target_approval/verifier/authentication/binding metadata"
+        : `${entry.source} ownership and named validator`);
+    return entry;
+  });
 }
 
 export const CANARY_EXTERNAL_INPUT_INTAKE = Object.freeze([
@@ -60,6 +94,7 @@ export const CANARY_EXTERNAL_INPUT_INTAKE = Object.freeze([
     representation: "43-character base64url SHA-256 digest derived from canonical UTF-8 JSON",
     canonicalization: "canonicalJson; profile bytes are validated by profile-canonical-contract",
     hash: "SHA-256, base64url without padding",
+    fingerprint: "SHA-256 of canonical UTF-8 profile JSON, base64url without padding",
     consumer: "deployment-preflight, canary-approved-input-contract",
     validator: "profile-canonical-contract and deployment-preflight",
     failure_conditions: ["MISSING", "PRESENT_INVALID", "PRESENT_MISMATCHED", "FIXTURE_ONLY", "HISTORICAL_ONLY"],
@@ -72,6 +107,8 @@ export const CANARY_EXTERNAL_INPUT_INTAKE = Object.freeze([
     representation: "strict JSON contract in an environment variable or a secure, read-only path",
     consumer: "deployment-preflight; remote-validation consumes the provenance path",
     validator: "canary-approved-input-contract, deployment-attestation, verify-remote-gate",
+    purpose: "bind the approved target/configuration to current provenance and workflow identity",
+    validity_period: "approved_at <= now < expires_at and commit-bound evidence is current",
     failure_conditions: ["MISSING", "PRESENT_INVALID", "PRESENT_EXPIRED", "PRESENT_MISMATCHED", "HISTORICAL_ONLY"],
   }),
   ...entries("TRUST", [
@@ -83,6 +120,7 @@ export const CANARY_EXTERNAL_INPUT_INTAKE = Object.freeze([
     secret: false,
     representation: "canonical registry JSON, base64url SHA-256 digest, or base64url DER certificate",
     hash: "registry set uses canonicalJson and SHA-256; trust root is bound separately by SHA-256",
+    fingerprint: "security registry set SHA-256 plus canonical Notary registry SHA-256",
     consumer: "deployment-preflight, canary-approved-input-contract, Worker runtime",
     validator: "production-trust-contract, security-registry-set-contract, deployment-preflight",
     failure_conditions: ["MISSING", "PRESENT_INVALID", "PRESENT_MISMATCHED", "FIXTURE_ONLY", "HISTORICAL_ONLY"],
@@ -95,6 +133,7 @@ export const CANARY_EXTERNAL_INPUT_INTAKE = Object.freeze([
     protected_input_channel: true,
     representation: "canonical base64url DER certificate in secure deployment environment",
     hash: "SHA-256 hash is bound into deployment identity and approved input contract",
+    fingerprint: "SHA-256 of DER certificate bytes, base64url without padding",
     consumer: "deployment-preflight and Worker runtime",
     validator: "deployment-preflight trust-root hash check",
     failure_conditions: ["MISSING", "PRESENT_INVALID", "PRESENT_MISMATCHED", "FIXTURE_ONLY", "HISTORICAL_ONLY"],
@@ -134,6 +173,9 @@ export const CANARY_EXTERNAL_INPUT_INTAKE = Object.freeze([
     representation: "approved device reference",
     consumer: "remote-validation only",
     validator: "remote-validation device identity check",
+    classification: "REMOTE_VALIDATION_ONLY",
+    approval_required: true,
+    approval_provenance: "approved authentication.device_identity and credential policy reference",
     failure_conditions: ["MISSING", "PRESENT_INVALID", "PRESENT_MISMATCHED"],
   }),
   ...entries("DEVICE", [
@@ -143,10 +185,16 @@ export const CANARY_EXTERNAL_INPUT_INTAKE = Object.freeze([
   ], {
     source: "SECRET_PROVIDER",
     secret: true,
+    required: false,
+    required_group: "REMOTE_DEVICE_PRIVATE_KEY_ONE_OF",
     phase: "REMOTE_VALIDATION_ONLY",
     representation: "device reference plus short-lived access token and Ed25519 PKCS8 private key file or canonical base64url",
     consumer: "remote-validation only; never deployment-preflight or deploy-canary child environment",
     validator: "remote-validation and device proof verification",
+    classification: "REMOTE_VALIDATION_ONLY",
+    approval_required: true,
+    approval_provenance: "credential_policy secret_provider_ref and remote device proof result",
+    validity_period: "short-lived credential policy window; private key representation is one-of",
     failure_conditions: ["MISSING", "PRESENT_INVALID", "PRESENT_EXPIRED", "PRESENT_MISMATCHED"],
   }),
   ...entries("SUPABASE", [
@@ -159,6 +207,8 @@ export const CANARY_EXTERNAL_INPUT_INTAKE = Object.freeze([
     representation: "clean HTTPS origin and publishable key",
     consumer: "remote-validation only",
     validator: "remote-validation origin and user assertions",
+    classification: "REMOTE_VALIDATION_ONLY",
+    approval_required: true,
     failure_conditions: ["MISSING", "PRESENT_INVALID", "PRESENT_MISMATCHED", "FIXTURE_ONLY"],
   }),
   ...entries("BINDING", [
@@ -170,6 +220,7 @@ export const CANARY_EXTERNAL_INPUT_INTAKE = Object.freeze([
     representation: "Ed25519 SPKI/registry metadata, identity/reference strings, and integer TTL",
     consumer: "deployment-preflight, canary-approved-input-contract, binding authority",
     validator: "authority-key-registry, deployment-preflight, canary-approved-input-contract",
+    approval_provenance: "approved binding.binding_identity and identity_separation metadata",
     failure_conditions: ["MISSING", "PRESENT_INVALID", "PRESENT_MISMATCHED", "REPLAY_BINDING_REUSE", "FIXTURE_ONLY"],
   }),
   ...entries("BINDING", [
@@ -183,6 +234,7 @@ export const CANARY_EXTERNAL_INPUT_INTAKE = Object.freeze([
     representation: "Ed25519 SPKI/registry metadata and a per-provisioning canonical binding value",
     consumer: "deployment-preflight, canary-approved-input-contract, binding authority",
     validator: "authority-key-registry, deployment-preflight, canary-approved-input-contract",
+    purpose: "bind results to the Canary deployment without reusing Replay authority",
     failure_conditions: ["MISSING", "PRESENT_INVALID", "PRESENT_MISMATCHED", "REPLAY_BINDING_REUSE"],
   }),
   ...entries("TRUST", [
@@ -195,6 +247,7 @@ export const CANARY_EXTERNAL_INPUT_INTAKE = Object.freeze([
     representation: "Ed25519 SPKI/registry metadata generated for the Canary session authority",
     consumer: "deployment-preflight and Worker runtime",
     validator: "authority-key-registry and deployment-preflight",
+    purpose: "provide Canary-owned session authority without reusing Replay authority",
     failure_conditions: ["MISSING", "PRESENT_INVALID", "PRESENT_MISMATCHED", "REPLAY_IDENTITY_REUSE"],
   }),
   ...entries("WORKFLOW", [
@@ -205,6 +258,7 @@ export const CANARY_EXTERNAL_INPUT_INTAKE = Object.freeze([
     representation: "positive run/attempt, owner/name repository, and fixed workflow file identity",
     consumer: "deployment-preflight, canary-approved-input-contract, deployment-attestation",
     validator: "workflowContextFromEnvironment and checked-out HEAD comparison",
+    validity_period: "current workflow run and checked-out HEAD",
     failure_conditions: ["MISSING", "PRESENT_INVALID", "PRESENT_MISMATCHED", "HISTORICAL_ONLY"],
   }),
   ...entries("DEPLOYMENT", [
@@ -252,6 +306,8 @@ export const CANARY_EXTERNAL_INPUT_INTAKE = Object.freeze([
     representation: "local paths to immutable JSON provenance, report, and attestation artifacts",
     consumer: "verify-remote-gate",
     validator: "deployment-attestation and verify-remote-gate",
+    classification: "REMOTE_VALIDATION_ONLY",
+    validity_period: "current commit, deployment identity, and attestation freshness window",
     failure_conditions: ["MISSING", "PRESENT_INVALID", "PRESENT_EXPIRED", "PRESENT_MISMATCHED", "HISTORICAL_ONLY"],
   }),
   ...entries("CREDENTIAL_POLICY", [
@@ -264,6 +320,7 @@ export const CANARY_EXTERNAL_INPUT_INTAKE = Object.freeze([
     representation: "explicit boolean/capability flags",
     consumer: "deployment-preflight and canary-approved-input-contract",
     validator: "deployment-preflight and canary-approved-input-contract",
+    classification: "REPOSITORY_STATIC",
     failure_conditions: ["MISSING", "PRESENT_INVALID", "PRESENT_MISMATCHED", "FIXTURE_ONLY"],
   }),
   ...entries("CREDENTIAL_POLICY", [
@@ -274,21 +331,36 @@ export const CANARY_EXTERNAL_INPUT_INTAKE = Object.freeze([
     representation: "canonical base64url secret material in secure deployment environment",
     consumer: "deploy-canary only; values are written to a mode 0600 temporary Wrangler secrets file and removed",
     validator: "deployment-preflight key derivation and role isolation",
+    validity_period: "credential_policy issued_at <= now < expires_at",
     failure_conditions: ["MISSING", "PRESENT_INVALID", "PRESENT_MISMATCHED", "REPLAY_IDENTITY_REUSE"],
   }),
   ...entries("REMOTE_VALIDATION", [
     "TLSN_REMOTE_WORKER_URL",
     "TLSN_REMOTE_WEB_ORIGIN",
     "TLSN_REMOTE_EXPECTED_PROVENANCE_JSON",
-    "TLSN_REMOTE_FIXTURE_JSON",
   ], {
     source: "DEPLOYMENT_GENERATED",
+    classification: "REMOTE_VALIDATION_ONLY",
     secret: false,
     phase: "REMOTE_VALIDATION_ONLY",
     representation: "clean HTTPS origins and explicit JSON artifact paths",
     consumer: "remote-validation and verify-remote-gate",
     validator: "remote-validation and verify-remote-gate",
     failure_conditions: ["MISSING", "PRESENT_INVALID", "PRESENT_MISMATCHED", "FIXTURE_ONLY", "HISTORICAL_ONLY"],
+  }),
+  ...entries("REMOTE_VALIDATION", [
+    "TLSN_REMOTE_FIXTURE_JSON",
+  ], {
+    source: "FIXTURE_ONLY",
+    classification: "FIXTURE_ONLY",
+    secret: false,
+    required: false,
+    readiness_effect: "CANNOT_SATISFY_REAL_CANARY_READINESS",
+    purpose: "synthetic remote-validation input for fixture-only checks",
+    representation: "explicit JSON fixture path",
+    consumer: "remote-validation fixture path only",
+    validator: "remote-validation fixture-only mode",
+    failure_conditions: ["MISSING", "PRESENT_INVALID", "FIXTURE_ONLY"],
   }),
 ]);
 
@@ -297,55 +369,121 @@ export const CANARY_EXTERNAL_ARTIFACT_INTAKE = Object.freeze([
     name: "target approval record",
     category: "TARGET",
     source: "EXTERNAL_APPROVAL",
+    classification: "EXTERNAL_APPROVAL",
+    purpose: "prove that the selected target is externally approved for the non-production Canary",
+    required: true,
     status_when_absent: "MISSING",
     representation: "target_approval section inside TLSN_CANARY_APPROVED_INPUT_CONTRACT_JSON",
+    format: "strict JSON target_approval object with identity, scope, approver, and validity fields",
+    canonicalization: "canonicalJson of the approved input contract",
+    fingerprint: "target_approval.provenance.artifact_sha256",
+    issuer: "external target owner or designated approver",
+    validity: "approved_at <= now < expires_at",
+    current_head_relation: "provenance must identify the current checked-out commit and target scope",
     consumer: "canary-approved-input-contract and deployment-preflight",
     validator: "target identity, profile, trust, verifier, expiry, environment, and non-production checks",
+    failure_conditions: ["MISSING", "INVALID", "EXPIRED", "MISMATCHED", "FIXTURE_ONLY", "HISTORICAL_ONLY"],
+    readiness_effect: "BLOCKS_CANARY_READINESS",
   },
   {
     name: "canonical complete and sparse profiles",
     category: "PROFILE",
     source: "EXTERNAL_APPROVAL",
+    classification: "EXTERNAL_APPROVAL",
+    purpose: "bind the Canary configuration to approved complete and sparse target profiles",
+    required: true,
     status_when_absent: "MISSING",
     representation: "canonical UTF-8 JSON profile artifacts or their approved hashes",
+    format: "canonical UTF-8 JSON profile artifacts plus 43-character base64url SHA-256 digests",
+    canonicalization: "canonicalJson before UTF-8 encoding and hashing",
+    fingerprint: "complete and sparse profile SHA-256 digests without base64 padding",
+    issuer: "profile owner or designated approver",
+    validity: "valid for the approved target and deployment window",
+    current_head_relation: "approved hashes must match the profile inputs used by the current provisioning run",
     consumer: "provision-canary-material and deployment-preflight",
     validator: "profile-canonical-contract",
+    failure_conditions: ["MISSING", "INVALID", "MISMATCHED", "FIXTURE_ONLY", "HISTORICAL_ONLY"],
+    readiness_effect: "BLOCKS_CANARY_READINESS",
   },
   {
     name: "target provenance artifact",
     category: "PROVENANCE",
     source: "EXTERNAL_APPROVAL",
+    classification: "EXTERNAL_APPROVAL",
+    purpose: "bind target approval to a current, scoped, non-fixture provenance record",
+    required: true,
     status_when_absent: "MISSING",
     representation: "artifact_sha256 and scope in target_approval.provenance",
+    format: "strict provenance object with artifact hash, scope, and validity window",
+    canonicalization: "canonicalJson of the provenance object",
+    fingerprint: "provenance.artifact_sha256",
+    issuer: "external target owner or designated approver",
+    validity: "approved_at <= now < expires_at and the artifact remains current",
+    current_head_relation: "must reject evidence from another commit or target scope",
     consumer: "canary-approved-input-contract",
     validator: "strict schema, expiry, fixture/historical rejection",
+    failure_conditions: ["MISSING", "INVALID", "EXPIRED", "MISMATCHED", "FIXTURE_ONLY", "HISTORICAL_ONLY"],
+    readiness_effect: "BLOCKS_CANARY_READINESS",
   },
   {
     name: "Notary registry and trust root",
     category: "TRUST",
     source: "EXTERNAL_APPROVAL",
+    classification: "EXTERNAL_APPROVAL",
+    purpose: "establish the approved production trust and Notary verification roots",
+    required: true,
     status_when_absent: "MISSING",
     representation: "canonical registry JSON and DER trust root represented as canonical base64url",
+    format: "canonical JSON registry and canonical base64url DER certificate",
+    canonicalization: "canonicalJson for registry; DER bytes for certificate fingerprint",
+    fingerprint: "canonical registry SHA-256 and trust-root DER SHA-256",
+    issuer: "security registry owner or designated approver",
+    validity: "valid for the approved deployment window and registry version",
+    current_head_relation: "fingerprints must match the current approved input contract",
     consumer: "deployment-preflight and Worker runtime",
     validator: "production-trust-contract and deployment-preflight",
+    failure_conditions: ["MISSING", "INVALID", "MISMATCHED", "FIXTURE_ONLY", "HISTORICAL_ONLY"],
+    readiness_effect: "BLOCKS_CANARY_READINESS",
   },
   {
     name: "workflow provenance",
     category: "WORKFLOW",
     source: "WORKFLOW_CONTEXT",
+    classification: "WORKFLOW_CONTEXT",
+    purpose: "prove that approval and provisioning are tied to the current repository workflow and commit",
+    required: true,
     status_when_absent: "MISSING",
     representation: "workflow environment variables and current checked-out commit",
+    format: "positive run/attempt, repository, workflow identity, and 40-character commit",
+    canonicalization: "canonical workflow context fields and checked-out HEAD comparison",
+    fingerprint: "current commit SHA plus workflow run identity",
+    issuer: "CI workflow context",
+    validity: "current workflow run and checked-out HEAD",
+    current_head_relation: "workflow commit must equal the checked-out repository HEAD",
     consumer: "deployment-preflight and canary-approved-input-contract",
     validator: "deployment-attestation",
+    failure_conditions: ["MISSING", "INVALID", "MISMATCHED", "HISTORICAL_ONLY"],
+    readiness_effect: "BLOCKS_CANARY_READINESS",
   },
   {
     name: "remote validation report and attestation",
     category: "EVIDENCE_ROOT",
     source: "DEPLOYMENT_GENERATED",
+    classification: "DEPLOYMENT_GENERATED",
+    purpose: "record current post-deployment remote validation and its signed attestation",
+    required: true,
     status_when_absent: "MISSING",
     representation: "immutable JSON paths produced after deployment and remote validation",
+    format: "immutable JSON report and attestation artifacts with deployment identity and current commit",
+    canonicalization: "canonical JSON before signing or hashing",
+    fingerprint: "artifact SHA-256 and attestation signature",
+    issuer: "Canary deployment and authorized remote-validation gate",
+    validity: "current deployment identity and attestation freshness window",
+    current_head_relation: "artifacts must match the current commit, deployment, and target provenance",
     consumer: "verify-remote-gate",
     validator: "deployment-attestation and remote report gate",
+    failure_conditions: ["MISSING", "INVALID", "EXPIRED", "MISMATCHED", "FIXTURE_ONLY", "HISTORICAL_ONLY"],
+    readiness_effect: "BLOCKS_POST_DEPLOYMENT_EVIDENCE_GATE",
   },
 ]);
 
@@ -376,7 +514,23 @@ export function assertCanaryExternalInputIntakeContract() {
     }
     if (typeof entry.secret !== "boolean") throw new Error(`Canary intake entry ${entry.name} has no secret classification`);
     if (typeof entry.protected_input_channel !== "boolean") throw new Error(`Canary intake entry ${entry.name} has no protected input-channel classification`);
+    if (!CANARY_INPUT_CLASSIFICATIONS.includes(entry.classification)) throw new Error(`Canary intake entry ${entry.name} has an invalid classification`);
+    if (typeof entry.required !== "boolean") throw new Error(`Canary intake entry ${entry.name} has no required classification`);
+    if (typeof entry.approval_required !== "boolean") throw new Error(`Canary intake entry ${entry.name} has no approval classification`);
+    for (const field of ["purpose", "format", "approval_provenance", "validity_period", "canonicalization", "fingerprint", "readiness_effect", "exposure"]) {
+      if (typeof entry[field] !== "string" || entry[field].length === 0) throw new Error(`Canary intake entry ${entry.name} is missing ${field}`);
+    }
+    if (entry.secret && entry.exposure !== "SECRET") throw new Error(`Canary intake entry ${entry.name} has an invalid secret exposure`);
+    if (!entry.secret && entry.exposure !== "PUBLIC") throw new Error(`Canary intake entry ${entry.name} has an invalid public exposure`);
     if (!Array.isArray(entry.failure_conditions) || entry.failure_conditions.length === 0) throw new Error(`Canary intake entry ${entry.name} has no failure conditions`);
+  }
+  for (const artifact of CANARY_EXTERNAL_ARTIFACT_INTAKE) {
+    for (const field of ["name", "category", "source", "classification", "purpose", "representation", "format", "canonicalization", "fingerprint", "issuer", "validity", "current_head_relation", "consumer", "validator", "readiness_effect"]) {
+      if (typeof artifact[field] !== "string" || artifact[field].length === 0) throw new Error(`Canary artifact ${artifact.name ?? "unknown"} is missing ${field}`);
+    }
+    if (typeof artifact.required !== "boolean") throw new Error(`Canary artifact ${artifact.name} has no required classification`);
+    if (!Array.isArray(artifact.failure_conditions) || artifact.failure_conditions.length === 0) throw new Error(`Canary artifact ${artifact.name} has no failure conditions`);
+    if (!["MISSING", "HISTORICAL", "FIXTURE_ONLY", "SYNTHETIC", "INVALID", "CURRENT"].includes(artifact.status_when_absent)) throw new Error(`Canary artifact ${artifact.name} has an invalid absent status`);
   }
   return true;
 }

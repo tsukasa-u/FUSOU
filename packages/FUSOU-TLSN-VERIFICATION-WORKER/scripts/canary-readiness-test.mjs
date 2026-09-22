@@ -278,15 +278,16 @@ function approvedInputContractStatus() {
 
 function readinessInputDiagnostics({ deployment, target, approvedInputContract, trust, auth, binding, workflow, runtime }) {
   const missing = new Set(missingInputNames());
+  const remotePrivateKeyProvided = REMOTE_DEVICE_PRIVATE_KEY_INPUTS.some(present);
   const statusByName = new Map();
   for (const entry of CANARY_EXTERNAL_INPUT_INTAKE) {
-    if (missing.has(entry.name)) {
-      statusByName.set(entry.name, { status: "MISSING", reason: "required input is not present" });
-    } else if (entry.name === "TLSN_REMOTE_DEVICE_A_PRIVATE_KEY_PKCS8_FILE" || entry.name === "TLSN_REMOTE_DEVICE_A_PRIVATE_KEY_PKCS8_B64URL") {
+    if (entry.required_group === "REMOTE_DEVICE_PRIVATE_KEY_ONE_OF" && remotePrivateKeyProvided && !present(entry.name)) {
       statusByName.set(entry.name, {
         status: "NOT_REQUIRED",
         reason: "the other device private-key representation satisfies this one-of input",
       });
+    } else if (missing.has(entry.name)) {
+      statusByName.set(entry.name, { status: "MISSING", reason: "required input is not present" });
     } else {
       statusByName.set(entry.name, { status: "PRESENT_UNVERIFIED", reason: "present; the owning gate has not completed" });
     }

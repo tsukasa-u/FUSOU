@@ -15,9 +15,20 @@ for (const artifact of CANARY_EXTERNAL_ARTIFACT_INTAKE) {
   assert.ok(artifact.name);
   assert.ok(artifact.category);
   assert.ok(artifact.source);
+  assert.ok(artifact.classification);
+  assert.ok(artifact.purpose);
+  assert.equal(typeof artifact.required, "boolean");
   assert.ok(artifact.representation);
+  assert.ok(artifact.format);
+  assert.ok(artifact.canonicalization);
+  assert.ok(artifact.fingerprint);
+  assert.ok(artifact.issuer);
+  assert.ok(artifact.validity);
+  assert.ok(artifact.current_head_relation);
   assert.ok(artifact.consumer);
   assert.ok(artifact.validator);
+  assert.ok(artifact.failure_conditions.length > 0);
+  assert.ok(artifact.readiness_effect);
   assert.ok(["MISSING", "HISTORICAL", "FIXTURE_ONLY", "SYNTHETIC", "INVALID", "CURRENT"].includes(artifact.status_when_absent));
 }
 

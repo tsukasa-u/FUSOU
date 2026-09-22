@@ -37,6 +37,57 @@ There are two separate environments:
    - Device access tokens and private keys never belong in deployment preflight or the deploy child environment.
    - A fixture JSON input can support a synthetic validation path but cannot establish real Canary readiness.
 
+## Machine-Readable Operator Contract
+
+Every entry in `CANARY_EXTERNAL_INPUT_INTAKE` has these fields:
+
+| Field | Meaning |
+|---|---|
+| `name` | exact environment/input name |
+| `purpose` | why the value exists in the Canary flow |
+| `classification` | one of the ten repository-supported input classes |
+| `required` / `required_group` | whether the value is required, including one-of alternatives |
+| `exposure` / `secret` | `PUBLIC` or `SECRET`; sensitivity is separate from approval |
+| `source` / `approval_provenance` | who supplies or authorizes the value and which contract section proves it |
+| `format` / `canonicalization` / `fingerprint` | representation, normalization, and hash/key fingerprint rule |
+| `validity_period` | lifetime or validity-window rule |
+| `consumer` / `validator` | exact code boundary that consumes and checks it |
+| `failure_conditions` / `readiness_effect` | non-success states and effect on readiness |
+
+Public exposure does not mean approved. A syntactically valid Ed25519 public key, hostname, profile hash, device reference, or trust root is not an approved Canary identity until the corresponding external approval/provenance validator passes. Conversely, `TLSN_CANARY_TRUST_ROOT_CERTIFICATE_DER` uses the protected Wrangler input channel but is public certificate material, not a secret credential.
+
+The approval provenance is intentionally split into independent records:
+
+| Approval area | Required evidence | Repository validation |
+|---|---|---|
+| Target identity | `target_approval.target_identity`, hostname, approver, approval reference, expiry, and non-production flag | `assertTargetApproval`, target marker checks, current provenance checks |
+| Profiles | complete/sparse canonical profile artifacts and their hashes | `profile-canonical-contract`, approved contract hash equality |
+| Verifier identity | verifier key ID, SPKI, deployment ID, validity window, registry reference | `assertVerifier`, preflight key and deployment checks |
+| Trust / Notary | trust-root fingerprint, canonical Notary registry fingerprint, Notary key ID, security registry-set hash | production trust contract, security-registry-set contract, preflight |
+| Authentication | User A/device/Supabase references, credential policy, short-lived secret-provider references | approved contract authentication sections, remote validation |
+| Binding | Canary binding identity, authority key ID, fixed binding, Replay identity separation | `assertBinding`, identity separation checks, preflight |
+| Workflow | run ID, attempt, repository, workflow file identity, approval reference, current commit | `assertWorkflow`, workflow context, deployment attestation |
+
+No single `approved=true` flag replaces these records.
+
+## Intake Dry-Run
+
+The non-network operator check is:
+
+```text
+pnpm run check:canary-input-intake
+```
+
+It validates the inventory itself, reports every input as `PRESENT`, `ABSENT`, or `INVALID`, detects unexpected Canary-shaped environment names, checks basic canonical formats without printing values, checks artifact path presence, and validates `TLSN_CANARY_APPROVED_INPUT_CONTRACT_JSON` with the existing strict validator when present. It reports `APPROVED` only when that validator passes. It never generates keys, tokens, callback secrets, approvals, or provenance.
+
+The default command exits successfully when the check ran, even when readiness is `BLOCKED`, so an operator can inspect the complete missing-input report. Use the completeness gate only after the secure environment has been populated:
+
+```text
+node scripts/canary-external-input-dry-run.mjs --require-complete
+```
+
+`--require-complete` fails on missing required inputs or invalid/unexpected inputs. Neither command performs network access, deployment, runtime validation, or secret-provider access. The next machine gate is `pnpm run test:canary-readiness`.
+
 ## External Input Checklist
 
 The following names are the complete machine-checked intake inventory. Values are intentionally omitted.
@@ -140,6 +191,33 @@ Remote-validation-only secret names:
 
 The readiness report now includes `input_diagnostics`, one entry per inventory input. It reports only metadata and one of `MISSING`, `PRESENT_INVALID`, `PRESENT_MISMATCHED`, `PRESENT_UNVERIFIED`, `VALID`, `FIXTURE_ONLY`, or `NOT_REQUIRED` for the alternate device-key representation.
 
+The current repository state is `BLOCKED` because these independent conditions are absent: external target approval/provenance, approved profile hashes/artifacts, trust root and Notary approval, verifier approval, approved authentication/device references and remote credentials, Canary binding material, current workflow provenance, generated Canary runtime material, and post-validation provenance/report/attestation artifacts. Repository fixtures and historical artifacts do not satisfy any of these conditions.
+
+## Operator Handoff Checklist
+
+Complete these checks in order. A checked item means the named validator has passed, not merely that a value exists.
+
+- [ ] Target identity approval obtained: `TLSN_CANDIDATE_SERVER_IDENTITY` and `target_approval`, checked by `assertTargetApproval` and preflight.
+- [ ] Target provenance obtained: `target_approval.provenance` with current artifact hash and scope, checked by the approved-input contract.
+- [ ] Complete and sparse profiles supplied: `TLSN_CANDIDATE_PROFILE_SHA256` and `TLSN_CANDIDATE_SPARSE_PROFILE_SHA256`, checked by `profile-canonical-contract`.
+- [ ] Profile hashes verified against the approved record and current target identity.
+- [ ] Trust root approved: `TLSN_CANARY_TRUST_ROOT_CERTIFICATE_DER` and its approved SHA-256 fingerprint, checked by preflight.
+- [ ] Notary registry approved: `TLSN_PRODUCTION_NOTARY_REGISTRY`, `TLSN_CANDIDATE_NOTARY_KEY_ID`, and registry fingerprint, checked by the trust and security-registry contracts.
+- [ ] Verifier identity approved: `TLSN_CANDIDATE_VERIFIER_KEY_ID`, `TLSN_CANARY_VERIFIER_PUBLIC_KEY_SPKI`, and deployment ID, checked by `assertVerifier`.
+- [ ] Device/User identity approved: `TLSN_REMOTE_DEVICE_ID_A` plus approved authentication and credential-policy references.
+- [ ] Authentication material provisioned: remote token and exactly one device private-key representation in the approved secret provider; values remain unprinted.
+- [ ] Canary binding approved: `TLSN_CANARY_BINDING_IDENTITY` and generated authority/value material differ from Replay.
+- [ ] Workflow provenance obtained: run ID, attempt, repository, workflow identity, approval reference, and current HEAD.
+- [ ] Current provenance artifact obtained: `TLSN_REMOTE_EXPECTED_PROVENANCE_JSON` matches current commit, role, deployment identity, and target.
+- [ ] All approval and credential validity windows checked by the approved-input contract and preflight.
+- [ ] No fixture contamination: `game.example.test`, fixture providers, and synthetic records are rejected for real mode.
+- [ ] No historical evidence reuse: commit-bound artifacts from another HEAD are rejected.
+- [ ] No Remote validation input contamination: remote-only secrets are absent from deploy preflight and child environments.
+- [ ] Intake validation PASS: `pnpm run check:canary-input-intake -- --require-complete`.
+- [ ] Canary readiness READY: `pnpm run test:canary-readiness`, with every gate true and no `input_diagnostics` failure.
+
+Only after every item above is independently satisfied may a separately authorized operator decision consider Canary runtime validation. This checklist does not authorize deployment or runtime execution.
+
 ## Operator Procedure
 
 Do not deploy from this procedure.
@@ -153,9 +231,10 @@ Do not deploy from this procedure.
 7. Run the provisioner only with explicit real external inputs. For real mode, use `--fixture-only false`, `--server-identity`, `--profile-file`, `--sparse-profile-file`, `--trust-root-file`, `--notary-registry-file`, `--notary-key-id`, `--verifier-key-id`, `--deployment-id`, and `--worker-name`. The provisioner must leave unresolved external values unresolved rather than inventing them.
 8. Materialize only the required deployment inputs and Canary-owned secrets through the secure environment. Keep remote-validation-only secrets out of the deployment environment passed to preflight.
 9. Run `pnpm run test:canary-input-intake` to detect inventory drift.
-10. Run `pnpm run test:canary-readiness` and inspect the JSON `input_diagnostics` and `gates`. The expected state remains `BLOCKED` until all external inputs are valid.
-11. Run `pnpm run preflight:production` with `TLSN_DEPLOYMENT_ROLE=canary` and the current commit. Inspect the non-secret report and provenance output. Do not proceed when any failure is present.
-12. Stop for a separate authorized deployment decision. This document does not authorize or instruct Canary deployment.
+10. Run `pnpm run check:canary-input-intake -- --require-complete` and inspect the value-free JSON report.
+11. Run `pnpm run test:canary-readiness` and inspect the JSON `input_diagnostics` and `gates`. The expected state remains `BLOCKED` until all external inputs are valid.
+12. Run `pnpm run preflight:production` with `TLSN_DEPLOYMENT_ROLE=canary` and the current commit. Inspect the non-secret report and provenance output. Do not proceed when any failure is present.
+13. Stop for a separate authorized deployment decision. This document does not authorize or instruct Canary deployment.
 
 ## Security Conclusions
 
