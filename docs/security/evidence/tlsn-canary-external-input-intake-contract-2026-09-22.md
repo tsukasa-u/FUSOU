@@ -2,11 +2,11 @@
 
 Date: 2026-09-22
 
-Baseline commit: `3fa5ee482350a06901a01d7b345fe44fb82e8ffd`
+Baseline commit: `9fdeacbf839ef58c8b7c80c79f941620a577e244`
 
 This document describes the existing Canary input path and the additional machine-readable contract in `packages/FUSOU-TLSN-VERIFICATION-WORKER/scripts/canary-external-input-intake.mjs`.
 
-This is preparation only. It does not execute Canary, deploy a Worker, contact a target, access a secret provider, acquire credentials, or decrypt secrets.
+This is an offline acceptance contract. It does not execute Canary, deploy a Worker, contact a target, access a secret provider, acquire credentials, or decrypt secrets.
 
 ## Authority and Scope
 
@@ -18,6 +18,8 @@ The repository source of truth remains:
 - `packages/FUSOU-TLSN-VERIFICATION-WORKER/scripts/deployment-preflight.mjs`
 - `packages/FUSOU-TLSN-VERIFICATION-WORKER/scripts/canary-readiness-test.mjs`
 - `packages/FUSOU-TLSN-VERIFICATION-WORKER/scripts/canary-external-input-intake.mjs`
+- `packages/FUSOU-TLSN-VERIFICATION-WORKER/scripts/canary-external-package.mjs`
+- `packages/FUSOU-TLSN-VERIFICATION-WORKER/scripts/canary-external-package-test.mjs`
 
 `canary-external-input-intake.mjs` must cover the union of the repository's canary deployment inputs, canary secret inputs, workflow evidence inputs, and readiness remote-validation inputs. The test command `pnpm run test:canary-input-intake` fails when that inventory drifts.
 
@@ -59,6 +61,22 @@ Every entry in `CANARY_EXTERNAL_INPUT_INTAKE` has these fields:
 | `external_dependency` | whether the value still depends on an external approval, credential provider, or remote party |
 
 Public exposure does not mean approved. A syntactically valid Ed25519 public key, hostname, profile hash, device reference, or trust root is not an approved Canary identity until the corresponding external approval/provenance validator passes. Conversely, `TLSN_CANARY_TRUST_ROOT_CERTIFICATE_DER` uses the protected Wrangler input channel but is public certificate material, not a secret credential.
+
+## External Package Acceptance Gate
+
+The package validator is the pre-Canary acceptance gate. A package is accepted only when all of these conditions pass together:
+
+- The manifest is schema version `2`, has a current validity window (`issued_at <= now < expires_at`), and has no unknown fields or secret values.
+- The target, production/canary role, binding identity, workflow run, workflow identity, deployment inputs, and checked-out HEAD agree exactly.
+- Every public external input is present in the manifest exactly once and its canonical SHA-256 matches the current deployment input. JSON inputs use canonical JSON; trust-root input uses decoded DER bytes.
+- `target-approval.json` is a complete existing `TLSN_CANARY_APPROVED_INPUT_CONTRACT_JSON` artifact. Its canonical bytes must match the approved contract input, and its target/profile/trust/verifier/authentication/binding/workflow/identity windows must pass the existing contract validator.
+- Every other artifact has a structured subject, authority-bound provenance, current validity window contained by the package window, current/non-historical status, and valid JSON content. Artifact hashes and real paths are checked before content validation.
+- The authority section binds to the target-approval artifact hash. `approved=true`, `AUTHORITY_SIGNED`, a hostname, an arbitrary approval reference, a worker self-report, an archive copy, a deployment response, a fixture, a historical report, or a remote-test report is not authority proof by itself.
+- Secret-provider references identify the access-token input and exactly one private-key representation, have current windows contained by the package window, and contain no token or private-key value. Provider availability is reported separately; package acceptance never prints or requires the secret values.
+
+Failures are returned as structured, secret-free diagnostics with `field`, `category`, `reason`, `expected`, `actual`, and `owner`. Categories distinguish schema, authority, provenance, validity, content, secret-provider reference, and absence failures.
+
+The positive synthetic package used by `test:canary-external-package` is complete and structured, but it is fixture-only test data. Production validation rejects `fixture_only=true`; the readiness gate also requires `external_package_acceptance=true`. Therefore `ABSENT`, `INVALID`, or fixture-only package status cannot advance Canary readiness, and package acceptance never implies deployment readiness or runtime execution.
 
 The approval provenance is intentionally split into independent records:
 
@@ -129,15 +147,22 @@ canary-external-package/
       binding-approval.json
 ```
 
-`manifest.json` has `schema_version=1` and `scope=tlsn-canary-external-input-package`. Its required top-level sections are `target`, `workflow`, `inputs`, `artifacts`, and `secret_provider`:
+`manifest.json` has `schema_version=2` and `scope=tlsn-canary-external-input-package`. Its required top-level sections are `fixture_only`, `authority`, `target`, `workflow`, `inputs`, `artifacts`, and `secret_provider`:
 
 ```json
 {
-   "schema_version": 1,
+   "schema_version": 2,
    "scope": "tlsn-canary-external-input-package",
    "package_id": "approval-package-YYYY-MM-DD",
    "issued_at": "2026-09-22T00:00:00.000Z",
    "expires_at": "2026-09-23T00:00:00.000Z",
+   "fixture_only": false,
+   "authority": {
+      "type": "external-authority",
+      "reference": "authority/security-review-2026-09-22",
+      "approval_artifact": "target-approval",
+      "approval_artifact_sha256": "43-character-unpadded-base64url-sha256"
+   },
    "target": {
       "server_identity": "approved.example.com",
       "environment": "production",
@@ -187,11 +212,13 @@ canary-external-package/
 }
 ```
 
-The real manifest contains all 21 public external package inputs, all eight current artifact records, and the two secret-provider references. Public input fingerprints use trimmed UTF-8, canonical JSON for the approved contract and Notary registry, and decoded DER bytes for the trust root. The validator compares these fingerprints with the current environment, verifies every artifact hash beneath the package directory, checks target/environment/role/binding/workflow/current HEAD, rejects expired or fixture/historical records, and rejects both private-key representations being present. The access token, private key, bearer material, and callback secrets are never accepted as manifest fields.
+The real manifest contains all 21 public external package inputs, all eight current artifact records, and the two secret-provider references. Public input fingerprints use trimmed UTF-8, canonical JSON for the approved contract and Notary registry, and decoded DER bytes for the trust root. The validator compares these fingerprints with the current environment, verifies every artifact hash beneath the package directory, validates the target-approval artifact through the existing approved-input contract, validates structured artifact subject/provenance/content, checks target/environment/role/binding/workflow/current HEAD, and rejects expired, future-issued, fixture, historical, self-approved, or authority-unbound records. The access token, private key, bearer material, and callback secrets are never accepted as manifest fields.
 
-`AUTHORITY_SIGNED`, `AUTHORITY_ATTESTED`, and `OPERATOR_APPROVED` are the allowed evidence levels. An `approved=true` flag, hostname-only metadata, an R2/archive copy, a deployment response, a fixture, a historical report, or a remote-test report is not an acceptable substitute for the required approval/provenance records.
+`AUTHORITY_SIGNED`, `AUTHORITY_ATTESTED`, and `OPERATOR_APPROVED` remain recognized input evidence labels for compatibility, but artifact provenance must be `AUTHORITY_SIGNED` or `AUTHORITY_ATTESTED`. An `approved=true` flag, a manifest-only `AUTHORITY_SIGNED` label, hostname-only metadata, an R2/archive copy, a deployment response, a fixture, a historical report, or a remote-test report is not an acceptable substitute for the validated target-approval artifact and its bound provenance.
 
 The workflow run context and deployment naming/Trigger configuration are FUSOU-owned execution inputs, not external approval evidence. Remote reports, attestations, and runtime URLs are produced or selected after the deployment boundary and are not part of the minimum pre-deployment approval package.
+
+After rejection, the next operator action is to inspect the structured diagnostics, replace or correct the external package through the external authority/secret-provider boundary, and rerun `pnpm run check:canary-external-package`. After a valid package and all other required inputs are present, run `pnpm run test:canary-readiness`; do not treat package `VALID` as a deployment or runtime authorization.
 
 ### FUSOU-Generated Package
 
@@ -218,6 +245,8 @@ pnpm run check:canary-input-intake
 It validates the inventory itself, reports every input as `PRESENT`, `ABSENT`, or `INVALID`, detects unexpected Canary-shaped environment names, checks basic canonical formats without printing values, checks artifact path presence, and validates `TLSN_CANARY_APPROVED_INPUT_CONTRACT_JSON` with the existing strict validator when present. It reports `APPROVED` only when that validator passes. It never generates keys, tokens, callback secrets, approvals, or provenance.
 
 The JSON report also includes `ownership_summary`. Its `missing_contract_entry_count` preserves the raw contract-field count; `external_dependency_missing_count` and `unmet_external_required_group_count` identify the external boundary; `locally_generable_missing_count` identifies values FUSOU can produce/configure. Per-ownership buckets include present/absent, required, approval, external-dependency, local-generation, and deployment-generation counts.
+
+`external_package.status` is `ABSENT`, `VALID`, or `INVALID` and includes structured diagnostics without secret values. `ABSENT` and `INVALID` both force `readiness: BLOCKED`; only `VALID` can advance to the separate `canary-readiness-test` gate. Secret-provider availability remains an independent input/readiness condition.
 
 The default command exits successfully when the check ran, even when readiness is `BLOCKED`, so an operator can inspect the complete missing-input report. Use the completeness gate only after the secure environment has been populated:
 

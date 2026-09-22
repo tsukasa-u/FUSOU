@@ -7,12 +7,14 @@ import { fileURLToPath } from "node:url";
 import {
   CANARY_EXTERNAL_INPUT_INTAKE,
 } from "./canary-external-input-intake.mjs";
+import { assertCanaryApprovedInputContract } from "./canary-approved-input-contract.mjs";
 import { canonicalJson } from "./production-trust-contract.mjs";
 import { checkoutCommit } from "./deployment-attestation.mjs";
 
-export const CANARY_EXTERNAL_PACKAGE_SCHEMA_VERSION = 1;
+export const CANARY_EXTERNAL_PACKAGE_SCHEMA_VERSION = 2;
 export const CANARY_EXTERNAL_PACKAGE_SCOPE = "tlsn-canary-external-input-package";
 export const CANARY_EXTERNAL_PACKAGE_MANIFEST_INPUT = "TLSN_CANARY_EXTERNAL_PACKAGE_MANIFEST";
+export const CANARY_EXTERNAL_PACKAGE_ARTIFACT_SCOPE = "tlsn-canary-external-package-artifact";
 
 const HASH_PATTERN = /^[A-Za-z0-9_-]{43}$/;
 const REFERENCE_PATTERN = /^[A-Za-z0-9._:/-]{1,512}$/;
@@ -45,6 +47,15 @@ const EVIDENCE_LEVELS = new Set([
   "AUTHORITY_ATTESTED",
   "OPERATOR_APPROVED",
 ]);
+const AUTHORITY_EVIDENCE_LEVELS = new Set(["AUTHORITY_SIGNED", "AUTHORITY_ATTESTED"]);
+
+export class CanaryExternalPackageValidationError extends Error {
+  constructor(message, diagnostics = []) {
+    super(message);
+    this.name = "CanaryExternalPackageValidationError";
+    this.diagnostics = diagnostics;
+  }
+}
 
 export const CANARY_EXTERNAL_PACKAGE_INPUTS = EXTERNAL_PACKAGE_INPUTS;
 export const CANARY_EXTERNAL_PACKAGE_ARTIFACTS = REQUIRED_ARTIFACTS;
@@ -75,6 +86,18 @@ function assertTimestamp(value, label, now) {
   const timestamp = Date.parse(value);
   if (!Number.isFinite(timestamp)) throw new Error(`${label} is invalid`);
   return timestamp;
+}
+
+function assertValidityWindow(issuedAt, expiresAt, label, now, { within } = {}) {
+  const issued = assertTimestamp(issuedAt, `${label}.issued_at`, now);
+  const expires = assertTimestamp(expiresAt, `${label}.expires_at`, now);
+  if (expires <= issued || issued > now.getTime() || expires <= now.getTime()) {
+    throw new Error(`${label} validity window is not current`);
+  }
+  if (within && (issued < within.issuedAt || expires > within.expiresAt)) {
+    throw new Error(`${label} validity window is outside the external package window`);
+  }
+  return { issued, expires };
 }
 
 function assertHash(value, label) {
@@ -129,7 +152,7 @@ function sha256(bytes) {
   return createHash("sha256").update(bytes).digest("base64url");
 }
 
-function assertCurrentTarget(target, workflow, { environment, currentHead }) {
+function assertCurrentTarget(target, workflow, { environment, currentHead, fixtureOnly }) {
   assertExactKeys(target, ["server_identity", "environment", "deployment_role", "binding_identity"], "external package target");
   assertExactKeys(workflow, ["repository", "run_id", "run_attempt", "workflow_file_identity", "commit_sha"], "external package workflow");
   assertString(target.server_identity, "external package target.server_identity", DNS_HOSTNAME_PATTERN);
@@ -142,7 +165,8 @@ function assertCurrentTarget(target, workflow, { environment, currentHead }) {
   assertString(workflow.workflow_file_identity, "external package workflow.workflow_file_identity");
   assertString(workflow.commit_sha, "external package workflow.commit_sha", /^[0-9a-f]{40}$/);
   if (target.environment !== "production" || target.deployment_role !== "canary") throw new Error("external package target environment or deployment role is invalid");
-  if (/(?:test|synthetic|fixture|local|staging|historical|remote-test)/i.test(target.server_identity)) throw new Error("external package target is fixture, synthetic, or historical");
+  if (!fixtureOnly && /(?:test|synthetic|fixture|local|staging|historical|remote-test)/i.test(target.server_identity)) throw new Error("external package target is fixture, synthetic, or historical");
+  if (fixtureOnly && target.server_identity !== "game.example.test") throw new Error("fixture external package target identity is invalid");
   if (workflow.workflow_file_identity !== "dotenvx+pnpm+wrangler") throw new Error("external package workflow identity is invalid");
   if (environment.TLSN_CANDIDATE_SERVER_IDENTITY?.trim() !== target.server_identity) throw new Error("external package target identity does not match deployment input");
   if (environment.TLSN_ENVIRONMENT?.trim() !== target.environment) throw new Error("external package environment does not match deployment input");
@@ -177,6 +201,23 @@ function assertInputs(inputs, environment, requireEnvironment) {
   if (seen.size !== expected.size) throw new Error("external package inputs do not cover the required public input set");
 }
 
+function assertExternalAuthority(authority, artifacts, environment, fixtureOnly) {
+  assertExactKeys(authority, ["type", "reference", "approval_artifact", "approval_artifact_sha256"], "external package authority");
+  if (authority.type !== "external-authority") throw new Error("external package authority type is invalid");
+  assertReference(authority.reference, "external package authority reference");
+  if (/(?:^|[/:])(?:self|manifest|worker|fixture|synthetic|historical)(?:$|[/:])/i.test(authority.reference)) {
+    throw new Error("external package authority reference is self-asserted or non-current");
+  }
+  if (authority.approval_artifact !== "target-approval") throw new Error("external package authority approval artifact is invalid");
+  const targetApproval = artifacts.find((artifact) => artifact.name === "target-approval");
+  if (!targetApproval || authority.approval_artifact_sha256 !== targetApproval.sha256) {
+    throw new Error("external package authority approval artifact hash does not match");
+  }
+  if (fixtureOnly && environment.TLSN_CANARY_FIXTURE_ONLY?.trim() !== "true") {
+    throw new Error("fixture external package requires explicit fixture-only mode");
+  }
+}
+
 function assertArtifactPath(path, label, packageRoot) {
   assertString(path, label);
   if (isAbsolute(path) || path.includes("\\")) throw new Error(`${label} must be a relative POSIX path`);
@@ -186,7 +227,15 @@ function assertArtifactPath(path, label, packageRoot) {
   return resolved;
 }
 
-async function assertArtifacts(artifacts, packageRoot) {
+async function assertArtifacts(artifacts, packageRoot, {
+  target,
+  workflow,
+  fixtureOnly,
+  packageWindow,
+  environment,
+  currentHead,
+  now,
+} = {}) {
   if (!Array.isArray(artifacts) || artifacts.length !== REQUIRED_ARTIFACTS.length) throw new Error("external package artifacts are incomplete");
   const expected = new Set(REQUIRED_ARTIFACTS);
   const seen = new Set();
@@ -202,7 +251,7 @@ async function assertArtifacts(artifacts, packageRoot) {
     assertBoolean(artifact.current, `${artifact.name}.current`);
     assertBoolean(artifact.fixture_only, `${artifact.name}.fixture_only`);
     assertBoolean(artifact.historical, `${artifact.name}.historical`);
-    if (!artifact.current || artifact.fixture_only || artifact.historical) throw new Error(`${artifact.name} is not a current non-fixture artifact`);
+    if (!artifact.current || artifact.fixture_only !== fixtureOnly || artifact.historical) throw new Error(`${artifact.name} current/fixture status is invalid`);
     let artifactRealPath;
     try {
       artifactRealPath = await realpath(artifactPath);
@@ -218,27 +267,79 @@ async function assertArtifacts(artifacts, packageRoot) {
       throw new Error(`${artifact.name} artifact is missing or unreadable`);
     }
     if (sha256(bytes) !== artifact.sha256) throw new Error(`${artifact.name} artifact hash does not match manifest`);
+    let content;
+    try {
+      content = JSON.parse(bytes.toString("utf8"));
+    } catch {
+      throw new Error(`${artifact.name} artifact content must be valid JSON`);
+    }
+    assertNoSecretValues(content, `${artifact.name} artifact`);
+    if (artifact.name === "target-approval") {
+      assertCanaryApprovedInputContract(content, {
+        fixtureOnly,
+        now,
+        currentHead,
+        expectedServerIdentity: target.server_identity,
+        expectedProfileSha256: environment.TLSN_CANDIDATE_PROFILE_SHA256?.trim(),
+        expectedSparseProfileSha256: environment.TLSN_CANDIDATE_SPARSE_PROFILE_SHA256?.trim(),
+        expectedWorkflow: {
+          run_id: workflow.run_id,
+          attempt: workflow.run_attempt,
+          repository: workflow.repository,
+          workflow_file_identity: workflow.workflow_file_identity,
+        },
+        expectedBindingIdentity: target.binding_identity,
+      });
+      const environmentContract = environment.TLSN_CANARY_APPROVED_INPUT_CONTRACT_JSON?.trim();
+      if (!environmentContract || canonicalJson(JSON.parse(environmentContract)) !== canonicalJson(content)) {
+        throw new Error("target approval artifact does not match the approved input contract");
+      }
+      if (content.target_approval.approver === workflow.repository || /(?:^|[/:])(?:self|workflow|worker|deployment)(?:$|[/:])/i.test(content.target_approval.approver)) {
+        throw new Error("target approval is self-approved by the deployment path");
+      }
+      assertValidityWindow(content.target_approval.approved_at, content.target_approval.expires_at, "target approval", now, { within: packageWindow });
+      continue;
+    }
+    assertExactKeys(content, ["schema_version", "scope", "artifact_name", "status", "fixture_only", "historical", "subject", "provenance", "validity", "content"], `${artifact.name} artifact content`);
+    if (content.schema_version !== 1 || content.scope !== CANARY_EXTERNAL_PACKAGE_ARTIFACT_SCOPE || content.artifact_name !== artifact.name || content.status !== "CURRENT" || content.fixture_only !== fixtureOnly || content.historical) {
+      throw new Error(`${artifact.name} artifact content schema or status is invalid`);
+    }
+    assertExactKeys(content.subject, ["server_identity", "environment", "deployment_role", "binding_identity", "repository", "run_id", "run_attempt", "commit_sha"], `${artifact.name} artifact subject`);
+    for (const [field, expected] of Object.entries({
+      server_identity: target.server_identity,
+      environment: target.environment,
+      deployment_role: target.deployment_role,
+      binding_identity: target.binding_identity,
+      repository: workflow.repository,
+      run_id: workflow.run_id,
+      run_attempt: workflow.run_attempt,
+      commit_sha: workflow.commit_sha,
+    })) if (content.subject[field] !== expected) throw new Error(`${artifact.name} artifact subject mismatch: ${field}`);
+    assertExactKeys(content.provenance, ["authority_artifact_sha256", "approval_reference", "provenance_reference", "evidence_level"], `${artifact.name} artifact provenance`);
+    if (content.provenance.authority_artifact_sha256 !== artifacts.find((entry) => entry.name === "target-approval")?.sha256) throw new Error(`${artifact.name} artifact authority provenance does not bind target approval`);
+    assertReference(content.provenance.approval_reference, `${artifact.name} artifact approval_reference`);
+    assertReference(content.provenance.provenance_reference, `${artifact.name} artifact provenance_reference`);
+    if (!AUTHORITY_EVIDENCE_LEVELS.has(content.provenance.evidence_level)) throw new Error(`${artifact.name} artifact evidence level is not authority-backed`);
+    assertObject(content.content, `${artifact.name} artifact content payload`);
+    assertExactKeys(content.validity, ["issued_at", "expires_at"], `${artifact.name} artifact validity`);
+    assertValidityWindow(content.validity.issued_at, content.validity.expires_at, `${artifact.name} artifact`, now, { within: packageWindow });
   }
   if (seen.size !== expected.size) throw new Error("external package artifacts do not cover the required artifact set");
 }
 
-function assertSecretProvider(secretProvider, environment) {
+function assertSecretProvider(secretProvider, environment, now, packageWindow) {
   assertExactKeys(secretProvider, ["access_token", "private_key"], "external package secret_provider");
   assertObject(secretProvider.access_token, "external package secret_provider.access_token");
   assertExactKeys(secretProvider.access_token, ["input_name", "provider_ref", "issued_at", "expires_at"], "external package access token reference");
   if (secretProvider.access_token.input_name !== "TLSN_REMOTE_ACCESS_TOKEN_A") throw new Error("external package access token reference is invalid");
   assertReference(secretProvider.access_token.provider_ref, "external package access token provider_ref");
-  const tokenExpires = assertTimestamp(secretProvider.access_token.expires_at, "external package access token expires_at");
-  const tokenIssued = assertTimestamp(secretProvider.access_token.issued_at, "external package access token issued_at");
-  if (tokenExpires <= tokenIssued) throw new Error("external package access token validity window is invalid");
+  assertValidityWindow(secretProvider.access_token.issued_at, secretProvider.access_token.expires_at, "external package access token", now, { within: packageWindow });
 
   assertObject(secretProvider.private_key, "external package secret_provider.private_key");
   assertExactKeys(secretProvider.private_key, ["selected_input_name", "provider_ref", "issued_at", "expires_at"], "external package private key reference");
   if (!PRIVATE_KEY_INPUTS.includes(secretProvider.private_key.selected_input_name)) throw new Error("external package private key representation is invalid");
   assertReference(secretProvider.private_key.provider_ref, "external package private key provider_ref");
-  const keyExpires = assertTimestamp(secretProvider.private_key.expires_at, "external package private key expires_at");
-  const keyIssued = assertTimestamp(secretProvider.private_key.issued_at, "external package private key issued_at");
-  if (keyExpires <= keyIssued) throw new Error("external package private key validity window is invalid");
+  assertValidityWindow(secretProvider.private_key.issued_at, secretProvider.private_key.expires_at, "external package private key", now, { within: packageWindow });
   if (environment.TLSN_REMOTE_ACCESS_TOKEN_A !== undefined && !environment.TLSN_REMOTE_ACCESS_TOKEN_A.trim()) throw new Error("remote access token is empty");
   const selected = secretProvider.private_key.selected_input_name;
   const other = PRIVATE_KEY_INPUTS.find((name) => name !== selected);
@@ -252,20 +353,46 @@ export async function assertCanaryExternalPackage(raw, {
   currentHead,
   now = new Date(),
   requireEnvironment = true,
+  allowSyntheticFixture = false,
 } = {}) {
-  const manifest = parseManifest(raw);
-  assertNoSecretValues(manifest);
-  assertExactKeys(manifest, ["schema_version", "scope", "package_id", "issued_at", "expires_at", "target", "workflow", "inputs", "artifacts", "secret_provider"], "external package manifest");
-  if (manifest.schema_version !== CANARY_EXTERNAL_PACKAGE_SCHEMA_VERSION || manifest.scope !== CANARY_EXTERNAL_PACKAGE_SCOPE) throw new Error("external package manifest schema is invalid");
-  assertReference(manifest.package_id, "external package package_id");
-  const issuedAt = assertTimestamp(manifest.issued_at, "external package issued_at");
-  const expiresAt = assertTimestamp(manifest.expires_at, "external package expires_at");
-  if (expiresAt <= issuedAt || expiresAt <= now.getTime()) throw new Error("external package is expired or has an invalid validity window");
-  assertCurrentTarget(manifest.target, manifest.workflow, { environment, currentHead });
-  assertInputs(manifest.inputs, environment, requireEnvironment);
-  await assertArtifacts(manifest.artifacts, packageRoot);
-  assertSecretProvider(manifest.secret_provider, environment);
-  return manifest;
+  try {
+    const manifest = parseManifest(raw);
+    assertNoSecretValues(manifest);
+    assertExactKeys(manifest, ["schema_version", "scope", "package_id", "issued_at", "expires_at", "fixture_only", "authority", "target", "workflow", "inputs", "artifacts", "secret_provider"], "external package manifest");
+    if (manifest.schema_version !== CANARY_EXTERNAL_PACKAGE_SCHEMA_VERSION || manifest.scope !== CANARY_EXTERNAL_PACKAGE_SCOPE) throw new Error("external package manifest schema is invalid");
+    assertBoolean(manifest.fixture_only, "external package fixture_only");
+    if (manifest.fixture_only && !allowSyntheticFixture) throw new Error("fixture-only external package is not accepted by the production gate");
+    assertReference(manifest.package_id, "external package package_id");
+    const validationNow = now instanceof Date ? now : new Date(now);
+    if (!Number.isFinite(validationNow.getTime())) throw new Error("external package validation time is invalid");
+    const packageWindow = assertValidityWindow(manifest.issued_at, manifest.expires_at, "external package", validationNow);
+    assertCurrentTarget(manifest.target, manifest.workflow, { environment, currentHead, fixtureOnly: manifest.fixture_only });
+    assertInputs(manifest.inputs, environment, requireEnvironment);
+    assertExternalAuthority(manifest.authority, manifest.artifacts, environment, manifest.fixture_only);
+    await assertArtifacts(manifest.artifacts, packageRoot, {
+      target: manifest.target,
+      workflow: manifest.workflow,
+      fixtureOnly: manifest.fixture_only,
+      packageWindow,
+      environment,
+      currentHead,
+      now: validationNow,
+    });
+    assertSecretProvider(manifest.secret_provider, environment, validationNow, packageWindow);
+    return manifest;
+  } catch (error) {
+    if (error instanceof CanaryExternalPackageValidationError) throw error;
+    const message = error instanceof Error ? error.message : String(error);
+    const diagnostic = {
+      field: "external_package",
+      category: /schema|fields|JSON|type|incomplete|unexpected|duplicated/i.test(message) ? "SCHEMA" : /secret|private key|token/i.test(message) ? "SECRET_PROVIDER_REFERENCE" : /authority|approval|provenance|self-approved|evidence/i.test(message) ? "AUTHORITY" : /subject|target|workflow|HEAD|commit|binding|identity/i.test(message) ? "PROVENANCE" : /validity|expired|future|current|window/i.test(message) ? "VALIDITY" : "CONTENT",
+      reason: message,
+      expected: "current, authority-backed, canonical external package",
+      actual: "rejected",
+      owner: "external operator or authority",
+    };
+    throw new CanaryExternalPackageValidationError(message, [diagnostic]);
+  }
 }
 
 export async function loadCanaryExternalPackageManifest(manifestPath, options = {}) {
@@ -294,7 +421,21 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
         runtime_executed: false,
       }, null, 2)))
       .catch((error) => {
-        console.error(`[tlsn-canary-external-package] ${error instanceof Error ? error.message : String(error)}`);
+        console.error(JSON.stringify({
+          scope: CANARY_EXTERNAL_PACKAGE_SCOPE,
+          status: "FAIL",
+          diagnostics: Array.isArray(error?.diagnostics) ? error.diagnostics : [{
+            field: "external_package",
+            category: "CONTENT",
+            reason: "external package validation failed",
+            expected: "current, authority-backed, canonical external package",
+            actual: "rejected",
+            owner: "external operator or authority",
+          }],
+          network_access: "NOT_USED",
+          deployment_executed: false,
+          runtime_executed: false,
+        }, null, 2));
         process.exitCode = 1;
       });
   }

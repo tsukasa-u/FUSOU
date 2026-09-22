@@ -256,23 +256,41 @@ export async function inspectCanaryExternalInput(environment = process.env) {
     "TLSN_REMOTE_ATTESTATION_PATH",
     "TLSN_REMOTE_ATTESTATION_OUTPUT_PATH",
   ]) artifactStatuses[name] = await artifactPathStatus(environment, name);
-  let externalPackage = { status: "ABSENT" };
+  let externalPackage = {
+    status: "ABSENT",
+    diagnostics: [{
+      field: CANARY_EXTERNAL_PACKAGE_MANIFEST_INPUT,
+      category: "ABSENCE",
+      reason: "external package manifest was not supplied",
+      expected: "a valid current external package",
+      actual: "absent",
+      owner: "external operator or authority",
+    }],
+  };
   const externalPackagePath = value(environment, CANARY_EXTERNAL_PACKAGE_MANIFEST_INPUT);
   if (externalPackagePath) {
     try {
       await loadCanaryExternalPackageManifest(externalPackagePath, { environment, currentHead });
-      externalPackage = { status: "VALID" };
+      externalPackage = { status: "VALID", diagnostics: [] };
     } catch (error) {
       externalPackage = {
         status: "INVALID",
         reason: error instanceof Error ? error.message : "external package validation failed",
+        diagnostics: Array.isArray(error?.diagnostics) ? error.diagnostics : [{
+          field: CANARY_EXTERNAL_PACKAGE_MANIFEST_INPUT,
+          category: "CONTENT",
+          reason: "external package validation failed",
+          expected: "a valid current external package",
+          actual: "rejected",
+          owner: "external operator or authority",
+        }],
       };
     }
   }
   const structuralFailures = [...formatFailures, ...unexpected, ...invalidGroups];
   if (externalPackage.status === "INVALID") structuralFailures.push(CANARY_EXTERNAL_PACKAGE_MANIFEST_INPUT);
   const validation = structuralFailures.length === 0 ? "PASS" : "FAIL";
-  const readiness = missing.length === 0 && approvedContractStatus === "APPROVED" && externalPackage.status !== "INVALID"
+  const readiness = missing.length === 0 && approvedContractStatus === "APPROVED" && externalPackage.status === "VALID"
     ? "REQUIRES_CANARY_READINESS_GATE"
     : "BLOCKED";
   return {

@@ -10,6 +10,7 @@ import {
 import { checkoutCommit, workflowContextFromEnvironment } from "./deployment-attestation.mjs";
 import { assertCanaryApprovedInputContract } from "./canary-approved-input-contract.mjs";
 import { CANARY_EXTERNAL_INPUT_INTAKE } from "./canary-external-input-intake.mjs";
+import { CANARY_EXTERNAL_PACKAGE_MANIFEST_INPUT, loadCanaryExternalPackageManifest } from "./canary-external-package.mjs";
 
 const packageDirectory = resolve(new URL("..", import.meta.url).pathname);
 const repositoryDirectory = resolve(packageDirectory, "../..");
@@ -335,6 +336,19 @@ function missingInputNames() {
 
 async function buildReadinessReport(artifacts) {
   const artifactCandidates = artifacts.filter((artifact) => artifact.approved_current_candidate);
+  const externalPackagePath = process.env[CANARY_EXTERNAL_PACKAGE_MANIFEST_INPUT]?.trim();
+  let externalPackage = { status: "ABSENT", diagnostics: [{ reason: "external package manifest was not supplied" }] };
+  if (externalPackagePath) {
+    try {
+      await loadCanaryExternalPackageManifest(externalPackagePath, { environment: process.env, currentHead });
+      externalPackage = { status: "VALID", diagnostics: [] };
+    } catch (error) {
+      externalPackage = {
+        status: "INVALID",
+        diagnostics: Array.isArray(error?.diagnostics) ? error.diagnostics : [{ reason: "external package validation failed" }],
+      };
+    }
+  }
   const target = targetStatus();
   const trust = trustStatus();
   const auth = authStatus();
@@ -347,6 +361,7 @@ async function buildReadinessReport(artifacts) {
   const gates = {
     current_head: /^[0-9a-f]{40}$/.test(currentHead),
     contract: await contractStatus() === "PASS",
+    external_package_acceptance: externalPackage.status === "VALID",
     deployment_contract: deploymentStatus() === "PASS",
     approved_input_contract: approvedInputContract.status === "APPROVED",
     target_provenance: approvedInputContract.status === "APPROVED" && target === "PRESENT_UNAPPROVED" && artifactCandidates.length > 0,
@@ -372,6 +387,7 @@ async function buildReadinessReport(artifacts) {
       deployment: { status: deploymentStatus(), fields: statuses(DEPLOYMENT_INPUTS) },
       target_provenance: { status: target, fields: statuses(TARGET_INPUTS) },
       approved_input_contract: { status: approvedInputContract.status, fields: statuses(APPROVED_INPUT_CONTRACT_INPUTS) },
+      external_package: externalPackage,
       trust: { status: trust, fields: statuses(TRUST_INPUTS) },
       authentication: { status: auth, fields: statuses(AUTH_INPUTS) },
       binding: { status: binding, fields: statuses(BINDING_INPUTS) },

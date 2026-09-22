@@ -1,19 +1,29 @@
 #!/usr/bin/env node
 
 import assert from "node:assert/strict";
-import { createHash } from "node:crypto";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { createHash, generateKeyPairSync } from "node:crypto";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   assertCanaryExternalPackage,
+  CANARY_EXTERNAL_PACKAGE_ARTIFACT_SCOPE,
   CANARY_EXTERNAL_PACKAGE_ARTIFACTS,
   CANARY_EXTERNAL_PACKAGE_INPUTS,
+  loadCanaryExternalPackageManifest,
 } from "./canary-external-package.mjs";
+import {
+  CANARY_APPROVED_INPUT_CONTRACT_SCOPE,
+  CANARY_APPROVED_INPUT_CONTRACT_SCHEMA_VERSION,
+} from "./canary-approved-input-contract.mjs";
 import { canonicalJson } from "./production-trust-contract.mjs";
+import { profilesForServerIdentity } from "./profile-canonical-contract.mjs";
 
 const currentHead = "a".repeat(40);
 const now = new Date("2026-01-01T00:00:00.000Z");
+const profileHashes = profilesForServerIdentity("canary.example.com");
+const { publicKey } = generateKeyPairSync("ed25519");
+const verifierPublicKeySpki = publicKey.export({ format: "der", type: "spki" }).toString("base64url");
 const environment = {
   TLSN_CANDIDATE_SERVER_IDENTITY: "canary.example.com",
   TLSN_ENVIRONMENT: "production",
@@ -24,12 +34,109 @@ const environment = {
   TLSN_WORKFLOW_RUN_ATTEMPT: "2",
   TLSN_WORKFLOW_FILE_IDENTITY: "dotenvx+pnpm+wrangler",
   TLSN_CANARY_BINDING_IDENTITY: "canary-binding-authority",
-  TLSN_CANDIDATE_PROFILE_SHA256: "complete-profile-hash",
-  TLSN_CANDIDATE_SPARSE_PROFILE_SHA256: "sparse-profile-hash",
-  TLSN_CANARY_APPROVED_INPUT_CONTRACT_JSON: JSON.stringify({ scope: "approved", schema_version: 1 }),
+  TLSN_CANDIDATE_PROFILE_SHA256: profileHashes.complete.sha256,
+  TLSN_CANDIDATE_SPARSE_PROFILE_SHA256: profileHashes.sparse.sha256,
+  TLSN_CANARY_VERIFIER_PUBLIC_KEY_SPKI: verifierPublicKeySpki,
   TLSN_PRODUCTION_NOTARY_REGISTRY: JSON.stringify({ keys: ["notary-key"] }),
   TLSN_CANARY_TRUST_ROOT_CERTIFICATE_DER: Buffer.from("trust-root").toString("base64url"),
 };
+
+function hash(byte) {
+  return Buffer.alloc(32, byte).toString("base64url");
+}
+
+const approvedContract = {
+  schema_version: CANARY_APPROVED_INPUT_CONTRACT_SCHEMA_VERSION,
+  scope: CANARY_APPROVED_INPUT_CONTRACT_SCOPE,
+  status: "APPROVED",
+  fixture_only: false,
+  target_approval: {
+    target_identity: "canary.example.com",
+    target_hostname: "canary.example.com",
+    provenance: { scope: "tlsn-approved-target-provenance", artifact_sha256: hash(3) },
+    approval_reference: "approval/canary-2026-01-01",
+    approver: "security@example.com",
+    approved_at: "2025-12-31T00:00:00.000Z",
+    expires_at: "2026-01-02T00:00:00.000Z",
+    environment: "canary",
+    profile: { complete_sha256: profileHashes.complete.sha256, sparse_sha256: profileHashes.sparse.sha256 },
+    trust: {
+      security_registry_set_sha256: hash(4),
+      trust_root_certificate_sha256: hash(5),
+      notary_registry_sha256: hash(6),
+      notary_key_id: "notary-canary-2026",
+      result_registry_root_key_id: "result-root-canary-2026",
+    },
+    verifier_key_id: "verifier-canary-2026",
+    workflow_repository: "owner/repository",
+    not_production: true,
+  },
+  verifier: {
+    key_id: "verifier-canary-2026",
+    public_key_spki: verifierPublicKeySpki,
+    algorithm: "Ed25519",
+    environment: "canary",
+    purpose: "tlsn-result-verification",
+    not_before: "2025-12-31T00:00:00.000Z",
+    not_after: null,
+    registry_reference: "registry://canary/verifier/2026",
+    deployment_id: "canary-2026",
+    binding_identity: "canary-binding-authority",
+  },
+  credential_policy: {
+    schema_version: 1,
+    scope: "tlsn-canary-credential-lifetime-policy",
+    credentials: [{
+      credential_id: "user-a-device-2026",
+      purpose: "User A device authentication",
+      environment: "canary",
+      issuer: "secret-provider",
+      issued_at: "2025-12-31T01:00:00.000Z",
+      expires_at: "2026-01-01T01:00:00.000Z",
+      max_lifetime_seconds: 86_400,
+      rotation: { mode: "on_expiry", rotate_before_expiry_seconds: 300 },
+      revocation_conditions: ["manual-revocation"],
+      allowed_consumers: ["remote-validation"],
+      secret_provider_ref: "secret://canary/user-a-device-2026",
+    }],
+  },
+  authentication: {
+    user_a_identity: "user-a",
+    device_identity: "device-a",
+    supabase_project_identity: "supabase-canary",
+    credentials: [{ credential_id: "user-a-device-2026", secret_provider_ref: "secret://canary/user-a-device-2026", allowed_consumer: "remote-validation" }],
+  },
+  binding: {
+    environment: "canary",
+    binding_identity: "canary-binding-authority",
+    fixed_binding_id: "canary-fixed-binding-2026",
+    authority_key_id: "binding-canary-2026",
+    replay_binding_identity: "replay-binding-2026",
+    verifier_binding_identity: "canary-binding-authority",
+  },
+  workflow: {
+    run_id: "12345",
+    attempt: "2",
+    repository: "owner/repository",
+    workflow_file_identity: "dotenvx+pnpm+wrangler",
+    commit_sha: currentHead,
+    approval_reference: "approval/canary-2026-01-01",
+  },
+  identity_separation: {
+    replay_binding_identity: "replay-binding-2026",
+    canary_binding_identity: "canary-binding-authority",
+    replay_trust_identity: "replay-trust-2026",
+    canary_trust_identity: "canary-trust-2026",
+    fixture_target_identity: "game.example.test",
+    canary_target_identity: "canary.example.com",
+    not_production: true,
+  },
+  evidence_semantics: {
+    authority: ["evidence_root", "approved_trust_registry", "cryptographic_signatures", "verified_tlsn_presentation_binding", "independent_verifier_result"],
+    non_authority_metadata: ["callback_metadata", "workflow_metadata", "r2_archive", "deployment_response", "http_status", "worker_self_reported_identity"],
+  },
+};
+environment.TLSN_CANARY_APPROVED_INPUT_CONTRACT_JSON = JSON.stringify(approvedContract);
 
 for (const [index, name] of CANARY_EXTERNAL_PACKAGE_INPUTS.entries()) {
   if (environment[name] === undefined) environment[name] = `${name.toLowerCase()}-${index}`;
@@ -40,7 +147,11 @@ function sha256(value) {
 }
 
 function inputFingerprint(name) {
-  const raw = environment[name].trim();
+  return inputFingerprintFor(name, environment);
+}
+
+function inputFingerprintFor(name, sourceEnvironment) {
+  const raw = sourceEnvironment[name].trim();
   const bytes = name === "TLSN_CANARY_APPROVED_INPUT_CONTRACT_JSON"
     ? canonicalJson(JSON.parse(raw))
     : name === "TLSN_PRODUCTION_NOTARY_REGISTRY"
@@ -54,9 +165,49 @@ function inputFingerprint(name) {
 async function createManifest(packageRoot) {
   const artifacts = [];
   await mkdir(join(packageRoot, "artifacts"));
-  for (const name of CANARY_EXTERNAL_PACKAGE_ARTIFACTS) {
+  const targetApprovalPath = "artifacts/target-approval.json";
+  const targetApprovalBytes = Buffer.from(canonicalJson(approvedContract), "utf8");
+  await writeFile(join(packageRoot, targetApprovalPath), targetApprovalBytes);
+  const targetApprovalHash = sha256(targetApprovalBytes);
+  artifacts.push({
+    name: "target-approval",
+    path: targetApprovalPath,
+    sha256: targetApprovalHash,
+    current: true,
+    fixture_only: false,
+    historical: false,
+  });
+  for (const name of CANARY_EXTERNAL_PACKAGE_ARTIFACTS.filter((artifactName) => artifactName !== "target-approval")) {
     const path = `artifacts/${name}.json`;
-    const bytes = Buffer.from(`current-${name}`, "utf8");
+    const bytes = Buffer.from(JSON.stringify({
+      schema_version: 1,
+      scope: CANARY_EXTERNAL_PACKAGE_ARTIFACT_SCOPE,
+      artifact_name: name,
+      status: "CURRENT",
+      fixture_only: false,
+      historical: false,
+      subject: {
+        server_identity: "canary.example.com",
+        environment: "production",
+        deployment_role: "canary",
+        binding_identity: "canary-binding-authority",
+        repository: "owner/repository",
+        run_id: "12345",
+        run_attempt: "2",
+        commit_sha: currentHead,
+      },
+      provenance: {
+        authority_artifact_sha256: targetApprovalHash,
+        approval_reference: "approval/canary-2026-01-01",
+        provenance_reference: `provenance/${name}-2026-01-01`,
+        evidence_level: "AUTHORITY_SIGNED",
+      },
+      validity: {
+        issued_at: "2025-12-31T00:00:00.000Z",
+        expires_at: "2026-01-02T00:00:00.000Z",
+      },
+      content: { kind: name, source: "external-authority" },
+    }), "utf8");
     await writeFile(join(packageRoot, path), bytes);
     artifacts.push({
       name,
@@ -68,11 +219,18 @@ async function createManifest(packageRoot) {
     });
   }
   return {
-    schema_version: 1,
+    schema_version: 2,
     scope: "tlsn-canary-external-input-package",
     package_id: "approval-package-2026-01-01",
     issued_at: "2025-12-31T00:00:00.000Z",
     expires_at: "2026-01-02T00:00:00.000Z",
+    fixture_only: false,
+    authority: {
+      type: "external-authority",
+      reference: "authority/security-review-2026-01-01",
+      approval_artifact: "target-approval",
+      approval_artifact_sha256: artifacts[0].sha256,
+    },
     target: {
       server_identity: "canary.example.com",
       environment: "production",
@@ -114,6 +272,8 @@ async function createManifest(packageRoot) {
 const packageRoot = await mkdtemp(join(tmpdir(), "tlsn-canary-package-"));
 try {
   const manifest = await createManifest(packageRoot);
+  const originalArtifactFiles = new Map();
+  for (const artifact of manifest.artifacts) originalArtifactFiles.set(artifact.path, await readFile(join(packageRoot, artifact.path)));
   assert.equal(
     (await assertCanaryExternalPackage(manifest, { packageRoot, environment, currentHead, now })).scope,
     "tlsn-canary-external-input-package",
@@ -123,7 +283,7 @@ try {
   tamperedArtifact.artifacts[0].sha256 = sha256("tampered");
   await assert.rejects(
     () => assertCanaryExternalPackage(tamperedArtifact, { packageRoot, environment, currentHead, now }),
-    /artifact hash does not match manifest/,
+    /authority approval artifact hash does not match/,
   );
 
   const wrongTarget = structuredClone(manifest);
@@ -155,6 +315,211 @@ try {
     }),
     /both remote private key representations are present/,
   );
+
+  const futureIssued = structuredClone(manifest);
+  futureIssued.issued_at = "2026-01-01T00:00:01.000Z";
+  await assert.rejects(
+    () => assertCanaryExternalPackage(futureIssued, { packageRoot, environment, currentHead, now }),
+    /validity window is not current/,
+  );
+
+  const selfApproved = structuredClone(manifest);
+  selfApproved.authority.reference = "authority/manifest/self";
+  await assert.rejects(
+    () => assertCanaryExternalPackage(selfApproved, { packageRoot, environment, currentHead, now }),
+    /self-asserted/,
+  );
+
+  const malformedArtifact = structuredClone(manifest);
+  malformedArtifact.artifacts[1].sha256 = sha256(JSON.stringify({ malformed: true }));
+  await assert.rejects(
+    () => assertCanaryExternalPackage(malformedArtifact, { packageRoot, environment, currentHead, now }),
+    /artifact hash does not match/,
+  );
+
+  await assert.rejects(
+    () => loadCanaryExternalPackageManifest(join(packageRoot, "missing-manifest.json"), { environment, currentHead, now }),
+    /ENOENT/,
+  );
+
+  for (const [label, mutate, expected] of [
+    ["unknown manifest field", (value) => { value.unknown = true; }, /fields are invalid/],
+    ["missing manifest field", (value) => { delete value.authority; }, /fields are invalid/],
+    ["wrong schema type", (value) => { value.schema_version = "2"; }, /schema is invalid/],
+    ["wrong inputs type", (value) => { value.inputs = {}; }, /inputs are incomplete/],
+    ["wrong input value type", (value) => { value.inputs[0].value_sha256 = 7; }, /is invalid/],
+    ["workflow HEAD mismatch", (value) => { value.workflow.commit_sha = "b".repeat(40); }, /commit does not match workflow input/],
+    ["workflow binding mismatch", (value) => { value.workflow.run_attempt = "3"; }, /workflow attempt does not match/],
+    ["expired package", (value) => { value.expires_at = "2025-12-31T23:59:59.000Z"; }, /validity window is not current/],
+    ["invalid authority reference", (value) => { value.authority.reference = "authority with spaces"; }, /is invalid/],
+  ]) {
+    const invalid = structuredClone(manifest);
+    mutate(invalid);
+    await assert.rejects(
+      () => assertCanaryExternalPackage(invalid, { packageRoot, environment, currentHead, now }),
+      expected,
+      label,
+    );
+  }
+
+  for (const name of CANARY_EXTERNAL_PACKAGE_INPUTS) {
+    const missingEnvironment = { ...environment };
+    delete missingEnvironment[name];
+    await assert.rejects(
+      () => assertCanaryExternalPackage(manifest, { packageRoot, environment: missingEnvironment, currentHead, now }),
+      new RegExp(`${name} is missing|does not match deployment input`),
+      `missing public input ${name}`,
+    );
+    const tamperedEnvironment = { ...environment };
+    if (name === "TLSN_CANARY_APPROVED_INPUT_CONTRACT_JSON" || name === "TLSN_PRODUCTION_NOTARY_REGISTRY") {
+      tamperedEnvironment[name] = JSON.stringify({ tampered: name });
+    } else if (name === "TLSN_CANARY_TRUST_ROOT_CERTIFICATE_DER") {
+      tamperedEnvironment[name] = Buffer.from(`${name}-tampered`).toString("base64url");
+    } else {
+      tamperedEnvironment[name] = `${environment[name]}-tampered`;
+    }
+    await assert.rejects(
+      () => assertCanaryExternalPackage(manifest, { packageRoot, environment: tamperedEnvironment, currentHead, now }),
+      /fingerprint does not match|canonical base64url|does not match deployment input/,
+      `tampered public input ${name}`,
+    );
+  }
+
+  const onePrivateKeyEnvironment = {
+    ...environment,
+    TLSN_REMOTE_DEVICE_A_PRIVATE_KEY_PKCS8_B64URL: "private-key-marker",
+  };
+  assert.doesNotThrow(() => assertCanaryExternalPackage(manifest, {
+    packageRoot,
+    environment: onePrivateKeyEnvironment,
+    currentHead,
+    now,
+  }), "one private-key representation must not affect package acceptance");
+
+  const invalidSecretProviderReference = structuredClone(manifest);
+  invalidSecretProviderReference.secret_provider.access_token.provider_ref = "invalid ref";
+  await assert.rejects(
+    () => assertCanaryExternalPackage(invalidSecretProviderReference, { packageRoot, environment, currentHead, now }),
+    /provider_ref is invalid/,
+  );
+
+  const fixturePackage = structuredClone(manifest);
+  fixturePackage.fixture_only = true;
+  fixturePackage.target.server_identity = "game.example.test";
+  fixturePackage.artifacts = fixturePackage.artifacts.map((artifact) => ({ ...artifact, fixture_only: true }));
+  const fixtureProfileHashes = profilesForServerIdentity("game.example.test");
+  const fixtureContract = structuredClone(approvedContract);
+  fixtureContract.status = "FIXTURE_ONLY";
+  fixtureContract.fixture_only = true;
+  fixtureContract.target_approval.target_identity = "game.example.test";
+  fixtureContract.target_approval.target_hostname = "game.example.test";
+  fixtureContract.target_approval.provenance.scope = "repository-local-synthetic-fixture";
+  fixtureContract.target_approval.approval_reference = "fixture:approval";
+  fixtureContract.target_approval.approver = "fixture";
+  fixtureContract.target_approval.profile.complete_sha256 = fixtureProfileHashes.complete.sha256;
+  fixtureContract.target_approval.profile.sparse_sha256 = fixtureProfileHashes.sparse.sha256;
+  fixtureContract.credential_policy.credentials[0].secret_provider_ref = "fixture:secret-provider";
+  fixtureContract.workflow.approval_reference = "fixture:approval";
+  fixtureContract.identity_separation.canary_target_identity = "game.example.test";
+  const fixtureEnvironment = {
+    ...environment,
+    TLSN_CANARY_FIXTURE_ONLY: "true",
+    TLSN_CANDIDATE_SERVER_IDENTITY: "game.example.test",
+    TLSN_CANDIDATE_PROFILE_SHA256: fixtureProfileHashes.complete.sha256,
+    TLSN_CANDIDATE_SPARSE_PROFILE_SHA256: fixtureProfileHashes.sparse.sha256,
+    TLSN_CANARY_APPROVED_INPUT_CONTRACT_JSON: JSON.stringify(fixtureContract),
+  };
+  const fixtureTargetApprovalBytes = Buffer.from(canonicalJson(fixtureContract), "utf8");
+  await writeFile(join(packageRoot, fixturePackage.artifacts[0].path), fixtureTargetApprovalBytes);
+  fixturePackage.artifacts[0].sha256 = sha256(fixtureTargetApprovalBytes);
+  for (const artifact of fixturePackage.artifacts.slice(1)) {
+    const path = join(packageRoot, artifact.path);
+    const content = JSON.parse((await readFile(path)).toString("utf8"));
+    content.fixture_only = true;
+    content.subject.server_identity = "game.example.test";
+    content.provenance.authority_artifact_sha256 = fixturePackage.artifacts[0].sha256;
+    const bytes = Buffer.from(JSON.stringify(content), "utf8");
+    await writeFile(path, bytes);
+    artifact.sha256 = sha256(bytes);
+  }
+  fixturePackage.authority.reference = "authority/test-harness-2026";
+  fixturePackage.authority.approval_artifact_sha256 = fixturePackage.artifacts[0].sha256;
+  fixturePackage.inputs = fixturePackage.inputs.map((input) => ({
+    ...input,
+    value_sha256: inputFingerprintFor(input.name, fixtureEnvironment),
+  }));
+  await assert.rejects(
+    () => assertCanaryExternalPackage(fixturePackage, { packageRoot, environment: fixtureEnvironment, currentHead, now }),
+    /fixture-only external package is not accepted/,
+  );
+  assert.equal(
+    (await assertCanaryExternalPackage(fixturePackage, {
+      packageRoot,
+      environment: fixtureEnvironment,
+      currentHead,
+      now,
+      allowSyntheticFixture: true,
+    })).fixture_only,
+    true,
+  );
+  for (const [path, bytes] of originalArtifactFiles) await writeFile(join(packageRoot, path), bytes);
+
+  for (const field of ["current", "fixture_only", "historical"]) {
+    const invalidArtifactStatus = structuredClone(manifest);
+    invalidArtifactStatus.artifacts[1][field] = field === "current" ? false : true;
+    await assert.rejects(
+      () => assertCanaryExternalPackage(invalidArtifactStatus, { packageRoot, environment, currentHead, now }),
+      /current\/fixture status is invalid/,
+      `artifact ${field} status`,
+    );
+  }
+
+  const genericArtifactPath = join(packageRoot, manifest.artifacts[1].path);
+  const originalGenericArtifact = await readFile(genericArtifactPath);
+  const genericContent = JSON.parse(originalGenericArtifact.toString("utf8"));
+  genericContent.subject.commit_sha = "b".repeat(40);
+  const rewrittenGenericArtifact = Buffer.from(JSON.stringify(genericContent), "utf8");
+  await writeFile(genericArtifactPath, rewrittenGenericArtifact);
+  const mismatchedSubject = structuredClone(manifest);
+  mismatchedSubject.artifacts[1].sha256 = sha256(rewrittenGenericArtifact);
+  await assert.rejects(
+    () => assertCanaryExternalPackage(mismatchedSubject, { packageRoot, environment, currentHead, now }),
+    /artifact subject mismatch: commit_sha/,
+  );
+  const malformedGenericContent = structuredClone(genericContent);
+  delete malformedGenericContent.provenance;
+  const malformedGenericBytes = Buffer.from(JSON.stringify(malformedGenericContent), "utf8");
+  await writeFile(genericArtifactPath, malformedGenericBytes);
+  const malformedGeneric = structuredClone(manifest);
+  malformedGeneric.artifacts[1].sha256 = sha256(malformedGenericBytes);
+  await assert.rejects(
+    () => assertCanaryExternalPackage(malformedGeneric, { packageRoot, environment, currentHead, now }),
+    /artifact content fields are invalid/,
+  );
+  const futureGenericContent = JSON.parse(originalGenericArtifact.toString("utf8"));
+  futureGenericContent.validity.issued_at = "2026-01-01T00:00:01.000Z";
+  const futureGenericBytes = Buffer.from(JSON.stringify(futureGenericContent), "utf8");
+  await writeFile(genericArtifactPath, futureGenericBytes);
+  const futureGeneric = structuredClone(manifest);
+  futureGeneric.artifacts[1].sha256 = sha256(futureGenericBytes);
+  await assert.rejects(
+    () => assertCanaryExternalPackage(futureGeneric, { packageRoot, environment, currentHead, now }),
+    /validity window is not current/,
+  );
+  await writeFile(genericArtifactPath, originalGenericArtifact);
+
+  const diagnosticsCase = structuredClone(manifest);
+  diagnosticsCase.authority.reference = "authority/manifest/self";
+  let diagnosticsError;
+  try {
+    await assertCanaryExternalPackage(diagnosticsCase, { packageRoot, environment, currentHead, now });
+  } catch (error) {
+    diagnosticsError = error;
+  }
+  assert.match(diagnosticsError?.message ?? "", /self-asserted/);
+  assert.equal(diagnosticsError.name, "CanaryExternalPackageValidationError");
+  assert.deepEqual(Object.keys(diagnosticsError.diagnostics[0]).sort(), ["actual", "category", "expected", "field", "owner", "reason"]);
+  assert.doesNotMatch(JSON.stringify(diagnosticsError.diagnostics), /secret-marker|private-key-marker/);
 } finally {
   await rm(packageRoot, { recursive: true, force: true });
 }
