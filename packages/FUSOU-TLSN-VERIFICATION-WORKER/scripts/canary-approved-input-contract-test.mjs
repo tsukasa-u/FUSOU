@@ -12,7 +12,9 @@ import { profilesForServerIdentity } from "./profile-canonical-contract.mjs";
 const now = new Date("2026-09-22T12:00:00.000Z");
 const future = (seconds) => new Date(now.getTime() + seconds * 1000).toISOString();
 const { publicKey } = generateKeyPairSync("ed25519");
+const { publicKey: otherPublicKey } = generateKeyPairSync("ed25519");
 const verifierPublicKeySpki = publicKey.export({ format: "der", type: "spki" }).toString("base64url");
+const otherVerifierPublicKeySpki = otherPublicKey.export({ format: "der", type: "spki" }).toString("base64url");
 const hash = (byte) => Buffer.alloc(32, byte).toString("base64url");
 const currentHead = "a".repeat(40);
 const profileHashes = profilesForServerIdentity("canary-target.example.com");
@@ -156,18 +158,28 @@ assert.doesNotThrow(() => assertCanaryApprovedInputContract(contract({ fixtureOn
   expectedBindingValue: "canary-binding-value",
 }));
 
-for (const mutate of [
-  (value) => { value.target_approval.target_identity = "game.example.test"; },
-  (value) => { value.target_approval.environment = "production"; },
-  (value) => { value.target_approval.profile.complete_sha256 = profileHashes.sparse.sha256; },
-  (value) => { value.target_approval.verifier_key_id = "verifier-other-2026"; },
-  (value) => { value.target_approval.provenance.scope = "historical-canary-evidence"; },
-  (value) => { value.verifier.public_key_spki = "secret-value"; },
-  (value) => { value.credential_policy.credentials[0].expires_at = now.toISOString(); },
-  (value) => { value.workflow.run_id = ""; },
-  (value) => { value.binding.replay_binding_identity = value.binding.binding_identity; },
-  (value) => { value.identity_separation.canary_trust_identity = value.identity_separation.replay_trust_identity; },
-  (value) => { value.workflow.commit_sha = "b".repeat(40); },
+for (const [label, mutate] of [
+  ["missing target approval", (value) => { delete value.target_approval; }],
+  ["expired target approval", (value) => { value.target_approval.expires_at = now.toISOString(); }],
+  ["fixture target identity", (value) => { value.target_approval.target_identity = "game.example.test"; }],
+  ["wrong environment", (value) => { value.target_approval.environment = "production"; }],
+  ["profile must be an object", (value) => { value.target_approval.profile = []; }],
+  ["profile hash mismatch", (value) => { value.target_approval.profile.complete_sha256 = profileHashes.sparse.sha256; }],
+  ["trust hash mismatch", (value) => { value.target_approval.trust.notary_registry_sha256 = hash(9); }],
+  ["verifier key ID mismatch", (value) => { value.target_approval.verifier_key_id = "verifier-other-2026"; }],
+  ["verifier public key mismatch", (value) => { value.verifier.public_key_spki = otherVerifierPublicKeySpki; }],
+  ["verifier validity window", (value) => { value.verifier.not_before = future(1); }],
+  ["historical artifact provenance", (value) => { value.target_approval.provenance.scope = "historical-canary-evidence"; }],
+  ["credential expired", (value) => { value.credential_policy.credentials[0].expires_at = now.toISOString(); }],
+  ["credential lifetime exceeded", (value) => { value.credential_policy.credentials[0].expires_at = future(7_200); }],
+  ["authentication credential mismatch", (value) => { value.authentication.credentials[0].credential_id = "unknown-credential"; }],
+  ["secret-looking field", (value) => { value.authentication.token_value = "forbidden"; }],
+  ["missing workflow provenance", (value) => { delete value.workflow.workflow_file_identity; }],
+  ["replay binding reused", (value) => { value.binding.replay_binding_identity = value.binding.binding_identity; }],
+  ["identity collision", (value) => { value.identity_separation.canary_trust_identity = value.identity_separation.replay_trust_identity; }],
+  ["workflow commit mismatch", (value) => { value.workflow.commit_sha = "b".repeat(40); }],
+  ["evidence authority mismatch", (value) => { value.evidence_semantics.authority = ["callback_metadata"]; }],
+  ["unexpected contract field", (value) => { value.unexpected = true; }],
 ]) {
   const invalid = structuredClone(valid);
   mutate(invalid);
@@ -186,7 +198,7 @@ for (const mutate of [
     expectedBindingAuthorityKeyId: "binding-canary-2026",
     expectedBindingIdentity: "canary-binding-2026",
     expectedBindingValue: "canary-binding-value",
-  }));
+  }), label);
 }
 
 console.log("[tlsn-canary-approved-input-contract] approved, fixture-only, expiry, key, binding, workflow, and secret-field cases PASS");

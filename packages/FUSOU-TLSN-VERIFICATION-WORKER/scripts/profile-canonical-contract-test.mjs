@@ -54,6 +54,15 @@ assert.deepEqual(profiles.sparse.profile, {
 });
 assert.equal(profiles.complete.canonical, '{"id":"fusou-require-info-v1","server_identity":"game.example.test","target":"/kcsapi/api_get_member/require_info"}');
 assert.equal(profiles.sparse.canonical, '{"disclosure_mode":"sparse","id":"fusou-require-info-v2-sparse","server_identity":"game.example.test","target":"/kcsapi/api_get_member/require_info","version":2}');
+assert.equal(profiles.complete.sha256, "J-wctsF_XXLyRZ-2Ap1VTeHdsXluWXWEY6pJ2lohCJk");
+assert.equal(profiles.sparse.sha256, "6wu8nk0fn6OCQp7Rbpk3yJ0-dyPXAy2uO8aU1vvvcBA");
+const reorderedComplete = canonicalProfileHash({
+  target: REQUIRE_INFO_TARGET,
+  server_identity: FIXTURE_SERVER_IDENTITY,
+  id: COMPLETE_PROFILE_ID,
+}, "complete");
+assert.equal(reorderedComplete.canonical, profiles.complete.canonical);
+assert.equal(reorderedComplete.sha256, profiles.complete.sha256);
 assert.equal(Buffer.from(profiles.complete.canonical, "utf8").toString("utf8"), profiles.complete.canonical);
 assert.notEqual(profiles.complete.sha256, profiles.sparse.sha256);
 assert.equal(PROFILE_CONTRACT_SPEC.canonicalization, "canonicalJson");
@@ -112,6 +121,14 @@ expectReject("cross-profile sparse hash in complete field", () => assertProfileC
   profileSha256: profiles.sparse.sha256,
   sparseProfileSha256: profiles.sparse.sha256,
 }));
+expectReject("complete hash with base64 padding", () => assertProfileContractInputs({
+  serverIdentity: FIXTURE_SERVER_IDENTITY,
+  profileSha256: `${profiles.complete.sha256}=`,
+  sparseProfileSha256: profiles.sparse.sha256,
+}));
+const changedIdentityProfiles = profilesForServerIdentity("other.example.test");
+assert.notEqual(changedIdentityProfiles.complete.sha256, profiles.complete.sha256);
+assert.notEqual(changedIdentityProfiles.sparse.sha256, profiles.sparse.sha256);
 expectReject("selected profile wrong identity", () => assertSelectedProfile({
   serverIdentity: "other.example.test",
   profileSha256: profiles.complete.sha256,
