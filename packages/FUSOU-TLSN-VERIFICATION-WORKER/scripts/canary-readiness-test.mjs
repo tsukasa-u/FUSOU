@@ -9,6 +9,7 @@ import {
 } from "./deployment-contract.mjs";
 import { checkoutCommit, workflowContextFromEnvironment } from "./deployment-attestation.mjs";
 import { assertCanaryApprovedInputContract } from "./canary-approved-input-contract.mjs";
+import { CANARY_EXTERNAL_INPUT_INTAKE } from "./canary-external-input-intake.mjs";
 
 const packageDirectory = resolve(new URL("..", import.meta.url).pathname);
 const repositoryDirectory = resolve(packageDirectory, "../..");
@@ -242,7 +243,7 @@ function authStatus() {
 }
 
 function approvedInputContractStatus() {
-  if (!allPresent(APPROVED_INPUT_CONTRACT_INPUTS)) return "MISSING";
+  if (!allPresent(APPROVED_INPUT_CONTRACT_INPUTS)) return { status: "MISSING", reason: "one or more approved contract inputs are missing" };
   try {
     assertCanaryApprovedInputContract(process.env.TLSN_CANARY_APPROVED_INPUT_CONTRACT_JSON, {
       fixtureOnly: process.env.TLSN_CANARY_FIXTURE_ONLY === "true",
@@ -264,10 +265,57 @@ function approvedInputContractStatus() {
         workflow_file_identity: process.env.TLSN_WORKFLOW_FILE_IDENTITY?.trim(),
       },
     });
-    return process.env.TLSN_CANARY_FIXTURE_ONLY === "true" ? "FIXTURE_ONLY" : "APPROVED";
+    return process.env.TLSN_CANARY_FIXTURE_ONLY === "true"
+      ? { status: "FIXTURE_ONLY", reason: "fixture-only mode is explicitly enabled" }
+      : { status: "APPROVED", reason: "approved input contract passed" };
   } catch {
-    return "INVALID";
+    return {
+      status: "PRESENT_INVALID",
+      reason: "approved input contract validation failed",
+    };
   }
+}
+
+function readinessInputDiagnostics({ deployment, target, approvedInputContract, trust, auth, binding, workflow, runtime }) {
+  const missing = new Set(missingInputNames());
+  const statusByName = new Map();
+  for (const entry of CANARY_EXTERNAL_INPUT_INTAKE) {
+    if (missing.has(entry.name)) {
+      statusByName.set(entry.name, { status: "MISSING", reason: "required input is not present" });
+    } else if (entry.name === "TLSN_REMOTE_DEVICE_A_PRIVATE_KEY_PKCS8_FILE" || entry.name === "TLSN_REMOTE_DEVICE_A_PRIVATE_KEY_PKCS8_B64URL") {
+      statusByName.set(entry.name, {
+        status: "NOT_REQUIRED",
+        reason: "the other device private-key representation satisfies this one-of input",
+      });
+    } else {
+      statusByName.set(entry.name, { status: "PRESENT_UNVERIFIED", reason: "present; the owning gate has not completed" });
+    }
+  }
+  const setGroup = (names, status, reason) => {
+    for (const name of names) {
+      if (statusByName.get(name)?.status !== "MISSING") statusByName.set(name, { status, reason });
+    }
+  };
+  if (deployment === "PASS") setGroup(DEPLOYMENT_INPUTS, "VALID", "deployment identity matches the checked-out HEAD and canary role");
+  if (deployment === "INVALID") setGroup(DEPLOYMENT_INPUTS, "PRESENT_MISMATCHED", "deployment environment, role, or commit does not match the current preflight contract");
+  if (target === "FIXTURE_OR_SYNTHETIC") setGroup(TARGET_INPUTS, "PRESENT_INVALID", "fixture, synthetic, local, staging, or historical target identity is not a real Canary target");
+  if (trust === "PRESENT_UNVERIFIED") setGroup(TRUST_INPUTS, "PRESENT_UNVERIFIED", "trust metadata is present but requires deployment-preflight and approved registry verification");
+  if (auth === "PRESENT_UNAPPROVED") setGroup(AUTH_INPUTS, "PRESENT_UNVERIFIED", "authentication inputs are present but require approved short-lived material and remote validation");
+  if (binding === "PRESENT_UNVERIFIED") setGroup(BINDING_INPUTS, "PRESENT_UNVERIFIED", "Canary binding is present but must be verified as distinct from Replay");
+  if (workflow === "PASS") setGroup(WORKFLOW_INPUTS, "VALID", "workflow context and current commit passed deployment-attestation checks");
+  if (workflow === "INVALID") setGroup(WORKFLOW_INPUTS, "PRESENT_INVALID", "workflow context is present but invalid");
+  if (runtime === "PRESENT") setGroup(CANARY_RUNTIME_INPUTS, "PRESENT_UNVERIFIED", "runtime input is present and remains deployment-gated");
+  if (approvedInputContract.status === "APPROVED") setGroup(APPROVED_INPUT_CONTRACT_INPUTS, "VALID", approvedInputContract.reason);
+  if (approvedInputContract.status === "PRESENT_INVALID") setGroup(APPROVED_INPUT_CONTRACT_INPUTS, "PRESENT_INVALID", approvedInputContract.reason);
+  if (approvedInputContract.status === "FIXTURE_ONLY") setGroup(APPROVED_INPUT_CONTRACT_INPUTS, "FIXTURE_ONLY", approvedInputContract.reason);
+  return CANARY_EXTERNAL_INPUT_INTAKE.map((entry) => ({
+    name: entry.name,
+    category: entry.category,
+    phase: entry.phase ?? "DEPLOYMENT_PREFLIGHT",
+    secret: entry.secret,
+    status: statusByName.get(entry.name)?.status ?? "MISSING",
+    reason: statusByName.get(entry.name)?.reason ?? "required input is not present",
+  }));
 }
 
 function identitySeparationStatus() {
@@ -276,16 +324,14 @@ function identitySeparationStatus() {
 }
 
 function missingInputNames() {
-  const names = [
-    ...DEPLOYMENT_INPUTS,
-    ...APPROVED_INPUT_CONTRACT_INPUTS,
-    ...TARGET_INPUTS,
-    ...TRUST_INPUTS,
-    ...BINDING_INPUTS,
-    ...WORKFLOW_INPUTS,
-    ...CANARY_RUNTIME_INPUTS,
-    ...AUTH_INPUTS.filter((name) => !REMOTE_DEVICE_PRIVATE_KEY_INPUTS.includes(name)),
-  ].filter((name) => !present(name));
+  const names = CANARY_EXTERNAL_INPUT_INTAKE
+    .map((entry) => entry.name)
+    .filter((name) => !present(name));
+  const remoteDevicePrivateKeyMissing = REMOTE_DEVICE_PRIVATE_KEY_INPUTS.every((name) => !present(name));
+  if (!remoteDevicePrivateKeyMissing) {
+    return names.filter((name) => !REMOTE_DEVICE_PRIVATE_KEY_INPUTS.includes(name));
+  }
+  names.push(...REMOTE_DEVICE_PRIVATE_KEY_INPUTS);
   if (!REMOTE_DEVICE_PRIVATE_KEY_INPUTS.some(present)) names.push(...REMOTE_DEVICE_PRIVATE_KEY_INPUTS);
   return names.filter((name, index, values) => values.indexOf(name) === index);
 }
@@ -305,9 +351,9 @@ async function buildReadinessReport(artifacts) {
     current_head: /^[0-9a-f]{40}$/.test(currentHead),
     contract: await contractStatus() === "PASS",
     deployment_contract: deploymentStatus() === "PASS",
-    approved_input_contract: approvedInputContract === "APPROVED",
-    target_provenance: approvedInputContract === "APPROVED" && target === "PRESENT_UNAPPROVED" && artifactCandidates.length > 0,
-    trust_material: trust === "PRESENT_UNVERIFIED" && approvedInputContract === "APPROVED",
+    approved_input_contract: approvedInputContract.status === "APPROVED",
+    target_provenance: approvedInputContract.status === "APPROVED" && target === "PRESENT_UNAPPROVED" && artifactCandidates.length > 0,
+    trust_material: trust === "PRESENT_UNVERIFIED" && approvedInputContract.status === "APPROVED",
     authentication: auth === "PRESENT_UNAPPROVED",
     binding: binding === "PRESENT_UNVERIFIED",
     workflow_provenance: workflow === "PASS",
@@ -328,7 +374,7 @@ async function buildReadinessReport(artifacts) {
     inputs: {
       deployment: { status: deploymentStatus(), fields: statuses(DEPLOYMENT_INPUTS) },
       target_provenance: { status: target, fields: statuses(TARGET_INPUTS) },
-      approved_input_contract: { status: approvedInputContract, fields: statuses(APPROVED_INPUT_CONTRACT_INPUTS) },
+      approved_input_contract: { status: approvedInputContract.status, fields: statuses(APPROVED_INPUT_CONTRACT_INPUTS) },
       trust: { status: trust, fields: statuses(TRUST_INPUTS) },
       authentication: { status: auth, fields: statuses(AUTH_INPUTS) },
       binding: { status: binding, fields: statuses(BINDING_INPUTS) },
@@ -348,6 +394,7 @@ async function buildReadinessReport(artifacts) {
       approved_current_candidates: artifactCandidates,
     },
     gates,
+    input_diagnostics: readinessInputDiagnostics({ deployment: deploymentStatus(), target, approvedInputContract, trust, auth, binding, workflow, runtime }),
     missing_inputs: missingInputNames(),
     resume_conditions: {
       target_provenance: "Externally approved non-fixture server identity, canonical complete/sparse profiles, and target provenance must be supplied; hostname metadata alone is insufficient.",

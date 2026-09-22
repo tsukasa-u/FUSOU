@@ -12,11 +12,17 @@ import {
   RUNTIME_INPUTS,
   secretInputsForRole,
 } from "./deployment-contract.mjs";
+import { CANARY_EXTERNAL_INPUT_INTAKE } from "./canary-external-input-intake.mjs";
 
 const packageDirectory = resolve(new URL("..", import.meta.url).pathname);
 const inputManifestPath = resolve(packageDirectory, "scripts/production-inputs.json");
 const deploymentAuthInputs = DEPLOYMENT_AUTH_INPUTS;
 const inheritedRuntimeInputs = RUNTIME_INPUTS;
+const remoteValidationOnlyInputs = new Set(
+  CANARY_EXTERNAL_INPUT_INTAKE
+    .filter((entry) => entry.phase === "REMOTE_VALIDATION_ONLY")
+    .map((entry) => entry.name),
+);
 
 function runGit(argumentsList) {
   const result = spawnSync("git", argumentsList, { cwd: packageDirectory, encoding: "utf8" });
@@ -46,11 +52,13 @@ async function main() {
   assertManifest(manifest);
   const allowedInputs = inputsForRole("canary");
   const secretInputs = new Set(secretInputsForRole("canary"));
-  const deploymentEnvironment = {
-    ...process.env,
+  const deploymentEnvironment = Object.fromEntries(
+    Object.entries(process.env).filter(([name]) => !remoteValidationOnlyInputs.has(name)),
+  );
+  Object.assign(deploymentEnvironment, {
     TLSN_DEPLOYMENT_ROLE: "canary",
     TLSN_GIT_COMMIT_SHA: gitCommitSha,
-  };
+  });
   const preflight = spawnSync("pnpm", ["run", "preflight:production"], {
     cwd: packageDirectory,
     env: deploymentEnvironment,

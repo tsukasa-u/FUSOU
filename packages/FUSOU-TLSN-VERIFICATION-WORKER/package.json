@@ -20,6 +20,7 @@
     "preflight:production": "node scripts/deployment-preflight.mjs",
     "test:canary-readiness": "node scripts/canary-readiness-test.mjs",
     "test:canary-approved-input-contract": "node scripts/canary-approved-input-contract-test.mjs",
+    "test:canary-input-intake": "node scripts/canary-external-input-intake-test.mjs",
     "provision:canary": "node scripts/provision-canary-material.mjs",
     "render:app-config": "node scripts/render-app-config.mjs",
     "capture:deployment": "node scripts/capture-deployment.mjs",
