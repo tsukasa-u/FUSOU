@@ -640,7 +640,6 @@ function replayVerificationAttemptHeader(
   if (
     env.TLSN_ENVIRONMENT === "test"
     && env.TLSN_DEPLOYMENT_ROLE === "replay"
-    && benchmarkEnabled(env)
     && verificationAttemptId !== undefined
   ) {
     headers.set(REPLAY_VERIFICATION_ATTEMPT_HEADER, verificationAttemptId);
@@ -3902,7 +3901,9 @@ const handleTlsnVerification = async (c: Context<{ Bindings: Bindings }>) => {
     const queue = shouldUseQueueExecution(c.env) ? c.env.TLSN_VERIFICATION_QUEUE : undefined;
     const direct = useDirectExecution ? c.env.TLSN_DIRECT_VERIFIER : undefined;
     const testSynchronousCandidate = shouldUseSynchronousDirectResponse(c.env);
-    const synchronousResponse = synchronousDirect || testSynchronousCandidate;
+    const testDirectFault = testDirectFaultForRequest(c.env, c.req.raw);
+    const effectiveSynchronousResponse = synchronousDirect
+      || (testSynchronousCandidate && testDirectFault !== "pause_before_result_commit");
     if (!trigger && !queue && !direct) {
       return c.json({
         verified: false,
@@ -3947,7 +3948,7 @@ const handleTlsnVerification = async (c: Context<{ Bindings: Bindings }>) => {
       ? undefined
       : performance.now() - devicePossessionStartedAt;
     if (!devicePossession.ok) {
-      if (synchronousResponse && c.env.TLSN_DEPLOYMENT_ROLE !== "replay" && devicePossession.error === "device_possession_replayed") {
+      if (effectiveSynchronousResponse && c.env.TLSN_DEPLOYMENT_ROLE !== "replay" && devicePossession.error === "device_possession_replayed") {
         const replayPresentationId = encodeBase64Url(
           new Uint8Array(await crypto.subtle.digest("SHA-256", presentationBytes)),
         );
@@ -4121,10 +4122,10 @@ const handleTlsnVerification = async (c: Context<{ Bindings: Bindings }>) => {
           directVerificationAttemptId ?? "",
           presentationBytes,
           directDispatchStartedAt,
-          testDirectFaultForRequest(c.env, c.req.raw),
-          synchronousResponse,
+          testDirectFault,
+          effectiveSynchronousResponse,
         );
-        if (synchronousResponse) {
+        if (effectiveSynchronousResponse) {
           try {
             const directResponse = await directDispatch;
             if (!directResponse.ok) throw new Error(`direct verifier failed with status ${directResponse.status}`);
@@ -4379,6 +4380,9 @@ const handleTlsnVerification = async (c: Context<{ Bindings: Bindings }>) => {
     ).catch(() => undefined));
     c.header("Cache-Control", "no-store");
     c.header("Content-Type", "application/json");
+    if (c.env.TLSN_ENVIRONMENT === "test" && c.env.TLSN_DEPLOYMENT_ROLE === "replay") {
+      c.header(REPLAY_VERIFICATION_ATTEMPT_HEADER, synchronousAttemptId);
+    }
     return c.body(finalResponseBody, 200);
   } catch {
     await finalizeVerificationFailure(c.env, {
