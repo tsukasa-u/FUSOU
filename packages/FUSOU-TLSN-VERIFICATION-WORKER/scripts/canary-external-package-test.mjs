@@ -326,6 +326,35 @@ try {
     /target identity does not match/,
   );
 
+  const wrongBinding = structuredClone(manifest);
+  wrongBinding.target.binding_identity = "other-canary-binding";
+  await assert.rejects(
+    () => assertCanaryExternalPackage(wrongBinding, { packageRoot, environment, currentHead, now }),
+    /binding identity does not match deployment input/,
+    "binding mismatch must be rejected",
+  );
+
+  const wrongProvenance = structuredClone(manifest);
+  const provenanceArtifact = JSON.parse((await readFile(join(packageRoot, wrongProvenance.artifacts[1].path))).toString("utf8"));
+  provenanceArtifact.provenance.authority_artifact_sha256 = sha256("other-authority-artifact");
+  const provenanceBytes = Buffer.from(JSON.stringify(provenanceArtifact), "utf8");
+  await writeFile(join(packageRoot, wrongProvenance.artifacts[1].path), provenanceBytes);
+  wrongProvenance.artifacts[1].sha256 = sha256(provenanceBytes);
+  await assert.rejects(
+    () => assertCanaryExternalPackage(wrongProvenance, { packageRoot, environment, currentHead, now }),
+    /authority provenance does not bind target approval/,
+    "artifact provenance mismatch must be rejected",
+  );
+  await writeFile(join(packageRoot, wrongProvenance.artifacts[1].path), originalArtifactFiles.get(wrongProvenance.artifacts[1].path));
+
+  const pathTraversal = structuredClone(manifest);
+  pathTraversal.artifacts[1].path = "../outside-package.json";
+  await assert.rejects(
+    () => assertCanaryExternalPackage(pathTraversal, { packageRoot, environment, currentHead, now }),
+    /escapes the package directory/,
+    "artifact path traversal must be rejected",
+  );
+
   const secretValue = structuredClone(manifest);
   secretValue.secret_provider.access_token.access_token_value = "secret-marker";
   await assert.rejects(
@@ -428,6 +457,14 @@ try {
     currentHead,
     now,
   }), "one private-key representation must not affect package acceptance");
+
+  const missingAccessTokenReference = structuredClone(manifest);
+  delete missingAccessTokenReference.secret_provider.access_token.provider_ref;
+  await assert.rejects(
+    () => assertCanaryExternalPackage(missingAccessTokenReference, { packageRoot, environment, currentHead, now }),
+    /external package access token reference fields are invalid/,
+    "missing access-token provider reference must be rejected",
+  );
 
   const invalidSecretProviderReference = structuredClone(manifest);
   invalidSecretProviderReference.secret_provider.access_token.provider_ref = "invalid ref";

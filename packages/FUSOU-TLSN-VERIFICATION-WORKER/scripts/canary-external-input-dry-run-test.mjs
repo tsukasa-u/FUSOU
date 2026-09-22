@@ -9,6 +9,7 @@ const report = await inspectCanaryExternalInput({
   TLSN_REMOTE_ACCESS_TOKEN_A: secretMarker,
   TLSN_CANARY_UNEXPECTED_INPUT: "unexpected",
 });
+const missingSecretReport = await inspectCanaryExternalInput({});
 const serialized = JSON.stringify(report);
 
 assert.equal(report.network_access, "NOT_USED");
@@ -20,6 +21,8 @@ assert.equal(report.external_package.package_state, "ABSENT");
 assert.equal(report.external_package.verification.acceptance, "BLOCKED");
 assert.equal(report.external_package.verification.readiness_eligible, false);
 assert.equal(report.readiness, "BLOCKED");
+assert.ok(missingSecretReport.missing_required_inputs.includes("TLSN_REMOTE_ACCESS_TOKEN_A"));
+assert.ok(missingSecretReport.missing_required_inputs.some((name) => name.startsWith("REMOTE_DEVICE_PRIVATE_KEY_ONE_OF:one-of:")));
 assert.equal(report.external_package.diagnostics[0].category, "ABSENCE");
 assert.ok(report.missing_required_inputs.length > 0);
 assert.deepEqual(report.invalid_required_groups, []);
@@ -42,5 +45,14 @@ assert.deepEqual(bothPrivateKeyRepresentations.invalid_required_groups, [
   "REMOTE_DEVICE_PRIVATE_KEY_ONE_OF:exactly-one:TLSN_REMOTE_DEVICE_A_PRIVATE_KEY_PKCS8_FILE,TLSN_REMOTE_DEVICE_A_PRIVATE_KEY_PKCS8_B64URL",
 ]);
 assert.equal(bothPrivateKeyRepresentations.validation, "FAIL");
+
+const invalidPackage = await inspectCanaryExternalInput({
+  TLSN_CANARY_EXTERNAL_PACKAGE_MANIFEST: "/tmp/nonexistent-canary-external-package/manifest.json",
+});
+assert.equal(invalidPackage.external_package.status, "INVALID");
+assert.equal(invalidPackage.external_package.package_state, "INVALID");
+assert.equal(invalidPackage.external_package.verification.acceptance, "BLOCKED");
+assert.equal(invalidPackage.external_package.verification.readiness_eligible, false);
+assert.equal(invalidPackage.readiness, "BLOCKED");
 
 console.log("[tlsn-canary-input-dry-run] presence, format, phase, unexpected-input, and secret-redaction contract PASS");
