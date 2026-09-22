@@ -69,6 +69,9 @@ export type Bindings = {
   TLSN_TEST_DIRECT_VERIFIER_MODE?: string;
   TLSN_TEST_DIRECT_VERIFIER_DELAY_MS?: string;
   TLSN_TEST_DIRECT_SYNCHRONOUS_CANDIDATE?: string;
+  TLSN_REPLAY_TEST_VERIFICATION_LEASE_MS?: string;
+  TLSN_REPLAY_TEST_POST_RESULT_DELAY_MS?: string;
+  TLSN_REPLAY_TEST_POST_RESULT_DELAY_ONCE?: string;
   TLSN_REPLAY_DEPLOYMENT_ID?: string;
   TLSN_REPLAY_WORKER_NAME?: string;
   TLSN_REPLAY_AUTH_USERS?: string;
@@ -1071,10 +1074,11 @@ async function delayTestCompletion(env: Bindings): Promise<void> {
 }
 
 function verificationLeaseMs(env: Bindings): number {
-  if (env.TLSN_ENVIRONMENT !== "test" || env.TLSN_TEST_VERIFICATION_LEASE_MS === undefined) {
+  const configuredLease = env.TLSN_TEST_VERIFICATION_LEASE_MS ?? env.TLSN_REPLAY_TEST_VERIFICATION_LEASE_MS;
+  if (env.TLSN_ENVIRONMENT !== "test" || configuredLease === undefined) {
     return VERIFICATION_LEASE_MS;
   }
-  const leaseMs = Number(env.TLSN_TEST_VERIFICATION_LEASE_MS);
+  const leaseMs = Number(configuredLease);
   return Number.isInteger(leaseMs) && leaseMs > 0 && leaseMs <= VERIFICATION_LEASE_MS
     ? leaseMs
     : VERIFICATION_LEASE_MS;
@@ -1090,11 +1094,13 @@ function directInvocationTimeoutMs(env: Bindings): number {
 }
 
 async function delayAtResultCommit(env: Bindings, testFault: TestDirectFault | undefined, expectedFault: TestDirectFault): Promise<void> {
-  if (env.TLSN_ENVIRONMENT !== "test" || env.TLSN_TEST_POST_RESULT_DELAY_MS === undefined) return;
+  const configuredDelay = env.TLSN_TEST_POST_RESULT_DELAY_MS ?? env.TLSN_REPLAY_TEST_POST_RESULT_DELAY_MS;
+  if (env.TLSN_ENVIRONMENT !== "test" || configuredDelay === undefined) return;
   if (testFault !== expectedFault) return;
-  const delayMs = Number(env.TLSN_TEST_POST_RESULT_DELAY_MS);
+  const delayMs = Number(configuredDelay);
   if (!Number.isInteger(delayMs) || delayMs <= 0 || delayMs > 120_000) return;
-  if (env.TLSN_TEST_POST_RESULT_DELAY_ONCE === "true") {
+  const delayOnce = env.TLSN_TEST_POST_RESULT_DELAY_ONCE ?? env.TLSN_REPLAY_TEST_POST_RESULT_DELAY_ONCE;
+  if (delayOnce === "true") {
     if (testPostResultDelayUsed) return;
     testPostResultDelayUsed = true;
   }

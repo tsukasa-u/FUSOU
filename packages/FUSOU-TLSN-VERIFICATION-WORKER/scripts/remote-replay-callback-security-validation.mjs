@@ -408,7 +408,7 @@ async function main() {
     deviceId,
     privateKey,
     staleFixture,
-    { testFault: "failure" },
+    { testFault: "pause_before_result_commit" },
   );
   const staleJobId = typeof staleSubmission.json?.job_id === "string"
     ? staleSubmission.json.job_id

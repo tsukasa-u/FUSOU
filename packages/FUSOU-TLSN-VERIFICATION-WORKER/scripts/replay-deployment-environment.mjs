@@ -108,6 +108,16 @@ export function normalizeReplayDeploymentEnvironment(inputEnvironment) {
   const replayAuthUsers = required("TLSN_REPLAY_AUTH_USERS", environment);
   const replayDeviceId = required("TLSN_REPLAY_DEVICE_ID", environment);
   const replayDevicePublicKey = required("TLSN_REPLAY_DEVICE_PUBLIC_KEY", environment);
+  for (const [name, minimum, maximum] of [
+    ["TLSN_REPLAY_TEST_VERIFICATION_LEASE_MS", 1, 60000],
+    ["TLSN_REPLAY_TEST_POST_RESULT_DELAY_MS", 1, 120000],
+  ]) {
+    if (environment[name] === undefined) continue;
+    const value = Number(environment[name]);
+    if (!Number.isInteger(value) || value < minimum || value > maximum) {
+      throw new Error(`${name} must be an integer between ${minimum} and ${maximum}`);
+    }
+  }
 
   return {
     ...environment,

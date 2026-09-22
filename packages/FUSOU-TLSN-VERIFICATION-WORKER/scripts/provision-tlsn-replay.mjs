@@ -164,6 +164,9 @@ async function main() {
       ["TLSN_REPLAY_DEVICE_PUBLIC_KEY", required(generated, "TLSN_TEST_DEVICE_PUBLIC_KEY")],
       ["TLSN_REPLAY_ACCESS_TOKEN", required(generated, "TLSN_REMOTE_ACCESS_TOKEN_A")],
       ["TLSN_REPLAY_DEVICE_A_PRIVATE_KEY_PKCS8_B64URL", required(generated, "TLSN_REMOTE_DEVICE_A_PRIVATE_KEY_PKCS8_B64URL")],
+      ...["TLSN_REPLAY_TEST_VERIFICATION_LEASE_MS", "TLSN_REPLAY_TEST_POST_RESULT_DELAY_MS", "TLSN_REPLAY_TEST_POST_RESULT_DELAY_ONCE"]
+        .filter((name) => process.env[name] !== undefined)
+        .map((name) => [name, process.env[name]]),
       ["TLSN_REPLAY_RESULT_PUBLIC_KEY_SPKI", createPublicKey(createPrivateKey({
         key: Buffer.from(required(generated, "TLSN_RESULT_SIGNING_PRIVATE_KEY_PKCS8"), "base64url"),
         format: "der",

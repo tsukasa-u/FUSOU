@@ -33,6 +33,9 @@ const publicInputs = [
   "TLSN_EXECUTION_MODE",
   "TLSN_BENCHMARK_TIMINGS",
   "TLSN_TEST_DIRECT_SYNCHRONOUS_CANDIDATE",
+  "TLSN_REPLAY_TEST_VERIFICATION_LEASE_MS",
+  "TLSN_REPLAY_TEST_POST_RESULT_DELAY_MS",
+  "TLSN_REPLAY_TEST_POST_RESULT_DELAY_ONCE",
   "TLSN_GIT_COMMIT_SHA",
   "TLSN_REPLAY_DEPLOYMENT_ID",
   "TLSN_REPLAY_WORKER_NAME",
@@ -96,6 +99,9 @@ async function main() {
     "TLSN_GIT_COMMIT_SHA",
     "TLSN_REPLAY_WORKER_NAME",
     "TLSN_REPLAY_DEPLOYMENT_ID",
+    "TLSN_REPLAY_TEST_VERIFICATION_LEASE_MS",
+    "TLSN_REPLAY_TEST_POST_RESULT_DELAY_MS",
+    "TLSN_REPLAY_TEST_POST_RESULT_DELAY_ONCE",
   ].includes(input))) required(name, deploymentEnvironment);
   for (const name of secretInputs.filter((input) => input !== "TLSN_TEST_BINDING_VALUE")) {
     required(name, deploymentEnvironment);
