@@ -2,7 +2,7 @@
 
 Date: 2026-09-22
 
-Baseline commit: `9fdeacbf839ef58c8b7c80c79f941620a577e244`
+Baseline commit: `8ada6e8ef5f96fca04719d6c7b6f6b4b52fbd1b0`
 
 This document describes the existing Canary input path and the additional machine-readable contract in `packages/FUSOU-TLSN-VERIFICATION-WORKER/scripts/canary-external-input-intake.mjs`.
 
@@ -218,6 +218,19 @@ The real manifest contains all 21 public external package inputs, all eight curr
 
 The workflow run context and deployment naming/Trigger configuration are FUSOU-owned execution inputs, not external approval evidence. Remote reports, attestations, and runtime URLs are produced or selected after the deployment boundary and are not part of the minimum pre-deployment approval package.
 
+### Package and Evidence Identity
+
+The acceptance gate exposes a derived, secret-free `identity` object whenever a package is `PASS`/`VALID`:
+
+- `package_id` is the operator-visible package label. It is not a trust root and is not sufficient for replay protection.
+- `manifest_sha256` is the unpadded base64url SHA-256 of the canonical JSON manifest. JSON formatting and object-key order do not change this identity.
+- `authority.reference` and `authority.approval_artifact` identify the declared authority record; `authority.approval_artifact_sha256` binds that record to the validated target-approval artifact. The reference is provenance metadata, not an independent cryptographic trust root.
+- `artifacts` maps every artifact name to the SHA-256 recorded in the manifest. The validator independently hashes the bytes at each relative artifact path, so the manifest identity and artifact identities must agree.
+
+The same identity object is present in the direct package-check result, the intake dry-run, and the readiness report. The operator must retain that value with the handoff record and compare it with the value produced by FUSOU. This confirms that the accepted canonical manifest and its hash-bound artifacts are the same package that was submitted; it does not approve secrets or authorize deployment. No secret-provider value is included in the identity object or diagnostics.
+
+The current repository has no package nonce, revocation list, or independent issuance/version registry. It prevents reuse of an old or mismatched package through expiry, current HEAD, workflow, binding, artifact status/provenance, and hash checks. It does not distinguish a second submission of the exact same still-current package before expiry. An operator requiring one-time issuance must obtain a new authority-side package identity/validity decision; FUSOU must not invent a new replay root in this workflow.
+
 After rejection, the next operator action is to inspect the structured diagnostics, replace or correct the external package through the external authority/secret-provider boundary, and rerun `pnpm run check:canary-external-package`. After a valid package and all other required inputs are present, run `pnpm run test:canary-readiness`; do not treat package `VALID` as a deployment or runtime authorization.
 
 ### FUSOU-Generated Package
@@ -255,6 +268,49 @@ node scripts/canary-external-input-dry-run.mjs --require-complete
 ```
 
 `--require-complete` fails on missing required inputs or invalid/unexpected inputs. Neither command performs network access, deployment, runtime validation, or secret-provider access. The next machine gate is `pnpm run test:canary-readiness`.
+
+## State Machine and Handoff Boundary
+
+The external package state is deliberately small:
+
+| Package state | Meaning | Readiness effect |
+|---|---|---|
+| `ABSENT` | `TLSN_CANARY_EXTERNAL_PACKAGE_MANIFEST` is not supplied. | `BLOCKED`; no package identity exists. |
+| `INVALID` | A manifest was supplied but schema, authority, input fingerprint, artifact, provenance, validity, binding, workflow, or secret-provider reference validation failed. | `BLOCKED`; structured diagnostics identify the owner and failure. |
+| `VALID` | The current package passed the offline acceptance gate and its identity is available. | Readiness evaluation may continue, but this is not `PASS`, deployment authorization, or runtime authorization. |
+
+There are no `SUPERSEDED`, `REVOKED`, or package-version states in the current architecture. Expired, historical, fixture-only, old-HEAD, old-workflow, old-binding, or hash-mismatched material is rejected as `INVALID`; an exact still-current package remains `VALID` until its contract window or another bound identity changes.
+
+The non-invasive handoff path is:
+
+```text
+External authority/operator
+   -> External Package
+   -> FUSOU Package Acceptance Gate
+   -> FUSOU-generated / derived inputs
+   -> Secret Provider availability
+   -> Readiness Preflight
+   -> Deployment (separate authorization; not run here)
+   -> Canary Runtime (not run here)
+```
+
+These are separate gates. Package acceptance validates authority-bound public evidence and secret-provider references without reading secret values. FUSOU-generated/derived inputs are created only by their existing provisioner/contracts. Secret availability is checked later by the secure environment and remote-validation contract. Readiness requires all independent gates, including `external_package_acceptance`; a valid package alone cannot make readiness `READY`.
+
+## Staging and Deterministic Verification Boundary
+
+The current architecture does not persist a package lifecycle state machine. The following terms describe operator responsibility and machine results without adding new trust state:
+
+| Boundary | Meaning | Machine result |
+|---|---|---|
+| `received` | The external authority/operator has delivered a package directory outside the FUSOU acceptance process. File existence is not acceptance. | No FUSOU trust result. |
+| `staged` | The operator has placed the public package directory in a controlled local path and points `TLSN_CANARY_EXTERNAL_PACKAGE_MANIFEST` at its manifest. The staged directory is treated as read-only by the validator. | No FUSOU trust result. |
+| `validated` | The validator has checked the manifest, current environment, artifact bytes, authority binding, provenance, validity, HEAD, workflow, binding, and secret-provider references. | `PASS` or structured `FAIL`. |
+| `accepted` | The same validation returned package state `VALID`; the emitted identity is retained with the handoff record. | `acceptance: PASS`. |
+| `readiness-eligible` | The package is `VALID` and may be considered by the separate readiness evaluation. | `readiness_eligible: true`; this is not deployment authorization. |
+
+The package-check, intake dry-run, and readiness report use the same deterministic report fields: `package_state`, `package_id`, `identity`, `target`, `workflow`, `validity`, `verification`, and secret-free `diagnostics`. The `identity` contains the canonical manifest SHA-256, authority binding and approval-artifact hash, and the artifact identity map. `VALID` is the only state with an identity-bearing accepted report; `ABSENT` and `INVALID` have no accepted identity and remain readiness-blocking.
+
+Mutation handling is fail-closed: changing a manifest field changes `manifest_sha256`; changing an artifact changes its recorded/observed artifact hash relationship; changing the authority approval hash, subject, provenance, content, HEAD, workflow, binding, or validity causes acceptance failure. The validator never rewrites or normalizes the staged package in place.
 
 ## External Input Checklist
 
@@ -385,6 +441,83 @@ Complete these checks in order. A checked item means the named validator has pas
 - [ ] Canary readiness READY: `pnpm run test:canary-readiness`, with every gate true and no `input_diagnostics` failure.
 
 Only after every item above is independently satisfied may a separately authorized operator decision consider Canary runtime validation. This checklist does not authorize deployment or runtime execution.
+
+## Operator Handoff Reading Order
+
+Read and execute the handoff in this order. Every step is offline until a separately authorized workflow crosses the deployment boundary.
+
+### A. Receive
+
+Receive one package directory from the external authority/operator containing `manifest.json`, all eight required public artifacts, artifact hashes, authority binding, current target/workflow identity, validity windows, and references to the approved secret-provider entries. Keep the received copy unchanged; receipt alone is not acceptance.
+
+### B. Stage
+
+Stage a copy of the public package in a controlled local directory with the manifest and `artifacts/` paths intact. Point `TLSN_CANARY_EXTERNAL_PACKAGE_MANIFEST` at that staged manifest. Do not add generated files, secrets, fixtures, logs, or unrelated configuration to the package directory.
+
+### C. Identify
+
+Run the package check and retain its secret-free identity: `package_id`, canonical `manifest_sha256`, authority reference/binding, approval artifact hash, and artifact identity map. Compare this identity with the handoff record before continuing.
+
+### D. Accept
+
+Run the acceptance gate. Only a `PASS` result produces package state `VALID` and marks the package accepted. A present file with `FAIL` is `INVALID`, not accepted.
+
+### E. Dry-run
+
+Run the intake dry-run and completeness check. Confirm that the same package identity remains visible, that no unexpected Replay/fixture/test/historical input is adopted, and that the report is still secret-free.
+
+### F. Verify Generated and Derived Inputs
+
+Verify FUSOU-generated Canary registries, binding material, deployment inputs, and derived profile/security-registry/authentication values through their existing contracts. These values do not replace external approval and are independent of package acceptance.
+
+### G. Verify Secret-Provider References
+
+Provide `TLSN_REMOTE_ACCESS_TOKEN_A` and exactly one of `TLSN_REMOTE_DEVICE_A_PRIVATE_KEY_PKCS8_FILE` or `TLSN_REMOTE_DEVICE_A_PRIVATE_KEY_PKCS8_B64URL` through the existing secure provider. Do not copy their values into the manifest, artifacts, fixtures, logs, diagnostics, or evidence. Canary-owned deployment secrets are a separate FUSOU-generated boundary and are not external-package contents.
+
+### H. Readiness Preflight
+
+Run `pnpm run test:canary-readiness` after all independent inputs are available. Readiness is eligible to pass only when the package is `VALID` and every existing gate passes: current HEAD, contract, deployment contract, approved input contract, target provenance, trust, authentication, binding, workflow, runtime inputs, identity separation, and fixture-contamination absence.
+
+### I. Deployment Is a Separate Step
+
+Stop after readiness. A `VALID` package or `READY` report does not itself authorize deployment. Deployment and Canary runtime require a separate authorized decision and are outside this non-invasive procedure.
+
+### Generated Inputs Reference
+
+FUSOU generates Canary authority key material, registries, binding value, callback/Trigger secrets, and deployment material through the existing provisioner. Generated material does not replace external approval and must not be used to self-approve the package.
+
+### Derived Inputs Reference
+
+FUSOU derives canonical profile/security-registry/authentication hashes and allowlists from approved source material, then binds them to the current deployment contract. A derived value is not evidence that FUSOU was authorized to invent its source.
+
+### Evidence and Provenance Reference
+
+The target-approval artifact must pass the existing approved-input contract. All other public artifacts must be current, non-fixture, non-historical, structurally valid, hash-matched, subject-bound to the target/workflow/HEAD/binding, and authority-bound to the target-approval hash. Manifest-only `approved=true`, self-reported authority, worker/deployment responses, archives, fixtures, and historical reports are insufficient.
+
+### Validation Commands Reference
+
+In a secure environment already populated with the non-secret approved inputs, point `TLSN_CANARY_EXTERNAL_PACKAGE_MANIFEST` at the received manifest and run:
+
+```text
+pnpm run check:canary-external-package
+pnpm run check:canary-input-intake
+pnpm run check:canary-input-intake -- --require-complete
+pnpm run test:canary-readiness
+```
+
+Compare the reported `identity` object and inspect every diagnostic before proceeding. These commands do not access a network, deployment, runtime, or secret provider. The package validator checks secret-provider references and environment shape; it does not retrieve or print secret values.
+
+### Failure Interpretation Reference
+
+`ABSENT` means no package was submitted. `INVALID` means the package was submitted but cannot be trusted for the current contract. Diagnostics contain `field`, `category`, `reason`, `owner`, `expected`, and `actual` where available, without secret values. Correct the package at the external authority/operator boundary and rerun the same offline checks.
+
+### Readiness Semantics Reference
+
+Only `VALID` permits readiness evaluation. Readiness can proceed beyond the package gate only when the independent approved-input, target, trust, authentication, binding, workflow, runtime-input, identity-separation, and fixture-contamination gates also pass. In the current repository with no real package, the required state remains `External package: ABSENT`, `CANARY READINESS: BLOCKED`, and `CANARY RUNTIME: NOT EXECUTED`.
+
+### Prohibitions Reference
+
+Do not put private keys, access tokens, callback secrets, or other secret material in the manifest. Do not submit fixture or historical artifacts as current evidence. Do not let the manifest approve itself. Do not treat `VALID` as deployment authorization, retrieve production credentials, contact a real target, deploy, or execute Canary as part of this handoff verification.
 
 ## Operator Procedure
 

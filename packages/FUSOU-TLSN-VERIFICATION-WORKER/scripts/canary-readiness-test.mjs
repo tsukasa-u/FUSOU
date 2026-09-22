@@ -10,7 +10,11 @@ import {
 import { checkoutCommit, workflowContextFromEnvironment } from "./deployment-attestation.mjs";
 import { assertCanaryApprovedInputContract } from "./canary-approved-input-contract.mjs";
 import { CANARY_EXTERNAL_INPUT_INTAKE } from "./canary-external-input-intake.mjs";
-import { CANARY_EXTERNAL_PACKAGE_MANIFEST_INPUT, loadCanaryExternalPackageManifest } from "./canary-external-package.mjs";
+import {
+  CANARY_EXTERNAL_PACKAGE_MANIFEST_INPUT,
+  canaryExternalPackageVerificationReport,
+  loadCanaryExternalPackageManifest,
+} from "./canary-external-package.mjs";
 
 const packageDirectory = resolve(new URL("..", import.meta.url).pathname);
 const repositoryDirectory = resolve(packageDirectory, "../..");
@@ -337,15 +341,27 @@ function missingInputNames() {
 async function buildReadinessReport(artifacts) {
   const artifactCandidates = artifacts.filter((artifact) => artifact.approved_current_candidate);
   const externalPackagePath = process.env[CANARY_EXTERNAL_PACKAGE_MANIFEST_INPUT]?.trim();
-  let externalPackage = { status: "ABSENT", diagnostics: [{ reason: "external package manifest was not supplied" }] };
+  let externalPackage = {
+    status: "ABSENT",
+    ...canaryExternalPackageVerificationReport({
+      status: "ABSENT",
+      diagnostics: [{ reason: "external package manifest was not supplied" }],
+    }),
+  };
   if (externalPackagePath) {
     try {
-      await loadCanaryExternalPackageManifest(externalPackagePath, { environment: process.env, currentHead });
-      externalPackage = { status: "VALID", diagnostics: [] };
+      const manifest = await loadCanaryExternalPackageManifest(externalPackagePath, { environment: process.env, currentHead });
+      externalPackage = {
+        status: "VALID",
+        ...canaryExternalPackageVerificationReport({ status: "VALID", manifest }),
+      };
     } catch (error) {
       externalPackage = {
         status: "INVALID",
-        diagnostics: Array.isArray(error?.diagnostics) ? error.diagnostics : [{ reason: "external package validation failed" }],
+        ...canaryExternalPackageVerificationReport({
+          status: "INVALID",
+          diagnostics: Array.isArray(error?.diagnostics) ? error.diagnostics : [{ reason: "external package validation failed" }],
+        }),
       };
     }
   }

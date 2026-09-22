@@ -10,6 +10,8 @@ import {
   CANARY_EXTERNAL_PACKAGE_ARTIFACT_SCOPE,
   CANARY_EXTERNAL_PACKAGE_ARTIFACTS,
   CANARY_EXTERNAL_PACKAGE_INPUTS,
+  canaryExternalPackageIdentity,
+  canaryExternalPackageVerificationReport,
   loadCanaryExternalPackageManifest,
 } from "./canary-external-package.mjs";
 import {
@@ -274,9 +276,40 @@ try {
   const manifest = await createManifest(packageRoot);
   const originalArtifactFiles = new Map();
   for (const artifact of manifest.artifacts) originalArtifactFiles.set(artifact.path, await readFile(join(packageRoot, artifact.path)));
-  assert.equal(
-    (await assertCanaryExternalPackage(manifest, { packageRoot, environment, currentHead, now })).scope,
-    "tlsn-canary-external-input-package",
+  const acceptedManifest = await assertCanaryExternalPackage(manifest, { packageRoot, environment, currentHead, now });
+  assert.equal(acceptedManifest.scope, "tlsn-canary-external-input-package");
+  const packageIdentity = canaryExternalPackageIdentity(acceptedManifest);
+  assert.match(packageIdentity.manifest_sha256, /^[A-Za-z0-9_-]{43}$/);
+  assert.equal(packageIdentity.package_id, manifest.package_id);
+  assert.equal(packageIdentity.authority.approval_artifact_sha256, manifest.artifacts[0].sha256);
+  assert.deepEqual(Object.keys(packageIdentity.artifacts).sort(), CANARY_EXTERNAL_PACKAGE_ARTIFACTS.toSorted());
+  const artifactIdentityMutation = structuredClone(manifest);
+  artifactIdentityMutation.artifacts[1].sha256 = sha256("replacement-artifact");
+  assert.notDeepEqual(
+    canaryExternalPackageIdentity(artifactIdentityMutation).artifacts,
+    packageIdentity.artifacts,
+    "artifact identity mutation must change the package identity map",
+  );
+  assert.deepEqual(
+    canaryExternalPackageVerificationReport({ status: "VALID", manifest: acceptedManifest }),
+    {
+      package_state: "VALID",
+      package_id: manifest.package_id,
+      identity: packageIdentity,
+      target: manifest.target,
+      workflow: manifest.workflow,
+      validity: { issued_at: manifest.issued_at, expires_at: manifest.expires_at },
+      verification: { acceptance: "PASS", readiness_eligible: true },
+      diagnostics: [],
+    },
+  );
+
+  const manifestMutation = structuredClone(manifest);
+  manifestMutation.package_id = "approval-package-mutated";
+  assert.notEqual(
+    canaryExternalPackageIdentity(manifestMutation).manifest_sha256,
+    packageIdentity.manifest_sha256,
+    "manifest mutation must change canonical package identity",
   );
 
   const tamperedArtifact = structuredClone(manifest);

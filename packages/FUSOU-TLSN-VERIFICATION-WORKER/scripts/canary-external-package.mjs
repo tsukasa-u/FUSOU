@@ -152,6 +152,42 @@ function sha256(bytes) {
   return createHash("sha256").update(bytes).digest("base64url");
 }
 
+export function canaryExternalPackageIdentity(manifest) {
+  return {
+    package_id: manifest.package_id,
+    manifest_sha256: sha256(Buffer.from(canonicalJson(manifest), "utf8")),
+    authority: {
+      reference: manifest.authority.reference,
+      approval_artifact: manifest.authority.approval_artifact,
+      approval_artifact_sha256: manifest.authority.approval_artifact_sha256,
+    },
+    artifacts: Object.fromEntries(manifest.artifacts.map((artifact) => [artifact.name, artifact.sha256])),
+  };
+}
+
+export function canaryExternalPackageVerificationReport({
+  status,
+  manifest = null,
+  diagnostics = [],
+} = {}) {
+  const identity = manifest ? canaryExternalPackageIdentity(manifest) : null;
+  return {
+    package_state: status,
+    package_id: identity?.package_id ?? null,
+    identity,
+    target: manifest?.target ?? null,
+    workflow: manifest?.workflow ?? null,
+    validity: manifest
+      ? { issued_at: manifest.issued_at, expires_at: manifest.expires_at }
+      : null,
+    verification: {
+      acceptance: status === "VALID" ? "PASS" : "BLOCKED",
+      readiness_eligible: status === "VALID",
+    },
+    diagnostics,
+  };
+}
+
 function assertCurrentTarget(target, workflow, { environment, currentHead, fixtureOnly }) {
   assertExactKeys(target, ["server_identity", "environment", "deployment_role", "binding_identity"], "external package target");
   assertExactKeys(workflow, ["repository", "run_id", "run_attempt", "workflow_file_identity", "commit_sha"], "external package workflow");
@@ -412,26 +448,28 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
       currentHead: checkoutCommit(packageDirectory),
       environment: process.env,
     })
-      .then(() => console.log(JSON.stringify({
+      .then((manifest) => console.log(JSON.stringify({
         schema_version: CANARY_EXTERNAL_PACKAGE_SCHEMA_VERSION,
         scope: CANARY_EXTERNAL_PACKAGE_SCOPE,
         status: "PASS",
+        ...canaryExternalPackageVerificationReport({ status: "VALID", manifest }),
         network_access: "NOT_USED",
         deployment_executed: false,
         runtime_executed: false,
       }, null, 2)))
       .catch((error) => {
+        const diagnostics = Array.isArray(error?.diagnostics) ? error.diagnostics : [{
+          field: "external_package",
+          category: "CONTENT",
+          reason: "external package validation failed",
+          expected: "current, authority-backed, canonical external package",
+          actual: "rejected",
+          owner: "external operator or authority",
+        }];
         console.error(JSON.stringify({
           scope: CANARY_EXTERNAL_PACKAGE_SCOPE,
           status: "FAIL",
-          diagnostics: Array.isArray(error?.diagnostics) ? error.diagnostics : [{
-            field: "external_package",
-            category: "CONTENT",
-            reason: "external package validation failed",
-            expected: "current, authority-backed, canonical external package",
-            actual: "rejected",
-            owner: "external operator or authority",
-          }],
+          ...canaryExternalPackageVerificationReport({ status: "INVALID", diagnostics }),
           network_access: "NOT_USED",
           deployment_executed: false,
           runtime_executed: false,
