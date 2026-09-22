@@ -92,6 +92,65 @@ function missingRequired(environment) {
   return [...new Set(missing)].sort();
 }
 
+function ownershipSummary(environment, missing) {
+  const missingNames = new Set(missing.filter((name) => !name.includes(":one-of:")));
+  const missingGroups = new Set(
+    missing
+      .filter((name) => name.includes(":one-of:"))
+      .map((name) => name.slice(0, name.indexOf(":one-of:"))),
+  );
+  const summary = {};
+  for (const entry of CANARY_EXTERNAL_INPUT_INTAKE) {
+    const bucket = summary[entry.ownership] ?? {
+      input_count: 0,
+      required_count: 0,
+      required_group_count: 0,
+      present_count: 0,
+      absent_count: 0,
+      invalid_count: 0,
+      missing_required_count: 0,
+      external_dependency_missing_count: 0,
+      locally_generable_missing_count: 0,
+      unmet_required_group_count: 0,
+      unmet_external_required_group_count: 0,
+      approval_required_count: 0,
+      external_dependency_count: 0,
+      locally_generable_count: 0,
+      deployment_generable_count: 0,
+    };
+    bucket.input_count += 1;
+    bucket.required_count += entry.required ? 1 : 0;
+    bucket.required_group_count += entry.required_group ? 1 : 0;
+    bucket.present_count += present(environment, entry.name) ? 1 : 0;
+    bucket.absent_count += present(environment, entry.name) ? 0 : 1;
+    bucket.invalid_count += validateInputFormat(environment, entry) ? 1 : 0;
+    bucket.missing_required_count += missingNames.has(entry.name) ? 1 : 0;
+    bucket.external_dependency_missing_count += missingNames.has(entry.name) && entry.external_dependency ? 1 : 0;
+    bucket.locally_generable_missing_count += missingNames.has(entry.name) && entry.can_generate_locally ? 1 : 0;
+    bucket.unmet_required_group_count += entry.required_group && missingGroups.has(entry.required_group) ? 1 : 0;
+    bucket.unmet_external_required_group_count += entry.required_group
+      && missingGroups.has(entry.required_group)
+      && entry.external_dependency ? 1 : 0;
+    bucket.approval_required_count += entry.approval_required ? 1 : 0;
+    bucket.external_dependency_count += entry.external_dependency ? 1 : 0;
+    bucket.locally_generable_count += entry.can_generate_locally ? 1 : 0;
+    bucket.deployment_generable_count += entry.can_generate_during_deployment ? 1 : 0;
+    summary[entry.ownership] = bucket;
+  }
+  return {
+    contract_entry_count: CANARY_EXTERNAL_INPUT_INTAKE.length,
+    missing_contract_entry_count: missing.length,
+    unmet_required_group_count: missingGroups.size,
+    unmet_external_required_group_count: [...missingGroups].filter((group) =>
+      CANARY_EXTERNAL_INPUT_INTAKE.some((entry) => entry.required_group === group && entry.external_dependency)).length,
+    external_dependency_missing_count: Object.values(summary)
+      .reduce((count, value) => count + value.external_dependency_missing_count, 0),
+    locally_generable_missing_count: Object.values(summary)
+      .reduce((count, value) => count + value.locally_generable_missing_count, 0),
+    by_ownership: summary,
+  };
+}
+
 async function artifactPathStatus(environment, name) {
   const path = value(environment, name);
   if (!path) return "ABSENT";
@@ -151,6 +210,13 @@ export async function inspectCanaryExternalInput(environment = process.env) {
     return {
       name: entry.name,
       classification: entry.classification,
+      ownership: entry.ownership,
+      owner: entry.owner,
+      generated_by: entry.generated_by,
+      generation_stage: entry.generation_stage,
+      can_generate_locally: entry.can_generate_locally,
+      can_generate_during_deployment: entry.can_generate_during_deployment,
+      external_dependency: entry.external_dependency,
       required: entry.required,
       exposure: entry.exposure,
       phase: entry.phase,
@@ -197,6 +263,7 @@ export async function inspectCanaryExternalInput(environment = process.env) {
     current_head: currentHead,
     approved_input_contract: { status: approvedContractStatus },
     missing_required_inputs: missing,
+    ownership_summary: ownershipSummary(environment, missing),
     unexpected_input_names: unexpected,
     artifact_paths: artifactStatuses,
     inputs: entries,

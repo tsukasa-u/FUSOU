@@ -53,6 +53,10 @@ Every entry in `CANARY_EXTERNAL_INPUT_INTAKE` has these fields:
 | `validity_period` | lifetime or validity-window rule |
 | `consumer` / `validator` | exact code boundary that consumes and checks it |
 | `failure_conditions` / `readiness_effect` | non-success states and effect on readiness |
+| `ownership` | who must supply, approve, derive, generate, or observe the input |
+| `owner` / `generated_by` / `generation_stage` | accountable boundary and when the value can be produced |
+| `can_generate_locally` / `can_generate_during_deployment` | whether FUSOU can produce the value without an external approval or post-deployment runtime |
+| `external_dependency` | whether the value still depends on an external approval, credential provider, or remote party |
 
 Public exposure does not mean approved. A syntactically valid Ed25519 public key, hostname, profile hash, device reference, or trust root is not an approved Canary identity until the corresponding external approval/provenance validator passes. Conversely, `TLSN_CANARY_TRUST_ROOT_CERTIFICATE_DER` uses the protected Wrangler input channel but is public certificate material, not a secret credential.
 
@@ -70,6 +74,53 @@ The approval provenance is intentionally split into independent records:
 
 No single `approved=true` flag replaces these records.
 
+## Ownership Boundary and Complete Matrix
+
+`missing_required_inputs` is a count of missing contract fields plus any unmet one-of group. It is not a count of external approvals, external operators, or external packages. The ownership-aware dry-run report separates those concepts without changing the readiness gates.
+
+The following matrix is the complete 68-entry inventory generated from `CANARY_EXTERNAL_INPUT_INTAKE`:
+
+| Ownership | Boundary | Complete input names |
+|---|---|---|
+| `EXTERNAL_APPROVAL_REQUIRED` | External authority must approve or provide the identity, trust, authentication configuration, or binding reference. | `TLSN_CANDIDATE_SERVER_IDENTITY`, `TLSN_CANDIDATE_VERIFIER_KEY_ID`, `TLSN_CANARY_APPROVED_INPUT_CONTRACT_JSON`, `TLSN_PRODUCTION_NOTARY_REGISTRY`, `TLSN_CANDIDATE_NOTARY_KEY_ID`, `TLSN_CANARY_TRUST_ROOT_CERTIFICATE_DER`, `TLSN_CANARY_VERIFIER_PUBLIC_KEY_SPKI`, `TLSN_CANARY_VERIFIER_DEPLOYMENT_ID`, `TLSN_REMOTE_DEVICE_ID_A`, `TLSN_REMOTE_SUPABASE_URL`, `TLSN_REMOTE_SUPABASE_PUBLISHABLE_KEY`, `TLSN_CANARY_BINDING_IDENTITY` |
+| `DERIVED` | FUSOU computes the value from approved external source material; the derived value is not itself an independent external approval. | `TLSN_CANDIDATE_PROFILE_SHA256`, `TLSN_CANDIDATE_SPARSE_PROFILE_SHA256`, `TLSN_SECURITY_REGISTRY_SET_SHA256`, `TLSN_CANDIDATE_DEVICE_AUTH_URL`, `TLSN_CANDIDATE_DEVICE_POSSESSION_AUTH_URL`, `TLSN_CANDIDATE_DEVICE_AUTH_ALLOWED_HOSTS`, `TLSN_CANDIDATE_SUPABASE_ALLOWED_HOSTS`, `TLSN_CANDIDATE_SUPABASE_URL`, `TLSN_CANDIDATE_SUPABASE_PUBLISHABLE_KEY` |
+| `SECRET_PROVIDER_REQUIRED` | An approved provider supplies the short-lived remote credential. These fields are remote-validation-only and are excluded from deployment preflight and deploy child environments. | `TLSN_REMOTE_ACCESS_TOKEN_A`, `TLSN_REMOTE_DEVICE_A_PRIVATE_KEY_PKCS8_FILE`, `TLSN_REMOTE_DEVICE_A_PRIVATE_KEY_PKCS8_B64URL` |
+| `DEPLOYMENT_GENERATED` | FUSOU deployment/provisioning config or deployment policy supplies the value; no external approval is implied. | `TLSN_BINDING_TTL_SECONDS`, `TLSN_CANARY_DEPLOYMENT_ID`, `TLSN_CANARY_WORKER_NAME`, `TLSN_CANARY_TRIGGER_API_URL`, `TLSN_CANARY_TRIGGER_TASK_ID`, `TLSN_CANARY_WORKER_INTERNAL_URL` |
+| `CANARY_GENERATED` | `provision-canary-material.mjs` generates the Canary authorities, registries, binding value, private keys, and callback secrets. | `TLSN_CANARY_BINDING_AUTHORITY_PUBLIC_KEY_SPKI`, `TLSN_CANARY_BINDING_AUTHORITY_KEY_ID`, `TLSN_CANARY_BINDING_AUTHORITY_KEY_REGISTRY`, `TLSN_CANARY_BINDING_VALUE`, `TLSN_CANARY_SESSION_AUTHORITY_PUBLIC_KEY_SPKI`, `TLSN_CANARY_SESSION_AUTHORITY_KEY_ID`, `TLSN_CANARY_SESSION_AUTHORITY_KEY_REGISTRY`, `TLSN_CANARY_RESULT_PUBLIC_KEY_SPKI`, `TLSN_CANARY_RESULT_SIGNER_KEY_ID`, `TLSN_CANARY_RESULT_SIGNING_KEY_REGISTRY`, `TLSN_CANARY_RESULT_SIGNING_KEY_REGISTRY_ENVELOPE`, `TLSN_CANARY_RESULT_REGISTRY_ROOT_KEY_ID`, `TLSN_CANARY_RESULT_REGISTRY_ROOT_PUBLIC_KEY_SPKI`, `TLSN_CANARY_RESULT_SIGNING_PRIVATE_KEY_PKCS8`, `TLSN_CANARY_SESSION_AUTHORITY_SIGNING_PRIVATE_KEY_PKCS8`, `TLSN_CANARY_BINDING_AUTHORITY_SIGNING_PRIVATE_KEY_PKCS8`, `TLSN_CANARY_TRIGGER_SECRET_KEY`, `TLSN_CANARY_TRIGGER_CALLBACK_SECRET`, `TLSN_CANARY_DIRECT_CALLBACK_SECRET` |
+| `WORKFLOW_CONTEXT_REQUIRED` | The approved FUSOU workflow supplies run identity, role, repository, workflow identity, and checked-out commit context. | `TLSN_WORKFLOW_RUN_ID`, `TLSN_WORKFLOW_RUN_ATTEMPT`, `TLSN_REPOSITORY`, `TLSN_WORKFLOW_FILE_IDENTITY`, `TLSN_ENVIRONMENT`, `TLSN_DEPLOYMENT_ROLE`, `TLSN_GIT_COMMIT_SHA` |
+| `REMOTE_VALIDATION_ONLY` | FUSOU produces or records these paths/URLs after deployment for remote validation and evidence. They cannot satisfy pre-deployment readiness. | `TLSN_REMOTE_REPORT_PATH`, `TLSN_REMOTE_VALIDATION_REPORT_PATH`, `TLSN_PROVENANCE_REPORT_PATH`, `TLSN_REMOTE_ATTESTATION_PATH`, `TLSN_REMOTE_ATTESTATION_OUTPUT_PATH`, `TLSN_REMOTE_WORKER_URL`, `TLSN_REMOTE_WEB_ORIGIN`, `TLSN_REMOTE_EXPECTED_PROVENANCE_JSON` |
+| `REPOSITORY_STATIC` | Repository policy or explicit mode configuration; not external approval. | `TLSN_CANARY_FIXTURE_ONLY`, `TLSN_CANARY_SYNCHRONOUS_RESPONSE_ENABLED`, `TLSN_BENCHMARK_TIMINGS` |
+| `FIXTURE_ONLY` | Synthetic fixture harness only; never accepted as real Canary evidence. | `TLSN_REMOTE_FIXTURE_JSON` |
+
+`EXTERNAL_REQUIRED` and `HISTORICAL_ONLY` are reserved ownership classes in the schema and have no current entries. `TARGET_RUNTIME` is also reserved for values observed only by the deployed Worker. A value can be `DERIVED` and still have `external_dependency=true`: this is the explicit distinction between “FUSOU computes it” and “FUSOU is authorized to invent it.”
+
+### Minimum External Package
+
+The minimum package that must come from outside the FUSOU generator consists of:
+
+- An unexpired, non-fixture target approval and provenance record, including target identity and scope.
+- Canonical complete and sparse profile artifacts, or an approved source that yields their hashes; FUSOU computes and checks the two profile hash fields.
+- Approved trust material: trust-root certificate/fingerprint, canonical Notary registry, Notary key ID, and verifier key/deployment identity.
+- Approved authentication configuration: candidate device-auth and Supabase policy inputs, plus the approved remote device identity.
+- An approved Canary binding identity, distinct from Replay identities.
+- Secret-provider references for the short-lived remote token and exactly one device private-key representation. These are required for later remote validation, not deployment preflight, and their values must never be recorded in the package.
+
+The workflow run context and deployment naming/Trigger configuration are FUSOU-owned execution inputs, not external approval evidence. Remote reports, attestations, and runtime URLs are produced or selected after the deployment boundary and are not part of the minimum pre-deployment approval package.
+
+### FUSOU-Generated Package
+
+FUSOU may produce/configure the following after the external package is accepted:
+
+- Derived profile, security-registry, authentication endpoint, and allowlist values (`DERIVED`).
+- Canary Result, Session Authority, and Binding Authority key pairs, public registries, signed registry envelope, binding value, and callback/Trigger secrets (`CANARY_GENERATED`).
+- Deployment ID, Worker/Trigger URLs and task identity, and deployment policy values (`DEPLOYMENT_GENERATED`).
+- Workflow context bound to the checked-out HEAD (`WORKFLOW_CONTEXT_REQUIRED`) and repository-static flags (`REPOSITORY_STATIC`).
+- Post-deployment report paths, provenance, attestation paths, and remote validation URLs (`REMOTE_VALIDATION_ONLY`).
+
+Generated key material, derived hashes, and deployment configuration do not constitute external approval. The provisioner must leave unresolved external target, trust, profile, verifier, authentication, and binding approvals unresolved rather than fabricate them.
+
+For the current empty local environment, the dry-run reports `68` inventory entries and `65` missing contract fields, but only `21` missing external-dependency fields plus `1` unmet external one-of group. It also reports `32` locally generable missing fields. These numbers explain why raw `missing=65` must not be interpreted as “65 external approvals required.”
+
 ## Intake Dry-Run
 
 The non-network operator check is:
@@ -79,6 +130,8 @@ pnpm run check:canary-input-intake
 ```
 
 It validates the inventory itself, reports every input as `PRESENT`, `ABSENT`, or `INVALID`, detects unexpected Canary-shaped environment names, checks basic canonical formats without printing values, checks artifact path presence, and validates `TLSN_CANARY_APPROVED_INPUT_CONTRACT_JSON` with the existing strict validator when present. It reports `APPROVED` only when that validator passes. It never generates keys, tokens, callback secrets, approvals, or provenance.
+
+The JSON report also includes `ownership_summary`. Its `missing_contract_entry_count` preserves the raw contract-field count; `external_dependency_missing_count` and `unmet_external_required_group_count` identify the external boundary; `locally_generable_missing_count` identifies values FUSOU can produce/configure. Per-ownership buckets include present/absent, required, approval, external-dependency, local-generation, and deployment-generation counts.
 
 The default command exits successfully when the check ran, even when readiness is `BLOCKED`, so an operator can inspect the complete missing-input report. Use the completeness gate only after the secure environment has been populated:
 
@@ -119,7 +172,7 @@ The following names are the complete machine-checked intake inventory. Values ar
 | `TLSN_CANARY_BINDING_AUTHORITY_PUBLIC_KEY_SPKI`, `TLSN_CANARY_BINDING_AUTHORITY_KEY_ID`, `TLSN_CANARY_BINDING_AUTHORITY_KEY_REGISTRY` | `CANARY_GENERATED` | Ed25519 public key and authority registry metadata | No | Generated by `provision-canary-material`; must be Canary-specific | preflight, binding authority | missing, invalid, mismatched, Replay identity reuse |
 | `TLSN_CANARY_BINDING_IDENTITY` | `EXTERNAL_APPROVAL` | binding identity reference | No | Must match approved contract and differ from Replay identity | preflight, approved-input contract | missing, invalid, mismatched, Replay binding reuse |
 | `TLSN_CANARY_BINDING_VALUE` | `CANARY_GENERATED` | per-provisioning base64url-safe binding value | No | Must not collide with fixed binding ID or Replay binding | preflight, binding authority | missing, invalid, mismatched, Replay binding reuse |
-| `TLSN_BINDING_TTL_SECONDS` | `REPOSITORY_STATIC` | integer from 1 through 3600 | No | preflight range check | preflight, binding authority | missing, invalid |
+| `TLSN_BINDING_TTL_SECONDS` | `DEPLOYMENT_GENERATED` deployment policy | integer from 1 through 3600 | No | FUSOU deployment policy and preflight range check | preflight, binding authority | missing, invalid |
 | `TLSN_CANARY_RESULT_PUBLIC_KEY_SPKI`, `TLSN_CANARY_RESULT_SIGNER_KEY_ID`, `TLSN_CANARY_RESULT_SIGNING_KEY_REGISTRY`, `TLSN_CANARY_RESULT_SIGNING_KEY_REGISTRY_ENVELOPE`, `TLSN_CANARY_RESULT_REGISTRY_ROOT_KEY_ID`, `TLSN_CANARY_RESULT_REGISTRY_ROOT_PUBLIC_KEY_SPKI` | `CANARY_GENERATED` | Ed25519 public keys, key IDs, registry JSON, signed envelope | No | signing-key registry and signed-envelope validation | preflight, Worker runtime, result verification | missing, invalid, mismatched, Replay identity reuse |
 | `TLSN_CANARY_RESULT_SIGNING_PRIVATE_KEY_PKCS8`, `TLSN_CANARY_SESSION_AUTHORITY_SIGNING_PRIVATE_KEY_PKCS8`, `TLSN_CANARY_BINDING_AUTHORITY_SIGNING_PRIVATE_KEY_PKCS8` | `CANARY_GENERATED` | canonical base64url Ed25519 PKCS8 private keys | Yes | Generated by provisioner; public-key derivation must match | deploy-canary via temporary Wrangler secrets file | missing, invalid, mismatched, Replay identity reuse |
 | `TLSN_CANARY_TRIGGER_SECRET_KEY`, `TLSN_CANARY_TRIGGER_CALLBACK_SECRET`, `TLSN_CANARY_DIRECT_CALLBACK_SECRET` | `CANARY_GENERATED` | random secret references/values in secure deployment environment | Yes | generated per provisioning; role-separated | deploy-canary via temporary Wrangler secrets file | missing, invalid, Replay identity reuse |

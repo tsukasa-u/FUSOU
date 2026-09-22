@@ -20,6 +20,129 @@ export const CANARY_INPUT_CLASSIFICATIONS = Object.freeze([
   "HISTORICAL_ONLY",
   "REMOTE_VALIDATION_ONLY",
 ]);
+export const CANARY_INPUT_OWNERSHIP = Object.freeze([
+  "EXTERNAL_REQUIRED",
+  "EXTERNAL_APPROVAL_REQUIRED",
+  "SECRET_PROVIDER_REQUIRED",
+  "WORKFLOW_CONTEXT_REQUIRED",
+  "DEPLOYMENT_GENERATED",
+  "CANARY_GENERATED",
+  "REPOSITORY_STATIC",
+  "TARGET_RUNTIME",
+  "FIXTURE_ONLY",
+  "HISTORICAL_ONLY",
+  "REMOTE_VALIDATION_ONLY",
+  "DERIVED",
+]);
+
+const SOURCE_OWNERSHIP = Object.freeze({
+  EXTERNAL_APPROVAL: "EXTERNAL_APPROVAL_REQUIRED",
+  SECRET_PROVIDER: "SECRET_PROVIDER_REQUIRED",
+  WORKFLOW_CONTEXT: "WORKFLOW_CONTEXT_REQUIRED",
+  DEPLOYMENT_GENERATED: "DEPLOYMENT_GENERATED",
+  CANARY_GENERATED: "CANARY_GENERATED",
+  REPOSITORY_STATIC: "REPOSITORY_STATIC",
+  FIXTURE_ONLY: "FIXTURE_ONLY",
+});
+
+const OWNERSHIP_DEFAULTS = Object.freeze({
+  EXTERNAL_REQUIRED: {
+    owner: "FUSOU deployment operator or workflow configuration",
+    generated_by: "operator or deployment configuration",
+    generation_stage: "before deployment",
+    can_generate_locally: false,
+    can_generate_during_deployment: false,
+    external_dependency: true,
+  },
+  EXTERNAL_APPROVAL_REQUIRED: {
+    owner: "external authority or designated approver",
+    generated_by: "approved external input package",
+    generation_stage: "operator handoff",
+    can_generate_locally: false,
+    can_generate_during_deployment: false,
+    external_dependency: true,
+  },
+  SECRET_PROVIDER_REQUIRED: {
+    owner: "approved secret provider",
+    generated_by: "credential issuer or secret provider",
+    generation_stage: "remote validation setup",
+    can_generate_locally: false,
+    can_generate_during_deployment: false,
+    external_dependency: true,
+  },
+  WORKFLOW_CONTEXT_REQUIRED: {
+    owner: "CI workflow context",
+    generated_by: "workflow invocation and checked-out repository",
+    generation_stage: "workflow execution",
+    can_generate_locally: false,
+    can_generate_during_deployment: false,
+    external_dependency: false,
+  },
+  DEPLOYMENT_GENERATED: {
+    owner: "FUSOU deployment or attestation path",
+    generated_by: "deployment-preflight, deploy-canary, or deployment-attestation",
+    generation_stage: "deployment or post-deployment",
+    can_generate_locally: false,
+    can_generate_during_deployment: true,
+    external_dependency: false,
+  },
+  CANARY_GENERATED: {
+    owner: "FUSOU Canary provisioner",
+    generated_by: "provision-canary-material.mjs",
+    generation_stage: "provisioning before deployment",
+    can_generate_locally: true,
+    can_generate_during_deployment: false,
+    external_dependency: false,
+  },
+  REPOSITORY_STATIC: {
+    owner: "FUSOU repository policy",
+    generated_by: "repository contract or explicit mode configuration",
+    generation_stage: "repository configuration",
+    can_generate_locally: true,
+    can_generate_during_deployment: false,
+    external_dependency: false,
+  },
+  TARGET_RUNTIME: {
+    owner: "deployed Canary runtime",
+    generated_by: "Worker runtime",
+    generation_stage: "runtime",
+    can_generate_locally: false,
+    can_generate_during_deployment: false,
+    external_dependency: false,
+  },
+  FIXTURE_ONLY: {
+    owner: "repository fixture harness",
+    generated_by: "fixture-only provisioning",
+    generation_stage: "fixture test",
+    can_generate_locally: true,
+    can_generate_during_deployment: false,
+    external_dependency: false,
+  },
+  HISTORICAL_ONLY: {
+    owner: "historical evidence store",
+    generated_by: "prior deployment or prior validation run",
+    generation_stage: "historical",
+    can_generate_locally: false,
+    can_generate_during_deployment: false,
+    external_dependency: false,
+  },
+  REMOTE_VALIDATION_ONLY: {
+    owner: "remote-validation operator and post-deployment evidence path",
+    generated_by: "remote-validation setup or deployment-attestation",
+    generation_stage: "post-deployment validation",
+    can_generate_locally: false,
+    can_generate_during_deployment: false,
+    external_dependency: true,
+  },
+  DERIVED: {
+    owner: "FUSOU derivation from approved source inputs",
+    generated_by: "provision-canary-material.mjs or contract hash derivation",
+    generation_stage: "provisioning before deployment",
+    can_generate_locally: true,
+    can_generate_during_deployment: false,
+    external_dependency: false,
+  },
+});
 
 const REMOTE_VALIDATION_INPUTS = [
   "TLSN_REMOTE_EXPECTED_PROVENANCE_JSON",
@@ -51,12 +174,20 @@ const COMMON_METADATA = {
 
 function entries(category, names, metadata) {
   return names.map((name) => {
+    const ownership = metadata.ownershipByName?.[name] ?? metadata.ownership ?? SOURCE_OWNERSHIP[metadata.source] ?? "EXTERNAL_REQUIRED";
     const entry = {
-    name,
-    category,
-    ...COMMON_METADATA,
-    ...metadata,
+      name,
+      category,
+      ...COMMON_METADATA,
+      ...OWNERSHIP_DEFAULTS[ownership],
+      ...metadata,
+      ownership,
     };
+    delete entry.ownershipByName;
+    Object.assign(entry, metadata.ownershipMetadata ?? {});
+    if (metadata.ownershipMetadataByName?.[name]) Object.assign(entry, metadata.ownershipMetadataByName[name]);
+    delete entry.ownershipMetadata;
+    delete entry.ownershipMetadataByName;
     entry.classification = entry.classification
       ?? (entry.phase === "REMOTE_VALIDATION_ONLY"
         ? "REMOTE_VALIDATION_ONLY"
@@ -98,6 +229,9 @@ export const CANARY_EXTERNAL_INPUT_INTAKE = Object.freeze([
     consumer: "deployment-preflight, canary-approved-input-contract",
     validator: "profile-canonical-contract and deployment-preflight",
     failure_conditions: ["MISSING", "PRESENT_INVALID", "PRESENT_MISMATCHED", "FIXTURE_ONLY", "HISTORICAL_ONLY"],
+    ownership: "DERIVED",
+    external_dependency: true,
+    approval_provenance: "approved profile artifacts and their profile-canonical-contract hashes",
   }),
   ...entries("PROVENANCE", [
     "TLSN_CANARY_APPROVED_INPUT_CONTRACT_JSON",
@@ -124,6 +258,15 @@ export const CANARY_EXTERNAL_INPUT_INTAKE = Object.freeze([
     consumer: "deployment-preflight, canary-approved-input-contract, Worker runtime",
     validator: "production-trust-contract, security-registry-set-contract, deployment-preflight",
     failure_conditions: ["MISSING", "PRESENT_INVALID", "PRESENT_MISMATCHED", "FIXTURE_ONLY", "HISTORICAL_ONLY"],
+    ownershipByName: {
+      TLSN_SECURITY_REGISTRY_SET_SHA256: "DERIVED",
+    },
+    ownershipMetadataByName: {
+      TLSN_SECURITY_REGISTRY_SET_SHA256: {
+        generated_by: "securityRegistrySetHash from approved target, profile, and Notary inputs",
+        external_dependency: true,
+      },
+    },
   }),
   ...entries("TRUST", [
     "TLSN_CANARY_TRUST_ROOT_CERTIFICATE_DER",
@@ -163,6 +306,10 @@ export const CANARY_EXTERNAL_INPUT_INTAKE = Object.freeze([
     consumer: "deployment-preflight and remote-validation",
     validator: "deployment-preflight URL/host allowlist checks",
     failure_conditions: ["MISSING", "PRESENT_INVALID", "PRESENT_MISMATCHED", "FIXTURE_ONLY"],
+    ownership: "DERIVED",
+    external_dependency: true,
+    generated_by: "provision-canary-material.mjs from approved public site and Supabase configuration",
+    approval_provenance: "approved target authentication endpoints and publishable-key policy",
   }),
   ...entries("DEVICE", [
     "TLSN_REMOTE_DEVICE_ID_A",
@@ -222,6 +369,15 @@ export const CANARY_EXTERNAL_INPUT_INTAKE = Object.freeze([
     validator: "authority-key-registry, deployment-preflight, canary-approved-input-contract",
     approval_provenance: "approved binding.binding_identity and identity_separation metadata",
     failure_conditions: ["MISSING", "PRESENT_INVALID", "PRESENT_MISMATCHED", "REPLAY_BINDING_REUSE", "FIXTURE_ONLY"],
+    ownershipByName: {
+      TLSN_BINDING_TTL_SECONDS: "DEPLOYMENT_GENERATED",
+    },
+    ownershipMetadataByName: {
+      TLSN_BINDING_TTL_SECONDS: {
+        generated_by: "provision-canary-material.mjs fixed deployment policy",
+        external_dependency: false,
+      },
+    },
   }),
   ...entries("BINDING", [
     "TLSN_CANARY_BINDING_AUTHORITY_PUBLIC_KEY_SPKI",
@@ -277,6 +433,48 @@ export const CANARY_EXTERNAL_INPUT_INTAKE = Object.freeze([
     consumer: "deployment-preflight and deploy-canary",
     validator: "deployment-preflight and deploy-canary",
     failure_conditions: ["MISSING", "PRESENT_INVALID", "PRESENT_MISMATCHED", "HISTORICAL_ONLY"],
+    ownershipByName: {
+      TLSN_ENVIRONMENT: "WORKFLOW_CONTEXT_REQUIRED",
+      TLSN_DEPLOYMENT_ROLE: "WORKFLOW_CONTEXT_REQUIRED",
+      TLSN_GIT_COMMIT_SHA: "WORKFLOW_CONTEXT_REQUIRED",
+      TLSN_CANARY_DEPLOYMENT_ID: "DEPLOYMENT_GENERATED",
+      TLSN_CANARY_WORKER_NAME: "DEPLOYMENT_GENERATED",
+      TLSN_CANARY_TRIGGER_API_URL: "DEPLOYMENT_GENERATED",
+      TLSN_CANARY_TRIGGER_TASK_ID: "DEPLOYMENT_GENERATED",
+      TLSN_CANARY_WORKER_INTERNAL_URL: "DEPLOYMENT_GENERATED",
+    },
+    ownershipMetadataByName: {
+      TLSN_GIT_COMMIT_SHA: {
+        generated_by: "checked-out git HEAD and deploy-canary",
+        can_generate_locally: true,
+        external_dependency: false,
+      },
+      TLSN_CANARY_DEPLOYMENT_ID: {
+        generated_by: "FUSOU deployment configuration or explicit provisioner option",
+        can_generate_during_deployment: true,
+        external_dependency: false,
+      },
+      TLSN_CANARY_WORKER_NAME: {
+        generated_by: "FUSOU Wrangler deployment configuration",
+        can_generate_during_deployment: true,
+        external_dependency: false,
+      },
+      TLSN_CANARY_TRIGGER_API_URL: {
+        generated_by: "FUSOU Trigger deployment configuration",
+        can_generate_during_deployment: true,
+        external_dependency: false,
+      },
+      TLSN_CANARY_TRIGGER_TASK_ID: {
+        generated_by: "FUSOU Trigger provisioning",
+        can_generate_during_deployment: true,
+        external_dependency: false,
+      },
+      TLSN_CANARY_WORKER_INTERNAL_URL: {
+        generated_by: "FUSOU Worker deployment output",
+        can_generate_during_deployment: true,
+        external_dependency: false,
+      },
+    },
   }),
   ...entries("RESULT_REGISTRY", [
     "TLSN_CANARY_RESULT_PUBLIC_KEY_SPKI",
@@ -309,6 +507,10 @@ export const CANARY_EXTERNAL_INPUT_INTAKE = Object.freeze([
     classification: "REMOTE_VALIDATION_ONLY",
     validity_period: "current commit, deployment identity, and attestation freshness window",
     failure_conditions: ["MISSING", "PRESENT_INVALID", "PRESENT_EXPIRED", "PRESENT_MISMATCHED", "HISTORICAL_ONLY"],
+    ownership: "REMOTE_VALIDATION_ONLY",
+    external_dependency: false,
+    generated_by: "deployment-attestation and remote-validation after deployment",
+    generation_stage: "post-deployment validation",
   }),
   ...entries("CREDENTIAL_POLICY", [
     "TLSN_CANARY_FIXTURE_ONLY",
@@ -347,6 +549,10 @@ export const CANARY_EXTERNAL_INPUT_INTAKE = Object.freeze([
     consumer: "remote-validation and verify-remote-gate",
     validator: "remote-validation and verify-remote-gate",
     failure_conditions: ["MISSING", "PRESENT_INVALID", "PRESENT_MISMATCHED", "FIXTURE_ONLY", "HISTORICAL_ONLY"],
+    ownership: "REMOTE_VALIDATION_ONLY",
+    external_dependency: false,
+    generated_by: "FUSOU deployment-attestation and remote-validation output paths",
+    generation_stage: "post-deployment validation",
   }),
   ...entries("REMOTE_VALIDATION", [
     "TLSN_REMOTE_FIXTURE_JSON",
@@ -515,10 +721,17 @@ export function assertCanaryExternalInputIntakeContract() {
     if (typeof entry.secret !== "boolean") throw new Error(`Canary intake entry ${entry.name} has no secret classification`);
     if (typeof entry.protected_input_channel !== "boolean") throw new Error(`Canary intake entry ${entry.name} has no protected input-channel classification`);
     if (!CANARY_INPUT_CLASSIFICATIONS.includes(entry.classification)) throw new Error(`Canary intake entry ${entry.name} has an invalid classification`);
+    if (!CANARY_INPUT_OWNERSHIP.includes(entry.ownership)) throw new Error(`Canary intake entry ${entry.name} has an invalid ownership`);
     if (typeof entry.required !== "boolean") throw new Error(`Canary intake entry ${entry.name} has no required classification`);
     if (typeof entry.approval_required !== "boolean") throw new Error(`Canary intake entry ${entry.name} has no approval classification`);
     for (const field of ["purpose", "format", "approval_provenance", "validity_period", "canonicalization", "fingerprint", "readiness_effect", "exposure"]) {
       if (typeof entry[field] !== "string" || entry[field].length === 0) throw new Error(`Canary intake entry ${entry.name} is missing ${field}`);
+    }
+    for (const field of ["owner", "generated_by", "generation_stage"]) {
+      if (typeof entry[field] !== "string" || entry[field].length === 0) throw new Error(`Canary intake entry ${entry.name} is missing ${field}`);
+    }
+    for (const field of ["can_generate_locally", "can_generate_during_deployment", "external_dependency"]) {
+      if (typeof entry[field] !== "boolean") throw new Error(`Canary intake entry ${entry.name} is missing ${field}`);
     }
     if (entry.secret && entry.exposure !== "SECRET") throw new Error(`Canary intake entry ${entry.name} has an invalid secret exposure`);
     if (!entry.secret && entry.exposure !== "PUBLIC") throw new Error(`Canary intake entry ${entry.name} has an invalid public exposure`);
