@@ -276,11 +276,12 @@ remote `/health` response to identify the canary deployment role before it
 sends the sync header. This is a readiness measurement only and does not
 change the production default.
 
-The canary deploy wrapper bootstraps the canary Worker without the Direct
-binding, deploys the canary verifier service, then redeploys the canary Worker
-with the binding. Its generated verifier config targets the configured
-`TLSN_CANARY_WORKER_NAME`, so the service binding is not silently attached to
-another Worker. To roll back the sync candidate, stop sending `sync`, disable
+The canary deploy wrapper bootstraps the canonical canary Worker without the
+Direct binding, deploys the canonical canary verifier service, then redeploys
+the canonical canary Worker with the binding. `TLSN_CANARY_WORKER_NAME` must
+exactly match the repository-owned `fusou-tlsn-verification-canary` identity;
+the generated verifier config uses that same canonical target, so the service
+binding cannot be redirected to another Worker. To roll back the sync candidate, stop sending `sync`, disable
 the canary capability flag, or deploy the previous canary inputs; the ordinary
 production Worker is not changed by that rollback.
 

@@ -18,6 +18,12 @@ import {
   inputsForRole,
   secretInputsForRole,
 } from "./deployment-contract.mjs";
+import {
+  assertCanonicalCanaryWorkerName,
+  CANARY_BOOTSTRAP_WORKER_NAME,
+  CANARY_VERIFIER_WORKER_NAME,
+  CANARY_WORKER_NAME,
+} from "./canary-deployment-target.mjs";
 
 const packageDirectory = resolve(new URL("..", import.meta.url).pathname);
 const manifest = JSON.parse(await readFile(resolve(packageDirectory, "scripts/production-inputs.json"), "utf8"));
@@ -110,6 +116,35 @@ for (const name of ["tlsn:deploy:test", "tlsn:deploy:canary", "tlsn:deploy:produ
 }
 assert.doesNotMatch(rootPackage.scripts["tlsn:deploy:canary"], /github|actions/i);
 assert.doesNotMatch(rootPackage.scripts["tlsn:deploy:production"], /github|actions/i);
+assert.doesNotThrow(() => assertCanonicalCanaryWorkerName(CANARY_WORKER_NAME));
+for (const workerName of [
+  "fusou-tlsn-verification-production",
+  "fusou-tlsn-verification-canary-arbitrary",
+  "",
+  "fusou-tlsn-verification-canary-2026",
+]) {
+  assert.throws(
+    () => assertCanonicalCanaryWorkerName(workerName),
+    /DENIED:.*canonical Canary Worker identity/,
+    `non-canonical Worker name must be denied: ${workerName || "<empty>"}`,
+  );
+}
+assert.match(canaryWrapper, /assertCanonicalCanaryWorkerName\(process\.env\.TLSN_CANARY_WORKER_NAME\?\.trim\(\)\)/);
+assert.match(canaryWrapper, /"--name", CANARY_WORKER_NAME/);
+assert.match(canaryWrapper, /"--name", CANARY_BOOTSTRAP_WORKER_NAME/);
+assert.match(canaryWrapper, /"--name", CANARY_VERIFIER_WORKER_NAME/);
+assert.doesNotMatch(canaryWrapper, /--name", workerName/);
+assert.doesNotMatch(canaryWrapper, /script_name = "\$\{workerName\}"/);
+assert.ok(
+  canaryWrapper.indexOf("  assertCanonicalCanaryWorkerName(process.env.TLSN_CANARY_WORKER_NAME?.trim());") < canaryWrapper.indexOf("build:wasm"),
+  "canonical target denial must precede build",
+);
+assert.ok(
+  canaryWrapper.indexOf("  assertCanonicalCanaryWorkerName(process.env.TLSN_CANARY_WORKER_NAME?.trim());") < canaryWrapper.indexOf("const secretDirectory = await mkdtemp("),
+  "canonical target denial must precede secret directory creation",
+);
+assert.equal(CANARY_BOOTSTRAP_WORKER_NAME, "fusou-tlsn-verification-canary-bootstrap");
+assert.equal(CANARY_VERIFIER_WORKER_NAME, "fusou-tlsn-verifier-canary");
 assert.match(canaryWrapper, /wrangler", "deploy", "--env", "canary/);
 assert.match(canaryWrapper, /wrangler\.canary-bootstrap\.toml/);
 assert.match(canaryWrapper, /bootstrapDeploy/);

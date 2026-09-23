@@ -38,6 +38,19 @@ function runProvisioner(outputDirectory, argumentsList) {
   assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
 }
 
+function runProvisionerDenied(outputDirectory, argumentsList) {
+  const result = spawnSync(process.execPath, [provisionerPath, "--output", outputDirectory, ...argumentsList], {
+    cwd: packageDirectory,
+    encoding: "utf8",
+    env: {
+      PATH: process.env.PATH ?? "/usr/bin:/bin",
+      HOME: process.env.HOME ?? tmpdir(),
+    },
+  });
+  assert.notEqual(result.status, 0, `${result.stdout}\n${result.stderr}`);
+  assert.match(`${result.stdout}\n${result.stderr}`, /DENIED:.*canonical Canary Worker identity/);
+}
+
 function expectedGeneratedCanaryKeyId(deploymentId, purpose, publicKeySpki) {
   const deploymentPart = deploymentId.length <= 80
     ? deploymentId
@@ -81,6 +94,11 @@ try {
   assert.equal(incomplete.manifest.notary.source, "unresolved_explicit_input");
   assert.equal(await readFile(join(incompleteDirectory, "notary-signing-key.base64url")).catch(() => null), null);
 
+  runProvisionerDenied(join(rootDirectory, "arbitrary-worker"), [
+    "--fixture-only", "false",
+    "--worker-name", "fusou-tlsn-verification-canary-arbitrary",
+  ]);
+
   const { entries } = readRealFixtureManifest();
   const fixture = loadRealFixture(entries.get("p50"));
   const profiles = profilesForServerIdentity("canary.example.net");
@@ -102,7 +120,7 @@ try {
     "--notary-key-id", "notary-production-2026",
     "--verifier-key-id", "verifier-production-2026",
     "--deployment-id", "canary-explicit-2026",
-    "--worker-name", "fusou-tlsn-verification-canary-2026",
+    "--worker-name", "fusou-tlsn-verification-canary",
   ];
   runProvisioner(completeDirectory, explicitArguments);
   const complete = await readProvisioned(completeDirectory);
@@ -115,7 +133,7 @@ try {
     "notary-production-2026": fixture.notary_key_base64,
   });
   assert.equal(complete.generatedEnv.TLSN_CANARY_DEPLOYMENT_ID, "canary-explicit-2026");
-  assert.equal(complete.generatedEnv.TLSN_CANARY_WORKER_NAME, "fusou-tlsn-verification-canary-2026");
+  assert.equal(complete.generatedEnv.TLSN_CANARY_WORKER_NAME, "fusou-tlsn-verification-canary");
   const expectedSecurityRegistrySet = securityRegistrySetHash({
     notaryKeyId: "notary-production-2026",
     notaryRegistryRaw: complete.generatedEnv.TLSN_PRODUCTION_NOTARY_REGISTRY,
@@ -151,7 +169,7 @@ try {
   }
   assert.equal(complete.manifest.notary.source, "explicit_input_file");
   assert.equal(complete.manifest.generated_public_identity.deployment_id, "canary-explicit-2026");
-  assert.equal(complete.manifest.generated_public_identity.worker_name, "fusou-tlsn-verification-canary-2026");
+  assert.equal(complete.manifest.generated_public_identity.worker_name, "fusou-tlsn-verification-canary");
   assert.equal(
     complete.manifest.generated_public_identity.key_id_strategy,
     "deployment-id-plus-public-key-sha256-prefix",

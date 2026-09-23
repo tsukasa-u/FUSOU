@@ -19,6 +19,10 @@ import {
   CANARY_APPROVED_INPUT_CONTRACT_SCHEMA_VERSION,
 } from "./canary-approved-input-contract.mjs";
 import { loadRealFixture, readRealFixtureManifest } from "./tlsn-benchmark-fixtures.mjs";
+import {
+  assertCanonicalCanaryWorkerName,
+  CANARY_WORKER_NAME,
+} from "./canary-deployment-target.mjs";
 
 const packageDirectory = resolve(new URL("..", import.meta.url).pathname);
 const repositoryDirectory = resolve(packageDirectory, "../..");
@@ -59,7 +63,7 @@ function usage() {
     "  --notary-key-id ID           explicit Notary key ID in that registry",
     "  --verifier-key-id ID         candidate verifier key ID",
     "  --deployment-id ID           explicit canary deployment ID",
-    "  --worker-name NAME           explicit canary Worker name",
+    "  --worker-name NAME           canonical canary Worker name (must match repository config)",
     "  --fixture-only true|false     use a repository-local synthetic fixture only",
     "  --fixture-case CASE           synthetic fixture case (default: p50)",
     "",
@@ -399,7 +403,9 @@ async function main() {
     cwd: repositoryDirectory,
     encoding: "utf8",
   }).trim();
-  const workerName = options["worker-name"] ?? (fixtureOnly ? "fusou-tlsn-verification-canary" : undefined);
+  const workerName = options["worker-name"] === undefined
+    ? (fixtureOnly ? CANARY_WORKER_NAME : undefined)
+    : assertCanonicalCanaryWorkerName(options["worker-name"].trim());
   const bindingValue = `canary-binding-${randomBytes(18).toString("base64url")}`;
   const trustRoot = options["trust-root-file"]
     ? (await readFile(resolve(options["trust-root-file"]))).toString("base64url")

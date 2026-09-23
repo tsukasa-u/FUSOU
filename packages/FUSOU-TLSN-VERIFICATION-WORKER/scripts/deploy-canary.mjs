@@ -17,6 +17,12 @@ import {
   assertCanaryDeploymentAuthorized,
   authorizeCanaryDeployment,
 } from "./canary-deployment-authorization.mjs";
+import {
+  assertCanonicalCanaryWorkerName,
+  CANARY_BOOTSTRAP_WORKER_NAME,
+  CANARY_VERIFIER_WORKER_NAME,
+  CANARY_WORKER_NAME,
+} from "./canary-deployment-target.mjs";
 
 const packageDirectory = resolve(new URL("..", import.meta.url).pathname);
 const inputManifestPath = resolve(packageDirectory, "scripts/production-inputs.json");
@@ -40,10 +46,7 @@ function fail(message) {
 }
 
 async function main() {
-  const workerName = process.env.TLSN_CANARY_WORKER_NAME?.trim();
-  if (!workerName || !/^[a-z][a-z0-9-]{1,62}[a-z0-9]$/.test(workerName)) {
-    throw new Error("TLSN_CANARY_WORKER_NAME must be a valid non-production Worker name");
-  }
+  assertCanonicalCanaryWorkerName(process.env.TLSN_CANARY_WORKER_NAME?.trim());
   for (const name of FORBIDDEN_CANARY_INPUTS) {
     if (process.env[name] !== undefined) throw new Error(`${name} must not be present in a canary deployment`);
   }
@@ -90,11 +93,11 @@ async function main() {
     Object.entries(deploymentEnvironment).filter(([name]) => allowedChildEnvironment.has(name) && !secretInputs.has(name)),
   );
   const bootstrapDeployArguments = [
-    "exec", "wrangler", "deploy", "--config", "wrangler.canary-bootstrap.toml", "--name", workerName,
+    "exec", "wrangler", "deploy", "--config", "wrangler.canary-bootstrap.toml", "--name", CANARY_BOOTSTRAP_WORKER_NAME,
   ];
-  const deployArguments = ["exec", "wrangler", "deploy", "--env", "canary", "--name", workerName];
+  const deployArguments = ["exec", "wrangler", "deploy", "--env", "canary", "--name", CANARY_WORKER_NAME];
   const verifierDeployArguments = [
-    "exec", "wrangler", "deploy", "--name", "fusou-tlsn-verifier-canary",
+    "exec", "wrangler", "deploy", "--name", CANARY_VERIFIER_WORKER_NAME,
   ];
   for (const name of allowedInputs) {
     if (!secretInputs.has(name)) {
@@ -111,7 +114,7 @@ async function main() {
   );
   try {
     const verifierConfig = (await readFile(resolve(packageDirectory, "wrangler.verifier-canary.toml"), "utf8"))
-      .replace('script_name = "fusou-tlsn-verification-canary"', `script_name = "${workerName}"`);
+      .replace('script_name = "fusou-tlsn-verification-canary"', `script_name = "${CANARY_WORKER_NAME}"`);
     await writeFile(verifierConfigPath, verifierConfig, "utf8");
     verifierDeployArguments.push("--config", verifierConfigPath);
     await writeFile(secretsPath, JSON.stringify(Object.fromEntries([...secretInputs].map((name) => [name, deploymentEnvironment[name]]))), { encoding: "utf8", mode: 0o600 });
