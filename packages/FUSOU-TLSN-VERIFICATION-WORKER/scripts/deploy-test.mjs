@@ -4,6 +4,10 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { spawnSync } from "node:child_process";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
+import {
+  assertCanonicalTestWorkerName,
+  TEST_WORKER_NAME,
+} from "./test-deployment-target.mjs";
 
 const packageDirectory = resolve(new URL("..", import.meta.url).pathname);
 
@@ -97,10 +101,9 @@ async function main() {
     if (forbidden) throw new Error(`${forbidden} must not be present in a test deployment environment`);
   }
 
-  const workerName = process.env.TLSN_TEST_WORKER_NAME?.trim() || "fusou-tlsn-verification-test";
-  if (!/^[a-z][a-z0-9-]{1,62}[a-z0-9]$/.test(workerName)) {
-    throw new Error("TLSN_TEST_WORKER_NAME must be a valid Worker name");
-  }
+  const workerName = assertCanonicalTestWorkerName(
+    process.env.TLSN_TEST_WORKER_NAME?.trim() || TEST_WORKER_NAME,
+  );
   const cloudflareApiToken = process.env.CLOUDFLARE_API_TOKEN?.trim();
   const cloudflareAccountId = process.env.CLOUDFLARE_ACCOUNT_ID?.trim();
   if (cloudflareApiToken && !cloudflareAccountId) {
@@ -131,9 +134,6 @@ async function main() {
   const directMode = executionMode === "direct";
   if (directMode) {
     required("TLSN_DIRECT_CALLBACK_SECRET");
-    if (workerName !== "fusou-tlsn-verification-test") {
-      throw new Error("direct test deployment requires TLSN_TEST_WORKER_NAME=fusou-tlsn-verification-test");
-    }
   }
   if (!process.env.TLSN_TEST_AUTH_USERS && (!process.env.TLSN_SUPABASE_URL || !process.env.TLSN_SUPABASE_PUBLISHABLE_KEY)) {
     throw new Error("set TLSN_TEST_AUTH_USERS or both TLSN_SUPABASE_URL and TLSN_SUPABASE_PUBLISHABLE_KEY");
