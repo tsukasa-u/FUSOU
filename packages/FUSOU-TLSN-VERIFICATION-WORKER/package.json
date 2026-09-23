@@ -25,6 +25,7 @@
     "test:canary-input-dry-run": "node scripts/canary-external-input-dry-run-test.mjs",
     "check:canary-external-package": "node scripts/canary-external-package.mjs",
     "test:canary-external-package": "node scripts/canary-external-package-test.mjs",
+    "test:canary-deployment-authorization": "node scripts/canary-deployment-authorization-test.mjs",
     "generate:canary-external-package-candidate": "node scripts/canary-external-package-candidate.mjs",
     "check:canary-external-package-candidate": "node scripts/canary-external-package-candidate-check.mjs",
     "test:canary-external-package-candidate": "node scripts/canary-external-package-candidate-test.mjs",

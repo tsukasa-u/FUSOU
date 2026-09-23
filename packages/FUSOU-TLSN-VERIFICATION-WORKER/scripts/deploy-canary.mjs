@@ -13,6 +13,10 @@ import {
   secretInputsForRole,
 } from "./deployment-contract.mjs";
 import { CANARY_EXTERNAL_INPUT_INTAKE } from "./canary-external-input-intake.mjs";
+import {
+  assertCanaryDeploymentAuthorized,
+  authorizeCanaryDeployment,
+} from "./canary-deployment-authorization.mjs";
 
 const packageDirectory = resolve(new URL("..", import.meta.url).pathname);
 const inputManifestPath = resolve(packageDirectory, "scripts/production-inputs.json");
@@ -59,6 +63,12 @@ async function main() {
     TLSN_DEPLOYMENT_ROLE: "canary",
     TLSN_GIT_COMMIT_SHA: gitCommitSha,
   });
+  const deploymentAuthorization = await authorizeCanaryDeployment({
+    manifestPath: deploymentEnvironment.TLSN_CANARY_EXTERNAL_PACKAGE_MANIFEST,
+    environment: deploymentEnvironment,
+    currentHead: gitCommitSha,
+  });
+  assertCanaryDeploymentAuthorized(deploymentAuthorization);
   const preflight = spawnSync("pnpm", ["run", "preflight:production"], {
     cwd: packageDirectory,
     env: deploymentEnvironment,
