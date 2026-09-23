@@ -37,7 +37,8 @@ const rootPackage = JSON.parse(await readFile(resolve(packageDirectory, "../../p
 function environmentSection(name) {
   const start = wrangler.indexOf(`[env.${name}]`);
   assert.notEqual(start, -1, `missing Wrangler environment ${name}`);
-  const nextEnvironment = wrangler.indexOf("\n[env.", start + 1);
+  const nextEnvironmentOffset = wrangler.slice(start + 1).search(/\n\[env\.[^.]+\]/);
+  const nextEnvironment = nextEnvironmentOffset === -1 ? -1 : start + 1 + nextEnvironmentOffset;
   return wrangler.slice(start, nextEnvironment === -1 ? undefined : nextEnvironment);
 }
 

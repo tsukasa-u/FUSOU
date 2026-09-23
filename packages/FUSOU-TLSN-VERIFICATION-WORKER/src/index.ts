@@ -48,6 +48,11 @@ import initVerifier, {
 import wasmModule from "./wasm/fusou_tlsn_verifier_bg.wasm";
 export type Bindings = {
   TLSN_ENVIRONMENT: string;
+  CF_VERSION_METADATA?: {
+    id: string;
+    tag: string;
+    timestamp: string;
+  };
   TLSN_BINDINGS: DurableObjectNamespace;
   TLSN_PRESENTATIONS: R2Bucket;
   TLSN_BINDING_TTL_SECONDS: string;
@@ -97,6 +102,9 @@ export type Bindings = {
   TLSN_NOTARY_KEY_ID: string;
   TLSN_NOTARY_REGISTRY: string;
   TLSN_RESULT_SIGNING_PRIVATE_KEY_PKCS8: string;
+  TLSN_RESULT_PUBLIC_KEY_SPKI?: string;
+  TLSN_RESULT_SIGNER_KEY_ID?: string;
+  TLSN_RESULT_SIGNING_KEY_REGISTRY?: string;
   TLSN_SESSION_AUTHORITY_SIGNING_PRIVATE_KEY_PKCS8: string;
   TLSN_SESSION_AUTHORITY_PUBLIC_KEY_SPKI: string;
   TLSN_SESSION_AUTHORITY_KEY_ID: string;
@@ -110,6 +118,7 @@ export type Bindings = {
   TLSN_TEST_BINDING_VALUES?: string;
   TLSN_TEST_DEVICE_ID?: string;
   TLSN_TEST_DEVICE_PUBLIC_KEY?: string;
+  TLSN_TEST_WORKER_NAME?: string;
   TLSN_BENCHMARK_TIMINGS?: string;
   TLSN_CANDIDATE_SERVER_IDENTITY?: string;
   TLSN_CANDIDATE_PROFILE_SHA256?: string;
@@ -1242,13 +1251,13 @@ async function readConfig(
     : env.TLSN_TRUST_ROOT_CERTIFICATE_DER;
   const resultPublicKeySpki = production
     ? canary ? env.TLSN_CANARY_RESULT_PUBLIC_KEY_SPKI : env.TLSN_PRODUCTION_RESULT_PUBLIC_KEY_SPKI
-    : undefined;
+    : env.TLSN_RESULT_PUBLIC_KEY_SPKI;
   const resultSignerKeyId = production
     ? canary ? env.TLSN_CANARY_RESULT_SIGNER_KEY_ID : env.TLSN_PRODUCTION_RESULT_SIGNER_KEY_ID
-    : undefined;
+    : env.TLSN_RESULT_SIGNER_KEY_ID;
   const resultSigningKeyRegistry = production
     ? canary ? env.TLSN_CANARY_RESULT_SIGNING_KEY_REGISTRY : env.TLSN_PRODUCTION_RESULT_SIGNING_KEY_REGISTRY
-    : undefined;
+    : env.TLSN_RESULT_SIGNING_KEY_REGISTRY;
   const schemaValidationStartedAt = onTiming ? performance.now() : undefined;
   const parsed = configSchema.safeParse({
     environment: env.TLSN_ENVIRONMENT,
@@ -1356,13 +1365,13 @@ async function readConfig(
     if (production && !parsed.data.trustRootCertificateDer) {
       return null;
     }
-    if (production && !isPublicKeyBase64Url(parsed.data.resultPublicKeySpki)) {
-      return null;
-    }
-    if (production && (!parsed.data.resultSignerKeyId || !parsed.data.resultSigningKeyRegistry)) {
-      return null;
-    }
-    if (production) {
+    const resultIdentityConfigured = Boolean(
+      parsed.data.resultPublicKeySpki || parsed.data.resultSignerKeyId || parsed.data.resultSigningKeyRegistry,
+    );
+    if (resultIdentityConfigured) {
+      if (!isPublicKeyBase64Url(parsed.data.resultPublicKeySpki) || !parsed.data.resultSignerKeyId || !parsed.data.resultSigningKeyRegistry) {
+        return null;
+      }
       const resultRegistryParsingStartedAt = onTiming ? performance.now() : undefined;
       const resultRegistry = resultSigningKeyRegistrySchema.safeParse(JSON.parse(parsed.data.resultSigningKeyRegistry ?? ""));
       if (resultRegistryParsingStartedAt !== undefined) {
@@ -1420,7 +1429,7 @@ async function readConfig(
     if (authorityRegistryInvalid) return null;
     if (
       parsed.data.sessionAuthorityPublicKeySpki === parsed.data.bindingAuthorityPublicKeySpki ||
-      (production && (
+      (resultIdentityConfigured && (
         parsed.data.resultPublicKeySpki === parsed.data.sessionAuthorityPublicKeySpki ||
         parsed.data.resultPublicKeySpki === parsed.data.bindingAuthorityPublicKeySpki
       ))
@@ -1504,7 +1513,7 @@ async function readConfig(
     if (
       !await validateKeyPair(sessionAuthoritySigningPrivateKeyBytes, parsed.data.sessionAuthorityPublicKeySpki, "session-authority") ||
       !await validateKeyPair(bindingAuthoritySigningPrivateKeyBytes, parsed.data.bindingAuthorityPublicKeySpki, "binding-authority") ||
-      (production && !await validateKeyPair(resultSigningPrivateKeyBytes, parsed.data.resultPublicKeySpki ?? "", "result-signer"))
+      (resultIdentityConfigured && !await validateKeyPair(resultSigningPrivateKeyBytes, parsed.data.resultPublicKeySpki ?? "", "result-signer"))
     ) {
       return null;
     }
@@ -3486,13 +3495,13 @@ app.get("/health", async (c) => {
     : null;
   const resultPublicKeySpki = production
     ? canary ? c.env.TLSN_CANARY_RESULT_PUBLIC_KEY_SPKI : c.env.TLSN_PRODUCTION_RESULT_PUBLIC_KEY_SPKI
-    : null;
+    : c.env.TLSN_RESULT_PUBLIC_KEY_SPKI ?? null;
   const resultSignerKeyId = production
     ? canary ? c.env.TLSN_CANARY_RESULT_SIGNER_KEY_ID : c.env.TLSN_PRODUCTION_RESULT_SIGNER_KEY_ID
-    : null;
+    : c.env.TLSN_RESULT_SIGNER_KEY_ID ?? null;
   const resultSigningKeyRegistry = production
     ? canary ? c.env.TLSN_CANARY_RESULT_SIGNING_KEY_REGISTRY : c.env.TLSN_PRODUCTION_RESULT_SIGNING_KEY_REGISTRY
-    : null;
+    : c.env.TLSN_RESULT_SIGNING_KEY_REGISTRY ?? null;
   const resultSigningKeyRegistryEnvelope = production
     ? canary ? c.env.TLSN_CANARY_RESULT_SIGNING_KEY_REGISTRY_ENVELOPE : c.env.TLSN_PRODUCTION_RESULT_SIGNING_KEY_REGISTRY_ENVELOPE
     : null;
@@ -3534,6 +3543,13 @@ app.get("/health", async (c) => {
   const deploymentId = production
     ? canary ? c.env.TLSN_CANARY_DEPLOYMENT_ID : c.env.TLSN_PRODUCTION_DEPLOYMENT_ID
     : replay ? c.env.TLSN_REPLAY_DEPLOYMENT_ID : null;
+  const runtimeVersion = c.env.CF_VERSION_METADATA
+    ? {
+        version_id: c.env.CF_VERSION_METADATA.id,
+        version_tag: c.env.CF_VERSION_METADATA.tag,
+        version_timestamp: c.env.CF_VERSION_METADATA.timestamp,
+      }
+    : null;
   const bindingMode = production && canary && c.env.TLSN_CANARY_BINDING_VALUE
     ? "fixed_canary"
     : replay && c.env.TLSN_TEST_BINDING_VALUE
@@ -3571,6 +3587,7 @@ app.get("/health", async (c) => {
     security_registry_set_sha256: c.env.TLSN_SECURITY_REGISTRY_SET_SHA256 ?? null,
     notary_registry_sha256: notaryRegistrySha256,
     result_public_key_spki: resultPublicKeySpki,
+    runtime_version: runtimeVersion,
     binding_mode: bindingMode,
     execution_mode: executionMode,
     security_identity: {
@@ -3595,7 +3612,7 @@ app.get("/health", async (c) => {
       trust_root_certificate_sha256: trustRootCertificateSha256,
       worker_name: production
         ? canary ? c.env.TLSN_CANARY_WORKER_NAME ?? null : c.env.TLSN_PRODUCTION_WORKER_NAME ?? null
-        : replay ? c.env.TLSN_REPLAY_WORKER_NAME ?? null : null,
+        : replay ? c.env.TLSN_REPLAY_WORKER_NAME ?? null : c.env.TLSN_TEST_WORKER_NAME ?? null,
     },
     result_identity: {
       result_public_key_spki: resultPublicKeySpki,

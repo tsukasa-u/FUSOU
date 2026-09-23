@@ -156,7 +156,11 @@ export async function runSmokeTest(fetch, fixture, publicKeyDerBase64url, device
   assert.equal(health.authority_identity?.binding_authority?.authority, "fusou-tlsn-binding-authority");
   assert.match(health.authority_identity?.session_authority?.public_key_spki ?? "", /^[A-Za-z0-9_-]{59}$/);
   assert.match(health.authority_identity?.binding_authority?.public_key_spki ?? "", /^[A-Za-z0-9_-]{59}$/);
+  assert.match(health.runtime_version?.version_id ?? "", /^[0-9a-f-]{36}$/i);
+  assert.equal(typeof health.runtime_version?.version_tag, "string");
+  assert.match(health.runtime_version?.version_timestamp ?? "", /^\d{4}-\d{2}-\d{2}T/);
   delete health.authority_identity;
+  delete health.runtime_version;
   delete health.security_identity.session_authority_key_id;
   delete health.security_identity.session_authority_key_registry_sha256;
   delete health.security_identity.binding_authority_key_id;
