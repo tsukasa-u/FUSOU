@@ -149,8 +149,8 @@ function parseSparseVerifiedPresentationOutput(output) {
   for (const field of ["server_identity", "tlsn_attestation_id", "notary_key_sha256", "request_transcript_size", "response_transcript_size"]) {
     if (typeof parsed[field] !== "string") throw new Error(`alpha15 sparse verified Presentation output is missing ${field}`);
   }
-  if (parsed.request_transcript_sha256 !== null || parsed.response_transcript_sha256 !== null) {
-    throw new Error("sparse verified Presentation unexpectedly exposes a full transcript digest");
+  for (const [field, label] of [["request_transcript_sha256", "verified request transcript SHA-256"], ["response_transcript_sha256", "verified response transcript SHA-256"]]) {
+    if (parsed[field] !== null) decodeBase64Url(parsed[field], label, 32);
   }
   decodeBase64Url(parsed.tlsn_attestation_id, "verified TLSN attestation ID", 16);
   decodeBase64Url(parsed.notary_key_sha256, "verified Notary key SHA-256", 32);
@@ -168,7 +168,14 @@ function parseSparseVerifiedPresentationOutput(output) {
       previousEnd = start + length;
     }
   }
-  return parsed;
+  const {
+    request_transcript_sha256: requestTranscriptDigest,
+    response_transcript_sha256: responseTranscriptDigest,
+    ...sparsePresentation
+  } = parsed;
+  void requestTranscriptDigest;
+  void responseTranscriptDigest;
+  return sparsePresentation;
 }
 
 function reconstructTranscript(ranges, expectedSize, expectedHash, label) {
