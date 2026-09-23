@@ -160,6 +160,8 @@ assert.doesNotThrow(() => assertCanaryApprovedInputContract(contract({ fixtureOn
 
 for (const [label, mutate] of [
   ["missing target approval", (value) => { delete value.target_approval; }],
+  ["missing binding", (value) => { delete value.binding; }],
+  ["missing evidence semantics", (value) => { delete value.evidence_semantics; }],
   ["expired target approval", (value) => { value.target_approval.expires_at = now.toISOString(); }],
   ["fixture target identity", (value) => { value.target_approval.target_identity = "game.example.test"; }],
   ["wrong environment", (value) => { value.target_approval.environment = "production"; }],
@@ -175,6 +177,8 @@ for (const [label, mutate] of [
   ["authentication credential mismatch", (value) => { value.authentication.credentials[0].credential_id = "unknown-credential"; }],
   ["secret-looking field", (value) => { value.authentication.token_value = "forbidden"; }],
   ["missing workflow provenance", (value) => { delete value.workflow.workflow_file_identity; }],
+  ["target approval workflow repository mismatch", (value) => { value.target_approval.workflow_repository = "other-owner/other-repository"; }],
+  ["target approval reference mismatch", (value) => { value.target_approval.approval_reference = "approval/other-run"; }],
   ["replay binding reused", (value) => { value.binding.replay_binding_identity = value.binding.binding_identity; }],
   ["identity collision", (value) => { value.identity_separation.canary_trust_identity = value.identity_separation.replay_trust_identity; }],
   ["workflow commit mismatch", (value) => { value.workflow.commit_sha = "b".repeat(40); }],

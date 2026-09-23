@@ -67,10 +67,39 @@ try {
   await writeFile(join(pathCandidate.outputDirectory, "manifest.json"), JSON.stringify(manifest, null, 2) + "\n");
   await assert.rejects(
     () => checkCanaryExternalPackageCandidate({ outputDirectory: pathCandidate.outputDirectory }),
-    /escapes output directory/,
+    /candidate artifact path is invalid|escapes output directory/,
   );
 } finally {
   await removeCandidate(pathCandidate.outputDirectory);
+}
+
+const incompleteCandidate = await createCandidate();
+try {
+  const manifest = JSON.parse(await readFile(join(incompleteCandidate.outputDirectory, "manifest.json"), "utf8"));
+  manifest.artifacts = manifest.artifacts.slice(1);
+  manifest.identity = candidateManifestIdentity(manifest);
+  await writeFile(join(incompleteCandidate.outputDirectory, "manifest.json"), JSON.stringify(manifest, null, 2) + "\n");
+  await assert.rejects(
+    () => checkCanaryExternalPackageCandidate({ outputDirectory: incompleteCandidate.outputDirectory }),
+    /artifacts are incomplete/,
+  );
+} finally {
+  await removeCandidate(incompleteCandidate.outputDirectory);
+}
+
+const staleCandidate = await createCandidate();
+try {
+  const manifest = JSON.parse(await readFile(join(staleCandidate.outputDirectory, "manifest.json"), "utf8"));
+  manifest.repository.current_head = "0".repeat(40);
+  manifest.workflow.commit_sha = "0".repeat(40);
+  manifest.identity = candidateManifestIdentity(manifest);
+  await writeFile(join(staleCandidate.outputDirectory, "manifest.json"), JSON.stringify(manifest, null, 2) + "\n");
+  await assert.rejects(
+    () => checkCanaryExternalPackageCandidate({ outputDirectory: staleCandidate.outputDirectory }),
+    /does not match checked-out HEAD/,
+  );
+} finally {
+  await removeCandidate(staleCandidate.outputDirectory);
 }
 
 const secretValue = "candidate-test-secret-must-not-appear";

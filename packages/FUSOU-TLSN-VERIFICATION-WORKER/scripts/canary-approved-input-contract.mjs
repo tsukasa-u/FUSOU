@@ -359,6 +359,8 @@ export function assertCanaryApprovedInputContract(raw, {
   assertAuthentication(contract.authentication, credentialIds);
   assertBinding(contract.binding, { expectedBindingAuthorityKeyId, expectedBindingIdentity, expectedBindingValue });
   assertWorkflow(contract.workflow, { expectedWorkflow, currentHead });
+  assertSame(contract.target_approval.workflow_repository, contract.workflow.repository, "target approval workflow repository");
+  assertSame(contract.target_approval.approval_reference, contract.workflow.approval_reference, "target approval reference");
   assertIdentitySeparation(contract.identity_separation, { fixtureOnly, targetIdentity: contract.target_approval.target_identity, bindingIdentity: contract.binding.binding_identity });
   assertEvidenceSemantics(contract.evidence_semantics);
   return contract;

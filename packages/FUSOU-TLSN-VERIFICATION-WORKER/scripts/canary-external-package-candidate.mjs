@@ -21,6 +21,27 @@ export const CANDIDATE_STATES = Object.freeze([
   "CANDIDATE_INCOMPLETE",
   "CANDIDATE_INVALID",
 ]);
+const CANDIDATE_MANIFEST_KEYS = Object.freeze([
+  "schema_version",
+  "scope",
+  "candidate_state",
+  "package_schema_version",
+  "package_scope",
+  "repository",
+  "target",
+  "workflow",
+  "validity",
+  "authority",
+  "inputs",
+  "artifacts",
+  "secret_provider",
+  "missing_external_inputs",
+  "invalid_external_inputs",
+  "pending_external_approvals",
+  "security",
+  "boundary",
+  "identity",
+]);
 
 const packageDirectory = resolve(new URL("..", import.meta.url).pathname);
 const repositoryDirectory = resolve(packageDirectory, "../..");
@@ -406,7 +427,43 @@ function assertCandidatePath(root, candidatePath) {
   return resolved;
 }
 
-export async function checkCanaryExternalPackageCandidate({ outputDirectory, environment = process.env } = {}) {
+function assertExactKeys(value, keys, label) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new CanaryExternalPackageCandidateError(`${label} must be an object`);
+  const actual = Object.keys(value).sort().join("\0");
+  const expected = [...keys].sort().join("\0");
+  if (actual !== expected) throw new CanaryExternalPackageCandidateError(`${label} fields are invalid`);
+}
+
+function assertCandidateSubject(content, manifest, currentHead) {
+  assertExactKeys(content.subject, [
+    "server_identity",
+    "environment",
+    "deployment_role",
+    "binding_identity",
+    "repository",
+    "run_id",
+    "run_attempt",
+    "commit_sha",
+  ], `${content.artifact_name} candidate artifact subject`);
+  for (const [field, expected] of Object.entries({
+    server_identity: manifest.target.server_identity,
+    environment: manifest.target.environment,
+    deployment_role: manifest.target.deployment_role,
+    binding_identity: manifest.target.binding_identity,
+    repository: manifest.workflow.repository,
+    run_id: manifest.workflow.run_id,
+    run_attempt: manifest.workflow.run_attempt,
+    commit_sha: currentHead,
+  })) {
+    if (content.subject[field] !== expected) throw new CanaryExternalPackageCandidateError(`${content.artifact_name} candidate artifact subject mismatch: ${field}`);
+  }
+}
+
+export async function checkCanaryExternalPackageCandidate({
+  outputDirectory,
+  environment = process.env,
+  currentHead = checkoutCommit(repositoryDirectory),
+} = {}) {
   if (!outputDirectory) throw new CanaryExternalPackageCandidateError("candidate output directory is required");
   const root = resolve(outputDirectory);
   let manifest;
@@ -418,15 +475,49 @@ export async function checkCanaryExternalPackageCandidate({ outputDirectory, env
   if (manifest.scope !== CANARY_EXTERNAL_PACKAGE_CANDIDATE_SCOPE || !CANDIDATE_STATES.includes(manifest.candidate_state)) {
     throw new CanaryExternalPackageCandidateError("candidate manifest scope or state is invalid");
   }
+  assertExactKeys(manifest, CANDIDATE_MANIFEST_KEYS, "candidate manifest");
+  if (manifest.schema_version !== CANARY_EXTERNAL_PACKAGE_CANDIDATE_SCHEMA_VERSION
+    || manifest.package_schema_version !== 2
+    || manifest.package_scope !== "tlsn-canary-external-input-package") {
+    throw new CanaryExternalPackageCandidateError("candidate manifest schema is invalid");
+  }
+  assertExactKeys(manifest.repository, ["current_head", "source"], "candidate repository");
+  assertExactKeys(manifest.workflow, ["repository", "run_id", "run_attempt", "workflow_file_identity", "commit_sha"], "candidate workflow");
+  if (manifest.repository.current_head !== currentHead || manifest.workflow.commit_sha !== currentHead) {
+    throw new CanaryExternalPackageCandidateError("candidate does not match checked-out HEAD");
+  }
+  if (!Array.isArray(manifest.artifacts) || manifest.artifacts.length !== CANARY_EXTERNAL_PACKAGE_ARTIFACTS.length) {
+    throw new CanaryExternalPackageCandidateError("candidate artifacts are incomplete");
+  }
+  const expectedArtifacts = new Set(CANARY_EXTERNAL_PACKAGE_ARTIFACTS);
+  const seenArtifacts = new Set();
   const expectedIdentity = candidateManifestIdentity(manifest);
   if (canonicalJson(expectedIdentity) !== canonicalJson(manifest.identity)) throw new CanaryExternalPackageCandidateError("candidate identity does not match canonical content");
   for (const artifact of manifest.artifacts) {
+    if (!artifact || typeof artifact !== "object" || !expectedArtifacts.has(artifact.name) || seenArtifacts.has(artifact.name)) {
+      throw new CanaryExternalPackageCandidateError("candidate artifact set is unexpected or duplicated");
+    }
+    seenArtifacts.add(artifact.name);
+    if (artifact.path !== artifactFileName(artifact.name)) throw new CanaryExternalPackageCandidateError(`${artifact.name} candidate artifact path is invalid`);
     const path = assertCandidatePath(root, artifact.path);
     const bytes = await readFile(path);
     if (sha256(bytes) !== artifact.sha256) throw new CanaryExternalPackageCandidateError(`${artifact.name} candidate artifact hash does not match`);
     const content = JSON.parse(bytes.toString("utf8"));
-    if (content.scope !== CANARY_EXTERNAL_PACKAGE_CANDIDATE_ARTIFACT_SCOPE || content.artifact_name !== artifact.name) throw new CanaryExternalPackageCandidateError(`${artifact.name} candidate artifact schema is invalid`);
+    assertExactKeys(content, [
+      "schema_version",
+      "scope",
+      "artifact_name",
+      "candidate_state",
+      "origin",
+      "required_external_approval",
+      "subject",
+      "approval_requirements",
+      "material",
+    ], `${artifact.name} candidate artifact`);
+    if (content.schema_version !== 1 || content.scope !== CANARY_EXTERNAL_PACKAGE_CANDIDATE_ARTIFACT_SCOPE || content.artifact_name !== artifact.name) throw new CanaryExternalPackageCandidateError(`${artifact.name} candidate artifact schema is invalid`);
+    assertCandidateSubject(content, manifest, currentHead);
   }
+  if (seenArtifacts.size !== expectedArtifacts.size) throw new CanaryExternalPackageCandidateError("candidate artifacts do not cover the required artifact set");
   const files = await Promise.all([
     readFile(resolve(root, "manifest.json"), "utf8"),
     readFile(resolve(root, "HANDOFF.md"), "utf8"),

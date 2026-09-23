@@ -152,6 +152,11 @@ function sha256(bytes) {
   return createHash("sha256").update(bytes).digest("base64url");
 }
 
+function inputFingerprint(environment, name) {
+  const bytes = inputBytes(environment, name);
+  return bytes ? sha256(bytes) : undefined;
+}
+
 export function canaryExternalPackageIdentity(manifest) {
   return {
     package_id: manifest.package_id,
@@ -318,6 +323,15 @@ async function assertArtifacts(artifacts, packageRoot, {
         expectedServerIdentity: target.server_identity,
         expectedProfileSha256: environment.TLSN_CANDIDATE_PROFILE_SHA256?.trim(),
         expectedSparseProfileSha256: environment.TLSN_CANDIDATE_SPARSE_PROFILE_SHA256?.trim(),
+        expectedSecurityRegistrySetSha256: environment.TLSN_SECURITY_REGISTRY_SET_SHA256?.trim(),
+        expectedTrustRootCertificateSha256: inputFingerprint(environment, "TLSN_CANARY_TRUST_ROOT_CERTIFICATE_DER"),
+        expectedNotaryRegistrySha256: inputFingerprint(environment, "TLSN_PRODUCTION_NOTARY_REGISTRY"),
+        expectedNotaryKeyId: environment.TLSN_CANDIDATE_NOTARY_KEY_ID?.trim(),
+        expectedResultRegistryRootKeyId: environment.TLSN_CANARY_RESULT_REGISTRY_ROOT_KEY_ID?.trim(),
+        expectedVerifierKeyId: environment.TLSN_CANDIDATE_VERIFIER_KEY_ID?.trim(),
+        expectedVerifierPublicKeySpki: environment.TLSN_CANARY_VERIFIER_PUBLIC_KEY_SPKI?.trim(),
+        expectedDeploymentId: environment.TLSN_CANARY_DEPLOYMENT_ID?.trim(),
+        expectedVerifierDeploymentId: environment.TLSN_CANARY_VERIFIER_DEPLOYMENT_ID?.trim(),
         expectedWorkflow: {
           run_id: workflow.run_id,
           attempt: workflow.run_attempt,
@@ -325,6 +339,8 @@ async function assertArtifacts(artifacts, packageRoot, {
           workflow_file_identity: workflow.workflow_file_identity,
         },
         expectedBindingIdentity: target.binding_identity,
+        expectedBindingAuthorityKeyId: environment.TLSN_CANARY_BINDING_AUTHORITY_KEY_ID?.trim(),
+        expectedBindingValue: environment.TLSN_CANARY_BINDING_VALUE?.trim(),
       });
       const environmentContract = environment.TLSN_CANARY_APPROVED_INPUT_CONTRACT_JSON?.trim();
       if (!environmentContract || canonicalJson(JSON.parse(environmentContract)) !== canonicalJson(content)) {

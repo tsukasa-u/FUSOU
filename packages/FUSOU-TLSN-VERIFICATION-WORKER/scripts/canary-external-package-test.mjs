@@ -39,6 +39,14 @@ const environment = {
   TLSN_CANDIDATE_PROFILE_SHA256: profileHashes.complete.sha256,
   TLSN_CANDIDATE_SPARSE_PROFILE_SHA256: profileHashes.sparse.sha256,
   TLSN_CANARY_VERIFIER_PUBLIC_KEY_SPKI: verifierPublicKeySpki,
+  TLSN_CANDIDATE_VERIFIER_KEY_ID: "verifier-canary-2026",
+  TLSN_CANARY_VERIFIER_DEPLOYMENT_ID: "canary-2026",
+  TLSN_CANARY_DEPLOYMENT_ID: "canary-2026",
+  TLSN_CANDIDATE_NOTARY_KEY_ID: "notary-canary-2026",
+  TLSN_SECURITY_REGISTRY_SET_SHA256: hash(4),
+  TLSN_CANARY_RESULT_REGISTRY_ROOT_KEY_ID: "result-root-canary-2026",
+  TLSN_CANARY_BINDING_AUTHORITY_KEY_ID: "binding-canary-2026",
+  TLSN_CANARY_BINDING_VALUE: "canary-binding-value",
   TLSN_PRODUCTION_NOTARY_REGISTRY: JSON.stringify({ keys: ["notary-key"] }),
   TLSN_CANARY_TRUST_ROOT_CERTIFICATE_DER: Buffer.from("trust-root").toString("base64url"),
 };
@@ -147,6 +155,10 @@ for (const [index, name] of CANARY_EXTERNAL_PACKAGE_INPUTS.entries()) {
 function sha256(value) {
   return createHash("sha256").update(value).digest("base64url");
 }
+
+approvedContract.target_approval.trust.trust_root_certificate_sha256 = sha256(Buffer.from("trust-root"));
+approvedContract.target_approval.trust.notary_registry_sha256 = sha256(canonicalJson(JSON.parse(environment.TLSN_PRODUCTION_NOTARY_REGISTRY)));
+environment.TLSN_CANARY_APPROVED_INPUT_CONTRACT_JSON = JSON.stringify(approvedContract);
 
 function inputFingerprint(name) {
   return inputFingerprintFor(name, environment);
@@ -305,11 +317,24 @@ try {
   );
 
   const manifestMutation = structuredClone(manifest);
-  manifestMutation.package_id = "approval-package-mutated";
+  manifestMutation.package_id = "A".repeat(43);
   assert.notEqual(
     canaryExternalPackageIdentity(manifestMutation).manifest_sha256,
     packageIdentity.manifest_sha256,
     "manifest mutation must change canonical package identity",
+  );
+
+  const candidateIdentityAccepted = await assertCanaryExternalPackage(manifestMutation, { packageRoot, environment, currentHead, now });
+  assert.equal(candidateIdentityAccepted.package_id, "A".repeat(43));
+
+  const wrongTrustEnvironment = {
+    ...environment,
+    TLSN_CANARY_TRUST_ROOT_CERTIFICATE_DER: Buffer.from("other-trust-root").toString("base64url"),
+  };
+  await assert.rejects(
+    () => assertCanaryExternalPackage(manifest, { packageRoot, environment: wrongTrustEnvironment, currentHead, now }),
+    /TLSN_CANARY_TRUST_ROOT_CERTIFICATE_DER fingerprint does not match deployment input/,
+    "approved trust root must bind to the current trust-root input",
   );
 
   const tamperedArtifact = structuredClone(manifest);
