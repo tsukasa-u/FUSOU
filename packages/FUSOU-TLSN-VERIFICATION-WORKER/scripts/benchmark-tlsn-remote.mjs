@@ -424,6 +424,8 @@ function synchronousCompletion(submission, executionMode) {
           ? "caller_direct_invocation_fallback"
           : "missing",
     callerDirectInvocationCompletedEpochMilliseconds: hasCallerCompletion ? callerCompletion : null,
+            responseBytes: submission.responseBytes,
+            responseJson: submission.json,
     timing,
     pollEvents: [],
   };
@@ -686,6 +688,8 @@ async function pollStatus(workerOrigin, accessToken, userId, device, session, jo
           statusPollingMilliseconds: clientT11 - pollStartedAt,
           clientResponseBytes: result.responseBodyBytes,
           clientResponseSha256: result.responseBodySha256,
+          responseBytes: result.responseBytes,
+          responseJson: result.json,
           timing,
         };
       }
@@ -2793,7 +2797,16 @@ async function main() {
   if (result === "NOT ESTABLISHED") process.exitCode = 2;
 }
 
-export { derivePollingSample, diagnosePollingSchedule, synchronousCompletion };
+export {
+  derivePollingSample,
+  diagnosePollingSchedule,
+  issueSession,
+  loadHealth,
+  pollStatus,
+  submitVerification,
+  synchronousCompletion,
+  verificationBody,
+};
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   main().catch((error) => {

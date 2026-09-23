@@ -70,6 +70,7 @@
     "test:production-canary-provisioning": "node scripts/production-canary-provisioning-test.mjs",
     "test:replay-provisioning": "node scripts/replay-provisioning-test.mjs",
     "test:test-deployment-attestation": "node scripts/test-deployment-attestation.mjs",
+    "test:test-fresh-attestation": "pnpm exec dotenvx run -f .env -fk ../.env.keys -- node scripts/test-fresh-attestation.mjs",
     "test:evidence-restart-roundtrip": "pnpm run build:wasm && node scripts/evidence-restart-roundtrip-test.mjs",
     "test:isolation": "node scripts/deployment-isolation-test.mjs && pnpm run test:fixture-only && pnpm run test:test-deployment-target",
     "benchmark:sparse-crypto": "pnpm run build:wasm && node scripts/sparse-crypto-benchmark.mjs"
