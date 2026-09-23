@@ -1680,6 +1680,7 @@ export function assertSemanticVerificationArtifact(artifact, {
 }
 
 export function assertSemanticResultMatches(result, semanticVerification) {
-  assertCanonicalEqual(unsignedResult(result), semanticVerification.result, "Worker Result");
+  const workerResult = unsignedResult(result);
+  assertCanonicalEqual(workerResult, unsignedResult(semanticVerification.result), "Worker Result");
   return result;
 }
