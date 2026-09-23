@@ -1,14 +1,17 @@
 #!/usr/bin/env node
 
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { createHash, generateKeyPairSync } from "node:crypto";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   assertCanaryExternalPackage,
   CANARY_EXTERNAL_PACKAGE_ARTIFACT_SCOPE,
   CANARY_EXTERNAL_PACKAGE_ARTIFACTS,
+  CANARY_EXTERNAL_PACKAGE_MANIFEST_INPUT,
   CANARY_EXTERNAL_PACKAGE_INPUTS,
   canaryExternalPackageIdentity,
   canaryExternalPackageVerificationReport,
@@ -615,6 +618,16 @@ try {
   assert.equal(diagnosticsError.name, "CanaryExternalPackageValidationError");
   assert.deepEqual(Object.keys(diagnosticsError.diagnostics[0]).sort(), ["actual", "category", "expected", "field", "owner", "reason"]);
   assert.doesNotMatch(JSON.stringify(diagnosticsError.diagnostics), /secret-marker|private-key-marker/);
+
+  const cliEnvironment = Object.fromEntries(
+    Object.entries(process.env).filter(([name]) => name !== CANARY_EXTERNAL_PACKAGE_MANIFEST_INPUT),
+  );
+  const missingManifestCli = spawnSync(process.execPath, [fileURLToPath(new URL("./canary-external-package.mjs", import.meta.url))], {
+    env: cliEnvironment,
+    encoding: "utf8",
+  });
+  assert.equal(missingManifestCli.status, 2);
+  assert.match(missingManifestCli.stderr, new RegExp(`${CANARY_EXTERNAL_PACKAGE_MANIFEST_INPUT} is required`));
 } finally {
   await rm(packageRoot, { recursive: true, force: true });
 }

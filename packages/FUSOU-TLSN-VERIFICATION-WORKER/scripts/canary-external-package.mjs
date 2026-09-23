@@ -455,9 +455,9 @@ export async function loadCanaryExternalPackageManifest(manifestPath, options = 
 
 const packageDirectory = resolve(new URL("..", import.meta.url).pathname);
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  const manifestPath = process.env[CANARY_EXTERNAL_PACKAGE_MANIFEST]?.trim();
+  const manifestPath = process.env[CANARY_EXTERNAL_PACKAGE_MANIFEST_INPUT]?.trim();
   if (!manifestPath) {
-    console.error(`[tlsn-canary-external-package] ${CANARY_EXTERNAL_PACKAGE_MANIFEST} is required`);
+    console.error(`[tlsn-canary-external-package] ${CANARY_EXTERNAL_PACKAGE_MANIFEST_INPUT} is required`);
     process.exitCode = 2;
   } else {
     loadCanaryExternalPackageManifest(manifestPath, {
