@@ -482,6 +482,35 @@ Run `pnpm run test:canary-readiness` after all independent inputs are available.
 
 Stop after readiness. A `VALID` package or `READY` report does not itself authorize deployment. Deployment and Canary runtime require a separate authorized decision and are outside this non-invasive procedure.
 
+## Repository-Derived Candidate Flow
+
+The repository can prepare a secret-free candidate handoff before an external package exists. This is a preparation state, not a second acceptance gate:
+
+```text
+Repository-derived Candidate
+   -> Candidate self-validation
+   -> External Authority handoff
+   -> Authority approval and artifact delivery
+   -> External Package
+   -> Existing package acceptance
+   -> Separate readiness gate
+```
+
+Generate a candidate into an explicit, disposable output directory:
+
+```text
+pnpm run generate:canary-external-package-candidate -- --output /controlled/path/canary-candidate
+pnpm run check:canary-external-package-candidate -- --output /controlled/path/canary-candidate
+```
+
+The generator is repository-controlled and offline. It derives public profile material and fingerprints present public inputs where applicable, records the eight expected artifact names, and marks authority-bound material and secret-provider references as `PENDING_EXTERNAL_APPROVAL`. It does not call `provision-canary-material.mjs`, generate keys, generate callback secrets, retrieve credentials, access a secret provider, contact a target, invoke Wrangler, deploy, or execute Canary. It refuses fixture, synthetic, replay, historical, non-production, or non-canary identities and does not overwrite an existing candidate directory unless `--overwrite` is explicit.
+
+Candidate output uses `scope=tlsn-canary-external-input-package-candidate` and a candidate-specific artifact scope. It contains a canonical, secret-free `candidate_id`/`manifest_sha256`, an artifact identity map, unresolved external-input list, and `HANDOFF.md`. It never emits the accepted package scope as its own scope, authority approval, validity window, approval reference, provider secret, private key, callback secret, or deployment authorization. The candidate checker also enforces relative path containment, artifact hashes, canonical identity, no secret values, and no fixture/historical/replay contamination.
+
+The candidate checker reports `candidate_state`, identity, missing/invalid external inputs, artifact identities, secret exposure, contamination flags, `external_package_acceptance=NOT_PERFORMED`, `readiness=BLOCKED`, `deployment_executed=false`, and `runtime_executed=false`. Candidate validation is not External Package acceptance. The existing `pnpm run check:canary-external-package` remains the only accepted-package validator; a candidate must be replaced by an externally approved package before that gate can return `VALID`.
+
+Candidate generation is deterministic for the same checked-out HEAD and inputs. Reordering or reformatting JSON does not change its canonical identity, while manifest or artifact mutation changes the identity or fails hash validation. Candidate directories are handoff material only; do not add secrets, provider output, fixtures, historical artifacts, logs, or generated private files.
+
 ### Generated Inputs Reference
 
 FUSOU generates Canary authority key material, registries, binding value, callback/Trigger secrets, and deployment material through the existing provisioner. Generated material does not replace external approval and must not be used to self-approve the package.
