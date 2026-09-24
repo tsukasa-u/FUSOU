@@ -14,6 +14,7 @@ import {
   CANARY_DEPLOYMENT_READINESS,
   canaryDeploymentAttestationArtifactPath,
 } from "./canary-deployment-attestation.mjs";
+import { loadCanaryRuntimeAttestationKeyRegistry } from "./canary-runtime-attestation-key-registry.mjs";
 import { CANARY_EXTERNAL_INPUT_INTAKE } from "./canary-external-input-intake.mjs";
 import {
   CANARY_DEPLOYMENT_MANIFEST_INPUT,
@@ -58,6 +59,7 @@ const DEPLOYMENT_INPUTS = [
 ];
 
 const TRUST_INPUTS = [
+  "TLSN_CANARY_RUNTIME_ATTESTATION_SIGNER_KEY_ID",
   "TLSN_PRODUCTION_NOTARY_REGISTRY",
   "TLSN_SECURITY_REGISTRY_SET_SHA256",
   "TLSN_CANARY_TRUST_ROOT_CERTIFICATE_DER",
@@ -315,6 +317,9 @@ function runtimeAttestationSummary(path, value, status, reason = null) {
     version_id: value?.version?.version_id ?? value?.runtime_self_reported_identity?.runtime_version?.version_id ?? null,
     manifest_id: value?.deployment?.manifest_id ?? null,
     captured_at: value?.captured_at ?? null,
+    attestation_signer_key_id: value?.attestation_signer_key_id ?? null,
+    signature_algorithm: value?.signature_algorithm ?? null,
+    signature_valid: value?.signature_valid ?? false,
     cross_binding: value?.cross_binding ?? {
       status: "BLOCKED",
       workflow_attestation: false,
@@ -331,6 +336,7 @@ function runtimeAttestationSummary(path, value, status, reason = null) {
 async function readRuntimeAttestation(environment = process.env, expectedHead = currentHead, baseDirectory = packageDirectory, {
   workflow = null,
   deploymentManifest = null,
+  runtimeAttestationKeyRegistry = null,
   now = new Date(),
 } = {}) {
   const path = canaryDeploymentAttestationArtifactPath({
@@ -358,6 +364,7 @@ async function readRuntimeAttestation(environment = process.env, expectedHead = 
       workflow,
       deploymentManifest,
       environment,
+      runtimeAttestationKeyRegistry,
       now,
     });
     return { ...runtimeAttestationSummary(path, value, "VALID"), ...verified };
@@ -376,6 +383,7 @@ export async function buildReadinessReport({
   artifactPaths = ARTIFACT_PATHS,
   baseDirectory = packageDirectory,
   validatedDeploymentManifest = null,
+  runtimeAttestationKeyRegistry = null,
   now = new Date(),
 } = {}) {
   const artifacts = await Promise.all(artifactPaths.map((path) => readArtifactMetadata(path, expectedHead, baseDirectory)));
@@ -424,9 +432,17 @@ export async function buildReadinessReport({
       currentWorkflow = null;
     }
   }
+  if (!runtimeAttestationKeyRegistry) {
+    try {
+      ({ registry: runtimeAttestationKeyRegistry } = await loadCanaryRuntimeAttestationKeyRegistry());
+    } catch {
+      runtimeAttestationKeyRegistry = null;
+    }
+  }
   const runtimeAttestation = await readRuntimeAttestation(environment, expectedHead, baseDirectory, {
     workflow: currentWorkflow,
     deploymentManifest: validatedDeploymentManifest,
+    runtimeAttestationKeyRegistry,
     now,
   });
   const binding = allPresent(BINDING_INPUTS, environment) && environment.TLSN_CANARY_FIXTURE_ONLY !== "true"
@@ -448,6 +464,7 @@ export async function buildReadinessReport({
       && runtimeAttestation.readiness === CANARY_DEPLOYMENT_READINESS,
     cross_binding: runtimeAttestation.cross_binding?.status === "PASS",
     attestation_fresh: runtimeAttestation.cross_binding?.attestation_fresh === true,
+    attestation_signature: runtimeAttestation.status === "VALID" && runtimeAttestation.signature_valid === true,
     identity_separation: identitySeparationStatus(environment) === "PASS",
     fixture_contamination_absent: environment.TLSN_CANARY_FIXTURE_ONLY !== "true"
       && target !== "FIXTURE_OR_SYNTHETIC"

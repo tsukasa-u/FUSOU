@@ -298,8 +298,8 @@ async function runFixturePreflight(outputDirectory, generatedEnv) {
       TLSN_PREFLIGHT_REPORT_PATH: reportPath,
     },
   });
-  assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
   const report = JSON.parse(await readFile(reportPath, "utf8"));
+  assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}\n${JSON.stringify(report.failures)}`);
   assert.equal(report.status, "PASS");
   assert.equal(report.failure_count, 0);
 }

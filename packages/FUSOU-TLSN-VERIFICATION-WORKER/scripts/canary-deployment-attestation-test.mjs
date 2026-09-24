@@ -30,6 +30,21 @@ const bindingAuthorityKeyId = "canary-binding-authority-2026";
 const { privateKey: bindingAuthorityPrivateKey, publicKey: bindingAuthorityPublicKey } = generateKeyPairSync("ed25519");
 const bindingAuthorityPrivateKeyPkcs8 = bindingAuthorityPrivateKey.export({ format: "der", type: "pkcs8" }).toString("base64url");
 const bindingAuthorityPublicKeySpki = bindingAuthorityPublicKey.export({ format: "der", type: "spki" }).toString("base64url");
+const { privateKey: runtimeAttestationPrivateKey, publicKey: runtimeAttestationPublicKey } = generateKeyPairSync("ed25519");
+const runtimeAttestationPrivateKeyPkcs8 = runtimeAttestationPrivateKey.export({ format: "der", type: "pkcs8" }).toString("base64url");
+const runtimeAttestationPublicKeySpki = runtimeAttestationPublicKey.export({ format: "der", type: "spki" }).toString("base64url");
+const runtimeAttestationSignerKeyId = "test-canary-runtime-attestation";
+const runtimeAttestationKeyRegistry = {
+  schema_version: 1,
+  scope: "tlsn-canary-runtime-attestation-key-registry",
+  keys: [{
+    key_id: runtimeAttestationSignerKeyId,
+    public_key_spki: runtimeAttestationPublicKeySpki,
+    status: "ACTIVE",
+    not_before: "2026-01-01T00:00:00.000Z",
+    not_after: null,
+  }],
+};
 const workflow = {
   workflow_run_id: "100",
   workflow_run_attempt: "1",
@@ -247,6 +262,10 @@ const realShape = createCanaryDeploymentAttestation({
   expectedDeploymentTag: deploymentTag,
   workflow,
   deploymentManifestId: deploymentManifest.manifest_id,
+  runtimeAttestationSignerKeyId,
+  runtimeAttestationSigningPrivateKeyPkcs8: runtimeAttestationPrivateKeyPkcs8,
+  runtimeAttestationKeyRegistry,
+  signingNow: "2026-09-15T00:00:00.000Z",
   capturedAt: "2026-09-15T00:00:00.000Z",
 });
 assert.equal(realShape.scope, CANARY_DEPLOYMENT_ATTESTATION_SCOPE);
@@ -257,6 +276,7 @@ const runtimeAttestationBinding = {
   currentHead: gitCommitSha,
   workflow,
   deploymentManifest,
+  runtimeAttestationKeyRegistry,
   environment: deploymentEnvironment,
   now: new Date("2026-09-20T00:00:00.000Z"),
 };
@@ -272,6 +292,9 @@ assert.deepEqual(assertCanaryDeploymentRuntimeAttestation(realShape, runtimeAtte
   workflow_file_identity: workflow.workflow_file_identity,
   version_id: versionId,
   platform_deployment_id: platformDeploymentId,
+  attestation_signer_key_id: runtimeAttestationSignerKeyId,
+  signature_algorithm: "Ed25519",
+  signature_valid: true,
   cross_binding: {
     status: "PASS",
     workflow_attestation: true,

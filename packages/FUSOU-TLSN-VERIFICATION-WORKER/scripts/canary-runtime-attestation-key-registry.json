@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "scope": "tlsn-canary-runtime-attestation-key-registry",
+  "keys": [
+    {
+      "key_id": "canary-runtime-attestation-2026",
+      "public_key_spki": "MCowBQYDK2VwAyEAlPQZCOm1nNBvJcIgW2uA9nDizRCdeK9m6hnt5WdyWn0",
+      "status": "ACTIVE",
+      "not_before": "2026-01-01T00:00:00.000Z",
+      "not_after": null
+    }
+  ]
+}

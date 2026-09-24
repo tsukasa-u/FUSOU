@@ -2,11 +2,13 @@
 
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
+import { generateKeyPairSync } from "node:crypto";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { buildReadinessReport } from "./canary-readiness-test.mjs";
 import { CANARY_TLSN_ARCHITECTURE } from "./canary-external-input-intake.mjs";
+import { signCanaryRuntimeAttestation } from "./canary-runtime-attestation-signing.mjs";
 
 const packageDirectory = resolve(new URL("..", import.meta.url).pathname);
 const readinessPath = resolve(packageDirectory, "scripts/canary-readiness-test.mjs");
@@ -43,6 +45,7 @@ const matchingWorkflow = {
   workflow_file_identity: "dotenvx+pnpm+wrangler",
 };
 const matchingEnvironment = {
+  TLSN_CANARY_RUNTIME_ATTESTATION_SIGNER_KEY_ID: "test-readiness-runtime-attestation",
   TLSN_CANARY_DEPLOYMENT_ID: "canary-contract-test",
   TLSN_CANARY_WORKER_NAME: "fusou-tlsn-verification-canary",
   TLSN_WORKFLOW_RUN_ID: matchingWorkflow.workflow_run_id,
@@ -50,6 +53,20 @@ const matchingEnvironment = {
   TLSN_REPOSITORY: matchingWorkflow.repository,
   TLSN_WORKFLOW_FILE_IDENTITY: matchingWorkflow.workflow_file_identity,
   TLSN_GIT_COMMIT_SHA: expectedHead,
+};
+const { privateKey: runtimeAttestationPrivateKey, publicKey: runtimeAttestationPublicKey } = generateKeyPairSync("ed25519");
+const runtimeAttestationPrivateKeyPkcs8 = runtimeAttestationPrivateKey.export({ format: "der", type: "pkcs8" }).toString("base64url");
+const runtimeAttestationPublicKeySpki = runtimeAttestationPublicKey.export({ format: "der", type: "spki" }).toString("base64url");
+const runtimeAttestationKeyRegistry = {
+  schema_version: 1,
+  scope: "tlsn-canary-runtime-attestation-key-registry",
+  keys: [{
+    key_id: matchingEnvironment.TLSN_CANARY_RUNTIME_ATTESTATION_SIGNER_KEY_ID,
+    public_key_spki: runtimeAttestationPublicKeySpki,
+    status: "ACTIVE",
+    not_before: "2026-01-01T00:00:00.000Z",
+    not_after: null,
+  }],
 };
 const matchingManifest = {
   manifest_id: "B".repeat(43),
@@ -68,7 +85,7 @@ const matchingManifest = {
     worker_name: matchingEnvironment.TLSN_CANARY_WORKER_NAME,
   },
 };
-const validRuntimeAttestation = {
+const unsignedRuntimeAttestation = {
   schema_version: 1,
   scope: "tlsn-canary-deployment-runtime-attestation",
   status: "PASS",
@@ -112,6 +129,12 @@ const validRuntimeAttestation = {
   },
   captured_at: "2026-09-15T00:00:00.000Z",
 };
+const validRuntimeAttestation = signCanaryRuntimeAttestation(unsignedRuntimeAttestation, {
+  signerKeyId: matchingEnvironment.TLSN_CANARY_RUNTIME_ATTESTATION_SIGNER_KEY_ID,
+  signingPrivateKeyPkcs8: runtimeAttestationPrivateKeyPkcs8,
+  registry: runtimeAttestationKeyRegistry,
+  now: "2026-09-15T00:00:00.000Z",
+});
 
 const root = await mkdtemp(join(tmpdir(), "tlsn-canary-readiness-contract-"));
 try {
@@ -124,6 +147,7 @@ try {
       artifactPaths: [],
       baseDirectory: root,
       validatedDeploymentManifest: reportManifest,
+      runtimeAttestationKeyRegistry,
       now: new Date("2026-09-20T00:00:00.000Z"),
     });
   };
@@ -152,7 +176,22 @@ try {
   assert.equal(validReport.gates.runtime_attestation, true);
   assert.equal(validReport.gates.cross_binding, true);
   assert.equal(validReport.gates.attestation_fresh, true);
+  assert.equal(validReport.gates.attestation_signature, true);
+  assert.equal(validReport.inputs.runtime_attestation.signature_valid, true);
+  assert.equal(validReport.inputs.runtime_attestation.signature_algorithm, "Ed25519");
   assert.equal(validReport.status, "BLOCKED");
+
+  const tamperedPayloadReport = await reportFor({
+    ...validRuntimeAttestation,
+    deployment: {
+      ...validRuntimeAttestation.deployment,
+      platform_deployment_id: "5b064508-1cdb-453c-826b-bdea36a8b1e5",
+    },
+  });
+  assert.equal(tamperedPayloadReport.status, "BLOCKED");
+  assert.equal(tamperedPayloadReport.inputs.runtime_attestation.status, "INVALID");
+  assert.equal(tamperedPayloadReport.gates.runtime_attestation, false);
+  assert.equal(tamperedPayloadReport.gates.attestation_signature, false);
 
   const manifestIdMismatchReport = await reportFor(validRuntimeAttestation, matchingEnvironment, {
     ...matchingManifest,

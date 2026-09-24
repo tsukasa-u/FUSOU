@@ -5,6 +5,10 @@ import {
   inputsForRole,
   secretInputsForRole,
 } from "./deployment-contract.mjs";
+import {
+  CANARY_RUNTIME_ATTESTATION_SIGNING_PRIVATE_KEY_INPUT,
+  CANARY_RUNTIME_ATTESTATION_SIGNER_KEY_ID_INPUT,
+} from "./canary-runtime-attestation-key-registry.mjs";
 
 export const CANARY_EXTERNAL_INPUT_INTAKE_SCHEMA_VERSION = 2;
 export const CANARY_EXTERNAL_INPUT_INTAKE_SCOPE = "tlsn-canary-external-input-intake";
@@ -543,6 +547,19 @@ export const CANARY_EXTERNAL_INPUT_INTAKE = Object.freeze([
     validator: "signing-key-registry, result-registry-envelope, deployment-preflight",
     failure_conditions: ["MISSING", "PRESENT_INVALID", "PRESENT_MISMATCHED", "REPLAY_IDENTITY_REUSE"],
   }),
+  ...entries("RUNTIME_ATTESTATION", [
+    CANARY_RUNTIME_ATTESTATION_SIGNER_KEY_ID_INPUT,
+  ], {
+    source: "REPOSITORY_STATIC",
+    secret: false,
+    architecture_role: "CANARY_RUNTIME_ATTESTATION_SIGNER_IDENTITY",
+    representation: "repository-selected Ed25519 signer key ID resolved through the canonical Canary Runtime Attestation registry",
+    consumer: "deployment-preflight, deploy-canary, and readiness evaluator",
+    validator: "canary-runtime-attestation-key-registry",
+    ownership: "REPOSITORY_STATIC",
+    failure_conditions: ["MISSING", "PRESENT_INVALID", "PRESENT_MISMATCHED", "REVOKED", "EXPIRED"],
+    fingerprint: "registry key ID and its repository-controlled public-key entry",
+  }),
   ...entries("EVIDENCE_ROOT", [
     "TLSN_REMOTE_REPORT_PATH",
     "TLSN_REMOTE_VALIDATION_REPORT_PATH",
@@ -587,6 +604,14 @@ export const CANARY_EXTERNAL_INPUT_INTAKE = Object.freeze([
     validator: "deployment-preflight key derivation and role isolation",
     validity_period: "credential_policy issued_at <= now < expires_at",
     failure_conditions: ["MISSING", "PRESENT_INVALID", "PRESENT_MISMATCHED", "REPLAY_IDENTITY_REUSE"],
+    ownershipMetadataByName: {
+      [CANARY_RUNTIME_ATTESTATION_SIGNING_PRIVATE_KEY_INPUT]: {
+        consumer: "deploy-canary signing step only; never included in the Worker secrets bundle",
+        generated_by: "configured secret provider for the public key in the repository registry",
+        generation_stage: "deployment attestation",
+        protected_input_channel: true,
+      },
+    },
   }),
   ...entries("REMOTE_VALIDATION", [
     "TLSN_REMOTE_WORKER_URL",

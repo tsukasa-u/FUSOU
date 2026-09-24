@@ -26,6 +26,7 @@ import {
   CANARY_WORKER_NAME,
 } from "./canary-deployment-target.mjs";
 import { createCanaryDeploymentManifest } from "./canary-deployment-manifest.mjs";
+import { CANARY_RUNTIME_ATTESTATION_SIGNER_KEY_ID_INPUT } from "./canary-runtime-attestation-key-registry.mjs";
 
 const packageDirectory = resolve(new URL("..", import.meta.url).pathname);
 const repositoryDirectory = resolve(packageDirectory, "../..");
@@ -422,6 +423,9 @@ async function main() {
     ...(options["verifier-key-id"] || fixtureOnly ? {
       TLSN_CANDIDATE_VERIFIER_KEY_ID: options["verifier-key-id"] ?? "verifier-canary-2026",
     } : {}),
+    ...(process.env[CANARY_RUNTIME_ATTESTATION_SIGNER_KEY_ID_INPUT]
+      ? { [CANARY_RUNTIME_ATTESTATION_SIGNER_KEY_ID_INPUT]: process.env[CANARY_RUNTIME_ATTESTATION_SIGNER_KEY_ID_INPUT].trim() }
+      : {}),
     ...(serverIdentity ? { TLSN_CANDIDATE_SERVER_IDENTITY: serverIdentity } : {}),
     ...(notaryKeyId ? { TLSN_CANDIDATE_NOTARY_KEY_ID: notaryKeyId } : {}),
     ...(securityRegistrySetSha256 ? { TLSN_SECURITY_REGISTRY_SET_SHA256: securityRegistrySetSha256 } : {}),
@@ -490,6 +494,7 @@ async function main() {
     "TLSN_CANARY_WORKER_INTERNAL_URL",
     "TLSN_CANARY_VERIFIER_PUBLIC_KEY_SPKI",
     "TLSN_CANARY_VERIFIER_DEPLOYMENT_ID",
+    CANARY_RUNTIME_ATTESTATION_SIGNER_KEY_ID_INPUT,
   ].filter((name) => generatedEnv[name] === undefined);
   if (!generatedEnv.TLSN_CANDIDATE_SERVER_IDENTITY) unresolvedInputs.push("TLSN_CANDIDATE_SERVER_IDENTITY");
   if (!generatedEnv.TLSN_CANDIDATE_VERIFIER_KEY_ID) unresolvedInputs.push("TLSN_CANDIDATE_VERIFIER_KEY_ID");
@@ -523,6 +528,7 @@ async function main() {
         "TLSN_CANARY_RESULT_SIGNING_PRIVATE_KEY_PKCS8",
         "TLSN_CANARY_SESSION_AUTHORITY_SIGNING_PRIVATE_KEY_PKCS8",
         "TLSN_CANARY_BINDING_AUTHORITY_SIGNING_PRIVATE_KEY_PKCS8",
+        "TLSN_CANARY_RUNTIME_ATTESTATION_SIGNING_PRIVATE_KEY_PKCS8",
         "TLSN_CANARY_TRUST_ROOT_CERTIFICATE_DER",
         "TLSN_CANARY_TRIGGER_SECRET_KEY",
         "TLSN_CANARY_TRIGGER_CALLBACK_SECRET",

@@ -6,6 +6,11 @@ import { spawnSync } from "node:child_process";
 import { dirname, resolve } from "node:path";
 import { assertCanonicalCanaryWorkerName } from "./canary-deployment-target.mjs";
 import { canaryDeploymentManifestBinding } from "./canary-deployment-manifest.mjs";
+import { loadCanaryRuntimeAttestationKeyRegistry } from "./canary-runtime-attestation-key-registry.mjs";
+import {
+  assertCanaryRuntimeAttestationSignature,
+  signCanaryRuntimeAttestation,
+} from "./canary-runtime-attestation-signing.mjs";
 
 export const CANARY_DEPLOYMENT_ATTESTATION_SCHEMA_VERSION = 1;
 export const CANARY_DEPLOYMENT_ATTESTATION_SCOPE = "tlsn-canary-deployment-runtime-attestation";
@@ -163,6 +168,7 @@ export function assertCanaryDeploymentRuntimeAttestation(attestation, {
   workflow,
   deploymentManifest,
   environment,
+  runtimeAttestationKeyRegistry,
   now = new Date(),
 } = {}) {
   assertObject(attestation, "Runtime Attestation");
@@ -170,6 +176,9 @@ export function assertCanaryDeploymentRuntimeAttestation(attestation, {
   assertExactString(attestation.scope, CANARY_DEPLOYMENT_ATTESTATION_SCOPE, "Runtime Attestation scope");
   assertExactString(attestation.status, "PASS", "Runtime Attestation status");
   assertExactString(attestation.readiness, CANARY_DEPLOYMENT_READINESS, "Runtime Attestation readiness");
+  const signature = assertCanaryRuntimeAttestationSignature(attestation, {
+    registry: runtimeAttestationKeyRegistry,
+  });
   assertObject(attestation.evidence, "Runtime Attestation evidence");
   assertExactString(attestation.evidence.synthetic, false, "Runtime Attestation evidence.synthetic");
   assertExactString(attestation.evidence.source, "cloudflare-platform-and-live-health", "Runtime Attestation evidence.source");
@@ -218,6 +227,9 @@ export function assertCanaryDeploymentRuntimeAttestation(attestation, {
     workflow_file_identity: attestation.repository.workflow_file_identity,
     version_id: servingVersionId,
     platform_deployment_id: attestation.deployment.platform_deployment_id,
+    attestation_signer_key_id: signature.signer_key_id,
+    signature_algorithm: signature.signature_algorithm,
+    signature_valid: true,
     cross_binding: crossBinding,
   };
 }
@@ -575,6 +587,10 @@ export function createCanaryDeploymentAttestation({
   expectedDeploymentTag,
   workflow,
   deploymentManifestId,
+  runtimeAttestationSignerKeyId,
+  runtimeAttestationSigningPrivateKeyPkcs8,
+  runtimeAttestationKeyRegistry,
+  signingNow,
   capturedAt = new Date().toISOString(),
   evidenceMode = "real",
 }) {
@@ -588,7 +604,7 @@ export function createCanaryDeploymentAttestation({
   }
   timestampMilliseconds(capturedAt, "Runtime Attestation captured_at");
   const status = fixture ? "FIXTURE_ONLY" : "PASS";
-  return {
+  const unsignedAttestation = {
     schema_version: CANARY_DEPLOYMENT_ATTESTATION_SCHEMA_VERSION,
     scope: fixture ? CANARY_DEPLOYMENT_FIXTURE_SCOPE : CANARY_DEPLOYMENT_ATTESTATION_SCOPE,
     status,
@@ -650,6 +666,13 @@ export function createCanaryDeploymentAttestation({
       synthetic_evidence_rejected: !fixture,
     },
   };
+  if (fixture) return unsignedAttestation;
+  return signCanaryRuntimeAttestation(unsignedAttestation, {
+    signerKeyId: runtimeAttestationSignerKeyId,
+    signingPrivateKeyPkcs8: runtimeAttestationSigningPrivateKeyPkcs8,
+    registry: runtimeAttestationKeyRegistry,
+    now: signingNow ?? capturedAt,
+  });
 }
 
 export async function attestCanaryDeployment({
@@ -664,11 +687,14 @@ export async function attestCanaryDeployment({
   environment,
   workflow,
   deploymentManifestId,
+  runtimeAttestationSignerKeyId,
+  runtimeAttestationSigningPrivateKeyPkcs8,
   artifactPath,
 }) {
   if (environment?.TLSN_CANARY_FIXTURE_ONLY?.trim() === "true") throw new Error("fixture-only Canary deployment cannot produce a real attestation");
   const platform = await platformMetadataAfterDeploy({ workerName, expectedVersionId, environment });
   const runtimeHealth = await fetchCanaryHealth(runtimeUrl);
+  const { registry: runtimeAttestationKeyRegistry } = await loadCanaryRuntimeAttestationKeyRegistry();
   const verification = verifyCanaryDeploymentRuntime({
     platform,
     runtimeHealth,
@@ -692,6 +718,9 @@ export async function attestCanaryDeployment({
     expectedDeploymentTag,
     workflow,
     deploymentManifestId,
+    runtimeAttestationSignerKeyId,
+    runtimeAttestationSigningPrivateKeyPkcs8,
+    runtimeAttestationKeyRegistry,
   });
   await writeImmutableCanaryAttestation(artifactPath, attestation);
   return { attestation, platform, runtimeHealth };

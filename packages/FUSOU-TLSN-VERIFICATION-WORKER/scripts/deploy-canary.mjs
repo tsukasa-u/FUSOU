@@ -12,6 +12,7 @@ import {
   RUNTIME_INPUTS,
   secretInputsForRole,
 } from "./deployment-contract.mjs";
+import { CANARY_RUNTIME_ATTESTATION_SIGNER_KEY_ID_INPUT, CANARY_RUNTIME_ATTESTATION_SIGNING_PRIVATE_KEY_INPUT } from "./canary-runtime-attestation-key-registry.mjs";
 import { CANARY_EXTERNAL_INPUT_INTAKE } from "./canary-external-input-intake.mjs";
 import {
   attestCanaryDeployment,
@@ -150,7 +151,8 @@ async function main() {
       .replace('script_name = "fusou-tlsn-verification-canary"', `script_name = "${CANARY_WORKER_NAME}"`);
     await writeFile(verifierConfigPath, verifierConfig, "utf8");
     verifierDeployArguments.push("--config", verifierConfigPath);
-    await writeFile(secretsPath, JSON.stringify(Object.fromEntries([...secretInputs].map((name) => [name, deploymentEnvironment[name]]))), { encoding: "utf8", mode: 0o600 });
+    const workerSecretInputs = [...secretInputs].filter((name) => name !== CANARY_RUNTIME_ATTESTATION_SIGNING_PRIVATE_KEY_INPUT);
+    await writeFile(secretsPath, JSON.stringify(Object.fromEntries(workerSecretInputs.map((name) => [name, deploymentEnvironment[name]]))), { encoding: "utf8", mode: 0o600 });
     bootstrapDeployArguments.push("--secrets-file", secretsPath);
     deployArguments.push("--secrets-file", secretsPath);
     verifierDeployArguments.push("--secrets-file", secretsPath);
@@ -196,6 +198,8 @@ async function main() {
       environment: childEnvironment,
       workflow,
       deploymentManifestId: deploymentAuthorization.deployment_manifest.manifest_id,
+      runtimeAttestationSignerKeyId: deploymentEnvironment[CANARY_RUNTIME_ATTESTATION_SIGNER_KEY_ID_INPUT],
+      runtimeAttestationSigningPrivateKeyPkcs8: deploymentEnvironment[CANARY_RUNTIME_ATTESTATION_SIGNING_PRIVATE_KEY_INPUT],
       artifactPath,
     });
     console.log(JSON.stringify({

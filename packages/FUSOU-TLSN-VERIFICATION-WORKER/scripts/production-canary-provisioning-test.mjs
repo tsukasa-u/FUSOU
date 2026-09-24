@@ -87,6 +87,7 @@ try {
     "TLSN_CANDIDATE_PROFILE_SHA256",
     "TLSN_CANDIDATE_SPARSE_PROFILE_SHA256",
     "TLSN_CANARY_TRUST_ROOT_CERTIFICATE_DER",
+    "TLSN_CANARY_RUNTIME_ATTESTATION_SIGNER_KEY_ID",
     "TLSN_CANDIDATE_NOTARY_ENDPOINT",
     "FUSOU_NOTARY_PUBLIC_KEY_EXPORT",
   ]) {
@@ -142,6 +143,7 @@ try {
   ];
   runProvisioner(completeDirectory, explicitArguments, {
     TLSN_CANARY_BINDING_IDENTITY: "canary-binding-production-2026",
+    TLSN_CANARY_RUNTIME_ATTESTATION_SIGNER_KEY_ID: "canary-runtime-attestation-2026",
     TLSN_CANARY_TRIGGER_API_URL: "https://canary.example.net/api/trigger",
     TLSN_CANARY_TRIGGER_TASK_ID: "canary-task-production-2026",
     TLSN_CANARY_WORKER_INTERNAL_URL: "https://canary-internal.example.net",
@@ -167,6 +169,7 @@ try {
   assert.equal(complete.generatedEnv.TLSN_CANARY_WORKER_NAME, "fusou-tlsn-verification-canary");
   assert.equal(complete.generatedEnv.TLSN_CANARY_VERIFIER_PUBLIC_KEY_SPKI, verifierPublicKeySpki);
   assert.equal(complete.generatedEnv.TLSN_CANARY_VERIFIER_DEPLOYMENT_ID, "verifier-deployment-production-2026");
+  assert.equal(complete.generatedEnv.TLSN_CANARY_RUNTIME_ATTESTATION_SIGNER_KEY_ID, "canary-runtime-attestation-2026");
   const deploymentManifestPath = complete.generatedEnv.TLSN_CANARY_DEPLOYMENT_MANIFEST;
   assert.ok(deploymentManifestPath);
   const deploymentManifest = JSON.parse(await readFile(deploymentManifestPath, "utf8"));

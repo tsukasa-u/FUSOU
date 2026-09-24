@@ -5,6 +5,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import {
   CANARY_INPUTS,
+  CANARY_SECRET_INPUTS,
   COMMON_INPUTS,
   PRODUCTION_INPUTS,
   PRODUCTION_EVIDENCE_INPUTS,
@@ -18,6 +19,12 @@ import {
 } from "./deployment-contract.mjs";
 import { checkoutCommit, workflowContextFromEnvironment } from "./deployment-attestation.mjs";
 import { assertAuthorityKeyRegistry, authorityKeyRegistrySha256 } from "./authority-key-registry.mjs";
+import {
+  assertCanaryRuntimeAttestationKeyRegistry,
+  CANARY_RUNTIME_ATTESTATION_SIGNER_KEY_ID_INPUT,
+  CANARY_RUNTIME_ATTESTATION_SIGNING_PRIVATE_KEY_INPUT,
+  loadCanaryRuntimeAttestationKeyRegistry,
+} from "./canary-runtime-attestation-key-registry.mjs";
 import { assertSigningKeyRegistry, signingKeyRegistrySha256 } from "./signing-key-registry.mjs";
 import { assertSignedResultRegistryEnvelope, resultRegistryEnvelopeHash } from "./result-registry-envelope.mjs";
 import {
@@ -148,7 +155,7 @@ async function main() {
     JSON.stringify(canaryInputs) !== JSON.stringify(CANARY_INPUTS) ||
     JSON.stringify(productionInputs) !== JSON.stringify(PRODUCTION_INPUTS) ||
     JSON.stringify(productionEvidenceInputs) !== JSON.stringify(PRODUCTION_EVIDENCE_INPUTS) ||
-    JSON.stringify(canarySecrets) !== JSON.stringify(["TLSN_CANARY_RESULT_SIGNING_PRIVATE_KEY_PKCS8", "TLSN_CANARY_SESSION_AUTHORITY_SIGNING_PRIVATE_KEY_PKCS8", "TLSN_CANARY_BINDING_AUTHORITY_SIGNING_PRIVATE_KEY_PKCS8", "TLSN_CANARY_TRUST_ROOT_CERTIFICATE_DER", "TLSN_CANARY_TRIGGER_SECRET_KEY", "TLSN_CANARY_TRIGGER_CALLBACK_SECRET", "TLSN_CANARY_DIRECT_CALLBACK_SECRET"]) ||
+    JSON.stringify(canarySecrets) !== JSON.stringify(CANARY_SECRET_INPUTS) ||
     JSON.stringify(productionSecrets) !== JSON.stringify(["TLSN_PRODUCTION_RESULT_SIGNING_PRIVATE_KEY_PKCS8", "TLSN_PRODUCTION_SESSION_AUTHORITY_SIGNING_PRIVATE_KEY_PKCS8", "TLSN_PRODUCTION_BINDING_AUTHORITY_SIGNING_PRIVATE_KEY_PKCS8", "TLSN_PRODUCTION_TRUST_ROOT_CERTIFICATE_DER", "TLSN_PRODUCTION_TRIGGER_SECRET_KEY", "TLSN_PRODUCTION_TRIGGER_CALLBACK_SECRET"]) ||
     JSON.stringify(inputManifest.production_gate_inputs) !== JSON.stringify(PRODUCTION_GATE_INPUTS) ||
     JSON.stringify(inputManifest.remote_attestation_secret_inputs) !== JSON.stringify(REMOTE_ATTESTATION_SECRET_INPUTS)
@@ -157,7 +164,13 @@ async function main() {
   }
   const roleInputs = ROLE_PATTERN.test(role ?? "") ? inputsForRole(role) : [];
   const secretInputs = ROLE_PATTERN.test(role ?? "") ? secretInputsForRole(role) : [];
-  const requiredInputs = [...roleInputs, ...secretInputs, ...WORKFLOW_EVIDENCE_INPUTS, ...(role === "production" ? PRODUCTION_GATE_INPUTS : [])];
+  const fixtureOnlyCanary = role === "canary" && value("TLSN_CANARY_FIXTURE_ONLY") === "true";
+  const fixtureSignerInputs = new Set([
+    CANARY_RUNTIME_ATTESTATION_SIGNER_KEY_ID_INPUT,
+    CANARY_RUNTIME_ATTESTATION_SIGNING_PRIVATE_KEY_INPUT,
+  ]);
+  const requiredInputs = [...roleInputs, ...secretInputs, ...WORKFLOW_EVIDENCE_INPUTS, ...(role === "production" ? PRODUCTION_GATE_INPUTS : [])]
+    .filter((name) => !(fixtureOnlyCanary && fixtureSignerInputs.has(name)));
   if (value("TLSN_ENVIRONMENT") !== "production") {
     addFailure(failures, "TLSN_ENVIRONMENT", "must be exactly production");
   }
@@ -187,7 +200,6 @@ async function main() {
   if (role === "canary" && value("TLSN_CANARY_SYNCHRONOUS_RESPONSE_ENABLED") !== "true") {
     addFailure(failures, "TLSN_CANARY_SYNCHRONOUS_RESPONSE_ENABLED", "canary role requires the explicit sync response capability flag");
   }
-  const fixtureOnlyCanary = role === "canary" && value("TLSN_CANARY_FIXTURE_ONLY") === "true";
   if (value("TLSN_CANARY_FIXTURE_ONLY") !== undefined && !["true", "false"].includes(value("TLSN_CANARY_FIXTURE_ONLY"))) {
     addFailure(failures, "TLSN_CANARY_FIXTURE_ONLY", "must be true or false");
   }
@@ -287,6 +299,8 @@ async function main() {
     }
   }
   const resultKeyName = role === "canary" ? "TLSN_CANARY_RESULT_PUBLIC_KEY_SPKI" : "TLSN_PRODUCTION_RESULT_PUBLIC_KEY_SPKI";
+  const resultSigningPrivateKeyName = role === "canary" ? "TLSN_CANARY_RESULT_SIGNING_PRIVATE_KEY_PKCS8" : "TLSN_PRODUCTION_RESULT_SIGNING_PRIVATE_KEY_PKCS8";
+  const trustRootCertificateName = role === "canary" ? "TLSN_CANARY_TRUST_ROOT_CERTIFICATE_DER" : "TLSN_PRODUCTION_TRUST_ROOT_CERTIFICATE_DER";
   const resultSignerKeyIdName = role === "canary" ? "TLSN_CANARY_RESULT_SIGNER_KEY_ID" : "TLSN_PRODUCTION_RESULT_SIGNER_KEY_ID";
   const resultKeyRegistryName = role === "canary" ? "TLSN_CANARY_RESULT_SIGNING_KEY_REGISTRY" : "TLSN_PRODUCTION_RESULT_SIGNING_KEY_REGISTRY";
   const resultKeyRegistryEnvelopeName = role === "canary" ? "TLSN_CANARY_RESULT_SIGNING_KEY_REGISTRY_ENVELOPE" : "TLSN_PRODUCTION_RESULT_SIGNING_KEY_REGISTRY_ENVELOPE";
@@ -313,11 +327,11 @@ async function main() {
   } catch (error) {
     addFailure(failures, "TLSN_PRODUCTION_NOTARY_REGISTRY", error instanceof Error ? error.message : "Notary registry is invalid");
   }
-  const signingKeyRaw = value(secretInputs[0]);
-  const trustRootHash = secretHash(value(secretInputs[3]));
+  const signingKeyRaw = value(resultSigningPrivateKeyName);
+  const trustRootHash = secretHash(value(trustRootCertificateName));
   const signingKeyBytes = decodeBase64Url(signingKeyRaw);
-  if (!signingKeyBytes) addFailure(failures, secretInputs[0] ?? "signing_key", "must be canonical base64url");
-  if (!trustRootHash) addFailure(failures, secretInputs[3] ?? "trust_root", "must be canonical base64url");
+  if (!signingKeyBytes) addFailure(failures, resultSigningPrivateKeyName, "must be canonical base64url");
+  if (!trustRootHash) addFailure(failures, trustRootCertificateName, "must be canonical base64url");
   const resultKeyRegistryRaw = value(resultKeyRegistryName);
   const resultKeyRegistryEnvelopeRaw = value(resultKeyRegistryEnvelopeName);
   const resultRegistryRootKeyId = value(resultRegistryRootKeyIdName);
@@ -348,7 +362,7 @@ async function main() {
     try {
       const derivedPublicKey = createPublicKey(createPrivateKey({ key: signingKeyBytes, format: "der", type: "pkcs8" })).export({ format: "der", type: "spki" }).toString("base64url");
       if (derivedPublicKey !== value(resultKeyName)) addFailure(failures, resultKeyName, "must match the role-specific result signing private key");
-    } catch { addFailure(failures, secretInputs[0], "must be a valid Ed25519 PKCS8 private key"); }
+    } catch { addFailure(failures, resultSigningPrivateKeyName, "must be a valid Ed25519 PKCS8 private key"); }
   }
   const authorityDefinitions = [
     {
@@ -399,6 +413,20 @@ async function main() {
       }
     }
     authorityResults.push({ authority, registryRaw, privateKeyMatchesPublic });
+  }
+  if (role === "canary" && !fixtureOnlyCanary) {
+    try {
+      const { registry } = await loadCanaryRuntimeAttestationKeyRegistry();
+      const privateKeyBytes = decodeBase64Url(value(CANARY_RUNTIME_ATTESTATION_SIGNING_PRIVATE_KEY_INPUT));
+      if (!privateKeyBytes) throw new Error("signing private key must be canonical base64url");
+      const derivedPublicKey = createPublicKey(createPrivateKey({ key: privateKeyBytes, format: "der", type: "pkcs8" })).export({ format: "der", type: "spki" }).toString("base64url");
+      assertCanaryRuntimeAttestationKeyRegistry(registry, {
+        currentKeyId: value(CANARY_RUNTIME_ATTESTATION_SIGNER_KEY_ID_INPUT),
+        currentPublicKeySpki: derivedPublicKey,
+      });
+    } catch (error) {
+      addFailure(failures, "canary_runtime_attestation_signer", error instanceof Error ? error.message : "Canary Runtime Attestation signer is invalid");
+    }
   }
   if (role === "production") {
     const signerKeyId = value("TLSN_ATTESTATION_SIGNER_KEY_ID");
