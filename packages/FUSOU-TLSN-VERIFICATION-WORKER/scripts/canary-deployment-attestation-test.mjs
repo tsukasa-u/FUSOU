@@ -39,6 +39,8 @@ const workflow = {
 };
 const deploymentManifest = {
   manifest_id: "A".repeat(43),
+  issued_at: "2026-09-01T00:00:00.000Z",
+  expires_at: "2026-10-01T00:00:00.000Z",
   target: { deployment_role: "canary" },
   workflow: {
     repository: workflow.repository,
@@ -244,6 +246,8 @@ const realShape = createCanaryDeploymentAttestation({
   expectedDeploymentMessage: deploymentMessage,
   expectedDeploymentTag: deploymentTag,
   workflow,
+  deploymentManifestId: deploymentManifest.manifest_id,
+  capturedAt: "2026-09-15T00:00:00.000Z",
 });
 assert.equal(realShape.scope, CANARY_DEPLOYMENT_ATTESTATION_SCOPE);
 assert.equal(realShape.status, "PASS");
@@ -254,6 +258,7 @@ const runtimeAttestationBinding = {
   workflow,
   deploymentManifest,
   environment: deploymentEnvironment,
+  now: new Date("2026-09-20T00:00:00.000Z"),
 };
 assert.deepEqual(assertCanaryDeploymentRuntimeAttestation(realShape, runtimeAttestationBinding), {
   status: "VALID",
@@ -273,6 +278,7 @@ assert.deepEqual(assertCanaryDeploymentRuntimeAttestation(realShape, runtimeAtte
     manifest_attestation: true,
     environment_attestation: true,
     version_serving: true,
+    attestation_fresh: true,
   },
 });
 rejects("real Runtime Attestation requires current workflow context", () => assertCanaryDeploymentRuntimeAttestation(realShape, { currentHead: gitCommitSha }));
@@ -283,6 +289,7 @@ for (const [label, mutation] of [
   ["same HEAD with a different workflow attempt", { workflow: { ...workflow, workflow_run_attempt: "2" } }],
   ["same deployment with a different repository", { workflow: { ...workflow, repository: "other/FUSOU" } }],
   ["same deployment with a different workflow identity", { workflow: { ...workflow, workflow_file_identity: "other-workflow" } }],
+  ["same deployment/workflow/worker with a different manifest ID", { deploymentManifest: { ...deploymentManifest, manifest_id: "B".repeat(43) } }],
   ["same HEAD with a different manifest deployment", { deploymentManifest: { ...deploymentManifest, deployment: { ...deploymentManifest.deployment, deployment_id: "other-deployment" } } }],
   ["same deployment with a different manifest worker", { deploymentManifest: { ...deploymentManifest, deployment: { ...deploymentManifest.deployment, worker_name: "fusou-tlsn-verification-canary-alt" } } }],
   ["same workflow with a different environment deployment", { environment: { ...deploymentEnvironment, TLSN_CANARY_DEPLOYMENT_ID: "other-deployment" } }],
@@ -290,6 +297,17 @@ for (const [label, mutation] of [
   ["same identity with a different manifest commit", { deploymentManifest: { ...deploymentManifest, workflow: { ...deploymentManifest.workflow, commit_sha: "b".repeat(40) } } }],
 ]) {
   rejects(label, () => assertCanaryDeploymentRuntimeAttestation(realShape, { ...runtimeAttestationBinding, ...mutation }));
+}
+
+for (const [label, capturedAt] of [
+  ["future captured_at", "2026-09-21T00:00:00.000Z"],
+  ["captured_at before manifest.issued_at", "2026-08-31T23:59:59.999Z"],
+  ["captured_at after manifest.expires_at", "2026-10-01T00:00:00.001Z"],
+]) {
+  rejects(label, () => assertCanaryDeploymentRuntimeAttestation(
+    { ...realShape, captured_at: capturedAt },
+    runtimeAttestationBinding,
+  ));
 }
 
 const root = await mkdtemp(join(tmpdir(), "tlsn-canary-attestation-test-"));

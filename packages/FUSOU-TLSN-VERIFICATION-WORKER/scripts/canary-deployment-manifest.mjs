@@ -279,6 +279,8 @@ export function canaryDeploymentManifestBinding(manifest) {
   assertObject(manifest.deployment, "Canary deployment manifest deployment");
   return {
     manifest_id: assertHash(manifest.manifest_id, "Canary deployment manifest.manifest_id"),
+    issued_at: assertString(manifest.issued_at, "Canary deployment manifest.issued_at", ISO_TIMESTAMP_PATTERN),
+    expires_at: assertString(manifest.expires_at, "Canary deployment manifest.expires_at", ISO_TIMESTAMP_PATTERN),
     deployment_id: assertReference(manifest.deployment.deployment_id, "Canary deployment manifest deployment_id"),
     worker_name: assertString(manifest.deployment.worker_name, "Canary deployment manifest worker_name"),
     deployment_role: assertString(manifest.target.deployment_role, "Canary deployment manifest target.deployment_role"),

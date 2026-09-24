@@ -17,6 +17,8 @@ export const CANARY_DEPLOYMENT_BINDING_SCHEMA_VERSION = 1;
 const VERSION_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const SHA_PATTERN = /^[0-9a-f]{40}$/i;
 const KEY_ID_PATTERN = /^[A-Za-z0-9._-]{1,128}$/;
+const HASH_PATTERN = /^[A-Za-z0-9_-]{43}$/;
+const ISO_TIMESTAMP_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/;
 const REQUIRED_RUNTIME_ATTESTATION_CHECKS = [
   "synthetic_evidence_rejected",
   "runtime_is_production_canary",
@@ -51,6 +53,35 @@ function assertExactString(value, expected, label) {
   if (value !== expected) throw new Error(`${label} does not match the expected Runtime Attestation value`);
 }
 
+function timestampMilliseconds(value, label) {
+  if (typeof value !== "string" || !ISO_TIMESTAMP_PATTERN.test(value)) throw new Error(`${label} is invalid`);
+  const parsed = Date.parse(value);
+  if (!Number.isFinite(parsed)) throw new Error(`${label} is invalid`);
+  return parsed;
+}
+
+function validationNowMilliseconds(now) {
+  const parsed = now instanceof Date ? now.getTime() : Date.parse(now);
+  if (!Number.isFinite(parsed)) throw new Error("Runtime Attestation validation time is invalid");
+  return parsed;
+}
+
+function assertCanaryDeploymentAttestationFreshness(attestation, manifest, now) {
+  const capturedAt = timestampMilliseconds(attestation.captured_at, "Runtime Attestation captured_at");
+  const validationNow = validationNowMilliseconds(now);
+  const manifestBinding = canaryDeploymentManifestBinding(manifest);
+  const issuedAt = timestampMilliseconds(manifestBinding.issued_at, "Canary deployment manifest.issued_at");
+  const expiresAt = timestampMilliseconds(manifestBinding.expires_at, "Canary deployment manifest.expires_at");
+  if (expiresAt <= issuedAt || issuedAt > validationNow || expiresAt <= validationNow) {
+    throw new Error("Canary deployment manifest validity window is not current");
+  }
+  if (capturedAt > validationNow) throw new Error("Runtime Attestation captured_at is in the future");
+  if (capturedAt < issuedAt || capturedAt > expiresAt) {
+    throw new Error("Runtime Attestation captured_at is outside the deployment manifest validity window");
+  }
+  return true;
+}
+
 function requiredWorkflowMetadata(workflow, label = "current workflow") {
   assertObject(workflow, label);
   return {
@@ -78,6 +109,7 @@ function assertCanaryDeploymentCrossBinding(attestation, {
   workflow,
   deploymentManifest,
   environment,
+  now,
   servingVersionId,
 } = {}) {
   const expectedHead = requiredString(currentHead, "current HEAD").toLowerCase();
@@ -94,8 +126,8 @@ function assertCanaryDeploymentCrossBinding(attestation, {
     assertExactString(attestationWorkflow[field], expectedWorkflow[field], `Runtime Attestation workflow ${field}`);
   }
   assertExactString(attestationWorkflow.git_commit_sha, expectedHead, "Runtime Attestation workflow git_commit_sha");
-
   const manifest = canaryDeploymentManifestBinding(deploymentManifest);
+  assertExactString(attestation.deployment.manifest_id, manifest.manifest_id, "Runtime Attestation manifest ID");
   assertExactString(attestation.deployment.authorized_deployment_id, manifest.deployment_id, "Runtime Attestation manifest deployment ID");
   assertExactString(attestation.deployment.worker_name, manifest.worker_name, "Runtime Attestation manifest worker name");
   assertExactString(attestation.deployment.deployment_role, manifest.deployment_role, "Runtime Attestation manifest deployment role");
@@ -115,12 +147,14 @@ function assertCanaryDeploymentCrossBinding(attestation, {
   assertExactString(attestation.runtime_self_reported_identity.deployment_id, attestation.deployment.authorized_deployment_id, "Runtime Attestation runtime deployment ID");
   assertExactString(attestation.runtime_self_reported_identity.worker_name, attestation.deployment.worker_name, "Runtime Attestation runtime worker name");
   assertExactString(attestation.runtime_self_reported_identity.runtime_version.version_id, servingVersionId, "Runtime Attestation runtime serving version");
+  const attestationFresh = assertCanaryDeploymentAttestationFreshness(attestation, deploymentManifest, now);
   return {
     status: "PASS",
     workflow_attestation: true,
     manifest_attestation: true,
     environment_attestation: true,
     version_serving: true,
+    attestation_fresh: attestationFresh,
   };
 }
 
@@ -129,6 +163,7 @@ export function assertCanaryDeploymentRuntimeAttestation(attestation, {
   workflow,
   deploymentManifest,
   environment,
+  now = new Date(),
 } = {}) {
   assertObject(attestation, "Runtime Attestation");
   assertExactString(attestation.schema_version, CANARY_DEPLOYMENT_ATTESTATION_SCHEMA_VERSION, "Runtime Attestation schema_version");
@@ -168,6 +203,7 @@ export function assertCanaryDeploymentRuntimeAttestation(attestation, {
     workflow,
     deploymentManifest,
     environment,
+    now,
     servingVersionId,
   });
   return {
@@ -538,6 +574,7 @@ export function createCanaryDeploymentAttestation({
   expectedDeploymentMessage,
   expectedDeploymentTag,
   workflow,
+  deploymentManifestId,
   capturedAt = new Date().toISOString(),
   evidenceMode = "real",
 }) {
@@ -546,6 +583,10 @@ export function createCanaryDeploymentAttestation({
   if (!fixture && workflowMetadata.git_commit_sha !== requiredString(expectedGitCommitSha, "Runtime Attestation expected Git SHA").toLowerCase()) {
     throw new Error("Runtime Attestation workflow Git SHA does not match the expected Git SHA");
   }
+  if (!fixture && (typeof deploymentManifestId !== "string" || !HASH_PATTERN.test(deploymentManifestId))) {
+    throw new Error("Runtime Attestation deployment manifest ID is missing or invalid");
+  }
+  timestampMilliseconds(capturedAt, "Runtime Attestation captured_at");
   const status = fixture ? "FIXTURE_ONLY" : "PASS";
   return {
     schema_version: CANARY_DEPLOYMENT_ATTESTATION_SCHEMA_VERSION,
@@ -567,6 +608,7 @@ export function createCanaryDeploymentAttestation({
     },
     deployment: {
       authorized_deployment_id: expectedDeploymentId,
+      manifest_id: fixture ? null : deploymentManifestId,
       platform_deployment_id: platform.deployment.id,
       worker_name: verification.worker_name,
       deployment_role: verification.deployment_role,
@@ -621,6 +663,7 @@ export async function attestCanaryDeployment({
   runtimeUrl,
   environment,
   workflow,
+  deploymentManifestId,
   artifactPath,
 }) {
   if (environment?.TLSN_CANARY_FIXTURE_ONLY?.trim() === "true") throw new Error("fixture-only Canary deployment cannot produce a real attestation");
@@ -648,6 +691,7 @@ export async function attestCanaryDeployment({
     expectedDeploymentMessage,
     expectedDeploymentTag,
     workflow,
+    deploymentManifestId,
   });
   await writeImmutableCanaryAttestation(artifactPath, attestation);
   return { attestation, platform, runtimeHealth };

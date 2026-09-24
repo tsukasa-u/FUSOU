@@ -53,6 +53,8 @@ const matchingEnvironment = {
 };
 const matchingManifest = {
   manifest_id: "B".repeat(43),
+  issued_at: "2026-09-01T00:00:00.000Z",
+  expires_at: "2026-10-01T00:00:00.000Z",
   target: { deployment_role: "canary" },
   workflow: {
     repository: matchingWorkflow.repository,
@@ -84,6 +86,7 @@ const validRuntimeAttestation = {
   },
   deployment: {
     authorized_deployment_id: "canary-contract-test",
+    manifest_id: matchingManifest.manifest_id,
     platform_deployment_id: "3b064508-1cdb-453c-826b-bdea36a8b1e5",
     worker_name: "fusou-tlsn-verification-canary",
     deployment_role: "canary",
@@ -107,6 +110,7 @@ const validRuntimeAttestation = {
     runtime_version_matches_platform_version: true,
     runtime_git_sha_matches_head: true,
   },
+  captured_at: "2026-09-15T00:00:00.000Z",
 };
 
 const root = await mkdtemp(join(tmpdir(), "tlsn-canary-readiness-contract-"));
@@ -120,6 +124,7 @@ try {
       artifactPaths: [],
       baseDirectory: root,
       validatedDeploymentManifest: reportManifest,
+      now: new Date("2026-09-20T00:00:00.000Z"),
     });
   };
 
@@ -146,7 +151,37 @@ try {
   assert.equal(validReport.cross_binding.status, "PASS");
   assert.equal(validReport.gates.runtime_attestation, true);
   assert.equal(validReport.gates.cross_binding, true);
+  assert.equal(validReport.gates.attestation_fresh, true);
   assert.equal(validReport.status, "BLOCKED");
+
+  const manifestIdMismatchReport = await reportFor(validRuntimeAttestation, matchingEnvironment, {
+    ...matchingManifest,
+    manifest_id: "C".repeat(43),
+  });
+  assert.equal(manifestIdMismatchReport.status, "BLOCKED");
+  assert.equal(manifestIdMismatchReport.inputs.runtime_attestation.status, "INVALID");
+  assert.equal(manifestIdMismatchReport.cross_binding.status, "BLOCKED");
+  assert.equal(manifestIdMismatchReport.gates.cross_binding, false);
+  assert.equal(manifestIdMismatchReport.gates.attestation_fresh, false);
+
+  const expiredManifestReport = await reportFor(validRuntimeAttestation, matchingEnvironment, {
+    ...matchingManifest,
+    expires_at: "2026-09-10T00:00:00.000Z",
+  });
+  assert.equal(expiredManifestReport.status, "BLOCKED");
+  assert.equal(expiredManifestReport.inputs.runtime_attestation.status, "INVALID");
+  assert.equal(expiredManifestReport.gates.attestation_fresh, false);
+
+  for (const [label, capturedAt] of [
+    ["future captured_at", "2026-09-21T00:00:00.000Z"],
+    ["captured_at before manifest.issued_at", "2026-08-31T23:59:59.999Z"],
+    ["captured_at after manifest.expires_at", "2026-10-01T00:00:00.001Z"],
+  ]) {
+    const timestampReport = await reportFor({ ...validRuntimeAttestation, captured_at: capturedAt });
+    assert.equal(timestampReport.status, "BLOCKED", label);
+    assert.equal(timestampReport.inputs.runtime_attestation.status, "INVALID", label);
+    assert.equal(timestampReport.gates.attestation_fresh, false, label);
+  }
 
   const frankensteinReport = await reportFor(validRuntimeAttestation, {
     ...matchingEnvironment,

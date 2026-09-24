@@ -313,12 +313,15 @@ function runtimeAttestationSummary(path, value, status, reason = null) {
     worker_name: value?.deployment?.worker_name ?? value?.runtime_self_reported_identity?.worker_name ?? null,
     platform_deployment_id: value?.deployment?.platform_deployment_id ?? null,
     version_id: value?.version?.version_id ?? value?.runtime_self_reported_identity?.runtime_version?.version_id ?? null,
+    manifest_id: value?.deployment?.manifest_id ?? null,
+    captured_at: value?.captured_at ?? null,
     cross_binding: value?.cross_binding ?? {
       status: "BLOCKED",
       workflow_attestation: false,
       manifest_attestation: false,
       environment_attestation: false,
       version_serving: false,
+      attestation_fresh: false,
       reason: "Runtime Attestation cross-binding was not validated",
     },
     reason,
@@ -328,6 +331,7 @@ function runtimeAttestationSummary(path, value, status, reason = null) {
 async function readRuntimeAttestation(environment = process.env, expectedHead = currentHead, baseDirectory = packageDirectory, {
   workflow = null,
   deploymentManifest = null,
+  now = new Date(),
 } = {}) {
   const path = canaryDeploymentAttestationArtifactPath({
     baseDirectory,
@@ -354,6 +358,7 @@ async function readRuntimeAttestation(environment = process.env, expectedHead = 
       workflow,
       deploymentManifest,
       environment,
+      now,
     });
     return { ...runtimeAttestationSummary(path, value, "VALID"), ...verified };
   } catch (error) {
@@ -361,12 +366,17 @@ async function readRuntimeAttestation(environment = process.env, expectedHead = 
   }
 }
 
+/**
+ * validatedDeploymentManifest is an internal test-fixture injection point.
+ * Production callers omit it so the main path loads and validates the manifest artifact.
+ */
 export async function buildReadinessReport({
   environment = process.env,
   expectedHead = currentHead,
   artifactPaths = ARTIFACT_PATHS,
   baseDirectory = packageDirectory,
   validatedDeploymentManifest = null,
+  now = new Date(),
 } = {}) {
   const artifacts = await Promise.all(artifactPaths.map((path) => readArtifactMetadata(path, expectedHead, baseDirectory)));
   const currentTrustArtifacts = artifacts.filter((artifact) => artifact.current_trust_artifact);
@@ -385,7 +395,7 @@ export async function buildReadinessReport({
     };
   } else if (deploymentManifestPath) {
     try {
-      const manifest = await loadCanaryDeploymentManifest(deploymentManifestPath, { environment, currentHead: expectedHead });
+      const manifest = await loadCanaryDeploymentManifest(deploymentManifestPath, { environment, currentHead: expectedHead, now });
       validatedDeploymentManifest = manifest;
       deploymentManifest = {
         status: "VALID",
@@ -417,6 +427,7 @@ export async function buildReadinessReport({
   const runtimeAttestation = await readRuntimeAttestation(environment, expectedHead, baseDirectory, {
     workflow: currentWorkflow,
     deploymentManifest: validatedDeploymentManifest,
+    now,
   });
   const binding = allPresent(BINDING_INPUTS, environment) && environment.TLSN_CANARY_FIXTURE_ONLY !== "true"
     ? "PRESENT_UNVERIFIED"
@@ -436,6 +447,7 @@ export async function buildReadinessReport({
     runtime_attestation: runtimeAttestation.status === "VALID"
       && runtimeAttestation.readiness === CANARY_DEPLOYMENT_READINESS,
     cross_binding: runtimeAttestation.cross_binding?.status === "PASS",
+    attestation_fresh: runtimeAttestation.cross_binding?.attestation_fresh === true,
     identity_separation: identitySeparationStatus(environment) === "PASS",
     fixture_contamination_absent: environment.TLSN_CANARY_FIXTURE_ONLY !== "true"
       && target !== "FIXTURE_OR_SYNTHETIC"

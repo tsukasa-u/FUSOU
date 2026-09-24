@@ -144,6 +144,8 @@ assert.equal(valid.manifest_id, manifest.manifest_id);
 assert.equal(valid.target.server_identity, "game.example.com");
 assert.deepEqual(canaryDeploymentManifestBinding(valid), {
   manifest_id: manifest.manifest_id,
+  issued_at: manifest.issued_at,
+  expires_at: manifest.expires_at,
   deployment_id: environment.TLSN_CANARY_DEPLOYMENT_ID,
   worker_name: environment.TLSN_CANARY_WORKER_NAME,
   deployment_role: environment.TLSN_DEPLOYMENT_ROLE,

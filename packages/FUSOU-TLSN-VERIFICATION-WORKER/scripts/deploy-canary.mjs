@@ -195,6 +195,7 @@ async function main() {
       runtimeUrl: deploymentEnvironment.TLSN_CANARY_WORKER_INTERNAL_URL,
       environment: childEnvironment,
       workflow,
+      deploymentManifestId: deploymentAuthorization.deployment_manifest.manifest_id,
       artifactPath,
     });
     console.log(JSON.stringify({
