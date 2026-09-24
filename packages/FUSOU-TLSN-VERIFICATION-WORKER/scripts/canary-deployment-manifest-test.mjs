@@ -100,6 +100,19 @@ function alteredManifest(change) {
   return JSON.stringify(altered);
 }
 
+function alteredManifestWithoutIdentity(change) {
+  const altered = structuredClone(manifest);
+  change(altered);
+  return JSON.stringify(altered);
+}
+
+async function assertManifestRejected(raw, message) {
+  await assert.rejects(
+    () => assertCanaryDeploymentManifest(raw, { packageRoot, environment, currentHead, now: new Date("2026-06-01T00:00:00.000Z") }),
+    message,
+  );
+}
+
 const valid = await assertCanaryDeploymentManifest(JSON.stringify(manifest), { packageRoot, environment, currentHead, now: new Date("2026-06-01T00:00:00.000Z") });
 assert.equal(valid.manifest_id, manifest.manifest_id);
 assert.equal(valid.target.server_identity, "game.example.com");
@@ -147,10 +160,25 @@ await assert.rejects(
   }), { packageRoot, environment, currentHead, now: new Date("2026-06-01T00:00:00.000Z") }),
   /validity window/,
 );
+await assertManifestRejected(alteredManifest((value) => { value.artifacts = []; }), "missing artifacts must be rejected");
+await assertManifestRejected(alteredManifest((value) => { value.artifacts[0].sha256 = "A".repeat(43); }), "artifact hash mismatch must be rejected");
+await assertManifestRejected(alteredManifest((value) => { value.artifacts[0].path = "../manifest-test-source.mjs"; }), "artifact path traversal must be rejected");
+await assertManifestRejected(alteredManifest((value) => { value.secret_provider.references = value.secret_provider.references.slice(1); }), "missing secret provider must be rejected");
+await assertManifestRejected(alteredManifest((value) => { value.secret_provider.references.push({ ...value.secret_provider.references[0] }); }), "duplicate secret provider must be rejected");
+await assertManifestRejected(alteredManifest((value) => { value.workflow.commit_sha = "0".repeat(40); }), "wrong HEAD must be rejected");
+await assertManifestRejected(alteredManifest((value) => { value.target.server_identity = "other.example.com"; }), "wrong server identity must be rejected");
+await assertManifestRejected(alteredManifest((value) => { value.target.binding_identity = "replay-binding-2026"; }), "replay binding identity must be rejected");
+await assertManifestRejected(alteredManifest((value) => { value.target.server_identity = "game.example.test"; }), "test server identity must be rejected");
+await assertManifestRejected(alteredManifest((value) => { value.deployment.worker_name = "fusou-tlsn-verification-production"; }), "production Worker identity must be rejected");
+await assertManifestRejected(alteredManifest((value) => { value.issued_at = "2090-01-01T00:00:00.000Z"; }), "future manifest must be rejected");
+await assertManifestRejected(alteredManifestWithoutIdentity((value) => { value.target.binding_identity = "canary-binding-mutated"; }), "mutated manifest identity must be rejected");
+await assertManifestRejected("{", "malformed JSON must be rejected");
+await assertManifestRejected(alteredManifest((value) => { value.external_authority = { status: "approved" }; }), "external authority field must be rejected");
 
 const tempDirectory = await mkdtemp(join(tmpdir(), "tlsn-canary-manifest-test-"));
 try {
   const manifestPath = join(tempDirectory, "manifest.json");
+  const preflightReportPath = join(tempDirectory, "preflight.json");
   const authorizationManifest = {
     ...manifest,
     artifacts: [{ name: "manifest-test-source", path: "manifest-test-source.mjs", sha256: artifactHash }],
@@ -158,6 +186,15 @@ try {
   authorizationManifest.manifest_id = deploymentManifestIdentity(authorizationManifest);
   await writeFile(join(tempDirectory, "manifest-test-source.mjs"), artifactBytes);
   await writeFile(manifestPath, JSON.stringify(authorizationManifest));
+  await writeFile(preflightReportPath, JSON.stringify({
+    schema_version: 2,
+    environment: "production",
+    deployment_role: "canary",
+    status: "PASS",
+    checks: { required_variables: true, no_test_configuration: true },
+    failure_count: 0,
+    failures: [],
+  }));
   const authorization = await authorizeCanaryDeployment({ manifestPath, environment, currentHead, now: new Date("2026-06-01T00:00:00.000Z") });
   assert.equal(authorization.deployment_authorization, "PREFLIGHT_REQUIRED");
   assert.equal(authorization.deployment_manifest.status, "VALID");
@@ -171,9 +208,31 @@ try {
     currentHead,
     now: new Date("2026-06-01T00:00:00.000Z"),
     preflightStatus: "PASS",
+    preflightReportPath,
   });
   assert.equal(authorized.deployment_authorization, "AUTHORIZED");
   assertCanaryDeploymentAuthorized(authorized);
+
+  const arbitraryPass = await authorizeCanaryDeployment({
+    manifestPath,
+    environment,
+    currentHead,
+    now: new Date("2026-06-01T00:00:00.000Z"),
+    preflightStatus: "PASS",
+  });
+  assert.equal(arbitraryPass.deployment_authorization, "PREFLIGHT_REQUIRED");
+
+  await writeFile(preflightReportPath, JSON.stringify({
+    schema_version: 2,
+    environment: "production",
+    deployment_role: "canary",
+    status: "FAIL",
+    checks: { required_variables: false },
+    failure_count: 1,
+    failures: [{ check: "TLSN_TEST", reason: "test" }],
+  }));
+  const failedPreflight = await authorizeCanaryDeployment({ manifestPath, environment, currentHead, preflightReportPath });
+  assert.equal(failedPreflight.deployment_authorization, "PREFLIGHT_REQUIRED");
 } finally {
   await rm(tempDirectory, { recursive: true, force: true });
 }

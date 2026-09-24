@@ -77,7 +77,8 @@ async function main() {
     manifestPath: deploymentEnvironment.TLSN_CANARY_DEPLOYMENT_MANIFEST,
     environment: deploymentEnvironment,
     currentHead: gitCommitSha,
-    preflightStatus: "PASS",
+    preflightReportPath: deploymentEnvironment.TLSN_PREFLIGHT_REPORT_PATH
+      ?? resolve(packageDirectory, "artifacts/tlsn-deployment-preflight.json"),
   });
   assertCanaryDeploymentAuthorized(deploymentAuthorization);
 
