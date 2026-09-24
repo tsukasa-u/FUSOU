@@ -113,36 +113,36 @@ fn build_production_tlsn_dependencies(
     let proxy_configs = configs::get_user_configs_for_proxy();
     let server_identity = proxy_configs
         .get_tlsn_server_identity()
-        .ok_or_else(|| production_configuration_error("tlsn_server_identity is required for production TLSN"))?;
+        .ok_or_else(|| production_configuration_error("tlsn_server_identity is required for the TLSN experiment"))?;
     let notary_endpoint = proxy_configs
         .get_tlsn_notary_endpoint()
-        .ok_or_else(|| production_configuration_error("tlsn_notary_endpoint is required for production TLSN"))?;
+        .ok_or_else(|| production_configuration_error("tlsn_notary_endpoint is required for the TLSN experiment"))?;
     let session_endpoint = proxy_configs
         .get_tlsn_session_authority_endpoint()
-        .ok_or_else(|| production_configuration_error("tlsn_session_authority_endpoint is required for production TLSN"))?;
+        .ok_or_else(|| production_configuration_error("tlsn_session_authority_endpoint is required for the TLSN experiment"))?;
     let verification_endpoint = proxy_configs
         .get_tlsn_verification_endpoint()
-        .ok_or_else(|| production_configuration_error("tlsn_verification_endpoint is required for production TLSN"))?;
+        .ok_or_else(|| production_configuration_error("tlsn_verification_endpoint is required for the TLSN experiment"))?;
     let session_authority_key_id = proxy_configs
         .get_tlsn_session_authority_key_id()
-        .ok_or_else(|| production_configuration_error("tlsn_session_authority_key_id is required for production TLSN"))?;
+        .ok_or_else(|| production_configuration_error("tlsn_session_authority_key_id is required for the TLSN experiment"))?;
     let session_authority_public_key = URL_SAFE_NO_PAD
         .decode(proxy_configs.get_tlsn_session_authority_public_key().ok_or_else(|| {
             production_configuration_error(
-                "tlsn_session_authority_public_key is required for production TLSN",
+                "tlsn_session_authority_public_key is required for the TLSN experiment",
             )
         })?)?;
     let result_public_key_spki = URL_SAFE_NO_PAD.decode(
         proxy_configs
             .get_tlsn_result_public_key_spki()
-            .ok_or_else(|| production_configuration_error("tlsn_result_public_key_spki is required for production TLSN"))?,
+            .ok_or_else(|| production_configuration_error("tlsn_result_public_key_spki is required for the TLSN experiment"))?,
     )?;
     let result_signer_key_id = proxy_configs
         .get_tlsn_result_signer_key_id()
-        .ok_or_else(|| production_configuration_error("tlsn_result_signer_key_id is required for production TLSN"))?;
+        .ok_or_else(|| production_configuration_error("tlsn_result_signer_key_id is required for the TLSN experiment"))?;
     let result_signing_key_registry = proxy_configs
         .get_tlsn_result_signing_key_registry()
-        .ok_or_else(|| production_configuration_error("tlsn_result_signing_key_registry is required for production TLSN"))?;
+        .ok_or_else(|| production_configuration_error("tlsn_result_signing_key_registry is required for the TLSN experiment"))?;
     let disclosure_mode = proxy_configs.get_tlsn_disclosure_mode();
     if !matches!(disclosure_mode.as_str(), "complete" | "sparse") {
         return Err(production_configuration_error(
@@ -152,7 +152,7 @@ fn build_production_tlsn_dependencies(
     let notary_key = URL_SAFE_NO_PAD.decode(
         proxy_configs
             .get_tlsn_notary_verifying_key()
-            .ok_or_else(|| production_configuration_error("tlsn_notary_verifying_key is required for production TLSN"))?,
+            .ok_or_else(|| production_configuration_error("tlsn_notary_verifying_key is required for the TLSN experiment"))?,
     )?;
     let trusted_roots = proxy_configs
         .get_tlsn_origin_trust_roots()
@@ -161,13 +161,13 @@ fn build_production_tlsn_dependencies(
         .collect::<Result<Vec<_>, Box<dyn std::error::Error>>>()?;
     if trusted_roots.is_empty() {
         return Err(production_configuration_error(
-            "tlsn_origin_trust_roots is required for production TLSN",
+            "tlsn_origin_trust_roots is required for the TLSN experiment",
         ));
     }
     let artifact_root = std::path::PathBuf::from(artifact_root);
     if artifact_root.as_os_str().is_empty() {
         return Err(production_configuration_error(
-            "tlsn_artifact_output_path is required for production TLSN",
+            "tlsn_artifact_output_path is required for the TLSN experiment",
         ));
     }
     let target = OriginTarget::new(
@@ -271,7 +271,7 @@ where
     let proxy_configs = configs::get_user_configs_for_proxy();
     let use_generated_certs = proxy_configs.certificates.get_use_generated_certs();
 
-    if proxy_configs.get_tlsn_production_enabled() {
+    if proxy_configs.get_tlsn_experiment_enabled() {
         let report = crate::tlsn_preflight::run_current_config_preflight();
         if !report.ready {
             return Err(report.failure_summary().into());
@@ -279,24 +279,24 @@ where
     }
 
     #[cfg(feature = "tlsn-production")]
-    let runtime_identity = if proxy_configs.get_tlsn_production_enabled() {
+    let runtime_identity = if proxy_configs.get_tlsn_experiment_enabled() {
         Some(
             crate::tlsn_runtime::fetch_and_validate(
                 proxy_configs
                     .get_tlsn_runtime_attestation_endpoint()
-                    .ok_or("tlsn_runtime_attestation_endpoint is required for production TLSN")?
+                    .ok_or("tlsn_runtime_attestation_endpoint is required for the TLSN experiment")?
                     .as_str(),
                 proxy_configs
                     .get_tlsn_expected_deployment_id()
-                    .ok_or("tlsn_expected_deployment_id is required for production TLSN")?
+                    .ok_or("tlsn_expected_deployment_id is required for the TLSN experiment")?
                     .as_str(),
                 proxy_configs
                     .get_tlsn_expected_worker_name()
-                    .ok_or("tlsn_expected_worker_name is required for production TLSN")?
+                    .ok_or("tlsn_expected_worker_name is required for the TLSN experiment")?
                     .as_str(),
                 proxy_configs
                     .get_tlsn_expected_git_commit_sha()
-                    .ok_or("tlsn_expected_git_commit_sha is required for production TLSN")?
+                    .ok_or("tlsn_expected_git_commit_sha is required for the TLSN experiment")?
                     .as_str(),
                 proxy_configs.get_tlsn_expected_binding_mode().as_str(),
             )
@@ -351,12 +351,12 @@ where
         game_client: "FUSOU-APP external WebView/browser".to_string(),
         allowlisted_game_server: proxy_target.clone(),
     });
-    let proxy_addr = if proxy_configs.get_tlsn_production_enabled() {
+    let proxy_addr = if proxy_configs.get_tlsn_experiment_enabled() {
         #[cfg(feature = "tlsn-production")]
         {
             let artifact_root = proxy_configs
                 .get_tlsn_artifact_output_path()
-                .ok_or("tlsn_artifact_output_path is required for production TLSN")?;
+                .ok_or("tlsn_artifact_output_path is required for the TLSN experiment")?;
             let dependencies = build_production_tlsn_dependencies(
                 &proxy_target,
                 &artifact_root,
@@ -378,7 +378,7 @@ where
         }
         #[cfg(not(feature = "tlsn-production"))]
         {
-            Err("production TLSN is enabled but the application was built without the tlsn-production feature".into())
+            Err("TLSN experiment is enabled but the application was built without the tlsn-production feature".into())
         }
     } else {
         proxy_https::proxy_server_https::serve_proxy(
