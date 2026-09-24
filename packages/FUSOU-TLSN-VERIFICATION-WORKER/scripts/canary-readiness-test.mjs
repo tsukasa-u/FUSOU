@@ -72,6 +72,12 @@ const TRUST_INPUTS = [
   "TLSN_CANARY_BINDING_AUTHORITY_KEY_REGISTRY",
 ];
 
+const NOTARY_INPUTS = [
+  "TLSN_PRODUCTION_NOTARY_REGISTRY",
+  "TLSN_CANDIDATE_NOTARY_KEY_ID",
+  "TLSN_CANDIDATE_NOTARY_ENDPOINT",
+];
+
 const DEPLOYMENT_AUTH_INPUTS = [
   "TLSN_CANDIDATE_DEVICE_AUTH_URL",
   "TLSN_CANDIDATE_DEVICE_POSSESSION_AUTH_URL",
@@ -220,11 +226,16 @@ function trustStatus() {
   return "PRESENT_UNVERIFIED";
 }
 
+function notaryStatus() {
+  if (!allPresent(NOTARY_INPUTS)) return "MISSING";
+  return "PRESENT_UNVERIFIED";
+}
+
 function authStatus() {
   return allPresent(DEPLOYMENT_AUTH_INPUTS) ? "PRESENT" : "MISSING";
 }
 
-function readinessInputDiagnostics({ deployment, target, deploymentManifest, trust, auth, binding, workflow, runtime }) {
+function readinessInputDiagnostics({ deployment, target, deploymentManifest, trust, notary, auth, binding, workflow, runtime }) {
   const missing = new Set(missingInputNames());
   const statusByName = new Map();
   for (const entry of ACTIVE_INPUT_INTAKE) {
@@ -250,6 +261,7 @@ function readinessInputDiagnostics({ deployment, target, deploymentManifest, tru
   if (deployment === "INVALID") setGroup(DEPLOYMENT_INPUTS, "PRESENT_MISMATCHED", "deployment environment, role, or commit does not match the current preflight contract");
   if (target === "FIXTURE_OR_SYNTHETIC") setGroup(TARGET_INPUTS, "PRESENT_INVALID", "fixture, synthetic, local, staging, or historical target identity is not a real Canary target");
   if (trust === "PRESENT_UNVERIFIED") setGroup(TRUST_INPUTS, "PRESENT_UNVERIFIED", "trust metadata is present but requires deployment-preflight and validated registry verification");
+  if (notary === "PRESENT_UNVERIFIED") setGroup(NOTARY_INPUTS, "PRESENT_UNVERIFIED", "FUSOU-NOTARY public registry, active key ID, and raw endpoint are present but require deployment-preflight verification");
   if (auth === "PRESENT") setGroup(DEPLOYMENT_AUTH_INPUTS, "PRESENT_UNVERIFIED", "deployment authentication inputs are present and remain preflight-gated");
   if (binding === "PRESENT_UNVERIFIED") setGroup(BINDING_INPUTS, "PRESENT_UNVERIFIED", "Canary binding is present but must be verified as distinct from Replay");
   if (workflow === "PASS") setGroup(WORKFLOW_INPUTS, "VALID", "workflow context and current commit passed deployment-attestation checks");
@@ -309,6 +321,7 @@ async function buildReadinessReport(artifacts) {
   }
   const target = targetStatus();
   const trust = trustStatus();
+  const notary = notaryStatus();
   const auth = authStatus();
   const workflow = workflowStatus();
   const binding = allPresent(BINDING_INPUTS) && process.env.TLSN_CANARY_FIXTURE_ONLY !== "true"
@@ -322,6 +335,7 @@ async function buildReadinessReport(artifacts) {
     deployment_contract: deploymentStatus() === "PASS",
     target_provenance: deploymentManifest.status === "VALID" && target === "PRESENT" && currentTrustArtifacts.length > 0,
     trust_material: trust === "PRESENT_UNVERIFIED" && deploymentManifest.status === "VALID",
+    notary_binding: notary === "PRESENT_UNVERIFIED" && deploymentManifest.status === "VALID",
     authentication: auth === "PRESENT",
     binding: binding === "PRESENT_UNVERIFIED",
     workflow_provenance: workflow === "PASS",
@@ -344,6 +358,7 @@ async function buildReadinessReport(artifacts) {
       target_provenance: { status: target, fields: statuses(TARGET_INPUTS) },
         deployment_manifest: deploymentManifest,
       trust: { status: trust, fields: statuses(TRUST_INPUTS) },
+      notary: { status: notary, fields: statuses(NOTARY_INPUTS), owner: "FUSOU", service: "FUSOU-NOTARY", protocol: "tlsn-v0.1.0-alpha.15", transport: "raw_tcp", current_presentation_path: "REQUIRED" },
       authentication: { status: auth, fields: statuses(DEPLOYMENT_AUTH_INPUTS) },
       remote_validation: {
         status: "POST_DEPLOYMENT_ONLY",
@@ -366,11 +381,12 @@ async function buildReadinessReport(artifacts) {
       current_trust_artifacts: currentTrustArtifacts,
     },
     gates,
-    input_diagnostics: readinessInputDiagnostics({ deployment: deploymentStatus(), target, deploymentManifest, trust, auth, binding, workflow, runtime }),
+    input_diagnostics: readinessInputDiagnostics({ deployment: deploymentStatus(), target, deploymentManifest, trust, notary, auth, binding, workflow, runtime }),
     missing_inputs: missingInputNames(),
     resume_conditions: {
       target_provenance: "A non-fixture server identity and canonical complete/sparse profiles must be supplied; hostname metadata alone is insufficient.",
-      trust: "Candidate trust root, Notary registry/key ID, verifier identity, Result registry/envelope/root, and authority registries must be supplied and pass deployment-preflight.",
+      trust: "Candidate trust root, verifier identity, Result registry/envelope/root, and authority registries must be supplied and pass deployment-preflight.",
+      notary: "FUSOU-NOTARY public registry, active key ID, and raw host:port endpoint must be supplied; the current Presentation verification path remains blocked without all three.",
       authentication: "Candidate device-auth and Supabase endpoints must be supplied and pass deployment-preflight. User/device credentials belong only to post-deployment remote validation and are not a deployment readiness gate.",
       binding: "A Canary-specific binding authority registry/key and fixed Canary binding must be supplied; replay fixed bindings are not acceptable.",
       workflow: "The deployment workflow must supply positive run ID/attempt, owner/name repository, current HEAD, and workflow_file_identity=dotenvx+pnpm+wrangler.",

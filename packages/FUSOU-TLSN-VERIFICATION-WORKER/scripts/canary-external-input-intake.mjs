@@ -32,7 +32,7 @@ export const CANARY_INPUT_OWNERSHIP = Object.freeze([
   "FIXTURE_ONLY",
   "HISTORICAL_ONLY",
   "REMOTE_VALIDATION_ONLY",
-  "OPTIONAL_DELEGATED_NOTARY",
+  "FUSOU_OWNED_DELEGATED_NOTARY",
   "DERIVED",
 ]);
 
@@ -48,6 +48,8 @@ export const CANARY_TLSN_ARCHITECTURE = Object.freeze({
   delegated_notary: Object.freeze({
     status: "IMPLEMENTED",
     role: "FUSOU-operated alpha.15 MPC Notary",
+    owner: "FUSOU",
+    provider_model: "FUSOU-operated infrastructure; no external Notary provider",
     optional_in_protocol: true,
     current_presentation_path: "REQUIRED",
   }),
@@ -152,11 +154,11 @@ const OWNERSHIP_DEFAULTS = Object.freeze({
     can_generate_during_deployment: false,
     external_dependency: true,
   },
-  OPTIONAL_DELEGATED_NOTARY: {
-    owner: "FUSOU-operated delegated alpha.15 Notary",
-    generated_by: "FUSOU Notary deployment and trust registry configuration",
+  FUSOU_OWNED_DELEGATED_NOTARY: {
+    owner: "FUSOU",
+    generated_by: "FUSOU-NOTARY public export and FUSOU trust registry provisioning",
     generation_stage: "deployment provisioning",
-    can_generate_locally: false,
+    can_generate_locally: true,
     can_generate_during_deployment: false,
     external_dependency: false,
   },
@@ -271,19 +273,21 @@ export const CANARY_EXTERNAL_INPUT_INTAKE = Object.freeze([
     "TLSN_PRODUCTION_NOTARY_REGISTRY",
     "TLSN_SECURITY_REGISTRY_SET_SHA256",
     "TLSN_CANDIDATE_NOTARY_KEY_ID",
+    "TLSN_CANDIDATE_NOTARY_ENDPOINT",
   ], {
     source: "DEPLOYMENT_INPUT",
     secret: false,
-    ownership: "OPTIONAL_DELEGATED_NOTARY",
+    ownership: "FUSOU_OWNED_DELEGATED_NOTARY",
     architectureRoleByName: {
-      TLSN_PRODUCTION_NOTARY_REGISTRY: "OPTIONAL_DELEGATED_NOTARY",
-      TLSN_CANDIDATE_NOTARY_KEY_ID: "OPTIONAL_DELEGATED_NOTARY",
+      TLSN_PRODUCTION_NOTARY_REGISTRY: "FUSOU_OWNED_DELEGATED_NOTARY",
+      TLSN_CANDIDATE_NOTARY_KEY_ID: "FUSOU_OWNED_DELEGATED_NOTARY",
+      TLSN_CANDIDATE_NOTARY_ENDPOINT: "FUSOU_OWNED_DELEGATED_NOTARY",
     },
-    representation: "canonical registry JSON, base64url SHA-256 digest, or base64url DER certificate",
+    representation: "canonical registry JSON, raw host:port endpoint, base64url SHA-256 digest, or base64url DER certificate",
     hash: "registry set uses canonicalJson and SHA-256; trust root is bound separately by SHA-256",
-    fingerprint: "security registry set SHA-256 plus canonical Notary registry SHA-256",
-    consumer: "deployment-preflight, deployment-manifest, Worker runtime",
-    validator: "production-trust-contract, security-registry-set-contract, deployment-preflight",
+    fingerprint: "security registry set SHA-256 plus canonical Notary registry SHA-256 and manifest endpoint binding",
+    consumer: "FUSOU-APP/FUSOU-PROXY preflight, deployment manifest, Worker runtime",
+    validator: "production-trust-contract, security-registry-set-contract, FUSOU-NOTARY material contract, deployment-preflight",
     failure_conditions: ["MISSING", "PRESENT_INVALID", "PRESENT_MISMATCHED", "FIXTURE_ONLY", "HISTORICAL_ONLY"],
     ownershipByName: {
       TLSN_SECURITY_REGISTRY_SET_SHA256: "DERIVED",
@@ -292,6 +296,11 @@ export const CANARY_EXTERNAL_INPUT_INTAKE = Object.freeze([
       TLSN_SECURITY_REGISTRY_SET_SHA256: {
         generated_by: "securityRegistrySetHash from target, profile, and Notary inputs",
         external_dependency: false,
+      },
+      TLSN_CANDIDATE_NOTARY_ENDPOINT: {
+        generated_by: "FUSOU deployment operator configuration; validated as raw host:port without connection",
+        external_dependency: false,
+        canonicalization: "trimmed raw host:port string",
       },
     },
   }),
@@ -742,6 +751,7 @@ export const CANARY_EXTERNAL_INPUT_INTAKE_EXPECTED_NAMES = Object.freeze([
     ...secretInputsForRole("canary"),
     ...WORKFLOW_EVIDENCE_INPUTS,
     ...REMOTE_VALIDATION_INPUTS,
+    "TLSN_CANDIDATE_NOTARY_ENDPOINT",
     "TLSN_REMOTE_REPORT_PATH",
     "TLSN_REMOTE_VALIDATION_REPORT_PATH",
     "TLSN_PROVENANCE_REPORT_PATH",

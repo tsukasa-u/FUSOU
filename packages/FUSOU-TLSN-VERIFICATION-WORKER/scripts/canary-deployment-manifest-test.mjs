@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { checkoutCommit } from "./deployment-attestation.mjs";
 import {
+  CANARY_DEPLOYMENT_MANIFEST_SCHEMA_VERSION,
   CANARY_DEPLOYMENT_MANIFEST_SCOPE,
   assertCanaryDeploymentManifest,
   createCanaryDeploymentManifest,
@@ -14,11 +15,18 @@ import {
   authorizeCanaryDeployment,
 } from "./canary-deployment-authorization.mjs";
 import { inputsForRole, secretInputsForRole } from "./deployment-contract.mjs";
+import { canonicalNotaryRegistryJson, notaryRegistrySha256 } from "./production-trust-contract.mjs";
+import { loadRealFixture, readRealFixtureManifest } from "./tlsn-benchmark-fixtures.mjs";
 
 const packageRoot = resolve(new URL("..", import.meta.url).pathname);
 const currentHead = checkoutCommit(packageRoot);
 const artifactPath = "scripts/canary-deployment-manifest-test.mjs";
 const artifactBytes = await readFile(resolve(packageRoot, artifactPath));
+const { entries } = readRealFixtureManifest();
+const notaryFixture = loadRealFixture(entries.get("p50"));
+const notaryKeyId = "notary-manifest-test";
+const notaryRegistryRaw = JSON.stringify({ [notaryKeyId]: notaryFixture.notary_key_base64 });
+const notaryRegistryCanonical = canonicalNotaryRegistryJson(notaryRegistryRaw);
 const environment = {
   TLSN_ENVIRONMENT: "production",
   TLSN_DEPLOYMENT_ROLE: "canary",
@@ -32,6 +40,9 @@ const environment = {
   TLSN_GIT_COMMIT_SHA: currentHead,
   TLSN_ENVIRONMENT_MARKER: "ignored",
   TLSN_CANDIDATE_PROFILE_SHA256: "profile-value",
+  TLSN_CANDIDATE_NOTARY_KEY_ID: notaryKeyId,
+  TLSN_PRODUCTION_NOTARY_REGISTRY: notaryRegistryCanonical,
+  TLSN_CANDIDATE_NOTARY_ENDPOINT: "notary.example.com:7047",
 };
 
 for (const name of inputsForRole("canary")) {
@@ -53,7 +64,7 @@ const secretProviderReferences = secretInputsForRole("canary").map((inputName) =
 }));
 
 const manifest = {
-  schema_version: 1,
+  schema_version: CANARY_DEPLOYMENT_MANIFEST_SCHEMA_VERSION,
   scope: CANARY_DEPLOYMENT_MANIFEST_SCOPE,
   manifest_id: "pending",
   issued_at: "2026-01-01T00:00:00.000Z",
@@ -63,6 +74,20 @@ const manifest = {
     environment: environment.TLSN_ENVIRONMENT,
     deployment_role: environment.TLSN_DEPLOYMENT_ROLE,
     binding_identity: environment.TLSN_CANARY_BINDING_IDENTITY,
+  },
+  notary: {
+    endpoint: environment.TLSN_CANDIDATE_NOTARY_ENDPOINT,
+    key_id: notaryKeyId,
+    verifying_key: notaryFixture.notary_key_base64,
+    registry_sha256: notaryRegistrySha256(notaryRegistryCanonical),
+    owner: "FUSOU",
+    service: "FUSOU-NOTARY",
+    protocol: "tlsn-v0.1.0-alpha.15",
+    transport: "raw_tcp",
+    mpc_role: "verifier",
+    origin_connection: "prover_owned",
+    session_timeout_seconds: 300,
+    max_concurrent_sessions: 1,
   },
   workflow: {
     repository: environment.TLSN_REPOSITORY,

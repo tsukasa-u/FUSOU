@@ -58,8 +58,10 @@ assert.equal(canaryInputIntakeEntry("TLSN_CANARY_DEPLOYMENT_ID").ownership, "DEP
 assert.equal(canaryInputIntakeEntry("TLSN_CANARY_DEPLOYMENT_ID").external_dependency, false);
 assert.equal(canaryInputIntakeEntry("TLSN_REMOTE_EXPECTED_PROVENANCE_JSON").ownership, "REMOTE_VALIDATION_ONLY");
 assert.equal(canaryInputIntakeEntry("TLSN_REMOTE_EXPECTED_PROVENANCE_JSON").external_dependency, false);
-assert.equal(canaryInputIntakeEntry("TLSN_PRODUCTION_NOTARY_REGISTRY").ownership, "OPTIONAL_DELEGATED_NOTARY");
-assert.equal(canaryInputIntakeEntry("TLSN_PRODUCTION_NOTARY_REGISTRY").architecture_role, "OPTIONAL_DELEGATED_NOTARY");
+assert.equal(canaryInputIntakeEntry("TLSN_PRODUCTION_NOTARY_REGISTRY").ownership, "FUSOU_OWNED_DELEGATED_NOTARY");
+assert.equal(canaryInputIntakeEntry("TLSN_PRODUCTION_NOTARY_REGISTRY").architecture_role, "FUSOU_OWNED_DELEGATED_NOTARY");
+assert.equal(canaryInputIntakeEntry("TLSN_CANDIDATE_NOTARY_ENDPOINT").ownership, "FUSOU_OWNED_DELEGATED_NOTARY");
+assert.equal(canaryInputIntakeEntry("TLSN_CANDIDATE_NOTARY_ENDPOINT").required, true);
 assert.equal(canaryInputIntakeEntry("TLSN_CANDIDATE_SERVER_IDENTITY").ownership, "OPERATOR_CONFIGURED");
 assert.equal(canaryInputIntakeEntry("TLSN_CANDIDATE_PROFILE_SHA256").architecture_role, "PROFILE_POLICY");
 assert.equal(canaryInputIntakeEntry("TLSN_CANARY_VERIFIER_PUBLIC_KEY_SPKI").architecture_role, "FUSOU_PRESENTATION_RESULT_VERIFIER_IDENTITY");

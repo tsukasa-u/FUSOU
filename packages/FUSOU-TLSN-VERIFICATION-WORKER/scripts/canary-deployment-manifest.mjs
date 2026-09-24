@@ -11,9 +11,21 @@ import {
   CANARY_WORKER_NAME,
   assertCanonicalCanaryWorkerName,
 } from "./canary-deployment-target.mjs";
-import { canonicalJson } from "./production-trust-contract.mjs";
+import {
+  assertAlpha15NotaryVerifyingKey,
+  canonicalJson,
+  canonicalNotaryRegistryJson,
+  notaryRegistrySha256,
+  parseNotaryRegistry,
+} from "./production-trust-contract.mjs";
+import {
+  assertFusouNotaryEndpoint,
+  FUSOU_NOTARY_DEFAULT_MAX_CONCURRENT_SESSIONS,
+  FUSOU_NOTARY_DEFAULT_SESSION_TIMEOUT_SECONDS,
+  FUSOU_NOTARY_PROTOCOL,
+} from "./fusou-notary-material.mjs";
 
-export const CANARY_DEPLOYMENT_MANIFEST_SCHEMA_VERSION = 1;
+export const CANARY_DEPLOYMENT_MANIFEST_SCHEMA_VERSION = 2;
 export const CANARY_DEPLOYMENT_MANIFEST_SCOPE = "tlsn-canary-deployment-manifest";
 export const CANARY_DEPLOYMENT_MANIFEST_INPUT = "TLSN_CANARY_DEPLOYMENT_MANIFEST";
 
@@ -114,6 +126,64 @@ function assertTarget(target, environment) {
   if (environment.TLSN_ENVIRONMENT?.trim() !== target.environment) throw new Error("deployment manifest environment does not match deployment input");
   if (environment.TLSN_DEPLOYMENT_ROLE?.trim() !== target.deployment_role) throw new Error("deployment manifest role does not match deployment input");
   if (environment.TLSN_CANARY_BINDING_IDENTITY?.trim() !== target.binding_identity) throw new Error("deployment manifest binding identity does not match deployment input");
+}
+
+function notaryBindingFromEnvironment(environment) {
+  const endpoint = environment.TLSN_CANDIDATE_NOTARY_ENDPOINT?.trim();
+  const keyId = environment.TLSN_CANDIDATE_NOTARY_KEY_ID?.trim();
+  const registryRaw = environment.TLSN_PRODUCTION_NOTARY_REGISTRY?.trim();
+  if (!endpoint || !keyId || !registryRaw) throw new Error("deployment manifest FUSOU-NOTARY binding inputs are incomplete");
+  assertFusouNotaryEndpoint(endpoint);
+  const registry = parseNotaryRegistry(registryRaw, "deployment manifest Notary registry");
+  const verifyingKey = registry[keyId];
+  if (!verifyingKey) throw new Error("deployment manifest Notary key ID is not present in the registry");
+  return {
+    endpoint,
+    key_id: keyId,
+    verifying_key: verifyingKey,
+    registry_sha256: notaryRegistrySha256(canonicalNotaryRegistryJson(registryRaw)),
+    owner: "FUSOU",
+    service: "FUSOU-NOTARY",
+    protocol: FUSOU_NOTARY_PROTOCOL,
+    transport: "raw_tcp",
+    mpc_role: "verifier",
+    origin_connection: "prover_owned",
+    session_timeout_seconds: FUSOU_NOTARY_DEFAULT_SESSION_TIMEOUT_SECONDS,
+    max_concurrent_sessions: FUSOU_NOTARY_DEFAULT_MAX_CONCURRENT_SESSIONS,
+  };
+}
+
+function assertNotaryBinding(notary, environment) {
+  assertExactKeys(notary, [
+    "endpoint",
+    "key_id",
+    "verifying_key",
+    "registry_sha256",
+    "owner",
+    "service",
+    "protocol",
+    "transport",
+    "mpc_role",
+    "origin_connection",
+    "session_timeout_seconds",
+    "max_concurrent_sessions",
+  ], "deployment manifest notary");
+  assertFusouNotaryEndpoint(notary.endpoint);
+  assertString(notary.key_id, "deployment manifest notary.key_id", /^[A-Za-z0-9._-]{1,128}$/);
+  assertAlpha15NotaryVerifyingKey(notary.verifying_key, "deployment manifest notary.verifying_key");
+  assertHash(notary.registry_sha256, "deployment manifest notary.registry_sha256");
+  if (notary.owner !== "FUSOU" || notary.service !== "FUSOU-NOTARY") throw new Error("deployment manifest Notary ownership is invalid");
+  if (notary.protocol !== FUSOU_NOTARY_PROTOCOL || notary.transport !== "raw_tcp" || notary.mpc_role !== "verifier" || notary.origin_connection !== "prover_owned") {
+    throw new Error("deployment manifest Notary protocol binding is invalid");
+  }
+  if (!Number.isSafeInteger(notary.session_timeout_seconds) || notary.session_timeout_seconds < 1 || notary.session_timeout_seconds > 3600) {
+    throw new Error("deployment manifest Notary session timeout is invalid");
+  }
+  if (!Number.isSafeInteger(notary.max_concurrent_sessions) || notary.max_concurrent_sessions < 1 || notary.max_concurrent_sessions > 64) {
+    throw new Error("deployment manifest Notary concurrency limit is invalid");
+  }
+  const expected = notaryBindingFromEnvironment(environment);
+  if (JSON.stringify(notary) !== JSON.stringify(expected)) throw new Error("deployment manifest Notary binding does not match deployment inputs");
 }
 
 function assertWorkflow(workflow, currentHead, environment) {
@@ -233,6 +303,7 @@ export function createCanaryDeploymentManifest({
       deployment_role: environment.TLSN_DEPLOYMENT_ROLE,
       binding_identity: environment.TLSN_CANARY_BINDING_IDENTITY,
     },
+    notary: notaryBindingFromEnvironment(environment),
     workflow: {
       repository: environment.TLSN_REPOSITORY,
       run_id: environment.TLSN_WORKFLOW_RUN_ID,
@@ -273,7 +344,7 @@ export async function assertCanaryDeploymentManifest(raw, {
   try {
     const manifest = parseCanaryDeploymentManifest(raw);
     assertNoSecrets(manifest);
-    assertExactKeys(manifest, ["schema_version", "scope", "manifest_id", "issued_at", "expires_at", "target", "workflow", "inputs", "artifacts", "deployment", "secret_provider"], "Canary deployment manifest");
+    assertExactKeys(manifest, ["schema_version", "scope", "manifest_id", "issued_at", "expires_at", "target", "notary", "workflow", "inputs", "artifacts", "deployment", "secret_provider"], "Canary deployment manifest");
     if (manifest.schema_version !== CANARY_DEPLOYMENT_MANIFEST_SCHEMA_VERSION || manifest.scope !== CANARY_DEPLOYMENT_MANIFEST_SCOPE) throw new Error("Canary deployment manifest schema is invalid");
     assertString(manifest.manifest_id, "Canary deployment manifest.manifest_id", HASH_PATTERN);
     if (deploymentManifestIdentity(manifest) !== manifest.manifest_id) throw new Error("Canary deployment manifest identity does not match canonical content");
@@ -281,6 +352,7 @@ export async function assertCanaryDeploymentManifest(raw, {
     if (!Number.isFinite(validationNow.getTime())) throw new Error("Canary deployment manifest validation time is invalid");
     assertValidityWindow(manifest, validationNow);
     assertTarget(manifest.target, environment);
+    assertNotaryBinding(manifest.notary, environment);
     assertWorkflow(manifest.workflow, currentHead ?? checkoutCommit(resolve(packageRoot, "../..")), environment);
     assertInputs(manifest.inputs, environment);
     await assertArtifacts(manifest.artifacts, packageRoot);

@@ -189,6 +189,7 @@ try {
     TLSN_CANDIDATE_SPARSE_PROFILE_SHA256: productionProfiles.sparse.sha256,
     TLSN_CANDIDATE_VERIFIER_KEY_ID: "verifier-production-roundtrip",
     TLSN_CANDIDATE_NOTARY_KEY_ID: "notary-production-2026",
+    TLSN_CANDIDATE_NOTARY_ENDPOINT: "notary.example.com:7047",
     TLSN_PRODUCTION_NOTARY_REGISTRY: notaryRegistryRaw,
     TLSN_CANDIDATE_DEVICE_AUTH_URL: "https://api.example.com/api/auth/anonymous-sync/v2/device-proof",
     TLSN_CANDIDATE_DEVICE_POSSESSION_AUTH_URL: "https://api.example.com/api/auth/anonymous-sync/v2/tlsn-device-proof",

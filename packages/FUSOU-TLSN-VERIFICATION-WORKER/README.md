@@ -640,6 +640,45 @@ Configure these Worker values before deployment:
 
 `TLSN_SUPABASE_PUBLISHABLE_KEY` is a publishable client key, not a service-role key. Do not configure a service-role key in this Worker. Missing production auth configuration fails closed with `503 auth_unconfigured`; missing, unknown, malformed, or anonymous credentials return `401 unauthorized`.
 
+### Canary provisioning input matrix
+
+`provision-canary-material.mjs` is an offline material provisioner. In real mode it never creates a Notary private key, contacts a Game Server, connects to FUSOU-NOTARY, or deploys a Worker. A complete deployment manifest is emitted only when the required real inputs below are resolved. The generated authority private keys remain in mode-600 local output files and are not public manifest inputs.
+
+| Input | Source and owner | Provisioning behavior | Readiness gate |
+| --- | --- | --- | --- |
+| `TLSN_CANDIDATE_SERVER_IDENTITY` | FUSOU deployment operator | Real target hostname; complete and sparse profiles are derived or supplied for this identity | target provenance |
+| `TLSN_CANDIDATE_PROFILE_SHA256` | FUSOU provisioner from the canonical complete profile | Binds the complete Presentation verifier profile | target/profile |
+| `TLSN_CANDIDATE_SPARSE_PROFILE_SHA256` | FUSOU provisioner from the canonical sparse profile | Binds the sparse Presentation verifier profile | target/profile |
+| `TLSN_CANARY_TRUST_ROOT_CERTIFICATE_DER` | FUSOU deployment operator | Public DER trust root supplied as deployment material; no synthetic fallback in real mode | trust material |
+| `TLSN_CANDIDATE_VERIFIER_KEY_ID` | FUSOU verifier deployment configuration | Selects the public verifier identity used by the Canary path | trust material |
+| `TLSN_CANARY_VERIFIER_PUBLIC_KEY_SPKI` | FUSOU verifier deployment output | Public SPKI for the selected verifier deployment | trust material |
+| `TLSN_CANARY_VERIFIER_DEPLOYMENT_ID` | FUSOU verifier deployment configuration | Binds the verifier identity to its deployment | trust material |
+| `TLSN_PRODUCTION_NOTARY_REGISTRY` | FUSOU-NOTARY public export, normalized by the provisioner | Canonical alpha.15 verifying-key registry; public only | Notary binding |
+| `TLSN_CANDIDATE_NOTARY_KEY_ID` | FUSOU-NOTARY public export selection | Must identify an active key present in the registry | Notary binding |
+| `TLSN_CANDIDATE_NOTARY_ENDPOINT` | FUSOU deployment operator | Raw `host:port`; validated syntactically without a connection | Notary binding |
+| `TLSN_SECURITY_REGISTRY_SET_SHA256` | FUSOU provisioner | Fingerprint of the selected target, profiles, and Notary registry/key inputs | trust material |
+| `TLSN_CANARY_BINDING_IDENTITY` | FUSOU deployment operator | Current Canary binding identity; fixture and replay identities are rejected | binding |
+| `TLSN_CANARY_DEPLOYMENT_ID` | FUSOU deployment operator/platform | Current Canary deployment identity | deployment provenance |
+| `TLSN_CANARY_WORKER_NAME` | FUSOU deployment operator/platform | Canonical Canary Worker name | deployment provenance |
+
+The current Presentation path requires the FUSOU-owned delegated alpha.15 Notary registry, selected key ID, and endpoint together. `optional_in_protocol: true` describes a future direct-Verifier protocol property only; it does not make the current Notary-backed Presentation verification path optional. Remote validation credentials remain post-deployment inputs and are not part of this provisioning gate.
+
+### Canary Notary endpoint mapping
+
+The public raw endpoint follows this explicit handoff:
+
+```text
+TLSN_CANDIDATE_NOTARY_ENDPOINT
+	-> Canary provisioning output and deployment input
+	-> FUSOU_TLSN_NOTARY_ENDPOINT (compile-time APP/Proxy binding)
+	-> configs option_env!("FUSOU_TLSN_NOTARY_ENDPOINT")
+	-> FUSOU-APP TLSN preflight (format validation only)
+	-> FUSOU-APP RealAlpha15OriginTransportFactory
+	-> FUSOU-PROXY raw TCP alpha.15 MPC connection to FUSOU-NOTARY
+```
+
+The APP preflight does not connect to the endpoint. The actual raw TCP connection occurs only when the real alpha.15 Prover/MPC flow runs, with the Prover retaining the origin connection and FUSOU-NOTARY acting as the alpha.15 MPC verifier. No direct live FUSOU Verifier is introduced by this mapping.
+
 ## Production Trust Contract
 
 The following values are the Production source of truth. The raw registry JSON is kept byte-for-byte identical wherever it is captured or compared; its hash is an identity field, not a replacement for the registry contents. Every Notary registry value is canonical base64url for the pinned alpha.15 bincode `tlsn_attestation::signing::VerifyingKey` using the FUSOU Notary `K256` algorithm and compressed SEC1 public key.

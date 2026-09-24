@@ -5,8 +5,14 @@ import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
 import { execFileSync } from "node:child_process";
 import { join, resolve } from "node:path";
 import { createSignedResultRegistryEnvelope } from "./result-registry-envelope.mjs";
-import { canonicalJson, notaryRegistrySha256, parseNotaryRegistry } from "./production-trust-contract.mjs";
+import { canonicalNotaryRegistryJson, notaryRegistrySha256, parseNotaryRegistry } from "./production-trust-contract.mjs";
 import { securityRegistrySetHash } from "./security-registry-set-contract.mjs";
+import {
+  assertFusouNotaryEndpoint,
+  createFusouNotaryProvisioningRecord,
+  fusouNotaryRegistryFromPublicKeyExport,
+  readFusouNotaryPublicKeyExport,
+} from "./fusou-notary-material.mjs";
 import {
   FIXTURE_SERVER_IDENTITY,
   canonicalProfileHash,
@@ -56,8 +62,10 @@ function usage() {
     "  --profile-file FILE           canonical complete profile JSON",
     "  --sparse-profile-file FILE    canonical sparse profile JSON",
     "  --trust-root-file FILE        DER trust root for the candidate origin",
-    "  --notary-registry-file FILE  explicit alpha15 Notary registry JSON",
-    "  --notary-key-id ID           explicit Notary key ID in that registry",
+    "  --notary-export-file FILE    FUSOU-NOTARY public_key_export_json output",
+    "  --notary-endpoint HOST:PORT  FUSOU-NOTARY raw TCP endpoint",
+    "  --notary-registry-file FILE  explicit alpha15 Notary registry JSON (compatibility)",
+    "  --notary-key-id ID           explicit Notary key ID in the registry",
     "  --verifier-key-id ID         candidate verifier key ID",
     "  --verifier-public-key-spki KEY  candidate verifier Ed25519 SPKI public key",
     "  --verifier-deployment-id ID  candidate verifier deployment ID",
@@ -189,7 +197,7 @@ async function readNotaryRegistry(path, keyId) {
   }
   const registry = parseNotaryRegistry(raw, "--notary-registry-file");
   if (!registry[keyId]) throw new Error(`--notary-registry-file does not contain --notary-key-id ${keyId}`);
-  return JSON.stringify(registry);
+  return canonicalNotaryRegistryJson(JSON.stringify(registry));
 }
 
 function writeEnvValue(name, value) {
@@ -253,7 +261,19 @@ async function main() {
   await mkdir(outputDirectory, { recursive: true, mode: 0o700 });
   await chmod(outputDirectory, 0o700);
 
-  const notaryKeyId = options["notary-key-id"] ?? (fixtureOnly ? "notary-canary-2026" : undefined);
+  if (options["notary-export-file"] && options["notary-registry-file"]) {
+    throw new Error("--notary-export-file and --notary-registry-file are mutually exclusive");
+  }
+  const notaryPublicKeyExport = options["notary-export-file"]
+    ? await readFusouNotaryPublicKeyExport(options["notary-export-file"])
+    : null;
+  const notaryMaterial = notaryPublicKeyExport
+    ? fusouNotaryRegistryFromPublicKeyExport(notaryPublicKeyExport)
+    : null;
+  const notaryKeyId = options["notary-key-id"] ?? notaryMaterial?.key_id ?? (fixtureOnly ? "notary-canary-2026" : undefined);
+  if (notaryMaterial && notaryKeyId !== notaryMaterial.key_id) {
+    throw new Error("--notary-key-id must match the FUSOU-NOTARY public export key_id");
+  }
   const deploymentId = options["deployment-id"] ?? (fixtureOnly ? `canary-${new Date().toISOString().replace(/[-:.TZ]/g, "")}` : undefined);
   if (deploymentId) assertDeploymentId(deploymentId);
   const deploymentIdentity = deploymentId ?? `unresolved-${randomBytes(12).toString("hex")}`;
@@ -299,10 +319,13 @@ async function main() {
   if ((options["profile-file"] || options["sparse-profile-file"]) && !serverIdentity) {
     throw new Error("--server-identity is required when profile files are supplied");
   }
+  const derivedProfiles = !fixtureOnly && serverIdentity && !options["profile-file"] && !options["sparse-profile-file"]
+    ? profilesForServerIdentity(serverIdentity)
+    : null;
   const completeProfile = await readProfile(options["profile-file"], "--profile-file", "complete", serverIdentity)
-    ?? (fixtureOnly ? fixtureProfile(serverIdentity, false) : null);
+    ?? (fixtureOnly ? fixtureProfile(serverIdentity, false) : derivedProfiles?.complete ?? null);
   const sparseProfile = await readProfile(options["sparse-profile-file"], "--sparse-profile-file", "sparse", serverIdentity)
-    ?? (fixtureOnly ? fixtureProfile(serverIdentity, true) : null);
+    ?? (fixtureOnly ? fixtureProfile(serverIdentity, true) : derivedProfiles?.sparse ?? null);
   if ((completeProfile && !sparseProfile) || (!completeProfile && sparseProfile)) {
     throw new Error("complete and sparse profile inputs must be supplied together");
   }
@@ -319,7 +342,17 @@ async function main() {
     : fixture?.root_certificate_base64;
   const notaryRegistryRaw = fixtureOnly
     ? JSON.stringify({ [notaryKeyId]: fixture.notary_key_base64 })
-    : await readNotaryRegistry(options["notary-registry-file"], notaryKeyId);
+    : notaryMaterial?.registry ?? await readNotaryRegistry(options["notary-registry-file"], notaryKeyId);
+  const notaryEndpoint = fixtureOnly
+    ? "notary.fixture.invalid:7047"
+    : options["notary-endpoint"]?.trim() ?? process.env.TLSN_CANDIDATE_NOTARY_ENDPOINT?.trim() ?? null;
+  if (notaryEndpoint) assertFusouNotaryEndpoint(notaryEndpoint);
+  const notaryProvisioningRecord = notaryMaterial && notaryEndpoint
+    ? createFusouNotaryProvisioningRecord({
+        publicKeyExport: notaryPublicKeyExport,
+        endpoint: notaryEndpoint,
+      })
+    : null;
   const securityRegistrySet = notaryRegistryRaw && completeProfile && sparseProfile && serverIdentity
     ? securityRegistrySetHash({
         notaryKeyId,
@@ -354,6 +387,7 @@ async function main() {
     TLSN_BINDING_TTL_SECONDS: "900",
     TLSN_GIT_COMMIT_SHA: commitSha,
     ...(notaryRegistryRaw ? { TLSN_PRODUCTION_NOTARY_REGISTRY: notaryRegistryRaw } : {}),
+    ...(notaryEndpoint ? { TLSN_CANDIDATE_NOTARY_ENDPOINT: notaryEndpoint } : {}),
     ...(fixtureOnly
       ? { TLSN_CANARY_FIXTURE_ONLY: "true" }
       : { TLSN_CANARY_FIXTURE_ONLY: "false" }),
@@ -426,6 +460,9 @@ async function main() {
   if (completeProfile) await writeFile(join(outputDirectory, "complete-profile.canonical.json"), `${completeProfile.canonical}\n`, { mode: 0o644 });
   if (sparseProfile) await writeFile(join(outputDirectory, "sparse-profile.canonical.json"), `${sparseProfile.canonical}\n`, { mode: 0o644 });
   if (trustRoot) await writeFile(join(outputDirectory, "trust-root.der"), Buffer.from(trustRoot, "base64url"), { mode: 0o644 });
+  if (notaryPublicKeyExport) await writeFile(join(outputDirectory, "notary-public-key-export.json"), `${JSON.stringify(notaryPublicKeyExport, null, 2)}\n`, { mode: 0o644 });
+  if (notaryMaterial) await writeFile(join(outputDirectory, "notary-registry.json"), `${notaryMaterial.registry}\n`, { mode: 0o644 });
+  if (notaryProvisioningRecord) await writeFile(join(outputDirectory, "notary-provisioning.json"), `${JSON.stringify(notaryProvisioningRecord, null, 2)}\n`, { mode: 0o644 });
 
   const fixtureProvenanceValue = fixtureOnly
     ? fixtureProvenance(fixtureManifest, fixtureEntry, fixture)
@@ -435,6 +472,7 @@ async function main() {
     "TLSN_CANARY_DEPLOYMENT_ID",
     "TLSN_CANARY_WORKER_NAME",
     "TLSN_PRODUCTION_NOTARY_REGISTRY",
+    "TLSN_CANDIDATE_NOTARY_ENDPOINT",
     "TLSN_WORKFLOW_RUN_ID",
     "TLSN_WORKFLOW_RUN_ATTEMPT",
     "TLSN_REPOSITORY",
@@ -462,11 +500,15 @@ async function main() {
   if (!generatedEnv.TLSN_CANARY_DEPLOYMENT_ID) unresolvedInputs.push("TLSN_CANARY_DEPLOYMENT_ID");
   if (!generatedEnv.TLSN_CANARY_WORKER_NAME) unresolvedInputs.push("TLSN_CANARY_WORKER_NAME");
   if (!generatedEnv.TLSN_PRODUCTION_NOTARY_REGISTRY) unresolvedInputs.push("TLSN_PRODUCTION_NOTARY_REGISTRY");
+  if (!fixtureOnly && !generatedEnv.TLSN_CANDIDATE_NOTARY_ENDPOINT) unresolvedInputs.push("TLSN_CANDIDATE_NOTARY_ENDPOINT");
+  if (!fixtureOnly && !notaryPublicKeyExport) unresolvedInputs.push("FUSOU_NOTARY_PUBLIC_KEY_EXPORT");
   if (!fixtureOnly && unresolvedInputs.length === 0) {
     const artifactFiles = [
       ...(completeProfile ? [{ name: "complete-profile", path: "complete-profile.canonical.json" }] : []),
       ...(sparseProfile ? [{ name: "sparse-profile", path: "sparse-profile.canonical.json" }] : []),
       ...(trustRoot ? [{ name: "trust-root", path: "trust-root.der" }] : []),
+      ...(notaryProvisioningRecord ? [{ name: "notary-provisioning", path: "notary-provisioning.json" }] : []),
+      ...(notaryMaterial ? [{ name: "notary-registry", path: "notary-registry.json" }] : []),
     ];
     const artifacts = [];
     for (const artifact of artifactFiles) {
@@ -503,9 +545,13 @@ async function main() {
     notary: {
       key_id: notaryKeyId ?? null,
       registry_sha256: notaryRegistryRaw ? notaryRegistrySha256(notaryRegistryRaw) : null,
+      endpoint: notaryEndpoint,
+      provisioning_record: notaryProvisioningRecord,
       source: fixtureOnly
         ? "embedded_fixture_presentation"
-        : notaryRegistryRaw
+        : notaryPublicKeyExport
+          ? "fusou_notary_public_key_export"
+          : notaryRegistryRaw
           ? "explicit_input_file"
           : "unresolved_explicit_input",
     },
@@ -537,6 +583,19 @@ async function main() {
           disclosureMode: "full|sparse",
           responseModeCapabilities: ["async", "sync"],
         })
+      : null,
+    profile_provisioning: completeProfile && sparseProfile
+      ? {
+          source: fixtureOnly
+            ? "repository-local-synthetic-fixture"
+            : derivedProfiles
+              ? "derived-from-target-server-identity"
+              : "supplied-canonical-profile-files",
+          server_identity: serverIdentity,
+          complete_profile_sha256: completeProfile.sha256,
+          sparse_profile_sha256: sparseProfile.sha256,
+          binding: "canonical profile artifacts are emitted in this provisioning output and hashed by the deployment manifest",
+        }
       : null,
     canary_contract: {
       environment: "production",

@@ -128,6 +128,7 @@ function deterministicSnapshot(manifest, generatedEnv) {
       "TLSN_CANDIDATE_PROFILE_SHA256",
       "TLSN_CANDIDATE_SPARSE_PROFILE_SHA256",
       "TLSN_CANDIDATE_NOTARY_KEY_ID",
+      "TLSN_CANDIDATE_NOTARY_ENDPOINT",
       "TLSN_PRODUCTION_NOTARY_REGISTRY",
       "TLSN_SECURITY_REGISTRY_SET_SHA256",
     ].map((name) => [name, generatedEnv[name]])),

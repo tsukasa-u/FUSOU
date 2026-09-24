@@ -14,11 +14,12 @@ import {
 } from "./production-trust-contract.mjs";
 import { createSignedResultRegistryEnvelope } from "./result-registry-envelope.mjs";
 import { PRODUCTION_INPUTS, PRODUCTION_SECRET_INPUTS } from "./deployment-contract.mjs";
+import { CANARY_DEPLOYMENT_MANIFEST_SCHEMA_VERSION } from "./canary-deployment-manifest.mjs";
 
 const packageDirectory = resolve(new URL("..", import.meta.url).pathname);
 
 const canaryDeploymentManifest = {
-  schema_version: 1,
+  schema_version: CANARY_DEPLOYMENT_MANIFEST_SCHEMA_VERSION,
   scope: "tlsn-canary-deployment-manifest",
   deployment: {
     deployment_id: "canary-deployment-2026",

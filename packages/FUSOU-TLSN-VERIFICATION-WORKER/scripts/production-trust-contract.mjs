@@ -442,7 +442,7 @@ export function buildProductionPublicManifest({
 
 export function assertCanaryDeploymentIdentity(manifest) {
   if (
-    manifest?.schema_version !== 1 ||
+    manifest?.schema_version !== 2 ||
     manifest?.scope !== "tlsn-canary-deployment-manifest" ||
     !manifest.deployment ||
     !manifest.workflow ||
