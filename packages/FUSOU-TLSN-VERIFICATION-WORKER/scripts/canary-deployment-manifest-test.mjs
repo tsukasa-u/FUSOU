@@ -7,6 +7,7 @@ import {
   CANARY_DEPLOYMENT_MANIFEST_SCHEMA_VERSION,
   CANARY_DEPLOYMENT_MANIFEST_SCOPE,
   assertCanaryDeploymentManifest,
+  canaryDeploymentManifestBinding,
   createCanaryDeploymentManifest,
   deploymentManifestIdentity,
 } from "./canary-deployment-manifest.mjs";
@@ -141,6 +142,17 @@ async function assertManifestRejected(raw, message) {
 const valid = await assertCanaryDeploymentManifest(JSON.stringify(manifest), { packageRoot, environment, currentHead, now: new Date("2026-06-01T00:00:00.000Z") });
 assert.equal(valid.manifest_id, manifest.manifest_id);
 assert.equal(valid.target.server_identity, "game.example.com");
+assert.deepEqual(canaryDeploymentManifestBinding(valid), {
+  manifest_id: manifest.manifest_id,
+  deployment_id: environment.TLSN_CANARY_DEPLOYMENT_ID,
+  worker_name: environment.TLSN_CANARY_WORKER_NAME,
+  deployment_role: environment.TLSN_DEPLOYMENT_ROLE,
+  workflow_run_id: environment.TLSN_WORKFLOW_RUN_ID,
+  workflow_run_attempt: environment.TLSN_WORKFLOW_RUN_ATTEMPT,
+  repository: environment.TLSN_REPOSITORY,
+  workflow_file_identity: environment.TLSN_WORKFLOW_FILE_IDENTITY,
+  commit_sha: currentHead,
+});
 
 const generatedManifest = createCanaryDeploymentManifest({
   environment,

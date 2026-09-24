@@ -36,6 +36,36 @@ assert.equal(CANARY_TLSN_ARCHITECTURE.live_verifier.status, "NOT_IMPLEMENTED");
 assert.equal(CANARY_TLSN_ARCHITECTURE.delegated_notary.current_presentation_path, "REQUIRED");
 
 const expectedHead = "a".repeat(40);
+const matchingWorkflow = {
+  workflow_run_id: "100",
+  workflow_run_attempt: "1",
+  repository: "example/FUSOU",
+  workflow_file_identity: "dotenvx+pnpm+wrangler",
+};
+const matchingEnvironment = {
+  TLSN_CANARY_DEPLOYMENT_ID: "canary-contract-test",
+  TLSN_CANARY_WORKER_NAME: "fusou-tlsn-verification-canary",
+  TLSN_WORKFLOW_RUN_ID: matchingWorkflow.workflow_run_id,
+  TLSN_WORKFLOW_RUN_ATTEMPT: matchingWorkflow.workflow_run_attempt,
+  TLSN_REPOSITORY: matchingWorkflow.repository,
+  TLSN_WORKFLOW_FILE_IDENTITY: matchingWorkflow.workflow_file_identity,
+  TLSN_GIT_COMMIT_SHA: expectedHead,
+};
+const matchingManifest = {
+  manifest_id: "B".repeat(43),
+  target: { deployment_role: "canary" },
+  workflow: {
+    repository: matchingWorkflow.repository,
+    run_id: matchingWorkflow.workflow_run_id,
+    run_attempt: matchingWorkflow.workflow_run_attempt,
+    workflow_file_identity: matchingWorkflow.workflow_file_identity,
+    commit_sha: expectedHead,
+  },
+  deployment: {
+    deployment_id: matchingEnvironment.TLSN_CANARY_DEPLOYMENT_ID,
+    worker_name: matchingEnvironment.TLSN_CANARY_WORKER_NAME,
+  },
+};
 const validRuntimeAttestation = {
   schema_version: 1,
   scope: "tlsn-canary-deployment-runtime-attestation",
@@ -45,7 +75,13 @@ const validRuntimeAttestation = {
     source: "cloudflare-platform-and-live-health",
     synthetic: false,
   },
-  repository: { git_commit_sha: expectedHead },
+  repository: {
+    git_commit_sha: expectedHead,
+    workflow_run_id: matchingWorkflow.workflow_run_id,
+    workflow_run_attempt: matchingWorkflow.workflow_run_attempt,
+    repository: matchingWorkflow.repository,
+    workflow_file_identity: matchingWorkflow.workflow_file_identity,
+  },
   deployment: {
     authorized_deployment_id: "canary-contract-test",
     platform_deployment_id: "3b064508-1cdb-453c-826b-bdea36a8b1e5",
@@ -76,13 +112,14 @@ const validRuntimeAttestation = {
 const root = await mkdtemp(join(tmpdir(), "tlsn-canary-readiness-contract-"));
 try {
   const artifactPath = join(root, "runtime-attestation.json");
-  const reportFor = async (artifact) => {
+  const reportFor = async (artifact, reportEnvironment = matchingEnvironment, reportManifest = matchingManifest) => {
     await writeFile(artifactPath, `${JSON.stringify(artifact)}\n`, "utf8");
     return buildReadinessReport({
-      environment: { TLSN_CANARY_DEPLOYMENT_ATTESTATION_PATH: artifactPath },
+      environment: { ...reportEnvironment, TLSN_CANARY_DEPLOYMENT_ATTESTATION_PATH: artifactPath },
       expectedHead,
       artifactPaths: [],
       baseDirectory: root,
+      validatedDeploymentManifest: reportManifest,
     });
   };
 
@@ -105,8 +142,20 @@ try {
   const validReport = await reportFor(validRuntimeAttestation);
   assert.equal(validReport.inputs.runtime_attestation.status, "VALID");
   assert.equal(validReport.inputs.runtime_attestation.readiness, "READY_FOR_HUMAN_GAMEPLAY");
+  assert.equal(validReport.inputs.runtime_attestation.cross_binding.status, "PASS");
+  assert.equal(validReport.cross_binding.status, "PASS");
   assert.equal(validReport.gates.runtime_attestation, true);
+  assert.equal(validReport.gates.cross_binding, true);
   assert.equal(validReport.status, "BLOCKED");
+
+  const frankensteinReport = await reportFor(validRuntimeAttestation, {
+    ...matchingEnvironment,
+    TLSN_CANARY_DEPLOYMENT_ID: "canary-other-deployment",
+  });
+  assert.equal(frankensteinReport.status, "BLOCKED");
+  assert.equal(frankensteinReport.inputs.runtime_attestation.status, "INVALID");
+  assert.equal(frankensteinReport.cross_binding.status, "BLOCKED");
+  assert.equal(frankensteinReport.gates.cross_binding, false);
 } finally {
   await rm(root, { recursive: true, force: true });
 }

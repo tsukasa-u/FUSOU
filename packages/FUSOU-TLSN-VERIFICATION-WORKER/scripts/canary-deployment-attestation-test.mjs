@@ -30,6 +30,37 @@ const bindingAuthorityKeyId = "canary-binding-authority-2026";
 const { privateKey: bindingAuthorityPrivateKey, publicKey: bindingAuthorityPublicKey } = generateKeyPairSync("ed25519");
 const bindingAuthorityPrivateKeyPkcs8 = bindingAuthorityPrivateKey.export({ format: "der", type: "pkcs8" }).toString("base64url");
 const bindingAuthorityPublicKeySpki = bindingAuthorityPublicKey.export({ format: "der", type: "spki" }).toString("base64url");
+const workflow = {
+  workflow_run_id: "100",
+  workflow_run_attempt: "1",
+  repository: "example/FUSOU",
+  workflow_file_identity: "dotenvx+pnpm+wrangler",
+  git_commit_sha: gitCommitSha,
+};
+const deploymentManifest = {
+  manifest_id: "A".repeat(43),
+  target: { deployment_role: "canary" },
+  workflow: {
+    repository: workflow.repository,
+    run_id: workflow.workflow_run_id,
+    run_attempt: workflow.workflow_run_attempt,
+    workflow_file_identity: workflow.workflow_file_identity,
+    commit_sha: gitCommitSha,
+  },
+  deployment: {
+    deployment_id: deploymentId,
+    worker_name: workerName,
+  },
+};
+const deploymentEnvironment = {
+  TLSN_CANARY_DEPLOYMENT_ID: deploymentId,
+  TLSN_CANARY_WORKER_NAME: workerName,
+  TLSN_WORKFLOW_RUN_ID: workflow.workflow_run_id,
+  TLSN_WORKFLOW_RUN_ATTEMPT: workflow.workflow_run_attempt,
+  TLSN_REPOSITORY: workflow.repository,
+  TLSN_WORKFLOW_FILE_IDENTITY: workflow.workflow_file_identity,
+  TLSN_GIT_COMMIT_SHA: gitCommitSha,
+};
 const deploymentMessage = createCanaryDeploymentMessage({
   deploymentId,
   workerName,
@@ -212,25 +243,54 @@ const realShape = createCanaryDeploymentAttestation({
   expectedGitCommitSha: gitCommitSha,
   expectedDeploymentMessage: deploymentMessage,
   expectedDeploymentTag: deploymentTag,
-  workflow: {
-    workflow_run_id: "100",
-    workflow_run_attempt: "1",
-    repository: "example/FUSOU",
-    workflow_file_identity: "dotenvx+pnpm+wrangler",
-  },
+  workflow,
 });
 assert.equal(realShape.scope, CANARY_DEPLOYMENT_ATTESTATION_SCOPE);
 assert.equal(realShape.status, "PASS");
 assert.equal(realShape.readiness, CANARY_DEPLOYMENT_READINESS);
 assert.equal(realShape.evidence.synthetic, false);
-assert.deepEqual(assertCanaryDeploymentRuntimeAttestation(realShape, { currentHead: gitCommitSha }), {
+const runtimeAttestationBinding = {
+  currentHead: gitCommitSha,
+  workflow,
+  deploymentManifest,
+  environment: deploymentEnvironment,
+};
+assert.deepEqual(assertCanaryDeploymentRuntimeAttestation(realShape, runtimeAttestationBinding), {
   status: "VALID",
   readiness: CANARY_DEPLOYMENT_READINESS,
   git_commit_sha: gitCommitSha,
   deployment_id: deploymentId,
   worker_name: workerName,
+  workflow_run_id: workflow.workflow_run_id,
+  workflow_run_attempt: workflow.workflow_run_attempt,
+  repository: workflow.repository,
+  workflow_file_identity: workflow.workflow_file_identity,
+  version_id: versionId,
+  platform_deployment_id: platformDeploymentId,
+  cross_binding: {
+    status: "PASS",
+    workflow_attestation: true,
+    manifest_attestation: true,
+    environment_attestation: true,
+    version_serving: true,
+  },
 });
-rejects("fixture Runtime Attestation is not valid for gameplay", () => assertCanaryDeploymentRuntimeAttestation(fixtureAttestation, { currentHead: gitCommitSha }));
+rejects("real Runtime Attestation requires current workflow context", () => assertCanaryDeploymentRuntimeAttestation(realShape, { currentHead: gitCommitSha }));
+rejects("fixture Runtime Attestation is not valid for gameplay", () => assertCanaryDeploymentRuntimeAttestation(fixtureAttestation, runtimeAttestationBinding));
+
+for (const [label, mutation] of [
+  ["same HEAD with a different workflow run", { workflow: { ...workflow, workflow_run_id: "101" } }],
+  ["same HEAD with a different workflow attempt", { workflow: { ...workflow, workflow_run_attempt: "2" } }],
+  ["same deployment with a different repository", { workflow: { ...workflow, repository: "other/FUSOU" } }],
+  ["same deployment with a different workflow identity", { workflow: { ...workflow, workflow_file_identity: "other-workflow" } }],
+  ["same HEAD with a different manifest deployment", { deploymentManifest: { ...deploymentManifest, deployment: { ...deploymentManifest.deployment, deployment_id: "other-deployment" } } }],
+  ["same deployment with a different manifest worker", { deploymentManifest: { ...deploymentManifest, deployment: { ...deploymentManifest.deployment, worker_name: "fusou-tlsn-verification-canary-alt" } } }],
+  ["same workflow with a different environment deployment", { environment: { ...deploymentEnvironment, TLSN_CANARY_DEPLOYMENT_ID: "other-deployment" } }],
+  ["same workflow with a different environment worker", { environment: { ...deploymentEnvironment, TLSN_CANARY_WORKER_NAME: "fusou-tlsn-verification-canary-alt" } }],
+  ["same identity with a different manifest commit", { deploymentManifest: { ...deploymentManifest, workflow: { ...deploymentManifest.workflow, commit_sha: "b".repeat(40) } } }],
+]) {
+  rejects(label, () => assertCanaryDeploymentRuntimeAttestation(realShape, { ...runtimeAttestationBinding, ...mutation }));
+}
 
 const root = await mkdtemp(join(tmpdir(), "tlsn-canary-attestation-test-"));
 try {

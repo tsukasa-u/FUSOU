@@ -272,6 +272,24 @@ export function deploymentManifestIdentity(manifest) {
   return sha256(Buffer.from(canonicalJson(body), "utf8"));
 }
 
+export function canaryDeploymentManifestBinding(manifest) {
+  assertObject(manifest, "Canary deployment manifest");
+  assertObject(manifest.target, "Canary deployment manifest target");
+  assertObject(manifest.workflow, "Canary deployment manifest workflow");
+  assertObject(manifest.deployment, "Canary deployment manifest deployment");
+  return {
+    manifest_id: assertHash(manifest.manifest_id, "Canary deployment manifest.manifest_id"),
+    deployment_id: assertReference(manifest.deployment.deployment_id, "Canary deployment manifest deployment_id"),
+    worker_name: assertString(manifest.deployment.worker_name, "Canary deployment manifest worker_name"),
+    deployment_role: assertString(manifest.target.deployment_role, "Canary deployment manifest target.deployment_role"),
+    workflow_run_id: assertString(manifest.workflow.run_id, "Canary deployment manifest workflow.run_id"),
+    workflow_run_attempt: assertString(manifest.workflow.run_attempt, "Canary deployment manifest workflow.run_attempt"),
+    repository: assertReference(manifest.workflow.repository, "Canary deployment manifest workflow.repository"),
+    workflow_file_identity: assertString(manifest.workflow.workflow_file_identity, "Canary deployment manifest workflow.workflow_file_identity"),
+    commit_sha: assertString(manifest.workflow.commit_sha, "Canary deployment manifest workflow.commit_sha", /^[0-9a-f]{40}$/i),
+  };
+}
+
 export function createCanaryDeploymentManifest({
   environment = process.env,
   currentHead,

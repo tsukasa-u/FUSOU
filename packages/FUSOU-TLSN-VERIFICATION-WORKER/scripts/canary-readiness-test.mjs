@@ -305,13 +305,30 @@ function runtimeAttestationSummary(path, value, status, reason = null) {
     path,
     readiness: value?.readiness ?? null,
     git_commit_sha: value?.repository?.git_commit_sha ?? null,
+    workflow_run_id: value?.repository?.workflow_run_id ?? null,
+    workflow_run_attempt: value?.repository?.workflow_run_attempt ?? null,
+    repository: value?.repository?.repository ?? null,
+    workflow_file_identity: value?.repository?.workflow_file_identity ?? null,
     deployment_id: value?.deployment?.authorized_deployment_id ?? value?.runtime_self_reported_identity?.deployment_id ?? null,
     worker_name: value?.deployment?.worker_name ?? value?.runtime_self_reported_identity?.worker_name ?? null,
+    platform_deployment_id: value?.deployment?.platform_deployment_id ?? null,
+    version_id: value?.version?.version_id ?? value?.runtime_self_reported_identity?.runtime_version?.version_id ?? null,
+    cross_binding: value?.cross_binding ?? {
+      status: "BLOCKED",
+      workflow_attestation: false,
+      manifest_attestation: false,
+      environment_attestation: false,
+      version_serving: false,
+      reason: "Runtime Attestation cross-binding was not validated",
+    },
     reason,
   };
 }
 
-async function readRuntimeAttestation(environment = process.env, expectedHead = currentHead, baseDirectory = packageDirectory) {
+async function readRuntimeAttestation(environment = process.env, expectedHead = currentHead, baseDirectory = packageDirectory, {
+  workflow = null,
+  deploymentManifest = null,
+} = {}) {
   const path = canaryDeploymentAttestationArtifactPath({
     baseDirectory,
     explicitPath: environment.TLSN_CANARY_DEPLOYMENT_ATTESTATION_PATH,
@@ -332,7 +349,12 @@ async function readRuntimeAttestation(environment = process.env, expectedHead = 
     return runtimeAttestationSummary(path, value, "FIXTURE_ONLY", "synthetic or fixture Runtime Attestation cannot authorize human gameplay");
   }
   try {
-    const verified = assertCanaryDeploymentRuntimeAttestation(value, { currentHead: expectedHead });
+    const verified = assertCanaryDeploymentRuntimeAttestation(value, {
+      currentHead: expectedHead,
+      workflow,
+      deploymentManifest,
+      environment,
+    });
     return { ...runtimeAttestationSummary(path, value, "VALID"), ...verified };
   } catch (error) {
     return runtimeAttestationSummary(path, value, "INVALID", error instanceof Error ? error.message : String(error));
@@ -344,6 +366,7 @@ export async function buildReadinessReport({
   expectedHead = currentHead,
   artifactPaths = ARTIFACT_PATHS,
   baseDirectory = packageDirectory,
+  validatedDeploymentManifest = null,
 } = {}) {
   const artifacts = await Promise.all(artifactPaths.map((path) => readArtifactMetadata(path, expectedHead, baseDirectory)));
   const currentTrustArtifacts = artifacts.filter((artifact) => artifact.current_trust_artifact);
@@ -355,9 +378,15 @@ export async function buildReadinessReport({
       diagnostics: [{ reason: "Canary deployment manifest was not supplied" }],
     }),
   };
-  if (deploymentManifestPath) {
+  if (validatedDeploymentManifest) {
+    deploymentManifest = {
+      status: "VALID",
+      ...canaryDeploymentManifestVerificationReport({ status: "VALID", manifest: validatedDeploymentManifest }),
+    };
+  } else if (deploymentManifestPath) {
     try {
       const manifest = await loadCanaryDeploymentManifest(deploymentManifestPath, { environment, currentHead: expectedHead });
+      validatedDeploymentManifest = manifest;
       deploymentManifest = {
         status: "VALID",
         ...canaryDeploymentManifestVerificationReport({ status: "VALID", manifest }),
@@ -372,12 +401,23 @@ export async function buildReadinessReport({
       };
     }
   }
-  const runtimeAttestation = await readRuntimeAttestation(environment, expectedHead, baseDirectory);
   const target = targetStatus(environment);
   const trust = trustStatus(environment);
   const notary = notaryStatus(environment);
   const auth = authStatus(environment);
   const workflow = workflowStatus(environment, expectedHead);
+  let currentWorkflow = null;
+  if (workflow === "PASS") {
+    try {
+      currentWorkflow = workflowContextFromEnvironment(environment, "canary");
+    } catch {
+      currentWorkflow = null;
+    }
+  }
+  const runtimeAttestation = await readRuntimeAttestation(environment, expectedHead, baseDirectory, {
+    workflow: currentWorkflow,
+    deploymentManifest: validatedDeploymentManifest,
+  });
   const binding = allPresent(BINDING_INPUTS, environment) && environment.TLSN_CANARY_FIXTURE_ONLY !== "true"
     ? "PRESENT_UNVERIFIED"
     : environment.TLSN_CANARY_FIXTURE_ONLY === "true" ? "FIXTURE_ONLY" : "MISSING";
@@ -395,6 +435,7 @@ export async function buildReadinessReport({
     workflow_provenance: workflow === "PASS",
     runtime_attestation: runtimeAttestation.status === "VALID"
       && runtimeAttestation.readiness === CANARY_DEPLOYMENT_READINESS,
+    cross_binding: runtimeAttestation.cross_binding?.status === "PASS",
     identity_separation: identitySeparationStatus(environment) === "PASS",
     fixture_contamination_absent: environment.TLSN_CANARY_FIXTURE_ONLY !== "true"
       && target !== "FIXTURE_OR_SYNTHETIC"
@@ -416,6 +457,7 @@ export async function buildReadinessReport({
       notary: { status: notary, fields: statuses(NOTARY_INPUTS, environment), owner: "FUSOU", service: "FUSOU-NOTARY", protocol: "tlsn-v0.1.0-alpha.15", transport: "raw_tcp", current_presentation_path: "REQUIRED" },
       authentication: { status: auth, fields: statuses(DEPLOYMENT_AUTH_INPUTS, environment) },
       runtime_attestation: runtimeAttestation,
+      cross_binding: runtimeAttestation.cross_binding,
       remote_validation: {
         status: "POST_DEPLOYMENT_ONLY",
         fields: postDeploymentStatuses(REMOTE_VALIDATION_INPUTS, environment),
@@ -428,6 +470,7 @@ export async function buildReadinessReport({
         present_names: FORBIDDEN_CANARY_INPUTS.filter((name) => present(name, environment)),
       },
     },
+    cross_binding: runtimeAttestation.cross_binding,
     artifacts: {
       current: artifacts.filter((artifact) => artifact.current_commit && !artifact.historical && !artifact.synthetic),
       historical: artifacts.filter((artifact) => artifact.historical),

@@ -5,6 +5,7 @@ import { mkdir, open } from "node:fs/promises";
 import { spawnSync } from "node:child_process";
 import { dirname, resolve } from "node:path";
 import { assertCanonicalCanaryWorkerName } from "./canary-deployment-target.mjs";
+import { canaryDeploymentManifestBinding } from "./canary-deployment-manifest.mjs";
 
 export const CANARY_DEPLOYMENT_ATTESTATION_SCHEMA_VERSION = 1;
 export const CANARY_DEPLOYMENT_ATTESTATION_SCOPE = "tlsn-canary-deployment-runtime-attestation";
@@ -50,7 +51,85 @@ function assertExactString(value, expected, label) {
   if (value !== expected) throw new Error(`${label} does not match the expected Runtime Attestation value`);
 }
 
-export function assertCanaryDeploymentRuntimeAttestation(attestation, { currentHead } = {}) {
+function requiredWorkflowMetadata(workflow, label = "current workflow") {
+  assertObject(workflow, label);
+  return {
+    workflow_run_id: requiredString(workflow.workflow_run_id ?? workflow.run_id, `${label}.workflow_run_id`),
+    workflow_run_attempt: requiredString(workflow.workflow_run_attempt ?? workflow.run_attempt, `${label}.workflow_run_attempt`),
+    repository: requiredString(workflow.repository, `${label}.repository`),
+    workflow_file_identity: requiredString(workflow.workflow_file_identity, `${label}.workflow_file_identity`),
+    git_commit_sha: requiredString(workflow.git_commit_sha ?? workflow.commit_sha, `${label}.git_commit_sha`).toLowerCase(),
+  };
+}
+
+function requiredEnvironmentWorkflowMetadata(environment) {
+  assertObject(environment, "current Canary environment");
+  return requiredWorkflowMetadata({
+    workflow_run_id: environment.TLSN_WORKFLOW_RUN_ID,
+    workflow_run_attempt: environment.TLSN_WORKFLOW_RUN_ATTEMPT,
+    repository: environment.TLSN_REPOSITORY,
+    workflow_file_identity: environment.TLSN_WORKFLOW_FILE_IDENTITY,
+    git_commit_sha: environment.TLSN_GIT_COMMIT_SHA,
+  }, "current Canary environment");
+}
+
+function assertCanaryDeploymentCrossBinding(attestation, {
+  currentHead,
+  workflow,
+  deploymentManifest,
+  environment,
+  servingVersionId,
+} = {}) {
+  const expectedHead = requiredString(currentHead, "current HEAD").toLowerCase();
+  const expectedWorkflow = requiredWorkflowMetadata(workflow);
+  const repository = attestation.repository;
+  const attestationWorkflow = {
+    workflow_run_id: requiredString(repository.workflow_run_id, "Runtime Attestation repository.workflow_run_id"),
+    workflow_run_attempt: requiredString(repository.workflow_run_attempt, "Runtime Attestation repository.workflow_run_attempt"),
+    repository: requiredString(repository.repository, "Runtime Attestation repository.repository"),
+    workflow_file_identity: requiredString(repository.workflow_file_identity, "Runtime Attestation repository.workflow_file_identity"),
+    git_commit_sha: requiredString(repository.git_commit_sha, "Runtime Attestation repository.git_commit_sha").toLowerCase(),
+  };
+  for (const field of ["workflow_run_id", "workflow_run_attempt", "repository", "workflow_file_identity", "git_commit_sha"]) {
+    assertExactString(attestationWorkflow[field], expectedWorkflow[field], `Runtime Attestation workflow ${field}`);
+  }
+  assertExactString(attestationWorkflow.git_commit_sha, expectedHead, "Runtime Attestation workflow git_commit_sha");
+
+  const manifest = canaryDeploymentManifestBinding(deploymentManifest);
+  assertExactString(attestation.deployment.authorized_deployment_id, manifest.deployment_id, "Runtime Attestation manifest deployment ID");
+  assertExactString(attestation.deployment.worker_name, manifest.worker_name, "Runtime Attestation manifest worker name");
+  assertExactString(attestation.deployment.deployment_role, manifest.deployment_role, "Runtime Attestation manifest deployment role");
+  assertExactString(attestation.repository.git_commit_sha.toLowerCase(), manifest.commit_sha.toLowerCase(), "Runtime Attestation manifest commit");
+  assertExactString(attestation.repository.workflow_run_id, manifest.workflow_run_id, "Runtime Attestation manifest workflow run ID");
+  assertExactString(attestation.repository.workflow_run_attempt, manifest.workflow_run_attempt, "Runtime Attestation manifest workflow run attempt");
+  assertExactString(attestation.repository.repository, manifest.repository, "Runtime Attestation manifest repository");
+  assertExactString(attestation.repository.workflow_file_identity, manifest.workflow_file_identity, "Runtime Attestation manifest workflow identity");
+  assertExactString(servingVersionId, attestation.deployment.versions[0].version_id, "Runtime Attestation serving version");
+
+  const expectedEnvironment = requiredEnvironmentWorkflowMetadata(environment);
+  assertExactString(requiredString(environment.TLSN_CANARY_DEPLOYMENT_ID, "current Canary environment.TLSN_CANARY_DEPLOYMENT_ID"), attestation.deployment.authorized_deployment_id, "Runtime Attestation environment deployment ID");
+  assertExactString(requiredString(environment.TLSN_CANARY_WORKER_NAME, "current Canary environment.TLSN_CANARY_WORKER_NAME"), attestation.deployment.worker_name, "Runtime Attestation environment worker name");
+  for (const field of ["workflow_run_id", "workflow_run_attempt", "repository", "workflow_file_identity", "git_commit_sha"]) {
+    assertExactString(expectedEnvironment[field], attestationWorkflow[field], `Runtime Attestation environment ${field}`);
+  }
+  assertExactString(attestation.runtime_self_reported_identity.deployment_id, attestation.deployment.authorized_deployment_id, "Runtime Attestation runtime deployment ID");
+  assertExactString(attestation.runtime_self_reported_identity.worker_name, attestation.deployment.worker_name, "Runtime Attestation runtime worker name");
+  assertExactString(attestation.runtime_self_reported_identity.runtime_version.version_id, servingVersionId, "Runtime Attestation runtime serving version");
+  return {
+    status: "PASS",
+    workflow_attestation: true,
+    manifest_attestation: true,
+    environment_attestation: true,
+    version_serving: true,
+  };
+}
+
+export function assertCanaryDeploymentRuntimeAttestation(attestation, {
+  currentHead,
+  workflow,
+  deploymentManifest,
+  environment,
+} = {}) {
   assertObject(attestation, "Runtime Attestation");
   assertExactString(attestation.schema_version, CANARY_DEPLOYMENT_ATTESTATION_SCHEMA_VERSION, "Runtime Attestation schema_version");
   assertExactString(attestation.scope, CANARY_DEPLOYMENT_ATTESTATION_SCOPE, "Runtime Attestation scope");
@@ -84,12 +163,26 @@ export function assertCanaryDeploymentRuntimeAttestation(attestation, { currentH
   assertExactString(attestation.runtime_self_reported_identity.runtime_version.version_id, servingVersionId, "Runtime Attestation runtime version");
   assertObject(attestation.checks, "Runtime Attestation checks");
   for (const check of REQUIRED_RUNTIME_ATTESTATION_CHECKS) assertExactString(attestation.checks[check], true, `Runtime Attestation checks.${check}`);
+  const crossBinding = assertCanaryDeploymentCrossBinding(attestation, {
+    currentHead: expectedHead,
+    workflow,
+    deploymentManifest,
+    environment,
+    servingVersionId,
+  });
   return {
     status: "VALID",
     readiness: attestation.readiness,
     git_commit_sha: attestation.repository.git_commit_sha,
     deployment_id: authorizedDeploymentId,
     worker_name: deploymentWorkerName,
+    workflow_run_id: attestation.repository.workflow_run_id,
+    workflow_run_attempt: attestation.repository.workflow_run_attempt,
+    repository: attestation.repository.repository,
+    workflow_file_identity: attestation.repository.workflow_file_identity,
+    version_id: servingVersionId,
+    platform_deployment_id: attestation.deployment.platform_deployment_id,
+    cross_binding: crossBinding,
   };
 }
 
@@ -449,6 +542,10 @@ export function createCanaryDeploymentAttestation({
   evidenceMode = "real",
 }) {
   const fixture = evidenceMode === "fixture";
+  const workflowMetadata = fixture ? null : requiredWorkflowMetadata(workflow, "Runtime Attestation workflow");
+  if (!fixture && workflowMetadata.git_commit_sha !== requiredString(expectedGitCommitSha, "Runtime Attestation expected Git SHA").toLowerCase()) {
+    throw new Error("Runtime Attestation workflow Git SHA does not match the expected Git SHA");
+  }
   const status = fixture ? "FIXTURE_ONLY" : "PASS";
   return {
     schema_version: CANARY_DEPLOYMENT_ATTESTATION_SCHEMA_VERSION,
@@ -463,10 +560,10 @@ export function createCanaryDeploymentAttestation({
     },
     repository: {
       git_commit_sha: expectedGitCommitSha,
-      workflow_run_id: workflow?.workflow_run_id ?? null,
-      workflow_run_attempt: workflow?.workflow_run_attempt ?? null,
-      repository: workflow?.repository ?? null,
-      workflow_file_identity: workflow?.workflow_file_identity ?? null,
+      workflow_run_id: workflowMetadata?.workflow_run_id ?? null,
+      workflow_run_attempt: workflowMetadata?.workflow_run_attempt ?? null,
+      repository: workflowMetadata?.repository ?? null,
+      workflow_file_identity: workflowMetadata?.workflow_file_identity ?? null,
     },
     deployment: {
       authorized_deployment_id: expectedDeploymentId,

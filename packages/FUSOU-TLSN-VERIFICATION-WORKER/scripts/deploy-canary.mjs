@@ -175,6 +175,7 @@ async function main() {
       workflow_run_attempt: deploymentEnvironment.TLSN_WORKFLOW_RUN_ATTEMPT ?? null,
       repository: deploymentEnvironment.TLSN_REPOSITORY ?? null,
       workflow_file_identity: deploymentEnvironment.TLSN_WORKFLOW_FILE_IDENTITY ?? null,
+      git_commit_sha: gitCommitSha,
     };
     const artifactPath = canaryDeploymentAttestationArtifactPath({
       baseDirectory: packageDirectory,
