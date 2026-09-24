@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 
+import { createPrivateKey, createPublicKey, sign, verify } from "node:crypto";
 import { mkdir, open } from "node:fs/promises";
 import { spawnSync } from "node:child_process";
 import { dirname, resolve } from "node:path";
@@ -10,9 +11,11 @@ export const CANARY_DEPLOYMENT_ATTESTATION_SCOPE = "tlsn-canary-deployment-runti
 export const CANARY_DEPLOYMENT_FIXTURE_SCOPE = "tlsn-canary-deployment-runtime-attestation-fixture";
 export const CANARY_DEPLOYMENT_READINESS = "READY_FOR_HUMAN_GAMEPLAY";
 export const CANARY_DEPLOYMENT_NOT_READY = "NOT_READY";
+export const CANARY_DEPLOYMENT_BINDING_SCHEMA_VERSION = 1;
 
 const VERSION_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const SHA_PATTERN = /^[0-9a-f]{40}$/i;
+const KEY_ID_PATTERN = /^[A-Za-z0-9._-]{1,128}$/;
 
 function requiredString(value, label) {
   if (typeof value !== "string" || value.trim().length === 0) throw new Error(`${label} is missing`);
@@ -23,6 +26,97 @@ function requiredVersionId(value, label) {
   const versionId = requiredString(value, label);
   if (!VERSION_ID_PATTERN.test(versionId)) throw new Error(`${label} is invalid`);
   return versionId;
+}
+
+function requiredKeyId(value, label) {
+  const keyId = requiredString(value, label);
+  if (!KEY_ID_PATTERN.test(keyId)) throw new Error(`${label} is invalid`);
+  return keyId;
+}
+
+function bindingAuthorityPublicKey(value, label) {
+  try {
+    const key = createPublicKey({ key: Buffer.from(requiredString(value, label), "base64url"), format: "der", type: "spki" });
+    if (key.asymmetricKeyType !== "ed25519") throw new Error("wrong key type");
+    return key;
+  } catch {
+    throw new Error(`${label} is invalid`);
+  }
+}
+
+function bindingAuthorityPrivateKey(value, label) {
+  try {
+    const key = createPrivateKey({ key: Buffer.from(requiredString(value, label), "base64url"), format: "der", type: "pkcs8" });
+    if (key.asymmetricKeyType !== "ed25519") throw new Error("wrong key type");
+    return key;
+  } catch {
+    throw new Error(`${label} is invalid`);
+  }
+}
+
+function bindingAuthorityPublicKeySpki(privateKey) {
+  return createPublicKey(privateKey).export({ format: "der", type: "spki" }).toString("base64url");
+}
+
+export function canaryDeploymentBindingPayload({ deploymentId, workerName, gitCommitSha }) {
+  const canonicalWorkerName = assertCanonicalCanaryWorkerName(workerName);
+  const logicalDeploymentId = requiredString(deploymentId, "Canary deployment identity");
+  const commitSha = requiredString(gitCommitSha, "checked-out Git SHA").toLowerCase();
+  if (!SHA_PATTERN.test(commitSha)) throw new Error("checked-out Git SHA is invalid");
+  return Buffer.from([
+    `schema_version=${CANARY_DEPLOYMENT_BINDING_SCHEMA_VERSION}`,
+    `deployment_id=${logicalDeploymentId}`,
+    `worker_name=${canonicalWorkerName}`,
+    `git_commit_sha=${commitSha}`,
+  ].join("\n"), "utf8");
+}
+
+export function createCanaryDeploymentMessage({
+  deploymentId,
+  workerName,
+  gitCommitSha,
+  bindingAuthorityKeyId,
+  bindingAuthorityPrivateKeyPkcs8,
+  expectedBindingAuthorityPublicKeySpki,
+}) {
+  const keyId = requiredKeyId(bindingAuthorityKeyId, "Canary Binding Authority key ID");
+  const privateKey = bindingAuthorityPrivateKey(bindingAuthorityPrivateKeyPkcs8, "Canary Binding Authority private key");
+  const derivedPublicKeySpki = bindingAuthorityPublicKeySpki(privateKey);
+  if (derivedPublicKeySpki !== requiredString(expectedBindingAuthorityPublicKeySpki, "Canary Binding Authority public key")) {
+    throw new Error("Canary Binding Authority key pair does not match");
+  }
+  const payload = canaryDeploymentBindingPayload({ deploymentId, workerName, gitCommitSha });
+  const commitSha = requiredString(gitCommitSha, "checked-out Git SHA").toLowerCase();
+  return `FUSOU Canary deployment ${commitSha} binding=v${CANARY_DEPLOYMENT_BINDING_SCHEMA_VERSION}:${keyId}:${sign(null, payload, privateKey).toString("base64url")}`;
+}
+
+function verifyCanaryDeploymentMessage({
+  message,
+  deploymentId,
+  workerName,
+  gitCommitSha,
+  bindingAuthorityKeyId,
+  bindingAuthorityPublicKeySpki,
+  label,
+}) {
+  const keyId = requiredKeyId(bindingAuthorityKeyId, "Canary Binding Authority key ID");
+  const publicKey = bindingAuthorityPublicKey(bindingAuthorityPublicKeySpki, "Canary Binding Authority public key");
+  const commitSha = requiredString(gitCommitSha, "checked-out Git SHA").toLowerCase();
+  const prefix = `FUSOU Canary deployment ${commitSha} binding=v${CANARY_DEPLOYMENT_BINDING_SCHEMA_VERSION}:`;
+  if (typeof message !== "string" || !message.startsWith(prefix)) throw new Error(`${label} is not an authenticated Canary deployment binding`);
+  const binding = message.slice(prefix.length);
+  const separator = binding.indexOf(":");
+  if (separator <= 0 || binding.slice(0, separator) !== keyId) throw new Error(`${label} Canary Binding Authority key does not match`);
+  let signature;
+  try {
+    signature = Buffer.from(binding.slice(separator + 1), "base64url");
+  } catch {
+    throw new Error(`${label} Canary deployment binding signature is malformed`);
+  }
+  if (!verify(null, canaryDeploymentBindingPayload({ deploymentId, workerName, gitCommitSha }), publicKey, signature)) {
+    throw new Error(`${label} is not bound to the authorized Canary deployment identity`);
+  }
+  return { schema_version: CANARY_DEPLOYMENT_BINDING_SCHEMA_VERSION, authority_key_id: keyId };
 }
 
 function payloadArray(payload, key, label) {
@@ -120,6 +214,8 @@ export function verifyCanaryDeploymentRuntime({
   expectedVersionId,
   expectedDeploymentMessage,
   expectedDeploymentTag,
+  expectedBindingAuthorityKeyId,
+  expectedBindingAuthorityPublicKeySpki,
   deploymentStartedAt,
   fixtureOnly = false,
 }) {
@@ -133,11 +229,32 @@ export function verifyCanaryDeploymentRuntime({
     throw new Error("platform deployment and version are not bound to the deployed version");
   }
   if (platform.serving_percentage !== 100) throw new Error("platform version is not serving at 100 percent");
+  const platformDeploymentMessage = platform.deployment.annotations?.["workers/message"];
+  const platformVersionMessage = platform.version.annotations?.["workers/message"];
+  if (platformDeploymentMessage !== platformVersionMessage) {
+    throw new Error("Cloudflare deployment and version do not share the same authenticated Canary binding");
+  }
+  const deploymentBinding = verifyCanaryDeploymentMessage({
+    message: platformDeploymentMessage,
+    deploymentId,
+    workerName: canonicalWorkerName,
+    gitCommitSha: commitSha,
+    bindingAuthorityKeyId: expectedBindingAuthorityKeyId,
+    bindingAuthorityPublicKeySpki: expectedBindingAuthorityPublicKeySpki,
+    label: "Cloudflare deployment",
+  });
+  verifyCanaryDeploymentMessage({
+    message: platformVersionMessage,
+    deploymentId,
+    workerName: canonicalWorkerName,
+    gitCommitSha: commitSha,
+    bindingAuthorityKeyId: expectedBindingAuthorityKeyId,
+    bindingAuthorityPublicKeySpki: expectedBindingAuthorityPublicKeySpki,
+    label: "Cloudflare version",
+  });
   if (expectedDeploymentMessage !== undefined) {
     expectedAnnotation(platform.version.annotations, "workers/message", expectedDeploymentMessage, "Canary version");
-    if (platform.deployment.annotations["workers/message"] !== undefined) {
-      expectedAnnotation(platform.deployment.annotations, "workers/message", expectedDeploymentMessage, "Canary deployment");
-    }
+    expectedAnnotation(platform.deployment.annotations, "workers/message", expectedDeploymentMessage, "Canary deployment");
   }
   if (expectedDeploymentTag !== undefined) {
     expectedAnnotation(platform.version.annotations, "workers/tag", expectedDeploymentTag, "Canary version");
@@ -171,6 +288,7 @@ export function verifyCanaryDeploymentRuntime({
     worker_name: canonicalWorkerName,
     deployment_role: "canary",
     git_commit_sha: commitSha,
+    deployment_binding: deploymentBinding,
   };
 }
 
@@ -220,7 +338,9 @@ export async function fetchCanaryHealth(url, fetchImpl = fetch) {
   if (origin.protocol !== "https:" || origin.username || origin.password || origin.port || origin.pathname !== "/" || origin.search || origin.hash) {
     throw new Error("Canary Worker internal URL must be a clean HTTPS origin");
   }
-  const response = await fetchImpl(`${origin.origin}/health`, { headers: { accept: "application/json" } });
+  const healthUrl = `${origin.origin}/health`;
+  const response = await fetchImpl(healthUrl, { redirect: "error", headers: { accept: "application/json" } });
+  if (response.redirected || response.url !== healthUrl) throw new Error("Canary /health response did not come from the requested canonical origin");
   if (!response.ok) throw new Error(`Canary /health returned HTTP ${response.status}`);
   try {
     return await response.json();
@@ -282,6 +402,7 @@ export function createCanaryDeploymentAttestation({
       strategy: platform.deployment.strategy,
       annotations: platform.deployment.annotations,
       versions: platform.deployment.versions,
+      binding: verification.deployment_binding,
       requested_message: expectedDeploymentMessage ?? null,
       requested_tag: expectedDeploymentTag ?? null,
     },
@@ -302,6 +423,8 @@ export function createCanaryDeploymentAttestation({
     checks: {
       canonical_worker: true,
       platform_deployment_contains_deployed_version: true,
+      platform_deployment_binding_matches_authorized_identity: true,
+      platform_version_binding_matches_authorized_identity: true,
       platform_version_serving_100_percent: true,
       deployment_message_matches_head: expectedDeploymentMessage !== undefined,
       deployment_tag_matches_head: expectedDeploymentTag !== undefined,
@@ -339,6 +462,8 @@ export async function attestCanaryDeployment({
     expectedVersionId,
     expectedDeploymentMessage,
     expectedDeploymentTag,
+    expectedBindingAuthorityKeyId: environment?.TLSN_CANARY_BINDING_AUTHORITY_KEY_ID,
+    expectedBindingAuthorityPublicKeySpki: environment?.TLSN_CANARY_BINDING_AUTHORITY_PUBLIC_KEY_SPKI,
     deploymentStartedAt,
   });
   const attestation = createCanaryDeploymentAttestation({

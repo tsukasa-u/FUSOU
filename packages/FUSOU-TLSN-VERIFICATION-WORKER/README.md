@@ -287,7 +287,14 @@ production Worker is not changed by that rollback.
 
 After the main Canary deploy, `deploy:canary` extracts Wrangler's deployed
 Version ID and independently reads Cloudflare deployment and version metadata.
-It then requests `<TLSN_CANARY_WORKER_INTERNAL_URL>/health` and compares the
+`TLSN_CANARY_DEPLOYMENT_ID` is the authorized logical FUSOU deployment identity,
+not the opaque Cloudflare deployment UUID. Before deploy, the Canary Binding
+Authority signs that logical ID, canonical Worker name, and checked-out Git
+SHA into the Wrangler deployment message. The independently fetched platform
+deployment and version metadata must carry the same valid binding, and the
+deployment must contain the selected Version ID at 100 percent. It then
+requests `<TLSN_CANARY_WORKER_INTERNAL_URL>/health` without following
+redirects and compares the
 platform deployment/version, runtime deployment identity, runtime Version ID,
 runtime Git SHA, canonical Worker name, Canary role, and fixed binding mode.
 Only a successful comparison writes the create-only artifact

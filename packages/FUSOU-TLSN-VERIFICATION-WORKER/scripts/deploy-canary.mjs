@@ -13,7 +13,7 @@ import {
   secretInputsForRole,
 } from "./deployment-contract.mjs";
 import { CANARY_EXTERNAL_INPUT_INTAKE } from "./canary-external-input-intake.mjs";
-import { attestCanaryDeployment } from "./canary-deployment-attestation.mjs";
+import { attestCanaryDeployment, createCanaryDeploymentMessage } from "./canary-deployment-attestation.mjs";
 import {
   assertCanaryDeploymentAuthorized,
   authorizeCanaryDeployment,
@@ -112,7 +112,14 @@ async function main() {
   const bootstrapDeployArguments = [
     "exec", "wrangler", "deploy", "--config", "wrangler.canary-bootstrap.toml", "--name", CANARY_BOOTSTRAP_WORKER_NAME,
   ];
-  const deploymentMessage = `FUSOU Canary deployment ${gitCommitSha}`;
+  const deploymentMessage = createCanaryDeploymentMessage({
+    deploymentId: deploymentEnvironment.TLSN_CANARY_DEPLOYMENT_ID,
+    workerName: CANARY_WORKER_NAME,
+    gitCommitSha,
+    bindingAuthorityKeyId: deploymentEnvironment.TLSN_CANARY_BINDING_AUTHORITY_KEY_ID,
+    bindingAuthorityPrivateKeyPkcs8: deploymentEnvironment.TLSN_CANARY_BINDING_AUTHORITY_SIGNING_PRIVATE_KEY_PKCS8,
+    expectedBindingAuthorityPublicKeySpki: deploymentEnvironment.TLSN_CANARY_BINDING_AUTHORITY_PUBLIC_KEY_SPKI,
+  });
   const deploymentTag = `canary-${gitCommitSha.slice(0, 12)}`;
   const deployArguments = [
     "exec", "wrangler", "deploy", "--env", "canary", "--name", CANARY_WORKER_NAME,

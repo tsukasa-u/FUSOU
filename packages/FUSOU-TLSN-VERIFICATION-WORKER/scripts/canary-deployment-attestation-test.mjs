@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import assert from "node:assert/strict";
+import { generateKeyPairSync } from "node:crypto";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -9,6 +10,7 @@ import {
   CANARY_DEPLOYMENT_FIXTURE_SCOPE,
   CANARY_DEPLOYMENT_NOT_READY,
   CANARY_DEPLOYMENT_READINESS,
+  createCanaryDeploymentMessage,
   createCanaryDeploymentAttestation,
   fetchCanaryHealth,
   normalizeCanaryPlatformMetadata,
@@ -21,9 +23,20 @@ const deploymentId = "canary-deployment-2026";
 const platformDeploymentId = "3b064508-1cdb-453c-826b-bdea36a8b1e5";
 const versionId = "4b064508-1cdb-453c-826b-bdea36a8b1e5";
 const gitCommitSha = "a".repeat(40);
-const deploymentMessage = `FUSOU Canary deployment ${gitCommitSha}`;
 const deploymentTag = `canary-${gitCommitSha.slice(0, 12)}`;
 const createdOn = "2026-09-08T00:00:00.000Z";
+const bindingAuthorityKeyId = "canary-binding-authority-2026";
+const { privateKey: bindingAuthorityPrivateKey, publicKey: bindingAuthorityPublicKey } = generateKeyPairSync("ed25519");
+const bindingAuthorityPrivateKeyPkcs8 = bindingAuthorityPrivateKey.export({ format: "der", type: "pkcs8" }).toString("base64url");
+const bindingAuthorityPublicKeySpki = bindingAuthorityPublicKey.export({ format: "der", type: "spki" }).toString("base64url");
+const deploymentMessage = createCanaryDeploymentMessage({
+  deploymentId,
+  workerName,
+  gitCommitSha,
+  bindingAuthorityKeyId,
+  bindingAuthorityPrivateKeyPkcs8,
+  expectedBindingAuthorityPublicKeySpki: bindingAuthorityPublicKeySpki,
+});
 
 function platformPayload(overrides = {}) {
   return {
@@ -81,6 +94,8 @@ const verificationInput = {
   expectedVersionId: versionId,
   expectedDeploymentMessage: deploymentMessage,
   expectedDeploymentTag: deploymentTag,
+  expectedBindingAuthorityKeyId: bindingAuthorityKeyId,
+  expectedBindingAuthorityPublicKeySpki: bindingAuthorityPublicKeySpki,
   deploymentStartedAt: new Date("2026-09-07T23:59:00.000Z"),
 };
 const verification = verifyCanaryDeploymentRuntime(verificationInput);
@@ -92,6 +107,32 @@ assert.deepEqual(verification, {
   worker_name: workerName,
   deployment_role: "canary",
   git_commit_sha: gitCommitSha,
+  deployment_binding: { schema_version: 1, authority_key_id: bindingAuthorityKeyId },
+});
+
+function platformWith({ deployment = {}, version = {} } = {}) {
+  return {
+    ...platform,
+    deployment: {
+      ...platform.deployment,
+      ...deployment,
+      annotations: { ...platform.deployment.annotations, ...deployment.annotations },
+    },
+    version: {
+      ...platform.version,
+      ...version,
+      annotations: { ...platform.version.annotations, ...version.annotations },
+    },
+  };
+}
+
+const wrongDeploymentMessage = createCanaryDeploymentMessage({
+  deploymentId: "another-logical-canary-deployment",
+  workerName,
+  gitCommitSha,
+  bindingAuthorityKeyId,
+  bindingAuthorityPrivateKeyPkcs8,
+  expectedBindingAuthorityPublicKeySpki: bindingAuthorityPublicKeySpki,
 });
 
 function rejects(label, action) {
@@ -103,6 +144,21 @@ async function rejectsAsync(label, action) {
 }
 
 for (const [label, mutation] of [
+  ["platform deployment belongs to another logical deployment", { platform: platformWith({ deployment: { annotations: { "workers/message": wrongDeploymentMessage } } }) }],
+  ["authorized deployment identity is not bound to platform deployment", { platform: platformWith({ version: { annotations: { "workers/message": wrongDeploymentMessage } } }) }],
+  ["platform deployment/version are correct but logical binding is wrong", {
+    expectedDeploymentId: "another-logical-canary-deployment",
+    runtimeHealth: health({
+      deployment_id: "another-logical-canary-deployment",
+      deployment_identity: { ...health().deployment_identity, deployment_id: "another-logical-canary-deployment" },
+    }),
+  }],
+  ["runtime deployment identity belongs to another logical deployment", {
+    runtimeHealth: health({
+      deployment_id: "another-logical-canary-deployment",
+      deployment_identity: { ...health().deployment_identity, deployment_id: "another-logical-canary-deployment" },
+    }),
+  }],
   ["wrong deployment ID", { expectedDeploymentId: "other-deployment" }],
   ["wrong version ID", { expectedVersionId: "5b064508-1cdb-453c-826b-bdea36a8b1e5" }],
   ["wrong Worker name", { workerName: "fusou-tlsn-verification-production" }],
@@ -177,11 +233,31 @@ try {
   await rm(root, { recursive: true, force: true });
 }
 
-const response = await fetchCanaryHealth("https://canary.example.com", async (url) => {
+const response = await fetchCanaryHealth("https://canary.example.com", async (url, options) => {
   assert.equal(url, "https://canary.example.com/health");
-  return new Response(JSON.stringify(health()), { status: 200, headers: { "content-type": "application/json" } });
+  assert.equal(options.redirect, "error");
+  return {
+    ok: true,
+    status: 200,
+    url,
+    redirected: false,
+    json: async () => health(),
+  };
 });
 assert.equal(response.deployment_id, deploymentId);
+for (const status of [301, 302, 307, 308]) {
+  await rejectsAsync(`health HTTP ${status} redirect`, () => fetchCanaryHealth("https://canary.example.com", async (url, options) => {
+    assert.equal(options.redirect, "error");
+    return { ok: false, status, url, redirected: false, json: async () => health() };
+  }));
+}
+await rejectsAsync("health redirect to another HTTPS origin", () => fetchCanaryHealth("https://canary.example.com", async () => ({
+  ok: true,
+  status: 200,
+  url: "https://another-worker.example/health",
+  redirected: true,
+  json: async () => health(),
+})));
 await rejectsAsync("invalid health URL", () => fetchCanaryHealth("http://canary.example.com", async () => new Response()));
 
 console.log("[tlsn-canary-deployment-attestation] platform, runtime, stale, identity, fixture, and immutable-artifact rejection matrix PASS");
