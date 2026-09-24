@@ -6,7 +6,7 @@ import {
   secretInputsForRole,
 } from "./deployment-contract.mjs";
 
-export const CANARY_EXTERNAL_INPUT_INTAKE_SCHEMA_VERSION = 1;
+export const CANARY_EXTERNAL_INPUT_INTAKE_SCHEMA_VERSION = 2;
 export const CANARY_EXTERNAL_INPUT_INTAKE_SCOPE = "tlsn-canary-external-input-intake";
 export const CANARY_INPUT_CLASSIFICATIONS = Object.freeze([
   "REPOSITORY_STATIC",
@@ -21,7 +21,7 @@ export const CANARY_INPUT_CLASSIFICATIONS = Object.freeze([
   "REMOTE_VALIDATION_ONLY",
 ]);
 export const CANARY_INPUT_OWNERSHIP = Object.freeze([
-  "EXTERNAL_REQUIRED",
+  "OPERATOR_CONFIGURED",
   "DEPLOYMENT_INPUT_REQUIRED",
   "SECRET_PROVIDER_REQUIRED",
   "WORKFLOW_CONTEXT_REQUIRED",
@@ -32,8 +32,26 @@ export const CANARY_INPUT_OWNERSHIP = Object.freeze([
   "FIXTURE_ONLY",
   "HISTORICAL_ONLY",
   "REMOTE_VALIDATION_ONLY",
+  "OPTIONAL_DELEGATED_NOTARY",
   "DERIVED",
 ]);
+
+export const CANARY_TLSN_ARCHITECTURE = Object.freeze({
+  live_verifier: Object.freeze({
+    status: "NOT_IMPLEMENTED",
+    role: "FUSOU-owned live MPC Verifier Worker",
+  }),
+  presentation_verifier: Object.freeze({
+    status: "IMPLEMENTED",
+    role: "FUSOU-owned offline Presentation verifier and Result signer",
+  }),
+  delegated_notary: Object.freeze({
+    status: "IMPLEMENTED",
+    role: "FUSOU-operated alpha.15 MPC Notary",
+    optional_in_protocol: true,
+    current_presentation_path: "REQUIRED",
+  }),
+});
 
 const SOURCE_OWNERSHIP = Object.freeze({
   DEPLOYMENT_INPUT: "DEPLOYMENT_INPUT_REQUIRED",
@@ -46,24 +64,24 @@ const SOURCE_OWNERSHIP = Object.freeze({
 });
 
 const OWNERSHIP_DEFAULTS = Object.freeze({
-  EXTERNAL_REQUIRED: {
-    owner: "FUSOU deployment operator or workflow configuration",
-    generated_by: "operator or deployment configuration",
+  OPERATOR_CONFIGURED: {
+    owner: "FUSOU deployment operator or repository configuration",
+    generated_by: "operator-supplied deployment configuration",
     generation_stage: "before deployment",
     can_generate_locally: false,
     can_generate_during_deployment: false,
-    external_dependency: true,
+    external_dependency: false,
   },
   DEPLOYMENT_INPUT_REQUIRED: {
-    owner: "FUSOU deployment operator or workflow",
+    owner: "FUSOU deployment configuration",
     generated_by: "operator-supplied or deployment-generated current input",
     generation_stage: "deployment provisioning",
     can_generate_locally: false,
     can_generate_during_deployment: false,
-    external_dependency: true,
+    external_dependency: false,
   },
   SECRET_PROVIDER_REQUIRED: {
-    owner: "approved secret provider",
+    owner: "configured secret provider",
     generated_by: "credential issuer or secret provider",
     generation_stage: "remote validation setup",
     can_generate_locally: false,
@@ -134,8 +152,16 @@ const OWNERSHIP_DEFAULTS = Object.freeze({
     can_generate_during_deployment: false,
     external_dependency: true,
   },
+  OPTIONAL_DELEGATED_NOTARY: {
+    owner: "FUSOU-operated delegated alpha.15 Notary",
+    generated_by: "FUSOU Notary deployment and trust registry configuration",
+    generation_stage: "deployment provisioning",
+    can_generate_locally: false,
+    can_generate_during_deployment: false,
+    external_dependency: false,
+  },
   DERIVED: {
-    owner: "FUSOU derivation from approved source inputs",
+    owner: "FUSOU derivation from declared source inputs",
     generated_by: "provision-canary-material.mjs or contract hash derivation",
     generation_stage: "provisioning before deployment",
     can_generate_locally: true,
@@ -160,12 +186,12 @@ const REMOTE_VALIDATION_INPUTS = [
 const COMMON_METADATA = {
   phase: "DEPLOYMENT_PREFLIGHT",
   representation: "environment variable; strings are trimmed before validation",
-  approval_requirement: "must be supplied by the declared source and pass the named validator",
+  input_requirement: "must be supplied by the declared source and pass the named validator",
   lifetime: "per deployment or validation run",
-  rotation: "rotate with the owning deployment, credential, or approval record",
+  rotation: "rotate with the owning deployment, credential, or configuration record",
   protected_input_channel: false,
   required: true,
-  approval_required: false,
+  authorization_required: false,
   validity_period: "current deployment or validation run",
   canonicalization: "trimmed UTF-8 environment value",
   fingerprint: "not applicable",
@@ -174,7 +200,8 @@ const COMMON_METADATA = {
 
 function entries(category, names, metadata) {
   return names.map((name) => {
-    const ownership = metadata.ownershipByName?.[name] ?? metadata.ownership ?? SOURCE_OWNERSHIP[metadata.source] ?? "EXTERNAL_REQUIRED";
+    const ownership = metadata.ownershipByName?.[name] ?? metadata.ownership ?? SOURCE_OWNERSHIP[metadata.source] ?? "OPERATOR_CONFIGURED";
+    const architectureRole = metadata.architectureRoleByName?.[name] ?? metadata.architecture_role;
     const entry = {
       name,
       category,
@@ -184,10 +211,12 @@ function entries(category, names, metadata) {
       ownership,
     };
     delete entry.ownershipByName;
+    delete entry.architectureRoleByName;
     Object.assign(entry, metadata.ownershipMetadata ?? {});
     if (metadata.ownershipMetadataByName?.[name]) Object.assign(entry, metadata.ownershipMetadataByName[name]);
     delete entry.ownershipMetadata;
     delete entry.ownershipMetadataByName;
+    if (architectureRole) entry.architecture_role = architectureRole;
     entry.classification = entry.classification
       ?? (entry.phase === "REMOTE_VALIDATION_ONLY"
         ? "REMOTE_VALIDATION_ONLY"
@@ -195,8 +224,7 @@ function entries(category, names, metadata) {
     entry.exposure = entry.secret ? "SECRET" : "PUBLIC";
     entry.purpose = entry.purpose ?? `${category} input required by the Canary contract`;
     entry.format = entry.format ?? entry.representation;
-    entry.approval_required = entry.approval_required ?? false;
-    entry.approval_provenance = entry.approval_provenance
+    entry.provenance = entry.provenance
       ?? (entry.source === "DEPLOYMENT_INPUT"
         ? "deployment manifest input identity and named validator"
         : `${entry.source} ownership and named validator`);
@@ -211,6 +239,11 @@ export const CANARY_EXTERNAL_INPUT_INTAKE = Object.freeze([
   ], {
     source: "DEPLOYMENT_INPUT",
     secret: false,
+    architectureRoleByName: {
+      TLSN_CANDIDATE_SERVER_IDENTITY: "TARGET_CONFIGURATION",
+      TLSN_CANDIDATE_VERIFIER_KEY_ID: "FUSOU_PRESENTATION_RESULT_VERIFIER_IDENTITY",
+    },
+    ownership: "OPERATOR_CONFIGURED",
     representation: "DNS hostname, canonical base64url SHA-256 digest, or verifier key ID",
     consumer: "deployment-preflight, deployment-manifest, profile-canonical-contract",
     validator: "deployment-preflight and deployment-manifest",
@@ -222,6 +255,7 @@ export const CANARY_EXTERNAL_INPUT_INTAKE = Object.freeze([
   ], {
     source: "DEPLOYMENT_INPUT",
     secret: false,
+    architecture_role: "PROFILE_POLICY",
     representation: "43-character base64url SHA-256 digest derived from canonical UTF-8 JSON",
     canonicalization: "canonicalJson; profile bytes are validated by profile-canonical-contract",
     hash: "SHA-256, base64url without padding",
@@ -230,8 +264,8 @@ export const CANARY_EXTERNAL_INPUT_INTAKE = Object.freeze([
     validator: "profile-canonical-contract and deployment-preflight",
     failure_conditions: ["MISSING", "PRESENT_INVALID", "PRESENT_MISMATCHED", "FIXTURE_ONLY", "HISTORICAL_ONLY"],
     ownership: "DERIVED",
-    external_dependency: true,
-    approval_provenance: "profile artifacts and their profile-canonical-contract hashes",
+    external_dependency: false,
+    provenance: "profile artifacts and their profile-canonical-contract hashes",
   }),
   ...entries("TRUST", [
     "TLSN_PRODUCTION_NOTARY_REGISTRY",
@@ -240,6 +274,11 @@ export const CANARY_EXTERNAL_INPUT_INTAKE = Object.freeze([
   ], {
     source: "DEPLOYMENT_INPUT",
     secret: false,
+    ownership: "OPTIONAL_DELEGATED_NOTARY",
+    architectureRoleByName: {
+      TLSN_PRODUCTION_NOTARY_REGISTRY: "OPTIONAL_DELEGATED_NOTARY",
+      TLSN_CANDIDATE_NOTARY_KEY_ID: "OPTIONAL_DELEGATED_NOTARY",
+    },
     representation: "canonical registry JSON, base64url SHA-256 digest, or base64url DER certificate",
     hash: "registry set uses canonicalJson and SHA-256; trust root is bound separately by SHA-256",
     fingerprint: "security registry set SHA-256 plus canonical Notary registry SHA-256",
@@ -261,6 +300,7 @@ export const CANARY_EXTERNAL_INPUT_INTAKE = Object.freeze([
   ], {
     source: "DEPLOYMENT_INPUT",
     secret: false,
+    ownership: "OPERATOR_CONFIGURED",
     protected_input_channel: true,
     representation: "canonical base64url DER certificate in secure deployment environment",
     hash: "SHA-256 hash is bound into deployment identity and deployment manifest",
@@ -275,6 +315,7 @@ export const CANARY_EXTERNAL_INPUT_INTAKE = Object.freeze([
   ], {
     source: "DEPLOYMENT_INPUT",
     secret: false,
+    architecture_role: "FUSOU_PRESENTATION_RESULT_VERIFIER_IDENTITY",
     representation: "canonical base64url Ed25519 SPKI public key and deployment identifier",
     consumer: "deployment-preflight, deployment-manifest, verifier deployment",
     validator: "deployment-preflight and deployment-manifest",
@@ -295,9 +336,9 @@ export const CANARY_EXTERNAL_INPUT_INTAKE = Object.freeze([
     validator: "deployment-preflight URL/host allowlist checks",
     failure_conditions: ["MISSING", "PRESENT_INVALID", "PRESENT_MISMATCHED", "FIXTURE_ONLY"],
     ownership: "DERIVED",
-    external_dependency: true,
-    generated_by: "provision-canary-material.mjs from approved public site and Supabase configuration",
-    approval_provenance: "target authentication endpoints and publishable-key policy",
+    external_dependency: false,
+    generated_by: "provision-canary-material.mjs from declared public site and Supabase configuration",
+    provenance: "target authentication endpoints and publishable-key policy",
   }),
   ...entries("DEVICE", [
     "TLSN_REMOTE_DEVICE_ID_A",
@@ -305,12 +346,12 @@ export const CANARY_EXTERNAL_INPUT_INTAKE = Object.freeze([
     source: "DEPLOYMENT_INPUT",
     secret: false,
     phase: "REMOTE_VALIDATION_ONLY",
-    representation: "approved device reference",
+    representation: "configured device reference",
     consumer: "remote-validation only",
     validator: "remote-validation device identity check",
     classification: "REMOTE_VALIDATION_ONLY",
-    approval_required: true,
-    approval_provenance: "approved authentication.device_identity and credential policy reference",
+    authorization_required: true,
+    provenance: "authentication.device_identity and credential policy reference",
     failure_conditions: ["MISSING", "PRESENT_INVALID", "PRESENT_MISMATCHED"],
   }),
   ...entries("DEVICE", [
@@ -323,8 +364,8 @@ export const CANARY_EXTERNAL_INPUT_INTAKE = Object.freeze([
     consumer: "remote-validation only; never deployment-preflight or deploy-canary child environment",
     validator: "remote-validation and device proof verification",
     classification: "REMOTE_VALIDATION_ONLY",
-    approval_required: true,
-    approval_provenance: "credential_policy secret_provider_ref and remote device proof result",
+    authorization_required: true,
+    provenance: "credential_policy secret_provider_ref and remote device proof result",
     validity_period: "short-lived credential policy window",
     failure_conditions: ["MISSING", "PRESENT_INVALID", "PRESENT_EXPIRED", "PRESENT_MISMATCHED"],
   }),
@@ -341,8 +382,8 @@ export const CANARY_EXTERNAL_INPUT_INTAKE = Object.freeze([
     consumer: "remote-validation only; never deployment-preflight or deploy-canary child environment",
     validator: "remote-validation and device proof verification",
     classification: "REMOTE_VALIDATION_ONLY",
-    approval_required: true,
-    approval_provenance: "credential_policy secret_provider_ref and remote device proof result",
+    authorization_required: true,
+    provenance: "credential_policy secret_provider_ref and remote device proof result",
     validity_period: "short-lived credential policy window; private key representation is one-of",
     failure_conditions: ["MISSING", "PRESENT_INVALID", "PRESENT_EXPIRED", "PRESENT_MISMATCHED"],
   }),
@@ -357,7 +398,7 @@ export const CANARY_EXTERNAL_INPUT_INTAKE = Object.freeze([
     consumer: "remote-validation only",
     validator: "remote-validation origin and user assertions",
     classification: "REMOTE_VALIDATION_ONLY",
-    approval_required: true,
+    authorization_required: true,
     failure_conditions: ["MISSING", "PRESENT_INVALID", "PRESENT_MISMATCHED", "FIXTURE_ONLY"],
   }),
   ...entries("BINDING", [
@@ -369,7 +410,7 @@ export const CANARY_EXTERNAL_INPUT_INTAKE = Object.freeze([
     representation: "Ed25519 SPKI/registry metadata, identity/reference strings, and integer TTL",
     consumer: "deployment-preflight, deployment-manifest, binding authority",
     validator: "authority-key-registry, deployment-preflight, deployment-manifest",
-    approval_provenance: "approved binding.binding_identity and identity_separation metadata",
+    provenance: "binding.binding_identity and identity_separation metadata",
     failure_conditions: ["MISSING", "PRESENT_INVALID", "PRESENT_MISMATCHED", "REPLAY_BINDING_REUSE", "FIXTURE_ONLY"],
     ownershipByName: {
       TLSN_BINDING_TTL_SECONDS: "DEPLOYMENT_GENERATED",
@@ -638,7 +679,7 @@ export const CANARY_EXTERNAL_ARTIFACT_INTAKE = Object.freeze([
     category: "TRUST",
     source: "DEPLOYMENT_INPUT",
     classification: "DEPLOYMENT_INPUT",
-    purpose: "establish the approved production trust and Notary verification roots",
+    purpose: "establish the configured production trust and Notary verification roots",
     required: true,
     status_when_absent: "MISSING",
     representation: "canonical registry JSON and DER trust root represented as canonical base64url",
@@ -658,7 +699,7 @@ export const CANARY_EXTERNAL_ARTIFACT_INTAKE = Object.freeze([
     category: "WORKFLOW",
     source: "WORKFLOW_CONTEXT",
     classification: "WORKFLOW_CONTEXT",
-    purpose: "prove that approval and provisioning are tied to the current repository workflow and commit",
+    purpose: "bind provisioning to the current repository workflow and commit",
     required: true,
     status_when_absent: "MISSING",
     representation: "workflow environment variables and current checked-out commit",
@@ -717,7 +758,7 @@ export function assertCanaryExternalInputIntakeContract() {
   const actual = [...names].sort();
   if (JSON.stringify(actual) !== JSON.stringify(expected)) throw new Error("Canary intake does not cover the repository input contract");
   for (const entry of CANARY_EXTERNAL_INPUT_INTAKE) {
-    for (const field of ["category", "source", "representation", "approval_requirement", "lifetime", "rotation", "consumer", "validator", "failure_conditions"]) {
+    for (const field of ["category", "source", "representation", "input_requirement", "lifetime", "rotation", "consumer", "validator", "failure_conditions"]) {
       if (entry[field] === undefined) throw new Error(`Canary intake entry ${entry.name} is missing ${field}`);
     }
     if (typeof entry.secret !== "boolean") throw new Error(`Canary intake entry ${entry.name} has no secret classification`);
@@ -725,8 +766,8 @@ export function assertCanaryExternalInputIntakeContract() {
     if (!CANARY_INPUT_CLASSIFICATIONS.includes(entry.classification)) throw new Error(`Canary intake entry ${entry.name} has an invalid classification`);
     if (!CANARY_INPUT_OWNERSHIP.includes(entry.ownership)) throw new Error(`Canary intake entry ${entry.name} has an invalid ownership`);
     if (typeof entry.required !== "boolean") throw new Error(`Canary intake entry ${entry.name} has no required classification`);
-    if (typeof entry.approval_required !== "boolean") throw new Error(`Canary intake entry ${entry.name} has no approval classification`);
-    for (const field of ["purpose", "format", "approval_provenance", "validity_period", "canonicalization", "fingerprint", "readiness_effect", "exposure"]) {
+    if (typeof entry.authorization_required !== "boolean") throw new Error(`Canary intake entry ${entry.name} has no authorization classification`);
+    for (const field of ["purpose", "format", "provenance", "validity_period", "canonicalization", "fingerprint", "readiness_effect", "exposure"]) {
       if (typeof entry[field] !== "string" || entry[field].length === 0) throw new Error(`Canary intake entry ${entry.name} is missing ${field}`);
     }
     for (const field of ["owner", "generated_by", "generation_stage"]) {

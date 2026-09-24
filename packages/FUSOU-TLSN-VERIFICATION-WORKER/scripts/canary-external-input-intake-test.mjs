@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import {
   CANARY_EXTERNAL_ARTIFACT_INTAKE,
   CANARY_EXTERNAL_INPUT_INTAKE,
+  CANARY_TLSN_ARCHITECTURE,
   assertCanaryExternalInputIntakeContract,
   canaryInputIntakeEntry,
 } from "./canary-external-input-intake.mjs";
@@ -52,11 +53,20 @@ assert.equal(canaryInputIntakeEntry("TLSN_REMOTE_DEVICE_A_PRIVATE_KEY_PKCS8_FILE
 assert.equal(canaryInputIntakeEntry("TLSN_REMOTE_DEVICE_A_PRIVATE_KEY_PKCS8_FILE").required_group, "REMOTE_DEVICE_PRIVATE_KEY_ONE_OF");
 assert.equal(canaryInputIntakeEntry("TLSN_REMOTE_DEVICE_A_PRIVATE_KEY_PKCS8_B64URL").required_group, "REMOTE_DEVICE_PRIVATE_KEY_ONE_OF");
 assert.equal(canaryInputIntakeEntry("TLSN_CANDIDATE_PROFILE_SHA256").ownership, "DERIVED");
-assert.equal(canaryInputIntakeEntry("TLSN_CANDIDATE_PROFILE_SHA256").external_dependency, true);
+assert.equal(canaryInputIntakeEntry("TLSN_CANDIDATE_PROFILE_SHA256").external_dependency, false);
 assert.equal(canaryInputIntakeEntry("TLSN_CANARY_DEPLOYMENT_ID").ownership, "DEPLOYMENT_GENERATED");
 assert.equal(canaryInputIntakeEntry("TLSN_CANARY_DEPLOYMENT_ID").external_dependency, false);
 assert.equal(canaryInputIntakeEntry("TLSN_REMOTE_EXPECTED_PROVENANCE_JSON").ownership, "REMOTE_VALIDATION_ONLY");
 assert.equal(canaryInputIntakeEntry("TLSN_REMOTE_EXPECTED_PROVENANCE_JSON").external_dependency, false);
+assert.equal(canaryInputIntakeEntry("TLSN_PRODUCTION_NOTARY_REGISTRY").ownership, "OPTIONAL_DELEGATED_NOTARY");
+assert.equal(canaryInputIntakeEntry("TLSN_PRODUCTION_NOTARY_REGISTRY").architecture_role, "OPTIONAL_DELEGATED_NOTARY");
+assert.equal(canaryInputIntakeEntry("TLSN_CANDIDATE_SERVER_IDENTITY").ownership, "OPERATOR_CONFIGURED");
+assert.equal(canaryInputIntakeEntry("TLSN_CANDIDATE_PROFILE_SHA256").architecture_role, "PROFILE_POLICY");
+assert.equal(canaryInputIntakeEntry("TLSN_CANARY_VERIFIER_PUBLIC_KEY_SPKI").architecture_role, "FUSOU_PRESENTATION_RESULT_VERIFIER_IDENTITY");
+assert.equal(CANARY_TLSN_ARCHITECTURE.live_verifier.status, "NOT_IMPLEMENTED");
+assert.equal(CANARY_TLSN_ARCHITECTURE.presentation_verifier.status, "IMPLEMENTED");
+assert.equal(CANARY_TLSN_ARCHITECTURE.delegated_notary.optional_in_protocol, true);
+assert.equal(CANARY_TLSN_ARCHITECTURE.delegated_notary.current_presentation_path, "REQUIRED");
 
 for (const name of [
   "TLSN_REMOTE_ACCESS_TOKEN_A",
@@ -71,6 +81,8 @@ for (const name of [
 
 for (const entry of CANARY_EXTERNAL_INPUT_INTAKE) {
   assert.doesNotMatch(entry.representation, /actual value|literal secret/i);
+  assert.equal(Object.hasOwn(entry, "approval_provenance"), false);
+  assert.equal(Object.hasOwn(entry, "approval_required"), false);
 }
 
 console.log("[tlsn-canary-external-input-intake] inventory, source, phase, and secret-boundary contract PASS");

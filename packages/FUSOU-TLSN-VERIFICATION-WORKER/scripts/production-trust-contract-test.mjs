@@ -184,6 +184,9 @@ assert.equal(typeof sessionPrivateKeyPkcs8, "string");
 assert.equal(typeof resultPrivateKeyPkcs8, "string");
 
 assert.doesNotThrow(() => assertPublicManifest(validManifest));
+const manifestWithMissingNotary = structuredClone(validManifest);
+delete manifestWithMissingNotary.notary;
+assert.throws(() => assertPublicManifest(manifestWithMissingNotary), /public manifest schema|notary/i);
 const manifestWithInvalidNotaryKey = structuredClone(validManifest);
 manifestWithInvalidNotaryKey.notary.verifying_key = Buffer.from("not-alpha15").toString("base64url");
 manifestWithInvalidNotaryKey.notary.registry_entry.verifying_key = manifestWithInvalidNotaryKey.notary.verifying_key;

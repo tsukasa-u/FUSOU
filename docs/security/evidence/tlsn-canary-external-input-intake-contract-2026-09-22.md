@@ -10,6 +10,10 @@ Baseline commit: `8ada6e8ef5f96fca04719d6c7b6f6b4b52fbd1b0`
 
 The External Authority / External Package acceptance flow described below is historical and is no longer a Canary deployment prerequisite. The active deployment boundary is `TLSN_CANARY_DEPLOYMENT_MANIFEST`, generated from deployment inputs and validated by `canary-deployment-manifest.mjs` and `canary-deployment-authorization.mjs`.
 
+The current TLSNotary architecture audit is recorded in `tlsn-live-verifier-architecture-audit-2026-09-22.md`. Its conclusion is `REPOSITORY GAP: LIVE FUSOU VERIFIER NOT IMPLEMENTED`: `FUSOU-NOTARY` is a FUSOU-operated live alpha.15 delegated Notary, while `FUSOU-TLSN-VERIFICATION-WORKER` is an offline Presentation verifier and Result signer. The alpha.15 protocol permits a direct live Verifier without a Notary, but the current Presentation path still requires the trusted Notary registry and key. Those checks must remain fail-closed until a live FUSOU Verifier path exists.
+
+The active intake/readiness implementation also separates deployment inputs from post-deployment remote validation. User/device credentials and remote validation paths are reported as `POST_DEPLOYMENT_ONLY`; they are not Canary deployment readiness gates. Operator-supplied target configuration is not an External Authority approval, and no External Package or approval artifact is required by the active manifest/preflight boundary.
+
 The current model keeps data trust and deployment preconditions:
 
 - TLSN verification, target/profile/Notary/trust-root/verifier/binding identity, signed Result registries, authority key registries, workflow/current-HEAD binding, role isolation, and secret-value exclusion remain fail-closed checks.

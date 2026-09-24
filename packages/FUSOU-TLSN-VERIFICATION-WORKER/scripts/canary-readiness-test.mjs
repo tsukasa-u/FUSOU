@@ -33,29 +33,12 @@ const REMOTE_VALIDATION_INPUTS = [
   "TLSN_REMOTE_FIXTURE_JSON",
 ];
 
-const REMOTE_SECRET_INPUTS = [
-  "TLSN_REMOTE_ACCESS_TOKEN_A",
-  "TLSN_REMOTE_DEVICE_A_PRIVATE_KEY_PKCS8_FILE",
-  "TLSN_REMOTE_DEVICE_A_PRIVATE_KEY_PKCS8_B64URL",
-];
-
-const REMOTE_DEVICE_PRIVATE_KEY_INPUTS = [
-  "TLSN_REMOTE_DEVICE_A_PRIVATE_KEY_PKCS8_FILE",
-  "TLSN_REMOTE_DEVICE_A_PRIVATE_KEY_PKCS8_B64URL",
-];
-
 const TARGET_INPUTS = [
   "TLSN_CANDIDATE_SERVER_IDENTITY",
   "TLSN_CANDIDATE_PROFILE_SHA256",
   "TLSN_CANDIDATE_SPARSE_PROFILE_SHA256",
   "TLSN_CANDIDATE_VERIFIER_KEY_ID",
   "TLSN_CANDIDATE_NOTARY_KEY_ID",
-  "TLSN_CANDIDATE_DEVICE_AUTH_URL",
-  "TLSN_CANDIDATE_DEVICE_POSSESSION_AUTH_URL",
-  "TLSN_CANDIDATE_DEVICE_AUTH_ALLOWED_HOSTS",
-  "TLSN_CANDIDATE_SUPABASE_ALLOWED_HOSTS",
-  "TLSN_CANDIDATE_SUPABASE_URL",
-  "TLSN_CANDIDATE_SUPABASE_PUBLISHABLE_KEY",
 ];
 
 const DEPLOYMENT_MANIFEST_INPUTS = [CANARY_DEPLOYMENT_MANIFEST_INPUT];
@@ -89,13 +72,13 @@ const TRUST_INPUTS = [
   "TLSN_CANARY_BINDING_AUTHORITY_KEY_REGISTRY",
 ];
 
-const AUTH_INPUTS = [
+const DEPLOYMENT_AUTH_INPUTS = [
   "TLSN_CANDIDATE_DEVICE_AUTH_URL",
   "TLSN_CANDIDATE_DEVICE_POSSESSION_AUTH_URL",
+  "TLSN_CANDIDATE_DEVICE_AUTH_ALLOWED_HOSTS",
+  "TLSN_CANDIDATE_SUPABASE_ALLOWED_HOSTS",
   "TLSN_CANDIDATE_SUPABASE_URL",
   "TLSN_CANDIDATE_SUPABASE_PUBLISHABLE_KEY",
-  ...REMOTE_VALIDATION_INPUTS,
-  ...REMOTE_SECRET_INPUTS,
 ];
 
 const BINDING_INPUTS = [
@@ -141,6 +124,10 @@ function present(name) {
 
 function statuses(names) {
   return Object.fromEntries(names.map((name) => [name, present(name) ? "PRESENT" : "MISSING"]));
+}
+
+function postDeploymentStatuses(names) {
+  return Object.fromEntries(names.map((name) => [name, present(name) ? "AVAILABLE_POST_DEPLOYMENT" : "NOT_CONFIGURED_POST_DEPLOYMENT"]));
 }
 
 function allPresent(names) {
@@ -234,25 +221,21 @@ function trustStatus() {
 }
 
 function authStatus() {
-  const privateKeyCount = REMOTE_DEVICE_PRIVATE_KEY_INPUTS.filter(present).length;
-  const requiredWithoutPrivateKeyAlternative = AUTH_INPUTS.filter(
-    (name) => !REMOTE_DEVICE_PRIVATE_KEY_INPUTS.includes(name),
-  );
-  if (!allPresent(requiredWithoutPrivateKeyAlternative) || privateKeyCount !== 1) return "MISSING";
-  return "PRESENT";
+  return allPresent(DEPLOYMENT_AUTH_INPUTS) ? "PRESENT" : "MISSING";
 }
 
 function readinessInputDiagnostics({ deployment, target, deploymentManifest, trust, auth, binding, workflow, runtime }) {
   const missing = new Set(missingInputNames());
-  const remotePrivateKeyProvided = REMOTE_DEVICE_PRIVATE_KEY_INPUTS.some(present);
   const statusByName = new Map();
   for (const entry of ACTIVE_INPUT_INTAKE) {
-    if (entry.required_group === "REMOTE_DEVICE_PRIVATE_KEY_ONE_OF" && remotePrivateKeyProvided && !present(entry.name)) {
+    if (entry.phase === "REMOTE_VALIDATION_ONLY") {
       statusByName.set(entry.name, {
-        status: "NOT_REQUIRED",
-        reason: "the other device private-key representation satisfies this one-of input",
+        status: present(entry.name) ? "AVAILABLE_POST_DEPLOYMENT" : "NOT_CONFIGURED_POST_DEPLOYMENT",
+        reason: "remote validation input is intentionally outside deployment readiness",
       });
-    } else if (missing.has(entry.name)) {
+      continue;
+    }
+    if (missing.has(entry.name)) {
       statusByName.set(entry.name, { status: "MISSING", reason: "required input is not present" });
     } else {
       statusByName.set(entry.name, { status: "PRESENT_UNVERIFIED", reason: "present; the owning gate has not completed" });
@@ -266,8 +249,8 @@ function readinessInputDiagnostics({ deployment, target, deploymentManifest, tru
   if (deployment === "PASS") setGroup(DEPLOYMENT_INPUTS, "VALID", "deployment identity matches the checked-out HEAD and canary role");
   if (deployment === "INVALID") setGroup(DEPLOYMENT_INPUTS, "PRESENT_MISMATCHED", "deployment environment, role, or commit does not match the current preflight contract");
   if (target === "FIXTURE_OR_SYNTHETIC") setGroup(TARGET_INPUTS, "PRESENT_INVALID", "fixture, synthetic, local, staging, or historical target identity is not a real Canary target");
-  if (trust === "PRESENT_UNVERIFIED") setGroup(TRUST_INPUTS, "PRESENT_UNVERIFIED", "trust metadata is present but requires deployment-preflight and approved registry verification");
-  if (auth === "PRESENT") setGroup(AUTH_INPUTS, "PRESENT_UNVERIFIED", "authentication inputs are present but require short-lived material and remote validation");
+  if (trust === "PRESENT_UNVERIFIED") setGroup(TRUST_INPUTS, "PRESENT_UNVERIFIED", "trust metadata is present but requires deployment-preflight and validated registry verification");
+  if (auth === "PRESENT") setGroup(DEPLOYMENT_AUTH_INPUTS, "PRESENT_UNVERIFIED", "deployment authentication inputs are present and remain preflight-gated");
   if (binding === "PRESENT_UNVERIFIED") setGroup(BINDING_INPUTS, "PRESENT_UNVERIFIED", "Canary binding is present but must be verified as distinct from Replay");
   if (workflow === "PASS") setGroup(WORKFLOW_INPUTS, "VALID", "workflow context and current commit passed deployment-attestation checks");
   if (workflow === "INVALID") setGroup(WORKFLOW_INPUTS, "PRESENT_INVALID", "workflow context is present but invalid");
@@ -291,11 +274,9 @@ function identitySeparationStatus() {
 
 function missingInputNames() {
   const names = ACTIVE_INPUT_INTAKE
+    .filter((entry) => entry.phase !== "REMOTE_VALIDATION_ONLY" && entry.required)
     .map((entry) => entry.name)
     .filter((name) => !present(name));
-  const privateKeyCount = REMOTE_DEVICE_PRIVATE_KEY_INPUTS.filter(present).length;
-  if (privateKeyCount === 0) names.push(...REMOTE_DEVICE_PRIVATE_KEY_INPUTS);
-  if (privateKeyCount > 1) names.push("REMOTE_DEVICE_PRIVATE_KEY_ONE_OF:exactly-one");
   return names.filter((name, index, values) => values.indexOf(name) === index);
 }
 
@@ -363,7 +344,11 @@ async function buildReadinessReport(artifacts) {
       target_provenance: { status: target, fields: statuses(TARGET_INPUTS) },
         deployment_manifest: deploymentManifest,
       trust: { status: trust, fields: statuses(TRUST_INPUTS) },
-      authentication: { status: auth, fields: statuses(AUTH_INPUTS) },
+      authentication: { status: auth, fields: statuses(DEPLOYMENT_AUTH_INPUTS) },
+      remote_validation: {
+        status: "POST_DEPLOYMENT_ONLY",
+        fields: postDeploymentStatuses(REMOTE_VALIDATION_INPUTS),
+      },
       binding: { status: binding, fields: statuses(BINDING_INPUTS) },
       workflow: { status: workflow, fields: statuses(WORKFLOW_INPUTS) },
       canary_runtime: { status: runtime, fields: statuses(CANARY_RUNTIME_INPUTS) },
@@ -386,7 +371,7 @@ async function buildReadinessReport(artifacts) {
     resume_conditions: {
       target_provenance: "A non-fixture server identity and canonical complete/sparse profiles must be supplied; hostname metadata alone is insufficient.",
       trust: "Candidate trust root, Notary registry/key ID, verifier identity, Result registry/envelope/root, and authority registries must be supplied and pass deployment-preflight.",
-      authentication: "An approved short-lived device/User A credential set and candidate device/Supabase endpoints must be supplied through the existing remote-validation inputs; values must not be committed or recorded.",
+      authentication: "Candidate device-auth and Supabase endpoints must be supplied and pass deployment-preflight. User/device credentials belong only to post-deployment remote validation and are not a deployment readiness gate.",
       binding: "A Canary-specific binding authority registry/key and fixed Canary binding must be supplied; replay fixed bindings are not acceptable.",
       workflow: "The deployment workflow must supply positive run ID/attempt, owner/name repository, current HEAD, and workflow_file_identity=dotenvx+pnpm+wrangler.",
       runtime: "Canary deployment/runtime and Trigger inputs must be supplied through the existing role-specific contract; deploy-canary.mjs must remain the only deploy path.",
