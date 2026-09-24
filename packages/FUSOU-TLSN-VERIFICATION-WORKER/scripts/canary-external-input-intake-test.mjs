@@ -36,7 +36,7 @@ for (const name of CANARY_SECRET_INPUTS) {
   const entry = canaryInputIntakeEntry(name);
   if (name === "TLSN_CANARY_TRUST_ROOT_CERTIFICATE_DER") {
     assert.equal(entry.secret, false);
-    assert.equal(entry.source, "EXTERNAL_APPROVAL");
+    assert.equal(entry.source, "DEPLOYMENT_INPUT");
     assert.equal(entry.protected_input_channel, true);
   } else {
     assert.equal(entry.secret, true, `${name} must be classified as secret`);
@@ -45,7 +45,7 @@ for (const name of CANARY_SECRET_INPUTS) {
 }
 
 assert.equal(canaryInputIntakeEntry("TLSN_REMOTE_DEVICE_ID_A").secret, false);
-assert.equal(canaryInputIntakeEntry("TLSN_REMOTE_DEVICE_ID_A").ownership, "EXTERNAL_APPROVAL_REQUIRED");
+assert.equal(canaryInputIntakeEntry("TLSN_REMOTE_DEVICE_ID_A").ownership, "DEPLOYMENT_INPUT_REQUIRED");
 assert.equal(canaryInputIntakeEntry("TLSN_REMOTE_ACCESS_TOKEN_A").required, true);
 assert.equal(canaryInputIntakeEntry("TLSN_REMOTE_ACCESS_TOKEN_A").required_group, undefined);
 assert.equal(canaryInputIntakeEntry("TLSN_REMOTE_DEVICE_A_PRIVATE_KEY_PKCS8_FILE").required, false);

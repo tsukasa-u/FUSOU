@@ -9,6 +9,7 @@ export async function authorizeCanaryDeployment({
   environment = process.env,
   currentHead,
   now = new Date(),
+  preflightStatus = "NOT_RUN",
 } = {}) {
   const suppliedPath = manifestPath?.trim();
   if (!suppliedPath) {
@@ -22,7 +23,7 @@ export async function authorizeCanaryDeployment({
           diagnostics: [{
             field: CANARY_DEPLOYMENT_MANIFEST_INPUT,
             category: "ABSENCE",
-            reason: "repository-controlled Canary deployment manifest was not supplied",
+            reason: "Canary deployment manifest was not supplied",
           }],
         }),
       },
@@ -36,11 +37,11 @@ export async function authorizeCanaryDeployment({
       now,
     });
     return {
-      deployment_authorization: "AUTHORIZED",
+      deployment_authorization: preflightStatus === "PASS" ? "AUTHORIZED" : "PREFLIGHT_REQUIRED",
       deployment_executed: false,
       deployment_manifest: {
         status: "VALID",
-        ...canaryDeploymentManifestVerificationReport({ status: "VALID", manifest }),
+        ...canaryDeploymentManifestVerificationReport({ status: "VALID", manifest, preflightStatus }),
       },
     };
   } catch (error) {
@@ -69,7 +70,7 @@ export function assertCanaryDeploymentAuthorized(authorization) {
     || authorization.deployment_manifest?.status !== "VALID"
     || authorization.deployment_manifest.verification?.preconditions !== "PASS"
     || authorization.deployment_manifest.verification?.deployment_eligible !== true) {
-    throw new Error("Canary deployment authorization requires a VALID repository-controlled deployment manifest");
+    throw new Error("Canary deployment authorization requires a VALID deployment manifest and PASS production preflight");
   }
   return authorization;
 }

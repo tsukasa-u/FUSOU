@@ -591,7 +591,7 @@ async function parentMain() {
       "PROCESS RESTART": "CLOSED",
       "RESTART INVARIANTS": "PASS",
       "RESULT ↔ EVIDENCE BINDING": "PASS",
-      "EXTERNAL AUTHORITY": "NOT PROVIDED",
+      "CANARY DEPLOYMENT MANIFEST": "ACTIVE TRUST BOUNDARY",
       "REAL CANARY": "NOT EXECUTED",
       "tamper_cases": tamperCount,
       "archive_exact_result_matches": archiveMatches.length,

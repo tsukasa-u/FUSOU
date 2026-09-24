@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import assert from "node:assert/strict";
-import { createHash } from "node:crypto";
+import { createHash, generateKeyPairSync } from "node:crypto";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { spawnSync } from "node:child_process";
 import { join, resolve } from "node:path";
@@ -9,6 +9,8 @@ import { tmpdir } from "node:os";
 import { profilesForServerIdentity } from "./profile-canonical-contract.mjs";
 import { securityRegistrySetHash } from "./security-registry-set-contract.mjs";
 import { loadRealFixture, readRealFixtureManifest } from "./tlsn-benchmark-fixtures.mjs";
+import { checkoutCommit } from "./deployment-attestation.mjs";
+import { assertCanaryDeploymentManifest } from "./canary-deployment-manifest.mjs";
 
 const packageDirectory = resolve(new URL("..", import.meta.url).pathname);
 const provisionerPath = resolve(packageDirectory, "scripts/provision-canary-material.mjs");
@@ -26,13 +28,14 @@ function parseGeneratedEnv(raw) {
   );
 }
 
-function runProvisioner(outputDirectory, argumentsList) {
+function runProvisioner(outputDirectory, argumentsList, environment = {}) {
   const result = spawnSync(process.execPath, [provisionerPath, "--output", outputDirectory, ...argumentsList], {
     cwd: packageDirectory,
     encoding: "utf8",
     env: {
       PATH: process.env.PATH ?? "/usr/bin:/bin",
       HOME: process.env.HOME ?? tmpdir(),
+      ...environment,
     },
   });
   assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
@@ -110,6 +113,8 @@ try {
   await writeFile(join(profileDirectory, "notary-registry.json"), `${JSON.stringify({ "notary-production-2026": fixture.notary_key_base64 })}\n`);
 
   const completeDirectory = join(rootDirectory, "complete");
+  const verifier = generateKeyPairSync("ed25519");
+  const verifierPublicKeySpki = verifier.publicKey.export({ format: "der", type: "spki" }).toString("base64url");
   const explicitArguments = [
     "--fixture-only", "false",
     "--server-identity", "canary.example.net",
@@ -119,10 +124,24 @@ try {
     "--notary-registry-file", join(profileDirectory, "notary-registry.json"),
     "--notary-key-id", "notary-production-2026",
     "--verifier-key-id", "verifier-production-2026",
+    "--verifier-public-key-spki", verifierPublicKeySpki,
+    "--verifier-deployment-id", "verifier-deployment-production-2026",
     "--deployment-id", "canary-explicit-2026",
     "--worker-name", "fusou-tlsn-verification-canary",
   ];
-  runProvisioner(completeDirectory, explicitArguments);
+  runProvisioner(completeDirectory, explicitArguments, {
+    TLSN_CANARY_BINDING_IDENTITY: "canary-binding-production-2026",
+    TLSN_CANARY_TRIGGER_API_URL: "https://canary.example.net/api/trigger",
+    TLSN_CANARY_TRIGGER_TASK_ID: "canary-task-production-2026",
+    TLSN_CANARY_WORKER_INTERNAL_URL: "https://canary-internal.example.net",
+    TLSN_WORKFLOW_RUN_ID: "42",
+    TLSN_WORKFLOW_RUN_ATTEMPT: "1",
+    TLSN_REPOSITORY: "fusou/fusou",
+    TLSN_WORKFLOW_FILE_IDENTITY: "dotenvx+pnpm+wrangler",
+    PUBLIC_SITE_URL_PRODUCTION: "https://canary.example.net",
+    PUBLIC_SUPABASE_URL: "https://supabase.example.net",
+    PUBLIC_SUPABASE_PUBLISHABLE_KEY: "test-publishable-key",
+  });
   const complete = await readProvisioned(completeDirectory);
   assert.equal(complete.generatedEnv.TLSN_CANARY_FIXTURE_ONLY, "false");
   assert.equal(complete.generatedEnv.TLSN_CANDIDATE_SERVER_IDENTITY, "canary.example.net");
@@ -134,6 +153,16 @@ try {
   });
   assert.equal(complete.generatedEnv.TLSN_CANARY_DEPLOYMENT_ID, "canary-explicit-2026");
   assert.equal(complete.generatedEnv.TLSN_CANARY_WORKER_NAME, "fusou-tlsn-verification-canary");
+  assert.equal(complete.generatedEnv.TLSN_CANARY_VERIFIER_PUBLIC_KEY_SPKI, verifierPublicKeySpki);
+  assert.equal(complete.generatedEnv.TLSN_CANARY_VERIFIER_DEPLOYMENT_ID, "verifier-deployment-production-2026");
+  const deploymentManifestPath = complete.generatedEnv.TLSN_CANARY_DEPLOYMENT_MANIFEST;
+  assert.ok(deploymentManifestPath);
+  const deploymentManifest = JSON.parse(await readFile(deploymentManifestPath, "utf8"));
+  await assertCanaryDeploymentManifest(JSON.stringify(deploymentManifest), {
+    packageRoot: completeDirectory,
+    environment: complete.generatedEnv,
+    currentHead: checkoutCommit(packageDirectory),
+  });
   const expectedSecurityRegistrySet = securityRegistrySetHash({
     notaryKeyId: "notary-production-2026",
     notaryRegistryRaw: complete.generatedEnv.TLSN_PRODUCTION_NOTARY_REGISTRY,

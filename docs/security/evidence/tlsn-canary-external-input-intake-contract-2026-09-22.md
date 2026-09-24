@@ -1,3 +1,5 @@
+# HISTORICAL — NOT ACTIVE DEPLOYMENT PATH
+
 # FUSOU TLSN Canary External Input Intake Contract
 
 Date: 2026-09-22
@@ -6,7 +8,7 @@ Baseline commit: `8ada6e8ef5f96fca04719d6c7b6f6b4b52fbd1b0`
 
 ## Current Architecture Status
 
-The External Authority / External Package acceptance flow described below is historical and is no longer a Canary deployment prerequisite. The active deployment boundary is the repository-controlled `TLSN_CANARY_DEPLOYMENT_MANIFEST`, validated by `canary-deployment-manifest.mjs` and `canary-deployment-authorization.mjs`.
+The External Authority / External Package acceptance flow described below is historical and is no longer a Canary deployment prerequisite. The active deployment boundary is `TLSN_CANARY_DEPLOYMENT_MANIFEST`, generated from deployment inputs and validated by `canary-deployment-manifest.mjs` and `canary-deployment-authorization.mjs`.
 
 The current model keeps data trust and deployment preconditions:
 

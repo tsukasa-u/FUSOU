@@ -1,20 +1,24 @@
 import assert from "node:assert/strict";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { checkoutCommit } from "./deployment-attestation.mjs";
 import {
   CANARY_DEPLOYMENT_MANIFEST_SCOPE,
   assertCanaryDeploymentManifest,
+  createCanaryDeploymentManifest,
   deploymentManifestIdentity,
 } from "./canary-deployment-manifest.mjs";
 import {
   assertCanaryDeploymentAuthorized,
   authorizeCanaryDeployment,
 } from "./canary-deployment-authorization.mjs";
+import { inputsForRole, secretInputsForRole } from "./deployment-contract.mjs";
 
 const packageRoot = resolve(new URL("..", import.meta.url).pathname);
 const currentHead = checkoutCommit(packageRoot);
+const artifactPath = "scripts/canary-deployment-manifest-test.mjs";
+const artifactBytes = await readFile(resolve(packageRoot, artifactPath));
 const environment = {
   TLSN_ENVIRONMENT: "production",
   TLSN_DEPLOYMENT_ROLE: "canary",
@@ -30,9 +34,23 @@ const environment = {
   TLSN_CANDIDATE_PROFILE_SHA256: "profile-value",
 };
 
+for (const name of inputsForRole("canary")) {
+  if (secretInputsForRole("canary").includes(name)) continue;
+  environment[name] ??= name === "TLSN_PRODUCTION_NOTARY_REGISTRY" || name.endsWith("_REGISTRY_ENVELOPE")
+    ? "{}"
+    : `${name}-value`;
+}
+environment.TLSN_CANARY_WORKER_NAME = "fusou-tlsn-verification-canary";
+
 function hashValue(value) {
   return import("node:crypto").then(({ createHash }) => createHash("sha256").update(value).digest("base64url"));
 }
+
+const artifactHash = await hashValue(artifactBytes);
+const secretProviderReferences = secretInputsForRole("canary").map((inputName) => ({
+  input_name: inputName,
+  provider_ref: `deployment-secret/${inputName}`,
+}));
 
 const manifest = {
   schema_version: 1,
@@ -53,18 +71,25 @@ const manifest = {
     workflow_file_identity: environment.TLSN_WORKFLOW_FILE_IDENTITY,
     commit_sha: currentHead,
   },
-  inputs: [{
-    name: "TLSN_CANDIDATE_PROFILE_SHA256",
-    value_sha256: await hashValue(environment.TLSN_CANDIDATE_PROFILE_SHA256),
-    provenance: "repository-controlled-input",
-  }],
-  artifacts: [],
+  inputs: await Promise.all(inputsForRole("canary")
+    .filter((name) => !secretInputsForRole("canary").includes(name))
+    .map(async (name) => ({
+      name,
+      value_sha256: await hashValue(environment[name]),
+      provenance: "deployment-input",
+    }))),
+  artifacts: [{ name: "manifest-test-source", path: artifactPath, sha256: artifactHash }],
   deployment: {
     deployment_id: environment.TLSN_CANARY_DEPLOYMENT_ID,
     worker_name: "fusou-tlsn-verification-canary",
     verifier_worker_name: "fusou-tlsn-verifier-canary",
   },
-  secret_provider: { references: [] },
+  secret_provider: {
+    references: secretInputsForRole("canary").map((inputName) => ({
+      input_name: inputName,
+      provider_ref: `deployment-secret/${inputName}`,
+    })),
+  },
 };
 manifest.manifest_id = deploymentManifestIdentity(manifest);
 
@@ -79,10 +104,38 @@ const valid = await assertCanaryDeploymentManifest(JSON.stringify(manifest), { p
 assert.equal(valid.manifest_id, manifest.manifest_id);
 assert.equal(valid.target.server_identity, "game.example.com");
 
-await assert.rejects(
-  () => assertCanaryDeploymentManifest(JSON.stringify({ ...manifest, external_authority: { status: "ACCEPTED" } }), { packageRoot, environment, currentHead, now: new Date("2026-06-01T00:00:00.000Z") }),
-  /fields are invalid/,
+const generatedManifest = createCanaryDeploymentManifest({
+  environment,
+  currentHead,
+  issuedAt: new Date("2026-01-01T00:00:00.000Z"),
+  expiresAt: new Date("2099-01-01T00:00:00.000Z"),
+  artifacts: manifest.artifacts,
+  secretProviderReferences,
+});
+assert.equal(generatedManifest.inputs.length, manifest.inputs.length);
+await assertCanaryDeploymentManifest(JSON.stringify(generatedManifest), { packageRoot, environment, currentHead, now: new Date("2026-06-01T00:00:00.000Z") });
+assert.throws(
+  () => createCanaryDeploymentManifest({
+    environment: { ...environment, TLSN_CANARY_TRIGGER_TASK_ID: undefined },
+    currentHead,
+    artifacts: manifest.artifacts,
+    secretProviderReferences,
+  }),
+  /missing non-secret input TLSN_CANARY_TRIGGER_TASK_ID/,
+  "manifest generation must reject an incomplete deployment environment",
 );
+
+await assert.rejects(
+  () => assertCanaryDeploymentManifest(JSON.stringify({
+    ...manifest,
+    inputs: manifest.inputs.slice(1),
+    manifest_id: deploymentManifestIdentity({ ...manifest, inputs: manifest.inputs.slice(1) }),
+  }), { packageRoot, environment, currentHead, now: new Date("2026-06-01T00:00:00.000Z") }),
+  /deployment manifest inputs are incomplete/,
+  "incomplete non-secret input snapshots must be rejected",
+);
+
+    references: secretProviderReferences,
 await assert.rejects(
   () => assertCanaryDeploymentManifest(alteredManifest((value) => {
     value.inputs[0].name = "TLSN_CANARY_APPROVED_INPUT_CONTRACT_JSON";
@@ -99,13 +152,29 @@ await assert.rejects(
 const tempDirectory = await mkdtemp(join(tmpdir(), "tlsn-canary-manifest-test-"));
 try {
   const manifestPath = join(tempDirectory, "manifest.json");
-  await writeFile(manifestPath, JSON.stringify(manifest));
+  const authorizationManifest = {
+    ...manifest,
+    artifacts: [{ name: "manifest-test-source", path: "manifest-test-source.mjs", sha256: artifactHash }],
+  };
+  authorizationManifest.manifest_id = deploymentManifestIdentity(authorizationManifest);
+  await writeFile(join(tempDirectory, "manifest-test-source.mjs"), artifactBytes);
+  await writeFile(manifestPath, JSON.stringify(authorizationManifest));
   const authorization = await authorizeCanaryDeployment({ manifestPath, environment, currentHead, now: new Date("2026-06-01T00:00:00.000Z") });
-  assert.equal(authorization.deployment_authorization, "AUTHORIZED");
+  assert.equal(authorization.deployment_authorization, "PREFLIGHT_REQUIRED");
   assert.equal(authorization.deployment_manifest.status, "VALID");
-  assertCanaryDeploymentAuthorized(authorization);
-  assert.equal(authorization.deployment_manifest.verification.acceptance, undefined);
-  assert.equal(authorization.deployment_manifest.verification.readiness_eligible, undefined);
+  assert.equal(authorization.deployment_manifest.verification.manifest, "PASS");
+  assert.equal(authorization.deployment_manifest.verification.preflight, "NOT_RUN");
+  assert.equal(authorization.deployment_manifest.verification.deployment_eligible, false);
+  assert.throws(() => assertCanaryDeploymentAuthorized(authorization), /PASS production preflight/);
+  const authorized = await authorizeCanaryDeployment({
+    manifestPath,
+    environment,
+    currentHead,
+    now: new Date("2026-06-01T00:00:00.000Z"),
+    preflightStatus: "PASS",
+  });
+  assert.equal(authorized.deployment_authorization, "AUTHORIZED");
+  assertCanaryDeploymentAuthorized(authorized);
 } finally {
   await rm(tempDirectory, { recursive: true, force: true });
 }

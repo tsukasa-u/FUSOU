@@ -66,12 +66,6 @@ async function main() {
     TLSN_DEPLOYMENT_ROLE: "canary",
     TLSN_GIT_COMMIT_SHA: gitCommitSha,
   });
-  const deploymentAuthorization = await authorizeCanaryDeployment({
-    manifestPath: deploymentEnvironment.TLSN_CANARY_DEPLOYMENT_MANIFEST,
-    environment: deploymentEnvironment,
-    currentHead: gitCommitSha,
-  });
-  assertCanaryDeploymentAuthorized(deploymentAuthorization);
   const preflight = spawnSync("pnpm", ["run", "preflight:production"], {
     cwd: packageDirectory,
     env: deploymentEnvironment,
@@ -79,6 +73,13 @@ async function main() {
   });
   if (preflight.error) throw preflight.error;
   if (preflight.status !== 0) return void (process.exitCode = preflight.status ?? 1);
+  const deploymentAuthorization = await authorizeCanaryDeployment({
+    manifestPath: deploymentEnvironment.TLSN_CANARY_DEPLOYMENT_MANIFEST,
+    environment: deploymentEnvironment,
+    currentHead: gitCommitSha,
+    preflightStatus: "PASS",
+  });
+  assertCanaryDeploymentAuthorized(deploymentAuthorization);
 
   const build = spawnSync("pnpm", ["run", "build:wasm"], {
     cwd: packageDirectory,

@@ -24,6 +24,9 @@ const DNS_HOSTNAME_PATTERN = /^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9
 const SECRET_MARKER = /(?:private|secret|password|bearer|access[_-]?token|credential[_-]?value|token[_-]?value)/i;
 const ALLOWED_INPUTS = new Set(inputsForRole("canary"));
 const SECRET_INPUTS = new Set(secretInputsForRole("canary"));
+const REQUIRED_NON_SECRET_INPUTS = new Set(
+  inputsForRole("canary").filter((name) => !SECRET_INPUTS.has(name)),
+);
 const REMOVED_GOVERNANCE_INPUTS = new Set(["TLSN_CANARY_APPROVED_INPUT_CONTRACT_JSON"]);
 
 export class CanaryDeploymentManifestValidationError extends Error {
@@ -142,10 +145,12 @@ function assertInputs(inputs, environment) {
     if (!bytes) throw new Error(`${input.name} is missing from deployment input`);
     if (sha256(bytes) !== input.value_sha256) throw new Error(`${input.name} fingerprint does not match deployment input`);
   }
+  const missing = [...REQUIRED_NON_SECRET_INPUTS].filter((name) => !seen.has(name));
+  if (missing.length > 0) throw new Error(`deployment manifest inputs are incomplete: missing ${missing.join(", ")}`);
 }
 
 async function assertArtifacts(artifacts, packageRoot) {
-  if (!Array.isArray(artifacts)) throw new Error("deployment manifest artifacts are invalid");
+  if (!Array.isArray(artifacts) || artifacts.length === 0) throw new Error("deployment manifest artifacts are incomplete");
   const seen = new Set();
   const packageRootRealPath = resolve(packageRoot);
   for (const [index, artifact] of artifacts.entries()) {
@@ -176,14 +181,19 @@ function assertDeployment(deployment, environment) {
 
 function assertSecretProvider(secretProvider) {
   assertExactKeys(secretProvider, ["references"], "deployment manifest secret_provider");
-  if (!Array.isArray(secretProvider.references)) throw new Error("deployment manifest secret_provider.references is invalid");
+  if (!Array.isArray(secretProvider.references) || secretProvider.references.length === 0) throw new Error("deployment manifest secret_provider.references are incomplete");
+  const seen = new Set();
   for (const [index, reference] of secretProvider.references.entries()) {
     assertObject(reference, `deployment manifest secret_provider.references[${index}]`);
     assertExactKeys(reference, ["input_name", "provider_ref"], `deployment manifest secret_provider.references[${index}]`);
     assertString(reference.input_name, "deployment manifest secret provider input name", /^TLSN_[A-Z0-9_]+$/);
     if (!SECRET_INPUTS.has(reference.input_name)) throw new Error("deployment manifest secret provider input is not a Canary secret");
+    if (seen.has(reference.input_name)) throw new Error(`deployment manifest secret provider input is duplicated: ${reference.input_name}`);
+    seen.add(reference.input_name);
     assertReference(reference.provider_ref, "deployment manifest secret provider reference");
   }
+  const missing = [...SECRET_INPUTS].filter((name) => !seen.has(name));
+  if (missing.length > 0) throw new Error(`deployment manifest secret provider references are incomplete: missing ${missing.join(", ")}`);
 }
 
 export function deploymentManifestIdentity(manifest) {
@@ -200,11 +210,16 @@ export function createCanaryDeploymentManifest({
   artifacts = [],
   secretProviderReferences = [],
 } = {}) {
+  if (!Array.isArray(artifacts) || artifacts.length === 0) throw new Error("cannot create deployment manifest: canonical artifacts are required");
+  if (!Array.isArray(secretProviderReferences) || secretProviderReferences.length === 0) throw new Error("cannot create deployment manifest: secret provider references are required");
   const inputs = [];
   for (const name of inputsForRole("canary")) {
-    if (SECRET_INPUTS.has(name) || REMOVED_GOVERNANCE_INPUTS.has(name) || typeof environment[name] !== "string" || environment[name].trim().length === 0) continue;
+    if (SECRET_INPUTS.has(name) || REMOVED_GOVERNANCE_INPUTS.has(name)) continue;
+    if (typeof environment[name] !== "string" || environment[name].trim().length === 0) {
+      throw new Error(`cannot create deployment manifest: missing non-secret input ${name}`);
+    }
     const bytes = inputBytes(environment, name);
-    inputs.push({ name, value_sha256: sha256(bytes), provenance: "repository-controlled-deployment-input" });
+    inputs.push({ name, value_sha256: sha256(bytes), provenance: "deployment-input" });
   }
   const manifest = {
     schema_version: CANARY_DEPLOYMENT_MANIFEST_SCHEMA_VERSION,
@@ -279,7 +294,7 @@ export async function assertCanaryDeploymentManifest(raw, {
       field: "deployment_manifest",
       category: /secret|private|token/i.test(message) ? "SECRET_BOUNDARY" : /target|workflow|HEAD|commit|binding|identity|deployment/i.test(message) ? "PROVENANCE" : /validity|expired|current|window/i.test(message) ? "VALIDITY" : "CONTENT",
       reason: message,
-      expected: "current repository-controlled Canary deployment manifest",
+      expected: "current Canary deployment manifest with complete deployment inputs",
       actual: "rejected",
       owner: "FUSOU repository or deployment operator",
     }]);
@@ -292,12 +307,19 @@ export async function loadCanaryDeploymentManifest(manifestPath, options = {}) {
   return assertCanaryDeploymentManifest(raw, { ...options, packageRoot: options.packageRoot ?? dirname(path) });
 }
 
-export function canaryDeploymentManifestVerificationReport({ status, manifest = null, diagnostics = [] } = {}) {
+export function canaryDeploymentManifestVerificationReport({ status, manifest = null, diagnostics = [], preflightStatus = "NOT_RUN" } = {}) {
+  const manifestValid = status === "VALID";
+  const preflightPassed = preflightStatus === "PASS";
   return {
     manifest_state: status,
     manifest_id: manifest?.manifest_id ?? null,
     identity: manifest ? { manifest_id: manifest.manifest_id, target: manifest.target, workflow: manifest.workflow, deployment: manifest.deployment } : null,
-    verification: { preconditions: status === "VALID" ? "PASS" : "BLOCKED", deployment_eligible: status === "VALID" },
+    verification: {
+      manifest: manifestValid ? "PASS" : "BLOCKED",
+      preflight: preflightStatus,
+      preconditions: manifestValid && preflightPassed ? "PASS" : "BLOCKED",
+      deployment_eligible: manifestValid && preflightPassed,
+    },
     diagnostics,
   };
 }

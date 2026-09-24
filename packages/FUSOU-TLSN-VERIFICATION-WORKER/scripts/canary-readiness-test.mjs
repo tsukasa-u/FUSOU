@@ -164,7 +164,7 @@ function safeArtifactMetadata(value, path) {
   const productionCanary = value?.status === "PASS"
     && value?.environment === "production"
     && (value?.deployment_role ?? deployment.deployment_role) === "canary";
-  const approvedCurrent = productionCanary && currentCommit && !synthetic;
+  const currentTrustArtifact = productionCanary && currentCommit && !synthetic;
   return {
     path,
     status: value?.status ?? value?.diagnosis ?? null,
@@ -178,7 +178,7 @@ function safeArtifactMetadata(value, path) {
     synthetic,
     historical: commitSha !== undefined && !currentCommit,
     production_canary_shape: productionCanary,
-    approved_current_candidate: approvedCurrent,
+    current_trust_artifact: currentTrustArtifact,
   };
 }
 
@@ -272,7 +272,7 @@ function readinessInputDiagnostics({ deployment, target, deploymentManifest, tru
   if (workflow === "PASS") setGroup(WORKFLOW_INPUTS, "VALID", "workflow context and current commit passed deployment-attestation checks");
   if (workflow === "INVALID") setGroup(WORKFLOW_INPUTS, "PRESENT_INVALID", "workflow context is present but invalid");
   if (runtime === "PRESENT") setGroup(CANARY_RUNTIME_INPUTS, "PRESENT_UNVERIFIED", "runtime input is present and remains deployment-gated");
-  if (deploymentManifest.status === "VALID") setGroup(DEPLOYMENT_MANIFEST_INPUTS, "VALID", "repository-controlled deployment manifest passed precondition validation");
+  if (deploymentManifest.status === "VALID") setGroup(DEPLOYMENT_MANIFEST_INPUTS, "VALID", "deployment manifest passed input and provenance validation");
   if (deploymentManifest.status === "INVALID") setGroup(DEPLOYMENT_MANIFEST_INPUTS, "PRESENT_INVALID", "deployment manifest validation failed");
   return ACTIVE_INPUT_INTAKE.map((entry) => ({
     name: entry.name,
@@ -300,13 +300,13 @@ function missingInputNames() {
 }
 
 async function buildReadinessReport(artifacts) {
-  const artifactCandidates = artifacts.filter((artifact) => artifact.approved_current_candidate);
+  const currentTrustArtifacts = artifacts.filter((artifact) => artifact.current_trust_artifact);
   const deploymentManifestPath = process.env[CANARY_DEPLOYMENT_MANIFEST_INPUT]?.trim();
   let deploymentManifest = {
     status: "ABSENT",
     ...canaryDeploymentManifestVerificationReport({
       status: "ABSENT",
-      diagnostics: [{ reason: "repository-controlled Canary deployment manifest was not supplied" }],
+      diagnostics: [{ reason: "Canary deployment manifest was not supplied" }],
     }),
   };
   if (deploymentManifestPath) {
@@ -339,7 +339,7 @@ async function buildReadinessReport(artifacts) {
     contract: await contractStatus() === "PASS",
     deployment_manifest: deploymentManifest.status === "VALID",
     deployment_contract: deploymentStatus() === "PASS",
-    target_provenance: deploymentManifest.status === "VALID" && target === "PRESENT" && artifactCandidates.length > 0,
+    target_provenance: deploymentManifest.status === "VALID" && target === "PRESENT" && currentTrustArtifacts.length > 0,
     trust_material: trust === "PRESENT_UNVERIFIED" && deploymentManifest.status === "VALID",
     authentication: auth === "PRESENT",
     binding: binding === "PRESENT_UNVERIFIED",
@@ -348,7 +348,7 @@ async function buildReadinessReport(artifacts) {
     identity_separation: identitySeparationStatus() === "PASS",
     fixture_contamination_absent: process.env.TLSN_CANARY_FIXTURE_ONLY !== "true"
       && target !== "FIXTURE_OR_SYNTHETIC"
-      && artifacts.every((artifact) => !artifact.approved_current_candidate || !artifact.fixture_only),
+      && artifacts.every((artifact) => !artifact.current_trust_artifact || !artifact.fixture_only),
   };
   const ready = Object.values(gates).every(Boolean);
   return {
@@ -378,7 +378,7 @@ async function buildReadinessReport(artifacts) {
       fixture_only: artifacts.filter((artifact) => artifact.fixture_only),
       synthetic: artifacts.filter((artifact) => artifact.synthetic),
       remote_test: artifacts.filter((artifact) => artifact.scope === "remote-deployed-synthetic" || artifact.path.includes("remote-")),
-      approved_current_candidates: artifactCandidates,
+      current_trust_artifacts: currentTrustArtifacts,
     },
     gates,
     input_diagnostics: readinessInputDiagnostics({ deployment: deploymentStatus(), target, deploymentManifest, trust, auth, binding, workflow, runtime }),

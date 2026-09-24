@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { createHash, generateKeyPairSync, randomBytes } from "node:crypto";
+import { createHash, createPublicKey, generateKeyPairSync, randomBytes } from "node:crypto";
 import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
 import { execFileSync } from "node:child_process";
 import { join, resolve } from "node:path";
@@ -59,6 +59,8 @@ function usage() {
     "  --notary-registry-file FILE  explicit alpha15 Notary registry JSON",
     "  --notary-key-id ID           explicit Notary key ID in that registry",
     "  --verifier-key-id ID         candidate verifier key ID",
+    "  --verifier-public-key-spki KEY  candidate verifier Ed25519 SPKI public key",
+    "  --verifier-deployment-id ID  candidate verifier deployment ID",
     "  --deployment-id ID           explicit canary deployment ID",
     "  --worker-name NAME           canonical canary Worker name (must match repository config)",
     "  --fixture-only true|false     use a repository-local synthetic fixture only",
@@ -90,6 +92,20 @@ function assertDeploymentId(value) {
   if (typeof value !== "string" || !DEPLOYMENT_ID_PATTERN.test(value)) {
     throw new Error("--deployment-id must be an alphanumeric deployment identifier");
   }
+}
+
+function assertVerifierPublicKey(value) {
+  if (typeof value !== "string" || value.length !== 59 || !/^[A-Za-z0-9_-]+$/.test(value)) {
+    throw new Error("--verifier-public-key-spki must be a canonical Ed25519 SPKI public key");
+  }
+  try {
+    if (createPublicKey({ key: Buffer.from(value, "base64url"), format: "der", type: "spki" }).asymmetricKeyType !== "ed25519") {
+      throw new Error("wrong key type");
+    }
+  } catch {
+    throw new Error("--verifier-public-key-spki must be a canonical Ed25519 SPKI public key");
+  }
+  return value;
 }
 
 function authorityRegistry(scope, keyId, publicKeySpki) {
@@ -250,7 +266,12 @@ async function main() {
   const resultRootKeyId = generatedCanaryKeyId(deploymentIdentity, "result-root", resultRoot.publicKeySpki);
   const sessionKeyId = generatedCanaryKeyId(deploymentIdentity, "session", session.publicKeySpki);
   const bindingKeyId = generatedCanaryKeyId(deploymentIdentity, "binding", binding.publicKeySpki);
-  const verifierDeploymentId = deploymentId ? `${deploymentId}-verifier` : null;
+  const verifierDeploymentId = fixtureOnly
+    ? (deploymentId ? `${deploymentId}-verifier` : null)
+    : options["verifier-deployment-id"];
+  if (verifierDeploymentId) assertDeploymentId(verifierDeploymentId);
+  const verifierPublicKeySpki = verifier?.publicKeySpki
+    ?? (options["verifier-public-key-spki"] ? assertVerifierPublicKey(options["verifier-public-key-spki"].trim()) : null);
   const resultRegistryRaw = authorityRegistry(
     "tlsn-result-signing-key-registry",
     resultKeyId,
@@ -343,8 +364,10 @@ async function main() {
     TLSN_CANARY_RESULT_SIGNING_KEY_REGISTRY_ENVELOPE: resultRegistryEnvelopeRaw,
     TLSN_CANARY_RESULT_REGISTRY_ROOT_KEY_ID: resultRootKeyId,
     TLSN_CANARY_RESULT_REGISTRY_ROOT_PUBLIC_KEY_SPKI: resultRoot.publicKeySpki,
-    ...(verifier ? {
-      TLSN_CANARY_VERIFIER_PUBLIC_KEY_SPKI: verifier.publicKeySpki,
+    ...(verifierPublicKeySpki ? {
+      TLSN_CANARY_VERIFIER_PUBLIC_KEY_SPKI: verifierPublicKeySpki,
+    } : {}),
+    ...(verifierDeploymentId ? {
       TLSN_CANARY_VERIFIER_DEPLOYMENT_ID: verifierDeploymentId,
     } : {}),
     TLSN_CANARY_SESSION_AUTHORITY_PUBLIC_KEY_SPKI: session.publicKeySpki,
@@ -357,6 +380,9 @@ async function main() {
     ...(process.env.TLSN_CANARY_BINDING_IDENTITY ? { TLSN_CANARY_BINDING_IDENTITY: process.env.TLSN_CANARY_BINDING_IDENTITY.trim() } : {}),
     TLSN_CANARY_BINDING_VALUE: bindingValue,
     ...(workerName ? { TLSN_CANARY_WORKER_NAME: workerName } : {}),
+    ...(process.env.TLSN_CANARY_TRIGGER_API_URL ? { TLSN_CANARY_TRIGGER_API_URL: process.env.TLSN_CANARY_TRIGGER_API_URL.trim() } : {}),
+    ...(process.env.TLSN_CANARY_TRIGGER_TASK_ID ? { TLSN_CANARY_TRIGGER_TASK_ID: process.env.TLSN_CANARY_TRIGGER_TASK_ID.trim() } : {}),
+    ...(process.env.TLSN_CANARY_WORKER_INTERNAL_URL ? { TLSN_CANARY_WORKER_INTERNAL_URL: process.env.TLSN_CANARY_WORKER_INTERNAL_URL.trim() } : {}),
     TLSN_CANARY_SYNCHRONOUS_RESPONSE_ENABLED: "true",
     TLSN_BENCHMARK_TIMINGS: "true",
     ...(options["verifier-key-id"] || fixtureOnly ? {
