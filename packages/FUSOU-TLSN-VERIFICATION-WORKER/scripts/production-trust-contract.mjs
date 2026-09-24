@@ -440,11 +440,41 @@ export function buildProductionPublicManifest({
   });
 }
 
-export function appConfigTomlFromManifest(manifest, artifactOutputPath) {
+export function assertCanaryDeploymentIdentity(manifest) {
+  if (
+    manifest?.schema_version !== 1 ||
+    manifest?.scope !== "tlsn-canary-deployment-manifest" ||
+    !manifest.deployment ||
+    !manifest.workflow ||
+    !manifest.target ||
+    manifest.target.environment !== "production" ||
+    manifest.target.deployment_role !== "canary" ||
+    manifest.deployment.deployment_id?.trim() === "" ||
+    manifest.deployment.worker_name?.trim() === "" ||
+    !/^[0-9a-f]{40}$/i.test(manifest.workflow.commit_sha)
+  ) {
+    throw new Error("Canary deployment manifest identity is invalid");
+  }
+  return {
+    deployment_id: manifest.deployment.deployment_id,
+    worker_name: manifest.deployment.worker_name,
+    git_commit_sha: manifest.workflow.commit_sha,
+    binding_mode: "fixed_canary",
+  };
+}
+
+export function appConfigTomlFromManifest(
+  manifest,
+  artifactOutputPath,
+  canaryDeploymentManifest,
+  runtimeAttestationEndpoint,
+) {
   assertPublicManifest(manifest);
+  const identity = assertCanaryDeploymentIdentity(canaryDeploymentManifest);
   if (typeof artifactOutputPath !== "string" || !artifactOutputPath.trim()) {
     throw new Error("APP artifact output path is required separately from the public manifest");
   }
+  assertCleanHttpsEndpoint(runtimeAttestationEndpoint, "/health", "runtime attestation endpoint");
   const quote = (value) => JSON.stringify(value);
   return [
     "[proxy]",
@@ -457,6 +487,11 @@ export function appConfigTomlFromManifest(manifest, artifactOutputPath) {
     `tlsn_result_signer_key_id = ${quote(manifest.result_signing.key_id)}`,
     `tlsn_result_signing_key_registry = ${quote(JSON.stringify(manifest.result_signing.key_registry))}`,
     `tlsn_verification_endpoint = ${quote(manifest.verification_endpoint)}`,
+    `tlsn_runtime_attestation_endpoint = ${quote(runtimeAttestationEndpoint)}`,
+    `tlsn_expected_deployment_id = ${quote(identity.deployment_id)}`,
+    `tlsn_expected_worker_name = ${quote(identity.worker_name)}`,
+    `tlsn_expected_git_commit_sha = ${quote(identity.git_commit_sha)}`,
+    `tlsn_expected_binding_mode = ${quote(identity.binding_mode)}`,
     `tlsn_notary_verifying_key = ${quote(manifest.notary.verifying_key)}`,
     `tlsn_origin_port = ${manifest.origin.port}`,
     `tlsn_server_identity = ${quote(manifest.origin.server_identity)}`,

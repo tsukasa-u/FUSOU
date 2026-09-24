@@ -17,6 +17,22 @@ import { PRODUCTION_INPUTS, PRODUCTION_SECRET_INPUTS } from "./deployment-contra
 
 const packageDirectory = resolve(new URL("..", import.meta.url).pathname);
 
+const canaryDeploymentManifest = {
+  schema_version: 1,
+  scope: "tlsn-canary-deployment-manifest",
+  deployment: {
+    deployment_id: "canary-deployment-2026",
+    worker_name: "fusou-tlsn-verification-canary",
+  },
+  workflow: {
+    commit_sha: "0123456789abcdef0123456789abcdef01234567",
+  },
+  target: {
+    environment: "production",
+    deployment_role: "canary",
+  },
+};
+
 const notaryKeyId = "notary-production-2026";
 const notaryVerifyingKey = "ASEAAAAAAAAAAxuExVZ7EmRAmV0-1aq6BWXXHhg0YEgZ_5wX9enV3QeP";
 const previousNotaryKeyId = "notary-production-2025";
@@ -206,8 +222,13 @@ const manifestWithBindingAuthority = structuredClone(validManifest);
 manifestWithBindingAuthority.binding_authority = { public_key_spki: "must-never-be-published" };
 assert.throws(() => assertPublicManifest(manifestWithBindingAuthority), /outside the public manifest schema/);
 assert.doesNotMatch(
-  appConfigTomlFromManifest(validManifest, "/local/tlsn-artifacts"),
-  /private|secret|token|bearer|supabase|device|cloudflare|binding/i,
+  appConfigTomlFromManifest(
+    validManifest,
+    "/local/tlsn-artifacts",
+    canaryDeploymentManifest,
+    "https://worker.example.com/health",
+  ),
+  /private|secret|token|bearer|supabase|device|cloudflare/i,
 );
 
 for (const name of [

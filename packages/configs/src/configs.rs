@@ -1032,6 +1032,11 @@ pub struct ConfigsProxy {
     tlsn_result_signer_key_id: Option<String>,
     tlsn_result_signing_key_registry: Option<String>,
     tlsn_verification_endpoint: Option<String>,
+    tlsn_runtime_attestation_endpoint: Option<String>,
+    tlsn_expected_deployment_id: Option<String>,
+    tlsn_expected_worker_name: Option<String>,
+    tlsn_expected_git_commit_sha: Option<String>,
+    tlsn_expected_binding_mode: Option<String>,
     tlsn_disclosure_mode: Option<String>,
     tlsn_response_mode: Option<String>,
     tlsn_notary_verifying_key: Option<String>,
@@ -1059,6 +1064,11 @@ pub struct TlsnProxyConfig {
     pub result_signer_key_id: Option<String>,
     pub result_signing_key_registry: Option<String>,
     pub verification_endpoint: Option<String>,
+    pub runtime_attestation_endpoint: Option<String>,
+    pub expected_deployment_id: Option<String>,
+    pub expected_worker_name: Option<String>,
+    pub expected_git_commit_sha: Option<String>,
+    pub expected_binding_mode: Option<String>,
     pub disclosure_mode: Option<String>,
     pub response_mode: Option<String>,
     pub notary_verifying_key: Option<String>,
@@ -1080,6 +1090,11 @@ impl ConfigsProxy {
             result_signer_key_id: self.tlsn_result_signer_key_id.clone(),
             result_signing_key_registry: self.tlsn_result_signing_key_registry.clone(),
             verification_endpoint: self.tlsn_verification_endpoint.clone(),
+            runtime_attestation_endpoint: self.tlsn_runtime_attestation_endpoint.clone(),
+            expected_deployment_id: self.tlsn_expected_deployment_id.clone(),
+            expected_worker_name: self.tlsn_expected_worker_name.clone(),
+            expected_git_commit_sha: self.tlsn_expected_git_commit_sha.clone(),
+            expected_binding_mode: self.tlsn_expected_binding_mode.clone(),
             disclosure_mode: self.tlsn_disclosure_mode.clone(),
             response_mode: self.tlsn_response_mode.clone(),
             notary_verifying_key: self.tlsn_notary_verifying_key.clone(),
@@ -1132,6 +1147,52 @@ impl ConfigsProxy {
                 .tlsn_verification_endpoint
                 .clone()
         }))
+    }
+
+    pub fn get_tlsn_runtime_attestation_endpoint(&self) -> Option<String> {
+        non_empty_string(self.tlsn_runtime_attestation_endpoint.clone().or_else(|| {
+            get_default_configs()
+                .proxy
+                .tlsn_runtime_attestation_endpoint
+                .clone()
+        }))
+    }
+
+    pub fn get_tlsn_expected_deployment_id(&self) -> Option<String> {
+        non_empty_string(self.tlsn_expected_deployment_id.clone().or_else(|| {
+            get_default_configs()
+                .proxy
+                .tlsn_expected_deployment_id
+                .clone()
+        }))
+    }
+
+    pub fn get_tlsn_expected_worker_name(&self) -> Option<String> {
+        non_empty_string(self.tlsn_expected_worker_name.clone().or_else(|| {
+            get_default_configs()
+                .proxy
+                .tlsn_expected_worker_name
+                .clone()
+        }))
+    }
+
+    pub fn get_tlsn_expected_git_commit_sha(&self) -> Option<String> {
+        non_empty_string(self.tlsn_expected_git_commit_sha.clone().or_else(|| {
+            get_default_configs()
+                .proxy
+                .tlsn_expected_git_commit_sha
+                .clone()
+        }))
+    }
+
+    pub fn get_tlsn_expected_binding_mode(&self) -> String {
+        non_empty_string(self.tlsn_expected_binding_mode.clone().or_else(|| {
+            get_default_configs()
+                .proxy
+                .tlsn_expected_binding_mode
+                .clone()
+        }))
+        .unwrap_or_else(|| "fixed_canary".to_owned())
     }
 
     pub fn get_tlsn_disclosure_mode(&self) -> String {
@@ -1615,6 +1676,11 @@ mod tests {
             tlsn_result_signer_key_id: None,
             tlsn_result_signing_key_registry: None,
             tlsn_verification_endpoint: None,
+            tlsn_runtime_attestation_endpoint: None,
+            tlsn_expected_deployment_id: None,
+            tlsn_expected_worker_name: None,
+            tlsn_expected_git_commit_sha: None,
+            tlsn_expected_binding_mode: None,
             tlsn_disclosure_mode: None,
             tlsn_response_mode: None,
             tlsn_notary_verifying_key: None,

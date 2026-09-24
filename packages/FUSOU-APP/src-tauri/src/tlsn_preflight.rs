@@ -24,6 +24,11 @@ pub struct TlsnPreflightConfig {
     pub result_signer_key_id: Option<String>,
     pub result_signing_key_registry: Option<String>,
     pub verification_endpoint: Option<String>,
+    pub runtime_attestation_endpoint: Option<String>,
+    pub expected_deployment_id: Option<String>,
+    pub expected_worker_name: Option<String>,
+    pub expected_git_commit_sha: Option<String>,
+    pub expected_binding_mode: String,
     pub disclosure_mode: String,
     pub response_mode: String,
     pub notary_verifying_key: Option<String>,
@@ -46,6 +51,11 @@ impl TlsnPreflightConfig {
             result_signer_key_id: proxy.get_tlsn_result_signer_key_id(),
             result_signing_key_registry: proxy.get_tlsn_result_signing_key_registry(),
             verification_endpoint: proxy.get_tlsn_verification_endpoint(),
+            runtime_attestation_endpoint: proxy.get_tlsn_runtime_attestation_endpoint(),
+            expected_deployment_id: proxy.get_tlsn_expected_deployment_id(),
+            expected_worker_name: proxy.get_tlsn_expected_worker_name(),
+            expected_git_commit_sha: proxy.get_tlsn_expected_git_commit_sha(),
+            expected_binding_mode: proxy.get_tlsn_expected_binding_mode(),
             disclosure_mode: proxy.get_tlsn_disclosure_mode(),
             response_mode: proxy.get_tlsn_response_mode(),
             notary_verifying_key: proxy.get_tlsn_notary_verifying_key(),
@@ -219,6 +229,17 @@ pub fn run_preflight(config: &TlsnPreflightConfig, config_path: &Path) -> TlsnPr
         &mut checks,
         "tlsn_verification_endpoint",
         config.verification_endpoint.as_deref(),
+    );
+    check_runtime_attestation_endpoint(
+        &mut checks,
+        config.runtime_attestation_endpoint.as_deref(),
+    );
+    check_expected_identity(
+        &mut checks,
+        config.expected_deployment_id.as_deref(),
+        config.expected_worker_name.as_deref(),
+        config.expected_git_commit_sha.as_deref(),
+        &config.expected_binding_mode,
     );
     let disclosure_mode_valid = matches!(config.disclosure_mode.as_str(), "complete" | "sparse");
     push_check(
@@ -476,6 +497,73 @@ fn validate_https_endpoint(value: &str) -> Result<(), &'static str> {
         return Err("HTTPS URL must not contain credentials or a fragment");
     }
     Ok(())
+}
+
+fn check_runtime_attestation_endpoint(checks: &mut Vec<PreflightCheck>, value: Option<&str>) {
+    match value {
+        Some(value) => match validate_runtime_attestation_endpoint(value) {
+            Ok(()) => push_check(
+                checks,
+                "tlsn_runtime_attestation_endpoint",
+                PreflightStatus::Pass,
+                "HTTPS /health URL syntax valid; no connection attempted",
+            ),
+            Err(detail) => push_check(
+                checks,
+                "tlsn_runtime_attestation_endpoint",
+                PreflightStatus::Error,
+                detail,
+            ),
+        },
+        None => push_check(
+            checks,
+            "tlsn_runtime_attestation_endpoint",
+            PreflightStatus::Error,
+            "missing or empty",
+        ),
+    }
+}
+
+fn validate_runtime_attestation_endpoint(value: &str) -> Result<(), &'static str> {
+    validate_https_endpoint(value)?;
+    let parsed = Url::parse(value).map_err(|_| "invalid URL syntax")?;
+    if parsed.query().is_some() {
+        return Err("runtime attestation URL must not contain a query");
+    }
+    if parsed.path() != "/health" {
+        return Err("runtime attestation URL path must be /health");
+    }
+    Ok(())
+}
+
+fn check_expected_identity(
+    checks: &mut Vec<PreflightCheck>,
+    deployment_id: Option<&str>,
+    worker_name: Option<&str>,
+    git_commit_sha: Option<&str>,
+    binding_mode: &str,
+) {
+    let deployment_valid = deployment_id.is_some_and(|value| !value.trim().is_empty());
+    let worker_valid = worker_name.is_some_and(|value| !value.trim().is_empty());
+    let sha_valid = git_commit_sha.is_some_and(|value| {
+        value.len() == 40 && value.bytes().all(|byte| byte.is_ascii_hexdigit())
+    });
+    let binding_valid = binding_mode == "fixed_canary";
+    let valid = deployment_valid && worker_valid && sha_valid && binding_valid;
+    push_check(
+        checks,
+        "tlsn_expected_canary_identity",
+        if valid {
+            PreflightStatus::Pass
+        } else {
+            PreflightStatus::Error
+        },
+        if valid {
+            "deployment ID, Worker name, Git SHA, and binding mode are pinned"
+        } else {
+            "requires non-empty deployment ID and Worker name, 40-hex Git SHA, and fixed_canary binding mode"
+        },
+    );
 }
 
 fn decode_unpadded_base64(value: &str) -> Result<Vec<u8>, &'static str> {
@@ -862,6 +950,13 @@ mod tests {
                 result_signer_key_id: Some("result-signer-2026".to_owned()),
                 result_signing_key_registry: Some(result_registry.to_string()),
                 verification_endpoint: Some("https://worker.example.test/verify/tlsn".to_owned()),
+                runtime_attestation_endpoint: Some("https://worker.example.test/health".to_owned()),
+                expected_deployment_id: Some("canary-2026".to_owned()),
+                expected_worker_name: Some("fusou-tlsn-verification-canary".to_owned()),
+                expected_git_commit_sha: Some(
+                    "0123456789abcdef0123456789abcdef01234567".to_owned(),
+                ),
+                expected_binding_mode: "fixed_canary".to_owned(),
                 notary_verifying_key: Some(URL_SAFE_NO_PAD.encode(bincode::serialize(&notary_key).unwrap())),
                 origin_trust_roots: vec![URL_SAFE_NO_PAD.encode(root_certificate.der())],
                 server_identity: Some("game.example.test".to_owned()),
@@ -891,6 +986,14 @@ mod tests {
         let report = run_preflight(&fixture.config, &fixture.config_path);
         assert!(report.feature_enabled);
         assert!(report.ready, "{}", report.text());
+    }
+
+    #[test]
+    fn missing_runtime_attestation_configuration_fails() {
+        let mut fixture = fixture();
+        fixture.config.runtime_attestation_endpoint = None;
+        let report = run_preflight(&fixture.config, &fixture.config_path);
+        assert_error(&report, "tlsn_runtime_attestation_endpoint");
     }
 
     #[test]

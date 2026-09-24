@@ -2,6 +2,7 @@
 
 import { readFile, writeFile } from "node:fs/promises";
 import { appConfigTomlFromManifest, assertPublicManifest } from "./production-trust-contract.mjs";
+import { assertCanaryDeploymentManifest } from "./canary-deployment-manifest.mjs";
 
 function argument(name) {
   const index = process.argv.indexOf(name);
@@ -10,14 +11,24 @@ function argument(name) {
 
 async function main() {
   const manifestPath = argument("--manifest");
+  const canaryManifestPath = argument("--canary-manifest");
   const outputPath = argument("--output");
   const artifactOutputPath = argument("--artifact-output-path");
-  if (!manifestPath || !outputPath || !artifactOutputPath) {
-    throw new Error("usage: render-app-config --manifest <path> --output <path> --artifact-output-path <local-path>");
+  const runtimeAttestationEndpoint = argument("--runtime-attestation-endpoint");
+  if (!manifestPath || !canaryManifestPath || !outputPath || !artifactOutputPath || !runtimeAttestationEndpoint) {
+    throw new Error("usage: render-app-config --manifest <path> --canary-manifest <path> --output <path> --artifact-output-path <local-path> --runtime-attestation-endpoint <https-url>");
   }
   const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
   assertPublicManifest(manifest);
-  const config = appConfigTomlFromManifest(manifest, artifactOutputPath);
+  const canaryDeploymentManifest = await assertCanaryDeploymentManifest(
+    await readFile(canaryManifestPath, "utf8"),
+  );
+  const config = appConfigTomlFromManifest(
+    manifest,
+    artifactOutputPath,
+    canaryDeploymentManifest,
+    runtimeAttestationEndpoint,
+  );
   await writeFile(outputPath, config, { encoding: "utf8", mode: 0o600 });
 }
 

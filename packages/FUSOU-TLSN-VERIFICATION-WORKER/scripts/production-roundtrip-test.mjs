@@ -2,7 +2,7 @@
 
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { generateKeyPairSync } from "node:crypto";
+import { createHash, generateKeyPairSync } from "node:crypto";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -13,6 +13,10 @@ import {
 import { createSignedResultRegistryEnvelope } from "./result-registry-envelope.mjs";
 import { profilesForServerIdentity } from "./profile-canonical-contract.mjs";
 import { securityRegistrySetHash } from "./security-registry-set-contract.mjs";
+import {
+  createCanaryDeploymentManifest,
+} from "./canary-deployment-manifest.mjs";
+import { inputsForRole, secretInputsForRole } from "./deployment-contract.mjs";
 
 const packageDirectory = resolve(new URL("..", import.meta.url).pathname);
 const repositoryDirectory = resolve(packageDirectory, "../..");
@@ -104,7 +108,7 @@ function fullAppConfigFromFragment(template, fragment) {
     .trimEnd()
     .split("\n")
     .filter((line) => line.startsWith("tlsn_"));
-  assert.equal(fields.length, 14);
+  assert.equal(fields.length, 19);
   let result = template;
   for (const field of fields) {
     const name = field.slice(0, field.indexOf(" = "));
@@ -162,6 +166,7 @@ try {
   const reportPath = join(rootDirectory, "preflight.json");
   const provenancePath = join(rootDirectory, "provenance.json");
   const manifestPath = join(rootDirectory, "public-manifest.json");
+  const canaryManifestPath = join(rootDirectory, "canary-deployment-manifest.json");
   const fragmentPath = join(rootDirectory, "rendered-proxy-config.toml");
   const configPath = join(rootDirectory, "app-config.toml");
   const artifactPath = join(rootDirectory, "app-artifacts");
@@ -231,6 +236,36 @@ try {
     TLSN_PROVENANCE_REPORT_PATH: provenancePath,
     TLSN_PUBLIC_MANIFEST_PATH: manifestPath,
   };
+  const canaryEnvironment = {
+    ...env,
+    TLSN_DEPLOYMENT_ROLE: "canary",
+    TLSN_CANARY_DEPLOYMENT_ID: "canary-roundtrip-2026",
+    TLSN_CANARY_WORKER_NAME: "fusou-tlsn-verification-canary",
+    TLSN_CANARY_BINDING_IDENTITY: "canary-binding-roundtrip-2026",
+  };
+  for (const name of inputsForRole("canary")) {
+    if (secretInputsForRole("canary").includes(name)) continue;
+    canaryEnvironment[name] ??= name === "TLSN_PRODUCTION_NOTARY_REGISTRY"
+      ? notaryRegistryRaw
+      : name.endsWith("_REGISTRY_ENVELOPE")
+        ? resultRegistryEnvelopeRaw
+        : `${name}-roundtrip`;
+  }
+  const canaryArtifactBytes = await readFile(resolve(packageDirectory, "scripts/production-roundtrip-test.mjs"));
+  const canaryManifest = createCanaryDeploymentManifest({
+    environment: canaryEnvironment,
+    currentHead: commitSha,
+    artifacts: [{
+      name: "production-roundtrip-source",
+      path: "scripts/production-roundtrip-test.mjs",
+      sha256: createHash("sha256").update(canaryArtifactBytes).digest("base64url"),
+    }],
+    secretProviderReferences: secretInputsForRole("canary").map((inputName) => ({
+      input_name: inputName,
+      provider_ref: `deployment-secret/${inputName}`,
+    })),
+  });
+  await writeFile(canaryManifestPath, JSON.stringify(canaryManifest), { encoding: "utf8", mode: 0o600 });
   run(process.execPath, ["scripts/deployment-preflight.mjs"], { cwd: packageDirectory, env });
 
   const report = JSON.parse(await readFile(reportPath, "utf8"));
@@ -297,14 +332,18 @@ try {
     "scripts/render-app-config.mjs",
     "--manifest",
     manifestPath,
+    "--canary-manifest",
+    canaryManifestPath,
     "--output",
     fragmentPath,
     "--artifact-output-path",
     artifactPath,
-  ], { cwd: packageDirectory, env });
+    "--runtime-attestation-endpoint",
+    "https://worker.example.com/health",
+  ], { cwd: packageDirectory, env: canaryEnvironment });
   const fragment = await readFile(fragmentPath, "utf8");
   assert.match(fragment, /tlsn_notary_verifying_key/);
-  assert.doesNotMatch(fragment, /private|secret|token|bearer|supabase|device|cloudflare|binding/i);
+  assert.doesNotMatch(fragment, /private|secret|token|bearer|supabase|device|cloudflare/i);
   const template = await readFile(configTemplatePath, "utf8");
   await writeFile(configPath, fullAppConfigFromFragment(template, fragment), { encoding: "utf8", mode: 0o600 });
 

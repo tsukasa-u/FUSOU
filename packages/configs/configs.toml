@@ -29,6 +29,11 @@ tlsn_result_public_key_spki = ""
 tlsn_result_signer_key_id = ""
 tlsn_result_signing_key_registry = ""
 tlsn_verification_endpoint = ""
+tlsn_runtime_attestation_endpoint = ""
+tlsn_expected_deployment_id = ""
+tlsn_expected_worker_name = ""
+tlsn_expected_git_commit_sha = ""
+tlsn_expected_binding_mode = "fixed_canary"
 # complete preserves full transcript digests; sparse selects /verify/tlsn/sparse.
 tlsn_disclosure_mode = "complete"
 # async preserves the production polling contract; sync is an explicit canary opt-in.

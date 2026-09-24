@@ -308,6 +308,54 @@ pub struct RuntimeIdentifiers {
     experiment_id: Option<String>,
     session_id: Option<String>,
     request_id: Option<String>,
+    runtime_identity: Option<RuntimeIdentity>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RuntimeIdentity {
+    deployment_id: String,
+    worker_name: String,
+    git_commit_sha: String,
+    binding_mode: String,
+    runtime_version_id: String,
+}
+
+impl RuntimeIdentity {
+    pub fn new(
+        deployment_id: String,
+        worker_name: String,
+        git_commit_sha: String,
+        binding_mode: String,
+        runtime_version_id: String,
+    ) -> Self {
+        Self {
+            deployment_id,
+            worker_name,
+            git_commit_sha,
+            binding_mode,
+            runtime_version_id,
+        }
+    }
+
+    pub fn deployment_id(&self) -> &str {
+        &self.deployment_id
+    }
+
+    pub fn worker_name(&self) -> &str {
+        &self.worker_name
+    }
+
+    pub fn git_commit_sha(&self) -> &str {
+        &self.git_commit_sha
+    }
+
+    pub fn binding_mode(&self) -> &str {
+        &self.binding_mode
+    }
+
+    pub fn runtime_version_id(&self) -> &str {
+        &self.runtime_version_id
+    }
 }
 
 impl RuntimeIdentifiers {
@@ -320,7 +368,13 @@ impl RuntimeIdentifiers {
             experiment_id,
             session_id,
             request_id,
+            runtime_identity: None,
         }
+    }
+
+    pub fn with_runtime_identity(mut self, runtime_identity: RuntimeIdentity) -> Self {
+        self.runtime_identity = Some(runtime_identity);
+        self
     }
 
     pub fn experiment_id(&self) -> Option<&str> {
@@ -333,6 +387,10 @@ impl RuntimeIdentifiers {
 
     pub fn request_id(&self) -> Option<&str> {
         self.request_id.as_deref()
+    }
+
+    pub fn runtime_identity(&self) -> Option<&RuntimeIdentity> {
+        self.runtime_identity.as_ref()
     }
 }
 
@@ -706,7 +764,7 @@ impl PresentationArtifactSink for FilesystemPresentationArtifactSink {
                     "declared": "production",
                     "cryptographic_status": "UNVERIFIED",
                     "proxy_identity": "fusou-proxy",
-                    "proxy_deployment_id": "runtime-artifact",
+                    "proxy_deployment_id": null,
                     "proxy_binary_identity": format!("proxy-https:{}", env!("CARGO_PKG_VERSION")),
                     "presentation_sha256": base64url_string(presentation.sha256()),
                     "created_at": chrono::Utc::now().to_rfc3339(),
@@ -724,6 +782,13 @@ impl PresentationArtifactSink for FilesystemPresentationArtifactSink {
                         "request_sha256": base64url_string(context.request_sha256()),
                         "authenticated_request_sha256": base64url_string(context.authenticated_request_sha256()),
                     },
+                    "runtime_identity": context.identifiers().runtime_identity().map(|identity| serde_json::json!({
+                        "deployment_id": identity.deployment_id(),
+                        "worker_name": identity.worker_name(),
+                        "git_commit_sha": identity.git_commit_sha(),
+                        "binding_mode": identity.binding_mode(),
+                        "runtime_version_id": identity.runtime_version_id(),
+                    })),
                     "authority": {
                         "type": "externally-pinned-production-proxy-key",
                         "status": "UNVERIFIED",

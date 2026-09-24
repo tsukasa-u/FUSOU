@@ -8,7 +8,7 @@ use proxy_https::{
     production_tlsn::{
         FilesystemPresentationArtifactSink, HandoffPresentationProvider, OriginTarget,
         OriginTlsConfig, OriginTransportConfig, ProductionTlsnDependencies,
-        ServerIdentityPolicy, RuntimeIdentifiers,
+        RuntimeIdentity, RuntimeIdentifiers, ServerIdentityPolicy,
     },
     real_tlsn::{
         FilesystemResultDelivery, RealAlpha15OriginTransportFactory,
@@ -108,6 +108,7 @@ fn build_production_tlsn_dependencies(
     proxy_target: &str,
     artifact_root: &str,
     auth_manager: &AuthManager<FileStorage>,
+    runtime_identity: RuntimeIdentity,
 ) -> Result<ProductionTlsnDependencies, Box<dyn std::error::Error>> {
     let proxy_configs = configs::get_user_configs_for_proxy();
     let server_identity = proxy_configs
@@ -243,7 +244,7 @@ fn build_production_tlsn_dependencies(
     .with_presentation_artifact_sink(std::sync::Arc::new(
         FilesystemPresentationArtifactSink::new(artifact_root),
     ))
-    .with_identifiers(RuntimeIdentifiers::default()))
+    .with_identifiers(RuntimeIdentifiers::default().with_runtime_identity(runtime_identity)))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -276,6 +277,35 @@ where
             return Err(report.failure_summary().into());
         }
     }
+
+    #[cfg(feature = "tlsn-production")]
+    let runtime_identity = if proxy_configs.get_tlsn_production_enabled() {
+        Some(
+            crate::tlsn_runtime::fetch_and_validate(
+                proxy_configs
+                    .get_tlsn_runtime_attestation_endpoint()
+                    .ok_or("tlsn_runtime_attestation_endpoint is required for production TLSN")?
+                    .as_str(),
+                proxy_configs
+                    .get_tlsn_expected_deployment_id()
+                    .ok_or("tlsn_expected_deployment_id is required for production TLSN")?
+                    .as_str(),
+                proxy_configs
+                    .get_tlsn_expected_worker_name()
+                    .ok_or("tlsn_expected_worker_name is required for production TLSN")?
+                    .as_str(),
+                proxy_configs
+                    .get_tlsn_expected_git_commit_sha()
+                    .ok_or("tlsn_expected_git_commit_sha is required for production TLSN")?
+                    .as_str(),
+                proxy_configs.get_tlsn_expected_binding_mode().as_str(),
+            )
+            .await
+            .map_err(|error| format!("TLSN runtime attestation failed: {error}"))?,
+        )
+    } else {
+        None
+    };
 
     if use_generated_certs {
         let ca_check_result = proxy_https::proxy_server_https::check_ca(ca_path.clone());
@@ -331,6 +361,7 @@ where
                 &proxy_target,
                 &artifact_root,
                 &auth_manager_for_proxy,
+                runtime_identity.expect("production runtime identity is required"),
             )?;
             proxy_https::proxy_server_https::serve_proxy_with_production_dependencies(
                 0,
