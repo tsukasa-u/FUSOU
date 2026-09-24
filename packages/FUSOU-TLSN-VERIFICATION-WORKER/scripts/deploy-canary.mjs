@@ -13,6 +13,7 @@ import {
   secretInputsForRole,
 } from "./deployment-contract.mjs";
 import { CANARY_EXTERNAL_INPUT_INTAKE } from "./canary-external-input-intake.mjs";
+import { attestCanaryDeployment } from "./canary-deployment-attestation.mjs";
 import {
   assertCanaryDeploymentAuthorized,
   authorizeCanaryDeployment,
@@ -43,6 +44,20 @@ function runGit(argumentsList) {
 function fail(message) {
   console.error(`[tlsn-deploy-canary] ${message}`);
   process.exitCode = 1;
+}
+
+function runCaptured(command, argumentsList, environment) {
+  const result = spawnSync(command, argumentsList, {
+    cwd: packageDirectory,
+    env: environment,
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  if (result.error) throw result.error;
+  if (result.stdout) process.stdout.write(result.stdout);
+  if (result.stderr) process.stderr.write(result.stderr);
+  if (result.status !== 0) throw new Error(`${command} ${argumentsList.join(" ")} failed with status ${result.status}`);
+  return result.stdout;
 }
 
 async function main() {
@@ -97,7 +112,12 @@ async function main() {
   const bootstrapDeployArguments = [
     "exec", "wrangler", "deploy", "--config", "wrangler.canary-bootstrap.toml", "--name", CANARY_BOOTSTRAP_WORKER_NAME,
   ];
-  const deployArguments = ["exec", "wrangler", "deploy", "--env", "canary", "--name", CANARY_WORKER_NAME];
+  const deploymentMessage = `FUSOU Canary deployment ${gitCommitSha}`;
+  const deploymentTag = `canary-${gitCommitSha.slice(0, 12)}`;
+  const deployArguments = [
+    "exec", "wrangler", "deploy", "--env", "canary", "--name", CANARY_WORKER_NAME,
+    "--tag", deploymentTag, "--message", deploymentMessage,
+  ];
   const verifierDeployArguments = [
     "exec", "wrangler", "deploy", "--name", CANARY_VERIFIER_WORKER_NAME,
   ];
@@ -135,9 +155,43 @@ async function main() {
       process.exitCode = verifierDeploy.status ?? 1;
       return;
     }
-    const deploy = spawnSync("pnpm", deployArguments, { cwd: packageDirectory, env: childEnvironment, stdio: "inherit" });
-    if (deploy.error) throw deploy.error;
-    process.exitCode = deploy.status ?? 1;
+    const deploymentStartedAt = new Date();
+    const deployOutput = runCaptured("pnpm", deployArguments, childEnvironment);
+    const deployedVersionMatch = deployOutput.match(/Current Version ID:\s*([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i);
+    if (!deployedVersionMatch) throw new Error("Wrangler Canary deploy output did not include the deployed version ID");
+    const workflow = {
+      workflow_run_id: deploymentEnvironment.TLSN_WORKFLOW_RUN_ID ?? null,
+      workflow_run_attempt: deploymentEnvironment.TLSN_WORKFLOW_RUN_ATTEMPT ?? null,
+      repository: deploymentEnvironment.TLSN_REPOSITORY ?? null,
+      workflow_file_identity: deploymentEnvironment.TLSN_WORKFLOW_FILE_IDENTITY ?? null,
+    };
+    const artifactSuffix = workflow.workflow_run_id && workflow.workflow_run_attempt
+      ? `-${workflow.workflow_run_id}-${workflow.workflow_run_attempt}`
+      : `-${deploymentEnvironment.TLSN_CANARY_DEPLOYMENT_ID.replace(/[^A-Za-z0-9._-]/g, "-")}`;
+    const artifactPath = deploymentEnvironment.TLSN_CANARY_DEPLOYMENT_ATTESTATION_PATH
+      ?? resolve(packageDirectory, `artifacts/tlsn-canary-deployment-runtime-attestation${artifactSuffix}.json`);
+    const { platform } = await attestCanaryDeployment({
+      workerName: CANARY_WORKER_NAME,
+      expectedDeploymentId: deploymentEnvironment.TLSN_CANARY_DEPLOYMENT_ID,
+      expectedGitCommitSha: gitCommitSha,
+      expectedVersionId: deployedVersionMatch[1],
+      expectedDeploymentMessage: deploymentMessage,
+      expectedDeploymentTag: deploymentTag,
+      deploymentStartedAt,
+      runtimeUrl: deploymentEnvironment.TLSN_CANARY_WORKER_INTERNAL_URL,
+      environment: childEnvironment,
+      workflow,
+      artifactPath,
+    });
+    console.log(JSON.stringify({
+      status: "PASS",
+      readiness: "READY_FOR_HUMAN_GAMEPLAY",
+      worker_name: CANARY_WORKER_NAME,
+      authorized_deployment_id: deploymentEnvironment.TLSN_CANARY_DEPLOYMENT_ID,
+      platform_deployment_id: platform.deployment.id,
+      version_id: platform.version.id,
+      attestation_path: artifactPath,
+    }));
   } finally {
     await rm(verifierConfigPath, { force: true });
     await rm(secretDirectory, { recursive: true, force: true });

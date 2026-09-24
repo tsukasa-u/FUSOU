@@ -285,6 +285,18 @@ binding cannot be redirected to another Worker. To roll back the sync candidate,
 the canary capability flag, or deploy the previous canary inputs; the ordinary
 production Worker is not changed by that rollback.
 
+After the main Canary deploy, `deploy:canary` extracts Wrangler's deployed
+Version ID and independently reads Cloudflare deployment and version metadata.
+It then requests `<TLSN_CANARY_WORKER_INTERNAL_URL>/health` and compares the
+platform deployment/version, runtime deployment identity, runtime Version ID,
+runtime Git SHA, canonical Worker name, Canary role, and fixed binding mode.
+Only a successful comparison writes the create-only artifact
+`artifacts/tlsn-canary-deployment-runtime-attestation-<run>-<attempt>.json` and
+prints `READY_FOR_HUMAN_GAMEPLAY`. Set
+`TLSN_CANARY_DEPLOYMENT_ATTESTATION_PATH` to choose an explicit artifact path;
+an existing path is never overwritten. Fixture or synthetic deployments are
+rejected and cannot produce this real readiness artifact.
+
 The production canary readiness matrix is intentionally manual and requires
 explicit approval for remote access:
 

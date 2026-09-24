@@ -31,6 +31,10 @@ assert.match(canaryWrapper, /assertCanonicalCanaryWorkerName\(process\.env\.TLSN
 assert.match(canaryWrapper, /"--name", CANARY_WORKER_NAME/);
 assert.match(canaryWrapper, /"--name", CANARY_BOOTSTRAP_WORKER_NAME/);
 assert.match(canaryWrapper, /"--name", CANARY_VERIFIER_WORKER_NAME/);
+assert.match(canaryWrapper, /"--tag", deploymentTag, "--message", deploymentMessage/);
+assert.match(canaryWrapper, /attestCanaryDeployment\(/);
+assert.match(canaryWrapper, /Wrangler Canary deploy output did not include the deployed version ID/);
+assert.match(canaryWrapper, /readiness: "READY_FOR_HUMAN_GAMEPLAY"/);
 assert.doesNotMatch(canaryWrapper, /--name", workerName/);
 assert.doesNotMatch(canaryWrapper, /script_name = "\$\{workerName\}"/);
 assert.ok(
