@@ -13,7 +13,11 @@ import {
   secretInputsForRole,
 } from "./deployment-contract.mjs";
 import { CANARY_EXTERNAL_INPUT_INTAKE } from "./canary-external-input-intake.mjs";
-import { attestCanaryDeployment, createCanaryDeploymentMessage } from "./canary-deployment-attestation.mjs";
+import {
+  attestCanaryDeployment,
+  canaryDeploymentAttestationArtifactPath,
+  createCanaryDeploymentMessage,
+} from "./canary-deployment-attestation.mjs";
 import {
   assertCanaryDeploymentAuthorized,
   authorizeCanaryDeployment,
@@ -172,11 +176,13 @@ async function main() {
       repository: deploymentEnvironment.TLSN_REPOSITORY ?? null,
       workflow_file_identity: deploymentEnvironment.TLSN_WORKFLOW_FILE_IDENTITY ?? null,
     };
-    const artifactSuffix = workflow.workflow_run_id && workflow.workflow_run_attempt
-      ? `-${workflow.workflow_run_id}-${workflow.workflow_run_attempt}`
-      : `-${deploymentEnvironment.TLSN_CANARY_DEPLOYMENT_ID.replace(/[^A-Za-z0-9._-]/g, "-")}`;
-    const artifactPath = deploymentEnvironment.TLSN_CANARY_DEPLOYMENT_ATTESTATION_PATH
-      ?? resolve(packageDirectory, `artifacts/tlsn-canary-deployment-runtime-attestation${artifactSuffix}.json`);
+    const artifactPath = canaryDeploymentAttestationArtifactPath({
+      baseDirectory: packageDirectory,
+      explicitPath: deploymentEnvironment.TLSN_CANARY_DEPLOYMENT_ATTESTATION_PATH,
+      deploymentId: deploymentEnvironment.TLSN_CANARY_DEPLOYMENT_ID,
+      workflowRunId: workflow.workflow_run_id,
+      workflowRunAttempt: workflow.workflow_run_attempt,
+    });
     const { platform } = await attestCanaryDeployment({
       workerName: CANARY_WORKER_NAME,
       expectedDeploymentId: deploymentEnvironment.TLSN_CANARY_DEPLOYMENT_ID,

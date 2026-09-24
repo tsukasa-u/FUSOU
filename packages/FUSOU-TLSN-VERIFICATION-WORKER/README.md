@@ -679,6 +679,12 @@ TLSN_CANDIDATE_NOTARY_ENDPOINT
 
 The APP preflight does not connect to the endpoint. The actual raw TCP connection occurs only when the real alpha.15 Prover/MPC flow runs, with the Prover retaining the origin connection and FUSOU-NOTARY acting as the alpha.15 MPC verifier. No direct live FUSOU Verifier is introduced by this mapping.
 
+### Canary Runtime Attestation readiness
+
+`READY_FOR_HUMAN_GAMEPLAY` is not a configuration-presence state. The readiness audit remains `BLOCKED` until a real Canary deployment has produced the immutable `tlsn-canary-deployment-runtime-attestation*.json` artifact. The artifact must have the real Runtime Attestation scope, `status: "PASS"`, `readiness: "READY_FOR_HUMAN_GAMEPLAY"`, non-synthetic Cloudflare platform and live `/health` evidence, the checked-out Git SHA, the authorized Canary deployment identity, and a single platform version serving at 100 percent. Fixture scopes, generic `PASS` artifacts, configuration variables, and replayed or synthetic evidence cannot satisfy this gate.
+
+Run `pnpm run test:canary-readiness` for the offline audit. It performs no deployment, Game Server, Notary, or remote validation call. Remote validation remains a post-deployment evidence step; it does not replace the Runtime Attestation gate. Until a real deployment is performed, human gameplay and the subsequent fresh TLSN verification path remain blocked.
+
 ## Production Trust Contract
 
 The following values are the Production source of truth. The raw registry JSON is kept byte-for-byte identical wherever it is captured or compared; its hash is an identity field, not a replacement for the registry contents. Every Notary registry value is canonical base64url for the pinned alpha.15 bincode `tlsn_attestation::signing::VerifyingKey` using the FUSOU Notary `K256` algorithm and compressed SEC1 public key.

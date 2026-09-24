@@ -16,6 +16,82 @@ export const CANARY_DEPLOYMENT_BINDING_SCHEMA_VERSION = 1;
 const VERSION_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const SHA_PATTERN = /^[0-9a-f]{40}$/i;
 const KEY_ID_PATTERN = /^[A-Za-z0-9._-]{1,128}$/;
+const REQUIRED_RUNTIME_ATTESTATION_CHECKS = [
+  "synthetic_evidence_rejected",
+  "runtime_is_production_canary",
+  "runtime_deployment_matches_authorized_identity",
+  "runtime_version_matches_platform_version",
+  "runtime_git_sha_matches_head",
+];
+
+export function canaryDeploymentAttestationArtifactPath({
+  baseDirectory = process.cwd(),
+  explicitPath,
+  deploymentId,
+  workflowRunId,
+  workflowRunAttempt,
+} = {}) {
+  if (typeof explicitPath === "string" && explicitPath.trim().length > 0) {
+    return resolve(baseDirectory, explicitPath.trim());
+  }
+  const suffix = workflowRunId && workflowRunAttempt
+    ? `-${workflowRunId}-${workflowRunAttempt}`
+    : deploymentId
+      ? `-${String(deploymentId).replace(/[^A-Za-z0-9._-]/g, "-")}`
+      : "";
+  return resolve(baseDirectory, `artifacts/tlsn-canary-deployment-runtime-attestation${suffix}.json`);
+}
+
+function assertObject(value, label) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error(`${label} is malformed`);
+}
+
+function assertExactString(value, expected, label) {
+  if (value !== expected) throw new Error(`${label} does not match the expected Runtime Attestation value`);
+}
+
+export function assertCanaryDeploymentRuntimeAttestation(attestation, { currentHead } = {}) {
+  assertObject(attestation, "Runtime Attestation");
+  assertExactString(attestation.schema_version, CANARY_DEPLOYMENT_ATTESTATION_SCHEMA_VERSION, "Runtime Attestation schema_version");
+  assertExactString(attestation.scope, CANARY_DEPLOYMENT_ATTESTATION_SCOPE, "Runtime Attestation scope");
+  assertExactString(attestation.status, "PASS", "Runtime Attestation status");
+  assertExactString(attestation.readiness, CANARY_DEPLOYMENT_READINESS, "Runtime Attestation readiness");
+  assertObject(attestation.evidence, "Runtime Attestation evidence");
+  assertExactString(attestation.evidence.synthetic, false, "Runtime Attestation evidence.synthetic");
+  assertExactString(attestation.evidence.source, "cloudflare-platform-and-live-health", "Runtime Attestation evidence.source");
+  assertObject(attestation.repository, "Runtime Attestation repository");
+  const expectedHead = requiredString(currentHead, "current HEAD").toLowerCase();
+  if (!SHA_PATTERN.test(expectedHead)) throw new Error("current HEAD is invalid");
+  assertExactString(String(attestation.repository.git_commit_sha).toLowerCase(), expectedHead, "Runtime Attestation repository.git_commit_sha");
+  assertObject(attestation.deployment, "Runtime Attestation deployment");
+  assertExactString(attestation.deployment.deployment_role, "canary", "Runtime Attestation deployment.deployment_role");
+  const authorizedDeploymentId = requiredString(attestation.deployment.authorized_deployment_id, "Runtime Attestation deployment.authorized_deployment_id");
+  requiredString(attestation.deployment.platform_deployment_id, "Runtime Attestation deployment.platform_deployment_id");
+  const deploymentWorkerName = assertCanonicalCanaryWorkerName(attestation.deployment.worker_name);
+  if (!Array.isArray(attestation.deployment.versions) || attestation.deployment.versions.length !== 1 || attestation.deployment.versions[0]?.percentage !== 100) {
+    throw new Error("Runtime Attestation deployment is not serving exactly one version at 100 percent");
+  }
+  assertObject(attestation.version, "Runtime Attestation version");
+  const servingVersionId = requiredVersionId(attestation.version.version_id, "Runtime Attestation version.version_id");
+  assertExactString(attestation.deployment.versions[0].version_id, servingVersionId, "Runtime Attestation serving version");
+  if (attestation.version.serving_percentage !== 100) throw new Error("Runtime Attestation version is not serving at 100 percent");
+  assertObject(attestation.runtime_self_reported_identity, "Runtime Attestation runtime_self_reported_identity");
+  assertExactString(attestation.runtime_self_reported_identity.deployment_role, "canary", "Runtime Attestation runtime_self_reported_identity.deployment_role");
+  assertExactString(String(attestation.runtime_self_reported_identity.git_commit_sha).toLowerCase(), expectedHead, "Runtime Attestation runtime_self_reported_identity.git_commit_sha");
+  assertExactString(attestation.runtime_self_reported_identity.deployment_id, authorizedDeploymentId, "Runtime Attestation runtime deployment ID");
+  assertExactString(attestation.runtime_self_reported_identity.worker_name, deploymentWorkerName, "Runtime Attestation runtime worker name");
+  assertObject(attestation.runtime_self_reported_identity.runtime_version, "Runtime Attestation runtime_self_reported_identity.runtime_version");
+  assertExactString(attestation.runtime_self_reported_identity.runtime_version.version_id, servingVersionId, "Runtime Attestation runtime version");
+  assertObject(attestation.checks, "Runtime Attestation checks");
+  for (const check of REQUIRED_RUNTIME_ATTESTATION_CHECKS) assertExactString(attestation.checks[check], true, `Runtime Attestation checks.${check}`);
+  return {
+    status: "VALID",
+    readiness: attestation.readiness,
+    git_commit_sha: attestation.repository.git_commit_sha,
+    deployment_id: authorizedDeploymentId,
+    worker_name: deploymentWorkerName,
+  };
+}
 
 function requiredString(value, label) {
   if (typeof value !== "string" || value.trim().length === 0) throw new Error(`${label} is missing`);

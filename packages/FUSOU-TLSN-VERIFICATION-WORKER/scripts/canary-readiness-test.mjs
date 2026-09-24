@@ -2,12 +2,18 @@
 
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   assertManifest,
   FORBIDDEN_CANARY_INPUTS,
   WORKFLOW_EVIDENCE_INPUTS,
 } from "./deployment-contract.mjs";
 import { checkoutCommit, workflowContextFromEnvironment } from "./deployment-attestation.mjs";
+import {
+  assertCanaryDeploymentRuntimeAttestation,
+  CANARY_DEPLOYMENT_READINESS,
+  canaryDeploymentAttestationArtifactPath,
+} from "./canary-deployment-attestation.mjs";
 import { CANARY_EXTERNAL_INPUT_INTAKE } from "./canary-external-input-intake.mjs";
 import {
   CANARY_DEPLOYMENT_MANIFEST_INPUT,
@@ -124,23 +130,23 @@ const ARTIFACT_PATHS = [
 const SYNTHETIC_MARKER = /(?:^|[._/-])(test|synthetic|fixture|local|staging)(?:$|[._/-])/i;
 const FIXTURE_SERVER_IDENTITY = "game.example.test";
 
-function present(name) {
-  return typeof process.env[name] === "string" && process.env[name].trim().length > 0;
+function present(name, environment = process.env) {
+  return typeof environment[name] === "string" && environment[name].trim().length > 0;
 }
 
-function statuses(names) {
-  return Object.fromEntries(names.map((name) => [name, present(name) ? "PRESENT" : "MISSING"]));
+function statuses(names, environment = process.env) {
+  return Object.fromEntries(names.map((name) => [name, present(name, environment) ? "PRESENT" : "MISSING"]));
 }
 
-function postDeploymentStatuses(names) {
-  return Object.fromEntries(names.map((name) => [name, present(name) ? "AVAILABLE_POST_DEPLOYMENT" : "NOT_CONFIGURED_POST_DEPLOYMENT"]));
+function postDeploymentStatuses(names, environment = process.env) {
+  return Object.fromEntries(names.map((name) => [name, present(name, environment) ? "AVAILABLE_POST_DEPLOYMENT" : "NOT_CONFIGURED_POST_DEPLOYMENT"]));
 }
 
-function allPresent(names) {
-  return names.every(present);
+function allPresent(names, environment = process.env) {
+  return names.every((name) => present(name, environment));
 }
 
-function safeArtifactMetadata(value, path) {
+function safeArtifactMetadata(value, path, expectedHead = currentHead) {
   const security = value?.security_identity ?? {};
   const deployment = value?.deployment_identity ?? {};
   const safety = value?.safety ?? {};
@@ -153,7 +159,7 @@ function safeArtifactMetadata(value, path) {
   const synthetic = fixtureOnly
     || value?.scope === "remote-deployed-synthetic"
     || SYNTHETIC_MARKER.test(String(value?.repository ?? ""));
-  const currentCommit = commitSha === currentHead;
+  const currentCommit = commitSha === expectedHead;
   const productionCanary = value?.status === "PASS"
     && value?.environment === "production"
     && (value?.deployment_role ?? deployment.deployment_role) === "canary";
@@ -175,10 +181,10 @@ function safeArtifactMetadata(value, path) {
   };
 }
 
-async function readArtifactMetadata(relativePath) {
+async function readArtifactMetadata(relativePath, expectedHead = currentHead, baseDirectory = packageDirectory) {
   try {
-    const value = JSON.parse(await readFile(resolve(packageDirectory, relativePath), "utf8"));
-    return safeArtifactMetadata(value, relativePath);
+    const value = JSON.parse(await readFile(resolve(baseDirectory, relativePath), "utf8"));
+    return safeArtifactMetadata(value, relativePath, expectedHead);
   } catch {
     return { path: relativePath, status: "MISSING" };
   }
@@ -194,54 +200,55 @@ async function contractStatus() {
   }
 }
 
-function workflowStatus() {
-  if (!allPresent(WORKFLOW_INPUTS)) return "MISSING";
+function workflowStatus(environment = process.env, expectedHead = currentHead) {
+  if (!allPresent(WORKFLOW_INPUTS, environment)) return "MISSING";
   try {
-    workflowContextFromEnvironment(process.env, "canary");
+    workflowContextFromEnvironment(environment, "canary");
+    if (environment.TLSN_GIT_COMMIT_SHA?.trim().toLowerCase() !== expectedHead.toLowerCase()) return "INVALID";
     return "PASS";
   } catch {
     return "INVALID";
   }
 }
 
-function targetStatus() {
-  if (!allPresent(TARGET_INPUTS)) return "MISSING";
-  const identity = process.env.TLSN_CANDIDATE_SERVER_IDENTITY?.trim();
+function targetStatus(environment = process.env) {
+  if (!allPresent(TARGET_INPUTS, environment)) return "MISSING";
+  const identity = environment.TLSN_CANDIDATE_SERVER_IDENTITY?.trim();
   if (!identity || identity === FIXTURE_SERVER_IDENTITY || SYNTHETIC_MARKER.test(identity)) return "FIXTURE_OR_SYNTHETIC";
   return "PRESENT";
 }
 
-function deploymentStatus() {
-  if (!allPresent(DEPLOYMENT_INPUTS)) return "MISSING";
+function deploymentStatus(environment = process.env, expectedHead = currentHead) {
+  if (!allPresent(DEPLOYMENT_INPUTS, environment)) return "MISSING";
   if (
-    process.env.TLSN_ENVIRONMENT !== "production"
-    || process.env.TLSN_DEPLOYMENT_ROLE !== "canary"
-    || process.env.TLSN_GIT_COMMIT_SHA?.trim().toLowerCase() !== currentHead
+    environment.TLSN_ENVIRONMENT !== "production"
+    || environment.TLSN_DEPLOYMENT_ROLE !== "canary"
+    || environment.TLSN_GIT_COMMIT_SHA?.trim().toLowerCase() !== expectedHead.toLowerCase()
   ) return "INVALID";
   return "PASS";
 }
 
-function trustStatus() {
-  if (!allPresent(TRUST_INPUTS)) return "MISSING";
+function trustStatus(environment = process.env) {
+  if (!allPresent(TRUST_INPUTS, environment)) return "MISSING";
   return "PRESENT_UNVERIFIED";
 }
 
-function notaryStatus() {
-  if (!allPresent(NOTARY_INPUTS)) return "MISSING";
+function notaryStatus(environment = process.env) {
+  if (!allPresent(NOTARY_INPUTS, environment)) return "MISSING";
   return "PRESENT_UNVERIFIED";
 }
 
-function authStatus() {
-  return allPresent(DEPLOYMENT_AUTH_INPUTS) ? "PRESENT" : "MISSING";
+function authStatus(environment = process.env) {
+  return allPresent(DEPLOYMENT_AUTH_INPUTS, environment) ? "PRESENT" : "MISSING";
 }
 
-function readinessInputDiagnostics({ deployment, target, deploymentManifest, trust, notary, auth, binding, workflow, runtime }) {
-  const missing = new Set(missingInputNames());
+function readinessInputDiagnostics({ deployment, target, deploymentManifest, trust, notary, auth, binding, workflow, runtime, environment = process.env }) {
+  const missing = new Set(missingInputNames(environment));
   const statusByName = new Map();
   for (const entry of ACTIVE_INPUT_INTAKE) {
     if (entry.phase === "REMOTE_VALIDATION_ONLY") {
       statusByName.set(entry.name, {
-        status: present(entry.name) ? "AVAILABLE_POST_DEPLOYMENT" : "NOT_CONFIGURED_POST_DEPLOYMENT",
+        status: present(entry.name, environment) ? "AVAILABLE_POST_DEPLOYMENT" : "NOT_CONFIGURED_POST_DEPLOYMENT",
         reason: "remote validation input is intentionally outside deployment readiness",
       });
       continue;
@@ -279,22 +286,68 @@ function readinessInputDiagnostics({ deployment, target, deploymentManifest, tru
   }));
 }
 
-function identitySeparationStatus() {
-  const forbidden = FORBIDDEN_CANARY_INPUTS.filter(present);
+function identitySeparationStatus(environment = process.env) {
+  const forbidden = FORBIDDEN_CANARY_INPUTS.filter((name) => present(name, environment));
   return forbidden.length === 0 ? "PASS" : "FORBIDDEN_INPUT_PRESENT";
 }
 
-function missingInputNames() {
+function missingInputNames(environment = process.env) {
   const names = ACTIVE_INPUT_INTAKE
     .filter((entry) => entry.phase !== "REMOTE_VALIDATION_ONLY" && entry.required)
     .map((entry) => entry.name)
-    .filter((name) => !present(name));
+    .filter((name) => !present(name, environment));
   return names.filter((name, index, values) => values.indexOf(name) === index);
 }
 
-async function buildReadinessReport(artifacts) {
+function runtimeAttestationSummary(path, value, status, reason = null) {
+  return {
+    status,
+    path,
+    readiness: value?.readiness ?? null,
+    git_commit_sha: value?.repository?.git_commit_sha ?? null,
+    deployment_id: value?.deployment?.authorized_deployment_id ?? value?.runtime_self_reported_identity?.deployment_id ?? null,
+    worker_name: value?.deployment?.worker_name ?? value?.runtime_self_reported_identity?.worker_name ?? null,
+    reason,
+  };
+}
+
+async function readRuntimeAttestation(environment = process.env, expectedHead = currentHead, baseDirectory = packageDirectory) {
+  const path = canaryDeploymentAttestationArtifactPath({
+    baseDirectory,
+    explicitPath: environment.TLSN_CANARY_DEPLOYMENT_ATTESTATION_PATH,
+    deploymentId: environment.TLSN_CANARY_DEPLOYMENT_ID,
+    workflowRunId: environment.TLSN_WORKFLOW_RUN_ID,
+    workflowRunAttempt: environment.TLSN_WORKFLOW_RUN_ATTEMPT,
+  });
+  let value;
+  try {
+    value = JSON.parse(await readFile(path, "utf8"));
+  } catch (error) {
+    const status = error?.code === "ENOENT" ? "MISSING" : "INVALID";
+    return runtimeAttestationSummary(path, null, status, error?.code === "ENOENT" ? "Runtime Attestation artifact was not found" : "Runtime Attestation artifact is not valid JSON");
+  }
+  if (value?.scope === "tlsn-canary-deployment-runtime-attestation-fixture"
+    || value?.status === "FIXTURE_ONLY"
+    || value?.evidence?.synthetic === true) {
+    return runtimeAttestationSummary(path, value, "FIXTURE_ONLY", "synthetic or fixture Runtime Attestation cannot authorize human gameplay");
+  }
+  try {
+    const verified = assertCanaryDeploymentRuntimeAttestation(value, { currentHead: expectedHead });
+    return { ...runtimeAttestationSummary(path, value, "VALID"), ...verified };
+  } catch (error) {
+    return runtimeAttestationSummary(path, value, "INVALID", error instanceof Error ? error.message : String(error));
+  }
+}
+
+export async function buildReadinessReport({
+  environment = process.env,
+  expectedHead = currentHead,
+  artifactPaths = ARTIFACT_PATHS,
+  baseDirectory = packageDirectory,
+} = {}) {
+  const artifacts = await Promise.all(artifactPaths.map((path) => readArtifactMetadata(path, expectedHead, baseDirectory)));
   const currentTrustArtifacts = artifacts.filter((artifact) => artifact.current_trust_artifact);
-  const deploymentManifestPath = process.env[CANARY_DEPLOYMENT_MANIFEST_INPUT]?.trim();
+  const deploymentManifestPath = environment[CANARY_DEPLOYMENT_MANIFEST_INPUT]?.trim();
   let deploymentManifest = {
     status: "ABSENT",
     ...canaryDeploymentManifestVerificationReport({
@@ -304,7 +357,7 @@ async function buildReadinessReport(artifacts) {
   };
   if (deploymentManifestPath) {
     try {
-      const manifest = await loadCanaryDeploymentManifest(deploymentManifestPath, { environment: process.env, currentHead });
+      const manifest = await loadCanaryDeploymentManifest(deploymentManifestPath, { environment, currentHead: expectedHead });
       deploymentManifest = {
         status: "VALID",
         ...canaryDeploymentManifestVerificationReport({ status: "VALID", manifest }),
@@ -319,29 +372,31 @@ async function buildReadinessReport(artifacts) {
       };
     }
   }
-  const target = targetStatus();
-  const trust = trustStatus();
-  const notary = notaryStatus();
-  const auth = authStatus();
-  const workflow = workflowStatus();
-  const binding = allPresent(BINDING_INPUTS) && process.env.TLSN_CANARY_FIXTURE_ONLY !== "true"
+  const runtimeAttestation = await readRuntimeAttestation(environment, expectedHead, baseDirectory);
+  const target = targetStatus(environment);
+  const trust = trustStatus(environment);
+  const notary = notaryStatus(environment);
+  const auth = authStatus(environment);
+  const workflow = workflowStatus(environment, expectedHead);
+  const binding = allPresent(BINDING_INPUTS, environment) && environment.TLSN_CANARY_FIXTURE_ONLY !== "true"
     ? "PRESENT_UNVERIFIED"
-    : process.env.TLSN_CANARY_FIXTURE_ONLY === "true" ? "FIXTURE_ONLY" : "MISSING";
-  const runtime = allPresent(CANARY_RUNTIME_INPUTS) ? "PRESENT" : "MISSING";
+    : environment.TLSN_CANARY_FIXTURE_ONLY === "true" ? "FIXTURE_ONLY" : "MISSING";
+  const runtime = allPresent(CANARY_RUNTIME_INPUTS, environment) ? "PRESENT" : "MISSING";
   const gates = {
-    current_head: /^[0-9a-f]{40}$/.test(currentHead),
+    current_head: /^[0-9a-f]{40}$/.test(expectedHead),
     contract: await contractStatus() === "PASS",
     deployment_manifest: deploymentManifest.status === "VALID",
     deployment_contract: deploymentStatus() === "PASS",
-    target_provenance: deploymentManifest.status === "VALID" && target === "PRESENT" && currentTrustArtifacts.length > 0,
+    target_provenance: deploymentManifest.status === "VALID" && target === "PRESENT",
     trust_material: trust === "PRESENT_UNVERIFIED" && deploymentManifest.status === "VALID",
     notary_binding: notary === "PRESENT_UNVERIFIED" && deploymentManifest.status === "VALID",
     authentication: auth === "PRESENT",
     binding: binding === "PRESENT_UNVERIFIED",
     workflow_provenance: workflow === "PASS",
-    runtime_inputs: runtime === "PRESENT",
-    identity_separation: identitySeparationStatus() === "PASS",
-    fixture_contamination_absent: process.env.TLSN_CANARY_FIXTURE_ONLY !== "true"
+    runtime_attestation: runtimeAttestation.status === "VALID"
+      && runtimeAttestation.readiness === CANARY_DEPLOYMENT_READINESS,
+    identity_separation: identitySeparationStatus(environment) === "PASS",
+    fixture_contamination_absent: environment.TLSN_CANARY_FIXTURE_ONLY !== "true"
       && target !== "FIXTURE_OR_SYNTHETIC"
       && artifacts.every((artifact) => !artifact.current_trust_artifact || !artifact.fixture_only),
   };
@@ -352,24 +407,25 @@ async function buildReadinessReport(artifacts) {
     status: ready ? "READY" : "BLOCKED",
     network_access: "NOT_USED",
     deployment_executed: false,
-    current_head: currentHead,
+    current_head: expectedHead,
     inputs: {
-      deployment: { status: deploymentStatus(), fields: statuses(DEPLOYMENT_INPUTS) },
-      target_provenance: { status: target, fields: statuses(TARGET_INPUTS) },
+      deployment: { status: deploymentStatus(environment, expectedHead), fields: statuses(DEPLOYMENT_INPUTS, environment) },
+      target_provenance: { status: target, fields: statuses(TARGET_INPUTS, environment) },
         deployment_manifest: deploymentManifest,
-      trust: { status: trust, fields: statuses(TRUST_INPUTS) },
-      notary: { status: notary, fields: statuses(NOTARY_INPUTS), owner: "FUSOU", service: "FUSOU-NOTARY", protocol: "tlsn-v0.1.0-alpha.15", transport: "raw_tcp", current_presentation_path: "REQUIRED" },
-      authentication: { status: auth, fields: statuses(DEPLOYMENT_AUTH_INPUTS) },
+      trust: { status: trust, fields: statuses(TRUST_INPUTS, environment) },
+      notary: { status: notary, fields: statuses(NOTARY_INPUTS, environment), owner: "FUSOU", service: "FUSOU-NOTARY", protocol: "tlsn-v0.1.0-alpha.15", transport: "raw_tcp", current_presentation_path: "REQUIRED" },
+      authentication: { status: auth, fields: statuses(DEPLOYMENT_AUTH_INPUTS, environment) },
+      runtime_attestation: runtimeAttestation,
       remote_validation: {
         status: "POST_DEPLOYMENT_ONLY",
-        fields: postDeploymentStatuses(REMOTE_VALIDATION_INPUTS),
+        fields: postDeploymentStatuses(REMOTE_VALIDATION_INPUTS, environment),
       },
-      binding: { status: binding, fields: statuses(BINDING_INPUTS) },
-      workflow: { status: workflow, fields: statuses(WORKFLOW_INPUTS) },
-      canary_runtime: { status: runtime, fields: statuses(CANARY_RUNTIME_INPUTS) },
+      binding: { status: binding, fields: statuses(BINDING_INPUTS, environment) },
+      workflow: { status: workflow, fields: statuses(WORKFLOW_INPUTS, environment) },
+      canary_runtime: { status: runtime, fields: statuses(CANARY_RUNTIME_INPUTS, environment) },
       forbidden_inputs: {
-        status: identitySeparationStatus(),
-        present_names: FORBIDDEN_CANARY_INPUTS.filter(present),
+        status: identitySeparationStatus(environment),
+        present_names: FORBIDDEN_CANARY_INPUTS.filter((name) => present(name, environment)),
       },
     },
     artifacts: {
@@ -381,8 +437,8 @@ async function buildReadinessReport(artifacts) {
       current_trust_artifacts: currentTrustArtifacts,
     },
     gates,
-    input_diagnostics: readinessInputDiagnostics({ deployment: deploymentStatus(), target, deploymentManifest, trust, notary, auth, binding, workflow, runtime }),
-    missing_inputs: missingInputNames(),
+    input_diagnostics: readinessInputDiagnostics({ deployment: deploymentStatus(environment, expectedHead), target, deploymentManifest, trust, notary, auth, binding, workflow, runtime, environment }),
+    missing_inputs: missingInputNames(environment),
     resume_conditions: {
       target_provenance: "A non-fixture server identity and canonical complete/sparse profiles must be supplied; hostname metadata alone is insufficient.",
       trust: "Candidate trust root, verifier identity, Result registry/envelope/root, and authority registries must be supplied and pass deployment-preflight.",
@@ -397,8 +453,7 @@ async function buildReadinessReport(artifacts) {
 }
 
 async function main() {
-  const artifacts = await Promise.all(ARTIFACT_PATHS.map(readArtifactMetadata));
-  const report = await buildReadinessReport(artifacts);
+  const report = await buildReadinessReport();
   const outputPath = process.env.TLSN_CANARY_READINESS_REPORT_PATH?.trim();
   if (outputPath) {
     const { writeFile } = await import("node:fs/promises");
@@ -407,7 +462,9 @@ async function main() {
   console.log(JSON.stringify(report, null, 2));
 }
 
-main().catch((error) => {
-  console.error(`[tlsn-canary-readiness] ${error instanceof Error ? error.message : String(error)}`);
-  process.exitCode = 2;
-});
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  main().catch((error) => {
+    console.error(`[tlsn-canary-readiness] ${error instanceof Error ? error.message : String(error)}`);
+    process.exitCode = 2;
+  });
+}

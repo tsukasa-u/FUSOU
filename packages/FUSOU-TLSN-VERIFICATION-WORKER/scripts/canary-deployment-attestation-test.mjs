@@ -10,6 +10,7 @@ import {
   CANARY_DEPLOYMENT_FIXTURE_SCOPE,
   CANARY_DEPLOYMENT_NOT_READY,
   CANARY_DEPLOYMENT_READINESS,
+  assertCanaryDeploymentRuntimeAttestation,
   createCanaryDeploymentMessage,
   createCanaryDeploymentAttestation,
   fetchCanaryHealth,
@@ -222,6 +223,14 @@ assert.equal(realShape.scope, CANARY_DEPLOYMENT_ATTESTATION_SCOPE);
 assert.equal(realShape.status, "PASS");
 assert.equal(realShape.readiness, CANARY_DEPLOYMENT_READINESS);
 assert.equal(realShape.evidence.synthetic, false);
+assert.deepEqual(assertCanaryDeploymentRuntimeAttestation(realShape, { currentHead: gitCommitSha }), {
+  status: "VALID",
+  readiness: CANARY_DEPLOYMENT_READINESS,
+  git_commit_sha: gitCommitSha,
+  deployment_id: deploymentId,
+  worker_name: workerName,
+});
+rejects("fixture Runtime Attestation is not valid for gameplay", () => assertCanaryDeploymentRuntimeAttestation(fixtureAttestation, { currentHead: gitCommitSha }));
 
 const root = await mkdtemp(join(tmpdir(), "tlsn-canary-attestation-test-"));
 try {
