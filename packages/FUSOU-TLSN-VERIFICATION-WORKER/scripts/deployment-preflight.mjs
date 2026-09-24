@@ -30,7 +30,6 @@ import {
   profileContractArtifact,
 } from "./profile-canonical-contract.mjs";
 import { securityRegistrySetHash } from "./security-registry-set-contract.mjs";
-import { assertCanaryApprovedInputContract } from "./canary-approved-input-contract.mjs";
 
 const packageDirectory = resolve(new URL("..", import.meta.url).pathname);
 const DEFAULT_REPORT_PATH = resolve(packageDirectory, "artifacts/tlsn-deployment-preflight.json");
@@ -401,41 +400,6 @@ async function main() {
     }
     authorityResults.push({ authority, registryRaw, privateKeyMatchesPublic });
   }
-  let canaryApprovedInputContractValid = role !== "canary";
-  if (role === "canary") {
-    try {
-      assertCanaryApprovedInputContract(value("TLSN_CANARY_APPROVED_INPUT_CONTRACT_JSON"), {
-        fixtureOnly: fixtureOnlyCanary,
-        currentHead: checkoutCommit(packageDirectory),
-        expectedServerIdentity: value("TLSN_CANDIDATE_SERVER_IDENTITY"),
-        expectedProfileSha256: value("TLSN_CANDIDATE_PROFILE_SHA256"),
-        expectedSparseProfileSha256: value("TLSN_CANDIDATE_SPARSE_PROFILE_SHA256"),
-        expectedSecurityRegistrySetSha256: value("TLSN_SECURITY_REGISTRY_SET_SHA256"),
-        expectedTrustRootCertificateSha256: trustRootHash,
-        expectedNotaryRegistrySha256: registryRaw ? sha256Base64Url(registryRaw) : undefined,
-        expectedNotaryKeyId: value("TLSN_CANDIDATE_NOTARY_KEY_ID"),
-        expectedResultRegistryRootKeyId: resultRegistryRootKeyId,
-        expectedVerifierKeyId: value("TLSN_CANDIDATE_VERIFIER_KEY_ID"),
-        expectedVerifierPublicKeySpki: value("TLSN_CANARY_VERIFIER_PUBLIC_KEY_SPKI"),
-        expectedDeploymentId: value(deploymentIdName),
-        expectedVerifierDeploymentId: value("TLSN_CANARY_VERIFIER_DEPLOYMENT_ID"),
-        expectedBindingAuthorityKeyId: value(bindingAuthorityKeyIdName),
-        expectedBindingIdentity: value("TLSN_CANARY_BINDING_IDENTITY"),
-        expectedBindingValue: value("TLSN_CANARY_BINDING_VALUE"),
-        expectedWorkflow: workflowContext
-          ? {
-              run_id: workflowContext.workflow_run_id,
-              attempt: workflowContext.workflow_run_attempt,
-              repository: workflowContext.repository,
-              workflow_file_identity: workflowContext.workflow_file_identity,
-            }
-          : undefined,
-      });
-      canaryApprovedInputContractValid = true;
-    } catch (error) {
-      addFailure(failures, "canary_approved_input_contract", error instanceof Error ? error.message : "Canary approved input contract is invalid");
-    }
-  }
   if (role === "production") {
     const signerKeyId = value("TLSN_ATTESTATION_SIGNER_KEY_ID");
     const signerPublicKey = value("TLSN_ATTESTATION_SIGNER_PUBLIC_KEY_SPKI");
@@ -495,7 +459,6 @@ async function main() {
       authority_key_registries_valid: authorityResults.every(({ authority }) => !failures.some(({ check }) => check === authority.registryName)),
       authority_private_keys_match_public_keys: authorityResults.every(({ privateKeyMatchesPublic }) => privateKeyMatchesPublic),
       profile_contract_valid: !failures.some(({ check }) => check === "profile_contract"),
-      canary_approved_input_contract_valid: canaryApprovedInputContractValid,
     },
     failure_count: failures.length,
     failures,

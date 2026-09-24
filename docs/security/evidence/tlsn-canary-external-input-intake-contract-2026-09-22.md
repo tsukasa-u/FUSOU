@@ -4,6 +4,19 @@ Date: 2026-09-22
 
 Baseline commit: `8ada6e8ef5f96fca04719d6c7b6f6b4b52fbd1b0`
 
+## Current Architecture Status
+
+The External Authority / External Package acceptance flow described below is historical and is no longer a Canary deployment prerequisite. The active deployment boundary is the repository-controlled `TLSN_CANARY_DEPLOYMENT_MANIFEST`, validated by `canary-deployment-manifest.mjs` and `canary-deployment-authorization.mjs`.
+
+The current model keeps data trust and deployment preconditions:
+
+- TLSN verification, target/profile/Notary/trust-root/verifier/binding identity, signed Result registries, authority key registries, workflow/current-HEAD binding, role isolation, and secret-value exclusion remain fail-closed checks.
+- The deployment manifest records current target/workflow identity, non-secret input fingerprints, artifact hashes, deployment identity, validity, and secret-provider references.
+- `External Authority`, `target-approval`, self-approval rejection, Candidate-to-Accepted-Package promotion, and acceptance-only readiness gates are removed from the active path.
+- `pnpm run test:canary-deployment-manifest` is the focused offline contract test. `deploy-canary.mjs` requires a valid deployment manifest and then runs the existing production preflight; it never executes a remote check as part of authorization.
+
+The remaining sections are retained as historical inventory and migration context. They must not be used as current operator instructions when they mention `TLSN_CANARY_EXTERNAL_PACKAGE_MANIFEST`, `TLSN_CANARY_APPROVED_INPUT_CONTRACT_JSON`, or an external approval gate.
+
 This document describes the existing Canary input path and the additional machine-readable contract in `packages/FUSOU-TLSN-VERIFICATION-WORKER/scripts/canary-external-input-intake.mjs`.
 
 This is an offline acceptance contract. It does not execute Canary, deploy a Worker, contact a target, access a secret provider, acquire credentials, or decrypt secrets.

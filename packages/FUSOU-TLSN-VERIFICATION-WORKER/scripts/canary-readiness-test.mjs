@@ -8,13 +8,12 @@ import {
   WORKFLOW_EVIDENCE_INPUTS,
 } from "./deployment-contract.mjs";
 import { checkoutCommit, workflowContextFromEnvironment } from "./deployment-attestation.mjs";
-import { assertCanaryApprovedInputContract } from "./canary-approved-input-contract.mjs";
 import { CANARY_EXTERNAL_INPUT_INTAKE } from "./canary-external-input-intake.mjs";
 import {
-  CANARY_EXTERNAL_PACKAGE_MANIFEST_INPUT,
-  canaryExternalPackageVerificationReport,
-  loadCanaryExternalPackageManifest,
-} from "./canary-external-package.mjs";
+  CANARY_DEPLOYMENT_MANIFEST_INPUT,
+  canaryDeploymentManifestVerificationReport,
+  loadCanaryDeploymentManifest,
+} from "./canary-deployment-manifest.mjs";
 
 const packageDirectory = resolve(new URL("..", import.meta.url).pathname);
 const repositoryDirectory = resolve(packageDirectory, "../..");
@@ -59,11 +58,8 @@ const TARGET_INPUTS = [
   "TLSN_CANDIDATE_SUPABASE_PUBLISHABLE_KEY",
 ];
 
-const APPROVED_INPUT_CONTRACT_INPUTS = [
-  "TLSN_CANARY_APPROVED_INPUT_CONTRACT_JSON",
-  "TLSN_CANARY_VERIFIER_PUBLIC_KEY_SPKI",
-  "TLSN_CANARY_VERIFIER_DEPLOYMENT_ID",
-];
+const DEPLOYMENT_MANIFEST_INPUTS = [CANARY_DEPLOYMENT_MANIFEST_INPUT];
+const ACTIVE_INPUT_INTAKE = CANARY_EXTERNAL_INPUT_INTAKE;
 
 const DEPLOYMENT_INPUTS = [
   "TLSN_ENVIRONMENT",
@@ -219,7 +215,7 @@ function targetStatus() {
   if (!allPresent(TARGET_INPUTS)) return "MISSING";
   const identity = process.env.TLSN_CANDIDATE_SERVER_IDENTITY?.trim();
   if (!identity || identity === FIXTURE_SERVER_IDENTITY || SYNTHETIC_MARKER.test(identity)) return "FIXTURE_OR_SYNTHETIC";
-  return "PRESENT_UNAPPROVED";
+  return "PRESENT";
 }
 
 function deploymentStatus() {
@@ -243,48 +239,14 @@ function authStatus() {
     (name) => !REMOTE_DEVICE_PRIVATE_KEY_INPUTS.includes(name),
   );
   if (!allPresent(requiredWithoutPrivateKeyAlternative) || privateKeyCount !== 1) return "MISSING";
-  return "PRESENT_UNAPPROVED";
+  return "PRESENT";
 }
 
-function approvedInputContractStatus() {
-  if (!allPresent(APPROVED_INPUT_CONTRACT_INPUTS)) return { status: "MISSING", reason: "one or more approved contract inputs are missing" };
-  try {
-    assertCanaryApprovedInputContract(process.env.TLSN_CANARY_APPROVED_INPUT_CONTRACT_JSON, {
-      fixtureOnly: process.env.TLSN_CANARY_FIXTURE_ONLY === "true",
-      currentHead,
-      expectedServerIdentity: process.env.TLSN_CANDIDATE_SERVER_IDENTITY?.trim(),
-      expectedProfileSha256: process.env.TLSN_CANDIDATE_PROFILE_SHA256?.trim(),
-      expectedSparseProfileSha256: process.env.TLSN_CANDIDATE_SPARSE_PROFILE_SHA256?.trim(),
-      expectedVerifierKeyId: process.env.TLSN_CANDIDATE_VERIFIER_KEY_ID?.trim(),
-      expectedVerifierPublicKeySpki: process.env.TLSN_CANARY_VERIFIER_PUBLIC_KEY_SPKI?.trim(),
-      expectedDeploymentId: process.env.TLSN_CANARY_DEPLOYMENT_ID?.trim(),
-      expectedVerifierDeploymentId: process.env.TLSN_CANARY_VERIFIER_DEPLOYMENT_ID?.trim(),
-      expectedBindingAuthorityKeyId: process.env.TLSN_CANARY_BINDING_AUTHORITY_KEY_ID?.trim(),
-      expectedBindingIdentity: process.env.TLSN_CANARY_BINDING_IDENTITY?.trim(),
-      expectedBindingValue: process.env.TLSN_CANARY_BINDING_VALUE?.trim(),
-      expectedWorkflow: {
-        run_id: process.env.TLSN_WORKFLOW_RUN_ID?.trim(),
-        attempt: process.env.TLSN_WORKFLOW_RUN_ATTEMPT?.trim(),
-        repository: process.env.TLSN_REPOSITORY?.trim(),
-        workflow_file_identity: process.env.TLSN_WORKFLOW_FILE_IDENTITY?.trim(),
-      },
-    });
-    return process.env.TLSN_CANARY_FIXTURE_ONLY === "true"
-      ? { status: "FIXTURE_ONLY", reason: "fixture-only mode is explicitly enabled" }
-      : { status: "APPROVED", reason: "approved input contract passed" };
-  } catch {
-    return {
-      status: "PRESENT_INVALID",
-      reason: "approved input contract validation failed",
-    };
-  }
-}
-
-function readinessInputDiagnostics({ deployment, target, approvedInputContract, trust, auth, binding, workflow, runtime }) {
+function readinessInputDiagnostics({ deployment, target, deploymentManifest, trust, auth, binding, workflow, runtime }) {
   const missing = new Set(missingInputNames());
   const remotePrivateKeyProvided = REMOTE_DEVICE_PRIVATE_KEY_INPUTS.some(present);
   const statusByName = new Map();
-  for (const entry of CANARY_EXTERNAL_INPUT_INTAKE) {
+  for (const entry of ACTIVE_INPUT_INTAKE) {
     if (entry.required_group === "REMOTE_DEVICE_PRIVATE_KEY_ONE_OF" && remotePrivateKeyProvided && !present(entry.name)) {
       statusByName.set(entry.name, {
         status: "NOT_REQUIRED",
@@ -305,15 +267,14 @@ function readinessInputDiagnostics({ deployment, target, approvedInputContract, 
   if (deployment === "INVALID") setGroup(DEPLOYMENT_INPUTS, "PRESENT_MISMATCHED", "deployment environment, role, or commit does not match the current preflight contract");
   if (target === "FIXTURE_OR_SYNTHETIC") setGroup(TARGET_INPUTS, "PRESENT_INVALID", "fixture, synthetic, local, staging, or historical target identity is not a real Canary target");
   if (trust === "PRESENT_UNVERIFIED") setGroup(TRUST_INPUTS, "PRESENT_UNVERIFIED", "trust metadata is present but requires deployment-preflight and approved registry verification");
-  if (auth === "PRESENT_UNAPPROVED") setGroup(AUTH_INPUTS, "PRESENT_UNVERIFIED", "authentication inputs are present but require approved short-lived material and remote validation");
+  if (auth === "PRESENT") setGroup(AUTH_INPUTS, "PRESENT_UNVERIFIED", "authentication inputs are present but require short-lived material and remote validation");
   if (binding === "PRESENT_UNVERIFIED") setGroup(BINDING_INPUTS, "PRESENT_UNVERIFIED", "Canary binding is present but must be verified as distinct from Replay");
   if (workflow === "PASS") setGroup(WORKFLOW_INPUTS, "VALID", "workflow context and current commit passed deployment-attestation checks");
   if (workflow === "INVALID") setGroup(WORKFLOW_INPUTS, "PRESENT_INVALID", "workflow context is present but invalid");
   if (runtime === "PRESENT") setGroup(CANARY_RUNTIME_INPUTS, "PRESENT_UNVERIFIED", "runtime input is present and remains deployment-gated");
-  if (approvedInputContract.status === "APPROVED") setGroup(APPROVED_INPUT_CONTRACT_INPUTS, "VALID", approvedInputContract.reason);
-  if (approvedInputContract.status === "PRESENT_INVALID") setGroup(APPROVED_INPUT_CONTRACT_INPUTS, "PRESENT_INVALID", approvedInputContract.reason);
-  if (approvedInputContract.status === "FIXTURE_ONLY") setGroup(APPROVED_INPUT_CONTRACT_INPUTS, "FIXTURE_ONLY", approvedInputContract.reason);
-  return CANARY_EXTERNAL_INPUT_INTAKE.map((entry) => ({
+  if (deploymentManifest.status === "VALID") setGroup(DEPLOYMENT_MANIFEST_INPUTS, "VALID", "repository-controlled deployment manifest passed precondition validation");
+  if (deploymentManifest.status === "INVALID") setGroup(DEPLOYMENT_MANIFEST_INPUTS, "PRESENT_INVALID", "deployment manifest validation failed");
+  return ACTIVE_INPUT_INTAKE.map((entry) => ({
     name: entry.name,
     category: entry.category,
     phase: entry.phase ?? "DEPLOYMENT_PREFLIGHT",
@@ -329,7 +290,7 @@ function identitySeparationStatus() {
 }
 
 function missingInputNames() {
-  const names = CANARY_EXTERNAL_INPUT_INTAKE
+  const names = ACTIVE_INPUT_INTAKE
     .map((entry) => entry.name)
     .filter((name) => !present(name));
   const privateKeyCount = REMOTE_DEVICE_PRIVATE_KEY_INPUTS.filter(present).length;
@@ -340,27 +301,27 @@ function missingInputNames() {
 
 async function buildReadinessReport(artifacts) {
   const artifactCandidates = artifacts.filter((artifact) => artifact.approved_current_candidate);
-  const externalPackagePath = process.env[CANARY_EXTERNAL_PACKAGE_MANIFEST_INPUT]?.trim();
-  let externalPackage = {
+  const deploymentManifestPath = process.env[CANARY_DEPLOYMENT_MANIFEST_INPUT]?.trim();
+  let deploymentManifest = {
     status: "ABSENT",
-    ...canaryExternalPackageVerificationReport({
+    ...canaryDeploymentManifestVerificationReport({
       status: "ABSENT",
-      diagnostics: [{ reason: "external package manifest was not supplied" }],
+      diagnostics: [{ reason: "repository-controlled Canary deployment manifest was not supplied" }],
     }),
   };
-  if (externalPackagePath) {
+  if (deploymentManifestPath) {
     try {
-      const manifest = await loadCanaryExternalPackageManifest(externalPackagePath, { environment: process.env, currentHead });
-      externalPackage = {
+      const manifest = await loadCanaryDeploymentManifest(deploymentManifestPath, { environment: process.env, currentHead });
+      deploymentManifest = {
         status: "VALID",
-        ...canaryExternalPackageVerificationReport({ status: "VALID", manifest }),
+        ...canaryDeploymentManifestVerificationReport({ status: "VALID", manifest }),
       };
     } catch (error) {
-      externalPackage = {
+      deploymentManifest = {
         status: "INVALID",
-        ...canaryExternalPackageVerificationReport({
+        ...canaryDeploymentManifestVerificationReport({
           status: "INVALID",
-          diagnostics: Array.isArray(error?.diagnostics) ? error.diagnostics : [{ reason: "external package validation failed" }],
+          diagnostics: Array.isArray(error?.diagnostics) ? error.diagnostics : [{ reason: "Canary deployment manifest validation failed" }],
         }),
       };
     }
@@ -369,7 +330,6 @@ async function buildReadinessReport(artifacts) {
   const trust = trustStatus();
   const auth = authStatus();
   const workflow = workflowStatus();
-  const approvedInputContract = approvedInputContractStatus();
   const binding = allPresent(BINDING_INPUTS) && process.env.TLSN_CANARY_FIXTURE_ONLY !== "true"
     ? "PRESENT_UNVERIFIED"
     : process.env.TLSN_CANARY_FIXTURE_ONLY === "true" ? "FIXTURE_ONLY" : "MISSING";
@@ -377,12 +337,11 @@ async function buildReadinessReport(artifacts) {
   const gates = {
     current_head: /^[0-9a-f]{40}$/.test(currentHead),
     contract: await contractStatus() === "PASS",
-    external_package_acceptance: externalPackage.status === "VALID",
+    deployment_manifest: deploymentManifest.status === "VALID",
     deployment_contract: deploymentStatus() === "PASS",
-    approved_input_contract: approvedInputContract.status === "APPROVED",
-    target_provenance: approvedInputContract.status === "APPROVED" && target === "PRESENT_UNAPPROVED" && artifactCandidates.length > 0,
-    trust_material: trust === "PRESENT_UNVERIFIED" && approvedInputContract.status === "APPROVED",
-    authentication: auth === "PRESENT_UNAPPROVED",
+    target_provenance: deploymentManifest.status === "VALID" && target === "PRESENT" && artifactCandidates.length > 0,
+    trust_material: trust === "PRESENT_UNVERIFIED" && deploymentManifest.status === "VALID",
+    authentication: auth === "PRESENT",
     binding: binding === "PRESENT_UNVERIFIED",
     workflow_provenance: workflow === "PASS",
     runtime_inputs: runtime === "PRESENT",
@@ -402,8 +361,7 @@ async function buildReadinessReport(artifacts) {
     inputs: {
       deployment: { status: deploymentStatus(), fields: statuses(DEPLOYMENT_INPUTS) },
       target_provenance: { status: target, fields: statuses(TARGET_INPUTS) },
-      approved_input_contract: { status: approvedInputContract.status, fields: statuses(APPROVED_INPUT_CONTRACT_INPUTS) },
-      external_package: externalPackage,
+        deployment_manifest: deploymentManifest,
       trust: { status: trust, fields: statuses(TRUST_INPUTS) },
       authentication: { status: auth, fields: statuses(AUTH_INPUTS) },
       binding: { status: binding, fields: statuses(BINDING_INPUTS) },
@@ -423,14 +381,14 @@ async function buildReadinessReport(artifacts) {
       approved_current_candidates: artifactCandidates,
     },
     gates,
-    input_diagnostics: readinessInputDiagnostics({ deployment: deploymentStatus(), target, approvedInputContract, trust, auth, binding, workflow, runtime }),
+    input_diagnostics: readinessInputDiagnostics({ deployment: deploymentStatus(), target, deploymentManifest, trust, auth, binding, workflow, runtime }),
     missing_inputs: missingInputNames(),
     resume_conditions: {
-      target_provenance: "Externally approved non-fixture server identity, canonical complete/sparse profiles, and target provenance must be supplied; hostname metadata alone is insufficient.",
-      trust: "Externally approved candidate trust root, Notary registry/key ID, verifier identity, Result registry/envelope/root, and authority registries must be supplied and pass deployment-preflight.",
+      target_provenance: "A non-fixture server identity and canonical complete/sparse profiles must be supplied; hostname metadata alone is insufficient.",
+      trust: "Candidate trust root, Notary registry/key ID, verifier identity, Result registry/envelope/root, and authority registries must be supplied and pass deployment-preflight.",
       authentication: "An approved short-lived device/User A credential set and candidate device/Supabase endpoints must be supplied through the existing remote-validation inputs; values must not be committed or recorded.",
       binding: "A Canary-specific binding authority registry/key and fixed Canary binding must be supplied; replay fixed bindings are not acceptable.",
-      workflow: "An approved workflow must supply positive run ID/attempt, owner/name repository, current HEAD, and workflow_file_identity=dotenvx+pnpm+wrangler.",
+      workflow: "The deployment workflow must supply positive run ID/attempt, owner/name repository, current HEAD, and workflow_file_identity=dotenvx+pnpm+wrangler.",
       runtime: "Canary deployment/runtime and Trigger inputs must be supplied through the existing role-specific contract; deploy-canary.mjs must remain the only deploy path.",
       validation: "Run deployment-preflight, then the existing bootstrap -> verifier -> main Canary deployment, /health identity comparison, remote-validation, attestation gate, and offline evidence verification.",
     },

@@ -67,7 +67,7 @@ async function main() {
     TLSN_GIT_COMMIT_SHA: gitCommitSha,
   });
   const deploymentAuthorization = await authorizeCanaryDeployment({
-    manifestPath: deploymentEnvironment.TLSN_CANARY_EXTERNAL_PACKAGE_MANIFEST,
+    manifestPath: deploymentEnvironment.TLSN_CANARY_DEPLOYMENT_MANIFEST,
     environment: deploymentEnvironment,
     currentHead: gitCommitSha,
   });

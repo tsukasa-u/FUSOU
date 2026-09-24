@@ -1,8 +1,8 @@
 import {
-  CANARY_EXTERNAL_PACKAGE_MANIFEST_INPUT,
-  canaryExternalPackageVerificationReport,
-  loadCanaryExternalPackageManifest,
-} from "./canary-external-package.mjs";
+  CANARY_DEPLOYMENT_MANIFEST_INPUT,
+  canaryDeploymentManifestVerificationReport,
+  loadCanaryDeploymentManifest,
+} from "./canary-deployment-manifest.mjs";
 
 export async function authorizeCanaryDeployment({
   manifestPath,
@@ -15,14 +15,14 @@ export async function authorizeCanaryDeployment({
     return {
       deployment_authorization: "DENIED",
       deployment_executed: false,
-      external_package: {
+      deployment_manifest: {
         status: "ABSENT",
-        ...canaryExternalPackageVerificationReport({
+        ...canaryDeploymentManifestVerificationReport({
           status: "ABSENT",
           diagnostics: [{
-            field: CANARY_EXTERNAL_PACKAGE_MANIFEST_INPUT,
+            field: CANARY_DEPLOYMENT_MANIFEST_INPUT,
             category: "ABSENCE",
-            reason: "accepted external package manifest was not supplied",
+            reason: "repository-controlled Canary deployment manifest was not supplied",
           }],
         }),
       },
@@ -30,7 +30,7 @@ export async function authorizeCanaryDeployment({
   }
 
   try {
-    const manifest = await loadCanaryExternalPackageManifest(suppliedPath, {
+    const manifest = await loadCanaryDeploymentManifest(suppliedPath, {
       environment,
       currentHead,
       now,
@@ -38,25 +38,25 @@ export async function authorizeCanaryDeployment({
     return {
       deployment_authorization: "AUTHORIZED",
       deployment_executed: false,
-      external_package: {
+      deployment_manifest: {
         status: "VALID",
-        ...canaryExternalPackageVerificationReport({ status: "VALID", manifest }),
+        ...canaryDeploymentManifestVerificationReport({ status: "VALID", manifest }),
       },
     };
   } catch (error) {
     return {
       deployment_authorization: "DENIED",
       deployment_executed: false,
-      external_package: {
+      deployment_manifest: {
         status: "INVALID",
-        ...canaryExternalPackageVerificationReport({
+        ...canaryDeploymentManifestVerificationReport({
           status: "INVALID",
           diagnostics: Array.isArray(error?.diagnostics)
             ? error.diagnostics
             : [{
-                field: CANARY_EXTERNAL_PACKAGE_MANIFEST_INPUT,
+                field: CANARY_DEPLOYMENT_MANIFEST_INPUT,
                 category: "CONTENT",
-                reason: "accepted external package validation failed",
+                reason: "Canary deployment manifest validation failed",
               }],
         }),
       },
@@ -66,10 +66,10 @@ export async function authorizeCanaryDeployment({
 
 export function assertCanaryDeploymentAuthorized(authorization) {
   if (authorization?.deployment_authorization !== "AUTHORIZED"
-    || authorization.external_package?.status !== "VALID"
-    || authorization.external_package.verification?.acceptance !== "PASS"
-    || authorization.external_package.verification?.readiness_eligible !== true) {
-    throw new Error("Canary deployment authorization requires a VALID accepted external package");
+    || authorization.deployment_manifest?.status !== "VALID"
+    || authorization.deployment_manifest.verification?.preconditions !== "PASS"
+    || authorization.deployment_manifest.verification?.deployment_eligible !== true) {
+    throw new Error("Canary deployment authorization requires a VALID repository-controlled deployment manifest");
   }
   return authorization;
 }

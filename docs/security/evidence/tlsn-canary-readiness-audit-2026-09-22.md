@@ -2,6 +2,14 @@
 
 Date: 2026-09-22
 
+## Current Architecture Status
+
+This audit predates the removal of External Authority / External Package deployment governance. The current readiness boundary uses `TLSN_CANARY_DEPLOYMENT_MANIFEST` and repository-controlled deployment preconditions. Readiness must verify the manifest's target, workflow/current HEAD, non-secret input fingerprints, artifact hashes, deployment identity, validity window, and secret-provider references, followed by the existing cryptographic and role-isolation preflight checks.
+
+The following remain trust requirements: TLSN presentation verification, canonical profiles, Notary/trust-root configuration, independent verifier identity, signed Result registry envelope, Session/Binding Authority registries, binding identity, runtime/deployment attestation, evidence persistence, and secret-value exclusion. The following are not current gates: External Authority approval, `target_approval`, `TLSN_CANARY_APPROVED_INPUT_CONTRACT_JSON`, accepted-package promotion, or self-approval semantics.
+
+Current local result: `CANARY READINESS: BLOCKED`, `CANARY RUNTIME: NOT EXECUTED`, `REAL CANARY: NOT EXECUTED`. The historical tables below are retained for audit lineage and are not an instruction to create an External Package.
+
 ## Decision
 
 - HEAD: `87d6eb674a52faea41e78f6f32fff8ed24bbe8be`
