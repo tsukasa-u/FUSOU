@@ -135,7 +135,6 @@ await assert.rejects(
   "incomplete non-secret input snapshots must be rejected",
 );
 
-    references: secretProviderReferences,
 await assert.rejects(
   () => assertCanaryDeploymentManifest(alteredManifest((value) => {
     value.inputs[0].name = "TLSN_CANARY_APPROVED_INPUT_CONTRACT_JSON";
