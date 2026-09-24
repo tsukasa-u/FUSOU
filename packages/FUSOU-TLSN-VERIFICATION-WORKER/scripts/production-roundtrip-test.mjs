@@ -103,20 +103,19 @@ function generateAlpha15NotaryKeys() {
 }
 
 function fullAppConfigFromFragment(template, fragment) {
-  const fields = fragment
-    .replace(/^\[proxy\]\n/, "")
-    .trimEnd()
-    .split("\n")
-    .filter((line) => line.startsWith("tlsn_"));
-  assert.equal(fields.length, 19);
-  let result = template;
-  for (const field of fields) {
-    const name = field.slice(0, field.indexOf(" = "));
-    const linePattern = new RegExp(`^${name} = .*?$`, "m");
-    assert.match(result, linePattern, `config template is missing ${name}`);
-    result = result.replace(linePattern, field);
-  }
-  return result;
+  const fragmentLines = fragment.trimEnd().split("\n");
+  assert.deepEqual(fragmentLines.slice(0, 4), [
+    "[proxy.tlsn]",
+    "enabled = true",
+    'disclosure_mode = "complete"',
+    'response_mode = "async"',
+  ]);
+  assert.match(fragmentLines[4] ?? "", /^artifact_output_path = ".*"$/);
+  assert.equal(fragmentLines.length, 5);
+
+  const sectionPattern = /^\[proxy\.tlsn\]\n[\s\S]*?(?=^\s*\[proxy\.[^\]]+\]\s*$)/m;
+  assert.match(template, sectionPattern, "config template is missing [proxy.tlsn]");
+  return template.replace(sectionPattern, `${fragment.trimEnd()}\n`);
 }
 
 const rootDirectory = await mkdtemp(join(tmpdir(), "fusou-tlsn-roundtrip-"));
@@ -243,6 +242,26 @@ try {
     TLSN_CANARY_WORKER_NAME: "fusou-tlsn-verification-canary",
     TLSN_CANARY_BINDING_IDENTITY: "canary-binding-roundtrip-2026",
   };
+  const appBuildEnvironment = {
+    ...env,
+    FUSOU_TLSN_NOTARY_ENDPOINT: env.TLSN_PRODUCTION_NOTARY_ENDPOINT,
+    FUSOU_TLSN_SESSION_AUTHORITY_ENDPOINT: env.TLSN_PRODUCTION_SESSION_AUTHORITY_ENDPOINT,
+    FUSOU_TLSN_SESSION_AUTHORITY_PUBLIC_KEY: env.TLSN_PRODUCTION_SESSION_AUTHORITY_PUBLIC_KEY_SPKI,
+    FUSOU_TLSN_SESSION_AUTHORITY_KEY_ID: env.TLSN_PRODUCTION_SESSION_AUTHORITY_KEY_ID,
+    FUSOU_TLSN_RESULT_PUBLIC_KEY_SPKI: env.TLSN_PRODUCTION_RESULT_PUBLIC_KEY_SPKI,
+    FUSOU_TLSN_RESULT_SIGNER_KEY_ID: env.TLSN_PRODUCTION_RESULT_SIGNER_KEY_ID,
+    FUSOU_TLSN_RESULT_SIGNING_KEY_REGISTRY: env.TLSN_PRODUCTION_RESULT_SIGNING_KEY_REGISTRY,
+    FUSOU_TLSN_VERIFICATION_ENDPOINT: env.TLSN_PRODUCTION_VERIFICATION_ENDPOINT,
+    FUSOU_TLSN_RUNTIME_ATTESTATION_ENDPOINT: "https://worker.example.com/health",
+    FUSOU_TLSN_EXPECTED_DEPLOYMENT_ID: canaryEnvironment.TLSN_CANARY_DEPLOYMENT_ID,
+    FUSOU_TLSN_EXPECTED_WORKER_NAME: canaryEnvironment.TLSN_CANARY_WORKER_NAME,
+    FUSOU_TLSN_EXPECTED_GIT_COMMIT_SHA: commitSha,
+    FUSOU_TLSN_EXPECTED_BINDING_MODE: "fixed_canary",
+    FUSOU_TLSN_NOTARY_VERIFYING_KEY: alpha15K256NotaryKey,
+    FUSOU_TLSN_ORIGIN_PORT: env.TLSN_PRODUCTION_ORIGIN_PORT,
+    FUSOU_TLSN_SERVER_IDENTITY: env.TLSN_CANDIDATE_SERVER_IDENTITY,
+    FUSOU_TLSN_ORIGIN_TRUST_ROOTS: env.TLSN_PRODUCTION_TRUST_ROOT_CERTIFICATE_DER,
+  };
   for (const name of inputsForRole("canary")) {
     if (secretInputsForRole("canary").includes(name)) continue;
     canaryEnvironment[name] ??= name === "TLSN_PRODUCTION_NOTARY_REGISTRY"
@@ -342,10 +361,35 @@ try {
     "https://worker.example.com/health",
   ], { cwd: packageDirectory, env: canaryEnvironment });
   const fragment = await readFile(fragmentPath, "utf8");
-  assert.match(fragment, /tlsn_notary_verifying_key/);
+  const deploymentOnlyFields = [
+    "tlsn_notary_endpoint",
+    "tlsn_session_authority_endpoint",
+    "tlsn_session_authority_public_key",
+    "tlsn_session_authority_key_id",
+    "tlsn_result_public_key_spki",
+    "tlsn_result_signer_key_id",
+    "tlsn_result_signing_key_registry",
+    "tlsn_verification_endpoint",
+    "tlsn_runtime_attestation_endpoint",
+    "tlsn_expected_deployment_id",
+    "tlsn_expected_worker_name",
+    "tlsn_expected_git_commit_sha",
+    "tlsn_expected_binding_mode",
+    "tlsn_notary_verifying_key",
+    "tlsn_origin_port",
+    "tlsn_server_identity",
+    "tlsn_origin_trust_roots",
+  ];
+  for (const field of deploymentOnlyFields) {
+    assert.doesNotMatch(fragment, new RegExp(`^${field}\\s*=`, "m"));
+  }
   assert.doesNotMatch(fragment, /private|secret|token|bearer|supabase|device|cloudflare/i);
   const template = await readFile(configTemplatePath, "utf8");
-  await writeFile(configPath, fullAppConfigFromFragment(template, fragment), { encoding: "utf8", mode: 0o600 });
+  const fullConfig = fullAppConfigFromFragment(template, fragment);
+  for (const field of deploymentOnlyFields) {
+    assert.doesNotMatch(fullConfig, new RegExp(`^${field}\\s*=`, "m"));
+  }
+  await writeFile(configPath, fullConfig, { encoding: "utf8", mode: 0o600 });
 
   run("cargo", [
     "test",
@@ -360,7 +404,7 @@ try {
     "--nocapture",
   ], {
     cwd: repositoryDirectory,
-    env: { ...env, FUSOU_TLSN_ROUNDTRIP_CONFIG_PATH: configPath },
+    env: { ...appBuildEnvironment, FUSOU_TLSN_ROUNDTRIP_CONFIG_PATH: configPath },
   });
   console.log("[tlsn-production-roundtrip] preflight, manifest, renderer, TOML parse, and APP preflight PASS");
 } finally {
