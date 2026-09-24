@@ -15,7 +15,7 @@ const ED25519_SPKI_PREFIX: &[u8; 12] = b"\x30\x2a\x30\x05\x06\x03\x2b\x65\x70\x0
 
 #[derive(Debug, Clone)]
 pub struct TlsnPreflightConfig {
-    pub production_enabled: bool,
+    pub experiment_enabled: bool,
     pub notary_endpoint: Option<String>,
     pub session_authority_endpoint: Option<String>,
     pub session_authority_key_id: Option<String>,
@@ -42,7 +42,7 @@ impl TlsnPreflightConfig {
     pub fn from_proxy(proxy: &configs::ConfigsProxy) -> Self {
         let raw = proxy.get_tlsn_config();
         Self {
-            production_enabled: proxy.get_tlsn_production_enabled(),
+            experiment_enabled: proxy.get_tlsn_experiment_enabled(),
             notary_endpoint: proxy.get_tlsn_notary_endpoint(),
             session_authority_endpoint: proxy.get_tlsn_session_authority_endpoint(),
             session_authority_key_id: proxy.get_tlsn_session_authority_key_id(),
@@ -104,7 +104,7 @@ pub struct TlsnPreflightReport {
 impl TlsnPreflightReport {
     pub fn text(&self) -> String {
         let mut output = format!(
-            "TLSN Production preflight\nfeature_enabled={}\nbuild_profile={}\nconfig_path={}\nready={}\n",
+            "TLSN experiment preflight\nfeature_enabled={}\nbuild_profile={}\nconfig_path={}\nready={}\n",
             self.feature_enabled, self.build_profile, self.config_path, self.ready
         );
         for check in &self.checks {
@@ -184,13 +184,13 @@ pub fn run_preflight(config: &TlsnPreflightConfig, config_path: &Path) -> TlsnPr
 
     push_check(
         &mut checks,
-        "tlsn_production_enabled",
-        if config.production_enabled {
+        "tlsn_enabled",
+        if config.experiment_enabled {
             PreflightStatus::Pass
         } else {
             PreflightStatus::Error
         },
-        if config.production_enabled {
+        if config.experiment_enabled {
             "enabled"
         } else {
             "disabled"
@@ -937,7 +937,7 @@ mod tests {
         Fixture {
             root,
             config: TlsnPreflightConfig {
-                production_enabled: true,
+                experiment_enabled: true,
                 disclosure_mode: "complete".to_owned(),
                 response_mode: "async".to_owned(),
                 notary_endpoint: Some("notary.example.test:7047".to_owned()),
@@ -1089,10 +1089,10 @@ mod tests {
     }
 
     #[test]
-    fn production_disabled_fails() {
+    fn experiment_disabled_fails() {
         let mut fixture = fixture();
-        fixture.config.production_enabled = false;
-        assert_error(&run_preflight(&fixture.config, &fixture.config_path), "tlsn_production_enabled");
+        fixture.config.experiment_enabled = false;
+        assert_error(&run_preflight(&fixture.config, &fixture.config_path), "tlsn_enabled");
     }
 
     #[ignore = "invoked by the offline Production trust-contract round-trip test"]

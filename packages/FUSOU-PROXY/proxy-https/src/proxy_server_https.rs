@@ -1266,17 +1266,9 @@ fn serve_proxy_impl(
     let allow_save_api_responses = configs.get_allow_save_api_responses();
     let allow_save_resources = configs.get_allow_save_resources();
     let allow_save_main_js_local = configs.get_allow_save_main_js_local();
-    let experimental_tlsn_enabled = configs.get_experimental_tlsn_enabled();
+    let tlsn_experiment_enabled = configs.get_tlsn_experiment_enabled();
     let experimental_tlsn_forwarder: Option<Arc<dyn ExperimentalRequireInfoForwarder>> =
-        injected_forwarder.or_else(|| {
-            experimental_tlsn_enabled.then(|| {
-                tracing::warn!(
-                    "Experimental TLSN route enabled; external binding, Prover transport, verifier, signer, and delivery dependencies remain fail-closed"
-                );
-                ExperimentalTlsnForwarder::unavailable()
-                    as Arc<dyn ExperimentalRequireInfoForwarder>
-            })
-        });
+        injected_forwarder;
     let capture_output_root = if configs.get_capture_enabled() {
         match configs.get_capture_output_path().map(PathBuf::from) {
             Some(path) if path.is_absolute() => Some(path),
@@ -1462,7 +1454,7 @@ fn serve_proxy_impl(
             allow_save_resources,
             allow_save_main_js_local,
             experimental_require_info_route: ExperimentalRequireInfoRoute::new(
-                experimental_tlsn_enabled,
+                tlsn_experiment_enabled,
                 experimental_tlsn_forwarder,
             ),
         });

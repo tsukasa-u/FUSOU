@@ -39,7 +39,7 @@ It currently provides:
   before TLSN prover/notary finalization runs in the background continuation.
 
 FUSOU-PROXY also contains a default-off request-selection gate controlled by
-`proxy.experimental_tlsn_enabled`. When explicitly enabled, it detects the
+`proxy.tlsn.enabled`. When explicitly enabled, it detects the
 first actual ordinary-play `POST /kcsapi/api_get_member/require_info` request
 and fails closed with `503` because the production Session/Challenge authority,
 Notary channel, binding injection, and Prover-owned origin transport are not

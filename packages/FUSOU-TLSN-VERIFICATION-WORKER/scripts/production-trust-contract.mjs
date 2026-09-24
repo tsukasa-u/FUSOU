@@ -470,33 +470,18 @@ export function appConfigTomlFromManifest(
   runtimeAttestationEndpoint,
 ) {
   assertPublicManifest(manifest);
-  const identity = assertCanaryDeploymentIdentity(canaryDeploymentManifest);
+  assertCanaryDeploymentIdentity(canaryDeploymentManifest);
   if (typeof artifactOutputPath !== "string" || !artifactOutputPath.trim()) {
     throw new Error("APP artifact output path is required separately from the public manifest");
   }
   assertCleanHttpsEndpoint(runtimeAttestationEndpoint, "/health", "runtime attestation endpoint");
   const quote = (value) => JSON.stringify(value);
   return [
-    "[proxy]",
-    "tlsn_production_enabled = true",
-    `tlsn_notary_endpoint = ${quote(manifest.notary.endpoint)}`,
-    `tlsn_session_authority_endpoint = ${quote(manifest.session_authority.endpoint)}`,
-    `tlsn_session_authority_public_key = ${quote(manifest.session_authority.public_key_spki)}`,
-    `tlsn_session_authority_key_id = ${quote(manifest.session_authority.key_id)}`,
-    `tlsn_result_public_key_spki = ${quote(manifest.result_signing.public_key_spki)}`,
-    `tlsn_result_signer_key_id = ${quote(manifest.result_signing.key_id)}`,
-    `tlsn_result_signing_key_registry = ${quote(JSON.stringify(manifest.result_signing.key_registry))}`,
-    `tlsn_verification_endpoint = ${quote(manifest.verification_endpoint)}`,
-    `tlsn_runtime_attestation_endpoint = ${quote(runtimeAttestationEndpoint)}`,
-    `tlsn_expected_deployment_id = ${quote(identity.deployment_id)}`,
-    `tlsn_expected_worker_name = ${quote(identity.worker_name)}`,
-    `tlsn_expected_git_commit_sha = ${quote(identity.git_commit_sha)}`,
-    `tlsn_expected_binding_mode = ${quote(identity.binding_mode)}`,
-    `tlsn_notary_verifying_key = ${quote(manifest.notary.verifying_key)}`,
-    `tlsn_origin_port = ${manifest.origin.port}`,
-    `tlsn_server_identity = ${quote(manifest.origin.server_identity)}`,
-    `tlsn_origin_trust_roots = [${manifest.origin.trust_roots.map(quote).join(", ")}]`,
-    `tlsn_artifact_output_path = ${quote(artifactOutputPath)}`,
+    "[proxy.tlsn]",
+    "enabled = true",
+    'disclosure_mode = "complete"',
+    'response_mode = "async"',
+    `artifact_output_path = ${quote(artifactOutputPath)}`,
     "",
   ].join("\n");
 }

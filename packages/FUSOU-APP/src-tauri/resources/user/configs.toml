@@ -26,6 +26,21 @@ capture_output_path = ""
 # to use the default location, leave this empty
 save_file_location = ""
 
+[proxy.tlsn]
+# TLSN alpha.15 experiment switch. false keeps the normal proxy route.
+# This is an experiment, not a general production gameplay mode.
+enabled = false
+
+# Transcript disclosure policy: "complete" or "sparse".
+disclosure_mode = "complete"
+
+# Result delivery mode used by the experiment: "async" or "sync".
+response_mode = "async"
+
+# Private local directory for TLSN experiment artifacts and results.
+# Leave empty to use the application-managed private artifact directory.
+artifact_output_path = ""
+
     [proxy.network]    
     # The backend crate used in FUSOU-PROXY
     # You can choose two backend crates

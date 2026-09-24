@@ -221,15 +221,16 @@ for (const [section, field] of [
 const manifestWithBindingAuthority = structuredClone(validManifest);
 manifestWithBindingAuthority.binding_authority = { public_key_spki: "must-never-be-published" };
 assert.throws(() => assertPublicManifest(manifestWithBindingAuthority), /outside the public manifest schema/);
-assert.doesNotMatch(
-  appConfigTomlFromManifest(
-    validManifest,
-    "/local/tlsn-artifacts",
-    canaryDeploymentManifest,
-    "https://worker.example.com/health",
-  ),
-  /private|secret|token|bearer|supabase|device|cloudflare/i,
+const appConfig = appConfigTomlFromManifest(
+  validManifest,
+  "/local/tlsn-artifacts",
+  canaryDeploymentManifest,
+  "https://worker.example.com/health",
 );
+assert.match(appConfig, /\[proxy\.tlsn\]/);
+assert.match(appConfig, /^enabled = true$/m);
+assert.doesNotMatch(appConfig, /tlsn_(?:notary|session_authority|result|verification|runtime|expected|origin|server_identity)/);
+assert.doesNotMatch(appConfig, /private|secret|token|bearer|supabase|device|cloudflare/i);
 
 for (const name of [
   "TLSN_PRODUCTION_SESSION_AUTHORITY_SIGNING_PRIVATE_KEY_PKCS8",
