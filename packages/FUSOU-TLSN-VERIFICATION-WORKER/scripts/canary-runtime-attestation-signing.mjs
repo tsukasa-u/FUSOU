@@ -56,6 +56,31 @@ function capturedAtMilliseconds(attestation) {
   return capturedAt;
 }
 
+function validateCanaryRuntimeAttestationSigner({
+  signerKeyId,
+  signingPrivateKeyPkcs8,
+  registry,
+  now = new Date(),
+} = {}) {
+  const keyId = requiredKeyId(signerKeyId, "Canary Runtime Attestation signer key ID");
+  const privateKey = privateKeyFromPkcs8(signingPrivateKeyPkcs8);
+  const publicKeySpki = derivedPublicKeySpki(privateKey);
+  assertCanaryRuntimeAttestationKeyRegistry(registry, {
+    currentKeyId: keyId,
+    currentPublicKeySpki: publicKeySpki,
+    now,
+  });
+  return { keyId, privateKey, publicKeySpki };
+}
+
+export function assertCanaryRuntimeAttestationSigner(options = {}) {
+  const { keyId, publicKeySpki } = validateCanaryRuntimeAttestationSigner(options);
+  return {
+    signer_key_id: keyId,
+    public_key_spki: publicKeySpki,
+  };
+}
+
 export function canonicalCanaryRuntimeAttestationPayload(attestation) {
   if (!attestation || typeof attestation !== "object" || Array.isArray(attestation)) {
     throw new Error("Canary Runtime Attestation signing payload is malformed");
@@ -77,12 +102,10 @@ export function signCanaryRuntimeAttestation(
   if (attestation?.attestation_signer_key_id !== undefined || attestation?.signature_algorithm !== undefined || attestation?.signature_base64url !== undefined) {
     throw new Error("Canary Runtime Attestation must be unsigned before signing");
   }
-  const keyId = requiredKeyId(signerKeyId, "Canary Runtime Attestation signer key ID");
-  const privateKey = privateKeyFromPkcs8(signingPrivateKeyPkcs8);
-  const publicKeySpki = derivedPublicKeySpki(privateKey);
-  assertCanaryRuntimeAttestationKeyRegistry(registry, {
-    currentKeyId: keyId,
-    currentPublicKeySpki: publicKeySpki,
+  const { keyId, privateKey } = validateCanaryRuntimeAttestationSigner({
+    signerKeyId,
+    signingPrivateKeyPkcs8,
+    registry,
     now,
   });
   const signed = {

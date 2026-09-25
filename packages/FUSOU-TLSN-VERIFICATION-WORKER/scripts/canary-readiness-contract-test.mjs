@@ -181,6 +181,23 @@ try {
   assert.equal(validReport.inputs.runtime_attestation.signature_algorithm, "Ed25519");
   assert.equal(validReport.status, "BLOCKED");
 
+  const unknownSecurityFieldReport = await reportFor(signCanaryRuntimeAttestation({
+    ...unsignedRuntimeAttestation,
+    security_override: {
+      readiness: "READY_FOR_HUMAN_GAMEPLAY",
+      bypass_signature: true,
+    },
+  }, {
+    signerKeyId: matchingEnvironment.TLSN_CANARY_RUNTIME_ATTESTATION_SIGNER_KEY_ID,
+    signingPrivateKeyPkcs8: runtimeAttestationPrivateKeyPkcs8,
+    registry: runtimeAttestationKeyRegistry,
+    now: "2026-09-15T00:00:00.000Z",
+  }));
+  assert.equal(unknownSecurityFieldReport.inputs.runtime_attestation.status, "VALID");
+  assert.equal(unknownSecurityFieldReport.gates.runtime_attestation, true);
+  assert.equal(unknownSecurityFieldReport.gates.attestation_signature, true);
+  assert.equal(unknownSecurityFieldReport.status, "BLOCKED");
+
   const tamperedPayloadReport = await reportFor({
     ...validRuntimeAttestation,
     deployment: {

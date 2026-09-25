@@ -3,6 +3,7 @@
 import assert from "node:assert/strict";
 import { generateKeyPairSync } from "node:crypto";
 import {
+  assertCanaryRuntimeAttestationSigner,
   assertCanaryRuntimeAttestationSignature,
   signCanaryRuntimeAttestation,
 } from "./canary-runtime-attestation-signing.mjs";
@@ -50,6 +51,29 @@ const signedAttestation = signCanaryRuntimeAttestation(unsignedAttestation, {
 });
 
 assert.equal(assertCanaryRuntimeAttestationSignature(signedAttestation, { registry: baseRegistry }).status, "VALID");
+assert.deepEqual(assertCanaryRuntimeAttestationSigner({
+  signerKeyId,
+  signingPrivateKeyPkcs8: privateKeyPkcs8,
+  registry: baseRegistry,
+  now: "2026-09-15T00:00:00.000Z",
+}), {
+  signer_key_id: signerKeyId,
+  public_key_spki: publicKeySpki,
+});
+
+const signedWithUnknownSecurityField = signCanaryRuntimeAttestation({
+  ...unsignedAttestation,
+  security_override: {
+    readiness: "READY_FOR_HUMAN_GAMEPLAY",
+    bypass_signature: true,
+  },
+}, {
+  signerKeyId,
+  signingPrivateKeyPkcs8: privateKeyPkcs8,
+  registry: baseRegistry,
+  now: "2026-09-15T00:00:00.000Z",
+});
+assert.equal(assertCanaryRuntimeAttestationSignature(signedWithUnknownSecurityField, { registry: baseRegistry }).status, "VALID");
 
 function reverseObject(value) {
   if (Array.isArray(value)) return value.map(reverseObject);

@@ -22,6 +22,7 @@ const testPath = resolve(packageDirectory, "scripts/fixture-only-provisioning-te
 const syntheticServerIdentity = "game.example.test";
 const forbiddenGameServer = "w16s.kancolle-server.com";
 const fixtureOnlyFlag = "TLSN_CANARY_FIXTURE_ONLY";
+const runtimeAttestationPrivateKeyInput = "TLSN_CANARY_RUNTIME_ATTESTATION_SIGNING_PRIVATE_KEY_PKCS8";
 
 function fixtureBytes(raw, label) {
   const bytes = Buffer.from(raw, "base64url");
@@ -261,7 +262,7 @@ async function inspectProvisionedOutput(outputDirectory, fixtureManifest, fixtur
   assert.equal(JSON.stringify(generatedEnv).includes("live.example.com"), false);
   assert.equal(JSON.stringify(generatedEnv).includes("live-supabase.example.com"), false);
 
-  return { manifest, generatedEnv };
+  return { manifest, manifestRaw, generatedEnv };
 }
 
 async function runFixturePreflight(outputDirectory, generatedEnv) {
@@ -326,6 +327,7 @@ async function runTest() {
     const isolatedEnvironment = {
       TLSN_SERVER_IDENTITY: forbiddenGameServer,
       TLSN_CANDIDATE_SERVER_IDENTITY: forbiddenGameServer,
+      [runtimeAttestationPrivateKeyInput]: "synthetic-runtime-attestation-private-key-sentinel",
       PUBLIC_SITE_URL_PRODUCTION: "https://live.example.com/",
       PUBLIC_SUPABASE_URL: "https://live-supabase.example.com/",
       PUBLIC_SUPABASE_PUBLISHABLE_KEY: "live-key-sentinel",
@@ -333,6 +335,8 @@ async function runTest() {
     const firstRun = await runProvisionerChild(firstDirectory, [], isolatedEnvironment);
     assert.equal(firstRun.status, 0, `${firstRun.errorOutput}\n${firstRun.output}`);
     const first = await inspectProvisionedOutput(firstDirectory, fixtureManifest, fixtureEntry, fixture);
+    assert.equal(first.generatedEnv[runtimeAttestationPrivateKeyInput], undefined);
+    assert.equal(first.manifestRaw?.includes("synthetic-runtime-attestation-private-key-sentinel"), false);
     const secondRun = await runProvisionerChild(secondDirectory, [], isolatedEnvironment);
     assert.equal(secondRun.status, 0, `${secondRun.errorOutput}\n${secondRun.output}`);
     const second = await inspectProvisionedOutput(secondDirectory, fixtureManifest, fixtureEntry, fixture);

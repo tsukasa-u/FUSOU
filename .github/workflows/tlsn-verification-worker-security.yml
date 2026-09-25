@@ -1,0 +1,69 @@
+name: TLSN Verification Worker Security Contracts
+
+permissions:
+  contents: read
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - packages/FUSOU-TLSN-VERIFICATION-WORKER/**
+      - package.json
+      - pnpm-lock.yaml
+      - .github/workflows/tlsn-verification-worker-security.yml
+  pull_request:
+    paths:
+      - packages/FUSOU-TLSN-VERIFICATION-WORKER/**
+      - package.json
+      - pnpm-lock.yaml
+      - .github/workflows/tlsn-verification-worker-security.yml
+
+jobs:
+  canary-runtime-attestation-security:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.16.0
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Verify Runtime Attestation signer registry
+        run: pnpm --dir packages/FUSOU-TLSN-VERIFICATION-WORKER run test:canary-runtime-attestation-registry
+
+      - name: Verify Runtime Attestation cryptography
+        run: pnpm --dir packages/FUSOU-TLSN-VERIFICATION-WORKER run test:canary-runtime-attestation-signing
+
+      - name: Verify Runtime Attestation preflight lifecycle
+        run: pnpm --dir packages/FUSOU-TLSN-VERIFICATION-WORKER run test:canary-runtime-attestation-preflight
+
+      - name: Verify Runtime Attestation private-key boundary
+        run: pnpm --dir packages/FUSOU-TLSN-VERIFICATION-WORKER run test:canary-runtime-attestation-secret-boundary
+
+      - name: Verify deployment manifest contract
+        run: pnpm --dir packages/FUSOU-TLSN-VERIFICATION-WORKER run test:canary-deployment-manifest
+
+      - name: Verify deployment Runtime Attestation contract
+        run: pnpm --dir packages/FUSOU-TLSN-VERIFICATION-WORKER run test:canary-deployment-attestation
+
+      - name: Verify readiness signature and binding gates
+        run: pnpm --dir packages/FUSOU-TLSN-VERIFICATION-WORKER run test:canary-readiness-contract
+
+      - name: Verify fixture isolation
+        run: pnpm --dir packages/FUSOU-TLSN-VERIFICATION-WORKER run test:fixture-only
+
+      - name: Verify external input classification
+        run: pnpm --dir packages/FUSOU-TLSN-VERIFICATION-WORKER run test:canary-input-intake

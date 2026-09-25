@@ -20,11 +20,11 @@ import {
 import { checkoutCommit, workflowContextFromEnvironment } from "./deployment-attestation.mjs";
 import { assertAuthorityKeyRegistry, authorityKeyRegistrySha256 } from "./authority-key-registry.mjs";
 import {
-  assertCanaryRuntimeAttestationKeyRegistry,
   CANARY_RUNTIME_ATTESTATION_SIGNER_KEY_ID_INPUT,
   CANARY_RUNTIME_ATTESTATION_SIGNING_PRIVATE_KEY_INPUT,
   loadCanaryRuntimeAttestationKeyRegistry,
 } from "./canary-runtime-attestation-key-registry.mjs";
+import { assertCanaryRuntimeAttestationSigner } from "./canary-runtime-attestation-signing.mjs";
 import { assertSigningKeyRegistry, signingKeyRegistrySha256 } from "./signing-key-registry.mjs";
 import { assertSignedResultRegistryEnvelope, resultRegistryEnvelopeHash } from "./result-registry-envelope.mjs";
 import {
@@ -417,12 +417,10 @@ async function main() {
   if (role === "canary" && !fixtureOnlyCanary) {
     try {
       const { registry } = await loadCanaryRuntimeAttestationKeyRegistry();
-      const privateKeyBytes = decodeBase64Url(value(CANARY_RUNTIME_ATTESTATION_SIGNING_PRIVATE_KEY_INPUT));
-      if (!privateKeyBytes) throw new Error("signing private key must be canonical base64url");
-      const derivedPublicKey = createPublicKey(createPrivateKey({ key: privateKeyBytes, format: "der", type: "pkcs8" })).export({ format: "der", type: "spki" }).toString("base64url");
-      assertCanaryRuntimeAttestationKeyRegistry(registry, {
-        currentKeyId: value(CANARY_RUNTIME_ATTESTATION_SIGNER_KEY_ID_INPUT),
-        currentPublicKeySpki: derivedPublicKey,
+      assertCanaryRuntimeAttestationSigner({
+        signerKeyId: value(CANARY_RUNTIME_ATTESTATION_SIGNER_KEY_ID_INPUT),
+        signingPrivateKeyPkcs8: value(CANARY_RUNTIME_ATTESTATION_SIGNING_PRIVATE_KEY_INPUT),
+        registry,
       });
     } catch (error) {
       addFailure(failures, "canary_runtime_attestation_signer", error instanceof Error ? error.message : "Canary Runtime Attestation signer is invalid");
