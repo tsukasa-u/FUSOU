@@ -52,9 +52,16 @@ for (const name of inputsForRole("canary")) {
     : `${name}-value`;
 }
 environment.TLSN_CANARY_WORKER_NAME = "fusou-tlsn-verification-canary";
+environment.TLSN_CANARY_TRUST_ROOT_CERTIFICATE_DER = Buffer.from("fixture-canary-trust-root").toString("base64url");
 
 function hashValue(value) {
   return import("node:crypto").then(({ createHash }) => createHash("sha256").update(value).digest("base64url"));
+}
+
+function hashInput(name, value) {
+  return name === "TLSN_CANARY_TRUST_ROOT_CERTIFICATE_DER"
+    ? hashValue(Buffer.from(value, "base64url"))
+    : hashValue(value);
 }
 
 const artifactHash = await hashValue(artifactBytes);
@@ -100,7 +107,7 @@ const manifest = {
     .filter((name) => !secretInputsForRole("canary").includes(name))
     .map(async (name) => ({
       name,
-      value_sha256: await hashValue(environment[name]),
+      value_sha256: await hashInput(name, environment[name]),
       provenance: "deployment-input",
     }))),
   artifacts: [{ name: "manifest-test-source", path: artifactPath, sha256: artifactHash }],

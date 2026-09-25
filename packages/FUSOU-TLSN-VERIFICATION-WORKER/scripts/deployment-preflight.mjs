@@ -10,6 +10,7 @@ import {
   PRODUCTION_INPUTS,
   PRODUCTION_EVIDENCE_INPUTS,
   PRODUCTION_GATE_INPUTS,
+  PRODUCTION_SECRET_INPUTS,
   REMOTE_ATTESTATION_SECRET_INPUTS,
   TEST_ONLY_INPUTS,
   WORKFLOW_EVIDENCE_INPUTS,
@@ -156,7 +157,7 @@ async function main() {
     JSON.stringify(productionInputs) !== JSON.stringify(PRODUCTION_INPUTS) ||
     JSON.stringify(productionEvidenceInputs) !== JSON.stringify(PRODUCTION_EVIDENCE_INPUTS) ||
     JSON.stringify(canarySecrets) !== JSON.stringify(CANARY_SECRET_INPUTS) ||
-    JSON.stringify(productionSecrets) !== JSON.stringify(["TLSN_PRODUCTION_RESULT_SIGNING_PRIVATE_KEY_PKCS8", "TLSN_PRODUCTION_SESSION_AUTHORITY_SIGNING_PRIVATE_KEY_PKCS8", "TLSN_PRODUCTION_BINDING_AUTHORITY_SIGNING_PRIVATE_KEY_PKCS8", "TLSN_PRODUCTION_TRUST_ROOT_CERTIFICATE_DER", "TLSN_PRODUCTION_TRIGGER_SECRET_KEY", "TLSN_PRODUCTION_TRIGGER_CALLBACK_SECRET"]) ||
+    JSON.stringify(productionSecrets) !== JSON.stringify(PRODUCTION_SECRET_INPUTS) ||
     JSON.stringify(inputManifest.production_gate_inputs) !== JSON.stringify(PRODUCTION_GATE_INPUTS) ||
     JSON.stringify(inputManifest.remote_attestation_secret_inputs) !== JSON.stringify(REMOTE_ATTESTATION_SECRET_INPUTS)
   ) {

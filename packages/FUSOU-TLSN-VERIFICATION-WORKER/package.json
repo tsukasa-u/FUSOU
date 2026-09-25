@@ -29,6 +29,7 @@
     "test:canary-runtime-attestation-preflight": "node scripts/canary-runtime-attestation-preflight-test.mjs",
     "test:canary-runtime-attestation-secret-boundary": "node scripts/canary-runtime-attestation-secret-boundary-test.mjs",
     "test:canary-runtime-attestation-signing": "node scripts/canary-runtime-attestation-signing-test.mjs",
+    "test:secret-boundary": "node scripts/secret-boundary-contract-test.mjs",
     "test:test-deployment-target": "node scripts/test-deployment-target-test.mjs",
     "provision:canary": "node scripts/provision-canary-material.mjs",
     "render:app-config": "node scripts/render-app-config.mjs",
@@ -71,7 +72,7 @@
     "test:test-deployment-attestation": "node scripts/test-deployment-attestation.mjs",
     "test:test-fresh-attestation": "pnpm exec dotenvx run -f .env -fk ../.env.keys -- node scripts/test-fresh-attestation.mjs",
     "test:evidence-restart-roundtrip": "pnpm run build:wasm && node scripts/evidence-restart-roundtrip-test.mjs",
-    "test:isolation": "node scripts/deployment-isolation-test.mjs && pnpm run test:fixture-only && pnpm run test:test-deployment-target",
+    "test:isolation": "node scripts/deployment-isolation-test.mjs && pnpm run test:secret-boundary && pnpm run test:fixture-only && pnpm run test:test-deployment-target",
     "benchmark:sparse-crypto": "pnpm run build:wasm && node scripts/sparse-crypto-benchmark.mjs"
   },
   "keywords": [

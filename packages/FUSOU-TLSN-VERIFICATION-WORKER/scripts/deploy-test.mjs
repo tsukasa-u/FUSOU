@@ -9,64 +9,14 @@ import {
   assertCanonicalTestWorkerName,
   TEST_WORKER_NAME,
 } from "./test-deployment-target.mjs";
+import {
+  TEST_WORKER_PUBLIC_INPUTS,
+  workerSecretBundleForTest,
+} from "./deployment-contract.mjs";
 
 const packageDirectory = resolve(new URL("..", import.meta.url).pathname);
 
-const PUBLIC_INPUTS = [
-  "TLSN_ENVIRONMENT",
-  "TLSN_GIT_COMMIT_SHA",
-  "TLSN_BINDING_TTL_SECONDS",
-  "TLSN_SERVER_IDENTITY",
-  "TLSN_PROFILE_SHA256",
-  "TLSN_SPARSE_PROFILE_SHA256",
-  "TLSN_VERIFIER_KEY_ID",
-  "TLSN_NOTARY_KEY_ID",
-  "TLSN_NOTARY_REGISTRY",
-  "TLSN_SESSION_AUTHORITY_PUBLIC_KEY_SPKI",
-  "TLSN_SESSION_AUTHORITY_KEY_ID",
-  "TLSN_SESSION_AUTHORITY_KEY_REGISTRY",
-  "TLSN_BINDING_AUTHORITY_PUBLIC_KEY_SPKI",
-  "TLSN_BINDING_AUTHORITY_KEY_ID",
-  "TLSN_BINDING_AUTHORITY_KEY_REGISTRY",
-  "TLSN_DEVICE_AUTH_URL",
-  "TLSN_DEVICE_POSSESSION_AUTH_URL",
-  "TLSN_TEST_DEVICE_ID",
-  "TLSN_TEST_DEVICE_PUBLIC_KEY",
-  "TLSN_SUPABASE_URL",
-  "TLSN_SUPABASE_PUBLISHABLE_KEY",
-  "TLSN_EXECUTION_MODE",
-  "TLSN_TRIGGER_API_URL",
-  "TLSN_TRIGGER_TASK_ID",
-  "TLSN_BENCHMARK_TIMINGS",
-  "TLSN_RESULT_PUBLIC_KEY_SPKI",
-  "TLSN_RESULT_SIGNER_KEY_ID",
-  "TLSN_RESULT_SIGNING_KEY_REGISTRY",
-  "TLSN_TEST_WORKER_NAME",
-];
-
-const SECRET_INPUTS = [
-  "TLSN_RESULT_SIGNING_PRIVATE_KEY_PKCS8",
-  "TLSN_SESSION_AUTHORITY_SIGNING_PRIVATE_KEY_PKCS8",
-  "TLSN_BINDING_AUTHORITY_SIGNING_PRIVATE_KEY_PKCS8",
-  "TLSN_TRUST_ROOT_CERTIFICATE_DER",
-  "TLSN_TEST_AUTH_USERS",
-  "TLSN_TEST_BINDING_VALUE",
-  "TLSN_TEST_BINDING_VALUES",
-  "TLSN_TRIGGER_SECRET_KEY",
-  "TLSN_TRIGGER_CALLBACK_SECRET",
-  "TLSN_QUEUE_CALLBACK_SECRET",
-  "TLSN_DIRECT_CALLBACK_SECRET",
-  "TLSN_TEST_COMPLETION_DELAY_MS",
-  "TLSN_TEST_COMPLETION_DELAY_ONCE",
-  "TLSN_TEST_VERIFICATION_LEASE_MS",
-  "TLSN_TEST_POST_RESULT_DELAY_MS",
-  "TLSN_TEST_POST_RESULT_DELAY_ONCE",
-  "TLSN_TEST_DIRECT_INVOCATION_TIMEOUT_MS",
-  "TLSN_TEST_DIRECT_VERIFIER_MODE",
-  "TLSN_TEST_DIRECT_VERIFIER_DELAY_MS",
-];
-
-const REQUIRED_PUBLIC_INPUTS = PUBLIC_INPUTS.filter((name) => ![
+const REQUIRED_PUBLIC_INPUTS = TEST_WORKER_PUBLIC_INPUTS.main.filter((name) => ![
   "TLSN_ENVIRONMENT",
   "TLSN_GIT_COMMIT_SHA",
   "TLSN_SUPABASE_URL",
@@ -290,24 +240,24 @@ async function main() {
     "--name",
     "fusou-tlsn-verifier-test",
   ];
-  for (const name of PUBLIC_INPUTS) {
-    const value = deploymentEnvironment[name];
-    if (value !== undefined && value !== "") {
-      deployArguments.push("--var", `${name}:${value}`);
-      verifierDeployArguments.push("--var", `${name}:${value}`);
+  for (const [argumentsList, worker] of [
+    [deployArguments, "main"],
+    [verifierDeployArguments, "verifier"],
+  ]) {
+    for (const name of TEST_WORKER_PUBLIC_INPUTS[worker]) {
+      const value = deploymentEnvironment[name];
+      if (value !== undefined && value !== "") {
+        argumentsList.push("--var", `${name}:${value}`);
+      }
     }
   }
 
   const secretDirectory = await mkdtemp(join(tmpdir(), "tlsn-test-secrets-"));
-  const secretsPath = join(secretDirectory, "secrets.json");
+  const mainSecretsPath = join(secretDirectory, "main-secrets.json");
+  const verifierSecretsPath = join(secretDirectory, "verifier-secrets.json");
   try {
-    const secrets = Object.fromEntries(
-      SECRET_INPUTS
-        .filter((name) => deploymentEnvironment[name] !== undefined)
-        .map((name) => [name, deploymentEnvironment[name]]),
-    );
-    await writeFile(secretsPath, JSON.stringify(secrets), { encoding: "utf8", mode: 0o600 });
-    deployArguments.push("--secrets-file", secretsPath);
+    await writeFile(mainSecretsPath, JSON.stringify(workerSecretBundleForTest("main", deploymentEnvironment)), { encoding: "utf8", mode: 0o600 });
+    deployArguments.push("--secrets-file", mainSecretsPath);
     const childEnvironment = {
       PATH: process.env.PATH,
       HOME: process.env.HOME,
@@ -315,7 +265,8 @@ async function main() {
       ...(cloudflareAccountId ? { CLOUDFLARE_ACCOUNT_ID: cloudflareAccountId } : {}),
     };
     if (directMode) {
-      verifierDeployArguments.push("--secrets-file", secretsPath);
+      await writeFile(verifierSecretsPath, JSON.stringify(workerSecretBundleForTest("verifier", deploymentEnvironment)), { encoding: "utf8", mode: 0o600 });
+      verifierDeployArguments.push("--secrets-file", verifierSecretsPath);
       run("pnpm", verifierDeployArguments, childEnvironment);
     }
     const deployOutput = runCaptured("pnpm", deployArguments, childEnvironment);

@@ -27,6 +27,7 @@ import {
 } from "./canary-deployment-target.mjs";
 import { createCanaryDeploymentManifest } from "./canary-deployment-manifest.mjs";
 import { CANARY_RUNTIME_ATTESTATION_SIGNER_KEY_ID_INPUT } from "./canary-runtime-attestation-key-registry.mjs";
+import { secretInputsForRole } from "./deployment-contract.mjs";
 
 const packageDirectory = resolve(new URL("..", import.meta.url).pathname);
 const repositoryDirectory = resolve(packageDirectory, "../..");
@@ -523,16 +524,8 @@ async function main() {
       environment: generatedEnv,
       currentHead: commitSha,
       artifacts,
-      secretProviderReferences: [
-        "TLSN_CANARY_RESULT_SIGNING_PRIVATE_KEY_PKCS8",
-        "TLSN_CANARY_SESSION_AUTHORITY_SIGNING_PRIVATE_KEY_PKCS8",
-        "TLSN_CANARY_BINDING_AUTHORITY_SIGNING_PRIVATE_KEY_PKCS8",
-        "TLSN_CANARY_RUNTIME_ATTESTATION_SIGNING_PRIVATE_KEY_PKCS8",
-        "TLSN_CANARY_TRUST_ROOT_CERTIFICATE_DER",
-        "TLSN_CANARY_TRIGGER_SECRET_KEY",
-        "TLSN_CANARY_TRIGGER_CALLBACK_SECRET",
-        "TLSN_CANARY_DIRECT_CALLBACK_SECRET",
-      ].map((inputName) => ({ input_name: inputName, provider_ref: `deployment-secret/${inputName}` })),
+      secretProviderReferences: secretInputsForRole("canary")
+        .map((inputName) => ({ input_name: inputName, provider_ref: `deployment-secret/${inputName}` })),
     });
     const manifestPath = join(outputDirectory, "canary-deployment-manifest.json");
     await writeFile(manifestPath, `${JSON.stringify(deploymentManifest, null, 2)}\n`, { mode: 0o644 });

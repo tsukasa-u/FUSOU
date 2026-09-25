@@ -4,55 +4,12 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { spawnSync } from "node:child_process";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
+import {
+  EVIDENCE_WORKER_PUBLIC_INPUTS,
+  workerSecretBundleForEvidence,
+} from "./deployment-contract.mjs";
 
 const packageDirectory = resolve(new URL("..", import.meta.url).pathname);
-
-const PUBLIC_INPUTS = [
-  "TLSN_ENVIRONMENT",
-  "TLSN_DEPLOYMENT_ROLE",
-  "TLSN_BINDING_TTL_SECONDS",
-  "TLSN_SERVER_IDENTITY",
-  "TLSN_PROFILE_SHA256",
-  "TLSN_SPARSE_PROFILE_SHA256",
-  "TLSN_VERIFIER_KEY_ID",
-  "TLSN_NOTARY_KEY_ID",
-  "TLSN_NOTARY_REGISTRY",
-  "TLSN_SESSION_AUTHORITY_PUBLIC_KEY_SPKI",
-  "TLSN_SESSION_AUTHORITY_KEY_ID",
-  "TLSN_SESSION_AUTHORITY_KEY_REGISTRY",
-  "TLSN_BINDING_AUTHORITY_PUBLIC_KEY_SPKI",
-  "TLSN_BINDING_AUTHORITY_KEY_ID",
-  "TLSN_BINDING_AUTHORITY_KEY_REGISTRY",
-  "TLSN_DEVICE_AUTH_URL",
-  "TLSN_DEVICE_POSSESSION_AUTH_URL",
-  "TLSN_TEST_DEVICE_ID",
-  "TLSN_TEST_DEVICE_PUBLIC_KEY",
-  "TLSN_SUPABASE_URL",
-  "TLSN_SUPABASE_PUBLISHABLE_KEY",
-  "TLSN_EXECUTION_MODE",
-  "TLSN_BENCHMARK_TIMINGS",
-  "TLSN_TEST_DIRECT_SYNCHRONOUS_CANDIDATE",
-  "TLSN_GIT_COMMIT_SHA",
-];
-
-const SECRET_INPUTS = [
-  "TLSN_RESULT_SIGNING_PRIVATE_KEY_PKCS8",
-  "TLSN_SESSION_AUTHORITY_SIGNING_PRIVATE_KEY_PKCS8",
-  "TLSN_BINDING_AUTHORITY_SIGNING_PRIVATE_KEY_PKCS8",
-  "TLSN_TRUST_ROOT_CERTIFICATE_DER",
-  "TLSN_TEST_AUTH_USERS",
-  "TLSN_TEST_BINDING_VALUE",
-  "TLSN_TEST_BINDING_VALUES",
-  "TLSN_TEST_COMPLETION_DELAY_MS",
-  "TLSN_TEST_COMPLETION_DELAY_ONCE",
-  "TLSN_TEST_VERIFICATION_LEASE_MS",
-  "TLSN_TEST_POST_RESULT_DELAY_MS",
-  "TLSN_TEST_POST_RESULT_DELAY_ONCE",
-  "TLSN_TEST_DIRECT_INVOCATION_TIMEOUT_MS",
-  "TLSN_TEST_DIRECT_VERIFIER_MODE",
-  "TLSN_TEST_DIRECT_VERIFIER_DELAY_MS",
-  "TLSN_DIRECT_CALLBACK_SECRET",
-];
 
 const FORBIDDEN_PREFIXES = ["TLSN_CANARY_", "TLSN_PRODUCTION_", "TLSN_CANDIDATE_"];
 
@@ -137,27 +94,27 @@ async function main() {
   const verifierDeployArguments = [
     "exec", "wrangler", "deploy", "--config", "wrangler.verifier-evidence.toml", "--name", verifierName,
   ];
-  for (const name of PUBLIC_INPUTS) {
-    const value = deploymentEnvironment[name];
-    if (value !== undefined && value !== "") {
-      deployArguments.push("--var", `${name}:${value}`);
-        bootstrapDeployArguments.push("--var", `${name}:${value}`);
-      verifierDeployArguments.push("--var", `${name}:${value}`);
+  for (const [argumentsList, worker] of [
+    [bootstrapDeployArguments, "bootstrap"],
+    [deployArguments, "main"],
+    [verifierDeployArguments, "verifier"],
+  ]) {
+    for (const name of EVIDENCE_WORKER_PUBLIC_INPUTS[worker]) {
+      const value = deploymentEnvironment[name];
+      if (value !== undefined && value !== "") {
+        argumentsList.push("--var", `${name}:${value}`);
+      }
     }
   }
 
   const secretDirectory = await mkdtemp(join(tmpdir(), "tlsn-evidence-secrets-"));
-  const secretsPath = join(secretDirectory, "secrets.json");
+  const mainSecretsPath = join(secretDirectory, "main-secrets.json");
+  const verifierSecretsPath = join(secretDirectory, "verifier-secrets.json");
   try {
-    const secrets = Object.fromEntries(
-      SECRET_INPUTS
-        .filter((name) => deploymentEnvironment[name] !== undefined)
-        .map((name) => [name, deploymentEnvironment[name]]),
-    );
-    await writeFile(secretsPath, JSON.stringify(secrets), { encoding: "utf8", mode: 0o600 });
-    bootstrapDeployArguments.push("--secrets-file", secretsPath);
-    deployArguments.push("--secrets-file", secretsPath);
-    verifierDeployArguments.push("--secrets-file", secretsPath);
+    await writeFile(mainSecretsPath, JSON.stringify(workerSecretBundleForEvidence("main", deploymentEnvironment)), { encoding: "utf8", mode: 0o600 });
+    await writeFile(verifierSecretsPath, JSON.stringify(workerSecretBundleForEvidence("verifier", deploymentEnvironment)), { encoding: "utf8", mode: 0o600 });
+    deployArguments.push("--secrets-file", mainSecretsPath);
+    verifierDeployArguments.push("--secrets-file", verifierSecretsPath);
     const childEnvironment = {
       PATH: process.env.PATH,
       HOME: process.env.HOME,

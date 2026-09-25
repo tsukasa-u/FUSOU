@@ -6,11 +6,13 @@ import { basename, join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import {
   assertManifest,
+  CANARY_WORKER_PUBLIC_INPUTS,
   DEPLOYMENT_AUTH_INPUTS,
   FORBIDDEN_CANARY_INPUTS,
   inputsForRole,
   RUNTIME_INPUTS,
   secretInputsForRole,
+  workerSecretBundleForCanary,
 } from "./deployment-contract.mjs";
 import { CANARY_RUNTIME_ATTESTATION_SIGNER_KEY_ID_INPUT, CANARY_RUNTIME_ATTESTATION_SIGNING_PRIVATE_KEY_INPUT } from "./canary-runtime-attestation-key-registry.mjs";
 import { CANARY_EXTERNAL_INPUT_INTAKE } from "./canary-external-input-intake.mjs";
@@ -133,15 +135,18 @@ async function main() {
   const verifierDeployArguments = [
     "exec", "wrangler", "deploy", "--name", CANARY_VERIFIER_WORKER_NAME,
   ];
-  for (const name of allowedInputs) {
-    if (!secretInputs.has(name)) {
-      bootstrapDeployArguments.push("--var", `${name}:${deploymentEnvironment[name]}`);
-      deployArguments.push("--var", `${name}:${deploymentEnvironment[name]}`);
-      verifierDeployArguments.push("--var", `${name}:${deploymentEnvironment[name]}`);
+  for (const [argumentsList, worker] of [
+    [bootstrapDeployArguments, "bootstrap"],
+    [deployArguments, "main"],
+    [verifierDeployArguments, "verifier"],
+  ]) {
+    for (const name of CANARY_WORKER_PUBLIC_INPUTS[worker]) {
+      argumentsList.push("--var", `${name}:${deploymentEnvironment[name]}`);
     }
   }
   const secretDirectory = await mkdtemp(join(tmpdir(), "tlsn-canary-secrets-"));
-  const secretsPath = join(secretDirectory, "secrets.json");
+  const mainSecretsPath = join(secretDirectory, "main-secrets.json");
+  const verifierSecretsPath = join(secretDirectory, "verifier-secrets.json");
   const verifierConfigPath = join(
     packageDirectory,
     `.wrangler.verifier-canary-${basename(secretDirectory)}.toml`,
@@ -151,11 +156,10 @@ async function main() {
       .replace('script_name = "fusou-tlsn-verification-canary"', `script_name = "${CANARY_WORKER_NAME}"`);
     await writeFile(verifierConfigPath, verifierConfig, "utf8");
     verifierDeployArguments.push("--config", verifierConfigPath);
-    const workerSecretInputs = [...secretInputs].filter((name) => name !== CANARY_RUNTIME_ATTESTATION_SIGNING_PRIVATE_KEY_INPUT);
-    await writeFile(secretsPath, JSON.stringify(Object.fromEntries(workerSecretInputs.map((name) => [name, deploymentEnvironment[name]]))), { encoding: "utf8", mode: 0o600 });
-    bootstrapDeployArguments.push("--secrets-file", secretsPath);
-    deployArguments.push("--secrets-file", secretsPath);
-    verifierDeployArguments.push("--secrets-file", secretsPath);
+    await writeFile(mainSecretsPath, JSON.stringify(workerSecretBundleForCanary("main", deploymentEnvironment)), { encoding: "utf8", mode: 0o600 });
+    await writeFile(verifierSecretsPath, JSON.stringify(workerSecretBundleForCanary("verifier", deploymentEnvironment)), { encoding: "utf8", mode: 0o600 });
+    deployArguments.push("--secrets-file", mainSecretsPath);
+    verifierDeployArguments.push("--secrets-file", verifierSecretsPath);
     const bootstrapDeploy = spawnSync("pnpm", bootstrapDeployArguments, { cwd: packageDirectory, env: childEnvironment, stdio: "inherit" });
     if (bootstrapDeploy.error) throw bootstrapDeploy.error;
     if (bootstrapDeploy.status !== 0) {
