@@ -234,8 +234,13 @@ select::picker(select) {
 }
 
 .markdown {
-  @apply text-[15px] leading-7 text-base-content/90;
-  max-width: 74ch;
+  @apply text-[15px] leading-7 text-base-content/90 w-full min-w-0;
+}
+
+.markdown > p,
+.markdown > ul,
+.markdown > ol {
+  max-width: 100%;
 }
 
 .markdown h1 {
@@ -455,12 +460,8 @@ select::picker(select) {
 
 .markdown [data-callout] {
   & {
-    @apply my-6 space-y-2 border p-4;
-    border-color: color-mix(
-      in oklch,
-      var(--color-base-content) 10%,
-      transparent
-    );
+    @apply my-6 space-y-2 p-4 rounded-lg;
+    border: 1px solid color-mix(in oklch, var(--color-base-content) 12%, transparent);
   }
 
   & > [data-callout-title] {
@@ -519,6 +520,7 @@ select::picker(select) {
 .markdown [data-callout][data-callout-type="note"] {
   & {
     border-left: 4px solid var(--color-info);
+    background: color-mix(in oklch, var(--color-info) 7%, transparent);
   }
 
   & > [data-callout-title] {
@@ -540,6 +542,7 @@ select::picker(select) {
 .markdown [data-callout][data-callout-type="important"] {
   & {
     border-left: 4px solid var(--color-accent);
+    background: color-mix(in oklch, var(--color-accent) 7%, transparent);
   }
 
   & > [data-callout-title] {
@@ -560,6 +563,7 @@ select::picker(select) {
 .markdown [data-callout][data-callout-type="warning"] {
   & {
     border-left: 4px solid var(--color-warning);
+    background: color-mix(in oklch, var(--color-warning) 7%, transparent);
   }
 
   & > [data-callout-title] {
@@ -581,6 +585,7 @@ select::picker(select) {
 .markdown [data-callout][data-callout-type="caution"] {
   & {
     border-left: 4px solid var(--color-error);
+    background: color-mix(in oklch, var(--color-error) 7%, transparent);
   }
 
   & > [data-callout-title] {
@@ -602,6 +607,7 @@ select::picker(select) {
 .markdown [data-callout][data-callout-type="tip"] {
   & {
     border-left: 4px solid var(--color-success);
+    background: color-mix(in oklch, var(--color-success) 7%, transparent);
   }
 
   & > [data-callout-title] {
@@ -945,4 +951,27 @@ input[type="search"]::-webkit-search-results-button,
 input[type="search"]::-webkit-search-results-decoration {
   -webkit-appearance: none !important;
   display: none !important;
+}
+/* Accessible brand accent text & hover for light/dark modes */
+:root {
+  --color-brand-text: oklch(42% 0.15 154.449);
+  --color-brand-hover: oklch(34% 0.15 154.449);
+}
+
+[data-theme="dark"] {
+  --color-brand-text: oklch(87% 0.15 154.449);
+  --color-brand-hover: oklch(92% 0.14 154.449);
+}
+
+.text-brand {
+  color: var(--color-brand-text) !important;
+}
+
+.hover-text-brand:hover,
+.group:hover .group-hover-text-brand {
+  color: var(--color-brand-text) !important;
+}
+
+.bg-brand-soft {
+  background-color: color-mix(in oklch, var(--color-primary) 14%, transparent) !important;
 }

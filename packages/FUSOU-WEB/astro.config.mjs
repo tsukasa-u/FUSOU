@@ -1,3 +1,25 @@
+
+function remarkNormalizeCrlf() {
+  return (tree) => {
+    function visit(node) {
+      if (node && typeof node.value === 'string') {
+        const crlf = String.fromCharCode(13, 10);
+        const cr = String.fromCharCode(13);
+        const lf = String.fromCharCode(10);
+        if (node.value.indexOf(cr) !== -1) {
+          node.value = node.value.split(crlf).join(lf).split(cr).join(lf);
+        }
+      }
+      if (node && Array.isArray(node.children)) {
+        for (const child of node.children) {
+          visit(child);
+        }
+      }
+    }
+    visit(tree);
+  };
+}
+
 // @ts-check
 import { defineConfig } from "astro/config";
 import tailwindcss from "@tailwindcss/vite";
@@ -157,7 +179,7 @@ export default defineConfig({
   },
   markdown: {
     processor: unified({
-      remarkPlugins: [remarkCallout, remarkMath],
+      remarkPlugins: [remarkNormalizeCrlf, remarkCallout, remarkMath],
       rehypePlugins: [[rehypeMermaid, { strategy: "pre-mermaid" }], rehypeKatex],
     }),
     syntaxHighlight: {

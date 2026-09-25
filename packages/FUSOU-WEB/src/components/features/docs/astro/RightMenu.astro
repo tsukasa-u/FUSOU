@@ -12,75 +12,77 @@ const tocHeadings = headings.filter((heading) => heading.depth >= 2);
 ---
 
 <div class="sticky top-20">
-  <div class="max-h-[calc(100vh-6rem)] overflow-y-auto overflow-x-hidden pr-2 bg-base-100 rounded-xl border border-base-300/70 p-3">
-    <div class="flex items-center justify-between mb-2">
-      <h2 class="text-lg font-bold text-base-content">On this page</h2>
-      <span class="text-xs text-base-content/60">{tocHeadings.length} sections</span>
+  <div class="max-h-[calc(100vh-6rem)] overflow-y-auto overflow-x-hidden pr-2 scrollbar-thin">
+    <div class="flex items-center justify-between mb-3 pb-1 border-b border-base-300/40">
+      <span class="text-[11px] font-bold uppercase tracking-wider text-base-content/50">
+        On this page
+      </span>
+      <span class="text-[10px] font-medium px-1.5 py-0.5 rounded bg-base-200 text-base-content/60">
+        {tocHeadings.length}
+      </span>
     </div>
-    <div class="text-xs mb-3 flex gap-2">
-      <a href="#" class="link link-hover">Top</a>
-      <span class="text-base-content/40">/</span>
-      <a href="/docs" class="link link-hover">Docs index</a>
-    </div>
+
     {
       tocHeadings.length > 0 ? (
-        <nav aria-label="On this page">
-          <ul
-            class="space-y-1 text-sm text-base-content/70 font-semibold"
-          >
+        <nav aria-label="On this page navigation">
+          <ul class="border-l border-base-300/60 space-y-1 text-xs text-base-content/70">
             {
               tocHeadings.map((heading) => (
                 <li class={`heading-level-${heading.depth}`}>
-                  <a href={`#${heading.slug}`} class="toc-link" data-toc-link={heading.slug}>{heading.text}</a>
+                  <a
+                    href={`#${heading.slug}`}
+                    class="toc-link block py-1 px-2.5 transition-colors text-base-content/70 hover:text-base-content hover:bg-base-content/8 rounded"
+                    data-toc-link={heading.slug}
+                  >
+                    {heading.text}
+                  </a>
                 </li>
               ))
             }
           </ul>
         </nav>
       ) : (
-        <p class="text-sm text-base-content/65">No section headings</p>
+        <p class="text-xs text-base-content/50">No section headings</p>
       )
     }
+
+    <div class="mt-4 pt-3 border-t border-base-300/40 flex items-center justify-between text-xs text-base-content/60">
+      <a href="#" class="inline-flex items-center gap-1 hover-text-brand transition-colors">
+        <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="19" x2="12" y2="5"></line><polyline points="5 12 12 5 19 12"></polyline></svg>
+        <span>Back to top</span>
+      </a>
+      <a href="/docs" class="hover-text-brand transition-colors">
+        Docs Index
+      </a>
+    </div>
   </div>
 </div>
 
 <style>
-  .toc-link {
-    display: block;
-    white-space: normal;
-    word-break: break-word;
-    overflow-wrap: anywhere;
-    line-height: 1.35;
-    border-left: 2px solid transparent;
-    padding: 0.2rem 0.35rem 0.2rem 0.55rem;
-    border-radius: 0.35rem;
-    transition: background-color 0.15s ease, color 0.15s ease,
-      border-color 0.15s ease;
-  }
-
-  .toc-link:hover {
-    background: color-mix(in oklch, var(--color-base-content) 7%, transparent);
-    color: var(--color-base-content);
-  }
-
-  .toc-link.is-active {
-    border-left-color: var(--color-primary);
-    background: color-mix(in oklch, var(--color-primary) 13%, transparent);
-    color: var(--color-base-content);
-  }
-
   .heading-level-2 {
-    padding-left: 0rem;
+    padding-left: 0;
   }
-
   .heading-level-3 {
-    padding-left: 0.8rem;
+    padding-left: 0.75rem;
   }
-
   .heading-level-4,
   .heading-level-5,
   .heading-level-6 {
-    padding-left: 1.3rem;
+    padding-left: 1.25rem;
+  }
+
+  :global(.toc-link.is-active) {
+    color: var(--color-brand-text) !important;
+    font-weight: 600;
+    background: color-mix(in oklch, var(--color-primary) 12%, transparent);
+  }
+
+  .scrollbar-thin::-webkit-scrollbar {
+    width: 4px;
+  }
+  .scrollbar-thin::-webkit-scrollbar-thumb {
+    background: color-mix(in oklch, var(--color-base-content) 15%, transparent);
+    border-radius: 9999px;
   }
 </style>
 

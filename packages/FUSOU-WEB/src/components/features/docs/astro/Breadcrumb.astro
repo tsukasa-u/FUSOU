@@ -1,14 +1,37 @@
 ---
 const { entry } = Astro.props;
 const currentPath = Astro.url.pathname;
+const title = entry?.data?.title ?? "Document";
+
+// Extract section from slug if available
+const slugParts = (entry?.slug ?? "").split("/").filter(Boolean);
+const sectionName = slugParts.length > 1 ? slugParts[0] : null;
+const sectionLabel = sectionName ? sectionName.charAt(0).toUpperCase() + sectionName.slice(1) : null;
 ---
 
-<div class="flex flex-nowrap overflow-x-auto pb-1">
-  <div class="breadcrumbs text-sm">
-    <ul>
-      <li><a href="/">Home</a></li>
-      <li><a href="/docs">Docs Index</a></li>
-      <li><a href={currentPath}>{entry.data.title}</a></li>
-    </ul>
-  </div>
-</div>
+<nav aria-label="Breadcrumbs" class="mb-4 flex items-center text-xs text-base-content/60 overflow-x-auto whitespace-nowrap">
+  <ol class="flex items-center gap-1.5">
+    <li>
+      <a href="/" class="hover:text-primary transition-colors flex items-center gap-1">
+        <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path><polyline points="9 22 9 12 15 12 15 22"></polyline></svg>
+        <span>Home</span>
+      </a>
+    </li>
+    <li class="text-base-content/40">/</li>
+    <li>
+      <a href="/docs" class="hover:text-primary transition-colors">
+        Docs
+      </a>
+    </li>
+    {sectionLabel && (
+      <>
+        <li class="text-base-content/40">/</li>
+        <li class="text-base-content/75 font-medium">{sectionLabel}</li>
+      </>
+    )}
+    <li class="text-base-content/40">/</li>
+    <li class="text-base-content font-medium truncate max-w-[280px]" aria-current="page">
+      {title}
+    </li>
+  </ol>
+</nav>

@@ -1,13 +1,13 @@
 ---
+import type { MarkdownInstance } from "astro";
 import DocsLayout from "@/layouts/DocsLayout.astro";
 import { compareSegments } from "@/utils/page_sorter";
-import type { MarkdownInstance } from "astro";
 
-const rawDocs = import.meta.glob("@docs/**/*.md", {
+const rawPostsGlobResult = import.meta.glob("@docs/**/*.md", {
   eager: true,
 });
 const rawPosts = Object.values(
-  rawDocs
+  rawPostsGlobResult,
 ).reverse() as MarkdownInstance<Record<string, unknown>>[];
 
 const normalizeSlug = (value: unknown) =>
@@ -21,272 +21,281 @@ const formatSegment = (segment: string) =>
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join(" ");
 
-const docs = rawPosts
-  .map((doc) => {
-    const slug = normalizeSlug(doc.frontmatter?.["slug"]);
-    const segments = slug.split("/").filter(Boolean);
-    if (segments.length === 0) return null;
-
-    return {
-      slug,
-      segments,
-      title: doc.frontmatter?.["title"] ?? formatSegment(segments.at(-1)!),
-      description: doc.frontmatter?.["description"] ?? "",
-      url: `/docs/${slug}`,
-    };
-  })
-  .filter(Boolean) as {
+type DocItem = {
   slug: string;
-  segments: string[];
+  category: string;
+  categoryLabel: string;
+  categoryOrder: number;
+  categoryIcon: string;
   title: string;
   description: string;
   url: string;
+  tags?: string[];
   isExternal?: boolean;
-}[];
+};
 
-const docsWithSchema = [
-  {
-    slug: "schema/api-schema-explorer",
-    segments: ["schema", "api-schema-explorer"],
-    title: "API Schema Explorer",
-    description:
-      "Interactive visualization of kc-api database tables and API endpoint structures with ReactFlow.",
-    url: "/docs/api-schema",
-    isExternal: true,
+const CATEGORY_MAP: Record<
+  string,
+  { label: string; order: number; icon: string; description: string }
+> = {
+  start: {
+    label: "Getting Started",
+    order: 1,
+    icon: "rocket_launch",
+    description: "FUSOU の導入、概要、最初のセットアップガイド",
   },
+  formulas: {
+    label: "Formulas & Verification",
+    order: 2,
+    icon: "science",
+    description: "艦これ検証式の一次情報源、探索パイプライン、追試・倫理規定",
+  },
+  guide: {
+    label: "Guides & Features",
+    order: 3,
+    icon: "menu_book",
+    description: "API、アセット同期、CLI、ダッシュボードの機能解説",
+  },
+  schema: {
+    label: "API & Specifications",
+    order: 4,
+    icon: "schema",
+    description: "API スキーマ定義およびデータ構造リファレンス",
+  },
+  "design-system": {
+    label: "Design System",
+    order: 5,
+    icon: "palette",
+    description: "UI コンポーネントカタログとデザインプリミティブ",
+  },
+  policy: {
+    label: "Policies & Legal",
+    order: 6,
+    icon: "policy",
+    description: "著作権、引用指針、コミュニティ倫理ポリシー",
+  },
+};
+
+const docs: DocItem[] = rawPosts
+  .map((post) => {
+    const slug = normalizeSlug(post.frontmatter?.["slug"]);
+    const segments = slug.split("/").filter(Boolean);
+    if (segments.length === 0) return null;
+
+    const catKey = segments[0] || "other";
+    const catConfig = CATEGORY_MAP[catKey] ?? {
+      label: formatSegment(catKey),
+      order: 99,
+      icon: "article",
+      description: "",
+    };
+
+    return {
+      slug,
+      category: catKey,
+      categoryLabel: catConfig.label,
+      categoryOrder: catConfig.order,
+      categoryIcon: catConfig.icon,
+      title: (post.frontmatter?.["title"] as string) ?? formatSegment(segments.at(-1)!),
+      description: (post.frontmatter?.["description"] as string) ?? "",
+      url: `/docs/${slug}`,
+      tags: (post.frontmatter?.["tags"] as string[]) ?? [],
+    };
+  })
+  .filter(Boolean) as DocItem[];
+
+const allDocs: DocItem[] = [
   ...docs,
   {
+    slug: "schema/api-schema-explorer",
+    category: "schema",
+    categoryLabel: CATEGORY_MAP["schema"].label,
+    categoryOrder: CATEGORY_MAP["schema"].order,
+    categoryIcon: CATEGORY_MAP["schema"].icon,
+    title: "API Schema Explorer",
+    description: "インタラクティブな API スキーマビューアーと型定義",
+    url: "/docs/api-schema",
+    tags: ["api", "schema", "avro"],
+    isExternal: true,
+  },
+  {
     slug: "design-system/catalog",
-    segments: ["design-system", "catalog"],
-    title: "デザインシステムコンポーネントカタログ",
-    description:
-      "DESIGN.MD 準拠の UI 仕様、デザイントークン、カラーパレット、および各種 UI コンポーネントの一覧・実装仕様を確認できます。",
+    category: "design-system",
+    categoryLabel: CATEGORY_MAP["design-system"].label,
+    categoryOrder: CATEGORY_MAP["design-system"].order,
+    categoryIcon: CATEGORY_MAP["design-system"].icon,
+    title: "Component Catalog",
+    description: "FUSOU デザインシステムの UI コンポーネント一覧とプレビュー",
     url: "/design-system",
+    tags: ["ui", "components", "design"],
     isExternal: true,
   },
 ];
 
-type MenuNode = {
-  title: string;
-  url?: string;
-  description?: string;
-  isExternal?: boolean;
-  children: MenuNode[];
-};
+// Group by category
+const groupedCategories = Object.entries(CATEGORY_MAP)
+  .map(([key, config]) => {
+    const categoryDocs = allDocs
+      .filter((d) => d.category === key)
+      .sort((a, b) => compareSegments(a.slug.split("/"), b.slug.split("/")));
+    return {
+      key,
+      ...config,
+      docs: categoryDocs,
+    };
+  })
+  .filter((cat) => cat.docs.length > 0)
+  .sort((a, b) => a.order - b.order);
 
-type MutableMenuNode = {
-  segment: string;
-  title: string;
-  url?: string;
-  description?: string;
-  isExternal?: boolean;
-  children: Map<string, MutableMenuNode>;
-};
-
-const root = new Map<string, MutableMenuNode>();
-
-for (const entry of docsWithSchema) {
-  let current = root;
-  entry.segments.forEach((segment, index) => {
-    const isLeaf = index === entry.segments.length - 1;
-    if (!current.has(segment)) {
-      current.set(segment, {
-        segment,
-        title: isLeaf ? entry.title : formatSegment(segment),
-        children: new Map(),
-        ...(isLeaf
-          ? { url: entry.url, description: entry.description, isExternal: entry.isExternal }
-          : {}),
-      });
-    } else if (isLeaf) {
-      const node = current.get(segment)!;
-      node.title = entry.title;
-      node.url = entry.url;
-      node.description = entry.description;
-      if (entry.isExternal !== undefined) node.isExternal = entry.isExternal;
-    }
-    current = current.get(segment)!.children;
-  });
-}
-
-const compareDocsSegments = (a: MutableMenuNode, b: MutableMenuNode) => {
-  if (a.segment === "design-system") return 1;
-  if (b.segment === "design-system") return -1;
-  return compareSegments(a, b);
-};
-
-const mapToArray = (nodeMap: Map<string, MutableMenuNode>): MenuNode[] =>
-  Array.from(nodeMap.values())
-    .sort(compareDocsSegments)
-    .map((node) => ({
-      title: node.title,
-      ...(node.url === undefined ? {} : { url: node.url }),
-      ...(node.description === undefined
-        ? {}
-        : { description: node.description }),
-      ...(node.isExternal ? { isExternal: true } : {}),
-      children: mapToArray(node.children),
-    }));
-
-const menuTree = mapToArray(root);
-const topLevelSections = menuTree.length;
-const totalDocs = docsWithSchema.length;
-const quickLinks = docsWithSchema.map((doc) => ({
-    title: doc.title,
-    description: doc.description,
-    url: doc.url,
-    isExternal: doc.isExternal,
-  }));
-const suggestedQuickLinks = quickLinks.slice(0, 8);
-
-const escapeHtml = (value: string) =>
-  value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
-
-const sanitizeDocsUrl = (value: string | undefined): string | null => {
-  if (!value) return null;
-  if (value === "/design-system") return "/design-system";
-  if (!value.startsWith("/docs/")) return null;
-  const slug = value.slice("/docs/".length);
-  const safeSlug = slug
-    .split("/")
-    .filter(Boolean)
-    .map((segment) => encodeURIComponent(segment))
-    .join("/");
-  return safeSlug ? `/docs/${safeSlug}` : "/docs";
-};
-
-const externalIconSvg = `<svg xmlns="http://www.w3.org/2000/svg" class="inline-block w-4 h-4 ml-1.5 shrink-0 opacity-70 -translate-y-px" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>`;
-
-const renderMenuHtml = (
-  nodes: MenuNode[],
-  depth: number,
-  maxDepth: number,
-): string =>
-  nodes
-    .map((node) => {
-      const safeUrl = sanitizeDocsUrl(node.url);
-      const icon = node.isExternal ? externalIconSvg : "";
-      const label = safeUrl
-        ? `<div class="space-y-${maxDepth / depth}"><a href="${escapeHtml(safeUrl)}" class="inline-flex items-center rounded-md px-1 text-lg font-semibold text-sky-600 transition-colors hover:bg-sky-500/10 hover:text-sky-500 hover:underline break-words"><span>${escapeHtml(
-            node.title,
-          )}</span>${icon}</a>${
-            node.description
-              ? `<p class="text-sm text-base-content/70">${escapeHtml(node.description)}</p>`
-              : ""
-          }</div>`
-        : `<span class="text-xl font-bold pl-2 tracking-wide text-base-content/80">${escapeHtml(
-            node.title,
-          )}</span>`;
-      const children = node.children.length
-        ? `<ul class="ml-3 border-base-300 pl-4 space-y-${maxDepth / depth}">${renderMenuHtml(
-            node.children,
-            depth * 2,
-            maxDepth,
-          )}</ul>`
-        : "";
-      return `<li class="space-y-${maxDepth / depth}">${label}${children}</li>`;
-    })
-    .join("");
-
-const menuHtml = renderMenuHtml(menuTree, 2, 4);
+const totalDocsCount = allDocs.length;
+const totalCategoriesCount = groupedCategories.length;
 ---
 
-<DocsLayout title="FUSOU Documentation" description="FUSOU ドキュメントインデックス">
-  <div>
-    <section class="rounded-xl border border-base-300/70 bg-base-100 p-5 sm:p-6">
-      <h1 class="text-3xl font-bold text-base-content">
-        Documentation Index
+<DocsLayout title="Documentation Index - FUSOU" description="FUSOU ドキュメントインデックス">
+  <div class="space-y-10">
+    <!-- Hero Header -->
+    <section class="relative overflow-hidden rounded-2xl border border-base-300/70 bg-gradient-to-b from-base-100 to-base-200/40 p-6 sm:p-8">
+      <div class="flex flex-wrap items-center gap-2 mb-3">
+        <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-semibold bg-primary/10 text-primary">
+          <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path></svg>
+          Documentation Index
+        </span>
+        <span class="text-xs text-base-content/50">•</span>
+        <span class="text-xs text-base-content/60 font-medium">{totalDocsCount} documents across {totalCategoriesCount} sections</span>
+      </div>
+
+      <h1 class="text-3xl sm:text-4xl font-extrabold text-base-content tracking-tight">
+        FUSOU Documentation
       </h1>
-      <p class="mt-2 text-base text-base-content/80 max-w-[70ch]">
-        Browse every guide, quick start, and reference entry grouped by hierarchy.
-        Start from the left menu if you know the category, or jump from the links below.
+      <p class="mt-3 text-base sm:text-lg text-base-content/70 max-w-[70ch] leading-relaxed">
+        艦これデータ検証、シミュレーションエンジン、API、および FUSOU エコシステムの全ドキュメント一覧です。
       </p>
-      <div class="mt-4 flex flex-wrap gap-2 text-sm">
-        <span class="rounded-full border border-base-300 px-3 py-1 text-base-content/75">{totalDocs} documents</span>
-        <span class="rounded-full border border-base-300 px-3 py-1 text-base-content/75">{topLevelSections} top-level sections</span>
+
+      <!-- Search Input -->
+      <div class="mt-6 max-w-xl">
+        <div class="relative">
+          <svg xmlns="http://www.w3.org/2000/svg" class="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-base-content/45 pointer-events-none" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+          <input
+            id="docs-index-search"
+            type="search"
+            placeholder="Search by title, topic, or keyword (e.g., formula, api, night battle)..."
+            class="w-full pl-10 pr-4 py-2.5 rounded-xl border border-base-300 bg-base-100 text-sm text-base-content placeholder:text-base-content/45 focus:border-primary focus:ring-2 focus:ring-primary/20 transition-all shadow-sm"
+          />
+        </div>
+        <p id="search-status" class="mt-2 text-xs text-base-content/55 hidden"></p>
       </div>
     </section>
-    <ul class="mt-6 bg-base-100 rounded-xl border border-base-300/70 py-6 px-4 sm:px-6 space-y-8" set:html={menuHtml} />
-  </div>
-  <div slot="right-aside" class="max-h-[calc(100vh-9.5rem)] pr-2">
-    <section class="rounded-xl border border-base-300/70 bg-base-100 p-4">
-      <div class="flex flex-wrap items-center justify-between gap-2">
-        <h2 class="text-base font-semibold text-base-content">Quick search</h2>
-        <span id="docs-search-hint" class="text-xs text-base-content/60">Suggested pages</span>
-      </div>
-      <label class="input input-bordered mt-3 flex items-center gap-2 w-full">
-        <span class="text-base-content/55">Search</span>
-        <input
-          id="docs-search-input"
-          type="text"
-          class="grow"
-          placeholder="e.g. auth, battle, schema"
-        />
-      </label>
-      <ul id="docs-quick-links" class="mt-3 space-y-2 max-h-[calc(100vh-18rem)] overflow-y-auto overflow-x-hidden pr-1">
-        {
-          quickLinks.map((item) => (
-            <li
-              data-doc-item
-              data-title={item.title.toLowerCase()}
-              data-description={item.description.toLowerCase()}
-              data-suggested={suggestedQuickLinks.some((suggested) => suggested.url === item.url) ? "true" : "false"}
-            >
-              <a href={item.url} class="block rounded-lg border border-base-300/70 bg-base-100 px-3 py-2 hover:bg-base-200/60 transition-colors">
-                <p class="text-sm font-semibold text-base-content flex items-center justify-between gap-1">
-                  <span class="truncate">{item.title}</span>
-                  {item.isExternal && (
-                    <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5 text-base-content/50 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                      <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path>
-                      <polyline points="15 3 21 3 21 9"></polyline>
-                      <line x1="10" y1="14" x2="21" y2="3"></line>
-                    </svg>
+
+    <!-- Category Sections -->
+    <div id="docs-categories-container" class="space-y-10">
+      {
+        groupedCategories.map((cat) => (
+          <section class="doc-category-section" data-category={cat.key}>
+            <div class="flex items-center gap-2 mb-2 pb-2 border-b border-base-300/60">
+              <h2 class="text-lg sm:text-xl font-bold text-base-content flex items-center gap-2">
+                <span>{cat.label}</span>
+                <span class="text-xs font-semibold px-2 py-0.5 rounded-full bg-base-300/60 text-base-content/70">
+                  {cat.docs.length}
+                </span>
+              </h2>
+            </div>
+            {cat.description && (
+              <p class="text-xs sm:text-sm text-base-content/65 mb-4">{cat.description}</p>
+            )}
+
+            <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3.5">
+              {cat.docs.map((doc) => (
+                <a
+                  href={doc.url}
+                  class="doc-card group relative flex flex-col justify-between p-4 rounded-xl border border-base-300/70 bg-base-100/80 hover:bg-base-100 hover:border-primary/70 hover:shadow-sm hover:shadow-md transition-all"
+                  data-doc-card
+                  data-title={doc.title.toLowerCase()}
+                  data-desc={doc.description.toLowerCase()}
+                  data-tags={(doc.tags || []).join(" ").toLowerCase()}
+                >
+                  <div>
+                    <div class="flex items-start justify-between gap-2">
+                      <h3 class="text-sm font-bold text-base-content group-hover-text-brand transition-colors leading-snug">
+                        {doc.title}
+                      </h3>
+                      {doc.isExternal ? (
+                        <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5 text-base-content/40 shrink-0 mt-0.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>
+                      ) : (
+                        <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5 text-base-content/30 group-hover-text-brand group-hover:translate-x-0.5 shrink-0 mt-0.5 transition-all" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"></line><polyline points="12 5 19 12 12 19"></polyline></svg>
+                      )}
+                    </div>
+                    {doc.description && (
+                      <p class="mt-2 text-xs text-base-content/65 line-clamp-2 leading-relaxed">
+                        {doc.description}
+                      </p>
+                    )}
+                  </div>
+
+                  {doc.tags && doc.tags.length > 0 && (
+                    <div class="mt-3.5 pt-2.5 border-t border-base-300/40 flex flex-wrap gap-1">
+                      {doc.tags.slice(0, 3).map((tag) => (
+                        <span class="text-[10px] px-1.5 py-0.5 rounded bg-base-200 text-base-content/60 font-medium">
+                          #{tag}
+                        </span>
+                      ))}
+                    </div>
                   )}
-                </p>
-                {item.description && (
-                  <p class="text-xs text-base-content/65 mt-0.5 line-clamp-2">{item.description}</p>
-                )}
-              </a>
-            </li>
-          ))
-        }
-      </ul>
-      <p id="docs-search-empty" class="hidden mt-2 text-sm text-base-content/65">No matches found.</p>
-    </section>
+                </a>
+              ))}
+            </div>
+          </section>
+        ))
+      }
+    </div>
+
+    <!-- Empty search message -->
+    <div id="docs-search-none" class="hidden text-center py-12 rounded-xl border border-dashed border-base-300 p-8">
+      <svg xmlns="http://www.w3.org/2000/svg" class="w-10 h-10 mx-auto text-base-content/30 mb-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+      <p class="text-sm font-semibold text-base-content">No documents match your query</p>
+      <p class="text-xs text-base-content/60 mt-1">Try searching for a different keyword or browse by category in the sidebar.</p>
+    </div>
   </div>
 </DocsLayout>
 
 <script is:inline>
-  const input = document.getElementById("docs-search-input");
-  const hint = document.getElementById("docs-search-hint");
-  const items = Array.from(document.querySelectorAll("[data-doc-item]"));
-  const empty = document.getElementById("docs-search-empty");
+  const searchInput = document.getElementById("docs-index-search");
+  const searchStatus = document.getElementById("search-status");
+  const cards = Array.from(document.querySelectorAll("[data-doc-card]"));
+  const sections = Array.from(document.querySelectorAll(".doc-category-section"));
+  const emptyState = document.getElementById("docs-search-none");
 
-  const updateFilter = () => {
-    const q = (input?.value || "").trim().toLowerCase();
-    const hasQuery = q.length > 0;
-    if (hint) {
-      hint.textContent = hasQuery ? "Matching results" : "Suggested pages";
-    }
-    let visible = 0;
-    items.forEach((item) => {
-      const t = item.getAttribute("data-title") || "";
-      const d = item.getAttribute("data-description") || "";
-      const isSuggested = item.getAttribute("data-suggested") === "true";
-      const match = hasQuery ? t.includes(q) || d.includes(q) : isSuggested;
-      item.classList.toggle("hidden", !match);
-      if (match) visible += 1;
+  const filterDocs = () => {
+    const q = (searchInput?.value || "").trim().toLowerCase();
+    let totalVisible = 0;
+
+    cards.forEach((card) => {
+      const title = card.getAttribute("data-title") || "";
+      const desc = card.getAttribute("data-desc") || "";
+      const tags = card.getAttribute("data-tags") || "";
+      const match = !q || title.includes(q) || desc.includes(q) || tags.includes(q);
+      card.classList.toggle("hidden", !match);
+      if (match) totalVisible += 1;
     });
-    if (empty) {
-      empty.classList.toggle("hidden", !hasQuery || visible > 0);
+
+    // Toggle category sections if they have no visible cards
+    sections.forEach((sec) => {
+      const visibleCards = sec.querySelectorAll("[data-doc-card]:not(.hidden)");
+      sec.classList.toggle("hidden", visibleCards.length === 0);
+    });
+
+    if (emptyState) {
+      emptyState.classList.toggle("hidden", totalVisible > 0);
+    }
+
+    if (searchStatus) {
+      if (q) {
+        searchStatus.textContent = `Found ${totalVisible} document${totalVisible === 1 ? "" : "s"} matching "${q}"`;
+        searchStatus.classList.remove("hidden");
+      } else {
+        searchStatus.classList.add("hidden");
+      }
     }
   };
 
-  input?.addEventListener("input", updateFilter);
-  updateFilter();
+  searchInput?.addEventListener("input", filterDocs);
 </script>
