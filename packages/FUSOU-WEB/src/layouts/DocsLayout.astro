@@ -62,7 +62,7 @@ if (entry?.data?.contributors) {
   authors = rawAuthors.filter(Boolean);
 }
 
-const currentSlug = (Astro.params?.slug as string) ?? entry?.id ?? entry?.slug;
+const currentSlug = (Astro.params["slug"] as string | undefined) ?? entry?.id ?? entry?.slug;
 
 if (currentSlug) {
   const allDocs = await getCollection("docs");
@@ -72,7 +72,7 @@ if (currentSlug) {
       title: d.data?.title,
     }))
     .filter((d: any) => d.slug && d.title)
-    .sort((a: any, b: any) => compareSegments(a.slug.split("/"), b.slug.split("/")));
+    .sort((a: any, b: any) => compareSegments({ segment: (a.slug || "").split("/").pop() ?? "" }, { segment: (b.slug || "").split("/").pop() ?? "" }));
 
   const normalizedCurrent = currentSlug.replace(/\.md$/, "");
   const currentIndex = sortedDocs.findIndex((d: any) => d.slug === normalizedCurrent);

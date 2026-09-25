@@ -104,14 +104,17 @@ const docs: DocItem[] = rawPosts
   })
   .filter(Boolean) as DocItem[];
 
+const schemaCategory = CATEGORY_MAP["schema"]!;
+const designSystemCategory = CATEGORY_MAP["design-system"]!;
+
 const allDocs: DocItem[] = [
   ...docs,
   {
     slug: "schema/api-schema-explorer",
     category: "schema",
-    categoryLabel: CATEGORY_MAP["schema"].label,
-    categoryOrder: CATEGORY_MAP["schema"].order,
-    categoryIcon: CATEGORY_MAP["schema"].icon,
+    categoryLabel: schemaCategory.label,
+    categoryOrder: schemaCategory.order,
+    categoryIcon: schemaCategory.icon,
     title: "API Schema Explorer",
     description: "インタラクティブな API スキーマビューアーと型定義",
     url: "/docs/api-schema",
@@ -121,9 +124,9 @@ const allDocs: DocItem[] = [
   {
     slug: "design-system/catalog",
     category: "design-system",
-    categoryLabel: CATEGORY_MAP["design-system"].label,
-    categoryOrder: CATEGORY_MAP["design-system"].order,
-    categoryIcon: CATEGORY_MAP["design-system"].icon,
+    categoryLabel: designSystemCategory.label,
+    categoryOrder: designSystemCategory.order,
+    categoryIcon: designSystemCategory.icon,
     title: "Component Catalog",
     description: "FUSOU デザインシステムの UI コンポーネント一覧とプレビュー",
     url: "/design-system",
@@ -137,7 +140,7 @@ const groupedCategories = Object.entries(CATEGORY_MAP)
   .map(([key, config]) => {
     const categoryDocs = allDocs
       .filter((d) => d.category === key)
-      .sort((a, b) => compareSegments(a.slug.split("/"), b.slug.split("/")));
+      .sort((a, b) => compareSegments({ segment: a.slug.split("/").pop() ?? "" }, { segment: b.slug.split("/").pop() ?? "" }));
     return {
       key,
       ...config,

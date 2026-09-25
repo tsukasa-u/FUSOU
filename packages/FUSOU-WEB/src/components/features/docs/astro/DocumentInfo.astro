@@ -36,7 +36,7 @@ const safeExternalHttpUrl = (value?: string): string | undefined => {
         Contributors: &nbsp;&nbsp;
       </h3>
       <ul class="list-none p-0 m-0 flex flex-row gap-4 flex-wrap">
-        {contributors.filter(c => c && c.data).map(
+        {contributors.filter((c: any) => c && c.data).map(
           (contributor: {
             data: {
               github_avatar?: string;
