@@ -11,6 +11,7 @@ import {
 } from "./test-deployment-target.mjs";
 import {
   TEST_WORKER_PUBLIC_INPUTS,
+  TEST_WORKER_SENSITIVE_INPUTS,
   workerSecretBundleForTest,
 } from "./deployment-contract.mjs";
 
@@ -27,6 +28,17 @@ const REQUIRED_PUBLIC_INPUTS = TEST_WORKER_PUBLIC_INPUTS.main.filter((name) => !
   "TLSN_TEST_DEVICE_ID",
   "TLSN_TEST_DEVICE_PUBLIC_KEY",
   "TLSN_TEST_WORKER_NAME",
+  "TLSN_TEST_BINDING_VALUE",
+  "TLSN_TEST_BINDING_VALUES",
+  "TLSN_TEST_COMPLETION_DELAY_MS",
+  "TLSN_TEST_COMPLETION_DELAY_ONCE",
+  "TLSN_TEST_VERIFICATION_LEASE_MS",
+  "TLSN_TEST_POST_RESULT_DELAY_MS",
+  "TLSN_TEST_POST_RESULT_DELAY_ONCE",
+  "TLSN_TEST_DIRECT_INVOCATION_TIMEOUT_MS",
+  "TLSN_TEST_DIRECT_VERIFIER_MODE",
+  "TLSN_TEST_DIRECT_VERIFIER_DELAY_MS",
+  "TLSN_TEST_DIRECT_SYNCHRONOUS_CANDIDATE",
   "TLSN_RESULT_PUBLIC_KEY_SPKI",
   "TLSN_RESULT_SIGNER_KEY_ID",
   "TLSN_RESULT_SIGNING_KEY_REGISTRY",
@@ -244,7 +256,7 @@ async function main() {
     [deployArguments, "main"],
     [verifierDeployArguments, "verifier"],
   ]) {
-    for (const name of TEST_WORKER_PUBLIC_INPUTS[worker]) {
+    for (const name of [...TEST_WORKER_PUBLIC_INPUTS[worker], ...TEST_WORKER_SENSITIVE_INPUTS[worker]]) {
       const value = deploymentEnvironment[name];
       if (value !== undefined && value !== "") {
         argumentsList.push("--var", `${name}:${value}`);
@@ -256,7 +268,7 @@ async function main() {
   const mainSecretsPath = join(secretDirectory, "main-secrets.json");
   const verifierSecretsPath = join(secretDirectory, "verifier-secrets.json");
   try {
-    await writeFile(mainSecretsPath, JSON.stringify(workerSecretBundleForTest("main", deploymentEnvironment)), { encoding: "utf8", mode: 0o600 });
+    await writeFile(mainSecretsPath, JSON.stringify(workerSecretBundleForTest("main", deploymentEnvironment, executionMode)), { encoding: "utf8", mode: 0o600 });
     deployArguments.push("--secrets-file", mainSecretsPath);
     const childEnvironment = {
       PATH: process.env.PATH,
@@ -265,7 +277,7 @@ async function main() {
       ...(cloudflareAccountId ? { CLOUDFLARE_ACCOUNT_ID: cloudflareAccountId } : {}),
     };
     if (directMode) {
-      await writeFile(verifierSecretsPath, JSON.stringify(workerSecretBundleForTest("verifier", deploymentEnvironment)), { encoding: "utf8", mode: 0o600 });
+      await writeFile(verifierSecretsPath, JSON.stringify(workerSecretBundleForTest("verifier", deploymentEnvironment, executionMode)), { encoding: "utf8", mode: 0o600 });
       verifierDeployArguments.push("--secrets-file", verifierSecretsPath);
       run("pnpm", verifierDeployArguments, childEnvironment);
     }

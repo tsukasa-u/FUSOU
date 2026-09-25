@@ -10,6 +10,8 @@ import {
   PRODUCTION_INPUTS,
   PRODUCTION_EVIDENCE_INPUTS,
   PRODUCTION_GATE_INPUTS,
+  PRODUCTION_PUBLIC_INPUTS,
+  PRODUCTION_SENSITIVE_INPUTS,
   PRODUCTION_SECRET_INPUTS,
   REMOTE_ATTESTATION_SECRET_INPUTS,
   TEST_ONLY_INPUTS,
@@ -146,6 +148,8 @@ async function main() {
   const canaryInputs = Array.isArray(inputManifest.canary_inputs) ? inputManifest.canary_inputs : [];
   const productionInputs = Array.isArray(inputManifest.production_inputs) ? inputManifest.production_inputs : [];
   const productionEvidenceInputs = Array.isArray(inputManifest.production_evidence_inputs) ? inputManifest.production_evidence_inputs : [];
+  const productionPublicInputs = Array.isArray(inputManifest.production_public_inputs) ? inputManifest.production_public_inputs : [];
+  const productionSensitiveInputs = Array.isArray(inputManifest.production_sensitive_inputs) ? inputManifest.production_sensitive_inputs : [];
   const canarySecrets = Array.isArray(inputManifest.canary_secret_inputs) ? inputManifest.canary_secret_inputs : [];
   const productionSecrets = Array.isArray(inputManifest.production_secret_inputs) ? inputManifest.production_secret_inputs : [];
   if (
@@ -155,6 +159,8 @@ async function main() {
     JSON.stringify(workflowEvidenceInputs) !== JSON.stringify(WORKFLOW_EVIDENCE_INPUTS) ||
     JSON.stringify(canaryInputs) !== JSON.stringify(CANARY_INPUTS) ||
     JSON.stringify(productionInputs) !== JSON.stringify(PRODUCTION_INPUTS) ||
+    JSON.stringify(productionPublicInputs) !== JSON.stringify(PRODUCTION_PUBLIC_INPUTS) ||
+    JSON.stringify(productionSensitiveInputs) !== JSON.stringify(PRODUCTION_SENSITIVE_INPUTS) ||
     JSON.stringify(productionEvidenceInputs) !== JSON.stringify(PRODUCTION_EVIDENCE_INPUTS) ||
     JSON.stringify(canarySecrets) !== JSON.stringify(CANARY_SECRET_INPUTS) ||
     JSON.stringify(productionSecrets) !== JSON.stringify(PRODUCTION_SECRET_INPUTS) ||

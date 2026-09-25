@@ -145,6 +145,22 @@ export const PRODUCTION_SECRET_INPUTS = [
   "TLSN_PRODUCTION_TRIGGER_CALLBACK_SECRET",
 ];
 
+export const PRODUCTION_SENSITIVE_INPUTS = [
+  "TLSN_PRODUCTION_DEPLOYMENT_ID",
+  "TLSN_PRODUCTION_ORIGIN_PORT",
+  "TLSN_PRODUCTION_WORKER_NAME",
+  "TLSN_PRODUCTION_WORKER_INTERNAL_URL",
+];
+
+export const PRODUCTION_PUBLIC_INPUTS = PRODUCTION_INPUTS.filter(
+  (name) => !PRODUCTION_SENSITIVE_INPUTS.includes(name),
+);
+
+export const PRODUCTION_DECLARED_INPUTS = [
+  ...PRODUCTION_INPUTS,
+  ...PRODUCTION_SECRET_INPUTS,
+];
+
 export const PRODUCTION_EVIDENCE_PUBLIC_INPUTS = [
   "TLSN_PRODUCTION_NOTARY_REGISTRY",
   "TLSN_PRODUCTION_EVIDENCE_WORKER_URL",
@@ -220,36 +236,6 @@ export const CANARY_WORKER_PUBLIC_INPUTS = {
   ],
 };
 
-export const CANARY_WORKER_SECRET_CONTRACT = {
-  bootstrap: [],
-  main: [
-    "TLSN_CANARY_RESULT_SIGNING_PRIVATE_KEY_PKCS8",
-    "TLSN_CANARY_SESSION_AUTHORITY_SIGNING_PRIVATE_KEY_PKCS8",
-    "TLSN_CANARY_BINDING_AUTHORITY_SIGNING_PRIVATE_KEY_PKCS8",
-    "TLSN_CANARY_BINDING_VALUE",
-    "TLSN_CANARY_TRIGGER_SECRET_KEY",
-    "TLSN_CANARY_TRIGGER_CALLBACK_SECRET",
-  ],
-  verifier: [
-    "TLSN_CANARY_RESULT_SIGNING_PRIVATE_KEY_PKCS8",
-    "TLSN_CANARY_SESSION_AUTHORITY_SIGNING_PRIVATE_KEY_PKCS8",
-    "TLSN_CANARY_BINDING_AUTHORITY_SIGNING_PRIVATE_KEY_PKCS8",
-    "TLSN_CANARY_DIRECT_CALLBACK_SECRET",
-  ],
-};
-
-export function workerSecretBundleForCanary(worker, environment) {
-  const names = CANARY_WORKER_SECRET_CONTRACT[worker];
-  if (!names) throw new Error(`unsupported Canary Worker secret contract: ${worker}`);
-  return Object.fromEntries(names.map((name) => {
-    const value = environment[name];
-    if (typeof value !== "string" || value.length === 0) {
-      throw new Error(`missing Canary Worker secret: ${name}`);
-    }
-    return [name, value];
-  }));
-}
-
 export const EVIDENCE_WORKER_PUBLIC_INPUTS = {
   bootstrap: [],
   main: [
@@ -271,19 +257,24 @@ export const EVIDENCE_WORKER_PUBLIC_INPUTS = {
     "TLSN_BINDING_AUTHORITY_KEY_REGISTRY",
     "TLSN_DEVICE_AUTH_URL",
     "TLSN_DEVICE_POSSESSION_AUTH_URL",
-    "TLSN_TEST_DEVICE_ID",
-    "TLSN_TEST_DEVICE_PUBLIC_KEY",
+    "TLSN_TEST_BINDING_VALUE",
+    "TLSN_TEST_BINDING_VALUES",
     "TLSN_SUPABASE_URL",
     "TLSN_SUPABASE_PUBLISHABLE_KEY",
     "TLSN_EXECUTION_MODE",
     "TLSN_TRIGGER_API_URL",
     "TLSN_TRIGGER_TASK_ID",
     "TLSN_BENCHMARK_TIMINGS",
+    "TLSN_TEST_COMPLETION_DELAY_MS",
+    "TLSN_TEST_COMPLETION_DELAY_ONCE",
+    "TLSN_TEST_VERIFICATION_LEASE_MS",
+    "TLSN_TEST_POST_RESULT_DELAY_MS",
+    "TLSN_TEST_POST_RESULT_DELAY_ONCE",
+    "TLSN_TEST_DIRECT_INVOCATION_TIMEOUT_MS",
     "TLSN_TEST_DIRECT_SYNCHRONOUS_CANDIDATE",
     "TLSN_RESULT_PUBLIC_KEY_SPKI",
     "TLSN_RESULT_SIGNER_KEY_ID",
     "TLSN_RESULT_SIGNING_KEY_REGISTRY",
-    "TLSN_TEST_WORKER_NAME",
     "TLSN_TRUST_ROOT_CERTIFICATE_DER",
   ],
   verifier: [
@@ -304,6 +295,13 @@ export const EVIDENCE_WORKER_PUBLIC_INPUTS = {
     "TLSN_BINDING_AUTHORITY_KEY_ID",
     "TLSN_BINDING_AUTHORITY_KEY_REGISTRY",
     "TLSN_BENCHMARK_TIMINGS",
+    "TLSN_TEST_COMPLETION_DELAY_MS",
+    "TLSN_TEST_COMPLETION_DELAY_ONCE",
+    "TLSN_TEST_VERIFICATION_LEASE_MS",
+    "TLSN_TEST_POST_RESULT_DELAY_MS",
+    "TLSN_TEST_POST_RESULT_DELAY_ONCE",
+    "TLSN_TEST_DIRECT_VERIFIER_MODE",
+    "TLSN_TEST_DIRECT_VERIFIER_DELAY_MS",
     "TLSN_RESULT_PUBLIC_KEY_SPKI",
     "TLSN_RESULT_SIGNER_KEY_ID",
     "TLSN_RESULT_SIGNING_KEY_REGISTRY",
@@ -311,52 +309,28 @@ export const EVIDENCE_WORKER_PUBLIC_INPUTS = {
   ],
 };
 
-const EVIDENCE_SHARED_SECRET_INPUTS = [
-  "TLSN_RESULT_SIGNING_PRIVATE_KEY_PKCS8",
-  "TLSN_SESSION_AUTHORITY_SIGNING_PRIVATE_KEY_PKCS8",
-  "TLSN_BINDING_AUTHORITY_SIGNING_PRIVATE_KEY_PKCS8",
+export const EVIDENCE_WORKER_SENSITIVE_INPUTS = {
+  bootstrap: [],
+  main: ["TLSN_TEST_DEVICE_ID", "TLSN_TEST_DEVICE_PUBLIC_KEY"],
+  verifier: [],
+};
+
+export const TEST_WORKER_SENSITIVE_INPUTS = {
+  main: ["TLSN_TEST_WORKER_NAME", "TLSN_TEST_DEVICE_ID", "TLSN_TEST_DEVICE_PUBLIC_KEY"],
+  verifier: [],
+};
+
+const TEST_PUBLIC_CONFIGURATION_INPUTS = [
+  "TLSN_TEST_BINDING_VALUE",
+  "TLSN_TEST_BINDING_VALUES",
   "TLSN_TEST_COMPLETION_DELAY_MS",
   "TLSN_TEST_COMPLETION_DELAY_ONCE",
   "TLSN_TEST_VERIFICATION_LEASE_MS",
   "TLSN_TEST_POST_RESULT_DELAY_MS",
   "TLSN_TEST_POST_RESULT_DELAY_ONCE",
+  "TLSN_TEST_DIRECT_INVOCATION_TIMEOUT_MS",
+  "TLSN_TEST_DIRECT_SYNCHRONOUS_CANDIDATE",
 ];
-
-export const EVIDENCE_WORKER_SECRET_CONTRACT = {
-  bootstrap: [],
-  main: [
-    ...EVIDENCE_SHARED_SECRET_INPUTS,
-    "TLSN_TEST_AUTH_USERS",
-    "TLSN_TEST_BINDING_VALUE",
-    "TLSN_TEST_BINDING_VALUES",
-    "TLSN_TEST_DIRECT_INVOCATION_TIMEOUT_MS",
-  ],
-  verifier: [
-    ...EVIDENCE_SHARED_SECRET_INPUTS,
-    "TLSN_DIRECT_CALLBACK_SECRET",
-    "TLSN_TEST_DIRECT_VERIFIER_MODE",
-    "TLSN_TEST_DIRECT_VERIFIER_DELAY_MS",
-  ],
-};
-
-export function workerSecretBundleForEvidence(worker, environment) {
-  const names = EVIDENCE_WORKER_SECRET_CONTRACT[worker];
-  if (!names) throw new Error(`unsupported Evidence Worker secret contract: ${worker}`);
-  const requiredNames = worker === "bootstrap"
-    ? []
-    : [
-      ...EVIDENCE_SHARED_SECRET_INPUTS.slice(0, 3),
-      ...(worker === "verifier" ? ["TLSN_DIRECT_CALLBACK_SECRET"] : []),
-    ];
-  for (const name of requiredNames) {
-    if (typeof environment[name] !== "string" || environment[name].length === 0) {
-      throw new Error(`missing Evidence Worker secret: ${name}`);
-    }
-  }
-  return Object.fromEntries(names
-    .filter((name) => environment[name] !== undefined)
-    .map((name) => [name, environment[name]]));
-}
 
 export const TEST_WORKER_PUBLIC_INPUTS = {
   main: [
@@ -377,20 +351,17 @@ export const TEST_WORKER_PUBLIC_INPUTS = {
     "TLSN_BINDING_AUTHORITY_KEY_REGISTRY",
     "TLSN_DEVICE_AUTH_URL",
     "TLSN_DEVICE_POSSESSION_AUTH_URL",
-    "TLSN_TEST_DEVICE_ID",
-    "TLSN_TEST_DEVICE_PUBLIC_KEY",
     "TLSN_SUPABASE_URL",
     "TLSN_SUPABASE_PUBLISHABLE_KEY",
     "TLSN_EXECUTION_MODE",
     "TLSN_TRIGGER_API_URL",
     "TLSN_TRIGGER_TASK_ID",
     "TLSN_BENCHMARK_TIMINGS",
-    "TLSN_TEST_DIRECT_SYNCHRONOUS_CANDIDATE",
     "TLSN_RESULT_PUBLIC_KEY_SPKI",
     "TLSN_RESULT_SIGNER_KEY_ID",
     "TLSN_RESULT_SIGNING_KEY_REGISTRY",
-    "TLSN_TEST_WORKER_NAME",
     "TLSN_TRUST_ROOT_CERTIFICATE_DER",
+    ...TEST_PUBLIC_CONFIGURATION_INPUTS,
   ],
   verifier: [
     "TLSN_ENVIRONMENT",
@@ -409,6 +380,13 @@ export const TEST_WORKER_PUBLIC_INPUTS = {
     "TLSN_BINDING_AUTHORITY_KEY_ID",
     "TLSN_BINDING_AUTHORITY_KEY_REGISTRY",
     "TLSN_BENCHMARK_TIMINGS",
+    "TLSN_TEST_COMPLETION_DELAY_MS",
+    "TLSN_TEST_COMPLETION_DELAY_ONCE",
+    "TLSN_TEST_VERIFICATION_LEASE_MS",
+    "TLSN_TEST_POST_RESULT_DELAY_MS",
+    "TLSN_TEST_POST_RESULT_DELAY_ONCE",
+    "TLSN_TEST_DIRECT_VERIFIER_MODE",
+    "TLSN_TEST_DIRECT_VERIFIER_DELAY_MS",
     "TLSN_RESULT_PUBLIC_KEY_SPKI",
     "TLSN_RESULT_SIGNER_KEY_ID",
     "TLSN_RESULT_SIGNING_KEY_REGISTRY",
@@ -416,42 +394,177 @@ export const TEST_WORKER_PUBLIC_INPUTS = {
   ],
 };
 
-const TEST_SHARED_SECRET_INPUTS = [
+const REQUIRED_SIGNING_SECRETS = [
   "TLSN_RESULT_SIGNING_PRIVATE_KEY_PKCS8",
   "TLSN_SESSION_AUTHORITY_SIGNING_PRIVATE_KEY_PKCS8",
   "TLSN_BINDING_AUTHORITY_SIGNING_PRIVATE_KEY_PKCS8",
-  "TLSN_TEST_COMPLETION_DELAY_MS",
-  "TLSN_TEST_COMPLETION_DELAY_ONCE",
-  "TLSN_TEST_VERIFICATION_LEASE_MS",
-  "TLSN_TEST_POST_RESULT_DELAY_MS",
-  "TLSN_TEST_POST_RESULT_DELAY_ONCE",
 ];
 
-export const TEST_WORKER_SECRET_CONTRACT = {
-  main: [
-    ...TEST_SHARED_SECRET_INPUTS,
-    "TLSN_TEST_AUTH_USERS",
-    "TLSN_TEST_BINDING_VALUE",
-    "TLSN_TEST_BINDING_VALUES",
-    "TLSN_TRIGGER_SECRET_KEY",
-    "TLSN_TRIGGER_CALLBACK_SECRET",
-    "TLSN_QUEUE_CALLBACK_SECRET",
-    "TLSN_TEST_DIRECT_INVOCATION_TIMEOUT_MS",
-  ],
-  verifier: [
-    ...TEST_SHARED_SECRET_INPUTS,
-    "TLSN_DIRECT_CALLBACK_SECRET",
-    "TLSN_TEST_DIRECT_VERIFIER_MODE",
-    "TLSN_TEST_DIRECT_VERIFIER_DELAY_MS",
-  ],
+export const WORKER_SECRET_CAPABILITIES = {
+  canary: {
+    bootstrap: {},
+    main: {
+      resultSigning: ["TLSN_CANARY_RESULT_SIGNING_PRIVATE_KEY_PKCS8"],
+      sessionAuthoritySigning: ["TLSN_CANARY_SESSION_AUTHORITY_SIGNING_PRIVATE_KEY_PKCS8"],
+      bindingAuthoritySigning: ["TLSN_CANARY_BINDING_AUTHORITY_SIGNING_PRIVATE_KEY_PKCS8"],
+      bindingAuthorization: ["TLSN_CANARY_BINDING_VALUE"],
+      triggerExecution: ["TLSN_CANARY_TRIGGER_SECRET_KEY"],
+      triggerCallback: ["TLSN_CANARY_TRIGGER_CALLBACK_SECRET"],
+    },
+    verifier: {
+      resultSigning: ["TLSN_CANARY_RESULT_SIGNING_PRIVATE_KEY_PKCS8"],
+      sessionAuthoritySigning: ["TLSN_CANARY_SESSION_AUTHORITY_SIGNING_PRIVATE_KEY_PKCS8"],
+      bindingAuthoritySigning: ["TLSN_CANARY_BINDING_AUTHORITY_SIGNING_PRIVATE_KEY_PKCS8"],
+      bindingAuthorization: ["TLSN_CANARY_BINDING_VALUE"],
+      directCallback: ["TLSN_CANARY_DIRECT_CALLBACK_SECRET"],
+    },
+  },
+  evidence: {
+    bootstrap: {},
+    main: {
+      resultSigning: ["TLSN_RESULT_SIGNING_PRIVATE_KEY_PKCS8"],
+      sessionAuthoritySigning: ["TLSN_SESSION_AUTHORITY_SIGNING_PRIVATE_KEY_PKCS8"],
+      bindingAuthoritySigning: ["TLSN_BINDING_AUTHORITY_SIGNING_PRIVATE_KEY_PKCS8"],
+      directCallback: ["TLSN_DIRECT_CALLBACK_SECRET"],
+      syntheticAuthentication: ["TLSN_TEST_AUTH_USERS"],
+    },
+    verifier: {
+      resultSigning: ["TLSN_RESULT_SIGNING_PRIVATE_KEY_PKCS8"],
+      sessionAuthoritySigning: ["TLSN_SESSION_AUTHORITY_SIGNING_PRIVATE_KEY_PKCS8"],
+      bindingAuthoritySigning: ["TLSN_BINDING_AUTHORITY_SIGNING_PRIVATE_KEY_PKCS8"],
+      directCallback: ["TLSN_DIRECT_CALLBACK_SECRET"],
+    },
+  },
+  test: {
+    main: {
+      always: {
+        resultSigning: REQUIRED_SIGNING_SECRETS.slice(0, 1),
+        sessionAuthoritySigning: REQUIRED_SIGNING_SECRETS.slice(1, 2),
+        bindingAuthoritySigning: REQUIRED_SIGNING_SECRETS.slice(2, 3),
+        syntheticAuthentication: ["TLSN_TEST_AUTH_USERS"],
+      },
+      modes: {
+        sync: {},
+        trigger: {
+          triggerExecution: ["TLSN_TRIGGER_SECRET_KEY"],
+          triggerCallback: ["TLSN_TRIGGER_CALLBACK_SECRET"],
+        },
+        queue: {
+          queueCallback: ["TLSN_QUEUE_CALLBACK_SECRET"],
+        },
+        direct: {
+          directCallback: ["TLSN_DIRECT_CALLBACK_SECRET"],
+        },
+      },
+    },
+    verifier: {
+      direct: {
+        resultSigning: REQUIRED_SIGNING_SECRETS.slice(0, 1),
+        sessionAuthoritySigning: REQUIRED_SIGNING_SECRETS.slice(1, 2),
+        bindingAuthoritySigning: REQUIRED_SIGNING_SECRETS.slice(2, 3),
+        directCallback: ["TLSN_DIRECT_CALLBACK_SECRET"],
+      },
+    },
+  },
 };
 
-export function workerSecretBundleForTest(worker, environment) {
-  const names = TEST_WORKER_SECRET_CONTRACT[worker];
-  if (!names) throw new Error(`unsupported Test Worker secret contract: ${worker}`);
+function uniqueInputNames(names) {
+  return [...new Set(names)];
+}
+
+function secretNamesFromCapabilityGroup(capabilities) {
+  return uniqueInputNames(Object.values(capabilities).flatMap((names) => names));
+}
+
+function secretBundle(names, requiredNames, environment, label) {
+  for (const name of requiredNames) {
+    if (typeof environment[name] !== "string" || environment[name].length === 0) {
+      throw new Error(`missing ${label} secret: ${name}`);
+    }
+  }
   return Object.fromEntries(names
-    .filter((name) => environment[name] !== undefined)
+    .filter((name) => typeof environment[name] === "string" && environment[name].length > 0)
     .map((name) => [name, environment[name]]));
+}
+
+export const CANARY_WORKER_SECRET_CONTRACT = Object.fromEntries(
+  Object.entries(WORKER_SECRET_CAPABILITIES.canary)
+    .map(([worker, capabilities]) => [worker, secretNamesFromCapabilityGroup(capabilities)]),
+);
+
+export function workerSecretBundleForCanary(worker, environment) {
+  const names = CANARY_WORKER_SECRET_CONTRACT[worker];
+  if (!names) throw new Error(`unsupported Canary Worker secret contract: ${worker}`);
+  return secretBundle(names, names, environment, "Canary Worker");
+}
+
+export const EVIDENCE_WORKER_SECRET_CONTRACT = Object.fromEntries(
+  Object.entries(WORKER_SECRET_CAPABILITIES.evidence)
+    .map(([worker, capabilities]) => [worker, secretNamesFromCapabilityGroup(capabilities)]),
+);
+
+export const EVIDENCE_WORKER_SECRET_INPUTS = uniqueInputNames(
+  Object.values(EVIDENCE_WORKER_SECRET_CONTRACT).flat(),
+);
+
+export const EVIDENCE_WORKER_DECLARED_INPUTS = uniqueInputNames([
+  ...Object.values(EVIDENCE_WORKER_PUBLIC_INPUTS).flat(),
+  ...Object.values(EVIDENCE_WORKER_SENSITIVE_INPUTS).flat(),
+  ...EVIDENCE_WORKER_SECRET_INPUTS,
+]);
+
+export function workerSecretBundleForEvidence(worker, environment) {
+  const names = EVIDENCE_WORKER_SECRET_CONTRACT[worker];
+  if (!names) throw new Error(`unsupported Evidence Worker secret contract: ${worker}`);
+  const requiredNames = worker === "bootstrap"
+    ? []
+    : [...REQUIRED_SIGNING_SECRETS, "TLSN_DIRECT_CALLBACK_SECRET"];
+  return secretBundle(names, requiredNames, environment, "Evidence Worker");
+}
+
+export const TEST_EXECUTION_MODES = ["sync", "trigger", "queue", "direct"];
+
+export const TEST_WORKER_SECRET_CONTRACT = {
+  main: Object.fromEntries(TEST_EXECUTION_MODES.map((mode) => [
+    mode,
+    uniqueInputNames([
+      ...secretNamesFromCapabilityGroup(WORKER_SECRET_CAPABILITIES.test.main.always),
+      ...secretNamesFromCapabilityGroup(WORKER_SECRET_CAPABILITIES.test.main.modes[mode]),
+    ]),
+  ])),
+  verifier: {
+    direct: secretNamesFromCapabilityGroup(WORKER_SECRET_CAPABILITIES.test.verifier.direct),
+  },
+};
+
+export const TEST_WORKER_SECRET_INPUTS = uniqueInputNames([
+  ...Object.values(TEST_WORKER_SECRET_CONTRACT.main).flat(),
+  ...Object.values(TEST_WORKER_SECRET_CONTRACT.verifier).flat(),
+]);
+
+export const TEST_WORKER_DECLARED_INPUTS = uniqueInputNames([
+  ...Object.values(TEST_WORKER_PUBLIC_INPUTS).flat(),
+  ...Object.values(TEST_WORKER_SENSITIVE_INPUTS).flat(),
+  ...TEST_WORKER_SECRET_INPUTS,
+]);
+
+export function workerSecretBundleForTest(worker, environment, executionMode = "sync") {
+  if (!TEST_EXECUTION_MODES.includes(executionMode)) {
+    throw new Error(`unsupported Test execution mode: ${executionMode}`);
+  }
+  if (worker === "verifier" && executionMode !== "direct") return {};
+  const names = TEST_WORKER_SECRET_CONTRACT[worker]?.[executionMode];
+  if (!names) throw new Error(`unsupported Test Worker secret contract: ${worker}/${executionMode}`);
+  const requiredNames = worker === "main"
+    ? [...REQUIRED_SIGNING_SECRETS, ...(executionMode === "trigger"
+      ? ["TLSN_TRIGGER_SECRET_KEY", "TLSN_TRIGGER_CALLBACK_SECRET"]
+      : executionMode === "queue"
+        ? ["TLSN_QUEUE_CALLBACK_SECRET"]
+        : executionMode === "direct"
+          ? ["TLSN_DIRECT_CALLBACK_SECRET"]
+          : [])]
+    : [...REQUIRED_SIGNING_SECRETS, "TLSN_DIRECT_CALLBACK_SECRET"];
+  return secretBundle(names, requiredNames, environment, "Test Worker");
 }
 
 export const REMOTE_ATTESTATION_SECRET_INPUTS = [
@@ -575,6 +688,8 @@ export function assertManifest(manifest) {
     !same(manifest.canary_public_inputs, CANARY_PUBLIC_INPUTS) ||
     !same(manifest.canary_sensitive_inputs, CANARY_SENSITIVE_INPUTS) ||
     !same(manifest.canary_secret_inputs, CANARY_SECRET_INPUTS) ||
+    !same(manifest.production_public_inputs, PRODUCTION_PUBLIC_INPUTS) ||
+    !same(manifest.production_sensitive_inputs, PRODUCTION_SENSITIVE_INPUTS) ||
     !same(manifest.production_secret_inputs, PRODUCTION_SECRET_INPUTS) ||
     !same(manifest.production_evidence_public_inputs, PRODUCTION_EVIDENCE_PUBLIC_INPUTS) ||
     !same(manifest.production_evidence_sensitive_inputs, PRODUCTION_EVIDENCE_SENSITIVE_INPUTS) ||

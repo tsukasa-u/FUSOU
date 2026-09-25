@@ -6,6 +6,7 @@ import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import {
   EVIDENCE_WORKER_PUBLIC_INPUTS,
+  EVIDENCE_WORKER_SENSITIVE_INPUTS,
   workerSecretBundleForEvidence,
 } from "./deployment-contract.mjs";
 
@@ -99,7 +100,7 @@ async function main() {
     [deployArguments, "main"],
     [verifierDeployArguments, "verifier"],
   ]) {
-    for (const name of EVIDENCE_WORKER_PUBLIC_INPUTS[worker]) {
+    for (const name of [...EVIDENCE_WORKER_PUBLIC_INPUTS[worker], ...EVIDENCE_WORKER_SENSITIVE_INPUTS[worker]]) {
       const value = deploymentEnvironment[name];
       if (value !== undefined && value !== "") {
         argumentsList.push("--var", `${name}:${value}`);
