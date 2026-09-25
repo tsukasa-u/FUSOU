@@ -307,6 +307,17 @@ async function runFixturePreflight(outputDirectory, generatedEnv) {
 
 async function runTest() {
   const { manifest: fixtureManifest, entry: fixtureEntry, fixture } = loadCanaryFixtureOnlyFixture("p50");
+  assert.deepEqual(fixtureManifest.source, {
+    path: "packages/FUSOU-TLSN-VERIFICATION-WORKER/scripts/canary-fixture-only-data.mjs",
+    fixtureType: "synthetic",
+    realTlsnotaryPresentation: false,
+    realGameServerCapture: false,
+    trustRoot: false,
+    deploymentAuthority: false,
+    benchmarkMeasurementData: false,
+    fixtureSemantics: "synthetic metadata only; no TLSNotary Presentation or HTTP transcript",
+    httpTranscriptSize: "NOT_ESTABLISHED",
+  });
   const deploymentManifest = JSON.parse(await readFile(resolve(packageDirectory, "scripts/production-inputs.json"), "utf8"));
   const deploymentContract = await readFile(resolve(packageDirectory, "scripts/deployment-contract.mjs"), "utf8");
   const provisionerSource = await readFile(provisionerPath, "utf8");

@@ -19,6 +19,12 @@ export const CANARY_FIXTURE_ONLY_MANIFEST = Object.freeze({
   offline: true,
   source: {
     path: "packages/FUSOU-TLSN-VERIFICATION-WORKER/scripts/canary-fixture-only-data.mjs",
+    fixtureType: "synthetic",
+    realTlsnotaryPresentation: false,
+    realGameServerCapture: false,
+    trustRoot: false,
+    deploymentAuthority: false,
+    benchmarkMeasurementData: false,
     fixtureSemantics: "synthetic metadata only; no TLSNotary Presentation or HTTP transcript",
     httpTranscriptSize: "NOT_ESTABLISHED",
   },
