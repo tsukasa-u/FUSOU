@@ -14,7 +14,7 @@ import {
 } from "./deployment-contract.mjs";
 import { profileContractArtifact, profilesForServerIdentity } from "./profile-canonical-contract.mjs";
 import { securityRegistrySetHash } from "./security-registry-set-contract.mjs";
-import { loadRealFixture, readRealFixtureManifest } from "./tlsn-benchmark-fixtures.mjs";
+import { loadCanaryFixtureOnlyFixture } from "./canary-fixture-only-data.mjs";
 
 const packageDirectory = resolve(new URL("..", import.meta.url).pathname);
 const provisionerPath = resolve(packageDirectory, "scripts/provision-canary-material.mjs");
@@ -177,7 +177,7 @@ async function inspectProvisionedOutput(outputDirectory, fixtureManifest, fixtur
   assert.equal(manifest.secret_values_written, true);
   assert.equal(manifest.secret_values_in_manifest, false);
   assert.deepEqual(manifest.fixture_provenance, expectedFixtureProvenance);
-  assert.equal(manifest.notary.source, "embedded_fixture_presentation");
+  assert.equal(manifest.notary.source, "repository-local-synthetic-fixture");
   assert.equal(Object.hasOwn(manifest.notary, "private_key_file"), false);
   assert.equal(generatedEnv[fixtureOnlyFlag], "true");
   assert.equal(generatedEnv.TLSN_ENVIRONMENT, "production");
@@ -306,10 +306,7 @@ async function runFixturePreflight(outputDirectory, generatedEnv) {
 }
 
 async function runTest() {
-  const { manifest: fixtureManifest, entries } = readRealFixtureManifest();
-  const fixtureEntry = entries.get("p50");
-  assert.ok(fixtureEntry, "p50 fixture case must exist");
-  const fixture = loadRealFixture(fixtureEntry);
+  const { manifest: fixtureManifest, entry: fixtureEntry, fixture } = loadCanaryFixtureOnlyFixture("p50");
   const deploymentManifest = JSON.parse(await readFile(resolve(packageDirectory, "scripts/production-inputs.json"), "utf8"));
   const deploymentContract = await readFile(resolve(packageDirectory, "scripts/deployment-contract.mjs"), "utf8");
   const provisionerSource = await readFile(provisionerPath, "utf8");

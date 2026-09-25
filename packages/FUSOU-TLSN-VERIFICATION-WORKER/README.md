@@ -54,6 +54,14 @@ The build script discovers `clang`, `clang-18`, or `clang-17`. Set `CC_wasm32_un
 
 `pnpm test` runs Wrangler's local Worker runtime and checks device-proof session issuance plus verify-time TLSN possession through a synthetic FUSOU-WEB HTTP boundary, strict request validation, invalid/tampered Presentation rejection, user/device authority correlation, atomic single-use consumption including concurrent requests, expiry, identity and Notary fail-closed paths, and missing-configuration failure. FUSOU-WEB route tests cover the generic and TLSN device-auth primitives and reject revoked, invalid-signature, owner-mismatch, malformed-context, and replayed proofs. It does not contact the Game Server or Notary.
 
+### Security-contract test inputs
+
+The `TLSN Verification Worker Security Contracts` workflow is reproducible from a fresh FUSOU checkout plus the pinned `tsukasa-u/FUSOU-TESTDATA` commit `c4cac63a78771103641f437369d966250a766a15`. The workflow checks out that public repository at the commit SHA into `testdata/FUSOU-TESTDATA`; it never follows `main`. The dedicated `test:canary-testdata-fixture` contract verifies the detached HEAD, repository name, source path, `require_info` shape, deterministic canonicalization, and synthetic provenance.
+
+The nine security-structure contracts remain repository-local. In particular, fixture-only provisioning and deployment-manifest tests use the tracked `scripts/canary-fixture-only-data.mjs` module, which contains synthetic metadata and key-shaped bytes only. The TESTDATA contract separately uses one masked `require_info` JSON body as representative data shape, replaces its masked member ID with a fixed synthetic ID, and produces a canonical `svdata=` response-body input. That output is a synthetic test artifact, not a TLSNotary Presentation, live evidence, a Game Server capture, or a Notary session. Neither source data nor generated output is a trust root or security authority, and the output must not be used as deployment material.
+
+The TESTDATA checkout is the only allowed network acquisition in this workflow (`source-control fetch: ALLOWED`). Game Server, FUSOU-NOTARY, Cloudflare, Supabase, R2, Trigger.dev, and real TLSNotary sessions are `NOT_USED`; the test prints those boundaries in its diagnostic. The real captured-fixture path remains separate. `scripts/tlsn-benchmark-fixtures.mjs`, `generate:sparse-real-fixtures`, real sparse benchmarks, production provisioning tests, and FUSOU-NOTARY material tests require locally supplied or ignored benchmark resources and are not dependencies of this workflow. Missing benchmark resources must remain a failure for those benchmark/provisioning commands rather than becoming a silent security-test skip.
+
 ### Offline sparse measurements
 
 These commands are offline and use synthetic alpha.15 data. They are reproducible parser and signing-path measurements, not production evidence:

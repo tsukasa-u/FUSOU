@@ -5,6 +5,10 @@ permissions:
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  FUSOU_TESTDATA_REPOSITORY: tsukasa-u/FUSOU-TESTDATA
+  FUSOU_TESTDATA_COMMIT_SHA: c4cac63a78771103641f437369d966250a766a15
+  FUSOU_TESTDATA_SOURCE_PATH: kcsapi/1751968253S@api_get_member@require_info
+  FUSOU_TESTDATA_PATH: ${{ github.workspace }}/testdata/FUSOU-TESTDATA
 
 on:
   workflow_dispatch:
@@ -28,6 +32,17 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Checkout FUSOU-TESTDATA at fixed commit
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.FUSOU_TESTDATA_REPOSITORY }}
+          ref: ${{ env.FUSOU_TESTDATA_COMMIT_SHA }}
+          path: testdata/FUSOU-TESTDATA
+          fetch-depth: 1
+          persist-credentials: false
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -67,3 +82,6 @@ jobs:
 
       - name: Verify external input classification
         run: pnpm --dir packages/FUSOU-TLSN-VERIFICATION-WORKER run test:canary-input-intake
+
+      - name: Verify pinned TESTDATA synthetic fixture contract
+        run: pnpm --dir packages/FUSOU-TLSN-VERIFICATION-WORKER run test:canary-testdata-fixture

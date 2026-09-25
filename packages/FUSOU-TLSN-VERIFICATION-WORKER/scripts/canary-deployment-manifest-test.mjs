@@ -17,14 +17,13 @@ import {
 } from "./canary-deployment-authorization.mjs";
 import { inputsForRole, secretInputsForRole } from "./deployment-contract.mjs";
 import { canonicalNotaryRegistryJson, notaryRegistrySha256 } from "./production-trust-contract.mjs";
-import { loadRealFixture, readRealFixtureManifest } from "./tlsn-benchmark-fixtures.mjs";
+import { loadCanaryFixtureOnlyFixture } from "./canary-fixture-only-data.mjs";
 
 const packageRoot = resolve(new URL("..", import.meta.url).pathname);
 const currentHead = checkoutCommit(packageRoot);
 const artifactPath = "scripts/canary-deployment-manifest-test.mjs";
 const artifactBytes = await readFile(resolve(packageRoot, artifactPath));
-const { entries } = readRealFixtureManifest();
-const notaryFixture = loadRealFixture(entries.get("p50"));
+const { fixture: notaryFixture } = loadCanaryFixtureOnlyFixture("p50");
 const notaryKeyId = "notary-manifest-test";
 const notaryRegistryRaw = JSON.stringify({ [notaryKeyId]: notaryFixture.notary_key_base64 });
 const notaryRegistryCanonical = canonicalNotaryRegistryJson(notaryRegistryRaw);

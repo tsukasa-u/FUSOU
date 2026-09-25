@@ -20,7 +20,7 @@ import {
   profileContractArtifact,
   profilesForServerIdentity,
 } from "./profile-canonical-contract.mjs";
-import { loadRealFixture, readRealFixtureManifest } from "./tlsn-benchmark-fixtures.mjs";
+import { loadCanaryFixtureOnlyFixture } from "./canary-fixture-only-data.mjs";
 import {
   assertCanonicalCanaryWorkerName,
   CANARY_WORKER_NAME,
@@ -245,12 +245,11 @@ async function main() {
     if (options["server-identity"] && options["server-identity"] !== FIXTURE_SERVER_IDENTITY) {
       throw new Error(`fixture-only canary must use ${FIXTURE_SERVER_IDENTITY}`);
     }
-    const loadedFixtureManifest = readRealFixtureManifest();
-    fixtureManifest = loadedFixtureManifest.manifest;
     fixtureCase = options["fixture-case"] ?? "p50";
-    fixtureEntry = loadedFixtureManifest.entries.get(fixtureCase);
-    if (!fixtureEntry) throw new Error(`unknown synthetic fixture case: ${fixtureCase}`);
-    fixture = loadRealFixture(fixtureEntry);
+    const loadedFixture = loadCanaryFixtureOnlyFixture(fixtureCase);
+    fixtureManifest = loadedFixture.manifest;
+    fixtureEntry = loadedFixture.entry;
+    fixture = loadedFixture.fixture;
     for (const field of ["sparse_presentation_base64", "root_certificate_base64", "notary_key_base64"]) {
       if (typeof fixture[field] !== "string" || fixture[field].length === 0) {
         throw new Error(`synthetic fixture is missing ${field}`);
@@ -554,7 +553,7 @@ async function main() {
       endpoint: notaryEndpoint,
       provisioning_record: notaryProvisioningRecord,
       source: fixtureOnly
-        ? "embedded_fixture_presentation"
+        ? "repository-local-synthetic-fixture"
         : notaryPublicKeyExport
           ? "fusou_notary_public_key_export"
           : notaryRegistryRaw
