@@ -413,19 +413,54 @@ function uniqueInputNames(names) {
   return [...new Set(names)];
 }
 
+function configPropertyForEvidence(evidence) {
+  return typeof evidence === "string" && evidence.endsWith("PrivateKeyBytes")
+    ? evidence
+    : null;
+}
+
+function sourcePropertyForConfigProperty(property) {
+  return property?.replace(/PrivateKeyBytes$/, "PrivateKeyPkcs8") ?? null;
+}
+
+function structuredRuntimeReaderConsumers(inputs, runtimeReaders, runtimeConsumers, runtimeConsumerEvidence) {
+  if (inputs.length !== 1) {
+    throw new Error("runtime Secret capability provenance requires exactly one Secret input per descriptor");
+  }
+  return Object.fromEntries(runtimeReaders.map((reader) => [reader, runtimeConsumers.flatMap((consumer) => {
+    const evidence = runtimeConsumerEvidence[consumer];
+    const configProperty = configPropertyForEvidence(evidence);
+    if (configProperty && reader === "readConfig") {
+      return [{
+        input: inputs[0],
+        kind: "config",
+        sourceProperty: sourcePropertyForConfigProperty(configProperty),
+        property: configProperty,
+        consumers: [consumer],
+      }];
+    }
+    if (reader === "triggerExecutionConfig") {
+      return [{ input: inputs[0], kind: "value", value: "secretKey", property: "secretKey", consumers: [consumer] }];
+    }
+    if (["triggerCallbackSecret", "queueCallbackSecret", "directCallbackSecret"].includes(reader)) {
+      return [{ input: inputs[0], kind: "call", value: "callbackSecret", downstream: evidence, consumers: [consumer] }];
+    }
+    return [{ input: inputs[0], kind: "direct", value: evidence, consumers: [consumer] }];
+  })]));
+}
+
 function runtimeCapability(
   inputs,
   runtimeReaders,
   runtimeConsumers,
   runtimeConsumerEvidence = {},
-  runtimeReaderConsumers = Object.fromEntries(runtimeReaders.map((reader) => [reader, runtimeConsumers])),
 ) {
   return {
     inputs: uniqueInputNames(inputs),
     runtimeReaders,
     runtimeConsumers,
     runtimeConsumerEvidence,
-    runtimeReaderConsumers,
+    runtimeReaderConsumers: structuredRuntimeReaderConsumers(inputs, runtimeReaders, runtimeConsumers, runtimeConsumerEvidence),
   };
 }
 

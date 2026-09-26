@@ -89,7 +89,13 @@ expectAuditFailure("cross-Worker capability", crossWorkerCapability, sources, /b
 const readerMutation = cloneDeep(WORKER_SECRET_CAPABILITIES);
 readerMutation.test.main.always.resultSigning.runtimeReaders = ["authenticateRequest"];
 readerMutation.test.main.always.resultSigning.runtimeReaderConsumers = {
-  authenticateRequest: ["signResult", "signSparseResult"],
+  authenticateRequest: [{
+    input: "TLSN_RESULT_SIGNING_PRIVATE_KEY_PKCS8",
+    kind: "config",
+    sourceProperty: "resultSigningPrivateKeyPkcs8",
+    property: "resultSigningPrivateKeyBytes",
+    consumers: ["signResult", "signSparseResult"],
+  }],
 };
 expectAuditFailure("wrong runtime reader declaration", readerMutation, sources, /runtime readers no longer read/);
 
@@ -100,6 +106,79 @@ expectAuditFailure("wrong runtime consumer declaration", consumerSwap, sources, 
 const consumerRemoval = cloneDeep(WORKER_SECRET_CAPABILITIES);
 consumerRemoval.test.main.always.resultSigning.runtimeConsumers = ["signSparseResult"];
 expectAuditFailure("removed runtime consumer declaration", consumerRemoval, sources, /consumer declarations must match evidence/);
+
+const resultSigningMovedToValidConsumer = cloneDeep(WORKER_SECRET_CAPABILITIES);
+resultSigningMovedToValidConsumer.test.main.always.resultSigning.runtimeConsumers = ["signSessionAuthorityReceipt"];
+resultSigningMovedToValidConsumer.test.main.always.resultSigning.runtimeConsumerEvidence = {
+  signSessionAuthorityReceipt: "sessionAuthoritySigningPrivateKeyBytes",
+};
+resultSigningMovedToValidConsumer.test.main.always.resultSigning.runtimeReaderConsumers = {
+  readConfig: [{
+    input: "TLSN_RESULT_SIGNING_PRIVATE_KEY_PKCS8",
+    kind: "config",
+    sourceProperty: "sessionAuthoritySigningPrivateKeyPkcs8",
+    property: "sessionAuthoritySigningPrivateKeyBytes",
+    consumers: ["signSessionAuthorityReceipt"],
+  }],
+};
+expectAuditFailure(
+  "result signing capability moved to a valid Session Authority consumer",
+  resultSigningMovedToValidConsumer,
+  sources,
+  /no Secret-to-consumer provenance/,
+);
+
+const resultSigningReaderKeptConsumerChanged = cloneDeep(WORKER_SECRET_CAPABILITIES);
+resultSigningReaderKeptConsumerChanged.test.main.always.resultSigning.runtimeConsumers = ["processVerificationCompletion"];
+resultSigningReaderKeptConsumerChanged.test.main.always.resultSigning.runtimeConsumerEvidence = {
+  processVerificationCompletion: "verifyInternalRequest",
+};
+resultSigningReaderKeptConsumerChanged.test.main.always.resultSigning.runtimeReaderConsumers = {
+  readConfig: [{
+    input: "TLSN_RESULT_SIGNING_PRIVATE_KEY_PKCS8",
+    kind: "call",
+    value: "callbackSecret",
+    downstream: "verifyInternalRequest",
+    consumers: ["processVerificationCompletion"],
+  }],
+};
+expectAuditFailure(
+  "result signing reader kept while callback consumer is substituted",
+  resultSigningReaderKeptConsumerChanged,
+  sources,
+  /no Secret-to-consumer provenance/,
+);
+
+const resultSigningPropertyMoved = cloneDeep(WORKER_SECRET_CAPABILITIES);
+resultSigningPropertyMoved.test.main.always.resultSigning.runtimeReaderConsumers = {
+  readConfig: [{
+    input: "TLSN_RESULT_SIGNING_PRIVATE_KEY_PKCS8",
+    kind: "config",
+    sourceProperty: "sessionAuthoritySigningPrivateKeyPkcs8",
+    property: "sessionAuthoritySigningPrivateKeyBytes",
+    consumers: ["signResult", "signSparseResult"],
+  }],
+};
+expectAuditFailure(
+  "result signing Secret mapped to Session Authority config property",
+  resultSigningPropertyMoved,
+  sources,
+  /no Secret-to-consumer provenance/,
+);
+
+const directVerifierReaderMoved = {
+  ...sources,
+  "src/direct_verifier.ts": sources["src/direct_verifier.ts"].replace(
+    "directCallbackSecret(c.env)",
+    "queueCallbackSecret(c.env)",
+  ),
+};
+expectAuditFailure(
+  "direct verifier callback reader moved to another Secret helper",
+  WORKER_SECRET_CAPABILITIES,
+  directVerifierReaderMoved,
+  /direct verifier must preserve directCallbackSecret/,
+);
 
 const deploymentOnlyKeyCapability = cloneDeep(WORKER_SECRET_CAPABILITIES);
 deploymentOnlyKeyCapability.canary.main.attestationKey = {

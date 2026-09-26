@@ -45,6 +45,7 @@ const testDeploySource = await readFile(resolve(packageDirectory, "scripts/deplo
 const productionDeploySource = await readFile(resolve(packageDirectory, "scripts/deploy-production.mjs"), "utf8");
 const runtimeSource = await readFile(resolve(packageDirectory, "src/index.ts"), "utf8");
 const directVerifierSource = await readFile(resolve(packageDirectory, "src/direct_verifier.ts"), "utf8");
+const verificationJobsSource = await readFile(resolve(packageDirectory, "src/verification_jobs.ts"), "utf8");
 
 function assertPartition(label, categories, expected) {
   const flattened = categories.flat();
@@ -221,6 +222,7 @@ auditRuntimeSecretDependencies({
   sources: {
     "src/index.ts": runtimeSource,
     "src/direct_verifier.ts": directVerifierSource,
+    "src/verification_jobs.ts": verificationJobsSource,
   },
 });
 assert.equal(TEST_WORKER_PUBLIC_INPUTS.verifier.includes("TLSN_TEST_DIRECT_SYNCHRONOUS_CANDIDATE"), false);

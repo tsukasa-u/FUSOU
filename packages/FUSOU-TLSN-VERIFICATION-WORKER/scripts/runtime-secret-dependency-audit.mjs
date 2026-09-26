@@ -18,7 +18,7 @@ import {
 } from "./deployment-contract.mjs";
 
 const packageDirectory = resolve(new URL("..", import.meta.url).pathname);
-const RUNTIME_SOURCE_FILES = ["src/index.ts", "src/direct_verifier.ts"];
+const RUNTIME_SOURCE_FILES = ["src/index.ts", "src/direct_verifier.ts", "src/verification_jobs.ts"];
 
 const CLASSIFIED_SECRET_INPUTS = new Set([
   ...CANARY_SECRET_INPUTS,
@@ -94,6 +94,10 @@ function analyzeSource(fileName, source) {
       body: node.getText(sourceFile),
       reads: [],
       calls: new Set(),
+      callSites: [],
+      variables: [],
+      objectProperties: [],
+      propertyAccesses: [],
       parentFunctionName,
     };
     functions.push(model);
@@ -134,6 +138,17 @@ function analyzeSource(fileName, source) {
     }
   }
 
+  function collectSecretNames(node, aliases) {
+    const names = new Set();
+    function collect(child) {
+      const name = environmentPropertyName(child);
+      if (isEnvironmentPropertyAccess(child, aliases) && isSecretInputName(name)) names.add(name);
+      ts.forEachChild(child, collect);
+    }
+    collect(node);
+    return names;
+  }
+
   function visit(node, currentFunction, aliases) {
     let activeFunction = currentFunction;
     let activeAliases = aliases;
@@ -143,6 +158,13 @@ function analyzeSource(fileName, source) {
     }
 
     registerEnvironmentBindings(node, activeAliases, activeFunction);
+    if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer && activeFunction) {
+      activeFunction.variables.push({
+        name: node.name.text,
+        initializer: node.initializer.getText(sourceFile),
+        secretNames: collectSecretNames(node.initializer, activeAliases),
+      });
+    }
     const environmentName = environmentPropertyName(node);
     if (isEnvironmentPropertyAccess(node, activeAliases) && isSecretInputName(environmentName)) {
       addRead(node, environmentName, activeFunction);
@@ -150,6 +172,29 @@ function analyzeSource(fileName, source) {
 
     if (ts.isCallExpression(node) && ts.isIdentifier(node.expression)) {
       activeFunction?.calls.add(node.expression.text);
+      activeFunction?.callSites.push({
+        calleeName: node.expression.text,
+        arguments: node.arguments.map((argument) => argument.getText(sourceFile)),
+      });
+    }
+
+    if (ts.isPropertyAccessExpression(node) && ts.isIdentifier(node.expression)) {
+      activeFunction?.propertyAccesses.push({
+        objectName: node.expression.text,
+        propertyName: node.name.text,
+      });
+    }
+
+    if (ts.isPropertyAssignment(node) || ts.isShorthandPropertyAssignment(node)) {
+      const propertyName = ts.isPropertyAssignment(node)
+        ? bindingPropertyName(node.name)
+        : node.name.text;
+      if (propertyName) {
+        activeFunction?.objectProperties.push({
+          propertyName,
+          initializer: ts.isPropertyAssignment(node) ? node.initializer.getText(sourceFile) : node.name.text,
+        });
+      }
     }
 
     ts.forEachChild(node, (child) => visit(child, activeFunction, activeAliases));
@@ -218,32 +263,6 @@ function pathLabel(path) {
   return path.join("/");
 }
 
-function reachableFunctionKeys(model, startKey) {
-  const reachable = new Set([startKey]);
-  const pending = [startKey];
-  while (pending.length > 0) {
-    const current = pending.pop();
-    for (const callee of model.callGraph.get(current) ?? []) {
-      if (reachable.has(callee)) continue;
-      reachable.add(callee);
-      pending.push(callee);
-    }
-  }
-  return reachable;
-}
-
-function readerConsumerReachabilityWitness(model, readerName, consumerName) {
-  const readers = model.functionsByName.get(readerName) ?? [];
-  const consumers = model.functionsByName.get(consumerName) ?? [];
-  for (const start of model.functions) {
-    const reachable = reachableFunctionKeys(model, start.key);
-    if (readers.some((reader) => reachable.has(reader.key)) && consumers.some((consumer) => reachable.has(consumer.key))) {
-      return `${start.name} -> ${readerName} + ${consumerName}`;
-    }
-  }
-  return null;
-}
-
 function assertWorkerScope(descriptor) {
   const [profile, worker, category, modeOrCapability] = descriptor.path;
   for (const name of descriptor.inputs) {
@@ -300,28 +319,131 @@ function assertConsumerEvidence(descriptor, model) {
   }
 }
 
-function assertReaderConsumerReachability(descriptor, model) {
-  const readerConsumers = descriptor.runtimeReaderConsumers ?? Object.fromEntries(
-    descriptor.runtimeReaders.map((reader) => [reader, descriptor.runtimeConsumers]),
-  );
+function provenanceEntries(descriptor) {
+  const readerConsumers = descriptor.runtimeReaderConsumers;
+  assert.ok(readerConsumers && typeof readerConsumers === "object", `${pathLabel(descriptor.path)} requires structured reader provenance`);
   assert.deepEqual(
     Object.keys(readerConsumers).sort(),
     [...new Set(descriptor.runtimeReaders)].sort(),
-    `${pathLabel(descriptor.path)} reader/consumer mapping must cover exactly the declared readers`,
+    `${pathLabel(descriptor.path)} reader provenance must cover exactly the declared readers`,
   );
-  assert.deepEqual(
-    [...new Set(Object.values(readerConsumers).flat())].sort(),
-    [...new Set(descriptor.runtimeConsumers)].sort(),
-    `${pathLabel(descriptor.path)} reader/consumer mapping must cover exactly the declared consumers`,
-  );
+  const entries = [];
   for (const reader of descriptor.runtimeReaders) {
-    for (const consumer of readerConsumers[reader] ?? []) {
-      assert.ok(
-        readerConsumerReachabilityWitness(model, reader, consumer),
-        `${pathLabel(descriptor.path)} has no static call-graph path from runtime reader ${reader} to consumer ${consumer}`,
-      );
+    assert.ok(Array.isArray(readerConsumers[reader]), `${pathLabel(descriptor.path)} reader ${reader} provenance must be an array`);
+    for (const entry of readerConsumers[reader]) {
+      assert.equal(typeof entry.input, "string", `${pathLabel(descriptor.path)} reader ${reader} provenance is missing input`);
+      assert.ok(Array.isArray(entry.consumers) && entry.consumers.length > 0, `${pathLabel(descriptor.path)} reader ${reader} provenance has no consumers`);
+      entries.push({ reader, ...entry });
     }
   }
+  assert.deepEqual(
+    [...new Set(entries.map((entry) => entry.input))].sort(),
+    [...new Set(descriptor.inputs)].sort(),
+    `${pathLabel(descriptor.path)} reader provenance must cover exactly the declared Secret inputs`,
+  );
+  assert.deepEqual(
+    [...new Set(entries.flatMap((entry) => entry.consumers))].sort(),
+    [...new Set(descriptor.runtimeConsumers)].sort(),
+    `${pathLabel(descriptor.path)} reader provenance must cover exactly the declared consumers`,
+  );
+  return entries;
+}
+
+function functionCandidates(model, name) {
+  return model.functionsByName.get(name) ?? [];
+}
+
+function hasConfigPropertyProvenance(reader, entry) {
+  const sourceVariables = reader.variables.filter((variable) => variable.secretNames.has(entry.input));
+  const sourceProperty = entry.sourceProperty;
+  const decodedProperty = entry.property;
+  if (!sourceProperty || !decodedProperty || sourceVariables.length === 0) return false;
+  const configInput = reader.objectProperties.some((property) => (
+    property.propertyName === sourceProperty && sourceVariables.some((variable) => property.initializer.includes(variable.name))
+  ));
+  const decodedVariable = reader.variables.some((variable) => (
+    variable.name === decodedProperty && variable.initializer.includes(`parsed.data.${sourceProperty}`)
+  ));
+  const returnedProperty = reader.objectProperties.some((property) => property.propertyName === decodedProperty);
+  return configInput && decodedVariable && returnedProperty;
+}
+
+function hasValuePropertyProvenance(reader, consumer, entry) {
+  if (!entry.value || !entry.property) return false;
+  const sourcedValue = reader.variables.some((variable) => (
+    variable.name === entry.value && variable.secretNames.has(entry.input)
+  ));
+  const returnedProperty = reader.objectProperties.some((property) => (
+    property.propertyName === entry.property && property.initializer.includes(entry.value)
+  ));
+  const consumedProperty = consumer.propertyAccesses.some((access) => (
+    access.objectName === "config" && access.propertyName === entry.property
+  ));
+  return sourcedValue && returnedProperty && consumedProperty;
+}
+
+function hasCallProvenance(reader, consumer, entry) {
+  if (!entry.value || !entry.downstream) return false;
+  const sourcedValue = consumer.variables.some((variable) => (
+    variable.name === entry.value && variable.initializer.includes(`${reader.name}(`)
+  ));
+  const downstreamCall = consumer.callSites.some((call) => (
+    call.calleeName === entry.downstream && call.arguments.includes(entry.value)
+  ));
+  return sourcedValue && downstreamCall;
+}
+
+function hasDirectProvenance(reader, consumer, entry) {
+  return reader.reads.some((read) => read.name === entry.input)
+    && consumer.reads.some((read) => read.name === entry.input);
+}
+
+function assertReaderConsumerProvenance(descriptor, model) {
+  const entries = provenanceEntries(descriptor);
+  for (const entry of entries) {
+    const readers = functionCandidates(model, entry.reader);
+    assert.ok(readers.length > 0, `${pathLabel(descriptor.path)} references missing runtime reader ${entry.reader}`);
+    for (const consumerName of entry.consumers) {
+      const consumers = functionCandidates(model, consumerName);
+      assert.ok(consumers.length > 0, `${pathLabel(descriptor.path)} references missing runtime consumer ${consumerName}`);
+      const provenanceKind = entry.kind ?? (entry.property ? "config" : "call");
+      const proven = readers.some((reader) => consumers.some((consumer) => {
+        if (provenanceKind === "config") return hasConfigPropertyProvenance(reader, entry)
+          && consumer.propertyAccesses.some((access) => access.objectName === "config" && access.propertyName === entry.property);
+        if (provenanceKind === "value") return hasValuePropertyProvenance(reader, consumer, entry);
+        if (provenanceKind === "direct") return hasDirectProvenance(reader, consumer, entry);
+        return hasCallProvenance(reader, consumer, entry);
+      }));
+      assert.ok(
+        proven,
+        `${pathLabel(descriptor.path)} has no Secret-to-consumer provenance for ${entry.input}: ${entry.reader} -> ${consumerName}`,
+      );
+      if (entry.downstream) {
+        assert.ok(
+          functionCandidates(model, entry.downstream).length > 0,
+          `${pathLabel(descriptor.path)} references missing downstream runtime function ${entry.downstream}`,
+        );
+      }
+    }
+  }
+}
+
+function assertDirectVerifierProvenance(descriptor, model) {
+  if (!descriptor.inputs.some((input) => input.endsWith("DIRECT_CALLBACK_SECRET"))) return;
+  const directVerifierFunctions = model.functions.filter((candidate) => candidate.fileName.endsWith("src/direct_verifier.ts"));
+  const directSecretHandlers = directVerifierFunctions.filter((candidate) => candidate.body.includes("directCallbackSecret(c.env)"));
+  assert.ok(
+    directVerifierFunctions.some((handler) => handler.callSites.some((call) => call.calleeName === "processVerificationCompletion"))
+    && directSecretHandlers.some((handler) => (
+      handler.variables.some((variable) => (
+        variable.name === "callbackSecret" && variable.initializer.includes("directCallbackSecret(c.env)")
+      ))
+      && handler.callSites.some((call) => (
+        call.calleeName === "verifyInternalRequest" && call.arguments.includes("callbackSecret")
+      ))
+    )),
+    `${pathLabel(descriptor.path)} direct verifier must preserve directCallbackSecret(c.env) -> verifyInternalRequest callback dataflow`,
+  );
 }
 
 function assertReaderEvidence(descriptor, model) {
@@ -383,7 +505,8 @@ export function auditRuntimeSecretDependencies({ sources, capabilities = WORKER_
     assertWorkerScope(descriptor);
     assertReaderEvidence(descriptor, model);
     assertConsumerEvidence(descriptor, model);
-    assertReaderConsumerReachability(descriptor, model);
+    assertReaderConsumerProvenance(descriptor, model);
+    assertDirectVerifierProvenance(descriptor, model);
     for (const name of descriptor.inputs) {
       assert.equal(CLASSIFIED_SECRET_INPUTS.has(name), true, `${pathLabel(descriptor.path)} uses unclassified Secret ${name}`);
     }
