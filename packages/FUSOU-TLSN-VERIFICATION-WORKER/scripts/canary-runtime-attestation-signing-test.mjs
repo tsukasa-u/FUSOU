@@ -99,10 +99,13 @@ for (const [label, mutate] of [
 assert.throws(() => assertCanaryRuntimeAttestationSignature({ ...signedAttestation, signature_base64url: undefined }, { registry: baseRegistry }), /canonical base64url/);
 assert.throws(() => assertCanaryRuntimeAttestationSignature({ ...signedAttestation, signature_base64url: "not-a-signature" }, { registry: baseRegistry }), /canonical base64url/);
 assert.throws(() => assertCanaryRuntimeAttestationSignature({ ...signedAttestation, signature_base64url: "AA" }, { registry: baseRegistry }), /invalid length/);
+const mutatedPublicKeySpki = publicKeySpki.slice(0, -1)
+  + (publicKeySpki.at(-1) === "A" ? "B" : "A");
+assert.notEqual(mutatedPublicKeySpki, publicKeySpki);
 assert.throws(() => signCanaryRuntimeAttestation(unsignedAttestation, {
   signerKeyId,
   signingPrivateKeyPkcs8: privateKeyPkcs8,
-  registry: { ...baseRegistry, keys: [{ ...baseRegistry.keys[0], public_key_spki: publicKeySpki.slice(0, -1) + "A" }] },
+  registry: { ...baseRegistry, keys: [{ ...baseRegistry.keys[0], public_key_spki: mutatedPublicKeySpki }] },
   now: "2026-09-15T00:00:00.000Z",
 }), /does not match|canonical Ed25519|published registry/);
 assert.throws(() => signCanaryRuntimeAttestation(unsignedAttestation, {
