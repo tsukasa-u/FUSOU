@@ -4,6 +4,7 @@ import {
   benchmarkEnabled,
   canarySynchronousResponseEnabled,
   decodeBase64Url,
+  directCallbackSecret,
   readRawBody,
   readRawBytes,
   verificationCompletionContextFromHono,
@@ -112,7 +113,7 @@ app.post("/internal/tlsn/direct-control", async (c) => {
   const rawBody = await readRawBytes(c.req.raw, MAX_PRESENTATION_BYTES).catch(() => undefined);
   const jobId = c.req.header("X-FUSOU-TLSN-Job-Id") ?? "";
   const signature = c.req.header("X-FUSOU-TLSN-Signature") ?? null;
-  const callbackSecret = c.env.TLSN_DIRECT_CALLBACK_SECRET;
+  const callbackSecret = directCallbackSecret(c.env);
   if (!encodedMetadata || !rawBody || !jobId || !signature || !callbackSecret) {
     return c.json({ error: "unauthorized" }, 401);
   }

@@ -38,12 +38,24 @@ function environmentPropertyName(node) {
   return null;
 }
 
-function isEnvironmentPropertyAccess(node) {
+function isEnvironmentHandleExpression(node, aliases) {
+  if (ts.isIdentifier(node)) {
+    return node.text === "env" || aliases.has(node.text);
+  }
+  if (ts.isPropertyAccessExpression(node)) {
+    return node.name.text === "env";
+  }
+  if (ts.isElementAccessExpression(node)) {
+    return ts.isStringLiteral(node.argumentExpression)
+      && node.argumentExpression.text === "env";
+  }
+  return false;
+}
+
+function isEnvironmentPropertyAccess(node, aliases) {
   const name = environmentPropertyName(node);
   if (!name || !/^TLSN_/.test(name)) return false;
-  const expression = node.expression;
-  return ts.isIdentifier(expression) && expression.text === "env"
-    || ts.isPropertyAccessExpression(expression) && expression.name.text === "env";
+  return isEnvironmentHandleExpression(node.expression, aliases);
 }
 
 function isSecretInputName(name) {
@@ -89,34 +101,61 @@ function analyzeSource(fileName, source) {
     return model;
   }
 
-  function visit(node, currentFunction) {
+  function addRead(node, name, activeFunction) {
+    const position = sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile));
+    const read = {
+      name,
+      fileName,
+      line: position.line + 1,
+      functionName: activeFunction?.name ?? "<module>",
+      functionKey: activeFunction?.key ?? null,
+    };
+    reads.push(read);
+    activeFunction?.reads.push(read);
+  }
+
+  function bindingPropertyName(node) {
+    if (ts.isIdentifier(node)) return node.text;
+    if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) return node.text;
+    return null;
+  }
+
+  function registerEnvironmentBindings(node, aliases, activeFunction) {
+    if (!ts.isVariableDeclaration(node) || !node.initializer) return;
+    if (ts.isIdentifier(node.name)) {
+      if (isEnvironmentHandleExpression(node.initializer, aliases)) aliases.add(node.name.text);
+      return;
+    }
+    if (!ts.isObjectBindingPattern(node.name) || !isEnvironmentHandleExpression(node.initializer, aliases)) return;
+    for (const element of node.name.elements) {
+      if (!ts.isBindingElement(element)) continue;
+      const propertyName = bindingPropertyName(element.propertyName ?? element.name);
+      if (propertyName && isSecretInputName(propertyName)) addRead(element, propertyName, activeFunction);
+    }
+  }
+
+  function visit(node, currentFunction, aliases) {
     let activeFunction = currentFunction;
+    let activeAliases = aliases;
     if (ts.isFunctionDeclaration(node) || ts.isMethodDeclaration(node) || ts.isFunctionExpression(node) || ts.isArrowFunction(node)) {
       activeFunction = addFunction(node, functionNameForNode(node, sourceFile, currentFunction?.name), currentFunction?.name);
+      activeAliases = new Set(aliases);
     }
 
+    registerEnvironmentBindings(node, activeAliases, activeFunction);
     const environmentName = environmentPropertyName(node);
-    if (isEnvironmentPropertyAccess(node) && isSecretInputName(environmentName)) {
-      const position = sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile));
-      const read = {
-        name: environmentName,
-        fileName,
-        line: position.line + 1,
-        functionName: activeFunction?.name ?? "<module>",
-        functionKey: activeFunction?.key ?? null,
-      };
-      reads.push(read);
-      activeFunction?.reads.push(read);
+    if (isEnvironmentPropertyAccess(node, activeAliases) && isSecretInputName(environmentName)) {
+      addRead(node, environmentName, activeFunction);
     }
 
     if (ts.isCallExpression(node) && ts.isIdentifier(node.expression)) {
       activeFunction?.calls.add(node.expression.text);
     }
 
-    ts.forEachChild(node, (child) => visit(child, activeFunction));
+    ts.forEachChild(node, (child) => visit(child, activeFunction, activeAliases));
   }
 
-  visit(sourceFile, null);
+  visit(sourceFile, null, new Set());
   return { sourceFile, functions, functionByKey, reads };
 }
 
@@ -130,12 +169,21 @@ export function analyzeRuntimeSources(sources) {
     entries.push(model);
     functionsByName.set(model.name, entries);
   }
+  const callGraph = new Map(functions.map((model) => [model.key, new Set()]));
+  for (const model of functions) {
+    for (const calleeName of model.calls) {
+      for (const callee of functionsByName.get(calleeName) ?? []) {
+        callGraph.get(model.key).add(callee.key);
+      }
+    }
+  }
   const calledNames = new Set(functions.flatMap((model) => [...model.calls]));
   return {
     analyses,
     functions,
     reads,
     functionsByName,
+    callGraph,
     calledNames,
     names: new Set(reads.map((read) => read.name)),
   };
@@ -170,6 +218,32 @@ function pathLabel(path) {
   return path.join("/");
 }
 
+function reachableFunctionKeys(model, startKey) {
+  const reachable = new Set([startKey]);
+  const pending = [startKey];
+  while (pending.length > 0) {
+    const current = pending.pop();
+    for (const callee of model.callGraph.get(current) ?? []) {
+      if (reachable.has(callee)) continue;
+      reachable.add(callee);
+      pending.push(callee);
+    }
+  }
+  return reachable;
+}
+
+function readerConsumerReachabilityWitness(model, readerName, consumerName) {
+  const readers = model.functionsByName.get(readerName) ?? [];
+  const consumers = model.functionsByName.get(consumerName) ?? [];
+  for (const start of model.functions) {
+    const reachable = reachableFunctionKeys(model, start.key);
+    if (readers.some((reader) => reachable.has(reader.key)) && consumers.some((consumer) => reachable.has(consumer.key))) {
+      return `${start.name} -> ${readerName} + ${consumerName}`;
+    }
+  }
+  return null;
+}
+
 function assertWorkerScope(descriptor) {
   const [profile, worker, category, modeOrCapability] = descriptor.path;
   for (const name of descriptor.inputs) {
@@ -202,10 +276,16 @@ function assertWorkerScope(descriptor) {
 }
 
 function assertConsumerEvidence(descriptor, model) {
+  const consumerEvidence = descriptor.runtimeConsumerEvidence ?? {};
+  assert.deepEqual(
+    [...new Set(descriptor.runtimeConsumers)].sort(),
+    Object.keys(consumerEvidence).sort(),
+    `${pathLabel(descriptor.path)} runtime consumer declarations must match evidence`,
+  );
   for (const consumer of descriptor.runtimeConsumers) {
     const candidates = model.functionsByName.get(consumer) ?? [];
     assert.ok(candidates.length > 0, `${pathLabel(descriptor.path)} references missing runtime consumer ${consumer}`);
-    const evidence = descriptor.runtimeConsumerEvidence?.[consumer];
+    const evidence = consumerEvidence[consumer];
     if (evidence) {
       assert.ok(
         candidates.some((candidate) => candidate.body.includes(evidence)),
@@ -217,6 +297,30 @@ function assertConsumerEvidence(descriptor, model) {
       true,
       `${pathLabel(descriptor.path)} runtime consumer ${consumer} is not reachable from a call site`,
     );
+  }
+}
+
+function assertReaderConsumerReachability(descriptor, model) {
+  const readerConsumers = descriptor.runtimeReaderConsumers ?? Object.fromEntries(
+    descriptor.runtimeReaders.map((reader) => [reader, descriptor.runtimeConsumers]),
+  );
+  assert.deepEqual(
+    Object.keys(readerConsumers).sort(),
+    [...new Set(descriptor.runtimeReaders)].sort(),
+    `${pathLabel(descriptor.path)} reader/consumer mapping must cover exactly the declared readers`,
+  );
+  assert.deepEqual(
+    [...new Set(Object.values(readerConsumers).flat())].sort(),
+    [...new Set(descriptor.runtimeConsumers)].sort(),
+    `${pathLabel(descriptor.path)} reader/consumer mapping must cover exactly the declared consumers`,
+  );
+  for (const reader of descriptor.runtimeReaders) {
+    for (const consumer of readerConsumers[reader] ?? []) {
+      assert.ok(
+        readerConsumerReachabilityWitness(model, reader, consumer),
+        `${pathLabel(descriptor.path)} has no static call-graph path from runtime reader ${reader} to consumer ${consumer}`,
+      );
+    }
   }
 }
 
@@ -267,6 +371,11 @@ export function auditRuntimeSecretDependencies({ sources, capabilities = WORKER_
   const declaredNames = capabilitySecretNames(capabilities);
 
   assert.ok(descriptors.length > 0, "runtime Secret capability contract is empty");
+  assert.equal(
+    declaredNames.has(CANARY_RUNTIME_ATTESTATION_SIGNING_PRIVATE_KEY_INPUT),
+    false,
+    "Runtime Attestation private key must remain deployment-side only",
+  );
   for (const descriptor of descriptors) {
     assert.ok(descriptor.inputs.length > 0, `${pathLabel(descriptor.path)} has no Secret inputs`);
     assert.ok(descriptor.runtimeReaders.length > 0, `${pathLabel(descriptor.path)} has no runtime readers`);
@@ -274,16 +383,19 @@ export function auditRuntimeSecretDependencies({ sources, capabilities = WORKER_
     assertWorkerScope(descriptor);
     assertReaderEvidence(descriptor, model);
     assertConsumerEvidence(descriptor, model);
+    assertReaderConsumerReachability(descriptor, model);
     for (const name of descriptor.inputs) {
       assert.equal(CLASSIFIED_SECRET_INPUTS.has(name), true, `${pathLabel(descriptor.path)} uses unclassified Secret ${name}`);
     }
   }
 
   for (const read of model.reads) {
-    assert.equal(
-      declaredNames.has(read.name),
-      true,
-      `runtime Secret read ${read.name} at ${read.fileName}:${read.line} is missing from capability contract`,
+    const matchingDescriptors = descriptors.filter((descriptor) => (
+      descriptor.inputs.includes(read.name) && descriptor.runtimeReaders.includes(read.functionName)
+    ));
+    assert.ok(
+      matchingDescriptors.length > 0,
+      `runtime Secret read ${read.name} at ${read.fileName}:${read.line} has no declared runtime reader`,
     );
   }
 

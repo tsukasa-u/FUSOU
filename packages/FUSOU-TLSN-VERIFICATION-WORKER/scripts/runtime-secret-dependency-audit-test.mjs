@@ -7,47 +7,99 @@ import {
 } from "./deployment-contract.mjs";
 import {
   auditRuntimeSecretDependencies,
+  analyzeRuntimeSources,
   loadRuntimeSources,
 } from "./runtime-secret-dependency-audit.mjs";
 
 const sources = await loadRuntimeSources();
 const cloneDeep = structuredClone;
 
-function expectAuditFailure(label, capabilities = WORKER_SECRET_CAPABILITIES, mutatedSources = sources) {
+function expectAuditFailure(
+  label,
+  capabilities = WORKER_SECRET_CAPABILITIES,
+  mutatedSources = sources,
+  messagePattern = /runtime Secret|runtime reader|runtime consumer|mode|bundle|deployment-side/,
+) {
   assert.throws(
     () => auditRuntimeSecretDependencies({ sources: mutatedSources, capabilities }),
-    undefined,
+    messagePattern,
     `${label} must fail the runtime Secret dependency audit`,
   );
 }
 
 const missingCanaryCapability = cloneDeep(WORKER_SECRET_CAPABILITIES);
 delete missingCanaryCapability.canary.main.directCallback;
-expectAuditFailure("missing Canary main capability", missingCanaryCapability);
+expectAuditFailure("missing Canary main capability", missingCanaryCapability, sources, /runtime Secret read|bundle drifted/);
 
 const missingRuntimeRead = {
   ...sources,
   "src/index.ts": sources["src/index.ts"].replaceAll("TLSN_TEST_AUTH_USERS", "TLSN_TEST_AUTH_USERS_REMOVED"),
 };
-expectAuditFailure("missing runtime read", WORKER_SECRET_CAPABILITIES, missingRuntimeRead);
+expectAuditFailure("missing runtime read", WORKER_SECRET_CAPABILITIES, missingRuntimeRead, /runtime readers no longer read|runtime Secret read/);
 
 const addedRuntimeRead = {
   ...sources,
   "src/index.ts": `${sources["src/index.ts"]}\nconst futureSecretProbe = (env: Bindings) => env.TLSN_FUTURE_CALLBACK_SECRET;\n`,
 };
-expectAuditFailure("undeclared runtime read", WORKER_SECRET_CAPABILITIES, addedRuntimeRead);
+expectAuditFailure("undeclared runtime read", WORKER_SECRET_CAPABILITIES, addedRuntimeRead, /runtime Secret read/);
+
+const aliasReadSources = {
+  ...sources,
+  "src/index.ts": `${sources["src/index.ts"]}\nconst aliasSecretProbe = (env: Bindings) => { const e = env; return e.TLSN_FUTURE_ALIAS_SECRET; };\n`,
+};
+expectAuditFailure("undeclared aliased runtime read", WORKER_SECRET_CAPABILITIES, aliasReadSources, /runtime Secret read/);
+
+const destructuredReadSources = {
+  ...sources,
+  "src/index.ts": `${sources["src/index.ts"]}\nconst destructuredSecretProbe = (c: { env: Bindings }) => { const e = c.env; const { TLSN_FUTURE_DESTRUCTURED_SECRET } = e; return TLSN_FUTURE_DESTRUCTURED_SECRET; };\n`,
+};
+expectAuditFailure("undeclared destructured runtime read", WORKER_SECRET_CAPABILITIES, destructuredReadSources, /runtime Secret read/);
+
+const knownAliasModel = analyzeRuntimeSources({
+  ...sources,
+  "src/index.ts": `${sources["src/index.ts"]}\nconst knownAliasProbe = (c: { env: Bindings }) => { const e = c.env; return e.TLSN_TEST_AUTH_USERS; };\n`,
+});
+assert.equal(
+  knownAliasModel.reads.some((read) => read.name === "TLSN_TEST_AUTH_USERS" && read.functionName === "knownAliasProbe"),
+  true,
+  "known Secret reads through c.env aliases must be represented in the AST model",
+);
+const destructuredKnownAliasModel = analyzeRuntimeSources({
+  ...sources,
+  "src/index.ts": `${sources["src/index.ts"]}\nconst destructuredKnownAliasProbe = (env: Bindings) => { const { TLSN_TEST_AUTH_USERS } = env; return TLSN_TEST_AUTH_USERS; };\n`,
+});
+assert.equal(
+  destructuredKnownAliasModel.reads.some((read) => read.name === "TLSN_TEST_AUTH_USERS" && read.functionName === "destructuredKnownAliasProbe"),
+  true,
+  "known Secret destructuring reads must be represented in the AST model",
+);
 
 const crossModeCapability = cloneDeep(WORKER_SECRET_CAPABILITIES);
 crossModeCapability.test.main.modes.trigger.queueCallback = cloneDeep(
   WORKER_SECRET_CAPABILITIES.test.main.modes.queue.queueCallback,
 );
-expectAuditFailure("cross-mode capability", crossModeCapability);
+expectAuditFailure("cross-mode capability", crossModeCapability, sources, /another execution mode/);
 
 const crossWorkerCapability = cloneDeep(WORKER_SECRET_CAPABILITIES);
 crossWorkerCapability.canary.verifier.triggerExecution = cloneDeep(
   WORKER_SECRET_CAPABILITIES.canary.main.triggerExecution,
 );
-expectAuditFailure("cross-Worker capability", crossWorkerCapability);
+expectAuditFailure("cross-Worker capability", crossWorkerCapability, sources, /bundle drifted/);
+
+const readerMutation = cloneDeep(WORKER_SECRET_CAPABILITIES);
+readerMutation.test.main.always.resultSigning.runtimeReaders = ["authenticateRequest"];
+readerMutation.test.main.always.resultSigning.runtimeReaderConsumers = {
+  authenticateRequest: ["signResult", "signSparseResult"],
+};
+expectAuditFailure("wrong runtime reader declaration", readerMutation, sources, /runtime readers no longer read/);
+
+const consumerSwap = cloneDeep(WORKER_SECRET_CAPABILITIES);
+consumerSwap.test.main.always.resultSigning.runtimeConsumers = ["signBindingAuthorityReceipt", "signSparseResult"];
+expectAuditFailure("wrong runtime consumer declaration", consumerSwap, sources, /consumer declarations must match evidence/);
+
+const consumerRemoval = cloneDeep(WORKER_SECRET_CAPABILITIES);
+consumerRemoval.test.main.always.resultSigning.runtimeConsumers = ["signSparseResult"];
+expectAuditFailure("removed runtime consumer declaration", consumerRemoval, sources, /consumer declarations must match evidence/);
 
 const deploymentOnlyKeyCapability = cloneDeep(WORKER_SECRET_CAPABILITIES);
 deploymentOnlyKeyCapability.canary.main.attestationKey = {
@@ -56,6 +108,6 @@ deploymentOnlyKeyCapability.canary.main.attestationKey = {
   runtimeConsumers: ["readConfig"],
   runtimeConsumerEvidence: { readConfig: "TLSN_CANARY_RESULT_SIGNING_PRIVATE_KEY_PKCS8" },
 };
-expectAuditFailure("deployment-only attestation key capability", deploymentOnlyKeyCapability);
+expectAuditFailure("deployment-only attestation key capability", deploymentOnlyKeyCapability, sources, /deployment-side only/);
 
 console.log("runtime Secret dependency mutation audit passed");

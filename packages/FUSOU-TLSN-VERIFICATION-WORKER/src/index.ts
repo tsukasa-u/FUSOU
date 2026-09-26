@@ -2217,7 +2217,6 @@ type TriggerExecutionConfig = {
   apiUrl: string;
   taskId: string;
   secretKey: string;
-  callbackSecret: string;
   maxAttempts: number;
 };
 
@@ -2233,15 +2232,11 @@ function triggerExecutionConfig(env: Bindings): TriggerExecutionConfig | null {
   const secretKey = (production
     ? canary ? env.TLSN_CANARY_TRIGGER_SECRET_KEY : env.TLSN_PRODUCTION_TRIGGER_SECRET_KEY
     : env.TLSN_TRIGGER_SECRET_KEY)?.trim();
-  const callbackSecret = (production
-    ? canary ? env.TLSN_CANARY_TRIGGER_CALLBACK_SECRET : env.TLSN_PRODUCTION_TRIGGER_CALLBACK_SECRET
-    : env.TLSN_TRIGGER_CALLBACK_SECRET)?.trim();
   const localTestApi = env.TLSN_ENVIRONMENT === "test" && typeof apiUrl === "string" && /^http:\/\/(?:127\.0\.0\.1|localhost)(?::[0-9]{1,5})?$/.test(apiUrl);
   if (
     !apiUrl ||
     !taskId ||
     !secretKey ||
-    !callbackSecret ||
     (!/^https:\/\//.test(apiUrl) && !localTestApi) ||
     !/^[A-Za-z0-9._:-]{1,256}$/.test(taskId)
   ) {
@@ -2251,7 +2246,6 @@ function triggerExecutionConfig(env: Bindings): TriggerExecutionConfig | null {
     apiUrl,
     taskId,
     secretKey,
-    callbackSecret,
     maxAttempts: env.TLSN_ENVIRONMENT === "test" ? 1 : 3,
   };
 }
@@ -2289,7 +2283,13 @@ export function canarySynchronousResponseEnabled(env: Bindings): boolean {
     && env.TLSN_CANARY_SYNCHRONOUS_RESPONSE_ENABLED === "true";
 }
 
-function directCallbackSecret(env: Bindings): string | undefined {
+function canaryBindingValue(env: Bindings): string | undefined {
+  return env.TLSN_ENVIRONMENT === "production" && env.TLSN_DEPLOYMENT_ROLE === "canary"
+    ? env.TLSN_CANARY_BINDING_VALUE
+    : undefined;
+}
+
+export function directCallbackSecret(env: Bindings): string | undefined {
   if (env.TLSN_ENVIRONMENT === "test") return env.TLSN_DIRECT_CALLBACK_SECRET;
   return env.TLSN_ENVIRONMENT === "production" && env.TLSN_DEPLOYMENT_ROLE === "canary"
     ? env.TLSN_CANARY_DIRECT_CALLBACK_SECRET
@@ -3461,6 +3461,13 @@ async function completeVerification(
   }
 }
 
+function syntheticAuthConfigured(env: Bindings): boolean {
+  if (env.TLSN_ENVIRONMENT !== "test") return false;
+  return env.TLSN_DEPLOYMENT_ROLE === "replay"
+    ? Boolean(env.TLSN_REPLAY_AUTH_USERS)
+    : Boolean(env.TLSN_TEST_AUTH_USERS);
+}
+
 app.get("/health", async (c) => {
   const production = c.env.TLSN_ENVIRONMENT === "production";
   const role = c.env.TLSN_DEPLOYMENT_ROLE ?? (production ? "production" : "synthetic-test");
@@ -3550,7 +3557,7 @@ app.get("/health", async (c) => {
         version_timestamp: c.env.CF_VERSION_METADATA.timestamp,
       }
     : null;
-  const bindingMode = production && canary && c.env.TLSN_CANARY_BINDING_VALUE
+  const bindingMode = production && canary && canaryBindingValue(c.env)
     ? "fixed_canary"
     : replay && c.env.TLSN_TEST_BINDING_VALUE
       ? "fixed"
@@ -3569,11 +3576,7 @@ app.get("/health", async (c) => {
     ok: true,
     verifier: "tlsn-alpha15-wasm",
     environment: c.env.TLSN_ENVIRONMENT,
-    auth_mode: c.env.TLSN_ENVIRONMENT === "test" && (replay
-      ? c.env.TLSN_REPLAY_AUTH_USERS
-      : c.env.TLSN_TEST_AUTH_USERS)
-      ? "test-token"
-      : "supabase",
+    auth_mode: syntheticAuthConfigured(c.env) ? "test-token" : "supabase",
     device_auth_mode: testDeviceAuthenticationEnabled(c.env)
       ? "test-ed25519"
       : "external-endpoint",
@@ -3701,9 +3704,7 @@ app.post("/attestation/session", async (c) => {
       requestBody.nonce,
       c.env.TLSN_ENVIRONMENT === "test"
         ? testBindingValueForRequest(c.env, c.req.raw)
-        : c.env.TLSN_DEPLOYMENT_ROLE === "canary"
-          ? c.env.TLSN_CANARY_BINDING_VALUE
-          : undefined,
+        : canaryBindingValue(c.env),
     );
     const sessionBindingMilliseconds = sessionBindingStartedAt === undefined
       ? undefined

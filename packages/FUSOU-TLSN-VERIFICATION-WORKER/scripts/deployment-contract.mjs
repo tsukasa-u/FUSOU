@@ -413,12 +413,19 @@ function uniqueInputNames(names) {
   return [...new Set(names)];
 }
 
-function runtimeCapability(inputs, runtimeReaders, runtimeConsumers, runtimeConsumerEvidence = {}) {
+function runtimeCapability(
+  inputs,
+  runtimeReaders,
+  runtimeConsumers,
+  runtimeConsumerEvidence = {},
+  runtimeReaderConsumers = Object.fromEntries(runtimeReaders.map((reader) => [reader, runtimeConsumers])),
+) {
   return {
     inputs: uniqueInputNames(inputs),
     runtimeReaders,
     runtimeConsumers,
     runtimeConsumerEvidence,
+    runtimeReaderConsumers,
   };
 }
 
@@ -456,9 +463,16 @@ export const WORKER_SECRET_CAPABILITIES = {
       ),
       bindingAuthorization: runtimeCapability(
         ["TLSN_CANARY_BINDING_VALUE"],
-        ["readConfig"],
-        ["readConfig"],
-        { readConfig: "TLSN_CANARY_BINDING_VALUE" },
+        ["readConfig", "canaryBindingValue"],
+        ["readConfig", "canaryBindingValue"],
+        {
+          readConfig: "TLSN_CANARY_BINDING_VALUE",
+          canaryBindingValue: "TLSN_CANARY_BINDING_VALUE",
+        },
+        {
+          readConfig: ["readConfig"],
+          canaryBindingValue: ["canaryBindingValue"],
+        },
       ),
       triggerExecution: runtimeCapability(
         ["TLSN_CANARY_TRIGGER_SECRET_KEY"],
@@ -468,7 +482,7 @@ export const WORKER_SECRET_CAPABILITIES = {
       ),
       triggerCallback: runtimeCapability(
         ["TLSN_CANARY_TRIGGER_CALLBACK_SECRET"],
-        ["triggerExecutionConfig", "triggerCallbackSecret"],
+        ["triggerCallbackSecret"],
         ["processVerificationCompletion"],
         { processVerificationCompletion: "verifyInternalRequest" },
       ),
@@ -500,9 +514,16 @@ export const WORKER_SECRET_CAPABILITIES = {
       ),
       bindingAuthorization: runtimeCapability(
         ["TLSN_CANARY_BINDING_VALUE"],
-        ["readConfig"],
-        ["readConfig"],
-        { readConfig: "TLSN_CANARY_BINDING_VALUE" },
+        ["readConfig", "canaryBindingValue"],
+        ["readConfig", "canaryBindingValue"],
+        {
+          readConfig: "TLSN_CANARY_BINDING_VALUE",
+          canaryBindingValue: "TLSN_CANARY_BINDING_VALUE",
+        },
+        {
+          readConfig: ["readConfig"],
+          canaryBindingValue: ["canaryBindingValue"],
+        },
       ),
       directCallback: runtimeCapability(
         ["TLSN_CANARY_DIRECT_CALLBACK_SECRET"],
@@ -541,9 +562,18 @@ export const WORKER_SECRET_CAPABILITIES = {
       ),
       syntheticAuthentication: runtimeCapability(
         ["TLSN_TEST_AUTH_USERS"],
-        ["authenticateRequest"],
-        ["authenticateRequest"],
-        { authenticateRequest: "syntheticAuthUsers" },
+        ["readConfig", "authenticateRequest", "syntheticAuthConfigured"],
+        ["readConfig", "authenticateRequest", "syntheticAuthConfigured"],
+        {
+          readConfig: "TLSN_TEST_AUTH_USERS",
+          authenticateRequest: "syntheticAuthUsers",
+          syntheticAuthConfigured: "TLSN_TEST_AUTH_USERS",
+        },
+        {
+          readConfig: ["readConfig"],
+          authenticateRequest: ["authenticateRequest"],
+          syntheticAuthConfigured: ["syntheticAuthConfigured"],
+        },
       ),
     },
     verifier: {
@@ -596,9 +626,18 @@ export const WORKER_SECRET_CAPABILITIES = {
         ),
         syntheticAuthentication: runtimeCapability(
           ["TLSN_TEST_AUTH_USERS"],
-          ["authenticateRequest"],
-          ["authenticateRequest"],
-          { authenticateRequest: "syntheticAuthUsers" },
+          ["readConfig", "authenticateRequest", "syntheticAuthConfigured"],
+          ["readConfig", "authenticateRequest", "syntheticAuthConfigured"],
+          {
+            readConfig: "TLSN_TEST_AUTH_USERS",
+            authenticateRequest: "syntheticAuthUsers",
+            syntheticAuthConfigured: "TLSN_TEST_AUTH_USERS",
+          },
+          {
+            readConfig: ["readConfig"],
+            authenticateRequest: ["authenticateRequest"],
+            syntheticAuthConfigured: ["syntheticAuthConfigured"],
+          },
         ),
       },
       modes: {
@@ -612,7 +651,7 @@ export const WORKER_SECRET_CAPABILITIES = {
           ),
           triggerCallback: runtimeCapability(
             ["TLSN_TRIGGER_CALLBACK_SECRET"],
-            ["triggerExecutionConfig", "triggerCallbackSecret"],
+            ["triggerCallbackSecret"],
             ["processVerificationCompletion"],
             { processVerificationCompletion: "verifyInternalRequest" },
           ),
@@ -692,7 +731,7 @@ export const WORKER_SECRET_CAPABILITIES = {
       ),
       triggerCallback: runtimeCapability(
         ["TLSN_PRODUCTION_TRIGGER_CALLBACK_SECRET"],
-        ["triggerExecutionConfig", "triggerCallbackSecret"],
+        ["triggerCallbackSecret"],
         ["processVerificationCompletion"],
         { processVerificationCompletion: "verifyInternalRequest" },
       ),

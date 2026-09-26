@@ -42,6 +42,7 @@ const manifest = JSON.parse(await readFile(resolve(packageDirectory, "scripts/pr
 const deploySource = await readFile(resolve(packageDirectory, "scripts/deploy-canary.mjs"), "utf8");
 const evidenceDeploySource = await readFile(resolve(packageDirectory, "scripts/deploy-evidence.mjs"), "utf8");
 const testDeploySource = await readFile(resolve(packageDirectory, "scripts/deploy-test.mjs"), "utf8");
+const productionDeploySource = await readFile(resolve(packageDirectory, "scripts/deploy-production.mjs"), "utf8");
 const runtimeSource = await readFile(resolve(packageDirectory, "src/index.ts"), "utf8");
 const directVerifierSource = await readFile(resolve(packageDirectory, "src/direct_verifier.ts"), "utf8");
 
@@ -214,7 +215,8 @@ assert.match(runtimeSource, /directCallbackSecret/);
 assert.match(runtimeSource, /testBindingValueForRequest/);
 assert.match(runtimeSource, /authenticateRequest/);
 assert.match(directVerifierSource, /processVerificationCompletion/);
-assert.match(directVerifierSource, /TLSN_DIRECT_CALLBACK_SECRET/);
+assert.match(directVerifierSource, /directCallbackSecret\(c\.env\)/);
+assert.match(runtimeSource, /directCallbackSecret\(env\)/);
 auditRuntimeSecretDependencies({
   sources: {
     "src/index.ts": runtimeSource,
@@ -243,20 +245,24 @@ for (const worker of ["bootstrap", "main", "verifier"]) {
 }
 
 assert.doesNotMatch(deploySource, /const secretsPath =/);
+assert.match(deploySource, /workerSecretBundleForCanary/);
 assert.doesNotMatch(deploySource, /bootstrapDeployArguments\.push\("--secrets-file"/);
 assert.match(deploySource, /mainSecretsPath/);
 assert.match(deploySource, /verifierSecretsPath/);
 assert.match(deploySource, /await rm\(secretDirectory, \{ recursive: true, force: true \}\)/);
 assert.doesNotMatch(evidenceDeploySource, /const secretsPath =/);
+assert.match(evidenceDeploySource, /workerSecretBundleForEvidence/);
 assert.doesNotMatch(evidenceDeploySource, /bootstrapDeployArguments\.push\("--secrets-file"/);
 assert.match(evidenceDeploySource, /mainSecretsPath/);
 assert.match(evidenceDeploySource, /verifierSecretsPath/);
 assert.match(evidenceDeploySource, /workerSecretBundleForEvidence/);
 assert.doesNotMatch(testDeploySource, /const secretsPath =/);
+assert.match(testDeploySource, /workerSecretBundleForTest/);
 assert.match(testDeploySource, /mainSecretsPath/);
 assert.match(testDeploySource, /verifierSecretsPath/);
 assert.match(testDeploySource, /workerSecretBundleForTest/);
 assert.match(testDeploySource, /executionMode\)/);
 assert.match(testDeploySource, /if \(directMode\)/);
+assert.match(productionDeploySource, /workerSecretBundleForProduction/);
 
 console.log("[tlsn-secret-boundary-contract] input classification and Worker-specific secret delivery PASS");
