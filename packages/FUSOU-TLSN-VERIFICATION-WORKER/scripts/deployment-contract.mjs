@@ -400,80 +400,315 @@ const REQUIRED_SIGNING_SECRETS = [
   "TLSN_BINDING_AUTHORITY_SIGNING_PRIVATE_KEY_PKCS8",
 ];
 
-export const WORKER_SECRET_CAPABILITIES = {
-  canary: {
-    bootstrap: {},
-    main: {
-      resultSigning: ["TLSN_CANARY_RESULT_SIGNING_PRIVATE_KEY_PKCS8"],
-      sessionAuthoritySigning: ["TLSN_CANARY_SESSION_AUTHORITY_SIGNING_PRIVATE_KEY_PKCS8"],
-      bindingAuthoritySigning: ["TLSN_CANARY_BINDING_AUTHORITY_SIGNING_PRIVATE_KEY_PKCS8"],
-      bindingAuthorization: ["TLSN_CANARY_BINDING_VALUE"],
-      triggerExecution: ["TLSN_CANARY_TRIGGER_SECRET_KEY"],
-      triggerCallback: ["TLSN_CANARY_TRIGGER_CALLBACK_SECRET"],
-    },
-    verifier: {
-      resultSigning: ["TLSN_CANARY_RESULT_SIGNING_PRIVATE_KEY_PKCS8"],
-      sessionAuthoritySigning: ["TLSN_CANARY_SESSION_AUTHORITY_SIGNING_PRIVATE_KEY_PKCS8"],
-      bindingAuthoritySigning: ["TLSN_CANARY_BINDING_AUTHORITY_SIGNING_PRIVATE_KEY_PKCS8"],
-      bindingAuthorization: ["TLSN_CANARY_BINDING_VALUE"],
-      directCallback: ["TLSN_CANARY_DIRECT_CALLBACK_SECRET"],
-    },
-  },
-  evidence: {
-    bootstrap: {},
-    main: {
-      resultSigning: ["TLSN_RESULT_SIGNING_PRIVATE_KEY_PKCS8"],
-      sessionAuthoritySigning: ["TLSN_SESSION_AUTHORITY_SIGNING_PRIVATE_KEY_PKCS8"],
-      bindingAuthoritySigning: ["TLSN_BINDING_AUTHORITY_SIGNING_PRIVATE_KEY_PKCS8"],
-      directCallback: ["TLSN_DIRECT_CALLBACK_SECRET"],
-      syntheticAuthentication: ["TLSN_TEST_AUTH_USERS"],
-    },
-    verifier: {
-      resultSigning: ["TLSN_RESULT_SIGNING_PRIVATE_KEY_PKCS8"],
-      sessionAuthoritySigning: ["TLSN_SESSION_AUTHORITY_SIGNING_PRIVATE_KEY_PKCS8"],
-      bindingAuthoritySigning: ["TLSN_BINDING_AUTHORITY_SIGNING_PRIVATE_KEY_PKCS8"],
-      directCallback: ["TLSN_DIRECT_CALLBACK_SECRET"],
-    },
-  },
-  test: {
-    main: {
-      always: {
-        resultSigning: REQUIRED_SIGNING_SECRETS.slice(0, 1),
-        sessionAuthoritySigning: REQUIRED_SIGNING_SECRETS.slice(1, 2),
-        bindingAuthoritySigning: REQUIRED_SIGNING_SECRETS.slice(2, 3),
-        syntheticAuthentication: ["TLSN_TEST_AUTH_USERS"],
-      },
-      modes: {
-        sync: {},
-        trigger: {
-          triggerExecution: ["TLSN_TRIGGER_SECRET_KEY"],
-          triggerCallback: ["TLSN_TRIGGER_CALLBACK_SECRET"],
-        },
-        queue: {
-          queueCallback: ["TLSN_QUEUE_CALLBACK_SECRET"],
-        },
-        direct: {
-          directCallback: ["TLSN_DIRECT_CALLBACK_SECRET"],
-        },
-      },
-    },
-    verifier: {
-      direct: {
-        resultSigning: REQUIRED_SIGNING_SECRETS.slice(0, 1),
-        sessionAuthoritySigning: REQUIRED_SIGNING_SECRETS.slice(1, 2),
-        bindingAuthoritySigning: REQUIRED_SIGNING_SECRETS.slice(2, 3),
-        directCallback: ["TLSN_DIRECT_CALLBACK_SECRET"],
-      },
-    },
-  },
-};
+const GENERIC_WORKER_SECRET_INPUTS = [
+  ...REQUIRED_SIGNING_SECRETS,
+  "TLSN_TEST_AUTH_USERS",
+  "TLSN_TRIGGER_SECRET_KEY",
+  "TLSN_TRIGGER_CALLBACK_SECRET",
+  "TLSN_QUEUE_CALLBACK_SECRET",
+  "TLSN_DIRECT_CALLBACK_SECRET",
+];
 
 function uniqueInputNames(names) {
   return [...new Set(names)];
 }
 
+function runtimeCapability(inputs, runtimeReaders, runtimeConsumers, runtimeConsumerEvidence = {}) {
+  return {
+    inputs: uniqueInputNames(inputs),
+    runtimeReaders,
+    runtimeConsumers,
+    runtimeConsumerEvidence,
+  };
+}
+
+export const WORKER_DECLARED_SECRET_INPUTS = uniqueInputNames([
+  ...GENERIC_WORKER_SECRET_INPUTS,
+  ...CANARY_SECRET_INPUTS.filter((name) => name !== CANARY_RUNTIME_ATTESTATION_SIGNING_PRIVATE_KEY_INPUT),
+  ...PRODUCTION_SECRET_INPUTS,
+]);
+
+export const RUNTIME_SYNTHETIC_CONFIGURATION_INPUTS = [
+  "TLSN_REPLAY_AUTH_USERS",
+];
+
+export const WORKER_SECRET_CAPABILITIES = {
+  canary: {
+    bootstrap: {},
+    main: {
+      resultSigning: runtimeCapability(
+        ["TLSN_CANARY_RESULT_SIGNING_PRIVATE_KEY_PKCS8"],
+        ["readConfig"],
+        ["signResult", "signSparseResult"],
+        { signResult: "resultSigningPrivateKeyBytes", signSparseResult: "resultSigningPrivateKeyBytes" },
+      ),
+      sessionAuthoritySigning: runtimeCapability(
+        ["TLSN_CANARY_SESSION_AUTHORITY_SIGNING_PRIVATE_KEY_PKCS8"],
+        ["readConfig"],
+        ["signSessionAuthorityReceipt"],
+        { signSessionAuthorityReceipt: "sessionAuthoritySigningPrivateKeyBytes" },
+      ),
+      bindingAuthoritySigning: runtimeCapability(
+        ["TLSN_CANARY_BINDING_AUTHORITY_SIGNING_PRIVATE_KEY_PKCS8"],
+        ["readConfig"],
+        ["signBindingAuthorityReceipt"],
+        { signBindingAuthorityReceipt: "bindingAuthoritySigningPrivateKeyBytes" },
+      ),
+      bindingAuthorization: runtimeCapability(
+        ["TLSN_CANARY_BINDING_VALUE"],
+        ["readConfig"],
+        ["readConfig"],
+        { readConfig: "TLSN_CANARY_BINDING_VALUE" },
+      ),
+      triggerExecution: runtimeCapability(
+        ["TLSN_CANARY_TRIGGER_SECRET_KEY"],
+        ["triggerExecutionConfig"],
+        ["enqueueTriggerVerification"],
+        { enqueueTriggerVerification: "config.secretKey" },
+      ),
+      triggerCallback: runtimeCapability(
+        ["TLSN_CANARY_TRIGGER_CALLBACK_SECRET"],
+        ["triggerExecutionConfig", "triggerCallbackSecret"],
+        ["processVerificationCompletion"],
+        { processVerificationCompletion: "verifyInternalRequest" },
+      ),
+      directCallback: runtimeCapability(
+        ["TLSN_CANARY_DIRECT_CALLBACK_SECRET"],
+        ["directCallbackSecret"],
+        ["dispatchDirectVerification", "processVerificationCompletion"],
+        { dispatchDirectVerification: "internalRequestSignature", processVerificationCompletion: "verifyInternalRequest" },
+      ),
+    },
+    verifier: {
+      resultSigning: runtimeCapability(
+        ["TLSN_CANARY_RESULT_SIGNING_PRIVATE_KEY_PKCS8"],
+        ["readConfig"],
+        ["signResult", "signSparseResult"],
+        { signResult: "resultSigningPrivateKeyBytes", signSparseResult: "resultSigningPrivateKeyBytes" },
+      ),
+      sessionAuthoritySigning: runtimeCapability(
+        ["TLSN_CANARY_SESSION_AUTHORITY_SIGNING_PRIVATE_KEY_PKCS8"],
+        ["readConfig"],
+        ["signSessionAuthorityReceipt"],
+        { signSessionAuthorityReceipt: "sessionAuthoritySigningPrivateKeyBytes" },
+      ),
+      bindingAuthoritySigning: runtimeCapability(
+        ["TLSN_CANARY_BINDING_AUTHORITY_SIGNING_PRIVATE_KEY_PKCS8"],
+        ["readConfig"],
+        ["signBindingAuthorityReceipt"],
+        { signBindingAuthorityReceipt: "bindingAuthoritySigningPrivateKeyBytes" },
+      ),
+      bindingAuthorization: runtimeCapability(
+        ["TLSN_CANARY_BINDING_VALUE"],
+        ["readConfig"],
+        ["readConfig"],
+        { readConfig: "TLSN_CANARY_BINDING_VALUE" },
+      ),
+      directCallback: runtimeCapability(
+        ["TLSN_CANARY_DIRECT_CALLBACK_SECRET"],
+        ["directCallbackSecret"],
+        ["processVerificationCompletion"],
+        { processVerificationCompletion: "verifyInternalRequest" },
+      ),
+    },
+  },
+  evidence: {
+    bootstrap: {},
+    main: {
+      resultSigning: runtimeCapability(
+        REQUIRED_SIGNING_SECRETS.slice(0, 1),
+        ["readConfig"],
+        ["signResult", "signSparseResult"],
+        { signResult: "resultSigningPrivateKeyBytes", signSparseResult: "resultSigningPrivateKeyBytes" },
+      ),
+      sessionAuthoritySigning: runtimeCapability(
+        REQUIRED_SIGNING_SECRETS.slice(1, 2),
+        ["readConfig"],
+        ["signSessionAuthorityReceipt"],
+        { signSessionAuthorityReceipt: "sessionAuthoritySigningPrivateKeyBytes" },
+      ),
+      bindingAuthoritySigning: runtimeCapability(
+        REQUIRED_SIGNING_SECRETS.slice(2, 3),
+        ["readConfig"],
+        ["signBindingAuthorityReceipt"],
+        { signBindingAuthorityReceipt: "bindingAuthoritySigningPrivateKeyBytes" },
+      ),
+      directCallback: runtimeCapability(
+        ["TLSN_DIRECT_CALLBACK_SECRET"],
+        ["directCallbackSecret"],
+        ["dispatchDirectVerification", "processVerificationCompletion"],
+        { dispatchDirectVerification: "internalRequestSignature", processVerificationCompletion: "verifyInternalRequest" },
+      ),
+      syntheticAuthentication: runtimeCapability(
+        ["TLSN_TEST_AUTH_USERS"],
+        ["authenticateRequest"],
+        ["authenticateRequest"],
+        { authenticateRequest: "syntheticAuthUsers" },
+      ),
+    },
+    verifier: {
+      resultSigning: runtimeCapability(
+        REQUIRED_SIGNING_SECRETS.slice(0, 1),
+        ["readConfig"],
+        ["signResult", "signSparseResult"],
+        { signResult: "resultSigningPrivateKeyBytes", signSparseResult: "resultSigningPrivateKeyBytes" },
+      ),
+      sessionAuthoritySigning: runtimeCapability(
+        REQUIRED_SIGNING_SECRETS.slice(1, 2),
+        ["readConfig"],
+        ["signSessionAuthorityReceipt"],
+        { signSessionAuthorityReceipt: "sessionAuthoritySigningPrivateKeyBytes" },
+      ),
+      bindingAuthoritySigning: runtimeCapability(
+        REQUIRED_SIGNING_SECRETS.slice(2, 3),
+        ["readConfig"],
+        ["signBindingAuthorityReceipt"],
+        { signBindingAuthorityReceipt: "bindingAuthoritySigningPrivateKeyBytes" },
+      ),
+      directCallback: runtimeCapability(
+        ["TLSN_DIRECT_CALLBACK_SECRET"],
+        ["directCallbackSecret"],
+        ["processVerificationCompletion"],
+        { processVerificationCompletion: "verifyInternalRequest" },
+      ),
+    },
+  },
+  test: {
+    main: {
+      always: {
+        resultSigning: runtimeCapability(
+          REQUIRED_SIGNING_SECRETS.slice(0, 1),
+          ["readConfig"],
+          ["signResult", "signSparseResult"],
+          { signResult: "resultSigningPrivateKeyBytes", signSparseResult: "resultSigningPrivateKeyBytes" },
+        ),
+        sessionAuthoritySigning: runtimeCapability(
+          REQUIRED_SIGNING_SECRETS.slice(1, 2),
+          ["readConfig"],
+          ["signSessionAuthorityReceipt"],
+          { signSessionAuthorityReceipt: "sessionAuthoritySigningPrivateKeyBytes" },
+        ),
+        bindingAuthoritySigning: runtimeCapability(
+          REQUIRED_SIGNING_SECRETS.slice(2, 3),
+          ["readConfig"],
+          ["signBindingAuthorityReceipt"],
+          { signBindingAuthorityReceipt: "bindingAuthoritySigningPrivateKeyBytes" },
+        ),
+        syntheticAuthentication: runtimeCapability(
+          ["TLSN_TEST_AUTH_USERS"],
+          ["authenticateRequest"],
+          ["authenticateRequest"],
+          { authenticateRequest: "syntheticAuthUsers" },
+        ),
+      },
+      modes: {
+        sync: {},
+        trigger: {
+          triggerExecution: runtimeCapability(
+            ["TLSN_TRIGGER_SECRET_KEY"],
+            ["triggerExecutionConfig"],
+            ["enqueueTriggerVerification"],
+            { enqueueTriggerVerification: "config.secretKey" },
+          ),
+          triggerCallback: runtimeCapability(
+            ["TLSN_TRIGGER_CALLBACK_SECRET"],
+            ["triggerExecutionConfig", "triggerCallbackSecret"],
+            ["processVerificationCompletion"],
+            { processVerificationCompletion: "verifyInternalRequest" },
+          ),
+        },
+        queue: {
+          queueCallback: runtimeCapability(
+            ["TLSN_QUEUE_CALLBACK_SECRET"],
+            ["queueCallbackSecret"],
+            ["processVerificationCompletion"],
+            { processVerificationCompletion: "verifyInternalRequest" },
+          ),
+        },
+        direct: {
+          directCallback: runtimeCapability(
+            ["TLSN_DIRECT_CALLBACK_SECRET"],
+            ["directCallbackSecret"],
+            ["dispatchDirectVerification", "processVerificationCompletion"],
+            { dispatchDirectVerification: "internalRequestSignature", processVerificationCompletion: "verifyInternalRequest" },
+          ),
+        },
+      },
+    },
+    verifier: {
+      direct: {
+        resultSigning: runtimeCapability(
+          REQUIRED_SIGNING_SECRETS.slice(0, 1),
+          ["readConfig"],
+          ["signResult", "signSparseResult"],
+          { signResult: "resultSigningPrivateKeyBytes", signSparseResult: "resultSigningPrivateKeyBytes" },
+        ),
+        sessionAuthoritySigning: runtimeCapability(
+          REQUIRED_SIGNING_SECRETS.slice(1, 2),
+          ["readConfig"],
+          ["signSessionAuthorityReceipt"],
+          { signSessionAuthorityReceipt: "sessionAuthoritySigningPrivateKeyBytes" },
+        ),
+        bindingAuthoritySigning: runtimeCapability(
+          REQUIRED_SIGNING_SECRETS.slice(2, 3),
+          ["readConfig"],
+          ["signBindingAuthorityReceipt"],
+          { signBindingAuthorityReceipt: "bindingAuthoritySigningPrivateKeyBytes" },
+        ),
+        directCallback: runtimeCapability(
+          ["TLSN_DIRECT_CALLBACK_SECRET"],
+          ["directCallbackSecret"],
+          ["processVerificationCompletion"],
+          { processVerificationCompletion: "verifyInternalRequest" },
+        ),
+      },
+    },
+  },
+  production: {
+    main: {
+      resultSigning: runtimeCapability(
+        ["TLSN_PRODUCTION_RESULT_SIGNING_PRIVATE_KEY_PKCS8"],
+        ["readConfig"],
+        ["signResult", "signSparseResult"],
+        { signResult: "resultSigningPrivateKeyBytes", signSparseResult: "resultSigningPrivateKeyBytes" },
+      ),
+      sessionAuthoritySigning: runtimeCapability(
+        ["TLSN_PRODUCTION_SESSION_AUTHORITY_SIGNING_PRIVATE_KEY_PKCS8"],
+        ["readConfig"],
+        ["signSessionAuthorityReceipt"],
+        { signSessionAuthorityReceipt: "sessionAuthoritySigningPrivateKeyBytes" },
+      ),
+      bindingAuthoritySigning: runtimeCapability(
+        ["TLSN_PRODUCTION_BINDING_AUTHORITY_SIGNING_PRIVATE_KEY_PKCS8"],
+        ["readConfig"],
+        ["signBindingAuthorityReceipt"],
+        { signBindingAuthorityReceipt: "bindingAuthoritySigningPrivateKeyBytes" },
+      ),
+      triggerExecution: runtimeCapability(
+        ["TLSN_PRODUCTION_TRIGGER_SECRET_KEY"],
+        ["triggerExecutionConfig"],
+        ["enqueueTriggerVerification"],
+        { enqueueTriggerVerification: "config.secretKey" },
+      ),
+      triggerCallback: runtimeCapability(
+        ["TLSN_PRODUCTION_TRIGGER_CALLBACK_SECRET"],
+        ["triggerExecutionConfig", "triggerCallbackSecret"],
+        ["processVerificationCompletion"],
+        { processVerificationCompletion: "verifyInternalRequest" },
+      ),
+    },
+  },
+};
+
+function capabilityInputs(value) {
+  return Array.isArray(value) ? value : value?.inputs ?? [];
+}
+
 function secretNamesFromCapabilityGroup(capabilities) {
-  return uniqueInputNames(Object.values(capabilities).flatMap((names) => names));
+  return uniqueInputNames(Object.values(capabilities).flatMap((value) => {
+    if (Array.isArray(value) || Array.isArray(value?.inputs)) return capabilityInputs(value);
+    return secretNamesFromCapabilityGroup(value);
+  }));
 }
 
 function secretBundle(names, requiredNames, environment, label) {
@@ -503,6 +738,11 @@ export const EVIDENCE_WORKER_SECRET_CONTRACT = Object.fromEntries(
     .map(([worker, capabilities]) => [worker, secretNamesFromCapabilityGroup(capabilities)]),
 );
 
+export const PRODUCTION_WORKER_SECRET_CONTRACT = Object.fromEntries(
+  Object.entries(WORKER_SECRET_CAPABILITIES.production)
+    .map(([worker, capabilities]) => [worker, secretNamesFromCapabilityGroup(capabilities)]),
+);
+
 export const EVIDENCE_WORKER_SECRET_INPUTS = uniqueInputNames(
   Object.values(EVIDENCE_WORKER_SECRET_CONTRACT).flat(),
 );
@@ -520,6 +760,12 @@ export function workerSecretBundleForEvidence(worker, environment) {
     ? []
     : [...REQUIRED_SIGNING_SECRETS, "TLSN_DIRECT_CALLBACK_SECRET"];
   return secretBundle(names, requiredNames, environment, "Evidence Worker");
+}
+
+export function workerSecretBundleForProduction(worker, environment) {
+  const names = PRODUCTION_WORKER_SECRET_CONTRACT[worker];
+  if (!names) throw new Error(`unsupported Production Worker secret contract: ${worker}`);
+  return secretBundle(names, names, environment, "Production Worker");
 }
 
 export const TEST_EXECUTION_MODES = ["sync", "trigger", "queue", "direct"];

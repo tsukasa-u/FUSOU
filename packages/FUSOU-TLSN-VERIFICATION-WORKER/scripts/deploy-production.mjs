@@ -10,9 +10,10 @@ import {
   FORBIDDEN_PRODUCTION_INPUTS,
   inputsForRole,
   PRODUCTION_GATE_INPUTS,
+  PRODUCTION_WORKER_SECRET_CONTRACT,
   RUNTIME_INPUTS,
-  secretInputsForRole,
   WORKFLOW_EVIDENCE_INPUTS,
+  workerSecretBundleForProduction,
 } from "./deployment-contract.mjs";
 
 const packageDirectory = resolve(new URL("..", import.meta.url).pathname);
@@ -41,7 +42,7 @@ async function main() {
   const manifest = JSON.parse(await readFile(inputManifestPath, "utf8"));
   assertManifest(manifest);
   const allowedInputs = inputsForRole("production");
-  const secretInputs = new Set(secretInputsForRole("production"));
+  const secretInputs = new Set(PRODUCTION_WORKER_SECRET_CONTRACT.main);
   for (const name of FORBIDDEN_PRODUCTION_INPUTS) {
     if (process.env[name] !== undefined) throw new Error(`${name} must not be present in a production deployment`);
   }
@@ -186,7 +187,7 @@ async function main() {
   try {
     await writeFile(
       secretsPath,
-      JSON.stringify(Object.fromEntries([...secretInputs].map((name) => [name, deploymentEnvironment[name]]))),
+      JSON.stringify(workerSecretBundleForProduction("main", deploymentEnvironment)),
       { encoding: "utf8", mode: 0o600 },
     );
     deployArguments.push("--secrets-file", secretsPath);

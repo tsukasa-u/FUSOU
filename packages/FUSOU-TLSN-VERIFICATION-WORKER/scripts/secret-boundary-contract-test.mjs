@@ -29,10 +29,13 @@ import {
   PRODUCTION_EVIDENCE_PUBLIC_INPUTS,
   PRODUCTION_EVIDENCE_SECRET_INPUTS,
   PRODUCTION_EVIDENCE_SENSITIVE_INPUTS,
+  PRODUCTION_WORKER_SECRET_CONTRACT,
+  workerSecretBundleForProduction,
   workerSecretBundleForEvidence,
   workerSecretBundleForCanary,
   workerSecretBundleForTest,
 } from "./deployment-contract.mjs";
+import { auditRuntimeSecretDependencies } from "./runtime-secret-dependency-audit.mjs";
 
 const packageDirectory = resolve(new URL("..", import.meta.url).pathname);
 const manifest = JSON.parse(await readFile(resolve(packageDirectory, "scripts/production-inputs.json"), "utf8"));
@@ -147,6 +150,15 @@ for (const name of [
   assert.equal(EVIDENCE_WORKER_SECRET_CONTRACT.verifier.includes(name), false, `${name} must not be an Evidence secret`);
 }
 
+const productionDummyEnvironment = Object.fromEntries(
+  PRODUCTION_SECRET_INPUTS.map((name) => [name, `dummy-${name}`]),
+);
+const productionBundle = workerSecretBundleForProduction("main", productionDummyEnvironment);
+assert.deepEqual(Object.keys(productionBundle), PRODUCTION_WORKER_SECRET_CONTRACT.main);
+assert.deepEqual(new Set(Object.keys(productionBundle)), new Set(PRODUCTION_SECRET_INPUTS));
+assert.doesNotMatch(await readFile(resolve(packageDirectory, "scripts/deploy-production.mjs"), "utf8"), /Object\.fromEntries\(\[\.\.\.secretInputs\]/);
+assert.match(await readFile(resolve(packageDirectory, "scripts/deploy-production.mjs"), "utf8"), /workerSecretBundleForProduction/);
+
 const testDummyEnvironment = Object.fromEntries(
   TEST_WORKER_SECRET_INPUTS.map((name) => [name, `dummy-${name}`]),
 );
@@ -203,6 +215,12 @@ assert.match(runtimeSource, /testBindingValueForRequest/);
 assert.match(runtimeSource, /authenticateRequest/);
 assert.match(directVerifierSource, /processVerificationCompletion/);
 assert.match(directVerifierSource, /TLSN_DIRECT_CALLBACK_SECRET/);
+auditRuntimeSecretDependencies({
+  sources: {
+    "src/index.ts": runtimeSource,
+    "src/direct_verifier.ts": directVerifierSource,
+  },
+});
 assert.equal(TEST_WORKER_PUBLIC_INPUTS.verifier.includes("TLSN_TEST_DIRECT_SYNCHRONOUS_CANDIDATE"), false);
 assert.ok(TEST_WORKER_PUBLIC_INPUTS.verifier.includes("TLSN_TEST_DIRECT_VERIFIER_MODE"));
 assert.ok(TEST_WORKER_PUBLIC_INPUTS.main.includes("TLSN_TRUST_ROOT_CERTIFICATE_DER"));
@@ -212,7 +230,7 @@ assert.deepEqual(CANARY_WORKER_SECRET_CONTRACT.bootstrap, []);
 assert.deepEqual(CANARY_WORKER_PUBLIC_INPUTS.bootstrap, []);
 assert.ok(CANARY_WORKER_SECRET_CONTRACT.main.includes("TLSN_CANARY_BINDING_VALUE"));
 assert.ok(CANARY_WORKER_SECRET_CONTRACT.verifier.includes("TLSN_CANARY_DIRECT_CALLBACK_SECRET"));
-assert.equal(CANARY_WORKER_SECRET_CONTRACT.main.includes("TLSN_CANARY_DIRECT_CALLBACK_SECRET"), false);
+assert.ok(CANARY_WORKER_SECRET_CONTRACT.main.includes("TLSN_CANARY_DIRECT_CALLBACK_SECRET"));
 assert.equal(CANARY_WORKER_SECRET_CONTRACT.verifier.includes("TLSN_CANARY_TRIGGER_SECRET_KEY"), false);
 assert.equal(CANARY_WORKER_SECRET_CONTRACT.verifier.includes("TLSN_CANARY_TRIGGER_CALLBACK_SECRET"), false);
 assert.ok(CANARY_WORKER_PUBLIC_INPUTS.main.includes("TLSN_CANARY_TRUST_ROOT_CERTIFICATE_DER"));
