@@ -149,6 +149,16 @@ function analyzeSource(fileName, source) {
     return names;
   }
 
+  function collectCallNames(node) {
+    const names = new Set();
+    function collect(child) {
+      if (ts.isCallExpression(child) && ts.isIdentifier(child.expression)) names.add(child.expression.text);
+      ts.forEachChild(child, collect);
+    }
+    collect(node);
+    return names;
+  }
+
   function visit(node, currentFunction, aliases) {
     let activeFunction = currentFunction;
     let activeAliases = aliases;
@@ -163,6 +173,7 @@ function analyzeSource(fileName, source) {
         name: node.name.text,
         initializer: node.initializer.getText(sourceFile),
         secretNames: collectSecretNames(node.initializer, activeAliases),
+        sourceCalls: collectCallNames(node.initializer),
       });
     }
     const environmentName = environmentPropertyName(node);
@@ -393,6 +404,36 @@ function hasCallProvenance(reader, consumer, entry) {
   return sourcedValue && downstreamCall;
 }
 
+function hasCallerBindingProvenance(model, readerName, consumerName, binding) {
+  const callers = model.functions.filter((candidate) => (
+    (!binding.caller || candidate.name === binding.caller)
+    &&
+    candidate.variables.some((variable) => (
+      variable.name === binding.variable && variable.sourceCalls.has(readerName)
+    ))
+  ));
+  for (const caller of callers) {
+    const directCall = caller.callSites.some((call) => (
+      call.calleeName === consumerName
+      && call.arguments[binding.argumentIndex ?? 0] === binding.variable
+    ));
+    if (directCall) return true;
+    for (const forward of binding.forwardThrough ?? []) {
+      const forwardsValue = caller.callSites.some((call) => (
+        call.calleeName === forward.function
+        && call.arguments[forward.argumentIndex ?? 0] === binding.variable
+      ));
+      if (!forwardsValue) continue;
+      const forwarders = functionCandidates(model, forward.function);
+      if (forwarders.some((forwarder) => forwarder.callSites.some((call) => (
+        call.calleeName === consumerName
+        && call.arguments[forward.consumerArgumentIndex ?? 0] === forward.argument
+      )))) return true;
+    }
+  }
+  return false;
+}
+
 function hasDirectProvenance(reader, consumer, entry) {
   return reader.reads.some((read) => read.name === entry.input)
     && consumer.reads.some((read) => read.name === entry.input);
@@ -418,6 +459,13 @@ function assertReaderConsumerProvenance(descriptor, model) {
         proven,
         `${pathLabel(descriptor.path)} has no Secret-to-consumer provenance for ${entry.input}: ${entry.reader} -> ${consumerName}`,
       );
+      if (entry.binding) {
+        assert.equal(
+          hasCallerBindingProvenance(model, entry.reader, consumerName, entry.binding),
+          true,
+          `${pathLabel(descriptor.path)} has no reader return binding from ${entry.reader} to ${consumerName}`,
+        );
+      }
       if (entry.downstream) {
         assert.ok(
           functionCandidates(model, entry.downstream).length > 0,

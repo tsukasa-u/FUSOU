@@ -166,6 +166,62 @@ expectAuditFailure(
   /no Secret-to-consumer provenance/,
 );
 
+const resultReaderReturnDisconnected = {
+  ...sources,
+  "src/index.ts": sources["src/index.ts"].replace(
+    "const config = await readConfig(\n",
+    "const config = await readConfigFromAlternate(\n",
+  ),
+};
+expectAuditFailure(
+  "result reader return disconnected from completeVerification config",
+  WORKER_SECRET_CAPABILITIES,
+  resultReaderReturnDisconnected,
+  /no reader return binding/,
+);
+
+const resultConsumerArgumentChanged = {
+  ...sources,
+  "src/index.ts": sources["src/index.ts"].replace(
+    "signResult(config, signingBytes)",
+    "signResult(otherConfig, signingBytes)",
+  ),
+};
+expectAuditFailure(
+  "result consumer receives a different config argument",
+  WORKER_SECRET_CAPABILITIES,
+  resultConsumerArgumentChanged,
+  /no reader return binding/,
+);
+
+const triggerReturnDisconnected = {
+  ...sources,
+  "src/index.ts": sources["src/index.ts"].replace(
+    "const trigger = useTriggerExecution ? triggerExecutionConfig(c.env) : null;",
+    "const trigger = useTriggerExecution ? alternateTriggerExecutionConfig(c.env) : null;",
+  ),
+};
+expectAuditFailure(
+  "trigger reader return disconnected from trigger local",
+  WORKER_SECRET_CAPABILITIES,
+  triggerReturnDisconnected,
+  /no reader return binding/,
+);
+
+const triggerConsumerArgumentChanged = {
+  ...sources,
+  "src/index.ts": sources["src/index.ts"].replace(
+    "enqueueTriggerVerification(trigger, payload)",
+    "enqueueTriggerVerification(otherTrigger, payload)",
+  ),
+};
+expectAuditFailure(
+  "trigger consumer receives a different local object",
+  WORKER_SECRET_CAPABILITIES,
+  triggerConsumerArgumentChanged,
+  /no reader return binding/,
+);
+
 const directVerifierReaderMoved = {
   ...sources,
   "src/direct_verifier.ts": sources["src/direct_verifier.ts"].replace(

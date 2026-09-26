@@ -423,6 +423,32 @@ function sourcePropertyForConfigProperty(property) {
   return property?.replace(/PrivateKeyBytes$/, "PrivateKeyPkcs8") ?? null;
 }
 
+function callerBindingFor(reader, consumer) {
+  if (reader === "readConfig") {
+    if (consumer === "signSessionAuthorityReceipt") {
+      return {
+        variable: "config",
+        argumentIndex: 0,
+        forwardThrough: [{ function: "signSessionReceipt", argument: "config", argumentIndex: 0 }],
+      };
+    }
+    if (consumer === "signBindingAuthorityReceipt") {
+      return {
+        variable: "config",
+        argumentIndex: 0,
+        forwardThrough: [{ function: "signConsumeReceipt", argument: "config", argumentIndex: 0 }],
+      };
+    }
+    if (["signResult", "signSparseResult"].includes(consumer)) {
+      return { caller: "completeVerification", variable: "config", argumentIndex: 0 };
+    }
+  }
+  if (reader === "triggerExecutionConfig" && consumer === "enqueueTriggerVerification") {
+    return { caller: "handleTlsnVerification", variable: "trigger", argumentIndex: 0 };
+  }
+  return null;
+}
+
 function structuredRuntimeReaderConsumers(inputs, runtimeReaders, runtimeConsumers, runtimeConsumerEvidence) {
   if (inputs.length !== 1) {
     throw new Error("runtime Secret capability provenance requires exactly one Secret input per descriptor");
@@ -437,10 +463,18 @@ function structuredRuntimeReaderConsumers(inputs, runtimeReaders, runtimeConsume
         sourceProperty: sourcePropertyForConfigProperty(configProperty),
         property: configProperty,
         consumers: [consumer],
+        ...(callerBindingFor(reader, consumer) ? { binding: callerBindingFor(reader, consumer) } : {}),
       }];
     }
     if (reader === "triggerExecutionConfig") {
-      return [{ input: inputs[0], kind: "value", value: "secretKey", property: "secretKey", consumers: [consumer] }];
+      return [{
+        input: inputs[0],
+        kind: "value",
+        value: "secretKey",
+        property: "secretKey",
+        consumers: [consumer],
+        ...(callerBindingFor(reader, consumer) ? { binding: callerBindingFor(reader, consumer) } : {}),
+      }];
     }
     if (["triggerCallbackSecret", "queueCallbackSecret", "directCallbackSecret"].includes(reader)) {
       return [{ input: inputs[0], kind: "call", value: "callbackSecret", downstream: evidence, consumers: [consumer] }];
