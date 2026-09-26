@@ -10,11 +10,11 @@ import { getCollection, getEntry } from "astro:content";
 import { compareSegments } from "@/utils/page_sorter";
 
 interface Props {
-  title?: string;
-  description?: string;
+  title?: string | undefined;
+  description?: string | undefined;
   entry?: any;
   Content?: any;
-  headings?: Array<{ slug: string; text: string; depth: number }>;
+  headings?: Array<{ slug: string; text: string; depth: number }> | undefined;
   tutorial?: any;
 }
 

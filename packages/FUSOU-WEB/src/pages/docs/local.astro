@@ -1,0 +1,215 @@
+---
+import DocsLayout from "@/layouts/DocsLayout.astro";
+import { isLocalDev, getAllLocalDocs } from "@/utils/localDocs";
+
+// クラウド環境（本番）ではアクセス不可 (404)
+if (!isLocalDev()) {
+  return Astro.redirect("/404");
+}
+
+const localDocs = getAllLocalDocs();
+
+const categories = [
+  {
+    key: "formulas",
+    label: "Formulas & Verification",
+    icon: "science",
+    description: "艦これ検証式・確定検証仕様書（Verified Models）・計算フローDAG・シミュレータ分離ロードマップ",
+  },
+  {
+    key: "operations",
+    label: "Operations & Runbooks",
+    icon: "settings",
+    description: "Hot/Cold 運用手順書、Compaction、デプロイ、チェックリスト等の運用ドキュメント",
+  },
+  {
+    key: "implementation-plans",
+    label: "Implementation Plans",
+    icon: "assignment",
+    description: "機能実装・マイグレーション・セキュリティ移行に関する詳細設計計画書",
+  },
+  {
+    key: "architecture",
+    label: "System Architecture",
+    icon: "account_tree",
+    description: "全体システム構成、データフロー、フィージビリティスタディ等の設計書",
+  },
+];
+
+const groupedCategories = categories
+  .map((cat) => ({
+    ...cat,
+    docs: localDocs.filter((d) => d.category === cat.key),
+  }))
+  .filter((cat) => cat.docs.length > 0);
+
+const totalDocsCount = localDocs.length;
+const totalCategoriesCount = groupedCategories.length;
+---
+
+<DocsLayout
+  title="Local Developer Hub | FUSOU Documentation"
+  description="ローカル開発環境限定の検証式、運用手順書、実装計画書、アーキテクチャ設計書の一覧インデックスです。"
+>
+  <div class="docs-index-page max-w-5xl mx-auto py-4 sm:py-8">
+    <!-- Header Hero -->
+    <section class="mb-10 pb-8 border-b border-base-300">
+      <div class="flex flex-wrap items-center gap-2 mb-3">
+        <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-semibold bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30">
+          <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"></path>
+          </svg>
+          Local Developer Only
+        </span>
+        <span class="text-xs text-base-content/50">•</span>
+        <span class="text-xs text-base-content/60 font-medium">{totalDocsCount} documents across {totalCategoriesCount} categories</span>
+      </div>
+
+      <h1 class="text-3xl sm:text-4xl font-extrabold text-base-content tracking-tight">
+        Local Developer Documentation Hub
+      </h1>
+      <p class="mt-3 text-base sm:text-lg text-base-content/70 max-w-[75ch] leading-relaxed">
+        本ページはローカル開発サーバー起動時のみ表示される専用インデックスです。クラウド本番環境からは完全に分離されており、検証式・確定仕様書、内部運用手順書、実装計画書を直接参照できます。
+      </p>
+
+      <!-- Quick Switch Banner -->
+      <div class="mt-4 flex items-center gap-3 text-xs text-base-content/60">
+        <a href="/docs" class="inline-flex items-center gap-1 text-primary hover:underline font-semibold">
+          <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="19" y1="12" x2="5" y2="12"></line>
+            <polyline points="12 19 5 12 12 5"></polyline>
+          </svg>
+          公開ドキュメント一覧（Public Docs）へ戻る
+        </a>
+      </div>
+
+      <!-- Search Input -->
+      <div class="mt-6 max-w-xl">
+        <div class="relative">
+          <svg xmlns="http://www.w3.org/2000/svg" class="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-base-content/45 pointer-events-none" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+          <input
+            id="local-docs-search"
+            type="search"
+            placeholder="Search local documents by title, keyword, or tag (e.g. verified, compaction, avro)..."
+            class="w-full pl-10 pr-4 py-2.5 rounded-xl border border-base-300 bg-base-100 text-sm text-base-content placeholder:text-base-content/45 focus:border-amber-500 focus:ring-2 focus:ring-amber-500/20 transition-all shadow-sm"
+          />
+        </div>
+        <p id="local-search-status" class="mt-2 text-xs text-base-content/55 hidden"></p>
+      </div>
+    </section>
+
+    <!-- Category Sections -->
+    <div id="local-categories-container" class="space-y-12">
+      {
+        groupedCategories.map((cat) => (
+          <section class="local-category-section" data-category={cat.key}>
+            <div class="flex items-center gap-2 mb-2 pb-2 border-b border-base-300/60">
+              <h2 class="text-lg sm:text-xl font-bold text-base-content flex items-center gap-2">
+                <span>{cat.label}</span>
+                <span class="text-xs font-semibold px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
+                  {cat.docs.length}
+                </span>
+              </h2>
+            </div>
+            {cat.description && (
+              <p class="text-xs sm:text-sm text-base-content/65 mb-4">{cat.description}</p>
+            )}
+
+            <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3.5">
+              {cat.docs.map((doc) => (
+                <a
+                  href={doc.url}
+                  class="local-doc-card group relative flex flex-col justify-between p-4 rounded-xl border border-base-300/70 bg-base-100/80 hover:bg-base-100 hover:border-amber-500/70 hover:shadow-md transition-all"
+                  data-doc-card
+                  data-title={doc.title.toLowerCase()}
+                  data-desc={doc.description.toLowerCase()}
+                  data-tags={(doc.tags || []).join(" ").toLowerCase()}
+                >
+                  <div>
+                    <div class="flex items-start justify-between gap-2">
+                      <h3 class="text-sm font-bold text-base-content group-hover:text-amber-600 dark:group-hover:text-amber-400 transition-colors leading-snug">
+                        {doc.title}
+                      </h3>
+                      <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5 text-base-content/30 group-hover:text-amber-500 group-hover:translate-x-0.5 shrink-0 mt-0.5 transition-all" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <line x1="5" y1="12" x2="19" y2="12"></line>
+                        <polyline points="12 5 19 12 12 19"></polyline>
+                      </svg>
+                    </div>
+                    {doc.description && (
+                      <p class="mt-2 text-xs text-base-content/65 line-clamp-2 leading-relaxed">
+                        {doc.description}
+                      </p>
+                    )}
+                  </div>
+
+                  <div class="mt-3.5 pt-2.5 border-t border-base-300/40 flex items-center justify-between text-[11px] text-base-content/50">
+                    <span class="font-mono text-[10px] truncate max-w-[200px] text-base-content/50" title={doc.slug}>{doc.fileName}</span>
+                    {doc.tags && doc.tags.length > 0 && (
+                      <div class="flex flex-wrap gap-1">
+                        {doc.tags.slice(0, 2).map((tag) => (
+                          <span class="text-[10px] px-1.5 py-0.5 rounded bg-base-200 text-base-content/60 font-medium">
+                            #{tag}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </a>
+              ))}
+            </div>
+          </section>
+        ))
+      }
+    </div>
+
+    <!-- Empty search message -->
+    <div id="local-search-none" class="hidden text-center py-12 rounded-xl border border-dashed border-base-300 p-8">
+      <svg xmlns="http://www.w3.org/2000/svg" class="w-10 h-10 mx-auto text-base-content/30 mb-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+      <p class="text-sm font-semibold text-base-content">No local documents match your query</p>
+      <p class="text-xs text-base-content/60 mt-1">Try searching for another keyword or browse by category above.</p>
+    </div>
+  </div>
+</DocsLayout>
+
+<script is:inline>
+  const searchInput = document.getElementById("local-docs-search");
+  const searchStatus = document.getElementById("local-search-status");
+  const cards = Array.from(document.querySelectorAll("[data-doc-card]"));
+  const sections = Array.from(document.querySelectorAll(".local-category-section"));
+  const emptyState = document.getElementById("local-search-none");
+
+  const filterDocs = () => {
+    const q = (searchInput?.value || "").trim().toLowerCase();
+    let totalVisible = 0;
+
+    cards.forEach((card) => {
+      const title = card.getAttribute("data-title") || "";
+      const desc = card.getAttribute("data-desc") || "";
+      const tags = card.getAttribute("data-tags") || "";
+      const match = !q || title.includes(q) || desc.includes(q) || tags.includes(q);
+      card.classList.toggle("hidden", !match);
+      if (match) totalVisible += 1;
+    });
+
+    // Toggle category sections if they have no visible cards
+    sections.forEach((sec) => {
+      const visibleCards = sec.querySelectorAll("[data-doc-card]:not(.hidden)");
+      sec.classList.toggle("hidden", visibleCards.length === 0);
+    });
+
+    if (emptyState) {
+      emptyState.classList.toggle("hidden", totalVisible > 0);
+    }
+
+    if (searchStatus) {
+      if (q) {
+        searchStatus.textContent = `Found ${totalVisible} document${totalVisible === 1 ? "" : "s"} matching "${q}"`;
+        searchStatus.classList.remove("hidden");
+      } else {
+        searchStatus.classList.add("hidden");
+      }
+    }
+  };
+
+  searchInput?.addEventListener("input", filterDocs);
+</script>

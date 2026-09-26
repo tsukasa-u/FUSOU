@@ -1073,7 +1073,7 @@ Phase 3d: data_loader.ts, fleet.ts, assets.ts
 
 ### 10.1 remodel_data の validateIngestBody 完全変換
 
-````carousel
+````markdown
 ```typescript
 // ========== 現行コード (remodel_data.ts L188-383) ==========
 // 約195行の手動バリデーション

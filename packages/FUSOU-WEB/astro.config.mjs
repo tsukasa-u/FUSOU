@@ -171,6 +171,7 @@ export default defineConfig({
         }),
         "@": fileURLToPath(new URL("./src", import.meta.url)),
         "@docs": fileURLToPath(new URL("../../docs/contents", import.meta.url)),
+        "@all-docs": fileURLToPath(new URL("../../docs", import.meta.url)),
         "@fusou/avro-wasm": fileURLToPath(
           new URL("../avro-wasm/index.ts", import.meta.url),
         ),
@@ -180,7 +181,7 @@ export default defineConfig({
   markdown: {
     processor: unified({
       remarkPlugins: [remarkNormalizeCrlf, remarkCallout, remarkMath],
-      rehypePlugins: [[rehypeMermaid, { strategy: "pre-mermaid" }], rehypeKatex],
+      rehypePlugins: [[rehypeMermaid, { strategy: "pre-mermaid" }], [rehypeKatex, { strict: false }]],
     }),
     syntaxHighlight: {
       type: "shiki",

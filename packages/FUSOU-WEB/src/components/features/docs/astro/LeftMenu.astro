@@ -1,7 +1,15 @@
 ---
 import type { MarkdownInstance } from "astro";
 import { compareSegments } from "@/utils/page_sorter";
+import { isLocalDev, isLocalOnlyDoc, getAllLocalDocs } from "@/utils/localDocs";
 
+const isLocal = isLocalDev();
+const currentPath = Astro.url.pathname.replace(/\/$/, "");
+const isCurrentPageLocal = isLocalOnlyDoc(currentPath) || currentPath === "/docs/local";
+
+// ==========================================
+// 1. 公開ドキュメント (Public Docs) のツリー生成
+// ==========================================
 const rawPostsGlobResult = import.meta.glob("@docs/**/*.md", {
   eager: true,
 });
@@ -20,13 +28,12 @@ const formatSegment = (segment: string) =>
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join(" ");
 
-const SECTION_CONFIG: Record<string, { label: string; order: number }> = {
+const PUBLIC_SECTION_CONFIG: Record<string, { label: string; order: number }> = {
   start: { label: "GETTING STARTED", order: 1 },
   guide: { label: "GUIDES", order: 2 },
-  formulas: { label: "FORMULAS & VERIFICATION", order: 3 },
-  schema: { label: "API REFERENCE", order: 4 },
-  "design-system": { label: "DESIGN SYSTEM", order: 5 },
-  policy: { label: "POLICIES", order: 6 },
+  schema: { label: "API REFERENCE", order: 3 },
+  "design-system": { label: "DESIGN SYSTEM", order: 4 },
+  policy: { label: "POLICIES", order: 5 },
 };
 
 type PostEntry = {
@@ -37,7 +44,7 @@ type PostEntry = {
   isExternal?: boolean;
 };
 
-const posts = rawPosts
+const publicPosts = rawPosts
   .map((post) => {
     const slug = normalizeSlug(post.frontmatter?.["slug"]);
     const segments = slug.split("/").filter(Boolean);
@@ -46,13 +53,13 @@ const posts = rawPosts
     return {
       slug,
       segments,
-      title: post.frontmatter?.["title"] ?? formatSegment(segments.at(-1)!),
+      title: (post.frontmatter?.["title"] as string) ?? formatSegment(segments.at(-1)!),
       url: `/docs/${slug}`,
     };
   })
   .filter(Boolean) as PostEntry[];
 
-const postsWithSchema: PostEntry[] = [
+const publicPostsWithSpecial: PostEntry[] = [
   {
     slug: "schema/api-schema-explorer",
     segments: ["schema", "api-schema-explorer"],
@@ -60,7 +67,7 @@ const postsWithSchema: PostEntry[] = [
     url: "/docs/api-schema",
     isExternal: true,
   },
-  ...posts,
+  ...publicPosts,
   {
     slug: "design-system/catalog",
     segments: ["design-system", "catalog"],
@@ -86,102 +93,130 @@ type MenuEntry = {
   children: MenuEntry[];
 };
 
-const root = new Map<string, MenuNode>();
+function buildMenuTree(
+  entries: PostEntry[],
+  sectionConfig: Record<string, { label: string; order: number }>
+): MenuEntry[] {
+  const root = new Map<string, MenuNode>();
 
-for (const entry of postsWithSchema) {
-  let current = root;
-  entry.segments.forEach((segment, index) => {
-    const isLeaf = index === entry.segments.length - 1;
-    if (!current.has(segment)) {
-      current.set(segment, {
-        segment,
-        title: isLeaf ? entry.title : formatSegment(segment),
-        children: new Map(),
-        ...(isLeaf ? { url: entry.url, isExternal: entry.isExternal } : {}),
-      });
-    } else if (isLeaf) {
-      const node = current.get(segment)!;
-      node.title = entry.title;
-      node.url = entry.url;
-      if (entry.isExternal !== undefined) node.isExternal = entry.isExternal;
-    }
-    current = current.get(segment)!.children;
-  });
+  for (const entry of entries) {
+    let current = root;
+    entry.segments.forEach((segment, index) => {
+      const isLeaf = index === entry.segments.length - 1;
+      if (!current.has(segment)) {
+        current.set(segment, {
+          segment,
+          title: isLeaf ? entry.title : formatSegment(segment),
+          children: new Map(),
+          ...(isLeaf ? { url: entry.url, isExternal: entry.isExternal } : {}),
+        });
+      } else if (isLeaf) {
+        const node = current.get(segment)!;
+        node.title = entry.title;
+        node.url = entry.url;
+        if (entry.isExternal !== undefined) node.isExternal = entry.isExternal;
+      }
+      current = current.get(segment)!.children;
+    });
+  }
+
+  const comparator = (a: { segment?: string | null }, b: { segment?: string | null }) => {
+    const aSeg = a.segment ?? "";
+    const bSeg = b.segment ?? "";
+    const aOrder = sectionConfig[aSeg]?.order ?? 99;
+    const bOrder = sectionConfig[bSeg]?.order ?? 99;
+    if (aOrder !== bOrder) return aOrder - bOrder;
+    return compareSegments(a, b);
+  };
+
+  const mapToArray = (nodeMap: Map<string, MenuNode>): MenuEntry[] =>
+    Array.from(nodeMap.values())
+      .sort(comparator)
+      .map((node: MenuNode): MenuEntry => ({
+        segment: node.segment,
+        title: node.title,
+        ...(node.url === undefined ? {} : { url: node.url }),
+        ...(node.isExternal ? { isExternal: true } : {}),
+        children: mapToArray(node.children),
+      }));
+
+  return mapToArray(root);
 }
 
-const compareDocsSegments = (a: { segment?: string | null }, b: { segment?: string | null }) => {
-  const aSeg = a.segment ?? "";
-  const bSeg = b.segment ?? "";
-  const aOrder = SECTION_CONFIG[aSeg]?.order ?? 99;
-  const bOrder = SECTION_CONFIG[bSeg]?.order ?? 99;
-  if (aOrder !== bOrder) return aOrder - bOrder;
-  return compareSegments(a, b);
+// ==========================================
+// 2. ローカル限定ドキュメント (Local Docs) のツリー生成
+// ==========================================
+const LOCAL_SECTION_CONFIG: Record<string, { label: string; order: number }> = {
+  formulas: { label: "VERIFIED FORMULAS", order: 1 },
+  operations: { label: "OPERATIONS & RUNBOOKS", order: 2 },
+  "implementation-plans": { label: "IMPLEMENTATION PLANS", order: 3 },
+  architecture: { label: "ARCHITECTURE & RESEARCH", order: 4 },
 };
 
-const mapToArray = (nodeMap: Map<string, MenuNode>): MenuEntry[] =>
-  Array.from(nodeMap.values())
-    .sort(compareDocsSegments)
-    .map((node: MenuNode): MenuEntry => ({
-      segment: node.segment,
-      title: node.title,
-      ...(node.url === undefined ? {} : { url: node.url }),
-      ...(node.isExternal ? { isExternal: true } : {}),
-      children: mapToArray(node.children),
-    }));
+const localDocs = isLocal ? getAllLocalDocs() : [];
+const localPosts: PostEntry[] = localDocs.map((doc) => {
+  const segments = doc.slug.split("/").filter(Boolean);
+  return {
+    slug: doc.slug,
+    segments,
+    title: doc.title,
+    url: doc.url,
+  };
+});
 
-const menuTree = mapToArray(root);
-const currentPath = Astro.url.pathname;
+const publicMenuTree = buildMenuTree(publicPostsWithSpecial, PUBLIC_SECTION_CONFIG);
+const localMenuTree = isLocal ? buildMenuTree(localPosts, LOCAL_SECTION_CONFIG) : [];
 
-const escapeHtml = (value: string) =>
-  value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
+// ==========================================
+// 3. HTML レンダラー関数
+// ==========================================
+const escapeHtml = (text: string) =>
+  text
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
 
-const sanitizeDocsUrl = (value: string | undefined): string | null => {
-  if (!value) return null;
-  if (value === "/design-system") return "/design-system";
-  if (!value.startsWith("/docs/")) return null;
-  const slug = value.slice("/docs/".length);
-  const safeSlug = slug
-    .split("/")
-    .filter(Boolean)
-    .map((segment) => encodeURIComponent(segment))
-    .join("/");
-  return safeSlug ? `/docs/${safeSlug}` : "/docs";
-};
+const externalIconSvg = `<svg class="w-3 h-3 ml-1 text-base-content/40 inline-block shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"></path></svg>`;
 
-const externalIconSvg = `<svg xmlns="http://www.w3.org/2000/svg" class="inline-block w-3.5 h-3.5 ml-1 shrink-0 opacity-60 -translate-y-px" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>`;
+const chevronSvg = `<svg class="w-3.5 h-3.5 text-base-content/40 transition-transform duration-200 group-open:rotate-90 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg>`;
 
-const chevronSvg = `<svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5 shrink-0 transition-transform group-open:rotate-90 text-base-content/50" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>`;
-
-const renderMenuHtml = (nodes: MenuEntry[], isRoot = false): string =>
+const renderMenuHtml = (
+  nodes: MenuEntry[],
+  sectionConfig: Record<string, { label: string; order: number }>,
+  isTopLevel = false
+): string =>
   nodes
-    .map((node: MenuEntry) => {
-      const safeUrl = sanitizeDocsUrl(node.url);
-      const isActive = safeUrl === currentPath;
-      const icon = node.isExternal ? externalIconSvg : "";
+    .map((node) => {
+      const sectionMeta = isTopLevel ? sectionConfig[node.segment] : undefined;
+      const displayTitle = sectionMeta?.label ?? node.title;
 
-      if (isRoot) {
-        const sectionTitle = SECTION_CONFIG[node.segment]?.label ?? node.title.toUpperCase();
-        const children = node.children.length
-          ? `<ul class="mt-1 space-y-0.5 border-l border-base-300/60 ml-2 pl-2">${renderMenuHtml(node.children, false)}</ul>`
-          : "";
-
+      if (isTopLevel) {
+        const children = renderMenuHtml(node.children, sectionConfig, false);
         return `
-          <li class="pt-3 first:pt-0">
-            <div class="px-2 py-1 text-[11px] font-bold uppercase tracking-wider text-base-content/50 select-none">
-              ${escapeHtml(sectionTitle)}
-            </div>
-            ${children}
+          <li class="pt-2.5 first:pt-0">
+            <span class="px-2.5 py-1 text-[11px] font-bold tracking-wider text-base-content/50 uppercase block">
+              ${escapeHtml(displayTitle)}
+            </span>
+            <ul class="mt-1 space-y-0.5 pl-1 border-l border-base-300/40 ml-2">
+              ${children}
+            </ul>
           </li>
         `;
       }
 
-      const children = node.children.length
-        ? `<ul class="mt-1 space-y-0.5 border-l border-base-300/60 ml-2 pl-2">${renderMenuHtml(node.children, false)}</ul>`
+      const hasChildren = node.children && node.children.length > 0;
+      const children = hasChildren
+        ? `<ul class="space-y-0.5 pl-2.5 border-l border-base-300/40 ml-2 my-0.5">${renderMenuHtml(node.children, sectionConfig, false)}</ul>`
+        : "";
+
+      const safeUrl = node.url;
+      const isActive = safeUrl ? currentPath === safeUrl : false;
+      const icon = node.isExternal
+        ? externalIconSvg
+        : isActive
+        ? `<span class="inline-block w-1.5 h-1.5 rounded-full bg-primary shrink-0"></span>`
         : "";
 
       if (safeUrl) {
@@ -195,7 +230,7 @@ const renderMenuHtml = (nodes: MenuEntry[], isRoot = false): string =>
                   : "text-base-content/75 hover:bg-base-content/8 hover:text-base-content"
               }"
             >
-              <span class="truncate">${escapeHtml(node.title)}</span>
+              <span class="truncate" title="${escapeHtml(node.title)}">${escapeHtml(node.title)}</span>
               ${icon}
             </a>
           </li>
@@ -206,7 +241,7 @@ const renderMenuHtml = (nodes: MenuEntry[], isRoot = false): string =>
         <li class="my-0.5">
           <details open class="group">
             <summary class="flex items-center justify-between rounded-md px-2.5 py-1 text-xs font-semibold text-base-content/85 hover:bg-base-content/8 cursor-pointer select-none transition-colors">
-              <span class="truncate">${escapeHtml(node.title)}</span>
+              <span class="truncate" title="${escapeHtml(node.title)}">${escapeHtml(node.title)}</span>
               ${chevronSvg}
             </summary>
             ${children}
@@ -216,25 +251,71 @@ const renderMenuHtml = (nodes: MenuEntry[], isRoot = false): string =>
     })
     .join("");
 
-const menuHtml = renderMenuHtml(menuTree, true);
+const publicMenuHtml = renderMenuHtml(publicMenuTree, PUBLIC_SECTION_CONFIG, true);
+const localMenuHtml = isLocal ? renderMenuHtml(localMenuTree, LOCAL_SECTION_CONFIG, true) : "";
 ---
 
 <div class="sticky top-20">
   <div class="max-h-[calc(100vh-6rem)] overflow-y-auto overflow-x-hidden pr-2 scrollbar-thin">
-    <div class="px-2 pb-2 mb-2 border-b border-base-300/50">
-      <a
-        href="/docs"
-        class="flex items-center gap-2 text-xs font-bold text-base-content/80 hover-text-brand transition-colors"
-      >
-        <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 text-primary" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path>
-          <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path>
-        </svg>
-        <span>FUSOU Documentation</span>
-      </a>
+    <!-- Top Navigation Links (Docs Index / Hub) -->
+    <div class="px-2 pb-2.5 mb-2.5 border-b border-base-300/60">
+      <div class="flex items-center gap-1.5 text-xs">
+        <a
+          href="/docs"
+          class={`flex-1 flex items-center justify-center gap-1.5 px-2.5 py-1.5 rounded-lg transition-all font-semibold ${
+            !isCurrentPageLocal
+              ? "bg-brand-soft text-brand font-bold shadow-2xs"
+              : "text-base-content/70 hover:bg-base-content/8 hover:text-base-content"
+          }`}
+          title="公開ドキュメント一覧を開く"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path>
+            <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path>
+          </svg>
+          <span>Docs Index</span>
+        </a>
+
+        {
+          isLocal && (
+            <a
+              href="/docs/local"
+              class={`flex items-center justify-center gap-1.5 px-2.5 py-1.5 rounded-lg transition-all font-semibold ${
+                isCurrentPageLocal
+                  ? "bg-amber-500/15 text-amber-700 dark:text-amber-400 font-bold border border-amber-500/30 shadow-2xs"
+                  : "text-base-content/70 hover:bg-base-content/8 hover:text-base-content"
+              }`}
+              title="ローカル開発ハブ（検証式・運用仕様）を開く"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5 text-amber-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"></path>
+              </svg>
+              <span>Hub</span>
+            </a>
+          )
+        }
+      </div>
     </div>
+
+    <!-- Navigation Tree List (現在閲覧中のモードに応じて片方のみを表示) -->
     <nav aria-label="Documentation navigation" class="docs-sidebar-nav">
-      <ul class="space-y-1 text-xs" set:html={menuHtml} />
+      {
+        isLocal && isCurrentPageLocal ? (
+          <div>
+            <div class="px-2.5 py-1 mb-1 text-[11px] font-bold tracking-wider text-amber-600 dark:text-amber-400 uppercase flex items-center justify-between">
+              <span>Local Dev Docs</span>
+              <span class="text-[10px] px-1.5 py-0.2 rounded-full bg-amber-500/15 text-amber-700 dark:text-amber-300 font-mono">
+                {localDocs.length}
+              </span>
+            </div>
+            <ul class="space-y-1 text-xs" set:html={localMenuHtml} />
+          </div>
+        ) : (
+          <div>
+            <ul class="space-y-1 text-xs" set:html={publicMenuHtml} />
+          </div>
+        )
+      }
     </nav>
   </div>
 </div>
