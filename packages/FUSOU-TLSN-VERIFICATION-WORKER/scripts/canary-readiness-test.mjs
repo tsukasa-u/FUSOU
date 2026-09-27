@@ -4,6 +4,7 @@ import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
+  CANARY_SECRET_INPUTS,
   assertManifest,
   FORBIDDEN_CANARY_INPUTS,
   WORKFLOW_EVIDENCE_INPUTS,
@@ -131,6 +132,132 @@ const ARTIFACT_PATHS = [
 
 const SYNTHETIC_MARKER = /(?:^|[._/-])(test|synthetic|fixture|local|staging)(?:$|[._/-])/i;
 const FIXTURE_SERVER_IDENTITY = "game.example.test";
+
+const EXTERNAL_AUTHORITY_HANDOFF_GROUPS = [
+  {
+    id: "TARGET_IDENTITY",
+    inputs: ["TLSN_CANDIDATE_SERVER_IDENTITY", "TLSN_CANDIDATE_VERIFIER_KEY_ID"],
+    depends_on: [],
+    owner: "approved target/configuration authority",
+    external_authority: true,
+    next_action: "Provide the non-fixture target identity and Presentation/Result verifier identity.",
+  },
+  {
+    id: "PROFILE_POLICY",
+    inputs: ["TLSN_CANDIDATE_PROFILE_SHA256", "TLSN_CANDIDATE_SPARSE_PROFILE_SHA256"],
+    depends_on: ["TARGET_IDENTITY"],
+    owner: "approved target/configuration authority",
+    external_authority: true,
+    next_action: "Provide canonical complete and sparse profile artifacts or their approved source fingerprints.",
+  },
+  {
+    id: "NOTARY_TRUST",
+    inputs: [
+      "TLSN_PRODUCTION_NOTARY_REGISTRY",
+      "TLSN_SECURITY_REGISTRY_SET_SHA256",
+      "TLSN_CANDIDATE_NOTARY_KEY_ID",
+      "TLSN_CANDIDATE_NOTARY_ENDPOINT",
+      "TLSN_CANARY_TRUST_ROOT_CERTIFICATE_DER",
+    ],
+    depends_on: ["TARGET_IDENTITY", "PROFILE_POLICY"],
+    owner: "FUSOU deployment/trust configuration authority",
+    external_authority: true,
+    next_action: "Provide the FUSOU-NOTARY registry/key/endpoint and candidate trust-root material.",
+  },
+  {
+    id: "VERIFIER_IDENTITY",
+    inputs: ["TLSN_CANARY_VERIFIER_PUBLIC_KEY_SPKI", "TLSN_CANARY_VERIFIER_DEPLOYMENT_ID"],
+    depends_on: ["TARGET_IDENTITY"],
+    owner: "FUSOU verifier deployment authority",
+    external_authority: true,
+    next_action: "Provide the independent Canary verifier public key and deployment identity.",
+  },
+  {
+    id: "AUTHENTICATION_POLICY",
+    inputs: [
+      "TLSN_CANDIDATE_DEVICE_AUTH_URL",
+      "TLSN_CANDIDATE_DEVICE_POSSESSION_AUTH_URL",
+      "TLSN_CANDIDATE_DEVICE_AUTH_ALLOWED_HOSTS",
+      "TLSN_CANDIDATE_SUPABASE_ALLOWED_HOSTS",
+      "TLSN_CANDIDATE_SUPABASE_URL",
+      "TLSN_CANDIDATE_SUPABASE_PUBLISHABLE_KEY",
+    ],
+    depends_on: ["TARGET_IDENTITY"],
+    owner: "approved FUSOU-WEB authentication configuration authority",
+    external_authority: true,
+    next_action: "Provide the exact candidate authentication URLs, host allowlists, and publishable configuration.",
+  },
+  {
+    id: "SESSION_AUTHORITY",
+    inputs: [
+      "TLSN_CANARY_SESSION_AUTHORITY_PUBLIC_KEY_SPKI",
+      "TLSN_CANARY_SESSION_AUTHORITY_KEY_ID",
+      "TLSN_CANARY_SESSION_AUTHORITY_KEY_REGISTRY",
+    ],
+    depends_on: ["TARGET_IDENTITY"],
+    owner: "FUSOU Canary provisioner",
+    external_authority: false,
+    next_action: "Run the existing Canary material provisioner after target inputs are approved.",
+  },
+  {
+    id: "BINDING_AUTHORITY",
+    inputs: [
+      "TLSN_CANARY_BINDING_IDENTITY",
+      "TLSN_CANARY_BINDING_AUTHORITY_PUBLIC_KEY_SPKI",
+      "TLSN_CANARY_BINDING_AUTHORITY_KEY_ID",
+      "TLSN_CANARY_BINDING_AUTHORITY_KEY_REGISTRY",
+      "TLSN_CANARY_BINDING_VALUE",
+    ],
+    depends_on: ["TARGET_IDENTITY"],
+    owner: "FUSOU Canary provisioner",
+    external_authority: false,
+    next_action: "Generate a Canary-specific binding authority/value without reusing Replay material.",
+  },
+  {
+    id: "RESULT_REGISTRY",
+    inputs: [
+      "TLSN_CANARY_RESULT_PUBLIC_KEY_SPKI",
+      "TLSN_CANARY_RESULT_SIGNER_KEY_ID",
+      "TLSN_CANARY_RESULT_SIGNING_KEY_REGISTRY",
+      "TLSN_CANARY_RESULT_SIGNING_KEY_REGISTRY_ENVELOPE",
+      "TLSN_CANARY_RESULT_REGISTRY_ROOT_KEY_ID",
+      "TLSN_CANARY_RESULT_REGISTRY_ROOT_PUBLIC_KEY_SPKI",
+    ],
+    depends_on: ["VERIFIER_IDENTITY"],
+    owner: "FUSOU Canary provisioner",
+    external_authority: false,
+    next_action: "Generate and validate the Canary Result registry and signed envelope.",
+  },
+  {
+    id: "WORKFLOW_CONTEXT",
+    inputs: [
+      "TLSN_WORKFLOW_RUN_ID",
+      "TLSN_WORKFLOW_RUN_ATTEMPT",
+      "TLSN_REPOSITORY",
+      "TLSN_WORKFLOW_FILE_IDENTITY",
+    ],
+    depends_on: ["TARGET_IDENTITY", "PROFILE_POLICY", "NOTARY_TRUST"],
+    owner: "approved FUSOU deployment workflow",
+    external_authority: true,
+    next_action: "Run the approved workflow with the current checked-out HEAD and fixed toolchain identity.",
+  },
+  {
+    id: "DEPLOYMENT_MANIFEST",
+    inputs: [CANARY_DEPLOYMENT_MANIFEST_INPUT],
+    depends_on: ["TARGET_IDENTITY", "PROFILE_POLICY", "NOTARY_TRUST", "VERIFIER_IDENTITY", "AUTHENTICATION_POLICY", "BINDING_AUTHORITY", "RESULT_REGISTRY", "WORKFLOW_CONTEXT"],
+    owner: "FUSOU deployment system",
+    external_authority: false,
+    next_action: "Generate and validate the current deployment manifest; do not hand-edit it.",
+  },
+  {
+    id: "SECRET_PROVIDER",
+    inputs: CANARY_SECRET_INPUTS,
+    depends_on: ["SESSION_AUTHORITY", "BINDING_AUTHORITY", "RESULT_REGISTRY", "WORKFLOW_CONTEXT"],
+    owner: "configured secret provider",
+    external_authority: true,
+    next_action: "Make the required secret-provider references available without placing secret values in the package or manifest.",
+  },
+];
 
 function present(name, environment = process.env) {
   return typeof environment[name] === "string" && environment[name].trim().length > 0;
@@ -299,6 +426,45 @@ function missingInputNames(environment = process.env) {
     .map((entry) => entry.name)
     .filter((name) => !present(name, environment));
   return names.filter((name, index, values) => values.indexOf(name) === index);
+}
+
+function externalAuthorityHandoff({ environment = process.env, deploymentManifest, ready = false } = {}) {
+  const statusByGroup = new Map();
+  const groups = EXTERNAL_AUTHORITY_HANDOFF_GROUPS.map((group) => {
+    const manifestValid = group.id === "DEPLOYMENT_MANIFEST" && deploymentManifest?.status === "VALID";
+    const missingInputs = manifestValid ? [] : group.inputs.filter((name) => !present(name, environment));
+    const unmetDependencies = group.depends_on.filter((id) => statusByGroup.get(id) !== "PRESENT_UNVERIFIED");
+    const status = group.id === "DEPLOYMENT_MANIFEST" && deploymentManifest?.status === "INVALID"
+      ? "INVALID"
+      : missingInputs.length === 0
+      ? unmetDependencies.length === 0 ? "PRESENT_UNVERIFIED" : "BLOCKED_BY_DEPENDENCY"
+      : unmetDependencies.length === 0 ? "MISSING" : "BLOCKED_BY_DEPENDENCY";
+    statusByGroup.set(group.id, status);
+    return {
+      id: group.id,
+      status,
+      inputs: group.inputs,
+      missing_inputs: missingInputs,
+      depends_on: group.depends_on,
+      unmet_dependencies: unmetDependencies,
+      owner: group.owner,
+      external_authority: group.external_authority,
+      next_action: group.next_action,
+    };
+  });
+  const firstBlocker = groups.find((group) => group.status !== "PRESENT_UNVERIFIED");
+  return {
+    schema_version: 1,
+    scope: "tlsn-canary-external-authority-handoff",
+    status: ready ? "SATISFIED" : firstBlocker?.external_authority ? "EXTERNAL_AUTHORITY_REQUIRED" : "DEPLOYMENT_INPUTS_REQUIRED",
+    first_blocker: firstBlocker ?? null,
+    groups,
+    package_boundary: {
+      active_input: CANARY_DEPLOYMENT_MANIFEST_INPUT,
+      external_package_gate: "NOT_AN_ACTIVE_GATE",
+      reason: "The active Canary trust boundary is the deployment manifest plus production preflight; historical approval-package artifacts are not accepted.",
+    },
+  };
 }
 
 function runtimeAttestationSummary(path, value, status, reason = null) {
@@ -471,6 +637,7 @@ export async function buildReadinessReport({
       && artifacts.every((artifact) => !artifact.current_trust_artifact || !artifact.fixture_only),
   };
   const ready = Object.values(gates).every(Boolean);
+  const externalAuthority = externalAuthorityHandoff({ environment, deploymentManifest, ready });
   return {
     schema_version: 1,
     scope: "tlsn-canary-readiness-audit",
@@ -509,6 +676,7 @@ export async function buildReadinessReport({
       current_trust_artifacts: currentTrustArtifacts,
     },
     gates,
+    external_authority: externalAuthority,
     input_diagnostics: readinessInputDiagnostics({ deployment: deploymentStatus(environment, expectedHead), target, deploymentManifest, trust, notary, auth, binding, workflow, runtime, environment }),
     missing_inputs: missingInputNames(environment),
     resume_conditions: {

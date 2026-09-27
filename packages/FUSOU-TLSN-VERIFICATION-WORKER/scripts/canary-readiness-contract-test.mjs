@@ -26,6 +26,15 @@ const report = JSON.parse(result.stdout);
 assert.equal(report.network_access, "NOT_USED");
 assert.equal(report.deployment_executed, false);
 assert.equal(report.status, "BLOCKED");
+assert.equal(report.external_authority.status, "EXTERNAL_AUTHORITY_REQUIRED");
+assert.equal(report.external_authority.first_blocker.id, "TARGET_IDENTITY");
+assert.equal(report.external_authority.first_blocker.status, "MISSING");
+assert.deepEqual(report.external_authority.first_blocker.missing_inputs, [
+  "TLSN_CANDIDATE_SERVER_IDENTITY",
+  "TLSN_CANDIDATE_VERIFIER_KEY_ID",
+]);
+assert.equal(report.external_authority.package_boundary.active_input, "TLSN_CANARY_DEPLOYMENT_MANIFEST");
+assert.equal(report.external_authority.package_boundary.external_package_gate, "NOT_AN_ACTIVE_GATE");
 assert.equal(report.inputs.runtime_attestation.status, "MISSING");
 assert.equal(report.gates.runtime_attestation, false);
 assert.equal(report.inputs.remote_validation.status, "POST_DEPLOYMENT_ONLY");
