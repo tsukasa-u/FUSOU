@@ -96,7 +96,12 @@ const profileInputs = {
 };
 const missingProfileReport = await negativeReport(targetInputs);
 assert.equal(missingProfileReport.status, "BLOCKED");
-assert.equal(Object.fromEntries(missingProfileReport.external_authority.groups.map((group) => [group.id, group])).PROFILE_POLICY.status, "MISSING");
+const missingProfileGroups = Object.fromEntries(missingProfileReport.external_authority.groups.map((group) => [group.id, group]));
+assert.equal(missingProfileGroups.PROFILE_POLICY.status, "DERIVED");
+assert.equal(missingProfileGroups.PROFILE_POLICY.external_authority, false);
+assert.equal(missingProfileGroups.PROFILE_POLICY.source, "profile-canonical-contract");
+assert.equal(missingProfileReport.external_authority.status, "EXTERNAL_AUTHORITY_REQUIRED");
+assert.equal(missingProfileReport.missing_inputs.includes("TLSN_CANDIDATE_PROFILE_SHA256"), false);
 assert.equal(missingProfileReport.deployment_executed, false);
 const missingTrustReport = await negativeReport(profileInputs);
 assert.equal(Object.fromEntries(missingTrustReport.external_authority.groups.map((group) => [group.id, group])).NOTARY_TRUST.status, "MISSING");
@@ -160,7 +165,7 @@ const unsignedRuntimeAttestation = {
   schema_version: 1,
   scope: "tlsn-canary-deployment-runtime-attestation",
   status: "PASS",
-  readiness: "READY_FOR_HUMAN_GAMEPLAY",
+  readiness: "CANARY_RUNTIME_IDENTITY_VERIFIED",
   evidence: {
     source: "cloudflare-platform-and-live-health",
     synthetic: false,
@@ -241,21 +246,44 @@ try {
 
   const validReport = await reportFor(validRuntimeAttestation);
   assert.equal(validReport.inputs.runtime_attestation.status, "VALID");
-  assert.equal(validReport.inputs.runtime_attestation.readiness, "READY_FOR_HUMAN_GAMEPLAY");
+  assert.equal(validReport.inputs.runtime_attestation.readiness, "CANARY_RUNTIME_IDENTITY_VERIFIED");
   assert.equal(validReport.inputs.runtime_attestation.cross_binding.status, "PASS");
   assert.equal(validReport.cross_binding.status, "PASS");
   assert.equal(validReport.gates.runtime_attestation, true);
   assert.equal(validReport.gates.cross_binding, true);
   assert.equal(validReport.gates.attestation_fresh, true);
   assert.equal(validReport.gates.attestation_signature, true);
+  assert.equal(validReport.gates.verifier_identity_binding, false);
+  assert.equal(validReport.inputs.verifier_identity_binding.status, "NOT_IMPLEMENTED");
+  assert.equal(validReport.gates.operational_smoke, false);
+  assert.equal(validReport.inputs.operational_smoke.status, "NOT_IMPLEMENTED");
+  assert.equal(validReport.inputs.operational_smoke.main_worker_health, "CHECKED_BY_RUNTIME_ATTESTATION");
+  assert.equal(validReport.inputs.operational_smoke.notary_reachability, "NOT_CHECKED");
   assert.equal(validReport.inputs.runtime_attestation.signature_valid, true);
   assert.equal(validReport.inputs.runtime_attestation.signature_algorithm, "Ed25519");
   assert.equal(validReport.status, "BLOCKED");
 
+  const completeHandoffEnvironment = Object.fromEntries(
+    validReport.external_authority.groups.flatMap((group) => group.inputs).map((name) => [name, "provided-value"]),
+  );
+  const completeHandoffReport = await buildReadinessReport({
+    environment: { ...completeHandoffEnvironment, ...matchingEnvironment },
+    expectedHead,
+    artifactPaths: [],
+    baseDirectory: root,
+    validatedDeploymentManifest: matchingManifest,
+    runtimeAttestationKeyRegistry,
+    now: new Date("2026-09-20T00:00:00.000Z"),
+  });
+  assert.equal(completeHandoffReport.external_authority.first_blocker, null);
+  assert.equal(completeHandoffReport.external_authority.status, "READINESS_GATES_REQUIRED");
+  assert.equal(completeHandoffReport.gates.verifier_identity_binding, false);
+  assert.equal(completeHandoffReport.gates.operational_smoke, false);
+
   const unknownSecurityFieldReport = await reportFor(signCanaryRuntimeAttestation({
     ...unsignedRuntimeAttestation,
     security_override: {
-      readiness: "READY_FOR_HUMAN_GAMEPLAY",
+      readiness: "CANARY_RUNTIME_IDENTITY_VERIFIED",
       bypass_signature: true,
     },
   }, {

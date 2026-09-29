@@ -146,9 +146,9 @@ const EXTERNAL_AUTHORITY_HANDOFF_GROUPS = [
     id: "PROFILE_POLICY",
     inputs: ["TLSN_CANDIDATE_PROFILE_SHA256", "TLSN_CANDIDATE_SPARSE_PROFILE_SHA256"],
     depends_on: ["TARGET_IDENTITY"],
-    owner: "approved target/configuration authority",
-    external_authority: true,
-    next_action: "Provide canonical complete and sparse profile artifacts or their approved source fingerprints.",
+    owner: "FUSOU canonical profile contract",
+    external_authority: false,
+    next_action: "Derive the canonical complete and sparse profile hashes from the approved target identity using profile-canonical-contract.",
   },
   {
     id: "NOTARY_TRUST",
@@ -427,6 +427,7 @@ function identitySeparationStatus(environment = process.env) {
 function missingInputNames(environment = process.env) {
   const names = ACTIVE_INPUT_INTAKE
     .filter((entry) => entry.phase !== "REMOTE_VALIDATION_ONLY" && entry.required)
+    .filter((entry) => !(entry.category === "PROFILE" && entry.ownership === "DERIVED"))
     .map((entry) => entry.name)
     .filter((name) => !present(name, environment));
   return names.filter((name, index, values) => values.indexOf(name) === index);
@@ -437,21 +438,27 @@ function externalAuthorityHandoff({ environment = process.env, deploymentManifes
   const groups = EXTERNAL_AUTHORITY_HANDOFF_GROUPS.map((group) => {
     const manifestValid = group.id === "DEPLOYMENT_MANIFEST" && deploymentManifest?.status === "VALID";
     const fixtureTarget = group.id === "TARGET_IDENTITY" && isFixtureOrSyntheticTarget(environment);
-    const missingInputs = manifestValid ? [] : group.inputs.filter((name) => !present(name, environment));
+    const derivedProfileInputs = group.id === "PROFILE_POLICY"
+      && statusByGroup.get("TARGET_IDENTITY") === "PRESENT_UNVERIFIED"
+      && group.inputs.every((name) => !present(name, environment));
+    const missingInputs = manifestValid || derivedProfileInputs ? [] : group.inputs.filter((name) => !present(name, environment));
     const unmetDependencies = group.depends_on.filter((id) => statusByGroup.get(id) !== "PRESENT_UNVERIFIED");
     const status = fixtureTarget
       ? "INVALID"
       : group.id === "DEPLOYMENT_MANIFEST" && deploymentManifest?.status === "INVALID"
       ? "INVALID"
+      : derivedProfileInputs
+      ? unmetDependencies.length === 0 ? "DERIVED" : "BLOCKED_BY_DEPENDENCY"
       : missingInputs.length === 0
       ? unmetDependencies.length === 0 ? "PRESENT_UNVERIFIED" : "BLOCKED_BY_DEPENDENCY"
       : unmetDependencies.length === 0 ? "MISSING" : "BLOCKED_BY_DEPENDENCY";
-    statusByGroup.set(group.id, status);
+    statusByGroup.set(group.id, status === "DERIVED" ? "PRESENT_UNVERIFIED" : status);
     return {
       id: group.id,
       status,
       inputs: group.inputs,
       missing_inputs: missingInputs,
+      source: derivedProfileInputs ? "profile-canonical-contract" : undefined,
       depends_on: group.depends_on,
       unmet_dependencies: unmetDependencies,
       owner: group.owner,
@@ -459,11 +466,17 @@ function externalAuthorityHandoff({ environment = process.env, deploymentManifes
       next_action: group.next_action,
     };
   });
-  const firstBlocker = groups.find((group) => group.status !== "PRESENT_UNVERIFIED");
+  const firstBlocker = groups.find((group) => !["PRESENT_UNVERIFIED", "DERIVED"].includes(group.status));
   return {
     schema_version: 1,
     scope: "tlsn-canary-external-authority-handoff",
-    status: ready ? "SATISFIED" : firstBlocker?.external_authority ? "EXTERNAL_AUTHORITY_REQUIRED" : "DEPLOYMENT_INPUTS_REQUIRED",
+    status: ready
+      ? "SATISFIED"
+      : firstBlocker?.external_authority
+        ? "EXTERNAL_AUTHORITY_REQUIRED"
+        : firstBlocker
+          ? "DEPLOYMENT_INPUTS_REQUIRED"
+          : "READINESS_GATES_REQUIRED",
     first_blocker: firstBlocker ?? null,
     groups,
     package_boundary: {
@@ -633,6 +646,8 @@ export async function buildReadinessReport({
     authentication: auth === "PRESENT",
     binding: binding === "PRESENT_UNVERIFIED",
     workflow_provenance: workflow === "PASS",
+    verifier_identity_binding: false,
+    operational_smoke: false,
     runtime_attestation: runtimeAttestation.status === "VALID"
       && runtimeAttestation.readiness === CANARY_DEPLOYMENT_READINESS,
     cross_binding: runtimeAttestation.cross_binding?.status === "PASS",
@@ -660,6 +675,20 @@ export async function buildReadinessReport({
       notary: { status: notary, fields: statuses(NOTARY_INPUTS, environment), owner: "FUSOU", service: "FUSOU-NOTARY", protocol: "tlsn-v0.1.0-alpha.15", transport: "raw_tcp", current_presentation_path: "REQUIRED" },
       authentication: { status: auth, fields: statuses(DEPLOYMENT_AUTH_INPUTS, environment) },
       runtime_attestation: runtimeAttestation,
+      verifier_identity_binding: {
+        status: "NOT_IMPLEMENTED",
+        reason: "Verifier public key and deployment ID are not bound to the deployed verifier version or independently verified Result identity.",
+      },
+      operational_smoke: {
+        status: "NOT_IMPLEMENTED",
+        main_worker_health: "CHECKED_BY_RUNTIME_ATTESTATION",
+        verifier_worker_availability_and_version: "NOT_CHECKED",
+        trigger_callback_delivery: "NOT_CHECKED",
+        notary_reachability: "NOT_CHECKED",
+        authentication_endpoint_reachability: "NOT_CHECKED",
+        durable_binding_and_r2_persistence: "NOT_CHECKED",
+        real_presentation_verification: "NOT_CHECKED",
+      },
       cross_binding: runtimeAttestation.cross_binding,
       remote_validation: {
         status: "POST_DEPLOYMENT_ONLY",
@@ -693,6 +722,8 @@ export async function buildReadinessReport({
       authentication: "Candidate device-auth and Supabase endpoints must be supplied and pass deployment-preflight. User/device credentials belong only to post-deployment remote validation and are not a deployment readiness gate.",
       binding: "A Canary-specific binding authority registry/key and fixed Canary binding must be supplied; replay fixed bindings are not acceptable.",
       workflow: "The deployment workflow must supply positive run ID/attempt, owner/name repository, current HEAD, and workflow_file_identity=dotenvx+pnpm+wrangler.",
+      verifier_identity_binding: "Implement and independently verify the candidate verifier public key, deployment ID, deployed verifier version, and signed Result identity binding before Canary readiness can pass.",
+      operational_smoke: "Add and pass an approved pre-gameplay operational smoke covering verifier availability, Trigger callback delivery, Notary/auth reachability, and Durable Object/R2 persistence without synthetic gameplay.",
       runtime: "Canary deployment/runtime and Trigger inputs must be supplied through the existing role-specific contract; deploy-canary.mjs must remain the only deploy path.",
       validation: "Run deployment-preflight, then the existing bootstrap -> verifier -> main Canary deployment, /health identity comparison, remote-validation, attestation gate, and offline evidence verification.",
     },

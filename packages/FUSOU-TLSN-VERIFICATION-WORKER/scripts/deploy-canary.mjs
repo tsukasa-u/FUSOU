@@ -208,7 +208,7 @@ async function main() {
     });
     console.log(JSON.stringify({
       status: "PASS",
-      readiness: "READY_FOR_HUMAN_GAMEPLAY",
+      readiness: "CANARY_RUNTIME_IDENTITY_VERIFIED",
       worker_name: CANARY_WORKER_NAME,
       authorized_deployment_id: deploymentEnvironment.TLSN_CANARY_DEPLOYMENT_ID,
       platform_deployment_id: platform.deployment.id,

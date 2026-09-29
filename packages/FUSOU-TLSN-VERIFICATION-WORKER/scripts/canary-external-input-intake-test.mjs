@@ -54,6 +54,11 @@ assert.equal(canaryInputIntakeEntry("TLSN_REMOTE_DEVICE_A_PRIVATE_KEY_PKCS8_FILE
 assert.equal(canaryInputIntakeEntry("TLSN_REMOTE_DEVICE_A_PRIVATE_KEY_PKCS8_B64URL").required_group, "REMOTE_DEVICE_PRIVATE_KEY_ONE_OF");
 assert.equal(canaryInputIntakeEntry("TLSN_CANDIDATE_PROFILE_SHA256").ownership, "DERIVED");
 assert.equal(canaryInputIntakeEntry("TLSN_CANDIDATE_PROFILE_SHA256").external_dependency, false);
+const profileArtifact = CANARY_EXTERNAL_ARTIFACT_INTAKE.find(({ name }) => name === "canonical complete and sparse profiles");
+assert.equal(profileArtifact.source, "DERIVED");
+assert.equal(profileArtifact.classification, "DERIVED");
+assert.match(profileArtifact.issuer, /profile-canonical-contract/);
+assert.equal(profileArtifact.readiness_effect, "BLOCKS_CANARY_READINESS_UNTIL_DERIVED");
 assert.equal(canaryInputIntakeEntry("TLSN_CANARY_DEPLOYMENT_ID").ownership, "DEPLOYMENT_GENERATED");
 assert.equal(canaryInputIntakeEntry("TLSN_CANARY_DEPLOYMENT_ID").external_dependency, false);
 assert.equal(canaryInputIntakeEntry("TLSN_REMOTE_EXPECTED_PROVENANCE_JSON").ownership, "REMOTE_VALIDATION_ONLY");

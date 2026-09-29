@@ -15,7 +15,7 @@ import {
 export const CANARY_DEPLOYMENT_ATTESTATION_SCHEMA_VERSION = 1;
 export const CANARY_DEPLOYMENT_ATTESTATION_SCOPE = "tlsn-canary-deployment-runtime-attestation";
 export const CANARY_DEPLOYMENT_FIXTURE_SCOPE = "tlsn-canary-deployment-runtime-attestation-fixture";
-export const CANARY_DEPLOYMENT_READINESS = "READY_FOR_HUMAN_GAMEPLAY";
+export const CANARY_DEPLOYMENT_READINESS = "CANARY_RUNTIME_IDENTITY_VERIFIED";
 export const CANARY_DEPLOYMENT_NOT_READY = "NOT_READY";
 export const CANARY_DEPLOYMENT_BINDING_SCHEMA_VERSION = 1;
 

@@ -64,7 +64,7 @@ assert.deepEqual(assertCanaryRuntimeAttestationSigner({
 const signedWithUnknownSecurityField = signCanaryRuntimeAttestation({
   ...unsignedAttestation,
   security_override: {
-    readiness: "READY_FOR_HUMAN_GAMEPLAY",
+    readiness: "CANARY_RUNTIME_IDENTITY_VERIFIED",
     bypass_signature: true,
   },
 }, {
