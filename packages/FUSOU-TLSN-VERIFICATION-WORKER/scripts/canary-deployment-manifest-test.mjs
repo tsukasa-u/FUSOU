@@ -53,6 +53,10 @@ for (const name of inputsForRole("canary")) {
 }
 environment.TLSN_CANARY_WORKER_NAME = "fusou-tlsn-verification-canary";
 environment.TLSN_CANARY_TRUST_ROOT_CERTIFICATE_DER = Buffer.from("fixture-canary-trust-root").toString("base64url");
+assert.ok(
+  secretInputsForRole("canary").every((name) => environment[name] === undefined),
+  "manifest generation must not require secret material values",
+);
 
 function hashValue(value) {
   return import("node:crypto").then(({ createHash }) => createHash("sha256").update(value).digest("base64url"));
@@ -171,6 +175,7 @@ const generatedManifest = createCanaryDeploymentManifest({
   secretProviderReferences,
 });
 assert.equal(generatedManifest.inputs.length, manifest.inputs.length);
+assert.equal(generatedManifest.secret_provider.references.length, secretInputsForRole("canary").length);
 await assertCanaryDeploymentManifest(JSON.stringify(generatedManifest), { packageRoot, environment, currentHead, now: new Date("2026-06-01T00:00:00.000Z") });
 assert.throws(
   () => createCanaryDeploymentManifest({

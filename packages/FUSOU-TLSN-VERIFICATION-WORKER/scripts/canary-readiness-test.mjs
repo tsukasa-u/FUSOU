@@ -244,7 +244,7 @@ const EXTERNAL_AUTHORITY_HANDOFF_GROUPS = [
   {
     id: "DEPLOYMENT_MANIFEST",
     inputs: [CANARY_DEPLOYMENT_MANIFEST_INPUT],
-    depends_on: ["TARGET_IDENTITY", "PROFILE_POLICY", "NOTARY_TRUST", "VERIFIER_IDENTITY", "AUTHENTICATION_POLICY", "BINDING_AUTHORITY", "RESULT_REGISTRY", "WORKFLOW_CONTEXT"],
+    depends_on: ["TARGET_IDENTITY", "PROFILE_POLICY", "NOTARY_TRUST", "VERIFIER_IDENTITY", "AUTHENTICATION_POLICY", "SESSION_AUTHORITY", "BINDING_AUTHORITY", "RESULT_REGISTRY", "WORKFLOW_CONTEXT"],
     owner: "FUSOU deployment system",
     external_authority: false,
     next_action: "Generate and validate the current deployment manifest; do not hand-edit it.",
@@ -255,7 +255,7 @@ const EXTERNAL_AUTHORITY_HANDOFF_GROUPS = [
     depends_on: ["SESSION_AUTHORITY", "BINDING_AUTHORITY", "RESULT_REGISTRY", "WORKFLOW_CONTEXT"],
     owner: "configured secret provider",
     external_authority: true,
-    next_action: "Make the required secret-provider references available without placing secret values in the package or manifest.",
+    next_action: "Supply the actual role-scoped secret values to the protected deployment environment; manifest provider_ref values are metadata and are not resolved by deploy-canary.",
   },
 ];
 
@@ -340,10 +340,14 @@ function workflowStatus(environment = process.env, expectedHead = currentHead) {
   }
 }
 
+function isFixtureOrSyntheticTarget(environment = process.env) {
+  const identity = environment.TLSN_CANDIDATE_SERVER_IDENTITY?.trim();
+  return identity === FIXTURE_SERVER_IDENTITY || SYNTHETIC_MARKER.test(identity ?? "");
+}
+
 function targetStatus(environment = process.env) {
   if (!allPresent(TARGET_INPUTS, environment)) return "MISSING";
-  const identity = environment.TLSN_CANDIDATE_SERVER_IDENTITY?.trim();
-  if (!identity || identity === FIXTURE_SERVER_IDENTITY || SYNTHETIC_MARKER.test(identity)) return "FIXTURE_OR_SYNTHETIC";
+  if (isFixtureOrSyntheticTarget(environment)) return "FIXTURE_OR_SYNTHETIC";
   return "PRESENT";
 }
 
@@ -432,9 +436,12 @@ function externalAuthorityHandoff({ environment = process.env, deploymentManifes
   const statusByGroup = new Map();
   const groups = EXTERNAL_AUTHORITY_HANDOFF_GROUPS.map((group) => {
     const manifestValid = group.id === "DEPLOYMENT_MANIFEST" && deploymentManifest?.status === "VALID";
+    const fixtureTarget = group.id === "TARGET_IDENTITY" && isFixtureOrSyntheticTarget(environment);
     const missingInputs = manifestValid ? [] : group.inputs.filter((name) => !present(name, environment));
     const unmetDependencies = group.depends_on.filter((id) => statusByGroup.get(id) !== "PRESENT_UNVERIFIED");
-    const status = group.id === "DEPLOYMENT_MANIFEST" && deploymentManifest?.status === "INVALID"
+    const status = fixtureTarget
+      ? "INVALID"
+      : group.id === "DEPLOYMENT_MANIFEST" && deploymentManifest?.status === "INVALID"
       ? "INVALID"
       : missingInputs.length === 0
       ? unmetDependencies.length === 0 ? "PRESENT_UNVERIFIED" : "BLOCKED_BY_DEPENDENCY"
