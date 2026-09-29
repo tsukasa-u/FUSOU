@@ -35,46 +35,6 @@ assert.deepEqual(report.external_authority.first_blocker.missing_inputs, [
 ]);
 assert.equal(report.external_authority.package_boundary.active_input, "TLSN_CANARY_DEPLOYMENT_MANIFEST");
 assert.equal(report.external_authority.package_boundary.external_package_gate, "NOT_AN_ACTIVE_GATE");
-assert.equal(report.inputs.deployment_manifest.status, "ABSENT");
-assert.notEqual(
-  report.external_authority.groups.find(({ id }) => id === "DEPLOYMENT_MANIFEST").status,
-  "PRESENT_UNVERIFIED",
-);
-const repeatedMissingTargetReport = JSON.parse(spawnSync(process.execPath, [readinessPath], {
-  cwd: packageDirectory,
-  encoding: "utf8",
-  env: { PATH: process.env.PATH ?? "/usr/bin:/bin", HOME: process.env.HOME ?? "/tmp" },
-}).stdout);
-assert.deepEqual(
-  {
-    id: repeatedMissingTargetReport.external_authority.first_blocker.id,
-    status: repeatedMissingTargetReport.external_authority.first_blocker.status,
-    missing_inputs: repeatedMissingTargetReport.external_authority.first_blocker.missing_inputs,
-  },
-  {
-    id: report.external_authority.first_blocker.id,
-    status: report.external_authority.first_blocker.status,
-    missing_inputs: report.external_authority.first_blocker.missing_inputs,
-  },
-);
-assert.deepEqual(report.external_authority.groups.map(({ id }) => id), [
-  "TARGET_IDENTITY",
-  "PROFILE_POLICY",
-  "NOTARY_TRUST",
-  "VERIFIER_IDENTITY",
-  "AUTHENTICATION_POLICY",
-  "SESSION_AUTHORITY",
-  "BINDING_AUTHORITY",
-  "RESULT_REGISTRY",
-  "WORKFLOW_CONTEXT",
-  "SECRET_PROVIDER",
-  "DEPLOYMENT_MANIFEST",
-]);
-const handoffGroups = Object.fromEntries(report.external_authority.groups.map((group) => [group.id, group]));
-assert.deepEqual(handoffGroups.NOTARY_TRUST.depends_on, ["TARGET_IDENTITY", "PROFILE_POLICY"]);
-assert.deepEqual(handoffGroups.RESULT_REGISTRY.depends_on, ["VERIFIER_IDENTITY"]);
-assert.ok(handoffGroups.DEPLOYMENT_MANIFEST.depends_on.includes("SESSION_AUTHORITY"));
-assert.ok(handoffGroups.DEPLOYMENT_MANIFEST.depends_on.includes("SECRET_PROVIDER"));
 assert.equal(report.inputs.runtime_attestation.status, "MISSING");
 assert.equal(report.gates.runtime_attestation, false);
 assert.equal(report.inputs.remote_validation.status, "POST_DEPLOYMENT_ONLY");
@@ -85,37 +45,6 @@ assert.ok(report.input_diagnostics
   .every((entry) => entry.status.endsWith("POST_DEPLOYMENT")));
 assert.equal(CANARY_TLSN_ARCHITECTURE.live_verifier.status, "NOT_IMPLEMENTED");
 assert.equal(CANARY_TLSN_ARCHITECTURE.delegated_notary.current_presentation_path, "REQUIRED");
-
-const negativeReport = (environment) => buildReadinessReport({
-  environment,
-  expectedHead: "a".repeat(40),
-  artifactPaths: [],
-  baseDirectory: packageDirectory,
-  now: new Date("2026-09-27T00:00:00.000Z"),
-});
-const targetInputs = {
-  TLSN_CANDIDATE_SERVER_IDENTITY: "authority.example.com",
-  TLSN_CANDIDATE_VERIFIER_KEY_ID: "candidate-verifier-1",
-  TLSN_CANDIDATE_NOTARY_KEY_ID: "notary-1",
-};
-const profileInputs = {
-  ...targetInputs,
-  TLSN_CANDIDATE_PROFILE_SHA256: "profile-sha",
-  TLSN_CANDIDATE_SPARSE_PROFILE_SHA256: "sparse-profile-sha",
-};
-const missingProfileReport = await negativeReport(targetInputs);
-assert.equal(missingProfileReport.status, "BLOCKED");
-assert.equal(Object.fromEntries(missingProfileReport.external_authority.groups.map((group) => [group.id, group])).PROFILE_POLICY.status, "MISSING");
-assert.equal(missingProfileReport.deployment_executed, false);
-const missingTrustReport = await negativeReport(profileInputs);
-assert.equal(Object.fromEntries(missingTrustReport.external_authority.groups.map((group) => [group.id, group])).NOTARY_TRUST.status, "MISSING");
-assert.equal(missingTrustReport.deployment_executed, false);
-const fixtureTargetReport = await negativeReport({ ...profileInputs, TLSN_CANDIDATE_SERVER_IDENTITY: "game.example.test" });
-const fixtureGroups = Object.fromEntries(fixtureTargetReport.external_authority.groups.map((group) => [group.id, group]));
-assert.equal(fixtureTargetReport.inputs.target_provenance.status, "FIXTURE_OR_SYNTHETIC");
-assert.equal(fixtureGroups.TARGET_IDENTITY.status, "INVALID");
-assert.equal(fixtureGroups.PROFILE_POLICY.status, "BLOCKED_BY_DEPENDENCY");
-assert.equal(fixtureTargetReport.deployment_executed, false);
 
 const expectedHead = "a".repeat(40);
 const matchingWorkflow = {

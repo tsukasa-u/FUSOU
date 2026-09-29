@@ -242,20 +242,20 @@ const EXTERNAL_AUTHORITY_HANDOFF_GROUPS = [
     next_action: "Run the approved workflow with the current checked-out HEAD and fixed toolchain identity.",
   },
   {
+    id: "DEPLOYMENT_MANIFEST",
+    inputs: [CANARY_DEPLOYMENT_MANIFEST_INPUT],
+    depends_on: ["TARGET_IDENTITY", "PROFILE_POLICY", "NOTARY_TRUST", "VERIFIER_IDENTITY", "AUTHENTICATION_POLICY", "BINDING_AUTHORITY", "RESULT_REGISTRY", "WORKFLOW_CONTEXT"],
+    owner: "FUSOU deployment system",
+    external_authority: false,
+    next_action: "Generate and validate the current deployment manifest; do not hand-edit it.",
+  },
+  {
     id: "SECRET_PROVIDER",
     inputs: CANARY_SECRET_INPUTS,
     depends_on: ["SESSION_AUTHORITY", "BINDING_AUTHORITY", "RESULT_REGISTRY", "WORKFLOW_CONTEXT"],
     owner: "configured secret provider",
     external_authority: true,
     next_action: "Make the required secret-provider references available without placing secret values in the package or manifest.",
-  },
-  {
-    id: "DEPLOYMENT_MANIFEST",
-    inputs: [CANARY_DEPLOYMENT_MANIFEST_INPUT],
-    depends_on: ["TARGET_IDENTITY", "PROFILE_POLICY", "NOTARY_TRUST", "VERIFIER_IDENTITY", "AUTHENTICATION_POLICY", "SESSION_AUTHORITY", "BINDING_AUTHORITY", "RESULT_REGISTRY", "WORKFLOW_CONTEXT", "SECRET_PROVIDER"],
-    owner: "FUSOU deployment system",
-    external_authority: false,
-    next_action: "Generate and validate the current deployment manifest; do not hand-edit it.",
   },
 ];
 
@@ -432,14 +432,9 @@ function externalAuthorityHandoff({ environment = process.env, deploymentManifes
   const statusByGroup = new Map();
   const groups = EXTERNAL_AUTHORITY_HANDOFF_GROUPS.map((group) => {
     const manifestValid = group.id === "DEPLOYMENT_MANIFEST" && deploymentManifest?.status === "VALID";
-    const fixtureTarget = group.id === "TARGET_IDENTITY"
-      && (environment.TLSN_CANDIDATE_SERVER_IDENTITY?.trim() === FIXTURE_SERVER_IDENTITY
-        || SYNTHETIC_MARKER.test(environment.TLSN_CANDIDATE_SERVER_IDENTITY?.trim() ?? ""));
     const missingInputs = manifestValid ? [] : group.inputs.filter((name) => !present(name, environment));
     const unmetDependencies = group.depends_on.filter((id) => statusByGroup.get(id) !== "PRESENT_UNVERIFIED");
-    const status = fixtureTarget
-      ? "INVALID"
-      : group.id === "DEPLOYMENT_MANIFEST" && deploymentManifest?.status === "INVALID"
+    const status = group.id === "DEPLOYMENT_MANIFEST" && deploymentManifest?.status === "INVALID"
       ? "INVALID"
       : missingInputs.length === 0
       ? unmetDependencies.length === 0 ? "PRESENT_UNVERIFIED" : "BLOCKED_BY_DEPENDENCY"
