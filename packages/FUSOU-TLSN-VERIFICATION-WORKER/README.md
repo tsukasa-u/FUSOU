@@ -307,7 +307,8 @@ platform deployment/version, runtime deployment identity, runtime Version ID,
 runtime Git SHA, canonical Worker name, Canary role, and fixed binding mode.
 Only a successful comparison writes the create-only artifact
 `artifacts/tlsn-canary-deployment-runtime-attestation-<run>-<attempt>.json` and
-prints `READY_FOR_HUMAN_GAMEPLAY`. Set
+prints `CANARY_RUNTIME_IDENTITY_VERIFIED`. This confirms only the main Worker's
+platform/runtime identity; it does not authorize human gameplay. Set
 `TLSN_CANARY_DEPLOYMENT_ATTESTATION_PATH` to choose an explicit artifact path;
 an existing path is never overwritten. Fixture or synthetic deployments are
 rejected and cannot produce this real readiness artifact.
@@ -706,7 +707,7 @@ The trust roles are intentionally separate:
 
 No single field or create-only artifact path replaces the other predicates. The registry is a security-sensitive repository input and must be reviewed like code that changes who can authorize a Canary runtime.
 
-`READY_FOR_HUMAN_GAMEPLAY` is not a configuration-presence state. The readiness audit remains `BLOCKED` until a real Canary deployment has produced the immutable `tlsn-canary-deployment-runtime-attestation*.json` artifact. The artifact must have the real Runtime Attestation scope, `status: "PASS"`, `readiness: "READY_FOR_HUMAN_GAMEPLAY"`, non-synthetic Cloudflare platform and live `/health` evidence, the checked-out Git SHA, the authorized Canary deployment identity, and a single platform version serving at 100 percent. Fixture scopes, generic `PASS` artifacts, configuration variables, and replayed or synthetic evidence cannot satisfy this gate.
+`CANARY_RUNTIME_IDENTITY_VERIFIED` is not a human-gameplay readiness state. It attests only the main Worker's platform/runtime identity. The readiness audit remains `BLOCKED` until every independent gate passes; currently `verifier_identity_binding` and `operational_smoke` are explicitly `NOT_IMPLEMENTED` and fail closed. A real deployment Runtime Attestation alone therefore cannot authorize gameplay. Fixture scopes, generic `PASS` artifacts, configuration variables, and replayed or synthetic evidence cannot satisfy readiness.
 
 The readiness evaluator treats the artifact path as an identification mechanism, not a trust boundary. It compares the artifact against the current workflow run/attempt, repository, workflow identity, checked-out SHA, validated deployment manifest, and current Canary environment. The real Runtime Attestation records the exact validated `deployment.manifest_id`; `manifest_attestation: true` therefore includes an exact manifest identity comparison, not only deployment/workflow field equality. It also re-checks the observable deployment, worker, platform deployment, serving version, and runtime self-reported version fields; the embedded `checks.*` booleans are supporting assertions, not the final trust root. Because the manifest is created before Cloudflare returns a version ID, its binding deliberately covers the authorized deployment/workflow identity while the Runtime Attestation binds the platform's current serving version to the runtime version.
 
@@ -714,7 +715,7 @@ The readiness evaluator treats the artifact path as an identification mechanism,
 
 The report exposes `cross_binding.status` plus workflow, manifest, environment, and version-serving predicates. A valid artifact paired with an older workflow attempt, another deployment ID, another worker, or a different manifest is rejected as Frankenstein evidence even when the individual artifact has the same Git SHA.
 
-Run `pnpm run test:canary-readiness` for the offline audit. It performs no deployment, Game Server, Notary, or remote validation call. The readiness gate requires current head, contract, deployment manifest, deployment contract, target provenance, trust material, Notary binding, authentication, binding, workflow provenance, Runtime Attestation, cross-binding, identity separation, and no fixture contamination. Remote validation remains `POST_DEPLOYMENT_ONLY` and is not a readiness gate. Until a real deployment is performed, human gameplay and the subsequent fresh TLSN verification path remain blocked.
+Run `pnpm run test:canary-readiness` for the offline audit. It performs no deployment, Game Server, Notary, or remote validation call. The readiness gate requires current HEAD, contract, deployment manifest, deployment contract, target provenance, trust material, Notary binding, authentication, binding, workflow provenance, verifier identity binding, operational smoke, Runtime Attestation, cross-binding, identity separation, and no fixture contamination. Remote validation remains `POST_DEPLOYMENT_ONLY` and is not a readiness gate. Runtime identity attestation alone cannot clear the two currently unimplemented gates; human gameplay and the subsequent fresh TLSN verification path remain blocked until every gate is independently satisfied.
 
 ## Production Trust Contract
 
