@@ -273,6 +273,7 @@ const unsignedRuntimeAttestation = {
       public_key_spki: verifierPublicKeySpki,
       deployment_id: verifierDeploymentId,
       worker_name: CANARY_VERIFIER_WORKER_NAME,
+      keypair_valid: true,
     },
   },
   verifier_identity: {

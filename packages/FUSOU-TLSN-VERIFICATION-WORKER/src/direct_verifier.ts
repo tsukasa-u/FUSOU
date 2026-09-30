@@ -13,7 +13,10 @@ import {
   TlsnBindingAuthorityDurableObject,
 } from "./index.js";
 import { verifyInternalRequest } from "./verification_jobs.js";
-import { CANARY_VERIFIER_WORKER_NAME } from "./verifier_identity.js";
+import {
+  CANARY_VERIFIER_WORKER_NAME,
+  canaryVerifierExecutionKeyPairMatches,
+} from "./verifier_identity.js";
 
 const MAX_INTERNAL_CALLBACK_JSON_BYTES = 64 * 1024;
 const MAX_PRESENTATION_BYTES = 8 * 1024 * 1024;
@@ -23,23 +26,30 @@ const DIRECT_CONTROL_HEADER = "X-FUSOU-TLSN-Benchmark-Control";
 
 const app = new Hono<{ Bindings: Bindings }>();
 
-app.get("/health", (c) => {
+app.get("/health", async (c) => {
   const productionCanary = c.env.TLSN_ENVIRONMENT === "production"
     && c.env.TLSN_DEPLOYMENT_ROLE === "canary";
   const runtimeVersionId = c.env.CF_VERSION_METADATA?.id ?? null;
+  const verifierPrivateKey = c.env.TLSN_CANARY_VERIFIER_IDENTITY_SIGNING_PRIVATE_KEY_PKCS8;
+  const verifierPublicKey = c.env.TLSN_CANARY_VERIFIER_PUBLIC_KEY_SPKI;
+  const verifierKeyPairValid = productionCanary
+    ? await canaryVerifierExecutionKeyPairMatches(verifierPrivateKey, verifierPublicKey)
+    : true;
   const verifierIdentity = productionCanary
     ? {
         key_id: c.env.TLSN_CANARY_VERIFIER_IDENTITY_KEY_ID ?? null,
-        public_key_spki: c.env.TLSN_CANARY_VERIFIER_PUBLIC_KEY_SPKI ?? null,
+        public_key_spki: verifierPublicKey ?? null,
         deployment_id: c.env.TLSN_CANARY_VERIFIER_DEPLOYMENT_ID ?? null,
         worker_name: CANARY_VERIFIER_WORKER_NAME,
+        keypair_valid: verifierKeyPairValid,
       }
     : null;
   const identityComplete = !productionCanary || Boolean(
     runtimeVersionId
     && verifierIdentity?.key_id
     && verifierIdentity.public_key_spki
-    && verifierIdentity.deployment_id,
+    && verifierIdentity.deployment_id
+    && verifierIdentity.keypair_valid,
   );
   return c.json({
     schema_version: 1,

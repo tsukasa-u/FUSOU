@@ -24,6 +24,7 @@ import {
 } from "./private_key_validation_cache.js";
 import {
   createCanaryVerifierExecutionReceipt,
+  serializeCanaryAuthoritativeResult,
   type CanaryVerifierExecutionReceipt,
 } from "./verifier_identity.js";
 import {
@@ -197,6 +198,7 @@ const VERIFICATION_LEASE_MS = 10 * 60 * 1000;
 const DIRECT_CALLBACK_PROCESSING_HEADER = "X-FUSOU-TLSN-Benchmark-Direct-Callback-Processing-Ms";
 const SERVER_COMPLETION_EPOCH_HEADER = "X-FUSOU-TLSN-Benchmark-Server-Completion-Epoch-Ms";
 const REPLAY_VERIFICATION_ATTEMPT_HEADER = "X-FUSOU-TLSN-Test-Verification-Attempt-Id";
+const VERIFIER_EXECUTION_RECEIPT_HEADER = "X-FUSOU-TLSN-Verifier-Execution-Receipt";
 
 type BenchmarkTimingStage =
   | "t0_accepted"
@@ -932,6 +934,7 @@ async function attachBenchmarkTimingHeader(c: Context<{ Bindings: Bindings }>, e
 type AuthoritativeVerificationResult = {
   bytes: Uint8Array;
   value: z.infer<typeof verificationFinalResponseSchema>;
+  verifierExecutionReceiptBytes?: Uint8Array;
 };
 
 function parseAuthoritativeVerificationResultBytes(bytes: Uint8Array): AuthoritativeVerificationResult | null {
@@ -953,7 +956,38 @@ async function readAuthoritativeVerificationResult(
   input: VerificationResultLookupInput,
 ): Promise<AuthoritativeVerificationResult | null> {
   const storedResult = await authority.getConsumedVerificationResult(bindingId, input);
-  return storedResult ? parseAuthoritativeVerificationResultBytes(storedResult.bytes) : null;
+  if (!storedResult) return null;
+  const parsedResult = parseAuthoritativeVerificationResultBytes(storedResult.bytes);
+  return parsedResult && storedResult.verifier_execution_receipt_bytes
+    ? { ...parsedResult, verifierExecutionReceiptBytes: storedResult.verifier_execution_receipt_bytes }
+    : parsedResult;
+}
+
+function attachVerifierExecutionReceiptHeader(headers: Headers, receiptBytes: Uint8Array | undefined): void {
+  if (receiptBytes) headers.set(VERIFIER_EXECUTION_RECEIPT_HEADER, encodeBase64Url(receiptBytes));
+}
+
+async function persistAndVerifyResultArchive(
+  env: Bindings,
+  objectKey: string,
+  resultBytes: Uint8Array,
+  expectedSha256: string,
+): Promise<void> {
+  try {
+    await env.TLSN_PRESENTATIONS.put(objectKey, resultBytes, {
+      httpMetadata: { contentType: "application/json" },
+    });
+    const archivedObject = await env.TLSN_PRESENTATIONS.get(objectKey);
+    if (!archivedObject) throw new Error("missing archived result");
+    const archivedBytes = new Uint8Array(await archivedObject.arrayBuffer());
+    const archivedSha256 = encodeBase64Url(new Uint8Array(await crypto.subtle.digest("SHA-256", archivedBytes)));
+    if (archivedSha256 !== expectedSha256 || archivedBytes.byteLength !== resultBytes.byteLength) {
+      throw new Error("archived result digest mismatch");
+    }
+  } catch {
+    await env.TLSN_PRESENTATIONS.delete(objectKey).catch(() => undefined);
+    throw new Error("authoritative Result archive verification failed");
+  }
 }
 
 function testBindingValueForRequest(env: Bindings, request: Request): string | undefined {
@@ -1040,6 +1074,12 @@ async function replayConsumedVerificationResult(
   }
 
   let authoritativeResult = parseAuthoritativeVerificationResultBytes(storedResult.bytes);
+  if (authoritativeResult && storedResult.verifier_execution_receipt_bytes) {
+    authoritativeResult = {
+      ...authoritativeResult,
+      verifierExecutionReceiptBytes: storedResult.verifier_execution_receipt_bytes,
+    };
+  }
   if (replayFault) {
     await applyTestReplayResultFault(
       authority,
@@ -1068,6 +1108,7 @@ async function replayConsumedVerificationResult(
     "Cache-Control": "no-store",
     "Content-Type": "application/json",
   });
+  attachVerifierExecutionReceiptHeader(headers, authoritativeResult.verifierExecutionReceiptBytes);
   if (benchmarkEnabled(c.env)) {
     const timingHeader = await benchmarkTimingHeaderValue(c.env, replayJobId);
     if (timingHeader) headers.set("X-FUSOU-TLSN-Benchmark-Timing", timingHeader);
@@ -3300,32 +3341,6 @@ async function completeVerification(
     }
     const canaryVerifierExecution = c.env.TLSN_ENVIRONMENT === "production" && c.env.TLSN_DEPLOYMENT_ROLE === "canary";
     let verifierExecutionReceipt: CanaryVerifierExecutionReceipt | undefined;
-    if (canaryVerifierExecution) {
-      try {
-        const privateKey = c.env.TLSN_CANARY_VERIFIER_IDENTITY_SIGNING_PRIVATE_KEY_PKCS8;
-        const publicKey = c.env.TLSN_CANARY_VERIFIER_PUBLIC_KEY_SPKI;
-        const runtimeVersionId = c.env.CF_VERSION_METADATA?.id;
-        const verifierKeyId = c.env.TLSN_CANARY_VERIFIER_IDENTITY_KEY_ID;
-        const deploymentId = c.env.TLSN_CANARY_VERIFIER_DEPLOYMENT_ID;
-        if (!privateKey || !publicKey || !runtimeVersionId || !verifierKeyId || !deploymentId) {
-          throw new Error("Canary Verifier execution identity is incomplete");
-        }
-        verifierExecutionReceipt = await createCanaryVerifierExecutionReceipt({
-          jobId: callback.job_id,
-          verificationAttemptId,
-          deploymentId,
-          runtimeVersionId,
-          verifierKeyId,
-          verifierPublicKeySpki: publicKey,
-          verifierSigningPrivateKeyPkcs8: decodeBase64Url(privateKey, 4096),
-          presentationBytes: storedPresentation,
-          resultBytes: new TextEncoder().encode(JSON.stringify(signedResult)),
-        });
-      } catch {
-        await finalizeAttemptFailure("verifier_failed");
-        return c.json({ error: "verifier_identity_unavailable" }, 503);
-      }
-    }
     const usedAt = completionRecord.status === "consumed"
       ? completionRecord.used_at
       : new Date(Date.now()).toISOString();
@@ -3357,7 +3372,6 @@ async function completeVerification(
       signature_algorithm: "Ed25519",
       consume_receipt: consumeReceipt,
       device_replay_digest_hex: completionRecord.device_replay_digest_hex,
-      ...(verifierExecutionReceipt ? { verifier_execution_receipt: verifierExecutionReceipt } : {}),
     });
     benchmarkRecord(c.env, callback.job_id, "t7_result_signing_completed");
     benchmarkRecord(c.env, callback.job_id, "t8_result_signing_completed");
@@ -3365,8 +3379,7 @@ async function completeVerification(
     benchmarkDuration(c.env, callback.job_id, "result_construction", performance.now() - resultConstructionStartedAt);
     const resultSerializationStartedAt = performance.now();
     benchmarkRecord(c.env, callback.job_id, "result_serialization_started");
-    const finalResponseBody = JSON.stringify(finalResponse);
-    const finalResponseBytes = new TextEncoder().encode(finalResponseBody);
+    const { body: finalResponseBody, bytes: finalResponseBytes } = serializeCanaryAuthoritativeResult(finalResponse);
     benchmarkRecord(c.env, callback.job_id, "result_serialization_completed");
     benchmarkDuration(c.env, callback.job_id, "result_serialization", performance.now() - resultSerializationStartedAt);
     benchmarkDiagnostic(c.env, callback.job_id, "result_bytes", finalResponseBytes.byteLength);
@@ -3376,6 +3389,32 @@ async function completeVerification(
     const resultSha256 = encodeBase64Url(
       new Uint8Array(await crypto.subtle.digest("SHA-256", finalResponseBytes)),
     );
+    if (canaryVerifierExecution) {
+      try {
+        const privateKey = c.env.TLSN_CANARY_VERIFIER_IDENTITY_SIGNING_PRIVATE_KEY_PKCS8;
+        const publicKey = c.env.TLSN_CANARY_VERIFIER_PUBLIC_KEY_SPKI;
+        const runtimeVersionId = c.env.CF_VERSION_METADATA?.id;
+        const verifierKeyId = c.env.TLSN_CANARY_VERIFIER_IDENTITY_KEY_ID;
+        const deploymentId = c.env.TLSN_CANARY_VERIFIER_DEPLOYMENT_ID;
+        if (!privateKey || !publicKey || !runtimeVersionId || !verifierKeyId || !deploymentId) {
+          throw new Error("Canary Verifier execution identity is incomplete");
+        }
+        verifierExecutionReceipt = await createCanaryVerifierExecutionReceipt({
+          jobId: callback.job_id,
+          verificationAttemptId,
+          deploymentId,
+          runtimeVersionId,
+          verifierKeyId,
+          verifierPublicKeySpki: publicKey,
+          verifierSigningPrivateKeyPkcs8: decodeBase64Url(privateKey, 4096),
+          presentationBytes: storedPresentation,
+          resultBytes: finalResponseBytes,
+        });
+      } catch {
+        await finalizeAttemptFailure("verifier_failed");
+        return c.json({ error: "verifier_identity_unavailable" }, 503);
+      }
+    }
     benchmarkRecord(c.env, callback.job_id, "result_hash_completed");
     benchmarkDuration(c.env, callback.job_id, "result_hash", performance.now() - resultHashStartedAt);
     benchmarkDiagnostic(c.env, callback.job_id, "result_sha256_present", true);
@@ -3404,6 +3443,9 @@ async function completeVerification(
       result_sha256: resultSha256,
       result_object_key: attemptResultKey,
       result_bytes: finalResponseBytes,
+      ...(verifierExecutionReceipt
+        ? { verifier_execution_receipt_bytes: new TextEncoder().encode(JSON.stringify(verifierExecutionReceipt)) }
+        : {}),
       used_at: usedAt,
       now: Date.now(),
       benchmark_timing: benchmarkEnabled(c.env),
@@ -3411,6 +3453,8 @@ async function completeVerification(
       benchmark_persistence_remaining_ms: benchmarkPersistenceRemainingMilliseconds,
     };
     await delayBeforeResultCommit(c.env, testFault);
+    benchmarkR2Operation(c.env, callback.job_id, "result_archive_put");
+    await persistAndVerifyResultArchive(c.env, attemptResultKey, finalResponseBytes, resultSha256);
     const doCommitStartedAt = performance.now();
     benchmarkDOOperation(c.env, callback.job_id, "commit_verified_result");
     committedBinding = await authority.commitVerifiedResult(callback.binding_id, commitInput);
@@ -3422,14 +3466,6 @@ async function completeVerification(
       await finalizeAttemptFailure("authority_error");
       return c.json({ error: "verification_result_unavailable" }, 503);
     }
-    c.executionCtx.waitUntil((async () => {
-      benchmarkR2Operation(c.env, callback.job_id, "result_archive_put");
-      await c.env.TLSN_PRESENTATIONS.put(
-        attemptResultKey,
-        finalResponseBytes,
-        { httpMetadata: { contentType: "application/json" } },
-      ).catch(() => undefined);
-    })());
     const resultPersistenceCompletedAt = performance.now();
     benchmarkRecord(c.env, callback.job_id, "result_persistence_completed");
     benchmarkDuration(c.env, callback.job_id, "result_persistence", resultPersistenceCompletedAt - resultPersistenceStartedAt);
@@ -3497,6 +3533,11 @@ async function completeVerification(
       }
       c.header("Cache-Control", "no-store");
       c.header("Content-Type", "application/json");
+      if (verifierExecutionReceipt) {
+        c.header(VERIFIER_EXECUTION_RECEIPT_HEADER, encodeBase64Url(
+          new TextEncoder().encode(JSON.stringify(verifierExecutionReceipt)),
+        ));
+      }
       return c.body(finalResponseBody, 200);
     }
     return c.json({ accepted: true });
@@ -3882,6 +3923,7 @@ app.post("/verify/tlsn/status", async (c) => {
   await attachBenchmarkTimingHeader(c, c.env, requestBody.job_id);
   c.header("Cache-Control", "no-store");
   c.header("Content-Type", "application/json");
+  attachVerifierExecutionReceiptHeader(c.res.headers, authoritativeResult.verifierExecutionReceiptBytes);
   return new Response(authoritativeResult.bytes, { status: 200, headers: c.res.headers });
 });
 
@@ -4423,11 +4465,12 @@ const handleTlsnVerification = async (c: Context<{ Bindings: Bindings }>) => {
       consume_receipt: consumeReceipt,
       device_replay_digest_hex: devicePossession.replayDigestHex,
     });
-    const finalResponseBody = JSON.stringify(finalResponse);
-    const finalResponseBytes = new TextEncoder().encode(finalResponseBody);
+    const { body: finalResponseBody, bytes: finalResponseBytes } = serializeCanaryAuthoritativeResult(finalResponse);
     const resultSha256 = encodeBase64Url(
       new Uint8Array(await crypto.subtle.digest("SHA-256", finalResponseBytes)),
     );
+    benchmarkR2Operation(c.env, synchronousJobId, "result_archive_put");
+    await persistAndVerifyResultArchive(c.env, synchronousResultKey, finalResponseBytes, resultSha256);
     benchmarkDOOperation(c.env, synchronousJobId, "commit_verified_result");
     const committedBinding = await authority.commitVerifiedResult(synchronousBindingId, {
       session_id: requestBody.session_id,
@@ -4451,11 +4494,6 @@ const handleTlsnVerification = async (c: Context<{ Bindings: Bindings }>) => {
     benchmarkAuthorityLeaseMetadata(c.env, synchronousJobId, committedBinding);
     const completionEpoch = Date.parse(committedBinding.benchmark_server_completion_at ?? "");
     if (Number.isFinite(completionEpoch)) c.header(SERVER_COMPLETION_EPOCH_HEADER, String(completionEpoch));
-    c.executionCtx.waitUntil(c.env.TLSN_PRESENTATIONS.put(
-      synchronousResultKey,
-      finalResponseBytes,
-      { httpMetadata: { contentType: "application/json" } },
-    ).catch(() => undefined));
     c.header("Cache-Control", "no-store");
     c.header("Content-Type", "application/json");
     if (c.env.TLSN_ENVIRONMENT === "test" && c.env.TLSN_DEPLOYMENT_ROLE === "replay") {

@@ -153,23 +153,6 @@ export const verificationFinalResponseSchema = z.object({
   signature_algorithm: z.literal("Ed25519"),
   consume_receipt: z.record(z.string(), z.unknown()),
   device_replay_digest_hex: z.string().regex(/^[a-f0-9]{64}$/),
-  verifier_execution_receipt: z.object({
-    schema_version: z.literal(1),
-    scope: z.literal("tlsn-canary-verifier-execution-receipt"),
-    receipt_id: z.string().uuid(),
-    job_id: z.string().regex(JOB_ID_PATTERN),
-    verification_attempt_id: z.string().uuid(),
-    deployment_id: z.string().regex(/^[A-Za-z0-9._:/-]{1,512}$/),
-    worker_name: z.literal("fusou-tlsn-verifier-canary"),
-    runtime_version_id: z.string().uuid(),
-    verifier_key_id: z.string().regex(/^[A-Za-z0-9._-]{1,128}$/),
-    verifier_public_key_spki_sha256: z.string().regex(/^[A-Za-z0-9_-]{43}$/),
-    presentation_sha256: z.string().regex(/^[A-Za-z0-9_-]{43}$/),
-    result_sha256: z.string().regex(/^[A-Za-z0-9_-]{43}$/),
-    issued_at: z.string().datetime({ offset: false }),
-    signature_algorithm: z.literal("Ed25519"),
-    signature_base64url: z.string().regex(/^[A-Za-z0-9_-]{86}$/),
-  }).strict().optional(),
 }).strict();
 
 export type VerificationTaskPayload = z.infer<typeof verificationTaskPayloadSchema>;

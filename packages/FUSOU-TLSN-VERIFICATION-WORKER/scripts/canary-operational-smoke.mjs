@@ -1,13 +1,16 @@
 import { createHash } from "node:crypto";
-import { readFile, realpath, stat } from "node:fs/promises";
-import { dirname, isAbsolute, relative, resolve } from "node:path";
+import { readFile, realpath } from "node:fs/promises";
+import { dirname, resolve } from "node:path";
 import {
   assertCanaryRuntimeAttestationSignature,
   signCanaryRuntimeAttestation,
 } from "./canary-runtime-attestation-signing.mjs";
+import { canonicalJson } from "./production-trust-contract.mjs";
+import { deploymentManifestIdentity } from "./canary-deployment-manifest.mjs";
 
-export const CANARY_OPERATIONAL_SMOKE_SCHEMA_VERSION = 1;
+export const CANARY_OPERATIONAL_SMOKE_SCHEMA_VERSION = 2;
 export const CANARY_OPERATIONAL_SMOKE_SCOPE = "tlsn-canary-operational-smoke";
+export const CANARY_OPERATIONAL_SMOKE_REPLAY_POLICY = "bounded-reuse-within-attestation-window";
 export const CANARY_OPERATIONAL_SMOKE_COMPONENTS = Object.freeze([
   "main_worker",
   "verifier",
@@ -22,9 +25,8 @@ export const CANARY_OPERATIONAL_SMOKE_COMPONENTS = Object.freeze([
 ]);
 
 const COMPONENT_STATUSES = new Set(["PASS", "FAIL", "NOT_IMPLEMENTED", "NOT_RUN"]);
-const HASH_PATTERN = /^[A-Za-z0-9_-]{43}$/;
 const ISO_TIMESTAMP_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
-const PROBE_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const INVOCATION_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const MAX_SMOKE_AGE_MS = 30 * 60 * 1000;
 
 function assertObject(value, label) {
@@ -44,7 +46,7 @@ function assertExactKeys(value, keys, label) {
   if (actual !== expected) throw new Error(`${label} fields are invalid`);
 }
 
-function expectedIdentity(runtimeIdentity) {
+function expectedIdentity(runtimeIdentity, deploymentManifest, readinessInvocationId) {
   const verifier = runtimeIdentity?.verifier_identity;
   if (
     runtimeIdentity?.status !== "VALID" ||
@@ -54,7 +56,36 @@ function expectedIdentity(runtimeIdentity) {
   ) {
     throw new Error("a fresh signed Canary Runtime Attestation is required for operational smoke");
   }
+  assertObject(deploymentManifest, "validated Canary deployment manifest");
+  if (
+    typeof runtimeIdentity.manifest_id !== "string" ||
+    deploymentManifest.manifest_id !== runtimeIdentity.manifest_id ||
+    deploymentManifestIdentity(deploymentManifest) !== deploymentManifest.manifest_id
+  ) {
+    throw new Error("validated deployment manifest does not match the signed Runtime Attestation");
+  }
+  if (
+    !deploymentManifest.target || !deploymentManifest.notary ||
+    !Array.isArray(deploymentManifest.inputs) || !Array.isArray(deploymentManifest.artifacts)
+  ) {
+    throw new Error("validated deployment manifest is missing trust configuration fields");
+  }
+  if (!INVOCATION_ID_PATTERN.test(readinessInvocationId ?? "")) {
+    throw new Error("independent readiness invocation ID must be a UUID v4");
+  }
+  const trustConfiguration = {
+    target: deploymentManifest.target,
+    notary: deploymentManifest.notary,
+    secret_provider: deploymentManifest.secret_provider,
+    inputs: deploymentManifest.inputs.map(({ name, value_sha256, provenance }) => ({ name, value_sha256, provenance }))
+      .sort((left, right) => left.name.localeCompare(right.name)),
+    artifacts: deploymentManifest.artifacts.map(({ name, path, sha256 }) => ({ name, path, sha256 }))
+      .sort((left, right) => left.name.localeCompare(right.name)),
+  };
   const identity = {
+    manifest_id: deploymentManifest.manifest_id,
+    trust_configuration_sha256: createHash("sha256").update(canonicalJson(trustConfiguration)).digest("base64url"),
+    readiness_invocation_id: readinessInvocationId,
     git_commit_sha: runtimeIdentity.git_commit_sha,
     workflow_run_id: runtimeIdentity.workflow_run_id,
     workflow_run_attempt: runtimeIdentity.workflow_run_attempt,
@@ -78,16 +109,6 @@ function expectedIdentity(runtimeIdentity) {
   return identity;
 }
 
-function evidenceBytesAt(evidenceArtifacts, path, label) {
-  assertObject(evidenceArtifacts, "operational smoke evidence artifacts");
-  if (typeof path !== "string" || path.length === 0 || path.startsWith("/") || path.includes("\\") || path.split("/").some((part) => part === ".." || part === "." || part === "")) {
-    throw new Error(`${label} evidence artifact path is invalid`);
-  }
-  const value = evidenceArtifacts[path];
-  if (!(Buffer.isBuffer(value) || value instanceof Uint8Array)) throw new Error(`${label} evidence artifact bytes are missing`);
-  return Buffer.from(value);
-}
-
 function overallStatus(checks) {
   const statuses = Object.values(checks).map((check) => check.status);
   if (statuses.includes("FAIL")) return "FAIL";
@@ -107,6 +128,7 @@ export function createCanaryOperationalSmokeNotRun({ capturedAt = new Date().toI
     evidence: {
       source: "repository-default",
       synthetic: true,
+      replay_policy: CANARY_OPERATIONAL_SMOKE_REPLAY_POLICY,
     },
     checks: Object.fromEntries(CANARY_OPERATIONAL_SMOKE_COMPONENTS.map((component) => [component, {
       status: "NOT_RUN",
@@ -122,6 +144,8 @@ export function createCanaryOperationalSmokeNotRun({ capturedAt = new Date().toI
 export function createCanaryOperationalSmokeArtifact({
   observations,
   trustedRuntimeIdentity,
+  deploymentManifest,
+  readinessInvocationId,
   signerKeyId,
   signingPrivateKeyPkcs8,
   runtimeAttestationKeyRegistry,
@@ -129,7 +153,7 @@ export function createCanaryOperationalSmokeArtifact({
   capturedAt = new Date().toISOString(),
   signingNow = capturedAt,
 } = {}) {
-  const identity = expectedIdentity(trustedRuntimeIdentity);
+  const identity = expectedIdentity(trustedRuntimeIdentity, deploymentManifest, readinessInvocationId);
   if (signerKeyId !== identity.runtime_attestation_signer_key_id) {
     throw new Error("operational smoke must use the Runtime Attestation signer bound to the current deployment");
   }
@@ -141,34 +165,14 @@ export function createCanaryOperationalSmokeArtifact({
   }
   assertObject(observations, "operational smoke observations");
   assertExactKeys(observations, CANARY_OPERATIONAL_SMOKE_COMPONENTS, "operational smoke observations");
-  const evidencePaths = new Set();
-  const probeIds = new Set();
   const checks = Object.fromEntries(CANARY_OPERATIONAL_SMOKE_COMPONENTS.map((component) => {
     const observation = observations[component];
     assertObject(observation, `operational smoke ${component}`);
     assertExactKeys(observation, ["status", "observed_at", "probe_id", "evidence_artifact"], `operational smoke ${component}`);
-    if (!COMPONENT_STATUSES.has(observation.status)) throw new Error(`operational smoke ${component} status is invalid`);
     if (observation.status === "PASS" || observation.status === "FAIL") {
-      const observedAtMs = assertTimestamp(observation.observed_at, `operational smoke ${component}.observed_at`);
-      if (observedAtMs < attestationCapturedAtMs || observedAtMs > capturedAtMs) {
-        throw new Error(`operational smoke ${component} observation is outside the current attestation window`);
-      }
-      if (!PROBE_ID_PATTERN.test(observation.probe_id ?? "")) throw new Error(`operational smoke ${component} probe ID is invalid`);
-      if (probeIds.has(observation.probe_id)) throw new Error("operational smoke probe IDs must be unique");
-      probeIds.add(observation.probe_id);
-      if (evidencePaths.has(observation.evidence_artifact)) throw new Error("operational smoke evidence artifact paths must be unique");
-      evidencePaths.add(observation.evidence_artifact);
-      const evidenceBytes = evidenceBytesAt(evidenceArtifacts, observation.evidence_artifact, `operational smoke ${component}`);
-      const evidenceSha256 = operationalSmokeEvidenceSha256(evidenceBytes);
-      return [component, {
-        status: observation.status,
-        source: "live-service-observation",
-        observed_at: observation.observed_at,
-        probe_id: observation.probe_id,
-        evidence_artifact: observation.evidence_artifact,
-        evidence_sha256: evidenceSha256,
-      }];
+      throw new Error("operational smoke semantic validators are not implemented; PASS/FAIL is forbidden");
     }
+    if (!COMPONENT_STATUSES.has(observation.status)) throw new Error(`operational smoke ${component} status is invalid`);
     if (observation.observed_at !== null || observation.probe_id !== null || observation.evidence_artifact !== null) {
       throw new Error(`operational smoke ${component} non-run status cannot claim live evidence`);
     }
@@ -188,9 +192,11 @@ export function createCanaryOperationalSmokeArtifact({
     status,
     readiness: status === "PASS" ? "OPERATIONAL_SMOKE_VERIFIED" : "BLOCKED",
     captured_at: capturedAt,
+    readiness_invocation_id: readinessInvocationId,
     evidence: {
-      source: "live-service-observations",
-      synthetic: false,
+      source: "semantic-validators-not-implemented",
+      synthetic: true,
+      replay_policy: CANARY_OPERATIONAL_SMOKE_REPLAY_POLICY,
     },
     bound_identity: identity,
     checks,
@@ -205,6 +211,8 @@ export function createCanaryOperationalSmokeArtifact({
 
 export function assertCanaryOperationalSmokeArtifact(artifact, {
   trustedRuntimeIdentity,
+  deploymentManifest,
+  readinessInvocationId,
   runtimeAttestationKeyRegistry,
   currentHead,
   expectedDeploymentId,
@@ -222,6 +230,7 @@ export function assertCanaryOperationalSmokeArtifact(artifact, {
     "status",
     "readiness",
     "captured_at",
+    "readiness_invocation_id",
     "evidence",
     "bound_identity",
     "checks",
@@ -230,14 +239,24 @@ export function assertCanaryOperationalSmokeArtifact(artifact, {
     "signature_base64url",
   ], "Canary operational smoke artifact");
   const signature = assertCanaryRuntimeAttestationSignature(artifact, { registry: runtimeAttestationKeyRegistry });
-  if (artifact.evidence?.source !== "live-service-observations" || artifact.evidence.synthetic !== false) {
-    throw new Error("synthetic or non-live operational smoke cannot pass");
+  if (Object.values(artifact.checks ?? {}).some((check) => check?.status === "PASS" || check?.status === "FAIL")) {
+    throw new Error("Canary operational smoke semantic validators are not implemented; PASS/FAIL is forbidden");
   }
-  const identity = expectedIdentity(trustedRuntimeIdentity);
+  if (
+    artifact.evidence?.source !== "semantic-validators-not-implemented" ||
+    artifact.evidence.synthetic !== true ||
+    artifact.evidence.replay_policy !== CANARY_OPERATIONAL_SMOKE_REPLAY_POLICY
+  ) {
+    throw new Error("operational smoke artifact is not a runner-incomplete contract artifact");
+  }
+  const identity = expectedIdentity(trustedRuntimeIdentity, deploymentManifest, readinessInvocationId);
   if (signature.signer_key_id !== identity.runtime_attestation_signer_key_id) {
     throw new Error("Canary operational smoke signer does not match the current Runtime Attestation signer");
   }
-  assertExactKeys(artifact.evidence, ["source", "synthetic"], "Canary operational smoke evidence metadata");
+  assertExactKeys(artifact.evidence, ["source", "synthetic", "replay_policy"], "Canary operational smoke evidence metadata");
+  if (artifact.readiness_invocation_id !== readinessInvocationId) {
+    throw new Error("Canary operational smoke belongs to another readiness invocation");
+  }
   assertExactKeys(artifact.bound_identity, Object.keys(identity), "Canary operational smoke bound identity");
   for (const [field, expected] of Object.entries(identity)) {
     if (artifact.bound_identity[field] !== expected) throw new Error(`Canary operational smoke ${field} does not match the current Runtime Attestation`);
@@ -255,35 +274,16 @@ export function assertCanaryOperationalSmokeArtifact(artifact, {
   if (nowMs - capturedAtMs > MAX_SMOKE_AGE_MS) throw new Error("Canary operational smoke artifact is stale");
   assertObject(artifact.checks, "Canary operational smoke checks");
   assertExactKeys(artifact.checks, CANARY_OPERATIONAL_SMOKE_COMPONENTS, "Canary operational smoke checks");
-  const evidencePaths = new Set();
-  const probeIds = new Set();
   for (const component of CANARY_OPERATIONAL_SMOKE_COMPONENTS) {
     const check = artifact.checks[component];
     assertObject(check, `Canary operational smoke ${component}`);
     assertExactKeys(check, ["status", "source", "observed_at", "probe_id", "evidence_artifact", "evidence_sha256"], `Canary operational smoke ${component}`);
     if (!COMPONENT_STATUSES.has(check.status)) throw new Error(`Canary operational smoke ${component} status is invalid`);
     if (check.status === "PASS" || check.status === "FAIL") {
-      if (check.source !== "live-service-observation") throw new Error(`Canary operational smoke component is not live: ${component}`);
-      const observedAtMs = assertTimestamp(check.observed_at, `Canary operational smoke ${component}.observed_at`);
-      if (observedAtMs < attestationCapturedAtMs || observedAtMs < capturedAtMs - MAX_SMOKE_AGE_MS || observedAtMs > capturedAtMs) {
-        throw new Error(`Canary operational smoke ${component} observation is stale or from the future`);
-      }
-      if (!PROBE_ID_PATTERN.test(check.probe_id ?? "") || typeof check.evidence_artifact !== "string" || !check.evidence_artifact || !HASH_PATTERN.test(check.evidence_sha256 ?? "")) {
-        throw new Error(`Canary operational smoke ${component} evidence binding is invalid`);
-      }
-    } else {
-      if (check.source !== "not-run" || check.observed_at !== null || check.probe_id !== null || check.evidence_artifact !== null || check.evidence_sha256 !== null) {
-        throw new Error(`Canary operational smoke ${component} non-run status contains live claims`);
-      }
-      continue;
+      throw new Error("Canary operational smoke semantic validators are not implemented; PASS/FAIL is forbidden");
     }
-    if (probeIds.has(check.probe_id)) throw new Error("Canary operational smoke probe IDs are replayed");
-    probeIds.add(check.probe_id);
-    if (evidencePaths.has(check.evidence_artifact)) throw new Error("Canary operational smoke evidence artifact paths are reused");
-    evidencePaths.add(check.evidence_artifact);
-    const evidenceBytes = evidenceBytesAt(evidenceArtifacts, check.evidence_artifact, `Canary operational smoke ${component}`);
-    if (operationalSmokeEvidenceSha256(evidenceBytes) !== check.evidence_sha256) {
-      throw new Error(`Canary operational smoke ${component} evidence hash mismatch`);
+    if (check.source !== "not-run" || check.observed_at !== null || check.probe_id !== null || check.evidence_artifact !== null || check.evidence_sha256 !== null) {
+      throw new Error(`Canary operational smoke ${component} non-run status contains live claims`);
     }
   }
   const status = overallStatus(artifact.checks);
@@ -300,6 +300,10 @@ export function assertCanaryOperationalSmokeArtifact(artifact, {
     verifier_version_id: identity.verifier_version_id,
     verifier_key_id: identity.verifier_key_id,
     captured_at: artifact.captured_at,
+    manifest_id: identity.manifest_id,
+    trust_configuration_sha256: identity.trust_configuration_sha256,
+    readiness_invocation_id: identity.readiness_invocation_id,
+    replay_policy: CANARY_OPERATIONAL_SMOKE_REPLAY_POLICY,
     signer_key_id: signature.signer_key_id,
     components: Object.fromEntries(CANARY_OPERATIONAL_SMOKE_COMPONENTS.map((component) => [component, artifact.checks[component].status])),
   };
@@ -308,6 +312,8 @@ export function assertCanaryOperationalSmokeArtifact(artifact, {
 export async function loadCanaryOperationalSmokeArtifact({
   artifactPath,
   trustedRuntimeIdentity,
+  deploymentManifest,
+  readinessInvocationId,
   runtimeAttestationKeyRegistry,
   currentHead,
   expectedDeploymentId,
@@ -325,7 +331,7 @@ export async function loadCanaryOperationalSmokeArtifact({
   if (artifact?.schema_version !== CANARY_OPERATIONAL_SMOKE_SCHEMA_VERSION || artifact?.scope !== CANARY_OPERATIONAL_SMOKE_SCOPE) {
     throw new Error("Canary operational smoke artifact scope is invalid");
   }
-  if (artifact.evidence?.synthetic === true && artifact.status === "NOT_RUN") {
+  if (artifact.evidence?.source === "repository-default" && artifact.evidence.synthetic === true && artifact.status === "NOT_RUN") {
     const canonicalDefault = createCanaryOperationalSmokeNotRun({ capturedAt: artifact.captured_at });
     if (JSON.stringify(artifact) !== JSON.stringify(canonicalDefault)) {
       throw new Error("Canary operational smoke synthetic default is invalid");
@@ -337,41 +343,22 @@ export async function loadCanaryOperationalSmokeArtifact({
       components: Object.fromEntries(CANARY_OPERATIONAL_SMOKE_COMPONENTS.map((component) => [component, "NOT_RUN"])),
     };
   }
+  const identity = expectedIdentity(trustedRuntimeIdentity, deploymentManifest, readinessInvocationId);
   const signature = assertCanaryRuntimeAttestationSignature(artifact, { registry: runtimeAttestationKeyRegistry });
-  if (signature.signer_key_id !== expectedIdentity(trustedRuntimeIdentity).runtime_attestation_signer_key_id) {
+  if (signature.signer_key_id !== identity.runtime_attestation_signer_key_id) {
     throw new Error("Canary operational smoke signer does not match the current Runtime Attestation signer");
   }
   const actualArtifactPath = await realpath(resolve(artifactPath));
-  const artifactRoot = await realpath(dirname(actualArtifactPath));
-  const evidenceArtifacts = {};
-  const evidencePaths = new Set();
-  for (const component of CANARY_OPERATIONAL_SMOKE_COMPONENTS) {
-    const check = artifact.checks?.[component];
-    if (check?.status !== "PASS" && check?.status !== "FAIL") continue;
-    const path = check.evidence_artifact;
-    if (
-      typeof path !== "string" || path.length === 0 || isAbsolute(path) || path.includes("\\") ||
-      path.split("/").some((part) => part === "" || part === "." || part === "..")
-    ) {
-      throw new Error(`Canary operational smoke ${component} evidence path is invalid`);
-    }
-    if (evidencePaths.has(path)) throw new Error("Canary operational smoke evidence artifact paths are reused");
-    evidencePaths.add(path);
-    const actualPath = await realpath(resolve(artifactRoot, path));
-    const relativePath = relative(artifactRoot, actualPath);
-    if (relativePath.startsWith("..") || isAbsolute(relativePath)) throw new Error("Canary operational smoke evidence resolves outside the artifact directory");
-    const metadata = await stat(actualPath);
-    if (!metadata.isFile() || metadata.size === 0 || metadata.size > 8 * 1024 * 1024) {
-      throw new Error(`Canary operational smoke ${component} evidence size or file type is invalid`);
-    }
-    evidenceArtifacts[path] = await readFile(actualPath);
+  if (Object.values(artifact.checks ?? {}).some((check) => check?.status === "PASS" || check?.status === "FAIL")) {
+    throw new Error("Canary operational smoke semantic validators are not implemented; PASS/FAIL is forbidden");
   }
   const result = assertCanaryOperationalSmokeArtifact(artifact, {
     trustedRuntimeIdentity,
+    deploymentManifest,
+    readinessInvocationId,
     runtimeAttestationKeyRegistry,
     currentHead,
     expectedDeploymentId,
-    evidenceArtifacts,
     allowNonPass: true,
     now,
   });

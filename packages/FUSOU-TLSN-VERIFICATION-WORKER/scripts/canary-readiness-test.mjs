@@ -61,7 +61,10 @@ const VERIFIER_EXECUTION_EVIDENCE_INPUTS = [
   "TLSN_CANARY_VERIFIER_EXECUTION_JOB_ID",
   "TLSN_CANARY_VERIFIER_EXECUTION_ATTEMPT_ID",
 ];
-const OPERATIONAL_SMOKE_INPUTS = ["TLSN_CANARY_OPERATIONAL_SMOKE_PATH"];
+const OPERATIONAL_SMOKE_INPUTS = [
+  "TLSN_CANARY_OPERATIONAL_SMOKE_PATH",
+  "TLSN_CANARY_READINESS_INVOCATION_ID",
+];
 
 const DEPLOYMENT_INPUTS = [
   "TLSN_ENVIRONMENT",
@@ -640,14 +643,15 @@ async function readCanaryVerifierExecutionEvidence(environment, runtimeIdentity,
   }
 }
 
-async function readCanaryOperationalSmoke(environment, runtimeIdentity, expectedHead, runtimeAttestationKeyRegistry, now) {
+async function readCanaryOperationalSmoke(environment, runtimeIdentity, deploymentManifest, expectedHead, runtimeAttestationKeyRegistry, now) {
   const artifactPath = environment.TLSN_CANARY_OPERATIONAL_SMOKE_PATH?.trim();
-  if (!artifactPath) {
+  const readinessInvocationId = environment.TLSN_CANARY_READINESS_INVOCATION_ID?.trim();
+  if (!artifactPath || !readinessInvocationId) {
     return {
       status: "NOT_RUN",
       readiness: "BLOCKED",
       components: Object.fromEntries(CANARY_OPERATIONAL_SMOKE_COMPONENTS.map((component) => [component, "NOT_RUN"])),
-      reason: "No live operational smoke artifact was supplied.",
+      reason: "A smoke artifact and independent readiness invocation UUID are required; semantic validators and the live runner are not implemented.",
     };
   }
   if (runtimeIdentity?.status !== "VALID" || runtimeIdentity.signature_valid !== true || !runtimeAttestationKeyRegistry) {
@@ -662,6 +666,8 @@ async function readCanaryOperationalSmoke(environment, runtimeIdentity, expected
     return await loadCanaryOperationalSmokeArtifact({
       artifactPath,
       trustedRuntimeIdentity: runtimeIdentity,
+      deploymentManifest,
+      readinessInvocationId,
       runtimeAttestationKeyRegistry,
       currentHead: expectedHead,
       expectedDeploymentId: runtimeIdentity.deployment_id,
@@ -750,7 +756,14 @@ export async function buildReadinessReport({
     now,
   });
   const verifierIdentityBinding = await readCanaryVerifierExecutionEvidence(environment, runtimeAttestation, now);
-  const operationalSmoke = await readCanaryOperationalSmoke(environment, runtimeAttestation, expectedHead, runtimeAttestationKeyRegistry, now);
+  const operationalSmoke = await readCanaryOperationalSmoke(
+    environment,
+    runtimeAttestation,
+    validatedDeploymentManifest,
+    expectedHead,
+    runtimeAttestationKeyRegistry,
+    now,
+  );
   const binding = allPresent(BINDING_INPUTS, environment) && environment.TLSN_CANARY_FIXTURE_ONLY !== "true"
     ? "PRESENT_UNVERIFIED"
     : environment.TLSN_CANARY_FIXTURE_ONLY === "true" ? "FIXTURE_ONLY" : "MISSING";

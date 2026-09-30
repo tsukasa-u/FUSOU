@@ -312,6 +312,7 @@ const verifierHealth = (overrides = {}) => ({
     public_key_spki: verifierPublicKeySpki,
     deployment_id: verifierDeploymentId,
     worker_name: CANARY_VERIFIER_WORKER_NAME,
+    keypair_valid: true,
   },
   ...overrides,
 });
@@ -344,6 +345,7 @@ for (const [label, mutation] of [
   ["Verifier runtime deployment mismatch", { runtimeHealth: verifierHealth({ deployment_id: "other-verifier-deployment" }) }],
   ["Verifier Runtime key ID mismatch", { runtimeHealth: verifierHealth({ verifier_identity: { ...verifierHealth().verifier_identity, key_id: "result-signer-key" } }) }],
   ["Verifier Runtime public key mismatch", { runtimeHealth: verifierHealth({ verifier_identity: { ...verifierHealth().verifier_identity, public_key_spki: bindingAuthorityPublicKeySpki } }) }],
+  ["Verifier signing keypair mismatch", { runtimeHealth: verifierHealth({ verifier_identity: { ...verifierHealth().verifier_identity, keypair_valid: false } }) }],
   ["Verifier registry deployment mismatch", {
     verifierIdentityKeyRegistry: {
       ...verifierIdentityKeyRegistry,

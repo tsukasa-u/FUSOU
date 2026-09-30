@@ -7,7 +7,13 @@ const UUID_BYTES = 16;
 const BENCHMARK_TIMING_KEY = "benchmark-timing";
 const ACQUIRE_VERIFICATION_TIMING_HEADER = "X-FUSOU-TLSN-Acquire-Timing";
 export const VERIFICATION_RESULT_STORAGE_KEY = "verification-result";
+export const VERIFIER_EXECUTION_RECEIPT_STORAGE_KEY = "verifier-execution-receipt";
 const MAX_VERIFICATION_RESULT_BYTES = 2 * 1024 * 1024 - new TextEncoder().encode(VERIFICATION_RESULT_STORAGE_KEY).byteLength;
+const MAX_VERIFIER_EXECUTION_RECEIPT_BYTES = 16 * 1024;
+
+function equalBytes(left: Uint8Array, right: Uint8Array): boolean {
+  return left.byteLength === right.byteLength && left.every((byte, index) => byte === right[index]);
+}
 
 export type BindingStatus = "active" | "processing" | "verifying" | "failed" | "expired" | "consumed";
 export type VerificationProfile = "complete" | "sparse";
@@ -141,6 +147,7 @@ export type CommitVerifiedResultInput = {
   result_sha256: string;
   result_object_key: string;
   result_bytes: Uint8Array;
+  verifier_execution_receipt_bytes?: Uint8Array;
   used_at: string;
   now: number;
   benchmark_timing?: boolean;
@@ -168,6 +175,7 @@ export type ConsumedVerificationReplayInput = {
 export type ConsumedVerificationResult = {
   record: BindingRecord;
   bytes: Uint8Array;
+  verifier_execution_receipt_bytes?: Uint8Array;
 };
 
 type VerificationResultResponse =
@@ -895,6 +903,12 @@ export class TlsnBindingAuthorityDurableObject extends DurableObject {
     if (input.result_bytes.byteLength > MAX_VERIFICATION_RESULT_BYTES) {
       return { ok: false, error: "result_too_large" };
     }
+    if (input.verifier_execution_receipt_bytes && (
+      input.verifier_execution_receipt_bytes.byteLength === 0 ||
+      input.verifier_execution_receipt_bytes.byteLength > MAX_VERIFIER_EXECUTION_RECEIPT_BYTES
+    )) {
+      return { ok: false, error: "verification_result_mismatch" };
+    }
     const resultSha256 = encodeBase64Url(
       new Uint8Array(await crypto.subtle.digest("SHA-256", input.result_bytes)),
     );
@@ -924,6 +938,10 @@ export class TlsnBindingAuthorityDurableObject extends DurableObject {
       }
       if (record.status === "consumed") {
         const storedBytes = await transaction.get<Uint8Array>(VERIFICATION_RESULT_STORAGE_KEY);
+        const storedReceiptBytes = await transaction.get<Uint8Array>(VERIFIER_EXECUTION_RECEIPT_STORAGE_KEY);
+        const receiptBytesMatch = input.verifier_execution_receipt_bytes
+          ? storedReceiptBytes instanceof Uint8Array && equalBytes(input.verifier_execution_receipt_bytes, storedReceiptBytes)
+          : storedReceiptBytes === undefined;
         if (
           record.verification_job_id === input.verification_job_id &&
           record.verification_attempt_id === input.verification_attempt_id &&
@@ -933,6 +951,7 @@ export class TlsnBindingAuthorityDurableObject extends DurableObject {
           record.result_sha256 === input.result_sha256 &&
           record.result_object_key === input.result_object_key &&
           storedBytes instanceof Uint8Array
+          && receiptBytesMatch
         ) {
           result = { ok: true, record };
           return;
@@ -981,6 +1000,11 @@ export class TlsnBindingAuthorityDurableObject extends DurableObject {
           : {}),
       };
       await transaction.put(VERIFICATION_RESULT_STORAGE_KEY, input.result_bytes);
+      if (input.verifier_execution_receipt_bytes) {
+        await transaction.put(VERIFIER_EXECUTION_RECEIPT_STORAGE_KEY, input.verifier_execution_receipt_bytes);
+      } else {
+        await transaction.delete(VERIFIER_EXECUTION_RECEIPT_STORAGE_KEY);
+      }
       await transaction.put("binding", consumed);
       result = { ok: true, record: consumed };
     });
@@ -1007,7 +1031,14 @@ export class TlsnBindingAuthorityDurableObject extends DurableObject {
         return;
       }
       const bytes = await transaction.get<Uint8Array>(VERIFICATION_RESULT_STORAGE_KEY);
-      if (bytes instanceof Uint8Array) candidate = { record, bytes };
+      const verifierExecutionReceiptBytes = await transaction.get<Uint8Array>(VERIFIER_EXECUTION_RECEIPT_STORAGE_KEY);
+      if (bytes instanceof Uint8Array) {
+        candidate = {
+          record,
+          bytes,
+          ...(verifierExecutionReceiptBytes instanceof Uint8Array ? { verifier_execution_receipt_bytes: verifierExecutionReceiptBytes } : {}),
+        };
+      }
     });
     const resolvedCandidate = candidate as ConsumedVerificationResult | null;
     if (!resolvedCandidate) return { ok: false, error: "verification_result_unavailable" };
@@ -1048,7 +1079,14 @@ export class TlsnBindingAuthorityDurableObject extends DurableObject {
         return;
       }
       const bytes = await transaction.get<Uint8Array>(VERIFICATION_RESULT_STORAGE_KEY);
-      if (bytes instanceof Uint8Array) candidate = { record, bytes };
+      const verifierExecutionReceiptBytes = await transaction.get<Uint8Array>(VERIFIER_EXECUTION_RECEIPT_STORAGE_KEY);
+      if (bytes instanceof Uint8Array) {
+        candidate = {
+          record,
+          bytes,
+          ...(verifierExecutionReceiptBytes instanceof Uint8Array ? { verifier_execution_receipt_bytes: verifierExecutionReceiptBytes } : {}),
+        };
+      }
     });
     const resolvedCandidate = candidate as ConsumedVerificationResult | null;
     if (metadataMismatch) return { ok: false, error: "verification_result_mismatch" };

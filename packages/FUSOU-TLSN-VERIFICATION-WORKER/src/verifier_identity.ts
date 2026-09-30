@@ -1,3 +1,5 @@
+import { privateKeyMatchesPublicKey } from "./private_key_validation_cache.js";
+
 export const CANARY_VERIFIER_EXECUTION_RECEIPT_SCOPE = "tlsn-canary-verifier-execution-receipt";
 export const CANARY_VERIFIER_WORKER_NAME = "fusou-tlsn-verifier-canary";
 
@@ -18,6 +20,14 @@ export type CanaryVerifierExecutionReceipt = {
   signature_algorithm: "Ed25519";
   signature_base64url: string;
 };
+
+export function serializeCanaryAuthoritativeResult(value: Record<string, unknown>): {
+  body: string;
+  bytes: Uint8Array;
+} {
+  const body = JSON.stringify(value);
+  return { body, bytes: new TextEncoder().encode(body) };
+}
 
 type CanaryVerifierExecutionReceiptInput = {
   jobId: string;
@@ -49,6 +59,21 @@ function decodeBase64Url(value: string, label: string): Uint8Array {
   const decoded = Uint8Array.from(binary, (character) => character.charCodeAt(0));
   if (encodeBase64Url(decoded) !== value) throw new Error(`${label} must be canonical base64url`);
   return decoded;
+}
+
+export async function canaryVerifierExecutionKeyPairMatches(
+  privateKeyPkcs8: string | undefined,
+  publicKeySpki: string | undefined,
+): Promise<boolean> {
+  if (typeof privateKeyPkcs8 !== "string" || typeof publicKeySpki !== "string") return false;
+  try {
+    return await privateKeyMatchesPublicKey(
+      decodeBase64Url(privateKeyPkcs8, "Verifier private key"),
+      publicKeySpki,
+    );
+  } catch {
+    return false;
+  }
 }
 
 function requiredString(value: string, label: string, pattern: RegExp): string {

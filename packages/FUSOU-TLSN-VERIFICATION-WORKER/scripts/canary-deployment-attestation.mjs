@@ -196,6 +196,7 @@ function assertCanaryDeploymentCrossBinding(attestation, {
   assertExactString(verifierRuntimeIdentity.runtime_version?.version_id, verifierServingVersionId, "Runtime Attestation verifier runtime version");
   assertExactString(verifierRuntimeIdentity.verifier_identity?.key_id, verifierKeyId, "Runtime Attestation verifier live key ID");
   assertExactString(verifierRuntimeIdentity.verifier_identity?.public_key_spki, verifierPublicKeySpki, "Runtime Attestation verifier live public key");
+  assertExactString(verifierRuntimeIdentity.verifier_identity?.keypair_valid, true, "Runtime Attestation verifier live signing keypair");
   const verifierRegistryFromEnvironment = JSON.parse(requiredString(environment.TLSN_CANARY_VERIFIER_IDENTITY_KEY_REGISTRY, "current Canary verifier identity key registry"));
   if (canaryVerifierIdentityKeyRegistrySha256(verifierRegistryFromEnvironment) !== verifierIdentity.key_registry_sha256) {
     throw new Error("Runtime Attestation verifier key registry does not match the current deployment input");
@@ -733,9 +734,10 @@ export function verifyCanaryVerifierRuntime({
     !liveVerifierIdentity || liveVerifierIdentity.key_id !== verifierKeyId ||
     liveVerifierIdentity.public_key_spki !== verifierPublicKeySpki ||
     liveVerifierIdentity.deployment_id !== deploymentId ||
-    liveVerifierIdentity.worker_name !== CANARY_VERIFIER_WORKER_NAME
+    liveVerifierIdentity.worker_name !== CANARY_VERIFIER_WORKER_NAME ||
+    liveVerifierIdentity.keypair_valid !== true
   ) {
-    throw new Error("Canary Verifier live key identity does not match the authorized key and deployment");
+    throw new Error("Canary Verifier live key identity or signing keypair does not match the authorized deployment");
   }
   assertCanaryVerifierIdentityKeyRegistry(verifierIdentityKeyRegistry, {
     now: new Date(),

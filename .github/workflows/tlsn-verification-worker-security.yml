@@ -70,6 +70,15 @@ jobs:
       - name: Verify Canary Verifier execution receipt evidence
         run: pnpm --dir packages/FUSOU-TLSN-VERIFICATION-WORKER run test:canary-execution-evidence
 
+      - name: Verify Canary Verifier identity contract
+        run: pnpm --dir packages/FUSOU-TLSN-VERIFICATION-WORKER run test:canary-verifier-identity
+
+      - name: Verify Canary Verifier health keypair
+        run: pnpm --dir packages/FUSOU-TLSN-VERIFICATION-WORKER run test:canary-verifier-health
+
+      - name: Verify exact authoritative Result byte binding
+        run: pnpm --dir packages/FUSOU-TLSN-VERIFICATION-WORKER run test:canary-result-byte-binding
+
       - name: Verify Canary operational smoke evidence
         run: pnpm --dir packages/FUSOU-TLSN-VERIFICATION-WORKER run test:canary-operational-smoke
 
