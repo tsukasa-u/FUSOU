@@ -69,7 +69,10 @@ assert.equal(canaryInputIntakeEntry("TLSN_CANDIDATE_NOTARY_ENDPOINT").ownership,
 assert.equal(canaryInputIntakeEntry("TLSN_CANDIDATE_NOTARY_ENDPOINT").required, true);
 assert.equal(canaryInputIntakeEntry("TLSN_CANDIDATE_SERVER_IDENTITY").ownership, "OPERATOR_CONFIGURED");
 assert.equal(canaryInputIntakeEntry("TLSN_CANDIDATE_PROFILE_SHA256").architecture_role, "PROFILE_POLICY");
-assert.equal(canaryInputIntakeEntry("TLSN_CANARY_VERIFIER_PUBLIC_KEY_SPKI").architecture_role, "FUSOU_PRESENTATION_RESULT_VERIFIER_IDENTITY");
+assert.equal(canaryInputIntakeEntry("TLSN_CANARY_VERIFIER_PUBLIC_KEY_SPKI").architecture_role, "FUSOU_CANARY_VERIFIER_EXECUTION_IDENTITY");
+assert.equal(canaryInputIntakeEntry("TLSN_CANARY_VERIFIER_IDENTITY_KEY_REGISTRY").classification, "DEPLOYMENT_INPUT");
+assert.equal(canaryInputIntakeEntry("TLSN_CANARY_VERIFIER_IDENTITY_KEY_REGISTRY").secret, false);
+assert.equal(canaryInputIntakeEntry("TLSN_CANARY_VERIFIER_WORKER_INTERNAL_URL").ownership, "DEPLOYMENT_GENERATED");
 assert.equal(CANARY_TLSN_ARCHITECTURE.live_verifier.status, "NOT_IMPLEMENTED");
 assert.equal(CANARY_TLSN_ARCHITECTURE.presentation_verifier.status, "IMPLEMENTED");
 assert.equal(CANARY_TLSN_ARCHITECTURE.delegated_notary.optional_in_protocol, true);

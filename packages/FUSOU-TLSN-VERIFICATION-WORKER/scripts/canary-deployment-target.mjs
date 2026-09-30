@@ -8,3 +8,10 @@ export function assertCanonicalCanaryWorkerName(value) {
   }
   return CANARY_WORKER_NAME;
 }
+
+export function assertCanonicalCanaryDeploymentWorkerName(value) {
+  if (value !== CANARY_WORKER_NAME && value !== CANARY_VERIFIER_WORKER_NAME) {
+    throw new Error("DENIED: Canary deployment Worker identity is not canonical");
+  }
+  return value;
+}

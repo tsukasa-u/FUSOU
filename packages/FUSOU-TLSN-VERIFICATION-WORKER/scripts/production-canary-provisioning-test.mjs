@@ -88,6 +88,8 @@ try {
     "TLSN_CANDIDATE_SPARSE_PROFILE_SHA256",
     "TLSN_CANARY_TRUST_ROOT_CERTIFICATE_DER",
     "TLSN_CANARY_RUNTIME_ATTESTATION_SIGNER_KEY_ID",
+    "TLSN_CANARY_VERIFIER_IDENTITY_KEY_ID",
+    "TLSN_CANARY_VERIFIER_IDENTITY_KEY_REGISTRY",
     "TLSN_CANDIDATE_NOTARY_ENDPOINT",
     "FUSOU_NOTARY_PUBLIC_KEY_EXPORT",
   ]) {
@@ -127,6 +129,21 @@ try {
   const completeDirectory = join(rootDirectory, "complete");
   const verifier = generateKeyPairSync("ed25519");
   const verifierPublicKeySpki = verifier.publicKey.export({ format: "der", type: "spki" }).toString("base64url");
+  const verifierIdentityKeyId = "canary-verifier-identity-production-2026";
+  const verifierDeploymentId = "verifier-deployment-production-2026";
+  const verifierIdentityKeyRegistry = JSON.stringify({
+    schema_version: 1,
+    scope: "tlsn-canary-verifier-identity-key-registry",
+    keys: [{
+      key_id: verifierIdentityKeyId,
+      public_key_spki: verifierPublicKeySpki,
+      status: "ACTIVE",
+      not_before: "2020-01-01T00:00:00.000Z",
+      not_after: null,
+      deployment_id: verifierDeploymentId,
+      worker_name: "fusou-tlsn-verifier-canary",
+    }],
+  });
   const explicitArguments = [
     "--fixture-only", "false",
     "--server-identity", "canary.example.net",
@@ -137,7 +154,7 @@ try {
     "--notary-endpoint", "notary.canary.example.net:7047",
     "--verifier-key-id", "verifier-production-2026",
     "--verifier-public-key-spki", verifierPublicKeySpki,
-    "--verifier-deployment-id", "verifier-deployment-production-2026",
+    "--verifier-deployment-id", verifierDeploymentId,
     "--deployment-id", "canary-explicit-2026",
     "--worker-name", "fusou-tlsn-verification-canary",
   ];
@@ -147,6 +164,9 @@ try {
     TLSN_CANARY_TRIGGER_API_URL: "https://canary.example.net/api/trigger",
     TLSN_CANARY_TRIGGER_TASK_ID: "canary-task-production-2026",
     TLSN_CANARY_WORKER_INTERNAL_URL: "https://canary-internal.example.net",
+    TLSN_CANARY_VERIFIER_WORKER_INTERNAL_URL: "https://verifier-canary-internal.example.net",
+    TLSN_CANARY_VERIFIER_IDENTITY_KEY_ID: verifierIdentityKeyId,
+    TLSN_CANARY_VERIFIER_IDENTITY_KEY_REGISTRY: verifierIdentityKeyRegistry,
     TLSN_WORKFLOW_RUN_ID: "42",
     TLSN_WORKFLOW_RUN_ATTEMPT: "1",
     TLSN_REPOSITORY: "fusou/fusou",
@@ -168,7 +188,9 @@ try {
   assert.equal(complete.generatedEnv.TLSN_CANARY_DEPLOYMENT_ID, "canary-explicit-2026");
   assert.equal(complete.generatedEnv.TLSN_CANARY_WORKER_NAME, "fusou-tlsn-verification-canary");
   assert.equal(complete.generatedEnv.TLSN_CANARY_VERIFIER_PUBLIC_KEY_SPKI, verifierPublicKeySpki);
-  assert.equal(complete.generatedEnv.TLSN_CANARY_VERIFIER_DEPLOYMENT_ID, "verifier-deployment-production-2026");
+  assert.equal(complete.generatedEnv.TLSN_CANARY_VERIFIER_DEPLOYMENT_ID, verifierDeploymentId);
+  assert.equal(complete.generatedEnv.TLSN_CANARY_VERIFIER_IDENTITY_KEY_ID, verifierIdentityKeyId);
+  assert.deepEqual(JSON.parse(complete.generatedEnv.TLSN_CANARY_VERIFIER_IDENTITY_KEY_REGISTRY), JSON.parse(verifierIdentityKeyRegistry));
   assert.equal(complete.generatedEnv.TLSN_CANARY_RUNTIME_ATTESTATION_SIGNER_KEY_ID, "canary-runtime-attestation-2026");
   const deploymentManifestPath = complete.generatedEnv.TLSN_CANARY_DEPLOYMENT_MANIFEST;
   assert.ok(deploymentManifestPath);

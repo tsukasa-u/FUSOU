@@ -42,6 +42,8 @@ export const PRODUCTION_GATE_INPUTS = [
 export const CANARY_INPUTS = [
   CANARY_RUNTIME_ATTESTATION_SIGNER_KEY_ID_INPUT,
   "TLSN_CANARY_VERIFIER_PUBLIC_KEY_SPKI",
+  "TLSN_CANARY_VERIFIER_IDENTITY_KEY_ID",
+  "TLSN_CANARY_VERIFIER_IDENTITY_KEY_REGISTRY",
   "TLSN_CANARY_VERIFIER_DEPLOYMENT_ID",
   "TLSN_CANARY_DEPLOYMENT_ID",
   "TLSN_CANARY_RESULT_PUBLIC_KEY_SPKI",
@@ -61,6 +63,7 @@ export const CANARY_INPUTS = [
   "TLSN_CANARY_TRIGGER_API_URL",
   "TLSN_CANARY_TRIGGER_TASK_ID",
   "TLSN_CANARY_WORKER_INTERNAL_URL",
+  "TLSN_CANARY_VERIFIER_WORKER_INTERNAL_URL",
   "TLSN_CANARY_TRUST_ROOT_CERTIFICATE_DER",
   "TLSN_CANARY_SYNCHRONOUS_RESPONSE_ENABLED",
   "TLSN_CANARY_FIXTURE_ONLY",
@@ -116,10 +119,9 @@ export const PRODUCTION_EVIDENCE_INPUTS = [
 
 export const CANARY_SENSITIVE_INPUTS = [
   CANARY_RUNTIME_ATTESTATION_SIGNER_KEY_ID_INPUT,
-  "TLSN_CANARY_VERIFIER_PUBLIC_KEY_SPKI",
-  "TLSN_CANARY_VERIFIER_DEPLOYMENT_ID",
   "TLSN_CANARY_BINDING_IDENTITY",
   "TLSN_CANARY_WORKER_INTERNAL_URL",
+  "TLSN_CANARY_VERIFIER_WORKER_INTERNAL_URL",
 ];
 
 export const CANARY_SECRET_INPUTS = [
@@ -131,6 +133,7 @@ export const CANARY_SECRET_INPUTS = [
   "TLSN_CANARY_TRIGGER_SECRET_KEY",
   "TLSN_CANARY_TRIGGER_CALLBACK_SECRET",
   "TLSN_CANARY_DIRECT_CALLBACK_SECRET",
+  "TLSN_CANARY_VERIFIER_IDENTITY_SIGNING_PRIVATE_KEY_PKCS8",
 ];
 
 export const CANARY_PUBLIC_INPUTS = CANARY_INPUTS.filter(
@@ -217,6 +220,9 @@ export const CANARY_WORKER_PUBLIC_INPUTS = {
   verifier: [
     ...COMMON_INPUTS,
     "TLSN_CANARY_DEPLOYMENT_ID",
+    "TLSN_CANARY_VERIFIER_PUBLIC_KEY_SPKI",
+    "TLSN_CANARY_VERIFIER_IDENTITY_KEY_ID",
+    "TLSN_CANARY_VERIFIER_DEPLOYMENT_ID",
     "TLSN_CANARY_RESULT_PUBLIC_KEY_SPKI",
     "TLSN_CANARY_RESULT_SIGNER_KEY_ID",
     "TLSN_CANARY_RESULT_SIGNING_KEY_REGISTRY",
@@ -549,12 +555,6 @@ export const WORKER_SECRET_CAPABILITIES = {
         ["enqueueTriggerVerification"],
         { enqueueTriggerVerification: "config.secretKey" },
       ),
-      triggerCallback: runtimeCapability(
-        ["TLSN_CANARY_TRIGGER_CALLBACK_SECRET"],
-        ["triggerCallbackSecret"],
-        ["processVerificationCompletion"],
-        { processVerificationCompletion: "verifyInternalRequest" },
-      ),
       directCallback: runtimeCapability(
         ["TLSN_CANARY_DIRECT_CALLBACK_SECRET"],
         ["directCallbackSecret"],
@@ -599,6 +599,18 @@ export const WORKER_SECRET_CAPABILITIES = {
         ["directCallbackSecret"],
         ["processVerificationCompletion"],
         { processVerificationCompletion: "verifyInternalRequest" },
+      ),
+      triggerCallback: runtimeCapability(
+        ["TLSN_CANARY_TRIGGER_CALLBACK_SECRET"],
+        ["triggerCallbackSecret"],
+        ["processVerificationCompletion"],
+        { processVerificationCompletion: "verifyInternalRequest" },
+      ),
+      verifierExecutionReceiptSigning: runtimeCapability(
+        ["TLSN_CANARY_VERIFIER_IDENTITY_SIGNING_PRIVATE_KEY_PKCS8"],
+        ["completeVerification"],
+        ["completeVerification"],
+        { completeVerification: "TLSN_CANARY_VERIFIER_IDENTITY_SIGNING_PRIVATE_KEY_PKCS8" },
       ),
     },
   },

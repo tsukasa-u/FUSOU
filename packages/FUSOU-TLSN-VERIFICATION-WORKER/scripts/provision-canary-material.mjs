@@ -24,9 +24,14 @@ import { loadCanaryFixtureOnlyFixture } from "./canary-fixture-only-data.mjs";
 import {
   assertCanonicalCanaryWorkerName,
   CANARY_WORKER_NAME,
+  CANARY_VERIFIER_WORKER_NAME,
 } from "./canary-deployment-target.mjs";
 import { createCanaryDeploymentManifest } from "./canary-deployment-manifest.mjs";
 import { CANARY_RUNTIME_ATTESTATION_SIGNER_KEY_ID_INPUT } from "./canary-runtime-attestation-key-registry.mjs";
+import {
+  assertCanaryVerifierIdentityKeyRegistry,
+  CANARY_VERIFIER_IDENTITY_KEY_REGISTRY_SCOPE,
+} from "./canary-verifier-identity.mjs";
 import { secretInputsForRole } from "./deployment-contract.mjs";
 
 const packageDirectory = resolve(new URL("..", import.meta.url).pathname);
@@ -293,6 +298,42 @@ async function main() {
   if (verifierDeploymentId) assertDeploymentId(verifierDeploymentId);
   const verifierPublicKeySpki = verifier?.publicKeySpki
     ?? (options["verifier-public-key-spki"] ? assertVerifierPublicKey(options["verifier-public-key-spki"].trim()) : null);
+  const verifierIdentityKeyId = fixtureOnly && verifierPublicKeySpki
+    ? generatedCanaryKeyId(deploymentIdentity, "verifier-identity", verifierPublicKeySpki)
+    : process.env.TLSN_CANARY_VERIFIER_IDENTITY_KEY_ID?.trim();
+  const verifierIdentityKeyRegistryRaw = fixtureOnly && verifierIdentityKeyId && verifierPublicKeySpki && verifierDeploymentId
+    ? JSON.stringify({
+        schema_version: 1,
+        scope: CANARY_VERIFIER_IDENTITY_KEY_REGISTRY_SCOPE,
+        keys: [{
+          key_id: verifierIdentityKeyId,
+          public_key_spki: verifierPublicKeySpki,
+          status: "ACTIVE",
+          not_before: "2020-01-01T00:00:00.000Z",
+          not_after: null,
+          deployment_id: verifierDeploymentId,
+          worker_name: CANARY_VERIFIER_WORKER_NAME,
+        }],
+      })
+    : process.env.TLSN_CANARY_VERIFIER_IDENTITY_KEY_REGISTRY?.trim();
+  if (verifierIdentityKeyId && verifierIdentityKeyRegistryRaw && verifierPublicKeySpki && verifierDeploymentId) {
+    let verifierIdentityKeyRegistry;
+    try {
+      verifierIdentityKeyRegistry = JSON.parse(verifierIdentityKeyRegistryRaw);
+    } catch {
+      throw new Error("TLSN_CANARY_VERIFIER_IDENTITY_KEY_REGISTRY must be valid JSON");
+    }
+    assertCanaryVerifierIdentityKeyRegistry(verifierIdentityKeyRegistry, {
+      currentIdentity: {
+        status: "VALID",
+        verifier_key_id: verifierIdentityKeyId,
+        public_key_spki: verifierPublicKeySpki,
+        deployment_id: verifierDeploymentId,
+        worker_name: CANARY_VERIFIER_WORKER_NAME,
+      },
+      now: new Date(),
+    });
+  }
   const resultRegistryRaw = authorityRegistry(
     "tlsn-result-signing-key-registry",
     resultKeyId,
@@ -402,6 +443,12 @@ async function main() {
     ...(verifierPublicKeySpki ? {
       TLSN_CANARY_VERIFIER_PUBLIC_KEY_SPKI: verifierPublicKeySpki,
     } : {}),
+    ...(verifierIdentityKeyId ? {
+      TLSN_CANARY_VERIFIER_IDENTITY_KEY_ID: verifierIdentityKeyId,
+    } : {}),
+    ...(verifierIdentityKeyRegistryRaw ? {
+      TLSN_CANARY_VERIFIER_IDENTITY_KEY_REGISTRY: verifierIdentityKeyRegistryRaw,
+    } : {}),
     ...(verifierDeploymentId ? {
       TLSN_CANARY_VERIFIER_DEPLOYMENT_ID: verifierDeploymentId,
     } : {}),
@@ -418,6 +465,7 @@ async function main() {
     ...(process.env.TLSN_CANARY_TRIGGER_API_URL ? { TLSN_CANARY_TRIGGER_API_URL: process.env.TLSN_CANARY_TRIGGER_API_URL.trim() } : {}),
     ...(process.env.TLSN_CANARY_TRIGGER_TASK_ID ? { TLSN_CANARY_TRIGGER_TASK_ID: process.env.TLSN_CANARY_TRIGGER_TASK_ID.trim() } : {}),
     ...(process.env.TLSN_CANARY_WORKER_INTERNAL_URL ? { TLSN_CANARY_WORKER_INTERNAL_URL: process.env.TLSN_CANARY_WORKER_INTERNAL_URL.trim() } : {}),
+    ...(process.env.TLSN_CANARY_VERIFIER_WORKER_INTERNAL_URL ? { TLSN_CANARY_VERIFIER_WORKER_INTERNAL_URL: process.env.TLSN_CANARY_VERIFIER_WORKER_INTERNAL_URL.trim() } : {}),
     TLSN_CANARY_SYNCHRONOUS_RESPONSE_ENABLED: "true",
     TLSN_BENCHMARK_TIMINGS: "true",
     ...(options["verifier-key-id"] || fixtureOnly ? {
@@ -454,6 +502,9 @@ async function main() {
     "canary-result-signing-private-key.pkcs8.base64url": `${result.privateKeyPkcs8}\n`,
     "canary-session-authority-private-key.pkcs8.base64url": `${session.privateKeyPkcs8}\n`,
     "canary-binding-authority-private-key.pkcs8.base64url": `${binding.privateKeyPkcs8}\n`,
+    ...(verifier ? {
+      "canary-verifier-identity-signing-private-key.pkcs8.base64url": `${verifier.privateKeyPkcs8}\n`,
+    } : {}),
     "canary.env": `${Object.entries(generatedEnv).map(([name, value]) => writeEnvValue(name, value)).join("\n")}\n`,
   };
   for (const [name, content] of Object.entries(privateFiles)) {
@@ -492,7 +543,10 @@ async function main() {
     "TLSN_CANARY_TRIGGER_API_URL",
     "TLSN_CANARY_TRIGGER_TASK_ID",
     "TLSN_CANARY_WORKER_INTERNAL_URL",
+    "TLSN_CANARY_VERIFIER_WORKER_INTERNAL_URL",
     "TLSN_CANARY_VERIFIER_PUBLIC_KEY_SPKI",
+    "TLSN_CANARY_VERIFIER_IDENTITY_KEY_ID",
+    "TLSN_CANARY_VERIFIER_IDENTITY_KEY_REGISTRY",
     "TLSN_CANARY_VERIFIER_DEPLOYMENT_ID",
     CANARY_RUNTIME_ATTESTATION_SIGNER_KEY_ID_INPUT,
   ].filter((name) => generatedEnv[name] === undefined);

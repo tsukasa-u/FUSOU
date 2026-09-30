@@ -28,6 +28,8 @@ import {
   loadCanaryRuntimeAttestationKeyRegistry,
 } from "./canary-runtime-attestation-key-registry.mjs";
 import { assertCanaryRuntimeAttestationSigner } from "./canary-runtime-attestation-signing.mjs";
+import { assertCanaryVerifierIdentityKeyRegistry } from "./canary-verifier-identity.mjs";
+import { CANARY_VERIFIER_WORKER_NAME } from "./canary-deployment-target.mjs";
 import { assertSigningKeyRegistry, signingKeyRegistrySha256 } from "./signing-key-registry.mjs";
 import { assertSignedResultRegistryEnvelope, resultRegistryEnvelopeHash } from "./result-registry-envelope.mjs";
 import {
@@ -257,6 +259,51 @@ async function main() {
       }
     } catch {
       addFailure(failures, name, `must be a clean HTTPS ${label} origin`);
+    }
+  }
+  if (role === "canary") {
+    const verifierHealthUrlName = "TLSN_CANARY_VERIFIER_WORKER_INTERNAL_URL";
+    try {
+      const verifierHealthUrl = new URL(value(verifierHealthUrlName) ?? "");
+      if (verifierHealthUrl.protocol !== "https:" || verifierHealthUrl.username || verifierHealthUrl.password || verifierHealthUrl.port || verifierHealthUrl.pathname !== "/" || verifierHealthUrl.search || verifierHealthUrl.hash) {
+        throw new Error("invalid Canary Verifier health URL");
+      }
+    } catch {
+      addFailure(failures, verifierHealthUrlName, "must be a clean HTTPS Verifier health origin");
+    }
+    const verifierKeyId = value("TLSN_CANARY_VERIFIER_IDENTITY_KEY_ID");
+    const verifierPublicKeySpki = value("TLSN_CANARY_VERIFIER_PUBLIC_KEY_SPKI");
+    const verifierDeploymentId = value("TLSN_CANARY_VERIFIER_DEPLOYMENT_ID");
+    const verifierRegistryRaw = value("TLSN_CANARY_VERIFIER_IDENTITY_KEY_REGISTRY");
+    const verifierPrivateKeyRaw = value("TLSN_CANARY_VERIFIER_IDENTITY_SIGNING_PRIVATE_KEY_PKCS8");
+    try {
+      const verifierRegistry = JSON.parse(verifierRegistryRaw ?? "");
+      assertCanaryVerifierIdentityKeyRegistry(verifierRegistry, {
+        currentIdentity: {
+          status: "VALID",
+          verifier_key_id: verifierKeyId,
+          public_key_spki: verifierPublicKeySpki,
+          deployment_id: verifierDeploymentId,
+          worker_name: CANARY_VERIFIER_WORKER_NAME,
+        },
+      });
+    } catch (error) {
+      addFailure(failures, "TLSN_CANARY_VERIFIER_IDENTITY_KEY_REGISTRY", error instanceof Error ? error.message : "Verifier identity registry is invalid");
+    }
+    validatePublicKey(failures, "TLSN_CANARY_VERIFIER_PUBLIC_KEY_SPKI");
+    const verifierPrivateKeyBytes = decodeBase64Url(verifierPrivateKeyRaw);
+    if (!verifierPrivateKeyBytes) {
+      addFailure(failures, "TLSN_CANARY_VERIFIER_IDENTITY_SIGNING_PRIVATE_KEY_PKCS8", "must be canonical base64url");
+    } else {
+      try {
+        const verifierPrivateKey = createPrivateKey({ key: verifierPrivateKeyBytes, format: "der", type: "pkcs8" });
+        const derivedVerifierPublicKeySpki = createPublicKey(verifierPrivateKey).export({ format: "der", type: "spki" }).toString("base64url");
+        if (verifierPrivateKey.asymmetricKeyType !== "ed25519" || derivedVerifierPublicKeySpki !== verifierPublicKeySpki) {
+          addFailure(failures, "TLSN_CANARY_VERIFIER_IDENTITY_SIGNING_PRIVATE_KEY_PKCS8", "must match the active Verifier identity public key");
+        }
+      } catch {
+        addFailure(failures, "TLSN_CANARY_VERIFIER_IDENTITY_SIGNING_PRIVATE_KEY_PKCS8", "must be a valid Ed25519 PKCS8 private key");
+      }
     }
   }
   if (!/^[A-Za-z0-9._:-]{1,256}$/.test(value(triggerTaskIdName) ?? "")) {

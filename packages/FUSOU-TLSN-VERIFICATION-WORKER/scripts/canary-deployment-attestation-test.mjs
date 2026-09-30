@@ -16,8 +16,11 @@ import {
   fetchCanaryHealth,
   normalizeCanaryPlatformMetadata,
   verifyCanaryDeploymentRuntime,
+  verifyCanaryVerifierRuntime,
   writeImmutableCanaryAttestation,
 } from "./canary-deployment-attestation.mjs";
+import { CANARY_VERIFIER_WORKER_NAME } from "./canary-deployment-target.mjs";
+import { CANARY_VERIFIER_IDENTITY_KEY_REGISTRY_SCOPE } from "./canary-verifier-identity.mjs";
 
 const workerName = "fusou-tlsn-verification-canary";
 const deploymentId = "canary-deployment-2026";
@@ -238,6 +241,132 @@ for (const [label, deploymentMutation, versionMutation] of [
   }));
 }
 
+const verifierDeploymentId = "canary-verifier-deployment-2026";
+const verifierVersionId = "6b064508-1cdb-453c-826b-bdea36a8b1e5";
+const verifierPlatformDeploymentId = "7b064508-1cdb-453c-826b-bdea36a8b1e5";
+const verifierDeploymentTag = `verifier-canary-${gitCommitSha.slice(0, 12)}`;
+const { publicKey: verifierPublicKey } = generateKeyPairSync("ed25519");
+const verifierPublicKeySpki = verifierPublicKey.export({ format: "der", type: "spki" }).toString("base64url");
+const verifierKeyId = "canary-verifier-identity-2026";
+const verifierDeploymentMessage = createCanaryDeploymentMessage({
+  deploymentId: verifierDeploymentId,
+  workerName: CANARY_VERIFIER_WORKER_NAME,
+  gitCommitSha,
+  bindingAuthorityKeyId,
+  bindingAuthorityPrivateKeyPkcs8,
+  expectedBindingAuthorityPublicKeySpki: bindingAuthorityPublicKeySpki,
+});
+const verifierPlatformPayload = {
+  deployments: [{
+    id: verifierPlatformDeploymentId,
+    created_on: createdOn,
+    source: "wrangler",
+    strategy: "percentage",
+    annotations: { "workers/message": verifierDeploymentMessage, "workers/tag": verifierDeploymentTag },
+    versions: [{ version_id: verifierVersionId, percentage: 100 }],
+  }],
+  version: {
+    id: verifierVersionId,
+    metadata: { created_on: createdOn, author_email: "deploy@example.invalid" },
+    annotations: { "workers/message": verifierDeploymentMessage, "workers/tag": verifierDeploymentTag },
+  },
+};
+const verifierPlatform = normalizeCanaryPlatformMetadata({
+  deploymentPayload: verifierPlatformPayload,
+  versionPayload: [verifierPlatformPayload.version],
+  workerName: CANARY_VERIFIER_WORKER_NAME,
+  expectedVersionId: verifierVersionId,
+});
+const verifierIdentityKeyRegistry = {
+  schema_version: 1,
+  scope: CANARY_VERIFIER_IDENTITY_KEY_REGISTRY_SCOPE,
+  keys: [{
+    key_id: verifierKeyId,
+    public_key_spki: verifierPublicKeySpki,
+    status: "ACTIVE",
+    not_before: "2026-01-01T00:00:00.000Z",
+    not_after: "2027-01-01T00:00:00.000Z",
+    deployment_id: verifierDeploymentId,
+    worker_name: CANARY_VERIFIER_WORKER_NAME,
+  }],
+};
+Object.assign(deploymentEnvironment, {
+  TLSN_CANARY_VERIFIER_DEPLOYMENT_ID: verifierDeploymentId,
+  TLSN_CANARY_VERIFIER_IDENTITY_KEY_ID: verifierKeyId,
+  TLSN_CANARY_VERIFIER_PUBLIC_KEY_SPKI: verifierPublicKeySpki,
+  TLSN_CANARY_VERIFIER_IDENTITY_KEY_REGISTRY: JSON.stringify(verifierIdentityKeyRegistry),
+  TLSN_CANARY_BINDING_AUTHORITY_KEY_ID: bindingAuthorityKeyId,
+  TLSN_CANARY_BINDING_AUTHORITY_PUBLIC_KEY_SPKI: bindingAuthorityPublicKeySpki,
+});
+const verifierHealth = (overrides = {}) => ({
+  schema_version: 1,
+  ok: true,
+  environment: "production",
+  deployment_role: "canary",
+  git_commit_sha: gitCommitSha,
+  deployment_id: verifierDeploymentId,
+  worker_name: CANARY_VERIFIER_WORKER_NAME,
+  runtime_version: { version_id: verifierVersionId },
+  verifier_identity: {
+    key_id: verifierKeyId,
+    public_key_spki: verifierPublicKeySpki,
+    deployment_id: verifierDeploymentId,
+    worker_name: CANARY_VERIFIER_WORKER_NAME,
+  },
+  ...overrides,
+});
+const verifierVerificationInput = {
+  platform: verifierPlatform,
+  runtimeHealth: verifierHealth(),
+  expectedDeploymentId: verifierDeploymentId,
+  expectedGitCommitSha: gitCommitSha,
+  expectedVersionId: verifierVersionId,
+  expectedDeploymentMessage: verifierDeploymentMessage,
+  expectedDeploymentTag: verifierDeploymentTag,
+  expectedBindingAuthorityKeyId: bindingAuthorityKeyId,
+  expectedBindingAuthorityPublicKeySpki: bindingAuthorityPublicKeySpki,
+  verifierKeyId,
+  verifierPublicKeySpki,
+  verifierIdentityKeyRegistry,
+  deploymentStartedAt: new Date("2026-09-07T23:59:00.000Z"),
+};
+const verifierVerification = verifyCanaryVerifierRuntime(verifierVerificationInput);
+assert.equal(verifierVerification.status, "PASS");
+assert.equal(verifierVerification.platform_version_id, verifierVersionId);
+assert.equal(verifierVerification.verifier_key_id, verifierKeyId);
+assert.equal(verifierVerification.deployment_id, verifierDeploymentId);
+assert.equal(verifierVerification.key_registry.scope, CANARY_VERIFIER_IDENTITY_KEY_REGISTRY_SCOPE);
+
+for (const [label, mutation] of [
+  ["Verifier platform version mismatch", { expectedVersionId: versionId }],
+  ["Verifier deployment mismatch", { expectedDeploymentId: "other-verifier-deployment" }],
+  ["Verifier runtime version mismatch", { runtimeHealth: verifierHealth({ runtime_version: { version_id: versionId } }) }],
+  ["Verifier runtime deployment mismatch", { runtimeHealth: verifierHealth({ deployment_id: "other-verifier-deployment" }) }],
+  ["Verifier Runtime key ID mismatch", { runtimeHealth: verifierHealth({ verifier_identity: { ...verifierHealth().verifier_identity, key_id: "result-signer-key" } }) }],
+  ["Verifier Runtime public key mismatch", { runtimeHealth: verifierHealth({ verifier_identity: { ...verifierHealth().verifier_identity, public_key_spki: bindingAuthorityPublicKeySpki } }) }],
+  ["Verifier registry deployment mismatch", {
+    verifierIdentityKeyRegistry: {
+      ...verifierIdentityKeyRegistry,
+      keys: [{ ...verifierIdentityKeyRegistry.keys[0], deployment_id: "other-verifier-deployment" }],
+    },
+  }],
+  ["Verifier ACTIVE key expired", {
+    verifierIdentityKeyRegistry: {
+      ...verifierIdentityKeyRegistry,
+      keys: [{ ...verifierIdentityKeyRegistry.keys[0], not_after: new Date(Date.now() - 60_000).toISOString() }],
+    },
+  }],
+  ["Verifier split traffic", {
+    platform: {
+      ...verifierPlatform,
+      deployment: { ...verifierPlatform.deployment, versions: [{ version_id: verifierVersionId, percentage: 50 }] },
+    },
+  }],
+  ["stale Verifier deployment", { deploymentStartedAt: new Date(Date.now() + 60_000) }],
+]) {
+  rejects(label, () => verifyCanaryVerifierRuntime({ ...verifierVerificationInput, ...mutation }));
+}
+
 rejects("fixture or synthetic deployment", () => verifyCanaryDeploymentRuntime({ ...verificationInput, fixtureOnly: true }));
 const fixtureAttestation = createCanaryDeploymentAttestation({
   verification,
@@ -256,10 +385,15 @@ const realShape = createCanaryDeploymentAttestation({
   verification,
   platform,
   runtimeHealth: health(),
+  verifierVerification,
+  verifierPlatform,
+  verifierRuntimeHealth: verifierHealth(),
   expectedDeploymentId: deploymentId,
   expectedGitCommitSha: gitCommitSha,
   expectedDeploymentMessage: deploymentMessage,
   expectedDeploymentTag: deploymentTag,
+  expectedVerifierDeploymentMessage: verifierDeploymentMessage,
+  expectedVerifierDeploymentTag: verifierDeploymentTag,
   workflow,
   deploymentManifestId: deploymentManifest.manifest_id,
   runtimeAttestationSignerKeyId,
@@ -295,12 +429,24 @@ assert.deepEqual(assertCanaryDeploymentRuntimeAttestation(realShape, runtimeAtte
   attestation_signer_key_id: runtimeAttestationSignerKeyId,
   signature_algorithm: "Ed25519",
   signature_valid: true,
+  verifier_identity: {
+    status: "VALID",
+    deployment_id: verifierDeploymentId,
+    worker_name: CANARY_VERIFIER_WORKER_NAME,
+    version_id: verifierVersionId,
+    verifier_key_id: verifierKeyId,
+    public_key_spki_sha256: verifierVerification.public_key_spki_sha256,
+    key_registry_sha256: verifierVerification.key_registry_sha256,
+    attestation_captured_at: realShape.captured_at,
+    attestation_expires_at: deploymentManifest.expires_at,
+  },
   cross_binding: {
     status: "PASS",
     workflow_attestation: true,
     manifest_attestation: true,
     environment_attestation: true,
     version_serving: true,
+    verifier_identity_binding: true,
     attestation_fresh: true,
   },
 });

@@ -47,7 +47,9 @@ const environment = {
 
 for (const name of inputsForRole("canary")) {
   if (secretInputsForRole("canary").includes(name)) continue;
-  environment[name] ??= name === "TLSN_PRODUCTION_NOTARY_REGISTRY" || name.endsWith("_REGISTRY_ENVELOPE")
+  environment[name] ??= name === "TLSN_PRODUCTION_NOTARY_REGISTRY"
+    || name === "TLSN_CANARY_VERIFIER_IDENTITY_KEY_REGISTRY"
+    || name.endsWith("_REGISTRY_ENVELOPE")
     ? "{}"
     : `${name}-value`;
 }
@@ -63,9 +65,9 @@ function hashValue(value) {
 }
 
 function hashInput(name, value) {
-  return name === "TLSN_CANARY_TRUST_ROOT_CERTIFICATE_DER"
-    ? hashValue(Buffer.from(value, "base64url"))
-    : hashValue(value);
+  if (name === "TLSN_CANARY_TRUST_ROOT_CERTIFICATE_DER") return hashValue(Buffer.from(value, "base64url"));
+  if (name === "TLSN_CANARY_VERIFIER_IDENTITY_KEY_REGISTRY") return hashValue(JSON.stringify(JSON.parse(value)));
+  return hashValue(value);
 }
 
 const artifactHash = await hashValue(artifactBytes);

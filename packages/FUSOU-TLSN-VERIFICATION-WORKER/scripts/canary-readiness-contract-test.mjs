@@ -2,13 +2,20 @@
 
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { generateKeyPairSync } from "node:crypto";
+import { createHash, generateKeyPairSync } from "node:crypto";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { buildReadinessReport } from "./canary-readiness-test.mjs";
 import { CANARY_TLSN_ARCHITECTURE } from "./canary-external-input-intake.mjs";
 import { signCanaryRuntimeAttestation } from "./canary-runtime-attestation-signing.mjs";
+import { createCanaryDeploymentMessage } from "./canary-deployment-attestation.mjs";
+import { CANARY_VERIFIER_WORKER_NAME } from "./canary-deployment-target.mjs";
+import { createCanaryVerifierExecutionReceipt } from "./canary-verifier-identity.mjs";
+import {
+  CANARY_VERIFIER_IDENTITY_KEY_REGISTRY_SCOPE,
+  canaryVerifierIdentityKeyRegistrySha256,
+} from "./canary-verifier-identity.mjs";
 
 const packageDirectory = resolve(new URL("..", import.meta.url).pathname);
 const readinessPath = resolve(packageDirectory, "scripts/canary-readiness-test.mjs");
@@ -144,6 +151,46 @@ const runtimeAttestationKeyRegistry = {
     not_after: null,
   }],
 };
+const verifierDeploymentId = "canary-verifier-contract-test";
+const verifierVersionId = "6b064508-1cdb-453c-826b-bdea36a8b1e5";
+const verifierPlatformDeploymentId = "7b064508-1cdb-453c-826b-bdea36a8b1e5";
+const verifierKeyId = "test-canary-verifier-identity";
+const { privateKey: verifierIdentityPrivateKey, publicKey: verifierIdentityPublicKey } = generateKeyPairSync("ed25519");
+const verifierPublicKeySpki = verifierIdentityPublicKey.export({ format: "der", type: "spki" }).toString("base64url");
+const { privateKey: bindingAuthorityPrivateKey, publicKey: bindingAuthorityPublicKey } = generateKeyPairSync("ed25519");
+const bindingAuthorityPrivateKeyPkcs8 = bindingAuthorityPrivateKey.export({ format: "der", type: "pkcs8" }).toString("base64url");
+const bindingAuthorityPublicKeySpki = bindingAuthorityPublicKey.export({ format: "der", type: "spki" }).toString("base64url");
+const bindingAuthorityKeyId = "test-canary-binding-authority";
+const verifierDeploymentMessage = createCanaryDeploymentMessage({
+  deploymentId: verifierDeploymentId,
+  workerName: CANARY_VERIFIER_WORKER_NAME,
+  gitCommitSha: expectedHead,
+  bindingAuthorityKeyId,
+  bindingAuthorityPrivateKeyPkcs8,
+  expectedBindingAuthorityPublicKeySpki: bindingAuthorityPublicKeySpki,
+});
+const verifierIdentityKeyRegistry = {
+  schema_version: 1,
+  scope: CANARY_VERIFIER_IDENTITY_KEY_REGISTRY_SCOPE,
+  keys: [{
+    key_id: verifierKeyId,
+    public_key_spki: verifierPublicKeySpki,
+    status: "ACTIVE",
+    not_before: "2020-01-01T00:00:00.000Z",
+    not_after: null,
+    deployment_id: verifierDeploymentId,
+    worker_name: CANARY_VERIFIER_WORKER_NAME,
+  }],
+};
+const verifierDeploymentTag = `verifier-canary-${expectedHead.slice(0, 12)}`;
+Object.assign(matchingEnvironment, {
+  TLSN_CANARY_VERIFIER_DEPLOYMENT_ID: verifierDeploymentId,
+  TLSN_CANARY_VERIFIER_IDENTITY_KEY_ID: verifierKeyId,
+  TLSN_CANARY_VERIFIER_PUBLIC_KEY_SPKI: verifierPublicKeySpki,
+  TLSN_CANARY_VERIFIER_IDENTITY_KEY_REGISTRY: JSON.stringify(verifierIdentityKeyRegistry),
+  TLSN_CANARY_BINDING_AUTHORITY_KEY_ID: bindingAuthorityKeyId,
+  TLSN_CANARY_BINDING_AUTHORITY_PUBLIC_KEY_SPKI: bindingAuthorityPublicKeySpki,
+});
 const matchingManifest = {
   manifest_id: "B".repeat(43),
   issued_at: "2026-09-01T00:00:00.000Z",
@@ -196,12 +243,56 @@ const unsignedRuntimeAttestation = {
     git_commit_sha: expectedHead,
     runtime_version: { version_id: "4b064508-1cdb-453c-826b-bdea36a8b1e5" },
   },
+  verifier_deployment: {
+    authorized_deployment_id: verifierDeploymentId,
+    platform_deployment_id: verifierPlatformDeploymentId,
+    worker_name: CANARY_VERIFIER_WORKER_NAME,
+    deployment_role: "canary",
+    annotations: {
+      "workers/message": verifierDeploymentMessage,
+      "workers/tag": verifierDeploymentTag,
+    },
+    versions: [{ version_id: verifierVersionId, percentage: 100 }],
+  },
+  verifier_version: {
+    version_id: verifierVersionId,
+    serving_percentage: 100,
+    annotations: {
+      "workers/message": verifierDeploymentMessage,
+      "workers/tag": verifierDeploymentTag,
+    },
+  },
+  verifier_runtime_identity: {
+    deployment_id: verifierDeploymentId,
+    worker_name: CANARY_VERIFIER_WORKER_NAME,
+    deployment_role: "canary",
+    git_commit_sha: expectedHead,
+    runtime_version: { version_id: verifierVersionId },
+    verifier_identity: {
+      key_id: verifierKeyId,
+      public_key_spki: verifierPublicKeySpki,
+      deployment_id: verifierDeploymentId,
+      worker_name: CANARY_VERIFIER_WORKER_NAME,
+    },
+  },
+  verifier_identity: {
+    key_id: verifierKeyId,
+    public_key_spki: verifierPublicKeySpki,
+    public_key_spki_sha256: createHash("sha256").update(Buffer.from(verifierPublicKeySpki, "base64url")).digest("base64url"),
+    deployment_id: verifierDeploymentId,
+    worker_name: CANARY_VERIFIER_WORKER_NAME,
+    key_registry_sha256: canaryVerifierIdentityKeyRegistrySha256(verifierIdentityKeyRegistry),
+    key_registry: verifierIdentityKeyRegistry,
+  },
   checks: {
     synthetic_evidence_rejected: true,
     runtime_is_production_canary: true,
     runtime_deployment_matches_authorized_identity: true,
     runtime_version_matches_platform_version: true,
     runtime_git_sha_matches_head: true,
+    verifier_platform_identity_matches_authorized_deployment: true,
+    verifier_runtime_matches_platform_version: true,
+    verifier_identity_key_matches_active_registry: true,
   },
   captured_at: "2026-09-15T00:00:00.000Z",
 };
@@ -254,14 +345,81 @@ try {
   assert.equal(validReport.gates.attestation_fresh, true);
   assert.equal(validReport.gates.attestation_signature, true);
   assert.equal(validReport.gates.verifier_identity_binding, false);
-  assert.equal(validReport.inputs.verifier_identity_binding.status, "NOT_IMPLEMENTED");
+  assert.equal(validReport.inputs.verifier_identity_binding.status, "MISSING");
+  assert.equal(validReport.inputs.verifier_identity_binding.runtime_attestation, "PASS");
+  assert.equal(validReport.inputs.verifier_identity_binding.execution_receipt_evidence, "NOT_RUN");
+  assert.equal(validReport.inputs.runtime_attestation.verifier_deployment_id, verifierDeploymentId);
   assert.equal(validReport.gates.operational_smoke, false);
-  assert.equal(validReport.inputs.operational_smoke.status, "NOT_IMPLEMENTED");
-  assert.equal(validReport.inputs.operational_smoke.main_worker_health, "CHECKED_BY_RUNTIME_ATTESTATION");
-  assert.equal(validReport.inputs.operational_smoke.notary_reachability, "NOT_CHECKED");
+  assert.equal(validReport.inputs.operational_smoke.status, "NOT_RUN");
+  for (const component of ["main_worker", "verifier", "callback", "trigger", "session_binding", "DO", "R2", "Notary", "Auth", "Presentation"]) {
+    assert.equal(validReport.inputs.operational_smoke[component], "NOT_RUN");
+  }
   assert.equal(validReport.inputs.runtime_attestation.signature_valid, true);
   assert.equal(validReport.inputs.runtime_attestation.signature_algorithm, "Ed25519");
   assert.equal(validReport.status, "BLOCKED");
+
+  const executionJobId = "f73fded7-d9af-4f0a-b87b-c626d30d55bd";
+  const executionAttemptId = "5f289198-7361-4a92-9d03-c4e506385130";
+  const presentationBytes = Buffer.from("readiness Canary Presentation bytes");
+  const resultBytes = Buffer.from("readiness signed Canary Result bytes");
+  const receipt = createCanaryVerifierExecutionReceipt({
+    jobId: executionJobId,
+    verificationAttemptId: executionAttemptId,
+    deploymentId: verifierDeploymentId,
+    workerName: CANARY_VERIFIER_WORKER_NAME,
+    runtimeVersionId: verifierVersionId,
+    verifierKeyId,
+    verifierPublicKeySpki,
+    verifierSigningPrivateKeyPkcs8: verifierIdentityPrivateKey.export({ format: "der", type: "pkcs8" }).toString("base64url"),
+    presentationBytes,
+    resultBytes,
+    issuedAt: "2026-09-20T00:00:00.000Z",
+  });
+  const executionBundlePath = join(root, "canary-execution-bundle.json");
+  await Promise.all([
+    writeFile(join(root, "canary-presentation.bin"), presentationBytes),
+    writeFile(join(root, "canary-result.json"), resultBytes),
+    writeFile(join(root, "canary-verifier-execution-receipt.json"), JSON.stringify(receipt)),
+  ]);
+  await writeFile(executionBundlePath, JSON.stringify({
+    schema_version: 1,
+    scope: "tlsn-canary-verifier-execution-evidence-bundle",
+    main_deployment_id: matchingEnvironment.TLSN_CANARY_DEPLOYMENT_ID,
+    main_worker_name: matchingEnvironment.TLSN_CANARY_WORKER_NAME,
+    main_version_id: "4b064508-1cdb-453c-826b-bdea36a8b1e5",
+    main_platform_deployment_id: "3b064508-1cdb-453c-826b-bdea36a8b1e5",
+    git_commit_sha: expectedHead,
+    workflow_run_id: matchingWorkflow.workflow_run_id,
+    workflow_run_attempt: matchingWorkflow.workflow_run_attempt,
+    job_id: executionJobId,
+    verification_attempt_id: executionAttemptId,
+    artifacts: {
+      presentation: "canary-presentation.bin",
+      result: "canary-result.json",
+      verifier_execution_receipt: "canary-verifier-execution-receipt.json",
+    },
+  }), "utf8");
+  const receiptBoundReport = await reportFor(validRuntimeAttestation, {
+    ...matchingEnvironment,
+    TLSN_CANARY_VERIFIER_EXECUTION_EVIDENCE_PATH: executionBundlePath,
+    TLSN_CANARY_VERIFIER_EXECUTION_JOB_ID: executionJobId,
+    TLSN_CANARY_VERIFIER_EXECUTION_ATTEMPT_ID: executionAttemptId,
+  });
+  assert.equal(receiptBoundReport.inputs.verifier_identity_binding.status, "PASS");
+  assert.equal(receiptBoundReport.inputs.verifier_identity_binding.execution_receipt_evidence, "PASS");
+  assert.equal(receiptBoundReport.gates.verifier_identity_binding, true);
+  assert.equal(receiptBoundReport.gates.operational_smoke, false);
+  assert.equal(receiptBoundReport.inputs.operational_smoke.status, "NOT_RUN");
+  assert.equal(receiptBoundReport.status, "BLOCKED");
+  const replayedAttemptReport = await reportFor(validRuntimeAttestation, {
+    ...matchingEnvironment,
+    TLSN_CANARY_VERIFIER_EXECUTION_EVIDENCE_PATH: executionBundlePath,
+    TLSN_CANARY_VERIFIER_EXECUTION_JOB_ID: executionJobId,
+    TLSN_CANARY_VERIFIER_EXECUTION_ATTEMPT_ID: "6f289198-7361-4a92-9d03-c4e506385130",
+  });
+  assert.equal(replayedAttemptReport.inputs.verifier_identity_binding.status, "INVALID");
+  assert.equal(replayedAttemptReport.gates.verifier_identity_binding, false);
+  assert.equal(replayedAttemptReport.status, "BLOCKED");
 
   const completeHandoffEnvironment = Object.fromEntries(
     validReport.external_authority.groups.flatMap((group) => group.inputs).map((name) => [name, "provided-value"]),

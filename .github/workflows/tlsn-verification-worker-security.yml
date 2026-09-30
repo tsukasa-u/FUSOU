@@ -67,6 +67,12 @@ jobs:
       - name: Verify readiness signature and binding gates
         run: pnpm --dir packages/FUSOU-TLSN-VERIFICATION-WORKER run test:canary-readiness-contract
 
+      - name: Verify Canary Verifier execution receipt evidence
+        run: pnpm --dir packages/FUSOU-TLSN-VERIFICATION-WORKER run test:canary-execution-evidence
+
+      - name: Verify Canary operational smoke evidence
+        run: pnpm --dir packages/FUSOU-TLSN-VERIFICATION-WORKER run test:canary-operational-smoke
+
       - name: Verify fixture isolation
         run: pnpm --dir packages/FUSOU-TLSN-VERIFICATION-WORKER run test:fixture-only
 

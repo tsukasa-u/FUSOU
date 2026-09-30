@@ -87,7 +87,7 @@ function inputBytes(environment, name) {
   const raw = environment[name];
   if (typeof raw !== "string" || raw.trim().length === 0) return null;
   const value = raw.trim();
-  if (name === "TLSN_PRODUCTION_NOTARY_REGISTRY" || name.endsWith("_REGISTRY_ENVELOPE")) {
+  if (name === "TLSN_PRODUCTION_NOTARY_REGISTRY" || name === "TLSN_CANARY_VERIFIER_IDENTITY_KEY_REGISTRY" || name.endsWith("_REGISTRY_ENVELOPE")) {
     return Buffer.from(canonicalJson(JSON.parse(value)), "utf8");
   }
   if (name === "TLSN_CANARY_TRUST_ROOT_CERTIFICATE_DER") {

@@ -23,6 +23,10 @@ import {
   type PrivateKeyValidationObservation,
 } from "./private_key_validation_cache.js";
 import {
+  createCanaryVerifierExecutionReceipt,
+  type CanaryVerifierExecutionReceipt,
+} from "./verifier_identity.js";
+import {
   verificationCallbackSchema,
   verificationFinalResponseSchema,
   verificationInputRequestSchema,
@@ -135,6 +139,10 @@ export type Bindings = {
   TLSN_SUPABASE_URL?: string;
   TLSN_SUPABASE_PUBLISHABLE_KEY?: string;
   TLSN_CANARY_DEPLOYMENT_ID?: string;
+  TLSN_CANARY_VERIFIER_PUBLIC_KEY_SPKI?: string;
+  TLSN_CANARY_VERIFIER_IDENTITY_KEY_ID?: string;
+  TLSN_CANARY_VERIFIER_IDENTITY_SIGNING_PRIVATE_KEY_PKCS8?: string;
+  TLSN_CANARY_VERIFIER_DEPLOYMENT_ID?: string;
   TLSN_CANARY_RESULT_SIGNING_PRIVATE_KEY_PKCS8?: string;
   TLSN_CANARY_TRUST_ROOT_CERTIFICATE_DER?: string;
   TLSN_CANARY_RESULT_PUBLIC_KEY_SPKI?: string;
@@ -2844,6 +2852,29 @@ app.post("/internal/tlsn/verification-complete", async (c) => {
     rawBody = await readRawBody(c.req.raw, MAX_INTERNAL_CALLBACK_JSON_BYTES).catch(() => null);
   }
   if (rawBody === null) return internalRequestAuthFailure(c, "signature_invalid");
+  if (
+    c.env.TLSN_ENVIRONMENT === "production" &&
+    c.env.TLSN_DEPLOYMENT_ROLE === "canary" &&
+    executionMode === "trigger"
+  ) {
+    const verifier = c.env.TLSN_DIRECT_VERIFIER;
+    if (!verifier) return c.json({ error: "verifier_unavailable" }, 503);
+    const headers = new Headers({
+      "Content-Type": "application/json",
+      "X-FUSOU-TLSN-Execution-Mode": "trigger",
+      "X-FUSOU-TLSN-Job-Id": jobId,
+    });
+    if (signature) headers.set("X-FUSOU-TLSN-Signature", signature);
+    try {
+      return await verifier.fetch(new Request("https://tlsn-verifier.internal/internal/tlsn/verification-complete", {
+        method: "POST",
+        headers,
+        body: rawBody,
+      }));
+    } catch {
+      return c.json({ error: "verifier_unavailable" }, 503);
+    }
+  }
   const response = await processVerificationCompletion(
     verificationCompletionContextFromHono(c),
     rawBody,
@@ -3267,6 +3298,34 @@ async function completeVerification(
     if (benchmarkEnabled(c.env)) {
       benchmarkDiagnostic(c.env, callback.job_id, "signed_result_bytes", new TextEncoder().encode(signedResultBody).byteLength);
     }
+    const canaryVerifierExecution = c.env.TLSN_ENVIRONMENT === "production" && c.env.TLSN_DEPLOYMENT_ROLE === "canary";
+    let verifierExecutionReceipt: CanaryVerifierExecutionReceipt | undefined;
+    if (canaryVerifierExecution) {
+      try {
+        const privateKey = c.env.TLSN_CANARY_VERIFIER_IDENTITY_SIGNING_PRIVATE_KEY_PKCS8;
+        const publicKey = c.env.TLSN_CANARY_VERIFIER_PUBLIC_KEY_SPKI;
+        const runtimeVersionId = c.env.CF_VERSION_METADATA?.id;
+        const verifierKeyId = c.env.TLSN_CANARY_VERIFIER_IDENTITY_KEY_ID;
+        const deploymentId = c.env.TLSN_CANARY_VERIFIER_DEPLOYMENT_ID;
+        if (!privateKey || !publicKey || !runtimeVersionId || !verifierKeyId || !deploymentId) {
+          throw new Error("Canary Verifier execution identity is incomplete");
+        }
+        verifierExecutionReceipt = await createCanaryVerifierExecutionReceipt({
+          jobId: callback.job_id,
+          verificationAttemptId,
+          deploymentId,
+          runtimeVersionId,
+          verifierKeyId,
+          verifierPublicKeySpki: publicKey,
+          verifierSigningPrivateKeyPkcs8: decodeBase64Url(privateKey, 4096),
+          presentationBytes: storedPresentation,
+          resultBytes: new TextEncoder().encode(JSON.stringify(signedResult)),
+        });
+      } catch {
+        await finalizeAttemptFailure("verifier_failed");
+        return c.json({ error: "verifier_identity_unavailable" }, 503);
+      }
+    }
     const usedAt = completionRecord.status === "consumed"
       ? completionRecord.used_at
       : new Date(Date.now()).toISOString();
@@ -3298,6 +3357,7 @@ async function completeVerification(
       signature_algorithm: "Ed25519",
       consume_receipt: consumeReceipt,
       device_replay_digest_hex: completionRecord.device_replay_digest_hex,
+      ...(verifierExecutionReceipt ? { verifier_execution_receipt: verifierExecutionReceipt } : {}),
     });
     benchmarkRecord(c.env, callback.job_id, "t7_result_signing_completed");
     benchmarkRecord(c.env, callback.job_id, "t8_result_signing_completed");

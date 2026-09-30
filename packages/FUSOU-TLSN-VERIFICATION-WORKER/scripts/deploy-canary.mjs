@@ -128,12 +128,22 @@ async function main() {
     expectedBindingAuthorityPublicKeySpki: deploymentEnvironment.TLSN_CANARY_BINDING_AUTHORITY_PUBLIC_KEY_SPKI,
   });
   const deploymentTag = `canary-${gitCommitSha.slice(0, 12)}`;
+  const verifierDeploymentMessage = createCanaryDeploymentMessage({
+    deploymentId: deploymentEnvironment.TLSN_CANARY_VERIFIER_DEPLOYMENT_ID,
+    workerName: CANARY_VERIFIER_WORKER_NAME,
+    gitCommitSha,
+    bindingAuthorityKeyId: deploymentEnvironment.TLSN_CANARY_BINDING_AUTHORITY_KEY_ID,
+    bindingAuthorityPrivateKeyPkcs8: deploymentEnvironment.TLSN_CANARY_BINDING_AUTHORITY_SIGNING_PRIVATE_KEY_PKCS8,
+    expectedBindingAuthorityPublicKeySpki: deploymentEnvironment.TLSN_CANARY_BINDING_AUTHORITY_PUBLIC_KEY_SPKI,
+  });
+  const verifierDeploymentTag = `verifier-canary-${gitCommitSha.slice(0, 12)}`;
   const deployArguments = [
     "exec", "wrangler", "deploy", "--env", "canary", "--name", CANARY_WORKER_NAME,
     "--tag", deploymentTag, "--message", deploymentMessage,
   ];
   const verifierDeployArguments = [
     "exec", "wrangler", "deploy", "--name", CANARY_VERIFIER_WORKER_NAME,
+    "--tag", verifierDeploymentTag, "--message", verifierDeploymentMessage,
   ];
   for (const [argumentsList, worker] of [
     [bootstrapDeployArguments, "bootstrap"],
@@ -166,12 +176,10 @@ async function main() {
       process.exitCode = bootstrapDeploy.status ?? 1;
       return;
     }
-    const verifierDeploy = spawnSync("pnpm", verifierDeployArguments, { cwd: packageDirectory, env: childEnvironment, stdio: "inherit" });
-    if (verifierDeploy.error) throw verifierDeploy.error;
-    if (verifierDeploy.status !== 0) {
-      process.exitCode = verifierDeploy.status ?? 1;
-      return;
-    }
+    const verifierDeploymentStartedAt = new Date();
+    const verifierDeployOutput = runCaptured("pnpm", verifierDeployArguments, childEnvironment);
+    const verifierVersionMatch = verifierDeployOutput.match(/Current Version ID:\s*([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i);
+    if (!verifierVersionMatch) throw new Error("Wrangler Canary Verifier deploy output did not include the deployed version ID");
     const deploymentStartedAt = new Date();
     const deployOutput = runCaptured("pnpm", deployArguments, childEnvironment);
     const deployedVersionMatch = deployOutput.match(/Current Version ID:\s*([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i);
@@ -197,8 +205,14 @@ async function main() {
       expectedVersionId: deployedVersionMatch[1],
       expectedDeploymentMessage: deploymentMessage,
       expectedDeploymentTag: deploymentTag,
+      expectedVerifierDeploymentId: deploymentEnvironment.TLSN_CANARY_VERIFIER_DEPLOYMENT_ID,
+      expectedVerifierVersionId: verifierVersionMatch[1],
+      expectedVerifierDeploymentMessage: verifierDeploymentMessage,
+      expectedVerifierDeploymentTag: verifierDeploymentTag,
       deploymentStartedAt,
+      verifierDeploymentStartedAt,
       runtimeUrl: deploymentEnvironment.TLSN_CANARY_WORKER_INTERNAL_URL,
+      verifierRuntimeUrl: deploymentEnvironment.TLSN_CANARY_VERIFIER_WORKER_INTERNAL_URL,
       environment: childEnvironment,
       workflow,
       deploymentManifestId: deploymentAuthorization.deployment_manifest.manifest_id,
@@ -213,6 +227,9 @@ async function main() {
       authorized_deployment_id: deploymentEnvironment.TLSN_CANARY_DEPLOYMENT_ID,
       platform_deployment_id: platform.deployment.id,
       version_id: platform.version.id,
+      verifier_deployment_id: deploymentEnvironment.TLSN_CANARY_VERIFIER_DEPLOYMENT_ID,
+      verifier_version_id: verifierVersionMatch[1],
+      verifier_key_id: deploymentEnvironment.TLSN_CANARY_VERIFIER_IDENTITY_KEY_ID,
       attestation_path: artifactPath,
     }));
   } finally {

@@ -111,6 +111,16 @@ for (const worker of ["bootstrap", "main", "verifier"]) {
     assert.notEqual(name, "TLSN_CANARY_TRUST_ROOT_CERTIFICATE_DER");
   }
 }
+assert.equal(CANARY_WORKER_PUBLIC_INPUTS.main.includes("TLSN_CANARY_VERIFIER_IDENTITY_KEY_ID"), false);
+assert.equal(CANARY_WORKER_PUBLIC_INPUTS.verifier.includes("TLSN_CANARY_VERIFIER_IDENTITY_KEY_ID"), true);
+assert.equal(
+  CANARY_WORKER_SECRET_CONTRACT.main.includes("TLSN_CANARY_VERIFIER_IDENTITY_SIGNING_PRIVATE_KEY_PKCS8"),
+  false,
+);
+assert.equal(
+  CANARY_WORKER_SECRET_CONTRACT.verifier.includes("TLSN_CANARY_VERIFIER_IDENTITY_SIGNING_PRIVATE_KEY_PKCS8"),
+  true,
+);
 
 const evidenceDummyEnvironment = Object.fromEntries(
   [...new Set(Object.values(EVIDENCE_WORKER_SECRET_CONTRACT).flat())]
@@ -236,7 +246,8 @@ assert.ok(CANARY_WORKER_SECRET_CONTRACT.main.includes("TLSN_CANARY_BINDING_VALUE
 assert.ok(CANARY_WORKER_SECRET_CONTRACT.verifier.includes("TLSN_CANARY_DIRECT_CALLBACK_SECRET"));
 assert.ok(CANARY_WORKER_SECRET_CONTRACT.main.includes("TLSN_CANARY_DIRECT_CALLBACK_SECRET"));
 assert.equal(CANARY_WORKER_SECRET_CONTRACT.verifier.includes("TLSN_CANARY_TRIGGER_SECRET_KEY"), false);
-assert.equal(CANARY_WORKER_SECRET_CONTRACT.verifier.includes("TLSN_CANARY_TRIGGER_CALLBACK_SECRET"), false);
+assert.equal(CANARY_WORKER_SECRET_CONTRACT.verifier.includes("TLSN_CANARY_TRIGGER_CALLBACK_SECRET"), true);
+assert.equal(CANARY_WORKER_SECRET_CONTRACT.main.includes("TLSN_CANARY_TRIGGER_CALLBACK_SECRET"), false);
 assert.ok(CANARY_WORKER_PUBLIC_INPUTS.main.includes("TLSN_CANARY_TRUST_ROOT_CERTIFICATE_DER"));
 assert.ok(CANARY_WORKER_PUBLIC_INPUTS.verifier.includes("TLSN_CANARY_TRUST_ROOT_CERTIFICATE_DER"));
 for (const worker of ["bootstrap", "main", "verifier"]) {

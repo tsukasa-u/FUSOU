@@ -17,6 +17,11 @@ import {
 } from "./canary-deployment-attestation.mjs";
 import { loadCanaryRuntimeAttestationKeyRegistry } from "./canary-runtime-attestation-key-registry.mjs";
 import { CANARY_EXTERNAL_INPUT_INTAKE } from "./canary-external-input-intake.mjs";
+import { loadCanaryVerifierExecutionEvidenceBundle } from "./canary-execution-evidence.mjs";
+import {
+  CANARY_OPERATIONAL_SMOKE_COMPONENTS,
+  loadCanaryOperationalSmokeArtifact,
+} from "./canary-operational-smoke.mjs";
 import {
   CANARY_DEPLOYMENT_MANIFEST_INPUT,
   canaryDeploymentManifestVerificationReport,
@@ -51,6 +56,12 @@ const TARGET_INPUTS = [
 
 const DEPLOYMENT_MANIFEST_INPUTS = [CANARY_DEPLOYMENT_MANIFEST_INPUT];
 const ACTIVE_INPUT_INTAKE = CANARY_EXTERNAL_INPUT_INTAKE;
+const VERIFIER_EXECUTION_EVIDENCE_INPUTS = [
+  "TLSN_CANARY_VERIFIER_EXECUTION_EVIDENCE_PATH",
+  "TLSN_CANARY_VERIFIER_EXECUTION_JOB_ID",
+  "TLSN_CANARY_VERIFIER_EXECUTION_ATTEMPT_ID",
+];
+const OPERATIONAL_SMOKE_INPUTS = ["TLSN_CANARY_OPERATIONAL_SMOKE_PATH"];
 
 const DEPLOYMENT_INPUTS = [
   "TLSN_ENVIRONMENT",
@@ -71,6 +82,8 @@ const TRUST_INPUTS = [
   "TLSN_CANARY_RESULT_REGISTRY_ROOT_KEY_ID",
   "TLSN_CANARY_RESULT_REGISTRY_ROOT_PUBLIC_KEY_SPKI",
   "TLSN_CANARY_VERIFIER_PUBLIC_KEY_SPKI",
+  "TLSN_CANARY_VERIFIER_IDENTITY_KEY_ID",
+  "TLSN_CANARY_VERIFIER_IDENTITY_KEY_REGISTRY",
   "TLSN_CANDIDATE_VERIFIER_KEY_ID",
   "TLSN_CANDIDATE_NOTARY_KEY_ID",
   "TLSN_CANARY_SESSION_AUTHORITY_PUBLIC_KEY_SPKI",
@@ -113,9 +126,11 @@ const CANARY_RUNTIME_INPUTS = [
   "TLSN_CANARY_TRIGGER_API_URL",
   "TLSN_CANARY_TRIGGER_TASK_ID",
   "TLSN_CANARY_WORKER_INTERNAL_URL",
+  "TLSN_CANARY_VERIFIER_WORKER_INTERNAL_URL",
   "TLSN_CANARY_RESULT_SIGNING_PRIVATE_KEY_PKCS8",
   "TLSN_CANARY_SESSION_AUTHORITY_SIGNING_PRIVATE_KEY_PKCS8",
   "TLSN_CANARY_BINDING_AUTHORITY_SIGNING_PRIVATE_KEY_PKCS8",
+  "TLSN_CANARY_VERIFIER_IDENTITY_SIGNING_PRIVATE_KEY_PKCS8",
   "TLSN_CANARY_TRIGGER_SECRET_KEY",
   "TLSN_CANARY_TRIGGER_CALLBACK_SECRET",
   "TLSN_CANARY_DIRECT_CALLBACK_SECRET",
@@ -166,7 +181,12 @@ const EXTERNAL_AUTHORITY_HANDOFF_GROUPS = [
   },
   {
     id: "VERIFIER_IDENTITY",
-    inputs: ["TLSN_CANARY_VERIFIER_PUBLIC_KEY_SPKI", "TLSN_CANARY_VERIFIER_DEPLOYMENT_ID"],
+    inputs: [
+      "TLSN_CANARY_VERIFIER_PUBLIC_KEY_SPKI",
+      "TLSN_CANARY_VERIFIER_IDENTITY_KEY_ID",
+      "TLSN_CANARY_VERIFIER_IDENTITY_KEY_REGISTRY",
+      "TLSN_CANARY_VERIFIER_DEPLOYMENT_ID",
+    ],
     depends_on: ["TARGET_IDENTITY"],
     owner: "FUSOU verifier deployment authority",
     external_authority: true,
@@ -430,7 +450,9 @@ function missingInputNames(environment = process.env) {
     .filter((entry) => !(entry.category === "PROFILE" && entry.ownership === "DERIVED"))
     .map((entry) => entry.name)
     .filter((name) => !present(name, environment));
-  return names.filter((name, index, values) => values.indexOf(name) === index);
+  return [...names, ...VERIFIER_EXECUTION_EVIDENCE_INPUTS, ...OPERATIONAL_SMOKE_INPUTS]
+    .filter((name, index, values) => values.indexOf(name) === index)
+    .filter((name) => !present(name, environment));
 }
 
 function externalAuthorityHandoff({ environment = process.env, deploymentManifest, ready = false } = {}) {
@@ -504,6 +526,10 @@ function runtimeAttestationSummary(path, value, status, reason = null) {
     manifest_id: value?.deployment?.manifest_id ?? null,
     captured_at: value?.captured_at ?? null,
     attestation_signer_key_id: value?.attestation_signer_key_id ?? null,
+    verifier_deployment_id: value?.verifier_deployment?.authorized_deployment_id ?? null,
+    verifier_platform_deployment_id: value?.verifier_deployment?.platform_deployment_id ?? null,
+    verifier_version_id: value?.verifier_version?.version_id ?? null,
+    verifier_key_id: value?.verifier_identity?.key_id ?? null,
     signature_algorithm: value?.signature_algorithm ?? null,
     signature_valid: value?.signature_valid ?? false,
     cross_binding: value?.cross_binding ?? {
@@ -512,6 +538,7 @@ function runtimeAttestationSummary(path, value, status, reason = null) {
       manifest_attestation: false,
       environment_attestation: false,
       version_serving: false,
+      verifier_identity_binding: false,
       attestation_fresh: false,
       reason: "Runtime Attestation cross-binding was not validated",
     },
@@ -556,6 +583,97 @@ async function readRuntimeAttestation(environment = process.env, expectedHead = 
     return { ...runtimeAttestationSummary(path, value, "VALID"), ...verified };
   } catch (error) {
     return runtimeAttestationSummary(path, value, "INVALID", error instanceof Error ? error.message : String(error));
+  }
+}
+
+async function readCanaryVerifierExecutionEvidence(environment, runtimeIdentity, now) {
+  const missing = VERIFIER_EXECUTION_EVIDENCE_INPUTS.filter((name) => !present(name, environment));
+  if (missing.length > 0) {
+    return {
+      status: "MISSING",
+      execution_receipt_evidence: "NOT_RUN",
+      missing_inputs: missing,
+      reason: "Provide the Canary execution evidence bundle and its independently expected job and attempt IDs.",
+    };
+  }
+  if (runtimeIdentity?.status !== "VALID" || runtimeIdentity.signature_valid !== true) {
+    return {
+      status: "BLOCKED",
+      execution_receipt_evidence: "BLOCKED",
+      missing_inputs: [],
+      reason: "A validated signed Runtime Attestation is required before the execution receipt can be evaluated.",
+    };
+  }
+  let verifierIdentityKeyRegistry;
+  try {
+    verifierIdentityKeyRegistry = JSON.parse(environment.TLSN_CANARY_VERIFIER_IDENTITY_KEY_REGISTRY);
+  } catch {
+    return {
+      status: "INVALID",
+      execution_receipt_evidence: "INVALID",
+      missing_inputs: [],
+      reason: "Canary Verifier identity key registry is not valid JSON.",
+    };
+  }
+  try {
+    const evidence = await loadCanaryVerifierExecutionEvidenceBundle({
+      bundlePath: environment.TLSN_CANARY_VERIFIER_EXECUTION_EVIDENCE_PATH,
+      verifierIdentityKeyRegistry,
+      trustedRuntimeIdentity: runtimeIdentity,
+      expectedJobId: environment.TLSN_CANARY_VERIFIER_EXECUTION_JOB_ID,
+      expectedVerificationAttemptId: environment.TLSN_CANARY_VERIFIER_EXECUTION_ATTEMPT_ID,
+      now,
+    });
+    return {
+      status: "PASS",
+      execution_receipt_evidence: "PASS",
+      missing_inputs: [],
+      ...evidence,
+    };
+  } catch (error) {
+    return {
+      status: "INVALID",
+      execution_receipt_evidence: "INVALID",
+      missing_inputs: [],
+      reason: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+async function readCanaryOperationalSmoke(environment, runtimeIdentity, expectedHead, runtimeAttestationKeyRegistry, now) {
+  const artifactPath = environment.TLSN_CANARY_OPERATIONAL_SMOKE_PATH?.trim();
+  if (!artifactPath) {
+    return {
+      status: "NOT_RUN",
+      readiness: "BLOCKED",
+      components: Object.fromEntries(CANARY_OPERATIONAL_SMOKE_COMPONENTS.map((component) => [component, "NOT_RUN"])),
+      reason: "No live operational smoke artifact was supplied.",
+    };
+  }
+  if (runtimeIdentity?.status !== "VALID" || runtimeIdentity.signature_valid !== true || !runtimeAttestationKeyRegistry) {
+    return {
+      status: "BLOCKED",
+      readiness: "BLOCKED",
+      components: Object.fromEntries(CANARY_OPERATIONAL_SMOKE_COMPONENTS.map((component) => [component, "NOT_RUN"])),
+      reason: "A validated signed Runtime Attestation is required before operational smoke evidence can be evaluated.",
+    };
+  }
+  try {
+    return await loadCanaryOperationalSmokeArtifact({
+      artifactPath,
+      trustedRuntimeIdentity: runtimeIdentity,
+      runtimeAttestationKeyRegistry,
+      currentHead: expectedHead,
+      expectedDeploymentId: runtimeIdentity.deployment_id,
+      now,
+    });
+  } catch (error) {
+    return {
+      status: "INVALID",
+      readiness: "BLOCKED",
+      components: Object.fromEntries(CANARY_OPERATIONAL_SMOKE_COMPONENTS.map((component) => [component, "NOT_RUN"])),
+      reason: error instanceof Error ? error.message : String(error),
+    };
   }
 }
 
@@ -631,6 +749,8 @@ export async function buildReadinessReport({
     runtimeAttestationKeyRegistry,
     now,
   });
+  const verifierIdentityBinding = await readCanaryVerifierExecutionEvidence(environment, runtimeAttestation, now);
+  const operationalSmoke = await readCanaryOperationalSmoke(environment, runtimeAttestation, expectedHead, runtimeAttestationKeyRegistry, now);
   const binding = allPresent(BINDING_INPUTS, environment) && environment.TLSN_CANARY_FIXTURE_ONLY !== "true"
     ? "PRESENT_UNVERIFIED"
     : environment.TLSN_CANARY_FIXTURE_ONLY === "true" ? "FIXTURE_ONLY" : "MISSING";
@@ -646,8 +766,8 @@ export async function buildReadinessReport({
     authentication: auth === "PRESENT",
     binding: binding === "PRESENT_UNVERIFIED",
     workflow_provenance: workflow === "PASS",
-    verifier_identity_binding: false,
-    operational_smoke: false,
+    verifier_identity_binding: verifierIdentityBinding.status === "PASS",
+    operational_smoke: operationalSmoke.status === "PASS",
     runtime_attestation: runtimeAttestation.status === "VALID"
       && runtimeAttestation.readiness === CANARY_DEPLOYMENT_READINESS,
     cross_binding: runtimeAttestation.cross_binding?.status === "PASS",
@@ -676,18 +796,21 @@ export async function buildReadinessReport({
       authentication: { status: auth, fields: statuses(DEPLOYMENT_AUTH_INPUTS, environment) },
       runtime_attestation: runtimeAttestation,
       verifier_identity_binding: {
-        status: "NOT_IMPLEMENTED",
-        reason: "Verifier public key and deployment ID are not bound to the deployed verifier version or independently verified Result identity.",
+        status: verifierIdentityBinding.status,
+        runtime_attestation: runtimeAttestation.cross_binding?.verifier_identity_binding === true ? "PASS" : "NOT_RUN",
+        execution_receipt_evidence: verifierIdentityBinding.execution_receipt_evidence,
+        missing_inputs: verifierIdentityBinding.missing_inputs,
+        evidence: verifierIdentityBinding.status === "PASS" ? verifierIdentityBinding : null,
+        reason: verifierIdentityBinding.reason ?? null,
       },
       operational_smoke: {
-        status: "NOT_IMPLEMENTED",
-        main_worker_health: "CHECKED_BY_RUNTIME_ATTESTATION",
-        verifier_worker_availability_and_version: "NOT_CHECKED",
-        trigger_callback_delivery: "NOT_CHECKED",
-        notary_reachability: "NOT_CHECKED",
-        authentication_endpoint_reachability: "NOT_CHECKED",
-        durable_binding_and_r2_persistence: "NOT_CHECKED",
-        real_presentation_verification: "NOT_CHECKED",
+        status: operationalSmoke.status,
+        ...Object.fromEntries(CANARY_OPERATIONAL_SMOKE_COMPONENTS.map((component) => [
+          component,
+          operationalSmoke.components?.[component] ?? "NOT_RUN",
+        ])),
+        ...(operationalSmoke.artifact_path ? { artifact_path: operationalSmoke.artifact_path } : {}),
+        reason: operationalSmoke.reason ?? null,
       },
       cross_binding: runtimeAttestation.cross_binding,
       remote_validation: {
@@ -722,8 +845,8 @@ export async function buildReadinessReport({
       authentication: "Candidate device-auth and Supabase endpoints must be supplied and pass deployment-preflight. User/device credentials belong only to post-deployment remote validation and are not a deployment readiness gate.",
       binding: "A Canary-specific binding authority registry/key and fixed Canary binding must be supplied; replay fixed bindings are not acceptable.",
       workflow: "The deployment workflow must supply positive run ID/attempt, owner/name repository, current HEAD, and workflow_file_identity=dotenvx+pnpm+wrangler.",
-      verifier_identity_binding: "Implement and independently verify the candidate verifier public key, deployment ID, deployed verifier version, and signed Result identity binding before Canary readiness can pass.",
-      operational_smoke: "Add and pass an approved pre-gameplay operational smoke covering verifier availability, Trigger callback delivery, Notary/auth reachability, and Durable Object/R2 persistence without synthetic gameplay.",
+      verifier_identity_binding: "Capture a Canary execution evidence bundle and provide its job ID and verification attempt ID independently; readiness binds the signed receipt to exact Presentation/Result bytes and the current Runtime Attestation.",
+      operational_smoke: "Run an approved live pre-gameplay smoke and provide its signed artifact plus every referenced raw component observation; offline tests cannot set the operational_smoke gate to PASS.",
       runtime: "Canary deployment/runtime and Trigger inputs must be supplied through the existing role-specific contract; deploy-canary.mjs must remain the only deploy path.",
       validation: "Run deployment-preflight, then the existing bootstrap -> verifier -> main Canary deployment, /health identity comparison, remote-validation, attestation gate, and offline evidence verification.",
     },

@@ -13,6 +13,7 @@ import {
   TlsnBindingAuthorityDurableObject,
 } from "./index.js";
 import { verifyInternalRequest } from "./verification_jobs.js";
+import { CANARY_VERIFIER_WORKER_NAME } from "./verifier_identity.js";
 
 const MAX_INTERNAL_CALLBACK_JSON_BYTES = 64 * 1024;
 const MAX_PRESENTATION_BYTES = 8 * 1024 * 1024;
@@ -21,6 +22,37 @@ const DIRECT_METADATA_HEADER = "X-FUSOU-TLSN-Direct-Metadata";
 const DIRECT_CONTROL_HEADER = "X-FUSOU-TLSN-Benchmark-Control";
 
 const app = new Hono<{ Bindings: Bindings }>();
+
+app.get("/health", (c) => {
+  const productionCanary = c.env.TLSN_ENVIRONMENT === "production"
+    && c.env.TLSN_DEPLOYMENT_ROLE === "canary";
+  const runtimeVersionId = c.env.CF_VERSION_METADATA?.id ?? null;
+  const verifierIdentity = productionCanary
+    ? {
+        key_id: c.env.TLSN_CANARY_VERIFIER_IDENTITY_KEY_ID ?? null,
+        public_key_spki: c.env.TLSN_CANARY_VERIFIER_PUBLIC_KEY_SPKI ?? null,
+        deployment_id: c.env.TLSN_CANARY_VERIFIER_DEPLOYMENT_ID ?? null,
+        worker_name: CANARY_VERIFIER_WORKER_NAME,
+      }
+    : null;
+  const identityComplete = !productionCanary || Boolean(
+    runtimeVersionId
+    && verifierIdentity?.key_id
+    && verifierIdentity.public_key_spki
+    && verifierIdentity.deployment_id,
+  );
+  return c.json({
+    schema_version: 1,
+    ok: identityComplete,
+    environment: c.env.TLSN_ENVIRONMENT,
+    deployment_role: c.env.TLSN_DEPLOYMENT_ROLE ?? "production",
+    git_commit_sha: c.env.TLSN_GIT_COMMIT_SHA ?? null,
+    deployment_id: c.env.TLSN_CANARY_VERIFIER_DEPLOYMENT_ID ?? null,
+    worker_name: CANARY_VERIFIER_WORKER_NAME,
+    runtime_version: runtimeVersionId ? { version_id: runtimeVersionId } : null,
+    verifier_identity: verifierIdentity,
+  }, identityComplete ? 200 : 503);
+});
 
 async function delayTestDirectVerifier(env: Bindings): Promise<void> {
   if (env.TLSN_ENVIRONMENT !== "test") return;
@@ -78,6 +110,13 @@ app.post("/internal/tlsn/verification-complete", async (c) => {
   }
   const jobId = c.req.header("X-FUSOU-TLSN-Job-Id") ?? "";
   const signature = c.req.header("X-FUSOU-TLSN-Signature") ?? null;
+  const requestedExecutionMode = c.req.header("X-FUSOU-TLSN-Execution-Mode");
+  if (requestedExecutionMode !== null && requestedExecutionMode !== "trigger") {
+    return c.json({ error: "invalid_request" }, 400);
+  }
+  if (requestedExecutionMode === "trigger" && encodedMetadata) {
+    return c.json({ error: "invalid_request" }, 400);
+  }
   const synchronousCandidate = (c.env.TLSN_ENVIRONMENT === "test"
     && c.req.header("X-FUSOU-TLSN-Synchronous-Candidate") === "true")
     || (canarySynchronousResponseEnabled(c.env)
@@ -90,7 +129,7 @@ app.post("/internal/tlsn/verification-complete", async (c) => {
     rawBody,
     jobId,
     signature,
-    "direct",
+    requestedExecutionMode === "trigger" ? "trigger" : "direct",
     false,
     executionStartedAt,
     mode,

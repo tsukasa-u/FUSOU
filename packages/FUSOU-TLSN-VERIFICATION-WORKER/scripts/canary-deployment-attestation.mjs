@@ -1,12 +1,20 @@
 #!/usr/bin/env node
 
-import { createPrivateKey, createPublicKey, sign, verify } from "node:crypto";
+import { createHash, createPrivateKey, createPublicKey, sign, verify } from "node:crypto";
 import { mkdir, open } from "node:fs/promises";
 import { spawnSync } from "node:child_process";
 import { dirname, resolve } from "node:path";
-import { assertCanonicalCanaryWorkerName } from "./canary-deployment-target.mjs";
+import {
+  assertCanonicalCanaryDeploymentWorkerName,
+  assertCanonicalCanaryWorkerName,
+  CANARY_VERIFIER_WORKER_NAME,
+} from "./canary-deployment-target.mjs";
 import { canaryDeploymentManifestBinding } from "./canary-deployment-manifest.mjs";
 import { loadCanaryRuntimeAttestationKeyRegistry } from "./canary-runtime-attestation-key-registry.mjs";
+import {
+  assertCanaryVerifierIdentityKeyRegistry,
+  canaryVerifierIdentityKeyRegistrySha256,
+} from "./canary-verifier-identity.mjs";
 import {
   assertCanaryRuntimeAttestationSignature,
   signCanaryRuntimeAttestation,
@@ -30,6 +38,9 @@ const REQUIRED_RUNTIME_ATTESTATION_CHECKS = [
   "runtime_deployment_matches_authorized_identity",
   "runtime_version_matches_platform_version",
   "runtime_git_sha_matches_head",
+  "verifier_platform_identity_matches_authorized_deployment",
+  "verifier_runtime_matches_platform_version",
+  "verifier_identity_key_matches_active_registry",
 ];
 
 export function canaryDeploymentAttestationArtifactPath({
@@ -152,6 +163,94 @@ function assertCanaryDeploymentCrossBinding(attestation, {
   assertExactString(attestation.runtime_self_reported_identity.deployment_id, attestation.deployment.authorized_deployment_id, "Runtime Attestation runtime deployment ID");
   assertExactString(attestation.runtime_self_reported_identity.worker_name, attestation.deployment.worker_name, "Runtime Attestation runtime worker name");
   assertExactString(attestation.runtime_self_reported_identity.runtime_version.version_id, servingVersionId, "Runtime Attestation runtime serving version");
+  const verifierDeployment = attestation.verifier_deployment;
+  const verifierVersion = attestation.verifier_version;
+  const verifierRuntimeIdentity = attestation.verifier_runtime_identity;
+  const verifierIdentity = attestation.verifier_identity;
+  assertObject(verifierDeployment, "Runtime Attestation verifier_deployment");
+  assertObject(verifierVersion, "Runtime Attestation verifier_version");
+  assertObject(verifierRuntimeIdentity, "Runtime Attestation verifier_runtime_identity");
+  assertObject(verifierIdentity, "Runtime Attestation verifier_identity");
+  const verifierDeploymentId = requiredString(environment.TLSN_CANARY_VERIFIER_DEPLOYMENT_ID, "current Canary verifier deployment ID");
+  const verifierKeyId = requiredString(environment.TLSN_CANARY_VERIFIER_IDENTITY_KEY_ID, "current Canary verifier identity key ID");
+  const verifierPublicKeySpki = requiredString(environment.TLSN_CANARY_VERIFIER_PUBLIC_KEY_SPKI, "current Canary verifier identity public key");
+  const verifierWorkerName = assertCanonicalCanaryDeploymentWorkerName(verifierDeployment.worker_name);
+  if (verifierWorkerName !== CANARY_VERIFIER_WORKER_NAME) throw new Error("Runtime Attestation verifier Worker is not canonical");
+  assertExactString(verifierDeployment.deployment_role, "canary", "Runtime Attestation verifier deployment role");
+  assertExactString(verifierDeployment.authorized_deployment_id, verifierDeploymentId, "Runtime Attestation verifier deployment ID");
+  requiredString(verifierDeployment.platform_deployment_id, "Runtime Attestation verifier platform deployment ID");
+  if (!Array.isArray(verifierDeployment.versions) || verifierDeployment.versions.length !== 1 || verifierDeployment.versions[0]?.percentage !== 100) {
+    throw new Error("Runtime Attestation Verifier deployment is not serving exactly one version at 100 percent");
+  }
+  const verifierServingVersionId = requiredVersionId(verifierVersion.version_id, "Runtime Attestation verifier version ID");
+  assertExactString(verifierDeployment.versions[0].version_id, verifierServingVersionId, "Runtime Attestation verifier serving version");
+  if (verifierVersion.serving_percentage !== 100) throw new Error("Runtime Attestation verifier version is not serving at 100 percent");
+  assertExactString(verifierIdentity.key_id, verifierKeyId, "Runtime Attestation verifier key ID");
+  assertExactString(verifierIdentity.public_key_spki, verifierPublicKeySpki, "Runtime Attestation verifier public key");
+  assertExactString(verifierIdentity.deployment_id, verifierDeploymentId, "Runtime Attestation verifier key deployment ID");
+  assertExactString(verifierIdentity.worker_name, CANARY_VERIFIER_WORKER_NAME, "Runtime Attestation verifier key Worker name");
+  assertExactString(verifierRuntimeIdentity.deployment_id, verifierDeploymentId, "Runtime Attestation verifier runtime deployment ID");
+  assertExactString(verifierRuntimeIdentity.deployment_role, "canary", "Runtime Attestation verifier runtime role");
+  assertExactString(verifierRuntimeIdentity.worker_name, CANARY_VERIFIER_WORKER_NAME, "Runtime Attestation verifier runtime Worker name");
+  assertExactString(String(verifierRuntimeIdentity.git_commit_sha).toLowerCase(), expectedHead, "Runtime Attestation verifier runtime Git SHA");
+  assertExactString(verifierRuntimeIdentity.runtime_version?.version_id, verifierServingVersionId, "Runtime Attestation verifier runtime version");
+  assertExactString(verifierRuntimeIdentity.verifier_identity?.key_id, verifierKeyId, "Runtime Attestation verifier live key ID");
+  assertExactString(verifierRuntimeIdentity.verifier_identity?.public_key_spki, verifierPublicKeySpki, "Runtime Attestation verifier live public key");
+  const verifierRegistryFromEnvironment = JSON.parse(requiredString(environment.TLSN_CANARY_VERIFIER_IDENTITY_KEY_REGISTRY, "current Canary verifier identity key registry"));
+  if (canaryVerifierIdentityKeyRegistrySha256(verifierRegistryFromEnvironment) !== verifierIdentity.key_registry_sha256) {
+    throw new Error("Runtime Attestation verifier key registry does not match the current deployment input");
+  }
+  assertCanaryVerifierIdentityKeyRegistry(verifierIdentity.key_registry, {
+    now: new Date(attestation.captured_at),
+    currentIdentity: {
+      status: "VALID",
+      verifier_key_id: verifierKeyId,
+      public_key_spki: verifierPublicKeySpki,
+      deployment_id: verifierDeploymentId,
+      worker_name: CANARY_VERIFIER_WORKER_NAME,
+    },
+  });
+  assertExactString(
+    canaryVerifierIdentityKeyRegistrySha256(verifierIdentity.key_registry),
+    canaryVerifierIdentityKeyRegistrySha256(verifierRegistryFromEnvironment),
+    "Runtime Attestation verifier identity key registry",
+  );
+  const verifierPlatformDeploymentMessage = verifierDeployment.annotations?.["workers/message"];
+  const verifierPlatformVersionMessage = verifierVersion.annotations?.["workers/message"];
+  if (verifierPlatformDeploymentMessage !== verifierPlatformVersionMessage) {
+    throw new Error("Runtime Attestation verifier deployment and version messages differ");
+  }
+  verifyCanaryDeploymentMessage({
+    message: verifierPlatformDeploymentMessage,
+    deploymentId: verifierDeploymentId,
+    workerName: CANARY_VERIFIER_WORKER_NAME,
+    gitCommitSha: expectedHead,
+    bindingAuthorityKeyId: environment.TLSN_CANARY_BINDING_AUTHORITY_KEY_ID,
+    bindingAuthorityPublicKeySpki: environment.TLSN_CANARY_BINDING_AUTHORITY_PUBLIC_KEY_SPKI,
+    label: "Runtime Attestation Cloudflare verifier deployment",
+  });
+  verifyCanaryDeploymentMessage({
+    message: verifierPlatformVersionMessage,
+    deploymentId: verifierDeploymentId,
+    workerName: CANARY_VERIFIER_WORKER_NAME,
+    gitCommitSha: expectedHead,
+    bindingAuthorityKeyId: environment.TLSN_CANARY_BINDING_AUTHORITY_KEY_ID,
+    bindingAuthorityPublicKeySpki: environment.TLSN_CANARY_BINDING_AUTHORITY_PUBLIC_KEY_SPKI,
+    label: "Runtime Attestation Cloudflare verifier version",
+  });
+  assertExactString(verifierDeployment.annotations?.["workers/tag"], `verifier-canary-${expectedHead.slice(0, 12)}`, "Runtime Attestation verifier deployment tag");
+  assertExactString(verifierVersion.annotations?.["workers/tag"], `verifier-canary-${expectedHead.slice(0, 12)}`, "Runtime Attestation verifier version tag");
+  const currentNow = validationNowMilliseconds(now);
+  assertCanaryVerifierIdentityKeyRegistry(verifierIdentity.key_registry, {
+    now: new Date(currentNow),
+    currentIdentity: {
+      status: "VALID",
+      verifier_key_id: verifierKeyId,
+      public_key_spki: verifierPublicKeySpki,
+      deployment_id: verifierDeploymentId,
+      worker_name: CANARY_VERIFIER_WORKER_NAME,
+    },
+  });
   const attestationFresh = assertCanaryDeploymentAttestationFreshness(attestation, deploymentManifest, now);
   return {
     status: "PASS",
@@ -159,6 +258,7 @@ function assertCanaryDeploymentCrossBinding(attestation, {
     manifest_attestation: true,
     environment_attestation: true,
     version_serving: true,
+    verifier_identity_binding: true,
     attestation_fresh: attestationFresh,
   };
 }
@@ -205,6 +305,30 @@ export function assertCanaryDeploymentRuntimeAttestation(attestation, {
   assertExactString(attestation.runtime_self_reported_identity.worker_name, deploymentWorkerName, "Runtime Attestation runtime worker name");
   assertObject(attestation.runtime_self_reported_identity.runtime_version, "Runtime Attestation runtime_self_reported_identity.runtime_version");
   assertExactString(attestation.runtime_self_reported_identity.runtime_version.version_id, servingVersionId, "Runtime Attestation runtime version");
+  assertObject(attestation.verifier_deployment, "Runtime Attestation verifier_deployment");
+  assertObject(attestation.verifier_version, "Runtime Attestation verifier_version");
+  assertObject(attestation.verifier_runtime_identity, "Runtime Attestation verifier_runtime_identity");
+  assertObject(attestation.verifier_identity, "Runtime Attestation verifier_identity");
+  if (attestation.verifier_deployment.deployment_role !== "canary") throw new Error("Runtime Attestation verifier is not a Canary deployment");
+  assertCanonicalCanaryDeploymentWorkerName(attestation.verifier_deployment.worker_name);
+  if (attestation.verifier_deployment.worker_name !== CANARY_VERIFIER_WORKER_NAME) throw new Error("Runtime Attestation verifier Worker is not canonical");
+  if (!Array.isArray(attestation.verifier_deployment.versions) || attestation.verifier_deployment.versions.length !== 1 || attestation.verifier_deployment.versions[0]?.percentage !== 100) {
+    throw new Error("Runtime Attestation verifier deployment is not serving exactly one version at 100 percent");
+  }
+  const verifierServingVersionId = requiredVersionId(attestation.verifier_version.version_id, "Runtime Attestation verifier version.version_id");
+  assertExactString(attestation.verifier_deployment.versions[0].version_id, verifierServingVersionId, "Runtime Attestation verifier serving version");
+  if (attestation.verifier_version.serving_percentage !== 100) throw new Error("Runtime Attestation verifier version is not serving at 100 percent");
+  assertCanaryVerifierIdentityKeyRegistry(attestation.verifier_identity.key_registry, {
+    now: new Date(attestation.captured_at),
+    currentIdentity: {
+      status: "VALID",
+      verifier_key_id: attestation.verifier_identity.key_id,
+      public_key_spki: attestation.verifier_identity.public_key_spki,
+      deployment_id: attestation.verifier_deployment.authorized_deployment_id,
+      worker_name: CANARY_VERIFIER_WORKER_NAME,
+    },
+  });
+  assertExactString(canaryVerifierIdentityKeyRegistrySha256(attestation.verifier_identity.key_registry), attestation.verifier_identity.key_registry_sha256, "Runtime Attestation verifier key registry hash");
   assertObject(attestation.checks, "Runtime Attestation checks");
   for (const check of REQUIRED_RUNTIME_ATTESTATION_CHECKS) assertExactString(attestation.checks[check], true, `Runtime Attestation checks.${check}`);
   const crossBinding = assertCanaryDeploymentCrossBinding(attestation, {
@@ -215,6 +339,7 @@ export function assertCanaryDeploymentRuntimeAttestation(attestation, {
     now,
     servingVersionId,
   });
+  const deploymentManifestBinding = canaryDeploymentManifestBinding(deploymentManifest);
   return {
     status: "VALID",
     readiness: attestation.readiness,
@@ -230,6 +355,17 @@ export function assertCanaryDeploymentRuntimeAttestation(attestation, {
     attestation_signer_key_id: signature.signer_key_id,
     signature_algorithm: signature.signature_algorithm,
     signature_valid: true,
+    verifier_identity: {
+      status: "VALID",
+      deployment_id: attestation.verifier_deployment.authorized_deployment_id,
+      worker_name: attestation.verifier_deployment.worker_name,
+      version_id: attestation.verifier_version.version_id,
+      verifier_key_id: attestation.verifier_identity.key_id,
+      public_key_spki_sha256: attestation.verifier_identity.public_key_spki_sha256,
+      key_registry_sha256: attestation.verifier_identity.key_registry_sha256,
+      attestation_captured_at: attestation.captured_at,
+      attestation_expires_at: deploymentManifestBinding.expires_at,
+    },
     cross_binding: crossBinding,
   };
 }
@@ -276,7 +412,7 @@ function bindingAuthorityPublicKeySpki(privateKey) {
 }
 
 export function canaryDeploymentBindingPayload({ deploymentId, workerName, gitCommitSha }) {
-  const canonicalWorkerName = assertCanonicalCanaryWorkerName(workerName);
+  const canonicalWorkerName = assertCanonicalCanaryDeploymentWorkerName(workerName);
   const logicalDeploymentId = requiredString(deploymentId, "Canary deployment identity");
   const commitSha = requiredString(gitCommitSha, "checked-out Git SHA").toLowerCase();
   if (!SHA_PATTERN.test(commitSha)) throw new Error("checked-out Git SHA is invalid");
@@ -398,7 +534,7 @@ function normalizeVersion(version, expectedVersionId) {
 }
 
 export function normalizeCanaryPlatformMetadata({ deploymentPayload, versionPayload, workerName, expectedVersionId }) {
-  const canonicalWorkerName = assertCanonicalCanaryWorkerName(workerName);
+  const canonicalWorkerName = assertCanonicalCanaryDeploymentWorkerName(workerName);
   const versionId = requiredVersionId(expectedVersionId, "deployed version ID");
   const deployments = payloadArray(deploymentPayload, "deployments", "Cloudflare deployment metadata");
   const versions = payloadArray(versionPayload, "items", "Cloudflare version metadata");
@@ -509,6 +645,126 @@ export function verifyCanaryDeploymentRuntime({
   };
 }
 
+export function verifyCanaryVerifierRuntime({
+  platform,
+  runtimeHealth,
+  expectedDeploymentId,
+  expectedGitCommitSha,
+  expectedVersionId,
+  expectedDeploymentMessage,
+  expectedDeploymentTag,
+  expectedBindingAuthorityKeyId,
+  expectedBindingAuthorityPublicKeySpki,
+  verifierKeyId,
+  verifierPublicKeySpki,
+  verifierIdentityKeyRegistry,
+  deploymentStartedAt,
+}) {
+  if (!platform || platform.worker_name !== CANARY_VERIFIER_WORKER_NAME) {
+    throw new Error("platform Worker identity does not match canonical Canary Verifier");
+  }
+  const deploymentId = requiredString(expectedDeploymentId, "Canary Verifier deployment identity");
+  const commitSha = requiredString(expectedGitCommitSha, "checked-out Git SHA").toLowerCase();
+  if (!SHA_PATTERN.test(commitSha)) throw new Error("checked-out Git SHA is invalid");
+  const versionId = requiredVersionId(expectedVersionId, "Canary Verifier deployed version ID");
+  if (
+    platform.version?.id !== versionId ||
+    platform.deployment?.versions?.length !== 1 ||
+    platform.deployment.versions[0]?.version_id !== versionId ||
+    platform.deployment.versions[0]?.percentage !== 100 ||
+    platform.serving_percentage !== 100
+  ) {
+    throw new Error("Canary Verifier platform is not serving exactly the expected version at 100 percent");
+  }
+  const deploymentMessage = platform.deployment.annotations?.["workers/message"];
+  const versionMessage = platform.version.annotations?.["workers/message"];
+  if (deploymentMessage !== versionMessage || deploymentMessage !== expectedDeploymentMessage) {
+    throw new Error("Canary Verifier deployment and version message bindings do not match");
+  }
+  const deploymentBinding = verifyCanaryDeploymentMessage({
+    message: deploymentMessage,
+    deploymentId,
+    workerName: CANARY_VERIFIER_WORKER_NAME,
+    gitCommitSha: commitSha,
+    bindingAuthorityKeyId: expectedBindingAuthorityKeyId,
+    bindingAuthorityPublicKeySpki: expectedBindingAuthorityPublicKeySpki,
+    label: "Cloudflare Verifier deployment",
+  });
+  verifyCanaryDeploymentMessage({
+    message: versionMessage,
+    deploymentId,
+    workerName: CANARY_VERIFIER_WORKER_NAME,
+    gitCommitSha: commitSha,
+    bindingAuthorityKeyId: expectedBindingAuthorityKeyId,
+    bindingAuthorityPublicKeySpki: expectedBindingAuthorityPublicKeySpki,
+    label: "Cloudflare Verifier version",
+  });
+  expectedAnnotation(platform.deployment.annotations, "workers/message", expectedDeploymentMessage, "Canary Verifier deployment");
+  expectedAnnotation(platform.version.annotations, "workers/message", expectedDeploymentMessage, "Canary Verifier version");
+  if (expectedDeploymentTag !== undefined) {
+    expectedAnnotation(platform.version.annotations, "workers/tag", expectedDeploymentTag, "Canary Verifier version");
+    if (platform.deployment.annotations["workers/tag"] !== undefined) {
+      expectedAnnotation(platform.deployment.annotations, "workers/tag", expectedDeploymentTag, "Canary Verifier deployment");
+    }
+  }
+  if (deploymentStartedAt !== undefined) {
+    const startedAt = deploymentStartedAt instanceof Date ? deploymentStartedAt.getTime() : Date.parse(deploymentStartedAt);
+    if (!Number.isFinite(startedAt) || Date.parse(platform.deployment.created_on) < startedAt - 120_000) {
+      throw new Error("Canary Verifier platform deployment predates the current deployment attempt");
+    }
+  }
+  if (
+    !runtimeHealth || typeof runtimeHealth !== "object" || Array.isArray(runtimeHealth) ||
+    runtimeHealth.schema_version !== 1 || runtimeHealth.ok !== true ||
+    runtimeHealth.environment !== "production" || runtimeHealth.deployment_role !== "canary"
+  ) {
+    throw new Error("Canary Verifier /health response is not a passing production Canary identity");
+  }
+  if (
+    runtimeHealth.deployment_id !== deploymentId ||
+    runtimeHealth.worker_name !== CANARY_VERIFIER_WORKER_NAME ||
+    runtimeHealth.git_commit_sha !== commitSha ||
+    runtimeHealth.runtime_version?.version_id !== versionId
+  ) {
+    throw new Error("Canary Verifier live identity does not match the authorized platform deployment");
+  }
+  const liveVerifierIdentity = runtimeHealth.verifier_identity;
+  if (
+    !liveVerifierIdentity || liveVerifierIdentity.key_id !== verifierKeyId ||
+    liveVerifierIdentity.public_key_spki !== verifierPublicKeySpki ||
+    liveVerifierIdentity.deployment_id !== deploymentId ||
+    liveVerifierIdentity.worker_name !== CANARY_VERIFIER_WORKER_NAME
+  ) {
+    throw new Error("Canary Verifier live key identity does not match the authorized key and deployment");
+  }
+  assertCanaryVerifierIdentityKeyRegistry(verifierIdentityKeyRegistry, {
+    now: new Date(),
+    currentIdentity: {
+      status: "VALID",
+      verifier_key_id: verifierKeyId,
+      public_key_spki: verifierPublicKeySpki,
+      deployment_id: deploymentId,
+      worker_name: CANARY_VERIFIER_WORKER_NAME,
+    },
+  });
+  const publicKeyBytes = Buffer.from(verifierPublicKeySpki, "base64url");
+  return {
+    status: "PASS",
+    platform_deployment_id: platform.deployment.id,
+    platform_version_id: platform.version.id,
+    deployment_id: deploymentId,
+    worker_name: CANARY_VERIFIER_WORKER_NAME,
+    version_id: versionId,
+    git_commit_sha: commitSha,
+    verifier_key_id: verifierKeyId,
+    public_key_spki: verifierPublicKeySpki,
+    public_key_spki_sha256: createHash("sha256").update(publicKeyBytes).digest("base64url"),
+    key_registry_sha256: canaryVerifierIdentityKeyRegistrySha256(verifierIdentityKeyRegistry),
+    key_registry: verifierIdentityKeyRegistry,
+    deployment_binding: deploymentBinding,
+  };
+}
+
 function runCaptured(command, argumentsList, environment) {
   const result = spawnSync(command, argumentsList, {
     cwd: resolve(new URL("..", import.meta.url).pathname),
@@ -581,10 +837,15 @@ export function createCanaryDeploymentAttestation({
   verification,
   platform,
   runtimeHealth,
+  verifierVerification,
+  verifierPlatform,
+  verifierRuntimeHealth,
   expectedDeploymentId,
   expectedGitCommitSha,
   expectedDeploymentMessage,
   expectedDeploymentTag,
+  expectedVerifierDeploymentMessage,
+  expectedVerifierDeploymentTag,
   workflow,
   deploymentManifestId,
   runtimeAttestationSignerKeyId,
@@ -601,6 +862,9 @@ export function createCanaryDeploymentAttestation({
   }
   if (!fixture && (typeof deploymentManifestId !== "string" || !HASH_PATTERN.test(deploymentManifestId))) {
     throw new Error("Runtime Attestation deployment manifest ID is missing or invalid");
+  }
+  if (!fixture && (!verifierVerification || !verifierPlatform || !verifierRuntimeHealth)) {
+    throw new Error("Runtime Attestation requires independently verified Canary Verifier deployment and health evidence");
   }
   timestampMilliseconds(capturedAt, "Runtime Attestation captured_at");
   const status = fixture ? "FIXTURE_ONLY" : "PASS";
@@ -651,6 +915,43 @@ export function createCanaryDeploymentAttestation({
       runtime_version: runtimeHealth.runtime_version,
       binding_mode: runtimeHealth.binding_mode,
     },
+    verifier_deployment: fixture ? null : {
+      authorized_deployment_id: verifierVerification.deployment_id,
+      platform_deployment_id: verifierPlatform.deployment.id,
+      worker_name: verifierVerification.worker_name,
+      deployment_role: "canary",
+      created_on: verifierPlatform.deployment.created_on,
+      source: verifierPlatform.deployment.source,
+      strategy: verifierPlatform.deployment.strategy,
+      annotations: verifierPlatform.deployment.annotations,
+      versions: verifierPlatform.deployment.versions,
+      binding: verifierVerification.deployment_binding,
+      requested_message: expectedVerifierDeploymentMessage ?? null,
+      requested_tag: expectedVerifierDeploymentTag ?? null,
+    },
+    verifier_version: fixture ? null : {
+      version_id: verifierPlatform.version.id,
+      metadata: verifierPlatform.version.metadata,
+      annotations: verifierPlatform.version.annotations,
+      serving_percentage: verifierPlatform.serving_percentage,
+    },
+    verifier_runtime_identity: fixture ? null : {
+      deployment_id: verifierRuntimeHealth.deployment_id,
+      deployment_role: verifierRuntimeHealth.deployment_role,
+      worker_name: verifierRuntimeHealth.worker_name,
+      git_commit_sha: verifierRuntimeHealth.git_commit_sha,
+      runtime_version: verifierRuntimeHealth.runtime_version,
+      verifier_identity: verifierRuntimeHealth.verifier_identity,
+    },
+    verifier_identity: fixture ? null : {
+      key_id: verifierVerification.verifier_key_id,
+      public_key_spki: verifierVerification.public_key_spki,
+      public_key_spki_sha256: verifierVerification.public_key_spki_sha256,
+      deployment_id: verifierVerification.deployment_id,
+      worker_name: verifierVerification.worker_name,
+      key_registry_sha256: verifierVerification.key_registry_sha256,
+      key_registry: verifierVerification.key_registry,
+    },
     checks: {
       canonical_worker: true,
       platform_deployment_contains_deployed_version: true,
@@ -663,6 +964,9 @@ export function createCanaryDeploymentAttestation({
       runtime_deployment_matches_authorized_identity: true,
       runtime_version_matches_platform_version: true,
       runtime_git_sha_matches_head: true,
+      verifier_platform_identity_matches_authorized_deployment: !fixture,
+      verifier_runtime_matches_platform_version: !fixture,
+      verifier_identity_key_matches_active_registry: !fixture,
       synthetic_evidence_rejected: !fixture,
     },
   };
@@ -682,8 +986,14 @@ export async function attestCanaryDeployment({
   expectedVersionId,
   expectedDeploymentMessage,
   expectedDeploymentTag,
+  expectedVerifierDeploymentId,
+  expectedVerifierVersionId,
+  expectedVerifierDeploymentMessage,
+  expectedVerifierDeploymentTag,
   deploymentStartedAt,
+  verifierDeploymentStartedAt,
   runtimeUrl,
+  verifierRuntimeUrl,
   environment,
   workflow,
   deploymentManifestId,
@@ -694,6 +1004,21 @@ export async function attestCanaryDeployment({
   if (environment?.TLSN_CANARY_FIXTURE_ONLY?.trim() === "true") throw new Error("fixture-only Canary deployment cannot produce a real attestation");
   const platform = await platformMetadataAfterDeploy({ workerName, expectedVersionId, environment });
   const runtimeHealth = await fetchCanaryHealth(runtimeUrl);
+  const verifierPlatform = await platformMetadataAfterDeploy({
+    workerName: CANARY_VERIFIER_WORKER_NAME,
+    expectedVersionId: expectedVerifierVersionId,
+    environment,
+  });
+  const verifierRuntimeHealth = await fetchCanaryHealth(verifierRuntimeUrl);
+  let verifierIdentityKeyRegistry;
+  try {
+    verifierIdentityKeyRegistry = JSON.parse(requiredString(
+      environment?.TLSN_CANARY_VERIFIER_IDENTITY_KEY_REGISTRY,
+      "Canary Verifier identity key registry",
+    ));
+  } catch {
+    throw new Error("Canary Verifier identity key registry is missing or invalid JSON");
+  }
   const { registry: runtimeAttestationKeyRegistry } = await loadCanaryRuntimeAttestationKeyRegistry();
   const verification = verifyCanaryDeploymentRuntime({
     platform,
@@ -708,14 +1033,34 @@ export async function attestCanaryDeployment({
     expectedBindingAuthorityPublicKeySpki: environment?.TLSN_CANARY_BINDING_AUTHORITY_PUBLIC_KEY_SPKI,
     deploymentStartedAt,
   });
+  const verifierVerification = verifyCanaryVerifierRuntime({
+    platform: verifierPlatform,
+    runtimeHealth: verifierRuntimeHealth,
+    expectedDeploymentId: expectedVerifierDeploymentId,
+    expectedGitCommitSha,
+    expectedVersionId: expectedVerifierVersionId,
+    expectedDeploymentMessage: expectedVerifierDeploymentMessage,
+    expectedDeploymentTag: expectedVerifierDeploymentTag,
+    expectedBindingAuthorityKeyId: environment?.TLSN_CANARY_BINDING_AUTHORITY_KEY_ID,
+    expectedBindingAuthorityPublicKeySpki: environment?.TLSN_CANARY_BINDING_AUTHORITY_PUBLIC_KEY_SPKI,
+    verifierKeyId: environment?.TLSN_CANARY_VERIFIER_IDENTITY_KEY_ID,
+    verifierPublicKeySpki: environment?.TLSN_CANARY_VERIFIER_PUBLIC_KEY_SPKI,
+    verifierIdentityKeyRegistry,
+    deploymentStartedAt: verifierDeploymentStartedAt,
+  });
   const attestation = createCanaryDeploymentAttestation({
     verification,
     platform,
     runtimeHealth,
+    verifierVerification,
+    verifierPlatform,
+    verifierRuntimeHealth,
     expectedDeploymentId,
     expectedGitCommitSha,
     expectedDeploymentMessage,
     expectedDeploymentTag,
+    expectedVerifierDeploymentMessage,
+    expectedVerifierDeploymentTag,
     workflow,
     deploymentManifestId,
     runtimeAttestationSignerKeyId,
@@ -723,5 +1068,5 @@ export async function attestCanaryDeployment({
     runtimeAttestationKeyRegistry,
   });
   await writeImmutableCanaryAttestation(artifactPath, attestation);
-  return { attestation, platform, runtimeHealth };
+  return { attestation, platform, runtimeHealth, verifierPlatform, verifierRuntimeHealth, verifierVerification };
 }

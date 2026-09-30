@@ -241,6 +241,7 @@ async function inspectProvisionedOutput(outputDirectory, fixtureManifest, fixtur
     "canary-result-signing-private-key.pkcs8.base64url",
     "canary-session-authority-private-key.pkcs8.base64url",
     "canary-binding-authority-private-key.pkcs8.base64url",
+    "canary-verifier-identity-signing-private-key.pkcs8.base64url",
   ];
   const secretEnvironmentNames = [
     "TLSN_CANARY_TRUST_ROOT_CERTIFICATE_DER",
@@ -271,6 +272,7 @@ async function runFixturePreflight(outputDirectory, generatedEnv) {
     TLSN_CANARY_RESULT_SIGNING_PRIVATE_KEY_PKCS8: "canary-result-signing-private-key.pkcs8.base64url",
     TLSN_CANARY_SESSION_AUTHORITY_SIGNING_PRIVATE_KEY_PKCS8: "canary-session-authority-private-key.pkcs8.base64url",
     TLSN_CANARY_BINDING_AUTHORITY_SIGNING_PRIVATE_KEY_PKCS8: "canary-binding-authority-private-key.pkcs8.base64url",
+    TLSN_CANARY_VERIFIER_IDENTITY_SIGNING_PRIVATE_KEY_PKCS8: "canary-verifier-identity-signing-private-key.pkcs8.base64url",
   };
   const privateKeyEnvironment = Object.fromEntries(await Promise.all(
     Object.entries(privateKeyFiles).map(async ([name, fileName]) => [name, (await readFile(join(outputDirectory, fileName), "utf8")).trim()]),
@@ -296,6 +298,7 @@ async function runFixturePreflight(outputDirectory, generatedEnv) {
       TLSN_CANARY_TRIGGER_API_URL: "https://trigger.example.com/",
       TLSN_CANARY_TRIGGER_TASK_ID: "verifyTlsnPresentation",
       TLSN_CANARY_WORKER_INTERNAL_URL: "https://worker.example.com/",
+      TLSN_CANARY_VERIFIER_WORKER_INTERNAL_URL: "https://verifier.example.com/",
       TLSN_PREFLIGHT_REPORT_PATH: reportPath,
     },
   });
@@ -344,6 +347,7 @@ async function runTest() {
     assert.equal(firstRun.status, 0, `${firstRun.errorOutput}\n${firstRun.output}`);
     const first = await inspectProvisionedOutput(firstDirectory, fixtureManifest, fixtureEntry, fixture);
     assert.equal(first.generatedEnv[runtimeAttestationPrivateKeyInput], undefined);
+    assert.equal(first.generatedEnv.TLSN_CANARY_VERIFIER_IDENTITY_SIGNING_PRIVATE_KEY_PKCS8, undefined);
     assert.equal(first.manifestRaw?.includes("synthetic-runtime-attestation-private-key-sentinel"), false);
     const secondRun = await runProvisionerChild(secondDirectory, [], isolatedEnvironment);
     assert.equal(secondRun.status, 0, `${secondRun.errorOutput}\n${secondRun.output}`);

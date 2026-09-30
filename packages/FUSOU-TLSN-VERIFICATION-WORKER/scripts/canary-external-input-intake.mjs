@@ -324,14 +324,16 @@ export const CANARY_EXTERNAL_INPUT_INTAKE = Object.freeze([
   }),
   ...entries("VERIFIER", [
     "TLSN_CANARY_VERIFIER_PUBLIC_KEY_SPKI",
+    "TLSN_CANARY_VERIFIER_IDENTITY_KEY_ID",
+    "TLSN_CANARY_VERIFIER_IDENTITY_KEY_REGISTRY",
     "TLSN_CANARY_VERIFIER_DEPLOYMENT_ID",
   ], {
     source: "DEPLOYMENT_INPUT",
     secret: false,
-    architecture_role: "FUSOU_PRESENTATION_RESULT_VERIFIER_IDENTITY",
-    representation: "canonical base64url Ed25519 SPKI public key and deployment identifier",
-    consumer: "deployment-preflight, deployment-manifest, verifier deployment",
-    validator: "deployment-preflight and deployment-manifest",
+    architecture_role: "FUSOU_CANARY_VERIFIER_EXECUTION_IDENTITY",
+    representation: "canonical base64url Ed25519 SPKI, verifier key ID, identity key registry JSON, and deployment identifier",
+    consumer: "deployment-preflight, deployment-manifest, verifier Worker, Canary runtime attestation",
+    validator: "deployment-preflight, deployment-manifest, verifier identity registry, and platform runtime attestation",
     failure_conditions: ["MISSING", "PRESENT_INVALID", "PRESENT_EXPIRED", "PRESENT_MISMATCHED", "HISTORICAL_ONLY"],
   }),
   ...entries("AUTHENTICATION", [
@@ -481,6 +483,7 @@ export const CANARY_EXTERNAL_INPUT_INTAKE = Object.freeze([
     "TLSN_CANARY_TRIGGER_API_URL",
     "TLSN_CANARY_TRIGGER_TASK_ID",
     "TLSN_CANARY_WORKER_INTERNAL_URL",
+    "TLSN_CANARY_VERIFIER_WORKER_INTERNAL_URL",
   ], {
     source: "WORKFLOW_CONTEXT",
     secret: false,
@@ -497,6 +500,7 @@ export const CANARY_EXTERNAL_INPUT_INTAKE = Object.freeze([
       TLSN_CANARY_TRIGGER_API_URL: "DEPLOYMENT_GENERATED",
       TLSN_CANARY_TRIGGER_TASK_ID: "DEPLOYMENT_GENERATED",
       TLSN_CANARY_WORKER_INTERNAL_URL: "DEPLOYMENT_GENERATED",
+      TLSN_CANARY_VERIFIER_WORKER_INTERNAL_URL: "DEPLOYMENT_GENERATED",
     },
     ownershipMetadataByName: {
       TLSN_GIT_COMMIT_SHA: {
@@ -526,6 +530,11 @@ export const CANARY_EXTERNAL_INPUT_INTAKE = Object.freeze([
       },
       TLSN_CANARY_WORKER_INTERNAL_URL: {
         generated_by: "FUSOU Worker deployment output",
+        can_generate_during_deployment: true,
+        external_dependency: false,
+      },
+      TLSN_CANARY_VERIFIER_WORKER_INTERNAL_URL: {
+        generated_by: "FUSOU Verifier Worker deployment output",
         can_generate_during_deployment: true,
         external_dependency: false,
       },
