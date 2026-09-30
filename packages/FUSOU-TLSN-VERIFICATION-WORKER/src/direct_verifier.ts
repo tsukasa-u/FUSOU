@@ -16,6 +16,8 @@ import { verifyInternalRequest } from "./verification_jobs.js";
 import {
   CANARY_VERIFIER_WORKER_NAME,
   canaryVerifierExecutionKeyPairMatches,
+  createCanaryVerifierExecutionReceipt,
+  type CanaryVerifierExecutionReceiptSigner,
 } from "./verifier_identity.js";
 
 const MAX_INTERNAL_CALLBACK_JSON_BYTES = 64 * 1024;
@@ -24,33 +26,70 @@ const MAX_CONTROL_METADATA_BYTES = 64 * 1024;
 const DIRECT_METADATA_HEADER = "X-FUSOU-TLSN-Direct-Metadata";
 const DIRECT_CONTROL_HEADER = "X-FUSOU-TLSN-Benchmark-Control";
 
-const app = new Hono<{ Bindings: Bindings }>();
+type DirectVerifierBindings = Bindings & {
+  TLSN_CANARY_VERIFIER_IDENTITY_SIGNING_PRIVATE_KEY_PKCS8?: string;
+};
 
-app.get("/health", async (c) => {
-  const productionCanary = c.env.TLSN_ENVIRONMENT === "production"
-    && c.env.TLSN_DEPLOYMENT_ROLE === "canary";
-  const runtimeVersionId = c.env.CF_VERSION_METADATA?.id ?? null;
-  const verifierPrivateKey = c.env.TLSN_CANARY_VERIFIER_IDENTITY_SIGNING_PRIVATE_KEY_PKCS8;
-  const verifierPublicKey = c.env.TLSN_CANARY_VERIFIER_PUBLIC_KEY_SPKI;
+const app = new Hono<{ Bindings: DirectVerifierBindings }>();
+
+function canaryVerifierExecutionReceiptSigner(
+  env: DirectVerifierBindings,
+): CanaryVerifierExecutionReceiptSigner | undefined {
+  if (env.TLSN_ENVIRONMENT !== "production" || env.TLSN_DEPLOYMENT_ROLE !== "canary") return undefined;
+  const privateKey = env.TLSN_CANARY_VERIFIER_IDENTITY_SIGNING_PRIVATE_KEY_PKCS8;
+  const publicKey = env.TLSN_CANARY_VERIFIER_PUBLIC_KEY_SPKI;
+  const runtimeVersionId = env.CF_VERSION_METADATA?.id;
+  const verifierKeyId = env.TLSN_CANARY_VERIFIER_IDENTITY_KEY_ID;
+  const deploymentId = env.TLSN_CANARY_VERIFIER_DEPLOYMENT_ID;
+  if (!privateKey || !publicKey || !runtimeVersionId || !verifierKeyId || !deploymentId) return undefined;
+  return async ({ jobId, verificationAttemptId, presentationBytes, resultBytes }) => {
+    return createCanaryVerifierExecutionReceipt({
+      jobId,
+      verificationAttemptId,
+      deploymentId,
+      runtimeVersionId,
+      verifierKeyId,
+      verifierPublicKeySpki: publicKey,
+      verifierSigningPrivateKeyPkcs8: decodeBase64Url(privateKey, 4096),
+      presentationBytes,
+      resultBytes,
+    });
+  };
+}
+
+async function canaryVerifierExecutionHealth(env: DirectVerifierBindings) {
+  const productionCanary = env.TLSN_ENVIRONMENT === "production" && env.TLSN_DEPLOYMENT_ROLE === "canary";
+  const runtimeVersionId = env.CF_VERSION_METADATA?.id ?? null;
+  const verifierPrivateKey = env.TLSN_CANARY_VERIFIER_IDENTITY_SIGNING_PRIVATE_KEY_PKCS8;
+  const verifierPublicKey = env.TLSN_CANARY_VERIFIER_PUBLIC_KEY_SPKI;
   const verifierKeyPairValid = productionCanary
     ? await canaryVerifierExecutionKeyPairMatches(verifierPrivateKey, verifierPublicKey)
     : true;
   const verifierIdentity = productionCanary
     ? {
-        key_id: c.env.TLSN_CANARY_VERIFIER_IDENTITY_KEY_ID ?? null,
+        key_id: env.TLSN_CANARY_VERIFIER_IDENTITY_KEY_ID ?? null,
         public_key_spki: verifierPublicKey ?? null,
-        deployment_id: c.env.TLSN_CANARY_VERIFIER_DEPLOYMENT_ID ?? null,
+        deployment_id: env.TLSN_CANARY_VERIFIER_DEPLOYMENT_ID ?? null,
         worker_name: CANARY_VERIFIER_WORKER_NAME,
         keypair_valid: verifierKeyPairValid,
       }
     : null;
-  const identityComplete = !productionCanary || Boolean(
-    runtimeVersionId
-    && verifierIdentity?.key_id
-    && verifierIdentity.public_key_spki
-    && verifierIdentity.deployment_id
-    && verifierIdentity.keypair_valid,
-  );
+  return {
+    productionCanary,
+    runtimeVersionId,
+    verifierIdentity,
+    identityComplete: !productionCanary || Boolean(
+      runtimeVersionId
+      && verifierIdentity?.key_id
+      && verifierIdentity.public_key_spki
+      && verifierIdentity.deployment_id
+      && verifierIdentity.keypair_valid,
+    ),
+  };
+}
+
+app.get("/health", async (c) => {
+  const { productionCanary, runtimeVersionId, verifierIdentity, identityComplete } = await canaryVerifierExecutionHealth(c.env);
   return c.json({
     schema_version: 1,
     ok: identityComplete,
@@ -121,7 +160,10 @@ app.post("/internal/tlsn/verification-complete", async (c) => {
   const jobId = c.req.header("X-FUSOU-TLSN-Job-Id") ?? "";
   const signature = c.req.header("X-FUSOU-TLSN-Signature") ?? null;
   const requestedExecutionMode = c.req.header("X-FUSOU-TLSN-Execution-Mode");
-  if (requestedExecutionMode !== null && requestedExecutionMode !== "trigger") {
+  if (requestedExecutionMode !== null && requestedExecutionMode !== "trigger" && requestedExecutionMode !== "direct") {
+    return c.json({ error: "invalid_request" }, 400);
+  }
+  if (requestedExecutionMode === "direct" && !encodedMetadata) {
     return c.json({ error: "invalid_request" }, 400);
   }
   if (requestedExecutionMode === "trigger" && encodedMetadata) {
@@ -135,7 +177,7 @@ app.post("/internal/tlsn/verification-complete", async (c) => {
     return c.json({ error: "unauthorized" }, 401);
   }
   const response = await processVerificationCompletion(
-    verificationCompletionContextFromHono(c),
+    verificationCompletionContextFromHono(c, canaryVerifierExecutionReceiptSigner(c.env)),
     rawBody,
     jobId,
     signature,

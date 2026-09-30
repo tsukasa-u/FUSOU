@@ -121,6 +121,11 @@ assert.equal(
   CANARY_WORKER_SECRET_CONTRACT.verifier.includes("TLSN_CANARY_VERIFIER_IDENTITY_SIGNING_PRIVATE_KEY_PKCS8"),
   true,
 );
+const accidentalMainCrossInjection = workerSecretBundleForCanary("main", {
+  ...dummyEnvironment,
+  TLSN_CANARY_VERIFIER_IDENTITY_SIGNING_PRIVATE_KEY_PKCS8: "must-never-enter-main-bundle",
+});
+assert.equal(accidentalMainCrossInjection.TLSN_CANARY_VERIFIER_IDENTITY_SIGNING_PRIVATE_KEY_PKCS8, undefined);
 
 const evidenceDummyEnvironment = Object.fromEntries(
   [...new Set(Object.values(EVIDENCE_WORKER_SECRET_CONTRACT).flat())]
@@ -223,6 +228,10 @@ assert.match(runtimeSource, /signResult/);
 assert.match(runtimeSource, /triggerExecutionConfig/);
 assert.match(runtimeSource, /queueCallbackSecret/);
 assert.match(runtimeSource, /directCallbackSecret/);
+assert.doesNotMatch(runtimeSource, /TLSN_CANARY_VERIFIER_IDENTITY_SIGNING_PRIVATE_KEY_PKCS8/);
+assert.match(directVerifierSource, /TLSN_CANARY_VERIFIER_IDENTITY_SIGNING_PRIVATE_KEY_PKCS8/);
+assert.match(directVerifierSource, /canaryVerifierExecutionReceiptSigner/);
+assert.match(directVerifierSource, /requestedExecutionMode !== "direct"/);
 assert.match(runtimeSource, /testBindingValueForRequest/);
 assert.match(runtimeSource, /authenticateRequest/);
 assert.match(directVerifierSource, /processVerificationCompletion/);

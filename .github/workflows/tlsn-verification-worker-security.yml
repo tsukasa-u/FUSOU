@@ -76,6 +76,9 @@ jobs:
       - name: Verify Canary Verifier health keypair
         run: pnpm --dir packages/FUSOU-TLSN-VERIFICATION-WORKER run test:canary-verifier-health
 
+      - name: Verify Canary Main and Verifier execution boundary
+        run: pnpm --dir packages/FUSOU-TLSN-VERIFICATION-WORKER run test:canary-execution-boundary
+
       - name: Verify exact authoritative Result byte binding
         run: pnpm --dir packages/FUSOU-TLSN-VERIFICATION-WORKER run test:canary-result-byte-binding
 

@@ -651,7 +651,7 @@ async function readCanaryOperationalSmoke(environment, runtimeIdentity, deployme
       status: "NOT_RUN",
       readiness: "BLOCKED",
       components: Object.fromEntries(CANARY_OPERATIONAL_SMOKE_COMPONENTS.map((component) => [component, "NOT_RUN"])),
-      reason: "A smoke artifact and independent readiness invocation UUID are required; semantic validators and the live runner are not implemented.",
+      reason: "A signed smoke artifact from the live runner and an independent readiness invocation UUID are required; missing evidence remains NOT_RUN and BLOCKED.",
     };
   }
   if (runtimeIdentity?.status !== "VALID" || runtimeIdentity.signature_valid !== true || !runtimeAttestationKeyRegistry) {

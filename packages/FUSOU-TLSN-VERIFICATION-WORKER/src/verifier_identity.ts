@@ -21,6 +21,17 @@ export type CanaryVerifierExecutionReceipt = {
   signature_base64url: string;
 };
 
+export type CanaryVerifierExecutionReceiptSigningInput = {
+  jobId: string;
+  verificationAttemptId: string;
+  presentationBytes: Uint8Array;
+  resultBytes: Uint8Array;
+};
+
+export type CanaryVerifierExecutionReceiptSigner = (
+  input: CanaryVerifierExecutionReceiptSigningInput,
+) => Promise<CanaryVerifierExecutionReceipt>;
+
 export function serializeCanaryAuthoritativeResult(value: Record<string, unknown>): {
   body: string;
   bytes: Uint8Array;
@@ -29,16 +40,12 @@ export function serializeCanaryAuthoritativeResult(value: Record<string, unknown
   return { body, bytes: new TextEncoder().encode(body) };
 }
 
-type CanaryVerifierExecutionReceiptInput = {
-  jobId: string;
-  verificationAttemptId: string;
+type CanaryVerifierExecutionReceiptInput = CanaryVerifierExecutionReceiptSigningInput & {
   deploymentId: string;
   runtimeVersionId: string;
   verifierKeyId: string;
   verifierPublicKeySpki: string;
   verifierSigningPrivateKeyPkcs8: Uint8Array;
-  presentationBytes: Uint8Array;
-  resultBytes: Uint8Array;
   issuedAt?: string;
 };
 

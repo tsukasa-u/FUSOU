@@ -608,9 +608,15 @@ export const WORKER_SECRET_CAPABILITIES = {
       ),
       verifierExecutionReceiptSigning: runtimeCapability(
         ["TLSN_CANARY_VERIFIER_IDENTITY_SIGNING_PRIVATE_KEY_PKCS8"],
-        ["completeVerification"],
-        ["completeVerification"],
-        { completeVerification: "TLSN_CANARY_VERIFIER_IDENTITY_SIGNING_PRIVATE_KEY_PKCS8" },
+        ["canaryVerifierExecutionReceiptSigner"],
+        ["canaryVerifierExecutionReceiptSigner"],
+        { canaryVerifierExecutionReceiptSigner: "TLSN_CANARY_VERIFIER_IDENTITY_SIGNING_PRIVATE_KEY_PKCS8" },
+      ),
+      verifierExecutionHealth: runtimeCapability(
+        ["TLSN_CANARY_VERIFIER_IDENTITY_SIGNING_PRIVATE_KEY_PKCS8"],
+        ["canaryVerifierExecutionHealth"],
+        ["canaryVerifierExecutionHealth"],
+        { canaryVerifierExecutionHealth: "TLSN_CANARY_VERIFIER_IDENTITY_SIGNING_PRIVATE_KEY_PKCS8" },
       ),
     },
   },
