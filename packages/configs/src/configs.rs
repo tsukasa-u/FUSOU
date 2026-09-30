@@ -1019,6 +1019,7 @@ pub struct ConfigsApp {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ConfigsProxyTlsn {
     enabled: Option<bool>,
+    candidate_capture_enabled: Option<bool>,
     disclosure_mode: Option<String>,
     response_mode: Option<String>,
     artifact_output_path: Option<String>,
@@ -1028,6 +1029,7 @@ impl Default for ConfigsProxyTlsn {
     fn default() -> Self {
         Self {
             enabled: None,
+            candidate_capture_enabled: None,
             disclosure_mode: None,
             response_mode: None,
             artifact_output_path: None,
@@ -1176,6 +1178,13 @@ impl ConfigsProxy {
             .or(self.legacy_tlsn_experiment_enabled)
             .or(self.legacy_tlsn_production_enabled)
             .or(get_default_configs().proxy.tlsn.enabled)
+            .unwrap_or(false)
+    }
+
+    pub fn get_tlsn_candidate_capture_enabled(&self) -> bool {
+        self.tlsn
+            .candidate_capture_enabled
+            .or(get_default_configs().proxy.tlsn.candidate_capture_enabled)
             .unwrap_or(false)
     }
 
@@ -1777,11 +1786,14 @@ mod tests {
             "allow_save_api_requests getter should return configs.toml default"
         );
         assert!(!empty_proxy_fields.get_tlsn_experiment_enabled());
+        assert!(!empty_proxy_fields.get_tlsn_candidate_capture_enabled());
         let mut explicitly_enabled = empty_proxy_fields.clone();
         explicitly_enabled.tlsn.enabled = Some(true);
         assert!(explicitly_enabled.get_tlsn_experiment_enabled());
         explicitly_enabled.tlsn.enabled = Some(false);
         assert!(!explicitly_enabled.get_tlsn_experiment_enabled());
+        explicitly_enabled.tlsn.candidate_capture_enabled = Some(true);
+        assert!(explicitly_enabled.get_tlsn_candidate_capture_enabled());
         assert_eq!(empty_proxy_fields.get_tlsn_response_mode(), "async");
         assert_eq!(
             empty_proxy_fields.get_allow_save_api_responses(),

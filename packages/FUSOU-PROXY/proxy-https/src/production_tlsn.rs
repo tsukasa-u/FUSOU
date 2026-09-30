@@ -711,11 +711,20 @@ impl PresentationProvider for HandoffPresentationProvider {
 
 pub struct FilesystemPresentationArtifactSink {
     root: std::path::PathBuf,
+    enabled: bool,
 }
 
 impl FilesystemPresentationArtifactSink {
     pub fn new(root: impl Into<std::path::PathBuf>) -> Self {
-        Self { root: root.into() }
+        Self {
+            root: root.into(),
+            enabled: true,
+        }
+    }
+
+    pub fn with_enabled(mut self, enabled: bool) -> Self {
+        self.enabled = enabled;
+        self
     }
 }
 
@@ -726,7 +735,11 @@ impl PresentationArtifactSink for FilesystemPresentationArtifactSink {
         presentation: TlsnPresentation,
     ) -> PresentationExportFuture {
         let root = self.root.clone();
+        let enabled = self.enabled;
         Box::pin(async move {
+            if !enabled {
+                return Ok(());
+            }
             tokio::fs::create_dir_all(&root)
                 .await
                 .map_err(|_| PresentationExportError::Failed)?;
@@ -1694,6 +1707,33 @@ mod tests {
             sink.presentation.lock().unwrap().as_ref().unwrap().bytes(),
             &[9, 8, 7]
         );
+    }
+
+    #[tokio::test]
+    async fn disabled_filesystem_presentation_sink_keeps_verification_path_without_export() {
+        let root = std::env::temp_dir().join(format!(
+            "fusou-tlsn-disabled-artifact-sink-{}-{}",
+            std::process::id(),
+            uuid::Uuid::new_v4()
+        ));
+        let request = request();
+        let exchange = exchange();
+        let binding = AttestationBinding::new("binding-value".to_owned()).unwrap();
+        let config = origin_config(true);
+        let context = PresentationRequestContext::from_exchange(
+            RuntimeIdentifiers::default(),
+            9,
+            &binding,
+            &request,
+            &exchange,
+            config.target(),
+        );
+        let presentation = TlsnPresentation::new("presentation-disabled".to_owned(), vec![1, 2, 3])
+            .unwrap();
+        let sink = FilesystemPresentationArtifactSink::new(&root).with_enabled(false);
+
+        sink.export(context, presentation).await.unwrap();
+        assert!(!root.exists());
     }
 
     #[tokio::test]

@@ -165,6 +165,7 @@ fn build_production_tlsn_dependencies(
         ));
     }
     let artifact_root = std::path::PathBuf::from(artifact_root);
+    let candidate_capture_enabled = proxy_configs.get_tlsn_candidate_capture_enabled();
     if artifact_root.as_os_str().is_empty() {
         return Err(production_configuration_error(
             "tlsn_artifact_output_path is required for the TLSN experiment",
@@ -226,10 +227,10 @@ fn build_production_tlsn_dependencies(
         )
         .map_err(production_configuration_error)?,
     );
-    let result_signer = std::sync::Arc::new(RemoteWorkerResultSigner::new(
-        worker_results,
-        artifact_root.clone(),
-    ));
+    let result_signer = std::sync::Arc::new(
+        RemoteWorkerResultSigner::new(worker_results, artifact_root.clone())
+            .with_candidate_capture_enabled(candidate_capture_enabled),
+    );
     Ok(ProductionTlsnDependencies::new(
         origin,
         binding_provider,
@@ -242,7 +243,8 @@ fn build_production_tlsn_dependencies(
         std::sync::Arc::new(FilesystemResultDelivery::new(artifact_root.join("results"))),
     )
     .with_presentation_artifact_sink(std::sync::Arc::new(
-        FilesystemPresentationArtifactSink::new(artifact_root),
+        FilesystemPresentationArtifactSink::new(artifact_root)
+            .with_enabled(candidate_capture_enabled),
     ))
     .with_identifiers(RuntimeIdentifiers::default().with_runtime_identity(runtime_identity)))
 }

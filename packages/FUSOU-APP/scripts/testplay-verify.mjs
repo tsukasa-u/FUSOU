@@ -22,8 +22,11 @@ const defaultConfigPath = path.join(
 const scriptArguments = process.argv
   .slice(2)
   .filter((argument) => argument !== "--");
-const outputArgument =
-  scriptArguments[0] ?? process.env.FUSOU_CAPTURE_OUTPUT_PATH;
+const tlsnCandidateMode = scriptArguments.includes("--tlsn-candidate");
+const positionalArguments = scriptArguments.filter(
+  (argument) => argument !== "--tlsn-candidate",
+);
+const outputArgument = positionalArguments[0] ?? process.env.FUSOU_CAPTURE_OUTPUT_PATH;
 const temporarySettingsBySection = new Map([
   [
     "proxy",
@@ -34,7 +37,13 @@ const temporarySettingsBySection = new Map([
       ["allow_save_main_js_local", "false"],
     ]),
   ],
-  ["proxy.tlsn", new Map([["enabled", "false"]])],
+  [
+    "proxy.tlsn",
+    new Map([
+      ["enabled", "false"],
+      ["candidate_capture_enabled", "false"],
+    ]),
+  ],
   [
     "app.database",
     new Map([
@@ -66,7 +75,20 @@ function isInside(parent, child) {
   );
 }
 
-export function withCaptureConfig(content, outputPath) {
+export async function resolveCaptureOutputPath(outputPath, repositoryPath = repositoryRoot) {
+  await fs.mkdir(path.dirname(outputPath), { recursive: true, mode: 0o700 });
+  const [realParent, realRepository] = await Promise.all([
+    fs.realpath(path.dirname(outputPath)),
+    fs.realpath(repositoryPath),
+  ]);
+  const resolvedPath = path.join(realParent, path.basename(outputPath));
+  if (isInside(realRepository, resolvedPath)) {
+    throw new Error("capture output must resolve outside the repository");
+  }
+  return resolvedPath;
+}
+
+export function withCaptureConfig(content, outputPath, { tlsnCandidate = false } = {}) {
   const newline = content.includes("\r\n") ? "\r\n" : "\n";
   const lines = content.split(/\r?\n/);
   const hasTrailingNewline = lines.at(-1) === "";
@@ -74,12 +96,25 @@ export function withCaptureConfig(content, outputPath) {
     lines.pop();
   }
   const settingsBySection = new Map(temporarySettingsBySection);
+  if (tlsnCandidate) {
+    settingsBySection.set(
+      "proxy.tlsn",
+      new Map([
+        ["enabled", "true"],
+        ["candidate_capture_enabled", "true"],
+        ["artifact_output_path", JSON.stringify(path.join(outputPath, "tlsn"))],
+      ]),
+    );
+  }
   settingsBySection.set(
     "proxy",
     new Map([
       ...settingsBySection.get("proxy"),
       ["capture_enabled", "true"],
-      ["capture_output_path", JSON.stringify(outputPath)],
+      [
+        "capture_output_path",
+        JSON.stringify(tlsnCandidate ? path.join(outputPath, "natural") : outputPath),
+      ],
     ]),
   );
   const seenBySection = new Map(
@@ -141,6 +176,44 @@ export async function restoreConfig(filePath, originalConfig) {
   }
 }
 
+export async function prepareCaptureOutput(outputPath, { tlsnCandidate = false } = {}) {
+  let stats;
+  try {
+    stats = await fs.lstat(outputPath);
+  } catch (error) {
+    if (error.code !== "ENOENT") throw error;
+  }
+
+  if (stats) {
+    if (!stats.isDirectory() || stats.isSymbolicLink()) {
+      throw new Error("capture output must be a real directory");
+    }
+    if (process.platform !== "win32") {
+      if (typeof process.getuid === "function" && stats.uid !== process.getuid()) {
+        throw new Error("capture output must be owned by the current user");
+      }
+      if ((stats.mode & 0o077) !== 0) {
+        throw new Error("capture output permissions must be private (0700 or stricter)");
+      }
+    }
+    if (tlsnCandidate && (await fs.readdir(outputPath)).length > 0) {
+      throw new Error("TLSN candidate capture output must be an empty directory");
+    }
+  } else {
+    if (tlsnCandidate) {
+      await fs.mkdir(path.dirname(outputPath), { recursive: true, mode: 0o700 });
+      await fs.mkdir(outputPath, { mode: 0o700 });
+    } else {
+      await fs.mkdir(outputPath, { recursive: true, mode: 0o700 });
+    }
+  }
+
+  if (tlsnCandidate) {
+    await fs.mkdir(path.join(outputPath, "natural"), { mode: 0o700 });
+    await fs.mkdir(path.join(outputPath, "tlsn"), { mode: 0o700 });
+  }
+}
+
 async function readOptional(filePath) {
   try {
     return await fs.readFile(filePath, "utf8");
@@ -155,7 +228,11 @@ async function readOptional(filePath) {
 function runTauriDev() {
   const command = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
   return new Promise((resolve, reject) => {
-    const child = spawn(command, ["tauri", "dev"], {
+    const child = spawn(command, [
+      "tauri",
+      "dev",
+      ...(tlsnCandidateMode ? ["--features", "tlsn-production"] : []),
+    ], {
       cwd: appRoot,
       env: process.env,
       stdio: "inherit",
@@ -183,28 +260,45 @@ function runTauriDev() {
 }
 
 async function main() {
+  if (positionalArguments.length > 1 || scriptArguments.some((argument) => argument.startsWith("--") && argument !== "--tlsn-candidate")) {
+    fail("usage: pnpm testplay:verify -- [--tlsn-candidate] /absolute/private/path");
+    return;
+  }
   if (!outputArgument || !path.isAbsolute(outputArgument)) {
     fail(
-      "pass a private absolute capture directory: pnpm testplay:verify -- /absolute/private/path",
+      "pass a private absolute capture directory: pnpm testplay:verify -- [--tlsn-candidate] /absolute/private/path",
     );
     return;
   }
 
-  const outputPath = path.resolve(outputArgument);
-  if (isInside(repositoryRoot, outputPath)) {
+  const requestedOutputPath = path.resolve(outputArgument);
+  if (isInside(repositoryRoot, requestedOutputPath)) {
     fail("capture output must be outside the repository");
     return;
   }
 
-  await fs.mkdir(outputPath, { recursive: true });
+  let outputPath;
+  try {
+    outputPath = await resolveCaptureOutputPath(requestedOutputPath);
+    await prepareCaptureOutput(outputPath, { tlsnCandidate: tlsnCandidateMode });
+  } catch (error) {
+    fail(error.message);
+    return;
+  }
   await fs.mkdir(path.dirname(configPath), { recursive: true });
   const originalConfig = await readOptional(configPath);
   const baseConfig =
     originalConfig ?? (await fs.readFile(defaultConfigPath, "utf8"));
-  const updatedConfig = withCaptureConfig(baseConfig, outputPath);
+  const updatedConfig = withCaptureConfig(baseConfig, outputPath, {
+    tlsnCandidate: tlsnCandidateMode,
+  });
   await fs.writeFile(configPath, updatedConfig, "utf8");
 
   console.log(`Capture output: ${outputPath}`);
+  if (tlsnCandidateMode) {
+    console.log("TLSN candidate capture is enabled; its output remains OBSERVED_UNAPPROVED.");
+    console.log("A valid existing FUSOU auth session and TLSN production configuration are required.");
+  }
   console.log(
     "Proxy persistence, app data uploads, custom senders, auth bootstrap, and pending retries are disabled for this session only.",
   );
@@ -212,7 +306,7 @@ async function main() {
     "Use only ordinary FUSOU-APP gameplay. Do not issue standalone requests, inject, replay, retry, or automate traffic.",
   );
   console.log(
-    "Press Ctrl-C after the natural session; the original user config will be restored.",
+    "Press Ctrl-C after the natural session; the original user config will be restored and gameplay readiness will remain unchanged.",
   );
 
   let exitCode = 1;

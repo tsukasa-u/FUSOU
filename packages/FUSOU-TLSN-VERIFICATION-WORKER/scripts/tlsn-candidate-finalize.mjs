@@ -1,0 +1,294 @@
+import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
+import { open, lstat, readFile, rm } from "node:fs/promises";
+import path from "node:path";
+import { isDeepStrictEqual } from "node:util";
+import { fileURLToPath } from "node:url";
+import { verifyCanaryExistingSourceProofBundle } from "./canary-operational-smoke-existing-proofs.mjs";
+
+const ARTIFACT_NAMES = [
+  "session.json",
+  "device-authentication.json",
+  "device-identity.json",
+  "possession-proof.json",
+  "result.json",
+  "consume-receipt.json",
+  "worker-verification.json",
+  "result-exact.bin",
+  "verifier-execution-receipt-header.txt",
+  "verifier-execution-receipt.bin",
+  "presentation.bin",
+  "metadata.json",
+].sort();
+
+const TRUST_CONTEXT_KEYS = [
+  "verifierIdentityKeyRegistry",
+  "trustedRuntimeIdentity",
+  "expectedJobId",
+  "expectedVerificationAttemptId",
+  "sessionAuthority",
+  "bindingAuthority",
+  "resultAuthority",
+  "deploymentManifest",
+  "profileSha256",
+  "notaryRegistry",
+  "trustAnchorDer",
+];
+
+function sha256Base64Url(bytes) {
+  return createHash("sha256").update(bytes).digest("base64url");
+}
+
+function assertObject(value, label) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(`${label} must be an object`);
+  }
+}
+
+function parseJson(bytes, label) {
+  try {
+    return JSON.parse(bytes.toString("utf8"));
+  } catch {
+    throw new Error(`${label} is not valid JSON`);
+  }
+}
+
+async function assertPrivateDirectory(directory) {
+  const stats = await lstat(directory);
+  if (!stats.isDirectory() || stats.isSymbolicLink()) {
+    throw new Error("candidate bundle path must be a real directory");
+  }
+  if (process.platform !== "win32") {
+    if (typeof process.getuid === "function" && stats.uid !== process.getuid()) {
+      throw new Error("candidate bundle directory must be owned by the current user");
+    }
+    if ((stats.mode & 0o077) !== 0) {
+      throw new Error("candidate bundle directory permissions must be private");
+    }
+  }
+}
+
+async function readArtifact(directory, manifest, name) {
+  const expected = manifest.artifacts?.[name];
+  if (!expected || !Number.isSafeInteger(expected.size_bytes) || typeof expected.sha256 !== "string") {
+    throw new Error(`candidate manifest is missing artifact metadata: ${name}`);
+  }
+  const filePath = path.join(directory, name);
+  const stats = await lstat(filePath);
+  if (!stats.isFile() || stats.isSymbolicLink()) {
+    throw new Error(`candidate artifact is not a regular file: ${name}`);
+  }
+  const bytes = await readFile(filePath);
+  if (bytes.length !== expected.size_bytes || sha256Base64Url(bytes) !== expected.sha256) {
+    throw new Error(`candidate artifact integrity mismatch: ${name}`);
+  }
+  return bytes;
+}
+
+export async function loadTlsnCandidateBundle(candidateDirectory) {
+  await assertPrivateDirectory(candidateDirectory);
+  const manifestPath = path.join(candidateDirectory, "candidate-manifest.json");
+  const manifestStats = await lstat(manifestPath);
+  if (!manifestStats.isFile() || manifestStats.isSymbolicLink()) {
+    throw new Error("candidate manifest must be a regular file");
+  }
+  const manifestBytes = await readFile(manifestPath);
+  const manifest = parseJson(manifestBytes, "candidate manifest");
+  if (
+    manifest.schema_version !== 1 ||
+    manifest.scope !== "fusou-tlsn-human-test-play-candidate" ||
+    manifest.candidate_status !== "CAPTURED_PENDING_OFFLINE_VERIFICATION" ||
+    manifest.approval_status !== "UNAPPROVED" ||
+    manifest.target_identity_status !== "NOT_YET_OBSERVED" ||
+    manifest.readiness_effect !== "NONE" ||
+    manifest.gameplay_effect !== "NONE"
+  ) {
+    throw new Error("candidate manifest scope or status is invalid");
+  }
+  const artifactNames = Object.keys(manifest.artifacts ?? {}).sort();
+  assert.deepEqual(artifactNames, ARTIFACT_NAMES, "candidate artifact inventory is incomplete or unexpected");
+
+  const artifacts = Object.fromEntries(
+    await Promise.all(ARTIFACT_NAMES.map(async (name) => [
+      name,
+      await readArtifact(candidateDirectory, manifest, name),
+    ])),
+  );
+  const presentationBytes = artifacts["presentation.bin"];
+  const resultBytes = artifacts["result-exact.bin"];
+  const receiptBytes = artifacts["verifier-execution-receipt.bin"];
+  const receiptHeader = artifacts["verifier-execution-receipt-header.txt"].toString("ascii");
+  if (
+    sha256Base64Url(presentationBytes) !== manifest.presentation_sha256 ||
+    sha256Base64Url(resultBytes) !== manifest.exact_result_sha256 ||
+    sha256Base64Url(receiptBytes) !== manifest.verifier_execution_receipt_sha256 ||
+    manifest.verifier_execution_receipt_status !== "CAPTURED" ||
+    Buffer.from(receiptHeader, "base64url").toString("base64url") !== receiptHeader ||
+    Buffer.from(receiptHeader, "base64url").compare(receiptBytes) !== 0
+  ) {
+    throw new Error("candidate proof bytes do not match the capture manifest");
+  }
+
+  const session = parseJson(artifacts["session.json"], "captured Session");
+  const deviceAuthentication = parseJson(
+    artifacts["device-authentication.json"],
+    "captured device authentication",
+  );
+  const deviceIdentity = parseJson(artifacts["device-identity.json"], "captured device identity");
+  const possessionProof = parseJson(artifacts["possession-proof.json"], "captured possession proof");
+  const workerVerification = parseJson(
+    artifacts["worker-verification.json"],
+    "captured Worker verification",
+  );
+  const responsePayload = parseJson(resultBytes, "exact Worker result body");
+  const result = parseJson(artifacts["result.json"], "captured Result");
+  const consumeReceipt = parseJson(artifacts["consume-receipt.json"], "captured consume receipt");
+  if (
+    !isDeepStrictEqual(responsePayload, workerVerification) ||
+    !isDeepStrictEqual(result, workerVerification.result) ||
+    !isDeepStrictEqual(consumeReceipt, workerVerification.consume_receipt) ||
+    deviceIdentity.authority_state !== "UNVERIFIED" ||
+    session.canonical_user_id !== session.session_receipt?.canonical_user_id
+  ) {
+    throw new Error("candidate proof artifacts are inconsistent or claim unsupported identity authority");
+  }
+
+  return {
+    candidateDirectory,
+    manifest,
+    manifestSha256: sha256Base64Url(manifestBytes),
+    artifacts,
+    session,
+    deviceAuthentication,
+    deviceIdentity,
+    possessionProof,
+    consumeReceipt,
+    workerVerification,
+    presentationBytes,
+    resultBytes,
+    verifierExecutionReceiptBytes: receiptBytes,
+  };
+}
+
+function validateTrustContext(trustContext) {
+  assertObject(trustContext, "offline trust context");
+  const allowedKeys = new Set([...TRUST_CONTEXT_KEYS, "disclosureMode"]);
+  const keys = Object.keys(trustContext);
+  if (keys.some((key) => !allowedKeys.has(key)) || TRUST_CONTEXT_KEYS.some((key) => !(key in trustContext))) {
+    throw new Error("offline trust context fields are incomplete or unexpected");
+  }
+  assertObject(trustContext.deploymentManifest, "deployment manifest");
+  assertObject(trustContext.deploymentManifest.target, "deployment target");
+  return trustContext;
+}
+
+export async function finalizeTlsnCandidateBundle({
+  candidateDirectory,
+  trustContext,
+} = {}) {
+  const bundle = await loadTlsnCandidateBundle(candidateDirectory);
+  const trusted = validateTrustContext(trustContext);
+  const deviceIdentity = {
+    authoritative: true,
+    authority: "fusou-web-user-devices",
+    canonical_user_id: bundle.deviceIdentity.canonical_user_id,
+    device_id: bundle.deviceIdentity.device_id,
+    device_public_key: bundle.deviceIdentity.device_public_key,
+    device_public_key_sha256: bundle.deviceIdentity.device_public_key_sha256,
+    revoked_at: null,
+  };
+  const verification = await verifyCanaryExistingSourceProofBundle({
+    ...trusted,
+    session: bundle.session,
+    deviceAuthentication: bundle.deviceAuthentication,
+    deviceIdentity,
+    possessionProof: bundle.possessionProof,
+    consumeReceipt: bundle.consumeReceipt,
+    presentationBytes: bundle.presentationBytes,
+    resultBytes: bundle.resultBytes,
+    verifierExecutionReceiptBytes: bundle.verifierExecutionReceiptBytes,
+  });
+  const verifiedPresentation = verification?.verified_presentation;
+  if (
+    verification?.status !== "PASS" ||
+    verification.proof_bundle_status !== "PASS_LIMITED" ||
+    verification.readiness_effect !== "NONE" ||
+    verification.gameplay_effect !== "NONE" ||
+    verification.operational_smoke_effect !== "NONE" ||
+    typeof verifiedPresentation?.server_identity !== "string" ||
+    verifiedPresentation.server_identity.length === 0 ||
+    verifiedPresentation.server_identity !== trusted.deploymentManifest.target.server_identity ||
+    verifiedPresentation.presentation_sha256 !== bundle.manifest.presentation_sha256
+  ) {
+    throw new Error("offline proof verifier did not return a bounded verified Presentation identity");
+  }
+
+  const finalization = {
+    schema_version: 1,
+    scope: "fusou-tlsn-human-test-play-observed-target",
+    status: "OBSERVED_UNAPPROVED",
+    approval_status: "UNAPPROVED",
+    proof_bundle_status: verification.proof_bundle_status,
+    candidate_manifest_sha256: bundle.manifestSha256,
+    target_identity: {
+      source: "alpha15-verified-presentation",
+      server_identity: verifiedPresentation.server_identity,
+      presentation_sha256: verifiedPresentation.presentation_sha256,
+      tlsn_attestation_id: verifiedPresentation.tlsn_attestation_id,
+      notary_key_sha256: verifiedPresentation.notary_key_sha256,
+    },
+    verification,
+    readiness_effect: "NONE",
+    gameplay_effect: "NONE",
+  };
+  const outputPath = path.join(candidateDirectory, "candidate-finalization.json");
+  const output = await open(outputPath, "wx", 0o600);
+  try {
+    await output.writeFile(`${JSON.stringify(finalization, null, 2)}\n`, "utf8");
+    await output.sync();
+  } catch (error) {
+    await output.close();
+    await rm(outputPath, { force: true });
+    throw error;
+  }
+  await output.close();
+  return finalization;
+}
+
+function parseArguments(args) {
+  const values = new Map();
+  for (let index = 0; index < args.length; index += 2) {
+    const key = args[index];
+    const value = args[index + 1];
+    if (!["--bundle", "--trust-context"].includes(key) || !value || values.has(key)) {
+      throw new Error("usage: pnpm tlsn:candidate:finalize -- --bundle /absolute/candidate --trust-context /absolute/trust.json");
+    }
+    values.set(key, value);
+  }
+  const bundle = values.get("--bundle");
+  const trustContext = values.get("--trust-context");
+  if (!bundle || !trustContext || !path.isAbsolute(bundle) || !path.isAbsolute(trustContext)) {
+    throw new Error("bundle and trust-context paths must be absolute");
+  }
+  return { bundle, trustContext };
+}
+
+async function main() {
+  const { bundle, trustContext } = parseArguments(
+    process.argv.slice(2).filter((argument) => argument !== "--"),
+  );
+  const result = await finalizeTlsnCandidateBundle({
+    candidateDirectory: bundle,
+    trustContext: parseJson(await readFile(trustContext), "offline trust context"),
+  });
+  console.log(`Candidate finalization: ${path.join(bundle, "candidate-finalization.json")}`);
+  console.log(`Target identity: ${result.target_identity.server_identity} (OBSERVED_UNAPPROVED)`);
+  console.log("Readiness and gameplay effects: NONE");
+}
+
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  main().catch((error) => {
+    console.error(`tlsn:candidate:finalize: ${error.message}`);
+    process.exitCode = 1;
+  });
+}

@@ -421,6 +421,12 @@ export async function verifyCanaryExistingSourceProofBundle({
     operational_smoke_effect: "NONE",
     readiness_effect: "NONE",
     gameplay_effect: "NONE",
+    verified_presentation: {
+      server_identity: semantic.verified_presentation.server_identity,
+      tlsn_attestation_id: semantic.verified_presentation.tlsn_attestation_id,
+      notary_key_sha256: semantic.verified_presentation.notary_key_sha256,
+      presentation_sha256: semantic.presentation_sha256,
+    },
     components: {
       session_binding: {
         status: "PASS",

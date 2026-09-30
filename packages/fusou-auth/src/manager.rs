@@ -950,6 +950,16 @@ impl<S: Storage> AuthManager<S> {
         Ok(parsed)
     }
 
+    /// Fetch the server-issued anonymous-sync v2 challenge for a registered device.
+    pub async fn fetch_anonymous_sync_v2_challenge(
+        &self,
+        device_id: &str,
+    ) -> Result<String, AuthError> {
+        self.fetch_challenge_v2(device_id)
+            .await
+            .map(|challenge| challenge.nonce)
+    }
+
     /// /v2/refresh を呼んで dataset_token を再発行する。
     /// device_key.device_id() が確定済みであることが前提。未登録なら
     /// 呼び出し元で先に register_device_v2 を呼ぶ。

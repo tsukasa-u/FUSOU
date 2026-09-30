@@ -21,7 +21,6 @@ use fusou_tlsn_verifier::{
 use futures::io::{AsyncReadExt, AsyncWriteExt};
 use http::{HeaderMap, HeaderName, HeaderValue, StatusCode};
 use hyper::body::Bytes;
-use rand::RngCore;
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{HashMap, HashSet},
@@ -264,6 +263,7 @@ pub struct RemoteSessionBindingProvider {
 pub struct SessionBindingContext {
     session_id: String,
     device_id: String,
+    device_public_key: String,
     binding: String,
     binding_challenge: String,
     device_challenge: String,
@@ -281,7 +281,21 @@ struct RemoteWorkerResult {
     session: SessionBindingContext,
     device_signature: String,
     payload: serde_json::Value,
+    response_bytes: Vec<u8>,
+    verifier_execution_receipt_header_bytes: Option<Vec<u8>>,
+    verifier_execution_receipt_bytes: Option<Vec<u8>>,
+    response_status: u16,
+    connection_id: u64,
     key_id: String,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+struct WorkerResponse {
+    payload: serde_json::Value,
+    body_bytes: Vec<u8>,
+    verifier_execution_receipt_header_bytes: Option<Vec<u8>>,
+    verifier_execution_receipt_bytes: Option<Vec<u8>>,
+    status: u16,
 }
 
 pub struct RemoteWorkerResultStore {
@@ -355,11 +369,47 @@ fn worker_http_error(
     }
 }
 
-async fn worker_json(response: reqwest::Response) -> Result<serde_json::Value, VerificationError> {
-    response
-        .json()
+fn is_web_device_auth_nonce(value: &str) -> bool {
+    value.len() == 64
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+}
+
+async fn worker_response(response: reqwest::Response) -> Result<WorkerResponse, VerificationError> {
+    let status = response.status().as_u16();
+    let verifier_execution_receipt_header_bytes = response
+        .headers()
+        .get("X-FUSOU-TLSN-Verifier-Execution-Receipt")
+        .map(|value| value.as_bytes().to_vec());
+    let verifier_execution_receipt_bytes = verifier_execution_receipt_header_bytes
+        .as_deref()
+        .map(|encoded| {
+            let encoded = std::str::from_utf8(encoded)
+                .map_err(|_| VerificationError::WorkerRejected)?;
+            let decoded = URL_SAFE_NO_PAD
+                .decode(encoded)
+                .map_err(|_| VerificationError::WorkerRejected)?;
+            if decoded.is_empty() || URL_SAFE_NO_PAD.encode(&decoded) != encoded {
+                return Err(VerificationError::WorkerRejected);
+            }
+            Ok(decoded)
+        })
+        .transpose()?;
+    let body_bytes = response
+        .bytes()
         .await
-        .map_err(|_| VerificationError::WorkerUnavailable)
+        .map_err(|_| VerificationError::WorkerUnavailable)?
+        .to_vec();
+    let payload = serde_json::from_slice(&body_bytes)
+        .map_err(|_| VerificationError::WorkerUnavailable)?;
+    Ok(WorkerResponse {
+        payload,
+        body_bytes,
+        verifier_execution_receipt_header_bytes,
+        verifier_execution_receipt_bytes,
+        status,
+    })
 }
 
 fn queued_job_id(payload: &serde_json::Value) -> Result<String, VerificationError> {
@@ -410,7 +460,7 @@ async fn poll_worker_result(
     job_id: &str,
     poll_interval: Duration,
     poll_timeout: Duration,
-) -> Result<serde_json::Value, VerificationError> {
+) -> Result<WorkerResponse, VerificationError> {
     tokio::time::timeout(poll_timeout, async {
         loop {
             tokio::time::sleep(poll_interval).await;
@@ -429,17 +479,17 @@ async fn poll_worker_result(
                 .await
                 .map_err(|_| VerificationError::WorkerUnavailable)?;
             let status = response.status();
-            let payload = worker_json(response).await?;
+            let worker_response = worker_response(response).await?;
             if status == reqwest::StatusCode::ACCEPTED {
-                if queued_job_id(&payload)? != job_id {
+                if queued_job_id(&worker_response.payload)? != job_id {
                     return Err(VerificationError::WorkerRejected);
                 }
                 continue;
             }
             if status.is_success() {
-                return Ok(payload);
+                return Ok(worker_response);
             }
-            return Err(worker_http_error(status, &payload));
+            return Err(worker_http_error(status, &worker_response.payload));
         }
     })
     .await
@@ -525,6 +575,7 @@ impl TlsnVerificationBackend for RemoteWorkerVerificationBackend {
         let response_mode = self.response_mode;
         Box::pin(async move {
             let (context, _request, binding, _exchange, presentation) = input.into_parts();
+            let connection_id = context.connection_id();
             let session = binding_state
                 .lock()
                 .map_err(|_| VerificationError::WorkerUnavailable)?
@@ -575,9 +626,9 @@ impl TlsnVerificationBackend for RemoteWorkerVerificationBackend {
                 .await
                 .map_err(|_| VerificationError::WorkerUnavailable)?;
             let status = response.status();
-            let payload = worker_json(response).await?;
-            let payload = if status == reqwest::StatusCode::ACCEPTED {
-                let job_id = queued_job_id(&payload)?;
+            let worker_response = worker_response(response).await?;
+            let worker_response = if status == reqwest::StatusCode::ACCEPTED {
+                let job_id = queued_job_id(&worker_response.payload)?;
                 poll_worker_result(
                     &client,
                     &status_endpoint,
@@ -589,11 +640,21 @@ impl TlsnVerificationBackend for RemoteWorkerVerificationBackend {
                 )
                 .await?
             } else if status.is_success() {
-                payload
+                worker_response
             } else {
-                return Err(worker_http_error(status, &payload));
+                return Err(worker_http_error(status, &worker_response.payload));
             };
-            let (payload, key_id, _member_id) = verified_worker_payload(payload)?;
+            if device_key.public_key_b64() != session.device_public_key {
+                return Err(VerificationError::WorkerRejected);
+            }
+            let WorkerResponse {
+                payload: response_payload,
+                body_bytes: response_bytes,
+                verifier_execution_receipt_header_bytes,
+                verifier_execution_receipt_bytes,
+                status: response_status,
+            } = worker_response;
+            let (payload, key_id, _member_id) = verified_worker_payload(response_payload)?;
             let member_id = result_verifier.verify(&payload)?;
             let request_sha256 = *context.request_sha256();
             let response_sha256 = *context.response_sha256();
@@ -604,6 +665,11 @@ impl TlsnVerificationBackend for RemoteWorkerVerificationBackend {
                     session,
                     device_signature,
                     payload,
+                    response_bytes,
+                    verifier_execution_receipt_header_bytes,
+                    verifier_execution_receipt_bytes,
+                    response_status,
+                    connection_id,
                     key_id,
                 },
             )?;
@@ -617,6 +683,7 @@ impl TlsnVerificationBackend for RemoteWorkerVerificationBackend {
 pub struct RemoteWorkerResultSigner {
     results: Arc<RemoteWorkerResultStore>,
     artifact_root: PathBuf,
+    candidate_capture_enabled: bool,
 }
 
 impl RemoteWorkerResultSigner {
@@ -624,7 +691,13 @@ impl RemoteWorkerResultSigner {
         Self {
             results,
             artifact_root,
+            candidate_capture_enabled: false,
         }
+    }
+
+    pub fn with_candidate_capture_enabled(mut self, enabled: bool) -> Self {
+        self.candidate_capture_enabled = enabled;
+        self
     }
 }
 
@@ -632,19 +705,27 @@ impl ProductionResultSigner for RemoteWorkerResultSigner {
     fn sign(&self, evidence: VerifiedTlsnEvidence) -> ResultSignerFuture {
         let results = Arc::clone(&self.results);
         let artifact_root = self.artifact_root.clone();
+        let candidate_capture_enabled = self.candidate_capture_enabled;
         Box::pin(async move {
             let result = results.take(evidence.request_sha256())?;
             let bytes =
                 serde_json::to_vec(&result.payload).map_err(|_| ResultSignerError::Failed)?;
-            write_production_capture_bundle(
-                &artifact_root,
-                &result.presentation,
-                &result.session,
-                &result.payload,
-                &result.device_signature,
-            )
-            .await
-            .map_err(|_| ResultSignerError::Failed)?;
+            if candidate_capture_enabled {
+                write_production_capture_bundle(
+                    &artifact_root,
+                    &result.presentation,
+                    &result.session,
+                    &result.payload,
+                    &result.device_signature,
+                    &result.response_bytes,
+                    result.verifier_execution_receipt_header_bytes.as_deref(),
+                    result.verifier_execution_receipt_bytes.as_deref(),
+                    result.response_status,
+                    result.connection_id,
+                )
+                .await
+                .map_err(|_| ResultSignerError::Failed)?;
+            }
             SignedTlsnResult::new(result.key_id, bytes).map_err(|_| ResultSignerError::Failed)
         })
     }
@@ -732,12 +813,18 @@ async fn write_production_capture_bundle(
     session: &SessionBindingContext,
     worker_payload: &serde_json::Value,
     device_signature: &str,
+    exact_response_bytes: &[u8],
+    verifier_execution_receipt_header_bytes: Option<&[u8]>,
+    verifier_execution_receipt_bytes: Option<&[u8]>,
+    response_status: u16,
+    connection_id: u64,
 ) -> Result<(), std::io::Error> {
     let directory = artifact_root.join(presentation.identifier());
     tokio::fs::create_dir_all(&directory).await?;
 
     let session_json = serde_json::json!({
         "session_id": session.session_id(),
+        "canonical_user_id": session.session_receipt.canonical_user_id,
         "challenge": session.binding_challenge,
         "binding": session.binding(),
         "device_id": session.device_id(),
@@ -787,17 +874,122 @@ async fn write_production_capture_bundle(
     let consume_receipt = worker_payload.get("consume_receipt").ok_or_else(|| {
         std::io::Error::new(std::io::ErrorKind::InvalidData, "consume receipt missing")
     })?;
-    for (name, value) in [
-        ("session.json", session_json),
-        ("device-authentication.json", authentication_json),
-        ("possession-proof.json", possession_json),
-        ("result.json", result.clone()),
-        ("consume-receipt.json", consume_receipt.clone()),
-        ("worker-verification.json", worker_payload.clone()),
-    ] {
-        tokio::fs::write(directory.join(name), serde_json::to_vec_pretty(&value)?).await?;
+    let public_key_bytes = URL_SAFE_NO_PAD
+        .decode(&session.device_public_key)
+        .map_err(|_| {
+            std::io::Error::new(std::io::ErrorKind::InvalidData, "invalid device public key")
+        })?;
+    if public_key_bytes.len() != 32 {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "invalid device public key length",
+        ));
     }
+    let device_identity_json = serde_json::json!({
+        "schema_version": 1,
+        "canonical_user_id": session.session_receipt.canonical_user_id,
+        "device_id": session.device_id(),
+        "device_public_key": session.device_public_key,
+        "device_public_key_sha256": URL_SAFE_NO_PAD.encode(sha256(&public_key_bytes)),
+        "authority_state": "UNVERIFIED",
+    });
+    let mut artifacts = vec![
+        ("session.json", serde_json::to_vec_pretty(&session_json)?),
+        (
+            "device-authentication.json",
+            serde_json::to_vec_pretty(&authentication_json)?,
+        ),
+        (
+            "device-identity.json",
+            serde_json::to_vec_pretty(&device_identity_json)?,
+        ),
+        (
+            "possession-proof.json",
+            serde_json::to_vec_pretty(&possession_json)?,
+        ),
+        ("result.json", serde_json::to_vec_pretty(result)?),
+        (
+            "consume-receipt.json",
+            serde_json::to_vec_pretty(consume_receipt)?,
+        ),
+        (
+            "worker-verification.json",
+            serde_json::to_vec_pretty(worker_payload)?,
+        ),
+        ("result-exact.bin", exact_response_bytes.to_vec()),
+    ];
+    if let Some(header_bytes) = verifier_execution_receipt_header_bytes {
+        artifacts.push((
+            "verifier-execution-receipt-header.txt",
+            header_bytes.to_vec(),
+        ));
+    }
+    if let Some(receipt_bytes) = verifier_execution_receipt_bytes {
+        artifacts.push((
+            "verifier-execution-receipt.bin",
+            receipt_bytes.to_vec(),
+        ));
+    }
+    for (name, bytes) in &artifacts {
+        write_capture_file(&directory.join(name), bytes).await?;
+    }
+    let mut manifest_artifacts = serde_json::Map::new();
+    for (name, bytes) in &artifacts {
+        manifest_artifacts.insert(
+            (*name).to_owned(),
+            serde_json::json!({
+                "size_bytes": bytes.len(),
+                "sha256": URL_SAFE_NO_PAD.encode(sha256(bytes)),
+            }),
+        );
+    }
+    for name in ["presentation.bin", "metadata.json"] {
+        let bytes = tokio::fs::read(directory.join(name)).await?;
+        manifest_artifacts.insert(
+            name.to_owned(),
+            serde_json::json!({
+                "size_bytes": bytes.len(),
+                "sha256": URL_SAFE_NO_PAD.encode(sha256(&bytes)),
+            }),
+        );
+    }
+    let manifest = serde_json::json!({
+        "schema_version": 1,
+        "scope": "fusou-tlsn-human-test-play-candidate",
+        "candidate_status": if verifier_execution_receipt_bytes.is_some() { "CAPTURED_PENDING_OFFLINE_VERIFICATION" } else { "INCOMPLETE_MISSING_EXECUTION_RECEIPT" },
+        "approval_status": "UNAPPROVED",
+        "target_identity_status": "NOT_YET_OBSERVED",
+        "target_identity_source": "alpha15-verified-presentation-required",
+        "presentation_sha256": URL_SAFE_NO_PAD.encode(presentation.sha256()),
+        "exact_result_sha256": URL_SAFE_NO_PAD.encode(sha256(exact_response_bytes)),
+        "verifier_execution_receipt_status": if verifier_execution_receipt_bytes.is_some() { "CAPTURED" } else { "MISSING" },
+        "verifier_execution_receipt_sha256": verifier_execution_receipt_bytes.map(|bytes| URL_SAFE_NO_PAD.encode(sha256(bytes))),
+        "worker_result_http_status": response_status,
+        "connection_id": connection_id,
+        "artifacts": manifest_artifacts,
+        "readiness_effect": "NONE",
+        "gameplay_effect": "NONE",
+    });
+    write_capture_file(
+        &directory.join("candidate-manifest.json"),
+        &serde_json::to_vec_pretty(&manifest)?,
+    )
+    .await?;
     Ok(())
+}
+
+async fn write_capture_file(path: &std::path::Path, bytes: &[u8]) -> Result<(), std::io::Error> {
+    use tokio::io::AsyncWriteExt as TokioAsyncWriteExt;
+
+    let mut options = tokio::fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        options.mode(0o600);
+    }
+    let mut file = options.open(path).await?;
+    file.write_all(bytes).await?;
+    file.sync_all().await
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -891,12 +1083,13 @@ impl crate::experimental_tlsn::AttestationBindingProvider for RemoteSessionBindi
                 .device_id()
                 .ok_or(BindingError::NoBindingAuthority)?
                 .to_owned();
-            let mut nonce_bytes = [0_u8; 32];
-            rand::thread_rng().fill_bytes(&mut nonce_bytes);
-            let nonce = nonce_bytes
-                .iter()
-                .map(|byte| format!("{byte:02x}"))
-                .collect::<String>();
+            let nonce = auth_manager
+                .fetch_anonymous_sync_v2_challenge(&device_id)
+                .await
+                .map_err(|_| BindingError::NoBindingAuthority)?;
+            if !is_web_device_auth_nonce(&nonce) {
+                return Err(BindingError::NoBindingAuthority);
+            }
             let device_auth_signature = device_key.sign_b64(nonce.as_bytes());
             let access_token = auth_manager
                 .get_access_token()
@@ -956,6 +1149,7 @@ impl crate::experimental_tlsn::AttestationBindingProvider for RemoteSessionBindi
             *state_guard = Some(SessionBindingContext {
                 session_id: authority.session_id,
                 device_id,
+                device_public_key: device_key.public_key_b64().to_owned(),
                 binding: authority.binding.clone(),
                 binding_challenge: authority.challenge,
                 device_challenge: authority.device_challenge,
@@ -1485,6 +1679,7 @@ mod tests {
         SessionBindingContext {
             session_id: "550e8400-e29b-41d4-a716-446655440000".to_owned(),
             device_id: "7c9e6679-7425-40de-944b-e07fc1f90ae7".to_owned(),
+            device_public_key: URL_SAFE_NO_PAD.encode([2_u8; 32]),
             binding: "binding-value".to_owned(),
             binding_challenge: URL_SAFE_NO_PAD.encode([7_u8; 32]),
             device_challenge: URL_SAFE_NO_PAD.encode([9_u8; 32]),
@@ -1508,6 +1703,116 @@ mod tests {
             device_auth_nonce: "a".repeat(64),
             device_auth_signature: URL_SAFE_NO_PAD.encode([4_u8; 64]),
         }
+    }
+
+    #[tokio::test]
+    async fn candidate_bundle_preserves_exact_response_and_receipt_without_overwrite() {
+        let artifact_root = std::env::temp_dir().join(format!(
+            "fusou-tlsn-candidate-bundle-{}-{}",
+            std::process::id(),
+            uuid::Uuid::new_v4()
+        ));
+        let presentation_bytes = b"alpha15 presentation fixture";
+        let presentation_identifier = URL_SAFE_NO_PAD.encode(sha256(presentation_bytes));
+        let directory = artifact_root.join(&presentation_identifier);
+        tokio::fs::create_dir_all(&directory)
+            .await
+            .expect("create private artifact fixture directory");
+        tokio::fs::write(directory.join("presentation.bin"), presentation_bytes)
+            .await
+            .expect("write presentation fixture");
+        tokio::fs::write(directory.join("metadata.json"), b"{}")
+            .await
+            .expect("write presentation metadata fixture");
+
+        let presentation = TlsnPresentation::new(
+            presentation_identifier,
+            presentation_bytes.to_vec(),
+        )
+        .expect("construct presentation");
+        let session = test_session_context();
+        let payload = serde_json::json!({
+            "result": { "result_id": "fixture-result" },
+            "consume_receipt": { "used_at": "2026-10-01T12:00:00.000Z" },
+        });
+        let exact_response = b"{ \"result\":{\"result_id\":\"fixture-result\"} }\n";
+        let receipt_bytes = b"detached verifier execution receipt";
+        let receipt_header = URL_SAFE_NO_PAD.encode(receipt_bytes).into_bytes();
+        let args = (
+            &artifact_root,
+            &presentation,
+            &session,
+            &payload,
+            "device-signature",
+            exact_response.as_slice(),
+            Some(receipt_header.as_slice()),
+            Some(receipt_bytes.as_slice()),
+            200,
+            77,
+        );
+
+        write_production_capture_bundle(
+            args.0, args.1, args.2, args.3, args.4, args.5, args.6, args.7, args.8, args.9,
+        )
+        .await
+        .expect("write candidate proof bundle");
+
+        let stored_response = tokio::fs::read(directory.join("result-exact.bin"))
+            .await
+            .expect("read exact response bytes");
+        assert_eq!(stored_response, exact_response);
+        assert_eq!(
+            tokio::fs::read(directory.join("verifier-execution-receipt-header.txt"))
+                .await
+                .expect("read raw receipt header"),
+            receipt_header
+        );
+        assert_eq!(
+            tokio::fs::read(directory.join("verifier-execution-receipt.bin"))
+                .await
+                .expect("read decoded receipt"),
+            receipt_bytes
+        );
+        let manifest: serde_json::Value = serde_json::from_slice(
+            &tokio::fs::read(directory.join("candidate-manifest.json"))
+                .await
+                .expect("read candidate manifest"),
+        )
+        .expect("parse candidate manifest");
+        assert_eq!(
+            manifest["candidate_status"],
+            "CAPTURED_PENDING_OFFLINE_VERIFICATION"
+        );
+        assert_eq!(manifest["approval_status"], "UNAPPROVED");
+        assert_eq!(manifest["readiness_effect"], "NONE");
+        assert_eq!(
+            manifest["exact_result_sha256"],
+            URL_SAFE_NO_PAD.encode(sha256(exact_response))
+        );
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let permissions = tokio::fs::metadata(directory.join("result-exact.bin"))
+                .await
+                .expect("stat exact response artifact")
+                .permissions();
+            assert_eq!(permissions.mode() & 0o777, 0o600);
+        }
+
+        let retry = write_production_capture_bundle(
+            args.0, args.1, args.2, args.3, args.4, args.5, args.6, args.7, args.8, args.9,
+        )
+        .await;
+        assert_eq!(retry.unwrap_err().kind(), std::io::ErrorKind::AlreadyExists);
+        assert_eq!(
+            tokio::fs::read(directory.join("result-exact.bin"))
+                .await
+                .expect("candidate exact response remains unchanged"),
+            exact_response
+        );
+        tokio::fs::remove_dir_all(artifact_root)
+            .await
+            .expect("remove candidate bundle fixture");
     }
 
     fn test_auth_manager(path: PathBuf) -> AuthManager<FileStorage> {
@@ -1965,6 +2270,14 @@ mod tests {
     }
 
     #[test]
+    fn web_device_auth_nonce_requires_lowercase_sha256_hex() {
+        assert!(is_web_device_auth_nonce(&"a1".repeat(32)));
+        assert!(!is_web_device_auth_nonce(&"A1".repeat(32)));
+        assert!(!is_web_device_auth_nonce(&"0".repeat(63)));
+        assert!(!is_web_device_auth_nonce(&"g".repeat(64)));
+    }
+
+    #[test]
     fn worker_http_statuses_preserve_retry_and_trigger_boundaries() {
         assert_eq!(
             worker_http_error(
@@ -2027,6 +2340,43 @@ mod tests {
         .await;
         server.abort();
         assert_eq!(result, Err(VerificationError::WorkerUnavailable));
+    }
+
+    #[tokio::test]
+    async fn worker_response_preserves_exact_body_and_detached_receipt_bytes() {
+        let exact_body = "{ \"verified\" : true, \"result\" : {\"id\":1} }\n";
+        let receipt_bytes = b"detached execution receipt";
+        let encoded_receipt = URL_SAFE_NO_PAD.encode(receipt_bytes);
+        let expected_receipt_header = encoded_receipt.as_bytes().to_vec();
+        let route = warp::any().map(move || {
+            warp::reply::with_header(
+                warp::reply::with_status(
+                    exact_body.to_owned(),
+                    warp::http::StatusCode::OK,
+                ),
+                "X-FUSOU-TLSN-Verifier-Execution-Receipt",
+                encoded_receipt.clone(),
+            )
+        });
+        let (address, server) = warp::serve(route).bind_ephemeral(([127, 0, 0, 1], 0));
+        let server = tokio::spawn(server);
+        let response = reqwest::Client::new()
+            .get(format!("http://{address}/result"))
+            .send()
+            .await
+            .expect("request local Worker response fixture");
+
+        let captured = worker_response(response)
+            .await
+            .expect("parse exact Worker response");
+        server.abort();
+        assert_eq!(captured.status, 200);
+        assert_eq!(captured.body_bytes, exact_body.as_bytes());
+        assert_eq!(
+            captured.verifier_execution_receipt_header_bytes,
+            Some(expected_receipt_header)
+        );
+        assert_eq!(captured.verifier_execution_receipt_bytes, Some(receipt_bytes.to_vec()));
     }
 
     #[test]
@@ -2280,10 +2630,10 @@ mod tests {
                 }),
                 Arc::new(HandoffPresentationProvider::new(Arc::clone(&handoff))),
                 verification_backend,
-                Arc::new(RemoteWorkerResultSigner::new(
-                    worker_results,
-                    artifact_root.clone(),
-                )),
+                Arc::new(
+                    RemoteWorkerResultSigner::new(worker_results, artifact_root.clone())
+                        .with_candidate_capture_enabled(true),
+                ),
                 Arc::new(FilesystemResultDelivery::new(artifact_root.join("results"))),
             )
             .with_presentation_artifact_sink(Arc::new(FilesystemPresentationArtifactSink::new(

@@ -168,6 +168,7 @@ artifact_output_path = ""
     # Whether to enable the Tauri autostart integration
     # default is false
     enable = false
+    candidate_capture_enabled = false
 
 
     [app.theme]
