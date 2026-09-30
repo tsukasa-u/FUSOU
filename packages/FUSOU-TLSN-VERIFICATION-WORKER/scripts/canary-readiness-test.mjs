@@ -22,6 +22,7 @@ import {
   CANARY_OPERATIONAL_SMOKE_COMPONENTS,
   loadCanaryOperationalSmokeArtifact,
 } from "./canary-operational-smoke.mjs";
+import { CANARY_SMOKE_SOURCE_AUTHENTICITY_POLICIES } from "./canary-operational-smoke-semantic.mjs";
 import {
   CANARY_DEPLOYMENT_MANIFEST_INPUT,
   canaryDeploymentManifestVerificationReport,
@@ -651,6 +652,11 @@ async function readCanaryOperationalSmoke(environment, runtimeIdentity, deployme
       status: "NOT_RUN",
       readiness: "BLOCKED",
       components: Object.fromEntries(CANARY_OPERATIONAL_SMOKE_COMPONENTS.map((component) => [component, "NOT_RUN"])),
+      source_authentication: Object.fromEntries(CANARY_OPERATIONAL_SMOKE_COMPONENTS.map((component) => [component, {
+        status: "NOT_RUN",
+        authority: CANARY_SMOKE_SOURCE_AUTHENTICITY_POLICIES[component].authority,
+        reason: CANARY_SMOKE_SOURCE_AUTHENTICITY_POLICIES[component].reason,
+      }])),
       reason: "A signed smoke artifact from the live runner and an independent readiness invocation UUID are required; missing evidence remains NOT_RUN and BLOCKED.",
     };
   }
@@ -659,6 +665,11 @@ async function readCanaryOperationalSmoke(environment, runtimeIdentity, deployme
       status: "BLOCKED",
       readiness: "BLOCKED",
       components: Object.fromEntries(CANARY_OPERATIONAL_SMOKE_COMPONENTS.map((component) => [component, "NOT_RUN"])),
+      source_authentication: Object.fromEntries(CANARY_OPERATIONAL_SMOKE_COMPONENTS.map((component) => [component, {
+        status: "NOT_RUN",
+        authority: CANARY_SMOKE_SOURCE_AUTHENTICITY_POLICIES[component].authority,
+        reason: CANARY_SMOKE_SOURCE_AUTHENTICITY_POLICIES[component].reason,
+      }])),
       reason: "A validated signed Runtime Attestation is required before operational smoke evidence can be evaluated.",
     };
   }
@@ -678,6 +689,11 @@ async function readCanaryOperationalSmoke(environment, runtimeIdentity, deployme
       status: "INVALID",
       readiness: "BLOCKED",
       components: Object.fromEntries(CANARY_OPERATIONAL_SMOKE_COMPONENTS.map((component) => [component, "NOT_RUN"])),
+      source_authentication: Object.fromEntries(CANARY_OPERATIONAL_SMOKE_COMPONENTS.map((component) => [component, {
+        status: "INVALID",
+        authority: CANARY_SMOKE_SOURCE_AUTHENTICITY_POLICIES[component].authority,
+        reason: "Smoke artifact or referenced source evidence failed validation.",
+      }])),
       reason: error instanceof Error ? error.message : String(error),
     };
   }
@@ -818,6 +834,7 @@ export async function buildReadinessReport({
       },
       operational_smoke: {
         status: operationalSmoke.status,
+        source_authentication: operationalSmoke.source_authentication ?? null,
         ...Object.fromEntries(CANARY_OPERATIONAL_SMOKE_COMPONENTS.map((component) => [
           component,
           operationalSmoke.components?.[component] ?? "NOT_RUN",
@@ -859,7 +876,7 @@ export async function buildReadinessReport({
       binding: "A Canary-specific binding authority registry/key and fixed Canary binding must be supplied; replay fixed bindings are not acceptable.",
       workflow: "The deployment workflow must supply positive run ID/attempt, owner/name repository, current HEAD, and workflow_file_identity=dotenvx+pnpm+wrangler.",
       verifier_identity_binding: "Capture a Canary execution evidence bundle and provide its job ID and verification attempt ID independently; readiness binds the signed receipt to exact Presentation/Result bytes and the current Runtime Attestation.",
-      operational_smoke: "Run an approved live pre-gameplay smoke and provide its signed artifact plus every referenced raw component observation; offline tests cannot set the operational_smoke gate to PASS.",
+      operational_smoke: "Run the manifest-bound Main/Verifier health probes and integrate authenticated source proofs for callback, Trigger, Session/Consume receipts, Durable Object, R2, Notary, Supabase/device Auth, and exact Presentation/Result execution evidence; offline tests cannot set the operational_smoke gate to PASS.",
       runtime: "Canary deployment/runtime and Trigger inputs must be supplied through the existing role-specific contract; deploy-canary.mjs must remain the only deploy path.",
       validation: "Run deployment-preflight, then the existing bootstrap -> verifier -> main Canary deployment, /health identity comparison, remote-validation, attestation gate, and offline evidence verification.",
     },

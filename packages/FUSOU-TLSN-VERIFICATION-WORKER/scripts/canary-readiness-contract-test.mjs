@@ -354,6 +354,9 @@ try {
   assert.equal(validReport.inputs.operational_smoke.status, "NOT_RUN");
   for (const component of ["main_worker", "verifier", "callback", "trigger", "session_binding", "DO", "R2", "Notary", "Auth", "Presentation"]) {
     assert.equal(validReport.inputs.operational_smoke[component], "NOT_RUN");
+    assert.equal(validReport.inputs.operational_smoke.source_authentication[component].status, "NOT_RUN");
+    assert.equal(typeof validReport.inputs.operational_smoke.source_authentication[component].authority, "string");
+    assert.ok(validReport.inputs.operational_smoke.source_authentication[component].reason.length > 0);
   }
   assert.equal(validReport.inputs.runtime_attestation.signature_valid, true);
   assert.equal(validReport.inputs.runtime_attestation.signature_algorithm, "Ed25519");

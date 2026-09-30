@@ -6,7 +6,6 @@ import { loadCanaryRuntimeAttestationKeyRegistry } from "./canary-runtime-attest
 import { runCanaryOperationalSmokeFromLiveEvidence } from "./canary-operational-smoke.mjs";
 
 const REQUIRED_INPUTS = [
-  "TLSN_CANARY_OPERATIONAL_SMOKE_LIVE_EVIDENCE_DIR",
   "TLSN_CANARY_OPERATIONAL_SMOKE_PATH",
   "TLSN_CANARY_WORKER_INTERNAL_URL",
   "TLSN_CANARY_VERIFIER_WORKER_INTERNAL_URL",
@@ -58,7 +57,6 @@ async function main() {
     currentHead: readiness.current_head,
   });
   const result = await runCanaryOperationalSmokeFromLiveEvidence({
-    evidenceDirectory: environment.TLSN_CANARY_OPERATIONAL_SMOKE_LIVE_EVIDENCE_DIR,
     outputPath: environment.TLSN_CANARY_OPERATIONAL_SMOKE_PATH,
     mainWorkerOrigin: environment.TLSN_CANARY_WORKER_INTERNAL_URL,
     verifierOrigin: environment.TLSN_CANARY_VERIFIER_WORKER_INTERNAL_URL,

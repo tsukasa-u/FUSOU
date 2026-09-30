@@ -29,6 +29,10 @@ const boundIdentity = {
 const deploymentManifest = {
   target: { server_identity: "game.example.net" },
   notary: { key_id: "notary-canary-2026-09-30" },
+  inputs: [
+    { name: "TLSN_CANARY_WORKER_INTERNAL_URL", value_sha256: "J".repeat(43) },
+    { name: "TLSN_CANARY_VERIFIER_WORKER_INTERNAL_URL", value_sha256: "K".repeat(43) },
+  ],
 };
 const common = (component, claims, index) => ({
   schema_version: CANARY_OPERATIONAL_SMOKE_RAW_EVIDENCE_SCHEMA_VERSION,
@@ -45,13 +49,15 @@ const common = (component, claims, index) => ({
 const jobAttempt = { job_id: jobId, attempt_id: attemptId };
 const evidence = {
   main_worker: common("main_worker", {
-    ...jobAttempt, http_status: 200, deployment_id: boundIdentity.main_deployment_id,
+    http_status: 200, deployment_id: boundIdentity.main_deployment_id,
     worker_name: boundIdentity.main_worker_name, version_id: boundIdentity.main_version_id,
+    origin_sha256: "J".repeat(43),
     git_commit_sha: boundIdentity.git_commit_sha, deployment_role: "canary", execution_mode: "trigger",
   }, 1),
   verifier: common("verifier", {
-    ...jobAttempt, http_status: 200, deployment_id: boundIdentity.verifier_deployment_id,
+    http_status: 200, deployment_id: boundIdentity.verifier_deployment_id,
     worker_name: boundIdentity.verifier_worker_name, version_id: boundIdentity.verifier_version_id,
+    origin_sha256: "K".repeat(43),
     verifier_key_id: verifierKeyId, keypair_valid: true,
   }, 2),
   callback: common("callback", {
@@ -105,6 +111,14 @@ assert.deepEqual(Object.values(results).map(({ status }) => status), Array(10).f
 const mutated = structuredClone(evidence);
 mutated.R2.claims.readback_sha256 = "I".repeat(43);
 assert.equal(validateCanaryOperationalSmokeEvidenceSet(mutated, options).R2.status, "FAIL");
+
+const wrongHealthOrigin = structuredClone(evidence);
+wrongHealthOrigin.main_worker.claims.origin_sha256 = "L".repeat(43);
+assert.equal(validateCanaryOperationalSmokeEvidenceSet(wrongHealthOrigin, options).main_worker.status, "FAIL");
+
+const wrongSource = structuredClone(evidence);
+wrongSource.callback.source = "self-reported-producer";
+assert.throws(() => validateCanaryOperationalSmokeEvidenceSet(wrongSource, options), /not live-runner evidence/);
 
 const wrongAttempt = structuredClone(evidence);
 wrongAttempt.trigger.claims.attempt_id = "d73fded7-d9af-4f0a-b87b-c626d30d55bd";

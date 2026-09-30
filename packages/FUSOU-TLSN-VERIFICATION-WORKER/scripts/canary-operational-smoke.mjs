@@ -7,9 +7,12 @@ import {
 } from "./canary-runtime-attestation-signing.mjs";
 import { canonicalJson } from "./production-trust-contract.mjs";
 import { deploymentManifestIdentity } from "./canary-deployment-manifest.mjs";
-import { validateCanaryOperationalSmokeEvidenceSet } from "./canary-operational-smoke-semantic.mjs";
+import {
+  CANARY_SMOKE_SOURCE_AUTHENTICITY_POLICIES,
+  validateCanaryOperationalSmokeEvidenceSet,
+} from "./canary-operational-smoke-semantic.mjs";
 
-export const CANARY_OPERATIONAL_SMOKE_SCHEMA_VERSION = 2;
+export const CANARY_OPERATIONAL_SMOKE_SCHEMA_VERSION = 3;
 export const CANARY_OPERATIONAL_SMOKE_SCOPE = "tlsn-canary-operational-smoke";
 export const CANARY_OPERATIONAL_SMOKE_REPLAY_POLICY = "bounded-reuse-within-attestation-window";
 export const CANARY_OPERATIONAL_SMOKE_COMPONENTS = Object.freeze([
@@ -25,14 +28,14 @@ export const CANARY_OPERATIONAL_SMOKE_COMPONENTS = Object.freeze([
   "Presentation",
 ]);
 
-const COMPONENT_STATUSES = new Set(["PASS", "FAIL", "NOT_IMPLEMENTED", "NOT_RUN"]);
+const COMPONENT_STATUSES = new Set(["PASS", "FAIL", "BLOCKED", "NOT_IMPLEMENTED", "NOT_RUN"]);
+const HASH_PATTERN = /^[A-Za-z0-9_-]{43}$/;
 const ISO_TIMESTAMP_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
 const INVOCATION_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const MAX_SMOKE_AGE_MS = 30 * 60 * 1000;
 const MAX_COMPONENT_EVIDENCE_BYTES = 64 * 1024;
-const LIVE_EVIDENCE_COMPONENTS = Object.freeze([
-  "callback", "trigger", "session_binding", "DO", "R2", "Notary", "Auth", "Presentation",
-]);
+const HEALTH_EVIDENCE_COMPONENTS = Object.freeze(["main_worker", "verifier"]);
+const LIVE_HEALTH_SOURCE_PROOF = Symbol("manifest-bound-live-health-probes");
 
 function assertObject(value, label) {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error(`${label} is malformed`);
@@ -238,6 +241,7 @@ function expectedIdentity(runtimeIdentity, deploymentManifest, readinessInvocati
 function overallStatus(checks) {
   const statuses = Object.values(checks).map((check) => check.status);
   if (statuses.includes("FAIL")) return "FAIL";
+  if (statuses.includes("BLOCKED")) return "BLOCKED";
   if (statuses.every((status) => status === "PASS")) return "PASS";
   if (statuses.includes("NOT_IMPLEMENTED")) return "NOT_IMPLEMENTED";
   return "NOT_RUN";
@@ -258,11 +262,17 @@ export function createCanaryOperationalSmokeNotRun({ capturedAt = new Date().toI
     },
     checks: Object.fromEntries(CANARY_OPERATIONAL_SMOKE_COMPONENTS.map((component) => [component, {
       status: "NOT_RUN",
+      semantic_status: "NOT_RUN",
       source: "not-run",
       observed_at: null,
       probe_id: null,
       evidence_artifact: null,
       evidence_sha256: null,
+      source_authentication: {
+        status: "NOT_RUN",
+        authority: CANARY_SMOKE_SOURCE_AUTHENTICITY_POLICIES[component].authority,
+        reason: CANARY_SMOKE_SOURCE_AUTHENTICITY_POLICIES[component].reason,
+      },
     }])),
   };
 }
@@ -276,6 +286,7 @@ export function createCanaryOperationalSmokeArtifact({
   signingPrivateKeyPkcs8,
   runtimeAttestationKeyRegistry,
   evidenceArtifacts,
+  sourceProofToken,
   capturedAt = new Date().toISOString(),
   signingNow = capturedAt,
 } = {}) {
@@ -302,33 +313,46 @@ export function createCanaryOperationalSmokeArtifact({
       }
       return [component, {
         status: observation.status,
+        semantic_status: observation.status,
         source: "not-run",
         observed_at: null,
         probe_id: null,
         evidence_artifact: null,
         evidence_sha256: null,
+        source_authentication: {
+          status: "NOT_RUN",
+          authority: CANARY_SMOKE_SOURCE_AUTHENTICITY_POLICIES[component].authority,
+          reason: CANARY_SMOKE_SOURCE_AUTHENTICITY_POLICIES[component].reason,
+        },
       }];
     }
     assertTimestamp(observation.observed_at, `operational smoke ${component} observed_at`);
     if (!INVOCATION_ID_PATTERN.test(observation.probe_id ?? "")) throw new Error(`operational smoke ${component} probe_id is invalid`);
     return [component, {
       status: observation.status,
+      semantic_status: "NOT_RUN",
       source: "live-runner",
       observed_at: observation.observed_at,
       probe_id: observation.probe_id,
       evidence_artifact: safeEvidenceArtifactPath(observation.evidence_artifact),
       evidence_sha256: null,
+      source_authentication: {
+        status: "NOT_RUN",
+        authority: CANARY_SMOKE_SOURCE_AUTHENTICITY_POLICIES[component].authority,
+        reason: "Source authenticity has not been evaluated.",
+      },
     }];
   }));
   const hasLiveEvidence = Object.values(pendingChecks).some((check) => check.source === "live-runner");
   let checks = pendingChecks;
   if (hasLiveEvidence) {
-    if (Object.values(pendingChecks).some((check) => check.source !== "live-runner")) {
-      throw new Error("Canary operational smoke requires a complete ten-component live evidence set");
+    if (HEALTH_EVIDENCE_COMPONENTS.some((component) => pendingChecks[component].source !== "live-runner")
+      || CANARY_OPERATIONAL_SMOKE_COMPONENTS.some((component) => !HEALTH_EVIDENCE_COMPONENTS.includes(component)
+        && pendingChecks[component].source !== "not-run")) {
+      throw new Error("Canary operational smoke accepts only both direct health probes; other source evidence is blocked");
     }
     const evidenceByComponent = {};
-    const resolvedArtifacts = {};
-    for (const component of CANARY_OPERATIONAL_SMOKE_COMPONENTS) {
+    for (const component of HEALTH_EVIDENCE_COMPONENTS) {
       const check = pendingChecks[component];
       const bytes = evidenceArtifactBytes(evidenceArtifacts, check.evidence_artifact);
       const evidence = parseEvidenceBytes(bytes, component);
@@ -336,11 +360,10 @@ export function createCanaryOperationalSmokeArtifact({
         throw new Error(`Canary operational smoke ${component} evidence does not match its observation`);
       }
       evidenceByComponent[component] = evidence;
-      resolvedArtifacts[check.evidence_artifact] = bytes;
       check.evidence_sha256 = operationalSmokeEvidenceSha256(bytes);
     }
     const semanticResults = validateCanaryOperationalSmokeEvidenceSet(evidenceByComponent, {
-      components: CANARY_OPERATIONAL_SMOKE_COMPONENTS,
+      components: HEALTH_EVIDENCE_COMPONENTS,
       boundIdentity: identity,
       deploymentManifest,
       readinessInvocationId,
@@ -350,8 +373,53 @@ export function createCanaryOperationalSmokeArtifact({
     });
     checks = Object.fromEntries(CANARY_OPERATIONAL_SMOKE_COMPONENTS.map((component) => {
       const check = pendingChecks[component];
-      const semanticStatus = semanticResults[component].status;
-      return [component, { ...check, status: check.status === "PASS" && semanticStatus === "PASS" ? "PASS" : "FAIL" }];
+      if (!HEALTH_EVIDENCE_COMPONENTS.includes(component)) {
+        return [component, {
+          status: "BLOCKED",
+          semantic_status: "NOT_RUN",
+          source: "source-authentication-blocked",
+          observed_at: null,
+          probe_id: null,
+          evidence_artifact: null,
+          evidence_sha256: null,
+          source_authentication: {
+            status: "BLOCKED",
+            authority: CANARY_SMOKE_SOURCE_AUTHENTICITY_POLICIES[component].authority,
+            reason: CANARY_SMOKE_SOURCE_AUTHENTICITY_POLICIES[component].reason,
+          },
+        }];
+      }
+      const result = semanticResults[component];
+      const sourceAuthenticated = HEALTH_EVIDENCE_COMPONENTS.includes(component)
+        && sourceProofToken === LIVE_HEALTH_SOURCE_PROOF;
+      const status = result.semantic_status === "FAIL"
+        ? "FAIL"
+        : !sourceAuthenticated
+          ? "BLOCKED"
+          : check.status === "PASS" && result.semantic_status === "PASS" ? "PASS" : "FAIL";
+      const sourceAuthentication = {
+        status: sourceAuthenticated ? "PASS" : "BLOCKED",
+        authority: CANARY_SMOKE_SOURCE_AUTHENTICITY_POLICIES[component].authority,
+        reason: CANARY_SMOKE_SOURCE_AUTHENTICITY_POLICIES[component].reason,
+      };
+      if (!sourceAuthenticated) {
+        return [component, {
+          status,
+          semantic_status: result.semantic_status,
+          source: "source-authentication-blocked",
+          observed_at: null,
+          probe_id: null,
+          evidence_artifact: null,
+          evidence_sha256: null,
+          source_authentication: sourceAuthentication,
+        }];
+      }
+      return [component, {
+        ...check,
+        status,
+        semantic_status: result.semantic_status,
+        source_authentication: sourceAuthentication,
+      }];
     }));
   }
   const status = overallStatus(checks);
@@ -363,7 +431,9 @@ export function createCanaryOperationalSmokeArtifact({
     captured_at: capturedAt,
     readiness_invocation_id: readinessInvocationId,
     evidence: {
-      source: hasLiveEvidence ? "canary-operational-smoke-live-runner" : "live-inputs-unavailable",
+      source: HEALTH_EVIDENCE_COMPONENTS.some((component) => checks[component].source_authentication?.status === "PASS")
+        ? "manifest-bound-live-health-probes"
+        : hasLiveEvidence ? "source-authentication-blocked" : "live-inputs-unavailable",
       synthetic: false,
       replay_policy: CANARY_OPERATIONAL_SMOKE_REPLAY_POLICY,
     },
@@ -408,11 +478,11 @@ export function assertCanaryOperationalSmokeArtifact(artifact, {
     "signature_base64url",
   ], "Canary operational smoke artifact");
   const signature = assertCanaryRuntimeAttestationSignature(artifact, { registry: runtimeAttestationKeyRegistry });
-  if (Object.values(artifact.checks ?? {}).some((check) => check?.status === "PASS" || check?.status === "FAIL")) {
+  if (Object.values(artifact.checks ?? {}).some((check) => check?.status === "PASS" || check?.source === "live-runner")) {
     if (!evidenceArtifacts) throw new Error("Canary operational smoke raw evidence artifacts are required");
   }
   assertExactKeys(artifact.evidence, ["source", "synthetic", "replay_policy"], "Canary operational smoke evidence metadata");
-  if (!new Set(["canary-operational-smoke-live-runner", "live-inputs-unavailable"]).has(artifact.evidence.source)
+  if (!new Set(["manifest-bound-live-health-probes", "source-authentication-blocked", "live-inputs-unavailable"]).has(artifact.evidence.source)
     || artifact.evidence.synthetic !== false
     || artifact.evidence.replay_policy !== CANARY_OPERATIONAL_SMOKE_REPLAY_POLICY) {
     throw new Error("operational smoke artifact does not have live-runner evidence provenance");
@@ -445,15 +515,35 @@ export function assertCanaryOperationalSmokeArtifact(artifact, {
   for (const component of CANARY_OPERATIONAL_SMOKE_COMPONENTS) {
     const check = artifact.checks[component];
     assertObject(check, `Canary operational smoke ${component}`);
-    assertExactKeys(check, ["status", "source", "observed_at", "probe_id", "evidence_artifact", "evidence_sha256"], `Canary operational smoke ${component}`);
+    assertExactKeys(check, ["status", "semantic_status", "source", "observed_at", "probe_id", "evidence_artifact", "evidence_sha256", "source_authentication"], `Canary operational smoke ${component}`);
     if (!COMPONENT_STATUSES.has(check.status)) throw new Error(`Canary operational smoke ${component} status is invalid`);
-    if (check.status === "NOT_RUN" || check.status === "NOT_IMPLEMENTED") {
-      if (check.source !== "not-run" || check.observed_at !== null || check.probe_id !== null || check.evidence_artifact !== null || check.evidence_sha256 !== null) {
+    const sourcePolicy = CANARY_SMOKE_SOURCE_AUTHENTICITY_POLICIES[component];
+    assertObject(check.source_authentication, `Canary operational smoke ${component} source authentication`);
+    assertExactKeys(check.source_authentication, ["status", "authority", "reason"], `Canary operational smoke ${component} source authentication`);
+    if (check.source_authentication.authority !== sourcePolicy.authority || check.source_authentication.reason !== sourcePolicy.reason) {
+      throw new Error(`Canary operational smoke ${component} source-authentication policy mismatch`);
+    }
+    if (check.source === "not-run") {
+      if (!new Set(["NOT_RUN", "NOT_IMPLEMENTED"]).has(check.status)
+        || check.semantic_status !== check.status || check.source_authentication.status !== "NOT_RUN"
+        || check.observed_at !== null || check.probe_id !== null || check.evidence_artifact !== null || check.evidence_sha256 !== null) {
         throw new Error(`Canary operational smoke ${component} non-run status contains live claims`);
       }
       continue;
     }
-    if (check.source !== "live-runner" || !INVOCATION_ID_PATTERN.test(check.probe_id ?? "") || !HASH_PATTERN.test(check.evidence_sha256 ?? "")) {
+    if (check.source === "source-authentication-blocked") {
+      const expectedStatus = check.semantic_status === "FAIL" ? "FAIL" : "BLOCKED";
+      if (!new Set(["PASS", "FAIL", "NOT_RUN"]).has(check.semantic_status)
+        || check.status !== expectedStatus || check.source_authentication.status !== "BLOCKED"
+        || check.observed_at !== null || check.probe_id !== null || check.evidence_artifact !== null || check.evidence_sha256 !== null) {
+        throw new Error(`Canary operational smoke ${component} blocked source metadata is invalid`);
+      }
+      continue;
+    }
+    if (check.source !== "live-runner" || !HEALTH_EVIDENCE_COMPONENTS.includes(component)
+      || check.source_authentication.status !== "PASS" || check.semantic_status !== check.status
+      || !new Set(["PASS", "FAIL"]).has(check.status)
+      || !INVOCATION_ID_PATTERN.test(check.probe_id ?? "") || !HASH_PATTERN.test(check.evidence_sha256 ?? "")) {
       throw new Error(`Canary operational smoke ${component} live evidence metadata is invalid`);
     }
     const artifactPath = safeEvidenceArtifactPath(check.evidence_artifact);
@@ -464,12 +554,12 @@ export function assertCanaryOperationalSmokeArtifact(artifact, {
     evidenceByComponent[component] = parseEvidenceBytes(bytes, component);
   }
   const hasLiveEvidence = Object.keys(evidenceByComponent).length > 0;
-  if (hasLiveEvidence && Object.keys(evidenceByComponent).length !== CANARY_OPERATIONAL_SMOKE_COMPONENTS.length) {
-    throw new Error("Canary operational smoke requires a complete ten-component live evidence set");
+  if (hasLiveEvidence && Object.keys(evidenceByComponent).length !== HEALTH_EVIDENCE_COMPONENTS.length) {
+    throw new Error("Canary operational smoke requires both manifest-bound live health probes");
   }
   if (hasLiveEvidence) {
     const semanticResults = validateCanaryOperationalSmokeEvidenceSet(evidenceByComponent, {
-      components: CANARY_OPERATIONAL_SMOKE_COMPONENTS,
+      components: HEALTH_EVIDENCE_COMPONENTS,
       boundIdentity: identity,
       deploymentManifest,
       readinessInvocationId,
@@ -477,16 +567,23 @@ export function assertCanaryOperationalSmokeArtifact(artifact, {
       attestationExpiresAt: trustedRuntimeIdentity.verifier_identity.attestation_expires_at,
       now,
     });
-    for (const component of CANARY_OPERATIONAL_SMOKE_COMPONENTS) {
+    for (const component of HEALTH_EVIDENCE_COMPONENTS) {
       const check = artifact.checks[component];
       if (evidenceByComponent[component].probe_id !== check.probe_id || evidenceByComponent[component].observed_at !== check.observed_at) {
         throw new Error(`Canary operational smoke ${component} evidence does not match its signed observation`);
       }
-      const expectedStatus = check.status === "PASS" && semanticResults[component].status === "PASS" ? "PASS" : "FAIL";
+      const expectedStatus = semanticResults[component].status;
       if (check.status !== expectedStatus) throw new Error(`Canary operational smoke ${component} semantic status mismatch`);
+      if (check.semantic_status !== semanticResults[component].status || check.source_authentication.status !== "PASS") {
+        throw new Error(`Canary operational smoke ${component} source-authentication result mismatch`);
+      }
     }
   }
-  if (hasLiveEvidence !== (artifact.evidence.source === "canary-operational-smoke-live-runner")) {
+  const hasBlockedEvidence = Object.values(artifact.checks).some((check) => check.source === "source-authentication-blocked");
+  const expectedEvidenceSource = hasLiveEvidence
+    ? "manifest-bound-live-health-probes"
+    : hasBlockedEvidence ? "source-authentication-blocked" : "live-inputs-unavailable";
+  if (artifact.evidence.source !== expectedEvidenceSource) {
     throw new Error("Canary operational smoke evidence source does not match its component matrix");
   }
   const status = overallStatus(artifact.checks);
@@ -509,6 +606,11 @@ export function assertCanaryOperationalSmokeArtifact(artifact, {
     replay_policy: CANARY_OPERATIONAL_SMOKE_REPLAY_POLICY,
     signer_key_id: signature.signer_key_id,
     components: Object.fromEntries(CANARY_OPERATIONAL_SMOKE_COMPONENTS.map((component) => [component, artifact.checks[component].status])),
+    source_authentication: Object.fromEntries(CANARY_OPERATIONAL_SMOKE_COMPONENTS.map((component) => [component, {
+      status: artifact.checks[component].source_authentication.status,
+      authority: artifact.checks[component].source_authentication.authority,
+      reason: artifact.checks[component].source_authentication.reason,
+    }])),
   };
 }
 
@@ -544,6 +646,11 @@ export async function loadCanaryOperationalSmokeArtifact({
       readiness: "BLOCKED",
       captured_at: artifact.captured_at,
       components: Object.fromEntries(CANARY_OPERATIONAL_SMOKE_COMPONENTS.map((component) => [component, "NOT_RUN"])),
+      source_authentication: Object.fromEntries(CANARY_OPERATIONAL_SMOKE_COMPONENTS.map((component) => [component, {
+        status: "NOT_RUN",
+        authority: CANARY_SMOKE_SOURCE_AUTHENTICITY_POLICIES[component].authority,
+        reason: CANARY_SMOKE_SOURCE_AUTHENTICITY_POLICIES[component].reason,
+      }])),
     };
   }
   const identity = expectedIdentity(trustedRuntimeIdentity, deploymentManifest, readinessInvocationId);
@@ -592,7 +699,6 @@ async function readCanarySmokeEvidenceArtifacts(artifactPath, checks) {
 }
 
 export async function runCanaryOperationalSmokeFromLiveEvidence({
-  evidenceDirectory,
   outputPath,
   mainWorkerOrigin,
   verifierOrigin,
@@ -606,9 +712,6 @@ export async function runCanaryOperationalSmokeFromLiveEvidence({
   now = new Date(),
 } = {}) {
   const missingInputs = [];
-  if (typeof evidenceDirectory !== "string" || evidenceDirectory.trim().length === 0) {
-    missingInputs.push("TLSN_CANARY_OPERATIONAL_SMOKE_LIVE_EVIDENCE_DIR");
-  }
   if (typeof outputPath !== "string" || outputPath.trim().length === 0) {
     missingInputs.push("TLSN_CANARY_OPERATIONAL_SMOKE_PATH");
   }
@@ -629,7 +732,7 @@ export async function runCanaryOperationalSmokeFromLiveEvidence({
       status: "NOT_RUN",
       readiness: "BLOCKED",
       missing_inputs: missingInputs,
-      reason: "Approved live evidence and current Canary trust inputs are required; no fixture fallback is available.",
+      reason: "Manifest-bound Main/Verifier health origins and current Canary trust inputs are required; no fixture fallback is available.",
     };
   }
 
@@ -646,57 +749,8 @@ export async function runCanaryOperationalSmokeFromLiveEvidence({
     deploymentManifest,
   );
   const identity = expectedIdentity(trustedRuntimeIdentity, deploymentManifest, readinessInvocationId);
-
-  let sourceDirectory;
-  try {
-    sourceDirectory = await realpath(resolve(evidenceDirectory));
-  } catch (error) {
-    if (error?.code === "ENOENT") {
-      return {
-        status: "NOT_RUN",
-        readiness: "BLOCKED",
-        missing_inputs: ["Canary live evidence directory"],
-        reason: "Approved live evidence is unavailable; no fixture fallback is available.",
-      };
-    }
-    throw error;
-  }
   const evidenceByComponent = {};
   const inputBytesByComponent = {};
-  for (const component of LIVE_EVIDENCE_COMPONENTS) {
-    const sourcePath = resolve(sourceDirectory, `${component}.json`);
-    let actualPath;
-    try {
-      actualPath = await realpath(sourcePath);
-    } catch (error) {
-      if (error?.code === "ENOENT") {
-        return {
-          status: "NOT_RUN",
-          readiness: "BLOCKED",
-          missing_inputs: [`live_evidence/${component}.json`],
-          reason: "A complete approved live evidence set is required; no fixture fallback is available.",
-        };
-      }
-      throw error;
-    }
-    const sourceRelativePath = relative(sourceDirectory, actualPath);
-    if (sourceRelativePath.startsWith("..") || isAbsolute(sourceRelativePath)) {
-      throw new Error(`Canary live smoke evidence for ${component} escapes its input directory`);
-    }
-    const metadata = await stat(actualPath);
-    if (!metadata.isFile() || metadata.size === 0 || metadata.size > MAX_COMPONENT_EVIDENCE_BYTES) {
-      throw new Error(`Canary live smoke evidence for ${component} has an invalid size or file type`);
-    }
-    const bytes = await readFile(actualPath);
-    const evidence = parseEvidenceBytes(bytes, component);
-    evidenceByComponent[component] = evidence;
-    inputBytesByComponent[component] = bytes;
-  }
-
-  const callbackClaims = evidenceByComponent.callback?.claims;
-  if (!INVOCATION_ID_PATTERN.test(callbackClaims?.job_id ?? "") || !INVOCATION_ID_PATTERN.test(callbackClaims?.attempt_id ?? "")) {
-    throw new Error("Canary callback evidence must provide the live job and attempt IDs before health probes run");
-  }
   let mainHealth;
   let verifierHealth;
   try {
@@ -731,21 +785,19 @@ export async function runCanaryOperationalSmokeFromLiveEvidence({
     deployment_id: mainDeployment.deployment_id,
     worker_name: mainDeployment.worker_name,
     version_id: mainRuntime.version_id,
+    origin_sha256: deploymentManifest.inputs.find((input) => input.name === "TLSN_CANARY_WORKER_INTERNAL_URL").value_sha256,
     git_commit_sha: mainBody.git_commit_sha,
     deployment_role: mainDeployment.deployment_role,
     execution_mode: mainBody.execution_mode,
-    job_id: callbackClaims.job_id,
-    attempt_id: callbackClaims.attempt_id,
   }, readinessInvocationId, identity, probeObservedAt);
   evidenceByComponent.verifier = createLiveHealthEvidence("verifier", {
     http_status: verifierHealth.status,
     deployment_id: verifierBody.deployment_id,
     worker_name: verifierBody.worker_name,
     version_id: verifierRuntime.version_id,
+    origin_sha256: deploymentManifest.inputs.find((input) => input.name === "TLSN_CANARY_VERIFIER_WORKER_INTERNAL_URL").value_sha256,
     verifier_key_id: verifierIdentity.key_id,
     keypair_valid: verifierIdentity.keypair_valid,
-    job_id: callbackClaims.job_id,
-    attempt_id: callbackClaims.attempt_id,
   }, readinessInvocationId, identity, probeObservedAt);
 
   const outputAbsolutePath = resolve(outputPath);
@@ -754,7 +806,7 @@ export async function runCanaryOperationalSmokeFromLiveEvidence({
   const evidenceOutputDirectory = join(outputDirectory, evidenceDirectoryName);
   const observations = {};
   const evidenceArtifacts = {};
-  for (const component of CANARY_OPERATIONAL_SMOKE_COMPONENTS) {
+  for (const component of HEALTH_EVIDENCE_COMPONENTS) {
     const evidence = evidenceByComponent[component];
     const artifactPath = `${evidenceDirectoryName}/${component}.json`;
     observations[component] = {
@@ -763,8 +815,17 @@ export async function runCanaryOperationalSmokeFromLiveEvidence({
       probe_id: evidence.probe_id,
       evidence_artifact: artifactPath,
     };
-    inputBytesByComponent[component] ??= Buffer.from(JSON.stringify(evidence), "utf8");
+    inputBytesByComponent[component] = Buffer.from(JSON.stringify(evidence), "utf8");
     evidenceArtifacts[artifactPath] = inputBytesByComponent[component];
+  }
+  for (const component of CANARY_OPERATIONAL_SMOKE_COMPONENTS) {
+    if (HEALTH_EVIDENCE_COMPONENTS.includes(component)) continue;
+    observations[component] = {
+      status: "NOT_RUN",
+      observed_at: null,
+      probe_id: null,
+      evidence_artifact: null,
+    };
   }
   const artifact = createCanaryOperationalSmokeArtifact({
     observations,
@@ -775,6 +836,7 @@ export async function runCanaryOperationalSmokeFromLiveEvidence({
     signingPrivateKeyPkcs8,
     runtimeAttestationKeyRegistry,
     evidenceArtifacts,
+    sourceProofToken: LIVE_HEALTH_SOURCE_PROOF,
     capturedAt: now instanceof Date ? now.toISOString() : now,
     signingNow: now,
   });
@@ -785,7 +847,7 @@ export async function runCanaryOperationalSmokeFromLiveEvidence({
   try {
     await mkdir(evidenceOutputDirectory, { recursive: false });
     createdEvidenceDirectory = true;
-    for (const component of CANARY_OPERATIONAL_SMOKE_COMPONENTS) {
+    for (const component of HEALTH_EVIDENCE_COMPONENTS) {
       const evidencePath = join(evidenceOutputDirectory, `${component}.json`);
       const evidenceHandle = await open(evidencePath, "wx", 0o600);
       createdPaths.push(evidencePath);
@@ -813,6 +875,7 @@ export async function runCanaryOperationalSmokeFromLiveEvidence({
     artifact_path: outputAbsolutePath,
     evidence_directory: evidenceOutputDirectory,
     components: Object.fromEntries(CANARY_OPERATIONAL_SMOKE_COMPONENTS.map((component) => [component, artifact.checks[component].status])),
+    source_authentication: Object.fromEntries(CANARY_OPERATIONAL_SMOKE_COMPONENTS.map((component) => [component, artifact.checks[component].source_authentication])),
   };
 }
 

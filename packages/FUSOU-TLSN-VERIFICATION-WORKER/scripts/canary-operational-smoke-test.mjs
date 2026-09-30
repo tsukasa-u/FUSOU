@@ -3,7 +3,7 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { createHash, generateKeyPairSync } from "node:crypto";
-import { mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -97,7 +97,6 @@ const blockedRunner = await runCanaryOperationalSmokeFromLiveEvidence({
 });
 assert.equal(blockedRunner.status, "NOT_RUN");
 assert.equal(blockedRunner.readiness, "BLOCKED");
-assert.ok(blockedRunner.missing_inputs.includes("TLSN_CANARY_OPERATIONAL_SMOKE_LIVE_EVIDENCE_DIR"));
 assert.ok(blockedRunner.missing_inputs.includes("TLSN_CANARY_WORKER_INTERNAL_URL"));
 assert.ok(blockedRunner.missing_inputs.includes("TLSN_CANARY_VERIFIER_WORKER_INTERNAL_URL"));
 assert.equal(healthFetchCount, 0);
@@ -155,7 +154,7 @@ assert.throws(() => createCanaryOperationalSmokeArtifact({
   runtimeAttestationKeyRegistry,
   capturedAt,
   signingNow: capturedAt,
-}), /complete ten-component live evidence set/);
+}), /accepts only both direct health probes/);
 assert.throws(() => createCanaryOperationalSmokeArtifact({
   observations: {
     ...observations,
@@ -292,14 +291,13 @@ assert.throws(() => assertCanaryOperationalSmokeArtifact(forgedPassArtifact, {
 const tempDir = await mkdtemp(join(tmpdir(), "canary-operational-smoke-"));
 try {
   const missingEvidenceRunner = await runCanaryOperationalSmokeFromLiveEvidence({
-    evidenceDirectory: join(tempDir, "absent-live-evidence"),
     outputPath: join(tempDir, "blocked-smoke.json"),
     mainWorkerOrigin: mainHealthOrigin,
     verifierOrigin: verifierHealthOrigin,
     readinessInvocationId,
     fetchImpl: async () => {
       healthFetchCount += 1;
-      throw new Error("health fetch must not run without all component evidence");
+      throw new Error("health fetch must not run without validated Runtime Attestation inputs");
     },
   });
   assert.equal(missingEvidenceRunner.status, "NOT_RUN");
@@ -307,7 +305,6 @@ try {
   assert.equal(healthFetchCount, 0);
 
   await assert.rejects(() => runCanaryOperationalSmokeFromLiveEvidence({
-    evidenceDirectory: join(tempDir, "absent-live-evidence"),
     outputPath: join(tempDir, "unapproved-origin.json"),
     mainWorkerOrigin: "https://unapproved.example.net",
     verifierOrigin: verifierHealthOrigin,
@@ -325,92 +322,8 @@ try {
   }), /does not match its validated deployment manifest input/);
   assert.equal(healthFetchCount, 0);
 
-  const liveEvidenceDirectory = join(tempDir, "live-evidence");
-  await mkdir(liveEvidenceDirectory);
-  const jobId = "a73fded7-d9af-4f0a-b87b-c626d30d55bd";
-  const attemptId = "b73fded7-d9af-4f0a-b87b-c626d30d55bd";
-  const sessionId = "session-smoke-2026-09-30";
-  const resultSha256 = "A".repeat(43);
-  const presentationSha256 = "B".repeat(43);
-  const subjectSha256 = "C".repeat(43);
-  const deviceSha256 = "D".repeat(43);
-  const smokeJobAttempt = { job_id: jobId, attempt_id: attemptId };
-  const liveClaims = {
-    callback: {
-      ...smokeJobAttempt, http_status: 200, mode: "trigger", session_id: sessionId,
-      result_sha256: resultSha256, presentation_sha256: presentationSha256, receipt_sha256: "E".repeat(43),
-    },
-    trigger: {
-      ...smokeJobAttempt, state: "COMPLETED", task_id: "tlsn-verify-presentation", run_id: "run_123",
-      session_id: sessionId, result_sha256: resultSha256,
-    },
-    session_binding: {
-      ...smokeJobAttempt, session_id: sessionId, binding_sha256: "F".repeat(43),
-      canonical_user_id_sha256: subjectSha256, device_id_sha256: deviceSha256,
-      session_receipt_valid: true, consume_receipt_valid: true,
-    },
-    DO: {
-      ...smokeJobAttempt, status: "consumed", result_sha256: resultSha256,
-      result_object_key: `tlsn-verification/${attemptId}/result.json`,
-    },
-    R2: {
-      ...smokeJobAttempt, object_key: `tlsn-verification/${attemptId}/result.json`, byte_length: 1024,
-      readback_byte_length: 1024, result_sha256: resultSha256, readback_sha256: resultSha256,
-    },
-    Notary: {
-      ...smokeJobAttempt, key_id: deploymentManifest.notary.key_id, registry_sha256: "G".repeat(43),
-      signature_valid: true, presentation_sha256: presentationSha256,
-    },
-    Auth: {
-      ...smokeJobAttempt, authority: "supabase+fusou-web", authenticated: true, is_anonymous: false,
-      device_owner_match: true, canonical_user_id_sha256: subjectSha256, device_id_sha256: deviceSha256,
-    },
-    Presentation: {
-      ...smokeJobAttempt, verified: true, profile_sha256: "H".repeat(43),
-      server_identity: deploymentManifest.target.server_identity, notary_key_id: deploymentManifest.notary.key_id,
-      presentation_sha256: presentationSha256, result_sha256: resultSha256,
-    },
-  };
-  for (const [index, [component, claims]] of Object.entries(liveClaims).entries()) {
-    await writeFile(join(liveEvidenceDirectory, `${component}.json`), JSON.stringify({
-      schema_version: 1,
-      scope: "tlsn-canary-operational-smoke-live-evidence",
-      component,
-      source: "canary-live-runner",
-      synthetic: false,
-      readiness_invocation_id: readinessInvocationId,
-      probe_id: `${(index + 1).toString(16).padStart(8, "0")}-d9af-4f0a-b87b-c626d30d55bd`,
-      observed_at: capturedAt,
-      bound_identity: partialArtifact.bound_identity,
-      claims,
-    }));
-  }
-
-  const symlinkEvidenceDirectory = join(tempDir, "symlink-evidence");
-  await mkdir(symlinkEvidenceDirectory);
-  await symlink(join(liveEvidenceDirectory, "callback.json"), join(symlinkEvidenceDirectory, "callback.json"));
-  await assert.rejects(() => runCanaryOperationalSmokeFromLiveEvidence({
-    evidenceDirectory: symlinkEvidenceDirectory,
-    outputPath: join(tempDir, "symlink-smoke.json"),
-    mainWorkerOrigin: mainHealthOrigin,
-    verifierOrigin: verifierHealthOrigin,
-    trustedRuntimeIdentity,
-    deploymentManifest,
-    readinessInvocationId,
-    signerKeyId,
-    signingPrivateKeyPkcs8: privateKeyPkcs8,
-    runtimeAttestationKeyRegistry,
-    now: new Date(capturedAt),
-    fetchImpl: async () => {
-      healthFetchCount += 1;
-      throw new Error("escaped evidence path must not trigger health probes");
-    },
-  }), /escapes its input directory/);
-  assert.equal(healthFetchCount, 0);
-
   let liveHealthFetchCount = 0;
   const runnerInputs = {
-    evidenceDirectory: liveEvidenceDirectory,
     mainWorkerOrigin: mainHealthOrigin,
     verifierOrigin: verifierHealthOrigin,
     trustedRuntimeIdentity,
@@ -451,12 +364,108 @@ try {
       }), { status: 200 });
     },
   });
-  assert.equal(liveRunnerResult.status, "PASS");
-  assert.equal(liveRunnerResult.readiness, "OPERATIONAL_SMOKE_VERIFIED");
+  assert.equal(liveRunnerResult.status, "BLOCKED");
+  assert.equal(liveRunnerResult.readiness, "BLOCKED");
   assert.equal(liveHealthFetchCount, 2);
+  assert.equal(liveRunnerResult.components.main_worker, "PASS");
+  assert.equal(liveRunnerResult.components.verifier, "PASS");
+  for (const component of ["callback", "trigger", "session_binding", "DO", "R2", "Notary", "Auth", "Presentation"]) {
+    assert.equal(liveRunnerResult.components[component], "BLOCKED");
+    assert.equal(liveRunnerResult.source_authentication[component].status, "BLOCKED");
+  }
   const writtenSmoke = JSON.parse(await readFile(liveRunnerResult.artifact_path, "utf8"));
-  assert.equal(writtenSmoke.evidence.source, "canary-operational-smoke-live-runner");
+  assert.equal(writtenSmoke.evidence.source, "manifest-bound-live-health-probes");
+  assert.equal(writtenSmoke.checks.main_worker.source_authentication.status, "PASS");
+  assert.equal(writtenSmoke.checks.verifier.source_authentication.status, "PASS");
+  assert.equal(writtenSmoke.checks.callback.source_authentication.status, "BLOCKED");
+  assert.equal(writtenSmoke.checks.callback.semantic_status, "NOT_RUN");
+  assert.deepEqual((await readdir(liveRunnerResult.evidence_directory)).sort(), ["main_worker.json", "verifier.json"]);
+  await assert.rejects(readFile(join(liveRunnerResult.evidence_directory, "callback.json")), /ENOENT/);
   assert.equal((await stat(liveRunnerResult.artifact_path)).mode & 0o777, 0o600);
+  const tamperedSourceAuthentication = structuredClone(writtenSmoke);
+  tamperedSourceAuthentication.checks.callback.source_authentication.status = "PASS";
+  assert.throws(() => assertCanaryOperationalSmokeArtifact(tamperedSourceAuthentication, {
+    trustedRuntimeIdentity,
+    deploymentManifest,
+    readinessInvocationId,
+    runtimeAttestationKeyRegistry,
+    evidenceArtifacts: {},
+    currentHead: trustedRuntimeIdentity.git_commit_sha,
+    expectedDeploymentId: trustedRuntimeIdentity.deployment_id,
+    allowNonPass: true,
+    now: new Date(capturedAt),
+  }), /signature is invalid/);
+  const tamperedSignature = {
+    ...writtenSmoke,
+    signature_base64url: `${writtenSmoke.signature_base64url.startsWith("A") ? "B" : "A"}${writtenSmoke.signature_base64url.slice(1)}`,
+  };
+  assert.throws(() => assertCanaryOperationalSmokeArtifact(tamperedSignature, {
+    trustedRuntimeIdentity,
+    deploymentManifest,
+    readinessInvocationId,
+    runtimeAttestationKeyRegistry,
+    evidenceArtifacts: {},
+    currentHead: trustedRuntimeIdentity.git_commit_sha,
+    expectedDeploymentId: trustedRuntimeIdentity.deployment_id,
+    allowNonPass: true,
+    now: new Date(capturedAt),
+  }), /signature is invalid/);
+
+  const unauthenticatedObservations = {};
+  const unauthenticatedEvidenceArtifacts = {};
+  for (const component of CANARY_OPERATIONAL_SMOKE_COMPONENTS) {
+    if (["main_worker", "verifier"].includes(component)) {
+      const bytes = await readFile(join(liveRunnerResult.evidence_directory, `${component}.json`));
+      const evidence = JSON.parse(bytes.toString("utf8"));
+      const evidenceArtifact = `untrusted/${component}.json`;
+      unauthenticatedEvidenceArtifacts[evidenceArtifact] = bytes;
+      unauthenticatedObservations[component] = {
+        status: "PASS",
+        observed_at: evidence.observed_at,
+        probe_id: evidence.probe_id,
+        evidence_artifact: evidenceArtifact,
+      };
+      continue;
+    }
+    unauthenticatedObservations[component] = {
+      status: "NOT_RUN",
+      observed_at: null,
+      probe_id: null,
+      evidence_artifact: null,
+    };
+  }
+  const unauthenticatedArtifact = createCanaryOperationalSmokeArtifact({
+    observations: unauthenticatedObservations,
+    trustedRuntimeIdentity,
+    deploymentManifest,
+    readinessInvocationId,
+    signerKeyId,
+    signingPrivateKeyPkcs8: privateKeyPkcs8,
+    runtimeAttestationKeyRegistry,
+    evidenceArtifacts: unauthenticatedEvidenceArtifacts,
+    capturedAt,
+    signingNow: capturedAt,
+  });
+  assert.equal(unauthenticatedArtifact.status, "BLOCKED");
+  for (const component of CANARY_OPERATIONAL_SMOKE_COMPONENTS) {
+    assert.equal(unauthenticatedArtifact.checks[component].status, "BLOCKED");
+    assert.equal(unauthenticatedArtifact.checks[component].source_authentication.status, "BLOCKED");
+  }
+
+  const loadedLive = await loadCanaryOperationalSmokeArtifact({
+    artifactPath: liveRunnerResult.artifact_path,
+    trustedRuntimeIdentity,
+    deploymentManifest,
+    readinessInvocationId,
+    runtimeAttestationKeyRegistry,
+    currentHead: trustedRuntimeIdentity.git_commit_sha,
+    expectedDeploymentId: trustedRuntimeIdentity.deployment_id,
+    now: new Date(capturedAt),
+  });
+  assert.equal(loadedLive.status, "BLOCKED");
+  assert.equal(loadedLive.components.main_worker, "PASS");
+  assert.equal(loadedLive.components.verifier, "PASS");
+  assert.equal(loadedLive.components.callback, "BLOCKED");
 
   const oversizedResult = await runCanaryOperationalSmokeFromLiveEvidence({
     ...runnerInputs,
@@ -465,6 +474,8 @@ try {
   });
   assert.equal(oversizedResult.status, "FAIL");
   assert.equal(oversizedResult.readiness, "BLOCKED");
+  await assert.rejects(stat(join(tempDir, "oversized-smoke.json")), /ENOENT/);
+  await assert.rejects(stat(join(tempDir, "oversized-smoke.json.evidence")), /ENOENT/);
 
   const artifactPath = join(tempDir, "smoke.json");
   await writeFile(artifactPath, JSON.stringify(partialArtifact));
@@ -513,4 +524,4 @@ try {
   await rm(tempDir, { recursive: true, force: true });
 }
 
-console.log("[tlsn-canary-operational-smoke] manifest binding, synthetic default, missing-input runner block, traversal rejection, and forged PASS tests PASS");
+console.log("[tlsn-canary-operational-smoke] manifest-bound health acquisition, explicit eight-source BLOCKED status, artifact signature, and forged PASS tests PASS");

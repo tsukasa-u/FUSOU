@@ -7,8 +7,8 @@ const HASH_PATTERN = /^[A-Za-z0-9_-]{43}$/;
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const REFERENCE_PATTERN = /^[A-Za-z0-9._:/-]{1,512}$/;
 const COMPONENT_CLAIM_FIELDS = Object.freeze({
-  main_worker: ["http_status", "deployment_id", "worker_name", "version_id", "git_commit_sha", "deployment_role", "execution_mode", "job_id", "attempt_id"],
-  verifier: ["http_status", "deployment_id", "worker_name", "version_id", "verifier_key_id", "keypair_valid", "job_id", "attempt_id"],
+  main_worker: ["http_status", "deployment_id", "worker_name", "version_id", "origin_sha256", "git_commit_sha", "deployment_role", "execution_mode"],
+  verifier: ["http_status", "deployment_id", "worker_name", "version_id", "origin_sha256", "verifier_key_id", "keypair_valid"],
   callback: ["http_status", "mode", "job_id", "attempt_id", "session_id", "result_sha256", "presentation_sha256", "receipt_sha256"],
   trigger: ["state", "task_id", "run_id", "job_id", "attempt_id", "session_id", "result_sha256"],
   session_binding: ["session_id", "job_id", "attempt_id", "binding_sha256", "canonical_user_id_sha256", "device_id_sha256", "session_receipt_valid", "consume_receipt_valid"],
@@ -17,6 +17,18 @@ const COMPONENT_CLAIM_FIELDS = Object.freeze({
   Notary: ["job_id", "attempt_id", "key_id", "registry_sha256", "signature_valid", "presentation_sha256"],
   Auth: ["job_id", "attempt_id", "authority", "authenticated", "is_anonymous", "device_owner_match", "canonical_user_id_sha256", "device_id_sha256"],
   Presentation: ["job_id", "attempt_id", "verified", "profile_sha256", "server_identity", "notary_key_id", "presentation_sha256", "result_sha256"],
+});
+export const CANARY_SMOKE_SOURCE_AUTHENTICITY_POLICIES = Object.freeze({
+  main_worker: { authority: "manifest-bound-main-worker-https", reason: "PASS requires the runner's own HTTPS fetch from the manifest-fingerprinted Main Worker origin and deployment identity checks" },
+  verifier: { authority: "manifest-bound-dedicated-verifier-https", reason: "PASS requires the runner's own HTTPS fetch from the manifest-fingerprinted Dedicated Verifier origin and verifier identity checks" },
+  callback: { authority: "trigger-callback-authenticator", reason: "filesystem claims omit the authenticated callback body and its accepted callback-chain evidence" },
+  trigger: { authority: "trigger-dev-run", reason: "filesystem claims omit an authenticated Trigger.dev run record; task/run IDs are self-asserted" },
+  session_binding: { authority: "session-and-binding-authorities", reason: "filesystem claims contain validity booleans instead of the signed Session and Consume receipts" },
+  DO: { authority: "binding-durable-object", reason: "filesystem claims are not an authenticated read of the authoritative Durable Object state" },
+  R2: { authority: "result-archive-r2", reason: "filesystem claims contain no authenticated R2 readback or source-issued archive proof" },
+  Notary: { authority: "tlsn-notary-registry", reason: "filesystem claims contain no Presentation bytes or independently verified Notary signature" },
+  Auth: { authority: "supabase-and-fusou-web-device-authority", reason: "filesystem claims contain no authenticated subject/device proof or authority response" },
+  Presentation: { authority: "canary-verifier-execution-identity", reason: "filesystem claims contain neither exact Presentation bytes nor the signed Verifier execution receipt" },
 });
 
 function assertObject(value, label) {
@@ -51,9 +63,14 @@ function identityMatches(actual, expected) {
   return canonicalJson(actual) === canonicalJson(expected);
 }
 
+function deploymentInputSha256(deploymentManifest, inputName) {
+  return deploymentManifest.inputs.find((input) => input?.name === inputName)?.value_sha256;
+}
+
 function semanticStatus(component, claims, { boundIdentity, deploymentManifest }) {
-  const jobId = requiredUuid(claims.job_id, `${component} job_id`);
-  const attemptId = requiredUuid(claims.attempt_id, `${component} attempt_id`);
+  const hasJobAttempt = "job_id" in claims || "attempt_id" in claims;
+  const jobId = hasJobAttempt ? requiredUuid(claims.job_id, `${component} job_id`) : null;
+  const attemptId = hasJobAttempt ? requiredUuid(claims.attempt_id, `${component} attempt_id`) : null;
   let passed = true;
   switch (component) {
     case "main_worker":
@@ -61,6 +78,7 @@ function semanticStatus(component, claims, { boundIdentity, deploymentManifest }
         && claims.deployment_id === boundIdentity.main_deployment_id
         && claims.worker_name === boundIdentity.main_worker_name
         && claims.version_id === boundIdentity.main_version_id
+        && claims.origin_sha256 === deploymentInputSha256(deploymentManifest, "TLSN_CANARY_WORKER_INTERNAL_URL")
         && claims.git_commit_sha === boundIdentity.git_commit_sha
         && claims.deployment_role === "canary"
         && claims.execution_mode === "trigger";
@@ -70,6 +88,7 @@ function semanticStatus(component, claims, { boundIdentity, deploymentManifest }
         && claims.deployment_id === boundIdentity.verifier_deployment_id
         && claims.worker_name === boundIdentity.verifier_worker_name
         && claims.version_id === boundIdentity.verifier_version_id
+        && claims.origin_sha256 === deploymentInputSha256(deploymentManifest, "TLSN_CANARY_VERIFIER_WORKER_INTERNAL_URL")
         && claims.verifier_key_id === boundIdentity.verifier_key_id
         && claims.keypair_valid === true;
       requiredBoolean(claims.keypair_valid, "verifier keypair_valid");
@@ -193,22 +212,33 @@ export function validateCanaryOperationalSmokeEvidenceSet(evidenceByComponent, {
     }
     assertObject(evidence.claims, `Canary operational smoke ${component} claims`);
     assertExactKeys(evidence.claims, COMPONENT_CLAIM_FIELDS[component], `Canary operational smoke ${component} claims`);
-    results[component] = semanticStatus(component, evidence.claims, { boundIdentity, deploymentManifest });
+    const semantic = semanticStatus(component, evidence.claims, { boundIdentity, deploymentManifest });
+    results[component] = { ...semantic, semantic_status: semantic.status };
   }
 
   const claims = Object.fromEntries(components.map((component) => [component, evidenceByComponent[component].claims]));
   const same = (field, componentNames) => componentNames.every((component) => claims[component][field] === claims[componentNames[0]][field]);
-  const sharedJobAttempt = components.every((component) => (
-    results[component].job_id === results[components[0]].job_id
-    && results[component].attempt_id === results[components[0]].attempt_id
+  const jobAttemptComponents = components.filter((component) => results[component].job_id !== null);
+  const sharedJobAttempt = jobAttemptComponents.every((component) => (
+    results[component].job_id === results[jobAttemptComponents[0]].job_id
+    && results[component].attempt_id === results[jobAttemptComponents[0]].attempt_id
   ));
-  const sharedSession = same("session_id", ["callback", "trigger", "session_binding"]);
-  const sharedResult = same("result_sha256", ["callback", "trigger", "DO", "R2", "Presentation"]);
-  const sharedPresentation = same("presentation_sha256", ["callback", "Notary", "Presentation"]);
-  const sharedAuthSubject = claims.Auth.canonical_user_id_sha256 === claims.session_binding.canonical_user_id_sha256
-    && claims.Auth.device_id_sha256 === claims.session_binding.device_id_sha256;
+  const hasComponents = (...names) => names.every((name) => components.includes(name));
+  const sharedSession = !hasComponents("callback", "trigger", "session_binding")
+    || same("session_id", ["callback", "trigger", "session_binding"]);
+  const sharedResult = !hasComponents("callback", "trigger", "DO", "R2", "Presentation")
+    || same("result_sha256", ["callback", "trigger", "DO", "R2", "Presentation"]);
+  const sharedPresentation = !hasComponents("callback", "Notary", "Presentation")
+    || same("presentation_sha256", ["callback", "Notary", "Presentation"]);
+  const sharedAuthSubject = !hasComponents("Auth", "session_binding") || (
+    claims.Auth.canonical_user_id_sha256 === claims.session_binding.canonical_user_id_sha256
+    && claims.Auth.device_id_sha256 === claims.session_binding.device_id_sha256
+  );
   if (!sharedJobAttempt || !sharedSession || !sharedResult || !sharedPresentation || !sharedAuthSubject) {
-    for (const component of components) results[component].status = "FAIL";
+    for (const component of components) {
+      results[component].semantic_status = "FAIL";
+      results[component].status = "FAIL";
+    }
   }
   return results;
 }
