@@ -72,7 +72,8 @@ impl DeviceKey {
         }
     }
 
-    /// Load an already registered key without creating a new local identity.
+    /// Load a locally stored key with a device ID without creating a new local identity.
+    /// This checks local registration metadata only; it does not verify server ownership or revocation.
     pub async fn load_registered(storage_path: PathBuf) -> Result<Self, AuthError> {
         let device_key = Self::load_existing(&storage_path)
             .await?
@@ -296,6 +297,31 @@ mod tests {
         assert_eq!(key2.public_key_b64(), pub1);
 
         let _ = tokio::fs::remove_file(&path).await;
+    }
+
+    #[tokio::test]
+    async fn load_registered_never_creates_or_replaces_a_key() {
+        let missing_path = temp_path();
+        assert!(matches!(
+            DeviceKey::load_registered(missing_path.clone()).await,
+            Err(AuthError::DeviceNotRegistered)
+        ));
+        assert!(!missing_path.exists());
+
+        let unregistered_path = temp_path();
+        let _ = DeviceKey::load_or_create(unregistered_path.clone())
+            .await
+            .unwrap();
+        let original_bytes = tokio::fs::read(&unregistered_path).await.unwrap();
+        assert!(matches!(
+            DeviceKey::load_registered(unregistered_path.clone()).await,
+            Err(AuthError::DeviceNotRegistered)
+        ));
+        assert_eq!(
+            tokio::fs::read(&unregistered_path).await.unwrap(),
+            original_bytes
+        );
+        let _ = tokio::fs::remove_file(&unregistered_path).await;
     }
 
     #[tokio::test]

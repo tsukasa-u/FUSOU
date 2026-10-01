@@ -104,7 +104,6 @@ export function publicKeySha256(publicKey) {
 
 export function verifyDeviceIdentity(identity, expectedUserId, expectedDeviceId) {
   if (
-    identity?.authority_state !== "UNVERIFIED" ||
     identity.canonical_user_id !== expectedUserId ||
     identity.device_id !== expectedDeviceId
   ) {
@@ -318,9 +317,19 @@ export function verifyDevicePredicates({
   if (typeof expectedUserId !== "string" || typeof expectedDeviceId !== "string") {
     throw new Error("authoritative user and device roots are required for device predicate verification");
   }
+  const assertAuthoritativeDeviceIdentity = () => {
+    if (
+      deviceIdentity?.authoritative !== true ||
+      deviceIdentity.authority !== "fusou-web-user-devices" ||
+      deviceIdentity.revoked_at !== null
+    ) {
+      throw new Error("FUSOU-WEB device ownership or revocation authority is invalid");
+    }
+  };
   const expectedPresentationId = createHash("sha256").update(presentationBytes).digest("base64url");
   const predicates = {
     device_identity_ownership: runDevicePredicate("device_identity_ownership", verifiedAt, ["device_identity"], () => {
+      assertAuthoritativeDeviceIdentity();
       verifyDeviceIdentity(deviceIdentity, expectedUserId, expectedDeviceId);
       return {
         canonical_user_id: deviceIdentity.canonical_user_id,
@@ -330,6 +339,7 @@ export function verifyDevicePredicates({
       };
     }),
     device_authentication_signature: runDevicePredicate("device_authentication_signature", verifiedAt, ["device_identity", "device_authentication", "session"], () => {
+      assertAuthoritativeDeviceIdentity();
       const authentication = verifyDeviceAuthentication(
         deviceAuthentication,
         deviceIdentity,

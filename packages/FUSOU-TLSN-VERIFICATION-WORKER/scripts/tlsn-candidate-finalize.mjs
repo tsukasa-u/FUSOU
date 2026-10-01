@@ -55,8 +55,7 @@ function parseJson(bytes, label) {
   }
 }
 
-async function assertPrivateDirectory(directory) {
-  const stats = await lstat(directory);
+function assertPrivateDirectoryStats(stats) {
   if (!stats.isDirectory() || stats.isSymbolicLink()) {
     throw new Error("candidate bundle path must be a real directory");
   }
@@ -66,6 +65,51 @@ async function assertPrivateDirectory(directory) {
     }
     if ((stats.mode & 0o077) !== 0) {
       throw new Error("candidate bundle directory permissions must be private");
+    }
+  }
+}
+
+function sameDirectoryIdentity(left, right) {
+  return left.dev === right.dev && left.ino === right.ino;
+}
+
+async function pinCandidateDirectory(directory) {
+  const resolvedPath = path.resolve(directory);
+  const pathStats = await lstat(resolvedPath);
+  assertPrivateDirectoryStats(pathStats);
+  let handle = null;
+  if (process.platform !== "win32") {
+    const flags = constants.O_RDONLY | (constants.O_DIRECTORY ?? 0) | (constants.O_NOFOLLOW ?? 0);
+    handle = await open(resolvedPath, flags);
+    try {
+      const openedStats = await handle.stat();
+      assertPrivateDirectoryStats(openedStats);
+      if (!sameDirectoryIdentity(pathStats, openedStats)) {
+        throw new Error("candidate bundle directory changed while being opened");
+      }
+    } catch (error) {
+      await handle.close();
+      throw error;
+    }
+  }
+  return {
+    path: resolvedPath,
+    identity: { dev: pathStats.dev, ino: pathStats.ino },
+    handle,
+  };
+}
+
+async function assertPinnedCandidateDirectory(guard) {
+  const pathStats = await lstat(guard.path);
+  assertPrivateDirectoryStats(pathStats);
+  if (!sameDirectoryIdentity(guard.identity, pathStats)) {
+    throw new Error("candidate bundle directory identity changed during verification");
+  }
+  if (guard.handle) {
+    const openedStats = await guard.handle.stat();
+    assertPrivateDirectoryStats(openedStats);
+    if (!sameDirectoryIdentity(guard.identity, openedStats)) {
+      throw new Error("pinned candidate bundle directory identity changed during verification");
     }
   }
 }
@@ -84,35 +128,44 @@ function assertPrivateFileStats(stats, label) {
   }
 }
 
-async function readPrivateFile(filePath, label) {
-  await assertPrivateFileStats(await lstat(filePath), label);
+async function readPrivateFile(filePath, label, directoryGuard) {
+  await assertPinnedCandidateDirectory(directoryGuard);
+  const pathStats = await lstat(filePath);
+  assertPrivateFileStats(pathStats, label);
   const flags = constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0);
   const handle = await open(filePath, flags);
   try {
-    assertPrivateFileStats(await handle.stat(), label);
-    return await handle.readFile();
+    const openedStats = await handle.stat();
+    assertPrivateFileStats(openedStats, label);
+    if (!sameDirectoryIdentity(pathStats, openedStats)) {
+      throw new Error(`${label} changed while being opened`);
+    }
+    const bytes = await handle.readFile();
+    await assertPinnedCandidateDirectory(directoryGuard);
+    return bytes;
   } finally {
     await handle.close();
   }
 }
 
-async function readArtifact(directory, manifest, name) {
+async function readArtifact(directoryGuard, manifest, name) {
   const expected = manifest.artifacts?.[name];
   if (!expected || !Number.isSafeInteger(expected.size_bytes) || typeof expected.sha256 !== "string") {
     throw new Error(`candidate manifest is missing artifact metadata: ${name}`);
   }
-  const filePath = path.join(directory, name);
-  const bytes = await readPrivateFile(filePath, `candidate artifact ${name}`);
+  const filePath = path.join(directoryGuard.path, name);
+  const bytes = await readPrivateFile(filePath, `candidate artifact ${name}`, directoryGuard);
   if (bytes.length !== expected.size_bytes || sha256Base64Url(bytes) !== expected.sha256) {
     throw new Error(`candidate artifact integrity mismatch: ${name}`);
   }
   return bytes;
 }
 
-export async function loadTlsnCandidateBundle(candidateDirectory) {
-  await assertPrivateDirectory(candidateDirectory);
+async function loadPinnedTlsnCandidateBundle(directoryGuard) {
+  const candidateDirectory = directoryGuard.path;
+  await assertPinnedCandidateDirectory(directoryGuard);
   const manifestPath = path.join(candidateDirectory, "candidate-manifest.json");
-  const manifestBytes = await readPrivateFile(manifestPath, "candidate manifest");
+  const manifestBytes = await readPrivateFile(manifestPath, "candidate manifest", directoryGuard);
   const manifest = parseJson(manifestBytes, "candidate manifest");
   if (
     manifest.schema_version !== 1 ||
@@ -134,19 +187,34 @@ export async function loadTlsnCandidateBundle(candidateDirectory) {
   }
   const artifactNames = Object.keys(manifest.artifacts ?? {}).sort();
   assert.deepEqual(artifactNames, ARTIFACT_NAMES, "candidate artifact inventory is incomplete or unexpected");
+  const finalizationPath = path.join(candidateDirectory, "candidate-finalization.json");
+  let hasExistingFinalization = false;
+  try {
+    assertPrivateFileStats(await lstat(finalizationPath), "candidate finalization");
+    hasExistingFinalization = true;
+  } catch (error) {
+    if (error?.code !== "ENOENT") throw error;
+  }
+  await assertPinnedCandidateDirectory(directoryGuard);
   const actualNames = (await readdir(candidateDirectory)).sort();
+  await assertPinnedCandidateDirectory(directoryGuard);
   assert.deepEqual(
     actualNames,
-    [...ARTIFACT_NAMES, "candidate-manifest.json"].sort(),
+    [
+      ...ARTIFACT_NAMES,
+      "candidate-manifest.json",
+      ...(hasExistingFinalization ? ["candidate-finalization.json"] : []),
+    ].sort(),
     "candidate directory contains missing or unexpected entries",
   );
 
   const artifacts = Object.fromEntries(
     await Promise.all(ARTIFACT_NAMES.map(async (name) => [
       name,
-      await readArtifact(candidateDirectory, manifest, name),
+      await readArtifact(directoryGuard, manifest, name),
     ])),
   );
+  await assertPinnedCandidateDirectory(directoryGuard);
   const presentationBytes = artifacts["presentation.bin"];
   const resultBytes = artifacts["result-exact.bin"];
   const receiptBytes = artifacts["verifier-execution-receipt.bin"];
@@ -214,6 +282,15 @@ export async function loadTlsnCandidateBundle(candidateDirectory) {
   };
 }
 
+export async function loadTlsnCandidateBundle(candidateDirectory) {
+  const directoryGuard = await pinCandidateDirectory(candidateDirectory);
+  try {
+    return await loadPinnedTlsnCandidateBundle(directoryGuard);
+  } finally {
+    await directoryGuard.handle?.close();
+  }
+}
+
 function validateTrustContext(trustContext) {
   assertObject(trustContext, "offline trust context");
   const allowedKeys = new Set([...TRUST_CONTEXT_KEYS, "disclosureMode"]);
@@ -235,9 +312,11 @@ export async function finalizeTlsnCandidateBundle({
   candidateDirectory,
   trustContext,
 } = {}) {
-  const bundle = await loadTlsnCandidateBundle(candidateDirectory);
-  const trusted = validateTrustContext(trustContext);
-  const verification = await verifyCanaryExistingSourceProofBundle({
+  const directoryGuard = await pinCandidateDirectory(candidateDirectory);
+  try {
+    const bundle = await loadPinnedTlsnCandidateBundle(directoryGuard);
+    const trusted = validateTrustContext(trustContext);
+    const verification = await verifyCanaryExistingSourceProofBundle({
     ...trusted,
     session: bundle.session,
     deviceAuthentication: bundle.deviceAuthentication,
@@ -249,12 +328,12 @@ export async function finalizeTlsnCandidateBundle({
     verifierExecutionReceiptBytes: bundle.verifierExecutionReceiptBytes,
     syntheticFixture: bundle.manifest.synthetic_fixture,
   });
-  verification.evidence.synthetic = bundle.manifest.synthetic_fixture ? true : null;
-  verification.evidence.synthetic_classification = bundle.manifest.synthetic_fixture
+    verification.evidence.synthetic = bundle.manifest.synthetic_fixture ? true : null;
+    verification.evidence.synthetic_classification = bundle.manifest.synthetic_fixture
     ? "DECLARED_SYNTHETIC_FIXTURE"
     : "UNVERIFIED";
-  const verifiedPresentation = verification?.verified_presentation;
-  if (
+    const verifiedPresentation = verification?.verified_presentation;
+    if (
     verification?.status !== "PASS" ||
     verification.proof_bundle_status !== "PASS_LIMITED" ||
     verification.readiness_effect !== "NONE" ||
@@ -265,11 +344,11 @@ export async function finalizeTlsnCandidateBundle({
     (trusted.deploymentManifest.target?.server_identity !== undefined &&
       verifiedPresentation.server_identity !== trusted.deploymentManifest.target.server_identity) ||
     verifiedPresentation.presentation_sha256 !== bundle.manifest.presentation_sha256
-  ) {
-    throw new Error("offline proof verifier did not return a bounded verified Presentation identity");
-  }
+    ) {
+      throw new Error("offline proof verifier did not return a bounded verified Presentation identity");
+    }
 
-  const finalization = {
+    const finalization = {
     schema_version: 1,
     scope: "fusou-tlsn-human-test-play-observed-target",
     status: "OBSERVED_UNAPPROVED",
@@ -296,19 +375,27 @@ export async function finalizeTlsnCandidateBundle({
       : "UNVERIFIED",
     readiness_effect: "NONE",
     gameplay_effect: "NONE",
-  };
-  const outputPath = path.join(candidateDirectory, "candidate-finalization.json");
-  const output = await open(outputPath, "wx", 0o600);
-  try {
-    await output.writeFile(`${JSON.stringify(finalization, null, 2)}\n`, "utf8");
-    await output.sync();
-    await output.close();
-  } catch (error) {
-    await output.close().catch(() => {});
-    await rm(outputPath, { force: true }).catch(() => {});
-    throw error;
+    };
+    const outputPath = path.join(directoryGuard.path, "candidate-finalization.json");
+    await assertPinnedCandidateDirectory(directoryGuard);
+    const output = await open(outputPath, "wx", 0o600);
+    try {
+      await assertPinnedCandidateDirectory(directoryGuard);
+      await output.writeFile(`${JSON.stringify(finalization, null, 2)}\n`, "utf8");
+      await output.sync();
+      await assertPinnedCandidateDirectory(directoryGuard);
+      await output.close();
+    } catch (error) {
+      await output.close().catch(() => {});
+      if (await assertPinnedCandidateDirectory(directoryGuard).then(() => true, () => false)) {
+        await rm(outputPath, { force: true }).catch(() => {});
+      }
+      throw error;
+    }
+    return finalization;
+  } finally {
+    await directoryGuard.handle?.close();
   }
-  return finalization;
 }
 
 function parseArguments(args) {

@@ -1599,7 +1599,7 @@ await assert.rejects(
     deviceChallenge: result.device_challenge,
     notaryRegistry: { [securityIdentity.notary_key_id]: Buffer.alloc(32, 8).toString("base64url") },
   }),
-  /semantic Presentation (cryptographic|profile) verification failed/,
+  /(?:alpha\.15 Presentation cryptographic inspection failed|semantic Presentation (?:cryptographic|profile) verification failed)/,
 );
 
 function rejects(label, action) {

@@ -596,7 +596,7 @@ impl TlsnVerificationBackend for RemoteWorkerVerificationBackend {
             if binding.value() != session.binding() {
                 return Err(VerificationError::BindingMismatch);
             }
-            let device_key = DeviceKey::load_or_create(device_key_path)
+            let device_key = DeviceKey::load_registered(device_key_path)
                 .await
                 .map_err(|_| VerificationError::WorkerUnavailable)?;
             if device_key.device_id() != Some(session.device_id()) {

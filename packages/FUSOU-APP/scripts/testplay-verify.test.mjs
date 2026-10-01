@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
 import { EventEmitter } from "node:events";
 import { chmod, mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -14,6 +15,12 @@ import {
   waitForChildWithSignalForwarding,
   writeConfigRecoveryMarker,
 } from "./testplay-verify.mjs";
+
+async function writeStaleRecoveryMarker(markerPath, original, mode) {
+  return writeConfigRecoveryMarker(markerPath, original, mode, {
+    launcherPid: 0x7fff_ffff,
+  });
+}
 
 test("clean-capture config overrides every targeted setting", () => {
   const original = [
@@ -157,18 +164,18 @@ test("stale recovery marker restores exact config bytes and mode", async () => {
   const root = await mkdtemp(path.join(tmpdir(), "fusou-testplay-recovery-"));
   const configPath = path.join(root, "configs.toml");
   const markerPath = path.join(root, ".testplay-verify-recovery.json");
-  const original = "[proxy]\r\ncapture_enabled = false\r\n";
+  const original = Buffer.from('[proxy]\r\ncapture_enabled = false\r\nname = "海"\n', "utf8");
 
   try {
     await writeFile(configPath, original, { mode: 0o640 });
     const originalMode = (await stat(configPath)).mode & 0o7777;
-    await writeConfigRecoveryMarker(markerPath, original, originalMode);
+    await writeStaleRecoveryMarker(markerPath, original, originalMode);
     await writeFile(configPath, "temporary capture config\n");
 
     assert.equal(await recoverConfigFromMarker(configPath, markerPath), true);
-    assert.equal(await readFile(configPath, "utf8"), original);
+    assert.deepEqual(await readFile(configPath), original);
     if (process.platform !== "win32") {
-      assert.equal((await stat(configPath)).mode & 0o7777, originalMode);
+      assert.equal((await stat(configPath)).mode & 0o777, originalMode);
     }
     await assert.rejects(stat(markerPath), { code: "ENOENT" });
   } finally {
@@ -182,11 +189,143 @@ test("stale recovery marker removes config when it was originally absent", async
   const markerPath = path.join(root, ".testplay-verify-recovery.json");
 
   try {
-    await writeConfigRecoveryMarker(markerPath, null, null);
+    await writeStaleRecoveryMarker(markerPath, null, null);
     await writeFile(configPath, "temporary capture config\n");
 
     assert.equal(await recoverConfigFromMarker(configPath, markerPath), true);
     await assert.rejects(stat(configPath), { code: "ENOENT" });
+    await assert.rejects(stat(markerPath), { code: "ENOENT" });
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("recovery restores after marker creation before temporary config write", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "fusou-testplay-recovery-before-write-"));
+  const configPath = path.join(root, "configs.toml");
+  const markerPath = path.join(root, ".testplay-verify-recovery.json");
+  const original = Buffer.from("[proxy]\n", "utf8");
+
+  try {
+    await writeFile(configPath, original, { mode: 0o640 });
+    await writeStaleRecoveryMarker(markerPath, original, 0o640);
+    assert.equal(await recoverConfigFromMarker(configPath, markerPath), true);
+    assert.deepEqual(await readFile(configPath), original);
+    await assert.rejects(stat(markerPath), { code: "ENOENT" });
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("recovery retries after an orphan restore temp and removes capture temps", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "fusou-testplay-recovery-orphan-"));
+  const configPath = path.join(root, "configs.toml");
+  const markerPath = path.join(root, ".testplay-verify-recovery.json");
+  const original = Buffer.from("[proxy]\r\n", "utf8");
+  const orphanRestore = path.join(root, `.configs.toml.restore-${randomUUID()}`);
+  const orphanCapture = path.join(root, `.configs.toml.capture-${randomUUID()}`);
+
+  try {
+    await writeFile(configPath, "temporary config", { mode: 0o600 });
+    await writeFile(orphanRestore, "partial restore", { mode: 0o600 });
+    await writeFile(orphanCapture, "partial capture", { mode: 0o600 });
+    await writeStaleRecoveryMarker(markerPath, original, 0o640);
+    assert.equal(await recoverConfigFromMarker(configPath, markerPath), true);
+    assert.deepEqual(await readFile(configPath), original);
+    await assert.rejects(stat(orphanRestore), { code: "ENOENT" });
+    await assert.rejects(stat(orphanCapture), { code: "ENOENT" });
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("recovery rejects marker symlinks, config symlinks, and non-private markers", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "fusou-testplay-recovery-links-"));
+  const configPath = path.join(root, "configs.toml");
+  const markerPath = path.join(root, ".testplay-verify-recovery.json");
+  const outside = path.join(root, "outside");
+
+  try {
+    await writeFile(outside, "outside", { mode: 0o600 });
+    await symlink(outside, markerPath);
+    await assert.rejects(recoverConfigFromMarker(configPath, markerPath), /regular file/);
+    await rm(markerPath);
+
+    await writeStaleRecoveryMarker(markerPath, Buffer.from("original"), 0o600);
+    await symlink(outside, configPath);
+    await assert.rejects(recoverConfigFromMarker(configPath, markerPath), /regular file/);
+    assert.equal(await readFile(outside, "utf8"), "outside");
+    await rm(configPath);
+
+    if (process.platform !== "win32") {
+      await chmod(markerPath, 0o644);
+      await assert.rejects(recoverConfigFromMarker(configPath, markerPath), /permissions must be private/);
+    }
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("recovery rejects malformed, inconsistent, noncanonical, oversized, and wrong-schema markers", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "fusou-testplay-recovery-invalid-"));
+  const configPath = path.join(root, "configs.toml");
+  const markerPath = path.join(root, ".testplay-verify-recovery.json");
+  const original = Buffer.from("original");
+
+  try {
+    await writeFile(configPath, "temporary", { mode: 0o600 });
+    await writeStaleRecoveryMarker(markerPath, original, 0o600);
+    await writeFile(markerPath, "not json", { mode: 0o600 });
+    await assert.rejects(recoverConfigFromMarker(configPath, markerPath), /malformed/);
+    await rm(markerPath);
+
+    for (const mutation of [
+      (marker) => ({ ...marker, schema_version: 99 }),
+      (marker) => ({ ...marker, original_mode: null }),
+      (marker) => ({ ...marker, original_config_base64: "YR==" }),
+      (marker) => ({ ...marker, launcher_pid: 0 }),
+    ]) {
+      await writeStaleRecoveryMarker(markerPath, original, 0o600);
+      const marker = JSON.parse(await readFile(markerPath, "utf8"));
+      await writeFile(markerPath, JSON.stringify(mutation(marker)), { mode: 0o600 });
+      await assert.rejects(recoverConfigFromMarker(configPath, markerPath));
+      await rm(markerPath);
+    }
+
+    await writeStaleRecoveryMarker(markerPath, original, 0o600);
+    await writeFile(markerPath, Buffer.alloc(6 * 1024 * 1024 + 1), { mode: 0o600 });
+    await assert.rejects(recoverConfigFromMarker(configPath, markerPath), /size limit/);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("active capture is exclusive and only its token may preserve temporary config", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "fusou-testplay-recovery-active-"));
+  const configPath = path.join(root, "configs.toml");
+  const markerPath = path.join(root, ".testplay-verify-recovery.json");
+  const original = Buffer.from("original\r\n", "utf8");
+
+  try {
+    await writeFile(configPath, original, { mode: 0o600 });
+    const token = await writeConfigRecoveryMarker(markerPath, original, 0o600, {
+      launcherPid: process.pid,
+    });
+    await writeFile(configPath, "candidate", { mode: 0o600 });
+    const markerBefore = await readFile(markerPath);
+    await assert.rejects(
+      writeConfigRecoveryMarker(markerPath, Buffer.from("replacement"), 0o600),
+      { code: "EEXIST" },
+    );
+    assert.deepEqual(await readFile(markerPath), markerBefore);
+    await assert.rejects(recoverConfigFromMarker(configPath, markerPath), /active/);
+    assert.equal(await recoverConfigFromMarker(configPath, markerPath, { authorizedToken: token }), false);
+    assert.equal(await readFile(configPath, "utf8"), "candidate");
+    assert.equal(await recoverConfigFromMarker(configPath, markerPath, {
+      authorizedToken: token,
+      restoreActive: true,
+    }), true);
+    assert.deepEqual(await readFile(configPath), original);
     await assert.rejects(stat(markerPath), { code: "ENOENT" });
   } finally {
     await rm(root, { recursive: true, force: true });

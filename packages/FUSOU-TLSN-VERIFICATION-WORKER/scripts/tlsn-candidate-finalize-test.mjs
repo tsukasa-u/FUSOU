@@ -119,11 +119,23 @@ async function rewriteBinaryArtifact(fixture, name, bytes) {
   fixture.candidateManifest.artifacts[name] = { size_bytes: bytes.length, sha256: hash(bytes) };
   if (name === "presentation.bin") fixture.candidateManifest.presentation_sha256 = hash(bytes);
   if (name === "result-exact.bin") fixture.candidateManifest.exact_result_sha256 = hash(bytes);
+  if (name === "verifier-execution-receipt.bin") {
+    fixture.candidateManifest.verifier_execution_receipt_sha256 = hash(bytes);
+  }
   await writeFile(
     path.join(fixture.candidateDirectory, "candidate-manifest.json"),
     JSON.stringify(fixture.candidateManifest),
     { mode: 0o600 },
   );
+}
+
+async function rewriteExactResult(fixture, value) {
+  const bytes = Buffer.isBuffer(value) ? value : jsonBytes(value);
+  const response = JSON.parse(bytes.toString("utf8"));
+  await rewriteBinaryArtifact(fixture, "result-exact.bin", bytes);
+  await rewriteArtifact(fixture, "worker-verification.json", response);
+  await rewriteArtifact(fixture, "result.json", response.result);
+  await rewriteArtifact(fixture, "consume-receipt.json", response.consume_receipt);
 }
 
 function trustContext() {
@@ -275,6 +287,24 @@ test("finalizer requires private regular artifacts and exact bundle inventory", 
   }
 });
 
+test("finalizer rejects a symbolic-link candidate root", { skip: process.platform === "win32" }, async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "fusou-tlsn-candidate-root-symlink-"));
+  const candidateDirectory = path.join(root, "candidate");
+  const candidateAlias = path.join(root, "candidate-alias");
+  await mkdir(candidateDirectory, { mode: 0o700 });
+  await writeCandidate(candidateDirectory);
+  await symlink(candidateDirectory, candidateAlias, "dir");
+
+  try {
+    await assert.rejects(
+      finalizeTlsnCandidateBundle({ candidateDirectory: candidateAlias, trustContext: trustContext() }),
+      /candidate bundle path must be a real directory/,
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("synthetic alpha.15 Presentation discovers target and finalizes as unapproved", async () => {
   const root = await mkdtemp(path.join(tmpdir(), "fusou-tlsn-candidate-positive-"));
   try {
@@ -354,6 +384,15 @@ test("metadata and authority-shaped identity fields cannot upgrade provenance", 
     const identity = JSON.parse(identityBytes.toString("utf8"));
     await rewriteArtifact(fixture, "device-identity.json", {
       ...identity,
+      authority_state: "AUTHORITATIVE",
+    });
+    await assert.rejects(
+      finalizeTlsnCandidateBundle(fixture),
+      /inconsistent or claim unsupported identity authority/,
+    );
+
+    await rewriteArtifact(fixture, "device-identity.json", {
+      ...identity,
       authoritative: true,
       authority: "fusou-web-user-devices",
       revoked_at: null,
@@ -365,6 +404,11 @@ test("metadata and authority-shaped identity fields cannot upgrade provenance", 
     assert.equal(finalization.verification.components.device_identity_ownership.status, "UNVERIFIED");
     assert.equal(finalization.human_play_provenance, "UNVERIFIED");
     assert.equal(finalization.synthetic_fixture_status, "DECLARED_SYNTHETIC_FIXTURE");
+
+    const finalizationPath = path.join(fixture.candidateDirectory, "candidate-finalization.json");
+    const originalFinalizationBytes = await readFile(finalizationPath);
+    await assert.rejects(finalizeTlsnCandidateBundle(fixture), { code: "EEXIST" });
+    assert.deepEqual(await readFile(finalizationPath), originalFinalizationBytes);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -408,6 +452,84 @@ test("finalizer detects outer Result byte mutation against the execution receipt
     await assert.rejects(
       finalizeTlsnCandidateBundle(fixture),
       /Verifier execution receipt Result hash mismatch/,
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("finalizer rejects outer Result field mutations after all local hashes are refreshed", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "fusou-tlsn-candidate-result-fields-"));
+  try {
+    const fixture = await createSyntheticCandidateBundle(root);
+    const originalResponse = JSON.parse(fixture.resultBytes.toString("utf8"));
+    const mutations = [
+      {
+        mutate: (response) => { response.verified = false; },
+        message: /exact Result response signature metadata is invalid/,
+      },
+      {
+        mutate: (response) => { response.signer_key_id = "substituted-signer"; },
+        message: /exact Result response signer key ID does not match/,
+      },
+      {
+        mutate: (response) => { response.unbound_outer_claim = "changed"; },
+        message: /Verifier execution receipt Result hash mismatch/,
+      },
+    ];
+
+    for (const mutation of mutations) {
+      const response = structuredClone(originalResponse);
+      mutation.mutate(response);
+      await rewriteExactResult(fixture, response);
+      await assert.rejects(finalizeTlsnCandidateBundle(fixture), mutation.message);
+      await rewriteExactResult(fixture, fixture.resultBytes);
+    }
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("finalizer rejects inner Result and detached receipt byte mutations", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "fusou-tlsn-candidate-signed-bytes-"));
+  try {
+    const fixture = await createSyntheticCandidateBundle(root);
+    const response = JSON.parse(fixture.resultBytes.toString("utf8"));
+    response.result.verified_member_id = "mutated-member-id";
+    await rewriteExactResult(fixture, response);
+    await assert.rejects(
+      finalizeTlsnCandidateBundle(fixture),
+      /production verifier result signature is invalid/,
+    );
+
+    await rewriteExactResult(fixture, fixture.resultBytes);
+    const receiptPath = path.join(fixture.candidateDirectory, "verifier-execution-receipt.bin");
+    const receipt = JSON.parse(await readFile(receiptPath, "utf8"));
+    receipt.signature_base64url = `${receipt.signature_base64url[0] === "A" ? "B" : "A"}${receipt.signature_base64url.slice(1)}`;
+    const receiptBytes = jsonBytes(receipt);
+    await rewriteBinaryArtifact(fixture, "verifier-execution-receipt.bin", receiptBytes);
+    await rewriteBinaryArtifact(
+      fixture,
+      "verifier-execution-receipt-header.txt",
+      Buffer.from(receiptBytes.toString("base64url"), "ascii"),
+    );
+    await assert.rejects(finalizeTlsnCandidateBundle(fixture), /Verifier execution receipt signature is invalid/);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("finalizer rejects detached receipt header and body mismatch after manifest refresh", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "fusou-tlsn-candidate-receipt-header-"));
+  try {
+    const fixture = await createSyntheticCandidateBundle(root);
+    const headerPath = path.join(fixture.candidateDirectory, "verifier-execution-receipt-header.txt");
+    const header = await readFile(headerPath);
+    header[0] = header[0] === 0x41 ? 0x42 : 0x41;
+    await rewriteBinaryArtifact(fixture, "verifier-execution-receipt-header.txt", header);
+    await assert.rejects(
+      finalizeTlsnCandidateBundle(fixture),
+      /candidate proof bytes do not match the capture manifest/,
     );
   } finally {
     await rm(root, { recursive: true, force: true });
