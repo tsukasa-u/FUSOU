@@ -6,6 +6,8 @@ use crate::{
         VerificationFuture, VerificationOutcome, VerifiedMemberId, VerifiedTlsnEvidence,
     },
     production_tlsn::{
+        ensure_private_candidate_root, validate_private_candidate_directory,
+        validate_private_candidate_file, write_private_candidate_file,
         Alpha15OriginTransportFactory, OriginTransportConfig, PresentationHandoff,
         PresentationVerificationInput, ProductionResultSigner, ResultSignerError,
         ResultSignerFuture, SignedTlsnResult, TlsnPresentation, TlsnVerificationBackend,
@@ -200,11 +202,9 @@ impl ResultSignatureVerifier {
                 .map_err(|_| VerificationError::WorkerRejected)?;
             parsed.verified_member_id
         } else {
-            let parsed = fusou_tlsn_verifier::parse_verifier_result(
-                &result_bytes,
-                &ParserLimits::default(),
-            )
-            .map_err(|_| VerificationError::WorkerRejected)?;
+            let parsed =
+                fusou_tlsn_verifier::parse_verifier_result(&result_bytes, &ParserLimits::default())
+                    .map_err(|_| VerificationError::WorkerRejected)?;
             let signing_bytes = parsed
                 .signing_bytes()
                 .map_err(|_| VerificationError::WorkerRejected)?;
@@ -385,8 +385,8 @@ async fn worker_response(response: reqwest::Response) -> Result<WorkerResponse, 
     let verifier_execution_receipt_bytes = verifier_execution_receipt_header_bytes
         .as_deref()
         .map(|encoded| {
-            let encoded = std::str::from_utf8(encoded)
-                .map_err(|_| VerificationError::WorkerRejected)?;
+            let encoded =
+                std::str::from_utf8(encoded).map_err(|_| VerificationError::WorkerRejected)?;
             let decoded = URL_SAFE_NO_PAD
                 .decode(encoded)
                 .map_err(|_| VerificationError::WorkerRejected)?;
@@ -401,8 +401,8 @@ async fn worker_response(response: reqwest::Response) -> Result<WorkerResponse, 
         .await
         .map_err(|_| VerificationError::WorkerUnavailable)?
         .to_vec();
-    let payload = serde_json::from_slice(&body_bytes)
-        .map_err(|_| VerificationError::WorkerUnavailable)?;
+    let payload =
+        serde_json::from_slice(&body_bytes).map_err(|_| VerificationError::WorkerUnavailable)?;
     Ok(WorkerResponse {
         payload,
         body_bytes,
@@ -819,9 +819,28 @@ async fn write_production_capture_bundle(
     response_status: u16,
     connection_id: u64,
 ) -> Result<(), std::io::Error> {
+    ensure_private_candidate_root(artifact_root).await?;
     let directory = artifact_root.join(presentation.identifier());
-    tokio::fs::create_dir_all(&directory).await?;
-
+    validate_private_candidate_directory(&directory).await?;
+    let mut existing_entries = tokio::fs::read_dir(&directory).await?;
+    let mut existing_names = Vec::new();
+    while let Some(entry) = existing_entries.next_entry().await? {
+        existing_names.push(entry.file_name());
+    }
+    existing_names.sort();
+    let expected_names = [
+        std::ffi::OsString::from("metadata.json"),
+        std::ffi::OsString::from("presentation.bin"),
+    ];
+    if existing_names != expected_names {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::AlreadyExists,
+            "candidate Presentation directory is not empty",
+        ));
+    }
+    validate_private_candidate_file(&directory.join("presentation.bin")).await?;
+    validate_private_candidate_file(&directory.join("metadata.json")).await?;
+    let write_result = async {
     let session_json = serde_json::json!({
         "session_id": session.session_id(),
         "canonical_user_id": session.session_receipt.canonical_user_id,
@@ -975,21 +994,17 @@ async fn write_production_capture_bundle(
         &serde_json::to_vec_pretty(&manifest)?,
     )
     .await?;
-    Ok(())
+    Ok::<(), std::io::Error>(())
+    }
+    .await;
+    if write_result.is_err() {
+        let _ = tokio::fs::remove_dir_all(&directory).await;
+    }
+    write_result
 }
 
 async fn write_capture_file(path: &std::path::Path, bytes: &[u8]) -> Result<(), std::io::Error> {
-    use tokio::io::AsyncWriteExt as TokioAsyncWriteExt;
-
-    let mut options = tokio::fs::OpenOptions::new();
-    options.write(true).create_new(true);
-    #[cfg(unix)]
-    {
-        options.mode(0o600);
-    }
-    let mut file = options.open(path).await?;
-    file.write_all(bytes).await?;
-    file.sync_all().await
+    write_private_candidate_file(path, bytes).await
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -1076,12 +1091,19 @@ impl crate::experimental_tlsn::AttestationBindingProvider for RemoteSessionBindi
             if context.target() != REQUIRE_INFO_TARGET {
                 return Err(BindingError::InvalidBinding);
             }
-            let device_key = DeviceKey::load_or_create(device_key_path)
+            if !matches!(auth_manager.peek_session().await, Ok(Some(_))) {
+                return Err(BindingError::CandidateAuthUnavailable);
+            }
+            let access_token = auth_manager
+                .get_access_token()
                 .await
-                .map_err(|_| BindingError::NoBindingAuthority)?;
+                .map_err(|_| BindingError::CandidateAuthUnavailable)?;
+            let device_key = DeviceKey::load_registered(device_key_path)
+                .await
+                .map_err(|_| BindingError::CandidateDeviceUnavailable)?;
             let device_id = device_key
                 .device_id()
-                .ok_or(BindingError::NoBindingAuthority)?
+                .ok_or(BindingError::CandidateDeviceUnavailable)?
                 .to_owned();
             let nonce = auth_manager
                 .fetch_anonymous_sync_v2_challenge(&device_id)
@@ -1091,10 +1113,6 @@ impl crate::experimental_tlsn::AttestationBindingProvider for RemoteSessionBindi
                 return Err(BindingError::NoBindingAuthority);
             }
             let device_auth_signature = device_key.sign_b64(nonce.as_bytes());
-            let access_token = auth_manager
-                .get_access_token()
-                .await
-                .map_err(|_| BindingError::NoBindingAuthority)?;
             let response = client
                 .post(endpoint)
                 .bearer_auth(access_token)
@@ -1666,13 +1684,15 @@ fn hex_bytes(bytes: &[u8; 32]) -> String {
 mod tests {
     use super::*;
     use crate::{
-        experimental_tlsn::ExperimentalVerifierBoundary,
+        experimental_tlsn::{AttestationBindingProvider, ExperimentalVerifierBoundary},
         production_tlsn::{
             HandoffPresentationProvider, OriginTarget, PresentationVerifierBoundary,
             RuntimeIdentifiers,
         },
     };
     use ring::signature::{Ed25519KeyPair, KeyPair};
+    #[cfg(unix)]
+    use std::os::unix::fs::PermissionsExt;
     use warp::Filter;
 
     fn test_session_context() -> SessionBindingContext {
@@ -1715,21 +1735,26 @@ mod tests {
         let presentation_bytes = b"alpha15 presentation fixture";
         let presentation_identifier = URL_SAFE_NO_PAD.encode(sha256(presentation_bytes));
         let directory = artifact_root.join(&presentation_identifier);
-        tokio::fs::create_dir_all(&directory)
+        tokio::fs::create_dir_all(&artifact_root)
+            .await
+            .expect("create artifact root fixture directory");
+        #[cfg(unix)]
+        tokio::fs::set_permissions(&artifact_root, std::fs::Permissions::from_mode(0o700))
+            .await
+            .expect("make artifact root private");
+        crate::production_tlsn::create_private_candidate_directory(&directory)
             .await
             .expect("create private artifact fixture directory");
-        tokio::fs::write(directory.join("presentation.bin"), presentation_bytes)
+        write_private_candidate_file(&directory.join("presentation.bin"), presentation_bytes)
             .await
             .expect("write presentation fixture");
-        tokio::fs::write(directory.join("metadata.json"), b"{}")
+        write_private_candidate_file(&directory.join("metadata.json"), b"{}")
             .await
             .expect("write presentation metadata fixture");
 
-        let presentation = TlsnPresentation::new(
-            presentation_identifier,
-            presentation_bytes.to_vec(),
-        )
-        .expect("construct presentation");
+        let presentation =
+            TlsnPresentation::new(presentation_identifier, presentation_bytes.to_vec())
+                .expect("construct presentation");
         let session = test_session_context();
         let payload = serde_json::json!({
             "result": { "result_id": "fixture-result" },
@@ -1825,6 +1850,38 @@ mod tests {
             },
             Arc::new(FileStorage::new(path)),
         )
+    }
+
+    #[tokio::test]
+    async fn candidate_binding_without_saved_auth_session_fails_before_network_or_device_creation()
+    {
+        let root = std::env::temp_dir().join(format!(
+            "fusou-tlsn-candidate-auth-preflight-{}-{}",
+            std::process::id(),
+            uuid::Uuid::new_v4()
+        ));
+        tokio::fs::create_dir(&root)
+            .await
+            .expect("create auth preflight fixture directory");
+        let session_path = root.join("session.json");
+        let device_key_path = root.join("device-key.json");
+        let provider = RemoteSessionBindingProvider::new(
+            "https://127.0.0.1:1/session".to_owned(),
+            test_auth_manager(session_path),
+            device_key_path.clone(),
+            [ED25519_SPKI_PREFIX.as_slice(), &[1_u8; 32]].concat(),
+            "test-session-authority".to_owned(),
+        )
+        .expect("construct offline candidate provider");
+        let result = provider
+            .issue_binding(BindingRequestContext::new(1, REQUIRE_INFO_TARGET))
+            .await;
+
+        assert_eq!(result, Err(BindingError::CandidateAuthUnavailable));
+        assert!(!device_key_path.exists());
+        tokio::fs::remove_dir_all(root)
+            .await
+            .expect("remove auth preflight fixture directory");
     }
 
     fn test_result_signature_verifier() -> Arc<ResultSignatureVerifier> {
@@ -2251,6 +2308,61 @@ mod tests {
             "session-authority-2026",
         )
         .is_err());
+
+        assert!(verify_session_receipt(
+            &authority.session_receipt,
+            &authority,
+            &"f".repeat(64),
+            &public_key_spki,
+            "session-authority-2026",
+        )
+        .is_err());
+
+        let mut wrong_session = authority.clone();
+        wrong_session.session_id = "550e8400-e29b-41d4-a716-446655440001".to_owned();
+        assert!(verify_session_receipt(
+            &wrong_session.session_receipt,
+            &wrong_session,
+            &receipt.device_auth_nonce,
+            &public_key_spki,
+            "session-authority-2026",
+        )
+        .is_err());
+
+        let mut wrong_device = authority.clone();
+        wrong_device.device_id = "7c9e6679-7425-40de-944b-e07fc1f90ae8".to_owned();
+        assert!(verify_session_receipt(
+            &wrong_device.session_receipt,
+            &wrong_device,
+            &receipt.device_auth_nonce,
+            &public_key_spki,
+            "session-authority-2026",
+        )
+        .is_err());
+
+        let mut expired = authority.clone();
+        let expired_at = (Utc::now() - chrono::Duration::seconds(1)).to_rfc3339();
+        expired.expires_at = expired_at.clone();
+        expired.session_receipt.expires_at = expired_at;
+        assert!(verify_session_receipt(
+            &expired.session_receipt,
+            &expired,
+            &receipt.device_auth_nonce,
+            &public_key_spki,
+            "session-authority-2026",
+        )
+        .is_err());
+
+        let mut invalid_signature = authority.clone();
+        invalid_signature.session_receipt.signature = URL_SAFE_NO_PAD.encode([0_u8; 64]);
+        assert!(verify_session_receipt(
+            &invalid_signature.session_receipt,
+            &invalid_signature,
+            &receipt.device_auth_nonce,
+            &public_key_spki,
+            "session-authority-2026",
+        )
+        .is_err());
     }
 
     #[test]
@@ -2350,10 +2462,7 @@ mod tests {
         let expected_receipt_header = encoded_receipt.as_bytes().to_vec();
         let route = warp::any().map(move || {
             warp::reply::with_header(
-                warp::reply::with_status(
-                    exact_body.to_owned(),
-                    warp::http::StatusCode::OK,
-                ),
+                warp::reply::with_status(exact_body.to_owned(), warp::http::StatusCode::OK),
                 "X-FUSOU-TLSN-Verifier-Execution-Receipt",
                 encoded_receipt.clone(),
             )
@@ -2376,7 +2485,10 @@ mod tests {
             captured.verifier_execution_receipt_header_bytes,
             Some(expected_receipt_header)
         );
-        assert_eq!(captured.verifier_execution_receipt_bytes, Some(receipt_bytes.to_vec()));
+        assert_eq!(
+            captured.verifier_execution_receipt_bytes,
+            Some(receipt_bytes.to_vec())
+        );
     }
 
     #[test]

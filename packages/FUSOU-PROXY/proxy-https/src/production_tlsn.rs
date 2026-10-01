@@ -8,12 +8,17 @@ use crate::experimental_tlsn::{
 use std::{
     collections::HashMap,
     future::Future,
+    io,
+    path::Path,
     pin::Pin,
     sync::{
         atomic::{AtomicBool, Ordering},
         Arc, Mutex,
     },
 };
+
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum OriginConfigurationError {
@@ -255,10 +260,11 @@ pub struct TlsnPresentation {
 impl TlsnPresentation {
     pub fn new(identifier: String, bytes: Vec<u8>) -> Result<Self, PresentationError> {
         if identifier.is_empty()
+            || identifier.len() > 128
             || !identifier.is_ascii()
             || identifier
                 .bytes()
-                .any(|byte| byte.is_ascii_control() || byte.is_ascii_whitespace())
+                .any(|byte| !(byte.is_ascii_alphanumeric() || byte == b'_' || byte == b'-'))
         {
             return Err(PresentationError::Invalid);
         }
@@ -714,6 +720,135 @@ pub struct FilesystemPresentationArtifactSink {
     enabled: bool,
 }
 
+pub(crate) async fn ensure_private_candidate_root(root: &Path) -> Result<(), io::Error> {
+    if !root.is_absolute() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "candidate artifact root must be absolute",
+        ));
+    }
+    match tokio::fs::symlink_metadata(root).await {
+        Ok(_) => validate_private_candidate_directory(root).await,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {
+            tokio::fs::create_dir(root).await?;
+            #[cfg(unix)]
+            if let Err(error) =
+                tokio::fs::set_permissions(root, std::fs::Permissions::from_mode(0o700)).await
+            {
+                let _ = tokio::fs::remove_dir(root).await;
+                return Err(error);
+            }
+            validate_private_candidate_directory(root).await
+        }
+        Err(error) => Err(error),
+    }
+}
+
+pub(crate) async fn create_private_candidate_directory(directory: &Path) -> Result<(), io::Error> {
+    tokio::fs::create_dir(directory).await?;
+    #[cfg(unix)]
+    if let Err(error) =
+        tokio::fs::set_permissions(directory, std::fs::Permissions::from_mode(0o700)).await
+    {
+        let _ = tokio::fs::remove_dir(directory).await;
+        return Err(error);
+    }
+    if let Err(error) = validate_private_candidate_directory(directory).await {
+        let _ = tokio::fs::remove_dir(directory).await;
+        return Err(error);
+    }
+    Ok(())
+}
+
+pub(crate) async fn validate_private_candidate_directory(
+    directory: &Path,
+) -> Result<(), io::Error> {
+    let metadata = tokio::fs::symlink_metadata(directory).await?;
+    if metadata.file_type().is_symlink() || !metadata.is_dir() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "candidate artifact directory must be a real directory",
+        ));
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        use std::os::unix::fs::PermissionsExt;
+        if metadata.uid() != unsafe { libc::geteuid() } {
+            return Err(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                "candidate artifact directory owner is invalid",
+            ));
+        }
+        if metadata.permissions().mode() & 0o077 != 0 {
+            return Err(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                "candidate artifact directory permissions must be private",
+            ));
+        }
+    }
+    Ok(())
+}
+
+async fn remove_partial_candidate_file(
+    path: &Path,
+    file: tokio::fs::File,
+    error: io::Error,
+) -> io::Error {
+    drop(file);
+    let _ = tokio::fs::remove_file(path).await;
+    error
+}
+
+#[allow(dead_code)]
+pub(crate) async fn validate_private_candidate_file(file: &Path) -> Result<(), io::Error> {
+    let metadata = tokio::fs::symlink_metadata(file).await?;
+    if metadata.file_type().is_symlink() || !metadata.is_file() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "candidate artifact must be a regular file",
+        ));
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        use std::os::unix::fs::PermissionsExt;
+        if metadata.uid() != unsafe { libc::geteuid() }
+            || metadata.permissions().mode() & 0o077 != 0
+        {
+            return Err(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                "candidate artifact owner or permissions are invalid",
+            ));
+        }
+    }
+    Ok(())
+}
+
+pub(crate) async fn write_private_candidate_file(
+    path: &Path,
+    bytes: &[u8],
+) -> Result<(), io::Error> {
+    use tokio::io::AsyncWriteExt as TokioAsyncWriteExt;
+
+    let mut options = tokio::fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        options.mode(0o600);
+    }
+    let mut file = options.open(path).await?;
+    let write_result = async {
+        file.write_all(bytes).await?;
+        file.sync_all().await
+    }
+    .await;
+    if let Err(error) = write_result {
+        return Err(remove_partial_candidate_file(path, file, error).await);
+    }
+    Ok(())
+}
+
 impl FilesystemPresentationArtifactSink {
     pub fn new(root: impl Into<std::path::PathBuf>) -> Self {
         Self {
@@ -740,11 +875,11 @@ impl PresentationArtifactSink for FilesystemPresentationArtifactSink {
             if !enabled {
                 return Ok(());
             }
-            tokio::fs::create_dir_all(&root)
+            ensure_private_candidate_root(&root)
                 .await
                 .map_err(|_| PresentationExportError::Failed)?;
             let directory = root.join(presentation.identifier());
-            tokio::fs::create_dir(&directory)
+            create_private_candidate_directory(&directory)
                 .await
                 .map_err(|_| PresentationExportError::Failed)?;
 
@@ -811,16 +946,25 @@ impl PresentationArtifactSink for FilesystemPresentationArtifactSink {
                 },
             });
 
-            tokio::fs::write(directory.join("presentation.bin"), presentation.bytes())
+            let export_result = async {
+                write_private_candidate_file(
+                    &directory.join("presentation.bin"),
+                    presentation.bytes(),
+                )
+                .await?;
+                write_private_candidate_file(
+                    &directory.join("metadata.json"),
+                    &serde_json::to_vec_pretty(&metadata).map_err(|_| {
+                        std::io::Error::other("candidate metadata serialization failed")
+                    })?,
+                )
                 .await
-                .map_err(|_| PresentationExportError::Failed)?;
-            tokio::fs::write(
-                directory.join("metadata.json"),
-                serde_json::to_vec_pretty(&metadata)
-                    .map_err(|_| PresentationExportError::Failed)?,
-            )
-            .await
-            .map_err(|_| PresentationExportError::Failed)
+            }
+            .await;
+            if export_result.is_err() {
+                let _ = tokio::fs::remove_dir_all(&directory).await;
+            }
+            export_result.map_err(|_| PresentationExportError::Failed)
         })
     }
 }
@@ -1728,12 +1872,152 @@ mod tests {
             &exchange,
             config.target(),
         );
-        let presentation = TlsnPresentation::new("presentation-disabled".to_owned(), vec![1, 2, 3])
-            .unwrap();
+        let presentation =
+            TlsnPresentation::new("presentation-disabled".to_owned(), vec![1, 2, 3]).unwrap();
         let sink = FilesystemPresentationArtifactSink::new(&root).with_enabled(false);
 
         sink.export(context, presentation).await.unwrap();
         assert!(!root.exists());
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn candidate_artifact_root_rejects_symlinks_and_non_private_directories() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let parent = std::env::temp_dir().join(format!(
+            "fusou-tlsn-candidate-root-security-{}-{}",
+            std::process::id(),
+            uuid::Uuid::new_v4()
+        ));
+        tokio::fs::create_dir(&parent)
+            .await
+            .expect("create security test parent");
+        tokio::fs::set_permissions(&parent, std::fs::Permissions::from_mode(0o700))
+            .await
+            .expect("make security test parent private");
+        let target = parent.join("target");
+        tokio::fs::create_dir(&target)
+            .await
+            .expect("create target directory");
+        tokio::fs::set_permissions(&target, std::fs::Permissions::from_mode(0o700))
+            .await
+            .expect("make target directory private");
+        let link = parent.join("link");
+        tokio::fs::symlink(&target, &link)
+            .await
+            .expect("create root symlink");
+        assert!(ensure_private_candidate_root(&link).await.is_err());
+
+        let non_private = parent.join("non-private");
+        tokio::fs::create_dir(&non_private)
+            .await
+            .expect("create non-private directory");
+        tokio::fs::set_permissions(&non_private, std::fs::Permissions::from_mode(0o755))
+            .await
+            .expect("make directory non-private");
+        assert!(ensure_private_candidate_root(&non_private).await.is_err());
+
+        let private = parent.join("private");
+        ensure_private_candidate_root(&private)
+            .await
+            .expect("create private candidate root");
+        assert_eq!(
+            tokio::fs::metadata(&private)
+                .await
+                .expect("stat created root")
+                .permissions()
+                .mode()
+                & 0o777,
+            0o700
+        );
+        tokio::fs::remove_dir_all(parent)
+            .await
+            .expect("remove security test parent");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn candidate_artifact_files_are_private_create_only_and_reject_symlinks() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let root = std::env::temp_dir().join(format!(
+            "fusou-tlsn-candidate-file-security-{}-{}",
+            std::process::id(),
+            uuid::Uuid::new_v4()
+        ));
+        ensure_private_candidate_root(&root)
+            .await
+            .expect("create private candidate root");
+        let artifact = root.join("artifact.bin");
+        write_private_candidate_file(&artifact, b"first")
+            .await
+            .expect("create candidate artifact");
+        validate_private_candidate_file(&artifact)
+            .await
+            .expect("validate private regular artifact");
+        assert_eq!(
+            tokio::fs::metadata(&artifact)
+                .await
+                .expect("stat artifact")
+                .permissions()
+                .mode()
+                & 0o777,
+            0o600
+        );
+        assert_eq!(
+            write_private_candidate_file(&artifact, b"overwrite")
+                .await
+                .unwrap_err()
+                .kind(),
+            io::ErrorKind::AlreadyExists
+        );
+        assert_eq!(tokio::fs::read(&artifact).await.unwrap(), b"first");
+
+        let outside = root.join("outside.bin");
+        tokio::fs::write(&outside, b"outside").await.unwrap();
+        let link = root.join("link.bin");
+        tokio::fs::symlink(&outside, &link).await.unwrap();
+        assert!(validate_private_candidate_file(&link).await.is_err());
+        tokio::fs::remove_dir_all(root)
+            .await
+            .expect("remove candidate file security fixture");
+    }
+
+    #[tokio::test]
+    async fn partial_candidate_artifact_write_failure_removes_the_file() {
+        let root = std::env::temp_dir().join(format!(
+            "fusou-tlsn-candidate-partial-write-{}-{}",
+            std::process::id(),
+            uuid::Uuid::new_v4()
+        ));
+        ensure_private_candidate_root(&root)
+            .await
+            .expect("create private candidate root");
+        let artifact = root.join("partial.bin");
+        let mut options = tokio::fs::OpenOptions::new();
+        options.write(true).create_new(true);
+        #[cfg(unix)]
+        options.mode(0o600);
+        let mut file = options
+            .open(&artifact)
+            .await
+            .expect("create partial artifact");
+        use tokio::io::AsyncWriteExt;
+        file.write_all(b"partial")
+            .await
+            .expect("write partial bytes");
+        let error = remove_partial_candidate_file(
+            &artifact,
+            file,
+            io::Error::other("injected sync failure"),
+        )
+        .await;
+        assert_eq!(error.kind(), io::ErrorKind::Other);
+        assert!(!artifact.exists());
+        tokio::fs::remove_dir_all(root)
+            .await
+            .expect("remove partial-write fixture");
     }
 
     #[tokio::test]

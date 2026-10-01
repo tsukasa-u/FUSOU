@@ -47,6 +47,8 @@ test("clean-capture config overrides every targeted setting", () => {
     assert.match(updated, new RegExp(`^${setting} = false$`, "m"));
   }
   assert.match(updated, /^deny_auth = true$/m);
+  assert.match(updated, /^allow_anonymous_auth_bootstrap = true$/m);
+  assert.match(updated, /^allow_pending_upload_retry = true$/m);
   for (const section of [
     "app.quest_tree_sender",
     "app.ship_growth_sender",
@@ -68,6 +70,9 @@ test("TLSN candidate mode is explicit and separates natural and proof artifacts"
   assert.match(updated, /^capture_output_path = "\/tmp\/private-candidate\/natural"$/m);
   assert.match(updated, /^enabled = true$/m);
   assert.match(updated, /^candidate_capture_enabled = true$/m);
+  assert.match(updated, /^deny_auth = false$/m);
+  assert.match(updated, /^allow_anonymous_auth_bootstrap = false$/m);
+  assert.match(updated, /^allow_pending_upload_retry = false$/m);
   assert.match(updated, /^artifact_output_path = "\/tmp\/private-candidate\/tlsn"$/m);
 });
 

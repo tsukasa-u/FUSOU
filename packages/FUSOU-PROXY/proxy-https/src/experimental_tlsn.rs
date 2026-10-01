@@ -84,6 +84,8 @@ impl AttestationBinding {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BindingError {
     NoBindingAuthority,
+    CandidateAuthUnavailable,
+    CandidateDeviceUnavailable,
     AlreadyIssued,
     InvalidBinding,
 }
@@ -92,6 +94,12 @@ impl std::fmt::Display for BindingError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let message = match self {
             Self::NoBindingAuthority => "NoBindingAuthority",
+            Self::CandidateAuthUnavailable => {
+                "candidate capture unavailable: valid auth session required"
+            }
+            Self::CandidateDeviceUnavailable => {
+                "candidate capture unavailable: registered device required"
+            }
             Self::AlreadyIssued => "binding provider already issued its single-use binding",
             Self::InvalidBinding => "binding value is not a valid opaque header value",
         };
@@ -106,7 +114,7 @@ pub struct BindingRequestContext {
 }
 
 impl BindingRequestContext {
-    fn new(connection_id: u64, target: &str) -> Self {
+    pub(crate) fn new(connection_id: u64, target: &str) -> Self {
         Self {
             connection_id,
             target: target.to_owned(),

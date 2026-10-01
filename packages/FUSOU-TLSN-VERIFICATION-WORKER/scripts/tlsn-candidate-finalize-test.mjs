@@ -5,6 +5,8 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { test } from "node:test";
 import { finalizeTlsnCandidateBundle } from "./tlsn-candidate-finalize.mjs";
+import { createSyntheticCandidateBundle } from "./tlsn-candidate-synthetic-fixture.mjs";
+import { inspectAlpha15Presentation } from "./production-evidence-semantic.mjs";
 
 const artifactNames = [
   "session.json",
@@ -159,6 +161,95 @@ test("finalizer rejects unexpected trust-context fields", async () => {
     await assert.rejects(
       finalizeTlsnCandidateBundle({ candidateDirectory, trustContext: untrustedContext }),
       /fields are incomplete or unexpected/,
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("synthetic alpha.15 Presentation discovers target and finalizes as unapproved", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "fusou-tlsn-candidate-positive-"));
+  try {
+    const fixture = await createSyntheticCandidateBundle(root);
+    const observation = await inspectAlpha15Presentation({
+      presentationBytes: fixture.presentationBytes,
+      notaryRegistry: fixture.trustContext.notaryRegistry,
+      notaryKeyId: fixture.trustContext.deploymentManifest.notary.key_id,
+      trustAnchorDer: fixture.trustContext.trustAnchorDer,
+    });
+    assert.equal(observation.source, "verified-alpha15-presentation");
+    assert.equal(observation.verified_presentation.server_identity, "game.example.test");
+    assert.equal(observation.presentation_sha256, fixture.candidateManifest.presentation_sha256);
+
+    const tamperedPresentation = Buffer.from(fixture.presentationBytes);
+    tamperedPresentation[tamperedPresentation.length - 1] ^= 1;
+    await assert.rejects(() => inspectAlpha15Presentation({
+      presentationBytes: tamperedPresentation,
+      notaryRegistry: fixture.trustContext.notaryRegistry,
+      notaryKeyId: fixture.trustContext.deploymentManifest.notary.key_id,
+      trustAnchorDer: fixture.trustContext.trustAnchorDer,
+    }), /alpha\.15 Presentation cryptographic inspection failed/);
+
+    const finalization = await finalizeTlsnCandidateBundle(fixture);
+    assert.equal(finalization.status, "OBSERVED_UNAPPROVED");
+    assert.equal(finalization.approval_status, "UNAPPROVED");
+    assert.equal(finalization.proof_bundle_status, "PASS_LIMITED");
+    assert.equal(finalization.target_identity.source, "verified-alpha15-presentation");
+    assert.equal(finalization.target_identity.server_identity, "game.example.test");
+    assert.equal(finalization.target_identity.presentation_sha256, fixture.candidateManifest.presentation_sha256);
+    assert.equal(finalization.human_play_provenance, "UNVERIFIED");
+    assert.equal(finalization.synthetic_fixture, true);
+    assert.equal(finalization.verification.evidence.synthetic, true);
+    assert.equal(finalization.readiness_effect, "NONE");
+    assert.equal(finalization.gameplay_effect, "NONE");
+    assert.equal(finalization.verification.readiness_effect, "NONE");
+    assert.equal(finalization.verification.gameplay_effect, "NONE");
+    assert.equal(finalization.verification.components.Presentation.status, "PASS");
+    assert.equal(finalization.verification.components.device_identity_ownership.status, "UNVERIFIED");
+    console.log("[tlsn-candidate-finalize:synthetic-alpha15] cryptographic discovery and offline finalizer PASS; not real gameplay evidence");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("finalizer rejects a discovered identity that conflicts with a declared target", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "fusou-tlsn-candidate-target-mismatch-"));
+  try {
+    const fixture = await createSyntheticCandidateBundle(root);
+    const trustContext = {
+      ...fixture.trustContext,
+      deploymentManifest: {
+        ...fixture.trustContext.deploymentManifest,
+        target: { server_identity: "forged-config.invalid" },
+      },
+    };
+    await assert.rejects(
+      finalizeTlsnCandidateBundle({ candidateDirectory: fixture.candidateDirectory, trustContext }),
+      /Presentation-derived server identity does not match the declared target identity/,
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("finalizer detects outer Result byte mutation against the execution receipt", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "fusou-tlsn-candidate-result-mutation-"));
+  try {
+    const fixture = await createSyntheticCandidateBundle(root);
+    const manifestPath = path.join(fixture.candidateDirectory, "candidate-manifest.json");
+    const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
+    const mutatedResult = Buffer.concat([fixture.resultBytes, Buffer.from(" ")]);
+    await writeFile(path.join(fixture.candidateDirectory, "result-exact.bin"), mutatedResult, { mode: 0o600 });
+    manifest.exact_result_sha256 = hash(mutatedResult);
+    manifest.artifacts["result-exact.bin"] = {
+      size_bytes: mutatedResult.length,
+      sha256: hash(mutatedResult),
+    };
+    await writeFile(manifestPath, JSON.stringify(manifest), { mode: 0o600 });
+
+    await assert.rejects(
+      finalizeTlsnCandidateBundle(fixture),
+      /Verifier execution receipt Result hash mismatch/,
     );
   } finally {
     await rm(root, { recursive: true, force: true });

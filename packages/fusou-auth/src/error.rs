@@ -17,6 +17,9 @@ pub enum AuthError {
     #[error("anonymous-sync device is unknown or revoked")]
     DeviceUnknownOrRevoked,
 
+    #[error("anonymous-sync device is not registered")]
+    DeviceNotRegistered,
+
     #[error("anonymous-sync device is revoked")]
     DeviceRevoked,
 

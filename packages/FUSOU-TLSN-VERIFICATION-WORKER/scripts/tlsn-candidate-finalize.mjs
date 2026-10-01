@@ -105,6 +105,13 @@ export async function loadTlsnCandidateBundle(candidateDirectory) {
   ) {
     throw new Error("candidate manifest scope or status is invalid");
   }
+  if (
+    manifest.synthetic_fixture !== undefined &&
+    (typeof manifest.synthetic_fixture !== "boolean" ||
+      (manifest.synthetic_fixture && manifest.capture_provenance !== "synthetic-alpha15-test-fixture"))
+  ) {
+    throw new Error("candidate synthetic fixture classification is invalid");
+  }
   const artifactNames = Object.keys(manifest.artifacts ?? {}).sort();
   assert.deepEqual(artifactNames, ARTIFACT_NAMES, "candidate artifact inventory is incomplete or unexpected");
 
@@ -178,7 +185,12 @@ function validateTrustContext(trustContext) {
     throw new Error("offline trust context fields are incomplete or unexpected");
   }
   assertObject(trustContext.deploymentManifest, "deployment manifest");
-  assertObject(trustContext.deploymentManifest.target, "deployment target");
+  if (trustContext.deploymentManifest.target !== undefined) {
+    assertObject(trustContext.deploymentManifest.target, "deployment target");
+    if (typeof trustContext.deploymentManifest.target.server_identity !== "string") {
+      throw new Error("deployment target server identity is malformed");
+    }
+  }
   return trustContext;
 }
 
@@ -207,6 +219,7 @@ export async function finalizeTlsnCandidateBundle({
     presentationBytes: bundle.presentationBytes,
     resultBytes: bundle.resultBytes,
     verifierExecutionReceiptBytes: bundle.verifierExecutionReceiptBytes,
+    syntheticFixture: bundle.manifest.synthetic_fixture === true,
   });
   const verifiedPresentation = verification?.verified_presentation;
   if (
@@ -217,7 +230,8 @@ export async function finalizeTlsnCandidateBundle({
     verification.operational_smoke_effect !== "NONE" ||
     typeof verifiedPresentation?.server_identity !== "string" ||
     verifiedPresentation.server_identity.length === 0 ||
-    verifiedPresentation.server_identity !== trusted.deploymentManifest.target.server_identity ||
+    (trusted.deploymentManifest.target?.server_identity !== undefined &&
+      verifiedPresentation.server_identity !== trusted.deploymentManifest.target.server_identity) ||
     verifiedPresentation.presentation_sha256 !== bundle.manifest.presentation_sha256
   ) {
     throw new Error("offline proof verifier did not return a bounded verified Presentation identity");
@@ -231,13 +245,18 @@ export async function finalizeTlsnCandidateBundle({
     proof_bundle_status: verification.proof_bundle_status,
     candidate_manifest_sha256: bundle.manifestSha256,
     target_identity: {
-      source: "alpha15-verified-presentation",
+      source: "verified-alpha15-presentation",
       server_identity: verifiedPresentation.server_identity,
       presentation_sha256: verifiedPresentation.presentation_sha256,
       tlsn_attestation_id: verifiedPresentation.tlsn_attestation_id,
       notary_key_sha256: verifiedPresentation.notary_key_sha256,
+      profile_id: verifiedPresentation.profile_id,
+      profile_sha256: verifiedPresentation.profile_sha256,
+      disclosure_mode: verifiedPresentation.disclosure_mode,
     },
     verification,
+    human_play_provenance: "UNVERIFIED",
+    synthetic_fixture: bundle.manifest.synthetic_fixture === true,
     readiness_effect: "NONE",
     gameplay_effect: "NONE",
   };

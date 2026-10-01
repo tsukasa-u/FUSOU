@@ -53,7 +53,14 @@ const temporarySettingsBySection = new Map([
     ]),
   ],
   ["app.asset_sync", new Map([["asset_upload_enable", "false"]])],
-  ["app.auth", new Map([["deny_auth", "true"]])],
+  [
+    "app.auth",
+    new Map([
+      ["deny_auth", "true"],
+      ["allow_anonymous_auth_bootstrap", "true"],
+      ["allow_pending_upload_retry", "true"],
+    ]),
+  ],
   ["app.quest_tree_sender", new Map([["enable", "false"]])],
   ["app.ship_growth_sender", new Map([["enable", "false"]])],
   ["app.soku_speed_sender", new Map([["enable", "false"]])],
@@ -97,6 +104,14 @@ export function withCaptureConfig(content, outputPath, { tlsnCandidate = false }
   }
   const settingsBySection = new Map(temporarySettingsBySection);
   if (tlsnCandidate) {
+    settingsBySection.set(
+      "app.auth",
+      new Map([
+        ["deny_auth", "false"],
+        ["allow_anonymous_auth_bootstrap", "false"],
+        ["allow_pending_upload_retry", "false"],
+      ]),
+    );
     settingsBySection.set(
       "proxy.tlsn",
       new Map([

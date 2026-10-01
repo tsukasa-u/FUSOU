@@ -45,7 +45,8 @@ async fn bootstrap_tokens_on_startup(
     storage: Arc<FileStorage>,
     auth_manager: AuthManager<FileStorage>,
 ) {
-    if configs::get_user_configs_for_app().auth.get_deny_auth() {
+    let auth_config = configs::get_user_configs_for_app().auth;
+    if auth_config.get_deny_auth() || !auth_config.get_allow_anonymous_auth_bootstrap() {
         tracing::info!("startup auth bootstrap disabled by configuration");
         return;
     }

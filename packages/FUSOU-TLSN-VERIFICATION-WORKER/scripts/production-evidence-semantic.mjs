@@ -1479,6 +1479,48 @@ export function semanticRequirementStatus(requirement, predicateResults) {
   return predicateNames.every((name) => predicateResults?.[name]?.status === "PASS") ? "PASS" : "UNVERIFIED";
 }
 
+export async function inspectAlpha15Presentation({
+  presentationBytes,
+  notaryRegistry,
+  notaryKeyId,
+  trustAnchorDer,
+  disclosureMode = "complete",
+}) {
+  if (!Buffer.isBuffer(presentationBytes) && !(presentationBytes instanceof Uint8Array)) {
+    throw new Error("Presentation bytes are required for alpha.15 inspection");
+  }
+  if (disclosureMode !== "complete" && disclosureMode !== "sparse") {
+    throw new Error("unknown TLSN disclosure mode");
+  }
+  await ensureVerifierInitialized();
+  const trustedNotaryKey = trustedNotaryKeyFromRegistry(notaryRegistry, notaryKeyId);
+  let inspectionOutput;
+  try {
+    inspectionOutput = trustAnchorDer
+      ? inspect_alpha15_presentation_with_trust_anchor(
+        presentationBytes,
+        decodeBase64Url(trustAnchorDer, "trust root certificate"),
+        trustedNotaryKey,
+      )
+      : inspect_alpha15_presentation(presentationBytes, trustedNotaryKey);
+  } catch (error) {
+    throw new Error(`alpha.15 Presentation cryptographic inspection failed: ${String(error)}`);
+  }
+  const verifiedPresentation = disclosureMode === "sparse"
+    ? parseSparseVerifiedPresentationOutput(inspectionOutput)
+    : parseVerifiedPresentationOutput(inspectionOutput);
+  const observedNotaryFingerprint = sha256Base64Url(trustedNotaryKey);
+  if (verifiedPresentation.notary_key_sha256 !== observedNotaryFingerprint) {
+    throw new Error("alpha.15 Presentation Notary key fingerprint does not match the selected verification key");
+  }
+  return {
+    source: "verified-alpha15-presentation",
+    presentation_sha256: sha256Base64Url(presentationBytes),
+    disclosure_mode: disclosureMode,
+    verified_presentation: verifiedPresentation,
+  };
+}
+
 export async function verifyProductionPresentation({
   presentationBytes,
   serverIdentity,
@@ -1502,22 +1544,15 @@ export async function verifyProductionPresentation({
   await ensureVerifierInitialized();
   const profileBytes = decodeBase64Url(profileSha256, "profile SHA-256", 32);
   const challengeBytes = decodeBase64Url(deviceChallenge, "device challenge", 32);
+  const inspection = await inspectAlpha15Presentation({
+    presentationBytes,
+    notaryRegistry,
+    notaryKeyId,
+    trustAnchorDer,
+    disclosureMode,
+  });
+  const verifiedPresentation = inspection.verified_presentation;
   const trustedNotaryKey = trustedNotaryKeyFromRegistry(notaryRegistry, notaryKeyId);
-  let inspectionOutput;
-  try {
-    inspectionOutput = trustAnchorDer
-      ? inspect_alpha15_presentation_with_trust_anchor(
-        presentationBytes,
-        decodeBase64Url(trustAnchorDer, "trust root certificate"),
-        trustedNotaryKey,
-      )
-      : inspect_alpha15_presentation(presentationBytes, trustedNotaryKey);
-  } catch (error) {
-    throw new Error(`semantic Presentation cryptographic verification failed: ${String(error)}`);
-  }
-  const verifiedPresentation = sparse
-    ? parseSparseVerifiedPresentationOutput(inspectionOutput)
-    : parseVerifiedPresentationOutput(inspectionOutput);
   let output;
   try {
     output = sparse

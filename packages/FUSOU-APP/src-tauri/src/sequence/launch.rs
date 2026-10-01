@@ -16,6 +16,26 @@ use tracing_unwrap::OptionExt;
 use fusou_auth::{AuthManager, FileStorage};
 use std::sync::{Arc, Mutex};
 
+fn candidate_period_tag(now: chrono::DateTime<chrono::Utc>) -> String {
+    now.with_timezone(&chrono_tz::Asia::Tokyo)
+        .format("%Y-%m-%d")
+        .to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::candidate_period_tag;
+    use chrono::{TimeZone, Utc};
+
+    #[test]
+    fn candidate_period_tag_uses_local_jst_calendar_date() {
+        let before_jst_midnight = Utc.with_ymd_and_hms(2026, 1, 1, 14, 59, 59).unwrap();
+        let at_jst_midnight = Utc.with_ymd_and_hms(2026, 1, 1, 15, 0, 0).unwrap();
+        assert_eq!(candidate_period_tag(before_jst_midnight), "2026-01-01");
+        assert_eq!(candidate_period_tag(at_jst_midnight), "2026-01-02");
+    }
+}
+
 #[cfg(any(not(dev), check_release))]
 use tracing_unwrap::ResultExt;
 
@@ -42,10 +62,12 @@ pub async fn launch_with_options(
                     let server_address = if server_index == -1 {
                         Some(server_name.as_str())
                     } else {
-                        binding_server_address
-                            .as_deref()
+                        binding_server_address.as_deref()
                     };
                     if let Some(server_address) = server_address {
+                        let candidate_capture_mode = configs::get_user_configs()
+                            .proxy
+                            .get_tlsn_candidate_capture_enabled();
                         let pac_path = get_ROAMING_DIR()
                             .join("./pac/proxy.pac")
                             .as_path()
@@ -53,7 +75,11 @@ pub async fn launch_with_options(
                             .expect_or_log("failed to convert str")
                             .to_string();
 
-                        let period_tag = supabase::get_period_tag().await;
+                        let period_tag = if candidate_capture_mode {
+                            candidate_period_tag(chrono::Utc::now())
+                        } else {
+                            supabase::get_period_tag().await
+                        };
 
                         #[cfg(dev)]
                         let proxy_base_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -92,7 +118,9 @@ pub async fn launch_with_options(
                         tracing::info!("ca path: {ca_path}");
                         tracing::info!("pac path: {pac_path}");
 
-                        let file_prefix = {
+                        let file_prefix = if candidate_capture_mode {
+                            "tlsn-candidate".to_string()
+                        } else {
                             let manager = auth_manager.lock().unwrap().clone();
                             if let Some(dataset_id) =
                                 crate::util::resolve_dataset_id_for_current_member(&manager).await
@@ -171,7 +199,10 @@ pub async fn launch_with_options(
                 if browse_webview != 0 {
                     create_external_window(window.app_handle(), None, true);
                 } else {
-                    let browser = SHARED_BROWSER.lock().unwrap_or_else(|e| e.into_inner()).get_browser();
+                    let browser = SHARED_BROWSER
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .get_browser();
                     create_external_window(window.app_handle(), Some(browser), false);
                 }
             }

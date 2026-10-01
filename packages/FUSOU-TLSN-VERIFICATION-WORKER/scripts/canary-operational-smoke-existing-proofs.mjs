@@ -6,7 +6,7 @@ import {
   verifyTlsnDevicePossession,
 } from "./device-evidence.mjs";
 import { assertCanaryVerifierExecutionEvidence } from "./canary-execution-evidence.mjs";
-import { RESULT_PRESENTATION_BINDING_FIELDS, verifyProductionPresentation } from "./production-evidence-semantic.mjs";
+import { inspectAlpha15Presentation, RESULT_PRESENTATION_BINDING_FIELDS, verifyProductionPresentation } from "./production-evidence-semantic.mjs";
 import { canonicalJson } from "./deployment-attestation.mjs";
 import { assertSignedResult, assertSignedSparseResult } from "./production-evidence.mjs";
 import { assertSignedResultRegistryEnvelope, resultRegistryEnvelopeHash } from "./result-registry-envelope.mjs";
@@ -321,14 +321,18 @@ export async function verifyCanaryExistingSourceProofBundle({
   notaryRegistry,
   trustAnchorDer,
   disclosureMode = "complete",
+  syntheticFixture = false,
   now = new Date(),
 } = {}) {
+  if (typeof syntheticFixture !== "boolean") {
+    throw new Error("synthetic fixture classification must be boolean");
+  }
   assertObject(deploymentManifest, "validated deployment manifest");
   const target = deploymentManifest.target;
   const notary = deploymentManifest.notary;
   const profileArtifact = deploymentManifest.artifacts?.find((artifact) => artifact?.name === "profile");
-  if (!target || !notary || !profileArtifact) {
-    throw new Error("validated deployment manifest is missing server, Notary, or profile identity");
+  if ((target !== undefined && (!target || typeof target !== "object" || Array.isArray(target))) || !notary || !profileArtifact) {
+    throw new Error("validated deployment context is missing or malformed for Notary/profile verification");
   }
   if (profileArtifact.sha256 !== profileSha256) {
     throw new Error("TLSN profile does not match the validated deployment manifest");
@@ -376,9 +380,27 @@ export async function verifyCanaryExistingSourceProofBundle({
     expectedVerificationAttemptId,
     now,
   });
+  if (syntheticFixture) {
+    execution.evidence.synthetic = true;
+  }
+  const observation = await inspectAlpha15Presentation({
+    presentationBytes: presentation,
+    notaryRegistry,
+    notaryKeyId: notary.key_id,
+    trustAnchorDer,
+    disclosureMode,
+  });
+  const observedServerIdentity = observation.verified_presentation.server_identity;
+  if (
+    typeof observedServerIdentity !== "string" ||
+    observedServerIdentity.length === 0 ||
+    (typeof target?.server_identity === "string" && target.server_identity !== observedServerIdentity)
+  ) {
+    throw new Error("Presentation-derived server identity does not match the declared target identity");
+  }
   const semantic = await verifyProductionPresentation({
     presentationBytes: presentation,
-    serverIdentity: target.server_identity,
+    serverIdentity: observedServerIdentity,
     profileSha256,
     verifierKeyId: trustedRuntimeIdentity?.verifier_identity?.verifier_key_id,
     notaryKeyId: notary.key_id,
@@ -395,7 +417,7 @@ export async function verifyCanaryExistingSourceProofBundle({
 
   const finalResult = finalResponse.result;
   for (const [resultField, semanticField] of RESULT_PRESENTATION_BINDING_FIELDS) {
-    if (finalResult[resultField] !== semantic.result[semanticField]) {
+    if (canonicalJson(finalResult[resultField]) !== canonicalJson(semantic.result[semanticField])) {
       throw new Error(`exact Result bytes do not match the Presentation-derived field: ${resultField}`);
     }
   }
@@ -421,11 +443,15 @@ export async function verifyCanaryExistingSourceProofBundle({
     operational_smoke_effect: "NONE",
     readiness_effect: "NONE",
     gameplay_effect: "NONE",
+    evidence: execution.evidence,
     verified_presentation: {
       server_identity: semantic.verified_presentation.server_identity,
       tlsn_attestation_id: semantic.verified_presentation.tlsn_attestation_id,
       notary_key_sha256: semantic.verified_presentation.notary_key_sha256,
       presentation_sha256: semantic.presentation_sha256,
+      profile_id: semantic.result.profile_id,
+      profile_sha256: semantic.result.profile_sha256,
+      disclosure_mode: semantic.disclosure_mode,
     },
     components: {
       session_binding: {

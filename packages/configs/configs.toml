@@ -30,6 +30,7 @@ save_file_location = ""
 # TLSN alpha.15 experiment switch. false keeps the normal proxy route.
 # This is an experiment, not a general production gameplay mode.
 enabled = false
+candidate_capture_enabled = false
 
 # Transcript disclosure policy: "complete" or "sparse".
 disclosure_mode = "complete"
@@ -168,7 +169,6 @@ artifact_output_path = ""
     # Whether to enable the Tauri autostart integration
     # default is false
     enable = false
-    candidate_capture_enabled = false
 
 
     [app.theme]
@@ -298,6 +298,8 @@ artifact_output_path = ""
     # Whether to deny user authentication
     # To be careful because there is no method to reset the authentication state until the authentication expires
     deny_auth = true
+    allow_anonymous_auth_bootstrap = true
+    allow_pending_upload_retry = true
 
     # Authentication page URL
     # The URL to open when authentication is required

@@ -72,6 +72,17 @@ impl DeviceKey {
         }
     }
 
+    /// Load an already registered key without creating a new local identity.
+    pub async fn load_registered(storage_path: PathBuf) -> Result<Self, AuthError> {
+        let device_key = Self::load_existing(&storage_path)
+            .await?
+            .ok_or(AuthError::DeviceNotRegistered)?;
+        if device_key.device_id().is_none() {
+            return Err(AuthError::DeviceNotRegistered);
+        }
+        Ok(device_key)
+    }
+
     async fn load_existing(storage_path: &Path) -> Result<Option<Self>, AuthError> {
         let bytes = match tokio::fs::read(storage_path).await {
             Ok(bytes) => bytes,

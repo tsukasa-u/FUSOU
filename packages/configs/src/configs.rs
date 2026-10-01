@@ -766,6 +766,8 @@ impl ConfigsAppAssetSync {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ConfigsAppAuth {
     deny_auth: Option<bool>,
+    allow_anonymous_auth_bootstrap: Option<bool>,
+    allow_pending_upload_retry: Option<bool>,
     auth_page_url: Option<String>,
     anonymous_sync_v2_register_endpoint: Option<String>,
     anonymous_sync_v2_challenge_endpoint: Option<String>,
@@ -777,6 +779,26 @@ impl ConfigsAppAuth {
     pub fn get_deny_auth(&self) -> bool {
         self.deny_auth
             .unwrap_or_else(|| get_default_configs().app.auth.deny_auth.unwrap())
+    }
+
+    pub fn get_allow_anonymous_auth_bootstrap(&self) -> bool {
+        self.allow_anonymous_auth_bootstrap.unwrap_or_else(|| {
+            get_default_configs()
+                .app
+                .auth
+                .allow_anonymous_auth_bootstrap
+                .unwrap_or(true)
+        })
+    }
+
+    pub fn get_allow_pending_upload_retry(&self) -> bool {
+        self.allow_pending_upload_retry.unwrap_or_else(|| {
+            get_default_configs()
+                .app
+                .auth
+                .allow_pending_upload_retry
+                .unwrap_or(true)
+        })
     }
 
     pub fn get_auth_page_url(&self) -> String {
@@ -1998,6 +2020,8 @@ mod tests {
         // Test App Auth defaults
         let empty_auth = ConfigsAppAuth {
             deny_auth: None,
+            allow_anonymous_auth_bootstrap: None,
+            allow_pending_upload_retry: None,
             auth_page_url: None,
             anonymous_sync_v2_register_endpoint: None,
             anonymous_sync_v2_challenge_endpoint: None,
@@ -2010,6 +2034,22 @@ mod tests {
             default_configs.app.auth.get_deny_auth(),
             "auth deny_auth getter should return configs.toml default"
         );
+        assert!(empty_auth.get_allow_anonymous_auth_bootstrap());
+        assert!(empty_auth.get_allow_pending_upload_retry());
+
+        let candidate_auth = ConfigsAppAuth {
+            deny_auth: Some(false),
+            allow_anonymous_auth_bootstrap: Some(false),
+            allow_pending_upload_retry: Some(false),
+            auth_page_url: None,
+            anonymous_sync_v2_register_endpoint: None,
+            anonymous_sync_v2_challenge_endpoint: None,
+            anonymous_sync_v2_refresh_endpoint: None,
+            anonymous_sync_v2_complete_endpoint: None,
+        };
+        assert!(!candidate_auth.get_deny_auth());
+        assert!(!candidate_auth.get_allow_anonymous_auth_bootstrap());
+        assert!(!candidate_auth.get_allow_pending_upload_retry());
         assert_eq!(
             empty_auth.get_auth_page_url(),
             default_configs.app.auth.get_auth_page_url(),
