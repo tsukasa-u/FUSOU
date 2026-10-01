@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { open, lstat, readFile, rm } from "node:fs/promises";
+import { constants } from "node:fs";
+import { open, lstat, readFile, readdir, rm } from "node:fs/promises";
 import path from "node:path";
 import { isDeepStrictEqual } from "node:util";
 import { fileURLToPath } from "node:url";
@@ -19,6 +20,7 @@ const ARTIFACT_NAMES = [
   "verifier-execution-receipt.bin",
   "presentation.bin",
   "metadata.json",
+  "capture-provenance.json",
 ].sort();
 
 const TRUST_CONTEXT_KEYS = [
@@ -68,17 +70,39 @@ async function assertPrivateDirectory(directory) {
   }
 }
 
+function assertPrivateFileStats(stats, label) {
+  if (!stats.isFile() || stats.isSymbolicLink()) {
+    throw new Error(`${label} must be a regular file`);
+  }
+  if (process.platform !== "win32") {
+    if (typeof process.getuid === "function" && stats.uid !== process.getuid()) {
+      throw new Error(`${label} must be owned by the current user`);
+    }
+    if ((stats.mode & 0o077) !== 0) {
+      throw new Error(`${label} permissions must be private`);
+    }
+  }
+}
+
+async function readPrivateFile(filePath, label) {
+  await assertPrivateFileStats(await lstat(filePath), label);
+  const flags = constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0);
+  const handle = await open(filePath, flags);
+  try {
+    assertPrivateFileStats(await handle.stat(), label);
+    return await handle.readFile();
+  } finally {
+    await handle.close();
+  }
+}
+
 async function readArtifact(directory, manifest, name) {
   const expected = manifest.artifacts?.[name];
   if (!expected || !Number.isSafeInteger(expected.size_bytes) || typeof expected.sha256 !== "string") {
     throw new Error(`candidate manifest is missing artifact metadata: ${name}`);
   }
   const filePath = path.join(directory, name);
-  const stats = await lstat(filePath);
-  if (!stats.isFile() || stats.isSymbolicLink()) {
-    throw new Error(`candidate artifact is not a regular file: ${name}`);
-  }
-  const bytes = await readFile(filePath);
+  const bytes = await readPrivateFile(filePath, `candidate artifact ${name}`);
   if (bytes.length !== expected.size_bytes || sha256Base64Url(bytes) !== expected.sha256) {
     throw new Error(`candidate artifact integrity mismatch: ${name}`);
   }
@@ -88,11 +112,7 @@ async function readArtifact(directory, manifest, name) {
 export async function loadTlsnCandidateBundle(candidateDirectory) {
   await assertPrivateDirectory(candidateDirectory);
   const manifestPath = path.join(candidateDirectory, "candidate-manifest.json");
-  const manifestStats = await lstat(manifestPath);
-  if (!manifestStats.isFile() || manifestStats.isSymbolicLink()) {
-    throw new Error("candidate manifest must be a regular file");
-  }
-  const manifestBytes = await readFile(manifestPath);
+  const manifestBytes = await readPrivateFile(manifestPath, "candidate manifest");
   const manifest = parseJson(manifestBytes, "candidate manifest");
   if (
     manifest.schema_version !== 1 ||
@@ -106,14 +126,20 @@ export async function loadTlsnCandidateBundle(candidateDirectory) {
     throw new Error("candidate manifest scope or status is invalid");
   }
   if (
-    manifest.synthetic_fixture !== undefined &&
-    (typeof manifest.synthetic_fixture !== "boolean" ||
-      (manifest.synthetic_fixture && manifest.capture_provenance !== "synthetic-alpha15-test-fixture"))
+    typeof manifest.synthetic_fixture !== "boolean" ||
+    (manifest.synthetic_fixture && manifest.capture_provenance !== "synthetic-alpha15-test-fixture") ||
+    (!manifest.synthetic_fixture && manifest.capture_provenance !== "production-proxy-capture")
   ) {
     throw new Error("candidate synthetic fixture classification is invalid");
   }
   const artifactNames = Object.keys(manifest.artifacts ?? {}).sort();
   assert.deepEqual(artifactNames, ARTIFACT_NAMES, "candidate artifact inventory is incomplete or unexpected");
+  const actualNames = (await readdir(candidateDirectory)).sort();
+  assert.deepEqual(
+    actualNames,
+    [...ARTIFACT_NAMES, "candidate-manifest.json"].sort(),
+    "candidate directory contains missing or unexpected entries",
+  );
 
   const artifacts = Object.fromEntries(
     await Promise.all(ARTIFACT_NAMES.map(async (name) => [
@@ -150,10 +176,21 @@ export async function loadTlsnCandidateBundle(candidateDirectory) {
   const responsePayload = parseJson(resultBytes, "exact Worker result body");
   const result = parseJson(artifacts["result.json"], "captured Result");
   const consumeReceipt = parseJson(artifacts["consume-receipt.json"], "captured consume receipt");
+  const captureProvenance = parseJson(
+    artifacts["capture-provenance.json"],
+    "capture provenance",
+  );
+  const expectedProvenance = manifest.synthetic_fixture
+    ? { classification: "SYNTHETIC_FIXTURE", source: "synthetic-alpha15-test-fixture" }
+    : { classification: "UNVERIFIED", source: "production-proxy-capture" };
   if (
     !isDeepStrictEqual(responsePayload, workerVerification) ||
     !isDeepStrictEqual(result, workerVerification.result) ||
     !isDeepStrictEqual(consumeReceipt, workerVerification.consume_receipt) ||
+    captureProvenance.schema_version !== 1 ||
+    captureProvenance.classification !== expectedProvenance.classification ||
+    captureProvenance.source !== expectedProvenance.source ||
+    manifest.capture_provenance !== expectedProvenance.source ||
     deviceIdentity.authority_state !== "UNVERIFIED" ||
     session.canonical_user_id !== session.session_receipt?.canonical_user_id
   ) {
@@ -200,27 +237,22 @@ export async function finalizeTlsnCandidateBundle({
 } = {}) {
   const bundle = await loadTlsnCandidateBundle(candidateDirectory);
   const trusted = validateTrustContext(trustContext);
-  const deviceIdentity = {
-    authoritative: true,
-    authority: "fusou-web-user-devices",
-    canonical_user_id: bundle.deviceIdentity.canonical_user_id,
-    device_id: bundle.deviceIdentity.device_id,
-    device_public_key: bundle.deviceIdentity.device_public_key,
-    device_public_key_sha256: bundle.deviceIdentity.device_public_key_sha256,
-    revoked_at: null,
-  };
   const verification = await verifyCanaryExistingSourceProofBundle({
     ...trusted,
     session: bundle.session,
     deviceAuthentication: bundle.deviceAuthentication,
-    deviceIdentity,
+    deviceIdentity: bundle.deviceIdentity,
     possessionProof: bundle.possessionProof,
     consumeReceipt: bundle.consumeReceipt,
     presentationBytes: bundle.presentationBytes,
     resultBytes: bundle.resultBytes,
     verifierExecutionReceiptBytes: bundle.verifierExecutionReceiptBytes,
-    syntheticFixture: bundle.manifest.synthetic_fixture === true,
+    syntheticFixture: bundle.manifest.synthetic_fixture,
   });
+  verification.evidence.synthetic = bundle.manifest.synthetic_fixture ? true : null;
+  verification.evidence.synthetic_classification = bundle.manifest.synthetic_fixture
+    ? "DECLARED_SYNTHETIC_FIXTURE"
+    : "UNVERIFIED";
   const verifiedPresentation = verification?.verified_presentation;
   if (
     verification?.status !== "PASS" ||
@@ -256,7 +288,12 @@ export async function finalizeTlsnCandidateBundle({
     },
     verification,
     human_play_provenance: "UNVERIFIED",
-    synthetic_fixture: bundle.manifest.synthetic_fixture === true,
+    synthetic_fixture_status: bundle.manifest.synthetic_fixture
+      ? "DECLARED_SYNTHETIC_FIXTURE"
+      : "UNVERIFIED",
+    capture_provenance_status: bundle.manifest.synthetic_fixture
+      ? "DECLARED_SYNTHETIC_FIXTURE"
+      : "UNVERIFIED",
     readiness_effect: "NONE",
     gameplay_effect: "NONE",
   };
@@ -265,12 +302,12 @@ export async function finalizeTlsnCandidateBundle({
   try {
     await output.writeFile(`${JSON.stringify(finalization, null, 2)}\n`, "utf8");
     await output.sync();
-  } catch (error) {
     await output.close();
-    await rm(outputPath, { force: true });
+  } catch (error) {
+    await output.close().catch(() => {});
+    await rm(outputPath, { force: true }).catch(() => {});
     throw error;
   }
-  await output.close();
   return finalization;
 }
 

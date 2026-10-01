@@ -61,13 +61,11 @@ const bindingAuthority = authority(
   bindingPublicKeySpki,
 );
 const deviceIdentity = {
-  authoritative: true,
-  authority: "fusou-web-user-devices",
   canonical_user_id: userId,
   device_id: deviceId,
   device_public_key: devicePublicKeyB64url,
   device_public_key_sha256: createHash("sha256").update(devicePublicKeyBytes).digest("base64url"),
-  revoked_at: null,
+  authority_state: "UNVERIFIED",
 };
 
 const bindingNonce = Buffer.alloc(32, 0x51);
@@ -383,7 +381,7 @@ assert.throws(() => verifyCanaryDeviceAuthenticationProof({
   deviceAuthentication,
   deviceIdentity: { ...deviceIdentity, canonical_user_id: "c73fded7-d9af-4f0a-b87b-c626d30d55bd" },
   session,
-}), /device identity owner or device mismatch/);
+}), /captured device key is not bound to the Session identity/);
 
 assert.throws(() => verifyCanaryTlsnDevicePossessionProof({
   possessionProof: { ...possessionProof, session_id: "c73fded7-d9af-4f0a-b87b-c626d30d55bd" },
@@ -424,11 +422,18 @@ assert.throws(() => verifyCanaryTlsnDevicePossessionProof({
   session,
 }), /replay digest mismatch/);
 
-assert.throws(() => verifyCanaryTlsnDevicePossessionProof({
+const possessionWithUnverifiedAuthorityClaims = verifyCanaryTlsnDevicePossessionProof({
   possessionProof,
-  deviceIdentity: { ...deviceIdentity, revoked_at: "2026-10-01T11:00:00.000Z" },
+  deviceIdentity: {
+    ...deviceIdentity,
+    authoritative: true,
+    authority: "fusou-web-user-devices",
+    revoked_at: "2026-10-01T11:00:00.000Z",
+  },
   session,
-}), /captured device is revoked/);
+});
+assert.equal(possessionWithUnverifiedAuthorityClaims.status, "PASS");
+assert.equal(possessionWithUnverifiedAuthorityClaims.authority_state, "UNVERIFIED");
 
 assert.throws(() => verifyCanaryResultSignature({
   finalResponse: { ...finalResponse, result: { ...signedResult, verified_member_id: "16189464" } },

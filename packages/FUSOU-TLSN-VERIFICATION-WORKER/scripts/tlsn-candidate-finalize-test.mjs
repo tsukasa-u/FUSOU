@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { test } from "node:test";
@@ -21,6 +21,7 @@ const artifactNames = [
   "verifier-execution-receipt.bin",
   "presentation.bin",
   "metadata.json",
+  "capture-provenance.json",
 ];
 
 const hash = (bytes) => createHash("sha256").update(bytes).digest("base64url");
@@ -67,6 +68,11 @@ async function writeCandidate(directory) {
     "verifier-execution-receipt.bin": receiptBytes,
     "presentation.bin": Buffer.from("opaque alpha15 presentation bytes"),
     "metadata.json": jsonBytes({ server_identity: "untrusted-config.example" }),
+    "capture-provenance.json": jsonBytes({
+      schema_version: 1,
+      classification: "SYNTHETIC_FIXTURE",
+      source: "synthetic-alpha15-test-fixture",
+    }),
   };
   for (const [name, bytes] of Object.entries(artifacts)) {
     await writeFile(path.join(directory, name), bytes, { mode: 0o600 });
@@ -78,6 +84,8 @@ async function writeCandidate(directory) {
     approval_status: "UNAPPROVED",
     target_identity_status: "NOT_YET_OBSERVED",
     target_identity_source: "alpha15-verified-presentation-required",
+    synthetic_fixture: true,
+    capture_provenance: "synthetic-alpha15-test-fixture",
     presentation_sha256: hash(artifacts["presentation.bin"]),
     exact_result_sha256: hash(artifacts["result-exact.bin"]),
     verifier_execution_receipt_status: "CAPTURED",
@@ -93,6 +101,29 @@ async function writeCandidate(directory) {
   };
   await writeFile(path.join(directory, "candidate-manifest.json"), JSON.stringify(manifest), { mode: 0o600 });
   return { manifest, session, artifacts };
+}
+
+async function rewriteArtifact(fixture, name, value) {
+  const bytes = jsonBytes(value);
+  await writeFile(path.join(fixture.candidateDirectory, name), bytes, { mode: 0o600 });
+  fixture.candidateManifest.artifacts[name] = { size_bytes: bytes.length, sha256: hash(bytes) };
+  await writeFile(
+    path.join(fixture.candidateDirectory, "candidate-manifest.json"),
+    JSON.stringify(fixture.candidateManifest),
+    { mode: 0o600 },
+  );
+}
+
+async function rewriteBinaryArtifact(fixture, name, bytes) {
+  await writeFile(path.join(fixture.candidateDirectory, name), bytes, { mode: 0o600 });
+  fixture.candidateManifest.artifacts[name] = { size_bytes: bytes.length, sha256: hash(bytes) };
+  if (name === "presentation.bin") fixture.candidateManifest.presentation_sha256 = hash(bytes);
+  if (name === "result-exact.bin") fixture.candidateManifest.exact_result_sha256 = hash(bytes);
+  await writeFile(
+    path.join(fixture.candidateDirectory, "candidate-manifest.json"),
+    JSON.stringify(fixture.candidateManifest),
+    { mode: 0o600 },
+  );
 }
 
 function trustContext() {
@@ -167,10 +198,88 @@ test("finalizer rejects unexpected trust-context fields", async () => {
   }
 });
 
+test("finalizer rejects absent synthetic classification and provenance", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "fusou-tlsn-candidate-no-provenance-"));
+  const candidateDirectory = path.join(root, "candidate");
+  await mkdir(candidateDirectory, { mode: 0o700 });
+  const { manifest } = await writeCandidate(candidateDirectory);
+  delete manifest.synthetic_fixture;
+  delete manifest.capture_provenance;
+  await writeFile(path.join(candidateDirectory, "candidate-manifest.json"), JSON.stringify(manifest), { mode: 0o600 });
+
+  try {
+    await assert.rejects(
+      finalizeTlsnCandidateBundle({ candidateDirectory, trustContext: trustContext() }),
+      /synthetic fixture classification is invalid/,
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("finalizer rejects downgrading a synthetic manifest without changing its provenance artifact", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "fusou-tlsn-candidate-provenance-downgrade-"));
+  const candidateDirectory = path.join(root, "candidate");
+  await mkdir(candidateDirectory, { mode: 0o700 });
+  const { manifest } = await writeCandidate(candidateDirectory);
+  manifest.synthetic_fixture = false;
+  manifest.capture_provenance = "production-proxy-capture";
+  await writeFile(path.join(candidateDirectory, "candidate-manifest.json"), JSON.stringify(manifest), { mode: 0o600 });
+
+  try {
+    await assert.rejects(
+      finalizeTlsnCandidateBundle({ candidateDirectory, trustContext: trustContext() }),
+      /inconsistent or claim unsupported identity authority/,
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("finalizer requires private regular artifacts and exact bundle inventory", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "fusou-tlsn-candidate-filesystem-"));
+  const candidateDirectory = path.join(root, "candidate");
+  await mkdir(candidateDirectory, { mode: 0o700 });
+  await writeCandidate(candidateDirectory);
+
+  try {
+    await writeFile(path.join(candidateDirectory, "unexpected.txt"), "unexpected", { mode: 0o600 });
+    await assert.rejects(
+      finalizeTlsnCandidateBundle({ candidateDirectory, trustContext: trustContext() }),
+      /candidate directory contains missing or unexpected entries/,
+    );
+    await rm(path.join(candidateDirectory, "unexpected.txt"));
+
+    if (process.platform !== "win32") {
+      await chmod(path.join(candidateDirectory, "presentation.bin"), 0o644);
+      await assert.rejects(
+        finalizeTlsnCandidateBundle({ candidateDirectory, trustContext: trustContext() }),
+        /candidate artifact presentation.bin permissions must be private/,
+      );
+      await chmod(path.join(candidateDirectory, "presentation.bin"), 0o600);
+    }
+
+    if (process.platform !== "win32") {
+      const presentationPath = path.join(candidateDirectory, "presentation.bin");
+      const externalPresentation = path.join(root, "external-presentation.bin");
+      await writeFile(externalPresentation, "outside", { mode: 0o600 });
+      await rm(presentationPath);
+      await symlink(externalPresentation, presentationPath);
+      await assert.rejects(
+        finalizeTlsnCandidateBundle({ candidateDirectory, trustContext: trustContext() }),
+        /candidate artifact presentation.bin must be a regular file/,
+      );
+    }
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("synthetic alpha.15 Presentation discovers target and finalizes as unapproved", async () => {
   const root = await mkdtemp(path.join(tmpdir(), "fusou-tlsn-candidate-positive-"));
   try {
     const fixture = await createSyntheticCandidateBundle(root);
+    assert.equal(fixture.trustContext.deploymentManifest.target, undefined);
     const observation = await inspectAlpha15Presentation({
       presentationBytes: fixture.presentationBytes,
       notaryRegistry: fixture.trustContext.notaryRegistry,
@@ -198,15 +307,64 @@ test("synthetic alpha.15 Presentation discovers target and finalizes as unapprov
     assert.equal(finalization.target_identity.server_identity, "game.example.test");
     assert.equal(finalization.target_identity.presentation_sha256, fixture.candidateManifest.presentation_sha256);
     assert.equal(finalization.human_play_provenance, "UNVERIFIED");
-    assert.equal(finalization.synthetic_fixture, true);
+    assert.equal(finalization.synthetic_fixture_status, "DECLARED_SYNTHETIC_FIXTURE");
     assert.equal(finalization.verification.evidence.synthetic, true);
+    assert.equal(finalization.verification.evidence.synthetic_classification, "DECLARED_SYNTHETIC_FIXTURE");
     assert.equal(finalization.readiness_effect, "NONE");
     assert.equal(finalization.gameplay_effect, "NONE");
     assert.equal(finalization.verification.readiness_effect, "NONE");
     assert.equal(finalization.verification.gameplay_effect, "NONE");
     assert.equal(finalization.verification.components.Presentation.status, "PASS");
     assert.equal(finalization.verification.components.device_identity_ownership.status, "UNVERIFIED");
+    assert.equal(finalization.target_identity.server_identity, "game.example.test");
     console.log("[tlsn-candidate-finalize:synthetic-alpha15] cryptographic discovery and offline finalizer PASS; not real gameplay evidence");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("finalizer accepts an independently declared matching target", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "fusou-tlsn-candidate-target-match-"));
+  try {
+    const fixture = await createSyntheticCandidateBundle(root);
+    const trustContext = {
+      ...fixture.trustContext,
+      deploymentManifest: {
+        ...fixture.trustContext.deploymentManifest,
+        target: { server_identity: "game.example.test" },
+      },
+    };
+    const finalization = await finalizeTlsnCandidateBundle({
+      candidateDirectory: fixture.candidateDirectory,
+      trustContext,
+    });
+    assert.equal(finalization.target_identity.server_identity, "game.example.test");
+    assert.equal(finalization.status, "OBSERVED_UNAPPROVED");
+    assert.equal(finalization.readiness_effect, "NONE");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("metadata and authority-shaped identity fields cannot upgrade provenance", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "fusou-tlsn-candidate-spoofed-metadata-"));
+  try {
+    const fixture = await createSyntheticCandidateBundle(root);
+    const identityBytes = await readFile(path.join(fixture.candidateDirectory, "device-identity.json"));
+    const identity = JSON.parse(identityBytes.toString("utf8"));
+    await rewriteArtifact(fixture, "device-identity.json", {
+      ...identity,
+      authoritative: true,
+      authority: "fusou-web-user-devices",
+      revoked_at: null,
+    });
+    await rewriteArtifact(fixture, "metadata.json", { server_identity: "game.example.test" });
+
+    const finalization = await finalizeTlsnCandidateBundle(fixture);
+    assert.equal(finalization.target_identity.server_identity, "game.example.test");
+    assert.equal(finalization.verification.components.device_identity_ownership.status, "UNVERIFIED");
+    assert.equal(finalization.human_play_provenance, "UNVERIFIED");
+    assert.equal(finalization.synthetic_fixture_status, "DECLARED_SYNTHETIC_FIXTURE");
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -250,6 +408,44 @@ test("finalizer detects outer Result byte mutation against the execution receipt
     await assert.rejects(
       finalizeTlsnCandidateBundle(fixture),
       /Verifier execution receipt Result hash mismatch/,
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("finalizer rejects Presentation mutation even when local hashes are recomputed", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "fusou-tlsn-candidate-presentation-mutation-"));
+  try {
+    const fixture = await createSyntheticCandidateBundle(root);
+    const mutated = Buffer.from(fixture.presentationBytes);
+    mutated[mutated.length - 1] ^= 1;
+    await rewriteBinaryArtifact(fixture, "presentation.bin", mutated);
+
+    await assert.rejects(
+      finalizeTlsnCandidateBundle(fixture),
+      /consume receipt mismatch: presentation_id/,
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("finalizer rejects Notary key mutation against the Presentation", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "fusou-tlsn-candidate-notary-mutation-"));
+  try {
+    const fixture = await createSyntheticCandidateBundle(root);
+    const trustContext = {
+      ...fixture.trustContext,
+      notaryRegistry: {
+        ...fixture.trustContext.notaryRegistry,
+        [fixture.trustContext.deploymentManifest.notary.key_id]: Buffer.alloc(32, 0x7f).toString("base64url"),
+      },
+    };
+
+    await assert.rejects(
+      finalizeTlsnCandidateBundle({ candidateDirectory: fixture.candidateDirectory, trustContext }),
+      /Notary registry does not match the key selected by the validated deployment manifest/,
     );
   } finally {
     await rm(root, { recursive: true, force: true });

@@ -359,6 +359,11 @@ export async function createSyntheticCandidateBundle(rootDirectory) {
     "verifier-execution-receipt.bin": executionReceiptBytes,
     "presentation.bin": presentationBytes,
     "metadata.json": jsonBytes({ server_identity: "untrusted-config.invalid" }),
+    "capture-provenance.json": jsonBytes({
+      schema_version: 1,
+      classification: "SYNTHETIC_FIXTURE",
+      source: "synthetic-alpha15-test-fixture",
+    }),
   };
   const candidateDirectory = resolve(rootDirectory, "candidate");
   await mkdir(candidateDirectory, { recursive: true, mode: 0o700 });

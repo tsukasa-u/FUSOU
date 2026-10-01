@@ -12,6 +12,7 @@ const configPath = path.join(
   "user",
   "configs.toml",
 );
+const recoveryMarkerPath = path.join(path.dirname(configPath), ".testplay-verify-recovery.json");
 const defaultConfigPath = path.join(
   appRoot,
   "src-tauri",
@@ -53,14 +54,6 @@ const temporarySettingsBySection = new Map([
     ]),
   ],
   ["app.asset_sync", new Map([["asset_upload_enable", "false"]])],
-  [
-    "app.auth",
-    new Map([
-      ["deny_auth", "true"],
-      ["allow_anonymous_auth_bootstrap", "true"],
-      ["allow_pending_upload_retry", "true"],
-    ]),
-  ],
   ["app.quest_tree_sender", new Map([["enable", "false"]])],
   ["app.ship_growth_sender", new Map([["enable", "false"]])],
   ["app.soku_speed_sender", new Map([["enable", "false"]])],
@@ -191,6 +184,107 @@ export async function restoreConfig(filePath, originalConfig) {
   }
 }
 
+export async function writeConfigRecoveryMarker(markerPath, originalConfig, originalMode) {
+  const marker = {
+    schema_version: 1,
+    original_config_base64: originalConfig === null
+      ? null
+      : Buffer.from(originalConfig, "utf8").toString("base64"),
+    original_mode: originalMode,
+  };
+  const handle = await fs.open(markerPath, "wx", 0o600);
+  try {
+    await handle.writeFile(`${JSON.stringify(marker)}\n`, "utf8");
+    await handle.sync();
+  } finally {
+    await handle.close();
+  }
+}
+
+export async function recoverConfigFromMarker(configFilePath, markerPath) {
+  let markerBytes;
+  try {
+    const markerStats = await fs.lstat(markerPath);
+    if (!markerStats.isFile() || markerStats.isSymbolicLink()) {
+      throw new Error("test-play recovery marker must be a regular file");
+    }
+    if (process.platform !== "win32") {
+      if (typeof process.getuid === "function" && markerStats.uid !== process.getuid()) {
+        throw new Error("test-play recovery marker must be owned by the current user");
+      }
+      if ((markerStats.mode & 0o077) !== 0) {
+        throw new Error("test-play recovery marker permissions must be private");
+      }
+    }
+    markerBytes = await fs.readFile(markerPath);
+  } catch (error) {
+    if (error.code === "ENOENT") return false;
+    throw error;
+  }
+
+  let marker;
+  try {
+    marker = JSON.parse(markerBytes.toString("utf8"));
+  } catch {
+    throw new Error("test-play recovery marker is malformed; refusing to load temporary config");
+  }
+  if (
+    marker.schema_version !== 1 ||
+    !((marker.original_config_base64 === null && marker.original_mode === null) ||
+      (typeof marker.original_config_base64 === "string" &&
+        Number.isInteger(marker.original_mode) && marker.original_mode >= 0 && marker.original_mode <= 0o7777))
+  ) {
+    throw new Error("test-play recovery marker is invalid; refusing to load temporary config");
+  }
+
+  let configStats;
+  try {
+    configStats = await fs.lstat(configFilePath);
+  } catch (error) {
+    if (error.code !== "ENOENT") throw error;
+  }
+  if (configStats && (!configStats.isFile() || configStats.isSymbolicLink())) {
+    throw new Error("temporary config must be a regular file during recovery");
+  }
+
+  if (marker.original_config_base64 === null) {
+    await fs.rm(configFilePath, { force: true });
+  } else {
+    const originalBytes = Buffer.from(marker.original_config_base64, "base64");
+    if (originalBytes.toString("base64") !== marker.original_config_base64) {
+      throw new Error("test-play recovery marker has invalid config bytes");
+    }
+    await fs.writeFile(configFilePath, originalBytes, { mode: marker.original_mode });
+    if (process.platform !== "win32") await fs.chmod(configFilePath, marker.original_mode);
+  }
+  await fs.rm(markerPath);
+  return true;
+}
+
+export function waitForChildWithSignalForwarding(child, signalSource = process) {
+  return new Promise((resolve, reject) => {
+    const forwardSignal = (signal) => {
+      if (child.exitCode === null) child.kill(signal);
+    };
+    const onInterrupt = () => forwardSignal("SIGINT");
+    const onTerminate = () => forwardSignal("SIGTERM");
+    const cleanup = () => {
+      signalSource.removeListener("SIGINT", onInterrupt);
+      signalSource.removeListener("SIGTERM", onTerminate);
+    };
+    signalSource.once("SIGINT", onInterrupt);
+    signalSource.once("SIGTERM", onTerminate);
+    child.once("error", (error) => {
+      cleanup();
+      reject(error);
+    });
+    child.once("close", (code, signal) => {
+      cleanup();
+      resolve(code ?? (signal ? 1 : 0));
+    });
+  });
+}
+
 export async function prepareCaptureOutput(outputPath, { tlsnCandidate = false } = {}) {
   let stats;
   try {
@@ -242,8 +336,7 @@ async function readOptional(filePath) {
 
 function runTauriDev() {
   const command = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
-  return new Promise((resolve, reject) => {
-    const child = spawn(command, [
+  const child = spawn(command, [
       "tauri",
       "dev",
       ...(tlsnCandidateMode ? ["--features", "tlsn-production"] : []),
@@ -252,29 +345,11 @@ function runTauriDev() {
       env: process.env,
       stdio: "inherit",
     });
-    const forwardSignal = (signal) => {
-      if (child.exitCode === null) {
-        child.kill(signal);
-      }
-    };
-    const onInterrupt = () => forwardSignal("SIGINT");
-    const onTerminate = () => forwardSignal("SIGTERM");
-    process.once("SIGINT", onInterrupt);
-    process.once("SIGTERM", onTerminate);
-    child.once("error", (error) => {
-      process.removeListener("SIGINT", onInterrupt);
-      process.removeListener("SIGTERM", onTerminate);
-      reject(error);
-    });
-    child.once("close", (code, signal) => {
-      process.removeListener("SIGINT", onInterrupt);
-      process.removeListener("SIGTERM", onTerminate);
-      resolve(code ?? (signal ? 1 : 0));
-    });
-  });
+  return waitForChildWithSignalForwarding(child);
 }
 
 async function main() {
+  await recoverConfigFromMarker(configPath, recoveryMarkerPath);
   if (positionalArguments.length > 1 || scriptArguments.some((argument) => argument.startsWith("--") && argument !== "--tlsn-candidate")) {
     fail("usage: pnpm testplay:verify -- [--tlsn-candidate] /absolute/private/path");
     return;
@@ -301,13 +376,23 @@ async function main() {
     return;
   }
   await fs.mkdir(path.dirname(configPath), { recursive: true });
-  const originalConfig = await readOptional(configPath);
+  let originalStats;
+  try {
+    originalStats = await fs.lstat(configPath);
+  } catch (error) {
+    if (error.code !== "ENOENT") throw error;
+  }
+  if (originalStats && (!originalStats.isFile() || originalStats.isSymbolicLink())) {
+    throw new Error("user config must be a regular file before candidate capture");
+  }
+  const originalConfig = originalStats ? await fs.readFile(configPath, "utf8") : null;
+  const originalMode = originalStats ? originalStats.mode & 0o7777 : null;
   const baseConfig =
     originalConfig ?? (await fs.readFile(defaultConfigPath, "utf8"));
   const updatedConfig = withCaptureConfig(baseConfig, outputPath, {
     tlsnCandidate: tlsnCandidateMode,
   });
-  await fs.writeFile(configPath, updatedConfig, "utf8");
+  await writeConfigRecoveryMarker(recoveryMarkerPath, originalConfig, originalMode);
 
   console.log(`Capture output: ${outputPath}`);
   if (tlsnCandidateMode) {
@@ -315,8 +400,11 @@ async function main() {
     console.log("A valid existing FUSOU auth session and TLSN production configuration are required.");
   }
   console.log(
-    "Proxy persistence, app data uploads, custom senders, auth bootstrap, and pending retries are disabled for this session only.",
+    "Proxy persistence, app data uploads, and custom senders are disabled for this session only.",
   );
+  if (tlsnCandidateMode) {
+    console.log("Anonymous Auth bootstrap and pending retries are disabled; a saved Auth session may be refreshed.");
+  }
   console.log(
     "Use only ordinary FUSOU-APP gameplay. Do not issue standalone requests, inject, replay, retry, or automate traffic.",
   );
@@ -326,9 +414,13 @@ async function main() {
 
   let exitCode = 1;
   try {
+    await fs.writeFile(configPath, updatedConfig, {
+      encoding: "utf8",
+      mode: originalMode ?? 0o600,
+    });
     exitCode = await runTauriDev();
   } finally {
-    await restoreConfig(configPath, originalConfig);
+    await recoverConfigFromMarker(configPath, recoveryMarkerPath);
   }
   process.exitCode = exitCode;
 }

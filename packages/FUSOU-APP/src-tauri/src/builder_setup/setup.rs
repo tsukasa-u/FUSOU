@@ -1,6 +1,8 @@
 #[cfg(dev)]
 use std::path::PathBuf;
+use std::path::Path;
 use std::{env, fs, sync::Mutex, time};
+use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 
 use tauri::{
     menu::{CheckMenuItemBuilder, MenuBuilder, MenuItemBuilder, SubmenuBuilder},
@@ -764,6 +766,11 @@ pub fn setup_discord() -> Result<(), Box<dyn std::error::Error>> {
 pub fn setup_configs() -> Result<(), Box<dyn std::error::Error>> {
     let resources_config_path = get_RESOURCES_DIR().join("user").join("configs.toml");
     let roaming_config_path = get_ROAMING_DIR().join("user").join("configs.toml");
+    let recovery_marker_path = roaming_config_path
+        .parent()
+        .expect("config path has parent")
+        .join(".testplay-verify-recovery.json");
+    recover_candidate_capture_config(&roaming_config_path, &recovery_marker_path)?;
     tracing::info!("open configs: {:?}", roaming_config_path);
     tracing::info!("default configs: {:?}", resources_config_path);
     if fs::metadata(&roaming_config_path).is_err() {
@@ -775,6 +782,205 @@ pub fn setup_configs() -> Result<(), Box<dyn std::error::Error>> {
     let path_str = roaming_config_path.to_string_lossy();
     configs::set_user_config(&path_str)?;
     Ok(())
+}
+
+#[derive(serde::Deserialize)]
+struct CandidateConfigRecoveryMarker {
+    schema_version: u8,
+    original_config_base64: Option<String>,
+    original_mode: Option<u32>,
+}
+
+fn recover_candidate_capture_config(
+    config_path: &Path,
+    marker_path: &Path,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let marker_metadata = match fs::symlink_metadata(marker_path) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => return Err(error.into()),
+    };
+    if !marker_metadata.is_file() || marker_metadata.file_type().is_symlink() {
+        return Err("test-play recovery marker must be a regular file".into());
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::{MetadataExt, PermissionsExt};
+        let config_directory = config_path.parent().ok_or("config path has no parent")?;
+        if marker_metadata.uid() != fs::metadata(config_directory)?.uid()
+            || marker_metadata.permissions().mode() & 0o077 != 0
+        {
+            return Err("test-play recovery marker owner or permissions are invalid".into());
+        }
+    }
+
+    let marker: CandidateConfigRecoveryMarker = serde_json::from_slice(&fs::read(marker_path)?)?;
+    if marker.schema_version != 1 {
+        return Err("test-play recovery marker schema is unsupported".into());
+    }
+    match (marker.original_config_base64, marker.original_mode) {
+        (Some(encoded), Some(mode)) if mode <= 0o7777 => {
+            let original_bytes = BASE64.decode(encoded)?;
+            let parent = config_path.parent().ok_or("config path has no parent")?;
+            let temporary_path =
+                parent.join(format!(".configs.toml.restore-{}", uuid::Uuid::new_v4()));
+            let write_result = (|| -> Result<(), Box<dyn std::error::Error>> {
+                let mut options = fs::OpenOptions::new();
+                options.write(true).create_new(true);
+                #[cfg(unix)]
+                {
+                    use std::os::unix::fs::OpenOptionsExt;
+                    options.mode(mode);
+                }
+                let mut temporary = options.open(&temporary_path)?;
+                use std::io::Write;
+                temporary.write_all(&original_bytes)?;
+                #[cfg(unix)]
+                {
+                    use std::os::unix::fs::PermissionsExt;
+                    temporary.set_permissions(fs::Permissions::from_mode(mode))?;
+                }
+                temporary.sync_all()?;
+                drop(temporary);
+                match fs::symlink_metadata(config_path) {
+                    Ok(metadata) if metadata.is_file() && !metadata.file_type().is_symlink() => {
+                        fs::remove_file(config_path)?;
+                    }
+                    Ok(_) => return Err("temporary config is not a regular file".into()),
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                    Err(error) => return Err(error.into()),
+                }
+                fs::rename(&temporary_path, config_path)?;
+                Ok(())
+            })();
+            if write_result.is_err() {
+                let _ = fs::remove_file(&temporary_path);
+                return write_result;
+            }
+        }
+        (None, None) => match fs::symlink_metadata(config_path) {
+            Ok(metadata) if metadata.is_file() && !metadata.file_type().is_symlink() => {
+                fs::remove_file(config_path)?;
+            }
+            Ok(_) => return Err("temporary config is not a regular file".into()),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error.into()),
+        },
+        _ => return Err("test-play recovery marker fields are inconsistent".into()),
+    }
+    fs::remove_file(marker_path)?;
+    Ok(())
+}
+
+#[cfg(test)]
+mod candidate_capture_recovery_tests {
+    use super::recover_candidate_capture_config;
+    use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
+    use std::{fs, path::PathBuf};
+
+    fn fixture_paths() -> (PathBuf, PathBuf, PathBuf) {
+        let root = std::env::temp_dir().join(format!(
+            "fusou-testplay-recovery-{}-{}",
+            std::process::id(),
+            uuid::Uuid::new_v4()
+        ));
+        let config = root.join("user").join("configs.toml");
+        let marker = root.join("user").join(".testplay-verify-recovery.json");
+        fs::create_dir_all(config.parent().expect("config parent"))
+            .expect("create recovery fixture directory");
+        (root, config, marker)
+    }
+
+    fn write_marker(marker_path: &std::path::Path, original: Option<&[u8]>, mode: Option<u32>) {
+        let marker = serde_json::json!({
+            "schema_version": 1,
+            "original_config_base64": original.map(|bytes| BASE64.encode(bytes)),
+            "original_mode": mode,
+        });
+        fs::write(
+            marker_path,
+            serde_json::to_vec(&marker).expect("serialize marker"),
+        )
+        .expect("write recovery marker");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(marker_path, fs::Permissions::from_mode(0o600))
+                .expect("make recovery marker private");
+        }
+    }
+
+    #[test]
+    fn restores_exact_config_bytes_and_mode_before_startup_load() {
+        let (root, config_path, marker_path) = fixture_paths();
+        let original = b"[proxy]\r\ncapture_enabled = false\r\n";
+        fs::write(&config_path, b"temporary config").expect("write temporary config");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(&config_path, fs::Permissions::from_mode(0o600))
+                .expect("set temporary config mode");
+        }
+        write_marker(&marker_path, Some(original), Some(0o640));
+
+        recover_candidate_capture_config(&config_path, &marker_path)
+            .expect("recover original config");
+
+        assert_eq!(
+            fs::read(&config_path).expect("read recovered config"),
+            original
+        );
+        assert!(!marker_path.exists());
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(
+                fs::metadata(&config_path)
+                    .expect("stat recovered config")
+                    .permissions()
+                    .mode()
+                    & 0o7777,
+                0o640,
+            );
+        }
+        fs::remove_dir_all(root).expect("remove recovery fixture");
+    }
+
+    #[test]
+    fn removes_temporary_config_when_original_was_absent() {
+        let (root, config_path, marker_path) = fixture_paths();
+        fs::write(&config_path, b"temporary config").expect("write temporary config");
+        write_marker(&marker_path, None, None);
+
+        recover_candidate_capture_config(&config_path, &marker_path)
+            .expect("remove temporary config");
+
+        assert!(!config_path.exists());
+        assert!(!marker_path.exists());
+        fs::remove_dir_all(root).expect("remove recovery fixture");
+    }
+
+    #[test]
+    fn malformed_marker_fails_closed_without_changing_temporary_config() {
+        let (root, config_path, marker_path) = fixture_paths();
+        let temporary = b"temporary config";
+        fs::write(&config_path, temporary).expect("write temporary config");
+        fs::write(&marker_path, b"not json").expect("write malformed marker");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(&marker_path, fs::Permissions::from_mode(0o600))
+                .expect("make recovery marker private");
+        }
+
+        assert!(recover_candidate_capture_config(&config_path, &marker_path).is_err());
+        assert_eq!(
+            fs::read(&config_path).expect("read temporary config"),
+            temporary
+        );
+        assert!(marker_path.exists());
+        fs::remove_dir_all(root).expect("remove recovery fixture");
+    }
 }
 
 fn configure_channel_transport() {

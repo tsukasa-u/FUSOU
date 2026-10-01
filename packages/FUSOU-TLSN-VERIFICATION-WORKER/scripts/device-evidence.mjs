@@ -103,13 +103,13 @@ export function publicKeySha256(publicKey) {
 }
 
 export function verifyDeviceIdentity(identity, expectedUserId, expectedDeviceId) {
-  if (identity?.authoritative !== true || identity.authority !== "fusou-web-user-devices") {
-    throw new Error("device identity is not an authoritative FUSOU-WEB reference");
+  if (
+    identity?.authority_state !== "UNVERIFIED" ||
+    identity.canonical_user_id !== expectedUserId ||
+    identity.device_id !== expectedDeviceId
+  ) {
+    throw new Error("captured device key is not bound to the Session identity");
   }
-  if (identity.canonical_user_id !== expectedUserId || identity.device_id !== expectedDeviceId) {
-    throw new Error("device identity owner or device mismatch");
-  }
-  if (identity.revoked_at !== null) throw new Error("captured device is revoked");
   const publicKey = decodeBase64Url(identity.device_public_key, "device public key", 32);
   if (identity.device_public_key_sha256 !== publicKeySha256(identity.device_public_key)) {
     throw new Error("device public key hash mismatch");

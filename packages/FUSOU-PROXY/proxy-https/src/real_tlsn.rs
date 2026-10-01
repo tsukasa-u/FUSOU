@@ -376,6 +376,18 @@ fn is_web_device_auth_nonce(value: &str) -> bool {
             .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
 }
 
+fn validated_candidate_device_id(value: &str) -> Result<String, BindingError> {
+    let parsed =
+        uuid::Uuid::parse_str(value).map_err(|_| BindingError::CandidateDeviceUnavailable)?;
+    if parsed.get_version_num() != 4
+        || parsed.get_variant() != uuid::Variant::RFC4122
+        || parsed.to_string() != value.to_ascii_lowercase()
+    {
+        return Err(BindingError::CandidateDeviceUnavailable);
+    }
+    Ok(parsed.to_string())
+}
+
 async fn worker_response(response: reqwest::Response) -> Result<WorkerResponse, VerificationError> {
     let status = response.status().as_u16();
     let verifier_execution_receipt_header_bytes = response
@@ -935,6 +947,14 @@ async fn write_production_capture_bundle(
             "worker-verification.json",
             serde_json::to_vec_pretty(worker_payload)?,
         ),
+        (
+            "capture-provenance.json",
+            serde_json::to_vec_pretty(&serde_json::json!({
+                "schema_version": 1,
+                "classification": "UNVERIFIED",
+                "source": "production-proxy-capture",
+            }))?,
+        ),
         ("result-exact.bin", exact_response_bytes.to_vec()),
     ];
     if let Some(header_bytes) = verifier_execution_receipt_header_bytes {
@@ -979,6 +999,8 @@ async fn write_production_capture_bundle(
         "approval_status": "UNAPPROVED",
         "target_identity_status": "NOT_YET_OBSERVED",
         "target_identity_source": "alpha15-verified-presentation-required",
+        "synthetic_fixture": false,
+        "capture_provenance": "production-proxy-capture",
         "presentation_sha256": URL_SAFE_NO_PAD.encode(presentation.sha256()),
         "exact_result_sha256": URL_SAFE_NO_PAD.encode(sha256(exact_response_bytes)),
         "verifier_execution_receipt_status": if verifier_execution_receipt_bytes.is_some() { "CAPTURED" } else { "MISSING" },
@@ -1094,17 +1116,17 @@ impl crate::experimental_tlsn::AttestationBindingProvider for RemoteSessionBindi
             if !matches!(auth_manager.peek_session().await, Ok(Some(_))) {
                 return Err(BindingError::CandidateAuthUnavailable);
             }
-            let access_token = auth_manager
-                .get_access_token()
-                .await
-                .map_err(|_| BindingError::CandidateAuthUnavailable)?;
             let device_key = DeviceKey::load_registered(device_key_path)
                 .await
                 .map_err(|_| BindingError::CandidateDeviceUnavailable)?;
             let device_id = device_key
                 .device_id()
-                .ok_or(BindingError::CandidateDeviceUnavailable)?
-                .to_owned();
+                .ok_or(BindingError::CandidateDeviceUnavailable)?;
+            let device_id = validated_candidate_device_id(device_id)?;
+            let access_token = auth_manager
+                .get_access_token()
+                .await
+                .map_err(|_| BindingError::CandidateAuthUnavailable)?;
             let nonce = auth_manager
                 .fetch_anonymous_sync_v2_challenge(&device_id)
                 .await
@@ -1843,7 +1865,7 @@ mod tests {
     fn test_auth_manager(path: PathBuf) -> AuthManager<FileStorage> {
         AuthManager::new(
             fusou_auth::manager::AuthConfig {
-                supabase_url: "http://unused.invalid".to_owned(),
+                supabase_url: "http://127.0.0.1:1".to_owned(),
                 api_key: "unused".to_owned(),
                 refresh_path: "/auth/v1/token".to_owned(),
                 refresh_margin_secs: 30,
@@ -1882,6 +1904,162 @@ mod tests {
         tokio::fs::remove_dir_all(root)
             .await
             .expect("remove auth preflight fixture directory");
+    }
+
+    #[tokio::test]
+    async fn candidate_binding_requires_a_registered_device_before_refreshing_saved_auth() {
+        let root = std::env::temp_dir().join(format!(
+            "fusou-tlsn-candidate-device-preflight-{}-{}",
+            std::process::id(),
+            uuid::Uuid::new_v4()
+        ));
+        tokio::fs::create_dir(&root)
+            .await
+            .expect("create device preflight fixture directory");
+        let session_path = root.join("session.json");
+        let device_key_path = root.join("device-key.json");
+        let auth_manager = test_auth_manager(session_path);
+        auth_manager
+            .save_session(&fusou_auth::Session {
+                access_token: "synthetic-expired-access-token".to_owned(),
+                refresh_token: "synthetic-refresh-token".to_owned(),
+                expires_at: Some(Utc::now() - chrono::Duration::seconds(60)),
+                token_type: Some("Bearer".to_owned()),
+            })
+            .await
+            .expect("save expired synthetic Auth session");
+        let mut device_key = DeviceKey::load_or_create(device_key_path.clone())
+            .await
+            .expect("create registered-device fixture key");
+        device_key
+            .set_device_id("not-a-uuid".to_owned())
+            .await
+            .expect("save malformed synthetic device ID");
+        drop(device_key);
+
+        let provider = RemoteSessionBindingProvider::new(
+            "https://127.0.0.1:1/session".to_owned(),
+            auth_manager,
+            device_key_path,
+            [ED25519_SPKI_PREFIX.as_slice(), &[1_u8; 32]].concat(),
+            "test-session-authority".to_owned(),
+        )
+        .expect("construct offline candidate provider");
+        let result = provider
+            .issue_binding(BindingRequestContext::new(1, REQUIRE_INFO_TARGET))
+            .await;
+
+        assert_eq!(result, Err(BindingError::CandidateDeviceUnavailable));
+        tokio::fs::remove_dir_all(root)
+            .await
+            .expect("remove device preflight fixture directory");
+    }
+
+    #[tokio::test]
+    async fn candidate_binding_without_registered_device_fails_before_saved_session_refresh() {
+        let root = std::env::temp_dir().join(format!(
+            "fusou-tlsn-candidate-unregistered-device-{}-{}",
+            std::process::id(),
+            uuid::Uuid::new_v4()
+        ));
+        tokio::fs::create_dir(&root)
+            .await
+            .expect("create unregistered-device fixture directory");
+        let auth_manager = test_auth_manager(root.join("session.json"));
+        auth_manager
+            .save_session(&fusou_auth::Session {
+                access_token: "synthetic-expired-access-token".to_owned(),
+                refresh_token: "synthetic-refresh-token".to_owned(),
+                expires_at: Some(Utc::now() - chrono::Duration::seconds(60)),
+                token_type: Some("Bearer".to_owned()),
+            })
+            .await
+            .expect("save expired synthetic Auth session");
+        let provider = RemoteSessionBindingProvider::new(
+            "https://127.0.0.1:1/session".to_owned(),
+            auth_manager,
+            root.join("missing-device-key.json"),
+            [ED25519_SPKI_PREFIX.as_slice(), &[1_u8; 32]].concat(),
+            "test-session-authority".to_owned(),
+        )
+        .expect("construct offline candidate provider");
+
+        let result = provider
+            .issue_binding(BindingRequestContext::new(1, REQUIRE_INFO_TARGET))
+            .await;
+
+        assert_eq!(result, Err(BindingError::CandidateDeviceUnavailable));
+        tokio::fs::remove_dir_all(root)
+            .await
+            .expect("remove unregistered-device fixture directory");
+    }
+
+    #[tokio::test]
+    async fn candidate_binding_allows_refresh_attempt_only_after_registered_device_validation() {
+        let root = std::env::temp_dir().join(format!(
+            "fusou-tlsn-candidate-valid-device-refresh-{}-{}",
+            std::process::id(),
+            uuid::Uuid::new_v4()
+        ));
+        tokio::fs::create_dir(&root)
+            .await
+            .expect("create valid-device fixture directory");
+        let auth_manager = test_auth_manager(root.join("session.json"));
+        auth_manager
+            .save_session(&fusou_auth::Session {
+                access_token: "synthetic-expired-access-token".to_owned(),
+                refresh_token: "synthetic-refresh-token".to_owned(),
+                expires_at: Some(Utc::now() - chrono::Duration::seconds(60)),
+                token_type: Some("Bearer".to_owned()),
+            })
+            .await
+            .expect("save expired synthetic Auth session");
+        let device_key_path = root.join("device-key.json");
+        let mut device_key = DeviceKey::load_or_create(device_key_path.clone())
+            .await
+            .expect("create registered-device fixture key");
+        device_key
+            .set_device_id("7c9e6679-7425-40de-944b-e07fc1f90ae7".to_owned())
+            .await
+            .expect("save valid synthetic device ID");
+        drop(device_key);
+        let provider = RemoteSessionBindingProvider::new(
+            "https://127.0.0.1:1/session".to_owned(),
+            auth_manager,
+            device_key_path,
+            [ED25519_SPKI_PREFIX.as_slice(), &[1_u8; 32]].concat(),
+            "test-session-authority".to_owned(),
+        )
+        .expect("construct offline candidate provider");
+
+        let result = provider
+            .issue_binding(BindingRequestContext::new(1, REQUIRE_INFO_TARGET))
+            .await;
+
+        assert_eq!(result, Err(BindingError::CandidateAuthUnavailable));
+        tokio::fs::remove_dir_all(root)
+            .await
+            .expect("remove valid-device fixture directory");
+    }
+
+    #[test]
+    fn candidate_device_id_validation_accepts_only_uuid_v4_and_normalizes_case() {
+        assert_eq!(
+            validated_candidate_device_id("7C9E6679-7425-40DE-944B-E07FC1F90AE7"),
+            Ok("7c9e6679-7425-40de-944b-e07fc1f90ae7".to_owned()),
+        );
+        assert_eq!(
+            validated_candidate_device_id("not-a-uuid"),
+            Err(BindingError::CandidateDeviceUnavailable),
+        );
+        assert_eq!(
+            validated_candidate_device_id("7c9e6679-7425-10de-944b-e07fc1f90ae7"),
+            Err(BindingError::CandidateDeviceUnavailable),
+        );
+        assert_eq!(
+            validated_candidate_device_id("7c9e6679-7425-40de-744b-e07fc1f90ae7"),
+            Err(BindingError::CandidateDeviceUnavailable),
+        );
     }
 
     fn test_result_signature_verifier() -> Arc<ResultSignatureVerifier> {

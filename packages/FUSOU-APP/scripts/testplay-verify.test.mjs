@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { EventEmitter } from "node:events";
 import { chmod, mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -6,9 +7,12 @@ import { test } from "node:test";
 
 import {
   prepareCaptureOutput,
+  recoverConfigFromMarker,
   resolveCaptureOutputPath,
   restoreConfig,
   withCaptureConfig,
+  waitForChildWithSignalForwarding,
+  writeConfigRecoveryMarker,
 } from "./testplay-verify.mjs";
 
 test("clean-capture config overrides every targeted setting", () => {
@@ -20,6 +24,8 @@ test("clean-capture config overrides every targeted setting", () => {
     "",
     "[app.auth]",
     "deny_auth = false",
+    "allow_anonymous_auth_bootstrap = false",
+    "allow_pending_upload_retry = true",
     "",
     "[app.database]",
     "allow_data_to_cloud = true",
@@ -46,8 +52,8 @@ test("clean-capture config overrides every targeted setting", () => {
   ]) {
     assert.match(updated, new RegExp(`^${setting} = false$`, "m"));
   }
-  assert.match(updated, /^deny_auth = true$/m);
-  assert.match(updated, /^allow_anonymous_auth_bootstrap = true$/m);
+  assert.match(updated, /^deny_auth = false$/m);
+  assert.match(updated, /^allow_anonymous_auth_bootstrap = false$/m);
   assert.match(updated, /^allow_pending_upload_retry = true$/m);
   for (const section of [
     "app.quest_tree_sender",
@@ -74,6 +80,15 @@ test("TLSN candidate mode is explicit and separates natural and proof artifacts"
   assert.match(updated, /^allow_anonymous_auth_bootstrap = false$/m);
   assert.match(updated, /^allow_pending_upload_retry = false$/m);
   assert.match(updated, /^artifact_output_path = "\/tmp\/private-candidate\/tlsn"$/m);
+});
+
+test("ordinary capture leaves absent Auth settings absent", () => {
+  const updated = withCaptureConfig("[proxy]\n", "/tmp/private-capture");
+
+  assert.doesNotMatch(updated, /^\[app\.auth\]$/m);
+  assert.doesNotMatch(updated, /^deny_auth\s*=/m);
+  assert.doesNotMatch(updated, /^allow_anonymous_auth_bootstrap\s*=/m);
+  assert.doesNotMatch(updated, /^allow_pending_upload_retry\s*=/m);
 });
 
 test("candidate output is private, created exclusively, and rejects reused roots", async () => {
@@ -136,4 +151,67 @@ test("config restoration preserves exact bytes and removes absent config", async
   } finally {
     await rm(root, { recursive: true, force: true });
   }
+});
+
+test("stale recovery marker restores exact config bytes and mode", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "fusou-testplay-recovery-"));
+  const configPath = path.join(root, "configs.toml");
+  const markerPath = path.join(root, ".testplay-verify-recovery.json");
+  const original = "[proxy]\r\ncapture_enabled = false\r\n";
+
+  try {
+    await writeFile(configPath, original, { mode: 0o640 });
+    const originalMode = (await stat(configPath)).mode & 0o7777;
+    await writeConfigRecoveryMarker(markerPath, original, originalMode);
+    await writeFile(configPath, "temporary capture config\n");
+
+    assert.equal(await recoverConfigFromMarker(configPath, markerPath), true);
+    assert.equal(await readFile(configPath, "utf8"), original);
+    if (process.platform !== "win32") {
+      assert.equal((await stat(configPath)).mode & 0o7777, originalMode);
+    }
+    await assert.rejects(stat(markerPath), { code: "ENOENT" });
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("stale recovery marker removes config when it was originally absent", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "fusou-testplay-recovery-absent-"));
+  const configPath = path.join(root, "configs.toml");
+  const markerPath = path.join(root, ".testplay-verify-recovery.json");
+
+  try {
+    await writeConfigRecoveryMarker(markerPath, null, null);
+    await writeFile(configPath, "temporary capture config\n");
+
+    assert.equal(await recoverConfigFromMarker(configPath, markerPath), true);
+    await assert.rejects(stat(configPath), { code: "ENOENT" });
+    await assert.rejects(stat(markerPath), { code: "ENOENT" });
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("launcher forwards termination signals and removes handlers after child exit", async () => {
+  class FakeChild extends EventEmitter {
+    exitCode = null;
+    signals = [];
+
+    kill(signal) {
+      this.signals.push(signal);
+    }
+  }
+
+  const child = new FakeChild();
+  const signalSource = new EventEmitter();
+  const closed = waitForChildWithSignalForwarding(child, signalSource);
+  signalSource.emit("SIGINT");
+  signalSource.emit("SIGTERM");
+  assert.deepEqual(child.signals, ["SIGINT", "SIGTERM"]);
+
+  child.emit("close", null, "SIGTERM");
+  assert.equal(await closed, 1);
+  assert.equal(signalSource.listenerCount("SIGINT"), 0);
+  assert.equal(signalSource.listenerCount("SIGTERM"), 0);
 });
