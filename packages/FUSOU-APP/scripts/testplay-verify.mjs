@@ -19,6 +19,7 @@ const MAX_RECOVERY_MARKER_BYTES = 6 * 1024 * 1024;
 const MAX_RECOVERY_CONFIG_BYTES = 4 * 1024 * 1024;
 const CAPTURE_TEMP_PREFIX = ".configs.toml.capture-";
 const RESTORE_TEMP_PREFIX = ".configs.toml.restore-";
+const MARKER_TEMP_PREFIX = ".testplay-verify-recovery-";
 const defaultConfigPath = path.join(
   appRoot,
   "src-tauri",
@@ -426,6 +427,9 @@ export async function recoverConfigFromMarker(
     throw error;
   }
   const marker = parseRecoveryMarker(markerBytes);
+  if (authorizedToken !== undefined && authorizedToken !== marker.capture_token) {
+    throw new Error("test-play recovery token is not authorized");
+  }
   const authorized = authorizedToken !== undefined && authorizedToken === marker.capture_token;
   if (authorized && !restoreActive) {
     const configStats = await fs.lstat(configFilePath);
@@ -482,11 +486,17 @@ export async function recoverConfigFromMarker(
     await replaceFileAtomically(temporaryPath, configFilePath, parent);
   }
   for (const entry of await fs.readdir(parent, { withFileTypes: true })) {
-    if (!entry.name.startsWith(CAPTURE_TEMP_PREFIX) && !entry.name.startsWith(RESTORE_TEMP_PREFIX)) continue;
+    if (
+      !entry.name.startsWith(CAPTURE_TEMP_PREFIX) &&
+      !entry.name.startsWith(RESTORE_TEMP_PREFIX) &&
+      !entry.name.startsWith(MARKER_TEMP_PREFIX)
+    ) continue;
     const tempPath = path.join(parent, entry.name);
     const suffix = entry.name.startsWith(CAPTURE_TEMP_PREFIX)
       ? entry.name.slice(CAPTURE_TEMP_PREFIX.length)
-      : entry.name.slice(RESTORE_TEMP_PREFIX.length);
+      : entry.name.startsWith(RESTORE_TEMP_PREFIX)
+        ? entry.name.slice(RESTORE_TEMP_PREFIX.length)
+        : entry.name.slice(MARKER_TEMP_PREFIX.length);
     if (!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(suffix)) {
       throw new Error("orphan config temp has an invalid name");
     }

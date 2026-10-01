@@ -867,13 +867,13 @@ fn recovery_process_is_running(pid: u32) -> bool {
     #[cfg(windows)]
     {
         use windows_sys::Win32::{
-            Foundation::{CloseHandle, GetLastError, ERROR_INVALID_PARAMETER},
-            System::Threading::{
-                OpenProcess, WaitForSingleObject, SYNCHRONIZE, WAIT_FAILED, WAIT_TIMEOUT,
+            Foundation::{
+                CloseHandle, GetLastError, ERROR_INVALID_PARAMETER, WAIT_FAILED, WAIT_TIMEOUT,
             },
+            System::Threading::{OpenProcess, WaitForSingleObject, PROCESS_SYNCHRONIZE},
         };
         unsafe {
-            let handle = OpenProcess(SYNCHRONIZE, 0, pid);
+            let handle = OpenProcess(PROCESS_SYNCHRONIZE, 0, pid);
             if handle.is_null() {
                 return GetLastError() != ERROR_INVALID_PARAMETER;
             }
@@ -1033,6 +1033,9 @@ fn recover_candidate_capture_config_with_token(
     let token = uuid::Uuid::parse_str(&marker.capture_token)?;
     if token.get_version_num() != 4 || token.to_string() != marker.capture_token {
         return Err("test-play recovery marker capture token is invalid".into());
+    }
+    if authorized_token.is_some() && authorized_token != Some(marker.capture_token.as_str()) {
+        return Err("test-play recovery token is not authorized".into());
     }
     if authorized_token == Some(marker.capture_token.as_str()) {
         let config_metadata = fs::symlink_metadata(config_path)?;
@@ -1388,6 +1391,55 @@ mod candidate_capture_recovery_tests {
     }
 
     #[test]
+    fn explicit_unknown_token_cannot_fall_through_to_stale_recovery() {
+        let (root, config_path, marker_path) = fixture_paths();
+        let temporary = b"temporary capture config";
+        fs::write(&config_path, temporary).expect("write temporary config");
+        let known_token = write_marker_for_pid(
+            &marker_path,
+            Some(b"original"),
+            Some(0o600),
+            u32::MAX,
+        );
+        let unknown_token = uuid::Uuid::new_v4().to_string();
+        assert_ne!(known_token, unknown_token);
+
+        assert!(recover_candidate_capture_config_with_token(
+            &config_path,
+            &marker_path,
+            Some(&unknown_token),
+        )
+        .is_err());
+        assert_eq!(fs::read(&config_path).expect("read temporary config"), temporary);
+        assert!(marker_path.exists());
+        fs::remove_dir_all(root).expect("remove recovery fixture");
+    }
+
+    #[test]
+    fn malformed_capture_token_fails_closed() {
+        let (root, config_path, marker_path) = fixture_paths();
+        fs::write(&config_path, b"temporary config").expect("write temporary config");
+        write_marker(&marker_path, Some(b"original"), Some(0o600));
+        let mut marker: serde_json::Value =
+            serde_json::from_slice(&fs::read(&marker_path).expect("read marker"))
+                .expect("parse marker");
+        marker["capture_token"] = serde_json::json!("not-a-uuid");
+        fs::write(
+            &marker_path,
+            serde_json::to_vec(&marker).expect("serialize marker"),
+        )
+        .expect("write malformed-token marker");
+
+        assert!(recover_candidate_capture_config(&config_path, &marker_path).is_err());
+        assert_eq!(
+            fs::read(&config_path).expect("read temporary config"),
+            b"temporary config"
+        );
+        assert!(marker_path.exists());
+        fs::remove_dir_all(root).expect("remove recovery fixture");
+    }
+
+    #[test]
     fn orphan_restore_file_and_crash_after_replace_are_recoverable() {
         let (root, config_path, marker_path) = fixture_paths();
         let original = b"[proxy]\r\ncapture_enabled = false\r\n";
@@ -1396,7 +1448,12 @@ mod candidate_capture_recovery_tests {
             .parent()
             .unwrap()
             .join(format!(".configs.toml.restore-{}", uuid::Uuid::new_v4()));
+        let orphan_marker = config_path.parent().unwrap().join(format!(
+            ".testplay-verify-recovery-{}",
+            uuid::Uuid::new_v4()
+        ));
         fs::write(&orphan, b"partial orphan restore").expect("write orphan restore");
+        fs::write(&orphan_marker, b"partial orphan marker").expect("write orphan marker");
         write_marker(&marker_path, Some(original), Some(0o640));
 
         recover_candidate_capture_config(&config_path, &marker_path)
@@ -1406,6 +1463,7 @@ mod candidate_capture_recovery_tests {
             original
         );
         assert!(!orphan.exists());
+        assert!(!orphan_marker.exists());
         assert!(!marker_path.exists());
         fs::remove_dir_all(root).expect("remove recovery fixture");
     }

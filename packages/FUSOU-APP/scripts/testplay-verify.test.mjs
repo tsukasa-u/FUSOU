@@ -1,10 +1,69 @@
 import assert from "node:assert/strict";
+import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { EventEmitter } from "node:events";
 import { chmod, mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { test } from "node:test";
+
+const recoveryModuleUrl = new URL("./testplay-verify.mjs", import.meta.url).href;
+
+function spawnRecoveryProcess(source, markerPath) {
+  return spawn(process.execPath, ["--input-type=module", "-e", source], {
+    env: { ...process.env, FUSOU_TEST_RECOVERY_MARKER: markerPath },
+    stdio: ["pipe", "pipe", "pipe"],
+  });
+}
+
+function waitForProcessOutput(child, expected) {
+  return new Promise((resolve, reject) => {
+    let output = "";
+    const onData = (chunk) => {
+      output += chunk.toString();
+      if (output.includes(expected)) {
+        cleanup();
+        resolve(output);
+      }
+    };
+    const onError = (error) => {
+      cleanup();
+      reject(error);
+    };
+    const onClose = (code) => {
+      cleanup();
+      reject(new Error(`recovery process exited ${code}: ${output}`));
+    };
+    const cleanup = () => {
+      child.stdout.off("data", onData);
+      child.off("error", onError);
+      child.off("close", onClose);
+    };
+    child.stdout.on("data", onData);
+    child.once("error", onError);
+    child.once("close", onClose);
+  });
+}
+
+function waitForProcessClose(child) {
+  return new Promise((resolve, reject) => {
+    if (child.exitCode !== null) {
+      resolve(child.exitCode);
+      return;
+    }
+    child.once("error", reject);
+    child.once("close", (code, signal) => resolve(code ?? (signal ? 1 : 0)));
+  });
+}
+
+function runRecoveryProcess(source, markerPath) {
+  const child = spawnRecoveryProcess(source, markerPath);
+  let stdout = "";
+  let stderr = "";
+  child.stdout.on("data", (chunk) => { stdout += chunk.toString(); });
+  child.stderr.on("data", (chunk) => { stderr += chunk.toString(); });
+  return waitForProcessClose(child).then((code) => ({ code, stdout, stderr }));
+}
 
 import {
   prepareCaptureOutput,
@@ -224,16 +283,19 @@ test("recovery retries after an orphan restore temp and removes capture temps", 
   const original = Buffer.from("[proxy]\r\n", "utf8");
   const orphanRestore = path.join(root, `.configs.toml.restore-${randomUUID()}`);
   const orphanCapture = path.join(root, `.configs.toml.capture-${randomUUID()}`);
+  const orphanMarker = path.join(root, `.testplay-verify-recovery-${randomUUID()}`);
 
   try {
     await writeFile(configPath, "temporary config", { mode: 0o600 });
     await writeFile(orphanRestore, "partial restore", { mode: 0o600 });
     await writeFile(orphanCapture, "partial capture", { mode: 0o600 });
+    await writeFile(orphanMarker, "partial marker", { mode: 0o600 });
     await writeStaleRecoveryMarker(markerPath, original, 0o640);
     assert.equal(await recoverConfigFromMarker(configPath, markerPath), true);
     assert.deepEqual(await readFile(configPath), original);
     await assert.rejects(stat(orphanRestore), { code: "ENOENT" });
     await assert.rejects(stat(orphanCapture), { code: "ENOENT" });
+    await assert.rejects(stat(orphanMarker), { code: "ENOENT" });
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -284,6 +346,7 @@ test("recovery rejects malformed, inconsistent, noncanonical, oversized, and wro
       (marker) => ({ ...marker, original_mode: null }),
       (marker) => ({ ...marker, original_config_base64: "YR==" }),
       (marker) => ({ ...marker, launcher_pid: 0 }),
+      (marker) => ({ ...marker, capture_token: "not-a-uuid" }),
     ]) {
       await writeStaleRecoveryMarker(markerPath, original, 0o600);
       const marker = JSON.parse(await readFile(markerPath, "utf8"));
@@ -327,6 +390,66 @@ test("active capture is exclusive and only its token may preserve temporary conf
     }), true);
     assert.deepEqual(await readFile(configPath), original);
     await assert.rejects(stat(markerPath), { code: "ENOENT" });
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("an explicit unknown recovery token cannot fall through to stale recovery", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "fusou-testplay-recovery-unknown-token-"));
+  const configPath = path.join(root, "configs.toml");
+  const markerPath = path.join(root, ".testplay-verify-recovery.json");
+  const original = Buffer.from("original\r\n", "utf8");
+
+  try {
+    await writeFile(configPath, "temporary capture config\n", { mode: 0o600 });
+    await writeStaleRecoveryMarker(markerPath, original, 0o600);
+    await assert.rejects(
+      recoverConfigFromMarker(configPath, markerPath, {
+        authorizedToken: "00000000-0000-4000-8000-000000000000",
+      }),
+      /token is not authorized/,
+    );
+    assert.equal(await readFile(configPath, "utf8"), "temporary capture config\n");
+    await stat(markerPath);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("separate launcher processes serialize marker creation and block on a live PID", {
+  timeout: 10_000,
+}, async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "fusou-testplay-recovery-processes-"));
+  const configPath = path.join(root, "configs.toml");
+  const markerPath = path.join(root, ".testplay-verify-recovery.json");
+  const holderSource = `import { writeConfigRecoveryMarker } from ${JSON.stringify(recoveryModuleUrl)}; await writeConfigRecoveryMarker(process.env.FUSOU_TEST_RECOVERY_MARKER, "original", 0o600, { launcherPid: process.pid }); process.stdout.write("created"); process.stdin.resume();`;
+  const contenderSource = `import { writeConfigRecoveryMarker } from ${JSON.stringify(recoveryModuleUrl)}; try { await writeConfigRecoveryMarker(process.env.FUSOU_TEST_RECOVERY_MARKER, "replacement", 0o600); process.stdout.write("created"); } catch (error) { if (error.code === "EEXIST") process.stdout.write("exists"); else throw error; }`;
+  const recoverySource = `import { recoverConfigFromMarker } from ${JSON.stringify(recoveryModuleUrl)}; try { await recoverConfigFromMarker(process.env.FUSOU_TEST_RECOVERY_MARKER.replace(/\\.testplay-verify-recovery\\.json$/, "configs.toml"), process.env.FUSOU_TEST_RECOVERY_MARKER); process.exitCode = 1; } catch (error) { if (/active/.test(error.message)) process.stdout.write("blocked"); else throw error; }`;
+  let holder;
+
+  try {
+    await writeFile(configPath, "temporary", { mode: 0o600 });
+    holder = spawnRecoveryProcess(holderSource, markerPath);
+    assert.match(await waitForProcessOutput(holder, "created"), /created/);
+
+    const contender = await runRecoveryProcess(contenderSource, markerPath);
+    assert.equal(contender.code, 0, contender.stderr);
+    assert.equal(contender.stdout, "exists");
+
+    const blockedRecovery = await runRecoveryProcess(recoverySource, markerPath);
+    assert.equal(blockedRecovery.code, 0, blockedRecovery.stderr);
+    assert.equal(blockedRecovery.stdout, "blocked");
+  } finally {
+    if (holder && holder.exitCode === null) {
+      holder.kill("SIGTERM");
+      await waitForProcessClose(holder);
+    }
+  }
+
+  try {
+    assert.equal(await recoverConfigFromMarker(configPath, markerPath), true);
+    assert.equal(await readFile(configPath, "utf8"), "original");
   } finally {
     await rm(root, { recursive: true, force: true });
   }

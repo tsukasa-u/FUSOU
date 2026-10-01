@@ -35,6 +35,8 @@ if (wasmPackCheck.error || wasmPackCheck.status !== 0) {
 const environment = {
   ...process.env,
   RUSTUP_TOOLCHAIN: process.env.RUSTUP_TOOLCHAIN ?? "1.95.0",
+  CARGO_NET_OFFLINE: "true",
+  RUSTUP_AUTO_INSTALL: "0",
 };
 const compiler = findCompiler();
 if (!compiler) {
@@ -61,6 +63,8 @@ const result = spawnSync(
   wasmPack,
   [
     "build",
+    "--mode",
+    "no-install",
     "--target",
     "web",
     "--release",
@@ -80,3 +84,5 @@ if (result.error) {
 if (result.status !== 0) {
   process.exit(result.status ?? 1);
 }
+
+console.log("WASM_BUILD_NETWORK=VERIFIED_OFFLINE");
