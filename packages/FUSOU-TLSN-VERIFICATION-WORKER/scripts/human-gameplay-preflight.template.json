@@ -1,0 +1,53 @@
+{
+  "schema_version": 1,
+  "scope": "tlsn-human-gameplay-preflight",
+  "target": {
+    "server_identity": null,
+    "source": "ABSENT",
+    "presentation_sha256": null,
+    "declared_expected_identity": null
+  },
+  "capture_source_claim": "ABSENT",
+  "local_identity": {
+    "session_status": "ABSENT",
+    "registered_device_key_status": "ABSENT",
+    "device_id": null
+  },
+  "predicates": {
+    "target_identity": { "claimed_status": "ABSENT", "claimed_cryptographic_verification": "ABSENT", "claimed_authority_provenance": "ABSENT", "evidence_ref": null, "evidence_sha256": null },
+    "main_worker": { "claimed_status": "ABSENT", "claimed_cryptographic_verification": "ABSENT", "claimed_authority_provenance": "ABSENT", "evidence_ref": null, "evidence_sha256": null },
+    "dedicated_verifier": { "claimed_status": "ABSENT", "claimed_cryptographic_verification": "ABSENT", "claimed_authority_provenance": "ABSENT", "evidence_ref": null, "evidence_sha256": null },
+    "deployment_runtime_ids": { "claimed_status": "ABSENT", "claimed_cryptographic_verification": "ABSENT", "claimed_authority_provenance": "ABSENT", "evidence_ref": null, "evidence_sha256": null },
+    "verifier_key_registry": { "claimed_status": "ABSENT", "claimed_cryptographic_verification": "ABSENT", "claimed_authority_provenance": "ABSENT", "evidence_ref": null, "evidence_sha256": null },
+    "notary": { "claimed_status": "ABSENT", "claimed_cryptographic_verification": "ABSENT", "claimed_authority_provenance": "ABSENT", "evidence_ref": null, "evidence_sha256": null },
+    "trust_root": { "claimed_status": "ABSENT", "claimed_cryptographic_verification": "ABSENT", "claimed_authority_provenance": "ABSENT", "evidence_ref": null, "evidence_sha256": null },
+    "session_authority": { "claimed_status": "ABSENT", "claimed_cryptographic_verification": "ABSENT", "claimed_authority_provenance": "ABSENT", "evidence_ref": null, "evidence_sha256": null },
+    "binding_authority": { "claimed_status": "ABSENT", "claimed_cryptographic_verification": "ABSENT", "claimed_authority_provenance": "ABSENT", "evidence_ref": null, "evidence_sha256": null },
+    "result_authority": { "claimed_status": "ABSENT", "claimed_cryptographic_verification": "ABSENT", "claimed_authority_provenance": "ABSENT", "evidence_ref": null, "evidence_sha256": null },
+    "workflow_artifact_profile": { "claimed_status": "ABSENT", "claimed_cryptographic_verification": "ABSENT", "claimed_authority_provenance": "ABSENT", "evidence_ref": null, "evidence_sha256": null },
+    "runtime_attestation": { "claimed_status": "ABSENT", "claimed_cryptographic_verification": "ABSENT", "claimed_authority_provenance": "ABSENT", "evidence_ref": null, "evidence_sha256": null },
+    "auth_session": { "claimed_status": "ABSENT", "claimed_cryptographic_verification": "ABSENT", "claimed_authority_provenance": "ABSENT", "evidence_ref": null, "evidence_sha256": null },
+    "registered_device_key": { "claimed_status": "ABSENT", "claimed_cryptographic_verification": "ABSENT", "claimed_authority_provenance": "ABSENT", "evidence_ref": null, "evidence_sha256": null },
+    "server_device_ownership": { "claimed_status": "ABSENT", "claimed_cryptographic_verification": "ABSENT", "claimed_authority_provenance": "ABSENT", "evidence_ref": null, "evidence_sha256": null },
+    "candidate_device_key_binding": { "claimed_status": "UNVERIFIED", "claimed_cryptographic_verification": "UNVERIFIED", "claimed_authority_provenance": "UNVERIFIED", "evidence_ref": null, "evidence_sha256": null },
+    "candidate_configuration_binding": { "claimed_status": "UNVERIFIED", "claimed_cryptographic_verification": "UNVERIFIED", "claimed_authority_provenance": "UNVERIFIED", "evidence_ref": null, "evidence_sha256": null },
+    "human_operation_no_injection": { "claimed_status": "UNVERIFIED", "claimed_cryptographic_verification": "UNVERIFIED", "claimed_authority_provenance": "UNVERIFIED", "evidence_ref": null, "evidence_sha256": null },
+    "human_operation_no_replay": { "claimed_status": "UNVERIFIED", "claimed_cryptographic_verification": "UNVERIFIED", "claimed_authority_provenance": "UNVERIFIED", "evidence_ref": null, "evidence_sha256": null },
+    "human_operation_no_automation": { "claimed_status": "UNVERIFIED", "claimed_cryptographic_verification": "UNVERIFIED", "claimed_authority_provenance": "UNVERIFIED", "evidence_ref": null, "evidence_sha256": null },
+    "presentation_crypto_verification": { "claimed_status": "UNAVAILABLE", "claimed_cryptographic_verification": "UNAVAILABLE", "claimed_authority_provenance": "UNAVAILABLE", "evidence_ref": null, "evidence_sha256": null },
+    "capture_provenance": { "claimed_status": "UNVERIFIED", "claimed_cryptographic_verification": "UNVERIFIED", "claimed_authority_provenance": "UNVERIFIED", "evidence_ref": null, "evidence_sha256": null },
+    "result_signer_deployment_binding": { "claimed_status": "UNVERIFIED", "claimed_cryptographic_verification": "UNVERIFIED", "claimed_authority_provenance": "UNVERIFIED", "evidence_ref": null, "evidence_sha256": null },
+    "non_synthetic_alpha15_proof_bundle": { "claimed_status": "UNAVAILABLE", "claimed_cryptographic_verification": "UNAVAILABLE", "claimed_authority_provenance": "UNAVAILABLE", "evidence_ref": null, "evidence_sha256": null },
+    "wasm_build_network": { "claimed_status": "ABSENT", "claimed_cryptographic_verification": "ABSENT", "claimed_authority_provenance": "ABSENT", "evidence_ref": null, "evidence_sha256": null },
+    "wasm_legacy_build_network": { "claimed_status": "UNKNOWN", "claimed_cryptographic_verification": "UNKNOWN", "claimed_authority_provenance": "UNKNOWN", "evidence_ref": null, "evidence_sha256": null },
+    "wasm_artifact_source_commit_binding": { "claimed_status": "UNVERIFIED", "claimed_cryptographic_verification": "UNVERIFIED", "claimed_authority_provenance": "UNVERIFIED", "evidence_ref": null, "evidence_sha256": null },
+    "windows_gnu_cross_compile": { "claimed_status": "ABSENT", "claimed_cryptographic_verification": "ABSENT", "claimed_authority_provenance": "ABSENT", "evidence_ref": null, "evidence_sha256": null },
+    "windows_runtime": { "claimed_status": "UNAVAILABLE", "claimed_cryptographic_verification": "UNAVAILABLE", "claimed_authority_provenance": "UNAVAILABLE", "evidence_ref": null, "evidence_sha256": null },
+    "finalizer_effects": { "claimed_status": "PASS_LIMITED", "claimed_cryptographic_verification": "UNVERIFIED", "claimed_authority_provenance": "VERIFIED", "evidence_ref": null, "evidence_sha256": null }
+  },
+  "non_authorizations": {
+    "readiness": "BLOCKED",
+    "gameplay": "BLOCKED",
+    "runtime_attestation_scope": "RUNTIME_IDENTITY_ONLY"
+  }
+}

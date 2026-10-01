@@ -18,6 +18,8 @@
     "deploy:canary": "node scripts/deploy-canary.mjs",
     "deploy:production": "node scripts/deploy-production.mjs",
     "preflight:production": "node scripts/deployment-preflight.mjs",
+    "preflight:human-gameplay": "node scripts/human-gameplay-preflight.mjs",
+    "test:human-gameplay-preflight": "node scripts/human-gameplay-preflight-test.mjs",
     "test:canary-readiness": "node scripts/canary-readiness-test.mjs",
     "test:canary-readiness-contract": "node scripts/canary-readiness-contract-test.mjs",
     "test:canary-input-intake": "node scripts/canary-external-input-intake-test.mjs",

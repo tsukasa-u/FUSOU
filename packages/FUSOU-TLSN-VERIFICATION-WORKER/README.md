@@ -26,6 +26,60 @@ The APP TLSN Session provider now obtains the generic device-auth challenge thro
 
 ### Human test-play candidate capture
 
+Before considering any human candidate session, prepare a private copy of
+`scripts/human-gameplay-preflight.template.json` and run the static contract:
+
+```sh
+pnpm --dir packages/FUSOU-TLSN-VERIFICATION-WORKER preflight:human-gameplay -- /absolute/private/human-gameplay-preflight.json
+```
+
+The template intentionally contains no production values. Its predicate groups
+cover the Main Worker and Dedicated Verifier identities/runtime IDs, verifier
+registry, FUSOU-NOTARY endpoint/key/registry, trust root, Session/Binding/Result
+authorities, workflow/profile/artifact identity, Runtime Attestation, local Auth
+session and registered device key, server-side device ownership, candidate
+configuration binding, human-operation assertions, capture provenance, WASM
+build/artifact binding, Windows compile/runtime, and finalizer effects. Use the
+active `TLSN_CANARY_DEPLOYMENT_MANIFEST` contract; External Package v2 remains
+historical and is not an active gate.
+
+For `PASS` or `PASS_LIMITED` operator claims, supply an evidence reference and
+SHA-256. The validator checks the package shape and digest format only; it does
+not load those references, authenticate their issuer, or independently verify
+authority provenance. Its output labels all such fields
+`operator_asserted_*`, and `independent_authority_verification` stays
+`UNVERIFIED`. Do not place tokens, private keys, cookies, or other credentials
+in the package. Local session/device fields are presence assertions only; the
+device ID must be UUID v4, while server ownership/revocation remains
+`UNVERIFIED`.
+
+The command is static: it makes no network requests and starts no game. A
+structurally complete report may say `preflight_status: PASS_LIMITED`, but
+`readiness_status` and `gameplay_authorization` remain `BLOCKED`. In particular,
+candidate-to-compiled-configuration binding and
+`result_signer_deployment_binding` remain `UNVERIFIED`; the validator rejects
+attempts to mark them passed. `CANARY_RUNTIME_IDENTITY_VERIFIED` is limited to
+runtime identity and cannot authorize callback, Trigger, DO, R2, Notary, Auth,
+Presentation smoke, or gameplay. Pre-capture human-operation claims are not
+proof of no injection/replay/automation, and `production-proxy-capture` alone
+does not establish human-play provenance. Exact Presentation verification is
+a separate post-capture predicate. `NON_SYNTHETIC_ALPHA15_PROOF_BUNDLE` remains
+`UNAVAILABLE`; a synthetic positive test is not a gameplay prerequisite.
+
+The current APP deployment values include Rust `option_env!("FUSOU_TLSN_*")`
+compile-time inputs, while the candidate launcher changes runtime TOML. No
+artifact currently binds those compiled values to a supplied preflight package,
+so this validator cannot clear that gap. Similarly, `WASM_BUILD_NETWORK` from
+the current offline wrapper proves only that build subprocess; old untraced
+builds remain `UNKNOWN`, and WASM artifact/source/commit binding is separate.
+Windows GNU cross-compilation and Windows runtime are distinct predicates.
+
+The offline contract matrix is `pnpm --dir
+packages/FUSOU-TLSN-VERIFICATION-WORKER test:human-gameplay-preflight`. Its
+positive case uses test-only declarations and still asserts blocked readiness
+and gameplay. This report is not a candidate-launch authorization or a
+replacement for `pnpm run test:canary-readiness`.
+
 The APP launcher supports an explicit local candidate-capture mode. Use an empty, owner-private absolute directory outside the checkout:
 
 ```sh
