@@ -171,10 +171,15 @@ export function assertAlpha15NotaryVerifyingKey(value, label = "Notary verifying
     throw new Error(`${label} must contain a valid compressed secp256k1 public key`);
   }
   const ySquared = mod(x * x * x + 7n, SECP256K1_FIELD_PRIME);
-  const y = modPow(ySquared, (SECP256K1_FIELD_PRIME + 1n) / 4n, SECP256K1_FIELD_PRIME);
+  const squareRoot = modPow(ySquared, (SECP256K1_FIELD_PRIME + 1n) / 4n, SECP256K1_FIELD_PRIME);
+  if ((squareRoot * squareRoot) % SECP256K1_FIELD_PRIME !== ySquared) {
+    throw new Error(`${label} must contain a valid compressed secp256k1 public key`);
+  }
+  const oppositeSquareRoot = mod(-squareRoot, SECP256K1_FIELD_PRIME);
+  const requestedParity = BigInt(bytes[9] & 1);
   if (
-    (y * y) % SECP256K1_FIELD_PRIME !== ySquared ||
-    Number(y & 1n) !== (bytes[9] === 0x03 ? 1 : 0)
+    (squareRoot & 1n) !== requestedParity &&
+    (oppositeSquareRoot & 1n) !== requestedParity
   ) {
     throw new Error(`${label} must contain a valid compressed secp256k1 public key`);
   }

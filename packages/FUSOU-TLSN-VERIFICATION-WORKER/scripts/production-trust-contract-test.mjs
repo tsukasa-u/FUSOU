@@ -41,6 +41,7 @@ const canaryDeploymentManifest = {
 
 const notaryKeyId = "notary-production-2026";
 const notaryVerifyingKey = "ASEAAAAAAAAAAxuExVZ7EmRAmV0-1aq6BWXXHhg0YEgZ_5wX9enV3QeP";
+const secp256k1FieldPrime = 0xfffffffffffffffffffffffffffffffffffffffffffffffffffffffefffffc2fn;
 const previousNotaryKeyId = "notary-production-2025";
 const previousNotaryVerifyingKey = "ASEAAAAAAAAAAwdAv1ROf_qFyznpNgrsGYoIZ-ACK18PYlD8vV2IuVmO";
 const notaryRegistryRaw = JSON.stringify({
@@ -108,8 +109,53 @@ const validManifest = buildProductionPublicManifest({
 });
 
 assert.doesNotThrow(() => assertAlpha15NotaryVerifyingKey(notaryVerifyingKey));
+const notaryVerifyingKeyBytes = Buffer.from(notaryVerifyingKey, "base64url");
+assert.equal(notaryVerifyingKeyBytes.length, 42);
+assert.deepEqual([...notaryVerifyingKeyBytes.subarray(0, 9)], [1, 33, 0, 0, 0, 0, 0, 0, 0]);
+assert.equal(notaryVerifyingKeyBytes[9], 0x03, "the production alpha.15 fixture uses the odd compressed SEC1 root");
+assert.equal(notaryVerifyingKeyBytes[9] & 1, 1, "SEC1 prefix 0x03 selects an odd y-coordinate");
+
+function modPow(base, exponent, modulus) {
+  let result = 1n;
+  let factor = base % modulus;
+  let power = exponent;
+  while (power > 0n) {
+    if (power & 1n) result = (result * factor) % modulus;
+    factor = (factor * factor) % modulus;
+    power >>= 1n;
+  }
+  return result;
+}
+
+const fixtureX = BigInt(`0x${notaryVerifyingKeyBytes.subarray(10).toString("hex")}`);
+const fixtureYSquared = (fixtureX ** 3n + 7n) % secp256k1FieldPrime;
+const fixtureSquareRoot = modPow(fixtureYSquared, (secp256k1FieldPrime + 1n) / 4n, secp256k1FieldPrime);
+assert.equal(fixtureSquareRoot ** 2n % secp256k1FieldPrime, fixtureYSquared);
+const fixtureOppositeRoot = (secp256k1FieldPrime - fixtureSquareRoot) % secp256k1FieldPrime;
+assert.equal(fixtureOppositeRoot ** 2n % secp256k1FieldPrime, fixtureYSquared);
+assert.notEqual(fixtureSquareRoot & 1n, fixtureOppositeRoot & 1n, "the two valid roots must have opposite parity");
+assert.ok(
+  Number(fixtureSquareRoot & 1n) === (notaryVerifyingKeyBytes[9] & 1)
+    || Number(fixtureOppositeRoot & 1n) === (notaryVerifyingKeyBytes[9] & 1),
+  "the production fixture prefix must select one of the two valid curve roots",
+);
+
+for (const prefix of [0x02, 0x03]) {
+  const parityVariant = Buffer.from(notaryVerifyingKeyBytes);
+  parityVariant[9] = prefix;
+  assert.doesNotThrow(
+    () => assertAlpha15NotaryVerifyingKey(parityVariant.toString("base64url")),
+    `the fixture x-coordinate must accept compressed SEC1 prefix 0x${prefix.toString(16)}`,
+  );
+}
+
 assert.throws(
   () => assertAlpha15NotaryVerifyingKey(Buffer.alloc(32, 7).toString("base64url")),
+  /TLSNotary alpha\.15 K256 bincode VerifyingKey/,
+);
+assert.throws(() => assertAlpha15NotaryVerifyingKey(`${notaryVerifyingKey}=`), /canonical base64url/);
+assert.throws(
+  () => assertAlpha15NotaryVerifyingKey(notaryVerifyingKeyBytes.subarray(1).toString("base64url")),
   /TLSNotary alpha\.15 K256 bincode VerifyingKey/,
 );
 const invalidAlgorithmKey = Buffer.from(notaryVerifyingKey, "base64url");
@@ -118,19 +164,42 @@ assert.throws(
   () => assertAlpha15NotaryVerifyingKey(invalidAlgorithmKey.toString("base64url")),
   /TLSNotary alpha\.15 K256 bincode VerifyingKey/,
 );
+const invalidPrefixKey = Buffer.from(notaryVerifyingKeyBytes);
+invalidPrefixKey[9] = 0x04;
+assert.throws(
+  () => assertAlpha15NotaryVerifyingKey(invalidPrefixKey.toString("base64url")),
+  /TLSNotary alpha\.15 K256 bincode VerifyingKey/,
+);
 const invalidEmbeddedLengthKey = Buffer.from(notaryVerifyingKey, "base64url");
 invalidEmbeddedLengthKey.writeBigUInt64LE(32n, 1);
 assert.throws(
   () => assertAlpha15NotaryVerifyingKey(invalidEmbeddedLengthKey.toString("base64url")),
   /TLSNotary alpha\.15 K256 bincode VerifyingKey/,
 );
-const invalidPointKey = Buffer.alloc(42);
-invalidPointKey[0] = 1;
-invalidPointKey.writeBigUInt64LE(33n, 1);
-invalidPointKey[9] = 2;
+function alpha15KeyWithX(x) {
+  const encodedX = Buffer.alloc(32);
+  for (let index = encodedX.length - 1; index >= 0; index -= 1) {
+    encodedX[index] = Number(x >> BigInt((encodedX.length - index - 1) * 8) & 0xffn);
+  }
+  const key = Buffer.from(notaryVerifyingKeyBytes);
+  key.set(encodedX, 10);
+  return key.toString("base64url");
+}
+
 assert.throws(
-  () => assertAlpha15NotaryVerifyingKey(invalidPointKey.toString("base64url")),
+  () => assertAlpha15NotaryVerifyingKey(alpha15KeyWithX(0n)),
   /valid compressed secp256k1 public key/,
+  "x=0 makes x^3+7 a quadratic non-residue modulo the secp256k1 field prime",
+);
+assert.equal(
+  modPow(7n, (secp256k1FieldPrime - 1n) / 2n, secp256k1FieldPrime),
+  secp256k1FieldPrime - 1n,
+  "Euler's criterion confirms that x=0 is a non-residue test vector",
+);
+assert.throws(
+  () => assertAlpha15NotaryVerifyingKey(alpha15KeyWithX(secp256k1FieldPrime)),
+  /valid compressed secp256k1 public key/,
+  "compressed SEC1 x must be strictly less than the field prime",
 );
 
 assert.doesNotThrow(() => assertNotaryRegistryConsistency({
