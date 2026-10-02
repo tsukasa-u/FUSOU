@@ -8,6 +8,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "typecheck:config": "tsc -p tsconfig.trigger.config.json --noEmit",
     "test:origin-profile": "node --experimental-strip-types scripts/origin-profile-test.ts",
+    "test:origin-inventory-contract": "node scripts/origin-inventory-contract-test.mjs",
     "test:origin-deployment-config": "node scripts/trigger-origin-config-test.mjs",
     "dev": "pnpm run trigger:dev",
     "deploy": "pnpm run trigger:deploy",

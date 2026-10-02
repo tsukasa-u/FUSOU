@@ -189,6 +189,7 @@ assert.equal(typeof resultPrivateKeyPkcs8, "string");
 
 assert.doesNotThrow(() => assertPublicManifest(validManifest));
 assert.equal(validManifest.schema_version, 4);
+assert.equal(validManifest.notary.registry_sha256, hashNotaryRegistryRaw(validManifest.notary.registry_raw));
 assert.equal(validManifest.origin_inventory.target_count, 20);
 assert.equal(validManifest.origin_inventory.port, 443);
 assert.match(validManifest.origin_inventory.sha256, /^[A-Za-z0-9_-]{43}$/);

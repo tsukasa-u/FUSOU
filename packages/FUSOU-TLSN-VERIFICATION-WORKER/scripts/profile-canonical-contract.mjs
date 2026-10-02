@@ -254,6 +254,48 @@ export function profileContractArtifact({
   };
 }
 
+export function productionProfileContractArtifact() {
+  return {
+    schema_version: PROFILE_CONTRACT_SCHEMA_VERSION,
+    source_of_truth: PROFILE_CONTRACT_SPEC.source_of_truth,
+    identity_selection: "Notary-authenticated Presentation identity matched to shipped Origin inventory",
+    profile_hashing: "computed at verification time for the selected identity and disclosure profile",
+  };
+}
+
+export function assertProvenanceProfileContract(profileContract, role, securityIdentity) {
+  if (role === "production") {
+    if (canonicalJson(profileContract) !== canonicalJson(productionProfileContractArtifact())) {
+      throw new Error("Production provenance profile_contract does not match the inventory-derived profile policy");
+    }
+    return;
+  }
+  if (role !== "canary") throw new Error(`unsupported profile contract deployment role: ${role}`);
+  const capabilities = profileContract?.response_mode?.capabilities;
+  const validCapabilities = Array.isArray(capabilities) && (
+    canonicalJson(capabilities) === canonicalJson(["async"]) ||
+    canonicalJson(capabilities) === canonicalJson(["async", "sync"])
+  );
+  if (!validCapabilities) {
+    throw new Error("Canary provenance profile_contract response-mode capabilities are invalid");
+  }
+  let expected;
+  try {
+    expected = profileContractArtifact({
+      serverIdentity: securityIdentity?.server_identity,
+      profileSha256: securityIdentity?.profile_sha256,
+      sparseProfileSha256: securityIdentity?.sparse_profile_sha256,
+      disclosureMode: "full|sparse",
+      responseModeCapabilities: capabilities,
+    });
+  } catch (error) {
+    throw new Error(`Canary provenance profile_contract inputs are invalid: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  if (canonicalJson(profileContract) !== canonicalJson(expected)) {
+    throw new Error("Canary provenance profile_contract does not match its fixed-Origin profile inputs");
+  }
+}
+
 export function profileContractFailureArtifact(failures) {
   return {
     schema_version: PROFILE_CONTRACT_SCHEMA_VERSION,

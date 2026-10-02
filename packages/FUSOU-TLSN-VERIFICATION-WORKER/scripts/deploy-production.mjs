@@ -204,6 +204,8 @@ async function main() {
     const verificationEnvironment = Object.fromEntries(
       Object.entries(deploymentEnvironment).filter(([name]) => (
         inheritedRuntimeInputs.includes(name) ||
+        WORKFLOW_EVIDENCE_INPUTS.includes(name) ||
+        name === "TLSN_GIT_COMMIT_SHA" ||
         name === "TLSN_VERIFY_WORKER_URL" ||
         name === "TLSN_PROVENANCE_REPORT_PATH" ||
         name === "TLSN_PUBLIC_MANIFEST_PATH"

@@ -4,6 +4,8 @@ import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { assertProductionEvidenceBlocked } from "./production-evidence-contract.mjs";
 import { securityIdentityFieldsForRole } from "./deployment-contract.mjs";
+import { PROFILE_CONTRACT_SPEC, assertProvenanceProfileContract } from "./profile-canonical-contract.mjs";
+import { loadOriginInventoryContract } from "./origin-inventory-contract.mjs";
 
 export const ATTESTATION_SCHEMA_VERSION = 2;
 export const DEPLOYMENT_PROVENANCE_SCHEMA_VERSION = 3;
@@ -202,6 +204,42 @@ export function assertProvenanceEvidence(provenance, expectedContext, role) {
   if (provenance.security_identity.git_commit_sha !== expectedContext.git_commit_sha) {
     throw new Error(`${role} provenance security identity commit mismatch`);
   }
+  const otherRole = role === "production" ? "canary" : "production";
+  const allowedSecurityFields = new Set(securityIdentityFieldsForRole(role));
+  const securityFields = Object.keys(provenance.security_identity);
+  const crossRoleFields = securityIdentityFieldsForRole(otherRole)
+    .filter((field) => !allowedSecurityFields.has(field));
+  if (securityFields.some((field) => crossRoleFields.includes(field))) {
+    throw new Error(`${role} provenance security identity contains ${otherRole}-specific fields`);
+  }
+  if (securityFields.some((field) => !allowedSecurityFields.has(field))) {
+    throw new Error(`${role} provenance security identity contains unsupported fields`);
+  }
+  for (const field of securityFields.filter((name) => name.endsWith("_sha256"))) {
+    if (!/^[A-Za-z0-9_-]{43}$/.test(provenance.security_identity[field])) {
+      throw new Error(`${role} provenance security identity ${field} is not a SHA-256 base64url digest`);
+    }
+  }
+  const expectedBindingMode = role === "canary" ? "fixed_canary" : "random";
+  const deploymentFields = Object.keys(provenance.deployment_identity);
+  if (
+    deploymentFields.some((field) => !DEPLOYMENT_IDENTITY_FIELDS.includes(field)) ||
+    provenance.deployment_identity.deployment_role !== role ||
+    provenance.deployment_identity.binding_mode !== expectedBindingMode
+  ) {
+    throw new Error(`${role} provenance deployment identity does not match its role contract`);
+  }
+  if (role === "production") {
+    const expectedInventorySha256 = loadOriginInventoryContract().sha256;
+    const expectedProfilePolicySha256 = sha256Base64Url(Buffer.from(canonicalJson(PROFILE_CONTRACT_SPEC), "utf8"));
+    if (
+      provenance.security_identity.origin_inventory_sha256 !== expectedInventorySha256 ||
+      provenance.security_identity.profile_policy_sha256 !== expectedProfilePolicySha256
+    ) {
+      throw new Error("Production provenance security identity does not match the shipped inventory and canonical profile policy");
+    }
+  }
+  assertProvenanceProfileContract(provenance.profile_contract, role, provenance.security_identity);
   if (role === "production" && ["server_identity", "profile_sha256", "sparse_profile_sha256"].some((field) => field in provenance.security_identity)) {
     throw new Error("production provenance must not claim a single Origin identity or profile hash");
   }

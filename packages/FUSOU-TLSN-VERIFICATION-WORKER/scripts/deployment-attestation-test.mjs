@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 
 import assert from "node:assert/strict";
-import { generateKeyPairSync } from "node:crypto";
+import { createHash, generateKeyPairSync } from "node:crypto";
 import {
+  canonicalJson,
   assertEvidenceContext,
   assertProvenanceEvidence,
   assertRemoteAttestation,
@@ -12,6 +13,13 @@ import {
 } from "./deployment-attestation.mjs";
 import { PRODUCTION_SECURITY_IDENTITY_FIELDS } from "./deployment-contract.mjs";
 import { PRODUCTION_EVIDENCE_REQUIREMENTS } from "./production-evidence-contract.mjs";
+import {
+  profileContractArtifact,
+  productionProfileContractArtifact,
+  profilesForServerIdentity,
+  PROFILE_CONTRACT_SPEC,
+} from "./profile-canonical-contract.mjs";
+import { loadOriginInventoryContract } from "./origin-inventory-contract.mjs";
 
 const { privateKey: signerPrivateKey, publicKey: signerPublicKey } = generateKeyPairSync("ed25519");
 const signerPrivateKeyPkcs8 = signerPrivateKey.export({ format: "der", type: "pkcs8" }).toString("base64url");
@@ -24,11 +32,12 @@ const context = {
   workflow_file_identity: "dotenvx+pnpm+wrangler",
   deployment_role: "canary",
 };
+const canaryProfiles = profilesForServerIdentity("game.example.com");
 const securityIdentity = {
   git_commit_sha: context.git_commit_sha,
   server_identity: "game.example.com",
-  profile_sha256: "A".repeat(43),
-  sparse_profile_sha256: "D".repeat(43),
+  profile_sha256: canaryProfiles.complete.sha256,
+  sparse_profile_sha256: canaryProfiles.sparse.sha256,
   verifier_key_id: "verifier",
   notary_key_id: "notary",
   security_registry_set_sha256: "B".repeat(43),
@@ -57,6 +66,11 @@ const canaryProvenance = {
     result_registry_root_key_id: "canary-result-registry-root-2026",
     result_registry_root_public_key_spki: "canary-result-registry-root-key",
   },
+  profile_contract: profileContractArtifact({
+    serverIdentity: securityIdentity.server_identity,
+    profileSha256: securityIdentity.profile_sha256,
+    sparseProfileSha256: securityIdentity.sparse_profile_sha256,
+  }),
 };
 const productionSecurityIdentity = {
   git_commit_sha: context.git_commit_sha,
@@ -65,25 +79,94 @@ const productionSecurityIdentity = {
   notary_registry_sha256: "C".repeat(43),
   binding_authority: "durable-single-use",
   security_registry_set_sha256: "G".repeat(43),
-  origin_inventory_sha256: "H".repeat(43),
-  profile_policy_sha256: "I".repeat(43),
+  origin_inventory_sha256: loadOriginInventoryContract().sha256,
+  profile_policy_sha256: createHash("sha256").update(canonicalJson(PROFILE_CONTRACT_SPEC), "utf8").digest("base64url"),
 };
 const productionProvenance = {
   ...canaryProvenance,
-  ...{ deployment_role: "production" },
+  deployment_role: "production",
   security_identity: productionSecurityIdentity,
   deployment_identity: { ...canaryProvenance.deployment_identity, deployment_role: "production", binding_mode: "random", worker_name: "fusou-tlsn-production" },
+  profile_contract: productionProfileContractArtifact(),
 };
+assertProvenanceEvidence(canaryProvenance, context, "canary");
 assertProvenanceEvidence(productionProvenance, { ...context, deployment_role: "production" }, "production");
 assert.deepEqual(PRODUCTION_SECURITY_IDENTITY_FIELDS.filter((field) => !(field in productionSecurityIdentity)), []);
 assert.throws(() => assertProvenanceEvidence({
   ...canaryProvenance,
   security_identity: { ...securityIdentity, origin_inventory_sha256: "H".repeat(43) },
-}, context, "canary"), /must not claim Production inventory or profile-policy digests/);
+}, context, "canary"), /canary provenance security identity contains production-specific fields/);
 assert.throws(() => assertProvenanceEvidence({
   ...productionProvenance,
   security_identity: { ...productionSecurityIdentity, profile_sha256: "A".repeat(43) },
-}, { ...context, deployment_role: "production" }, "production"), /must not claim a single Origin identity/);
+}, { ...context, deployment_role: "production" }, "production"), /production provenance security identity contains canary-specific fields/);
+assert.throws(() => assertProvenanceEvidence({
+  ...canaryProvenance,
+  deployment_role: "production",
+  security_identity: productionSecurityIdentity,
+}, { ...context, deployment_role: "production" }, "production"));
+assert.throws(() => assertProvenanceEvidence({
+  ...productionProvenance,
+  profile_contract: canaryProvenance.profile_contract,
+}, { ...context, deployment_role: "production" }, "production"), /Production provenance profile_contract/);
+assert.throws(() => assertProvenanceEvidence({
+  ...canaryProvenance,
+  profile_contract: productionProfileContractArtifact(),
+}, context, "canary"), /Canary provenance profile_contract/);
+for (const [field, value] of [
+  ["server_identity", "game.example.com"],
+  ["profile_sha256", canaryProfiles.complete.sha256],
+  ["sparse_profile_sha256", canaryProfiles.sparse.sha256],
+  ["origin_inventory_sha256", "H".repeat(43)],
+  ["profile_policy_sha256", "I".repeat(43)],
+]) {
+  assert.throws(() => assertProvenanceEvidence({
+    ...productionProvenance,
+    profile_contract: { ...productionProvenance.profile_contract, [field]: value },
+  }, { ...context, deployment_role: "production" }, "production"), /Production provenance profile_contract/);
+}
+assert.throws(() => assertProvenanceEvidence({
+  ...productionProvenance,
+  profile_contract: { ...productionProvenance.profile_contract, identity_selection: "static Canary hostname" },
+}, { ...context, deployment_role: "production" }, "production"), /Production provenance profile_contract/);
+assert.throws(() => assertProvenanceEvidence({
+  ...productionProvenance,
+  profile_contract: { ...productionProvenance.profile_contract, profile_hashing: "supplied fixed hashes" },
+}, { ...context, deployment_role: "production" }, "production"), /Production provenance profile_contract/);
+for (const [label, mutate] of [
+  ["complete server identity", (contract) => ({ ...contract, complete: { ...contract.complete, server_identity: "other.example.com" } })],
+  ["complete profile hash", (contract) => ({ ...contract, complete: { ...contract.complete, canonical_json_sha256: "J".repeat(43) } })],
+  ["sparse profile hash", (contract) => ({ ...contract, sparse: { ...contract.sparse, canonical_json_sha256: "K".repeat(43) } })],
+  ["disclosure mode", (contract) => ({ ...contract, disclosure_mode: "sparse" })],
+  ["response mode hash inclusion", (contract) => ({ ...contract, response_mode: { ...contract.response_mode, hash_inclusion: true } })],
+  ["Production inventory field", (contract) => ({ ...contract, origin_inventory_sha256: productionSecurityIdentity.origin_inventory_sha256 })],
+  ["Production profile policy field", (contract) => ({ ...contract, profile_policy_sha256: productionSecurityIdentity.profile_policy_sha256 })],
+]) {
+  assert.throws(() => assertProvenanceEvidence({
+    ...canaryProvenance,
+    profile_contract: mutate(canaryProvenance.profile_contract),
+  }, context, "canary"), undefined, `Canary profile contract ${label} mutation must be rejected`);
+}
+assert.throws(() => assertProvenanceEvidence({
+  ...canaryProvenance,
+  deployment_identity: { ...canaryProvenance.deployment_identity, binding_mode: "random" },
+}, context, "canary"), /does not match its role contract/);
+assert.throws(() => assertProvenanceEvidence({
+  ...productionProvenance,
+  deployment_identity: { ...productionProvenance.deployment_identity, binding_mode: "fixed_canary" },
+}, { ...context, deployment_role: "production" }, "production"), /does not match its role contract/);
+assert.throws(() => assertProvenanceEvidence({
+  ...productionProvenance,
+  security_identity: { ...productionSecurityIdentity, origin_inventory_sha256: "L".repeat(43) },
+}, { ...context, deployment_role: "production" }, "production"), /does not match the shipped inventory/);
+assert.throws(() => assertProvenanceEvidence({
+  ...productionProvenance,
+  security_identity: { ...productionSecurityIdentity, profile_policy_sha256: "M".repeat(43) },
+}, { ...context, deployment_role: "production" }, "production"), /does not match the shipped inventory/);
+assert.throws(() => assertProvenanceEvidence({
+  ...canaryProvenance,
+  security_identity: { ...securityIdentity, origin_inventory_sha256: "H".repeat(43) },
+}, context, "canary"), /canary provenance security identity contains production-specific fields/);
 const remoteReport = {
   schema_version: 2,
   scope: "remote-deployed-synthetic",

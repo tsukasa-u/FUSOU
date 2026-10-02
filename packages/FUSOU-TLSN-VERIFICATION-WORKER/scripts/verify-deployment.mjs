@@ -1,8 +1,14 @@
 #!/usr/bin/env node
 
 import { readFile } from "node:fs/promises";
-import { DEPLOYMENT_PROVENANCE_SCHEMA_VERSION } from "./deployment-attestation.mjs";
+import { createHash } from "node:crypto";
+import {
+  assertProvenanceEvidence,
+  canonicalJson,
+  workflowContextFromEnvironment,
+} from "./deployment-attestation.mjs";
 import { assertPublicManifest } from "./production-trust-contract.mjs";
+import { PROFILE_CONTRACT_SPEC } from "./profile-canonical-contract.mjs";
 
 const securityIdentityFields = [
   "git_commit_sha",
@@ -32,14 +38,18 @@ async function main() {
   const manifest = JSON.parse(await readFile(required("TLSN_PROVENANCE_REPORT_PATH"), "utf8"));
   const publicManifest = JSON.parse(await readFile(required("TLSN_PUBLIC_MANIFEST_PATH"), "utf8"));
   assertPublicManifest(publicManifest);
+  assertProvenanceEvidence(manifest, workflowContextFromEnvironment(process.env, "production"), "production");
+  const profilePolicySha256 = createHash("sha256")
+    .update(canonicalJson(PROFILE_CONTRACT_SPEC), "utf8")
+    .digest("base64url");
   if (
-    manifest?.schema_version !== DEPLOYMENT_PROVENANCE_SCHEMA_VERSION ||
-    manifest?.scope !== "tlsn-deployment-provenance" ||
-    manifest?.status !== "PASS" ||
-    manifest?.environment !== "production" ||
-    manifest?.deployment_role !== "production"
+    manifest.security_identity.notary_key_id !== publicManifest.notary.key_id ||
+    manifest.security_identity.notary_registry_sha256 !== publicManifest.notary.registry_sha256 ||
+    manifest.security_identity.security_registry_set_sha256 !== publicManifest.security_registry_set_sha256 ||
+    manifest.security_identity.origin_inventory_sha256 !== publicManifest.origin_inventory.sha256 ||
+    manifest.security_identity.profile_policy_sha256 !== profilePolicySha256
   ) {
-    throw new Error("invalid production provenance manifest");
+    throw new Error("Production provenance trust identity does not match the public manifest and profile policy");
   }
 
   const origin = new URL(required("TLSN_VERIFY_WORKER_URL")).origin;
@@ -51,6 +61,9 @@ async function main() {
   const health = await response.json();
   if (health.environment !== "production" || health.deployment_role !== "production") {
     throw new Error("production Worker environment or role mismatch");
+  }
+  if (health.schema_version !== 3 || health.security_identity?.trust_contract_valid !== true) {
+    throw new Error("production Worker health does not report a valid runtime trust contract");
   }
   for (const [name, fields] of [
     ["security_identity", securityIdentityFields],

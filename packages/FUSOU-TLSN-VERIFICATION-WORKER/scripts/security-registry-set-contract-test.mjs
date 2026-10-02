@@ -6,6 +6,7 @@ import {
   securityRegistrySetHash,
 } from "./security-registry-set-contract.mjs";
 import { loadOriginInventoryContract } from "./origin-inventory-contract.mjs";
+import { notaryRegistrySha256 } from "./production-trust-contract.mjs";
 
 const notaryKeyId = "notary-production-2026";
 const alternateNotaryKeyId = "notary-production-2025";
@@ -99,5 +100,40 @@ assert.notEqual(
   production.sha256,
   "Production selected Notary identity remains hash-bound",
 );
+
+const registryKeyA = "ASEAAAAAAAAAAxuExVZ7EmRAmV0-1aq6BWXXHhg0YEgZ_5wX9enV3QeP";
+const registryKeyB = "ASEAAAAAAAAAAwdAv1ROf_qFyznpNgrsGYoIZ-ACK18PYlD8vV2IuVmO";
+const canonicalOrderRegistryRaw = JSON.stringify({ "key-a": registryKeyA, "key-b": registryKeyB });
+const reorderedWhitespaceRegistryRaw = `{
+  "key-b": "${registryKeyB}",
+  "key-a": "${registryKeyA}"
+}`;
+const canonicalOrderSet = productionSecurityRegistrySetHash({
+  notaryKeyId: "key-a",
+  notaryRegistryRaw: canonicalOrderRegistryRaw,
+});
+const reorderedWhitespaceSet = productionSecurityRegistrySetHash({
+  notaryKeyId: "key-a",
+  notaryRegistryRaw: reorderedWhitespaceRegistryRaw,
+});
+assert.equal(canonicalOrderSet.sha256, reorderedWhitespaceSet.sha256, "canonical-equivalent Notary registries must produce the same security-set digest");
+assert.notEqual(
+  notaryRegistrySha256(canonicalOrderRegistryRaw),
+  notaryRegistrySha256(reorderedWhitespaceRegistryRaw),
+  "manifest raw registry digest must continue to distinguish byte encodings",
+);
+
+for (const [label, keyId, registryRaw] of [
+  ["registry key addition", "key-a", JSON.stringify({ "key-a": registryKeyA, "key-b": registryKeyB, "key-c": registryKeyA })],
+  ["registry key deletion", "key-a", JSON.stringify({ "key-a": registryKeyA })],
+  ["registry value change", "key-a", JSON.stringify({ "key-a": registryKeyB, "key-b": registryKeyB })],
+  ["selected key change", "key-b", canonicalOrderRegistryRaw],
+]) {
+  assert.notEqual(
+    productionSecurityRegistrySetHash({ notaryKeyId: keyId, notaryRegistryRaw: registryRaw }).sha256,
+    canonicalOrderSet.sha256,
+    `${label} must change the semantic Production security-set digest`,
+  );
+}
 
 console.log("[security-registry-set-contract] role-specific identity, inventory, profile-policy, and Notary bindings PASS");

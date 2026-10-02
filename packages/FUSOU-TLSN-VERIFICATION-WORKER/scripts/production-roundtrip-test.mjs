@@ -267,7 +267,16 @@ try {
     })),
   });
   await writeFile(canaryManifestPath, JSON.stringify(canaryManifest), { encoding: "utf8", mode: 0o600 });
-  run(process.execPath, ["scripts/deployment-preflight.mjs"], { cwd: packageDirectory, env });
+  const preflight = spawnSync(process.execPath, ["scripts/deployment-preflight.mjs"], {
+    cwd: packageDirectory,
+    encoding: "utf8",
+    env,
+  });
+  if (preflight.error) throw preflight.error;
+  if (preflight.status !== 0) {
+    const preflightReport = JSON.parse(await readFile(reportPath, "utf8"));
+    throw new Error(`Production preflight failed: ${JSON.stringify(preflightReport.failures)}`);
+  }
 
   const report = JSON.parse(await readFile(reportPath, "utf8"));
   assert.equal(report.status, "PASS");

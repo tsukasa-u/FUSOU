@@ -18,6 +18,7 @@ import {
   verify_sparse_require_info_presentation,
 } from "../../../FUSOU-TLSN-VERIFICATION-WORKER/src/wasm/fusou_tlsn_verifier.js";
 import { canonicalProfileBytes, selectOriginTarget, type OriginPolicy } from "./origin-profile.js";
+import { assertTaskOriginInventoryDigest } from "./origin-inventory-contract.mjs";
 
 const MAX_PRESENTATION_BYTES = 8 * 1024 * 1024;
 const verificationTaskPayloadSchema = z.object({
@@ -228,9 +229,7 @@ async function verifierConfig(payload: VerificationTaskPayload): Promise<{
   }
   const { raw, inventory } = readOriginInventory();
   const originInventorySha256 = await sha256Base64Url(new TextEncoder().encode(raw));
-  if (originInventorySha256 !== payload.origin_inventory_sha256) {
-    throw new Error("Worker task Origin inventory digest does not match Trigger runtime inventory");
-  }
+  assertTaskOriginInventoryDigest(payload.origin_inventory_sha256, originInventorySha256);
   if (role !== "production") throw new Error("inventory Origin policy is only valid for Production Trigger deployments");
   const profilePolicySha256 = await sha256Base64Url(new TextEncoder().encode(canonicalJson(PROFILE_CONTRACT_SPEC)));
   const expectedTrustPayload = productionSecurityRegistrySetPayload({

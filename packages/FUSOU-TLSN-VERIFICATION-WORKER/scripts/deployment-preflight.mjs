@@ -39,6 +39,7 @@ import {
 import {
   assertProfileContractInputs,
   profileContractArtifact,
+  productionProfileContractArtifact,
   PROFILE_CONTRACT_SPEC,
 } from "./profile-canonical-contract.mjs";
 import {
@@ -342,14 +343,14 @@ async function main() {
         ? productionSecurityRegistrySetHash({
           notaryKeyId: value("TLSN_CANDIDATE_NOTARY_KEY_ID"),
           notaryRegistryRaw: registryRaw,
-        }).sha256
+        })
         : securityRegistrySetHash({
           notaryKeyId: value("TLSN_CANDIDATE_NOTARY_KEY_ID"),
           notaryRegistryRaw: registryRaw,
           profileSha256: value("TLSN_CANDIDATE_PROFILE_SHA256"),
           serverIdentity: value("TLSN_CANDIDATE_SERVER_IDENTITY"),
           sparseProfileSha256: value("TLSN_CANDIDATE_SPARSE_PROFILE_SHA256"),
-        }).sha256;
+        });
       const expectedSecurityRegistrySetSha256 = computedSecurityRegistrySet.sha256;
       if (value("TLSN_SECURITY_REGISTRY_SET_SHA256") !== expectedSecurityRegistrySetSha256) {
         addFailure(failures, "TLSN_SECURITY_REGISTRY_SET_SHA256", "must match the canonical security registry set derived from the supplied inputs");
@@ -591,12 +592,7 @@ async function main() {
       result_registry_root_public_key_spki: resultRegistryRootPublicKeySpki ?? null,
     },
     profile_contract: role === "production"
-      ? {
-          schema_version: 1,
-          source_of_truth: "scripts/profile-canonical-contract.mjs",
-          identity_selection: "Notary-authenticated Presentation identity matched to shipped Origin inventory",
-          profile_hashing: "computed at verification time for the selected identity and disclosure profile",
-        }
+      ? productionProfileContractArtifact()
       : canonicalProfileInputs
       ? profileContractArtifact({
           serverIdentity: canonicalProfileInputs.complete.profile.server_identity,

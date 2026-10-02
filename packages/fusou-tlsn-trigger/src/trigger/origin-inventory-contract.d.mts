@@ -1,0 +1,1 @@
+export function assertTaskOriginInventoryDigest(taskDigest: string | undefined, runtimeDigest: string): string;
