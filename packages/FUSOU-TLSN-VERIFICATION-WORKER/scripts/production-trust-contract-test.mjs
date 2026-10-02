@@ -5,6 +5,7 @@ import { createHash, generateKeyPairSync } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import {
+  assertAlpha15NotaryVerifyingKey,
   appConfigTomlFromManifest,
   assertNotaryRegistryConsistency,
   assertPublicManifest,
@@ -105,6 +106,32 @@ const validManifest = buildProductionPublicManifest({
   verificationEndpoint: "https://worker.example.com/verify/tlsn",
   securityRegistrySetSha256: productionSecurityRegistrySetHash({ notaryKeyId, notaryRegistryRaw }).sha256,
 });
+
+assert.doesNotThrow(() => assertAlpha15NotaryVerifyingKey(notaryVerifyingKey));
+assert.throws(
+  () => assertAlpha15NotaryVerifyingKey(Buffer.alloc(32, 7).toString("base64url")),
+  /TLSNotary alpha\.15 K256 bincode VerifyingKey/,
+);
+const invalidAlgorithmKey = Buffer.from(notaryVerifyingKey, "base64url");
+invalidAlgorithmKey[0] = 2;
+assert.throws(
+  () => assertAlpha15NotaryVerifyingKey(invalidAlgorithmKey.toString("base64url")),
+  /TLSNotary alpha\.15 K256 bincode VerifyingKey/,
+);
+const invalidEmbeddedLengthKey = Buffer.from(notaryVerifyingKey, "base64url");
+invalidEmbeddedLengthKey.writeBigUInt64LE(32n, 1);
+assert.throws(
+  () => assertAlpha15NotaryVerifyingKey(invalidEmbeddedLengthKey.toString("base64url")),
+  /TLSNotary alpha\.15 K256 bincode VerifyingKey/,
+);
+const invalidPointKey = Buffer.alloc(42);
+invalidPointKey[0] = 1;
+invalidPointKey.writeBigUInt64LE(33n, 1);
+invalidPointKey[9] = 2;
+assert.throws(
+  () => assertAlpha15NotaryVerifyingKey(invalidPointKey.toString("base64url")),
+  /valid compressed secp256k1 public key/,
+);
 
 assert.doesNotThrow(() => assertNotaryRegistryConsistency({
   sourceRegistryRaw: notaryRegistryRaw,

@@ -157,8 +157,31 @@ const invalidNotary = await observeCanary({
   TLSN_SECURITY_REGISTRY_SET_SHA256: invalidNotaryDigest,
 });
 assert.equal(invalidNotary.sessionStatus, 503, "unusable selected Notary key must make readConfig reject Canary");
+assert.equal(invalidNotary.healthStatus, 200);
 assert.equal(invalidNotary.health.security_identity.trust_contract_valid, false);
 assert.equal(invalidNotary.health.security_identity.security_registry_set_sha256, null);
+assert.throws(() => assertCanaryHealthTrustContract(invalidNotary.health), /Canary Worker trust contract is invalid/);
+
+const semanticInvalidNotaryRegistryRaw = JSON.stringify({
+  [notaryKeyId]: Buffer.alloc(32, 7).toString("base64url"),
+});
+const semanticInvalidNotaryPayload = workerSecurityRegistrySetPayload({
+  ...canaryInputs,
+  notaryRegistryRaw: semanticInvalidNotaryRegistryRaw,
+});
+const semanticInvalidNotaryDigest = await sha256Base64Url(
+  new TextEncoder().encode(workerCanonicalJson(semanticInvalidNotaryPayload)),
+);
+const semanticInvalidNotary = await observeCanary({
+  ...env,
+  TLSN_PRODUCTION_NOTARY_REGISTRY: semanticInvalidNotaryRegistryRaw,
+  TLSN_SECURITY_REGISTRY_SET_SHA256: semanticInvalidNotaryDigest,
+});
+assert.equal(semanticInvalidNotary.sessionStatus, 503, "canonical 32-byte Notary data must fail alpha.15 semantic validation");
+assert.equal(semanticInvalidNotary.healthStatus, 200, "Notary trust failure must preserve Runtime Attestation health");
+assert.equal(semanticInvalidNotary.health.security_identity.trust_contract_valid, false);
+assert.equal(semanticInvalidNotary.health.security_identity.security_registry_set_sha256, null);
+assert.throws(() => assertCanaryHealthTrustContract(semanticInvalidNotary.health), /Canary Worker trust contract is invalid/);
 
 for (const [label, envName, changedDigest] of [
   ["complete profile", "TLSN_CANDIDATE_PROFILE_SHA256", Buffer.alloc(32, 3).toString("base64url")],
@@ -178,4 +201,4 @@ for (const [label, envName, changedDigest] of [
   assert.equal(profileMutation.health.security_identity.trust_contract_valid, false);
 }
 
-console.info("[tlsn-canary-runtime-security] canonical config, digest mutation, profile mutation, health, and remote-gate contracts PASS");
+console.info("[tlsn-canary-runtime-security] canonical config, digest and profile mutation, invalid Notary keys, health, and remote-gate contracts PASS");

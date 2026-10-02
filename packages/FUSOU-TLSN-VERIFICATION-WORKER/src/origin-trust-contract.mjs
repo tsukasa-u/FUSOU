@@ -92,7 +92,51 @@ export const PROFILE_CONTRACT_SPEC = {
 const DNS_HOSTNAME_PATTERN = /^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/;
 const SHA256_BASE64URL_PATTERN = /^[A-Za-z0-9_-]{43}$/;
 const SECURITY_REGISTRY_KEY_ID_PATTERN = /^[A-Za-z0-9._-]{1,128}$/;
+const ALPHA15_K256_KEY_LENGTH = 42;
+const ALPHA15_K256_ALGORITHM_ID = 1;
+const ALPHA15_K256_PUBLIC_KEY_LENGTH = 33;
+const SECP256K1_FIELD_PRIME = 0xfffffffffffffffffffffffffffffffffffffffffffffffffffffffefffffc2fn;
 const ORIGIN_INVENTORY_SOURCE = "packages/configs/configs.toml:[app.connect_kc_server.server_list]";
+
+function decodeCanonicalBase64Url(value) {
+  if (typeof value !== "string" || !/^[A-Za-z0-9_-]+$/.test(value) || value.length % 4 === 1) {
+    throw new Error("invalid base64url");
+  }
+  const padded = value.replaceAll("-", "+").replaceAll("_", "/") + "=".repeat((4 - value.length % 4) % 4);
+  const binary = atob(padded);
+  const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
+  let encoded = "";
+  for (let offset = 0; offset < bytes.length; offset += 0x8000) {
+    encoded += String.fromCharCode(...bytes.subarray(offset, offset + 0x8000));
+  }
+  if (btoa(encoded).replaceAll("+", "-").replaceAll("/", "_").replaceAll("=", "") !== value) {
+    throw new Error("non-canonical base64url");
+  }
+  return bytes;
+}
+
+function mod(value, modulus) {
+  const remainder = value % modulus;
+  return remainder < 0n ? remainder + modulus : remainder;
+}
+
+function modPow(base, exponent, modulus) {
+  let result = 1n;
+  let factor = mod(base, modulus);
+  let power = exponent;
+  while (power > 0n) {
+    if (power & 1n) result = (result * factor) % modulus;
+    factor = (factor * factor) % modulus;
+    power >>= 1n;
+  }
+  return result;
+}
+
+function readBigEndian(bytes) {
+  let value = 0n;
+  for (const byte of bytes) value = (value << 8n) | BigInt(byte);
+  return value;
+}
 
 export function canonicalJson(value) {
   const canonicalize = (input) => {
@@ -105,6 +149,35 @@ export function canonicalJson(value) {
     return input;
   };
   return JSON.stringify(canonicalize(value));
+}
+
+export function assertAlpha15NotaryVerifyingKey(value, label = "Notary verifying key") {
+  let bytes;
+  try {
+    bytes = decodeCanonicalBase64Url(value);
+  } catch {
+    throw new Error(`${label} must be canonical base64url`);
+  }
+  if (
+    bytes.length !== ALPHA15_K256_KEY_LENGTH ||
+    bytes[0] !== ALPHA15_K256_ALGORITHM_ID ||
+    readBigEndian(bytes.slice(1, 9).reverse()) !== BigInt(ALPHA15_K256_PUBLIC_KEY_LENGTH) ||
+    ![0x02, 0x03].includes(bytes[9])
+  ) {
+    throw new Error(`${label} must be a canonical TLSNotary alpha.15 K256 bincode VerifyingKey`);
+  }
+  const x = readBigEndian(bytes.subarray(10));
+  if (x >= SECP256K1_FIELD_PRIME) {
+    throw new Error(`${label} must contain a valid compressed secp256k1 public key`);
+  }
+  const ySquared = mod(x * x * x + 7n, SECP256K1_FIELD_PRIME);
+  const y = modPow(ySquared, (SECP256K1_FIELD_PRIME + 1n) / 4n, SECP256K1_FIELD_PRIME);
+  if (
+    (y * y) % SECP256K1_FIELD_PRIME !== ySquared ||
+    Number(y & 1n) !== (bytes[9] === 0x03 ? 1 : 0)
+  ) {
+    throw new Error(`${label} must contain a valid compressed secp256k1 public key`);
+  }
 }
 
 export function parseOriginInventory(raw) {

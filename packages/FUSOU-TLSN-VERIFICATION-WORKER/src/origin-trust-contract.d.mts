@@ -9,6 +9,7 @@ export const RESPONSE_MODES: readonly string[];
 export const PROFILE_CONTRACT_SPEC: Record<string, unknown>;
 
 export function canonicalJson(value: unknown): string;
+export function assertAlpha15NotaryVerifyingKey(value: string, label?: string): void;
 export function parseOriginInventory(raw: string): {
   schema_version: 1;
   source: string;

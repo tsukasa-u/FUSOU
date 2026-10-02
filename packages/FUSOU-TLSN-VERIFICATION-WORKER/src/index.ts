@@ -56,6 +56,7 @@ import initVerifier, {
 import originInventoryRaw from "../../configs/tlsn-origin-inventory.json.txt";
 import wasmModule from "./wasm/fusou_tlsn_verifier_bg.wasm";
 import {
+  assertAlpha15NotaryVerifyingKey,
   canonicalJson,
   parseOriginInventory,
   PROFILE_CONTRACT_SPEC,
@@ -1290,6 +1291,7 @@ async function canaryRuntimeTrustIdentity(env: Bindings): Promise<{
   const notaryKey = notaryRegistry.success ? notaryRegistry.data[notaryKeyId] : undefined;
   if (!notaryKey) throw new Error("Canary security registry set Notary key is invalid or missing");
   decodeBase64Url(notaryKey, 4096);
+  assertAlpha15NotaryVerifyingKey(notaryKey, "Canary Notary verifying key");
   const [expectedProfileSha256, expectedSparseProfileSha256] = await Promise.all([
     canonicalProfileSha256("complete", serverIdentity),
     canonicalProfileSha256("sparse", serverIdentity),
