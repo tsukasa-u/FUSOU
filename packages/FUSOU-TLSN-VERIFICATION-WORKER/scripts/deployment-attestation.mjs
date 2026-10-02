@@ -3,8 +3,10 @@ import { execFileSync } from "node:child_process";
 import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { assertProductionEvidenceBlocked } from "./production-evidence-contract.mjs";
+import { securityIdentityFieldsForRole } from "./deployment-contract.mjs";
 
 export const ATTESTATION_SCHEMA_VERSION = 2;
+export const DEPLOYMENT_PROVENANCE_SCHEMA_VERSION = 3;
 export const ATTESTATION_SCOPE = "tlsn-remote-validation-attestation";
 export const ATTESTATION_SIGNATURE_ALGORITHM = "Ed25519";
 export const DEFAULT_MAX_ATTESTATION_AGE_SECONDS = 900;
@@ -34,17 +36,12 @@ export const EVIDENCE_CONTEXT_FIELDS = [
   "workflow_file_identity",
   "deployment_role",
 ];
-export const SECURITY_IDENTITY_FIELDS = [
-  "git_commit_sha",
-  "server_identity",
-  "profile_sha256",
-  "sparse_profile_sha256",
-  "verifier_key_id",
-  "notary_key_id",
-  "security_registry_set_sha256",
-  "notary_registry_sha256",
-  "binding_authority",
-];
+export {
+  CANARY_SECURITY_IDENTITY_FIELDS,
+  COMMON_SECURITY_IDENTITY_FIELDS,
+  PRODUCTION_SECURITY_IDENTITY_FIELDS,
+  SECURITY_IDENTITY_FIELDS,
+} from "./deployment-contract.mjs";
 export const DEPLOYMENT_IDENTITY_FIELDS = [
   "deployment_id",
   "deployment_role",
@@ -183,7 +180,7 @@ export async function sha256File(path) {
 
 export function assertProvenanceEvidence(provenance, expectedContext, role) {
   if (
-    provenance?.schema_version !== 2 ||
+    provenance?.schema_version !== DEPLOYMENT_PROVENANCE_SCHEMA_VERSION ||
     provenance?.scope !== "tlsn-deployment-provenance" ||
     provenance?.status !== "PASS" ||
     provenance?.environment !== "production" ||
@@ -192,7 +189,7 @@ export function assertProvenanceEvidence(provenance, expectedContext, role) {
   assertEvidenceContext(provenance, { ...expectedContext, deployment_role: role }, `${role} provenance`);
   assertTimestamp(provenance.created_at, `${role} provenance created_at`);
   for (const [name, fields] of [
-    ["security_identity", SECURITY_IDENTITY_FIELDS],
+    ["security_identity", securityIdentityFieldsForRole(role)],
     ["deployment_identity", DEPLOYMENT_IDENTITY_FIELDS],
     ["result_identity", RESULT_IDENTITY_FIELDS],
   ]) {
@@ -204,6 +201,12 @@ export function assertProvenanceEvidence(provenance, expectedContext, role) {
   }
   if (provenance.security_identity.git_commit_sha !== expectedContext.git_commit_sha) {
     throw new Error(`${role} provenance security identity commit mismatch`);
+  }
+  if (role === "production" && ["server_identity", "profile_sha256", "sparse_profile_sha256"].some((field) => field in provenance.security_identity)) {
+    throw new Error("production provenance must not claim a single Origin identity or profile hash");
+  }
+  if (role === "canary" && ["origin_inventory_sha256", "profile_policy_sha256"].some((field) => field in provenance.security_identity)) {
+    throw new Error("Canary provenance must not claim Production inventory or profile-policy digests");
   }
 }
 

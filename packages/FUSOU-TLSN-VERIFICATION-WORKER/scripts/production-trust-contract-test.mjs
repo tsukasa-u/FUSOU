@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import assert from "node:assert/strict";
-import { generateKeyPairSync } from "node:crypto";
+import { createHash, generateKeyPairSync } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import {
@@ -15,6 +15,10 @@ import {
 import { createSignedResultRegistryEnvelope } from "./result-registry-envelope.mjs";
 import { PRODUCTION_INPUTS, PRODUCTION_SECRET_INPUTS } from "./deployment-contract.mjs";
 import { CANARY_DEPLOYMENT_MANIFEST_SCHEMA_VERSION } from "./canary-deployment-manifest.mjs";
+import { productionSecurityRegistrySetHash } from "./security-registry-set-contract.mjs";
+import { loadOriginInventoryContract } from "./origin-inventory-contract.mjs";
+import { PROFILE_CONTRACT_SPEC, productionSecurityRegistrySetPayload } from "../src/origin-trust-contract.mjs";
+import { canonicalJson } from "./production-trust-contract.mjs";
 
 const packageDirectory = resolve(new URL("..", import.meta.url).pathname);
 
@@ -42,6 +46,7 @@ const notaryRegistryRaw = JSON.stringify({
   [notaryKeyId]: notaryVerifyingKey,
   [previousNotaryKeyId]: previousNotaryVerifyingKey,
 });
+const hashNotaryRegistryRaw = (raw) => createHash("sha256").update(raw, "utf8").digest("base64url");
 const { publicKey: sessionPublicKey, privateKey: sessionPrivateKey } = generateKeyPairSync("ed25519");
 const sessionPublicKeySpki = sessionPublicKey.export({ format: "der", type: "spki" }).toString("base64url");
 const sessionPrivateKeyPkcs8 = sessionPrivateKey.export({ format: "der", type: "pkcs8" }).toString("base64url");
@@ -98,7 +103,7 @@ const validManifest = buildProductionPublicManifest({
   resultRegistryRootKeyId,
   resultRegistryRootPublicKeySpki,
   verificationEndpoint: "https://worker.example.com/verify/tlsn",
-  securityRegistrySetSha256: Buffer.alloc(32, 7).toString("base64url"),
+  securityRegistrySetSha256: productionSecurityRegistrySetHash({ notaryKeyId, notaryRegistryRaw }).sha256,
 });
 
 assert.doesNotThrow(() => assertNotaryRegistryConsistency({
@@ -183,13 +188,43 @@ assert.equal(typeof sessionPrivateKeyPkcs8, "string");
 assert.equal(typeof resultPrivateKeyPkcs8, "string");
 
 assert.doesNotThrow(() => assertPublicManifest(validManifest));
-assert.equal(validManifest.schema_version, 3);
+assert.equal(validManifest.schema_version, 4);
 assert.equal(validManifest.origin_inventory.target_count, 20);
 assert.equal(validManifest.origin_inventory.port, 443);
 assert.match(validManifest.origin_inventory.sha256, /^[A-Za-z0-9_-]{43}$/);
 const manifestWithMismatchedOriginInventory = structuredClone(validManifest);
 manifestWithMismatchedOriginInventory.origin_inventory.sha256 = Buffer.alloc(32, 1).toString("base64url");
 assert.throws(() => assertPublicManifest(manifestWithMismatchedOriginInventory), /does not match the shipped inventory contract/);
+const manifestWithMutatedSecuritySet = structuredClone(validManifest);
+manifestWithMutatedSecuritySet.security_registry_set_sha256 = Buffer.alloc(32, 9).toString("base64url");
+assert.throws(() => assertPublicManifest(manifestWithMutatedSecuritySet), /security registry set does not match/);
+const changedProfilePolicy = createHash("sha256")
+  .update(canonicalJson({ ...PROFILE_CONTRACT_SPEC, schema_version: PROFILE_CONTRACT_SPEC.schema_version + 1 }), "utf8")
+  .digest("base64url");
+const changedProfilePolicyPayload = productionSecurityRegistrySetPayload({
+  notaryKeyId,
+  notaryRegistryRaw: canonicalJson(JSON.parse(validManifest.notary.registry_raw)),
+  originInventorySha256: loadOriginInventoryContract().sha256,
+  profilePolicySha256: changedProfilePolicy,
+});
+const manifestWithMutatedProfilePolicy = structuredClone(validManifest);
+manifestWithMutatedProfilePolicy.security_registry_set_sha256 = createHash("sha256")
+  .update(canonicalJson(changedProfilePolicyPayload), "utf8")
+  .digest("base64url");
+assert.throws(() => assertPublicManifest(manifestWithMutatedProfilePolicy), /security registry set does not match/);
+const manifestWithMutatedNotaryRegistry = structuredClone(validManifest);
+manifestWithMutatedNotaryRegistry.notary.registry_raw = JSON.stringify({
+  [notaryKeyId]: notaryVerifyingKey,
+  "notary-extra": previousNotaryVerifyingKey,
+});
+manifestWithMutatedNotaryRegistry.notary.registry_sha256 = hashNotaryRegistryRaw(manifestWithMutatedNotaryRegistry.notary.registry_raw);
+assert.throws(() => assertPublicManifest(manifestWithMutatedNotaryRegistry), /security registry set does not match/);
+const manifestWithMutatedNotaryRegistryHash = structuredClone(validManifest);
+manifestWithMutatedNotaryRegistryHash.notary.registry_raw = JSON.stringify({
+  [notaryKeyId]: previousNotaryVerifyingKey,
+});
+manifestWithMutatedNotaryRegistryHash.notary.registry_sha256 = hashNotaryRegistryRaw(manifestWithMutatedNotaryRegistryHash.notary.registry_raw);
+assert.throws(() => assertPublicManifest(manifestWithMutatedNotaryRegistryHash), /selected public key/);
 const manifestWithMissingNotary = structuredClone(validManifest);
 delete manifestWithMissingNotary.notary;
 assert.throws(() => assertPublicManifest(manifestWithMissingNotary), /public manifest schema|notary/i);

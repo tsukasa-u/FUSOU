@@ -5,12 +5,18 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { z } from "zod";
 import {
+  canonicalJson,
+  parseOriginInventory,
+  PROFILE_CONTRACT_SPEC,
+  productionSecurityRegistrySetPayload,
+  sha256Base64Url,
+} from "../../../FUSOU-TLSN-VERIFICATION-WORKER/src/origin-trust-contract.mjs";
+import {
   initSync,
   inspect_alpha15_server_identity,
   verify_require_info_presentation,
   verify_sparse_require_info_presentation,
 } from "../../../FUSOU-TLSN-VERIFICATION-WORKER/src/wasm/fusou_tlsn_verifier.js";
-import originInventory from "../../../configs/tlsn-origin-inventory.json" with { type: "json" };
 import { canonicalProfileBytes, selectOriginTarget, type OriginPolicy } from "./origin-profile.js";
 
 const MAX_PRESENTATION_BYTES = 8 * 1024 * 1024;
@@ -25,6 +31,9 @@ const verificationTaskPayloadSchema = z.object({
   verification_result_key: z.string().regex(/^tlsn-verification\/[0-9a-f-]+\/result\.json$/),
   benchmark_trace_id: z.string().uuid().optional(),
   origin_policy: z.enum(["fixed", "inventory"]),
+  deployment_role: z.enum(["production", "canary", "test"]),
+  origin_inventory_sha256: z.string().regex(/^[A-Za-z0-9_-]{43}$/).optional(),
+  security_registry_set_sha256: z.string().regex(/^[A-Za-z0-9_-]{43}$/).optional(),
   profile: z.enum(["complete", "sparse"]),
   disclosure_mode: z.enum(["full", "sparse"]),
 }).strict().superRefine((payload, context) => {
@@ -35,6 +44,19 @@ const verificationTaskPayloadSchema = z.object({
       path: ["disclosure_mode"],
       message: "disclosure_mode does not match profile",
     });
+  }
+  const expectedPolicy = payload.deployment_role === "production" ? "inventory" : "fixed";
+  if (payload.origin_policy !== expectedPolicy) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ["origin_policy"], message: "origin_policy does not match deployment_role" });
+  }
+  if (payload.deployment_role === "production" && !payload.origin_inventory_sha256) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ["origin_inventory_sha256"], message: "Production task requires an Origin inventory digest" });
+  }
+  if (payload.deployment_role !== "production" && payload.origin_inventory_sha256 !== undefined) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ["origin_inventory_sha256"], message: "Only Production tasks may carry an Origin inventory digest" });
+  }
+  if (payload.deployment_role !== "test" && !payload.security_registry_set_sha256) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ["security_registry_set_sha256"], message: "Production and Canary tasks require a security registry set digest" });
   }
 });
 type VerificationTaskPayload = z.infer<typeof verificationTaskPayloadSchema>;
@@ -120,17 +142,37 @@ function wasmPath(): string {
   return found;
 }
 
+function originInventoryPath(): string {
+  const relativePath = "configs/tlsn-origin-inventory.json.txt";
+  const candidates = [
+    resolve(process.cwd(), "..", relativePath),
+    resolve(process.cwd(), relativePath),
+    resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "..", relativePath),
+  ];
+  const found = candidates.find((candidate) => existsSync(candidate));
+  if (!found) throw new Error("TLSN Origin inventory artifact is not available");
+  return found;
+}
+
+function readOriginInventory(): { raw: string; inventory: ReturnType<typeof parseOriginInventory> } {
+  const raw = readFileSync(originInventoryPath(), "utf8");
+  return { raw, inventory: parseOriginInventory(raw) };
+}
+
 function initializeVerifier(): void {
   initSync(readFileSync(wasmPath()));
 }
 
-function verifierConfig(profile: VerificationTaskPayload["profile"], originPolicy: OriginPolicy): {
+async function verifierConfig(payload: VerificationTaskPayload): Promise<{
   verifierKeyId: string;
   notaryKeyId: string;
   notaryKey: Uint8Array;
   serverIdentity?: string;
   profileSha256?: Uint8Array;
-} {
+}> {
+  const role = requiredEnv("TLSN_TRIGGER_DEPLOYMENT_ROLE").toLowerCase();
+  if (role !== payload.deployment_role) throw new Error("Trigger deployment role does not match Worker task payload");
+  if (role !== "production" && role !== "canary") throw new Error("Trigger runtime deployment role must be Production or Canary");
   if (process.env["TLSN_TRIGGER_TRUST_ROOT_CERTIFICATE_DER"] !== undefined) {
     throw new Error("custom Origin trust roots are unavailable to the Production Trigger");
   }
@@ -144,11 +186,35 @@ function verifierConfig(profile: VerificationTaskPayload["profile"], originPolic
     notaryKeyId: requiredEnv("TLSN_TRIGGER_NOTARY_KEY_ID"),
     notaryKey: decodeBase64Url(notaryKeyValue, 4096),
   };
-  if (originPolicy === "fixed") {
+  if (payload.origin_policy === "fixed") {
+    if (role !== "canary") throw new Error("fixed Origin policy is only valid for Canary Trigger deployments");
     const serverIdentity = requiredEnv("TLSN_TRIGGER_SERVER_IDENTITY");
-    const profileInput = profile === "sparse"
-      ? "TLSN_TRIGGER_SPARSE_PROFILE_SHA256"
-      : "TLSN_TRIGGER_PROFILE_SHA256";
+    const profileInput = payload.profile === "sparse" ? "TLSN_TRIGGER_SPARSE_PROFILE_SHA256" : "TLSN_TRIGGER_PROFILE_SHA256";
+    const completeHash = decodeBase64Url(requiredEnv("TLSN_TRIGGER_PROFILE_SHA256"), 32);
+    const sparseHash = decodeBase64Url(requiredEnv("TLSN_TRIGGER_SPARSE_PROFILE_SHA256"), 32);
+    const inventory = readOriginInventory().inventory;
+    if (role === "canary" && inventory.targets.some((target) => target.server_identity === serverIdentity)) {
+      throw new Error("Canary fixed Origin identity must remain separate from the Production inventory");
+    }
+    const expectedComplete = new Uint8Array(createHash("sha256").update(canonicalProfileBytes("complete", serverIdentity)).digest());
+    const expectedSparse = new Uint8Array(createHash("sha256").update(canonicalProfileBytes("sparse", serverIdentity)).digest());
+    if (!Buffer.from(completeHash).equals(Buffer.from(expectedComplete)) || !Buffer.from(sparseHash).equals(Buffer.from(expectedSparse))) {
+      throw new Error("Canary fixed profile hashes do not match the canonical profile contract");
+    }
+    const canaryTrustPayload = {
+      notary_key_id: config.notaryKeyId,
+      notary_registry: JSON.parse(canonicalJson(notaryRegistry)) as Record<string, string>,
+      profile_sha256: requiredEnv("TLSN_TRIGGER_PROFILE_SHA256"),
+      server_identity: serverIdentity,
+      sparse_profile_sha256: requiredEnv("TLSN_TRIGGER_SPARSE_PROFILE_SHA256"),
+    };
+    const expectedCanarySecuritySetSha256 = createHash("sha256")
+      .update(canonicalJson(canaryTrustPayload), "utf8")
+      .digest("base64url");
+    if (process.env["TLSN_SECURITY_REGISTRY_SET_SHA256"] !== expectedCanarySecuritySetSha256 ||
+      payload.security_registry_set_sha256 !== expectedCanarySecuritySetSha256) {
+      throw new Error("Canary Trigger security registry set does not match Worker task and runtime inputs");
+    }
     return {
       ...config,
       serverIdentity,
@@ -160,6 +226,29 @@ function verifierConfig(profile: VerificationTaskPayload["profile"], originPolic
     process.env["TLSN_TRIGGER_SPARSE_PROFILE_SHA256"] !== undefined) {
     throw new Error("Production inventory Trigger cannot use a static Origin identity or profile digest");
   }
+  const { raw, inventory } = readOriginInventory();
+  const originInventorySha256 = await sha256Base64Url(new TextEncoder().encode(raw));
+  if (originInventorySha256 !== payload.origin_inventory_sha256) {
+    throw new Error("Worker task Origin inventory digest does not match Trigger runtime inventory");
+  }
+  if (role !== "production") throw new Error("inventory Origin policy is only valid for Production Trigger deployments");
+  const profilePolicySha256 = await sha256Base64Url(new TextEncoder().encode(canonicalJson(PROFILE_CONTRACT_SPEC)));
+  const expectedTrustPayload = productionSecurityRegistrySetPayload({
+    notaryKeyId: config.notaryKeyId,
+    notaryRegistryRaw: canonicalJson(notaryRegistry),
+    originInventorySha256,
+    profilePolicySha256,
+  });
+  const expectedSecurityRegistrySetSha256 = await sha256Base64Url(
+    new TextEncoder().encode(canonicalJson(expectedTrustPayload)),
+  );
+  if (process.env["TLSN_SECURITY_REGISTRY_SET_SHA256"] !== expectedSecurityRegistrySetSha256) {
+    throw new Error("Trigger Production security registry set does not match runtime inputs");
+  }
+  if (payload.security_registry_set_sha256 !== expectedSecurityRegistrySetSha256) {
+    throw new Error("Worker task security registry set does not match Trigger Production runtime inputs");
+  }
+  void inventory;
   return config;
 }
 
@@ -273,12 +362,12 @@ export const verifyTlsnPresentation = task({
       initializeVerifier();
       verifierInitializationCompletedAt = wallClockNow();
 
-      const config = verifierConfig(payload.profile, payload.origin_policy);
+      const config = await verifierConfig(payload);
       let serverIdentity = config.serverIdentity;
       let profileSha256 = config.profileSha256;
       if (payload.origin_policy === "inventory") {
         const observedIdentity = inspect_alpha15_server_identity(presentation, config.notaryKey);
-        const target = selectOriginTarget(observedIdentity, originInventory.targets);
+        const target = selectOriginTarget(observedIdentity, readOriginInventory().inventory.targets);
         if (!target) throw new Error("verified Presentation server identity is outside the shipped Origin inventory");
         serverIdentity = target.server_identity;
         profileSha256 = new Uint8Array(createHash("sha256").update(

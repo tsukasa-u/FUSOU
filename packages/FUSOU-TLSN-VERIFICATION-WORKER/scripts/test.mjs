@@ -471,6 +471,10 @@ async function runAsyncTriggerSmokeTest() {
       for await (const chunk of request) chunks.push(chunk);
       const requestBody = JSON.parse(Buffer.concat(chunks).toString("utf8"));
       const payload = requestBody.payload;
+      assert.equal(payload.deployment_role, "test");
+      assert.equal(payload.origin_policy, "fixed");
+      assert.equal(payload.origin_inventory_sha256, undefined);
+      assert.equal(payload.security_registry_set_sha256, undefined);
       triggerPayload = payload;
       triggerPayloads.push(payload);
       const inputBody = JSON.stringify({

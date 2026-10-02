@@ -744,7 +744,7 @@ Configure these Worker values before deployment:
 - `TLSN_DEVICE_POSSESSION_AUTH_URL` set to the dedicated FUSOU-WEB TLSN possession endpoint (`/api/auth/anonymous-sync/v2/tlsn-device-proof` in the deployed API) for the test/non-production runtime
 - `TLSN_CANDIDATE_*` deployment values for the FUSOU-WEB endpoints, Supabase URL/key, and host allowlists. Canary additionally pins one `TLSN_CANDIDATE_SERVER_IDENTITY` and its complete/sparse profile hashes; Production omits these and selects the identity from a Notary-authenticated Presentation against the shipped 20-host Origin inventory, then computes the profile digest for that identity.
 - `TLSN_PRODUCTION_NOTARY_REGISTRY` is the single public Notary registry input for the Production Worker, production evidence verifier, and APP public manifest. The selected `TLSN_CANDIDATE_NOTARY_KEY_ID` entry must be the same alpha.15 public verifying key passed to the APP.
-- Production public configuration additionally requires `TLSN_PRODUCTION_NOTARY_ENDPOINT`, `TLSN_PRODUCTION_SESSION_AUTHORITY_ENDPOINT`, and `TLSN_PRODUCTION_VERIFICATION_ENDPOINT`. The schema-v3 `tlsn-production-public-manifest.json` binds the shipped Origin inventory schema, byte-level SHA-256, target count, and HTTPS port; it does not nominate one Production server.
+- Production public configuration additionally requires `TLSN_PRODUCTION_NOTARY_ENDPOINT`, `TLSN_PRODUCTION_SESSION_AUTHORITY_ENDPOINT`, and `TLSN_PRODUCTION_VERIFICATION_ENDPOINT`. The schema-v4 `tlsn-production-public-manifest.json` carries the selected Notary registry entry and raw registry, the inventory contract, and the recomputed security-set digest; it does not nominate one Production server.
 - `TLSN_SECURITY_REGISTRY_SET_SHA256` for non-secret deployment and trust-registry identity
 - `TLSN_TEST_AUTH_USERS` only in `TLSN_ENVIRONMENT=test`, as a JSON map of test bearer tokens to non-anonymous user IDs
 - `TLSN_BENCHMARK_TIMINGS=true` only in `TLSN_ENVIRONMENT=test` or an explicit canary deployment; it enables the opt-in E2E timing header and is ignored in normal production deployments
@@ -845,13 +845,14 @@ The public manifest schema is:
 
 ```json
 {
-	"schema_version": 2,
+	"schema_version": 4,
 	"scope": "tlsn-production-public-config",
 	"notary": {
 		"endpoint": "host:port",
 		"key_id": "...",
 		"verifying_key": "...",
 		"registry_entry": { "key_id": "...", "verifying_key": "..." },
+		"registry_raw": "...",
 		"registry_sha256": "..."
 	},
 	"session_authority": {
@@ -868,17 +869,23 @@ The public manifest schema is:
 			"scope": "tlsn-result-signing-key-registry",
 			"keys": []
 		},
-		"key_registry_sha256": "..."
+		"key_registry_sha256": "...",
+		"result_key_registry_envelope_sha256": "...",
+		"result_registry_root_key_id": "...",
+		"result_registry_root_public_key_spki": "..."
 	},
 	"verification_endpoint": "https://.../verify/tlsn",
-	"origin": {
-		"server_identity": "...",
+	"security_registry_set_sha256": "...",
+	"origin_inventory": {
+		"schema_version": 1,
+		"sha256": "...",
+		"target_count": 20,
 		"port": 443
 	}
 }
 ```
 
-The schema-v2 Origin object contains only `server_identity` and `port`. The hostname is the TLSN target identity; alpha.15 validates the captured Origin certificate chain, validity, and DNS identity through its built-in Mozilla Web PKI roots. Production and Canary do not publish or consume a target Origin DER root. `pnpm run render:app-config` maps this manifest to APP public TLSN settings, including the Result signer SPKI, signer key ID, and complete public registry, and receives the local artifact path as a separate argument. APP constructs its own fail-closed Result signature verifier from those public values. APP receives no Binding Authority registry, private key, bearer token, service credential, device key, or Cloudflare credential.
+Schema v4 binds the selected Notary key ID and canonical raw registry, the byte-level digest of the shipped Origin inventory, and the canonical profile-policy digest through `security_registry_set_sha256`. `origin_inventory` is an identity-selection allowlist, not a trust anchor: Production selects from its 20 DNS identities using the Notary-authenticated Presentation, while alpha.15 independently validates the captured Origin certificate chain, validity, and DNS identity through its built-in Mozilla Web PKI roots. Production and Canary do not publish or consume a target Origin DER root. `pnpm run render:app-config` maps this manifest to APP public TLSN settings, including the Result signer SPKI, signer key ID, and complete public registry, and receives the local artifact path as a separate argument. APP constructs its own fail-closed Result signature verifier from those public values. APP receives no Binding Authority registry, private key, bearer token, service credential, device key, or Cloudflare credential.
 
 For rotation, publish the new Notary registry and selected key together, then regenerate the public manifest and APP config. For Session or Binding Authority rotation, publish the new public SPKI, key ID, registry, and matching private secret as one deployment unit. The new key must be `ACTIVE`; the previous Session/Binding key may remain `VERIFY_ONLY` for historical receipt verification, but must not issue new receipts. Validate the old/new registry hashes and public-key identities offline before deployment, and retain the previous complete configuration for rollback.
 
@@ -892,7 +899,7 @@ pnpm run preflight:production
 
 `scripts/production-inputs.json` is the explicit production input contract and the deploy wrapper's allowlist. The preflight checks required production variables, clean HTTPS URLs and exact FUSOU-WEB paths, DNS allowlists, profile/security digests, Notary registry membership, result-key publication, and the absence of test fixtures, service-role keys, and device-private-key variables. It writes only non-secret failure metadata to `artifacts/tlsn-deployment-preflight.json` or `TLSN_PREFLIGHT_REPORT_PATH`, plus `artifacts/tlsn-production-provenance.json` or `TLSN_PROVENANCE_REPORT_PATH`; it never prints configuration values.
 
-The passing Production preflight also writes the public-only `tlsn-production-public-manifest.json` schema version 3. It contains the Notary endpoint, selected Notary key ID and registry entry, Session Authority endpoint/key ID/public SPKI and registry hash, Result signer key ID/public SPKI/registry and registry hash, Verification Worker endpoint, and the shipped Origin inventory schema, SHA-256, target count, and port. It contains no single Production hostname, Origin trust-root DER, private key, bearer token, service credential, device key, or Cloudflare credential. Use `pnpm run render:app-config -- --manifest <manifest> --canary-manifest <TLSN_CANARY_DEPLOYMENT_MANIFEST> --output <configs.toml> --artifact-output-path <local-directory> --runtime-attestation-endpoint <https-worker-health-url>` to create an APP config. The renderer validates the current Canary deployment manifest and derives the expected deployment ID, Worker name, and commit SHA from it; the artifact path and health URL are supplied separately because they are APP-local/runtime inputs.
+The passing Production preflight also writes the public-only `tlsn-production-public-manifest.json` schema version 4. It contains the Notary endpoint, selected Notary key ID and raw registry, Session Authority endpoint/key ID/public SPKI and registry hash, Result signer key ID/public SPKI/registry and registry hash, Verification Worker endpoint, security-set digest, and the shipped Origin inventory schema, SHA-256, target count, and port. It contains no single Production hostname, Origin trust-root DER, private key, bearer token, service credential, device key, or Cloudflare credential. Use `pnpm run render:app-config -- --manifest <manifest> --canary-manifest <TLSN_CANARY_DEPLOYMENT_MANIFEST> --output <configs.toml> --artifact-output-path <local-directory> --runtime-attestation-endpoint <https-worker-health-url>` to create an APP config. The renderer validates the current Canary deployment manifest and derives the expected deployment ID, Worker name, and commit SHA from it; the artifact path and health URL are supplied separately because they are APP-local/runtime inputs.
 
 APP TLSN verification loads native operating-system roots; the alpha.15 Worker verifier uses its bundled Mozilla roots. These stores can differ. APP's native-store availability preflight does not prove that a particular Origin chain validates, and a Worker rejection can occur even after APP's local handshake succeeds. A leaf renewal or intermediate change normally needs no FUSOU change if both stores can build a valid chain; introducing a root absent from the Worker bundle requires updating and redeploying the Worker verifier.
 

@@ -973,17 +973,36 @@ export const FORBIDDEN_EVIDENCE_INPUTS = [
   ...PRODUCTION_SECRET_INPUTS,
 ];
 
-export const SECURITY_IDENTITY_FIELDS = [
+export const COMMON_SECURITY_IDENTITY_FIELDS = [
   "git_commit_sha",
-  "server_identity",
-  "profile_sha256",
-  "sparse_profile_sha256",
   "verifier_key_id",
   "notary_key_id",
-  "security_registry_set_sha256",
   "notary_registry_sha256",
   "binding_authority",
 ];
+
+export const CANARY_SECURITY_IDENTITY_FIELDS = [
+  ...COMMON_SECURITY_IDENTITY_FIELDS,
+  "server_identity",
+  "profile_sha256",
+  "sparse_profile_sha256",
+  "security_registry_set_sha256",
+];
+
+export const PRODUCTION_SECURITY_IDENTITY_FIELDS = [
+  ...COMMON_SECURITY_IDENTITY_FIELDS,
+  "security_registry_set_sha256",
+  "origin_inventory_sha256",
+  "profile_policy_sha256",
+];
+
+export const SECURITY_IDENTITY_FIELDS = COMMON_SECURITY_IDENTITY_FIELDS;
+
+export function securityIdentityFieldsForRole(role) {
+  if (role === "canary") return CANARY_SECURITY_IDENTITY_FIELDS;
+  if (role === "production") return PRODUCTION_SECURITY_IDENTITY_FIELDS;
+  throw new Error(`unsupported deployment role: ${role}`);
+}
 
 export const DEPLOYMENT_IDENTITY_FIELDS = [
   "deployment_id",

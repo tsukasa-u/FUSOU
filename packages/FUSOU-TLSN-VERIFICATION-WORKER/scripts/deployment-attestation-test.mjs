@@ -4,10 +4,13 @@ import assert from "node:assert/strict";
 import { generateKeyPairSync } from "node:crypto";
 import {
   assertEvidenceContext,
+  assertProvenanceEvidence,
   assertRemoteAttestation,
   assertRemoteReportGate,
   createSignedRemoteAttestation,
+  DEPLOYMENT_PROVENANCE_SCHEMA_VERSION,
 } from "./deployment-attestation.mjs";
+import { PRODUCTION_SECURITY_IDENTITY_FIELDS } from "./deployment-contract.mjs";
 import { PRODUCTION_EVIDENCE_REQUIREMENTS } from "./production-evidence-contract.mjs";
 
 const { privateKey: signerPrivateKey, publicKey: signerPublicKey } = generateKeyPairSync("ed25519");
@@ -33,7 +36,7 @@ const securityIdentity = {
   binding_authority: "durable-single-use",
 };
 const canaryProvenance = {
-  schema_version: 2,
+  schema_version: DEPLOYMENT_PROVENANCE_SCHEMA_VERSION,
   scope: "tlsn-deployment-provenance",
   status: "PASS",
   environment: "production",
@@ -55,6 +58,32 @@ const canaryProvenance = {
     result_registry_root_public_key_spki: "canary-result-registry-root-key",
   },
 };
+const productionSecurityIdentity = {
+  git_commit_sha: context.git_commit_sha,
+  verifier_key_id: "verifier",
+  notary_key_id: "notary",
+  notary_registry_sha256: "C".repeat(43),
+  binding_authority: "durable-single-use",
+  security_registry_set_sha256: "G".repeat(43),
+  origin_inventory_sha256: "H".repeat(43),
+  profile_policy_sha256: "I".repeat(43),
+};
+const productionProvenance = {
+  ...canaryProvenance,
+  ...{ deployment_role: "production" },
+  security_identity: productionSecurityIdentity,
+  deployment_identity: { ...canaryProvenance.deployment_identity, deployment_role: "production", binding_mode: "random", worker_name: "fusou-tlsn-production" },
+};
+assertProvenanceEvidence(productionProvenance, { ...context, deployment_role: "production" }, "production");
+assert.deepEqual(PRODUCTION_SECURITY_IDENTITY_FIELDS.filter((field) => !(field in productionSecurityIdentity)), []);
+assert.throws(() => assertProvenanceEvidence({
+  ...canaryProvenance,
+  security_identity: { ...securityIdentity, origin_inventory_sha256: "H".repeat(43) },
+}, context, "canary"), /must not claim Production inventory or profile-policy digests/);
+assert.throws(() => assertProvenanceEvidence({
+  ...productionProvenance,
+  security_identity: { ...productionSecurityIdentity, profile_sha256: "A".repeat(43) },
+}, { ...context, deployment_role: "production" }, "production"), /must not claim a single Origin identity/);
 const remoteReport = {
   schema_version: 2,
   scope: "remote-deployed-synthetic",

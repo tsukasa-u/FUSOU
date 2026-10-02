@@ -12,8 +12,12 @@ import {
   resultRegistryEnvelopeHash,
 } from "./result-registry-envelope.mjs";
 import { loadOriginInventoryContract } from "./origin-inventory-contract.mjs";
+import {
+  PROFILE_CONTRACT_SPEC,
+  productionSecurityRegistrySetPayload,
+} from "../src/origin-trust-contract.mjs";
 
-export const PRODUCTION_PUBLIC_MANIFEST_SCHEMA_VERSION = 3;
+export const PRODUCTION_PUBLIC_MANIFEST_SCHEMA_VERSION = 4;
 export const PRODUCTION_PUBLIC_MANIFEST_SCOPE = "tlsn-production-public-config";
 export const CANONICAL_NOTARY_REGISTRY_INPUT = "TLSN_PRODUCTION_NOTARY_REGISTRY";
 export const LEGACY_NOTARY_REGISTRY_INPUTS = ["TLSN_CANDIDATE_NOTARY_REGISTRY"];
@@ -315,7 +319,7 @@ export function assertPublicManifest(manifest) {
     throw new Error("public Production TLSN manifest schema is invalid");
   }
   assertExactKeys(manifest, ["schema_version", "scope", "notary", "session_authority", "result_signing", "verification_endpoint", "origin_inventory", "security_registry_set_sha256"], "manifest");
-  assertExactKeys(manifest.notary, ["endpoint", "key_id", "verifying_key", "registry_entry", "registry_sha256"], "manifest.notary");
+  assertExactKeys(manifest.notary, ["endpoint", "key_id", "verifying_key", "registry_entry", "registry_raw", "registry_sha256"], "manifest.notary");
   assertExactKeys(manifest.notary.registry_entry, ["key_id", "verifying_key"], "manifest.notary.registry_entry");
   if (manifest.notary.registry_entry.key_id !== manifest.notary.key_id || manifest.notary.registry_entry.verifying_key !== manifest.notary.verifying_key) {
     throw new Error("manifest Notary registry entry does not match its public key");
@@ -323,6 +327,13 @@ export function assertPublicManifest(manifest) {
   assertRawNotaryEndpoint(manifest.notary.endpoint);
   if (!KEY_ID_PATTERN.test(manifest.notary.key_id)) throw new Error("manifest Notary key ID is invalid");
   assertAlpha15NotaryVerifyingKey(manifest.notary.verifying_key, "manifest Notary verifying key");
+  const manifestNotaryRegistry = parseNotaryRegistry(manifest.notary.registry_raw, "manifest Notary registry");
+  if (manifestNotaryRegistry[manifest.notary.key_id] !== manifest.notary.verifying_key) {
+    throw new Error("manifest Notary registry does not contain the selected public key");
+  }
+  if (notaryRegistrySha256(manifest.notary.registry_raw) !== manifest.notary.registry_sha256) {
+    throw new Error("manifest Notary registry hash does not match its registry bytes");
+  }
   assertSha256(manifest.notary.registry_sha256, "manifest Notary registry hash");
   assertExactKeys(manifest.session_authority, ["endpoint", "key_id", "public_key_spki", "key_registry_sha256"], "manifest.session_authority");
   assertCleanHttpsEndpoint(manifest.session_authority.endpoint, "/attestation/session", "manifest Session Authority endpoint");
@@ -364,6 +375,21 @@ export function assertPublicManifest(manifest) {
     throw new Error("manifest Origin inventory does not match the shipped inventory contract");
   }
   assertSha256(manifest.security_registry_set_sha256, "manifest security registry set hash");
+  const profilePolicySha256 = createHash("sha256")
+    .update(canonicalJson(PROFILE_CONTRACT_SPEC), "utf8")
+    .digest("base64url");
+  const trustSetPayload = productionSecurityRegistrySetPayload({
+    notaryKeyId: manifest.notary.key_id,
+    notaryRegistryRaw: canonicalJson(manifestNotaryRegistry),
+    originInventorySha256: shippedInventory.sha256,
+    profilePolicySha256,
+  });
+  const expectedSecurityRegistrySetSha256 = createHash("sha256")
+    .update(canonicalJson(trustSetPayload), "utf8")
+    .digest("base64url");
+  if (manifest.security_registry_set_sha256 !== expectedSecurityRegistrySetSha256) {
+    throw new Error("manifest security registry set does not match its Notary, inventory, and profile inputs");
+  }
   return manifest;
 }
 
@@ -413,6 +439,7 @@ export function buildProductionPublicManifest({
     notary: {
       endpoint: notaryEndpoint,
       ...notary,
+      registry_raw: notaryRegistryRaw,
     },
     session_authority: {
       endpoint: sessionAuthorityEndpoint,

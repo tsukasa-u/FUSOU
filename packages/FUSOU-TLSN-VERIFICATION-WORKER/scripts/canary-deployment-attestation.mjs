@@ -624,7 +624,7 @@ export function verifyCanaryDeploymentRuntime({
   }
   if (fixtureOnly) throw new Error("fixture or synthetic Canary evidence cannot become a real attestation");
   if (!runtimeHealth || typeof runtimeHealth !== "object" || Array.isArray(runtimeHealth)) throw new Error("Canary /health response is malformed");
-  if (runtimeHealth.schema_version !== 2 || runtimeHealth.ok !== true) throw new Error("Canary /health response is not a passing schema");
+  if (runtimeHealth.schema_version !== 3 || runtimeHealth.ok !== true) throw new Error("Canary /health response is not a passing schema");
   if (runtimeHealth.environment !== "production" || runtimeHealth.deployment_role !== "canary") throw new Error("runtime is not production Canary");
   if (runtimeHealth.git_commit_sha !== commitSha) throw new Error("runtime Git SHA does not match checked-out HEAD");
   if (runtimeHealth.deployment_id !== deploymentId) throw new Error("runtime deployment identity does not match the authorized Canary deployment");

@@ -1,10 +1,11 @@
 #!/usr/bin/env node
 
 import assert from "node:assert/strict";
-import { generateKeyPairSync } from "node:crypto";
+import { createHash, generateKeyPairSync } from "node:crypto";
 import { resolve } from "node:path";
 import { unstable_dev } from "wrangler";
 import { runProductionConfigurationFailClosedSmokeTest } from "../test/index-smoke.mjs";
+import { productionSecurityRegistrySetHash } from "./security-registry-set-contract.mjs";
 
 const packageDirectory = resolve(new URL("..", import.meta.url).pathname);
 
@@ -37,6 +38,13 @@ const notaryKeyId = "notary-production-config";
 const sessionKeyId = "session-production-config";
 const bindingKeyId = "binding-production-config";
 const resultKeyId = "result-production-config";
+const notaryRegistryRaw = JSON.stringify({
+  [notaryKeyId]: "ASEAAAAAAAAAAxuExVZ7EmRAmV0-1aq6BWXXHhg0YEgZ_5wX9enV3QeP",
+});
+const securityRegistrySetSha256 = productionSecurityRegistrySetHash({
+  notaryKeyId,
+  notaryRegistryRaw,
+}).sha256;
 const env = {
   TLSN_ENVIRONMENT: "production",
   TLSN_DEPLOYMENT_ROLE: "production",
@@ -44,12 +52,10 @@ const env = {
   TLSN_BINDING_TTL_SECONDS: "60",
   TLSN_CANDIDATE_VERIFIER_KEY_ID: "verifier-production-config",
   TLSN_CANDIDATE_NOTARY_KEY_ID: notaryKeyId,
-  TLSN_PRODUCTION_NOTARY_REGISTRY: JSON.stringify({
-    [notaryKeyId]: "ASEAAAAAAAAAAxuExVZ7EmRAmV0-1aq6BWXXHhg0YEgZ_5wX9enV3QeP",
-  }),
+  TLSN_PRODUCTION_NOTARY_REGISTRY: notaryRegistryRaw,
   TLSN_PRODUCTION_RESULT_SIGNING_PRIVATE_KEY_PKCS8: result.privateKeyPkcs8,
   TLSN_PRODUCTION_DEPLOYMENT_ID: "production-config-only",
-  TLSN_SECURITY_REGISTRY_SET_SHA256: "A".repeat(43),
+  TLSN_SECURITY_REGISTRY_SET_SHA256: securityRegistrySetSha256,
   TLSN_PRODUCTION_RESULT_PUBLIC_KEY_SPKI: result.publicKeySpki,
   TLSN_PRODUCTION_RESULT_SIGNER_KEY_ID: resultKeyId,
   TLSN_PRODUCTION_RESULT_SIGNING_KEY_REGISTRY: keyRegistry("tlsn-result-signing-key-registry", resultKeyId, result.publicKeySpki),
@@ -79,24 +85,41 @@ for (const staticOriginInput of [
   assert.equal(env[staticOriginInput], undefined);
 }
 
-const worker = await unstable_dev(resolve(packageDirectory, "src/index.ts"), {
-  config: resolve(packageDirectory, "wrangler.toml"),
-  env: "production",
-  envFiles: [],
-  vars: env,
-  persist: false,
-  bundle: true,
-  local: true,
-  compatibilityDate: "2026-07-29",
-  experimental: {
-    disableExperimentalWarning: true,
-    forceLocal: true,
-    testMode: true,
-  },
-});
+async function startWorker(vars) {
+  return unstable_dev(resolve(packageDirectory, "src/index.ts"), {
+    config: resolve(packageDirectory, "wrangler.toml"),
+    env: "production",
+    envFiles: [],
+    vars,
+    persist: false,
+    bundle: true,
+    local: true,
+    compatibilityDate: "2026-07-29",
+    experimental: {
+      disableExperimentalWarning: true,
+      forceLocal: true,
+      testMode: true,
+    },
+  });
+}
 
+const worker = await startWorker(env);
 try {
   await runProductionConfigurationFailClosedSmokeTest(worker.fetch);
 } finally {
   await worker.stop();
+}
+
+const mismatchedWorker = await startWorker({
+  ...env,
+  TLSN_SECURITY_REGISTRY_SET_SHA256: createHash("sha256").update("mismatched-production-trust").digest("base64url"),
+});
+try {
+  const response = await mismatchedWorker.fetch("https://verify.test/health");
+  assert.equal(response.status, 503);
+  const health = await response.json();
+  assert.equal(health.ok, false);
+  assert.equal(health.security_identity.trust_contract_valid, false);
+} finally {
+  await mismatchedWorker.stop();
 }

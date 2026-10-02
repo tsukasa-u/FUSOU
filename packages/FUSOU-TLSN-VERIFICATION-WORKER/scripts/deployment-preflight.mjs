@@ -16,11 +16,10 @@ import {
   REMOTE_ATTESTATION_SECRET_INPUTS,
   TEST_ONLY_INPUTS,
   WORKFLOW_EVIDENCE_INPUTS,
-  SECURITY_IDENTITY_FIELDS,
   secretInputsForRole,
   inputsForRole,
 } from "./deployment-contract.mjs";
-import { checkoutCommit, workflowContextFromEnvironment } from "./deployment-attestation.mjs";
+import { canonicalJson, checkoutCommit, workflowContextFromEnvironment } from "./deployment-attestation.mjs";
 import { assertAuthorityKeyRegistry, authorityKeyRegistrySha256 } from "./authority-key-registry.mjs";
 import {
   CANARY_RUNTIME_ATTESTATION_SIGNER_KEY_ID_INPUT,
@@ -40,11 +39,13 @@ import {
 import {
   assertProfileContractInputs,
   profileContractArtifact,
+  PROFILE_CONTRACT_SPEC,
 } from "./profile-canonical-contract.mjs";
 import {
   productionSecurityRegistrySetHash,
   securityRegistrySetHash,
 } from "./security-registry-set-contract.mjs";
+import { loadOriginInventoryContract } from "./origin-inventory-contract.mjs";
 
 const packageDirectory = resolve(new URL("..", import.meta.url).pathname);
 const DEFAULT_REPORT_PATH = resolve(packageDirectory, "artifacts/tlsn-deployment-preflight.json");
@@ -334,9 +335,10 @@ async function main() {
     }
   }
   requireBase64UrlLength(failures, "TLSN_SECURITY_REGISTRY_SET_SHA256", 43);
+  let computedSecurityRegistrySet;
   if (registryRaw && (role === "production" || (value("TLSN_CANDIDATE_PROFILE_SHA256") && value("TLSN_CANDIDATE_SERVER_IDENTITY") && value("TLSN_CANDIDATE_SPARSE_PROFILE_SHA256")))) {
     try {
-      const expectedSecurityRegistrySetSha256 = role === "production"
+      computedSecurityRegistrySet = role === "production"
         ? productionSecurityRegistrySetHash({
           notaryKeyId: value("TLSN_CANDIDATE_NOTARY_KEY_ID"),
           notaryRegistryRaw: registryRaw,
@@ -348,6 +350,7 @@ async function main() {
           serverIdentity: value("TLSN_CANDIDATE_SERVER_IDENTITY"),
           sparseProfileSha256: value("TLSN_CANDIDATE_SPARSE_PROFILE_SHA256"),
         }).sha256;
+      const expectedSecurityRegistrySetSha256 = computedSecurityRegistrySet.sha256;
       if (value("TLSN_SECURITY_REGISTRY_SET_SHA256") !== expectedSecurityRegistrySetSha256) {
         addFailure(failures, "TLSN_SECURITY_REGISTRY_SET_SHA256", "must match the canonical security registry set derived from the supplied inputs");
       }
@@ -543,8 +546,12 @@ async function main() {
   };
   const reportPath = value("TLSN_PREFLIGHT_REPORT_PATH") ?? DEFAULT_REPORT_PATH;
   const provenancePath = value("TLSN_PROVENANCE_REPORT_PATH") ?? DEFAULT_PROVENANCE_PATH;
+  const productionOriginInventory = role === "production" ? loadOriginInventoryContract() : null;
+  const productionProfilePolicySha256 = role === "production"
+    ? sha256Base64Url(Buffer.from(canonicalJson(PROFILE_CONTRACT_SPEC), "utf8"))
+    : null;
   const provenance = {
-    schema_version: 2,
+    schema_version: 3,
     scope: "tlsn-deployment-provenance",
     generated_at: new Date().toISOString(),
     created_at: new Date().toISOString(),
@@ -553,12 +560,18 @@ async function main() {
     deployment_role: role ?? null,
     security_identity: {
       git_commit_sha: value("TLSN_GIT_COMMIT_SHA") ?? null,
-      server_identity: value("TLSN_CANDIDATE_SERVER_IDENTITY") ?? null,
-      profile_sha256: value("TLSN_CANDIDATE_PROFILE_SHA256") ?? null,
-      sparse_profile_sha256: value("TLSN_CANDIDATE_SPARSE_PROFILE_SHA256") ?? null,
+      ...(role === "canary" ? {
+        server_identity: value("TLSN_CANDIDATE_SERVER_IDENTITY") ?? null,
+        profile_sha256: value("TLSN_CANDIDATE_PROFILE_SHA256") ?? null,
+        sparse_profile_sha256: value("TLSN_CANDIDATE_SPARSE_PROFILE_SHA256") ?? null,
+      } : {}),
       verifier_key_id: value("TLSN_CANDIDATE_VERIFIER_KEY_ID") ?? null,
       notary_key_id: value("TLSN_CANDIDATE_NOTARY_KEY_ID") ?? null,
       security_registry_set_sha256: value("TLSN_SECURITY_REGISTRY_SET_SHA256") ?? null,
+      ...(role === "production" ? {
+        origin_inventory_sha256: productionOriginInventory?.sha256 ?? null,
+        profile_policy_sha256: productionProfilePolicySha256,
+      } : {}),
       notary_registry_sha256: registryRaw ? sha256Base64Url(registryRaw) : null,
       binding_authority: "durable-single-use",
     },

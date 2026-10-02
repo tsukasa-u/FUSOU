@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "source": "packages/configs/configs.toml:[app.connect_kc_server.server_list]",
+  "targets": [
+    { "server_index": 1, "server_identity": "w01y.kancolle-server.com", "port": 443 },
+    { "server_index": 2, "server_identity": "w02k.kancolle-server.com", "port": 443 },
+    { "server_index": 3, "server_identity": "w03s.kancolle-server.com", "port": 443 },
+    { "server_index": 4, "server_identity": "w04m.kancolle-server.com", "port": 443 },
+    { "server_index": 5, "server_identity": "w05o.kancolle-server.com", "port": 443 },
+    { "server_index": 6, "server_identity": "w06k.kancolle-server.com", "port": 443 },
+    { "server_index": 7, "server_identity": "w07l.kancolle-server.com", "port": 443 },
+    { "server_index": 8, "server_identity": "w08r.kancolle-server.com", "port": 443 },
+    { "server_index": 9, "server_identity": "w09s.kancolle-server.com", "port": 443 },
+    { "server_index": 10, "server_identity": "w10b.kancolle-server.com", "port": 443 },
+    { "server_index": 11, "server_identity": "w11t.kancolle-server.com", "port": 443 },
+    { "server_index": 12, "server_identity": "w12p.kancolle-server.com", "port": 443 },
+    { "server_index": 13, "server_identity": "w13b.kancolle-server.com", "port": 443 },
+    { "server_index": 14, "server_identity": "w14h.kancolle-server.com", "port": 443 },
+    { "server_index": 15, "server_identity": "w15p.kancolle-server.com", "port": 443 },
+    { "server_index": 16, "server_identity": "w16s.kancolle-server.com", "port": 443 },
+    { "server_index": 17, "server_identity": "w17k.kancolle-server.com", "port": 443 },
+    { "server_index": 18, "server_identity": "w18i.kancolle-server.com", "port": 443 },
+    { "server_index": 19, "server_identity": "w19s.kancolle-server.com", "port": 443 },
+    { "server_index": 20, "server_identity": "w20h.kancolle-server.com", "port": 443 }
+  ]
+}

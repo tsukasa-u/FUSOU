@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { createHash, createPublicKey, sign as signSignature, verify as verifySignature } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
+import { canonicalJson, PROFILE_CONTRACT_SPEC } from "../src/origin-trust-contract.mjs";
 
 function base64Url(bytes) {
   return Buffer.from(bytes).toString("base64url");
@@ -510,9 +511,21 @@ export async function runProductionConfigurationFailClosedSmokeTest(fetch) {
   assert.equal(healthResponse.status, 200);
   const health = await healthResponse.json();
   assert.equal(health.environment, "production");
-  assert.equal(health.profile_sha256, null);
-  assert.equal(health.sparse_profile_sha256, null);
-  assert.equal(health.security_identity.server_identity, null);
+  assert.equal(health.schema_version, 3);
+  assert.equal("profile_sha256" in health, false);
+  assert.equal("sparse_profile_sha256" in health, false);
+  assert.equal("server_identity" in health.security_identity, false);
+  assert.equal("profile_sha256" in health.security_identity, false);
+  assert.equal("sparse_profile_sha256" in health.security_identity, false);
+  assert.match(health.security_identity.origin_inventory_sha256, /^[A-Za-z0-9_-]{43}$/);
+  assert.match(health.security_identity.profile_policy_sha256, /^[A-Za-z0-9_-]{43}$/);
+  const inventoryBytes = await readFile(new URL("../../configs/tlsn-origin-inventory.json.txt", import.meta.url));
+  assert.equal(health.security_identity.origin_inventory_sha256, createHash("sha256").update(inventoryBytes).digest("base64url"));
+  assert.equal(
+    health.security_identity.profile_policy_sha256,
+    createHash("sha256").update(canonicalJson(PROFILE_CONTRACT_SPEC), "utf8").digest("base64url"),
+  );
+  assert.equal(health.security_identity.trust_contract_valid, true);
 
   const response = await fetch("https://verify.test/attestation/session", {
     method: "POST",

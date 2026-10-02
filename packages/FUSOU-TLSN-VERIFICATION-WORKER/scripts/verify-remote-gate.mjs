@@ -10,10 +10,11 @@ import {
   assertTimestamp,
   assertValidationId,
   assertValidationWindow,
+  CANARY_SECURITY_IDENTITY_FIELDS,
+  COMMON_SECURITY_IDENTITY_FIELDS,
   createSignedRemoteAttestation,
   DEPLOYMENT_IDENTITY_FIELDS,
   RESULT_IDENTITY_FIELDS,
-  SECURITY_IDENTITY_FIELDS,
   workflowContextFromEnvironment,
   writeImmutableJson,
   maxAttestationAgeSecondsFromEnvironment,
@@ -68,15 +69,15 @@ async function main() {
   assertValidationWindow(report.validation_started_at, report.validation_finished_at);
   assertValidationId(report.validation_id);
   assertProvenanceEvidence(canary, expectedContext, "canary");
-  compareIdentity(report.security_identity, canary.security_identity, "remote validation security", SECURITY_IDENTITY_FIELDS);
+  compareIdentity(report.security_identity, canary.security_identity, "remote validation security", CANARY_SECURITY_IDENTITY_FIELDS);
   compareIdentity(report.deployment_identity, canary.deployment_identity, "remote validation deployment", DEPLOYMENT_IDENTITY_FIELDS);
   compareIdentity(report.result_identity, canary.result_identity, "remote validation result", RESULT_IDENTITY_FIELDS);
   const productionPath = optional("TLSN_PROVENANCE_REPORT_PATH");
   const production = productionPath ? await readJson(productionPath) : undefined;
   if (production) {
     assertProvenanceEvidence(production, { ...expectedContext, deployment_role: "production" }, "production");
-    compareIdentity(canary.security_identity, production.security_identity, "canary/production security", SECURITY_IDENTITY_FIELDS);
-    compareIdentity(report.security_identity, production.security_identity, "remote/production security", SECURITY_IDENTITY_FIELDS);
+    compareIdentity(canary.security_identity, production.security_identity, "canary/production shared security", COMMON_SECURITY_IDENTITY_FIELDS);
+    compareIdentity(report.security_identity, production.security_identity, "remote/production shared security", COMMON_SECURITY_IDENTITY_FIELDS);
     if (canary.result_identity.result_public_key_spki === production.result_identity.result_public_key_spki) {
       throw new Error("canary and production result public keys must be different");
     }
@@ -89,10 +90,10 @@ async function main() {
   if (health.environment !== "production" || health.deployment_role !== "canary") {
     throw new Error("current remote Worker is not the production canary");
   }
-  compareIdentity(health.security_identity, canary.security_identity, "current canary Worker security", SECURITY_IDENTITY_FIELDS);
+  compareIdentity(health.security_identity, canary.security_identity, "current canary Worker security", CANARY_SECURITY_IDENTITY_FIELDS);
   compareIdentity(health.deployment_identity, canary.deployment_identity, "current canary Worker deployment", DEPLOYMENT_IDENTITY_FIELDS);
   compareIdentity(health.result_identity, canary.result_identity, "current canary Worker result", RESULT_IDENTITY_FIELDS);
-  compareIdentity(report.security_identity, health.security_identity, "remote validation/current canary security", SECURITY_IDENTITY_FIELDS);
+  compareIdentity(report.security_identity, health.security_identity, "remote validation/current canary security", CANARY_SECURITY_IDENTITY_FIELDS);
 
   const attestationPath = optional("TLSN_REMOTE_ATTESTATION_PATH");
   const attestationOutputPath = optional("TLSN_REMOTE_ATTESTATION_OUTPUT_PATH");

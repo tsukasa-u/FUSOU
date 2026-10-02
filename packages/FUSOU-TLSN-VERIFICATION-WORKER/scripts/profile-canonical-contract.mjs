@@ -1,99 +1,31 @@
 import { createHash } from "node:crypto";
 import { canonicalJson } from "./production-trust-contract.mjs";
+import {
+  COMPLETE_DISCLOSURE_MODE,
+  COMPLETE_PROFILE_ID,
+  FIXTURE_SERVER_IDENTITY,
+  PROFILE_CONTRACT_SCHEMA_VERSION,
+  PROFILE_CONTRACT_SPEC,
+  REQUIRE_INFO_TARGET,
+  RESPONSE_MODES,
+  SPARSE_DISCLOSURE_MODE,
+  SPARSE_PROFILE_ID,
+} from "../src/origin-trust-contract.mjs";
 
-export const PROFILE_CONTRACT_SCHEMA_VERSION = 1;
-export const COMPLETE_PROFILE_ID = "fusou-require-info-v1";
-export const SPARSE_PROFILE_ID = "fusou-require-info-v2-sparse";
-export const REQUIRE_INFO_TARGET = "/kcsapi/api_get_member/require_info";
-export const FIXTURE_SERVER_IDENTITY = "game.example.test";
-export const COMPLETE_DISCLOSURE_MODE = "full";
-export const SPARSE_DISCLOSURE_MODE = "sparse";
-export const RESPONSE_MODES = ["async", "sync"];
+export {
+  COMPLETE_DISCLOSURE_MODE,
+  COMPLETE_PROFILE_ID,
+  FIXTURE_SERVER_IDENTITY,
+  PROFILE_CONTRACT_SCHEMA_VERSION,
+  PROFILE_CONTRACT_SPEC,
+  REQUIRE_INFO_TARGET,
+  RESPONSE_MODES,
+  SPARSE_DISCLOSURE_MODE,
+  SPARSE_PROFILE_ID,
+};
 
 const DNS_HOSTNAME_PATTERN = /^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/;
 const SHA256_BASE64URL_PATTERN = /^[A-Za-z0-9_-]{43}$/;
-
-export const PROFILE_CONTRACT_SPEC = {
-  schema_version: PROFILE_CONTRACT_SCHEMA_VERSION,
-  source_of_truth: "scripts/profile-canonical-contract.mjs",
-  canonicalization: "canonicalJson",
-  encoding: "UTF-8",
-  whitespace: "none",
-  hash_algorithm: "SHA-256",
-  digest_encoding: "base64url without padding",
-  complete: {
-    profile_id: COMPLETE_PROFILE_ID,
-    field_set: ["id", "server_identity", "target"],
-    required_fields: ["id", "server_identity", "target"],
-    optional_fields: [],
-    field_types: { id: "string", server_identity: "string", target: "string" },
-    fixed_fields: { id: COMPLETE_PROFILE_ID, target: REQUIRE_INFO_TARGET },
-    disclosure_mode: COMPLETE_DISCLOSURE_MODE,
-  },
-  sparse: {
-    profile_id: SPARSE_PROFILE_ID,
-    field_set: ["disclosure_mode", "id", "server_identity", "target", "version"],
-    required_fields: ["disclosure_mode", "id", "server_identity", "target", "version"],
-    optional_fields: [],
-    field_types: {
-      disclosure_mode: "string",
-      id: "string",
-      server_identity: "string",
-      target: "string",
-      version: "integer",
-    },
-    fixed_fields: {
-      disclosure_mode: SPARSE_DISCLOSURE_MODE,
-      id: SPARSE_PROFILE_ID,
-      target: REQUIRE_INFO_TARGET,
-      version: 2,
-    },
-    disclosure_mode: SPARSE_DISCLOSURE_MODE,
-    profile_version: 2,
-  },
-  server_identity: {
-    meaning: "TLSN attestation target origin/server identity, not a network destination",
-    fixture_only_value: FIXTURE_SERVER_IDENTITY,
-    production_input: "derived from the verified Presentation and matched to the shipped Origin inventory",
-  },
-  hash_inputs: ["canonical JSON", "UTF-8 bytes"],
-  hash_exclusions: [
-    "filename",
-    "path",
-    "environment",
-    "deployment_id",
-    "generated_at",
-    "response_mode",
-    "signing key",
-    "Notary private key",
-    "callback secret",
-    "access token",
-  ],
-  disclosure_semantics: {
-    complete: "full disclosure of the complete profile contract",
-    sparse: "sparse disclosure using the sparse profile contract and version 2",
-    relation: "complete and sparse profiles must share server_identity and target but have distinct IDs and hashes",
-  },
-  response_mode_semantics: {
-    meaning: "verification result delivery mode, independent from profile semantics",
-    allowed_values: RESPONSE_MODES,
-    hash_inclusion: false,
-    capability_input: "TLSN_CANARY_SYNCHRONOUS_RESPONSE_ENABLED",
-  },
-  production_inputs: {
-    canary: {
-      server_identity: "TLSN_CANDIDATE_SERVER_IDENTITY",
-      complete_profile_hash: "TLSN_CANDIDATE_PROFILE_SHA256",
-      sparse_profile_hash: "TLSN_CANDIDATE_SPARSE_PROFILE_SHA256",
-    },
-    production: {
-      server_identity: "verified Presentation identity matched to shipped Origin inventory",
-      profile_hashes: "computed at verification time for the selected identity and disclosure profile",
-    },
-    disclosure_mode: "request-time profile selection: full or sparse",
-    response_mode: "request-time delivery selection: async or sync",
-  },
-};
 
 export const PROFILE_CONTRACT_INPUT_MANIFEST = {
   schema_version: PROFILE_CONTRACT_SCHEMA_VERSION,

@@ -5,11 +5,11 @@ import { dirname } from "node:path";
 
 const securityIdentityFields = [
   "git_commit_sha",
-  "server_identity",
-  "profile_sha256",
   "verifier_key_id",
   "notary_key_id",
   "security_registry_set_sha256",
+  "origin_inventory_sha256",
+  "profile_policy_sha256",
   "notary_registry_sha256",
   "binding_authority",
 ];

@@ -8,6 +8,7 @@ import { blockedProductionEvidenceContract } from "./production-evidence-contrac
 import {
   assertCheckoutCommit,
   assertProvenanceEvidence,
+  DEPLOYMENT_PROVENANCE_SCHEMA_VERSION,
   workflowContextFromEnvironment,
 } from "./deployment-attestation.mjs";
 
@@ -16,7 +17,7 @@ const DEFAULT_SAMPLE_COUNT = 100;
 const DEFAULT_REPORT_PATH = resolve(packageDirectory, "artifacts/tlsn-remote-validation.json");
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const FORBIDDEN_GAME_SERVER_HOST_PATTERN = /(?:^|\.)(?:kancolle-server\.com|kancolle\.dmm\.com)$/i;
-const SECURITY_IDENTITY_FIELDS = [
+const CANARY_SECURITY_IDENTITY_FIELDS = [
   "git_commit_sha",
   "server_identity",
   "profile_sha256",
@@ -53,7 +54,7 @@ async function loadExpectedProvenance() {
   const file = required("TLSN_REMOTE_EXPECTED_PROVENANCE_JSON");
   const parsed = JSON.parse(await readFile(file, "utf8"));
   if (
-    parsed?.schema_version !== 2 ||
+    parsed?.schema_version !== DEPLOYMENT_PROVENANCE_SCHEMA_VERSION ||
     parsed?.scope !== "tlsn-deployment-provenance" ||
     parsed?.status !== "PASS" ||
     parsed?.deployment_role !== "canary" ||
@@ -62,7 +63,7 @@ async function loadExpectedProvenance() {
     throw new Error("remote validation requires a production canary provenance manifest");
   }
   for (const [name, fields] of [
-    ["security_identity", SECURITY_IDENTITY_FIELDS],
+    ["security_identity", CANARY_SECURITY_IDENTITY_FIELDS],
     ["deployment_identity", DEPLOYMENT_IDENTITY_FIELDS],
     ["result_identity", RESULT_IDENTITY_FIELDS],
   ]) {

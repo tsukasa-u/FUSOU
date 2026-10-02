@@ -121,6 +121,8 @@ artifact_output_path = ""
 [app]
     [app.connect_kc_server.server_list]
     # Server hostname mappings (automatically used by the application)
+    # Normal game connections may use a hostname or IP in kc_server_name; TLSN Production
+    # selects only the canonical DNS identities in the separate 20-host inventory.
     #
     #  No. = server hostname            # server name
        1   = "w01y.kancolle-server.com" # 横須賀鎮守府

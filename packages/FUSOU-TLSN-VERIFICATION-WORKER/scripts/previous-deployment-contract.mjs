@@ -1,10 +1,10 @@
 export const PREVIOUS_IDENTITY_FIELDS = [
   ["git_commit_sha", "security_identity"],
-  ["server_identity", "security_identity"],
-  ["profile_sha256", "security_identity"],
   ["verifier_key_id", "security_identity"],
   ["notary_key_id", "security_identity"],
   ["security_registry_set_sha256", "security_identity"],
+  ["origin_inventory_sha256", "security_identity"],
+  ["profile_policy_sha256", "security_identity"],
   ["notary_registry_sha256", "security_identity"],
   ["binding_authority", "security_identity"],
   ["deployment_id", "deployment_identity"],

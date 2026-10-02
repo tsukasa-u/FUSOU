@@ -53,8 +53,17 @@ import initVerifier, {
   verify_require_info_presentation,
   verify_sparse_require_info_presentation,
 } from "./wasm/fusou_tlsn_verifier.js";
-import originInventory from "../../configs/tlsn-origin-inventory.json";
+import originInventoryRaw from "../../configs/tlsn-origin-inventory.json.txt";
 import wasmModule from "./wasm/fusou_tlsn_verifier_bg.wasm";
+import {
+  canonicalJson,
+  parseOriginInventory,
+  PROFILE_CONTRACT_SPEC,
+  productionSecurityRegistrySetPayload,
+  sha256Base64Url,
+} from "./origin-trust-contract.mjs";
+
+const originInventory = parseOriginInventory(originInventoryRaw);
 export type Bindings = {
   TLSN_ENVIRONMENT: string;
   CF_VERSION_METADATA?: {
@@ -492,6 +501,7 @@ const notaryRegistrySchema = z.record(
 
 type VerifierConfig = z.infer<typeof configSchema> & {
   productionInventoryMode: boolean;
+  originInventorySha256: string | undefined;
   profileSha256Bytes: Uint8Array | undefined;
   sparseProfileSha256Bytes: Uint8Array | undefined;
   notaryKeyBytes: Uint8Array;
@@ -1228,6 +1238,42 @@ function isSha256Base64Url(value: string | undefined): boolean {
   return typeof value === "string" && /^[A-Za-z0-9_-]{43}$/.test(value);
 }
 
+async function productionRuntimeTrustIdentity(env: Bindings): Promise<{
+  origin_inventory_sha256: string;
+  security_registry_set_sha256: string;
+  profile_policy_sha256: string;
+  notary_registry_sha256: string;
+}> {
+  const notaryKeyId = env.TLSN_CANDIDATE_NOTARY_KEY_ID;
+  const notaryRegistryRaw = env.TLSN_PRODUCTION_NOTARY_REGISTRY;
+  if (!notaryKeyId || !notaryRegistryRaw || !isSha256Base64Url(env.TLSN_SECURITY_REGISTRY_SET_SHA256)) {
+    throw new Error("Production Origin trust identity is not configured");
+  }
+  const notaryRegistry = notaryRegistrySchema.parse(JSON.parse(notaryRegistryRaw));
+  const originInventorySha256 = await sha256Base64Url(new TextEncoder().encode(originInventoryRaw));
+  const profilePolicySha256 = await sha256Base64Url(
+    new TextEncoder().encode(canonicalJson(PROFILE_CONTRACT_SPEC)),
+  );
+  const trustPayload = productionSecurityRegistrySetPayload({
+    notaryKeyId,
+    notaryRegistryRaw: canonicalJson(notaryRegistry),
+    originInventorySha256,
+    profilePolicySha256,
+  });
+  const expectedSecurityRegistrySetSha256 = await sha256Base64Url(
+    new TextEncoder().encode(canonicalJson(trustPayload)),
+  );
+  if (env.TLSN_SECURITY_REGISTRY_SET_SHA256 !== expectedSecurityRegistrySetSha256) {
+    throw new Error("Production security registry set does not match runtime inventory and trust inputs");
+  }
+  return {
+    origin_inventory_sha256: originInventorySha256,
+    security_registry_set_sha256: expectedSecurityRegistrySetSha256,
+    profile_policy_sha256: profilePolicySha256,
+    notary_registry_sha256: await sha256Base64Url(new TextEncoder().encode(notaryRegistryRaw)),
+  };
+}
+
 function isPublicKeyBase64Url(value: string | undefined): boolean {
   return typeof value === "string" && /^[A-Za-z0-9_-]{59}$/.test(value);
 }
@@ -1322,6 +1368,19 @@ async function readConfig(
   }
   try {
     const productionInventoryMode = production && role === "production";
+    let originInventorySha256: string | undefined;
+    if (productionInventoryMode) {
+      if (
+        env.TLSN_TRUST_ROOT_CERTIFICATE_DER !== undefined ||
+        env.TLSN_CANDIDATE_SERVER_IDENTITY !== undefined ||
+        env.TLSN_CANDIDATE_PROFILE_SHA256 !== undefined ||
+        env.TLSN_CANDIDATE_SPARSE_PROFILE_SHA256 !== undefined
+      ) {
+        return null;
+      }
+      const runtimeTrustIdentity = await productionRuntimeTrustIdentity(env);
+      originInventorySha256 = runtimeTrustIdentity.origin_inventory_sha256;
+    }
     if (!productionInventoryMode && (!parsed.data.serverIdentity || !parsed.data.profileSha256)) {
       return null;
     }
@@ -1558,6 +1617,7 @@ async function readConfig(
     return {
       ...parsed.data,
       productionInventoryMode,
+      originInventorySha256,
       profileSha256Bytes,
       sparseProfileSha256Bytes,
       notaryKeyBytes,
@@ -3610,6 +3670,16 @@ app.get("/health", async (c) => {
   const production = c.env.TLSN_ENVIRONMENT === "production";
   const role = c.env.TLSN_DEPLOYMENT_ROLE ?? (production ? "production" : "synthetic-test");
   const canary = production && role === "canary";
+  let productionTrustIdentity: Awaited<ReturnType<typeof productionRuntimeTrustIdentity>> | null = null;
+  let productionTrustIdentityValid = false;
+  if (production && !canary) {
+    try {
+      productionTrustIdentity = await productionRuntimeTrustIdentity(c.env);
+      productionTrustIdentityValid = await readConfig(c.env) !== null;
+    } catch {
+      productionTrustIdentity = null;
+    }
+  }
   const replay = !production && role === "replay";
   const verifierKeyId = production
     ? c.env.TLSN_CANDIDATE_VERIFIER_KEY_ID
@@ -3703,9 +3773,9 @@ app.get("/health", async (c) => {
       : shouldUseDirectExecution(c.env)
         ? "direct"
         : "sync";
-  return c.json({
-    schema_version: 2,
-    ok: true,
+  const healthPayload = {
+    schema_version: 3,
+    ok: production && !canary ? productionTrustIdentityValid : true,
     verifier: "tlsn-alpha15-wasm",
     environment: c.env.TLSN_ENVIRONMENT,
     auth_mode: syntheticAuthConfigured(c.env) ? "test-token" : "supabase",
@@ -3716,10 +3786,14 @@ app.get("/health", async (c) => {
     git_commit_sha: c.env.TLSN_GIT_COMMIT_SHA ?? null,
     verifier_key_id: verifierKeyId ?? null,
     notary_key_id: notaryKeyId ?? null,
-    profile_sha256: profileSha256 ?? null,
-    sparse_profile_sha256: sparseProfileSha256 ?? null,
+    ...(production
+      ? canary ? { profile_sha256: profileSha256 ?? null, sparse_profile_sha256: sparseProfileSha256 ?? null } : {}
+      : { profile_sha256: profileSha256 ?? null, sparse_profile_sha256: sparseProfileSha256 ?? null }),
     deployment_id: deploymentId,
-    security_registry_set_sha256: c.env.TLSN_SECURITY_REGISTRY_SET_SHA256 ?? null,
+    security_registry_set_sha256: production && !canary
+      ? productionTrustIdentity?.security_registry_set_sha256 ?? null
+      : c.env.TLSN_SECURITY_REGISTRY_SET_SHA256 ?? null,
+    origin_inventory_sha256: productionTrustIdentity?.origin_inventory_sha256 ?? null,
     notary_registry_sha256: notaryRegistrySha256,
     result_public_key_spki: resultPublicKeySpki,
     runtime_version: runtimeVersion,
@@ -3727,13 +3801,28 @@ app.get("/health", async (c) => {
     execution_mode: executionMode,
     security_identity: {
       git_commit_sha: c.env.TLSN_GIT_COMMIT_SHA ?? null,
-      server_identity: production ? c.env.TLSN_CANDIDATE_SERVER_IDENTITY ?? null : c.env.TLSN_SERVER_IDENTITY,
-      profile_sha256: profileSha256 ?? null,
-      sparse_profile_sha256: sparseProfileSha256 ?? null,
+      ...(canary
+        ? {
+            server_identity: c.env.TLSN_CANDIDATE_SERVER_IDENTITY ?? null,
+            profile_sha256: profileSha256 ?? null,
+            sparse_profile_sha256: sparseProfileSha256 ?? null,
+          }
+        : production ? {} : {
+            server_identity: c.env.TLSN_SERVER_IDENTITY,
+            profile_sha256: profileSha256 ?? null,
+            sparse_profile_sha256: sparseProfileSha256 ?? null,
+          }),
       verifier_key_id: verifierKeyId ?? null,
       notary_key_id: notaryKeyId ?? null,
-      security_registry_set_sha256: c.env.TLSN_SECURITY_REGISTRY_SET_SHA256 ?? null,
-      notary_registry_sha256: notaryRegistrySha256,
+      security_registry_set_sha256: production && !canary
+        ? productionTrustIdentity?.security_registry_set_sha256 ?? null
+        : c.env.TLSN_SECURITY_REGISTRY_SET_SHA256 ?? null,
+      ...(production && !canary ? {
+        origin_inventory_sha256: productionTrustIdentity?.origin_inventory_sha256 ?? null,
+        profile_policy_sha256: productionTrustIdentity?.profile_policy_sha256 ?? null,
+      } : {}),
+      notary_registry_sha256: productionTrustIdentity?.notary_registry_sha256 ?? notaryRegistrySha256,
+      trust_contract_valid: production ? (canary ? true : productionTrustIdentityValid) : null,
       binding_authority: "durable-single-use",
       session_authority_key_id: sessionAuthorityKeyId ?? null,
       session_authority_key_registry_sha256: sessionAuthorityKeyRegistrySha256,
@@ -3788,7 +3877,8 @@ app.get("/health", async (c) => {
         operational_isolation_status: "NOT_PROVIDED",
       },
     },
-  });
+  };
+  return c.json(healthPayload, production && !canary && !productionTrustIdentityValid ? 503 : 200);
 });
 
 app.post("/attestation/session", async (c) => {
@@ -4184,6 +4274,11 @@ const handleTlsnVerification = async (c: Context<{ Bindings: Bindings }>) => {
     benchmarkDuration(c.env, jobId, "request_device_possession", devicePossessionMilliseconds ?? Number.NaN);
     benchmarkDuration(c.env, jobId, "request_presentation_hash", requestPresentationHashMilliseconds ?? Number.NaN);
     benchmarkRecord(c.env, jobId, "t0_accepted");
+    const deploymentRole = config.productionInventoryMode
+      ? "production"
+      : c.env.TLSN_ENVIRONMENT === "production" || c.env.TLSN_ENVIRONMENT === "canary"
+        ? "canary"
+        : "test";
     const payload = verificationTaskPayloadSchema.parse({
       job_id: jobId,
       binding_id: bindingId,
@@ -4196,6 +4291,13 @@ const handleTlsnVerification = async (c: Context<{ Bindings: Bindings }>) => {
       verification_result_key: verificationResultKey,
       ...(benchmarkTraceId ? { benchmark_trace_id: benchmarkTraceId } : {}),
       origin_policy: config.productionInventoryMode ? "inventory" : "fixed",
+      deployment_role: deploymentRole,
+      ...(config.productionInventoryMode && config.originInventorySha256
+        ? { origin_inventory_sha256: config.originInventorySha256 }
+        : {}),
+      ...(deploymentRole !== "test" && c.env.TLSN_SECURITY_REGISTRY_SET_SHA256
+        ? { security_registry_set_sha256: c.env.TLSN_SECURITY_REGISTRY_SET_SHA256 }
+        : {}),
       profile: sparseProfile ? "sparse" : "complete",
       disclosure_mode: sparseProfile ? "sparse" : "full",
     });

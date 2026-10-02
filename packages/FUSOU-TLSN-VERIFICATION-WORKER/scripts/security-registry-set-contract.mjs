@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { canonicalJson, canonicalNotaryRegistryJson } from "./production-trust-contract.mjs";
-import { PROFILE_CONTRACT_SPEC } from "./profile-canonical-contract.mjs";
+import { PROFILE_CONTRACT_SPEC, productionSecurityRegistrySetPayload } from "../src/origin-trust-contract.mjs";
 import { loadOriginInventoryContract } from "./origin-inventory-contract.mjs";
 
 export const SECURITY_REGISTRY_SET_CONTRACT = {
@@ -92,27 +92,20 @@ export function securityRegistrySetHash(inputs) {
 }
 
 export function productionSecurityRegistrySetHash({ notaryKeyId, notaryRegistryRaw } = {}) {
-  if (typeof notaryKeyId !== "string" || !KEY_ID_PATTERN.test(notaryKeyId)) {
-    throw new Error("notary_key_id must be a valid key ID");
-  }
   const canonicalNotaryRegistryRaw = canonicalNotaryRegistryJson(
     notaryRegistryRaw,
     "Production security registry set Notary registry",
   );
-  const notaryRegistry = JSON.parse(canonicalNotaryRegistryRaw);
-  if (!Object.hasOwn(notaryRegistry, notaryKeyId)) {
-    throw new Error("notary_key_id must be present in the Production security registry set Notary registry");
-  }
   const originInventory = loadOriginInventoryContract();
   const profilePolicySha256 = createHash("sha256")
     .update(canonicalJson(PROFILE_CONTRACT_SPEC), "utf8")
     .digest("base64url");
-  const payload = {
-    notary_key_id: notaryKeyId,
-    notary_registry: JSON.parse(canonicalNotaryRegistryRaw),
-    origin_inventory_sha256: originInventory.sha256,
-    profile_policy_sha256: profilePolicySha256,
-  };
+  const payload = productionSecurityRegistrySetPayload({
+    notaryKeyId,
+    notaryRegistryRaw: canonicalNotaryRegistryRaw,
+    originInventorySha256: originInventory.sha256,
+    profilePolicySha256,
+  });
   const canonical = canonicalJson(payload);
   return {
     payload,

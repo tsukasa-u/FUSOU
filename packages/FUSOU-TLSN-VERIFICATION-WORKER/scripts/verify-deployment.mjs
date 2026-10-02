@@ -1,15 +1,16 @@
 #!/usr/bin/env node
 
 import { readFile } from "node:fs/promises";
+import { DEPLOYMENT_PROVENANCE_SCHEMA_VERSION } from "./deployment-attestation.mjs";
 import { assertPublicManifest } from "./production-trust-contract.mjs";
 
 const securityIdentityFields = [
   "git_commit_sha",
-  "server_identity",
-  "profile_sha256",
   "verifier_key_id",
   "notary_key_id",
   "security_registry_set_sha256",
+  "origin_inventory_sha256",
+  "profile_policy_sha256",
   "notary_registry_sha256",
   "binding_authority",
 ];
@@ -32,7 +33,7 @@ async function main() {
   const publicManifest = JSON.parse(await readFile(required("TLSN_PUBLIC_MANIFEST_PATH"), "utf8"));
   assertPublicManifest(publicManifest);
   if (
-    manifest?.schema_version !== 2 ||
+    manifest?.schema_version !== DEPLOYMENT_PROVENANCE_SCHEMA_VERSION ||
     manifest?.scope !== "tlsn-deployment-provenance" ||
     manifest?.status !== "PASS" ||
     manifest?.environment !== "production" ||
@@ -91,7 +92,8 @@ async function main() {
     git_commit_sha: manifest.security_identity.git_commit_sha,
     deployment_id: manifest.deployment_identity.deployment_id,
     verifier_key_id: manifest.security_identity.verifier_key_id,
-    profile_sha256: manifest.security_identity.profile_sha256,
+    origin_inventory_sha256: manifest.security_identity.origin_inventory_sha256,
+    profile_policy_sha256: manifest.security_identity.profile_policy_sha256,
     result_public_key_spki: manifest.result_identity.result_public_key_spki,
     smoke_status: smokeResponse.status,
   }));

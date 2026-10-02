@@ -6,6 +6,7 @@ const BENCHMARK_TRACE_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab]
 const VERIFICATION_PROFILE_SCHEMA = z.enum(["complete", "sparse"]);
 const DISCLOSURE_MODE_SCHEMA = z.enum(["full", "sparse"]);
 const VERIFICATION_INPUT_SOURCE_SCHEMA = z.enum(["r2", "direct"]);
+const SHA256_BASE64URL_SCHEMA = z.string().regex(/^[A-Za-z0-9_-]{43}$/);
 
 const verificationProfileFields = {
   profile: VERIFICATION_PROFILE_SCHEMA,
@@ -56,12 +57,53 @@ const verificationTaskPayloadObject = z.object({
   verification_result_key: z.string().regex(OBJECT_KEY_PATTERN),
   benchmark_trace_id: z.string().regex(BENCHMARK_TRACE_ID_PATTERN).optional(),
   origin_policy: z.enum(["inventory", "fixed"]),
+  deployment_role: z.enum(["production", "canary", "test"]),
+  origin_inventory_sha256: SHA256_BASE64URL_SCHEMA.optional(),
+  security_registry_set_sha256: SHA256_BASE64URL_SCHEMA.optional(),
   ...verificationProfileFields,
 }).strict();
 
 export const verificationTaskPayloadSchema = verificationTaskPayloadObject
   .superRefine(assertVerificationProfile)
-  .superRefine(assertVerificationInputSource);
+  .superRefine(assertVerificationInputSource)
+  .superRefine((payload, context) => {
+    const expectedPolicy = payload.deployment_role === "production" ? "inventory" : "fixed";
+    if (payload.origin_policy !== expectedPolicy) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["origin_policy"],
+        message: "origin_policy does not match deployment_role",
+      });
+    }
+    if (payload.deployment_role === "production" && !payload.origin_inventory_sha256) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["origin_inventory_sha256"],
+        message: "Production task requires the runtime Origin inventory digest",
+      });
+    }
+    if (payload.deployment_role !== "production" && payload.origin_inventory_sha256 !== undefined) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["origin_inventory_sha256"],
+        message: "Only Production tasks may carry the Production inventory digest",
+      });
+    }
+    if (payload.deployment_role !== "test" && !payload.security_registry_set_sha256) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["security_registry_set_sha256"],
+        message: "Production and Canary tasks require the runtime security registry set digest",
+      });
+    }
+    if (payload.deployment_role === "test" && payload.security_registry_set_sha256 !== undefined) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["security_registry_set_sha256"],
+        message: "Synthetic test tasks must not carry a deployment security registry set digest",
+      });
+    }
+  });
 
 export const verificationQueueMessageSchema = verificationTaskPayloadObject.extend({
   message_type: z.literal("tlsn-verification-v1"),
@@ -69,6 +111,24 @@ export const verificationQueueMessageSchema = verificationTaskPayloadObject.exte
 }).strict()
   .superRefine(assertVerificationProfile)
   .superRefine(assertVerificationInputSource)
+  .superRefine((payload, context) => {
+    const expectedPolicy = payload.deployment_role === "production" ? "inventory" : "fixed";
+    if (payload.origin_policy !== expectedPolicy) {
+      context.addIssue({ code: z.ZodIssueCode.custom, path: ["origin_policy"], message: "origin_policy does not match deployment_role" });
+    }
+    if (payload.deployment_role === "production" && !payload.origin_inventory_sha256) {
+      context.addIssue({ code: z.ZodIssueCode.custom, path: ["origin_inventory_sha256"], message: "Production task requires the runtime Origin inventory digest" });
+    }
+    if (payload.deployment_role !== "production" && payload.origin_inventory_sha256 !== undefined) {
+      context.addIssue({ code: z.ZodIssueCode.custom, path: ["origin_inventory_sha256"], message: "Only Production tasks may carry the Production inventory digest" });
+    }
+    if (payload.deployment_role !== "test" && !payload.security_registry_set_sha256) {
+      context.addIssue({ code: z.ZodIssueCode.custom, path: ["security_registry_set_sha256"], message: "Production and Canary tasks require the runtime security registry set digest" });
+    }
+    if (payload.deployment_role === "test" && payload.security_registry_set_sha256 !== undefined) {
+      context.addIssue({ code: z.ZodIssueCode.custom, path: ["security_registry_set_sha256"], message: "Synthetic test tasks must not carry a deployment security registry set digest" });
+    }
+  })
   .superRefine((payload, context) => {
     if ((payload.verification_input_source ?? "r2") !== "r2") {
       context.addIssue({

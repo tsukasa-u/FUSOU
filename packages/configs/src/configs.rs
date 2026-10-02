@@ -2118,8 +2118,9 @@ mod tests {
 
         let mut indices = std::collections::HashSet::new();
         let mut identities = std::collections::HashSet::new();
-        for target in inventory.targets {
+        for (index, target) in inventory.targets.into_iter().enumerate() {
             assert_eq!(target.port, 443);
+            assert_eq!(target.server_index, index as i32 + 1, "inventory order must match server indices");
             assert!(indices.insert(target.server_index));
             assert!(identities.insert(target.server_identity.clone()));
             assert_eq!(

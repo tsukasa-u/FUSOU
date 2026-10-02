@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { readFile } from "node:fs/promises";
-import { writeImmutableJson } from "./deployment-attestation.mjs";
+import { DEPLOYMENT_PROVENANCE_SCHEMA_VERSION, writeImmutableJson } from "./deployment-attestation.mjs";
 import {
   PREVIOUS_IDENTITY_FIELDS,
   parseExpectedIdentityChanges,
@@ -33,7 +33,7 @@ async function main() {
     previous?.deployment_role !== "production"
   ) throw new Error("invalid previous production provenance");
   if (
-    current?.schema_version !== 2 ||
+    current?.schema_version !== DEPLOYMENT_PROVENANCE_SCHEMA_VERSION ||
     current?.scope !== "tlsn-deployment-provenance" ||
     current?.status !== "PASS" ||
     current?.environment !== "production" ||

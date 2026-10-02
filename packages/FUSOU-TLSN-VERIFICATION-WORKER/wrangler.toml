@@ -16,6 +16,11 @@ type = "CompiledWasm"
 globs = ["**/*.wasm"]
 fallthrough = true
 
+[[rules]]
+type = "Text"
+globs = ["**/tlsn-origin-inventory.json.txt"]
+fallthrough = true
+
 [[durable_objects.bindings]]
 name = "TLSN_BINDINGS"
 class_name = "TlsnBindingAuthorityDurableObject"
