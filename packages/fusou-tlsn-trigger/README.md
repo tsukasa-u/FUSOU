@@ -38,6 +38,13 @@ profile values. Canary deployments set the role to `canary` and provide
 Neither role accepts a custom trust root. The inventory is an allowlist, not a substitute for
 Web PKI certificate validation.
 
+Trigger deployment records the raw-byte SHA-256 of the inventory asset it packages as
+`TLSN_TRIGGER_ORIGIN_INVENTORY_ARTIFACT_RAW_SHA256`; the runtime checks that metadata against the
+bytes it loads and includes it in task logs. This digest identifies the deployed artifact only; it
+is not an Origin authorization source or a certificate trust anchor. Production authorization
+continues to bind the Worker's task digest to the Trigger runtime inventory bytes, while Web PKI
+validates the TLS certificate and the Notary authenticates the Presentation.
+
 The Trigger project reference may be shared with another Trigger package, but source code,
 configuration, and deployment credentials remain package-specific.
 

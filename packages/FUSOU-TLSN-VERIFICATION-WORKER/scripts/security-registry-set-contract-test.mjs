@@ -7,6 +7,11 @@ import {
 } from "./security-registry-set-contract.mjs";
 import { loadOriginInventoryContract } from "./origin-inventory-contract.mjs";
 import { notaryRegistrySha256 } from "./production-trust-contract.mjs";
+import {
+  canonicalJson as workerCanonicalJson,
+  securityRegistrySetPayload as workerSecurityRegistrySetPayload,
+  sha256Base64Url,
+} from "../src/origin-trust-contract.mjs";
 
 const notaryKeyId = "notary-production-2026";
 const alternateNotaryKeyId = "notary-production-2025";
@@ -25,6 +30,13 @@ const baseInputs = {
   sparseProfileSha256: Buffer.alloc(32, 2).toString("base64url"),
 };
 const base = securityRegistrySetHash(baseInputs);
+const runtimePayload = workerSecurityRegistrySetPayload(baseInputs);
+assert.deepEqual(runtimePayload, base.payload, "Worker and deployment tooling must share the Canary security-set payload");
+assert.equal(
+  await sha256Base64Url(new TextEncoder().encode(workerCanonicalJson(runtimePayload))),
+  base.sha256,
+  "Worker WebCrypto security-set digest must match securityRegistrySetHash",
+);
 
 assert.deepEqual(Object.keys(base.payload), [
   "notary_key_id",

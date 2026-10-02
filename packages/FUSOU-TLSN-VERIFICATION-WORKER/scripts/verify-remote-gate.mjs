@@ -3,6 +3,7 @@
 import { readFile } from "node:fs/promises";
 import {
   assertCheckoutCommit,
+  assertCanaryHealthTrustContract,
   assertEvidenceContext,
   assertProvenanceEvidence,
   assertRemoteAttestation,
@@ -90,6 +91,7 @@ async function main() {
   if (health.environment !== "production" || health.deployment_role !== "canary") {
     throw new Error("current remote Worker is not the production canary");
   }
+  assertCanaryHealthTrustContract(health);
   compareIdentity(health.security_identity, canary.security_identity, "current canary Worker security", CANARY_SECURITY_IDENTITY_FIELDS);
   compareIdentity(health.deployment_identity, canary.deployment_identity, "current canary Worker deployment", DEPLOYMENT_IDENTITY_FIELDS);
   compareIdentity(health.result_identity, canary.result_identity, "current canary Worker result", RESULT_IDENTITY_FIELDS);

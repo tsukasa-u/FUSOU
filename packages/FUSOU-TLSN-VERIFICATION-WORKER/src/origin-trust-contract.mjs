@@ -91,6 +91,7 @@ export const PROFILE_CONTRACT_SPEC = {
 
 const DNS_HOSTNAME_PATTERN = /^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/;
 const SHA256_BASE64URL_PATTERN = /^[A-Za-z0-9_-]{43}$/;
+const SECURITY_REGISTRY_KEY_ID_PATTERN = /^[A-Za-z0-9._-]{1,128}$/;
 const ORIGIN_INVENTORY_SOURCE = "packages/configs/configs.toml:[app.connect_kc_server.server_list]";
 
 export function canonicalJson(value) {
@@ -197,4 +198,51 @@ export async function sha256Base64Url(bytes) {
     binary += String.fromCharCode(...digest.subarray(offset, offset + 0x8000));
   }
   return btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replaceAll("=", "");
+}
+
+export function securityRegistrySetPayload({
+  notaryKeyId,
+  notaryRegistryRaw,
+  profileSha256,
+  serverIdentity,
+  sparseProfileSha256,
+} = {}) {
+  if (typeof notaryKeyId !== "string" || !SECURITY_REGISTRY_KEY_ID_PATTERN.test(notaryKeyId)) {
+    throw new Error("notary_key_id must be a valid key ID");
+  }
+  for (const [label, value] of [
+    ["profile_sha256", profileSha256],
+    ["sparse_profile_sha256", sparseProfileSha256],
+  ]) {
+    if (typeof value !== "string" || !SHA256_BASE64URL_PATTERN.test(value)) {
+      throw new Error(`${label} must be a SHA-256 base64url digest`);
+    }
+  }
+  if (typeof serverIdentity !== "string" || !DNS_HOSTNAME_PATTERN.test(serverIdentity)) {
+    throw new Error("server_identity must be a DNS hostname");
+  }
+  let registry;
+  try {
+    registry = JSON.parse(notaryRegistryRaw ?? "");
+  } catch {
+    throw new Error("security registry set Notary registry must be valid JSON");
+  }
+  if (!registry || typeof registry !== "object" || Array.isArray(registry) || Object.keys(registry).length === 0) {
+    throw new Error("security registry set Notary registry must be a non-empty object");
+  }
+  for (const [keyId, publicKey] of Object.entries(registry)) {
+    if (!SECURITY_REGISTRY_KEY_ID_PATTERN.test(keyId) || typeof publicKey !== "string" || !/^[A-Za-z0-9_-]+$/.test(publicKey)) {
+      throw new Error("security registry set Notary registry contains an invalid entry");
+    }
+  }
+  if (!Object.hasOwn(registry, notaryKeyId)) {
+    throw new Error("notary_key_id must be present in the security registry set Notary registry");
+  }
+  return {
+    notary_key_id: notaryKeyId,
+    notary_registry: JSON.parse(canonicalJson(registry)),
+    profile_sha256: profileSha256,
+    server_identity: serverIdentity,
+    sparse_profile_sha256: sparseProfileSha256,
+  };
 }

@@ -15,6 +15,19 @@ export function parseOriginInventory(raw: string): {
   targets: Array<{ server_index: number; server_identity: string; port: 443 }>;
 };
 export function sha256Base64Url(bytes: Uint8Array): Promise<string>;
+export function securityRegistrySetPayload(input: {
+  notaryKeyId: string;
+  notaryRegistryRaw: string;
+  profileSha256: string;
+  serverIdentity: string;
+  sparseProfileSha256: string;
+}): {
+  notary_key_id: string;
+  notary_registry: Record<string, string>;
+  profile_sha256: string;
+  server_identity: string;
+  sparse_profile_sha256: string;
+};
 export function productionSecurityRegistrySetPayload(input: {
   notaryKeyId: string;
   notaryRegistryRaw: string;

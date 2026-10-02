@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import { createHash, generateKeyPairSync } from "node:crypto";
 import {
   canonicalJson,
+  assertCanaryHealthTrustContract,
   assertEvidenceContext,
   assertProvenanceEvidence,
   assertRemoteAttestation,
@@ -32,6 +33,13 @@ const context = {
   workflow_file_identity: "dotenvx+pnpm+wrangler",
   deployment_role: "canary",
 };
+assert.equal(assertCanaryHealthTrustContract({ security_identity: { trust_contract_valid: true } }), true);
+for (const trustContractValid of [false, undefined, null]) {
+  assert.throws(
+    () => assertCanaryHealthTrustContract({ security_identity: { trust_contract_valid: trustContractValid } }),
+    /Canary Worker trust contract is invalid/,
+  );
+}
 const canaryProfiles = profilesForServerIdentity("game.example.com");
 const securityIdentity = {
   git_commit_sha: context.git_commit_sha,

@@ -78,6 +78,7 @@
     "test:trust-contract": "node scripts/production-trust-contract-test.mjs",
     "test:verification-jobs-contract": "node --experimental-strip-types scripts/verification-jobs-contract-test.mjs",
     "test:production-inventory-config": "node scripts/production-inventory-config-test.mjs",
+    "test:canary-runtime-security-contract": "node scripts/canary-runtime-security-contract-test.mjs",
     "test:profile-contract": "node scripts/profile-canonical-contract-test.mjs",
     "test:security-registry-set-contract": "node scripts/security-registry-set-contract-test.mjs",
     "test:production-roundtrip": "node scripts/production-roundtrip-test.mjs",

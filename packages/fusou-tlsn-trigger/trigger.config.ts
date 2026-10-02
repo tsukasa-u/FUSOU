@@ -1,5 +1,10 @@
 import { defineConfig, timeout } from "@trigger.dev/sdk";
 import { additionalFiles, syncEnvVars } from "@trigger.dev/build/extensions/core";
+import { readFile } from "node:fs/promises";
+import {
+  originInventoryArtifactRawSha256,
+  TRIGGER_ORIGIN_INVENTORY_ARTIFACT_RAW_SHA256_ENV,
+} from "./src/trigger/origin-inventory-contract.mjs";
 import { triggerOriginRuntimeEnvNames } from "./scripts/trigger-origin-config.mjs";
 
 const REQUIRED_RUNTIME_ENVS = [
@@ -26,10 +31,15 @@ export default defineConfig({
   build: {
     extensions: [
       syncEnvVars(async () =>
-        Object.fromEntries(
-          [...REQUIRED_RUNTIME_ENVS, ...triggerOriginRuntimeEnvNames(process.env)]
-            .map((name) => [name, requireEnv(name)]),
-        ),
+        ({
+          ...Object.fromEntries(
+            [...REQUIRED_RUNTIME_ENVS, ...triggerOriginRuntimeEnvNames(process.env)]
+              .map((name) => [name, requireEnv(name)]),
+          ),
+          [TRIGGER_ORIGIN_INVENTORY_ARTIFACT_RAW_SHA256_ENV]: originInventoryArtifactRawSha256(
+            await readFile(new URL("../configs/tlsn-origin-inventory.json.txt", import.meta.url)),
+          ),
+        }),
       ),
       additionalFiles({
         files: [

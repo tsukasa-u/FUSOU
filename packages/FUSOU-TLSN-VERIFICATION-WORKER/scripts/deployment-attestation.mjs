@@ -58,6 +58,14 @@ export const RESULT_IDENTITY_FIELDS = [
   "result_registry_root_key_id",
   "result_registry_root_public_key_spki",
 ];
+
+export function assertCanaryHealthTrustContract(health) {
+  if (health?.security_identity?.trust_contract_valid !== true) {
+    throw new Error("current Canary Worker trust contract is invalid");
+  }
+  return true;
+}
+
 const GIT_COMMIT_PATTERN = /^[0-9a-f]{40}$/i;
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const KEY_ID_PATTERN = /^[A-Za-z0-9._-]{1,128}$/;

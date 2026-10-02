@@ -1,6 +1,11 @@
 import { createHash } from "node:crypto";
-import { canonicalJson, canonicalNotaryRegistryJson } from "./production-trust-contract.mjs";
-import { PROFILE_CONTRACT_SPEC, productionSecurityRegistrySetPayload } from "../src/origin-trust-contract.mjs";
+import { canonicalNotaryRegistryJson } from "./production-trust-contract.mjs";
+import {
+  canonicalJson,
+  PROFILE_CONTRACT_SPEC,
+  productionSecurityRegistrySetPayload,
+  securityRegistrySetPayload as sharedSecurityRegistrySetPayload,
+} from "../src/origin-trust-contract.mjs";
 import { loadOriginInventoryContract } from "./origin-inventory-contract.mjs";
 
 export const SECURITY_REGISTRY_SET_CONTRACT = {
@@ -34,50 +39,12 @@ export const SECURITY_REGISTRY_SET_CONTRACT = {
   exclusions: ["deployment_id", "response_mode", "worker_name", "signing keys", "private keys", "callback secrets", "access tokens"],
 };
 
-const BASE64URL_SHA256_PATTERN = /^[A-Za-z0-9_-]{43}$/;
-const DNS_HOSTNAME_PATTERN = /^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/;
-const KEY_ID_PATTERN = /^[A-Za-z0-9._-]{1,128}$/;
-
-function assertHash(value, label) {
-  if (typeof value !== "string" || !BASE64URL_SHA256_PATTERN.test(value)) {
-    throw new Error(`${label} must be a SHA-256 base64url digest`);
-  }
-}
-
-function assertServerIdentity(value) {
-  if (typeof value !== "string" || !DNS_HOSTNAME_PATTERN.test(value)) {
-    throw new Error("server_identity must be a DNS hostname");
-  }
-}
-
-export function securityRegistrySetPayload({
-  notaryKeyId,
-  notaryRegistryRaw,
-  profileSha256,
-  serverIdentity,
-  sparseProfileSha256,
-} = {}) {
-  if (typeof notaryKeyId !== "string" || !KEY_ID_PATTERN.test(notaryKeyId)) {
-    throw new Error("notary_key_id must be a valid key ID");
-  }
-  assertHash(profileSha256, "profile_sha256");
-  assertHash(sparseProfileSha256, "sparse_profile_sha256");
-  assertServerIdentity(serverIdentity);
+export function securityRegistrySetPayload(inputs = {}) {
   const canonicalNotaryRegistryRaw = canonicalNotaryRegistryJson(
-    notaryRegistryRaw,
+    inputs.notaryRegistryRaw,
     "security registry set Notary registry",
   );
-  const notaryRegistry = JSON.parse(canonicalNotaryRegistryRaw);
-  if (!Object.hasOwn(notaryRegistry, notaryKeyId)) {
-    throw new Error("notary_key_id must be present in the security registry set Notary registry");
-  }
-  return {
-    notary_key_id: notaryKeyId,
-    notary_registry: notaryRegistry,
-    profile_sha256: profileSha256,
-    server_identity: serverIdentity,
-    sparse_profile_sha256: sparseProfileSha256,
-  };
+  return sharedSecurityRegistrySetPayload({ ...inputs, notaryRegistryRaw: canonicalNotaryRegistryRaw });
 }
 
 export function securityRegistrySetHash(inputs) {

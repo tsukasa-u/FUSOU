@@ -60,6 +60,7 @@ import {
   parseOriginInventory,
   PROFILE_CONTRACT_SPEC,
   productionSecurityRegistrySetPayload,
+  securityRegistrySetPayload,
   sha256Base64Url,
 } from "./origin-trust-contract.mjs";
 
@@ -1274,6 +1275,47 @@ async function productionRuntimeTrustIdentity(env: Bindings): Promise<{
   };
 }
 
+async function canaryRuntimeTrustIdentity(env: Bindings): Promise<{
+  security_registry_set_sha256: string;
+}> {
+  const notaryKeyId = env.TLSN_CANDIDATE_NOTARY_KEY_ID;
+  const notaryRegistryRaw = env.TLSN_PRODUCTION_NOTARY_REGISTRY;
+  const serverIdentity = env.TLSN_CANDIDATE_SERVER_IDENTITY;
+  const profileSha256 = env.TLSN_CANDIDATE_PROFILE_SHA256;
+  const sparseProfileSha256 = env.TLSN_CANDIDATE_SPARSE_PROFILE_SHA256;
+  if (!notaryKeyId || !notaryRegistryRaw || !serverIdentity || !profileSha256 || !sparseProfileSha256) {
+    throw new Error("Canary security registry set inputs are not configured");
+  }
+  const notaryRegistry = notaryRegistrySchema.safeParse(JSON.parse(notaryRegistryRaw));
+  const notaryKey = notaryRegistry.success ? notaryRegistry.data[notaryKeyId] : undefined;
+  if (!notaryKey) throw new Error("Canary security registry set Notary key is invalid or missing");
+  decodeBase64Url(notaryKey, 4096);
+  const [expectedProfileSha256, expectedSparseProfileSha256] = await Promise.all([
+    canonicalProfileSha256("complete", serverIdentity),
+    canonicalProfileSha256("sparse", serverIdentity),
+  ]);
+  if (
+    encodeBase64Url(expectedProfileSha256) !== profileSha256 ||
+    encodeBase64Url(expectedSparseProfileSha256) !== sparseProfileSha256
+  ) {
+    throw new Error("Canary profile hashes do not match the canonical fixed-origin profiles");
+  }
+  const payload = securityRegistrySetPayload({
+    notaryKeyId,
+    notaryRegistryRaw,
+    profileSha256,
+    serverIdentity,
+    sparseProfileSha256,
+  });
+  const expectedSecurityRegistrySetSha256 = await sha256Base64Url(
+    new TextEncoder().encode(canonicalJson(payload)),
+  );
+  if (env.TLSN_SECURITY_REGISTRY_SET_SHA256 !== expectedSecurityRegistrySetSha256) {
+    throw new Error("Canary security registry set does not match runtime identity and profile inputs");
+  }
+  return { security_registry_set_sha256: expectedSecurityRegistrySetSha256 };
+}
+
 function isPublicKeyBase64Url(value: string | undefined): boolean {
   return typeof value === "string" && /^[A-Za-z0-9_-]{59}$/.test(value);
 }
@@ -1381,6 +1423,7 @@ async function readConfig(
       const runtimeTrustIdentity = await productionRuntimeTrustIdentity(env);
       originInventorySha256 = runtimeTrustIdentity.origin_inventory_sha256;
     }
+    if (canary) await canaryRuntimeTrustIdentity(env);
     if (!productionInventoryMode && (!parsed.data.serverIdentity || !parsed.data.profileSha256)) {
       return null;
     }
@@ -3672,12 +3715,20 @@ app.get("/health", async (c) => {
   const canary = production && role === "canary";
   let productionTrustIdentity: Awaited<ReturnType<typeof productionRuntimeTrustIdentity>> | null = null;
   let productionTrustIdentityValid = false;
+  let canaryTrustIdentity: Awaited<ReturnType<typeof canaryRuntimeTrustIdentity>> | null = null;
   if (production && !canary) {
     try {
       productionTrustIdentity = await productionRuntimeTrustIdentity(c.env);
       productionTrustIdentityValid = await readConfig(c.env) !== null;
     } catch {
       productionTrustIdentity = null;
+    }
+  }
+  if (canary) {
+    try {
+      canaryTrustIdentity = await canaryRuntimeTrustIdentity(c.env);
+    } catch {
+      canaryTrustIdentity = null;
     }
   }
   const replay = !production && role === "replay";
@@ -3792,7 +3843,9 @@ app.get("/health", async (c) => {
     deployment_id: deploymentId,
     security_registry_set_sha256: production && !canary
       ? productionTrustIdentity?.security_registry_set_sha256 ?? null
-      : c.env.TLSN_SECURITY_REGISTRY_SET_SHA256 ?? null,
+      : canary
+        ? canaryTrustIdentity?.security_registry_set_sha256 ?? null
+        : c.env.TLSN_SECURITY_REGISTRY_SET_SHA256 ?? null,
     origin_inventory_sha256: productionTrustIdentity?.origin_inventory_sha256 ?? null,
     notary_registry_sha256: notaryRegistrySha256,
     result_public_key_spki: resultPublicKeySpki,
@@ -3816,13 +3869,17 @@ app.get("/health", async (c) => {
       notary_key_id: notaryKeyId ?? null,
       security_registry_set_sha256: production && !canary
         ? productionTrustIdentity?.security_registry_set_sha256 ?? null
-        : c.env.TLSN_SECURITY_REGISTRY_SET_SHA256 ?? null,
+        : canary
+          ? canaryTrustIdentity?.security_registry_set_sha256 ?? null
+          : c.env.TLSN_SECURITY_REGISTRY_SET_SHA256 ?? null,
       ...(production && !canary ? {
         origin_inventory_sha256: productionTrustIdentity?.origin_inventory_sha256 ?? null,
         profile_policy_sha256: productionTrustIdentity?.profile_policy_sha256 ?? null,
       } : {}),
       notary_registry_sha256: productionTrustIdentity?.notary_registry_sha256 ?? notaryRegistrySha256,
-      trust_contract_valid: production ? (canary ? true : productionTrustIdentityValid) : null,
+      trust_contract_valid: production
+        ? (canary ? canaryTrustIdentity !== null : productionTrustIdentityValid)
+        : null,
       binding_authority: "durable-single-use",
       session_authority_key_id: sessionAuthorityKeyId ?? null,
       session_authority_key_registry_sha256: sessionAuthorityKeyRegistrySha256,
