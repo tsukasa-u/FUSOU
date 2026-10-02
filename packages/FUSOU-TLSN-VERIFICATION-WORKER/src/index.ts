@@ -47,11 +47,13 @@ import initVerifier, {
   attach_sparse_verifier_result_signature,
   derive_verifier_result_signing_bytes,
   derive_sparse_verifier_result_signing_bytes,
+  inspect_alpha15_server_identity,
+  verify_synthetic_require_info_presentation_with_root,
+  verify_synthetic_sparse_require_info_presentation_with_root,
   verify_require_info_presentation,
-  verify_require_info_presentation_with_trust_anchor,
   verify_sparse_require_info_presentation,
-  verify_sparse_require_info_presentation_with_trust_anchor,
 } from "./wasm/fusou_tlsn_verifier.js";
+import originInventory from "../../configs/tlsn-origin-inventory.json";
 import wasmModule from "./wasm/fusou_tlsn_verifier_bg.wasm";
 export type Bindings = {
   TLSN_ENVIRONMENT: string;
@@ -374,8 +376,8 @@ const preparedResultSchema = z
 
 const configSchema = z.object({
   environment: z.enum(["test", "production"]),
-  serverIdentity: z.string().min(1).max(253),
-  profileSha256: z.string().regex(/^[A-Za-z0-9_-]+$/),
+  serverIdentity: z.string().min(1).max(253).optional(),
+  profileSha256: z.string().regex(/^[A-Za-z0-9_-]+$/).optional(),
   sparseProfileSha256: z.string().regex(/^[A-Za-z0-9_-]+$/).optional(),
   verifierKeyId: z.string().regex(/^[A-Za-z0-9._-]{1,64}$/),
   notaryKeyId: z.string().regex(/^[A-Za-z0-9._-]{1,64}$/),
@@ -489,7 +491,8 @@ const notaryRegistrySchema = z.record(
 );
 
 type VerifierConfig = z.infer<typeof configSchema> & {
-  profileSha256Bytes: Uint8Array;
+  productionInventoryMode: boolean;
+  profileSha256Bytes: Uint8Array | undefined;
   sparseProfileSha256Bytes: Uint8Array | undefined;
   notaryKeyBytes: Uint8Array;
   resultSigningPrivateKeyBytes: Uint8Array;
@@ -1318,6 +1321,10 @@ async function readConfig(
     return null;
   }
   try {
+    const productionInventoryMode = production && role === "production";
+    if (!productionInventoryMode && (!parsed.data.serverIdentity || !parsed.data.profileSha256)) {
+      return null;
+    }
     if (!env.TLSN_BINDINGS || !/^[1-9][0-9]{0,3}$/.test(env.TLSN_BINDING_TTL_SECONDS)) {
       return null;
     }
@@ -1380,7 +1387,7 @@ async function readConfig(
         (!fixtureOnlyCanary && (
           containsTestFixtureMarker(parsed.data.verifierKeyId) ||
           containsTestFixtureMarker(parsed.data.notaryKeyId) ||
-          containsTestFixtureMarker(parsed.data.serverIdentity)
+          (parsed.data.serverIdentity !== undefined && containsTestFixtureMarker(parsed.data.serverIdentity))
         )))
     ) {
       return null;
@@ -1500,8 +1507,10 @@ async function readConfig(
       return null;
     }
     const base64DecodingStartedAt = onTiming ? performance.now() : undefined;
-    const profileSha256Bytes = decodeBase64Url(parsed.data.profileSha256, 32);
-    if (profileSha256Bytes.length !== 32) {
+    const profileSha256Bytes = parsed.data.profileSha256
+      ? decodeBase64Url(parsed.data.profileSha256, 32)
+      : undefined;
+    if (!productionInventoryMode && (!profileSha256Bytes || profileSha256Bytes.length !== 32)) {
       return null;
     }
     const sparseProfileSha256Bytes = parsed.data.sparseProfileSha256
@@ -1548,6 +1557,7 @@ async function readConfig(
     }
     return {
       ...parsed.data,
+      productionInventoryMode,
       profileSha256Bytes,
       sparseProfileSha256Bytes,
       notaryKeyBytes,
@@ -1569,48 +1579,101 @@ async function ensureWasmInitialized(): Promise<void> {
 
 type VerificationProfile = "complete" | "sparse";
 
-function verifyPresentationToPreparedResult(
+async function canonicalProfileSha256(
+  profile: VerificationProfile,
+  serverIdentity: string,
+): Promise<Uint8Array> {
+  const contract = profile === "sparse"
+    ? {
+        disclosure_mode: "sparse",
+        id: "fusou-require-info-v2-sparse",
+        server_identity: serverIdentity,
+        target: "/kcsapi/api_get_member/require_info",
+        version: 2,
+      }
+    : {
+        id: "fusou-require-info-v1",
+        server_identity: serverIdentity,
+        target: "/kcsapi/api_get_member/require_info",
+      };
+  return new Uint8Array(await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(JSON.stringify(contract)),
+  ));
+}
+
+async function verifyPresentationToPreparedResult(
   config: VerifierConfig,
   profile: VerificationProfile,
   presentationBytes: Uint8Array,
   canonicalUserId: string,
   deviceId: string,
   deviceChallengeBytes: Uint8Array,
-): z.infer<typeof preparedResultSchema> {
-  const preparedJson = profile === "sparse"
+): Promise<{
+  prepared: z.infer<typeof preparedResultSchema>;
+  profileSha256: string;
+  serverIdentity: string;
+}> {
+  let serverIdentity = config.serverIdentity;
+  let profileSha256Bytes = profile === "sparse"
     ? config.sparseProfileSha256Bytes
-      ? config.trustRootCertificateDerBytes
-        ? verify_sparse_require_info_presentation_with_trust_anchor(
-            presentationBytes,
-            config.serverIdentity,
-            config.sparseProfileSha256Bytes,
-            config.verifierKeyId,
-            config.notaryKeyId,
-            canonicalUserId,
-            deviceId,
-            deviceChallengeBytes,
-            config.trustRootCertificateDerBytes,
-            config.notaryKeyBytes,
-          )
-        : verify_sparse_require_info_presentation(
-            presentationBytes,
-            config.serverIdentity,
-            config.sparseProfileSha256Bytes,
-            config.verifierKeyId,
-            config.notaryKeyId,
-            canonicalUserId,
-            deviceId,
-            deviceChallengeBytes,
-            config.notaryKeyBytes,
-          )
-      : (() => {
-          throw new Error("sparse verifier is unconfigured");
-        })()
-    : config.trustRootCertificateDerBytes
-      ? verify_require_info_presentation_with_trust_anchor(
+    : config.profileSha256Bytes;
+  let profileSha256 = profile === "sparse"
+    ? config.sparseProfileSha256
+    : config.profileSha256;
+  if (config.productionInventoryMode) {
+    if (config.trustRootCertificateDerBytes) {
+      throw new Error("Production inventory verification cannot use a synthetic Origin trust root");
+    }
+    const observedIdentity = inspect_alpha15_server_identity(
+      presentationBytes,
+      config.notaryKeyBytes,
+    );
+    const target = originInventory.targets.find((candidate) =>
+      candidate.server_identity.toLowerCase() === observedIdentity.toLowerCase() &&
+      candidate.port === 443
+    );
+    if (!target) throw new Error("verified Presentation server identity is outside the shipped Origin inventory");
+    serverIdentity = target.server_identity;
+    profileSha256Bytes = await canonicalProfileSha256(profile, serverIdentity);
+    profileSha256 = encodeBase64Url(profileSha256Bytes);
+  }
+  if (!profileSha256Bytes || !profileSha256) {
+    throw new Error("requested TLSN disclosure profile is not configured");
+  }
+  if (!serverIdentity) {
+    throw new Error("TLSN Origin identity is not configured or selected from the shipped inventory");
+  }
+  const preparedJson = profile === "sparse"
+    ? config.trustRootCertificateDerBytes && !config.productionInventoryMode
+      ? verify_synthetic_sparse_require_info_presentation_with_root(
           presentationBytes,
-          config.serverIdentity,
-          config.profileSha256Bytes,
+          serverIdentity,
+          profileSha256Bytes,
+          config.verifierKeyId,
+          config.notaryKeyId,
+          canonicalUserId,
+          deviceId,
+          deviceChallengeBytes,
+          config.trustRootCertificateDerBytes,
+          config.notaryKeyBytes,
+        )
+      : verify_sparse_require_info_presentation(
+          presentationBytes,
+          serverIdentity,
+          profileSha256Bytes,
+          config.verifierKeyId,
+          config.notaryKeyId,
+          canonicalUserId,
+          deviceId,
+          deviceChallengeBytes,
+          config.notaryKeyBytes,
+        )
+    : config.trustRootCertificateDerBytes && !config.productionInventoryMode
+      ? verify_synthetic_require_info_presentation_with_root(
+          presentationBytes,
+          serverIdentity,
+          profileSha256Bytes,
           config.verifierKeyId,
           config.notaryKeyId,
           canonicalUserId,
@@ -1621,8 +1684,8 @@ function verifyPresentationToPreparedResult(
         )
       : verify_require_info_presentation(
           presentationBytes,
-          config.serverIdentity,
-          config.profileSha256Bytes,
+          serverIdentity,
+          profileSha256Bytes,
           config.verifierKeyId,
           config.notaryKeyId,
           canonicalUserId,
@@ -1630,7 +1693,11 @@ function verifyPresentationToPreparedResult(
           deviceChallengeBytes,
           config.notaryKeyBytes,
         );
-  return preparedResultSchema.parse(JSON.parse(preparedJson) as unknown);
+  return {
+    prepared: preparedResultSchema.parse(JSON.parse(preparedJson) as unknown),
+    profileSha256,
+    serverIdentity,
+  };
 }
 
 async function signSigningBytes(
@@ -3235,7 +3302,7 @@ async function completeVerification(
     const wasmVerificationStartedAt = benchmarkEnabled(c.env) ? performance.now() : null;
     if (executionMode === "queue") benchmarkRecord(c.env, callback.job_id, "queue_wasm_verification_started");
     await ensureWasmInitialized();
-    const prepared = verifyPresentationToPreparedResult(
+    const verification = await verifyPresentationToPreparedResult(
       config,
       expectedProfile,
       storedPresentation,
@@ -3243,6 +3310,7 @@ async function completeVerification(
       completionRecord.device_id,
       decodeBase64Url(completionRecord.tlsn_device_challenge, 32),
     );
+    const prepared = verification.prepared;
     benchmarkRecord(c.env, callback.job_id, "t6_wasm_verification_completed");
     benchmarkRecord(c.env, callback.job_id, "t7_wasm_verification_completed");
     if (executionMode === "queue") {
@@ -3255,11 +3323,12 @@ async function completeVerification(
     const preparedUnsignedResult = JSON.parse(prepared.unsigned_result) as Record<string, unknown>;
     const expectedProfileId = sparseProfile ? "fusou-require-info-v2-sparse" : "fusou-require-info-v1";
     const expectedVersion = sparseProfile ? 2 : 1;
-    const expectedProfileSha256 = sparseProfile ? config.sparseProfileSha256 : config.profileSha256;
+    const expectedProfileSha256 = verification.profileSha256;
     if (
       preparedUnsignedResult["version"] !== expectedVersion ||
       preparedUnsignedResult["profile_id"] !== expectedProfileId ||
       preparedUnsignedResult["profile_sha256"] !== expectedProfileSha256 ||
+      preparedUnsignedResult["server_identity"] !== verification.serverIdentity ||
       (sparseProfile
         ? preparedUnsignedResult["disclosure_mode"] !== "sparse" ||
           Object.hasOwn(preparedUnsignedResult, "request_transcript_sha256") ||
@@ -3916,7 +3985,7 @@ const handleTlsnVerification = async (c: Context<{ Bindings: Bindings }>) => {
     return c.json({ error: "verifier_unconfigured" }, 503);
   }
   const sparseProfile = c.req.path === "/verify/tlsn/sparse";
-  if (sparseProfile && !config.sparseProfileSha256Bytes) {
+  if (sparseProfile && !config.sparseProfileSha256Bytes && !config.productionInventoryMode) {
     return c.json({ error: "sparse_verifier_unconfigured" }, 503);
   }
   const requestAuthenticationStartedAt = requestBenchmarkEnabled ? performance.now() : undefined;
@@ -4126,6 +4195,7 @@ const handleTlsnVerification = async (c: Context<{ Bindings: Bindings }>) => {
       ...(verificationInputKey ? { verification_input_key: verificationInputKey } : {}),
       verification_result_key: verificationResultKey,
       ...(benchmarkTraceId ? { benchmark_trace_id: benchmarkTraceId } : {}),
+      origin_policy: config.productionInventoryMode ? "inventory" : "fixed",
       profile: sparseProfile ? "sparse" : "complete",
       disclosure_mode: sparseProfile ? "sparse" : "full",
     });
@@ -4319,7 +4389,7 @@ const handleTlsnVerification = async (c: Context<{ Bindings: Bindings }>) => {
   }
 
   try {
-    const prepared = verifyPresentationToPreparedResult(
+    const verification = await verifyPresentationToPreparedResult(
       config,
       sparseProfile ? "sparse" : "complete",
       presentationBytes,
@@ -4327,8 +4397,16 @@ const handleTlsnVerification = async (c: Context<{ Bindings: Bindings }>) => {
       requestBody.device_id,
       deviceChallengeBytes,
     );
+    const prepared = verification.prepared;
+    const preparedUnsignedResult = JSON.parse(prepared.unsigned_result) as Record<string, unknown>;
+    if (
+      preparedUnsignedResult["profile_sha256"] !== verification.profileSha256 ||
+      preparedUnsignedResult["server_identity"] !== verification.serverIdentity
+    ) {
+      return c.json({ verified: false, error: "verification_profile_mismatch" }, 422);
+    }
     const authenticatedResult = authenticatedResultSchema.parse(
-      JSON.parse(prepared.unsigned_result) as unknown,
+      preparedUnsignedResult,
     );
     if (
       authenticatedResult.attestation_session_id !== requestBody.session_id ||

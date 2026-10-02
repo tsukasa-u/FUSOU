@@ -11,8 +11,9 @@ import {
   assertSignedResultRegistryEnvelope,
   resultRegistryEnvelopeHash,
 } from "./result-registry-envelope.mjs";
+import { loadOriginInventoryContract } from "./origin-inventory-contract.mjs";
 
-export const PRODUCTION_PUBLIC_MANIFEST_SCHEMA_VERSION = 2;
+export const PRODUCTION_PUBLIC_MANIFEST_SCHEMA_VERSION = 3;
 export const PRODUCTION_PUBLIC_MANIFEST_SCOPE = "tlsn-production-public-config";
 export const CANONICAL_NOTARY_REGISTRY_INPUT = "TLSN_PRODUCTION_NOTARY_REGISTRY";
 export const LEGACY_NOTARY_REGISTRY_INPUTS = ["TLSN_CANDIDATE_NOTARY_REGISTRY"];
@@ -313,7 +314,7 @@ export function assertPublicManifest(manifest) {
   ) {
     throw new Error("public Production TLSN manifest schema is invalid");
   }
-  assertExactKeys(manifest, ["schema_version", "scope", "notary", "session_authority", "result_signing", "verification_endpoint", "origin"], "manifest");
+  assertExactKeys(manifest, ["schema_version", "scope", "notary", "session_authority", "result_signing", "verification_endpoint", "origin_inventory", "security_registry_set_sha256"], "manifest");
   assertExactKeys(manifest.notary, ["endpoint", "key_id", "verifying_key", "registry_entry", "registry_sha256"], "manifest.notary");
   assertExactKeys(manifest.notary.registry_entry, ["key_id", "verifying_key"], "manifest.notary.registry_entry");
   if (manifest.notary.registry_entry.key_id !== manifest.notary.key_id || manifest.notary.registry_entry.verifying_key !== manifest.notary.verifying_key) {
@@ -352,11 +353,17 @@ export function assertPublicManifest(manifest) {
     "manifest Result registry Root public key",
   );
   assertCleanHttpsEndpoint(manifest.verification_endpoint, "/verify/tlsn", "manifest Verification endpoint");
-  assertExactKeys(manifest.origin, ["server_identity", "port"], "manifest.origin");
-  assertServerIdentity(manifest.origin.server_identity);
-  if (!Number.isInteger(manifest.origin.port) || manifest.origin.port < 1 || manifest.origin.port > 65535) {
-    throw new Error("manifest origin port is invalid");
+  assertExactKeys(manifest.origin_inventory, ["schema_version", "sha256", "target_count", "port"], "manifest.origin_inventory");
+  const shippedInventory = loadOriginInventoryContract();
+  if (
+    manifest.origin_inventory.schema_version !== shippedInventory.schema_version ||
+    manifest.origin_inventory.sha256 !== shippedInventory.sha256 ||
+    manifest.origin_inventory.target_count !== shippedInventory.target_count ||
+    manifest.origin_inventory.port !== shippedInventory.port
+  ) {
+    throw new Error("manifest Origin inventory does not match the shipped inventory contract");
   }
+  assertSha256(manifest.security_registry_set_sha256, "manifest security registry set hash");
   return manifest;
 }
 
@@ -375,8 +382,7 @@ export function buildProductionPublicManifest({
   resultRegistryRootKeyId,
   resultRegistryRootPublicKeySpki,
   verificationEndpoint,
-  serverIdentity,
-  originPort,
+  securityRegistrySetSha256,
 } = {}) {
   const notary = assertNotaryRegistryConsistency({
     sourceRegistryRaw: notaryRegistryRaw,
@@ -399,10 +405,8 @@ export function buildProductionPublicManifest({
   assertRawNotaryEndpoint(notaryEndpoint);
   assertCleanHttpsEndpoint(sessionAuthorityEndpoint, "/attestation/session", "Session Authority endpoint");
   assertCleanHttpsEndpoint(verificationEndpoint, "/verify/tlsn", "Verification endpoint");
-  assertServerIdentity(serverIdentity);
-  if (!Number.isInteger(Number(originPort)) || Number(originPort) < 1 || Number(originPort) > 65535) {
-    throw new Error("origin port is invalid");
-  }
+  assertSha256(securityRegistrySetSha256, "security registry set hash");
+  const originInventory = loadOriginInventoryContract();
   return assertPublicManifest({
     schema_version: PRODUCTION_PUBLIC_MANIFEST_SCHEMA_VERSION,
     scope: PRODUCTION_PUBLIC_MANIFEST_SCOPE,
@@ -417,9 +421,12 @@ export function buildProductionPublicManifest({
     },
     result_signing: resultSigning,
     verification_endpoint: verificationEndpoint,
-    origin: {
-      server_identity: serverIdentity,
-      port: Number(originPort),
+    security_registry_set_sha256: securityRegistrySetSha256,
+    origin_inventory: {
+      schema_version: originInventory.schema_version,
+      sha256: originInventory.sha256,
+      target_count: originInventory.target_count,
+      port: originInventory.port,
     },
   });
 }

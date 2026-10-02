@@ -22,15 +22,21 @@ Copy `.env.example` to `.env` and encrypt it with `packages/.env.keys`. The pack
 
 - `TRIGGER_PROJECT_REF`
 - `TRIGGER_SECRET_KEY`
+- `TLSN_TRIGGER_DEPLOYMENT_ROLE` (`production` or `canary`)
 - `TLSN_WORKER_INTERNAL_URL`
 - `TLSN_TRIGGER_CALLBACK_SECRET`
-- `TLSN_TRIGGER_SERVER_IDENTITY`
-- `TLSN_TRIGGER_PROFILE_SHA256`
-- `TLSN_TRIGGER_SPARSE_PROFILE_SHA256`
 - `TLSN_TRIGGER_VERIFIER_KEY_ID`
 - `TLSN_TRIGGER_NOTARY_KEY_ID`
 - `TLSN_TRIGGER_NOTARY_REGISTRY`
-- `TLSN_TRIGGER_TRUST_ROOT_CERTIFICATE_DER`
+
+Production Trigger deployments derive the Origin identity from the Notary-authenticated
+Presentation, require it to match the shared 20-host HTTPS inventory, and compute the selected
+complete/sparse profile digest for that identity. Production rejects static Origin identity or
+profile values. Canary deployments set the role to `canary` and provide
+`TLSN_TRIGGER_SERVER_IDENTITY`, `TLSN_TRIGGER_PROFILE_SHA256`, and
+`TLSN_TRIGGER_SPARSE_PROFILE_SHA256`; Worker task payloads select this fixed-target path.
+Neither role accepts a custom trust root. The inventory is an allowlist, not a substitute for
+Web PKI certificate validation.
 
 The Trigger project reference may be shared with another Trigger package, but source code,
 configuration, and deployment credentials remain package-specific.

@@ -41,7 +41,10 @@ import {
   assertProfileContractInputs,
   profileContractArtifact,
 } from "./profile-canonical-contract.mjs";
-import { securityRegistrySetHash } from "./security-registry-set-contract.mjs";
+import {
+  productionSecurityRegistrySetHash,
+  securityRegistrySetHash,
+} from "./security-registry-set-contract.mjs";
 
 const packageDirectory = resolve(new URL("..", import.meta.url).pathname);
 const DEFAULT_REPORT_PATH = resolve(packageDirectory, "artifacts/tlsn-deployment-preflight.json");
@@ -150,7 +153,7 @@ async function main() {
   const canarySecrets = Array.isArray(inputManifest.canary_secret_inputs) ? inputManifest.canary_secret_inputs : [];
   const productionSecrets = Array.isArray(inputManifest.production_secret_inputs) ? inputManifest.production_secret_inputs : [];
   if (
-    inputManifest.schema_version !== 3 ||
+    inputManifest.schema_version !== 4 ||
     inputManifest.scope !== "tlsn-deployment-inputs" ||
     JSON.stringify(commonInputs) !== JSON.stringify(COMMON_INPUTS) ||
     JSON.stringify(workflowEvidenceInputs) !== JSON.stringify(WORKFLOW_EVIDENCE_INPUTS) ||
@@ -210,7 +213,10 @@ async function main() {
   const forbiddenRoleInputs = role === "canary"
     ? ["TLSN_PRODUCTION_RESULT_SIGNING_PRIVATE_KEY_PKCS8", "TLSN_PRODUCTION_SESSION_AUTHORITY_SIGNING_PRIVATE_KEY_PKCS8", "TLSN_PRODUCTION_BINDING_AUTHORITY_SIGNING_PRIVATE_KEY_PKCS8", "TLSN_PRODUCTION_TRUST_ROOT_CERTIFICATE_DER", "TLSN_PRODUCTION_RESULT_PUBLIC_KEY_SPKI", "TLSN_PRODUCTION_RESULT_SIGNER_KEY_ID", "TLSN_PRODUCTION_RESULT_SIGNING_KEY_REGISTRY", "TLSN_PRODUCTION_RESULT_SIGNING_KEY_REGISTRY_ENVELOPE", "TLSN_PRODUCTION_RESULT_REGISTRY_ROOT_KEY_ID", "TLSN_PRODUCTION_RESULT_REGISTRY_ROOT_PUBLIC_KEY_SPKI", "TLSN_PRODUCTION_SESSION_AUTHORITY_PUBLIC_KEY_SPKI", "TLSN_PRODUCTION_SESSION_AUTHORITY_KEY_ID", "TLSN_PRODUCTION_SESSION_AUTHORITY_KEY_REGISTRY", "TLSN_PRODUCTION_BINDING_AUTHORITY_PUBLIC_KEY_SPKI", "TLSN_PRODUCTION_BINDING_AUTHORITY_KEY_ID", "TLSN_PRODUCTION_BINDING_AUTHORITY_KEY_REGISTRY", "TLSN_PRODUCTION_DEPLOYMENT_ID", "TLSN_PRODUCTION_WORKER_NAME"]
     : ["TLSN_CANARY_RESULT_SIGNING_PRIVATE_KEY_PKCS8", "TLSN_CANARY_SESSION_AUTHORITY_SIGNING_PRIVATE_KEY_PKCS8", "TLSN_CANARY_BINDING_AUTHORITY_SIGNING_PRIVATE_KEY_PKCS8", "TLSN_CANARY_TRUST_ROOT_CERTIFICATE_DER", "TLSN_CANARY_RESULT_PUBLIC_KEY_SPKI", "TLSN_CANARY_RESULT_SIGNER_KEY_ID", "TLSN_CANARY_RESULT_SIGNING_KEY_REGISTRY", "TLSN_CANARY_RESULT_SIGNING_KEY_REGISTRY_ENVELOPE", "TLSN_CANARY_RESULT_REGISTRY_ROOT_KEY_ID", "TLSN_CANARY_RESULT_REGISTRY_ROOT_PUBLIC_KEY_SPKI", "TLSN_CANARY_SESSION_AUTHORITY_PUBLIC_KEY_SPKI", "TLSN_CANARY_SESSION_AUTHORITY_KEY_ID", "TLSN_CANARY_SESSION_AUTHORITY_KEY_REGISTRY", "TLSN_CANARY_BINDING_AUTHORITY_PUBLIC_KEY_SPKI", "TLSN_CANARY_BINDING_AUTHORITY_KEY_ID", "TLSN_CANARY_BINDING_AUTHORITY_KEY_REGISTRY", "TLSN_CANARY_DEPLOYMENT_ID", "TLSN_CANARY_WORKER_NAME", "TLSN_CANARY_BINDING_VALUE"];
-  for (const name of [...forbiddenRoleInputs, ...LEGACY_NOTARY_REGISTRY_INPUTS, ...TEST_ONLY_INPUTS]) {
+  const forbiddenCandidateOriginInputs = role === "production"
+    ? ["TLSN_CANDIDATE_SERVER_IDENTITY", "TLSN_CANDIDATE_PROFILE_SHA256", "TLSN_CANDIDATE_SPARSE_PROFILE_SHA256"]
+    : [];
+  for (const name of [...forbiddenRoleInputs, ...forbiddenCandidateOriginInputs, ...LEGACY_NOTARY_REGISTRY_INPUTS, ...TEST_ONLY_INPUTS]) {
     if (process.env[name] !== undefined) addFailure(failures, name, "forbidden configuration is present for this deployment role");
   }
   for (const name of requiredInputs) {
@@ -306,40 +312,42 @@ async function main() {
   }
   const ttl = Number(value("TLSN_BINDING_TTL_SECONDS"));
   if (!Number.isInteger(ttl) || ttl < 1 || ttl > 3600) addFailure(failures, "TLSN_BINDING_TTL_SECONDS", "must be an integer from 1 through 3600");
-  if (!value("TLSN_CANDIDATE_SERVER_IDENTITY") || !DNS_HOSTNAME_PATTERN.test(value("TLSN_CANDIDATE_SERVER_IDENTITY"))) addFailure(failures, "TLSN_CANDIDATE_SERVER_IDENTITY", "must be a DNS hostname");
-  if (fixtureOnlyCanary && value("TLSN_CANDIDATE_SERVER_IDENTITY") !== "game.example.test") {
-    addFailure(failures, "TLSN_CANDIDATE_SERVER_IDENTITY", "fixture-only canary must use the repository synthetic identity game.example.test");
-  }
   const registryRaw = value("TLSN_PRODUCTION_NOTARY_REGISTRY");
   const deploymentIdName = role === "canary" ? "TLSN_CANARY_DEPLOYMENT_ID" : "TLSN_PRODUCTION_DEPLOYMENT_ID";
   if (!value(deploymentIdName) || !/^[A-Za-z0-9._-]{1,128}$/.test(value(deploymentIdName))) addFailure(failures, deploymentIdName, "must be an alphanumeric deployment identifier");
-  requireBase64UrlLength(failures, "TLSN_CANDIDATE_PROFILE_SHA256", 43);
-  requireBase64UrlLength(failures, "TLSN_CANDIDATE_SPARSE_PROFILE_SHA256", 43);
   let canonicalProfileInputs;
-  try {
-    canonicalProfileInputs = assertProfileContractInputs({
-      serverIdentity: value("TLSN_CANDIDATE_SERVER_IDENTITY"),
-      profileSha256: value("TLSN_CANDIDATE_PROFILE_SHA256"),
-      sparseProfileSha256: value("TLSN_CANDIDATE_SPARSE_PROFILE_SHA256"),
-    });
-  } catch (error) {
-    addFailure(failures, "profile_contract", error instanceof Error ? error.message : "profile contract is invalid");
+  if (role === "canary") {
+    if (!value("TLSN_CANDIDATE_SERVER_IDENTITY") || !DNS_HOSTNAME_PATTERN.test(value("TLSN_CANDIDATE_SERVER_IDENTITY"))) addFailure(failures, "TLSN_CANDIDATE_SERVER_IDENTITY", "must be a DNS hostname");
+    if (fixtureOnlyCanary && value("TLSN_CANDIDATE_SERVER_IDENTITY") !== "game.example.test") {
+      addFailure(failures, "TLSN_CANDIDATE_SERVER_IDENTITY", "fixture-only canary must use the repository synthetic identity game.example.test");
+    }
+    requireBase64UrlLength(failures, "TLSN_CANDIDATE_PROFILE_SHA256", 43);
+    requireBase64UrlLength(failures, "TLSN_CANDIDATE_SPARSE_PROFILE_SHA256", 43);
+    try {
+      canonicalProfileInputs = assertProfileContractInputs({
+        serverIdentity: value("TLSN_CANDIDATE_SERVER_IDENTITY"),
+        profileSha256: value("TLSN_CANDIDATE_PROFILE_SHA256"),
+        sparseProfileSha256: value("TLSN_CANDIDATE_SPARSE_PROFILE_SHA256"),
+      });
+    } catch (error) {
+      addFailure(failures, "profile_contract", error instanceof Error ? error.message : "profile contract is invalid");
+    }
   }
   requireBase64UrlLength(failures, "TLSN_SECURITY_REGISTRY_SET_SHA256", 43);
-  if (
-    registryRaw &&
-    value("TLSN_CANDIDATE_PROFILE_SHA256") &&
-    value("TLSN_CANDIDATE_SERVER_IDENTITY") &&
-    value("TLSN_CANDIDATE_SPARSE_PROFILE_SHA256")
-  ) {
+  if (registryRaw && (role === "production" || (value("TLSN_CANDIDATE_PROFILE_SHA256") && value("TLSN_CANDIDATE_SERVER_IDENTITY") && value("TLSN_CANDIDATE_SPARSE_PROFILE_SHA256")))) {
     try {
-      const expectedSecurityRegistrySetSha256 = securityRegistrySetHash({
-        notaryKeyId: value("TLSN_CANDIDATE_NOTARY_KEY_ID"),
-        notaryRegistryRaw: registryRaw,
-        profileSha256: value("TLSN_CANDIDATE_PROFILE_SHA256"),
-        serverIdentity: value("TLSN_CANDIDATE_SERVER_IDENTITY"),
-        sparseProfileSha256: value("TLSN_CANDIDATE_SPARSE_PROFILE_SHA256"),
-      }).sha256;
+      const expectedSecurityRegistrySetSha256 = role === "production"
+        ? productionSecurityRegistrySetHash({
+          notaryKeyId: value("TLSN_CANDIDATE_NOTARY_KEY_ID"),
+          notaryRegistryRaw: registryRaw,
+        }).sha256
+        : securityRegistrySetHash({
+          notaryKeyId: value("TLSN_CANDIDATE_NOTARY_KEY_ID"),
+          notaryRegistryRaw: registryRaw,
+          profileSha256: value("TLSN_CANDIDATE_PROFILE_SHA256"),
+          serverIdentity: value("TLSN_CANDIDATE_SERVER_IDENTITY"),
+          sparseProfileSha256: value("TLSN_CANDIDATE_SPARSE_PROFILE_SHA256"),
+        }).sha256;
       if (value("TLSN_SECURITY_REGISTRY_SET_SHA256") !== expectedSecurityRegistrySetSha256) {
         addFailure(failures, "TLSN_SECURITY_REGISTRY_SET_SHA256", "must match the canonical security registry set derived from the supplied inputs");
       }
@@ -506,8 +514,7 @@ async function main() {
         resultRegistryRootKeyId: value("TLSN_PRODUCTION_RESULT_REGISTRY_ROOT_KEY_ID"),
         resultRegistryRootPublicKeySpki: value("TLSN_PRODUCTION_RESULT_REGISTRY_ROOT_PUBLIC_KEY_SPKI"),
         verificationEndpoint: value("TLSN_PRODUCTION_VERIFICATION_ENDPOINT"),
-        serverIdentity: value("TLSN_CANDIDATE_SERVER_IDENTITY"),
-        originPort: Number(value("TLSN_PRODUCTION_ORIGIN_PORT")),
+        securityRegistrySetSha256: value("TLSN_SECURITY_REGISTRY_SET_SHA256"),
       });
     } catch (error) {
       addFailure(failures, "production_public_manifest", error instanceof Error ? error.message : "public manifest is invalid");
@@ -570,7 +577,14 @@ async function main() {
       result_registry_root_key_id: resultRegistryRootKeyId ?? null,
       result_registry_root_public_key_spki: resultRegistryRootPublicKeySpki ?? null,
     },
-    profile_contract: canonicalProfileInputs
+    profile_contract: role === "production"
+      ? {
+          schema_version: 1,
+          source_of_truth: "scripts/profile-canonical-contract.mjs",
+          identity_selection: "Notary-authenticated Presentation identity matched to shipped Origin inventory",
+          profile_hashing: "computed at verification time for the selected identity and disclosure profile",
+        }
+      : canonicalProfileInputs
       ? profileContractArtifact({
           serverIdentity: canonicalProfileInputs.complete.profile.server_identity,
           profileSha256: canonicalProfileInputs.complete.sha256,

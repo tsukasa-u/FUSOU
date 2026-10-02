@@ -65,7 +65,7 @@ async function main() {
   if (
     health.security_identity?.notary_key_id !== publicManifest.notary.key_id ||
     health.security_identity?.notary_registry_sha256 !== publicManifest.notary.registry_sha256 ||
-    health.security_identity?.server_identity !== publicManifest.origin.server_identity ||
+    health.security_identity?.security_registry_set_sha256 !== publicManifest.security_registry_set_sha256 ||
     health.authority_identity?.session_authority?.key_id !== publicManifest.session_authority.key_id ||
     health.authority_identity?.session_authority?.public_key_spki !== publicManifest.session_authority.public_key_spki ||
     health.authority_identity?.session_authority?.key_registry_sha256 !== publicManifest.session_authority.key_registry_sha256

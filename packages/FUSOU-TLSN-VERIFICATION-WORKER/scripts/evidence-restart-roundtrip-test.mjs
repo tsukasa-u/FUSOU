@@ -10,7 +10,7 @@ import { fileURLToPath } from "node:url";
 import { spawn, spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { unstable_dev } from "wrangler";
-import { verifyProductionPresentation, verifySemanticPredicates, assertSemanticResultMatches } from "./production-evidence-semantic.mjs";
+import { verifyProductionPresentation, verifySyntheticFixturePresentation, verifySemanticPredicates, assertSemanticResultMatches } from "./production-evidence-semantic.mjs";
 import { assertSignedResult } from "./production-evidence.mjs";
 import { createSignedResultRegistryEnvelope, resultRegistryEnvelopeHash } from "./result-registry-envelope.mjs";
 import { sha256Base64Url } from "./deployment-attestation.mjs";
@@ -438,7 +438,7 @@ async function verifyBundle(bundleDirectory, config) {
   const result = bundle.final_response.result;
   assert.equal(bundle.artifacts.presentation_sha256, sha256Base64Url(presentationBytes));
   assert.equal(bundle.artifacts.result_sha256, sha256Base64Url(Buffer.from(JSON.stringify(bundle.final_response))));
-  const semanticVerification = await verifyProductionPresentation({
+  const semanticVerification = await verifySyntheticFixturePresentation({
     presentationBytes,
     serverIdentity: bundle.trusted_inputs.server_identity,
     profileSha256: bundle.trusted_inputs.profile_sha256,
@@ -448,7 +448,7 @@ async function verifyBundle(bundleDirectory, config) {
     canonicalDeviceId: result.device_id,
     deviceChallenge: result.device_challenge,
     notaryRegistry: bundle.notary_registry,
-    trustAnchorDer: bundle.trusted_inputs.trust_root_certificate_der,
+    trustRootDer: bundle.trusted_inputs.trust_root_certificate_der,
   });
   assertSemanticResultMatches(result, semanticVerification);
   assertSignedResult(result, { publicKeySpki: config.resultPublicKeySpki, keyRegistry: config.registry, signerKeyId: "worker-restart" });
@@ -480,7 +480,7 @@ async function runTamperMatrix(config, verified) {
     try { await action(); } catch { rejected = true; }
     assert.equal(rejected, true, `${name}: tamper was accepted`);
   };
-  await expectReject("presentation", () => verifyProductionPresentation({
+  await expectReject("presentation", () => verifySyntheticFixturePresentation({
     presentationBytes: Buffer.from(presentationBytes).subarray(1),
     serverIdentity: bundle.trusted_inputs.server_identity,
     profileSha256: bundle.trusted_inputs.profile_sha256,
@@ -490,7 +490,7 @@ async function runTamperMatrix(config, verified) {
     canonicalDeviceId: bundle.final_response.result.device_id,
     deviceChallenge: bundle.final_response.result.device_challenge,
     notaryRegistry: bundle.notary_registry,
-    trustAnchorDer: bundle.trusted_inputs.trust_root_certificate_der,
+    trustRootDer: bundle.trusted_inputs.trust_root_certificate_der,
   }));
   const predicateContext = {
     presentationBytes,

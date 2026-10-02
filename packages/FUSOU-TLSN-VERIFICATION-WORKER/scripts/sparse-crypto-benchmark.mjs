@@ -11,8 +11,8 @@ import {
   attach_sparse_verifier_result_signature,
   derive_sparse_verifier_result_signing_bytes,
   initSync,
-  verify_require_info_presentation_with_trust_anchor,
-  verify_sparse_require_info_presentation_with_trust_anchor,
+  verify_synthetic_require_info_presentation_with_root,
+  verify_synthetic_sparse_require_info_presentation_with_root,
 } from "../src/wasm/fusou_tlsn_verifier.js";
 import { parseSparseProfileTranscripts } from "./production-evidence-semantic.mjs";
 
@@ -928,8 +928,8 @@ function runChild(fixturePath, requestedPaddingBytes, expectedSha256, mode, case
   const startedAt = performance.now();
   try {
     const verifyPresentation = verifierMode === "full"
-      ? verify_require_info_presentation_with_trust_anchor
-      : verify_sparse_require_info_presentation_with_trust_anchor;
+      ? verify_synthetic_require_info_presentation_with_root
+      : verify_synthetic_sparse_require_info_presentation_with_root;
     const verificationStarted = performance.now();
     const preparedJson = verifyPresentation(
       presentation,

@@ -6,11 +6,12 @@ import { fileURLToPath } from "node:url";
 import { z } from "zod";
 import {
   initSync,
+  inspect_alpha15_server_identity,
   verify_require_info_presentation,
-  verify_require_info_presentation_with_trust_anchor,
   verify_sparse_require_info_presentation,
-  verify_sparse_require_info_presentation_with_trust_anchor,
 } from "../../../FUSOU-TLSN-VERIFICATION-WORKER/src/wasm/fusou_tlsn_verifier.js";
+import originInventory from "../../../configs/tlsn-origin-inventory.json" with { type: "json" };
+import { canonicalProfileBytes, selectOriginTarget, type OriginPolicy } from "./origin-profile.js";
 
 const MAX_PRESENTATION_BYTES = 8 * 1024 * 1024;
 const verificationTaskPayloadSchema = z.object({
@@ -23,6 +24,7 @@ const verificationTaskPayloadSchema = z.object({
   verification_input_key: z.string().regex(/^tlsn-verification\/[0-9a-f-]+\/presentation\.bin$/),
   verification_result_key: z.string().regex(/^tlsn-verification\/[0-9a-f-]+\/result\.json$/),
   benchmark_trace_id: z.string().uuid().optional(),
+  origin_policy: z.enum(["fixed", "inventory"]),
   profile: z.enum(["complete", "sparse"]),
   disclosure_mode: z.enum(["full", "sparse"]),
 }).strict().superRefine((payload, context) => {
@@ -122,31 +124,43 @@ function initializeVerifier(): void {
   initSync(readFileSync(wasmPath()));
 }
 
-function verifierConfig(profile: "complete" | "sparse"): {
-  serverIdentity: string;
-  profileSha256: Uint8Array;
+function verifierConfig(profile: VerificationTaskPayload["profile"], originPolicy: OriginPolicy): {
   verifierKeyId: string;
   notaryKeyId: string;
   notaryKey: Uint8Array;
-  trustRoot?: Uint8Array;
+  serverIdentity?: string;
+  profileSha256?: Uint8Array;
 } {
-  const trustRootValue = process.env["TLSN_TRIGGER_TRUST_ROOT_CERTIFICATE_DER"]?.trim();
+  if (process.env["TLSN_TRIGGER_TRUST_ROOT_CERTIFICATE_DER"] !== undefined) {
+    throw new Error("custom Origin trust roots are unavailable to the Production Trigger");
+  }
   const notaryRegistry = z.record(z.string(), z.string()).parse(
     JSON.parse(requiredEnv("TLSN_TRIGGER_NOTARY_REGISTRY")) as unknown,
   );
   const notaryKeyValue = notaryRegistry[requiredEnv("TLSN_TRIGGER_NOTARY_KEY_ID")];
   if (!notaryKeyValue) throw new Error("TLSN_TRIGGER_NOTARY_KEY_ID is absent from the notary registry");
-  return {
-    serverIdentity: requiredEnv("TLSN_TRIGGER_SERVER_IDENTITY"),
-    profileSha256: decodeBase64Url(
-      requiredEnv(profile === "sparse" ? "TLSN_TRIGGER_SPARSE_PROFILE_SHA256" : "TLSN_TRIGGER_PROFILE_SHA256"),
-      32,
-    ),
+  const config = {
     verifierKeyId: requiredEnv("TLSN_TRIGGER_VERIFIER_KEY_ID"),
     notaryKeyId: requiredEnv("TLSN_TRIGGER_NOTARY_KEY_ID"),
     notaryKey: decodeBase64Url(notaryKeyValue, 4096),
-    ...(trustRootValue ? { trustRoot: decodeBase64Url(trustRootValue, 4096) } : {}),
   };
+  if (originPolicy === "fixed") {
+    const serverIdentity = requiredEnv("TLSN_TRIGGER_SERVER_IDENTITY");
+    const profileInput = profile === "sparse"
+      ? "TLSN_TRIGGER_SPARSE_PROFILE_SHA256"
+      : "TLSN_TRIGGER_PROFILE_SHA256";
+    return {
+      ...config,
+      serverIdentity,
+      profileSha256: decodeBase64Url(requiredEnv(profileInput), 32),
+    };
+  }
+  if (process.env["TLSN_TRIGGER_SERVER_IDENTITY"] !== undefined ||
+    process.env["TLSN_TRIGGER_PROFILE_SHA256"] !== undefined ||
+    process.env["TLSN_TRIGGER_SPARSE_PROFILE_SHA256"] !== undefined) {
+    throw new Error("Production inventory Trigger cannot use a static Origin identity or profile digest");
+  }
+  return config;
 }
 
 async function fetchPresentation(payload: VerificationTaskPayload): Promise<Uint8Array> {
@@ -259,57 +273,43 @@ export const verifyTlsnPresentation = task({
       initializeVerifier();
       verifierInitializationCompletedAt = wallClockNow();
 
-      const config = verifierConfig(payload.profile);
+      const config = verifierConfig(payload.profile, payload.origin_policy);
+      let serverIdentity = config.serverIdentity;
+      let profileSha256 = config.profileSha256;
+      if (payload.origin_policy === "inventory") {
+        const observedIdentity = inspect_alpha15_server_identity(presentation, config.notaryKey);
+        const target = selectOriginTarget(observedIdentity, originInventory.targets);
+        if (!target) throw new Error("verified Presentation server identity is outside the shipped Origin inventory");
+        serverIdentity = target.server_identity;
+        profileSha256 = new Uint8Array(createHash("sha256").update(
+          canonicalProfileBytes(payload.profile, serverIdentity),
+        ).digest());
+      }
+      if (!serverIdentity || !profileSha256) throw new Error("Trigger Origin identity or profile digest is not configured");
       const deviceChallenge = decodeBase64Url(payload.device_challenge, 32);
       const preparedResultJson = payload.profile === "sparse"
-        ? config.trustRoot
-          ? verify_sparse_require_info_presentation_with_trust_anchor(
-            presentation,
-            config.serverIdentity,
-            config.profileSha256,
-            config.verifierKeyId,
-            config.notaryKeyId,
-            payload.canonical_user_id,
-            payload.device_id,
-            deviceChallenge,
-            config.trustRoot,
-            config.notaryKey,
-          )
-          : verify_sparse_require_info_presentation(
-            presentation,
-            config.serverIdentity,
-            config.profileSha256,
-            config.verifierKeyId,
-            config.notaryKeyId,
-            payload.canonical_user_id,
-            payload.device_id,
-            deviceChallenge,
-            config.notaryKey,
-          )
-        : config.trustRoot
-          ? verify_require_info_presentation_with_trust_anchor(
-            presentation,
-            config.serverIdentity,
-            config.profileSha256,
-            config.verifierKeyId,
-            config.notaryKeyId,
-            payload.canonical_user_id,
-            payload.device_id,
-            deviceChallenge,
-            config.trustRoot,
-            config.notaryKey,
-          )
-          : verify_require_info_presentation(
-            presentation,
-            config.serverIdentity,
-            config.profileSha256,
-            config.verifierKeyId,
-            config.notaryKeyId,
-            payload.canonical_user_id,
-            payload.device_id,
-            deviceChallenge,
-            config.notaryKey,
-          );
+        ? verify_sparse_require_info_presentation(
+          presentation,
+          serverIdentity,
+          profileSha256,
+          config.verifierKeyId,
+          config.notaryKeyId,
+          payload.canonical_user_id,
+          payload.device_id,
+          deviceChallenge,
+          config.notaryKey,
+        )
+        : verify_require_info_presentation(
+          presentation,
+          serverIdentity,
+          profileSha256,
+          config.verifierKeyId,
+          config.notaryKeyId,
+          payload.canonical_user_id,
+          payload.device_id,
+          deviceChallenge,
+          config.notaryKey,
+        );
       JSON.parse(preparedResultJson);
     } catch (error) {
       logPhase(payload, "verifier_error", triggerExecutionStartedAt, { error_class: errorClass(error) });

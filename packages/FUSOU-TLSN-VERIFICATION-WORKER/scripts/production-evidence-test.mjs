@@ -1594,6 +1594,21 @@ await assert.rejects(
   }),
   /(?:alpha\.15 Presentation cryptographic inspection failed|semantic Presentation (?:cryptographic|profile) verification failed)/,
 );
+await assert.rejects(
+  verifyProductionPresentation({
+    presentationBytes: upstreamPresentation,
+    serverIdentity: securityIdentity.server_identity,
+    profileSha256: result.profile_sha256,
+    verifierKeyId: securityIdentity.verifier_key_id,
+    notaryKeyId: securityIdentity.notary_key_id,
+    canonicalUserId: result.canonical_user_id,
+    canonicalDeviceId: result.device_id,
+    deviceChallenge: result.device_challenge,
+    notaryRegistry: { [securityIdentity.notary_key_id]: Buffer.alloc(32, 8).toString("base64url") },
+    syntheticTrustRootDer: Buffer.from("not-a-root").toString("base64url"),
+  }),
+  /custom Origin trust roots are unavailable to Production verification/,
+);
 
 function rejects(label, action) {
   assert.throws(action, undefined, label);

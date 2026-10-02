@@ -506,6 +506,14 @@ export async function runAuthenticatedOwnershipSmokeTest(fetch, fixture, deviceP
 }
 
 export async function runProductionConfigurationFailClosedSmokeTest(fetch) {
+  const healthResponse = await fetch("https://verify.test/health");
+  assert.equal(healthResponse.status, 200);
+  const health = await healthResponse.json();
+  assert.equal(health.environment, "production");
+  assert.equal(health.profile_sha256, null);
+  assert.equal(health.sparse_profile_sha256, null);
+  assert.equal(health.security_identity.server_identity, null);
+
   const response = await fetch("https://verify.test/attestation/session", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -513,7 +521,7 @@ export async function runProductionConfigurationFailClosedSmokeTest(fetch) {
   });
   assert.equal(response.status, 401);
   assert.deepEqual(await response.json(), { error: "unauthorized" });
-  console.log("[tlsn-verification-worker] production configuration fail-closed gate OK");
+  console.log("[tlsn-verification-worker] Production inventory config accepts omitted static identity/profile and reaches auth gate");
 }
 
 export async function runProductionRegistryFailClosedSmokeTest(fetch) {

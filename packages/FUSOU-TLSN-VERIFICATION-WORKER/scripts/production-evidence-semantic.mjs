@@ -4,11 +4,11 @@ import { fileURLToPath } from "node:url";
 import { gunzipSync } from "node:zlib";
 import initVerifier, {
   inspect_alpha15_presentation,
-  inspect_alpha15_presentation_with_trust_anchor,
+  inspect_synthetic_alpha15_presentation_with_root,
   verify_require_info_presentation,
-  verify_require_info_presentation_with_trust_anchor,
+  verify_synthetic_require_info_presentation_with_root,
   verify_sparse_require_info_presentation,
-  verify_sparse_require_info_presentation_with_trust_anchor,
+  verify_synthetic_sparse_require_info_presentation_with_root,
 } from "../src/wasm/fusou_tlsn_verifier.js";
 import { assertSignedResult, assertSignedSparseResult } from "./production-evidence.mjs";
 import { assertSignedResultRegistryEnvelope, resultRegistryEnvelopeHash } from "./result-registry-envelope.mjs";
@@ -1459,11 +1459,11 @@ export function semanticRequirementStatus(requirement, predicateResults) {
   return predicateNames.every((name) => predicateResults?.[name]?.status === "PASS") ? "PASS" : "UNVERIFIED";
 }
 
-export async function inspectAlpha15Presentation({
+async function inspectAlpha15PresentationInternal({
   presentationBytes,
   notaryRegistry,
   notaryKeyId,
-  trustAnchorDer,
+  syntheticTrustRootDer,
   disclosureMode = "complete",
 }) {
   if (!Buffer.isBuffer(presentationBytes) && !(presentationBytes instanceof Uint8Array)) {
@@ -1476,10 +1476,10 @@ export async function inspectAlpha15Presentation({
   const trustedNotaryKey = trustedNotaryKeyFromRegistry(notaryRegistry, notaryKeyId);
   let inspectionOutput;
   try {
-    inspectionOutput = trustAnchorDer
-      ? inspect_alpha15_presentation_with_trust_anchor(
+    inspectionOutput = syntheticTrustRootDer
+      ? inspect_synthetic_alpha15_presentation_with_root(
         presentationBytes,
-        decodeBase64Url(trustAnchorDer, "trust root certificate"),
+        decodeBase64Url(syntheticTrustRootDer, "synthetic trust root certificate"),
         trustedNotaryKey,
       )
       : inspect_alpha15_presentation(presentationBytes, trustedNotaryKey);
@@ -1501,7 +1501,40 @@ export async function inspectAlpha15Presentation({
   };
 }
 
-export async function verifyProductionPresentation({
+export async function inspectAlpha15Presentation({
+  presentationBytes,
+  notaryRegistry,
+  notaryKeyId,
+  disclosureMode = "complete",
+}) {
+  return inspectAlpha15PresentationInternal({
+    presentationBytes,
+    notaryRegistry,
+    notaryKeyId,
+    disclosureMode,
+  });
+}
+
+export async function inspectSyntheticFixtureAlpha15Presentation({
+  presentationBytes,
+  notaryRegistry,
+  notaryKeyId,
+  trustRootDer,
+  disclosureMode = "complete",
+}) {
+  if (typeof trustRootDer !== "string" || trustRootDer.trim() === "") {
+    throw new Error("synthetic fixture inspection requires an explicit trust root");
+  }
+  return inspectAlpha15PresentationInternal({
+    presentationBytes,
+    notaryRegistry,
+    notaryKeyId,
+    syntheticTrustRootDer: trustRootDer,
+    disclosureMode,
+  });
+}
+
+async function verifyPresentationWithTrustMode({
   presentationBytes,
   serverIdentity,
   profileSha256,
@@ -1511,7 +1544,7 @@ export async function verifyProductionPresentation({
   canonicalDeviceId,
   deviceChallenge,
   notaryRegistry,
-  trustAnchorDer,
+  syntheticTrustRootDer,
   disclosureMode = "complete",
 }) {
   if (!Buffer.isBuffer(presentationBytes) && !(presentationBytes instanceof Uint8Array)) {
@@ -1524,11 +1557,11 @@ export async function verifyProductionPresentation({
   await ensureVerifierInitialized();
   const profileBytes = decodeBase64Url(profileSha256, "profile SHA-256", 32);
   const challengeBytes = decodeBase64Url(deviceChallenge, "device challenge", 32);
-  const inspection = await inspectAlpha15Presentation({
+  const inspection = await inspectAlpha15PresentationInternal({
     presentationBytes,
     notaryRegistry,
     notaryKeyId,
-    trustAnchorDer,
+    syntheticTrustRootDer,
     disclosureMode,
   });
   const verifiedPresentation = inspection.verified_presentation;
@@ -1536,8 +1569,8 @@ export async function verifyProductionPresentation({
   let output;
   try {
     output = sparse
-      ? trustAnchorDer
-        ? verify_sparse_require_info_presentation_with_trust_anchor(
+      ? syntheticTrustRootDer
+        ? verify_synthetic_sparse_require_info_presentation_with_root(
           presentationBytes,
           serverIdentity,
           profileBytes,
@@ -1546,7 +1579,7 @@ export async function verifyProductionPresentation({
           canonicalUserId,
           canonicalDeviceId,
           challengeBytes,
-          decodeBase64Url(trustAnchorDer, "trust root certificate"),
+          decodeBase64Url(syntheticTrustRootDer, "synthetic trust root certificate"),
           trustedNotaryKey,
         )
         : verify_sparse_require_info_presentation(
@@ -1560,8 +1593,8 @@ export async function verifyProductionPresentation({
           challengeBytes,
           trustedNotaryKey,
         )
-      : trustAnchorDer
-        ? verify_require_info_presentation_with_trust_anchor(
+      : syntheticTrustRootDer
+        ? verify_synthetic_require_info_presentation_with_root(
         presentationBytes,
         serverIdentity,
         profileBytes,
@@ -1570,7 +1603,7 @@ export async function verifyProductionPresentation({
         canonicalUserId,
         canonicalDeviceId,
         challengeBytes,
-        decodeBase64Url(trustAnchorDer, "trust root certificate"),
+        decodeBase64Url(syntheticTrustRootDer, "synthetic trust root certificate"),
         trustedNotaryKey,
       )
         : verify_require_info_presentation(
@@ -1612,6 +1645,51 @@ export async function verifyProductionPresentation({
     verified_presentation: verifiedPresentation,
     notary_key_sha256: verifiedPresentation.notary_key_sha256,
   };
+}
+
+export async function verifyProductionPresentation(inputs) {
+  if (!inputs || typeof inputs !== "object" || Array.isArray(inputs)) {
+    throw new Error("Production verification inputs are malformed");
+  }
+  for (const forbiddenKey of ["syntheticTrustRootDer", "trustRootDer", "trustAnchorDer"]) {
+    if (Object.hasOwn(inputs, forbiddenKey)) {
+      throw new Error("custom Origin trust roots are unavailable to Production verification");
+    }
+  }
+  const {
+    presentationBytes,
+    serverIdentity,
+    profileSha256,
+    verifierKeyId,
+    notaryKeyId,
+    canonicalUserId,
+    canonicalDeviceId,
+    deviceChallenge,
+    notaryRegistry,
+    disclosureMode,
+  } = inputs;
+  return verifyPresentationWithTrustMode({
+    presentationBytes,
+    serverIdentity,
+    profileSha256,
+    verifierKeyId,
+    notaryKeyId,
+    canonicalUserId,
+    canonicalDeviceId,
+    deviceChallenge,
+    notaryRegistry,
+    disclosureMode,
+  });
+}
+
+export async function verifySyntheticFixturePresentation({ trustRootDer, ...inputs }) {
+  if (typeof trustRootDer !== "string" || trustRootDer.trim() === "") {
+    throw new Error("synthetic fixture verification requires an explicit trust root");
+  }
+  return verifyPresentationWithTrustMode({
+    ...inputs,
+    syntheticTrustRootDer: trustRootDer,
+  });
 }
 
 export function createSemanticVerificationArtifact({

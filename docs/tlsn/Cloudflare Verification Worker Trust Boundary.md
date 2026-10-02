@@ -1,6 +1,6 @@
 # Cloudflare Verification Worker Trust Boundary
 
-Status: local synthetic verification boundary with authenticated user and device ownership; production remains blocked
+Status: local synthetic verification boundary with authenticated user and device ownership; no real-Origin probe or production deployment was performed for this update
 
 This document describes the FUSOU TLSNotary alpha.15 verification boundary at commit `47aee45b53e06648c1b2ad3689b367b8c923fdec` and the current Cloudflare Worker implementation in this working tree.
 
@@ -57,7 +57,17 @@ Production has three separate signing authorities:
 - Binding Authority: `TLSN_PRODUCTION_BINDING_AUTHORITY_KEY_ID`, public SPKI, and key registry are the public source of truth; `TLSN_PRODUCTION_BINDING_AUTHORITY_SIGNING_PRIVATE_KEY_PKCS8` is the Worker-only signing secret. The Worker signs consume receipts and the offline evidence verifier checks them. APP receives none of this material.
 - Result signer: the role-specific Production Result public key, registry, and private key remain separate from both authority registries.
 
-The Production workflow supplies the public values as Worker configuration and the private values as secrets. A successful offline preflight emits `tlsn-production-public-manifest.json` schema version 2, whose Origin object contains only `server_identity` and `port`; it contains no target certificate DER or trust-root hash. The hostname is the FUSOU-managed TLSN target identity. Alpha.15 verifies the captured Origin certificate chain, validity, and DNS identity using its built-in Mozilla Web PKI roots. The APP renderer consumes that manifest and receives its artifact directory separately.
+The Production workflow supplies the public values as Worker configuration and the private values as secrets. A successful offline preflight emits `tlsn-production-public-manifest.json` schema version 3 with the shipped inventory schema, byte-level SHA-256, target count, and HTTPS port; it contains no single Production identity, target certificate DER, or trust-root hash. Production extracts the server identity from the Notary-authenticated Presentation, matches it to the inventory, and computes the canonical profile hash for that identity. Alpha.15 still verifies the captured Origin certificate chain, validity, and DNS identity using its built-in Mozilla Web PKI roots. The APP renderer consumes the manifest and receives its artifact directory separately.
+
+The Worker sets the Trigger task's `origin_policy` from its trusted runtime configuration: Production uses `inventory`, and Canary uses `fixed`. The Trigger checks the authenticated Presentation against the inventory only in Production mode; Canary uses its separately deployed fixed identity and complete/sparse profile hashes. Both modes use alpha.15 Web PKI verification and reject custom Origin trust roots. The task caller cannot choose the policy through the public verification request.
+
+### Origin inventory and trust stores
+
+The canonical inventory lists 20 Production server identities from `configs.toml:[app.connect_kc_server.server_list]`. It is an allowlist for selecting and reporting the authenticated Presentation identity, not a trust anchor or certificate-validation policy. Every candidate still passes alpha.15 certificate chain, validity-period, and DNS hostname verification. The Notary signature authenticates the Presentation but does not replace Web PKI.
+
+The APP uses `rustls_native_certs::load_native_certs()` while the Worker alpha.15 default provider uses its bundled Mozilla root set. The stores are not guaranteed to match. A successful native-root-store availability check does not establish that a particular Origin chain validates, and an APP-success/Worker-failure split is possible. Leaf renewal and intermediate changes normally require no FUSOU configuration change if both stores can validate the resulting chain. A new root absent from the Worker bundle requires updating, rebuilding, and redeploying the verifier.
+
+The opt-in `tlsn-origin-probe` binary observes a Web-PKI-validated TCP/TLS handshake and reports the presented chain; it sends no HTTP request, modifies no trust settings, and does not persist or enroll trust. It is diagnostic evidence only, not an authority source. Running it against a real hostname makes outbound DNS/TCP/TLS connections and requires explicit approval. This update did not run it against any real host.
 
 Rotation is atomic at the configuration-contract level: publish the new registry and selected key, matching public SPKI/key ID and private secret, regenerate the manifest and APP config, then validate the new identities offline. The new authority key must be `ACTIVE`; the prior key may remain `VERIFY_ONLY` for historical receipt verification and must not issue new receipts. Keep the previous complete registry/configuration for rollback.
 
@@ -168,4 +178,4 @@ Checks currently include:
 - FUSOU-WEB generic and TLSN device-proof tests for owner mismatch, revocation, invalid signature, malformed context, and atomic replay;
 - local synthetic Worker checks for positive device binding, signed device-ID tampering, missing device proof, context tampering, replay, concurrent consume, and expiry.
 
-These checks establish synthetic local behavior only. They do not establish production Game Server authenticity, production operational key governance, production memory or payload limits, remote Worker behavior, or P0-05 evidence.
+The inventory-bound Production preflight and public manifest were also checked offline with all fixed candidate identity/profile/port inputs omitted; a local Worker config smoke reached its authentication gate with those fields absent, and Trigger inventory/profile selection was tested against all 20 entries. These checks establish local configuration behavior only. They do not establish production Game Server authenticity, alignment between APP-native and Worker-bundled stores for live chains, production operational key governance, production memory or payload limits, remote Worker behavior, or P0-05 evidence.

@@ -172,6 +172,15 @@ impl ServerIdentityPolicy {
         })
     }
 
+    pub fn from_shipped_inventory() -> Result<Self, OriginConfigurationError> {
+        let identities = configs::get_tlsn_origin_inventory()
+            .targets
+            .into_iter()
+            .map(|target| target.server_identity)
+            .collect();
+        Self::new(identities)
+    }
+
     pub fn allows(&self, server_identity: &str) -> bool {
         self.allowlisted_identities
             .iter()
@@ -210,7 +219,21 @@ impl OriginTransportConfig {
         if !self.experimental_enabled {
             return Err(OriginConfigurationError::ExperimentalDisabled);
         }
-        if !self
+        let inventory_allows_target = configs::get_tlsn_origin_inventory()
+            .targets
+            .iter()
+            .any(|target| {
+                target.port == self.target.port()
+                    && target
+                        .server_identity
+                        .eq_ignore_ascii_case(self.target.server_identity())
+            });
+        #[cfg(test)]
+        let inventory_allows_target = inventory_allows_target
+            || (self.target.port() == 443
+                && self.target.server_identity() == "game.example.test");
+        if !inventory_allows_target
+            || !self
             .server_identity_policy
             .allows(self.target.server_identity())
         {

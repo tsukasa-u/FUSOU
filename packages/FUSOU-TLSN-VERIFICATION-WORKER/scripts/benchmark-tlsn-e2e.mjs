@@ -278,7 +278,7 @@ async function startTriggerServer(verifierModule, triggerState) {
         });
         if (!inputResponse.ok) throw new Error(`input handoff ${inputResponse.status}`);
         const presentation = new Uint8Array(await inputResponse.arrayBuffer());
-        const preparedResultJson = verifierModule.verify_sparse_require_info_presentation_with_trust_anchor(
+        const preparedResultJson = verifierModule.verify_synthetic_sparse_require_info_presentation_with_root(
           presentation,
           "game.example.test",
           Buffer.from(PROFILE_SHA256, "base64url"),

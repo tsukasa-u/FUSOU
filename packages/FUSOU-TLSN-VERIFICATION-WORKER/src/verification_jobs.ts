@@ -55,6 +55,7 @@ const verificationTaskPayloadObject = z.object({
   verification_input_key: z.string().regex(OBJECT_KEY_PATTERN).optional(),
   verification_result_key: z.string().regex(OBJECT_KEY_PATTERN),
   benchmark_trace_id: z.string().regex(BENCHMARK_TRACE_ID_PATTERN).optional(),
+  origin_policy: z.enum(["inventory", "fixed"]),
   ...verificationProfileFields,
 }).strict();
 

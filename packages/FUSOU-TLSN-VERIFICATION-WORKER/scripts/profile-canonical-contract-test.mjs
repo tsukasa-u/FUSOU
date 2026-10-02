@@ -70,9 +70,15 @@ assert.equal(PROFILE_CONTRACT_SPEC.encoding, "UTF-8");
 assert.equal(PROFILE_CONTRACT_SPEC.hash_algorithm, "SHA-256");
 assert.equal(PROFILE_CONTRACT_SPEC.response_mode_semantics.hash_inclusion, false);
 assert.deepEqual(PROFILE_CONTRACT_INPUT_MANIFEST.production_inputs, {
-  server_identity: "TLSN_CANDIDATE_SERVER_IDENTITY",
-  complete_profile_hash: "TLSN_CANDIDATE_PROFILE_SHA256",
-  sparse_profile_hash: "TLSN_CANDIDATE_SPARSE_PROFILE_SHA256",
+  canary: {
+    server_identity: "TLSN_CANDIDATE_SERVER_IDENTITY",
+    complete_profile_hash: "TLSN_CANDIDATE_PROFILE_SHA256",
+    sparse_profile_hash: "TLSN_CANDIDATE_SPARSE_PROFILE_SHA256",
+  },
+  production: {
+    server_identity: "verified Presentation identity matched to shipped Origin inventory",
+    profile_hashes: "computed at verification time for the selected identity and disclosure profile",
+  },
   disclosure_mode: "request-time profile selection: full or sparse",
   response_mode: "request-time delivery selection: async or sync",
 });

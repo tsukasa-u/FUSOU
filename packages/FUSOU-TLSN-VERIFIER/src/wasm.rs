@@ -213,7 +213,25 @@ pub fn inspect_alpha15_presentation(
 }
 
 #[wasm_bindgen]
-pub fn inspect_alpha15_presentation_with_trust_anchor(
+pub fn inspect_alpha15_server_identity(
+    presentation_bytes: &[u8],
+    trusted_notary_key: &[u8],
+) -> Result<String, JsValue> {
+    if trusted_notary_key.is_empty() {
+        return Err(JsValue::from_str("trusted Notary key must not be empty"));
+    }
+    let provider = create_crypto_provider(None)?;
+    let transcript = verify_alpha15_presentation_with_provider_and_notary_key(
+        presentation_bytes,
+        &provider,
+        Some(trusted_notary_key),
+    )
+    .map_err(|error| JsValue::from_str(&error.to_string()))?;
+    Ok(transcript.server_identity().to_owned())
+}
+
+#[wasm_bindgen]
+pub fn inspect_synthetic_alpha15_presentation_with_root(
     presentation_bytes: &[u8],
     trust_anchor_der: &[u8],
     trusted_notary_key: &[u8],
@@ -252,7 +270,7 @@ pub fn verify_require_info_presentation(
 }
 
 #[wasm_bindgen]
-pub fn verify_require_info_presentation_with_trust_anchor(
+pub fn verify_synthetic_require_info_presentation_with_root(
     presentation_bytes: &[u8],
     expected_server_identity: &str,
     profile_sha256: &[u8],
@@ -305,7 +323,7 @@ pub fn verify_sparse_require_info_presentation(
 }
 
 #[wasm_bindgen]
-pub fn verify_sparse_require_info_presentation_with_trust_anchor(
+pub fn verify_synthetic_sparse_require_info_presentation_with_root(
     presentation_bytes: &[u8],
     expected_server_identity: &str,
     profile_sha256: &[u8],
@@ -384,4 +402,52 @@ pub fn derive_sparse_verifier_result_signing_bytes(
     result
         .signing_bytes()
         .map_err(|error| JsValue::from_str(&error.to_string()))
+}
+
+#[cfg(test)]
+mod trust_store_tests {
+    use rcgen::{BasicConstraints, CertificateParams, IsCa, KeyPair, KeyUsagePurpose};
+    use std::time::{SystemTime, UNIX_EPOCH};
+    use tlsn_core::{
+        connection::{DnsName, ServerName},
+        webpki::{CertificateDer, RootCertStore, ServerCertVerifier},
+    };
+
+    #[test]
+    fn synthetic_root_is_not_implicitly_trusted_by_worker_mozilla_provider() {
+        let root_key = KeyPair::generate().expect("synthetic root key");
+        let mut root_params = CertificateParams::default();
+        root_params.is_ca = IsCa::Ca(BasicConstraints::Unconstrained);
+        root_params.key_usages = vec![KeyUsagePurpose::KeyCertSign];
+        let root_certificate = root_params.self_signed(&root_key).expect("synthetic root certificate");
+
+        let leaf_key = KeyPair::generate().expect("synthetic leaf key");
+        let mut leaf_params = CertificateParams::new(vec!["inventory.example.test".to_owned()])
+            .expect("synthetic leaf params");
+        leaf_params.key_usages = vec![KeyUsagePurpose::DigitalSignature];
+        leaf_params.extended_key_usages = vec![rcgen::ExtendedKeyUsagePurpose::ServerAuth];
+        let leaf_certificate = leaf_params
+            .signed_by(&leaf_key, &root_certificate, &root_key)
+            .expect("synthetic leaf certificate");
+
+        let root_der = CertificateDer(root_certificate.der().to_vec());
+        let leaf_der = CertificateDer(leaf_certificate.der().to_vec());
+        let explicit_store = RootCertStore { roots: vec![root_der] };
+        let explicit_verifier = ServerCertVerifier::new(&explicit_store).expect("synthetic verifier");
+        let server_name = ServerName::Dns(
+            DnsName::try_from("inventory.example.test").expect("synthetic DNS identity"),
+        );
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system time")
+            .as_secs();
+
+        assert!(explicit_verifier
+            .verify_server_cert(&leaf_der, &[], &server_name, now)
+            .is_ok());
+        assert!(tlsn_attestation::CryptoProvider::default()
+            .cert
+            .verify_server_cert(&leaf_der, &[], &server_name, now)
+            .is_err());
+    }
 }

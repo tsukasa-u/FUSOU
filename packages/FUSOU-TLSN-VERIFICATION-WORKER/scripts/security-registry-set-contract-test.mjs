@@ -1,7 +1,11 @@
 #!/usr/bin/env node
 
 import assert from "node:assert/strict";
-import { securityRegistrySetHash } from "./security-registry-set-contract.mjs";
+import {
+  productionSecurityRegistrySetHash,
+  securityRegistrySetHash,
+} from "./security-registry-set-contract.mjs";
+import { loadOriginInventoryContract } from "./origin-inventory-contract.mjs";
 
 const notaryKeyId = "notary-production-2026";
 const alternateNotaryKeyId = "notary-production-2025";
@@ -67,4 +71,33 @@ assert.throws(
   /notary_key_id must be a valid key ID/,
 );
 
-console.log("[security-registry-set-contract] selected-key binding and mutation contract PASS");
+const production = productionSecurityRegistrySetHash({ notaryKeyId, notaryRegistryRaw: notaryRegistry });
+assert.deepEqual(Object.keys(production.payload), [
+  "notary_key_id",
+  "notary_registry",
+  "origin_inventory_sha256",
+  "profile_policy_sha256",
+]);
+assert.equal(production.payload.origin_inventory_sha256, loadOriginInventoryContract().sha256);
+assert.match(production.payload.profile_policy_sha256, /^[A-Za-z0-9_-]{43}$/);
+assert.equal(
+  productionSecurityRegistrySetHash({
+    notaryKeyId,
+    notaryRegistryRaw: notaryRegistry,
+    serverIdentity: "unbound.example.net",
+    profileSha256: Buffer.alloc(32, 3).toString("base64url"),
+    sparseProfileSha256: Buffer.alloc(32, 4).toString("base64url"),
+  }).sha256,
+  production.sha256,
+  "Production trust-set hash must not bind a single candidate identity or profile digest",
+);
+assert.notEqual(
+  productionSecurityRegistrySetHash({
+    notaryKeyId: alternateNotaryKeyId,
+    notaryRegistryRaw: registryWithAlternateKey,
+  }).sha256,
+  production.sha256,
+  "Production selected Notary identity remains hash-bound",
+);
+
+console.log("[security-registry-set-contract] role-specific identity, inventory, profile-policy, and Notary bindings PASS");

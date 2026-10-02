@@ -2,6 +2,25 @@ extern crate serde;
 extern crate toml;
 
 use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TlsnOriginTarget {
+    pub server_index: i32,
+    pub server_identity: String,
+    pub port: u16,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TlsnOriginInventory {
+    pub schema_version: u8,
+    pub source: String,
+    pub targets: Vec<TlsnOriginTarget>,
+}
+
+pub fn get_tlsn_origin_inventory() -> TlsnOriginInventory {
+    serde_json::from_str(include_str!("../tlsn-origin-inventory.json"))
+        .expect("embedded TLSN Origin inventory must be valid")
+}
 use std::fs::{self, File};
 use std::io::Write;
 use std::path::PathBuf;
@@ -1105,8 +1124,6 @@ pub struct TlsnProxyConfig {
     pub disclosure_mode: Option<String>,
     pub response_mode: Option<String>,
     pub notary_verifying_key: Option<String>,
-    pub origin_port: Option<i64>,
-    pub server_identity: Option<String>,
     pub artifact_output_path: Option<String>,
 }
 
@@ -1126,8 +1143,6 @@ struct TlsnDeploymentConfig {
     expected_git_commit_sha: Option<String>,
     expected_binding_mode: Option<String>,
     notary_verifying_key: Option<String>,
-    origin_port: Option<i64>,
-    server_identity: Option<String>,
 }
 
 fn get_tlsn_deployment_config() -> TlsnDeploymentConfig {
@@ -1151,8 +1166,6 @@ fn get_tlsn_deployment_config() -> TlsnDeploymentConfig {
         expected_git_commit_sha: option_env!("FUSOU_TLSN_EXPECTED_GIT_COMMIT_SHA").map(str::to_owned),
         expected_binding_mode: option_env!("FUSOU_TLSN_EXPECTED_BINDING_MODE").map(str::to_owned),
         notary_verifying_key: option_env!("FUSOU_TLSN_NOTARY_VERIFYING_KEY").map(str::to_owned),
-        origin_port: option_env!("FUSOU_TLSN_ORIGIN_PORT").and_then(|value| value.parse().ok()),
-        server_identity: option_env!("FUSOU_TLSN_SERVER_IDENTITY").map(str::to_owned),
     }
 }
 
@@ -1177,8 +1190,6 @@ impl ConfigsProxy {
             disclosure_mode: Some(self.get_tlsn_disclosure_mode()),
             response_mode: Some(self.get_tlsn_response_mode()),
             notary_verifying_key: deployment.notary_verifying_key,
-            origin_port: deployment.origin_port,
-            server_identity: deployment.server_identity,
             artifact_output_path: self.get_tlsn_artifact_output_path(),
         }
     }
@@ -1276,21 +1287,6 @@ impl ConfigsProxy {
 
     pub fn get_tlsn_notary_verifying_key(&self) -> Option<String> {
         non_empty_string(get_tlsn_deployment_config().notary_verifying_key)
-    }
-
-    pub fn get_tlsn_origin_port(&self) -> u16 {
-        get_tlsn_deployment_config()
-            .origin_port
-            .filter(|port| *port > 0 && *port <= 65535)
-            .unwrap_or(443) as u16
-    }
-
-    pub fn get_tlsn_origin_port_configured(&self) -> Option<i64> {
-        get_tlsn_deployment_config().origin_port
-    }
-
-    pub fn get_tlsn_server_identity(&self) -> Option<String> {
-        non_empty_string(get_tlsn_deployment_config().server_identity)
     }
 
     pub fn get_tlsn_artifact_output_path(&self) -> Option<String> {
@@ -2106,5 +2102,31 @@ mod tests {
             all_servers, expected_servers,
             "All servers should come from configs.toml"
         );
+    }
+
+    #[test]
+    fn tlsn_origin_inventory_matches_the_shipped_server_map() {
+        let inventory = get_tlsn_origin_inventory();
+        let shipped_servers = get_default_configs()
+            .app
+            .connect_kc_server
+            .get_all_servers();
+
+        assert_eq!(inventory.schema_version, 1);
+        assert_eq!(inventory.targets.len(), 20);
+        assert_eq!(inventory.targets.len(), shipped_servers.len());
+
+        let mut indices = std::collections::HashSet::new();
+        let mut identities = std::collections::HashSet::new();
+        for target in inventory.targets {
+            assert_eq!(target.port, 443);
+            assert!(indices.insert(target.server_index));
+            assert!(identities.insert(target.server_identity.clone()));
+            assert_eq!(
+                shipped_servers.get(&target.server_index),
+                Some(&target.server_identity),
+                "inventory target must match embedded default server map"
+            );
+        }
     }
 }

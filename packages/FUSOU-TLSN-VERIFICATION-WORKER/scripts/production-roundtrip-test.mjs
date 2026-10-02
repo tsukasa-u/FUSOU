@@ -11,8 +11,11 @@ import {
   notaryRegistrySha256,
 } from "./production-trust-contract.mjs";
 import { createSignedResultRegistryEnvelope } from "./result-registry-envelope.mjs";
+import {
+  productionSecurityRegistrySetHash,
+  securityRegistrySetHash,
+} from "./security-registry-set-contract.mjs";
 import { profilesForServerIdentity } from "./profile-canonical-contract.mjs";
-import { securityRegistrySetHash } from "./security-registry-set-contract.mjs";
 import {
   createCanaryDeploymentManifest,
 } from "./canary-deployment-manifest.mjs";
@@ -133,7 +136,6 @@ try {
     rootPublicKeySpki: resultRegistryRoot.publicKeySpki,
     rootPrivateKeyPkcs8: resultRegistryRoot.privateKeyPkcs8,
   }));
-  const productionProfiles = profilesForServerIdentity("game.example.com");
   const commitSha = execFileSync("git", ["rev-parse", "HEAD"], {
     cwd: repositoryDirectory,
     encoding: "utf8",
@@ -145,12 +147,9 @@ try {
   const fragmentPath = join(rootDirectory, "rendered-proxy-config.toml");
   const configPath = join(rootDirectory, "app-config.toml");
   const artifactPath = join(rootDirectory, "app-artifacts");
-  const securityRegistrySetSha256 = securityRegistrySetHash({
+  const securityRegistrySetSha256 = productionSecurityRegistrySetHash({
     notaryKeyId: "notary-production-2026",
     notaryRegistryRaw,
-    profileSha256: productionProfiles.complete.sha256,
-    serverIdentity: "game.example.com",
-    sparseProfileSha256: productionProfiles.sparse.sha256,
   }).sha256;
   const env = {
     PATH: process.env.PATH,
@@ -160,9 +159,6 @@ try {
     TLSN_DEPLOYMENT_ROLE: "production",
     TLSN_BINDING_TTL_SECONDS: "900",
     TLSN_GIT_COMMIT_SHA: commitSha,
-    TLSN_CANDIDATE_SERVER_IDENTITY: "game.example.com",
-    TLSN_CANDIDATE_PROFILE_SHA256: productionProfiles.complete.sha256,
-    TLSN_CANDIDATE_SPARSE_PROFILE_SHA256: productionProfiles.sparse.sha256,
     TLSN_CANDIDATE_VERIFIER_KEY_ID: "verifier-production-roundtrip",
     TLSN_CANDIDATE_NOTARY_KEY_ID: "notary-production-2026",
     TLSN_CANDIDATE_NOTARY_ENDPOINT: "notary.example.com:7047",
@@ -182,7 +178,6 @@ try {
     TLSN_PRODUCTION_NOTARY_ENDPOINT: "notary.example.com:7047",
     TLSN_PRODUCTION_SESSION_AUTHORITY_ENDPOINT: "https://worker.example.com/attestation/session",
     TLSN_PRODUCTION_VERIFICATION_ENDPOINT: "https://worker.example.com/verify/tlsn",
-    TLSN_PRODUCTION_ORIGIN_PORT: "443",
     TLSN_PRODUCTION_RESULT_PUBLIC_KEY_SPKI: result.publicKeySpki,
     TLSN_PRODUCTION_RESULT_SIGNER_KEY_ID: resultKeyId,
     TLSN_PRODUCTION_RESULT_SIGNING_KEY_REGISTRY: resultRegistryRaw,
@@ -218,6 +213,17 @@ try {
     TLSN_CANARY_WORKER_NAME: "fusou-tlsn-verification-canary",
     TLSN_CANARY_BINDING_IDENTITY: "canary-binding-roundtrip-2026",
   };
+  const canaryProfiles = profilesForServerIdentity("game.example.com");
+  canaryEnvironment.TLSN_CANDIDATE_SERVER_IDENTITY = "game.example.com";
+  canaryEnvironment.TLSN_CANDIDATE_PROFILE_SHA256 = canaryProfiles.complete.sha256;
+  canaryEnvironment.TLSN_CANDIDATE_SPARSE_PROFILE_SHA256 = canaryProfiles.sparse.sha256;
+  canaryEnvironment.TLSN_SECURITY_REGISTRY_SET_SHA256 = securityRegistrySetHash({
+    notaryKeyId: canaryEnvironment.TLSN_CANDIDATE_NOTARY_KEY_ID,
+    notaryRegistryRaw,
+    profileSha256: canaryProfiles.complete.sha256,
+    serverIdentity: "game.example.com",
+    sparseProfileSha256: canaryProfiles.sparse.sha256,
+  }).sha256;
   const appBuildEnvironment = {
     ...env,
     FUSOU_TLSN_NOTARY_ENDPOINT: env.TLSN_PRODUCTION_NOTARY_ENDPOINT,
@@ -234,11 +240,10 @@ try {
     FUSOU_TLSN_EXPECTED_GIT_COMMIT_SHA: commitSha,
     FUSOU_TLSN_EXPECTED_BINDING_MODE: "fixed_canary",
     FUSOU_TLSN_NOTARY_VERIFYING_KEY: alpha15K256NotaryKey,
-    FUSOU_TLSN_ORIGIN_PORT: env.TLSN_PRODUCTION_ORIGIN_PORT,
-    FUSOU_TLSN_SERVER_IDENTITY: env.TLSN_CANDIDATE_SERVER_IDENTITY,
   };
   for (const name of inputsForRole("canary")) {
     if (secretInputsForRole("canary").includes(name)) continue;
+    if (canaryEnvironment[name]) continue;
     canaryEnvironment[name] ??= name === "TLSN_PRODUCTION_NOTARY_REGISTRY"
       ? notaryRegistryRaw
       : name === "TLSN_CANARY_VERIFIER_IDENTITY_KEY_REGISTRY"
@@ -304,7 +309,11 @@ try {
   assert.equal(manifest.result_signing.public_key_spki, result.publicKeySpki);
   assert.equal(manifest.result_signing.result_registry_root_key_id, resultRegistryRootKeyId);
   assert.equal(manifest.result_signing.result_registry_root_public_key_spki, resultRegistryRoot.publicKeySpki);
-  assert.equal(manifest.origin.server_identity, "game.example.com");
+  assert.equal(manifest.origin_inventory.target_count, 20);
+  assert.equal(manifest.origin_inventory.sha256, productionSecurityRegistrySetHash({
+    notaryKeyId: "notary-production-2026",
+    notaryRegistryRaw,
+  }).payload.origin_inventory_sha256);
   const manifestText = JSON.stringify(manifest);
   for (const value of [
     result.privateKeyPkcs8,
@@ -353,8 +362,6 @@ try {
     "tlsn_expected_git_commit_sha",
     "tlsn_expected_binding_mode",
     "tlsn_notary_verifying_key",
-    "tlsn_origin_port",
-    "tlsn_server_identity",
   ];
   for (const field of deploymentOnlyFields) {
     assert.doesNotMatch(fragment, new RegExp(`^${field}\\s*=`, "m"));

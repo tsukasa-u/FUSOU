@@ -98,8 +98,7 @@ const validManifest = buildProductionPublicManifest({
   resultRegistryRootKeyId,
   resultRegistryRootPublicKeySpki,
   verificationEndpoint: "https://worker.example.com/verify/tlsn",
-  serverIdentity: "game.example.com",
-  originPort: 443,
+  securityRegistrySetSha256: Buffer.alloc(32, 7).toString("base64url"),
 });
 
 assert.doesNotThrow(() => assertNotaryRegistryConsistency({
@@ -184,8 +183,13 @@ assert.equal(typeof sessionPrivateKeyPkcs8, "string");
 assert.equal(typeof resultPrivateKeyPkcs8, "string");
 
 assert.doesNotThrow(() => assertPublicManifest(validManifest));
-assert.equal(validManifest.schema_version, 2);
-assert.deepEqual(validManifest.origin, { server_identity: "game.example.com", port: 443 });
+assert.equal(validManifest.schema_version, 3);
+assert.equal(validManifest.origin_inventory.target_count, 20);
+assert.equal(validManifest.origin_inventory.port, 443);
+assert.match(validManifest.origin_inventory.sha256, /^[A-Za-z0-9_-]{43}$/);
+const manifestWithMismatchedOriginInventory = structuredClone(validManifest);
+manifestWithMismatchedOriginInventory.origin_inventory.sha256 = Buffer.alloc(32, 1).toString("base64url");
+assert.throws(() => assertPublicManifest(manifestWithMismatchedOriginInventory), /does not match the shipped inventory contract/);
 const manifestWithMissingNotary = structuredClone(validManifest);
 delete manifestWithMissingNotary.notary;
 assert.throws(() => assertPublicManifest(manifestWithMissingNotary), /public manifest schema|notary/i);
@@ -194,7 +198,7 @@ manifestWithInvalidNotaryKey.notary.verifying_key = Buffer.from("not-alpha15").t
 manifestWithInvalidNotaryKey.notary.registry_entry.verifying_key = manifestWithInvalidNotaryKey.notary.verifying_key;
 assert.throws(() => assertPublicManifest(manifestWithInvalidNotaryKey), /alpha\.15/);
 const manifestWithLegacyTrustRoots = structuredClone(validManifest);
-manifestWithLegacyTrustRoots.origin.trust_roots = ["legacy-root-value"];
+manifestWithLegacyTrustRoots.origin_inventory.trust_roots = ["legacy-root-value"];
 assert.throws(() => assertPublicManifest(manifestWithLegacyTrustRoots), /outside the public manifest schema/);
 const manifestWithInvalidResultRegistry = structuredClone(validManifest);
 manifestWithInvalidResultRegistry.result_signing.key_registry.scope = "wrong-scope";
@@ -215,9 +219,9 @@ for (const [section, field] of [
   ["notary", "signing_private_key_pkcs8"],
   ["session_authority", "signing_private_key_pkcs8"],
   ["session_authority", "bearer_token"],
-  ["origin", "device_private_key_pkcs8"],
-  ["origin", "supabase_service_role_key"],
-  ["origin", "cloudflare_api_token"],
+  ["origin_inventory", "device_private_key_pkcs8"],
+  ["origin_inventory", "supabase_service_role_key"],
+  ["origin_inventory", "cloudflare_api_token"],
 ]) {
   const manifestWithPrivateCategory = structuredClone(validManifest);
   manifestWithPrivateCategory[section][field] = `must-never-be-published-${field}`;

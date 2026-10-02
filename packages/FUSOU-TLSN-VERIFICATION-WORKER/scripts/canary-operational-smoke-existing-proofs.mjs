@@ -6,7 +6,13 @@ import {
   verifyTlsnDevicePossession,
 } from "./device-evidence.mjs";
 import { assertCanaryVerifierExecutionEvidence } from "./canary-execution-evidence.mjs";
-import { inspectAlpha15Presentation, RESULT_PRESENTATION_BINDING_FIELDS, verifyProductionPresentation } from "./production-evidence-semantic.mjs";
+import {
+  inspectAlpha15Presentation,
+  inspectSyntheticFixtureAlpha15Presentation,
+  RESULT_PRESENTATION_BINDING_FIELDS,
+  verifyProductionPresentation,
+  verifySyntheticFixturePresentation,
+} from "./production-evidence-semantic.mjs";
 import { canonicalJson } from "./deployment-attestation.mjs";
 import { assertSignedResult, assertSignedSparseResult } from "./production-evidence.mjs";
 import { assertSignedResultRegistryEnvelope, resultRegistryEnvelopeHash } from "./result-registry-envelope.mjs";
@@ -386,11 +392,15 @@ export async function verifyCanaryExistingSourceProofBundle({
   if (syntheticFixture) {
     execution.evidence.synthetic = true;
   }
-  const observation = await inspectAlpha15Presentation({
+  const useSyntheticRoot = syntheticFixture && trustAnchorDer !== undefined;
+  const inspectPresentation = useSyntheticRoot
+    ? inspectSyntheticFixtureAlpha15Presentation
+    : inspectAlpha15Presentation;
+  const observation = await inspectPresentation({
     presentationBytes: presentation,
     notaryRegistry,
     notaryKeyId: notary.key_id,
-    trustAnchorDer,
+    ...(useSyntheticRoot ? { trustRootDer: trustAnchorDer } : {}),
     disclosureMode,
   });
   const observedServerIdentity = observation.verified_presentation.server_identity;
@@ -401,7 +411,10 @@ export async function verifyCanaryExistingSourceProofBundle({
   ) {
     throw new Error("Presentation-derived server identity does not match the declared target identity");
   }
-  const semantic = await verifyProductionPresentation({
+  const verifyPresentation = useSyntheticRoot
+    ? verifySyntheticFixturePresentation
+    : verifyProductionPresentation;
+  const semantic = await verifyPresentation({
     presentationBytes: presentation,
     serverIdentity: observedServerIdentity,
     profileSha256,
@@ -411,7 +424,7 @@ export async function verifyCanaryExistingSourceProofBundle({
     canonicalDeviceId: session.device_id,
     deviceChallenge: session.device_challenge,
     notaryRegistry,
-    trustAnchorDer,
+    ...(useSyntheticRoot ? { trustRootDer: trustAnchorDer } : {}),
     disclosureMode,
   });
   if (execution.execution.presentation_sha256 !== semantic.presentation_sha256) {

@@ -33,7 +33,7 @@ import {
   verifySparseRequireInfoHttpProfile,
   verifySparseResultPresentationBinding,
   verifySparseResultSignature,
-  verifyProductionPresentation,
+  verifySyntheticFixturePresentation,
   verifyTrustRootPublication,
 } from "./production-evidence-semantic.mjs";
 import { sha256Base64Url } from "./deployment-attestation.mjs";
@@ -359,7 +359,7 @@ async function main() {
     result_key_registry_sha256: healthBefore.result_identity.result_key_registry_sha256,
     trust_root_certificate_sha256: sha256Base64Url(trustRootBytes),
   };
-  const semanticVerification = await verifyProductionPresentation({
+  const semanticVerification = await verifySyntheticFixturePresentation({
     presentationBytes,
     serverIdentity: trustedInputs.server_identity,
     profileSha256: trustedInputs.profile_sha256,
@@ -369,7 +369,7 @@ async function main() {
     canonicalDeviceId: device.id,
     deviceChallenge: session.device_challenge,
     notaryRegistry,
-    trustAnchorDer: required("TLSN_TRUST_ROOT_CERTIFICATE_DER"),
+    trustRootDer: required("TLSN_TRUST_ROOT_CERTIFICATE_DER"),
     disclosureMode: "sparse",
   });
   const predicates = verifiedPredicates({

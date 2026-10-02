@@ -5,6 +5,7 @@ import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import process from "node:process";
 import { spawnSync } from "node:child_process";
+import { triggerOriginRuntimeEnvNames } from "./trigger-origin-config.mjs";
 
 const packageDirectory = resolve(fileURLToPath(new URL("..", import.meta.url)));
 
@@ -12,14 +13,21 @@ const required = [
   "TRIGGER_PROJECT_REF",
   "TLSN_WORKER_INTERNAL_URL",
   "TLSN_TRIGGER_CALLBACK_SECRET",
-  "TLSN_TRIGGER_SERVER_IDENTITY",
-  "TLSN_TRIGGER_PROFILE_SHA256",
-  "TLSN_TRIGGER_SPARSE_PROFILE_SHA256",
   "TLSN_TRIGGER_VERIFIER_KEY_ID",
   "TLSN_TRIGGER_NOTARY_KEY_ID",
   "TLSN_TRIGGER_NOTARY_REGISTRY",
-  "TLSN_TRIGGER_TRUST_ROOT_CERTIFICATE_DER",
 ];
+let originRuntimeEnvNames;
+try {
+  originRuntimeEnvNames = triggerOriginRuntimeEnvNames(process.env);
+} catch (error) {
+  console.error(error instanceof Error ? error.message : "Invalid Trigger Origin deployment configuration");
+  process.exit(1);
+}
+if (process.env["TLSN_TRIGGER_TRUST_ROOT_CERTIFICATE_DER"] !== undefined) {
+  console.error("TLSN_TRIGGER_TRUST_ROOT_CERTIFICATE_DER is not supported");
+  process.exit(1);
+}
 const missing = required.filter((name) => !String(process.env[name] || "").trim());
 if (missing.length > 0) {
   console.error(`Missing required TLSN deployment env names: ${missing.join(", ")}`);

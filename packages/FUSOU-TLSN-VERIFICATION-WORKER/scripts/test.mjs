@@ -494,7 +494,7 @@ async function runAsyncTriggerSmokeTest() {
       const presentation = new Uint8Array(await inputResponse.arrayBuffer());
       const preparedResultJson = payload.device_challenge
         ? (payload.profile === "sparse"
-          ? verifierModule.verify_sparse_require_info_presentation_with_trust_anchor(
+          ? verifierModule.verify_synthetic_sparse_require_info_presentation_with_root(
               presentation,
               testVars.TLSN_SERVER_IDENTITY,
               Buffer.alloc(32, 9),
@@ -506,7 +506,7 @@ async function runAsyncTriggerSmokeTest() {
               Buffer.from(testVars.TLSN_TRUST_ROOT_CERTIFICATE_DER, "base64url"),
               Buffer.from(syntheticFixture.notary_key_base64, "base64url"),
             )
-          : verifierModule.verify_require_info_presentation_with_trust_anchor(
+          : verifierModule.verify_synthetic_require_info_presentation_with_root(
             presentation,
             testVars.TLSN_SERVER_IDENTITY,
             Buffer.alloc(32),
@@ -2143,9 +2143,6 @@ const productionWebPkiVars = {
   TLSN_DEPLOYMENT_ROLE: "production",
   TLSN_GIT_COMMIT_SHA: "a".repeat(40),
   TLSN_BINDING_TTL_SECONDS: "60",
-  TLSN_CANDIDATE_SERVER_IDENTITY: "game.example.com",
-  TLSN_CANDIDATE_PROFILE_SHA256: Buffer.alloc(32).toString("base64url"),
-  TLSN_CANDIDATE_SPARSE_PROFILE_SHA256: Buffer.alloc(32, 9).toString("base64url"),
   TLSN_CANDIDATE_VERIFIER_KEY_ID: "worker-prod",
   TLSN_CANDIDATE_NOTARY_KEY_ID: "notary-prod",
   TLSN_PRODUCTION_NOTARY_REGISTRY: JSON.stringify({ "notary-prod": syntheticFixture.notary_key_base64 }),
@@ -2233,8 +2230,6 @@ const invalidProductionEndpointWorker = await unstable_dev(resolve(packageDirect
     TLSN_DEPLOYMENT_ROLE: "production",
     TLSN_GIT_COMMIT_SHA: "a".repeat(40),
     TLSN_BINDING_TTL_SECONDS: "60",
-    TLSN_CANDIDATE_SERVER_IDENTITY: "game.example.test",
-    TLSN_CANDIDATE_PROFILE_SHA256: Buffer.alloc(32).toString("base64url"),
     TLSN_CANDIDATE_VERIFIER_KEY_ID: "worker-test",
     TLSN_CANDIDATE_NOTARY_KEY_ID: "notary-test",
     TLSN_PRODUCTION_NOTARY_REGISTRY: JSON.stringify({ "notary-test": syntheticFixture.notary_key_base64 }),

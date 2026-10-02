@@ -10,7 +10,7 @@ hudsucker = { path = "../hudsucker-fork" }
 hyper = "1.5.2"
 hyper-rustls = { version = "0.27.0", default-features = false, features = ["ring"] }
 regex = "1.10.6"
-tokio = { version = "^1.24.2", features = ["macros", "rt-multi-thread", "fs", "io-util", "sync", "time"] }
+tokio = { version = "^1.24.2", features = ["macros", "rt-multi-thread", "fs", "io-util", "net", "sync", "time"] }
 chrono = "0.4.31"
 chrono-tz = "0.10.0"
 http = "1.1.0"
@@ -47,6 +47,8 @@ rcgen = { version = "0.13.2", optional = true }
 tlsn = { git = "https://github.com/tlsnotary/tlsn.git", rev = "47aee45b53e06648c1b2ad3689b367b8c923fdec", version = "0.1.0-alpha.15", optional = true }
 tlsn-formats = { git = "https://github.com/tlsnotary/tlsn.git", rev = "47aee45b53e06648c1b2ad3689b367b8c923fdec", version = "0.1.0-alpha.15", optional = true }
 tokio-rustls = { version = "0.26.4", default-features = false, features = ["ring"], optional = true }
+rustls = { version = "0.23.13", default-features = false, features = ["ring", "std", "tls12"], optional = true }
+x509-parser = { version = "0.16.0", optional = true }
 tokio-util = { version = "0.7", optional = true, features = ["compat"] }
 ring = { version = "0.17", optional = true }
 
@@ -66,10 +68,11 @@ alpha15-tlsn = [
 	"fusou-tlsn-verifier",
 	"tlsn",
 	"tlsn-formats",
-	"tokio-rustls",
+	"dep:tokio-rustls",
 	"tokio-util",
 	"ring",
 ]
+tlsn-origin-probe = ["dep:rustls", "dep:tokio-rustls", "dep:x509-parser"]
 synthetic-tlsn = ["alpha15-tlsn", "rcgen"]
 kc-api-epoch-genesis = ["fusou-storage/kc-api-epoch-genesis"]
 kc-api-epoch-20250627 = ["fusou-storage/kc-api-epoch-20250627"]
@@ -82,6 +85,11 @@ tokio-rustls = "0.26.4"
 
 [[example]]
 name = "example"
+
+[[bin]]
+name = "tlsn-origin-probe"
+path = "src/bin/tlsn_origin_probe.rs"
+required-features = ["tlsn-origin-probe"]
 
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(TAURI_BUILD_DEBUG)'] }

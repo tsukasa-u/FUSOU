@@ -111,9 +111,13 @@ fn build_production_tlsn_dependencies(
     runtime_identity: RuntimeIdentity,
 ) -> Result<ProductionTlsnDependencies, Box<dyn std::error::Error>> {
     let proxy_configs = configs::get_user_configs_for_proxy();
-    let server_identity = proxy_configs
-        .get_tlsn_server_identity()
-        .ok_or_else(|| production_configuration_error("tlsn_server_identity is required for the TLSN experiment"))?;
+    let origin_inventory = configs::get_tlsn_origin_inventory();
+    let selected_target = origin_inventory
+        .targets
+        .iter()
+        .find(|target| target.server_identity.eq_ignore_ascii_case(proxy_target))
+        .ok_or_else(|| production_configuration_error("selected TLSN Origin is not in the shipped target inventory"))?;
+    let server_identity = selected_target.server_identity.clone();
     let notary_endpoint = proxy_configs
         .get_tlsn_notary_endpoint()
         .ok_or_else(|| production_configuration_error("tlsn_notary_endpoint is required for the TLSN experiment"))?;
@@ -162,15 +166,15 @@ fn build_production_tlsn_dependencies(
         ));
     }
     let target = OriginTarget::new(
-        proxy_target.to_owned(),
-        proxy_configs.get_tlsn_origin_port(),
+        server_identity.clone(),
+        selected_target.port,
         server_identity.clone(),
     )
     .map_err(production_configuration_error)?;
     let origin = OriginTransportConfig::new(
         target.clone(),
         OriginTlsConfig::new().map_err(production_configuration_error)?,
-        ServerIdentityPolicy::new(vec![server_identity.clone()])
+        ServerIdentityPolicy::from_shipped_inventory()
             .map_err(production_configuration_error)?,
         true,
     );

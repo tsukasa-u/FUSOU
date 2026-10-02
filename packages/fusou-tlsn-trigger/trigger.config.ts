@@ -1,19 +1,16 @@
 import { defineConfig, timeout } from "@trigger.dev/sdk";
 import { additionalFiles, syncEnvVars } from "@trigger.dev/build/extensions/core";
+import { triggerOriginRuntimeEnvNames } from "./scripts/trigger-origin-config.mjs";
 
 const REQUIRED_RUNTIME_ENVS = [
   "TLSN_WORKER_INTERNAL_URL",
   "TLSN_TRIGGER_CALLBACK_SECRET",
-  "TLSN_TRIGGER_SERVER_IDENTITY",
-  "TLSN_TRIGGER_PROFILE_SHA256",
-  "TLSN_TRIGGER_SPARSE_PROFILE_SHA256",
   "TLSN_TRIGGER_VERIFIER_KEY_ID",
   "TLSN_TRIGGER_NOTARY_KEY_ID",
   "TLSN_TRIGGER_NOTARY_REGISTRY",
-  "TLSN_TRIGGER_TRUST_ROOT_CERTIFICATE_DER",
 ] as const;
 
-function requireEnv(name: (typeof REQUIRED_RUNTIME_ENVS)[number]): string {
+function requireEnv(name: string): string {
   const value = process.env[name];
   if (!value || !String(value).trim()) {
     throw new Error(`Missing required deploy env for Trigger sync: ${name}`);
@@ -29,7 +26,10 @@ export default defineConfig({
   build: {
     extensions: [
       syncEnvVars(async () =>
-        Object.fromEntries(REQUIRED_RUNTIME_ENVS.map((name) => [name, requireEnv(name)])),
+        Object.fromEntries(
+          [...REQUIRED_RUNTIME_ENVS, ...triggerOriginRuntimeEnvNames(process.env)]
+            .map((name) => [name, requireEnv(name)]),
+        ),
       ),
       additionalFiles({
         files: [

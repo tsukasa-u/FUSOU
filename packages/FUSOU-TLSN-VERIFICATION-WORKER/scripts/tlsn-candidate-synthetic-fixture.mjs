@@ -18,7 +18,7 @@ import {
 import { canonicalJson } from "./deployment-attestation.mjs";
 import { resultSigningBytes } from "./production-evidence.mjs";
 import { createSignedResultRegistryEnvelope } from "./result-registry-envelope.mjs";
-import { verifyProductionPresentation } from "./production-evidence-semantic.mjs";
+import { verifySyntheticFixturePresentation } from "./production-evidence-semantic.mjs";
 
 const SCRIPT_DIRECTORY = dirname(fileURLToPath(import.meta.url));
 const SESSION_ID = "123e4567-e89b-42d3-a456-426614174000";
@@ -305,7 +305,7 @@ export async function createSyntheticCandidateBundle(rootDirectory) {
   ).toString("base64url");
 
   const verifier = verifierRuntime();
-  const semantic = await verifyProductionPresentation({
+  const semantic = await verifySyntheticFixturePresentation({
     presentationBytes,
     serverIdentity: "game.example.test",
     profileSha256: PROFILE_SHA256,
@@ -315,7 +315,7 @@ export async function createSyntheticCandidateBundle(rootDirectory) {
     canonicalDeviceId: DEVICE_ID,
     deviceChallenge,
     notaryRegistry,
-    trustAnchorDer,
+    trustRootDer: trustAnchorDer,
   });
   const resultAuthority = signedResultAuthority();
   const unsignedResult = semantic.result;

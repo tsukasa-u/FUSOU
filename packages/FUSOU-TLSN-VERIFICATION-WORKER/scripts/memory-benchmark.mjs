@@ -8,7 +8,7 @@ import { spawnSync } from "node:child_process";
 import {
   attach_verifier_result_signature,
   initSync,
-  verify_require_info_presentation_with_trust_anchor,
+  verify_synthetic_require_info_presentation_with_root,
 } from "../src/wasm/fusou_tlsn_verifier.js";
 
 const packageDirectory = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -153,7 +153,7 @@ function requestFor(fixture, challengeBytes) {
 }
 
 function verifyOne(wasm, request, presentationBytes, rootCertificate, notaryKey, challengeBytes) {
-  const preparedResultJson = verify_require_info_presentation_with_trust_anchor(
+  const preparedResultJson = verify_synthetic_require_info_presentation_with_root(
     presentationBytes,
     "game.example.test",
     new Uint8Array(32).fill(0x11),

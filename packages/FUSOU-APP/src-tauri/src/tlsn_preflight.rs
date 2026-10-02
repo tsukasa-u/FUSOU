@@ -32,14 +32,11 @@ pub struct TlsnPreflightConfig {
     pub disclosure_mode: String,
     pub response_mode: String,
     pub notary_verifying_key: Option<String>,
-    pub server_identity: Option<String>,
-    pub origin_port_configured: Option<i64>,
     pub artifact_output_path: Option<String>,
 }
 
 impl TlsnPreflightConfig {
     pub fn from_proxy(proxy: &configs::ConfigsProxy) -> Self {
-        let raw = proxy.get_tlsn_config();
         Self {
             experiment_enabled: proxy.get_tlsn_experiment_enabled(),
             notary_endpoint: proxy.get_tlsn_notary_endpoint(),
@@ -58,8 +55,6 @@ impl TlsnPreflightConfig {
             disclosure_mode: proxy.get_tlsn_disclosure_mode(),
             response_mode: proxy.get_tlsn_response_mode(),
             notary_verifying_key: proxy.get_tlsn_notary_verifying_key(),
-            server_identity: proxy.get_tlsn_server_identity(),
-            origin_port_configured: raw.origin_port,
             artifact_output_path: proxy.get_tlsn_artifact_output_path(),
         }
     }
@@ -326,47 +321,7 @@ pub fn run_preflight(config: &TlsnPreflightConfig, config_path: &Path) -> TlsnPr
     check_notary_verifying_key(&mut checks, config.notary_verifying_key.as_deref());
     check_platform_trust_store(&mut checks);
 
-    match config.server_identity.as_deref() {
-        Some(value) if valid_server_identity(value) => push_check(
-            &mut checks,
-            "tlsn_server_identity",
-            PreflightStatus::Pass,
-            format!("present; length={}", value.trim().len()),
-        ),
-        Some(_) => push_check(
-            &mut checks,
-            "tlsn_server_identity",
-            PreflightStatus::Error,
-            "invalid or empty",
-        ),
-        None => push_check(
-            &mut checks,
-            "tlsn_server_identity",
-            PreflightStatus::Error,
-            "missing",
-        ),
-    }
-
-    match config.origin_port_configured {
-        Some(port) if (1..=65535).contains(&port) => push_check(
-            &mut checks,
-            "tlsn_origin_port",
-            PreflightStatus::Pass,
-            format!("explicit value valid; port={port}"),
-        ),
-        Some(port) => push_check(
-            &mut checks,
-            "tlsn_origin_port",
-            PreflightStatus::Error,
-            format!("explicit value invalid; range=1..=65535; supplied_type=i64; supplied_length={}", port.to_string().len()),
-        ),
-        None => push_check(
-            &mut checks,
-            "tlsn_origin_port",
-            PreflightStatus::Warning,
-            "not explicitly configured; existing getter fallback is 443",
-        ),
-    }
+    check_origin_inventory(&mut checks);
 
     match config.artifact_output_path.as_deref() {
         Some(value) => match validate_artifact_output_path(value) {
@@ -781,7 +736,7 @@ fn check_platform_trust_store(checks: &mut Vec<PreflightCheck>) {
                 checks,
                 "tlsn_platform_trust_store",
                 PreflightStatus::Pass,
-                format!("native certificates loaded; count={}", roots.len()),
+                format!("native certificates loadable; count={}; target-specific Origin chain validation is not established", roots.len()),
             );
         }
         Err(_) => push_check(
@@ -801,6 +756,35 @@ fn valid_server_identity(value: &str) -> bool {
             .bytes()
             .all(|byte| !byte.is_ascii_control() && !byte.is_ascii_whitespace())
         && !value.contains(['/', '?', '#'])
+}
+
+fn check_origin_inventory(checks: &mut Vec<PreflightCheck>) {
+    let inventory = configs::get_tlsn_origin_inventory();
+    let mut indices = std::collections::HashSet::new();
+    let mut identities = std::collections::HashSet::new();
+    let valid = inventory.schema_version == 1
+        && inventory.targets.len() == 20
+        && inventory.targets.iter().all(|target| {
+            target.port == 443
+                && valid_server_identity(&target.server_identity)
+                && indices.insert(target.server_index)
+                && identities.insert(target.server_identity.to_ascii_lowercase())
+        });
+    if valid {
+        push_check(
+            checks,
+            "tlsn_origin_inventory",
+            PreflightStatus::Pass,
+            "20 shipped Origin identities are unique on port 443; each request selects its target from this inventory",
+        );
+    } else {
+        push_check(
+            checks,
+            "tlsn_origin_inventory",
+            PreflightStatus::Error,
+            "embedded inventory is malformed; expected 20 unique DNS identities on port 443",
+        );
+    }
 }
 
 fn validate_artifact_output_path(value: &str) -> Result<String, String> {
@@ -953,8 +937,6 @@ mod tests {
                 ),
                 expected_binding_mode: "fixed_canary".to_owned(),
                 notary_verifying_key: Some(URL_SAFE_NO_PAD.encode(bincode::serialize(&notary_key).unwrap())),
-                server_identity: Some("game.example.test".to_owned()),
-                origin_port_configured: Some(443),
                 artifact_output_path: Some(artifact.to_string_lossy().into_owned()),
             },
             config_path,
@@ -1055,17 +1037,15 @@ mod tests {
     }
 
     #[test]
-    fn invalid_origin_port_fails_without_using_fallback() {
-        let mut fixture = fixture();
-        fixture.config.origin_port_configured = Some(65536);
-        assert_error(&run_preflight(&fixture.config, &fixture.config_path), "tlsn_origin_port");
-    }
-
-    #[test]
-    fn empty_server_identity_fails() {
-        let mut fixture = fixture();
-        fixture.config.server_identity = Some(" ".to_owned());
-        assert_error(&run_preflight(&fixture.config, &fixture.config_path), "tlsn_server_identity");
+    fn origin_inventory_passes_preflight_without_a_fixed_identity() {
+        let fixture = fixture();
+        let report = run_preflight(&fixture.config, &fixture.config_path);
+        assert_eq!(
+            report.checks.iter().find(|check| check.name == "tlsn_origin_inventory").map(|check| check.status),
+            Some(PreflightStatus::Pass),
+            "{}",
+            report.text()
+        );
     }
 
     #[test]
