@@ -34,7 +34,6 @@ const TRUST_CONTEXT_KEYS = [
   "deploymentManifest",
   "profileSha256",
   "notaryRegistry",
-  "trustAnchorDer",
 ];
 
 function sha256Base64Url(bytes) {
@@ -291,12 +290,23 @@ export async function loadTlsnCandidateBundle(candidateDirectory) {
   }
 }
 
-function validateTrustContext(trustContext) {
+function validateTrustContext(trustContext, syntheticFixture) {
   assertObject(trustContext, "offline trust context");
-  const allowedKeys = new Set([...TRUST_CONTEXT_KEYS, "disclosureMode"]);
+  if (!syntheticFixture && Object.hasOwn(trustContext, "trustAnchorDer")) {
+    throw new Error("custom Origin trust anchors are allowed only for synthetic fixtures");
+  }
+  const allowedKeys = new Set([
+    ...TRUST_CONTEXT_KEYS,
+    "disclosureMode",
+    ...(syntheticFixture ? ["trustAnchorDer"] : []),
+  ]);
   const keys = Object.keys(trustContext);
   if (keys.some((key) => !allowedKeys.has(key)) || TRUST_CONTEXT_KEYS.some((key) => !(key in trustContext))) {
     throw new Error("offline trust context fields are incomplete or unexpected");
+  }
+  if (Object.hasOwn(trustContext, "trustAnchorDer") &&
+    (typeof trustContext.trustAnchorDer !== "string" || trustContext.trustAnchorDer.trim() === "")) {
+    throw new Error("synthetic Origin trust anchor is malformed");
   }
   assertObject(trustContext.deploymentManifest, "deployment manifest");
   if (trustContext.deploymentManifest.target !== undefined) {
@@ -315,7 +325,7 @@ export async function finalizeTlsnCandidateBundle({
   const directoryGuard = await pinCandidateDirectory(candidateDirectory);
   try {
     const bundle = await loadPinnedTlsnCandidateBundle(directoryGuard);
-    const trusted = validateTrustContext(trustContext);
+    const trusted = validateTrustContext(trustContext, bundle.manifest.synthetic_fixture);
     const verification = await verifyCanaryExistingSourceProofBundle({
     ...trusted,
     session: bundle.session,

@@ -57,7 +57,7 @@ Production has three separate signing authorities:
 - Binding Authority: `TLSN_PRODUCTION_BINDING_AUTHORITY_KEY_ID`, public SPKI, and key registry are the public source of truth; `TLSN_PRODUCTION_BINDING_AUTHORITY_SIGNING_PRIVATE_KEY_PKCS8` is the Worker-only signing secret. The Worker signs consume receipts and the offline evidence verifier checks them. APP receives none of this material.
 - Result signer: the role-specific Production Result public key, registry, and private key remain separate from both authority registries.
 
-The Production workflow supplies the public values as Worker configuration and the private values as secrets. A successful offline preflight emits `tlsn-production-public-manifest.json`, whose schema contains only the Notary endpoint/selected key/registry hash, Session endpoint/key/hash, Verification endpoint, server identity, trust-root DER bytes, and origin port. The APP renderer consumes that manifest and receives its artifact directory separately.
+The Production workflow supplies the public values as Worker configuration and the private values as secrets. A successful offline preflight emits `tlsn-production-public-manifest.json` schema version 2, whose Origin object contains only `server_identity` and `port`; it contains no target certificate DER or trust-root hash. The hostname is the FUSOU-managed TLSN target identity. Alpha.15 verifies the captured Origin certificate chain, validity, and DNS identity using its built-in Mozilla Web PKI roots. The APP renderer consumes that manifest and receives its artifact directory separately.
 
 Rotation is atomic at the configuration-contract level: publish the new registry and selected key, matching public SPKI/key ID and private secret, regenerate the manifest and APP config, then validate the new identities offline. The new authority key must be `ACTIVE`; the prior key may remain `VERIFY_ONLY` for historical receipt verification and must not issue new receipts. Keep the previous complete registry/configuration for rollback.
 
@@ -84,9 +84,9 @@ The profile authenticates the request binding as transcript data. The Worker com
 
 `TLSN_ENVIRONMENT` is required and accepts `test` or `production`. `TLSN_BINDING_TTL_SECONDS` is bounded to one hour. `TLSN_BINDINGS` points to the SQLite-backed Durable Object authority.
 
-- `test` may use `TLSN_TRUST_ROOT_CERTIFICATE_DER`. This is the path used by the synthetic fixture and must never contain production trust material or credentials.
+- `test` may use `TLSN_TRUST_ROOT_CERTIFICATE_DER` only for synthetic fixtures that need a custom Origin certificate chain. Real candidate and Production verification omit this override and use alpha.15's built-in Mozilla Web PKI roots.
 - `test` may use `TLSN_TEST_BINDING_VALUE` only to seed the deterministic synthetic fixture. It is not a Prover authority and is rejected when production configuration is selected.
-- `production` selects only `TLSN_PRODUCTION_*` fields and requires a production trust root. It also requires `TLSN_SUPABASE_URL` and `TLSN_SUPABASE_PUBLISHABLE_KEY`; no service-role key is accepted or needed. No production Worker deployment or production trust material has been performed in this phase.
+- `production` selects only `TLSN_PRODUCTION_*` fields and does not require or accept a configured Origin trust root. Origin certificates use the built-in Mozilla Web PKI path. Production also requires `TLSN_SUPABASE_URL` and `TLSN_SUPABASE_PUBLISHABLE_KEY`; no service-role key is accepted or needed. No production Worker deployment or real public-origin capture has been performed in this phase.
 - A missing or malformed registry, profile hash, verifier key, signing key, or required environment value fails closed.
 
 The synthetic root certificate, synthetic server identity, synthetic Notary key, and synthetic member response are test artifacts. They are not production evidence.
@@ -116,7 +116,7 @@ This signature authenticates the verifier result to downstream consumers after a
 | Pinned alpha.15 Presentation verification | PASS, local synthetic scope | Real alpha.15 `Presentation::verify` passes with the pinned commit. |
 | Notary signature cryptography | PASS, local synthetic scope | alpha.15 verifies the embedded signature; synthetic key is now checked against a registry entry. |
 | Notary approved-key registry | PASS, local synthetic scope | Worker requires an ID-to-key registry and rejects a mutated registry key. Production registry governance is unavailable. |
-| Server certificate trust root | PASS, test scope | Synthetic root works through the explicit test-only trust-root path. Production trust policy is not validated. |
+| Origin certificate validation | PASS, local synthetic scope | Synthetic fixtures exercise the explicit test-only custom-root path. Non-synthetic verification uses alpha.15's built-in Mozilla Web PKI path; no real public-origin chain or CA rotation has been exercised. |
 | Authenticated request binding extraction | PASS | Binding is parsed from authenticated request bytes with strict framing and value validation. |
 | Authority-backed Session binding | PASS, local test scope | Durable Object lookup compares authenticated user context with authenticated Session ID, nonce, and binding value. Production authority operations are not deployed. |
 | Authenticated member ID derivation | PASS | Member ID is parsed only from authenticated response bytes. |
@@ -141,7 +141,7 @@ Do not deploy this Worker as a production verifier until all of the following ex
 1. production authority configuration and operational ownership for Session, nonce, expiry, and atomic consume semantics;
 2. durable production replay state keyed by the authority binding and proof identity;
 3. a governed production Notary registry with rotation and rollback procedures;
-4. a production server certificate trust policy;
+4. real public-origin validation through the built-in Mozilla Web PKI path, including certificate-chain, validity, and hostname checks;
 5. a dedicated Cloudflare test Worker and non-production fixture;
 6. remote negative tests for identity, Notary key, trust root, binding, replay, malformed input, and signature failures;
 7. remote memory and payload-limit measurements, plus broader latency evidence;

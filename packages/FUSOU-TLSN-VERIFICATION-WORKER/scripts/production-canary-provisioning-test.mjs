@@ -86,7 +86,6 @@ try {
     "TLSN_CANDIDATE_SERVER_IDENTITY",
     "TLSN_CANDIDATE_PROFILE_SHA256",
     "TLSN_CANDIDATE_SPARSE_PROFILE_SHA256",
-    "TLSN_CANARY_TRUST_ROOT_CERTIFICATE_DER",
     "TLSN_CANARY_RUNTIME_ATTESTATION_SIGNER_KEY_ID",
     "TLSN_CANARY_VERIFIER_IDENTITY_KEY_ID",
     "TLSN_CANARY_VERIFIER_IDENTITY_KEY_REGISTRY",
@@ -114,7 +113,6 @@ try {
   await mkdir(profileDirectory, { recursive: true });
   await writeFile(join(profileDirectory, "complete.json"), `${profiles.complete.canonical}\n`);
   await writeFile(join(profileDirectory, "sparse.json"), `${profiles.sparse.canonical}\n`);
-  await writeFile(join(profileDirectory, "trust-root.der"), Buffer.from(fixture.root_certificate_base64, "base64url"));
   const notaryPublicKeyBytes = Buffer.from(fixture.notary_key_base64, "base64url");
   await writeFile(join(profileDirectory, "notary-export.json"), `${JSON.stringify({
     schema_version: 1,
@@ -149,7 +147,6 @@ try {
     "--server-identity", "canary.example.net",
     "--profile-file", join(profileDirectory, "complete.json"),
     "--sparse-profile-file", join(profileDirectory, "sparse.json"),
-    "--trust-root-file", join(profileDirectory, "trust-root.der"),
     "--notary-export-file", join(profileDirectory, "notary-export.json"),
     "--notary-endpoint", "notary.canary.example.net:7047",
     "--verifier-key-id", "verifier-production-2026",
@@ -280,7 +277,6 @@ try {
     "TLSN_CANDIDATE_SERVER_IDENTITY",
     "TLSN_CANDIDATE_PROFILE_SHA256",
     "TLSN_CANDIDATE_SPARSE_PROFILE_SHA256",
-    "TLSN_CANARY_TRUST_ROOT_CERTIFICATE_DER",
   ]) {
     assert.equal(complete.manifest.unresolved_inputs.includes(name), false, `${name} must be resolved`);
   }

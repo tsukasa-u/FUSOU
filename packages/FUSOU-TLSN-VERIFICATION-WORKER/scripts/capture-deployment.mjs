@@ -13,7 +13,7 @@ const securityIdentityFields = [
   "notary_registry_sha256",
   "binding_authority",
 ];
-const deploymentIdentityFields = ["deployment_id", "deployment_role", "binding_mode", "trust_root_certificate_sha256", "worker_name"];
+const deploymentIdentityFields = ["deployment_id", "deployment_role", "binding_mode", "worker_name"];
 const resultIdentityFields = [
   "result_public_key_spki",
   "result_public_key_spki_sha256",

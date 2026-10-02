@@ -155,7 +155,6 @@ async function inspectProvisionedOutput(outputDirectory, fixtureManifest, fixtur
   const manifest = JSON.parse(manifestRaw);
   const generatedEnv = parseGeneratedEnv(await readFile(join(outputDirectory, "canary.env"), "utf8"));
   const sparsePresentation = fixtureBytes(fixture.sparse_presentation_base64, "sparse_presentation_base64");
-  const rootCertificate = fixtureBytes(fixture.root_certificate_base64, "root_certificate_base64");
   const notaryPublicKey = fixtureBytes(fixture.notary_key_base64, "notary_key_base64");
   const expectedFixtureProvenance = {
     source: "repository-local-synthetic-fixture",
@@ -166,7 +165,6 @@ async function inspectProvisionedOutput(outputDirectory, fixtureManifest, fixtur
     source_file_name: fixtureEntry.sourceFileName,
     presentation_kind: "sparse",
     presentation_sha256: sha256Base64Url(sparsePresentation),
-    root_certificate_sha256: sha256Base64Url(rootCertificate),
     notary_public_key_sha256: sha256Base64Url(notaryPublicKey),
   };
 
@@ -197,9 +195,9 @@ async function inspectProvisionedOutput(outputDirectory, fixtureManifest, fixtur
   assert.equal(generatedEnv.TLSN_SECURITY_REGISTRY_SET_SHA256, expectedFixtureSecurityRegistrySet.sha256);
   assert.equal(manifest.security_registry_set_sha256, expectedFixtureSecurityRegistrySet.sha256);
   assert.equal(manifest.security_registry_set_source, "derived-from-explicit-inputs");
-  assert.equal(generatedEnv.TLSN_CANARY_TRUST_ROOT_CERTIFICATE_DER, fixture.root_certificate_base64);
-  assert.equal(manifest.supplied_candidate_inputs.trust_root_sha256, sha256Base64Url(rootCertificate));
-  assert.deepEqual(await readFile(join(outputDirectory, "trust-root.der")), rootCertificate);
+  assert.equal(Object.hasOwn(generatedEnv, "TLSN_CANARY_TRUST_ROOT_CERTIFICATE_DER"), false);
+  assert.equal(Object.hasOwn(manifest.supplied_candidate_inputs, "trust_root_sha256"), false);
+  assert.equal(await readFile(join(outputDirectory, "trust-root.der")).catch(() => null), null);
   assert.equal(await readFile(join(outputDirectory, "notary-signing-key.base64url")).catch(() => null), null);
 
   const completeProfileRaw = await readFile(join(outputDirectory, "complete-profile.canonical.json"), "utf8");
@@ -237,6 +235,7 @@ async function inspectProvisionedOutput(outputDirectory, fixtureManifest, fixtur
   assert.equal(sparseProfile.disclosure_mode, "sparse");
 
   assert.doesNotMatch(manifestRaw, /presentation_base64|sparse_presentation_base64|root_certificate_base64|notary_key_base64/);
+  assert.doesNotMatch(manifestRaw, /trust_root/);
   const secretFileNames = [
     "canary-result-signing-private-key.pkcs8.base64url",
     "canary-session-authority-private-key.pkcs8.base64url",
@@ -244,7 +243,6 @@ async function inspectProvisionedOutput(outputDirectory, fixtureManifest, fixtur
     "canary-verifier-identity-signing-private-key.pkcs8.base64url",
   ];
   const secretEnvironmentNames = [
-    "TLSN_CANARY_TRUST_ROOT_CERTIFICATE_DER",
     "TLSN_CANARY_TRIGGER_SECRET_KEY",
     "TLSN_CANARY_TRIGGER_CALLBACK_SECRET",
     "TLSN_CANARY_DIRECT_CALLBACK_SECRET",
@@ -361,7 +359,7 @@ async function runTest() {
       isolatedEnvironment,
     );
     assert.notEqual(mixedInputRun.status, 0);
-    assert.match(mixedInputRun.errorOutput, /fixture-only mode owns local profile, trust-root, and Notary inputs/);
+    assert.match(mixedInputRun.errorOutput, /fixture-only mode owns local profile and Notary inputs/);
 
     const realIdentityRun = await runProvisionerChild(
       join(rootDirectory, "real-identity"),

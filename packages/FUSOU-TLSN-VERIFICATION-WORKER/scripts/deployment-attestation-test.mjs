@@ -44,7 +44,6 @@ const canaryProvenance = {
     deployment_id: "canary-deployment",
     deployment_role: "canary",
     binding_mode: "fixed_canary",
-    trust_root_certificate_sha256: "D".repeat(43),
     worker_name: "fusou-tlsn-canary",
   },
   result_identity: {

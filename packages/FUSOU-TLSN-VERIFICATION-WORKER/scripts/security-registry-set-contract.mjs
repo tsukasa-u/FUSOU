@@ -19,12 +19,10 @@ export const SECURITY_REGISTRY_SET_CONTRACT = {
   profile_hash_semantics: "supplied canonical profile hashes; profile bytes are not recomputed here",
   notary_key_id_semantics: "selected trust-anchor key ID; it must be present in the canonical Notary registry and is independently bound into the payload",
   notary_registry_semantics: "validated JSON object canonicalized with canonicalJson inside the security registry set payload; runtime receives the normalized registry string separately",
-  trust_root_semantics: "trust root is excluded from this hash because deployment identity binds trust_root_certificate_sha256 separately",
   exclusions: [
     "deployment_id",
     "response_mode",
     "worker_name",
-    "trust_root",
     "signing keys",
     "private keys",
     "callback secrets",

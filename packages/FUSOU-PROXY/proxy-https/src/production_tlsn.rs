@@ -24,8 +24,9 @@ use std::os::unix::fs::PermissionsExt;
 pub enum OriginConfigurationError {
     InvalidHostname,
     InvalidServerIdentity,
+    TargetIdentityMismatch,
     InvalidPort,
-    EmptyTrustConfiguration,
+    NativeTrustStoreUnavailable,
     EmptyIdentityPolicy,
     ServerIdentityNotAllowed,
     ExperimentalDisabled,
@@ -36,8 +37,9 @@ impl std::fmt::Display for OriginConfigurationError {
         let message = match self {
             Self::InvalidHostname => "origin hostname is invalid",
             Self::InvalidServerIdentity => "origin server identity is invalid",
+            Self::TargetIdentityMismatch => "origin hostname must match its server identity",
             Self::InvalidPort => "origin port must be non-zero",
-            Self::EmptyTrustConfiguration => "origin trust configuration is empty",
+            Self::NativeTrustStoreUnavailable => "platform TLS trust store is unavailable or invalid",
             Self::EmptyIdentityPolicy => "origin server identity policy is empty",
             Self::ServerIdentityNotAllowed => "origin server identity is not allowlisted",
             Self::ExperimentalDisabled => "Experimental TLSN is disabled in the origin config",
@@ -46,13 +48,30 @@ impl std::fmt::Display for OriginConfigurationError {
     }
 }
 
-fn valid_authority_component(value: &str) -> bool {
-    !value.is_empty()
-        && value.is_ascii()
-        && value
-            .bytes()
-            .all(|byte| !byte.is_ascii_control() && !byte.is_ascii_whitespace())
-        && !value.contains(['/', '?', '#'])
+fn valid_dns_hostname(value: &str) -> bool {
+    if value.is_empty()
+        || value.len() > 253
+        || !value.is_ascii()
+        || value.parse::<std::net::IpAddr>().is_ok()
+    {
+        return false;
+    }
+
+    let labels = value.split('.').collect::<Vec<_>>();
+    labels.len() >= 2
+        && labels[..labels.len() - 1].iter().all(|label| {
+            !label.is_empty()
+                && label.len() <= 63
+                && label.as_bytes()[0].is_ascii_alphanumeric()
+                && label.as_bytes()[label.len() - 1].is_ascii_alphanumeric()
+                && label
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
+        })
+        && labels.last().is_some_and(|label| {
+            (2..=63).contains(&label.len())
+                && label.bytes().all(|byte| byte.is_ascii_alphabetic())
+        })
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -68,14 +87,17 @@ impl OriginTarget {
         port: u16,
         server_identity: String,
     ) -> Result<Self, OriginConfigurationError> {
-        if !valid_authority_component(&hostname) {
+        if !valid_dns_hostname(&hostname) {
             return Err(OriginConfigurationError::InvalidHostname);
         }
         if port == 0 {
             return Err(OriginConfigurationError::InvalidPort);
         }
-        if !valid_authority_component(&server_identity) {
+        if !valid_dns_hostname(&server_identity) {
             return Err(OriginConfigurationError::InvalidServerIdentity);
+        }
+        if !hostname.eq_ignore_ascii_case(&server_identity) {
+            return Err(OriginConfigurationError::TargetIdentityMismatch);
         }
         Ok(Self {
             hostname,
@@ -103,11 +125,21 @@ pub struct OriginTlsConfig {
 }
 
 impl OriginTlsConfig {
-    pub fn new(trusted_root_certificates: Vec<Vec<u8>>) -> Result<Self, OriginConfigurationError> {
-        if trusted_root_certificates.is_empty()
-            || trusted_root_certificates.iter().any(Vec::is_empty)
-        {
-            return Err(OriginConfigurationError::EmptyTrustConfiguration);
+    pub fn new() -> Result<Self, OriginConfigurationError> {
+        let loaded_roots = rustls_native_certs::load_native_certs();
+        if !loaded_roots.errors.is_empty() {
+            tracing::warn!(
+                error_count = loaded_roots.errors.len(),
+                "some platform TLS trust certificates could not be loaded"
+            );
+        }
+        let trusted_root_certificates = loaded_roots
+            .certs
+            .into_iter()
+            .map(|certificate| certificate.as_ref().to_vec())
+            .collect::<Vec<_>>();
+        if trusted_root_certificates.is_empty() {
+            return Err(OriginConfigurationError::NativeTrustStoreUnavailable);
         }
         Ok(Self {
             trusted_root_certificates,
@@ -131,7 +163,7 @@ impl ServerIdentityPolicy {
         }
         if allowlisted_identities
             .iter()
-            .any(|identity| !valid_authority_component(identity))
+            .any(|identity| !valid_dns_hostname(identity))
         {
             return Err(OriginConfigurationError::InvalidServerIdentity);
         }
@@ -143,7 +175,7 @@ impl ServerIdentityPolicy {
     pub fn allows(&self, server_identity: &str) -> bool {
         self.allowlisted_identities
             .iter()
-            .any(|identity| identity == server_identity)
+            .any(|identity| identity.eq_ignore_ascii_case(server_identity))
     }
 
     pub fn identities(&self) -> &[String] {
@@ -1426,10 +1458,47 @@ mod tests {
                 "game.example.test".to_owned(),
             )
             .unwrap(),
-            OriginTlsConfig::new(vec![vec![1, 2, 3]]).unwrap(),
+            OriginTlsConfig::new().unwrap(),
             ServerIdentityPolicy::new(vec!["game.example.test".to_owned()]).unwrap(),
             enabled,
         )
+    }
+
+    #[test]
+    fn origin_target_requires_matching_dns_hostname_and_server_identity() {
+        assert_eq!(
+            OriginTarget::new(
+                "192.0.2.10".to_owned(),
+                443,
+                "game.example.com".to_owned(),
+            )
+            .unwrap_err(),
+            OriginConfigurationError::InvalidHostname,
+        );
+        assert_eq!(
+            OriginTarget::new(
+                "game.example.com".to_owned(),
+                443,
+                "192.0.2.10".to_owned(),
+            )
+            .unwrap_err(),
+            OriginConfigurationError::InvalidServerIdentity,
+        );
+        assert_eq!(
+            OriginTarget::new(
+                "other.example.com".to_owned(),
+                443,
+                "game.example.com".to_owned(),
+            )
+            .unwrap_err(),
+            OriginConfigurationError::TargetIdentityMismatch,
+        );
+        assert!(OriginTarget::new(
+            "GAME.example.com".to_owned(),
+            443,
+            "game.example.com".to_owned(),
+        )
+        .is_ok());
     }
 
     fn request() -> SerializedOriginRequest {
@@ -1606,7 +1675,7 @@ mod tests {
                 "game.example.test".to_owned(),
             )
             .unwrap(),
-            OriginTlsConfig::new(vec![vec![1]]).unwrap(),
+            OriginTlsConfig::new().unwrap(),
             ServerIdentityPolicy::new(vec!["other.example.test".to_owned()]).unwrap(),
             true,
         );

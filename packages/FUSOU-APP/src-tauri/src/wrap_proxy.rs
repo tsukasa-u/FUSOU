@@ -154,16 +154,6 @@ fn build_production_tlsn_dependencies(
             .get_tlsn_notary_verifying_key()
             .ok_or_else(|| production_configuration_error("tlsn_notary_verifying_key is required for the TLSN experiment"))?,
     )?;
-    let trusted_roots = proxy_configs
-        .get_tlsn_origin_trust_roots()
-        .into_iter()
-        .map(|root| URL_SAFE_NO_PAD.decode(root).map_err(Into::into))
-        .collect::<Result<Vec<_>, Box<dyn std::error::Error>>>()?;
-    if trusted_roots.is_empty() {
-        return Err(production_configuration_error(
-            "tlsn_origin_trust_roots is required for the TLSN experiment",
-        ));
-    }
     let artifact_root = std::path::PathBuf::from(artifact_root);
     let candidate_capture_enabled = proxy_configs.get_tlsn_candidate_capture_enabled();
     if artifact_root.as_os_str().is_empty() {
@@ -179,7 +169,7 @@ fn build_production_tlsn_dependencies(
     .map_err(production_configuration_error)?;
     let origin = OriginTransportConfig::new(
         target.clone(),
-        OriginTlsConfig::new(trusted_roots).map_err(production_configuration_error)?,
+        OriginTlsConfig::new().map_err(production_configuration_error)?,
         ServerIdentityPolicy::new(vec![server_identity.clone()])
             .map_err(production_configuration_error)?,
         true,

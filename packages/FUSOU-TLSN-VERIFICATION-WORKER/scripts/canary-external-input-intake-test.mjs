@@ -35,14 +35,8 @@ for (const artifact of CANARY_EXTERNAL_ARTIFACT_INTAKE) {
 
 for (const name of CANARY_SECRET_INPUTS) {
   const entry = canaryInputIntakeEntry(name);
-  if (name === "TLSN_CANARY_TRUST_ROOT_CERTIFICATE_DER") {
-    assert.equal(entry.secret, false);
-    assert.equal(entry.source, "DEPLOYMENT_INPUT");
-    assert.equal(entry.protected_input_channel, true);
-  } else {
-    assert.equal(entry.secret, true, `${name} must be classified as secret`);
-    assert.equal(entry.source, "CANARY_GENERATED", `${name} must retain its current generator ownership`);
-  }
+  assert.equal(entry.secret, true, `${name} must be classified as secret`);
+  assert.equal(entry.source, "CANARY_GENERATED", `${name} must retain its current generator ownership`);
 }
 
 assert.equal(canaryInputIntakeEntry("TLSN_REMOTE_DEVICE_ID_A").secret, false);

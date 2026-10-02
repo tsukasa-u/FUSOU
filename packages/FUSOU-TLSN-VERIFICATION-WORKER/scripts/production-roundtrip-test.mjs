@@ -57,29 +57,6 @@ function run(command, argumentsList, options) {
   return result.stdout;
 }
 
-function createRootCertificate(directory) {
-  const keyPath = join(directory, "root-key.pem");
-  const certificatePath = join(directory, "root.der");
-  run("openssl", [
-    "req",
-    "-x509",
-    "-newkey",
-    "rsa:2048",
-    "-nodes",
-    "-keyout",
-    keyPath,
-    "-out",
-    certificatePath,
-    "-outform",
-    "DER",
-    "-days",
-    "1",
-    "-subj",
-    "/CN=game.example.com",
-  ], { cwd: directory });
-  return readFile(certificatePath);
-}
-
 function generateAlpha15NotaryKeys() {
   const output = run("cargo", [
     "run",
@@ -121,7 +98,6 @@ function fullAppConfigFromFragment(template, fragment) {
 const rootDirectory = await mkdtemp(join(tmpdir(), "fusou-tlsn-roundtrip-"));
 try {
   const [alpha15K256NotaryKey, secondAlpha15K256NotaryKey] = generateAlpha15NotaryKeys();
-  const rootCertificateDer = await createRootCertificate(rootDirectory);
   const result = keyMaterial();
   const resultRegistryRoot = keyMaterial();
   const session = keyMaterial();
@@ -223,7 +199,6 @@ try {
     TLSN_PRODUCTION_RESULT_SIGNING_PRIVATE_KEY_PKCS8: result.privateKeyPkcs8,
     TLSN_PRODUCTION_SESSION_AUTHORITY_SIGNING_PRIVATE_KEY_PKCS8: session.privateKeyPkcs8,
     TLSN_PRODUCTION_BINDING_AUTHORITY_SIGNING_PRIVATE_KEY_PKCS8: binding.privateKeyPkcs8,
-    TLSN_PRODUCTION_TRUST_ROOT_CERTIFICATE_DER: rootCertificateDer.toString("base64url"),
     TLSN_PRODUCTION_TRIGGER_API_URL: "https://trigger.example.com/",
     TLSN_PRODUCTION_TRIGGER_TASK_ID: "verifyTlsnPresentation",
     TLSN_PRODUCTION_WORKER_INTERNAL_URL: "https://worker.example.com/",
@@ -261,12 +236,13 @@ try {
     FUSOU_TLSN_NOTARY_VERIFYING_KEY: alpha15K256NotaryKey,
     FUSOU_TLSN_ORIGIN_PORT: env.TLSN_PRODUCTION_ORIGIN_PORT,
     FUSOU_TLSN_SERVER_IDENTITY: env.TLSN_CANDIDATE_SERVER_IDENTITY,
-    FUSOU_TLSN_ORIGIN_TRUST_ROOTS: env.TLSN_PRODUCTION_TRUST_ROOT_CERTIFICATE_DER,
   };
   for (const name of inputsForRole("canary")) {
     if (secretInputsForRole("canary").includes(name)) continue;
     canaryEnvironment[name] ??= name === "TLSN_PRODUCTION_NOTARY_REGISTRY"
       ? notaryRegistryRaw
+      : name === "TLSN_CANARY_VERIFIER_IDENTITY_KEY_REGISTRY"
+        ? "{}"
       : name.endsWith("_REGISTRY_ENVELOPE")
         ? resultRegistryEnvelopeRaw
         : `${name}-roundtrip`;
@@ -379,11 +355,11 @@ try {
     "tlsn_notary_verifying_key",
     "tlsn_origin_port",
     "tlsn_server_identity",
-    "tlsn_origin_trust_roots",
   ];
   for (const field of deploymentOnlyFields) {
     assert.doesNotMatch(fragment, new RegExp(`^${field}\\s*=`, "m"));
   }
+  assert.doesNotMatch(fragment, /trust_root|trust_roots|origin_trust_roots/i);
   assert.doesNotMatch(fragment, /private|secret|token|bearer|supabase|device|cloudflare/i);
   const template = await readFile(configTemplatePath, "utf8");
   const fullConfig = fullAppConfigFromFragment(template, fragment);

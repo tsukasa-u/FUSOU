@@ -81,7 +81,6 @@ const canaryProvenance = {
     deployment_id: "canary",
     deployment_role: "canary",
     binding_mode: "fixed_canary",
-    trust_root_certificate_sha256: "D".repeat(43),
     worker_name: "fusou-tlsn-canary",
   },
   result_identity: {
@@ -96,7 +95,6 @@ const productionProvenance = {
     deployment_id: "production",
     deployment_role: "production",
     binding_mode: "random",
-    trust_root_certificate_sha256: "E".repeat(43),
     worker_name: "fusou-tlsn-production",
   },
   result_identity: {
@@ -106,7 +104,8 @@ const productionProvenance = {
   },
 };
 assert.deepEqual(canaryProvenance.security_identity, productionProvenance.security_identity);
-assert.notEqual(canaryProvenance.deployment_identity.trust_root_certificate_sha256, productionProvenance.deployment_identity.trust_root_certificate_sha256);
+assert.equal(Object.hasOwn(canaryProvenance.deployment_identity, "trust_root_certificate_sha256"), false);
+assert.equal(Object.hasOwn(productionProvenance.deployment_identity, "trust_root_certificate_sha256"), false);
 assert.doesNotThrow(() => assertDistinctResultKeys(
   canaryProvenance,
   productionProvenance,

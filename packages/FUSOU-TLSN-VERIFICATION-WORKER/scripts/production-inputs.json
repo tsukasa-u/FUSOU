@@ -70,12 +70,10 @@
     "profile_hash_semantics": "supplied canonical profile hashes; profile bytes are not recomputed here",
     "notary_key_id_semantics": "selected trust-anchor key ID; it must be present in the canonical Notary registry and is independently bound into the payload",
     "notary_registry_semantics": "validated JSON object canonicalized with canonicalJson inside the security registry set payload; runtime receives the normalized registry string separately",
-    "trust_root_semantics": "trust root is excluded from this hash because deployment identity binds trust_root_certificate_sha256 separately",
     "exclusions": [
       "deployment_id",
       "response_mode",
       "worker_name",
-      "trust_root",
       "signing keys",
       "private keys",
       "callback secrets",
@@ -133,7 +131,6 @@
     "TLSN_CANARY_TRIGGER_TASK_ID",
     "TLSN_CANARY_WORKER_INTERNAL_URL",
     "TLSN_CANARY_VERIFIER_WORKER_INTERNAL_URL",
-    "TLSN_CANARY_TRUST_ROOT_CERTIFICATE_DER",
     "TLSN_CANARY_SYNCHRONOUS_RESPONSE_ENABLED",
     "TLSN_CANARY_FIXTURE_ONLY",
     "TLSN_BENCHMARK_TIMINGS"
@@ -159,8 +156,7 @@
     "TLSN_PRODUCTION_WORKER_NAME",
     "TLSN_PRODUCTION_TRIGGER_API_URL",
     "TLSN_PRODUCTION_TRIGGER_TASK_ID",
-    "TLSN_PRODUCTION_WORKER_INTERNAL_URL",
-    "TLSN_PRODUCTION_TRUST_ROOT_CERTIFICATE_DER"
+    "TLSN_PRODUCTION_WORKER_INTERNAL_URL"
   ],
   "production_public_inputs": [
     "TLSN_PRODUCTION_NOTARY_ENDPOINT",
@@ -179,8 +175,7 @@
     "TLSN_PRODUCTION_BINDING_AUTHORITY_KEY_ID",
     "TLSN_PRODUCTION_BINDING_AUTHORITY_KEY_REGISTRY",
     "TLSN_PRODUCTION_TRIGGER_API_URL",
-    "TLSN_PRODUCTION_TRIGGER_TASK_ID",
-    "TLSN_PRODUCTION_TRUST_ROOT_CERTIFICATE_DER"
+    "TLSN_PRODUCTION_TRIGGER_TASK_ID"
   ],
   "production_sensitive_inputs": [
     "TLSN_PRODUCTION_DEPLOYMENT_ID",
@@ -206,8 +201,7 @@
     "TLSN_PRODUCTION_EVIDENCE_SIGNING_PRIVATE_KEY_PKCS8_B64URL",
     "TLSN_PRODUCTION_EVIDENCE_SIGNER_PUBLIC_KEY_SPKI",
     "TLSN_PRODUCTION_EVIDENCE_SIGNER_KEY_ID",
-    "TLSN_PRODUCTION_EVIDENCE_BUNDLE_PATH",
-    "TLSN_PRODUCTION_TRUST_ROOT_CERTIFICATE_DER"
+    "TLSN_PRODUCTION_EVIDENCE_BUNDLE_PATH"
   ],
   "canary_public_inputs": [
     "TLSN_CANARY_VERIFIER_PUBLIC_KEY_SPKI",
@@ -230,7 +224,6 @@
     "TLSN_CANARY_WORKER_NAME",
     "TLSN_CANARY_TRIGGER_API_URL",
     "TLSN_CANARY_TRIGGER_TASK_ID",
-    "TLSN_CANARY_TRUST_ROOT_CERTIFICATE_DER",
     "TLSN_CANARY_SYNCHRONOUS_RESPONSE_ENABLED",
     "TLSN_CANARY_FIXTURE_ONLY",
     "TLSN_BENCHMARK_TIMINGS"
@@ -267,8 +260,7 @@
     "TLSN_PRODUCTION_EVIDENCE_SUPABASE_PUBLISHABLE_KEY",
     "TLSN_PRODUCTION_PROXY_PROVENANCE_PIN_JSON",
     "TLSN_PRODUCTION_EVIDENCE_SIGNER_PUBLIC_KEY_SPKI",
-    "TLSN_PRODUCTION_EVIDENCE_SIGNER_KEY_ID",
-    "TLSN_PRODUCTION_TRUST_ROOT_CERTIFICATE_DER"
+    "TLSN_PRODUCTION_EVIDENCE_SIGNER_KEY_ID"
   ],
   "production_evidence_sensitive_inputs": [
     "TLSN_PRODUCTION_EVIDENCE_OUTPUT_PATH",

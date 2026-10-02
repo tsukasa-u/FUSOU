@@ -203,7 +203,6 @@ export async function runSmokeTest(fetch, fixture, publicKeyDerBase64url, device
       deployment_id: null,
       deployment_role: "synthetic-test",
       binding_mode: "fixed_test",
-      trust_root_certificate_sha256: base64Url(createHash("sha256").update(decodeBase64Url(fixture.root_certificate_base64)).digest()),
       worker_name: null,
     },
     result_identity: {
@@ -506,7 +505,7 @@ export async function runAuthenticatedOwnershipSmokeTest(fetch, fixture, deviceP
   console.log("[tlsn-verification-worker] authenticated ownership and auth failure paths OK");
 }
 
-export async function runProductionTrustRootSmokeTest(fetch) {
+export async function runProductionConfigurationFailClosedSmokeTest(fetch) {
   const response = await fetch("https://verify.test/attestation/session", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -514,7 +513,7 @@ export async function runProductionTrustRootSmokeTest(fetch) {
   });
   assert.equal(response.status, 401);
   assert.deepEqual(await response.json(), { error: "unauthorized" });
-  console.log("[tlsn-verification-worker] production trust and endpoint configuration gate OK");
+  console.log("[tlsn-verification-worker] production configuration fail-closed gate OK");
 }
 
 export async function runProductionRegistryFailClosedSmokeTest(fetch) {

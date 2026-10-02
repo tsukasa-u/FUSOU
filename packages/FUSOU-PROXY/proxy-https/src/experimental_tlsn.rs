@@ -404,6 +404,8 @@ pub enum TlsnTransportError {
     AlreadySent,
     RequestTooLarge,
     OriginConnectionFailed,
+    SystemTrustStoreUnavailable,
+    TlsHandshakeFailed { server_identity: String },
     ResponseReadFailed,
 }
 
@@ -504,6 +506,10 @@ impl std::fmt::Display for TlsnTransportError {
             Self::AlreadySent => "TLSN origin transport rejected a duplicate send",
             Self::RequestTooLarge => "TLSN origin request exceeds the configured capacity",
             Self::OriginConnectionFailed => "TLSN origin connection failed",
+            Self::SystemTrustStoreUnavailable => "platform TLS trust store is unavailable or invalid",
+            Self::TlsHandshakeFailed { server_identity } => {
+                return write!(formatter, "TLSN TLS validation or handshake failed for {server_identity}");
+            }
             Self::ResponseReadFailed => "TLSN origin response read failed",
         };
         formatter.write_str(message)

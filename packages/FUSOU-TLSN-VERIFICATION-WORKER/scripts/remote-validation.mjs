@@ -27,7 +27,7 @@ const SECURITY_IDENTITY_FIELDS = [
   "notary_registry_sha256",
   "binding_authority",
 ];
-const DEPLOYMENT_IDENTITY_FIELDS = ["deployment_id", "deployment_role", "binding_mode", "trust_root_certificate_sha256", "worker_name"];
+const DEPLOYMENT_IDENTITY_FIELDS = ["deployment_id", "deployment_role", "binding_mode", "worker_name"];
 const RESULT_IDENTITY_FIELDS = ["result_public_key_spki"];
 
 function required(name) {

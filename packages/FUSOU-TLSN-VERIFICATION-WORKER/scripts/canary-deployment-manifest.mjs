@@ -90,12 +90,6 @@ function inputBytes(environment, name) {
   if (name === "TLSN_PRODUCTION_NOTARY_REGISTRY" || name === "TLSN_CANARY_VERIFIER_IDENTITY_KEY_REGISTRY" || name.endsWith("_REGISTRY_ENVELOPE")) {
     return Buffer.from(canonicalJson(JSON.parse(value)), "utf8");
   }
-  if (name === "TLSN_CANARY_TRUST_ROOT_CERTIFICATE_DER") {
-    if (!/^[A-Za-z0-9_-]+$/.test(value) || value.length % 4 === 1) throw new Error(`${name} is not canonical base64url`);
-    const bytes = Buffer.from(value, "base64url");
-    if (bytes.length === 0 || bytes.toString("base64url") !== value) throw new Error(`${name} is not canonical base64url`);
-    return bytes;
-  }
   return Buffer.from(value, "utf8");
 }
 

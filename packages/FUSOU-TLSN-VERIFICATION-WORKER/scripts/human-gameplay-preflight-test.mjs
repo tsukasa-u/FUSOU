@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import {
+  HUMAN_GAMEPLAY_PREFLIGHT_SCHEMA_VERSION,
   HUMAN_GAMEPLAY_PREFLIGHT_SCOPE,
   HUMAN_GAMEPLAY_PREDICATES,
   validateHumanGameplayPreflight,
@@ -37,7 +38,7 @@ function makePackage() {
     finalizer_effects: predicate("PASS_LIMITED"),
   });
   return {
-    schema_version: 1,
+    schema_version: HUMAN_GAMEPLAY_PREFLIGHT_SCHEMA_VERSION,
     scope: HUMAN_GAMEPLAY_PREFLIGHT_SCOPE,
     target: {
       server_identity: "game.example.invalid",
@@ -62,6 +63,9 @@ function makePackage() {
 
 const packageInput = makePackage();
 const report = validateHumanGameplayPreflight(packageInput);
+assert.ok(HUMAN_GAMEPLAY_PREDICATES.includes("origin_web_pki_validation"));
+assert.ok(!HUMAN_GAMEPLAY_PREDICATES.includes("trust_root"));
+assert.throws(() => validateHumanGameplayPreflight({ ...packageInput, schema_version: 1 }), /schema or scope is invalid/);
 assert.equal(report.contract_validation, "PASS_LIMITED");
 assert.equal(report.preflight_status, "PASS_LIMITED");
 assert.equal(report.independent_authority_verification, "UNVERIFIED");

@@ -10,7 +10,6 @@ export const PREVIOUS_IDENTITY_FIELDS = [
   ["deployment_id", "deployment_identity"],
   ["deployment_role", "deployment_identity"],
   ["binding_mode", "deployment_identity"],
-  ["trust_root_certificate_sha256", "deployment_identity"],
   ["worker_name", "deployment_identity"],
   ["result_public_key_spki", "result_identity"],
   ["result_signer_key_id", "result_identity"],

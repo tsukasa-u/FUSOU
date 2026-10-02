@@ -421,16 +421,6 @@ async function main() {
   if (capturedNotaryRegistryHash !== expectedSecurity.notary_registry_sha256 || health.security_identity?.notary_registry_sha256 !== capturedNotaryRegistryHash || manifest.security_identity?.notary_registry_sha256 !== capturedNotaryRegistryHash) {
     throw new Error("captured Notary registry does not match trusted health and manifest identities");
   }
-  const trustRootDer = artifacts.trust_root?.toString("base64url");
-  if (!manifest.deployment_identity?.trust_root_certificate_sha256 || !trustRootDer) {
-    throw new Error("production trust root is required for offline semantic verification");
-  }
-  if (
-    trustRootDer &&
-    manifest.deployment_identity?.trust_root_certificate_sha256 !== createHash("sha256").update(artifacts.trust_root).digest("base64url")
-  ) {
-    throw new Error("captured trust root does not match the trusted Worker identity");
-  }
   const semanticVerification = await verifyProductionPresentation({
     presentationBytes: presentation,
     serverIdentity: expectedSecurity.server_identity,
@@ -441,7 +431,6 @@ async function main() {
     canonicalDeviceId: authoritativeDeviceId,
     deviceChallenge: session.device_challenge,
     notaryRegistry,
-    trustAnchorDer: trustRootDer,
     disclosureMode,
   });
   const trustedInputs = {
@@ -451,7 +440,6 @@ async function main() {
     verifier_key_id: expectedSecurity.verifier_key_id,
     notary_key_id: expectedSecurity.notary_key_id,
     notary_key_sha256: createHash("sha256").update(Buffer.from(notaryRegistry[expectedSecurity.notary_key_id], "base64url")).digest("base64url"),
-    trust_root_certificate_sha256: manifest.deployment_identity.trust_root_certificate_sha256,
     result_public_key_spki: manifest.result_identity.result_public_key_spki,
     result_signer_key_id: manifest.result_identity.result_signer_key_id,
     result_key_registry_sha256: manifest.result_identity.result_key_registry_sha256,
@@ -471,7 +459,6 @@ async function main() {
     resultRegistrySha256: createHash("sha256").update(capturedResultRegistryRaw).digest("base64url"),
     resultPublicKeySpki,
     resultSignerKeyId,
-    trustRootCertificateBytes: artifacts.trust_root,
     sessionBinding: session.binding,
     sessionId: session.session_id,
     includeResultSignature: false,
@@ -496,7 +483,6 @@ async function main() {
     resultRegistrySha256: createHash("sha256").update(capturedResultRegistryRaw).digest("base64url"),
     resultPublicKeySpki,
     resultSignerKeyId,
-    trustRootCertificateBytes: artifacts.trust_root,
     sessionBinding: session.binding,
     sessionId: session.session_id,
   });

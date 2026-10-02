@@ -72,7 +72,6 @@ const deploymentIdentity = {
   deployment_id: "production-2026",
   deployment_role: "production",
   binding_mode: "random",
-  trust_root_certificate_sha256: "A".repeat(43),
   worker_name: "fusou-tlsn-production",
 };
 const securityIdentity = {
@@ -128,8 +127,6 @@ const resultRegistryEnvelope = createSignedResultRegistryEnvelope({
 });
 const resultRegistryEnvelopeBytes = Buffer.from(JSON.stringify(resultRegistryEnvelope));
 const resultRegistryEnvelopeSha256 = resultRegistryEnvelopeHash(resultRegistryEnvelopeBytes);
-const trustRootBytes = Buffer.from("test-trust-root");
-deploymentIdentity.trust_root_certificate_sha256 = sha256Base64Url(trustRootBytes);
 const sessionId = "123e4567-e89b-42d3-a456-426614174000";
 const bindingNonce = Buffer.alloc(32, 3);
 const bindingValue = Buffer.concat([
@@ -325,7 +322,6 @@ const trustedInputs = {
   verifier_key_id: result.verifier_key_id,
   notary_key_id: result.notary_key_id,
   notary_key_sha256: sha256Base64Url(notaryKey),
-  trust_root_certificate_sha256: deploymentIdentity.trust_root_certificate_sha256,
   result_public_key_spki: resultPublicKeySpki,
   result_signer_key_id: "result-2026",
   result_key_registry_sha256: resultKeyRegistrySha256,
@@ -347,7 +343,6 @@ const predicateResults = verifySemanticPredicates({
   resultPublicKeySpki,
   resultSignerKeyId: "result-2026",
   resultRegistrySha256: resultKeyRegistrySha256,
-  trustRootCertificateBytes: trustRootBytes,
   sessionBinding: bindingValue,
   sessionId,
   verifiedAt: nowIso,
@@ -364,7 +359,6 @@ const predicateContext = {
   resultRegistrySha256: resultKeyRegistrySha256,
   resultPublicKeySpki,
   resultSignerKeyId: "result-2026",
-  trustRootCertificateBytes: trustRootBytes,
   sessionBinding: bindingValue,
   sessionId,
   verifiedAt: nowIso,
@@ -1393,7 +1387,6 @@ const sparsePredicateResults = verifySemanticPredicates({
   resultPublicKeySpki,
   resultSignerKeyId: "result-2026",
   resultRegistrySha256: resultKeyRegistrySha256,
-  trustRootCertificateBytes: trustRootBytes,
   sessionBinding: bindingValue,
   sessionId,
   includeResultSignature: false,

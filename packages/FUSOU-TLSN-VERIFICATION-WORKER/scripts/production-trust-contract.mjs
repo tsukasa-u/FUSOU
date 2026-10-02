@@ -1,4 +1,4 @@
-import { createHash, createPublicKey, X509Certificate } from "node:crypto";
+import { createHash, createPublicKey } from "node:crypto";
 import {
   assertAuthorityKeyRegistry,
   authorityKeyRegistrySha256,
@@ -12,7 +12,7 @@ import {
   resultRegistryEnvelopeHash,
 } from "./result-registry-envelope.mjs";
 
-export const PRODUCTION_PUBLIC_MANIFEST_SCHEMA_VERSION = 1;
+export const PRODUCTION_PUBLIC_MANIFEST_SCHEMA_VERSION = 2;
 export const PRODUCTION_PUBLIC_MANIFEST_SCOPE = "tlsn-production-public-config";
 export const CANONICAL_NOTARY_REGISTRY_INPUT = "TLSN_PRODUCTION_NOTARY_REGISTRY";
 export const LEGACY_NOTARY_REGISTRY_INPUTS = ["TLSN_CANDIDATE_NOTARY_REGISTRY"];
@@ -298,15 +298,6 @@ function assertServerIdentity(value) {
   }
 }
 
-function assertTrustRoot(value) {
-  const bytes = assertCanonicalBase64Url(value, "origin trust root");
-  try {
-    new X509Certificate(bytes);
-  } catch {
-    throw new Error("origin trust root must be a valid DER X.509 certificate");
-  }
-}
-
 function assertExactKeys(value, expected, label) {
   const actual = Object.keys(value).sort();
   const sortedExpected = [...expected].sort();
@@ -361,12 +352,8 @@ export function assertPublicManifest(manifest) {
     "manifest Result registry Root public key",
   );
   assertCleanHttpsEndpoint(manifest.verification_endpoint, "/verify/tlsn", "manifest Verification endpoint");
-  assertExactKeys(manifest.origin, ["server_identity", "trust_roots", "port"], "manifest.origin");
+  assertExactKeys(manifest.origin, ["server_identity", "port"], "manifest.origin");
   assertServerIdentity(manifest.origin.server_identity);
-  if (!Array.isArray(manifest.origin.trust_roots) || manifest.origin.trust_roots.length === 0) {
-    throw new Error("manifest origin trust roots are required");
-  }
-  for (const root of manifest.origin.trust_roots) assertTrustRoot(root);
   if (!Number.isInteger(manifest.origin.port) || manifest.origin.port < 1 || manifest.origin.port > 65535) {
     throw new Error("manifest origin port is invalid");
   }
@@ -389,7 +376,6 @@ export function buildProductionPublicManifest({
   resultRegistryRootPublicKeySpki,
   verificationEndpoint,
   serverIdentity,
-  trustRootCertificateDer,
   originPort,
 } = {}) {
   const notary = assertNotaryRegistryConsistency({
@@ -414,7 +400,6 @@ export function buildProductionPublicManifest({
   assertCleanHttpsEndpoint(sessionAuthorityEndpoint, "/attestation/session", "Session Authority endpoint");
   assertCleanHttpsEndpoint(verificationEndpoint, "/verify/tlsn", "Verification endpoint");
   assertServerIdentity(serverIdentity);
-  assertTrustRoot(trustRootCertificateDer);
   if (!Number.isInteger(Number(originPort)) || Number(originPort) < 1 || Number(originPort) > 65535) {
     throw new Error("origin port is invalid");
   }
@@ -434,7 +419,6 @@ export function buildProductionPublicManifest({
     verification_endpoint: verificationEndpoint,
     origin: {
       server_identity: serverIdentity,
-      trust_roots: [trustRootCertificateDer],
       port: Number(originPort),
     },
   });

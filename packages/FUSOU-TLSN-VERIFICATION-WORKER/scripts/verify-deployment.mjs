@@ -1,6 +1,5 @@
 #!/usr/bin/env node
 
-import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { assertPublicManifest } from "./production-trust-contract.mjs";
 
@@ -14,7 +13,7 @@ const securityIdentityFields = [
   "notary_registry_sha256",
   "binding_authority",
 ];
-const deploymentIdentityFields = ["deployment_id", "deployment_role", "binding_mode", "trust_root_certificate_sha256", "worker_name"];
+const deploymentIdentityFields = ["deployment_id", "deployment_role", "binding_mode", "worker_name"];
 const resultIdentityFields = [
   "result_public_key_spki",
   "result_public_key_spki_sha256",
@@ -63,17 +62,13 @@ async function main() {
       }
     }
   }
-  const trustRootHash = createHash("sha256")
-    .update(Buffer.from(publicManifest.origin.trust_roots[0], "base64url"))
-    .digest("base64url");
   if (
     health.security_identity?.notary_key_id !== publicManifest.notary.key_id ||
     health.security_identity?.notary_registry_sha256 !== publicManifest.notary.registry_sha256 ||
     health.security_identity?.server_identity !== publicManifest.origin.server_identity ||
     health.authority_identity?.session_authority?.key_id !== publicManifest.session_authority.key_id ||
     health.authority_identity?.session_authority?.public_key_spki !== publicManifest.session_authority.public_key_spki ||
-    health.authority_identity?.session_authority?.key_registry_sha256 !== publicManifest.session_authority.key_registry_sha256 ||
-    health.deployment_identity?.trust_root_certificate_sha256 !== trustRootHash
+    health.authority_identity?.session_authority?.key_registry_sha256 !== publicManifest.session_authority.key_registry_sha256
   ) {
     throw new Error("deployed Worker trust identity does not match the public Production manifest");
   }

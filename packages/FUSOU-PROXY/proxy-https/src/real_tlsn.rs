@@ -1424,7 +1424,20 @@ async fn run_real_exchange(
                 .map_err(|_| TlsnTransportError::OriginConnectionFailed)?,
         )
         .await
-        .map_err(|_| TlsnTransportError::OriginConnectionFailed)?;
+        .map_err(|error| {
+            tracing::warn!(
+                server_identity = config.target().server_identity(),
+                error = %error,
+                "TLSN Origin request could not be sent; check the DNS identity, certificate validity, and Web PKI chain"
+            );
+            if error.is_io() {
+                TlsnTransportError::TlsHandshakeFailed {
+                    server_identity: config.target().server_identity().to_owned(),
+                }
+            } else {
+                TlsnTransportError::OriginConnectionFailed
+            }
+        })?;
 
     let server_name = DnsName::try_from(config.target().server_identity())
         .map_err(|_| TlsnTransportError::OriginConnectionFailed)?;
@@ -1437,6 +1450,8 @@ async fn run_real_exchange(
             .map(tlsn::webpki::CertificateDer)
             .collect(),
     };
+    tlsn::webpki::ServerCertVerifier::new(&root_store)
+        .map_err(|_| TlsnTransportError::SystemTrustStoreUnavailable)?;
     let (connection, prover) = prover
         .connect(
             TlsClientConfig::builder()
@@ -1446,7 +1461,15 @@ async fn run_real_exchange(
                 .map_err(|_| TlsnTransportError::OriginConnectionFailed)?,
             origin_socket.compat(),
         )
-        .map_err(|_| TlsnTransportError::OriginConnectionFailed)?;
+        .map_err(|_| {
+            tracing::warn!(
+                server_identity = config.target().server_identity(),
+                "TLSN Origin TLS certificate validation or handshake failed"
+            );
+            TlsnTransportError::TlsHandshakeFailed {
+                server_identity: config.target().server_identity().to_owned(),
+            }
+        })?;
     let prover_task = tokio::spawn(prover.into_future());
     let mut transport = ProverOwnedTlsTransport::new(connection);
     transport
@@ -2902,8 +2925,7 @@ mod tests {
                     SYNTHETIC_SERVER_IDENTITY.to_owned(),
                 )
                 .expect("valid synthetic target"),
-                OriginTlsConfig::new(vec![root_certificate.clone()])
-                    .expect("valid synthetic trust root"),
+                OriginTlsConfig::new().expect("platform trust store is available"),
                 ServerIdentityPolicy::new(vec![SYNTHETIC_SERVER_IDENTITY.to_owned()])
                     .expect("valid synthetic identity policy"),
                 true,

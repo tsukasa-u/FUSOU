@@ -453,17 +453,6 @@ async function main() {
         keyRegistry: sessionAuthorityRegistry,
       },
     );
-    const trustRootDer = optional("TLSN_PRODUCTION_TRUST_ROOT_CERTIFICATE_DER");
-    const trustRootBytes = trustRootDer ? decodeBase64Url(trustRootDer, "production trust root") : null;
-    if (!health.deployment_identity.trust_root_certificate_sha256 || !trustRootDer) {
-      throw new Error("the production trust root is required for independent semantic verification");
-    }
-    if (
-      trustRootDer &&
-      health.deployment_identity.trust_root_certificate_sha256 !== sha256Base64Url(trustRootBytes)
-    ) {
-      throw new Error("production trust root does not match Worker health identity");
-    }
     const semanticVerification = await verifyProductionPresentation({
       presentationBytes,
       serverIdentity: health.security_identity.server_identity,
@@ -474,7 +463,6 @@ async function main() {
       canonicalDeviceId: session.device_id,
       deviceChallenge: session.device_challenge,
       notaryRegistry,
-      trustAnchorDer: trustRootDer,
       disclosureMode,
     });
     const possessionProof = devicePrivateKey ? deviceProof(session, devicePrivateKey) : null;
@@ -528,7 +516,6 @@ async function main() {
       verifier_key_id: health.security_identity.verifier_key_id,
       notary_key_id: health.security_identity.notary_key_id,
       notary_key_sha256: sha256Base64Url(Buffer.from(notaryRegistry[health.security_identity.notary_key_id], "base64url")),
-      trust_root_certificate_sha256: health.deployment_identity.trust_root_certificate_sha256,
       result_public_key_spki: health.result_identity.result_public_key_spki,
       result_signer_key_id: health.result_identity.result_signer_key_id,
       result_key_registry_sha256: health.result_identity.result_key_registry_sha256,
@@ -548,7 +535,6 @@ async function main() {
       resultRegistrySha256: sha256Base64Url(Buffer.from(registryRaw)),
       resultPublicKeySpki,
       resultSignerKeyId,
-      trustRootCertificateBytes: trustRootBytes,
       sessionBinding: session.binding,
       sessionId: session.session_id,
       includeResultSignature: false,
@@ -573,7 +559,6 @@ async function main() {
       resultRegistrySha256: sha256Base64Url(Buffer.from(registryRaw)),
       resultPublicKeySpki,
       resultSignerKeyId,
-      trustRootCertificateBytes: trustRootBytes,
       sessionBinding: session.binding,
       sessionId: session.session_id,
     });
@@ -666,7 +651,6 @@ async function main() {
     const sessionAuthorityRegistryBytes = Buffer.from(sessionAuthorityRegistryRaw);
     const bindingAuthorityRegistryBytes = Buffer.from(bindingAuthorityRegistryRaw);
     const notaryRegistryBytes = Buffer.from(notaryRegistryRaw);
-    const trustRootArtifactBytes = trustRootBytes;
     const semanticVerificationArtifact = createSemanticVerificationArtifact({
       presentationBytes,
       semanticVerification,
@@ -707,7 +691,6 @@ async function main() {
       capture_metadata: captureMetadataBytes,
       semantic_verification: semanticVerificationBytes,
     };
-    if (trustRootArtifactBytes) artifactBytes.trust_root = trustRootArtifactBytes;
     const presentationArtifact = artifactDescriptor(presentationBytes, { mediaType: "application/tlsn-presentation" });
     const resultArtifact = artifactDescriptor(resultBytes, { mediaType: "application/json" });
     const healthArtifact = artifactDescriptor(healthBytes, { mediaType: "application/json" });
@@ -724,9 +707,6 @@ async function main() {
     const sessionAuthorityRegistryArtifact = artifactDescriptor(sessionAuthorityRegistryBytes, { mediaType: "application/json" });
     const bindingAuthorityRegistryArtifact = artifactDescriptor(bindingAuthorityRegistryBytes, { mediaType: "application/json" });
     const notaryRegistryArtifact = artifactDescriptor(notaryRegistryBytes, { mediaType: "application/json" });
-    const trustRootArtifact = trustRootArtifactBytes
-      ? artifactDescriptor(trustRootArtifactBytes, { mediaType: "application/pkix-cert" })
-      : null;
     const semanticVerificationArtifactDescriptor = artifactDescriptor(semanticVerificationBytes, { mediaType: "application/json" });
     const captureMetadataArtifact = artifactDescriptor(captureMetadataBytes, { mediaType: "application/json" });
     const trustGraph = deriveProductionTrustGraph({
@@ -785,7 +765,6 @@ async function main() {
           ...semanticVerificationArtifactDescriptor,
           path: `${captureId}-semantic-verification.json`,
         },
-        ...(trustRootArtifact ? { trust_root: { ...trustRootArtifact, path: `${captureId}-trust-root.der` } } : {}),
       },
       semantic_predicates: semanticVerificationArtifact.predicates,
       capture_predicates: capturePredicateResults,
@@ -811,7 +790,7 @@ async function main() {
         real_production_binding_authority: item("real_production_binding_authority", productionRequirementStatus("real_production_binding_authority", allPredicateResults), "Signed Worker session and consume receipts bind the verified Result to a one-shot binding", { artifactSha256: consumeReceiptArtifact.artifact_sha256, authorityIdentity: health.security_identity.binding_authority }),
         real_production_session_authority: item("real_production_session_authority", productionRequirementStatus("real_production_session_authority", allPredicateResults), "Session receipt and the published Session Authority registry were independently verified", { artifactSha256: sessionAuthorityRegistryArtifact.artifact_sha256, authorityIdentity: sessionAuthoritySignerKeyId }),
         real_production_binding_receipt_authority: item("real_production_binding_receipt_authority", productionRequirementStatus("real_production_binding_receipt_authority", allPredicateResults), "Consume receipt and the published Binding Authority registry were independently verified", { artifactSha256: bindingAuthorityRegistryArtifact.artifact_sha256, authorityIdentity: bindingAuthoritySignerKeyId }),
-        real_production_verifier_trust_root: item("real_production_verifier_trust_root", productionRequirementStatus("real_production_verifier_trust_root", allPredicateResults), "Captured trust-root bytes matched the deployed Worker identity", { artifactSha256: trustRootArtifact?.artifact_sha256 ?? healthArtifact.artifact_sha256, authorityIdentity: health.deployment_identity.trust_root_certificate_sha256 }),
+        real_production_origin_web_pki_validation: item("real_production_origin_web_pki_validation", productionRequirementStatus("real_production_origin_web_pki_validation", allPredicateResults), "TLSN Presentation verification validated the Origin certificate chain and server identity against Mozilla Web PKI", { artifactSha256: presentationArtifact.artifact_sha256, authorityIdentity: "tlsn-alpha15-mozilla-web-pki" }),
         real_production_result_signing_key: item("real_production_result_signing_key", productionRequirementStatus("real_production_result_signing_key", allPredicateResults), "Result signature and active production key registry were independently verified", { artifactSha256: resultRegistryArtifact.artifact_sha256, authorityIdentity: resultVerification.result_signer_key_id }),
         real_production_result_registry_authentication: item("real_production_result_registry_authentication", productionRequirementStatus("real_production_result_registry_authentication", allPredicateResults), "The Result registry bytes and signer identity were authenticated by the externally pinned Evidence Root", { artifactSha256: resultRegistryEnvelopeArtifact.artifact_sha256, authorityIdentity: "fusou-result-registry-root" }),
         real_production_public_key_publication: item("real_production_public_key_publication", productionRequirementStatus("real_production_public_key_publication", allPredicateResults), "Worker health and the supplied production registry published the same result key", { artifactSha256: healthArtifact.artifact_sha256, authorityIdentity: "production-result-key-registry" }),

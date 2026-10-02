@@ -54,7 +54,6 @@ for (const name of inputsForRole("canary")) {
     : `${name}-value`;
 }
 environment.TLSN_CANARY_WORKER_NAME = "fusou-tlsn-verification-canary";
-environment.TLSN_CANARY_TRUST_ROOT_CERTIFICATE_DER = Buffer.from("fixture-canary-trust-root").toString("base64url");
 assert.ok(
   secretInputsForRole("canary").every((name) => environment[name] === undefined),
   "manifest generation must not require secret material values",
@@ -65,7 +64,6 @@ function hashValue(value) {
 }
 
 function hashInput(name, value) {
-  if (name === "TLSN_CANARY_TRUST_ROOT_CERTIFICATE_DER") return hashValue(Buffer.from(value, "base64url"));
   if (name === "TLSN_CANARY_VERIFIER_IDENTITY_KEY_REGISTRY") return hashValue(JSON.stringify(JSON.parse(value)));
   return hashValue(value);
 }

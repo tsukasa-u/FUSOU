@@ -1345,19 +1345,6 @@ export function verifyResultKeyPublication({ resultRegistry, resultRegistrySha25
   });
 }
 
-export function verifyTrustRootPublication({ trustRootCertificateBytes, trustedTrustRootCertificateSha256, verifiedAt = new Date().toISOString() }) {
-  return runPredicate("trust_root_publication", verifiedAt, ["health", "trust_root"], () => {
-    if (!trustRootCertificateBytes || !(Buffer.isBuffer(trustRootCertificateBytes) || trustRootCertificateBytes instanceof Uint8Array)) {
-      throw new Error("captured trust-root bytes are required");
-    }
-    const observedHash = sha256Base64Url(trustRootCertificateBytes);
-    if (observedHash !== trustedTrustRootCertificateSha256) {
-      throw new Error("captured trust-root bytes do not match the trusted Worker identity");
-    }
-    return { observed: { trust_root_certificate_sha256: observedHash } };
-  });
-}
-
 export function verifySemanticPredicates({
   presentationBytes,
   semanticVerification,
@@ -1371,7 +1358,6 @@ export function verifySemanticPredicates({
   resultRegistrySha256,
   resultPublicKeySpki,
   resultSignerKeyId,
-  trustRootCertificateBytes,
   sessionBinding,
   sessionId,
   includeResultSignature = true,
@@ -1413,7 +1399,6 @@ export function verifySemanticPredicates({
           definitions: PRODUCTION_SPARSE_SEMANTIC_PREDICATES,
         }),
       result_key_publication: remapSparsePredicate("result_key_publication", verifyResultKeyPublication({ resultRegistry, resultRegistrySha256, resultPublicKeySpki, resultSignerKeyId, trustedInputs, verifiedAt })),
-      trust_root_publication: remapSparsePredicate("trust_root_publication", verifyTrustRootPublication({ trustRootCertificateBytes, trustedTrustRootCertificateSha256: trustedInputs.trust_root_certificate_sha256, verifiedAt })),
     };
     return assertPredicateResults(predicateResults, PRODUCTION_SPARSE_SEMANTIC_PREDICATES);
   }
@@ -1460,11 +1445,6 @@ export function verifySemanticPredicates({
       resultPublicKeySpki,
       resultSignerKeyId,
       trustedInputs,
-      verifiedAt,
-    }),
-    trust_root_publication: verifyTrustRootPublication({
-      trustRootCertificateBytes,
-      trustedTrustRootCertificateSha256: trustedInputs.trust_root_certificate_sha256,
       verifiedAt,
     }),
   };

@@ -68,11 +68,6 @@ function decodeBase64Url(raw) {
   return bytes.length > 0 && bytes.toString("base64url") === raw ? bytes : null;
 }
 
-function secretHash(raw) {
-  const bytes = decodeBase64Url(raw);
-  return bytes ? createHash("sha256").update(bytes).digest("base64url") : null;
-}
-
 function addFailure(failures, check, reason) {
   failures.push({ check, reason });
 }
@@ -354,7 +349,6 @@ async function main() {
   }
   const resultKeyName = role === "canary" ? "TLSN_CANARY_RESULT_PUBLIC_KEY_SPKI" : "TLSN_PRODUCTION_RESULT_PUBLIC_KEY_SPKI";
   const resultSigningPrivateKeyName = role === "canary" ? "TLSN_CANARY_RESULT_SIGNING_PRIVATE_KEY_PKCS8" : "TLSN_PRODUCTION_RESULT_SIGNING_PRIVATE_KEY_PKCS8";
-  const trustRootCertificateName = role === "canary" ? "TLSN_CANARY_TRUST_ROOT_CERTIFICATE_DER" : "TLSN_PRODUCTION_TRUST_ROOT_CERTIFICATE_DER";
   const resultSignerKeyIdName = role === "canary" ? "TLSN_CANARY_RESULT_SIGNER_KEY_ID" : "TLSN_PRODUCTION_RESULT_SIGNER_KEY_ID";
   const resultKeyRegistryName = role === "canary" ? "TLSN_CANARY_RESULT_SIGNING_KEY_REGISTRY" : "TLSN_PRODUCTION_RESULT_SIGNING_KEY_REGISTRY";
   const resultKeyRegistryEnvelopeName = role === "canary" ? "TLSN_CANARY_RESULT_SIGNING_KEY_REGISTRY_ENVELOPE" : "TLSN_PRODUCTION_RESULT_SIGNING_KEY_REGISTRY_ENVELOPE";
@@ -382,10 +376,8 @@ async function main() {
     addFailure(failures, "TLSN_PRODUCTION_NOTARY_REGISTRY", error instanceof Error ? error.message : "Notary registry is invalid");
   }
   const signingKeyRaw = value(resultSigningPrivateKeyName);
-  const trustRootHash = secretHash(value(trustRootCertificateName));
   const signingKeyBytes = decodeBase64Url(signingKeyRaw);
   if (!signingKeyBytes) addFailure(failures, resultSigningPrivateKeyName, "must be canonical base64url");
-  if (!trustRootHash) addFailure(failures, trustRootCertificateName, "must be canonical base64url");
   const resultKeyRegistryRaw = value(resultKeyRegistryName);
   const resultKeyRegistryEnvelopeRaw = value(resultKeyRegistryEnvelopeName);
   const resultRegistryRootKeyId = value(resultRegistryRootKeyIdName);
@@ -515,7 +507,6 @@ async function main() {
         resultRegistryRootPublicKeySpki: value("TLSN_PRODUCTION_RESULT_REGISTRY_ROOT_PUBLIC_KEY_SPKI"),
         verificationEndpoint: value("TLSN_PRODUCTION_VERIFICATION_ENDPOINT"),
         serverIdentity: value("TLSN_CANDIDATE_SERVER_IDENTITY"),
-        trustRootCertificateDer: value("TLSN_PRODUCTION_TRUST_ROOT_CERTIFICATE_DER"),
         originPort: Number(value("TLSN_PRODUCTION_ORIGIN_PORT")),
       });
     } catch (error) {
@@ -568,7 +559,6 @@ async function main() {
       deployment_id: value(deploymentIdName) ?? null,
       deployment_role: role ?? null,
       binding_mode: role === "canary" ? "fixed_canary" : "random",
-      trust_root_certificate_sha256: trustRootHash,
       worker_name: value(role === "canary" ? "TLSN_CANARY_WORKER_NAME" : "TLSN_PRODUCTION_WORKER_NAME") ?? null,
     },
     result_identity: {

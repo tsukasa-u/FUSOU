@@ -6,6 +6,7 @@ import path from "node:path";
 import { test } from "node:test";
 import { finalizeTlsnCandidateBundle } from "./tlsn-candidate-finalize.mjs";
 import { createSyntheticCandidateBundle } from "./tlsn-candidate-synthetic-fixture.mjs";
+import { verifyCanaryExistingSourceProofBundle } from "./canary-operational-smoke-existing-proofs.mjs";
 import { inspectAlpha15Presentation } from "./production-evidence-semantic.mjs";
 
 const artifactNames = [
@@ -27,7 +28,7 @@ const artifactNames = [
 const hash = (bytes) => createHash("sha256").update(bytes).digest("base64url");
 const jsonBytes = (value) => Buffer.from(JSON.stringify(value));
 
-async function writeCandidate(directory) {
+async function writeCandidate(directory, { syntheticFixture = true } = {}) {
   const session = {
     session_id: "session-1",
     canonical_user_id: "user-1",
@@ -68,11 +69,9 @@ async function writeCandidate(directory) {
     "verifier-execution-receipt.bin": receiptBytes,
     "presentation.bin": Buffer.from("opaque alpha15 presentation bytes"),
     "metadata.json": jsonBytes({ server_identity: "untrusted-config.example" }),
-    "capture-provenance.json": jsonBytes({
-      schema_version: 1,
-      classification: "SYNTHETIC_FIXTURE",
-      source: "synthetic-alpha15-test-fixture",
-    }),
+    "capture-provenance.json": jsonBytes(syntheticFixture
+      ? { schema_version: 1, classification: "SYNTHETIC_FIXTURE", source: "synthetic-alpha15-test-fixture" }
+      : { schema_version: 1, classification: "UNVERIFIED", source: "production-proxy-capture" }),
   };
   for (const [name, bytes] of Object.entries(artifacts)) {
     await writeFile(path.join(directory, name), bytes, { mode: 0o600 });
@@ -84,8 +83,8 @@ async function writeCandidate(directory) {
     approval_status: "UNAPPROVED",
     target_identity_status: "NOT_YET_OBSERVED",
     target_identity_source: "alpha15-verified-presentation-required",
-    synthetic_fixture: true,
-    capture_provenance: "synthetic-alpha15-test-fixture",
+    synthetic_fixture: syntheticFixture,
+    capture_provenance: syntheticFixture ? "synthetic-alpha15-test-fixture" : "production-proxy-capture",
     presentation_sha256: hash(artifacts["presentation.bin"]),
     exact_result_sha256: hash(artifacts["result-exact.bin"]),
     verifier_execution_receipt_status: "CAPTURED",
@@ -150,7 +149,6 @@ function trustContext() {
     deploymentManifest: { target: { server_identity: "verified.example.test" } },
     profileSha256: "profile-hash",
     notaryRegistry: {},
-    trustAnchorDer: "trust-anchor",
   };
 }
 
@@ -170,6 +168,29 @@ test("finalizer rejects incomplete candidate captures before verification", asyn
     await assert.rejects(
       finalizeTlsnCandidateBundle({ candidateDirectory, trustContext: trustContext() }),
       /candidate manifest scope or status is invalid/,
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("real captures reject custom Origin trust anchors", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "fusou-tlsn-candidate-web-pki-"));
+  const candidateDirectory = path.join(root, "candidate");
+  await mkdir(candidateDirectory, { mode: 0o700 });
+  await writeCandidate(candidateDirectory, { syntheticFixture: false });
+
+  try {
+    await assert.rejects(
+      finalizeTlsnCandidateBundle({
+        candidateDirectory,
+        trustContext: { ...trustContext(), trustAnchorDer: "custom-root" },
+      }),
+      /custom Origin trust anchors are allowed only for synthetic fixtures/,
+    );
+    await assert.rejects(
+      verifyCanaryExistingSourceProofBundle({ syntheticFixture: false, trustAnchorDer: "custom-root" }),
+      /custom Origin trust anchors are allowed only for synthetic fixtures/,
     );
   } finally {
     await rm(root, { recursive: true, force: true });

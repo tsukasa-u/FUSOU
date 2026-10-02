@@ -49,7 +49,6 @@ export const DEPLOYMENT_IDENTITY_FIELDS = [
   "deployment_id",
   "deployment_role",
   "binding_mode",
-  "trust_root_certificate_sha256",
   "worker_name",
 ];
 export const RESULT_IDENTITY_FIELDS = [

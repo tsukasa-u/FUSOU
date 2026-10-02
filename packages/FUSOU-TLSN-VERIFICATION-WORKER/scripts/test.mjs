@@ -2138,7 +2138,7 @@ try {
   await mismatchedNotaryWorker.stop();
 }
 
-const productionTrustRootVars = {
+const productionWebPkiVars = {
   TLSN_ENVIRONMENT: "production",
   TLSN_DEPLOYMENT_ROLE: "production",
   TLSN_GIT_COMMIT_SHA: "a".repeat(40),
@@ -2150,7 +2150,6 @@ const productionTrustRootVars = {
   TLSN_CANDIDATE_NOTARY_KEY_ID: "notary-prod",
   TLSN_PRODUCTION_NOTARY_REGISTRY: JSON.stringify({ "notary-prod": syntheticFixture.notary_key_base64 }),
   TLSN_PRODUCTION_RESULT_SIGNING_PRIVATE_KEY_PKCS8: productionSigningPrivateKeyPkcs8,
-  TLSN_PRODUCTION_TRUST_ROOT_CERTIFICATE_DER: syntheticFixture.root_certificate_base64,
   TLSN_PRODUCTION_DEPLOYMENT_ID: "local-production-test",
   TLSN_SECURITY_REGISTRY_SET_SHA256: Buffer.alloc(32, 0x53).toString("base64url"),
   TLSN_PRODUCTION_RESULT_PUBLIC_KEY_SPKI: productionResultPublicKeySpki,
@@ -2173,11 +2172,11 @@ const productionTrustRootVars = {
   TLSN_PRODUCTION_WORKER_NAME: "fusou-tlsn-production",
 };
 
-const productionTrustRootWorker = await unstable_dev(resolve(packageDirectory, "src/index.ts"), {
+const productionWebPkiWorker = await unstable_dev(resolve(packageDirectory, "src/index.ts"), {
   config: resolve(packageDirectory, "wrangler.toml"),
   env: "production",
   envFiles: [],
-  vars: productionTrustRootVars,
+  vars: productionWebPkiVars,
   persist: false,
   bundle: true,
   local: true,
@@ -2190,10 +2189,10 @@ const productionTrustRootWorker = await unstable_dev(resolve(packageDirectory, "
 });
 
 try {
-  const { runProductionTrustRootSmokeTest } = await import("../test/index-smoke.mjs");
-  await runProductionTrustRootSmokeTest(productionTrustRootWorker.fetch);
+  const { runProductionConfigurationFailClosedSmokeTest } = await import("../test/index-smoke.mjs");
+  await runProductionConfigurationFailClosedSmokeTest(productionWebPkiWorker.fetch);
 } finally {
-  await productionTrustRootWorker.stop();
+  await productionWebPkiWorker.stop();
 }
 
 const malformedProductionRegistry = JSON.parse(productionResultSigningKeyRegistry);
@@ -2204,7 +2203,7 @@ const malformedProductionRegistryWorker = await unstable_dev(resolve(packageDire
   env: "production",
   envFiles: [],
   vars: {
-    ...productionTrustRootVars,
+    ...productionWebPkiVars,
     TLSN_PRODUCTION_RESULT_SIGNING_KEY_REGISTRY: JSON.stringify(malformedProductionRegistry),
   },
   persist: false,
@@ -2240,7 +2239,6 @@ const invalidProductionEndpointWorker = await unstable_dev(resolve(packageDirect
     TLSN_CANDIDATE_NOTARY_KEY_ID: "notary-test",
     TLSN_PRODUCTION_NOTARY_REGISTRY: JSON.stringify({ "notary-test": syntheticFixture.notary_key_base64 }),
     TLSN_PRODUCTION_RESULT_SIGNING_PRIVATE_KEY_PKCS8: productionSigningPrivateKeyPkcs8,
-    TLSN_PRODUCTION_TRUST_ROOT_CERTIFICATE_DER: syntheticFixture.root_certificate_base64,
     TLSN_PRODUCTION_DEPLOYMENT_ID: "local-production-invalid-endpoint",
     TLSN_SECURITY_REGISTRY_SET_SHA256: Buffer.alloc(32, 0x53).toString("base64url"),
     TLSN_PRODUCTION_RESULT_PUBLIC_KEY_SPKI: productionResultPublicKeySpki,

@@ -88,13 +88,12 @@ export const PRODUCTION_EVIDENCE_SEMANTIC_PREDICATES = [
   "result_registry_root_authentication",
   "result_signature",
   "result_key_publication",
-  "trust_root_publication",
 ];
 export const PRODUCTION_EVIDENCE_SEMANTIC_PREDICATE_DEFINITIONS = {
   presentation_cryptography: {
     required_artifacts: ["presentation"],
     required_fields: ["presentation_sha256", "tlsn_attestation_id"],
-    verification_method: "alpha15 Presentation::verify with complete authenticated transcript disclosure",
+    verification_method: "alpha15 Presentation::verify with complete authenticated transcript disclosure and the verifier's built-in Mozilla Web PKI chain validation",
     authority_identity: "tlsn-alpha15-verifier",
     derived_fields: ["presentation_sha256", "tlsn_attestation_id", "request_transcript_sha256", "response_transcript_sha256"],
   },
@@ -161,13 +160,6 @@ export const PRODUCTION_EVIDENCE_SEMANTIC_PREDICATE_DEFINITIONS = {
     authority_identity: "production-result-signing-key-registry",
     derived_fields: ["result_public_key_spki", "result_signer_key_id", "result_key_registry_sha256"],
   },
-  trust_root_publication: {
-    required_artifacts: ["health", "trust_root"],
-    required_fields: ["trust_root_certificate_sha256"],
-    verification_method: "captured trust-root bytes hash equals the externally pinned deployed Worker identity",
-    authority_identity: "tlsn-alpha15-verifier",
-    derived_fields: ["trust_root_certificate_sha256"],
-  },
 };
 export const PRODUCTION_EVIDENCE_SPARSE_SEMANTIC_PREDICATE_DEFINITIONS = {
   presentation_cryptography: {
@@ -222,7 +214,6 @@ export const PRODUCTION_EVIDENCE_SPARSE_SEMANTIC_PREDICATE_DEFINITIONS = {
   result_registry_root_authentication: PRODUCTION_EVIDENCE_SEMANTIC_PREDICATE_DEFINITIONS.result_registry_root_authentication,
   result_signature: PRODUCTION_EVIDENCE_SEMANTIC_PREDICATE_DEFINITIONS.result_signature,
   result_key_publication: PRODUCTION_EVIDENCE_SEMANTIC_PREDICATE_DEFINITIONS.result_key_publication,
-  trust_root_publication: PRODUCTION_EVIDENCE_SEMANTIC_PREDICATE_DEFINITIONS.trust_root_publication,
 };
 export const PRODUCTION_EVIDENCE_DEVICE_PREDICATE_DEFINITIONS = {
   device_identity_ownership: {
@@ -307,7 +298,7 @@ export const PRODUCTION_EVIDENCE_REQUIREMENTS = [
   "real_production_binding_authority",
   "real_production_session_authority",
   "real_production_binding_receipt_authority",
-  "real_production_verifier_trust_root",
+  "real_production_origin_web_pki_validation",
   "real_production_result_signing_key",
   "real_production_public_key_publication",
   "independently_captured_production_evidence",
@@ -358,10 +349,10 @@ export const PRODUCTION_EVIDENCE_ITEM_DEFINITIONS = {
     required_fields: ["binding_authority_key_id", "binding_authority_key_registry_sha256"],
     verification_method: "Consume receipt signer matches the published Binding Authority registry",
   },
-  real_production_verifier_trust_root: {
-    required_artifacts: ["health", "trust_root"],
-    required_fields: ["trust_root_certificate_sha256"],
-    verification_method: "captured trust root bytes match the deployed Worker identity",
+  real_production_origin_web_pki_validation: {
+    required_artifacts: ["presentation", "semantic_verification"],
+    required_fields: ["presentation_sha256", "server_identity"],
+    verification_method: "alpha15 Presentation verification validates the Origin certificate chain against the built-in Mozilla Web PKI roots and checks server identity and validity",
   },
   real_production_result_signing_key: {
     required_artifacts: ["result", "result_registry"],
@@ -394,7 +385,7 @@ export const PRODUCTION_EVIDENCE_REQUIREMENT_PREDICATES = {
   real_production_binding_authority: ["session_binding_receipt", "binding_framing", "consume_receipt"],
   real_production_session_authority: ["session_binding_receipt"],
   real_production_binding_receipt_authority: ["consume_receipt"],
-  real_production_verifier_trust_root: ["trust_root_publication"],
+  real_production_origin_web_pki_validation: ["presentation_cryptography", "server_identity"],
   real_production_result_signing_key: ["result_signature"],
   real_production_result_registry_authentication: ["result_registry_root_authentication"],
   real_production_public_key_publication: ["result_key_publication"],
@@ -409,7 +400,6 @@ export const PRODUCTION_EVIDENCE_REQUIREMENT_PREDICATES = {
     "result_registry_root_authentication",
     "result_signature",
     "result_key_publication",
-    "trust_root_publication",
     "device_identity_ownership",
     "device_authentication_signature",
     "session_binding_receipt",
@@ -448,7 +438,7 @@ export const PRODUCTION_EVIDENCE_DOMAINS = {
     "real_production_binding_receipt_authority",
   ],
   verifier_trust: [
-    "real_production_verifier_trust_root",
+    "real_production_origin_web_pki_validation",
     "real_production_result_registry_authentication",
     "real_production_result_signing_key",
     "real_production_public_key_publication",

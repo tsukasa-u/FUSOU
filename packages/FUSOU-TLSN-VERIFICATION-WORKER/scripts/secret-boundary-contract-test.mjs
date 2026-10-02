@@ -257,8 +257,8 @@ assert.ok(CANARY_WORKER_SECRET_CONTRACT.main.includes("TLSN_CANARY_DIRECT_CALLBA
 assert.equal(CANARY_WORKER_SECRET_CONTRACT.verifier.includes("TLSN_CANARY_TRIGGER_SECRET_KEY"), false);
 assert.equal(CANARY_WORKER_SECRET_CONTRACT.verifier.includes("TLSN_CANARY_TRIGGER_CALLBACK_SECRET"), true);
 assert.equal(CANARY_WORKER_SECRET_CONTRACT.main.includes("TLSN_CANARY_TRIGGER_CALLBACK_SECRET"), false);
-assert.ok(CANARY_WORKER_PUBLIC_INPUTS.main.includes("TLSN_CANARY_TRUST_ROOT_CERTIFICATE_DER"));
-assert.ok(CANARY_WORKER_PUBLIC_INPUTS.verifier.includes("TLSN_CANARY_TRUST_ROOT_CERTIFICATE_DER"));
+assert.equal(CANARY_WORKER_PUBLIC_INPUTS.main.includes("TLSN_CANARY_TRUST_ROOT_CERTIFICATE_DER"), false);
+assert.equal(CANARY_WORKER_PUBLIC_INPUTS.verifier.includes("TLSN_CANARY_TRUST_ROOT_CERTIFICATE_DER"), false);
 for (const worker of ["bootstrap", "main", "verifier"]) {
   for (const name of CANARY_WORKER_PUBLIC_INPUTS[worker]) {
     assert.equal(CANARY_SECRET_INPUTS.includes(name), false, `${worker} public vars include secret ${name}`);

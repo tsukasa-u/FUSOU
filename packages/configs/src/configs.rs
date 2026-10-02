@@ -1107,7 +1107,6 @@ pub struct TlsnProxyConfig {
     pub notary_verifying_key: Option<String>,
     pub origin_port: Option<i64>,
     pub server_identity: Option<String>,
-    pub origin_trust_roots: Option<Vec<String>>,
     pub artifact_output_path: Option<String>,
 }
 
@@ -1129,7 +1128,6 @@ struct TlsnDeploymentConfig {
     notary_verifying_key: Option<String>,
     origin_port: Option<i64>,
     server_identity: Option<String>,
-    origin_trust_roots: Option<Vec<String>>,
 }
 
 fn get_tlsn_deployment_config() -> TlsnDeploymentConfig {
@@ -1155,14 +1153,6 @@ fn get_tlsn_deployment_config() -> TlsnDeploymentConfig {
         notary_verifying_key: option_env!("FUSOU_TLSN_NOTARY_VERIFYING_KEY").map(str::to_owned),
         origin_port: option_env!("FUSOU_TLSN_ORIGIN_PORT").and_then(|value| value.parse().ok()),
         server_identity: option_env!("FUSOU_TLSN_SERVER_IDENTITY").map(str::to_owned),
-        origin_trust_roots: option_env!("FUSOU_TLSN_ORIGIN_TRUST_ROOTS").map(|value| {
-            value
-                .split(',')
-                .map(str::trim)
-                .filter(|value| !value.is_empty())
-                .map(str::to_owned)
-                .collect()
-        }),
     }
 }
 
@@ -1189,7 +1179,6 @@ impl ConfigsProxy {
             notary_verifying_key: deployment.notary_verifying_key,
             origin_port: deployment.origin_port,
             server_identity: deployment.server_identity,
-            origin_trust_roots: deployment.origin_trust_roots,
             artifact_output_path: self.get_tlsn_artifact_output_path(),
         }
     }
@@ -1302,15 +1291,6 @@ impl ConfigsProxy {
 
     pub fn get_tlsn_server_identity(&self) -> Option<String> {
         non_empty_string(get_tlsn_deployment_config().server_identity)
-    }
-
-    pub fn get_tlsn_origin_trust_roots(&self) -> Vec<String> {
-        get_tlsn_deployment_config()
-            .origin_trust_roots
-            .unwrap_or_default()
-            .into_iter()
-            .filter_map(|value| non_empty_string(Some(value)))
-            .collect()
     }
 
     pub fn get_tlsn_artifact_output_path(&self) -> Option<String> {

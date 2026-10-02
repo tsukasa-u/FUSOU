@@ -327,6 +327,9 @@ export async function verifyCanaryExistingSourceProofBundle({
   if (typeof syntheticFixture !== "boolean") {
     throw new Error("synthetic fixture classification must be boolean");
   }
+  if (trustAnchorDer !== undefined && !syntheticFixture) {
+    throw new Error("custom Origin trust anchors are allowed only for synthetic fixtures");
+  }
   assertObject(deploymentManifest, "validated deployment manifest");
   const target = deploymentManifest.target;
   const notary = deploymentManifest.notary;

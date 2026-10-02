@@ -32,7 +32,6 @@ pub struct TlsnPreflightConfig {
     pub disclosure_mode: String,
     pub response_mode: String,
     pub notary_verifying_key: Option<String>,
-    pub origin_trust_roots: Vec<String>,
     pub server_identity: Option<String>,
     pub origin_port_configured: Option<i64>,
     pub artifact_output_path: Option<String>,
@@ -59,7 +58,6 @@ impl TlsnPreflightConfig {
             disclosure_mode: proxy.get_tlsn_disclosure_mode(),
             response_mode: proxy.get_tlsn_response_mode(),
             notary_verifying_key: proxy.get_tlsn_notary_verifying_key(),
-            origin_trust_roots: proxy.get_tlsn_origin_trust_roots(),
             server_identity: proxy.get_tlsn_server_identity(),
             origin_port_configured: raw.origin_port,
             artifact_output_path: proxy.get_tlsn_artifact_output_path(),
@@ -326,7 +324,7 @@ pub fn run_preflight(config: &TlsnPreflightConfig, config_path: &Path) -> TlsnPr
         config.result_signing_key_registry.as_deref(),
     );
     check_notary_verifying_key(&mut checks, config.notary_verifying_key.as_deref());
-    check_trust_roots(&mut checks, &config.origin_trust_roots);
+    check_platform_trust_store(&mut checks);
 
     match config.server_identity.as_deref() {
         Some(value) if valid_server_identity(value) => push_check(
@@ -752,44 +750,47 @@ fn validate_notary_key_bytes(_bytes: &[u8]) -> Result<(), &'static str> {
     Err("cannot validate alpha.15 Notary key format because tlsn-production is disabled")
 }
 
-fn check_trust_roots(checks: &mut Vec<PreflightCheck>, values: &[String]) {
-    if values.is_empty() {
-        push_check(
-            checks,
-            "tlsn_origin_trust_roots",
-            PreflightStatus::Error,
-            "must contain at least one certificate",
-        );
-        return;
-    }
-
-    for (index, value) in values.iter().enumerate() {
-        match decode_unpadded_base64(value).and_then(|bytes| validate_der_certificate(&bytes)) {
-            Ok(()) => {}
-            Err(detail) => {
+fn check_platform_trust_store(checks: &mut Vec<PreflightCheck>) {
+    match proxy_https::production_tlsn::OriginTlsConfig::new() {
+        Ok(config) => {
+            let mut roots = rustls::RootCertStore::empty();
+            for certificate in config.trusted_root_certificates() {
+                if roots
+                    .add(rustls::pki_types::CertificateDer::from(certificate.clone()))
+                    .is_err()
+                {
+                    push_check(
+                        checks,
+                        "tlsn_platform_trust_store",
+                        PreflightStatus::Error,
+                        "platform trust store contains an invalid certificate",
+                    );
+                    return;
+                }
+            }
+            if roots.is_empty() {
                 push_check(
                     checks,
-                    "tlsn_origin_trust_roots",
+                    "tlsn_platform_trust_store",
                     PreflightStatus::Error,
-                    format!("certificate index={index} invalid: {detail}"),
+                    "platform trust store contains no usable certificates",
                 );
                 return;
             }
+            push_check(
+                checks,
+                "tlsn_platform_trust_store",
+                PreflightStatus::Pass,
+                format!("native certificates loaded; count={}", roots.len()),
+            );
         }
+        Err(_) => push_check(
+            checks,
+            "tlsn_platform_trust_store",
+            PreflightStatus::Error,
+            "platform TLS trust store is unavailable or invalid",
+        ),
     }
-
-    push_check(
-        checks,
-        "tlsn_origin_trust_roots",
-        PreflightStatus::Pass,
-        format!("DER certificate parse succeeded; count={}", values.len()),
-    );
-}
-
-fn validate_der_certificate(bytes: &[u8]) -> Result<(), &'static str> {
-    rustls::RootCertStore::empty()
-        .add(rustls::pki_types::CertificateDer::from(bytes.to_vec()))
-        .map_err(|_| "invalid DER X.509 certificate")
 }
 
 fn valid_server_identity(value: &str) -> bool {
@@ -880,7 +881,6 @@ fn check_directory_writable(directory: &Path) -> Result<(), String> {
 #[cfg(all(test, feature = "tlsn-production"))]
 mod tests {
     use super::*;
-    use rcgen::{BasicConstraints, CertificateParams, IsCa, KeyPair};
     use std::{fs, path::PathBuf};
     use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -906,11 +906,6 @@ mod tests {
         fs::create_dir_all(&artifact).unwrap();
         let config_path = root.join("configs.toml");
         fs::write(&config_path, "[proxy]\n").unwrap();
-
-        let mut root_params = CertificateParams::default();
-        root_params.is_ca = IsCa::Ca(BasicConstraints::Unconstrained);
-        let root_key = KeyPair::generate().unwrap();
-        let root_certificate = root_params.self_signed(&root_key).unwrap();
 
         let mut session_key = ED25519_SPKI_PREFIX.to_vec();
         session_key.extend_from_slice(&[7_u8; 32]);
@@ -958,7 +953,6 @@ mod tests {
                 ),
                 expected_binding_mode: "fixed_canary".to_owned(),
                 notary_verifying_key: Some(URL_SAFE_NO_PAD.encode(bincode::serialize(&notary_key).unwrap())),
-                origin_trust_roots: vec![URL_SAFE_NO_PAD.encode(root_certificate.der())],
                 server_identity: Some("game.example.test".to_owned()),
                 origin_port_configured: Some(443),
                 artifact_output_path: Some(artifact.to_string_lossy().into_owned()),
@@ -1035,20 +1029,6 @@ mod tests {
             &run_preflight(&fixture.config, &fixture.config_path),
             "tlsn_session_authority_public_key",
         );
-    }
-
-    #[test]
-    fn invalid_trust_root_der_fails() {
-        let mut fixture = fixture();
-        fixture.config.origin_trust_roots = vec![URL_SAFE_NO_PAD.encode(b"not a certificate")];
-        assert_error(&run_preflight(&fixture.config, &fixture.config_path), "tlsn_origin_trust_roots");
-    }
-
-    #[test]
-    fn empty_trust_roots_fails() {
-        let mut fixture = fixture();
-        fixture.config.origin_trust_roots.clear();
-        assert_error(&run_preflight(&fixture.config, &fixture.config_path), "tlsn_origin_trust_roots");
     }
 
     #[test]

@@ -16,7 +16,7 @@ The active intake/readiness implementation also separates deployment inputs from
 
 The current model keeps data trust and deployment preconditions:
 
-- TLSN verification, target/profile/Notary/trust-root/verifier/binding identity, signed Result registries, authority key registries, workflow/current-HEAD binding, role isolation, and secret-value exclusion remain fail-closed checks.
+- TLSN verification, target hostname/profile/Notary/verifier/binding identity, built-in Mozilla Web PKI Origin certificate validation, signed Result registries, authority key registries, workflow/current-HEAD binding, role isolation, and secret-value exclusion remain fail-closed checks. No target Origin DER root is a Production or Canary deployment input.
 - The deployment manifest records current target/workflow identity, non-secret input fingerprints, artifact hashes, deployment identity, validity, and secret-provider references.
 - `External Authority`, `target-approval`, self-approval rejection, Candidate-to-Accepted-Package promotion, and acceptance-only readiness gates are removed from the active path.
 - `pnpm run test:canary-deployment-manifest` is the focused offline contract test. `deploy-canary.mjs` requires a valid deployment manifest and then runs the existing production preflight; it never executes a remote check as part of authorization.

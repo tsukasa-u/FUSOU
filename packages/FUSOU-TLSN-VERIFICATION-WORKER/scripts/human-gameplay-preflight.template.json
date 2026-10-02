@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "scope": "tlsn-human-gameplay-preflight",
   "target": {
     "server_identity": null,
@@ -20,7 +20,7 @@
     "deployment_runtime_ids": { "claimed_status": "ABSENT", "claimed_cryptographic_verification": "ABSENT", "claimed_authority_provenance": "ABSENT", "evidence_ref": null, "evidence_sha256": null },
     "verifier_key_registry": { "claimed_status": "ABSENT", "claimed_cryptographic_verification": "ABSENT", "claimed_authority_provenance": "ABSENT", "evidence_ref": null, "evidence_sha256": null },
     "notary": { "claimed_status": "ABSENT", "claimed_cryptographic_verification": "ABSENT", "claimed_authority_provenance": "ABSENT", "evidence_ref": null, "evidence_sha256": null },
-    "trust_root": { "claimed_status": "ABSENT", "claimed_cryptographic_verification": "ABSENT", "claimed_authority_provenance": "ABSENT", "evidence_ref": null, "evidence_sha256": null },
+    "origin_web_pki_validation": { "claimed_status": "ABSENT", "claimed_cryptographic_verification": "ABSENT", "claimed_authority_provenance": "ABSENT", "evidence_ref": null, "evidence_sha256": null },
     "session_authority": { "claimed_status": "ABSENT", "claimed_cryptographic_verification": "ABSENT", "claimed_authority_provenance": "ABSENT", "evidence_ref": null, "evidence_sha256": null },
     "binding_authority": { "claimed_status": "ABSENT", "claimed_cryptographic_verification": "ABSENT", "claimed_authority_provenance": "ABSENT", "evidence_ref": null, "evidence_sha256": null },
     "result_authority": { "claimed_status": "ABSENT", "claimed_cryptographic_verification": "ABSENT", "claimed_authority_provenance": "ABSENT", "evidence_ref": null, "evidence_sha256": null },

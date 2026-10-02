@@ -60,7 +60,7 @@ function usage() {
     "Usage: node scripts/provision-canary-material.mjs --output DIR [options]",
     "",
     "Generates only locally-owned canary authority material. Production-bound",
-    "identity, profile, trust-root, endpoint, and workflow values must be supplied",
+    "identity, profile, endpoint, and workflow values must be supplied",
     "explicitly and are never invented by this command.",
     "",
     "Options:",
@@ -68,7 +68,6 @@ function usage() {
     "  --server-identity HOST        candidate origin identity",
     "  --profile-file FILE           canonical complete profile JSON",
     "  --sparse-profile-file FILE    canonical sparse profile JSON",
-    "  --trust-root-file FILE        DER trust root for the candidate origin",
     "  --notary-export-file FILE    FUSOU-NOTARY public_key_export_json output",
     "  --notary-endpoint HOST:PORT  FUSOU-NOTARY raw TCP endpoint",
     "  --notary-registry-file FILE  explicit alpha15 Notary registry JSON (compatibility)",
@@ -158,7 +157,6 @@ function fixtureProvenance(fixtureManifest, fixtureEntry, fixture) {
     ? "presentation_base64"
     : "sparse_presentation_base64";
   const presentation = fixtureBytes(fixture[presentationField], presentationField);
-  const rootCertificate = fixtureBytes(fixture.root_certificate_base64, "root_certificate_base64");
   const notaryPublicKey = fixtureBytes(fixture.notary_key_base64, "notary_key_base64");
   return {
     source: FIXTURE_PROVENANCE_SOURCE,
@@ -169,7 +167,6 @@ function fixtureProvenance(fixtureManifest, fixtureEntry, fixture) {
     source_file_name: fixtureEntry.sourceFileName,
     presentation_kind: presentationField === "presentation_base64" ? "complete" : "sparse",
     presentation_sha256: sha256Base64Url(presentation),
-    root_certificate_sha256: sha256Base64Url(rootCertificate),
     notary_public_key_sha256: sha256Base64Url(notaryPublicKey),
   };
 }
@@ -237,10 +234,10 @@ async function main() {
   }
   const fixtureOnly = options["fixture-only"] === "true";
   if (fixtureOnly) {
-    const forbiddenFixtureOptions = ["profile-file", "sparse-profile-file", "trust-root-file", "notary-registry-file"];
+    const forbiddenFixtureOptions = ["profile-file", "sparse-profile-file", "notary-registry-file"];
     const suppliedFixtureOptions = forbiddenFixtureOptions.filter((name) => options[name] !== undefined);
     if (suppliedFixtureOptions.length > 0) {
-      throw new Error(`fixture-only mode owns local profile, trust-root, and Notary inputs; remove ${suppliedFixtureOptions.join(", ")}`);
+      throw new Error(`fixture-only mode owns local profile and Notary inputs; remove ${suppliedFixtureOptions.join(", ")}`);
     }
   }
   let fixture;
@@ -379,9 +376,6 @@ async function main() {
     ? (fixtureOnly ? CANARY_WORKER_NAME : undefined)
     : assertCanonicalCanaryWorkerName(options["worker-name"].trim());
   const bindingValue = `canary-binding-${randomBytes(18).toString("base64url")}`;
-  const trustRoot = options["trust-root-file"]
-    ? (await readFile(resolve(options["trust-root-file"]))).toString("base64url")
-    : fixture?.root_certificate_base64;
   const notaryRegistryRaw = fixtureOnly
     ? JSON.stringify({ [notaryKeyId]: fixture.notary_key_base64 })
     : notaryMaterial?.registry ?? await readNotaryRegistry(options["notary-registry-file"], notaryKeyId);
@@ -405,9 +399,6 @@ async function main() {
       })
     : null;
   const securityRegistrySetSha256 = securityRegistrySet?.sha256;
-  const trustRootCertificateSha256 = trustRoot
-    ? createHash("sha256").update(Buffer.from(trustRoot, "base64url")).digest("base64url")
-    : null;
   const fixturePresentationSha256 = fixtureOnly
     ? sha256Base64Url(fixtureBytes(fixture.sparse_presentation_base64, "sparse_presentation_base64"))
     : null;
@@ -492,7 +483,6 @@ async function main() {
     } : {}),
     ...(completeProfile ? { TLSN_CANDIDATE_PROFILE_SHA256: completeProfile.sha256 } : {}),
     ...(sparseProfile ? { TLSN_CANDIDATE_SPARSE_PROFILE_SHA256: sparseProfile.sha256 } : {}),
-    ...(trustRoot ? { TLSN_CANARY_TRUST_ROOT_CERTIFICATE_DER: trustRoot } : {}),
     ...(process.env.TLSN_WORKFLOW_RUN_ID ? { TLSN_WORKFLOW_RUN_ID: process.env.TLSN_WORKFLOW_RUN_ID.trim() } : {}),
     ...(process.env.TLSN_WORKFLOW_RUN_ATTEMPT ? { TLSN_WORKFLOW_RUN_ATTEMPT: process.env.TLSN_WORKFLOW_RUN_ATTEMPT.trim() } : {}),
     ...(process.env.TLSN_REPOSITORY ? { TLSN_REPOSITORY: process.env.TLSN_REPOSITORY.trim() } : {}),
@@ -514,7 +504,6 @@ async function main() {
   }
   if (completeProfile) await writeFile(join(outputDirectory, "complete-profile.canonical.json"), `${completeProfile.canonical}\n`, { mode: 0o644 });
   if (sparseProfile) await writeFile(join(outputDirectory, "sparse-profile.canonical.json"), `${sparseProfile.canonical}\n`, { mode: 0o644 });
-  if (trustRoot) await writeFile(join(outputDirectory, "trust-root.der"), Buffer.from(trustRoot, "base64url"), { mode: 0o644 });
   if (notaryPublicKeyExport) await writeFile(join(outputDirectory, "notary-public-key-export.json"), `${JSON.stringify(notaryPublicKeyExport, null, 2)}\n`, { mode: 0o644 });
   if (notaryMaterial) await writeFile(join(outputDirectory, "notary-registry.json"), `${notaryMaterial.registry}\n`, { mode: 0o644 });
   if (notaryProvisioningRecord) await writeFile(join(outputDirectory, "notary-provisioning.json"), `${JSON.stringify(notaryProvisioningRecord, null, 2)}\n`, { mode: 0o644 });
@@ -555,7 +544,6 @@ async function main() {
   if (!generatedEnv.TLSN_CANDIDATE_NOTARY_KEY_ID) unresolvedInputs.push("TLSN_CANDIDATE_NOTARY_KEY_ID");
   if (!generatedEnv.TLSN_CANDIDATE_PROFILE_SHA256) unresolvedInputs.push("TLSN_CANDIDATE_PROFILE_SHA256");
   if (!generatedEnv.TLSN_CANDIDATE_SPARSE_PROFILE_SHA256) unresolvedInputs.push("TLSN_CANDIDATE_SPARSE_PROFILE_SHA256");
-  if (!generatedEnv.TLSN_CANARY_TRUST_ROOT_CERTIFICATE_DER) unresolvedInputs.push("TLSN_CANARY_TRUST_ROOT_CERTIFICATE_DER");
   if (!generatedEnv.TLSN_CANARY_DEPLOYMENT_ID) unresolvedInputs.push("TLSN_CANARY_DEPLOYMENT_ID");
   if (!generatedEnv.TLSN_CANARY_WORKER_NAME) unresolvedInputs.push("TLSN_CANARY_WORKER_NAME");
   if (!generatedEnv.TLSN_PRODUCTION_NOTARY_REGISTRY) unresolvedInputs.push("TLSN_PRODUCTION_NOTARY_REGISTRY");
@@ -565,7 +553,6 @@ async function main() {
     const artifactFiles = [
       ...(completeProfile ? [{ name: "complete-profile", path: "complete-profile.canonical.json" }] : []),
       ...(sparseProfile ? [{ name: "sparse-profile", path: "sparse-profile.canonical.json" }] : []),
-      ...(trustRoot ? [{ name: "trust-root", path: "trust-root.der" }] : []),
       ...(notaryProvisioningRecord ? [{ name: "notary-provisioning", path: "notary-provisioning.json" }] : []),
       ...(notaryMaterial ? [{ name: "notary-registry", path: "notary-registry.json" }] : []),
     ];
@@ -625,7 +612,6 @@ async function main() {
       server_identity: generatedEnv.TLSN_CANDIDATE_SERVER_IDENTITY ?? null,
       profile_sha256: generatedEnv.TLSN_CANDIDATE_PROFILE_SHA256 ?? null,
       sparse_profile_sha256: generatedEnv.TLSN_CANDIDATE_SPARSE_PROFILE_SHA256 ?? null,
-      trust_root_sha256: trustRoot ? createHash("sha256").update(Buffer.from(trustRoot, "base64url")).digest("base64url") : null,
     },
     profile_contract: completeProfile && sparseProfile
       ? profileContractArtifact({

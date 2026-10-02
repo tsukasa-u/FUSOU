@@ -4,7 +4,7 @@ import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-export const HUMAN_GAMEPLAY_PREFLIGHT_SCHEMA_VERSION = 1;
+export const HUMAN_GAMEPLAY_PREFLIGHT_SCHEMA_VERSION = 2;
 export const HUMAN_GAMEPLAY_PREFLIGHT_SCOPE = "tlsn-human-gameplay-preflight";
 
 export const HUMAN_GAMEPLAY_PREDICATES = Object.freeze([
@@ -14,7 +14,7 @@ export const HUMAN_GAMEPLAY_PREDICATES = Object.freeze([
   "deployment_runtime_ids",
   "verifier_key_registry",
   "notary",
-  "trust_root",
+  "origin_web_pki_validation",
   "session_authority",
   "binding_authority",
   "result_authority",
