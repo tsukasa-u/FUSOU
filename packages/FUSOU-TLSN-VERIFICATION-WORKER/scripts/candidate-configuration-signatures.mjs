@@ -118,7 +118,7 @@ export function canonicalCandidateConfigurationSignedPayload(inputName, evidence
   }), "utf8");
 }
 
-function registryPayloadFromBundle(bundle, expectedType, now) {
+function registryPayloadFromBundle(bundle, expectedType, now, signedAt) {
   const contract = CANDIDATE_CONFIGURATION_SIGNATURE_CONTRACT;
   assertExactKeys(bundle, contract.trust_bundle.required_fields, "authority trust bundle");
   if (bundle.schema_version !== contract.trust_bundle.schema_version || bundle.scope !== contract.trust_bundle.scope) {
@@ -174,6 +174,9 @@ function registryPayloadFromBundle(bundle, expectedType, now) {
   if (registryFrom >= registryUntil || now < registryFrom || now >= registryUntil) {
     throw new Error("authority registry is outside its validity interval");
   }
+  if (signedAt < registryFrom || signedAt >= registryUntil) {
+    throw new Error("evidence signedAt is outside authority registry validity interval");
+  }
   if (!Array.isArray(registryFields.keys) || registryFields.keys.length === 0) throw new Error("authority registry has no keys");
 
   const registrySignaturePayloadSha256 = sha256(rawRegistry);
@@ -222,11 +225,17 @@ function trustRootMatchesPin(root, pin) {
 }
 
 function signatureTime(evidence, inputName) {
-  return inputName === "INDEPENDENT_AUTHORITY_RECEIPT"
-    ? requiredTimestamp(evidence.issued_at, "authority receipt issued_at")
-    : requiredTimestamp(evidence.valid_from, `${inputName} valid_from`);
+  const field = inputContract(inputName).signature_time_field;
+  if (!field) throw new Error(`${inputName} signature time field is not defined`);
+  return requiredTimestamp(evidence[field], `${inputName} ${field}`);
 }
 
+/**
+ * Verifies the signed payload, signer authorization at signedAt/current time, and
+ * root-pinned authority status. It deliberately does not establish whether the
+ * evidence itself is current or eligible for candidate readiness; the binding
+ * assessment owns those policy decisions.
+ */
 export function verifyCandidateConfigurationEvidenceSignature({
   inputName,
   evidence,
@@ -239,6 +248,7 @@ export function verifyCandidateConfigurationEvidenceSignature({
   const payload = canonicalCandidateConfigurationSignedPayload(inputName, evidence);
   const payloadSha256 = sha256(payload);
   const signature = signatureBytes(evidence.signature, payloadSha256, inputName);
+  const signedAt = signatureTime(evidence, inputName);
   const signerIdentity = contract.signer_key_id_field.includes(".")
     ? evidence.authority_identity
     : {
@@ -248,7 +258,7 @@ export function verifyCandidateConfigurationEvidenceSignature({
   const signerKeyId = signerIdentity?.key_id;
   if (evidence.signature.key_id !== signerKeyId) throw new Error(`${inputName} signature key ID does not match its signed signer identity`);
 
-  const registry = registryPayloadFromBundle(trustBundle, contract.authority_type, nowMs);
+  const registry = registryPayloadFromBundle(trustBundle, contract.authority_type, nowMs, signedAt);
   if (registry.authorityContract.signed_payload_scope !== contract.signed_payload_scope) {
     throw new Error(`${inputName} trust registry does not authorize this signed payload scope`);
   }
@@ -265,16 +275,18 @@ export function verifyCandidateConfigurationEvidenceSignature({
   }
   const keyFrom = requiredTimestamp(key.not_before, `${inputName} signer not_before`);
   const keyUntil = requiredTimestamp(key.not_after, `${inputName} signer not_after`);
-  const signedAt = signatureTime(evidence, inputName);
-  if (keyFrom >= keyUntil || signedAt < keyFrom || signedAt >= keyUntil || nowMs < keyFrom || nowMs >= keyUntil) {
-    throw new Error(`${inputName} signer key is expired or not yet valid`);
+  if (keyFrom >= keyUntil) throw new Error(`${inputName} signer key validity interval is invalid`);
+  if (signedAt < keyFrom || signedAt >= keyUntil) {
+    throw new Error(`${inputName} signer key is not valid at evidence signedAt`);
   }
+  if (nowMs < keyFrom || nowMs >= keyUntil) throw new Error(`${inputName} signer key is not currently valid`);
 
   verifyEd25519(payload, signature, publicKeyFromSpki(key.public_key_spki, `${inputName} signer public key`), inputName);
   const authorityTrusted = trustRootMatchesPin(registry.root, pinnedTrustRoot)
     && pinnedTrustRoot.source === TRUSTED_PIN_SOURCE;
   return Object.freeze({
     signature_verified: true,
+    registry_signer_authorized: true,
     signature_algorithm: "Ed25519",
     signer_key_id: key.key_id,
     signer_public_key_sha256: sha256(Buffer.from(key.public_key_spki, "base64url")),
@@ -285,6 +297,8 @@ export function verifyCandidateConfigurationEvidenceSignature({
     trust_root_sha256: sha256(Buffer.from(registry.root.public_key_spki, "base64url")),
     trust_root_pinned: trustRootMatchesPin(registry.root, pinnedTrustRoot),
     authority_trusted: authorityTrusted,
+    evidence_current_validity: CANDIDATE_CONFIGURATION_SIGNATURE_CONTRACT.time_semantics.low_level_signature_verifier_current_evidence_validity,
+    candidate_readiness: CANDIDATE_CONFIGURATION_SIGNATURE_CONTRACT.time_semantics.low_level_signature_verifier_candidate_readiness,
     trust_source: authorityTrusted ? pinnedTrustRoot.source : "UNPINNED_OR_TEST_FIXTURE",
     authority_type: contract.authority_type,
     signed_payload_scope: contract.signed_payload_scope,

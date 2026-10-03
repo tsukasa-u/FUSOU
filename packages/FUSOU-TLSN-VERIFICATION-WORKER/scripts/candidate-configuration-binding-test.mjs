@@ -263,6 +263,45 @@ test("matching external evidence remains unverified without pinned roots and aut
   assert.equal(report.stages.independent_authority_provenance_verified, "BLOCKED_MISSING_AUTHORITY");
   assert.equal(report.authenticated_current_binary_identity.status, "UNVERIFIED");
   assert.ok(report.missing_inputs.includes("AUTHENTICATED_CURRENT_BINARY_IDENTITY"));
+  assert.equal(report.readiness_gate, "BLOCKED");
+  assert.equal(report.readiness_effect, "NONE");
+  assert.equal(report.gameplay_effect, "NONE");
+});
+
+test("verified Main Worker Runtime Attestation never authenticates the current APP binary", () => {
+  const identity = createVerifiedCandidate();
+  const binary = currentBinaryIdentity();
+  const runtimeAttestation = {
+    status: "VALID",
+    signature_valid: true,
+    readiness: "CANARY_RUNTIME_IDENTITY_VERIFIED",
+    deployment_id: deploymentIdentity.deployment_id,
+    worker_name: deploymentIdentity.worker_name,
+    git_commit_sha: deploymentIdentity.git_commit_sha,
+    cross_binding: {
+      status: "PASS",
+      workflow_attestation: true,
+      manifest_attestation: true,
+      environment_attestation: true,
+      version_serving: true,
+      attestation_fresh: true,
+    },
+  };
+  const report = candidateConfigurationBindingAssessment({
+    candidateArtifactIdentity: identity,
+    currentBinaryIdentity: binary,
+    trustedBuilderProvenance: builderReceipt(identity, binary),
+    authenticatedCurrentDeploymentIdentity: runtimeAttestation,
+    expectedDeploymentIdentity: deploymentIdentity,
+    now,
+  });
+  assert.equal(report.authenticated_current_deployment_identity.source, "VERIFIED_RUNTIME_ATTESTATION");
+  assert.equal(report.authenticated_current_deployment_identity.trust_subject, "MAIN_WORKER_RUNTIME_IDENTITY_ONLY");
+  assert.equal(report.authenticated_current_binary_identity.status, "UNVERIFIED");
+  assert.equal(report.current_binary_identity.source_authentication, "UNVERIFIED");
+  assert.equal(report.stages.binary_provenance_authenticated, "BLOCKED_NO_TRUSTED_BUILDER");
+  assert.equal(report.readiness_gate, "BLOCKED");
+  assert.equal(report.gameplay_effect, "NONE");
 });
 
 test("authority receipt remains blocked without an independent deployment identity", () => {
@@ -454,6 +493,7 @@ test("candidate, approval, builder, binary, and authority Frankensteins are reje
 
 test("expired approval is not reusable for a later capture", () => {
   const identity = createVerifiedCandidate();
+  const binary = currentBinaryIdentity();
   const report = candidateConfigurationBindingAssessment({
     candidateArtifactIdentity: identity,
     approvedExpectedConfigurationFingerprint: approvedFingerprint(identity, identity.app_configuration, {
@@ -462,6 +502,62 @@ test("expired approval is not reusable for a later capture", () => {
     now,
   });
   assert.equal(report.stages.approved_expected_fingerprint_match, "EXPIRED");
+  assert.equal(report.readiness_gate, "BLOCKED");
+  assert.equal(report.readiness_effect, "NONE");
+  assert.equal(report.gameplay_effect, "NONE");
+
+  const expiredBuilder = candidateConfigurationBindingAssessment({
+    candidateArtifactIdentity: identity,
+    currentBinaryIdentity: binary,
+    trustedBuilderProvenance: builderReceipt(identity, binary, {
+      valid_until: "2026-10-02T00:00:00.000Z",
+    }),
+    expectedSourceCommit: binary.source_commit,
+    now,
+  });
+  assert.equal(expiredBuilder.trusted_builder_provenance.status, "EXPIRED");
+  assert.equal(expiredBuilder.readiness_gate, "BLOCKED");
+  assert.equal(expiredBuilder.readiness_effect, "NONE");
+  assert.equal(expiredBuilder.gameplay_effect, "NONE");
+
+  const runtimeAttestation = {
+    status: "VALID",
+    signature_valid: true,
+    readiness: "CANARY_RUNTIME_IDENTITY_VERIFIED",
+    ...deploymentIdentity,
+    cross_binding: {
+      status: "PASS",
+      workflow_attestation: true,
+      manifest_attestation: true,
+      environment_attestation: true,
+      version_serving: true,
+      attestation_fresh: true,
+    },
+  };
+  const expiredAuthority = candidateConfigurationBindingAssessment({
+    candidateArtifactIdentity: identity,
+    currentBinaryIdentity: binary,
+    independentAuthorityReceipt: authorityReceipt(identity, binary, {
+      issued_at: "2026-10-01T00:00:00.000Z",
+      expires_at: "2026-10-02T00:00:00.000Z",
+    }),
+    authenticatedCurrentBinaryIdentity: {
+      status: "VALID",
+      signature_valid: true,
+      authority_trusted: true,
+      source: "AUTHENTICATED_CURRENT_BINARY_IDENTITY",
+      artifact_identity: binary.artifact_identity,
+      binary_sha256: binary.binary_sha256,
+      source_commit: binary.source_commit,
+    },
+    authenticatedCurrentDeploymentIdentity: runtimeAttestation,
+    expectedDeploymentIdentity: deploymentIdentity,
+    now,
+  });
+  assert.equal(expiredAuthority.independent_authority_receipt.status, "EXPIRED");
+  assert.equal(expiredAuthority.readiness_gate, "BLOCKED");
+  assert.equal(expiredAuthority.readiness_effect, "NONE");
+  assert.equal(expiredAuthority.gameplay_effect, "NONE");
 
   const futureReport = candidateConfigurationBindingAssessment({
     candidateArtifactIdentity: identity,

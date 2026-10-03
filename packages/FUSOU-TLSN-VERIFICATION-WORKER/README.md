@@ -112,8 +112,23 @@ programmatic trusted-root boundary; a root or key merely embedded in operator
 JSON is untrusted. No production pins are configured.
 
 Ed25519 signature verification, key lookup, scope, status, validity, digest,
-and root-signed registry checks are implemented. `signature_verification=VALID`
-is reported separately from `authority_trusted`. Candidate binding reaches
+and root-signed registry checks are implemented. The low-level
+`verifyCandidateConfigurationEvidenceSignature` API verifies the exact signed
+payload and reports `signature_verified`, `registry_signer_authorized`, and
+`authority_trusted` as separate results. `registry_signer_authorized` means the
+key is authorized by the supplied registry for that payload scope and is valid
+at both signedAt and the verification time; it does not authenticate an
+unpinned registry root. `authority_trusted` requires the separate application
+pin. The low-level API deliberately reports
+`evidence_current_validity=NOT_EVALUATED` and
+`candidate_readiness=NOT_EVALUATED`; it does not establish candidate readiness.
+The candidate binding assessment separately checks the evidence's current
+validity interval and all candidate, binary, deployment, and authority
+cross-bindings. All validity windows use inclusive starts and exclusive ends.
+Public-key reuse is rejected within one registry and across authority bundles
+co-evaluated in a single candidate assessment; there is no global registry or
+global uniqueness claim when the other authority bundles are absent.
+`signature_verification=VALID` is reported separately from `authority_trusted`. Candidate binding reaches
 `MATCH_VERIFIED` / `VERIFIED` only with a trusted application pin and all
 cross-bindings. `CURRENT_BINARY_IDENTITY` remains `PRESENT_UNVERIFIED` until an
 independent authenticated binary source is provided. Current deployment

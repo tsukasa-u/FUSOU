@@ -101,8 +101,7 @@ function sampleEvidence(inputName) {
   };
 }
 
-function signedEvidence(inputName, signer) {
-  const evidence = sampleEvidence(inputName);
+function signEvidence(inputName, evidence, signer) {
   const payload = canonicalCandidateConfigurationSignedPayload(inputName, evidence);
   evidence.signature = {
     algorithm: "Ed25519",
@@ -111,6 +110,10 @@ function signedEvidence(inputName, signer) {
     value: sign(null, payload, signer.privateKey).toString("base64url"),
   };
   return evidence;
+}
+
+function signedEvidence(inputName, signer) {
+  return signEvidence(inputName, sampleEvidence(inputName), signer);
 }
 
 function trustBundle(inputName, signer, overrides = {}) {
@@ -199,16 +202,123 @@ function verify(inputName, evidence, bundle, options = {}) {
 }
 
 test("signed payload schema has explicit domain, canonicalization, and no signature field", () => {
+  assert.equal(contract.time_semantics.validity_interval, "inclusive-start-exclusive-end");
+  assert.equal(contract.time_semantics.registry_must_cover_evidence_signed_at, true);
+  assert.equal(contract.time_semantics.low_level_signature_verifier_candidate_readiness, "NOT_EVALUATED");
   for (const inputName of authorityNames) {
+    const inputContract = contract.inputs[inputName];
     const evidence = sampleEvidence(inputName);
     const payload = canonicalCandidateConfigurationSignedPayload(inputName, evidence);
     const parsed = JSON.parse(payload.toString("utf8"));
     assert.equal(parsed.canonicalization, "FUSOU-CANONICAL-JSON-V1");
-    assert.equal(parsed.scope, contract.inputs[inputName].signed_payload_scope);
-    assert.equal("signature" in parsed.signed_fields, false);
-    assert.ok(contract.inputs[inputName].signed_fields.includes("scope"));
+    assert.equal(parsed.scope, inputContract.signed_payload_scope);
+    assert.deepEqual(
+      Object.keys(parsed.signed_fields).sort(),
+      inputContract.required_fields.filter((field) => field !== "signature").sort(),
+    );
+    assert.equal(inputContract.signature_time_field in parsed.signed_fields, true);
   }
   assert.equal(new Set(authorityNames.map((name) => contract.inputs[name].signed_payload_scope)).size, 3);
+});
+
+test("changing any authority-domain security field invalidates its original signature", () => {
+  const mutations = {
+    APPROVED_EXPECTED_CONFIGURATION_FINGERPRINT: [
+      (evidence) => { evidence.candidate_artifact_id = hash(Buffer.from("other-candidate")); },
+      (evidence) => { evidence.candidate_capture_id = "capture-other"; },
+      (evidence) => { evidence.combined_sha256 = hash(Buffer.from("other-fingerprint")); },
+      (evidence) => { evidence.valid_until = "2026-10-06T00:00:00.000Z"; },
+      (evidence) => { evidence.evidence_sha256 = hash(Buffer.from("other-evidence")); },
+      (evidence) => { evidence.authority_identity.authority_id = "other-authority"; },
+      (evidence) => { evidence.authority_identity.key_id = "other-key"; },
+    ],
+    AUTHENTICATED_BUILDER_PROVENANCE: [
+      (evidence) => { evidence.candidate_artifact_id = hash(Buffer.from("other-candidate")); },
+      (evidence) => { evidence.binary_sha256 = hash(Buffer.from("other-binary")); },
+      (evidence) => { evidence.source_commit = "b".repeat(40); },
+      (evidence) => { evidence.build_workflow_identity = "owner/other-workflow.yml"; },
+      (evidence) => { evidence.toolchain_identity = "other-toolchain"; },
+      (evidence) => { evidence.builder_identity = "other-builder"; },
+      (evidence) => { evidence.builder_signing_key_id = "other-key"; },
+      (evidence) => { evidence.valid_until = "2026-10-06T00:00:00.000Z"; },
+      (evidence) => { evidence.evidence_sha256 = hash(Buffer.from("other-evidence")); },
+    ],
+    INDEPENDENT_AUTHORITY_RECEIPT: [
+      (evidence) => { evidence.candidate_artifact_id = hash(Buffer.from("other-candidate")); },
+      (evidence) => { evidence.app_configuration_fingerprint.combined_sha256 = hash(Buffer.from("other-fingerprint")); },
+      (evidence) => { evidence.binary_sha256 = hash(Buffer.from("other-binary")); },
+      (evidence) => { evidence.deployment_identity.deployment_id = "other-deployment"; },
+      (evidence) => { evidence.capture_identity.request_id = "other-request"; },
+      (evidence) => { evidence.authority_identity.authority_id = "other-authority"; },
+      (evidence) => { evidence.authority_identity.key_id = "other-key"; },
+      (evidence) => { evidence.expires_at = "2026-10-06T00:00:00.000Z"; },
+      (evidence) => { evidence.evidence_sha256 = hash(Buffer.from("other-evidence")); },
+    ],
+  };
+
+  for (const inputName of authorityNames) {
+    for (const mutate of mutations[inputName]) {
+      const signer = keyPair();
+      const evidence = signedEvidence(inputName, signer);
+      const { bundle } = trustBundle(inputName, signer);
+      const changed = structuredClone(evidence);
+      mutate(changed);
+      changed.signature.payload_sha256 = hash(canonicalCandidateConfigurationSignedPayload(inputName, changed));
+      assert.throws(() => verify(inputName, changed, bundle), undefined, `${inputName} mutation must not reuse the original signature`);
+    }
+  }
+});
+
+test("evidence schema version and scope cannot be changed outside their signed domain", () => {
+  for (const inputName of authorityNames) {
+    const evidence = sampleEvidence(inputName);
+    assert.throws(
+      () => canonicalCandidateConfigurationSignedPayload(inputName, { ...evidence, schema_version: 99 }),
+      /schema version or scope is invalid/,
+    );
+    assert.throws(
+      () => canonicalCandidateConfigurationSignedPayload(inputName, { ...evidence, scope: "other-domain" }),
+      /schema version or scope is invalid/,
+    );
+  }
+});
+
+test("registry payload changes fail root signature verification even with a refreshed digest", () => {
+  const inputName = authorityNames[0];
+  const signer = keyPair();
+  const evidence = signedEvidence(inputName, signer);
+  const { bundle } = trustBundle(inputName, signer);
+  const registry = JSON.parse(Buffer.from(bundle.registry_payload_base64url, "base64url").toString("utf8"));
+  registry.signed_fields.registry_version = "tampered-registry-version";
+  const changedBytes = Buffer.from(canonicalJson(registry), "utf8");
+  const changedDigest = hash(changedBytes);
+  const changedBundle = {
+    ...bundle,
+    registry_payload_base64url: changedBytes.toString("base64url"),
+    registry_sha256: changedDigest,
+    registry_signature: { ...bundle.registry_signature, payload_sha256: changedDigest },
+  };
+  assert.throws(() => verify(inputName, evidence, changedBundle), /registry Ed25519 signature is invalid/);
+});
+
+test("authority registries reject duplicate key IDs and duplicate public keys", () => {
+  const inputName = authorityNames[0];
+  const signer = keyPair();
+  const evidence = signedEvidence(inputName, signer);
+  const { bundle, rootPrivateKey } = trustBundle(inputName, signer);
+  const original = JSON.parse(Buffer.from(bundle.registry_payload_base64url, "base64url").toString("utf8"));
+
+  const duplicateId = structuredClone(original);
+  duplicateId.signed_fields.keys.push({ ...duplicateId.signed_fields.keys[0], public_key_spki: keyPair().publicKeySpki });
+  assert.throws(() => verify(inputName, evidence, replaceRegistryPayload(bundle, rootPrivateKey, duplicateId)), /identity is invalid or duplicated/);
+
+  const duplicateKey = structuredClone(original);
+  duplicateKey.signed_fields.keys.push({ ...duplicateKey.signed_fields.keys[0], key_id: "another-key-id" });
+  assert.throws(() => verify(inputName, evidence, replaceRegistryPayload(bundle, rootPrivateKey, duplicateKey)), /reuses a public key/);
+
+  const rootAsSigner = structuredClone(original);
+  rootAsSigner.signed_fields.keys[0].public_key_spki = bundle.trust_root.public_key_spki;
+  assert.throws(() => verify(inputName, evidence, replaceRegistryPayload(bundle, rootPrivateKey, rootAsSigner)), /reuses a public key/);
 });
 
 test("valid fixture signature verifies cryptographically but fixture root is not trusted", () => {
@@ -218,11 +328,112 @@ test("valid fixture signature verifies cryptographically but fixture root is not
     const { bundle } = trustBundle(inputName, signer);
     const result = verify(inputName, evidence, bundle);
     assert.equal(result.signature_verified, true);
+    assert.equal(result.registry_signer_authorized, true);
     assert.equal(result.authority_trusted, false);
+    assert.equal(result.evidence_current_validity, "NOT_EVALUATED");
+    assert.equal(result.candidate_readiness, "NOT_EVALUATED");
     assert.equal(result.trust_root_pinned, false);
     assert.match(result.signed_payload_sha256, /^[A-Za-z0-9_-]{43}$/);
     assert.equal(result.registry_sha256, result.registry_fingerprint);
   }
+});
+
+test("current registry validity must contain signedAt for every evidence domain", () => {
+  for (const inputName of authorityNames) {
+    const signer = keyPair();
+    const setSignedAt = (evidence, value) => {
+      if (inputName === "INDEPENDENT_AUTHORITY_RECEIPT") {
+        evidence.issued_at = value;
+        evidence.expires_at = "2026-10-05T00:00:00.000Z";
+      } else {
+        evidence.valid_from = value;
+        evidence.valid_until = "2026-10-05T00:00:00.000Z";
+      }
+      return signEvidence(inputName, evidence, signer);
+    };
+    const baseEvidence = setSignedAt(sampleEvidence(inputName), "2026-10-03T11:45:00.000Z");
+    const { bundle, rootPrivateKey } = trustBundle(inputName, signer);
+    const registryWindowBundle = (validFrom, validUntil) => {
+      const registry = JSON.parse(Buffer.from(bundle.registry_payload_base64url, "base64url").toString("utf8"));
+      registry.signed_fields.valid_from = validFrom;
+      registry.signed_fields.valid_until = validUntil;
+      return replaceRegistryPayload(bundle, rootPrivateKey, registry);
+    };
+
+    const currentRegistry = registryWindowBundle("2026-10-03T11:30:00.000Z", "2026-10-03T12:30:00.000Z");
+    const validResult = verify(inputName, baseEvidence, currentRegistry);
+    assert.equal(validResult.signature_verified, true, `${inputName} signed inside registry interval`);
+
+    const beforeActivation = setSignedAt(sampleEvidence(inputName), "2026-10-03T11:15:00.000Z");
+    assert.throws(
+      () => verify(inputName, beforeActivation, currentRegistry),
+      /evidence signedAt is outside authority registry validity interval/,
+      `${inputName} signature before registry activation must fail`,
+    );
+
+    const afterExpiry = setSignedAt(sampleEvidence(inputName), "2026-10-03T12:45:00.000Z");
+    assert.throws(
+      () => verify(inputName, afterExpiry, currentRegistry),
+      /evidence signedAt is outside authority registry validity interval/,
+      `${inputName} signature after registry expiry must fail even while registry is current now`,
+    );
+
+    const inclusiveStart = setSignedAt(sampleEvidence(inputName), "2026-10-03T11:30:00.000Z");
+    assert.equal(verify(inputName, inclusiveStart, currentRegistry).signature_verified, true);
+    const exclusiveEnd = setSignedAt(sampleEvidence(inputName), "2026-10-03T12:30:00.000Z");
+    assert.throws(
+      () => verify(inputName, exclusiveEnd, currentRegistry),
+      /evidence signedAt is outside authority registry validity interval/,
+      `${inputName} registry valid_until is exclusive`,
+    );
+  }
+});
+
+test("registry and signer key time failures are distinct", () => {
+  const inputName = authorityNames[0];
+  const signer = keyPair();
+  const evidence = signEvidence(inputName, {
+    ...sampleEvidence(inputName),
+    valid_from: "2026-10-03T11:00:00.000Z",
+    valid_until: "2026-10-05T00:00:00.000Z",
+  }, signer);
+  const { bundle, rootPrivateKey } = trustBundle(inputName, signer);
+  const registry = JSON.parse(Buffer.from(bundle.registry_payload_base64url, "base64url").toString("utf8"));
+  registry.signed_fields.valid_from = "2026-10-03T10:00:00.000Z";
+  registry.signed_fields.valid_until = "2026-10-03T13:00:00.000Z";
+  registry.signed_fields.keys[0].not_before = "2026-10-03T11:30:00.000Z";
+  registry.signed_fields.keys[0].not_after = "2026-10-04T00:00:00.000Z";
+  const registryCurrentButKeyNotValidAtSignedAt = replaceRegistryPayload(bundle, rootPrivateKey, registry);
+  assert.throws(
+    () => verify(inputName, evidence, registryCurrentButKeyNotValidAtSignedAt),
+    /signer key is not valid at evidence signedAt/,
+  );
+
+  registry.signed_fields.keys[0].not_before = "2026-10-01T00:00:00.000Z";
+  registry.signed_fields.keys[0].not_after = "2026-10-04T00:00:00.000Z";
+  const signerKeyCurrentButRegistryNotValidAtSignedAt = replaceRegistryPayload(bundle, rootPrivateKey, registry);
+  registry.signed_fields.valid_from = "2026-10-03T11:15:00.000Z";
+  const registryActivationAfterSignedAt = replaceRegistryPayload(bundle, rootPrivateKey, registry);
+  assert.throws(
+    () => verify(inputName, evidence, registryActivationAfterSignedAt),
+    /evidence signedAt is outside authority registry validity interval/,
+  );
+  assert.equal(verify(inputName, evidence, signerKeyCurrentButRegistryNotValidAtSignedAt).signature_verified, true);
+});
+
+test("low-level signature verification does not claim expired evidence is current", () => {
+  const inputName = authorityNames[0];
+  const signer = keyPair();
+  const expiredApproval = signEvidence(inputName, {
+    ...sampleEvidence(inputName),
+    valid_until: "2026-10-02T00:00:00.000Z",
+  }, signer);
+  const { bundle } = trustBundle(inputName, signer);
+  const result = verify(inputName, expiredApproval, bundle);
+  assert.equal(result.signature_verified, true);
+  assert.equal(result.authority_trusted, false);
+  assert.equal(result.evidence_current_validity, "NOT_EVALUATED");
+  assert.equal(result.candidate_readiness, "NOT_EVALUATED");
 });
 
 test("altered payload and altered signature are rejected", () => {
@@ -328,7 +539,7 @@ test("wrong root, invalid registry digest, and expired or future root/key are re
       value: sign(null, registryBytes, root.privateKey).toString("base64url"),
     },
   };
-  assert.throws(() => verify(inputName, futureEvidence, resignedRegistry), /signer key is expired or not yet valid/);
+  assert.throws(() => verify(inputName, futureEvidence, resignedRegistry), /signer key is not valid at evidence signedAt/);
 
   const expiredSigner = keyPair();
   const expiredEvidence = signedEvidence(inputName, expiredSigner);
@@ -339,7 +550,7 @@ test("wrong root, invalid registry digest, and expired or future root/key are re
     expiredBundle.bundle,
     expiredBundle.rootPrivateKey,
     expiredRegistry,
-  )), /signer key is expired or not yet valid/);
+  )), /signer key is not currently valid/);
 });
 
 test("registry key scope must authorize exactly the evidence domain", () => {
@@ -408,6 +619,24 @@ test("TEST_FIXTURE_ONLY root pin never establishes authority trust", () => {
   assert.equal(result.trust_root_pinned, true);
   assert.equal(result.authority_trusted, false);
   assert.equal(result.trust_source, "UNPINNED_OR_TEST_FIXTURE");
+});
+
+test("only a matching application-configuration root pin establishes authority trust", () => {
+  const inputName = authorityNames[0];
+  const signer = keyPair();
+  const evidence = signedEvidence(inputName, signer);
+  const { bundle, rootIdentity } = trustBundle(inputName, signer);
+  const result = verify(inputName, evidence, bundle, {
+    pinnedTrustRoot: {
+      ...rootIdentity,
+      source: contract.trust_root.application_pin_source,
+    },
+  });
+  assert.equal(result.signature_verified, true);
+  assert.equal(result.registry_signer_authorized, true);
+  assert.equal(result.authority_trusted, true);
+  assert.equal(result.trust_source, "APPLICATION_TRUSTED_CONFIGURATION");
+  assert.equal(result.candidate_readiness, "NOT_EVALUATED");
 });
 
 test("assessment separates valid signature verification from authority trust", () => {

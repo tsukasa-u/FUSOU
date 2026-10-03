@@ -444,6 +444,9 @@ try {
     "MAIN_WORKER_RUNTIME_IDENTITY_ONLY",
   );
   assert.equal(validReport.inputs.candidate_configuration_binding.authenticated_current_binary_identity.status, "UNVERIFIED");
+  assert.equal(validReport.inputs.candidate_configuration_binding.readiness_gate, "BLOCKED");
+  assert.equal(validReport.inputs.candidate_configuration_binding.gameplay_effect, "NONE");
+  assert.equal(validReport.gates.candidate_configuration_binding, false);
   assert.equal(validReport.status, "BLOCKED");
 
   const executionJobId = "f73fded7-d9af-4f0a-b87b-c626d30d55bd";

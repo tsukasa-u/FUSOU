@@ -97,6 +97,7 @@ assert.equal(report.predicates.result_signer_deployment_binding.operator_asserte
 assert.equal(report.runtime_attestation_scope, "RUNTIME_IDENTITY_ONLY");
 assert.equal(report.readiness_status, "BLOCKED");
 assert.equal(report.gameplay_authorization, "BLOCKED");
+assert.equal(report.runtime_attestation_scope, "RUNTIME_IDENTITY_ONLY");
 assert.equal(report.finalizer_readiness_effect, "NONE");
 assert.equal(report.finalizer_gameplay_effect, "NONE");
 assert.equal(report.network_access, "NOT_USED");
