@@ -88,8 +88,10 @@ assert.deepEqual(report.candidate_configuration_binding_assessment.missing_input
   "CANDIDATE_ARTIFACT_BUNDLE",
   "APPROVED_EXPECTED_CONFIGURATION_FINGERPRINT",
   "CURRENT_BINARY_IDENTITY",
+  "AUTHENTICATED_CURRENT_BINARY_IDENTITY",
   "AUTHENTICATED_BUILDER_PROVENANCE",
   "INDEPENDENT_AUTHORITY_RECEIPT",
+  "AUTHENTICATED_CURRENT_DEPLOYMENT_IDENTITY",
 ]);
 assert.equal(report.predicates.result_signer_deployment_binding.operator_asserted_authority_provenance, "UNVERIFIED");
 assert.equal(report.runtime_attestation_scope, "RUNTIME_IDENTITY_ONLY");

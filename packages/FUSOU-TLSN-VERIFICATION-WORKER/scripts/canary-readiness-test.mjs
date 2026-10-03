@@ -698,6 +698,33 @@ async function readCanaryOperationalSmoke(environment, runtimeIdentity, deployme
   }
 }
 
+function authenticatedMainWorkerDeploymentIdentity(runtimeAttestation, expectedHead) {
+  const binding = runtimeAttestation?.cross_binding;
+  if (
+    runtimeAttestation?.status !== "VALID" ||
+    runtimeAttestation.signature_valid !== true ||
+    runtimeAttestation.readiness !== CANARY_DEPLOYMENT_READINESS ||
+    runtimeAttestation.git_commit_sha !== expectedHead ||
+    typeof runtimeAttestation.manifest_id !== "string" ||
+    runtimeAttestation.manifest_id.trim() === "" ||
+    binding?.status !== "PASS" ||
+    binding.workflow_attestation !== true ||
+    binding.manifest_attestation !== true ||
+    binding.environment_attestation !== true ||
+    binding.version_serving !== true ||
+    binding.attestation_fresh !== true
+  ) return null;
+  return {
+    status: runtimeAttestation.status,
+    signature_valid: runtimeAttestation.signature_valid,
+    readiness: runtimeAttestation.readiness,
+    cross_binding: binding,
+    deployment_id: runtimeAttestation.deployment_id,
+    worker_name: runtimeAttestation.worker_name,
+    git_commit_sha: runtimeAttestation.git_commit_sha,
+  };
+}
+
 /**
  * validatedDeploymentManifest is an internal test-fixture injection point.
  * Production callers omit it so the main path loads and validates the manifest artifact.
@@ -779,9 +806,16 @@ export async function buildReadinessReport({
     runtimeAttestationKeyRegistry,
     now,
   );
+  const currentMainWorkerDeploymentIdentity = authenticatedMainWorkerDeploymentIdentity(runtimeAttestation, expectedHead);
   const candidateConfigurationBinding = await assessCandidateConfigurationBindingInputs({
     environment,
     expectedSourceCommit: expectedHead,
+    expectedDeploymentIdentity: currentMainWorkerDeploymentIdentity ? {
+      deployment_id: currentMainWorkerDeploymentIdentity.deployment_id,
+      worker_name: currentMainWorkerDeploymentIdentity.worker_name,
+      git_commit_sha: currentMainWorkerDeploymentIdentity.git_commit_sha,
+    } : null,
+    authenticatedCurrentDeploymentIdentity: currentMainWorkerDeploymentIdentity,
     now,
   });
   const binding = allPresent(BINDING_INPUTS, environment) && environment.TLSN_CANARY_FIXTURE_ONLY !== "true"
@@ -801,7 +835,8 @@ export async function buildReadinessReport({
     workflow_provenance: workflow === "PASS",
     verifier_identity_binding: verifierIdentityBinding.status === "PASS",
     operational_smoke: operationalSmoke.status === "PASS",
-    candidate_configuration_binding: false,
+    candidate_configuration_binding: candidateConfigurationBinding.status === "PASS"
+      && candidateConfigurationBinding.readiness_gate === "PASS",
     runtime_attestation: runtimeAttestation.status === "VALID"
       && runtimeAttestation.readiness === CANARY_DEPLOYMENT_READINESS,
     cross_binding: runtimeAttestation.cross_binding?.status === "PASS",
@@ -839,7 +874,7 @@ export async function buildReadinessReport({
       },
       candidate_configuration_binding: {
         ...candidateConfigurationBinding,
-        readiness_gate: "BLOCKED",
+        readiness_gate: candidateConfigurationBinding.readiness_gate,
       },
       operational_smoke: {
         status: operationalSmoke.status,
@@ -883,7 +918,7 @@ export async function buildReadinessReport({
       notary: "FUSOU-NOTARY public registry, active key ID, and raw host:port endpoint must be supplied; the current Presentation verification path remains blocked without all three.",
       authentication: "Candidate device-auth and Supabase endpoints must be supplied and pass deployment-preflight. User/device credentials belong only to post-deployment remote validation and are not a deployment readiness gate.",
       binding: "A Canary-specific binding authority registry/key and fixed Canary binding must be supplied; replay fixed bindings are not acceptable.",
-      candidate_configuration_binding: "Supply TLSN_CANDIDATE_ARTIFACT_BUNDLE_PATH and schema-v1 files for TLSN_APPROVED_EXPECTED_CONFIGURATION_FINGERPRINT_PATH, TLSN_CURRENT_BINARY_IDENTITY_PATH, TLSN_TRUSTED_BUILDER_PROVENANCE_PATH, and TLSN_INDEPENDENT_AUTHORITY_RECEIPT_PATH. Matching shape and digests remain UNVERIFIED until approved fingerprint authority, authenticated builder provenance, and independent authority signature verifiers exist.",
+      candidate_configuration_binding: "Supply a non-synthetic candidate bundle and schema-v1 evidence files plus the three authority trust bundles. Ed25519 verification is implemented, but no application-pinned production roots or authenticated current-binary source are configured; embedded/operator-supplied roots remain untrusted. Current deployment identity must come from a fresh, signature-valid, manifest-bound Runtime Attestation; /health alone is insufficient.",
       workflow: "The deployment workflow must supply positive run ID/attempt, owner/name repository, current HEAD, and workflow_file_identity=dotenvx+pnpm+wrangler.",
       verifier_identity_binding: "Capture a Canary execution evidence bundle and provide its job ID and verification attempt ID independently; readiness binds the signed receipt to exact Presentation/Result bytes and the current Runtime Attestation.",
       operational_smoke: "Run the manifest-bound Main/Verifier health probes and integrate authenticated source proofs for callback, Trigger, Session/Consume receipts, Durable Object, R2, Notary, Supabase/device Auth, and exact Presentation/Result execution evidence; offline tests cannot set the operational_smoke gate to PASS.",

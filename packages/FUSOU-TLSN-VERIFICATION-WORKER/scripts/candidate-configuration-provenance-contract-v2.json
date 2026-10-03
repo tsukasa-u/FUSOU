@@ -1,0 +1,209 @@
+{
+  "schema_version": 2,
+  "scope": "fusou-tlsn-candidate-configuration-provenance-contract",
+  "authority_verification": "ED25519_SIGNATURE_VERIFICATION_IMPLEMENTED_TRUST_ROOTS_NOT_CONFIGURED",
+  "canonicalization": "FUSOU-CANONICAL-JSON-V1",
+  "signature": {
+    "algorithm": "Ed25519",
+    "encoding": "base64url-no-padding",
+    "length_bytes": 64,
+    "payload_digest": "sha256-base64url-no-padding"
+  },
+  "inputs": {
+    "APPROVED_EXPECTED_CONFIGURATION_FINGERPRINT": {
+      "schema_version": 1,
+      "scope": "fusou-tlsn-approved-expected-app-configuration-fingerprint",
+      "authority_type": "CONFIGURATION_APPROVAL",
+      "signed_payload_schema_version": 1,
+      "signed_payload_scope": "fusou-tlsn-approved-expected-app-configuration-fingerprint-signed-payload-v1",
+      "registry_scope": "fusou-tlsn-configuration-approval-authority-key-registry-v1",
+      "required_fields": [
+        "schema_version",
+        "scope",
+        "combined_sha256",
+        "approval_id",
+        "candidate_artifact_id",
+        "candidate_capture_id",
+        "valid_from",
+        "valid_until",
+        "provenance_source",
+        "evidence_sha256",
+        "authority_identity",
+        "signature"
+      ],
+      "signed_fields": [
+        "schema_version",
+        "scope",
+        "combined_sha256",
+        "approval_id",
+        "candidate_artifact_id",
+        "candidate_capture_id",
+        "valid_from",
+        "valid_until",
+        "provenance_source",
+        "evidence_sha256",
+        "authority_identity"
+      ],
+      "signer_key_id_field": "authority_identity.key_id"
+    },
+    "CURRENT_BINARY_IDENTITY": {
+      "schema_version": 1,
+      "scope": "fusou-tlsn-current-binary-identity",
+      "required_fields": [
+        "schema_version",
+        "scope",
+        "artifact_identity",
+        "binary_sha256",
+        "source_commit",
+        "provenance_source",
+        "evidence_sha256"
+      ]
+    },
+    "AUTHENTICATED_BUILDER_PROVENANCE": {
+      "schema_version": 1,
+      "scope": "fusou-tlsn-trusted-builder-provenance",
+      "authority_type": "TRUSTED_BUILDER",
+      "signed_payload_schema_version": 1,
+      "signed_payload_scope": "fusou-tlsn-authenticated-builder-provenance-signed-payload-v1",
+      "registry_scope": "fusou-tlsn-trusted-builder-authority-key-registry-v1",
+      "required_fields": [
+        "schema_version",
+        "scope",
+        "candidate_artifact_id",
+        "artifact_identity",
+        "binary_sha256",
+        "source_commit",
+        "build_workflow_identity",
+        "toolchain_identity",
+        "builder_identity",
+        "builder_signing_key_id",
+        "valid_from",
+        "valid_until",
+        "evidence_sha256",
+        "signature"
+      ],
+      "signed_fields": [
+        "schema_version",
+        "scope",
+        "candidate_artifact_id",
+        "artifact_identity",
+        "binary_sha256",
+        "source_commit",
+        "build_workflow_identity",
+        "toolchain_identity",
+        "builder_identity",
+        "builder_signing_key_id",
+        "valid_from",
+        "valid_until",
+        "evidence_sha256"
+      ],
+      "signer_key_id_field": "builder_signing_key_id"
+    },
+    "INDEPENDENT_AUTHORITY_RECEIPT": {
+      "schema_version": 1,
+      "scope": "fusou-tlsn-independent-candidate-configuration-authority-receipt",
+      "authority_type": "INDEPENDENT_CANDIDATE_AUTHORITY",
+      "signed_payload_schema_version": 1,
+      "signed_payload_scope": "fusou-tlsn-independent-candidate-authority-receipt-signed-payload-v1",
+      "registry_scope": "fusou-tlsn-independent-candidate-authority-key-registry-v1",
+      "required_fields": [
+        "schema_version",
+        "scope",
+        "candidate_artifact_id",
+        "app_configuration_fingerprint",
+        "binary_sha256",
+        "deployment_identity",
+        "capture_identity",
+        "authority_identity",
+        "issued_at",
+        "expires_at",
+        "evidence_sha256",
+        "signature"
+      ],
+      "signed_fields": [
+        "schema_version",
+        "scope",
+        "candidate_artifact_id",
+        "app_configuration_fingerprint",
+        "binary_sha256",
+        "deployment_identity",
+        "capture_identity",
+        "authority_identity",
+        "issued_at",
+        "expires_at",
+        "evidence_sha256"
+      ],
+      "signer_key_id_field": "authority_identity.key_id"
+    }
+  },
+  "trust_bundle": {
+    "schema_version": 1,
+    "scope": "fusou-tlsn-candidate-configuration-authority-trust-bundle-v1",
+    "required_fields": [
+      "schema_version",
+      "scope",
+      "authority_type",
+      "trust_root",
+      "registry_payload_base64url",
+      "registry_sha256",
+      "registry_signature"
+    ]
+  },
+  "trust_root": {
+    "required_fields": [
+      "authority_id",
+      "key_id",
+      "public_key_spki",
+      "algorithm",
+      "status",
+      "not_before",
+      "not_after",
+      "scope"
+    ],
+    "application_pin_source": "APPLICATION_TRUSTED_CONFIGURATION",
+    "test_pin_source": "TEST_FIXTURE_ONLY"
+  },
+  "registry_payload": {
+    "schema_version": 1,
+    "canonicalization": "FUSOU-CANONICAL-JSON-V1",
+    "signed_fields": [
+      "authority_type",
+      "authority_id",
+      "registry_version",
+      "valid_from",
+      "valid_until",
+      "keys"
+    ],
+    "key_fields": [
+      "authority_id",
+      "key_id",
+      "public_key_spki",
+      "algorithm",
+      "status",
+      "not_before",
+      "not_after",
+      "scopes"
+    ],
+    "statuses": ["ACTIVE", "VERIFY_ONLY", "RETIRED", "REVOKED"]
+  },
+  "registry_signature": {
+    "algorithm": "Ed25519",
+    "encoding": "base64url-no-padding",
+    "length_bytes": 64,
+    "signed_bytes": "exact-canonical-registry-payload-bytes"
+  },
+  "nested_fields": {
+    "authority_identity": ["authority_id", "key_id"],
+    "signature": ["algorithm", "key_id", "payload_sha256", "value"],
+    "app_configuration_fingerprint": ["schema_version", "scope", "combined_sha256"],
+    "deployment_identity": ["deployment_id", "worker_name", "git_commit_sha"],
+    "capture_identity": [
+      "candidate_capture_id",
+      "session_id",
+      "request_id",
+      "request_sha256",
+      "authenticated_request_sha256",
+      "binding_identifier"
+    ]
+  }
+}

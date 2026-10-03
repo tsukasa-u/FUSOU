@@ -91,7 +91,12 @@ function approvedFingerprint(identity, fingerprint = identity.app_configuration,
     provenance_source: "offline-authority-export",
     evidence_sha256: hash(Buffer.from("approval-evidence-A")),
     authority_identity: { authority_id: "config-authority", key_id: "config-key-1" },
-    signature: { algorithm: "Ed25519", key_id: "config-key-1", value: signature() },
+    signature: {
+      algorithm: "Ed25519",
+      key_id: "config-key-1",
+      payload_sha256: hash(Buffer.from("approval-payload-digest")),
+      value: signature(),
+    },
     ...overrides,
   };
 }
@@ -127,7 +132,12 @@ function builderReceipt(identity, binary, overrides = {}) {
     valid_from: "2026-10-01T00:00:00.000Z",
     valid_until: "2026-10-05T00:00:00.000Z",
     evidence_sha256: hash(Buffer.from("builder-evidence-A")),
-    signature: { algorithm: "Ed25519", key_id: "builder-key-1", value: signature() },
+    signature: {
+      algorithm: "Ed25519",
+      key_id: "builder-key-1",
+      payload_sha256: hash(Buffer.from("builder-payload-digest")),
+      value: signature(),
+    },
     ...overrides,
   };
 }
@@ -158,7 +168,12 @@ function authorityReceipt(identity, binary, overrides = {}) {
     issued_at: "2026-10-03T11:00:00.000Z",
     expires_at: "2026-10-04T11:00:00.000Z",
     evidence_sha256: hash(Buffer.from("authority-evidence-A")),
-    signature: { algorithm: "Ed25519", key_id: "authority-key-1", value: signature() },
+    signature: {
+      algorithm: "Ed25519",
+      key_id: "authority-key-1",
+      payload_sha256: hash(Buffer.from("authority-payload-digest")),
+      value: signature(),
+    },
     ...overrides,
   };
 }
@@ -224,7 +239,7 @@ test("actual candidate bundle input reports synthetic local consistency but cann
   }
 });
 
-test("schema-valid matching external evidence remains unverified without authority verifiers", () => {
+test("matching external evidence remains unverified without pinned roots and authenticated sources", () => {
   const identity = createVerifiedCandidate();
   const binary = currentBinaryIdentity();
   const report = candidateConfigurationBindingAssessment({
@@ -239,12 +254,15 @@ test("schema-valid matching external evidence remains unverified without authori
   });
   assert.equal(report.status, "UNVERIFIED");
   assert.equal(report.stages.approved_expected_fingerprint_match, "MATCH_UNVERIFIED");
-  assert.equal(report.approved_expected_fingerprint.signature_verification, "NOT_IMPLEMENTED");
+  assert.equal(report.approved_expected_fingerprint.signature_verification, "BLOCKED");
+  assert.equal(report.approved_expected_fingerprint.authority_trusted, false);
   assert.equal(report.current_binary_identity.source_authentication, "UNVERIFIED");
   assert.equal(report.trusted_builder_provenance.status, "PRESENT_UNVERIFIED");
   assert.equal(report.stages.binary_provenance_authenticated, "BLOCKED_NO_TRUSTED_BUILDER");
-  assert.equal(report.independent_authority_receipt.status, "PRESENT_UNVERIFIED");
+  assert.equal(report.independent_authority_receipt.status, "BLOCKED_NO_TRUSTED_DEPLOYMENT_IDENTITY");
   assert.equal(report.stages.independent_authority_provenance_verified, "BLOCKED_MISSING_AUTHORITY");
+  assert.equal(report.authenticated_current_binary_identity.status, "UNVERIFIED");
+  assert.ok(report.missing_inputs.includes("AUTHENTICATED_CURRENT_BINARY_IDENTITY"));
 });
 
 test("authority receipt remains blocked without an independent deployment identity", () => {
@@ -268,7 +286,12 @@ test("signature key IDs must match their declared authority or builder identity"
   const approved = candidateConfigurationBindingAssessment({
     candidateArtifactIdentity: identity,
     approvedExpectedConfigurationFingerprint: approvedFingerprint(identity, identity.app_configuration, {
-      signature: { algorithm: "Ed25519", key_id: "different-key", value: signature() },
+      signature: {
+        algorithm: "Ed25519",
+        key_id: "different-key",
+        payload_sha256: hash(Buffer.from("approval-payload-digest")),
+        value: signature(),
+      },
     }),
     now,
   });
@@ -278,7 +301,12 @@ test("signature key IDs must match their declared authority or builder identity"
     candidateArtifactIdentity: identity,
     currentBinaryIdentity: binary,
     trustedBuilderProvenance: builderReceipt(identity, binary, {
-      signature: { algorithm: "Ed25519", key_id: "different-key", value: signature() },
+      signature: {
+        algorithm: "Ed25519",
+        key_id: "different-key",
+        payload_sha256: hash(Buffer.from("builder-payload-digest")),
+        value: signature(),
+      },
     }),
     now,
   });
@@ -288,7 +316,12 @@ test("signature key IDs must match their declared authority or builder identity"
     candidateArtifactIdentity: identity,
     currentBinaryIdentity: binary,
     independentAuthorityReceipt: authorityReceipt(identity, binary, {
-      signature: { algorithm: "Ed25519", key_id: "different-key", value: signature() },
+      signature: {
+        algorithm: "Ed25519",
+        key_id: "different-key",
+        payload_sha256: hash(Buffer.from("authority-payload-digest")),
+        value: signature(),
+      },
     }),
     now,
   });
@@ -429,6 +462,29 @@ test("expired approval is not reusable for a later capture", () => {
     now,
   });
   assert.equal(report.stages.approved_expected_fingerprint_match, "EXPIRED");
+
+  const futureReport = candidateConfigurationBindingAssessment({
+    candidateArtifactIdentity: identity,
+    approvedExpectedConfigurationFingerprint: approvedFingerprint(identity, identity.app_configuration, {
+      valid_from: "2026-10-04T00:00:00.000Z",
+    }),
+    now,
+  });
+  assert.equal(futureReport.stages.approved_expected_fingerprint_match, "NOT_YET_VALID");
+});
+
+test("unsigned approval is INVALID rather than a matching approval", () => {
+  const identity = createVerifiedCandidate();
+  const report = candidateConfigurationBindingAssessment({
+    candidateArtifactIdentity: identity,
+    approvedExpectedConfigurationFingerprint: approvedFingerprint(identity, identity.app_configuration, {
+      signature: null,
+    }),
+    now,
+  });
+  assert.equal(report.approved_expected_fingerprint.status, "INVALID");
+  assert.equal(report.approved_expected_fingerprint.authority_trusted, false);
+  assert.equal(report.status, "UNVERIFIED");
 });
 
 test("operator-shaped local result cannot impersonate identity verifier output", () => {

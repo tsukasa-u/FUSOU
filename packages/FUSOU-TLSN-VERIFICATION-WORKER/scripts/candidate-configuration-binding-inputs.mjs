@@ -8,6 +8,9 @@ export const CANDIDATE_CONFIGURATION_BINDING_INPUT_PATHS = Object.freeze({
   current_binary_identity: "TLSN_CURRENT_BINARY_IDENTITY_PATH",
   trusted_builder_provenance: "TLSN_TRUSTED_BUILDER_PROVENANCE_PATH",
   independent_authority_receipt: "TLSN_INDEPENDENT_AUTHORITY_RECEIPT_PATH",
+  configuration_approval_trust_bundle: "TLSN_CONFIGURATION_APPROVAL_AUTHORITY_TRUST_BUNDLE_PATH",
+  trusted_builder_trust_bundle: "TLSN_TRUSTED_BUILDER_AUTHORITY_TRUST_BUNDLE_PATH",
+  independent_candidate_authority_trust_bundle: "TLSN_INDEPENDENT_CANDIDATE_AUTHORITY_TRUST_BUNDLE_PATH",
 });
 
 async function readJsonEvidence(environment, inputName) {
@@ -25,6 +28,9 @@ export async function assessCandidateConfigurationBindingInputs({
   environment = process.env,
   expectedSourceCommit = null,
   expectedDeploymentIdentity = null,
+  authenticatedCurrentDeploymentIdentity = null,
+  authenticatedCurrentBinaryIdentity = null,
+  trustedAuthorityTrustRoots = {},
   now = new Date(),
 } = {}) {
   const candidatePath = environment[CANDIDATE_CONFIGURATION_BINDING_INPUT_PATHS.candidate_artifact_bundle]?.trim();
@@ -57,8 +63,16 @@ export async function assessCandidateConfigurationBindingInputs({
     currentBinaryIdentity: evidenceInputs.current_binary_identity.value,
     trustedBuilderProvenance: evidenceInputs.trusted_builder_provenance.value,
     independentAuthorityReceipt: evidenceInputs.independent_authority_receipt.value,
+    authorityTrustBundles: {
+      CONFIGURATION_APPROVAL: evidenceInputs.configuration_approval_trust_bundle.value,
+      TRUSTED_BUILDER: evidenceInputs.trusted_builder_trust_bundle.value,
+      INDEPENDENT_CANDIDATE_AUTHORITY: evidenceInputs.independent_candidate_authority_trust_bundle.value,
+    },
+    trustedAuthorityTrustRoots,
+    authenticatedCurrentBinaryIdentity,
     expectedSourceCommit,
     expectedDeploymentIdentity,
+    authenticatedCurrentDeploymentIdentity,
     now,
   });
   return {

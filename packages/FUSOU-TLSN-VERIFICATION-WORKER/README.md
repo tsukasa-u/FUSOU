@@ -89,22 +89,40 @@ authentication. A locally consistent synthetic bundle remains synthetic and
 cannot affect readiness or gameplay.
 
 Readiness and human preflight may locally load a candidate bundle through
-`TLSN_CANDIDATE_ARTIFACT_BUNDLE_PATH`. Optional schema-v1 files are accepted at
+`TLSN_CANDIDATE_ARTIFACT_BUNDLE_PATH`. Signed evidence follows the schema-v2
+contract in `scripts/candidate-configuration-provenance-contract-v2.json`.
+Each evidence kind has a distinct canonical signed-payload scope and explicit
+signed field inventory; the `signature` envelope is excluded from its own
+payload. Payload bytes use `FUSOU-CANONICAL-JSON-V1`; Ed25519 signatures and
+public keys use canonical base64url without padding, with public keys encoded
+as DER SPKI. Signature envelopes include the recomputed signed-payload digest.
+
+Optional evidence files are accepted at
 `TLSN_APPROVED_EXPECTED_CONFIGURATION_FINGERPRINT_PATH`,
 `TLSN_CURRENT_BINARY_IDENTITY_PATH`,
 `TLSN_TRUSTED_BUILDER_PROVENANCE_PATH`, and
-`TLSN_INDEPENDENT_AUTHORITY_RECEIPT_PATH`; exact fields are defined in
-`scripts/candidate-configuration-provenance-contract-v1.json`. The contracts
-bind approval to a candidate/capture, builder evidence to candidate/artifact
-identity and binary hash/source commit/workflow/toolchain/builder, and authority receipts to the
-candidate fingerprint, binary, deployment, and capture/session/request/binding
-identity. Declared signature key IDs must match their declared authority or
-builder signing key; this is only an internal consistency check. Current code
-only validates shape, freshness, and cross-binding.
-Approval, builder, and independent authority signature verifiers/trust roots
-are not implemented, so presence or a matching digest is never `PASS` and
-`candidate_configuration_binding` remains `UNVERIFIED` with its readiness gate
-`BLOCKED`.
+`TLSN_INDEPENDENT_AUTHORITY_RECEIPT_PATH`. Root-signed key registry bundles may
+be supplied at `TLSN_CONFIGURATION_APPROVAL_AUTHORITY_TRUST_BUNDLE_PATH`,
+`TLSN_TRUSTED_BUILDER_AUTHORITY_TRUST_BUNDLE_PATH`, and
+`TLSN_INDEPENDENT_CANDIDATE_AUTHORITY_TRUST_BUNDLE_PATH`. Registry bundles
+carry exact canonical registry bytes, SHA-256 fingerprint, a root signature,
+root identity/public key, scope, and validity. A registry root is trusted only
+when it matches a separate application-configuration pin supplied through the
+programmatic trusted-root boundary; a root or key merely embedded in operator
+JSON is untrusted. No production pins are configured.
+
+Ed25519 signature verification, key lookup, scope, status, validity, digest,
+and root-signed registry checks are implemented. `signature_verification=VALID`
+is reported separately from `authority_trusted`. Candidate binding reaches
+`MATCH_VERIFIED` / `VERIFIED` only with a trusted application pin and all
+cross-bindings. `CURRENT_BINARY_IDENTITY` remains `PRESENT_UNVERIFIED` until an
+independent authenticated binary source is provided. Current deployment
+identity may be derived only from a VALID, fresh, signed Runtime Attestation
+whose workflow, manifest, environment, and serving-version bindings all pass;
+this authenticates Main Worker runtime identity only, not APP binary identity.
+No root pins, authenticated binary source, or non-synthetic candidate bundle
+are currently supplied, so readiness and gameplay remain blocked. Test keys
+are explicitly `TEST_FIXTURE_ONLY` and cannot promote a gate.
 
 `WASM_BUILD_NETWORK` from the current offline wrapper proves only that build
 subprocess; old untraced builds remain `UNKNOWN`, and WASM artifact/source/commit

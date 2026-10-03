@@ -1,20 +1,13 @@
-import { readFileSync } from "node:fs";
 import {
   isCandidateArtifactIdentityVerificationResult,
 } from "./candidate-artifact-identity.mjs";
+import {
+  CANDIDATE_CONFIGURATION_SIGNATURE_CONTRACT,
+  verifyCandidateConfigurationEvidenceSignature,
+} from "./candidate-configuration-signatures.mjs";
+import { CANARY_DEPLOYMENT_READINESS } from "./canary-deployment-attestation.mjs";
 
-function deepFreeze(value) {
-  if (value && typeof value === "object" && !Object.isFrozen(value)) {
-    for (const entry of Object.values(value)) deepFreeze(entry);
-    Object.freeze(value);
-  }
-  return value;
-}
-
-export const CANDIDATE_CONFIGURATION_PROVENANCE_CONTRACT = deepFreeze(JSON.parse(readFileSync(
-  new URL("./candidate-configuration-provenance-contract-v1.json", import.meta.url),
-  "utf8",
-)));
+export const CANDIDATE_CONFIGURATION_PROVENANCE_CONTRACT = CANDIDATE_CONFIGURATION_SIGNATURE_CONTRACT;
 export const CANDIDATE_CONFIGURATION_BINDING_ASSESSMENT_SCHEMA_VERSION = 1;
 export const CANDIDATE_CONFIGURATION_BINDING_ASSESSMENT_SCOPE = "fusou-tlsn-candidate-configuration-binding-assessment";
 
@@ -69,8 +62,9 @@ function validateInterval(validFrom, validUntil, now, label) {
 
 function validateSignature(signature, label) {
   assertExactKeys(signature, CANDIDATE_CONFIGURATION_PROVENANCE_CONTRACT.nested_fields.signature, `${label}.signature`);
-  requiredString(signature.algorithm, `${label}.signature.algorithm`);
+  if (signature.algorithm !== "Ed25519") throw new Error(`${label}.signature.algorithm is invalid`);
   requiredString(signature.key_id, `${label}.signature.key_id`);
+  requiredSha256(signature.payload_sha256, `${label}.signature.payload_sha256`);
   if (typeof signature.value !== "string") throw new Error(`${label}.signature.value is invalid`);
   const bytes = Buffer.from(signature.value, "base64url");
   if (bytes.length !== 64 || bytes.toString("base64url") !== signature.value) {
@@ -247,6 +241,85 @@ function sameObjectFields(left, right) {
   return Object.keys(left).every((field) => left[field] === right[field]);
 }
 
+function verifyEvidenceSignature(inputName, evidence, trustBundle, pinnedTrustRoot, now) {
+  if (!evidence) return { status: "BLOCKED", result: null, reason: "signed evidence is missing" };
+  if (!trustBundle) return { status: "BLOCKED", result: null, reason: "authority registry and trust root bundle is missing" };
+  try {
+    const result = verifyCandidateConfigurationEvidenceSignature({
+      inputName,
+      evidence,
+      trustBundle,
+      pinnedTrustRoot,
+      now,
+    });
+    return { status: "VALID", result, reason: null };
+  } catch (error) {
+    return {
+      status: "INVALID",
+      result: null,
+      reason: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+function authenticatedDeploymentIdentity(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const crossBinding = value.cross_binding;
+  if (
+    value.status !== "VALID" ||
+    value.signature_valid !== true ||
+    value.readiness !== CANARY_DEPLOYMENT_READINESS ||
+    !crossBinding ||
+    crossBinding.status !== "PASS" ||
+    crossBinding.workflow_attestation !== true ||
+    crossBinding.manifest_attestation !== true ||
+    crossBinding.environment_attestation !== true ||
+    crossBinding.version_serving !== true ||
+    crossBinding.attestation_fresh !== true
+  ) return null;
+  const identity = {
+    deployment_id: value.deployment_id,
+    worker_name: value.worker_name,
+    git_commit_sha: value.git_commit_sha,
+  };
+  if (
+    typeof identity.deployment_id !== "string" || identity.deployment_id.trim() === "" ||
+    typeof identity.worker_name !== "string" || identity.worker_name.trim() === "" ||
+    !COMMIT_PATTERN.test(identity.git_commit_sha ?? "")
+  ) return null;
+  return Object.freeze({
+    ...identity,
+    source: "VERIFIED_RUNTIME_ATTESTATION",
+    trust_subject: "MAIN_WORKER_RUNTIME_IDENTITY_ONLY",
+    signature_valid: true,
+    manifest_bound: true,
+    fresh: true,
+  });
+}
+
+function authenticatedBinaryIdentity(value, binary) {
+  if (!value || typeof value !== "object" || Array.isArray(value) || !binary?.result) return null;
+  if (
+    value.status !== "VALID" ||
+    value.signature_valid !== true ||
+    value.authority_trusted !== true ||
+    value.source !== "AUTHENTICATED_CURRENT_BINARY_IDENTITY"
+  ) return null;
+  if (
+    value.artifact_identity !== binary.result.artifact_identity ||
+    value.binary_sha256 !== binary.result.binary_sha256 ||
+    value.source_commit !== binary.result.source_commit
+  ) return null;
+  return Object.freeze({
+    artifact_identity: value.artifact_identity,
+    binary_sha256: value.binary_sha256,
+    source_commit: value.source_commit,
+    source: value.source,
+    signature_valid: true,
+    authority_trusted: true,
+  });
+}
+
 export function candidateConfigurationBindingAssessment({
   candidateArtifactIdentity = null,
   candidateBundleStatus = null,
@@ -255,8 +328,12 @@ export function candidateConfigurationBindingAssessment({
   currentBinaryIdentity = null,
   trustedBuilderProvenance = null,
   independentAuthorityReceipt = null,
+  authorityTrustBundles = {},
+  trustedAuthorityTrustRoots = {},
+  authenticatedCurrentBinaryIdentity: binaryIdentityEvidence = null,
   expectedSourceCommit = null,
   expectedDeploymentIdentity = null,
+  authenticatedCurrentDeploymentIdentity: runtimeDeploymentIdentity = null,
   now = new Date(),
 } = {}) {
   const hasVerifierResult = isCandidateArtifactIdentityVerificationResult(candidateArtifactIdentity);
@@ -271,6 +348,51 @@ export function candidateConfigurationBindingAssessment({
   const binary = safelyValidate(currentBinaryIdentity, validateCurrentBinaryIdentity);
   const builder = safelyValidate(trustedBuilderProvenance, (value) => validateBuilderProvenance(value, nowMs));
   const authority = safelyValidate(independentAuthorityReceipt, (value) => validateIndependentAuthorityReceipt(value, nowMs));
+  const authenticatedBinary = authenticatedBinaryIdentity(binaryIdentityEvidence, binary);
+  const authenticatedDeployment = authenticatedDeploymentIdentity(runtimeDeploymentIdentity);
+  const authoritySignatures = {
+    APPROVED_EXPECTED_CONFIGURATION_FINGERPRINT: verifyEvidenceSignature(
+      "APPROVED_EXPECTED_CONFIGURATION_FINGERPRINT",
+      approved.result ? approvedExpectedConfigurationFingerprint : null,
+      authorityTrustBundles.CONFIGURATION_APPROVAL,
+      trustedAuthorityTrustRoots.CONFIGURATION_APPROVAL,
+      now,
+    ),
+    AUTHENTICATED_BUILDER_PROVENANCE: verifyEvidenceSignature(
+      "AUTHENTICATED_BUILDER_PROVENANCE",
+      builder.result ? trustedBuilderProvenance : null,
+      authorityTrustBundles.TRUSTED_BUILDER,
+      trustedAuthorityTrustRoots.TRUSTED_BUILDER,
+      now,
+    ),
+    INDEPENDENT_AUTHORITY_RECEIPT: verifyEvidenceSignature(
+      "INDEPENDENT_AUTHORITY_RECEIPT",
+      authority.result ? independentAuthorityReceipt : null,
+      authorityTrustBundles.INDEPENDENT_CANDIDATE_AUTHORITY,
+      trustedAuthorityTrustRoots.INDEPENDENT_CANDIDATE_AUTHORITY,
+      now,
+    ),
+  };
+  const duplicateAuthorityTypes = new Set();
+  const keyOwners = new Map();
+  for (const [authorityType, verification] of Object.entries(authoritySignatures)) {
+    if (verification.status !== "VALID") continue;
+    const result = verification.result;
+    for (const digest of [result.signer_public_key_sha256, result.trust_root_sha256]) {
+      const owner = keyOwners.get(digest);
+      if (owner) {
+        duplicateAuthorityTypes.add(owner);
+        duplicateAuthorityTypes.add(authorityType);
+      } else keyOwners.set(digest, authorityType);
+    }
+  }
+  for (const authorityType of duplicateAuthorityTypes) {
+    authoritySignatures[authorityType] = {
+      status: "INVALID",
+      result: null,
+      reason: "authority signing or trust-root key is reused across independent trust domains",
+    };
+  }
 
   let approvedStatus = "BLOCKED_MISSING_INPUT";
   if (approved.status === "INVALID") approvedStatus = "INVALID";
@@ -282,7 +404,10 @@ export function candidateConfigurationBindingAssessment({
       approved.result.combined_sha256 !== identity.app_configuration.combined_sha256
     ) approvedStatus = "MISMATCH";
     else if (approved.result.validity !== "CURRENT") approvedStatus = approved.result.validity;
-    else approvedStatus = "MATCH_UNVERIFIED";
+    else if (authoritySignatures.APPROVED_EXPECTED_CONFIGURATION_FINGERPRINT.status === "INVALID") approvedStatus = "INVALID";
+    else approvedStatus = authoritySignatures.APPROVED_EXPECTED_CONFIGURATION_FINGERPRINT.result?.authority_trusted
+      ? "MATCH_VERIFIED"
+      : "MATCH_UNVERIFIED";
   }
 
   let builderStatus = "BLOCKED_NO_TRUSTED_BUILDER";
@@ -298,7 +423,10 @@ export function candidateConfigurationBindingAssessment({
       (expectedSourceCommit !== null && builder.result.source_commit !== expectedSourceCommit)
     ) builderStatus = "MISMATCH";
     else if (builder.result.validity !== "CURRENT") builderStatus = builder.result.validity;
-    else builderStatus = "PRESENT_UNVERIFIED";
+    else if (authoritySignatures.AUTHENTICATED_BUILDER_PROVENANCE.status === "INVALID") builderStatus = "INVALID";
+    else builderStatus = authoritySignatures.AUTHENTICATED_BUILDER_PROVENANCE.result?.authority_trusted
+      ? "VERIFIED"
+      : "PRESENT_UNVERIFIED";
   }
 
   let authorityStatus = "BLOCKED_MISSING_AUTHORITY";
@@ -306,16 +434,21 @@ export function candidateConfigurationBindingAssessment({
   else if (authority.result) {
     if (!identity) authorityStatus = "BLOCKED_NO_LOCAL_CANDIDATE";
     else if (!binary.result) authorityStatus = binary.status === "INVALID" ? "INVALID_BINARY_IDENTITY" : "BLOCKED_NO_CURRENT_BINARY_IDENTITY";
-    else if (!expectedDeploymentIdentity) authorityStatus = "BLOCKED_NO_TRUSTED_DEPLOYMENT_IDENTITY";
     else if (
       authority.result.candidate_artifact_id !== identity.candidate_artifact_id ||
       authority.result.combined_sha256 !== identity.app_configuration.combined_sha256 ||
-      authority.result.binary_sha256 !== binary.result.binary_sha256 ||
       !sameObjectFields(authority.result.capture_identity, captureIdentityFromVerifiedResult(identity)) ||
-      !sameObjectFields(authority.result.deployment_identity, expectedDeploymentIdentity)
+      (expectedDeploymentIdentity && !sameObjectFields(authority.result.deployment_identity, expectedDeploymentIdentity))
     ) authorityStatus = "MISMATCH";
+    else if (!authenticatedDeployment) authorityStatus = "BLOCKED_NO_TRUSTED_DEPLOYMENT_IDENTITY";
+    else if (!sameObjectFields(authority.result.deployment_identity, authenticatedDeployment)) authorityStatus = "MISMATCH";
+    else if (!authenticatedBinary) authorityStatus = "BLOCKED_NO_AUTHENTICATED_CURRENT_BINARY_IDENTITY";
+    else if (authority.result.binary_sha256 !== authenticatedBinary.binary_sha256) authorityStatus = "MISMATCH";
     else if (authority.result.validity !== "CURRENT") authorityStatus = authority.result.validity;
-    else authorityStatus = "PRESENT_UNVERIFIED";
+    else if (authoritySignatures.INDEPENDENT_AUTHORITY_RECEIPT.status === "INVALID") authorityStatus = "INVALID";
+    else authorityStatus = authoritySignatures.INDEPENDENT_AUTHORITY_RECEIPT.result?.authority_trusted
+      ? "VERIFIED"
+      : "PRESENT_UNVERIFIED";
   }
 
   const localStatus = identity
@@ -323,21 +456,30 @@ export function candidateConfigurationBindingAssessment({
     : candidateArtifactIdentity || candidateBundleStatus === "INVALID" ? "INVALID" : "NOT_EVALUATED";
   const missingInputs = [];
   if (!identity) missingInputs.push("CANDIDATE_ARTIFACT_BUNDLE");
-  if (approvedStatus !== "MATCH_UNVERIFIED") missingInputs.push("APPROVED_EXPECTED_CONFIGURATION_FINGERPRINT");
+  if (approvedStatus !== "MATCH_VERIFIED") missingInputs.push("APPROVED_EXPECTED_CONFIGURATION_FINGERPRINT");
   if (!binary.result) missingInputs.push("CURRENT_BINARY_IDENTITY");
-  if (builderStatus !== "PRESENT_UNVERIFIED") missingInputs.push("AUTHENTICATED_BUILDER_PROVENANCE");
-  if (authorityStatus !== "PRESENT_UNVERIFIED") missingInputs.push("INDEPENDENT_AUTHORITY_RECEIPT");
+  if (!authenticatedBinary) missingInputs.push("AUTHENTICATED_CURRENT_BINARY_IDENTITY");
+  if (builderStatus !== "VERIFIED") missingInputs.push("AUTHENTICATED_BUILDER_PROVENANCE");
+  if (authorityStatus !== "VERIFIED") missingInputs.push("INDEPENDENT_AUTHORITY_RECEIPT");
+  if (!authenticatedDeployment) missingInputs.push("AUTHENTICATED_CURRENT_DEPLOYMENT_IDENTITY");
+
+  const readinessEligible = !!identity && !syntheticFixture && approvedStatus === "MATCH_VERIFIED"
+    && builderStatus === "VERIFIED" && authorityStatus === "VERIFIED"
+    && !!authenticatedBinary && !!authenticatedDeployment;
+  const reportStatus = readinessEligible ? "PASS" : "UNVERIFIED";
 
   const report = {
     schema_version: CANDIDATE_CONFIGURATION_BINDING_ASSESSMENT_SCHEMA_VERSION,
     scope: CANDIDATE_CONFIGURATION_BINDING_ASSESSMENT_SCOPE,
-    status: "UNVERIFIED",
+    status: reportStatus,
     stages: {
       candidate_fingerprint_present: identity ? "PRESENT_LOCAL_CONSISTENCY" : localStatus,
       candidate_artifact_cryptographically_bound: localStatus,
       approved_expected_fingerprint_match: approvedStatus,
-      binary_provenance_authenticated: "BLOCKED_NO_TRUSTED_BUILDER",
-      independent_authority_provenance_verified: "BLOCKED_MISSING_AUTHORITY",
+      binary_provenance_authenticated: builderStatus !== "VERIFIED"
+        ? "BLOCKED_NO_TRUSTED_BUILDER"
+        : authenticatedBinary ? "VERIFIED" : "BLOCKED_CURRENT_BINARY_IDENTITY_UNVERIFIED",
+      independent_authority_provenance_verified: authorityStatus === "VERIFIED" ? "VERIFIED" : "BLOCKED_MISSING_AUTHORITY",
     },
     candidate_artifact_identity: identity ? {
       status: localStatus,
@@ -367,8 +509,14 @@ export function candidateConfigurationBindingAssessment({
       approval_id: approved.result?.approval_id ?? null,
       provenance_source: approved.result?.provenance_source ?? null,
       evidence_sha256: approved.result?.evidence_sha256 ?? null,
-      signature_verification: "NOT_IMPLEMENTED",
-      reason: approved.reason ?? null,
+      signature_verification: authoritySignatures.APPROVED_EXPECTED_CONFIGURATION_FINGERPRINT.result?.signature_verified
+        ? "VALID"
+        : authoritySignatures.APPROVED_EXPECTED_CONFIGURATION_FINGERPRINT.status,
+      signed_payload_sha256: authoritySignatures.APPROVED_EXPECTED_CONFIGURATION_FINGERPRINT.result?.signed_payload_sha256 ?? null,
+      registry_sha256: authoritySignatures.APPROVED_EXPECTED_CONFIGURATION_FINGERPRINT.result?.registry_sha256 ?? null,
+      authority_trusted: authoritySignatures.APPROVED_EXPECTED_CONFIGURATION_FINGERPRINT.result?.authority_trusted ?? false,
+      trust_source: authoritySignatures.APPROVED_EXPECTED_CONFIGURATION_FINGERPRINT.result?.trust_source ?? null,
+      reason: approved.reason ?? authoritySignatures.APPROVED_EXPECTED_CONFIGURATION_FINGERPRINT.reason ?? null,
     },
     current_binary_identity: {
       status: binary.status === "PRESENT" ? "PRESENT_UNVERIFIED" : binary.status,
@@ -376,8 +524,15 @@ export function candidateConfigurationBindingAssessment({
       binary_sha256: binary.result?.binary_sha256 ?? null,
       source_commit: binary.result?.source_commit ?? null,
       evidence_sha256: binary.result?.evidence_sha256 ?? null,
-      source_authentication: "UNVERIFIED",
+      source_authentication: authenticatedBinary ? "AUTHENTICATED" : "UNVERIFIED",
       reason: binary.reason ?? null,
+    },
+    authenticated_current_binary_identity: {
+      status: authenticatedBinary ? "VALID" : "UNVERIFIED",
+      source: authenticatedBinary?.source ?? null,
+      artifact_identity: authenticatedBinary?.artifact_identity ?? null,
+      binary_sha256: authenticatedBinary?.binary_sha256 ?? null,
+      source_commit: authenticatedBinary?.source_commit ?? null,
     },
     trusted_builder_provenance: {
       status: builderStatus,
@@ -388,29 +543,42 @@ export function candidateConfigurationBindingAssessment({
       binary_sha256: builder.result?.binary_sha256 ?? null,
       source_commit: builder.result?.source_commit ?? null,
       evidence_sha256: builder.result?.evidence_sha256 ?? null,
-      signature_verification: "NOT_IMPLEMENTED",
-      authority_verification: "NOT_IMPLEMENTED",
-      reason: builder.reason ?? null,
+      signature_verification: authoritySignatures.AUTHENTICATED_BUILDER_PROVENANCE.result?.signature_verified
+        ? "VALID"
+        : authoritySignatures.AUTHENTICATED_BUILDER_PROVENANCE.status,
+      signed_payload_sha256: authoritySignatures.AUTHENTICATED_BUILDER_PROVENANCE.result?.signed_payload_sha256 ?? null,
+      registry_sha256: authoritySignatures.AUTHENTICATED_BUILDER_PROVENANCE.result?.registry_sha256 ?? null,
+      authority_trusted: authoritySignatures.AUTHENTICATED_BUILDER_PROVENANCE.result?.authority_trusted ?? false,
+      trust_source: authoritySignatures.AUTHENTICATED_BUILDER_PROVENANCE.result?.trust_source ?? null,
+      reason: builder.reason ?? authoritySignatures.AUTHENTICATED_BUILDER_PROVENANCE.reason ?? null,
     },
     independent_authority_receipt: {
       status: authorityStatus,
       authority_id: authority.result?.authority_id ?? null,
       key_id: authority.result?.key_id ?? null,
       evidence_sha256: authority.result?.evidence_sha256 ?? null,
-      signature_verification: "NOT_IMPLEMENTED",
-      authority_verification: "NOT_IMPLEMENTED",
-      reason: authority.reason ?? null,
+      signature_verification: authoritySignatures.INDEPENDENT_AUTHORITY_RECEIPT.result?.signature_verified
+        ? "VALID"
+        : authoritySignatures.INDEPENDENT_AUTHORITY_RECEIPT.status,
+      signed_payload_sha256: authoritySignatures.INDEPENDENT_AUTHORITY_RECEIPT.result?.signed_payload_sha256 ?? null,
+      registry_sha256: authoritySignatures.INDEPENDENT_AUTHORITY_RECEIPT.result?.registry_sha256 ?? null,
+      authority_trusted: authoritySignatures.INDEPENDENT_AUTHORITY_RECEIPT.result?.authority_trusted ?? false,
+      trust_source: authoritySignatures.INDEPENDENT_AUTHORITY_RECEIPT.result?.trust_source ?? null,
+      authenticated_deployment_identity: authenticatedDeployment,
+      reason: authority.reason ?? authoritySignatures.INDEPENDENT_AUTHORITY_RECEIPT.reason ?? null,
     },
     authority_verification: CANDIDATE_CONFIGURATION_PROVENANCE_CONTRACT.authority_verification,
     unresolved_authority_requirements: [
-      "APPROVED_FINGERPRINT_SIGNATURE_VERIFIER_AND_TRUST_ROOT",
-      "TRUSTED_BUILDER_SIGNATURE_VERIFIER_AND_TRUST_ROOT",
-      "INDEPENDENT_AUTHORITY_SIGNATURE_VERIFIER_AND_TRUST_ROOT",
+      ...Object.entries(authoritySignatures)
+        .filter(([, result]) => !result.result?.authority_trusted)
+        .map(([authorityType]) => `${authorityType}_APPLICATION_TRUST_ROOT_NOT_CONFIGURED`),
       "AUTHENTICATED_CURRENT_BINARY_IDENTITY_SOURCE",
-      "AUTHENTICATED_CURRENT_DEPLOYMENT_IDENTITY_SOURCE",
+      ...(!authenticatedDeployment ? ["AUTHENTICATED_CURRENT_DEPLOYMENT_IDENTITY_SOURCE"] : []),
     ],
     missing_inputs: missingInputs,
-    readiness_effect: "NONE",
+    authenticated_current_deployment_identity: authenticatedDeployment,
+    readiness_gate: readinessEligible ? "PASS" : "BLOCKED",
+    readiness_effect: readinessEligible ? "PASS" : "NONE",
     gameplay_effect: "NONE",
   };
   VERIFIED_ASSESSMENTS.add(report);

@@ -40,10 +40,16 @@ assert.equal(report.gates.candidate_configuration_binding, false);
 assert.equal(report.inputs.candidate_configuration_binding.status, "UNVERIFIED");
 assert.equal(report.inputs.candidate_configuration_binding.readiness_gate, "BLOCKED");
 assert.equal(report.inputs.candidate_configuration_binding.candidate_artifact_identity.status, "NOT_EVALUATED");
-assert.equal(report.inputs.candidate_configuration_binding.authority_verification, "NOT_IMPLEMENTED");
+assert.equal(
+  report.inputs.candidate_configuration_binding.authority_verification,
+  "ED25519_SIGNATURE_VERIFICATION_IMPLEMENTED_TRUST_ROOTS_NOT_CONFIGURED",
+);
+assert.equal(report.inputs.candidate_configuration_binding.readiness_gate, "BLOCKED");
 assert.equal(report.inputs.candidate_configuration_binding.input_sources.candidate_artifact_bundle, "MISSING");
 assert.ok(report.inputs.candidate_configuration_binding.missing_inputs.includes("APPROVED_EXPECTED_CONFIGURATION_FINGERPRINT"));
-assert.match(report.resume_conditions.candidate_configuration_binding, /authenticated builder provenance/);
+assert.match(report.resume_conditions.candidate_configuration_binding, /Ed25519 verification is implemented/);
+assert.match(report.resume_conditions.candidate_configuration_binding, /application-pinned production roots/);
+assert.match(report.resume_conditions.candidate_configuration_binding, /authenticated current-binary source/);
 assert.equal(report.external_authority.status, "EXTERNAL_AUTHORITY_REQUIRED");
 assert.equal(report.external_authority.first_blocker.id, "TARGET_IDENTITY");
 assert.equal(report.external_authority.first_blocker.status, "MISSING");
@@ -429,6 +435,15 @@ try {
   }
   assert.equal(validReport.inputs.runtime_attestation.signature_valid, true);
   assert.equal(validReport.inputs.runtime_attestation.signature_algorithm, "Ed25519");
+  assert.equal(
+    validReport.inputs.candidate_configuration_binding.authenticated_current_deployment_identity.source,
+    "VERIFIED_RUNTIME_ATTESTATION",
+  );
+  assert.equal(
+    validReport.inputs.candidate_configuration_binding.authenticated_current_deployment_identity.trust_subject,
+    "MAIN_WORKER_RUNTIME_IDENTITY_ONLY",
+  );
+  assert.equal(validReport.inputs.candidate_configuration_binding.authenticated_current_binary_identity.status, "UNVERIFIED");
   assert.equal(validReport.status, "BLOCKED");
 
   const executionJobId = "f73fded7-d9af-4f0a-b87b-c626d30d55bd";
