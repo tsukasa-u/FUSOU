@@ -16,6 +16,7 @@ import {
   createCanaryVerifierExecutionReceipt,
 } from "./canary-verifier-identity.mjs";
 import { canonicalJson } from "./deployment-attestation.mjs";
+import { createCandidateArtifactIdentity } from "./candidate-artifact-identity.mjs";
 import { resultSigningBytes } from "./production-evidence.mjs";
 import { createSignedResultRegistryEnvelope } from "./result-registry-envelope.mjs";
 import { verifySyntheticFixturePresentation } from "./production-evidence-semantic.mjs";
@@ -359,6 +360,31 @@ export async function createSyntheticCandidateBundle(rootDirectory) {
     receiptId: "394dc8cc-d4bc-4b8c-9813-7bc4a04a9603",
   });
   const executionReceiptBytes = jsonBytes(executionReceipt);
+  const metadata = {
+    schema_version: 2,
+    candidate_capture_id: sha256(presentationBytes),
+    session_id: SESSION_ID,
+    request_id: "synthetic-request-1",
+    request_sha256: sha256(Buffer.from("synthetic request bytes", "utf8")),
+    authenticated_request_sha256: sha256(Buffer.from("synthetic authenticated request", "utf8")),
+    binding_identifier: sha256(Buffer.from(binding, "utf8")),
+    capture_timestamp: CAPTURED_AT,
+    presentation_sha256: sha256(presentationBytes),
+    server_identity: "untrusted-config.invalid",
+    proxy_provenance: {
+      app_public_configuration_fingerprints: {
+        schema_version: 2,
+        scope: "fusou-tlsn-app-public-configuration",
+        compile_time_sha256: sha256(Buffer.from("synthetic compile config", "utf8")),
+        runtime_sha256: sha256(Buffer.from("synthetic runtime config", "utf8")),
+        combined_sha256: sha256(Buffer.from("synthetic combined config", "utf8")),
+        candidate_binding_status: "UNBOUND",
+      },
+    },
+  };
+  const metadataBytes = Buffer.from(canonicalJson(metadata), "utf8");
+  const candidateIdentity = createCandidateArtifactIdentity({ metadataBytes, presentationBytes });
+  const candidateIdentityBytes = Buffer.from(canonicalJson(candidateIdentity), "utf8");
   const artifacts = {
     "session.json": jsonBytes(session),
     "device-authentication.json": jsonBytes(deviceAuthentication),
@@ -371,7 +397,8 @@ export async function createSyntheticCandidateBundle(rootDirectory) {
     "verifier-execution-receipt-header.txt": Buffer.from(executionReceiptBytes.toString("base64url"), "ascii"),
     "verifier-execution-receipt.bin": executionReceiptBytes,
     "presentation.bin": presentationBytes,
-    "metadata.json": jsonBytes({ server_identity: "untrusted-config.invalid" }),
+    "metadata.json": metadataBytes,
+    "candidate-identity.json": candidateIdentityBytes,
     "capture-provenance.json": jsonBytes({
       schema_version: 1,
       classification: "SYNTHETIC_FIXTURE",
@@ -384,7 +411,7 @@ export async function createSyntheticCandidateBundle(rootDirectory) {
     await writeFile(resolve(candidateDirectory, name), bytes, { mode: 0o600, flag: "wx" });
   }
   const candidateManifest = {
-    schema_version: 1,
+    schema_version: 2,
     scope: "fusou-tlsn-human-test-play-candidate",
     candidate_status: "CAPTURED_PENDING_OFFLINE_VERIFICATION",
     approval_status: "UNAPPROVED",
@@ -393,6 +420,7 @@ export async function createSyntheticCandidateBundle(rootDirectory) {
     synthetic_fixture: true,
     capture_provenance: "synthetic-alpha15-test-fixture",
     presentation_sha256: sha256(presentationBytes),
+    candidate_artifact_id: candidateIdentity.candidate_artifact_id,
     exact_result_sha256: sha256(resultBytes),
     verifier_execution_receipt_status: "CAPTURED",
     verifier_execution_receipt_sha256: sha256(executionReceiptBytes),

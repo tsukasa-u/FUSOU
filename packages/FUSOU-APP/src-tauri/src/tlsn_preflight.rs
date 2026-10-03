@@ -14,6 +14,30 @@ use url::Url;
 use proxy_https::real_tlsn::ResultSignatureVerifier;
 
 const ED25519_SPKI_PREFIX: &[u8; 12] = b"\x30\x2a\x30\x05\x06\x03\x2b\x65\x70\x03\x21\x00";
+const APP_PUBLIC_CONFIGURATION_FINGERPRINT_SCHEMA_VERSION: u8 = 2;
+const APP_PUBLIC_CONFIGURATION_FINGERPRINT_SCOPE: &str = "fusou-tlsn-app-public-configuration";
+const COMPILE_TIME_PUBLIC_CONFIGURATION_FIELDS: &[&str] = &[
+    "expected_deployment_id",
+    "expected_worker_name",
+    "expected_git_commit_sha",
+    "expected_binding_mode",
+    "worker_health_endpoint",
+    "verification_endpoint",
+    "notary_endpoint",
+    "notary_verifying_key",
+    "session_authority_endpoint",
+    "session_authority_key_id",
+    "session_authority_public_key",
+    "result_public_key_spki",
+    "result_signer_key_id",
+    "result_signing_key_registry",
+];
+const RUNTIME_PUBLIC_CONFIGURATION_FIELDS: &[&str] = &[
+    "experiment_enabled",
+    "candidate_capture_enabled",
+    "disclosure_mode",
+    "response_mode",
+];
 
 #[derive(Debug, Clone)]
 pub struct TlsnPreflightConfig {
@@ -390,48 +414,176 @@ pub fn run_preflight(config: &TlsnPreflightConfig, config_path: &Path) -> TlsnPr
 fn public_configuration_fingerprints(
     config: &TlsnPreflightConfig,
 ) -> TlsnPublicConfigurationFingerprints {
-    let compile_time = BTreeMap::from([
-        ("expected_binding_mode", serde_json::json!(config.expected_binding_mode)),
-        ("expected_deployment_id", serde_json::json!(config.expected_deployment_id)),
-        ("expected_git_commit_sha", serde_json::json!(config.expected_git_commit_sha)),
-        ("expected_worker_name", serde_json::json!(config.expected_worker_name)),
-        ("notary_endpoint", serde_json::json!(config.notary_endpoint)),
-        ("notary_verifying_key", serde_json::json!(config.notary_verifying_key)),
-        ("result_public_key_spki", serde_json::json!(config.result_public_key_spki)),
-        ("result_signer_key_id", serde_json::json!(config.result_signer_key_id)),
-        ("result_signing_key_registry", serde_json::json!(config.result_signing_key_registry)),
-        ("worker_health_endpoint", serde_json::json!(config.worker_health_endpoint)),
-        ("session_authority_endpoint", serde_json::json!(config.session_authority_endpoint)),
-        ("session_authority_key_id", serde_json::json!(config.session_authority_key_id)),
-        ("session_authority_public_key", serde_json::json!(config.session_authority_public_key)),
-        ("verification_endpoint", serde_json::json!(config.verification_endpoint)),
-    ]);
-    let runtime = BTreeMap::from([
-        ("candidate_capture_enabled", serde_json::json!(config.candidate_capture_enabled)),
-        ("disclosure_mode", serde_json::json!(config.disclosure_mode)),
-        ("experiment_enabled", serde_json::json!(config.experiment_enabled)),
-        ("response_mode", serde_json::json!(config.response_mode)),
-    ]);
-    let compile_time_sha256 = canonical_sha256(&compile_time);
-    let runtime_sha256 = canonical_sha256(&runtime);
-    let combined = BTreeMap::from([
-        ("compile_time_sha256", serde_json::json!(compile_time_sha256)),
-        ("runtime_sha256", serde_json::json!(runtime_sha256)),
-        ("schema_version", serde_json::json!(1)),
-    ]);
+    let compile_time = compile_time_public_configuration_projection(config);
+    let runtime = runtime_public_configuration_projection(config);
+    let compile_time_sha256 = projection_sha256("compile_time", &compile_time);
+    let runtime_sha256 = projection_sha256("runtime", &runtime);
     TlsnPublicConfigurationFingerprints {
-        schema_version: 1,
-        scope: "fusou-tlsn-app-public-configuration",
-        compile_time_sha256,
-        runtime_sha256,
-        combined_sha256: canonical_sha256(&combined),
+        schema_version: APP_PUBLIC_CONFIGURATION_FINGERPRINT_SCHEMA_VERSION,
+        scope: APP_PUBLIC_CONFIGURATION_FINGERPRINT_SCOPE,
+        compile_time_sha256: compile_time_sha256.clone(),
+        runtime_sha256: runtime_sha256.clone(),
+        combined_sha256: combined_configuration_sha256(
+            APP_PUBLIC_CONFIGURATION_FINGERPRINT_SCHEMA_VERSION,
+            APP_PUBLIC_CONFIGURATION_FINGERPRINT_SCOPE,
+            &compile_time_sha256,
+            &runtime_sha256,
+        ),
         candidate_binding_status: "UNBOUND",
     }
 }
 
+fn compile_time_public_configuration_projection(
+    config: &TlsnPreflightConfig,
+) -> BTreeMap<&'static str, serde_json::Value> {
+    BTreeMap::from([
+        (
+            "expected_binding_mode",
+            serde_json::json!(config.expected_binding_mode),
+        ),
+        (
+            "expected_deployment_id",
+            serde_json::json!(config.expected_deployment_id),
+        ),
+        (
+            "expected_git_commit_sha",
+            serde_json::json!(config.expected_git_commit_sha),
+        ),
+        (
+            "expected_worker_name",
+            serde_json::json!(config.expected_worker_name),
+        ),
+        ("notary_endpoint", serde_json::json!(config.notary_endpoint)),
+        (
+            "notary_verifying_key",
+            serde_json::json!(config.notary_verifying_key),
+        ),
+        (
+            "result_public_key_spki",
+            serde_json::json!(config.result_public_key_spki),
+        ),
+        (
+            "result_signer_key_id",
+            serde_json::json!(config.result_signer_key_id),
+        ),
+        (
+            "result_signing_key_registry",
+            serde_json::json!(config.result_signing_key_registry),
+        ),
+        (
+            "worker_health_endpoint",
+            serde_json::json!(config.worker_health_endpoint),
+        ),
+        (
+            "session_authority_endpoint",
+            serde_json::json!(config.session_authority_endpoint),
+        ),
+        (
+            "session_authority_key_id",
+            serde_json::json!(config.session_authority_key_id),
+        ),
+        (
+            "session_authority_public_key",
+            serde_json::json!(config.session_authority_public_key),
+        ),
+        (
+            "verification_endpoint",
+            serde_json::json!(config.verification_endpoint),
+        ),
+    ])
+}
+
+fn runtime_public_configuration_projection(
+    config: &TlsnPreflightConfig,
+) -> BTreeMap<&'static str, serde_json::Value> {
+    BTreeMap::from([
+        (
+            "candidate_capture_enabled",
+            serde_json::json!(config.candidate_capture_enabled),
+        ),
+        ("disclosure_mode", serde_json::json!(config.disclosure_mode)),
+        (
+            "experiment_enabled",
+            serde_json::json!(config.experiment_enabled),
+        ),
+        ("response_mode", serde_json::json!(config.response_mode)),
+    ])
+}
+
+fn projection_sha256(
+    projection: &str,
+    fields: &BTreeMap<&'static str, serde_json::Value>,
+) -> String {
+    canonical_sha256(&BTreeMap::from([
+        ("fields", serde_json::json!(fields)),
+        ("projection", serde_json::json!(projection)),
+        (
+            "schema_version",
+            serde_json::json!(APP_PUBLIC_CONFIGURATION_FINGERPRINT_SCHEMA_VERSION),
+        ),
+        (
+            "scope",
+            serde_json::json!(APP_PUBLIC_CONFIGURATION_FINGERPRINT_SCOPE),
+        ),
+    ]))
+}
+
+fn combined_configuration_sha256(
+    schema_version: u8,
+    scope: &str,
+    compile_time_sha256: &str,
+    runtime_sha256: &str,
+) -> String {
+    canonical_sha256(&BTreeMap::from([
+        (
+            "compile_time_sha256",
+            serde_json::json!(compile_time_sha256),
+        ),
+        ("runtime_sha256", serde_json::json!(runtime_sha256)),
+        ("schema_version", serde_json::json!(schema_version)),
+        ("scope", serde_json::json!(scope)),
+    ]))
+}
+
 fn canonical_sha256(value: &impl Serialize) -> String {
-    let bytes = serde_json::to_vec(value).expect("TLSN public config projection must serialize");
+    let value = serde_json::to_value(value).expect("TLSN canonical value must serialize");
+    let mut bytes = Vec::new();
+    append_canonical_json(&value, &mut bytes);
     URL_SAFE_NO_PAD.encode(Sha256::digest(bytes))
+}
+
+fn append_canonical_json(value: &serde_json::Value, output: &mut Vec<u8>) {
+    match value {
+        serde_json::Value::Object(object) => {
+            output.push(b'{');
+            let mut entries = object.iter().collect::<Vec<_>>();
+            entries.sort_unstable_by(|(left, _), (right, _)| left.cmp(right));
+            for (index, (key, value)) in entries.into_iter().enumerate() {
+                if index > 0 {
+                    output.push(b',');
+                }
+                output.extend_from_slice(
+                    &serde_json::to_vec(key).expect("JSON object key must serialize"),
+                );
+                output.push(b':');
+                append_canonical_json(value, output);
+            }
+            output.push(b'}');
+        }
+        serde_json::Value::Array(values) => {
+            output.push(b'[');
+            for (index, value) in values.iter().enumerate() {
+                if index > 0 {
+                    output.push(b',');
+                }
+                append_canonical_json(value, output);
+            }
+            output.push(b']');
+        }
+        _ => output.extend_from_slice(
+            &serde_json::to_vec(value).expect("JSON scalar value must serialize"),
+        ),
+    }
 }
 
 fn push_check(
@@ -1035,38 +1187,202 @@ mod tests {
         let report = run_preflight(&fixture.config, &fixture.config_path);
         assert!(report.feature_enabled);
         assert!(report.ready, "{}", report.text());
-        assert_eq!(report.public_configuration_fingerprints.schema_version, 1);
-        assert_eq!(report.public_configuration_fingerprints.candidate_binding_status, "UNBOUND");
+        assert_eq!(
+            report.public_configuration_fingerprints.schema_version,
+            APP_PUBLIC_CONFIGURATION_FINGERPRINT_SCHEMA_VERSION
+        );
+        assert_eq!(
+            report
+                .public_configuration_fingerprints
+                .candidate_binding_status,
+            "UNBOUND"
+        );
     }
 
     #[test]
     fn public_configuration_fingerprints_bind_compile_and_runtime_values_without_emitting_them() {
         let fixture = fixture();
         let baseline = public_configuration_fingerprints(&fixture.config);
+        assert_eq!(baseline.schema_version, 2);
+        assert_eq!(baseline.scope, APP_PUBLIC_CONFIGURATION_FINGERPRINT_SCOPE);
 
-        let mut changed_compile_time = fixture.config.clone();
-        changed_compile_time.result_signer_key_id = Some("substituted-signer".to_owned());
-        let compile_changed = public_configuration_fingerprints(&changed_compile_time);
-        assert_ne!(compile_changed.compile_time_sha256, baseline.compile_time_sha256);
-        assert_eq!(compile_changed.runtime_sha256, baseline.runtime_sha256);
+        let compile_mutations: [(&str, fn(&mut TlsnPreflightConfig)); 14] = [
+            ("expected_deployment_id", |config| {
+                config.expected_deployment_id = Some("changed".to_owned())
+            }),
+            ("expected_worker_name", |config| {
+                config.expected_worker_name = Some("changed".to_owned())
+            }),
+            ("expected_git_commit_sha", |config| {
+                config.expected_git_commit_sha = Some("b".repeat(40))
+            }),
+            ("expected_binding_mode", |config| {
+                config.expected_binding_mode = "changed".to_owned()
+            }),
+            ("worker_health_endpoint", |config| {
+                config.worker_health_endpoint = Some("https://other.example.test/health".to_owned())
+            }),
+            ("verification_endpoint", |config| {
+                config.verification_endpoint =
+                    Some("https://other.example.test/verify/tlsn".to_owned())
+            }),
+            ("notary_endpoint", |config| {
+                config.notary_endpoint = Some("other.example.test:7047".to_owned())
+            }),
+            ("notary_verifying_key", |config| {
+                config.notary_verifying_key = Some("changed".to_owned())
+            }),
+            ("session_authority_endpoint", |config| {
+                config.session_authority_endpoint =
+                    Some("https://other.example.test/attestation/session".to_owned())
+            }),
+            ("session_authority_key_id", |config| {
+                config.session_authority_key_id = Some("changed".to_owned())
+            }),
+            ("session_authority_public_key", |config| {
+                config.session_authority_public_key = Some("changed".to_owned())
+            }),
+            ("result_public_key_spki", |config| {
+                config.result_public_key_spki = Some("changed".to_owned())
+            }),
+            ("result_signer_key_id", |config| {
+                config.result_signer_key_id = Some("changed".to_owned())
+            }),
+            ("result_signing_key_registry", |config| {
+                config.result_signing_key_registry = Some("changed".to_owned())
+            }),
+        ];
+        let compile_projection = compile_time_public_configuration_projection(&fixture.config);
+        assert_eq!(
+            compile_projection
+                .keys()
+                .copied()
+                .collect::<std::collections::BTreeSet<_>>(),
+            COMPILE_TIME_PUBLIC_CONFIGURATION_FIELDS
+                .iter()
+                .copied()
+                .collect::<std::collections::BTreeSet<_>>()
+        );
+        for (field, mutate) in compile_mutations {
+            let mut changed = fixture.config.clone();
+            mutate(&mut changed);
+            let fingerprints = public_configuration_fingerprints(&changed);
+            assert_ne!(
+                fingerprints.compile_time_sha256, baseline.compile_time_sha256,
+                "{field}"
+            );
+            assert_eq!(
+                fingerprints.runtime_sha256, baseline.runtime_sha256,
+                "{field}"
+            );
+            assert_ne!(
+                fingerprints.combined_sha256, baseline.combined_sha256,
+                "{field}"
+            );
+        }
 
-        let mut changed_runtime = fixture.config.clone();
-        changed_runtime.response_mode = "sync".to_owned();
-        let runtime_changed = public_configuration_fingerprints(&changed_runtime);
-        assert_eq!(runtime_changed.compile_time_sha256, baseline.compile_time_sha256);
-        assert_ne!(runtime_changed.runtime_sha256, baseline.runtime_sha256);
+        let runtime_mutations: [(&str, fn(&mut TlsnPreflightConfig)); 4] = [
+            ("experiment_enabled", |config| {
+                config.experiment_enabled = !config.experiment_enabled
+            }),
+            ("candidate_capture_enabled", |config| {
+                config.candidate_capture_enabled = !config.candidate_capture_enabled
+            }),
+            ("disclosure_mode", |config| {
+                config.disclosure_mode = "sparse".to_owned()
+            }),
+            ("response_mode", |config| {
+                config.response_mode = "sync".to_owned()
+            }),
+        ];
+        let runtime_projection = runtime_public_configuration_projection(&fixture.config);
+        assert_eq!(
+            runtime_projection
+                .keys()
+                .copied()
+                .collect::<std::collections::BTreeSet<_>>(),
+            RUNTIME_PUBLIC_CONFIGURATION_FIELDS
+                .iter()
+                .copied()
+                .collect::<std::collections::BTreeSet<_>>()
+        );
+        for (field, mutate) in runtime_mutations {
+            let mut changed = fixture.config.clone();
+            mutate(&mut changed);
+            let fingerprints = public_configuration_fingerprints(&changed);
+            assert_eq!(
+                fingerprints.compile_time_sha256, baseline.compile_time_sha256,
+                "{field}"
+            );
+            assert_ne!(
+                fingerprints.runtime_sha256, baseline.runtime_sha256,
+                "{field}"
+            );
+            assert_ne!(
+                fingerprints.combined_sha256, baseline.combined_sha256,
+                "{field}"
+            );
+        }
 
         let mut changed_output_path = fixture.config.clone();
         changed_output_path.artifact_output_path = Some("/private/other-output".to_owned());
-        assert_eq!(public_configuration_fingerprints(&changed_output_path), baseline);
+        assert_eq!(
+            public_configuration_fingerprints(&changed_output_path),
+            baseline
+        );
 
         let mut hidden_value = fixture.config.clone();
-        hidden_value.session_authority_public_key = Some("public-config-value-must-not-be-printed".to_owned());
+        let marker = "fingerprint-projection-value-must-not-be-emitted";
+        hidden_value.expected_deployment_id = Some(marker.to_owned());
+        hidden_value.expected_worker_name = Some(marker.to_owned());
+        hidden_value.expected_git_commit_sha = Some(marker.to_owned());
+        hidden_value.expected_binding_mode = marker.to_owned();
+        hidden_value.worker_health_endpoint = Some(marker.to_owned());
+        hidden_value.verification_endpoint = Some(marker.to_owned());
+        hidden_value.notary_endpoint = Some(marker.to_owned());
+        hidden_value.notary_verifying_key = Some(marker.to_owned());
+        hidden_value.session_authority_endpoint = Some(marker.to_owned());
+        hidden_value.session_authority_key_id = Some(marker.to_owned());
+        hidden_value.session_authority_public_key = Some(marker.to_owned());
+        hidden_value.result_public_key_spki = Some(marker.to_owned());
+        hidden_value.result_signer_key_id = Some(marker.to_owned());
+        hidden_value.result_signing_key_registry = Some(marker.to_owned());
+        hidden_value.disclosure_mode = marker.to_owned();
+        hidden_value.response_mode = marker.to_owned();
         let report = run_preflight(&hidden_value, &fixture.config_path);
-        assert!(!report.text().contains("public-config-value-must-not-be-printed"));
+        assert!(!report.text().contains(marker));
         assert!(!serde_json::to_string(&report)
             .expect("preflight report serializes")
-            .contains("public-config-value-must-not-be-printed"));
+            .contains(marker));
+    }
+
+    #[test]
+    fn canonical_fingerprint_encoding_is_order_independent_and_domain_separated() {
+        let first: serde_json::Value =
+            serde_json::from_str(r#"{"z":1,"a":{"y":2,"b":3}}"#).unwrap();
+        let reordered: serde_json::Value =
+            serde_json::from_str(r#"{"a":{"b":3,"y":2},"z":1}"#).unwrap();
+        assert_eq!(canonical_sha256(&first), canonical_sha256(&reordered));
+
+        let baseline = combined_configuration_sha256(
+            2,
+            APP_PUBLIC_CONFIGURATION_FINGERPRINT_SCOPE,
+            "compile",
+            "runtime",
+        );
+        assert_ne!(
+            combined_configuration_sha256(
+                3,
+                APP_PUBLIC_CONFIGURATION_FINGERPRINT_SCOPE,
+                "compile",
+                "runtime"
+            ),
+            baseline
+        );
+        assert_ne!(
+            combined_configuration_sha256(2, "another-scope", "compile", "runtime"),
+            baseline
+        );
     }
 
     #[test]

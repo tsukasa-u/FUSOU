@@ -76,6 +76,20 @@ assert.equal(report.local_identity.server_revocation, "UNVERIFIED");
 assert.equal(report.predicates.result_signer_deployment_binding.operator_asserted_status, "UNVERIFIED");
 assert.equal(report.predicates.non_synthetic_alpha15_proof_bundle.operator_asserted_status, "UNAVAILABLE");
 assert.equal(report.predicates.candidate_configuration_binding.operator_asserted_status, "UNVERIFIED");
+assert.equal(report.candidate_configuration_binding_assessment.status, "UNVERIFIED");
+assert.deepEqual(report.candidate_configuration_binding_assessment.stages, {
+  candidate_fingerprint_present: "NOT_EVALUATED",
+  candidate_artifact_cryptographically_bound: "NOT_EVALUATED",
+  approved_expected_fingerprint_match: "BLOCKED_MISSING_INPUT",
+  binary_provenance_authenticated: "BLOCKED_NO_TRUSTED_BUILDER",
+  independent_authority_provenance_verified: "BLOCKED_MISSING_AUTHORITY",
+});
+assert.deepEqual(report.candidate_configuration_binding_assessment.missing_inputs, [
+  "CANDIDATE_ARTIFACT_BUNDLE",
+  "APPROVED_EXPECTED_CONFIGURATION_FINGERPRINT",
+  "AUTHENTICATED_BUILDER_PROVENANCE",
+  "INDEPENDENT_AUTHORITY_RECEIPT",
+]);
 assert.equal(report.predicates.result_signer_deployment_binding.operator_asserted_authority_provenance, "UNVERIFIED");
 assert.equal(report.runtime_attestation_scope, "RUNTIME_IDENTITY_ONLY");
 assert.equal(report.readiness_status, "BLOCKED");
@@ -112,6 +126,10 @@ fullyAsserted.predicates.finalizer_effects = predicate("PASS_LIMITED");
 const fullyAssertedReport = validateHumanGameplayPreflight(fullyAsserted);
 assert.equal(fullyAssertedReport.preflight_status, "PASS_LIMITED");
 assert.equal(fullyAssertedReport.independent_authority_verification, "UNVERIFIED");
+assert.deepEqual(
+  fullyAssertedReport.candidate_configuration_binding_assessment,
+  report.candidate_configuration_binding_assessment,
+);
 assert.equal(fullyAssertedReport.readiness_status, "BLOCKED");
 assert.equal(fullyAssertedReport.gameplay_authorization, "BLOCKED");
 

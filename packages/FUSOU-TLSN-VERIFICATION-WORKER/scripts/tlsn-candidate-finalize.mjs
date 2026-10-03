@@ -6,6 +6,7 @@ import path from "node:path";
 import { isDeepStrictEqual } from "node:util";
 import { fileURLToPath } from "node:url";
 import { verifyCanaryExistingSourceProofBundle } from "./canary-operational-smoke-existing-proofs.mjs";
+import { assertCandidateArtifactIdentity } from "./candidate-artifact-identity.mjs";
 
 const ARTIFACT_NAMES = [
   "session.json",
@@ -20,6 +21,7 @@ const ARTIFACT_NAMES = [
   "verifier-execution-receipt.bin",
   "presentation.bin",
   "metadata.json",
+  "candidate-identity.json",
   "capture-provenance.json",
 ].sort();
 
@@ -167,7 +169,7 @@ async function loadPinnedTlsnCandidateBundle(directoryGuard) {
   const manifestBytes = await readPrivateFile(manifestPath, "candidate manifest", directoryGuard);
   const manifest = parseJson(manifestBytes, "candidate manifest");
   if (
-    manifest.schema_version !== 1 ||
+    manifest.schema_version !== 2 ||
     manifest.scope !== "fusou-tlsn-human-test-play-candidate" ||
     manifest.candidate_status !== "CAPTURED_PENDING_OFFLINE_VERIFICATION" ||
     manifest.approval_status !== "UNAPPROVED" ||
@@ -215,6 +217,12 @@ async function loadPinnedTlsnCandidateBundle(directoryGuard) {
   );
   await assertPinnedCandidateDirectory(directoryGuard);
   const presentationBytes = artifacts["presentation.bin"];
+  const candidateArtifactIdentity = assertCandidateArtifactIdentity({
+    identityBytes: artifacts["candidate-identity.json"],
+    metadataBytes: artifacts["metadata.json"],
+    presentationBytes,
+    expectedCandidateArtifactId: manifest.candidate_artifact_id,
+  });
   const resultBytes = artifacts["result-exact.bin"];
   const receiptBytes = artifacts["verifier-execution-receipt.bin"];
   const receiptHeader = artifacts["verifier-execution-receipt-header.txt"].toString("ascii");
@@ -267,6 +275,7 @@ async function loadPinnedTlsnCandidateBundle(directoryGuard) {
   return {
     candidateDirectory,
     manifest,
+    candidateArtifactIdentity,
     manifestSha256: sha256Base64Url(manifestBytes),
     artifacts,
     session,
@@ -375,6 +384,7 @@ export async function finalizeTlsnCandidateBundle({
       profile_sha256: verifiedPresentation.profile_sha256,
       disclosure_mode: verifiedPresentation.disclosure_mode,
     },
+    candidate_artifact_identity: bundle.candidateArtifactIdentity,
     verification,
     human_play_provenance: "UNVERIFIED",
     synthetic_fixture_status: bundle.manifest.synthetic_fixture

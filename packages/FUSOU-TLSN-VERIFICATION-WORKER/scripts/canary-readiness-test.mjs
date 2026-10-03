@@ -28,6 +28,7 @@ import {
   canaryDeploymentManifestVerificationReport,
   loadCanaryDeploymentManifest,
 } from "./canary-deployment-manifest.mjs";
+import { candidateConfigurationBindingAssessment } from "./candidate-configuration-binding.mjs";
 
 const packageDirectory = resolve(new URL("..", import.meta.url).pathname);
 const repositoryDirectory = resolve(packageDirectory, "../..");
@@ -795,6 +796,7 @@ export async function buildReadinessReport({
     workflow_provenance: workflow === "PASS",
     verifier_identity_binding: verifierIdentityBinding.status === "PASS",
     operational_smoke: operationalSmoke.status === "PASS",
+    candidate_configuration_binding: false,
     runtime_attestation: runtimeAttestation.status === "VALID"
       && runtimeAttestation.readiness === CANARY_DEPLOYMENT_READINESS,
     cross_binding: runtimeAttestation.cross_binding?.status === "PASS",
@@ -829,6 +831,10 @@ export async function buildReadinessReport({
         missing_inputs: verifierIdentityBinding.missing_inputs,
         evidence: verifierIdentityBinding.status === "PASS" ? verifierIdentityBinding : null,
         reason: verifierIdentityBinding.reason ?? null,
+      },
+      candidate_configuration_binding: {
+        ...candidateConfigurationBindingAssessment(),
+        readiness_gate: "BLOCKED",
       },
       operational_smoke: {
         status: operationalSmoke.status,
@@ -872,6 +878,7 @@ export async function buildReadinessReport({
       notary: "FUSOU-NOTARY public registry, active key ID, and raw host:port endpoint must be supplied; the current Presentation verification path remains blocked without all three.",
       authentication: "Candidate device-auth and Supabase endpoints must be supplied and pass deployment-preflight. User/device credentials belong only to post-deployment remote validation and are not a deployment readiness gate.",
       binding: "A Canary-specific binding authority registry/key and fixed Canary binding must be supplied; replay fixed bindings are not acceptable.",
+      candidate_configuration_binding: "Supply the exact candidate bundle, its approved expected APP configuration fingerprint, authenticated builder provenance, and an independent authority receipt; a locally recomputed candidate identity is not independent authority.",
       workflow: "The deployment workflow must supply positive run ID/attempt, owner/name repository, current HEAD, and workflow_file_identity=dotenvx+pnpm+wrangler.",
       verifier_identity_binding: "Capture a Canary execution evidence bundle and provide its job ID and verification attempt ID independently; readiness binds the signed receipt to exact Presentation/Result bytes and the current Runtime Attestation.",
       operational_smoke: "Run the manifest-bound Main/Verifier health probes and integrate authenticated source proofs for callback, Trigger, Session/Consume receipts, Durable Object, R2, Notary, Supabase/device Auth, and exact Presentation/Result execution evidence; offline tests cannot set the operational_smoke gate to PASS.",

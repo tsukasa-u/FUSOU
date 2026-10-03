@@ -4,8 +4,9 @@ import { readFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { verifyLocalWasmArtifactProvenance } from "./wasm-provenance.mjs";
+import { candidateConfigurationBindingAssessment } from "./candidate-configuration-binding.mjs";
 
-export const HUMAN_GAMEPLAY_PREFLIGHT_SCHEMA_VERSION = 2;
+export const HUMAN_GAMEPLAY_PREFLIGHT_SCHEMA_VERSION = 3;
 export const HUMAN_GAMEPLAY_PREFLIGHT_SCOPE = "tlsn-human-gameplay-preflight";
 
 export const HUMAN_GAMEPLAY_PREDICATES = Object.freeze([
@@ -282,6 +283,7 @@ export function validateHumanGameplayPreflight(raw) {
     operator_asserted_capture_source_claim: input.capture_source_claim,
     local_identity: localIdentity,
     predicates,
+    candidate_configuration_binding_assessment: candidateConfigurationBindingAssessment(),
     unresolved_required_predicates: unresolvedRequired,
     missing_required_predicates: missingRequired,
     runtime_attestation_scope: "RUNTIME_IDENTITY_ONLY",
@@ -326,6 +328,7 @@ function emptyPreflightReport() {
       evidence_ref_present: false,
       evidence_sha256: null,
     }])),
+    candidate_configuration_binding_assessment: candidateConfigurationBindingAssessment(),
     unresolved_required_predicates: REQUIRED_PREDICATES,
     missing_required_predicates: [...REQUIRED_PREDICATES],
     operator_asserted_capture_source_claim: "ABSENT",

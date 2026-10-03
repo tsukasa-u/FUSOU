@@ -8,6 +8,8 @@ import { finalizeTlsnCandidateBundle } from "./tlsn-candidate-finalize.mjs";
 import { createSyntheticCandidateBundle } from "./tlsn-candidate-synthetic-fixture.mjs";
 import { verifyCanaryExistingSourceProofBundle } from "./canary-operational-smoke-existing-proofs.mjs";
 import { inspectAlpha15Presentation } from "./production-evidence-semantic.mjs";
+import { canonicalJson } from "./deployment-attestation.mjs";
+import { createCandidateArtifactIdentity } from "./candidate-artifact-identity.mjs";
 
 const artifactNames = [
   "session.json",
@@ -22,13 +24,14 @@ const artifactNames = [
   "verifier-execution-receipt.bin",
   "presentation.bin",
   "metadata.json",
+  "candidate-identity.json",
   "capture-provenance.json",
 ];
 
 const hash = (bytes) => createHash("sha256").update(bytes).digest("base64url");
 const jsonBytes = (value) => Buffer.from(JSON.stringify(value));
 
-async function writeCandidate(directory, { syntheticFixture = true } = {}) {
+async function writeCandidate(directory, { syntheticFixture = true, captureId = "capture-1" } = {}) {
   const session = {
     session_id: "session-1",
     canonical_user_id: "user-1",
@@ -52,6 +55,32 @@ async function writeCandidate(directory, { syntheticFixture = true } = {}) {
   const consumeReceipt = { receipt_id: "consume-1" };
   const workerVerification = { verified: true, result, consume_receipt: consumeReceipt };
   const receiptBytes = jsonBytes({ receipt_id: "execution-1" });
+  const presentationBytes = Buffer.from("opaque alpha15 presentation bytes");
+  const metadata = {
+    schema_version: 2,
+    candidate_capture_id: captureId,
+    session_id: session.session_id,
+    request_id: "request-1",
+    request_sha256: hash(Buffer.from("request bytes")),
+    authenticated_request_sha256: hash(Buffer.from("authenticated request bytes")),
+    binding_identifier: hash(Buffer.from(session.binding)),
+    capture_timestamp: "2030-01-01T00:00:00.000Z",
+    presentation_sha256: hash(presentationBytes),
+    server_identity: "untrusted-config.example",
+    proxy_provenance: {
+      app_public_configuration_fingerprints: {
+        schema_version: 2,
+        scope: "fusou-tlsn-app-public-configuration",
+        compile_time_sha256: hash(Buffer.from("compile config")),
+        runtime_sha256: hash(Buffer.from("runtime config")),
+        combined_sha256: hash(Buffer.from("combined config")),
+        candidate_binding_status: "UNBOUND",
+      },
+    },
+  };
+  const metadataBytes = Buffer.from(canonicalJson(metadata), "utf8");
+  const candidateIdentity = createCandidateArtifactIdentity({ metadataBytes, presentationBytes });
+  const candidateIdentityBytes = Buffer.from(canonicalJson(candidateIdentity), "utf8");
   const artifacts = {
     "session.json": jsonBytes(session),
     "device-authentication.json": jsonBytes(deviceAuthentication),
@@ -67,8 +96,9 @@ async function writeCandidate(directory, { syntheticFixture = true } = {}) {
     }),
     "verifier-execution-receipt-header.txt": Buffer.from(receiptBytes.toString("base64url")),
     "verifier-execution-receipt.bin": receiptBytes,
-    "presentation.bin": Buffer.from("opaque alpha15 presentation bytes"),
-    "metadata.json": jsonBytes({ server_identity: "untrusted-config.example" }),
+    "presentation.bin": presentationBytes,
+    "metadata.json": metadataBytes,
+    "candidate-identity.json": candidateIdentityBytes,
     "capture-provenance.json": jsonBytes(syntheticFixture
       ? { schema_version: 1, classification: "SYNTHETIC_FIXTURE", source: "synthetic-alpha15-test-fixture" }
       : { schema_version: 1, classification: "UNVERIFIED", source: "production-proxy-capture" }),
@@ -77,7 +107,7 @@ async function writeCandidate(directory, { syntheticFixture = true } = {}) {
     await writeFile(path.join(directory, name), bytes, { mode: 0o600 });
   }
   const manifest = {
-    schema_version: 1,
+    schema_version: 2,
     scope: "fusou-tlsn-human-test-play-candidate",
     candidate_status: "CAPTURED_PENDING_OFFLINE_VERIFICATION",
     approval_status: "UNAPPROVED",
@@ -86,6 +116,7 @@ async function writeCandidate(directory, { syntheticFixture = true } = {}) {
     synthetic_fixture: syntheticFixture,
     capture_provenance: syntheticFixture ? "synthetic-alpha15-test-fixture" : "production-proxy-capture",
     presentation_sha256: hash(artifacts["presentation.bin"]),
+    candidate_artifact_id: candidateIdentity.candidate_artifact_id,
     exact_result_sha256: hash(artifacts["result-exact.bin"]),
     verifier_execution_receipt_status: "CAPTURED",
     verifier_execution_receipt_sha256: hash(receiptBytes),
@@ -103,7 +134,10 @@ async function writeCandidate(directory, { syntheticFixture = true } = {}) {
 }
 
 async function rewriteArtifact(fixture, name, value) {
-  const bytes = jsonBytes(value);
+  const bytes = Buffer.from(
+    name === "metadata.json" || name === "candidate-identity.json" ? canonicalJson(value) : JSON.stringify(value),
+    "utf8",
+  );
   await writeFile(path.join(fixture.candidateDirectory, name), bytes, { mode: 0o600 });
   fixture.candidateManifest.artifacts[name] = { size_bytes: bytes.length, sha256: hash(bytes) };
   await writeFile(
@@ -362,6 +396,9 @@ test("synthetic alpha.15 Presentation discovers target and finalizes as unapprov
     assert.equal(finalization.verification.evidence.synthetic, true);
     assert.equal(finalization.verification.evidence.synthetic_classification, "DECLARED_SYNTHETIC_FIXTURE");
     assert.equal(finalization.readiness_effect, "NONE");
+    assert.equal(finalization.candidate_artifact_identity.binding_status, "CRYPTOGRAPHICALLY_BOUND");
+    assert.equal(finalization.candidate_artifact_identity.authority_status, "LOCAL_CONSISTENCY");
+    assert.equal(finalization.candidate_artifact_identity.independent_authentication, "UNVERIFIED");
     assert.equal(finalization.gameplay_effect, "NONE");
     assert.equal(finalization.verification.readiness_effect, "NONE");
     assert.equal(finalization.verification.gameplay_effect, "NONE");
@@ -401,6 +438,7 @@ test("metadata and authority-shaped identity fields cannot upgrade provenance", 
   const root = await mkdtemp(path.join(tmpdir(), "fusou-tlsn-candidate-spoofed-metadata-"));
   try {
     const fixture = await createSyntheticCandidateBundle(root);
+    const originalMetadataBytes = await readFile(path.join(fixture.candidateDirectory, "metadata.json"));
     const identityBytes = await readFile(path.join(fixture.candidateDirectory, "device-identity.json"));
     const identity = JSON.parse(identityBytes.toString("utf8"));
     await rewriteArtifact(fixture, "device-identity.json", {
@@ -418,7 +456,17 @@ test("metadata and authority-shaped identity fields cannot upgrade provenance", 
       authority: "fusou-web-user-devices",
       revoked_at: null,
     });
-    await rewriteArtifact(fixture, "metadata.json", { server_identity: "game.example.test" });
+    const originalMetadata = JSON.parse(originalMetadataBytes.toString("utf8"));
+    await assert.rejects(
+      rewriteArtifact(fixture, "metadata.json", { ...originalMetadata, server_identity: "game.example.test" })
+        .then(() => finalizeTlsnCandidateBundle(fixture)),
+      /candidate artifact identity does not match its exact bytes or capture context/,
+    );
+    await rewriteArtifact(
+      fixture,
+      "metadata.json",
+      JSON.parse(originalMetadataBytes.toString("utf8")),
+    );
 
     const finalization = await finalizeTlsnCandidateBundle(fixture);
     assert.equal(finalization.target_identity.server_identity, "game.example.test");
@@ -430,6 +478,76 @@ test("metadata and authority-shaped identity fields cannot upgrade provenance", 
     const originalFinalizationBytes = await readFile(finalizationPath);
     await assert.rejects(finalizeTlsnCandidateBundle(fixture), { code: "EEXIST" });
     assert.deepEqual(await readFile(finalizationPath), originalFinalizationBytes);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("candidate identity rejects metadata, fingerprint, request, and binding tampering after outer hashes refresh", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "fusou-tlsn-candidate-identity-tamper-"));
+  try {
+    const fixture = await createSyntheticCandidateBundle(root);
+    const metadataBytes = await readFile(path.join(fixture.candidateDirectory, "metadata.json"));
+    const originalMetadata = JSON.parse(metadataBytes.toString("utf8"));
+    const mutations = [
+      (metadata) => ({ ...metadata, capture_timestamp: "2030-01-01T00:00:00.000Z" }),
+      (metadata) => ({ ...metadata, request_id: "replayed-request" }),
+      (metadata) => ({ ...metadata, session_id: "replayed-session" }),
+      (metadata) => ({ ...metadata, binding_identifier: hash(Buffer.from("other-binding")) }),
+      (metadata) => ({
+        ...metadata,
+        proxy_provenance: {
+          ...metadata.proxy_provenance,
+          app_public_configuration_fingerprints: {
+            ...metadata.proxy_provenance.app_public_configuration_fingerprints,
+            combined_sha256: hash(Buffer.from("substituted configuration")),
+          },
+        },
+      }),
+    ];
+    for (const mutate of mutations) {
+      await rewriteArtifact(fixture, "metadata.json", mutate(originalMetadata));
+      await assert.rejects(
+        finalizeTlsnCandidateBundle(fixture),
+        /candidate artifact identity does not match its exact bytes or capture context/,
+      );
+    }
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("candidate identity rejects metadata replayed from a different Presentation bundle", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "fusou-tlsn-candidate-identity-frankenstein-"));
+  try {
+    const fixture = await createSyntheticCandidateBundle(root);
+    const originalMetadata = JSON.parse(
+      (await readFile(path.join(fixture.candidateDirectory, "metadata.json"))).toString("utf8"),
+    );
+    const foreignPresentationBytes = Buffer.from("different Presentation bytes");
+    const foreignMetadata = {
+      ...originalMetadata,
+      candidate_capture_id: "foreign-capture-id",
+      presentation_sha256: hash(foreignPresentationBytes),
+    };
+    const foreignMetadataBytes = Buffer.from(canonicalJson(foreignMetadata), "utf8");
+    const foreignIdentity = createCandidateArtifactIdentity({
+      metadataBytes: foreignMetadataBytes,
+      presentationBytes: foreignPresentationBytes,
+    });
+    await rewriteArtifact(fixture, "metadata.json", foreignMetadata);
+    await rewriteArtifact(fixture, "candidate-identity.json", foreignIdentity);
+    fixture.candidateManifest.candidate_artifact_id = foreignIdentity.candidate_artifact_id;
+    await writeFile(
+      path.join(fixture.candidateDirectory, "candidate-manifest.json"),
+      JSON.stringify(fixture.candidateManifest),
+      { mode: 0o600 },
+    );
+
+    await assert.rejects(
+      finalizeTlsnCandidateBundle(fixture),
+      /candidate metadata Presentation digest does not match exact bytes/,
+    );
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -567,7 +685,7 @@ test("finalizer rejects Presentation mutation even when local hashes are recompu
 
     await assert.rejects(
       finalizeTlsnCandidateBundle(fixture),
-      /consume receipt mismatch: presentation_id/,
+      /candidate metadata Presentation digest does not match exact bytes/,
     );
   } finally {
     await rm(root, { recursive: true, force: true });

@@ -36,6 +36,11 @@ const report = JSON.parse(result.stdout);
 assert.equal(report.network_access, "NOT_USED");
 assert.equal(report.deployment_executed, false);
 assert.equal(report.status, "BLOCKED");
+assert.equal(report.gates.candidate_configuration_binding, false);
+assert.equal(report.inputs.candidate_configuration_binding.status, "UNVERIFIED");
+assert.equal(report.inputs.candidate_configuration_binding.readiness_gate, "BLOCKED");
+assert.ok(report.inputs.candidate_configuration_binding.missing_inputs.includes("APPROVED_EXPECTED_CONFIGURATION_FINGERPRINT"));
+assert.match(report.resume_conditions.candidate_configuration_binding, /authenticated builder provenance/);
 assert.equal(report.external_authority.status, "EXTERNAL_AUTHORITY_REQUIRED");
 assert.equal(report.external_authority.first_blocker.id, "TARGET_IDENTITY");
 assert.equal(report.external_authority.first_blocker.status, "MISSING");
@@ -409,6 +414,9 @@ try {
   assert.equal(validReport.inputs.verifier_identity_binding.execution_receipt_evidence, "NOT_RUN");
   assert.equal(validReport.inputs.runtime_attestation.verifier_deployment_id, verifierDeploymentId);
   assert.equal(validReport.gates.operational_smoke, false);
+  assert.equal(validReport.gates.candidate_configuration_binding, false);
+  assert.equal(validReport.inputs.candidate_configuration_binding.status, "UNVERIFIED");
+  assert.equal(validReport.status, "BLOCKED");
   assert.equal(validReport.inputs.operational_smoke.status, "NOT_RUN");
   for (const component of ["main_worker", "verifier", "callback", "trigger", "session_binding", "DO", "R2", "Notary", "Auth", "Presentation"]) {
     assert.equal(validReport.inputs.operational_smoke[component], "NOT_RUN");

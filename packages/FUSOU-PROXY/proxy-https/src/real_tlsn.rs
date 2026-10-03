@@ -6,7 +6,7 @@ use crate::{
         VerificationFuture, VerificationOutcome, VerifiedMemberId, VerifiedTlsnEvidence,
     },
     production_tlsn::{
-        ensure_private_candidate_root, validate_private_candidate_directory,
+        canonical_json_bytes, ensure_private_candidate_root, validate_private_candidate_directory,
         validate_private_candidate_file, write_private_candidate_file,
         Alpha15OriginTransportFactory, OriginTransportConfig, PresentationHandoff,
         PresentationVerificationInput, ProductionResultSigner, ResultSignerError,
@@ -969,6 +969,14 @@ async fn write_production_capture_bundle(
             receipt_bytes.to_vec(),
         ));
     }
+    let metadata_bytes = tokio::fs::read(directory.join("metadata.json")).await?;
+    let presentation_bytes = tokio::fs::read(directory.join("presentation.bin")).await?;
+    let (candidate_identity, candidate_artifact_id) =
+        create_candidate_artifact_identity(&metadata_bytes, &presentation_bytes)?;
+    artifacts.push((
+        "candidate-identity.json",
+        canonical_json_bytes(&candidate_identity),
+    ));
     for (name, bytes) in &artifacts {
         write_capture_file(&directory.join(name), bytes).await?;
     }
@@ -993,7 +1001,7 @@ async fn write_production_capture_bundle(
         );
     }
     let manifest = serde_json::json!({
-        "schema_version": 1,
+        "schema_version": 2,
         "scope": "fusou-tlsn-human-test-play-candidate",
         "candidate_status": if verifier_execution_receipt_bytes.is_some() { "CAPTURED_PENDING_OFFLINE_VERIFICATION" } else { "INCOMPLETE_MISSING_EXECUTION_RECEIPT" },
         "approval_status": "UNAPPROVED",
@@ -1002,6 +1010,7 @@ async fn write_production_capture_bundle(
         "synthetic_fixture": false,
         "capture_provenance": "production-proxy-capture",
         "presentation_sha256": URL_SAFE_NO_PAD.encode(presentation.sha256()),
+        "candidate_artifact_id": candidate_artifact_id,
         "exact_result_sha256": URL_SAFE_NO_PAD.encode(sha256(exact_response_bytes)),
         "verifier_execution_receipt_status": if verifier_execution_receipt_bytes.is_some() { "CAPTURED" } else { "MISSING" },
         "verifier_execution_receipt_sha256": verifier_execution_receipt_bytes.map(|bytes| URL_SAFE_NO_PAD.encode(sha256(bytes))),
@@ -1023,6 +1032,108 @@ async fn write_production_capture_bundle(
         let _ = tokio::fs::remove_dir_all(&directory).await;
     }
     write_result
+}
+
+fn required_candidate_identity_string<'a>(
+    value: &'a serde_json::Value,
+    label: &str,
+) -> Result<&'a str, std::io::Error> {
+    value
+        .as_str()
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| {
+            std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                format!("candidate identity field is missing: {label}"),
+            )
+        })
+}
+
+fn required_candidate_identity_hash<'a>(
+    value: &'a serde_json::Value,
+    label: &str,
+) -> Result<&'a str, std::io::Error> {
+    let value = required_candidate_identity_string(value, label)?;
+    let decoded = URL_SAFE_NO_PAD.decode(value).map_err(|_| {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            format!("candidate identity digest is malformed: {label}"),
+        )
+    })?;
+    if decoded.len() != 32 || URL_SAFE_NO_PAD.encode(decoded) != value {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            format!("candidate identity digest is malformed: {label}"),
+        ));
+    }
+    Ok(value)
+}
+
+fn create_candidate_artifact_identity(
+    metadata_bytes: &[u8],
+    presentation_bytes: &[u8],
+) -> Result<(serde_json::Value, String), std::io::Error> {
+    const IDENTITY_SCOPE: &str = "fusou-tlsn-candidate-artifact-identity";
+    const CONFIGURATION_SCOPE: &str = "fusou-tlsn-app-public-configuration";
+    let metadata: serde_json::Value = serde_json::from_slice(metadata_bytes)?;
+    if metadata["schema_version"].as_u64() != Some(2)
+        || canonical_json_bytes(&metadata) != metadata_bytes
+    {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "candidate metadata is not canonical schema v2 JSON",
+        ));
+    }
+    let fingerprints = &metadata["proxy_provenance"]["app_public_configuration_fingerprints"];
+    if fingerprints["schema_version"].as_u64() != Some(2)
+        || fingerprints["scope"].as_str() != Some(CONFIGURATION_SCOPE)
+        || fingerprints["candidate_binding_status"].as_str() != Some("UNBOUND")
+    {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "candidate APP configuration fingerprint is missing or unsupported",
+        ));
+    }
+    let presentation_sha256 = URL_SAFE_NO_PAD.encode(sha256(presentation_bytes));
+    if metadata["presentation_sha256"].as_str() != Some(&presentation_sha256) {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "candidate metadata Presentation digest does not match exact bytes",
+        ));
+    }
+    let body = serde_json::json!({
+        "schema_version": 1,
+        "scope": IDENTITY_SCOPE,
+        "canonicalization": "FUSOU-CANONICAL-JSON-V1",
+        "candidate_capture_id": required_candidate_identity_string(&metadata["candidate_capture_id"], "candidate_capture_id")?,
+        "session_id": required_candidate_identity_string(&metadata["session_id"], "session_id")?,
+        "request_id": required_candidate_identity_string(&metadata["request_id"], "request_id")?,
+        "request_sha256": required_candidate_identity_hash(&metadata["authenticated_request_sha256"], "authenticated_request_sha256")?,
+        "binding_identifier": required_candidate_identity_hash(&metadata["binding_identifier"], "binding_identifier")?,
+        "created_at": required_candidate_identity_string(&metadata["capture_timestamp"], "capture_timestamp")?,
+        "presentation_sha256": presentation_sha256,
+        "metadata_sha256": URL_SAFE_NO_PAD.encode(sha256(metadata_bytes)),
+        "app_configuration": {
+            "schema_version": 2,
+            "scope": CONFIGURATION_SCOPE,
+            "combined_sha256": required_candidate_identity_hash(&fingerprints["combined_sha256"], "combined_sha256")?,
+        },
+        "binding_status": "CRYPTOGRAPHICALLY_BOUND",
+        "authority_status": "LOCAL_CONSISTENCY",
+        "independent_authentication": "UNVERIFIED",
+    });
+    let candidate_artifact_id = URL_SAFE_NO_PAD.encode(sha256(&canonical_json_bytes(&body)));
+    let mut identity = body.as_object().cloned().ok_or_else(|| {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "candidate identity is not an object",
+        )
+    })?;
+    identity.insert(
+        "candidate_artifact_id".to_owned(),
+        serde_json::Value::String(candidate_artifact_id.clone()),
+    );
+    Ok((serde_json::Value::Object(identity), candidate_artifact_id))
 }
 
 async fn write_capture_file(path: &std::path::Path, bytes: &[u8]) -> Result<(), std::io::Error> {
@@ -1793,14 +1904,37 @@ mod tests {
         write_private_candidate_file(&directory.join("presentation.bin"), presentation_bytes)
             .await
             .expect("write presentation fixture");
-        write_private_candidate_file(&directory.join("metadata.json"), b"{}")
-            .await
-            .expect("write presentation metadata fixture");
 
         let presentation =
             TlsnPresentation::new(presentation_identifier, presentation_bytes.to_vec())
                 .expect("construct presentation");
         let session = test_session_context();
+        let metadata = serde_json::json!({
+            "schema_version": 2,
+            "candidate_capture_id": presentation.identifier(),
+            "session_id": session.session_id(),
+            "request_id": "request-fixture-1",
+            "authenticated_request_sha256": URL_SAFE_NO_PAD.encode([0x11_u8; 32]),
+            "binding_identifier": URL_SAFE_NO_PAD.encode([0x22_u8; 32]),
+            "capture_timestamp": "2026-10-01T12:00:00.000Z",
+            "presentation_sha256": URL_SAFE_NO_PAD.encode(presentation.sha256()),
+            "proxy_provenance": {
+                "app_public_configuration_fingerprints": {
+                    "schema_version": 2,
+                    "scope": "fusou-tlsn-app-public-configuration",
+                    "compile_time_sha256": URL_SAFE_NO_PAD.encode([0x31_u8; 32]),
+                    "runtime_sha256": URL_SAFE_NO_PAD.encode([0x32_u8; 32]),
+                    "combined_sha256": URL_SAFE_NO_PAD.encode([0x33_u8; 32]),
+                    "candidate_binding_status": "UNBOUND",
+                },
+            },
+        });
+        write_private_candidate_file(
+            &directory.join("metadata.json"),
+            &canonical_json_bytes(&metadata),
+        )
+        .await
+        .expect("write presentation metadata fixture");
         let payload = serde_json::json!({
             "result": { "result_id": "fixture-result" },
             "consume_receipt": { "used_at": "2026-10-01T12:00:00.000Z" },
@@ -1855,6 +1989,23 @@ mod tests {
         );
         assert_eq!(manifest["approval_status"], "UNAPPROVED");
         assert_eq!(manifest["readiness_effect"], "NONE");
+        assert_eq!(manifest["schema_version"], 2);
+        let identity_bytes = tokio::fs::read(directory.join("candidate-identity.json"))
+            .await
+            .expect("read candidate identity artifact");
+        let identity: serde_json::Value =
+            serde_json::from_slice(&identity_bytes).expect("parse candidate identity");
+        assert_eq!(
+            identity["candidate_artifact_id"],
+            manifest["candidate_artifact_id"]
+        );
+        assert_eq!(identity["binding_status"], "CRYPTOGRAPHICALLY_BOUND");
+        assert_eq!(identity["authority_status"], "LOCAL_CONSISTENCY");
+        assert_eq!(identity["independent_authentication"], "UNVERIFIED");
+        assert_eq!(
+            manifest["artifacts"]["candidate-identity.json"]["sha256"],
+            URL_SAFE_NO_PAD.encode(sha256(&identity_bytes))
+        );
         assert_eq!(
             manifest["exact_result_sha256"],
             URL_SAFE_NO_PAD.encode(sha256(exact_response))

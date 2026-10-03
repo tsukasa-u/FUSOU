@@ -964,17 +964,61 @@ impl PresentationArtifactSink for FilesystemPresentationArtifactSink {
                 .await
                 .map_err(|_| PresentationExportError::Failed)?;
 
+            let captured_at = chrono::Utc::now().to_rfc3339();
+            let capture_context = serde_json::json!({
+                "source": "FUSOU-APP client-facing TLS plaintext boundary",
+                "request_origin": "FUSOU-APP normal game traffic",
+                "no_standalone_game_server_request": true,
+                "no_request_injection": true,
+                "no_request_replay": true,
+                "no_capture_generated_traffic": true,
+                "method": context.request_profile().map(|profile| profile.method()),
+                "target": context.request_profile().map(|profile| profile.target()),
+                "http_version": context.request_profile().map(|profile| profile.http_version()),
+                "connection_id": context.connection_id(),
+                "request_sha256": base64url_string(context.request_sha256()),
+                "authenticated_request_sha256": base64url_string(context.authenticated_request_sha256()),
+            });
+            let worker_health_observation = context
+                .identifiers()
+                .worker_health_observation()
+                .map(|observation| {
+                    serde_json::json!({
+                        "source": "unsigned-https-health-response",
+                        "signature_valid": false,
+                        "authority_status": "UNVERIFIED",
+                        "deployment_id": observation.deployment_id(),
+                        "worker_name": observation.worker_name(),
+                        "git_commit_sha": observation.git_commit_sha(),
+                        "binding_mode": observation.binding_mode(),
+                        "runtime_version_id": observation.runtime_version_id(),
+                    })
+                });
+            let app_public_configuration_fingerprints = context
+                .identifiers()
+                .app_public_configuration_fingerprints()
+                .map(|fingerprints| {
+                    serde_json::json!({
+                        "schema_version": fingerprints.schema_version,
+                        "scope": fingerprints.scope,
+                        "compile_time_sha256": fingerprints.compile_time_sha256,
+                        "runtime_sha256": fingerprints.runtime_sha256,
+                        "combined_sha256": fingerprints.combined_sha256,
+                        "candidate_binding_status": fingerprints.candidate_binding_status,
+                    })
+                });
             let metadata = serde_json::json!({
-                "schema_version": 1,
+                "schema_version": 2,
                 "capture_provenance": "production",
                 "capture_source": "fusou-proxy-production-tlsn",
                 "synthetic": false,
                 "test": false,
                 "canary": false,
                 "local": false,
+                "candidate_capture_id": presentation.identifier(),
                 "presentation_sha256": base64url_string(presentation.sha256()),
                 "presentation_size_bytes": presentation.bytes().len(),
-                "capture_timestamp": chrono::Utc::now().to_rfc3339(),
+                "capture_timestamp": captured_at,
                 "connection_id": context.connection_id(),
                 "session_id": context.identifiers().session_id(),
                 "request_id": context.identifiers().request_id(),
@@ -996,39 +1040,10 @@ impl PresentationArtifactSink for FilesystemPresentationArtifactSink {
                     "proxy_deployment_id": null,
                     "proxy_binary_identity": format!("proxy-https:{}", env!("CARGO_PKG_VERSION")),
                     "presentation_sha256": base64url_string(presentation.sha256()),
-                    "created_at": chrono::Utc::now().to_rfc3339(),
-                    "capture_context": {
-                        "source": "FUSOU-APP client-facing TLS plaintext boundary",
-                        "request_origin": "FUSOU-APP normal game traffic",
-                        "no_standalone_game_server_request": true,
-                        "no_request_injection": true,
-                        "no_request_replay": true,
-                        "no_capture_generated_traffic": true,
-                        "method": context.request_profile().map(|profile| profile.method()),
-                        "target": context.request_profile().map(|profile| profile.target()),
-                        "http_version": context.request_profile().map(|profile| profile.http_version()),
-                        "connection_id": context.connection_id(),
-                        "request_sha256": base64url_string(context.request_sha256()),
-                        "authenticated_request_sha256": base64url_string(context.authenticated_request_sha256()),
-                    },
-                    "worker_health_observation": context.identifiers().worker_health_observation().map(|observation| serde_json::json!({
-                        "source": "unsigned-https-health-response",
-                        "signature_valid": false,
-                        "authority_status": "UNVERIFIED",
-                        "deployment_id": observation.deployment_id(),
-                        "worker_name": observation.worker_name(),
-                        "git_commit_sha": observation.git_commit_sha(),
-                        "binding_mode": observation.binding_mode(),
-                        "runtime_version_id": observation.runtime_version_id(),
-                    })),
-                    "app_public_configuration_fingerprints": context.identifiers().app_public_configuration_fingerprints().map(|fingerprints| serde_json::json!({
-                        "schema_version": fingerprints.schema_version,
-                        "scope": fingerprints.scope,
-                        "compile_time_sha256": fingerprints.compile_time_sha256,
-                        "runtime_sha256": fingerprints.runtime_sha256,
-                        "combined_sha256": fingerprints.combined_sha256,
-                        "candidate_binding_status": fingerprints.candidate_binding_status,
-                    })),
+                    "created_at": captured_at,
+                    "capture_context": capture_context,
+                    "worker_health_observation": worker_health_observation,
+                    "app_public_configuration_fingerprints": app_public_configuration_fingerprints,
                     "authority": {
                         "type": "externally-pinned-production-proxy-key",
                         "status": "UNVERIFIED",
@@ -1046,9 +1061,7 @@ impl PresentationArtifactSink for FilesystemPresentationArtifactSink {
                 .await?;
                 write_private_candidate_file(
                     &directory.join("metadata.json"),
-                    &serde_json::to_vec_pretty(&metadata).map_err(|_| {
-                        std::io::Error::other("candidate metadata serialization failed")
-                    })?,
+                    &canonical_json_bytes(&metadata),
                 )
                 .await
             }
@@ -1127,6 +1140,46 @@ fn base64url_string(bytes: &[u8]) -> String {
         }
     }
     output
+}
+
+pub(crate) fn canonical_json_bytes(value: &serde_json::Value) -> Vec<u8> {
+    fn append(value: &serde_json::Value, output: &mut Vec<u8>) {
+        match value {
+            serde_json::Value::Object(object) => {
+                output.push(b'{');
+                let mut entries = object.iter().collect::<Vec<_>>();
+                entries.sort_unstable_by(|(left, _), (right, _)| left.cmp(right));
+                for (index, (key, value)) in entries.into_iter().enumerate() {
+                    if index > 0 {
+                        output.push(b',');
+                    }
+                    output.extend_from_slice(
+                        &serde_json::to_vec(key).expect("JSON object key must serialize"),
+                    );
+                    output.push(b':');
+                    append(value, output);
+                }
+                output.push(b'}');
+            }
+            serde_json::Value::Array(values) => {
+                output.push(b'[');
+                for (index, value) in values.iter().enumerate() {
+                    if index > 0 {
+                        output.push(b',');
+                    }
+                    append(value, output);
+                }
+                output.push(b']');
+            }
+            _ => output.extend_from_slice(
+                &serde_json::to_vec(value).expect("JSON scalar value must serialize"),
+            ),
+        }
+    }
+
+    let mut bytes = Vec::new();
+    append(value, &mut bytes);
+    bytes
 }
 
 pub trait TlsnVerificationBackend: Send + Sync {
@@ -2028,7 +2081,7 @@ mod tests {
                 "version-1".to_owned(),
             ))
             .with_app_public_configuration_fingerprints(AppPublicConfigurationFingerprints {
-                schema_version: 1,
+                schema_version: 2,
                 scope: "fusou-tlsn-app-public-configuration".to_owned(),
                 compile_time_sha256: "compile-fingerprint".to_owned(),
                 runtime_sha256: "runtime-fingerprint".to_owned(),
@@ -2050,8 +2103,14 @@ mod tests {
         sink.export(context, presentation).await.unwrap();
 
         let metadata_path = root.join("candidate-metadata").join("metadata.json");
-        let metadata: serde_json::Value =
-            serde_json::from_slice(&tokio::fs::read(&metadata_path).await.unwrap()).unwrap();
+        let metadata_bytes = tokio::fs::read(&metadata_path).await.unwrap();
+        let metadata: serde_json::Value = serde_json::from_slice(&metadata_bytes).unwrap();
+        assert_eq!(canonical_json_bytes(&metadata), metadata_bytes);
+        assert_eq!(metadata["schema_version"], 2);
+        assert_eq!(
+            metadata["capture_timestamp"],
+            metadata["proxy_provenance"]["created_at"]
+        );
         let proxy = &metadata["proxy_provenance"];
         let health = &proxy["worker_health_observation"];
         assert_eq!(health["source"], "unsigned-https-health-response");
@@ -2059,7 +2118,7 @@ mod tests {
         assert_eq!(health["authority_status"], "UNVERIFIED");
 
         let fingerprints = &proxy["app_public_configuration_fingerprints"];
-        assert_eq!(fingerprints["schema_version"], 1);
+        assert_eq!(fingerprints["schema_version"], 2);
         assert_eq!(fingerprints["scope"], "fusou-tlsn-app-public-configuration");
         assert_eq!(fingerprints["compile_time_sha256"], "compile-fingerprint");
         assert_eq!(fingerprints["runtime_sha256"], "runtime-fingerprint");
