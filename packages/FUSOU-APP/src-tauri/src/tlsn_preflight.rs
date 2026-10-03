@@ -1,6 +1,8 @@
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use serde::Serialize;
+use sha2::{Digest, Sha256};
 use std::{
+    collections::BTreeMap,
     fs::{self, OpenOptions},
     io::Write,
     path::Path,
@@ -16,6 +18,7 @@ const ED25519_SPKI_PREFIX: &[u8; 12] = b"\x30\x2a\x30\x05\x06\x03\x2b\x65\x70\x0
 #[derive(Debug, Clone)]
 pub struct TlsnPreflightConfig {
     pub experiment_enabled: bool,
+    pub candidate_capture_enabled: bool,
     pub notary_endpoint: Option<String>,
     pub session_authority_endpoint: Option<String>,
     pub session_authority_key_id: Option<String>,
@@ -24,7 +27,7 @@ pub struct TlsnPreflightConfig {
     pub result_signer_key_id: Option<String>,
     pub result_signing_key_registry: Option<String>,
     pub verification_endpoint: Option<String>,
-    pub runtime_attestation_endpoint: Option<String>,
+    pub worker_health_endpoint: Option<String>,
     pub expected_deployment_id: Option<String>,
     pub expected_worker_name: Option<String>,
     pub expected_git_commit_sha: Option<String>,
@@ -39,6 +42,7 @@ impl TlsnPreflightConfig {
     pub fn from_proxy(proxy: &configs::ConfigsProxy) -> Self {
         Self {
             experiment_enabled: proxy.get_tlsn_experiment_enabled(),
+            candidate_capture_enabled: proxy.get_tlsn_candidate_capture_enabled(),
             notary_endpoint: proxy.get_tlsn_notary_endpoint(),
             session_authority_endpoint: proxy.get_tlsn_session_authority_endpoint(),
             session_authority_key_id: proxy.get_tlsn_session_authority_key_id(),
@@ -47,7 +51,7 @@ impl TlsnPreflightConfig {
             result_signer_key_id: proxy.get_tlsn_result_signer_key_id(),
             result_signing_key_registry: proxy.get_tlsn_result_signing_key_registry(),
             verification_endpoint: proxy.get_tlsn_verification_endpoint(),
-            runtime_attestation_endpoint: proxy.get_tlsn_runtime_attestation_endpoint(),
+            worker_health_endpoint: proxy.get_tlsn_worker_health_endpoint(),
             expected_deployment_id: proxy.get_tlsn_expected_deployment_id(),
             expected_worker_name: proxy.get_tlsn_expected_worker_name(),
             expected_git_commit_sha: proxy.get_tlsn_expected_git_commit_sha(),
@@ -90,8 +94,19 @@ pub struct TlsnPreflightReport {
     pub feature_enabled: bool,
     pub build_profile: String,
     pub config_path: String,
+    pub public_configuration_fingerprints: TlsnPublicConfigurationFingerprints,
     pub ready: bool,
     pub checks: Vec<PreflightCheck>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct TlsnPublicConfigurationFingerprints {
+    pub schema_version: u8,
+    pub scope: &'static str,
+    pub compile_time_sha256: String,
+    pub runtime_sha256: String,
+    pub combined_sha256: String,
+    pub candidate_binding_status: &'static str,
 }
 
 impl TlsnPreflightReport {
@@ -100,6 +115,14 @@ impl TlsnPreflightReport {
             "TLSN experiment preflight\nfeature_enabled={}\nbuild_profile={}\nconfig_path={}\nready={}\n",
             self.feature_enabled, self.build_profile, self.config_path, self.ready
         );
+        output.push_str(&format!(
+            "public_configuration_fingerprints.scope={}\npublic_configuration_fingerprints.compile_time_sha256={}\npublic_configuration_fingerprints.runtime_sha256={}\npublic_configuration_fingerprints.combined_sha256={}\npublic_configuration_fingerprints.candidate_binding_status={}\n",
+            self.public_configuration_fingerprints.scope,
+            self.public_configuration_fingerprints.compile_time_sha256,
+            self.public_configuration_fingerprints.runtime_sha256,
+            self.public_configuration_fingerprints.combined_sha256,
+            self.public_configuration_fingerprints.candidate_binding_status,
+        ));
         for check in &self.checks {
             output.push_str(&format!(
                 "[{}] {}: {}\n",
@@ -132,6 +155,7 @@ pub fn run_current_config_preflight() -> TlsnPreflightReport {
 
 pub fn run_preflight(config: &TlsnPreflightConfig, config_path: &Path) -> TlsnPreflightReport {
     let mut checks = Vec::new();
+    let public_configuration_fingerprints = public_configuration_fingerprints(config);
     let feature_enabled = cfg!(feature = "tlsn-production");
 
     push_check(
@@ -223,9 +247,9 @@ pub fn run_preflight(config: &TlsnPreflightConfig, config_path: &Path) -> TlsnPr
         "tlsn_verification_endpoint",
         config.verification_endpoint.as_deref(),
     );
-    check_runtime_attestation_endpoint(
+    check_worker_health_endpoint(
         &mut checks,
-        config.runtime_attestation_endpoint.as_deref(),
+        config.worker_health_endpoint.as_deref(),
     );
     check_expected_identity(
         &mut checks,
@@ -357,9 +381,57 @@ pub fn run_preflight(config: &TlsnPreflightConfig, config_path: &Path) -> TlsnPr
             "release".to_owned()
         },
         config_path: config_path.display().to_string(),
+        public_configuration_fingerprints,
         ready,
         checks,
     }
+}
+
+fn public_configuration_fingerprints(
+    config: &TlsnPreflightConfig,
+) -> TlsnPublicConfigurationFingerprints {
+    let compile_time = BTreeMap::from([
+        ("expected_binding_mode", serde_json::json!(config.expected_binding_mode)),
+        ("expected_deployment_id", serde_json::json!(config.expected_deployment_id)),
+        ("expected_git_commit_sha", serde_json::json!(config.expected_git_commit_sha)),
+        ("expected_worker_name", serde_json::json!(config.expected_worker_name)),
+        ("notary_endpoint", serde_json::json!(config.notary_endpoint)),
+        ("notary_verifying_key", serde_json::json!(config.notary_verifying_key)),
+        ("result_public_key_spki", serde_json::json!(config.result_public_key_spki)),
+        ("result_signer_key_id", serde_json::json!(config.result_signer_key_id)),
+        ("result_signing_key_registry", serde_json::json!(config.result_signing_key_registry)),
+        ("worker_health_endpoint", serde_json::json!(config.worker_health_endpoint)),
+        ("session_authority_endpoint", serde_json::json!(config.session_authority_endpoint)),
+        ("session_authority_key_id", serde_json::json!(config.session_authority_key_id)),
+        ("session_authority_public_key", serde_json::json!(config.session_authority_public_key)),
+        ("verification_endpoint", serde_json::json!(config.verification_endpoint)),
+    ]);
+    let runtime = BTreeMap::from([
+        ("candidate_capture_enabled", serde_json::json!(config.candidate_capture_enabled)),
+        ("disclosure_mode", serde_json::json!(config.disclosure_mode)),
+        ("experiment_enabled", serde_json::json!(config.experiment_enabled)),
+        ("response_mode", serde_json::json!(config.response_mode)),
+    ]);
+    let compile_time_sha256 = canonical_sha256(&compile_time);
+    let runtime_sha256 = canonical_sha256(&runtime);
+    let combined = BTreeMap::from([
+        ("compile_time_sha256", serde_json::json!(compile_time_sha256)),
+        ("runtime_sha256", serde_json::json!(runtime_sha256)),
+        ("schema_version", serde_json::json!(1)),
+    ]);
+    TlsnPublicConfigurationFingerprints {
+        schema_version: 1,
+        scope: "fusou-tlsn-app-public-configuration",
+        compile_time_sha256,
+        runtime_sha256,
+        combined_sha256: canonical_sha256(&combined),
+        candidate_binding_status: "UNBOUND",
+    }
+}
+
+fn canonical_sha256(value: &impl Serialize) -> String {
+    let bytes = serde_json::to_vec(value).expect("TLSN public config projection must serialize");
+    URL_SAFE_NO_PAD.encode(Sha256::digest(bytes))
 }
 
 fn push_check(
@@ -452,39 +524,39 @@ fn validate_https_endpoint(value: &str) -> Result<(), &'static str> {
     Ok(())
 }
 
-fn check_runtime_attestation_endpoint(checks: &mut Vec<PreflightCheck>, value: Option<&str>) {
+fn check_worker_health_endpoint(checks: &mut Vec<PreflightCheck>, value: Option<&str>) {
     match value {
-        Some(value) => match validate_runtime_attestation_endpoint(value) {
+        Some(value) => match validate_worker_health_endpoint(value) {
             Ok(()) => push_check(
                 checks,
-                "tlsn_runtime_attestation_endpoint",
+                "tlsn_worker_health_endpoint",
                 PreflightStatus::Pass,
                 "HTTPS /health URL syntax valid; no connection attempted",
             ),
             Err(detail) => push_check(
                 checks,
-                "tlsn_runtime_attestation_endpoint",
+                "tlsn_worker_health_endpoint",
                 PreflightStatus::Error,
                 detail,
             ),
         },
         None => push_check(
             checks,
-            "tlsn_runtime_attestation_endpoint",
+            "tlsn_worker_health_endpoint",
             PreflightStatus::Error,
             "missing or empty",
         ),
     }
 }
 
-fn validate_runtime_attestation_endpoint(value: &str) -> Result<(), &'static str> {
+fn validate_worker_health_endpoint(value: &str) -> Result<(), &'static str> {
     validate_https_endpoint(value)?;
     let parsed = Url::parse(value).map_err(|_| "invalid URL syntax")?;
     if parsed.query().is_some() {
-        return Err("runtime attestation URL must not contain a query");
+        return Err("Worker health URL must not contain a query");
     }
     if parsed.path() != "/health" {
-        return Err("runtime attestation URL path must be /health");
+        return Err("Worker health URL path must be /health");
     }
     Ok(())
 }
@@ -917,6 +989,7 @@ mod tests {
             root,
             config: TlsnPreflightConfig {
                 experiment_enabled: true,
+                candidate_capture_enabled: false,
                 disclosure_mode: "complete".to_owned(),
                 response_mode: "async".to_owned(),
                 notary_endpoint: Some("notary.example.test:7047".to_owned()),
@@ -929,7 +1002,7 @@ mod tests {
                 result_signer_key_id: Some("result-signer-2026".to_owned()),
                 result_signing_key_registry: Some(result_registry.to_string()),
                 verification_endpoint: Some("https://worker.example.test/verify/tlsn".to_owned()),
-                runtime_attestation_endpoint: Some("https://worker.example.test/health".to_owned()),
+                worker_health_endpoint: Some("https://worker.example.test/health".to_owned()),
                 expected_deployment_id: Some("canary-2026".to_owned()),
                 expected_worker_name: Some("fusou-tlsn-verification-canary".to_owned()),
                 expected_git_commit_sha: Some(
@@ -962,14 +1035,46 @@ mod tests {
         let report = run_preflight(&fixture.config, &fixture.config_path);
         assert!(report.feature_enabled);
         assert!(report.ready, "{}", report.text());
+        assert_eq!(report.public_configuration_fingerprints.schema_version, 1);
+        assert_eq!(report.public_configuration_fingerprints.candidate_binding_status, "UNBOUND");
     }
 
     #[test]
-    fn missing_runtime_attestation_configuration_fails() {
+    fn public_configuration_fingerprints_bind_compile_and_runtime_values_without_emitting_them() {
+        let fixture = fixture();
+        let baseline = public_configuration_fingerprints(&fixture.config);
+
+        let mut changed_compile_time = fixture.config.clone();
+        changed_compile_time.result_signer_key_id = Some("substituted-signer".to_owned());
+        let compile_changed = public_configuration_fingerprints(&changed_compile_time);
+        assert_ne!(compile_changed.compile_time_sha256, baseline.compile_time_sha256);
+        assert_eq!(compile_changed.runtime_sha256, baseline.runtime_sha256);
+
+        let mut changed_runtime = fixture.config.clone();
+        changed_runtime.response_mode = "sync".to_owned();
+        let runtime_changed = public_configuration_fingerprints(&changed_runtime);
+        assert_eq!(runtime_changed.compile_time_sha256, baseline.compile_time_sha256);
+        assert_ne!(runtime_changed.runtime_sha256, baseline.runtime_sha256);
+
+        let mut changed_output_path = fixture.config.clone();
+        changed_output_path.artifact_output_path = Some("/private/other-output".to_owned());
+        assert_eq!(public_configuration_fingerprints(&changed_output_path), baseline);
+
+        let mut hidden_value = fixture.config.clone();
+        hidden_value.session_authority_public_key = Some("public-config-value-must-not-be-printed".to_owned());
+        let report = run_preflight(&hidden_value, &fixture.config_path);
+        assert!(!report.text().contains("public-config-value-must-not-be-printed"));
+        assert!(!serde_json::to_string(&report)
+            .expect("preflight report serializes")
+            .contains("public-config-value-must-not-be-printed"));
+    }
+
+    #[test]
+    fn missing_worker_health_endpoint_fails() {
         let mut fixture = fixture();
-        fixture.config.runtime_attestation_endpoint = None;
+        fixture.config.worker_health_endpoint = None;
         let report = run_preflight(&fixture.config, &fixture.config_path);
-        assert_error(&report, "tlsn_runtime_attestation_endpoint");
+        assert_error(&report, "tlsn_worker_health_endpoint");
     }
 
     #[test]

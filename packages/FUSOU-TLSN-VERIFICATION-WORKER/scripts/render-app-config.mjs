@@ -14,9 +14,9 @@ async function main() {
   const canaryManifestPath = argument("--canary-manifest");
   const outputPath = argument("--output");
   const artifactOutputPath = argument("--artifact-output-path");
-  const runtimeAttestationEndpoint = argument("--runtime-attestation-endpoint");
-  if (!manifestPath || !canaryManifestPath || !outputPath || !artifactOutputPath || !runtimeAttestationEndpoint) {
-    throw new Error("usage: render-app-config --manifest <path> --canary-manifest <path> --output <path> --artifact-output-path <local-path> --runtime-attestation-endpoint <https-url>");
+  const workerHealthEndpoint = argument("--worker-health-endpoint") ?? argument("--runtime-attestation-endpoint");
+  if (!manifestPath || !canaryManifestPath || !outputPath || !artifactOutputPath || !workerHealthEndpoint) {
+    throw new Error("usage: render-app-config --manifest <path> --canary-manifest <path> --output <path> --artifact-output-path <local-path> --worker-health-endpoint <https-url>");
   }
   const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
   assertPublicManifest(manifest);
@@ -27,7 +27,7 @@ async function main() {
     manifest,
     artifactOutputPath,
     canaryDeploymentManifest,
-    runtimeAttestationEndpoint,
+    workerHealthEndpoint,
   );
   await writeFile(outputPath, config, { encoding: "utf8", mode: 0o600 });
 }

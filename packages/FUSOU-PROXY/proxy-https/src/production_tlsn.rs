@@ -369,11 +369,22 @@ pub struct RuntimeIdentifiers {
     experiment_id: Option<String>,
     session_id: Option<String>,
     request_id: Option<String>,
-    runtime_identity: Option<RuntimeIdentity>,
+    worker_health_observation: Option<WorkerHealthObservation>,
+    app_public_configuration_fingerprints: Option<AppPublicConfigurationFingerprints>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct RuntimeIdentity {
+pub struct AppPublicConfigurationFingerprints {
+    pub schema_version: u8,
+    pub scope: String,
+    pub compile_time_sha256: String,
+    pub runtime_sha256: String,
+    pub combined_sha256: String,
+    pub candidate_binding_status: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WorkerHealthObservation {
     deployment_id: String,
     worker_name: String,
     git_commit_sha: String,
@@ -381,7 +392,7 @@ pub struct RuntimeIdentity {
     runtime_version_id: String,
 }
 
-impl RuntimeIdentity {
+impl WorkerHealthObservation {
     pub fn new(
         deployment_id: String,
         worker_name: String,
@@ -429,12 +440,13 @@ impl RuntimeIdentifiers {
             experiment_id,
             session_id,
             request_id,
-            runtime_identity: None,
+            worker_health_observation: None,
+            app_public_configuration_fingerprints: None,
         }
     }
 
-    pub fn with_runtime_identity(mut self, runtime_identity: RuntimeIdentity) -> Self {
-        self.runtime_identity = Some(runtime_identity);
+    pub fn with_worker_health_observation(mut self, observation: WorkerHealthObservation) -> Self {
+        self.worker_health_observation = Some(observation);
         self
     }
 
@@ -450,8 +462,22 @@ impl RuntimeIdentifiers {
         self.request_id.as_deref()
     }
 
-    pub fn runtime_identity(&self) -> Option<&RuntimeIdentity> {
-        self.runtime_identity.as_ref()
+    pub fn worker_health_observation(&self) -> Option<&WorkerHealthObservation> {
+        self.worker_health_observation.as_ref()
+    }
+
+    pub fn with_app_public_configuration_fingerprints(
+        mut self,
+        fingerprints: AppPublicConfigurationFingerprints,
+    ) -> Self {
+        self.app_public_configuration_fingerprints = Some(fingerprints);
+        self
+    }
+
+    pub fn app_public_configuration_fingerprints(
+        &self,
+    ) -> Option<&AppPublicConfigurationFingerprints> {
+        self.app_public_configuration_fingerprints.as_ref()
     }
 }
 
@@ -985,12 +1011,23 @@ impl PresentationArtifactSink for FilesystemPresentationArtifactSink {
                         "request_sha256": base64url_string(context.request_sha256()),
                         "authenticated_request_sha256": base64url_string(context.authenticated_request_sha256()),
                     },
-                    "runtime_identity": context.identifiers().runtime_identity().map(|identity| serde_json::json!({
-                        "deployment_id": identity.deployment_id(),
-                        "worker_name": identity.worker_name(),
-                        "git_commit_sha": identity.git_commit_sha(),
-                        "binding_mode": identity.binding_mode(),
-                        "runtime_version_id": identity.runtime_version_id(),
+                    "worker_health_observation": context.identifiers().worker_health_observation().map(|observation| serde_json::json!({
+                        "source": "unsigned-https-health-response",
+                        "signature_valid": false,
+                        "authority_status": "UNVERIFIED",
+                        "deployment_id": observation.deployment_id(),
+                        "worker_name": observation.worker_name(),
+                        "git_commit_sha": observation.git_commit_sha(),
+                        "binding_mode": observation.binding_mode(),
+                        "runtime_version_id": observation.runtime_version_id(),
+                    })),
+                    "app_public_configuration_fingerprints": context.identifiers().app_public_configuration_fingerprints().map(|fingerprints| serde_json::json!({
+                        "schema_version": fingerprints.schema_version,
+                        "scope": fingerprints.scope,
+                        "compile_time_sha256": fingerprints.compile_time_sha256,
+                        "runtime_sha256": fingerprints.runtime_sha256,
+                        "combined_sha256": fingerprints.combined_sha256,
+                        "candidate_binding_status": fingerprints.candidate_binding_status,
                     })),
                     "authority": {
                         "type": "externally-pinned-production-proxy-key",
@@ -1970,6 +2007,66 @@ mod tests {
 
         sink.export(context, presentation).await.unwrap();
         assert!(!root.exists());
+    }
+
+    #[tokio::test]
+    async fn candidate_metadata_marks_health_unsigned_and_configuration_unbound() {
+        let root = std::env::temp_dir().join(format!(
+            "fusou-tlsn-candidate-metadata-{}-{}",
+            std::process::id(),
+            uuid::Uuid::new_v4()
+        ));
+        let request = request();
+        let exchange = exchange();
+        let binding = AttestationBinding::new("binding-value".to_owned()).unwrap();
+        let identifiers = RuntimeIdentifiers::default()
+            .with_worker_health_observation(WorkerHealthObservation::new(
+                "deployment-1".to_owned(),
+                "worker-1".to_owned(),
+                "0123456789abcdef0123456789abcdef01234567".to_owned(),
+                "fixed_canary".to_owned(),
+                "version-1".to_owned(),
+            ))
+            .with_app_public_configuration_fingerprints(AppPublicConfigurationFingerprints {
+                schema_version: 1,
+                scope: "fusou-tlsn-app-public-configuration".to_owned(),
+                compile_time_sha256: "compile-fingerprint".to_owned(),
+                runtime_sha256: "runtime-fingerprint".to_owned(),
+                combined_sha256: "combined-fingerprint".to_owned(),
+                candidate_binding_status: "UNBOUND".to_owned(),
+            });
+        let context = PresentationRequestContext::from_exchange(
+            identifiers,
+            9,
+            &binding,
+            &request,
+            &exchange,
+            origin_config(true).target(),
+        );
+        let presentation =
+            TlsnPresentation::new("candidate-metadata".to_owned(), vec![1, 2, 3]).unwrap();
+        let sink = FilesystemPresentationArtifactSink::new(&root);
+
+        sink.export(context, presentation).await.unwrap();
+
+        let metadata_path = root.join("candidate-metadata").join("metadata.json");
+        let metadata: serde_json::Value =
+            serde_json::from_slice(&tokio::fs::read(&metadata_path).await.unwrap()).unwrap();
+        let proxy = &metadata["proxy_provenance"];
+        let health = &proxy["worker_health_observation"];
+        assert_eq!(health["source"], "unsigned-https-health-response");
+        assert_eq!(health["signature_valid"], false);
+        assert_eq!(health["authority_status"], "UNVERIFIED");
+
+        let fingerprints = &proxy["app_public_configuration_fingerprints"];
+        assert_eq!(fingerprints["schema_version"], 1);
+        assert_eq!(fingerprints["scope"], "fusou-tlsn-app-public-configuration");
+        assert_eq!(fingerprints["compile_time_sha256"], "compile-fingerprint");
+        assert_eq!(fingerprints["runtime_sha256"], "runtime-fingerprint");
+        assert_eq!(fingerprints["combined_sha256"], "combined-fingerprint");
+        assert_eq!(fingerprints["candidate_binding_status"], "UNBOUND");
+
+        tokio::fs::remove_dir_all(&root).await.unwrap();
     }
 
     #[cfg(unix)]

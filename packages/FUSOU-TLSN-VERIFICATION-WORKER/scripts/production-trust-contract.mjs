@@ -448,14 +448,14 @@ export function appConfigTomlFromManifest(
   manifest,
   artifactOutputPath,
   canaryDeploymentManifest,
-  runtimeAttestationEndpoint,
+  workerHealthEndpoint,
 ) {
   assertPublicManifest(manifest);
   assertCanaryDeploymentIdentity(canaryDeploymentManifest);
   if (typeof artifactOutputPath !== "string" || !artifactOutputPath.trim()) {
     throw new Error("APP artifact output path is required separately from the public manifest");
   }
-  assertCleanHttpsEndpoint(runtimeAttestationEndpoint, "/health", "runtime attestation endpoint");
+  assertCleanHttpsEndpoint(workerHealthEndpoint, "/health", "Worker health endpoint");
   const quote = (value) => JSON.stringify(value);
   return [
     "[proxy.tlsn]",

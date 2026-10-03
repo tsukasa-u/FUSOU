@@ -1,5 +1,5 @@
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
-use proxy_https::production_tlsn::RuntimeIdentity;
+use proxy_https::production_tlsn::WorkerHealthObservation;
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use std::time::Duration;
@@ -46,7 +46,7 @@ struct WorkerResultIdentity {
     result_key_registry_sha256: Option<String>,
 }
 
-pub async fn fetch_and_validate(
+pub async fn fetch_and_validate_health_observation(
     endpoint: &str,
     expected_deployment_id: &str,
     expected_worker_name: &str,
@@ -55,7 +55,7 @@ pub async fn fetch_and_validate(
     expected_result_public_key_spki: &str,
     expected_result_signer_key_id: &str,
     expected_result_key_registry: &str,
-) -> Result<RuntimeIdentity, String> {
+) -> Result<WorkerHealthObservation, String> {
     validate_health_endpoint(endpoint)?;
     validate_expected_identity(
         expected_deployment_id,
@@ -71,22 +71,22 @@ pub async fn fetch_and_validate(
         .redirect(reqwest::redirect::Policy::none())
         .timeout(Duration::from_secs(10))
         .build()
-        .map_err(|error| format!("failed to build TLSN runtime attestation client: {error}"))?;
+        .map_err(|error| format!("failed to build TLSN Worker health client: {error}"))?;
     let response = client
         .get(endpoint)
         .send()
         .await
-        .map_err(|error| format!("TLSN runtime attestation request failed: {error}"))?;
+        .map_err(|error| format!("TLSN Worker health request failed: {error}"))?;
     if response.status() != reqwest::StatusCode::OK {
         return Err(format!(
-            "TLSN runtime attestation returned HTTP {}",
+            "TLSN Worker health observation returned HTTP {}",
             response.status()
         ));
     }
     let health = response
         .json::<WorkerHealth>()
         .await
-        .map_err(|error| format!("TLSN runtime attestation JSON is invalid: {error}"))?;
+        .map_err(|error| format!("TLSN Worker health JSON is invalid: {error}"))?;
     validate_health(
         &health,
         expected_deployment_id,
@@ -101,7 +101,7 @@ pub async fn fetch_and_validate(
 
 fn validate_health_endpoint(endpoint: &str) -> Result<(), String> {
     let parsed = Url::parse(endpoint)
-        .map_err(|_| "TLSN runtime attestation endpoint is invalid".to_owned())?;
+        .map_err(|_| "TLSN health observation endpoint is invalid".to_owned())?;
     if parsed.scheme() != "https"
         || parsed.host_str().is_none()
         || !parsed.username().is_empty()
@@ -111,7 +111,7 @@ fn validate_health_endpoint(endpoint: &str) -> Result<(), String> {
         || parsed.path() != "/health"
     {
         return Err(
-            "TLSN runtime attestation endpoint must be an HTTPS /health URL without query or credentials"
+            "TLSN health observation endpoint must be an HTTPS /health URL without query or credentials"
                 .to_owned(),
         );
     }
@@ -128,25 +128,21 @@ fn validate_expected_identity(
     result_key_registry: &str,
 ) -> Result<(), String> {
     if deployment_id.trim().is_empty() || worker_name.trim().is_empty() {
-        return Err("TLSN runtime attestation expected identity is incomplete".to_owned());
+        return Err("TLSN expected Worker health identity is incomplete".to_owned());
     }
     if git_commit_sha.len() != GIT_COMMIT_SHA_LENGTH
         || !git_commit_sha.bytes().all(|byte| byte.is_ascii_hexdigit())
     {
-        return Err("TLSN runtime attestation expected Git SHA is invalid".to_owned());
+        return Err("TLSN expected Worker Git SHA is invalid".to_owned());
     }
     if binding_mode != "fixed_canary" {
-        return Err(
-            "TLSN runtime attestation expected binding mode must be fixed_canary".to_owned(),
-        );
+        return Err("TLSN expected Worker binding mode must be fixed_canary".to_owned());
     }
     if result_public_key_spki.trim().is_empty()
         || result_signer_key_id.trim().is_empty()
         || result_key_registry.trim().is_empty()
     {
-        return Err(
-            "TLSN runtime attestation expected Result signer identity is incomplete".to_owned(),
-        );
+        return Err("TLSN expected Result signer identity is incomplete".to_owned());
     }
     Ok(())
 }
@@ -160,7 +156,7 @@ fn validate_health(
     expected_result_public_key_spki: &str,
     expected_result_signer_key_id: &str,
     expected_result_key_registry: &str,
-) -> Result<RuntimeIdentity, String> {
+) -> Result<WorkerHealthObservation, String> {
     validate_expected_identity(
         expected_deployment_id,
         expected_worker_name,
@@ -171,13 +167,13 @@ fn validate_health(
         expected_result_key_registry,
     )?;
     if !health.ok || health.environment != "production" || health.deployment_role != "canary" {
-        return Err("TLSN runtime attestation is not a production Canary Worker".to_owned());
+        return Err("TLSN health observation is not a production Canary Worker".to_owned());
     }
     let deployment_id = health
         .deployment_id
         .as_deref()
         .filter(|value| !value.is_empty())
-        .ok_or_else(|| "TLSN runtime attestation deployment ID is missing".to_owned())?;
+        .ok_or_else(|| "TLSN health observation deployment ID is missing".to_owned())?;
     let identity = &health.deployment_identity;
     if deployment_id != expected_deployment_id
         || identity.deployment_id.as_deref() != Some(expected_deployment_id)
@@ -186,7 +182,7 @@ fn validate_health(
         || identity.worker_name.as_deref() != Some(expected_worker_name)
     {
         return Err(
-            "TLSN runtime attestation deployment identity does not match APP configuration"
+            "TLSN health observation deployment identity does not match APP configuration"
                 .to_owned(),
         );
     }
@@ -194,18 +190,18 @@ fn validate_health(
         .git_commit_sha
         .as_deref()
         .filter(|value| !value.is_empty())
-        .ok_or_else(|| "TLSN runtime attestation Git SHA is missing".to_owned())?;
+        .ok_or_else(|| "TLSN health observation Git SHA is missing".to_owned())?;
     if git_commit_sha != expected_git_commit_sha
         || health.security_identity.git_commit_sha.as_deref() != Some(expected_git_commit_sha)
     {
-        return Err("TLSN runtime attestation Git SHA does not match APP configuration".to_owned());
+        return Err("TLSN health observation Git SHA does not match APP configuration".to_owned());
     }
     let runtime_version_id = health
         .runtime_version
         .as_ref()
         .and_then(|version| version.version_id.as_deref())
         .filter(|value| !value.is_empty())
-        .ok_or_else(|| "TLSN runtime attestation Cloudflare version ID is missing".to_owned())?;
+        .ok_or_else(|| "TLSN health observation Cloudflare version ID is missing".to_owned())?;
 
     let expected_registry_sha256 =
         URL_SAFE_NO_PAD.encode(Sha256::digest(expected_result_key_registry.as_bytes()));
@@ -218,12 +214,12 @@ fn validate_health(
             != Some(expected_registry_sha256.as_str())
     {
         return Err(
-            "TLSN runtime Result signer identity does not match APP compile-time configuration"
+            "TLSN health Result signer observation does not match APP compile-time configuration"
                 .to_owned(),
         );
     }
 
-    Ok(RuntimeIdentity::new(
+    Ok(WorkerHealthObservation::new(
         expected_deployment_id.to_owned(),
         expected_worker_name.to_owned(),
         expected_git_commit_sha.to_owned(),
@@ -293,7 +289,7 @@ mod tests {
             "result-registry",
         )
         .expect_err("substituted signer key must fail");
-        assert!(error.contains("Result signer identity"));
+        assert!(error.contains("Result signer observation"));
     }
 
     #[test]
@@ -309,7 +305,7 @@ mod tests {
             "substituted-result-registry",
         )
         .expect_err("substituted registry must fail");
-        assert!(error.contains("Result signer identity"));
+        assert!(error.contains("Result signer observation"));
     }
 
     #[test]

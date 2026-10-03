@@ -71,9 +71,12 @@ a separate post-capture predicate. `NON_SYNTHETIC_ALPHA15_PROOF_BUNDLE` remains
 `UNAVAILABLE`; a synthetic positive test is not a gameplay prerequisite.
 
 The current APP deployment values include Rust `option_env!("FUSOU_TLSN_*")`
-compile-time inputs, while the candidate launcher changes runtime TOML. No
-artifact currently binds those compiled values to a supplied preflight package,
-so this validator cannot clear that gap. Similarly, `WASM_BUILD_NETWORK` from
+compile-time inputs, while the candidate launcher changes runtime TOML. APP
+preflight now records secret-free compile-time, runtime, and combined public
+configuration fingerprints in candidate Presentation metadata. Those local
+hashes are not independently authenticated or bound to the deployment manifest
+and supplied preflight package, so this validator cannot clear that gap.
+Similarly, `WASM_BUILD_NETWORK` from
 the current offline wrapper proves only that build subprocess; old untraced
 builds remain `UNKNOWN`, and WASM artifact/source/commit binding is separate.
 Windows GNU cross-compilation and Windows runtime are distinct predicates.

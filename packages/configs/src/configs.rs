@@ -1116,7 +1116,7 @@ pub struct TlsnProxyConfig {
     pub result_signer_key_id: Option<String>,
     pub result_signing_key_registry: Option<String>,
     pub verification_endpoint: Option<String>,
-    pub runtime_attestation_endpoint: Option<String>,
+    pub worker_health_endpoint: Option<String>,
     pub expected_deployment_id: Option<String>,
     pub expected_worker_name: Option<String>,
     pub expected_git_commit_sha: Option<String>,
@@ -1137,7 +1137,7 @@ struct TlsnDeploymentConfig {
     result_signer_key_id: Option<String>,
     result_signing_key_registry: Option<String>,
     verification_endpoint: Option<String>,
-    runtime_attestation_endpoint: Option<String>,
+    worker_health_endpoint: Option<String>,
     expected_deployment_id: Option<String>,
     expected_worker_name: Option<String>,
     expected_git_commit_sha: Option<String>,
@@ -1159,7 +1159,7 @@ fn get_tlsn_deployment_config() -> TlsnDeploymentConfig {
         result_signing_key_registry:
             option_env!("FUSOU_TLSN_RESULT_SIGNING_KEY_REGISTRY").map(str::to_owned),
         verification_endpoint: option_env!("FUSOU_TLSN_VERIFICATION_ENDPOINT").map(str::to_owned),
-        runtime_attestation_endpoint:
+        worker_health_endpoint:
             option_env!("FUSOU_TLSN_RUNTIME_ATTESTATION_ENDPOINT").map(str::to_owned),
         expected_deployment_id: option_env!("FUSOU_TLSN_EXPECTED_DEPLOYMENT_ID").map(str::to_owned),
         expected_worker_name: option_env!("FUSOU_TLSN_EXPECTED_WORKER_NAME").map(str::to_owned),
@@ -1182,7 +1182,7 @@ impl ConfigsProxy {
             result_signer_key_id: deployment.result_signer_key_id,
             result_signing_key_registry: deployment.result_signing_key_registry,
             verification_endpoint: deployment.verification_endpoint,
-            runtime_attestation_endpoint: deployment.runtime_attestation_endpoint,
+            worker_health_endpoint: deployment.worker_health_endpoint,
             expected_deployment_id: deployment.expected_deployment_id,
             expected_worker_name: deployment.expected_worker_name,
             expected_git_commit_sha: deployment.expected_git_commit_sha,
@@ -1222,8 +1222,8 @@ impl ConfigsProxy {
         non_empty_string(get_tlsn_deployment_config().verification_endpoint)
     }
 
-    pub fn get_tlsn_runtime_attestation_endpoint(&self) -> Option<String> {
-        non_empty_string(get_tlsn_deployment_config().runtime_attestation_endpoint)
+    pub fn get_tlsn_worker_health_endpoint(&self) -> Option<String> {
+        non_empty_string(get_tlsn_deployment_config().worker_health_endpoint)
     }
 
     pub fn get_tlsn_expected_deployment_id(&self) -> Option<String> {

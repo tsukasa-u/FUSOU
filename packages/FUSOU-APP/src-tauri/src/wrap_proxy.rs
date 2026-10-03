@@ -8,7 +8,8 @@ use proxy_https::{
     production_tlsn::{
         FilesystemPresentationArtifactSink, HandoffPresentationProvider, OriginTarget,
         OriginTlsConfig, OriginTransportConfig, ProductionTlsnDependencies,
-        RuntimeIdentity, RuntimeIdentifiers, ServerIdentityPolicy,
+        AppPublicConfigurationFingerprints, RuntimeIdentifiers, ServerIdentityPolicy,
+        WorkerHealthObservation,
     },
     real_tlsn::{
         FilesystemResultDelivery, RealAlpha15OriginTransportFactory,
@@ -108,7 +109,8 @@ fn build_production_tlsn_dependencies(
     proxy_target: &str,
     artifact_root: &str,
     auth_manager: &AuthManager<FileStorage>,
-    runtime_identity: RuntimeIdentity,
+    worker_health_observation: WorkerHealthObservation,
+    public_configuration_fingerprints: AppPublicConfigurationFingerprints,
 ) -> Result<ProductionTlsnDependencies, Box<dyn std::error::Error>> {
     let proxy_configs = configs::get_user_configs_for_proxy();
     let origin_inventory = configs::get_tlsn_origin_inventory();
@@ -240,7 +242,11 @@ fn build_production_tlsn_dependencies(
         FilesystemPresentationArtifactSink::new(artifact_root)
             .with_enabled(candidate_capture_enabled),
     ))
-    .with_identifiers(RuntimeIdentifiers::default().with_runtime_identity(runtime_identity)))
+    .with_identifiers(
+        RuntimeIdentifiers::default()
+            .with_worker_health_observation(worker_health_observation)
+            .with_app_public_configuration_fingerprints(public_configuration_fingerprints),
+    ))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -266,21 +272,27 @@ where
 
     let proxy_configs = configs::get_user_configs_for_proxy();
     let use_generated_certs = proxy_configs.certificates.get_use_generated_certs();
+    #[cfg(feature = "tlsn-production")]
+    let mut public_configuration_fingerprints = None;
 
     if proxy_configs.get_tlsn_experiment_enabled() {
         let report = crate::tlsn_preflight::run_current_config_preflight();
         if !report.ready {
             return Err(report.failure_summary().into());
         }
+        #[cfg(feature = "tlsn-production")]
+        {
+            public_configuration_fingerprints = Some(report.public_configuration_fingerprints);
+        }
     }
 
     #[cfg(feature = "tlsn-production")]
     let runtime_identity = if proxy_configs.get_tlsn_experiment_enabled() {
         Some(
-            crate::tlsn_runtime::fetch_and_validate(
+            crate::tlsn_runtime::fetch_and_validate_health_observation(
                 proxy_configs
-                    .get_tlsn_runtime_attestation_endpoint()
-                    .ok_or("tlsn_runtime_attestation_endpoint is required for the TLSN experiment")?
+                    .get_tlsn_worker_health_endpoint()
+                    .ok_or("tlsn_worker_health_endpoint is required for the TLSN experiment")?
                     .as_str(),
                 proxy_configs
                     .get_tlsn_expected_deployment_id()
@@ -309,7 +321,7 @@ where
                     .as_str(),
             )
             .await
-            .map_err(|error| format!("TLSN runtime attestation failed: {error}"))?,
+            .map_err(|error| format!("TLSN Worker health observation failed: {error}"))?,
         )
     } else {
         None
@@ -369,7 +381,19 @@ where
                 &proxy_target,
                 &artifact_root,
                 &auth_manager_for_proxy,
-                runtime_identity.expect("production runtime identity is required"),
+                runtime_identity.expect("production Worker health observation is required"),
+                {
+                    let fingerprints = public_configuration_fingerprints
+                        .expect("TLSN preflight fingerprints are required");
+                    AppPublicConfigurationFingerprints {
+                        schema_version: fingerprints.schema_version,
+                        scope: fingerprints.scope.to_owned(),
+                        compile_time_sha256: fingerprints.compile_time_sha256,
+                        runtime_sha256: fingerprints.runtime_sha256,
+                        combined_sha256: fingerprints.combined_sha256,
+                        candidate_binding_status: fingerprints.candidate_binding_status.to_owned(),
+                    }
+                },
             )?;
             proxy_https::proxy_server_https::serve_proxy_with_production_dependencies(
                 0,
