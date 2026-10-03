@@ -104,9 +104,13 @@ export const POST: APIRoute = async ({ request, cookies, redirect }) => {
   }
 
   const oauthFlowId = crypto.randomUUID();
-  const supabase = createSupabaseServerClient(cookies, cfEnv as Record<string, unknown>, {
-    storageKey: `sb-local-auth-${oauthFlowId}`,
-  });
+  const supabase = createSupabaseServerClient(
+    cookies,
+    cfEnv as Record<string, unknown>,
+    {
+      storageKey: `sb-local-auth-${oauthFlowId}`,
+    },
+  );
 
   // Construct callback URL without custom state - Supabase will add its own state
   const callbackUrl = new URL(`${url_origin}/api/local_auth/callback`);
@@ -116,11 +120,10 @@ export const POST: APIRoute = async ({ request, cookies, redirect }) => {
   callbackUrl.searchParams.set("return_to", returnTo);
   const pendingSyncToken = cookies.get("sb-pending-sync-token")?.value?.trim();
   if (pendingSyncToken && isValidPublicId(pendingSyncToken)) {
-    cookies.set(
-      `sb-pending-sync-token-${oauthFlowId}`,
-      pendingSyncToken,
-      TEMPORARY_COOKIE_OPTIONS,
-    );
+    cookies.set(`sb-pending-sync-token-${oauthFlowId}`, pendingSyncToken, {
+      ...TEMPORARY_COOKIE_OPTIONS,
+      sameSite: "lax",
+    });
   }
   callbackUrl.searchParams.set("oauth_flow", oauthFlowId);
 
