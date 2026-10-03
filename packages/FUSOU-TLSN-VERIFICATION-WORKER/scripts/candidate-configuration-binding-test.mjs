@@ -12,7 +12,10 @@ import {
   createCandidateArtifactIdentity,
   recomputeAppConfigurationCombinedSha256,
 } from "./candidate-artifact-identity.mjs";
-import { candidateConfigurationBindingAssessment } from "./candidate-configuration-binding.mjs";
+import {
+  candidateConfigurationBindingAssessment,
+  isCandidateConfigurationBindingAssessment,
+} from "./candidate-configuration-binding.mjs";
 import { assessCandidateConfigurationBindingInputs } from "./candidate-configuration-binding-inputs.mjs";
 import { createSyntheticCandidateBundle } from "./tlsn-candidate-synthetic-fixture.mjs";
 import { buildReadinessReport } from "./canary-readiness-test.mjs";
@@ -80,12 +83,13 @@ function createVerifiedCandidate({
 
 function approvedFingerprint(identity, fingerprint = identity.app_configuration, overrides = {}) {
   return {
-    schema_version: 1,
+    schema_version: 2,
     scope: "fusou-tlsn-approved-expected-app-configuration-fingerprint",
     combined_sha256: fingerprint.combined_sha256,
     approval_id: "approval-A",
     candidate_artifact_id: identity.candidate_artifact_id,
     candidate_capture_id: identity.candidate_capture_id,
+    issued_at: "2026-10-01T00:00:00.000Z",
     valid_from: "2026-10-01T00:00:00.000Z",
     valid_until: "2026-10-05T00:00:00.000Z",
     provenance_source: "offline-authority-export",
@@ -119,7 +123,7 @@ function currentBinaryIdentity({
 
 function builderReceipt(identity, binary, overrides = {}) {
   return {
-    schema_version: 1,
+    schema_version: 2,
     scope: "fusou-tlsn-trusted-builder-provenance",
     candidate_artifact_id: identity.candidate_artifact_id,
     artifact_identity: binary.artifact_identity,
@@ -129,6 +133,7 @@ function builderReceipt(identity, binary, overrides = {}) {
     toolchain_identity: "rust-1.95.0+locked-node-toolchain",
     builder_identity: "managed-build-service-A",
     builder_signing_key_id: "builder-key-1",
+    issued_at: "2026-10-01T00:00:00.000Z",
     valid_from: "2026-10-01T00:00:00.000Z",
     valid_until: "2026-10-05T00:00:00.000Z",
     evidence_sha256: hash(Buffer.from("builder-evidence-A")),
@@ -150,7 +155,7 @@ const deploymentIdentity = {
 
 function authorityReceipt(identity, binary, overrides = {}) {
   return {
-    schema_version: 1,
+    schema_version: 2,
     scope: "fusou-tlsn-independent-candidate-configuration-authority-receipt",
     candidate_artifact_id: identity.candidate_artifact_id,
     app_configuration_fingerprint: identity.app_configuration,
@@ -166,7 +171,8 @@ function authorityReceipt(identity, binary, overrides = {}) {
     },
     authority_identity: { authority_id: "independent-authority-A", key_id: "authority-key-1" },
     issued_at: "2026-10-03T11:00:00.000Z",
-    expires_at: "2026-10-04T11:00:00.000Z",
+    valid_from: "2026-10-03T11:00:00.000Z",
+    valid_until: "2026-10-04T11:00:00.000Z",
     evidence_sha256: hash(Buffer.from("authority-evidence-A")),
     signature: {
       algorithm: "Ed25519",
@@ -203,6 +209,18 @@ test("verified identity reports local consistency without promoting configuratio
   assert.equal(report.stages.independent_authority_provenance_verified, "BLOCKED_MISSING_AUTHORITY");
 });
 
+test("assessment reports are immutable factory results, not transferable authorization tokens", () => {
+  const report = candidateConfigurationBindingAssessment({ now });
+  assert.equal(isCandidateConfigurationBindingAssessment(report), true);
+  assert.equal(Object.isFrozen(report), true);
+  assert.equal(Object.isFrozen(report.stages), true);
+  assert.throws(() => { report.status = "PASS"; }, TypeError);
+  assert.throws(() => { report.stages.approved_expected_fingerprint_match = "MATCH_VERIFIED"; }, TypeError);
+  assert.equal(report.status, "UNVERIFIED");
+  assert.equal(report.readiness_gate, "BLOCKED");
+  assert.equal(isCandidateConfigurationBindingAssessment(structuredClone(report)), false);
+});
+
 test("actual candidate bundle input reports synthetic local consistency but cannot clear readiness", async () => {
   const root = await mkdtemp(path.join(tmpdir(), "fusou-candidate-binding-input-"));
   try {
@@ -211,6 +229,10 @@ test("actual candidate bundle input reports synthetic local consistency but cann
       environment: { TLSN_CANDIDATE_ARTIFACT_BUNDLE_PATH: fixture.candidateDirectory },
       now,
     });
+    assert.equal(Object.isFrozen(report), true);
+    assert.equal(Object.isFrozen(report.input_sources), true);
+    assert.equal(isCandidateConfigurationBindingAssessment(report), false);
+    assert.throws(() => { report.input_sources.candidate_artifact_bundle = "PASS"; }, TypeError);
     assert.equal(report.input_sources.candidate_artifact_bundle, "PASS_SYNTHETIC_LOCAL_CONSISTENCY");
     assert.equal(report.candidate_artifact_identity.status, "PASS_SYNTHETIC_LOCAL_CONSISTENCY");
     assert.equal(report.status, "UNVERIFIED");
@@ -248,20 +270,42 @@ test("matching external evidence remains unverified without pinned roots and aut
     currentBinaryIdentity: binary,
     trustedBuilderProvenance: builderReceipt(identity, binary),
     independentAuthorityReceipt: authorityReceipt(identity, binary),
+    authenticatedCurrentBinaryIdentity: {
+      status: "VALID",
+      signature_valid: true,
+      authority_trusted: true,
+      source: "AUTHENTICATED_CURRENT_BINARY_IDENTITY",
+      artifact_identity: binary.artifact_identity,
+      binary_sha256: binary.binary_sha256,
+      source_commit: binary.source_commit,
+    },
     expectedSourceCommit: binary.source_commit,
     expectedDeploymentIdentity: deploymentIdentity,
     now,
   });
   assert.equal(report.status, "UNVERIFIED");
   assert.equal(report.stages.approved_expected_fingerprint_match, "MATCH_UNVERIFIED");
+  assert.equal(report.approved_expected_fingerprint.candidate_binding, "MATCH");
+  assert.equal(report.approved_expected_fingerprint.evidence_validity, "CURRENT");
   assert.equal(report.approved_expected_fingerprint.signature_verification, "BLOCKED");
+  assert.equal(report.approved_expected_fingerprint.registry_signer_authorization, "BLOCKED");
   assert.equal(report.approved_expected_fingerprint.authority_trusted, false);
   assert.equal(report.current_binary_identity.source_authentication, "UNVERIFIED");
   assert.equal(report.trusted_builder_provenance.status, "PRESENT_UNVERIFIED");
+  assert.equal(report.trusted_builder_provenance.candidate_binding, "MATCH");
+  assert.equal(report.trusted_builder_provenance.operator_binary_metadata_match, "MATCH");
+  assert.equal(report.trusted_builder_provenance.authenticated_current_binary_match, "NOT_EVALUATED");
+  assert.equal(report.trusted_builder_provenance.registry_signer_authorization, "BLOCKED");
   assert.equal(report.stages.binary_provenance_authenticated, "BLOCKED_NO_TRUSTED_BUILDER");
   assert.equal(report.independent_authority_receipt.status, "BLOCKED_NO_TRUSTED_DEPLOYMENT_IDENTITY");
+  assert.equal(report.independent_authority_receipt.candidate_binding, "MATCH");
+  assert.equal(report.independent_authority_receipt.operator_binary_metadata_match, "MATCH");
+  assert.equal(report.independent_authority_receipt.expected_deployment_identity_match, "MATCH");
+  assert.equal(report.independent_authority_receipt.authenticated_deployment_identity_match, "NOT_EVALUATED");
+  assert.equal(report.independent_authority_receipt.registry_signer_authorization, "BLOCKED");
   assert.equal(report.stages.independent_authority_provenance_verified, "BLOCKED_MISSING_AUTHORITY");
   assert.equal(report.authenticated_current_binary_identity.status, "UNVERIFIED");
+  assert.equal(report.authenticated_current_deployment_identity_status, "UNVERIFIED");
   assert.ok(report.missing_inputs.includes("AUTHENTICATED_CURRENT_BINARY_IDENTITY"));
   assert.equal(report.readiness_gate, "BLOCKED");
   assert.equal(report.readiness_effect, "NONE");
@@ -297,6 +341,7 @@ test("verified Main Worker Runtime Attestation never authenticates the current A
   });
   assert.equal(report.authenticated_current_deployment_identity.source, "VERIFIED_RUNTIME_ATTESTATION");
   assert.equal(report.authenticated_current_deployment_identity.trust_subject, "MAIN_WORKER_RUNTIME_IDENTITY_ONLY");
+  assert.equal(report.authenticated_current_deployment_identity_status, "VALID");
   assert.equal(report.authenticated_current_binary_identity.status, "UNVERIFIED");
   assert.equal(report.current_binary_identity.source_authentication, "UNVERIFIED");
   assert.equal(report.stages.binary_provenance_authenticated, "BLOCKED_NO_TRUSTED_BUILDER");
@@ -491,7 +536,7 @@ test("candidate, approval, builder, binary, and authority Frankensteins are reje
   });
 });
 
-test("expired approval is not reusable for a later capture", () => {
+test("evidence validity is separate from issuance time and expired evidence is rejected", () => {
   const identity = createVerifiedCandidate();
   const binary = currentBinaryIdentity();
   const report = candidateConfigurationBindingAssessment({
@@ -502,6 +547,9 @@ test("expired approval is not reusable for a later capture", () => {
     now,
   });
   assert.equal(report.stages.approved_expected_fingerprint_match, "EXPIRED");
+  assert.equal(report.approved_expected_fingerprint.evidence_validity, "EXPIRED");
+  assert.equal(report.approved_expected_fingerprint.issued_at, "2026-10-01T00:00:00.000Z");
+  assert.equal(report.approved_expected_fingerprint.valid_until, "2026-10-02T00:00:00.000Z");
   assert.equal(report.readiness_gate, "BLOCKED");
   assert.equal(report.readiness_effect, "NONE");
   assert.equal(report.gameplay_effect, "NONE");
@@ -520,41 +568,19 @@ test("expired approval is not reusable for a later capture", () => {
   assert.equal(expiredBuilder.readiness_effect, "NONE");
   assert.equal(expiredBuilder.gameplay_effect, "NONE");
 
-  const runtimeAttestation = {
-    status: "VALID",
-    signature_valid: true,
-    readiness: "CANARY_RUNTIME_IDENTITY_VERIFIED",
-    ...deploymentIdentity,
-    cross_binding: {
-      status: "PASS",
-      workflow_attestation: true,
-      manifest_attestation: true,
-      environment_attestation: true,
-      version_serving: true,
-      attestation_fresh: true,
-    },
-  };
   const expiredAuthority = candidateConfigurationBindingAssessment({
     candidateArtifactIdentity: identity,
-    currentBinaryIdentity: binary,
     independentAuthorityReceipt: authorityReceipt(identity, binary, {
       issued_at: "2026-10-01T00:00:00.000Z",
-      expires_at: "2026-10-02T00:00:00.000Z",
+      valid_from: "2026-10-01T00:00:00.000Z",
+      valid_until: "2026-10-02T00:00:00.000Z",
     }),
-    authenticatedCurrentBinaryIdentity: {
-      status: "VALID",
-      signature_valid: true,
-      authority_trusted: true,
-      source: "AUTHENTICATED_CURRENT_BINARY_IDENTITY",
-      artifact_identity: binary.artifact_identity,
-      binary_sha256: binary.binary_sha256,
-      source_commit: binary.source_commit,
-    },
-    authenticatedCurrentDeploymentIdentity: runtimeAttestation,
     expectedDeploymentIdentity: deploymentIdentity,
     now,
   });
   assert.equal(expiredAuthority.independent_authority_receipt.status, "EXPIRED");
+  assert.equal(expiredAuthority.independent_authority_receipt.evidence_validity, "EXPIRED");
+  assert.equal(expiredAuthority.independent_authority_receipt.valid_until, "2026-10-02T00:00:00.000Z");
   assert.equal(expiredAuthority.readiness_gate, "BLOCKED");
   assert.equal(expiredAuthority.readiness_effect, "NONE");
   assert.equal(expiredAuthority.gameplay_effect, "NONE");
@@ -567,6 +593,146 @@ test("expired approval is not reusable for a later capture", () => {
     now,
   });
   assert.equal(futureReport.stages.approved_expected_fingerprint_match, "NOT_YET_VALID");
+
+  const futureBuilder = candidateConfigurationBindingAssessment({
+    candidateArtifactIdentity: identity,
+    currentBinaryIdentity: binary,
+    trustedBuilderProvenance: builderReceipt(identity, binary, {
+      issued_at: "2026-10-03T12:00:00.000Z",
+      valid_from: "2026-10-04T00:00:00.000Z",
+    }),
+    now,
+  });
+  assert.equal(futureBuilder.trusted_builder_provenance.status, "NOT_YET_VALID");
+
+  const futureAuthority = candidateConfigurationBindingAssessment({
+    candidateArtifactIdentity: identity,
+    currentBinaryIdentity: binary,
+    independentAuthorityReceipt: authorityReceipt(identity, binary, {
+      issued_at: "2026-10-03T12:00:00.000Z",
+      valid_from: "2026-10-04T00:00:00.000Z",
+      valid_until: "2026-10-05T00:00:00.000Z",
+    }),
+    expectedDeploymentIdentity: deploymentIdentity,
+    now,
+  });
+  assert.equal(futureAuthority.independent_authority_receipt.status, "NOT_YET_VALID");
+});
+
+test("evidence validity intervals include valid_from and exclude valid_until for all domains", () => {
+  const identity = createVerifiedCandidate();
+  const binary = currentBinaryIdentity();
+  const startsNow = now.toISOString();
+  const endsLater = "2026-10-03T13:00:00.000Z";
+  const issuedEarlier = "2026-10-03T11:00:00.000Z";
+
+  const approvalAtStart = candidateConfigurationBindingAssessment({
+    candidateArtifactIdentity: identity,
+    approvedExpectedConfigurationFingerprint: approvedFingerprint(identity, identity.app_configuration, {
+      issued_at: startsNow,
+      valid_from: startsNow,
+      valid_until: endsLater,
+    }),
+    now,
+  });
+  assert.equal(approvalAtStart.approved_expected_fingerprint.status, "MATCH_UNVERIFIED");
+  const approvalAtEnd = candidateConfigurationBindingAssessment({
+    candidateArtifactIdentity: identity,
+    approvedExpectedConfigurationFingerprint: approvedFingerprint(identity, identity.app_configuration, {
+      issued_at: issuedEarlier,
+      valid_from: issuedEarlier,
+      valid_until: startsNow,
+    }),
+    now,
+  });
+  assert.equal(approvalAtEnd.approved_expected_fingerprint.status, "EXPIRED");
+
+  const builderAtStart = candidateConfigurationBindingAssessment({
+    candidateArtifactIdentity: identity,
+    currentBinaryIdentity: binary,
+    trustedBuilderProvenance: builderReceipt(identity, binary, {
+      issued_at: startsNow,
+      valid_from: startsNow,
+      valid_until: endsLater,
+    }),
+    now,
+  });
+  assert.equal(builderAtStart.trusted_builder_provenance.status, "PRESENT_UNVERIFIED");
+  const builderAtEnd = candidateConfigurationBindingAssessment({
+    candidateArtifactIdentity: identity,
+    currentBinaryIdentity: binary,
+    trustedBuilderProvenance: builderReceipt(identity, binary, {
+      issued_at: issuedEarlier,
+      valid_from: issuedEarlier,
+      valid_until: startsNow,
+    }),
+    now,
+  });
+  assert.equal(builderAtEnd.trusted_builder_provenance.status, "EXPIRED");
+
+  const authorityAtStart = candidateConfigurationBindingAssessment({
+    candidateArtifactIdentity: identity,
+    currentBinaryIdentity: binary,
+    independentAuthorityReceipt: authorityReceipt(identity, binary, {
+      issued_at: startsNow,
+      valid_from: startsNow,
+      valid_until: endsLater,
+    }),
+    expectedDeploymentIdentity: deploymentIdentity,
+    now,
+  });
+  assert.equal(authorityAtStart.independent_authority_receipt.status, "BLOCKED_NO_TRUSTED_DEPLOYMENT_IDENTITY");
+  const authorityAtEnd = candidateConfigurationBindingAssessment({
+    candidateArtifactIdentity: identity,
+    currentBinaryIdentity: binary,
+    independentAuthorityReceipt: authorityReceipt(identity, binary, {
+      issued_at: issuedEarlier,
+      valid_from: issuedEarlier,
+      valid_until: startsNow,
+    }),
+    expectedDeploymentIdentity: deploymentIdentity,
+    now,
+  });
+  assert.equal(authorityAtEnd.independent_authority_receipt.status, "EXPIRED");
+});
+
+test("assessment rejects future issuance and retroactive validity claims in all domains", () => {
+  const identity = createVerifiedCandidate();
+  const binary = currentBinaryIdentity();
+  const evidenceCases = [
+    {
+      field: "approvedExpectedConfigurationFingerprint",
+      getValue: (overrides) => approvedFingerprint(identity, identity.app_configuration, overrides),
+      resultPath: "approved_expected_fingerprint",
+    },
+    {
+      field: "trustedBuilderProvenance",
+      getValue: (overrides) => builderReceipt(identity, binary, overrides),
+      resultPath: "trusted_builder_provenance",
+    },
+    {
+      field: "independentAuthorityReceipt",
+      getValue: (overrides) => authorityReceipt(identity, binary, overrides),
+      resultPath: "independent_authority_receipt",
+    },
+  ];
+
+  for (const evidenceCase of evidenceCases) {
+    for (const overrides of [
+      { issued_at: "2026-10-03T12:00:00.001Z", valid_from: "2026-10-03T12:00:00.001Z" },
+      { issued_at: "2026-10-03T11:30:00.000Z", valid_from: "2026-10-03T11:00:00.000Z" },
+    ]) {
+      const report = candidateConfigurationBindingAssessment({
+        candidateArtifactIdentity: identity,
+        currentBinaryIdentity: binary,
+        [evidenceCase.field]: evidenceCase.getValue(overrides),
+        expectedDeploymentIdentity: deploymentIdentity,
+        now,
+      });
+      assert.equal(report[evidenceCase.resultPath].status, "INVALID");
+      assert.equal(report.readiness_gate, "BLOCKED");
+    }
+  }
 });
 
 test("unsigned approval is INVALID rather than a matching approval", () => {

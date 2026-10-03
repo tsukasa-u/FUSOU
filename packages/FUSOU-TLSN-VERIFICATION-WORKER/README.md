@@ -89,13 +89,15 @@ authentication. A locally consistent synthetic bundle remains synthetic and
 cannot affect readiness or gameplay.
 
 Readiness and human preflight may locally load a candidate bundle through
-`TLSN_CANDIDATE_ARTIFACT_BUNDLE_PATH`. Signed evidence follows the schema-v2
-contract in `scripts/candidate-configuration-provenance-contract-v2.json`.
+`TLSN_CANDIDATE_ARTIFACT_BUNDLE_PATH`. Signed evidence follows the schema-v3
+contract in `scripts/candidate-configuration-provenance-contract-v3.json`.
 Each evidence kind has a distinct canonical signed-payload scope and explicit
 signed field inventory; the `signature` envelope is excluded from its own
 payload. Payload bytes use `FUSOU-CANONICAL-JSON-V1`; Ed25519 signatures and
 public keys use canonical base64url without padding, with public keys encoded
 as DER SPKI. Signature envelopes include the recomputed signed-payload digest.
+Approval, builder provenance, and independent authority receipt use evidence
+schema v2 and signed-payload scope v2; schema-v1 evidence is rejected.
 
 Optional evidence files are accepted at
 `TLSN_APPROVED_EXPECTED_CONFIGURATION_FINGERPRINT_PATH`,
@@ -109,32 +111,89 @@ carry exact canonical registry bytes, SHA-256 fingerprint, a root signature,
 root identity/public key, scope, and validity. A registry root is trusted only
 when it matches a separate application-configuration pin supplied through the
 programmatic trusted-root boundary; a root or key merely embedded in operator
-JSON is untrusted. No production pins are configured.
+JSON is untrusted. The readiness caller does not load pins from environment or
+operator paths. A trust-bundle path and an application pin are different trust
+domains. No production pins are configured.
 
 Ed25519 signature verification, key lookup, scope, status, validity, digest,
-and root-signed registry checks are implemented. The low-level
+and root-signed registry checks are implemented. Each evidence payload carries
+`issued_at`, which is included in the signed fields. It is an issuer assertion,
+not a trusted timestamp: Ed25519 proves that the signer signed that timestamp
+claim, not that the signature was physically created at that wall-clock time.
+No TSA, transparency timestamp, or equivalent independent issuance-time proof
+is currently consumed. Therefore registry/key authorization at issuance is
+evaluated against the signed claim and must not be reported as independently
+time-attested.
+
+The evidence validity interval is separate from issuance time and is always
+`[valid_from, valid_until)`. `issued_at <= valid_from` is required, so evidence
+may be issued before a future validity start but cannot claim retroactive
+validity. The low-level verifier checks the interval shape but not whether it
+is current; the candidate assessment enforces current validity. The receipt's
+old `expires_at` field is replaced by `valid_from` and `valid_until` in schema
+v2.
+
+Registry `valid_from`/`valid_until` is the signer-authorization window, not a
+registry publication timestamp. The registry must be current at verification
+time and cover evidence `issued_at`. The signer key's `not_before`/`not_after`
+must cover both the signed `issued_at` claim and verification time; current
+status/revocation checks also apply. The root itself must be currently valid.
+All windows use inclusive starts and exclusive ends.
+
+The low-level
 `verifyCandidateConfigurationEvidenceSignature` API verifies the exact signed
 payload and reports `signature_verified`, `registry_signer_authorized`, and
 `authority_trusted` as separate results. `registry_signer_authorized` means the
 key is authorized by the supplied registry for that payload scope and is valid
-at both signedAt and the verification time; it does not authenticate an
+at both issuer-asserted `issued_at` and verification time; it does not authenticate an
 unpinned registry root. `authority_trusted` requires the separate application
 pin. The low-level API deliberately reports
 `evidence_current_validity=NOT_EVALUATED` and
 `candidate_readiness=NOT_EVALUATED`; it does not establish candidate readiness.
 The candidate binding assessment separately checks the evidence's current
 validity interval and all candidate, binary, deployment, and authority
-cross-bindings. All validity windows use inclusive starts and exclusive ends.
-Public-key reuse is rejected within one registry and across authority bundles
-co-evaluated in a single candidate assessment; there is no global registry or
-global uniqueness claim when the other authority bundles are absent.
-`signature_verification=VALID` is reported separately from `authority_trusted`. Candidate binding reaches
-`MATCH_VERIFIED` / `VERIFIED` only with a trusted application pin and all
-cross-bindings. `CURRENT_BINARY_IDENTITY` remains `PRESENT_UNVERIFIED` until an
-independent authenticated binary source is provided. Current deployment
-identity may be derived only from a VALID, fresh, signed Runtime Attestation
+cross-bindings. Its report keeps cryptographic signature verification,
+registry signer authorization, pinned-root trust, evidence validity, candidate
+binding, operator-supplied binary metadata match, authenticated current-binary
+match, and authenticated deployment identity in separate fields. A metadata
+match does not imply an authenticated process-image match. `evidence_sha256` is
+a signed opaque authority-side commitment;
+its referent bytes are not specified or loaded, and this code does not
+recompute it against an external artifact. A valid signature authenticates
+only the authority's digest claim, not an artifact's bytes. The
+`CURRENT_BINARY_IDENTITY.evidence_sha256` value is unsigned operator metadata
+and is likewise not trusted.
+
+Assessment reports are deeply frozen before registration in the module-local
+WeakSet. `isCandidateConfigurationBindingAssessment()` means only “this exact
+immutable object was created by the assessment factory”; it is not a
+revalidation predicate or readiness authorization, and no readiness caller
+uses it. Public-key reuse is rejected within one registry and across authority
+bundles co-evaluated in a single candidate assessment. Registries remain
+independent trust domains; a key reused in an unprovided registry cannot be
+detected. There is no global registry or global uniqueness claim.
+
+`signature_verification=VALID` is reported separately from `authority_trusted`.
+An individual evidence match can be marked verified only under its matching
+application pin and its own required bindings; the overall assessment reaches
+`PASS` only when every readiness predicate is satisfied. Source commit and
+build workflow identify build inputs/process;
+builder provenance authenticates a claim about an artifact identity and raw
+binary SHA-256; neither proves that the artifact was installed or is the image
+currently executing in the APP process. `CURRENT_BINARY_IDENTITY` loaded from
+operator JSON is only an unverified hash/metadata claim. No authenticated
+current-binary verifier or platform measurement source is implemented, and the
+assessment does not accept boolean-shaped authenticated-binary claims. Closing
+that gate requires an independent platform authority to measure the exact
+currently executing process image, bind the fresh process instance to the
+builder-authenticated artifact digest, and authenticate that measurement under
+an application-pinned root. APP configuration fingerprint is a separate
+predicate and does not derive from the binary digest.
+
+Current deployment identity may be derived only from a VALID, fresh, signed Runtime Attestation
 whose workflow, manifest, environment, and serving-version bindings all pass;
-this authenticates Main Worker runtime identity only, not APP binary identity.
+this authenticates Main Worker runtime identity only, not APP binary, Trigger,
+Notary, Auth, Durable Object, R2, Presentation, or gameplay identity.
 No root pins, authenticated binary source, or non-synthetic candidate bundle
 are currently supplied, so readiness and gameplay remain blocked. Test keys
 are explicitly `TEST_FIXTURE_ONLY` and cannot promote a gate.

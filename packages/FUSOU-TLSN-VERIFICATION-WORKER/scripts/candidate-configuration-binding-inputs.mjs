@@ -29,7 +29,6 @@ export async function assessCandidateConfigurationBindingInputs({
   expectedSourceCommit = null,
   expectedDeploymentIdentity = null,
   authenticatedCurrentDeploymentIdentity = null,
-  authenticatedCurrentBinaryIdentity = null,
   trustedAuthorityTrustRoots = {},
   now = new Date(),
 } = {}) {
@@ -69,17 +68,16 @@ export async function assessCandidateConfigurationBindingInputs({
       INDEPENDENT_CANDIDATE_AUTHORITY: evidenceInputs.independent_candidate_authority_trust_bundle.value,
     },
     trustedAuthorityTrustRoots,
-    authenticatedCurrentBinaryIdentity,
     expectedSourceCommit,
     expectedDeploymentIdentity,
     authenticatedCurrentDeploymentIdentity,
     now,
   });
-  return {
+  return Object.freeze({
     ...assessment,
-    input_sources: {
+    input_sources: Object.freeze({
       candidate_artifact_bundle: candidateBundleStatus,
       ...Object.fromEntries(Object.entries(evidenceInputs).map(([name, input]) => [name, input.status])),
-    },
-  };
+    }),
+  });
 }

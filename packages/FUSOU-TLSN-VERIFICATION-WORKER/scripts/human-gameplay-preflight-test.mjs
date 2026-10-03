@@ -2,6 +2,7 @@
 
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
+import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import {
   HUMAN_GAMEPLAY_PREFLIGHT_SCHEMA_VERSION,
@@ -11,6 +12,13 @@ import {
 } from "./human-gameplay-preflight.mjs";
 
 const scriptPath = fileURLToPath(new URL("./human-gameplay-preflight.mjs", import.meta.url));
+const template = JSON.parse(await readFile(new URL("./human-gameplay-preflight.template.json", import.meta.url), "utf8"));
+const templateReport = validateHumanGameplayPreflight(template);
+assert.equal(template.schema_version, HUMAN_GAMEPLAY_PREFLIGHT_SCHEMA_VERSION);
+assert.equal(templateReport.readiness_status, "BLOCKED");
+assert.equal(templateReport.gameplay_authorization, "BLOCKED");
+assert.equal(templateReport.network_access, "NOT_USED");
+assert.equal(templateReport.game_started, false);
 const predicate = (status = "PASS_LIMITED") => ({
   claimed_status: status,
   claimed_cryptographic_verification: "UNVERIFIED",

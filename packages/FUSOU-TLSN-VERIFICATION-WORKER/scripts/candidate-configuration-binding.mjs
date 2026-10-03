@@ -60,6 +60,27 @@ function validateInterval(validFrom, validUntil, now, label) {
   return "CURRENT";
 }
 
+function validateEvidenceTimeline(value, now, label) {
+  const issuedAt = requiredTimestamp(value.issued_at, `${label}.issued_at`);
+  const validFrom = requiredTimestamp(value.valid_from, `${label}.valid_from`);
+  if (issuedAt > now) throw new Error(`${label}.issued_at is after verification time`);
+  if (issuedAt > validFrom) throw new Error(`${label}.issued_at is after valid_from`);
+  return {
+    issued_at: new Date(issuedAt).toISOString(),
+    valid_from: new Date(validFrom).toISOString(),
+    valid_until: value.valid_until,
+    validity: validateInterval(value.valid_from, value.valid_until, now, label),
+  };
+}
+
+function deepFreeze(value) {
+  if (value && typeof value === "object" && !Object.isFrozen(value)) {
+    for (const child of Object.values(value)) deepFreeze(child);
+    Object.freeze(value);
+  }
+  return value;
+}
+
 function validateSignature(signature, label) {
   assertExactKeys(signature, CANDIDATE_CONFIGURATION_PROVENANCE_CONTRACT.nested_fields.signature, `${label}.signature`);
   if (signature.algorithm !== "Ed25519") throw new Error(`${label}.signature.algorithm is invalid`);
@@ -102,8 +123,12 @@ function validateApprovedFingerprint(value, now) {
   if (signature.key_id !== authorityIdentity.key_id) {
     throw new Error("approved fingerprint signature key does not match authority identity");
   }
+  const timeline = validateEvidenceTimeline(value, now, "approved fingerprint");
   return {
-    validity: validateInterval(value.valid_from, value.valid_until, now, "approved fingerprint"),
+    issued_at: timeline.issued_at,
+    valid_from: timeline.valid_from,
+    valid_until: timeline.valid_until,
+    validity: timeline.validity,
     combined_sha256: value.combined_sha256,
     approval_id: value.approval_id,
     candidate_artifact_id: value.candidate_artifact_id,
@@ -126,6 +151,7 @@ function validateCurrentBinaryIdentity(value) {
 
 function validateBuilderProvenance(value, now) {
   validateInput(value, "AUTHENTICATED_BUILDER_PROVENANCE");
+  const timeline = validateEvidenceTimeline(value, now, "builder provenance");
   const validated = {
     candidate_artifact_id: requiredSha256(value.candidate_artifact_id, "builder candidate_artifact_id"),
     artifact_identity: requiredString(value.artifact_identity, "builder artifact_identity"),
@@ -136,7 +162,10 @@ function validateBuilderProvenance(value, now) {
     builder_identity: requiredString(value.builder_identity, "builder builder_identity"),
     builder_signing_key_id: requiredString(value.builder_signing_key_id, "builder builder_signing_key_id"),
     evidence_sha256: requiredSha256(value.evidence_sha256, "builder evidence_sha256"),
-    validity: validateInterval(value.valid_from, value.valid_until, now, "builder provenance"),
+    issued_at: timeline.issued_at,
+    valid_from: timeline.valid_from,
+    valid_until: timeline.valid_until,
+    validity: timeline.validity,
   };
   const signature = validateSignature(value.signature, "builder provenance");
   if (signature.key_id !== validated.builder_signing_key_id) {
@@ -191,10 +220,7 @@ function validateCaptureIdentity(value) {
 
 function validateIndependentAuthorityReceipt(value, now) {
   validateInput(value, "INDEPENDENT_AUTHORITY_RECEIPT");
-  const issuedAt = requiredTimestamp(value.issued_at, "authority receipt issued_at");
-  const expiresAt = requiredTimestamp(value.expires_at, "authority receipt expires_at");
-  if (issuedAt >= expiresAt) throw new Error("authority receipt validity interval is invalid");
-  const validity = now < issuedAt ? "NOT_YET_VALID" : now >= expiresAt ? "EXPIRED" : "CURRENT";
+  const timeline = validateEvidenceTimeline(value, now, "authority receipt");
   const authorityIdentity = validateAuthorityIdentity(value.authority_identity, "authority receipt");
   const signature = validateSignature(value.signature, "authority receipt");
   if (signature.key_id !== authorityIdentity.key_id) {
@@ -209,7 +235,10 @@ function validateIndependentAuthorityReceipt(value, now) {
     authority_id: value.authority_identity.authority_id,
     key_id: value.authority_identity.key_id,
     evidence_sha256: requiredSha256(value.evidence_sha256, "authority receipt evidence_sha256"),
-    validity,
+    issued_at: timeline.issued_at,
+    valid_from: timeline.valid_from,
+    valid_until: timeline.valid_until,
+    validity: timeline.validity,
   };
 }
 
@@ -297,29 +326,6 @@ function authenticatedDeploymentIdentity(value) {
   });
 }
 
-function authenticatedBinaryIdentity(value, binary) {
-  if (!value || typeof value !== "object" || Array.isArray(value) || !binary?.result) return null;
-  if (
-    value.status !== "VALID" ||
-    value.signature_valid !== true ||
-    value.authority_trusted !== true ||
-    value.source !== "AUTHENTICATED_CURRENT_BINARY_IDENTITY"
-  ) return null;
-  if (
-    value.artifact_identity !== binary.result.artifact_identity ||
-    value.binary_sha256 !== binary.result.binary_sha256 ||
-    value.source_commit !== binary.result.source_commit
-  ) return null;
-  return Object.freeze({
-    artifact_identity: value.artifact_identity,
-    binary_sha256: value.binary_sha256,
-    source_commit: value.source_commit,
-    source: value.source,
-    signature_valid: true,
-    authority_trusted: true,
-  });
-}
-
 export function candidateConfigurationBindingAssessment({
   candidateArtifactIdentity = null,
   candidateBundleStatus = null,
@@ -330,7 +336,6 @@ export function candidateConfigurationBindingAssessment({
   independentAuthorityReceipt = null,
   authorityTrustBundles = {},
   trustedAuthorityTrustRoots = {},
-  authenticatedCurrentBinaryIdentity: binaryIdentityEvidence = null,
   expectedSourceCommit = null,
   expectedDeploymentIdentity = null,
   authenticatedCurrentDeploymentIdentity: runtimeDeploymentIdentity = null,
@@ -348,7 +353,7 @@ export function candidateConfigurationBindingAssessment({
   const binary = safelyValidate(currentBinaryIdentity, validateCurrentBinaryIdentity);
   const builder = safelyValidate(trustedBuilderProvenance, (value) => validateBuilderProvenance(value, nowMs));
   const authority = safelyValidate(independentAuthorityReceipt, (value) => validateIndependentAuthorityReceipt(value, nowMs));
-  const authenticatedBinary = authenticatedBinaryIdentity(binaryIdentityEvidence, binary);
+  const authenticatedBinary = null;
   const authenticatedDeployment = authenticatedDeploymentIdentity(runtimeDeploymentIdentity);
   const authoritySignatures = {
     APPROVED_EXPECTED_CONFIGURATION_FINGERPRINT: verifyEvidenceSignature(
@@ -397,13 +402,13 @@ export function candidateConfigurationBindingAssessment({
   let approvedStatus = "BLOCKED_MISSING_INPUT";
   if (approved.status === "INVALID") approvedStatus = "INVALID";
   else if (approved.result) {
-    if (!identity) approvedStatus = "BLOCKED_NO_LOCAL_CANDIDATE";
+    if (approved.result.validity !== "CURRENT") approvedStatus = approved.result.validity;
+    else if (!identity) approvedStatus = "BLOCKED_NO_LOCAL_CANDIDATE";
     else if (
       approved.result.candidate_artifact_id !== identity.candidate_artifact_id ||
       approved.result.candidate_capture_id !== identity.candidate_capture_id ||
       approved.result.combined_sha256 !== identity.app_configuration.combined_sha256
     ) approvedStatus = "MISMATCH";
-    else if (approved.result.validity !== "CURRENT") approvedStatus = approved.result.validity;
     else if (authoritySignatures.APPROVED_EXPECTED_CONFIGURATION_FINGERPRINT.status === "INVALID") approvedStatus = "INVALID";
     else approvedStatus = authoritySignatures.APPROVED_EXPECTED_CONFIGURATION_FINGERPRINT.result?.authority_trusted
       ? "MATCH_VERIFIED"
@@ -413,7 +418,8 @@ export function candidateConfigurationBindingAssessment({
   let builderStatus = "BLOCKED_NO_TRUSTED_BUILDER";
   if (builder.status === "INVALID") builderStatus = "INVALID";
   else if (builder.result) {
-    if (!identity) builderStatus = "BLOCKED_NO_LOCAL_CANDIDATE";
+    if (builder.result.validity !== "CURRENT") builderStatus = builder.result.validity;
+    else if (!identity) builderStatus = "BLOCKED_NO_LOCAL_CANDIDATE";
     else if (!binary.result) builderStatus = binary.status === "INVALID" ? "INVALID_BINARY_IDENTITY" : "BLOCKED_NO_CURRENT_BINARY_IDENTITY";
     else if (
       builder.result.candidate_artifact_id !== identity.candidate_artifact_id ||
@@ -422,7 +428,6 @@ export function candidateConfigurationBindingAssessment({
       builder.result.source_commit !== binary.result.source_commit ||
       (expectedSourceCommit !== null && builder.result.source_commit !== expectedSourceCommit)
     ) builderStatus = "MISMATCH";
-    else if (builder.result.validity !== "CURRENT") builderStatus = builder.result.validity;
     else if (authoritySignatures.AUTHENTICATED_BUILDER_PROVENANCE.status === "INVALID") builderStatus = "INVALID";
     else builderStatus = authoritySignatures.AUTHENTICATED_BUILDER_PROVENANCE.result?.authority_trusted
       ? "VERIFIED"
@@ -432,7 +437,8 @@ export function candidateConfigurationBindingAssessment({
   let authorityStatus = "BLOCKED_MISSING_AUTHORITY";
   if (authority.status === "INVALID") authorityStatus = "INVALID";
   else if (authority.result) {
-    if (!identity) authorityStatus = "BLOCKED_NO_LOCAL_CANDIDATE";
+    if (authority.result.validity !== "CURRENT") authorityStatus = authority.result.validity;
+    else if (!identity) authorityStatus = "BLOCKED_NO_LOCAL_CANDIDATE";
     else if (!binary.result) authorityStatus = binary.status === "INVALID" ? "INVALID_BINARY_IDENTITY" : "BLOCKED_NO_CURRENT_BINARY_IDENTITY";
     else if (
       authority.result.candidate_artifact_id !== identity.candidate_artifact_id ||
@@ -444,12 +450,60 @@ export function candidateConfigurationBindingAssessment({
     else if (!sameObjectFields(authority.result.deployment_identity, authenticatedDeployment)) authorityStatus = "MISMATCH";
     else if (!authenticatedBinary) authorityStatus = "BLOCKED_NO_AUTHENTICATED_CURRENT_BINARY_IDENTITY";
     else if (authority.result.binary_sha256 !== authenticatedBinary.binary_sha256) authorityStatus = "MISMATCH";
-    else if (authority.result.validity !== "CURRENT") authorityStatus = authority.result.validity;
     else if (authoritySignatures.INDEPENDENT_AUTHORITY_RECEIPT.status === "INVALID") authorityStatus = "INVALID";
     else authorityStatus = authoritySignatures.INDEPENDENT_AUTHORITY_RECEIPT.result?.authority_trusted
       ? "VERIFIED"
       : "PRESENT_UNVERIFIED";
   }
+
+  const approvedCandidateBinding = approved.status === "INVALID"
+    ? "INVALID"
+    : !approved.result || !identity
+      ? "NOT_EVALUATED"
+      : approved.result.candidate_artifact_id === identity.candidate_artifact_id
+        && approved.result.candidate_capture_id === identity.candidate_capture_id
+        && approved.result.combined_sha256 === identity.app_configuration.combined_sha256
+        ? "MATCH"
+        : "MISMATCH";
+  const builderCandidateBinding = builder.status === "INVALID"
+    ? "INVALID"
+    : !builder.result || !identity
+      ? "NOT_EVALUATED"
+      : builder.result.candidate_artifact_id === identity.candidate_artifact_id ? "MATCH" : "MISMATCH";
+  const builderOperatorBinaryMetadataMatch = builder.status === "INVALID" || binary.status === "INVALID"
+    ? "INVALID"
+    : !builder.result || !binary.result
+      ? "NOT_EVALUATED"
+      : builder.result.artifact_identity === binary.result.artifact_identity
+        && builder.result.binary_sha256 === binary.result.binary_sha256
+        && builder.result.source_commit === binary.result.source_commit
+        && (expectedSourceCommit === null || builder.result.source_commit === expectedSourceCommit)
+        ? "MATCH"
+        : "MISMATCH";
+  const authorityCandidateBinding = authority.status === "INVALID"
+    ? "INVALID"
+    : !authority.result || !identity
+      ? "NOT_EVALUATED"
+      : authority.result.candidate_artifact_id === identity.candidate_artifact_id
+        && authority.result.combined_sha256 === identity.app_configuration.combined_sha256
+        && sameObjectFields(authority.result.capture_identity, captureIdentityFromVerifiedResult(identity))
+        ? "MATCH"
+        : "MISMATCH";
+  const authorityOperatorBinaryMetadataMatch = authority.status === "INVALID" || binary.status === "INVALID"
+    ? "INVALID"
+    : !authority.result || !binary.result
+      ? "NOT_EVALUATED"
+      : authority.result.binary_sha256 === binary.result.binary_sha256 ? "MATCH" : "MISMATCH";
+  const authorityExpectedDeploymentMatch = authority.status === "INVALID"
+    ? "INVALID"
+    : !authority.result || !expectedDeploymentIdentity
+      ? "NOT_EVALUATED"
+      : sameObjectFields(authority.result.deployment_identity, expectedDeploymentIdentity) ? "MATCH" : "MISMATCH";
+  const authorityAuthenticatedDeploymentMatch = authority.status === "INVALID"
+    ? "INVALID"
+    : !authority.result || !authenticatedDeployment
+      ? "NOT_EVALUATED"
+      : sameObjectFields(authority.result.deployment_identity, authenticatedDeployment) ? "MATCH" : "MISMATCH";
 
   const localStatus = identity
     ? syntheticFixture ? "PASS_SYNTHETIC_LOCAL_CONSISTENCY" : "PASS_LOCAL_CONSISTENCY"
@@ -506,10 +560,18 @@ export function candidateConfigurationBindingAssessment({
     },
     approved_expected_fingerprint: {
       status: approvedStatus,
+      candidate_binding: approvedCandidateBinding,
+      issued_at: approved.result?.issued_at ?? null,
+      valid_from: approved.result?.valid_from ?? null,
+      valid_until: approved.result?.valid_until ?? null,
+      evidence_validity: approved.result?.validity ?? (approved.status === "INVALID" ? "INVALID" : "NOT_EVALUATED"),
       approval_id: approved.result?.approval_id ?? null,
       provenance_source: approved.result?.provenance_source ?? null,
       evidence_sha256: approved.result?.evidence_sha256 ?? null,
       signature_verification: authoritySignatures.APPROVED_EXPECTED_CONFIGURATION_FINGERPRINT.result?.signature_verified
+        ? "VALID"
+        : authoritySignatures.APPROVED_EXPECTED_CONFIGURATION_FINGERPRINT.status,
+      registry_signer_authorization: authoritySignatures.APPROVED_EXPECTED_CONFIGURATION_FINGERPRINT.result?.registry_signer_authorized
         ? "VALID"
         : authoritySignatures.APPROVED_EXPECTED_CONFIGURATION_FINGERPRINT.status,
       signed_payload_sha256: authoritySignatures.APPROVED_EXPECTED_CONFIGURATION_FINGERPRINT.result?.signed_payload_sha256 ?? null,
@@ -536,6 +598,19 @@ export function candidateConfigurationBindingAssessment({
     },
     trusted_builder_provenance: {
       status: builderStatus,
+      candidate_binding: builderCandidateBinding,
+      operator_binary_metadata_match: builderOperatorBinaryMetadataMatch,
+      authenticated_current_binary_match: authenticatedBinary && builder.result
+        ? builder.result.artifact_identity === authenticatedBinary.artifact_identity
+          && builder.result.binary_sha256 === authenticatedBinary.binary_sha256
+          && builder.result.source_commit === authenticatedBinary.source_commit
+          ? "MATCH"
+          : "MISMATCH"
+        : "NOT_EVALUATED",
+      issued_at: builder.result?.issued_at ?? null,
+      valid_from: builder.result?.valid_from ?? null,
+      valid_until: builder.result?.valid_until ?? null,
+      evidence_validity: builder.result?.validity ?? (builder.status === "INVALID" ? "INVALID" : "NOT_EVALUATED"),
       build_workflow_identity: builder.result?.build_workflow_identity ?? null,
       toolchain_identity: builder.result?.toolchain_identity ?? null,
       builder_identity: builder.result?.builder_identity ?? null,
@@ -546,6 +621,9 @@ export function candidateConfigurationBindingAssessment({
       signature_verification: authoritySignatures.AUTHENTICATED_BUILDER_PROVENANCE.result?.signature_verified
         ? "VALID"
         : authoritySignatures.AUTHENTICATED_BUILDER_PROVENANCE.status,
+      registry_signer_authorization: authoritySignatures.AUTHENTICATED_BUILDER_PROVENANCE.result?.registry_signer_authorized
+        ? "VALID"
+        : authoritySignatures.AUTHENTICATED_BUILDER_PROVENANCE.status,
       signed_payload_sha256: authoritySignatures.AUTHENTICATED_BUILDER_PROVENANCE.result?.signed_payload_sha256 ?? null,
       registry_sha256: authoritySignatures.AUTHENTICATED_BUILDER_PROVENANCE.result?.registry_sha256 ?? null,
       authority_trusted: authoritySignatures.AUTHENTICATED_BUILDER_PROVENANCE.result?.authority_trusted ?? false,
@@ -554,10 +632,21 @@ export function candidateConfigurationBindingAssessment({
     },
     independent_authority_receipt: {
       status: authorityStatus,
+      candidate_binding: authorityCandidateBinding,
+      operator_binary_metadata_match: authorityOperatorBinaryMetadataMatch,
+      expected_deployment_identity_match: authorityExpectedDeploymentMatch,
+      authenticated_deployment_identity_match: authorityAuthenticatedDeploymentMatch,
+      issued_at: authority.result?.issued_at ?? null,
+      valid_from: authority.result?.valid_from ?? null,
+      valid_until: authority.result?.valid_until ?? null,
+      evidence_validity: authority.result?.validity ?? (authority.status === "INVALID" ? "INVALID" : "NOT_EVALUATED"),
       authority_id: authority.result?.authority_id ?? null,
       key_id: authority.result?.key_id ?? null,
       evidence_sha256: authority.result?.evidence_sha256 ?? null,
       signature_verification: authoritySignatures.INDEPENDENT_AUTHORITY_RECEIPT.result?.signature_verified
+        ? "VALID"
+        : authoritySignatures.INDEPENDENT_AUTHORITY_RECEIPT.status,
+      registry_signer_authorization: authoritySignatures.INDEPENDENT_AUTHORITY_RECEIPT.result?.registry_signer_authorized
         ? "VALID"
         : authoritySignatures.INDEPENDENT_AUTHORITY_RECEIPT.status,
       signed_payload_sha256: authoritySignatures.INDEPENDENT_AUTHORITY_RECEIPT.result?.signed_payload_sha256 ?? null,
@@ -577,14 +666,17 @@ export function candidateConfigurationBindingAssessment({
     ],
     missing_inputs: missingInputs,
     authenticated_current_deployment_identity: authenticatedDeployment,
+    authenticated_current_deployment_identity_status: authenticatedDeployment ? "VALID" : "UNVERIFIED",
     readiness_gate: readinessEligible ? "PASS" : "BLOCKED",
     readiness_effect: readinessEligible ? "PASS" : "NONE",
     gameplay_effect: "NONE",
   };
+  deepFreeze(report);
   VERIFIED_ASSESSMENTS.add(report);
   return report;
 }
 
+// This checks immutable factory provenance only; readiness does not use it as an authorization predicate.
 export function isCandidateConfigurationBindingAssessment(value) {
   return !!value && VERIFIED_ASSESSMENTS.has(value);
 }

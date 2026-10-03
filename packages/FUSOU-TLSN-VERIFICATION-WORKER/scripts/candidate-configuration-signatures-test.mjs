@@ -38,12 +38,13 @@ function sampleEvidence(inputName) {
   const identity = signerIdentity(inputName);
   if (inputName === "APPROVED_EXPECTED_CONFIGURATION_FINGERPRINT") {
     return {
-      schema_version: 1,
+      schema_version: contract.inputs[inputName].schema_version,
       scope: contract.inputs[inputName].scope,
       combined_sha256: hash(Buffer.from("fingerprint-A")),
       approval_id: "approval-record-A",
       candidate_artifact_id: hash(Buffer.from("candidate-A")),
       candidate_capture_id: "capture-A",
+      issued_at: "2026-10-01T00:00:00.000Z",
       valid_from: "2026-10-01T00:00:00.000Z",
       valid_until: "2026-10-05T00:00:00.000Z",
       provenance_source: "configuration-approval-system",
@@ -54,7 +55,7 @@ function sampleEvidence(inputName) {
   }
   if (inputName === "AUTHENTICATED_BUILDER_PROVENANCE") {
     return {
-      schema_version: 1,
+      schema_version: contract.inputs[inputName].schema_version,
       scope: contract.inputs[inputName].scope,
       candidate_artifact_id: hash(Buffer.from("candidate-A")),
       artifact_identity: "APP-A",
@@ -64,6 +65,7 @@ function sampleEvidence(inputName) {
       toolchain_identity: "rust-1.95.0",
       builder_identity: identity.authority_id,
       builder_signing_key_id: identity.key_id,
+      issued_at: "2026-10-01T00:00:00.000Z",
       valid_from: "2026-10-01T00:00:00.000Z",
       valid_until: "2026-10-05T00:00:00.000Z",
       evidence_sha256: hash(Buffer.from("builder-evidence-A")),
@@ -71,7 +73,7 @@ function sampleEvidence(inputName) {
     };
   }
   return {
-    schema_version: 1,
+    schema_version: contract.inputs[inputName].schema_version,
     scope: contract.inputs[inputName].scope,
     candidate_artifact_id: hash(Buffer.from("candidate-A")),
     app_configuration_fingerprint: {
@@ -94,8 +96,9 @@ function sampleEvidence(inputName) {
       binding_identifier: hash(Buffer.from("binding-A")),
     },
     authority_identity: identity,
-    issued_at: "2026-10-03T11:00:00.000Z",
-    expires_at: "2026-10-04T11:00:00.000Z",
+    issued_at: "2026-10-01T00:00:00.000Z",
+    valid_from: "2026-10-01T00:00:00.000Z",
+    valid_until: "2026-10-05T00:00:00.000Z",
     evidence_sha256: hash(Buffer.from("authority-evidence-A")),
     signature: null,
   };
@@ -203,7 +206,14 @@ function verify(inputName, evidence, bundle, options = {}) {
 
 test("signed payload schema has explicit domain, canonicalization, and no signature field", () => {
   assert.equal(contract.time_semantics.validity_interval, "inclusive-start-exclusive-end");
-  assert.equal(contract.time_semantics.registry_must_cover_evidence_signed_at, true);
+  assert.equal(contract.schema_version, 3);
+  assert.equal(contract.time_semantics.issuance_timestamp_field, "issued_at");
+  assert.equal(contract.time_semantics.issuance_timestamp_is_signed_assertion, true);
+  assert.equal(contract.time_semantics.issuance_timestamp_is_independently_time_attested, false);
+  assert.equal(contract.time_semantics.registry_must_cover_evidence_issued_at, true);
+  assert.equal(contract.time_semantics.registry_validity_meaning, "SIGNER_AUTHORIZATION_WINDOW");
+  assert.equal(contract.evidence_digest_semantics.referenced_artifact_loaded, false);
+  assert.equal(contract.evidence_digest_semantics.digest_recomputed, false);
   assert.equal(contract.time_semantics.low_level_signature_verifier_candidate_readiness, "NOT_EVALUATED");
   for (const inputName of authorityNames) {
     const inputContract = contract.inputs[inputName];
@@ -212,6 +222,9 @@ test("signed payload schema has explicit domain, canonicalization, and no signat
     const parsed = JSON.parse(payload.toString("utf8"));
     assert.equal(parsed.canonicalization, "FUSOU-CANONICAL-JSON-V1");
     assert.equal(parsed.scope, inputContract.signed_payload_scope);
+    assert.equal(inputContract.signature_time_field, "issued_at");
+    assert.ok(inputContract.evidence_validity_fields.includes("valid_from"));
+    assert.ok(inputContract.evidence_validity_fields.includes("valid_until"));
     assert.deepEqual(
       Object.keys(parsed.signed_fields).sort(),
       inputContract.required_fields.filter((field) => field !== "signature").sort(),
@@ -227,6 +240,8 @@ test("changing any authority-domain security field invalidates its original sign
       (evidence) => { evidence.candidate_artifact_id = hash(Buffer.from("other-candidate")); },
       (evidence) => { evidence.candidate_capture_id = "capture-other"; },
       (evidence) => { evidence.combined_sha256 = hash(Buffer.from("other-fingerprint")); },
+      (evidence) => { evidence.issued_at = "2026-10-02T00:00:00.000Z"; },
+      (evidence) => { evidence.valid_from = "2026-10-02T00:00:00.000Z"; },
       (evidence) => { evidence.valid_until = "2026-10-06T00:00:00.000Z"; },
       (evidence) => { evidence.evidence_sha256 = hash(Buffer.from("other-evidence")); },
       (evidence) => { evidence.authority_identity.authority_id = "other-authority"; },
@@ -240,6 +255,8 @@ test("changing any authority-domain security field invalidates its original sign
       (evidence) => { evidence.toolchain_identity = "other-toolchain"; },
       (evidence) => { evidence.builder_identity = "other-builder"; },
       (evidence) => { evidence.builder_signing_key_id = "other-key"; },
+      (evidence) => { evidence.issued_at = "2026-10-02T00:00:00.000Z"; },
+      (evidence) => { evidence.valid_from = "2026-10-02T00:00:00.000Z"; },
       (evidence) => { evidence.valid_until = "2026-10-06T00:00:00.000Z"; },
       (evidence) => { evidence.evidence_sha256 = hash(Buffer.from("other-evidence")); },
     ],
@@ -251,7 +268,9 @@ test("changing any authority-domain security field invalidates its original sign
       (evidence) => { evidence.capture_identity.request_id = "other-request"; },
       (evidence) => { evidence.authority_identity.authority_id = "other-authority"; },
       (evidence) => { evidence.authority_identity.key_id = "other-key"; },
-      (evidence) => { evidence.expires_at = "2026-10-06T00:00:00.000Z"; },
+      (evidence) => { evidence.issued_at = "2026-10-02T00:00:00.000Z"; },
+      (evidence) => { evidence.valid_from = "2026-10-02T00:00:00.000Z"; },
+      (evidence) => { evidence.valid_until = "2026-10-06T00:00:00.000Z"; },
       (evidence) => { evidence.evidence_sha256 = hash(Buffer.from("other-evidence")); },
     ],
   };
@@ -338,54 +357,107 @@ test("valid fixture signature verifies cryptographically but fixture root is not
   }
 });
 
-test("current registry validity must contain signedAt for every evidence domain", () => {
+test("temporal Frankenstein evidence is rejected across all authority domains", () => {
   for (const inputName of authorityNames) {
     const signer = keyPair();
-    const setSignedAt = (evidence, value) => {
-      if (inputName === "INDEPENDENT_AUTHORITY_RECEIPT") {
-        evidence.issued_at = value;
-        evidence.expires_at = "2026-10-05T00:00:00.000Z";
-      } else {
-        evidence.valid_from = value;
-        evidence.valid_until = "2026-10-05T00:00:00.000Z";
-      }
+    const setTimeline = (evidence, issuedAt, validFrom = issuedAt, validUntil = "2026-10-05T00:00:00.000Z") => {
+      evidence.issued_at = issuedAt;
+      evidence.valid_from = validFrom;
+      evidence.valid_until = validUntil;
       return signEvidence(inputName, evidence, signer);
     };
-    const baseEvidence = setSignedAt(sampleEvidence(inputName), "2026-10-03T11:45:00.000Z");
     const { bundle, rootPrivateKey } = trustBundle(inputName, signer);
-    const registryWindowBundle = (validFrom, validUntil) => {
+    const registryWindowBundle = (validFrom, validUntil, keyNotBefore = "2026-01-01T00:00:00.000Z", keyNotAfter = "2027-01-01T00:00:00.000Z") => {
       const registry = JSON.parse(Buffer.from(bundle.registry_payload_base64url, "base64url").toString("utf8"));
       registry.signed_fields.valid_from = validFrom;
       registry.signed_fields.valid_until = validUntil;
+      registry.signed_fields.keys[0].not_before = keyNotBefore;
+      registry.signed_fields.keys[0].not_after = keyNotAfter;
       return replaceRegistryPayload(bundle, rootPrivateKey, registry);
     };
 
     const currentRegistry = registryWindowBundle("2026-10-03T11:30:00.000Z", "2026-10-03T12:30:00.000Z");
-    const validResult = verify(inputName, baseEvidence, currentRegistry);
-    assert.equal(validResult.signature_verified, true, `${inputName} signed inside registry interval`);
+    const currentEvidence = setTimeline(sampleEvidence(inputName), "2026-10-03T11:45:00.000Z");
+    const validResult = verify(inputName, currentEvidence, currentRegistry);
+    assert.equal(validResult.signature_verified, true, `${inputName} issued in the current registry window`);
+    assert.equal(validResult.evidence_issued_at, currentEvidence.issued_at);
+    assert.equal(validResult.evidence_issued_at_basis, "SIGNED_ISSUER_ASSERTION_NOT_INDEPENDENT_TIMESTAMP");
 
-    const beforeActivation = setSignedAt(sampleEvidence(inputName), "2026-10-03T11:15:00.000Z");
+    const beforeActivation = setTimeline(sampleEvidence(inputName), "2026-10-03T11:15:00.000Z");
     assert.throws(
       () => verify(inputName, beforeActivation, currentRegistry),
-      /evidence signedAt is outside authority registry validity interval/,
-      `${inputName} signature before registry activation must fail`,
+      /evidence issued_at is outside authority registry validity interval/,
+      `${inputName} issuer timestamp before registry activation must fail`,
     );
 
-    const afterExpiry = setSignedAt(sampleEvidence(inputName), "2026-10-03T12:45:00.000Z");
+    const futureEvidence = setTimeline(
+      sampleEvidence(inputName),
+      "2026-10-03T11:45:00.000Z",
+      "2026-10-04T00:00:00.000Z",
+    );
+    assert.equal(verify(inputName, futureEvidence, currentRegistry).signature_verified, true);
+    const retroactiveEvidence = setTimeline(
+      sampleEvidence(inputName),
+      "2026-10-03T11:45:00.000Z",
+      "2026-10-03T11:30:00.000Z",
+    );
+    assert.throws(() => verify(inputName, retroactiveEvidence, currentRegistry), /issued_at is after valid_from/);
+    const emptyEvidenceWindow = setTimeline(
+      sampleEvidence(inputName),
+      "2026-10-03T11:45:00.000Z",
+      "2026-10-03T11:45:00.000Z",
+      "2026-10-03T11:45:00.000Z",
+    );
+    assert.throws(() => verify(inputName, emptyEvidenceWindow, currentRegistry), /evidence validity interval is invalid/);
+    const futureIssuedEvidence = setTimeline(sampleEvidence(inputName), "2026-10-03T12:00:00.001Z");
     assert.throws(
-      () => verify(inputName, afterExpiry, currentRegistry),
-      /evidence signedAt is outside authority registry validity interval/,
-      `${inputName} signature after registry expiry must fail even while registry is current now`,
+      () => verify(inputName, futureIssuedEvidence, currentRegistry),
+      /issued_at is after verification time/,
+      `${inputName} cannot claim issuance after verification time`,
     );
 
-    const inclusiveStart = setSignedAt(sampleEvidence(inputName), "2026-10-03T11:30:00.000Z");
+    const inclusiveStart = setTimeline(sampleEvidence(inputName), "2026-10-03T11:30:00.000Z");
     assert.equal(verify(inputName, inclusiveStart, currentRegistry).signature_verified, true);
-    const exclusiveEnd = setSignedAt(sampleEvidence(inputName), "2026-10-03T12:30:00.000Z");
+    const exclusiveEnd = setTimeline(sampleEvidence(inputName), "2026-10-03T12:30:00.000Z");
     assert.throws(
-      () => verify(inputName, exclusiveEnd, currentRegistry),
-      /evidence signedAt is outside authority registry validity interval/,
+      () => verify(inputName, exclusiveEnd, registryWindowBundle("2026-10-03T11:30:00.000Z", "2026-10-03T12:30:00.000Z"), {
+        now: new Date("2026-10-03T12:30:00.000Z"),
+      }),
+      /authority registry is outside its validity interval/,
       `${inputName} registry valid_until is exclusive`,
     );
+
+    const keyNotValidAtIssue = registryWindowBundle(
+      "2026-10-03T10:00:00.000Z",
+      "2026-10-03T13:00:00.000Z",
+      "2026-10-03T11:50:00.000Z",
+    );
+    assert.throws(() => verify(inputName, currentEvidence, keyNotValidAtIssue), /signer key is not valid at evidence issued_at/);
+
+    const keyInclusiveStart = registryWindowBundle(
+      "2026-10-03T10:00:00.000Z",
+      "2026-10-03T13:00:00.000Z",
+      currentEvidence.issued_at,
+    );
+    assert.equal(verify(inputName, currentEvidence, keyInclusiveStart).signature_verified, true);
+    const keyExclusiveEnd = registryWindowBundle(
+      "2026-10-03T10:00:00.000Z",
+      "2026-10-03T13:00:00.000Z",
+      "2026-10-03T11:00:00.000Z",
+      currentEvidence.issued_at,
+    );
+    assert.throws(() => verify(inputName, currentEvidence, keyExclusiveEnd), /signer key is not valid at evidence issued_at/);
+
+    const keyExpiredNow = registryWindowBundle(
+      "2026-10-03T10:00:00.000Z",
+      "2026-10-03T13:00:00.000Z",
+      "2026-10-03T11:00:00.000Z",
+      "2026-10-03T11:59:59.999Z",
+    );
+    assert.throws(() => verify(inputName, currentEvidence, keyExpiredNow), /signer key is not currently valid/);
+
+    const registryExpiredNow = registryWindowBundle("2026-10-03T11:30:00.000Z", "2026-10-03T11:59:59.999Z");
+    assert.throws(() => verify(inputName, currentEvidence, registryExpiredNow), /authority registry is outside its validity interval/);
   }
 });
 
@@ -394,6 +466,7 @@ test("registry and signer key time failures are distinct", () => {
   const signer = keyPair();
   const evidence = signEvidence(inputName, {
     ...sampleEvidence(inputName),
+    issued_at: "2026-10-03T11:00:00.000Z",
     valid_from: "2026-10-03T11:00:00.000Z",
     valid_until: "2026-10-05T00:00:00.000Z",
   }, signer);
@@ -406,7 +479,7 @@ test("registry and signer key time failures are distinct", () => {
   const registryCurrentButKeyNotValidAtSignedAt = replaceRegistryPayload(bundle, rootPrivateKey, registry);
   assert.throws(
     () => verify(inputName, evidence, registryCurrentButKeyNotValidAtSignedAt),
-    /signer key is not valid at evidence signedAt/,
+    /signer key is not valid at evidence issued_at/,
   );
 
   registry.signed_fields.keys[0].not_before = "2026-10-01T00:00:00.000Z";
@@ -416,7 +489,7 @@ test("registry and signer key time failures are distinct", () => {
   const registryActivationAfterSignedAt = replaceRegistryPayload(bundle, rootPrivateKey, registry);
   assert.throws(
     () => verify(inputName, evidence, registryActivationAfterSignedAt),
-    /evidence signedAt is outside authority registry validity interval/,
+    /evidence issued_at is outside authority registry validity interval/,
   );
   assert.equal(verify(inputName, evidence, signerKeyCurrentButRegistryNotValidAtSignedAt).signature_verified, true);
 });
@@ -539,7 +612,7 @@ test("wrong root, invalid registry digest, and expired or future root/key are re
       value: sign(null, registryBytes, root.privateKey).toString("base64url"),
     },
   };
-  assert.throws(() => verify(inputName, futureEvidence, resignedRegistry), /signer key is not valid at evidence signedAt/);
+  assert.throws(() => verify(inputName, futureEvidence, resignedRegistry), /signer key is not valid at evidence issued_at/);
 
   const expiredSigner = keyPair();
   const expiredEvidence = signedEvidence(inputName, expiredSigner);
@@ -667,6 +740,7 @@ test("assessment separates valid signature verification from authority trust", (
     });
     assert.equal(assessment.status, "UNVERIFIED");
     assert.equal(assessment[reportKey].signature_verification, "VALID");
+    assert.equal(assessment[reportKey].registry_signer_authorization, "VALID");
     assert.equal(assessment[reportKey].authority_trusted, false);
   }
 });
