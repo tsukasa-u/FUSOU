@@ -70,16 +70,46 @@ does not establish human-play provenance. Exact Presentation verification is
 a separate post-capture predicate. `NON_SYNTHETIC_ALPHA15_PROOF_BUNDLE` remains
 `UNAVAILABLE`; a synthetic positive test is not a gameplay prerequisite.
 
-The current APP deployment values include Rust `option_env!("FUSOU_TLSN_*")`
-compile-time inputs, while the candidate launcher changes runtime TOML. APP
-preflight now records secret-free compile-time, runtime, and combined public
-configuration fingerprints in candidate Presentation metadata. Those local
-hashes are not independently authenticated or bound to the deployment manifest
-and supplied preflight package, so this validator cannot clear that gap.
-Similarly, `WASM_BUILD_NETWORK` from
-the current offline wrapper proves only that build subprocess; old untraced
-builds remain `UNKNOWN`, and WASM artifact/source/commit binding is separate.
-Windows GNU cross-compilation and Windows runtime are distinct predicates.
+The APP public configuration fingerprint uses the shared schema-v2 contract in
+`scripts/app-configuration-fingerprint-contract-v2.json`. It fixes the scope,
+compile-time/runtime field inventories, canonical JSON encoding, projection
+hash preimages, and combined hash preimage. Rust APP preflight and Node
+candidate verification share a golden test vector. Candidate metadata carries
+the compile-time and runtime projection digests; the verifier validates their
+canonical SHA-256 encodings and recomputes `combined_sha256` from both digests.
+The raw configuration values are intentionally not included, so this does not
+recompute either projection from a supplied running configuration or
+independently authenticate the APP binary.
+
+Candidate artifact identity schema v2 separately binds `request_sha256` and
+`authenticated_request_sha256`, as well as request/session/binding IDs, capture
+time, the APP combined fingerprint, and exact Presentation/metadata bytes. The
+finalizer reports this as `LOCAL_CONSISTENCY`; it is not independent
+authentication. A locally consistent synthetic bundle remains synthetic and
+cannot affect readiness or gameplay.
+
+Readiness and human preflight may locally load a candidate bundle through
+`TLSN_CANDIDATE_ARTIFACT_BUNDLE_PATH`. Optional schema-v1 files are accepted at
+`TLSN_APPROVED_EXPECTED_CONFIGURATION_FINGERPRINT_PATH`,
+`TLSN_CURRENT_BINARY_IDENTITY_PATH`,
+`TLSN_TRUSTED_BUILDER_PROVENANCE_PATH`, and
+`TLSN_INDEPENDENT_AUTHORITY_RECEIPT_PATH`; exact fields are defined in
+`scripts/candidate-configuration-provenance-contract-v1.json`. The contracts
+bind approval to a candidate/capture, builder evidence to candidate/artifact
+identity and binary hash/source commit/workflow/toolchain/builder, and authority receipts to the
+candidate fingerprint, binary, deployment, and capture/session/request/binding
+identity. Declared signature key IDs must match their declared authority or
+builder signing key; this is only an internal consistency check. Current code
+only validates shape, freshness, and cross-binding.
+Approval, builder, and independent authority signature verifiers/trust roots
+are not implemented, so presence or a matching digest is never `PASS` and
+`candidate_configuration_binding` remains `UNVERIFIED` with its readiness gate
+`BLOCKED`.
+
+`WASM_BUILD_NETWORK` from the current offline wrapper proves only that build
+subprocess; old untraced builds remain `UNKNOWN`, and WASM artifact/source/commit
+binding is separate. Windows GNU cross-compilation and Windows runtime are
+distinct predicates.
 
 The offline contract matrix is `pnpm --dir
 packages/FUSOU-TLSN-VERIFICATION-WORKER test:human-gameplay-preflight`. Its

@@ -33,6 +33,8 @@
     "test:canary-operational-smoke": "node scripts/canary-operational-smoke-test.mjs && node scripts/canary-operational-smoke-semantic-test.mjs && pnpm run test:canary-existing-proofs-offline",
     "test:canary-existing-proofs-offline": "node scripts/canary-operational-smoke-existing-proofs-test.mjs && pnpm run test:tlsn-candidate-finalize",
     "test:tlsn-candidate-finalize": "node scripts/tlsn-candidate-finalize-test.mjs",
+    "test:app-configuration-fingerprint-contract": "node scripts/app-configuration-fingerprint-contract-test.mjs",
+    "test:candidate-configuration-binding": "node scripts/candidate-configuration-binding-test.mjs",
     "tlsn:candidate:finalize": "node scripts/tlsn-candidate-finalize.mjs",
     "run:canary-operational-smoke": "node scripts/canary-operational-smoke-runner.mjs",
     "test:canary-verifier-identity": "node scripts/canary-verifier-identity-test.mjs",

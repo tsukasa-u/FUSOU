@@ -5,6 +5,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { verifyLocalWasmArtifactProvenance } from "./wasm-provenance.mjs";
 import { candidateConfigurationBindingAssessment } from "./candidate-configuration-binding.mjs";
+import { assessCandidateConfigurationBindingInputs } from "./candidate-configuration-binding-inputs.mjs";
 
 export const HUMAN_GAMEPLAY_PREFLIGHT_SCHEMA_VERSION = 3;
 export const HUMAN_GAMEPLAY_PREFLIGHT_SCOPE = "tlsn-human-gameplay-preflight";
@@ -352,6 +353,7 @@ if (process.argv[1] && resolve(process.argv[1]) === scriptPath) {
     readFile(resolve(inputPath), "utf8")
       .then(async (raw) => {
         const report = validateHumanGameplayPreflight(raw);
+        report.candidate_configuration_binding_assessment = await assessCandidateConfigurationBindingInputs();
         report.wasm_artifact_local_consistency = await verifyLocalWasmArtifactProvenance({
           workerDirectory: resolve(dirname(scriptPath), ".."),
         });

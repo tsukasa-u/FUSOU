@@ -1,0 +1,90 @@
+{
+  "schema_version": 1,
+  "scope": "fusou-tlsn-candidate-configuration-provenance-input-contract",
+  "authority_verification": "NOT_IMPLEMENTED",
+  "inputs": {
+    "APPROVED_EXPECTED_CONFIGURATION_FINGERPRINT": {
+      "schema_version": 1,
+      "scope": "fusou-tlsn-approved-expected-app-configuration-fingerprint",
+      "required_fields": [
+        "schema_version",
+        "scope",
+        "combined_sha256",
+        "approval_id",
+        "candidate_artifact_id",
+        "candidate_capture_id",
+        "valid_from",
+        "valid_until",
+        "provenance_source",
+        "evidence_sha256",
+        "authority_identity",
+        "signature"
+      ]
+    },
+    "CURRENT_BINARY_IDENTITY": {
+      "schema_version": 1,
+      "scope": "fusou-tlsn-current-binary-identity",
+      "required_fields": [
+        "schema_version",
+        "scope",
+        "artifact_identity",
+        "binary_sha256",
+        "source_commit",
+        "provenance_source",
+        "evidence_sha256"
+      ]
+    },
+    "AUTHENTICATED_BUILDER_PROVENANCE": {
+      "schema_version": 1,
+      "scope": "fusou-tlsn-trusted-builder-provenance",
+      "required_fields": [
+        "schema_version",
+        "scope",
+        "candidate_artifact_id",
+        "artifact_identity",
+        "binary_sha256",
+        "source_commit",
+        "build_workflow_identity",
+        "toolchain_identity",
+        "builder_identity",
+        "builder_signing_key_id",
+        "valid_from",
+        "valid_until",
+        "evidence_sha256",
+        "signature"
+      ]
+    },
+    "INDEPENDENT_AUTHORITY_RECEIPT": {
+      "schema_version": 1,
+      "scope": "fusou-tlsn-independent-candidate-configuration-authority-receipt",
+      "required_fields": [
+        "schema_version",
+        "scope",
+        "candidate_artifact_id",
+        "app_configuration_fingerprint",
+        "binary_sha256",
+        "deployment_identity",
+        "capture_identity",
+        "authority_identity",
+        "issued_at",
+        "expires_at",
+        "evidence_sha256",
+        "signature"
+      ]
+    }
+  },
+  "nested_fields": {
+    "authority_identity": ["authority_id", "key_id"],
+    "signature": ["algorithm", "key_id", "value"],
+    "app_configuration_fingerprint": ["schema_version", "scope", "combined_sha256"],
+    "deployment_identity": ["deployment_id", "worker_name", "git_commit_sha"],
+    "capture_identity": [
+      "candidate_capture_id",
+      "session_id",
+      "request_id",
+      "request_sha256",
+      "authenticated_request_sha256",
+      "binding_identifier"
+    ]
+  }
+}

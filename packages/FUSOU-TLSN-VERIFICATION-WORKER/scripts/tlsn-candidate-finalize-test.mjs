@@ -9,7 +9,11 @@ import { createSyntheticCandidateBundle } from "./tlsn-candidate-synthetic-fixtu
 import { verifyCanaryExistingSourceProofBundle } from "./canary-operational-smoke-existing-proofs.mjs";
 import { inspectAlpha15Presentation } from "./production-evidence-semantic.mjs";
 import { canonicalJson } from "./deployment-attestation.mjs";
-import { createCandidateArtifactIdentity } from "./candidate-artifact-identity.mjs";
+import {
+  APP_CONFIGURATION_FINGERPRINT_CONTRACT,
+  createCandidateArtifactIdentity,
+  recomputeAppConfigurationCombinedSha256,
+} from "./candidate-artifact-identity.mjs";
 
 const artifactNames = [
   "session.json",
@@ -56,6 +60,7 @@ async function writeCandidate(directory, { syntheticFixture = true, captureId = 
   const workerVerification = { verified: true, result, consume_receipt: consumeReceipt };
   const receiptBytes = jsonBytes({ receipt_id: "execution-1" });
   const presentationBytes = Buffer.from("opaque alpha15 presentation bytes");
+  const fingerprintVector = APP_CONFIGURATION_FINGERPRINT_CONTRACT.test_vector;
   const metadata = {
     schema_version: 2,
     candidate_capture_id: captureId,
@@ -71,9 +76,9 @@ async function writeCandidate(directory, { syntheticFixture = true, captureId = 
       app_public_configuration_fingerprints: {
         schema_version: 2,
         scope: "fusou-tlsn-app-public-configuration",
-        compile_time_sha256: hash(Buffer.from("compile config")),
-        runtime_sha256: hash(Buffer.from("runtime config")),
-        combined_sha256: hash(Buffer.from("combined config")),
+        compile_time_sha256: fingerprintVector.compile_time_sha256,
+        runtime_sha256: fingerprintVector.runtime_sha256,
+        combined_sha256: fingerprintVector.combined_sha256,
         candidate_binding_status: "UNBOUND",
       },
     },
@@ -399,6 +404,18 @@ test("synthetic alpha.15 Presentation discovers target and finalizes as unapprov
     assert.equal(finalization.candidate_artifact_identity.binding_status, "CRYPTOGRAPHICALLY_BOUND");
     assert.equal(finalization.candidate_artifact_identity.authority_status, "LOCAL_CONSISTENCY");
     assert.equal(finalization.candidate_artifact_identity.independent_authentication, "UNVERIFIED");
+    const verifiedMetadata = JSON.parse(await readFile(path.join(fixture.candidateDirectory, "metadata.json"), "utf8"));
+    assert.equal(finalization.candidate_artifact_identity.request_sha256, verifiedMetadata.request_sha256);
+    assert.equal(
+      finalization.candidate_artifact_identity.authenticated_request_sha256,
+      verifiedMetadata.authenticated_request_sha256,
+    );
+    assert.equal(finalization.candidate_configuration_binding_assessment.status, "UNVERIFIED");
+    assert.equal(
+      finalization.candidate_configuration_binding_assessment.candidate_artifact_identity.status,
+      "PASS_SYNTHETIC_LOCAL_CONSISTENCY",
+    );
+    assert.equal(finalization.candidate_configuration_binding_assessment.readiness_effect, "NONE");
     assert.equal(finalization.gameplay_effect, "NONE");
     assert.equal(finalization.verification.readiness_effect, "NONE");
     assert.equal(finalization.verification.gameplay_effect, "NONE");
@@ -483,34 +500,56 @@ test("metadata and authority-shaped identity fields cannot upgrade provenance", 
   }
 });
 
-test("candidate identity rejects metadata, fingerprint, request, and binding tampering after outer hashes refresh", async () => {
+test("candidate identity rejects each capture-context substitution after outer manifest hashes refresh", async (t) => {
   const root = await mkdtemp(path.join(tmpdir(), "fusou-tlsn-candidate-identity-tamper-"));
   try {
     const fixture = await createSyntheticCandidateBundle(root);
     const metadataBytes = await readFile(path.join(fixture.candidateDirectory, "metadata.json"));
     const originalMetadata = JSON.parse(metadataBytes.toString("utf8"));
+    const originalIdentity = JSON.parse(
+      (await readFile(path.join(fixture.candidateDirectory, "candidate-identity.json"))).toString("utf8"),
+    );
     const mutations = [
-      (metadata) => ({ ...metadata, capture_timestamp: "2030-01-01T00:00:00.000Z" }),
-      (metadata) => ({ ...metadata, request_id: "replayed-request" }),
-      (metadata) => ({ ...metadata, session_id: "replayed-session" }),
-      (metadata) => ({ ...metadata, binding_identifier: hash(Buffer.from("other-binding")) }),
-      (metadata) => ({
+      ["timestamp", (metadata) => ({ ...metadata, capture_timestamp: "2030-01-01T00:00:01.000Z" })],
+      ["request_id", (metadata) => ({ ...metadata, request_id: "replayed-request" })],
+      ["request_sha256", (metadata) => ({ ...metadata, request_sha256: hash(Buffer.from("changed request")) })],
+      ["authenticated_request_sha256", (metadata) => ({
         ...metadata,
-        proxy_provenance: {
-          ...metadata.proxy_provenance,
-          app_public_configuration_fingerprints: {
-            ...metadata.proxy_provenance.app_public_configuration_fingerprints,
-            combined_sha256: hash(Buffer.from("substituted configuration")),
+        authenticated_request_sha256: hash(Buffer.from("changed authenticated request")),
+      })],
+      ["session_id", (metadata) => ({ ...metadata, session_id: "replayed-session" })],
+      ["binding_identifier", (metadata) => ({ ...metadata, binding_identifier: hash(Buffer.from("other-binding")) })],
+      ["metadata", (metadata) => ({ ...metadata, server_identity: "metadata-B.example" })],
+      ["APP fingerprint", (metadata) => {
+        const fingerprint = {
+          ...metadata.proxy_provenance.app_public_configuration_fingerprints,
+          compile_time_sha256: hash(Buffer.from("substituted configuration")),
+        };
+        fingerprint.combined_sha256 = recomputeAppConfigurationCombinedSha256(fingerprint);
+        return {
+          ...metadata,
+          proxy_provenance: {
+            ...metadata.proxy_provenance,
+            app_public_configuration_fingerprints: fingerprint,
           },
-        },
-      }),
+        };
+      }],
     ];
-    for (const mutate of mutations) {
-      await rewriteArtifact(fixture, "metadata.json", mutate(originalMetadata));
-      await assert.rejects(
-        finalizeTlsnCandidateBundle(fixture),
-        /candidate artifact identity does not match its exact bytes or capture context/,
-      );
+    for (const [name, mutate] of mutations) {
+      await t.test(name, async () => {
+        const mutatedMetadata = mutate(originalMetadata);
+        const mutatedMetadataBytes = Buffer.from(canonicalJson(mutatedMetadata), "utf8");
+        const recomputedIdentity = createCandidateArtifactIdentity({
+          metadataBytes: mutatedMetadataBytes,
+          presentationBytes: fixture.presentationBytes,
+        });
+        assert.notEqual(recomputedIdentity.candidate_artifact_id, originalIdentity.candidate_artifact_id);
+        await rewriteArtifact(fixture, "metadata.json", mutatedMetadata);
+        await assert.rejects(
+          finalizeTlsnCandidateBundle(fixture),
+          /candidate artifact identity does not match its exact bytes or capture context/,
+        );
+      });
     }
   } finally {
     await rm(root, { recursive: true, force: true });
@@ -675,17 +714,24 @@ test("finalizer rejects detached receipt header and body mismatch after manifest
   }
 });
 
-test("finalizer rejects Presentation mutation even when local hashes are recomputed", async () => {
+test("candidate identity A plus Presentation B is rejected after outer manifest hashes refresh", async () => {
   const root = await mkdtemp(path.join(tmpdir(), "fusou-tlsn-candidate-presentation-mutation-"));
   try {
     const fixture = await createSyntheticCandidateBundle(root);
     const mutated = Buffer.from(fixture.presentationBytes);
     mutated[mutated.length - 1] ^= 1;
     await rewriteBinaryArtifact(fixture, "presentation.bin", mutated);
+    const metadata = JSON.parse(
+      (await readFile(path.join(fixture.candidateDirectory, "metadata.json"))).toString("utf8"),
+    );
+    await rewriteArtifact(fixture, "metadata.json", {
+      ...metadata,
+      presentation_sha256: hash(mutated),
+    });
 
     await assert.rejects(
       finalizeTlsnCandidateBundle(fixture),
-      /candidate metadata Presentation digest does not match exact bytes/,
+      /candidate artifact identity does not match its exact bytes or capture context/,
     );
   } finally {
     await rm(root, { recursive: true, force: true });

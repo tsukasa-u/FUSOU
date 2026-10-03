@@ -87,6 +87,7 @@ assert.deepEqual(report.candidate_configuration_binding_assessment.stages, {
 assert.deepEqual(report.candidate_configuration_binding_assessment.missing_inputs, [
   "CANDIDATE_ARTIFACT_BUNDLE",
   "APPROVED_EXPECTED_CONFIGURATION_FINGERPRINT",
+  "CURRENT_BINARY_IDENTITY",
   "AUTHENTICATED_BUILDER_PROVENANCE",
   "INDEPENDENT_AUTHORITY_RECEIPT",
 ]);

@@ -7,6 +7,7 @@ import { isDeepStrictEqual } from "node:util";
 import { fileURLToPath } from "node:url";
 import { verifyCanaryExistingSourceProofBundle } from "./canary-operational-smoke-existing-proofs.mjs";
 import { assertCandidateArtifactIdentity } from "./candidate-artifact-identity.mjs";
+import { candidateConfigurationBindingAssessment } from "./candidate-configuration-binding.mjs";
 
 const ARTIFACT_NAMES = [
   "session.json",
@@ -385,6 +386,10 @@ export async function finalizeTlsnCandidateBundle({
       disclosure_mode: verifiedPresentation.disclosure_mode,
     },
     candidate_artifact_identity: bundle.candidateArtifactIdentity,
+    candidate_configuration_binding_assessment: candidateConfigurationBindingAssessment({
+      candidateArtifactIdentity: bundle.candidateArtifactIdentity,
+      syntheticFixture: bundle.manifest.synthetic_fixture,
+    }),
     verification,
     human_play_provenance: "UNVERIFIED",
     synthetic_fixture_status: bundle.manifest.synthetic_fixture

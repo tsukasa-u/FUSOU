@@ -16,7 +16,10 @@ import {
   createCanaryVerifierExecutionReceipt,
 } from "./canary-verifier-identity.mjs";
 import { canonicalJson } from "./deployment-attestation.mjs";
-import { createCandidateArtifactIdentity } from "./candidate-artifact-identity.mjs";
+import {
+  APP_CONFIGURATION_FINGERPRINT_CONTRACT,
+  createCandidateArtifactIdentity,
+} from "./candidate-artifact-identity.mjs";
 import { resultSigningBytes } from "./production-evidence.mjs";
 import { createSignedResultRegistryEnvelope } from "./result-registry-envelope.mjs";
 import { verifySyntheticFixturePresentation } from "./production-evidence-semantic.mjs";
@@ -360,6 +363,7 @@ export async function createSyntheticCandidateBundle(rootDirectory) {
     receiptId: "394dc8cc-d4bc-4b8c-9813-7bc4a04a9603",
   });
   const executionReceiptBytes = jsonBytes(executionReceipt);
+  const fingerprintVector = APP_CONFIGURATION_FINGERPRINT_CONTRACT.test_vector;
   const metadata = {
     schema_version: 2,
     candidate_capture_id: sha256(presentationBytes),
@@ -375,9 +379,9 @@ export async function createSyntheticCandidateBundle(rootDirectory) {
       app_public_configuration_fingerprints: {
         schema_version: 2,
         scope: "fusou-tlsn-app-public-configuration",
-        compile_time_sha256: sha256(Buffer.from("synthetic compile config", "utf8")),
-        runtime_sha256: sha256(Buffer.from("synthetic runtime config", "utf8")),
-        combined_sha256: sha256(Buffer.from("synthetic combined config", "utf8")),
+        compile_time_sha256: fingerprintVector.compile_time_sha256,
+        runtime_sha256: fingerprintVector.runtime_sha256,
+        combined_sha256: fingerprintVector.combined_sha256,
         candidate_binding_status: "UNBOUND",
       },
     },

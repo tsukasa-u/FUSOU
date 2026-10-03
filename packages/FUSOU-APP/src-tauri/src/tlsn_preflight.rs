@@ -1,11 +1,12 @@
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{
     collections::BTreeMap,
     fs::{self, OpenOptions},
     io::Write,
     path::Path,
+    sync::OnceLock,
     time::{SystemTime, UNIX_EPOCH},
 };
 use url::Url;
@@ -14,30 +15,38 @@ use url::Url;
 use proxy_https::real_tlsn::ResultSignatureVerifier;
 
 const ED25519_SPKI_PREFIX: &[u8; 12] = b"\x30\x2a\x30\x05\x06\x03\x2b\x65\x70\x03\x21\x00";
-const APP_PUBLIC_CONFIGURATION_FINGERPRINT_SCHEMA_VERSION: u8 = 2;
-const APP_PUBLIC_CONFIGURATION_FINGERPRINT_SCOPE: &str = "fusou-tlsn-app-public-configuration";
-const COMPILE_TIME_PUBLIC_CONFIGURATION_FIELDS: &[&str] = &[
-    "expected_deployment_id",
-    "expected_worker_name",
-    "expected_git_commit_sha",
-    "expected_binding_mode",
-    "worker_health_endpoint",
-    "verification_endpoint",
-    "notary_endpoint",
-    "notary_verifying_key",
-    "session_authority_endpoint",
-    "session_authority_key_id",
-    "session_authority_public_key",
-    "result_public_key_spki",
-    "result_signer_key_id",
-    "result_signing_key_registry",
-];
-const RUNTIME_PUBLIC_CONFIGURATION_FIELDS: &[&str] = &[
-    "experiment_enabled",
-    "candidate_capture_enabled",
-    "disclosure_mode",
-    "response_mode",
-];
+const APP_PUBLIC_CONFIGURATION_FINGERPRINT_CONTRACT: &str = include_str!(
+    "../../../FUSOU-TLSN-VERIFICATION-WORKER/scripts/app-configuration-fingerprint-contract-v2.json"
+);
+
+#[derive(Debug, Deserialize)]
+struct AppConfigurationFingerprintContract {
+    schema_version: u8,
+    scope: String,
+    canonicalization: String,
+    digest_encoding: String,
+    projection_fields: BTreeMap<String, Vec<String>>,
+    projection_hash_preimage_fields: Vec<String>,
+    combined_hash_preimage_fields: Vec<String>,
+    test_vector: AppConfigurationFingerprintTestVector,
+}
+
+#[derive(Debug, Deserialize)]
+struct AppConfigurationFingerprintTestVector {
+    compile_time_fields: BTreeMap<String, serde_json::Value>,
+    runtime_fields: BTreeMap<String, serde_json::Value>,
+    compile_time_sha256: String,
+    runtime_sha256: String,
+    combined_sha256: String,
+}
+
+fn app_configuration_fingerprint_contract() -> &'static AppConfigurationFingerprintContract {
+    static CONTRACT: OnceLock<AppConfigurationFingerprintContract> = OnceLock::new();
+    CONTRACT.get_or_init(|| {
+        serde_json::from_str(APP_PUBLIC_CONFIGURATION_FINGERPRINT_CONTRACT)
+            .expect("shared APP configuration fingerprint contract must be valid")
+    })
+}
 
 #[derive(Debug, Clone)]
 pub struct TlsnPreflightConfig {
@@ -414,18 +423,19 @@ pub fn run_preflight(config: &TlsnPreflightConfig, config_path: &Path) -> TlsnPr
 fn public_configuration_fingerprints(
     config: &TlsnPreflightConfig,
 ) -> TlsnPublicConfigurationFingerprints {
+    let contract = app_configuration_fingerprint_contract();
     let compile_time = compile_time_public_configuration_projection(config);
     let runtime = runtime_public_configuration_projection(config);
     let compile_time_sha256 = projection_sha256("compile_time", &compile_time);
     let runtime_sha256 = projection_sha256("runtime", &runtime);
     TlsnPublicConfigurationFingerprints {
-        schema_version: APP_PUBLIC_CONFIGURATION_FINGERPRINT_SCHEMA_VERSION,
-        scope: APP_PUBLIC_CONFIGURATION_FINGERPRINT_SCOPE,
+        schema_version: contract.schema_version,
+        scope: contract.scope.as_str(),
         compile_time_sha256: compile_time_sha256.clone(),
         runtime_sha256: runtime_sha256.clone(),
         combined_sha256: combined_configuration_sha256(
-            APP_PUBLIC_CONFIGURATION_FINGERPRINT_SCHEMA_VERSION,
-            APP_PUBLIC_CONFIGURATION_FINGERPRINT_SCOPE,
+            contract.schema_version,
+            &contract.scope,
             &compile_time_sha256,
             &runtime_sha256,
         ),
@@ -435,97 +445,132 @@ fn public_configuration_fingerprints(
 
 fn compile_time_public_configuration_projection(
     config: &TlsnPreflightConfig,
-) -> BTreeMap<&'static str, serde_json::Value> {
-    BTreeMap::from([
+) -> BTreeMap<String, serde_json::Value> {
+    select_contract_projection("compile_time", BTreeMap::from([
         (
-            "expected_binding_mode",
+            "expected_binding_mode".to_owned(),
             serde_json::json!(config.expected_binding_mode),
         ),
         (
-            "expected_deployment_id",
+            "expected_deployment_id".to_owned(),
             serde_json::json!(config.expected_deployment_id),
         ),
         (
-            "expected_git_commit_sha",
+            "expected_git_commit_sha".to_owned(),
             serde_json::json!(config.expected_git_commit_sha),
         ),
         (
-            "expected_worker_name",
+            "expected_worker_name".to_owned(),
             serde_json::json!(config.expected_worker_name),
         ),
-        ("notary_endpoint", serde_json::json!(config.notary_endpoint)),
         (
-            "notary_verifying_key",
+            "notary_endpoint".to_owned(),
+            serde_json::json!(config.notary_endpoint),
+        ),
+        (
+            "notary_verifying_key".to_owned(),
             serde_json::json!(config.notary_verifying_key),
         ),
         (
-            "result_public_key_spki",
+            "result_public_key_spki".to_owned(),
             serde_json::json!(config.result_public_key_spki),
         ),
         (
-            "result_signer_key_id",
+            "result_signer_key_id".to_owned(),
             serde_json::json!(config.result_signer_key_id),
         ),
         (
-            "result_signing_key_registry",
+            "result_signing_key_registry".to_owned(),
             serde_json::json!(config.result_signing_key_registry),
         ),
         (
-            "worker_health_endpoint",
+            "worker_health_endpoint".to_owned(),
             serde_json::json!(config.worker_health_endpoint),
         ),
         (
-            "session_authority_endpoint",
+            "session_authority_endpoint".to_owned(),
             serde_json::json!(config.session_authority_endpoint),
         ),
         (
-            "session_authority_key_id",
+            "session_authority_key_id".to_owned(),
             serde_json::json!(config.session_authority_key_id),
         ),
         (
-            "session_authority_public_key",
+            "session_authority_public_key".to_owned(),
             serde_json::json!(config.session_authority_public_key),
         ),
         (
-            "verification_endpoint",
+            "verification_endpoint".to_owned(),
             serde_json::json!(config.verification_endpoint),
         ),
-    ])
+    ]))
 }
 
 fn runtime_public_configuration_projection(
     config: &TlsnPreflightConfig,
-) -> BTreeMap<&'static str, serde_json::Value> {
-    BTreeMap::from([
+) -> BTreeMap<String, serde_json::Value> {
+    select_contract_projection("runtime", BTreeMap::from([
         (
-            "candidate_capture_enabled",
+            "candidate_capture_enabled".to_owned(),
             serde_json::json!(config.candidate_capture_enabled),
         ),
-        ("disclosure_mode", serde_json::json!(config.disclosure_mode)),
         (
-            "experiment_enabled",
+            "disclosure_mode".to_owned(),
+            serde_json::json!(config.disclosure_mode),
+        ),
+        (
+            "experiment_enabled".to_owned(),
             serde_json::json!(config.experiment_enabled),
         ),
-        ("response_mode", serde_json::json!(config.response_mode)),
-    ])
-}
-
-fn projection_sha256(
-    projection: &str,
-    fields: &BTreeMap<&'static str, serde_json::Value>,
-) -> String {
-    canonical_sha256(&BTreeMap::from([
-        ("fields", serde_json::json!(fields)),
-        ("projection", serde_json::json!(projection)),
         (
-            "schema_version",
-            serde_json::json!(APP_PUBLIC_CONFIGURATION_FINGERPRINT_SCHEMA_VERSION),
-        ),
-        (
-            "scope",
-            serde_json::json!(APP_PUBLIC_CONFIGURATION_FINGERPRINT_SCOPE),
+            "response_mode".to_owned(),
+            serde_json::json!(config.response_mode),
         ),
     ]))
+}
+
+fn select_contract_projection(
+    projection: &str,
+    values: BTreeMap<String, serde_json::Value>,
+) -> BTreeMap<String, serde_json::Value> {
+    let fields = app_configuration_fingerprint_contract()
+        .projection_fields
+        .get(projection)
+        .expect("projection must exist in shared APP configuration fingerprint contract");
+    assert_eq!(values.len(), fields.len(), "projection field inventory drifted");
+    fields
+        .iter()
+        .map(|field| {
+            (
+                field.clone(),
+                values
+                    .get(field)
+                    .expect("shared projection field must map to an APP config value")
+                    .clone(),
+            )
+        })
+        .collect()
+}
+
+fn projection_sha256(projection: &str, fields: &impl Serialize) -> String {
+    let contract = app_configuration_fingerprint_contract();
+    let preimage = BTreeMap::from([
+        ("fields".to_owned(), serde_json::to_value(fields).expect("projection serializes")),
+        ("projection".to_owned(), serde_json::json!(projection)),
+        (
+            "schema_version".to_owned(),
+            serde_json::json!(contract.schema_version),
+        ),
+        (
+            "scope".to_owned(),
+            serde_json::json!(contract.scope),
+        ),
+    ]);
+    assert_eq!(
+        preimage.keys().cloned().collect::<Vec<_>>(),
+        contract.projection_hash_preimage_fields
+    );
+    canonical_sha256(&preimage)
 }
 
 fn combined_configuration_sha256(
@@ -534,15 +579,21 @@ fn combined_configuration_sha256(
     compile_time_sha256: &str,
     runtime_sha256: &str,
 ) -> String {
-    canonical_sha256(&BTreeMap::from([
+    let contract = app_configuration_fingerprint_contract();
+    let preimage = BTreeMap::from([
         (
-            "compile_time_sha256",
+            "compile_time_sha256".to_owned(),
             serde_json::json!(compile_time_sha256),
         ),
-        ("runtime_sha256", serde_json::json!(runtime_sha256)),
-        ("schema_version", serde_json::json!(schema_version)),
-        ("scope", serde_json::json!(scope)),
-    ]))
+        ("runtime_sha256".to_owned(), serde_json::json!(runtime_sha256)),
+        ("schema_version".to_owned(), serde_json::json!(schema_version)),
+        ("scope".to_owned(), serde_json::json!(scope)),
+    ]);
+    assert_eq!(
+        preimage.keys().cloned().collect::<Vec<_>>(),
+        contract.combined_hash_preimage_fields
+    );
+    canonical_sha256(&preimage)
 }
 
 fn canonical_sha256(value: &impl Serialize) -> String {
@@ -1189,7 +1240,7 @@ mod tests {
         assert!(report.ready, "{}", report.text());
         assert_eq!(
             report.public_configuration_fingerprints.schema_version,
-            APP_PUBLIC_CONFIGURATION_FINGERPRINT_SCHEMA_VERSION
+            app_configuration_fingerprint_contract().schema_version
         );
         assert_eq!(
             report
@@ -1204,7 +1255,7 @@ mod tests {
         let fixture = fixture();
         let baseline = public_configuration_fingerprints(&fixture.config);
         assert_eq!(baseline.schema_version, 2);
-        assert_eq!(baseline.scope, APP_PUBLIC_CONFIGURATION_FINGERPRINT_SCOPE);
+        assert_eq!(baseline.scope, app_configuration_fingerprint_contract().scope);
 
         let compile_mutations: [(&str, fn(&mut TlsnPreflightConfig)); 14] = [
             ("expected_deployment_id", |config| {
@@ -1256,11 +1307,14 @@ mod tests {
         assert_eq!(
             compile_projection
                 .keys()
-                .copied()
+                .cloned()
                 .collect::<std::collections::BTreeSet<_>>(),
-            COMPILE_TIME_PUBLIC_CONFIGURATION_FIELDS
+            app_configuration_fingerprint_contract()
+                .projection_fields
+                .get("compile_time")
+                .unwrap()
                 .iter()
-                .copied()
+                .cloned()
                 .collect::<std::collections::BTreeSet<_>>()
         );
         for (field, mutate) in compile_mutations {
@@ -1299,11 +1353,14 @@ mod tests {
         assert_eq!(
             runtime_projection
                 .keys()
-                .copied()
+                .cloned()
                 .collect::<std::collections::BTreeSet<_>>(),
-            RUNTIME_PUBLIC_CONFIGURATION_FIELDS
+            app_configuration_fingerprint_contract()
+                .projection_fields
+                .get("runtime")
+                .unwrap()
                 .iter()
-                .copied()
+                .cloned()
                 .collect::<std::collections::BTreeSet<_>>()
         );
         for (field, mutate) in runtime_mutations {
@@ -1364,24 +1421,44 @@ mod tests {
             serde_json::from_str(r#"{"a":{"b":3,"y":2},"z":1}"#).unwrap();
         assert_eq!(canonical_sha256(&first), canonical_sha256(&reordered));
 
-        let baseline = combined_configuration_sha256(
-            2,
-            APP_PUBLIC_CONFIGURATION_FINGERPRINT_SCOPE,
-            "compile",
-            "runtime",
-        );
+        let contract = app_configuration_fingerprint_contract();
+        let baseline =
+            combined_configuration_sha256(contract.schema_version, &contract.scope, "compile", "runtime");
         assert_ne!(
-            combined_configuration_sha256(
-                3,
-                APP_PUBLIC_CONFIGURATION_FINGERPRINT_SCOPE,
-                "compile",
-                "runtime"
-            ),
+            combined_configuration_sha256(3, &contract.scope, "compile", "runtime"),
             baseline
         );
         assert_ne!(
             combined_configuration_sha256(2, "another-scope", "compile", "runtime"),
             baseline
+        );
+    }
+
+    #[test]
+    fn fingerprint_contract_matches_the_shared_cross_language_test_vector() {
+        let contract = app_configuration_fingerprint_contract();
+        assert_eq!(contract.schema_version, 2);
+        assert_eq!(contract.scope, "fusou-tlsn-app-public-configuration");
+        assert_eq!(contract.canonicalization, "FUSOU-CANONICAL-JSON-V1");
+        assert_eq!(contract.digest_encoding, "sha256-base64url-no-padding");
+        let vector = &contract.test_vector;
+
+        assert_eq!(
+            projection_sha256("compile_time", &vector.compile_time_fields),
+            vector.compile_time_sha256
+        );
+        assert_eq!(
+            projection_sha256("runtime", &vector.runtime_fields),
+            vector.runtime_sha256
+        );
+        assert_eq!(
+            combined_configuration_sha256(
+                contract.schema_version,
+                &contract.scope,
+                &vector.compile_time_sha256,
+                &vector.runtime_sha256,
+            ),
+            vector.combined_sha256
         );
     }
 
