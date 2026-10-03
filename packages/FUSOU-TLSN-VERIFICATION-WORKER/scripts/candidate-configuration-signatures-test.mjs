@@ -212,6 +212,13 @@ test("signed payload schema has explicit domain, canonicalization, and no signat
   assert.equal(contract.time_semantics.issuance_timestamp_is_independently_time_attested, false);
   assert.equal(contract.time_semantics.registry_must_cover_evidence_issued_at, true);
   assert.equal(contract.time_semantics.registry_validity_meaning, "SIGNER_AUTHORIZATION_WINDOW");
+  assert.equal(contract.time_semantics.root_must_cover_registry_validity, true);
+  assert.equal(contract.time_semantics.registry_signature_timestamp, "NOT_PRESENT");
+  assert.equal(contract.time_semantics.evidence_issued_at_historical_authorization, "NOT_INDEPENDENTLY_VERIFIABLE");
+  assert.equal(contract.registry_payload.status_semantics.ACTIVE, "CURRENT_SIGNER_AUTHORIZATION_WHEN_SCOPE_AND_CURRENT_WINDOWS_MATCH");
+  assert.equal(contract.registry_payload.status_semantics.VERIFY_ONLY, "CRYPTOGRAPHIC_VERIFICATION_ONLY_NO_CURRENT_SIGNER_AUTHORIZATION");
+  assert.equal(contract.registry_payload.status_semantics.RETIRED, "CRYPTOGRAPHIC_VERIFICATION_ONLY_NO_CURRENT_SIGNER_AUTHORIZATION");
+  assert.equal(contract.registry_payload.status_semantics.REVOKED, "REJECT_SIGNATURE_VERIFICATION_FAIL_CLOSED");
   assert.equal(contract.evidence_digest_semantics.referenced_artifact_loaded, false);
   assert.equal(contract.evidence_digest_semantics.digest_recomputed, false);
   assert.equal(contract.time_semantics.low_level_signature_verifier_candidate_readiness, "NOT_EVALUATED");
@@ -340,6 +347,77 @@ test("authority registries reject duplicate key IDs and duplicate public keys", 
   assert.throws(() => verify(inputName, evidence, replaceRegistryPayload(bundle, rootPrivateKey, rootAsSigner)), /reuses a public key/);
 });
 
+test("all registry keys require canonical validity windows and scopes", () => {
+  const inputName = authorityNames[0];
+  const signer = keyPair();
+  const evidence = signedEvidence(inputName, signer);
+  const { bundle, rootPrivateKey } = trustBundle(inputName, signer);
+  const original = JSON.parse(Buffer.from(bundle.registry_payload_base64url, "base64url").toString("utf8"));
+  const unusedSigner = keyPair();
+  const unusedKey = {
+    ...original.signed_fields.keys[0],
+    key_id: "unused-key",
+    public_key_spki: unusedSigner.publicKeySpki,
+    status: "RETIRED",
+    scopes: [],
+  };
+  const rejectsUnusedKeyMutation = (mutate, expectedError) => {
+    const changed = structuredClone(original);
+    const key = { ...unusedKey };
+    mutate(key);
+    changed.signed_fields.keys.push(key);
+    assert.throws(() => verify(inputName, evidence, replaceRegistryPayload(bundle, rootPrivateKey, changed)), expectedError);
+  };
+
+  rejectsUnusedKeyMutation((key) => { key.not_before = "2026-1-1T00:00:00.000Z"; }, /unused-key not_before is invalid/);
+  rejectsUnusedKeyMutation((key) => { key.not_after = "2025-12-31T00:00:00.000Z"; }, /unused-key validity interval is invalid/);
+  rejectsUnusedKeyMutation((key) => { key.scopes = ["not a scope"]; }, /unused-key scopes are invalid/);
+  rejectsUnusedKeyMutation((key) => { key.scopes = ["scope-a", "scope-a"]; }, /unused-key scopes are invalid/);
+});
+
+test("registry declared validity must fit within the current trust root window", () => {
+  const inputName = authorityNames[0];
+  const signer = keyPair();
+  const evidence = signedEvidence(inputName, signer);
+  const { bundle, rootPrivateKey } = trustBundle(inputName, signer);
+  const registry = JSON.parse(Buffer.from(bundle.registry_payload_base64url, "base64url").toString("utf8"));
+  registry.signed_fields.valid_until = "2027-01-02T00:00:00.000Z";
+  assert.throws(
+    () => verify(inputName, evidence, replaceRegistryPayload(bundle, rootPrivateKey, registry)),
+    /registry validity interval exceeds trust root validity interval/,
+  );
+});
+
+test("key lifecycle separates signature verification from current authorization", () => {
+  const inputName = authorityNames[0];
+  for (const [status, authorized] of [["ACTIVE", true], ["VERIFY_ONLY", false], ["RETIRED", false]]) {
+    const signer = keyPair();
+    const evidence = signedEvidence(inputName, signer);
+    const { bundle, rootPrivateKey } = trustBundle(inputName, signer);
+    const registry = JSON.parse(Buffer.from(bundle.registry_payload_base64url, "base64url").toString("utf8"));
+    registry.signed_fields.keys[0].status = status;
+    const changedBundle = replaceRegistryPayload(bundle, rootPrivateKey, registry);
+    const result = verify(inputName, evidence, changedBundle, {
+      pinnedTrustRoot: { ...bundle.trust_root, source: contract.trust_root.application_pin_source },
+    });
+    assert.equal(result.signature_verified, true);
+    assert.equal(result.registry_signer_authorized, authorized);
+    assert.equal(result.registry_signer_authorization_status, authorized ? "AUTHORIZED_CURRENTLY" : "NOT_AUTHORIZED_CURRENTLY");
+    assert.equal(result.historical_signer_authorization, "NOT_INDEPENDENTLY_VERIFIABLE");
+    assert.equal(result.authority_trusted, authorized);
+  }
+
+  const signer = keyPair();
+  const evidence = signedEvidence(inputName, signer);
+  const { bundle, rootPrivateKey } = trustBundle(inputName, signer);
+  const registry = JSON.parse(Buffer.from(bundle.registry_payload_base64url, "base64url").toString("utf8"));
+  registry.signed_fields.keys[0].status = "REVOKED";
+  assert.throws(
+    () => verify(inputName, evidence, replaceRegistryPayload(bundle, rootPrivateKey, registry)),
+    /signer key is REVOKED/,
+  );
+});
+
 test("valid fixture signature verifies cryptographically but fixture root is not trusted", () => {
   for (const inputName of authorityNames) {
     const signer = keyPair();
@@ -454,7 +532,10 @@ test("temporal Frankenstein evidence is rejected across all authority domains", 
       "2026-10-03T11:00:00.000Z",
       "2026-10-03T11:59:59.999Z",
     );
-    assert.throws(() => verify(inputName, currentEvidence, keyExpiredNow), /signer key is not currently valid/);
+    const expiredKeyResult = verify(inputName, currentEvidence, keyExpiredNow);
+    assert.equal(expiredKeyResult.signature_verified, true);
+    assert.equal(expiredKeyResult.registry_signer_authorized, false);
+    assert.equal(expiredKeyResult.registry_signer_authorization_status, "NOT_AUTHORIZED_CURRENTLY");
 
     const registryExpiredNow = registryWindowBundle("2026-10-03T11:30:00.000Z", "2026-10-03T11:59:59.999Z");
     assert.throws(() => verify(inputName, currentEvidence, registryExpiredNow), /authority registry is outside its validity interval/);
@@ -554,7 +635,7 @@ test("wrong signer, key ID, scope, algorithm, revoked key, and invalid key windo
     revoked.bundle,
     revoked.rootPrivateKey,
     registry,
-  )), /signer key is revoked or retired/);
+  )), /signer key is REVOKED/);
 });
 
 test("wrong root, invalid registry digest, and expired or future root/key are rejected", () => {
@@ -619,11 +700,13 @@ test("wrong root, invalid registry digest, and expired or future root/key are re
   const expiredBundle = trustBundle(inputName, expiredSigner);
   const expiredRegistry = JSON.parse(Buffer.from(expiredBundle.bundle.registry_payload_base64url, "base64url").toString("utf8"));
   expiredRegistry.signed_fields.keys[0].not_after = "2026-10-03T11:59:59.999Z";
-  assert.throws(() => verify(inputName, expiredEvidence, replaceRegistryPayload(
+  const expiredSignerResult = verify(inputName, expiredEvidence, replaceRegistryPayload(
     expiredBundle.bundle,
     expiredBundle.rootPrivateKey,
     expiredRegistry,
-  )), /signer key is not currently valid/);
+  ));
+  assert.equal(expiredSignerResult.signature_verified, true);
+  assert.equal(expiredSignerResult.registry_signer_authorized, false);
 });
 
 test("registry key scope must authorize exactly the evidence domain", () => {
@@ -633,7 +716,10 @@ test("registry key scope must authorize exactly the evidence domain", () => {
   const { bundle, rootPrivateKey } = trustBundle(inputName, signer);
   const registry = JSON.parse(Buffer.from(bundle.registry_payload_base64url, "base64url").toString("utf8"));
   registry.signed_fields.keys[0].scopes = [contract.inputs[authorityNames[0]].signed_payload_scope];
-  assert.throws(() => verify(inputName, evidence, replaceRegistryPayload(bundle, rootPrivateKey, registry)), /not authorized for this payload scope/);
+  const result = verify(inputName, evidence, replaceRegistryPayload(bundle, rootPrivateKey, registry));
+  assert.equal(result.signature_verified, true);
+  assert.equal(result.registry_signer_authorized, false);
+  assert.equal(result.authority_trusted, false);
 });
 
 test("builder workflow and authority capture fields are covered by their signatures", () => {
@@ -691,7 +777,7 @@ test("TEST_FIXTURE_ONLY root pin never establishes authority trust", () => {
   assert.equal(result.signature_verified, true);
   assert.equal(result.trust_root_pinned, true);
   assert.equal(result.authority_trusted, false);
-  assert.equal(result.trust_source, "UNPINNED_OR_TEST_FIXTURE");
+  assert.equal(result.trust_source, "UNPINNED_OR_TEST_FIXTURE_OR_UNAUTHORIZED_SIGNER");
 });
 
 test("only a matching application-configuration root pin establishes authority trust", () => {
@@ -740,9 +826,35 @@ test("assessment separates valid signature verification from authority trust", (
     });
     assert.equal(assessment.status, "UNVERIFIED");
     assert.equal(assessment[reportKey].signature_verification, "VALID");
-    assert.equal(assessment[reportKey].registry_signer_authorization, "VALID");
+    assert.equal(assessment[reportKey].registry_signer_authorization, "AUTHORIZED_CURRENTLY");
+    assert.equal(assessment[reportKey].historical_signer_authorization, "NOT_INDEPENDENTLY_VERIFIABLE");
     assert.equal(assessment[reportKey].authority_trusted, false);
   }
+});
+
+test("VERIFY_ONLY evidence cannot promote application-pinned assessment authority", () => {
+  const inputName = "APPROVED_EXPECTED_CONFIGURATION_FINGERPRINT";
+  const signer = keyPair();
+  const evidence = signedEvidence(inputName, signer);
+  const { bundle, rootPrivateKey } = trustBundle(inputName, signer);
+  const registry = JSON.parse(Buffer.from(bundle.registry_payload_base64url, "base64url").toString("utf8"));
+  registry.signed_fields.keys[0].status = "VERIFY_ONLY";
+  const verifyOnlyBundle = replaceRegistryPayload(bundle, rootPrivateKey, registry);
+  const assessment = candidateConfigurationBindingAssessment({
+    approvedExpectedConfigurationFingerprint: evidence,
+    authorityTrustBundles: { CONFIGURATION_APPROVAL: verifyOnlyBundle },
+    trustedAuthorityTrustRoots: {
+      CONFIGURATION_APPROVAL: { ...bundle.trust_root, source: contract.trust_root.application_pin_source },
+    },
+    now,
+  });
+
+  assert.equal(assessment.status, "UNVERIFIED");
+  assert.equal(assessment.readiness_gate, "BLOCKED");
+  assert.equal(assessment.approved_expected_fingerprint.signature_verification, "VALID");
+  assert.equal(assessment.approved_expected_fingerprint.registry_signer_authorization, "NOT_AUTHORIZED_CURRENTLY");
+  assert.equal(assessment.approved_expected_fingerprint.authority_trusted, false);
+  assert.equal(assessment.approved_expected_fingerprint.historical_signer_authorization, "NOT_INDEPENDENTLY_VERIFIABLE");
 });
 
 test("a signer key reused across authority registries invalidates every affected domain", () => {

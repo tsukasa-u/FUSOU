@@ -571,9 +571,11 @@ export function candidateConfigurationBindingAssessment({
       signature_verification: authoritySignatures.APPROVED_EXPECTED_CONFIGURATION_FINGERPRINT.result?.signature_verified
         ? "VALID"
         : authoritySignatures.APPROVED_EXPECTED_CONFIGURATION_FINGERPRINT.status,
-      registry_signer_authorization: authoritySignatures.APPROVED_EXPECTED_CONFIGURATION_FINGERPRINT.result?.registry_signer_authorized
-        ? "VALID"
+      registry_signer_authorization: authoritySignatures.APPROVED_EXPECTED_CONFIGURATION_FINGERPRINT.result
+        ? authoritySignatures.APPROVED_EXPECTED_CONFIGURATION_FINGERPRINT.result.registry_signer_authorization_status
         : authoritySignatures.APPROVED_EXPECTED_CONFIGURATION_FINGERPRINT.status,
+      historical_signer_authorization: authoritySignatures.APPROVED_EXPECTED_CONFIGURATION_FINGERPRINT.result?.historical_signer_authorization ?? null,
+      evidence_issued_at_window_consistency: authoritySignatures.APPROVED_EXPECTED_CONFIGURATION_FINGERPRINT.result?.evidence_issued_at_window_consistency ?? null,
       signed_payload_sha256: authoritySignatures.APPROVED_EXPECTED_CONFIGURATION_FINGERPRINT.result?.signed_payload_sha256 ?? null,
       registry_sha256: authoritySignatures.APPROVED_EXPECTED_CONFIGURATION_FINGERPRINT.result?.registry_sha256 ?? null,
       authority_trusted: authoritySignatures.APPROVED_EXPECTED_CONFIGURATION_FINGERPRINT.result?.authority_trusted ?? false,
@@ -621,9 +623,11 @@ export function candidateConfigurationBindingAssessment({
       signature_verification: authoritySignatures.AUTHENTICATED_BUILDER_PROVENANCE.result?.signature_verified
         ? "VALID"
         : authoritySignatures.AUTHENTICATED_BUILDER_PROVENANCE.status,
-      registry_signer_authorization: authoritySignatures.AUTHENTICATED_BUILDER_PROVENANCE.result?.registry_signer_authorized
-        ? "VALID"
+      registry_signer_authorization: authoritySignatures.AUTHENTICATED_BUILDER_PROVENANCE.result
+        ? authoritySignatures.AUTHENTICATED_BUILDER_PROVENANCE.result.registry_signer_authorization_status
         : authoritySignatures.AUTHENTICATED_BUILDER_PROVENANCE.status,
+      historical_signer_authorization: authoritySignatures.AUTHENTICATED_BUILDER_PROVENANCE.result?.historical_signer_authorization ?? null,
+      evidence_issued_at_window_consistency: authoritySignatures.AUTHENTICATED_BUILDER_PROVENANCE.result?.evidence_issued_at_window_consistency ?? null,
       signed_payload_sha256: authoritySignatures.AUTHENTICATED_BUILDER_PROVENANCE.result?.signed_payload_sha256 ?? null,
       registry_sha256: authoritySignatures.AUTHENTICATED_BUILDER_PROVENANCE.result?.registry_sha256 ?? null,
       authority_trusted: authoritySignatures.AUTHENTICATED_BUILDER_PROVENANCE.result?.authority_trusted ?? false,
@@ -646,9 +650,11 @@ export function candidateConfigurationBindingAssessment({
       signature_verification: authoritySignatures.INDEPENDENT_AUTHORITY_RECEIPT.result?.signature_verified
         ? "VALID"
         : authoritySignatures.INDEPENDENT_AUTHORITY_RECEIPT.status,
-      registry_signer_authorization: authoritySignatures.INDEPENDENT_AUTHORITY_RECEIPT.result?.registry_signer_authorized
-        ? "VALID"
+      registry_signer_authorization: authoritySignatures.INDEPENDENT_AUTHORITY_RECEIPT.result
+        ? authoritySignatures.INDEPENDENT_AUTHORITY_RECEIPT.result.registry_signer_authorization_status
         : authoritySignatures.INDEPENDENT_AUTHORITY_RECEIPT.status,
+      historical_signer_authorization: authoritySignatures.INDEPENDENT_AUTHORITY_RECEIPT.result?.historical_signer_authorization ?? null,
+      evidence_issued_at_window_consistency: authoritySignatures.INDEPENDENT_AUTHORITY_RECEIPT.result?.evidence_issued_at_window_consistency ?? null,
       signed_payload_sha256: authoritySignatures.INDEPENDENT_AUTHORITY_RECEIPT.result?.signed_payload_sha256 ?? null,
       registry_sha256: authoritySignatures.INDEPENDENT_AUTHORITY_RECEIPT.result?.registry_sha256 ?? null,
       authority_trusted: authoritySignatures.INDEPENDENT_AUTHORITY_RECEIPT.result?.authority_trusted ?? false,

@@ -18,6 +18,7 @@ export const CANDIDATE_CONFIGURATION_SIGNATURE_CONTRACT = deepFreeze(JSON.parse(
 const BASE64URL_PATTERN = /^[A-Za-z0-9_-]+$/;
 const SHA256_PATTERN = /^[A-Za-z0-9_-]{43}$/;
 const KEY_ID_PATTERN = /^[A-Za-z0-9._-]{1,128}$/;
+const SCOPE_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const TRUSTED_PIN_SOURCE = CANDIDATE_CONFIGURATION_SIGNATURE_CONTRACT.trust_root.application_pin_source;
 
 function assertObject(value, label) {
@@ -174,6 +175,9 @@ function registryPayloadFromBundle(bundle, expectedType, now, issuedAt) {
   if (registryFrom >= registryUntil || now < registryFrom || now >= registryUntil) {
     throw new Error("authority registry is outside its validity interval");
   }
+  if (registryFrom < rootFrom || registryUntil > rootUntil) {
+    throw new Error("authority registry validity interval exceeds trust root validity interval");
+  }
   if (issuedAt < registryFrom || issuedAt >= registryUntil) {
     throw new Error("evidence issued_at is outside authority registry validity interval");
   }
@@ -186,6 +190,7 @@ function registryPayloadFromBundle(bundle, expectedType, now, issuedAt) {
 
   const seenKeyIds = new Set();
   const seenPublicKeys = new Set();
+  const keyWindows = new Map();
   let signer = null;
   for (const [index, key] of registryFields.keys.entries()) {
     assertExactKeys(key, contract.registry_payload.key_fields, `authority registry key ${index}`);
@@ -198,9 +203,17 @@ function registryPayloadFromBundle(bundle, expectedType, now, issuedAt) {
     if (key.algorithm !== "Ed25519" || !contract.registry_payload.statuses.includes(key.status)) {
       throw new Error(`authority registry key ${key.key_id} algorithm or status is invalid`);
     }
-    if (!Array.isArray(key.scopes) || key.scopes.some((scope) => typeof scope !== "string") || new Set(key.scopes).size !== key.scopes.length) {
+    if (
+      !Array.isArray(key.scopes) ||
+      key.scopes.some((scope) => typeof scope !== "string" || !SCOPE_PATTERN.test(scope)) ||
+      new Set(key.scopes).size !== key.scopes.length
+    ) {
       throw new Error(`authority registry key ${key.key_id} scopes are invalid`);
     }
+    const keyFrom = requiredTimestamp(key.not_before, `authority registry key ${key.key_id} not_before`);
+    const keyUntil = requiredTimestamp(key.not_after, `authority registry key ${key.key_id} not_after`);
+    if (keyFrom >= keyUntil) throw new Error(`authority registry key ${key.key_id} validity interval is invalid`);
+    keyWindows.set(key.key_id, { from: keyFrom, until: keyUntil });
     publicKeyFromSpki(key.public_key_spki, `authority registry key ${key.key_id} public key`);
     if (seenPublicKeys.has(key.public_key_spki) || key.public_key_spki === root.public_key_spki) {
       throw new Error("authority registry reuses a public key within or across root and signer roles");
@@ -215,6 +228,7 @@ function registryPayloadFromBundle(bundle, expectedType, now, issuedAt) {
     root,
     rootKey,
     keys: registryFields.keys,
+    keyWindows,
   };
 }
 
@@ -240,10 +254,10 @@ function validateEvidenceTimeShape(evidence, inputName, issuedAt) {
 }
 
 /**
- * Verifies the signed payload, signer authorization at the issuer-asserted
- * issued_at/current time, and root-pinned authority status. issued_at is not an
- * independently trusted timestamp. Evidence validity and candidate readiness
- * remain the binding assessment's responsibility.
+ * Verifies the signature independently from current signer authorization.
+ * issued_at and registry validity windows are signed claims, not independent
+ * proof of when either signature was physically created. Evidence validity and
+ * candidate readiness remain the binding assessment's responsibility.
  */
 export function verifyCandidateConfigurationEvidenceSignature({
   inputName,
@@ -278,26 +292,26 @@ export function verifyCandidateConfigurationEvidenceSignature({
   }
   const key = registry.keys.find((entry) => entry.key_id === signerKeyId);
   if (!key) throw new Error(`${inputName} signer key is absent from its authority registry`);
-  if (key.status === "REVOKED" || key.status === "RETIRED") throw new Error(`${inputName} signer key is revoked or retired`);
-  if (key.status !== "ACTIVE" && key.status !== "VERIFY_ONLY") throw new Error(`${inputName} signer key status is not verifiable`);
-  if (!key.scopes.includes(contract.signed_payload_scope)) throw new Error(`${inputName} signer key is not authorized for this payload scope`);
+  if (key.status === "REVOKED") throw new Error(`${inputName} signer key is REVOKED`);
   if (typeof evidence.signature.key_id !== "string" || key.key_id !== evidence.signature.key_id) {
     throw new Error(`${inputName} signer key identity mismatch`);
   }
-  const keyFrom = requiredTimestamp(key.not_before, `${inputName} signer not_before`);
-  const keyUntil = requiredTimestamp(key.not_after, `${inputName} signer not_after`);
-  if (keyFrom >= keyUntil) throw new Error(`${inputName} signer key validity interval is invalid`);
+  const { from: keyFrom, until: keyUntil } = registry.keyWindows.get(key.key_id);
   if (issuedAt < keyFrom || issuedAt >= keyUntil) {
     throw new Error(`${inputName} signer key is not valid at evidence issued_at`);
   }
-  if (nowMs < keyFrom || nowMs >= keyUntil) throw new Error(`${inputName} signer key is not currently valid`);
-
+  const signerScopeAuthorized = key.scopes.includes(contract.signed_payload_scope);
+  const signerKeyCurrentlyValid = nowMs >= keyFrom && nowMs < keyUntil;
+  const registrySignerAuthorized = key.status === "ACTIVE" && signerScopeAuthorized && signerKeyCurrentlyValid;
   verifyEd25519(payload, signature, publicKeyFromSpki(key.public_key_spki, `${inputName} signer public key`), inputName);
-  const authorityTrusted = trustRootMatchesPin(registry.root, pinnedTrustRoot)
+  const authorityTrusted = registrySignerAuthorized && trustRootMatchesPin(registry.root, pinnedTrustRoot)
     && pinnedTrustRoot.source === TRUSTED_PIN_SOURCE;
   return Object.freeze({
     signature_verified: true,
-    registry_signer_authorized: true,
+    registry_signer_authorized: registrySignerAuthorized,
+    registry_signer_authorization_status: registrySignerAuthorized ? "AUTHORIZED_CURRENTLY" : "NOT_AUTHORIZED_CURRENTLY",
+    historical_signer_authorization: "NOT_INDEPENDENTLY_VERIFIABLE",
+    evidence_issued_at_window_consistency: "SIGNED_ISSUER_CLAIM_ONLY",
     evidence_issued_at: new Date(issuedAt).toISOString(),
     evidence_issued_at_basis: "SIGNED_ISSUER_ASSERTION_NOT_INDEPENDENT_TIMESTAMP",
     signature_algorithm: "Ed25519",
@@ -312,7 +326,7 @@ export function verifyCandidateConfigurationEvidenceSignature({
     authority_trusted: authorityTrusted,
     evidence_current_validity: CANDIDATE_CONFIGURATION_SIGNATURE_CONTRACT.time_semantics.low_level_signature_verifier_current_evidence_validity,
     candidate_readiness: CANDIDATE_CONFIGURATION_SIGNATURE_CONTRACT.time_semantics.low_level_signature_verifier_candidate_readiness,
-    trust_source: authorityTrusted ? pinnedTrustRoot.source : "UNPINNED_OR_TEST_FIXTURE",
+    trust_source: authorityTrusted ? pinnedTrustRoot.source : "UNPINNED_OR_TEST_FIXTURE_OR_UNAUTHORIZED_SIGNER",
     authority_type: contract.authority_type,
     signed_payload_scope: contract.signed_payload_scope,
   });

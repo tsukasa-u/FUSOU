@@ -13,6 +13,10 @@
     "registry_validity_meaning": "SIGNER_AUTHORIZATION_WINDOW",
     "registry_must_be_current_at_verification": true,
     "registry_must_cover_evidence_issued_at": true,
+    "root_must_cover_registry_validity": true,
+    "registry_signature_timestamp": "NOT_PRESENT",
+    "registry_signature_physical_time": "NOT_INDEPENDENTLY_VERIFIABLE",
+    "evidence_issued_at_historical_authorization": "NOT_INDEPENDENTLY_VERIFIABLE",
     "signer_key_must_cover_evidence_issued_at_and_verification_time": true,
     "assessment_exposes_evidence_timeline": ["issued_at", "valid_from", "valid_until", "evidence_validity"],
     "assessment_evaluates_evidence_validity_before_candidate_binary_deployment_bindings": true,
@@ -254,13 +258,23 @@
       "not_after",
       "scopes"
     ],
-    "statuses": ["ACTIVE", "VERIFY_ONLY", "RETIRED", "REVOKED"]
+    "statuses": ["ACTIVE", "VERIFY_ONLY", "RETIRED", "REVOKED"],
+    "status_semantics": {
+      "ACTIVE": "CURRENT_SIGNER_AUTHORIZATION_WHEN_SCOPE_AND_CURRENT_WINDOWS_MATCH",
+      "VERIFY_ONLY": "CRYPTOGRAPHIC_VERIFICATION_ONLY_NO_CURRENT_SIGNER_AUTHORIZATION",
+      "RETIRED": "CRYPTOGRAPHIC_VERIFICATION_ONLY_NO_CURRENT_SIGNER_AUTHORIZATION",
+      "REVOKED": "REJECT_SIGNATURE_VERIFICATION_FAIL_CLOSED",
+      "historical_authorization": "NOT_PROVEN_BY_CURRENT_STATUS_OR_ISSUER_ASSERTED_ISSUED_AT"
+    },
+    "all_key_entries_validate_timestamp_intervals_and_canonical_scopes": true
   },
   "registry_signature": {
     "algorithm": "Ed25519",
     "encoding": "base64url-no-padding",
     "length_bytes": 64,
-    "signed_bytes": "exact-canonical-registry-payload-bytes"
+    "signed_bytes": "exact-canonical-registry-payload-bytes",
+    "signing_time_field": "ABSENT",
+    "signature_proves_physical_signing_time": false
   },
   "nested_fields": {
     "authority_identity": ["authority_id", "key_id"],

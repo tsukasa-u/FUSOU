@@ -135,19 +135,37 @@ v2.
 
 Registry `valid_from`/`valid_until` is the signer-authorization window, not a
 registry publication timestamp. The registry must be current at verification
-time and cover evidence `issued_at`. The signer key's `not_before`/`not_after`
-must cover both the signed `issued_at` claim and verification time; current
-status/revocation checks also apply. The root itself must be currently valid.
-All windows use inclusive starts and exclusive ends.
+time, cover evidence `issued_at`, and fit within the root's declared validity
+window. The root must also be current at verification time. The registry
+signature has no signing-time field: current root validity and a valid
+signature do not prove when that signature was physically created. Registry
+and root chronology is therefore limited to their signed/configured window
+claims. All windows use inclusive starts and exclusive ends.
+
+Key lifecycle is separate from signature mathematics and current
+authorization. `ACTIVE` authorizes the key currently only when its scope and
+current validity window match. `VERIFY_ONLY` and `RETIRED` permit cryptographic
+validation of a retained signature but never current signer authorization;
+`REVOKED` rejects verification fail-closed. Every registry key entry is
+validated for its timestamp interval, canonical scopes, SPKI, status, and
+unique identity before signer selection. The selected key and registry windows
+must contain the signed `issued_at` claim, but this is only claim consistency:
+`issued_at` is not independently attested, the registry has no status-transition
+history, and neither proves that the key was authorized when the signature was
+physically made. The assessment reports current signer authorization
+separately; historical signer authorization remains
+`NOT_INDEPENDENTLY_VERIFIABLE`.
 
 The low-level
 `verifyCandidateConfigurationEvidenceSignature` API verifies the exact signed
 payload and reports `signature_verified`, `registry_signer_authorized`, and
 `authority_trusted` as separate results. `registry_signer_authorized` means the
-key is authorized by the supplied registry for that payload scope and is valid
-at both issuer-asserted `issued_at` and verification time; it does not authenticate an
-unpinned registry root. `authority_trusted` requires the separate application
-pin. The low-level API deliberately reports
+key is currently `ACTIVE`, currently valid, and scoped for that payload under
+the supplied current registry; it does not claim historical authorization at
+issuer-asserted `issued_at` and does not authenticate an unpinned registry
+root. `authority_trusted` additionally requires the separate application pin.
+The low-level API reports historical signer authorization as
+`NOT_INDEPENDENTLY_VERIFIABLE` and deliberately reports
 `evidence_current_validity=NOT_EVALUATED` and
 `candidate_readiness=NOT_EVALUATED`; it does not establish candidate readiness.
 The candidate binding assessment separately checks the evidence's current
