@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import assert from "node:assert/strict";
-import { generateKeyPairSync } from "node:crypto";
+import { createHash, generateKeyPairSync } from "node:crypto";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -20,6 +20,9 @@ import {
   writeImmutableCanaryAttestation,
 } from "./canary-deployment-attestation.mjs";
 import { CANARY_VERIFIER_WORKER_NAME } from "./canary-deployment-target.mjs";
+import { deploymentManifestIdentity } from "./canary-deployment-manifest.mjs";
+import { canonicalJson } from "./deployment-attestation.mjs";
+import { createSignedResultRegistryEnvelope } from "./result-registry-envelope.mjs";
 import { CANARY_VERIFIER_IDENTITY_KEY_REGISTRY_SCOPE } from "./canary-verifier-identity.mjs";
 
 const workerName = "fusou-tlsn-verification-canary";
@@ -81,6 +84,48 @@ const deploymentEnvironment = {
   TLSN_WORKFLOW_FILE_IDENTITY: workflow.workflow_file_identity,
   TLSN_GIT_COMMIT_SHA: gitCommitSha,
 };
+const resultSignerKeyId = "result-canary-attestation-test";
+const resultRegistryRootKeyId = "result-root-canary-attestation-test";
+const { privateKey: resultSignerPrivateKey, publicKey: resultSignerPublicKey } = generateKeyPairSync("ed25519");
+const { privateKey: resultRegistryRootPrivateKey, publicKey: resultRegistryRootPublicKey } = generateKeyPairSync("ed25519");
+const resultPublicKeySpki = resultSignerPublicKey.export({ format: "der", type: "spki" }).toString("base64url");
+const resultRegistryRootPublicKeySpki = resultRegistryRootPublicKey.export({ format: "der", type: "spki" }).toString("base64url");
+const resultKeyRegistry = {
+  schema_version: 1,
+  scope: "tlsn-result-signing-key-registry",
+  keys: [{
+    key_id: resultSignerKeyId,
+    public_key_spki: resultPublicKeySpki,
+    status: "ACTIVE",
+    not_before: "2026-01-01T00:00:00.000Z",
+    not_after: null,
+  }],
+};
+const resultKeyRegistryRaw = JSON.stringify(resultKeyRegistry);
+const resultRegistryEnvelopeRaw = JSON.stringify(createSignedResultRegistryEnvelope({
+  registry: resultKeyRegistry,
+  registryRaw: Buffer.from(resultKeyRegistryRaw, "utf8"),
+  rootKeyId: resultRegistryRootKeyId,
+  rootPublicKeySpki: resultRegistryRootPublicKeySpki,
+  rootPrivateKeyPkcs8: resultRegistryRootPrivateKey.export({ format: "der", type: "pkcs8" }).toString("base64url"),
+}));
+Object.assign(deploymentEnvironment, {
+  TLSN_CANARY_RESULT_PUBLIC_KEY_SPKI: resultPublicKeySpki,
+  TLSN_CANARY_RESULT_SIGNER_KEY_ID: resultSignerKeyId,
+  TLSN_CANARY_RESULT_SIGNING_KEY_REGISTRY: resultKeyRegistryRaw,
+  TLSN_CANARY_RESULT_SIGNING_KEY_REGISTRY_ENVELOPE: resultRegistryEnvelopeRaw,
+  TLSN_CANARY_RESULT_REGISTRY_ROOT_KEY_ID: resultRegistryRootKeyId,
+  TLSN_CANARY_RESULT_REGISTRY_ROOT_PUBLIC_KEY_SPKI: resultRegistryRootPublicKeySpki,
+});
+deploymentManifest.inputs = Object.entries(deploymentEnvironment)
+  .filter(([name]) => name.startsWith("TLSN_CANARY_RESULT_"))
+  .map(([name, raw]) => {
+    const bytes = name.endsWith("_REGISTRY_ENVELOPE")
+      ? Buffer.from(canonicalJson(JSON.parse(raw)), "utf8")
+      : Buffer.from(raw.trim(), "utf8");
+    return { name, value_sha256: createHash("sha256").update(bytes).digest("base64url"), provenance: "deployment-input" };
+  });
+deploymentManifest.manifest_id = deploymentManifestIdentity(deploymentManifest);
 const deploymentMessage = createCanaryDeploymentMessage({
   deploymentId,
   workerName,
@@ -112,13 +157,23 @@ function platformPayload(overrides = {}) {
 
 function health(overrides = {}) {
   return {
-    schema_version: 2,
+    schema_version: 3,
     ok: true,
     environment: "production",
     deployment_role: "canary",
     git_commit_sha: gitCommitSha,
     deployment_id: deploymentId,
     binding_mode: "fixed_canary",
+    result_public_key_spki: resultPublicKeySpki,
+    result_identity: {
+      result_public_key_spki: resultPublicKeySpki,
+      result_public_key_spki_sha256: createHash("sha256").update(Buffer.from(resultPublicKeySpki, "base64url")).digest("base64url"),
+      result_signer_key_id: resultSignerKeyId,
+      result_key_registry_sha256: createHash("sha256").update(Buffer.from(resultKeyRegistryRaw, "utf8")).digest("base64url"),
+      result_key_registry_envelope_sha256: createHash("sha256").update(Buffer.from(resultRegistryEnvelopeRaw, "utf8")).digest("base64url"),
+      result_registry_root_key_id: resultRegistryRootKeyId,
+      result_registry_root_public_key_spki: resultRegistryRootPublicKeySpki,
+    },
     runtime_version: { version_id: versionId, version_tag: deploymentTag, version_timestamp: createdOn },
     deployment_identity: {
       deployment_id: deploymentId,
@@ -149,6 +204,7 @@ const verificationInput = {
   expectedBindingAuthorityKeyId: bindingAuthorityKeyId,
   expectedBindingAuthorityPublicKeySpki: bindingAuthorityPublicKeySpki,
   deploymentStartedAt: new Date("2026-09-07T23:59:00.000Z"),
+  resultSignerEnvironment: deploymentEnvironment,
 };
 const verification = verifyCanaryDeploymentRuntime(verificationInput);
 assert.deepEqual(verification, {
@@ -160,6 +216,18 @@ assert.deepEqual(verification, {
   deployment_role: "canary",
   git_commit_sha: gitCommitSha,
   deployment_binding: { schema_version: 1, authority_key_id: bindingAuthorityKeyId },
+  result_signer_identity: {
+    signer_key_id: resultSignerKeyId,
+    public_key_spki: resultPublicKeySpki,
+    public_key_spki_sha256: createHash("sha256").update(Buffer.from(resultPublicKeySpki, "base64url")).digest("base64url"),
+    key_registry_sha256: createHash("sha256").update(Buffer.from(resultKeyRegistryRaw, "utf8")).digest("base64url"),
+    key_registry_envelope_sha256: createHash("sha256").update(Buffer.from(resultRegistryEnvelopeRaw, "utf8")).digest("base64url"),
+    registry_root_key_id: resultRegistryRootKeyId,
+    registry_root_public_key_spki: resultRegistryRootPublicKeySpki,
+    deployment_id: deploymentId,
+    worker_name: workerName,
+    version_id: versionId,
+  },
 });
 
 function platformWith({ deployment = {}, version = {} } = {}) {
@@ -220,6 +288,12 @@ for (const [label, mutation] of [
   ["runtime version differs from platform version", { runtimeHealth: health({ runtime_version: { version_id: "5b064508-1cdb-453c-826b-bdea36a8b1e5" } }) }],
   ["runtime Git SHA differs from HEAD", { runtimeHealth: health({ git_commit_sha: "b".repeat(40) }) }],
   ["wrong binding mode", { runtimeHealth: health({ binding_mode: "random" }) }],
+  ["live Result signer key ID is substituted", {
+    runtimeHealth: health({ result_identity: { ...health().result_identity, result_signer_key_id: "substituted-result-key" } }),
+  }],
+  ["Result registry root pin is substituted", {
+    resultSignerEnvironment: { ...deploymentEnvironment, TLSN_CANARY_RESULT_REGISTRY_ROOT_KEY_ID: "substituted-result-root" },
+  }],
   ["stale deployment artifact", { deploymentStartedAt: new Date("2026-09-08T01:00:00.000Z") }],
   ["historical deployment artifact", { expectedDeploymentTag: "canary-bbbbbbbbbbbb" }],
   ["successful deployment with mismatching health", { runtimeHealth: health({ deployment_identity: { ...health().deployment_identity, worker_name: "other-worker" } }) }],
@@ -442,6 +516,19 @@ assert.deepEqual(assertCanaryDeploymentRuntimeAttestation(realShape, runtimeAtte
     attestation_captured_at: realShape.captured_at,
     attestation_expires_at: deploymentManifest.expires_at,
   },
+  result_signer_identity: {
+    status: "VALID",
+    signer_key_id: resultSignerKeyId,
+    public_key_spki: resultPublicKeySpki,
+    public_key_spki_sha256: createHash("sha256").update(Buffer.from(resultPublicKeySpki, "base64url")).digest("base64url"),
+    key_registry_sha256: createHash("sha256").update(Buffer.from(resultKeyRegistryRaw, "utf8")).digest("base64url"),
+    key_registry_envelope_sha256: createHash("sha256").update(Buffer.from(resultRegistryEnvelopeRaw, "utf8")).digest("base64url"),
+    registry_root_key_id: resultRegistryRootKeyId,
+    registry_root_public_key_spki: resultRegistryRootPublicKeySpki,
+    deployment_id: deploymentId,
+    worker_name: workerName,
+    version_id: versionId,
+  },
   cross_binding: {
     status: "PASS",
     workflow_attestation: true,
@@ -449,6 +536,7 @@ assert.deepEqual(assertCanaryDeploymentRuntimeAttestation(realShape, runtimeAtte
     environment_attestation: true,
     version_serving: true,
     verifier_identity_binding: true,
+    result_signer_deployment_binding: true,
     attestation_fresh: true,
   },
 });
@@ -463,7 +551,16 @@ for (const [label, mutation] of [
   ["same deployment/workflow/worker with a different manifest ID", { deploymentManifest: { ...deploymentManifest, manifest_id: "B".repeat(43) } }],
   ["same HEAD with a different manifest deployment", { deploymentManifest: { ...deploymentManifest, deployment: { ...deploymentManifest.deployment, deployment_id: "other-deployment" } } }],
   ["same deployment with a different manifest worker", { deploymentManifest: { ...deploymentManifest, deployment: { ...deploymentManifest.deployment, worker_name: "fusou-tlsn-verification-canary-alt" } } }],
+  ["manifest Result input fingerprint was mutated", {
+    deploymentManifest: {
+      ...deploymentManifest,
+      inputs: deploymentManifest.inputs.map((input) => input.name === "TLSN_CANARY_RESULT_SIGNER_KEY_ID"
+        ? { ...input, value_sha256: "B".repeat(43) }
+        : input),
+    },
+  }],
   ["same workflow with a different environment deployment", { environment: { ...deploymentEnvironment, TLSN_CANARY_DEPLOYMENT_ID: "other-deployment" } }],
+  ["correct Result key attached to a different deployment", { environment: { ...deploymentEnvironment, TLSN_CANARY_DEPLOYMENT_ID: "other-deployment" } }],
   ["same workflow with a different environment worker", { environment: { ...deploymentEnvironment, TLSN_CANARY_WORKER_NAME: "fusou-tlsn-verification-canary-alt" } }],
   ["same identity with a different manifest commit", { deploymentManifest: { ...deploymentManifest, workflow: { ...deploymentManifest.workflow, commit_sha: "b".repeat(40) } } }],
 ]) {

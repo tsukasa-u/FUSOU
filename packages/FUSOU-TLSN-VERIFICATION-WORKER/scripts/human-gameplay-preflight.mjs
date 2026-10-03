@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 
 import { readFile } from "node:fs/promises";
-import { resolve } from "node:path";
+import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { verifyLocalWasmArtifactProvenance } from "./wasm-provenance.mjs";
 
 export const HUMAN_GAMEPLAY_PREFLIGHT_SCHEMA_VERSION = 2;
 export const HUMAN_GAMEPLAY_PREFLIGHT_SCOPE = "tlsn-human-gameplay-preflight";
@@ -346,8 +347,11 @@ if (process.argv[1] && resolve(process.argv[1]) === scriptPath) {
     process.exitCode = 2;
   } else {
     readFile(resolve(inputPath), "utf8")
-      .then((raw) => {
+      .then(async (raw) => {
         const report = validateHumanGameplayPreflight(raw);
+        report.wasm_artifact_local_consistency = await verifyLocalWasmArtifactProvenance({
+          workerDirectory: resolve(dirname(scriptPath), ".."),
+        });
         console.log(JSON.stringify(report, null, 2));
         if (report.preflight_status === "BLOCKED") process.exitCode = 2;
       })

@@ -1,5 +1,7 @@
+use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use proxy_https::production_tlsn::RuntimeIdentity;
 use serde::Deserialize;
+use sha2::{Digest, Sha256};
 use std::time::Duration;
 use url::Url;
 
@@ -15,6 +17,8 @@ struct WorkerHealth {
     runtime_version: Option<WorkerRuntimeVersion>,
     security_identity: WorkerSecurityIdentity,
     deployment_identity: WorkerDeploymentIdentity,
+    result_public_key_spki: Option<String>,
+    result_identity: WorkerResultIdentity,
 }
 
 #[derive(Debug, Deserialize)]
@@ -35,12 +39,22 @@ struct WorkerDeploymentIdentity {
     worker_name: Option<String>,
 }
 
+#[derive(Debug, Deserialize)]
+struct WorkerResultIdentity {
+    result_public_key_spki: Option<String>,
+    result_signer_key_id: Option<String>,
+    result_key_registry_sha256: Option<String>,
+}
+
 pub async fn fetch_and_validate(
     endpoint: &str,
     expected_deployment_id: &str,
     expected_worker_name: &str,
     expected_git_commit_sha: &str,
     expected_binding_mode: &str,
+    expected_result_public_key_spki: &str,
+    expected_result_signer_key_id: &str,
+    expected_result_key_registry: &str,
 ) -> Result<RuntimeIdentity, String> {
     validate_health_endpoint(endpoint)?;
     validate_expected_identity(
@@ -48,6 +62,9 @@ pub async fn fetch_and_validate(
         expected_worker_name,
         expected_git_commit_sha,
         expected_binding_mode,
+        expected_result_public_key_spki,
+        expected_result_signer_key_id,
+        expected_result_key_registry,
     )?;
 
     let client = reqwest::Client::builder()
@@ -76,6 +93,9 @@ pub async fn fetch_and_validate(
         expected_worker_name,
         expected_git_commit_sha,
         expected_binding_mode,
+        expected_result_public_key_spki,
+        expected_result_signer_key_id,
+        expected_result_key_registry,
     )
 }
 
@@ -103,6 +123,9 @@ fn validate_expected_identity(
     worker_name: &str,
     git_commit_sha: &str,
     binding_mode: &str,
+    result_public_key_spki: &str,
+    result_signer_key_id: &str,
+    result_key_registry: &str,
 ) -> Result<(), String> {
     if deployment_id.trim().is_empty() || worker_name.trim().is_empty() {
         return Err("TLSN runtime attestation expected identity is incomplete".to_owned());
@@ -117,6 +140,14 @@ fn validate_expected_identity(
             "TLSN runtime attestation expected binding mode must be fixed_canary".to_owned(),
         );
     }
+    if result_public_key_spki.trim().is_empty()
+        || result_signer_key_id.trim().is_empty()
+        || result_key_registry.trim().is_empty()
+    {
+        return Err(
+            "TLSN runtime attestation expected Result signer identity is incomplete".to_owned(),
+        );
+    }
     Ok(())
 }
 
@@ -126,12 +157,18 @@ fn validate_health(
     expected_worker_name: &str,
     expected_git_commit_sha: &str,
     expected_binding_mode: &str,
+    expected_result_public_key_spki: &str,
+    expected_result_signer_key_id: &str,
+    expected_result_key_registry: &str,
 ) -> Result<RuntimeIdentity, String> {
     validate_expected_identity(
         expected_deployment_id,
         expected_worker_name,
         expected_git_commit_sha,
         expected_binding_mode,
+        expected_result_public_key_spki,
+        expected_result_signer_key_id,
+        expected_result_key_registry,
     )?;
     if !health.ok || health.environment != "production" || health.deployment_role != "canary" {
         return Err("TLSN runtime attestation is not a production Canary Worker".to_owned());
@@ -170,6 +207,22 @@ fn validate_health(
         .filter(|value| !value.is_empty())
         .ok_or_else(|| "TLSN runtime attestation Cloudflare version ID is missing".to_owned())?;
 
+    let expected_registry_sha256 =
+        URL_SAFE_NO_PAD.encode(Sha256::digest(expected_result_key_registry.as_bytes()));
+    if health.result_public_key_spki.as_deref() != Some(expected_result_public_key_spki)
+        || health.result_identity.result_public_key_spki.as_deref()
+            != Some(expected_result_public_key_spki)
+        || health.result_identity.result_signer_key_id.as_deref()
+            != Some(expected_result_signer_key_id)
+        || health.result_identity.result_key_registry_sha256.as_deref()
+            != Some(expected_registry_sha256.as_str())
+    {
+        return Err(
+            "TLSN runtime Result signer identity does not match APP compile-time configuration"
+                .to_owned(),
+        );
+    }
+
     Ok(RuntimeIdentity::new(
         expected_deployment_id.to_owned(),
         expected_worker_name.to_owned(),
@@ -197,6 +250,12 @@ mod tests {
                 "deployment_role": "canary",
                 "binding_mode": "fixed_canary",
                 "worker_name": "fusou-tlsn-verification-canary"
+            },
+            "result_public_key_spki": "result-public-key-spki",
+            "result_identity": {
+                "result_public_key_spki": "result-public-key-spki",
+                "result_signer_key_id": "result-canary-2026",
+                "result_key_registry_sha256": URL_SAFE_NO_PAD.encode(Sha256::digest(b"result-registry"))
             }
         }))
         .expect("health fixture")
@@ -210,10 +269,47 @@ mod tests {
             "fusou-tlsn-verification-canary",
             "0123456789abcdef0123456789abcdef01234567",
             "fixed_canary",
+            "result-public-key-spki",
+            "result-canary-2026",
+            "result-registry",
         )
         .expect("matching health identity");
         assert_eq!(identity.deployment_id(), "canary-2026");
         assert_eq!(identity.runtime_version_id(), "cf-version-1");
+    }
+
+    #[test]
+    fn health_result_identity_rejects_signer_key_substitution() {
+        let mut value = health();
+        value.result_identity.result_signer_key_id = Some("substituted-key".to_owned());
+        let error = validate_health(
+            &value,
+            "canary-2026",
+            "fusou-tlsn-verification-canary",
+            "0123456789abcdef0123456789abcdef01234567",
+            "fixed_canary",
+            "result-public-key-spki",
+            "result-canary-2026",
+            "result-registry",
+        )
+        .expect_err("substituted signer key must fail");
+        assert!(error.contains("Result signer identity"));
+    }
+
+    #[test]
+    fn health_result_identity_rejects_registry_substitution() {
+        let error = validate_health(
+            &health(),
+            "canary-2026",
+            "fusou-tlsn-verification-canary",
+            "0123456789abcdef0123456789abcdef01234567",
+            "fixed_canary",
+            "result-public-key-spki",
+            "result-canary-2026",
+            "substituted-result-registry",
+        )
+        .expect_err("substituted registry must fail");
+        assert!(error.contains("Result signer identity"));
     }
 
     #[test]
@@ -224,6 +320,9 @@ mod tests {
             "fusou-tlsn-verification-canary",
             "0123456789abcdef0123456789abcdef01234567",
             "fixed_canary",
+            "result-public-key-spki",
+            "result-canary-2026",
+            "result-registry",
         )
         .expect_err("wrong deployment must fail");
         assert!(error.contains("deployment identity"));
@@ -239,6 +338,9 @@ mod tests {
             "fusou-tlsn-verification-canary",
             "0123456789abcdef0123456789abcdef01234567",
             "fixed_canary",
+            "result-public-key-spki",
+            "result-canary-2026",
+            "result-registry",
         )
         .expect_err("wrong role must fail");
         assert!(error.contains("production Canary"));
@@ -255,6 +357,9 @@ mod tests {
             "fusou-tlsn-verification-canary",
             "0123456789abcdef0123456789abcdef01234567",
             "fixed_canary",
+            "result-public-key-spki",
+            "result-canary-2026",
+            "result-registry",
         )
         .expect_err("wrong Git SHA must fail");
         assert!(error.contains("Git SHA"));
@@ -270,6 +375,9 @@ mod tests {
             "fusou-tlsn-verification-canary",
             "0123456789abcdef0123456789abcdef01234567",
             "fixed_canary",
+            "result-public-key-spki",
+            "result-canary-2026",
+            "result-registry",
         )
         .expect_err("wrong binding mode must fail");
         assert!(error.contains("deployment identity"));

@@ -295,6 +295,18 @@ where
                     .ok_or("tlsn_expected_git_commit_sha is required for the TLSN experiment")?
                     .as_str(),
                 proxy_configs.get_tlsn_expected_binding_mode().as_str(),
+                proxy_configs
+                    .get_tlsn_result_public_key_spki()
+                    .ok_or("tlsn_result_public_key_spki is required for the TLSN experiment")?
+                    .as_str(),
+                proxy_configs
+                    .get_tlsn_result_signer_key_id()
+                    .ok_or("tlsn_result_signer_key_id is required for the TLSN experiment")?
+                    .as_str(),
+                proxy_configs
+                    .get_tlsn_result_signing_key_registry()
+                    .ok_or("tlsn_result_signing_key_registry is required for the TLSN experiment")?
+                    .as_str(),
             )
             .await
             .map_err(|error| format!("TLSN runtime attestation failed: {error}"))?,

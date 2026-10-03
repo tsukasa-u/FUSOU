@@ -250,6 +250,46 @@ assert.equal(resultSignature.result_signature_valid, true);
 assert.equal(resultSignature.signature_algorithm, "Ed25519");
 assert.equal(resultSignature.deployment_binding, "UNVERIFIED");
 
+const validatedRuntimeIdentity = {
+  status: "VALID",
+  signature_valid: true,
+  deployment_id: "canary-main-worker-deployment",
+  worker_name: "fusou-tlsn-verification-canary",
+  version_id: "4b064508-1cdb-453c-826b-bdea36a8b1e5",
+  result_signer_identity: {
+    status: "VALID",
+    signer_key_id: resultKeyId,
+    public_key_spki: resultPublicKeySpki,
+    public_key_spki_sha256: createHash("sha256").update(Buffer.from(resultPublicKeySpki, "base64url")).digest("base64url"),
+    key_registry_sha256: createHash("sha256").update(resultKeyRegistryRawBytes).digest("base64url"),
+    key_registry_envelope_sha256: createHash("sha256").update(registryEnvelopeRawBytes).digest("base64url"),
+    registry_root_key_id: resultRootKeyId,
+    registry_root_public_key_spki: resultRootPublicKeySpki,
+    deployment_id: "canary-main-worker-deployment",
+    worker_name: "fusou-tlsn-verification-canary",
+    version_id: "4b064508-1cdb-453c-826b-bdea36a8b1e5",
+  },
+};
+assert.equal(verifyCanaryResultSignature({ finalResponse, resultAuthority, trustedRuntimeIdentity: validatedRuntimeIdentity, now }).deployment_binding, "UNVERIFIED");
+assert.throws(() => verifyCanaryResultSignature({
+  finalResponse,
+  resultAuthority,
+  trustedRuntimeIdentity: {
+    ...validatedRuntimeIdentity,
+    result_signer_identity: { ...validatedRuntimeIdentity.result_signer_identity, signer_key_id: "substituted-result-key" },
+  },
+  now,
+}), /does not match Runtime Attestation Result signer signer_key_id/);
+assert.throws(() => verifyCanaryResultSignature({
+  finalResponse,
+  resultAuthority,
+  trustedRuntimeIdentity: {
+    ...validatedRuntimeIdentity,
+    result_signer_identity: { ...validatedRuntimeIdentity.result_signer_identity, deployment_id: "other-main-worker-deployment" },
+  },
+  now,
+}), /not bound to the Main Worker identity/);
+
 const combinedCryptographicProofs = verifyCanaryOfflineCryptographicProofs({
   session,
   deviceAuthentication,

@@ -1,31 +1,18 @@
 #!/usr/bin/env node
 
-import { existsSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
+import {
+  findWasmCompiler,
+  resolveWasmPackCommand,
+  wasmCompilerFlags,
+  writeWasmArtifactProvenance,
+} from "./wasm-provenance.mjs";
 
 const workerDirectory = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const verifierDirectory = resolve(workerDirectory, "../FUSOU-TLSN-VERIFIER");
-const repositoryNodeModules = resolve(workerDirectory, "../../node_modules/.bin");
-const localWasmPack = resolve(
-  repositoryNodeModules,
-  process.platform === "win32" ? "wasm-pack.cmd" : "wasm-pack",
-);
-const wasmPack = existsSync(localWasmPack) ? localWasmPack : "wasm-pack";
-
-function findCompiler() {
-  if (process.env.CC_wasm32_unknown_unknown) {
-    return process.env.CC_wasm32_unknown_unknown;
-  }
-  for (const candidate of ["clang", "clang-18", "clang-17"]) {
-    const result = spawnSync(candidate, ["--version"], { stdio: "ignore" });
-    if (!result.error && result.status === 0) {
-      return candidate;
-    }
-  }
-  return undefined;
-}
+const wasmPack = resolveWasmPackCommand(workerDirectory);
 
 const wasmPackCheck = spawnSync(wasmPack, ["--version"], { stdio: "ignore" });
 if (wasmPackCheck.error || wasmPackCheck.status !== 0) {
@@ -38,26 +25,15 @@ const environment = {
   CARGO_NET_OFFLINE: "true",
   RUSTUP_AUTO_INSTALL: "0",
 };
-const compiler = findCompiler();
+const compiler = findWasmCompiler();
 if (!compiler) {
   throw new Error(
     "A wasm-capable Clang compiler is required to build ring for wasm32-unknown-unknown. Set CC_wasm32_unknown_unknown to its path.",
   );
 }
 environment.CC_wasm32_unknown_unknown = compiler;
-const resourceDirectory = spawnSync(compiler, ["-print-resource-dir"], {
-  encoding: "utf8",
-}).stdout?.trim();
-const requiredCFlags = ["--target=wasm32-unknown-unknown"];
-if (resourceDirectory) {
-  requiredCFlags.push(`-I${resolve(resourceDirectory, "include")}`);
-}
-environment.CFLAGS_wasm32_unknown_unknown = [
-  ...requiredCFlags,
-  process.env.CFLAGS_wasm32_unknown_unknown ?? "",
-]
-  .join(" ")
-  .trim();
+const effectiveCompilerFlags = wasmCompilerFlags(compiler, process.env);
+environment.CFLAGS_wasm32_unknown_unknown = effectiveCompilerFlags;
 
 const result = spawnSync(
   wasmPack,
@@ -85,4 +61,10 @@ if (result.status !== 0) {
   process.exit(result.status ?? 1);
 }
 
+await writeWasmArtifactProvenance({
+  workerDirectory,
+  artifactDirectory: resolve(workerDirectory, "src/wasm"),
+  environment,
+  effectiveCompilerFlags,
+});
 console.log("WASM_BUILD_NETWORK=VERIFIED_OFFLINE");

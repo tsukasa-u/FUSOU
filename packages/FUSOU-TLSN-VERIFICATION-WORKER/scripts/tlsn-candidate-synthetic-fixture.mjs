@@ -318,6 +318,19 @@ export async function createSyntheticCandidateBundle(rootDirectory) {
     trustRootDer: trustAnchorDer,
   });
   const resultAuthority = signedResultAuthority();
+  verifier.trustedRuntimeIdentity.result_signer_identity = {
+    status: "VALID",
+    signer_key_id: resultAuthority.authority.signerKeyId,
+    public_key_spki: resultAuthority.authority.publicKeySpki,
+    public_key_spki_sha256: sha256(Buffer.from(resultAuthority.authority.publicKeySpki, "base64url")),
+    key_registry_sha256: sha256(resultAuthority.authority.keyRegistryRawBytes),
+    key_registry_envelope_sha256: sha256(resultAuthority.authority.registryEnvelopeRawBytes),
+    registry_root_key_id: resultAuthority.authority.trustedRootKeyId,
+    registry_root_public_key_spki: resultAuthority.authority.trustedRootPublicKeySpki,
+    deployment_id: verifier.trustedRuntimeIdentity.deployment_id,
+    worker_name: verifier.trustedRuntimeIdentity.worker_name,
+    version_id: verifier.trustedRuntimeIdentity.version_id,
+  };
   const unsignedResult = semantic.result;
   const signedResult = {
     ...unsignedResult,

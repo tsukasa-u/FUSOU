@@ -24,7 +24,7 @@ const baseRegistry = {
   }],
 };
 const unsignedAttestation = {
-  schema_version: 1,
+  schema_version: 2,
   scope: "tlsn-canary-deployment-runtime-attestation",
   status: "PASS",
   captured_at: "2026-09-15T00:00:00.000Z",

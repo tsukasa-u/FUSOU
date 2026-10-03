@@ -177,13 +177,18 @@ function createLiveHealthEvidence(component, claims, readinessInvocationId, boun
 
 function expectedIdentity(runtimeIdentity, deploymentManifest, readinessInvocationId) {
   const verifier = runtimeIdentity?.verifier_identity;
+  const resultSigner = runtimeIdentity?.result_signer_identity;
   if (
     runtimeIdentity?.status !== "VALID" ||
     runtimeIdentity.signature_valid !== true ||
     runtimeIdentity.cross_binding?.attestation_fresh !== true ||
-    verifier?.status !== "VALID"
+    verifier?.status !== "VALID" ||
+    resultSigner?.status !== "VALID" ||
+    resultSigner.deployment_id !== runtimeIdentity.deployment_id ||
+    resultSigner.worker_name !== runtimeIdentity.worker_name ||
+    resultSigner.version_id !== runtimeIdentity.version_id
   ) {
-    throw new Error("a fresh signed Canary Runtime Attestation is required for operational smoke");
+    throw new Error("a fresh signed Canary Runtime Attestation with bound Main Worker and Result signer identities is required for operational smoke");
   }
   assertObject(deploymentManifest, "validated Canary deployment manifest");
   if (
@@ -227,6 +232,10 @@ function expectedIdentity(runtimeIdentity, deploymentManifest, readinessInvocati
     verifier_version_id: verifier.version_id,
     verifier_key_id: verifier.verifier_key_id,
     verifier_key_registry_sha256: verifier.key_registry_sha256,
+    result_signer_key_id: resultSigner.signer_key_id,
+    result_signer_public_key_spki_sha256: resultSigner.public_key_spki_sha256,
+    result_signer_key_registry_sha256: resultSigner.key_registry_sha256,
+    result_signer_registry_envelope_sha256: resultSigner.key_registry_envelope_sha256,
     runtime_attestation_signer_key_id: runtimeIdentity.attestation_signer_key_id,
   };
   for (const [field, value] of Object.entries(identity)) {

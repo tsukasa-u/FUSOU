@@ -10,8 +10,11 @@ import { buildReadinessReport } from "./canary-readiness-test.mjs";
 import { CANARY_TLSN_ARCHITECTURE } from "./canary-external-input-intake.mjs";
 import { signCanaryRuntimeAttestation } from "./canary-runtime-attestation-signing.mjs";
 import { createCanaryDeploymentMessage } from "./canary-deployment-attestation.mjs";
+import { deploymentManifestIdentity } from "./canary-deployment-manifest.mjs";
 import { CANARY_VERIFIER_WORKER_NAME } from "./canary-deployment-target.mjs";
 import { createCanaryVerifierExecutionReceipt } from "./canary-verifier-identity.mjs";
+import { createSignedResultRegistryEnvelope } from "./result-registry-envelope.mjs";
+import { canonicalJson } from "./deployment-attestation.mjs";
 import {
   CANARY_VERIFIER_IDENTITY_KEY_REGISTRY_SCOPE,
   canaryVerifierIdentityKeyRegistrySha256,
@@ -137,6 +140,39 @@ const matchingEnvironment = {
   TLSN_WORKFLOW_FILE_IDENTITY: matchingWorkflow.workflow_file_identity,
   TLSN_GIT_COMMIT_SHA: expectedHead,
 };
+const resultSignerKeyId = "test-readiness-result-signer";
+const resultRegistryRootKeyId = "test-readiness-result-root";
+const { publicKey: resultSignerPublicKey } = generateKeyPairSync("ed25519");
+const { privateKey: resultRegistryRootPrivateKey, publicKey: resultRegistryRootPublicKey } = generateKeyPairSync("ed25519");
+const resultPublicKeySpki = resultSignerPublicKey.export({ format: "der", type: "spki" }).toString("base64url");
+const resultRegistryRootPublicKeySpki = resultRegistryRootPublicKey.export({ format: "der", type: "spki" }).toString("base64url");
+const resultKeyRegistry = {
+  schema_version: 1,
+  scope: "tlsn-result-signing-key-registry",
+  keys: [{
+    key_id: resultSignerKeyId,
+    public_key_spki: resultPublicKeySpki,
+    status: "ACTIVE",
+    not_before: "2026-01-01T00:00:00.000Z",
+    not_after: null,
+  }],
+};
+const resultKeyRegistryRaw = JSON.stringify(resultKeyRegistry);
+const resultRegistryEnvelopeRaw = JSON.stringify(createSignedResultRegistryEnvelope({
+  registry: resultKeyRegistry,
+  registryRaw: Buffer.from(resultKeyRegistryRaw, "utf8"),
+  rootKeyId: resultRegistryRootKeyId,
+  rootPublicKeySpki: resultRegistryRootPublicKeySpki,
+  rootPrivateKeyPkcs8: resultRegistryRootPrivateKey.export({ format: "der", type: "pkcs8" }).toString("base64url"),
+}));
+Object.assign(matchingEnvironment, {
+  TLSN_CANARY_RESULT_PUBLIC_KEY_SPKI: resultPublicKeySpki,
+  TLSN_CANARY_RESULT_SIGNER_KEY_ID: resultSignerKeyId,
+  TLSN_CANARY_RESULT_SIGNING_KEY_REGISTRY: resultKeyRegistryRaw,
+  TLSN_CANARY_RESULT_SIGNING_KEY_REGISTRY_ENVELOPE: resultRegistryEnvelopeRaw,
+  TLSN_CANARY_RESULT_REGISTRY_ROOT_KEY_ID: resultRegistryRootKeyId,
+  TLSN_CANARY_RESULT_REGISTRY_ROOT_PUBLIC_KEY_SPKI: resultRegistryRootPublicKeySpki,
+});
 const { privateKey: runtimeAttestationPrivateKey, publicKey: runtimeAttestationPublicKey } = generateKeyPairSync("ed25519");
 const runtimeAttestationPrivateKeyPkcs8 = runtimeAttestationPrivateKey.export({ format: "der", type: "pkcs8" }).toString("base64url");
 const runtimeAttestationPublicKeySpki = runtimeAttestationPublicKey.export({ format: "der", type: "spki" }).toString("base64url");
@@ -208,8 +244,17 @@ const matchingManifest = {
     worker_name: matchingEnvironment.TLSN_CANARY_WORKER_NAME,
   },
 };
+matchingManifest.inputs = Object.entries(matchingEnvironment)
+  .filter(([name]) => name.startsWith("TLSN_CANARY_RESULT_"))
+  .map(([name, raw]) => {
+    const bytes = name.endsWith("_REGISTRY_ENVELOPE")
+      ? Buffer.from(canonicalJson(JSON.parse(raw)), "utf8")
+      : Buffer.from(raw, "utf8");
+    return { name, value_sha256: createHash("sha256").update(bytes).digest("base64url"), provenance: "deployment-input" };
+  });
+matchingManifest.manifest_id = deploymentManifestIdentity(matchingManifest);
 const unsignedRuntimeAttestation = {
-  schema_version: 1,
+  schema_version: 2,
   scope: "tlsn-canary-deployment-runtime-attestation",
   status: "PASS",
   readiness: "CANARY_RUNTIME_IDENTITY_VERIFIED",
@@ -285,6 +330,18 @@ const unsignedRuntimeAttestation = {
     key_registry_sha256: canaryVerifierIdentityKeyRegistrySha256(verifierIdentityKeyRegistry),
     key_registry: verifierIdentityKeyRegistry,
   },
+  result_signer_identity: {
+    signer_key_id: resultSignerKeyId,
+    public_key_spki: resultPublicKeySpki,
+    public_key_spki_sha256: createHash("sha256").update(Buffer.from(resultPublicKeySpki, "base64url")).digest("base64url"),
+    key_registry_sha256: createHash("sha256").update(Buffer.from(resultKeyRegistryRaw, "utf8")).digest("base64url"),
+    key_registry_envelope_sha256: createHash("sha256").update(Buffer.from(resultRegistryEnvelopeRaw, "utf8")).digest("base64url"),
+    registry_root_key_id: resultRegistryRootKeyId,
+    registry_root_public_key_spki: resultRegistryRootPublicKeySpki,
+    deployment_id: "canary-contract-test",
+    worker_name: "fusou-tlsn-verification-canary",
+    version_id: "4b064508-1cdb-453c-826b-bdea36a8b1e5",
+  },
   checks: {
     synthetic_evidence_rejected: true,
     runtime_is_production_canary: true,
@@ -294,6 +351,7 @@ const unsignedRuntimeAttestation = {
     verifier_platform_identity_matches_authorized_deployment: true,
     verifier_runtime_matches_platform_version: true,
     verifier_identity_key_matches_active_registry: true,
+    result_signer_deployment_binding: true,
   },
   captured_at: "2026-09-15T00:00:00.000Z",
 };

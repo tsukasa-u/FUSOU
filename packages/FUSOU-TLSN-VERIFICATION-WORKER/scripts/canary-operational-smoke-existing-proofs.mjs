@@ -208,6 +208,7 @@ function parseFinalResult(resultBytes) {
 export function verifyCanaryResultSignature({
   finalResponse,
   resultAuthority,
+  trustedRuntimeIdentity,
   now = new Date(),
 } = {}) {
   assertObject(finalResponse, "exact Result response");
@@ -259,6 +260,37 @@ export function verifyCanaryResultSignature({
         })
       : (() => { throw new Error("signed Result version is unsupported"); })();
 
+  if (trustedRuntimeIdentity?.status === "VALID") {
+    assertObject(trustedRuntimeIdentity, "validated Runtime Attestation identity");
+    const runtimeSigner = trustedRuntimeIdentity.result_signer_identity;
+    assertObject(runtimeSigner, "validated Runtime Attestation Result signer identity");
+    if (trustedRuntimeIdentity.status !== "VALID" || trustedRuntimeIdentity.signature_valid !== true || runtimeSigner.status !== "VALID") {
+      throw new Error("Result signer deployment binding requires a valid signed Runtime Attestation identity");
+    }
+    for (const [field, actual] of Object.entries({
+      signer_key_id: resultVerification.result_signer_key_id,
+      public_key_spki: resultAuthority.publicKeySpki,
+      public_key_spki_sha256: sha256Base64Url(Buffer.from(resultAuthority.publicKeySpki, "base64url")),
+      key_registry_sha256: sha256Base64Url(registryBytes),
+      key_registry_envelope_sha256: resultRegistryEnvelopeHash(envelopeBytes),
+      registry_root_key_id: resultAuthority.trustedRootKeyId,
+      registry_root_public_key_spki: resultAuthority.trustedRootPublicKeySpki,
+    })) {
+      if (runtimeSigner[field] !== actual) {
+        throw new Error(`signed Result does not match Runtime Attestation Result signer ${field}`);
+      }
+    }
+    for (const [field, actual] of Object.entries({
+      deployment_id: trustedRuntimeIdentity.deployment_id,
+      worker_name: trustedRuntimeIdentity.worker_name,
+      version_id: trustedRuntimeIdentity.version_id,
+    })) {
+      if (!actual || runtimeSigner[field] !== actual) {
+        throw new Error(`Runtime Attestation Result signer ${field} is not bound to the Main Worker identity`);
+      }
+    }
+  }
+
   return {
     status: "PASS",
     signature_algorithm: "Ed25519",
@@ -268,6 +300,7 @@ export function verifyCanaryResultSignature({
     result_signer_key_id: resultVerification.result_signer_key_id,
     result_signature_valid: resultVerification.result_signature_valid,
     result_key_status: resultVerification.result_signing_key_status,
+    result_public_key_spki: resultAuthority.publicKeySpki,
     registry_sha256: sha256Base64Url(registryBytes),
     registry_envelope_sha256: resultRegistryEnvelopeHash(envelopeBytes),
     trusted_registry_root_key_id: resultAuthority.trustedRootKeyId,
@@ -282,6 +315,7 @@ export function verifyCanaryOfflineCryptographicProofs({
   possessionProof,
   finalResponse,
   resultAuthority,
+  trustedRuntimeIdentity,
   now = new Date(),
 } = {}) {
   const deviceAuthenticationProof = verifyCanaryDeviceAuthenticationProof({
@@ -294,7 +328,7 @@ export function verifyCanaryOfflineCryptographicProofs({
     deviceIdentity,
     session,
   });
-  const resultSignature = verifyCanaryResultSignature({ finalResponse, resultAuthority, now });
+  const resultSignature = verifyCanaryResultSignature({ finalResponse, resultAuthority, trustedRuntimeIdentity, now });
   return {
     status: "PASS",
     scope: "provided device signatures and root-pinned Result signer registry only",
@@ -365,6 +399,7 @@ export async function verifyCanaryExistingSourceProofBundle({
     possessionProof,
     finalResponse,
     resultAuthority,
+    trustedRuntimeIdentity,
     now,
   });
   const deviceAuthenticationProof = cryptographicProofs.components.device_auth_signature;
@@ -574,7 +609,7 @@ export async function verifyCanaryExistingSourceProofBundle({
       },
       result_signer_deployment_binding: {
         status: resultSignature.deployment_binding,
-        reason: "The existing Result key registry schema does not bind signer keys to a deployment/runtime identity.",
+        reason: "Signer/key and Main Worker identity fields are compared when a validated Runtime Attestation identity is supplied; this offline adapter does not independently reverify the Runtime Attestation signature.",
       },
       result_exact_outer_bytes_binding: {
         status: "PASS",

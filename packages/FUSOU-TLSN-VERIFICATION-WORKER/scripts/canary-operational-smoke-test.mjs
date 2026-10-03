@@ -69,6 +69,16 @@ const trustedRuntimeIdentity = {
   platform_deployment_id: "3b064508-1cdb-453c-826b-bdea36a8b1e5",
   manifest_id: deploymentManifest.manifest_id,
   attestation_signer_key_id: signerKeyId,
+  result_signer_identity: {
+    status: "VALID",
+    signer_key_id: "result-canary-2026-09-30",
+    public_key_spki_sha256: "C".repeat(43),
+    key_registry_sha256: "D".repeat(43),
+    key_registry_envelope_sha256: "E".repeat(43),
+    deployment_id: "canary-main-2026-09-30",
+    worker_name: "fusou-tlsn-verification-canary",
+    version_id: "4b064508-1cdb-453c-826b-bdea36a8b1e5",
+  },
   verifier_identity: {
     status: "VALID",
     deployment_id: "canary-verifier-2026-09-30",
@@ -136,6 +146,23 @@ assert.equal(partialArtifact.evidence.synthetic, false);
 assert.equal(partialArtifact.evidence.replay_policy, CANARY_OPERATIONAL_SMOKE_REPLAY_POLICY);
 assert.equal(partialArtifact.bound_identity.manifest_id, deploymentManifest.manifest_id);
 assert.equal(partialArtifact.readiness_invocation_id, readinessInvocationId);
+assert.throws(() => createCanaryOperationalSmokeArtifact({
+  observations,
+  trustedRuntimeIdentity: {
+    ...trustedRuntimeIdentity,
+    result_signer_identity: {
+      ...trustedRuntimeIdentity.result_signer_identity,
+      deployment_id: "stale-main-worker-deployment",
+    },
+  },
+  deploymentManifest,
+  readinessInvocationId,
+  signerKeyId,
+  signingPrivateKeyPkcs8: privateKeyPkcs8,
+  runtimeAttestationKeyRegistry,
+  capturedAt,
+  signingNow: capturedAt,
+}), /bound Main Worker and Result signer identities/);
 assert.throws(() => createCanaryOperationalSmokeArtifact({
   observations: {
     ...observations,
