@@ -214,11 +214,17 @@ test("signed payload schema has explicit domain, canonicalization, and no signat
   assert.equal(contract.time_semantics.registry_validity_meaning, "SIGNER_AUTHORIZATION_WINDOW");
   assert.equal(contract.time_semantics.root_must_cover_registry_validity, true);
   assert.equal(contract.time_semantics.registry_signature_timestamp, "NOT_PRESENT");
+  assert.equal(contract.time_semantics.root_authorization_at_registry_physical_signing_time, "NOT_ESTABLISHED");
+  assert.equal(contract.time_semantics.trust_model, "CURRENT_APPLICATION_PINNED_ROOT_AND_CURRENT_ROOT_SIGNED_REGISTRY_SNAPSHOT");
   assert.equal(contract.time_semantics.evidence_issued_at_historical_authorization, "NOT_INDEPENDENTLY_VERIFIABLE");
   assert.equal(contract.registry_payload.status_semantics.ACTIVE, "CURRENT_SIGNER_AUTHORIZATION_WHEN_SCOPE_AND_CURRENT_WINDOWS_MATCH");
-  assert.equal(contract.registry_payload.status_semantics.VERIFY_ONLY, "CRYPTOGRAPHIC_VERIFICATION_ONLY_NO_CURRENT_SIGNER_AUTHORIZATION");
-  assert.equal(contract.registry_payload.status_semantics.RETIRED, "CRYPTOGRAPHIC_VERIFICATION_ONLY_NO_CURRENT_SIGNER_AUTHORIZATION");
+  assert.equal(contract.registry_payload.status_semantics.VERIFY_ONLY, "SIGNATURE_INTEGRITY_CHECK_ONLY_NO_CURRENT_SIGNER_AUTHORIZATION");
+  assert.equal(contract.registry_payload.status_semantics.RETIRED, "SIGNATURE_INTEGRITY_CHECK_ONLY_NO_CURRENT_SIGNER_AUTHORIZATION");
   assert.equal(contract.registry_payload.status_semantics.REVOKED, "REJECT_SIGNATURE_VERIFICATION_FAIL_CLOSED");
+  assert.equal(contract.registry_payload.status_is_current_lifecycle_state_not_transition_history, true);
+  assert.equal(contract.registry_payload.historical_registry_lookup, "NOT_IMPLEMENTED");
+  assert.equal(contract.registry_payload.all_key_entries_import_as_ed25519_spki, true);
+  assert.equal(contract.registry_payload.all_key_entries_require_canonical_spki_der_round_trip, true);
   assert.equal(contract.evidence_digest_semantics.referenced_artifact_loaded, false);
   assert.equal(contract.evidence_digest_semantics.digest_recomputed, false);
   assert.equal(contract.time_semantics.low_level_signature_verifier_candidate_readiness, "NOT_EVALUATED");
@@ -370,7 +376,14 @@ test("all registry keys require canonical validity windows and scopes", () => {
   };
 
   rejectsUnusedKeyMutation((key) => { key.not_before = "2026-1-1T00:00:00.000Z"; }, /unused-key not_before is invalid/);
+  rejectsUnusedKeyMutation((key) => { key.not_after = "2027-13-01T00:00:00.000Z"; }, /unused-key not_after is invalid/);
   rejectsUnusedKeyMutation((key) => { key.not_after = "2025-12-31T00:00:00.000Z"; }, /unused-key validity interval is invalid/);
+  rejectsUnusedKeyMutation((key) => {
+    key.public_key_spki = Buffer.concat([
+      Buffer.from(key.public_key_spki, "base64url"),
+      Buffer.from([0]),
+    ]).toString("base64url");
+  }, /unused-key public key is not canonical Ed25519 SPKI/);
   rejectsUnusedKeyMutation((key) => { key.scopes = ["not a scope"]; }, /unused-key scopes are invalid/);
   rejectsUnusedKeyMutation((key) => { key.scopes = ["scope-a", "scope-a"]; }, /unused-key scopes are invalid/);
 });
@@ -381,11 +394,18 @@ test("registry declared validity must fit within the current trust root window",
   const evidence = signedEvidence(inputName, signer);
   const { bundle, rootPrivateKey } = trustBundle(inputName, signer);
   const registry = JSON.parse(Buffer.from(bundle.registry_payload_base64url, "base64url").toString("utf8"));
-  registry.signed_fields.valid_until = "2027-01-02T00:00:00.000Z";
-  assert.throws(
-    () => verify(inputName, evidence, replaceRegistryPayload(bundle, rootPrivateKey, registry)),
-    /registry validity interval exceeds trust root validity interval/,
-  );
+  for (const [field, value] of [
+    ["valid_from", "2025-12-31T23:59:59.999Z"],
+    ["valid_until", "2027-01-02T00:00:00.000Z"],
+  ]) {
+    const changed = structuredClone(registry);
+    changed.signed_fields[field] = value;
+    assert.throws(
+      () => verify(inputName, evidence, replaceRegistryPayload(bundle, rootPrivateKey, changed)),
+      /registry validity interval exceeds trust root validity interval/,
+      `registry ${field} must remain within the root validity window`,
+    );
+  }
 });
 
 test("key lifecycle separates signature verification from current authorization", () => {
@@ -397,6 +417,7 @@ test("key lifecycle separates signature verification from current authorization"
     const registry = JSON.parse(Buffer.from(bundle.registry_payload_base64url, "base64url").toString("utf8"));
     registry.signed_fields.keys[0].status = status;
     const changedBundle = replaceRegistryPayload(bundle, rootPrivateKey, registry);
+    assert.ok(Date.parse(evidence.issued_at) < now.getTime(), "fixture evidence carries a past issuer assertion");
     const result = verify(inputName, evidence, changedBundle, {
       pinnedTrustRoot: { ...bundle.trust_root, source: contract.trust_root.application_pin_source },
     });
@@ -416,6 +437,26 @@ test("key lifecycle separates signature verification from current authorization"
     () => verify(inputName, evidence, replaceRegistryPayload(bundle, rootPrivateKey, registry)),
     /signer key is REVOKED/,
   );
+});
+
+test("current VERIFY_ONLY registry permits signature-integrity check but cannot prove historical ACTIVE status", () => {
+  const inputName = authorityNames[0];
+  const signer = keyPair();
+  const evidence = signedEvidence(inputName, signer);
+  const { bundle, rootPrivateKey } = trustBundle(inputName, signer);
+  const registry = JSON.parse(Buffer.from(bundle.registry_payload_base64url, "base64url").toString("utf8"));
+  registry.signed_fields.keys[0].status = "VERIFY_ONLY";
+  const currentRegistry = replaceRegistryPayload(bundle, rootPrivateKey, registry);
+  const result = verify(inputName, evidence, currentRegistry, {
+    pinnedTrustRoot: { ...bundle.trust_root, source: contract.trust_root.application_pin_source },
+  });
+
+  assert.ok(Date.parse(evidence.issued_at) < now.getTime());
+  assert.equal(result.signature_verified, true);
+  assert.equal(result.evidence_issued_at_basis, "SIGNED_ISSUER_ASSERTION_NOT_INDEPENDENT_TIMESTAMP");
+  assert.equal(result.registry_signer_authorized, false);
+  assert.equal(result.authority_trusted, false);
+  assert.equal(result.historical_signer_authorization, "NOT_INDEPENDENTLY_VERIFIABLE");
 });
 
 test("valid fixture signature verifies cryptographically but fixture root is not trusted", () => {
@@ -855,6 +896,69 @@ test("VERIFY_ONLY evidence cannot promote application-pinned assessment authorit
   assert.equal(assessment.approved_expected_fingerprint.registry_signer_authorization, "NOT_AUTHORIZED_CURRENTLY");
   assert.equal(assessment.approved_expected_fingerprint.authority_trusted, false);
   assert.equal(assessment.approved_expected_fingerprint.historical_signer_authorization, "NOT_INDEPENDENTLY_VERIFIABLE");
+});
+
+test("Configuration Approval VERIFY_ONLY key transplanted into Builder scope cannot authorize Builder evidence", () => {
+  const approvalName = "APPROVED_EXPECTED_CONFIGURATION_FINGERPRINT";
+  const builderName = "AUTHENTICATED_BUILDER_PROVENANCE";
+  const signer = keyPair();
+  const { bundle: approvalBundle, rootPrivateKey: approvalRootPrivateKey } = trustBundle(approvalName, signer);
+  const approvalRegistry = JSON.parse(Buffer.from(approvalBundle.registry_payload_base64url, "base64url").toString("utf8"));
+  approvalRegistry.signed_fields.keys[0].status = "VERIFY_ONLY";
+  const signedApprovalBundle = replaceRegistryPayload(approvalBundle, approvalRootPrivateKey, approvalRegistry);
+  const approvalKey = JSON.parse(Buffer.from(signedApprovalBundle.registry_payload_base64url, "base64url").toString("utf8"))
+    .signed_fields.keys[0];
+
+  const builderEvidence = sampleEvidence(builderName);
+  builderEvidence.builder_identity = approvalKey.authority_id;
+  builderEvidence.builder_signing_key_id = approvalKey.key_id;
+  const builderPayload = canonicalCandidateConfigurationSignedPayload(builderName, builderEvidence);
+  builderEvidence.signature = {
+    algorithm: "Ed25519",
+    key_id: approvalKey.key_id,
+    payload_sha256: hash(builderPayload),
+    value: sign(null, builderPayload, signer.privateKey).toString("base64url"),
+  };
+
+  const { bundle: builderBundle, rootPrivateKey: builderRootPrivateKey } = trustBundle(builderName, signer);
+  const builderRegistry = JSON.parse(Buffer.from(builderBundle.registry_payload_base64url, "base64url").toString("utf8"));
+  builderRegistry.signed_fields.authority_id = approvalKey.authority_id;
+  builderRegistry.signed_fields.keys = [{ ...approvalKey }];
+  const transplantedBundle = replaceRegistryPayload(builderBundle, builderRootPrivateKey, builderRegistry);
+  const result = verify(builderName, builderEvidence, transplantedBundle, {
+    pinnedTrustRoot: { ...builderBundle.trust_root, source: contract.trust_root.application_pin_source },
+  });
+
+  assert.equal(result.signature_verified, true);
+  assert.equal(result.registry_signer_authorized, false);
+  assert.equal(result.authority_trusted, false);
+});
+
+test("same public key cannot cross authority domains by changing VERIFY_ONLY to ACTIVE", () => {
+  const sharedSigner = keyPair();
+  const approvalEvidence = signedEvidence(authorityNames[0], sharedSigner);
+  const builderEvidence = signedEvidence(authorityNames[1], sharedSigner);
+  const approval = trustBundle(authorityNames[0], sharedSigner);
+  const approvalRegistry = JSON.parse(Buffer.from(approval.bundle.registry_payload_base64url, "base64url").toString("utf8"));
+  approvalRegistry.signed_fields.keys[0].status = "VERIFY_ONLY";
+  const approvalBundle = replaceRegistryPayload(approval.bundle, approval.rootPrivateKey, approvalRegistry);
+  const builderBundle = trustBundle(authorityNames[1], sharedSigner).bundle;
+  const assessment = candidateConfigurationBindingAssessment({
+    approvedExpectedConfigurationFingerprint: approvalEvidence,
+    trustedBuilderProvenance: builderEvidence,
+    authorityTrustBundles: {
+      CONFIGURATION_APPROVAL: approvalBundle,
+      TRUSTED_BUILDER: builderBundle,
+    },
+    now,
+  });
+
+  assert.equal(approvalRegistry.signed_fields.keys[0].status, "VERIFY_ONLY");
+  assert.equal(JSON.parse(Buffer.from(builderBundle.registry_payload_base64url, "base64url").toString("utf8"))
+    .signed_fields.keys[0].status, "ACTIVE");
+  assert.equal(assessment.approved_expected_fingerprint.signature_verification, "INVALID");
+  assert.equal(assessment.trusted_builder_provenance.signature_verification, "INVALID");
+  assert.equal(assessment.status, "UNVERIFIED");
 });
 
 test("a signer key reused across authority registries invalidates every affected domain", () => {

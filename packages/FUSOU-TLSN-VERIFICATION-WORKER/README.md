@@ -140,7 +140,16 @@ window. The root must also be current at verification time. The registry
 signature has no signing-time field: current root validity and a valid
 signature do not prove when that signature was physically created. Registry
 and root chronology is therefore limited to their signed/configured window
-claims. All windows use inclusive starts and exclusive ends.
+claims. This contract intentionally treats the application-pinned root and its
+currently valid signed registry as the trust basis for present validation; it
+does not claim that the root was authorized at the registry signature's
+physical creation time. The root window covering the registry window is a
+consistency constraint on declared intervals, not proof of publication time.
+There is no historical root-pin/status history or registry publication-time
+evidence in this model. Proving historical root authorization would require a
+separately authenticated chronology or versioned registry trust chain; it is
+not inferred from current root status. All windows use inclusive starts and
+exclusive ends.
 
 Key lifecycle is separate from signature mathematics and current
 authorization. `ACTIVE` authorizes the key currently only when its scope and
@@ -154,7 +163,18 @@ must contain the signed `issued_at` claim, but this is only claim consistency:
 history, and neither proves that the key was authorized when the signature was
 physically made. The assessment reports current signer authorization
 separately; historical signer authorization remains
-`NOT_INDEPENDENTLY_VERIFIABLE`.
+`NOT_INDEPENDENTLY_VERIFIABLE`. Here “historical verification” for
+`VERIFY_ONLY`/`RETIRED` means only checking signature integrity, and only while
+the supplied current registry is itself current and both its declared window
+and the key window cover issuer-asserted `issued_at`. Evidence outside the
+current registry window cannot be verified by this v1 model; it does not fetch
+an older registry or prove an `ACTIVE -> VERIFY_ONLY/RETIRED` transition. A
+current `VERIFY_ONLY` entry therefore cannot authorize new evidence or establish
+that an old signature was authorized when created. `ACTIVE` makes a signer
+eligible for current authorization under its scope and time bounds, but does
+not independently attest physical signing time. A future historical-authorization
+feature must add authenticated lifecycle/registry chronology rather than
+reinterpret `issued_at`.
 
 The low-level
 `verifyCandidateConfigurationEvidenceSignature` API verifies the exact signed

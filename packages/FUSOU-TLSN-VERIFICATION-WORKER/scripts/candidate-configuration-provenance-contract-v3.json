@@ -16,6 +16,9 @@
     "root_must_cover_registry_validity": true,
     "registry_signature_timestamp": "NOT_PRESENT",
     "registry_signature_physical_time": "NOT_INDEPENDENTLY_VERIFIABLE",
+    "root_authorization_at_registry_physical_signing_time": "NOT_ESTABLISHED",
+    "trust_model": "CURRENT_APPLICATION_PINNED_ROOT_AND_CURRENT_ROOT_SIGNED_REGISTRY_SNAPSHOT",
+    "historical_registry_retrieval": "NOT_IMPLEMENTED",
     "evidence_issued_at_historical_authorization": "NOT_INDEPENDENTLY_VERIFIABLE",
     "signer_key_must_cover_evidence_issued_at_and_verification_time": true,
     "assessment_exposes_evidence_timeline": ["issued_at", "valid_from", "valid_until", "evidence_validity"],
@@ -237,6 +240,14 @@
     "production_application_pins_configured": false,
     "readiness_caller_configures_application_pins": false
   },
+  "trust_root_temporal_semantics": {
+    "root_must_be_active_and_valid_at_verification": true,
+    "root_validity_must_cover_registry_declared_window": true,
+    "application_pin_authorizes_root_identity_for_current_validation": true,
+    "historical_pin_or_root_status_history": "NOT_PRESENT",
+    "root_authorization_at_registry_physical_signing_time": "NOT_PROVEN",
+    "current_snapshot_does_not_claim_historical_root_authority": true
+  },
   "registry_payload": {
     "schema_version": 1,
     "canonicalization": "FUSOU-CANONICAL-JSON-V1",
@@ -261,12 +272,19 @@
     "statuses": ["ACTIVE", "VERIFY_ONLY", "RETIRED", "REVOKED"],
     "status_semantics": {
       "ACTIVE": "CURRENT_SIGNER_AUTHORIZATION_WHEN_SCOPE_AND_CURRENT_WINDOWS_MATCH",
-      "VERIFY_ONLY": "CRYPTOGRAPHIC_VERIFICATION_ONLY_NO_CURRENT_SIGNER_AUTHORIZATION",
-      "RETIRED": "CRYPTOGRAPHIC_VERIFICATION_ONLY_NO_CURRENT_SIGNER_AUTHORIZATION",
+      "VERIFY_ONLY": "SIGNATURE_INTEGRITY_CHECK_ONLY_NO_CURRENT_SIGNER_AUTHORIZATION",
+      "RETIRED": "SIGNATURE_INTEGRITY_CHECK_ONLY_NO_CURRENT_SIGNER_AUTHORIZATION",
       "REVOKED": "REJECT_SIGNATURE_VERIFICATION_FAIL_CLOSED",
       "historical_authorization": "NOT_PROVEN_BY_CURRENT_STATUS_OR_ISSUER_ASSERTED_ISSUED_AT"
     },
-    "all_key_entries_validate_timestamp_intervals_and_canonical_scopes": true
+    "status_is_current_lifecycle_state_not_transition_history": true,
+    "status_and_key_window_consistency": "STATUS_DEFINES_AUTHORIZATION_ELIGIBILITY; KEY_WINDOW_IS_AN_INDEPENDENT_BOUND; ACTIVE_OUTSIDE_CURRENT_WINDOW_IS_NOT_AUTHORIZED; VERIFY_ONLY_AND_RETIRED_ALLOW_ONLY_SIGNATURE_INTEGRITY_CHECK_WITHIN_KEY_AND_CURRENT_REGISTRY_WINDOWS; REVOKED_ALWAYS_REJECTS",
+    "historical_verification_model": "SIGNATURE_INTEGRITY_ONLY_IF_CURRENT_REGISTRY_AND_KEY_WINDOWS_COVER_SIGNED_ISSUED_AT; HISTORICAL_SIGNER_AUTHORIZATION_UNPROVEN",
+    "historical_registry_lookup": "NOT_IMPLEMENTED",
+    "all_key_entries_validate_timestamp_intervals_and_canonical_scopes": true,
+    "all_key_entries_import_as_ed25519_spki": true,
+    "all_key_entries_require_canonical_spki_der_round_trip": true,
+    "all_key_import_reason": "VALIDATE_KEY_TYPE_AND_DETECT_DUPLICATE_SIGNER_OR_ROOT_KEY_MATERIAL"
   },
   "registry_signature": {
     "algorithm": "Ed25519",
@@ -274,7 +292,8 @@
     "length_bytes": 64,
     "signed_bytes": "exact-canonical-registry-payload-bytes",
     "signing_time_field": "ABSENT",
-    "signature_proves_physical_signing_time": false
+    "signature_proves_physical_signing_time": false,
+    "root_authorization_at_physical_signing_time": "NOT_PROVEN_BY_CURRENT_PIN_OR_VALIDITY_WINDOWS"
   },
   "nested_fields": {
     "authority_identity": ["authority_id", "key_id"],

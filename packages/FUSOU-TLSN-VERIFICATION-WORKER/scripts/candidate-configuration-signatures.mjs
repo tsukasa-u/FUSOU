@@ -74,6 +74,9 @@ function publicKeyFromSpki(value, label) {
     throw new Error(`${label} is not valid SPKI`);
   }
   if (key.asymmetricKeyType !== "ed25519") throw new Error(`${label} is not Ed25519`);
+  if (!key.export({ format: "der", type: "spki" }).equals(bytes)) {
+    throw new Error(`${label} is not canonical Ed25519 SPKI`);
+  }
   return key;
 }
 
