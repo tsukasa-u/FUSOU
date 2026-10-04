@@ -225,8 +225,27 @@ test("signed payload schema has explicit domain, canonicalization, and no signat
   assert.equal(contract.registry_payload.historical_registry_lookup, "NOT_IMPLEMENTED");
   assert.equal(contract.registry_payload.all_key_entries_import_as_ed25519_spki, true);
   assert.equal(contract.registry_payload.all_key_entries_require_canonical_spki_der_round_trip, true);
+  assert.equal(contract.evidence_digest_semantics.classification, "AUTHORITY_SIGNED_OPAQUE_COMMITMENT");
   assert.equal(contract.evidence_digest_semantics.referenced_artifact_loaded, false);
   assert.equal(contract.evidence_digest_semantics.digest_recomputed, false);
+  assert.deepEqual(contract.binary_identity.authenticated_current_binary_identity_source_prerequisite, {
+    status: "EXTERNAL_PREREQUISITE_NOT_IMPLEMENTED",
+    minimum_requirements: {
+      source_authority: "INDEPENDENTLY_IDENTIFIED_AND_AUTHORIZED",
+      artifact_identity: "MATCHES_TRUSTED_BUILDER_PROVENANCE",
+      binary_sha256: "MEASURED_FROM_CURRENT_PROCESS_IMAGE",
+      process_image_identity: "BOUND_TO_FRESH_RUNNING_PROCESS_INSTANCE",
+      authentication_method: "CRYPTOGRAPHICALLY_AUTHENTICATED",
+      expected_binding: "ARTIFACT_IDENTITY_AND_BINARY_SHA256_MATCH_TRUSTED_BUILDER_PROVENANCE",
+      trust_root: "APPLICATION_PINNED_SOURCE_AUTHORITY_ROOT",
+      freshness: "CHALLENGE_BOUND_AND_TIME_BOUNDED",
+      replay_resistance: "FRESH_CHALLENGE_OR_EQUIVALENT_REPLAY_RESISTANT_VALIDATION",
+      substitution_resistance: "PROCESS_IDENTITY_AND_MEASURED_BYTES_CROSS_BOUND",
+    },
+    operator_supplied_json_authenticates_source: false,
+    builder_provenance_alone_authenticates_current_process: false,
+    runtime_attestation_authenticates_app_binary: false,
+  });
   assert.equal(contract.time_semantics.low_level_signature_verifier_candidate_readiness, "NOT_EVALUATED");
   for (const inputName of authorityNames) {
     const inputContract = contract.inputs[inputName];

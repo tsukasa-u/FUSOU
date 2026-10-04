@@ -29,6 +29,7 @@
   },
   "evidence_digest_semantics": {
     "field": "evidence_sha256",
+    "classification": "AUTHORITY_SIGNED_OPAQUE_COMMITMENT",
     "referent_bytes": "UNSPECIFIED_AUTHORITY_ASSERTED_COMMITMENT",
     "referenced_artifact_loaded": false,
     "digest_recomputed": false,
@@ -56,7 +57,25 @@
     "current_binary_authenticator_implemented": false,
     "raw_hash_or_builder_provenance_authenticates_running_process": false,
     "runtime_attestation_trust_subject": "MAIN_WORKER_RUNTIME_IDENTITY_ONLY",
-    "authenticated_current_binary_status_without_platform_source": "UNVERIFIED"
+    "authenticated_current_binary_status_without_platform_source": "UNVERIFIED",
+    "authenticated_current_binary_identity_source_prerequisite": {
+      "status": "EXTERNAL_PREREQUISITE_NOT_IMPLEMENTED",
+      "minimum_requirements": {
+        "source_authority": "INDEPENDENTLY_IDENTIFIED_AND_AUTHORIZED",
+        "artifact_identity": "MATCHES_TRUSTED_BUILDER_PROVENANCE",
+        "binary_sha256": "MEASURED_FROM_CURRENT_PROCESS_IMAGE",
+        "process_image_identity": "BOUND_TO_FRESH_RUNNING_PROCESS_INSTANCE",
+        "authentication_method": "CRYPTOGRAPHICALLY_AUTHENTICATED",
+        "expected_binding": "ARTIFACT_IDENTITY_AND_BINARY_SHA256_MATCH_TRUSTED_BUILDER_PROVENANCE",
+        "trust_root": "APPLICATION_PINNED_SOURCE_AUTHORITY_ROOT",
+        "freshness": "CHALLENGE_BOUND_AND_TIME_BOUNDED",
+        "replay_resistance": "FRESH_CHALLENGE_OR_EQUIVALENT_REPLAY_RESISTANT_VALIDATION",
+        "substitution_resistance": "PROCESS_IDENTITY_AND_MEASURED_BYTES_CROSS_BOUND"
+      },
+      "operator_supplied_json_authenticates_source": false,
+      "builder_provenance_alone_authenticates_current_process": false,
+      "runtime_attestation_authenticates_app_binary": false
+    }
   },
   "key_uniqueness": {
     "enforcement_scope": "ONE_REGISTRY_AND_AUTHORITY_BUNDLES_CO_EVALUATED_IN_ONE_ASSESSMENT",

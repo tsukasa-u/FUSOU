@@ -222,11 +222,29 @@ currently executing in the APP process. `CURRENT_BINARY_IDENTITY` loaded from
 operator JSON is only an unverified hash/metadata claim. No authenticated
 current-binary verifier or platform measurement source is implemented, and the
 assessment does not accept boolean-shaped authenticated-binary claims. Closing
-that gate requires an independent platform authority to measure the exact
-currently executing process image, bind the fresh process instance to the
-builder-authenticated artifact digest, and authenticate that measurement under
-an application-pinned root. APP configuration fingerprint is a separate
-predicate and does not derive from the binary digest.
+that gate is the explicit external prerequisite
+`AUTHENTICATED_CURRENT_BINARY_IDENTITY_SOURCE`. Its source authority must be
+independently identified and authorized; it must report an artifact identity
+and binary SHA-256 measured from the exact currently executing process image,
+bind that process instance to the builder-authenticated artifact identity and
+digest, and authenticate the measurement under an application-pinned source
+root. Evidence must be challenge-bound and time-bounded, with replay and
+process/artifact substitution resistance. Operator-supplied JSON is not source
+authentication; builder provenance alone does not identify the running image;
+Main Worker Runtime Attestation does not authenticate APP binary. APP
+configuration fingerprint is a separate predicate and does not derive from
+the binary digest. These requirements specify a future external input boundary;
+they do not implement or accept such a source today.
+
+Candidate provenance is responsible for candidate artifact and capture identity,
+APP configuration fingerprint, Configuration Approval, Trusted Builder and
+Independent Candidate Authority evidence, binary provenance, and the trust
+roots for those authorities. It does not replace the separate contracts for
+alpha.15 Presentation cryptography, FUSOU Notary verification, Origin Web PKI,
+Worker Result signatures, detached Verifier execution receipts, Session or
+Binding authority, or actual Game Server identity. Those predicates must be
+verified by their owning components and cannot be inferred from a candidate
+provenance signature or digest.
 
 Current deployment identity may be derived only from a VALID, fresh, signed Runtime Attestation
 whose workflow, manifest, environment, and serving-version bindings all pass;
