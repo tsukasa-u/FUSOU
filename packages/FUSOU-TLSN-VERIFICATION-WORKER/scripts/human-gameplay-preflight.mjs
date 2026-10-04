@@ -90,7 +90,7 @@ const FIXED_PREDICATE_STATUSES = Object.freeze({
   finalizer_effects: "PASS_LIMITED",
 });
 
-const SENSITIVE_KEY_PATTERN = /(token|private.?key|secret|password|credential|cookie)/i;
+const SENSITIVE_KEY_PATTERN = /(access.?key|api.?key|(?:^|[^a-z0-9])authorization(?:$|[^a-z0-9])|bearer|token|private.?key|secret|password|credential|cookie)/i;
 const SHA256_PATTERN = /^[A-Za-z0-9_-]{43}$/;
 const UUID_V4_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 

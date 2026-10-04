@@ -53,6 +53,8 @@ import { proxyProvenanceSigningPayload, verifyProductionProxyProvenance } from "
 import {
   createProductionEvidenceFailureBundle,
   finalizeProductionEvidenceFailureBundle,
+  recordConsume,
+  recordFailure,
   recordHealth,
   recordHttpExchange,
   recordProvenance,
@@ -1848,14 +1850,30 @@ recordHttpExchange(failureBundle, {
   response: new Response(JSON.stringify({ access_token: "response-secret" }), { status: 200, headers: { "Content-Type": "application/json" } }),
   responseBytes: Buffer.from(JSON.stringify({ access_token: "response-secret" })),
 });
-recordHealth(failureBundle, { deployment_identity: { deployment_id: "deployment-1" }, access_token: "health-secret" });
-recordProvenance(failureBundle, { proxy_provenance: { signature: "proxy-secret" }, capture_context: { token: "context-secret" } });
+recordHttpExchange(failureBundle, {
+  url: "https://worker.example.test/health",
+  error: new Error("authorization=test-marker"),
+});
+recordFailure(failureBundle, { stage: "test", finishedAt: nowIso });
+recordConsume(failureBundle, { error: "credential=test-marker" });
+recordHealth(failureBundle, {
+  deployment_identity: { deployment_id: "deployment-1" },
+  access_token: "health-secret",
+  api_key: "test-marker",
+  credential: "test-marker",
+});
+recordProvenance(failureBundle, {
+  proxy_provenance: { signature: "proxy-secret" },
+  capture_context: { token: "context-secret", bearer: "test-marker", access_key: "test-marker" },
+});
 const failureJson = JSON.stringify(finalizeProductionEvidenceFailureBundle(failureBundle, nowIso));
 assert.ok(!failureJson.includes("request-secret"), "failure bundle must omit request credentials");
 assert.ok(!failureJson.includes("response-secret"), "failure bundle must omit response credentials");
 assert.ok(!failureJson.includes("health-secret"), "failure bundle must omit health credentials");
 assert.ok(!failureJson.includes("proxy-secret"), "failure bundle must omit provenance signatures");
 assert.ok(!failureJson.includes("context-secret"), "failure bundle must omit provenance credentials");
+assert.ok(!failureJson.includes("test-marker"), "failure bundle must redact sensitive fields and omit raw error messages");
+assert.match(failureJson, /Details omitted to prevent sensitive-data disclosure/);
 
 const captureScriptSource = await readFile(new URL("./capture-production-evidence.mjs", import.meta.url), "utf8");
 const offlineVerifierSource = await readFile(new URL("./verify-production-evidence.mjs", import.meta.url), "utf8");

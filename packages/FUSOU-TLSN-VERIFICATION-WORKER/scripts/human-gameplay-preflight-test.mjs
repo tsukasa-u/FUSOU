@@ -257,6 +257,16 @@ assert.throws(() => validateHumanGameplayPreflight({
   },
 }), /must not contain query or credential data/);
 
+for (const sensitiveField of ["credential", "api_key", "access_key", "authorization", "bearer"]) {
+  const sensitivePackage = makePackage();
+  sensitivePackage.predicates.main_worker[sensitiveField] = "test-marker";
+  assert.throws(
+    () => validateHumanGameplayPreflight(sensitivePackage),
+    /must not contain sensitive fields/,
+    `${sensitiveField} fields must be rejected`,
+  );
+}
+
 const noInput = spawnSync(process.execPath, [scriptPath], { encoding: "utf8" });
 assert.equal(noInput.status, 2, noInput.stderr);
 const emptyReport = JSON.parse(noInput.stdout);

@@ -1,6 +1,7 @@
 import { sha256Base64Url } from "./deployment-attestation.mjs";
 
-const SENSITIVE_KEY = /authorization|binding|challenge|cookie|password|private|secret|token/i;
+const SENSITIVE_KEY = /access.?key|api.?key|(?:^|[^a-z0-9])authorization(?:$|[^a-z0-9])|bearer|binding|challenge|cookie|credential|password|private|secret|token/i;
+const OMITTED_ERROR_MESSAGE = "Details omitted to prevent sensitive-data disclosure";
 
 function bodyBytes(body) {
   if (body === undefined || body === null) return null;
@@ -76,18 +77,18 @@ export function recordHttpExchange(bundle, { url, options = {}, response, respon
           body: hashDescriptor(responseBytes),
         }
       : null,
-    error: error ? { name: error.name ?? "Error", message: String(error.message ?? error) } : null,
+    error: error ? { name: "Error", message: OMITTED_ERROR_MESSAGE } : null,
   };
   bundle.requests.push(exchange);
   return exchange;
 }
 
-export function recordFailure(bundle, { stage, error, finishedAt }) {
+export function recordFailure(bundle, { stage, finishedAt }) {
   bundle.finished_at = finishedAt;
   bundle.error = {
     stage,
-    name: error instanceof Error ? error.name : "Error",
-    message: error instanceof Error ? error.message : String(error),
+    name: "Error",
+    message: OMITTED_ERROR_MESSAGE,
   };
 }
 
@@ -120,7 +121,7 @@ export function recordConsume(bundle, consume) {
   if (!consume || typeof consume !== "object") return;
   bundle.consume = {
     status: consume.status ?? null,
-    error: consume.error ?? null,
+    error: consume.error == null ? null : OMITTED_ERROR_MESSAGE,
     session_id: consume.session_id ?? null,
     device_id: consume.device_id ?? null,
     presentation_id: consume.presentation_id ?? null,

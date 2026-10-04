@@ -804,8 +804,8 @@ async function main() {
       },
     };
   } catch (error) {
-    runError = error instanceof Error ? error.message : String(error);
-    recordFailure(failureBundle, { stage: failureStage, error, finishedAt: new Date().toISOString() });
+    runError = "Capture failed; details omitted to prevent sensitive-data disclosure";
+    recordFailure(failureBundle, { stage: failureStage, finishedAt: new Date().toISOString() });
     manifest = {
       ...manifest,
       capture_finished_at: new Date().toISOString(),
@@ -857,7 +857,7 @@ async function main() {
   process.exitCode = runError || !manifest.manifest_signature_base64url ? 2 : 0;
 }
 
-main().catch((error) => {
-  console.error(`[tlsn-capture-production-evidence] ${error instanceof Error ? error.message : String(error)}`);
+main().catch(() => {
+  console.error("[tlsn-capture-production-evidence] execution failed; details omitted to prevent sensitive-data disclosure");
   process.exitCode = 2;
 });
