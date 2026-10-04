@@ -1850,9 +1850,11 @@ recordHttpExchange(failureBundle, {
   response: new Response(JSON.stringify({ access_token: "response-secret" }), { status: 200, headers: { "Content-Type": "application/json" } }),
   responseBytes: Buffer.from(JSON.stringify({ access_token: "response-secret" })),
 });
+const markerError = new Error("authorization=test-marker");
+markerError.name = "Bearer test-marker";
 recordHttpExchange(failureBundle, {
   url: "https://worker.example.test/health",
-  error: new Error("authorization=test-marker"),
+  error: markerError,
 });
 recordFailure(failureBundle, { stage: "test", finishedAt: nowIso });
 recordConsume(failureBundle, { error: "credential=test-marker" });
@@ -1874,6 +1876,7 @@ assert.ok(!failureJson.includes("proxy-secret"), "failure bundle must omit prove
 assert.ok(!failureJson.includes("context-secret"), "failure bundle must omit provenance credentials");
 assert.ok(!failureJson.includes("test-marker"), "failure bundle must redact sensitive fields and omit raw error messages");
 assert.match(failureJson, /Details omitted to prevent sensitive-data disclosure/);
+assert.equal(failureBundle.requests.at(-1).error.name, "Error", "failure bundle must not retain a caller-controlled exception name");
 
 const captureScriptSource = await readFile(new URL("./capture-production-evidence.mjs", import.meta.url), "utf8");
 const offlineVerifierSource = await readFile(new URL("./verify-production-evidence.mjs", import.meta.url), "utf8");
@@ -1882,5 +1885,6 @@ for (const [name, source] of [["capture", captureScriptSource], ["offline verifi
   assert.doesNotMatch(source, /TLSN_[A-Z0-9_]*GAME_SERVER/, `${name} must not accept a Game Server endpoint`);
 }
 assert.match(captureScriptSource, /captureAllowedOrigins = new Set\(\[workerOrigin, webOrigin, supabaseOrigin\]\)/);
+assert.match(captureScriptSource, /main\(\)\.catch\(\(\) => \{\s*console\.error\("\[tlsn-capture-production-evidence\] execution failed; details omitted to prevent sensitive-data disclosure"\)/);
 
 console.log("[tlsn-production-evidence] manifest, signer, artifact, freshness, identity, semantic, replay-block, synthetic, and result mutation matrix OK");
