@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { createHash, generateKeyPairSync, sign } from "node:crypto";
-import { mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   blockedProductionEvidenceManifest,
   createEvidenceItem,
@@ -52,9 +54,11 @@ import { BindingAuthority, EvidenceSigner, ResultSigner, SessionAuthority } from
 import { proxyProvenanceSigningPayload, verifyProductionProxyProvenance } from "./proxy-provenance.mjs";
 import {
   createProductionEvidenceFailureBundle,
+  FAILURE_BUNDLE_SAFE_FIELD_CONTRACT,
   finalizeProductionEvidenceFailureBundle,
   recordConsume,
   recordFailure,
+  recordHash,
   recordHealth,
   recordHttpExchange,
   recordProvenance,
@@ -1840,96 +1844,219 @@ const verifierProcess = spawnSync(process.execPath, ["scripts/verify-production-
 assert.equal(verifierProcess.status, 1, verifierProcess.stderr);
 assert.match(verifierProcess.stderr, /missing a required artifact|verifier-generated semantic artifact is required/);
 
-const failureBundle = createProductionEvidenceFailureBundle({ captureId: "failure-capture", startedAt: nowIso });
+const failureBundle = createProductionEvidenceFailureBundle({
+  captureId: "123e4567-e89b-42d3-a456-426614174000",
+  startedAt: nowIso,
+});
+const markerValues = ["marker-a", "marker-b", "marker-c", "marker-d", "marker-e", "marker-f", "marker-g", "marker-h", "marker-i", "marker-j", "marker-k"];
+const adversarialFields = {
+  credential: markerValues[0],
+  authorization: markerValues[1],
+  api_key: markerValues[2],
+  bearer: markerValues[3],
+  details: markerValues[4],
+  value: markerValues[5],
+  message: markerValues[6],
+  data: markerValues[7],
+  nested: { arbitrary: markerValues[8] },
+  array: [markerValues[9], { value: markerValues[10] }],
+  AUTHORIZATION: markerValues[0],
+  "authorization-token": markerValues[1],
+  "x-api-key": markerValues[2],
+  accessToken: markerValues[3],
+  client_secret: markerValues[4],
+  "鍵": markerValues[5],
+};
+const circularField = { value: markerValues[10] };
+circularField.self = circularField;
+const adversarialInput = { ...adversarialFields, circular: circularField };
+const failurePresentationBytes = Buffer.from("safe-test-presentation-bytes");
+const presentationDigest = sha256Base64Url(failurePresentationBytes);
+const failureSessionId = "123e4567-e89b-42d3-a456-426614174001";
+const failureDeviceId = "123e4567-e89b-42d3-a456-426614174002";
+const failurePresentationId = "123e4567-e89b-42d3-a456-426614174003";
+
 recordHttpExchange(failureBundle, {
-  url: "https://worker.example.test/verify/tlsn?token=must-not-be-retained",
+  url: `https://worker.example.test/verify/tlsn?accessToken=${markerValues[3]}`,
   options: {
     method: "POST",
-    headers: { Authorization: "Bearer request-secret", "Content-Type": "application/json" },
-    body: JSON.stringify({ binding: "binding-secret" }),
+    headers: {
+      Authorization: `Bearer ${markerValues[1]}`,
+      Cookie: markerValues[0],
+      "x-api-key": markerValues[2],
+      "Content-Type": "application/json; charset=utf-8",
+      "X-Request-ID": markerValues[4],
+    },
+    body: JSON.stringify(adversarialFields),
   },
-  response: new Response(JSON.stringify({ access_token: "response-secret" }), { status: 200, headers: { "Content-Type": "application/json" } }),
-  responseBytes: Buffer.from(JSON.stringify({ access_token: "response-secret" })),
+  response: new Response(JSON.stringify(adversarialFields), { status: 503, headers: {
+    "Content-Type": "application/json",
+    Authorization: `Bearer ${markerValues[5]}`,
+    "Set-Cookie": markerValues[6],
+  } }),
+  responseBytes: Buffer.from(JSON.stringify(adversarialFields)),
 });
-const markerError = new Error("authorization=test-marker");
-markerError.name = "Bearer test-marker";
+const markerError = new Error(`Bearer ${markerValues[3]} ${markerValues[6]}`);
+markerError.name = `Bearer ${markerValues[1]}`;
+markerError.stack = `Error: ${markerValues[6]}\n at ${markerValues[4]}`;
+markerError.custom = adversarialInput;
 recordHttpExchange(failureBundle, {
   url: "https://worker.example.test/health",
   error: markerError,
 });
-recordFailure(failureBundle, { stage: "test", finishedAt: nowIso });
-recordConsume(failureBundle, { status: "consumed", error: "credential=test-marker" });
-recordSession(failureBundle, {
-  session_id: "session-diagnostic-id",
-  device_id: "device-diagnostic-id",
-  expires_at: nowIso,
-  binding: "binding-secret",
-  challenge: "challenge-secret",
-  device_challenge: "device-challenge-secret",
-});
+recordFailure(failureBundle, { stage: "worker_health", finishedAt: nowIso });
 recordHealth(failureBundle, {
-  deployment_identity: { deployment_id: "deployment-1" },
+  schema_version: 3,
+  ok: false,
+  verifier: "tlsn-alpha15-wasm",
+  environment: "production",
+  deployment_role: "canary",
+  git_commit_sha: "a".repeat(40),
+  deployment_id: "canary-deployment-2026-10-05",
+  runtime_version: {
+    version_id: failureSessionId,
+    version_tag: "canary-v2",
+    version_timestamp: nowIso,
+    details: markerValues[4],
+  },
+  binding_mode: "fixed_canary",
+  execution_mode: "direct",
   security_identity: {
-    binding_authority: "durable-single-use",
-    binding_authority_key_id: "binding-authority-test",
-    binding_authority_key_registry_sha256: "E".repeat(43),
-    binding: "raw-binding-marker",
-    challenge: "raw-challenge-marker",
+    verifier_key_id: "verifier-key-1",
+    notary_key_id: "notary-key-1",
+    security_registry_set_sha256: sha256Base64Url(Buffer.from("registry-set")),
+    notary_registry_sha256: sha256Base64Url(Buffer.from("notary-registry")),
+    trust_contract_valid: false,
+    arbitrary: adversarialInput,
   },
-  authority_identity: {
-    binding_authority: {
-      authority: "fusou-tlsn-binding-authority",
-      key_id: "binding-authority-object-test",
-      public_key_spki: "public-key-diagnostic",
-      key_registry_sha256: "F".repeat(43),
-      challenge: "nested-raw-challenge-marker",
-    },
+  deployment_identity: {
+    deployment_id: "canary-deployment-2026-10-05",
+    deployment_role: "canary",
+    binding_mode: "fixed_canary",
+    worker_name: "fusou-tlsn-canary",
+    credential: markerValues[0],
   },
-  access_token: "health-secret",
-  api_key: "test-marker",
-  credential: "test-marker",
+  message: JSON.stringify({ name: markerValues[1], message: markerValues[6], stack: markerValues[4] }),
+  ...adversarialInput,
+});
+recordSession(failureBundle, {
+  session_id: failureSessionId,
+  device_id: failureDeviceId,
+  canonical_user_id: "123e4567-e89b-42d3-a456-426614174004",
+  expires_at: nowIso,
+  binding: markerValues[0],
+  challenge: markerValues[1],
+  device_challenge: markerValues[2],
+  signature: markerValues[3],
+  session_receipt: {
+    session_id: failureSessionId,
+    signer_key_id: "session-key-1",
+    signature_algorithm: "Ed25519",
+    created_at: nowIso,
+    expires_at: nowIso,
+    signature: markerValues[4],
+    ...adversarialInput,
+  },
+  ...adversarialInput,
+});
+recordConsume(failureBundle, {
+  type: "attestation-binding-consumed",
+  signer_key_id: "binding-key-1",
+  signature_algorithm: "Ed25519",
+  session_id: failureSessionId,
+  canonical_user_id: "123e4567-e89b-42d3-a456-426614174004",
+  device_id: failureDeviceId,
+  nonce: markerValues[0],
+  binding_value: markerValues[1],
+  presentation_id: failurePresentationId,
+  used_at: nowIso,
+  signature: markerValues[2],
+  error: `credential=${markerValues[3]}`,
+  ...adversarialInput,
 });
 recordProvenance(failureBundle, {
-  proxy_provenance: { signature: "proxy-secret" },
-  capture_context: { token: "context-secret", bearer: "test-marker", access_key: "test-marker" },
+  schema_version: 2,
+  capture_provenance: "production",
+  capture_source: "fusou-proxy-production-tlsn",
+  synthetic: false,
+  test: false,
+  canary: false,
+  local: false,
+  capture_timestamp: nowIso,
+  proxy_provenance: {
+    declared: "production",
+    cryptographic_status: "UNVERIFIED",
+    proxy_identity: "fusou-proxy",
+    proxy_deployment_id: "proxy-deployment-1",
+    proxy_binary_identity: "proxy-https:0.5.0",
+    presentation_sha256: presentationDigest,
+    created_at: nowIso,
+    signer_key_id: "proxy-key-1",
+    authority: { type: "externally-pinned-production-proxy-key", status: "UNVERIFIED" },
+    signature: markerValues[2],
+    capture_context: adversarialInput,
+    worker_health_observation: adversarialInput,
+    app_public_configuration_fingerprints: adversarialInput,
+    ...adversarialInput,
+  },
+  capture_context: adversarialInput,
+  ...adversarialInput,
 });
-const failureJson = JSON.stringify(finalizeProductionEvidenceFailureBundle(failureBundle, nowIso));
-assert.ok(!failureJson.includes("request-secret"), "failure bundle must omit request credentials");
-assert.ok(!failureJson.includes("response-secret"), "failure bundle must omit response credentials");
-assert.ok(!failureJson.includes("health-secret"), "failure bundle must omit health credentials");
-assert.ok(!failureJson.includes("binding-secret"), "failure bundle must omit raw binding material");
-assert.ok(!failureJson.includes("challenge-secret"), "failure bundle must omit raw challenge material");
-assert.ok(!failureJson.includes("raw-binding-marker"), "failure bundle must redact raw binding fields");
-assert.ok(!failureJson.includes("raw-challenge-marker"), "failure bundle must redact raw challenge fields");
-assert.ok(!failureJson.includes("nested-raw-challenge-marker"), "failure bundle must redact nested raw challenge fields");
-assert.ok(!failureJson.includes("proxy-secret"), "failure bundle must omit provenance signatures");
-assert.ok(!failureJson.includes("context-secret"), "failure bundle must omit provenance credentials");
-assert.ok(!failureJson.includes("test-marker"), "failure bundle must redact sensitive fields and omit raw error messages");
-assert.match(failureJson, /Details omitted to prevent sensitive-data disclosure/);
-assert.equal(failureBundle.requests.at(-1).error.name, "Error", "failure bundle must not retain a caller-controlled exception name");
-assert.equal(failureBundle.error.stage, "test", "failure bundle must preserve the structured failure stage");
-assert.equal(failureBundle.consume.status, "consumed", "failure bundle must preserve structured consume status");
-assert.equal(failureBundle.requests[0].response.status, 200, "failure bundle must preserve HTTP status");
-assert.equal(failureBundle.requests[0].request.path, "/verify/tlsn", "failure bundle must omit URL query values");
-assert.equal(failureBundle.requests[0].request.body.bytes, Buffer.byteLength(JSON.stringify({ binding: "binding-secret" })));
-assert.match(failureBundle.requests[0].request.body.sha256, /^[A-Za-z0-9_-]{43}$/);
-assert.equal(failureBundle.requests[0].response.body.bytes, Buffer.byteLength(JSON.stringify({ access_token: "response-secret" })));
-assert.match(failureBundle.requests[0].response.body.sha256, /^[A-Za-z0-9_-]{43}$/);
-assert.deepEqual(failureBundle.session, {
-  session_id: "session-diagnostic-id",
-  device_id: "device-diagnostic-id",
-  expires_at: nowIso,
-  binding_sha256: sha256Base64Url(Buffer.from("binding-secret")),
-  challenge_sha256: sha256Base64Url(Buffer.from("challenge-secret")),
-  device_challenge_sha256: sha256Base64Url(Buffer.from("device-challenge-secret")),
-  session_receipt: null,
+recordHash(failureBundle, "presentation", failurePresentationBytes);
+recordHash(failureBundle, "result", Buffer.from("low-entropy-result-marker"));
+failureBundle.unexpected = markerValues[9];
+failureBundle.health.injected = markerValues[8];
+failureBundle.requests.push({ request: { method: "POST", path: "/verify/tlsn", details: markerValues[7] }, raw: adversarialInput });
+const finalizedFailureBundle = finalizeProductionEvidenceFailureBundle(failureBundle, nowIso);
+const failureJson = JSON.stringify(finalizedFailureBundle);
+for (const marker of markerValues) assert.ok(!failureJson.includes(marker), "allowlist serialization must omit arbitrary marker values");
+assert.equal(finalizedFailureBundle.schema_version, 2);
+assert.deepEqual(finalizedFailureBundle.serialization, {
+  policy: "FAILURE_BUNDLE_ALLOWLIST_V1",
+  unknown_fields: "OMITTED",
+  raw_request_response_bodies: "OMITTED",
+  raw_exception_details: "OMITTED",
 });
-assert.equal(failureBundle.health.security_identity.binding_authority, "durable-single-use");
-assert.equal(failureBundle.health.security_identity.binding_authority_key_id, "binding-authority-test");
-assert.equal(failureBundle.health.security_identity.binding_authority_key_registry_sha256, "E".repeat(43));
-assert.equal(failureBundle.health.authority_identity.binding_authority.key_id, "binding-authority-object-test");
-assert.equal(failureBundle.health.authority_identity.binding_authority.public_key_spki, "public-key-diagnostic");
-assert.equal(failureBundle.health.authority_identity.binding_authority.key_registry_sha256, "F".repeat(43));
+assert.deepEqual(FAILURE_BUNDLE_SAFE_FIELD_CONTRACT.http_request, ["method", "path", "content_type", "body_bytes"]);
+assert.deepEqual(finalizedFailureBundle.error, {
+  stage: "worker_health",
+  code: "CAPTURE_FAILED",
+  message: "Details omitted to prevent sensitive-data disclosure",
+});
+assert.deepEqual(finalizedFailureBundle.requests[0].request, {
+  method: "POST",
+  path: "/verify/tlsn",
+  body_bytes: Buffer.byteLength(JSON.stringify(adversarialFields)),
+  content_type: "application/json",
+});
+assert.deepEqual(finalizedFailureBundle.requests[0].response, {
+  status: 503,
+  body_bytes: Buffer.byteLength(JSON.stringify(adversarialFields)),
+  content_type: "application/json",
+});
+assert.deepEqual(finalizedFailureBundle.requests[1].error, { code: "HTTP_REQUEST_FAILED" });
+assert.deepEqual(finalizedFailureBundle.health.security_identity, {
+  verifier_key_id: "verifier-key-1",
+  notary_key_id: "notary-key-1",
+  security_registry_set_sha256: sha256Base64Url(Buffer.from("registry-set")),
+  notary_registry_sha256: sha256Base64Url(Buffer.from("notary-registry")),
+  trust_contract_valid: false,
+});
+assert.equal(finalizedFailureBundle.health.deployment_id, "canary-deployment-2026-10-05");
+assert.equal(finalizedFailureBundle.health.ok, false);
+assert.equal(finalizedFailureBundle.health.runtime_version.version_tag, "canary-v2");
+assert.equal(finalizedFailureBundle.provenance.proxy_provenance.signature_present, true);
+assert.equal(Object.hasOwn(finalizedFailureBundle.provenance.proxy_provenance, "signature"), false);
+assert.equal(Object.hasOwn(finalizedFailureBundle.provenance.proxy_provenance, "capture_context"), false);
+assert.equal(finalizedFailureBundle.session.session_id, failureSessionId);
+assert.equal(Object.hasOwn(finalizedFailureBundle.session, "device_id"), false);
+assert.equal(Object.hasOwn(finalizedFailureBundle.session, "binding_sha256"), false);
+assert.equal(finalizedFailureBundle.consume.error_code, "CONSUME_FAILED");
+assert.equal(finalizedFailureBundle.consume.signature_present, true);
+assert.equal(Object.hasOwn(finalizedFailureBundle.consume, "device_id"), false);
+assert.equal(Object.hasOwn(finalizedFailureBundle.consume, "presentation_id"), false);
+assert.equal(finalizedFailureBundle.hashes.presentation.sha256, presentationDigest);
+assert.equal(Object.hasOwn(finalizedFailureBundle.hashes, "result"), false);
 
 const captureScriptSource = await readFile(new URL("./capture-production-evidence.mjs", import.meta.url), "utf8");
 const offlineVerifierSource = await readFile(new URL("./verify-production-evidence.mjs", import.meta.url), "utf8");
@@ -1939,5 +2066,48 @@ for (const [name, source] of [["capture", captureScriptSource], ["offline verifi
 }
 assert.match(captureScriptSource, /captureAllowedOrigins = new Set\(\[workerOrigin, webOrigin, supabaseOrigin\]\)/);
 assert.match(captureScriptSource, /main\(\)\.catch\(\(\) => \{\s*console\.error\("\[tlsn-capture-production-evidence\] execution failed; details omitted to prevent sensitive-data disclosure"\)/);
+
+const captureScriptPath = fileURLToPath(new URL("./capture-production-evidence.mjs", import.meta.url));
+const workerPackageDirectory = fileURLToPath(new URL("..", import.meta.url));
+const cliTestDirectory = await mkdtemp(join(tmpdir(), "tlsn-failure-cli-test-"));
+const cliMarker = "cli-private-marker";
+const cliEnvironment = {
+  PATH: process.env.PATH ?? "",
+  TLSN_PRODUCTION_EVIDENCE_WORKER_URL: `https://user:${cliMarker}@worker.example.test`,
+};
+const expectedOutputPath = join(cliTestDirectory, "expected-output.json");
+const expectedCliFailure = spawnSync(process.execPath, [captureScriptPath], {
+  cwd: workerPackageDirectory,
+  encoding: "utf8",
+  env: { ...cliEnvironment, TLSN_PRODUCTION_EVIDENCE_OUTPUT_PATH: expectedOutputPath },
+});
+assert.equal(expectedCliFailure.status, 2, expectedCliFailure.stderr);
+assert.equal(expectedCliFailure.stderr, "");
+const expectedCliReport = JSON.parse(expectedCliFailure.stdout);
+assert.equal(expectedCliReport.error, "Capture failed; details omitted to prevent sensitive-data disclosure");
+const expectedManifest = JSON.parse(await readFile(expectedOutputPath, "utf8"));
+const expectedFailureBundle = await readFile(join(cliTestDirectory, expectedManifest.artifacts.failure_bundle.path), "utf8");
+for (const output of [expectedCliFailure.stdout, expectedCliFailure.stderr, JSON.stringify(expectedManifest), expectedFailureBundle]) {
+  assert.ok(!output.includes(cliMarker), "expected operational CLI failure must not emit the input marker");
+}
+
+const unexpectedOutputPath = join(cliTestDirectory, "unexpected-output-directory");
+await mkdir(unexpectedOutputPath);
+const unexpectedCliFailure = spawnSync(process.execPath, [captureScriptPath], {
+  cwd: workerPackageDirectory,
+  encoding: "utf8",
+  env: { ...cliEnvironment, TLSN_PRODUCTION_EVIDENCE_OUTPUT_PATH: unexpectedOutputPath },
+});
+assert.equal(unexpectedCliFailure.status, 2);
+assert.equal(unexpectedCliFailure.stdout, "");
+assert.equal(unexpectedCliFailure.stderr, "[tlsn-capture-production-evidence] execution failed; details omitted to prevent sensitive-data disclosure\n");
+const cliFiles = await readdir(cliTestDirectory);
+const cliFailureBundleNames = cliFiles.filter((name) => name.endsWith("-failure-bundle.json"));
+assert.equal(cliFailureBundleNames.length, 2);
+for (const name of cliFailureBundleNames) {
+  const output = await readFile(join(cliTestDirectory, name), "utf8");
+  assert.ok(!output.includes(cliMarker), "unexpected CLI failure bundle must not emit the input marker");
+}
+await rm(cliTestDirectory, { recursive: true, force: true });
 
 console.log("[tlsn-production-evidence] manifest, signer, artifact, freshness, identity, semantic, replay-block, synthetic, and result mutation matrix OK");
