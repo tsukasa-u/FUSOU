@@ -257,7 +257,18 @@ assert.throws(() => validateHumanGameplayPreflight({
   },
 }), /must not contain query or credential data/);
 
-for (const sensitiveField of ["credential", "api_key", "access_key", "authorization", "bearer"]) {
+for (const sensitiveField of [
+  "token",
+  "private_key",
+  "secret",
+  "password",
+  "credential",
+  "cookie",
+  "access_key",
+  "api_key",
+  "authorization",
+  "bearer",
+]) {
   const sensitivePackage = makePackage();
   sensitivePackage.predicates.main_worker[sensitiveField] = "test-marker";
   assert.throws(

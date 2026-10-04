@@ -58,6 +58,7 @@ import {
   recordHealth,
   recordHttpExchange,
   recordProvenance,
+  recordSession,
 } from "./production-evidence-failure.mjs";
 
 const now = new Date();
@@ -1857,9 +1858,33 @@ recordHttpExchange(failureBundle, {
   error: markerError,
 });
 recordFailure(failureBundle, { stage: "test", finishedAt: nowIso });
-recordConsume(failureBundle, { error: "credential=test-marker" });
+recordConsume(failureBundle, { status: "consumed", error: "credential=test-marker" });
+recordSession(failureBundle, {
+  session_id: "session-diagnostic-id",
+  device_id: "device-diagnostic-id",
+  expires_at: nowIso,
+  binding: "binding-secret",
+  challenge: "challenge-secret",
+  device_challenge: "device-challenge-secret",
+});
 recordHealth(failureBundle, {
   deployment_identity: { deployment_id: "deployment-1" },
+  security_identity: {
+    binding_authority: "durable-single-use",
+    binding_authority_key_id: "binding-authority-test",
+    binding_authority_key_registry_sha256: "E".repeat(43),
+    binding: "raw-binding-marker",
+    challenge: "raw-challenge-marker",
+  },
+  authority_identity: {
+    binding_authority: {
+      authority: "fusou-tlsn-binding-authority",
+      key_id: "binding-authority-object-test",
+      public_key_spki: "public-key-diagnostic",
+      key_registry_sha256: "F".repeat(43),
+      challenge: "nested-raw-challenge-marker",
+    },
+  },
   access_token: "health-secret",
   api_key: "test-marker",
   credential: "test-marker",
@@ -1872,11 +1897,39 @@ const failureJson = JSON.stringify(finalizeProductionEvidenceFailureBundle(failu
 assert.ok(!failureJson.includes("request-secret"), "failure bundle must omit request credentials");
 assert.ok(!failureJson.includes("response-secret"), "failure bundle must omit response credentials");
 assert.ok(!failureJson.includes("health-secret"), "failure bundle must omit health credentials");
+assert.ok(!failureJson.includes("binding-secret"), "failure bundle must omit raw binding material");
+assert.ok(!failureJson.includes("challenge-secret"), "failure bundle must omit raw challenge material");
+assert.ok(!failureJson.includes("raw-binding-marker"), "failure bundle must redact raw binding fields");
+assert.ok(!failureJson.includes("raw-challenge-marker"), "failure bundle must redact raw challenge fields");
+assert.ok(!failureJson.includes("nested-raw-challenge-marker"), "failure bundle must redact nested raw challenge fields");
 assert.ok(!failureJson.includes("proxy-secret"), "failure bundle must omit provenance signatures");
 assert.ok(!failureJson.includes("context-secret"), "failure bundle must omit provenance credentials");
 assert.ok(!failureJson.includes("test-marker"), "failure bundle must redact sensitive fields and omit raw error messages");
 assert.match(failureJson, /Details omitted to prevent sensitive-data disclosure/);
 assert.equal(failureBundle.requests.at(-1).error.name, "Error", "failure bundle must not retain a caller-controlled exception name");
+assert.equal(failureBundle.error.stage, "test", "failure bundle must preserve the structured failure stage");
+assert.equal(failureBundle.consume.status, "consumed", "failure bundle must preserve structured consume status");
+assert.equal(failureBundle.requests[0].response.status, 200, "failure bundle must preserve HTTP status");
+assert.equal(failureBundle.requests[0].request.path, "/verify/tlsn", "failure bundle must omit URL query values");
+assert.equal(failureBundle.requests[0].request.body.bytes, Buffer.byteLength(JSON.stringify({ binding: "binding-secret" })));
+assert.match(failureBundle.requests[0].request.body.sha256, /^[A-Za-z0-9_-]{43}$/);
+assert.equal(failureBundle.requests[0].response.body.bytes, Buffer.byteLength(JSON.stringify({ access_token: "response-secret" })));
+assert.match(failureBundle.requests[0].response.body.sha256, /^[A-Za-z0-9_-]{43}$/);
+assert.deepEqual(failureBundle.session, {
+  session_id: "session-diagnostic-id",
+  device_id: "device-diagnostic-id",
+  expires_at: nowIso,
+  binding_sha256: sha256Base64Url(Buffer.from("binding-secret")),
+  challenge_sha256: sha256Base64Url(Buffer.from("challenge-secret")),
+  device_challenge_sha256: sha256Base64Url(Buffer.from("device-challenge-secret")),
+  session_receipt: null,
+});
+assert.equal(failureBundle.health.security_identity.binding_authority, "durable-single-use");
+assert.equal(failureBundle.health.security_identity.binding_authority_key_id, "binding-authority-test");
+assert.equal(failureBundle.health.security_identity.binding_authority_key_registry_sha256, "E".repeat(43));
+assert.equal(failureBundle.health.authority_identity.binding_authority.key_id, "binding-authority-object-test");
+assert.equal(failureBundle.health.authority_identity.binding_authority.public_key_spki, "public-key-diagnostic");
+assert.equal(failureBundle.health.authority_identity.binding_authority.key_registry_sha256, "F".repeat(43));
 
 const captureScriptSource = await readFile(new URL("./capture-production-evidence.mjs", import.meta.url), "utf8");
 const offlineVerifierSource = await readFile(new URL("./verify-production-evidence.mjs", import.meta.url), "utf8");

@@ -49,13 +49,21 @@ Repository evidence identifies cryptographic roles and interfaces more clearly t
 | `NOTARY` | FUSOU-NOTARY service/deployment operator; independent organizational ownership is not established here. | Notary verification key/registry and candidate/deployment configuration. Test material is not production authority. | Notary signatures and claims within the TLSN Notary protocol and verifier's trust configuration. | APP image identity, Worker/Verifier runtime identity, or game-server identity. |
 | `WEB_PKI` | Web PKI certificate authorities and platform/browser trust-store operators. | The trust store and TLS validation policy used by the specific verifier/client. | The authenticated TLS server name/channel under that policy. | FUSOU APP process identity, release builder identity, Worker runtime identity, or freshness of an APP measurement. |
 | `AUTH_DEVICE_AUTHORITY` | FUSOU-WEB device-proof service and its device ownership/revocation data; device private-key custody belongs to the device. | FUSOU-WEB server-side owner/revocation checks plus the registered device public key and protocol-specific challenge validation. | A device-key proof and server-side ownership/revocation result within the Auth contract. | APP binary authenticity, device OS integrity, or proof that the signing process is the genuine FUSOU APP. |
-| `CURRENT_PROCESS_IMAGE_SOURCE_AUTHORITY` | **Unselected external owner and credential.** It must be distinct from APP self-report and independently accountable. | Future dedicated application-pinned source-authority root and narrowly scoped process-image evidence. No production pin exists. | Must authenticate a fresh measurement of the exact process instance and bind it to a trusted builder artifact. | Anything not measured or signed in its explicit scope; it must not inherit authority from `/health`, operator JSON, updater signatures, or builder provenance alone. |
+| `CURRENT_PROCESS_IMAGE_SOURCE_AUTHORITY` | **Owner, credential/key generation and custody are UNRESOLVED.** It must be distinct from APP self-report and independently accountable. | Dedicated application-pinned source-authority root is required and NOT CONFIGURED; scope must be limited to process-image measurement. Lifecycle, rotation, revocation, and compromise response are UNRESOLVED. | Must authenticate a fresh measurement of the exact process instance and bind it to a trusted builder artifact. | Anything not measured or signed in its explicit scope; it must not inherit authority from `/health`, operator JSON, updater signatures, or builder provenance alone. |
 
 ### Independence and key-domain separation
 
 For `CURRENT_PROCESS_IMAGE_SOURCE_AUTHORITY` to be independent of `BUILDER_AUTHORITY`, the process measurement must be produced by a separately controlled measurement boundary, with independently governed credentials, signing-key custody, lifecycle/incident response, and a root pinned by the relying application through a trusted configuration path. The source must not be able to rewrite or self-assert the builder receipt it compares against. The builder must not be able to mint the process-measurement statement merely because it created the binary.
 
 If the builder signs “this is the current process,” no measurement independence remains: the builder can assert execution without observing it. A different key under the same builder-controlled root, account, workflow, or secret store gives cryptographic key separation but not independent control. Reusing the same signing key or application root across Builder, Candidate, Configuration Approval, and Process Image Source domains collapses those trust boundaries. Distinct signed scopes prevent signature transplantation; they do not make one operator independent from itself. The existing v3 key-reuse check is limited to registries co-evaluated in one assessment and makes no global uniqueness claim.
+
+The required independence checks for the new source are separate:
+
+- **From `BUILDER_AUTHORITY`:** the source measures a live process through a separately controlled platform/helper boundary; Builder cannot mint the measurement or alter the source's observation. Shared operator control, root, or signing custody fails this independence claim even if the keys differ.
+- **From `CANDIDATE_AUTHORITY`:** candidate approval/receipt issuance must not let that authority self-assert process measurement. The process source needs separate owner, credential custody, root, and verification path; otherwise it is another candidate-authority claim, not an independent source.
+- **From `CONFIGURATION_APPROVAL_AUTHORITY`:** approval of expected configuration must not authorize the source's measurement key or let the approver assert process identity. The source root and lifecycle must be separately governed and pinned for its own scope.
+
+An application pin is mandatory: the relying application must receive the dedicated source root through trusted, release-controlled application configuration. A root bundled in source evidence or operator JSON is not a pin. Pin ownership, bootstrap, rotation, and compromise recovery remain UNRESOLVED.
 
 ## 3. Requirement matrix
 
@@ -74,6 +82,7 @@ Every row is required by the source prerequisite. `UNRESOLVED` means the propert
 | Substitution resistance | YES | Stable OS object/handle binding from measurement through assessment/use | Source measures through a live process reference and consumer rejects process/object mismatch or restart | UNRESOLVED |
 | Authority root pin | YES | Dedicated source-authority root, delivered through trusted application configuration | Candidate/source verifier compares root identity to compiled/release-controlled application pin, never operator JSON | NOT CONFIGURED |
 | Authority lifecycle | YES | Scoped signer registry with existing lifecycle vocabulary where applicable | Source verifier validates current status, scope, and validity separately from signature mathematics | UNRESOLVED |
+| Lifecycle / compromise handling | YES | Independently governed key custody, rotation/revocation process, and incident response | Relying verifier checks the authorized lifecycle state and rejects compromised/retired credentials under a defined policy | UNRESOLVED |
 | Revocation/status | AS NEEDED | Authority status channel/registry under a declared availability and freshness policy | Source verifier evaluates revocation/status at validation time and fails closed according to policy | UNRESOLVED; no service proposed |
 | Historical verification | AS NEEDED | Authenticated versioned status/registry chronology only if a retrospective claim is required | Historical verifier proves signer authorization at the relevant time, not just signature validity | NOT REQUIRED for current-process readiness; v3 does not provide it |
 
@@ -169,7 +178,17 @@ Preserve the three frozen signed evidence domains:
 - `AUTHENTICATED_BUILDER_PROVENANCE`
 - `INDEPENDENT_AUTHORITY_RECEIPT`
 
-Do not add current-process identity fields to their signed payloads or change their existing `issued_at`, validity-window, signer lifecycle, pin, or opaque-commitment semantics. Do not route the new source through the existing Builder signature verifier.
+Do not add current-process identity fields to their signed payloads or change these v3 semantics:
+
+- Ed25519 signature verification remains separate from signer authorization and root trust.
+- `ACTIVE`, `VERIFY_ONLY`, `RETIRED`, and `REVOKED` retain their current meanings; current signer authorization is not inferred from signature validity alone.
+- Signed `issued_at` remains an issuer claim, not independently attested physical signing time.
+- Evidence validity remains enforced separately from issuance time.
+- Application-pinned root remains the trust basis; production application pins remain NOT CONFIGURED.
+- Historical signer authorization remains NOT PROVEN by the current registry snapshot model.
+- `evidence_sha256` remains `AUTHORITY_SIGNED_OPAQUE_COMMITMENT`; its referent is not reinterpreted or implicitly rehashed.
+
+Do not route the new source through the existing Builder signature verifier.
 
 If a source is selected in a future change, the safest integration is a separate predicate named `AUTHENTICATED_CURRENT_BINARY_IDENTITY_SOURCE`, with its own evidence verifier, signed scope, source-authority identity and application-pinned root. Candidate assessment then cross-binds its verified measurement to Builder Provenance v2 and reports signature validity, source-root trust, freshness, process binding, artifact match, and overall candidate match separately. Readiness may consume that predicate only after all dimensions pass. `CURRENT_BINARY_IDENTITY` remains operator-supplied unverified metadata.
 

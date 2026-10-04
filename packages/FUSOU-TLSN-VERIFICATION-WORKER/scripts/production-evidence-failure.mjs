@@ -2,6 +2,16 @@ import { sha256Base64Url } from "./deployment-attestation.mjs";
 
 const SENSITIVE_KEY = /access.?key|api.?key|(?:^|[^a-z0-9])authorization(?:$|[^a-z0-9])|bearer|binding|challenge|cookie|credential|password|private|secret|token/i;
 const OMITTED_ERROR_MESSAGE = "Details omitted to prevent sensitive-data disclosure";
+const SAFE_DIAGNOSTIC_HASH_FIELDS = new Set([
+  "binding_authority_key_registry_sha256",
+  "binding_sha256",
+  "challenge_sha256",
+  "device_challenge_sha256",
+]);
+const SAFE_BINDING_AUTHORITY_VALUES = new Set(["durable-single-use", "fusou-tlsn-binding-authority"]);
+const SENSITIVE_VALUE = /access.?key|api.?key|authorization|bearer|cookie|credential|password|private|secret|token/i;
+const HASH_PATTERN = /^[A-Za-z0-9_-]{43}$/;
+const KEY_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
 
 function bodyBytes(body) {
   if (body === undefined || body === null) return null;
@@ -31,6 +41,22 @@ function hashDescriptor(bytes) {
 }
 
 function redactValue(value, key = "") {
+  const normalizedKey = key.toLowerCase();
+  if (SAFE_DIAGNOSTIC_HASH_FIELDS.has(normalizedKey)) {
+    return typeof value === "string" && HASH_PATTERN.test(value) ? value : "[REDACTED]";
+  }
+  if (normalizedKey === "binding_authority_key_id") {
+    return typeof value === "string" && KEY_ID_PATTERN.test(value) && !SENSITIVE_VALUE.test(value)
+      ? value
+      : "[REDACTED]";
+  }
+  if (normalizedKey === "binding_authority") {
+    if (value && typeof value === "object") {
+      if (Array.isArray(value)) return value.map((entry) => redactValue(entry));
+      return Object.fromEntries(Object.entries(value).map(([entryKey, entryValue]) => [entryKey, redactValue(entryValue, entryKey)]));
+    }
+    return typeof value === "string" && SAFE_BINDING_AUTHORITY_VALUES.has(value) ? value : "[REDACTED]";
+  }
   if (SENSITIVE_KEY.test(key)) return "[REDACTED]";
   if (Array.isArray(value)) return value.map((entry) => redactValue(entry));
   if (!value || typeof value !== "object") return value;
