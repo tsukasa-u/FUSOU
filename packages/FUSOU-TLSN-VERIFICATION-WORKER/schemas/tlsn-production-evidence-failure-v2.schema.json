@@ -1,0 +1,342 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:fusou:tlsn-production-evidence-failure:2",
+  "title": "FUSOU TLSN production evidence failure artifact v2",
+  "description": "Diagnostic-only failure output. This schema does not verify evidence, signatures, authority, provenance, or readiness and is not the schema for production evidence manifests, candidate provenance, TLSN Results, or verifier receipts.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "scope",
+    "status",
+    "capture_id",
+    "started_at",
+    "finished_at",
+    "error",
+    "requests",
+    "health",
+    "session",
+    "consume",
+    "hashes",
+    "provenance",
+    "serialization"
+  ],
+  "properties": {
+    "schema_version": { "const": 2 },
+    "scope": { "const": "tlsn-production-evidence-failure" },
+    "status": { "const": "FAILED" },
+    "capture_id": { "$ref": "#/$defs/nullableUuidV4" },
+    "started_at": { "$ref": "#/$defs/nullableTimestamp" },
+    "finished_at": { "$ref": "#/$defs/nullableTimestamp" },
+    "error": { "$ref": "#/$defs/nullableCaptureError" },
+    "requests": {
+      "type": "array",
+      "maxItems": 32,
+      "items": { "$ref": "#/$defs/httpExchange" }
+    },
+    "health": { "$ref": "#/$defs/nullableHealth" },
+    "session": { "$ref": "#/$defs/nullableSession" },
+    "consume": { "$ref": "#/$defs/nullableConsume" },
+    "hashes": { "$ref": "#/$defs/hashes" },
+    "provenance": { "$ref": "#/$defs/nullableProvenance" },
+    "serialization": { "$ref": "#/$defs/serialization" }
+  },
+  "$defs": {
+    "uuidV4": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}(?![\\s\\S])",
+      "description": "Canonical lowercase RFC 4122 version 4 UUID."
+    },
+    "nullableUuidV4": {
+      "type": ["string", "null"],
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}(?![\\s\\S])"
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z(?![\\s\\S])",
+      "description": "Canonical UTC timestamp emitted by Date.toISOString()."
+    },
+    "nullableTimestamp": {
+      "type": ["string", "null"],
+      "format": "date-time",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z(?![\\s\\S])"
+    },
+    "identifier": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}(?![\\s\\S])"
+    },
+    "digestSha256Base64Url": {
+      "type": "string",
+      "format": "sha256-base64url-32",
+      "minLength": 43,
+      "maxLength": 43,
+      "pattern": "^[A-Za-z0-9_-]{42}[AEIMQUYcgkosw048](?![\\s\\S])",
+      "description": "Canonical unpadded base64url encoding of exactly 32 digest bytes. A digest is not a signature, authority, or authenticity proof."
+    },
+    "commit": {
+      "type": "string",
+      "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})(?![\\s\\S])"
+    },
+    "workerName": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 63,
+      "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?![\\s\\S])"
+    },
+    "proxyIdentity": {
+      "type": "string",
+      "maxLength": 128,
+      "pattern": "^fusou-proxy(?:-[a-z0-9]+)*(?![\\s\\S])"
+    },
+    "proxyBinaryIdentity": {
+      "type": "string",
+      "maxLength": 128,
+      "pattern": "^proxy-https:\\d+\\.\\d+\\.\\d+(?:[-+][A-Za-z0-9.-]+)?(?![\\s\\S])"
+    },
+    "versionTag": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[A-Za-z0-9._-]{1,128}(?![\\s\\S])"
+    },
+    "byteCount": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 67108864
+    },
+    "signaturePresence": {
+      "type": "boolean",
+      "description": "True only when the raw source object had its own data property signature containing a non-empty string of at most 1024 UTF-16 code units. This does not mean the signature is valid or trusted."
+    },
+    "runtimeVersion": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": false,
+      "properties": {
+        "version_id": { "$ref": "#/$defs/uuidV4" },
+        "version_tag": { "$ref": "#/$defs/versionTag" },
+        "version_timestamp": { "$ref": "#/$defs/timestamp" }
+      }
+    },
+    "securityIdentity": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": false,
+      "properties": {
+        "verifier_key_id": { "$ref": "#/$defs/identifier" },
+        "notary_key_id": { "$ref": "#/$defs/identifier" },
+        "security_registry_set_sha256": {
+          "$ref": "#/$defs/digestSha256Base64Url",
+          "description": "Copied from the Worker health security_identity field. Its exact source bytes/canonicalization are not present or verified in this failure artifact."
+        },
+        "notary_registry_sha256": {
+          "$ref": "#/$defs/digestSha256Base64Url",
+          "description": "Copied from the Worker health security_identity field. Its exact source bytes/canonicalization are not present or verified in this failure artifact."
+        },
+        "trust_contract_valid": { "type": "boolean" }
+      }
+    },
+    "deploymentIdentity": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": false,
+      "properties": {
+        "deployment_id": { "$ref": "#/$defs/identifier" },
+        "deployment_role": { "enum": ["production", "canary", "replay", "test", "synthetic-test"] },
+        "binding_mode": { "enum": ["fixed_canary", "fixed", "fixed_test", "random"] },
+        "worker_name": { "$ref": "#/$defs/workerName" }
+      }
+    },
+    "health": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": { "const": 3 },
+        "ok": { "type": "boolean" },
+        "verifier": { "const": "tlsn-alpha15-wasm" },
+        "environment": { "enum": ["production", "test", "replay"] },
+        "deployment_role": { "enum": ["production", "canary", "replay", "test", "synthetic-test"] },
+        "git_commit_sha": { "$ref": "#/$defs/commit" },
+        "deployment_id": { "$ref": "#/$defs/identifier" },
+        "runtime_version": { "$ref": "#/$defs/runtimeVersion" },
+        "binding_mode": { "enum": ["fixed_canary", "fixed", "fixed_test", "random"] },
+        "execution_mode": { "enum": ["trigger", "queue", "direct", "sync"] },
+        "security_identity": { "$ref": "#/$defs/securityIdentity" },
+        "deployment_identity": { "$ref": "#/$defs/deploymentIdentity" }
+      }
+    },
+    "proxyAuthority": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": false,
+      "properties": {
+        "type": { "const": "externally-pinned-production-proxy-key" },
+        "status": { "enum": ["UNVERIFIED", "EXTERNALLY_PINNED"] }
+      }
+    },
+    "proxyProvenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["signature_present"],
+      "properties": {
+        "declared": { "enum": ["production", "unavailable"] },
+        "cryptographic_status": { "enum": ["UNVERIFIED", "VERIFIED", "INVALID"] },
+        "proxy_identity": { "$ref": "#/$defs/proxyIdentity" },
+        "proxy_deployment_id": { "anyOf": [{ "$ref": "#/$defs/identifier" }, { "type": "null" }] },
+        "proxy_binary_identity": { "$ref": "#/$defs/proxyBinaryIdentity" },
+        "presentation_sha256": {
+          "$ref": "#/$defs/digestSha256Base64Url",
+          "description": "Copied from the source proxy_provenance object; this failure artifact does not compare it with Presentation bytes or verify its source signature."
+        },
+        "created_at": { "$ref": "#/$defs/timestamp" },
+        "signer_key_id": { "$ref": "#/$defs/identifier" },
+        "authority": { "$ref": "#/$defs/proxyAuthority" },
+        "signature_present": { "$ref": "#/$defs/signaturePresence" }
+      }
+    },
+    "provenance": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": { "const": 2 },
+        "capture_provenance": { "enum": ["production", "unavailable", "synthetic-alpha15-test-fixture"] },
+        "capture_source": { "enum": ["fusou-proxy-production-tlsn", "synthetic-alpha15-test-fixture"] },
+        "synthetic": { "type": "boolean" },
+        "test": { "type": "boolean" },
+        "canary": { "type": "boolean" },
+        "local": { "type": "boolean" },
+        "capture_timestamp": { "$ref": "#/$defs/timestamp" },
+        "proxy_provenance": { "$ref": "#/$defs/proxyProvenance" }
+      }
+    },
+    "sessionReceipt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["signature_present"],
+      "properties": {
+        "session_id": { "$ref": "#/$defs/uuidV4" },
+        "signer_key_id": { "$ref": "#/$defs/identifier" },
+        "signature_algorithm": { "const": "Ed25519" },
+        "created_at": { "$ref": "#/$defs/timestamp" },
+        "expires_at": { "$ref": "#/$defs/timestamp" },
+        "signature_present": { "$ref": "#/$defs/signaturePresence" }
+      }
+    },
+    "session": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": false,
+      "properties": {
+        "session_id": { "$ref": "#/$defs/uuidV4" },
+        "expires_at": { "$ref": "#/$defs/timestamp" },
+        "session_receipt": { "$ref": "#/$defs/sessionReceipt" }
+      }
+    },
+    "consume": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["signature_present"],
+      "properties": {
+        "type": { "const": "attestation-binding-consumed" },
+        "signer_key_id": { "$ref": "#/$defs/identifier" },
+        "signature_algorithm": { "const": "Ed25519" },
+        "used_at": { "$ref": "#/$defs/timestamp" },
+        "signature_present": { "$ref": "#/$defs/signaturePresence" },
+        "error_code": { "const": "CONSUME_FAILED" }
+      }
+    },
+    "httpRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "method": { "enum": ["GET", "POST"] },
+        "path": { "enum": ["/health", "/auth/v1/user", "/api/auth/anonymous-sync/v2/device-identity", "/api/auth/anonymous-sync/v2/challenge", "/api/auth/anonymous-sync/v2/device-proof", "/api/auth/anonymous-sync/v2/tlsn-device-proof", "/attestation/session", "/verify/tlsn", "[other]", "[invalid]"] },
+        "content_type": { "enum": ["application/json", "application/octet-stream", "text/plain"] },
+        "body_bytes": { "$ref": "#/$defs/byteCount" }
+      }
+    },
+    "httpResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "status": { "type": "integer", "minimum": 100, "maximum": 599 },
+        "content_type": { "enum": ["application/json", "application/octet-stream", "text/plain"] },
+        "body_bytes": { "$ref": "#/$defs/byteCount" }
+      }
+    },
+    "httpError": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code"],
+      "properties": { "code": { "const": "HTTP_REQUEST_FAILED" } }
+    },
+    "httpExchange": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["request", "response", "error"],
+      "properties": {
+        "request": { "$ref": "#/$defs/httpRequest" },
+        "response": { "anyOf": [{ "$ref": "#/$defs/httpResponse" }, { "type": "null" }] },
+        "error": { "anyOf": [{ "$ref": "#/$defs/httpError" }, { "type": "null" }] }
+      }
+    },
+    "captureError": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "message"],
+      "properties": {
+        "stage": { "enum": ["initialization", "configuration", "presentation_capture", "worker_health", "supabase_user", "session_issue", "tlsn_verify", "tlsn_replay"] },
+        "code": { "const": "CAPTURE_FAILED" },
+        "message": { "const": "Details omitted to prevent sensitive-data disclosure" }
+      }
+    },
+    "hashDescriptor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["bytes", "sha256"],
+      "properties": {
+        "bytes": { "$ref": "#/$defs/byteCount" },
+        "sha256": { "$ref": "#/$defs/digestSha256Base64Url" }
+      },
+      "description": "For hashes.presentation, bytes and sha256 describe the Presentation Buffer observed by this capture process. Hashes copied from health/provenance objects describe only those source-declared values; this artifact does not establish their source bytes. Hashes are not signatures or authority/authenticity proofs."
+    },
+    "hashes": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "presentation": { "$ref": "#/$defs/hashDescriptor" }
+      }
+    },
+    "serialization": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["policy", "unknown_fields", "raw_request_response_bodies", "raw_exception_details"],
+      "properties": {
+        "policy": { "const": "FAILURE_BUNDLE_ALLOWLIST_V1" },
+        "unknown_fields": { "const": "OMITTED" },
+        "raw_request_response_bodies": { "const": "OMITTED" },
+        "raw_exception_details": { "const": "OMITTED" }
+      }
+    },
+    "nullableCaptureError": {
+      "anyOf": [{ "$ref": "#/$defs/captureError" }, { "type": "null" }]
+    },
+    "nullableHealth": {
+      "anyOf": [{ "$ref": "#/$defs/health" }, { "type": "null" }]
+    },
+    "nullableSession": {
+      "anyOf": [{ "$ref": "#/$defs/session" }, { "type": "null" }]
+    },
+    "nullableConsume": {
+      "anyOf": [{ "$ref": "#/$defs/consume" }, { "type": "null" }]
+    },
+    "nullableProvenance": {
+      "anyOf": [{ "$ref": "#/$defs/provenance" }, { "type": "null" }]
+    }
+  }
+}

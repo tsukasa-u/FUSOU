@@ -55,6 +55,7 @@ import { proxyProvenanceSigningPayload, verifyProductionProxyProvenance } from "
 import {
   createProductionEvidenceFailureBundle,
   FAILURE_BUNDLE_SAFE_FIELD_CONTRACT,
+  assertProductionEvidenceFailureBundleV2,
   finalizeProductionEvidenceFailureBundle,
   recordConsume,
   recordFailure,
@@ -2056,7 +2057,185 @@ assert.equal(finalizedFailureBundle.consume.signature_present, true);
 assert.equal(Object.hasOwn(finalizedFailureBundle.consume, "device_id"), false);
 assert.equal(Object.hasOwn(finalizedFailureBundle.consume, "presentation_id"), false);
 assert.equal(finalizedFailureBundle.hashes.presentation.sha256, presentationDigest);
+assert.equal(finalizedFailureBundle.hashes.presentation.bytes, failurePresentationBytes.length);
+assert.equal(finalizedFailureBundle.provenance.proxy_provenance.presentation_sha256, presentationDigest);
 assert.equal(Object.hasOwn(finalizedFailureBundle.hashes, "result"), false);
+assert.deepEqual(Object.keys(finalizedFailureBundle), [
+  "schema_version", "scope", "status", "capture_id", "started_at", "finished_at", "error", "requests",
+  "health", "session", "consume", "hashes", "provenance", "serialization",
+]);
+assert.equal(assertProductionEvidenceFailureBundleV2(finalizedFailureBundle), true);
+assert.equal(assertProductionEvidenceFailureBundleV2(JSON.parse(failureJson)), true);
+assert.equal(Object.hasOwn(finalizedFailureBundle, "unexpected"), false);
+assert.equal(Object.hasOwn(finalizedFailureBundle.health, "injected"), false);
+assert.equal(Object.hasOwn(finalizedFailureBundle.requests[2], "raw"), false);
+assert.equal(Object.hasOwn(finalizedFailureBundle.requests[2].request, "details"), false);
+
+const unknownTopLevelMutation = structuredClone(finalizedFailureBundle);
+unknownTopLevelMutation.injected = markerValues[0];
+assert.throws(() => assertProductionEvidenceFailureBundleV2(unknownTopLevelMutation), /schema v2/);
+const unknownNestedMutation = structuredClone(finalizedFailureBundle);
+unknownNestedMutation.requests[0].request.injected = markerValues[1];
+assert.throws(() => assertProductionEvidenceFailureBundleV2(unknownNestedMutation), /schema v2/);
+const unknownArrayPropertyMutation = structuredClone(finalizedFailureBundle);
+unknownArrayPropertyMutation.requests.injected = markerValues[2];
+assert.throws(() => assertProductionEvidenceFailureBundleV2(unknownArrayPropertyMutation), /schema v2/);
+const invalidAllowedValueMutation = structuredClone(finalizedFailureBundle);
+invalidAllowedValueMutation.health.ok = "false";
+assert.throws(() => assertProductionEvidenceFailureBundleV2(invalidAllowedValueMutation), /schema v2/);
+const invalidAllowedEnumMutation = structuredClone(finalizedFailureBundle);
+invalidAllowedEnumMutation.requests[0].request.method = "PATCH";
+assert.throws(() => assertProductionEvidenceFailureBundleV2(invalidAllowedEnumMutation), /schema v2/);
+const impossibleEmptyObjectMutation = structuredClone(finalizedFailureBundle);
+impossibleEmptyObjectMutation.health = {};
+assert.throws(() => assertProductionEvidenceFailureBundleV2(impossibleEmptyObjectMutation), /schema v2/);
+const oversizedBodyMutation = structuredClone(finalizedFailureBundle);
+oversizedBodyMutation.requests[0].request.body_bytes = 64 * 1024 * 1024 + 1;
+assert.throws(() => assertProductionEvidenceFailureBundleV2(oversizedBodyMutation), /schema v2/);
+const tooManyRequestsMutation = structuredClone(finalizedFailureBundle);
+tooManyRequestsMutation.requests = Array.from({ length: 33 }, () => structuredClone(finalizedFailureBundle.requests[0]));
+assert.throws(() => assertProductionEvidenceFailureBundleV2(tooManyRequestsMutation), /schema v2/);
+const nonCanonicalDigestMutation = structuredClone(finalizedFailureBundle);
+nonCanonicalDigestMutation.hashes.presentation.sha256 = `${"A".repeat(42)}B`;
+assert.throws(() => assertProductionEvidenceFailureBundleV2(nonCanonicalDigestMutation), /schema v2/);
+
+let getterReads = 0;
+const getterHealth = { schema_version: 3 };
+Object.defineProperty(getterHealth, "ok", {
+  enumerable: true,
+  get() {
+    getterReads += 1;
+    return true;
+  },
+});
+const getterBundle = { ...failureBundle, health: getterHealth };
+const getterFinalized = finalizeProductionEvidenceFailureBundle(getterBundle, nowIso);
+assert.equal(getterReads, 0);
+assert.deepEqual(getterFinalized.health, { schema_version: 3 });
+assert.equal(assertProductionEvidenceFailureBundleV2(getterFinalized), true);
+
+let producerGetterReads = 0;
+const captureInputWithGetters = {};
+for (const key of ["captureId", "startedAt"]) {
+  Object.defineProperty(captureInputWithGetters, key, {
+    enumerable: true,
+    get() {
+      producerGetterReads += 1;
+      return markerValues[0];
+    },
+  });
+}
+const producerGetterBundle = createProductionEvidenceFailureBundle(captureInputWithGetters);
+const exchangeInputWithGetters = {};
+for (const key of ["url", "options", "response", "responseBytes", "error"]) {
+  Object.defineProperty(exchangeInputWithGetters, key, {
+    enumerable: true,
+    get() {
+      producerGetterReads += 1;
+      return markerValues[1];
+    },
+  });
+}
+recordHttpExchange(producerGetterBundle, exchangeInputWithGetters);
+const failureInputWithGetters = {};
+for (const key of ["stage", "finishedAt"]) {
+  Object.defineProperty(failureInputWithGetters, key, {
+    enumerable: true,
+    get() {
+      producerGetterReads += 1;
+      return markerValues[2];
+    },
+  });
+}
+recordFailure(producerGetterBundle, failureInputWithGetters);
+const producerGetterFinalized = finalizeProductionEvidenceFailureBundle(producerGetterBundle, nowIso);
+assert.equal(producerGetterReads, 0);
+assert.equal(assertProductionEvidenceFailureBundleV2(producerGetterFinalized), true);
+assert.equal(producerGetterFinalized.capture_id, null);
+assert.deepEqual(producerGetterFinalized.error, {
+  code: "CAPTURE_FAILED",
+  message: "Details omitted to prevent sensitive-data disclosure",
+});
+
+const errorBundle = { ...failureBundle, health: new Error(markerValues[0]), session: new TypeError(markerValues[1]) };
+const errorFinalized = finalizeProductionEvidenceFailureBundle(errorBundle, nowIso);
+assert.equal(errorFinalized.health, null);
+assert.equal(errorFinalized.session, null);
+assert.equal(assertProductionEvidenceFailureBundleV2(errorFinalized), true);
+
+const circularHealth = { schema_version: 3 };
+circularHealth.deployment_identity = circularHealth;
+const circularBundle = { ...failureBundle, health: circularHealth };
+const circularFinalized = finalizeProductionEvidenceFailureBundle(circularBundle, nowIso);
+assert.deepEqual(circularFinalized.health, { schema_version: 3 });
+assert.equal(assertProductionEvidenceFailureBundleV2(circularFinalized), true);
+
+let arrayGetterReads = 0;
+const maliciousRequests = [];
+maliciousRequests.length = 1;
+Object.defineProperty(maliciousRequests, "0", {
+  enumerable: true,
+  get() {
+    arrayGetterReads += 1;
+    return { request: { path: markerValues[2] } };
+  },
+});
+maliciousRequests.injected = { value: markerValues[3] };
+const arrayBundle = { ...failureBundle, requests: maliciousRequests };
+const arrayFinalized = finalizeProductionEvidenceFailureBundle(arrayBundle, nowIso);
+assert.equal(arrayGetterReads, 0);
+assert.deepEqual(arrayFinalized.requests, []);
+assert.equal(assertProductionEvidenceFailureBundleV2(arrayFinalized), true);
+
+function signaturePresenceFor(site, rawFields) {
+  const bundle = createProductionEvidenceFailureBundle({
+    captureId: "123e4567-e89b-42d3-a456-426614174000",
+    startedAt: nowIso,
+  });
+  if (site === "session_receipt") {
+    recordSession(bundle, { session_id: failureSessionId, session_receipt: rawFields });
+  } else if (site === "consume") {
+    recordConsume(bundle, rawFields);
+  } else {
+    recordProvenance(bundle, { proxy_provenance: rawFields });
+  }
+  const finalized = finalizeProductionEvidenceFailureBundle(bundle, nowIso);
+  assert.equal(assertProductionEvidenceFailureBundleV2(finalized), true);
+  const signatureRecord = site === "session_receipt"
+    ? finalized.session.session_receipt
+    : site === "consume"
+      ? finalized.consume
+      : finalized.provenance.proxy_provenance;
+  assert.equal(Object.hasOwn(signatureRecord, "signature"), false);
+  return signatureRecord.signature_present;
+}
+
+const signaturePresenceCases = [
+  ["caller boolean alone", { signature_present: true }, false],
+  ["non-empty raw string", { signature: "marker" }, true],
+  ["empty raw string", { signature: "" }, false],
+  ["null raw value", { signature: null }, false],
+  ["oversized raw string", { signature: "x".repeat(1025) }, false],
+  ["raw string overrides false boolean", { signature: "marker", signature_present: false }, true],
+];
+for (const site of ["session_receipt", "consume", "proxy_provenance"]) {
+  for (const [caseName, rawFields, expected] of signaturePresenceCases) {
+    assert.equal(signaturePresenceFor(site, rawFields), expected, `${site}: ${caseName}`);
+  }
+}
+let signatureGetterReads = 0;
+const signatureGetterInput = { signature_present: true };
+Object.defineProperty(signatureGetterInput, "signature", {
+  enumerable: true,
+  get() {
+    signatureGetterReads += 1;
+    return "marker";
+  },
+});
+for (const site of ["session_receipt", "consume", "proxy_provenance"]) {
+  assert.equal(signaturePresenceFor(site, signatureGetterInput), false, `${site}: accessor signature is not raw data`);
+}
+assert.equal(signatureGetterReads, 0);
 
 const captureScriptSource = await readFile(new URL("./capture-production-evidence.mjs", import.meta.url), "utf8");
 const offlineVerifierSource = await readFile(new URL("./verify-production-evidence.mjs", import.meta.url), "utf8");
@@ -2110,4 +2289,4 @@ for (const name of cliFailureBundleNames) {
 }
 await rm(cliTestDirectory, { recursive: true, force: true });
 
-console.log("[tlsn-production-evidence] manifest, signer, artifact, freshness, identity, semantic, replay-block, synthetic, and result mutation matrix OK");
+console.log("[tlsn-production-evidence] failure artifact v2 schema, redaction, getter, and signature-presence matrix; manifest, signer, freshness, identity, semantic, replay-block, and synthetic matrix OK");
