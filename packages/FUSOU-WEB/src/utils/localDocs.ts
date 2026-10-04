@@ -32,10 +32,10 @@ const CATEGORY_MAP: Record<
   { label: string; order: number; icon: string; description: string }
 > = {
   formulas: {
-    label: "Formulas & Verification",
+    label: "Combat Formulas & Pipeline",
     order: 1,
     icon: "science",
-    description: "艦これ検証式・確定検証仕様書（Verified Models）・計算フローDAG・シミュレータ分離ロードマップ",
+    description: "艦これ戦闘計算パイプライン仕様書・フェーズ別計算式・計算フローDAG・一次情報源カタログ",
   },
   operations: {
     label: "Operations & Runbooks",

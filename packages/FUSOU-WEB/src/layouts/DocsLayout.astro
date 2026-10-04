@@ -6,6 +6,7 @@ import LeftMenu from "@/components/features/docs/astro/LeftMenu.astro";
 import RightMenu from "@/components/features/docs/astro/RightMenu.astro";
 import Breadcrumb from "@/components/features/docs/astro/Breadcrumb.astro";
 import DocumentInfo from "@/components/features/docs/astro/DocumentInfo.astro";
+import DiagramZoomModal from "@/components/features/docs/astro/DiagramZoomModal.astro";
 import { getCollection, getEntry } from "astro:content";
 import { compareSegments } from "@/utils/page_sorter";
 
@@ -126,7 +127,7 @@ if (currentSlug) {
               </h1>
               {
                 entry.data.description && (
-                  <p class="mt-3 text-base sm:text-lg text-base-content/75 leading-relaxed max-w-[70ch]">
+                  <p class="mt-3 text-base sm:text-lg text-base-content/75 leading-relaxed w-full max-w-none">
                     {entry.data.description}
                   </p>
                 )
@@ -242,6 +243,9 @@ if (currentSlug) {
     </div>
     <div class="flex-1 min-w-0"></div>
   </div>
+
+  <!-- Diagram Zoom & Pan Modal (DaisyUI Component) -->
+  <DiagramZoomModal />
 </Layout>
 
 <style>

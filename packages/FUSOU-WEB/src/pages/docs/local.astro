@@ -12,9 +12,9 @@ const localDocs = getAllLocalDocs();
 const categories = [
   {
     key: "formulas",
-    label: "Formulas & Verification",
+    label: "Combat Formulas & Pipeline",
     icon: "science",
-    description: "艦これ検証式・確定検証仕様書（Verified Models）・計算フローDAG・シミュレータ分離ロードマップ",
+    description: "艦これ戦闘計算パイプライン仕様書・フェーズ別計算式・計算フローDAG・一次情報源カタログ",
   },
   {
     key: "operations",
@@ -69,7 +69,7 @@ const totalCategoriesCount = groupedCategories.length;
         Local Developer Documentation Hub
       </h1>
       <p class="mt-3 text-base sm:text-lg text-base-content/70 max-w-[75ch] leading-relaxed">
-        本ページはローカル開発サーバー起動時のみ表示される専用インデックスです。クラウド本番環境からは完全に分離されており、検証式・確定仕様書、内部運用手順書、実装計画書を直接参照できます。
+        本ページはローカル開発サーバー起動時のみ表示される専用インデックスです。戦闘計算パイプライン仕様書、内部運用手順書、実装計画書等を直接参照できます。
       </p>
 
       <!-- Quick Switch Banner -->
@@ -90,7 +90,7 @@ const totalCategoriesCount = groupedCategories.length;
           <input
             id="local-docs-search"
             type="search"
-            placeholder="Search local documents by title, keyword, or tag (e.g. verified, compaction, avro)..."
+            placeholder="Search local documents by title, keyword, or tag (e.g. pipeline, shelling, compaction, avro)..."
             class="w-full pl-10 pr-4 py-2.5 rounded-xl border border-base-300 bg-base-100 text-sm text-base-content placeholder:text-base-content/45 focus:border-amber-500 focus:ring-2 focus:ring-amber-500/20 transition-all shadow-sm"
           />
         </div>

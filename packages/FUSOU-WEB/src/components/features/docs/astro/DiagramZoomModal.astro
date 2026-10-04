@@ -1,0 +1,328 @@
+---
+// DiagramZoomModal.astro
+// DaisyUI modal based full-screen Diagram Zoom & Pan Viewer
+---
+
+<dialog id="diagram-modal" class="modal z-[99999]">
+  <div class="modal-box w-11/12 max-w-[96vw] h-[92vh] max-h-[92vh] p-0 flex flex-col overflow-hidden bg-base-100 text-base-content shadow-2xl rounded-2xl border border-base-content/15">
+    <!-- Modal Toolbar Header -->
+    <header class="flex items-center justify-between px-4 py-2.5 bg-base-100 border-b border-base-content/10 shadow-sm z-10 shrink-0">
+      <div class="flex items-center gap-2">
+        <span class="text-sm font-bold text-base-content flex items-center gap-1.5">
+          <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 text-primary" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="11" cy="11" r="8"></circle>
+            <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+            <line x1="11" y1="8" x2="11" y2="14"></line>
+            <line x1="8" y1="11" x2="14" y2="11"></line>
+          </svg>
+          図の拡大・自由移動ビューア (Zoom & Pan)
+        </span>
+        <span class="text-xs text-base-content/60 hidden sm:inline">（ドラッグで移動、ホイールで拡大縮小、余白クリックで閉じる）</span>
+      </div>
+
+      <!-- Controls -->
+      <div class="flex items-center gap-1.5 sm:gap-2">
+        <span id="diagram-zoom-level" class="text-xs font-mono text-base-content/70 px-2 py-1 rounded bg-base-200 min-w-[50px] text-center">100%</span>
+        <button id="diagram-zoom-out" type="button" class="btn btn-xs sm:btn-sm btn-ghost btn-square" title="縮小 (Zoom Out) [-]">
+          <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="11" cy="11" r="8"></circle>
+            <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+            <line x1="8" y1="11" x2="14" y2="11"></line>
+          </svg>
+        </button>
+        <button id="diagram-zoom-in" type="button" class="btn btn-xs sm:btn-sm btn-ghost btn-square" title="拡大 (Zoom In) [+]">
+          <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="11" cy="11" r="8"></circle>
+            <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+            <line x1="11" y1="8" x2="11" y2="14"></line>
+            <line x1="8" y1="11" x2="14" y2="11"></line>
+          </svg>
+        </button>
+        <button id="diagram-zoom-fit" type="button" class="btn btn-xs sm:btn-sm btn-ghost font-medium" title="画面に合わせる (Fit)">
+          Fit
+        </button>
+        <button id="diagram-zoom-100" type="button" class="btn btn-xs sm:btn-sm btn-ghost font-medium" title="等倍 (100%)">
+          100%
+        </button>
+        <div class="divider divider-horizontal my-1 mx-0.5"></div>
+        <form method="dialog">
+          <button id="diagram-modal-close" class="btn btn-xs sm:btn-sm btn-circle btn-ghost" title="閉じる (ESC)">
+            <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="18" y1="6" x2="6" y2="18"></line>
+              <line x1="6" y1="6" x2="18" y2="18"></line>
+            </svg>
+          </button>
+        </form>
+      </div>
+    </header>
+
+    <!-- Modal Viewport -->
+    <div id="diagram-viewport" class="flex-1 w-full h-full min-h-0 overflow-hidden relative cursor-grab active:cursor-grabbing bg-base-200/50 select-none">
+      <div id="diagram-content" class="absolute origin-top-left will-change-transform">
+        <!-- Cloned SVG diagram card placed here -->
+      </div>
+    </div>
+  </div>
+
+  <!-- DaisyUI Backdrop for Click-to-Close -->
+  <form method="dialog" class="modal-backdrop">
+    <button>close</button>
+  </form>
+</dialog>
+
+<script is:inline>
+  (function initDiagramZoomViewer() {
+    let scale = 1;
+    let translateX = 0;
+    let translateY = 0;
+    let isDragging = false;
+    let didDrag = false;
+    let startX = 0;
+    let startY = 0;
+    let touchStartX = 0;
+    let touchStartY = 0;
+    let currentOrigW = 1200;
+    let currentOrigH = 800;
+
+    const modal = document.getElementById('diagram-modal');
+    const viewport = document.getElementById('diagram-viewport');
+    const content = document.getElementById('diagram-content');
+    const zoomLevel = document.getElementById('diagram-zoom-level');
+    const btnZoomIn = document.getElementById('diagram-zoom-in');
+    const btnZoomOut = document.getElementById('diagram-zoom-out');
+    const btnFit = document.getElementById('diagram-zoom-fit');
+    const btn100 = document.getElementById('diagram-zoom-100');
+
+    if (!modal || !viewport || !content) return;
+
+    function updateTransform() {
+      content.style.transform = `translate3d(${translateX}px, ${translateY}px, 0) scale(${scale})`;
+      if (zoomLevel) zoomLevel.textContent = `${Math.round(scale * 100)}%`;
+    }
+
+    function fitToViewport() {
+      if (!currentOrigW || !currentOrigH) return;
+      const vpRect = viewport.getBoundingClientRect();
+      if (vpRect.width <= 0 || vpRect.height <= 0) return;
+
+      const paddedW = currentOrigW + 80;
+      const paddedH = currentOrigH + 80;
+
+      const wRatio = (vpRect.width * 0.94) / paddedW;
+      const hRatio = (vpRect.height * 0.90) / paddedH;
+      scale = Math.min(wRatio, hRatio);
+      if (scale <= 0) scale = 0.5;
+
+      const scaledW = paddedW * scale;
+      const scaledH = paddedH * scale;
+      translateX = (vpRect.width - scaledW) / 2;
+      translateY = (vpRect.height - scaledH) / 2;
+      updateTransform();
+    }
+
+    function openModal(svgElement) {
+      content.innerHTML = '';
+
+      // 1. Calculate intrinsic dimensions
+      let origW = 0;
+      let origH = 0;
+      const vb = svgElement.getAttribute('viewBox');
+      if (vb) {
+        const parts = vb.trim().split(/[\s,]+/);
+        if (parts.length === 4) {
+          origW = parseFloat(parts[2]);
+          origH = parseFloat(parts[3]);
+        }
+      }
+      if ((!origW || !origH) && svgElement.viewBox && svgElement.viewBox.baseVal && svgElement.viewBox.baseVal.width) {
+        origW = svgElement.viewBox.baseVal.width;
+        origH = svgElement.viewBox.baseVal.height;
+      }
+      if (!origW || !origH) {
+        try {
+          const bbox = svgElement.getBBox();
+          if (bbox.width > 0 && bbox.height > 0) {
+            origW = bbox.width;
+            origH = bbox.height;
+          }
+        } catch (e) {}
+      }
+      if (!origW || !origH) {
+        const rect = svgElement.getBoundingClientRect();
+        origW = rect.width;
+        origH = rect.height;
+      }
+      origW = Math.round(origW || 1200);
+      origH = Math.round(origH || 800);
+      currentOrigW = origW;
+      currentOrigH = origH;
+
+      // 2. Build canvas container card
+      const canvasCard = document.createElement('div');
+      canvasCard.id = 'diagram-canvas-card';
+      canvasCard.className = 'bg-base-100 text-base-content p-6 sm:p-10 rounded-2xl shadow-xl border border-base-content/15 inline-block';
+
+      // 3. Clone SVG and strictly assign explicit pixel dimensions
+      const clone = svgElement.cloneNode(true);
+      clone.setAttribute('width', String(origW));
+      clone.setAttribute('height', String(origH));
+      clone.setAttribute('viewBox', vb || `0 0 ${origW} ${origH}`);
+      clone.style.width = origW + 'px';
+      clone.style.height = origH + 'px';
+      clone.style.minWidth = origW + 'px';
+      clone.style.minHeight = origH + 'px';
+      clone.style.maxWidth = 'none';
+      clone.style.maxHeight = 'none';
+      clone.style.display = 'block';
+
+      canvasCard.appendChild(clone);
+      content.appendChild(canvasCard);
+
+      // 4. Reveal DaisyUI native dialog modal
+      if (typeof modal.showModal === 'function') {
+        modal.showModal();
+      } else {
+        modal.setAttribute('open', '');
+      }
+
+      // 5. Fit initially
+      requestAnimationFrame(() => {
+        fitToViewport();
+      });
+    }
+
+    modal.addEventListener('close', () => {
+      content.innerHTML = '';
+      scale = 1;
+      translateX = 0;
+      translateY = 0;
+    });
+
+    window.addEventListener('keydown', (e) => {
+      if (modal.open) {
+        if (e.key === '+' || e.key === '=') zoomBy(1.25);
+        if (e.key === '-' || e.key === '_') zoomBy(0.8);
+        if (e.key === '0') fitToViewport();
+      }
+    });
+
+    function zoomBy(factor) {
+      const vpRect = viewport.getBoundingClientRect();
+      const centerX = vpRect.width / 2;
+      const centerY = vpRect.height / 2;
+      const newScale = Math.min(Math.max(scale * factor, 0.05), 15.0);
+      translateX = centerX - (centerX - translateX) * (newScale / scale);
+      translateY = centerY - (centerY - translateY) * (newScale / scale);
+      scale = newScale;
+      updateTransform();
+    }
+
+    btnZoomIn?.addEventListener('click', () => zoomBy(1.25));
+    btnZoomOut?.addEventListener('click', () => zoomBy(0.8));
+    btnFit?.addEventListener('click', fitToViewport);
+    btn100?.addEventListener('click', () => {
+      const vpRect = viewport.getBoundingClientRect();
+      scale = 1.0;
+      const paddedW = currentOrigW + 80;
+      const paddedH = currentOrigH + 80;
+      translateX = (vpRect.width - paddedW) / 2;
+      translateY = (vpRect.height - paddedH) / 2;
+      updateTransform();
+    });
+
+    // Mouse wheel zoom towards cursor
+    viewport.addEventListener('wheel', (e) => {
+      e.preventDefault();
+      const rect = viewport.getBoundingClientRect();
+      const mouseX = e.clientX - rect.left;
+      const mouseY = e.clientY - rect.top;
+
+      const factor = e.deltaY < 0 ? 1.15 : 0.87;
+      const newScale = Math.min(Math.max(scale * factor, 0.05), 15.0);
+
+      translateX = mouseX - (mouseX - translateX) * (newScale / scale);
+      translateY = mouseY - (mouseY - translateY) * (newScale / scale);
+      scale = newScale;
+      updateTransform();
+    }, { passive: false });
+
+    // Drag to pan
+    viewport.addEventListener('mousedown', (e) => {
+      if (e.button !== 0) return;
+      isDragging = true;
+      didDrag = false;
+      startX = e.clientX - translateX;
+      startY = e.clientY - translateY;
+      viewport.style.cursor = 'grabbing';
+    });
+
+    window.addEventListener('mousemove', (e) => {
+      if (!isDragging) return;
+      const newX = e.clientX - startX;
+      const newY = e.clientY - startY;
+      if (Math.abs(newX - translateX) > 3 || Math.abs(newY - translateY) > 3) {
+        didDrag = true;
+      }
+      translateX = newX;
+      translateY = newY;
+      updateTransform();
+    });
+
+    window.addEventListener('mouseup', () => {
+      if (isDragging) {
+        isDragging = false;
+        viewport.style.cursor = 'grab';
+      }
+    });
+
+    // Touch pan
+    viewport.addEventListener('touchstart', (e) => {
+      if (e.touches.length === 1) {
+        isDragging = true;
+        didDrag = false;
+        touchStartX = e.touches[0].clientX - translateX;
+        touchStartY = e.touches[0].clientY - translateY;
+      }
+    }, { passive: true });
+
+    viewport.addEventListener('touchmove', (e) => {
+      if (isDragging && e.touches.length === 1) {
+        didDrag = true;
+        translateX = e.touches[0].clientX - touchStartX;
+        translateY = e.touches[0].clientY - touchStartY;
+        updateTransform();
+      }
+    }, { passive: true });
+
+    viewport.addEventListener('touchend', () => {
+      isDragging = false;
+    });
+
+    // Bind click handlers to diagrams
+    function attachDiagramClickHandlers() {
+      const targets = document.querySelectorAll('pre.mermaid, div.mermaid, .mermaid svg, svg[id^="mermaid-"]');
+      targets.forEach((el) => {
+        const container = el.closest('pre.mermaid, div.mermaid') || el;
+        if (container.dataset.zoomViewerAttached) return;
+        container.dataset.zoomViewerAttached = 'true';
+
+        container.style.cursor = 'zoom-in';
+        container.title = 'クリックして拡大・自由にドラッグ移動 (DaisyUI Zoom Modal)';
+
+        container.addEventListener('click', (e) => {
+          e.preventDefault();
+          const svg = container.querySelector('svg') || (container.tagName.toLowerCase() === 'svg' ? container : null);
+          if (svg) {
+            openModal(svg);
+          }
+        });
+      });
+    }
+
+    attachDiagramClickHandlers();
+    const observer = new MutationObserver(() => {
+      attachDiagramClickHandlers();
+    });
+    observer.observe(document.body, { childList: true, subtree: true });
+  })();
+</script>
