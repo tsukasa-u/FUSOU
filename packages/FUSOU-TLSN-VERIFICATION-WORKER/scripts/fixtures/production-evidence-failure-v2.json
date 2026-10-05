@@ -1,0 +1,99 @@
+{
+  "schema_version": 2,
+  "scope": "tlsn-production-evidence-failure",
+  "status": "FAILED",
+  "capture_id": "123e4567-e89b-42d3-a456-426614174000",
+  "started_at": "2026-10-05T00:00:00.000Z",
+  "finished_at": "2026-10-05T00:00:00.000Z",
+  "error": {
+    "code": "CAPTURE_FAILED",
+    "message": "Details omitted to prevent sensitive-data disclosure",
+    "stage": "worker_health"
+  },
+  "requests": [],
+  "health": {
+    "schema_version": 3,
+    "ok": false,
+    "verifier": "tlsn-alpha15-wasm",
+    "environment": "production",
+    "deployment_role": "canary",
+    "git_commit_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "deployment_id": "legacy-deployment-1",
+    "runtime_version": {
+      "version_id": "123e4567-e89b-42d3-a456-426614174001",
+      "version_tag": "legacy-v2",
+      "version_timestamp": "2026-10-05T00:00:00.000Z"
+    },
+    "binding_mode": "fixed_canary",
+    "execution_mode": "direct",
+    "security_identity": {
+      "verifier_key_id": "legacy-verifier-key",
+      "notary_key_id": "legacy-notary-key",
+      "security_registry_set_sha256": "mtU4N_VSJNc6E4wVSwKcJG0w4VklnGJhIJb0Xu7GCc8",
+      "notary_registry_sha256": "MvSkjdqgnmFYE8fM-T5J6h0ifx1nmeDijWlEkuyrDEg",
+      "trust_contract_valid": false
+    },
+    "deployment_identity": {
+      "deployment_id": "legacy-deployment-1",
+      "deployment_role": "canary",
+      "binding_mode": "fixed_canary",
+      "worker_name": "legacy-worker"
+    }
+  },
+  "session": {
+    "session_id": "123e4567-e89b-42d3-a456-426614174002",
+    "expires_at": "2026-10-05T00:00:00.000Z",
+    "session_receipt": {
+      "session_id": "123e4567-e89b-42d3-a456-426614174002",
+      "signer_key_id": "legacy-session-key",
+      "signature_algorithm": "Ed25519",
+      "created_at": "2026-10-05T00:00:00.000Z",
+      "expires_at": "2026-10-05T00:00:00.000Z",
+      "signature_present": true
+    }
+  },
+  "consume": {
+    "type": "attestation-binding-consumed",
+    "signer_key_id": "legacy-binding-key",
+    "signature_algorithm": "Ed25519",
+    "used_at": "2026-10-05T00:00:00.000Z",
+    "signature_present": true
+  },
+  "hashes": {
+    "presentation": {
+      "bytes": 24,
+      "sha256": "IR4WeLty537KL3P8A7po8vM6fK8JRkL-LJANTtoQ_-4"
+    }
+  },
+  "provenance": {
+    "schema_version": 2,
+    "capture_provenance": "production",
+    "capture_source": "fusou-proxy-production-tlsn",
+    "synthetic": false,
+    "test": false,
+    "canary": false,
+    "local": false,
+    "capture_timestamp": "2026-10-05T00:00:00.000Z",
+    "proxy_provenance": {
+      "declared": "production",
+      "cryptographic_status": "UNVERIFIED",
+      "proxy_identity": "fusou-proxy-canary",
+      "proxy_deployment_id": "legacy-proxy-deployment",
+      "proxy_binary_identity": "proxy-https:0.5.0+legacy",
+      "presentation_sha256": "IR4WeLty537KL3P8A7po8vM6fK8JRkL-LJANTtoQ_-4",
+      "created_at": "2026-10-05T00:00:00.000Z",
+      "signer_key_id": "legacy-proxy-key",
+      "authority": {
+        "type": "externally-pinned-production-proxy-key",
+        "status": "UNVERIFIED"
+      },
+      "signature_present": true
+    }
+  },
+  "serialization": {
+    "policy": "FAILURE_BUNDLE_ALLOWLIST_V1",
+    "unknown_fields": "OMITTED",
+    "raw_request_response_bodies": "OMITTED",
+    "raw_exception_details": "OMITTED"
+  }
+}

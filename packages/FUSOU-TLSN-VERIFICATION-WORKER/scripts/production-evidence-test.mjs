@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { createHash, generateKeyPairSync, sign } from "node:crypto";
 import failureBundleV2Schema from "../schemas/tlsn-production-evidence-failure-v2.schema.json" with { type: "json" };
+import failureBundleV3Schema from "../schemas/tlsn-production-evidence-failure-v3.schema.json" with { type: "json" };
 import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -57,7 +58,9 @@ import {
   createProductionEvidenceFailureBundle,
   FAILURE_BUNDLE_SAFE_FIELD_CONTRACT,
   FAILURE_BUNDLE_SAFE_FIELD_SCHEMA_GROUPS,
+  assertProductionEvidenceFailureBundle,
   assertProductionEvidenceFailureBundleV2,
+  assertProductionEvidenceFailureBundleV3,
   finalizeProductionEvidenceFailureBundle,
   recordConsume,
   recordFailure,
@@ -73,7 +76,7 @@ const nowIso = now.toISOString();
 for (const [group, definition] of Object.entries(FAILURE_BUNDLE_SAFE_FIELD_SCHEMA_GROUPS)) {
   assert.deepEqual(
     [...FAILURE_BUNDLE_SAFE_FIELD_CONTRACT[group]].sort(),
-    Object.keys(failureBundleV2Schema.$defs[definition].properties).sort(),
+    Object.keys(failureBundleV3Schema.$defs[definition].properties).sort(),
     `${group} serializer allowlist must exactly match its schema properties`,
   );
 }
@@ -2025,9 +2028,9 @@ failureBundle.requests.push({ request: { method: "POST", path: "/verify/tlsn", d
 const finalizedFailureBundle = finalizeProductionEvidenceFailureBundle(failureBundle, nowIso);
 const failureJson = JSON.stringify(finalizedFailureBundle);
 for (const marker of markerValues) assert.ok(!failureJson.includes(marker), "allowlist serialization must omit arbitrary marker values");
-assert.equal(finalizedFailureBundle.schema_version, 2);
+assert.equal(finalizedFailureBundle.schema_version, 3);
 assert.deepEqual(finalizedFailureBundle.serialization, {
-  policy: "FAILURE_BUNDLE_ALLOWLIST_V1",
+  policy: "FAILURE_BUNDLE_ALLOWLIST_V2",
   unknown_fields: "OMITTED",
   raw_request_response_bodies: "OMITTED",
   raw_exception_details: "OMITTED",
@@ -2079,10 +2082,10 @@ assert.deepEqual(Object.keys(finalizedFailureBundle), [
   "schema_version", "scope", "status", "capture_id", "started_at", "finished_at", "error", "requests",
   "health", "session", "consume", "hashes", "provenance", "serialization",
 ]);
-assert.equal(assertProductionEvidenceFailureBundleV2(finalizedFailureBundle), true);
-assert.equal(assertProductionEvidenceFailureBundleV2(JSON.parse(failureJson)), true);
-assert.deepEqual([...failureBundleV2Schema.required].sort(), Object.keys(finalizedFailureBundle).sort());
-assert.deepEqual(Object.keys(failureBundleV2Schema.properties).sort(), Object.keys(finalizedFailureBundle).sort());
+assert.equal(assertProductionEvidenceFailureBundleV3(finalizedFailureBundle), true);
+assert.equal(assertProductionEvidenceFailureBundle(JSON.parse(failureJson)), true);
+assert.deepEqual([...failureBundleV3Schema.required].sort(), Object.keys(finalizedFailureBundle).sort());
+assert.deepEqual(Object.keys(failureBundleV3Schema.properties).sort(), Object.keys(finalizedFailureBundle).sort());
 assert.equal(Object.hasOwn(finalizedFailureBundle, "unexpected"), false);
 assert.equal(Object.hasOwn(finalizedFailureBundle.health, "injected"), false);
 assert.equal(Object.hasOwn(finalizedFailureBundle.requests[2], "raw"), false);
@@ -2091,10 +2094,29 @@ assert.equal(failureJson.includes(failureSessionId), false, "session identifiers
 assert.equal(Object.hasOwn(finalizedFailureBundle.health.security_identity, "security_registry_set_sha256"), false);
 assert.equal(Object.hasOwn(finalizedFailureBundle.health.security_identity, "notary_registry_sha256"), false);
 
-const scopeSchema = failureBundleV2Schema.properties.scope;
+const legacyV2FailureBundle = JSON.parse(await readFile(new URL("./fixtures/production-evidence-failure-v2.json", import.meta.url), "utf8"));
+assert.equal(failureBundleV2Schema.properties.schema_version.const, 2);
+assert.equal(assertProductionEvidenceFailureBundleV2(legacyV2FailureBundle), true);
+assert.equal(assertProductionEvidenceFailureBundle(legacyV2FailureBundle), true);
+assert.throws(() => assertProductionEvidenceFailureBundleV3(legacyV2FailureBundle), /schema v3/);
+assert.throws(() => assertProductionEvidenceFailureBundleV2(finalizedFailureBundle), /schema v2/);
+const unknownVersionBundle = { ...finalizedFailureBundle, schema_version: 4 };
+assert.throws(() => assertProductionEvidenceFailureBundle(unknownVersionBundle), /unsupported schema version/);
+const mismatchedVersionBundle = structuredClone(legacyV2FailureBundle);
+mismatchedVersionBundle.schema_version = 3;
+const legacyDiagnosticMarker = "legacy-diagnostic-secret-marker";
+mismatchedVersionBundle.health.git_commit_sha = legacyDiagnosticMarker;
+assert.throws(
+  () => assertProductionEvidenceFailureBundle(mismatchedVersionBundle),
+  (error) => error instanceof TypeError && /schema v3/.test(error.message) && !error.message.includes(legacyDiagnosticMarker),
+);
+const currentBundleMislabelledV2 = { ...finalizedFailureBundle, schema_version: 2 };
+assert.throws(() => assertProductionEvidenceFailureBundle(currentBundleMislabelledV2), /schema v2/);
+
+const scopeSchema = failureBundleV3Schema.properties.scope;
 scopeSchema.maxLength = 8;
 try {
-  assert.throws(() => assertProductionEvidenceFailureBundleV2(finalizedFailureBundle), /schema v2/);
+  assert.throws(() => assertProductionEvidenceFailureBundleV3(finalizedFailureBundle), /schema v3/);
 } finally {
   delete scopeSchema.maxLength;
 }
@@ -2106,19 +2128,19 @@ for (const [unsupportedKeyword, value] of [
   scopeSchema[unsupportedKeyword] = value;
   try {
     assert.throws(
-      () => assertProductionEvidenceFailureBundleV2(finalizedFailureBundle),
-      /schema v2/,
+      () => assertProductionEvidenceFailureBundleV3(finalizedFailureBundle),
+      /schema v3/,
       `${unsupportedKeyword} must not be silently ignored`,
     );
   } finally {
     delete scopeSchema[unsupportedKeyword];
   }
 }
-const healthSchema = failureBundleV2Schema.$defs.health;
+const healthSchema = failureBundleV3Schema.$defs.health;
 const originalAdditionalProperties = healthSchema.additionalProperties;
 delete healthSchema.additionalProperties;
 try {
-  assert.throws(() => assertProductionEvidenceFailureBundleV2(finalizedFailureBundle), /schema v2/);
+  assert.throws(() => assertProductionEvidenceFailureBundleV3(finalizedFailureBundle), /schema v3/);
 } finally {
   healthSchema.additionalProperties = originalAdditionalProperties;
 }
@@ -2204,55 +2226,55 @@ for (const secretLikeValue of credentialShapedValues) {
 
 const unknownTopLevelMutation = structuredClone(finalizedFailureBundle);
 unknownTopLevelMutation.injected = markerValues[0];
-assert.throws(() => assertProductionEvidenceFailureBundleV2(unknownTopLevelMutation), /schema v2/);
+assert.throws(() => assertProductionEvidenceFailureBundleV3(unknownTopLevelMutation), /schema v3/);
 const unknownNestedMutation = structuredClone(finalizedFailureBundle);
 unknownNestedMutation.requests[0].request.injected = markerValues[1];
-assert.throws(() => assertProductionEvidenceFailureBundleV2(unknownNestedMutation), /schema v2/);
+assert.throws(() => assertProductionEvidenceFailureBundleV3(unknownNestedMutation), /schema v3/);
 const unknownArrayPropertyMutation = structuredClone(finalizedFailureBundle);
 unknownArrayPropertyMutation.requests.injected = markerValues[2];
-assert.throws(() => assertProductionEvidenceFailureBundleV2(unknownArrayPropertyMutation), /schema v2/);
+assert.throws(() => assertProductionEvidenceFailureBundleV3(unknownArrayPropertyMutation), /schema v3/);
 const invalidAllowedValueMutation = structuredClone(finalizedFailureBundle);
 invalidAllowedValueMutation.health.ok = "false";
-assert.throws(() => assertProductionEvidenceFailureBundleV2(invalidAllowedValueMutation), /schema v2/);
+assert.throws(() => assertProductionEvidenceFailureBundleV3(invalidAllowedValueMutation), /schema v3/);
 const invalidAllowedEnumMutation = structuredClone(finalizedFailureBundle);
 invalidAllowedEnumMutation.requests[0].request.method = "PATCH";
-assert.throws(() => assertProductionEvidenceFailureBundleV2(invalidAllowedEnumMutation), /schema v2/);
+assert.throws(() => assertProductionEvidenceFailureBundleV3(invalidAllowedEnumMutation), /schema v3/);
 const missingRequiredMutation = structuredClone(finalizedFailureBundle);
 delete missingRequiredMutation.finished_at;
-assert.throws(() => assertProductionEvidenceFailureBundleV2(missingRequiredMutation), /schema v2/);
+assert.throws(() => assertProductionEvidenceFailureBundleV3(missingRequiredMutation), /schema v3/);
 const missingNestedRequiredMutation = structuredClone(finalizedFailureBundle);
 delete missingNestedRequiredMutation.provenance.proxy_provenance.signature_present;
-assert.throws(() => assertProductionEvidenceFailureBundleV2(missingNestedRequiredMutation), /schema v2/);
+assert.throws(() => assertProductionEvidenceFailureBundleV3(missingNestedRequiredMutation), /schema v3/);
 const constMutation = structuredClone(finalizedFailureBundle);
 constMutation.status = "VERIFIED";
-assert.throws(() => assertProductionEvidenceFailureBundleV2(constMutation), /schema v2/);
+assert.throws(() => assertProductionEvidenceFailureBundleV3(constMutation), /schema v3/);
 const nestedEnumMutation = structuredClone(finalizedFailureBundle);
 nestedEnumMutation.provenance.proxy_provenance.cryptographic_status = "TRUSTED";
-assert.throws(() => assertProductionEvidenceFailureBundleV2(nestedEnumMutation), /schema v2/);
+assert.throws(() => assertProductionEvidenceFailureBundleV3(nestedEnumMutation), /schema v3/);
 const invalidUuidMutation = structuredClone(finalizedFailureBundle);
 invalidUuidMutation.capture_id = "not-a-v4-uuid";
-assert.throws(() => assertProductionEvidenceFailureBundleV2(invalidUuidMutation), /schema v2/);
+assert.throws(() => assertProductionEvidenceFailureBundleV3(invalidUuidMutation), /schema v3/);
 const malformedTimestampMutation = structuredClone(finalizedFailureBundle);
 malformedTimestampMutation.started_at = "2026-10-05T00:00:00+00:00";
-assert.throws(() => assertProductionEvidenceFailureBundleV2(malformedTimestampMutation), /schema v2/);
+assert.throws(() => assertProductionEvidenceFailureBundleV3(malformedTimestampMutation), /schema v3/);
 const nonEnumerableKnownFieldMutation = structuredClone(finalizedFailureBundle);
 Object.defineProperty(nonEnumerableKnownFieldMutation.health, "ok", { value: false, enumerable: false, configurable: true });
-assert.throws(() => assertProductionEvidenceFailureBundleV2(nonEnumerableKnownFieldMutation), /schema v2/);
+assert.throws(() => assertProductionEvidenceFailureBundleV3(nonEnumerableKnownFieldMutation), /schema v3/);
 const symbolKeyMutation = structuredClone(finalizedFailureBundle);
 symbolKeyMutation.health[Symbol("secret-marker")] = markerValues[0];
-assert.throws(() => assertProductionEvidenceFailureBundleV2(symbolKeyMutation), /schema v2/);
+assert.throws(() => assertProductionEvidenceFailureBundleV3(symbolKeyMutation), /schema v3/);
 const impossibleEmptyObjectMutation = structuredClone(finalizedFailureBundle);
 impossibleEmptyObjectMutation.health = {};
-assert.throws(() => assertProductionEvidenceFailureBundleV2(impossibleEmptyObjectMutation), /schema v2/);
+assert.throws(() => assertProductionEvidenceFailureBundleV3(impossibleEmptyObjectMutation), /schema v3/);
 const oversizedBodyMutation = structuredClone(finalizedFailureBundle);
 oversizedBodyMutation.requests[0].request.body_bytes = 64 * 1024 * 1024 + 1;
-assert.throws(() => assertProductionEvidenceFailureBundleV2(oversizedBodyMutation), /schema v2/);
+assert.throws(() => assertProductionEvidenceFailureBundleV3(oversizedBodyMutation), /schema v3/);
 const tooManyRequestsMutation = structuredClone(finalizedFailureBundle);
 tooManyRequestsMutation.requests = Array.from({ length: 33 }, () => structuredClone(finalizedFailureBundle.requests[0]));
-assert.throws(() => assertProductionEvidenceFailureBundleV2(tooManyRequestsMutation), /schema v2/);
+assert.throws(() => assertProductionEvidenceFailureBundleV3(tooManyRequestsMutation), /schema v3/);
 const nonCanonicalDigestMutation = structuredClone(finalizedFailureBundle);
 nonCanonicalDigestMutation.hashes.presentation.sha256 = `${"A".repeat(42)}B`;
-assert.throws(() => assertProductionEvidenceFailureBundleV2(nonCanonicalDigestMutation), /schema v2/);
+assert.throws(() => assertProductionEvidenceFailureBundleV3(nonCanonicalDigestMutation), /schema v3/);
 
 let getterReads = 0;
 const getterHealth = { schema_version: 3 };
@@ -2267,7 +2289,7 @@ const getterBundle = { ...failureBundle, health: getterHealth };
 const getterFinalized = finalizeProductionEvidenceFailureBundle(getterBundle, nowIso);
 assert.equal(getterReads, 0);
 assert.deepEqual(getterFinalized.health, { schema_version: 3 });
-assert.equal(assertProductionEvidenceFailureBundleV2(getterFinalized), true);
+assert.equal(assertProductionEvidenceFailureBundleV3(getterFinalized), true);
 
 let accessorCalls = 0;
 const accessorHealth = { schema_version: 3 };
@@ -2385,7 +2407,7 @@ for (const key of ["stage", "finishedAt"]) {
 recordFailure(producerGetterBundle, failureInputWithGetters);
 const producerGetterFinalized = finalizeProductionEvidenceFailureBundle(producerGetterBundle, nowIso);
 assert.equal(producerGetterReads, 0);
-assert.equal(assertProductionEvidenceFailureBundleV2(producerGetterFinalized), true);
+assert.equal(assertProductionEvidenceFailureBundleV3(producerGetterFinalized), true);
 assert.equal(producerGetterFinalized.capture_id, null);
 assert.deepEqual(producerGetterFinalized.error, {
   code: "CAPTURE_FAILED",
@@ -2396,14 +2418,14 @@ const errorBundle = { ...failureBundle, health: new Error(markerValues[0]), sess
 const errorFinalized = finalizeProductionEvidenceFailureBundle(errorBundle, nowIso);
 assert.equal(errorFinalized.health, null);
 assert.equal(errorFinalized.session, null);
-assert.equal(assertProductionEvidenceFailureBundleV2(errorFinalized), true);
+assert.equal(assertProductionEvidenceFailureBundleV3(errorFinalized), true);
 
 const circularHealth = { schema_version: 3 };
 circularHealth.deployment_identity = circularHealth;
 const circularBundle = { ...failureBundle, health: circularHealth };
 const circularFinalized = finalizeProductionEvidenceFailureBundle(circularBundle, nowIso);
 assert.deepEqual(circularFinalized.health, { schema_version: 3 });
-assert.equal(assertProductionEvidenceFailureBundleV2(circularFinalized), true);
+assert.equal(assertProductionEvidenceFailureBundleV3(circularFinalized), true);
 
 class RequestArray extends Array {}
 const subclassRequests = new RequestArray({ request: { method: "GET", path: "/health" } });
@@ -2482,7 +2504,7 @@ const arrayBundle = { ...failureBundle, requests: maliciousRequests };
 const arrayFinalized = finalizeProductionEvidenceFailureBundle(arrayBundle, nowIso);
 assert.equal(arrayGetterReads, 0);
 assert.deepEqual(arrayFinalized.requests, []);
-assert.equal(assertProductionEvidenceFailureBundleV2(arrayFinalized), true);
+assert.equal(assertProductionEvidenceFailureBundleV3(arrayFinalized), true);
 
 function signaturePresenceFor(site, rawFields) {
   const bundle = createProductionEvidenceFailureBundle({
@@ -2497,7 +2519,7 @@ function signaturePresenceFor(site, rawFields) {
     recordProvenance(bundle, { proxy_provenance: rawFields });
   }
   const finalized = finalizeProductionEvidenceFailureBundle(bundle, nowIso);
-  assert.equal(assertProductionEvidenceFailureBundleV2(finalized), true);
+  assert.equal(assertProductionEvidenceFailureBundleV3(finalized), true);
   const signatureRecord = site === "session_receipt"
     ? finalized.session.session_receipt
     : site === "consume"
@@ -2591,4 +2613,4 @@ for (const name of cliFailureBundleNames) {
 }
 await rm(cliTestDirectory, { recursive: true, force: true });
 
-console.log("[tlsn-production-evidence] failure artifact v2 closed-world, credential-shaped, adversarial object/array, schema mutation, and cross-field matrix; manifest, signer, freshness, identity, semantic, replay-block, and synthetic matrix OK");
+console.log("[tlsn-production-evidence] failure artifact v2/v3 compatibility, closed-world serialization, credential-shaped, adversarial object/array, schema mutation, and cross-field matrix; manifest, signer, freshness, identity, semantic, replay-block, and synthetic matrix OK");

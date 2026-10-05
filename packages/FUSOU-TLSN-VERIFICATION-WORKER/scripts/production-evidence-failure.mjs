@@ -1,9 +1,10 @@
 import { sha256Base64Url } from "./deployment-attestation.mjs";
 import failureBundleV2Schema from "../schemas/tlsn-production-evidence-failure-v2.schema.json" with { type: "json" };
+import failureBundleV3Schema from "../schemas/tlsn-production-evidence-failure-v3.schema.json" with { type: "json" };
 
 const OMITTED_ERROR_MESSAGE = "Details omitted to prevent sensitive-data disclosure";
-const FAILURE_BUNDLE_SCHEMA_VERSION = failureBundleV2Schema.properties.schema_version.const;
-const FAILURE_BUNDLE_SCOPE = failureBundleV2Schema.properties.scope.const;
+const FAILURE_BUNDLE_SCHEMA_VERSION = failureBundleV3Schema.properties.schema_version.const;
+const FAILURE_BUNDLE_SCOPE = failureBundleV3Schema.properties.scope.const;
 const FAILURE_STAGES = new Set([
   "initialization",
   "configuration",
@@ -496,14 +497,14 @@ function assertSupportedSchema(schema, rootSchema = schema, visited = new WeakSe
   }
 }
 
-function validateSchemaValue(value, schema, activeValues = new WeakSet()) {
+function validateSchemaValue(value, schema, rootSchema, activeValues = new WeakSet()) {
   if (schema.$ref) {
-    const referencedSchema = resolvesSchemaReference(schema.$ref);
-    return referencedSchema ? validateSchemaValue(value, referencedSchema, activeValues) : false;
+    const referencedSchema = resolvesSchemaReference(schema.$ref, rootSchema);
+    return referencedSchema ? validateSchemaValue(value, referencedSchema, rootSchema, activeValues) : false;
   }
 
   if (schema.anyOf) {
-    return schema.anyOf.some((branch) => validateSchemaValue(value, branch, activeValues));
+    return schema.anyOf.some((branch) => validateSchemaValue(value, branch, rootSchema, activeValues));
   }
 
   if (schema.type) {
@@ -542,7 +543,7 @@ function validateSchemaValue(value, schema, activeValues = new WeakSet()) {
       for (let index = 0; index < length; index += 1) {
         const descriptor = Object.getOwnPropertyDescriptor(value, String(index));
         if (!descriptor || !Object.hasOwn(descriptor, "value")) return false;
-        if (schema.items && !validateSchemaValue(descriptor.value, schema.items, activeValues)) return false;
+        if (schema.items && !validateSchemaValue(descriptor.value, schema.items, rootSchema, activeValues)) return false;
       }
       return true;
     } finally {
@@ -570,7 +571,7 @@ function validateSchemaValue(value, schema, activeValues = new WeakSet()) {
       }
       for (const [key, descriptor] of descriptors) {
         const propertySchema = properties[key];
-        if (propertySchema && !validateSchemaValue(descriptor.value, propertySchema, activeValues)) return false;
+        if (propertySchema && !validateSchemaValue(descriptor.value, propertySchema, rootSchema, activeValues)) return false;
       }
       return true;
     } finally {
@@ -581,18 +582,33 @@ function validateSchemaValue(value, schema, activeValues = new WeakSet()) {
   return true;
 }
 
-export function assertProductionEvidenceFailureBundleV2(value) {
+function assertProductionEvidenceFailureBundleSchema(value, schema, version) {
   let isValid = false;
   try {
-    assertSupportedSchema(failureBundleV2Schema);
-    isValid = validateSchemaValue(value, failureBundleV2Schema);
+    assertSupportedSchema(schema);
+    isValid = validateSchemaValue(value, schema, schema);
   } catch {
     isValid = false;
   }
   if (!isValid) {
-    throw new TypeError("Production evidence failure artifact does not match schema v2");
+    throw new TypeError(`Production evidence failure artifact does not match schema v${version}`);
   }
   return true;
+}
+
+export function assertProductionEvidenceFailureBundleV2(value) {
+  return assertProductionEvidenceFailureBundleSchema(value, failureBundleV2Schema, 2);
+}
+
+export function assertProductionEvidenceFailureBundleV3(value) {
+  return assertProductionEvidenceFailureBundleSchema(value, failureBundleV3Schema, 3);
+}
+
+export function assertProductionEvidenceFailureBundle(value) {
+  const version = ownValue(value, "schema_version");
+  if (version === 2) return assertProductionEvidenceFailureBundleV2(value);
+  if (version === 3) return assertProductionEvidenceFailureBundleV3(value);
+  throw new TypeError("Production evidence failure artifact has an unsupported schema version");
 }
 
 export function createProductionEvidenceFailureBundle(input = {}) {
@@ -715,12 +731,12 @@ export function finalizeProductionEvidenceFailureBundle(bundle, finishedAt) {
     hashes,
     provenance,
     serialization: {
-      policy: "FAILURE_BUNDLE_ALLOWLIST_V1",
+      policy: "FAILURE_BUNDLE_ALLOWLIST_V2",
       unknown_fields: "OMITTED",
       raw_request_response_bodies: "OMITTED",
       raw_exception_details: "OMITTED",
     },
   };
-  assertProductionEvidenceFailureBundleV2(result);
+  assertProductionEvidenceFailureBundleV3(result);
   return result;
 }
