@@ -28,13 +28,10 @@ const HTTP_PATHS = new Set([
 const CONTENT_TYPES = new Set(["application/json", "application/octet-stream", "text/plain"]);
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const HASH_PATTERN = /^[A-Za-z0-9_-]{42}[AEIMQUYcgkosw048]$/;
-const COMMIT_PATTERN = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/i;
-const IDENTIFIER_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
-const WORKER_NAME_PATTERN = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/i;
 const TIMESTAMP_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|[+-]\d{2}:\d{2})$/;
-const PROXY_BINARY_PATTERN = /^proxy-https:\d+\.\d+\.\d+(?:[-+][A-Za-z0-9.-]+)?$/;
+const PROXY_BINARY_PATTERN = /^proxy-https:\d+\.\d+\.\d+$/;
 
-const SAFE_FIELD_SCHEMA_GROUPS = Object.freeze({
+export const FAILURE_BUNDLE_SAFE_FIELD_SCHEMA_GROUPS = Object.freeze({
   health: "health",
   health_runtime_version: "runtimeVersion",
   health_security_identity: "securityIdentity",
@@ -53,13 +50,27 @@ const SAFE_FIELD_SCHEMA_GROUPS = Object.freeze({
   hash_descriptor: "hashDescriptor",
   hashes: "hashes",
 });
-// Field names and accepted JSON shapes come from the dedicated v2 schema.
-export const FAILURE_BUNDLE_SAFE_FIELD_CONTRACT = Object.freeze(Object.fromEntries(
-  Object.entries(SAFE_FIELD_SCHEMA_GROUPS).map(([group, definition]) => [
-    group,
-    Object.freeze(Object.keys(failureBundleV2Schema.$defs[definition].properties)),
-  ]),
-));
+const SAFE_FIELD_ALLOWLISTS = Object.freeze({
+  health: Object.freeze(["schema_version", "ok", "verifier", "environment", "deployment_role", "runtime_version", "binding_mode", "execution_mode", "security_identity", "deployment_identity"]),
+  health_runtime_version: Object.freeze(["version_id", "version_timestamp"]),
+  health_security_identity: Object.freeze(["trust_contract_valid"]),
+  health_deployment_identity: Object.freeze(["deployment_role", "binding_mode"]),
+  provenance: Object.freeze(["schema_version", "capture_provenance", "capture_source", "synthetic", "test", "canary", "local", "capture_timestamp", "proxy_provenance"]),
+  proxy_provenance: Object.freeze(["declared", "cryptographic_status", "proxy_identity", "proxy_binary_identity", "presentation_sha256", "created_at", "authority", "signature_present"]),
+  proxy_authority: Object.freeze(["type", "status"]),
+  session: Object.freeze(["expires_at", "session_receipt"]),
+  session_receipt: Object.freeze(["signature_algorithm", "created_at", "expires_at", "signature_present"]),
+  consume: Object.freeze(["type", "signature_algorithm", "used_at", "signature_present", "error_code"]),
+  http_request: Object.freeze(["method", "path", "content_type", "body_bytes"]),
+  http_response: Object.freeze(["status", "content_type", "body_bytes"]),
+  http_exchange: Object.freeze(["request", "response", "error"]),
+  http_error: Object.freeze(["code"]),
+  capture_error: Object.freeze(["stage", "code", "message"]),
+  hash_descriptor: Object.freeze(["bytes", "sha256"]),
+  hashes: Object.freeze(["presentation"]),
+});
+// These producer allowlists are independent of the schema; tests require exact parity.
+export const FAILURE_BUNDLE_SAFE_FIELD_CONTRACT = SAFE_FIELD_ALLOWLISTS;
 const FAILURE_BUNDLE_SAFE_FIELD_SETS = new Map(
   Object.entries(FAILURE_BUNDLE_SAFE_FIELD_CONTRACT).map(([group, fields]) => [group, new Set(fields)]),
 );
@@ -80,6 +91,16 @@ function ownValue(value, key) {
   if (!isRecord(value)) return undefined;
   try {
     const descriptor = Object.getOwnPropertyDescriptor(value, key);
+    return descriptor?.enumerable && Object.hasOwn(descriptor, "value") ? descriptor.value : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function ownDataValue(value, key) {
+  if (!isRecord(value)) return undefined;
+  try {
+    const descriptor = Object.getOwnPropertyDescriptor(value, key);
     return descriptor && Object.hasOwn(descriptor, "value") ? descriptor.value : undefined;
   } catch {
     return undefined;
@@ -94,7 +115,7 @@ function addField(target, source, group, key, validate) {
 
 function addSafeField(target, group, key, value) {
   if (value !== undefined && FAILURE_BUNDLE_SAFE_FIELD_SETS.get(group)?.has(key)) {
-    target[key] = value;
+    Object.defineProperty(target, key, { value, enumerable: true, configurable: true, writable: true });
   }
 }
 
@@ -108,16 +129,8 @@ function matchesPattern(value, pattern) {
   return match?.index === 0 && match[0].length === value.length;
 }
 
-function identifier(value) {
-  return matchesPattern(value, IDENTIFIER_PATTERN) ? value : undefined;
-}
-
 function uuid(value) {
   return matchesPattern(value, UUID_PATTERN) ? value.toLowerCase() : undefined;
-}
-
-function commit(value) {
-  return matchesPattern(value, COMMIT_PATTERN) ? value.toLowerCase() : undefined;
 }
 
 function digest(value) {
@@ -140,7 +153,7 @@ function signaturePresence(value) {
   if (isRecord(value) && RAW_SIGNATURE_PRESENCE.has(value)) {
     return RAW_SIGNATURE_PRESENCE.get(value);
   }
-  const signature = ownValue(value, "signature");
+  const signature = ownDataValue(value, "signature");
   return typeof signature === "string" && signature.length > 0 && signature.length <= 1024;
 }
 
@@ -158,8 +171,6 @@ function safeRuntimeVersion(value) {
   if (!isRecord(value)) return undefined;
   const result = {};
   addField(result, value, "health_runtime_version", "version_id", uuid);
-  addField(result, value, "health_runtime_version", "version_tag", (entry) =>
-    matchesPattern(entry, /^[A-Za-z0-9._-]{1,128}$/) ? entry : undefined);
   addField(result, value, "health_runtime_version", "version_timestamp", timestamp);
   return Object.keys(result).length ? result : undefined;
 }
@@ -167,10 +178,6 @@ function safeRuntimeVersion(value) {
 function safeSecurityIdentity(value) {
   if (!isRecord(value)) return undefined;
   const result = {};
-  addField(result, value, "health_security_identity", "verifier_key_id", identifier);
-  addField(result, value, "health_security_identity", "notary_key_id", identifier);
-  addField(result, value, "health_security_identity", "security_registry_set_sha256", digest);
-  addField(result, value, "health_security_identity", "notary_registry_sha256", digest);
   addField(result, value, "health_security_identity", "trust_contract_valid", boolean);
   return Object.keys(result).length ? result : undefined;
 }
@@ -178,11 +185,8 @@ function safeSecurityIdentity(value) {
 function safeDeploymentIdentity(value) {
   if (!isRecord(value)) return undefined;
   const result = {};
-  addField(result, value, "health_deployment_identity", "deployment_id", identifier);
   addField(result, value, "health_deployment_identity", "deployment_role", (entry) => enumValue(entry, new Set(["production", "canary", "replay", "test", "synthetic-test"])));
   addField(result, value, "health_deployment_identity", "binding_mode", (entry) => enumValue(entry, new Set(["fixed_canary", "fixed", "fixed_test", "random"])));
-  addField(result, value, "health_deployment_identity", "worker_name", (entry) =>
-    matchesPattern(entry, WORKER_NAME_PATTERN) ? entry : undefined);
   return Object.keys(result).length ? result : undefined;
 }
 
@@ -194,8 +198,6 @@ function safeHealth(value) {
   addField(result, value, "health", "verifier", (entry) => enumValue(entry, new Set(["tlsn-alpha15-wasm"])));
   addField(result, value, "health", "environment", (entry) => enumValue(entry, new Set(["production", "test", "replay"])));
   addField(result, value, "health", "deployment_role", (entry) => enumValue(entry, new Set(["production", "canary", "replay", "test", "synthetic-test"])));
-  addField(result, value, "health", "git_commit_sha", commit);
-  addField(result, value, "health", "deployment_id", identifier);
   addField(result, value, "health", "runtime_version", safeRuntimeVersion);
   addField(result, value, "health", "binding_mode", (entry) => enumValue(entry, new Set(["fixed_canary", "fixed", "fixed_test", "random"])));
   addField(result, value, "health", "execution_mode", (entry) => enumValue(entry, new Set(["trigger", "queue", "direct", "sync"])));
@@ -217,14 +219,11 @@ function safeProxyProvenance(value) {
   const result = {};
   addField(result, value, "proxy_provenance", "declared", (entry) => enumValue(entry, new Set(["production", "unavailable"])));
   addField(result, value, "proxy_provenance", "cryptographic_status", (entry) => enumValue(entry, new Set(["UNVERIFIED", "VERIFIED", "INVALID"])));
-  addField(result, value, "proxy_provenance", "proxy_identity", (entry) =>
-    typeof entry === "string" && entry.length <= 128 && matchesPattern(entry, /^fusou-proxy(?:-[a-z0-9]+)*$/) ? entry : undefined);
-  addField(result, value, "proxy_provenance", "proxy_deployment_id", (entry) => entry === null ? null : identifier(entry));
+  addField(result, value, "proxy_provenance", "proxy_identity", (entry) => entry === "fusou-proxy" ? entry : undefined);
   addField(result, value, "proxy_provenance", "proxy_binary_identity", (entry) =>
     typeof entry === "string" && entry.length <= 128 && matchesPattern(entry, PROXY_BINARY_PATTERN) ? entry : undefined);
   addField(result, value, "proxy_provenance", "presentation_sha256", digest);
   addField(result, value, "proxy_provenance", "created_at", timestamp);
-  addField(result, value, "proxy_provenance", "signer_key_id", identifier);
   addField(result, value, "proxy_provenance", "authority", safeProxyAuthority);
   addSignaturePresence(result, value, "proxy_provenance");
   return result;
@@ -247,8 +246,6 @@ function safeProvenance(value) {
 function safeSessionReceipt(value) {
   if (!isRecord(value)) return undefined;
   const result = {};
-  addField(result, value, "session_receipt", "session_id", uuid);
-  addField(result, value, "session_receipt", "signer_key_id", identifier);
   addField(result, value, "session_receipt", "signature_algorithm", (entry) => enumValue(entry, new Set(["Ed25519"])));
   addField(result, value, "session_receipt", "created_at", timestamp);
   addField(result, value, "session_receipt", "expires_at", timestamp);
@@ -258,8 +255,14 @@ function safeSessionReceipt(value) {
 
 function safeSession(value) {
   if (!isRecord(value)) return null;
+  const sessionId = ownDataValue(value, "session_id");
+  const receipt = ownDataValue(value, "session_receipt");
+  const receiptSessionId = ownDataValue(receipt, "session_id");
+  if (sessionId !== undefined && receiptSessionId !== undefined) {
+    const safeSessionId = uuid(sessionId);
+    if (!safeSessionId || safeSessionId !== uuid(receiptSessionId)) return null;
+  }
   const result = {};
-  addField(result, value, "session", "session_id", uuid);
   addField(result, value, "session", "expires_at", timestamp);
   addField(result, value, "session", "session_receipt", safeSessionReceipt);
   return Object.keys(result).length ? result : null;
@@ -269,7 +272,6 @@ function safeConsume(value) {
   if (!isRecord(value)) return null;
   const result = {};
   addField(result, value, "consume", "type", (entry) => enumValue(entry, new Set(["attestation-binding-consumed"])));
-  addField(result, value, "consume", "signer_key_id", identifier);
   addField(result, value, "consume", "signature_algorithm", (entry) => enumValue(entry, new Set(["Ed25519"])));
   addField(result, value, "consume", "used_at", timestamp);
   addSignaturePresence(result, value, "consume");
@@ -412,9 +414,86 @@ function matchesJsonType(value, type) {
   return false;
 }
 
-function resolvesSchemaReference(reference) {
+function resolvesSchemaReference(reference, rootSchema = failureBundleV2Schema) {
   const match = /^#\/\$defs\/([A-Za-z0-9]+)$/.exec(reference);
-  return match ? failureBundleV2Schema.$defs[match[1]] : undefined;
+  return match && Object.hasOwn(rootSchema.$defs, match[1]) ? rootSchema.$defs[match[1]] : undefined;
+}
+
+const SUPPORTED_SCHEMA_KEYWORDS = new Set([
+  "$schema", "$id", "title", "description", "type", "additionalProperties", "required", "properties", "$defs",
+  "const", "$ref", "anyOf", "enum", "pattern", "minLength", "maxLength", "format", "maxItems", "items",
+  "minProperties", "minimum", "maximum",
+]);
+const SUPPORTED_SCHEMA_FORMATS = new Set(["date-time", "sha256-base64url-32"]);
+const SUPPORTED_SCHEMA_TYPES = new Set(["object", "array", "string", "boolean", "integer", "number", "null"]);
+
+function assertSupportedSchema(schema, rootSchema = schema, visited = new WeakSet()) {
+  if (!isRecord(schema) || visited.has(schema)) throw new TypeError("Invalid failure artifact schema node");
+  visited.add(schema);
+  for (const key of Reflect.ownKeys(schema)) {
+    if (typeof key !== "string" || !SUPPORTED_SCHEMA_KEYWORDS.has(key)) {
+      throw new TypeError(`Unsupported failure artifact schema keyword: ${String(key)}`);
+    }
+    const descriptor = Object.getOwnPropertyDescriptor(schema, key);
+    if (!descriptor?.enumerable || !Object.hasOwn(descriptor, "value")) {
+      throw new TypeError("Failure artifact schema must contain enumerable data properties only");
+    }
+  }
+
+  if (schema.$schema !== undefined && schema.$schema !== "https://json-schema.org/draft/2020-12/schema") {
+    throw new TypeError("Unsupported failure artifact JSON Schema dialect");
+  }
+  if (schema.type !== undefined) {
+    const types = Array.isArray(schema.type) ? schema.type : [schema.type];
+    if (!types.length || types.some((type) => !SUPPORTED_SCHEMA_TYPES.has(type))) {
+      throw new TypeError("Unsupported failure artifact schema type");
+    }
+    if (types.includes("object") && schema.additionalProperties !== false) {
+      throw new TypeError("Failure artifact object schemas must reject additional properties");
+    }
+  }
+  if (schema.additionalProperties !== undefined && schema.additionalProperties !== false) {
+    throw new TypeError("Unsupported additionalProperties schema constraint");
+  }
+  if (schema.format !== undefined && !SUPPORTED_SCHEMA_FORMATS.has(schema.format)) {
+    throw new TypeError(`Unsupported failure artifact schema format: ${String(schema.format)}`);
+  }
+  for (const keyword of ["minLength", "maxLength", "maxItems", "minProperties"]) {
+    if (schema[keyword] !== undefined && (!Number.isSafeInteger(schema[keyword]) || schema[keyword] < 0)) {
+      throw new TypeError(`Invalid failure artifact schema constraint: ${keyword}`);
+    }
+  }
+  for (const keyword of ["minimum", "maximum"]) {
+    if (schema[keyword] !== undefined && (typeof schema[keyword] !== "number" || !Number.isFinite(schema[keyword]))) {
+      throw new TypeError(`Invalid failure artifact schema constraint: ${keyword}`);
+    }
+  }
+  if (schema.required !== undefined && (!Array.isArray(schema.required) || schema.required.some((entry) => typeof entry !== "string"))) {
+    throw new TypeError("Invalid failure artifact schema required list");
+  }
+  if (schema.enum !== undefined && (!Array.isArray(schema.enum) || schema.enum.length === 0)) {
+    throw new TypeError("Invalid failure artifact schema enum");
+  }
+  if (schema.pattern !== undefined) {
+    if (typeof schema.pattern !== "string") throw new TypeError("Invalid failure artifact schema pattern");
+    new RegExp(schema.pattern);
+  }
+  if (schema.$ref !== undefined && !resolvesSchemaReference(schema.$ref, rootSchema)) {
+    throw new TypeError(`Unsupported failure artifact schema reference: ${String(schema.$ref)}`);
+  }
+
+  for (const keyword of ["properties", "$defs"]) {
+    if (schema[keyword] === undefined) continue;
+    if (!isRecord(schema[keyword])) throw new TypeError(`Invalid failure artifact schema ${keyword}`);
+    for (const child of Object.values(schema[keyword])) assertSupportedSchema(child, rootSchema, visited);
+  }
+  if (schema.items !== undefined) assertSupportedSchema(schema.items, rootSchema, visited);
+  if (schema.anyOf !== undefined) {
+    if (!Array.isArray(schema.anyOf) || schema.anyOf.length === 0) {
+      throw new TypeError("Invalid failure artifact anyOf schema");
+    }
+    for (const child of schema.anyOf) assertSupportedSchema(child, rootSchema, visited);
+  }
 }
 
 function validateSchemaValue(value, schema, activeValues = new WeakSet()) {
@@ -483,7 +562,7 @@ function validateSchemaValue(value, schema, activeValues = new WeakSet()) {
       for (const key of ownKeys) {
         if (!Object.hasOwn(properties, key) && schema.additionalProperties === false) return false;
         const descriptor = Object.getOwnPropertyDescriptor(value, key);
-        if (!descriptor || !Object.hasOwn(descriptor, "value")) return false;
+        if (!descriptor?.enumerable || !Object.hasOwn(descriptor, "value")) return false;
         descriptors.set(key, descriptor);
       }
       for (const required of schema.required ?? []) {
@@ -505,6 +584,7 @@ function validateSchemaValue(value, schema, activeValues = new WeakSet()) {
 export function assertProductionEvidenceFailureBundleV2(value) {
   let isValid = false;
   try {
+    assertSupportedSchema(failureBundleV2Schema);
     isValid = validateSchemaValue(value, failureBundleV2Schema);
   } catch {
     isValid = false;
@@ -614,6 +694,12 @@ export function recordProvenance(bundle, provenance) {
 
 export function finalizeProductionEvidenceFailureBundle(bundle, finishedAt) {
   const source = isRecord(bundle) ? bundle : {};
+  const hashes = safeHashes(ownValue(source, "hashes"));
+  const provenance = safeProvenance(ownValue(source, "provenance"));
+  const copiedPresentationDigest = provenance?.proxy_provenance?.presentation_sha256;
+  if (copiedPresentationDigest !== undefined && copiedPresentationDigest !== hashes.presentation?.sha256) {
+    delete provenance.proxy_provenance.presentation_sha256;
+  }
   const result = {
     schema_version: FAILURE_BUNDLE_SCHEMA_VERSION,
     scope: FAILURE_BUNDLE_SCOPE,
@@ -626,8 +712,8 @@ export function finalizeProductionEvidenceFailureBundle(bundle, finishedAt) {
     health: safeHealth(ownValue(source, "health")),
     session: safeSession(ownValue(source, "session")),
     consume: safeConsume(ownValue(source, "consume")),
-    hashes: safeHashes(ownValue(source, "hashes")),
-    provenance: safeProvenance(ownValue(source, "provenance")),
+    hashes,
+    provenance,
     serialization: {
       policy: "FAILURE_BUNDLE_ALLOWLIST_V1",
       unknown_fields: "OMITTED",

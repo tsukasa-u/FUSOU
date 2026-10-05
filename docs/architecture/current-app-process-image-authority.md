@@ -6,7 +6,7 @@ Scope: design only; no authority, trust root, runtime verifier, or readiness gat
 
 ## Scope and immutable constraints
 
-The provenance baseline is `1e548ce3c`. The reviewed HEAD is `314089b13`; that later commit only hardens failure-output redaction and does not change provenance semantics. The active external input remains `TLSN_CANARY_DEPLOYMENT_MANIFEST`. External Package v2 is historical and is not reactivated.
+The provenance baseline is `1e548ce3c`. The audit baseline HEAD is `db7a29ef831f334534eb408f948fd50e1de73ee3` (`Freeze TLSN failure artifact v2 contract`). Failure-output redaction was introduced separately in `314089b13`; it does not change provenance semantics. The active external input remains `TLSN_CANARY_DEPLOYMENT_MANIFEST`. External Package v2 is historical and is not reactivated.
 
 This record does not change provenance v3, convert `CURRENT_BINARY_IDENTITY` into authenticated evidence, configure application pins, or authorize gameplay. It does not treat `current_exe()`, a self-hash, PID, updater signature, Main Worker Runtime Attestation, `/health`, or operator JSON as current-process authority. It creates no fixture authority and proposes no TSA, global registry, historical registry, revocation service, or separate nonce registry. Any such service would require a separate trust-model justification.
 
@@ -238,17 +238,16 @@ The preceding redaction change fixes `error.name` and exception text in failure 
 
 ## 9. Code changes and verification
 
-This record changes no runtime security semantics and does not modify provenance v3 or readiness code. The accompanying redaction commit is `314089b13`; it is separate from this architecture decision and changes failure-output handling/tests only.
+This record changes no runtime security semantics and does not modify provenance v3 or readiness code. Failure-output redaction at `314089b13` is a separate implementation change; this ADR only records the authority boundary.
 
-Verification record for the implementation baseline:
+Verification record for the audit baseline `db7a29ef831f334534eb408f948fd50e1de73ee3` (measured before follow-up audit edits):
 
-- Candidate configuration binding: 24 passed; signature/lifecycle: 32 passed.
-- Production evidence and human gameplay preflight tests: passed.
-- Canary readiness contract and readiness report tests: passed; readiness stayed blocked.
-- Modified JavaScript syntax, Tauri config JSON parse, updater shell syntax, and `git diff --check`: passed.
-- `CARGO_NET_OFFLINE=true cargo test --lib --locked --offline`: 11 passed.
-- Full APP `cargo test --locked --offline` is blocked by the unrelated `tlsn_alpha15_key` example's undeclared `tlsn_attestation` and `bincode` dependencies. This is not evidence for or against this architecture.
-- A previously observed finalizer suite result was 27/28 because a synthetic alpha.15 Presentation failed certificate-path validation against supplied anchors. Do not weaken Web PKI/trust-anchor validation to make that fixture pass; it was not rerun for this design-only change.
-- Network, release APIs, deployment, and gameplay were not executed.
+- `pnpm --dir packages/FUSOU-TLSN-VERIFICATION-WORKER exec node scripts/production-evidence-test.mjs`: passed.
+- `pnpm --dir packages/FUSOU-TLSN-VERIFICATION-WORKER run test:candidate-configuration-binding`: 24 binding tests and 32 signature/lifecycle tests passed.
+- Human gameplay preflight, canary readiness contract, and canary readiness report tests: passed; readiness stayed blocked.
+- `CARGO_NET_OFFLINE=true cargo test --manifest-path packages/FUSOU-APP/src-tauri/Cargo.toml --lib --locked --offline`: 11 passed, 0 failed (8 existing compiler warnings).
+- `node --check` on the directly relevant serializer, tests, candidate-binding/signature, preflight, and readiness JavaScript files: passed. Baseline `git diff --check`: passed on a clean worktree.
+- Full APP `cargo test --manifest-path packages/FUSOU-APP/src-tauri/Cargo.toml --locked --offline` is blocked by the unrelated `tlsn_alpha15_key` example's undeclared `tlsn_attestation` and `bincode` dependencies; the requested library suite passed.
+- Network access, release APIs, deployment, and gameplay were not executed.
 
-Before implementation is proposed, repeat the tests against the then-current worktree and add platform-specific negative tests for stale challenge, replay, PID reuse, process restart, file replacement between open/hash/exec, process-object mismatch, wrong builder artifact, wrong source root, and source/builder key-domain reuse.
+These results identify the exact baseline tested; they do not claim that later audit edits were tested at this commit. Any implementation of the current-process authority remains prohibited until AD-5 is resolved. Future platform-specific validation must cover stale challenge, replay, PID reuse, process restart, file replacement between open/hash/exec, process-object mismatch, wrong builder artifact, wrong source root, and source/builder key-domain reuse.

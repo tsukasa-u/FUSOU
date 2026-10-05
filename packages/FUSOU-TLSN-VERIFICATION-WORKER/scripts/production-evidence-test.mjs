@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { createHash, generateKeyPairSync, sign } from "node:crypto";
+import failureBundleV2Schema from "../schemas/tlsn-production-evidence-failure-v2.schema.json" with { type: "json" };
 import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -55,6 +56,7 @@ import { proxyProvenanceSigningPayload, verifyProductionProxyProvenance } from "
 import {
   createProductionEvidenceFailureBundle,
   FAILURE_BUNDLE_SAFE_FIELD_CONTRACT,
+  FAILURE_BUNDLE_SAFE_FIELD_SCHEMA_GROUPS,
   assertProductionEvidenceFailureBundleV2,
   finalizeProductionEvidenceFailureBundle,
   recordConsume,
@@ -68,6 +70,18 @@ import {
 
 const now = new Date();
 const nowIso = now.toISOString();
+for (const [group, definition] of Object.entries(FAILURE_BUNDLE_SAFE_FIELD_SCHEMA_GROUPS)) {
+  assert.deepEqual(
+    [...FAILURE_BUNDLE_SAFE_FIELD_CONTRACT[group]].sort(),
+    Object.keys(failureBundleV2Schema.$defs[definition].properties).sort(),
+    `${group} serializer allowlist must exactly match its schema properties`,
+  );
+}
+assert.deepEqual(
+  Object.keys(FAILURE_BUNDLE_SAFE_FIELD_SCHEMA_GROUPS).sort(),
+  Object.keys(FAILURE_BUNDLE_SAFE_FIELD_CONTRACT).sort(),
+  "every serializer allowlist group must have a schema mapping",
+);
 const workflowContext = {
   workflow_run_id: "100",
   workflow_run_attempt: "2",
@@ -1915,7 +1929,7 @@ recordHealth(failureBundle, {
   git_commit_sha: "a".repeat(40),
   deployment_id: "canary-deployment-2026-10-05",
   runtime_version: {
-    version_id: failureSessionId,
+    version_id: "123e4567-e89b-42d3-a456-426614174005",
     version_tag: "canary-v2",
     version_timestamp: nowIso,
     details: markerValues[4],
@@ -2037,23 +2051,24 @@ assert.deepEqual(finalizedFailureBundle.requests[0].response, {
 });
 assert.deepEqual(finalizedFailureBundle.requests[1].error, { code: "HTTP_REQUEST_FAILED" });
 assert.deepEqual(finalizedFailureBundle.health.security_identity, {
-  verifier_key_id: "verifier-key-1",
-  notary_key_id: "notary-key-1",
-  security_registry_set_sha256: sha256Base64Url(Buffer.from("registry-set")),
-  notary_registry_sha256: sha256Base64Url(Buffer.from("notary-registry")),
   trust_contract_valid: false,
 });
-assert.equal(finalizedFailureBundle.health.deployment_id, "canary-deployment-2026-10-05");
+assert.equal(Object.hasOwn(finalizedFailureBundle.health, "deployment_id"), false);
 assert.equal(finalizedFailureBundle.health.ok, false);
-assert.equal(finalizedFailureBundle.health.runtime_version.version_tag, "canary-v2");
+assert.equal(Object.hasOwn(finalizedFailureBundle.health.runtime_version, "version_tag"), false);
 assert.equal(finalizedFailureBundle.provenance.proxy_provenance.signature_present, true);
 assert.equal(Object.hasOwn(finalizedFailureBundle.provenance.proxy_provenance, "signature"), false);
+assert.equal(Object.hasOwn(finalizedFailureBundle.provenance.proxy_provenance, "proxy_deployment_id"), false);
+assert.equal(Object.hasOwn(finalizedFailureBundle.provenance.proxy_provenance, "signer_key_id"), false);
 assert.equal(Object.hasOwn(finalizedFailureBundle.provenance.proxy_provenance, "capture_context"), false);
-assert.equal(finalizedFailureBundle.session.session_id, failureSessionId);
+assert.equal(Object.hasOwn(finalizedFailureBundle.session, "session_id"), false);
+assert.equal(Object.hasOwn(finalizedFailureBundle.session.session_receipt, "session_id"), false);
+assert.equal(Object.hasOwn(finalizedFailureBundle.session.session_receipt, "signer_key_id"), false);
 assert.equal(Object.hasOwn(finalizedFailureBundle.session, "device_id"), false);
 assert.equal(Object.hasOwn(finalizedFailureBundle.session, "binding_sha256"), false);
 assert.equal(finalizedFailureBundle.consume.error_code, "CONSUME_FAILED");
 assert.equal(finalizedFailureBundle.consume.signature_present, true);
+assert.equal(Object.hasOwn(finalizedFailureBundle.consume, "signer_key_id"), false);
 assert.equal(Object.hasOwn(finalizedFailureBundle.consume, "device_id"), false);
 assert.equal(Object.hasOwn(finalizedFailureBundle.consume, "presentation_id"), false);
 assert.equal(finalizedFailureBundle.hashes.presentation.sha256, presentationDigest);
@@ -2066,10 +2081,126 @@ assert.deepEqual(Object.keys(finalizedFailureBundle), [
 ]);
 assert.equal(assertProductionEvidenceFailureBundleV2(finalizedFailureBundle), true);
 assert.equal(assertProductionEvidenceFailureBundleV2(JSON.parse(failureJson)), true);
+assert.deepEqual([...failureBundleV2Schema.required].sort(), Object.keys(finalizedFailureBundle).sort());
+assert.deepEqual(Object.keys(failureBundleV2Schema.properties).sort(), Object.keys(finalizedFailureBundle).sort());
 assert.equal(Object.hasOwn(finalizedFailureBundle, "unexpected"), false);
 assert.equal(Object.hasOwn(finalizedFailureBundle.health, "injected"), false);
 assert.equal(Object.hasOwn(finalizedFailureBundle.requests[2], "raw"), false);
 assert.equal(Object.hasOwn(finalizedFailureBundle.requests[2].request, "details"), false);
+assert.equal(failureJson.includes(failureSessionId), false, "session identifiers are checked for correlation then omitted");
+assert.equal(Object.hasOwn(finalizedFailureBundle.health.security_identity, "security_registry_set_sha256"), false);
+assert.equal(Object.hasOwn(finalizedFailureBundle.health.security_identity, "notary_registry_sha256"), false);
+
+const scopeSchema = failureBundleV2Schema.properties.scope;
+scopeSchema.maxLength = 8;
+try {
+  assert.throws(() => assertProductionEvidenceFailureBundleV2(finalizedFailureBundle), /schema v2/);
+} finally {
+  delete scopeSchema.maxLength;
+}
+for (const [unsupportedKeyword, value] of [
+  ["x_future_constraint", true],
+  ["oneOf", [{ const: "never" }]],
+  ["patternProperties", {}],
+]) {
+  scopeSchema[unsupportedKeyword] = value;
+  try {
+    assert.throws(
+      () => assertProductionEvidenceFailureBundleV2(finalizedFailureBundle),
+      /schema v2/,
+      `${unsupportedKeyword} must not be silently ignored`,
+    );
+  } finally {
+    delete scopeSchema[unsupportedKeyword];
+  }
+}
+const healthSchema = failureBundleV2Schema.$defs.health;
+const originalAdditionalProperties = healthSchema.additionalProperties;
+delete healthSchema.additionalProperties;
+try {
+  assert.throws(() => assertProductionEvidenceFailureBundleV2(finalizedFailureBundle), /schema v2/);
+} finally {
+  healthSchema.additionalProperties = originalAdditionalProperties;
+}
+
+const credentialShapedValues = [
+  "a".repeat(40),
+  "b".repeat(64),
+  Buffer.alloc(32, 0x5a).toString("base64url"),
+  `sk_live_${"c".repeat(32)}`,
+  `token-like-${"d".repeat(32)}`,
+  `Authorization: Bearer ${"e".repeat(32)}`,
+  "f".repeat(32),
+  "g".repeat(64),
+  "h".repeat(128),
+];
+for (const secretLikeValue of credentialShapedValues) {
+  const credentialBundle = createProductionEvidenceFailureBundle({
+    captureId: secretLikeValue,
+    startedAt: secretLikeValue,
+  });
+  recordHttpExchange(credentialBundle, {
+    url: `https://worker.example.test/${secretLikeValue}?token=${secretLikeValue}`,
+    options: {
+      method: secretLikeValue,
+      headers: { "content-type": secretLikeValue, Authorization: secretLikeValue },
+      body: secretLikeValue,
+    },
+    response: new Response(secretLikeValue, { status: 500, headers: { "content-type": secretLikeValue } }),
+    responseBytes: Buffer.from(secretLikeValue),
+  });
+  recordHealth(credentialBundle, {
+    git_commit_sha: secretLikeValue,
+    deployment_id: secretLikeValue,
+    schema_version: secretLikeValue,
+    ok: secretLikeValue,
+    verifier: secretLikeValue,
+    environment: secretLikeValue,
+    deployment_role: secretLikeValue,
+    binding_mode: secretLikeValue,
+    execution_mode: secretLikeValue,
+    runtime_version: { version_id: secretLikeValue, version_tag: secretLikeValue, version_timestamp: secretLikeValue },
+    security_identity: {
+      verifier_key_id: secretLikeValue,
+      notary_key_id: secretLikeValue,
+      security_registry_set_sha256: secretLikeValue,
+      notary_registry_sha256: secretLikeValue,
+      trust_contract_valid: secretLikeValue,
+    },
+    deployment_identity: { deployment_id: secretLikeValue, worker_name: secretLikeValue, deployment_role: secretLikeValue, binding_mode: secretLikeValue },
+  });
+  recordSession(credentialBundle, {
+    session_id: secretLikeValue,
+    expires_at: secretLikeValue,
+    session_receipt: { session_id: secretLikeValue, signer_key_id: secretLikeValue, signature_algorithm: secretLikeValue, created_at: secretLikeValue, expires_at: secretLikeValue, signature: secretLikeValue },
+  });
+  recordConsume(credentialBundle, { type: secretLikeValue, signer_key_id: secretLikeValue, signature_algorithm: secretLikeValue, used_at: secretLikeValue, error_code: secretLikeValue, signature: secretLikeValue });
+  recordProvenance(credentialBundle, {
+    schema_version: secretLikeValue,
+    capture_provenance: secretLikeValue,
+    capture_source: secretLikeValue,
+    synthetic: secretLikeValue,
+    test: secretLikeValue,
+    canary: secretLikeValue,
+    local: secretLikeValue,
+    capture_timestamp: secretLikeValue,
+    proxy_provenance: {
+      declared: secretLikeValue,
+      cryptographic_status: secretLikeValue,
+      proxy_identity: secretLikeValue,
+      proxy_deployment_id: secretLikeValue,
+      proxy_binary_identity: secretLikeValue,
+      presentation_sha256: secretLikeValue,
+      created_at: secretLikeValue,
+      signer_key_id: secretLikeValue,
+      authority: { type: secretLikeValue, status: secretLikeValue },
+      signature: secretLikeValue,
+    },
+  });
+  recordHash(credentialBundle, "presentation", Buffer.from(secretLikeValue));
+  const credentialJson = JSON.stringify(finalizeProductionEvidenceFailureBundle(credentialBundle, secretLikeValue));
+  assert.ok(!credentialJson.includes(secretLikeValue), "credential-shaped input strings must not enter failure artifacts");
+}
 
 const unknownTopLevelMutation = structuredClone(finalizedFailureBundle);
 unknownTopLevelMutation.injected = markerValues[0];
@@ -2086,6 +2217,30 @@ assert.throws(() => assertProductionEvidenceFailureBundleV2(invalidAllowedValueM
 const invalidAllowedEnumMutation = structuredClone(finalizedFailureBundle);
 invalidAllowedEnumMutation.requests[0].request.method = "PATCH";
 assert.throws(() => assertProductionEvidenceFailureBundleV2(invalidAllowedEnumMutation), /schema v2/);
+const missingRequiredMutation = structuredClone(finalizedFailureBundle);
+delete missingRequiredMutation.finished_at;
+assert.throws(() => assertProductionEvidenceFailureBundleV2(missingRequiredMutation), /schema v2/);
+const missingNestedRequiredMutation = structuredClone(finalizedFailureBundle);
+delete missingNestedRequiredMutation.provenance.proxy_provenance.signature_present;
+assert.throws(() => assertProductionEvidenceFailureBundleV2(missingNestedRequiredMutation), /schema v2/);
+const constMutation = structuredClone(finalizedFailureBundle);
+constMutation.status = "VERIFIED";
+assert.throws(() => assertProductionEvidenceFailureBundleV2(constMutation), /schema v2/);
+const nestedEnumMutation = structuredClone(finalizedFailureBundle);
+nestedEnumMutation.provenance.proxy_provenance.cryptographic_status = "TRUSTED";
+assert.throws(() => assertProductionEvidenceFailureBundleV2(nestedEnumMutation), /schema v2/);
+const invalidUuidMutation = structuredClone(finalizedFailureBundle);
+invalidUuidMutation.capture_id = "not-a-v4-uuid";
+assert.throws(() => assertProductionEvidenceFailureBundleV2(invalidUuidMutation), /schema v2/);
+const malformedTimestampMutation = structuredClone(finalizedFailureBundle);
+malformedTimestampMutation.started_at = "2026-10-05T00:00:00+00:00";
+assert.throws(() => assertProductionEvidenceFailureBundleV2(malformedTimestampMutation), /schema v2/);
+const nonEnumerableKnownFieldMutation = structuredClone(finalizedFailureBundle);
+Object.defineProperty(nonEnumerableKnownFieldMutation.health, "ok", { value: false, enumerable: false, configurable: true });
+assert.throws(() => assertProductionEvidenceFailureBundleV2(nonEnumerableKnownFieldMutation), /schema v2/);
+const symbolKeyMutation = structuredClone(finalizedFailureBundle);
+symbolKeyMutation.health[Symbol("secret-marker")] = markerValues[0];
+assert.throws(() => assertProductionEvidenceFailureBundleV2(symbolKeyMutation), /schema v2/);
 const impossibleEmptyObjectMutation = structuredClone(finalizedFailureBundle);
 impossibleEmptyObjectMutation.health = {};
 assert.throws(() => assertProductionEvidenceFailureBundleV2(impossibleEmptyObjectMutation), /schema v2/);
@@ -2113,6 +2268,86 @@ const getterFinalized = finalizeProductionEvidenceFailureBundle(getterBundle, no
 assert.equal(getterReads, 0);
 assert.deepEqual(getterFinalized.health, { schema_version: 3 });
 assert.equal(assertProductionEvidenceFailureBundleV2(getterFinalized), true);
+
+let accessorCalls = 0;
+const accessorHealth = { schema_version: 3 };
+Object.defineProperty(accessorHealth, "ok", {
+  enumerable: true,
+  get() {
+    accessorCalls += 1;
+    return markerValues[0];
+  },
+  set() {
+    accessorCalls += 1;
+  },
+});
+const accessorBundle = createProductionEvidenceFailureBundle({ captureId: "123e4567-e89b-42d3-a456-426614174099", startedAt: nowIso });
+recordHealth(accessorBundle, accessorHealth);
+const accessorFinalized = finalizeProductionEvidenceFailureBundle(accessorBundle, nowIso);
+assert.equal(accessorCalls, 0);
+assert.equal(JSON.stringify(accessorFinalized).includes(markerValues[0]), false);
+
+const nonEnumerableHealth = { schema_version: 3 };
+Object.defineProperty(nonEnumerableHealth, "ok", { value: true, enumerable: false });
+const hiddenBundle = createProductionEvidenceFailureBundle({ captureId: "123e4567-e89b-42d3-a456-426614174099", startedAt: nowIso });
+recordHealth(hiddenBundle, nonEnumerableHealth);
+const hiddenFinalized = finalizeProductionEvidenceFailureBundle(hiddenBundle, nowIso);
+assert.deepEqual(hiddenFinalized.health, { schema_version: 3 });
+
+const symbolHealth = { schema_version: 3, ok: true, [Symbol("credential")]: markerValues[1] };
+const symbolBundle = createProductionEvidenceFailureBundle({ captureId: "123e4567-e89b-42d3-a456-426614174099", startedAt: nowIso });
+recordHealth(symbolBundle, symbolHealth);
+const symbolFinalized = finalizeProductionEvidenceFailureBundle(symbolBundle, nowIso);
+assert.equal(JSON.stringify(symbolFinalized).includes(markerValues[1]), false);
+
+let proxyGetReads = 0;
+const proxyHealth = new Proxy({ schema_version: 3, ok: true }, {
+  get(target, key, receiver) {
+    proxyGetReads += 1;
+    return Reflect.get(target, key, receiver);
+  },
+});
+const proxyBundle = createProductionEvidenceFailureBundle({ captureId: "123e4567-e89b-42d3-a456-426614174099", startedAt: nowIso });
+recordHealth(proxyBundle, proxyHealth);
+const proxyFinalized = finalizeProductionEvidenceFailureBundle(proxyBundle, nowIso);
+assert.equal(proxyGetReads, 0);
+assert.deepEqual(proxyFinalized.health, { schema_version: 3, ok: true });
+
+const nullPrototypeHealth = Object.assign(Object.create(null), { schema_version: 3, ok: true });
+const nullPrototypeBundle = createProductionEvidenceFailureBundle({ captureId: "123e4567-e89b-42d3-a456-426614174099", startedAt: nowIso });
+recordHealth(nullPrototypeBundle, nullPrototypeHealth);
+assert.deepEqual(finalizeProductionEvidenceFailureBundle(nullPrototypeBundle, nowIso).health, { schema_version: 3, ok: true });
+
+let pollutedPrototypeGetterReads = 0;
+const pollutedPrototype = Object.defineProperty({}, "ok", {
+  enumerable: true,
+  get() {
+    pollutedPrototypeGetterReads += 1;
+    return markerValues[2];
+  },
+});
+const prototypePollutedHealth = Object.assign(Object.create(pollutedPrototype), { schema_version: 3 });
+const prototypePollutedBundle = createProductionEvidenceFailureBundle({ captureId: "123e4567-e89b-42d3-a456-426614174099", startedAt: nowIso });
+recordHealth(prototypePollutedBundle, prototypePollutedHealth);
+const prototypePollutedFinalized = finalizeProductionEvidenceFailureBundle(prototypePollutedBundle, nowIso);
+assert.equal(pollutedPrototypeGetterReads, 0);
+assert.equal(prototypePollutedFinalized.health, null);
+assert.equal(JSON.stringify(prototypePollutedFinalized).includes(markerValues[2]), false);
+
+class MarkerError extends Error {
+  get code() {
+    throw new Error(markerValues[3]);
+  }
+}
+for (const unsupportedHealth of [new MarkerError(markerValues[3]), new Date(), new Uint8Array(Buffer.from(markerValues[4])), Buffer.from(markerValues[5])]) {
+  const unsupportedBundle = createProductionEvidenceFailureBundle({ captureId: "123e4567-e89b-42d3-a456-426614174099", startedAt: nowIso });
+  recordHealth(unsupportedBundle, unsupportedHealth);
+  const unsupportedFinalized = finalizeProductionEvidenceFailureBundle(unsupportedBundle, nowIso);
+  assert.equal(unsupportedFinalized.health, null);
+  assert.equal(JSON.stringify(unsupportedFinalized).includes(markerValues[3]), false);
+  assert.equal(JSON.stringify(unsupportedFinalized).includes(markerValues[4]), false);
+  assert.equal(JSON.stringify(unsupportedFinalized).includes(markerValues[5]), false);
+}
 
 let producerGetterReads = 0;
 const captureInputWithGetters = {};
@@ -2169,6 +2404,68 @@ const circularBundle = { ...failureBundle, health: circularHealth };
 const circularFinalized = finalizeProductionEvidenceFailureBundle(circularBundle, nowIso);
 assert.deepEqual(circularFinalized.health, { schema_version: 3 });
 assert.equal(assertProductionEvidenceFailureBundleV2(circularFinalized), true);
+
+class RequestArray extends Array {}
+const subclassRequests = new RequestArray({ request: { method: "GET", path: "/health" } });
+subclassRequests[-1] = { request: { details: markerValues[6] } };
+subclassRequests.extra = markerValues[7];
+delete subclassRequests[0];
+subclassRequests[1] = { request: { method: "POST", path: "/verify/tlsn" } };
+const subclassBundle = { ...failureBundle, requests: subclassRequests };
+const subclassFinalized = finalizeProductionEvidenceFailureBundle(subclassBundle, nowIso);
+assert.equal(subclassFinalized.requests.length, 1);
+assert.equal(JSON.stringify(subclassFinalized).includes(markerValues[6]), false);
+assert.equal(JSON.stringify(subclassFinalized).includes(markerValues[7]), false);
+
+let proxyArrayGetReads = 0;
+const proxyRequests = new Proxy([{ request: { method: "GET", path: "/health" } }], {
+  get(target, key, receiver) {
+    proxyArrayGetReads += 1;
+    return Reflect.get(target, key, receiver);
+  },
+});
+const proxyArrayBundle = { ...failureBundle, requests: proxyRequests };
+const proxyArrayFinalized = finalizeProductionEvidenceFailureBundle(proxyArrayBundle, nowIso);
+assert.equal(proxyArrayGetReads, 0);
+assert.equal(proxyArrayFinalized.requests.length, 1);
+
+const sparseRequests = Array(4);
+sparseRequests[1] = { request: { method: "GET", path: "/health" } };
+sparseRequests[-1] = markerValues[8];
+sparseRequests.extra = markerValues[9];
+const sparseBundle = { ...failureBundle, requests: sparseRequests };
+assert.equal(finalizeProductionEvidenceFailureBundle(sparseBundle, nowIso).requests.length, 1);
+
+const oversizedRequests = Array.from({ length: 40 }, () => ({ request: { method: "GET", path: "/health" } }));
+const oversizedRequestsBundle = { ...failureBundle, requests: oversizedRequests };
+assert.equal(finalizeProductionEvidenceFailureBundle(oversizedRequestsBundle, nowIso).requests.length, 32);
+
+const mismatchedSessionBundle = createProductionEvidenceFailureBundle({ captureId: "123e4567-e89b-42d3-a456-426614174099", startedAt: nowIso });
+recordSession(mismatchedSessionBundle, {
+  session_id: failureSessionId,
+  session_receipt: { session_id: "123e4567-e89b-42d3-a456-426614174098", signature: "marker" },
+});
+assert.equal(finalizeProductionEvidenceFailureBundle(mismatchedSessionBundle, nowIso).session, null);
+
+const distinctSessionBundle = createProductionEvidenceFailureBundle({ captureId: "123e4567-e89b-42d3-a456-426614174099", startedAt: nowIso });
+recordSession(distinctSessionBundle, {
+  session_id: failureSessionId,
+  session_receipt: { session_id: failureSessionId, signature_algorithm: "Ed25519", created_at: nowIso, expires_at: nowIso, signature: "marker" },
+});
+const distinctSessionFinalized = finalizeProductionEvidenceFailureBundle(distinctSessionBundle, nowIso);
+assert.equal(distinctSessionFinalized.capture_id, "123e4567-e89b-42d3-a456-426614174099");
+assert.equal(Object.hasOwn(distinctSessionFinalized.session, "session_id"), false);
+assert.equal(Object.hasOwn(distinctSessionFinalized.session.session_receipt, "session_id"), false);
+
+const mismatchedPresentationBundle = createProductionEvidenceFailureBundle({ captureId: "123e4567-e89b-42d3-a456-426614174099", startedAt: nowIso });
+recordHash(mismatchedPresentationBundle, "presentation", failurePresentationBytes);
+recordProvenance(mismatchedPresentationBundle, {
+  schema_version: 2,
+  proxy_provenance: { presentation_sha256: sha256Base64Url(Buffer.from("different presentation")) },
+});
+const mismatchedPresentationFinalized = finalizeProductionEvidenceFailureBundle(mismatchedPresentationBundle, nowIso);
+assert.equal(Object.hasOwn(mismatchedPresentationFinalized.provenance.proxy_provenance, "presentation_sha256"), false);
+assert.equal(mismatchedPresentationFinalized.hashes.presentation.sha256, presentationDigest);
 
 let arrayGetterReads = 0;
 const maliciousRequests = [];
@@ -2236,6 +2533,11 @@ for (const site of ["session_receipt", "consume", "proxy_provenance"]) {
   assert.equal(signaturePresenceFor(site, signatureGetterInput), false, `${site}: accessor signature is not raw data`);
 }
 assert.equal(signatureGetterReads, 0);
+const nonEnumerableSignature = {};
+Object.defineProperty(nonEnumerableSignature, "signature", { value: "marker", enumerable: false });
+for (const site of ["session_receipt", "consume", "proxy_provenance"]) {
+  assert.equal(signaturePresenceFor(site, nonEnumerableSignature), true, `${site}: own non-enumerable data signature counts as presence`);
+}
 
 const captureScriptSource = await readFile(new URL("./capture-production-evidence.mjs", import.meta.url), "utf8");
 const offlineVerifierSource = await readFile(new URL("./verify-production-evidence.mjs", import.meta.url), "utf8");
@@ -2289,4 +2591,4 @@ for (const name of cliFailureBundleNames) {
 }
 await rm(cliTestDirectory, { recursive: true, force: true });
 
-console.log("[tlsn-production-evidence] failure artifact v2 schema, redaction, getter, and signature-presence matrix; manifest, signer, freshness, identity, semantic, replay-block, and synthetic matrix OK");
+console.log("[tlsn-production-evidence] failure artifact v2 closed-world, credential-shaped, adversarial object/array, schema mutation, and cross-field matrix; manifest, signer, freshness, identity, semantic, replay-block, and synthetic matrix OK");
