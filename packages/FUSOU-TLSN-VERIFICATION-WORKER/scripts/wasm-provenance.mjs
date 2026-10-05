@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
-import { lstat, readFile, readdir, writeFile } from "node:fs/promises";
+import { lstat, readFile, writeFile } from "node:fs/promises";
 import { spawnSync } from "node:child_process";
 import { basename, dirname, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -66,15 +66,15 @@ export function resolveWasmPackCommand(workerDirectory) {
   return existsSync(local) ? local : "wasm-pack";
 }
 
-async function walkFiles(directory) {
-  const files = [];
-  for (const entry of (await readdir(directory, { withFileTypes: true })).sort((a, b) => a.name.localeCompare(b.name))) {
-    const path = resolve(directory, entry.name);
-    if (entry.isSymbolicLink()) throw new Error(`WASM source input must not be a symbolic link: ${path}`);
-    if (entry.isDirectory()) files.push(...await walkFiles(path));
-    else if (entry.isFile()) files.push(path);
-  }
-  return files;
+function listTrackedFiles(directory, repositoryRoot) {
+  const path = relative(repositoryRoot, directory).split(sep).join("/");
+  const result = spawnSync("git", ["ls-files", "--full-name", "-z", "--", path], {
+    cwd: repositoryRoot,
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  if (result.error || result.status !== 0) throw new Error(`cannot list tracked WASM source inputs: ${path}`);
+  return result.stdout.split("\0").filter(Boolean).map((trackedPath) => resolve(repositoryRoot, trackedPath));
 }
 
 export async function collectWasmSourceInputs({ workerDirectory = resolve(MODULE_DIRECTORY, "..") } = {}) {
@@ -84,9 +84,9 @@ export async function collectWasmSourceInputs({ workerDirectory = resolve(MODULE
   const selected = [
     resolve(verifierDirectory, "Cargo.toml"),
     resolve(verifierDirectory, "Cargo.lock"),
-    ...await walkFiles(resolve(verifierDirectory, "src")),
+    ...listTrackedFiles(resolve(verifierDirectory, "src"), repositoryRoot),
     resolve(sparseDirectory, "Cargo.toml"),
-    ...await walkFiles(resolve(sparseDirectory, "crates")),
+    ...listTrackedFiles(resolve(sparseDirectory, "crates"), repositoryRoot),
     resolve(workerDirectory, "scripts/build-wasm.mjs"),
     resolve(workerDirectory, "scripts/wasm-provenance.mjs"),
   ].sort((a, b) => a.localeCompare(b));
@@ -94,19 +94,32 @@ export async function collectWasmSourceInputs({ workerDirectory = resolve(MODULE
   for (const absolutePath of selected) {
     const path = relative(repositoryRoot, absolutePath).split(sep).join("/");
     if (!path || path.startsWith("../")) throw new Error("WASM source input escaped the repository root");
+    const stats = await lstat(absolutePath);
+    if (!stats.isFile() || stats.isSymbolicLink()) throw new Error(`WASM source input must be a regular file: ${path}`);
     inputs.push({ path, sha256: sha256(await readFile(absolutePath)) });
   }
   return inputs;
 }
 
-function collectWasmSourceTreeStatus(sourceInputs, repositoryRoot) {
+function collectWasmSourceTreeStatus(sourceInputs, repositoryRoot, workerDirectory) {
   const inputPaths = sourceInputs.map((input) => input.path);
+  const verifierDirectory = resolve(workerDirectory, "../FUSOU-TLSN-VERIFIER");
+  const sparseDirectory = resolve(workerDirectory, "../tlsn-alpha15-sparse");
+  const statusPaths = [
+    resolve(verifierDirectory, "Cargo.toml"),
+    resolve(verifierDirectory, "Cargo.lock"),
+    resolve(verifierDirectory, "src"),
+    resolve(sparseDirectory, "Cargo.toml"),
+    resolve(sparseDirectory, "crates"),
+    resolve(workerDirectory, "scripts/build-wasm.mjs"),
+    resolve(workerDirectory, "scripts/wasm-provenance.mjs"),
+  ].map((path) => relative(repositoryRoot, path).split(sep).join("/"));
   const tracked = spawnSync("git", ["ls-files", "--error-unmatch", "--", ...inputPaths], {
     cwd: repositoryRoot,
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"],
   });
-  const status = spawnSync("git", ["status", "--porcelain", "--untracked-files=all", "--", ...inputPaths], {
+  const status = spawnSync("git", ["status", "--porcelain", "--untracked-files=all", "--", ...statusPaths], {
     cwd: repositoryRoot,
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"],
@@ -236,7 +249,7 @@ export async function writeWasmArtifactProvenance({
   const provenance = createWasmArtifactProvenance({
     sourceCommitSha: headResult.stdout.trim(),
     sourceInputs,
-    sourceTreeStatus: collectWasmSourceTreeStatus(sourceInputs, repositoryRoot),
+    sourceTreeStatus: collectWasmSourceTreeStatus(sourceInputs, repositoryRoot, workerDirectory),
     toolchain: collectWasmToolchain({ workerDirectory, environment, effectiveCompilerFlags }),
     artifacts: await collectWasmArtifacts({ artifactDirectory }),
   });
@@ -255,7 +268,7 @@ export async function verifyLocalWasmArtifactProvenance({ workerDirectory = reso
     return assertWasmArtifactProvenance(provenance, {
       currentCommitSha: headResult.stdout.trim(),
       sourceInputs,
-      sourceTreeStatus: collectWasmSourceTreeStatus(sourceInputs, repositoryRoot),
+      sourceTreeStatus: collectWasmSourceTreeStatus(sourceInputs, repositoryRoot, workerDirectory),
       toolchain: collectWasmToolchain({ workerDirectory }),
       artifacts: await collectWasmArtifacts({ artifactDirectory }),
     });

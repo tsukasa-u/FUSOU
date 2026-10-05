@@ -137,6 +137,11 @@ assert.ok([...verifierLockText.matchAll(/^source = "git\+[^\n]+#[0-9a-f]{40}"$/g
 assert.ok([...verifierLockText.matchAll(/^checksum = "[0-9a-f]{64}"$/gm)].length > 0, "Cargo.lock must pin registry package checksums");
 
 const actualSourceInputs = await collectWasmSourceInputs();
+const trackedSourceInputs = spawnSync("git", ["ls-files", "--error-unmatch", "--", ...actualSourceInputs.map((input) => input.path)], {
+  cwd: repositoryRoot,
+  encoding: "utf8",
+});
+assert.equal(trackedSourceInputs.status, 0, "all WASM provenance source inputs must be Git-tracked");
 const lockSourceInput = actualSourceInputs.find((input) => input.path === verifierLockPath);
 assert.ok(lockSourceInput, "WASM provenance source inputs must include verifier Cargo.lock");
 assert.equal(lockSourceInput.sha256, hash(verifierLockBytes));
