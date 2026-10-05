@@ -1,9 +1,12 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
+import { fileURLToPath } from "node:url";
 import {
   WASM_ARTIFACT_NAMES,
   assertWasmArtifactProvenance,
+  collectWasmSourceInputs,
   createWasmArtifactProvenance,
 } from "./wasm-provenance.mjs";
 
@@ -119,6 +122,43 @@ const securityWorkflow = await readFile(
   new URL("../../../.github/workflows/tlsn-verification-worker-security.yml", import.meta.url),
   "utf8",
 );
+const repositoryRoot = fileURLToPath(new URL("../../../", import.meta.url));
+const verifierLockPath = "packages/FUSOU-TLSN-VERIFIER/Cargo.lock";
+const verifierLockBytes = await readFile(new URL("../../FUSOU-TLSN-VERIFIER/Cargo.lock", import.meta.url));
+const verifierLockText = verifierLockBytes.toString("utf8");
+const verifierManifest = await readFile(new URL("../../FUSOU-TLSN-VERIFIER/Cargo.toml", import.meta.url), "utf8");
+const trackedLock = spawnSync("git", ["ls-files", "--error-unmatch", "--", verifierLockPath], {
+  cwd: repositoryRoot,
+  encoding: "utf8",
+});
+assert.equal(trackedLock.status, 0, "verifier Cargo.lock must be tracked for clean checkouts");
+assert.match(verifierManifest, /tlsn\s*=\s*\{[^\n]*rev\s*=\s*"47aee45b53e06648c1b2ad3689b367b8c923fdec"/);
+assert.ok([...verifierLockText.matchAll(/^source = "git\+[^\n]+#[0-9a-f]{40}"$/gm)].length > 0, "Cargo.lock must pin Git dependencies to full revisions");
+assert.ok([...verifierLockText.matchAll(/^checksum = "[0-9a-f]{64}"$/gm)].length > 0, "Cargo.lock must pin registry package checksums");
+
+const actualSourceInputs = await collectWasmSourceInputs();
+const lockSourceInput = actualSourceInputs.find((input) => input.path === verifierLockPath);
+assert.ok(lockSourceInput, "WASM provenance source inputs must include verifier Cargo.lock");
+assert.equal(lockSourceInput.sha256, hash(verifierLockBytes));
+
+const lockBoundProvenance = createWasmArtifactProvenance({
+  sourceCommitSha: commit,
+  sourceInputs: actualSourceInputs,
+  sourceTreeStatus: "CLEAN",
+  toolchain,
+  artifacts,
+});
+const changedLockInputs = actualSourceInputs.map((input) => input.path === verifierLockPath
+  ? { ...input, sha256: hash(Buffer.concat([verifierLockBytes, Buffer.from("substituted")])) }
+  : input);
+assert.throws(() => assertWasmArtifactProvenance(lockBoundProvenance, {
+  currentCommitSha: commit,
+  sourceInputs: changedLockInputs,
+  sourceTreeStatus: "CLEAN",
+  toolchain,
+  artifacts,
+}), /source input fingerprint is stale or substituted/);
+
 const requiredWorkflowSteps = [
   "Install pinned Rust WASM toolchain",
   "Provision pinned WASM code generation tools",
@@ -133,5 +173,13 @@ assert.deepEqual(requiredWorkflowSteps, [...requiredWorkflowSteps].sort((a, b) =
 assert.match(securityWorkflow, /cargo install wasm-pack --version 0\.13\.1 --locked/);
 assert.match(securityWorkflow, /wasm-bindgen-0\.2\.128-x86_64-unknown-linux-musl\.tar\.gz/);
 assert.match(securityWorkflow, /binaryen-version_133-x86_64-linux\.tar\.gz/);
+assert.match(securityWorkflow, /cargo fetch --locked --manifest-path packages\/FUSOU-TLSN-VERIFIER\/Cargo\.toml --target wasm32-unknown-unknown/);
+assert.match(verifierManifest, /wasm-bindgen\s*=\s*"=0\.2\.128"/);
+assert.match(verifierLockText, /name = "wasm-bindgen"\nversion = "0\.2\.128"/);
+assert.match(securityWorkflow, /echo "\$tool_root\/bin" >> "\$GITHUB_PATH"/);
+assert.match(securityWorkflow, /packages\/FUSOU-TLSN-VERIFIER\/\*\*/);
+assert.match(securityWorkflow, /packages\/tlsn-alpha15-sparse\/\*\*/);
+const buildScript = await readFile(new URL("./build-wasm.mjs", import.meta.url), "utf8");
+assert.match(buildScript, /CARGO_NET_OFFLINE:\s*"true"/);
 
-console.log("[tlsn-wasm-provenance] commit, source, toolchain, artifact substitution, and rebuild checks PASS");
+console.log("[tlsn-wasm-provenance] commit, tracked Cargo.lock, lock input binding, toolchain, artifact substitution, workflow prerequisites, and rebuild checks PASS");

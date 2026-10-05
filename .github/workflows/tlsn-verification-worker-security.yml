@@ -10,13 +10,17 @@ on:
   workflow_dispatch:
   push:
     paths:
+      - packages/FUSOU-TLSN-VERIFIER/**
       - packages/FUSOU-TLSN-VERIFICATION-WORKER/**
+      - packages/tlsn-alpha15-sparse/**
       - package.json
       - pnpm-lock.yaml
       - .github/workflows/tlsn-verification-worker-security.yml
   pull_request:
     paths:
+      - packages/FUSOU-TLSN-VERIFIER/**
       - packages/FUSOU-TLSN-VERIFICATION-WORKER/**
+      - packages/tlsn-alpha15-sparse/**
       - package.json
       - pnpm-lock.yaml
       - .github/workflows/tlsn-verification-worker-security.yml
@@ -72,6 +76,7 @@ jobs:
           wasm_bindgen_binary="$(find "$tool_root/wasm-bindgen" -type f -name wasm-bindgen -print -quit)"
           test -n "$wasm_bindgen_binary"
           install -m 0755 "$wasm_bindgen_binary" "$tool_root/bin/wasm-bindgen"
+          echo "$tool_root/bin" >> "$GITHUB_PATH"
 
           binaryen_archive="$tool_root/downloads/binaryen-version_133-x86_64-linux.tar.gz"
           curl --fail --location --retry 3 --retry-all-errors \

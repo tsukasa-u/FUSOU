@@ -18,7 +18,7 @@ ring = "0.17"
 sha2 = "0.10"
 serde_json = "1.0.145"
 thiserror = "1.0"
-wasm-bindgen = "0.2"
+wasm-bindgen = "=0.2.128"
 tlsn = { git = "https://github.com/tlsnotary/tlsn.git", rev = "47aee45b53e06648c1b2ad3689b367b8c923fdec", version = "0.1.0-alpha.15" }
 tlsn-attestation = { git = "https://github.com/tlsnotary/tlsn.git", rev = "47aee45b53e06648c1b2ad3689b367b8c923fdec", version = "0.1.0-alpha.15" }
 tlsn-core = { git = "https://github.com/tlsnotary/tlsn.git", rev = "47aee45b53e06648c1b2ad3689b367b8c923fdec", version = "0.1.0-alpha.15" }
