@@ -7,7 +7,10 @@ import { test } from "node:test";
 import { finalizeTlsnCandidateBundle } from "./tlsn-candidate-finalize.mjs";
 import { createSyntheticCandidateBundle } from "./tlsn-candidate-synthetic-fixture.mjs";
 import { verifyCanaryExistingSourceProofBundle } from "./canary-operational-smoke-existing-proofs.mjs";
-import { inspectAlpha15Presentation } from "./production-evidence-semantic.mjs";
+import {
+  inspectAlpha15Presentation,
+  inspectSyntheticFixtureAlpha15Presentation,
+} from "./production-evidence-semantic.mjs";
 import { canonicalJson } from "./deployment-attestation.mjs";
 import {
   APP_CONFIGURATION_FINGERPRINT_CONTRACT,
@@ -370,11 +373,18 @@ test("synthetic alpha.15 Presentation discovers target and finalizes as unapprov
   try {
     const fixture = await createSyntheticCandidateBundle(root);
     assert.equal(fixture.trustContext.deploymentManifest.target, undefined);
-    const observation = await inspectAlpha15Presentation({
+    const inspectionInputs = {
       presentationBytes: fixture.presentationBytes,
       notaryRegistry: fixture.trustContext.notaryRegistry,
       notaryKeyId: fixture.trustContext.deploymentManifest.notary.key_id,
+    };
+    await assert.rejects(() => inspectAlpha15Presentation({
+      ...inspectionInputs,
       trustAnchorDer: fixture.trustContext.trustAnchorDer,
+    }), /failed to verify certificate path to provided trust anchors/);
+    const observation = await inspectSyntheticFixtureAlpha15Presentation({
+      ...inspectionInputs,
+      trustRootDer: fixture.trustContext.trustAnchorDer,
     });
     assert.equal(observation.source, "verified-alpha15-presentation");
     assert.equal(observation.verified_presentation.server_identity, "game.example.test");
@@ -382,11 +392,10 @@ test("synthetic alpha.15 Presentation discovers target and finalizes as unapprov
 
     const tamperedPresentation = Buffer.from(fixture.presentationBytes);
     tamperedPresentation[tamperedPresentation.length - 1] ^= 1;
-    await assert.rejects(() => inspectAlpha15Presentation({
+    await assert.rejects(() => inspectSyntheticFixtureAlpha15Presentation({
+      ...inspectionInputs,
       presentationBytes: tamperedPresentation,
-      notaryRegistry: fixture.trustContext.notaryRegistry,
-      notaryKeyId: fixture.trustContext.deploymentManifest.notary.key_id,
-      trustAnchorDer: fixture.trustContext.trustAnchorDer,
+      trustRootDer: fixture.trustContext.trustAnchorDer,
     }), /alpha\.15 Presentation cryptographic inspection failed/);
 
     const finalization = await finalizeTlsnCandidateBundle(fixture);
