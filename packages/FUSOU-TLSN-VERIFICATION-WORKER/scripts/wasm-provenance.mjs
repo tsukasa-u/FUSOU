@@ -5,7 +5,7 @@ import { spawnSync } from "node:child_process";
 import { basename, dirname, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
-export const WASM_PROVENANCE_SCHEMA_VERSION = 2;
+export const WASM_PROVENANCE_SCHEMA_VERSION = 3;
 export const WASM_PROVENANCE_SCOPE = "fusou-tlsn-wasm-build-provenance";
 export const WASM_ARTIFACT_NAMES = Object.freeze([
   "fusou_tlsn_verifier.js",
@@ -136,6 +136,8 @@ export function collectWasmToolchain({
     cargo_net_offline: true,
     rustc: commandOutput("rustc", ["--version", "--verbose"], "rustc", toolEnvironment),
     wasm_pack: commandOutput(wasmPack, ["--version"], "wasm-pack", toolEnvironment),
+    wasm_bindgen: commandOutput("wasm-bindgen", ["--version"], "wasm-bindgen", toolEnvironment),
+    wasm_opt: commandOutput("wasm-opt", ["--version"], "wasm-opt", toolEnvironment),
     clang_name: basename(compiler),
     clang: commandOutput(compiler, ["--version"], "Clang", toolEnvironment).split("\n")[0],
     cflags_sha256: sha256(Buffer.from(compilerFlags, "utf8")),

@@ -6,6 +6,7 @@
   "main": "src/index.ts",
   "scripts": {
     "build:wasm": "node scripts/build-wasm.mjs",
+    "verify:wasm-provenance": "node scripts/verify-wasm-provenance.mjs",
     "typecheck": "pnpm run build:wasm && tsc --noEmit",
     "dev": "pnpm run build:wasm && wrangler dev",
     "deploy:test": "node scripts/deploy-test.mjs",

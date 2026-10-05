@@ -57,15 +57,27 @@ jobs:
       - name: Audit legacy anonymous-sync v1 usage
         run: pnpm --dir packages/FUSOU-WEB run audit:anon-sync-v1
 
+      - name: Detect Cloudflare secret availability
+        id: cloudflare-secrets
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          if [[ -n "${CLOUDFLARE_API_TOKEN:-}" && -n "${CLOUDFLARE_ACCOUNT_ID:-}" ]]; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "available=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Verify required Cloudflare Worker secrets
-        if: secrets.CLOUDFLARE_API_TOKEN != '' && secrets.CLOUDFLARE_ACCOUNT_ID != ''
+        if: steps.cloudflare-secrets.outputs.available == 'true'
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: pnpm --dir packages/FUSOU-WEB run check:cloudflare:required-secrets
 
       - name: Skip Cloudflare secret verification (credentials unavailable)
-        if: secrets.CLOUDFLARE_API_TOKEN == '' || secrets.CLOUDFLARE_ACCOUNT_ID == ''
+        if: steps.cloudflare-secrets.outputs.available == 'false'
         run: |
           echo "Skipping Cloudflare secret registration check: CLOUDFLARE_API_TOKEN/CLOUDFLARE_ACCOUNT_ID not available in this run."
 

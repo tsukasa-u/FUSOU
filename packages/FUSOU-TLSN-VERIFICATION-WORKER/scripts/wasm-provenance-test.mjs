@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
+import { readFile } from "node:fs/promises";
 import {
   WASM_ARTIFACT_NAMES,
   assertWasmArtifactProvenance,
@@ -15,6 +16,8 @@ const toolchain = {
   cargo_net_offline: true,
   rustc: "rustc 1.95.0 (fixture)",
   wasm_pack: "wasm-pack 0.13.1",
+  wasm_bindgen: "wasm-bindgen 0.2.128",
+  wasm_opt: "wasm-opt version 133",
   clang_name: "clang-18",
   clang: "clang version 18.1.0",
   cflags_sha256: hash("--target=wasm32-unknown-unknown"),
@@ -77,6 +80,15 @@ assert.throws(() => assertWasmArtifactProvenance(provenance, {
   toolchain: { ...toolchain, clang: "clang version 19.0.0" },
   artifacts,
 }), /toolchain fingerprint does not match/);
+for (const field of ["wasm_bindgen", "wasm_opt"]) {
+  assert.throws(() => assertWasmArtifactProvenance(provenance, {
+    currentCommitSha: commit,
+    sourceInputs,
+    sourceTreeStatus: "CLEAN",
+    toolchain: { ...toolchain, [field]: `${toolchain[field]} substituted` },
+    artifacts,
+  }), /toolchain fingerprint does not match/);
+}
 assert.throws(() => assertWasmArtifactProvenance(provenance, {
   currentCommitSha: commit,
   sourceInputs,
@@ -102,5 +114,24 @@ assert.equal(assertWasmArtifactProvenance(rebuiltProvenance, {
   toolchain,
   artifacts: rebuiltArtifacts,
 }).status, "VERIFIED_LOCAL_CONSISTENCY");
+
+const securityWorkflow = await readFile(
+  new URL("../../../.github/workflows/tlsn-verification-worker-security.yml", import.meta.url),
+  "utf8",
+);
+const requiredWorkflowSteps = [
+  "Install pinned Rust WASM toolchain",
+  "Provision pinned WASM code generation tools",
+  "Fetch locked WASM build dependencies",
+  "Build WASM verifier from checked-out source",
+  "Verify WASM source commit and artifact hashes",
+  "Verify WASM provenance contract",
+  "Verify readiness signature and binding gates",
+].map((name) => securityWorkflow.indexOf(`name: ${name}`));
+assert.ok(requiredWorkflowSteps.every((position) => position >= 0), "CI must provision and verify WASM before readiness tests");
+assert.deepEqual(requiredWorkflowSteps, [...requiredWorkflowSteps].sort((a, b) => a - b));
+assert.match(securityWorkflow, /cargo install wasm-pack --version 0\.13\.1 --locked/);
+assert.match(securityWorkflow, /wasm-bindgen-0\.2\.128-x86_64-unknown-linux-musl\.tar\.gz/);
+assert.match(securityWorkflow, /binaryen-version_133-x86_64-linux\.tar\.gz/);
 
 console.log("[tlsn-wasm-provenance] commit, source, toolchain, artifact substitution, and rebuild checks PASS");

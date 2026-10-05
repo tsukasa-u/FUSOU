@@ -23,8 +23,8 @@ on:
 
 jobs:
   canary-runtime-attestation-security:
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
     steps:
       - name: Checkout
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
@@ -40,8 +40,71 @@ jobs:
           node-version: 22.16.0
           cache: pnpm
 
+      - name: Install pinned Rust WASM toolchain
+        uses: dtolnay/rust-toolchain@89b12181fb390509a0842a86cc55eeb8eb928c1d
+        with:
+          toolchain: 1.95.0
+          targets: wasm32-unknown-unknown
+
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+
+      - name: Provision pinned WASM code generation tools
+        env:
+          RUSTUP_TOOLCHAIN: 1.95.0
+          RUSTUP_AUTO_INSTALL: "0"
+        run: |
+          set -euo pipefail
+          export PATH="$HOME/.cargo/bin:$PATH"
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+          cargo install wasm-pack --version 0.13.1 --locked
+
+          tool_root="$RUNNER_TEMP/fusou-wasm-tools"
+          mkdir -p "$tool_root/bin" "$tool_root/downloads"
+
+          wasm_bindgen_archive="$tool_root/downloads/wasm-bindgen-0.2.128-x86_64-unknown-linux-musl.tar.gz"
+          curl --fail --location --retry 3 --retry-all-errors \
+            "https://github.com/wasm-bindgen/wasm-bindgen/releases/download/0.2.128/wasm-bindgen-0.2.128-x86_64-unknown-linux-musl.tar.gz" \
+            --output "$wasm_bindgen_archive"
+          echo "b51f0208fdff83515a787bd8ab9ac5865ed84dabb66d0c709957bb59793c645f  $wasm_bindgen_archive" | sha256sum --check --strict
+          mkdir -p "$tool_root/wasm-bindgen"
+          tar -xzf "$wasm_bindgen_archive" -C "$tool_root/wasm-bindgen"
+          wasm_bindgen_binary="$(find "$tool_root/wasm-bindgen" -type f -name wasm-bindgen -print -quit)"
+          test -n "$wasm_bindgen_binary"
+          install -m 0755 "$wasm_bindgen_binary" "$tool_root/bin/wasm-bindgen"
+
+          binaryen_archive="$tool_root/downloads/binaryen-version_133-x86_64-linux.tar.gz"
+          curl --fail --location --retry 3 --retry-all-errors \
+            "https://github.com/WebAssembly/binaryen/releases/download/version_133/binaryen-version_133-x86_64-linux.tar.gz" \
+            --output "$binaryen_archive"
+          echo "2dc9c7813f5375db93d96ead4b78222fcc3e2677bbb832297af4797782a37489  $binaryen_archive" | sha256sum --check --strict
+          mkdir -p "$tool_root/binaryen"
+          tar -xzf "$binaryen_archive" -C "$tool_root/binaryen"
+          wasm_opt_binary="$(find "$tool_root/binaryen" -type f -name wasm-opt -print -quit)"
+          test -n "$wasm_opt_binary"
+          binaryen_bin="$(dirname "$wasm_opt_binary")"
+          echo "$binaryen_bin" >> "$GITHUB_PATH"
+          export PATH="$tool_root/bin:$binaryen_bin:$PATH"
+
+          wasm-pack --version
+          wasm-bindgen --version
+          wasm-opt --version
+          clang --version
+
+      - name: Fetch locked WASM build dependencies
+        run: cargo fetch --locked --manifest-path packages/FUSOU-TLSN-VERIFIER/Cargo.toml --target wasm32-unknown-unknown
+        env:
+          RUSTUP_TOOLCHAIN: 1.95.0
+          RUSTUP_AUTO_INSTALL: "0"
+
+      - name: Build WASM verifier from checked-out source
+        run: pnpm --dir packages/FUSOU-TLSN-VERIFICATION-WORKER run build:wasm
+
+      - name: Verify WASM source commit and artifact hashes
+        run: pnpm --dir packages/FUSOU-TLSN-VERIFICATION-WORKER run verify:wasm-provenance
+
+      - name: Verify WASM provenance contract
+        run: pnpm --dir packages/FUSOU-TLSN-VERIFICATION-WORKER run test:wasm-provenance
 
       - name: Verify Runtime Attestation signer registry
         run: pnpm --dir packages/FUSOU-TLSN-VERIFICATION-WORKER run test:canary-runtime-attestation-registry
