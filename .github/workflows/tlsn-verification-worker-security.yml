@@ -97,7 +97,7 @@ jobs:
           clang --version
 
       - name: Fetch locked WASM build dependencies
-        run: cargo fetch --locked --manifest-path packages/FUSOU-TLSN-VERIFIER/Cargo.toml --target wasm32-unknown-unknown
+        run: cargo fetch --locked --manifest-path packages/FUSOU-TLSN-VERIFIER/Cargo.toml
         env:
           RUSTUP_TOOLCHAIN: 1.95.0
           RUSTUP_AUTO_INSTALL: "0"
