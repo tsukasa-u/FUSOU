@@ -178,7 +178,8 @@ assert.deepEqual(requiredWorkflowSteps, [...requiredWorkflowSteps].sort((a, b) =
 assert.match(securityWorkflow, /cargo install wasm-pack --version 0\.13\.1 --locked/);
 assert.match(securityWorkflow, /wasm-bindgen-0\.2\.128-x86_64-unknown-linux-musl\.tar\.gz/);
 assert.match(securityWorkflow, /binaryen-version_133-x86_64-linux\.tar\.gz/);
-assert.match(securityWorkflow, /cargo fetch --locked --manifest-path packages\/FUSOU-TLSN-VERIFIER\/Cargo\.toml --target wasm32-unknown-unknown/);
+assert.match(securityWorkflow, /run: cargo fetch --locked --manifest-path packages\/FUSOU-TLSN-VERIFIER\/Cargo\.toml\s*\n/);
+assert.doesNotMatch(securityWorkflow, /cargo fetch --locked --manifest-path packages\/FUSOU-TLSN-VERIFIER\/Cargo\.toml\s+--target\b/);
 assert.match(verifierManifest, /wasm-bindgen\s*=\s*"=0\.2\.128"/);
 assert.match(verifierLockText, /name = "wasm-bindgen"\nversion = "0\.2\.128"/);
 assert.match(securityWorkflow, /echo "\$tool_root\/bin" >> "\$GITHUB_PATH"/);
