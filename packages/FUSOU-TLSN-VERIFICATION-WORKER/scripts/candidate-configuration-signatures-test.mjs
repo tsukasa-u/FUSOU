@@ -228,24 +228,17 @@ test("signed payload schema has explicit domain, canonicalization, and no signat
   assert.equal(contract.evidence_digest_semantics.classification, "AUTHORITY_SIGNED_OPAQUE_COMMITMENT");
   assert.equal(contract.evidence_digest_semantics.referenced_artifact_loaded, false);
   assert.equal(contract.evidence_digest_semantics.digest_recomputed, false);
-  assert.deepEqual(contract.binary_identity.authenticated_current_binary_identity_source_prerequisite, {
-    status: "EXTERNAL_PREREQUISITE_NOT_IMPLEMENTED",
-    minimum_requirements: {
-      source_authority: "INDEPENDENTLY_IDENTIFIED_AND_AUTHORIZED",
-      artifact_identity: "MATCHES_TRUSTED_BUILDER_PROVENANCE",
-      binary_sha256: "MEASURED_FROM_CURRENT_PROCESS_IMAGE",
-      process_image_identity: "BOUND_TO_FRESH_RUNNING_PROCESS_INSTANCE",
-      authentication_method: "CRYPTOGRAPHICALLY_AUTHENTICATED",
-      expected_binding: "ARTIFACT_IDENTITY_AND_BINARY_SHA256_MATCH_TRUSTED_BUILDER_PROVENANCE",
-      trust_root: "APPLICATION_PINNED_SOURCE_AUTHORITY_ROOT",
-      freshness: "CHALLENGE_BOUND_AND_TIME_BOUNDED",
-      replay_resistance: "FRESH_CHALLENGE_OR_EQUIVALENT_REPLAY_RESISTANT_VALIDATION",
-      substitution_resistance: "PROCESS_IDENTITY_AND_MEASURED_BYTES_CROSS_BOUND",
-    },
+  assert.equal(Object.hasOwn(contract.binary_identity, "current_binary_authenticator_implemented"), false);
+  assert.deepEqual(contract.binary_identity.current_process_image_authority, {
+    classification: "OUT_OF_SCOPE",
+    readiness_required: false,
+    reason: "The project guarantees communication integrity and verifiable TLS evidence, not independent authenticity of the local APP process image.",
     operator_supplied_json_authenticates_source: false,
     builder_provenance_alone_authenticates_current_process: false,
     runtime_attestation_authenticates_app_binary: false,
   });
+  assert.equal(contract.inputs.CURRENT_BINARY_IDENTITY.readiness_required, false);
+  assert.equal(contract.inputs.CURRENT_BINARY_IDENTITY.authentication, "OPERATOR_INPUT_IS_UNVERIFIED_METADATA_ONLY");
   assert.equal(contract.time_semantics.low_level_signature_verifier_candidate_readiness, "NOT_EVALUATED");
   for (const inputName of authorityNames) {
     const inputContract = contract.inputs[inputName];

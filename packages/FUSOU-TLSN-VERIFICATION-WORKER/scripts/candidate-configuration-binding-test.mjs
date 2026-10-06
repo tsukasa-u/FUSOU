@@ -209,6 +209,29 @@ test("verified identity reports local consistency without promoting configuratio
   assert.equal(report.stages.independent_authority_provenance_verified, "BLOCKED_MISSING_AUTHORITY");
 });
 
+test("current APP process image authority is out of scope and optional metadata does not gate readiness", () => {
+  const identity = createVerifiedCandidate();
+  const binary = currentBinaryIdentity();
+  const report = candidateConfigurationBindingAssessment({
+    candidateArtifactIdentity: identity,
+    trustedBuilderProvenance: builderReceipt(identity, binary),
+    expectedSourceCommit: binary.source_commit,
+    now,
+  });
+
+  assert.equal(report.current_binary_identity.status, "NOT_PROVIDED");
+  assert.equal(report.current_binary_identity.classification, "OUT_OF_SCOPE_OPTIONAL_METADATA");
+  assert.equal(report.authenticated_current_binary_identity.status, "OUT_OF_SCOPE");
+  assert.equal(report.authenticated_current_binary_identity.readiness_required, false);
+  assert.equal(report.trusted_builder_provenance.status, "PRESENT_UNVERIFIED");
+  assert.ok(!report.missing_inputs.includes("CURRENT_BINARY_IDENTITY"));
+  assert.ok(!report.missing_inputs.includes("AUTHENTICATED_CURRENT_BINARY_IDENTITY"));
+  assert.ok(!report.unresolved_authority_requirements.includes("AUTHENTICATED_CURRENT_BINARY_IDENTITY_SOURCE"));
+  assert.equal(report.readiness_gate, "BLOCKED");
+  assert.equal(report.readiness_effect, "NONE");
+  assert.equal(report.gameplay_effect, "NONE");
+});
+
 test("assessment reports are immutable factory results, not transferable authorization tokens", () => {
   const report = candidateConfigurationBindingAssessment({ now });
   assert.equal(isCandidateConfigurationBindingAssessment(report), true);
@@ -261,7 +284,7 @@ test("actual candidate bundle input reports synthetic local consistency but cann
   }
 });
 
-test("matching external evidence remains unverified without pinned roots and authenticated sources", () => {
+test("matching external evidence remains unverified without pinned roots and deployment identity", () => {
   const identity = createVerifiedCandidate();
   const binary = currentBinaryIdentity();
   const report = candidateConfigurationBindingAssessment({
@@ -270,15 +293,6 @@ test("matching external evidence remains unverified without pinned roots and aut
     currentBinaryIdentity: binary,
     trustedBuilderProvenance: builderReceipt(identity, binary),
     independentAuthorityReceipt: authorityReceipt(identity, binary),
-    authenticatedCurrentBinaryIdentity: {
-      status: "VALID",
-      signature_valid: true,
-      authority_trusted: true,
-      source: "AUTHENTICATED_CURRENT_BINARY_IDENTITY",
-      artifact_identity: binary.artifact_identity,
-      binary_sha256: binary.binary_sha256,
-      source_commit: binary.source_commit,
-    },
     expectedSourceCommit: binary.source_commit,
     expectedDeploymentIdentity: deploymentIdentity,
     now,
@@ -290,11 +304,12 @@ test("matching external evidence remains unverified without pinned roots and aut
   assert.equal(report.approved_expected_fingerprint.signature_verification, "BLOCKED");
   assert.equal(report.approved_expected_fingerprint.registry_signer_authorization, "BLOCKED");
   assert.equal(report.approved_expected_fingerprint.authority_trusted, false);
-  assert.equal(report.current_binary_identity.source_authentication, "UNVERIFIED");
+  assert.equal(report.current_binary_identity.classification, "OUT_OF_SCOPE_OPTIONAL_METADATA");
+  assert.equal(report.current_binary_identity.source_authentication, "OUT_OF_SCOPE");
   assert.equal(report.trusted_builder_provenance.status, "PRESENT_UNVERIFIED");
   assert.equal(report.trusted_builder_provenance.candidate_binding, "MATCH");
   assert.equal(report.trusted_builder_provenance.operator_binary_metadata_match, "MATCH");
-  assert.equal(report.trusted_builder_provenance.authenticated_current_binary_match, "NOT_EVALUATED");
+  assert.equal(report.trusted_builder_provenance.authenticated_current_binary_match, "OUT_OF_SCOPE");
   assert.equal(report.trusted_builder_provenance.registry_signer_authorization, "BLOCKED");
   assert.equal(report.stages.binary_provenance_authenticated, "BLOCKED_NO_TRUSTED_BUILDER");
   assert.equal(report.independent_authority_receipt.status, "BLOCKED_NO_TRUSTED_DEPLOYMENT_IDENTITY");
@@ -304,9 +319,10 @@ test("matching external evidence remains unverified without pinned roots and aut
   assert.equal(report.independent_authority_receipt.authenticated_deployment_identity_match, "NOT_EVALUATED");
   assert.equal(report.independent_authority_receipt.registry_signer_authorization, "BLOCKED");
   assert.equal(report.stages.independent_authority_provenance_verified, "BLOCKED_MISSING_AUTHORITY");
-  assert.equal(report.authenticated_current_binary_identity.status, "UNVERIFIED");
+  assert.equal(report.authenticated_current_binary_identity.status, "OUT_OF_SCOPE");
   assert.equal(report.authenticated_current_deployment_identity_status, "UNVERIFIED");
-  assert.ok(report.missing_inputs.includes("AUTHENTICATED_CURRENT_BINARY_IDENTITY"));
+  assert.ok(!report.missing_inputs.includes("CURRENT_BINARY_IDENTITY"));
+  assert.ok(!report.missing_inputs.includes("AUTHENTICATED_CURRENT_BINARY_IDENTITY"));
   assert.equal(report.readiness_gate, "BLOCKED");
   assert.equal(report.readiness_effect, "NONE");
   assert.equal(report.gameplay_effect, "NONE");
@@ -342,8 +358,8 @@ test("verified Main Worker Runtime Attestation never authenticates the current A
   assert.equal(report.authenticated_current_deployment_identity.source, "VERIFIED_RUNTIME_ATTESTATION");
   assert.equal(report.authenticated_current_deployment_identity.trust_subject, "MAIN_WORKER_RUNTIME_IDENTITY_ONLY");
   assert.equal(report.authenticated_current_deployment_identity_status, "VALID");
-  assert.equal(report.authenticated_current_binary_identity.status, "UNVERIFIED");
-  assert.equal(report.current_binary_identity.source_authentication, "UNVERIFIED");
+  assert.equal(report.authenticated_current_binary_identity.status, "OUT_OF_SCOPE");
+  assert.equal(report.current_binary_identity.source_authentication, "OUT_OF_SCOPE");
   assert.equal(report.stages.binary_provenance_authenticated, "BLOCKED_NO_TRUSTED_BUILDER");
   assert.equal(report.readiness_gate, "BLOCKED");
   assert.equal(report.gameplay_effect, "NONE");
@@ -471,7 +487,9 @@ test("candidate, approval, builder, binary, and authority Frankensteins are reje
       trustedBuilderProvenance: builderReceipt(identityA, binaryA),
       now,
     });
-    assert.equal(report.trusted_builder_provenance.status, "MISMATCH");
+    assert.equal(report.trusted_builder_provenance.operator_binary_metadata_match, "MISMATCH");
+    assert.equal(report.trusted_builder_provenance.status, "PRESENT_UNVERIFIED");
+    assert.ok(!report.missing_inputs.includes("CURRENT_BINARY_IDENTITY"));
   });
 
   await t.test("new binary plus old expected fingerprint", () => {

@@ -39,8 +39,10 @@ assert.equal(report.status, "BLOCKED");
 assert.equal(report.gates.candidate_configuration_binding, false);
 assert.equal(report.inputs.candidate_configuration_binding.status, "UNVERIFIED");
 assert.equal(report.inputs.candidate_configuration_binding.readiness_gate, "BLOCKED");
-assert.equal(report.inputs.candidate_configuration_binding.authenticated_current_binary_identity.status, "UNVERIFIED");
-assert.equal(report.inputs.candidate_configuration_binding.trusted_builder_provenance.authenticated_current_binary_match, "NOT_EVALUATED");
+assert.equal(report.inputs.candidate_configuration_binding.authenticated_current_binary_identity.status, "OUT_OF_SCOPE");
+assert.equal(report.inputs.candidate_configuration_binding.trusted_builder_provenance.authenticated_current_binary_match, "OUT_OF_SCOPE");
+assert.ok(!report.inputs.candidate_configuration_binding.missing_inputs.includes("CURRENT_BINARY_IDENTITY"));
+assert.ok(!report.inputs.candidate_configuration_binding.missing_inputs.includes("AUTHENTICATED_CURRENT_BINARY_IDENTITY"));
 assert.equal(report.inputs.candidate_configuration_binding.candidate_artifact_identity.status, "NOT_EVALUATED");
 assert.equal(
   report.inputs.candidate_configuration_binding.authority_verification,
@@ -51,7 +53,7 @@ assert.equal(report.inputs.candidate_configuration_binding.input_sources.candida
 assert.ok(report.inputs.candidate_configuration_binding.missing_inputs.includes("APPROVED_EXPECTED_CONFIGURATION_FINGERPRINT"));
 assert.match(report.resume_conditions.candidate_configuration_binding, /Ed25519 verification is implemented/);
 assert.match(report.resume_conditions.candidate_configuration_binding, /application-pinned production roots/);
-assert.match(report.resume_conditions.candidate_configuration_binding, /authenticated current-binary source/);
+assert.match(report.resume_conditions.candidate_configuration_binding, /Current APP process\/image identity is OUT_OF_SCOPE/);
 assert.match(report.resume_conditions.candidate_configuration_binding, /schema-v2 approval, builder, and authority receipt/);
 assert.equal(report.external_authority.status, "EXTERNAL_AUTHORITY_REQUIRED");
 assert.equal(report.external_authority.first_blocker.id, "TARGET_IDENTITY");
@@ -446,7 +448,7 @@ try {
     validReport.inputs.candidate_configuration_binding.authenticated_current_deployment_identity.trust_subject,
     "MAIN_WORKER_RUNTIME_IDENTITY_ONLY",
   );
-  assert.equal(validReport.inputs.candidate_configuration_binding.authenticated_current_binary_identity.status, "UNVERIFIED");
+  assert.equal(validReport.inputs.candidate_configuration_binding.authenticated_current_binary_identity.status, "OUT_OF_SCOPE");
   assert.equal(validReport.inputs.candidate_configuration_binding.readiness_gate, "BLOCKED");
   assert.equal(validReport.inputs.candidate_configuration_binding.gameplay_effect, "NONE");
   assert.equal(validReport.gates.candidate_configuration_binding, false);

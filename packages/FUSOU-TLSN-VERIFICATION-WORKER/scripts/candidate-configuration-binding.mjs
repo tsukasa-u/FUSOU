@@ -353,7 +353,6 @@ export function candidateConfigurationBindingAssessment({
   const binary = safelyValidate(currentBinaryIdentity, validateCurrentBinaryIdentity);
   const builder = safelyValidate(trustedBuilderProvenance, (value) => validateBuilderProvenance(value, nowMs));
   const authority = safelyValidate(independentAuthorityReceipt, (value) => validateIndependentAuthorityReceipt(value, nowMs));
-  const authenticatedBinary = null;
   const authenticatedDeployment = authenticatedDeploymentIdentity(runtimeDeploymentIdentity);
   const authoritySignatures = {
     APPROVED_EXPECTED_CONFIGURATION_FINGERPRINT: verifyEvidenceSignature(
@@ -420,12 +419,8 @@ export function candidateConfigurationBindingAssessment({
   else if (builder.result) {
     if (builder.result.validity !== "CURRENT") builderStatus = builder.result.validity;
     else if (!identity) builderStatus = "BLOCKED_NO_LOCAL_CANDIDATE";
-    else if (!binary.result) builderStatus = binary.status === "INVALID" ? "INVALID_BINARY_IDENTITY" : "BLOCKED_NO_CURRENT_BINARY_IDENTITY";
     else if (
       builder.result.candidate_artifact_id !== identity.candidate_artifact_id ||
-      builder.result.artifact_identity !== binary.result.artifact_identity ||
-      builder.result.binary_sha256 !== binary.result.binary_sha256 ||
-      builder.result.source_commit !== binary.result.source_commit ||
       (expectedSourceCommit !== null && builder.result.source_commit !== expectedSourceCommit)
     ) builderStatus = "MISMATCH";
     else if (authoritySignatures.AUTHENTICATED_BUILDER_PROVENANCE.status === "INVALID") builderStatus = "INVALID";
@@ -439,7 +434,6 @@ export function candidateConfigurationBindingAssessment({
   else if (authority.result) {
     if (authority.result.validity !== "CURRENT") authorityStatus = authority.result.validity;
     else if (!identity) authorityStatus = "BLOCKED_NO_LOCAL_CANDIDATE";
-    else if (!binary.result) authorityStatus = binary.status === "INVALID" ? "INVALID_BINARY_IDENTITY" : "BLOCKED_NO_CURRENT_BINARY_IDENTITY";
     else if (
       authority.result.candidate_artifact_id !== identity.candidate_artifact_id ||
       authority.result.combined_sha256 !== identity.app_configuration.combined_sha256 ||
@@ -448,8 +442,7 @@ export function candidateConfigurationBindingAssessment({
     ) authorityStatus = "MISMATCH";
     else if (!authenticatedDeployment) authorityStatus = "BLOCKED_NO_TRUSTED_DEPLOYMENT_IDENTITY";
     else if (!sameObjectFields(authority.result.deployment_identity, authenticatedDeployment)) authorityStatus = "MISMATCH";
-    else if (!authenticatedBinary) authorityStatus = "BLOCKED_NO_AUTHENTICATED_CURRENT_BINARY_IDENTITY";
-    else if (authority.result.binary_sha256 !== authenticatedBinary.binary_sha256) authorityStatus = "MISMATCH";
+    else if (builder.result && authority.result.binary_sha256 !== builder.result.binary_sha256) authorityStatus = "MISMATCH";
     else if (authoritySignatures.INDEPENDENT_AUTHORITY_RECEIPT.status === "INVALID") authorityStatus = "INVALID";
     else authorityStatus = authoritySignatures.INDEPENDENT_AUTHORITY_RECEIPT.result?.authority_trusted
       ? "VERIFIED"
@@ -511,15 +504,13 @@ export function candidateConfigurationBindingAssessment({
   const missingInputs = [];
   if (!identity) missingInputs.push("CANDIDATE_ARTIFACT_BUNDLE");
   if (approvedStatus !== "MATCH_VERIFIED") missingInputs.push("APPROVED_EXPECTED_CONFIGURATION_FINGERPRINT");
-  if (!binary.result) missingInputs.push("CURRENT_BINARY_IDENTITY");
-  if (!authenticatedBinary) missingInputs.push("AUTHENTICATED_CURRENT_BINARY_IDENTITY");
   if (builderStatus !== "VERIFIED") missingInputs.push("AUTHENTICATED_BUILDER_PROVENANCE");
   if (authorityStatus !== "VERIFIED") missingInputs.push("INDEPENDENT_AUTHORITY_RECEIPT");
   if (!authenticatedDeployment) missingInputs.push("AUTHENTICATED_CURRENT_DEPLOYMENT_IDENTITY");
 
   const readinessEligible = !!identity && !syntheticFixture && approvedStatus === "MATCH_VERIFIED"
     && builderStatus === "VERIFIED" && authorityStatus === "VERIFIED"
-    && !!authenticatedBinary && !!authenticatedDeployment;
+    && !!authenticatedDeployment;
   const reportStatus = readinessEligible ? "PASS" : "UNVERIFIED";
 
   const report = {
@@ -530,9 +521,7 @@ export function candidateConfigurationBindingAssessment({
       candidate_fingerprint_present: identity ? "PRESENT_LOCAL_CONSISTENCY" : localStatus,
       candidate_artifact_cryptographically_bound: localStatus,
       approved_expected_fingerprint_match: approvedStatus,
-      binary_provenance_authenticated: builderStatus !== "VERIFIED"
-        ? "BLOCKED_NO_TRUSTED_BUILDER"
-        : authenticatedBinary ? "VERIFIED" : "BLOCKED_CURRENT_BINARY_IDENTITY_UNVERIFIED",
+      binary_provenance_authenticated: builderStatus === "VERIFIED" ? "VERIFIED" : "BLOCKED_NO_TRUSTED_BUILDER",
       independent_authority_provenance_verified: authorityStatus === "VERIFIED" ? "VERIFIED" : "BLOCKED_MISSING_AUTHORITY",
     },
     candidate_artifact_identity: identity ? {
@@ -583,32 +572,27 @@ export function candidateConfigurationBindingAssessment({
       reason: approved.reason ?? authoritySignatures.APPROVED_EXPECTED_CONFIGURATION_FINGERPRINT.reason ?? null,
     },
     current_binary_identity: {
-      status: binary.status === "PRESENT" ? "PRESENT_UNVERIFIED" : binary.status,
+      status: binary.result
+        ? "PRESENT_UNVERIFIED_METADATA"
+        : binary.status === "INVALID" ? "INVALID_OPTIONAL_METADATA" : "NOT_PROVIDED",
+      classification: "OUT_OF_SCOPE_OPTIONAL_METADATA",
+      readiness_required: false,
       artifact_identity: binary.result?.artifact_identity ?? null,
       binary_sha256: binary.result?.binary_sha256 ?? null,
       source_commit: binary.result?.source_commit ?? null,
       evidence_sha256: binary.result?.evidence_sha256 ?? null,
-      source_authentication: authenticatedBinary ? "AUTHENTICATED" : "UNVERIFIED",
+      source_authentication: "OUT_OF_SCOPE",
       reason: binary.reason ?? null,
     },
     authenticated_current_binary_identity: {
-      status: authenticatedBinary ? "VALID" : "UNVERIFIED",
-      source: authenticatedBinary?.source ?? null,
-      artifact_identity: authenticatedBinary?.artifact_identity ?? null,
-      binary_sha256: authenticatedBinary?.binary_sha256 ?? null,
-      source_commit: authenticatedBinary?.source_commit ?? null,
+      status: "OUT_OF_SCOPE",
+      readiness_required: false,
     },
     trusted_builder_provenance: {
       status: builderStatus,
       candidate_binding: builderCandidateBinding,
       operator_binary_metadata_match: builderOperatorBinaryMetadataMatch,
-      authenticated_current_binary_match: authenticatedBinary && builder.result
-        ? builder.result.artifact_identity === authenticatedBinary.artifact_identity
-          && builder.result.binary_sha256 === authenticatedBinary.binary_sha256
-          && builder.result.source_commit === authenticatedBinary.source_commit
-          ? "MATCH"
-          : "MISMATCH"
-        : "NOT_EVALUATED",
+      authenticated_current_binary_match: "OUT_OF_SCOPE",
       issued_at: builder.result?.issued_at ?? null,
       valid_from: builder.result?.valid_from ?? null,
       valid_until: builder.result?.valid_until ?? null,
@@ -667,7 +651,6 @@ export function candidateConfigurationBindingAssessment({
       ...Object.entries(authoritySignatures)
         .filter(([, result]) => !result.result?.authority_trusted)
         .map(([authorityType]) => `${authorityType}_APPLICATION_TRUST_ROOT_NOT_CONFIGURED`),
-      "AUTHENTICATED_CURRENT_BINARY_IDENTITY_SOURCE",
       ...(!authenticatedDeployment ? ["AUTHENTICATED_CURRENT_DEPLOYMENT_IDENTITY_SOURCE"] : []),
     ],
     missing_inputs: missingInputs,

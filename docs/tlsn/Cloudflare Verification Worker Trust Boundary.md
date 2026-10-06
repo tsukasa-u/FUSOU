@@ -41,6 +41,27 @@ The Worker is responsible for:
 
 The Worker does not establish device authority itself. FUSOU-WEB remains the existing device-auth authority and uses no new TLSN device registry. Its generic bearer-bound endpoint resolves the device row from `user_devices`, requires the non-anonymous bearer user to equal `canonical_user_id`, rejects `revoked_at`, verifies the existing HMAC challenge nonce and DB public key's Ed25519 signature, consumes `(device_id, nonce)`, and returns only the DB-derived device ID for Session issuance. Its dedicated TLSN endpoint repeats the owner and revocation checks, verifies Ed25519 over the canonical `FUSOU-TLSN-DEVICE-PROOF-V1\0` message, and consumes `SHA-256(message)` through the same `anon_sync_nonce_consumptions` table. The standalone Worker has no Supabase service-role key and no device private key. A client-supplied device ID is only a lookup/proof selector and must match the backend result, WASM result, and Durable Object record.
 
+## Primary communication-integrity goal and threat boundary
+
+FUSOU's primary security goal is to prevent or detect third-party modification or substitution in transit between FUSOU APP and the Game Server, and to create independently verifiable evidence of the communication. The evidence chain is:
+
+```text
+Game Server identity
+  -> Web PKI / TLS server authentication
+  -> FUSOU APP <-> Game Server TLS communication
+  -> exact TLS transcript
+  -> TLSN proof / Presentation
+  -> approved Notary
+  -> Verifier
+  -> signed Result / Evidence
+```
+
+The guarantee is about the authenticated server identity, TLS-protected in-transit bytes, exact transcript provenance, TLSN verification, and the authority/provenance of the resulting evidence. `Game Server identity`, Web PKI validation, and Notary authorization remain distinct checks; none substitutes for another.
+
+Browser-to-APP data integrity is outside FUSOU's browser-integrity guarantee. The Game Server is responsible for checking the game meaning, consistency, and acceptability of values it receives. If the local OS is fully compromised, it may alter APP memory or plaintext before TLS encryption; FUSOU does not claim that a client-side process identity or binary measurement proves that pre-encryption data is correct. A genuine APP binary does not imply truthful communication content.
+
+This endpoint-compromise limitation is distinct from an in-transit network MITM. It does not by itself defeat TLS server authentication or cryptographic protection for bytes after encryption, assuming the TLS endpoint/key processing is not itself compromised. Current FUSOU APP executable/process identity is therefore outside the primary guarantee and is not a readiness prerequisite. No TPM, Measured Boot, OS process measurement, remote attestation, or privileged helper is required to close a communication-integrity gate.
+
 ## Trust model
 
 A valid alpha.15 proof authenticates the TLS connection, the disclosed server identity, and the disclosed transcript bytes. It does not by itself prove that a binding was issued for a FUSOU Session, that a proof is being used for the first time, or that the Notary is an approved FUSOU Notary.

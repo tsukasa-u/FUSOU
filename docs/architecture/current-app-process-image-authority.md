@@ -1,18 +1,42 @@
 # FUSOU Current APP Process Image Authority
 
-Status: Architecture decision record, **AD-5: authority source and mechanism not yet selected**
+Status: **AD-5 = OUT_OF_SCOPE; NOT_REQUIRED_FOR_COMMUNICATION_INTEGRITY_GOAL**
 Decision date: 2026-10-05
-Review date: 2026-10-06
-Scope: design only; no authority, trust root, runtime verifier, or readiness gate is implemented here.
+Review date: 2026-10-07
+Scope: current classification and preserved historical audit; AD-5 is not a readiness dependency.
 Repository path: `docs/architecture/current-app-process-image-authority.md`
 Audit baseline: `bc108e31ebb37167276cd68a530c973ad4b80c57` (`tlsn-phase0-investigation`)
 Committed document revision at audit start: `31925cd8f91a85f31f69b844e1603d3b6ef80d76`
+Latest review baseline: `b242759570b57ff0a78286b01ea9a6009ef1f588`
+
+## Current classification (2026-10-07)
+
+**AD-5 is `OUT_OF_SCOPE`, `NOT_REQUIRED_FOR_COMMUNICATION_INTEGRITY_GOAL`, and is not a readiness blocker.** The earlier audit treated `AUTHENTICATED_CURRENT_BINARY_IDENTITY_SOURCE` as an external prerequisite. Reassessment against FUSOU's security objective supersedes that requirement; no current-process authority is required, planned, or selected by this project.
+
+FUSOU's primary assurance goal is to prevent or detect third-party in-transit tampering of communication between FUSOU APP and the Game Server, and to form independently verifiable evidence of that communication:
+
+```text
+Game Server identity
+  -> Web PKI / TLS server authentication
+  -> FUSOU APP <-> Game Server communication
+  -> exact TLS transcript
+  -> TLSN proof / Presentation
+  -> Notary
+  -> Verifier
+  -> Result / Evidence
+```
+
+The browser-to-APP boundary is outside FUSOU's browser-integrity guarantee. The Game Server is responsible for validating the game meaning, consistency, and acceptability of values it receives. If the local OS is fully compromised, an attacker may change APP memory or data before TLS encryption; FUSOU does not claim that a client-side process attestation can prove such plaintext correct. This endpoint-compromise limitation does not negate TLS protection of encrypted in-transit bytes against a network MITM when endpoint TLS authentication and cryptographic processing remain trustworthy. Endpoint compromise and in-transit tampering are different threats. A genuine APP process identity must never be used to infer that its pre-encryption communication content is correct.
+
+Authenticating the currently running APP executable/process as an independent trust root is outside this project's guarantee and does not establish the integrity or truth of pre-encryption APP data. TPM, Measured Boot, OS process measurement, remote attestation, and privileged helpers are not prerequisites and must not be implemented to unblock readiness. Their absence must not stop readiness; in-scope communication-evidence gates remain independently enforceable.
+
+The remainder of this file preserves the earlier AD-5 audit and its contemporaneous requirements as history. Any statement below that calls the current-process source an external prerequisite, marks AD-5 unresolved/blocked, or compares candidate process-authority mechanisms is superseded by this classification and is not a current implementation or readiness requirement.
 
 ## Scope and immutable constraints
 
 The provenance baseline is `1e548ce3c`. The earlier audit baseline was `db7a29ef831f334534eb408f948fd50e1de73ee3` (`Freeze TLSN failure artifact v2 contract`); this review rechecked the repository at `bc108e31ebb37167276cd68a530c973ad4b80c57`. The document was already tracked in that HEAD, with committed revision `31925cd8f91a85f31f69b844e1603d3b6ef80d76` before this uncommitted amendment. Failure-output redaction was introduced separately in `314089b13`; it does not change provenance semantics. The active external input remains `TLSN_CANARY_DEPLOYMENT_MANIFEST`. External Package v2 is historical and is not reactivated.
 
-This record does not change provenance v3, convert `CURRENT_BINARY_IDENTITY` into authenticated evidence, configure application pins, or authorize gameplay. It does not treat `current_exe()`, a self-hash, PID, updater signature, Main Worker Runtime Attestation, `/health`, or operator JSON as current-process authority. It creates no fixture authority and proposes no TSA, global registry, historical registry, revocation service, or separate nonce registry. Any such service would require a separate trust-model justification.
+This record formalizes requirements and human decision inputs only. It does not change provenance v3, convert `CURRENT_BINARY_IDENTITY` into authenticated evidence, configure application pins, or authorize gameplay. It does not implement process measurement, a helper, TPM/IMA/fs-verity, Windows Code Integrity, macOS SecCode, code-signing integration, a readiness gate, or a new registry/service. It does not treat `current_exe()`, a self-hash, PID, updater signature, Main Worker Runtime Attestation, `/health`, or operator JSON as current-process authority. It creates no fixture authority and proposes no TSA, global registry, historical registry, revocation service, or separate nonce registry. Any such service would require a separate trust-model justification.
 
 ## 1. Architecture decision
 
@@ -88,7 +112,18 @@ Repository evidence identifies roles and interfaces more clearly than accountabl
 | PID and `current_exe()` (`DIAGNOSTIC`) | PID is an operational selector; `current_exe()` reports an executable path in APP info output. | Local OS / calling APP. | None as an AD-5 trust root. | Diagnostic process/path metadata. | Stable process instance, measured mapped bytes, authority, or freshness. | PID reuse and path/object replacement are not addressed by these values; neither is used here as security identity. |
 | `CURRENT_PROCESS_IMAGE_SOURCE_AUTHORITY` (absent) | Must authenticate a fresh measurement of the exact APP process/image and cross-bind it to Builder Provenance. | **Owner, administrative independence, credential generation/custody, and incident responder are unresolved.** | Dedicated application-pinned source root required; not configured. | Nothing today; this is an external prerequisite, not an existing authority. | It cannot inherit authority from Builder, `/health`, updater signature, PID, `current_exe()`, operator JSON, or device key. | No signer lifecycle, rotation, revocation/status, or compromise-recovery policy is selected. |
 
-### Independence and key-domain separation
+### C. Independence model and key-domain separation
+
+Independence is a governance and control property, not a key-name or signature-format property. The following acceptance rules must be decided by accountable humans before selecting a source:
+
+| Independence dimension | AD-5 requirement | Decision rule / unresolved input |
+| --- | --- | --- |
+| Owner independence | Builder must not be able to assert or mint the observation that its own artifact is currently running. Candidate and configuration-approval authorities must not silently become the process-measurement authority. | The same legal organization is not automatically disqualifying, but same owner, administrative principal, account, release workflow, or unilateral credential control is not independent. If APP developers and the proposed authority share organization, identify who can replace the APP/helper, change policy/root, issue statements, and respond to compromise. The relying party must explicitly accept any shared top-level administration or collusion threat; otherwise independence is not established. |
+| Technical independence | The observation must come from a boundary that can inspect the target process and that the target APP cannot forge or rewrite. | APP-generated hashes, self-reported fields, APP-controlled IPC, or a helper replaceable/controlled by the APP user do not qualify. A helper would need an independently authenticated binary/service identity, OS-enforced privilege/IPC policy, protected credentials, and evidence that the measured process is the one in the protected session. None is selected. |
+| Trust-root independence | Process Authority verification must not collapse into Builder authorization. | Separate signing keys under the same Builder-controlled root/account are key separation, not trust-root independence. Reusing the Builder root allows a Builder compromise/control to mint both build and process claims, defeating independent cross-checking. The default AD-5 requirement is a separately governed and separately pinned Process Authority root. Any shared root would be a material reduction of the independence claim and requires an explicit human decision; it is not accepted implicitly. |
+| Operational independence | Key custody, issuance policy, root acceptance, lifecycle, revocation, and incident response must have named accountable operators. | Distinct role labels are insufficient. Name separate custodians/operators or document accepted shared control; define two-person/approval controls if required, rotation and emergency revocation authority, verifier fail-closed behavior, and recovery. These owners and policies are currently unknown. |
+
+Builder Provenance alone is not an acceptable Process Authority statement: a Builder can attest to its build without observing what currently runs. A Candidate or configuration approval signature proves only its declared signed scope. If the same organization operates multiple roles, the threat model must state whether shared IAM, CI, cloud accounts, release permissions, senior administrators, or incident responders are within the trusted boundary.
 
 For `CURRENT_PROCESS_IMAGE_SOURCE_AUTHORITY` to be independent of `BUILDER_AUTHORITY`, the process measurement must be produced by a separately controlled measurement boundary, with independently governed credentials, signing-key custody, lifecycle/incident response, and a root pinned by the relying application through a trusted configuration path. The source must not be able to rewrite or self-assert the builder receipt it compares against. The builder must not be able to mint the process-measurement statement merely because it created the binary.
 
@@ -104,7 +139,22 @@ An application pin is mandatory: the relying application must receive the dedica
 
 ## 3. Requirement matrix
 
-### Security objective: three separate claims
+### A. AD-5 security objective
+
+The security objective is:
+
+> The relying verifier can establish, with independently authenticated evidence bound to a fresh verifier-issued challenge, that the exact FUSOU APP process participating in the protected capture/gameplay session corresponds to an approved application artifact covered by trusted Builder Provenance.
+
+Interpretation constraints:
+
+- The relying verifier, not the APP's self-report, decides whether the evidence and cross-binding are acceptable.
+- The process authority authenticates a current process observation; the Builder authority authenticates build/artifact claims. They are distinct claims and distinct authority domains.
+- “Exact process” means a process instance and image relation defined by a selected platform measurement profile, not a PID or executable pathname alone.
+- The session/capture scope must be bound to the assessed process evidence. A valid image measurement for a different process or session does not satisfy the objective.
+- The statement proves only what its measurement profile includes. It does not implicitly prove runtime configuration, absence of all injected code, or machine integrity unless those are separately measured and accepted.
+- This is a target security property, not a claim that any existing component currently provides it and not an implementation selection.
+
+### Three separate claims
 
 | Layer | Security question | Existing evidence and current status |
 | --- | --- | --- |
@@ -113,6 +163,41 @@ An application pin is mandatory: the relying application must receive the dedica
 | Current-process authenticity | Is the process currently performing capture/gameplay the process whose mapped image corresponds to the approved artifact? | No process-object authority, mapped-image measurement, process-to-image binding, or measurement-to-Builder cross-binding exists. `current_exe()` is informational path output; PID is not an authority. Status: `UNVERIFIED / NOT_IMPLEMENTED`. |
 
 The AD-5 objective is the third row. Artifact authenticity does not imply installation authenticity, and neither implies current-process authenticity. Do not compose these claims by treating a Builder signature as a live measurement.
+
+### B. Authority statement semantic contract
+
+The following are semantic requirements for future evidence, not a JSON schema or selected wire format. A field may be represented indirectly only if the relying verifier can establish the same property without trusting an APP-supplied label. The source authority signs a domain-separated statement over the accepted fields; the relying verifier validates the signature, authority scope, root, freshness, and each binding separately.
+
+| Semantic field / claim | Why it is needed and threat addressed | Producer | Relying-verifier check |
+| --- | --- | --- | --- |
+| `authority_id`, `authority_scope`, signing key ID and algorithm | Identifies who is asserting the process observation and prevents scope/key substitution. | Independently governed Process Authority. | Resolve the key to the human-approved authority and exact process-measurement scope under the accepted root; reject unknown, retired, or wrong-scope keys. |
+| `subject_installation` | Distinguishes the installation under assessment from another copy of the same release; addresses cross-installation replay and installer substitution. | Process Authority from an independently verifiable install context, if installation identity is in scope. | Verify the installation claim under its defined authority and bind it to the process object; never accept an operator path or version string alone. |
+| `process_instance_identity` | Distinguishes the live process instance from another process, restart, or PID reuse. | Process Authority using its platform process-observation boundary. | Verify it identifies the challenged process instance and remains valid at the consuming decision; PID alone is not sufficient. |
+| `process_object_identity` or equivalent binding proof | Shows that the authority measured through the same OS process object it identifies, rather than looking up a process by a reusable selector. A raw local handle value is not a portable proof. | Process Authority; exact representation is platform-specific and undecided. | Validate the signed object/process relation and reject object changes, exit, restart, or a response referring only to an untrusted PID/path. |
+| `measurement_profile` | Defines what “image” means: on-disk bytes proven mapped, normalized loaded image, executable pages, modules, injection/JIT scope, and canonicalization. Prevents comparing unlike measurements. | Process Authority publishes a versioned profile; policy approval is a human input. | Require an approved profile and check that the measured value has the same preimage semantics as the comparison/derivation used for Builder Provenance. |
+| `measured_image` | Supplies the actual measurement and relevant image/object relation; addresses modified, replaced, and patched images. | Process Authority from the process-bound measurement, not APP self-report. | Recompute/validate according to the approved profile or verify the authenticated measurement result; reject path-only or unsigned digest claims. |
+| `artifact_identity` | Names the release artifact the process measurement is claimed to correspond to. | Process Authority references the artifact established by the separate Builder evidence. | Resolve and compare to the independently verified Builder Provenance; a filename, version, or bare hash without defined bytes is insufficient. |
+| `builder_artifact_reference` | Selects the exact Builder Provenance statement/artifact record to cross-bind and prevents substituting another valid build's provenance. | Process Authority references an immutable Builder record identifier/digest; Builder still signs only its own statement. | Independently verify Builder signature, signer authorization, validity, and root; then compare candidate/artifact identity and compatible measurement values explicitly. Do not treat a reference as verification. |
+| `challenge` | Establishes freshness and binds the response to this relying-verifier request, process target, and attempt; addresses stale and replayed evidence. | Generated by the relying verifier, not the APP. | Verify exact challenge, verifier identity, target/capture scope, expiry, unpredictable challenge policy, and one-use state. |
+| `capture_scope` | Binds evidence to the candidate/capture/session or protected action for which it is consumed; addresses evidence transplantation between sessions. | Relying verifier defines scope; Process Authority signs the exact scope it measured for. | Compare every scope identifier to the active attempt/job and protected capture/gameplay request. |
+| `issued_at` | Supplies the source's signed creation-time claim for policy and diagnostics. | Process Authority clock. | Treat as an issuer claim only; also enforce verifier-observed time and challenge validity. It is not an independent timestamp. |
+| `expires_at` or bounded validity | Limits how long an observation may be used and narrows stale evidence windows. | Process Authority signs a bounded validity claim under policy. | Enforce a short policy maximum against verifier time; expiry alone does not prevent replay within the window or process change after measurement. |
+| `subject_machine_or_platform_context` when cross-machine replay is in scope | Binds evidence to the intended machine/platform context; a machine label alone does not identify an APP process. | A separately authenticated platform identity source, if selected. | Validate the identity under an accepted root and bind it to the process evidence. Do not treat a serial number or APP-supplied machine ID as authority. |
+| `authority_signature` | Authenticates the exact statement and prevents field substitution. | Process Authority signing key under independently controlled custody. | Verify signature over an unambiguous domain-separated encoding, then separately verify signer authorization, pinned root, status, and lifecycle. |
+
+This contract intentionally does not prescribe field serialization, platform APIs, a nonce service, or a source. Measurement of a file that is not proven to be the image mapped by the subject process does not satisfy `measured_image` plus `process_object_identity`.
+
+#### Builder relation: independent verification and cross-binding
+
+The selected evidence relationship is a requirement, not an authority/implementation selection:
+
+```text
+Process Authority statement --independently verified under Process Authority root--+
+  +--> relying verifier explicitly cross-binds
+Builder Provenance -----------independently verified under Builder root-------------+    candidate, artifact, and compatible measurement
+```
+
+The alternative “Process Authority statement merely references a Builder record” is insufficient: a reference does not validate that record or prove the measurement matches it. The Process Authority statement must not be an extension of, or signed by, the Builder authority as a substitute for an independent observation. The relying verifier verifies each statement under its own accepted root, then compares the exact `candidate_artifact_id`, `artifact_identity`, and byte/measurement relation under the declared profile. If the Process Authority measurement is not byte-identical to Builder `binary_sha256`, a separately reviewed derivation must define the relation; opaque v3 `evidence_sha256` must not be reinterpreted as that measurement.
 
 ### Completed current-binary audit
 
@@ -167,16 +252,32 @@ These time/challenge concepts are not interchangeable:
 | Process start time | OS-reported creation time/identity component | Not globally unique or a freshness authority; pair with an OS process object/handle and source challenge. |
 | Deployment timestamp | Time a deployment system reports release/deploy activity | Does not prove which image a particular process currently maps or whether it was substituted. |
 
-Minimum future challenge-response shape, still unimplemented:
+### E. Freshness model (minimum requirement, not selected architecture)
 
-1. A relying verifier other than the APP generates a cryptographically unpredictable challenge and binds it to verifier/source identity, candidate/capture scope, intended process request, and a short expiry.
-2. The source measures through the same live process object it identifies and signs the challenge, process-instance identity, measurement profile/digest, builder-artifact reference, and creation time in one statement.
-3. The relying verifier checks the pinned source key, exact challenge/scope, expiry, source signature, measurement profile, and builder cross-binding.
-4. The verifier atomically marks that challenge consumed in the existing attempt/job state. No global nonce registry is specified. If the consuming workflow has no suitable atomic one-use state, replay resistance remains unresolved and the architecture remains blocked.
+The following time values have distinct meanings and cannot substitute for one another:
+
+| Value | Classification | What it can establish | What it cannot establish |
+| --- | --- | --- | --- |
+| Source `issued_at` | Authority-signed time claim | The source signed a statement containing this timestamp. | Independent physical time, a fresh verifier request, or non-replay. |
+| Verifier receive time | Verifier observation | When this verifier received these bytes. | When the signed observation was created or whether it was replayed. |
+| Process start/creation time | Supporting process-instance discriminator | A platform-reported creation value that may help distinguish a restart. | Globally unique process identity, trusted freshness, or challenge consumption. |
+| Deployment time | Deployment-system event claim | A deployment system's report of release/deployment timing. | The APP image currently installed or mapped in a particular process. |
+| Hardware quote nonce | Quote freshness input | Freshness of the values actually covered by a successfully verified quote. | FUSOU APP process identity unless the quote chain also measures and binds that exact process. |
+| Verifier-issued challenge | Required freshness input | A fresh, scoped verifier request when the response authenticates the exact challenge and the verifier consumes it once. | That the measured process remains unchanged after the observation; use-time process binding is separately required. |
+
+Minimum challenge-response constraint, still unimplemented and not an architecture selection:
+
+1. A relying verifier other than the APP generates an unpredictable challenge and binds it to its identity, Process Authority/root, candidate and Builder reference, target process/install context, capture/session scope, expiry, and one-use attempt/job.
+2. The authority measures through the same live process object it identifies and signs the exact challenge, process-instance/object binding, measurement profile/value, Builder reference, capture scope, and bounded validity in one statement.
+3. The relying verifier verifies the Process Authority signature/root/scope and the Builder statement independently, then checks exact challenge, target, capture scope, expiry, measurement semantics, and explicit cross-binding.
+4. The relying verifier atomically consumes the challenge in existing attempt/job state before accepting the protected capture/gameplay result. No new global nonce registry is assumed. If the actual consuming path cannot atomically enforce one-use, replay resistance is unmet and AD-5 remains blocked.
+5. Evidence is invalidated if the target process exits, restarts, changes object, or no longer corresponds to the session at the consuming boundary. A short expiry narrows a window but does not itself prevent TOCTOU.
 
 An APP-generated nonce is not a freshness authority: a compromised or substituted APP controls the request and cannot establish that a trusted source observed the current process. An APP nonce becomes useful only when an independently authenticated source measures the challenged process and signs the exact nonce, and the relying verifier owns the one-use decision.
 
-### Process-instance binding
+### D. Process identity model
+
+#### Process-instance binding
 
 “The binary is trusted” is insufficient. The statement must mean “this exact measurement belongs to this process instance, observed for this assessment.”
 
@@ -185,13 +286,19 @@ An APP-generated nonce is not a freshness authority: a compromised or substitute
 | PID | Diagnostic selector only. PIDs are reused and can name a replacement process; never use alone as security identity. |
 | Process creation/start time | Include as a supporting discriminator if supplied by the OS, but not as a unique cryptographic identity. |
 | OS process handle/object identity | Preferred binding primitive for a local source: open/retain a handle with required access, inspect that referenced process, and reject if it exits or changes before completion. Exact rights/API remain platform-specific and unselected. |
+| Executable path | Locator/diagnostic only. It can be mutable, redirected, replaced, or resolve to a different object later; it does not identify mapped bytes. |
 | Executable object identity | Bind the process's mapped main executable to a stable file/object reference (file ID/inode plus volume/filesystem identity as applicable) while hashing/validating. A pathname is not an object identity. |
+| Mapped image | Measurement subject, only when the source proves the measured bytes/pages belong to the identified process object under a versioned profile. |
 | Code-signing identity | Evidence about a signer/designated requirement is supplemental. It is not a digest of the current mapped image and is not enough by itself. |
+| Installation identity | Installation-level identity/claim. It may distinguish installations when authenticated, but does not prove which image a running process maps. |
+| Machine/platform identity | Machine or platform scope only, if independently authenticated. It can constrain cross-machine replay but does not identify a particular APP process or installation by itself. |
 | Kernel/platform measurement | Stronger only if the platform reports measurement for the same process/object and its trust chain/policy is independently validated. A machine boot measurement is not automatically an application measurement. |
 | Process replacement/restart | Any exit, handle change, creation-identity change, or new process after measurement invalidates the evidence for “current process.” Reassess immediately at the consuming boundary. |
 | Executable replacement | Hashing a path and later opening/executing it is TOCTOU-prone. Measure the object actually mapped, or prove stable object identity from mapping through measurement. |
 | Same-user attacker | Must be explicitly in or out of scope. If in scope, ordinary user-level IPC and path checks are inadequate; the source needs OS-enforced isolation and anti-injection policy. |
 | Privileged attacker | A local administrator/root/kernel compromise can generally subvert local observations. Excluding or detecting this requires a hardware/remote trust chain, not a stronger self-hash. |
+
+`PID + current_exe() + SHA-256` does not satisfy AD-5: PID can be reused; `current_exe()` is a path lookup/diagnostic, not a stable mapped-object identity; hashing bytes at a path does not establish those bytes are mapped in the selected process; no independently trusted source authenticates the measurement; and replacement/restart between measurement and capture creates TOCTOU and replay/substitution opportunities. A digest is a comparison value, not an authority.
 
 The measurement profile must state whether it hashes exact on-disk executable bytes proven to be mapped, normalized loaded image bytes, or measured executable pages. These values are not presumed equal. It must also state whether code injection, writable/executable pages, loaded modules, JIT code, and child processes are in scope. Evidence about an executable file alone cannot claim that all code currently executing inside the process is unmodified.
 
@@ -222,6 +329,26 @@ FUSOU's Tauri bundle declares `targets: all`. Current release/check workflow mat
 - Distribution package signatures establish package provenance only. No IMA/fs-verity/TPM quote collector or verifier is configured in current APP source.
 
 Across all profiles, platform capabilities are candidate mechanisms, not FUSOU authority until their exact source identity, policy, root pin, process binding, measurement semantics, challenge handling, and consumer verification are implemented and tested.
+
+### F. Platform authority requirements (no API selection)
+
+Each supported platform must provide the same security properties even if its evidence mechanism differs: an authenticated observation boundary; stable binding to the exact process instance/object; a defined measurement of the image actually mapped; a signed authority statement under an accepted root; verifier-issued freshness; replay rejection; and a cross-binding to Builder Provenance. These are requirements, not selected APIs or claims about current FUSOU support.
+
+| Platform / evidence candidate | What it may prove | What it does not prove by itself | AD-5 requirement / current gap |
+| --- | --- | --- | --- |
+| Windows: process object/handle | A stable OS reference can help identify the process object inspected by a local authority. | A PID or handle value alone does not authenticate the authority, measure mapped bytes, or bind capture use. | Authority must retain/bind the same process object through measurement and acceptance, detect exit/restart, sign the observation, and bind it to a fresh verifier challenge. No such FUSOU path is selected. |
+| Windows: Authenticode / package signature | Signature policy can establish signer/file claims for the signed file or package. | It does not by itself prove the inspected bytes are mapped by the target running process, fresh, unmodified after install, or the Builder artifact accepted by the relying verifier. | Require a separately trusted link from signed artifact/package to the actual mapped image and process object. Current `certificateThumbprint` is null; updater signing remains distribution scope. |
+| Windows: Code Integrity / process code identity | A configured OS policy or process code-identity observation may contribute a platform-mediated execution/code claim. | The name of a facility or enabled policy does not establish exact image-measurement semantics, independent verifier trust, freshness, or Builder binding. | Select and validate policy, observer trust, process mapping semantics, challenge/signature format, and same-user/admin threat boundary before adoption. None is selected. |
+| Linux: path hash | Hashes bytes obtained by opening a path at a particular time. | Does not show those bytes are the object mapped by the process; path replacement, unlinking, and hash/use races remain. It is not an authority. | Must bind a stable object and measurement to the exact process instance; pathname plus digest is insufficient. |
+| Linux: inode/file ID and open file object | Can distinguish a filesystem object when paired with filesystem identity and a stable open reference. | Does not prove the object is the executable mapped by the target process, that executable pages are unchanged, or that a trusted source observed it. | Require process-to-object/mapping proof, authority authentication, freshness, and comparison to Builder semantics. |
+| Linux: fs-verity | For a verity-enabled file, can enforce content integrity against a trusted digest under its filesystem/kernel policy. | Does not establish who authorized the digest, that the process maps that file, process identity, loaded-code integrity, or a fresh remote statement. | A separately accepted expected digest and process/object binding remain necessary; no FUSOU fs-verity policy or verifier exists. |
+| Linux: IMA | Under a configured kernel policy, can measure/appraise selected events/files according to that policy. | A local log is not automatically an authenticated remote statement for this APP process; event semantics do not automatically bind the exact live process, capture session, or Builder artifact. | Require a validated policy, trusted log/quote appraisal where applicable, exact process/image relation, challenge response, and Builder cross-binding. No IMA collector/verifier is configured. |
+| Linux: TPM quote | A verified quote can authenticate selected PCR values and a quote nonce under its attestation key. | Does not inherently measure or identify the FUSOU APP process, prove a particular file is mapped, or establish the Builder artifact relation. | Boot/event-log appraisal, target-process measurement, verifier challenge, process binding, and Builder cross-binding must each be established separately. No FUSOU end-to-end chain exists. |
+| macOS: code signing / designated requirement | Can establish code-object signer or identity-rule claims for the object evaluated under the selected policy. | Does not by itself prove fresh mapped-image bytes for the exact process, prevent runtime substitution/injection, or bind the claim to Builder Provenance. | Require a process-object-specific measurement/validation, trusted authority statement, challenge, and explicit Builder comparison. Current signing identity is unset. |
+| macOS: SecCode/process validation | May contribute an OS-mediated code identity/validation for a process under a chosen policy. | Does not automatically provide the required versioned byte-measurement semantics, relying-verifier challenge, process-to-capture continuity, or Builder artifact binding. | Specify and validate source identity, caller/policy boundary, exact process relation, freshness, and cross-binding before treating it as evidence. No FUSOU SecCode path is configured. |
+| macOS: notarization | Establishes a distribution-time Apple assessment for the submitted software under notarization policy. | Does not attest which image is currently mapped by a live APP process or prove process freshness. | Distribution evidence may remain useful for artifact/install policy but cannot close current-process authenticity. Current signing identity and macOS CI coverage are absent. |
+
+No platform row is an endorsed candidate. Platform-specific evidence may be combined only after the responsible authority, accepted root, measurement semantics, process binding, and verifier policy are selected; listing a platform primitive does not satisfy the human authority decision.
 
 ## Builder binding
 
@@ -261,29 +388,65 @@ If a source is selected in a future change, the safest integration is a separate
 
 This ADR does not change the active `TLSN_CANARY_DEPLOYMENT_MANIFEST` contract or implement a new manifest field. It does not restore External Package v2. The human gameplay preflight remains a claim/report surface only and cannot authorize the source or turn operator evidence into independent verification.
 
-## 6. AD-5 threat model
+## 6. G. AD-5 threat coverage model
 
 The current implementation does not claim to defend the following threats for the APP process. Existing controls are listed at their actual scope; none is promoted into process-image authority.
 
-| Threat | Required security property | Current protection | Gap / missing authority |
-| --- | --- | --- | --- |
-| Modified executable | Detect and reject bytes or executable state that differ from the approved Builder artifact. | Updater signature can authenticate an updater artifact under its configured key. | No trusted observation of installed or mapped image bytes; no process measurement authority. |
-| Replaced executable after installation | Bind the assessed process to the exact installed object and reject replacement. | Package/updater metadata identifies a release artifact. | No installation identity or stable object binding from package to live process. |
-| Patched binary after installation | Detect post-install file/image modification before the protected action. | Distribution signing is scoped to release artifacts. | No current image measurement, OS policy appraisal, or independent source. |
-| Process injection | Define and detect in-scope injected/modified executable code, not only on-disk file changes. | None in the AD-5 path. | No loaded-code measurement policy or authority; file identity alone would not cover injected code. |
-| Runtime/process substitution | Prove the process performing capture/gameplay is the authenticated target process. | Worker Runtime Attestation and `/health` identify a Worker deployment; device proof identifies possession of a registered key. | Neither binds the FUSOU APP process that performs capture/gameplay. No process-object source exists. |
-| Configuration substitution | Bind actual configuration consumed by the assessed process to the expected approved configuration. | APP configuration fingerprint contract defines hashes of declared projections; signed approval is a separate evidence domain. | Production approval pins are absent; no independent observation binds live process configuration to the process/image at the consuming decision. |
-| Helper substitution | Authenticate any future helper and reject replacement/forged helper responses. | No helper exists. | No helper owner, independently provisioned helper root, IPC policy, service identity, or lifecycle. |
-| Stale attestation replay | Require fresh evidence for the specific current assessment. | Canary Worker Runtime Attestation has its own capture/manifest freshness checks. | Those checks concern Worker deployment evidence, not APP process evidence; no APP process challenge exists. |
-| Different-machine attestation replay | Bind evidence to the machine/platform and target process being assessed. | No APP process attestation is implemented. | No authenticated machine/attestation-key identity or challenge-bound process evidence. |
-| Different-installation attestation replay | Bind evidence to the installation instance under assessment, not another installation of the same release. | Candidate artifact IDs and Builder claims identify candidate/release metadata. | No installation instance identity or authenticated installation-to-process chain. |
-| TOCTOU between measurement and gameplay | Ensure the measured process/object remains the one used at the protected decision; invalidate on exit/change. | No process-image measurement or gameplay authorization gate exists. | No retained process reference, atomic challenge consumption at the relying decision, or revalidation/invalidation protocol. |
-| PID reuse | Use a non-reusable process-object/creation identity and reject a replacement process. | PID is operational/diagnostic only. | PID is not unique or an authority; no process object or creation-identity verifier exists. |
-| Path substitution | Bind measurement to the mapped executable object rather than a mutable pathname. | `current_exe()` reports a path for APP informational output. | No stable file/object identity or process mapping proof; a path is not an authority. |
-| Debug/test build promotion | Accept only a Builder-authorized artifact under the intended production policy and prove that it is the running process. | Builder Provenance schema can state source/workflow/toolchain/builder identity. | Production Builder root is not application-pinned, and no process measurement connects those claims to the running APP. |
-| Valid old build replay | Enforce the intended artifact/version policy and fresh evidence for the current process, including after restart. | v3 evidence validity is checked separately from signed `issued_at`; registry lifecycle is evaluated under its current-snapshot semantics. | No fresh current-process source, install/version binding, or process-instance challenge. A valid old signature does not prove current execution. |
+| Threat | Required authority property | Potential evidence | Current repository coverage | Remaining gap |
+| --- | --- | --- | --- | --- |
+| Modified executable | Detect/reject a measured image that differs from the approved artifact. | Authenticated measurement of the image mapped by the target process plus verified Builder Provenance. | Updater signature covers an updater artifact only. | No process-bound image observation or Builder cross-binding. |
+| Replaced executable | Bind the process to the exact installed object and reject replacement. | Installation identity plus stable process/object-to-image binding from an independent source. | Package/updater metadata identifies a release artifact. | No authenticated install instance or package-to-process chain. |
+| Patched image | Detect post-install file/image modification before protected use. | Measurement profile covering mapped executable bytes/pages and policy for permitted code changes. | Distribution signing is scoped to release artifacts. | No current-image measurement, appraisal authority, or policy. |
+| Process injection | Define and detect in-scope injected/modified executable code, not only on-disk changes. | Process measurement profile that states coverage for pages, modules, JIT, and injection. | No relevant APP-process authority. | No loaded-code measurement semantics or trusted observer. |
+| Process substitution | Prove the process performing capture/gameplay is the authenticated target process. | Challenge-bound process-object identity tied to the capture/session scope. | Worker Runtime Attestation identifies a Worker; device proof identifies key possession. | Neither binds the FUSOU APP process to the protected capture/gameplay. |
+| Helper substitution | Authenticate any helper and reject replacement or forged responses. | Independently rooted helper/service identity, protected key, authenticated IPC, and process-bound statement. | No helper exists. | No owner, root, privilege/IPC policy, lifecycle, or replacement detection. |
+| Configuration substitution | Bind actual configuration consumed by the process to the approved expectation if this claim is required. | Separate independent measurement of the live configuration, bound to the assessed process/session. | Fingerprint contract hashes declared projections; signed approval is a separate domain. | Production pins are absent; no live-config observation is bound to this process. Image authenticity must not imply configuration authenticity. |
+| PID reuse | Identify a non-reusable process instance and reject a replacement. | Stable OS process object plus supporting creation discriminator in an authenticated statement. | PID is diagnostic/operational only. | No process-object authority; PID alone is reusable. |
+| Path replacement | Bind measurement to the mapped object rather than a mutable pathname. | Stable executable object identity plus proof that the same object is mapped in the target process. | `current_exe()` reports an informational path. | No object-to-mapping proof or authority. |
+| TOCTOU | Preserve the measured process/object relation through protected capture/gameplay acceptance. | Retained process reference, use-time revalidation, challenge consumption, and invalidation on exit/change. | No process-image authorization gate exists. | No measurement-to-use continuity or atomic one-use decision. |
+| Stale attestation | Require fresh evidence for this exact attempt. | Verifier-issued challenge, signed response, short validity, and atomic one-use state. | Worker Runtime Attestation has Worker-specific capture/manifest freshness checks. | Worker freshness does not establish APP freshness; no APP process challenge exists. |
+| Cross-machine replay | Bind the evidence to the accepted machine/platform and target process when this threat is in scope. | Independently authenticated platform context plus challenge-bound process measurement. | No APP process attestation. | No accepted machine/platform root or process statement; machine identity alone would still not identify the process. |
+| Cross-installation replay | Bind evidence to the installation instance under assessment. | Authenticated installation identity cross-bound to the running process object and artifact. | Candidate IDs and Builder claims identify candidate/release metadata. | No installation instance identity or installation-to-process chain. |
+| Debug/test build promotion | Enforce production artifact policy and prove the running process is that artifact. | Trusted Builder policy/provenance plus independent current-process measurement and equality check. | Builder schema can state source/workflow/toolchain/builder identity. | Production Builder root is not pinned; no measurement binds claims to the APP process. |
+| Old valid build replay | Enforce the accepted current artifact/version policy and fresh process evidence after restart. | Current policy decision, fresh challenge, process-instance binding, and Builder cross-binding. | v3 checks evidence validity separately from `issued_at`. | A valid old signature does not prove current execution; no process/install version binding or challenge exists. |
 
-## 7. Security gaps
+## 7. H. Human decision inputs (outside code)
+
+The repository cannot choose or infer these accountable roles from a key ID, workflow, service name, or organization name. Humans must record the owner and accepted boundary before any implementation proposal:
+
+| Required human input | Decision that must be recorded |
+| --- | --- |
+| Authority owner | Legal/accountable entity responsible for the truth and scope of current-process statements, including whether it is independent from Builder, Candidate, Configuration Approval, and APP development. |
+| Authority operator | Team/personnel allowed to run measurement and issue statements; administrative boundary and shared IAM/cloud/CI controls. |
+| Trust-root custodian | Who generates, protects, distributes, pins, and authorizes changes to the accepted Process Authority root; how bootstrap and recovery are trusted. |
+| Signing-key custodian | Who controls key generation, storage/use, access review, rotation, emergency disablement, and evidence that the key was not exposed to the APP or Builder. |
+| Verifier operator | Who operates the relying verifier, defines acceptance/fail-closed policy, issues challenges, and atomically consumes attempt/job state. |
+| Revocation authority | Who may revoke a source/key/measurement policy, how the verifier learns current status, and what happens when status is unavailable. |
+| Incident-response owner | Who investigates compromise, withdraws affected roots/evidence, communicates impact, and restores trust after recovery. |
+| Accepted verifier root | Which independently authenticated root the relying verifier accepts, through what trusted bootstrap/pin path, and which entity is authorized to change that pin. |
+| Independence and threat boundary | Whether shared organization/top-level administrators, Builder compromise, same-user attacks, administrator/root, kernel/firmware, or collusion are in scope and what separation is accepted. |
+| Platform and protected-action scope | Which Windows/Linux/macOS versions and which capture/gameplay decisions require the claim; unsupported platforms must fail closed or be explicitly out of scope. |
+
+No implementation may fill these values by inventing a repository owner, reusing an existing Builder/Worker/device root, or accepting operator JSON as authority.
+
+## 8. I. AD-5 decision gate
+
+Each item must be explicitly accepted by the accountable human owner and recorded in the architecture decision. Until then it is `OPEN`, AD-5 remains `NOT SELECTED`, and implementation is prohibited.
+
+1. `OPEN` Accountable authority owner selected and scope of authority approved.
+2. `OPEN` Process Authority root of trust selected, its custodian named, and its trusted bootstrap/pin path accepted.
+3. `OPEN` Owner, technical, trust-root, and operational independence boundary accepted, including shared-organization and compromise assumptions.
+4. `OPEN` Process measurement semantics selected, including mapped-image preimage, profile/version, injected/runtime code scope, and limitations.
+5. `OPEN` Process-object and process-instance binding selected; PID/path-only evidence explicitly rejected.
+6. `OPEN` Builder Provenance cross-binding semantics selected, with separate signature/root validation and defined digest/measurement relation.
+7. `OPEN` Freshness, verifier-issued challenge, atomic consumption, replay rejection, expiry, and process restart/invalidation policy selected.
+8. `OPEN` Authority lifecycle, signing-key custody, rotation, revocation/status, incident response, and recovery model selected.
+9. `OPEN` Supported Windows/Linux/macOS scope, per-platform evidence requirements, and unsupported-platform behavior selected.
+10. `OPEN` Relying-verifier operator, accepted root, acceptance/fail-closed policy, and protected capture/gameplay boundary selected.
+
+Only when all ten items are formally resolved may a human update this record to `AD-5 = SELECTED`. That status records an architecture decision; it is not by itself approval to implement or enable gameplay. Implementation requires a separate scoped change and review after the decision. No current item is selected by this document.
+
+## 9. Security gaps
 
 Before selecting A, B, C, or a hybrid, the owner must resolve:
 
@@ -299,7 +462,7 @@ Before selecting A, B, C, or a hybrid, the owner must resolve:
 
 Until these are resolved, no candidate architecture is security-complete. A local helper may be independent from the APP process boundary while still not independent from a same-user or privileged attacker. A hardware quote may authenticate a platform measurement while still not identify the FUSOU process. The evidence must say exactly which of these claims it establishes.
 
-## 8. Readiness
+## 10. Readiness
 
 Required regression state remains:
 
@@ -324,13 +487,13 @@ Required regression state remains:
 No synthetic authority or fixture is accepted as production evidence. No `/health` result, updater signature, APP self-report, PID, or self-hash changes these states.
 The Run #54 state is not a code/test failure. Historical local PASS results remain local-only and are not CI PASS results. No WASM workflow or Cargo configuration is changed by this ADR review.
 
-## 9. Secret exposure
+## 11. Secret exposure
 
 Previously observed credential-like output remains classified **`EXPOSURE_OBSERVED / VALUE_NOT_REPRODUCED / ROTATION_RECOMMENDED`**. No value is copied into this document, code, commit, or fixture.
 
 The preceding redaction change fixes `error.name` and exception text in failure output, replaces non-null external consume errors with a generic message, and expands sensitive-key redaction for API/access key, authorization, bearer, and credential fields. `stage` and HTTP response status remain structured diagnostics. An exception-specific `error.code` field was not persisted before or after this change; therefore this change did not remove an existing structured code. If more diagnostics are needed, add an allowlisted stable code enum, never raw exception name/message or user-controlled code text.
 
-## 10. Code changes and verification
+## 12. Code changes and verification
 
 This record changes no runtime security semantics and does not modify provenance v3 or readiness code. Failure-output redaction at `314089b13` is a separate implementation change; this ADR only records the authority boundary.
 
@@ -353,3 +516,20 @@ These results identify the exact baseline tested; they do not claim that later a
 - `git diff --check` passed for the ADR amendment. Software tests were not run for this documentation-only audit.
 - `network_access = NOT_USED`; `deployment = NOT_EXECUTED`; `gameplay = NOT_EXECUTED`.
 - WASM CI Run #54 remains `NOT_RUN`: the hosted Runner was not acquired and no steps were generated. WASM/security tests remain `NOT_RUN`; GitHub authentication was unavailable, so no rerun was issued. Earlier local PASS results remain local-only and are not reported as CI PASS.
+
+### 2026-10-07 initial human decision requirements review (superseded later the same day)
+
+- At this initial review, the document formalized the AD-5 security objective, authority statement semantics, independence and key-domain separation, process identity, freshness, per-platform requirements, threat coverage, human decision inputs, and a ten-item decision gate. That decision framing is superseded by the same-day assurance-scope reclassification below.
+- The only changed file is this ADR. Prior readiness and CI states are unchanged: `authenticated_current_binary = UNVERIFIED / NOT_IMPLEMENTED`; `candidate_readiness = BLOCKED`; `HUMAN_GAMEPLAY_GATE = BLOCKED`; `AD-5 = unresolved / NOT_IMPLEMENTED`; production application pins remain `NOT_CONFIGURED`; deployment and gameplay remain `NOT_EXECUTED`; network access remains `NOT_USED`; WASM Run #54 remains `NOT_RUN`.
+- Validation for this review: Markdown diagnostics passed; `git diff --check` passed; worktree contains only this ADR amendment. No software tests were run for this documentation-only change.
+
+### 2026-10-07 assurance-scope reclassification
+
+- Current decision: `AD-5 = OUT_OF_SCOPE`; current APP process/image authenticity is `NOT_REQUIRED_FOR_COMMUNICATION_INTEGRITY_GOAL` and does not gate readiness. The earlier ten-item implementation gate is retained only as historical audit material.
+- Readiness is not promoted by this change. The current offline readiness report remains `BLOCKED`; its first external dependency is `TARGET_IDENTITY` (approved Game Server identity and verifier key). P0-04 remains `PASS` per the existing Phase-0 ledger; P0-05 remains `BLOCKED` for production authenticated FUSOU Presentation/transcript, Notary, Verifier, Result, privacy, and runtime evidence.
+- v3 signed evidence payloads, failure artifact v2/v3 semantics, TLSN Presentation/Notary semantics, Web PKI trust configuration, and WASM CI are unchanged. `CURRENT_BINARY_IDENTITY` is optional untrusted artifact metadata, not process evidence and not a readiness predicate.
+- No TPM, Measured Boot, process attestation, helper, gameplay, Game Server probe, deployment, replay, injection, or external network action was performed.
+- Final offline readiness report: `BLOCKED`; `network_access = NOT_USED`; `deployment_executed = false`. First external dependency is `TARGET_IDENTITY` with missing `TLSN_CANDIDATE_SERVER_IDENTITY` and `TLSN_CANDIDATE_VERIFIER_KEY_ID`. Candidate binding remains `BLOCKED` for its candidate bundle, approved configuration, trusted Builder, independent authority receipt, and authenticated deployment identity; neither `CURRENT_BINARY_IDENTITY` nor process-image authority is a missing input.
+- Tests passed: `test:candidate-configuration-binding` (25 tests) and nested `test:candidate-configuration-signatures` (32 tests); `test:canary-readiness-contract`; `test:human-gameplay-preflight`.
+- Markdown diagnostics passed for this ADR and the Cloudflare Verification Worker Trust Boundary document; `git diff --check` passed. README diagnostics report existing unrelated MD001/MD010 issues elsewhere in that long document.
+- No game started, Game Server probe, request injection/replay, deployment, or external network action was performed.

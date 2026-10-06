@@ -219,22 +219,15 @@ build workflow identify build inputs/process;
 builder provenance authenticates a claim about an artifact identity and raw
 binary SHA-256; neither proves that the artifact was installed or is the image
 currently executing in the APP process. `CURRENT_BINARY_IDENTITY` loaded from
-operator JSON is only an unverified hash/metadata claim. No authenticated
-current-binary verifier or platform measurement source is implemented, and the
-assessment does not accept boolean-shaped authenticated-binary claims. Closing
-that gate is the explicit external prerequisite
-`AUTHENTICATED_CURRENT_BINARY_IDENTITY_SOURCE`. Its source authority must be
-independently identified and authorized; it must report an artifact identity
-and binary SHA-256 measured from the exact currently executing process image,
-bind that process instance to the builder-authenticated artifact identity and
-digest, and authenticate the measurement under an application-pinned source
-root. Evidence must be challenge-bound and time-bounded, with replay and
-process/artifact substitution resistance. Operator-supplied JSON is not source
-authentication; builder provenance alone does not identify the running image;
-Main Worker Runtime Attestation does not authenticate APP binary. APP
-configuration fingerprint is a separate predicate and does not derive from
-the binary digest. These requirements specify a future external input boundary;
-they do not implement or accept such a source today.
+operator JSON is unverified artifact metadata only. It is optional, may be used
+for a diagnostic cross-check against signed artifact claims, and is not a
+measurement or identity of the running APP process. Current APP process/image
+authenticity is `OUT_OF_SCOPE` and is not required by candidate readiness.
+Builder provenance authenticates claims about a build artifact, not a process;
+Main Worker Runtime Attestation remains scoped to Worker deployment identity.
+Neither is presented as current APP process evidence. APP configuration
+fingerprint remains a separate evidence domain. The v3 signed payloads and their
+semantics are unchanged by this classification.
 
 Candidate provenance is responsible for candidate artifact and capture identity,
 APP configuration fingerprint, Configuration Approval, Trusted Builder and
