@@ -89,6 +89,7 @@ const productionSecurityIdentity = {
   binding_authority: "durable-single-use",
   security_registry_set_sha256: "G".repeat(43),
   origin_inventory_sha256: loadOriginInventoryContract().sha256,
+  target_approval_artifact_sha256: assertTargetApprovalResolved().approval_artifact_sha256,
   profile_policy_sha256: createHash("sha256").update(canonicalJson(PROFILE_CONTRACT_SPEC), "utf8").digest("base64url"),
 };
 const productionProvenance = {
@@ -179,6 +180,10 @@ assert.throws(() => assertProvenanceEvidence({
 assert.throws(() => assertProvenanceEvidence({
   ...productionProvenance,
   security_identity: { ...productionSecurityIdentity, origin_inventory_sha256: "L".repeat(43) },
+}, { ...context, deployment_role: "production" }, "production"), /does not match the shipped inventory/);
+assert.throws(() => assertProvenanceEvidence({
+  ...productionProvenance,
+  security_identity: { ...productionSecurityIdentity, target_approval_artifact_sha256: "P".repeat(43) },
 }, { ...context, deployment_role: "production" }, "production"), /does not match the shipped inventory/);
 assert.throws(() => assertProvenanceEvidence({
   ...productionProvenance,

@@ -23,6 +23,16 @@ For Canary, `TLSN_CANDIDATE_SERVER_IDENTITY` is a canonical DNS expectation, not
 
 `TLSN_CANDIDATE_VERIFIER_KEY_ID` is the logical `verifier_key_id` claim in the signed Result, not the Result signing key ID. Result signing has a separate key registry and signed root envelope. Canary execution evidence binds the Result claim to the active dedicated verifier execution key through the signed Runtime Attestation and execution receipt; the execution-registry root custodian is not established by repository evidence.
 
+## Approval-Bound Provenance Extension
+
+The Production target approval is now an explicit operator artifact at `packages/configs/tlsn-target-approval.json`, byte-matched to the Worker-bundled raw-text copy. It records the `FUSOU_DEPLOYMENT_OPERATOR` authority, `APPROVED` Production status, the current inventory digest, and the ordered approved identities. Approval expresses FUSOU deployment intent only; it does not authenticate a peer, replace bundled Mozilla Web PKI, or establish Notary authenticity.
+
+The Production security-set/runtime/deployment identity binds the approval artifact SHA-256 alongside the inventory and profile-policy digests. Deployment provenance rejects an approval digest that differs from the current shipped artifact. This supersedes the earlier version numbers above: the current Production public manifest is schema 5 and the security-registry-set contract is schema 3; the deployment-input manifest remains schema 4 and deployment provenance remains schema 3. Complete Result v2 and sparse Result v3 sign the exact raw Presentation SHA-256 and paired nullable inventory/approval digests; incomplete pairs are invalid. After successful Production verification, the Worker stores and reads back the exact Presentation bytes under `tlsn-verification/<verification-attempt-or-job-id>/presentation.bin`, beside `result.json` under the same prefix. The transient job-input object is still deleted. Non-Production flows do not retain a Presentation archive through this path.
+
+The approval record names the `FUSOU_DEPLOYMENT_OPERATOR` authority model; the artifact hash binds the exact record but is not a separate cryptographic signature or proof of a particular human operator. The configured operator is a trust assumption.
+
+Independent offline evidence verification requires `--origin-inventory` and `--target-approval` for Results with Production provenance. It compares their exact bytes to the signed digests, checks that the approval names that inventory, and requires the Result's server identity to occur in both sets. No Game Server probe, gameplay, Notary request, or deployment was performed for this extension. AD-5 process/image authority, TPM, measured boot, and privileged helpers remain out of scope. Object retention/expiration policy is an operational storage decision and is not established by these code checks.
+
 ## Production Contracts
 
 - Production public manifest schema 4 carries the selected Notary key and raw registry, binds the inventory schema and byte-level SHA-256, and includes a security-set digest recomputed over the selected Notary key/registry, inventory, and canonical profile policy. It does not represent a single `server_identity` and `port` pair.

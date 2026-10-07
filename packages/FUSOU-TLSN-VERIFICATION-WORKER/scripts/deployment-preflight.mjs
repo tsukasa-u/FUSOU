@@ -596,6 +596,7 @@ async function main() {
       security_registry_set_sha256: value("TLSN_SECURITY_REGISTRY_SET_SHA256") ?? null,
       ...(role === "production" ? {
         origin_inventory_sha256: productionOriginInventory?.sha256 ?? null,
+        target_approval_artifact_sha256: targetApproval?.approval_artifact_sha256 ?? null,
         profile_policy_sha256: productionProfilePolicySha256,
       } : {}),
       notary_registry_sha256: registryRaw ? sha256Base64Url(registryRaw) : null,

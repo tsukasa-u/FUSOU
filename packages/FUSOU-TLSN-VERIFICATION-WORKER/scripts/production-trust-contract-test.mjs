@@ -284,7 +284,7 @@ assert.equal(typeof sessionPrivateKeyPkcs8, "string");
 assert.equal(typeof resultPrivateKeyPkcs8, "string");
 
 assert.doesNotThrow(() => assertPublicManifest(validManifest));
-assert.equal(validManifest.schema_version, 4);
+assert.equal(validManifest.schema_version, 5);
 assert.equal(validManifest.notary.registry_sha256, hashNotaryRegistryRaw(validManifest.notary.registry_raw));
 assert.equal(validManifest.origin_inventory.target_count, 20);
 assert.equal(validManifest.origin_inventory.port, 443);
@@ -302,6 +302,7 @@ const changedProfilePolicyPayload = productionSecurityRegistrySetPayload({
   notaryKeyId,
   notaryRegistryRaw: canonicalJson(JSON.parse(validManifest.notary.registry_raw)),
   originInventorySha256: loadOriginInventoryContract().sha256,
+  targetApprovalArtifactSha256: validManifest.target_approval.approval_artifact_sha256,
   profilePolicySha256: changedProfilePolicy,
 });
 const manifestWithMutatedProfilePolicy = structuredClone(validManifest);
@@ -322,6 +323,9 @@ manifestWithMutatedNotaryRegistryHash.notary.registry_raw = JSON.stringify({
 });
 manifestWithMutatedNotaryRegistryHash.notary.registry_sha256 = hashNotaryRegistryRaw(manifestWithMutatedNotaryRegistryHash.notary.registry_raw);
 assert.throws(() => assertPublicManifest(manifestWithMutatedNotaryRegistryHash), /selected public key/);
+const manifestWithMutatedTargetApproval = structuredClone(validManifest);
+manifestWithMutatedTargetApproval.target_approval.approval_artifact_sha256 = Buffer.alloc(32, 0xa5).toString("base64url");
+assert.throws(() => assertPublicManifest(manifestWithMutatedTargetApproval), /Target Approval/);
 const manifestWithMissingNotary = structuredClone(validManifest);
 delete manifestWithMissingNotary.notary;
 assert.throws(() => assertPublicManifest(manifestWithMissingNotary), /public manifest schema|notary/i);

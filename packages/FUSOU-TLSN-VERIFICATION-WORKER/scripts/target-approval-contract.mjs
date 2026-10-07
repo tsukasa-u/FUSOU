@@ -12,6 +12,7 @@ const packageDirectory = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const inventoryPath = resolve(packageDirectory, "../configs/tlsn-origin-inventory.json");
 const workerInventoryPath = resolve(packageDirectory, "../configs/tlsn-origin-inventory.json.txt");
 const approvalPath = resolve(packageDirectory, "../configs/tlsn-target-approval.json");
+const workerApprovalPath = resolve(packageDirectory, "../configs/tlsn-target-approval.json.txt");
 const APPROVAL_FIELDS = [
   "schema_version",
   "authority_model",
@@ -48,9 +49,14 @@ function readDefaultInputs() {
   if (!inventoryBytes.equals(workerInventoryBytes)) {
     throw new Error("canonical Origin inventory and Worker text inventory bytes do not match");
   }
+  const approvalBytes = readFileSync(approvalPath);
+  const workerApprovalBytes = readFileSync(workerApprovalPath);
+  if (!approvalBytes.equals(workerApprovalBytes)) {
+    throw new Error("canonical Target Approval and Worker text artifact bytes do not match");
+  }
   return {
     inventoryBytes,
-    approvalBytes: readFileSync(approvalPath),
+    approvalBytes,
   };
 }
 

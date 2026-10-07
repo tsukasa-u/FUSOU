@@ -6,7 +6,7 @@ import { assertProductionEvidenceBlocked } from "./production-evidence-contract.
 import { securityIdentityFieldsForRole } from "./deployment-contract.mjs";
 import { PROFILE_CONTRACT_SPEC, assertProvenanceProfileContract } from "./profile-canonical-contract.mjs";
 import { loadOriginInventoryContract } from "./origin-inventory-contract.mjs";
-import { assertTargetApprovalProvenance } from "./target-approval-contract.mjs";
+import { assertTargetApprovalProvenance, assertTargetApprovalResolved } from "./target-approval-contract.mjs";
 
 export const ATTESTATION_SCHEMA_VERSION = 2;
 export const DEPLOYMENT_PROVENANCE_SCHEMA_VERSION = 3;
@@ -240,9 +240,11 @@ export function assertProvenanceEvidence(provenance, expectedContext, role) {
   }
   if (role === "production") {
     const expectedInventorySha256 = loadOriginInventoryContract().sha256;
+    const expectedTargetApproval = assertTargetApprovalResolved();
     const expectedProfilePolicySha256 = sha256Base64Url(Buffer.from(canonicalJson(PROFILE_CONTRACT_SPEC), "utf8"));
     if (
       provenance.security_identity.origin_inventory_sha256 !== expectedInventorySha256 ||
+      provenance.security_identity.target_approval_artifact_sha256 !== expectedTargetApproval.approval_artifact_sha256 ||
       provenance.security_identity.profile_policy_sha256 !== expectedProfilePolicySha256
     ) {
       throw new Error("Production provenance security identity does not match the shipped inventory and canonical profile policy");

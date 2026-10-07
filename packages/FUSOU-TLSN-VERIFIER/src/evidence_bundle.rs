@@ -48,6 +48,8 @@ pub struct BundleVerifierOptions {
     pub device_id: String,
     pub device_public_key: String,
     pub server_identity: String,
+    pub origin_inventory_raw: Vec<u8>,
+    pub target_approval_raw: Vec<u8>,
     pub profile_sha256: String,
     pub sparse_profile_sha256: Option<String>,
     pub verifier_key_id: String,
@@ -74,7 +76,10 @@ trait EvidenceResultView {
     fn verifier_key_id(&self) -> &str;
     fn notary_key_id(&self) -> &str;
     fn tlsn_attestation_id(&self) -> &[u8];
+    fn presentation_sha256(&self) -> &[u8; 32];
     fn server_identity(&self) -> &str;
+    fn origin_inventory_sha256(&self) -> Option<&[u8; 32]>;
+    fn target_approval_artifact_sha256(&self) -> Option<&[u8; 32]>;
     fn request_transcript_size(&self) -> u64;
     fn response_transcript_size(&self) -> u64;
     fn revealed_request_ranges(&self) -> &[crate::RevealedRange];
@@ -138,8 +143,17 @@ impl EvidenceResultView for VerifierResult {
     fn tlsn_attestation_id(&self) -> &[u8] {
         &self.tlsn_attestation_id
     }
+    fn presentation_sha256(&self) -> &[u8; 32] {
+        &self.presentation_sha256
+    }
     fn server_identity(&self) -> &str {
         &self.server_identity
+    }
+    fn origin_inventory_sha256(&self) -> Option<&[u8; 32]> {
+        self.origin_inventory_sha256.as_ref()
+    }
+    fn target_approval_artifact_sha256(&self) -> Option<&[u8; 32]> {
+        self.target_approval_artifact_sha256.as_ref()
     }
     fn request_transcript_size(&self) -> u64 {
         self.request_transcript_size
@@ -219,8 +233,17 @@ impl EvidenceResultView for SparseVerifierResult {
     fn tlsn_attestation_id(&self) -> &[u8] {
         &self.tlsn_attestation_id
     }
+    fn presentation_sha256(&self) -> &[u8; 32] {
+        &self.presentation_sha256
+    }
     fn server_identity(&self) -> &str {
         &self.server_identity
+    }
+    fn origin_inventory_sha256(&self) -> Option<&[u8; 32]> {
+        self.origin_inventory_sha256.as_ref()
+    }
+    fn target_approval_artifact_sha256(&self) -> Option<&[u8; 32]> {
+        self.target_approval_artifact_sha256.as_ref()
     }
     fn request_transcript_size(&self) -> u64 {
         self.request_transcript_size
@@ -437,6 +460,13 @@ pub fn verify_bundle(
     )?;
     let result = parse_result_profile(result_bytes)?;
     let result_view = result.view();
+    verify_production_target_approval(
+        result_view.origin_inventory_sha256(),
+        result_view.target_approval_artifact_sha256(),
+        &options.origin_inventory_raw,
+        &options.target_approval_raw,
+        &options.server_identity,
+    )?;
     let capture_time =
         manifest_string(&bundle.manifest, "capture_finished_at", "result_key_window")?;
     let capture_time = parse_timestamp(capture_time).map_err(|message| {
@@ -547,6 +577,7 @@ pub fn verify_bundle(
             result_view.server_identity(),
         ));
     }
+    verify_result_presentation_binding(result_view.presentation_sha256(), presentation)?;
     if result_view.profile_sha256() != &profile_sha256
         || result_view.verifier_key_id() != options.verifier_key_id
     {
@@ -565,6 +596,8 @@ pub fn verify_bundle(
                 result_view.notary_key_id().to_owned(),
                 sha256(&notary_key),
                 sha256(presentation),
+                result_view.origin_inventory_sha256().copied(),
+                result_view.target_approval_artifact_sha256().copied(),
                 result_view.canonical_user_id().to_owned(),
                 result_view.canonical_device_id().to_owned(),
                 *result_view.device_challenge(),
@@ -588,6 +621,9 @@ pub fn verify_bundle(
                     result_view.canonical_user_id().to_owned(),
                     result_view.canonical_device_id().to_owned(),
                     *result_view.device_challenge(),
+                    sha256(presentation),
+                    result_view.origin_inventory_sha256().copied(),
+                    result_view.target_approval_artifact_sha256().copied(),
                     [0; 64],
                 )
                 .map_err(|error| {
@@ -1109,6 +1145,167 @@ fn decode_fixed_base64<const N: usize>(value: &str, label: &str, edge: &str) -> 
 
 fn sha256_base64url(bytes: &[u8]) -> String {
     URL_SAFE_NO_PAD.encode(sha256(bytes))
+}
+
+fn verify_result_presentation_binding(
+    signed_presentation_sha256: &[u8; 32],
+    presentation: &[u8],
+) -> Result<()> {
+    let actual_presentation_sha256 = sha256(presentation);
+    if signed_presentation_sha256 != &actual_presentation_sha256 {
+        return Err(BundleVerificationError::mismatch(
+            "presentation_sha256",
+            Some("result"),
+            "signed Result Presentation hash does not match the bundled raw Presentation bytes",
+            URL_SAFE_NO_PAD.encode(signed_presentation_sha256),
+            URL_SAFE_NO_PAD.encode(actual_presentation_sha256),
+        ));
+    }
+    Ok(())
+}
+
+fn verify_production_target_approval(
+    origin_inventory_sha256: Option<&[u8; 32]>,
+    target_approval_artifact_sha256: Option<&[u8; 32]>,
+    origin_inventory_raw: &[u8],
+    target_approval_raw: &[u8],
+    server_identity: &str,
+) -> Result<()> {
+    match (origin_inventory_sha256, target_approval_artifact_sha256) {
+        (None, None) => Err(BundleVerificationError::new(
+            "production_target_approval",
+            Some("result"),
+            "Production evidence Result does not carry inventory and approval provenance",
+        )),
+        (Some(expected_inventory_sha256), Some(expected_approval_sha256)) => {
+            let inventory_raw = origin_inventory_raw;
+            let approval_raw = target_approval_raw;
+            if sha256(inventory_raw) != *expected_inventory_sha256 {
+                return Err(BundleVerificationError::mismatch(
+                    "production_target_approval",
+                    Some("origin_inventory"),
+                    "current origin inventory does not match the signed Result digest",
+                    URL_SAFE_NO_PAD.encode(expected_inventory_sha256),
+                    sha256_base64url(inventory_raw),
+                ));
+            }
+            if sha256(approval_raw) != *expected_approval_sha256 {
+                return Err(BundleVerificationError::mismatch(
+                    "production_target_approval",
+                    Some("target_approval"),
+                    "current Target Approval does not match the signed Result digest",
+                    URL_SAFE_NO_PAD.encode(expected_approval_sha256),
+                    sha256_base64url(approval_raw),
+                ));
+            }
+
+            let inventory = parse_json(
+                inventory_raw,
+                "origin_inventory",
+                "production_target_approval",
+            )?;
+            let approval = parse_json(
+                approval_raw,
+                "target_approval",
+                "production_target_approval",
+            )?;
+            if inventory.get("schema_version").and_then(Value::as_u64) != Some(1)
+                || approval.get("schema_version").and_then(Value::as_u64) != Some(1)
+                || inventory.get("targets").and_then(Value::as_array).is_none()
+                || approval.get("targets").and_then(Value::as_array).is_none()
+                || approval.get("authority_model").and_then(Value::as_str)
+                    != Some("FUSOU_DEPLOYMENT_OPERATOR")
+                || approval.get("environment").and_then(Value::as_str) != Some("production")
+                || approval.get("status").and_then(Value::as_str) != Some("APPROVED")
+            {
+                return Err(BundleVerificationError::new(
+                    "production_target_approval",
+                    Some("target_approval"),
+                    "current inventory or Target Approval has an unsupported schema or authority state",
+                ));
+            }
+            let expected_inventory_sha256 = URL_SAFE_NO_PAD.encode(expected_inventory_sha256);
+            if approval.get("inventory_sha256").and_then(Value::as_str)
+                != Some(expected_inventory_sha256.as_str())
+            {
+                return Err(BundleVerificationError::new(
+                    "production_target_approval",
+                    Some("target_approval"),
+                    "Target Approval does not name the externally supplied current inventory",
+                ));
+            }
+
+            let inventory_targets = inventory["targets"].as_array().expect("checked above");
+            let approval_targets = approval["targets"].as_array().expect("checked above");
+            let inventory_identities = inventory_targets
+                .iter()
+                .map(|target| {
+                    object_string(
+                        target,
+                        "server_identity",
+                        "production_target_approval",
+                        "origin_inventory",
+                    )
+                })
+                .collect::<Result<Vec<_>>>()?;
+            let mut seen_inventory_identities = HashSet::new();
+            if inventory_identities
+                .iter()
+                .any(|identity| !seen_inventory_identities.insert(*identity))
+            {
+                return Err(BundleVerificationError::new(
+                    "production_target_approval",
+                    Some("origin_inventory"),
+                    "current origin inventory contains duplicate identities",
+                ));
+            }
+            let mut previous_inventory_index = None;
+            for approved_identity in approval_targets {
+                let approved_identity = approved_identity.as_str().ok_or_else(|| {
+                    BundleVerificationError::new(
+                        "production_target_approval",
+                        Some("target_approval"),
+                        "Target Approval contains a non-string target identity",
+                    )
+                })?;
+                let inventory_index = inventory_identities
+                    .iter()
+                    .position(|identity| *identity == approved_identity)
+                    .ok_or_else(|| {
+                        BundleVerificationError::new(
+                            "production_target_approval",
+                            Some("target_approval"),
+                            "Target Approval contains an identity absent from the current inventory",
+                        )
+                    })?;
+                if previous_inventory_index.is_some_and(|previous| inventory_index <= previous) {
+                    return Err(BundleVerificationError::new(
+                        "production_target_approval",
+                        Some("target_approval"),
+                        "Target Approval identities are duplicated or not in inventory order",
+                    ));
+                }
+                previous_inventory_index = Some(inventory_index);
+            }
+            if !inventory_identities.contains(&server_identity)
+                || !approval_targets
+                    .iter()
+                    .any(|identity| identity.as_str() == Some(server_identity))
+            {
+                return Err(BundleVerificationError::new(
+                    "production_target_approval",
+                    Some("result"),
+                    "signed Result server identity is not present in both current Production trust sets",
+                ));
+            }
+            Ok(())
+        }
+        _ => Err(BundleVerificationError::new(
+            "production_target_approval",
+            Some("result"),
+            "signed Result contains incomplete Production inventory and approval provenance",
+        )),
+    }
 }
 
 fn ed25519_public_key(spki: &str, edge: &str) -> Result<Vec<u8>> {
@@ -4059,5 +4256,92 @@ mod tests {
         assert_eq!(report["error"]["artifact"], "result");
         assert_eq!(report["error"]["expected"], "expected-key");
         assert_eq!(report["error"]["actual"], "actual-key");
+    }
+
+    #[test]
+    fn production_target_approval_requires_current_matching_trust_sets() {
+        let inventory_raw = br#"{"schema_version":1,"targets":[{"server_identity":"a.example"},{"server_identity":"b.example"}]}"#;
+        let inventory_sha256 = sha256(inventory_raw);
+        let inventory_sha256_base64url = URL_SAFE_NO_PAD.encode(inventory_sha256);
+        let approval_raw = format!(
+            "{{\"schema_version\":1,\"authority_model\":\"FUSOU_DEPLOYMENT_OPERATOR\",\"environment\":\"production\",\"status\":\"APPROVED\",\"inventory_sha256\":\"{inventory_sha256_base64url}\",\"targets\":[\"a.example\",\"b.example\"]}}"
+        );
+        let approval_sha256 = sha256(approval_raw.as_bytes());
+        verify_production_target_approval(
+            Some(&inventory_sha256),
+            Some(&approval_sha256),
+            inventory_raw,
+            approval_raw.as_bytes(),
+            "a.example",
+        )
+        .unwrap();
+        let mut changed_inventory_sha256 = inventory_sha256;
+        changed_inventory_sha256[0] ^= 1;
+        assert!(verify_production_target_approval(
+            Some(&changed_inventory_sha256),
+            Some(&approval_sha256),
+            inventory_raw,
+            approval_raw.as_bytes(),
+            "a.example",
+        )
+        .is_err());
+        let approval_for_other_target = format!(
+            "{{\"schema_version\":1,\"authority_model\":\"FUSOU_DEPLOYMENT_OPERATOR\",\"environment\":\"production\",\"status\":\"APPROVED\",\"inventory_sha256\":\"{inventory_sha256_base64url}\",\"targets\":[\"b.example\"]}}"
+        );
+        let approval_for_other_target_sha256 = sha256(approval_for_other_target.as_bytes());
+        assert!(verify_production_target_approval(
+            Some(&inventory_sha256),
+            Some(&approval_for_other_target_sha256),
+            inventory_raw,
+            approval_for_other_target.as_bytes(),
+            "a.example",
+        )
+        .is_err());
+        let mut changed_approval_sha256 = approval_sha256;
+        changed_approval_sha256[0] ^= 1;
+        assert!(verify_production_target_approval(
+            Some(&inventory_sha256),
+            Some(&changed_approval_sha256),
+            inventory_raw,
+            approval_raw.as_bytes(),
+            "a.example",
+        )
+        .is_err());
+        assert!(verify_production_target_approval(
+            Some(&inventory_sha256),
+            Some(&approval_sha256),
+            inventory_raw,
+            approval_raw.as_bytes(),
+            "outside.example",
+        )
+        .is_err());
+        assert!(verify_production_target_approval(
+            Some(&inventory_sha256),
+            None,
+            inventory_raw,
+            approval_raw.as_bytes(),
+            "a.example",
+        )
+        .is_err());
+        assert!(verify_production_target_approval(
+            None,
+            None,
+            inventory_raw,
+            approval_raw.as_bytes(),
+            "a.example",
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn signed_presentation_hash_must_match_bundled_raw_bytes() {
+        let presentation = b"exact raw presentation bytes";
+        let signed_hash = sha256(presentation);
+        verify_result_presentation_binding(&signed_hash, presentation).unwrap();
+        let mut changed_hash = signed_hash;
+        changed_hash[0] ^= 1;
+        let error = verify_result_presentation_binding(&changed_hash, presentation).unwrap_err();
+        assert_eq!(error.edge, "presentation_sha256");
+        assert_eq!(error.artifact.as_deref(), Some("result"));
     }
 }

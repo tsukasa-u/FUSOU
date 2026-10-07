@@ -246,10 +246,87 @@ export function parseOriginInventory(raw) {
   return inventory;
 }
 
+const TARGET_APPROVAL_FIELDS = [
+  "schema_version",
+  "authority_model",
+  "environment",
+  "status",
+  "inventory_sha256",
+  "targets",
+  "approved_at",
+];
+
+export function parseTargetApproval(raw, inventory, inventorySha256) {
+  let approval;
+  try {
+    approval = JSON.parse(raw);
+  } catch {
+    throw new Error("shipped Target Approval must be valid JSON");
+  }
+  if (!approval || typeof approval !== "object" || Array.isArray(approval)) {
+    throw new Error("shipped Target Approval must be a JSON object");
+  }
+  if (Object.keys(approval).join("\0") !== TARGET_APPROVAL_FIELDS.join("\0")) {
+    throw new Error("shipped Target Approval has missing, extra, or non-canonical fields");
+  }
+  const canonical = JSON.stringify(
+    Object.fromEntries(TARGET_APPROVAL_FIELDS.map((field) => [field, approval[field]])),
+    null,
+    2,
+  );
+  if (raw !== canonical) throw new Error("shipped Target Approval is not canonically serialized");
+  if (
+    approval.schema_version !== 1 ||
+    approval.authority_model !== "FUSOU_DEPLOYMENT_OPERATOR" ||
+    approval.environment !== "production" ||
+    approval.status !== "APPROVED" ||
+    approval.inventory_sha256 !== inventorySha256
+  ) {
+    throw new Error("shipped Target Approval does not match the current approved Production inventory");
+  }
+  if (
+    typeof approval.approved_at !== "string" ||
+    !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/.test(approval.approved_at) ||
+    !Number.isFinite(Date.parse(approval.approved_at))
+  ) {
+    throw new Error("shipped Target Approval approved_at is invalid");
+  }
+  if (!Array.isArray(approval.targets) || approval.targets.length === 0) {
+    throw new Error("shipped Target Approval targets must be a non-empty array");
+  }
+  const positions = new Map(inventory.targets.map((target, index) => [target.server_identity, { ...target, index }]));
+  const seen = new Set();
+  let previousPosition = -1;
+  for (const identity of approval.targets) {
+    assertCanonicalServerIdentity(identity);
+    const target = positions.get(identity);
+    if (!target || target.port !== 443 || seen.has(identity) || target.index <= previousPosition) {
+      throw new Error("shipped Target Approval contains an invalid, duplicate, or unordered target");
+    }
+    seen.add(identity);
+    previousPosition = target.index;
+  }
+  return approval;
+}
+
+export function resolveApprovedProductionIdentity(observedIdentity, inventory, approvedTargetIdentities) {
+  assertCanonicalServerIdentity(observedIdentity);
+  const target = inventory.targets.find((candidate) =>
+    candidate.server_identity.toLowerCase() === observedIdentity.toLowerCase() &&
+    candidate.port === 443
+  );
+  if (!target) throw new Error("verified Presentation server identity is outside the shipped Origin inventory");
+  if (!approvedTargetIdentities.includes(target.server_identity)) {
+    throw new Error("verified Presentation server identity is outside the current Target Approval");
+  }
+  return target.server_identity;
+}
+
 export function productionSecurityRegistrySetPayload({
   notaryKeyId,
   notaryRegistryRaw,
   originInventorySha256,
+  targetApprovalArtifactSha256,
   profilePolicySha256,
 } = {}) {
   if (typeof notaryKeyId !== "string" || !/^[A-Za-z0-9._-]{1,128}$/.test(notaryKeyId)) {
@@ -257,6 +334,7 @@ export function productionSecurityRegistrySetPayload({
   }
   for (const [label, value] of [
     ["origin_inventory_sha256", originInventorySha256],
+    ["target_approval_artifact_sha256", targetApprovalArtifactSha256],
     ["profile_policy_sha256", profilePolicySha256],
   ]) {
     if (typeof value !== "string" || !SHA256_BASE64URL_PATTERN.test(value)) {
@@ -284,6 +362,7 @@ export function productionSecurityRegistrySetPayload({
     notary_key_id: notaryKeyId,
     notary_registry: JSON.parse(canonicalJson(registry)),
     origin_inventory_sha256: originInventorySha256,
+    target_approval_artifact_sha256: targetApprovalArtifactSha256,
     profile_policy_sha256: profilePolicySha256,
   };
 }

@@ -10,7 +10,13 @@ import {
   createCanaryVerifierExecutionReceipt,
   serializeCanaryAuthoritativeResult,
 } from "../src/verifier_identity.js";
-import { assertResultArchiveBytes, encodeResultArchiveSha256, persistAndVerifyResultArchive } from "../src/result_archive.js";
+import {
+  assertPresentationArchiveBytes,
+  assertResultArchiveBytes,
+  encodeResultArchiveSha256,
+  persistAndVerifyPresentationArchive,
+  persistAndVerifyResultArchive,
+} from "../src/result_archive.js";
 import { verificationFinalResponseSchema } from "../src/verification_jobs.js";
 
 const jobId = "f73fded7-d9af-4f0a-b87b-c626d30d55bd";
@@ -158,6 +164,41 @@ assert.throws(() => assertCanaryVerifierExecutionReceipt(receipt, {
   expectedVerificationAttemptId: attemptId,
   now,
 }), /Presentation hash mismatch/);
+
+const presentationArchiveObjectKey = `tlsn-verification/${attemptId}/presentation.bin`;
+const presentationArchiveExpectedHash = await encodeResultArchiveSha256(presentationBytes);
+await assertPresentationArchiveBytes(presentationBytes, presentationBytes, presentationArchiveExpectedHash);
+await assert.rejects(
+  assertPresentationArchiveBytes(presentationBytes, changedPresentationBytes, presentationArchiveExpectedHash),
+  /digest mismatch/,
+);
+let presentationArchivePutKey: string | undefined;
+let presentationArchiveGetKey: string | undefined;
+let presentationArchiveContentType: string | undefined;
+let presentationArchiveBytes: Uint8Array | undefined;
+const presentationArchiveBucket = {
+  put: async (key: string, bytes: Uint8Array, options: R2PutOptions) => {
+    presentationArchivePutKey = key;
+    presentationArchiveBytes = bytes.slice();
+    presentationArchiveContentType = options.httpMetadata?.contentType;
+    return key;
+  },
+  get: async (key: string) => {
+    presentationArchiveGetKey = key;
+    return { arrayBuffer: async () => presentationBytes.slice().buffer } as R2ObjectBody;
+  },
+  delete: async () => undefined,
+} as unknown as R2Bucket;
+await persistAndVerifyPresentationArchive(
+  presentationArchiveBucket,
+  presentationArchiveObjectKey,
+  presentationBytes,
+  presentationArchiveExpectedHash,
+);
+assert.equal(presentationArchivePutKey, presentationArchiveObjectKey);
+assert.equal(presentationArchiveGetKey, presentationArchiveObjectKey);
+assert.equal(presentationArchiveContentType, "application/octet-stream");
+assert.deepEqual(presentationArchiveBytes, presentationBytes);
 
 const archiveObjectKey = `tlsn-verification/${attemptId}/result.json`;
 const archiveExpectedHash = await encodeResultArchiveSha256(response.bytes);

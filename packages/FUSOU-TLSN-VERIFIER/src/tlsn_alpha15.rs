@@ -167,6 +167,9 @@ impl AuthenticatedRequireInfo {
         canonical_user_id: String,
         canonical_device_id: String,
         device_challenge: [u8; 32],
+        presentation_sha256: [u8; 32],
+        origin_inventory_sha256: Option<[u8; 32]>,
+        target_approval_artifact_sha256: Option<[u8; 32]>,
         signature: [u8; 64],
     ) -> Result<crate::VerifierResult> {
         let request_transcript_sha256 = self.request_transcript_sha256.ok_or(
@@ -180,7 +183,7 @@ impl AuthenticatedRequireInfo {
             ),
         )?;
         let result = crate::VerifierResult {
-            version: 1,
+            version: 2,
             profile_id: PROFILE_ID.to_owned(),
             profile_sha256,
             issuer: crate::ISSUER.to_owned(),
@@ -195,7 +198,10 @@ impl AuthenticatedRequireInfo {
             verifier_key_id,
             notary_key_id,
             tlsn_attestation_id: self.attestation_id.to_vec(),
+            presentation_sha256,
             server_identity: self.server_identity,
+            origin_inventory_sha256,
+            target_approval_artifact_sha256,
             request_transcript_size: self.request_transcript_size,
             request_transcript_sha256,
             response_transcript_size: self.response_transcript_size,
@@ -1050,6 +1056,9 @@ mod tests {
                 "11111111-1111-4111-8111-111111111111".to_owned(),
                 "22222222-2222-4222-8222-222222222222".to_owned(),
                 [0_u8; 32],
+                [0_u8; 32],
+                None,
+                None,
                 [0x33_u8; 64],
             )
             .unwrap();

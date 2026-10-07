@@ -10,6 +10,7 @@ import { notaryRegistrySha256 } from "./production-trust-contract.mjs";
 import {
   canonicalJson as workerCanonicalJson,
   securityRegistrySetPayload as workerSecurityRegistrySetPayload,
+  resolveApprovedProductionIdentity,
   sha256Base64Url,
 } from "../src/origin-trust-contract.mjs";
 
@@ -89,10 +90,29 @@ assert.deepEqual(Object.keys(production.payload), [
   "notary_key_id",
   "notary_registry",
   "origin_inventory_sha256",
+  "target_approval_artifact_sha256",
   "profile_policy_sha256",
 ]);
 assert.equal(production.payload.origin_inventory_sha256, loadOriginInventoryContract().sha256);
+assert.match(production.payload.target_approval_artifact_sha256, /^[A-Za-z0-9_-]{43}$/);
 assert.match(production.payload.profile_policy_sha256, /^[A-Za-z0-9_-]{43}$/);
+const productionInventory = {
+  targets: [
+    { server_identity: "w01y.kancolle-server.com", port: 443 },
+    { server_identity: "w02k.kancolle-server.com", port: 443 },
+  ],
+};
+const approvedIdentity = productionInventory.targets[0].server_identity;
+const observedUnapprovedIdentity = productionInventory.targets[1].server_identity;
+assert.equal(
+  resolveApprovedProductionIdentity(approvedIdentity, productionInventory, [approvedIdentity]),
+  approvedIdentity,
+);
+assert.throws(
+  () => resolveApprovedProductionIdentity(observedUnapprovedIdentity, productionInventory, [approvedIdentity]),
+  /outside the current Target Approval/,
+  "observed Presentation identity B must not inherit approved candidate identity A",
+);
 assert.equal(
   productionSecurityRegistrySetHash({
     notaryKeyId,
@@ -111,6 +131,15 @@ assert.notEqual(
   }).sha256,
   production.sha256,
   "Production selected Notary identity remains hash-bound",
+);
+assert.notEqual(
+  productionSecurityRegistrySetHash({
+    notaryKeyId,
+    notaryRegistryRaw: notaryRegistry,
+    targetApprovalArtifactSha256: Buffer.alloc(32, 0xa5).toString("base64url"),
+  }).sha256,
+  production.sha256,
+  "Production Target Approval artifact replacement must change the security-set digest",
 );
 
 const registryKeyA = "ASEAAAAAAAAAAxuExVZ7EmRAmV0-1aq6BWXXHhg0YEgZ_5wX9enV3QeP";

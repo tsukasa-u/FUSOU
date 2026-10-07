@@ -16,6 +16,7 @@ const securityIdentityFields = [
   "notary_key_id",
   "security_registry_set_sha256",
   "origin_inventory_sha256",
+  "target_approval_artifact_sha256",
   "profile_policy_sha256",
   "notary_registry_sha256",
   "binding_authority",
@@ -47,6 +48,7 @@ async function main() {
     manifest.security_identity.notary_registry_sha256 !== publicManifest.notary.registry_sha256 ||
     manifest.security_identity.security_registry_set_sha256 !== publicManifest.security_registry_set_sha256 ||
     manifest.security_identity.origin_inventory_sha256 !== publicManifest.origin_inventory.sha256 ||
+    manifest.security_identity.target_approval_artifact_sha256 !== publicManifest.target_approval.approval_artifact_sha256 ||
     manifest.security_identity.profile_policy_sha256 !== profilePolicySha256
   ) {
     throw new Error("Production provenance trust identity does not match the public manifest and profile policy");
@@ -80,6 +82,7 @@ async function main() {
     health.security_identity?.notary_key_id !== publicManifest.notary.key_id ||
     health.security_identity?.notary_registry_sha256 !== publicManifest.notary.registry_sha256 ||
     health.security_identity?.security_registry_set_sha256 !== publicManifest.security_registry_set_sha256 ||
+    health.security_identity?.target_approval_artifact_sha256 !== publicManifest.target_approval.approval_artifact_sha256 ||
     health.authority_identity?.session_authority?.key_id !== publicManifest.session_authority.key_id ||
     health.authority_identity?.session_authority?.public_key_spki !== publicManifest.session_authority.public_key_spki ||
     health.authority_identity?.session_authority?.key_registry_sha256 !== publicManifest.session_authority.key_registry_sha256
@@ -106,6 +109,7 @@ async function main() {
     deployment_id: manifest.deployment_identity.deployment_id,
     verifier_key_id: manifest.security_identity.verifier_key_id,
     origin_inventory_sha256: manifest.security_identity.origin_inventory_sha256,
+    target_approval_artifact_sha256: manifest.security_identity.target_approval_artifact_sha256,
     profile_policy_sha256: manifest.security_identity.profile_policy_sha256,
     result_public_key_spki: manifest.result_identity.result_public_key_spki,
     smoke_status: smokeResponse.status,

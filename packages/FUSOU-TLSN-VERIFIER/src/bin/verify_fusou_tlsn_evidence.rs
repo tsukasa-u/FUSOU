@@ -19,6 +19,8 @@ struct Arguments {
     device_id: String,
     device_public_key: String,
     server_identity: String,
+    origin_inventory: String,
+    target_approval: String,
     profile_sha256: String,
     sparse_profile_sha256: Option<String>,
     verifier_key_id: String,
@@ -26,7 +28,7 @@ struct Arguments {
 }
 
 fn usage() -> &'static str {
-    "usage: verify_fusou_tlsn_evidence --bundle PATH --evidence-root-key-id ID --evidence-root-public-key-spki BASE64URL --trusted-notary-registry PATH --session-authority-registry PATH --session-authority-key-id ID --session-authority-public-key-spki BASE64URL --binding-authority-registry PATH --binding-authority-key-id ID --binding-authority-public-key-spki BASE64URL --canonical-user-id UUID --device-id UUID --device-public-key BASE64URL --server-identity HOST --profile-sha256 BASE64URL [--sparse-profile-sha256 BASE64URL] --verifier-key-id ID --trust-anchor-der PATH"
+    "usage: verify_fusou_tlsn_evidence --bundle PATH --evidence-root-key-id ID --evidence-root-public-key-spki BASE64URL --trusted-notary-registry PATH --session-authority-registry PATH --session-authority-key-id ID --session-authority-public-key-spki BASE64URL --binding-authority-registry PATH --binding-authority-key-id ID --binding-authority-public-key-spki BASE64URL --canonical-user-id UUID --device-id UUID --device-public-key BASE64URL --server-identity HOST --origin-inventory PATH --target-approval PATH --profile-sha256 BASE64URL [--sparse-profile-sha256 BASE64URL] --verifier-key-id ID --trust-anchor-der PATH"
 }
 
 fn required_value<I>(arguments: &mut I, flag: &str) -> Result<String, String>
@@ -54,6 +56,8 @@ fn parse_arguments() -> Result<Arguments, String> {
     let mut device_id = None;
     let mut device_public_key = None;
     let mut server_identity = None;
+    let mut origin_inventory = None;
+    let mut target_approval = None;
     let mut profile_sha256 = None;
     let mut sparse_profile_sha256 = None;
     let mut verifier_key_id = None;
@@ -83,6 +87,8 @@ fn parse_arguments() -> Result<Arguments, String> {
             "--device-id" => device_id = Some(value),
             "--device-public-key" => device_public_key = Some(value),
             "--server-identity" => server_identity = Some(value),
+            "--origin-inventory" => origin_inventory = Some(value),
+            "--target-approval" => target_approval = Some(value),
             "--profile-sha256" => profile_sha256 = Some(value),
             "--sparse-profile-sha256" => sparse_profile_sha256 = Some(value),
             "--verifier-key-id" => verifier_key_id = Some(value),
@@ -117,6 +123,10 @@ fn parse_arguments() -> Result<Arguments, String> {
             .ok_or_else(|| format!("missing --device-public-key\n{}", usage()))?,
         server_identity: server_identity
             .ok_or_else(|| format!("missing --server-identity\n{}", usage()))?,
+        origin_inventory: origin_inventory
+            .ok_or_else(|| format!("missing --origin-inventory\n{}", usage()))?,
+        target_approval: target_approval
+            .ok_or_else(|| format!("missing --target-approval\n{}", usage()))?,
         profile_sha256: profile_sha256
             .ok_or_else(|| format!("missing --profile-sha256\n{}", usage()))?,
         sparse_profile_sha256,
@@ -159,6 +169,20 @@ fn run(arguments: Arguments) -> Result<serde_json::Value, BundleVerificationErro
             format!("read failed: {error}"),
         )
     })?;
+    let origin_inventory_raw = fs::read(&arguments.origin_inventory).map_err(|error| {
+        BundleVerificationError::new(
+            "cli",
+            Some("origin_inventory"),
+            format!("read failed: {error}"),
+        )
+    })?;
+    let target_approval_raw = fs::read(&arguments.target_approval).map_err(|error| {
+        BundleVerificationError::new(
+            "cli",
+            Some("target_approval"),
+            format!("read failed: {error}"),
+        )
+    })?;
     verify_bundle(
         arguments.bundle,
         &BundleVerifierOptions {
@@ -175,6 +199,8 @@ fn run(arguments: Arguments) -> Result<serde_json::Value, BundleVerificationErro
             device_id: arguments.device_id,
             device_public_key: arguments.device_public_key,
             server_identity: arguments.server_identity,
+            origin_inventory_raw,
+            target_approval_raw,
             profile_sha256: arguments.profile_sha256,
             sparse_profile_sha256: arguments.sparse_profile_sha256,
             verifier_key_id: arguments.verifier_key_id,

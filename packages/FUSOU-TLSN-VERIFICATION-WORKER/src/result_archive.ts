@@ -37,3 +37,39 @@ export async function persistAndVerifyResultArchive(
     throw new Error("authoritative Result archive verification failed");
   }
 }
+
+export async function assertPresentationArchiveBytes(
+  presentationBytes: Uint8Array,
+  archivedBytes: Uint8Array,
+  expectedSha256: string,
+): Promise<void> {
+  if (archivedBytes.byteLength !== presentationBytes.byteLength) {
+    throw new Error("archived Presentation length mismatch");
+  }
+  if (await encodeResultArchiveSha256(archivedBytes) !== expectedSha256) {
+    throw new Error("archived Presentation digest mismatch");
+  }
+}
+
+export async function persistAndVerifyPresentationArchive(
+  bucket: Pick<R2Bucket, "put" | "get" | "delete">,
+  objectKey: string,
+  presentationBytes: Uint8Array,
+  expectedSha256: string,
+): Promise<void> {
+  try {
+    await bucket.put(objectKey, presentationBytes, {
+      httpMetadata: { contentType: "application/octet-stream" },
+    });
+    const archivedObject = await bucket.get(objectKey);
+    if (!archivedObject) throw new Error("missing archived Presentation");
+    await assertPresentationArchiveBytes(
+      presentationBytes,
+      new Uint8Array(await archivedObject.arrayBuffer()),
+      expectedSha256,
+    );
+  } catch {
+    await bucket.delete(objectKey).catch(() => undefined);
+    throw new Error("authoritative Presentation archive verification failed");
+  }
+}

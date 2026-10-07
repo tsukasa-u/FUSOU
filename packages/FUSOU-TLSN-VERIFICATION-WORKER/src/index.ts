@@ -28,7 +28,7 @@ import {
   type CanaryVerifierExecutionReceiptSigner,
 } from "./verifier_identity.js";
 import { canaryVerifierExecutionReceiptCapabilityAvailable } from "./execution_boundary.js";
-import { persistAndVerifyResultArchive } from "./result_archive.js";
+import { persistAndVerifyPresentationArchive, persistAndVerifyResultArchive } from "./result_archive.js";
 import {
   verificationCallbackSchema,
   verificationFinalResponseSchema,
@@ -54,12 +54,15 @@ import initVerifier, {
   verify_sparse_require_info_presentation,
 } from "./wasm/fusou_tlsn_verifier.js";
 import originInventoryRaw from "../../configs/tlsn-origin-inventory.json.txt";
+import targetApprovalRaw from "../../configs/tlsn-target-approval.json.txt";
 import wasmModule from "./wasm/fusou_tlsn_verifier_bg.wasm";
 import {
   assertAlpha15NotaryVerifyingKey,
   assertCandidateServerIdentity,
   canonicalJson,
   parseOriginInventory,
+  parseTargetApproval,
+  resolveApprovedProductionIdentity,
   PROFILE_CONTRACT_SPEC,
   productionSecurityRegistrySetPayload,
   securityRegistrySetPayload,
@@ -505,6 +508,8 @@ const notaryRegistrySchema = z.record(
 type VerifierConfig = z.infer<typeof configSchema> & {
   productionInventoryMode: boolean;
   originInventorySha256: string | undefined;
+  targetApprovalArtifactSha256: string | undefined;
+  approvedTargetIdentities: string[] | undefined;
   profileSha256Bytes: Uint8Array | undefined;
   sparseProfileSha256Bytes: Uint8Array | undefined;
   notaryKeyBytes: Uint8Array;
@@ -1243,6 +1248,8 @@ function isSha256Base64Url(value: string | undefined): boolean {
 
 async function productionRuntimeTrustIdentity(env: Bindings): Promise<{
   origin_inventory_sha256: string;
+  target_approval_artifact_sha256: string;
+  approved_target_identities: string[];
   security_registry_set_sha256: string;
   profile_policy_sha256: string;
   notary_registry_sha256: string;
@@ -1254,6 +1261,8 @@ async function productionRuntimeTrustIdentity(env: Bindings): Promise<{
   }
   const notaryRegistry = notaryRegistrySchema.parse(JSON.parse(notaryRegistryRaw));
   const originInventorySha256 = await sha256Base64Url(new TextEncoder().encode(originInventoryRaw));
+  const targetApprovalArtifactSha256 = await sha256Base64Url(new TextEncoder().encode(targetApprovalRaw));
+  const targetApproval = parseTargetApproval(targetApprovalRaw, originInventory, originInventorySha256);
   const profilePolicySha256 = await sha256Base64Url(
     new TextEncoder().encode(canonicalJson(PROFILE_CONTRACT_SPEC)),
   );
@@ -1261,6 +1270,7 @@ async function productionRuntimeTrustIdentity(env: Bindings): Promise<{
     notaryKeyId,
     notaryRegistryRaw: canonicalJson(notaryRegistry),
     originInventorySha256,
+    targetApprovalArtifactSha256,
     profilePolicySha256,
   });
   const expectedSecurityRegistrySetSha256 = await sha256Base64Url(
@@ -1271,6 +1281,8 @@ async function productionRuntimeTrustIdentity(env: Bindings): Promise<{
   }
   return {
     origin_inventory_sha256: originInventorySha256,
+    target_approval_artifact_sha256: targetApprovalArtifactSha256,
+    approved_target_identities: targetApproval.targets,
     security_registry_set_sha256: expectedSecurityRegistrySetSha256,
     profile_policy_sha256: profilePolicySha256,
     notary_registry_sha256: await sha256Base64Url(new TextEncoder().encode(notaryRegistryRaw)),
@@ -1415,6 +1427,8 @@ async function readConfig(
   try {
     const productionInventoryMode = production && role === "production";
     let originInventorySha256: string | undefined;
+    let targetApprovalArtifactSha256: string | undefined;
+    let approvedTargetIdentities: string[] | undefined;
     if (productionInventoryMode) {
       if (
         env.TLSN_TRUST_ROOT_CERTIFICATE_DER !== undefined ||
@@ -1426,6 +1440,8 @@ async function readConfig(
       }
       const runtimeTrustIdentity = await productionRuntimeTrustIdentity(env);
       originInventorySha256 = runtimeTrustIdentity.origin_inventory_sha256;
+      targetApprovalArtifactSha256 = runtimeTrustIdentity.target_approval_artifact_sha256;
+      approvedTargetIdentities = runtimeTrustIdentity.approved_target_identities;
     }
     if (canary) await canaryRuntimeTrustIdentity(env);
     if (!productionInventoryMode && (!parsed.data.serverIdentity || !parsed.data.profileSha256)) {
@@ -1665,6 +1681,8 @@ async function readConfig(
       ...parsed.data,
       productionInventoryMode,
       originInventorySha256,
+      targetApprovalArtifactSha256,
+      approvedTargetIdentities,
       profileSha256Bytes,
       sparseProfileSha256Bytes,
       notaryKeyBytes,
@@ -1736,12 +1754,11 @@ async function verifyPresentationToPreparedResult(
       presentationBytes,
       config.notaryKeyBytes,
     );
-    const target = originInventory.targets.find((candidate) =>
-      candidate.server_identity.toLowerCase() === observedIdentity.toLowerCase() &&
-      candidate.port === 443
+    serverIdentity = resolveApprovedProductionIdentity(
+      observedIdentity,
+      originInventory,
+      config.approvedTargetIdentities ?? [],
     );
-    if (!target) throw new Error("verified Presentation server identity is outside the shipped Origin inventory");
-    serverIdentity = target.server_identity;
     profileSha256Bytes = await canonicalProfileSha256(profile, serverIdentity);
     profileSha256 = encodeBase64Url(profileSha256Bytes);
   }
@@ -1751,6 +1768,12 @@ async function verifyPresentationToPreparedResult(
   if (!serverIdentity) {
     throw new Error("TLSN Origin identity is not configured or selected from the shipped inventory");
   }
+  const originInventorySha256Bytes = config.productionInventoryMode
+    ? decodeBase64Url(config.originInventorySha256 ?? "", 32)
+    : new Uint8Array();
+  const targetApprovalArtifactSha256Bytes = config.productionInventoryMode
+    ? decodeBase64Url(config.targetApprovalArtifactSha256 ?? "", 32)
+    : new Uint8Array();
   const preparedJson = profile === "sparse"
     ? config.trustRootCertificateDerBytes && !config.productionInventoryMode
       ? verify_synthetic_sparse_require_info_presentation_with_root(
@@ -1762,6 +1785,8 @@ async function verifyPresentationToPreparedResult(
           canonicalUserId,
           deviceId,
           deviceChallengeBytes,
+          originInventorySha256Bytes,
+          targetApprovalArtifactSha256Bytes,
           config.trustRootCertificateDerBytes,
           config.notaryKeyBytes,
         )
@@ -1774,6 +1799,8 @@ async function verifyPresentationToPreparedResult(
           canonicalUserId,
           deviceId,
           deviceChallengeBytes,
+          originInventorySha256Bytes,
+          targetApprovalArtifactSha256Bytes,
           config.notaryKeyBytes,
         )
     : config.trustRootCertificateDerBytes && !config.productionInventoryMode
@@ -1786,6 +1813,8 @@ async function verifyPresentationToPreparedResult(
           canonicalUserId,
           deviceId,
           deviceChallengeBytes,
+          originInventorySha256Bytes,
+          targetApprovalArtifactSha256Bytes,
           config.trustRootCertificateDerBytes,
           config.notaryKeyBytes,
         )
@@ -1798,10 +1827,22 @@ async function verifyPresentationToPreparedResult(
           canonicalUserId,
           deviceId,
           deviceChallengeBytes,
+          originInventorySha256Bytes,
+          targetApprovalArtifactSha256Bytes,
           config.notaryKeyBytes,
         );
+  const prepared = preparedResultSchema.parse(JSON.parse(preparedJson) as unknown);
+  const unsignedResult = JSON.parse(prepared.unsigned_result) as Record<string, unknown>;
+  const actualPresentationSha256 = await sha256Base64Url(presentationBytes);
+  if (
+    unsignedResult["presentation_sha256"] !== actualPresentationSha256 ||
+    unsignedResult["origin_inventory_sha256"] !== (config.originInventorySha256 ?? null) ||
+    unsignedResult["target_approval_artifact_sha256"] !== (config.targetApprovalArtifactSha256 ?? null)
+  ) {
+    throw new Error("Verifier Result provenance does not match the verified Presentation and runtime trust inputs");
+  }
   return {
-    prepared: preparedResultSchema.parse(JSON.parse(preparedJson) as unknown),
+    prepared,
     profileSha256,
     serverIdentity,
   };
@@ -3429,7 +3470,7 @@ async function completeVerification(
     }
     const preparedUnsignedResult = JSON.parse(prepared.unsigned_result) as Record<string, unknown>;
     const expectedProfileId = sparseProfile ? "fusou-require-info-v2-sparse" : "fusou-require-info-v1";
-    const expectedVersion = sparseProfile ? 2 : 1;
+    const expectedVersion = sparseProfile ? 3 : 2;
     const expectedProfileSha256 = verification.profileSha256;
     if (
       preparedUnsignedResult["version"] !== expectedVersion ||
@@ -3597,6 +3638,15 @@ async function completeVerification(
       benchmark_persistence_remaining_ms: benchmarkPersistenceRemainingMilliseconds,
     };
     await delayBeforeResultCommit(c.env, testFault);
+    if (config.productionInventoryMode) {
+      benchmarkR2Operation(c.env, callback.job_id, "presentation_archive_put");
+      await persistAndVerifyPresentationArchive(
+        c.env.TLSN_PRESENTATIONS,
+        verificationObjectKey(verificationAttemptId, "presentation"),
+        storedPresentation,
+        storedPresentationId,
+      );
+    }
     benchmarkR2Operation(c.env, callback.job_id, "result_archive_put");
     await persistAndVerifyResultArchive(c.env.TLSN_PRESENTATIONS, attemptResultKey, finalResponseBytes, resultSha256);
     const doCommitStartedAt = performance.now();
@@ -3851,6 +3901,7 @@ app.get("/health", async (c) => {
         ? canaryTrustIdentity?.security_registry_set_sha256 ?? null
         : c.env.TLSN_SECURITY_REGISTRY_SET_SHA256 ?? null,
     origin_inventory_sha256: productionTrustIdentity?.origin_inventory_sha256 ?? null,
+    target_approval_artifact_sha256: productionTrustIdentity?.target_approval_artifact_sha256 ?? null,
     notary_registry_sha256: notaryRegistrySha256,
     result_public_key_spki: resultPublicKeySpki,
     runtime_version: runtimeVersion,
@@ -3878,6 +3929,7 @@ app.get("/health", async (c) => {
           : c.env.TLSN_SECURITY_REGISTRY_SET_SHA256 ?? null,
       ...(production && !canary ? {
         origin_inventory_sha256: productionTrustIdentity?.origin_inventory_sha256 ?? null,
+        target_approval_artifact_sha256: productionTrustIdentity?.target_approval_artifact_sha256 ?? null,
         profile_policy_sha256: productionTrustIdentity?.profile_policy_sha256 ?? null,
       } : {}),
       notary_registry_sha256: productionTrustIdentity?.notary_registry_sha256 ?? notaryRegistrySha256,
@@ -4356,6 +4408,9 @@ const handleTlsnVerification = async (c: Context<{ Bindings: Bindings }>) => {
       ...(config.productionInventoryMode && config.originInventorySha256
         ? { origin_inventory_sha256: config.originInventorySha256 }
         : {}),
+      ...(config.productionInventoryMode && config.targetApprovalArtifactSha256
+        ? { target_approval_artifact_sha256: config.targetApprovalArtifactSha256 }
+        : {}),
       ...(deploymentRole !== "test" && c.env.TLSN_SECURITY_REGISTRY_SET_SHA256
         ? { security_registry_set_sha256: c.env.TLSN_SECURITY_REGISTRY_SET_SHA256 }
         : {}),
@@ -4671,6 +4726,15 @@ const handleTlsnVerification = async (c: Context<{ Bindings: Bindings }>) => {
     const resultSha256 = encodeBase64Url(
       new Uint8Array(await crypto.subtle.digest("SHA-256", finalResponseBytes)),
     );
+    if (config.productionInventoryMode) {
+      benchmarkR2Operation(c.env, synchronousJobId, "presentation_archive_put");
+      await persistAndVerifyPresentationArchive(
+        c.env.TLSN_PRESENTATIONS,
+        verificationObjectKey(synchronousJobId, "presentation"),
+        presentationBytes,
+        presentationId,
+      );
+    }
     benchmarkR2Operation(c.env, synchronousJobId, "result_archive_put");
     await persistAndVerifyResultArchive(c.env.TLSN_PRESENTATIONS, synchronousResultKey, finalResponseBytes, resultSha256);
     benchmarkDOOperation(c.env, synchronousJobId, "commit_verified_result");

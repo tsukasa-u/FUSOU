@@ -21,7 +21,7 @@ pub const PROOF_PURPOSE: &str = "GAME_ACCOUNT_IDENTITY_V1";
 pub const BINDING_HEADER: &str = "X-Attestation-Binding";
 pub const REQUIRE_INFO_TARGET: &str = "/kcsapi/api_get_member/require_info";
 pub const BINDING_PREFIX: &[u8] = b"FUSOU-ATTESTATION-BINDING-V1\0";
-pub const SIGNING_DOMAIN: &[u8] = b"FUSOU-VERIFIER-RESULT-V1\0";
+pub const SIGNING_DOMAIN: &[u8] = b"FUSOU-VERIFIER-RESULT-V2\0";
 
 pub const MAX_VERIFIER_RESULT_JSON_BYTES: usize = 25_165_824;
 pub const MAX_REQUEST_TRANSCRIPT_BYTES: usize = 512_000;
@@ -2254,7 +2254,10 @@ pub struct VerifierResult {
     pub verifier_key_id: String,
     pub notary_key_id: String,
     pub tlsn_attestation_id: Vec<u8>,
+    pub presentation_sha256: [u8; 32],
     pub server_identity: String,
+    pub origin_inventory_sha256: Option<[u8; 32]>,
+    pub target_approval_artifact_sha256: Option<[u8; 32]>,
     pub request_transcript_size: u64,
     pub request_transcript_sha256: [u8; 32],
     pub response_transcript_size: u64,
@@ -2325,7 +2328,7 @@ pub fn validate_server_identity(value: &str) -> Result<()> {
 
 impl VerifierResult {
     pub fn validate(&self) -> Result<()> {
-        if self.version != 1 {
+        if self.version != 2 {
             return Err(VerifierError::InvalidResult("unsupported version"));
         }
         if self.profile_id != PROFILE_ID {
@@ -2366,6 +2369,11 @@ impl VerifierResult {
             ));
         }
         validate_server_identity(&self.server_identity)?;
+        if self.origin_inventory_sha256.is_some() != self.target_approval_artifact_sha256.is_some() {
+            return Err(VerifierError::InvalidResult(
+                "Production inventory and Target Approval digests must be present together",
+            ));
+        }
         validate_ranges(&self.revealed_request_ranges, self.request_transcript_size)?;
         validate_ranges(
             &self.revealed_response_ranges,
@@ -2413,7 +2421,22 @@ impl VerifierResult {
             "tlsn_attestation_id",
             &URL_SAFE_NO_PAD.encode(&self.tlsn_attestation_id),
         );
+        append_json_string_field(
+            &mut output,
+            "presentation_sha256",
+            &URL_SAFE_NO_PAD.encode(self.presentation_sha256),
+        );
         append_json_string_field(&mut output, "server_identity", &self.server_identity);
+        append_json_optional_digest_field(
+            &mut output,
+            "origin_inventory_sha256",
+            self.origin_inventory_sha256,
+        );
+        append_json_optional_digest_field(
+            &mut output,
+            "target_approval_artifact_sha256",
+            self.target_approval_artifact_sha256,
+        );
         append_json_string_field(
             &mut output,
             "request_transcript_size",
@@ -2472,7 +2495,10 @@ impl VerifierResult {
         push_len_prefixed(&mut output, self.verifier_key_id.as_bytes())?;
         push_len_prefixed(&mut output, self.notary_key_id.as_bytes())?;
         push_len_prefixed(&mut output, &self.tlsn_attestation_id)?;
+        push_len_prefixed(&mut output, &self.presentation_sha256)?;
         push_len_prefixed(&mut output, self.server_identity.as_bytes())?;
+        push_optional_digest(&mut output, self.origin_inventory_sha256)?;
+        push_optional_digest(&mut output, self.target_approval_artifact_sha256)?;
         push_u64(&mut output, self.request_transcript_size);
         push_len_prefixed(&mut output, &self.request_transcript_sha256)?;
         push_ranges(&mut output, &self.revealed_request_ranges)?;
@@ -2532,6 +2558,26 @@ fn append_json_string_field(output: &mut String, key: &str, value: &str) {
     let _ = write!(output, "\"{key}\":\"{value}\"");
 }
 
+pub(crate) fn append_json_optional_digest_field(
+    output: &mut String,
+    key: &str,
+    value: Option<[u8; 32]>,
+) {
+    output.push(',');
+    match value {
+        Some(digest) => {
+            let _ = write!(output, "\"{key}\":\"{}\"", URL_SAFE_NO_PAD.encode(digest));
+        }
+        None => {
+            let _ = write!(output, "\"{key}\":null");
+        }
+    }
+}
+
+pub(crate) fn push_optional_digest(output: &mut Vec<u8>, value: Option<[u8; 32]>) -> Result<()> {
+    push_len_prefixed(output, value.as_ref().map_or(&[], |digest| digest.as_slice()))
+}
+
 fn append_range_field(output: &mut String, key: &str, ranges: &[RevealedRange]) {
     output.push(',');
     let _ = write!(output, "\"{key}\":[");
@@ -2559,7 +2605,7 @@ pub fn parse_verifier_result(input: &[u8], limits: &ParserLimits) -> Result<Veri
     cursor.expect_byte(b'{')?;
 
     expect_result_field(&mut cursor, "version", false)?;
-    let version = parse_exact_number(&mut cursor, b"1")? as u16;
+    let version = parse_exact_number(&mut cursor, b"2")? as u16;
     expect_result_field(&mut cursor, "profile_id", true)?;
     let profile_id = parse_result_string(&mut cursor)?;
     expect_result_field(&mut cursor, "profile_sha256", true)?;
@@ -2588,8 +2634,14 @@ pub fn parse_verifier_result(input: &[u8], limits: &ParserLimits) -> Result<Veri
     let notary_key_id = parse_result_string(&mut cursor)?;
     expect_result_field(&mut cursor, "tlsn_attestation_id", true)?;
     let tlsn_attestation_id = parse_result_base64(&mut cursor)?;
+    expect_result_field(&mut cursor, "presentation_sha256", true)?;
+    let presentation_sha256 = parse_fixed_base64::<32>(&mut cursor)?;
     expect_result_field(&mut cursor, "server_identity", true)?;
     let server_identity = parse_result_string(&mut cursor)?;
+    expect_result_field(&mut cursor, "origin_inventory_sha256", true)?;
+    let origin_inventory_sha256 = parse_optional_fixed_base64::<32>(&mut cursor)?;
+    expect_result_field(&mut cursor, "target_approval_artifact_sha256", true)?;
+    let target_approval_artifact_sha256 = parse_optional_fixed_base64::<32>(&mut cursor)?;
     expect_result_field(&mut cursor, "request_transcript_size", true)?;
     let request_transcript_size = parse_result_uint64(&mut cursor)?;
     expect_result_field(&mut cursor, "request_transcript_sha256", true)?;
@@ -2626,7 +2678,10 @@ pub fn parse_verifier_result(input: &[u8], limits: &ParserLimits) -> Result<Veri
         verifier_key_id,
         notary_key_id,
         tlsn_attestation_id,
+        presentation_sha256,
         server_identity,
+        origin_inventory_sha256,
+        target_approval_artifact_sha256,
         request_transcript_size,
         request_transcript_sha256,
         response_transcript_size,
@@ -2666,7 +2721,10 @@ fn parse_exact_number(cursor: &mut JsonCursor<'_>, expected: &[u8]) -> Result<u6
     if token != expected {
         return Err(VerifierError::InvalidResult("unexpected Result number"));
     }
-    Ok(1)
+    std::str::from_utf8(token)
+        .ok()
+        .and_then(|value| value.parse::<u64>().ok())
+        .ok_or(VerifierError::InvalidResult("unexpected Result number"))
 }
 
 fn parse_result_string(cursor: &mut JsonCursor<'_>) -> Result<String> {
@@ -2684,7 +2742,7 @@ fn parse_result_base64(cursor: &mut JsonCursor<'_>) -> Result<Vec<u8>> {
     decode_strict_base64url(&value)
 }
 
-fn parse_fixed_base64<const N: usize>(cursor: &mut JsonCursor<'_>) -> Result<[u8; N]> {
+pub(crate) fn parse_fixed_base64<const N: usize>(cursor: &mut JsonCursor<'_>) -> Result<[u8; N]> {
     let value = parse_result_base64(cursor)?;
     if value.len() != N {
         return Err(VerifierError::InvalidResult(
@@ -2694,6 +2752,17 @@ fn parse_fixed_base64<const N: usize>(cursor: &mut JsonCursor<'_>) -> Result<[u8
     let mut output = [0_u8; N];
     output.copy_from_slice(&value);
     Ok(output)
+}
+
+pub(crate) fn parse_optional_fixed_base64<const N: usize>(
+    cursor: &mut JsonCursor<'_>,
+) -> Result<Option<[u8; N]>> {
+    if cursor.bytes.get(cursor.position..).is_some_and(|bytes| bytes.starts_with(b"null")) {
+        cursor.position += 4;
+        Ok(None)
+    } else {
+        parse_fixed_base64::<N>(cursor).map(Some)
+    }
 }
 
 fn parse_result_uuid(cursor: &mut JsonCursor<'_>) -> Result<Uuid> {
@@ -2835,7 +2904,7 @@ mod tests {
         let response =
             b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nContent-Encoding: identity\r\n\r\n";
         VerifierResult {
-            version: 1,
+            version: 2,
             profile_id: PROFILE_ID.to_owned(),
             profile_sha256: [1_u8; 32],
             issuer: ISSUER.to_owned(),
@@ -2851,7 +2920,10 @@ mod tests {
             verifier_key_id: "verifier-test".to_owned(),
             notary_key_id: "notary-test".to_owned(),
             tlsn_attestation_id: vec![2_u8; 16],
+            presentation_sha256: [7_u8; 32],
             server_identity: "game.example.test".to_owned(),
+            origin_inventory_sha256: None,
+            target_approval_artifact_sha256: None,
             request_transcript_size: 4,
             request_transcript_sha256: [3_u8; 32],
             response_transcript_size: response.len() as u64,
@@ -3600,9 +3672,32 @@ mod tests {
         changed.verified_member_id = "26189463".to_owned();
         assert_ne!(original, changed.signing_bytes().unwrap());
 
-        let mut changed = result;
+        let mut changed = result.clone();
         changed.response_transcript_sha256[0] ^= 1;
         assert_ne!(original, changed.signing_bytes().unwrap());
+
+        let mut changed = result.clone();
+        changed.presentation_sha256[0] ^= 1;
+        assert_ne!(original, changed.signing_bytes().unwrap());
+
+        let mut production_result = result.clone();
+        production_result.origin_inventory_sha256 = Some([0x31; 32]);
+        production_result.target_approval_artifact_sha256 = Some([0x32; 32]);
+        let production_original = production_result.signing_bytes().unwrap();
+        production_result.origin_inventory_sha256.as_mut().unwrap()[0] ^= 1;
+        assert_ne!(
+            production_original,
+            production_result.signing_bytes().unwrap()
+        );
+        production_result.origin_inventory_sha256 = Some([0x31; 32]);
+        production_result
+            .target_approval_artifact_sha256
+            .as_mut()
+            .unwrap()[0] ^= 1;
+        assert_ne!(
+            production_original,
+            production_result.signing_bytes().unwrap()
+        );
     }
 
     #[test]
@@ -3626,7 +3721,9 @@ mod tests {
     fn rejects_result_unknown_ordered_or_padded_fields() {
         let result = sanitized_result();
         let json = result.canonical_json().unwrap();
-        let unknown = json.replacen("\"version\":1", "\"unknown\":1,\"version\":1", 1);
+        let old_version = json.replacen("\"version\":2", "\"version\":1", 1);
+        assert!(parse_verifier_result(old_version.as_bytes(), &default_limits()).is_err());
+        let unknown = json.replacen("\"version\":2", "\"unknown\":1,\"version\":2", 1);
         assert!(parse_verifier_result(unknown.as_bytes(), &default_limits()).is_err());
         let padded = json.replacen(
             &URL_SAFE_NO_PAD.encode(result.profile_sha256),
@@ -3634,11 +3731,22 @@ mod tests {
             1,
         );
         assert!(parse_verifier_result(padded.as_bytes(), &default_limits()).is_err());
-        let spaced = json.replacen("{\"version\":1", "{ \"version\":1", 1);
+        let spaced = json.replacen("{\"version\":2", "{ \"version\":2", 1);
         assert!(matches!(
             parse_verifier_result(spaced.as_bytes(), &default_limits()),
             Err(VerifierError::NonCanonicalResult)
         ));
+    }
+
+    #[test]
+    fn production_result_requires_inventory_and_approval_digest_pair() {
+        let mut result = sanitized_result();
+        result.origin_inventory_sha256 = Some([0x31; 32]);
+        assert!(result.validate().is_err());
+        result.target_approval_artifact_sha256 = Some([0x32; 32]);
+        assert!(result.validate().is_ok());
+        result.origin_inventory_sha256 = None;
+        assert!(result.validate().is_err());
     }
 
     #[test]

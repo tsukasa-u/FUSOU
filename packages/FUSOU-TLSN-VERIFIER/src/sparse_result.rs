@@ -9,10 +9,10 @@ use crate::{
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use uuid::Uuid;
 
-pub const SPARSE_RESULT_VERSION: u16 = 2;
+pub const SPARSE_RESULT_VERSION: u16 = 3;
 pub const SPARSE_PROFILE_ID: &str = "fusou-require-info-v2-sparse";
 pub const SPARSE_DISCLOSURE_MODE: &str = "sparse";
-pub const SPARSE_SIGNING_DOMAIN: &[u8] = b"FUSOU-VERIFIER-SPARSE-RESULT-V1\0";
+pub const SPARSE_SIGNING_DOMAIN: &[u8] = b"FUSOU-VERIFIER-SPARSE-RESULT-V2\0";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SparseVerifierResult {
@@ -35,6 +35,8 @@ pub struct SparseVerifierResult {
     pub tlsn_attestation_id: Vec<u8>,
     pub presentation_sha256: [u8; 32],
     pub server_identity: String,
+    pub origin_inventory_sha256: Option<[u8; 32]>,
+    pub target_approval_artifact_sha256: Option<[u8; 32]>,
     pub request_transcript_size: u64,
     pub response_transcript_size: u64,
     pub revealed_request_ranges: Vec<RevealedRange>,
@@ -50,6 +52,8 @@ impl SparseVerifierResult {
         notary_key_id: String,
         notary_key_sha256: [u8; 32],
         presentation_sha256: [u8; 32],
+        origin_inventory_sha256: Option<[u8; 32]>,
+        target_approval_artifact_sha256: Option<[u8; 32]>,
         canonical_user_id: String,
         canonical_device_id: String,
         device_challenge: [u8; 32],
@@ -89,6 +93,8 @@ impl SparseVerifierResult {
             tlsn_attestation_id: evidence.attestation_id.to_vec(),
             presentation_sha256,
             server_identity: evidence.server_identity.clone(),
+            origin_inventory_sha256,
+            target_approval_artifact_sha256,
             request_transcript_size: evidence.request_transcript_size,
             response_transcript_size: evidence.response_transcript_size,
             revealed_request_ranges: evidence.revealed_request_ranges.clone(),
@@ -149,6 +155,12 @@ impl SparseVerifierResult {
             ));
         }
         validate_server_identity(&self.server_identity)?;
+        if self.origin_inventory_sha256.is_some() != self.target_approval_artifact_sha256.is_some()
+        {
+            return Err(VerifierError::InvalidResult(
+                "Production inventory and Target Approval digests must be present together",
+            ));
+        }
         validate_ranges(&self.revealed_request_ranges, self.request_transcript_size)?;
         validate_ranges(
             &self.revealed_response_ranges,
@@ -160,7 +172,7 @@ impl SparseVerifierResult {
     pub fn canonical_json(&self) -> VerifierResultType<String> {
         self.validate()?;
         let mut output = String::from("{");
-        output.push_str("\"version\":2");
+        output.push_str("\"version\":3");
         append_json_string_field(&mut output, "profile_id", &self.profile_id);
         append_json_string_field(&mut output, "disclosure_mode", &self.disclosure_mode);
         append_json_string_field(
@@ -207,6 +219,16 @@ impl SparseVerifierResult {
             &URL_SAFE_NO_PAD.encode(self.presentation_sha256),
         );
         append_json_string_field(&mut output, "server_identity", &self.server_identity);
+        crate::append_json_optional_digest_field(
+            &mut output,
+            "origin_inventory_sha256",
+            self.origin_inventory_sha256,
+        );
+        crate::append_json_optional_digest_field(
+            &mut output,
+            "target_approval_artifact_sha256",
+            self.target_approval_artifact_sha256,
+        );
         append_json_string_field(
             &mut output,
             "request_transcript_size",
@@ -259,6 +281,8 @@ impl SparseVerifierResult {
         push_len_prefixed(&mut output, &self.tlsn_attestation_id)?;
         push_len_prefixed(&mut output, &self.presentation_sha256)?;
         push_len_prefixed(&mut output, self.server_identity.as_bytes())?;
+        crate::push_optional_digest(&mut output, self.origin_inventory_sha256)?;
+        crate::push_optional_digest(&mut output, self.target_approval_artifact_sha256)?;
         push_u64(&mut output, self.request_transcript_size);
         push_ranges(&mut output, &self.revealed_request_ranges)?;
         push_u64(&mut output, self.response_transcript_size);
@@ -292,7 +316,7 @@ pub fn parse_sparse_verifier_result(
     cursor.skip_whitespace();
     cursor.expect_byte(b'{')?;
     crate::expect_result_field(&mut cursor, "version", false)?;
-    if cursor.parse_number()? != b"2" {
+    if cursor.parse_number()? != b"3" {
         return Err(VerifierError::InvalidResult(
             "unexpected sparse Result number",
         ));
@@ -333,6 +357,10 @@ pub fn parse_sparse_verifier_result(
     let presentation_sha256 = parse_fixed_base64::<32>(&mut cursor)?;
     crate::expect_result_field(&mut cursor, "server_identity", true)?;
     let server_identity = parse_result_string(&mut cursor)?;
+    crate::expect_result_field(&mut cursor, "origin_inventory_sha256", true)?;
+    let origin_inventory_sha256 = crate::parse_optional_fixed_base64::<32>(&mut cursor)?;
+    crate::expect_result_field(&mut cursor, "target_approval_artifact_sha256", true)?;
+    let target_approval_artifact_sha256 = crate::parse_optional_fixed_base64::<32>(&mut cursor)?;
     crate::expect_result_field(&mut cursor, "request_transcript_size", true)?;
     let request_transcript_size = parse_result_uint64(&mut cursor)?;
     crate::expect_result_field(&mut cursor, "response_transcript_size", true)?;
@@ -368,6 +396,8 @@ pub fn parse_sparse_verifier_result(
         tlsn_attestation_id,
         presentation_sha256,
         server_identity,
+        origin_inventory_sha256,
+        target_approval_artifact_sha256,
         request_transcript_size,
         response_transcript_size,
         revealed_request_ranges,
@@ -438,6 +468,8 @@ mod tests {
             "notary-test".to_owned(),
             [2; 32],
             [3; 32],
+            None,
+            None,
             "11111111-1111-4111-8111-111111111111".to_owned(),
             "22222222-2222-4222-8222-222222222222".to_owned(),
             [4; 32],
@@ -466,6 +498,40 @@ mod tests {
     }
 
     #[test]
+    fn sparse_provenance_fields_are_signed_and_paired() {
+        let result = SparseVerifierResult::from_authenticated(
+            &evidence(),
+            [1; 32],
+            "verifier-test".to_owned(),
+            "notary-test".to_owned(),
+            [2; 32],
+            [3; 32],
+            None,
+            None,
+            "11111111-1111-4111-8111-111111111111".to_owned(),
+            "22222222-2222-4222-8222-222222222222".to_owned(),
+            [4; 32],
+            [5; 64],
+        )
+        .unwrap();
+        let mut production_result = result.clone();
+        production_result.origin_inventory_sha256 = Some([0x31; 32]);
+        production_result.target_approval_artifact_sha256 = Some([0x32; 32]);
+        let original = production_result.signing_bytes().unwrap();
+        production_result.presentation_sha256[0] ^= 1;
+        assert_ne!(original, production_result.signing_bytes().unwrap());
+        production_result.presentation_sha256 = result.presentation_sha256;
+        production_result
+            .target_approval_artifact_sha256
+            .as_mut()
+            .unwrap()[0] ^= 1;
+        assert_ne!(original, production_result.signing_bytes().unwrap());
+        production_result.target_approval_artifact_sha256 = Some([0x32; 32]);
+        production_result.origin_inventory_sha256 = None;
+        assert!(production_result.validate().is_err());
+    }
+
+    #[test]
     fn sparse_result_rejects_complete_digest_pair() {
         let mut evidence = evidence();
         evidence.request_transcript_sha256 = Some([0x21; 32]);
@@ -477,6 +543,8 @@ mod tests {
                 "notary-test".to_owned(),
                 [2; 32],
                 [3; 32],
+                None,
+                None,
                 "11111111-1111-4111-8111-111111111111".to_owned(),
                 "22222222-2222-4222-8222-222222222222".to_owned(),
                 [4; 32],

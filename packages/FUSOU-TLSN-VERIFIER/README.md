@@ -171,6 +171,10 @@ The bundle is not a trust anchor. The verifier requires these external inputs:
   independently supplied authenticated subject/device identity;
 - `--server-identity`, `--profile-sha256`, and `--verifier-key-id`: the static
   FUSOU profile configuration;
+- `--origin-inventory` and `--target-approval`: the current canonical
+  Production artifacts, checked byte-for-byte against the signed Result
+  digests and checked for the observed server identity's membership in both
+  trust sets. Both are required for this Production evidence verifier;
 - `--trust-anchor-der`: the externally supplied origin trust root, which must
   match the captured `trust_root` artifact byte-for-byte.
 
@@ -208,10 +212,18 @@ cargo +1.95.0 run --offline --manifest-path packages/FUSOU-TLSN-VERIFIER/Cargo.t
   --device-id 22222222-2222-4222-8222-222222222222 \
   --device-public-key DEVICE_PUBLIC_KEY_BASE64URL \
   --server-identity game.example.com \
+  --origin-inventory packages/configs/tlsn-origin-inventory.json \
+  --target-approval packages/configs/tlsn-target-approval.json \
   --profile-sha256 PROFILE_SHA256_BASE64URL \
   --verifier-key-id verifier-2026 \
   --trust-anchor-der trusted/game-root.der
 ```
+
+Complete Result v2 and sparse Result v3 sign the SHA-256 of the exact raw
+Presentation bytes. Production Results additionally sign the current inventory
+and Target Approval artifact digests as a required pair. This Production-only
+verifier rejects Results without that pair and rejects bundles when either
+external artifact is changed or does not approve the Result's server identity.
 
 The command never contacts Worker, FUSOU-WEB, Supabase, Trigger.dev, a Game
 Server, or a Notary. On rejection it exits non-zero and prints a JSON object

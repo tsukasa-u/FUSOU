@@ -20,6 +20,7 @@ import {
   createCanaryDeploymentManifest,
 } from "./canary-deployment-manifest.mjs";
 import { inputsForRole, secretInputsForRole } from "./deployment-contract.mjs";
+import { assertTargetApprovalResolved } from "./target-approval-contract.mjs";
 
 const packageDirectory = resolve(new URL("..", import.meta.url).pathname);
 const repositoryDirectory = resolve(packageDirectory, "../..");
@@ -281,6 +282,13 @@ try {
   const report = JSON.parse(await readFile(reportPath, "utf8"));
   assert.equal(report.status, "PASS");
   assert.equal(report.failure_count, 0);
+  const provenance = JSON.parse(await readFile(provenancePath, "utf8"));
+  const currentTargetApproval = assertTargetApprovalResolved();
+  assert.equal(
+    provenance.security_identity.target_approval_artifact_sha256,
+    currentTargetApproval.approval_artifact_sha256,
+  );
+  assert.equal(provenance.target_approval.approval_artifact_sha256, currentTargetApproval.approval_artifact_sha256);
   const mutatedReportPath = join(rootDirectory, "mutated-preflight.json");
   const mutatedPreflight = spawnSync(process.execPath, ["scripts/deployment-preflight.mjs"], {
     cwd: packageDirectory,

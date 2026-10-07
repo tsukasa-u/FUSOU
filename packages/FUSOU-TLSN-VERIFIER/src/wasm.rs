@@ -29,6 +29,16 @@ fn create_crypto_provider(
     Ok(provider)
 }
 
+fn optional_production_digest(value: &[u8], label: &str) -> Result<Option<[u8; 32]>, JsValue> {
+    if value.is_empty() {
+        return Ok(None);
+    }
+    let digest = value
+        .try_into()
+        .map_err(|_| JsValue::from_str(&format!("{label} must be empty or exactly 32 bytes")))?;
+    Ok(Some(digest))
+}
+
 fn range_json(range: &crate::RevealedRange) -> serde_json::Value {
     serde_json::json!({
         "start": range.start.to_string(),
@@ -91,6 +101,8 @@ fn verify_require_info_presentation_inner(
     canonical_user_id: &str,
     canonical_device_id: &str,
     device_challenge: &[u8],
+    origin_inventory_sha256: &[u8],
+    target_approval_artifact_sha256: &[u8],
     trusted_notary_key: &[u8],
     trust_anchor_der: Option<&[u8]>,
 ) -> Result<String, JsValue> {
@@ -100,6 +112,14 @@ fn verify_require_info_presentation_inner(
     let device_challenge: [u8; 32] = device_challenge
         .try_into()
         .map_err(|_| JsValue::from_str("device_challenge must be exactly 32 bytes"))?;
+    let origin_inventory_sha256 = optional_production_digest(
+        origin_inventory_sha256,
+        "origin_inventory_sha256",
+    )?;
+    let target_approval_artifact_sha256 = optional_production_digest(
+        target_approval_artifact_sha256,
+        "target_approval_artifact_sha256",
+    )?;
     let profile = RequireInfoDisclosureProfile::from_server_identity(expected_server_identity)
         .map_err(|error| JsValue::from_str(&error.to_string()))?;
     if trusted_notary_key.is_empty() {
@@ -123,6 +143,9 @@ fn verify_require_info_presentation_inner(
             canonical_user_id.to_owned(),
             canonical_device_id.to_owned(),
             device_challenge,
+            presentation_sha256(presentation_bytes),
+            origin_inventory_sha256,
+            target_approval_artifact_sha256,
             [0_u8; 64],
         )
         .map_err(|error| JsValue::from_str(&error.to_string()))?;
@@ -151,6 +174,8 @@ fn verify_sparse_require_info_presentation_inner(
     canonical_user_id: &str,
     canonical_device_id: &str,
     device_challenge: &[u8],
+    origin_inventory_sha256: &[u8],
+    target_approval_artifact_sha256: &[u8],
     trust_anchor_der: Option<&[u8]>,
     trusted_notary_key: &[u8],
 ) -> Result<String, JsValue> {
@@ -160,6 +185,14 @@ fn verify_sparse_require_info_presentation_inner(
     let device_challenge: [u8; 32] = device_challenge
         .try_into()
         .map_err(|_| JsValue::from_str("device_challenge must be exactly 32 bytes"))?;
+    let origin_inventory_sha256 = optional_production_digest(
+        origin_inventory_sha256,
+        "origin_inventory_sha256",
+    )?;
+    let target_approval_artifact_sha256 = optional_production_digest(
+        target_approval_artifact_sha256,
+        "target_approval_artifact_sha256",
+    )?;
     if trusted_notary_key.is_empty() {
         return Err(JsValue::from_str("trusted Notary key must not be empty"));
     }
@@ -183,6 +216,8 @@ fn verify_sparse_require_info_presentation_inner(
         notary_key_id.to_owned(),
         *transcript.notary_key_sha256(),
         presentation_sha256(presentation_bytes),
+        origin_inventory_sha256,
+        target_approval_artifact_sha256,
         canonical_user_id.to_owned(),
         canonical_device_id.to_owned(),
         device_challenge,
@@ -253,6 +288,8 @@ pub fn verify_require_info_presentation(
     canonical_user_id: &str,
     canonical_device_id: &str,
     device_challenge: &[u8],
+    origin_inventory_sha256: &[u8],
+    target_approval_artifact_sha256: &[u8],
     trusted_notary_key: &[u8],
 ) -> Result<String, JsValue> {
     verify_require_info_presentation_inner(
@@ -264,6 +301,8 @@ pub fn verify_require_info_presentation(
         canonical_user_id,
         canonical_device_id,
         device_challenge,
+        origin_inventory_sha256,
+        target_approval_artifact_sha256,
         trusted_notary_key,
         None,
     )
@@ -279,6 +318,8 @@ pub fn verify_synthetic_require_info_presentation_with_root(
     canonical_user_id: &str,
     canonical_device_id: &str,
     device_challenge: &[u8],
+    origin_inventory_sha256: &[u8],
+    target_approval_artifact_sha256: &[u8],
     trust_anchor_der: &[u8],
     trusted_notary_key: &[u8],
 ) -> Result<String, JsValue> {
@@ -291,6 +332,8 @@ pub fn verify_synthetic_require_info_presentation_with_root(
         canonical_user_id,
         canonical_device_id,
         device_challenge,
+        origin_inventory_sha256,
+        target_approval_artifact_sha256,
         trusted_notary_key,
         Some(trust_anchor_der),
     )
@@ -306,6 +349,8 @@ pub fn verify_sparse_require_info_presentation(
     canonical_user_id: &str,
     canonical_device_id: &str,
     device_challenge: &[u8],
+    origin_inventory_sha256: &[u8],
+    target_approval_artifact_sha256: &[u8],
     trusted_notary_key: &[u8],
 ) -> Result<String, JsValue> {
     verify_sparse_require_info_presentation_inner(
@@ -317,6 +362,8 @@ pub fn verify_sparse_require_info_presentation(
         canonical_user_id,
         canonical_device_id,
         device_challenge,
+        origin_inventory_sha256,
+        target_approval_artifact_sha256,
         None,
         trusted_notary_key,
     )
@@ -332,6 +379,8 @@ pub fn verify_synthetic_sparse_require_info_presentation_with_root(
     canonical_user_id: &str,
     canonical_device_id: &str,
     device_challenge: &[u8],
+    origin_inventory_sha256: &[u8],
+    target_approval_artifact_sha256: &[u8],
     trust_anchor_der: &[u8],
     trusted_notary_key: &[u8],
 ) -> Result<String, JsValue> {
@@ -344,6 +393,8 @@ pub fn verify_synthetic_sparse_require_info_presentation_with_root(
         canonical_user_id,
         canonical_device_id,
         device_challenge,
+        origin_inventory_sha256,
+        target_approval_artifact_sha256,
         Some(trust_anchor_der),
         trusted_notary_key,
     )

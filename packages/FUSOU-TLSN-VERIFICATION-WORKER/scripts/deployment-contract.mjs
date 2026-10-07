@@ -993,6 +993,7 @@ export const PRODUCTION_SECURITY_IDENTITY_FIELDS = [
   ...COMMON_SECURITY_IDENTITY_FIELDS,
   "security_registry_set_sha256",
   "origin_inventory_sha256",
+  "target_approval_artifact_sha256",
   "profile_policy_sha256",
 ];
 

@@ -59,6 +59,7 @@ const verificationTaskPayloadObject = z.object({
   origin_policy: z.enum(["inventory", "fixed"]),
   deployment_role: z.enum(["production", "canary", "test"]),
   origin_inventory_sha256: SHA256_BASE64URL_SCHEMA.optional(),
+  target_approval_artifact_sha256: SHA256_BASE64URL_SCHEMA.optional(),
   security_registry_set_sha256: SHA256_BASE64URL_SCHEMA.optional(),
   ...verificationProfileFields,
 }).strict();
@@ -87,6 +88,20 @@ export const verificationTaskPayloadSchema = verificationTaskPayloadObject
         code: z.ZodIssueCode.custom,
         path: ["origin_inventory_sha256"],
         message: "Only Production tasks may carry the Production inventory digest",
+      });
+    }
+    if (payload.deployment_role === "production" && !payload.target_approval_artifact_sha256) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["target_approval_artifact_sha256"],
+        message: "Production task requires the current Target Approval artifact digest",
+      });
+    }
+    if (payload.deployment_role !== "production" && payload.target_approval_artifact_sha256 !== undefined) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["target_approval_artifact_sha256"],
+        message: "Only Production tasks may carry the Target Approval artifact digest",
       });
     }
     if (payload.deployment_role !== "test" && !payload.security_registry_set_sha256) {
@@ -121,6 +136,12 @@ export const verificationQueueMessageSchema = verificationTaskPayloadObject.exte
     }
     if (payload.deployment_role !== "production" && payload.origin_inventory_sha256 !== undefined) {
       context.addIssue({ code: z.ZodIssueCode.custom, path: ["origin_inventory_sha256"], message: "Only Production tasks may carry the Production inventory digest" });
+    }
+    if (payload.deployment_role === "production" && !payload.target_approval_artifact_sha256) {
+      context.addIssue({ code: z.ZodIssueCode.custom, path: ["target_approval_artifact_sha256"], message: "Production task requires the current Target Approval artifact digest" });
+    }
+    if (payload.deployment_role !== "production" && payload.target_approval_artifact_sha256 !== undefined) {
+      context.addIssue({ code: z.ZodIssueCode.custom, path: ["target_approval_artifact_sha256"], message: "Only Production tasks may carry the Target Approval artifact digest" });
     }
     if (payload.deployment_role !== "test" && !payload.security_registry_set_sha256) {
       context.addIssue({ code: z.ZodIssueCode.custom, path: ["security_registry_set_sha256"], message: "Production and Canary tasks require the runtime security registry set digest" });

@@ -22,6 +22,7 @@ const testPayload = verificationTaskPayloadSchema.parse({
 });
 assert.equal(testPayload.deployment_role, "test");
 assert.equal("origin_inventory_sha256" in testPayload, false);
+assert.equal("target_approval_artifact_sha256" in testPayload, false);
 assert.equal("security_registry_set_sha256" in testPayload, false);
 
 assert.throws(() => verificationTaskPayloadSchema.parse({
@@ -44,19 +45,23 @@ const canaryPayload = verificationTaskPayloadSchema.parse({
   security_registry_set_sha256: "D".repeat(43),
 });
 assert.equal("origin_inventory_sha256" in canaryPayload, false);
+assert.equal("target_approval_artifact_sha256" in canaryPayload, false);
 
 const productionPayload = verificationTaskPayloadSchema.parse({
   ...basePayload,
   origin_policy: "inventory",
   deployment_role: "production",
   origin_inventory_sha256: "E".repeat(43),
+  target_approval_artifact_sha256: "F".repeat(43),
   security_registry_set_sha256: "F".repeat(43),
 });
 assert.equal(productionPayload.origin_inventory_sha256, "E".repeat(43));
+assert.equal(productionPayload.target_approval_artifact_sha256, "F".repeat(43));
 
 assert.throws(() => verificationTaskPayloadSchema.parse({
   ...productionPayload,
   origin_inventory_sha256: undefined,
+  target_approval_artifact_sha256: undefined,
 }), /Production task requires the runtime Origin inventory digest/);
 assert.throws(() => verificationTaskPayloadSchema.parse({
   ...canaryPayload,
