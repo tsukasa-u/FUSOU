@@ -521,6 +521,15 @@ mod tests {
         production_result.presentation_sha256[0] ^= 1;
         assert_ne!(original, production_result.signing_bytes().unwrap());
         production_result.presentation_sha256 = result.presentation_sha256;
+        production_result.server_identity = "other.example.test".to_owned();
+        assert_ne!(original, production_result.signing_bytes().unwrap());
+        production_result.server_identity = result.server_identity.clone();
+        production_result
+            .origin_inventory_sha256
+            .as_mut()
+            .unwrap()[0] ^= 1;
+        assert_ne!(original, production_result.signing_bytes().unwrap());
+        production_result.origin_inventory_sha256 = Some([0x31; 32]);
         production_result
             .target_approval_artifact_sha256
             .as_mut()

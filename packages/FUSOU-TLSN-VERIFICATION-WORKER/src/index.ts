@@ -34,6 +34,7 @@ import {
   verificationFinalResponseSchema,
   verificationInputRequestSchema,
   verificationObjectKey,
+  verificationAttemptArchiveKeys,
   verificationStatusRequestSchema,
   verificationTaskPayloadSchema,
   verificationQueueMessageSchema,
@@ -3241,7 +3242,8 @@ async function completeVerification(
   };
 
   const verificationAttemptId = callback.verification_attempt_id ?? crypto.randomUUID();
-  const attemptResultKey = verificationObjectKey(verificationAttemptId, "result");
+  const attemptArchiveKeys = verificationAttemptArchiveKeys(verificationAttemptId);
+  const attemptResultKey = attemptArchiveKeys.result;
   let verificationRecord;
   const bindingLookupAndLeaseStartedAt = executionMode === "queue" ? performance.now() : null;
   if (executionMode === "queue") benchmarkRecord(c.env, callback.job_id, "queue_binding_lookup_and_lease_started");
@@ -3642,7 +3644,7 @@ async function completeVerification(
       benchmarkR2Operation(c.env, callback.job_id, "presentation_archive_put");
       await persistAndVerifyPresentationArchive(
         c.env.TLSN_PRESENTATIONS,
-        verificationObjectKey(verificationAttemptId, "presentation"),
+        attemptArchiveKeys.presentation,
         storedPresentation,
         storedPresentationId,
       );
@@ -4587,7 +4589,8 @@ const handleTlsnVerification = async (c: Context<{ Bindings: Bindings }>) => {
 
   const synchronousJobId = crypto.randomUUID();
   const synchronousAttemptId = crypto.randomUUID();
-  const synchronousResultKey = verificationObjectKey(synchronousJobId, "result");
+  const synchronousArchiveKeys = verificationAttemptArchiveKeys(synchronousAttemptId);
+  const synchronousResultKey = synchronousArchiveKeys.result;
   const synchronousBindingId = await hashBindingId(requestBody.binding);
 
   let deviceChallengeBytes: Uint8Array;
@@ -4730,7 +4733,7 @@ const handleTlsnVerification = async (c: Context<{ Bindings: Bindings }>) => {
       benchmarkR2Operation(c.env, synchronousJobId, "presentation_archive_put");
       await persistAndVerifyPresentationArchive(
         c.env.TLSN_PRESENTATIONS,
-        verificationObjectKey(synchronousJobId, "presentation"),
+        synchronousArchiveKeys.presentation,
         presentationBytes,
         presentationId,
       );

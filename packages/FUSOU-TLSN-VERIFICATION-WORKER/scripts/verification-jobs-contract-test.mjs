@@ -1,7 +1,15 @@
+import {
+  verificationAttemptArchiveKeys,
+  verificationQueueMessageSchema,
+  verificationTaskPayloadSchema,
+} from "../src/verification_jobs.ts";
 import assert from "node:assert/strict";
-import { verificationQueueMessageSchema, verificationTaskPayloadSchema } from "../src/verification_jobs.ts";
 
 const jobId = "123e4567-e89b-42d3-a456-426614174000";
+const attemptArchiveKeys = verificationAttemptArchiveKeys(jobId);
+assert.equal(attemptArchiveKeys.presentation, `tlsn-verification/${jobId}/presentation.bin`);
+assert.equal(attemptArchiveKeys.result, `tlsn-verification/${jobId}/result.json`);
+assert.equal(attemptArchiveKeys.presentation.split("/").slice(0, 2).join("/"), attemptArchiveKeys.result.split("/").slice(0, 2).join("/"));
 const basePayload = {
   job_id: jobId,
   binding_id: "A".repeat(43),

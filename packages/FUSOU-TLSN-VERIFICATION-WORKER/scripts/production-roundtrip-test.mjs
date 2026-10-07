@@ -214,15 +214,16 @@ try {
     TLSN_CANARY_WORKER_NAME: "fusou-tlsn-verification-canary",
     TLSN_CANARY_BINDING_IDENTITY: "canary-binding-roundtrip-2026",
   };
-  const canaryProfiles = profilesForServerIdentity("game.example.com");
-  canaryEnvironment.TLSN_CANDIDATE_SERVER_IDENTITY = "game.example.com";
+  const canaryServerIdentity = assertTargetApprovalResolved().approved_target_identities[0];
+  const canaryProfiles = profilesForServerIdentity(canaryServerIdentity);
+  canaryEnvironment.TLSN_CANDIDATE_SERVER_IDENTITY = canaryServerIdentity;
   canaryEnvironment.TLSN_CANDIDATE_PROFILE_SHA256 = canaryProfiles.complete.sha256;
   canaryEnvironment.TLSN_CANDIDATE_SPARSE_PROFILE_SHA256 = canaryProfiles.sparse.sha256;
   canaryEnvironment.TLSN_SECURITY_REGISTRY_SET_SHA256 = securityRegistrySetHash({
     notaryKeyId: canaryEnvironment.TLSN_CANDIDATE_NOTARY_KEY_ID,
     notaryRegistryRaw,
     profileSha256: canaryProfiles.complete.sha256,
-    serverIdentity: "game.example.com",
+    serverIdentity: canaryServerIdentity,
     sparseProfileSha256: canaryProfiles.sparse.sha256,
   }).sha256;
   const appBuildEnvironment = {
@@ -283,7 +284,20 @@ try {
   assert.equal(report.status, "PASS");
   assert.equal(report.failure_count, 0);
   const provenance = JSON.parse(await readFile(provenancePath, "utf8"));
-  const currentTargetApproval = assertTargetApprovalResolved();
+  const currentTargetApproval = assertTargetApprovalResolved({
+    candidateIdentity: canaryServerIdentity,
+    requireCandidate: true,
+  });
+  const currentInventoryRaw = await readFile(resolve(packageDirectory, "../configs/tlsn-origin-inventory.json"));
+  const currentInventory = JSON.parse(currentInventoryRaw.toString("utf8"));
+  assert.equal(
+    currentTargetApproval.inventory_sha256,
+    createHash("sha256").update(currentInventoryRaw).digest("base64url"),
+  );
+  assert.ok(currentInventory.targets.some((target) =>
+    target.server_identity === canaryServerIdentity && target.port === 443
+  ));
+  assert.ok(currentTargetApproval.approved_target_identities.includes(canaryServerIdentity));
   assert.equal(
     provenance.security_identity.target_approval_artifact_sha256,
     currentTargetApproval.approval_artifact_sha256,

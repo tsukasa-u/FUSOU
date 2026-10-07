@@ -200,6 +200,42 @@ assert.equal(presentationArchiveGetKey, presentationArchiveObjectKey);
 assert.equal(presentationArchiveContentType, "application/octet-stream");
 assert.deepEqual(presentationArchiveBytes, presentationBytes);
 
+for (const failureCase of [
+  {
+    label: "length mismatch",
+    archivedBytes: presentationBytes.subarray(1),
+  },
+  {
+    label: "hash mismatch",
+    archivedBytes: changedPresentationBytes,
+  },
+  {
+    label: "missing object",
+    archivedBytes: undefined,
+  },
+]) {
+  let deletedObjectKey: string | undefined;
+  let resultCommitSucceeded = false;
+  const failingArchiveBucket = {
+    put: async (key: string) => key,
+    get: async () => failureCase.archivedBytes
+      ? { arrayBuffer: async () => failureCase.archivedBytes!.slice().buffer } as R2ObjectBody
+      : null,
+    delete: async (key: string) => { deletedObjectKey = key; },
+  } as unknown as R2Bucket;
+  await assert.rejects(async () => {
+    await persistAndVerifyPresentationArchive(
+      failingArchiveBucket,
+      presentationArchiveObjectKey,
+      presentationBytes,
+      presentationArchiveExpectedHash,
+    );
+    resultCommitSucceeded = true;
+  }, /authoritative Presentation archive verification failed/, failureCase.label);
+  assert.equal(resultCommitSucceeded, false, `${failureCase.label} must prevent Result commit`);
+  assert.equal(deletedObjectKey, presentationArchiveObjectKey);
+}
+
 const archiveObjectKey = `tlsn-verification/${attemptId}/result.json`;
 const archiveExpectedHash = await encodeResultArchiveSha256(response.bytes);
 await assertResultArchiveBytes(response.bytes, response.bytes, archiveExpectedHash);
@@ -269,7 +305,10 @@ for (const alteredReceipt of [
   { ...receipt, deployment_id: "other-deployment" },
   { ...receipt, runtime_version_id: "c4b06408-1cdb-453c-826b-bdea36a8b1e5" },
   { ...receipt, verifier_key_id: "other-verifier-key" },
-  { ...receipt, signature_base64url: `${receipt.signature_base64url.slice(0, -1)}A` },
+  {
+    ...receipt,
+    signature_base64url: `${receipt.signature_base64url[0] === "A" ? "B" : "A"}${receipt.signature_base64url.slice(1)}`,
+  },
 ]) {
   assert.throws(() => assertCanaryVerifierExecutionReceipt(alteredReceipt, {
     presentationBytes,

@@ -32,6 +32,18 @@ const ALPHA15_K256_PUBLIC_KEY_LENGTH: u64 = 33;
 const KEY_ID_MAX_LENGTH: usize = 128;
 const PRODUCTION_SEMANTIC_SCHEMA_VERSION: u64 = 2;
 const PRODUCTION_SEMANTIC_KIND: &str = "tlsn-production-semantic-verification";
+const ORIGIN_INVENTORY_SOURCE: &str =
+    "packages/configs/configs.toml:[app.connect_kc_server.server_list]";
+const TARGET_APPROVAL_AUTHORITY_MODEL: &str = "FUSOU_DEPLOYMENT_OPERATOR";
+const TARGET_APPROVAL_FIELDS: [&str; 7] = [
+    "schema_version",
+    "authority_model",
+    "environment",
+    "status",
+    "inventory_sha256",
+    "targets",
+    "approved_at",
+];
 
 #[derive(Debug, Clone)]
 pub struct BundleVerifierOptions {
@@ -1209,25 +1221,136 @@ fn verify_production_target_approval(
                 "target_approval",
                 "production_target_approval",
             )?;
-            if inventory.get("schema_version").and_then(Value::as_u64) != Some(1)
-                || approval.get("schema_version").and_then(Value::as_u64) != Some(1)
-                || inventory.get("targets").and_then(Value::as_array).is_none()
-                || approval.get("targets").and_then(Value::as_array).is_none()
-                || approval.get("authority_model").and_then(Value::as_str)
-                    != Some("FUSOU_DEPLOYMENT_OPERATOR")
-                || approval.get("environment").and_then(Value::as_str) != Some("production")
-                || approval.get("status").and_then(Value::as_str) != Some("APPROVED")
+            let approval_object = approval.as_object().ok_or_else(|| {
+                BundleVerificationError::new(
+                    "production_target_approval",
+                    Some("target_approval"),
+                    "Target Approval must be a JSON object",
+                )
+            })?;
+            if approval_object.len() != TARGET_APPROVAL_FIELDS.len()
+                || TARGET_APPROVAL_FIELDS
+                    .iter()
+                    .any(|field| !approval_object.contains_key(*field))
             {
                 return Err(BundleVerificationError::new(
                     "production_target_approval",
                     Some("target_approval"),
-                    "current inventory or Target Approval has an unsupported schema or authority state",
+                    "Target Approval has missing or unknown fields",
                 ));
             }
-            let expected_inventory_sha256 = URL_SAFE_NO_PAD.encode(expected_inventory_sha256);
-            if approval.get("inventory_sha256").and_then(Value::as_str)
-                != Some(expected_inventory_sha256.as_str())
+            let schema_version = approval
+                .get("schema_version")
+                .and_then(Value::as_u64)
+                .ok_or_else(|| {
+                    BundleVerificationError::new(
+                        "production_target_approval",
+                        Some("target_approval"),
+                        "Target Approval schema_version must be an integer",
+                    )
+                })?;
+            let authority_model = object_string(
+                &approval,
+                "authority_model",
+                "production_target_approval",
+                "target_approval",
+            )?;
+            let environment = object_string(
+                &approval,
+                "environment",
+                "production_target_approval",
+                "target_approval",
+            )?;
+            let status = object_string(
+                &approval,
+                "status",
+                "production_target_approval",
+                "target_approval",
+            )?;
+            let approval_inventory_sha256 = object_string(
+                &approval,
+                "inventory_sha256",
+                "production_target_approval",
+                "target_approval",
+            )?;
+            let approved_at = object_string(
+                &approval,
+                "approved_at",
+                "production_target_approval",
+                "target_approval",
+            )?;
+            let approval_targets = approval
+                .get("targets")
+                .and_then(Value::as_array)
+                .ok_or_else(|| {
+                    BundleVerificationError::new(
+                        "production_target_approval",
+                        Some("target_approval"),
+                        "Target Approval targets must be an array",
+                    )
+                })?;
+            let approved_identities = approval_targets
+                .iter()
+                .map(|target| {
+                    target.as_str().ok_or_else(|| {
+                        BundleVerificationError::new(
+                            "production_target_approval",
+                            Some("target_approval"),
+                            "Target Approval contains a non-string target identity",
+                        )
+                    })
+                })
+                .collect::<Result<Vec<_>>>()?;
+            if schema_version != 1
+                || authority_model != TARGET_APPROVAL_AUTHORITY_MODEL
+                || environment != "production"
+                || status != "APPROVED"
+                || approved_identities.is_empty()
+                || !is_valid_rfc3339_timestamp(approved_at)
             {
+                return Err(BundleVerificationError::new(
+                    "production_target_approval",
+                    Some("target_approval"),
+                    "Target Approval schema, authority, status, targets, or approved_at is invalid",
+                ));
+            }
+            if serialize_target_approval_record(&approval)?.as_slice() != approval_raw {
+                return Err(BundleVerificationError::new(
+                    "production_target_approval",
+                    Some("target_approval"),
+                    "Target Approval is not in canonical field order and serialization",
+                ));
+            }
+
+            if inventory.get("schema_version").and_then(Value::as_u64) != Some(1)
+                || inventory.get("source").and_then(Value::as_str) != Some(ORIGIN_INVENTORY_SOURCE)
+            {
+                return Err(BundleVerificationError::new(
+                    "production_target_approval",
+                    Some("origin_inventory"),
+                    "current Origin inventory has an unsupported schema or source",
+                ));
+            }
+            let inventory_targets = inventory
+                .get("targets")
+                .and_then(Value::as_array)
+                .ok_or_else(|| {
+                    BundleVerificationError::new(
+                        "production_target_approval",
+                        Some("origin_inventory"),
+                        "Origin inventory targets must be an array",
+                    )
+                })?;
+            if inventory_targets.len() != 20 {
+                return Err(BundleVerificationError::new(
+                    "production_target_approval",
+                    Some("origin_inventory"),
+                    "current schema-v1 Origin inventory must contain exactly 20 targets",
+                ));
+            }
+
+            let expected_inventory_sha256 = URL_SAFE_NO_PAD.encode(expected_inventory_sha256);
+            if approval_inventory_sha256 != expected_inventory_sha256 {
                 return Err(BundleVerificationError::new(
                     "production_target_approval",
                     Some("target_approval"),
@@ -1235,42 +1358,65 @@ fn verify_production_target_approval(
                 ));
             }
 
-            let inventory_targets = inventory["targets"].as_array().expect("checked above");
-            let approval_targets = approval["targets"].as_array().expect("checked above");
-            let inventory_identities = inventory_targets
-                .iter()
-                .map(|target| {
-                    object_string(
-                        target,
-                        "server_identity",
-                        "production_target_approval",
-                        "origin_inventory",
-                    )
-                })
-                .collect::<Result<Vec<_>>>()?;
+            let mut inventory_identities = Vec::with_capacity(inventory_targets.len());
             let mut seen_inventory_identities = HashSet::new();
-            if inventory_identities
-                .iter()
-                .any(|identity| !seen_inventory_identities.insert(*identity))
-            {
-                return Err(BundleVerificationError::new(
-                    "production_target_approval",
-                    Some("origin_inventory"),
-                    "current origin inventory contains duplicate identities",
-                ));
-            }
-            let mut previous_inventory_index = None;
-            for approved_identity in approval_targets {
-                let approved_identity = approved_identity.as_str().ok_or_else(|| {
+            for (index, target) in inventory_targets.iter().enumerate() {
+                let target_object = target.as_object().ok_or_else(|| {
                     BundleVerificationError::new(
                         "production_target_approval",
-                        Some("target_approval"),
-                        "Target Approval contains a non-string target identity",
+                        Some("origin_inventory"),
+                        "Origin inventory target must be a JSON object",
                     )
                 })?;
+                if target_object.len() != 3
+                    || !target_object.contains_key("server_index")
+                    || !target_object.contains_key("server_identity")
+                    || !target_object.contains_key("port")
+                {
+                    return Err(BundleVerificationError::new(
+                        "production_target_approval",
+                        Some("origin_inventory"),
+                        "Origin inventory target has missing or unknown fields",
+                    ));
+                }
+                let server_index = target.get("server_index").and_then(Value::as_u64);
+                let server_identity = object_string(
+                    target,
+                    "server_identity",
+                    "production_target_approval",
+                    "origin_inventory",
+                )?;
+                let port = target.get("port").and_then(Value::as_u64);
+                if server_index != Some(index as u64 + 1)
+                    || port != Some(443)
+                    || !is_canonical_dns_hostname(server_identity)
+                    || !seen_inventory_identities.insert(server_identity)
+                {
+                    return Err(BundleVerificationError::new(
+                        "production_target_approval",
+                        Some("origin_inventory"),
+                        "Origin inventory target must be canonical, unique, ordered, and HTTPS port 443",
+                    ));
+                }
+                inventory_identities.push(server_identity);
+            }
+
+            let mut seen_approved_identities = HashSet::new();
+            let mut previous_inventory_index = None;
+            for approved_identity in &approved_identities {
+                if !is_canonical_dns_hostname(approved_identity)
+                    || is_fixture_or_synthetic_identity(approved_identity)
+                    || !seen_approved_identities.insert(*approved_identity)
+                {
+                    return Err(BundleVerificationError::new(
+                        "production_target_approval",
+                        Some("target_approval"),
+                        "Target Approval contains a non-canonical, fixture, or duplicate identity",
+                    ));
+                }
                 let inventory_index = inventory_identities
                     .iter()
-                    .position(|identity| *identity == approved_identity)
+                    .position(|identity| *identity == *approved_identity)
                     .ok_or_else(|| {
                         BundleVerificationError::new(
                             "production_target_approval",
@@ -1287,10 +1433,10 @@ fn verify_production_target_approval(
                 }
                 previous_inventory_index = Some(inventory_index);
             }
-            if !inventory_identities.contains(&server_identity)
-                || !approval_targets
-                    .iter()
-                    .any(|identity| identity.as_str() == Some(server_identity))
+            if !is_canonical_dns_hostname(server_identity)
+                || is_fixture_or_synthetic_identity(server_identity)
+                || !inventory_identities.contains(&server_identity)
+                || !approved_identities.contains(&server_identity)
             {
                 return Err(BundleVerificationError::new(
                     "production_target_approval",
@@ -1305,6 +1451,213 @@ fn verify_production_target_approval(
             Some("result"),
             "signed Result contains incomplete Production inventory and approval provenance",
         )),
+    }
+}
+
+fn serialize_target_approval_record(approval: &Value) -> Result<Vec<u8>> {
+    let schema_version = approval
+        .get("schema_version")
+        .and_then(Value::as_u64)
+        .ok_or_else(|| {
+            BundleVerificationError::new(
+                "production_target_approval",
+                Some("target_approval"),
+                "Target Approval schema_version must be an integer",
+            )
+        })?;
+    let string_field = |field: &str| {
+        object_string(
+            approval,
+            field,
+            "production_target_approval",
+            "target_approval",
+        )
+    };
+    let authority_model =
+        serde_json::to_string(string_field("authority_model")?).map_err(|error| {
+            BundleVerificationError::new(
+                "production_target_approval",
+                Some("target_approval"),
+                error.to_string(),
+            )
+        })?;
+    let environment = serde_json::to_string(string_field("environment")?).map_err(|error| {
+        BundleVerificationError::new(
+            "production_target_approval",
+            Some("target_approval"),
+            error.to_string(),
+        )
+    })?;
+    let status = serde_json::to_string(string_field("status")?).map_err(|error| {
+        BundleVerificationError::new(
+            "production_target_approval",
+            Some("target_approval"),
+            error.to_string(),
+        )
+    })?;
+    let inventory_sha256 =
+        serde_json::to_string(string_field("inventory_sha256")?).map_err(|error| {
+            BundleVerificationError::new(
+                "production_target_approval",
+                Some("target_approval"),
+                error.to_string(),
+            )
+        })?;
+    let approved_at = serde_json::to_string(string_field("approved_at")?).map_err(|error| {
+        BundleVerificationError::new(
+            "production_target_approval",
+            Some("target_approval"),
+            error.to_string(),
+        )
+    })?;
+    let targets = approval
+        .get("targets")
+        .and_then(Value::as_array)
+        .ok_or_else(|| {
+            BundleVerificationError::new(
+                "production_target_approval",
+                Some("target_approval"),
+                "Target Approval targets must be an array",
+            )
+        })?
+        .iter()
+        .map(|target| {
+            let target = target.as_str().ok_or_else(|| {
+                BundleVerificationError::new(
+                    "production_target_approval",
+                    Some("target_approval"),
+                    "Target Approval contains a non-string target identity",
+                )
+            })?;
+            serde_json::to_string(target).map_err(|error| {
+                BundleVerificationError::new(
+                    "production_target_approval",
+                    Some("target_approval"),
+                    error.to_string(),
+                )
+            })
+        })
+        .collect::<Result<Vec<_>>>()?;
+    let target_list = targets
+        .iter()
+        .map(|target| format!("    {target}"))
+        .collect::<Vec<_>>()
+        .join(",\n");
+    Ok(format!(
+        "{{\n  \"schema_version\": {schema_version},\n  \"authority_model\": {authority_model},\n  \"environment\": {environment},\n  \"status\": {status},\n  \"inventory_sha256\": {inventory_sha256},\n  \"targets\": [\n{target_list}\n  ],\n  \"approved_at\": {approved_at}\n}}"
+    )
+    .into_bytes())
+}
+
+fn is_canonical_dns_hostname(hostname: &str) -> bool {
+    if hostname.is_empty() || hostname.len() > 253 || hostname != hostname.to_ascii_lowercase() {
+        return false;
+    }
+    let labels = hostname.split('.').collect::<Vec<_>>();
+    if labels.len() < 2 {
+        return false;
+    }
+    let top_level_domain = labels[labels.len() - 1];
+    if !(2..=63).contains(&top_level_domain.len())
+        || !top_level_domain
+            .bytes()
+            .all(|byte| byte.is_ascii_lowercase())
+    {
+        return false;
+    }
+    labels.iter().all(|label| {
+        !label.is_empty()
+            && label.len() <= 63
+            && label.as_bytes()[0].is_ascii_alphanumeric()
+            && label.as_bytes()[label.len() - 1].is_ascii_alphanumeric()
+            && label
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
+    })
+}
+
+fn is_fixture_or_synthetic_identity(hostname: &str) -> bool {
+    const MARKERS: [&str; 10] = [
+        "test",
+        "synthetic",
+        "fixture",
+        "local",
+        "localhost",
+        "staging",
+        "historical",
+        "remote-test",
+        "example",
+        "invalid",
+    ];
+    hostname == "game.example.test"
+        || hostname
+            .split(['.', '-', '_', '/'])
+            .any(|label| MARKERS.contains(&label))
+}
+
+fn is_valid_rfc3339_timestamp(value: &str) -> bool {
+    let bytes = value.as_bytes();
+    if bytes.len() < 20
+        || bytes[4] != b'-'
+        || bytes[7] != b'-'
+        || bytes[10] != b'T'
+        || bytes[13] != b':'
+        || bytes[16] != b':'
+    {
+        return false;
+    }
+    let number = |range: std::ops::Range<usize>| -> Option<u32> {
+        let digits = bytes.get(range)?;
+        digits.iter().all(u8::is_ascii_digit).then(|| {
+            digits
+                .iter()
+                .fold(0_u32, |number, digit| number * 10 + u32::from(digit - b'0'))
+        })
+    };
+    let (Some(year), Some(month), Some(day), Some(hour), Some(minute), Some(second)) = (
+        number(0..4),
+        number(5..7),
+        number(8..10),
+        number(11..13),
+        number(14..16),
+        number(17..19),
+    ) else {
+        return false;
+    };
+    if !(1..=12).contains(&month) || hour > 23 || minute > 59 || second > 59 {
+        return false;
+    }
+    let leap_year = year % 4 == 0 && (year % 100 != 0 || year % 400 == 0);
+    let days_in_month = match month {
+        2 if leap_year => 29,
+        2 => 28,
+        4 | 6 | 9 | 11 => 30,
+        _ => 31,
+    };
+    if day == 0 || day > days_in_month {
+        return false;
+    }
+
+    let mut cursor = 19;
+    if bytes.get(cursor) == Some(&b'.') {
+        cursor += 1;
+        let fraction_start = cursor;
+        while bytes.get(cursor).is_some_and(u8::is_ascii_digit) {
+            cursor += 1;
+        }
+        if cursor == fraction_start {
+            return false;
+        }
+    }
+    match bytes.get(cursor) {
+        Some(b'Z') => cursor + 1 == bytes.len(),
+        Some(b'+') | Some(b'-') => {
+            cursor + 6 == bytes.len()
+                && bytes[cursor + 3] == b':'
+                && number(cursor + 1..cursor + 3).is_some_and(|hour| hour <= 23)
+                && number(cursor + 4..cursor + 6).is_some_and(|minute| minute <= 59)
+        }
+        _ => false,
     }
 }
 
@@ -4241,6 +4594,74 @@ mod tests {
         assert!(validate_alpha15_notary_key(&invalid).is_err());
     }
 
+    fn production_target_approval_test_fixture() -> (Value, Value) {
+        let inventory_targets = (1..=20)
+            .map(|index| {
+                serde_json::json!({
+                    "server_index": index,
+                    "server_identity": format!("server{index:02}.fusou-data.net"),
+                    "port": 443,
+                })
+            })
+            .collect::<Vec<_>>();
+        let inventory = serde_json::json!({
+            "schema_version": 1,
+            "source": ORIGIN_INVENTORY_SOURCE,
+            "targets": inventory_targets,
+        });
+        let inventory_raw = serde_json::to_vec(&inventory).unwrap();
+        let approval = serde_json::json!({
+            "schema_version": 1,
+            "authority_model": TARGET_APPROVAL_AUTHORITY_MODEL,
+            "environment": "production",
+            "status": "APPROVED",
+            "inventory_sha256": URL_SAFE_NO_PAD.encode(sha256(&inventory_raw)),
+            "targets": ["server01.fusou-data.net", "server02.fusou-data.net"],
+            "approved_at": "2026-08-01T12:00:00.000Z",
+        });
+        (inventory, approval)
+    }
+
+    fn verify_target_approval_test_values(
+        inventory: &Value,
+        approval: &Value,
+        server_identity: &str,
+    ) -> Result<()> {
+        let inventory_raw = serde_json::to_vec(inventory).unwrap();
+        let inventory_sha256 = sha256(&inventory_raw);
+        let mut approval = approval.clone();
+        approval["inventory_sha256"] = Value::String(URL_SAFE_NO_PAD.encode(inventory_sha256));
+        let approval_raw = serialize_target_approval_record(&approval)?;
+        let approval_sha256 = sha256(&approval_raw);
+        verify_production_target_approval(
+            Some(&inventory_sha256),
+            Some(&approval_sha256),
+            &inventory_raw,
+            &approval_raw,
+            server_identity,
+        )
+    }
+
+    fn verify_target_approval_test_raw_json(
+        inventory: &Value,
+        approval: &Value,
+        server_identity: &str,
+    ) -> Result<()> {
+        let inventory_raw = serde_json::to_vec(inventory).unwrap();
+        let inventory_sha256 = sha256(&inventory_raw);
+        let mut approval = approval.clone();
+        approval["inventory_sha256"] = Value::String(URL_SAFE_NO_PAD.encode(inventory_sha256));
+        let approval_raw = serde_json::to_vec(&approval).unwrap();
+        let approval_sha256 = sha256(&approval_raw);
+        verify_production_target_approval(
+            Some(&inventory_sha256),
+            Some(&approval_sha256),
+            &inventory_raw,
+            &approval_raw,
+            server_identity,
+        )
+    }
+
     #[test]
     fn rejection_report_preserves_structured_trust_context() {
         let report = BundleVerificationError::mismatch(
@@ -4260,19 +4681,17 @@ mod tests {
 
     #[test]
     fn production_target_approval_requires_current_matching_trust_sets() {
-        let inventory_raw = br#"{"schema_version":1,"targets":[{"server_identity":"a.example"},{"server_identity":"b.example"}]}"#;
-        let inventory_sha256 = sha256(inventory_raw);
-        let inventory_sha256_base64url = URL_SAFE_NO_PAD.encode(inventory_sha256);
-        let approval_raw = format!(
-            "{{\"schema_version\":1,\"authority_model\":\"FUSOU_DEPLOYMENT_OPERATOR\",\"environment\":\"production\",\"status\":\"APPROVED\",\"inventory_sha256\":\"{inventory_sha256_base64url}\",\"targets\":[\"a.example\",\"b.example\"]}}"
-        );
-        let approval_sha256 = sha256(approval_raw.as_bytes());
+        let (inventory, approval) = production_target_approval_test_fixture();
+        let inventory_raw = serde_json::to_vec(&inventory).unwrap();
+        let inventory_sha256 = sha256(&inventory_raw);
+        let approval_raw = serialize_target_approval_record(&approval).unwrap();
+        let approval_sha256 = sha256(&approval_raw);
         verify_production_target_approval(
             Some(&inventory_sha256),
             Some(&approval_sha256),
-            inventory_raw,
-            approval_raw.as_bytes(),
-            "a.example",
+            &inventory_raw,
+            &approval_raw,
+            "server01.fusou-data.net",
         )
         .unwrap();
         let mut changed_inventory_sha256 = inventory_sha256;
@@ -4280,21 +4699,22 @@ mod tests {
         assert!(verify_production_target_approval(
             Some(&changed_inventory_sha256),
             Some(&approval_sha256),
-            inventory_raw,
-            approval_raw.as_bytes(),
-            "a.example",
+            &inventory_raw,
+            &approval_raw,
+            "server01.fusou-data.net",
         )
         .is_err());
-        let approval_for_other_target = format!(
-            "{{\"schema_version\":1,\"authority_model\":\"FUSOU_DEPLOYMENT_OPERATOR\",\"environment\":\"production\",\"status\":\"APPROVED\",\"inventory_sha256\":\"{inventory_sha256_base64url}\",\"targets\":[\"b.example\"]}}"
-        );
-        let approval_for_other_target_sha256 = sha256(approval_for_other_target.as_bytes());
+        let mut approval_for_other_target = approval.clone();
+        approval_for_other_target["targets"] = serde_json::json!(["server02.fusou-data.net"]);
+        let approval_for_other_target_raw =
+            serialize_target_approval_record(&approval_for_other_target).unwrap();
+        let approval_for_other_target_sha256 = sha256(&approval_for_other_target_raw);
         assert!(verify_production_target_approval(
             Some(&inventory_sha256),
             Some(&approval_for_other_target_sha256),
-            inventory_raw,
-            approval_for_other_target.as_bytes(),
-            "a.example",
+            &inventory_raw,
+            &approval_for_other_target_raw,
+            "server01.fusou-data.net",
         )
         .is_err());
         let mut changed_approval_sha256 = approval_sha256;
@@ -4302,35 +4722,163 @@ mod tests {
         assert!(verify_production_target_approval(
             Some(&inventory_sha256),
             Some(&changed_approval_sha256),
-            inventory_raw,
-            approval_raw.as_bytes(),
-            "a.example",
+            &inventory_raw,
+            &approval_raw,
+            "server01.fusou-data.net",
         )
         .is_err());
         assert!(verify_production_target_approval(
             Some(&inventory_sha256),
             Some(&approval_sha256),
-            inventory_raw,
-            approval_raw.as_bytes(),
+            &inventory_raw,
+            &approval_raw,
             "outside.example",
         )
         .is_err());
         assert!(verify_production_target_approval(
             Some(&inventory_sha256),
             None,
-            inventory_raw,
-            approval_raw.as_bytes(),
-            "a.example",
+            &inventory_raw,
+            &approval_raw,
+            "server01.fusou-data.net",
         )
         .is_err());
         assert!(verify_production_target_approval(
             None,
             None,
-            inventory_raw,
-            approval_raw.as_bytes(),
-            "a.example",
+            &inventory_raw,
+            &approval_raw,
+            "server01.fusou-data.net",
         )
         .is_err());
+    }
+
+    #[test]
+    fn production_target_approval_rejects_contract_mutations() {
+        let (inventory, approval) = production_target_approval_test_fixture();
+        for (field, value) in [
+            (
+                "authority_model",
+                Value::String("OTHER_AUTHORITY".to_owned()),
+            ),
+            ("environment", Value::String("staging".to_owned())),
+            ("status", Value::String("REVOKED".to_owned())),
+            (
+                "approved_at",
+                Value::String("2026-02-30T12:00:00Z".to_owned()),
+            ),
+            ("targets", serde_json::json!([])),
+            (
+                "targets",
+                serde_json::json!(["server02.fusou-data.net", "server01.fusou-data.net"]),
+            ),
+            (
+                "targets",
+                serde_json::json!(["server01.fusou-data.net", "server01.fusou-data.net"]),
+            ),
+            ("targets", serde_json::json!(["game.example.com"])),
+            ("targets", serde_json::json!(["Server01.fusou-data.net"])),
+        ] {
+            let mut mutated = approval.clone();
+            mutated[field] = value;
+            assert!(
+                verify_target_approval_test_values(&inventory, &mutated, "server01.fusou-data.net")
+                    .is_err(),
+                "accepted Target Approval mutation for {field}"
+            );
+        }
+
+        let mut unknown_field = approval.clone();
+        unknown_field["operator_note"] = Value::String("unbound".to_owned());
+        assert!(verify_target_approval_test_raw_json(
+            &inventory,
+            &unknown_field,
+            "server01.fusou-data.net"
+        )
+        .is_err());
+        let mut missing_field = approval.clone();
+        missing_field.as_object_mut().unwrap().remove("status");
+        assert!(verify_target_approval_test_values(
+            &inventory,
+            &missing_field,
+            "server01.fusou-data.net"
+        )
+        .is_err());
+        let inventory_raw = serde_json::to_vec(&inventory).unwrap();
+        let inventory_sha256 = sha256(&inventory_raw);
+        let approval_sha256 = sha256(&serde_json::to_vec(&approval).unwrap());
+        assert!(verify_production_target_approval(
+            Some(&inventory_sha256),
+            Some(&approval_sha256),
+            &inventory_raw,
+            &serde_json::to_vec(&approval).unwrap(),
+            "server01.fusou-data.net",
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn production_target_approval_rejects_invalid_inventory_contract() {
+        let (inventory, approval) = production_target_approval_test_fixture();
+        let mut invalid_inventories = Vec::new();
+
+        let mut bad_port = inventory.clone();
+        bad_port["targets"][0]["port"] = serde_json::json!(80);
+        invalid_inventories.push(bad_port);
+        let mut bad_index = inventory.clone();
+        bad_index["targets"][0]["server_index"] = serde_json::json!(2);
+        invalid_inventories.push(bad_index);
+        let mut bad_source = inventory.clone();
+        bad_source["source"] = serde_json::json!("another source");
+        invalid_inventories.push(bad_source);
+        let mut bad_hostname = inventory.clone();
+        bad_hostname["targets"][0]["server_identity"] = serde_json::json!("not_a_hostname");
+        invalid_inventories.push(bad_hostname);
+        let mut duplicate_identity = inventory.clone();
+        duplicate_identity["targets"][1]["server_identity"] =
+            serde_json::json!("server01.fusou-data.net");
+        invalid_inventories.push(duplicate_identity);
+        let mut too_few_targets = inventory.clone();
+        too_few_targets["targets"].as_array_mut().unwrap().pop();
+        invalid_inventories.push(too_few_targets);
+        let mut target_unknown_field = inventory.clone();
+        target_unknown_field["targets"][0]["region"] = serde_json::json!("north");
+        invalid_inventories.push(target_unknown_field);
+
+        for invalid_inventory in invalid_inventories {
+            assert!(verify_target_approval_test_values(
+                &invalid_inventory,
+                &approval,
+                "server01.fusou-data.net"
+            )
+            .is_err());
+        }
+    }
+
+    #[test]
+    fn rfc3339_approval_timestamp_accepts_valid_forms_and_rejects_invalid_dates() {
+        for timestamp in [
+            "2026-08-01T12:00:00Z",
+            "2026-08-01T12:00:00.123Z",
+            "2026-08-01T12:00:00.123456+02:30",
+        ] {
+            assert!(
+                is_valid_rfc3339_timestamp(timestamp),
+                "rejected {timestamp}"
+            );
+        }
+        for timestamp in [
+            "2026-02-30T12:00:00Z",
+            "2026-08-01T24:00:00Z",
+            "2026-08-01T12:00:00",
+            "2026-08-01T12:00:00+24:00",
+            "2026-08-01T12:00:00.Z",
+        ] {
+            assert!(
+                !is_valid_rfc3339_timestamp(timestamp),
+                "accepted {timestamp}"
+            );
+        }
     }
 
     #[test]

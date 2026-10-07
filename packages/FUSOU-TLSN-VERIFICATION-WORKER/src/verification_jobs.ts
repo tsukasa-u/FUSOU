@@ -245,6 +245,16 @@ export function verificationObjectKey(jobId: string, kind: "presentation" | "res
   return `tlsn-verification/${jobId}/${kind}.${kind === "presentation" ? "bin" : "json"}`;
 }
 
+export function verificationAttemptArchiveKeys(verificationAttemptId: string): {
+  presentation: string;
+  result: string;
+} {
+  return {
+    presentation: verificationObjectKey(verificationAttemptId, "presentation"),
+    result: verificationObjectKey(verificationAttemptId, "result"),
+  };
+}
+
 export function encodeBase64Url(bytes: Uint8Array): string {
   let binary = "";
   for (let offset = 0; offset < bytes.length; offset += 0x8000) {

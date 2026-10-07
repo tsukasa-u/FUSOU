@@ -3680,6 +3680,10 @@ mod tests {
         changed.presentation_sha256[0] ^= 1;
         assert_ne!(original, changed.signing_bytes().unwrap());
 
+        let mut changed = result.clone();
+        changed.server_identity = "other.example.test".to_owned();
+        assert_ne!(original, changed.signing_bytes().unwrap());
+
         let mut production_result = result.clone();
         production_result.origin_inventory_sha256 = Some([0x31; 32]);
         production_result.target_approval_artifact_sha256 = Some([0x32; 32]);
