@@ -155,6 +155,8 @@ try {
   const env = {
     PATH: process.env.PATH,
     HOME: process.env.HOME,
+    ...(process.env.CARGO_HOME ? { CARGO_HOME: process.env.CARGO_HOME } : {}),
+    ...(process.env.CARGO_TARGET_DIR ? { CARGO_TARGET_DIR: process.env.CARGO_TARGET_DIR } : {}),
     CARGO_NET_OFFLINE: "true",
     TLSN_ENVIRONMENT: "production",
     TLSN_DEPLOYMENT_ROLE: "production",

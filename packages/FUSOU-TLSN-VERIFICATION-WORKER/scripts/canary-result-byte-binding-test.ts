@@ -271,10 +271,14 @@ for (const [archivedBytes, expectedHash] of [
     },
     delete: async (key: string) => { deletedObjectKey = key; },
   } as unknown as R2Bucket;
-  await assert.rejects(
-    persistAndVerifyResultArchive(fakeBucket, archiveObjectKey, response.bytes, expectedHash),
+  let authorityCommitReached = false;
+  await assert.rejects(async () => {
+    await persistAndVerifyResultArchive(fakeBucket, archiveObjectKey, response.bytes, expectedHash);
+    authorityCommitReached = true;
+  },
     /authoritative Result archive verification failed/,
   );
+  assert.equal(authorityCommitReached, false, "Result archive failure must prevent authority commit");
   assert.equal(writtenObjectKey, archiveObjectKey);
   assert.equal(fetchedObjectKey, archiveObjectKey);
   assert.deepEqual(writtenBytes, response.bytes);
