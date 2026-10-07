@@ -57,6 +57,7 @@ import originInventoryRaw from "../../configs/tlsn-origin-inventory.json.txt";
 import wasmModule from "./wasm/fusou_tlsn_verifier_bg.wasm";
 import {
   assertAlpha15NotaryVerifyingKey,
+  assertCandidateServerIdentity,
   canonicalJson,
   parseOriginInventory,
   PROFILE_CONTRACT_SPEC,
@@ -1287,6 +1288,7 @@ async function canaryRuntimeTrustIdentity(env: Bindings): Promise<{
   if (!notaryKeyId || !notaryRegistryRaw || !serverIdentity || !profileSha256 || !sparseProfileSha256) {
     throw new Error("Canary security registry set inputs are not configured");
   }
+  assertCandidateServerIdentity(serverIdentity);
   const notaryRegistry = notaryRegistrySchema.safeParse(JSON.parse(notaryRegistryRaw));
   const notaryKey = notaryRegistry.success ? notaryRegistry.data[notaryKeyId] : undefined;
   if (!notaryKey) throw new Error("Canary security registry set Notary key is invalid or missing");

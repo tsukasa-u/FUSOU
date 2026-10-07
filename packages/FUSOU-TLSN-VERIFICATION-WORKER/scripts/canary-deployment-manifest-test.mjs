@@ -30,7 +30,7 @@ const notaryRegistryCanonical = canonicalNotaryRegistryJson(notaryRegistryRaw);
 const environment = {
   TLSN_ENVIRONMENT: "production",
   TLSN_DEPLOYMENT_ROLE: "canary",
-  TLSN_CANDIDATE_SERVER_IDENTITY: "game.example.com",
+  TLSN_CANDIDATE_SERVER_IDENTITY: "game-target-42.fusou",
   TLSN_CANARY_BINDING_IDENTITY: "canary-binding-2026",
   TLSN_CANARY_DEPLOYMENT_ID: "canary-deployment-2026",
   TLSN_REPOSITORY: "fusou/fusou",
@@ -151,7 +151,7 @@ async function assertManifestRejected(raw, message) {
 
 const valid = await assertCanaryDeploymentManifest(JSON.stringify(manifest), { packageRoot, environment, currentHead, now: new Date("2026-06-01T00:00:00.000Z") });
 assert.equal(valid.manifest_id, manifest.manifest_id);
-assert.equal(valid.target.server_identity, "game.example.com");
+assert.equal(valid.target.server_identity, "game-target-42.fusou");
 assert.deepEqual(canaryDeploymentManifestBinding(valid), {
   manifest_id: manifest.manifest_id,
   issued_at: manifest.issued_at,
@@ -219,6 +219,19 @@ await assertManifestRejected(alteredManifest((value) => { value.workflow.commit_
 await assertManifestRejected(alteredManifest((value) => { value.target.server_identity = "other.example.com"; }), "wrong server identity must be rejected");
 await assertManifestRejected(alteredManifest((value) => { value.target.binding_identity = "replay-binding-2026"; }), "replay binding identity must be rejected");
 await assertManifestRejected(alteredManifest((value) => { value.target.server_identity = "game.example.test"; }), "test server identity must be rejected");
+for (const serverIdentity of [
+  "https://game-server.example.com",
+  "game-server.example.com:443",
+  "*.game-server.example.com",
+  "GAME-SERVER.EXAMPLE.COM",
+  "127.0.0.1",
+  "game-server.example.com.",
+]) {
+  await assertManifestRejected(
+    alteredManifest((value) => { value.target.server_identity = serverIdentity; }),
+    `non-canonical target identity ${serverIdentity} must be rejected`,
+  );
+}
 await assertManifestRejected(alteredManifest((value) => { value.deployment.worker_name = "fusou-tlsn-verification-production"; }), "production Worker identity must be rejected");
 await assertManifestRejected(alteredManifest((value) => { value.issued_at = "2090-01-01T00:00:00.000Z"; }), "future manifest must be rejected");
 await assertManifestRejected(alteredManifestWithoutIdentity((value) => { value.target.binding_identity = "canary-binding-mutated"; }), "mutated manifest identity must be rejected");

@@ -1,6 +1,8 @@
 import { createHash } from "node:crypto";
 import { canonicalJson } from "./production-trust-contract.mjs";
 import {
+  assertCandidateServerIdentity as assertCanonicalCandidateServerIdentity,
+  assertCanonicalServerIdentity,
   COMPLETE_DISCLOSURE_MODE,
   COMPLETE_PROFILE_ID,
   FIXTURE_SERVER_IDENTITY,
@@ -8,6 +10,7 @@ import {
   PROFILE_CONTRACT_SPEC,
   REQUIRE_INFO_TARGET,
   RESPONSE_MODES,
+  isFixtureOrSyntheticServerIdentity as isCanonicalFixtureOrSyntheticServerIdentity,
   SPARSE_DISCLOSURE_MODE,
   SPARSE_PROFILE_ID,
 } from "../src/origin-trust-contract.mjs";
@@ -24,7 +27,6 @@ export {
   SPARSE_PROFILE_ID,
 };
 
-const DNS_HOSTNAME_PATTERN = /^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/;
 const SHA256_BASE64URL_PATTERN = /^[A-Za-z0-9_-]{43}$/;
 
 export const PROFILE_CONTRACT_INPUT_MANIFEST = {
@@ -79,11 +81,15 @@ function assertString(value, label) {
 }
 
 export function assertServerIdentity(serverIdentity) {
-  assertString(serverIdentity, "server_identity");
-  if (serverIdentity !== serverIdentity.toLowerCase() || !DNS_HOSTNAME_PATTERN.test(serverIdentity)) {
-    throw new Error("server_identity must be a lowercase DNS hostname");
-  }
-  return serverIdentity;
+  return assertCanonicalServerIdentity(serverIdentity);
+}
+
+export function isFixtureOrSyntheticServerIdentity(serverIdentity) {
+  return isCanonicalFixtureOrSyntheticServerIdentity(serverIdentity);
+}
+
+export function assertCandidateServerIdentity(serverIdentity) {
+  return assertCanonicalCandidateServerIdentity(serverIdentity);
 }
 
 function assertCompleteProfile(profile) {

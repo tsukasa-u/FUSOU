@@ -90,6 +90,7 @@ export const PROFILE_CONTRACT_SPEC = {
 };
 
 const DNS_HOSTNAME_PATTERN = /^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/;
+const FIXTURE_HOSTNAME_MARKER = /(?:^|[._/-])(test|synthetic|fixture|local|localhost|staging|historical|remote-test|example|invalid)(?:$|[._/-])/i;
 const SHA256_BASE64URL_PATTERN = /^[A-Za-z0-9_-]{43}$/;
 const SECURITY_REGISTRY_KEY_ID_PATTERN = /^[A-Za-z0-9._-]{1,128}$/;
 const ALPHA15_K256_KEY_LENGTH = 42;
@@ -97,6 +98,29 @@ const ALPHA15_K256_ALGORITHM_ID = 1;
 const ALPHA15_K256_PUBLIC_KEY_LENGTH = 33;
 const SECP256K1_FIELD_PRIME = 0xfffffffffffffffffffffffffffffffffffffffffffffffffffffffefffffc2fn;
 const ORIGIN_INVENTORY_SOURCE = "packages/configs/configs.toml:[app.connect_kc_server.server_list]";
+
+export function assertCanonicalServerIdentity(serverIdentity) {
+  if (typeof serverIdentity !== "string" || serverIdentity.length === 0) {
+    throw new Error("server_identity must be a non-empty string");
+  }
+  if (serverIdentity !== serverIdentity.toLowerCase() || !DNS_HOSTNAME_PATTERN.test(serverIdentity)) {
+    throw new Error("server_identity must be a lowercase DNS hostname");
+  }
+  return serverIdentity;
+}
+
+export function isFixtureOrSyntheticServerIdentity(serverIdentity) {
+  return typeof serverIdentity === "string"
+    && (serverIdentity === FIXTURE_SERVER_IDENTITY || FIXTURE_HOSTNAME_MARKER.test(serverIdentity));
+}
+
+export function assertCandidateServerIdentity(serverIdentity) {
+  assertCanonicalServerIdentity(serverIdentity);
+  if (isFixtureOrSyntheticServerIdentity(serverIdentity)) {
+    throw new Error("candidate server_identity must not be fixture or synthetic");
+  }
+  return serverIdentity;
+}
 
 function decodeCanonicalBase64Url(value) {
   if (typeof value !== "string" || !/^[A-Za-z0-9_-]+$/.test(value) || value.length % 4 === 1) {

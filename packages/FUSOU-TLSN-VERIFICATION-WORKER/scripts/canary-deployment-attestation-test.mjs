@@ -29,6 +29,7 @@ const workerName = "fusou-tlsn-verification-canary";
 const deploymentId = "canary-deployment-2026";
 const platformDeploymentId = "3b064508-1cdb-453c-826b-bdea36a8b1e5";
 const versionId = "4b064508-1cdb-453c-826b-bdea36a8b1e5";
+const verifierKeyId = "canary-verifier-identity-2026";
 const gitCommitSha = "a".repeat(40);
 const deploymentTag = `canary-${gitCommitSha.slice(0, 12)}`;
 const createdOn = "2026-09-08T00:00:00.000Z";
@@ -78,6 +79,7 @@ const deploymentManifest = {
 const deploymentEnvironment = {
   TLSN_CANARY_DEPLOYMENT_ID: deploymentId,
   TLSN_CANARY_WORKER_NAME: workerName,
+  TLSN_CANDIDATE_VERIFIER_KEY_ID: verifierKeyId,
   TLSN_WORKFLOW_RUN_ID: workflow.workflow_run_id,
   TLSN_WORKFLOW_RUN_ATTEMPT: workflow.workflow_run_attempt,
   TLSN_REPOSITORY: workflow.repository,
@@ -85,6 +87,7 @@ const deploymentEnvironment = {
   TLSN_GIT_COMMIT_SHA: gitCommitSha,
 };
 const resultSignerKeyId = "result-canary-attestation-test";
+assert.notEqual(resultSignerKeyId, verifierKeyId);
 const resultRegistryRootKeyId = "result-root-canary-attestation-test";
 const { privateKey: resultSignerPrivateKey, publicKey: resultSignerPublicKey } = generateKeyPairSync("ed25519");
 const { privateKey: resultRegistryRootPrivateKey, publicKey: resultRegistryRootPublicKey } = generateKeyPairSync("ed25519");
@@ -162,6 +165,7 @@ function health(overrides = {}) {
     environment: "production",
     deployment_role: "canary",
     git_commit_sha: gitCommitSha,
+    verifier_key_id: verifierKeyId,
     deployment_id: deploymentId,
     binding_mode: "fixed_canary",
     result_public_key_spki: resultPublicKeySpki,
@@ -321,7 +325,6 @@ const verifierPlatformDeploymentId = "7b064508-1cdb-453c-826b-bdea36a8b1e5";
 const verifierDeploymentTag = `verifier-canary-${gitCommitSha.slice(0, 12)}`;
 const { publicKey: verifierPublicKey } = generateKeyPairSync("ed25519");
 const verifierPublicKeySpki = verifierPublicKey.export({ format: "der", type: "spki" }).toString("base64url");
-const verifierKeyId = "canary-verifier-identity-2026";
 const verifierDeploymentMessage = createCanaryDeploymentMessage({
   deploymentId: verifierDeploymentId,
   workerName: CANARY_VERIFIER_WORKER_NAME,
@@ -542,6 +545,18 @@ assert.deepEqual(assertCanaryDeploymentRuntimeAttestation(realShape, runtimeAtte
 });
 rejects("real Runtime Attestation requires current workflow context", () => assertCanaryDeploymentRuntimeAttestation(realShape, { currentHead: gitCommitSha }));
 rejects("fixture Runtime Attestation is not valid for gameplay", () => assertCanaryDeploymentRuntimeAttestation(fixtureAttestation, runtimeAttestationBinding));
+rejects("candidate Result verifier ID differs from active execution identity", () => assertCanaryDeploymentRuntimeAttestation(realShape, {
+  ...runtimeAttestationBinding,
+  environment: { ...deploymentEnvironment, TLSN_CANDIDATE_VERIFIER_KEY_ID: "another-verifier-key" },
+}));
+rejects("candidate Result verifier ID is missing", () => assertCanaryDeploymentRuntimeAttestation(realShape, {
+  ...runtimeAttestationBinding,
+  environment: { ...deploymentEnvironment, TLSN_CANDIDATE_VERIFIER_KEY_ID: undefined },
+}));
+rejects("Result signer ID cannot replace the verifier execution identity", () => assertCanaryDeploymentRuntimeAttestation(realShape, {
+  ...runtimeAttestationBinding,
+  environment: { ...deploymentEnvironment, TLSN_CANDIDATE_VERIFIER_KEY_ID: resultSignerKeyId },
+}));
 
 for (const [label, mutation] of [
   ["same HEAD with a different workflow run", { workflow: { ...workflow, workflow_run_id: "101" } }],

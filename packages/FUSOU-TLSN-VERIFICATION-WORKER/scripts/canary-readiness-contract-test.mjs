@@ -60,7 +60,6 @@ assert.equal(report.external_authority.first_blocker.id, "TARGET_IDENTITY");
 assert.equal(report.external_authority.first_blocker.status, "MISSING");
 assert.deepEqual(report.external_authority.first_blocker.missing_inputs, [
   "TLSN_CANDIDATE_SERVER_IDENTITY",
-  "TLSN_CANDIDATE_VERIFIER_KEY_ID",
 ]);
 assert.equal(report.external_authority.package_boundary.active_input, "TLSN_CANARY_DEPLOYMENT_MANIFEST");
 assert.equal(report.external_authority.package_boundary.external_package_gate, "NOT_AN_ACTIVE_GATE");
@@ -87,6 +86,10 @@ assert.deepEqual(
   },
 );
 const handoffGroups = Object.fromEntries(report.external_authority.groups.map((group) => [group.id, group]));
+assert.deepEqual(handoffGroups.TARGET_IDENTITY.inputs, ["TLSN_CANDIDATE_SERVER_IDENTITY"]);
+assert.equal(handoffGroups.TARGET_IDENTITY.owner, "UNKNOWN");
+assert.ok(handoffGroups.VERIFIER_IDENTITY.inputs.includes("TLSN_CANDIDATE_VERIFIER_KEY_ID"));
+assert.equal(handoffGroups.VERIFIER_IDENTITY.owner, "UNKNOWN");
 const groupPositions = new Map(report.external_authority.groups.map(({ id }, index) => [id, index]));
 for (const group of report.external_authority.groups) {
   for (const dependency of group.depends_on) {
@@ -114,7 +117,7 @@ const negativeReport = (environment) => buildReadinessReport({
   now: new Date("2026-09-27T00:00:00.000Z"),
 });
 const targetInputs = {
-  TLSN_CANDIDATE_SERVER_IDENTITY: "authority.example.com",
+  TLSN_CANDIDATE_SERVER_IDENTITY: "game-target-42.fusou",
   TLSN_CANDIDATE_VERIFIER_KEY_ID: "candidate-verifier-1",
   TLSN_CANDIDATE_NOTARY_KEY_ID: "notary-1",
 };
@@ -123,6 +126,17 @@ const profileInputs = {
   TLSN_CANDIDATE_PROFILE_SHA256: "profile-sha",
   TLSN_CANDIDATE_SPARSE_PROFILE_SHA256: "sparse-profile-sha",
 };
+const hostnameOnlyReport = await negativeReport({
+  TLSN_CANDIDATE_SERVER_IDENTITY: targetInputs.TLSN_CANDIDATE_SERVER_IDENTITY,
+});
+assert.equal(hostnameOnlyReport.inputs.target_identity.status, "PRESENT_UNVERIFIED");
+assert.equal(hostnameOnlyReport.inputs.target_identity.identity_semantics, "CANONICAL_DNS_EXPECTATION_ONLY");
+assert.equal(hostnameOnlyReport.inputs.target_identity.cryptographic_identity, "NOT_VERIFIED_BY_INPUT_OR_MANIFEST");
+assert.equal(hostnameOnlyReport.gates.target_manifest_binding, false);
+assert.equal(hostnameOnlyReport.status, "BLOCKED");
+const hostnameOnlyGroups = Object.fromEntries(hostnameOnlyReport.external_authority.groups.map((group) => [group.id, group]));
+assert.equal(hostnameOnlyGroups.TARGET_IDENTITY.status, "PRESENT_UNVERIFIED");
+assert.equal(hostnameOnlyGroups.VERIFIER_IDENTITY.status, "MISSING");
 const missingProfileReport = await negativeReport(targetInputs);
 assert.equal(missingProfileReport.status, "BLOCKED");
 const missingProfileGroups = Object.fromEntries(missingProfileReport.external_authority.groups.map((group) => [group.id, group]));
@@ -137,10 +151,34 @@ assert.equal(Object.fromEntries(missingTrustReport.external_authority.groups.map
 assert.equal(missingTrustReport.deployment_executed, false);
 const fixtureTargetReport = await negativeReport({ ...profileInputs, TLSN_CANDIDATE_SERVER_IDENTITY: "game.example.test" });
 const fixtureGroups = Object.fromEntries(fixtureTargetReport.external_authority.groups.map((group) => [group.id, group]));
-assert.equal(fixtureTargetReport.inputs.target_provenance.status, "FIXTURE_OR_SYNTHETIC");
+assert.equal(fixtureTargetReport.inputs.target_identity.status, "FIXTURE_OR_SYNTHETIC");
 assert.equal(fixtureGroups.TARGET_IDENTITY.status, "INVALID");
+assert.deepEqual(fixtureGroups.TARGET_IDENTITY.invalid_inputs, ["TLSN_CANDIDATE_SERVER_IDENTITY"]);
 assert.equal(fixtureGroups.PROFILE_POLICY.status, "BLOCKED_BY_DEPENDENCY");
 assert.equal(fixtureTargetReport.deployment_executed, false);
+for (const serverIdentity of [
+  "https://game-server.example.com",
+  "game-server.example.com:443",
+  "*.game-server.example.com",
+  "GAME-SERVER.EXAMPLE.COM",
+  "127.0.0.1",
+  "game-server.example.com.",
+]) {
+  const malformedTargetReport = await negativeReport({
+    ...profileInputs,
+    TLSN_CANDIDATE_SERVER_IDENTITY: serverIdentity,
+  });
+  const malformedGroups = Object.fromEntries(malformedTargetReport.external_authority.groups.map((group) => [group.id, group]));
+  assert.equal(malformedTargetReport.inputs.target_identity.status, "INVALID", serverIdentity);
+  assert.equal(malformedGroups.TARGET_IDENTITY.status, "INVALID", serverIdentity);
+  assert.equal(malformedTargetReport.gates.target_manifest_binding, false, serverIdentity);
+}
+const reservedExampleReport = await negativeReport({
+  ...profileInputs,
+  TLSN_CANDIDATE_SERVER_IDENTITY: "game-server.example.com",
+});
+assert.equal(reservedExampleReport.inputs.target_identity.status, "FIXTURE_OR_SYNTHETIC");
+assert.equal(reservedExampleReport.gates.target_manifest_binding, false);
 
 const expectedHead = "a".repeat(40);
 const matchingWorkflow = {
@@ -150,6 +188,7 @@ const matchingWorkflow = {
   workflow_file_identity: "dotenvx+pnpm+wrangler",
 };
 const matchingEnvironment = {
+  TLSN_CANDIDATE_SERVER_IDENTITY: targetInputs.TLSN_CANDIDATE_SERVER_IDENTITY,
   TLSN_CANARY_RUNTIME_ATTESTATION_SIGNER_KEY_ID: "test-readiness-runtime-attestation",
   TLSN_CANARY_DEPLOYMENT_ID: "canary-contract-test",
   TLSN_CANARY_WORKER_NAME: "fusou-tlsn-verification-canary",
@@ -239,6 +278,7 @@ const verifierIdentityKeyRegistry = {
 };
 const verifierDeploymentTag = `verifier-canary-${expectedHead.slice(0, 12)}`;
 Object.assign(matchingEnvironment, {
+  TLSN_CANDIDATE_VERIFIER_KEY_ID: verifierKeyId,
   TLSN_CANARY_VERIFIER_DEPLOYMENT_ID: verifierDeploymentId,
   TLSN_CANARY_VERIFIER_IDENTITY_KEY_ID: verifierKeyId,
   TLSN_CANARY_VERIFIER_PUBLIC_KEY_SPKI: verifierPublicKeySpki,
@@ -250,7 +290,11 @@ const matchingManifest = {
   manifest_id: "B".repeat(43),
   issued_at: "2026-09-01T00:00:00.000Z",
   expires_at: "2026-10-01T00:00:00.000Z",
-  target: { deployment_role: "canary" },
+  target: {
+    server_identity: targetInputs.TLSN_CANDIDATE_SERVER_IDENTITY,
+    environment: "production",
+    deployment_role: "canary",
+  },
   workflow: {
     repository: matchingWorkflow.repository,
     run_id: matchingWorkflow.workflow_run_id,
@@ -306,6 +350,7 @@ const unsignedRuntimeAttestation = {
     deployment_role: "canary",
     git_commit_sha: expectedHead,
     runtime_version: { version_id: "4b064508-1cdb-453c-826b-bdea36a8b1e5" },
+    verifier_key_id: verifierKeyId,
   },
   verifier_deployment: {
     authorized_deployment_id: verifierDeploymentId,
@@ -414,6 +459,10 @@ try {
   assert.equal(fixtureReport.gates.runtime_attestation, false);
 
   const validReport = await reportFor(validRuntimeAttestation);
+  assert.equal(validReport.inputs.target_identity.status, "PRESENT_UNVERIFIED");
+  assert.equal(validReport.inputs.target_identity.manifest_binding, "MATCHED");
+  assert.equal(validReport.inputs.target_identity.cryptographic_identity, "NOT_VERIFIED_BY_INPUT_OR_MANIFEST");
+  assert.equal(validReport.gates.target_manifest_binding, true);
   assert.equal(validReport.inputs.runtime_attestation.status, "VALID");
   assert.equal(validReport.inputs.runtime_attestation.readiness, "CANARY_RUNTIME_IDENTITY_VERIFIED");
   assert.equal(validReport.inputs.runtime_attestation.cross_binding.status, "PASS");
@@ -457,7 +506,7 @@ try {
   const executionJobId = "f73fded7-d9af-4f0a-b87b-c626d30d55bd";
   const executionAttemptId = "5f289198-7361-4a92-9d03-c4e506385130";
   const presentationBytes = Buffer.from("readiness Canary Presentation bytes");
-  const resultBytes = Buffer.from("readiness signed Canary Result bytes");
+  const resultBytes = Buffer.from(JSON.stringify({ verifier_key_id: verifierKeyId, signature_base64url: "readiness-result-signature" }));
   const receipt = createCanaryVerifierExecutionReceipt({
     jobId: executionJobId,
     verificationAttemptId: executionAttemptId,
@@ -521,7 +570,11 @@ try {
     validReport.external_authority.groups.flatMap((group) => group.inputs).map((name) => [name, "provided-value"]),
   );
   const completeHandoffReport = await buildReadinessReport({
-    environment: { ...completeHandoffEnvironment, ...matchingEnvironment },
+    environment: {
+      ...completeHandoffEnvironment,
+      ...matchingEnvironment,
+      TLSN_CANDIDATE_SERVER_IDENTITY: "invalid",
+    },
     expectedHead,
     artifactPaths: [],
     baseDirectory: root,
@@ -529,8 +582,9 @@ try {
     runtimeAttestationKeyRegistry,
     now: new Date("2026-09-20T00:00:00.000Z"),
   });
-  assert.equal(completeHandoffReport.external_authority.first_blocker, null);
-  assert.equal(completeHandoffReport.external_authority.status, "READINESS_GATES_REQUIRED");
+  assert.equal(completeHandoffReport.external_authority.first_blocker.id, "TARGET_IDENTITY");
+  assert.equal(completeHandoffReport.external_authority.first_blocker.status, "INVALID");
+  assert.equal(completeHandoffReport.external_authority.status, "EXTERNAL_AUTHORITY_REQUIRED");
   assert.equal(completeHandoffReport.gates.verifier_identity_binding, false);
   assert.equal(completeHandoffReport.gates.operational_smoke, false);
 

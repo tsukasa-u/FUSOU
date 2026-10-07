@@ -25,6 +25,7 @@ export const CANARY_INPUT_CLASSIFICATIONS = Object.freeze([
   "REMOTE_VALIDATION_ONLY",
 ]);
 export const CANARY_INPUT_OWNERSHIP = Object.freeze([
+  "UNKNOWN",
   "OPERATOR_CONFIGURED",
   "DEPLOYMENT_INPUT_REQUIRED",
   "SECRET_PROVIDER_REQUIRED",
@@ -70,6 +71,14 @@ const SOURCE_OWNERSHIP = Object.freeze({
 });
 
 const OWNERSHIP_DEFAULTS = Object.freeze({
+  UNKNOWN: {
+    owner: "UNKNOWN; repository evidence does not identify an accountable owner or custodian",
+    generated_by: "not established by repository evidence",
+    generation_stage: "before deployment; accountable source is unresolved",
+    can_generate_locally: false,
+    can_generate_during_deployment: false,
+    external_dependency: true,
+  },
   OPERATOR_CONFIGURED: {
     owner: "FUSOU deployment operator or repository configuration",
     generated_by: "operator-supplied deployment configuration",
@@ -241,18 +250,18 @@ function entries(category, names, metadata) {
 export const CANARY_EXTERNAL_INPUT_INTAKE = Object.freeze([
   ...entries("TARGET", [
     "TLSN_CANDIDATE_SERVER_IDENTITY",
-    "TLSN_CANDIDATE_VERIFIER_KEY_ID",
   ], {
     source: "DEPLOYMENT_INPUT",
     secret: false,
+    ownership: "UNKNOWN",
     architectureRoleByName: {
       TLSN_CANDIDATE_SERVER_IDENTITY: "TARGET_CONFIGURATION",
-      TLSN_CANDIDATE_VERIFIER_KEY_ID: "FUSOU_PRESENTATION_RESULT_VERIFIER_IDENTITY",
     },
-    ownership: "OPERATOR_CONFIGURED",
-    representation: "DNS hostname, canonical base64url SHA-256 digest, or verifier key ID",
+    representation: "canonical lowercase DNS hostname expectation only",
     consumer: "deployment-preflight, deployment-manifest, profile-canonical-contract",
-    validator: "deployment-preflight and deployment-manifest",
+    validator: "assertServerIdentity, deployment-preflight, and deployment-manifest",
+    purpose: "configuration expectation for the TLSN Presentation server identity; not TLS peer authentication or target approval evidence",
+    provenance: "externally supplied target configuration; repository evidence does not establish the target owner or approver",
     failure_conditions: ["MISSING", "PRESENT_INVALID", "PRESENT_EXPIRED", "PRESENT_MISMATCHED", "FIXTURE_ONLY", "HISTORICAL_ONLY"],
   }),
   ...entries("PROFILE", [
@@ -309,6 +318,20 @@ export const CANARY_EXTERNAL_INPUT_INTAKE = Object.freeze([
     },
   }),
   ...entries("VERIFIER", [
+    "TLSN_CANDIDATE_VERIFIER_KEY_ID",
+  ], {
+    source: "DEPLOYMENT_INPUT",
+    secret: false,
+    ownership: "UNKNOWN",
+    architecture_role: "FUSOU_PRESENTATION_RESULT_VERIFIER_IDENTITY",
+    representation: "logical verifier_key_id claim in the signed Result; not a Result signing key ID",
+    purpose: "identifies the verifier claimed by the Result and must match the active Canary execution key",
+    consumer: "Worker Result construction, signed Runtime Attestation, and Canary execution evidence",
+    validator: "Canary Runtime Attestation and execution-evidence cross-binding",
+    provenance: "Result claim cross-bound to the fresh attested execution identity; accountable key owner/custodian is not established by repository evidence",
+    failure_conditions: ["MISSING", "PRESENT_INVALID", "PRESENT_MISMATCHED", "UNKNOWN_REGISTRY_KEY", "RESULT_SIGNER_CONFUSION", "FIXTURE_ONLY", "HISTORICAL_ONLY"],
+  }),
+  ...entries("VERIFIER", [
     "TLSN_CANARY_VERIFIER_PUBLIC_KEY_SPKI",
     "TLSN_CANARY_VERIFIER_IDENTITY_KEY_ID",
     "TLSN_CANARY_VERIFIER_IDENTITY_KEY_REGISTRY",
@@ -316,11 +339,13 @@ export const CANARY_EXTERNAL_INPUT_INTAKE = Object.freeze([
   ], {
     source: "DEPLOYMENT_INPUT",
     secret: false,
+    ownership: "UNKNOWN",
     architecture_role: "FUSOU_CANARY_VERIFIER_EXECUTION_IDENTITY",
     representation: "canonical base64url Ed25519 SPKI, verifier key ID, identity key registry JSON, and deployment identifier",
     consumer: "deployment-preflight, deployment-manifest, verifier Worker, Canary runtime attestation",
     validator: "deployment-preflight, deployment-manifest, verifier identity registry, and platform runtime attestation",
     failure_conditions: ["MISSING", "PRESENT_INVALID", "PRESENT_EXPIRED", "PRESENT_MISMATCHED", "HISTORICAL_ONLY"],
+    provenance: "execution identity registry and fresh Runtime Attestation; repository evidence does not identify the registry root custodian",
   }),
   ...entries("AUTHENTICATION", [
     "TLSN_CANDIDATE_DEVICE_AUTH_URL",

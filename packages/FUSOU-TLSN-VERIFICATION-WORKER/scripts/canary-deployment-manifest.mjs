@@ -24,6 +24,7 @@ import {
   FUSOU_NOTARY_DEFAULT_SESSION_TIMEOUT_SECONDS,
   FUSOU_NOTARY_PROTOCOL,
 } from "./fusou-notary-material.mjs";
+import { assertCandidateServerIdentity } from "./profile-canonical-contract.mjs";
 
 export const CANARY_DEPLOYMENT_MANIFEST_SCHEMA_VERSION = 2;
 export const CANARY_DEPLOYMENT_MANIFEST_SCOPE = "tlsn-canary-deployment-manifest";
@@ -32,7 +33,6 @@ export const CANARY_DEPLOYMENT_MANIFEST_INPUT = "TLSN_CANARY_DEPLOYMENT_MANIFEST
 const HASH_PATTERN = /^[A-Za-z0-9_-]{43}$/;
 const REFERENCE_PATTERN = /^[A-Za-z0-9._:/-]{1,512}$/;
 const ISO_TIMESTAMP_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/;
-const DNS_HOSTNAME_PATTERN = /^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/;
 const SECRET_MARKER = /(?:private|secret|password|bearer|access[_-]?token|credential[_-]?value|token[_-]?value)/i;
 const ALLOWED_INPUTS = new Set(inputsForRole("canary"));
 const SECRET_INPUTS = new Set(secretInputsForRole("canary"));
@@ -109,12 +109,11 @@ function assertValidityWindow(manifest, now) {
 
 function assertTarget(target, environment) {
   assertExactKeys(target, ["server_identity", "environment", "deployment_role", "binding_identity"], "deployment manifest target");
-  assertString(target.server_identity, "deployment manifest target.server_identity", DNS_HOSTNAME_PATTERN);
+  assertCandidateServerIdentity(target.server_identity);
   assertString(target.environment, "deployment manifest target.environment");
   assertString(target.deployment_role, "deployment manifest target.deployment_role");
   assertReference(target.binding_identity, "deployment manifest target.binding_identity");
   if (target.environment !== "production" || target.deployment_role !== "canary") throw new Error("deployment manifest target must be production Canary");
-  if (/(?:test|synthetic|fixture|local|staging|historical|remote-test)/i.test(target.server_identity)) throw new Error("deployment manifest target is fixture, synthetic, or historical");
   if (/(?:replay|fixture|historical|synthetic)/i.test(target.binding_identity)) throw new Error("deployment manifest binding identity is not a current Canary identity");
   if (environment.TLSN_CANDIDATE_SERVER_IDENTITY?.trim() !== target.server_identity) throw new Error("deployment manifest target does not match deployment input");
   if (environment.TLSN_ENVIRONMENT?.trim() !== target.environment) throw new Error("deployment manifest environment does not match deployment input");

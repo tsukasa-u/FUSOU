@@ -945,12 +945,14 @@ Configure these Worker values before deployment:
 
 | Input | Source and owner | Provisioning behavior | Readiness gate |
 | --- | --- | --- | --- |
-| `TLSN_CANDIDATE_SERVER_IDENTITY` | FUSOU deployment operator | Canary-only fixed target hostname; Production selects from the shipped inventory | target provenance |
+| `TLSN_CANDIDATE_SERVER_IDENTITY` | UNKNOWN; repository does not identify the target owner or approver | Canonical lowercase DNS hostname expectation for the TLSN Presentation; not proof of peer identity or approval | target configuration; independent Web PKI and Presentation verification |
 | `TLSN_CANDIDATE_PROFILE_SHA256` | FUSOU provisioner from the canonical complete profile | Binds the complete Presentation verifier profile | target/profile |
 | `TLSN_CANDIDATE_SPARSE_PROFILE_SHA256` | FUSOU provisioner from the canonical sparse profile | Binds the sparse Presentation verifier profile | target/profile |
-| `TLSN_CANDIDATE_VERIFIER_KEY_ID` | FUSOU verifier deployment configuration | Selects the public verifier identity used by the Canary path | trust material |
-| `TLSN_CANARY_VERIFIER_PUBLIC_KEY_SPKI` | FUSOU verifier deployment output | Public SPKI for the selected verifier deployment | trust material |
-| `TLSN_CANARY_VERIFIER_DEPLOYMENT_ID` | FUSOU verifier deployment configuration | Binds the verifier identity to its deployment | trust material |
+| `TLSN_CANDIDATE_VERIFIER_KEY_ID` | UNKNOWN; repository does not identify the accountable key owner | Logical `verifier_key_id` claim in the signed Result; it is not the Result signer key ID | must match the active Canary execution key in Runtime Attestation and execution evidence |
+| `TLSN_CANARY_VERIFIER_IDENTITY_KEY_ID` | UNKNOWN; registry custodian is not established by repository evidence | Active Canary execution signing key ID | fresh Runtime Attestation and signed execution receipt |
+| `TLSN_CANARY_VERIFIER_PUBLIC_KEY_SPKI` | UNKNOWN; registry custodian is not established by repository evidence | Public SPKI for the selected execution identity | trust material and receipt signature verification |
+| `TLSN_CANARY_VERIFIER_IDENTITY_KEY_REGISTRY` | UNKNOWN; root/custodian is not established by repository evidence | Current execution-key registry bound to deployment and Runtime Attestation | trust material |
+| `TLSN_CANARY_VERIFIER_DEPLOYMENT_ID` | UNKNOWN; accountable deployment owner is not established by repository evidence | Binds the execution identity to its deployed Worker | trust material |
 | `TLSN_CANARY_RUNTIME_ATTESTATION_SIGNER_KEY_ID` | Repository-controlled Runtime Attestation registry | Selects the Ed25519 key that signs the post-deployment Runtime Attestation | Runtime Attestation signature |
 | `TLSN_PRODUCTION_NOTARY_REGISTRY` | FUSOU-NOTARY public export, normalized by the provisioner | Canonical alpha.15 verifying-key registry; public only | Notary binding |
 | `TLSN_CANDIDATE_NOTARY_KEY_ID` | FUSOU-NOTARY public export selection | Must identify an active key present in the registry | Notary binding |
@@ -959,6 +961,10 @@ Configure these Worker values before deployment:
 | `TLSN_CANARY_BINDING_IDENTITY` | FUSOU deployment operator | Current Canary binding identity; fixture and replay identities are rejected | binding |
 | `TLSN_CANARY_DEPLOYMENT_ID` | FUSOU deployment operator/platform | Current Canary deployment identity | deployment provenance |
 | `TLSN_CANARY_WORKER_NAME` | FUSOU deployment operator/platform | Canonical Canary Worker name | deployment provenance |
+
+The server identity is a configured canonical DNS expectation only. Deployment-manifest matching proves configuration binding, not TLS peer authentication; the Worker independently validates the Origin certificate chain, validity, and hostname with its bundled Mozilla roots, and the TLSN Presentation verifier checks the authenticated server identity. Do not add a target DER/custom root to Canary or Production.
+
+The candidate verifier ID is a logical Result claim. It is distinct from `TLSN_CANARY_RESULT_SIGNER_KEY_ID`, whose key and registry envelope authenticate the Result, and from the dedicated execution identity key in `TLSN_CANARY_VERIFIER_IDENTITY_KEY_REGISTRY`. The signed Runtime Attestation and execution-evidence validator now require the Result claim, configured candidate ID, and active execution key ID to agree. The accountable target approver, verifier key owner, and execution-registry root custodian remain `UNKNOWN` in repository evidence.
 
 The current Presentation path requires the FUSOU-owned delegated alpha.15 Notary registry, selected key ID, and endpoint together. `optional_in_protocol: true` describes a future direct-Verifier protocol property only; it does not make the current Notary-backed Presentation verification path optional. Remote validation credentials remain post-deployment inputs and are not part of this provisioning gate.
 

@@ -19,6 +19,10 @@ No public Origin was contacted, no DNS/TCP/TLS probe was run, and no Worker was 
 
 The APP and Worker stores can diverge. APP handshake success does not imply Worker acceptance. Leaf renewal and intermediate changes generally require no FUSOU change when both stores can validate the new chain. A root absent from the Worker bundle requires changing, rebuilding, and redeploying the verifier. Notary signatures do not replace TLS certificate validation.
 
+For Canary, `TLSN_CANDIDATE_SERVER_IDENTITY` is a canonical DNS expectation, not peer-authentication evidence or an approval record. Manifest matching binds configuration only; the Worker still validates the Origin chain, validity, and DNS name with bundled Mozilla roots, and the TLSN Presentation verifier independently checks its authenticated server identity. No target-specific DER/custom root is added to Canary or Production. The target owner/approver is not established by repository evidence.
+
+`TLSN_CANDIDATE_VERIFIER_KEY_ID` is the logical `verifier_key_id` claim in the signed Result, not the Result signing key ID. Result signing has a separate key registry and signed root envelope. Canary execution evidence binds the Result claim to the active dedicated verifier execution key through the signed Runtime Attestation and execution receipt; the execution-registry root custodian is not established by repository evidence.
+
 ## Production Contracts
 
 - Production public manifest schema 4 carries the selected Notary key and raw registry, binds the inventory schema and byte-level SHA-256, and includes a security-set digest recomputed over the selected Notary key/registry, inventory, and canonical profile policy. It does not represent a single `server_identity` and `port` pair.

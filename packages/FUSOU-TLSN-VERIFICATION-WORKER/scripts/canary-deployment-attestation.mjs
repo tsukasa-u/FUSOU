@@ -392,6 +392,9 @@ export function assertCanaryDeploymentRuntimeAttestation(attestation, {
   assertExactString(attestation.runtime_self_reported_identity.worker_name, deploymentWorkerName, "Runtime Attestation runtime worker name");
   assertObject(attestation.runtime_self_reported_identity.runtime_version, "Runtime Attestation runtime_self_reported_identity.runtime_version");
   assertExactString(attestation.runtime_self_reported_identity.runtime_version.version_id, servingVersionId, "Runtime Attestation runtime version");
+  const candidateVerifierKeyId = requiredString(environment.TLSN_CANDIDATE_VERIFIER_KEY_ID, "current Canary candidate Result verifier key ID");
+  assertExactString(attestation.runtime_self_reported_identity.verifier_key_id, candidateVerifierKeyId, "Runtime Attestation candidate Result verifier key ID");
+  assertExactString(attestation.verifier_identity.key_id, candidateVerifierKeyId, "Runtime Attestation candidate Result verifier key matches active execution identity");
   assertObject(attestation.verifier_deployment, "Runtime Attestation verifier_deployment");
   assertObject(attestation.verifier_version, "Runtime Attestation verifier_version");
   assertObject(attestation.verifier_runtime_identity, "Runtime Attestation verifier_runtime_identity");
@@ -1030,6 +1033,7 @@ export function createCanaryDeploymentAttestation({
       git_commit_sha: runtimeHealth.git_commit_sha,
       runtime_version: runtimeHealth.runtime_version,
       binding_mode: runtimeHealth.binding_mode,
+      verifier_key_id: requiredString(runtimeHealth.verifier_key_id, "Runtime health candidate Result verifier key ID"),
     },
     result_signer_identity: fixture ? null : verification.result_signer_identity,
     verifier_deployment: fixture ? null : {

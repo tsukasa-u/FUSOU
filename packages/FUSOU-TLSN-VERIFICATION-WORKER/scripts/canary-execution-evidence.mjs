@@ -33,6 +33,14 @@ export const CANARY_EXECUTION_TRUST_GRAPH = Object.freeze({
       authority: "canary-verifier-identity-key",
     },
     {
+      id: "result-claim-matches-attested-execution-identity",
+      source: "result",
+      target: "verifier_execution",
+      binding_fields: ["verifier_key_id"],
+      evidence_artifact: "result-and-verifier-execution-receipt",
+      authority: "result-signing-key-and-canary-verifier-identity-key",
+    },
+    {
       id: "execution-identity-matches-attested-verifier-runtime",
       source: "verifier_runtime",
       target: "verifier_execution",
@@ -80,6 +88,21 @@ function parseCanonicalReceiptBytes(receiptBytes) {
     throw new Error("Canary Verifier execution receipt artifact is not canonically serialized");
   }
   return { receipt, raw };
+}
+
+function assertResultVerifierKeyId(resultBytes, expectedVerifierKeyId) {
+  let result;
+  try {
+    result = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(resultBytes));
+  } catch {
+    throw new Error("Canary Result artifact is not valid UTF-8 JSON");
+  }
+  if (!result || typeof result !== "object" || Array.isArray(result) || typeof result.verifier_key_id !== "string" || result.verifier_key_id.length === 0) {
+    throw new Error("Canary Result verifier_key_id claim is missing or invalid");
+  }
+  if (result.verifier_key_id !== expectedVerifierKeyId) {
+    throw new Error("Canary Result verifier_key_id claim does not match the attested execution identity");
+  }
 }
 
 function assertBundlePath(value, label) {
@@ -223,6 +246,7 @@ export function assertCanaryVerifierExecutionEvidence({
     now,
   });
   const verifierIdentity = trustedRuntimeIdentity.verifier_identity;
+  assertResultVerifierKeyId(result, execution.verifier_key_id);
   if (!SHA256_BASE64URL_PATTERN.test(execution.presentation_sha256) || !SHA256_BASE64URL_PATTERN.test(execution.result_sha256)) {
     throw new Error("Canary Verifier execution evidence contains an invalid byte digest");
   }

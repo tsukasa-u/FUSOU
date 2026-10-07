@@ -61,7 +61,14 @@ assert.equal(canaryInputIntakeEntry("TLSN_PRODUCTION_NOTARY_REGISTRY").ownership
 assert.equal(canaryInputIntakeEntry("TLSN_PRODUCTION_NOTARY_REGISTRY").architecture_role, "FUSOU_OWNED_DELEGATED_NOTARY");
 assert.equal(canaryInputIntakeEntry("TLSN_CANDIDATE_NOTARY_ENDPOINT").ownership, "FUSOU_OWNED_DELEGATED_NOTARY");
 assert.equal(canaryInputIntakeEntry("TLSN_CANDIDATE_NOTARY_ENDPOINT").required, true);
-assert.equal(canaryInputIntakeEntry("TLSN_CANDIDATE_SERVER_IDENTITY").ownership, "OPERATOR_CONFIGURED");
+assert.equal(canaryInputIntakeEntry("TLSN_CANDIDATE_SERVER_IDENTITY").ownership, "UNKNOWN");
+assert.equal(canaryInputIntakeEntry("TLSN_CANDIDATE_SERVER_IDENTITY").category, "TARGET");
+assert.match(canaryInputIntakeEntry("TLSN_CANDIDATE_SERVER_IDENTITY").representation, /canonical lowercase DNS hostname expectation only/);
+assert.match(canaryInputIntakeEntry("TLSN_CANDIDATE_SERVER_IDENTITY").purpose, /not TLS peer authentication/);
+assert.equal(canaryInputIntakeEntry("TLSN_CANDIDATE_VERIFIER_KEY_ID").ownership, "UNKNOWN");
+assert.equal(canaryInputIntakeEntry("TLSN_CANDIDATE_VERIFIER_KEY_ID").category, "VERIFIER");
+assert.match(canaryInputIntakeEntry("TLSN_CANDIDATE_VERIFIER_KEY_ID").representation, /not a Result signing key ID/);
+assert.equal(canaryInputIntakeEntry("TLSN_CANARY_VERIFIER_IDENTITY_KEY_REGISTRY").ownership, "UNKNOWN");
 assert.equal(canaryInputIntakeEntry("TLSN_CANDIDATE_PROFILE_SHA256").architecture_role, "PROFILE_POLICY");
 assert.equal(canaryInputIntakeEntry("TLSN_CANARY_VERIFIER_PUBLIC_KEY_SPKI").architecture_role, "FUSOU_CANARY_VERIFIER_EXECUTION_IDENTITY");
 assert.equal(canaryInputIntakeEntry("TLSN_CANARY_VERIFIER_IDENTITY_KEY_REGISTRY").classification, "DEPLOYMENT_INPUT");

@@ -29,6 +29,10 @@ import {
   loadCanaryDeploymentManifest,
 } from "./canary-deployment-manifest.mjs";
 import { assessCandidateConfigurationBindingInputs } from "./candidate-configuration-binding-inputs.mjs";
+import {
+  assertServerIdentity,
+  isFixtureOrSyntheticServerIdentity,
+} from "./profile-canonical-contract.mjs";
 
 const packageDirectory = resolve(new URL("..", import.meta.url).pathname);
 const repositoryDirectory = resolve(packageDirectory, "../..");
@@ -50,10 +54,6 @@ const REMOTE_VALIDATION_INPUTS = [
 
 const TARGET_INPUTS = [
   "TLSN_CANDIDATE_SERVER_IDENTITY",
-  "TLSN_CANDIDATE_PROFILE_SHA256",
-  "TLSN_CANDIDATE_SPARSE_PROFILE_SHA256",
-  "TLSN_CANDIDATE_VERIFIER_KEY_ID",
-  "TLSN_CANDIDATE_NOTARY_KEY_ID",
 ];
 
 const DEPLOYMENT_MANIFEST_INPUTS = [CANARY_DEPLOYMENT_MANIFEST_INPUT];
@@ -149,17 +149,14 @@ const ARTIFACT_PATHS = [
   "artifacts/tlsn-remote-validation.json",
 ];
 
-const SYNTHETIC_MARKER = /(?:^|[._/-])(test|synthetic|fixture|local|staging)(?:$|[._/-])/i;
-const FIXTURE_SERVER_IDENTITY = "game.example.test";
-
 const EXTERNAL_AUTHORITY_HANDOFF_GROUPS = [
   {
     id: "TARGET_IDENTITY",
-    inputs: ["TLSN_CANDIDATE_SERVER_IDENTITY", "TLSN_CANDIDATE_VERIFIER_KEY_ID"],
+    inputs: ["TLSN_CANDIDATE_SERVER_IDENTITY"],
     depends_on: [],
-    owner: "approved target/configuration authority",
+    owner: "UNKNOWN",
     external_authority: true,
-    next_action: "Provide the non-fixture target identity and Presentation/Result verifier identity.",
+    next_action: "An accountable approver must supply a canonical DNS hostname. The repository does not establish who approves the target; the value is configuration, not authentication evidence.",
   },
   {
     id: "PROFILE_POLICY",
@@ -185,15 +182,16 @@ const EXTERNAL_AUTHORITY_HANDOFF_GROUPS = [
   {
     id: "VERIFIER_IDENTITY",
     inputs: [
+      "TLSN_CANDIDATE_VERIFIER_KEY_ID",
       "TLSN_CANARY_VERIFIER_PUBLIC_KEY_SPKI",
       "TLSN_CANARY_VERIFIER_IDENTITY_KEY_ID",
       "TLSN_CANARY_VERIFIER_IDENTITY_KEY_REGISTRY",
       "TLSN_CANARY_VERIFIER_DEPLOYMENT_ID",
     ],
     depends_on: ["TARGET_IDENTITY"],
-    owner: "FUSOU verifier deployment authority",
+    owner: "UNKNOWN",
     external_authority: true,
-    next_action: "Provide the independent Canary verifier public key and deployment identity.",
+    next_action: "Provide the candidate Result verifier key ID and Canary execution identity; the candidate ID must match the active execution key. Result signing uses a separate key and registry.",
   },
   {
     id: "AUTHENTICATION_POLICY",
@@ -365,13 +363,19 @@ function workflowStatus(environment = process.env, expectedHead = currentHead) {
 
 function isFixtureOrSyntheticTarget(environment = process.env) {
   const identity = environment.TLSN_CANDIDATE_SERVER_IDENTITY?.trim();
-  return identity === FIXTURE_SERVER_IDENTITY || SYNTHETIC_MARKER.test(identity ?? "");
+  return isFixtureOrSyntheticServerIdentity(identity);
 }
 
 function targetStatus(environment = process.env) {
-  if (!allPresent(TARGET_INPUTS, environment)) return "MISSING";
+  if (!present("TLSN_CANDIDATE_SERVER_IDENTITY", environment)) return "MISSING";
+  const identity = environment.TLSN_CANDIDATE_SERVER_IDENTITY.trim();
+  try {
+    assertServerIdentity(identity);
+  } catch {
+    return "INVALID";
+  }
   if (isFixtureOrSyntheticTarget(environment)) return "FIXTURE_OR_SYNTHETIC";
-  return "PRESENT";
+  return "PRESENT_UNVERIFIED";
 }
 
 function deploymentStatus(environment = process.env, expectedHead = currentHead) {
@@ -422,6 +426,7 @@ function readinessInputDiagnostics({ deployment, target, deploymentManifest, tru
   };
   if (deployment === "PASS") setGroup(DEPLOYMENT_INPUTS, "VALID", "deployment identity matches the checked-out HEAD and canary role");
   if (deployment === "INVALID") setGroup(DEPLOYMENT_INPUTS, "PRESENT_MISMATCHED", "deployment environment, role, or commit does not match the current preflight contract");
+  if (target === "INVALID") setGroup(TARGET_INPUTS, "PRESENT_INVALID", "candidate server identity must be a canonical lowercase DNS hostname without a URL, wildcard, port, IP literal, or malformed label");
   if (target === "FIXTURE_OR_SYNTHETIC") setGroup(TARGET_INPUTS, "PRESENT_INVALID", "fixture, synthetic, local, staging, or historical target identity is not a real Canary target");
   if (trust === "PRESENT_UNVERIFIED") setGroup(TRUST_INPUTS, "PRESENT_UNVERIFIED", "trust metadata is present but requires deployment-preflight and validated registry verification");
   if (notary === "PRESENT_UNVERIFIED") setGroup(NOTARY_INPUTS, "PRESENT_UNVERIFIED", "FUSOU-NOTARY public registry, active key ID, and raw endpoint are present but require deployment-preflight verification");
@@ -462,13 +467,14 @@ function externalAuthorityHandoff({ environment = process.env, deploymentManifes
   const statusByGroup = new Map();
   const groups = EXTERNAL_AUTHORITY_HANDOFF_GROUPS.map((group) => {
     const manifestValid = group.id === "DEPLOYMENT_MANIFEST" && deploymentManifest?.status === "VALID";
-    const fixtureTarget = group.id === "TARGET_IDENTITY" && isFixtureOrSyntheticTarget(environment);
+    const invalidTarget = group.id === "TARGET_IDENTITY"
+      && ["INVALID", "FIXTURE_OR_SYNTHETIC"].includes(targetStatus(environment));
     const derivedProfileInputs = group.id === "PROFILE_POLICY"
       && statusByGroup.get("TARGET_IDENTITY") === "PRESENT_UNVERIFIED"
       && group.inputs.every((name) => !present(name, environment));
     const missingInputs = manifestValid || derivedProfileInputs ? [] : group.inputs.filter((name) => !present(name, environment));
     const unmetDependencies = group.depends_on.filter((id) => statusByGroup.get(id) !== "PRESENT_UNVERIFIED");
-    const status = fixtureTarget
+    const status = invalidTarget
       ? "INVALID"
       : group.id === "DEPLOYMENT_MANIFEST" && deploymentManifest?.status === "INVALID"
       ? "INVALID"
@@ -483,6 +489,7 @@ function externalAuthorityHandoff({ environment = process.env, deploymentManifes
       status,
       inputs: group.inputs,
       missing_inputs: missingInputs,
+      invalid_inputs: invalidTarget ? ["TLSN_CANDIDATE_SERVER_IDENTITY"] : [],
       source: derivedProfileInputs ? "profile-canonical-contract" : undefined,
       depends_on: group.depends_on,
       unmet_dependencies: unmetDependencies,
@@ -827,7 +834,7 @@ export async function buildReadinessReport({
     contract: await contractStatus() === "PASS",
     deployment_manifest: deploymentManifest.status === "VALID",
     deployment_contract: deploymentStatus() === "PASS",
-    target_provenance: deploymentManifest.status === "VALID" && target === "PRESENT",
+    target_manifest_binding: deploymentManifest.status === "VALID" && target === "PRESENT_UNVERIFIED",
     trust_material: trust === "PRESENT_UNVERIFIED" && deploymentManifest.status === "VALID",
     notary_binding: notary === "PRESENT_UNVERIFIED" && deploymentManifest.status === "VALID",
     authentication: auth === "PRESENT",
@@ -858,7 +865,13 @@ export async function buildReadinessReport({
     current_head: expectedHead,
     inputs: {
       deployment: { status: deploymentStatus(environment, expectedHead), fields: statuses(DEPLOYMENT_INPUTS, environment) },
-      target_provenance: { status: target, fields: statuses(TARGET_INPUTS, environment) },
+      target_identity: {
+        status: target,
+        fields: statuses(TARGET_INPUTS, environment),
+        identity_semantics: "CANONICAL_DNS_EXPECTATION_ONLY",
+        manifest_binding: deploymentManifest.status === "VALID" ? "MATCHED" : "NOT_ESTABLISHED",
+        cryptographic_identity: "NOT_VERIFIED_BY_INPUT_OR_MANIFEST",
+      },
         deployment_manifest: deploymentManifest,
       trust: { status: trust, fields: statuses(TRUST_INPUTS, environment) },
       notary: { status: notary, fields: statuses(NOTARY_INPUTS, environment), owner: "FUSOU", service: "FUSOU-NOTARY", protocol: "tlsn-v0.1.0-alpha.15", transport: "raw_tcp", current_presentation_path: "REQUIRED" },
@@ -913,7 +926,7 @@ export async function buildReadinessReport({
     input_diagnostics: readinessInputDiagnostics({ deployment: deploymentStatus(environment, expectedHead), target, deploymentManifest, trust, notary, auth, binding, workflow, runtime, environment }),
     missing_inputs: missingInputNames(environment),
     resume_conditions: {
-      target_provenance: "A non-fixture server identity and canonical complete/sparse profiles must be supplied; hostname metadata alone is insufficient.",
+      target_identity: "Supply a canonical, human-approved DNS hostname and derive its canonical profiles. Input and deployment-manifest matching bind configuration only; Web PKI and Presentation evidence must independently authenticate the observed peer identity.",
       trust: "Candidate trust root, verifier identity, Result registry/envelope/root, and authority registries must be supplied and pass deployment-preflight.",
       notary: "FUSOU-NOTARY public registry, active key ID, and raw host:port endpoint must be supplied; the current Presentation verification path remains blocked without all three.",
       authentication: "Candidate device-auth and Supabase endpoints must be supplied and pass deployment-preflight. User/device credentials belong only to post-deployment remote validation and are not a deployment readiness gate.",

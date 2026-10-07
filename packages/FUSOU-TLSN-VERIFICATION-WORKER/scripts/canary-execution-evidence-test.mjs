@@ -26,11 +26,11 @@ const runtimeVersionId = "4b064508-1cdb-453c-826b-bdea36a8b1e5";
 const jobId = "f73fded7-d9af-4f0a-b87b-c626d30d55bd";
 const attemptId = "5f289198-7361-4a92-9d03-c4e506385130";
 const presentationBytes = Buffer.from("independent Canary Presentation bytes");
-const resultBytes = Buffer.from("exact signed Canary Result bytes");
+const verifierKeyId = "verifier-canary-2026-09-30";
+const resultBytes = Buffer.from(JSON.stringify({ verifier_key_id: verifierKeyId, signature_base64url: "result-signature" }));
 const { privateKey, publicKey } = generateKeyPairSync("ed25519");
 const privateKeyPkcs8 = privateKey.export({ format: "der", type: "pkcs8" }).toString("base64url");
 const publicKeySpki = publicKey.export({ format: "der", type: "spki" }).toString("base64url");
-const verifierKeyId = "verifier-canary-2026-09-30";
 const verifierIdentityKeyRegistry = {
   schema_version: 1,
   scope: CANARY_VERIFIER_IDENTITY_KEY_REGISTRY_SCOPE,
@@ -100,11 +100,31 @@ assert.equal(evidence.status, "PASS");
 assert.equal(evidence.evidence.synthetic, false);
 assert.equal(evidence.execution.job_id, jobId);
 assert.equal(evidence.execution.verification_attempt_id, attemptId);
+assert.equal(evidence.execution.verifier_key_id, verifierKeyId);
 assert.equal(evidence.trust_graph.nodes.find((node) => node.id === "verifier_execution").authority, "canary-verifier-identity-key");
-assert.equal(evidence.trust_graph.edges.length, 4);
+assert.equal(evidence.trust_graph.edges.length, 5);
 
 assert.throws(() => verifyEvidence({ presentationBytes: Buffer.from("different presentation") }), /Presentation hash mismatch/);
 assert.throws(() => verifyEvidence({ resultBytes: Buffer.from("different result") }), /Result hash mismatch/);
+assert.throws(() => verifyEvidence({ resultBytes: Buffer.from(JSON.stringify({ verifier_key_id: "another-key" })) }), /Result hash mismatch/);
+const mismatchedClaimReceipt = createCanaryVerifierExecutionReceipt({
+  jobId,
+  verificationAttemptId: attemptId,
+  deploymentId,
+  workerName: CANARY_VERIFIER_WORKER_NAME,
+  runtimeVersionId,
+  verifierKeyId,
+  verifierPublicKeySpki: publicKeySpki,
+  verifierSigningPrivateKeyPkcs8: privateKeyPkcs8,
+  presentationBytes,
+  resultBytes: Buffer.from(JSON.stringify({ verifier_key_id: "another-key" })),
+  issuedAt: "2026-09-30T11:55:00.000Z",
+  receiptId: "494dc8cc-d4bc-4bc8-9813-7bc4a04a9603",
+});
+assert.throws(() => verifyEvidence({
+  resultBytes: Buffer.from(JSON.stringify({ verifier_key_id: "another-key" })),
+  receiptBytes: Buffer.from(JSON.stringify(mismatchedClaimReceipt)),
+}), /Result verifier_key_id claim does not match the attested execution identity/);
 assert.throws(() => verifyEvidence({ expectedJobId: "b73fded7-d9af-4f0a-b87b-c626d30d55bd" }), /job ID mismatch/);
 assert.throws(() => verifyEvidence({ expectedVerificationAttemptId: "6f289198-7361-4a92-9d03-c4e506385130" }), /attempt ID mismatch/);
 assert.throws(() => verifyEvidence({ expectedJobId: undefined }), /authoritative UUID/);

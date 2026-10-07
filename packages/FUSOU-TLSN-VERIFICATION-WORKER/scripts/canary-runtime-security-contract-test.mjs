@@ -40,7 +40,7 @@ function keyRegistry(scope, keyId, publicKeySpki) {
 const result = keyMaterial();
 const session = keyMaterial();
 const binding = keyMaterial();
-const serverIdentity = "game.example.net";
+const serverIdentity = "game-target-42.fusou";
 const profiles = profilesForServerIdentity(serverIdentity);
 const notaryKeyId = "notary-canary-runtime";
 const notaryRegistryRaw = JSON.stringify({
@@ -142,6 +142,13 @@ assert.equal(invalidDigest.healthStatus, 200, "security trust failure must not s
 assert.equal(invalidDigest.health.security_identity.trust_contract_valid, false);
 assert.equal(invalidDigest.health.security_identity.security_registry_set_sha256, null);
 assert.throws(() => assertCanaryHealthTrustContract(invalidDigest.health), /Canary Worker trust contract is invalid/);
+
+for (const invalidServerIdentity of ["https://game-target-42.fusou", "GAME-TARGET-42.FUSOU", "game.example.com"]) {
+  const invalidTarget = await observeCanary({ ...env, TLSN_CANDIDATE_SERVER_IDENTITY: invalidServerIdentity });
+  assert.equal(invalidTarget.sessionStatus, 503, `${invalidServerIdentity} must fail Canary config validation`);
+  assert.equal(invalidTarget.healthStatus, 200, "runtime identity health remains separately observable");
+  assert.equal(invalidTarget.health.security_identity.trust_contract_valid, false);
+}
 
 const invalidNotaryRegistryRaw = JSON.stringify({ [notaryKeyId]: "A" });
 const invalidNotaryPayload = workerSecurityRegistrySetPayload({
