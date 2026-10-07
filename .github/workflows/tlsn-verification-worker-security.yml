@@ -12,7 +12,15 @@ on:
     paths:
       - packages/FUSOU-TLSN-VERIFIER/**
       - packages/FUSOU-TLSN-VERIFICATION-WORKER/**
+      - packages/FUSOU-APP/**
+      - packages/FUSOU-PROXY/proxy-https/**
+      - packages/kc_api/**
+      - packages/configs/**
+      - packages/fusou-auth/**
+      - packages/fusou-upload/**
+      - packages/fusou-storage/**
       - packages/tlsn-alpha15-sparse/**
+      - packages/tlsn-mux-alpha15/**
       - packages/configs/configs.toml
       - packages/configs/tlsn-origin-inventory.json
       - packages/configs/tlsn-origin-inventory.json.txt
@@ -24,7 +32,15 @@ on:
     paths:
       - packages/FUSOU-TLSN-VERIFIER/**
       - packages/FUSOU-TLSN-VERIFICATION-WORKER/**
+      - packages/FUSOU-APP/**
+      - packages/FUSOU-PROXY/proxy-https/**
+      - packages/kc_api/**
+      - packages/configs/**
+      - packages/fusou-auth/**
+      - packages/fusou-upload/**
+      - packages/fusou-storage/**
       - packages/tlsn-alpha15-sparse/**
+      - packages/tlsn-mux-alpha15/**
       - packages/configs/configs.toml
       - packages/configs/tlsn-origin-inventory.json
       - packages/configs/tlsn-origin-inventory.json.txt
@@ -175,3 +191,53 @@ jobs:
 
       - name: Verify external input classification
         run: pnpm --dir packages/FUSOU-TLSN-VERIFICATION-WORKER run test:canary-input-intake
+
+  production-roundtrip:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4.1.0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22.16.0
+          cache: pnpm
+
+      - name: Install pinned Rust toolchain
+        uses: dtolnay/rust-toolchain@89b12181fb390509a0842a86cc55eeb8eb928c1d
+        with:
+          toolchain: 1.95.0
+
+      - name: Install APP Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+
+      - name: Install Node dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Fetch locked FUSOU-APP dependencies (fresh Cargo home)
+        env:
+          CARGO_HOME: ${{ runner.temp }}/fusou-app-cargo-home
+          CARGO_TARGET_DIR: ${{ runner.temp }}/fusou-app-cargo-target
+        run: cargo fetch --locked --manifest-path packages/FUSOU-APP/src-tauri/Cargo.toml
+
+      - name: Run offline Production roundtrip (Cargo cache disabled)
+        env:
+          CARGO_HOME: ${{ runner.temp }}/fusou-app-cargo-home
+          CARGO_TARGET_DIR: ${{ runner.temp }}/fusou-app-cargo-target
+          CARGO_NET_OFFLINE: "true"
+        run: |
+          echo "Cargo.lock: packages/FUSOU-APP/src-tauri/Cargo.lock"
+          echo "cargo fetch: --locked"
+          echo "network mode: CARGO_NET_OFFLINE=true"
+          echo "Cargo dependency cache: disabled; fresh CARGO_HOME=$CARGO_HOME"
+          echo "Cargo target: $CARGO_TARGET_DIR"
+          pnpm --dir packages/FUSOU-TLSN-VERIFICATION-WORKER run test:production-roundtrip
