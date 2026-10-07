@@ -1,6 +1,6 @@
 # Cloudflare Verification Worker Trust Boundary
 
-Status: local synthetic verification boundary with authenticated user and device ownership; no real-Origin probe or production deployment was performed for this update
+Status: `FUSOU_DEPLOYMENT_OPERATOR` Target Approval is recorded and enforced separately from cryptographic trust; no real-Origin probe or production deployment was performed for this update
 
 This document describes the FUSOU TLSNotary alpha.15 verification boundary at commit `47aee45b53e06648c1b2ad3689b367b8c923fdec` and the current Cloudflare Worker implementation in this working tree.
 
@@ -63,11 +63,14 @@ The guarantee is about the authenticated server identity, TLS-protected in-trans
 FUSOU needs a policy decision that says which Game Server identities it will accept as verification targets. Web PKI authenticates a TLS peer for a DNS hostname; it does not decide that FUSOU intended to collect evidence for that host. Conversely, selecting a hostname or listing it in a manifest does not authenticate the peer.
 
 ```text
-Target Approval Authority (currently UNKNOWN / unresolved)
+Target Approval Authority (`FUSOU_DEPLOYMENT_OPERATOR`; human governance authority)
   |  decides which canonical hostname is in FUSOU's verification scope
   v
+Target Approval record + current Origin inventory digest
+  |  exact canonical candidate must be in both the current inventory and approved set
+  v
 Expected Game Server identity
-  |  candidate value or inventory-selected identity; configuration is not approval proof
+  |  configuration/approval is not peer-authentication proof
   v
 Trusted Notary key selected from the configured registry
   |  registry membership authorizes this key to verify the Presentation; it does not approve the target
@@ -83,11 +86,11 @@ Dedicated Verifier -> signed Result
   -> execution receipt / Runtime Attestation
 ```
 
-In the current code, Canary's `TLSN_CANDIDATE_SERVER_IDENTITY` is a canonical DNS configuration input. `canary-deployment-manifest.mjs` requires its `target.server_identity` to match that input, which proves configuration binding only. The active path defines no target approver or target-approval artifact. A valid hostname and matching manifest therefore remain `UNAPPROVED`; readiness reports `owner: UNKNOWN` and fails closed until a human defines the authority and its governance/evidence lifecycle. No owner, signing root, approval artifact, or revocation process is inferred here.
+The selected authority model is `FUSOU_DEPLOYMENT_OPERATOR`: the FUSOU deployment operator makes the human configuration/governance decision about which hostnames enter verification scope. The separate `packages/configs/tlsn-target-approval.json` record currently approves all 20 Production inventory identities and is bound to the canonical inventory's raw-byte SHA-256. A candidate must be canonical, present in the current HTTPS inventory, and explicitly present in the approved list. A hostname or deployment-manifest match alone is not approval.
 
-The authority models and repository evidence are analyzed in the [Target Approval decision](target-approval-decision.md) and [Origin inventory audit](target-approval-inventory-audit.md). Both leave the authority unresolved; they do not change the current readiness or deployment gates.
+The readiness report evaluates the record and candidate independently of Web PKI, Notary, Result signer, Runtime Attestation, and Verifier identity. Production preflight rejects invalid/missing approval and binds the record and inventory digests plus approved set into Production provenance. Canary candidate configuration is checked against the same Production-scoped approved set; this does not change Canary's Runtime Attestation or verifier-identity contract. The authority decision and inventory history are documented in the [Target Approval decision](target-approval-decision.md) and [Origin inventory audit](target-approval-inventory-audit.md).
 
-The APP's `configs.toml:[app.connect_kc_server.server_list]` is an ordinary server-index/hostname mapping used for server selection. The checked-in Production Origin inventory declares this table as its source; this repository contains no generator for its JSON/text snapshots, so their production method is not established here. The inventory is consumed as an identity-selection allowlist: the Production path cryptographically verifies the alpha.15 Presentation, derives `verified_presentation.server_identity`, and requires it to match the selected inventory identity; the transcript `Host` and signed Result identity are also compared to that expected identity. The inventory's schema and byte-level digest establish configuration consistency, not who approved its membership. Repository evidence does not establish an inventory owner, modification authority, review/publication process, or lifecycle; it is not currently a documented Target Approval Authority or a certificate trust store.
+The APP's `configs.toml:[app.connect_kc_server.server_list]` remains an ordinary server-index/hostname mapping. Its static JSON/text Origin inventory is an identity-selection allowlist; the separate approval record determines which listed identities are in FUSOU's verification scope. Inventory generation remains undocumented. The selected authority is a governance role, not a signature root: the JSON record does not identify a person or cryptographically prove who approved it. The user confirmed the branch is unprotected and has no required checks or repository rulesets. CI path filters now include the TOML source, inventory artifacts, and approval record, but workflow triggers are not merge enforcement. Do not infer protected review from a commit or CI result.
 
 Web PKI/TLS identity checking remains independent. Certificate renewal and intermediate/CA rotation need no FUSOU hostname or pin update when the resulting chain validates under the verifier's bundled Mozilla roots. A root absent from that bundle requires a verifier trust-store update; that does not change the target-approval decision.
 
@@ -115,13 +118,13 @@ The Production workflow supplies the public values as Worker configuration and t
 
 The Worker sets each Trigger task's `deployment_role` and `origin_policy` from trusted runtime configuration: Production uses `inventory`, Canary uses `fixed`, and synthetic work is explicitly `test`. Production task payloads carry the runtime inventory and security-set digests; Canary carries its security-set digest but no Production inventory digest; test payloads carry neither. Trigger validates the role/policy pairing and recomputes the matching security-set digest. It also compares Production's bundled inventory bytes with the Worker payload before accepting the authenticated Presentation against that inventory. Canary uses its separately deployed fixed identity and complete/sparse profile hashes. Both deployed roles use alpha.15 Web PKI verification and reject custom Origin trust roots. The task caller cannot choose the policy through the public verification request.
 
-Deployment provenance schema version 3 has role-specific security identity fields. Canary provenance binds its fixed identity and profile hashes; Production provenance binds the security-set, inventory, and profile-policy digests and rejects fixed identity/profile claims. Cross-role comparisons use only common authority fields, so a Canary's target identity is not treated as Production identity evidence.
+Deployment provenance schema version 3 has role-specific security identity fields. Canary provenance binds its fixed identity and profile hashes; Production provenance binds the security-set, inventory, and profile-policy digests and rejects fixed identity/profile claims. Production provenance also binds `target_approval` fields for `authority_model`, `status`, `environment`, `inventory_sha256`, `approval_artifact_sha256`, and the complete approved identity set; the set-wide Production record has no single `approved_target_identity`. Validation recomputes the current record and inventory bytes. Cross-role comparisons use only common authority fields, so a Canary's target identity is not treated as Production identity evidence.
 
 The Worker `/health` response uses schema version 3. In the Production role it reports the runtime inventory digest, canonical profile-policy digest, recomputed security-set digest, and `security_identity.trust_contract_valid`; it omits fixed Origin identity and profile hashes. Production health returns `503` when the runtime trust contract cannot be validated and `200` only when it is valid. This is a runtime configuration check, not signed deployment provenance or evidence of live Origin reachability.
 
 ### Origin inventory and trust stores
 
-The canonical inventory lists 20 Production server identities from `configs.toml:[app.connect_kc_server.server_list]`. It is an allowlist for selecting and reporting the authenticated Presentation identity, not a trust anchor or certificate-validation policy. Every candidate still passes alpha.15 certificate chain, validity-period, and DNS hostname verification. The Notary signature authenticates the Presentation but does not replace Web PKI.
+The canonical inventory lists 20 Production server identities from `configs.toml:[app.connect_kc_server.server_list]`. The separate Target Approval record currently lists all 20, but that equality is an explicit operator decision, not an automatic promotion rule. The inventory and approval record are not trust anchors or certificate-validation policies. Every candidate still passes alpha.15 certificate chain, validity-period, and DNS hostname verification. The Notary signature authenticates the Presentation but does not replace Web PKI.
 
 The APP uses `rustls_native_certs::load_native_certs()` while the Worker alpha.15 default provider uses its bundled Mozilla root set. The stores are not guaranteed to match. A successful native-root-store availability check does not establish that a particular Origin chain validates, and an APP-success/Worker-failure split is possible. Leaf renewal and intermediate changes normally require no FUSOU configuration change if both stores can validate the resulting chain. A new root absent from the Worker bundle requires updating, rebuilding, and redeploying the verifier.
 

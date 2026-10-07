@@ -69,7 +69,10 @@ function runCaptured(command, argumentsList, environment) {
 }
 
 async function main() {
-  assertTargetApprovalResolved();
+  assertTargetApprovalResolved({
+    candidateIdentity: process.env.TLSN_CANDIDATE_SERVER_IDENTITY,
+    requireCandidate: true,
+  });
   assertCanonicalCanaryWorkerName(process.env.TLSN_CANARY_WORKER_NAME?.trim());
   for (const name of FORBIDDEN_CANARY_INPUTS) {
     if (process.env[name] !== undefined) throw new Error(`${name} must not be present in a canary deployment`);

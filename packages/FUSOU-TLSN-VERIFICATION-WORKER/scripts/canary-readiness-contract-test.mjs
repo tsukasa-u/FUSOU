@@ -55,7 +55,7 @@ assert.match(report.resume_conditions.candidate_configuration_binding, /Ed25519 
 assert.match(report.resume_conditions.candidate_configuration_binding, /application-pinned production roots/);
 assert.match(report.resume_conditions.candidate_configuration_binding, /Current APP process\/image identity is OUT_OF_SCOPE/);
 assert.match(report.resume_conditions.candidate_configuration_binding, /schema-v2 approval, builder, and authority receipt/);
-assert.equal(report.external_authority.status, "EXTERNAL_AUTHORITY_REQUIRED");
+assert.equal(report.external_authority.status, "DEPLOYMENT_INPUTS_REQUIRED");
 assert.equal(report.external_authority.first_blocker.id, "TARGET_IDENTITY");
 assert.equal(report.external_authority.first_blocker.status, "MISSING");
 assert.deepEqual(report.external_authority.first_blocker.missing_inputs, [
@@ -87,7 +87,7 @@ assert.deepEqual(
 );
 const handoffGroups = Object.fromEntries(report.external_authority.groups.map((group) => [group.id, group]));
 assert.deepEqual(handoffGroups.TARGET_IDENTITY.inputs, ["TLSN_CANDIDATE_SERVER_IDENTITY"]);
-assert.equal(handoffGroups.TARGET_IDENTITY.owner, "UNKNOWN");
+assert.equal(handoffGroups.TARGET_IDENTITY.owner, "FUSOU_DEPLOYMENT_OPERATOR");
 assert.ok(handoffGroups.VERIFIER_IDENTITY.inputs.includes("TLSN_CANDIDATE_VERIFIER_KEY_ID"));
 assert.equal(handoffGroups.VERIFIER_IDENTITY.owner, "UNKNOWN");
 const groupPositions = new Map(report.external_authority.groups.map(({ id }, index) => [id, index]));
@@ -117,7 +117,7 @@ const negativeReport = (environment) => buildReadinessReport({
   now: new Date("2026-09-27T00:00:00.000Z"),
 });
 const targetInputs = {
-  TLSN_CANDIDATE_SERVER_IDENTITY: "game-target-42.fusou",
+  TLSN_CANDIDATE_SERVER_IDENTITY: "w01y.kancolle-server.com",
   TLSN_CANDIDATE_VERIFIER_KEY_ID: "candidate-verifier-1",
   TLSN_CANDIDATE_NOTARY_KEY_ID: "notary-1",
 };
@@ -127,38 +127,39 @@ const profileInputs = {
   TLSN_CANDIDATE_SPARSE_PROFILE_SHA256: "sparse-profile-sha",
 };
 const hostnameOnlyReport = await negativeReport({
-  TLSN_CANDIDATE_SERVER_IDENTITY: targetInputs.TLSN_CANDIDATE_SERVER_IDENTITY,
+  TLSN_CANDIDATE_SERVER_IDENTITY: "game-target-42.fusou",
 });
-assert.equal(hostnameOnlyReport.inputs.target_identity.status, "PRESENT_UNVERIFIED");
+assert.equal(hostnameOnlyReport.inputs.target_identity.status, "NOT_IN_INVENTORY");
 assert.equal(hostnameOnlyReport.inputs.target_identity.identity_semantics, "CANONICAL_DNS_EXPECTATION_ONLY");
 assert.equal(hostnameOnlyReport.inputs.target_identity.cryptographic_identity, "NOT_VERIFIED_BY_INPUT_OR_MANIFEST");
 assert.equal(hostnameOnlyReport.gates.target_manifest_binding, false);
 assert.equal(hostnameOnlyReport.status, "BLOCKED");
 const hostnameOnlyGroups = Object.fromEntries(hostnameOnlyReport.external_authority.groups.map((group) => [group.id, group]));
-assert.equal(hostnameOnlyGroups.TARGET_IDENTITY.status, "UNAPPROVED");
+assert.equal(hostnameOnlyGroups.TARGET_IDENTITY.status, "NOT_IN_INVENTORY");
 assert.equal(hostnameOnlyGroups.VERIFIER_IDENTITY.status, "BLOCKED_BY_DEPENDENCY");
 assert.equal(hostnameOnlyGroups.PROFILE_POLICY.status, "BLOCKED_BY_DEPENDENCY");
-assert.equal(hostnameOnlyReport.inputs.target_approval.status, "UNAPPROVED");
-assert.equal(hostnameOnlyReport.inputs.target_approval.authority, "UNKNOWN");
-assert.equal(hostnameOnlyReport.inputs.target_approval.evidence_contract, "UNRESOLVED");
-assert.equal(hostnameOnlyReport.gates.target_approval_authority, false);
+assert.equal(hostnameOnlyReport.inputs.target_approval.status, "NOT_IN_INVENTORY");
+assert.equal(hostnameOnlyReport.inputs.target_approval.authority, "FUSOU_DEPLOYMENT_OPERATOR");
+assert.equal(hostnameOnlyReport.inputs.target_approval.evidence_contract, "TLSN_TARGET_APPROVAL_JSON_V1");
+assert.equal(hostnameOnlyReport.gates.target_approval_authority, true);
+assert.equal(hostnameOnlyReport.gates.target_approval, false);
 const missingProfileReport = await negativeReport(targetInputs);
 assert.equal(missingProfileReport.status, "BLOCKED");
 const missingProfileGroups = Object.fromEntries(missingProfileReport.external_authority.groups.map((group) => [group.id, group]));
-assert.equal(missingProfileGroups.TARGET_IDENTITY.status, "UNAPPROVED");
-assert.equal(missingProfileGroups.PROFILE_POLICY.status, "BLOCKED_BY_DEPENDENCY");
+assert.equal(missingProfileGroups.TARGET_IDENTITY.status, "APPROVED");
+assert.equal(missingProfileGroups.PROFILE_POLICY.status, "DERIVED");
 assert.equal(missingProfileGroups.PROFILE_POLICY.external_authority, false);
 assert.equal(missingProfileGroups.PROFILE_POLICY.source, "profile-canonical-contract");
 assert.equal(missingProfileReport.external_authority.status, "EXTERNAL_AUTHORITY_REQUIRED");
 assert.equal(missingProfileReport.missing_inputs.includes("TLSN_CANDIDATE_PROFILE_SHA256"), false);
 assert.equal(missingProfileReport.deployment_executed, false);
 const missingTrustReport = await negativeReport(profileInputs);
-assert.equal(Object.fromEntries(missingTrustReport.external_authority.groups.map((group) => [group.id, group])).NOTARY_TRUST.status, "BLOCKED_BY_DEPENDENCY");
+assert.equal(Object.fromEntries(missingTrustReport.external_authority.groups.map((group) => [group.id, group])).NOTARY_TRUST.status, "MISSING");
 assert.equal(missingTrustReport.deployment_executed, false);
 const fixtureTargetReport = await negativeReport({ ...profileInputs, TLSN_CANDIDATE_SERVER_IDENTITY: "game.example.test" });
 const fixtureGroups = Object.fromEntries(fixtureTargetReport.external_authority.groups.map((group) => [group.id, group]));
 assert.equal(fixtureTargetReport.inputs.target_identity.status, "FIXTURE_OR_SYNTHETIC");
-assert.equal(fixtureGroups.TARGET_IDENTITY.status, "INVALID");
+assert.equal(fixtureGroups.TARGET_IDENTITY.status, "FIXTURE_OR_SYNTHETIC");
 assert.deepEqual(fixtureGroups.TARGET_IDENTITY.invalid_inputs, ["TLSN_CANDIDATE_SERVER_IDENTITY"]);
 assert.equal(fixtureGroups.PROFILE_POLICY.status, "BLOCKED_BY_DEPENDENCY");
 assert.equal(fixtureTargetReport.deployment_executed, false);
@@ -465,15 +466,15 @@ try {
   assert.equal(fixtureReport.gates.runtime_attestation, false);
 
   const validReport = await reportFor(validRuntimeAttestation);
-  assert.equal(validReport.inputs.target_identity.status, "PRESENT_UNVERIFIED");
+  assert.equal(validReport.inputs.target_identity.status, "APPROVED");
   assert.equal(validReport.inputs.target_identity.manifest_binding, "MATCHED");
   assert.equal(validReport.inputs.target_identity.cryptographic_identity, "NOT_VERIFIED_BY_INPUT_OR_MANIFEST");
   assert.equal(validReport.gates.target_manifest_binding, true);
-  assert.equal(validReport.inputs.target_approval.status, "UNAPPROVED");
-  assert.equal(validReport.inputs.target_approval.authority, "UNKNOWN");
-  assert.equal(validReport.gates.target_approval_authority, false);
-  assert.equal(validReport.external_authority.first_blocker.id, "TARGET_IDENTITY");
-  assert.equal(validReport.external_authority.first_blocker.status, "UNAPPROVED");
+  assert.equal(validReport.inputs.target_approval.status, "APPROVED");
+  assert.equal(validReport.inputs.target_approval.authority, "FUSOU_DEPLOYMENT_OPERATOR");
+  assert.equal(validReport.gates.target_approval_authority, true);
+  assert.equal(validReport.gates.target_approval, true);
+  assert.equal(validReport.external_authority.first_blocker.id, "NOTARY_TRUST");
   assert.equal(validReport.inputs.runtime_attestation.status, "VALID");
   assert.equal(validReport.inputs.runtime_attestation.readiness, "CANARY_RUNTIME_IDENTITY_VERIFIED");
   assert.equal(validReport.inputs.runtime_attestation.cross_binding.status, "PASS");
@@ -595,7 +596,7 @@ try {
   });
   assert.equal(completeHandoffReport.external_authority.first_blocker.id, "TARGET_IDENTITY");
   assert.equal(completeHandoffReport.external_authority.first_blocker.status, "INVALID");
-  assert.equal(completeHandoffReport.external_authority.status, "EXTERNAL_AUTHORITY_REQUIRED");
+  assert.equal(completeHandoffReport.external_authority.status, "DEPLOYMENT_INPUTS_REQUIRED");
   assert.equal(completeHandoffReport.gates.verifier_identity_binding, false);
   assert.equal(completeHandoffReport.gates.operational_smoke, false);
 

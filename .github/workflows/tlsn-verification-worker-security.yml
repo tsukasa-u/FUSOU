@@ -13,6 +13,10 @@ on:
       - packages/FUSOU-TLSN-VERIFIER/**
       - packages/FUSOU-TLSN-VERIFICATION-WORKER/**
       - packages/tlsn-alpha15-sparse/**
+      - packages/configs/configs.toml
+      - packages/configs/tlsn-origin-inventory.json
+      - packages/configs/tlsn-origin-inventory.json.txt
+      - packages/configs/tlsn-target-approval.json
       - package.json
       - pnpm-lock.yaml
       - .github/workflows/tlsn-verification-worker-security.yml
@@ -21,6 +25,10 @@ on:
       - packages/FUSOU-TLSN-VERIFIER/**
       - packages/FUSOU-TLSN-VERIFICATION-WORKER/**
       - packages/tlsn-alpha15-sparse/**
+      - packages/configs/configs.toml
+      - packages/configs/tlsn-origin-inventory.json
+      - packages/configs/tlsn-origin-inventory.json.txt
+      - packages/configs/tlsn-target-approval.json
       - package.json
       - pnpm-lock.yaml
       - .github/workflows/tlsn-verification-worker-security.yml
@@ -102,6 +110,9 @@ jobs:
           RUSTUP_TOOLCHAIN: 1.95.0
           RUSTUP_AUTO_INSTALL: "0"
 
+      - name: Fetch locked proxy HTTPS offline-test dependencies
+        run: cargo fetch --locked --manifest-path packages/FUSOU-PROXY/proxy-https/Cargo.toml
+
       - name: Build WASM verifier from checked-out source
         run: pnpm --dir packages/FUSOU-TLSN-VERIFICATION-WORKER run build:wasm
 
@@ -134,6 +145,9 @@ jobs:
 
       - name: Verify readiness signature and binding gates
         run: pnpm --dir packages/FUSOU-TLSN-VERIFICATION-WORKER run test:canary-readiness-contract
+
+      - name: Verify Target Approval contract
+        run: pnpm --dir packages/FUSOU-TLSN-VERIFICATION-WORKER run test:target-approval-contract
 
       - name: Verify Canary Verifier execution receipt evidence
         run: pnpm --dir packages/FUSOU-TLSN-VERIFICATION-WORKER run test:canary-execution-evidence

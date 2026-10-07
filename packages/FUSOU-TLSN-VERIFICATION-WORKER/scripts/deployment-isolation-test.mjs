@@ -47,16 +47,29 @@ function environmentSection(name) {
 }
 
 assertManifest(manifest);
-assert.equal(TARGET_APPROVAL_AUTHORITY.status, "UNRESOLVED");
-assert.equal(TARGET_APPROVAL_AUTHORITY.owner, "UNKNOWN");
-assert.equal(TARGET_APPROVAL_AUTHORITY.evidence_contract, "UNRESOLVED");
-assert.throws(assertTargetApprovalResolved, /Target Approval Authority is unresolved/);
+assert.equal(TARGET_APPROVAL_AUTHORITY.status, "RESOLVED");
+assert.equal(TARGET_APPROVAL_AUTHORITY.authority_model, "FUSOU_DEPLOYMENT_OPERATOR");
+assert.equal(TARGET_APPROVAL_AUTHORITY.owner, "FUSOU_DEPLOYMENT_OPERATOR");
+assert.equal(TARGET_APPROVAL_AUTHORITY.evidence_contract, "TLSN_TARGET_APPROVAL_JSON_V1");
+const approval = assertTargetApprovalResolved();
+assert.equal(approval.record_status, "APPROVED");
+assert.equal(approval.approved_target_identities.length, 20);
+assert.equal(assertTargetApprovalResolved({
+  candidateIdentity: approval.approved_target_identities[0],
+  requireCandidate: true,
+}).status, "APPROVED");
+assert.throws(() => assertTargetApprovalResolved({
+  candidateIdentity: "unlisted.kancolle-server.com",
+  requireCandidate: true,
+}), /NOT_IN_INVENTORY/);
 for (const [label, source] of [["Canary", canaryWrapper], ["Production", productionWrapper]]) {
-  const approvalGuard = source.indexOf("assertTargetApprovalResolved();");
+  const main = source.indexOf("async function main()");
+  const approvalGuard = source.indexOf("assertTargetApprovalResolved(", main);
   const preflight = source.indexOf('spawnSync("pnpm", ["run", "preflight:production"]');
   assert.notEqual(approvalGuard, -1, `${label} deploy must enforce Target Approval Authority`);
   assert.ok(preflight === -1 || approvalGuard < preflight, `${label} deploy must stop before preflight/deployment`);
 }
+assert.match(canaryWrapper, /candidateIdentity: process\.env\.TLSN_CANDIDATE_SERVER_IDENTITY/);
 assert.deepEqual(new Set(CANARY_INPUTS).intersection(new Set(PRODUCTION_INPUTS)), new Set());
 assert.deepEqual(new Set(CANARY_SECRET_INPUTS).intersection(new Set(PRODUCTION_SECRET_INPUTS)), new Set());
 assert.deepEqual(new Set(inputsForRole("canary")).intersection(new Set(PRODUCTION_INPUTS)), new Set());

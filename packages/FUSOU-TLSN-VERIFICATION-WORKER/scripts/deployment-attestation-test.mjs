@@ -21,6 +21,7 @@ import {
   PROFILE_CONTRACT_SPEC,
 } from "./profile-canonical-contract.mjs";
 import { loadOriginInventoryContract } from "./origin-inventory-contract.mjs";
+import { assertTargetApprovalResolved } from "./target-approval-contract.mjs";
 
 const { privateKey: signerPrivateKey, publicKey: signerPublicKey } = generateKeyPairSync("ed25519");
 const signerPrivateKeyPkcs8 = signerPrivateKey.export({ format: "der", type: "pkcs8" }).toString("base64url");
@@ -95,6 +96,18 @@ const productionProvenance = {
   deployment_role: "production",
   security_identity: productionSecurityIdentity,
   deployment_identity: { ...canaryProvenance.deployment_identity, deployment_role: "production", binding_mode: "random", worker_name: "fusou-tlsn-production" },
+  target_approval: (() => {
+    const approval = assertTargetApprovalResolved();
+    return {
+      authority_model: approval.authority_model,
+      status: approval.record_status,
+      environment: approval.environment,
+      inventory_sha256: approval.inventory_sha256,
+      approval_artifact_sha256: approval.approval_artifact_sha256,
+      approved_target_identity: null,
+      approved_target_identities: approval.approved_target_identities,
+    };
+  })(),
   profile_contract: productionProfileContractArtifact(),
 };
 assertProvenanceEvidence(canaryProvenance, context, "canary");
@@ -167,6 +180,10 @@ assert.throws(() => assertProvenanceEvidence({
   ...productionProvenance,
   security_identity: { ...productionSecurityIdentity, origin_inventory_sha256: "L".repeat(43) },
 }, { ...context, deployment_role: "production" }, "production"), /does not match the shipped inventory/);
+assert.throws(() => assertProvenanceEvidence({
+  ...productionProvenance,
+  target_approval: { ...productionProvenance.target_approval, approval_artifact_sha256: "N".repeat(43) },
+}, { ...context, deployment_role: "production" }, "production"), /Target Approval provenance/);
 assert.throws(() => assertProvenanceEvidence({
   ...productionProvenance,
   security_identity: { ...productionSecurityIdentity, profile_policy_sha256: "M".repeat(43) },

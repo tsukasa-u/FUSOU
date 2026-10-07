@@ -24,6 +24,7 @@
     "test:wasm-provenance": "node scripts/wasm-provenance-test.mjs",
     "test:canary-readiness": "node scripts/canary-readiness-test.mjs",
     "test:canary-readiness-contract": "node scripts/canary-readiness-contract-test.mjs",
+    "test:target-approval-contract": "node scripts/target-approval-contract-test.mjs",
     "test:canary-input-intake": "node scripts/canary-external-input-intake-test.mjs",
     "test:fusou-notary-material": "node scripts/fusou-notary-material-test.mjs",
     "test:canary-deployment-manifest": "node scripts/canary-deployment-manifest-test.mjs",

@@ -47,6 +47,7 @@ import {
   securityRegistrySetHash,
 } from "./security-registry-set-contract.mjs";
 import { loadOriginInventoryContract } from "./origin-inventory-contract.mjs";
+import { TARGET_APPROVAL_AUTHORITY, evaluateTargetApproval } from "./target-approval-contract.mjs";
 
 const packageDirectory = resolve(new URL("..", import.meta.url).pathname);
 const DEFAULT_REPORT_PATH = resolve(packageDirectory, "artifacts/tlsn-deployment-preflight.json");
@@ -138,6 +139,16 @@ function validatePublicKey(failures, name) {
 async function main() {
   const failures = [];
   const role = value("TLSN_DEPLOYMENT_ROLE");
+  const targetApproval = ROLE_PATTERN.test(role ?? "")
+    ? evaluateTargetApproval({
+      candidateIdentity: role === "canary" ? value("TLSN_CANDIDATE_SERVER_IDENTITY") : undefined,
+      environment: TARGET_APPROVAL_AUTHORITY.environment,
+      requireCandidate: role === "canary",
+    })
+    : null;
+  if (targetApproval && targetApproval.status !== "APPROVED") {
+    addFailure(failures, "target_approval", targetApproval.reason ?? `Target Approval ${targetApproval.status}`);
+  }
   let inputManifest;
   try {
     inputManifest = JSON.parse(await readFile(INPUT_MANIFEST_PATH, "utf8"));
@@ -532,6 +543,8 @@ async function main() {
     status: failures.length === 0 ? "PASS" : "FAIL",
     checks: {
       required_variables: failures.filter(({ check }) => requiredInputs.includes(check)).length === 0,
+      target_approval_authority: !targetApproval || targetApproval.record_status === "APPROVED",
+      target_approval: !targetApproval || targetApproval.status === "APPROVED",
       no_test_configuration: failures.every(({ check }) => !TEST_ONLY_INPUTS.includes(check)),
       no_forbidden_secret_names: forbiddenNames.length === 0,
       clean_outbound_urls: failures.every(({ check }) => !outboundUrlChecks.has(check)),
@@ -544,6 +557,7 @@ async function main() {
     },
     failure_count: failures.length,
     failures,
+    target_approval: targetApproval,
   };
   const reportPath = value("TLSN_PREFLIGHT_REPORT_PATH") ?? DEFAULT_REPORT_PATH;
   const provenancePath = value("TLSN_PROVENANCE_REPORT_PATH") ?? DEFAULT_PROVENANCE_PATH;
@@ -559,6 +573,17 @@ async function main() {
     status: report.status,
     environment: "production",
     deployment_role: role ?? null,
+    ...(role === "production" && targetApproval ? {
+      target_approval: {
+        authority_model: targetApproval.authority_model,
+        status: targetApproval.record_status,
+        environment: targetApproval.environment,
+        inventory_sha256: targetApproval.inventory_sha256,
+        approval_artifact_sha256: targetApproval.approval_artifact_sha256,
+        approved_target_identity: null,
+        approved_target_identities: targetApproval.approved_target_identities,
+      },
+    } : {}),
     security_identity: {
       git_commit_sha: value("TLSN_GIT_COMMIT_SHA") ?? null,
       ...(role === "canary" ? {

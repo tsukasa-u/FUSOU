@@ -1,28 +1,28 @@
 # FUSOU TLSN Target Approval Decision
 
-Status: **OPEN / UNRESOLVED**  
-Audit baseline: `793153962422469ef322b0e5ce0ef8b40cdc4fb1` (`tlsn-phase0-investigation`)  
-Decision owner: **UNKNOWN**  
-Decision date: not decided
+Status: **DECIDED / IMPLEMENTED**
+Audit baseline: `793153962422469ef322b0e5ce0ef8b40cdc4fb1` (`tlsn-phase0-investigation`)
+Decision authority: **FUSOU_DEPLOYMENT_OPERATOR** (role; no individual inferred)
+Decision date: 2026-10-07
 
-This document presents the authority models a human may choose. It does not select an authority, authorize any hostname, or change readiness/deployment gates. Repository evidence and inventory mechanics are detailed in the [Origin inventory audit](target-approval-inventory-audit.md).
+This document records the selected authority model and its current Production approval set. The alternatives below remain design context, not active choices. Repository evidence and inventory mechanics are detailed in the [Origin inventory audit](target-approval-inventory-audit.md).
 
 ## Security Objective
 
 Establish an explicit, reviewable decision that a canonical DNS hostname is in FUSOU's intended Game Server verification scope, and bind that decision to the candidate and deployment that consume it. This policy decision is independent of whether a connection can be cryptographically authenticated.
 
-The current contract remains:
+The active contract is:
 
 ```text
-TARGET_APPROVAL_AUTHORITY.status = UNRESOLVED
-TARGET_APPROVAL_AUTHORITY.owner = UNKNOWN
-TARGET_APPROVAL_AUTHORITY.evidence_contract = UNRESOLVED
-target approval = UNAPPROVED
-readiness = BLOCKED
-deployment = BLOCKED
+TARGET_APPROVAL_AUTHORITY.status = RESOLVED
+TARGET_APPROVAL_AUTHORITY.authority_model = FUSOU_DEPLOYMENT_OPERATOR
+TARGET_APPROVAL_AUTHORITY.evidence_contract = TLSN_TARGET_APPROVAL_JSON_V1
+Production approval = 20 identities, bound to the current inventory SHA-256
+readiness = BLOCKED until candidate and all independent gates pass
+deployment = rejected unless the approval record and deployment preflight validate
 ```
 
-No actual target, production evidence, new trust root, signature key, or approval artifact is introduced here. AD-5, process/image authority, TPM, remote attestation, current binary identity, Web PKI roots, certificate pinning, Origin DER inputs, Result signer trust, Notary trust, and Verifier execution identity are unchanged and outside this decision.
+The approval record is `packages/configs/tlsn-target-approval.json`; its current Production target set contains all 20 identities in the canonical Origin inventory at the recorded inventory digest. This decision does not assert live endpoint ownership or acquire production evidence. No new trust root, signature key, or certificate pinning is introduced. AD-5, process/image authority, TPM, remote attestation, current binary identity, Web PKI roots, Origin DER inputs, Result signer trust, Notary trust, and Verifier execution identity remain outside this decision.
 
 ## Independent Trust Decisions
 
@@ -37,7 +37,17 @@ Therefore, `valid certificate != FUSOU-approved target`. A canonical hostname, a
 
 Certificate renewal, intermediate changes, and CA rotation remain compatible with hostname-only target configuration: if the same DNS identity is authenticated by a chain accepted by the verifier's existing Mozilla roots, FUSOU's target decision and hostname do not change. A root not accepted by that trust store requires a separate verifier trust-store decision; do not solve target approval by pinning certificates or adding a candidate root.
 
-## Candidate Models
+## Selected Model: FUSOU_DEPLOYMENT_OPERATOR
+
+FUSOU's deployment operator is the human configuration/governance authority that approves the Game Server hostname set used for verification. The repository record is separate from both `configs.toml` and the generated/static Origin inventory. Runtime candidate strings and inventory membership alone never constitute approval.
+
+The approval contract requires `status == APPROVED`, the current raw canonical inventory SHA-256 to equal `inventory_sha256`, and a canonical HTTPS inventory identity to be present in the explicit `targets` list. The record uses canonical JSON serialization and an RFC3339 `approved_at`; it has no time-based expiry. Changing inventory bytes invalidates the record until the operator updates the approval. Removing a target from the approval list revokes it for subsequent validated builds/deployments.
+
+The current record explicitly approves all 20 Production inventory identities. Readiness and deployment checks enforce record validity and candidate membership; Production preflight provenance binds the authority model, status, environment, inventory digest, approval artifact digest, and approved set. Canary candidate validation uses the same Production-scoped set without changing Canary Runtime Attestation or verifier-identity semantics.
+
+**Governance limit:** This is an operator-governance record, not a cryptographic signature or proof of a named person's identity. The user confirmed that `tlsn-phase0-investigation` is unprotected and has no required checks or repository rulesets. The implementation does not treat branch protection, Git author metadata, or workflow success as evidence of who approved the record. The path-filter repair makes relevant CI run when the files change, but does not make those checks required merge controls.
+
+## Alternative Models Considered
 
 ### Option A: Repository Inventory With Protected Review
 
@@ -100,9 +110,9 @@ An environment variable, command-line argument, or manual deployment input can s
 
 This does not itself weaken Web PKI peer authentication or TLSN proof verification. It fails the distinct policy objective of proving FUSOU accepted the target. It may be an explicit low-assurance manual operation for non-production only if a human changes the security objective and accepts the limitations; it is not a production approval model under the current objective. Hostname-only and certificate rotation are technically compatible, but do not repair the lost approval properties.
 
-## Cross-Model Minimum Semantics To Decide
+## Lifecycle Semantics and Remaining Governance
 
-Before selecting a model, decide each property at the strength required by the threat model. Not every property implies an external signing service.
+The selected record implements identity/environment scope, exact-byte integrity, inventory and candidate binding, and prospective revocation through a changed approval set. The following governance properties are not supplied by the JSON schema itself and must not be inferred from it:
 
 | Property | Concrete question |
 | --- | --- |
@@ -120,26 +130,22 @@ Before selecting a model, decide each property at the strength required by the t
 
 Certificate lifecycle is deliberately separate: target approval should normally be identity-scoped so that a valid Web PKI certificate/intermediate/CA rotation for the same hostname does not require target re-approval.
 
-## Architecture-Fit Assessment, Not A Selection
+## Alternatives Not Selected
 
-**Option A is the lowest-change model to evaluate first**, because the current Production path already ships a static inventory, checks its bytes, and binds its digest into security/deployment identity. If humans explicitly make protected repository review the approval policy, the existing architecture can carry the approved set without adding a new signing root. However, current repository evidence does not establish the necessary branch/review controls; the inventory generator is absent; CI does not reliably trigger on all source files; and approval freshness, revocation, and rollback are undefined. Option A is therefore **not approved by this assessment**.
+The decision selects operator governance recorded in a separate approval artifact; it does not select protected repository review as the authority. The branch is currently unprotected, so the repository does not provide independent reviewer or required-check evidence. CI path filters now cover the source TOML, canonical JSON, shared text inventory, and approval artifact, but remain execution triggers rather than merge-policy enforcement.
 
-Option B is appropriate only if humans require a cryptographically distinct approval authority and are prepared to govern a second root/lifecycle. Option C is appropriate only if a real authorized external Game Server owner and verifiable evidence channel are identified. Option D is not sufficient for the stated production security objective.
+Options B and C were not selected; no separate signing root or external Game Server authority is configured. An ad hoc operator-supplied hostname (Option D) is not approval; deployment requires the durable record and its exact candidate/inventory checks.
 
-## Human Decision Record: Unresolved
+## Decision Record: 2026-10-07
 
-Before any real target is supplied, humans must explicitly decide:
+The FUSOU deployment operator decision recorded for this change is:
 
-1. Which model (A, B, C, or a clearly specified hybrid) is the approval policy; whether it covers Production, Canary, or both.
-2. The accountable authority by role/organization and the permitted approvers/delegates; do not infer this from Git authorship.
-3. Who may propose, approve, publish, remove, and reinstate a target; whether independent review is mandatory and what bypass is allowed.
-4. The authoritative record and exact target scope: canonical hostname, port/use, environment, and whether approval is per-host or set-wide.
-5. The required approval evidence and its authenticity/integrity proof; whether protected repository review is sufficient or a separate external signature/root is necessary.
-6. How source, generated/bundled copies, schema version, and artifact hashes are produced and checked on every relevant change.
-7. How the approved revision is bound to candidate configuration, deployment manifest, deployed Worker, and existing deployment provenance.
-8. Freshness/expiry, historical retention, revocation latency, emergency disablement, and whether an offline verifier may use a cached approval.
-9. Whether rollback can restore a revoked target and, if prohibited, the anti-rollback state and its authority.
-10. Environment separation and Canary's fixed-target policy relative to the Production inventory.
-11. Compromise recovery for the selected authority and its publication/deployment systems.
+1. Authority model: `FUSOU_DEPLOYMENT_OPERATOR`, a human governance role, not an individual inferred from repository metadata.
+2. Scope: the Production set of 20 canonical HTTPS identities in the Origin inventory whose raw bytes match the record's `inventory_sha256`.
+3. Record: `packages/configs/tlsn-target-approval.json`, schema version 1, canonical serialization, explicit approved targets, and `approved_at: 2026-10-07T04:48:07Z`.
+4. Validity: current inventory digest match plus exact candidate membership. The record does not expire by time; inventory changes invalidate it, and target removal requires an explicit record change.
+5. Binding: readiness checks the candidate; deploy preflight rejects invalid/missing approval; Production provenance binds the approval artifact and inventory digests and the approved set.
+6. Separation: approval does not establish Web PKI peer authentication, Notary trust, Result signer trust, Runtime Attestation, Verifier identity, or client process authority. AD-5 remains `OUT_OF_SCOPE`.
+7. Governance caveat: no named approver/signature or protected-branch evidence is encoded. The user confirms no branch protection, required checks, or rulesets are configured for this branch.
 
-Until this record is made by humans, keep `owner: UNKNOWN`, `status: UNRESOLVED`, `evidence_contract: UNRESOLVED`; a valid candidate remains `UNAPPROVED`, readiness remains `BLOCKED`, and deployment remains rejected.
+The record does not mean the system is generally ready: missing candidate configuration, Notary and other independent readiness gates continue to block readiness/deployment. No real Game Server was contacted, no Presentation was captured, no Notary was contacted, and no deployment was performed for this decision.

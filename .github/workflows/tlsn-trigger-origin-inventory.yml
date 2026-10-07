@@ -11,16 +11,18 @@ on:
   push:
     paths:
       - packages/fusou-tlsn-trigger/**
+      - packages/configs/configs.toml
       - packages/configs/tlsn-origin-inventory.json
-      - packages/FUSOU-TLSN-VERIFICATION-WORKER/configs/tlsn-origin-inventory.json.txt
+      - packages/configs/tlsn-origin-inventory.json.txt
       - package.json
       - pnpm-lock.yaml
       - .github/workflows/tlsn-trigger-origin-inventory.yml
   pull_request:
     paths:
       - packages/fusou-tlsn-trigger/**
+      - packages/configs/configs.toml
       - packages/configs/tlsn-origin-inventory.json
-      - packages/FUSOU-TLSN-VERIFICATION-WORKER/configs/tlsn-origin-inventory.json.txt
+      - packages/configs/tlsn-origin-inventory.json.txt
       - package.json
       - pnpm-lock.yaml
       - .github/workflows/tlsn-trigger-origin-inventory.yml

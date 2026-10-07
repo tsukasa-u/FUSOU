@@ -1,10 +1,20 @@
 # FUSOU TLSN Origin Inventory Audit
 
-Audit baseline: `793153962422469ef322b0e5ce0ef8b40cdc4fb1` (`tlsn-phase0-investigation`)  
-Scope: local repository files and local Git object history only. No GitHub API/settings, external owner, network probe, or production evidence was consulted.  
-Conclusion: the inventory is an integrity-checked identity-selection/configuration input, **not an established Target Approval Authority**.
+Audit baseline: `793153962422469ef322b0e5ce0ef8b40cdc4fb1` (`tlsn-phase0-investigation`)
+Scope: the audit below records local repository files and Git history at its stated baseline. No GitHub API/settings, external owner, network probe, or production evidence was consulted. The implementation follow-up records the subsequently selected authority model and approval artifact.
 
-See [Target Approval Decision](target-approval-decision.md) for candidate authority models and human decisions. “Unknown” below means the repository evidence does not establish the property; it does not claim that no process exists outside the repository.
+Baseline conclusion: the inventory was an integrity-checked identity-selection/configuration input, **not an established Target Approval Authority**. Inventory membership remains separate from Target Approval.
+
+See [Target Approval Decision](target-approval-decision.md) for the selected model and its limits. “Unknown” in the baseline audit means the repository evidence did not establish the property; it does not claim that no process exists outside the repository.
+
+## Implementation Follow-up: 2026-10-07
+
+- The selected model is `FUSOU_DEPLOYMENT_OPERATOR`, a human configuration/governance authority. It is not Web PKI, Notary, Result signer, Runtime Attestation, Verifier identity, or client process authority.
+- `packages/configs/tlsn-target-approval.json` is a distinct canonical schema-version-1 Production record. It explicitly lists all 20 identities in the current canonical inventory, records `approved_at: 2026-10-07T04:48:07Z`, and binds the inventory's raw-byte SHA-256. Inventory edits do not automatically update or approve targets; they invalidate the record until an operator decision updates it.
+- Readiness checks exact candidate membership; deploy preflight fails closed on invalid/missing approval; Production provenance binds the authority, status, environment, inventory digest, approval artifact digest, and approved set. Canary candidate validation remains separate from its Runtime Attestation and verifier identity.
+- The security workflow now triggers on `configs.toml`, canonical JSON, shared text inventory, and approval JSON changes, and it fetches locked `proxy-https` dependencies before offline finalization tests. The inventory workflow filters now name the actual TOML and shared text paths.
+- The user confirmed that the branch is unprotected, with no required checks or repository rulesets. The approval JSON is a declarative governance record; it is not signed and does not establish a named person's identity or prove protected review. CI path triggers do not enforce merge requirements.
+- No real target connection, Presentation capture, Notary request, production deployment, or production evidence acquisition was performed.
 
 ## 1. Source and Generation
 
@@ -35,17 +45,17 @@ Consequently there are multiple operational data representations: TOML drives no
 
 ### Review policy
 
-**Owner, CODEOWNERS rule, required reviewer count, branch protection, merge/release approval, and bypass policy: UNKNOWN.** No repository `CODEOWNERS` file or local policy configuring those controls was found in the audited tree. Remote hosting settings were not inspected. A repository commit therefore cannot currently be interpreted from this evidence as an approved Target Approval decision.
+At the audit baseline, owner, CODEOWNERS rule, required reviewer count, branch protection, merge/release approval, and bypass policy were not established by local repository evidence; remote hosting settings were not inspected. For this implementation follow-up, the user confirms this branch is unprotected and has no required checks or rulesets. A commit or CI result is not independent reviewer evidence; the selected authority is the explicit deployment-operator governance model.
 
 ### CI verification and trigger coverage
 
 - `.github/workflows/check_build.yml` runs `cargo test --lib configs::tests:: -- --nocapture`, which includes the TOML↔embedded inventory test. This workflow has `workflow_dispatch` and a weekly schedule but no `push` or `pull_request` trigger. The test is useful, but repository workflow evidence does not make it a required per-change approval check.
-- `.github/workflows/tlsn-trigger-origin-inventory.yml` runs `pnpm --dir packages/fusou-tlsn-trigger run test:origin-inventory-contract` on matching `push`, `pull_request`, or manual dispatch. Its filters include the canonical JSON and the nonexistent Worker-local `.json.txt` path, but omit both `packages/configs/configs.toml` and the actual shared `packages/configs/tlsn-origin-inventory.json.txt` path. A TOML-only edit or an edit to the shared text file may therefore not trigger this workflow based on its declared filters.
+- At the audit baseline, `.github/workflows/tlsn-trigger-origin-inventory.yml` omitted the source TOML and actual shared text inventory path and included a nonexistent Worker-local path. The implementation follow-up corrected those filters.
 - The JavaScript contract verifies raw-byte equality between canonical JSON and the shared `.json.txt`, Trigger inclusion/configuration, and task/runtime digest mismatch rejection. It does not parse the TOML source.
 - The Rust semantic test verifies the TOML mapping against the embedded JSON, but its current workflow schedule/manual trigger is separate from the inventory contract workflow.
 - **Required status/review enforcement and workflow success as a merge prerequisite: UNKNOWN.** The repository files do not establish Git host-side required-check settings.
 
-This is a change-detection/coverage gap, not a decision about which authority should approve a target. It is recorded for the human-selected model's governance work; this audit does not alter CI or promote inventory membership to approval.
+The baseline gap was a change-detection issue, not an approval decision. The implementation follow-up adds the relevant path triggers and Target Approval contract test; it does not configure branch protection or promote inventory membership to approval.
 
 ## 3. Integrity, Manifest, and Provenance Binding
 
@@ -60,7 +70,7 @@ These controls establish which inventory bytes/configuration a local build, pref
 
 ### Deployment source
 
-The Worker and Trigger consume checked-in inventory bytes from the same checkout/build inputs; deployment wrappers use the local package scripts and Wrangler/Trigger build configuration. No separate approval service or runtime target-approval lookup is evidenced. Production selects the authenticated Presentation's identity from the shipped inventory. Canary instead uses a separately configured fixed identity and profile; its candidate input/manifest binding is configuration binding, not inventory approval. Existing unresolved Target Approval gates block deployment for both roles and are unchanged by this audit.
+The Worker and Trigger consume checked-in inventory bytes from the same checkout/build inputs; deployment wrappers use the local package scripts and Wrangler/Trigger build configuration. At the audit baseline there was no Target Approval record. The implementation follow-up adds a separate Production record: Production provenance binds the approved set, and a Canary candidate must independently be in that set. This does not authenticate the TLS peer or alter Canary Runtime Attestation/verifier identity semantics.
 
 The audit establishes the local source/build path, not what commit is currently deployed remotely or whether platform-side deployments are restricted to reviewed commits.
 
@@ -81,11 +91,11 @@ The audit establishes the local source/build path, not what commit is currently 
 
 | Evidence category | Finding |
 | --- | --- |
-| Owner evidence | **UNKNOWN.** No Target Approval owner or delegated role is named. Git blame authorship is not authority. |
-| Review evidence | **UNKNOWN.** No PR review record, CODEOWNERS rule, required reviewer policy, or branch protection proof is in the local repository. |
-| Publication evidence | Checked-in files and build/deploy paths are observed; an approval publication policy is **UNKNOWN**. |
-| Integrity evidence | Exact JSON/text parity, a TOML-to-embedded-JSON unit test, runtime/build SHA digests, and manifest/provenance/task binding are implemented. CI trigger coverage has the gaps above. |
-| Lifecycle evidence | Schema has a version and a finite static list; approval issue/expiry/revoke/disable/anti-rollback/compromise-recovery lifecycle is **UNKNOWN** or absent from the repository model. |
-| Trust authority | **UNRESOLVED.** Inventory membership is currently an identity-selection allowlist/configuration input, not a documented Target Approval Authority. |
+| Owner evidence | The selected authority role is `FUSOU_DEPLOYMENT_OPERATOR`; no individual is identified or inferred from Git metadata. |
+| Review evidence | The user confirms this branch is unprotected and has no required checks or rulesets. No independent review proof is encoded. |
+| Publication evidence | The checked-in `tlsn-target-approval.json` is the explicit Production record; its content is declarative and unsigned. |
+| Integrity evidence | Exact inventory-byte digest, canonical approval serialization, explicit candidate membership, readiness/preflight checks, and Production provenance binding are implemented. Workflow paths cover relevant TOML/inventory/approval files; this does not establish required-check enforcement. |
+| Lifecycle evidence | The record has no time-based expiry. Inventory-byte changes invalidate it and target removal requires a record change; anti-rollback, emergency-disable latency, named delegation, and compromise recovery remain undefined. |
+| Trust authority | The selected model is `FUSOU_DEPLOYMENT_OPERATOR`. Inventory membership remains only an identity-selection input and does not imply approval. |
 
-The human may choose to make protected repository review the authority, but must explicitly define that policy and close the relevant governance/CI/publication/lifecycle gaps. Alternatively, select and govern another authority model as described in the [decision document](target-approval-decision.md). Until then, keep target approval `UNAPPROVED`, readiness `BLOCKED`, and deployment rejected.
+The current record approves 20 inventory identities and code rejects candidates outside that record. This does not close governance gaps around named approver identity, protected review, merge enforcement, rollback, or compromise recovery. Readiness and deployment remain blocked until each candidate and all independent gates pass. See the [decision document](target-approval-decision.md) for the decision and its limits.
