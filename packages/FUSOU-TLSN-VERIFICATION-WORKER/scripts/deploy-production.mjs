@@ -15,6 +15,7 @@ import {
   WORKFLOW_EVIDENCE_INPUTS,
   workerSecretBundleForProduction,
 } from "./deployment-contract.mjs";
+import { assertTargetApprovalResolved } from "./target-approval-contract.mjs";
 
 const packageDirectory = resolve(new URL("..", import.meta.url).pathname);
 const inputManifestPath = resolve(packageDirectory, "scripts/production-inputs.json");
@@ -39,6 +40,7 @@ function requiredEnvironment(name) {
 }
 
 async function main() {
+  assertTargetApprovalResolved();
   const manifest = JSON.parse(await readFile(inputManifestPath, "utf8"));
   assertManifest(manifest);
   const allowedInputs = inputsForRole("production");

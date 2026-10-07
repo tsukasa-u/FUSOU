@@ -58,6 +58,37 @@ Game Server identity
 
 The guarantee is about the authenticated server identity, TLS-protected in-transit bytes, exact transcript provenance, TLSN verification, and the authority/provenance of the resulting evidence. `Game Server identity`, Web PKI validation, and Notary authorization remain distinct checks; none substitutes for another.
 
+### Target approval is separate from peer authentication
+
+FUSOU needs a policy decision that says which Game Server identities it will accept as verification targets. Web PKI authenticates a TLS peer for a DNS hostname; it does not decide that FUSOU intended to collect evidence for that host. Conversely, selecting a hostname or listing it in a manifest does not authenticate the peer.
+
+```text
+Target Approval Authority (currently UNKNOWN / unresolved)
+  |  decides which canonical hostname is in FUSOU's verification scope
+  v
+Expected Game Server identity
+  |  candidate value or inventory-selected identity; configuration is not approval proof
+  v
+Trusted Notary key selected from the configured registry
+  |  registry membership authorizes this key to verify the Presentation; it does not approve the target
+  v
+TLSN alpha.15 Presentation verification
+  |  verifies the proof and Notary signature, including Web PKI chain, validity, and DNS-name checks against the verifier's Mozilla roots
+  |  exposes the authenticated server identity and transcript
+  v
+Exact target identity comparison
+  |  verified_presentation.server_identity == expected identity == signed Result identity; mismatch is rejected
+  v
+Dedicated Verifier -> signed Result
+  -> execution receipt / Runtime Attestation
+```
+
+In the current code, Canary's `TLSN_CANDIDATE_SERVER_IDENTITY` is a canonical DNS configuration input. `canary-deployment-manifest.mjs` requires its `target.server_identity` to match that input, which proves configuration binding only. The active path defines no target approver or target-approval artifact. A valid hostname and matching manifest therefore remain `UNAPPROVED`; readiness reports `owner: UNKNOWN` and fails closed until a human defines the authority and its governance/evidence lifecycle. No owner, signing root, approval artifact, or revocation process is inferred here.
+
+The APP's `configs.toml:[app.connect_kc_server.server_list]` is an ordinary server-index/hostname mapping used for server selection. The shipped Production Origin inventory is generated from this data and is consumed as an identity-selection allowlist: the Production path cryptographically verifies the alpha.15 Presentation, derives `verified_presentation.server_identity`, and requires it to match the selected inventory identity; the transcript `Host` and signed Result identity are also compared to that expected identity. The inventory's schema and byte-level digest establish configuration consistency, not who approved its membership. Repository evidence does not establish an inventory owner, modification authority, review/publication process, or lifecycle; it is not currently a documented Target Approval Authority or a certificate trust store.
+
+Web PKI/TLS identity checking remains independent. Certificate renewal and intermediate/CA rotation need no FUSOU hostname or pin update when the resulting chain validates under the verifier's bundled Mozilla roots. A root absent from that bundle requires a verifier trust-store update; that does not change the target-approval decision.
+
 Browser-to-APP data integrity is outside FUSOU's browser-integrity guarantee. The Game Server is responsible for checking the game meaning, consistency, and acceptability of values it receives. If the local OS is fully compromised, it may alter APP memory or plaintext before TLS encryption; FUSOU does not claim that a client-side process identity or binary measurement proves that pre-encryption data is correct. A genuine APP binary does not imply truthful communication content.
 
 This endpoint-compromise limitation is distinct from an in-transit network MITM. It does not by itself defeat TLS server authentication or cryptographic protection for bytes after encryption, assuming the TLS endpoint/key processing is not itself compromised. Current FUSOU APP executable/process identity is therefore outside the primary guarantee and is not a readiness prerequisite. No TPM, Measured Boot, OS process measurement, remote attestation, or privileged helper is required to close a communication-integrity gate.

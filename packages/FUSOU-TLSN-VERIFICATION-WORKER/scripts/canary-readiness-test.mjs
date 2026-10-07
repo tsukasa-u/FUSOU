@@ -18,6 +18,7 @@ import {
 import { loadCanaryRuntimeAttestationKeyRegistry } from "./canary-runtime-attestation-key-registry.mjs";
 import { CANARY_EXTERNAL_INPUT_INTAKE } from "./canary-external-input-intake.mjs";
 import { loadCanaryVerifierExecutionEvidenceBundle } from "./canary-execution-evidence.mjs";
+import { TARGET_APPROVAL_AUTHORITY, targetApprovalStatus } from "./target-approval-contract.mjs";
 import {
   CANARY_OPERATIONAL_SMOKE_COMPONENTS,
   loadCanaryOperationalSmokeArtifact,
@@ -154,9 +155,9 @@ const EXTERNAL_AUTHORITY_HANDOFF_GROUPS = [
     id: "TARGET_IDENTITY",
     inputs: ["TLSN_CANDIDATE_SERVER_IDENTITY"],
     depends_on: [],
-    owner: "UNKNOWN",
+    owner: TARGET_APPROVAL_AUTHORITY.owner,
     external_authority: true,
-    next_action: "An accountable approver must supply a canonical DNS hostname. The repository does not establish who approves the target; the value is configuration, not authentication evidence.",
+    next_action: TARGET_APPROVAL_AUTHORITY.next_action,
   },
   {
     id: "PROFILE_POLICY",
@@ -469,13 +470,17 @@ function externalAuthorityHandoff({ environment = process.env, deploymentManifes
     const manifestValid = group.id === "DEPLOYMENT_MANIFEST" && deploymentManifest?.status === "VALID";
     const invalidTarget = group.id === "TARGET_IDENTITY"
       && ["INVALID", "FIXTURE_OR_SYNTHETIC"].includes(targetStatus(environment));
+    const unapprovedTarget = group.id === "TARGET_IDENTITY"
+      && targetStatus(environment) === "PRESENT_UNVERIFIED";
     const derivedProfileInputs = group.id === "PROFILE_POLICY"
-      && statusByGroup.get("TARGET_IDENTITY") === "PRESENT_UNVERIFIED"
+      && targetStatus(environment) === "PRESENT_UNVERIFIED"
       && group.inputs.every((name) => !present(name, environment));
     const missingInputs = manifestValid || derivedProfileInputs ? [] : group.inputs.filter((name) => !present(name, environment));
     const unmetDependencies = group.depends_on.filter((id) => statusByGroup.get(id) !== "PRESENT_UNVERIFIED");
     const status = invalidTarget
       ? "INVALID"
+      : unapprovedTarget
+      ? "UNAPPROVED"
       : group.id === "DEPLOYMENT_MANIFEST" && deploymentManifest?.status === "INVALID"
       ? "INVALID"
       : derivedProfileInputs
@@ -835,6 +840,7 @@ export async function buildReadinessReport({
     deployment_manifest: deploymentManifest.status === "VALID",
     deployment_contract: deploymentStatus() === "PASS",
     target_manifest_binding: deploymentManifest.status === "VALID" && target === "PRESENT_UNVERIFIED",
+    target_approval_authority: TARGET_APPROVAL_AUTHORITY.status === "RESOLVED",
     trust_material: trust === "PRESENT_UNVERIFIED" && deploymentManifest.status === "VALID",
     notary_binding: notary === "PRESENT_UNVERIFIED" && deploymentManifest.status === "VALID",
     authentication: auth === "PRESENT",
@@ -871,6 +877,12 @@ export async function buildReadinessReport({
         identity_semantics: "CANONICAL_DNS_EXPECTATION_ONLY",
         manifest_binding: deploymentManifest.status === "VALID" ? "MATCHED" : "NOT_ESTABLISHED",
         cryptographic_identity: "NOT_VERIFIED_BY_INPUT_OR_MANIFEST",
+      },
+      target_approval: {
+        status: targetApprovalStatus(target),
+        authority: TARGET_APPROVAL_AUTHORITY.owner,
+        evidence_contract: TARGET_APPROVAL_AUTHORITY.evidence_contract,
+        reason: "A candidate hostname and manifest matching do not establish FUSOU approval. The repository does not define who may approve targets or the approval lifecycle.",
       },
         deployment_manifest: deploymentManifest,
       trust: { status: trust, fields: statuses(TRUST_INPUTS, environment) },
@@ -926,7 +938,7 @@ export async function buildReadinessReport({
     input_diagnostics: readinessInputDiagnostics({ deployment: deploymentStatus(environment, expectedHead), target, deploymentManifest, trust, notary, auth, binding, workflow, runtime, environment }),
     missing_inputs: missingInputNames(environment),
     resume_conditions: {
-      target_identity: "Supply a canonical, human-approved DNS hostname and derive its canonical profiles. Input and deployment-manifest matching bind configuration only; Web PKI and Presentation evidence must independently authenticate the observed peer identity.",
+      target_identity: "Resolve the Target Approval Authority and its governance/evidence contract before treating a candidate hostname as approved. A canonical input and deployment-manifest match bind configuration only; Web PKI and Presentation evidence independently authenticate the observed peer identity.",
       trust: "Candidate trust root, verifier identity, Result registry/envelope/root, and authority registries must be supplied and pass deployment-preflight.",
       notary: "FUSOU-NOTARY public registry, active key ID, and raw host:port endpoint must be supplied; the current Presentation verification path remains blocked without all three.",
       authentication: "Candidate device-auth and Supabase endpoints must be supplied and pass deployment-preflight. User/device credentials belong only to post-deployment remote validation and are not a deployment readiness gate.",

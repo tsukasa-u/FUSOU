@@ -24,6 +24,10 @@ import {
   CANARY_VERIFIER_WORKER_NAME,
   CANARY_WORKER_NAME,
 } from "./canary-deployment-target.mjs";
+import {
+  assertTargetApprovalResolved,
+  TARGET_APPROVAL_AUTHORITY,
+} from "./target-approval-contract.mjs";
 
 const packageDirectory = resolve(new URL("..", import.meta.url).pathname);
 const manifest = JSON.parse(await readFile(resolve(packageDirectory, "scripts/production-inputs.json"), "utf8"));
@@ -43,6 +47,16 @@ function environmentSection(name) {
 }
 
 assertManifest(manifest);
+assert.equal(TARGET_APPROVAL_AUTHORITY.status, "UNRESOLVED");
+assert.equal(TARGET_APPROVAL_AUTHORITY.owner, "UNKNOWN");
+assert.equal(TARGET_APPROVAL_AUTHORITY.evidence_contract, "UNRESOLVED");
+assert.throws(assertTargetApprovalResolved, /Target Approval Authority is unresolved/);
+for (const [label, source] of [["Canary", canaryWrapper], ["Production", productionWrapper]]) {
+  const approvalGuard = source.indexOf("assertTargetApprovalResolved();");
+  const preflight = source.indexOf('spawnSync("pnpm", ["run", "preflight:production"]');
+  assert.notEqual(approvalGuard, -1, `${label} deploy must enforce Target Approval Authority`);
+  assert.ok(preflight === -1 || approvalGuard < preflight, `${label} deploy must stop before preflight/deployment`);
+}
 assert.deepEqual(new Set(CANARY_INPUTS).intersection(new Set(PRODUCTION_INPUTS)), new Set());
 assert.deepEqual(new Set(CANARY_SECRET_INPUTS).intersection(new Set(PRODUCTION_SECRET_INPUTS)), new Set());
 assert.deepEqual(new Set(inputsForRole("canary")).intersection(new Set(PRODUCTION_INPUTS)), new Set());
