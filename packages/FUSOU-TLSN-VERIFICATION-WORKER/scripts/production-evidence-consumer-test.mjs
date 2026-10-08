@@ -9,6 +9,8 @@ import { sha256Base64Url } from "./deployment-attestation.mjs";
 import {
   artifactDescriptor,
   assertProductionEvidenceArtifacts,
+  assertSignedResult,
+  assertSignedSparseResult,
   createSignedProductionEvidenceManifest,
   resultSigningBytes,
   sparseResultSigningBytes,
@@ -20,6 +22,7 @@ import { profilesForServerIdentity } from "./profile-canonical-contract.mjs";
 import { serializeTargetApprovalRecord } from "./target-approval-contract.mjs";
 import { createSignedResultRegistryEnvelope, resultRegistryEnvelopeHash } from "./result-registry-envelope.mjs";
 import { consumeReceiptSigningBytes, sessionReceiptSigningBytes, tlsnDeviceProofSigningBytes } from "./device-evidence.mjs";
+import { parseOriginInventory, parseTargetApproval } from "../src/origin-trust-contract.mjs";
 
 const scriptsDirectory = dirname(fileURLToPath(import.meta.url));
 const root = await mkdtemp(join(tmpdir(), "tlsn-evidence-consumer-"));
@@ -274,6 +277,18 @@ function resign(manifest) {
   });
 }
 
+function mutateExactResponseField(bytes, field, before, after) {
+  const needle = Buffer.from(`${JSON.stringify(field)}: ${JSON.stringify(before)}`);
+  const offset = bytes.indexOf(needle);
+  assert.notEqual(offset, -1, `exact response field is missing: ${field}`);
+  assert.equal(bytes.indexOf(needle, offset + needle.length), -1, `exact response field is ambiguous: ${field}`);
+  return Buffer.concat([
+    bytes.subarray(0, offset),
+    Buffer.from(`${JSON.stringify(field)}: ${JSON.stringify(after)}`),
+    bytes.subarray(offset + needle.length),
+  ]);
+}
+
 try {
   for (const mode of ["complete", "sparse"]) {
     const state = stateFor(mode);
@@ -365,10 +380,9 @@ try {
     await writeFile(outputPath, JSON.stringify(originalManifest));
 
     const exactPath = join(dirname(outputPath), originalManifest.artifacts.result_exact.path);
-    const outerSubstitution = jsonBytes({
-      ...JSON.parse(bundleArtifacts["result-exact.bin"]),
-      device_replay_digest_hex: "0".repeat(64),
-    });
+    const outerSubstitution = mutateExactResponseField(
+      bundleArtifacts["result-exact.bin"], "device_replay_digest_hex", proof.replay_digest_hex, "0".repeat(64),
+    );
     await writeFile(exactPath, outerSubstitution);
     const reboundOuter = structuredClone(originalManifest);
     reboundOuter.artifacts.result_exact = { ...reboundOuter.artifacts.result_exact, ...artifactDescriptor(outerSubstitution, { mediaType: "application/json" }) };
@@ -378,6 +392,146 @@ try {
     assert.match(rejectedOuter.stderr, /exact outer response differs from the replay digest/);
     await writeFile(exactPath, bundleArtifacts["result-exact.bin"]);
     await writeFile(outputPath, JSON.stringify(originalManifest));
+
+    const exactBytes = bundleArtifacts["result-exact.bin"];
+    const signedResultArtifacts = (changes) => {
+      const changed = { ...state.result, ...changes };
+      changed.signature = sign(null, mode === "sparse" ? sparseResultSigningBytes(changed) : resultSigningBytes(changed), resultKey.privateKey).toString("base64url");
+      (mode === "sparse" ? assertSignedSparseResult : assertSignedResult)(changed, {
+        publicKeySpki: spki(resultKey.publicKey), keyRegistry: resultRegistry, signerKeyId: resultRegistry.keys[0].key_id,
+      });
+      let changedExact = exactBytes;
+      for (const [field, value] of Object.entries({ ...changes, signature: changed.signature })) {
+        changedExact = mutateExactResponseField(changedExact, field, state.result[field], value);
+      }
+      assert.deepEqual(JSON.parse(changedExact).result, changed);
+      return { result: jsonBytes(changed), result_exact: changedExact };
+    };
+    const rejectPackageMutation = async (label, expectedError, {
+      artifacts = {}, mutateManifest, rebindDescriptors = true, inspected = false,
+    } = {}) => {
+      const changedManifest = structuredClone(originalManifest);
+      const originals = new Map();
+      try {
+        for (const [name, bytes] of Object.entries(artifacts)) {
+          const descriptor = originalManifest.artifacts[name];
+          const path = join(dirname(outputPath), descriptor.path);
+          originals.set(path, await readFile(path));
+          await writeFile(path, bytes);
+          if (rebindDescriptors) {
+            changedManifest.artifacts[name] = { ...descriptor, ...artifactDescriptor(bytes, { mediaType: descriptor.media_type }) };
+            for (const evidence of Object.values(changedManifest.evidence)) {
+              if (evidence.artifact_sha256 === descriptor.artifact_sha256) {
+                evidence.artifact_sha256 = changedManifest.artifacts[name].artifact_sha256;
+              }
+            }
+          }
+        }
+        mutateManifest?.(changedManifest);
+        await writeFile(outputPath, JSON.stringify(resign(changedManifest)));
+        const rejected = await runCli("verify-production-evidence.mjs", state, offlineEnv);
+        assert.equal(rejected.status, 1, `${label}: ${rejected.stdout}${rejected.stderr}`);
+        assert.match(rejected.stderr, expectedError, label);
+        assert.equal(rejected.trace.some((event) => event.boundary === "inspection"), inspected, label);
+        assert.equal(rejected.trace.some((event) => event.boundary === "semantic"), false, label);
+        assert.equal(rejected.trace.some((event) => event.boundary === "http"), false, label);
+        assert.deepEqual(await readFile(inventoryPath), inventoryBytes, label);
+        assert.deepEqual(await readFile(approvalPath), approvalBytes, label);
+        console.log(`[tlsn-production-evidence-consumer] ${mode}/${label}: rejected at ${expectedError.source}`);
+      } finally {
+        for (const [path, bytes] of originals) await writeFile(path, bytes);
+        await writeFile(outputPath, JSON.stringify(originalManifest));
+      }
+    };
+
+    const substitutedIdentity = inventory.targets[1].server_identity;
+    const substitutedProfile = profilesForServerIdentity(substitutedIdentity)[mode].sha256;
+    const substitutedApproval = Buffer.from(serializeTargetApprovalRecord({ ...approvalRecord, targets: [substitutedIdentity] }));
+    parseTargetApproval(substitutedApproval.toString("utf8"), inventory, sha256Base64Url(inventoryBytes));
+    await rejectPackageMutation("captured-only approved identity substitution", /captured Target Approval does not match the independently supplied Production reference/, {
+      artifacts: {
+        ...signedResultArtifacts({
+          server_identity: substitutedIdentity, profile_sha256: substitutedProfile,
+          target_approval_artifact_sha256: sha256Base64Url(substitutedApproval),
+        }),
+        target_approval: substitutedApproval,
+      },
+      inspected: true,
+    });
+    const substitutedInventory = structuredClone(inventory);
+    substitutedInventory.targets[0].server_identity = substitutedIdentity;
+    substitutedInventory.targets[1].server_identity = serverIdentity;
+    const substitutedInventoryBytes = jsonBytes(substitutedInventory);
+    const substitutedInventorySha256 = sha256Base64Url(substitutedInventoryBytes);
+    const substitutedInventoryApproval = Buffer.from(serializeTargetApprovalRecord({
+      ...approvalRecord, inventory_sha256: substitutedInventorySha256, targets: [substitutedIdentity],
+    }));
+    parseTargetApproval(substitutedInventoryApproval.toString("utf8"), parseOriginInventory(substitutedInventoryBytes.toString("utf8")), substitutedInventorySha256);
+    const substitutedPolicy = {
+      origin_inventory_sha256: substitutedInventorySha256,
+      target_approval_artifact_sha256: sha256Base64Url(substitutedInventoryApproval),
+    };
+    const substitutedPackage = {
+      ...signedResultArtifacts({ server_identity: substitutedIdentity, profile_sha256: substitutedProfile, ...substitutedPolicy }),
+      origin_inventory: substitutedInventoryBytes,
+      target_approval: substitutedInventoryApproval,
+    };
+    await rejectPackageMutation("captured-only inventory identity substitution", /captured Origin Inventory does not match the independently supplied Production reference/, {
+      artifacts: substitutedPackage, inspected: true,
+    });
+    await rejectPackageMutation("captured policy cannot replace independent digest pins", /security identity mismatch: origin_inventory_sha256/, {
+      artifacts: {
+        ...substitutedPackage,
+        health: jsonBytes({ ...state.health, security_identity: { ...state.health.security_identity, ...substitutedPolicy } }),
+      },
+      mutateManifest: (manifest) => Object.assign(manifest.security_identity, substitutedPolicy),
+    });
+    await rejectPackageMutation("manifest-only server identity mutation", /health security identity mismatch: server_identity/, {
+      mutateManifest: (manifest) => { manifest.security_identity.server_identity = substitutedIdentity; },
+    });
+    await rejectPackageMutation("coordinated captured identity cannot replace Presentation identity", /manifest policy Presentation-derived identity mismatch: server_identity/, {
+      artifacts: { health: jsonBytes({ ...state.health, security_identity: { ...state.health.security_identity, server_identity: substitutedIdentity } }) },
+      mutateManifest: (manifest) => { manifest.security_identity.server_identity = substitutedIdentity; },
+      inspected: true,
+    });
+    await rejectPackageMutation("signed Result-only server identity mutation", /signed Result security identity mismatch: server_identity/, {
+      artifacts: signedResultArtifacts({ server_identity: substitutedIdentity }), inspected: true,
+    });
+    assert.notEqual(substitutedProfile, state.result.profile_sha256);
+    await rejectPackageMutation("consumer derived profile hash mismatch", /signed Result security identity mismatch: profile_sha256/, {
+      artifacts: signedResultArtifacts({ profile_sha256: substitutedProfile }), inspected: true,
+    });
+
+    const equivalentExact = Buffer.concat([exactBytes.subarray(0, -1), Buffer.from(" ")]);
+    assert.deepEqual(JSON.parse(equivalentExact), JSON.parse(exactBytes));
+    assert.equal(equivalentExact.length, exactBytes.length);
+    assert.notEqual(sha256Base64Url(equivalentExact), sha256Base64Url(exactBytes));
+    await rejectPackageMutation("equivalent outer JSON cannot replace exact bytes", /artifact hash mismatch: result_exact/, {
+      artifacts: { result_exact: equivalentExact }, rebindDescriptors: false,
+    });
+    const truncatedExact = exactBytes.subarray(0, exactBytes.length - 2);
+    await rejectPackageMutation("exact outer Result truncation", /artifact hash mismatch: result_exact/, {
+      artifacts: { result_exact: truncatedExact }, rebindDescriptors: false,
+    });
+    await rejectPackageMutation("rebound truncation still fails outer decoding", /exact outer Worker Result response is not valid UTF-8 JSON/, {
+      artifacts: { result_exact: truncatedExact },
+    });
+    await rejectPackageMutation("exact outer descriptor length mismatch", /artifact size mismatch: result_exact/, {
+      mutateManifest: (manifest) => { manifest.artifacts.result_exact.byte_length += 1; },
+    });
+    await rejectPackageMutation("exact outer descriptor SHA-256 mismatch", /artifact hash mismatch: result_exact/, {
+      mutateManifest: (manifest) => { manifest.artifacts.result_exact.artifact_sha256 = Buffer.alloc(32, 9).toString("base64url"); },
+    });
+    await rejectPackageMutation("outer parsed Result differs from inner Result", /exact outer response differs from the inner signed Result/, {
+      artifacts: { result_exact: mutateExactResponseField(exactBytes, "verified_member_id", state.result.verified_member_id, "26189463") },
+    });
+    await rejectPackageMutation("inner signed Result differs from original outer bytes", /exact outer response differs from the inner signed Result/, {
+      artifacts: { result: signedResultArtifacts({ server_identity: substitutedIdentity }).result },
+    });
+    await rejectPackageMutation("outer consume receipt inconsistency", /exact outer response differs from the consume receipt/, {
+      artifacts: { result_exact: mutateExactResponseField(exactBytes, "presentation_id", state.consumeReceipt.presentation_id, Buffer.alloc(32, 9).toString("base64url")) },
+    });
+    assert.deepEqual(await readFile(exactPath), exactBytes);
 
     const innerPath = join(dirname(outputPath), originalManifest.artifacts.result.path);
     const innerBytes = Buffer.from(JSON.stringify(Object.fromEntries(Object.entries(state.result).reverse()), null, 2));
@@ -406,6 +560,7 @@ try {
       TLSN_PRODUCTION_EVIDENCE_OUTPUT_PATH: join(root, `raw-only-${mode}.json`),
       TLSN_PRODUCTION_EVIDENCE_PRESENTATION_PATH: join(bundlePath, "presentation.bin"),
       TLSN_PRODUCTION_EVIDENCE_PRESENTATION_PROVENANCE_JSON: join(bundlePath, "metadata.json"),
+      TLSN_PRODUCTION_EVIDENCE_DEVICE_PRIVATE_KEY_PKCS8_FILE: join(root, "must-not-load-device-key"),
     });
     assert.equal(rawOnly.status, 2);
     assert.match(JSON.parse(rawOnly.stdout).error, /BUNDLE_PATH.*raw-only capture is unsupported/);
