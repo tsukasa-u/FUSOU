@@ -2589,6 +2589,7 @@ const cliTestDirectory = await mkdtemp(join(tmpdir(), "tlsn-failure-cli-test-"))
 const cliMarker = "cli-private-marker";
 const cliEnvironment = {
   PATH: process.env.PATH ?? "",
+  TLSN_PRODUCTION_EVIDENCE_BUNDLE_PATH: cliTestDirectory,
   TLSN_PRODUCTION_EVIDENCE_WORKER_URL: `https://user:${cliMarker}@worker.example.test`,
 };
 const expectedOutputPath = join(cliTestDirectory, "expected-output.json");

@@ -21,9 +21,16 @@ import { canonicalJson, workflowContextFromEnvironment } from "./deployment-atte
 import {
   assertSemanticResultMatches,
   assertSemanticVerificationArtifact,
+  inspectAlpha15Presentation,
   verifySemanticPredicates,
   verifyProductionPresentation,
 } from "./production-evidence-semantic.mjs";
+import {
+  assertExactProductionResultResponse,
+  assertProductionOriginConsistency,
+  deriveProductionOriginFromInspection,
+  readProductionOriginReference,
+} from "./production-evidence-origin.mjs";
 import {
   deviceProofReplayDigest,
   deviceProofReplayDigestHex,
@@ -185,6 +192,9 @@ async function main() {
     artifacts[name] = await readFile(safeArtifactPath(manifestPath, descriptor.path));
   }
   assertProductionEvidenceArtifacts(manifest, artifacts);
+  for (const name of ["origin_inventory", "target_approval", "result_exact"]) {
+    if (!artifacts[name]) throw new Error(`production evidence is missing a required artifact: ${name}`);
+  }
   if (!artifacts.presentation) throw new Error("production Presentation artifact is required");
   if (!artifacts.result) throw new Error("production result artifact is required");
   if (!artifacts.semantic_verification) throw new Error("verifier-generated semantic artifact is required");
@@ -201,6 +211,12 @@ async function main() {
   const possessionProof = parseArtifactJson(artifacts, "possession_proof");
   const consumeReceipt = parseArtifactJson(artifacts, "consume_receipt");
   const replay = parseArtifactJson(artifacts, "replay");
+  assertExactProductionResultResponse({
+    bytes: artifacts.result_exact,
+    result,
+    consumeReceipt,
+    replayDigestHex: replay.stored_replay_digest_hex,
+  });
   const captureMetadata = parseArtifactJson(artifacts, "capture_metadata");
   const externalProxyProvenancePin = optional("TLSN_PRODUCTION_PROXY_PROVENANCE_PIN_JSON")
     ? parseJson("TLSN_PRODUCTION_PROXY_PROVENANCE_PIN_JSON")
@@ -374,10 +390,10 @@ async function main() {
     resultSignerKeyId,
     sessionAuthorityPublicKeySpki,
     sessionAuthoritySignerKeyId,
-    sessionAuthorityKeyRegistry,
+    sessionAuthorityKeyRegistry: sessionAuthorityRegistry,
     bindingAuthorityPublicKeySpki,
     bindingAuthoritySignerKeyId,
-    bindingAuthorityKeyRegistry,
+    bindingAuthorityKeyRegistry: bindingAuthorityRegistry,
     verifiedAt: capturedDevicePredicates.device_identity_ownership.verified_at,
   });
   if (canonicalJson(capturedDevicePredicates) !== canonicalJson(devicePredicateResults)) {
@@ -386,14 +402,6 @@ async function main() {
   assertObjectIdentity(health.security_identity, manifest.security_identity, "health security identity");
   assertObjectIdentity(health.deployment_identity, manifest.deployment_identity, "health deployment identity");
   assertObjectIdentity(health.result_identity, manifest.result_identity, "health result identity");
-  for (const [field, expected] of Object.entries({
-    server_identity: expectedSecurity.server_identity,
-    profile_sha256: expectedSecurity.profile_sha256,
-    verifier_key_id: expectedSecurity.verifier_key_id,
-    notary_key_id: expectedSecurity.notary_key_id,
-  })) {
-    if (result[field] !== expected) throw new Error(`signed Result security identity mismatch: ${field}`);
-  }
 
   const presentation = artifacts.presentation;
   assertProductionPresentationCaptureMetadata(captureMetadata, presentation);
@@ -402,7 +410,7 @@ async function main() {
       captureMetadata,
       presentationBytes: presentation,
       externalPin: externalProxyProvenancePin,
-      verifiedAt: manifest.capture_finished_at,
+      verifiedAt: manifest.capture_started_at,
     }),
   };
   if (capturePredicateResults.proxy_provenance_cryptographic_authentication.status === "FAIL") {
@@ -421,26 +429,55 @@ async function main() {
   if (capturedNotaryRegistryHash !== expectedSecurity.notary_registry_sha256 || health.security_identity?.notary_registry_sha256 !== capturedNotaryRegistryHash || manifest.security_identity?.notary_registry_sha256 !== capturedNotaryRegistryHash) {
     throw new Error("captured Notary registry does not match trusted health and manifest identities");
   }
+  const inspection = await inspectAlpha15Presentation({
+    presentationBytes: presentation,
+    notaryRegistry,
+    notaryKeyId: expectedSecurity.notary_key_id,
+    disclosureMode,
+  });
+  const originReference = await readProductionOriginReference();
+  const origin = deriveProductionOriginFromInspection({
+    presentationBytes: presentation,
+    inspection,
+    inventoryBytes: artifacts.origin_inventory,
+    approvalBytes: artifacts.target_approval,
+    referenceInventoryBytes: originReference.inventoryBytes,
+    referenceApprovalBytes: originReference.approvalBytes,
+  });
+  for (const [identity, label] of [
+    [expectedSecurity, "independently pinned Production policy"],
+    [manifest.security_identity, "manifest policy"],
+    [health.security_identity, "captured health policy"],
+  ]) assertProductionOriginConsistency(identity, origin, label);
+  const profileSha256 = origin.profiles[disclosureMode].sha256;
+  for (const [field, expected] of Object.entries({
+    server_identity: origin.serverIdentity,
+    profile_sha256: profileSha256,
+    verifier_key_id: expectedSecurity.verifier_key_id,
+    notary_key_id: expectedSecurity.notary_key_id,
+  })) {
+    if (result[field] !== expected) throw new Error(`signed Result security identity mismatch: ${field}`);
+  }
   const semanticVerification = await verifyProductionPresentation({
     presentationBytes: presentation,
-    serverIdentity: expectedSecurity.server_identity,
-    profileSha256: disclosureMode === "sparse" ? manifest.security_identity?.sparse_profile_sha256 : expectedSecurity.profile_sha256,
+    serverIdentity: origin.serverIdentity,
+    profileSha256,
     verifierKeyId: expectedSecurity.verifier_key_id,
     notaryKeyId: expectedSecurity.notary_key_id,
     canonicalUserId: authoritativeUserId,
     canonicalDeviceId: authoritativeDeviceId,
     deviceChallenge: session.device_challenge,
-    originInventorySha256: expectedSecurity.origin_inventory_sha256,
-    targetApprovalArtifactSha256: expectedSecurity.target_approval_artifact_sha256,
+    originInventorySha256: origin.inventorySha256,
+    targetApprovalArtifactSha256: origin.approvalSha256,
     notaryRegistry,
     disclosureMode,
   });
   const trustedInputs = {
-    server_identity: expectedSecurity.server_identity,
-    origin_inventory_sha256: expectedSecurity.origin_inventory_sha256,
-    target_approval_artifact_sha256: expectedSecurity.target_approval_artifact_sha256,
+    server_identity: origin.serverIdentity,
+    origin_inventory_sha256: origin.inventorySha256,
+    target_approval_artifact_sha256: origin.approvalSha256,
     profile_id: disclosureMode === "sparse" ? "fusou-require-info-v2-sparse" : "fusou-require-info-v1",
-    profile_sha256: disclosureMode === "sparse" ? manifest.security_identity?.sparse_profile_sha256 : expectedSecurity.profile_sha256,
+    profile_sha256: profileSha256,
     verifier_key_id: expectedSecurity.verifier_key_id,
     notary_key_id: expectedSecurity.notary_key_id,
     notary_key_sha256: createHash("sha256").update(Buffer.from(notaryRegistry[expectedSecurity.notary_key_id], "base64url")).digest("base64url"),
@@ -460,12 +497,14 @@ async function main() {
     resultRegistry: capturedResultRegistry,
     resultRegistryRaw: capturedResultRegistryRaw,
     resultRegistryEnvelope: capturedResultRegistryEnvelope,
+    resultRegistryEnvelopeRaw: capturedResultRegistryEnvelopeRaw,
     resultRegistrySha256: createHash("sha256").update(capturedResultRegistryRaw).digest("base64url"),
     resultPublicKeySpki,
     resultSignerKeyId,
     sessionBinding: session.binding,
     sessionId: session.session_id,
     includeResultSignature: false,
+    verifiedAt: manifest.capture_started_at,
   });
   if (Object.entries(preSignaturePredicateResults).some(([name, predicate]) => name !== "result_signature" && predicate.status !== "PASS")) {
     throw new Error("recomputed independent Presentation predicates did not pass");
@@ -484,11 +523,13 @@ async function main() {
     resultRegistry: capturedResultRegistry,
     resultRegistryRaw: capturedResultRegistryRaw,
     resultRegistryEnvelope: capturedResultRegistryEnvelope,
+    resultRegistryEnvelopeRaw: capturedResultRegistryEnvelopeRaw,
     resultRegistrySha256: createHash("sha256").update(capturedResultRegistryRaw).digest("base64url"),
     resultPublicKeySpki,
     resultSignerKeyId,
     sessionBinding: session.binding,
     sessionId: session.session_id,
+    verifiedAt: manifest.capture_started_at,
   });
   if (Object.values(predicateResults).some((predicate) => predicate.status !== "PASS")) {
     throw new Error("recomputed semantic predicate verification did not pass");

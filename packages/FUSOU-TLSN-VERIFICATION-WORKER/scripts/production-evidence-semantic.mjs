@@ -1750,9 +1750,12 @@ export function createSemanticVerificationArtifact({
   verifierIdentity = "capture-harness",
   verifiedAt = new Date().toISOString(),
 }) {
-  const predicates = assertPredicateResults(predicateResults);
   const semanticResult = semanticVerification.result;
   const sparse = semanticResult?.disclosure_mode === "sparse";
+  const predicates = assertPredicateResults(
+    predicateResults,
+    sparse ? PRODUCTION_SPARSE_SEMANTIC_PREDICATES : PRODUCTION_SEMANTIC_PREDICATES,
+  );
   const allPredicatesPass = Object.values(predicates).every((predicate) => predicate.status === "PASS");
   const authenticatedMemberId = predicates.authenticated_member_id.observed?.verified_member_id ?? null;
   return {

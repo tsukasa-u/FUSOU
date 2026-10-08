@@ -179,6 +179,7 @@ export function assertProductionEvidenceArtifacts(manifest, artifacts) {
     if (!bytes) throw new Error(`production evidence artifact is missing: ${name}`);
     const actualHash = sha256Base64Url(bytes);
     if (actualHash !== expected.artifact_sha256) throw new Error(`production evidence artifact hash mismatch: ${name}`);
+    if (bytes.byteLength !== expected.byte_length) throw new Error(`production evidence artifact size mismatch: ${name}`);
     if (expected.provenance !== "production") throw new Error(`production evidence artifact provenance is not production: ${name}`);
   }
 }

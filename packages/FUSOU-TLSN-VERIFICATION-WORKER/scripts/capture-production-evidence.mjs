@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import assert from "node:assert/strict";
-import { createPrivateKey, randomUUID, sign } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import {
@@ -21,17 +21,21 @@ import {
 import { EvidenceSigner } from "./authority-signers.mjs";
 import {
   createSemanticVerificationArtifact,
+  inspectAlpha15Presentation,
   verifySemanticPredicates,
   verifyProductionPresentation,
 } from "./production-evidence-semantic.mjs";
+import {
+  assertExactProductionResultResponse,
+  assertProductionOriginConsistency,
+  deriveProductionOriginFromInspection,
+  readProductionOriginReference,
+} from "./production-evidence-origin.mjs";
 import { assertSigningKeyRegistry } from "./signing-key-registry.mjs";
 import { assertAuthorityKeyRegistry } from "./authority-key-registry.mjs";
 import { assertSignedResultRegistryEnvelope, resultRegistryEnvelopeHash } from "./result-registry-envelope.mjs";
 import { sha256Base64Url, workflowContextFromEnvironment } from "./deployment-attestation.mjs";
 import {
-  deviceProofReplayDigest,
-  deviceProofReplayDigestHex,
-  tlsnDeviceProofSigningBytes,
   verifyConsumeReceipt,
   verifyDeviceAuthentication,
   verifySessionReceipt,
@@ -53,7 +57,6 @@ import {
 
 const packageDirectory = resolve(new URL("..", import.meta.url).pathname);
 const DEFAULT_OUTPUT_PATH = resolve(packageDirectory, "artifacts/tlsn-production-evidence.json");
-const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const MAX_PRESENTATION_BYTES = 8 * 1024 * 1024;
 let captureAllowedOrigins = new Set();
 
@@ -88,30 +91,6 @@ function cleanOrigin(name) {
   return parsed.origin;
 }
 
-function decodeBase64Url(value, label) {
-  if (typeof value !== "string" || !/^[A-Za-z0-9_-]+$/.test(value) || value.length % 4 === 1) {
-    throw new Error(`${label} must be canonical base64url`);
-  }
-  const bytes = Buffer.from(value, "base64url");
-  if (bytes.length === 0 || bytes.toString("base64url") !== value) throw new Error(`${label} is not canonical base64url`);
-  return bytes;
-}
-
-function loadPrivateKey(encoded, label) {
-  const bytes = decodeBase64Url(encoded, label);
-  const key = createPrivateKey({ key: bytes, format: "der", type: "pkcs8" });
-  if (key.asymmetricKeyType !== "ed25519") throw new Error(`${label} is not Ed25519`);
-  return key;
-}
-
-async function loadPrivateKeyFromEnvironment() {
-  const file = optional("TLSN_PRODUCTION_EVIDENCE_DEVICE_PRIVATE_KEY_PKCS8_FILE");
-  const encoded = file
-    ? (await readFile(file, "utf8")).trim()
-    : required("TLSN_PRODUCTION_EVIDENCE_DEVICE_PRIVATE_KEY_PKCS8_B64URL");
-  return loadPrivateKey(encoded, "production device private key");
-}
-
 async function timedRequest(url, options = {}, failureBundle) {
   const parsedUrl = new URL(url);
   if (!captureAllowedOrigins.has(parsedUrl.origin)) {
@@ -135,13 +114,12 @@ async function timedRequest(url, options = {}, failureBundle) {
 }
 
 async function readProductionPresentation() {
-  const bundleRoot = optional("TLSN_PRODUCTION_EVIDENCE_BUNDLE_PATH")
-    ? resolve(required("TLSN_PRODUCTION_EVIDENCE_BUNDLE_PATH"))
-    : null;
-  const presentationPath = optional("TLSN_PRODUCTION_EVIDENCE_PRESENTATION_PATH")
-    ?? (bundleRoot ? resolve(bundleRoot, "presentation.bin") : required("TLSN_PRODUCTION_EVIDENCE_PRESENTATION_PATH"));
-  const provenancePath = optional("TLSN_PRODUCTION_EVIDENCE_PRESENTATION_PROVENANCE_JSON")
-    ?? (bundleRoot ? resolve(bundleRoot, "metadata.json") : required("TLSN_PRODUCTION_EVIDENCE_PRESENTATION_PROVENANCE_JSON"));
+  const bundleRoot = resolve(required("TLSN_PRODUCTION_EVIDENCE_BUNDLE_PATH"));
+  if (optional("TLSN_PRODUCTION_EVIDENCE_PRESENTATION_PATH") || optional("TLSN_PRODUCTION_EVIDENCE_PRESENTATION_PROVENANCE_JSON")) {
+    throw new Error("Production capture cannot override the APP bundle Presentation or metadata");
+  }
+  const presentationPath = resolve(bundleRoot, "presentation.bin");
+  const provenancePath = resolve(bundleRoot, "metadata.json");
   const presentationBytes = await readFile(presentationPath);
   if (presentationBytes.length === 0 || presentationBytes.length > MAX_PRESENTATION_BYTES) {
     throw new Error("production Presentation size is invalid");
@@ -157,7 +135,6 @@ async function readProductionPresentation() {
 }
 
 async function readJsonArtifact(bundleRoot, name) {
-  if (!bundleRoot) return null;
   try {
     return JSON.parse(await readFile(resolve(bundleRoot, name), "utf8"));
   } catch {
@@ -166,41 +143,21 @@ async function readJsonArtifact(bundleRoot, name) {
 }
 
 async function readProductionEvidenceBundle(bundleRoot) {
-  if (!bundleRoot) return null;
   const session = await readJsonArtifact(bundleRoot, "session.json");
   const authentication = await readJsonArtifact(bundleRoot, "device-authentication.json");
   const possessionProof = await readJsonArtifact(bundleRoot, "possession-proof.json");
   const verification = await readJsonArtifact(bundleRoot, "worker-verification.json");
   const result = await readJsonArtifact(bundleRoot, "result.json");
   const consumeReceipt = await readJsonArtifact(bundleRoot, "consume-receipt.json");
-  if (
-    verification?.verified !== true ||
-    verification.result === undefined ||
-    verification.consume_receipt === undefined ||
-    JSON.stringify(verification.result) !== JSON.stringify(result) ||
-    JSON.stringify(verification.consume_receipt) !== JSON.stringify(consumeReceipt)
-  ) {
-    throw new Error("production capture bundle Worker response is incomplete or inconsistent");
-  }
-  return { session, authentication, possessionProof, verification };
-}
-
-function deviceProof(session, devicePrivateKey) {
-  const challenge = session.device_challenge;
-  const message = tlsnDeviceProofSigningBytes(session.device_id, session.session_id, session.binding, challenge);
-  const replayDigest = deviceProofReplayDigest(session.device_id, session.session_id, session.binding, challenge);
-  const replayDigestHex = deviceProofReplayDigestHex(session.device_id, session.session_id, session.binding, challenge);
-  return {
-    device_id: session.device_id,
-    session_id: session.session_id,
-    binding_value: session.binding,
-    challenge,
-    sig: sign(null, message, devicePrivateKey).toString("base64url"),
-    message_sha256: replayDigest,
-    message_sha256_hex: replayDigestHex,
-    replay_digest: replayDigest,
-    replay_digest_hex: replayDigestHex,
-  };
+  const resultExactBytes = await readFile(resolve(bundleRoot, "result-exact.bin"));
+  const exactVerification = assertExactProductionResultResponse({
+    bytes: resultExactBytes,
+    result,
+    consumeReceipt,
+    replayDigestHex: possessionProof.replay_digest_hex,
+    verification,
+  });
+  return { session, authentication, possessionProof, verification: exactVerification, resultExactBytes };
 }
 
 async function readHealth(workerOrigin, failureBundle) {
@@ -245,43 +202,8 @@ async function readDeviceIdentity(webOrigin, accessToken, deviceId, failureBundl
   return identityRequest.json;
 }
 
-async function issueSession(workerOrigin, webOrigin, accessToken, deviceId, devicePrivateKey, failureBundle) {
-  const deviceIdentity = await readDeviceIdentity(webOrigin, accessToken, deviceId, failureBundle);
-  const challengeRequest = await timedRequest(endpoint(webOrigin, `/api/auth/anonymous-sync/v2/challenge?device_id=${encodeURIComponent(deviceId)}`), {}, failureBundle);
-  assert.equal(challengeRequest.response.status, 200);
-  if (typeof challengeRequest.json?.nonce !== "string") throw new Error("device challenge response is invalid");
-  const nonce = challengeRequest.json.nonce;
-  const nonceSignature = sign(null, Buffer.from(nonce), devicePrivateKey).toString("base64url");
-  const sessionRequest = await timedRequest(endpoint(workerOrigin, "/attestation/session"), {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${accessToken}`,
-    },
-    body: JSON.stringify({ device_id: deviceId, nonce, sig: nonceSignature }),
-  }, failureBundle);
-  assert.equal(sessionRequest.response.status, 201);
-  const session = sessionRequest.json;
-  if (!UUID_PATTERN.test(session?.session_id ?? "") || typeof session?.binding !== "string" || typeof session?.device_challenge !== "string") {
-    throw new Error("production attestation session response is invalid");
-  }
-  recordSession(failureBundle, session);
-  return {
-    session,
-    deviceIdentity,
-    authentication: {
-      request: { device_id: deviceId, nonce, sig: nonceSignature },
-      worker_acceptance: {
-        status: sessionRequest.response.status,
-        device_id: deviceId,
-        session_id: session.session_id,
-      },
-    },
-  };
-}
-
-async function verifyTlsn(workerOrigin, accessToken, session, deviceId, presentationBytes, possessionProof, failureBundle) {
-  return timedRequest(endpoint(workerOrigin, "/verify/tlsn"), {
+async function probeConsumedBinding(workerOrigin, accessToken, session, deviceId, presentationBytes, possessionProof, disclosureMode, failureBundle) {
+  return timedRequest(endpoint(workerOrigin, disclosureMode === "sparse" ? "/verify/tlsn/sparse" : "/verify/tlsn"), {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -335,6 +257,10 @@ async function main() {
 
   try {
     failureStage = "configuration";
+    if (!optional("TLSN_PRODUCTION_EVIDENCE_BUNDLE_PATH")) {
+      runError = "Production evidence capture requires TLSN_PRODUCTION_EVIDENCE_BUNDLE_PATH; raw-only capture is unsupported";
+      throw new Error(runError);
+    }
     const workerOrigin = cleanOrigin("TLSN_PRODUCTION_EVIDENCE_WORKER_URL");
     const webOrigin = cleanOrigin("TLSN_PRODUCTION_EVIDENCE_WEB_ORIGIN");
     const supabaseOrigin = cleanOrigin("TLSN_PRODUCTION_EVIDENCE_SUPABASE_URL");
@@ -346,7 +272,6 @@ async function main() {
     const productionPresentation = await readProductionPresentation();
     const { presentationBytes } = productionPresentation;
     const productionBundle = await readProductionEvidenceBundle(productionPresentation.bundleRoot);
-    const devicePrivateKey = productionBundle ? null : await loadPrivateKeyFromEnvironment();
     recordHash(failureBundle, "presentation", presentationBytes);
     recordProvenance(failureBundle, productionPresentation.provenance);
     const proxyProvenancePin = optional("TLSN_PRODUCTION_PROXY_PROVENANCE_PIN_JSON")
@@ -389,6 +314,8 @@ async function main() {
         throw new Error("production Notary registry must contain JSON");
       }
     })();
+    const notaryKeyId = required("TLSN_PRODUCTION_EVIDENCE_NOTARY_KEY_ID");
+    const verifierKeyId = required("TLSN_PRODUCTION_EVIDENCE_VERIFIER_KEY_ID");
     const resultPublicKeySpki = required("TLSN_PRODUCTION_RESULT_PUBLIC_KEY_SPKI");
     const resultSignerKeyId = required("TLSN_PRODUCTION_RESULT_SIGNER_KEY_ID");
     assertSigningKeyRegistry(registry, {
@@ -423,15 +350,29 @@ async function main() {
     if (health.security_identity.notary_registry_sha256 !== sha256Base64Url(notaryRegistryRaw)) {
       throw new Error("Worker Notary registry hash is not the supplied production registry");
     }
+    if (health.security_identity.notary_key_id !== notaryKeyId || health.security_identity.verifier_key_id !== verifierKeyId) {
+      throw new Error("Worker verifier/Notary IDs do not match the independently supplied Production IDs");
+    }
+    failureStage = "presentation_capture";
+    const inspection = await inspectAlpha15Presentation({ presentationBytes, notaryRegistry, notaryKeyId, disclosureMode });
+    const originReference = await readProductionOriginReference();
+    const origin = deriveProductionOriginFromInspection({
+      presentationBytes,
+      inspection,
+      inventoryBytes: originReference.inventoryBytes,
+      approvalBytes: originReference.approvalBytes,
+      referenceInventoryBytes: originReference.inventoryBytes,
+      referenceApprovalBytes: originReference.approvalBytes,
+    });
+    assertProductionOriginConsistency(health.security_identity, origin, "Worker health policy");
+    const profileSha256 = origin.profiles[disclosureMode].sha256;
 
     failureStage = "session_issue";
-    const issued = productionBundle
-      ? {
-          session: productionBundle.session,
-          deviceIdentity: await readDeviceIdentity(webOrigin, accessToken, deviceId, failureBundle),
-          authentication: productionBundle.authentication,
-        }
-      : await issueSession(workerOrigin, webOrigin, accessToken, deviceId, devicePrivateKey, failureBundle);
+    const issued = {
+      session: productionBundle.session,
+      deviceIdentity: await readDeviceIdentity(webOrigin, accessToken, deviceId, failureBundle),
+      authentication: productionBundle.authentication,
+    };
     const session = issued.session;
     verifyDeviceAuthentication(issued.authentication, issued.deviceIdentity, user.id, deviceId, session.session_id);
     verifySessionReceipt(
@@ -455,20 +396,19 @@ async function main() {
     );
     const semanticVerification = await verifyProductionPresentation({
       presentationBytes,
-      serverIdentity: health.security_identity.server_identity,
-      profileSha256: disclosureMode === "sparse" ? health.security_identity.sparse_profile_sha256 : health.security_identity.profile_sha256,
-      verifierKeyId: health.security_identity.verifier_key_id,
-      notaryKeyId: health.security_identity.notary_key_id,
+      serverIdentity: origin.serverIdentity,
+      profileSha256,
+      verifierKeyId,
+      notaryKeyId,
       canonicalUserId: user.id,
       canonicalDeviceId: session.device_id,
       deviceChallenge: session.device_challenge,
-      originInventorySha256: health.security_identity.origin_inventory_sha256,
-      targetApprovalArtifactSha256: health.security_identity.target_approval_artifact_sha256,
+      originInventorySha256: origin.inventorySha256,
+      targetApprovalArtifactSha256: origin.approvalSha256,
       notaryRegistry,
       disclosureMode,
     });
-    const possessionProof = devicePrivateKey ? deviceProof(session, devicePrivateKey) : null;
-    const capturedPossessionProof = productionBundle?.possessionProof ?? possessionProof;
+    const capturedPossessionProof = productionBundle.possessionProof;
     if (!capturedPossessionProof) throw new Error("production possession proof is missing");
     verifyTlsnDevicePossession(
       capturedPossessionProof,
@@ -481,9 +421,7 @@ async function main() {
     );
     recordSession(failureBundle, session);
     failureStage = "tlsn_verify";
-    const verification = productionBundle
-      ? { response: { status: 200 }, json: productionBundle.verification }
-      : await verifyTlsn(workerOrigin, accessToken, session, deviceId, presentationBytes, capturedPossessionProof, failureBundle);
+    const verification = { response: { status: 200 }, json: productionBundle.verification };
     recordHash(failureBundle, "result", Buffer.from(JSON.stringify(verification.json?.result ?? null)));
     recordConsume(failureBundle, verification.json?.consume_receipt);
     if (verification.response.status !== 200 || verification.json?.verified !== true) {
@@ -512,14 +450,14 @@ async function main() {
       },
     );
     const trustedInputs = {
-      server_identity: health.security_identity.server_identity,
-      origin_inventory_sha256: health.security_identity.origin_inventory_sha256,
-      target_approval_artifact_sha256: health.security_identity.target_approval_artifact_sha256,
+      server_identity: origin.serverIdentity,
+      origin_inventory_sha256: origin.inventorySha256,
+      target_approval_artifact_sha256: origin.approvalSha256,
       profile_id: disclosureMode === "sparse" ? "fusou-require-info-v2-sparse" : "fusou-require-info-v1",
-      profile_sha256: disclosureMode === "sparse" ? health.security_identity.sparse_profile_sha256 : health.security_identity.profile_sha256,
-      verifier_key_id: health.security_identity.verifier_key_id,
-      notary_key_id: health.security_identity.notary_key_id,
-      notary_key_sha256: sha256Base64Url(Buffer.from(notaryRegistry[health.security_identity.notary_key_id], "base64url")),
+      profile_sha256: profileSha256,
+      verifier_key_id: verifierKeyId,
+      notary_key_id: notaryKeyId,
+      notary_key_sha256: sha256Base64Url(Buffer.from(notaryRegistry[notaryKeyId], "base64url")),
       result_public_key_spki: health.result_identity.result_public_key_spki,
       result_signer_key_id: health.result_identity.result_signer_key_id,
       result_key_registry_sha256: health.result_identity.result_key_registry_sha256,
@@ -536,12 +474,14 @@ async function main() {
       resultRegistry: registry,
       resultRegistryRaw: registryRaw,
       resultRegistryEnvelope: registryEnvelope,
+      resultRegistryEnvelopeRaw: registryEnvelopeRaw,
       resultRegistrySha256: sha256Base64Url(Buffer.from(registryRaw)),
       resultPublicKeySpki,
       resultSignerKeyId,
       sessionBinding: session.binding,
       sessionId: session.session_id,
       includeResultSignature: false,
+      verifiedAt: now,
     });
     if (Object.entries(preSignaturePredicateResults).some(([name, predicate]) => name !== "result_signature" && predicate.status !== "PASS")) {
       throw new Error("one or more independent Presentation predicates did not pass");
@@ -560,11 +500,13 @@ async function main() {
       resultRegistry: registry,
       resultRegistryRaw: registryRaw,
       resultRegistryEnvelope: registryEnvelope,
+      resultRegistryEnvelopeRaw: registryEnvelopeRaw,
       resultRegistrySha256: sha256Base64Url(Buffer.from(registryRaw)),
       resultPublicKeySpki,
       resultSignerKeyId,
       sessionBinding: session.binding,
       sessionId: session.session_id,
+      verifiedAt: now,
     });
     if (Object.values(predicateResults).some((predicate) => predicate.status !== "PASS")) {
       throw new Error("one or more semantic predicates did not pass");
@@ -573,10 +515,10 @@ async function main() {
       throw new Error("production result subject or binding identity mismatch");
     }
     if (
-      result.server_identity !== health.security_identity.server_identity ||
-      result.profile_sha256 !== (disclosureMode === "sparse" ? health.security_identity.sparse_profile_sha256 : health.security_identity.profile_sha256) ||
-      result.verifier_key_id !== health.security_identity.verifier_key_id ||
-      result.notary_key_id !== health.security_identity.notary_key_id
+      result.server_identity !== origin.serverIdentity ||
+      result.profile_sha256 !== profileSha256 ||
+      result.verifier_key_id !== verifierKeyId ||
+      result.notary_key_id !== notaryKeyId
     ) throw new Error("production result security identity mismatch");
     const subjectIdentity = {
       canonical_user_id_sha256: sha256Base64Url(result.canonical_user_id),
@@ -588,7 +530,7 @@ async function main() {
     assertResultSubjectIdentity(result, subjectIdentity);
 
     failureStage = "tlsn_replay";
-    const replay = await verifyTlsn(workerOrigin, accessToken, session, deviceId, presentationBytes, capturedPossessionProof, failureBundle);
+    const replay = await probeConsumedBinding(workerOrigin, accessToken, session, deviceId, presentationBytes, capturedPossessionProof, disclosureMode, failureBundle);
     if (replay.response.status !== 409 || !["binding_consumed", "device_possession_replayed"].includes(replay.json?.error)) throw new Error("production replay was not rejected");
     const devicePredicateResults = verifyDevicePredicates({
       deviceIdentity: issued.deviceIdentity,
@@ -662,6 +604,7 @@ async function main() {
       predicateResults,
       trustedInputs,
       verifierIdentity: "capture-harness-semantic-verifier",
+      verifiedAt: now,
     });
     const semanticVerificationBytes = Buffer.from(JSON.stringify(semanticVerificationArtifact));
     const captureMetadataBytes = Buffer.from(JSON.stringify({
@@ -678,6 +621,9 @@ async function main() {
     artifactBytes = {
       presentation: presentationBytes,
       result: resultBytes,
+      result_exact: productionBundle.resultExactBytes,
+      origin_inventory: originReference.inventoryBytes,
+      target_approval: originReference.approvalBytes,
       health: healthBytes,
       subject: subjectBytes,
       authenticated_user: authenticatedUserBytes,
@@ -750,6 +696,9 @@ async function main() {
       artifacts: {
         presentation: { ...presentationArtifact, path: `${captureId}-presentation.bin` },
         result: { ...resultArtifact, path: `${captureId}-result.json` },
+        result_exact: { ...artifactDescriptor(productionBundle.resultExactBytes, { mediaType: "application/json" }), path: `${captureId}-result-exact.bin` },
+        origin_inventory: { ...artifactDescriptor(originReference.inventoryBytes, { mediaType: "application/json" }), path: `${captureId}-origin-inventory.raw` },
+        target_approval: { ...artifactDescriptor(originReference.approvalBytes, { mediaType: "application/json" }), path: `${captureId}-target-approval.raw` },
         health: { ...healthArtifact, path: `${captureId}-health.json` },
         subject: { ...subjectArtifact, path: `${captureId}-subject.json` },
         authenticated_user: { ...authenticatedUserArtifact, path: `${captureId}-authenticated-user.json` },
@@ -785,7 +734,7 @@ async function main() {
       p0_05_status: "BLOCKED",
       evidence: {
         ...manifest.evidence,
-        real_production_game_server_connection: item("real_production_game_server_connection", productionRequirementStatus("real_production_game_server_connection", allPredicateResults), "Independent alpha15 semantic verification derived the authenticated server identity", { artifactSha256: presentationArtifact.artifact_sha256, authorityIdentity: health.security_identity.server_identity }),
+        real_production_game_server_connection: item("real_production_game_server_connection", productionRequirementStatus("real_production_game_server_connection", allPredicateResults), "Independent alpha15 semantic verification derived the authenticated server identity", { artifactSha256: presentationArtifact.artifact_sha256, authorityIdentity: origin.serverIdentity }),
         real_production_tlsn_notary_interaction: item("real_production_tlsn_notary_interaction", productionRequirementStatus("real_production_tlsn_notary_interaction", allPredicateResults), "Independent alpha15 semantic verification matched the production Notary registry", { artifactSha256: presentationArtifact.artifact_sha256, authorityIdentity: health.security_identity.notary_key_id }),
         real_production_tlsn_proxy_provenance: item("real_production_tlsn_proxy_provenance", productionRequirementStatus("real_production_tlsn_proxy_provenance", allPredicateResults), "Production proxy provenance remains governed separately from Presentation authority evidence", { artifactSha256: captureMetadataArtifact.artifact_sha256, authorityIdentity: capturePredicateResults.proxy_provenance_cryptographic_authentication.authority_identity }),
         real_production_fusou_web_device_authentication: item("real_production_fusou_web_device_authentication", productionRequirementStatus("real_production_fusou_web_device_authentication", allPredicateResults), "FUSOU-WEB authoritative device identity and generic nonce signature were independently verified", { artifactSha256: deviceAuthenticationArtifact.artifact_sha256, authorityIdentity: "fusou-web-user-devices" }),
@@ -808,7 +757,7 @@ async function main() {
       },
     };
   } catch (error) {
-    runError = "Capture failed; details omitted to prevent sensitive-data disclosure";
+    runError ??= "Capture failed; details omitted to prevent sensitive-data disclosure";
     recordFailure(failureBundle, { stage: failureStage, finishedAt: new Date().toISOString() });
     manifest = {
       ...manifest,
@@ -834,7 +783,7 @@ async function main() {
 
   const signerPrivateKeyEncoded = optional("TLSN_PRODUCTION_EVIDENCE_SIGNING_PRIVATE_KEY_PKCS8")
     ?? optional("TLSN_PRODUCTION_EVIDENCE_SIGNING_PRIVATE_KEY_PKCS8_B64URL");
-  if (signerPrivateKeyEncoded) {
+  if (signerPrivateKeyEncoded && !runError) {
     const publicKey = required("TLSN_PRODUCTION_EVIDENCE_SIGNER_PUBLIC_KEY_SPKI");
     manifest = new EvidenceSigner({
       keyId: required("TLSN_PRODUCTION_EVIDENCE_SIGNER_KEY_ID"),

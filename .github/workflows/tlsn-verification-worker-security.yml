@@ -193,6 +193,9 @@ jobs:
       - name: Verify Complete and Sparse Worker Result signing
         run: pnpm --dir packages/FUSOU-TLSN-VERIFICATION-WORKER run test:worker-result-signing
 
+      - name: Verify Production evidence capture and independent re-approval
+        run: pnpm --dir packages/FUSOU-TLSN-VERIFICATION-WORKER run test:production-evidence
+
       - name: Verify Trigger Result ABI and Origin approval contracts
         run: |
           pnpm --dir packages/fusou-tlsn-trigger run typecheck
