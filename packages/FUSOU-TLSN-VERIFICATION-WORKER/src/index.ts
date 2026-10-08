@@ -1888,14 +1888,14 @@ async function signBindingAuthorityReceipt(config: VerifierConfig, signingBytes:
 }
 
 async function signResult(config: VerifierConfig, signingBytes: Uint8Array): Promise<Uint8Array> {
-  if (!hasPrefix(signingBytes, "FUSOU-VERIFIER-RESULT-V1\0")) {
+  if (!hasPrefix(signingBytes, "FUSOU-VERIFIER-RESULT-V2\0")) {
     throw new Error("Result Signer received a non-Result payload");
   }
   return signSigningBytes(signingBytes, config.resultSigningPrivateKeyBytes);
 }
 
 async function signSparseResult(config: VerifierConfig, signingBytes: Uint8Array): Promise<Uint8Array> {
-  if (!hasPrefix(signingBytes, "FUSOU-VERIFIER-SPARSE-RESULT-V1\0")) {
+  if (!hasPrefix(signingBytes, "FUSOU-VERIFIER-SPARSE-RESULT-V2\0")) {
     throw new Error("Result Signer received a non-sparse Result payload");
   }
   return signSigningBytes(signingBytes, config.resultSigningPrivateKeyBytes);

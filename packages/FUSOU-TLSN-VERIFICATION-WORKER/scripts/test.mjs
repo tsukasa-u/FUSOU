@@ -507,6 +507,8 @@ async function runAsyncTriggerSmokeTest() {
               payload.canonical_user_id,
               payload.device_id,
               Buffer.from(payload.device_challenge, "base64url"),
+              new Uint8Array(),
+              new Uint8Array(),
               Buffer.from(testVars.TLSN_TRUST_ROOT_CERTIFICATE_DER, "base64url"),
               Buffer.from(syntheticFixture.notary_key_base64, "base64url"),
             )
@@ -519,6 +521,8 @@ async function runAsyncTriggerSmokeTest() {
             payload.canonical_user_id,
             payload.device_id,
             Buffer.from(payload.device_challenge, "base64url"),
+            new Uint8Array(),
+            new Uint8Array(),
             Buffer.from(testVars.TLSN_TRUST_ROOT_CERTIFICATE_DER, "base64url"),
             Buffer.from(syntheticFixture.notary_key_base64, "base64url"),
           ))
@@ -927,7 +931,7 @@ async function runAsyncTriggerSmokeTest() {
     assert.equal(sparseStatusResponse.status, 200);
     const sparseFinalResponse = await sparseStatusResponse.json();
     assert.equal(sparseFinalResponse.verified, true);
-    assert.equal(sparseFinalResponse.result.version, 2);
+    assert.equal(sparseFinalResponse.result.version, 3);
     assert.equal(sparseFinalResponse.result.profile_id, "fusou-require-info-v2-sparse");
     assert.equal(sparseFinalResponse.result.disclosure_mode, "sparse");
 
@@ -2025,7 +2029,27 @@ async function runRedirectRegressionTest() {
   console.log("[tlsn-verification-worker] upstream redirect and token leakage regression paths OK");
 }
 
-if (process.argv.includes("--app-roundtrip-only")) {
+if (process.argv.includes("--result-signing-only")) {
+  const { runResultSigningContractSmokeTest } = await import("../test/index-smoke.mjs");
+  for (const sparse of [false, true]) {
+    const worker = await localWorker({
+      ...testVars,
+      TLSN_SPARSE_PROFILE_SHA256: Buffer.alloc(32, 9).toString("base64url"),
+    });
+    try {
+      await runResultSigningContractSmokeTest(
+        worker.fetch,
+        syntheticFixture,
+        publicKey.export({ format: "der", type: "spki" }).toString("base64url"),
+        devicePrivateKey,
+        sparse,
+      );
+    } finally {
+      await worker.stop();
+    }
+  }
+  console.log("[tlsn-verification-worker] Complete v2 and Sparse v3 Worker Result signing domains and provenance PASS");
+} else if (process.argv.includes("--app-roundtrip-only")) {
   await runAsyncTriggerSmokeTest();
 } else if (process.argv.includes("--lease-fencing-only")) {
   await runLeaseFencingSmokeTest();

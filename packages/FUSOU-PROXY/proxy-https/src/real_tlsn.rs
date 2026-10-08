@@ -2293,7 +2293,7 @@ mod tests {
         binding_bytes.extend_from_slice(&binding_nonce);
         let response = b"HTTP/1.1 200 OK\r\n\r\n";
         let mut result = fusou_tlsn_verifier::VerifierResult {
-            version: 1,
+            version: 2,
             profile_id: fusou_tlsn_verifier::PROFILE_ID.to_owned(),
             profile_sha256: [1_u8; 32],
             issuer: fusou_tlsn_verifier::ISSUER.to_owned(),
@@ -2308,7 +2308,10 @@ mod tests {
             verifier_key_id: "verifier-test".to_owned(),
             notary_key_id: "notary-test".to_owned(),
             tlsn_attestation_id: vec![2_u8; 16],
+            presentation_sha256: sha256(b"synthetic Result signature fixture Presentation"),
             server_identity: "game.example.test".to_owned(),
+            origin_inventory_sha256: None,
+            target_approval_artifact_sha256: None,
             request_transcript_size: 4,
             request_transcript_sha256: [3_u8; 32],
             response_transcript_size: response.len() as u64,
@@ -2368,6 +2371,18 @@ mod tests {
         mutated_result["result"]["verified_member_id"] =
             serde_json::Value::String("16189464".to_owned());
         assert!(verifier.verify(&mutated_result).is_err());
+
+        let mut mutated_presentation = payload.clone();
+        mutated_presentation["result"]["presentation_sha256"] =
+            serde_json::Value::String(URL_SAFE_NO_PAD.encode([0x99_u8; 32]));
+        assert!(verifier.verify(&mutated_presentation).is_err());
+
+        let mut mutated_provenance = payload.clone();
+        mutated_provenance["result"]["origin_inventory_sha256"] =
+            serde_json::Value::String(URL_SAFE_NO_PAD.encode([0x31_u8; 32]));
+        mutated_provenance["result"]["target_approval_artifact_sha256"] =
+            serde_json::Value::String(URL_SAFE_NO_PAD.encode([0x32_u8; 32]));
+        assert!(verifier.verify(&mutated_provenance).is_err());
 
         let mut mutated_signature = payload;
         let signature = mutated_signature["result"]["signature"].as_str().unwrap();

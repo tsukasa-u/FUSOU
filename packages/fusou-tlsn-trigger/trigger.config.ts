@@ -46,6 +46,7 @@ export default defineConfig({
           "../FUSOU-TLSN-VERIFICATION-WORKER/src/wasm/fusou_tlsn_verifier.js",
           "../FUSOU-TLSN-VERIFICATION-WORKER/src/wasm/fusou_tlsn_verifier_bg.wasm",
           "../configs/tlsn-origin-inventory.json.txt",
+          "../configs/tlsn-target-approval.json",
         ],
       }),
     ],

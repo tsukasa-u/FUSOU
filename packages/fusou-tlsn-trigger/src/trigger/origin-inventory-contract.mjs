@@ -19,3 +19,10 @@ export function assertTaskOriginInventoryDigest(taskDigest, runtimeDigest) {
   }
   return runtimeDigest;
 }
+
+export function assertTaskTargetApprovalDigest(taskDigest, runtimeDigest) {
+  if (taskDigest !== runtimeDigest) {
+    throw new Error("Worker task Target Approval digest does not match Trigger runtime approval artifact");
+  }
+  return runtimeDigest;
+}

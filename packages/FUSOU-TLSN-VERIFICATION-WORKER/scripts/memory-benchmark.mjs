@@ -162,6 +162,8 @@ function verifyOne(wasm, request, presentationBytes, rootCertificate, notaryKey,
     USER_ID,
     DEVICE_ID,
     challengeBytes,
+    new Uint8Array(),
+    new Uint8Array(),
     rootCertificate,
     notaryKey,
   );

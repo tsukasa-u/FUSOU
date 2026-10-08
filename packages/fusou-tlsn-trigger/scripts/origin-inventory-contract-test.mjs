@@ -4,6 +4,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   assertTaskOriginInventoryDigest,
+  assertTaskTargetApprovalDigest,
   assertTriggerInventoryArtifactDigest,
   originInventoryArtifactRawSha256,
 } from "../src/trigger/origin-inventory-contract.mjs";
@@ -30,6 +31,10 @@ assert.match(source, /assertTriggerInventoryArtifactDigest\(/);
 assert.match(source, /origin_inventory_artifact_raw_sha256:/);
 assert.match(triggerConfig, /\.\.\/configs\/tlsn-origin-inventory\.json\.txt/);
 assert.match(triggerConfig, /originInventoryArtifactRawSha256\(/);
+assert.match(source, /assertTaskTargetApprovalDigest\(/);
+assert.match(source, /parseTargetApproval\(/);
+assert.match(source, /resolveApprovedProductionIdentity\(/);
+assert.match(triggerConfig, /\.\.\/configs\/tlsn-target-approval\.json/);
 
 const taskDigest = originInventoryArtifactRawSha256(workerBytes);
 const triggerRuntimeDigest = originInventoryArtifactRawSha256(triggerBytes);
@@ -52,6 +57,18 @@ assert.throws(
 assert.throws(
   () => assertTriggerInventoryArtifactDigest(triggerRuntimeDigest, mutatedTriggerDigest),
   /artifact raw SHA-256 does not match runtime inventory bytes/,
+);
+
+const approvalBytes = await readFile(resolve(triggerPackageRoot, "../configs/tlsn-target-approval.json"));
+const approvalDigest = originInventoryArtifactRawSha256(approvalBytes);
+assert.equal(assertTaskTargetApprovalDigest(approvalDigest, approvalDigest), approvalDigest);
+assert.throws(
+  () => assertTaskTargetApprovalDigest(undefined, approvalDigest),
+  /Target Approval digest does not match/,
+);
+assert.throws(
+  () => assertTaskTargetApprovalDigest(approvalDigest, originInventoryArtifactRawSha256(Buffer.concat([approvalBytes, Buffer.from("\n")]))),
+  /Target Approval digest does not match/,
 );
 
 console.info("Trigger inventory byte parity and task-digest mismatch tests passed");

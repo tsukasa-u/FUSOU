@@ -12,6 +12,7 @@ on:
     paths:
       - packages/FUSOU-TLSN-VERIFIER/**
       - packages/FUSOU-TLSN-VERIFICATION-WORKER/**
+      - packages/fusou-tlsn-trigger/**
       - packages/FUSOU-APP/**
       - packages/FUSOU-PROXY/proxy-https/**
       - packages/FUSOU-PROXY/hudsucker-fork/**
@@ -33,6 +34,7 @@ on:
     paths:
       - packages/FUSOU-TLSN-VERIFIER/**
       - packages/FUSOU-TLSN-VERIFICATION-WORKER/**
+      - packages/fusou-tlsn-trigger/**
       - packages/FUSOU-APP/**
       - packages/FUSOU-PROXY/proxy-https/**
       - packages/FUSOU-PROXY/hudsucker-fork/**
@@ -187,6 +189,18 @@ jobs:
 
       - name: Verify Canary operational smoke evidence
         run: pnpm --dir packages/FUSOU-TLSN-VERIFICATION-WORKER run test:canary-operational-smoke
+
+      - name: Verify Complete and Sparse Worker Result signing
+        run: pnpm --dir packages/FUSOU-TLSN-VERIFICATION-WORKER run test:worker-result-signing
+
+      - name: Verify Trigger Result ABI and Origin approval contracts
+        run: |
+          pnpm --dir packages/fusou-tlsn-trigger run typecheck
+          pnpm --dir packages/fusou-tlsn-trigger run typecheck:config
+          pnpm --dir packages/fusou-tlsn-trigger run test:origin-inventory-contract
+          pnpm --dir packages/fusou-tlsn-trigger run test:origin-profile
+          pnpm --dir packages/fusou-tlsn-trigger run test:origin-deployment-config
+          pnpm --dir packages/fusou-tlsn-trigger run test:verification-task-contract
 
       - name: Verify fixture isolation
         run: pnpm --dir packages/FUSOU-TLSN-VERIFICATION-WORKER run test:fixture-only

@@ -48,7 +48,10 @@ const MAX_SPARSE_RANGE_COUNT = 4096;
 export const RESULT_PRESENTATION_BINDING_FIELDS = [
   ["verified_member_id", "verified_member_id"],
   ["tlsn_attestation_id", "tlsn_attestation_id"],
+  ["presentation_sha256", "presentation_sha256"],
   ["server_identity", "server_identity"],
+  ["origin_inventory_sha256", "origin_inventory_sha256"],
+  ["target_approval_artifact_sha256", "target_approval_artifact_sha256"],
   ["profile_sha256", "profile_sha256"],
   ["verifier_key_id", "verifier_key_id"],
   ["notary_key_id", "notary_key_id"],
@@ -96,7 +99,7 @@ function parseVerifierOutput(output) {
 function parseSparseVerifierOutput(output) {
   const parsed = parseVerifierOutput(output);
   if (
-    parsed.result?.version !== 2 ||
+    parsed.result?.version !== 3 ||
     parsed.result.profile_id !== "fusou-require-info-v2-sparse" ||
     parsed.result.disclosure_mode !== "sparse" ||
     Object.hasOwn(parsed.result, "request_transcript_sha256") ||
@@ -1210,6 +1213,8 @@ export function verifySparseResultPresentationBinding({ semanticVerification, re
       ["server_identity", "server_identity"],
       ["profile_sha256", "profile_sha256"],
       ["presentation_sha256", "presentation_sha256"],
+      ["origin_inventory_sha256", "origin_inventory_sha256"],
+      ["target_approval_artifact_sha256", "target_approval_artifact_sha256"],
       ["revealed_request_ranges", "revealed_request_ranges"],
       ["revealed_response_ranges", "revealed_response_ranges"],
       ["canonical_user_id", "canonical_user_id"],
@@ -1543,6 +1548,8 @@ async function verifyPresentationWithTrustMode({
   canonicalUserId,
   canonicalDeviceId,
   deviceChallenge,
+  originInventorySha256 = null,
+  targetApprovalArtifactSha256 = null,
   notaryRegistry,
   syntheticTrustRootDer,
   disclosureMode = "complete",
@@ -1553,6 +1560,15 @@ async function verifyPresentationWithTrustMode({
   if (disclosureMode !== "complete" && disclosureMode !== "sparse") {
     throw new Error("unknown TLSN disclosure mode");
   }
+  if ((originInventorySha256 === null) !== (targetApprovalArtifactSha256 === null)) {
+    throw new Error("inventory and Target Approval digests must be present together");
+  }
+  const originInventoryBytes = originInventorySha256 === null
+    ? new Uint8Array()
+    : decodeBase64Url(originInventorySha256, "Origin inventory SHA-256", 32);
+  const targetApprovalBytes = targetApprovalArtifactSha256 === null
+    ? new Uint8Array()
+    : decodeBase64Url(targetApprovalArtifactSha256, "Target Approval artifact SHA-256", 32);
   const sparse = disclosureMode === "sparse";
   await ensureVerifierInitialized();
   const profileBytes = decodeBase64Url(profileSha256, "profile SHA-256", 32);
@@ -1579,6 +1595,8 @@ async function verifyPresentationWithTrustMode({
           canonicalUserId,
           canonicalDeviceId,
           challengeBytes,
+          originInventoryBytes,
+          targetApprovalBytes,
           decodeBase64Url(syntheticTrustRootDer, "synthetic trust root certificate"),
           trustedNotaryKey,
         )
@@ -1591,6 +1609,8 @@ async function verifyPresentationWithTrustMode({
           canonicalUserId,
           canonicalDeviceId,
           challengeBytes,
+          originInventoryBytes,
+          targetApprovalBytes,
           trustedNotaryKey,
         )
       : syntheticTrustRootDer
@@ -1603,6 +1623,8 @@ async function verifyPresentationWithTrustMode({
         canonicalUserId,
         canonicalDeviceId,
         challengeBytes,
+        originInventoryBytes,
+        targetApprovalBytes,
         decodeBase64Url(syntheticTrustRootDer, "synthetic trust root certificate"),
         trustedNotaryKey,
       )
@@ -1615,12 +1637,24 @@ async function verifyPresentationWithTrustMode({
         canonicalUserId,
         canonicalDeviceId,
         challengeBytes,
+        originInventoryBytes,
+        targetApprovalBytes,
         trustedNotaryKey,
       );
   } catch (error) {
     throw new Error(`semantic Presentation profile verification failed: ${String(error)}`);
   }
   const parsed = sparse ? parseSparseVerifierOutput(output) : parseVerifierOutput(output);
+  const expectedProvenance = {
+    presentation_sha256: sha256Base64Url(presentationBytes),
+    origin_inventory_sha256: originInventorySha256,
+    target_approval_artifact_sha256: targetApprovalArtifactSha256,
+  };
+  for (const [field, expected] of Object.entries(expectedProvenance)) {
+    if (parsed.result[field] !== expected) {
+      throw new Error(`semantic Result provenance does not match verified inputs: ${field}`);
+    }
+  }
   const commonFields = [
     ["server_identity", "server_identity"],
     ["tlsn_attestation_id", "tlsn_attestation_id"],
@@ -1647,7 +1681,7 @@ async function verifyPresentationWithTrustMode({
   };
 }
 
-export async function verifyProductionPresentation(inputs) {
+function assertWebPkiPresentationInputs(inputs) {
   if (!inputs || typeof inputs !== "object" || Array.isArray(inputs)) {
     throw new Error("Production verification inputs are malformed");
   }
@@ -1656,6 +1690,15 @@ export async function verifyProductionPresentation(inputs) {
       throw new Error("custom Origin trust roots are unavailable to Production verification");
     }
   }
+}
+
+export async function verifyCanaryPresentation(inputs) {
+  assertWebPkiPresentationInputs(inputs);
+  return verifyPresentationWithTrustMode(inputs);
+}
+
+export async function verifyProductionPresentation(inputs) {
+  assertWebPkiPresentationInputs(inputs);
   const {
     presentationBytes,
     serverIdentity,
@@ -1665,9 +1708,13 @@ export async function verifyProductionPresentation(inputs) {
     canonicalUserId,
     canonicalDeviceId,
     deviceChallenge,
+    originInventorySha256,
+    targetApprovalArtifactSha256,
     notaryRegistry,
     disclosureMode,
   } = inputs;
+  decodeBase64Url(originInventorySha256, "Production Origin inventory SHA-256", 32);
+  decodeBase64Url(targetApprovalArtifactSha256, "Production Target Approval artifact SHA-256", 32);
   return verifyPresentationWithTrustMode({
     presentationBytes,
     serverIdentity,
@@ -1677,6 +1724,8 @@ export async function verifyProductionPresentation(inputs) {
     canonicalUserId,
     canonicalDeviceId,
     deviceChallenge,
+    originInventorySha256,
+    targetApprovalArtifactSha256,
     notaryRegistry,
     disclosureMode,
   });

@@ -518,7 +518,12 @@ try {
   const executionJobId = "f73fded7-d9af-4f0a-b87b-c626d30d55bd";
   const executionAttemptId = "5f289198-7361-4a92-9d03-c4e506385130";
   const presentationBytes = Buffer.from("readiness Canary Presentation bytes");
-  const resultBytes = Buffer.from(JSON.stringify({ verifier_key_id: verifierKeyId, signature_base64url: "readiness-result-signature" }));
+  const resultBytes = Buffer.from(JSON.stringify({
+    verified: true,
+    result: { verifier_key_id: verifierKeyId, signature: "readiness-result-signature" },
+    signer_key_id: "readiness-result-signer",
+    signature_algorithm: "Ed25519",
+  }));
   const receipt = createCanaryVerifierExecutionReceipt({
     jobId: executionJobId,
     verificationAttemptId: executionAttemptId,

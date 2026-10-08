@@ -450,6 +450,7 @@ export async function createSyntheticCandidateBundle(rootDirectory) {
   return {
     candidateDirectory,
     presentationBytes,
+    sparsePresentationBytes: Buffer.from(fixture.sparse_presentation_base64, "base64url"),
     resultBytes,
     candidateManifest,
     trustContext: {

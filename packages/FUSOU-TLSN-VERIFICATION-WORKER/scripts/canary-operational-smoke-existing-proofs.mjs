@@ -10,7 +10,7 @@ import {
   inspectAlpha15Presentation,
   inspectSyntheticFixtureAlpha15Presentation,
   RESULT_PRESENTATION_BINDING_FIELDS,
-  verifyProductionPresentation,
+  verifyCanaryPresentation,
   verifySyntheticFixturePresentation,
 } from "./production-evidence-semantic.mjs";
 import { canonicalJson } from "./deployment-attestation.mjs";
@@ -358,6 +358,8 @@ export async function verifyCanaryExistingSourceProofBundle({
   resultAuthority,
   deploymentManifest,
   profileSha256,
+  originInventorySha256,
+  targetApprovalArtifactSha256,
   notaryRegistry,
   trustAnchorDer,
   disclosureMode = "complete",
@@ -448,7 +450,7 @@ export async function verifyCanaryExistingSourceProofBundle({
   }
   const verifyPresentation = useSyntheticRoot
     ? verifySyntheticFixturePresentation
-    : verifyProductionPresentation;
+    : verifyCanaryPresentation;
   const semantic = await verifyPresentation({
     presentationBytes: presentation,
     serverIdentity: observedServerIdentity,
@@ -458,6 +460,8 @@ export async function verifyCanaryExistingSourceProofBundle({
     canonicalUserId: session.canonical_user_id,
     canonicalDeviceId: session.device_id,
     deviceChallenge: session.device_challenge,
+    originInventorySha256,
+    targetApprovalArtifactSha256,
     notaryRegistry,
     ...(useSyntheticRoot ? { trustRootDer: trustAnchorDer } : {}),
     disclosureMode,

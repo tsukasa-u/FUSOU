@@ -10,6 +10,7 @@
     "test:origin-profile": "node --experimental-strip-types scripts/origin-profile-test.ts",
     "test:origin-inventory-contract": "node scripts/origin-inventory-contract-test.mjs",
     "test:origin-deployment-config": "node scripts/trigger-origin-config-test.mjs",
+    "test:verification-task-contract": "node --experimental-strip-types scripts/verification-task-contract-test.mjs",
     "dev": "pnpm run trigger:dev",
     "deploy": "pnpm run trigger:deploy",
     "trigger:dev": "dotenvx run -fk ../.env.keys -f .env --overload -- node scripts/trigger-dev.mjs",

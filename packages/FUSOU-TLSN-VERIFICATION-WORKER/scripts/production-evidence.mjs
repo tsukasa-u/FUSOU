@@ -216,6 +216,12 @@ function pushOptionalDigest(chunks, value, label) {
   pushLengthPrefixed(chunks, digest);
 }
 
+function assertProvenanceDigestPair(result) {
+  if ((result.origin_inventory_sha256 === null) !== (result.target_approval_artifact_sha256 === null)) {
+    throw new Error("inventory and Target Approval digests must be present together");
+  }
+}
+
 function pushRanges(chunks, ranges) {
   if (!Array.isArray(ranges)) throw new Error("result ranges are invalid");
   pushU32(chunks, ranges.length);
@@ -229,6 +235,7 @@ function pushRanges(chunks, ranges) {
 }
 
 export function resultSigningBytes(result) {
+  assertProvenanceDigestPair(result);
   const chunks = [Buffer.from("FUSOU-VERIFIER-RESULT-V2\0")];
   pushU16(chunks, result.version);
   pushLengthPrefixed(chunks, result.profile_id);
@@ -245,7 +252,7 @@ export function resultSigningBytes(result) {
   pushLengthPrefixed(chunks, result.verifier_key_id);
   pushLengthPrefixed(chunks, result.notary_key_id);
   pushLengthPrefixed(chunks, decodeResultValue(result.tlsn_attestation_id, "result tlsn_attestation_id"));
-  pushLengthPrefixed(chunks, decodeResultValue(result.presentation_sha256, "result presentation_sha256"));
+  pushLengthPrefixed(chunks, decodeBase64Url(result.presentation_sha256, "result presentation_sha256", 32));
   pushLengthPrefixed(chunks, result.server_identity);
   pushOptionalDigest(chunks, result.origin_inventory_sha256, "result origin_inventory_sha256");
   pushOptionalDigest(chunks, result.target_approval_artifact_sha256, "result target_approval_artifact_sha256");
@@ -259,6 +266,7 @@ export function resultSigningBytes(result) {
 }
 
 export function sparseResultSigningBytes(result) {
+  assertProvenanceDigestPair(result);
   const chunks = [Buffer.from("FUSOU-VERIFIER-SPARSE-RESULT-V2\0")];
   pushU16(chunks, result.version);
   pushLengthPrefixed(chunks, result.profile_id);
@@ -277,7 +285,7 @@ export function sparseResultSigningBytes(result) {
   pushLengthPrefixed(chunks, result.notary_key_id);
   pushLengthPrefixed(chunks, decodeResultValue(result.notary_key_sha256, "sparse result Notary hash"));
   pushLengthPrefixed(chunks, decodeResultValue(result.tlsn_attestation_id, "sparse result attestation ID"));
-  pushLengthPrefixed(chunks, decodeResultValue(result.presentation_sha256, "sparse result Presentation hash"));
+  pushLengthPrefixed(chunks, decodeBase64Url(result.presentation_sha256, "sparse result Presentation hash", 32));
   pushLengthPrefixed(chunks, result.server_identity);
   pushOptionalDigest(chunks, result.origin_inventory_sha256, "sparse result origin_inventory_sha256");
   pushOptionalDigest(chunks, result.target_approval_artifact_sha256, "sparse result target_approval_artifact_sha256");

@@ -437,6 +437,8 @@ async function main() {
   });
   const trustedInputs = {
     server_identity: expectedSecurity.server_identity,
+    origin_inventory_sha256: expectedSecurity.origin_inventory_sha256,
+    target_approval_artifact_sha256: expectedSecurity.target_approval_artifact_sha256,
     profile_id: disclosureMode === "sparse" ? "fusou-require-info-v2-sparse" : "fusou-require-info-v1",
     profile_sha256: disclosureMode === "sparse" ? manifest.security_identity?.sparse_profile_sha256 : expectedSecurity.profile_sha256,
     verifier_key_id: expectedSecurity.verifier_key_id,

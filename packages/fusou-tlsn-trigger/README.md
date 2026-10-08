@@ -31,7 +31,12 @@ Copy `.env.example` to `.env` and encrypt it with `packages/.env.keys`. The pack
 
 Production Trigger deployments derive the Origin identity from the Notary-authenticated
 Presentation, require it to match the shared 20-host HTTPS inventory, and compute the selected
-complete/sparse profile digest for that identity. Production rejects static Origin identity or
+complete/sparse profile digest for that identity. The observed identity must also be listed in
+the shipped, validated Target Approval artifact. The Worker task must carry both the raw
+inventory and Target Approval artifact digests; Trigger independently checks them against its
+packaged bytes and includes both in the verifier WASM inputs and Production security registry set.
+The Worker still re-verifies the Presentation and signs Complete Result v2 or Sparse Result v3.
+Production rejects static Origin identity or
 profile values. Canary deployments set the role to `canary` and provide
 `TLSN_TRIGGER_SERVER_IDENTITY`, `TLSN_TRIGGER_PROFILE_SHA256`, and
 `TLSN_TRIGGER_SPARSE_PROFILE_SHA256`; Worker task payloads select this fixed-target path.
@@ -53,6 +58,8 @@ configuration, and deployment credentials remain package-specific.
 ```bash
 pnpm run typecheck
 pnpm run typecheck:config
+pnpm run test:verification-task-contract
+pnpm run test:origin-inventory-contract
 pnpm run trigger:deploy
 ```
 

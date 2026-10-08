@@ -287,6 +287,8 @@ async function startTriggerServer(verifierModule, triggerState) {
           payload.canonical_user_id,
           payload.device_id,
           Buffer.from(payload.device_challenge, "base64url"),
+          new Uint8Array(),
+          new Uint8Array(),
           Buffer.from(rootCertificate, "base64url"),
           Buffer.from(notaryKey, "base64url"),
         );

@@ -308,6 +308,8 @@ function validateTrustContext(trustContext, syntheticFixture) {
   const allowedKeys = new Set([
     ...TRUST_CONTEXT_KEYS,
     "disclosureMode",
+    "originInventorySha256",
+    "targetApprovalArtifactSha256",
     ...(syntheticFixture ? ["trustAnchorDer"] : []),
   ]);
   const keys = Object.keys(trustContext);

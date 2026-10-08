@@ -513,6 +513,8 @@ async function main() {
     );
     const trustedInputs = {
       server_identity: health.security_identity.server_identity,
+      origin_inventory_sha256: health.security_identity.origin_inventory_sha256,
+      target_approval_artifact_sha256: health.security_identity.target_approval_artifact_sha256,
       profile_id: disclosureMode === "sparse" ? "fusou-require-info-v2-sparse" : "fusou-require-info-v1",
       profile_sha256: disclosureMode === "sparse" ? health.security_identity.sparse_profile_sha256 : health.security_identity.profile_sha256,
       verifier_key_id: health.security_identity.verifier_key_id,
