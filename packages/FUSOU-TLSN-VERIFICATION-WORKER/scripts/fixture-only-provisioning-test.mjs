@@ -264,7 +264,7 @@ async function inspectProvisionedOutput(outputDirectory, fixtureManifest, fixtur
   return { manifest, manifestRaw, generatedEnv };
 }
 
-async function runFixturePreflight(outputDirectory, generatedEnv) {
+async function assertFixturePreflightBlocked(outputDirectory, generatedEnv) {
   const reportPath = join(outputDirectory, "preflight.json");
   const privateKeyFiles = {
     TLSN_CANARY_RESULT_SIGNING_PRIVATE_KEY_PKCS8: "canary-result-signing-private-key.pkcs8.base64url",
@@ -301,9 +301,13 @@ async function runFixturePreflight(outputDirectory, generatedEnv) {
     },
   });
   const report = JSON.parse(await readFile(reportPath, "utf8"));
-  assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}\n${JSON.stringify(report.failures)}`);
-  assert.equal(report.status, "PASS");
-  assert.equal(report.failure_count, 0);
+  assert.equal(result.status, 1, `${result.stdout}\n${result.stderr}\n${JSON.stringify(report.failures)}`);
+  assert.equal(report.status, "FAIL");
+  assert.equal(report.failure_count, 1);
+  assert.deepEqual(report.failures, [{
+    check: "target_approval",
+    reason: "fixture or synthetic target identities cannot be approved",
+  }]);
 }
 
 async function runTest() {
@@ -351,7 +355,7 @@ async function runTest() {
     assert.equal(secondRun.status, 0, `${secondRun.errorOutput}\n${secondRun.output}`);
     const second = await inspectProvisionedOutput(secondDirectory, fixtureManifest, fixtureEntry, fixture);
     assert.deepEqual(deterministicSnapshot(first.manifest, first.generatedEnv), deterministicSnapshot(second.manifest, second.generatedEnv));
-    await runFixturePreflight(firstDirectory, first.generatedEnv);
+    await assertFixturePreflightBlocked(firstDirectory, first.generatedEnv);
 
     const mixedInputRun = await runProvisionerChild(
       join(rootDirectory, "mixed-input"),

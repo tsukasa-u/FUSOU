@@ -73,13 +73,13 @@
         "profile_hash_semantics": "supplied canonical profile hashes bound to this Canary deployment target"
       },
       "production": {
-        "schema_version": 2,
+        "schema_version": 3,
         "canonicalization": "canonicalJson",
         "encoding": "UTF-8",
         "whitespace": "none",
         "hash_algorithm": "SHA-256",
         "digest_encoding": "base64url without padding",
-        "fields": ["notary_key_id", "notary_registry", "origin_inventory_sha256", "profile_policy_sha256"],
+        "fields": ["notary_key_id", "notary_registry", "origin_inventory_sha256", "target_approval_artifact_sha256", "profile_policy_sha256"],
         "origin_inventory_semantics": "byte-level SHA-256 of the shipped 20-host HTTPS Origin inventory",
         "profile_policy_semantics": "SHA-256 of the canonical complete/sparse profile policy; per-host profile hashes are derived at verification time"
       }
