@@ -243,6 +243,7 @@ try {
     FUSOU_TLSN_EXPECTED_WORKER_NAME: canaryEnvironment.TLSN_CANARY_WORKER_NAME,
     FUSOU_TLSN_EXPECTED_GIT_COMMIT_SHA: commitSha,
     FUSOU_TLSN_EXPECTED_BINDING_MODE: "fixed_canary",
+    FUSOU_TLSN_EXPECTED_ACTIVE_VERSION_ID: "4b064508-1cdb-453c-826b-bdea36a8b1e5",
     FUSOU_TLSN_NOTARY_VERIFYING_KEY: alpha15K256NotaryKey,
   };
   for (const name of inputsForRole("canary")) {
@@ -408,6 +409,20 @@ try {
   }
   await writeFile(configPath, fullConfig, { encoding: "utf8", mode: 0o600 });
 
+  const entryTests = run("cargo", [
+    "test", "--locked", "--manifest-path", appManifestPath, "--features", "tlsn-production",
+    "--lib", "tlsn_", "--", "--nocapture",
+  ], { cwd: repositoryDirectory, env: appBuildEnvironment });
+  for (const name of [
+    "both_roles_require_exact_independent_identity_and_reject_substitutions",
+    "unavailable_or_partial_expectations_never_bootstrap_from_health",
+    "approved_health_client_never_follows_a_redirect",
+    "production_configuration_requires_independent_version_and_endpoint_pins",
+    "disclosure_mode_must_match_the_pinned_verification_route",
+  ]) {
+    assert.match(entryTests, new RegExp(`test .*::${name} \\.\\.\\. ok`), `${name} must execute and pass`);
+  }
+  console.log(entryTests.trim());
   run("cargo", [
     "test",
     "--manifest-path",

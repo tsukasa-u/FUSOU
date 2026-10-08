@@ -65,6 +65,7 @@ pub struct TlsnPreflightConfig {
     pub expected_worker_name: Option<String>,
     pub expected_git_commit_sha: Option<String>,
     pub expected_binding_mode: String,
+    pub expected_active_version_id: Option<String>,
     pub disclosure_mode: String,
     pub response_mode: String,
     pub notary_verifying_key: Option<String>,
@@ -89,6 +90,7 @@ impl TlsnPreflightConfig {
             expected_worker_name: proxy.get_tlsn_expected_worker_name(),
             expected_git_commit_sha: proxy.get_tlsn_expected_git_commit_sha(),
             expected_binding_mode: proxy.get_tlsn_expected_binding_mode(),
+            expected_active_version_id: proxy.get_tlsn_expected_active_version_id(),
             disclosure_mode: proxy.get_tlsn_disclosure_mode(),
             response_mode: proxy.get_tlsn_response_mode(),
             notary_verifying_key: proxy.get_tlsn_notary_verifying_key(),
@@ -291,6 +293,37 @@ pub fn run_preflight(config: &TlsnPreflightConfig, config_path: &Path) -> TlsnPr
         config.expected_git_commit_sha.as_deref(),
         &config.expected_binding_mode,
     );
+    for (name, result) in [
+        (
+            "tlsn_expected_active_version_id",
+            crate::tlsn_worker_identity::validate_active_version_pin(
+                config.expected_active_version_id.as_deref().unwrap_or(""),
+            ),
+        ),
+        (
+            "tlsn_worker_endpoint_binding",
+            crate::tlsn_worker_identity::validate_worker_endpoints(
+                config.worker_health_endpoint.as_deref().unwrap_or(""),
+                config.verification_endpoint.as_deref().unwrap_or(""),
+            )
+            .and_then(|()| {
+                crate::tlsn_worker_identity::validate_disclosure_endpoint(
+                    &config.disclosure_mode,
+                    config.verification_endpoint.as_deref().unwrap_or(""),
+                )
+            }),
+        ),
+    ] {
+        match result {
+            Ok(()) => push_check(
+                &mut checks,
+                name,
+                PreflightStatus::Pass,
+                "independent pin valid",
+            ),
+            Err(detail) => push_check(&mut checks, name, PreflightStatus::Error, detail),
+        }
+    }
     let disclosure_mode_valid = matches!(config.disclosure_mode.as_str(), "complete" | "sparse");
     push_check(
         &mut checks,
@@ -325,7 +358,11 @@ pub fn run_preflight(config: &TlsnPreflightConfig, config_path: &Path) -> TlsnPr
         && !config
             .verification_endpoint
             .as_deref()
-            .is_some_and(|endpoint| endpoint.trim_end_matches('/').ends_with("/verify/tlsn/sparse"))
+            .is_some_and(|endpoint| {
+                endpoint
+                    .trim_end_matches('/')
+                    .ends_with("/verify/tlsn/sparse")
+            })
     {
         push_check(
             &mut checks,
@@ -776,11 +813,12 @@ fn check_expected_identity(
     let sha_valid = git_commit_sha.is_some_and(|value| {
         value.len() == 40 && value.bytes().all(|byte| byte.is_ascii_hexdigit())
     });
-    let binding_valid = binding_mode == "fixed_canary";
+    let binding_valid =
+        crate::tlsn_worker_identity::WorkerRole::from_binding_mode(binding_mode).is_ok();
     let valid = deployment_valid && worker_valid && sha_valid && binding_valid;
     push_check(
         checks,
-        "tlsn_expected_canary_identity",
+        "tlsn_expected_worker_identity",
         if valid {
             PreflightStatus::Pass
         } else {
@@ -789,7 +827,7 @@ fn check_expected_identity(
         if valid {
             "deployment ID, Worker name, Git SHA, and binding mode are pinned"
         } else {
-            "requires non-empty deployment ID and Worker name, 40-hex Git SHA, and fixed_canary binding mode"
+            "requires non-empty deployment ID and Worker name, 40-hex Git SHA, and a strict Canary/fixed_canary or Production/random expectation"
         },
     );
 }
@@ -1140,8 +1178,8 @@ fn check_directory_writable(directory: &Path) -> Result<(), String> {
 #[cfg(all(test, feature = "tlsn-production"))]
 mod tests {
     use super::*;
-    use std::{fs, path::PathBuf};
     use std::sync::atomic::{AtomicU64, Ordering};
+    use std::{fs, path::PathBuf};
 
     static TEST_ID: AtomicU64 = AtomicU64::new(0);
 
@@ -1212,7 +1250,10 @@ mod tests {
                     "0123456789abcdef0123456789abcdef01234567".to_owned(),
                 ),
                 expected_binding_mode: "fixed_canary".to_owned(),
-                notary_verifying_key: Some(URL_SAFE_NO_PAD.encode(bincode::serialize(&notary_key).unwrap())),
+                expected_active_version_id: Some("4b064508-1cdb-453c-826b-bdea36a8b1e5".to_owned()),
+                notary_verifying_key: Some(
+                    URL_SAFE_NO_PAD.encode(bincode::serialize(&notary_key).unwrap()),
+                ),
                 artifact_output_path: Some(artifact.to_string_lossy().into_owned()),
             },
             config_path,
@@ -1247,6 +1288,35 @@ mod tests {
                 .public_configuration_fingerprints
                 .candidate_binding_status,
             "UNBOUND"
+        );
+    }
+
+    #[test]
+    fn production_configuration_requires_independent_version_and_endpoint_pins() {
+        let mut fixture = fixture();
+        fixture.config.expected_binding_mode = "random".to_owned();
+        fixture.config.expected_deployment_id = Some("production-2026".to_owned());
+        fixture.config.expected_worker_name = Some("fusou-tlsn-verification-production".to_owned());
+        let report = run_preflight(&fixture.config, &fixture.config_path);
+        assert!(report.ready, "{}", report.text());
+        fixture.config.expected_binding_mode.clear();
+        assert_error(
+            &run_preflight(&fixture.config, &fixture.config_path),
+            "tlsn_expected_worker_identity",
+        );
+        fixture.config.expected_binding_mode = "random".to_owned();
+        fixture.config.expected_active_version_id = None;
+        assert_error(
+            &run_preflight(&fixture.config, &fixture.config_path),
+            "tlsn_expected_active_version_id",
+        );
+        fixture.config.expected_active_version_id =
+            Some("4b064508-1cdb-453c-826b-bdea36a8b1e5".to_owned());
+        fixture.config.verification_endpoint =
+            Some("https://different-worker.example.test/verify/tlsn".to_owned());
+        assert_error(
+            &run_preflight(&fixture.config, &fixture.config_path),
+            "tlsn_worker_endpoint_binding",
         );
     }
 

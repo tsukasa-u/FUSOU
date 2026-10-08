@@ -333,6 +333,14 @@ impl RemoteWorkerResultStore {
     }
 }
 
+fn remote_worker_http_client(timeout: Duration) -> Result<reqwest::Client, reqwest::Error> {
+    reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .connect_timeout(Duration::from_secs(10))
+        .timeout(timeout)
+        .build()
+}
+
 fn worker_endpoints(endpoint: &str) -> Result<(String, String), TlsnTransportError> {
     let parsed =
         reqwest::Url::parse(endpoint.trim()).map_err(|_| TlsnTransportError::Unavailable)?;
@@ -558,10 +566,7 @@ impl RemoteWorkerVerificationBackend {
     ) -> Result<Self, TlsnTransportError> {
         let (endpoint, status_endpoint) = worker_endpoints(&endpoint)?;
         let response_mode = RemoteWorkerResponseMode::parse(&response_mode)?;
-        let client = reqwest::Client::builder()
-            .connect_timeout(Duration::from_secs(10))
-            .timeout(Duration::from_secs(30))
-            .build()
+        let client = remote_worker_http_client(Duration::from_secs(30))
             .map_err(|_| TlsnTransportError::Unavailable)?;
         Ok(Self {
             endpoint,
@@ -1186,10 +1191,7 @@ impl RemoteSessionBindingProvider {
         if parsed.scheme() != "https" || parsed.host_str().is_none() {
             return Err(BindingError::NoBindingAuthority);
         }
-        let client = reqwest::Client::builder()
-            .connect_timeout(Duration::from_secs(10))
-            .timeout(Duration::from_secs(20))
-            .build()
+        let client = remote_worker_http_client(Duration::from_secs(20))
             .map_err(|_| BindingError::NoBindingAuthority)?;
         if session_authority_public_key.len() != 44
             || session_authority_public_key[..12]
@@ -1853,6 +1855,42 @@ mod tests {
     #[cfg(unix)]
     use std::os::unix::fs::PermissionsExt;
     use warp::Filter;
+
+    #[tokio::test]
+    async fn remote_worker_clients_reject_cross_endpoint_redirects() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let source = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let target = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let source_address = source.local_addr().unwrap();
+        let target_address = target.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            for _ in 0..3 {
+                let (mut stream, _) = source.accept().await.unwrap();
+                let mut request = [0; 4096];
+                stream.read(&mut request).await.unwrap();
+                stream.write_all(format!("HTTP/1.1 307 Temporary Redirect\r\nLocation: http://{target_address}/substituted-worker\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").as_bytes()).await.unwrap();
+            }
+        });
+        for path in [
+            "/verify/tlsn",
+            "/verify/tlsn/status/job",
+            "/attestation/session",
+        ] {
+            let response = remote_worker_http_client(std::time::Duration::from_secs(20))
+                .unwrap()
+                .post(format!("http://{source_address}{path}"))
+                .send()
+                .await
+                .unwrap();
+            assert_eq!(response.status(), reqwest::StatusCode::TEMPORARY_REDIRECT);
+        }
+        assert!(
+            tokio::time::timeout(std::time::Duration::from_millis(100), target.accept())
+                .await
+                .is_err()
+        );
+        server.await.unwrap();
+    }
 
     fn test_session_context() -> SessionBindingContext {
         SessionBindingContext {

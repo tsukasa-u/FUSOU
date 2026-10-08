@@ -1121,6 +1121,7 @@ pub struct TlsnProxyConfig {
     pub expected_worker_name: Option<String>,
     pub expected_git_commit_sha: Option<String>,
     pub expected_binding_mode: Option<String>,
+    pub expected_active_version_id: Option<String>,
     pub disclosure_mode: Option<String>,
     pub response_mode: Option<String>,
     pub notary_verifying_key: Option<String>,
@@ -1142,6 +1143,7 @@ struct TlsnDeploymentConfig {
     expected_worker_name: Option<String>,
     expected_git_commit_sha: Option<String>,
     expected_binding_mode: Option<String>,
+    expected_active_version_id: Option<String>,
     notary_verifying_key: Option<String>,
 }
 
@@ -1165,6 +1167,8 @@ fn get_tlsn_deployment_config() -> TlsnDeploymentConfig {
         expected_worker_name: option_env!("FUSOU_TLSN_EXPECTED_WORKER_NAME").map(str::to_owned),
         expected_git_commit_sha: option_env!("FUSOU_TLSN_EXPECTED_GIT_COMMIT_SHA").map(str::to_owned),
         expected_binding_mode: option_env!("FUSOU_TLSN_EXPECTED_BINDING_MODE").map(str::to_owned),
+        expected_active_version_id: option_env!("FUSOU_TLSN_EXPECTED_ACTIVE_VERSION_ID")
+            .map(str::to_owned),
         notary_verifying_key: option_env!("FUSOU_TLSN_NOTARY_VERIFYING_KEY").map(str::to_owned),
     }
 }
@@ -1187,6 +1191,7 @@ impl ConfigsProxy {
             expected_worker_name: deployment.expected_worker_name,
             expected_git_commit_sha: deployment.expected_git_commit_sha,
             expected_binding_mode: deployment.expected_binding_mode,
+            expected_active_version_id: deployment.expected_active_version_id,
             disclosure_mode: Some(self.get_tlsn_disclosure_mode()),
             response_mode: Some(self.get_tlsn_response_mode()),
             notary_verifying_key: deployment.notary_verifying_key,
@@ -1240,7 +1245,11 @@ impl ConfigsProxy {
 
     pub fn get_tlsn_expected_binding_mode(&self) -> String {
         non_empty_string(get_tlsn_deployment_config().expected_binding_mode)
-        .unwrap_or_else(|| "fixed_canary".to_owned())
+            .unwrap_or_default()
+    }
+
+    pub fn get_tlsn_expected_active_version_id(&self) -> Option<String> {
+        non_empty_string(get_tlsn_deployment_config().expected_active_version_id)
     }
 
     pub fn get_tlsn_disclosure_mode(&self) -> String {

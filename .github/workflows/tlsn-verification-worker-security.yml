@@ -178,6 +178,9 @@ jobs:
       - name: Verify Canary Verifier health keypair
         run: pnpm --dir packages/FUSOU-TLSN-VERIFICATION-WORKER run test:canary-verifier-health
 
+      - name: Verify independent APP Production deployment handoff
+        run: pnpm --dir packages/FUSOU-TLSN-VERIFICATION-WORKER run test:app-worker-reference
+
       - name: Verify Canary runtime security contract
         run: pnpm --dir packages/FUSOU-TLSN-VERIFICATION-WORKER run test:canary-runtime-security-contract
 
@@ -209,6 +212,7 @@ jobs:
         env:
           CARGO_NET_OFFLINE: "true"
         run: |
+          cargo test --locked --manifest-path packages/FUSOU-PROXY/proxy-https/Cargo.toml --features synthetic-tlsn --lib real_tlsn::tests::remote_worker_clients_reject_cross_endpoint_redirects -- --exact
           cargo test --locked --manifest-path packages/FUSOU-PROXY/proxy-https/Cargo.toml --features synthetic-tlsn --lib real_tlsn::tests::candidate_bundle_preserves_exact_response_and_receipt_without_overwrite -- --exact
           cargo test --locked --manifest-path packages/FUSOU-PROXY/proxy-https/Cargo.toml --features synthetic-tlsn --lib real_tlsn::tests::remote_session_binding_constructor_rejects_invalid_endpoint_and_signer_inputs -- --exact
           pnpm --dir packages/FUSOU-TLSN-VERIFICATION-WORKER run test:app-roundtrip

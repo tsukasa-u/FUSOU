@@ -288,40 +288,28 @@ where
 
     #[cfg(feature = "tlsn-production")]
     let runtime_identity = if proxy_configs.get_tlsn_experiment_enabled() {
+        let config = proxy_configs.get_tlsn_config();
+        let binding_mode = proxy_configs.get_tlsn_expected_binding_mode();
+        let expected = crate::tlsn_runtime::ExpectedWorkerIdentity {
+            health_endpoint: config.worker_health_endpoint.as_deref().ok_or("tlsn_worker_health_endpoint is required for the TLSN experiment")?,
+            verification_endpoint: config.verification_endpoint.as_deref().ok_or("tlsn_verification_endpoint is required for the TLSN experiment")?,
+            deployment_id: config.expected_deployment_id.as_deref().ok_or("tlsn_expected_deployment_id is required for the TLSN experiment")?,
+            worker_name: config.expected_worker_name.as_deref().ok_or("tlsn_expected_worker_name is required for the TLSN experiment")?,
+            git_commit_sha: config.expected_git_commit_sha.as_deref().ok_or("tlsn_expected_git_commit_sha is required for the TLSN experiment")?,
+            binding_mode: &binding_mode,
+            active_version_id: config.expected_active_version_id.as_deref().ok_or("tlsn_expected_active_version_id is required from the approved deployment reference")?,
+            result_public_key_spki: config.result_public_key_spki.as_deref().ok_or("tlsn_result_public_key_spki is required for the TLSN experiment")?,
+            result_signer_key_id: config.result_signer_key_id.as_deref().ok_or("tlsn_result_signer_key_id is required for the TLSN experiment")?,
+            result_key_registry: config.result_signing_key_registry.as_deref().ok_or("tlsn_result_signing_key_registry is required for the TLSN experiment")?,
+        };
+        crate::tlsn_worker_identity::validate_disclosure_endpoint(
+            &proxy_configs.get_tlsn_disclosure_mode(),
+            expected.verification_endpoint,
+        )?;
         Some(
-            crate::tlsn_runtime::fetch_and_validate_health_observation(
-                proxy_configs
-                    .get_tlsn_worker_health_endpoint()
-                    .ok_or("tlsn_worker_health_endpoint is required for the TLSN experiment")?
-                    .as_str(),
-                proxy_configs
-                    .get_tlsn_expected_deployment_id()
-                    .ok_or("tlsn_expected_deployment_id is required for the TLSN experiment")?
-                    .as_str(),
-                proxy_configs
-                    .get_tlsn_expected_worker_name()
-                    .ok_or("tlsn_expected_worker_name is required for the TLSN experiment")?
-                    .as_str(),
-                proxy_configs
-                    .get_tlsn_expected_git_commit_sha()
-                    .ok_or("tlsn_expected_git_commit_sha is required for the TLSN experiment")?
-                    .as_str(),
-                proxy_configs.get_tlsn_expected_binding_mode().as_str(),
-                proxy_configs
-                    .get_tlsn_result_public_key_spki()
-                    .ok_or("tlsn_result_public_key_spki is required for the TLSN experiment")?
-                    .as_str(),
-                proxy_configs
-                    .get_tlsn_result_signer_key_id()
-                    .ok_or("tlsn_result_signer_key_id is required for the TLSN experiment")?
-                    .as_str(),
-                proxy_configs
-                    .get_tlsn_result_signing_key_registry()
-                    .ok_or("tlsn_result_signing_key_registry is required for the TLSN experiment")?
-                    .as_str(),
-            )
-            .await
-            .map_err(|error| format!("TLSN Worker health observation failed: {error}"))?,
+            crate::tlsn_runtime::fetch_and_validate_health_observation(&expected)
+                .await
+                .map_err(|error| format!("TLSN Worker health observation failed: {error}"))?,
         )
     } else {
         None

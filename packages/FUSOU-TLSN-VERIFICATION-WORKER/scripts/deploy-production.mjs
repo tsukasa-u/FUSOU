@@ -16,6 +16,7 @@ import {
   workerSecretBundleForProduction,
 } from "./deployment-contract.mjs";
 import { assertTargetApprovalResolved } from "./target-approval-contract.mjs";
+import { writeAppWorkerReference } from "./app-worker-deployment-reference.mjs";
 
 const packageDirectory = resolve(new URL("..", import.meta.url).pathname);
 const inputManifestPath = resolve(packageDirectory, "scripts/production-inputs.json");
@@ -69,6 +70,9 @@ async function main() {
   requiredEnvironment("TLSN_PREVIOUS_PROVENANCE_PATH");
   requiredEnvironment("TLSN_PREVIOUS_CHANGE_REPORT_PATH");
   requiredEnvironment("TLSN_VERIFY_WORKER_URL");
+  requiredEnvironment("CLOUDFLARE_ACCOUNT_ID");
+  requiredEnvironment("CLOUDFLARE_API_TOKEN");
+  requiredEnvironment("TLSN_APP_WORKER_REFERENCE_PATH");
   const remoteReportPath = requiredEnvironment("TLSN_REMOTE_REPORT_PATH");
   requiredEnvironment("TLSN_REMOTE_ATTESTATION_PATH");
   for (const name of PRODUCTION_GATE_INPUTS) requiredEnvironment(name);
@@ -220,6 +224,9 @@ async function main() {
     });
     if (verification.error) throw verification.error;
     process.exitCode = verification.status ?? 1;
+    if (verification.status === 0) {
+      await writeAppWorkerReference(deploymentEnvironment);
+    }
   } finally {
     await rm(secretDirectory, { recursive: true, force: true });
   }

@@ -28,6 +28,7 @@ mod wrap_proxy;
 pub mod tlsn_preflight;
 #[cfg(feature = "tlsn-production")]
 mod tlsn_runtime;
+mod tlsn_worker_identity;
 use senders::{quest_tree_sender, remodel_sender, ship_growth_sender, soku_speed_sender};
 
 use fusou_upload::PendingStore;
