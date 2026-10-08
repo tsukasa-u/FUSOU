@@ -13,7 +13,10 @@ use crate::{
         ResultSignerFuture, SignedTlsnResult, TlsnPresentation, TlsnVerificationBackend,
     },
 };
-use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
+use base64::{
+    engine::general_purpose::{STANDARD, URL_SAFE_NO_PAD},
+    Engine as _,
+};
 use chrono::{DateTime, Utc};
 use fusou_auth::{AuthManager, DeviceKey, FileStorage};
 use fusou_tlsn_verifier::{
@@ -905,7 +908,7 @@ async fn write_production_capture_bundle(
     let consume_receipt = worker_payload.get("consume_receipt").ok_or_else(|| {
         std::io::Error::new(std::io::ErrorKind::InvalidData, "consume receipt missing")
     })?;
-    let public_key_bytes = URL_SAFE_NO_PAD
+    let public_key_bytes = STANDARD
         .decode(&session.device_public_key)
         .map_err(|_| {
             std::io::Error::new(std::io::ErrorKind::InvalidData, "invalid device public key")
@@ -1855,7 +1858,7 @@ mod tests {
         SessionBindingContext {
             session_id: "550e8400-e29b-41d4-a716-446655440000".to_owned(),
             device_id: "7c9e6679-7425-40de-944b-e07fc1f90ae7".to_owned(),
-            device_public_key: URL_SAFE_NO_PAD.encode([2_u8; 32]),
+            device_public_key: STANDARD.encode([0xfb_u8; 32]),
             binding: "binding-value".to_owned(),
             binding_challenge: URL_SAFE_NO_PAD.encode([7_u8; 32]),
             device_challenge: URL_SAFE_NO_PAD.encode([9_u8; 32]),
@@ -1942,6 +1945,43 @@ mod tests {
         let exact_response = b"{ \"result\":{\"result_id\":\"fixture-result\"} }\n";
         let receipt_bytes = b"detached verifier execution receipt";
         let receipt_header = URL_SAFE_NO_PAD.encode(receipt_bytes).into_bytes();
+        for invalid_public_key in [
+            URL_SAFE_NO_PAD.encode([0xfb_u8; 32]),
+            STANDARD.encode([0xfb_u8; 31]),
+            STANDARD.encode([0xfb_u8; 33]),
+            "invalid-base64".to_owned(),
+        ] {
+            let mut invalid_session = session.clone();
+            invalid_session.device_public_key = invalid_public_key;
+            let error = write_production_capture_bundle(
+                &artifact_root,
+                &presentation,
+                &invalid_session,
+                &payload,
+                "device-signature",
+                exact_response.as_slice(),
+                Some(receipt_header.as_slice()),
+                Some(receipt_bytes.as_slice()),
+                200,
+                77,
+            )
+            .await
+            .expect_err("invalid device public key must not produce a capture bundle");
+            assert_eq!(error.kind(), std::io::ErrorKind::InvalidData);
+            assert!(!directory.exists(), "failed capture must clean its archive");
+            crate::production_tlsn::create_private_candidate_directory(&directory)
+                .await
+                .expect("restore private Presentation directory after rejected key");
+            write_private_candidate_file(&directory.join("presentation.bin"), presentation_bytes)
+                .await
+                .expect("restore Presentation fixture");
+            write_private_candidate_file(
+                &directory.join("metadata.json"),
+                &canonical_json_bytes(&metadata),
+            )
+            .await
+            .expect("restore metadata fixture");
+        }
         let args = (
             &artifact_root,
             &presentation,
@@ -1960,6 +2000,22 @@ mod tests {
         )
         .await
         .expect("write candidate proof bundle");
+
+        let device_identity: serde_json::Value = serde_json::from_slice(
+            &tokio::fs::read(directory.join("device-identity.json"))
+                .await
+                .expect("read captured device identity"),
+        )
+        .expect("parse captured device identity");
+        assert_eq!(
+            device_identity["device_public_key"],
+            session.device_public_key
+        );
+        assert_eq!(
+            device_identity["device_public_key_sha256"],
+            URL_SAFE_NO_PAD.encode(sha256(&[0xfb_u8; 32])),
+        );
+        assert_eq!(device_identity["authority_state"], "UNVERIFIED");
 
         let stored_response = tokio::fs::read(directory.join("result-exact.bin"))
             .await
@@ -2046,6 +2102,40 @@ mod tests {
             },
             Arc::new(FileStorage::new(path)),
         )
+    }
+
+    #[test]
+    fn remote_session_binding_constructor_rejects_invalid_endpoint_and_signer_inputs() {
+        let public_key = [ED25519_SPKI_PREFIX.as_slice(), &[1_u8; 32]].concat();
+        let invalid_prefix = vec![0_u8; 44];
+        for (endpoint, key, key_id) in [
+            ("not a URL", public_key.clone(), "session-authority"),
+            (
+                "http://127.0.0.1/session",
+                public_key.clone(),
+                "session-authority",
+            ),
+            (
+                "https://127.0.0.1/session",
+                public_key[..43].to_vec(),
+                "session-authority",
+            ),
+            (
+                "https://127.0.0.1/session",
+                invalid_prefix,
+                "session-authority",
+            ),
+            ("https://127.0.0.1/session", public_key, " "),
+        ] {
+            let provider = RemoteSessionBindingProvider::new(
+                endpoint.to_owned(),
+                test_auth_manager(PathBuf::from("unused-constructor-session.json")),
+                PathBuf::from("unused-constructor-device.json"),
+                key,
+                key_id.to_owned(),
+            );
+            assert_eq!(provider.err(), Some(BindingError::NoBindingAuthority));
+        }
     }
 
     #[tokio::test]
@@ -2921,9 +3011,9 @@ mod tests {
                 TlsnOriginCapture, TlsnOriginExchange, UnverifiedTlsnTranscript,
             },
             production_tlsn::{
-                FilesystemPresentationArtifactSink, HandoffPresentationProvider, OriginTarget,
-                OriginTlsConfig, ProductionTlsnDependencies, RuntimeIdentifiers,
-                ServerIdentityPolicy,
+                AppPublicConfigurationFingerprints, FilesystemPresentationArtifactSink,
+                HandoffPresentationProvider, OriginTarget, OriginTlsConfig,
+                ProductionTlsnDependencies, RuntimeIdentifiers, ServerIdentityPolicy,
             },
             synthetic_tlsn::{synthetic_require_info_request, SYNTHETIC_SERVER_IDENTITY},
         };
@@ -2945,7 +3035,7 @@ mod tests {
             expected_request: Vec<u8>,
             response: Vec<u8>,
             presentation: Vec<u8>,
-            root_certificate: Vec<u8>,
+            expected_tls: OriginTlsConfig,
         }
 
         impl Alpha15OriginTransportFactory for FixtureAlpha15OriginTransportFactory {
@@ -2958,10 +3048,10 @@ mod tests {
                 let expected_request = self.expected_request.clone();
                 let response = self.response.clone();
                 let presentation = self.presentation.clone();
-                let root_certificate = self.root_certificate.clone();
+                let expected_tls = self.expected_tls.clone();
                 Box::pin(async move {
                     if config.target().server_identity() != SYNTHETIC_SERVER_IDENTITY
-                        || config.tls().trusted_root_certificates() != [root_certificate]
+                        || config.tls() != &expected_tls
                         || request.bytes() != expected_request
                     {
                         return Err(TlsnTransportError::OriginConnectionFailed);
@@ -3002,6 +3092,22 @@ mod tests {
         #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
         #[ignore = "run with pnpm --dir packages/FUSOU-TLSN-VERIFICATION-WORKER test:app-roundtrip"]
         async fn app_remote_worker_full_synthetic_e2e() {
+            let challenge_endpoint = required_env("FUSOU_TLSN_APP_E2E_CHALLENGE_ENDPOINT");
+            let challenge_url =
+                reqwest::Url::parse(&challenge_endpoint).expect("valid local Web challenge URL");
+            assert_eq!(challenge_url.scheme(), "http");
+            assert!(challenge_url
+                .host_str()
+                .is_some_and(|host| matches!(host, "127.0.0.1" | "localhost" | "::1")));
+            configs::set_user_config(&required_env("FUSOU_TLSN_APP_E2E_CONFIG_PATH"))
+                .expect("initialize synthetic APP configuration");
+            assert_eq!(
+                configs::get_user_configs_for_app()
+                    .auth
+                    .get_anonymous_sync_v2_challenge_endpoint(),
+                Some(challenge_endpoint),
+                "APP challenge must use the configured local fixture, not embedded defaults",
+            );
             let worker_origin = required_env("FUSOU_TLSN_APP_E2E_WORKER_ORIGIN");
             let worker_url = reqwest::Url::parse(&worker_origin).expect("valid local Worker URL");
             assert_eq!(worker_url.scheme(), "http");
@@ -3039,6 +3145,12 @@ mod tests {
                     "FUSOU_TLSN_APP_E2E_AUTH_SESSION_PATH",
                 )))),
             );
+            assert!(matches!(
+                auth_manager
+                    .fetch_anonymous_sync_v2_challenge("00000000-0000-4000-8000-000000000000")
+                    .await,
+                Err(fusou_auth::error::AuthError::DeviceUnknownOrRevoked),
+            ));
             let device_key_path = PathBuf::from(required_env("FUSOU_TLSN_APP_E2E_DEVICE_KEY_PATH"));
             let session_authority_public_key = URL_SAFE_NO_PAD
                 .decode(required_env(
@@ -3084,6 +3196,13 @@ mod tests {
                 response_mode: RemoteWorkerResponseMode::Async,
             });
             let handoff = PresentationHandoff::new();
+            let origin_tls = OriginTlsConfig::new().expect("platform trust store is available");
+            assert!(
+                !origin_tls
+                    .trusted_root_certificates()
+                    .contains(&root_certificate),
+                "synthetic Origin CA must not be installed into the platform trust store",
+            );
             let origin = OriginTransportConfig::new(
                 OriginTarget::new(
                     SYNTHETIC_SERVER_IDENTITY.to_owned(),
@@ -3091,7 +3210,7 @@ mod tests {
                     SYNTHETIC_SERVER_IDENTITY.to_owned(),
                 )
                 .expect("valid synthetic target"),
-                OriginTlsConfig::new().expect("platform trust store is available"),
+                origin_tls.clone(),
                 ServerIdentityPolicy::new(vec![SYNTHETIC_SERVER_IDENTITY.to_owned()])
                     .expect("valid synthetic identity policy"),
                 true,
@@ -3104,7 +3223,7 @@ mod tests {
                     expected_request: expected_request.clone(),
                     response: expected_response.clone(),
                     presentation: presentation.clone(),
-                    root_certificate,
+                    expected_tls: origin_tls,
                 }),
                 Arc::new(HandoffPresentationProvider::new(Arc::clone(&handoff))),
                 verification_backend,
@@ -3117,11 +3236,23 @@ mod tests {
             .with_presentation_artifact_sink(Arc::new(FilesystemPresentationArtifactSink::new(
                 artifact_root.clone(),
             )))
-            .with_identifiers(RuntimeIdentifiers::new(
-                Some("app-worker-synthetic-e2e".to_owned()),
-                None,
-                None,
-            ))
+            .with_identifiers(
+                RuntimeIdentifiers::new(Some("app-worker-synthetic-e2e".to_owned()), None, None)
+                    .with_app_public_configuration_fingerprints(
+                        AppPublicConfigurationFingerprints {
+                            schema_version: 2,
+                            scope: "fusou-tlsn-app-public-configuration".to_owned(),
+                            compile_time_sha256: required_env(
+                                "FUSOU_TLSN_APP_E2E_COMPILE_TIME_SHA256",
+                            ),
+                            runtime_sha256: required_env("FUSOU_TLSN_APP_E2E_RUNTIME_SHA256"),
+                            combined_sha256: required_env(
+                                "FUSOU_TLSN_APP_E2E_CONFIGURATION_SHA256",
+                            ),
+                            candidate_binding_status: "UNBOUND".to_owned(),
+                        },
+                    ),
+            )
             .build_forwarder()
             .expect("build production TLSN forwarder");
 

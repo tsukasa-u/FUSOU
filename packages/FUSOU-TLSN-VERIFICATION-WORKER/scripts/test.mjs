@@ -10,6 +10,11 @@ import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { unstable_dev } from "wrangler";
 import { consumeReceiptSigningBytes, sessionReceiptSigningBytes } from "./device-evidence.mjs";
+import {
+  APP_CONFIGURATION_FINGERPRINT_CONTRACT,
+  appConfigurationProjectionSha256,
+  recomputeAppConfigurationCombinedSha256,
+} from "./candidate-artifact-identity.mjs";
 
 const packageDirectory = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const repositoryDirectory = resolve(packageDirectory, "../..");
@@ -194,6 +199,7 @@ const upstreamState = {
   supabaseMode: "ok",
   intendedRequests: [],
   redirectRequests: [],
+  challengeRequests: [],
 };
 const redirectTargetServer = createServer((request, response) => {
   upstreamState.redirectRequests.push({
@@ -245,6 +251,16 @@ function writeUpstreamResponse(response, mode, sameOrigin, payload) {
 
 const deviceAuthServer = createServer(async (request, response) => {
   const requestUrl = new URL(request.url ?? "/", "http://127.0.0.1");
+  if (request.method === "GET" && requestUrl.pathname === "/anonymous-sync/v2/challenge") {
+    const requestedDeviceId = requestUrl.searchParams.get("device_id");
+    const status = requestedDeviceId === deviceId ? 200 : 404;
+    upstreamState.challengeRequests.push({ deviceId: requestedDeviceId, status });
+    response.writeHead(status, { "Content-Type": "application/json" });
+    response.end(JSON.stringify(status === 200
+      ? { nonce: deviceNonce, expires_at: Math.floor(Date.now() / 1000) + 300 }
+      : { error: "device_unknown_or_revoked" }));
+    return;
+  }
   if (requestUrl.pathname === "/auth/v1/user") {
     upstreamState.intendedRequests.push({
       kind: "supabase",
@@ -673,6 +689,40 @@ async function runAsyncTriggerSmokeTest() {
     const fixturePath = resolve(temporaryDirectory, "synthetic-fixture.json");
     const authSessionPath = resolve(temporaryDirectory, "auth-session.json");
     const deviceKeyPath = resolve(temporaryDirectory, "device-key.json");
+    const appConfigPath = resolve(temporaryDirectory, "app-config.toml");
+    const challengeEndpoint = deviceAuthUrl.replace(/\/device-proof$/, "/challenge");
+    const appConfigTemplate = await readFile(resolve(packageDirectory, "../configs/configs.toml"), "utf8");
+    const challengeConfigLine = /^(\s*anonymous_sync_v2_challenge_endpoint\s*=\s*)"[^"]*"$/m;
+    assert.match(appConfigTemplate, challengeConfigLine);
+    const appConfig = appConfigTemplate.replace(challengeConfigLine, `$1${JSON.stringify(challengeEndpoint)}`);
+    const configurationFingerprints = {
+      schema_version: APP_CONFIGURATION_FINGERPRINT_CONTRACT.schema_version,
+      scope: APP_CONFIGURATION_FINGERPRINT_CONTRACT.scope,
+      compile_time_sha256: appConfigurationProjectionSha256("compile_time", {
+        expected_binding_mode: null,
+        expected_deployment_id: null,
+        expected_git_commit_sha: null,
+        expected_worker_name: null,
+        notary_endpoint: null,
+        notary_verifying_key: syntheticFixture.notary_key_base64,
+        result_public_key_spki: testResultPublicKeySpki,
+        result_signer_key_id: "worker-test",
+        result_signing_key_registry: testResultSigningKeyRegistry,
+        worker_health_endpoint: `${workerOrigin}/health`,
+        session_authority_endpoint: `${workerOrigin}/attestation/session`,
+        session_authority_key_id: "session-authority-test",
+        session_authority_public_key: sessionAuthorityPublicKeySpki,
+        verification_endpoint: `${workerOrigin}/verify/tlsn`,
+      }),
+      runtime_sha256: appConfigurationProjectionSha256("runtime", {
+        candidate_capture_enabled: true,
+        disclosure_mode: "complete",
+        experiment_enabled: true,
+        response_mode: "async",
+      }),
+      candidate_binding_status: "UNBOUND",
+    };
+    configurationFingerprints.combined_sha256 = recomputeAppConfigurationCombinedSha256(configurationFingerprints);
     const artifactRoot = resolve(temporaryDirectory, "artifacts");
     const devicePrivateKeyPkcs8 = devicePrivateKey.export({ format: "der", type: "pkcs8" });
     const devicePublicKeySpki = devicePublicKey.export({ format: "der", type: "spki" });
@@ -681,6 +731,7 @@ async function runAsyncTriggerSmokeTest() {
     assert.equal(deviceSecretKey.length, 32);
     assert.equal(devicePublicKeyRaw.length, 32);
     await Promise.all([
+      writeFile(appConfigPath, appConfig),
       writeFile(fixturePath, JSON.stringify(syntheticFixture)),
       writeFile(authSessionPath, JSON.stringify({
         access_token: "test-token-a",
@@ -721,6 +772,11 @@ async function runAsyncTriggerSmokeTest() {
           FUSOU_TLSN_APP_E2E_FIXTURE_PATH: fixturePath,
           FUSOU_TLSN_APP_E2E_AUTH_SESSION_PATH: authSessionPath,
           FUSOU_TLSN_APP_E2E_DEVICE_KEY_PATH: deviceKeyPath,
+          FUSOU_TLSN_APP_E2E_CONFIG_PATH: appConfigPath,
+          FUSOU_TLSN_APP_E2E_CHALLENGE_ENDPOINT: challengeEndpoint,
+          FUSOU_TLSN_APP_E2E_COMPILE_TIME_SHA256: configurationFingerprints.compile_time_sha256,
+          FUSOU_TLSN_APP_E2E_RUNTIME_SHA256: configurationFingerprints.runtime_sha256,
+          FUSOU_TLSN_APP_E2E_CONFIGURATION_SHA256: configurationFingerprints.combined_sha256,
           FUSOU_TLSN_APP_E2E_ARTIFACT_ROOT: artifactRoot,
           FUSOU_TLSN_APP_E2E_SESSION_AUTHORITY_PUBLIC_KEY_SPKI: sessionAuthorityPublicKeySpki,
           FUSOU_TLSN_APP_E2E_SESSION_AUTHORITY_KEY_ID: "session-authority-test",
@@ -731,6 +787,17 @@ async function runAsyncTriggerSmokeTest() {
       },
     );
 
+    assert.deepEqual(upstreamState.challengeRequests, [
+      { deviceId: "00000000-0000-4000-8000-000000000000", status: 404 },
+      { deviceId, status: 200 },
+    ]);
+    const presentationId = createHash("sha256").update(Buffer.from(syntheticFixture.presentation_base64, "base64url")).digest("base64url");
+    const capturedMetadata = JSON.parse(await readFile(resolve(artifactRoot, presentationId, "metadata.json"), "utf8"));
+    assert.deepEqual(capturedMetadata.proxy_provenance.app_public_configuration_fingerprints, configurationFingerprints);
+    const capturedDeviceIdentity = JSON.parse(await readFile(resolve(artifactRoot, presentationId, "device-identity.json"), "utf8"));
+    assert.equal(capturedDeviceIdentity.device_public_key, devicePublicKeyRaw.toString("base64"));
+    assert.equal(capturedDeviceIdentity.device_public_key_sha256, createHash("sha256").update(devicePublicKeyRaw).digest("base64url"));
+    assert.equal(capturedDeviceIdentity.authority_state, "UNVERIFIED");
     assert.ok(appRequests.some(({ path, status }) => path === "/attestation/session" && status === 201));
     assert.ok(appRequests.some(({ path, status }) => path === "/verify/tlsn" && status === 202));
     assert.ok(appRequests.some(({ path, status }) => path === "/verify/tlsn/status" && status === 200));
