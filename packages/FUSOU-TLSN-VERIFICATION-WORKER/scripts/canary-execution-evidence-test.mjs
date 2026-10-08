@@ -27,7 +27,13 @@ const jobId = "f73fded7-d9af-4f0a-b87b-c626d30d55bd";
 const attemptId = "5f289198-7361-4a92-9d03-c4e506385130";
 const presentationBytes = Buffer.from("independent Canary Presentation bytes");
 const verifierKeyId = "verifier-canary-2026-09-30";
-const resultBytes = Buffer.from(JSON.stringify({ verifier_key_id: verifierKeyId, signature_base64url: "result-signature" }));
+const resultEnvelope = (keyId) => Buffer.from(JSON.stringify({
+  verified: true,
+  result: { verifier_key_id: keyId },
+  signer_key_id: "result-signing-key",
+  signature_algorithm: "Ed25519",
+}));
+const resultBytes = resultEnvelope(verifierKeyId);
 const { privateKey, publicKey } = generateKeyPairSync("ed25519");
 const privateKeyPkcs8 = privateKey.export({ format: "der", type: "pkcs8" }).toString("base64url");
 const publicKeySpki = publicKey.export({ format: "der", type: "spki" }).toString("base64url");
@@ -106,7 +112,26 @@ assert.equal(evidence.trust_graph.edges.length, 5);
 
 assert.throws(() => verifyEvidence({ presentationBytes: Buffer.from("different presentation") }), /Presentation hash mismatch/);
 assert.throws(() => verifyEvidence({ resultBytes: Buffer.from("different result") }), /Result hash mismatch/);
-assert.throws(() => verifyEvidence({ resultBytes: Buffer.from(JSON.stringify({ verifier_key_id: "another-key" })) }), /Result hash mismatch/);
+assert.throws(() => verifyEvidence({ resultBytes: resultEnvelope("another-key") }), /Result hash mismatch/);
+const malformedResultBytes = Buffer.from(JSON.stringify({ verifier_key_id: verifierKeyId }));
+const malformedResultReceipt = createCanaryVerifierExecutionReceipt({
+  jobId,
+  verificationAttemptId: attemptId,
+  deploymentId,
+  workerName: CANARY_VERIFIER_WORKER_NAME,
+  runtimeVersionId,
+  verifierKeyId,
+  verifierPublicKeySpki: publicKeySpki,
+  verifierSigningPrivateKeyPkcs8: privateKeyPkcs8,
+  presentationBytes,
+  resultBytes: malformedResultBytes,
+  issuedAt: "2026-09-30T11:55:00.000Z",
+  receiptId: "594dc8cc-d4bc-4bc8-9813-7bc4a04a9603",
+});
+assert.throws(() => verifyEvidence({
+  resultBytes: malformedResultBytes,
+  receiptBytes: Buffer.from(JSON.stringify(malformedResultReceipt)),
+}), /verified Result envelope/);
 const mismatchedClaimReceipt = createCanaryVerifierExecutionReceipt({
   jobId,
   verificationAttemptId: attemptId,
@@ -117,12 +142,12 @@ const mismatchedClaimReceipt = createCanaryVerifierExecutionReceipt({
   verifierPublicKeySpki: publicKeySpki,
   verifierSigningPrivateKeyPkcs8: privateKeyPkcs8,
   presentationBytes,
-  resultBytes: Buffer.from(JSON.stringify({ verifier_key_id: "another-key" })),
+  resultBytes: resultEnvelope("another-key"),
   issuedAt: "2026-09-30T11:55:00.000Z",
   receiptId: "494dc8cc-d4bc-4bc8-9813-7bc4a04a9603",
 });
 assert.throws(() => verifyEvidence({
-  resultBytes: Buffer.from(JSON.stringify({ verifier_key_id: "another-key" })),
+  resultBytes: resultEnvelope("another-key"),
   receiptBytes: Buffer.from(JSON.stringify(mismatchedClaimReceipt)),
 }), /Result verifier_key_id claim does not match the attested execution identity/);
 assert.throws(() => verifyEvidence({ expectedJobId: "b73fded7-d9af-4f0a-b87b-c626d30d55bd" }), /job ID mismatch/);

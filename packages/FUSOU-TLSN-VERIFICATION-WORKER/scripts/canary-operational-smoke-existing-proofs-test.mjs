@@ -179,7 +179,7 @@ const resultAuthority = {
   trustedRootPublicKeySpki: resultRootPublicKeySpki,
 };
 const unsignedResult = {
-  version: 1,
+  version: 2,
   profile_id: "fusou-require-info-v1",
   profile_sha256: Buffer.alloc(32, 0x31).toString("base64url"),
   issuer: "fusou-tlsn-verifier",
@@ -194,7 +194,10 @@ const unsignedResult = {
   verifier_key_id: "verifier-offline-test",
   notary_key_id: "notary-offline-test",
   tlsn_attestation_id: Buffer.alloc(16, 0x42).toString("base64url"),
+  presentation_sha256: createHash("sha256").update(presentationBytes).digest("base64url"),
   server_identity: "game.example.net",
+  origin_inventory_sha256: null,
+  target_approval_artifact_sha256: null,
   request_transcript_size: 0,
   request_transcript_sha256: Buffer.alloc(32, 0x51).toString("base64url"),
   revealed_request_ranges: [],
@@ -307,7 +310,7 @@ assert.equal(combinedCryptographicProofs.components.result_signature.status, "PA
 
 const sparseResultUnsigned = {
   ...unsignedResult,
-  version: 2,
+  version: 3,
   profile_id: "fusou-require-info-v2-sparse",
   disclosure_mode: "sparse",
   notary_key_sha256: Buffer.alloc(32, 0x33).toString("base64url"),

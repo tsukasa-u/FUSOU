@@ -462,6 +462,8 @@ async function main() {
       canonicalUserId: user.id,
       canonicalDeviceId: session.device_id,
       deviceChallenge: session.device_challenge,
+      originInventorySha256: health.security_identity.origin_inventory_sha256,
+      targetApprovalArtifactSha256: health.security_identity.target_approval_artifact_sha256,
       notaryRegistry,
       disclosureMode,
     });

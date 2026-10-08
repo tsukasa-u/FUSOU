@@ -211,6 +211,11 @@ function decodeResultValue(value, label) {
   return decodeBase64Url(value, label);
 }
 
+function pushOptionalDigest(chunks, value, label) {
+  const digest = value === null ? Buffer.alloc(0) : decodeBase64Url(value, label, 32);
+  pushLengthPrefixed(chunks, digest);
+}
+
 function pushRanges(chunks, ranges) {
   if (!Array.isArray(ranges)) throw new Error("result ranges are invalid");
   pushU32(chunks, ranges.length);
@@ -224,7 +229,7 @@ function pushRanges(chunks, ranges) {
 }
 
 export function resultSigningBytes(result) {
-  const chunks = [Buffer.from("FUSOU-VERIFIER-RESULT-V1\0")];
+  const chunks = [Buffer.from("FUSOU-VERIFIER-RESULT-V2\0")];
   pushU16(chunks, result.version);
   pushLengthPrefixed(chunks, result.profile_id);
   pushLengthPrefixed(chunks, decodeResultValue(result.profile_sha256, "result profile_sha256"));
@@ -240,7 +245,10 @@ export function resultSigningBytes(result) {
   pushLengthPrefixed(chunks, result.verifier_key_id);
   pushLengthPrefixed(chunks, result.notary_key_id);
   pushLengthPrefixed(chunks, decodeResultValue(result.tlsn_attestation_id, "result tlsn_attestation_id"));
+  pushLengthPrefixed(chunks, decodeResultValue(result.presentation_sha256, "result presentation_sha256"));
   pushLengthPrefixed(chunks, result.server_identity);
+  pushOptionalDigest(chunks, result.origin_inventory_sha256, "result origin_inventory_sha256");
+  pushOptionalDigest(chunks, result.target_approval_artifact_sha256, "result target_approval_artifact_sha256");
   pushU64(chunks, result.request_transcript_size);
   pushLengthPrefixed(chunks, decodeResultValue(result.request_transcript_sha256, "result request hash"));
   pushRanges(chunks, result.revealed_request_ranges);
@@ -251,7 +259,7 @@ export function resultSigningBytes(result) {
 }
 
 export function sparseResultSigningBytes(result) {
-  const chunks = [Buffer.from("FUSOU-VERIFIER-SPARSE-RESULT-V1\0")];
+  const chunks = [Buffer.from("FUSOU-VERIFIER-SPARSE-RESULT-V2\0")];
   pushU16(chunks, result.version);
   pushLengthPrefixed(chunks, result.profile_id);
   pushLengthPrefixed(chunks, result.disclosure_mode);
@@ -271,6 +279,8 @@ export function sparseResultSigningBytes(result) {
   pushLengthPrefixed(chunks, decodeResultValue(result.tlsn_attestation_id, "sparse result attestation ID"));
   pushLengthPrefixed(chunks, decodeResultValue(result.presentation_sha256, "sparse result Presentation hash"));
   pushLengthPrefixed(chunks, result.server_identity);
+  pushOptionalDigest(chunks, result.origin_inventory_sha256, "sparse result origin_inventory_sha256");
+  pushOptionalDigest(chunks, result.target_approval_artifact_sha256, "sparse result target_approval_artifact_sha256");
   pushU64(chunks, result.request_transcript_size);
   pushRanges(chunks, result.revealed_request_ranges);
   pushU64(chunks, result.response_transcript_size);
@@ -309,7 +319,7 @@ export function assertSignedResult(result, {
   now = new Date(),
   verificationTime,
 } = {}) {
-  if (!result || result.version !== 1 || typeof result.signature !== "string") {
+  if (!result || result.version !== 2 || typeof result.signature !== "string") {
     throw new Error("production verifier result schema is invalid");
   }
   let resolvedPublicKeySpki = publicKeySpki;
@@ -351,7 +361,7 @@ export function assertSignedSparseResult(result, {
 } = {}) {
   if (
     !result ||
-    result.version !== 2 ||
+    result.version !== 3 ||
     result.profile_id !== "fusou-require-info-v2-sparse" ||
     result.disclosure_mode !== "sparse" ||
     typeof result.signature !== "string"

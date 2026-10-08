@@ -244,14 +244,14 @@ export function verifyCanaryResultSignature({
   });
 
   const signedResult = finalResponse.result;
-  const resultVerification = signedResult.version === 2
+  const resultVerification = signedResult.version === 3
     ? assertSignedSparseResult(signedResult, {
         publicKeySpki: resultAuthority.publicKeySpki,
         keyRegistry: parsedRegistry,
         signerKeyId: resultAuthority.signerKeyId,
         now,
       })
-    : signedResult.version === 1
+    : signedResult.version === 2
       ? assertSignedResult(signedResult, {
           publicKeySpki: resultAuthority.publicKeySpki,
           keyRegistry: parsedRegistry,
@@ -294,9 +294,9 @@ export function verifyCanaryResultSignature({
   return {
     status: "PASS",
     signature_algorithm: "Ed25519",
-    signed_bytes_format: signedResult.version === 2
-      ? "FUSOU-VERIFIER-SPARSE-RESULT-V1 domain-separated field encoding"
-      : "FUSOU-VERIFIER-RESULT-V1 domain-separated field encoding",
+    signed_bytes_format: signedResult.version === 3
+      ? "FUSOU-VERIFIER-SPARSE-RESULT-V2 domain-separated field encoding"
+      : "FUSOU-VERIFIER-RESULT-V2 domain-separated field encoding",
     result_signer_key_id: resultVerification.result_signer_key_id,
     result_signature_valid: resultVerification.result_signature_valid,
     result_key_status: resultVerification.result_signing_key_status,

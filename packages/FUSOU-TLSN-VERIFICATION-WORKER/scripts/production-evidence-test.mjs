@@ -105,6 +105,8 @@ const securityIdentity = {
   profile_sha256: "B".repeat(43),
   verifier_key_id: "verifier-2026",
   notary_key_id: "notary-2026",
+  origin_inventory_sha256: Buffer.alloc(32, 0x76).toString("base64url"),
+  target_approval_artifact_sha256: Buffer.alloc(32, 0x77).toString("base64url"),
   security_registry_set_sha256: "C".repeat(43),
   notary_registry_sha256: "D".repeat(43),
   binding_authority: "durable-single-use",
@@ -172,8 +174,9 @@ const responseTranscript = Buffer.concat([
 function rangeFor(bytes) {
   return [{ start: "0", length: String(bytes.length), bytes: bytes.toString("base64url") }];
 }
+const presentationBytes = Buffer.from("real-production-presentation");
 const result = {
-  version: 1,
+  version: 2,
   profile_id: "fusou-require-info-v1",
   profile_sha256: Buffer.alloc(32, 1).toString("base64url"),
   issuer: "fusou-tlsn-verifier",
@@ -188,7 +191,10 @@ const result = {
   verifier_key_id: "verifier-2026",
   notary_key_id: "notary-2026",
   tlsn_attestation_id: Buffer.alloc(16, 4).toString("base64url"),
+  presentation_sha256: sha256Base64Url(presentationBytes),
   server_identity: "game.example.com",
+  origin_inventory_sha256: securityIdentity.origin_inventory_sha256,
+  target_approval_artifact_sha256: securityIdentity.target_approval_artifact_sha256,
   request_transcript_size: String(requestTranscript.length),
   request_transcript_sha256: sha256Base64Url(requestTranscript),
   revealed_request_ranges: rangeFor(requestTranscript),
@@ -205,7 +211,6 @@ const subjectIdentity = {
   binding_value_sha256: sha256Base64Url(result.binding_value),
 };
 
-const presentationBytes = Buffer.from("real-production-presentation");
 const resultBytes = Buffer.from(JSON.stringify(result));
 const resultRegistryBytes = Buffer.from(resultKeyRegistryRaw);
 const proxyProvenance = {
@@ -342,6 +347,8 @@ const semanticVerification = {
 };
 const trustedInputs = {
   server_identity: result.server_identity,
+  origin_inventory_sha256: result.origin_inventory_sha256,
+  target_approval_artifact_sha256: result.target_approval_artifact_sha256,
   profile_id: result.profile_id,
   profile_sha256: result.profile_sha256,
   verifier_key_id: result.verifier_key_id,
@@ -1356,7 +1363,7 @@ assert.throws(
 );
 const sparseProfileSha256 = Buffer.alloc(32, 9).toString("base64url");
 const fullSparseResult = {
-  version: 2,
+  version: 3,
   profile_id: "fusou-require-info-v2-sparse",
   disclosure_mode: "sparse",
   profile_sha256: sparseProfileSha256,
@@ -1375,6 +1382,8 @@ const fullSparseResult = {
   tlsn_attestation_id: result.tlsn_attestation_id,
   presentation_sha256: sha256Base64Url(presentationBytes),
   server_identity: result.server_identity,
+  origin_inventory_sha256: result.origin_inventory_sha256,
+  target_approval_artifact_sha256: result.target_approval_artifact_sha256,
   request_transcript_size: result.request_transcript_size,
   revealed_request_ranges: result.revealed_request_ranges,
   response_transcript_size: result.response_transcript_size,
@@ -1615,6 +1624,8 @@ await assert.rejects(
     canonicalUserId: result.canonical_user_id,
     canonicalDeviceId: result.device_id,
     deviceChallenge: result.device_challenge,
+    originInventorySha256: securityIdentity.origin_inventory_sha256,
+    targetApprovalArtifactSha256: securityIdentity.target_approval_artifact_sha256,
     notaryRegistry: { [securityIdentity.notary_key_id]: Buffer.alloc(32, 8).toString("base64url") },
   }),
   /(?:alpha\.15 Presentation cryptographic inspection failed|semantic Presentation (?:cryptographic|profile) verification failed)/,
@@ -1629,6 +1640,8 @@ await assert.rejects(
     canonicalUserId: result.canonical_user_id,
     canonicalDeviceId: result.device_id,
     deviceChallenge: result.device_challenge,
+    originInventorySha256: securityIdentity.origin_inventory_sha256,
+    targetApprovalArtifactSha256: securityIdentity.target_approval_artifact_sha256,
     notaryRegistry: { [securityIdentity.notary_key_id]: Buffer.alloc(32, 8).toString("base64url") },
     syntheticTrustRootDer: Buffer.from("not-a-root").toString("base64url"),
   }),

@@ -91,12 +91,19 @@ function parseCanonicalReceiptBytes(receiptBytes) {
 }
 
 function assertResultVerifierKeyId(resultBytes, expectedVerifierKeyId) {
-  let result;
+  let envelope;
   try {
-    result = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(resultBytes));
+    envelope = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(resultBytes));
   } catch {
     throw new Error("Canary Result artifact is not valid UTF-8 JSON");
   }
+  if (
+    !envelope || typeof envelope !== "object" || Array.isArray(envelope) ||
+    envelope.verified !== true || !envelope.result || typeof envelope.result !== "object" || Array.isArray(envelope.result)
+  ) {
+    throw new Error("Canary Result artifact does not contain a verified Result envelope");
+  }
+  const result = envelope.result;
   if (!result || typeof result !== "object" || Array.isArray(result) || typeof result.verifier_key_id !== "string" || result.verifier_key_id.length === 0) {
     throw new Error("Canary Result verifier_key_id claim is missing or invalid");
   }
