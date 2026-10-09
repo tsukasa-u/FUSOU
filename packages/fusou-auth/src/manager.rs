@@ -13,6 +13,10 @@ use uuid::{Uuid, Variant};
 
 const SUPABASE_URL_EMBED: Option<&str> = option_env!("PUBLIC_SUPABASE_URL");
 const SUPABASE_PUBLISHABLE_KEY_EMBED: Option<&str> = option_env!("PUBLIC_SUPABASE_PUBLISHABLE_KEY");
+pub fn compiled_supabase_configuration() -> (Option<&'static str>, Option<&'static str>) {
+    (SUPABASE_URL_EMBED, SUPABASE_PUBLISHABLE_KEY_EMBED)
+}
+
 // Fallback TTL when Supabase response omits expires_in (seconds)
 const DEFAULT_ACCESS_TOKEN_TTL_SECS: i64 = 55 * 60; // 55 minutes to refresh before typical 60m expiry
 

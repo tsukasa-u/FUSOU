@@ -20,6 +20,25 @@ fn main() {
         return;
     }
 
+    if std::env::args_os().nth(1).as_deref()
+        == Some(std::ffi::OsStr::new("--app-compiled-public-configuration"))
+    {
+        if std::env::args_os().count() != 2 {
+            eprintln!("compiled APP public configuration accepts no additional arguments");
+            std::process::exit(1);
+        }
+        match app_lib::app_public_configuration::compiled_public_configuration_report()
+            .and_then(|report| serde_json::to_string(&report).map_err(|error| error.to_string()))
+        {
+            Ok(report) => println!("{report}"),
+            Err(error) => {
+                eprintln!("compiled APP public configuration failed: {error}");
+                std::process::exit(1);
+            }
+        }
+        return;
+    }
+
     #[cfg(target_os = "linux")]
     {
         // === Web Audio Freeze Fix for ALSA Environment ===

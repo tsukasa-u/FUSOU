@@ -13,11 +13,15 @@ fn get_enable_integration() -> bool {
 }
 
 fn create_client() -> Result<DiscordIpcClient, String> {
-    let Some(client_id) = std::option_env!("DISCORD_CLIENT_ID") else {
+    let Some(client_id) = compiled_discord_client_id() else {
         return Err("failed to get DISCORD_CLIENT_ID env variable".to_string());
     };
 
     Ok(DiscordIpcClient::new(client_id))
+}
+
+pub(crate) fn compiled_discord_client_id() -> Option<&'static str> {
+    std::option_env!("DISCORD_CLIENT_ID")
 }
 
 fn ensure_client_initialized(client_slot: &mut Option<DiscordIpcClient>) -> bool {

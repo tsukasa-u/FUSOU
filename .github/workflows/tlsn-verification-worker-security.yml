@@ -309,7 +309,7 @@ jobs:
           CARGO_HOME: ${{ runner.temp }}/fusou-app-cargo-home
         run: cargo fetch --locked --manifest-path packages/FUSOU-APP/src-tauri/Cargo.toml
 
-      - name: Verify actual APP binary approved-reference build handoff (mock control plane)
+      - name: Verify actual APP binary dotenvx inputs and approved-reference handoff (public-only encrypted fixture, mock control plane)
         env:
           CARGO_HOME: ${{ runner.temp }}/fusou-app-cargo-home
           CARGO_NET_OFFLINE: "true"

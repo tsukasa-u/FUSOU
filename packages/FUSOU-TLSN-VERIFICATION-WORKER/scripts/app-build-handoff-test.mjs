@@ -12,6 +12,8 @@ import { account, controls, customMapping, now, release, version1, version2 } fr
 import {
   APP_CONFIGURATION_FINGERPRINT_CONTRACT, appConfigurationProjectionSha256,
 } from "./candidate-artifact-identity.mjs";
+import { writeDotenvxFixture } from "./app-dotenvx-fixture.mjs";
+import { publicAppConfigurationSha256 } from "./app-public-configuration.mjs";
 
 function reference(version = version1) {
   const input = controls(release, version);
@@ -23,6 +25,7 @@ async function withBuild(action, initialReference = reference()) {
   try {
     const app = join(root, "repository/packages/FUSOU-APP/src-tauri");
     await mkdir(app, { recursive: true });
+    await writeDotenvxFixture(dirname(app));
     await writeFile(join(app, "Cargo.lock"), "locked-public-dependencies");
     await writeFile(join(app, "tauri.conf.json"), '{"mainBinaryName":"fusou"}');
     const raw = `${JSON.stringify(initialReference)}\n`;
@@ -47,6 +50,20 @@ async function withBuild(action, initialReference = reference()) {
         writeFileSync(artifact, "public APP fixture artifact");
         if (state.duringBuild) state.duringBuild(context.env);
         return "";
+      }
+      if (args[0] === "--app-compiled-public-configuration") {
+        const report = {
+          schema_version: 1, scope: "fusou-app-compiled-public-configuration-report",
+          public_app_configuration_sha256: publicAppConfigurationSha256({
+            DISCORD_CLIENT_ID: context.env.DISCORD_CLIENT_ID ?? null,
+            PUBLIC_SUPABASE_PUBLISHABLE_KEY: context.env.PUBLIC_SUPABASE_PUBLISHABLE_KEY,
+            PUBLIC_SUPABASE_URL: context.env.PUBLIC_SUPABASE_URL,
+          }),
+          discord_client_id_present: context.env.DISCORD_CLIENT_ID !== undefined,
+          authority_status: "UNVERIFIED",
+        };
+        if (state.changePublicReport) state.changePublicReport(report);
+        return JSON.stringify(report);
       }
       const inputs = Object.fromEntries(ENTRY_INPUT_CONTRACT.compile_inputs.map((name) => [name, context.env[name]]));
       const report = {
@@ -198,7 +215,8 @@ test("credential contamination is rejected in reference fields, omitted from chi
     await withBuild(async ({ build }) => { await assert.rejects(build(), /field inventory/); }, changed);
   }
   await withBuild(async ({ options, build }) => {
-    options.environment.PUBLIC_SUPABASE_PUBLISHABLE_KEY = "sb_secret_private_value";
+    await writeFile(join(options.repositoryDirectory, "packages/FUSOU-APP/src-tauri/.env"),
+      'PUBLIC_SUPABASE_URL="https://auth.example.com"\nPUBLIC_SUPABASE_PUBLISHABLE_KEY="sb_secret_private_value"\n');
     await assert.rejects(build(), /not private credentials/);
   });
   assert.throws(() => runPublicBuildCommand(process.execPath,
@@ -216,6 +234,7 @@ test("unavailable independent pins/toolchain and in-checkout output cannot start
       await assert.rejects(build());
       assert.equal(commands.length, 0);
     });
+
   }
   await withBuild(async ({ options, build }) => {
     options.toolchain = "1.94.0";
@@ -225,4 +244,46 @@ test("unavailable independent pins/toolchain and in-checkout output cannot start
     options.outputDirectory = join(options.repositoryDirectory, "build");
     await assert.rejects(build(), /outside the approved source/);
   });
+});
+
+test("Auth inputs must originate from canonical dotenvx files even when parent environment supplies them", async () => {
+  await withBuild(async ({ options, build }) => {
+    options.environment.PUBLIC_SUPABASE_URL = "https://ambient.example.com";
+    options.environment.PUBLIC_SUPABASE_PUBLISHABLE_KEY = "sb_publishable_ambient_fixture";
+    await writeFile(join(options.repositoryDirectory, "packages/FUSOU-APP/.env"), "# no Auth inputs\n");
+    await writeFile(join(options.repositoryDirectory, "packages/FUSOU-APP/src-tauri/.env"), "# no Auth inputs\n");
+    await assert.rejects(build(), /required dotenvx APP public input/);
+  });
+});
+
+test("public input/secret environment overwrites, file changes and mismatched actual public reports cannot produce a record", async () => {
+  for (const mutate of [
+    (env) => { env.PUBLIC_SUPABASE_URL = "https://substituted.example.com"; },
+    (env) => { env.PUBLIC_SUPABASE_PUBLISHABLE_KEY = "sb_publishable_substituted"; },
+    (env) => { env.DISCORD_CLIENT_ID = "999"; },
+    (env) => { env.TAURI_SIGNING_PRIVATE_KEY = "private-injected-fixture"; },
+    (env) => { env.TAURI_SIGNING_PRIVATE_KEY_PASSWORD = "private-injected-password"; },
+    (env) => { env.NODE_OPTIONS = "--inspect"; },
+  ]) {
+    await withBuild(async (state) => {
+      state.duringBuild = mutate;
+      await assert.rejects(state.build(), /changed after input isolation/);
+      await assert.rejects(readFile(join(state.options.outputDirectory, "app-build-record.json")), /ENOENT/);
+    });
+  }
+  await withBuild(async (state) => {
+    state.duringBuild = () => writeFileSync(join(state.options.repositoryDirectory, "packages/FUSOU-APP/src-tauri/.env"), "# replaced\n");
+    await assert.rejects(state.build(), /dotenvx files changed/);
+  });
+  for (const changeReport of [
+    (report) => { report.public_app_configuration_sha256 = "a".repeat(43); },
+    (report) => { report.discord_client_id_present = false; },
+    (report) => { delete report.public_app_configuration_sha256; },
+  ]) {
+    await withBuild(async (state) => {
+      state.changePublicReport = changeReport;
+      await assert.rejects(state.build(), /compiled APP public configuration|actual APP binary public configuration/);
+      await assert.rejects(readFile(join(state.options.outputDirectory, "app-build-record.json")), /ENOENT/);
+    });
+  }
 });

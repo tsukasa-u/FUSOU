@@ -9,6 +9,7 @@ use kc_api::interface;
 use tauri::{Emitter, Manager};
 // use crate::notify; // access via module path since we declare below
 mod json_parser;
+pub mod app_public_configuration;
 
 use fusou_auth::{AuthManager, FileStorage, Storage};
 use tauri::AppHandle;

@@ -4,6 +4,10 @@ import { lstat, mkdir, readFile, realpath, writeFile } from "node:fs/promises";
 import { basename, dirname, join, resolve, sep } from "node:path";
 import { assertWorkerEndpointMapping } from "./app-worker-endpoint-mapping.mjs";
 import { canonicalJson } from "./production-trust-contract.mjs";
+import { loadCanonicalAppDotenvx, publicToolEnvironment } from "./app-dotenvx-inputs.mjs";
+import {
+  publicAppConfigurationSha256, publicAppEnvironment, validatePublicAppInputs,
+} from "./app-public-configuration.mjs";
 
 export const ENTRY_INPUT_CONTRACT = JSON.parse(await readFile(new URL("./app-worker-entry-input-contract-v1.json", import.meta.url), "utf8"));
 export const sha256 = (bytes) => createHash("sha256").update(bytes).digest("base64url");
@@ -103,12 +107,8 @@ export function assertBuildReference(reference, expectedWorkerSha) {
   return reference;
 }
 
-export function approvedBuildEnvironment(environment, reference, appSourceSha, targetDirectory) {
-  const result = {};
-  for (const name of ["PATH", "HOME", "USER", "USERPROFILE", "APPDATA", "LOCALAPPDATA", "SystemRoot",
-    "TMP", "TEMP", "TMPDIR", "RUSTUP_HOME", "CARGO_HOME", "CARGO_NET_OFFLINE", "RUSTUP_AUTO_INSTALL"]) {
-    if (environment[name] !== undefined) result[name] = environment[name];
-  }
+export function approvedBuildEnvironment(environment, reference, appSourceSha, targetDirectory, publicInputs) {
+  const result = publicToolEnvironment(environment);
   // Do not inherit dotenv overloads, compiler wrappers/flags or credential-bearing environments.
   for (const name of Object.keys(environment)) {
     if (name.startsWith("FUSOU_TLSN_") &&
@@ -120,37 +120,10 @@ export function approvedBuildEnvironment(environment, reference, appSourceSha, t
     throw new Error("inherited APP source pin conflicts with the approved source");
   }
   return {
-    ...result, ...publicAppBuildInputs(environment), ...reference.compile_inputs,
+    ...result, ...publicAppEnvironment(publicInputs), ...reference.compile_inputs,
     FUSOU_APP_BUILD_SOURCE_SHA: appSourceSha,
     CARGO_TARGET_DIR: targetDirectory,
   };
-}
-
-function publicAppBuildInputs(environment) {
-  const inputs = {};
-  for (const name of ["PUBLIC_SUPABASE_URL", "PUBLIC_SUPABASE_PUBLISHABLE_KEY", "DISCORD_CLIENT_ID"]) {
-    if (environment[name] !== undefined) inputs[name] = environment[name];
-  }
-  if (inputs.PUBLIC_SUPABASE_URL !== undefined) {
-    const url = new URL(inputs.PUBLIC_SUPABASE_URL);
-    if (url.protocol !== "https:" || url.username || url.password || url.search || url.hash) {
-      throw new Error("public APP Supabase endpoint is invalid");
-    }
-  }
-  if (inputs.PUBLIC_SUPABASE_PUBLISHABLE_KEY !== undefined) {
-    const key = inputs.PUBLIC_SUPABASE_PUBLISHABLE_KEY;
-    let anonymousJwt = false;
-    if (typeof key === "string" && /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(key)) {
-      anonymousJwt = parseJson(Buffer.from(key.split(".")[1], "base64url"), "public Supabase key").role === "anon";
-    }
-    if (typeof key !== "string" || (!/^sb_publishable_[A-Za-z0-9_-]+$/.test(key) && !anonymousJwt)) {
-      throw new Error("APP build accepts only a public Supabase publishable/anon key, not private credentials");
-    }
-  }
-  if (inputs.DISCORD_CLIENT_ID !== undefined && !/^\d+$/.test(inputs.DISCORD_CLIENT_ID)) {
-    throw new Error("public APP Discord client ID is invalid");
-  }
-  return inputs;
 }
 
 export function runPublicBuildCommand(command, args, options) {
@@ -184,10 +157,20 @@ export function assertCompiledReport(report, reference, appSourceSha, profile) {
   }
 }
 
+export function assertCompiledPublicConfiguration(report, inputs) {
+  exactFields(report, ["schema_version", "scope", "public_app_configuration_sha256",
+    "discord_client_id_present", "authority_status"], "compiled APP public configuration report");
+  if (report.schema_version !== 1 || report.scope !== "fusou-app-compiled-public-configuration-report" ||
+      report.public_app_configuration_sha256 !== publicAppConfigurationSha256(inputs) ||
+      report.discord_client_id_present !== (inputs.DISCORD_CLIENT_ID !== null) || report.authority_status !== "UNVERIFIED") {
+    throw new Error("actual APP binary public configuration does not match canonical dotenvx inputs");
+  }
+}
+
 export async function buildApprovedApp({
   referencePath, expectedReferenceSha256, expectedWorkerSha, expectedAppSha, outputDirectory,
   repositoryDirectory, toolchain, profile = "release", environment = process.env,
-}, { run = runPublicBuildCommand } = {}) {
+}, { run = runPublicBuildCommand, loadDotenvx = loadCanonicalAppDotenvx } = {}) {
   if (!digestPattern.test(expectedReferenceSha256 ?? "") || !shaPattern.test(expectedAppSha ?? "") ||
       !/^\d+\.\d+\.\d+$/.test(toolchain ?? "") || !["debug", "release"].includes(profile)) {
     throw new Error("independent reference hash, APP source, exact Rust toolchain and build profile are required");
@@ -204,17 +187,25 @@ export async function buildApprovedApp({
   const bytes = await readFile(referencePath);
   if (sha256(bytes) !== expectedReferenceSha256) throw new Error("reference raw SHA-256 does not match the independent approved pin");
   const reference = assertBuildReference(parseJson(bytes, "APP Worker reference"), expectedWorkerSha);
+  const appDirectory = join(repositoryDirectory, "packages/FUSOU-APP");
+  const dotenvxInputs = await loadDotenvx(appDirectory, environment);
+  const publicInputs = validatePublicAppInputs(dotenvxInputs.inputs);
   const targetDirectory = join(outputDirectory, "cargo-target");
   const env = {
-    ...approvedBuildEnvironment(environment, reference, expectedAppSha, targetDirectory),
+    ...approvedBuildEnvironment(environment, reference, expectedAppSha, targetDirectory, publicInputs),
     RUSTUP_TOOLCHAIN: toolchain,
   };
+  const expectedEnvironment = { ...env };
   async function unchanged() {
     const stat = await lstat(referencePath, { bigint: true });
     if (stat.dev !== initialStat.dev || stat.ino !== initialStat.ino || stat.mtimeNs !== initialStat.mtimeNs ||
         stat.ctimeNs !== initialStat.ctimeNs || !stat.isFile() || sha256(await readFile(referencePath)) !== expectedReferenceSha256) {
       throw new Error("approved reference changed during APP build");
     }
+    if (JSON.stringify(Object.entries(env).sort()) !== JSON.stringify(Object.entries(expectedEnvironment).sort())) {
+      throw new Error("actual APP binary/build environment changed after input isolation");
+    }
+    await dotenvxInputs.assertUnchanged();
     inspectSource(repositoryDirectory, expectedAppSha, run, env);
   }
   await unchanged();
@@ -225,7 +216,6 @@ export async function buildApprovedApp({
   if (!rustc.startsWith(`rustc ${toolchain} `) || !cargo.startsWith(`cargo ${toolchain} `)) {
     throw new Error("actual Rust/Cargo toolchain does not match the independently selected toolchain");
   }
-  const appDirectory = join(repositoryDirectory, "packages/FUSOU-APP");
   const lockBytes = await readFile(join(appDirectory, "src-tauri/Cargo.lock"));
   const tauriConfigBytes = await readFile(join(appDirectory, "src-tauri/tauri.conf.json"));
   const buildArgs = ["exec", "tauri", "build", "--ci", "--no-bundle", "--features", "tlsn-production,custom-protocol"];
@@ -239,6 +229,9 @@ export async function buildApprovedApp({
   const artifactBytes = await readFile(artifactPath);
   const compiledReport = parseJson(run(artifactPath, ["--tlsn-compiled-worker-entry"], { cwd: appDirectory, env }), "compiled APP report");
   assertCompiledReport(compiledReport, reference, expectedAppSha, profile);
+  const compiledPublicConfiguration = parseJson(run(artifactPath, ["--app-compiled-public-configuration"],
+    { cwd: appDirectory, env }), "compiled APP public configuration report");
+  assertCompiledPublicConfiguration(compiledPublicConfiguration, publicInputs);
   await unchanged();
   if (sha256(await readFile(artifactPath)) !== sha256(artifactBytes) ||
       sha256(await readFile(join(appDirectory, "src-tauri/Cargo.lock"))) !== sha256(lockBytes) ||
@@ -246,16 +239,20 @@ export async function buildApprovedApp({
     throw new Error("APP build artifact/lock/config changed during handoff verification");
   }
   const record = {
-    schema_version: 1, scope: "fusou-tlsn-app-operator-build-record", created_at: new Date().toISOString(),
+    schema_version: 2, scope: "fusou-tlsn-app-operator-build-record", created_at: new Date().toISOString(),
     authority_status: "UNVERIFIED", compiled_input_comparison: "VERIFIED",
     reference_sha256: expectedReferenceSha256, worker_source_sha: expectedWorkerSha,
     app_source_sha: expectedAppSha, active_version_id: reference.cloudflare.version_id,
     entry_input_sha256: compiledReport.entry_input_sha256, disclosure_mode: reference.disclosure_mode,
-    public_app_build_inputs_sha256: sha256(canonicalJson(publicAppBuildInputs(environment))),
+    public_app_build_inputs_sha256: sha256(canonicalJson(publicAppEnvironment(publicInputs))),
+    public_app_configuration_sha256: publicAppConfigurationSha256(publicInputs),
+    public_app_configuration_comparison: "VERIFIED",
+    dotenvx_input_reference: dotenvxInputs.reference,
     rust_toolchain: toolchain, rustc, cargo, build_profile: profile, build_command: ["pnpm", ...buildArgs],
     cargo_lock_sha256: sha256(lockBytes), tauri_config_sha256: sha256(tauriConfigBytes),
     artifact: { path: artifactPath, sha256: sha256(artifactBytes), byte_length: artifactBytes.length },
     compiled_report: compiledReport,
+    compiled_public_configuration: compiledPublicConfiguration,
   };
   const recordPath = join(outputDirectory, "app-build-record.json");
   await writeFile(recordPath, `${JSON.stringify(record, null, 2)}\n`, { flag: "wx", mode: 0o600 });
