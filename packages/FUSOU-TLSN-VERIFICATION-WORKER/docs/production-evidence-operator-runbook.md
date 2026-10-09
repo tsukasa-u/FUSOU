@@ -242,7 +242,7 @@ result-exact.bin
 consume-receipt.json
 ```
 
-Also preserve `candidate-manifest.json`, `candidate-identity.json` and any `verifier-execution-receipt.json` / `verifier-execution-receipt-header.bin` emitted by the APP. A candidate manifest's `UNAPPROVED`, `NOT_YET_OBSERVED` or pending status is not Target Approval authority. Missing execution/required evidence is a stop, not permission to fabricate it.
+Also preserve the APP writer's `device-identity.json`, `capture-provenance.json`, `candidate-identity.json` and `candidate-manifest.json`. The writer emits `verifier-execution-receipt-header.txt` and `verifier-execution-receipt.bin` only when the corresponding receipt bytes are present; these are conditional files, not part of the nine-file minimum. When a receipt is required for the capture, compare its presence and digest with `candidate-manifest.json` fields `candidate_status`, `verifier_execution_receipt_status`, `verifier_execution_receipt_sha256` and the `artifacts` descriptors. A missing required receipt or an inconsistent descriptor is a stop: do not infer, regenerate or rename files to fill the gap. A candidate manifest's `UNAPPROVED`, `NOT_YET_OBSERVED` or pending status is not Target Approval authority. Missing execution/required evidence is a stop, not permission to fabricate it.
 
 From the Worker directory, this presence check is deliberately only a completeness check; the collector performs cryptographic verification:
 
