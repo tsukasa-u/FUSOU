@@ -314,3 +314,21 @@ jobs:
           CARGO_HOME: ${{ runner.temp }}/fusou-app-cargo-home
           CARGO_NET_OFFLINE: "true"
         run: pnpm --dir packages/FUSOU-TLSN-VERIFICATION-WORKER run test:app-build-handoff-smoke
+
+      - name: Verify APP public-configuration Rust unit test (exactly one public-fixture test)
+        shell: bash
+        run: |
+          test_name=app_public_configuration::tests::public_configuration_requires_auth_and_binds_optional_discord
+          test_log="${{ runner.temp }}/app-public-configuration-rust-unit.log"
+          env -i \
+            PATH="$PATH" HOME="$HOME" \
+            RUSTUP_HOME="${RUSTUP_HOME:-$HOME/.rustup}" RUSTUP_AUTO_INSTALL=0 \
+            CARGO_HOME="${{ runner.temp }}/fusou-app-cargo-home" \
+            CARGO_TARGET_DIR="${{ runner.temp }}/fusou-app-public-configuration-target" \
+            CARGO_NET_OFFLINE=true \
+            cargo +1.95.0 test --locked --manifest-path packages/FUSOU-APP/src-tauri/Cargo.toml \
+              --features tlsn-production --lib "$test_name" -- --exact \
+            2>&1 | tee "$test_log"
+          grep -Fx "test $test_name ... ok" "$test_log"
+          grep -E '^test result: ok\. 1 passed; 0 failed; 0 ignored;' "$test_log"
+          echo 'APP public-configuration Rust unit: PASS=1 FAIL=0 SKIP=0'
