@@ -20,6 +20,7 @@ pub use configs::ChannelTransportKind;
 pub use configs::ConfigsAppAssetSync;
 pub use configs::ConfigsAppQuestTreeSender;
 pub use configs::ConfigsProxy;
+pub use configs::get_tlsn_compile_inputs;
 pub use configs::TlsnProxyConfig;
 pub use configs::{get_tlsn_origin_inventory, TlsnOriginInventory, TlsnOriginTarget};
 

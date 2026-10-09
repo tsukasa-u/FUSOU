@@ -1,6 +1,24 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 fn main() {
+    if std::env::args_os().nth(1).as_deref()
+        == Some(std::ffi::OsStr::new("--tlsn-compiled-worker-entry"))
+    {
+        if std::env::args_os().count() != 2 {
+            eprintln!("compiled Worker entry report accepts no additional arguments");
+            std::process::exit(1);
+        }
+        match app_lib::tlsn_build_handoff::compiled_worker_entry_report()
+            .and_then(|report| serde_json::to_string(&report).map_err(|error| error.to_string()))
+        {
+            Ok(report) => println!("{report}"),
+            Err(error) => {
+                eprintln!("compiled Worker entry report failed: {error}");
+                std::process::exit(1);
+            }
+        }
+        return;
+    }
 
     #[cfg(target_os = "linux")]
     {

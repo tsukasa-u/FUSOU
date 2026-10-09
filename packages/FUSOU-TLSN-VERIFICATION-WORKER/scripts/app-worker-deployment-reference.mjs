@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { FORBIDDEN_PRODUCTION_INPUTS } from "./deployment-contract.mjs";
+import { assertWorkerEndpointMapping, observeWorkerEndpointMapping } from "./app-worker-endpoint-mapping.mjs";
 import {
   assertProvenanceEvidence,
   workflowContextFromEnvironment,
@@ -146,7 +147,7 @@ export function approvedProductionRelease(environment, provenance, publicManifes
   };
 }
 
-export function createAppWorkerReference(release, deploymentPayload, versionPayload, accountId, observedAt) {
+export function createAppWorkerReference(release, deploymentPayload, versionPayload, accountId, observedAt, endpointMapping) {
   if (!/^[0-9a-f]{32}$/.test(accountId ?? "")) throw new Error("Cloudflare account ID is missing or invalid");
   if (!Number.isFinite(Date.parse(observedAt))) throw new Error("control-plane observation timestamp is invalid");
   const active = activeDeployment(deploymentPayload);
@@ -155,6 +156,9 @@ export function createAppWorkerReference(release, deploymentPayload, versionPayl
     throw new Error("Cloudflare version detail does not match the active deployment/version");
   }
   const bindings = versionPayload.result.resources.bindings;
+  if (bindings.some((binding) => !binding || typeof binding.name !== "string" || typeof binding.type !== "string")) {
+    throw new Error("Cloudflare version binding metadata is invalid");
+  }
   if (bindings.some((binding) => FORBIDDEN_PRODUCTION_INPUTS.includes(binding.name) ||
       binding.name === "TLSN_TEST_BINDING_VALUE")) {
     throw new Error("active Cloudflare version contains forbidden Canary/Test bindings");
@@ -171,19 +175,21 @@ export function createAppWorkerReference(release, deploymentPayload, versionPayl
   }
   const script = release.compile_inputs.FUSOU_TLSN_EXPECTED_WORKER_NAME;
   const source = `https://api.cloudflare.com/client/v4/accounts/${accountId}/workers/scripts/${script}`;
+  assertWorkerEndpointMapping(endpointMapping, new URL(release.compile_inputs.FUSOU_TLSN_RUNTIME_ATTESTATION_ENDPOINT).origin, accountId, script);
   return {
-    schema_version: 1,
+    schema_version: 2,
     scope: "tlsn-app-approved-worker-deployment-reference",
     authority: "operator-controlled-approved-release-and-authenticated-cloudflare-control-plane",
     observed_at: observedAt,
-    release_context: release.context,
+    release_context: { ...release.context },
     disclosure_mode: release.disclosureMode,
+    endpoint_mapping: structuredClone(endpointMapping),
     cloudflare: {
       account_id: accountId, script_name: script,
       deployments_source: `${source}/deployments`,
       version_source: `${source}/versions/${active.version_id}`,
       ...active,
-      checked_public_bindings: release.publicBindings,
+      checked_public_bindings: { ...release.publicBindings },
     },
     compile_inputs: {
       ...release.compile_inputs,
@@ -198,30 +204,58 @@ export async function acquireAppWorkerReference({ environment, provenance, publi
   const accountId = required(environment, "CLOUDFLARE_ACCOUNT_ID");
   if (!/^[0-9a-f]{32}$/.test(accountId)) throw new Error("Cloudflare account ID is invalid");
   const token = required(environment, "CLOUDFLARE_API_TOKEN");
-  const source = `https://api.cloudflare.com/client/v4/accounts/${accountId}/workers/scripts/${release.compile_inputs.FUSOU_TLSN_EXPECTED_WORKER_NAME}`;
+  const scriptName = release.compile_inputs.FUSOU_TLSN_EXPECTED_WORKER_NAME;
+  const scriptPath = `/accounts/${accountId}/workers/scripts/${scriptName}`;
   async function get(path) {
-    const response = await fetchImpl(`${source}${path}`, {
-      headers: { Authorization: `Bearer ${token}` },
-      redirect: "error", signal: AbortSignal.timeout(10_000),
-    });
+    const url = `https://api.cloudflare.com/client/v4${path}`;
+    let response;
+    try {
+      response = await fetchImpl(url, {
+        headers: { Authorization: `Bearer ${token}` },
+        redirect: "error", signal: AbortSignal.timeout(10_000),
+      });
+    } catch {
+      throw new Error("Cloudflare control-plane request failed (network, timeout or redirect)");
+    }
     if (response.status !== 200) throw new Error(`Cloudflare control-plane request failed (${response.status})`);
-    return response.json();
+    if (response.redirected || (response.url && response.url !== url)) throw new Error("Cloudflare control-plane response URL changed");
+    try {
+      return await response.json();
+    } catch {
+      throw new Error("Cloudflare control-plane response is malformed JSON");
+    }
   }
-  const deployments = await get("/deployments");
+  const deployments = await get(`${scriptPath}/deployments`);
   const active = activeDeployment(deployments);
-  const version = await get(`/versions/${active.version_id}`);
-  const reference = createAppWorkerReference(release, deployments, version, accountId, new Date().toISOString());
-  const latest = activeDeployment(await get("/deployments"));
+  const version = await get(`${scriptPath}/versions/${active.version_id}`);
+  const mappingInputs = {
+    get, accountId, scriptName,
+    origin: new URL(release.compile_inputs.FUSOU_TLSN_RUNTIME_ATTESTATION_ENDPOINT).origin,
+  };
+  const endpointMapping = await observeWorkerEndpointMapping(mappingInputs);
+  const reference = createAppWorkerReference(release, deployments, version, accountId, new Date().toISOString(), endpointMapping);
+  const latest = activeDeployment(await get(`${scriptPath}/deployments`));
   if (latest.deployment_id !== active.deployment_id || latest.version_id !== active.version_id) {
     throw new Error("active Cloudflare deployment changed during APP handoff");
+  }
+  if (JSON.stringify(await observeWorkerEndpointMapping(mappingInputs)) !== JSON.stringify(endpointMapping)) {
+    throw new Error("Cloudflare endpoint/script mapping changed during APP handoff");
   }
   return reference;
 }
 
 export async function writeAppWorkerReference(environment) {
   const outputPath = resolve(required(environment, "TLSN_APP_WORKER_REFERENCE_PATH"));
-  const provenance = JSON.parse(await readFile(required(environment, "TLSN_PROVENANCE_REPORT_PATH"), "utf8"));
-  const publicManifest = JSON.parse(await readFile(required(environment, "TLSN_PUBLIC_MANIFEST_PATH"), "utf8"));
+  async function publicJson(name) {
+    const bytes = await readFile(required(environment, name), "utf8");
+    try {
+      return JSON.parse(bytes);
+    } catch {
+      throw new Error(`independent public reference is malformed JSON: ${name}`);
+    }
+  }
+  const provenance = await publicJson("TLSN_PROVENANCE_REPORT_PATH");
+  const publicManifest = await publicJson("TLSN_PUBLIC_MANIFEST_PATH");
   const reference = await acquireAppWorkerReference({ environment, provenance, publicManifest });
   await writeFile(outputPath, `${JSON.stringify(reference, null, 2)}\n`, { flag: "wx", mode: 0o600 });
   console.log(`[tlsn-app-worker-reference] wrote independent reference ${outputPath} (sha256 ${sha256(await readFile(outputPath))})`);

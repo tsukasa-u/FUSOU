@@ -633,7 +633,7 @@ fn combined_configuration_sha256(
     canonical_sha256(&preimage)
 }
 
-fn canonical_sha256(value: &impl Serialize) -> String {
+pub(crate) fn canonical_sha256(value: &impl Serialize) -> String {
     let value = serde_json::to_value(value).expect("TLSN canonical value must serialize");
     let mut bytes = Vec::new();
     append_canonical_json(&value, &mut bytes);
@@ -1326,6 +1326,10 @@ mod tests {
         let baseline = public_configuration_fingerprints(&fixture.config);
         assert_eq!(baseline.schema_version, 2);
         assert_eq!(baseline.scope, app_configuration_fingerprint_contract().scope);
+        let mut pin_rotation = fixture.config.clone();
+        pin_rotation.expected_active_version_id =
+            Some("5b064508-1cdb-453c-826b-bdea36a8b1e5".to_owned());
+        assert_eq!(public_configuration_fingerprints(&pin_rotation), baseline);
 
         let compile_mutations: [(&str, fn(&mut TlsnPreflightConfig)); 14] = [
             ("expected_deployment_id", |config| {

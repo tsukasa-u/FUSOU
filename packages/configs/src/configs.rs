@@ -1173,6 +1173,27 @@ fn get_tlsn_deployment_config() -> TlsnDeploymentConfig {
     }
 }
 
+pub fn get_tlsn_compile_inputs() -> std::collections::BTreeMap<&'static str, Option<String>> {
+    let config = get_tlsn_deployment_config();
+    std::collections::BTreeMap::from([
+        ("FUSOU_TLSN_EXPECTED_ACTIVE_VERSION_ID", config.expected_active_version_id),
+        ("FUSOU_TLSN_EXPECTED_BINDING_MODE", config.expected_binding_mode),
+        ("FUSOU_TLSN_EXPECTED_DEPLOYMENT_ID", config.expected_deployment_id),
+        ("FUSOU_TLSN_EXPECTED_GIT_COMMIT_SHA", config.expected_git_commit_sha),
+        ("FUSOU_TLSN_EXPECTED_WORKER_NAME", config.expected_worker_name),
+        ("FUSOU_TLSN_NOTARY_ENDPOINT", config.notary_endpoint),
+        ("FUSOU_TLSN_NOTARY_VERIFYING_KEY", config.notary_verifying_key),
+        ("FUSOU_TLSN_RESULT_PUBLIC_KEY_SPKI", config.result_public_key_spki),
+        ("FUSOU_TLSN_RESULT_SIGNER_KEY_ID", config.result_signer_key_id),
+        ("FUSOU_TLSN_RESULT_SIGNING_KEY_REGISTRY", config.result_signing_key_registry),
+        ("FUSOU_TLSN_RUNTIME_ATTESTATION_ENDPOINT", config.worker_health_endpoint),
+        ("FUSOU_TLSN_SESSION_AUTHORITY_ENDPOINT", config.session_authority_endpoint),
+        ("FUSOU_TLSN_SESSION_AUTHORITY_KEY_ID", config.session_authority_key_id),
+        ("FUSOU_TLSN_SESSION_AUTHORITY_PUBLIC_KEY", config.session_authority_public_key),
+        ("FUSOU_TLSN_VERIFICATION_ENDPOINT", config.verification_endpoint),
+    ])
+}
+
 impl ConfigsProxy {
     pub fn get_tlsn_config(&self) -> TlsnProxyConfig {
         let deployment = get_tlsn_deployment_config();
