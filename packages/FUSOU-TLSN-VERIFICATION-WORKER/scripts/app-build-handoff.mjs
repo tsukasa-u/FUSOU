@@ -171,13 +171,16 @@ function inspectSource(repository, expectedSha, run, env) {
 export function assertCompiledReport(report, reference, appSourceSha, profile) {
   exactFields(report, ["schema_version", "scope", "entry_input_sha256", "worker_source_sha", "active_version_id",
     "app_source_sha", "build_profile", "tlsn_production_feature", "custom_protocol_feature", "authority_status"], "compiled APP report");
-  if (report.schema_version !== 1 || report.scope !== "fusou-tlsn-app-compiled-worker-entry-report" ||
-      report.entry_input_sha256 !== entryInputSha256(reference.compile_inputs) ||
-      report.worker_source_sha !== reference.compile_inputs.FUSOU_TLSN_EXPECTED_GIT_COMMIT_SHA ||
-      report.active_version_id !== reference.cloudflare.version_id || report.app_source_sha !== appSourceSha ||
-      report.build_profile !== profile || report.tlsn_production_feature !== true ||
-      report.custom_protocol_feature !== true || report.authority_status !== "UNVERIFIED") {
-    throw new Error("actual APP binary compile inputs/source/profile do not match the approved build handoff");
+  for (const [name, expected] of Object.entries({
+    schema_version: 1, scope: "fusou-tlsn-app-compiled-worker-entry-report",
+    entry_input_sha256: entryInputSha256(reference.compile_inputs),
+    worker_source_sha: reference.compile_inputs.FUSOU_TLSN_EXPECTED_GIT_COMMIT_SHA,
+    active_version_id: reference.cloudflare.version_id, app_source_sha: appSourceSha,
+    build_profile: profile, tlsn_production_feature: true, custom_protocol_feature: true, authority_status: "UNVERIFIED",
+  })) {
+    if (report[name] !== expected) {
+      throw new Error(`actual APP binary does not match approved build handoff: ${name}`);
+    }
   }
 }
 
@@ -225,7 +228,7 @@ export async function buildApprovedApp({
   const appDirectory = join(repositoryDirectory, "packages/FUSOU-APP");
   const lockBytes = await readFile(join(appDirectory, "src-tauri/Cargo.lock"));
   const tauriConfigBytes = await readFile(join(appDirectory, "src-tauri/tauri.conf.json"));
-  const buildArgs = ["exec", "tauri", "build", "--ci", "--no-bundle", "--features", "tlsn-production"];
+  const buildArgs = ["exec", "tauri", "build", "--ci", "--no-bundle", "--features", "tlsn-production,custom-protocol"];
   if (profile === "debug") buildArgs.push("--debug");
   buildArgs.push("--", "--locked");
   run("pnpm", buildArgs, { cwd: appDirectory, env });

@@ -41,7 +41,7 @@ async function withBuild(action, initialReference = reference()) {
       if (command === "rustc") return "rustc 1.95.0 (public-test)\nrelease: 1.95.0";
       if (command === "cargo") return "cargo 1.95.0 (public-test)";
       if (command === "pnpm") {
-        assert.deepEqual(args, ["exec", "tauri", "build", "--ci", "--no-bundle", "--features", "tlsn-production", "--debug", "--", "--locked"]);
+        assert.deepEqual(args, ["exec", "tauri", "build", "--ci", "--no-bundle", "--features", "tlsn-production,custom-protocol", "--debug", "--", "--locked"]);
         const artifact = join(context.env.CARGO_TARGET_DIR, "debug", process.platform === "win32" ? "fusou.exe" : "fusou");
         mkdirSync(dirname(artifact), { recursive: true });
         writeFileSync(artifact, "public APP fixture artifact");
