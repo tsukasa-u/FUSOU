@@ -135,7 +135,29 @@ export function runPublicBuildCommand(command, args, options) {
   return completed.stdout;
 }
 
-function inspectSource(repository, expectedSha, run, env) {
+async function inspectSource(repository, expectedSha, run, env) {
+  const lockRelativePath = "packages/FUSOU-APP/src-tauri/Cargo.lock";
+  const lockPath = join(repository, lockRelativePath);
+  let lockStat;
+  try {
+    lockStat = await lstat(lockPath);
+  } catch (error) {
+    if (error.code === "ENOENT") throw new Error("APP Cargo.lock is missing from the approved source checkout");
+    throw error;
+  }
+  if (!lockStat.isFile() || lockStat.isSymbolicLink()) {
+    throw new Error("APP Cargo.lock must be a regular file in the approved source checkout");
+  }
+  let trackedLockPath;
+  try {
+    trackedLockPath = run("git", ["ls-files", "--error-unmatch", "--", lockRelativePath],
+      { cwd: repository, env }).trim();
+  } catch {
+    throw new Error("APP Cargo.lock must be tracked by the approved source revision");
+  }
+  if (trackedLockPath !== lockRelativePath) {
+    throw new Error("APP Cargo.lock must be tracked by the approved source revision");
+  }
   const head = run("git", ["rev-parse", "HEAD"], { cwd: repository, env }).trim();
   const changes = run("git", ["status", "--porcelain", "--untracked-files=all"], { cwd: repository, env }).trim();
   if (head !== expectedSha || changes) throw new Error("APP source must be the independently approved clean checkout");
@@ -206,9 +228,11 @@ export async function buildApprovedApp({
       throw new Error("actual APP binary/build environment changed after input isolation");
     }
     await dotenvxInputs.assertUnchanged();
-    inspectSource(repositoryDirectory, expectedAppSha, run, env);
+    await inspectSource(repositoryDirectory, expectedAppSha, run, env);
   }
   await unchanged();
+  const lockPath = join(appDirectory, "src-tauri/Cargo.lock");
+  const lockBytes = await readFile(lockPath);
   // Exclusive fresh target/output avoids stale artifacts and reuse of an earlier build record.
   await mkdir(outputDirectory, { mode: 0o700 });
   const rustc = run("rustc", ["--version", "--verbose"], { cwd: repositoryDirectory, env }).trim();
@@ -216,7 +240,6 @@ export async function buildApprovedApp({
   if (!rustc.startsWith(`rustc ${toolchain} `) || !cargo.startsWith(`cargo ${toolchain} `)) {
     throw new Error("actual Rust/Cargo toolchain does not match the independently selected toolchain");
   }
-  const lockBytes = await readFile(join(appDirectory, "src-tauri/Cargo.lock"));
   const tauriConfigBytes = await readFile(join(appDirectory, "src-tauri/tauri.conf.json"));
   const buildArgs = ["exec", "tauri", "build", "--ci", "--no-bundle", "--features", "tlsn-production,custom-protocol"];
   if (profile === "debug") buildArgs.push("--debug");
@@ -234,7 +257,7 @@ export async function buildApprovedApp({
   assertCompiledPublicConfiguration(compiledPublicConfiguration, publicInputs);
   await unchanged();
   if (sha256(await readFile(artifactPath)) !== sha256(artifactBytes) ||
-      sha256(await readFile(join(appDirectory, "src-tauri/Cargo.lock"))) !== sha256(lockBytes) ||
+      sha256(await readFile(lockPath)) !== sha256(lockBytes) ||
       sha256(await readFile(join(appDirectory, "src-tauri/tauri.conf.json"))) !== sha256(tauriConfigBytes)) {
     throw new Error("APP build artifact/lock/config changed during handoff verification");
   }

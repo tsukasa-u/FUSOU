@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -26,7 +26,9 @@ async function withBuild(action, initialReference = reference()) {
     const app = join(root, "repository/packages/FUSOU-APP/src-tauri");
     await mkdir(app, { recursive: true });
     await writeDotenvxFixture(dirname(app));
-    await writeFile(join(app, "Cargo.lock"), "locked-public-dependencies");
+    const lockfilePath = join(app, "Cargo.lock");
+    const lockfileBytes = Buffer.from("locked-public-dependencies");
+    await writeFile(lockfilePath, lockfileBytes);
     await writeFile(join(app, "tauri.conf.json"), '{"mainBinaryName":"fusou"}');
     const raw = `${JSON.stringify(initialReference)}\n`;
     const referencePath = join(root, "reference.json");
@@ -37,10 +39,21 @@ async function withBuild(action, initialReference = reference()) {
       repositoryDirectory: join(root, "repository"), toolchain: "1.95.0", profile: "debug",
       environment: {},
     };
-    const state = { reference: initialReference, options, sourceSha: options.expectedAppSha, dirty: false, commands: [] };
+    const state = {
+      reference: initialReference, options, sourceSha: options.expectedAppSha,
+      dirty: false, lockTracked: true, lockfilePath, lockfileBytes, commands: [],
+    };
     function run(command, args, context) {
       state.commands.push({ command, args, env: context.env });
-      if (command === "git") return args[0] === "rev-parse" ? state.sourceSha : state.dirty ? " M src/main.rs\n" : "";
+      if (command === "git") {
+        if (args[0] === "rev-parse") return state.sourceSha;
+        if (args[0] === "ls-files") {
+          return state.lockTracked ? "packages/FUSOU-APP/src-tauri/Cargo.lock\n" : "";
+        }
+        const lockfileUnchanged = existsSync(state.lockfilePath) &&
+          readFileSync(state.lockfilePath).equals(state.lockfileBytes);
+        return state.dirty || !lockfileUnchanged ? " M packages/FUSOU-APP/src-tauri/Cargo.lock\n" : "";
+      }
       if (command === "rustc") return "rustc 1.95.0 (public-test)\nrelease: 1.95.0";
       if (command === "cargo") return "cargo 1.95.0 (public-test)";
       if (command === "pnpm") {
@@ -113,10 +126,33 @@ test("reference inputs populate an empty build environment exactly and bind the 
     assert.notEqual(actual.worker_source_sha, actual.app_source_sha);
     assert.equal(actual.active_version_id, version1);
     assert.equal(actual.entry_input_sha256, entryInputSha256(reference.compile_inputs));
+    assert.equal(actual.cargo_lock_sha256, sha256(Buffer.from("locked-public-dependencies")));
+    assert.equal(actual.rust_toolchain, options.toolchain);
     const buildCommand = commands.find((entry) => entry.command === "pnpm");
     for (const [name, value] of Object.entries(reference.compile_inputs)) assert.equal(buildCommand.env[name], value, name);
     assert.equal(actual.artifact.sha256, sha256(await readFile(result.artifactPath)));
     await assert.rejects(build(), /EEXIST/);
+  });
+});
+
+test("APP build requires a present, Git-tracked lockfile even when an ignored local copy exists", async () => {
+  await withBuild(async (state) => {
+    await rm(state.lockfilePath);
+    await assert.rejects(state.build(), /APP Cargo.lock is missing/);
+    assert.ok(!state.commands.some((entry) => entry.command === "pnpm"));
+  });
+  await withBuild(async (state) => {
+    state.lockTracked = false;
+    await assert.rejects(state.build(), /APP Cargo.lock must be tracked/);
+    assert.ok(!state.commands.some((entry) => entry.command === "pnpm"));
+  });
+});
+
+test("APP build rejects a lockfile modified during the build and writes no build record", async () => {
+  await withBuild(async (state) => {
+    state.duringBuild = () => writeFileSync(state.lockfilePath, "replaced-lockfile");
+    await assert.rejects(state.build(), /approved clean checkout/);
+    await assert.rejects(readFile(join(state.options.outputDirectory, "app-build-record.json")), /ENOENT/);
   });
 });
 

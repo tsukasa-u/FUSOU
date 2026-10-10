@@ -57,6 +57,35 @@ Replace every placeholder only with independently approved values; this example 
 
 The target's actual identity is established only from the captured TLSN Presentation and its verification. Continue to use the existing post-capture Inventory/Target Approval, exact-byte, evidence archive and independent-verification gates unchanged. A successful pre-capture report, testplay, fixture, mock or CI result does not satisfy Production acceptance.
 
+### APPビルド再現性とローカル検証
+
+APPのCargo lockfileは [`packages/FUSOU-APP/src-tauri/Cargo.lock`](../../FUSOU-APP/src-tauri/Cargo.lock) の1ファイルだけをGit管理する。ルート `.gitignore` の `Cargo.lock` 除外にはこのパスだけ例外を設ける。他パッケージのlockfileを一括で追跡対象にしない。APP build handoff は、承認済みclean source revisionにlockfileが実在し、`git ls-files --error-unmatch` でGit管理下と確認できる場合だけビルドを開始する。lockfileが欠落・未追跡、またはAPP sourceと一緒にdirtyになっている場合は停止する。handoffはビルド前後のbytesを比較し、SHA-256をBuild recordへ記録する。ビルドは `--locked` で実行する。
+
+APP manifestの `rust-version = "1.81"` は最低互換バージョンであり、使用する正確なビルドtoolchainのpinではない。TLSN candidate用PR workflowは `1.98.1` を固定して使用する。既存の一般APP build workflowの `stable` 指定は別経路であり、移動するchannelのままである。candidate handoffでは実行toolchainを明示し、実際の `rustc` / `cargo` version一致を確認したうえで、Build recordに記録する。異なるtoolchainを使う場合は、そのバージョンで同じlocked test/buildを実行してから採用する。
+
+依存変更を意図的に行う場合のみ、APP manifest directoryでlockfileを生成・更新し、その差分をレビューする。lockfileを通常のビルドで更新したり、`cargo update` で無計画に依存を進めたりしない。
+
+```sh
+cd packages/FUSOU-APP/src-tauri
+cargo generate-lockfile
+git diff -- Cargo.lock
+cargo metadata --locked --filter-platform x86_64-unknown-linux-gnu --format-version 1
+cargo test --locked --features tlsn-production tlsn_preflight --lib
+```
+
+candidate regression testsは次で実行する。PRでは [`tlsn-testplay-candidate.yml`](../../../.github/workflows/tlsn-testplay-candidate.yml) が同じJS契約テストと `--locked` Rust preflight testsを走らせる。
+
+```sh
+pnpm --dir packages/FUSOU-APP run test:clean-capture
+node --test \
+  packages/FUSOU-TLSN-VERIFICATION-WORKER/scripts/app-build-handoff-test.mjs \
+  packages/FUSOU-TLSN-VERIFICATION-WORKER/scripts/app-dotenvx-inputs-test.mjs \
+  packages/FUSOU-TLSN-VERIFICATION-WORKER/scripts/app-worker-deployment-reference-test.mjs \
+  packages/FUSOU-TLSN-VERIFICATION-WORKER/scripts/app-worker-endpoint-mapping-test.mjs
+```
+
+これらのfixture / mock tests、Cargo lock検査、CI結果はソース・依存固定・ローカル契約の検証であり、承認済みWorker referenceの取得、secret利用可能性、実APPの運用承認、実Gameplay、実Presentation／Result／archiveの取得やProduction acceptanceを証明しない。これらの実運用ゲートは引き続き別途満たす必要がある。実Productionサービスへの接続やsecret取得をローカル検証の代替として行わない。
+
 ## 2. Input inventory and handling rules
 
 Phase names are literal:

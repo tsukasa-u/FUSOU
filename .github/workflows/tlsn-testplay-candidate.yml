@@ -1,0 +1,90 @@
+name: TLSN testplay candidate checks
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  node-contract-tests:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.14.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.16.0
+          cache: pnpm
+
+      - name: Install JavaScript dependencies
+        run: pnpm install --frozen-lockfile --ignore-scripts
+
+      - name: Verify APP Cargo.lock is committed and not ignored
+        shell: bash
+        run: |
+          set -euo pipefail
+          lockfile=packages/FUSOU-APP/src-tauri/Cargo.lock
+          git ls-files --error-unmatch -- "$lockfile"
+          if git check-ignore --quiet --no-index -- "$lockfile"; then
+            echo "APP Cargo.lock is still ignored" >&2
+            exit 1
+          else
+            status=$?
+            if [[ "$status" -ne 1 ]]; then
+              exit "$status"
+            fi
+          fi
+
+      - name: Run APP clean-capture tests
+        run: pnpm --dir packages/FUSOU-APP run test:clean-capture
+
+      - name: Run APP build handoff and Worker reference tests
+        run: |
+          node --test \
+            packages/FUSOU-TLSN-VERIFICATION-WORKER/scripts/app-build-handoff-test.mjs \
+            packages/FUSOU-TLSN-VERIFICATION-WORKER/scripts/app-dotenvx-inputs-test.mjs \
+            packages/FUSOU-TLSN-VERIFICATION-WORKER/scripts/app-worker-deployment-reference-test.mjs \
+            packages/FUSOU-TLSN-VERIFICATION-WORKER/scripts/app-worker-endpoint-mapping-test.mjs
+
+  rust-tlsn-preflight:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.98.1
+
+      - name: Install Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+
+      - name: Verify APP Cargo.lock is committed and not ignored
+        shell: bash
+        run: |
+          set -euo pipefail
+          lockfile=packages/FUSOU-APP/src-tauri/Cargo.lock
+          git ls-files --error-unmatch -- "$lockfile"
+          if git check-ignore --quiet --no-index -- "$lockfile"; then
+            echo "APP Cargo.lock is still ignored" >&2
+            exit 1
+          else
+            status=$?
+            if [[ "$status" -ne 1 ]]; then
+              exit "$status"
+            fi
+          fi
+
+      - name: Test APP TLSN preflight with the locked dependency graph
+        run: >-
+          cargo test --locked
+          --manifest-path packages/FUSOU-APP/src-tauri/Cargo.toml
+          --features tlsn-production
+          tlsn_preflight --lib
