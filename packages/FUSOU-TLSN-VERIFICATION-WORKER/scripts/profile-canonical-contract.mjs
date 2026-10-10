@@ -1,0 +1,323 @@
+import { createHash } from "node:crypto";
+import { canonicalJson } from "./production-trust-contract.mjs";
+import {
+  assertCandidateServerIdentity as assertCanonicalCandidateServerIdentity,
+  assertCanonicalServerIdentity,
+  COMPLETE_DISCLOSURE_MODE,
+  COMPLETE_PROFILE_ID,
+  FIXTURE_SERVER_IDENTITY,
+  PROFILE_CONTRACT_SCHEMA_VERSION,
+  PROFILE_CONTRACT_SPEC,
+  REQUIRE_INFO_TARGET,
+  RESPONSE_MODES,
+  isFixtureOrSyntheticServerIdentity as isCanonicalFixtureOrSyntheticServerIdentity,
+  SPARSE_DISCLOSURE_MODE,
+  SPARSE_PROFILE_ID,
+} from "../src/origin-trust-contract.mjs";
+
+export {
+  COMPLETE_DISCLOSURE_MODE,
+  COMPLETE_PROFILE_ID,
+  FIXTURE_SERVER_IDENTITY,
+  PROFILE_CONTRACT_SCHEMA_VERSION,
+  PROFILE_CONTRACT_SPEC,
+  REQUIRE_INFO_TARGET,
+  RESPONSE_MODES,
+  SPARSE_DISCLOSURE_MODE,
+  SPARSE_PROFILE_ID,
+};
+
+const SHA256_BASE64URL_PATTERN = /^[A-Za-z0-9_-]{43}$/;
+
+export const PROFILE_CONTRACT_INPUT_MANIFEST = {
+  schema_version: PROFILE_CONTRACT_SCHEMA_VERSION,
+  source_of_truth: PROFILE_CONTRACT_SPEC.source_of_truth,
+  canonicalization: PROFILE_CONTRACT_SPEC.canonicalization,
+  encoding: PROFILE_CONTRACT_SPEC.encoding,
+  whitespace: PROFILE_CONTRACT_SPEC.whitespace,
+  hash_algorithm: PROFILE_CONTRACT_SPEC.hash_algorithm,
+  digest_encoding: PROFILE_CONTRACT_SPEC.digest_encoding,
+  profile_ids: {
+    complete: COMPLETE_PROFILE_ID,
+    sparse: SPARSE_PROFILE_ID,
+  },
+  profile_fields: {
+    complete: PROFILE_CONTRACT_SPEC.complete.field_set,
+    sparse: PROFILE_CONTRACT_SPEC.sparse.field_set,
+  },
+  server_identity: {
+    meaning: PROFILE_CONTRACT_SPEC.server_identity.meaning,
+    fixture_only_value: FIXTURE_SERVER_IDENTITY,
+    production_input: PROFILE_CONTRACT_SPEC.server_identity.production_input,
+  },
+  disclosure_modes: {
+    complete: COMPLETE_DISCLOSURE_MODE,
+    sparse: SPARSE_DISCLOSURE_MODE,
+  },
+  response_modes: {
+    allowed_values: RESPONSE_MODES,
+    hash_inclusion: false,
+    capability_input: PROFILE_CONTRACT_SPEC.response_mode_semantics.capability_input,
+  },
+  production_inputs: PROFILE_CONTRACT_SPEC.production_inputs,
+};
+
+function assertObject(value, label) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(`${label} must be a JSON object`);
+  }
+}
+
+function assertExactKeys(value, expected, label) {
+  const actual = Object.keys(value).sort();
+  const sortedExpected = [...expected].sort();
+  if (canonicalJson(actual) !== canonicalJson(sortedExpected)) {
+    throw new Error(`${label} must contain exactly: ${expected.join(", ")}`);
+  }
+}
+
+function assertString(value, label) {
+  if (typeof value !== "string" || value.length === 0) throw new Error(`${label} must be a non-empty string`);
+}
+
+export function assertServerIdentity(serverIdentity) {
+  return assertCanonicalServerIdentity(serverIdentity);
+}
+
+export function isFixtureOrSyntheticServerIdentity(serverIdentity) {
+  return isCanonicalFixtureOrSyntheticServerIdentity(serverIdentity);
+}
+
+export function assertCandidateServerIdentity(serverIdentity) {
+  return assertCanonicalCandidateServerIdentity(serverIdentity);
+}
+
+function assertCompleteProfile(profile) {
+  assertObject(profile, "complete profile");
+  assertExactKeys(profile, PROFILE_CONTRACT_SPEC.complete.field_set, "complete profile");
+  assertString(profile.id, "complete profile id");
+  assertString(profile.server_identity, "complete profile server_identity");
+  assertString(profile.target, "complete profile target");
+  assertServerIdentity(profile.server_identity);
+  if (profile.id !== COMPLETE_PROFILE_ID) throw new Error("complete profile id is invalid");
+  if (profile.target !== REQUIRE_INFO_TARGET) throw new Error("complete profile target is invalid");
+  return profile;
+}
+
+function assertSparseProfile(profile) {
+  assertObject(profile, "sparse profile");
+  assertExactKeys(profile, PROFILE_CONTRACT_SPEC.sparse.field_set, "sparse profile");
+  assertString(profile.disclosure_mode, "sparse profile disclosure_mode");
+  assertString(profile.id, "sparse profile id");
+  assertString(profile.server_identity, "sparse profile server_identity");
+  assertString(profile.target, "sparse profile target");
+  if (!Number.isInteger(profile.version)) throw new Error("sparse profile version must be an integer");
+  assertServerIdentity(profile.server_identity);
+  if (profile.disclosure_mode !== SPARSE_DISCLOSURE_MODE) throw new Error("sparse profile disclosure_mode is invalid");
+  if (profile.id !== SPARSE_PROFILE_ID) throw new Error("sparse profile id is invalid");
+  if (profile.target !== REQUIRE_INFO_TARGET) throw new Error("sparse profile target is invalid");
+  if (profile.version !== 2) throw new Error("sparse profile version is invalid");
+  return profile;
+}
+
+export function assertCanonicalProfile(profile, kind) {
+  if (kind === "complete") return assertCompleteProfile(profile);
+  if (kind === "sparse") return assertSparseProfile(profile);
+  throw new Error(`unsupported profile kind: ${kind}`);
+}
+
+export function canonicalProfileHash(profile, kind) {
+  const validated = assertCanonicalProfile(profile, kind);
+  const canonical = canonicalJson(validated);
+  const bytes = Buffer.from(canonical, "utf8");
+  return {
+    profile: validated,
+    canonical,
+    utf8_bytes: bytes,
+    sha256: createHash("sha256").update(bytes).digest("base64url"),
+  };
+}
+
+export function profilesForServerIdentity(serverIdentity) {
+  assertServerIdentity(serverIdentity);
+  const complete = {
+    id: COMPLETE_PROFILE_ID,
+    server_identity: serverIdentity,
+    target: REQUIRE_INFO_TARGET,
+  };
+  const sparse = {
+    disclosure_mode: SPARSE_DISCLOSURE_MODE,
+    id: SPARSE_PROFILE_ID,
+    server_identity: serverIdentity,
+    target: REQUIRE_INFO_TARGET,
+    version: 2,
+  };
+  return {
+    complete: canonicalProfileHash(complete, "complete"),
+    sparse: canonicalProfileHash(sparse, "sparse"),
+  };
+}
+
+export function assertProfileHash(value, label) {
+  if (typeof value !== "string" || !SHA256_BASE64URL_PATTERN.test(value)) {
+    throw new Error(`${label} must be a SHA-256 base64url digest`);
+  }
+  return value;
+}
+
+export function assertProfileContractInputs({
+  serverIdentity,
+  profileSha256,
+  sparseProfileSha256,
+} = {}) {
+  const expected = profilesForServerIdentity(serverIdentity);
+  assertProfileHash(profileSha256, "profile_sha256");
+  assertProfileHash(sparseProfileSha256, "sparse_profile_sha256");
+  if (profileSha256 !== expected.complete.sha256) {
+    throw new Error("profile_sha256 does not match the canonical complete profile");
+  }
+  if (sparseProfileSha256 !== expected.sparse.sha256) {
+    throw new Error("sparse_profile_sha256 does not match the canonical sparse profile");
+  }
+  if (expected.complete.sha256 === expected.sparse.sha256) {
+    throw new Error("complete and sparse profile hashes must be distinct");
+  }
+  if (expected.complete.profile.server_identity !== expected.sparse.profile.server_identity) {
+    throw new Error("complete and sparse profiles must share server_identity");
+  }
+  if (expected.complete.profile.target !== expected.sparse.profile.target) {
+    throw new Error("complete and sparse profiles must share target");
+  }
+  return expected;
+}
+
+export function assertDisclosureMode(disclosureMode) {
+  if (![COMPLETE_DISCLOSURE_MODE, SPARSE_DISCLOSURE_MODE].includes(disclosureMode)) {
+    throw new Error("disclosure_mode must be full or sparse");
+  }
+  return disclosureMode;
+}
+
+export function assertResponseMode(responseMode) {
+  if (!RESPONSE_MODES.includes(responseMode)) {
+    throw new Error("response_mode must be async or sync");
+  }
+  return responseMode;
+}
+
+export function assertSelectedProfile({
+  serverIdentity,
+  profileSha256,
+  sparseProfileSha256,
+  disclosureMode,
+} = {}) {
+  const expected = assertProfileContractInputs({ serverIdentity, profileSha256, sparseProfileSha256 });
+  assertDisclosureMode(disclosureMode);
+  const selected = disclosureMode === SPARSE_DISCLOSURE_MODE ? expected.sparse : expected.complete;
+  return {
+    ...selected,
+    disclosure_mode: disclosureMode,
+  };
+}
+
+export function profileContractArtifact({
+  serverIdentity,
+  profileSha256,
+  sparseProfileSha256,
+  disclosureMode = "full|sparse",
+  responseModeCapabilities = RESPONSE_MODES,
+} = {}) {
+  const expected = assertProfileContractInputs({ serverIdentity, profileSha256, sparseProfileSha256 });
+  for (const responseMode of responseModeCapabilities) assertResponseMode(responseMode);
+  return {
+    schema_version: PROFILE_CONTRACT_SCHEMA_VERSION,
+    artifact: "tlsn-profile-canonical-contract",
+    status: "PASS",
+    complete: {
+      profile_id: expected.complete.profile.id,
+      server_identity: expected.complete.profile.server_identity,
+      target: expected.complete.profile.target,
+      canonical_json_sha256: expected.complete.sha256,
+    },
+    sparse: {
+      profile_id: expected.sparse.profile.id,
+      server_identity: expected.sparse.profile.server_identity,
+      target: expected.sparse.profile.target,
+      disclosure_mode: expected.sparse.profile.disclosure_mode,
+      version: expected.sparse.profile.version,
+      canonical_json_sha256: expected.sparse.sha256,
+    },
+    disclosure_mode: disclosureMode,
+    response_mode: {
+      capabilities: [...responseModeCapabilities],
+      hash_inclusion: false,
+    },
+    canonicalization: PROFILE_CONTRACT_SPEC.canonicalization,
+    encoding: PROFILE_CONTRACT_SPEC.encoding,
+    whitespace: PROFILE_CONTRACT_SPEC.whitespace,
+    hash_algorithm: PROFILE_CONTRACT_SPEC.hash_algorithm,
+    digest_encoding: PROFILE_CONTRACT_SPEC.digest_encoding,
+  };
+}
+
+export function productionProfileContractArtifact() {
+  return {
+    schema_version: PROFILE_CONTRACT_SCHEMA_VERSION,
+    source_of_truth: PROFILE_CONTRACT_SPEC.source_of_truth,
+    identity_selection: "Notary-authenticated Presentation identity matched to shipped Origin inventory",
+    profile_hashing: "computed at verification time for the selected identity and disclosure profile",
+  };
+}
+
+export function assertProvenanceProfileContract(profileContract, role, securityIdentity) {
+  if (role === "production") {
+    if (canonicalJson(profileContract) !== canonicalJson(productionProfileContractArtifact())) {
+      throw new Error("Production provenance profile_contract does not match the inventory-derived profile policy");
+    }
+    return;
+  }
+  if (role !== "canary") throw new Error(`unsupported profile contract deployment role: ${role}`);
+  const capabilities = profileContract?.response_mode?.capabilities;
+  const validCapabilities = Array.isArray(capabilities) && (
+    canonicalJson(capabilities) === canonicalJson(["async"]) ||
+    canonicalJson(capabilities) === canonicalJson(["async", "sync"])
+  );
+  if (!validCapabilities) {
+    throw new Error("Canary provenance profile_contract response-mode capabilities are invalid");
+  }
+  let expected;
+  try {
+    expected = profileContractArtifact({
+      serverIdentity: securityIdentity?.server_identity,
+      profileSha256: securityIdentity?.profile_sha256,
+      sparseProfileSha256: securityIdentity?.sparse_profile_sha256,
+      disclosureMode: "full|sparse",
+      responseModeCapabilities: capabilities,
+    });
+  } catch (error) {
+    throw new Error(`Canary provenance profile_contract inputs are invalid: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  if (canonicalJson(profileContract) !== canonicalJson(expected)) {
+    throw new Error("Canary provenance profile_contract does not match its fixed-Origin profile inputs");
+  }
+}
+
+export function profileContractFailureArtifact(failures) {
+  return {
+    schema_version: PROFILE_CONTRACT_SCHEMA_VERSION,
+    artifact: "tlsn-profile-canonical-contract-failures",
+    status: failures.length === 0 ? "PASS" : "FAIL",
+    failure_count: failures.length,
+    failures,
+  };
+}
+
+export function parseProfileDocument(raw, label, kind) {
+  let parsed;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    throw new Error(`${label} must be valid JSON`);
+  }
+  return canonicalProfileHash(parsed, kind);
+}

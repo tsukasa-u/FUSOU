@@ -72,6 +72,18 @@ impl DeviceKey {
         }
     }
 
+    /// Load a locally stored key with a device ID without creating a new local identity.
+    /// This checks local registration metadata only; it does not verify server ownership or revocation.
+    pub async fn load_registered(storage_path: PathBuf) -> Result<Self, AuthError> {
+        let device_key = Self::load_existing(&storage_path)
+            .await?
+            .ok_or(AuthError::DeviceNotRegistered)?;
+        if device_key.device_id().is_none() {
+            return Err(AuthError::DeviceNotRegistered);
+        }
+        Ok(device_key)
+    }
+
     async fn load_existing(storage_path: &Path) -> Result<Option<Self>, AuthError> {
         let bytes = match tokio::fs::read(storage_path).await {
             Ok(bytes) => bytes,
@@ -154,11 +166,8 @@ impl DeviceKey {
                 .mode(0o600)
                 .open(&self.storage_path)
                 .map_err(|e| AuthError::Other(e.to_string()))?;
-            std::fs::set_permissions(
-                &self.storage_path,
-                std::fs::Permissions::from_mode(0o600),
-            )
-            .map_err(|e| AuthError::Other(e.to_string()))?;
+            std::fs::set_permissions(&self.storage_path, std::fs::Permissions::from_mode(0o600))
+                .map_err(|e| AuthError::Other(e.to_string()))?;
         }
 
         tokio::fs::write(&self.storage_path, &json)
@@ -291,6 +300,31 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn load_registered_never_creates_or_replaces_a_key() {
+        let missing_path = temp_path();
+        assert!(matches!(
+            DeviceKey::load_registered(missing_path.clone()).await,
+            Err(AuthError::DeviceNotRegistered)
+        ));
+        assert!(!missing_path.exists());
+
+        let unregistered_path = temp_path();
+        let _ = DeviceKey::load_or_create(unregistered_path.clone())
+            .await
+            .unwrap();
+        let original_bytes = tokio::fs::read(&unregistered_path).await.unwrap();
+        assert!(matches!(
+            DeviceKey::load_registered(unregistered_path.clone()).await,
+            Err(AuthError::DeviceNotRegistered)
+        ));
+        assert_eq!(
+            tokio::fs::read(&unregistered_path).await.unwrap(),
+            original_bytes
+        );
+        let _ = tokio::fs::remove_file(&unregistered_path).await;
+    }
+
+    #[tokio::test]
     async fn signature_is_verifiable() {
         let path = temp_path();
         let key = DeviceKey::load_or_create(path.clone()).await.unwrap();
@@ -300,12 +334,11 @@ mod tests {
         let sig_bytes = B64.decode(&sig_b64).unwrap();
         let pub_bytes = B64.decode(key.public_key_b64()).unwrap();
 
-        let verifying = VerifyingKey::from_bytes(
-            <&[u8; 32]>::try_from(pub_bytes.as_slice()).unwrap(),
-        )
-        .unwrap();
-        let signature =
-            ed25519_dalek::Signature::from_bytes(<&[u8; 64]>::try_from(sig_bytes.as_slice()).unwrap());
+        let verifying =
+            VerifyingKey::from_bytes(<&[u8; 32]>::try_from(pub_bytes.as_slice()).unwrap()).unwrap();
+        let signature = ed25519_dalek::Signature::from_bytes(
+            <&[u8; 64]>::try_from(sig_bytes.as_slice()).unwrap(),
+        );
         assert!(verifying.verify_strict(message, &signature).is_ok());
 
         let _ = tokio::fs::remove_file(&path).await;

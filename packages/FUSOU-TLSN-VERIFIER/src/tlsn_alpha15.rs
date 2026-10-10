@@ -1,0 +1,1073 @@
+use crate::{
+    parse_require_info_request_source, parse_require_info_request_sparse_source,
+    parse_require_info_response_source, parse_require_info_response_sparse_source, sha256,
+    validate_server_identity, verify_transcript_digest, AuthenticatedByteSource, ParsedBinding,
+    ParserLimits, RevealedRange, VerifierError, MAX_ATTESTATION_ID_BYTES, PROFILE_ID,
+    REQUIRE_INFO_TARGET,
+};
+use std::{io::Cursor, ops::Range};
+use thiserror::Error;
+use tlsn_attestation::{presentation::Presentation, CryptoProvider};
+
+pub const SELECTED_REVISION: &str = "refs/tags/v0.1.0-alpha.15";
+pub const SELECTED_COMMIT: &str = "47aee45b53e06648c1b2ad3689b367b8c923fdec";
+pub const PRESENTATION_VERIFY_ENTRY_POINT: &str =
+    "presentation.verify(&CryptoProvider::default())?.attestation.header.id.0";
+pub const UPSTREAM_PRESENTATION_TYPE: &str = "tlsn_attestation::Presentation";
+
+#[derive(Debug, Error, PartialEq, Eq)]
+pub enum Alpha15AdapterError {
+    #[error("alpha.15 Presentation decoding failed: {0}")]
+    PresentationDecode(String),
+    #[error("alpha.15 Presentation verification failed: {0}")]
+    PresentationVerification(String),
+    #[error("alpha.15 Presentation does not disclose an authenticated server identity")]
+    MissingServerIdentity,
+    #[error("alpha.15 Presentation does not disclose an authenticated transcript")]
+    MissingTranscript,
+    #[error("verified alpha.15 output is invalid: {0}")]
+    InvalidVerifiedOutput(&'static str),
+    #[error("authenticated server identity is not in the trusted allowlist")]
+    ServerIdentityNotAllowlisted,
+    #[error("alpha.15 Presentation Notary key is not in the trusted registry")]
+    NotaryKeyNotAllowlisted,
+    #[error("alpha.15 trust anchor is invalid: {0}")]
+    TrustAnchor(String),
+    #[error("authenticated transcript is not covered by the FUSOU disclosure profile: {0}")]
+    DisclosureProfileViolation(&'static str),
+    #[error(transparent)]
+    Parser(#[from] VerifierError),
+}
+
+pub type Result<T> = std::result::Result<T, Alpha15AdapterError>;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RequireInfoDisclosureProfile {
+    server_identity: String,
+}
+
+impl RequireInfoDisclosureProfile {
+    pub const ID: &'static str = PROFILE_ID;
+    pub const TARGET: &'static str = REQUIRE_INFO_TARGET;
+
+    pub fn id(&self) -> &'static str {
+        Self::ID
+    }
+
+    pub fn server_identity(&self) -> &str {
+        &self.server_identity
+    }
+
+    pub fn from_server_identity(server_identity: &str) -> Result<Self> {
+        validate_server_identity(server_identity)?;
+        Ok(Self {
+            server_identity: server_identity.to_owned(),
+        })
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn from_configured_allowlist(server_identity: &str) -> Result<Self> {
+        const CONFIGURED_SERVER_IDENTITIES: &[&str] = &[];
+        if !CONFIGURED_SERVER_IDENTITIES.contains(&server_identity) {
+            return Err(Alpha15AdapterError::ServerIdentityNotAllowlisted);
+        }
+        validate_server_identity(server_identity)?;
+        Ok(Self {
+            server_identity: server_identity.to_owned(),
+        })
+    }
+
+    #[cfg(test)]
+    pub(crate) fn for_mock_tlsn_verification(server_identity: &str) -> Result<Self> {
+        validate_server_identity(server_identity)?;
+        Ok(Self {
+            server_identity: server_identity.to_owned(),
+        })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SparseRequireInfoDisclosureProfile {
+    server_identity: String,
+}
+
+impl SparseRequireInfoDisclosureProfile {
+    pub const ID: &'static str = "fusou-require-info-v2-sparse";
+    pub const VERSION: u16 = 2;
+    pub const DISCLOSURE_MODE: &'static str = "sparse";
+    pub const TARGET: &'static str = REQUIRE_INFO_TARGET;
+
+    pub fn id(&self) -> &'static str {
+        Self::ID
+    }
+
+    pub fn version(&self) -> u16 {
+        Self::VERSION
+    }
+
+    pub fn disclosure_mode(&self) -> &'static str {
+        Self::DISCLOSURE_MODE
+    }
+
+    pub fn server_identity(&self) -> &str {
+        &self.server_identity
+    }
+
+    pub fn from_server_identity(server_identity: &str) -> Result<Self> {
+        validate_server_identity(server_identity)?;
+        Ok(Self {
+            server_identity: server_identity.to_owned(),
+        })
+    }
+}
+
+#[derive(Debug, Clone)]
+enum AuthenticatedTranscriptStorage {
+    Owned {
+        sent: Vec<u8>,
+        received: Vec<u8>,
+    },
+    Sparse {
+        transcript: tlsn_core::transcript::PartialTranscript,
+    },
+}
+
+#[derive(Debug, Clone)]
+pub struct AuthenticatedTranscript {
+    server_identity: String,
+    attestation_id: [u8; MAX_ATTESTATION_ID_BYTES],
+    notary_key_sha256: [u8; 32],
+    transcript: AuthenticatedTranscriptStorage,
+    sent_digest: Option<[u8; 32]>,
+    sent_ranges: Vec<Range<usize>>,
+    received_digest: Option<[u8; 32]>,
+    received_ranges: Vec<Range<usize>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AuthenticatedRequireInfo {
+    pub verified_member_id: String,
+    pub binding: ParsedBinding,
+    pub server_identity: String,
+    pub attestation_id: [u8; MAX_ATTESTATION_ID_BYTES],
+    pub request_transcript_sha256: Option<[u8; 32]>,
+    pub response_transcript_sha256: Option<[u8; 32]>,
+    pub request_transcript_size: u64,
+    pub response_transcript_size: u64,
+    pub revealed_request_ranges: Vec<RevealedRange>,
+    pub revealed_response_ranges: Vec<RevealedRange>,
+}
+
+impl AuthenticatedRequireInfo {
+    pub fn into_verifier_result(
+        self,
+        profile_sha256: [u8; 32],
+        verifier_key_id: String,
+        notary_key_id: String,
+        canonical_user_id: String,
+        canonical_device_id: String,
+        device_challenge: [u8; 32],
+        presentation_sha256: [u8; 32],
+        origin_inventory_sha256: Option<[u8; 32]>,
+        target_approval_artifact_sha256: Option<[u8; 32]>,
+        signature: [u8; 64],
+    ) -> Result<crate::VerifierResult> {
+        let request_transcript_sha256 = self.request_transcript_sha256.ok_or(
+            Alpha15AdapterError::DisclosureProfileViolation(
+                "full request transcript digest is unavailable for sparse disclosure",
+            ),
+        )?;
+        let response_transcript_sha256 = self.response_transcript_sha256.ok_or(
+            Alpha15AdapterError::DisclosureProfileViolation(
+                "full response transcript digest is unavailable for sparse disclosure",
+            ),
+        )?;
+        let result = crate::VerifierResult {
+            version: 2,
+            profile_id: PROFILE_ID.to_owned(),
+            profile_sha256,
+            issuer: crate::ISSUER.to_owned(),
+            proof_purpose: crate::PROOF_PURPOSE.to_owned(),
+            canonical_user_id,
+            canonical_device_id,
+            device_challenge,
+            verified_member_id: self.verified_member_id,
+            attestation_session_id: self.binding.session_id,
+            binding_nonce: self.binding.binding_nonce,
+            binding_value: self.binding.value,
+            verifier_key_id,
+            notary_key_id,
+            tlsn_attestation_id: self.attestation_id.to_vec(),
+            presentation_sha256,
+            server_identity: self.server_identity,
+            origin_inventory_sha256,
+            target_approval_artifact_sha256,
+            request_transcript_size: self.request_transcript_size,
+            request_transcript_sha256,
+            response_transcript_size: self.response_transcript_size,
+            response_transcript_sha256,
+            revealed_request_ranges: self.revealed_request_ranges,
+            revealed_response_ranges: self.revealed_response_ranges,
+            signature,
+        };
+        result.validate().map_err(Alpha15AdapterError::Parser)?;
+        Ok(result)
+    }
+}
+
+#[allow(dead_code)]
+#[derive(Debug)]
+pub(crate) struct Alpha15VerifiedOutput {
+    pub(crate) server_identity: String,
+    pub(crate) attestation_id: [u8; MAX_ATTESTATION_ID_BYTES],
+    pub(crate) notary_key_sha256: [u8; 32],
+    pub(crate) sent_transcript: Vec<u8>,
+    pub(crate) sent_digest: [u8; 32],
+    pub(crate) sent_ranges: Vec<RevealedRange>,
+    pub(crate) received_transcript: Vec<u8>,
+    pub(crate) received_digest: [u8; 32],
+    pub(crate) received_ranges: Vec<RevealedRange>,
+}
+
+impl AuthenticatedTranscript {
+    #[allow(dead_code)]
+    fn from_verified_alpha15(output: Alpha15VerifiedOutput) -> Result<Self> {
+        if output.attestation_id.len() != MAX_ATTESTATION_ID_BYTES {
+            return Err(Alpha15AdapterError::InvalidVerifiedOutput(
+                "attestation ID must be exactly 16 bytes",
+            ));
+        }
+        validate_server_identity(&output.server_identity)?;
+        validate_authenticated_direction(
+            &output.sent_transcript,
+            output.sent_digest,
+            &output.sent_ranges,
+        )?;
+        validate_authenticated_direction(
+            &output.received_transcript,
+            output.received_digest,
+            &output.received_ranges,
+        )?;
+        Self::from_verified_alpha15_parts(
+            output.server_identity,
+            output.attestation_id,
+            output.notary_key_sha256,
+            output.sent_transcript,
+            output.sent_digest,
+            revealed_range_metadata(&output.sent_ranges)?,
+            output.received_transcript,
+            output.received_digest,
+            revealed_range_metadata(&output.received_ranges)?,
+        )
+    }
+
+    fn from_verified_alpha15_parts(
+        server_identity: String,
+        attestation_id: [u8; MAX_ATTESTATION_ID_BYTES],
+        notary_key_sha256: [u8; 32],
+        sent_transcript: Vec<u8>,
+        sent_digest: [u8; 32],
+        sent_ranges: Vec<Range<usize>>,
+        received_transcript: Vec<u8>,
+        received_digest: [u8; 32],
+        received_ranges: Vec<Range<usize>>,
+    ) -> Result<Self> {
+        if attestation_id.len() != MAX_ATTESTATION_ID_BYTES {
+            return Err(Alpha15AdapterError::InvalidVerifiedOutput(
+                "attestation ID must be exactly 16 bytes",
+            ));
+        }
+        validate_server_identity(&server_identity)?;
+        validate_authenticated_direction_metadata(&sent_transcript, sent_digest, &sent_ranges)?;
+        validate_authenticated_direction_metadata(
+            &received_transcript,
+            received_digest,
+            &received_ranges,
+        )?;
+        Ok(Self {
+            server_identity,
+            attestation_id,
+            notary_key_sha256,
+            transcript: AuthenticatedTranscriptStorage::Owned {
+                sent: sent_transcript,
+                received: received_transcript,
+            },
+            sent_digest: Some(sent_digest),
+            sent_ranges,
+            received_digest: Some(received_digest),
+            received_ranges,
+        })
+    }
+
+    fn from_verified_alpha15_partial(
+        server_identity: String,
+        attestation_id: [u8; MAX_ATTESTATION_ID_BYTES],
+        notary_key_sha256: [u8; 32],
+        transcript: tlsn_core::transcript::PartialTranscript,
+    ) -> Result<Self> {
+        if attestation_id.len() != MAX_ATTESTATION_ID_BYTES {
+            return Err(Alpha15AdapterError::InvalidVerifiedOutput(
+                "attestation ID must be exactly 16 bytes",
+            ));
+        }
+        validate_server_identity(&server_identity)?;
+        let sent_source = AuthenticatedByteSource::from_partial(
+            &transcript,
+            tlsn_core::transcript::Direction::Sent,
+        )?;
+        let received_source = AuthenticatedByteSource::from_partial(
+            &transcript,
+            tlsn_core::transcript::Direction::Received,
+        )?;
+        let sent_ranges = sent_source.ranges();
+        let received_ranges = received_source.ranges();
+        let sent_digest = complete_transcript_digest(&sent_source)?;
+        let received_digest = complete_transcript_digest(&received_source)?;
+        Ok(Self {
+            server_identity,
+            attestation_id,
+            notary_key_sha256,
+            transcript: AuthenticatedTranscriptStorage::Sparse { transcript },
+            sent_digest,
+            sent_ranges,
+            received_digest,
+            received_ranges,
+        })
+    }
+
+    fn source(&self, sent: bool) -> Result<AuthenticatedByteSource<'_>> {
+        match (&self.transcript, sent) {
+            (AuthenticatedTranscriptStorage::Owned { sent, .. }, true) => {
+                Ok(AuthenticatedByteSource::new(sent, &self.sent_ranges)?)
+            }
+            (AuthenticatedTranscriptStorage::Owned { received, .. }, false) => Ok(
+                AuthenticatedByteSource::new(received, &self.received_ranges)?,
+            ),
+            (AuthenticatedTranscriptStorage::Sparse { transcript }, true) => {
+                Ok(AuthenticatedByteSource::from_partial(
+                    transcript,
+                    tlsn_core::transcript::Direction::Sent,
+                )?)
+            }
+            (AuthenticatedTranscriptStorage::Sparse { transcript }, false) => {
+                Ok(AuthenticatedByteSource::from_partial(
+                    transcript,
+                    tlsn_core::transcript::Direction::Received,
+                )?)
+            }
+        }
+    }
+
+    fn revealed_ranges(&self, sent: bool) -> Vec<RevealedRange> {
+        let source = self
+            .source(sent)
+            .expect("authenticated transcript range metadata was validated at construction");
+        source
+            .ranges()
+            .iter()
+            .map(|range| RevealedRange {
+                start: range.start as u64,
+                length: range.len() as u64,
+                bytes: source
+                    .read(range.clone())
+                    .expect("authenticated range metadata was validated at construction"),
+            })
+            .collect()
+    }
+
+    pub fn server_identity(&self) -> &str {
+        &self.server_identity
+    }
+
+    pub fn attestation_id(&self) -> &[u8; MAX_ATTESTATION_ID_BYTES] {
+        &self.attestation_id
+    }
+
+    pub fn notary_key_sha256(&self) -> &[u8; 32] {
+        &self.notary_key_sha256
+    }
+
+    pub fn request_transcript_sha256(&self) -> Option<&[u8; 32]> {
+        self.sent_digest.as_ref()
+    }
+
+    pub fn request_transcript_size(&self) -> usize {
+        self.source(true)
+            .expect("authenticated transcript range metadata was validated at construction")
+            .len()
+    }
+
+    pub fn response_transcript_sha256(&self) -> Option<&[u8; 32]> {
+        self.received_digest.as_ref()
+    }
+
+    pub fn response_transcript_size(&self) -> usize {
+        self.source(false)
+            .expect("authenticated transcript range metadata was validated at construction")
+            .len()
+    }
+
+    pub fn revealed_request_ranges(&self) -> Vec<RevealedRange> {
+        self.revealed_ranges(true)
+    }
+
+    pub fn revealed_response_ranges(&self) -> Vec<RevealedRange> {
+        self.revealed_ranges(false)
+    }
+
+    pub fn verify_require_info(
+        &self,
+        profile: &RequireInfoDisclosureProfile,
+        limits: &ParserLimits,
+    ) -> Result<AuthenticatedRequireInfo> {
+        if self.server_identity != profile.server_identity {
+            return Err(Alpha15AdapterError::ServerIdentityNotAllowlisted);
+        }
+        let request_source = self.source(true)?;
+        let request =
+            parse_require_info_request_source(&request_source, &self.server_identity, limits)
+                .map_err(Alpha15AdapterError::Parser)?;
+        let response_source = self.source(false)?;
+        let response = parse_require_info_response_source(&response_source, limits)
+            .map_err(Alpha15AdapterError::Parser)?;
+        Ok(AuthenticatedRequireInfo {
+            verified_member_id: response.verified_member_id,
+            binding: request.binding,
+            server_identity: self.server_identity.clone(),
+            attestation_id: self.attestation_id,
+            request_transcript_sha256: self.sent_digest,
+            response_transcript_sha256: self.received_digest,
+            request_transcript_size: request_source.len() as u64,
+            response_transcript_size: response_source.len() as u64,
+            revealed_request_ranges: self.revealed_ranges(true),
+            revealed_response_ranges: self.revealed_ranges(false),
+        })
+    }
+
+    pub fn verify_require_info_sparse(
+        &self,
+        profile: &SparseRequireInfoDisclosureProfile,
+        limits: &ParserLimits,
+    ) -> Result<AuthenticatedRequireInfo> {
+        if self.server_identity != profile.server_identity {
+            return Err(Alpha15AdapterError::ServerIdentityNotAllowlisted);
+        }
+        let request_source = self.source(true)?;
+        let request = parse_require_info_request_sparse_source(
+            &request_source,
+            &self.server_identity,
+            limits,
+        )
+        .map_err(Alpha15AdapterError::Parser)?;
+        let response_source = self.source(false)?;
+        let response = parse_require_info_response_sparse_source(&response_source, limits)
+            .map_err(Alpha15AdapterError::Parser)?;
+        Ok(AuthenticatedRequireInfo {
+            verified_member_id: response.verified_member_id,
+            binding: request.binding,
+            server_identity: self.server_identity.clone(),
+            attestation_id: self.attestation_id,
+            request_transcript_sha256: self.sent_digest,
+            response_transcript_sha256: self.received_digest,
+            request_transcript_size: request_source.len() as u64,
+            response_transcript_size: response_source.len() as u64,
+            revealed_request_ranges: self.revealed_ranges(true),
+            revealed_response_ranges: self.revealed_ranges(false),
+        })
+    }
+}
+
+fn complete_transcript_digest(source: &AuthenticatedByteSource<'_>) -> Result<Option<[u8; 32]>> {
+    if !source.is_complete() {
+        return Ok(None);
+    }
+    let bytes = source.read(0..source.len())?;
+    Ok(Some(sha256(&bytes)))
+}
+
+#[allow(dead_code)]
+fn validate_authenticated_direction(
+    transcript: &[u8],
+    digest: [u8; 32],
+    ranges: &[RevealedRange],
+) -> Result<()> {
+    if transcript.is_empty() {
+        return Err(Alpha15AdapterError::InvalidVerifiedOutput(
+            "authenticated transcript is empty",
+        ));
+    }
+    if sha256(transcript) != digest {
+        return Err(Alpha15AdapterError::InvalidVerifiedOutput(
+            "transcript digest does not match verified output",
+        ));
+    }
+    verify_transcript_digest(transcript, transcript.len() as u64, &digest, ranges)
+        .map_err(|_| Alpha15AdapterError::DisclosureProfileViolation("range bytes or bounds"))
+        .and_then(|()| {
+            let mut next_start = 0_u64;
+            for range in ranges {
+                if range.start != next_start {
+                    return Err(Alpha15AdapterError::DisclosureProfileViolation(
+                        "strict parser input is not fully disclosed",
+                    ));
+                }
+                next_start = range.start + range.length;
+            }
+            if next_start != transcript.len() as u64 {
+                return Err(Alpha15AdapterError::DisclosureProfileViolation(
+                    "strict parser input is not fully disclosed",
+                ));
+            }
+            Ok(())
+        })
+}
+
+fn validate_authenticated_direction_metadata(
+    transcript: &[u8],
+    digest: [u8; 32],
+    ranges: &[Range<usize>],
+) -> Result<()> {
+    if transcript.is_empty() {
+        return Err(Alpha15AdapterError::InvalidVerifiedOutput(
+            "authenticated transcript is empty",
+        ));
+    }
+    if sha256(transcript) != digest {
+        return Err(Alpha15AdapterError::InvalidVerifiedOutput(
+            "transcript digest does not match verified output",
+        ));
+    }
+    let mut next_start = 0;
+    for range in ranges {
+        if range.start != next_start || range.start >= range.end || range.end > transcript.len() {
+            return Err(Alpha15AdapterError::DisclosureProfileViolation(
+                "strict parser input is not fully disclosed",
+            ));
+        }
+        next_start = range.end;
+    }
+    if next_start != transcript.len() {
+        return Err(Alpha15AdapterError::DisclosureProfileViolation(
+            "strict parser input is not fully disclosed",
+        ));
+    }
+    Ok(())
+}
+
+fn revealed_range_metadata(ranges: &[RevealedRange]) -> Result<Vec<Range<usize>>> {
+    ranges
+        .iter()
+        .map(|range| {
+            let start = usize::try_from(range.start).map_err(|_| {
+                Alpha15AdapterError::DisclosureProfileViolation(
+                    "disclosed range start does not fit usize",
+                )
+            })?;
+            let length = usize::try_from(range.length).map_err(|_| {
+                Alpha15AdapterError::DisclosureProfileViolation(
+                    "disclosed range length does not fit usize",
+                )
+            })?;
+            let end = start.checked_add(length).ok_or(
+                Alpha15AdapterError::DisclosureProfileViolation(
+                    "disclosed range end overflows usize",
+                ),
+            )?;
+            Ok(start..end)
+        })
+        .collect()
+}
+
+pub fn verify_alpha15_presentation(presentation_bytes: &[u8]) -> Result<AuthenticatedTranscript> {
+    verify_alpha15_presentation_with_provider(presentation_bytes, &CryptoProvider::default())
+}
+
+pub(crate) fn verify_alpha15_presentation_with_provider(
+    presentation_bytes: &[u8],
+    provider: &CryptoProvider,
+) -> Result<AuthenticatedTranscript> {
+    verify_alpha15_presentation_with_provider_and_notary_key(presentation_bytes, provider, None)
+}
+
+pub fn verify_alpha15_presentation_with_trusted_notary_key(
+    presentation_bytes: &[u8],
+    trusted_notary_key: &[u8],
+) -> Result<AuthenticatedTranscript> {
+    verify_alpha15_presentation_with_provider_and_notary_key(
+        presentation_bytes,
+        &CryptoProvider::default(),
+        Some(trusted_notary_key),
+    )
+}
+
+pub fn verify_alpha15_presentation_with_trusted_notary_key_and_trust_anchor(
+    presentation_bytes: &[u8],
+    trust_anchor_der: &[u8],
+    trusted_notary_key: &[u8],
+) -> Result<AuthenticatedTranscript> {
+    if trust_anchor_der.is_empty() {
+        return Err(Alpha15AdapterError::TrustAnchor(
+            "trust anchor must not be empty".to_owned(),
+        ));
+    }
+    let root_store = tlsn_core::webpki::RootCertStore {
+        roots: vec![tlsn_core::webpki::CertificateDer(trust_anchor_der.to_vec())],
+    };
+    let mut provider = tlsn_attestation::CryptoProvider::default();
+    provider.cert = tlsn::verifier::ServerCertVerifier::new(&root_store)
+        .map_err(|error| Alpha15AdapterError::TrustAnchor(error.to_string()))?;
+    verify_alpha15_presentation_with_provider_and_notary_key(
+        presentation_bytes,
+        &provider,
+        Some(trusted_notary_key),
+    )
+}
+
+pub(crate) fn verify_alpha15_presentation_with_provider_and_notary_key(
+    presentation_bytes: &[u8],
+    provider: &CryptoProvider,
+    trusted_notary_key: Option<&[u8]>,
+) -> Result<AuthenticatedTranscript> {
+    let mut cursor = Cursor::new(presentation_bytes);
+    let presentation: Presentation = bincode::deserialize_from(&mut cursor)
+        .map_err(|error| Alpha15AdapterError::PresentationDecode(error.to_string()))?;
+    if cursor.position() != presentation_bytes.len() as u64 {
+        return Err(Alpha15AdapterError::PresentationDecode(
+            "trailing Presentation bytes".to_owned(),
+        ));
+    }
+    let serialized_notary_key = bincode::serialize(presentation.verifying_key())
+        .map_err(|error| Alpha15AdapterError::PresentationDecode(error.to_string()))?;
+    let notary_key_sha256 = sha256(&serialized_notary_key);
+    if let Some(trusted_notary_key) = trusted_notary_key {
+        if trusted_notary_key.is_empty() || serialized_notary_key != trusted_notary_key {
+            return Err(Alpha15AdapterError::NotaryKeyNotAllowlisted);
+        }
+    }
+    let output = presentation
+        .verify(provider)
+        .map_err(|error| Alpha15AdapterError::PresentationVerification(error.to_string()))?;
+    let server_identity = output
+        .server_name
+        .ok_or(Alpha15AdapterError::MissingServerIdentity)?
+        .to_string();
+    let transcript = output
+        .transcript
+        .ok_or(Alpha15AdapterError::MissingTranscript)?;
+    let attestation_id = output.attestation.header.id.0;
+    AuthenticatedTranscript::from_verified_alpha15_partial(
+        server_identity,
+        attestation_id,
+        notary_key_sha256,
+        transcript,
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
+    use tlsn_core::{
+        rangeset::set::RangeSet,
+        transcript::{Direction, Transcript},
+    };
+    use uuid::Uuid;
+
+    fn mock_binding() -> String {
+        let session = Uuid::parse_str("123e4567-e89b-42d3-a456-426614174000").unwrap();
+        let nonce = [0x42_u8; 32];
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(crate::BINDING_PREFIX);
+        bytes.extend_from_slice(&16_u16.to_be_bytes());
+        bytes.extend_from_slice(session.as_bytes());
+        bytes.extend_from_slice(&32_u16.to_be_bytes());
+        bytes.extend_from_slice(&nonce);
+        URL_SAFE_NO_PAD.encode(bytes)
+    }
+
+    fn mock_output() -> Alpha15VerifiedOutput {
+        let binding = mock_binding();
+        let request = format!(
+            "POST {REQUIRE_INFO_TARGET} HTTP/1.1\r\nHost: game.example.test\r\nX-Attestation-Binding: {binding}\r\nContent-Length: 0\r\n\r\n"
+        )
+        .into_bytes();
+        let response_body =
+            b"svdata={\"api_result\":1,\"api_data\":{\"api_basic\":{\"api_member_id\":16189463}}}";
+        let mut response = format!(
+            "HTTP/1.1 200 OK\r\nContent-Length: {}\r\n\r\n",
+            response_body.len()
+        )
+        .into_bytes();
+        response.extend_from_slice(response_body);
+        Alpha15VerifiedOutput {
+            server_identity: "game.example.test".to_owned(),
+            attestation_id: [0x11_u8; MAX_ATTESTATION_ID_BYTES],
+            notary_key_sha256: [0x12_u8; 32],
+            sent_digest: sha256(&request),
+            sent_ranges: vec![RevealedRange {
+                start: 0,
+                length: request.len() as u64,
+                bytes: request.clone(),
+            }],
+            sent_transcript: request,
+            received_digest: sha256(&response),
+            received_ranges: vec![RevealedRange {
+                start: 0,
+                length: response.len() as u64,
+                bytes: response.clone(),
+            }],
+            received_transcript: response,
+        }
+    }
+
+    #[test]
+    fn real_alpha15_fixture_verifies_with_pinned_backend() {
+        let transcript = verify_alpha15_presentation(include_bytes!(
+            "../fixtures/tlsn-alpha15-upstream-presentation.bin"
+        ))
+        .unwrap();
+        assert_eq!(
+            transcript.attestation_id(),
+            &[
+                0xef, 0xfe, 0x1a, 0x31, 0x6b, 0x1c, 0x91, 0xb4, 0x1f, 0x62, 0x84, 0xf7, 0x84, 0x09,
+                0xc6, 0xc2,
+            ]
+        );
+        assert_eq!(transcript.server_identity(), "tlsnotary.org");
+        assert_eq!(
+            transcript.request_transcript_sha256(),
+            Some(&[
+                0xc3, 0x63, 0xbe, 0x30, 0x7b, 0x84, 0xf4, 0x38, 0x9c, 0xf1, 0x23, 0xe9, 0x7d, 0x68,
+                0xf0, 0x66, 0x60, 0x0c, 0x09, 0x64, 0xd3, 0xae, 0x4d, 0x1d, 0x9b, 0x2b, 0x67, 0xe2,
+                0xe6, 0x92, 0x38, 0xf8
+            ])
+        );
+        assert_eq!(
+            transcript.response_transcript_sha256(),
+            Some(&[
+                0xb4, 0xbb, 0x12, 0x6c, 0x97, 0x9e, 0xee, 0xb4, 0xd6, 0x83, 0x2d, 0x3b, 0xb9, 0x78,
+                0x49, 0xb9, 0xe9, 0x98, 0x47, 0x49, 0x08, 0xe6, 0x50, 0x0b, 0x2a, 0x2c, 0xcb, 0xef,
+                0xf2, 0x5b, 0x26, 0x2f
+            ])
+        );
+        assert_eq!(
+            transcript.revealed_request_ranges(),
+            &[RevealedRange {
+                start: 0,
+                length: 35,
+                bytes: b"GET / HTTP/1.1\r\nHost: localhost\r\n\r\n".to_vec(),
+            }]
+        );
+        assert_eq!(
+            transcript.revealed_response_ranges(),
+            &[RevealedRange {
+                start: 0,
+                length: 145,
+                bytes: b"HTTP/1.1 200 OK\r\nCookie: very-secret-cookie\r\nContent-Length: 44\r\nContent-Type: application/json\r\n\r\n{\"foo\": \"bar\", \"bazz\": 123, \"buzz\": [1,\"5\"]}\r\n".to_vec(),
+            }]
+        );
+        let profile =
+            RequireInfoDisclosureProfile::for_mock_tlsn_verification("tlsnotary.org").unwrap();
+        assert!(matches!(
+            transcript.verify_require_info(&profile, &ParserLimits::default()),
+            Err(Alpha15AdapterError::Parser(VerifierError::InvalidHttp(
+                "unexpected start line"
+            )))
+        ));
+    }
+
+    #[test]
+    fn rejects_modified_truncated_and_trailing_alpha15_presentations() {
+        let fixture = include_bytes!("../fixtures/tlsn-alpha15-upstream-presentation.bin");
+
+        let mut modified = fixture.to_vec();
+        let modified_index = modified.len() / 2;
+        modified[modified_index] ^= 1;
+        assert!(verify_alpha15_presentation(&modified).is_err());
+
+        assert!(verify_alpha15_presentation(&fixture[..fixture.len() - 1]).is_err());
+
+        let mut trailing = fixture.to_vec();
+        trailing.push(0);
+        assert!(verify_alpha15_presentation(&trailing).is_err());
+    }
+
+    #[test]
+    fn rejects_invalid_alpha15_encoding() {
+        assert!(verify_alpha15_presentation(b"not-a-presentation").is_err());
+    }
+
+    #[test]
+    fn mock_tlsn_verification_plumbing_reaches_strict_parser() {
+        let transcript = AuthenticatedTranscript::from_verified_alpha15(mock_output()).unwrap();
+        let profile =
+            RequireInfoDisclosureProfile::for_mock_tlsn_verification("game.example.test").unwrap();
+        let result = transcript
+            .verify_require_info(&profile, &ParserLimits::default())
+            .unwrap();
+        assert_eq!(result.verified_member_id, "16189463");
+        assert_eq!(result.attestation_id, [0x11_u8; MAX_ATTESTATION_ID_BYTES]);
+    }
+
+    #[test]
+    fn rejects_wrong_allowlisted_server_identity() {
+        let transcript = AuthenticatedTranscript::from_verified_alpha15(mock_output()).unwrap();
+        let profile =
+            RequireInfoDisclosureProfile::for_mock_tlsn_verification("other.example.test").unwrap();
+        assert_eq!(
+            transcript.verify_require_info(&profile, &ParserLimits::default()),
+            Err(Alpha15AdapterError::ServerIdentityNotAllowlisted)
+        );
+    }
+
+    #[test]
+    fn rejects_modified_authenticated_bytes_and_wrong_ranges() {
+        let mut output = mock_output();
+        let last_index = output.received_transcript.len() - 1;
+        output.received_transcript[last_index] ^= 1;
+        assert!(AuthenticatedTranscript::from_verified_alpha15(output).is_err());
+
+        let mut output = mock_output();
+        output.sent_ranges[0].bytes[0] = b'G';
+        assert!(AuthenticatedTranscript::from_verified_alpha15(output).is_err());
+
+        let mut output = mock_output();
+        output.received_ranges[0].start = 1;
+        assert!(AuthenticatedTranscript::from_verified_alpha15(output).is_err());
+    }
+
+    #[test]
+    fn rejects_modified_digest_and_partial_authenticated_coverage() {
+        let mut output = mock_output();
+        output.sent_digest[0] ^= 1;
+        assert!(AuthenticatedTranscript::from_verified_alpha15(output).is_err());
+
+        let mut output = mock_output();
+        let request = output.sent_transcript.clone();
+        output.sent_ranges = vec![RevealedRange {
+            start: 0,
+            length: request.len() as u64 - 1,
+            bytes: request[..request.len() - 1].to_vec(),
+        }];
+        assert!(matches!(
+            AuthenticatedTranscript::from_verified_alpha15(output),
+            Err(Alpha15AdapterError::DisclosureProfileViolation(_))
+        ));
+    }
+
+    #[test]
+    fn sparse_alpha15_transcript_is_retained_without_zero_fill() {
+        let transcript = tlsn_core::transcript::PartialTranscript::new(128, 256);
+        let authenticated = AuthenticatedTranscript::from_verified_alpha15_partial(
+            "game.example.test".to_owned(),
+            [0x11_u8; MAX_ATTESTATION_ID_BYTES],
+            [0x12_u8; 32],
+            transcript,
+        )
+        .unwrap();
+        assert_eq!(authenticated.request_transcript_size(), 128);
+        assert_eq!(authenticated.response_transcript_size(), 256);
+        assert_eq!(authenticated.request_transcript_sha256(), None);
+        assert_eq!(authenticated.response_transcript_sha256(), None);
+    }
+
+    #[test]
+    fn sparse_alpha15_reader_reaches_strict_parser_and_rejects_gaps() {
+        let output = mock_output();
+        let request_len = output.sent_transcript.len();
+        let response_len = output.received_transcript.len();
+        let transcript = Transcript::new(output.sent_transcript, output.received_transcript)
+            .to_partial(
+                RangeSet::from(0..request_len - 1),
+                RangeSet::from(0..response_len),
+            );
+        let authenticated = AuthenticatedTranscript::from_verified_alpha15_partial(
+            "game.example.test".to_owned(),
+            [0x11_u8; MAX_ATTESTATION_ID_BYTES],
+            [0x12_u8; 32],
+            transcript,
+        )
+        .unwrap();
+        let profile =
+            RequireInfoDisclosureProfile::for_mock_tlsn_verification("game.example.test").unwrap();
+        assert_eq!(
+            authenticated.verify_require_info(&profile, &ParserLimits::default()),
+            Err(Alpha15AdapterError::Parser(VerifierError::InvalidRange(
+                "authenticated read crosses an undisclosed range"
+            )))
+        );
+    }
+
+    #[test]
+    fn complete_sparse_alpha15_reader_reaches_strict_parser() {
+        let output = mock_output();
+        let request_len = output.sent_transcript.len();
+        let response_len = output.received_transcript.len();
+        let transcript = Transcript::new(output.sent_transcript, output.received_transcript)
+            .to_partial(
+                RangeSet::from(0..request_len),
+                RangeSet::from(0..response_len),
+            );
+        let authenticated = AuthenticatedTranscript::from_verified_alpha15_partial(
+            "game.example.test".to_owned(),
+            [0x11_u8; MAX_ATTESTATION_ID_BYTES],
+            [0x12_u8; 32],
+            transcript,
+        )
+        .unwrap();
+        let profile =
+            RequireInfoDisclosureProfile::for_mock_tlsn_verification("game.example.test").unwrap();
+        let result = authenticated
+            .verify_require_info(&profile, &ParserLimits::default())
+            .unwrap();
+        assert_eq!(result.verified_member_id, "16189463");
+        assert!(result.request_transcript_sha256.is_some());
+        assert!(result.response_transcript_sha256.is_some());
+    }
+
+    #[test]
+    fn sparse_alpha15_reader_accepts_only_authenticated_ranges() {
+        let transcript = Transcript::new(vec![0x11; 512], vec![0x22; 512]);
+        let partial = transcript.to_partial(
+            RangeSet::from([100..150, 200..250]),
+            RangeSet::from([100..150, 200..250]),
+        );
+
+        let mut bytes = Vec::new();
+        partial
+            .copy_authenticated_to(Direction::Sent, &RangeSet::from(100..150), &mut bytes)
+            .unwrap();
+        assert_eq!(bytes, vec![0x11; 50]);
+
+        let mut bytes = Vec::new();
+        partial
+            .copy_authenticated_to(Direction::Sent, &RangeSet::from(150..200), &mut bytes)
+            .unwrap_err();
+        partial
+            .copy_authenticated_to(Direction::Sent, &RangeSet::from(200..250), &mut bytes)
+            .unwrap();
+        assert_eq!(bytes, vec![0x11; 50]);
+
+        for range in [50..150, 150..250, 100..201, usize::MAX - 1..usize::MAX] {
+            let mut bytes = Vec::new();
+            assert!(partial
+                .copy_authenticated_to(Direction::Sent, &RangeSet::from(range), &mut bytes)
+                .is_err());
+            assert!(bytes.is_empty());
+        }
+    }
+
+    #[test]
+    fn rejects_authenticated_request_without_binding() {
+        let mut output = mock_output();
+        let binding_start = output
+            .sent_transcript
+            .windows(crate::BINDING_HEADER.len())
+            .position(|window| window == crate::BINDING_HEADER.as_bytes())
+            .unwrap();
+        let line_end = output.sent_transcript[binding_start..]
+            .windows(2)
+            .position(|window| window == b"\r\n")
+            .map(|offset| binding_start + offset)
+            .unwrap();
+        output.sent_transcript.drain(binding_start..line_end + 2);
+        output.sent_digest = sha256(&output.sent_transcript);
+        output.sent_ranges = vec![RevealedRange {
+            start: 0,
+            length: output.sent_transcript.len() as u64,
+            bytes: output.sent_transcript.clone(),
+        }];
+        let transcript = AuthenticatedTranscript::from_verified_alpha15(output).unwrap();
+        let profile =
+            RequireInfoDisclosureProfile::for_mock_tlsn_verification("game.example.test").unwrap();
+        assert!(matches!(
+            transcript.verify_require_info(&profile, &ParserLimits::default()),
+            Err(Alpha15AdapterError::Parser(VerifierError::InvalidHttp(
+                "binding header cardinality is invalid"
+            )))
+        ));
+    }
+
+    #[test]
+    fn derives_member_id_from_authenticated_response_bytes() {
+        let mut output = mock_output();
+        let original = b"16189463";
+        let replacement = b"26189463";
+        let member_start = output
+            .received_transcript
+            .windows(original.len())
+            .position(|window| window == original)
+            .unwrap();
+        output.received_transcript[member_start..member_start + original.len()]
+            .copy_from_slice(replacement);
+        output.received_digest = sha256(&output.received_transcript);
+        output.received_ranges = vec![RevealedRange {
+            start: 0,
+            length: output.received_transcript.len() as u64,
+            bytes: output.received_transcript.clone(),
+        }];
+        let transcript = AuthenticatedTranscript::from_verified_alpha15(output).unwrap();
+        let profile =
+            RequireInfoDisclosureProfile::for_mock_tlsn_verification("game.example.test").unwrap();
+        let authenticated = transcript
+            .verify_require_info(&profile, &ParserLimits::default())
+            .unwrap();
+        assert_eq!(authenticated.verified_member_id, "26189463");
+    }
+
+    #[test]
+    fn keeps_request_and_response_in_one_authenticated_object() {
+        let transcript = AuthenticatedTranscript::from_verified_alpha15(mock_output()).unwrap();
+        let request_source = transcript.source(true).unwrap();
+        let response_source = transcript.source(false).unwrap();
+        let request_digest = sha256(&request_source.read(0..request_source.len()).unwrap());
+        let response_digest = sha256(&response_source.read(0..response_source.len()).unwrap());
+        assert_eq!(
+            transcript.request_transcript_sha256(),
+            Some(&request_digest)
+        );
+        assert_eq!(
+            transcript.response_transcript_sha256(),
+            Some(&response_digest)
+        );
+    }
+
+    #[test]
+    fn production_allowlist_fails_closed_until_registry_is_linked() {
+        assert_eq!(
+            RequireInfoDisclosureProfile::from_configured_allowlist("game.example.test"),
+            Err(Alpha15AdapterError::ServerIdentityNotAllowlisted)
+        );
+    }
+
+    #[test]
+    fn builds_result_from_authenticated_digests_and_binding() {
+        let transcript = AuthenticatedTranscript::from_verified_alpha15(mock_output()).unwrap();
+        let profile =
+            RequireInfoDisclosureProfile::for_mock_tlsn_verification("game.example.test").unwrap();
+        let authenticated = transcript
+            .verify_require_info(&profile, &ParserLimits::default())
+            .unwrap();
+        let result = authenticated
+            .into_verifier_result(
+                [0x22_u8; 32],
+                "verifier-alpha15-test".to_owned(),
+                "notary-alpha15-test".to_owned(),
+                "11111111-1111-4111-8111-111111111111".to_owned(),
+                "22222222-2222-4222-8222-222222222222".to_owned(),
+                [0_u8; 32],
+                [0_u8; 32],
+                None,
+                None,
+                [0x33_u8; 64],
+            )
+            .unwrap();
+        assert_eq!(
+            result.request_transcript_size,
+            mock_output().sent_transcript.len() as u64
+        );
+        assert_eq!(result.tlsn_attestation_id, vec![0x11_u8; 16]);
+        assert_eq!(result.binding_nonce, [0x42_u8; 32]);
+        assert!(result.canonical_json().is_ok());
+    }
+}

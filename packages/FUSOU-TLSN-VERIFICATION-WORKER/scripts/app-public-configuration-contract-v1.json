@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "scope": "fusou-app-public-compile-configuration",
+  "canonicalization": "FUSOU_CANONICAL_JSON_V1",
+  "digest_encoding": "SHA256_BASE64URL_NO_PAD",
+  "compile_inputs": [
+    "DISCORD_CLIENT_ID",
+    "PUBLIC_SUPABASE_PUBLISHABLE_KEY",
+    "PUBLIC_SUPABASE_URL"
+  ],
+  "required_inputs": [
+    "PUBLIC_SUPABASE_PUBLISHABLE_KEY",
+    "PUBLIC_SUPABASE_URL"
+  ],
+  "optional_absence": "null",
+  "test_vector": {
+    "compile_inputs": {
+      "DISCORD_CLIENT_ID": null,
+      "PUBLIC_SUPABASE_PUBLISHABLE_KEY": "sb_publishable_public_fixture",
+      "PUBLIC_SUPABASE_URL": "https://auth.example.com"
+    },
+    "sha256": "OUWI2eExJGsKV1RYeFMv7VHcvAKBDSUOWd182-t95-g"
+  },
+  "dotenvx": {
+    "normal_script": "dotenvx run -fk ../.env.keys -f .env -f src-tauri/.env --verbose --overload -- tauri",
+    "env_keys_file": "../.env.keys",
+    "env_files": [".env", "src-tauri/.env"],
+    "overload": true
+  },
+  "authority_status": "UNVERIFIED"
+}

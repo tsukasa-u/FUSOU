@@ -9,6 +9,7 @@ use kc_api::interface;
 use tauri::{Emitter, Manager};
 // use crate::notify; // access via module path since we declare below
 mod json_parser;
+pub mod app_public_configuration;
 
 use fusou_auth::{AuthManager, FileStorage, Storage};
 use tauri::AppHandle;
@@ -25,6 +26,11 @@ mod storage;
 mod util;
 mod window;
 mod wrap_proxy;
+pub mod tlsn_preflight;
+pub mod tlsn_build_handoff;
+#[cfg(feature = "tlsn-production")]
+mod tlsn_runtime;
+mod tlsn_worker_identity;
 use senders::{quest_tree_sender, remodel_sender, ship_growth_sender, soku_speed_sender};
 
 use fusou_upload::PendingStore;
@@ -42,6 +48,12 @@ async fn bootstrap_tokens_on_startup(
     storage: Arc<FileStorage>,
     auth_manager: AuthManager<FileStorage>,
 ) {
+    let auth_config = configs::get_user_configs_for_app().auth;
+    if auth_config.get_deny_auth() || !auth_config.get_allow_anonymous_auth_bootstrap() {
+        tracing::info!("startup auth bootstrap disabled by configuration");
+        return;
+    }
+
     // Try to load existing session from storage
     if let Ok(Some(session)) = storage.load_session().await {
         tracing::info!("startup: session loaded from storage");
@@ -182,6 +194,7 @@ pub async fn run() {
             cmd::tauri_cmd::retry_pending_upload_item_now,
             cmd::tauri_cmd::delete_pending_upload_item,
             cmd::tauri_cmd::get_pending_upload_retry_status,
+            cmd::tauri_cmd::run_tlsn_production_preflight,
             cmd::tauri_cmd::get_ship_growth_suppression_status,
             cmd::tauri_cmd::get_quest_tree_suppression_status,
             cmd::tauri_cmd::get_remodel_suppression_status,
@@ -250,6 +263,7 @@ pub async fn run() {
 
             // Ensure user config file path is initialized before reading retry settings.
             builder_setup::setup::setup_configs()?;
+            tlsn_preflight::mark_candidate_app_started()?;
 
             // Kick retry on startup and keep retrying on configured interval.
             let retry_service_for_background = retry_service.clone();

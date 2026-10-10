@@ -1,0 +1,2469 @@
+use crate::experimental_tlsn::{
+    sha256, AttestationBinding, DeferredVerification, ExperimentalResultBoundary,
+    ExperimentalTlsnForwarder, ExperimentalVerifierBoundary, ResultBoundaryError,
+    ResultBoundaryFuture, SerializedOriginRequest, TlsnEvidenceMetadata, TlsnOriginExchange,
+    TlsnOriginTransport, TlsnTransportError, TlsnTransportFuture, VerificationError,
+    VerificationFuture, VerificationOutcome, VerifiedTlsnEvidence,
+};
+use std::{
+    collections::HashMap,
+    future::Future,
+    io,
+    path::Path,
+    pin::Pin,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc, Mutex,
+    },
+};
+
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum OriginConfigurationError {
+    InvalidHostname,
+    InvalidServerIdentity,
+    TargetIdentityMismatch,
+    InvalidPort,
+    NativeTrustStoreUnavailable,
+    EmptyIdentityPolicy,
+    ServerIdentityNotAllowed,
+    ExperimentalDisabled,
+}
+
+impl std::fmt::Display for OriginConfigurationError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let message = match self {
+            Self::InvalidHostname => "origin hostname is invalid",
+            Self::InvalidServerIdentity => "origin server identity is invalid",
+            Self::TargetIdentityMismatch => "origin hostname must match its server identity",
+            Self::InvalidPort => "origin port must be non-zero",
+            Self::NativeTrustStoreUnavailable => {
+                "platform TLS trust store is unavailable or invalid"
+            }
+            Self::EmptyIdentityPolicy => "origin server identity policy is empty",
+            Self::ServerIdentityNotAllowed => "origin server identity is not allowlisted",
+            Self::ExperimentalDisabled => "Experimental TLSN is disabled in the origin config",
+        };
+        formatter.write_str(message)
+    }
+}
+
+fn valid_dns_hostname(value: &str) -> bool {
+    if value.is_empty()
+        || value.len() > 253
+        || !value.is_ascii()
+        || value.parse::<std::net::IpAddr>().is_ok()
+    {
+        return false;
+    }
+
+    let labels = value.split('.').collect::<Vec<_>>();
+    labels.len() >= 2
+        && labels[..labels.len() - 1].iter().all(|label| {
+            !label.is_empty()
+                && label.len() <= 63
+                && label.as_bytes()[0].is_ascii_alphanumeric()
+                && label.as_bytes()[label.len() - 1].is_ascii_alphanumeric()
+                && label
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
+        })
+        && labels.last().is_some_and(|label| {
+            (2..=63).contains(&label.len()) && label.bytes().all(|byte| byte.is_ascii_alphabetic())
+        })
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OriginTarget {
+    hostname: String,
+    port: u16,
+    server_identity: String,
+}
+
+impl OriginTarget {
+    pub fn new(
+        hostname: String,
+        port: u16,
+        server_identity: String,
+    ) -> Result<Self, OriginConfigurationError> {
+        if !valid_dns_hostname(&hostname) {
+            return Err(OriginConfigurationError::InvalidHostname);
+        }
+        if port == 0 {
+            return Err(OriginConfigurationError::InvalidPort);
+        }
+        if !valid_dns_hostname(&server_identity) {
+            return Err(OriginConfigurationError::InvalidServerIdentity);
+        }
+        if !hostname.eq_ignore_ascii_case(&server_identity) {
+            return Err(OriginConfigurationError::TargetIdentityMismatch);
+        }
+        Ok(Self {
+            hostname,
+            port,
+            server_identity,
+        })
+    }
+
+    pub fn hostname(&self) -> &str {
+        &self.hostname
+    }
+
+    pub fn port(&self) -> u16 {
+        self.port
+    }
+
+    pub fn server_identity(&self) -> &str {
+        &self.server_identity
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OriginTlsConfig {
+    trusted_root_certificates: Vec<Vec<u8>>,
+}
+
+impl OriginTlsConfig {
+    pub fn new() -> Result<Self, OriginConfigurationError> {
+        let loaded_roots = rustls_native_certs::load_native_certs();
+        if !loaded_roots.errors.is_empty() {
+            tracing::warn!(
+                error_count = loaded_roots.errors.len(),
+                "some platform TLS trust certificates could not be loaded"
+            );
+        }
+        let trusted_root_certificates = loaded_roots
+            .certs
+            .into_iter()
+            .map(|certificate| certificate.as_ref().to_vec())
+            .collect::<Vec<_>>();
+        if trusted_root_certificates.is_empty() {
+            return Err(OriginConfigurationError::NativeTrustStoreUnavailable);
+        }
+        Ok(Self {
+            trusted_root_certificates,
+        })
+    }
+
+    pub fn trusted_root_certificates(&self) -> &[Vec<u8>] {
+        &self.trusted_root_certificates
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ServerIdentityPolicy {
+    allowlisted_identities: Vec<String>,
+}
+
+impl ServerIdentityPolicy {
+    pub fn new(allowlisted_identities: Vec<String>) -> Result<Self, OriginConfigurationError> {
+        if allowlisted_identities.is_empty() {
+            return Err(OriginConfigurationError::EmptyIdentityPolicy);
+        }
+        if allowlisted_identities
+            .iter()
+            .any(|identity| !valid_dns_hostname(identity))
+        {
+            return Err(OriginConfigurationError::InvalidServerIdentity);
+        }
+        Ok(Self {
+            allowlisted_identities,
+        })
+    }
+
+    pub fn from_shipped_inventory() -> Result<Self, OriginConfigurationError> {
+        let identities = configs::get_tlsn_origin_inventory()
+            .targets
+            .into_iter()
+            .map(|target| target.server_identity)
+            .collect();
+        Self::new(identities)
+    }
+
+    pub fn allows(&self, server_identity: &str) -> bool {
+        self.allowlisted_identities
+            .iter()
+            .any(|identity| identity.eq_ignore_ascii_case(server_identity))
+    }
+
+    pub fn identities(&self) -> &[String] {
+        &self.allowlisted_identities
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OriginTransportConfig {
+    target: OriginTarget,
+    tls: OriginTlsConfig,
+    server_identity_policy: ServerIdentityPolicy,
+    experimental_enabled: bool,
+}
+
+impl OriginTransportConfig {
+    pub fn new(
+        target: OriginTarget,
+        tls: OriginTlsConfig,
+        server_identity_policy: ServerIdentityPolicy,
+        experimental_enabled: bool,
+    ) -> Self {
+        Self {
+            target,
+            tls,
+            server_identity_policy,
+            experimental_enabled,
+        }
+    }
+
+    pub fn validate_for_experimental(&self) -> Result<(), OriginConfigurationError> {
+        if !self.experimental_enabled {
+            return Err(OriginConfigurationError::ExperimentalDisabled);
+        }
+        let inventory_allows_target =
+            configs::get_tlsn_origin_inventory()
+                .targets
+                .iter()
+                .any(|target| {
+                    target.port == self.target.port()
+                        && target
+                            .server_identity
+                            .eq_ignore_ascii_case(self.target.server_identity())
+                });
+        #[cfg(test)]
+        let inventory_allows_target = inventory_allows_target
+            || (self.target.port() == 443 && self.target.server_identity() == "game.example.test");
+        if !inventory_allows_target
+            || !self
+                .server_identity_policy
+                .allows(self.target.server_identity())
+        {
+            return Err(OriginConfigurationError::ServerIdentityNotAllowed);
+        }
+        Ok(())
+    }
+
+    pub fn target(&self) -> &OriginTarget {
+        &self.target
+    }
+
+    pub fn tls(&self) -> &OriginTlsConfig {
+        &self.tls
+    }
+
+    pub fn server_identity_policy(&self) -> &ServerIdentityPolicy {
+        &self.server_identity_policy
+    }
+}
+
+pub trait Alpha15OriginTransportFactory: Send + Sync {
+    fn send_once(
+        &self,
+        config: OriginTransportConfig,
+        request: SerializedOriginRequest,
+    ) -> TlsnTransportFuture;
+}
+
+#[derive(Debug, Default)]
+pub struct UnconfiguredAlpha15OriginTransportFactory;
+
+impl Alpha15OriginTransportFactory for UnconfiguredAlpha15OriginTransportFactory {
+    fn send_once(
+        &self,
+        _config: OriginTransportConfig,
+        _request: SerializedOriginRequest,
+    ) -> TlsnTransportFuture {
+        Box::pin(async { Err(TlsnTransportError::Unavailable) })
+    }
+}
+
+pub struct ProductionAlpha15OriginTransport {
+    config: OriginTransportConfig,
+    factory: Arc<dyn Alpha15OriginTransportFactory>,
+    sent: AtomicBool,
+}
+
+impl ProductionAlpha15OriginTransport {
+    pub fn new(
+        config: OriginTransportConfig,
+        factory: Arc<dyn Alpha15OriginTransportFactory>,
+    ) -> Result<Self, OriginConfigurationError> {
+        config.validate_for_experimental()?;
+        Ok(Self {
+            config,
+            factory,
+            sent: AtomicBool::new(false),
+        })
+    }
+}
+
+impl TlsnOriginTransport for ProductionAlpha15OriginTransport {
+    fn send_once(&self, request: SerializedOriginRequest) -> TlsnTransportFuture {
+        if self.sent.swap(true, Ordering::AcqRel) {
+            return Box::pin(async { Err(TlsnTransportError::AlreadySent) });
+        }
+        self.factory.send_once(self.config.clone(), request)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TlsnPresentation {
+    identifier: String,
+    bytes: Vec<u8>,
+    sha256: [u8; 32],
+}
+
+impl TlsnPresentation {
+    pub fn new(identifier: String, bytes: Vec<u8>) -> Result<Self, PresentationError> {
+        if identifier.is_empty()
+            || identifier.len() > 128
+            || !identifier.is_ascii()
+            || identifier
+                .bytes()
+                .any(|byte| !(byte.is_ascii_alphanumeric() || byte == b'_' || byte == b'-'))
+        {
+            return Err(PresentationError::Invalid);
+        }
+        if bytes.is_empty() {
+            return Err(PresentationError::Invalid);
+        }
+        Ok(Self {
+            identifier,
+            sha256: sha256(&bytes),
+            bytes,
+        })
+    }
+
+    pub fn identifier(&self) -> &str {
+        &self.identifier
+    }
+
+    pub fn bytes(&self) -> &[u8] {
+        &self.bytes
+    }
+
+    pub fn sha256(&self) -> &[u8; 32] {
+        &self.sha256
+    }
+}
+
+pub type PresentationFuture =
+    Pin<Box<dyn Future<Output = Result<TlsnPresentation, PresentationError>> + Send>>;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PresentationError {
+    Unavailable,
+    Invalid,
+}
+
+impl std::fmt::Display for PresentationError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(match self {
+            Self::Unavailable => "TLSN Presentation provider is unavailable",
+            Self::Invalid => "TLSN Presentation is invalid",
+        })
+    }
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct RuntimeIdentifiers {
+    experiment_id: Option<String>,
+    session_id: Option<String>,
+    request_id: Option<String>,
+    worker_health_observation: Option<WorkerHealthObservation>,
+    app_public_configuration_fingerprints: Option<AppPublicConfigurationFingerprints>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AppPublicConfigurationFingerprints {
+    pub schema_version: u8,
+    pub scope: String,
+    pub compile_time_sha256: String,
+    pub runtime_sha256: String,
+    pub combined_sha256: String,
+    pub candidate_binding_status: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WorkerHealthObservation {
+    deployment_id: String,
+    worker_name: String,
+    git_commit_sha: String,
+    binding_mode: String,
+    runtime_version_id: String,
+}
+
+impl WorkerHealthObservation {
+    pub fn new(
+        deployment_id: String,
+        worker_name: String,
+        git_commit_sha: String,
+        binding_mode: String,
+        runtime_version_id: String,
+    ) -> Self {
+        Self {
+            deployment_id,
+            worker_name,
+            git_commit_sha,
+            binding_mode,
+            runtime_version_id,
+        }
+    }
+
+    pub fn deployment_id(&self) -> &str {
+        &self.deployment_id
+    }
+
+    pub fn worker_name(&self) -> &str {
+        &self.worker_name
+    }
+
+    pub fn git_commit_sha(&self) -> &str {
+        &self.git_commit_sha
+    }
+
+    pub fn binding_mode(&self) -> &str {
+        &self.binding_mode
+    }
+
+    pub fn runtime_version_id(&self) -> &str {
+        &self.runtime_version_id
+    }
+}
+
+impl RuntimeIdentifiers {
+    pub fn new(
+        experiment_id: Option<String>,
+        session_id: Option<String>,
+        request_id: Option<String>,
+    ) -> Self {
+        Self {
+            experiment_id,
+            session_id,
+            request_id,
+            worker_health_observation: None,
+            app_public_configuration_fingerprints: None,
+        }
+    }
+
+    pub fn with_worker_health_observation(mut self, observation: WorkerHealthObservation) -> Self {
+        self.worker_health_observation = Some(observation);
+        self
+    }
+
+    pub fn experiment_id(&self) -> Option<&str> {
+        self.experiment_id.as_deref()
+    }
+
+    pub fn session_id(&self) -> Option<&str> {
+        self.session_id.as_deref()
+    }
+
+    pub fn request_id(&self) -> Option<&str> {
+        self.request_id.as_deref()
+    }
+
+    pub fn worker_health_observation(&self) -> Option<&WorkerHealthObservation> {
+        self.worker_health_observation.as_ref()
+    }
+
+    pub fn with_app_public_configuration_fingerprints(
+        mut self,
+        fingerprints: AppPublicConfigurationFingerprints,
+    ) -> Self {
+        self.app_public_configuration_fingerprints = Some(fingerprints);
+        self
+    }
+
+    pub fn app_public_configuration_fingerprints(
+        &self,
+    ) -> Option<&AppPublicConfigurationFingerprints> {
+        self.app_public_configuration_fingerprints.as_ref()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PresentationRequestContext {
+    identifiers: RuntimeIdentifiers,
+    connection_id: u64,
+    request_profile: Option<PresentationRequestProfile>,
+    binding_identifier: [u8; 32],
+    request_sha256: [u8; 32],
+    authenticated_request_sha256: [u8; 32],
+    response_sha256: [u8; 32],
+    authenticated_response_sha256: [u8; 32],
+    server_identity: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PresentationRequestProfile {
+    method: String,
+    target: String,
+    http_version: String,
+}
+
+impl PresentationRequestProfile {
+    fn from_serialized_request(request: &SerializedOriginRequest) -> Option<Self> {
+        let line_end = request
+            .bytes()
+            .windows(2)
+            .position(|window| window == b"\r\n")?;
+        let mut fields = request.bytes()[..line_end].split(|byte| *byte == b' ');
+        let method = std::str::from_utf8(fields.next()?).ok()?.to_owned();
+        let target = std::str::from_utf8(fields.next()?).ok()?.to_owned();
+        let http_version = std::str::from_utf8(fields.next()?).ok()?.to_owned();
+        if fields.next().is_some() {
+            return None;
+        }
+        Some(Self {
+            method,
+            target,
+            http_version,
+        })
+    }
+
+    pub fn method(&self) -> &str {
+        &self.method
+    }
+
+    pub fn target(&self) -> &str {
+        &self.target
+    }
+
+    pub fn http_version(&self) -> &str {
+        &self.http_version
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PresentationVerificationInput {
+    context: PresentationRequestContext,
+    request: SerializedOriginRequest,
+    binding: AttestationBinding,
+    exchange: TlsnOriginExchange,
+    presentation: TlsnPresentation,
+}
+
+impl PresentationVerificationInput {
+    pub fn new(
+        context: PresentationRequestContext,
+        request: SerializedOriginRequest,
+        binding: AttestationBinding,
+        exchange: TlsnOriginExchange,
+        presentation: TlsnPresentation,
+    ) -> Self {
+        Self {
+            context,
+            request,
+            binding,
+            exchange,
+            presentation,
+        }
+    }
+
+    pub fn context(&self) -> &PresentationRequestContext {
+        &self.context
+    }
+
+    pub fn request(&self) -> &SerializedOriginRequest {
+        &self.request
+    }
+
+    pub fn binding(&self) -> &AttestationBinding {
+        &self.binding
+    }
+
+    pub fn exchange(&self) -> &TlsnOriginExchange {
+        &self.exchange
+    }
+
+    pub fn presentation(&self) -> &TlsnPresentation {
+        &self.presentation
+    }
+
+    pub fn into_parts(
+        self,
+    ) -> (
+        PresentationRequestContext,
+        SerializedOriginRequest,
+        AttestationBinding,
+        TlsnOriginExchange,
+        TlsnPresentation,
+    ) {
+        (
+            self.context,
+            self.request,
+            self.binding,
+            self.exchange,
+            self.presentation,
+        )
+    }
+}
+
+impl PresentationRequestContext {
+    fn from_exchange(
+        identifiers: RuntimeIdentifiers,
+        connection_id: u64,
+        binding: &AttestationBinding,
+        request: &SerializedOriginRequest,
+        exchange: &TlsnOriginExchange,
+        target: &OriginTarget,
+    ) -> Self {
+        let request_sha256 = sha256(request.bytes());
+        let mut identifiers = identifiers;
+        if identifiers.session_id.is_none() {
+            identifiers.session_id = binding_session_id(binding.value());
+        }
+        if identifiers.request_id.is_none() {
+            identifiers.request_id = Some(base64url_string(&request_sha256));
+        }
+        Self {
+            identifiers,
+            connection_id,
+            request_profile: PresentationRequestProfile::from_serialized_request(request),
+            binding_identifier: sha256(binding.value().as_bytes()),
+            request_sha256,
+            authenticated_request_sha256: exchange.transcript.request_sha256,
+            response_sha256: sha256(&exchange.response.raw_response_bytes),
+            authenticated_response_sha256: exchange.transcript.response_sha256,
+            server_identity: target.server_identity().to_owned(),
+        }
+    }
+
+    pub fn identifiers(&self) -> &RuntimeIdentifiers {
+        &self.identifiers
+    }
+
+    pub fn connection_id(&self) -> u64 {
+        self.connection_id
+    }
+
+    pub fn request_profile(&self) -> Option<&PresentationRequestProfile> {
+        self.request_profile.as_ref()
+    }
+
+    pub fn binding_identifier(&self) -> &[u8; 32] {
+        &self.binding_identifier
+    }
+
+    pub fn request_sha256(&self) -> &[u8; 32] {
+        &self.request_sha256
+    }
+
+    pub fn authenticated_request_sha256(&self) -> &[u8; 32] {
+        &self.authenticated_request_sha256
+    }
+
+    pub fn response_sha256(&self) -> &[u8; 32] {
+        &self.response_sha256
+    }
+
+    pub fn authenticated_response_sha256(&self) -> &[u8; 32] {
+        &self.authenticated_response_sha256
+    }
+
+    pub fn server_identity(&self) -> &str {
+        &self.server_identity
+    }
+}
+
+pub trait PresentationProvider: Send + Sync {
+    fn provide(&self, context: PresentationRequestContext) -> PresentationFuture;
+
+    fn discard(&self, _context: &PresentationRequestContext) {}
+}
+
+pub type PresentationExportFuture =
+    Pin<Box<dyn Future<Output = Result<(), PresentationExportError>> + Send>>;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PresentationExportError {
+    Unavailable,
+    Failed,
+}
+
+impl std::fmt::Display for PresentationExportError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(match self {
+            Self::Unavailable => "TLSN Presentation artifact export is unavailable",
+            Self::Failed => "TLSN Presentation artifact export failed",
+        })
+    }
+}
+
+pub trait PresentationArtifactSink: Send + Sync {
+    fn export(
+        &self,
+        context: PresentationRequestContext,
+        presentation: TlsnPresentation,
+    ) -> PresentationExportFuture;
+}
+
+#[derive(Debug, Default)]
+pub struct UnconfiguredPresentationArtifactSink;
+
+impl PresentationArtifactSink for UnconfiguredPresentationArtifactSink {
+    fn export(
+        &self,
+        _context: PresentationRequestContext,
+        _presentation: TlsnPresentation,
+    ) -> PresentationExportFuture {
+        Box::pin(async { Err(PresentationExportError::Unavailable) })
+    }
+}
+
+#[derive(Debug, Default)]
+pub struct UnconfiguredPresentationProvider;
+
+impl PresentationProvider for UnconfiguredPresentationProvider {
+    fn provide(&self, _context: PresentationRequestContext) -> PresentationFuture {
+        Box::pin(async { Err(PresentationError::Unavailable) })
+    }
+}
+
+#[derive(Default)]
+pub struct PresentationHandoff {
+    pending: Mutex<HashMap<[u8; 32], (String, Vec<u8>)>>,
+    consumed: Mutex<HashMap<[u8; 32], TlsnPresentation>>,
+}
+
+impl PresentationHandoff {
+    pub fn new() -> Arc<Self> {
+        Arc::new(Self::default())
+    }
+
+    pub fn publish(
+        &self,
+        request_sha256: [u8; 32],
+        identifier: String,
+        bytes: Vec<u8>,
+    ) -> Result<(), PresentationError> {
+        if identifier.is_empty() || bytes.is_empty() {
+            return Err(PresentationError::Invalid);
+        }
+        let mut pending = self
+            .pending
+            .lock()
+            .map_err(|_| PresentationError::Invalid)?;
+        if pending.contains_key(&request_sha256) {
+            return Err(PresentationError::Invalid);
+        }
+        pending.insert(request_sha256, (identifier, bytes));
+        Ok(())
+    }
+
+    fn take_for(&self, request_sha256: &[u8; 32]) -> Result<TlsnPresentation, PresentationError> {
+        let mut pending = self
+            .pending
+            .lock()
+            .map_err(|_| PresentationError::Invalid)?;
+        let Some((identifier, bytes)) = pending.remove(request_sha256) else {
+            return Err(PresentationError::Unavailable);
+        };
+        let presentation = TlsnPresentation::new(identifier, bytes)?;
+        self.consumed
+            .lock()
+            .map_err(|_| PresentationError::Invalid)?
+            .insert(*request_sha256, presentation.clone());
+        Ok(presentation)
+    }
+
+    fn discard_consumed(&self, request_sha256: &[u8; 32]) {
+        if let Ok(mut consumed) = self.consumed.lock() {
+            consumed.remove(request_sha256);
+        }
+    }
+}
+
+pub struct HandoffPresentationProvider {
+    handoff: Arc<PresentationHandoff>,
+}
+
+impl HandoffPresentationProvider {
+    pub fn new(handoff: Arc<PresentationHandoff>) -> Self {
+        Self { handoff }
+    }
+}
+
+impl PresentationProvider for HandoffPresentationProvider {
+    fn provide(&self, context: PresentationRequestContext) -> PresentationFuture {
+        let handoff = Arc::clone(&self.handoff);
+        Box::pin(async move { handoff.take_for(context.authenticated_request_sha256()) })
+    }
+
+    fn discard(&self, context: &PresentationRequestContext) {
+        self.handoff
+            .discard_consumed(context.authenticated_request_sha256());
+    }
+}
+
+pub struct FilesystemPresentationArtifactSink {
+    root: std::path::PathBuf,
+    enabled: bool,
+}
+
+pub(crate) async fn ensure_private_candidate_root(root: &Path) -> Result<(), io::Error> {
+    if !root.is_absolute() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "candidate artifact root must be absolute",
+        ));
+    }
+    match tokio::fs::symlink_metadata(root).await {
+        Ok(_) => validate_private_candidate_directory(root).await,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {
+            tokio::fs::create_dir(root).await?;
+            #[cfg(unix)]
+            if let Err(error) =
+                tokio::fs::set_permissions(root, std::fs::Permissions::from_mode(0o700)).await
+            {
+                let _ = tokio::fs::remove_dir(root).await;
+                return Err(error);
+            }
+            validate_private_candidate_directory(root).await
+        }
+        Err(error) => Err(error),
+    }
+}
+
+pub(crate) async fn create_private_candidate_directory(directory: &Path) -> Result<(), io::Error> {
+    tokio::fs::create_dir(directory).await?;
+    #[cfg(unix)]
+    if let Err(error) =
+        tokio::fs::set_permissions(directory, std::fs::Permissions::from_mode(0o700)).await
+    {
+        let _ = tokio::fs::remove_dir(directory).await;
+        return Err(error);
+    }
+    if let Err(error) = validate_private_candidate_directory(directory).await {
+        let _ = tokio::fs::remove_dir(directory).await;
+        return Err(error);
+    }
+    Ok(())
+}
+
+pub(crate) async fn validate_private_candidate_directory(
+    directory: &Path,
+) -> Result<(), io::Error> {
+    let metadata = tokio::fs::symlink_metadata(directory).await?;
+    if metadata.file_type().is_symlink() || !metadata.is_dir() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "candidate artifact directory must be a real directory",
+        ));
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        use std::os::unix::fs::PermissionsExt;
+        if metadata.uid() != unsafe { libc::geteuid() } {
+            return Err(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                "candidate artifact directory owner is invalid",
+            ));
+        }
+        if metadata.permissions().mode() & 0o077 != 0 {
+            return Err(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                "candidate artifact directory permissions must be private",
+            ));
+        }
+    }
+    Ok(())
+}
+
+async fn remove_partial_candidate_file(
+    path: &Path,
+    file: tokio::fs::File,
+    error: io::Error,
+) -> io::Error {
+    drop(file);
+    let _ = tokio::fs::remove_file(path).await;
+    error
+}
+
+#[allow(dead_code)]
+pub(crate) async fn validate_private_candidate_file(file: &Path) -> Result<(), io::Error> {
+    let metadata = tokio::fs::symlink_metadata(file).await?;
+    if metadata.file_type().is_symlink() || !metadata.is_file() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "candidate artifact must be a regular file",
+        ));
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        use std::os::unix::fs::PermissionsExt;
+        if metadata.uid() != unsafe { libc::geteuid() }
+            || metadata.permissions().mode() & 0o077 != 0
+        {
+            return Err(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                "candidate artifact owner or permissions are invalid",
+            ));
+        }
+    }
+    Ok(())
+}
+
+pub(crate) async fn write_private_candidate_file(
+    path: &Path,
+    bytes: &[u8],
+) -> Result<(), io::Error> {
+    use tokio::io::AsyncWriteExt as TokioAsyncWriteExt;
+
+    let mut options = tokio::fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        options.mode(0o600);
+    }
+    let mut file = options.open(path).await?;
+    let write_result = async {
+        file.write_all(bytes).await?;
+        file.sync_all().await
+    }
+    .await;
+    if let Err(error) = write_result {
+        return Err(remove_partial_candidate_file(path, file, error).await);
+    }
+    Ok(())
+}
+
+impl FilesystemPresentationArtifactSink {
+    pub fn new(root: impl Into<std::path::PathBuf>) -> Self {
+        Self {
+            root: root.into(),
+            enabled: true,
+        }
+    }
+
+    pub fn with_enabled(mut self, enabled: bool) -> Self {
+        self.enabled = enabled;
+        self
+    }
+}
+
+impl PresentationArtifactSink for FilesystemPresentationArtifactSink {
+    fn export(
+        &self,
+        context: PresentationRequestContext,
+        presentation: TlsnPresentation,
+    ) -> PresentationExportFuture {
+        let root = self.root.clone();
+        let enabled = self.enabled;
+        Box::pin(async move {
+            if !enabled {
+                return Ok(());
+            }
+            ensure_private_candidate_root(&root)
+                .await
+                .map_err(|_| PresentationExportError::Failed)?;
+            let directory = root.join(presentation.identifier());
+            create_private_candidate_directory(&directory)
+                .await
+                .map_err(|_| PresentationExportError::Failed)?;
+
+            let captured_at = chrono::Utc::now().to_rfc3339();
+            let capture_context = serde_json::json!({
+                "source": "FUSOU-APP client-facing TLS plaintext boundary",
+                "request_origin": "FUSOU-APP normal game traffic",
+                "no_standalone_game_server_request": true,
+                "no_request_injection": true,
+                "no_request_replay": true,
+                "no_capture_generated_traffic": true,
+                "method": context.request_profile().map(|profile| profile.method()),
+                "target": context.request_profile().map(|profile| profile.target()),
+                "http_version": context.request_profile().map(|profile| profile.http_version()),
+                "connection_id": context.connection_id(),
+                "request_sha256": base64url_string(context.request_sha256()),
+                "authenticated_request_sha256": base64url_string(context.authenticated_request_sha256()),
+            });
+            let worker_health_observation =
+                context
+                    .identifiers()
+                    .worker_health_observation()
+                    .map(|observation| {
+                        serde_json::json!({
+                            "source": "unsigned-https-health-response",
+                            "signature_valid": false,
+                            "authority_status": "UNVERIFIED",
+                            "deployment_id": observation.deployment_id(),
+                            "worker_name": observation.worker_name(),
+                            "git_commit_sha": observation.git_commit_sha(),
+                            "binding_mode": observation.binding_mode(),
+                            "runtime_version_id": observation.runtime_version_id(),
+                        })
+                    });
+            let app_public_configuration_fingerprints = context
+                .identifiers()
+                .app_public_configuration_fingerprints()
+                .map(|fingerprints| {
+                    serde_json::json!({
+                        "schema_version": fingerprints.schema_version,
+                        "scope": fingerprints.scope,
+                        "compile_time_sha256": fingerprints.compile_time_sha256,
+                        "runtime_sha256": fingerprints.runtime_sha256,
+                        "combined_sha256": fingerprints.combined_sha256,
+                        "candidate_binding_status": fingerprints.candidate_binding_status,
+                    })
+                });
+            let metadata = serde_json::json!({
+                "schema_version": 2,
+                "capture_provenance": "production",
+                "capture_source": "fusou-proxy-production-tlsn",
+                "synthetic": false,
+                "test": false,
+                "canary": false,
+                "local": false,
+                "candidate_capture_id": presentation.identifier(),
+                "presentation_sha256": base64url_string(presentation.sha256()),
+                "presentation_size_bytes": presentation.bytes().len(),
+                "capture_timestamp": captured_at,
+                "connection_id": context.connection_id(),
+                "session_id": context.identifiers().session_id(),
+                "request_id": context.identifiers().request_id(),
+                "request_sha256": base64url_string(context.request_sha256()),
+                "authenticated_request_sha256": base64url_string(context.authenticated_request_sha256()),
+                "response_sha256": base64url_string(context.response_sha256()),
+                "authenticated_response_sha256": base64url_string(context.authenticated_response_sha256()),
+                "binding_identifier": base64url_string(context.binding_identifier()),
+                "server_identity": context.server_identity(),
+                "request": context.request_profile().map(|profile| serde_json::json!({
+                    "method": profile.method(),
+                    "target": profile.target(),
+                    "http_version": profile.http_version(),
+                })),
+                "proxy_provenance": {
+                    "declared": "production",
+                    "cryptographic_status": "UNVERIFIED",
+                    "proxy_identity": "fusou-proxy",
+                    "proxy_deployment_id": null,
+                    "proxy_binary_identity": format!("proxy-https:{}", env!("CARGO_PKG_VERSION")),
+                    "presentation_sha256": base64url_string(presentation.sha256()),
+                    "created_at": captured_at,
+                    "capture_context": capture_context,
+                    "worker_health_observation": worker_health_observation,
+                    "app_public_configuration_fingerprints": app_public_configuration_fingerprints,
+                    "authority": {
+                        "type": "externally-pinned-production-proxy-key",
+                        "status": "UNVERIFIED",
+                    },
+                    "signer_key_id": null,
+                    "signature": null,
+                },
+            });
+
+            let export_result = async {
+                write_private_candidate_file(
+                    &directory.join("presentation.bin"),
+                    presentation.bytes(),
+                )
+                .await?;
+                write_private_candidate_file(
+                    &directory.join("metadata.json"),
+                    &canonical_json_bytes(&metadata),
+                )
+                .await
+            }
+            .await;
+            if export_result.is_err() {
+                let _ = tokio::fs::remove_dir_all(&directory).await;
+            }
+            export_result.map_err(|_| PresentationExportError::Failed)
+        })
+    }
+}
+
+fn binding_session_id(value: &str) -> Option<String> {
+    const PREFIX: &[u8] = b"FUSOU-ATTESTATION-BINDING-V1\0";
+    let bytes = decode_base64url(value)?;
+    if bytes.len() != PREFIX.len() + 2 + 16 + 2 + 32 || !bytes.starts_with(PREFIX) {
+        return None;
+    }
+    let session_length = u16::from_be_bytes([bytes[PREFIX.len()], bytes[PREFIX.len() + 1]]);
+    if session_length != 16 {
+        return None;
+    }
+    uuid::Uuid::from_slice(&bytes[PREFIX.len() + 2..PREFIX.len() + 18])
+        .ok()
+        .map(|uuid| uuid.hyphenated().to_string())
+}
+
+fn decode_base64url(value: &str) -> Option<Vec<u8>> {
+    if value.is_empty() || value.contains('=') || !value.is_ascii() {
+        return None;
+    }
+    let mut output = Vec::with_capacity(value.len() * 3 / 4);
+    let mut accumulator = 0_u32;
+    let mut bits = 0_u8;
+    for byte in value.bytes() {
+        let value = match byte {
+            b'A'..=b'Z' => byte - b'A',
+            b'a'..=b'z' => byte - b'a' + 26,
+            b'0'..=b'9' => byte - b'0' + 52,
+            b'-' => 62,
+            b'_' => 63,
+            _ => return None,
+        };
+        accumulator = (accumulator << 6) | u32::from(value);
+        bits += 6;
+        if bits >= 8 {
+            bits -= 8;
+            output.push((accumulator >> bits) as u8);
+            accumulator &= (1 << bits) - 1;
+        }
+    }
+    if bits >= 6 || (bits > 0 && accumulator != 0) {
+        return None;
+    }
+    Some(output)
+}
+
+fn base64url_string(bytes: &[u8]) -> String {
+    const TABLE: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+    let mut output = String::with_capacity((bytes.len() * 4 + 2) / 3);
+    for chunk in bytes.chunks(3) {
+        let first = chunk[0];
+        output.push(TABLE[(first >> 2) as usize] as char);
+        if chunk.len() == 1 {
+            output.push(TABLE[((first & 0x03) << 4) as usize] as char);
+        } else {
+            let second = chunk[1];
+            output.push(TABLE[(((first & 0x03) << 4) | (second >> 4)) as usize] as char);
+            if chunk.len() == 2 {
+                output.push(TABLE[((second & 0x0f) << 2) as usize] as char);
+            } else {
+                let third = chunk[2];
+                output.push(TABLE[(((second & 0x0f) << 2) | (third >> 6)) as usize] as char);
+                output.push(TABLE[(third & 0x3f) as usize] as char);
+            }
+        }
+    }
+    output
+}
+
+pub(crate) fn canonical_json_bytes(value: &serde_json::Value) -> Vec<u8> {
+    fn append(value: &serde_json::Value, output: &mut Vec<u8>) {
+        match value {
+            serde_json::Value::Object(object) => {
+                output.push(b'{');
+                let mut entries = object.iter().collect::<Vec<_>>();
+                entries.sort_unstable_by(|(left, _), (right, _)| left.cmp(right));
+                for (index, (key, value)) in entries.into_iter().enumerate() {
+                    if index > 0 {
+                        output.push(b',');
+                    }
+                    output.extend_from_slice(
+                        &serde_json::to_vec(key).expect("JSON object key must serialize"),
+                    );
+                    output.push(b':');
+                    append(value, output);
+                }
+                output.push(b'}');
+            }
+            serde_json::Value::Array(values) => {
+                output.push(b'[');
+                for (index, value) in values.iter().enumerate() {
+                    if index > 0 {
+                        output.push(b',');
+                    }
+                    append(value, output);
+                }
+                output.push(b']');
+            }
+            _ => output.extend_from_slice(
+                &serde_json::to_vec(value).expect("JSON scalar value must serialize"),
+            ),
+        }
+    }
+
+    let mut bytes = Vec::new();
+    append(value, &mut bytes);
+    bytes
+}
+
+pub trait TlsnVerificationBackend: Send + Sync {
+    fn verify(&self, input: PresentationVerificationInput) -> VerificationFuture;
+}
+
+#[derive(Debug, Default)]
+pub struct UnconfiguredDedicatedVerifier;
+
+impl TlsnVerificationBackend for UnconfiguredDedicatedVerifier {
+    fn verify(&self, _input: PresentationVerificationInput) -> VerificationFuture {
+        Box::pin(async { Err(VerificationError::Unavailable) })
+    }
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct DeferredVerificationBackend {
+    verification: DeferredVerification,
+}
+
+impl DeferredVerificationBackend {
+    pub fn new(job_id: String) -> Result<Self, VerificationError> {
+        Ok(Self {
+            verification: DeferredVerification::new(job_id)?,
+        })
+    }
+}
+
+impl TlsnVerificationBackend for DeferredVerificationBackend {
+    fn verify(&self, _input: PresentationVerificationInput) -> VerificationFuture {
+        let verification = self.verification.clone();
+        Box::pin(async move { Ok(VerificationOutcome::Deferred(verification)) })
+    }
+}
+
+pub struct PresentationVerifierBoundary {
+    presentation_provider: Arc<dyn PresentationProvider>,
+    verification_backend: Arc<dyn TlsnVerificationBackend>,
+    presentation_artifact_sink: Option<Arc<dyn PresentationArtifactSink>>,
+    target: OriginTarget,
+    identifiers: RuntimeIdentifiers,
+}
+
+impl PresentationVerifierBoundary {
+    pub fn new(
+        presentation_provider: Arc<dyn PresentationProvider>,
+        verification_backend: Arc<dyn TlsnVerificationBackend>,
+        target: OriginTarget,
+        identifiers: RuntimeIdentifiers,
+    ) -> Arc<Self> {
+        Self::new_with_artifact_sink(
+            presentation_provider,
+            verification_backend,
+            target,
+            identifiers,
+            None,
+        )
+    }
+
+    pub fn new_with_artifact_sink(
+        presentation_provider: Arc<dyn PresentationProvider>,
+        verification_backend: Arc<dyn TlsnVerificationBackend>,
+        target: OriginTarget,
+        identifiers: RuntimeIdentifiers,
+        presentation_artifact_sink: Option<Arc<dyn PresentationArtifactSink>>,
+    ) -> Arc<Self> {
+        Arc::new(Self {
+            presentation_provider,
+            verification_backend,
+            presentation_artifact_sink,
+            target,
+            identifiers,
+        })
+    }
+}
+
+impl ExperimentalVerifierBoundary for PresentationVerifierBoundary {
+    fn verify(
+        &self,
+        connection_id: u64,
+        request: SerializedOriginRequest,
+        binding: AttestationBinding,
+        exchange: TlsnOriginExchange,
+    ) -> VerificationFuture {
+        let request_sha256 = sha256(request.bytes());
+        let response_sha256 = sha256(&exchange.response.raw_response_bytes);
+        if exchange.transcript.request_sha256 != request_sha256
+            || exchange.transcript.response_sha256 != response_sha256
+        {
+            return Box::pin(async { Err(VerificationError::InvalidTranscript) });
+        }
+        let provider = Arc::clone(&self.presentation_provider);
+        let verification_backend = Arc::clone(&self.verification_backend);
+        let artifact_sink = self.presentation_artifact_sink.clone();
+        let context = PresentationRequestContext::from_exchange(
+            self.identifiers.clone(),
+            connection_id,
+            &binding,
+            &request,
+            &exchange,
+            &self.target,
+        );
+        Box::pin(async move {
+            let presentation =
+                provider
+                    .provide(context.clone())
+                    .await
+                    .map_err(|error| match error {
+                        PresentationError::Unavailable => {
+                            VerificationError::PresentationUnavailable
+                        }
+                        PresentationError::Invalid => VerificationError::PresentationInvalid,
+                    })?;
+            let result = async {
+                if let Some(artifact_sink) = artifact_sink {
+                    artifact_sink
+                        .export(context.clone(), presentation.clone())
+                        .await
+                        .map_err(|error| match error {
+                            PresentationExportError::Unavailable => {
+                                VerificationError::PresentationExportUnavailable
+                            }
+                            PresentationExportError::Failed => {
+                                VerificationError::PresentationExportFailed
+                            }
+                        })?;
+                }
+                let presentation_metadata = TlsnEvidenceMetadata::new(
+                    context.connection_id(),
+                    *context.binding_identifier(),
+                    Some(context.server_identity().to_owned()),
+                    *context.authenticated_request_sha256(),
+                    *context.authenticated_response_sha256(),
+                    Some(presentation.identifier().to_owned()),
+                    Some(*presentation.sha256()),
+                );
+                let outcome = verification_backend
+                    .verify(PresentationVerificationInput::new(
+                        context.clone(),
+                        request,
+                        binding,
+                        exchange,
+                        presentation,
+                    ))
+                    .await?;
+                match outcome {
+                    VerificationOutcome::Verified(evidence) => {
+                        if evidence.request_sha256() != &request_sha256
+                            || evidence.response_sha256() != &response_sha256
+                        {
+                            return Err(VerificationError::InvalidTranscript);
+                        }
+                        Ok(VerificationOutcome::Verified(
+                            evidence.with_metadata(presentation_metadata),
+                        ))
+                    }
+                    VerificationOutcome::Deferred(deferred) => {
+                        Ok(VerificationOutcome::Deferred(deferred))
+                    }
+                }
+            }
+            .await;
+            provider.discard(&context);
+            result
+        })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ResultSignerError {
+    Unavailable,
+    Failed,
+}
+
+pub type ResultSignerFuture =
+    Pin<Box<dyn Future<Output = Result<SignedTlsnResult, ResultSignerError>> + Send>>;
+
+pub trait ProductionResultSigner: Send + Sync {
+    fn sign(&self, evidence: VerifiedTlsnEvidence) -> ResultSignerFuture;
+}
+
+#[derive(Debug, Default)]
+pub struct UnconfiguredProductionResultSigner;
+
+impl ProductionResultSigner for UnconfiguredProductionResultSigner {
+    fn sign(&self, _evidence: VerifiedTlsnEvidence) -> ResultSignerFuture {
+        Box::pin(async { Err(ResultSignerError::Unavailable) })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SignedTlsnResult {
+    key_id: String,
+    bytes: Vec<u8>,
+    sha256: [u8; 32],
+}
+
+impl SignedTlsnResult {
+    pub fn new(key_id: String, bytes: Vec<u8>) -> Result<Self, ResultSignerError> {
+        if key_id.is_empty() || bytes.is_empty() {
+            return Err(ResultSignerError::Failed);
+        }
+        Ok(Self {
+            key_id,
+            sha256: sha256(&bytes),
+            bytes,
+        })
+    }
+
+    pub fn key_id(&self) -> &str {
+        &self.key_id
+    }
+
+    pub fn bytes(&self) -> &[u8] {
+        &self.bytes
+    }
+
+    pub fn sha256(&self) -> &[u8; 32] {
+        &self.sha256
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ResultDeliveryError {
+    Unavailable,
+    Failed,
+}
+
+pub type ResultDeliveryFuture =
+    Pin<Box<dyn Future<Output = Result<(), ResultDeliveryError>> + Send>>;
+
+pub trait ProductionResultDelivery: Send + Sync {
+    fn deliver(&self, result: SignedTlsnResult) -> ResultDeliveryFuture;
+}
+
+#[derive(Debug, Default)]
+pub struct UnconfiguredProductionResultDelivery;
+
+impl ProductionResultDelivery for UnconfiguredProductionResultDelivery {
+    fn deliver(&self, _result: SignedTlsnResult) -> ResultDeliveryFuture {
+        Box::pin(async { Err(ResultDeliveryError::Unavailable) })
+    }
+}
+
+pub struct SignedResultBoundary {
+    signer: Arc<dyn ProductionResultSigner>,
+    delivery: Arc<dyn ProductionResultDelivery>,
+}
+
+impl SignedResultBoundary {
+    pub fn new(
+        signer: Arc<dyn ProductionResultSigner>,
+        delivery: Arc<dyn ProductionResultDelivery>,
+    ) -> Arc<Self> {
+        Arc::new(Self { signer, delivery })
+    }
+}
+
+impl ExperimentalResultBoundary for SignedResultBoundary {
+    fn accept(&self, evidence: VerifiedTlsnEvidence) -> ResultBoundaryFuture {
+        let signer = Arc::clone(&self.signer);
+        let delivery = Arc::clone(&self.delivery);
+        Box::pin(async move {
+            let result = signer.sign(evidence).await.map_err(|error| match error {
+                ResultSignerError::Unavailable => ResultBoundaryError::SigningUnavailable,
+                ResultSignerError::Failed => ResultBoundaryError::Unavailable,
+            })?;
+            delivery.deliver(result).await.map_err(|error| match error {
+                ResultDeliveryError::Unavailable => ResultBoundaryError::DeliveryUnavailable,
+                ResultDeliveryError::Failed => ResultBoundaryError::Unavailable,
+            })
+        })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ProductionConfigurationError {
+    InvalidOrigin(OriginConfigurationError),
+    MissingPresentationArtifactSink,
+}
+
+impl std::fmt::Display for ProductionConfigurationError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::InvalidOrigin(error) => write!(formatter, "invalid production origin: {error}"),
+            Self::MissingPresentationArtifactSink => {
+                formatter.write_str("production TLSN requires a Presentation artifact sink")
+            }
+        }
+    }
+}
+
+pub struct ProductionTlsnDependencies {
+    origin: OriginTransportConfig,
+    binding_provider: Arc<dyn crate::experimental_tlsn::AttestationBindingProvider>,
+    transport_factory: Arc<dyn Alpha15OriginTransportFactory>,
+    presentation_provider: Arc<dyn PresentationProvider>,
+    presentation_artifact_sink: Option<Arc<dyn PresentationArtifactSink>>,
+    verification_backend: Arc<dyn TlsnVerificationBackend>,
+    signer: Arc<dyn ProductionResultSigner>,
+    delivery: Arc<dyn ProductionResultDelivery>,
+    identifiers: RuntimeIdentifiers,
+}
+
+impl ProductionTlsnDependencies {
+    pub fn new(
+        origin: OriginTransportConfig,
+        binding_provider: Arc<dyn crate::experimental_tlsn::AttestationBindingProvider>,
+        transport_factory: Arc<dyn Alpha15OriginTransportFactory>,
+        presentation_provider: Arc<dyn PresentationProvider>,
+        verification_backend: Arc<dyn TlsnVerificationBackend>,
+        signer: Arc<dyn ProductionResultSigner>,
+        delivery: Arc<dyn ProductionResultDelivery>,
+    ) -> Self {
+        Self {
+            origin,
+            binding_provider,
+            transport_factory,
+            presentation_provider,
+            presentation_artifact_sink: None,
+            verification_backend,
+            signer,
+            delivery,
+            identifiers: RuntimeIdentifiers::default(),
+        }
+    }
+
+    pub fn with_identifiers(mut self, identifiers: RuntimeIdentifiers) -> Self {
+        self.identifiers = identifiers;
+        self
+    }
+
+    pub fn with_presentation_artifact_sink(
+        mut self,
+        sink: Arc<dyn PresentationArtifactSink>,
+    ) -> Self {
+        self.presentation_artifact_sink = Some(sink);
+        self
+    }
+
+    pub fn build_forwarder(
+        self,
+    ) -> Result<Arc<ExperimentalTlsnForwarder>, ProductionConfigurationError> {
+        self.origin
+            .validate_for_experimental()
+            .map_err(ProductionConfigurationError::InvalidOrigin)?;
+        let presentation_artifact_sink = self
+            .presentation_artifact_sink
+            .ok_or(ProductionConfigurationError::MissingPresentationArtifactSink)?;
+        let transport = Arc::new(
+            ProductionAlpha15OriginTransport::new(self.origin.clone(), self.transport_factory)
+                .map_err(ProductionConfigurationError::InvalidOrigin)?,
+        );
+        let verifier = PresentationVerifierBoundary::new_with_artifact_sink(
+            self.presentation_provider,
+            self.verification_backend,
+            self.origin.target().clone(),
+            self.identifiers,
+            Some(presentation_artifact_sink),
+        );
+        let result_boundary = SignedResultBoundary::new(self.signer, self.delivery);
+        Ok(ExperimentalTlsnForwarder::new(
+            self.binding_provider,
+            Arc::new(crate::experimental_tlsn::Http1OriginRequestSerializer),
+            transport,
+            verifier,
+            result_boundary,
+        ))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::experimental_tlsn::{
+        AttestationBinding, BindingError, BindingFuture, ExperimentalRequireInfoForwarder,
+        TlsnOriginResponse, VerifiedMemberId,
+    };
+    use crate::experimental_tlsn::{ProofContinuation, TlsnOriginCapture};
+    use http::{HeaderMap, HeaderValue, StatusCode};
+    use hyper::body::Bytes;
+    use std::sync::{atomic::AtomicUsize, Mutex};
+
+    fn origin_config(enabled: bool) -> OriginTransportConfig {
+        OriginTransportConfig::new(
+            OriginTarget::new(
+                "game.example.test".to_owned(),
+                443,
+                "game.example.test".to_owned(),
+            )
+            .unwrap(),
+            OriginTlsConfig::new().unwrap(),
+            ServerIdentityPolicy::new(vec!["game.example.test".to_owned()]).unwrap(),
+            enabled,
+        )
+    }
+
+    #[test]
+    fn origin_target_requires_matching_dns_hostname_and_server_identity() {
+        assert_eq!(
+            OriginTarget::new("192.0.2.10".to_owned(), 443, "game.example.com".to_owned(),)
+                .unwrap_err(),
+            OriginConfigurationError::InvalidHostname,
+        );
+        assert_eq!(
+            OriginTarget::new("game.example.com".to_owned(), 443, "192.0.2.10".to_owned(),)
+                .unwrap_err(),
+            OriginConfigurationError::InvalidServerIdentity,
+        );
+        assert_eq!(
+            OriginTarget::new(
+                "other.example.com".to_owned(),
+                443,
+                "game.example.com".to_owned(),
+            )
+            .unwrap_err(),
+            OriginConfigurationError::TargetIdentityMismatch,
+        );
+        assert!(OriginTarget::new(
+            "GAME.example.com".to_owned(),
+            443,
+            "game.example.com".to_owned(),
+        )
+        .is_ok());
+    }
+
+    fn request() -> SerializedOriginRequest {
+        SerializedOriginRequest::new(Bytes::from_static(
+            b"POST /kcsapi/api_get_member/require_info HTTP/1.1\r\nHost: game.example.test\r\nContent-Length: 0\r\nX-Attestation-Binding: opaque\r\n\r\n",
+        ))
+        .unwrap()
+    }
+
+    fn exchange() -> TlsnOriginExchange {
+        let raw_response = Bytes::from_static(
+            b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok",
+        );
+        let mut headers = HeaderMap::new();
+        headers.insert("Content-Length", HeaderValue::from_static("2"));
+        headers.insert("Connection", HeaderValue::from_static("close"));
+        TlsnOriginExchange {
+            response: TlsnOriginResponse::new(
+                StatusCode::OK,
+                headers,
+                Bytes::from_static(b"ok"),
+                raw_response.clone(),
+            ),
+            transcript: crate::experimental_tlsn::UnverifiedTlsnTranscript {
+                request_sha256: sha256(request().bytes()),
+                response_sha256: sha256(&raw_response),
+            },
+        }
+    }
+
+    struct RecordingFactory {
+        calls: AtomicUsize,
+        request: Mutex<Option<Vec<u8>>>,
+    }
+
+    impl Alpha15OriginTransportFactory for RecordingFactory {
+        fn send_once(
+            &self,
+            _config: OriginTransportConfig,
+            request: SerializedOriginRequest,
+        ) -> TlsnTransportFuture {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            *self.request.lock().unwrap() = Some(request.bytes().to_vec());
+            Box::pin(async {
+                Ok(TlsnOriginCapture {
+                    exchange: exchange(),
+                    proof: ProofContinuation::completed(),
+                })
+            })
+        }
+    }
+
+    struct Binding;
+
+    impl crate::experimental_tlsn::AttestationBindingProvider for Binding {
+        fn issue_binding(
+            &self,
+            _context: crate::experimental_tlsn::BindingRequestContext,
+        ) -> BindingFuture {
+            Box::pin(async {
+                AttestationBinding::new("opaque".to_owned())
+                    .map_err(|_| BindingError::InvalidBinding)
+            })
+        }
+    }
+
+    struct RecordingPresentationProvider {
+        calls: AtomicUsize,
+        context: Mutex<Option<PresentationRequestContext>>,
+    }
+
+    impl PresentationProvider for RecordingPresentationProvider {
+        fn provide(&self, context: PresentationRequestContext) -> PresentationFuture {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            *self.context.lock().unwrap() = Some(context);
+            Box::pin(async { TlsnPresentation::new("presentation-1".to_owned(), vec![9, 8, 7]) })
+        }
+    }
+
+    struct RecordingPresentationArtifactSink {
+        calls: AtomicUsize,
+        context: Mutex<Option<PresentationRequestContext>>,
+        presentation: Mutex<Option<TlsnPresentation>>,
+    }
+
+    impl PresentationArtifactSink for RecordingPresentationArtifactSink {
+        fn export(
+            &self,
+            context: PresentationRequestContext,
+            presentation: TlsnPresentation,
+        ) -> PresentationExportFuture {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            *self.context.lock().unwrap() = Some(context);
+            *self.presentation.lock().unwrap() = Some(presentation);
+            Box::pin(async { Ok(()) })
+        }
+    }
+
+    struct RecordingDedicatedVerifier {
+        calls: AtomicUsize,
+        presentation: Mutex<Option<TlsnPresentation>>,
+    }
+
+    impl TlsnVerificationBackend for RecordingDedicatedVerifier {
+        fn verify(&self, input: PresentationVerificationInput) -> VerificationFuture {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            *self.presentation.lock().unwrap() = Some(input.presentation().clone());
+            let request_sha256 = sha256(input.request().bytes());
+            let response_sha256 = sha256(&input.exchange().response.raw_response_bytes);
+            assert_eq!(input.context().request_sha256(), &request_sha256);
+            assert_eq!(input.context().response_sha256(), &response_sha256);
+            Box::pin(async move {
+                Ok(VerificationOutcome::Verified(
+                    VerifiedTlsnEvidence::from_verifier(
+                        request_sha256,
+                        response_sha256,
+                        VerifiedMemberId::from_verifier("16189463".to_owned())?,
+                    ),
+                ))
+            })
+        }
+    }
+
+    struct MismatchedDedicatedVerifier;
+
+    impl TlsnVerificationBackend for MismatchedDedicatedVerifier {
+        fn verify(&self, _input: PresentationVerificationInput) -> VerificationFuture {
+            Box::pin(async {
+                Ok(VerificationOutcome::Verified(
+                    VerifiedTlsnEvidence::from_verifier(
+                        [1_u8; 32],
+                        [2_u8; 32],
+                        VerifiedMemberId::from_verifier("16189463".to_owned())?,
+                    ),
+                ))
+            })
+        }
+    }
+
+    struct RecordingSigner {
+        calls: AtomicUsize,
+    }
+
+    impl ProductionResultSigner for RecordingSigner {
+        fn sign(&self, _evidence: VerifiedTlsnEvidence) -> ResultSignerFuture {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            Box::pin(async { SignedTlsnResult::new("key-1".to_owned(), b"signed-result".to_vec()) })
+        }
+    }
+
+    struct RecordingDelivery {
+        calls: AtomicUsize,
+        result: Mutex<Option<SignedTlsnResult>>,
+    }
+
+    impl ProductionResultDelivery for RecordingDelivery {
+        fn deliver(&self, result: SignedTlsnResult) -> ResultDeliveryFuture {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            *self.result.lock().unwrap() = Some(result);
+            Box::pin(async { Ok(()) })
+        }
+    }
+
+    #[test]
+    fn production_origin_requires_explicit_enablement_and_allowlist() {
+        assert_eq!(
+            origin_config(false).validate_for_experimental(),
+            Err(OriginConfigurationError::ExperimentalDisabled)
+        );
+        let config = OriginTransportConfig::new(
+            OriginTarget::new(
+                "game.example.test".to_owned(),
+                443,
+                "game.example.test".to_owned(),
+            )
+            .unwrap(),
+            OriginTlsConfig::new().unwrap(),
+            ServerIdentityPolicy::new(vec!["other.example.test".to_owned()]).unwrap(),
+            true,
+        );
+        assert_eq!(
+            config.validate_for_experimental(),
+            Err(OriginConfigurationError::ServerIdentityNotAllowed)
+        );
+    }
+
+    #[test]
+    fn production_origin_rejects_identity_outside_inventory_even_if_policy_allows_it() {
+        let identity = "not-in-inventory.example.test";
+        let config = OriginTransportConfig::new(
+            OriginTarget::new(identity.to_owned(), 443, identity.to_owned()).unwrap(),
+            OriginTlsConfig::new().unwrap(),
+            ServerIdentityPolicy::new(vec![identity.to_owned()]).unwrap(),
+            true,
+        );
+        assert_eq!(
+            config.validate_for_experimental(),
+            Err(OriginConfigurationError::ServerIdentityNotAllowed)
+        );
+    }
+
+    #[tokio::test]
+    async fn production_transport_preserves_bytes_and_is_one_shot() {
+        let factory = Arc::new(RecordingFactory {
+            calls: AtomicUsize::new(0),
+            request: Mutex::new(None),
+        });
+        let transport = ProductionAlpha15OriginTransport::new(
+            origin_config(true),
+            Arc::clone(&factory) as Arc<dyn Alpha15OriginTransportFactory>,
+        )
+        .unwrap();
+        let request = request();
+        transport.send_once(request.clone()).await.unwrap();
+        assert_eq!(factory.calls.load(Ordering::SeqCst), 1);
+        assert_eq!(
+            factory.request.lock().unwrap().as_deref(),
+            Some(request.bytes())
+        );
+        assert!(matches!(
+            transport.send_once(request).await,
+            Err(TlsnTransportError::AlreadySent)
+        ));
+    }
+
+    #[tokio::test]
+    async fn unconfigured_origin_fails_closed_without_a_real_connection() {
+        let transport = ProductionAlpha15OriginTransport::new(
+            origin_config(true),
+            Arc::new(UnconfiguredAlpha15OriginTransportFactory),
+        )
+        .unwrap();
+        assert!(matches!(
+            transport.send_once(request()).await,
+            Err(TlsnTransportError::Unavailable)
+        ));
+    }
+
+    #[tokio::test]
+    async fn production_dependencies_build_explicitly_and_fail_closed_without_transport() {
+        let sink = Arc::new(RecordingPresentationArtifactSink {
+            calls: AtomicUsize::new(0),
+            context: Mutex::new(None),
+            presentation: Mutex::new(None),
+        });
+        let forwarder = ProductionTlsnDependencies::new(
+            origin_config(true),
+            Arc::new(Binding),
+            Arc::new(UnconfiguredAlpha15OriginTransportFactory),
+            Arc::new(UnconfiguredPresentationProvider),
+            Arc::new(UnconfiguredDedicatedVerifier),
+            Arc::new(UnconfiguredProductionResultSigner),
+            Arc::new(UnconfiguredProductionResultDelivery),
+        )
+        .with_presentation_artifact_sink(sink)
+        .build_forwarder()
+        .unwrap();
+        let request = hudsucker::hyper::Request::builder()
+            .method("POST")
+            .uri("https://game.example.test/kcsapi/api_get_member/require_info")
+            .header("Host", "game.example.test")
+            .body(Bytes::new())
+            .unwrap();
+
+        assert_eq!(
+            forwarder.forward(42, request).await.unwrap_err(),
+            "TLSN origin transport is unavailable"
+        );
+    }
+
+    #[test]
+    fn production_dependencies_require_an_artifact_sink() {
+        let result = ProductionTlsnDependencies::new(
+            origin_config(true),
+            Arc::new(Binding),
+            Arc::new(UnconfiguredAlpha15OriginTransportFactory),
+            Arc::new(UnconfiguredPresentationProvider),
+            Arc::new(UnconfiguredDedicatedVerifier),
+            Arc::new(UnconfiguredProductionResultSigner),
+            Arc::new(UnconfiguredProductionResultDelivery),
+        )
+        .build_forwarder();
+
+        let error = match result {
+            Ok(_) => panic!("missing artifact sink must fail closed"),
+            Err(error) => error,
+        };
+        assert_eq!(
+            error.to_string(),
+            "production TLSN requires a Presentation artifact sink"
+        );
+    }
+
+    #[tokio::test]
+    async fn presentation_boundary_attaches_provider_metadata_after_verification() {
+        let provider = Arc::new(RecordingPresentationProvider {
+            calls: AtomicUsize::new(0),
+            context: Mutex::new(None),
+        });
+        let verifier = Arc::new(RecordingDedicatedVerifier {
+            calls: AtomicUsize::new(0),
+            presentation: Mutex::new(None),
+        });
+        let boundary = PresentationVerifierBoundary::new(
+            Arc::clone(&provider) as Arc<dyn PresentationProvider>,
+            Arc::clone(&verifier) as Arc<dyn TlsnVerificationBackend>,
+            OriginTarget::new(
+                "game.example.test".to_owned(),
+                443,
+                "game.example.test".to_owned(),
+            )
+            .unwrap(),
+            RuntimeIdentifiers::new(
+                Some("experiment-1".to_owned()),
+                Some("session-1".to_owned()),
+                Some("request-1".to_owned()),
+            ),
+        );
+        let request = request();
+        let binding = AttestationBinding::new("opaque".to_owned()).unwrap();
+        let exchange = exchange();
+        let authenticated_request_sha256 = exchange.transcript.request_sha256;
+        let authenticated_response_sha256 = exchange.transcript.response_sha256;
+        let outcome = boundary
+            .verify(7, request.clone(), binding.clone(), exchange)
+            .await
+            .unwrap();
+        let VerificationOutcome::Verified(evidence) = outcome else {
+            panic!("recording backend unexpectedly deferred verification");
+        };
+
+        assert_eq!(provider.calls.load(Ordering::SeqCst), 1);
+        assert_eq!(verifier.calls.load(Ordering::SeqCst), 1);
+        let context = provider.context.lock().unwrap().clone().unwrap();
+        assert_eq!(context.connection_id(), 7);
+        assert_eq!(context.identifiers().experiment_id(), Some("experiment-1"));
+        assert_eq!(context.identifiers().session_id(), Some("session-1"));
+        assert_eq!(context.identifiers().request_id(), Some("request-1"));
+        assert_eq!(
+            context.binding_identifier(),
+            &sha256(binding.value().as_bytes())
+        );
+        assert_eq!(
+            context.authenticated_request_sha256(),
+            &authenticated_request_sha256
+        );
+        assert_eq!(
+            context.authenticated_response_sha256(),
+            &authenticated_response_sha256
+        );
+        assert_eq!(context.server_identity(), "game.example.test");
+        assert_eq!(
+            verifier
+                .presentation
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .identifier(),
+            "presentation-1"
+        );
+        assert_eq!(evidence.metadata().connection_id(), 7);
+        assert_eq!(
+            evidence.metadata().binding_identifier(),
+            &sha256(binding.value().as_bytes())
+        );
+        assert_eq!(
+            evidence.metadata().authenticated_request_sha256(),
+            &authenticated_request_sha256
+        );
+        assert_eq!(
+            evidence.metadata().authenticated_response_sha256(),
+            &authenticated_response_sha256
+        );
+        assert_eq!(
+            evidence.metadata().server_identity(),
+            Some("game.example.test")
+        );
+        assert_eq!(
+            evidence.metadata().presentation_identifier(),
+            Some("presentation-1")
+        );
+        assert_eq!(
+            evidence.metadata().presentation_sha256(),
+            Some(&sha256(&[9, 8, 7]))
+        );
+        assert_eq!(evidence.request_sha256(), &sha256(request.bytes()));
+    }
+
+    #[tokio::test]
+    async fn presentation_boundary_exports_raw_presentation_with_safe_request_profile() {
+        let provider = Arc::new(RecordingPresentationProvider {
+            calls: AtomicUsize::new(0),
+            context: Mutex::new(None),
+        });
+        let sink = Arc::new(RecordingPresentationArtifactSink {
+            calls: AtomicUsize::new(0),
+            context: Mutex::new(None),
+            presentation: Mutex::new(None),
+        });
+        let boundary = PresentationVerifierBoundary::new_with_artifact_sink(
+            Arc::clone(&provider) as Arc<dyn PresentationProvider>,
+            Arc::new(RecordingDedicatedVerifier {
+                calls: AtomicUsize::new(0),
+                presentation: Mutex::new(None),
+            }),
+            OriginTarget::new(
+                "game.example.test".to_owned(),
+                443,
+                "game.example.test".to_owned(),
+            )
+            .unwrap(),
+            RuntimeIdentifiers::default(),
+            Some(Arc::clone(&sink) as Arc<dyn PresentationArtifactSink>),
+        );
+
+        boundary
+            .verify(
+                7,
+                request(),
+                AttestationBinding::new("opaque".to_owned()).unwrap(),
+                exchange(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(sink.calls.load(Ordering::SeqCst), 1);
+        let context = sink.context.lock().unwrap().clone().unwrap();
+        let profile = context.request_profile().unwrap();
+        assert_eq!(profile.method(), "POST");
+        assert_eq!(profile.target(), "/kcsapi/api_get_member/require_info");
+        assert_eq!(profile.http_version(), "HTTP/1.1");
+        assert_eq!(
+            sink.presentation.lock().unwrap().as_ref().unwrap().bytes(),
+            &[9, 8, 7]
+        );
+    }
+
+    #[tokio::test]
+    async fn disabled_filesystem_presentation_sink_keeps_verification_path_without_export() {
+        let root = std::env::temp_dir().join(format!(
+            "fusou-tlsn-disabled-artifact-sink-{}-{}",
+            std::process::id(),
+            uuid::Uuid::new_v4()
+        ));
+        let request = request();
+        let exchange = exchange();
+        let binding = AttestationBinding::new("binding-value".to_owned()).unwrap();
+        let config = origin_config(true);
+        let context = PresentationRequestContext::from_exchange(
+            RuntimeIdentifiers::default(),
+            9,
+            &binding,
+            &request,
+            &exchange,
+            config.target(),
+        );
+        let presentation =
+            TlsnPresentation::new("presentation-disabled".to_owned(), vec![1, 2, 3]).unwrap();
+        let sink = FilesystemPresentationArtifactSink::new(&root).with_enabled(false);
+
+        sink.export(context, presentation).await.unwrap();
+        assert!(!root.exists());
+    }
+
+    #[tokio::test]
+    async fn candidate_metadata_marks_health_unsigned_and_configuration_unbound() {
+        let root = std::env::temp_dir().join(format!(
+            "fusou-tlsn-candidate-metadata-{}-{}",
+            std::process::id(),
+            uuid::Uuid::new_v4()
+        ));
+        let request = request();
+        let exchange = exchange();
+        let binding = AttestationBinding::new("binding-value".to_owned()).unwrap();
+        let identifiers = RuntimeIdentifiers::default()
+            .with_worker_health_observation(WorkerHealthObservation::new(
+                "deployment-1".to_owned(),
+                "worker-1".to_owned(),
+                "0123456789abcdef0123456789abcdef01234567".to_owned(),
+                "fixed_canary".to_owned(),
+                "version-1".to_owned(),
+            ))
+            .with_app_public_configuration_fingerprints(AppPublicConfigurationFingerprints {
+                schema_version: 2,
+                scope: "fusou-tlsn-app-public-configuration".to_owned(),
+                compile_time_sha256: "compile-fingerprint".to_owned(),
+                runtime_sha256: "runtime-fingerprint".to_owned(),
+                combined_sha256: "combined-fingerprint".to_owned(),
+                candidate_binding_status: "UNBOUND".to_owned(),
+            });
+        let context = PresentationRequestContext::from_exchange(
+            identifiers,
+            9,
+            &binding,
+            &request,
+            &exchange,
+            origin_config(true).target(),
+        );
+        let presentation =
+            TlsnPresentation::new("candidate-metadata".to_owned(), vec![1, 2, 3]).unwrap();
+        let sink = FilesystemPresentationArtifactSink::new(&root);
+
+        sink.export(context, presentation).await.unwrap();
+
+        let metadata_path = root.join("candidate-metadata").join("metadata.json");
+        let metadata_bytes = tokio::fs::read(&metadata_path).await.unwrap();
+        let metadata: serde_json::Value = serde_json::from_slice(&metadata_bytes).unwrap();
+        assert_eq!(canonical_json_bytes(&metadata), metadata_bytes);
+        assert_eq!(metadata["schema_version"], 2);
+        assert_eq!(
+            metadata["capture_timestamp"],
+            metadata["proxy_provenance"]["created_at"]
+        );
+        let proxy = &metadata["proxy_provenance"];
+        let health = &proxy["worker_health_observation"];
+        assert_eq!(health["source"], "unsigned-https-health-response");
+        assert_eq!(health["signature_valid"], false);
+        assert_eq!(health["authority_status"], "UNVERIFIED");
+
+        let fingerprints = &proxy["app_public_configuration_fingerprints"];
+        assert_eq!(fingerprints["schema_version"], 2);
+        assert_eq!(fingerprints["scope"], "fusou-tlsn-app-public-configuration");
+        assert_eq!(fingerprints["compile_time_sha256"], "compile-fingerprint");
+        assert_eq!(fingerprints["runtime_sha256"], "runtime-fingerprint");
+        assert_eq!(fingerprints["combined_sha256"], "combined-fingerprint");
+        assert_eq!(fingerprints["candidate_binding_status"], "UNBOUND");
+
+        tokio::fs::remove_dir_all(&root).await.unwrap();
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn candidate_artifact_root_rejects_symlinks_and_non_private_directories() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let parent = std::env::temp_dir().join(format!(
+            "fusou-tlsn-candidate-root-security-{}-{}",
+            std::process::id(),
+            uuid::Uuid::new_v4()
+        ));
+        tokio::fs::create_dir(&parent)
+            .await
+            .expect("create security test parent");
+        tokio::fs::set_permissions(&parent, std::fs::Permissions::from_mode(0o700))
+            .await
+            .expect("make security test parent private");
+        let target = parent.join("target");
+        tokio::fs::create_dir(&target)
+            .await
+            .expect("create target directory");
+        tokio::fs::set_permissions(&target, std::fs::Permissions::from_mode(0o700))
+            .await
+            .expect("make target directory private");
+        let link = parent.join("link");
+        tokio::fs::symlink(&target, &link)
+            .await
+            .expect("create root symlink");
+        assert!(ensure_private_candidate_root(&link).await.is_err());
+
+        let non_private = parent.join("non-private");
+        tokio::fs::create_dir(&non_private)
+            .await
+            .expect("create non-private directory");
+        tokio::fs::set_permissions(&non_private, std::fs::Permissions::from_mode(0o755))
+            .await
+            .expect("make directory non-private");
+        assert!(ensure_private_candidate_root(&non_private).await.is_err());
+
+        let private = parent.join("private");
+        ensure_private_candidate_root(&private)
+            .await
+            .expect("create private candidate root");
+        assert_eq!(
+            tokio::fs::metadata(&private)
+                .await
+                .expect("stat created root")
+                .permissions()
+                .mode()
+                & 0o777,
+            0o700
+        );
+        tokio::fs::remove_dir_all(parent)
+            .await
+            .expect("remove security test parent");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn candidate_artifact_files_are_private_create_only_and_reject_symlinks() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let root = std::env::temp_dir().join(format!(
+            "fusou-tlsn-candidate-file-security-{}-{}",
+            std::process::id(),
+            uuid::Uuid::new_v4()
+        ));
+        ensure_private_candidate_root(&root)
+            .await
+            .expect("create private candidate root");
+        let artifact = root.join("artifact.bin");
+        write_private_candidate_file(&artifact, b"first")
+            .await
+            .expect("create candidate artifact");
+        validate_private_candidate_file(&artifact)
+            .await
+            .expect("validate private regular artifact");
+        assert_eq!(
+            tokio::fs::metadata(&artifact)
+                .await
+                .expect("stat artifact")
+                .permissions()
+                .mode()
+                & 0o777,
+            0o600
+        );
+        assert_eq!(
+            write_private_candidate_file(&artifact, b"overwrite")
+                .await
+                .unwrap_err()
+                .kind(),
+            io::ErrorKind::AlreadyExists
+        );
+        assert_eq!(tokio::fs::read(&artifact).await.unwrap(), b"first");
+
+        let outside = root.join("outside.bin");
+        tokio::fs::write(&outside, b"outside").await.unwrap();
+        let link = root.join("link.bin");
+        tokio::fs::symlink(&outside, &link).await.unwrap();
+        assert!(validate_private_candidate_file(&link).await.is_err());
+        tokio::fs::remove_dir_all(root)
+            .await
+            .expect("remove candidate file security fixture");
+    }
+
+    #[tokio::test]
+    async fn partial_candidate_artifact_write_failure_removes_the_file() {
+        let root = std::env::temp_dir().join(format!(
+            "fusou-tlsn-candidate-partial-write-{}-{}",
+            std::process::id(),
+            uuid::Uuid::new_v4()
+        ));
+        ensure_private_candidate_root(&root)
+            .await
+            .expect("create private candidate root");
+        let artifact = root.join("partial.bin");
+        let mut options = tokio::fs::OpenOptions::new();
+        options.write(true).create_new(true);
+        #[cfg(unix)]
+        options.mode(0o600);
+        let mut file = options
+            .open(&artifact)
+            .await
+            .expect("create partial artifact");
+        use tokio::io::AsyncWriteExt;
+        file.write_all(b"partial")
+            .await
+            .expect("write partial bytes");
+        let error = remove_partial_candidate_file(
+            &artifact,
+            file,
+            io::Error::other("injected sync failure"),
+        )
+        .await;
+        assert_eq!(error.kind(), io::ErrorKind::Other);
+        assert!(!artifact.exists());
+        tokio::fs::remove_dir_all(root)
+            .await
+            .expect("remove partial-write fixture");
+    }
+
+    #[tokio::test]
+    async fn unconfigured_presentation_boundary_fails_closed() {
+        let boundary = PresentationVerifierBoundary::new(
+            Arc::new(UnconfiguredPresentationProvider),
+            Arc::new(UnconfiguredDedicatedVerifier),
+            OriginTarget::new(
+                "game.example.test".to_owned(),
+                443,
+                "game.example.test".to_owned(),
+            )
+            .unwrap(),
+            RuntimeIdentifiers::default(),
+        );
+
+        assert_eq!(
+            boundary
+                .verify(
+                    1,
+                    request(),
+                    AttestationBinding::new("opaque".to_owned()).unwrap(),
+                    exchange(),
+                )
+                .await,
+            Err(VerificationError::PresentationUnavailable)
+        );
+    }
+
+    #[tokio::test]
+    async fn deferred_backend_returns_job_without_result_signing() {
+        let backend =
+            DeferredVerificationBackend::new("123e4567-e89b-42d3-a456-426614174000".to_owned())
+                .unwrap();
+        let binding = AttestationBinding::new("opaque".to_owned()).unwrap();
+        let request = request();
+        let exchange = exchange();
+        let target = OriginTarget::new(
+            "game.example.test".to_owned(),
+            443,
+            "game.example.test".to_owned(),
+        )
+        .unwrap();
+        let input = PresentationVerificationInput::new(
+            PresentationRequestContext::from_exchange(
+                RuntimeIdentifiers::default(),
+                1,
+                &binding,
+                &request,
+                &exchange,
+                &target,
+            ),
+            request,
+            binding,
+            exchange,
+            TlsnPresentation::new("presentation-1".to_owned(), vec![1]).unwrap(),
+        );
+
+        let outcome = backend.verify(input).await.unwrap();
+        assert_eq!(
+            outcome,
+            VerificationOutcome::Deferred(
+                DeferredVerification::new("123e4567-e89b-42d3-a456-426614174000".to_owned())
+                    .unwrap()
+            )
+        );
+    }
+
+    #[test]
+    fn deferred_backend_rejects_unsafe_job_id() {
+        assert_eq!(
+            DeferredVerificationBackend::new("job\nwith-control".to_owned()),
+            Err(VerificationError::InvalidDeferredJob)
+        );
+    }
+
+    #[tokio::test]
+    async fn presentation_boundary_rejects_inconsistent_transcript_before_provider() {
+        let provider = Arc::new(RecordingPresentationProvider {
+            calls: AtomicUsize::new(0),
+            context: Mutex::new(None),
+        });
+        let boundary = PresentationVerifierBoundary::new(
+            Arc::clone(&provider) as Arc<dyn PresentationProvider>,
+            Arc::new(UnconfiguredDedicatedVerifier),
+            OriginTarget::new(
+                "game.example.test".to_owned(),
+                443,
+                "game.example.test".to_owned(),
+            )
+            .unwrap(),
+            RuntimeIdentifiers::default(),
+        );
+        let mut exchange = exchange();
+        exchange.transcript.request_sha256 = [0_u8; 32];
+
+        assert_eq!(
+            boundary
+                .verify(
+                    1,
+                    request(),
+                    AttestationBinding::new("opaque".to_owned()).unwrap(),
+                    exchange,
+                )
+                .await,
+            Err(VerificationError::InvalidTranscript)
+        );
+        assert_eq!(provider.calls.load(Ordering::SeqCst), 0);
+    }
+
+    #[tokio::test]
+    async fn presentation_boundary_rejects_mismatched_verifier_evidence() {
+        let handoff = PresentationHandoff::new();
+        let request = request();
+        let binding = AttestationBinding::new("opaque".to_owned()).unwrap();
+        let exchange = exchange();
+        let request_sha256 = exchange.transcript.request_sha256;
+        handoff
+            .publish(request_sha256, "presentation-1".to_owned(), vec![9, 8, 7])
+            .unwrap();
+        let boundary = PresentationVerifierBoundary::new(
+            Arc::new(HandoffPresentationProvider::new(Arc::clone(&handoff))),
+            Arc::new(MismatchedDedicatedVerifier),
+            OriginTarget::new(
+                "game.example.test".to_owned(),
+                443,
+                "game.example.test".to_owned(),
+            )
+            .unwrap(),
+            RuntimeIdentifiers::default(),
+        );
+
+        assert_eq!(
+            boundary.verify(1, request, binding, exchange).await,
+            Err(VerificationError::InvalidTranscript)
+        );
+        assert!(matches!(
+            handoff.take_for(&request_sha256),
+            Err(PresentationError::Unavailable)
+        ));
+    }
+
+    #[tokio::test]
+    async fn signed_result_boundary_signs_before_delivery() {
+        let signer = Arc::new(RecordingSigner {
+            calls: AtomicUsize::new(0),
+        });
+        let delivery = Arc::new(RecordingDelivery {
+            calls: AtomicUsize::new(0),
+            result: Mutex::new(None),
+        });
+        let boundary = SignedResultBoundary::new(
+            Arc::clone(&signer) as Arc<dyn ProductionResultSigner>,
+            Arc::clone(&delivery) as Arc<dyn ProductionResultDelivery>,
+        );
+
+        boundary
+            .accept(VerifiedTlsnEvidence::from_verifier(
+                sha256(b"request"),
+                sha256(b"response"),
+                VerifiedMemberId::from_verifier("16189463".to_owned()).unwrap(),
+            ))
+            .await
+            .unwrap();
+
+        assert_eq!(signer.calls.load(Ordering::SeqCst), 1);
+        assert_eq!(delivery.calls.load(Ordering::SeqCst), 1);
+        let result = delivery.result.lock().unwrap().clone().unwrap();
+        assert_eq!(result.key_id(), "key-1");
+        assert_eq!(result.bytes(), b"signed-result");
+        assert_eq!(result.sha256(), &sha256(b"signed-result"));
+    }
+
+    #[tokio::test]
+    async fn unconfigured_signed_result_boundary_fails_closed() {
+        let boundary = SignedResultBoundary::new(
+            Arc::new(UnconfiguredProductionResultSigner),
+            Arc::new(UnconfiguredProductionResultDelivery),
+        );
+
+        assert_eq!(
+            boundary
+                .accept(VerifiedTlsnEvidence::from_verifier(
+                    sha256(b"request"),
+                    sha256(b"response"),
+                    VerifiedMemberId::from_verifier("16189463".to_owned()).unwrap(),
+                ))
+                .await,
+            Err(ResultBoundaryError::SigningUnavailable)
+        );
+    }
+}

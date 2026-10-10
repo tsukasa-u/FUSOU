@@ -1,0 +1,33 @@
+{
+  "schema_version": 1,
+  "scope": "fusou-tlsn-app-worker-entry-compile-inputs",
+  "canonicalization": "FUSOU_CANONICAL_JSON_V1",
+  "digest_encoding": "SHA256_BASE64URL_NO_PAD",
+  "compile_inputs": [
+    "FUSOU_TLSN_EXPECTED_ACTIVE_VERSION_ID",
+    "FUSOU_TLSN_EXPECTED_BINDING_MODE",
+    "FUSOU_TLSN_EXPECTED_DEPLOYMENT_ID",
+    "FUSOU_TLSN_EXPECTED_GIT_COMMIT_SHA",
+    "FUSOU_TLSN_EXPECTED_WORKER_NAME",
+    "FUSOU_TLSN_NOTARY_ENDPOINT",
+    "FUSOU_TLSN_NOTARY_VERIFYING_KEY",
+    "FUSOU_TLSN_RESULT_PUBLIC_KEY_SPKI",
+    "FUSOU_TLSN_RESULT_SIGNER_KEY_ID",
+    "FUSOU_TLSN_RESULT_SIGNING_KEY_REGISTRY",
+    "FUSOU_TLSN_RUNTIME_ATTESTATION_ENDPOINT",
+    "FUSOU_TLSN_SESSION_AUTHORITY_ENDPOINT",
+    "FUSOU_TLSN_SESSION_AUTHORITY_KEY_ID",
+    "FUSOU_TLSN_SESSION_AUTHORITY_PUBLIC_KEY",
+    "FUSOU_TLSN_VERIFICATION_ENDPOINT"
+  ],
+  "test_vector": {
+    "uniform_input_value": "public-test-value",
+    "entry_input_sha256": "_0KHF_YcD35cRC8zFZ_tGhkAkWEg5aNXMCd8vWfAa-0"
+  },
+  "exclusions": [
+    "runtime TOML and candidate capture fields",
+    "other APP, frontend and authentication configuration",
+    "APP source, toolchain and build profile (separate build record fields)",
+    "binary/process authenticity and AD-5 authority"
+  ]
+}

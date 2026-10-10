@@ -74,13 +74,13 @@ impl MultiSession {
                 return Some((social, SessionType::Social));
             }
         }
-        
+
         if let Some(ref anonymous) = self.anonymous_session {
             if Self::is_session_valid(anonymous) {
                 return Some((anonymous, SessionType::Anonymous));
             }
         }
-        
+
         None
     }
 

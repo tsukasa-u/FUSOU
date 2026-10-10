@@ -1,0 +1,81 @@
+{
+  "schema_version": 2,
+  "scope": "fusou-tlsn-app-public-configuration",
+  "canonicalization": "FUSOU-CANONICAL-JSON-V1",
+  "digest_encoding": "sha256-base64url-no-padding",
+  "projection_fields": {
+    "compile_time": [
+      "expected_deployment_id",
+      "expected_worker_name",
+      "expected_git_commit_sha",
+      "expected_binding_mode",
+      "worker_health_endpoint",
+      "verification_endpoint",
+      "notary_endpoint",
+      "notary_verifying_key",
+      "session_authority_endpoint",
+      "session_authority_key_id",
+      "session_authority_public_key",
+      "result_public_key_spki",
+      "result_signer_key_id",
+      "result_signing_key_registry"
+    ],
+    "runtime": [
+      "experiment_enabled",
+      "candidate_capture_enabled",
+      "disclosure_mode",
+      "response_mode"
+    ]
+  },
+  "projection_hash_preimage_fields": [
+    "fields",
+    "projection",
+    "schema_version",
+    "scope"
+  ],
+  "combined_hash_preimage_fields": [
+    "compile_time_sha256",
+    "runtime_sha256",
+    "schema_version",
+    "scope"
+  ],
+  "projection_hash_preimage": {
+    "fields": "exact projection object",
+    "projection": "compile_time or runtime",
+    "schema_version": "contract schema_version",
+    "scope": "contract scope"
+  },
+  "combined_hash_preimage": {
+    "compile_time_sha256": "compile-time projection digest",
+    "runtime_sha256": "runtime projection digest",
+    "schema_version": "contract schema_version",
+    "scope": "contract scope"
+  },
+  "test_vector": {
+    "compile_time_fields": {
+      "expected_binding_mode": "fixed_canary",
+      "expected_deployment_id": "contract-test-deployment",
+      "expected_git_commit_sha": "0123456789abcdef0123456789abcdef01234567",
+      "expected_worker_name": "fusou-tlsn-verification-canary",
+      "notary_endpoint": "notary.example.test:7047",
+      "notary_verifying_key": "bm90YXJ5LWtleQ",
+      "result_public_key_spki": "cmVzdWx0LWtleQ",
+      "result_signer_key_id": "result-signer-contract",
+      "result_signing_key_registry": "{\"schema_version\":1}",
+      "worker_health_endpoint": "https://worker.example.test/health",
+      "session_authority_endpoint": "https://authority.example.test/attestation/session",
+      "session_authority_key_id": "authority-key-contract",
+      "session_authority_public_key": "YXV0aG9yaXR5LWtleQ",
+      "verification_endpoint": "https://worker.example.test/verify/tlsn"
+    },
+    "runtime_fields": {
+      "candidate_capture_enabled": true,
+      "disclosure_mode": "complete",
+      "experiment_enabled": false,
+      "response_mode": "async"
+    },
+    "compile_time_sha256": "6JWMplH2lREpA4o4vfePW6yKy0iEt18dBH58H0YsSb4",
+    "runtime_sha256": "_sA_Z-KG8_kyZUJ6wZhSNDIlcFjdzdPCkEOiB6ua6Jc",
+    "combined_sha256": "q9QCizvRPkj2FDla6089Sd44fpRNDg2Tc6JZFlGOJtw"
+  }
+}

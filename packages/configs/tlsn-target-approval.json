@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "authority_model": "FUSOU_DEPLOYMENT_OPERATOR",
+  "environment": "production",
+  "status": "APPROVED",
+  "inventory_sha256": "oPGCXkdYTkTCfif4bmujVhtHP-vOSmF1CB8R6eo-XZ0",
+  "targets": [
+    "w01y.kancolle-server.com",
+    "w02k.kancolle-server.com",
+    "w03s.kancolle-server.com",
+    "w04m.kancolle-server.com",
+    "w05o.kancolle-server.com",
+    "w06k.kancolle-server.com",
+    "w07l.kancolle-server.com",
+    "w08r.kancolle-server.com",
+    "w09s.kancolle-server.com",
+    "w10b.kancolle-server.com",
+    "w11t.kancolle-server.com",
+    "w12p.kancolle-server.com",
+    "w13b.kancolle-server.com",
+    "w14h.kancolle-server.com",
+    "w15p.kancolle-server.com",
+    "w16s.kancolle-server.com",
+    "w17k.kancolle-server.com",
+    "w18i.kancolle-server.com",
+    "w19s.kancolle-server.com",
+    "w20h.kancolle-server.com"
+  ],
+  "approved_at": "2026-10-07T04:48:07Z"
+}

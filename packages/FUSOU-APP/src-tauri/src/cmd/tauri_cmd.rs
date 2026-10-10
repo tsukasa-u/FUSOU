@@ -650,6 +650,11 @@ pub fn get_all_logs() -> Vec<MessageVisitor> {
     crate::builder_setup::logger::get_all_logs_internal()
 }
 
+#[tauri::command]
+pub fn run_tlsn_production_preflight() -> crate::tlsn_preflight::TlsnPreflightReport {
+    crate::tlsn_preflight::run_current_config_preflight()
+}
+
 /// Get user's provider refresh token from Supabase (provider_tokens table).
 /// Uses RLS (Row Level Security) via Authorization header for user identification.
 #[tauri::command(rename_all = "snake_case")]

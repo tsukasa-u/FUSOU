@@ -2,6 +2,25 @@ extern crate serde;
 extern crate toml;
 
 use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TlsnOriginTarget {
+    pub server_index: i32,
+    pub server_identity: String,
+    pub port: u16,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TlsnOriginInventory {
+    pub schema_version: u8,
+    pub source: String,
+    pub targets: Vec<TlsnOriginTarget>,
+}
+
+pub fn get_tlsn_origin_inventory() -> TlsnOriginInventory {
+    serde_json::from_str(include_str!("../tlsn-origin-inventory.json"))
+        .expect("embedded TLSN Origin inventory must be valid")
+}
 use std::fs::{self, File};
 use std::io::Write;
 use std::path::PathBuf;
@@ -766,6 +785,8 @@ impl ConfigsAppAssetSync {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ConfigsAppAuth {
     deny_auth: Option<bool>,
+    allow_anonymous_auth_bootstrap: Option<bool>,
+    allow_pending_upload_retry: Option<bool>,
     auth_page_url: Option<String>,
     anonymous_sync_v2_register_endpoint: Option<String>,
     anonymous_sync_v2_challenge_endpoint: Option<String>,
@@ -777,6 +798,26 @@ impl ConfigsAppAuth {
     pub fn get_deny_auth(&self) -> bool {
         self.deny_auth
             .unwrap_or_else(|| get_default_configs().app.auth.deny_auth.unwrap())
+    }
+
+    pub fn get_allow_anonymous_auth_bootstrap(&self) -> bool {
+        self.allow_anonymous_auth_bootstrap.unwrap_or_else(|| {
+            get_default_configs()
+                .app
+                .auth
+                .allow_anonymous_auth_bootstrap
+                .unwrap_or(true)
+        })
+    }
+
+    pub fn get_allow_pending_upload_retry(&self) -> bool {
+        self.allow_pending_upload_retry.unwrap_or_else(|| {
+            get_default_configs()
+                .app
+                .auth
+                .allow_pending_upload_retry
+                .unwrap_or(true)
+        })
     }
 
     pub fn get_auth_page_url(&self) -> String {
@@ -1017,11 +1058,46 @@ pub struct ConfigsApp {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct ConfigsProxyTlsn {
+    enabled: Option<bool>,
+    candidate_capture_enabled: Option<bool>,
+    disclosure_mode: Option<String>,
+    response_mode: Option<String>,
+    artifact_output_path: Option<String>,
+}
+
+impl Default for ConfigsProxyTlsn {
+    fn default() -> Self {
+        Self {
+            enabled: None,
+            candidate_capture_enabled: None,
+            disclosure_mode: None,
+            response_mode: None,
+            artifact_output_path: None,
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ConfigsProxy {
     allow_save_api_requests: Option<bool>,
     allow_save_api_responses: Option<bool>,
     allow_save_resources: Option<bool>,
     allow_save_main_js_local: Option<bool>,
+    #[serde(rename = "tlsn_experiment_enabled")]
+    legacy_tlsn_experiment_enabled: Option<bool>,
+    #[serde(rename = "tlsn_production_enabled")]
+    legacy_tlsn_production_enabled: Option<bool>,
+    #[serde(rename = "tlsn_disclosure_mode")]
+    legacy_tlsn_disclosure_mode: Option<String>,
+    #[serde(rename = "tlsn_response_mode")]
+    legacy_tlsn_response_mode: Option<String>,
+    #[serde(rename = "tlsn_artifact_output_path")]
+    legacy_tlsn_artifact_output_path: Option<String>,
+    #[serde(default)]
+    pub tlsn: ConfigsProxyTlsn,
+    capture_enabled: Option<bool>,
+    capture_output_path: Option<String>,
     save_file_location: Option<String>,
     pub network: ConfigsProxyNetwork,
     pub certificates: ConfigsProxyCertificates,
@@ -1029,7 +1105,230 @@ pub struct ConfigsProxy {
     pub channel: ConfigsProxyChannel,
 }
 
+#[derive(Debug, Clone, Default)]
+pub struct TlsnProxyConfig {
+    pub experiment_enabled: Option<bool>,
+    pub notary_endpoint: Option<String>,
+    pub session_authority_endpoint: Option<String>,
+    pub session_authority_public_key: Option<String>,
+    pub session_authority_key_id: Option<String>,
+    pub result_public_key_spki: Option<String>,
+    pub result_signer_key_id: Option<String>,
+    pub result_signing_key_registry: Option<String>,
+    pub verification_endpoint: Option<String>,
+    pub worker_health_endpoint: Option<String>,
+    pub expected_deployment_id: Option<String>,
+    pub expected_worker_name: Option<String>,
+    pub expected_git_commit_sha: Option<String>,
+    pub expected_binding_mode: Option<String>,
+    pub expected_active_version_id: Option<String>,
+    pub disclosure_mode: Option<String>,
+    pub response_mode: Option<String>,
+    pub notary_verifying_key: Option<String>,
+    pub artifact_output_path: Option<String>,
+}
+
+#[derive(Debug, Clone, Default)]
+struct TlsnDeploymentConfig {
+    notary_endpoint: Option<String>,
+    session_authority_endpoint: Option<String>,
+    session_authority_public_key: Option<String>,
+    session_authority_key_id: Option<String>,
+    result_public_key_spki: Option<String>,
+    result_signer_key_id: Option<String>,
+    result_signing_key_registry: Option<String>,
+    verification_endpoint: Option<String>,
+    worker_health_endpoint: Option<String>,
+    expected_deployment_id: Option<String>,
+    expected_worker_name: Option<String>,
+    expected_git_commit_sha: Option<String>,
+    expected_binding_mode: Option<String>,
+    expected_active_version_id: Option<String>,
+    notary_verifying_key: Option<String>,
+}
+
+fn get_tlsn_deployment_config() -> TlsnDeploymentConfig {
+    TlsnDeploymentConfig {
+        notary_endpoint: option_env!("FUSOU_TLSN_NOTARY_ENDPOINT").map(str::to_owned),
+        session_authority_endpoint:
+            option_env!("FUSOU_TLSN_SESSION_AUTHORITY_ENDPOINT").map(str::to_owned),
+        session_authority_public_key:
+            option_env!("FUSOU_TLSN_SESSION_AUTHORITY_PUBLIC_KEY").map(str::to_owned),
+        session_authority_key_id:
+            option_env!("FUSOU_TLSN_SESSION_AUTHORITY_KEY_ID").map(str::to_owned),
+        result_public_key_spki: option_env!("FUSOU_TLSN_RESULT_PUBLIC_KEY_SPKI").map(str::to_owned),
+        result_signer_key_id: option_env!("FUSOU_TLSN_RESULT_SIGNER_KEY_ID").map(str::to_owned),
+        result_signing_key_registry:
+            option_env!("FUSOU_TLSN_RESULT_SIGNING_KEY_REGISTRY").map(str::to_owned),
+        verification_endpoint: option_env!("FUSOU_TLSN_VERIFICATION_ENDPOINT").map(str::to_owned),
+        worker_health_endpoint:
+            option_env!("FUSOU_TLSN_RUNTIME_ATTESTATION_ENDPOINT").map(str::to_owned),
+        expected_deployment_id: option_env!("FUSOU_TLSN_EXPECTED_DEPLOYMENT_ID").map(str::to_owned),
+        expected_worker_name: option_env!("FUSOU_TLSN_EXPECTED_WORKER_NAME").map(str::to_owned),
+        expected_git_commit_sha: option_env!("FUSOU_TLSN_EXPECTED_GIT_COMMIT_SHA").map(str::to_owned),
+        expected_binding_mode: option_env!("FUSOU_TLSN_EXPECTED_BINDING_MODE").map(str::to_owned),
+        expected_active_version_id: option_env!("FUSOU_TLSN_EXPECTED_ACTIVE_VERSION_ID")
+            .map(str::to_owned),
+        notary_verifying_key: option_env!("FUSOU_TLSN_NOTARY_VERIFYING_KEY").map(str::to_owned),
+    }
+}
+
+pub fn get_tlsn_compile_inputs() -> std::collections::BTreeMap<&'static str, Option<String>> {
+    let config = get_tlsn_deployment_config();
+    std::collections::BTreeMap::from([
+        ("FUSOU_TLSN_EXPECTED_ACTIVE_VERSION_ID", config.expected_active_version_id),
+        ("FUSOU_TLSN_EXPECTED_BINDING_MODE", config.expected_binding_mode),
+        ("FUSOU_TLSN_EXPECTED_DEPLOYMENT_ID", config.expected_deployment_id),
+        ("FUSOU_TLSN_EXPECTED_GIT_COMMIT_SHA", config.expected_git_commit_sha),
+        ("FUSOU_TLSN_EXPECTED_WORKER_NAME", config.expected_worker_name),
+        ("FUSOU_TLSN_NOTARY_ENDPOINT", config.notary_endpoint),
+        ("FUSOU_TLSN_NOTARY_VERIFYING_KEY", config.notary_verifying_key),
+        ("FUSOU_TLSN_RESULT_PUBLIC_KEY_SPKI", config.result_public_key_spki),
+        ("FUSOU_TLSN_RESULT_SIGNER_KEY_ID", config.result_signer_key_id),
+        ("FUSOU_TLSN_RESULT_SIGNING_KEY_REGISTRY", config.result_signing_key_registry),
+        ("FUSOU_TLSN_RUNTIME_ATTESTATION_ENDPOINT", config.worker_health_endpoint),
+        ("FUSOU_TLSN_SESSION_AUTHORITY_ENDPOINT", config.session_authority_endpoint),
+        ("FUSOU_TLSN_SESSION_AUTHORITY_KEY_ID", config.session_authority_key_id),
+        ("FUSOU_TLSN_SESSION_AUTHORITY_PUBLIC_KEY", config.session_authority_public_key),
+        ("FUSOU_TLSN_VERIFICATION_ENDPOINT", config.verification_endpoint),
+    ])
+}
+
 impl ConfigsProxy {
+    pub fn get_tlsn_config(&self) -> TlsnProxyConfig {
+        let deployment = get_tlsn_deployment_config();
+        TlsnProxyConfig {
+            experiment_enabled: Some(self.get_tlsn_experiment_enabled()),
+            notary_endpoint: deployment.notary_endpoint,
+            session_authority_endpoint: deployment.session_authority_endpoint,
+            session_authority_public_key: deployment.session_authority_public_key,
+            session_authority_key_id: deployment.session_authority_key_id,
+            result_public_key_spki: deployment.result_public_key_spki,
+            result_signer_key_id: deployment.result_signer_key_id,
+            result_signing_key_registry: deployment.result_signing_key_registry,
+            verification_endpoint: deployment.verification_endpoint,
+            worker_health_endpoint: deployment.worker_health_endpoint,
+            expected_deployment_id: deployment.expected_deployment_id,
+            expected_worker_name: deployment.expected_worker_name,
+            expected_git_commit_sha: deployment.expected_git_commit_sha,
+            expected_binding_mode: deployment.expected_binding_mode,
+            expected_active_version_id: deployment.expected_active_version_id,
+            disclosure_mode: Some(self.get_tlsn_disclosure_mode()),
+            response_mode: Some(self.get_tlsn_response_mode()),
+            notary_verifying_key: deployment.notary_verifying_key,
+            artifact_output_path: self.get_tlsn_artifact_output_path(),
+        }
+    }
+
+    pub fn get_tlsn_experiment_enabled(&self) -> bool {
+        self.tlsn
+            .enabled
+            .or(self.legacy_tlsn_experiment_enabled)
+            .or(self.legacy_tlsn_production_enabled)
+            .or(get_default_configs().proxy.tlsn.enabled)
+            .unwrap_or(false)
+    }
+
+    pub fn get_tlsn_candidate_capture_enabled(&self) -> bool {
+        self.tlsn
+            .candidate_capture_enabled
+            .or(get_default_configs().proxy.tlsn.candidate_capture_enabled)
+            .unwrap_or(false)
+    }
+
+    pub fn get_tlsn_notary_endpoint(&self) -> Option<String> {
+        non_empty_string(get_tlsn_deployment_config().notary_endpoint)
+    }
+
+    pub fn get_tlsn_session_authority_endpoint(&self) -> Option<String> {
+        non_empty_string(get_tlsn_deployment_config().session_authority_endpoint)
+    }
+
+    pub fn get_tlsn_verification_endpoint(&self) -> Option<String> {
+        non_empty_string(get_tlsn_deployment_config().verification_endpoint)
+    }
+
+    pub fn get_tlsn_worker_health_endpoint(&self) -> Option<String> {
+        non_empty_string(get_tlsn_deployment_config().worker_health_endpoint)
+    }
+
+    pub fn get_tlsn_expected_deployment_id(&self) -> Option<String> {
+        non_empty_string(get_tlsn_deployment_config().expected_deployment_id)
+    }
+
+    pub fn get_tlsn_expected_worker_name(&self) -> Option<String> {
+        non_empty_string(get_tlsn_deployment_config().expected_worker_name)
+    }
+
+    pub fn get_tlsn_expected_git_commit_sha(&self) -> Option<String> {
+        non_empty_string(get_tlsn_deployment_config().expected_git_commit_sha)
+    }
+
+    pub fn get_tlsn_expected_binding_mode(&self) -> String {
+        non_empty_string(get_tlsn_deployment_config().expected_binding_mode)
+            .unwrap_or_default()
+    }
+
+    pub fn get_tlsn_expected_active_version_id(&self) -> Option<String> {
+        non_empty_string(get_tlsn_deployment_config().expected_active_version_id)
+    }
+
+    pub fn get_tlsn_disclosure_mode(&self) -> String {
+        non_empty_string(
+            self.tlsn
+                .disclosure_mode
+                .clone()
+                .or(self.legacy_tlsn_disclosure_mode.clone())
+                .or_else(|| get_default_configs().proxy.tlsn.disclosure_mode.clone()),
+        )
+        .unwrap_or_else(|| "complete".to_owned())
+    }
+
+    pub fn get_tlsn_response_mode(&self) -> String {
+        non_empty_string(
+            self.tlsn
+                .response_mode
+                .clone()
+                .or(self.legacy_tlsn_response_mode.clone())
+                .or_else(|| get_default_configs().proxy.tlsn.response_mode.clone()),
+        )
+        .unwrap_or_else(|| "async".to_owned())
+    }
+
+    pub fn get_tlsn_session_authority_public_key(&self) -> Option<String> {
+        non_empty_string(get_tlsn_deployment_config().session_authority_public_key)
+    }
+
+    pub fn get_tlsn_session_authority_key_id(&self) -> Option<String> {
+        non_empty_string(get_tlsn_deployment_config().session_authority_key_id)
+    }
+
+    pub fn get_tlsn_result_public_key_spki(&self) -> Option<String> {
+        non_empty_string(get_tlsn_deployment_config().result_public_key_spki)
+    }
+
+    pub fn get_tlsn_result_signer_key_id(&self) -> Option<String> {
+        non_empty_string(get_tlsn_deployment_config().result_signer_key_id)
+    }
+
+    pub fn get_tlsn_result_signing_key_registry(&self) -> Option<String> {
+        non_empty_string(get_tlsn_deployment_config().result_signing_key_registry)
+    }
+
+    pub fn get_tlsn_notary_verifying_key(&self) -> Option<String> {
+        non_empty_string(get_tlsn_deployment_config().notary_verifying_key)
+    }
+
+    pub fn get_tlsn_artifact_output_path(&self) -> Option<String> {
+        non_empty_string(
+            self.tlsn
+                .artifact_output_path
+                .clone()
+                .or(self.legacy_tlsn_artifact_output_path.clone())
+                .or_else(|| get_default_configs().proxy.tlsn.artifact_output_path.clone()),
+        )
+    }
+
     pub fn get_allow_save_api_requests(&self) -> bool {
         self.allow_save_api_requests
             .unwrap_or_else(|| get_default_configs().proxy.allow_save_api_requests.unwrap())
@@ -1058,6 +1357,18 @@ impl ConfigsProxy {
         })
     }
 
+    pub fn get_capture_enabled(&self) -> bool {
+        self.capture_enabled
+            .unwrap_or_else(|| get_default_configs().proxy.capture_enabled.unwrap())
+    }
+
+    pub fn get_capture_output_path(&self) -> Option<String> {
+        match self.capture_output_path {
+            Some(ref value) if !value.trim().is_empty() => Some(value.trim().to_string()),
+            _ => None,
+        }
+    }
+
     pub fn get_save_file_location(&self) -> Option<String> {
         match self.save_file_location {
             Some(ref v) if !v.is_empty() => Some(v.clone()),
@@ -1080,6 +1391,13 @@ impl ConfigsProxy {
             .get_buffer_size()
             .or_else(|| get_default_configs().proxy.channel.get_buffer_size())
     }
+}
+
+fn non_empty_string(value: Option<String>) -> Option<String> {
+    value.and_then(|value| {
+        let trimmed = value.trim();
+        (!trimmed.is_empty()).then(|| trimmed.to_owned())
+    })
 }
 
 #[cfg(target_os = "linux")]
@@ -1225,6 +1543,8 @@ pub fn update_config_file(config_path: &str) -> Result<(), Box<dyn std::error::E
     // Parse existing user config
     let user_doc = user_toml_content.parse::<DocumentMut>()?;
 
+    migrate_legacy_tlsn_switch(&mut default_doc, &user_doc);
+
     // Merge: copy user values into default doc structure
     merge_toml_values(&mut default_doc, &user_doc);
 
@@ -1233,6 +1553,43 @@ pub fn update_config_file(config_path: &str) -> Result<(), Box<dyn std::error::E
     tracing::info!("Updated config file at: {}", config_path);
 
     Ok(())
+}
+
+fn migrate_legacy_tlsn_switch(
+    default_doc: &mut toml_edit::DocumentMut,
+    user_doc: &toml_edit::DocumentMut,
+) {
+    use toml_edit::Item;
+
+    let Some(Item::Table(user_proxy)) = user_doc.get("proxy") else {
+        return;
+    };
+    let Some(Item::Table(default_proxy)) = default_doc.get_mut("proxy") else {
+        return;
+    };
+    let Some(Item::Table(default_tlsn)) = default_proxy.get_mut("tlsn") else {
+        return;
+    };
+
+    if let Some(legacy_value) = user_proxy
+        .get("tlsn_experiment_enabled")
+        .or_else(|| user_proxy.get("tlsn_production_enabled"))
+    {
+        *default_tlsn
+            .get_mut("enabled")
+            .expect("default TLSN section must contain enabled") = legacy_value.clone();
+    }
+    for (legacy_name, current_name) in [
+        ("tlsn_disclosure_mode", "disclosure_mode"),
+        ("tlsn_response_mode", "response_mode"),
+        ("tlsn_artifact_output_path", "artifact_output_path"),
+    ] {
+        if let Some(legacy_value) = user_proxy.get(legacy_name) {
+            *default_tlsn
+                .get_mut(current_name)
+                .expect("default TLSN section must contain safe option") = legacy_value.clone();
+        }
+    }
 }
 
 /// Recursively merge user values into default document
@@ -1304,11 +1661,61 @@ mod tests {
 
     #[test]
     fn test_bundled_app_config_is_valid() {
-        let config_content =
-            include_str!("../../FUSOU-APP/src-tauri/resources/user/configs.toml");
+        let config_content = include_str!("../../FUSOU-APP/src-tauri/resources/user/configs.toml");
 
         toml::from_str::<Configs>(config_content)
             .expect("bundled FUSOU-APP configs.toml must match Configs");
+    }
+
+    #[test]
+    fn test_roaming_app_config_is_valid() {
+        let config_content = include_str!("../../FUSOU-APP/src-tauri/roaming/user/configs.toml");
+
+        toml::from_str::<Configs>(config_content)
+            .expect("roaming FUSOU-APP configs.toml must match Configs");
+    }
+
+    #[test]
+    fn test_legacy_tlsn_switch_migrates_to_experiment_switch() {
+        let mut default_doc = include_str!("../configs.toml")
+            .parse::<toml_edit::DocumentMut>()
+            .expect("default config must be valid TOML");
+        let user_doc = "[proxy]\ntlsn_production_enabled = true\ntlsn_disclosure_mode = \"sparse\"\n"
+            .parse::<toml_edit::DocumentMut>()
+            .expect("legacy config must be valid TOML");
+
+        migrate_legacy_tlsn_switch(&mut default_doc, &user_doc);
+
+        assert_eq!(
+            default_doc["proxy"]["tlsn"]["enabled"]
+                .to_string()
+                .trim(),
+            "true"
+        );
+        let migrated = toml::from_str::<Configs>(&default_doc.to_string())
+            .expect("migrated config must deserialize");
+        assert!(migrated.proxy.get_tlsn_experiment_enabled());
+        assert_eq!(migrated.proxy.get_tlsn_disclosure_mode(), "sparse");
+    }
+
+    #[test]
+    fn test_legacy_synthetic_and_deployment_values_are_not_migrated() {
+        let mut default_doc = include_str!("../configs.toml")
+            .parse::<toml_edit::DocumentMut>()
+            .expect("default config must be valid TOML");
+        let user_doc = "[proxy]\nexperimental_tlsn_enabled = true\ntlsn_experiment_enabled = false\ntlsn_notary_endpoint = \"https://attacker.example.test\"\ntlsn_expected_deployment_id = \"attacker\"\n"
+            .parse::<toml_edit::DocumentMut>()
+            .expect("legacy config must be valid TOML");
+
+        migrate_legacy_tlsn_switch(&mut default_doc, &user_doc);
+
+        let migrated_text = default_doc.to_string();
+        assert!(!migrated_text.contains("experimental_tlsn_enabled"));
+        assert!(!migrated_text.contains("tlsn_notary_endpoint"));
+        assert!(!migrated_text.contains("tlsn_expected_deployment_id"));
+        let migrated = toml::from_str::<Configs>(&migrated_text)
+            .expect("migrated config must deserialize");
+        assert!(!migrated.proxy.get_tlsn_experiment_enabled());
     }
 
     #[test]
@@ -1386,6 +1793,14 @@ mod tests {
             allow_save_api_responses: None,
             allow_save_resources: None,
             allow_save_main_js_local: None,
+            legacy_tlsn_experiment_enabled: None,
+            legacy_tlsn_production_enabled: None,
+            legacy_tlsn_disclosure_mode: None,
+            legacy_tlsn_response_mode: None,
+            legacy_tlsn_artifact_output_path: None,
+            tlsn: ConfigsProxyTlsn::default(),
+            capture_enabled: None,
+            capture_output_path: None,
             save_file_location: None,
             network: default_configs.proxy.network.clone(),
             certificates: default_configs.proxy.certificates.clone(),
@@ -1398,6 +1813,16 @@ mod tests {
             default_configs.proxy.get_allow_save_api_requests(),
             "allow_save_api_requests getter should return configs.toml default"
         );
+        assert!(!empty_proxy_fields.get_tlsn_experiment_enabled());
+        assert!(!empty_proxy_fields.get_tlsn_candidate_capture_enabled());
+        let mut explicitly_enabled = empty_proxy_fields.clone();
+        explicitly_enabled.tlsn.enabled = Some(true);
+        assert!(explicitly_enabled.get_tlsn_experiment_enabled());
+        explicitly_enabled.tlsn.enabled = Some(false);
+        assert!(!explicitly_enabled.get_tlsn_experiment_enabled());
+        explicitly_enabled.tlsn.candidate_capture_enabled = Some(true);
+        assert!(explicitly_enabled.get_tlsn_candidate_capture_enabled());
+        assert_eq!(empty_proxy_fields.get_tlsn_response_mode(), "async");
         assert_eq!(
             empty_proxy_fields.get_allow_save_api_responses(),
             default_configs.proxy.get_allow_save_api_responses(),
@@ -1412,6 +1837,16 @@ mod tests {
             empty_proxy_fields.get_allow_save_main_js_local(),
             default_configs.proxy.get_allow_save_main_js_local(),
             "allow_save_main_js_local getter should return configs.toml default"
+        );
+        assert_eq!(
+            empty_proxy_fields.get_capture_enabled(),
+            default_configs.proxy.get_capture_enabled(),
+            "capture_enabled getter should return configs.toml default"
+        );
+        assert_eq!(
+            empty_proxy_fields.get_capture_output_path(),
+            default_configs.proxy.get_capture_output_path(),
+            "capture_output_path getter should return configs.toml default"
         );
 
         // Test App Autostart defaults
@@ -1449,7 +1884,10 @@ mod tests {
 
         assert_eq!(
             empty_browser.get_external_screenshot_directory(),
-            default_configs.app.browser.get_external_screenshot_directory(),
+            default_configs
+                .app
+                .browser
+                .get_external_screenshot_directory(),
             "browser external_screenshot_directory getter should return configs.toml default"
         );
 
@@ -1588,6 +2026,8 @@ mod tests {
         // Test App Auth defaults
         let empty_auth = ConfigsAppAuth {
             deny_auth: None,
+            allow_anonymous_auth_bootstrap: None,
+            allow_pending_upload_retry: None,
             auth_page_url: None,
             anonymous_sync_v2_register_endpoint: None,
             anonymous_sync_v2_challenge_endpoint: None,
@@ -1600,6 +2040,22 @@ mod tests {
             default_configs.app.auth.get_deny_auth(),
             "auth deny_auth getter should return configs.toml default"
         );
+        assert!(empty_auth.get_allow_anonymous_auth_bootstrap());
+        assert!(empty_auth.get_allow_pending_upload_retry());
+
+        let candidate_auth = ConfigsAppAuth {
+            deny_auth: Some(false),
+            allow_anonymous_auth_bootstrap: Some(false),
+            allow_pending_upload_retry: Some(false),
+            auth_page_url: None,
+            anonymous_sync_v2_register_endpoint: None,
+            anonymous_sync_v2_challenge_endpoint: None,
+            anonymous_sync_v2_refresh_endpoint: None,
+            anonymous_sync_v2_complete_endpoint: None,
+        };
+        assert!(!candidate_auth.get_deny_auth());
+        assert!(!candidate_auth.get_allow_anonymous_auth_bootstrap());
+        assert!(!candidate_auth.get_allow_pending_upload_retry());
         assert_eq!(
             empty_auth.get_auth_page_url(),
             default_configs.app.auth.get_auth_page_url(),
@@ -1676,5 +2132,32 @@ mod tests {
             all_servers, expected_servers,
             "All servers should come from configs.toml"
         );
+    }
+
+    #[test]
+    fn tlsn_origin_inventory_matches_the_shipped_server_map() {
+        let inventory = get_tlsn_origin_inventory();
+        let shipped_servers = get_default_configs()
+            .app
+            .connect_kc_server
+            .get_all_servers();
+
+        assert_eq!(inventory.schema_version, 1);
+        assert_eq!(inventory.targets.len(), 20);
+        assert_eq!(inventory.targets.len(), shipped_servers.len());
+
+        let mut indices = std::collections::HashSet::new();
+        let mut identities = std::collections::HashSet::new();
+        for (index, target) in inventory.targets.into_iter().enumerate() {
+            assert_eq!(target.port, 443);
+            assert_eq!(target.server_index, index as i32 + 1, "inventory order must match server indices");
+            assert!(indices.insert(target.server_index));
+            assert!(identities.insert(target.server_identity.clone()));
+            assert_eq!(
+                shipped_servers.get(&target.server_index),
+                Some(&target.server_identity),
+                "inventory target must match embedded default server map"
+            );
+        }
     }
 }
