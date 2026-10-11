@@ -162,13 +162,20 @@ function parseLocalDoc(
   let description = (frontmatter["description"] as string | undefined)?.trim();
   if (!description) {
     // コードブロック、HTMLタグ、Markdownリンク、見出し、YAMLヘッダー、コメントを除去
-    const cleanContent = rawContent
-      .replace(/```[\s\S]*?```/g, "")
-      .replace(/<[^>]*>/g, "")
+    // CodeQL (js/incomplete-multi-character-sanitization) 対策として、入れ子パターンが残存しなくなるまで反復除去
+    let cleanContent = rawContent;
+    let prevClean = "";
+    while (cleanContent !== prevClean) {
+      prevClean = cleanContent;
+      cleanContent = cleanContent
+        .replace(/<!--[\s\S]*?-->/g, "")
+        .replace(/<[^>]*>/g, "")
+        .replace(/```[\s\S]*?```/g, "");
+    }
+    cleanContent = cleanContent
       .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
       .replace(/^#+.*$/gm, "")
-      .replace(/^---[\s\S]*?---/g, "")
-      .replace(/<!--[\s\S]*?-->/g, "");
+      .replace(/^---[\s\S]*?---/g, "");
 
     const lines = cleanContent.split("\n");
     for (const line of lines) {
