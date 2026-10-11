@@ -113,8 +113,12 @@ class MaskHandler(http.server.BaseHTTPRequestHandler):
                 img_bytes = base64.b64decode(b64_str)
 
                 # 1. src/assets/map/<map_id>/land_mask.png に安全に保存
-                target_dir = os.path.abspath(os.path.join(BASE_MAP_DIR, map_id))
-                if os.path.commonpath([BASE_MAP_DIR, target_dir]) != BASE_MAP_DIR:
+                base_map_dir_real = os.path.realpath(BASE_MAP_DIR)
+                safe_map_id = os.path.basename(map_id)
+                if safe_map_id != map_id:
+                    raise ValueError("Invalid mapId")
+                target_dir = os.path.realpath(os.path.join(base_map_dir_real, safe_map_id))
+                if os.path.commonpath([base_map_dir_real, target_dir]) != base_map_dir_real:
                     raise ValueError("Path traversal detected")
                 os.makedirs(target_dir, exist_ok=True)
                 target_src = os.path.join(target_dir, "land_mask.png")
