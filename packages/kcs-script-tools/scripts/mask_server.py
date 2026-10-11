@@ -28,11 +28,25 @@ SAFE_CONTENT_TYPES = {
 
 def safe_join(base_dir: str, rel_path: str) -> str | None:
     """Safely resolve a relative path under base_dir, preventing directory traversal."""
-    clean_rel = os.path.normpath(rel_path).lstrip(os.sep).lstrip("/").lstrip(chr(92))
-    abs_base = os.path.abspath(base_dir)
-    target = os.path.abspath(os.path.join(abs_base, clean_rel))
+    if not rel_path:
+        return None
+
+    # Normalize path separators first so validation is consistent across platforms.
+    normalized_rel = rel_path.replace("\\", "/")
+
+    # Reject absolute, drive-qualified, and traversal paths.
+    if normalized_rel.startswith("/") or re.match(r"^[A-Za-z]:", normalized_rel):
+        return None
+
+    parts = [p for p in normalized_rel.split("/") if p not in ("", ".")]
+    if any(p == ".." for p in parts):
+        return None
+
+    clean_rel = "/".join(parts)
+    abs_base = os.path.realpath(base_dir)
+    target = os.path.realpath(os.path.join(abs_base, clean_rel))
     try:
-        if os.path.commonpath([abs_base, target]) == abs_base and os.path.isfile(target):
+        if os.path.commonpath([abs_base, target]) == abs_base:
             return target
     except ValueError:
         return None
