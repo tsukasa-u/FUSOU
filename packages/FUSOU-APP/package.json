@@ -51,7 +51,8 @@
     "typescript-eslint": "^8.48.0",
     "vite": "^7.3.5",
     "vite-plugin-solid": "^2.11.10",
-    "vitest": "^4.1.11"
+    "vitest": "^4.1.11",
+    "webpack": "^5.104.1"
   },
   "dependencies": {
     "@solid-primitives/cookies": "^0.0.1",
