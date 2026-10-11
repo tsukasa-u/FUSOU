@@ -1,0 +1,1462 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>FUSOU 海域マップ 変換比較 & ルート適合度検証ツール</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com">
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Noto+Sans+JP:wght@400;500;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg-dark: #090d16;
+      --bg-panel: #111827;
+      --bg-card: #1f2937;
+      --bg-card-hover: #374151;
+      --border-color: #374151;
+      --text-main: #f9fafb;
+      --text-muted: #9ca3af;
+      --accent: #38bdf8;
+      --accent-hover: #0ea5e9;
+      --accent-sub: #10b981;
+      --radius: 8px;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: "Noto Sans JP", sans-serif;
+      background: var(--bg-dark);
+      color: var(--text-main);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+    header {
+      background: rgba(17, 24, 39, 0.95);
+      backdrop-filter: blur(10px);
+      border-bottom: 1px solid var(--border-color);
+      padding: 12px 24px;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .header-top {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+    }
+    .header-title {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .badge {
+      font-size: 11px;
+      padding: 3px 10px;
+      border-radius: 9999px;
+      font-weight: 700;
+      background: #0284c7;
+      color: #fff;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+    }
+    .badge.green { background: #059669; }
+    .badge.amber { background: #d97706; }
+    .badge.rose { background: #e11d48; }
+    .badge.blue { background: #2563eb; }
+    .controls {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    select, button {
+      background: var(--bg-card);
+      border: 1px solid var(--border-color);
+      color: var(--text-main);
+      padding: 7px 13px;
+      border-radius: var(--radius);
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.15s ease-in-out;
+    }
+    select:hover, button:hover {
+      background: var(--bg-card-hover);
+      border-color: var(--accent);
+    }
+    .btn-group {
+      display: flex;
+      border-radius: var(--radius);
+      overflow: hidden;
+      border: 1px solid var(--border-color);
+    }
+    .btn-group button {
+      border: none;
+      border-radius: 0;
+      border-right: 1px solid var(--border-color);
+    }
+    .btn-group button:last-child {
+      border-right: none;
+    }
+    .btn-group button.active {
+      background: var(--accent);
+      color: #090d16;
+      font-weight: 700;
+    }
+    .toggle-label {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 13px;
+      cursor: pointer;
+      user-select: none;
+      color: var(--text-muted);
+    }
+    .toggle-label:hover { color: var(--text-main); }
+    .toggle-label input { cursor: pointer; }
+
+    /* ルート適合度検証ツールバー */
+    .route-tuning-bar {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      flex-wrap: wrap;
+      background: rgba(15, 23, 42, 0.9);
+      border: 1px solid rgba(56, 189, 248, 0.25);
+      padding: 8px 14px;
+      border-radius: var(--radius);
+      font-size: 12px;
+    }
+    .tuning-section {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .tuning-title {
+      font-weight: 700;
+      color: var(--accent);
+      white-space: nowrap;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+    .color-chips {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .color-chip {
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      cursor: pointer;
+      border: 2px solid transparent;
+      transition: transform 0.15s, border-color 0.15s;
+    }
+    .color-chip:hover {
+      transform: scale(1.2);
+    }
+    .color-chip.active {
+      border-color: #fff;
+      transform: scale(1.25);
+      box-shadow: 0 0 8px currentColor;
+    }
+    .slider-control {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      color: var(--text-muted);
+    }
+    .slider-control input[type="range"] {
+      width: 80px;
+      cursor: pointer;
+    }
+    .slider-control .val {
+      font-family: "JetBrains Mono", monospace;
+      font-weight: 600;
+      color: var(--text-main);
+      width: 38px;
+      text-align: right;
+    }
+    main {
+      flex: 1;
+      padding: 20px 24px;
+      max-width: 1680px;
+      margin: 0 auto;
+      width: 100%;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+    .map-stage-container {
+      background: #000;
+      border: 1px solid var(--border-color);
+      border-radius: 12px;
+      overflow: hidden;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.6);
+      position: relative;
+    }
+    .slider-wrapper {
+      position: relative;
+      width: 100%;
+      aspect-ratio: 1200 / 720;
+      user-select: none;
+      overflow: hidden;
+      background: #05070d;
+    }
+    .slider-img {
+      position: absolute;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+      object-fit: contain;
+      pointer-events: none;
+    }
+    .slider-img.before { z-index: 1; }
+    .slider-img.after {
+      z-index: 2;
+      clip-path: polygon(50% 0, 100% 0, 100% 100%, 50% 100%);
+    }
+    .slider-handle {
+      position: absolute;
+      top: 0; bottom: 0;
+      left: 50%; width: 3px;
+      background: var(--accent);
+      z-index: 30;
+      cursor: ew-resize;
+      box-shadow: 0 0 12px rgba(56, 189, 248, 0.9);
+    }
+    .slider-knob {
+      position: absolute;
+      top: 50%; left: 50%;
+      transform: translate(-50%, -50%);
+      width: 38px; height: 38px;
+      background: var(--accent);
+      color: #090d16;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 700;
+      font-size: 15px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.6);
+    }
+    .slider-tag {
+      position: absolute;
+      top: 16px;
+      padding: 6px 14px;
+      border-radius: 6px;
+      font-size: 13px;
+      font-weight: 700;
+      pointer-events: none;
+      z-index: 35;
+      backdrop-filter: blur(6px);
+    }
+    .slider-tag.left {
+      left: 16px;
+      background: rgba(0, 0, 0, 0.75);
+      color: #38bdf8;
+      border: 1px solid rgba(56, 189, 248, 0.4);
+    }
+    .slider-tag.right {
+      right: 16px;
+      background: rgba(0, 0, 0, 0.75);
+      color: #10b981;
+      border: 1px solid rgba(16, 185, 129, 0.4);
+    }
+
+    .side-by-side-wrapper {
+      display: none;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+      padding: 16px;
+      background: var(--bg-panel);
+    }
+    .side-box {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      overflow: hidden;
+      background: #000;
+    }
+    .side-box-header {
+      padding: 10px 14px;
+      background: var(--bg-card);
+      font-weight: 700;
+      font-size: 13px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .side-box-content {
+      position: relative;
+      aspect-ratio: 1200 / 720;
+    }
+    .side-box-content img {
+      width: 100%; height: 100%;
+      object-fit: contain;
+    }
+    .crossfade-wrapper {
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      padding: 20px;
+      gap: 16px;
+      background: var(--bg-panel);
+    }
+    .crossfade-canvas-wrap {
+      position: relative;
+      width: 100%; max-width: 1200px;
+      aspect-ratio: 1200 / 720;
+      border-radius: 8px;
+      overflow: hidden;
+      background: #000;
+      border: 1px solid var(--border-color);
+    }
+    .crossfade-img {
+      position: absolute;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+      object-fit: contain;
+    }
+    .crossfade-controls {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      width: 100%; max-width: 600px;
+    }
+    .crossfade-controls input[type="range"] {
+      flex: 1; cursor: pointer;
+    }
+    .gallery-wrapper {
+      display: none;
+      grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+      gap: 16px;
+      padding: 16px;
+      background: var(--bg-panel);
+    }
+    .gallery-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      overflow: hidden;
+      cursor: pointer;
+      transition: transform 0.2s, border-color 0.2s;
+    }
+    .gallery-card:hover {
+      transform: translateY(-2px);
+      border-color: var(--accent);
+    }
+    .gallery-card-header {
+      padding: 10px 14px;
+      font-weight: 700;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 1px solid var(--border-color);
+    }
+    .gallery-card-body {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 4px;
+      background: #000;
+      padding: 4px;
+    }
+    .gallery-card-body img {
+      width: 100%;
+      aspect-ratio: 1200 / 720;
+      object-fit: cover;
+    }
+
+    /* SVG Overlay */
+    .routes-svg-overlay {
+      position: absolute;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+      pointer-events: none;
+      z-index: 15;
+    }
+    .route-path {
+      pointer-events: stroke;
+      cursor: pointer;
+      transition: stroke-width 0.15s, opacity 0.15s;
+    }
+    .route-path:hover, .route-path.active-route {
+      stroke: #f43f5e !important;
+      stroke-width: 5.5px !important;
+      opacity: 1 !important;
+      filter: drop-shadow(0 0 6px #f43f5e);
+    }
+    @keyframes pulseRoute {
+      0% { opacity: 1; stroke-width: 5px; }
+      50% { opacity: 0.4; stroke-width: 6.5px; }
+      100% { opacity: 1; stroke-width: 5px; }
+    }
+    .route-path.active-route {
+      animation: pulseRoute 1.2s infinite ease-in-out;
+    }
+
+    /* Spot Pins */
+    .spots-overlay {
+      position: absolute;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+      pointer-events: none;
+      z-index: 25;
+      display: none;
+    }
+    .spot-pin {
+      position: absolute;
+      transform: translate(-50%, -50%);
+      pointer-events: auto;
+      cursor: pointer;
+      transition: transform 0.15s;
+    }
+    .spot-pin:hover {
+      transform: translate(-50%, -50%) scale(1.35);
+      z-index: 50;
+    }
+    .spot-circle {
+      width: 28px; height: 28px;
+      border-radius: 50%;
+      background: rgba(239, 68, 68, 0.9);
+      border: 2px solid #ffffff;
+      color: #ffffff;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 700;
+      font-size: 11px;
+      font-family: "JetBrains Mono", monospace;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.7);
+    }
+    .spot-circle.boss {
+      background: rgba(220, 38, 38, 0.95);
+      border-color: #facc15;
+      box-shadow: 0 0 12px rgba(250, 204, 21, 0.85);
+    }
+    .spot-circle.start {
+      background: rgba(59, 130, 246, 0.9);
+    }
+    .spot-label-sub {
+      position: absolute;
+      top: 100%; left: 50%;
+      transform: translateX(-50%);
+      background: rgba(0, 0, 0, 0.85);
+      color: #f8fafc;
+      padding: 2px 5px;
+      border-radius: 3px;
+      font-size: 10px;
+      white-space: nowrap;
+      margin-top: 2px;
+      font-weight: 600;
+      border: 1px solid rgba(255, 255, 255, 0.2);
+    }
+
+    /* Panels & Tables */
+    .info-panel {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 20px;
+    }
+    @media (max-width: 1080px) {
+      .info-panel { grid-template-columns: 1fr; }
+    }
+    .card {
+      background: var(--bg-panel);
+      border: 1px solid var(--border-color);
+      border-radius: 10px;
+      padding: 18px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .card-title {
+      font-size: 15px;
+      font-weight: 700;
+      color: var(--text-main);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+    .table-container {
+      max-height: 320px;
+      overflow-y: auto;
+      border: 1px solid var(--border-color);
+      border-radius: 6px;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 12px;
+      font-family: "JetBrains Mono", monospace;
+    }
+    th, td {
+      padding: 7px 10px;
+      text-align: left;
+      border-bottom: 1px solid var(--border-color);
+    }
+    th {
+      background: #0d131f;
+      position: sticky;
+      top: 0;
+      color: var(--text-muted);
+      font-weight: 600;
+      z-index: 5;
+    }
+    tr:hover { background: rgba(255, 255, 255, 0.04); }
+    .route-row {
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+    .route-row:hover {
+      background: rgba(56, 189, 248, 0.12) !important;
+    }
+    .route-row.active {
+      background: rgba(244, 63, 94, 0.2) !important;
+      outline: 1px solid #f43f5e;
+    }
+    .explanation-box {
+      font-size: 13px;
+      line-height: 1.7;
+      color: #cbd5e1;
+    }
+    .explanation-box h4 {
+      color: var(--accent);
+      margin: 12px 0 4px;
+      font-size: 14px;
+    }
+    .explanation-box p { margin-bottom: 6px; }
+    .explanation-box code {
+      background: #090d16;
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-family: "JetBrains Mono", monospace;
+      color: #38bdf8;
+      border: 1px solid rgba(56, 189, 248, 0.2);
+    }
+    .tooltip-float {
+      position: absolute;
+      background: rgba(15, 23, 42, 0.95);
+      border: 1px solid var(--accent);
+      padding: 6px 12px;
+      border-radius: 6px;
+      font-size: 11px;
+      font-family: "JetBrains Mono", monospace;
+      pointer-events: none;
+      z-index: 100;
+      display: none;
+      box-shadow: 0 4px 14px rgba(0,0,0,0.7);
+      white-space: pre-line;
+    }
+  </style>
+</head>
+<body>
+
+<div id="fileProtocolNotice" style="display:none; position:fixed; top:0; left:0; width:100%; background:#ef4444; color:#ffffff; padding:12px 20px; z-index:99999; box-shadow:0 4px 12px rgba(0,0,0,0.3); font-family:sans-serif; font-size:14px; line-height:1.5;">
+  <strong>⚠️ ローカルファイル（file://）から直接開かれています</strong><br>
+  ブラウザのセキュリティ制限（CORS）によりデータが直接読み込めません。<br>
+  ローカルサーバー（mask_server）を起動し、以下のリンクから開いてください：<br>
+  <a id="serverLink" href="http://localhost:8085/" style="color:#fef08a; font-weight:bold; font-size:15px; text-decoration:underline;">👉 http://localhost:8085/ で開く</a>
+</div>
+<script>
+  if (location.protocol === 'file:') {
+    window.addEventListener('DOMContentLoaded', () => {
+      const notice = document.getElementById('fileProtocolNotice');
+      const link = document.getElementById('serverLink');
+      if (notice) {
+        notice.style.display = 'block';
+        const pageName = location.pathname.split('/').pop() || '';
+        link.href = 'http://localhost:8085/' + pageName;
+        link.textContent = '👉 http://localhost:8085/' + pageName + ' で開く';
+      }
+    });
+  }
+</script>
+
+
+  <header>
+    <div class="header-top">
+      <div class="header-title">
+        <span class="badge green">FUSOU</span>
+        <h1 style="font-size: 17px; font-weight: 700;">海域マップ 変換比較 & ルート適合度検証</h1>
+        <span id="activeMapBadge" class="badge">海域 5-3</span>
+      </div>
+
+      <div class="controls">
+        <button id="prevBtn" title="前の海域 (←)">◀ 前へ</button>
+        <select id="mapSelect"></select>
+        <button id="nextBtn" title="次の海域 (→)">次へ ▶</button>
+
+        <div class="btn-group">
+          <button id="modeSlider" class="active" onclick="switchMode('slider')">スライダー比較</button>
+          <button id="modeSide" onclick="switchMode('side')">並列表示</button>
+          <button id="modeCrossfade" onclick="switchMode('crossfade')">透過比較</button>
+          <button id="modeOutline" onclick="switchMode('outline')">輪郭オーバーレイ (機械的比較)</button>
+          <button id="modeGallery" onclick="switchMode('gallery')">全海域一覧</button>
+        </div>
+
+        <select id="themeSelect" onchange="changeTheme(this.value)">
+          <option value="dark" selected>変換後: Dark (新アルゴリズム)</option>
+          <option value="unred">中間復元: 赤グラデーション剥がし (3-5 Unred)</option>
+          <option value="ai">参考比較: AI Generated (画像生成AI・3-5)</option>
+          <option value="light">変換後: Light</option>
+        </select>
+
+        <label class="toggle-label">
+          <input type="checkbox" id="toggleSpots" checked onchange="toggleSpotOverlay(this.checked)">
+          <span>マス/セル表示</span>
+        </label>
+        <label class="toggle-label">
+          <input type="checkbox" id="toggleRoutes" checked onchange="toggleRouteOverlay(this.checked)">
+          <span>曲線矢印ルート</span>
+        </label>
+      </div>
+    </div>
+
+    <!-- ルート適合度・表示調整バー -->
+    <div class="route-tuning-bar" id="routeTuningBar">
+      <div class="tuning-section">
+        <span class="tuning-title">🎯 ルート線設定</span>
+        <div class="color-chips" id="colorChips">
+          <div class="color-chip active" data-color="#10b981" style="background: #10b981;" title="エメラルド (デフォルト)"></div>
+          <div class="color-chip" data-color="#06b6d4" style="background: #06b6d4;" title="ネオンシアン"></div>
+          <div class="color-chip" data-color="#f43f5e" style="background: #f43f5e;" title="ホットピンク/マゼンタ"></div>
+          <div class="color-chip" data-color="#facc15" style="background: #facc15;" title="鮮烈イエロー"></div>
+          <div class="color-chip" data-color="#ffffff" style="background: #ffffff;" title="ホワイト"></div>
+        </div>
+      </div>
+
+      <div class="tuning-section slider-control">
+        <span>太さ:</span>
+        <input type="range" id="routeWidthRange" min="1.5" max="5.0" step="0.2" value="2.8" oninput="updateRouteStyle()">
+        <span class="val" id="routeWidthVal">2.8px</span>
+      </div>
+
+      <div class="tuning-section slider-control">
+        <span>不透明度:</span>
+        <input type="range" id="routeOpacityRange" min="20" max="100" step="5" value="90" oninput="updateRouteStyle()">
+        <span class="val" id="routeOpacityVal">90%</span>
+      </div>
+
+      <div class="tuning-section">
+        <label class="toggle-label" title="灰色の被り線を防ぐため初期値はOFF">
+          <input type="checkbox" id="toggleRouteShadow" onchange="updateRouteStyle()">
+          <span>影・グロー</span>
+        </label>
+      </div>
+
+      <div class="tuning-section">
+        <label class="toggle-label">
+          <input type="checkbox" id="toggleMarkers" checked onchange="updateRouteStyle()">
+          <span>矢じりマーカー</span>
+        </label>
+      </div>
+
+      <div class="tuning-section" style="margin-left: auto; border-left: 1px solid var(--border-color); padding-left: 12px;">
+        <span style="color: var(--text-muted);">元画像(Before)重畳:</span>
+        <label class="toggle-label">
+          <input type="checkbox" id="toggleBeforeRoute" checked onchange="toggleTargetRoutes('before', this.checked)">
+          <span>表示</span>
+        </label>
+        <span style="color: var(--text-muted); margin-left: 8px;">生成後(After):</span>
+        <label class="toggle-label">
+          <input type="checkbox" id="toggleAfterRoute" checked onchange="toggleTargetRoutes('after', this.checked)">
+          <span>表示</span>
+        </label>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <div class="map-stage-container">
+      <!-- 1. スライダー比較 -->
+      <div id="sliderWrapper" class="slider-wrapper">
+        <div class="slider-tag left">変換前 (Original Crop)</div>
+        <div class="slider-tag right" id="sliderRightTag">変換後 (Dark)</div>
+        
+        <img id="sliderImgBefore" class="slider-img before" src="" alt="Before">
+        <img id="sliderImgAfter" class="slider-img after" src="" alt="After">
+        
+        <div id="sliderHandle" class="slider-handle">
+          <div class="slider-knob">↔</div>
+        </div>
+
+        <svg class="routes-svg-overlay routes-svg-slider" viewBox="0 0 1200 720">
+          <defs></defs>
+          <g class="routes-group"></g>
+        </svg>
+        <div id="sliderSpots" class="spots-overlay"></div>
+      </div>
+
+      <!-- 2. 並列表示 -->
+      <div id="sideBySideWrapper" class="side-by-side-wrapper">
+        <div class="side-box">
+          <div class="side-box-header">
+            <span>変換前 (Original Game Texture)</span>
+            <span class="badge amber">元画像アセット</span>
+          </div>
+          <div class="side-box-content">
+            <img id="sideImgBefore" src="" alt="Before">
+            <svg class="routes-svg-overlay routes-svg-before" viewBox="0 0 1200 720">
+              <defs></defs>
+              <g class="routes-group"></g>
+            </svg>
+            <div id="sideSpotsBefore" class="spots-overlay"></div>
+          </div>
+        </div>
+        <div class="side-box">
+          <div class="side-box-header">
+            <span id="sideAfterTitle">変換後 (Generated Map)</span>
+            <span class="badge green">抽出マップ</span>
+          </div>
+          <div class="side-box-content">
+            <img id="sideImgAfter" src="" alt="After">
+            <svg class="routes-svg-overlay routes-svg-after" viewBox="0 0 1200 720">
+              <defs></defs>
+              <g class="routes-group"></g>
+            </svg>
+            <div id="sideSpotsAfter" class="spots-overlay"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 3. 透過比較 -->
+      <div id="crossfadeWrapper" class="crossfade-wrapper">
+        <div class="crossfade-canvas-wrap">
+          <img id="crossfadeBefore" class="crossfade-img" src="" alt="Before">
+          <img id="crossfadeAfter" class="crossfade-img" style="opacity: 0.5;" src="" alt="After">
+          <svg class="routes-svg-overlay routes-svg-crossfade" viewBox="0 0 1200 720">
+            <defs></defs>
+            <g class="routes-group"></g>
+          </svg>
+          <div id="crossfadeSpots" class="spots-overlay"></div>
+        </div>
+        <div class="crossfade-controls">
+          <span style="font-size: 13px; font-weight: 600;">変換前 (0%)</span>
+          <input type="range" id="crossfadeRange" min="0" max="100" value="50" oninput="updateCrossfade(this.value)">
+          <span style="font-size: 13px; font-weight: 600;">変換後 (100%)</span>
+          <span id="crossfadeVal" style="font-family: 'JetBrains Mono', monospace; font-size: 13px; width: 45px;">50%</span>
+        </div>
+      </div>
+
+      <!-- 5. 輪郭オーバーレイ（機械的比較） -->
+      <div id="outlineWrapper" class="outline-wrapper" style="display: none;">
+        <div class="outline-canvas-wrap" style="position: relative; width: 1200px; max-width: 100%; aspect-ratio: 1200/720; margin: 0 auto; border-radius: 8px; overflow: hidden; box-shadow: 0 4px 20px rgba(0,0,0,0.5);">
+          <img id="outlineBaseImg" src="" alt="Base" style="width: 100%; height: 100%; display: block; object-fit: contain;">
+          <canvas id="outlineCanvas" width="1200" height="720" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none;"></canvas>
+          <svg class="routes-svg-overlay routes-svg-outline" viewBox="0 0 1200 720" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none;">
+            <defs></defs>
+            <g class="routes-group"></g>
+          </svg>
+          <div id="outlineSpots" class="spots-overlay"></div>
+        </div>
+        <div class="outline-controls" style="display: flex; gap: 16px; justify-content: center; align-items: center; margin-top: 12px; background: rgba(30,41,59,0.7); padding: 8px 16px; border-radius: 8px;">
+          <label style="font-size: 13px; font-weight: bold; color: #38bdf8; display: flex; align-items: center; gap: 6px; cursor: pointer;">
+            <input type="checkbox" id="showOutlineContour" checked onchange="drawOutlineOverlay()">
+            輪郭線を表示 (ネオンシアン)
+          </label>
+          <label style="font-size: 13px; font-weight: bold; color: #4ade80; display: flex; align-items: center; gap: 6px; cursor: pointer;">
+            <input type="checkbox" id="showOutlineFill" checked onchange="drawOutlineOverlay()">
+            陸地マスクを半透明塗りつぶし
+          </label>
+          <span style="font-size: 12px; color: #94a3b8;">※元画像の上に抽出された陸地の輪郭線をピクセル単位で直接重ね合わせ、精度と格子線除去を客観的に検証できます。</span>
+        </div>
+      </div>
+
+      <!-- 4. 全海域一覧 -->
+      <div id="galleryWrapper" class="gallery-wrapper"></div>
+    </div>
+
+    <!-- 浮動ツールチップ -->
+    <div id="routeTooltip" class="tooltip-float"></div>
+
+    <div class="info-panel">
+      <!-- ルート適合度・精度一覧表 -->
+      <div class="card">
+        <div class="card-title">
+          <span>🎯 ルート適合度 & 検出精度一覧 (<span id="routesCountBadge">0</span> 経路)</span>
+          <span id="meanFitBadge" class="badge green">平均誤差: - px</span>
+        </div>
+        <div class="table-container">
+          <table>
+            <thead>
+              <tr>
+                <th style="width: 40px;">No</th>
+                <th>区間 (From ➔ To)</th>
+                <th>曲率</th>
+                <th>元スプライト</th>
+                <th>平均誤差</th>
+                <th>最大乖離</th>
+                <th>判定</th>
+              </tr>
+            </thead>
+            <tbody id="routesTableBody">
+              <tr><td colspan="7" style="text-align: center; color: var(--text-muted);">読み込み中...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- セル一覧表 -->
+      <div class="card">
+        <div class="card-title">
+          <span>マス/セル一覧 & ラベル対応表 (<span id="infoMapKey">5-3</span>)</span>
+          <span id="labelsStatusBadge" class="badge">確認中</span>
+        </div>
+        <div class="table-container">
+          <table>
+            <thead>
+              <tr>
+                <th style="width: 36px;">No</th>
+                <th>セルID</th>
+                <th>表示ラベル</th>
+                <th>種別</th>
+                <th>座標 (X, Y)</th>
+              </tr>
+            </thead>
+            <tbody id="cellsTableBody">
+              <tr><td colspan="5" style="text-align: center; color: var(--text-muted);">読み込み中...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <script>
+    let metadataList = [];
+    let currentMapIndex = 0;
+    let currentTheme = "dark";
+    let currentMode = "slider";
+    let isSliderDragging = false;
+    let currentSpots = [];
+    let currentLabels = {};
+    let currentRoutes = [];
+
+    // ルート描画設定
+    let routeConfig = {
+      color: "#10b981",
+      width: 2.8,
+      opacity: 0.9,
+      shadow: false,
+      marker: true,
+      visible: true,
+      showBefore: true,
+      showAfter: true,
+      activeRouteId: null
+    };
+
+    const mapSelect = document.getElementById("mapSelect");
+    const activeMapBadge = document.getElementById("activeMapBadge");
+    const infoMapKey = document.getElementById("infoMapKey");
+    const labelsStatusBadge = document.getElementById("labelsStatusBadge");
+    const sliderHandle = document.getElementById("sliderHandle");
+    const sliderImgAfter = document.getElementById("sliderImgAfter");
+    const sliderWrapper = document.getElementById("sliderWrapper");
+    const sideBySideWrapper = document.getElementById("sideBySideWrapper");
+    const crossfadeWrapper = document.getElementById("crossfadeWrapper");
+    const galleryWrapper = document.getElementById("galleryWrapper");
+    const routeTooltip = document.getElementById("routeTooltip");
+
+    const isHttp = location.protocol.startsWith("http");
+    function resolveAssetUrl(url) {
+      if (!url) return "";
+      if (isHttp) return url;
+      if (url.startsWith("/battle-maps/")) return "../../FUSOU-WEB/public" + url;
+      if (url.startsWith("/src/assets/map/")) return "../../FUSOU-WEB" + url;
+      return url;
+    }
+
+    async function init() {
+      try {
+        const metaUrl = resolveAssetUrl("/battle-maps/maps_metadata.json");
+        const res = await fetch(metaUrl);
+        metadataList = await res.json();
+      } catch (e) {
+        console.error("Failed to load metadata", e);
+      }
+
+      mapSelect.innerHTML = "";
+      metadataList.forEach((m, idx) => {
+        const opt = document.createElement("option");
+        opt.value = idx;
+        opt.textContent = `${m.key} ${m.hasLabels ? "★" : ""}`;
+        mapSelect.appendChild(opt);
+      });
+
+      mapSelect.addEventListener("change", (e) => {
+        selectMap(parseInt(e.target.value, 10));
+      });
+
+      document.getElementById("prevBtn").addEventListener("click", () => {
+        if (currentMapIndex > 0) selectMap(currentMapIndex - 1);
+      });
+      document.getElementById("nextBtn").addEventListener("click", () => {
+        if (currentMapIndex < metadataList.length - 1) selectMap(currentMapIndex + 1);
+      });
+
+      window.addEventListener("keydown", (e) => {
+        if (e.target.tagName === "INPUT" || e.target.tagName === "SELECT") return;
+        if (e.key === "ArrowLeft") {
+          if (currentMapIndex > 0) selectMap(currentMapIndex - 1);
+        } else if (e.key === "ArrowRight") {
+          if (currentMapIndex < metadataList.length - 1) selectMap(currentMapIndex + 1);
+        }
+      });
+
+      initColorChips();
+      initSliderEvents();
+
+      const defaultIdx = metadataList.findIndex(m => m.key === "5-3");
+      selectMap(defaultIdx >= 0 ? defaultIdx : 0);
+    }
+
+    function initColorChips() {
+      const chips = document.querySelectorAll(".color-chip");
+      chips.forEach(chip => {
+        chip.addEventListener("click", () => {
+          chips.forEach(c => c.classList.remove("active"));
+          chip.classList.add("active");
+          routeConfig.color = chip.dataset.color;
+          updateRouteStyle();
+        });
+      });
+    }
+
+    function selectMap(index) {
+      if (index < 0 || index >= metadataList.length) return;
+      currentMapIndex = index;
+      mapSelect.value = index;
+      const map = metadataList[index];
+
+      activeMapBadge.textContent = `海域 ${map.key}`;
+      infoMapKey.textContent = map.key;
+
+      if (map.hasLabels) {
+        labelsStatusBadge.textContent = "個別ラベル定義あり (cell_labels.json)";
+        labelsStatusBadge.className = "badge green";
+      } else {
+        labelsStatusBadge.textContent = "自動フォールバック (1=A, 2=B...)";
+        labelsStatusBadge.className = "badge amber";
+      }
+
+      const beforeUrl = resolveAssetUrl(map.origUrl || `/src/assets/map/${map.key}/${map.key}_orig.png`);
+      const afterUrl = resolveAssetUrl(map.mapUrl || `/battle-maps/${map.key}/${map.key}_map.png`);
+
+      const seaBgColor = currentTheme === "light" ? "#D4B4A1" : "#454545";
+      const sliderAfterEl = document.getElementById("sliderImgAfter");
+      const sideAfterEl = document.getElementById("sideImgAfter");
+      if (sliderAfterEl) sliderAfterEl.style.backgroundColor = seaBgColor;
+      if (sideAfterEl) sideAfterEl.style.backgroundColor = seaBgColor;
+
+      document.getElementById("sliderImgBefore").src = beforeUrl;
+      sliderAfterEl.src = afterUrl;
+
+      document.getElementById("sideImgBefore").src = beforeUrl;
+      sideAfterEl.src = afterUrl;
+      document.getElementById("sideAfterTitle").textContent = `変換後 (${currentTheme === "light" ? "Light" : "Dark"})`;
+
+      document.getElementById("crossfadeBefore").src = beforeUrl;
+      document.getElementById("crossfadeAfter").src = afterUrl;
+
+      loadSpotsAndLabels(map);
+      loadRoutes(map);
+    }
+
+    function changeTheme(theme) {
+      currentTheme = theme;
+      const tagLabel = theme === "ai" ? "AI Generated" : (theme === "unred" ? "赤グラデーション剥がし" : (theme === "dark" ? "Dark (新アルゴリズム)" : "Light"));
+      document.getElementById("sliderRightTag").textContent = `変換後 (${tagLabel})`;
+      selectMap(currentMapIndex);
+    }
+
+    function switchMode(mode) {
+      currentMode = mode;
+      ["Slider", "Side", "Crossfade", "Gallery"].forEach(m => {
+        const btn = document.getElementById(`mode${m}`);
+        if (btn) btn.classList.remove("active");
+      });
+      document.getElementById(`mode${mode.charAt(0).toUpperCase() + mode.slice(1)}`).classList.add("active");
+
+      sliderWrapper.style.display = mode === "slider" ? "block" : "none";
+      sideBySideWrapper.style.display = mode === "side" ? "grid" : "none";
+      crossfadeWrapper.style.display = mode === "crossfade" ? "flex" : "none";
+      galleryWrapper.style.display = mode === "gallery" ? "grid" : "none";
+
+      if (mode === "gallery") {
+        renderGallery();
+      }
+    }
+
+    function updateCrossfade(val) {
+      document.getElementById("crossfadeAfter").style.opacity = val / 100;
+      document.getElementById("crossfadeVal").textContent = `${val}%`;
+    }
+
+    function initSliderEvents() {
+      const updatePosition = (clientX) => {
+        const rect = sliderWrapper.getBoundingClientRect();
+        let x = clientX - rect.left;
+        if (x < 0) x = 0;
+        if (x > rect.width) x = rect.width;
+        const pct = (x / rect.width) * 100;
+
+        sliderHandle.style.left = `${pct}%`;
+        sliderImgAfter.style.clipPath = `polygon(${pct}% 0, 100% 0, 100% 100%, ${pct}% 100%)`;
+      };
+
+      sliderWrapper.addEventListener("mousedown", (e) => {
+        isSliderDragging = true;
+        updatePosition(e.clientX);
+      });
+      window.addEventListener("mousemove", (e) => {
+        if (!isSliderDragging) return;
+        updatePosition(e.clientX);
+      });
+      window.addEventListener("mouseup", () => { isSliderDragging = false; });
+
+      sliderWrapper.addEventListener("touchstart", (e) => {
+        isSliderDragging = true;
+        if (e.touches[0]) updatePosition(e.touches[0].clientX);
+      }, { passive: true });
+      window.addEventListener("touchmove", (e) => {
+        if (!isSliderDragging) return;
+        if (e.touches[0]) updatePosition(e.touches[0].clientX);
+      }, { passive: true });
+      window.addEventListener("touchend", () => { isSliderDragging = false; });
+    }
+
+    function alphaFallback(cellId) {
+      if (cellId === 0) return "港";
+      if (!cellId || cellId <= 0) return "";
+      let res = "";
+      let num = cellId;
+      while (num > 0) {
+        const rem = (num - 1) % 26;
+        res = String.fromCharCode(65 + rem) + res;
+        num = Math.floor((num - 1) / 26);
+      }
+      return res;
+    }
+
+    function getCellDisplay(cellId) {
+      if (!cellId) return "開始";
+      const lbl = currentLabels[String(cellId)];
+      return lbl ? `${cellId} (${lbl})` : `${cellId} (${alphaFallback(cellId)})`;
+    }
+
+    async function loadSpotsAndLabels(map) {
+      currentSpots = [];
+      currentLabels = {};
+      currentRoutes = [];
+
+      const dataPath = resolveAssetUrl(map.dataUrl || `/battle-maps/${map.key}/data.json`);
+      try {
+        const res = await fetch(dataPath);
+        if (res.ok) {
+          const data = await res.json();
+          currentSpots = data.spots ?? [];
+          currentLabels = data.labels ?? {};
+          currentRoutes = data.routes ?? [];
+        }
+      } catch (e) {
+        console.error("Failed to load map data", e);
+      }
+
+      renderCellsTable();
+      if (document.getElementById("toggleSpots").checked) {
+        renderSpotsOverlay();
+      }
+      renderRoutesTable();
+      renderRoutesOverlay();
+    }
+
+    function renderCellsTable() {
+      const tbody = document.getElementById("cellsTableBody");
+      if (!currentSpots.length) {
+        tbody.innerHTML = `<tr><td colspan="5" style="text-align: center; color: var(--text-muted);">スポット情報なし</td></tr>`;
+        return;
+      }
+
+      tbody.innerHTML = currentSpots.map((s, idx) => {
+        const cellId = s.no ?? s.cell ?? idx + 1;
+        const mappedLabel = currentLabels[String(cellId)];
+        const displayLabel = mappedLabel || alphaFallback(cellId);
+        const isMapped = Boolean(mappedLabel);
+        const isStart = Boolean(s.start || (mappedLabel && (mappedLabel.includes("Start") || mappedLabel.includes("スタート"))) || cellId === 0);
+        const isBoss = Boolean(s.boss || s.color === 5 || cellId === 11 || (displayLabel === "Z" && cellId === 43) || (displayLabel === "N" && cellId === 27));
+
+        let typeBadge = '<span style="color: var(--text-muted);">通常</span>';
+        if (isBoss) {
+          typeBadge = '<span style="color: #ef4444; font-weight: bold;">ボス</span>';
+        } else if (isStart) {
+          typeBadge = '<span style="color: #3b82f6; font-weight: bold;">開始</span>';
+        }
+
+        return `
+          <tr>
+            <td>${idx + 1}</td>
+            <td><strong>${cellId}</strong></td>
+            <td>
+              <span style="color: ${isBoss ? "#ef4444" : (isStart ? "#3b82f6" : "#38bdf8")}; font-weight: 700;">${displayLabel}</span>
+              ${isMapped ? '<span style="font-size: 10px; color: #10b981; margin-left: 4px;">[公式]</span>' : '<span style="font-size: 10px; color: #9ca3af; margin-left: 4px;">[自動]</span>'}
+            </td>
+            <td>${typeBadge}</td>
+            <td>(${s.x}, ${s.y})</td>
+          </tr>
+        `;
+      }).join("");
+    }
+
+    function toggleSpotOverlay(show) {
+      const overlays = document.querySelectorAll(".spots-overlay");
+      overlays.forEach(el => {
+        el.style.display = show ? "block" : "none";
+      });
+      if (show) renderSpotsOverlay();
+    }
+
+    function renderSpotsOverlay() {
+      const targets = [
+        document.getElementById("sliderSpots"),
+        document.getElementById("sideSpotsBefore"),
+        document.getElementById("sideSpotsAfter"),
+        document.getElementById("crossfadeSpots"),
+      ];
+
+      // Group spots by coordinate so duplicate/branching spots share a single clean pin
+      const groupedSpots = [];
+      const coordMap = new Map();
+      currentSpots.forEach((s, idx) => {
+        const cellId = s.no ?? s.cell ?? idx + 1;
+        const mappedLabel = currentLabels[String(cellId)];
+        const displayLabel = mappedLabel || (cellId === 0 ? "港" : alphaFallback(cellId));
+        const key = String(s.x) + ":" + String(s.y);
+        const isStartCell = Boolean(s.start || (mappedLabel && (mappedLabel.includes("Start") || mappedLabel.includes("スタート"))) || cellId === 0);
+        const isBossCell = Boolean(s.boss || s.color === 5 || cellId === 11 || (displayLabel === "Z" && cellId === 43) || (displayLabel === "N" && cellId === 27));
+
+        if (coordMap.has(key)) {
+          const entry = coordMap.get(key);
+          if (!entry.cellIds.includes(cellId)) {
+            entry.cellIds.push(cellId);
+          }
+          if (isBossCell) entry.isBoss = true;
+          if (isStartCell) entry.isStart = true;
+        } else {
+          const entry = {
+            cellId,
+            cellIds: [cellId],
+            x: s.x,
+            y: s.y,
+            displayLabel,
+            isBoss: isBossCell,
+            isStart: isStartCell,
+          };
+          coordMap.set(key, entry);
+          groupedSpots.push(entry);
+        }
+      });
+
+      targets.forEach(container => {
+        if (!container) return;
+        container.innerHTML = "";
+        groupedSpots.forEach((s) => {
+          const pctX = (s.x / 1200) * 100;
+          const pctY = (s.y / 720) * 100;
+
+          const pin = document.createElement("div");
+          pin.className = "spot-pin";
+          pin.style.left = pctX + "%";
+          pin.style.top = pctY + "%";
+          pin.title = "Cell " + s.cellIds.join(",") + ": " + s.displayLabel + " (" + s.x + ", " + s.y + ")";
+
+          let circleClass = "spot-circle";
+          if (s.isBoss) circleClass += " boss";
+          else if (s.isStart) circleClass += " start";
+
+          const subText = s.cellIds.length > 1 ? "#" + s.cellIds.join(",") : "#" + s.cellId;
+
+          pin.innerHTML =
+            '<div class="' + circleClass + '">' + s.displayLabel + '</div>' +
+            '<div class="spot-label-sub">' + subText + '</div>';
+          container.appendChild(pin);
+        });
+      });
+    }
+
+    function renderGallery() {
+      if (galleryWrapper.children.length > 0) return;
+      galleryWrapper.innerHTML = metadataList.map((m, idx) => `
+        <div class="gallery-card" onclick="selectMap(${idx}); switchMode('slider');">
+          <div class="gallery-card-header">
+            <span>海域 ${m.key}</span>
+            <span class="badge ${m.hasLabels ? "green" : "amber"}">${m.hasLabels ? "定義あり" : "フォールバック"}</span>
+          </div>
+          <div class="gallery-card-body">
+            <img src="${resolveAssetUrl(m.origUrl)}" alt="${m.key} Orig" loading="lazy">
+            <img src="${resolveAssetUrl(m.mapUrl)}" style="background-color: #454545;" alt="${m.key} Map" loading="lazy">
+          </div>
+        </div>
+      `).join("");
+    }
+
+    /* ルートデータ読み込み & テーブル描画 */
+    async function loadRoutes(map) {
+      // routes are loaded together in loadSpotsAndLabels from data.json
+    }
+
+    function renderRoutesTable() {
+      const countBadge = document.getElementById("routesCountBadge");
+      const meanFitBadge = document.getElementById("meanFitBadge");
+      const tbody = document.getElementById("routesTableBody");
+
+      countBadge.textContent = currentRoutes.length;
+
+      if (!currentRoutes.length) {
+        meanFitBadge.textContent = "経路データなし";
+        meanFitBadge.className = "badge amber";
+        tbody.innerHTML = `<tr><td colspan="7" style="text-align: center; color: var(--text-muted);">この海域のルートデータはありません</td></tr>`;
+        return;
+      }
+
+      // 平均誤差の統計計算
+      let totalErr = 0;
+      let validCount = 0;
+      currentRoutes.forEach(r => {
+        if (typeof r.meanError === "number") {
+          totalErr += r.meanError;
+          validCount++;
+        }
+      });
+      const avgError = validCount > 0 ? (totalErr / validCount).toFixed(2) : "-";
+      meanFitBadge.textContent = `全平均誤差: ${avgError} px`;
+      meanFitBadge.className = parseFloat(avgError) <= 2.5 ? "badge green" : (parseFloat(avgError) <= 4.0 ? "badge blue" : "badge amber");
+
+      tbody.innerHTML = currentRoutes.map((r, idx) => {
+        const fromDisp = getCellDisplay(r.from);
+        const toDisp = getCellDisplay(r.to);
+        const curvDisp = Math.abs(r.curvature) < 1.0 ? "直線 (0.0)" : `R ${r.curvature.toFixed(1)}`;
+        const meanErrDisp = typeof r.meanError === "number" ? `${r.meanError.toFixed(2)} px` : "-";
+        const maxErrDisp = typeof r.maxError === "number" ? `${r.maxError.toFixed(1)} px` : "-";
+
+        let fitBadge = '<span class="badge green">高精度</span>';
+        if (typeof r.meanError === "number") {
+          if (r.meanError > 4.0) fitBadge = '<span class="badge amber">要確認</span>';
+          else if (r.meanError > 2.5) fitBadge = '<span class="badge blue">良好</span>';
+        }
+
+        return `
+          <tr class="route-row" data-route-id="${r.routeId}" onmouseenter="highlightRoute(${r.routeId}, true)" onmouseleave="highlightRoute(${r.routeId}, false)" onclick="focusRoute(${r.routeId})">
+            <td><strong>#${r.routeId}</strong></td>
+            <td><span style="color: #38bdf8; font-weight: 600;">${fromDisp}</span> ➔ <span style="color: #10b981; font-weight: 700;">${toDisp}</span></td>
+            <td>${curvDisp}</td>
+            <td style="color: var(--text-muted);">${r.imgName || "-"}</td>
+            <td><strong>${meanErrDisp}</strong></td>
+            <td style="color: var(--text-muted);">${maxErrDisp}</td>
+            <td>${fitBadge}</td>
+          </tr>
+        `;
+      }).join("");
+    }
+
+    /* ルートハイライト & フォーカス連動 */
+    function highlightRoute(routeId, active) {
+      const paths = document.querySelectorAll(`.route-path[data-route-id="${routeId}"]`);
+      paths.forEach(p => {
+        if (active) p.classList.add("active-route");
+        else if (routeConfig.activeRouteId !== routeId) p.classList.remove("active-route");
+      });
+
+      const row = document.querySelector(`.route-row[data-route-id="${routeId}"]`);
+      if (row) {
+        if (active) row.classList.add("active");
+        else if (routeConfig.activeRouteId !== routeId) row.classList.remove("active");
+      }
+    }
+
+    function focusRoute(routeId) {
+      if (routeConfig.activeRouteId === routeId) {
+        routeConfig.activeRouteId = null;
+        highlightRoute(routeId, false);
+      } else {
+        if (routeConfig.activeRouteId !== null) {
+          highlightRoute(routeConfig.activeRouteId, false);
+        }
+        routeConfig.activeRouteId = routeId;
+        highlightRoute(routeId, true);
+
+        // テーブルの該当行を可視範囲へスクロール
+        const row = document.querySelector(`.route-row[data-route-id="${routeId}"]`);
+        if (row) row.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      }
+    }
+
+    /* スタイル更新 & トグル */
+    function updateRouteStyle() {
+      const w = parseFloat(document.getElementById("routeWidthRange").value);
+      const op = parseInt(document.getElementById("routeOpacityRange").value, 10) / 100;
+      const shadow = document.getElementById("toggleRouteShadow").checked;
+      const marker = document.getElementById("toggleMarkers").checked;
+
+      routeConfig.width = w;
+      routeConfig.opacity = op;
+      routeConfig.shadow = shadow;
+      routeConfig.marker = marker;
+
+      document.getElementById("routeWidthVal").textContent = `${w.toFixed(1)}px`;
+      document.getElementById("routeOpacityVal").textContent = `${Math.round(op * 100)}%`;
+
+      renderRoutesOverlay();
+    }
+
+    function toggleRouteOverlay(show) {
+      routeConfig.visible = show;
+      const svgs = document.querySelectorAll(".routes-svg-overlay");
+      svgs.forEach(svg => {
+        svg.style.display = show ? "block" : "none";
+      });
+    }
+
+    function toggleTargetRoutes(target, show) {
+      if (target === "before") {
+        routeConfig.showBefore = show;
+        const bSvg = document.querySelector(".routes-svg-before");
+        if (bSvg) bSvg.style.display = show ? "block" : "none";
+      } else if (target === "after") {
+        routeConfig.showAfter = show;
+        const aSvg = document.querySelector(".routes-svg-after");
+        if (aSvg) aSvg.style.display = show ? "block" : "none";
+      }
+    }
+
+    /* ルートSVGオーバーレイ再描画（高精度・影濁り排除） */
+    function renderRoutesOverlay() {
+      const svgs = document.querySelectorAll(".routes-svg-overlay");
+      const currentMeta = metadataList[currentMapIndex];
+      const w = currentMeta?.routeLayoutFrame?.width || 1200;
+      const h = currentMeta?.routeLayoutFrame?.height || 720;
+
+      svgs.forEach(svg => {
+        svg.setAttribute("viewBox", `0 0 ${w} ${h}`);
+        if (!routeConfig.visible) {
+          svg.style.display = "none";
+          return;
+        }
+
+        // Before / After 個別トグル制御
+        if (svg.classList.contains("routes-svg-before")) {
+          svg.style.display = routeConfig.showBefore ? "block" : "none";
+        } else if (svg.classList.contains("routes-svg-after")) {
+          svg.style.display = routeConfig.showAfter ? "block" : "none";
+        } else {
+          svg.style.display = "block";
+        }
+
+        // defs にマーカー定義（選択色に追従）
+        const defs = svg.querySelector("defs");
+        if (defs) {
+          defs.innerHTML = `
+            <marker id="marker-arrow-${svg.className.baseVal.replace(/[^a-zA-Z0-9]/g, '-')}" markerWidth="9" markerHeight="9" refX="7" refY="4.5" orient="auto" markerUnits="userSpaceOnUse">
+              <path d="M 1 1.5 L 8 4.5 L 1 7.5 z" fill="${routeConfig.color}" />
+            </marker>
+          `;
+        }
+
+        const group = svg.querySelector(".routes-group");
+        if (!group) return;
+        group.innerHTML = "";
+
+        const markerId = `marker-arrow-${svg.className.baseVal.replace(/[^a-zA-Z0-9]/g, '-')}`;
+
+        currentRoutes.forEach(r => {
+          const d = Math.abs(r.curvature) < 1.0
+            ? `M ${r.startX} ${r.startY} L ${r.endX} ${r.endY}`
+            : `M ${r.startX} ${r.startY} Q ${r.ctrlX} ${r.ctrlY} ${r.endX} ${r.endY}`;
+
+          // 影・グロー描画（ユーザーがONにした時のみ描画し、被り線を防止）
+          if (routeConfig.shadow) {
+            const shadow = document.createElementNS("http://www.w3.org/2000/svg", "path");
+            shadow.setAttribute("d", d);
+            shadow.setAttribute("stroke", "#022c22");
+            shadow.setAttribute("stroke-width", String(routeConfig.width + 2.5));
+            shadow.setAttribute("stroke-linecap", "round");
+            shadow.setAttribute("fill", "none");
+            shadow.setAttribute("opacity", "0.4");
+            group.appendChild(shadow);
+          }
+
+          // メインベジェ曲線（進行方向矢印付き）
+          const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+          path.setAttribute("d", d);
+          path.setAttribute("stroke", routeConfig.color);
+          path.setAttribute("stroke-width", String(routeConfig.width));
+          path.setAttribute("stroke-linecap", "round");
+          path.setAttribute("fill", "none");
+          path.setAttribute("opacity", String(routeConfig.opacity));
+          path.setAttribute("class", "route-path");
+          path.setAttribute("data-route-id", String(r.routeId));
+
+          if (routeConfig.marker) {
+            path.setAttribute("marker-end", `url(#${markerId})`);
+          }
+
+          if (routeConfig.activeRouteId === r.routeId) {
+            path.classList.add("active-route");
+          }
+
+          // ホバー・クリックイベント
+          path.addEventListener("mouseenter", (e) => {
+            highlightRoute(r.routeId, true);
+            showRouteTooltip(e, r);
+          });
+          path.addEventListener("mousemove", (e) => {
+            moveRouteTooltip(e);
+          });
+          path.addEventListener("mouseleave", () => {
+            highlightRoute(r.routeId, false);
+            hideRouteTooltip();
+          });
+          path.addEventListener("click", () => {
+            focusRoute(r.routeId);
+          });
+
+          group.appendChild(path);
+        });
+      });
+    }
+
+    /* ツールチップ制御 */
+    function showRouteTooltip(e, r) {
+      const fromDisp = getCellDisplay(r.from);
+      const toDisp = getCellDisplay(r.to);
+      const meanErr = typeof r.meanError === "number" ? `${r.meanError.toFixed(2)} px` : "-";
+      const maxErr = typeof r.maxError === "number" ? `${r.maxError.toFixed(1)} px` : "-";
+
+      routeTooltip.innerHTML = `<strong>ルート #${r.routeId}</strong>: ${fromDisp} ➔ ${toDisp}<br>曲率: ${r.curvature.toFixed(1)} | 平均誤差: <span style="color:#10b981;font-weight:bold;">${meanErr}</span> (最大: ${maxErr})`;
+      routeTooltip.style.display = "block";
+      moveRouteTooltip(e);
+    }
+
+    function moveRouteTooltip(e) {
+      routeTooltip.style.left = `${e.pageX + 14}px`;
+      routeTooltip.style.top = `${e.pageY + 14}px`;
+    }
+
+    function hideRouteTooltip() {
+      routeTooltip.style.display = "none";
+    }
+
+    window.addEventListener("DOMContentLoaded", init);
+  </script>
+</body>
+</html>

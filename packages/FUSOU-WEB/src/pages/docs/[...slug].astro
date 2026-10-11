@@ -1,18 +1,59 @@
 ---
 import DocsLayout from "@/layouts/DocsLayout.astro";
-
 import { getEntry, render } from "astro:content";
+import { isLocalDev, isLocalOnlyDoc, getLocalDocBySlug } from "@/utils/localDocs";
+
 const { slug } = Astro.params;
 if (slug === undefined) {
   throw new Error("Slug is required");
 }
-const entry = await getEntry("docs", slug);
-if (entry === undefined) {
+
+// 1. ローカル限定ドキュメントの場合、ローカル環境でなければ 404 にリダイレクト
+const isLocalOnly = isLocalOnlyDoc(slug);
+if (isLocalOnly && !isLocalDev()) {
   return Astro.redirect("/404");
 }
-const { Content, headings } = await render(entry);
+
+let entry: any = undefined;
+let ContentComponent: any = undefined;
+let pageHeadings: any[] = [];
+let pageTitle: string | undefined = undefined;
+let pageDescription: string | undefined = undefined;
+
+// 2. 公開ドキュメント（start, guide, policy, license）の検索
+if (!isLocalOnly) {
+  entry = await getEntry("docs", slug);
+  if (entry !== undefined) {
+    const rendered = await render(entry);
+    ContentComponent = rendered.Content;
+    pageHeadings = rendered.headings;
+  }
+}
+
+// 3. ローカル環境の場合、ローカル限定ドキュメント（formulas, operations, implementation-plans, architecture）を検索
+if (!ContentComponent && isLocalDev()) {
+  const localDoc = getLocalDocBySlug(slug);
+  if (localDoc) {
+    ContentComponent = localDoc.Content;
+    pageHeadings = localDoc.headings;
+    pageTitle = localDoc.title;
+    pageDescription = localDoc.description;
+    entry = localDoc.entryLike;
+  }
+}
+
+// 4. いずれにも該当しない場合は 404
+if (!ContentComponent) {
+  return Astro.redirect("/404");
+}
 ---
 
-<DocsLayout entry={entry} Content={Content} headings={headings}>
-  <Content />
+<DocsLayout
+  title={pageTitle}
+  description={pageDescription}
+  entry={entry}
+  Content={ContentComponent}
+  headings={pageHeadings}
+>
+  <ContentComponent />
 </DocsLayout>

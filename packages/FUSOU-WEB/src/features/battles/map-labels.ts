@@ -6,6 +6,7 @@ export const MAP_AREA_NAMES: Record<string, string> = {
   "5": "南方海域",
   "6": "中部海域",
   "7": "南西海域",
+  "62": "期間限定作戦",
 };
 
 export const MAP_NAMES: Record<string, string> = {
@@ -44,6 +45,10 @@ export const MAP_NAMES: Record<string, string> = {
   "7-2": "タウイタウイ泊地沖",
   "7-3": "ペナン島沖",
   "7-4": "昭南本土航路",
+  "5-6": "サーモン海域北方(後段)",
+  "62-1": "南西諸島沖 (E-1)",
+  "62-2": "南西諸島近海 (E-2)",
+  "7-5": "ジャワ島沖",
 };
 
 export function resolveMapAreaName(areaId: number): string {

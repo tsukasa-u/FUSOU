@@ -110,8 +110,8 @@ vi.mock("@/utils/security", () => ({
     path: "/",
     httpOnly: true,
     secure: false,
-    sameSite: "lax",
-    maxAge: 300,
+    sameSite: "strict",
+    maxAge: 900,
   },
   SECURE_COOKIE_OPTIONS: {
     path: "/",
@@ -213,11 +213,11 @@ describe("local_auth API handlers", () => {
       body: new URLSearchParams({ provider: "google" }),
     });
 
-    const res = await signInPost(
-      { request, cookies, redirect } as unknown as Parameters<
-        typeof signInPost
-      >[0],
-    );
+    const res = await signInPost({
+      request,
+      cookies,
+      redirect,
+    } as unknown as Parameters<typeof signInPost>[0]);
 
     expect(res.status).toBe(500);
   });
@@ -238,11 +238,11 @@ describe("local_auth API handlers", () => {
       },
     );
 
-    const res = await signInPost(
-      { request, cookies, redirect } as unknown as Parameters<
-        typeof signInPost
-      >[0],
-    );
+    const res = await signInPost({
+      request,
+      cookies,
+      redirect,
+    } as unknown as Parameters<typeof signInPost>[0]);
 
     expect(res.status).toBe(302);
     expect(res.headers.get("location")).toBe(
@@ -265,7 +265,9 @@ describe("local_auth API handlers", () => {
     expect(mockCreateSupabaseServerClient).toHaveBeenCalledWith(
       cookies,
       mockWorkersEnv,
-      expect.objectContaining({ storageKey: expect.stringMatching(/^sb-local-auth-/) }),
+      expect.objectContaining({
+        storageKey: expect.stringMatching(/^sb-local-auth-/),
+      }),
     );
     expect(mockSignInWithOAuth).toHaveBeenCalledTimes(1);
     expect(cookies.set).toHaveBeenCalledWith(
@@ -315,12 +317,12 @@ describe("local_auth API handlers", () => {
     expect(firstCookies.set).toHaveBeenCalledWith(
       `sb-pending-sync-token-${firstFlowId}`,
       "11111111-1111-4111-8111-111111111111",
-      expect.any(Object),
+      expect.objectContaining({ sameSite: "lax" }),
     );
     expect(secondCookies.set).toHaveBeenCalledWith(
       `sb-pending-sync-token-${secondFlowId}`,
       "22222222-2222-4222-8222-222222222222",
-      expect.any(Object),
+      expect.objectContaining({ sameSite: "lax" }),
     );
     expect(firstRedirect).not.toBe(secondRedirect);
     expect(firstCookies.set).toHaveBeenCalledWith(
@@ -340,11 +342,11 @@ describe("local_auth API handlers", () => {
       body: new URLSearchParams({ provider: "github" }),
     });
 
-    const res = await signInPost(
-      { request, cookies, redirect } as unknown as Parameters<
-        typeof signInPost
-      >[0],
-    );
+    const res = await signInPost({
+      request,
+      cookies,
+      redirect,
+    } as unknown as Parameters<typeof signInPost>[0]);
 
     expect(res.status).toBe(400);
   });

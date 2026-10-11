@@ -1,3 +1,25 @@
+
+function remarkNormalizeCrlf() {
+  return (tree) => {
+    function visit(node) {
+      if (node && typeof node.value === 'string') {
+        const crlf = String.fromCharCode(13, 10);
+        const cr = String.fromCharCode(13);
+        const lf = String.fromCharCode(10);
+        if (node.value.indexOf(cr) !== -1) {
+          node.value = node.value.split(crlf).join(lf).split(cr).join(lf);
+        }
+      }
+      if (node && Array.isArray(node.children)) {
+        for (const child of node.children) {
+          visit(child);
+        }
+      }
+    }
+    visit(tree);
+  };
+}
+
 // @ts-check
 import { defineConfig } from "astro/config";
 import tailwindcss from "@tailwindcss/vite";
@@ -149,6 +171,7 @@ export default defineConfig({
         }),
         "@": fileURLToPath(new URL("./src", import.meta.url)),
         "@docs": fileURLToPath(new URL("../../docs/contents", import.meta.url)),
+        "@all-docs": fileURLToPath(new URL("../../docs", import.meta.url)),
         "@fusou/avro-wasm": fileURLToPath(
           new URL("../avro-wasm/index.ts", import.meta.url),
         ),
@@ -157,8 +180,8 @@ export default defineConfig({
   },
   markdown: {
     processor: unified({
-      remarkPlugins: [remarkCallout, remarkMath],
-      rehypePlugins: [[rehypeMermaid, { strategy: "pre-mermaid" }], rehypeKatex],
+      remarkPlugins: [remarkNormalizeCrlf, remarkCallout, remarkMath],
+      rehypePlugins: [[rehypeMermaid, { strategy: "pre-mermaid" }], [rehypeKatex, { strict: false }]],
     }),
     syntaxHighlight: {
       type: "shiki",

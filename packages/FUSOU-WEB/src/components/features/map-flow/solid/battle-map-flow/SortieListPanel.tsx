@@ -51,13 +51,7 @@ export default function SortieListPanel(props: Props) {
             )}
           </For>
         </select>
-        <Show when={props.selectedCellFilter()}>
-          {(selected) => (
-            <div class="mt-2 text-xs text-base-content/60">
-              {selected().label} に到達した出撃のみ表示中です。
-            </div>
-          )}
-        </Show>
+        
         <Show when={props.isRouteListTruncated()}>
           <div class="mt-2 text-xs text-warning">
             表示件数は {MAX_SORTIE_ROUTES} 件までです。条件に一致する出撃は合計 {props.filteredRouteCount()} 件あります。

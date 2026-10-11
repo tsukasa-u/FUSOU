@@ -1,4 +1,4 @@
-import type { BattleMapAsset, BattleMapTheme } from "@/data/battleMapAssets";
+﻿import type { BattleMapAsset, BattleMapTheme } from "@/data/battleMapAssets";
 
 export type { BattleMapAsset, BattleMapTheme };
 
@@ -144,6 +144,7 @@ export type MapSpot = {
   cellId: number;
   x: number;
   y: number;
+  isPort?: boolean | undefined;
   lineOffsetX?: number;
   lineOffsetY?: number;
 };
@@ -159,6 +160,24 @@ export type RouteSpriteFrame = FrameRect & {
   routeId: number;
 };
 
+export type CurvedRouteData = {
+  routeId: number;
+  from: number;
+  to: number;
+  startX: number;
+  startY: number;
+  ctrlX: number;
+  ctrlY: number;
+  endX: number;
+  endY: number;
+  isArrow?: boolean;
+  rawStartX?: number;
+  rawStartY?: number;
+  rawEndX?: number;
+  rawEndY?: number;
+  curvature: number;
+};
+
 export type InferredRouteOverlay = {
   key: string;
   fromCellId: number;
@@ -171,6 +190,11 @@ export type InferredRouteOverlay = {
   renderFromY: number;
   renderToX: number;
   renderToY: number;
+  isArrow?: boolean;
+  ctrlX?: number;
+  ctrlY?: number;
+  curvature?: number;
+  pathD?: string;
   observedCount: number;
   score: number;
 };
@@ -235,6 +259,8 @@ export type MapInfoPayload = {
 
 export type MapLabelsPayload = Record<string, string>;
 
+export type MapRoutesPayload = CurvedRouteData[];
+
 export type MapFrameMeta = {
   spriteSheetSize: { width: number; height: number };
   routeLayoutFrame: FrameRect;
@@ -283,6 +309,7 @@ export type VisibleLabelSpot = {
   battleCount: number;
   currentRouteVisited: boolean;
   currentRouteHasBattle: boolean;
+  isPort?: boolean | undefined;
 };
 
 // Everything the SVG canvas needs to render the overlay.

@@ -23,5 +23,8 @@
   ],
   "rust-analyzer.checkOnSave": true,
   "rust-analyzer.linkedProjects": [],
-  "typescript.updateImportsOnFileMove.enabled": "always"
+  "typescript.updateImportsOnFileMove.enabled": "always",
+  "python.analysis.extraPaths": [
+    "./packages/fusou-datasets/python"
+  ]
 }
