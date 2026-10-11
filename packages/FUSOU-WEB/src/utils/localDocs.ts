@@ -162,14 +162,14 @@ function parseLocalDoc(
   let description = (frontmatter["description"] as string | undefined)?.trim();
   if (!description) {
     // コードブロック、HTMLタグ、Markdownリンク、見出し、YAMLヘッダー、コメントを除去
-    // CodeQL (js/incomplete-multi-character-sanitization) 対策として、入れ子パターンが残存しなくなるまで反復除去
-    let cleanContent = rawContent;
+    // CodeQL (js/incomplete-multi-character-sanitization) 対策として、
+    // まず危険な区切り文字(<, >)を単文字で除去し、その後に反復除去を行う
+    let cleanContent = rawContent.replace(/[<>]/g, "");
     let prevClean = "";
     while (cleanContent !== prevClean) {
       prevClean = cleanContent;
       cleanContent = cleanContent
-        .replace(/[<>]/g, "")
-        .replace(/<!--[\s\S]*?-->/g, "")
+        .replace(/!--[\s\S]*?--/g, "")
         .replace(/```[\s\S]*?```/g, "");
     }
     cleanContent = cleanContent
