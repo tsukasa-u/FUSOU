@@ -1,18 +1,77 @@
-import type { InferredRouteOverlay, MapSpot, RouteSpriteFrame, Transition } from "./types";
-import { INFERRED_ROUTE_NODE_PADDING } from "./constants";
+import type { CurvedRouteData, InferredRouteOverlay, MapSpot, RouteSpriteFrame, Transition } from "./types";
+import { ROUTE_NODE_PADDING, ROUTE_PADDING_MAX_RATIO } from "./constants";
 
 export function inferRouteOverlays(
   spots: MapSpot[],
   routeFrames: Record<number, RouteSpriteFrame> | undefined,
   transitions: Transition[],
+  curvedRoutes?: CurvedRouteData[],
 ): InferredRouteOverlay[] {
-  if (spots.length === 0 || !routeFrames) return [];
+  if (spots.length === 0) return [];
 
   const observedCounts = new Map<string, number>();
   for (const transition of transitions) {
     const key = [transition.from, transition.to].sort((a, b) => a - b).join("-");
     observedCounts.set(key, (observedCounts.get(key) ?? 0) + transition.count);
   }
+
+  // 1. If pre-calculated curved route data exists, use it directly (highest fidelity & accurate curves/arrows)
+  if (curvedRoutes && curvedRoutes.length > 0) {
+    const spotByNo = new Map<number, MapSpot>(spots.map((s) => [s.cellId, s]));
+    return curvedRoutes.map((cr) => {
+      const key = `cr-${cr.routeId}-${cr.from}-${cr.to}`;
+      const observedCount =
+        observedCounts.get([cr.from, cr.to].sort((a, b) => a - b).join("-")) ?? 0;
+      const fromSpot = spotByNo.get(cr.from);
+      const toSpot = spotByNo.get(cr.to);
+
+      let startX = cr.startX;
+      let startY = cr.startY;
+      let endX = cr.endX;
+      let endY = cr.endY;
+
+      // セルの位置を基準にし、セル同士の中心をまっすぐ貫く直線を生成（一定スペース・余白を確保）
+      if (fromSpot && toSpot) {
+        const dx = toSpot.x - fromSpot.x;
+        const dy = toSpot.y - fromSpot.y;
+        const dist = Math.hypot(dx, dy) || 1;
+        const ux = dx / dist;
+        const uy = dy / dist;
+        const padding = Math.min(ROUTE_NODE_PADDING, dist * ROUTE_PADDING_MAX_RATIO);
+
+        startX = fromSpot.x + ux * padding;
+        startY = fromSpot.y + uy * padding;
+        endX = toSpot.x - ux * padding;
+        endY = toSpot.y - uy * padding;
+      }
+
+      const pathD = `M ${startX} ${startY} L ${endX} ${endY}`;
+
+      return {
+        key,
+        fromCellId: cr.from,
+        toCellId: cr.to,
+        fromX: fromSpot?.x ?? startX,
+        fromY: fromSpot?.y ?? startY,
+        toX: toSpot?.x ?? endX,
+        toY: toSpot?.y ?? endY,
+        renderFromX: startX,
+        renderFromY: startY,
+        renderToX: endX,
+        renderToY: endY,
+        ctrlX: (startX + endX) / 2,
+        ctrlY: (startY + endY) / 2,
+        curvature: 0,
+        isArrow: cr.isArrow ?? false,
+        pathD,
+        observedCount,
+        score: 0,
+      } satisfies InferredRouteOverlay;
+    });
+  }
+
+  // 2. Fallback to heuristic inference if route frames exist
+  if (!routeFrames) return [];
 
   const inferredByKey = new Map<string, InferredRouteOverlay>();
 
@@ -87,16 +146,18 @@ export function inferRouteOverlays(
       const distance = Math.hypot(dx, dy) || 1;
       const unitX = dx / distance;
       const unitY = dy / distance;
-      const renderFromX = overlay.fromX + unitX * INFERRED_ROUTE_NODE_PADDING;
-      const renderFromY = overlay.fromY + unitY * INFERRED_ROUTE_NODE_PADDING;
-      const renderToX = overlay.toX - unitX * INFERRED_ROUTE_NODE_PADDING;
-      const renderToY = overlay.toY - unitY * INFERRED_ROUTE_NODE_PADDING;
+      const padding = Math.min(ROUTE_NODE_PADDING, distance * ROUTE_PADDING_MAX_RATIO);
+      const renderFromX = overlay.fromX + unitX * padding;
+      const renderFromY = overlay.fromY + unitY * padding;
+      const renderToX = overlay.toX - unitX * padding;
+      const renderToY = overlay.toY - unitY * padding;
       return {
         ...overlay,
         renderFromX,
         renderFromY,
         renderToX,
         renderToY,
+        pathD: `M ${renderFromX} ${renderFromY} L ${renderToX} ${renderToY}`,
       } satisfies InferredRouteOverlay;
     })
     .sort((a, b) => a.score - b.score);

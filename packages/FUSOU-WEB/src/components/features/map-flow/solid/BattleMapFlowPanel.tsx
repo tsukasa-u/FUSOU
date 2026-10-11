@@ -1,4 +1,4 @@
-/** @jsxImportSource solid-js */
+﻿/** @jsxImportSource solid-js */
 import { AlertMessage } from "@/components/common/solid/AlertMessage";
 import { MapAreaGrid } from "@/components/common/solid/MapAreaGrid";
 import { EmptyState } from "@/components/common/solid/EmptyState";
@@ -20,6 +20,7 @@ import {
 import type { SharedDashboardState } from "../../battles/solid/types";
 
 import type {
+  CurvedRouteData,
   BattleRecord,
   MapFrameMeta,
   MapSpot,
@@ -34,6 +35,8 @@ import type {
 
 import {
   DEFAULT_MAP_VIEWPORT_HEIGHT_PERCENT,
+  MAP_VIEWBOX_WIDTH,
+  MAP_VIEWBOX_HEIGHT,
   MAX_SORTIE_ROUTES,
   ROUTE_COUNT_BADGE_HEIGHT,
   ROUTE_COUNT_BADGE_WIDTH,
@@ -54,9 +57,8 @@ import {
   compareNullableTimestamps,
   formatTimestamp,
   mapKeyOf,
-  parseMapInfoPayload,
   parseMapLabelsPayload,
-  parseMapFrameMeta,
+  parseMapRoutesPayload,
   resolveRouteCellsWithPort,
 } from "./battle-map-flow/dataUtils";
 import MapSvgCanvas from "./battle-map-flow/MapSvgCanvas";
@@ -111,8 +113,29 @@ export default function BattleMapFlowPanel(props: { dashboardState: SharedDashbo
   const [showOfficialMapAssets, setShowOfficialMapAssets] = createSignal(true);
   const [officialMapThemeMode, setOfficialMapThemeMode] =
     createSignal<OfficialMapThemeMode>("auto");
-  const [detectedTheme] =
-    createSignal<BattleMapTheme>("light");
+  const getDocTheme = (): BattleMapTheme => {
+    if (typeof document === "undefined") return "light";
+    const attr = document.documentElement.getAttribute("data-theme");
+    if (attr === "dark") return "dark";
+    if (attr === "light") return "light";
+    if (typeof window !== "undefined" && window.matchMedia("(prefers-color-scheme: dark)").matches) {
+      return "dark";
+    }
+    return "light";
+  };
+  const [detectedTheme, setDetectedTheme] = createSignal<BattleMapTheme>(getDocTheme());
+
+  onMount(() => {
+    setDetectedTheme(getDocTheme());
+    const observer = new MutationObserver(() => {
+      setDetectedTheme(getDocTheme());
+    });
+    observer.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ["data-theme"],
+    });
+    onCleanup(() => observer.disconnect());
+  });
 
   let displaySettingsModalRef!: HTMLDialogElement;
 
@@ -122,6 +145,9 @@ export default function BattleMapFlowPanel(props: { dashboardState: SharedDashbo
   >({});
   const [mapPortsByKey, setMapPortsByKey] = createSignal<
     Record<string, number[]>
+  >({});
+    const [mapRoutesByKey, setMapRoutesByKey] = createSignal<
+    Record<string, CurvedRouteData[]>
   >({});
   const [mapLabelsByKey, setMapLabelsByKey] = createSignal<
     Record<string, Record<number, string>>
@@ -173,12 +199,20 @@ export default function BattleMapFlowPanel(props: { dashboardState: SharedDashbo
   /** Returns the display label for a cell (e.g. "港(0)", "D(4)"). */
   function cellLabel(cellId: number, mapKey?: string): string {
     const key = mapKey ?? selectedSortieRoute()?.mapKey;
-    return pureCellLabel(cellId, key ? mapLabelsByKey()[key] : undefined);
+    return pureCellLabel(
+      cellId,
+      key ? mapLabelsByKey()[key] : undefined,
+      key ? mapPortsByKey()[key] : undefined,
+    );
   }
 
   /** Returns the short overlay label for a cell (e.g. "港", "D"). */
   function cellOverlayLabel(cellId: number, mapKey: string): string {
-    return pureCellOverlayLabel(cellId, mapLabelsByKey()[mapKey]);
+    return pureCellOverlayLabel(
+      cellId,
+      mapLabelsByKey()[mapKey],
+      mapPortsByKey()[mapKey],
+    );
   }
 
   function isAbortError(error: unknown): boolean {
@@ -189,19 +223,20 @@ export default function BattleMapFlowPanel(props: { dashboardState: SharedDashbo
 
   async function ensureMapMetadata(mapKey: string): Promise<void> {
     if (!mapKey) return;
-    if (mapSpotsByKey()[mapKey]) {
-      setMapMetadataFailedKey(null);
-      setMapMetadataLoadingKey(null);
-      return;
-    }
-    const pending = pendingMetadataLoads.get(mapKey);
-    if (pending) return pending;
     const asset = getBattleMapAsset(mapKey);
     if (!asset) {
       setMapMetadataFailedKey(mapKey);
       setMapMetadataLoadingKey(null);
       return;
     }
+    if (mapSpotsByKey()[mapKey] && (!asset.routesUrl || mapRoutesByKey()[mapKey])) {
+      setMapMetadataFailedKey(null);
+      setMapMetadataLoadingKey(null);
+      return;
+    }
+    const pending = pendingMetadataLoads.get(mapKey);
+    if (pending) return pending;
+
     setMapMetadataLoadingKey(mapKey);
     setMapMetadataFailedKey(null);
     if (
@@ -214,62 +249,48 @@ export default function BattleMapFlowPanel(props: { dashboardState: SharedDashbo
 
     const request = (async () => {
       try {
-        try {
-          const imageMetaResponse = await fetch(asset.imageMetaUrl, { signal });
-          if (signal.aborted) return;
-          if (imageMetaResponse.ok) {
-            const parsed = parseMapFrameMeta(await imageMetaResponse.json());
-            if (parsed) {
-              setMapFrameMetaByKey((prev) => ({ ...prev, [mapKey]: parsed }));
-            } else {
-              addMetadataWarning(
-                `${mapKey} の画像情報を読み取れませんでした。`,
-              );
-            }
-          } else {
-            addMetadataWarning(
-              `${mapKey} の画像情報の読み込みに失敗しました。`,
-            );
-          }
-        } catch (error) {
-          if (isAbortError(error)) return;
-          addMetadataWarning(`${mapKey} の画像情報の読み込みに失敗しました。`);
-        }
-
-        const response = await fetch(asset.infoUrl, { signal });
+        const targetUrl = asset.dataUrl || asset.infoUrl;
+        if (!targetUrl) return;
+        const response = await fetch(targetUrl, { signal });
         if (signal.aborted) return;
         if (!response.ok) {
-          addMetadataWarning(
-            `${mapKey} のマップ情報の読み込みに失敗しました。`,
-          );
+          addMetadataWarning(`${mapKey} のマップ情報の読み込みに失敗しました。`);
           setMapMetadataFailedKey(mapKey);
           return;
         }
-        const payload = parseMapInfoPayload(await response.json());
-        if (!payload) {
-          addMetadataWarning(
-            `${mapKey} のマップ情報を読み取れませんでした。`,
-          );
-          setMapMetadataFailedKey(mapKey);
-          return;
-        }
-        const spots = (payload.spots || [])
+
+        const rawData = await response.json();
+        const data = isJsonRecord(rawData) ? rawData : {};
+
+        // 1. Frame metadata
+        setMapFrameMetaByKey((prev) => ({
+          ...prev,
+          [mapKey]: {
+            spriteSheetSize: { width: 1200, height: 720 },
+            routeLayoutFrame: { x: 0, y: 0, width: 1200, height: 720 },
+            seaMapFrame: { x: 0, y: 0, width: 1200, height: 720 },
+            routeFrames: {},
+          },
+        }));
+
+        // 2. Spots
+        const rawSpots = Array.isArray(data["spots"]) ? data["spots"] : [];
+        const spots = rawSpots
           .map((spot): MapSpot | null => {
-            const cellId = Number(spot.no ?? NaN);
-            const x = Number(spot.x ?? NaN);
-            const y = Number(spot.y ?? NaN);
-            if (
-              !Number.isFinite(cellId) ||
-              !Number.isFinite(x) ||
-              !Number.isFinite(y)
-            )
-              return null;
-            const lineOffsetX = Number(spot.line?.x ?? NaN);
-            const lineOffsetY = Number(spot.line?.y ?? NaN);
+            if (!isJsonRecord(spot)) return null;
+            const cellId = Number(spot["no"] ?? NaN);
+            const x = Number(spot["x"] ?? NaN);
+            const y = Number(spot["y"] ?? NaN);
+            if (!Number.isFinite(cellId) || !Number.isFinite(x) || !Number.isFinite(y)) return null;
+            const line = isJsonRecord(spot["line"]) ? spot["line"] : null;
+            const lineOffsetX = Number(line?.["x"] ?? NaN);
+            const lineOffsetY = Number(line?.["y"] ?? NaN);
+            const isPort = Boolean(spot["isPort"]);
             return {
               cellId,
               x,
               y,
+              ...(isPort ? { isPort: true } : {}),
               ...(Number.isFinite(lineOffsetX) ? { lineOffsetX } : {}),
               ...(Number.isFinite(lineOffsetY) ? { lineOffsetY } : {}),
             } satisfies MapSpot;
@@ -284,62 +305,38 @@ export default function BattleMapFlowPanel(props: { dashboardState: SharedDashbo
           return;
         }
 
-        const spotPorts = spots
-          .filter((s) => s.cellId === 0)
-          .map((s) => s.cellId);
-        if (spotPorts.length > 0) {
-          setMapPortsByKey((prev) => ({ ...prev, [mapKey]: spotPorts }));
+        const rawPorts = Array.isArray(data["ports"])
+          ? (data["ports"] as unknown[]).map((p) => Number(p)).filter(Number.isFinite)
+          : [];
+        const detectedPorts = rawPorts.length > 0
+          ? rawPorts
+          : spots.filter((s) => s.isPort || s.cellId === 0 || typeof s.lineOffsetX !== "number").map((s) => s.cellId);
+        const finalPorts = Array.from(new Set(detectedPorts.length > 0 ? detectedPorts : [0]));
+        setMapPortsByKey((prev) => ({ ...prev, [mapKey]: finalPorts }));
+
+        // 3. Routes
+        if (Array.isArray(data["routes"])) {
+          const routesPayload = parseMapRoutesPayload(data["routes"]);
+          setMapRoutesByKey((prev) => ({ ...prev, [mapKey]: routesPayload }));
         }
 
-        if (asset.labelsUrl && !mapLabelsByKey()[mapKey]) {
-          try {
-            const labelsResponse = await fetch(asset.labelsUrl, { signal });
-            if (signal.aborted) return;
-            if (labelsResponse.ok) {
-              const labelsPayload = parseMapLabelsPayload(
-                await labelsResponse.json(),
-              );
-              if (!labelsPayload) {
-                addMetadataWarning(
-                  `${mapKey} のラベル情報を読み取れませんでした。`,
-                );
-                return;
-              }
-              const labels: Record<number, string> = {};
-              for (const [rawId, label] of Object.entries(labelsPayload)) {
-                const id = Number(rawId);
-                if (!Number.isFinite(id) || typeof label !== "string" || !label)
-                  continue;
-                labels[id] = label;
-              }
-              setMapLabelsByKey((prev) => ({ ...prev, [mapKey]: labels }));
-
-              const labeledPorts = Object.entries(labels)
-                .filter(([, label]) => /港/.test(label))
-                .map(([id]) => Number(id))
-                .filter((id) => Number.isFinite(id));
-              if (labeledPorts.length > 0) {
-                setMapPortsByKey((prev) => ({
-                  ...prev,
-                  [mapKey]: labeledPorts,
-                }));
-              }
-            } else {
-              addMetadataWarning(
-                `${mapKey} のセル名データの読み込みに失敗しました。代替ラベルで表示します。`,
-              );
+        // 4. Labels
+        if (isJsonRecord(data["labels"])) {
+          const labelsPayload = parseMapLabelsPayload(data["labels"]);
+          if (labelsPayload) {
+            const labels: Record<number, string> = {};
+            for (const [rawId, label] of Object.entries(labelsPayload)) {
+              const id = Number(rawId);
+              if (!Number.isFinite(id) || typeof label !== "string" || !label) continue;
+              labels[id] = label;
             }
-          } catch (error) {
-            if (isAbortError(error)) return;
-            addMetadataWarning(
-              `${mapKey} のセル名データの読み込みに失敗しました。代替ラベルで表示します。`,
-            );
+            setMapLabelsByKey((prev) => ({ ...prev, [mapKey]: labels }));
           }
         }
       } catch (error) {
         if (isAbortError(error)) return;
-        setMapMetadataFailedKey(mapKey);
         addMetadataWarning(`${mapKey} のマップ情報の読み込みに失敗しました。`);
+        setMapMetadataFailedKey(mapKey);
       } finally {
         pendingMetadataLoads.delete(mapKey);
         if (mapMetadataLoadingKey() === mapKey) {
@@ -441,6 +438,16 @@ export default function BattleMapFlowPanel(props: { dashboardState: SharedDashbo
     }
   });
 
+  createEffect(() => {
+    const filter = d.mapFilter();
+    // 海域フィルターが切り替わったら、前の海域の選択状態（セル・出撃）を確実にリセット
+    setSelectedCellFilter(null);
+    setSelectedSortieId("");
+    if (filter) {
+      void ensureMapMetadata(filter);
+    }
+  });
+
   const filteredBattles = createMemo(() => {
     const selected = d.mapFilter();
     return d.battleRecords()
@@ -481,7 +488,8 @@ export default function BattleMapFlowPanel(props: { dashboardState: SharedDashbo
 
         const ports = mapPortsByKey()[mapKey] || [];
         const spots = mapSpotsByKey()[mapKey] || [];
-        const routeCells = resolveRouteCellsWithPort(cells, ports, spots);
+        const routes = mapRoutesByKey()[mapKey] || [];
+        const routeCells = resolveRouteCellsWithPort(cells, ports, spots, routes);
 
         const battles = cellRecord.battles
           ? [...(battleGroupsByUuid().get(cellRecord.battles) || [])]
@@ -609,7 +617,8 @@ export default function BattleMapFlowPanel(props: { dashboardState: SharedDashbo
       const mapKey = mapKeyOf(route);
       const ports = mapPortsByKey()[mapKey] || [];
       const spots = mapSpotsByKey()[mapKey] || [];
-      const routeCells = resolveRouteCellsWithPort(cells, ports, spots);
+      const routes = mapRoutesByKey()[mapKey] || [];
+      const routeCells = resolveRouteCellsWithPort(cells, ports, spots, routes);
 
       const battles = route.battles
         ? [...(battleGroups.get(route.battles) || [])]
@@ -686,9 +695,10 @@ export default function BattleMapFlowPanel(props: { dashboardState: SharedDashbo
   // データなしのマスをクリックした際にマップが消えたり古いデータが残る問題を防ぐ。
 
   const selectedAsset = createMemo(() => {
+    // 海域フィルターが指定されている場合はそれを最優先にし、海域切替時に正しくマップを切り替える
+    const filterKey = d.mapFilter() || null;
     const selected = selectedSortieRoute();
-    // セルフィルターが設定されているがrouteがない場合(データなしマス)でもmapKeyを維持
-    const key = selected?.mapKey || selectedCellFilter()?.mapKey || d.mapFilter() || null;
+    const key = filterKey || selected?.mapKey || selectedCellFilter()?.mapKey || null;
     return getBattleMapAsset(key);
   });
 
@@ -790,8 +800,10 @@ export default function BattleMapFlowPanel(props: { dashboardState: SharedDashbo
       spots,
       frameMeta?.routeFrames,
       analysis().transitions,
+      mapRoutesByKey()[asset.mapKey],
     );
 
+    const ports = mapPortsByKey()[asset.mapKey] || [];
     // Group spots by label+position so duplicate-coordinate cells share one circle.
     const groupedSpotStats = new Map<
       string,
@@ -803,17 +815,20 @@ export default function BattleMapFlowPanel(props: { dashboardState: SharedDashbo
         cellIds: number[];
         passCount: number;
         battleCount: number;
+        isPort?: boolean;
       }
     >();
     for (const spot of visibleSpots) {
       const label = cellOverlayLabel(spot.cellId, asset.mapKey);
       if (!label || label === "-") continue;
       const key = `${label}:${spot.x}:${spot.y}`;
+      const isPort = Boolean(spot.isPort) || ports.includes(spot.cellId) || spot.cellId === 0;
       const current = groupedSpotStats.get(key);
       if (current) {
         if (!current.cellIds.includes(spot.cellId)) {
           current.cellIds.push(spot.cellId);
         }
+        if (isPort) current.isPort = true;
         current.passCount += spot.stat?.passCount ?? 0;
         current.battleCount += spot.stat?.battleCount ?? 0;
       } else {
@@ -825,6 +840,7 @@ export default function BattleMapFlowPanel(props: { dashboardState: SharedDashbo
           cellIds: [spot.cellId],
           passCount: spot.stat?.passCount ?? 0,
           battleCount: spot.stat?.battleCount ?? 0,
+          isPort,
         });
       }
     }
@@ -843,6 +859,7 @@ export default function BattleMapFlowPanel(props: { dashboardState: SharedDashbo
       currentRouteHasBattle: spot.cellIds.some(
         (cellId) => selectedRouteStateByCellId.get(cellId)?.hasBattle,
       ),
+      ...(spot.isPort ? { isPort: true } : {}),
     }));
 
     const labelAnchors = visibleLabelSpots.map((spot) => ({
@@ -1092,27 +1109,18 @@ export default function BattleMapFlowPanel(props: { dashboardState: SharedDashbo
                     </div>
                   </div>
                   <div class="flex flex-wrap items-center gap-2">
-                    <Show when={selectedCellFilter()}>
-                      {(selected) => (
-                        <button
-                          id="map-flow-clear-filter-btn"
-                          class="fusou-btn-xs-secondary"
-                          onClick={() => setSelectedCellFilter(null)}
-                        >
-                          フィルター解除: {selected().label}
-                        </button>
-                      )}
-                    </Show>
+                    
                   </div>
                 </div>
 
                 {/* SVG canvas — 固定アスペクト比コンテナでサイズ安定化 */}
-                <div style={`aspect-ratio: ${overlay().asset.routeLayoutFrame.width} / ${overlay().asset.routeLayoutFrame.height}; width: 100%;`}>
+                <div style={`aspect-ratio: ${MAP_VIEWBOX_WIDTH} / ${MAP_VIEWBOX_HEIGHT}; width: 100%;`}>
                   <MapSvgCanvas
                     overlay={overlay()}
                     selectedCellFilter={selectedCellFilter}
                     toggleCellFilter={toggleCellFilter}
                     showOfficialMapAssets={showOfficialMapAssets}
+                    theme={resolvedOfficialMapTheme}
                   />
                 </div>
 
@@ -1133,8 +1141,10 @@ export default function BattleMapFlowPanel(props: { dashboardState: SharedDashbo
                       赤の矢印: いま表示中の出撃が進んだ順路
                     </div>
                     <div class="text-xs text-base-content/70">
-                      白丸: 通過のみ / 赤丸: 戦闘が発生 / 黄丸: 港 / 黒枠:
-                      選択中セル
+                      赤丸: 戦闘マス（戦闘実績あり） / 灰丸: 非戦闘マス / 黄丸: 出撃港 / 黒枠: 選択中セル
+                    </div>
+                    <div class="text-xs text-base-content/70">
+                      AB ✕: 基地航空隊（右下数値: 必要行動半径）
                     </div>
                   </div>
                   <Show when={selectedSortieRoute()}>

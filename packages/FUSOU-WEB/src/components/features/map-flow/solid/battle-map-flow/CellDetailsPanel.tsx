@@ -2,26 +2,49 @@
 import { EmptyState } from "@/components/common/solid/EmptyState";
 import { For, Show } from "solid-js";
 import type { SelectedCellDetails } from "./types";
-import { WIN_RANK_BADGES } from "./constants";
+import { WIN_RANK_BADGES, CELL_COLOR_THEMES } from "./constants";
+import { resolveCellType } from "./dataUtils";
 
 type Props = {
   details: SelectedCellDetails;
   displayedSortieRoutesCount: number;
-  onClear: () => void;
+  onClear?: () => void;
 };
 
 export default function CellDetailsPanel(props: Props) {
   const d = () => props.details;
   const hasData = () => d().passCount > 0 || d().routeCount > 0;
+  const cellType = () =>
+    resolveCellType(
+      d().label,
+      d().mapKey,
+      d().battleCount > 0,
+      d().cellIds,
+      d().passCount,
+      d().battleCount,
+    );
+  const theme = () => CELL_COLOR_THEMES[cellType()];
 
   return (
     <div class="rounded-box border border-secondary/30 bg-secondary/5 p-4">
       <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
         <div>
-          <div class="text-sm font-semibold">{d().mapKey} / {d().label} の戦闘と進路</div>
-          <div class="text-xs text-base-content/70">対象セル: {d().label}</div>
+          <div class="flex items-center gap-2">
+            <span class="text-sm font-semibold">{d().mapKey} / {d().label} の戦闘と進路</span>
+            <span
+              class="text-xs px-2 py-0.5 rounded font-medium"
+              style={{
+                background: theme().fill,
+                color: theme().textFill,
+                border: `1px solid ${theme().stroke}`,
+              }}
+            >
+              {theme().label}
+            </span>
+          </div>
+          <div class="text-xs text-base-content/70">対象セル: {d().label}（セルID: {d().cellIds.join(", ")}）</div>
         </div>
-        <button class="fusou-btn-xs-ghost" onClick={props.onClear}>選択解除</button>
+        
       </div>
 
       <Show

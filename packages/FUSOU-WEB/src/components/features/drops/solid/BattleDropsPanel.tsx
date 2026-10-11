@@ -2,15 +2,35 @@
 import { EmptyState } from "@/components/common/solid/EmptyState";
 import { LoadingState } from "@/components/common/solid/LoadingState";
 import { MapAreaGrid } from "@/components/common/solid/MapAreaGrid";
-import { createSignal, createMemo, createEffect, For, Show } from "solid-js";
+import { createSignal, createMemo, createEffect, For, Show, onMount, onCleanup } from "solid-js";
 import type { SharedDashboardState } from "../../battles/solid/types";
 import { getBattleMapAsset, resolveBattleMapSpriteUrl } from "@/data/battleMapAssets";
-import { mapKeyOf, cellLabel as pureCellLabel, parseMapFrameMeta } from "../../map-flow/solid/battle-map-flow/dataUtils";
+import { mapKeyOf, cellLabel as pureCellLabel, parseMapRoutesPayload, resolveCellType } from "../../map-flow/solid/battle-map-flow/dataUtils";
 import { inferRouteOverlays } from "../../map-flow/solid/battle-map-flow/routeInference";
+import {
+  MAP_TRIM_PADDING,
+  MAP_VIEWBOX_WIDTH,
+  MAP_VIEWBOX_HEIGHT,
+  CANDIDATE_ROUTE_STROKE_WIDTH,
+  CANDIDATE_ROUTE_DASH_ARRAY,
+  CANDIDATE_ROUTE_OPACITY,
+  CANDIDATE_ROUTE_COLOR,
+  BASE_CELL_MARKER_RADIUS,
+  SELECTED_CELL_MARKER_RADIUS,
+  CELL_HITBOX_RADIUS,
+  CELL_STROKE_WIDTH,
+  CELL_SELECTED_STROKE_WIDTH,
+  CELL_BADGE_SIZE,
+  CELL_BADGE_RADIUS,
+  CELL_BADGE_FONT_SIZE,
+  LABEL_FONT_SIZE,
+  CELL_COLOR_THEMES,
+  MAP_AIRBASE_DATA,
+} from "../../map-flow/solid/battle-map-flow/constants";
 import { battleResultOf } from "../../map-flow/solid/battle-map-flow/recordParsers";
 import type {
   InferredRouteOverlay,
-  MapImageMetaPayload,
+  CurvedRouteData,
 } from "../../map-flow/solid/battle-map-flow/types";
 
 import { STYPE_NAMES } from "@/features/simulator/constants";
@@ -19,7 +39,7 @@ import {
   resolveMapInfoName,
 } from "@/features/battles/map-labels";
 
-type MapSpot = { cellId: number; x: number; y: number; lineOffsetX?: number; lineOffsetY?: number };
+type MapSpot = { cellId: number; x: number; y: number; isPort?: boolean; lineOffsetX?: number; lineOffsetY?: number };
 type JsonRecord = Record<string, unknown>;
 type MapAreaRecord = { id: string | number; name: string };
 type MapInfoRecord = { maparea_id: string | number; no: string | number; name: string };
@@ -50,13 +70,7 @@ function recordsMatching<T>(payload: unknown, predicate: (value: unknown) => val
   return payload["records"].filter(predicate);
 }
 
-function isMapImageMetaPayload(value: unknown): value is MapImageMetaPayload {
-  if (!isJsonRecord(value)) return false;
-  return (
-    (value["frames"] === undefined || isJsonRecord(value["frames"])) &&
-    (value["meta"] === undefined || isJsonRecord(value["meta"]))
-  );
-}
+
 
 import { ShipDropCard } from "./ShipDropCard";
 
@@ -64,9 +78,36 @@ import { ShipDropCard } from "./ShipDropCard";
 export default function BattleDropsPanel(props: { dashboardState: SharedDashboardState }) {
   const d = props.dashboardState;
 
+  const getDocTheme = (): "light" | "dark" => {
+    if (typeof document === "undefined") return "light";
+    const attr = document.documentElement.getAttribute("data-theme");
+    if (attr === "dark") return "dark";
+    if (attr === "light") return "light";
+    if (typeof window !== "undefined" && window.matchMedia("(prefers-color-scheme: dark)").matches) {
+      return "dark";
+    }
+    return "light";
+  };
+  const [currentTheme, setCurrentTheme] = createSignal<"light" | "dark">(getDocTheme());
+
+  onMount(() => {
+    setCurrentTheme(getDocTheme());
+    const observer = new MutationObserver(() => {
+      setCurrentTheme(getDocTheme());
+    });
+    observer.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ["data-theme"],
+    });
+    onCleanup(() => observer.disconnect());
+  });
+
+  const isDark = () => currentTheme() === "dark";
+
   const [mapSpots, setMapSpots] = createSignal<MapSpot[]>([]);
   const [mapLabels, setMapLabels] = createSignal<Record<number, string>>({});
-  const [mapRouteFrames, setMapRouteFrames] = createSignal<Record<number, { x: number; y: number; width: number; height: number; routeId: number }>>({});
+  const [mapRoutes, setMapRoutes] = createSignal<CurvedRouteData[]>([]);
+  const [mapPorts, setMapPorts] = createSignal<number[]>([]);
   const [selectedCellId, setSelectedCellId] = createSignal<number | null>(null);
   const [mapDataLoading, setMapDataLoading] = createSignal<boolean>(false);
   const [mapDataFailed, setMapDataFailed] = createSignal<boolean>(false);
@@ -113,7 +154,8 @@ export default function BattleDropsPanel(props: { dashboardState: SharedDashboar
     if (!mapKey) {
       setMapSpots([]);
       setMapLabels({});
-      setMapRouteFrames({});
+            setMapRoutes([]);
+      setMapPorts([]);
       setMapDataLoading(false);
       setMapDataFailed(false);
       return;
@@ -122,7 +164,8 @@ export default function BattleDropsPanel(props: { dashboardState: SharedDashboar
     if (!asset) {
       setMapSpots([]);
       setMapLabels({});
-      setMapRouteFrames({});
+            setMapRoutes([]);
+      setMapPorts([]);
       setMapDataLoading(false);
       setMapDataFailed(true);
       return;
@@ -131,15 +174,20 @@ export default function BattleDropsPanel(props: { dashboardState: SharedDashboar
     setMapDataLoading(true);
     setMapDataFailed(false);
 
-    const infoPromise = fetch(asset.infoUrl)
+    const targetUrl = asset.dataUrl || asset.infoUrl;
+    if (!targetUrl) {
+      setMapDataLoading(false);
+      return;
+    }
+    fetch(targetUrl)
       .then((res) => {
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         return res.json();
       })
       .then((payload: unknown) => {
-        const rawSpots = isJsonRecord(payload) && Array.isArray(payload["spots"])
-          ? payload["spots"]
-          : [];
+        if (d.mapFilter() !== mapKey) return;
+        const data = isJsonRecord(payload) ? payload : {};
+        const rawSpots = Array.isArray(data["spots"]) ? data["spots"] : [];
         const spots = rawSpots
           .map((value: unknown) => {
             const s = isJsonRecord(value) ? value : null;
@@ -160,58 +208,36 @@ export default function BattleDropsPanel(props: { dashboardState: SharedDashboar
             } satisfies MapSpot;
           })
           .filter((s: MapSpot | null): s is MapSpot => s !== null);
-        return spots;
-      });
 
-    const metaPromise = fetch(asset.imageMetaUrl)
-      .then((res) => {
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        return res.json();
-      })
-      .then((payload: unknown) => {
-        const meta = parseMapFrameMeta(
-          isMapImageMetaPayload(payload) ? payload : {},
-        );
-        return meta?.routeFrames ?? {};
-      })
-      .catch(() => ({}));
-
-    const labelsPromise = asset.labelsUrl
-      ? fetch(asset.labelsUrl)
-          .then((res) => {
-            if (!res.ok) return {};
-            return res.json();
-          })
-          .then((payload: unknown) => {
-            if (!isJsonRecord(payload)) {
-              return {};
-            }
-            const labels: Record<number, string> = {};
-            for (const [k, v] of Object.entries(payload)) {
-              labels[Number(k)] = String(v);
-            }
-            return labels;
-          })
-          .catch(() => ({}))
-      : Promise.resolve({});
-
-    Promise.all([infoPromise, metaPromise, labelsPromise])
-      .then(([spots, routeFrames, labels]) => {
-        if (d.mapFilter() !== mapKey) return;
-        setMapSpots(spots);
-        setMapRouteFrames(routeFrames);
-        setMapLabels(labels);
-        if (spots.length === 0) {
-          setMapDataFailed(true);
-        } else {
-          setMapDataFailed(false);
+        const labels: Record<number, string> = {};
+        if (isJsonRecord(data["labels"])) {
+          for (const [k, v] of Object.entries(data["labels"])) {
+            labels[Number(k)] = String(v);
+          }
         }
+
+        const rawPorts = Array.isArray(data["ports"])
+          ? (data["ports"] as unknown[]).map((p) => Number(p)).filter(Number.isFinite)
+          : [];
+        const detectedPorts = rawPorts.length > 0
+          ? rawPorts
+          : spots.filter((s) => s.isPort || s.cellId === 0 || typeof s.lineOffsetX !== "number").map((s) => s.cellId);
+        setMapPorts(Array.from(new Set(detectedPorts.length > 0 ? detectedPorts : [0])));
+
+        if (Array.isArray(data["routes"])) {
+          setMapRoutes(parseMapRoutesPayload(data["routes"]));
+        } else {
+          setMapRoutes([]);
+        }
+
+        setMapSpots(spots);
+                setMapLabels(labels);
+        setMapDataFailed(spots.length === 0);
       })
       .catch(() => {
         if (d.mapFilter() !== mapKey) return;
         setMapSpots([]);
-        setMapRouteFrames({});
-        setMapLabels({});
+                setMapLabels({});
         setMapDataFailed(true);
       })
       .finally(() => {
@@ -222,8 +248,37 @@ export default function BattleDropsPanel(props: { dashboardState: SharedDashboar
   });
 
   const getCellLabel = (cellId: number) => {
-    return pureCellLabel(cellId, mapLabels());
+    return pureCellLabel(cellId, mapLabels(), mapPorts());
   };
+  const groupedMapSpots = createMemo(() => {
+    const spots = mapSpots();
+    const ports = mapPorts();
+    const map = new Map<string, { key: string; cellId: number; cellIds: number[]; x: number; y: number; label: string; isPort?: boolean }>();
+    for (const spot of spots) {
+      const label = getCellLabel(spot.cellId);
+      const coordKey = `${spot.x}:${spot.y}`;
+      const isPort = Boolean(spot.isPort) || ports.includes(spot.cellId) || spot.cellId === 0;
+      const existing = map.get(coordKey);
+      if (existing) {
+        if (!existing.cellIds.includes(spot.cellId)) {
+          existing.cellIds.push(spot.cellId);
+        }
+        if (isPort) existing.isPort = true;
+      } else {
+        map.set(coordKey, {
+          key: coordKey,
+          cellId: spot.cellId,
+          cellIds: [spot.cellId],
+          x: spot.x,
+          y: spot.y,
+          label,
+          isPort,
+        });
+      }
+    }
+    return [...map.values()];
+  });
+
 
   const mstShipInfoById = createMemo(() => {
     return new Map(d.mstShips().map((ship) => [ship.id, { name: String(ship.name || ""), stype: Number(ship.stype || 0), backs: Number(ship.backs || 1) }]));
@@ -304,10 +359,9 @@ export default function BattleDropsPanel(props: { dashboardState: SharedDashboar
 
   const inferredRoutes = createMemo((): InferredRouteOverlay[] => {
     const spots = mapSpots();
-    const routeFrames = mapRouteFrames();
-    if (spots.length === 0 || Object.keys(routeFrames).length === 0) return [];
-    // No transition data in drops panel – pass empty array so lines render as "potential routes"
-    return inferRouteOverlays(spots, routeFrames, []);
+    const routes = mapRoutes();
+    if (spots.length === 0) return [];
+    return inferRouteOverlays(spots, undefined, [], routes);
   });
   const resolvedSpriteUrl = createMemo(() => {
     const asset = mapAsset();
@@ -546,23 +600,39 @@ export default function BattleDropsPanel(props: { dashboardState: SharedDashboar
                   <div class="space-y-4">
                     <div class="flex flex-wrap items-center justify-between gap-3 rounded-box bg-base-200 p-3 text-sm">
                       <div class="flex items-center gap-2">
-                        <Show when={selectedCellId() !== null}>
-                          <button
-                            class="fusou-btn-xs-secondary"
-                            onClick={() => setSelectedCellId(null)}
-                          >
-                            選択解除: {getCellLabel(selectedCellId()!)}
-                          </button>
-                        </Show>
+                        
                       </div>
                     </div>
 
-                    <div class="rounded-box overflow-hidden border border-base-300 bg-slate-100 shadow-inner">
+                    <div
+                      class={`rounded-box overflow-hidden border border-base-300 ${isDark() ? "bg-[#18181b]" : "bg-white"} shadow-inner`}
+                      style={`aspect-ratio: ${MAP_VIEWBOX_WIDTH} / ${MAP_VIEWBOX_HEIGHT}; width: 100%;`}
+                    >
                       <svg
-                        viewBox={`0 0 ${asset().routeLayoutFrame.width} ${asset().routeLayoutFrame.height}`}
+                        viewBox={`${MAP_TRIM_PADDING} ${MAP_TRIM_PADDING} ${MAP_VIEWBOX_WIDTH} ${MAP_VIEWBOX_HEIGHT}`}
                         class="w-full h-auto block"
                       >
-                        <rect width="100%" height="100%" fill="#f8fafc" />
+                        <defs>
+                          <marker
+                            id="drops-route-arrow"
+                            markerWidth="18"
+                            markerHeight="16"
+                            refX="6"
+                            refY="8"
+                            orient="auto"
+                            markerUnits="userSpaceOnUse"
+                          >
+                            <path d="M 2 2 L 16 8 L 2 14 L 6 8 Z" fill="#10b981" />
+                          </marker>
+                        </defs>
+                        {/* 海の背景（灰色を完全排除しクリーンな白） */}
+                        <rect
+                          x="0"
+                          y="0"
+                          width={asset().routeLayoutFrame.width}
+                          height={asset().routeLayoutFrame.height}
+                          fill={isDark() ? "#454545" : "#ffffff"}
+                        />
                         <Show when={resolvedSpriteUrl()}>
                           <image
                             href={resolvedSpriteUrl()!}
@@ -612,97 +682,221 @@ export default function BattleDropsPanel(props: { dashboardState: SharedDashboar
                           </g>
                         </Show>
 
-                        {/* Inferred route lines (実線) */}
+                        {/* 公式準拠の破線矢印による進行経路候補（曲線パス対応） */}
                         <For each={inferredRoutes()}>
-                          {(route) => (
-                            <g>
-                              <line
-                                x1={route.renderFromX}
-                                y1={route.renderFromY}
-                                x2={route.renderToX}
-                                y2={route.renderToY}
-                                stroke="#052e2b"
-                                stroke-width="5"
-                                stroke-linecap="round"
-                                opacity="0.28"
-                              />
-                              <line
-                                x1={route.renderFromX}
-                                y1={route.renderFromY}
-                                x2={route.renderToX}
-                                y2={route.renderToY}
-                                stroke="#34d399"
-                                stroke-width="2.5"
-                                stroke-linecap="round"
-                                opacity="0.75"
-                              />
-                            </g>
-                          )}
+                          {(route) => {
+                            const d = () => route.pathD || `M ${route.renderFromX} ${route.renderFromY} L ${route.renderToX} ${route.renderToY}`;
+                            return (
+                              <g>
+                                <path
+                                  d={d()}
+                                  stroke={CANDIDATE_ROUTE_COLOR}
+                                  stroke-width={CANDIDATE_ROUTE_STROKE_WIDTH}
+                                  stroke-dasharray={CANDIDATE_ROUTE_DASH_ARRAY}
+                                  stroke-linecap="round"
+                                  stroke-linejoin="round"
+                                  fill="none"
+                                  opacity={CANDIDATE_ROUTE_OPACITY}
+                                  marker-end={route.isArrow ? "url(#drops-route-arrow)" : undefined}
+                                />
+                              </g>
+                            );
+                          }}
                         </For>
 
-                        <For each={mapSpots()}>
+                        {/* セル円＋インラインラベル（ボスマス外側二重丸・港文字非表示） */}
+                        <For each={groupedMapSpots()}>
                           {(spot) => {
-                            // NOTE: すべてシグナル読み取りを関数でラップしてリアクティブに保つ
-                            const drops = () => mapDropsByCell().get(spot.cellId) || [];
+                            const drops = () => spot.cellIds.flatMap((cid) => mapDropsByCell().get(cid) || []);
                             const hasDrops = () => drops().length > 0;
-                            const totalCount = () => drops().reduce((sum, d) => sum + d.count, 0);
-                            const isSelected = () => selectedCellId() === spot.cellId;
-                            const isHarbor = () => getCellLabel(spot.cellId) === "港";
-                            const r = () => isSelected() ? 18 : 14;
+                            const isSelected = () => spot.cellIds.includes(selectedCellId() ?? -999);
+                            const cellType = () =>
+                              resolveCellType(
+                                spot.label,
+                                d.mapFilter(),
+                                hasDrops(),
+                                spot.cellIds,
+                                undefined,
+                                undefined,
+                                mapPorts(),
+                                spot.isPort,
+                              );
+                            const theme = () => CELL_COLOR_THEMES[cellType()];
+                            const r = () => (isSelected() ? SELECTED_CELL_MARKER_RADIUS : BASE_CELL_MARKER_RADIUS);
 
-                            const fill = () => isHarbor()
-                              ? "#e3c765"
-                              : hasDrops() ? "#fecdd3" : "#f1f5f9";
-                            const stroke = () => isSelected()
-                              ? "#ea580c"
-                              : isHarbor()
-                                ? "#a16207"
-                                : hasDrops() ? "#e11d48" : "#94a3b8";
-                            const textFill = () => isSelected()
-                              ? "#9a3412"
-                              : isHarbor()
-                                ? "#713f12"
-                                : hasDrops() ? "#9f1239" : "#475569";
+                            const fill = () => theme().fill;
+                            const stroke = () => (isSelected() ? "#ea580c" : theme().stroke);
+                            const strokeWidth = () => (isSelected() ? CELL_SELECTED_STROKE_WIDTH : CELL_STROKE_WIDTH);
+                            const textFill = () => (isSelected() ? "#9a3412" : theme().textFill);
 
                             return (
                               <g
                                 class="cursor-pointer"
                                 onClick={() => setSelectedCellId(isSelected() ? null : spot.cellId)}
                               >
-                                {/* クリック領域拡張 */}
-                                <circle cx={spot.x} cy={spot.y} r="22" fill="transparent" />
+                                <title>{`${spot.label}: ${theme().label}`}</title>
+                                  {/* クリック領域拡張 */}
+                                <circle cx={spot.x} cy={spot.y} r={CELL_HITBOX_RADIUS} fill="transparent" />
+                                {/* セル円（ボスマスも通常の戦闘マスと同じ単一円） */}
                                 <circle
                                   cx={spot.x}
                                   cy={spot.y}
                                   r={r()}
                                   fill={fill()}
                                   stroke={stroke()}
-                                  stroke-width={isSelected() ? "3" : "2"}
+                                  stroke-width={strokeWidth()}
                                   class="transition-all"
                                 />
-                                <text
-                                  x={spot.x}
-                                  y={spot.y + 4}
-                                  text-anchor="middle"
-                                  font-size="12"
-                                  font-weight="bold"
-                                  fill={textFill()}
-                                  style={{ "pointer-events": "none" }}
-                                >
-                                  {getCellLabel(spot.cellId)}
-                                </text>
-                                <Show when={hasDrops()}>
-                                  <g transform={`translate(${spot.x + r() - 4}, ${spot.y - r() + 4})`}>
-                                    <rect x="-8" y="-8" width="16" height="16" rx="8" fill="#e11d48" />
-                                    <text x="0" y="3" text-anchor="middle" font-size="9" font-weight="bold" fill="white">
-                                      {totalCount()}
+                                {/* セルラベル（港マスも含めて表示し、複数港も識別可能に） */}
+{(() => {
+                                  const displayLabel = () => {
+                                    const lbl = getCellLabel(spot.cellId);
+                                    if (cellType() === "port" || spot.isPort || lbl.includes("港")) {
+                                      const m = lbl.match(/\d+/);
+                                      return m ? m[0] : "1";
+                                    }
+                                    return lbl;
+                                  };
+                                  return (
+                                    <text
+                                      x={spot.x}
+                                      y={spot.y + 4}
+                                      text-anchor="middle"
+                                      font-size={displayLabel().length > 2 ? "10" : LABEL_FONT_SIZE}
+                                      font-weight="bold"
+                                      fill={textFill()}
+                                      style={{ "pointer-events": "none" }}
+                                    >
+                                      {displayLabel()}
                                     </text>
-                                  </g>
-                                </Show>
+                                  );
+                                })()}
                               </g>
                             );
                           }}
                         </For>
+
+                        {/* ドロップ件数バッジ（最前面レイヤー：以前のドロップ画面のシンプルで美しい円形バッジに統一） */}
+                        <For each={groupedMapSpots()}>
+                          {(spot) => {
+                            const drops = () => spot.cellIds.flatMap((cid) => mapDropsByCell().get(cid) || []);
+                            const totalCount = () => drops().reduce((sum, d) => sum + d.count, 0);
+                            const isSelected = () => spot.cellIds.includes(selectedCellId() ?? -999);
+                            const cellType = () =>
+                              resolveCellType(
+                                spot.label,
+                                d.mapFilter(),
+                                totalCount() > 0,
+                                spot.cellIds,
+                                undefined,
+                                undefined,
+                                mapPorts(),
+                                spot.isPort,
+                              );
+                            const r = () => (isSelected() ? SELECTED_CELL_MARKER_RADIUS : BASE_CELL_MARKER_RADIUS);
+
+                            return (
+                              <Show when={totalCount() > 0 && cellType() !== "port"}>
+                                <g
+                                  transform={`translate(${spot.x + r() - 4}, ${spot.y - r() + 4})`}
+                                  style={{ "pointer-events": "none" }}
+                                >
+                                  <rect
+                                    x={-CELL_BADGE_RADIUS}
+                                    y={-CELL_BADGE_RADIUS}
+                                    width={CELL_BADGE_SIZE}
+                                    height={CELL_BADGE_SIZE}
+                                    rx={CELL_BADGE_RADIUS}
+                                    fill="#e11d48"
+                                  />
+                                  <text
+                                    x="0"
+                                    y="3"
+                                    text-anchor="middle"
+                                    font-size={CELL_BADGE_FONT_SIZE}
+                                    font-weight="bold"
+                                    fill="white"
+                                  >
+                                    {totalCount()}
+                                  </text>
+                                </g>
+                              </Show>
+                            );
+                          }}
+                        </For>
+                        {/* 基地航空隊：航空基地マーカー（✕印） */}
+                        <Show when={MAP_AIRBASE_DATA[d.mapFilter()]}>
+                          <For each={MAP_AIRBASE_DATA[d.mapFilter()]!.bases}>
+                            {(base) => (
+                              <g
+                                transform={`translate(${base.x}, ${base.y})`}
+                                style={{ "pointer-events": "none" }}
+                              >
+                                {/* 公式表記 "AB"（丸で囲わない） */}
+                                <text
+                                  x="0"
+                                  y="-2"
+                                  text-anchor="middle"
+                                  font-size="13"
+                                  font-weight="900"
+                                  fill={isDark() ? "#f8fafc" : "#0f172a"}
+                                  stroke={isDark() ? "#18181b" : "#ffffff"}
+                                  stroke-width="2.5"
+                                  paint-order="stroke"
+                                  letter-spacing="0.5"
+                                >
+                                  AB
+                                </text>
+                                {/* その下の灰色のバツ印（✕） */}
+                                <g stroke="#94a3b8" stroke-width="2.4" stroke-linecap="round">
+                                  <line x1="-5.5" y1="4" x2="5.5" y2="15" />
+                                  <line x1="-5.5" y1="15" x2="5.5" y2="4" />
+                                </g>
+                              </g>
+                            )}
+                          </For>
+                        </Show>
+
+                        {/* 各セルの右下：航空基地の届く距離（戦闘行動半径） */}
+                        <Show when={MAP_AIRBASE_DATA[d.mapFilter()]}>
+                          <For each={groupedMapSpots()}>
+                            {(spot) => {
+                              const distance = () =>
+                                MAP_AIRBASE_DATA[d.mapFilter()]?.distances[spot.label];
+                              const isSelected = () => spot.cellIds.includes(selectedCellId() ?? -999);
+                              const r = () => (isSelected() ? SELECTED_CELL_MARKER_RADIUS : BASE_CELL_MARKER_RADIUS);
+
+                              return (
+                                <Show when={distance() !== undefined}>
+                                  <g
+                                    transform={`translate(${spot.x + r() - 3}, ${spot.y + r() - 1})`}
+                                    style={{ "pointer-events": "none" }}
+                                  >
+                                    <rect
+                                      x="-7"
+                                      y="-6"
+                                      width="14"
+                                      height="12"
+                                      rx="3"
+                                      fill="#0f172a"
+                                      opacity="0.85"
+                                    />
+                                    <text
+                                      x="0"
+                                      y="3"
+                                      text-anchor="middle"
+                                      font-size="8.5"
+                                      font-weight="bold"
+                                      fill="#38bdf8"
+                                    >
+                                      {distance()}
+                                    </text>
+                                  </g>
+                                </Show>
+                              );
+                            }}
+                          </For>
+                        </Show>
                       </svg>
                     </div>
                   </div>

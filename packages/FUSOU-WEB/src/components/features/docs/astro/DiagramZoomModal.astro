@@ -121,7 +121,7 @@
     }
 
     function openModal(svgElement) {
-      content.innerHTML = '';
+      content.replaceChildren();
 
       // 1. Calculate intrinsic dimensions
       let origW = 0;
@@ -192,7 +192,7 @@
     }
 
     modal.addEventListener('close', () => {
-      content.innerHTML = '';
+      content.replaceChildren();
       scale = 1;
       translateX = 0;
       translateY = 0;

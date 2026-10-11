@@ -546,15 +546,17 @@ export default function BattleDetailPanel(props: {
 
     const mapKey = `${mapAreaId}-${mapInfoNo}`;
     const asset = getBattleMapAsset(mapKey);
-    if (!asset?.labelsUrl) return alphaCellLabel(rawCellId);
+    const targetUrl = asset?.dataUrl || asset?.labelsUrl;
+    if (!targetUrl) return alphaCellLabel(rawCellId);
 
     try {
-      const response = await fetch(asset.labelsUrl);
+      const response = await fetch(targetUrl);
       if (!response.ok) return alphaCellLabel(rawCellId);
       const payload = await response.json();
       const payloadRecord = jsonRecordOf(payload);
       if (!payloadRecord) return alphaCellLabel(rawCellId);
-      const label = payloadRecord[String(rawCellId)];
+      const labelsRecord = jsonRecordOf(payloadRecord["labels"]) ?? payloadRecord;
+      const label = labelsRecord[String(rawCellId)];
       return typeof label === "string" && label
         ? label
         : alphaCellLabel(rawCellId);
