@@ -3,7 +3,7 @@
  * upload-synergy.mjs
  *
  * End-to-end workflow for publishing synergy data (sp_effect_item.json):
- *   1. Reads equip_synergy_detector output (slot_item_effects.json)
+ *   1. Reads kcs-script-tools output (slot_item_effects.json)
  *   2. Computes SHA-256 of the file
  *   3. Calls POST /api/master-data/synergy-manifest to allocate a manifest entry
  *   4. Uploads the JSON to R2 at the returned r2_keys
@@ -16,7 +16,7 @@
  *
  * Full usage:
  *   node scripts/upload-synergy.mjs \
- *     [--file ../equip_synergy_detector/output/slot_item_effects.json] \
+ *     [--file ../kcs-script-tools/output/slot_item_effects.json] \
  *     [--period-tag 2026-04-12] \
  *     [--api-start2-hash <64-char SHA-256>] \
  *     [--bucket-name dev-kc-master-data] \
@@ -25,7 +25,7 @@
  *
  * Options (all optional if env vars set and scan.js embedded hashes):
  *   --file              Path to slot_item_effects.json
- *                       Default: ../../equip_synergy_detector/output/slot_item_effects.json
+ *                       Default: ../../kcs-script-tools/output/slot_item_effects.json
  *   --period-tag        YYYY-MM-DD. Default: today's date
  *   --api-start2-hash   64-char SHA-256. Default: _meta.api_start2_batch_hash from file
  *   --bucket-name       Actual R2 bucket name (NOT binding name).
@@ -50,9 +50,9 @@ import { brotliCompressSync, constants as zlibConstants } from "zlib";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 import { readdirSync, statSync } from "fs";
 
-// Default file: equip_synergy_detector output lives next to FUSOU-WEB in the monorepo
+// Default file: kcs-script-tools output lives next to FUSOU-WEB in the monorepo
 function findDefaultFile(periodTag = null) {
-  const dir = resolve(__dirname, "../../equip_synergy_detector/output");
+  const dir = resolve(__dirname, "../../kcs-script-tools/output");
   if (!existsSync(dir)) return null;
 
   if (periodTag) {
@@ -142,7 +142,7 @@ All options have smart defaults — running without args works if env vars are s
   export MASTER_DATA_BUCKET_NAME=dev-kc-master-data
 
 Options:
-  --file <path>           slot_item_effects.json (default: equip_synergy_detector/output/)
+  --file <path>           slot_item_effects.json (default: kcs-script-tools/output/)
   --period-tag <YYYY-MM-DD>  Default: today's date
   --api-start2-hash <hex>    Default: embedded in file by scan.js
   --bucket-name <name>    Actual R2 bucket name. Default: MASTER_DATA_BUCKET_NAME env
@@ -349,7 +349,7 @@ async function main() {
   if (!filePath) {
     filePath = findDefaultFile(opts.periodTag || null);
     if (!filePath) {
-      console.error("Error: Could not automatically find the latest slot_item_effects_YYYY-MM-DD.json in equip_synergy_detector/output.");
+      console.error("Error: Could not automatically find the latest slot_item_effects_YYYY-MM-DD.json in kcs-script-tools/output.");
       process.exit(1);
     }
   }
@@ -357,7 +357,7 @@ async function main() {
   if (!existsSync(filePath)) {
     console.error(`Error: File not found: ${filePath}`);
     console.error(
-      "  Run `pnpm scan:volatile` in equip_synergy_detector first, or pass --file <path>",
+      "  Run `pnpm scan:volatile` in kcs-script-tools first, or pass --file <path>",
     );
     process.exit(1);
   }

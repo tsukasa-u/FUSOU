@@ -338,3 +338,31 @@ pnpm run upload:remote
 
 - `webcrack is not installed`
   - `pnpm install` を実行して依存関係をインストールしてください。
+
+## マップ比較・輪郭マスク編集ツール (GUI Tools)
+
+海域マップ画像の輪郭マスク編集および抽出結果の比較を行うためのローカル Web ツールです。
+
+### 1. ツールの起動方法
+
+`packages/kcs-script-tools` ディレクトリにて、以下のいずれかのコマンドでサーバーを起動します（ポート `8085` で起動）:
+
+```bash
+# pnpm スクリプトから起動
+pnpm run tools:server
+
+# または Python で直接起動
+python scripts/mask_server.py
+```
+
+### 2. ブラウザからのアクセス
+
+サーバー起動後、ブラウザで以下の URL を開きます:
+
+- **マップ比較ツール**:
+  `http://localhost:8085/map-compare.html`
+  - 元画像（`_orig.png`）と抽出された陸地マスク・海図画像を重ね合わせて視覚的に比較・確認できます。
+
+- **輪郭マスク編集ツール**:
+  `http://localhost:8085/map-mask-editor.html`
+  - 各海域の島・陸地の輪郭（`land_mask.png`）を手動描画および閾値調整で直接編集・保存できます。

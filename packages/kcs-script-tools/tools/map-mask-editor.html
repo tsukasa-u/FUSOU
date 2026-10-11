@@ -1,0 +1,735 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <title>海図ランドマスクエディタ (Map Mask Editor) - FUSOU</title>
+  <style>
+    :root {
+      --bg: #141721;
+      --panel: #1e2230;
+      --panel-border: #2e354b;
+      --text: #e1e4ea;
+      --text-muted: #8b92a5;
+      --accent: #4f80ff;
+      --accent-hover: #6b95ff;
+      --danger: #ff4757;
+      --success: #2ed573;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      overflow: hidden;
+    }
+    header {
+      background: var(--panel);
+      border-bottom: 1px solid var(--panel-border);
+      padding: 8px 16px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      height: 52px;
+      flex-shrink: 0;
+    }
+    .header-left {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+    h1 {
+      font-size: 16px;
+      font-weight: 600;
+      color: #fff;
+    }
+    .select-wrap select {
+      background: #0f1118;
+      color: #fff;
+      border: 1px solid var(--panel-border);
+      padding: 6px 12px;
+      border-radius: 4px;
+      font-size: 13px;
+    }
+    .toolbar {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .btn-group {
+      display: flex;
+      background: #0f1118;
+      border: 1px solid var(--panel-border);
+      border-radius: 4px;
+      overflow: hidden;
+    }
+    button, .btn {
+      background: #252b3d;
+      color: var(--text);
+      border: 1px solid var(--panel-border);
+      padding: 6px 12px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 13px;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      transition: all 0.15s;
+    }
+    .btn-group button {
+      border: none;
+      border-radius: 0;
+      background: transparent;
+      padding: 6px 14px;
+    }
+    .btn-group button.active {
+      background: var(--accent);
+      color: #fff;
+      font-weight: 600;
+    }
+    button:hover { background: #323a52; color: #fff; }
+    .btn-group button:hover:not(.active) { background: #1f2536; }
+    button.btn-primary {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: #fff;
+      font-weight: 600;
+    }
+    button.btn-primary:hover { background: var(--accent-hover); }
+    button.btn-danger {
+      background: rgba(255, 71, 87, 0.15);
+      border-color: var(--danger);
+      color: var(--danger);
+    }
+    button.btn-danger:hover { background: var(--danger); color: #fff; }
+    .control-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 12px;
+      color: var(--text-muted);
+    }
+    .control-item input[type="range"] {
+      width: 80px;
+    }
+    main {
+      flex: 1;
+      display: flex;
+      position: relative;
+      overflow: hidden;
+    }
+    #viewport {
+      flex: 1;
+      position: relative;
+      background: #0a0c10;
+      overflow: hidden;
+      cursor: crosshair;
+    }
+    #canvasContainer {
+      position: absolute;
+      transform-origin: 0 0;
+      box-shadow: 0 4px 24px rgba(0,0,0,0.6);
+    }
+    canvas {
+      position: absolute;
+      top: 0;
+      left: 0;
+    }
+    #sidebar {
+      width: 260px;
+      background: var(--panel);
+      border-left: 1px solid var(--panel-border);
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      font-size: 13px;
+      overflow-y: auto;
+    }
+    .sidebar-section {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .sidebar-title {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: var(--text-muted);
+      font-weight: 700;
+    }
+    .key-hint {
+      background: #0f1118;
+      border: 1px solid var(--panel-border);
+      padding: 3px 6px;
+      border-radius: 3px;
+      font-size: 11px;
+      font-family: monospace;
+      color: #9ab;
+    }
+    .status-bar {
+      position: absolute;
+      bottom: 12px;
+      left: 12px;
+      background: rgba(15, 17, 24, 0.85);
+      backdrop-filter: blur(4px);
+      padding: 6px 12px;
+      border-radius: 4px;
+      font-size: 12px;
+      color: #cbd5e1;
+      border: 1px solid var(--panel-border);
+      pointer-events: none;
+      z-index: 100;
+    }
+  </style>
+</head>
+<body>
+
+<div id="fileProtocolNotice" style="display:none; position:fixed; top:0; left:0; width:100%; background:#ef4444; color:#ffffff; padding:12px 20px; z-index:99999; box-shadow:0 4px 12px rgba(0,0,0,0.3); font-family:sans-serif; font-size:14px; line-height:1.5;">
+  <strong>⚠️ ローカルファイル（file://）から直接開かれています</strong><br>
+  ブラウザのセキュリティ制限（CORS）によりデータが直接読み込めません。<br>
+  ローカルサーバー（mask_server）を起動し、以下のリンクから開いてください：<br>
+  <a id="serverLink" href="http://localhost:8085/" style="color:#fef08a; font-weight:bold; font-size:15px; text-decoration:underline;">👉 http://localhost:8085/ で開く</a>
+</div>
+<script>
+  if (location.protocol === 'file:') {
+    window.addEventListener('DOMContentLoaded', () => {
+      const notice = document.getElementById('fileProtocolNotice');
+      const link = document.getElementById('serverLink');
+      if (notice) {
+        notice.style.display = 'block';
+        const pageName = location.pathname.split('/').pop() || '';
+        link.href = 'http://localhost:8085/' + pageName;
+        link.textContent = '👉 http://localhost:8085/' + pageName + ' で開く';
+      }
+    });
+  }
+</script>
+
+  <header>
+    <div class="header-left">
+      <h1>海図ランドマスクエディタ</h1>
+      <div class="select-wrap">
+        <select id="mapSelect" onchange="loadMap(this.value)">
+          <option value="3-5" selected>北方AL海域 (3-5)</option>
+          <option value="6-4">KW環礁沖海域 (6-4)</option>
+          <option value="6-3">K作戦 (6-3)</option>
+          <option value="1-1">鎮守府正面海域 (1-1)</option>
+          <option value="2-5">沖ノ島沖 (2-5)</option>
+          <option value="5-6">タウイタウイ (5-6)</option>
+        </select>
+      </div>
+
+      <div class="btn-group">
+        <button id="toolPolygon" class="active" onclick="setTool('polygon')">多角形ペン</button>
+        <button id="toolBrush" onclick="setTool('brush')">ブラシ</button>
+        <button id="toolEraser" onclick="setTool('eraser')">消しゴム</button>
+        <button id="toolLasso" onclick="setTool('lasso')">なぞり (投げ縄)</button>
+      </div>
+
+      <div class="control-item" id="brushSizeControl" style="display:none;">
+        <span>太さ:</span>
+        <input type="range" id="brushSize" min="2" max="60" value="16" oninput="updateBrushSize(this.value)">
+        <span id="brushSizeVal">16px</span>
+      </div>
+    </div>
+
+    <div class="toolbar">
+      <button onclick="undo()" title="Ctrl+Z">元に戻す</button>
+      <button onclick="redo()" title="Ctrl+Y">やり直す</button>
+      <button onclick="loadExistingMask()" title="現在抽出されているマスクを下書きとして読み込みます">下書き読込</button>
+      <button class="btn-danger" onclick="clearMask()">全消去</button>
+      <button class="btn" style="background:#2ed573; border-color:#2ed573; color:#000; font-weight:700;" onclick="saveDirectToServer()">プロジェクトに直接保存</button>
+      <button class="btn-primary" onclick="downloadMask()">PNGダウンロード</button>
+    </div>
+  </header>
+
+  <main>
+    <div id="viewport" onwheel="onWheel(event)" onmousedown="onMouseDown(event)" onmousemove="onMouseMove(event)" onmouseup="onMouseUp(event)" oncontextmenu="event.preventDefault()">
+      <div id="canvasContainer">
+        <!-- 1. 背景海図画像 -->
+        <canvas id="bgCanvas" width="1200" height="720"></canvas>
+        <!-- 2. ユーザーが描くマスク画像 -->
+        <canvas id="maskCanvas" width="1200" height="720"></canvas>
+        <!-- 3. 作業中のガイド・頂点・輪郭線 -->
+        <canvas id="guideCanvas" width="1200" height="720"></canvas>
+      </div>
+      <div class="status-bar" id="statusBar">座標: (0, 0) | ズーム: 100% | ツール: 多角形ペン (クリックで頂点追加, Enterまたは始点クリックで確定)</div>
+    </div>
+
+    <div id="sidebar">
+      <div class="sidebar-section">
+        <div class="sidebar-title">表示コントロール</div>
+        <div class="control-item" style="justify-content: space-between;">
+          <span>背景海図の濃さ:</span>
+          <input type="range" id="bgOpacity" min="0" max="100" value="100" oninput="setBgOpacity(this.value)">
+        </div>
+        <div class="control-item" style="justify-content: space-between;">
+          <span>マスクの濃さ:</span>
+          <input type="range" id="maskOpacity" min="10" max="100" value="65" oninput="setMaskOpacity(this.value)">
+        </div>
+        <label class="control-item" style="margin-top: 4px;">
+          <input type="checkbox" id="showSpots" checked onchange="toggleSpots(this.checked)">
+          <span>マス/スポット位置を表示</span>
+        </label>
+        <label class="control-item">
+          <input type="checkbox" id="previewTheme" onchange="toggleThemePreview(this.checked)">
+          <span>完成ダークテーマ海図としてプレビュー</span>
+        </label>
+      </div>
+
+      <div class="sidebar-section">
+        <div class="sidebar-title">操作ヘルプ</div>
+        <p style="color:var(--text-muted); font-size:12px; line-height: 1.6;">
+          ・<span class="key-hint">ホイール</span> : ズームイン / アウト<br>
+          ・<span class="key-hint">Space + ドラッグ</span> または <span class="key-hint">中ボタンドラッグ</span> : 画面移動 (パン)<br>
+          ・<span class="key-hint">Ctrl + Z</span> : 直前の描画を取り消し<br>
+          ・<span class="key-hint">Enter</span> / <span class="key-hint">ダブルクリック</span> : 多角形を閉じて塗りつぶし
+        </p>
+      </div>
+
+      <div class="sidebar-section">
+        <div class="sidebar-title">使い方ガイド</div>
+        <p style="color:#a0aec0; font-size:12px; line-height: 1.5;">
+          1. 画面上の島（アッツ・キスカ等）をペンツールやブラシでなぞって描きます。<br>
+          2. <span class="key-hint">下書き読込</span> を押すと、既存の抽出結果が読み込まれ、消しゴムで削る作業から始められます。<br>
+          3. 完了したら右上の <span class="key-hint">マスクPNG保存</span> を押し、ダウンロードしたファイルをプロジェクトの <code style="color:#789; font-size:11px;">src/assets/map/3-5/land_mask.png</code> に配置するだけで反映完了です！
+        </p>
+      </div>
+    </div>
+  </main>
+
+  <script>
+    let currentMap = "3-5";
+    let currentTool = "polygon";
+    let brushSize = 16;
+    let zoom = 1.0;
+    let panX = 40;
+    let panY = 40;
+    let isPanning = false;
+    let panStartX = 0, panStartY = 0;
+    let isDrawing = false;
+    let polygonPoints = [];
+    let spotsData = [];
+
+    const bgCanvas = document.getElementById("bgCanvas");
+    const maskCanvas = document.getElementById("maskCanvas");
+    const guideCanvas = document.getElementById("guideCanvas");
+    const bgCtx = bgCanvas.getContext("2d");
+    const maskCtx = maskCanvas.getContext("2d");
+    const guideCtx = guideCanvas.getContext("2d");
+    const container = document.getElementById("canvasContainer");
+
+    const historyStack = [];
+    const redoStack = [];
+
+    function saveState() {
+      historyStack.push(maskCtx.getImageData(0, 0, 1200, 720));
+      if (historyStack.length > 30) historyStack.shift();
+      redoStack.length = 0;
+    }
+
+    function undo() {
+      if (historyStack.length > 0) {
+        redoStack.push(maskCtx.getImageData(0, 0, 1200, 720));
+        const state = historyStack.pop();
+        maskCtx.putImageData(state, 0, 0);
+        renderGuides();
+      }
+    }
+
+    function redo() {
+      if (redoStack.length > 0) {
+        historyStack.push(maskCtx.getImageData(0, 0, 1200, 720));
+        const state = redoStack.pop();
+        maskCtx.putImageData(state, 0, 0);
+        renderGuides();
+      }
+    }
+
+    function updateTransform() {
+      container.style.transform = `translate(${panX}px, ${panY}px) scale(${zoom})`;
+      document.getElementById("statusBar").textContent = `ズーム: ${Math.round(zoom * 100)}% | ツール: ${currentTool}`;
+    }
+
+    const bgImg = new Image();
+    bgImg.onload = () => {
+      bgCtx.clearRect(0, 0, 1200, 720);
+      bgCtx.drawImage(bgImg, 0, 0, 1200, 720);
+      renderGuides();
+    };
+
+    let labelsData = {};
+
+    function getAssetPaths(mapId) {
+      const isHttp = location.protocol.startsWith("http");
+      const pubBase = isHttp ? "/battle-maps" : "../../FUSOU-WEB/public/battle-maps";
+      const srcBase = isHttp ? "/src/assets/map" : "../../FUSOU-WEB/src/assets/map";
+      return {
+        origImg: `${srcBase}/${mapId}/${mapId}_orig.png`,
+        fallbackImg: `${pubBase}/${mapId}/${mapId}_map.png`,
+        dataJson: `${pubBase}/${mapId}/data.json`,
+        landMask: `${srcBase}/${mapId}/land_mask.png`
+      };
+    }
+
+    function loadMap(mapId) {
+      currentMap = mapId;
+      polygonPoints = [];
+      historyStack.length = 0;
+      redoStack.length = 0;
+      maskCtx.clearRect(0, 0, 1200, 720);
+
+      const paths = getAssetPaths(mapId);
+      bgImg.onerror = () => {
+        bgImg.onerror = null;
+        bgImg.src = paths.fallbackImg + "?t=" + Date.now();
+      };
+      bgImg.src = paths.origImg + "?t=" + Date.now();
+
+      fetch(paths.dataJson)
+        .then(r => r.json())
+        .then(data => {
+          spotsData = data.spots || [];
+          labelsData = data.labels || {};
+          renderGuides();
+        })
+        .catch(() => {
+          spotsData = [];
+          labelsData = {};
+          renderGuides();
+        });
+    }
+
+    function setTool(tool) {
+      currentTool = tool;
+      document.querySelectorAll(".btn-group button").forEach(b => b.classList.remove("active"));
+      const btn = document.getElementById("tool" + tool.charAt(0).toUpperCase() + tool.slice(1));
+      if (btn) btn.classList.add("active");
+      document.getElementById("brushSizeControl").style.display = (tool === "brush" || tool === "eraser") ? "flex" : "none";
+      if (tool !== "polygon") {
+        polygonPoints = [];
+        renderGuides();
+      }
+    }
+
+    function updateBrushSize(val) {
+      brushSize = parseInt(val, 10);
+      document.getElementById("brushSizeVal").textContent = val + "px";
+    }
+
+    function setBgOpacity(val) {
+      bgCanvas.style.opacity = val / 100;
+    }
+
+    function setMaskOpacity(val) {
+      maskCanvas.style.opacity = val / 100;
+    }
+
+    function toggleSpots(show) {
+      renderGuides();
+    }
+
+    function toggleThemePreview(preview) {
+      if (preview) {
+        bgCanvas.style.display = "none";
+        guideCanvas.style.display = "none";
+        // ダークテーマ海図としてのプレビュー
+        container.style.background = "#454545";
+        maskCanvas.style.opacity = "1";
+      } else {
+        bgCanvas.style.display = "block";
+        guideCanvas.style.display = "block";
+        container.style.background = "transparent";
+        maskCanvas.style.opacity = document.getElementById("maskOpacity").value / 100;
+      }
+    }
+
+    function onWheel(e) {
+      e.preventDefault();
+      const rect = container.getBoundingClientRect();
+      const mouseX = e.clientX - rect.left;
+      const mouseY = e.clientY - rect.top;
+
+      const factor = e.deltaY < 0 ? 1.15 : 0.85;
+      const newZoom = Math.min(Math.max(zoom * factor, 0.4), 8.0);
+
+      panX -= (mouseX / zoom) * (newZoom - zoom);
+      panY -= (mouseY / zoom) * (newZoom - zoom);
+      zoom = newZoom;
+      updateTransform();
+    }
+
+    function getCanvasCoords(e) {
+      const rect = container.getBoundingClientRect();
+      const x = Math.round((e.clientX - rect.left) / zoom);
+      const y = Math.round((e.clientY - rect.top) / zoom);
+      return { x: Math.max(0, Math.min(1200, x)), y: Math.max(0, Math.min(720, y)) };
+    }
+
+    let isSpaceDown = false;
+    window.addEventListener("keydown", e => {
+      if (e.code === "Space") { isSpaceDown = true; document.getElementById("viewport").style.cursor = "grab"; }
+      if (e.ctrlKey && e.key === "z") { e.preventDefault(); undo(); }
+      if (e.ctrlKey && (e.key === "y" || (e.shiftKey && e.key === "Z"))) { e.preventDefault(); redo(); }
+      if (e.key === "Enter" && currentTool === "polygon" && polygonPoints.length >= 3) {
+        finishPolygon();
+      }
+    });
+    window.addEventListener("keyup", e => {
+      if (e.code === "Space") { isSpaceDown = false; document.getElementById("viewport").style.cursor = "crosshair"; }
+    });
+
+    function onMouseDown(e) {
+      if (isSpaceDown || e.button === 1) {
+        isPanning = true;
+        panStartX = e.clientX - panX;
+        panStartY = e.clientY - panY;
+        return;
+      }
+
+      const p = getCanvasCoords(e);
+      if (currentTool === "polygon") {
+        if (polygonPoints.length >= 3) {
+          const first = polygonPoints[0];
+          const dist = Math.hypot(p.x - first.x, p.y - first.y);
+          if (dist < 12) {
+            finishPolygon();
+            return;
+          }
+        }
+        polygonPoints.push(p);
+        renderGuides();
+      } else if (currentTool === "brush" || currentTool === "eraser") {
+        saveState();
+        isDrawing = true;
+        drawBrush(p.x, p.y, true);
+      } else if (currentTool === "lasso") {
+        saveState();
+        isDrawing = true;
+        polygonPoints = [p];
+      }
+    }
+
+    function onMouseMove(e) {
+      if (isPanning) {
+        panX = e.clientX - panStartX;
+        panY = e.clientY - panStartY;
+        updateTransform();
+        return;
+      }
+
+      const p = getCanvasCoords(e);
+      document.getElementById("statusBar").textContent = `座標: (${p.x}, ${p.y}) | ズーム: ${Math.round(zoom * 100)}% | ツール: ${currentTool}`;
+
+      if (isDrawing && (currentTool === "brush" || currentTool === "eraser")) {
+        drawBrush(p.x, p.y, false);
+      } else if (isDrawing && currentTool === "lasso") {
+        polygonPoints.push(p);
+        renderGuides();
+      } else if (currentTool === "polygon") {
+        renderGuides(p);
+      }
+    }
+
+    function onMouseUp(e) {
+      if (isPanning) { isPanning = false; return; }
+      if (isDrawing && (currentTool === "brush" || currentTool === "eraser")) {
+        isDrawing = false;
+        maskCtx.beginPath();
+      } else if (isDrawing && currentTool === "lasso") {
+        isDrawing = false;
+        if (polygonPoints.length >= 3) {
+          finishPolygon();
+        }
+        polygonPoints = [];
+      }
+    }
+
+    function drawBrush(x, y, isStart) {
+      maskCtx.lineCap = "round";
+      maskCtx.lineJoin = "round";
+      maskCtx.lineWidth = brushSize;
+
+      if (currentTool === "eraser") {
+        maskCtx.globalCompositeOperation = "destination-out";
+      } else {
+        maskCtx.globalCompositeOperation = "source-over";
+        maskCtx.fillStyle = "#7A905F";
+        maskCtx.strokeStyle = "#7A905F";
+      }
+
+      if (isStart) {
+        maskCtx.beginPath();
+        maskCtx.arc(x, y, brushSize / 2, 0, Math.PI * 2);
+        maskCtx.fill();
+        maskCtx.beginPath();
+        maskCtx.moveTo(x, y);
+      } else {
+        maskCtx.lineTo(x, y);
+        maskCtx.stroke();
+      }
+    }
+
+    function finishPolygon() {
+      saveState();
+      maskCtx.globalCompositeOperation = "source-over";
+      maskCtx.fillStyle = "#7A905F";
+      maskCtx.beginPath();
+      maskCtx.moveTo(polygonPoints[0].x, polygonPoints[0].y);
+      for (let i = 1; i < polygonPoints.length; i++) {
+        maskCtx.lineTo(polygonPoints[i].x, polygonPoints[i].y);
+      }
+      maskCtx.closePath();
+      maskCtx.fill();
+      polygonPoints = [];
+      renderGuides();
+    }
+
+    function renderGuides(cursorPos) {
+      guideCtx.clearRect(0, 0, 1200, 720);
+
+      // マス・スポット表示
+      if (document.getElementById("showSpots").checked && spotsData.length > 0) {
+        spotsData.forEach(s => {
+          guideCtx.beginPath();
+          guideCtx.arc(s.x, s.y, 6, 0, Math.PI * 2);
+          guideCtx.fillStyle = "rgba(255, 71, 87, 0.8)";
+          guideCtx.fill();
+          guideCtx.strokeStyle = "#fff";
+          guideCtx.lineWidth = 1.5;
+          guideCtx.stroke();
+          guideCtx.fillStyle = "#fff";
+          guideCtx.font = "10px sans-serif";
+          const spotLabel = (labelsData && labelsData[String(s.no)]) ? `${labelsData[String(s.no)]} (${s.no})` : (s.no != null ? String(s.no) : "");
+          guideCtx.fillText(spotLabel, s.x + 8, s.y + 4);
+        });
+      }
+
+      // 多角形ペンツールのガイド描画
+      if (polygonPoints.length > 0) {
+        guideCtx.beginPath();
+        guideCtx.moveTo(polygonPoints[0].x, polygonPoints[0].y);
+        for (let i = 1; i < polygonPoints.length; i++) {
+          guideCtx.lineTo(polygonPoints[i].x, polygonPoints[i].y);
+        }
+        if (cursorPos && currentTool === "polygon") {
+          guideCtx.lineTo(cursorPos.x, cursorPos.y);
+        }
+        guideCtx.strokeStyle = "#4f80ff";
+        guideCtx.lineWidth = 2;
+        guideCtx.stroke();
+
+        // 頂点ハンドル
+        polygonPoints.forEach((pt, idx) => {
+          guideCtx.beginPath();
+          guideCtx.arc(pt.x, pt.y, idx === 0 ? 6 : 4, 0, Math.PI * 2);
+          guideCtx.fillStyle = idx === 0 ? "#2ed573" : "#fff";
+          guideCtx.fill();
+          guideCtx.strokeStyle = "#000";
+          guideCtx.lineWidth = 1.5;
+          guideCtx.stroke();
+        });
+      }
+    }
+
+    function loadExistingMask() {
+      const img = new Image();
+      img.onload = () => {
+        saveState();
+        maskCtx.clearRect(0, 0, 1200, 720);
+        maskCtx.drawImage(img, 0, 0, 1200, 720);
+      };
+      const paths = getAssetPaths(currentMap);
+      img.src = paths.landMask + "?t=" + Date.now();
+    }
+
+    function clearMask() {
+      if (confirm("描画したマスクを全消去しますか？")) {
+        saveState();
+        maskCtx.clearRect(0, 0, 1200, 720);
+        polygonPoints = [];
+        renderGuides();
+      }
+    }
+
+        function saveDirectToServer() {
+      const exportCanvas = document.createElement("canvas");
+      exportCanvas.width = 1200;
+      exportCanvas.height = 720;
+      const expCtx = exportCanvas.getContext("2d");
+      expCtx.fillStyle = "#000000";
+      expCtx.fillRect(0, 0, 1200, 720);
+
+      const maskData = maskCtx.getImageData(0, 0, 1200, 720);
+      const expData = expCtx.getImageData(0, 0, 1200, 720);
+      for (let i = 0; i < maskData.data.length; i += 4) {
+        if (maskData.data[i + 3] > 30) {
+          expData.data[i] = 255;
+          expData.data[i + 1] = 255;
+          expData.data[i + 2] = 255;
+          expData.data[i + 3] = 255;
+        }
+      }
+      expCtx.putImageData(expData, 0, 0);
+
+      const dataUrl = exportCanvas.toDataURL("image/png");
+      fetch("http://localhost:8085/api/save_mask", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mapId: currentMap, imageBase64: dataUrl })
+      })
+      .then(r => r.json())
+      .then(res => {
+        if (res.success) {
+          alert(`[成功] ${currentMap} の land_mask.png がプロジェクトに保存され、ダークテーマ海図が自動再生成されました！`);
+        } else {
+          alert("保存エラー: " + res.error);
+        }
+      })
+      .catch(err => {
+        // サーバーが動いていない場合は自動ダウンロードへフォールバック
+        console.warn("Direct server not reachable, falling back to download:", err);
+        downloadMask();
+        alert("保存サーバー(port 8085)が未起動のため、ファイル「land_mask.png」をダウンロードしました。\nこれを packages/FUSOU-WEB/src/assets/map/" + currentMap + "/land_mask.png に配置してください。");
+      });
+    }
+
+function downloadMask() {
+      // 1200x720 の白黒バイナリマスク画像を作成 (島=255 白, 海=0 黒)
+      const exportCanvas = document.createElement("canvas");
+      exportCanvas.width = 1200;
+      exportCanvas.height = 720;
+      const expCtx = exportCanvas.getContext("2d");
+
+      // 背景黒
+      expCtx.fillStyle = "#000000";
+      expCtx.fillRect(0, 0, 1200, 720);
+
+      // マスクが存在する部分を白で描画
+      const maskData = maskCtx.getImageData(0, 0, 1200, 720);
+      const expData = expCtx.getImageData(0, 0, 1200, 720);
+      for (let i = 0; i < maskData.data.length; i += 4) {
+        if (maskData.data[i + 3] > 30) {
+          expData.data[i] = 255;
+          expData.data[i + 1] = 255;
+          expData.data[i + 2] = 255;
+          expData.data[i + 3] = 255;
+        }
+      }
+      expCtx.putImageData(expData, 0, 0);
+
+      const link = document.createElement("a");
+      link.download = "land_mask.png";
+      link.href = exportCanvas.toDataURL("image/png");
+      link.click();
+    }
+
+    // 初期化
+    loadMap("3-5");
+    updateTransform();
+  </script>
+</body>
+</html>
