@@ -9,7 +9,7 @@ const path = require('path');
 
 const ROOT = path.resolve(__dirname, '..');
 const PROXY_DATA_DIR = path.resolve(ROOT, '..', 'FUSOU-PROXY-DATA');
-const WEB_ASSETS_MAP_DIR = path.resolve(ROOT, '..', 'FUSOU-WEB', 'src', 'assets', 'map');
+const WEB_DATA_DIR = path.resolve(ROOT, '..', 'FUSOU-WEB', 'src', 'data');
 const WEB_PUBLIC_MAP_DIR = path.resolve(ROOT, '..', 'FUSOU-WEB', 'public', 'battle-maps');
 
 function extractMaster() {
@@ -254,7 +254,7 @@ function extractMaster() {
     airbaseData: masterAirbaseData
   };
 
-  const masterPath = path.join(WEB_ASSETS_MAP_DIR, 'proxy_map_master.json');
+  const masterPath = path.join(WEB_DATA_DIR, 'proxy_map_master.json');
   fs.writeFileSync(masterPath, JSON.stringify(masterOutput, null, 2), 'utf8');
   console.log(`[extract-master] Written proxy master data to ${masterPath}`);
   console.log('[extract-master] Done!');

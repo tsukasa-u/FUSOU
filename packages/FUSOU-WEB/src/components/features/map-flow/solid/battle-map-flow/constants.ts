@@ -242,7 +242,7 @@ export const CELL_COLOR_THEMES: Record<
   },
 };
 
-import proxyMapMaster from "@/assets/map/proxy_map_master.json";
+import proxyMapMaster from "@/data/proxy_map_master.json";
 
 /**
  * 基地航空隊データ定義（航空基地座標 & 各セルの必要行動半径）
