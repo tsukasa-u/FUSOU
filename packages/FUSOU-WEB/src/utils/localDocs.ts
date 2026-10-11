@@ -169,7 +169,7 @@ function parseLocalDoc(
       prevClean = cleanContent;
       cleanContent = cleanContent
         .replace(/<!--[\s\S]*?-->/g, "")
-        .replace(/<[^>]*>/g, "")
+        .replace(/[<>]/g, "")
         .replace(/```[\s\S]*?```/g, "");
     }
     cleanContent = cleanContent
