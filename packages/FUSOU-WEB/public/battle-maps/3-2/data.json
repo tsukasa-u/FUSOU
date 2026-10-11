@@ -1,0 +1,372 @@
+{
+  "ports": [
+    0
+  ],
+  "spots": [
+    {
+      "no": 0,
+      "x": 143,
+      "y": 318,
+      "isPort": true,
+      "color": 0
+    },
+    {
+      "no": 1,
+      "x": 407,
+      "y": 318,
+      "line": {
+        "x": -214,
+        "y": -3
+      },
+      "color": 4
+    },
+    {
+      "no": 2,
+      "x": 435,
+      "y": 199,
+      "line": {
+        "x": -27,
+        "y": 21
+      },
+      "color": 2
+    },
+    {
+      "no": 3,
+      "x": 462,
+      "y": 522,
+      "line": {
+        "x": -275,
+        "y": -176
+      },
+      "color": 4
+    },
+    {
+      "no": 4,
+      "x": 499,
+      "y": 276,
+      "line": {
+        "x": 5,
+        "y": 19
+      },
+      "color": 4
+    },
+    {
+      "no": 5,
+      "x": 548,
+      "y": 382,
+      "line": {
+        "x": -77,
+        "y": 19
+      },
+      "color": 4
+    },
+    {
+      "no": 6,
+      "x": 604,
+      "y": 290,
+      "line": {
+        "x": -48,
+        "y": 17
+      },
+      "color": 4
+    },
+    {
+      "no": 7,
+      "x": 614,
+      "y": 456,
+      "line": {
+        "x": -131,
+        "y": 6
+      },
+      "color": 3
+    },
+    {
+      "no": 8,
+      "x": 718,
+      "y": 410,
+      "line": {
+        "x": -84,
+        "y": 6
+      },
+      "color": 4
+    },
+    {
+      "no": 9,
+      "x": 815,
+      "y": 367,
+      "line": {
+        "x": -76,
+        "y": 6
+      },
+      "color": 2
+    },
+    {
+      "no": 10,
+      "x": 908,
+      "y": 484,
+      "line": {
+        "x": -271,
+        "y": -28
+      },
+      "color": 4
+    },
+    {
+      "no": 11,
+      "x": 1049,
+      "y": 497,
+      "line": {
+        "x": -114,
+        "y": -19
+      },
+      "color": 4
+    },
+    {
+      "no": 12,
+      "x": 801,
+      "y": 254,
+      "line": {
+        "x": -174,
+        "y": -2
+      },
+      "color": 5
+    },
+    {
+      "no": 13,
+      "x": 407,
+      "y": 318,
+      "line": {
+        "x": 2,
+        "y": 20
+      },
+      "color": 4
+    },
+    {
+      "no": 14,
+      "x": 604,
+      "y": 290,
+      "line": {
+        "x": -2,
+        "y": 24
+      },
+      "color": 4
+    },
+    {
+      "no": 15,
+      "x": 604,
+      "y": 290,
+      "line": {
+        "x": 11,
+        "y": 17
+      },
+      "color": 4
+    }
+  ],
+  "labels": {
+    "0": "港",
+    "1": "A",
+    "2": "B",
+    "3": "C",
+    "4": "D",
+    "5": "E",
+    "6": "F",
+    "7": "G",
+    "8": "H",
+    "9": "I",
+    "10": "J",
+    "11": "K",
+    "12": "L",
+    "13": "A",
+    "14": "F",
+    "15": "F"
+  },
+  "routes": [
+    {
+      "from": 0,
+      "to": 1,
+      "startX": 200,
+      "startY": 317.5,
+      "ctrlX": 289.2,
+      "ctrlY": 317.5,
+      "endX": 378.5,
+      "endY": 317.5,
+      "isArrow": false
+    },
+    {
+      "from": 1,
+      "to": 2,
+      "startX": 411.2,
+      "startY": 295.1,
+      "ctrlX": 420.3,
+      "ctrlY": 256.7,
+      "endX": 428.4,
+      "endY": 223.8,
+      "isArrow": false
+    },
+    {
+      "from": 0,
+      "to": 3,
+      "startX": 194.5,
+      "startY": 352.1,
+      "ctrlX": 313.1,
+      "ctrlY": 427.7,
+      "endX": 431.7,
+      "endY": 503.3,
+      "isArrow": false
+    },
+    {
+      "from": 5,
+      "to": 4,
+      "startX": 537.7,
+      "startY": 361.8,
+      "ctrlX": 521.5,
+      "ctrlY": 327.6,
+      "endX": 507.6,
+      "endY": 298.4,
+      "isArrow": false
+    },
+    {
+      "from": 3,
+      "to": 5,
+      "startX": 475.4,
+      "startY": 499.1,
+      "ctrlX": 504.2,
+      "ctrlY": 452.7,
+      "endX": 533,
+      "endY": 406.3,
+      "isArrow": false
+    },
+    {
+      "from": 5,
+      "to": 6,
+      "startX": 559.3,
+      "startY": 362.9,
+      "ctrlX": 575.4,
+      "ctrlY": 336.9,
+      "endX": 591.6,
+      "endY": 310.9,
+      "isArrow": false
+    },
+    {
+      "from": 3,
+      "to": 7,
+      "startX": 487.7,
+      "startY": 511,
+      "ctrlX": 537.5,
+      "ctrlY": 488.8,
+      "endX": 587.4,
+      "endY": 466.7,
+      "isArrow": false
+    },
+    {
+      "from": 7,
+      "to": 8,
+      "startX": 636.8,
+      "startY": 444.8,
+      "ctrlX": 665.1,
+      "ctrlY": 432.1,
+      "endX": 693.3,
+      "endY": 419.4,
+      "isArrow": false
+    },
+    {
+      "from": 8,
+      "to": 9,
+      "startX": 741.6,
+      "startY": 398.9,
+      "ctrlX": 768,
+      "ctrlY": 386.8,
+      "endX": 791.6,
+      "endY": 376.3,
+      "isArrow": false
+    },
+    {
+      "from": 7,
+      "to": 10,
+      "startX": 644.4,
+      "startY": 459.3,
+      "ctrlX": 758.9,
+      "ctrlY": 470.3,
+      "endX": 873.4,
+      "endY": 481.3,
+      "isArrow": false
+    },
+    {
+      "from": 10,
+      "to": 11,
+      "startX": 938.1,
+      "startY": 486.9,
+      "ctrlX": 980.7,
+      "ctrlY": 490.1,
+      "endX": 1016.8,
+      "endY": 494.1,
+      "isArrow": false
+    },
+    {
+      "from": 6,
+      "to": 12,
+      "startX": 632.2,
+      "startY": 284.6,
+      "ctrlX": 697.9,
+      "ctrlY": 272.7,
+      "endX": 755.2,
+      "endY": 262.4,
+      "isArrow": false
+    },
+    {
+      "from": 3,
+      "to": 1,
+      "startX": 454.9,
+      "startY": 494.6,
+      "ctrlX": 434.2,
+      "ctrlY": 419.6,
+      "endX": 413.5,
+      "endY": 344.6,
+      "isArrow": false
+    },
+    {
+      "from": 7,
+      "to": 6,
+      "startX": 610.1,
+      "startY": 426.4,
+      "ctrlX": 607.5,
+      "ctrlY": 372.4,
+      "endX": 605,
+      "endY": 318.5,
+      "isArrow": false
+    },
+    {
+      "from": 8,
+      "to": 6,
+      "startX": 697.2,
+      "startY": 390.2,
+      "ctrlX": 659,
+      "ctrlY": 351.5,
+      "endX": 620.8,
+      "endY": 312.8,
+      "isArrow": false
+    }
+  ],
+  "bossSpots": [
+    12
+  ],
+  "bossLabels": [
+    "L"
+  ],
+  "resourceSpots": [
+    2,
+    9
+  ],
+  "resourceLabels": [
+    "B",
+    "I"
+  ],
+  "maelstromLabels": [
+    "G"
+  ],
+  "nothingLabels": [],
+  "airLabels": [],
+  "nightLabels": [],
+  "activeBranchLabels": [],
+  "landingLabels": [],
+  "reconLabels": []
+}
