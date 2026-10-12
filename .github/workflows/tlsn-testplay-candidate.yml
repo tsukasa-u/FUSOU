@@ -1,6 +1,9 @@
 name: TLSN testplay candidate checks
 
 on:
+  push:
+    branches:
+      - tlsn-first-testplay-candidate
   pull_request:
   workflow_dispatch:
 
