@@ -13,16 +13,21 @@ import {
   RuntimeConfigPointerConflictError,
   RuntimeConfigPointerIntegrityError,
 } from "./tlsn-runtime-config-r2-store.mjs";
+import { assertRuntimeConfigProductionSigningRegistered } from "./tlsn-runtime-config-production-registration.mjs";
+import { isTestOnlyRuntimeConfigObjectStore } from "./tlsn-runtime-config-test-only-store.mjs";
 
-function assertSignerProvider(signerProvider, trustedSigner) {
+function assertSignerProvider(signerProvider, trustedSigner, expectedMode) {
   if (
     !signerProvider ||
     typeof signerProvider !== "object" ||
     typeof signerProvider.sign !== "function" ||
+    signerProvider.mode !== expectedMode ||
     signerProvider.key_id !== trustedSigner?.key_id ||
     signerProvider.public_key_spki !== trustedSigner?.public_key_spki
   ) {
-    throw new Error("manifest signer provider does not match the independent signer pin");
+    throw new Error(
+      `${expectedMode} manifest signer provider does not match the independent signer pin`,
+    );
   }
 }
 
@@ -124,14 +129,14 @@ async function verifyCompetingManifestState(objectStore, state, {
   return null;
 }
 
-export async function signTlsnRuntimeConfigManifest({
+async function signTlsnRuntimeConfigManifestWithMode({
   prepared,
   signerProvider,
   trustedSigner,
   policy,
   independentInputs,
-}) {
-  assertSignerProvider(signerProvider, trustedSigner);
+}, expectedMode) {
+  assertSignerProvider(signerProvider, trustedSigner, expectedMode);
   if (
     !prepared ||
     typeof prepared.payload !== "object" ||
@@ -160,7 +165,16 @@ export async function signTlsnRuntimeConfigManifest({
   return Object.freeze({ raw_envelope: rawEnvelope, verification });
 }
 
-export async function publishTlsnRuntimeConfig({
+export async function signTlsnRuntimeConfigManifest(options) {
+  assertRuntimeConfigProductionSigningRegistered();
+  return signTlsnRuntimeConfigManifestWithMode(options, "production");
+}
+
+export async function signTlsnRuntimeConfigManifestForTest(options) {
+  return signTlsnRuntimeConfigManifestWithMode(options, "test-only");
+}
+
+async function publishTlsnRuntimeConfigWithMode({
   prepared,
   signerProvider,
   trustedSigner,
@@ -168,9 +182,9 @@ export async function publishTlsnRuntimeConfig({
   independentInputs,
   workerReferenceRevalidation,
   objectStore,
-}) {
+}, { signManifest, resultState }) {
   assertObjectStore(objectStore);
-  const { raw_envelope: rawEnvelope } = await signTlsnRuntimeConfigManifest({
+  const { raw_envelope: rawEnvelope } = await signManifest({
       prepared,
       signerProvider,
       trustedSigner,
@@ -284,9 +298,30 @@ export async function publishTlsnRuntimeConfig({
   });
 
   return Object.freeze({
-    state: "PUBLISHED_TO_OBJECT_STORE",
+    state: resultState,
     manifest_sha256: createHash("sha256").update(expectedManifestBytes).digest("base64url"),
     object_keys: Object.freeze(objects.map(({ key }) => key)),
     verification: readbackVerification,
+  });
+}
+
+export async function publishTlsnRuntimeConfig(options) {
+  assertRuntimeConfigProductionSigningRegistered();
+  if (isTestOnlyRuntimeConfigObjectStore(options?.objectStore)) {
+    throw new Error("Production Runtime Config publisher cannot use a test-only object store");
+  }
+  return publishTlsnRuntimeConfigWithMode(options, {
+    signManifest: signTlsnRuntimeConfigManifest,
+    resultState: "PUBLISHED_TO_OBJECT_STORE",
+  });
+}
+
+export async function publishTlsnRuntimeConfigForTest(options) {
+  if (!isTestOnlyRuntimeConfigObjectStore(options?.objectStore)) {
+    throw new Error("test-only Runtime Config publication requires an in-memory test-only object store");
+  }
+  return publishTlsnRuntimeConfigWithMode(options, {
+    signManifest: signTlsnRuntimeConfigManifestForTest,
+    resultState: "TEST_ONLY_PUBLISHED_TO_FAKE_STORE",
   });
 }

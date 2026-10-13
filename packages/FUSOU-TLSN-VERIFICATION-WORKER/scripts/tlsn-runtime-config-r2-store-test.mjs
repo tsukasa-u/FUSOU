@@ -11,6 +11,8 @@ import {
 import {
   createCloudflareR2RuntimeConfigObjectStore,
   createR2RuntimeConfigObjectStore,
+  isValidRuntimeConfigR2AccountId,
+  isValidRuntimeConfigR2BucketName,
   RuntimeConfigArtifactConflictError,
   RuntimeConfigArtifactIntegrityError,
   RuntimeConfigPointerConflictError,
@@ -18,6 +20,10 @@ import {
   RuntimeConfigR2ConfigurationError,
   RUNTIME_CONFIG_R2_ENV,
 } from "./tlsn-runtime-config-r2-store.mjs";
+import {
+  inspectRuntimeConfigR2IntegrationConfiguration,
+  RUNTIME_CONFIG_R2_INTEGRATION_ENV,
+} from "./tlsn-runtime-config-r2-integration-config.mjs";
 
 const MANIFEST_KEY = "tlsn/runtime-config/v2/manifest.json";
 const R2_ENV = {
@@ -25,6 +31,15 @@ const R2_ENV = {
   [RUNTIME_CONFIG_R2_ENV.bucket]: "tlsn-runtime-config-test",
   [RUNTIME_CONFIG_R2_ENV.accessKeyId]: "test-access-key",
   [RUNTIME_CONFIG_R2_ENV.secretAccessKey]: "test-secret-access-key",
+};
+const R2_INTEGRATION_ENV = {
+  [RUNTIME_CONFIG_R2_INTEGRATION_ENV.optIn]: "1",
+  [RUNTIME_CONFIG_R2_INTEGRATION_ENV.accountId]: "0123456789abcdef0123456789abcdef",
+  [RUNTIME_CONFIG_R2_INTEGRATION_ENV.bucket]: "fusou-tlsn-r2-test-local123",
+  [RUNTIME_CONFIG_R2_INTEGRATION_ENV.accessKeyId]: "dedicated-test-access-key",
+  [RUNTIME_CONFIG_R2_INTEGRATION_ENV.secretAccessKey]: "dedicated-test-secret-key",
+  [RUNTIME_CONFIG_R2_INTEGRATION_ENV.bucketConfirmation]:
+    "I_CONFIRM_THIS_IS_DISPOSABLE_NON_PRODUCTION",
 };
 
 function s3Error(name, status, code = name) {
@@ -97,6 +112,78 @@ function immutableObject(body) {
     body: bytes,
   };
 }
+
+test("live R2 integration is opt-in, bucket-scoped, and derives its endpoint from the account ID", () => {
+  const notRun = inspectRuntimeConfigR2IntegrationConfiguration({});
+  assert.equal(notRun.state, "NOT_RUN");
+  assert.equal(notRun.config, undefined);
+  assert.equal(
+    inspectRuntimeConfigR2IntegrationConfiguration({
+      [RUNTIME_CONFIG_R2_INTEGRATION_ENV.optIn]: "true",
+    }).state,
+    "BLOCKED_EXTERNAL_INPUTS",
+  );
+
+  const incomplete = inspectRuntimeConfigR2IntegrationConfiguration({
+    [RUNTIME_CONFIG_R2_INTEGRATION_ENV.optIn]: "1",
+  });
+  assert.equal(incomplete.state, "BLOCKED_EXTERNAL_INPUTS");
+  assert.equal(incomplete.config, undefined);
+  assert(incomplete.reason.includes(RUNTIME_CONFIG_R2_INTEGRATION_ENV.secretAccessKey));
+
+  const ready = inspectRuntimeConfigR2IntegrationConfiguration({
+    ...R2_INTEGRATION_ENV,
+    AWS_ENDPOINT_URL_S3: "https://untrusted.example",
+  });
+  assert.equal(ready.state, "READY");
+  assert.equal(
+    ready.config.endpoint,
+    "https://0123456789abcdef0123456789abcdef.r2.cloudflarestorage.com",
+  );
+  assert.equal(ready.config.bucket, R2_INTEGRATION_ENV[RUNTIME_CONFIG_R2_INTEGRATION_ENV.bucket]);
+  assert(isValidRuntimeConfigR2AccountId(ready.config.accountId));
+  assert(isValidRuntimeConfigR2BucketName(ready.config.bucket));
+  assert.equal(JSON.stringify(ready).includes("untrusted.example"), false);
+  assert.equal(
+    ready.config.secretAccessKey,
+    R2_INTEGRATION_ENV[RUNTIME_CONFIG_R2_INTEGRATION_ENV.secretAccessKey],
+  );
+});
+
+test("live R2 integration refuses production buckets, reused credentials, and missing confirmation", () => {
+  assert.equal(
+    inspectRuntimeConfigR2IntegrationConfiguration({
+      ...R2_INTEGRATION_ENV,
+      [RUNTIME_CONFIG_R2_ENV.bucket]: R2_INTEGRATION_ENV[
+        RUNTIME_CONFIG_R2_INTEGRATION_ENV.bucket
+      ],
+    }).state,
+    "BLOCKED_EXTERNAL_INPUTS",
+  );
+  assert.equal(
+    inspectRuntimeConfigR2IntegrationConfiguration({
+      ...R2_INTEGRATION_ENV,
+      [RUNTIME_CONFIG_R2_ENV.accessKeyId]: R2_INTEGRATION_ENV[
+        RUNTIME_CONFIG_R2_INTEGRATION_ENV.accessKeyId
+      ],
+    }).state,
+    "BLOCKED_EXTERNAL_INPUTS",
+  );
+  assert.equal(
+    inspectRuntimeConfigR2IntegrationConfiguration({
+      ...R2_INTEGRATION_ENV,
+      [RUNTIME_CONFIG_R2_INTEGRATION_ENV.bucket]: "tlsn-runtime-config-prod",
+    }).state,
+    "BLOCKED_EXTERNAL_INPUTS",
+  );
+  assert.equal(
+    inspectRuntimeConfigR2IntegrationConfiguration({
+      ...R2_INTEGRATION_ENV,
+      [RUNTIME_CONFIG_R2_INTEGRATION_ENV.bucketConfirmation]: "yes",
+    }).state,
+    "BLOCKED_EXTERNAL_INPUTS",
+  );
+});
 
 test("R2 environment validation reports missing configuration without exposing values", () => {
   assert.throws(

@@ -30,6 +30,14 @@ const NETWORK_ERROR_CODES = new Set([
 ]);
 const DEFAULT_REQUEST_TIMEOUT_MS = 15_000;
 
+export function isValidRuntimeConfigR2AccountId(value) {
+  return typeof value === "string" && ACCOUNT_ID_PATTERN.test(value);
+}
+
+export function isValidRuntimeConfigR2BucketName(value) {
+  return typeof value === "string" && BUCKET_NAME_PATTERN.test(value);
+}
+
 export class RuntimeConfigR2ConfigurationError extends Error {
   constructor(message, options) {
     super(message, options);
@@ -98,10 +106,10 @@ export function inspectRuntimeConfigR2Environment(env = process.env) {
   return Object.freeze({
     account_id: !isPresent(accountId)
       ? "MISSING"
-      : ACCOUNT_ID_PATTERN.test(accountId) ? "PRESENT_FORMAT_VALID" : "INVALID_FORMAT",
+      : isValidRuntimeConfigR2AccountId(accountId) ? "PRESENT_FORMAT_VALID" : "INVALID_FORMAT",
     bucket: !isPresent(bucket)
       ? "MISSING"
-      : BUCKET_NAME_PATTERN.test(bucket) ? "PRESENT_FORMAT_VALID" : "INVALID_FORMAT",
+      : isValidRuntimeConfigR2BucketName(bucket) ? "PRESENT_FORMAT_VALID" : "INVALID_FORMAT",
     access_key_id: isPresent(accessKeyId) ? "PRESENT_UNVERIFIED" : "MISSING",
     secret_access_key: isPresent(secretAccessKey) ? "PRESENT_UNVERIFIED" : "MISSING",
   });
@@ -269,7 +277,7 @@ export function createR2RuntimeConfigObjectStore({
   client,
   requestTimeoutMs = DEFAULT_REQUEST_TIMEOUT_MS,
 }) {
-  if (typeof bucket !== "string" || !BUCKET_NAME_PATTERN.test(bucket)) {
+  if (!isValidRuntimeConfigR2BucketName(bucket)) {
     throw new RuntimeConfigR2ConfigurationError(
       "Runtime Config R2 bucket name must contain 3-63 lowercase letters, digits, or internal hyphens",
     );

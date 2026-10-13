@@ -379,6 +379,50 @@ The no-network diagnostic is available as `pnpm run tlsn:runtime-config:publishe
 
 No bucket, custom domain, credential, signing provider/root, deployment, or object was created or operated. The adapter implementation does not make Runtime Config publication a Production service. Production acceptance and the APP Runtime Config gate remain blocked until separately approved signer enrollment, a dedicated bucket/domain, least-privilege credentials, and live conditional-write/readback evidence are in place.
 
+#### Runtime Config R2 integration harness and signer enrollment
+
+The opt-in live-service harness is `pnpm run tlsn:runtime-config:r2-integration`. It uses Node's built-in test runner and the existing `@aws-sdk/client-s3`; it does not use the publisher's Production manifest key. With no opt-in it reports a skipped `NOT_RUN` test and sends no request. Partial or invalid opt-in inputs report `BLOCKED_EXTERNAL_INPUTS` and also send no request.
+
+Before a human runs it, create a new disposable, non-Production R2 bucket whose name is exactly `fusou-tlsn-r2-test-<lowercase-alphanumeric-suffix>`. Create a separate R2 S3 API token with **Object Read & Write** permission scoped only to that bucket. Do not use an Admin token, account-wide bucket scope, Production bucket, Production publisher credential, or APP/Runtime Config signer. The token permission allows object listing within its scoped bucket, but this harness does not issue list or bucket-management requests. Cloudflare documents this token permission and bucket scoping in [R2 S3 API authentication](https://developers.cloudflare.com/r2/api/tokens/).
+
+Supply these inputs through an approved local secret manager or equivalent environment injection; do not paste credential values into command history or diagnostic output:
+
+| Environment variable | Purpose |
+| --- | --- |
+| `TLSN_RUNTIME_CONFIG_R2_INTEGRATION_OPT_IN=1` | Required exact opt-in; generic `node --test` is not opt-in. |
+| `TLSN_RUNTIME_CONFIG_R2_TEST_ACCOUNT_ID` | 32-hex account ID used to derive the endpoint. |
+| `TLSN_RUNTIME_CONFIG_R2_TEST_BUCKET` | Dedicated `fusou-tlsn-r2-test-<suffix>` bucket. |
+| `TLSN_RUNTIME_CONFIG_R2_TEST_ACCESS_KEY_ID` | Access key from the bucket-scoped test token. |
+| `TLSN_RUNTIME_CONFIG_R2_TEST_SECRET_ACCESS_KEY` | Secret key from the bucket-scoped test token. |
+| `TLSN_RUNTIME_CONFIG_R2_TEST_BUCKET_CONFIRMATION=I_CONFIRM_THIS_IS_DISPOSABLE_NON_PRODUCTION` | Explicit operator confirmation of the dedicated disposable bucket. |
+
+The harness derives `https://<account-id>.r2.cloudflarestorage.com`; it accepts no endpoint override and supplies explicit credentials to an SDK client configured for one attempt. Use a bucket in the default jurisdiction; jurisdiction-specific endpoints are not configurable in this harness. It rejects malformed account IDs, buckets outside the dedicated naming pattern, a bucket equal to the configured publisher bucket, reused publisher credentials, missing confirmation, or any missing required input before constructing a client. These checks reduce accidental mis-targeting but cannot prove the operator's account/bucket classification; use a newly created disposable bucket and verify its identity in the Cloudflare dashboard before opt-in.
+
+The test run writes only beneath `tlsn/runtime-config-integration/<random-run-uuid>/`. It checks create-only immutable writes and exact digest/readback, first-create races, ETag-conditioned updates, stale and concurrent ETag conflicts, valid competing test releases, and readback of both changed and unchanged state around simulated client timeouts. Its signed pointer is a disposable, test-only format signed by a per-process ephemeral Ed25519 key; passing it does not verify a Production manifest or trust root. The timeout cases simulate failure before request submission and loss of the response after an R2 write returned; they do not simulate or establish every real network-timeout mode. ETags are used only as conditional-operation state, never as body digests.
+
+The harness deletes only exact immutable keys it created, after an exact-byte readback, and verifies their removal. It retains mutable pointer objects beneath the run prefix. The [R2 S3 compatibility table](https://developers.cloudflare.com/r2/api/s3/api/) documents conditional `PutObject` headers but does not list an `If-Match` conditional operation for `DeleteObject`; therefore the harness does not perform an unguarded pointer delete or claim conditional cleanup. After recording the test output, an operator may retire the disposable bucket through the Cloudflare dashboard. The harness never deletes a bucket, lists a bucket, accesses the Production pointer, or cleans up outside its run prefix.
+
+The service-evidence levels must remain distinct:
+
+| Evidence | What it establishes |
+| --- | --- |
+| Cloudflare compatibility documentation | The documented R2 S3 operation/header support; not observed service behavior for this project. |
+| SDK request-configuration tests | The `PutObject` conditional fields are passed by the client adapter; not R2 enforcement. |
+| Local fake-store tests | The local orchestration's conflict, timeout-reconciliation, and readback branches; not real R2 behavior. |
+| Opt-in integration harness, only after a human runs it | Observations for the named disposable bucket, token, and run; not Production CAS readiness. |
+| Production publisher readiness | Still `BLOCKED_EXTERNAL_INPUTS` until signer/root/endpoint enrollment and required live evidence are separately approved. |
+
+No approved Runtime Config Production signer provider or independent signer pin is registered. The APP's embedded Runtime Config manifest URL, key ID, and SPKI are all `None`; the release gate therefore rejects Production signing and publication before using a signer or accessing a store. The existing Tauri updater public key and `TAURI_SIGNING_PRIVATE_KEY` release secrets are scoped to updater artifacts, not Runtime Config manifests. They are not the Result registry root or the Notary verification key. Existing workflow `contents`/OIDC permissions also do not establish a Runtime Config signing authority or R2 publisher.
+
+Required initial enrollment is an external, reviewed operation:
+
+1. The designated Runtime Config authority must approve the signer role, key ID, Ed25519 SPKI, manifest signing domain, allowed operators, custody, audit, expiration/rotation policy, and emergency revocation process. A key must be created and held in an approved KMS/HSM or equivalently controlled signer; this repository does not select or create one.
+2. The independent key ID/SPKI pin and a fixed HTTPS manifest endpoint must be approved separately from the manifest being signed. APP release owners must review and register that exact endpoint and bootstrap pin in the APP verifier through a reviewed release. The Runtime Config signer must not be reused as the Result signer, Notary key, or updater key.
+3. A publisher operator must provision a dedicated Runtime Config bucket and narrowly scoped credentials, then provide reviewed Worker and authority inputs. A Production signature must be generated and independently verified against the approved pin before the Production publisher can be enabled.
+4. Rotation or emergency revocation must update the independent APP bootstrap trust and deployment process. The current embedded bootstrap contract is a single signer; multi-root overlap and online root rotation are not established. Do not claim revocation until the replacement APP trust state is deployed and old-signer acceptance is checked.
+
+Until those external steps are completed, readiness reports `NOT_REGISTERED`/`NOT_CONFIGURED` for trust and signer checks, `NOT_CHECKED` for live credential permissions, `NOT_RUN` for live R2 writes, and `BLOCKED_EXTERNAL_INPUTS` for Production publication. This task did not run the integration harness, contact Cloudflare, create or use a bucket/token, publish a manifest, or start Hosted CI.
+
 ### REQUIRED_FOR_HUMAN_GAMEPLAY
 
 | Input | Source of truth | Who supplies it | Authenticity check | Secret? | Package | Independent? |

@@ -20,6 +20,7 @@
     "build:compaction-core": "pnpm --filter @fusou/compaction-core run build",
     "test:web": "pnpm --filter fusou-web test",
     "tlsn:runtime-config:publisher-readiness": "node packages/FUSOU-TLSN-VERIFICATION-WORKER/scripts/tlsn-runtime-config-publisher-readiness.mjs",
+    "tlsn:runtime-config:r2-integration": "node --test packages/FUSOU-TLSN-VERIFICATION-WORKER/scripts/tlsn-runtime-config-r2-integration-test.mjs",
     "scout:formulas": "node scripts/scout-formulas.mjs"
   },
   "keywords": [],

@@ -17,8 +17,11 @@ import {
 } from "./tlsn-runtime-config-manifest.mjs";
 import {
   publishTlsnRuntimeConfig,
+  publishTlsnRuntimeConfigForTest,
   signTlsnRuntimeConfigManifest,
+  signTlsnRuntimeConfigManifestForTest,
 } from "./tlsn-runtime-config-release.mjs";
+import { createTestOnlyRuntimeConfigObjectStore } from "./tlsn-runtime-config-test-only-store.mjs";
 import { RuntimeConfigPointerConflictError } from "./tlsn-runtime-config-r2-store.mjs";
 import { verifyTlsnRuntimeConfigIndependentInputs } from "./tlsn-runtime-config-independent-verification.mjs";
 import {
@@ -138,6 +141,7 @@ function currentIndependentInputs(workerReferenceRaw = referenceRaw()) {
 
 function testSignerProvider() {
   return {
+    mode: "test-only",
     key_id: signerKeyId,
     public_key_spki: trustedSigner.public_key_spki,
     sign(bytes) {
@@ -156,18 +160,8 @@ function workerReferenceRevalidation() {
 }
 
 class FakeRuntimeConfigObjectStore {
-  constructor({
-    corruptArtifactReadback = false,
-    corruptManifestReadback = false,
-    raceManifestPointer = false,
-  } = {}) {
-    this.objects = new Map();
-    this.manifestETag = null;
-    this.manifestBody = null;
-    this.corruptArtifactReadback = corruptArtifactReadback;
-    this.corruptManifestReadback = corruptManifestReadback;
-    this.raceManifestPointer = raceManifestPointer;
-    this.events = [];
+  constructor(options = {}) {
+    return createTestOnlyRuntimeConfigObjectStore(options);
   }
 
   async getManifestState() {
@@ -739,7 +733,7 @@ test("publication objects use signed content-addressed keys and publish the muta
   }
 });
 
-test("Runtime Config release signs against the external pin and verifies before publication", async () => {
+test("test-only Runtime Config signing verifies the ephemeral signer against its explicit test pin", async () => {
   const inputs = currentIndependentInputs();
   const prepared = preparedOptions(inputs.worker_reference_raw, release, "1");
   let signerCalls = 0;
@@ -751,7 +745,7 @@ test("Runtime Config release signs against the external pin and verifies before 
     },
   };
 
-  const signed = await signTlsnRuntimeConfigManifest({
+  const signed = await signTlsnRuntimeConfigManifestForTest({
     prepared,
     signerProvider,
     trustedSigner,
@@ -767,7 +761,7 @@ test("Runtime Config release signs against the external pin and verifies before 
     }));
 
   await assert.rejects(
-    () => signTlsnRuntimeConfigManifest({
+    () => signTlsnRuntimeConfigManifestForTest({
       prepared,
       signerProvider: { ...signerProvider, key_id: "untrusted-signer" },
       trustedSigner,
@@ -777,7 +771,7 @@ test("Runtime Config release signs against the external pin and verifies before 
     /does not match the independent signer pin/,
   );
   await assert.rejects(
-    () => signTlsnRuntimeConfigManifest({
+    () => signTlsnRuntimeConfigManifestForTest({
       prepared,
       signerProvider: { ...testSignerProvider(), sign: async () => Buffer.alloc(64) },
       trustedSigner,
@@ -789,13 +783,59 @@ test("Runtime Config release signs against the external pin and verifies before 
   assert.equal(signerCalls, 1);
 });
 
-test("Runtime Config publication refuses an unset signer before accessing the object store", async () => {
+test("Production signing and publication fail closed before signer use or object-store access", async () => {
+  const inputs = currentIndependentInputs();
+  const prepared = preparedOptions(inputs.worker_reference_raw, release, "1");
+  let signerCalls = 0;
+  const signerProvider = {
+    ...testSignerProvider(),
+    mode: "production",
+    sign(bytes) {
+      signerCalls += 1;
+      return sign(null, bytes, keyPair.privateKey);
+    },
+  };
+  const store = new FakeRuntimeConfigObjectStore();
+
+  await assert.rejects(
+    () => signTlsnRuntimeConfigManifest({
+      prepared,
+      signerProvider,
+      trustedSigner,
+      policy: policy(prepared),
+      independentInputs: inputs,
+    }),
+    /Production Runtime Config signing is blocked/,
+  );
+  await assert.rejects(
+    () => publishTlsnRuntimeConfig({
+      prepared,
+      signerProvider,
+      trustedSigner,
+      policy: policy(prepared),
+      independentInputs: inputs,
+      workerReferenceRevalidation: workerReferenceRevalidation(),
+      objectStore: store,
+    }),
+    /Production Runtime Config signing is blocked/,
+  );
+  assert.equal(signerCalls, 0);
+  assert.deepEqual(store.events, []);
+});
+
+test("test-only publication refuses an unset signer before accessing the fake object store", async () => {
   const inputs = currentIndependentInputs();
   const prepared = preparedOptions(inputs.worker_reference_raw, release, "1");
   const store = new FakeRuntimeConfigObjectStore();
 
   await assert.rejects(
-    () => publishTlsnRuntimeConfig({
+    () => publishTlsnRuntimeConfigForTest({
+      objectStore: { test_only: true },
+    }),
+    /requires an in-memory test-only object store/,
+  );
+  await assert.rejects(
+    () => publishTlsnRuntimeConfigForTest({
       prepared,
       signerProvider: undefined,
       trustedSigner,
@@ -804,7 +844,7 @@ test("Runtime Config publication refuses an unset signer before accessing the ob
       workerReferenceRevalidation: workerReferenceRevalidation(),
       objectStore: store,
     }),
-    /manifest signer provider does not match the independent signer pin/,
+    /test-only manifest signer provider does not match the independent signer pin/,
   );
   assert.deepEqual(store.events, []);
   assert.equal(store.objects.size, 0);
@@ -815,7 +855,7 @@ test("Runtime Config publisher reads back immutable artifacts before atomic mani
   const inputs = currentIndependentInputs();
   const prepared = preparedOptions(inputs.worker_reference_raw, release, "1");
   const store = new FakeRuntimeConfigObjectStore();
-  const result = await publishTlsnRuntimeConfig({
+  const result = await publishTlsnRuntimeConfigForTest({
     prepared,
     signerProvider: testSignerProvider(),
     trustedSigner,
@@ -825,7 +865,7 @@ test("Runtime Config publisher reads back immutable artifacts before atomic mani
     objectStore: store,
   });
 
-  assert.equal(result.state, "PUBLISHED_TO_OBJECT_STORE");
+  assert.equal(result.state, "TEST_ONLY_PUBLISHED_TO_FAKE_STORE");
   const casIndex = store.events.indexOf("manifest-cas");
   assert.equal(store.events[casIndex + 1], "read-manifest-state");
   assert.equal(result.object_keys.at(-1), "tlsn/runtime-config/v2/manifest.json");
@@ -853,7 +893,7 @@ test("Runtime Config publisher refuses a bad artifact readback or a raced manife
   };
   const corruptStore = new FakeRuntimeConfigObjectStore({ corruptArtifactReadback: true });
   await assert.rejects(
-    () => publishTlsnRuntimeConfig({ ...options, objectStore: corruptStore }),
+    () => publishTlsnRuntimeConfigForTest({ ...options, objectStore: corruptStore }),
     /immutable Runtime Config artifact readback mismatch/,
   );
   assert.equal(corruptStore.manifestETag, null);
@@ -861,14 +901,14 @@ test("Runtime Config publisher refuses a bad artifact readback or a raced manife
 
   const racedStore = new FakeRuntimeConfigObjectStore({ raceManifestPointer: true });
   await assert.rejects(
-    () => publishTlsnRuntimeConfig({ ...options, objectStore: racedStore }),
+    () => publishTlsnRuntimeConfigForTest({ ...options, objectStore: racedStore }),
     /not valid under the configured signer and policy/,
   );
   assert.equal(racedStore.manifestBody.toString(), "concurrent manifest");
 
   const rotatedStore = new FakeRuntimeConfigObjectStore();
   await assert.rejects(
-    () => publishTlsnRuntimeConfig({
+    () => publishTlsnRuntimeConfigForTest({
       ...options,
       workerReferenceRevalidation: {
         ...workerReferenceRevalidation(),
@@ -889,7 +929,7 @@ test("Runtime Config publication distinguishes a verified competing release from
   const preparedOne = preparedOptions(inputs.worker_reference_raw, release, "1");
   const preparedTwo = preparedOptions(inputs.worker_reference_raw, release, "2");
   const store = new FakeRuntimeConfigObjectStore();
-  const publish = (prepared) => publishTlsnRuntimeConfig({
+  const publish = (prepared) => publishTlsnRuntimeConfigForTest({
     prepared,
     signerProvider: testSignerProvider(),
     trustedSigner,
@@ -912,7 +952,7 @@ test("Runtime Config publication distinguishes a verified competing release from
   const damagedStore = new FakeRuntimeConfigObjectStore({ corruptManifestReadback: true });
   const prepared = preparedOptions(inputs.worker_reference_raw, release, "3");
   await assert.rejects(
-    () => publishTlsnRuntimeConfig({
+    () => publishTlsnRuntimeConfigForTest({
       prepared,
       signerProvider: testSignerProvider(),
       trustedSigner,

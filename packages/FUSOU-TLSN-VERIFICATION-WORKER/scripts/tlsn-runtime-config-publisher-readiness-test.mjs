@@ -14,9 +14,15 @@ test("publisher readiness is a no-network diagnostic and never promotes unregist
   assert.equal(readiness.network_access_performed, false);
   assert.equal(readiness.signing_performed, false);
   assert(readiness.checks.some(({ requirement, state }) =>
-    requirement === "Production Runtime Config signing root" && state === "NOT_REGISTERED"));
+    requirement === "APP bootstrap signer root registration" && state === "NOT_REGISTERED"));
   assert(readiness.checks.some(({ requirement, state }) =>
-    requirement === "Live conditional pointer CAS" && state === "NOT_TESTED"));
+    requirement === "Independent Production signer pin" && state === "NOT_REGISTERED"));
+  assert(readiness.checks.some(({ requirement, state }) =>
+    requirement === "Production signer provider" && state === "NOT_CONFIGURED"));
+  assert(readiness.checks.some(({ requirement, state }) =>
+    requirement === "Live R2 conditional create and pointer CAS" && state === "NOT_RUN"));
+  assert(readiness.checks.some(({ requirement, state }) =>
+    requirement === "R2 credentials have sufficient bucket-scoped permissions" && state === "NOT_CHECKED"));
 });
 
 test("publisher readiness reports configured variable names and statuses without printing values", () => {
@@ -44,7 +50,7 @@ test("invalid R2 account identifiers are explicitly reported rather than normali
     [RUNTIME_CONFIG_R2_ENV.accountId]: "invalid",
   });
   assert(readiness.checks.some(({ requirement, state }) =>
-    requirement === "R2 account ID" && state === "INVALID_FORMAT"));
+    requirement === "R2 account ID format" && state === "INVALID_FORMAT"));
   assert.equal(readiness.readiness, "BLOCKED_EXTERNAL_INPUTS");
 });
 
@@ -53,6 +59,29 @@ test("invalid R2 bucket names are reported as invalid without attempting a conne
     [RUNTIME_CONFIG_R2_ENV.bucket]: "bad/bucket",
   });
   assert(readiness.checks.some(({ requirement, state }) =>
-    requirement === "R2 bucket name" && state === "INVALID_FORMAT"));
+    requirement === "R2 bucket name format" && state === "INVALID_FORMAT"));
   assert.equal(readiness.network_access_performed, false);
+});
+
+test("configured values and local signing capability never promote Production publisher readiness", () => {
+  const env = {
+    [RUNTIME_CONFIG_R2_ENV.accountId]: "0123456789abcdef0123456789abcdef",
+    [RUNTIME_CONFIG_R2_ENV.bucket]: "tlsn-runtime-config-test",
+    [RUNTIME_CONFIG_R2_ENV.accessKeyId]: "access-key-value",
+    [RUNTIME_CONFIG_R2_ENV.secretAccessKey]: "secret-key-value",
+  };
+  const readiness = getTlsnRuntimeConfigPublisherReadiness(env);
+  assert.equal(readiness.readiness, "BLOCKED_EXTERNAL_INPUTS");
+  assert.equal(readiness.production_publish_allowed, false);
+  assert.equal(readiness.network_access_performed, false);
+  assert.equal(readiness.signing_performed, false);
+  assert(readiness.checks.some(({ requirement, state }) =>
+    requirement === "R2 configuration complete" && state === "PRESENT"));
+  assert(readiness.checks.some(({ requirement, state }) =>
+    requirement === "Production publish authorization" && state === "BLOCKED_EXTERNAL_INPUTS"));
+  const output = JSON.stringify(readiness);
+  assert(!output.includes(env[RUNTIME_CONFIG_R2_ENV.accessKeyId]));
+  assert(!output.includes(env[RUNTIME_CONFIG_R2_ENV.secretAccessKey]));
+  assert(!output.includes(env[RUNTIME_CONFIG_R2_ENV.accountId]));
+  assert(!output.includes(env[RUNTIME_CONFIG_R2_ENV.bucket]));
 });

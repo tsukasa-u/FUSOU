@@ -1,19 +1,42 @@
 import { pathToFileURL } from "node:url";
 import { inspectRuntimeConfigR2Environment } from "./tlsn-runtime-config-r2-store.mjs";
+import { RUNTIME_CONFIG_PRODUCTION_SIGNING_REGISTRATION } from "./tlsn-runtime-config-production-registration.mjs";
 
 export function getTlsnRuntimeConfigPublisherReadiness(env = process.env) {
   const r2 = inspectRuntimeConfigR2Environment(env);
+  const r2Configured = Object.values(r2).every((state) =>
+    state === "PRESENT_FORMAT_VALID" || state === "PRESENT_UNVERIFIED");
   const checks = [
-    { requirement: "R2 adapter implementation", state: "IMPLEMENTED" },
-    { requirement: "R2 account ID", state: r2.account_id },
-    { requirement: "R2 bucket name", state: r2.bucket },
-    { requirement: "R2 access key ID", state: r2.access_key_id },
-    { requirement: "R2 secret access key", state: r2.secret_access_key },
-    { requirement: "Production Runtime Config signing root", state: "NOT_REGISTERED" },
-    { requirement: "Production signing provider", state: "NOT_CONFIGURED" },
+    { requirement: "Local manifest schema and publisher adapter", state: "IMPLEMENTED" },
+    { requirement: "R2 account ID format", state: r2.account_id },
+    { requirement: "R2 bucket name format", state: r2.bucket },
+    { requirement: "R2 access key ID presence", state: r2.access_key_id },
+    { requirement: "R2 secret access key presence", state: r2.secret_access_key },
+    { requirement: "R2 configuration complete", state: r2Configured ? "PRESENT" : "INCOMPLETE" },
+    {
+      requirement: "Independent Production signer pin",
+      state: RUNTIME_CONFIG_PRODUCTION_SIGNING_REGISTRATION.independent_signer_pin,
+    },
+    {
+      requirement: "Production signer provider",
+      state: RUNTIME_CONFIG_PRODUCTION_SIGNING_REGISTRATION.signer_provider,
+    },
+    { requirement: "Signer identity matches independent pin", state: "NOT_CHECKED" },
+    { requirement: "Production signature generation and verification", state: "NOT_RUN" },
     { requirement: "Worker and authority publication inputs", state: "NOT_PROVIDED_TO_DIAGNOSTIC" },
-    { requirement: "Live R2 permissions and readback", state: "NOT_TESTED" },
-    { requirement: "Live conditional pointer CAS", state: "NOT_TESTED" },
+    { requirement: "R2 adapter endpoint construction", state: "IMPLEMENTED_FROM_ACCOUNT_ID" },
+    { requirement: "R2 credentials have sufficient bucket-scoped permissions", state: "NOT_CHECKED" },
+    { requirement: "Live R2 read, write, and exact readback", state: "NOT_RUN" },
+    { requirement: "Live R2 conditional create and pointer CAS", state: "NOT_RUN" },
+    {
+      requirement: "Production manifest endpoint registration",
+      state: RUNTIME_CONFIG_PRODUCTION_SIGNING_REGISTRATION.manifest_endpoint,
+    },
+    {
+      requirement: "APP bootstrap signer root registration",
+      state: RUNTIME_CONFIG_PRODUCTION_SIGNING_REGISTRATION.app_bootstrap_root,
+    },
+    { requirement: "Production publish authorization", state: "BLOCKED_EXTERNAL_INPUTS" },
   ];
   return Object.freeze({
     schema_version: 1,
