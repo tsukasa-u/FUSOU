@@ -19,7 +19,7 @@ export function MaterialsComponent() {
   const [materials] = useMaterials();
 
   const show_materials = () => {
-    return Object.values(materials.materials).some((value) => value ?? 0 > 0);
+    return Object.values(materials.materials).some((value) => (value ?? 0) > 0);
   };
 
   return (
@@ -39,7 +39,7 @@ export function MaterialsComponent() {
               <li class="h-auto">
                 <div class="justify-start gap-0 flex flex-nowrap">
                   <div class="w-[24px]" />
-                  <a class="justify-start gap-0 flex flex-wrap gap-y-1">
+                  <div class="justify-start gap-0 flex flex-wrap gap-y-1">
                     <div class="justify-start gap-0 flex flex-nowrap">
                       <For each={Object.values(materials.materials)}>
                         {(material, index) => (
@@ -58,7 +58,7 @@ export function MaterialsComponent() {
                         )}
                       </For>
                     </div>
-                  </a>
+                  </div>
                 </div>
               </li>
             </Show>

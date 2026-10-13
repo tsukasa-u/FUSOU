@@ -8,7 +8,7 @@ import {
   useSlotItems,
 } from "../../utility/provider.tsx";
 import type { JSX } from "solid-js";
-import { createEffect, createMemo, For, Show } from "solid-js";
+import { createMemo, createSignal, For, Show } from "solid-js";
 
 import "../../css/divider.css";
 import "../../css/back_slash.css";
@@ -29,19 +29,14 @@ import type {
 import type { Ship } from "@ipc-bindings/port.ts";
 import type { SlotItem, SlotItems } from "@ipc-bindings/require_info.ts";
 
-const fleetOpenSignalMap: { [key: number]: boolean } = {
-  1: true,
-  2: false,
-  3: false,
-  4: false,
-};
-
 interface DeckPortProps {
   deck_id: number;
   fleet_name?: string;
 }
 
 export function DeckComponent(props: DeckPortProps) {
+  // eslint-disable-next-line solid/reactivity
+  const [isOpen, setIsOpen] = createSignal(props.deck_id === 1);
   const [mst_ships] = useMstShips();
   const [ships] = useShips();
   const [slot_items] = useSlotItems();
@@ -237,22 +232,16 @@ export function DeckComponent(props: DeckPortProps) {
       if (mst_ship) {
         states.push(
           set_fuel_bullet_state(
-            ship.bull ?? 0,
-            mst_ship.bull_max ?? 0,
             ship.fuel ?? 0,
             mst_ship.fuel_max ?? 0,
+            ship.bull ?? 0,
+            mst_ship.bull_max ?? 0,
           ),
         );
       }
     });
 
     return states;
-  });
-
-  createEffect(() => {
-    if (fleetOpenSignalMap[props.deck_id] == undefined) {
-      fleetOpenSignalMap[props.deck_id] = false;
-    }
   });
 
   const get_deck_name = () => {
@@ -288,14 +277,11 @@ export function DeckComponent(props: DeckPortProps) {
   return (
     <>
       <li>
-        <details open={fleetOpenSignalMap[props.deck_id]}>
-          <summary
-            class="flex"
-            onClick={() => {
-              fleetOpenSignalMap[props.deck_id] =
-                !fleetOpenSignalMap[props.deck_id];
-            }}
-          >
+        <details
+          open={isOpen()}
+          onToggle={(e) => setIsOpen(e.currentTarget.open)}
+        >
+          <summary class="flex">
             <div class="w-20 flex-none">{props.fleet_name ?? "Unknown"}</div>
             <div class="w-4 flex-none -mx-4">
               <IconChevronRightS class="h-4 w-4" />
