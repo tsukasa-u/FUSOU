@@ -6,13 +6,13 @@ import { assertResultSigningIdentity } from "./production-trust-contract.mjs";
 import { verifyTlsnRuntimeConfigIndependentInputs } from "./tlsn-runtime-config-independent-verification.mjs";
 import { assertAlpha15NotaryVerifyingKey } from "../src/origin-trust-contract.mjs";
 
-export const TLSN_RUNTIME_CONFIG_MANIFEST_SCHEMA_VERSION = 1;
-export const TLSN_RUNTIME_CONFIG_MANIFEST_SCOPE = "fusou-tlsn-runtime-config-manifest-v1";
-export const TLSN_RUNTIME_CONFIG_ENVELOPE_SCOPE = "fusou-tlsn-runtime-config-envelope-v1";
-export const TLSN_RUNTIME_CONFIG_TRUST_SCOPE = "fusou-tlsn-runtime-config-signing-root-v1";
+export const TLSN_RUNTIME_CONFIG_MANIFEST_SCHEMA_VERSION = 2;
+export const TLSN_RUNTIME_CONFIG_MANIFEST_SCOPE = "fusou-tlsn-runtime-config-manifest-v2";
+export const TLSN_RUNTIME_CONFIG_ENVELOPE_SCOPE = "fusou-tlsn-runtime-config-envelope-v2";
+export const TLSN_RUNTIME_CONFIG_TRUST_SCOPE = "fusou-tlsn-runtime-config-signing-root-v2";
 export const TLSN_RUNTIME_CONFIG_SIGNATURE_ALGORITHM = "Ed25519";
 
-const DOMAIN = Buffer.from("FUSOU-TLSN-RUNTIME-CONFIG-MANIFEST-V1\0", "ascii");
+const DOMAIN = Buffer.from("FUSOU-TLSN-RUNTIME-CONFIG-MANIFEST-V2\0", "ascii");
 const KEY_ID_PATTERN = /^[A-Za-z0-9._-]{1,128}$/;
 const BASE64URL_PATTERN = /^[A-Za-z0-9_-]+$/;
 const DIGEST_PATTERN = /^[A-Za-z0-9_-]{43}$/;
@@ -49,6 +49,7 @@ const MANIFEST_FIELDS = [
   "source",
   "compile_inputs",
   "production_authority_pins",
+  "result_registry_pins",
 ];
 const ENVELOPE_FIELDS = [
   "schema_version",
@@ -331,6 +332,35 @@ function assertManifestPayload(payload, validationTime = new Date()) {
   for (const name of AUTHORITY_PIN_FIELDS) {
     assertDigest(payload.production_authority_pins[name], name);
   }
+  assertExactKeys(
+    payload.result_registry_pins,
+    [
+      "result_registry_sha256",
+      "result_registry_envelope_sha256",
+      "result_registry_root_key_id",
+      "result_registry_root_public_key_spki",
+    ],
+    "Result registry pins",
+  );
+  assertDigest(payload.result_registry_pins.result_registry_sha256, "Result registry digest");
+  assertDigest(
+    payload.result_registry_pins.result_registry_envelope_sha256,
+    "Result registry envelope digest",
+  );
+  assertKeyId(
+    payload.result_registry_pins.result_registry_root_key_id,
+    "Result registry root key ID",
+  );
+  assertEd25519Spki(
+    payload.result_registry_pins.result_registry_root_public_key_spki,
+    "Result registry root public key",
+  );
+  const registryDigest = createHash("sha256")
+    .update(inputs.FUSOU_TLSN_RESULT_SIGNING_KEY_REGISTRY, "utf8")
+    .digest("base64url");
+  if (registryDigest !== payload.result_registry_pins.result_registry_sha256) {
+    throw new Error("Result registry digest does not match the signed compile input");
+  }
   return payload;
 }
 
@@ -432,6 +462,32 @@ export function prepareTlsnRuntimeConfigManifest({
   for (const name of AUTHORITY_PIN_FIELDS) {
     assertDigest(approvedRelease.production_authority_pins[name], `approved ${name}`);
   }
+  const registryRaw = expectedCompileInputs.FUSOU_TLSN_RESULT_SIGNING_KEY_REGISTRY;
+  const registryEnvelopeRaw =
+    approvedRelease.publicBindings.TLSN_PRODUCTION_RESULT_SIGNING_KEY_REGISTRY_ENVELOPE;
+  const registryRootKeyId =
+    approvedRelease.publicBindings.TLSN_PRODUCTION_RESULT_REGISTRY_ROOT_KEY_ID;
+  const registryRootPublicKeySpki =
+    approvedRelease.publicBindings.TLSN_PRODUCTION_RESULT_REGISTRY_ROOT_PUBLIC_KEY_SPKI;
+  if (
+    approvedRelease.publicBindings.TLSN_PRODUCTION_RESULT_SIGNING_KEY_REGISTRY !== registryRaw ||
+    approvedRelease.publicBindings.TLSN_PRODUCTION_RESULT_PUBLIC_KEY_SPKI !==
+      expectedCompileInputs.FUSOU_TLSN_RESULT_PUBLIC_KEY_SPKI ||
+    approvedRelease.publicBindings.TLSN_PRODUCTION_RESULT_SIGNER_KEY_ID !==
+      expectedCompileInputs.FUSOU_TLSN_RESULT_SIGNER_KEY_ID
+  ) {
+    throw new Error("approved Result signer bindings disagree with the compile inputs");
+  }
+  assertResultSigningIdentity({
+    registry: registryRaw,
+    registryRaw,
+    keyId: expectedCompileInputs.FUSOU_TLSN_RESULT_SIGNER_KEY_ID,
+    publicKeySpki: expectedCompileInputs.FUSOU_TLSN_RESULT_PUBLIC_KEY_SPKI,
+    registryEnvelope: registryEnvelopeRaw,
+    registryRootKeyId,
+    registryRootPublicKeySpki,
+    now: new Date(issuedAt),
+  });
 
   const payload = assertManifestPayload({
     schema_version: TLSN_RUNTIME_CONFIG_MANIFEST_SCHEMA_VERSION,
@@ -454,6 +510,16 @@ export function prepareTlsnRuntimeConfigManifest({
     },
     compile_inputs: reference.compile_inputs,
     production_authority_pins: approvedRelease.production_authority_pins,
+    result_registry_pins: {
+      result_registry_sha256: createHash("sha256")
+        .update(registryRaw, "utf8")
+        .digest("base64url"),
+      result_registry_envelope_sha256: createHash("sha256")
+        .update(registryEnvelopeRaw, "utf8")
+        .digest("base64url"),
+      result_registry_root_key_id: registryRootKeyId,
+      result_registry_root_public_key_spki: registryRootPublicKeySpki,
+    },
   });
   const payloadBytes = Buffer.from(canonicalJson(payload), "utf8");
   return {
@@ -589,8 +655,50 @@ export function verifyTlsnRuntimeConfigProductionEnvelope(rawEnvelope, {
     policy.now_ms,
   );
   return Object.freeze({
-    state: "MANIFEST_AND_SUPPLIED_EXTERNAL_PINS_VERIFIED",
+    state: "MANIFEST_AND_SIGNED_PINS_VERIFIED",
     payload: deepFreeze(payload),
     matched_inputs: matchedInputs,
   });
+}
+
+export function createTlsnRuntimeConfigPublicationObjects(rawEnvelope, verification) {
+  const verified = verifyTlsnRuntimeConfigProductionEnvelope(rawEnvelope, verification);
+  const payload = verified.payload;
+  const inputs = verification.independentInputs;
+  const artifacts = [
+    ["worker-reference", payload.source.worker_reference_sha256, inputs.worker_reference_raw],
+    [
+      "origin-inventory",
+      payload.production_authority_pins.origin_inventory_sha256,
+      inputs.origin_inventory_raw,
+    ],
+    [
+      "target-approval",
+      payload.production_authority_pins.target_approval_artifact_sha256,
+      inputs.target_approval_raw,
+    ],
+    [
+      "security-registry-set",
+      payload.production_authority_pins.security_registry_set_sha256,
+      inputs.security_registry_set_raw,
+    ],
+    [
+      "result-registry-envelope",
+      payload.result_registry_pins.result_registry_envelope_sha256,
+      inputs.result_registry_envelope_raw,
+    ],
+  ];
+  const objects = artifacts.map(([kind, digest, body]) => ({
+    key: `tlsn/runtime-config/v2/artifacts/${kind}/${digest}`,
+    content_type: "application/octet-stream",
+    cache_control: "public, max-age=31536000, immutable",
+    body: Buffer.from(body),
+  }));
+  objects.push({
+    key: "tlsn/runtime-config/v2/manifest.json",
+    content_type: "application/json",
+    cache_control: "no-store",
+    body: Buffer.from(rawEnvelope),
+  });
+  return Object.freeze(objects.map((object) => Object.freeze(object)));
 }

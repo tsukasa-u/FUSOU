@@ -66,15 +66,17 @@ function parseJsonBytes(bytes, label) {
   return { text, value };
 }
 
-function verifyWorkerReference(payload, raw, expectedDigest) {
+function verifyWorkerReference(payload, raw, expectedDigest, resultRegistryEnvelopeRaw) {
   const actualDigest = sha256Base64Url(raw);
   if (actualDigest !== expectedDigest || payload.source.worker_reference_sha256 !== expectedDigest) {
-    throw new Error("Worker reference bytes do not match the independently approved digest");
+    throw new Error("Worker reference bytes do not match the signed manifest digest");
   }
 
   const { value: reference } = parseJsonBytes(raw, "Worker reference");
   const source = payload.source;
   const cloudflare = reference.cloudflare;
+  const bindings = cloudflare?.checked_public_bindings;
+  const resultPins = payload.result_registry_pins;
   if (
     reference.schema_version !== 2 ||
     reference.scope !== "tlsn-app-approved-worker-deployment-reference" ||
@@ -94,7 +96,20 @@ function verifyWorkerReference(payload, raw, expectedDigest) {
     reference.compile_inputs?.FUSOU_TLSN_EXPECTED_DEPLOYMENT_ID !== source.logical_deployment_id ||
     reference.compile_inputs?.FUSOU_TLSN_EXPECTED_WORKER_NAME !== source.script_name ||
     reference.compile_inputs?.FUSOU_TLSN_EXPECTED_ACTIVE_VERSION_ID !== source.active_version_id ||
-    reference.compile_inputs?.FUSOU_TLSN_EXPECTED_GIT_COMMIT_SHA !== source.worker_git_commit_sha
+    reference.compile_inputs?.FUSOU_TLSN_EXPECTED_GIT_COMMIT_SHA !== source.worker_git_commit_sha ||
+    !bindings ||
+    bindings.TLSN_PRODUCTION_RESULT_PUBLIC_KEY_SPKI !==
+      payload.compile_inputs.FUSOU_TLSN_RESULT_PUBLIC_KEY_SPKI ||
+    bindings.TLSN_PRODUCTION_RESULT_SIGNER_KEY_ID !==
+      payload.compile_inputs.FUSOU_TLSN_RESULT_SIGNER_KEY_ID ||
+    bindings.TLSN_PRODUCTION_RESULT_SIGNING_KEY_REGISTRY !==
+      payload.compile_inputs.FUSOU_TLSN_RESULT_SIGNING_KEY_REGISTRY ||
+    bindings.TLSN_PRODUCTION_RESULT_SIGNING_KEY_REGISTRY_ENVELOPE !==
+      new TextDecoder("utf-8", { fatal: true }).decode(resultRegistryEnvelopeRaw) ||
+    bindings.TLSN_PRODUCTION_RESULT_REGISTRY_ROOT_KEY_ID !==
+      resultPins.result_registry_root_key_id ||
+    bindings.TLSN_PRODUCTION_RESULT_REGISTRY_ROOT_PUBLIC_KEY_SPKI !==
+      resultPins.result_registry_root_public_key_spki
   ) {
     throw new Error("Worker reference identity does not match the signed manifest");
   }
@@ -111,7 +126,7 @@ function verifyAuthorityArtifacts(payload, rawInventory, rawApproval, rawSecurit
     securitySetDigest !== expectedPins.security_registry_set_sha256 ||
     canonicalJson(payload.production_authority_pins) !== canonicalJson(expectedPins)
   ) {
-    throw new Error("Production authority artifact bytes do not match the independently approved digest set");
+    throw new Error("Production authority artifact bytes do not match the signed manifest digests");
   }
 
   const inventoryText = new TextDecoder("utf-8", { fatal: true }).decode(rawInventory);
@@ -162,7 +177,8 @@ function verifyAuthorityArtifacts(payload, rawInventory, rawApproval, rawSecurit
   };
 }
 
-function verifyResultRegistry(payload, rawEnvelope, expectedPins, validationTime) {
+function verifyResultRegistry(payload, rawEnvelope, validationTime) {
+  const expectedPins = payload.result_registry_pins;
   const registryRaw = payload.compile_inputs[RESULT_REGISTRY_INPUT];
   const registryBytes = Buffer.from(registryRaw, "utf8");
   const registryDigest = sha256Base64Url(registryBytes);
@@ -171,7 +187,7 @@ function verifyResultRegistry(payload, rawEnvelope, expectedPins, validationTime
     registryDigest !== expectedPins.result_registry_sha256 ||
     envelopeDigest !== expectedPins.result_registry_envelope_sha256
   ) {
-    throw new Error("Result signer registry bytes do not match the independently approved digests");
+    throw new Error("Result signer registry bytes do not match the signed manifest digests");
   }
 
   const { text: envelopeRaw } = parseJsonBytes(rawEnvelope, "Result signer registry envelope");
@@ -201,28 +217,25 @@ export function verifyTlsnRuntimeConfigIndependentInputs(payload, inputs, valida
     "target_approval_raw",
     "security_registry_set_raw",
     "result_registry_envelope_raw",
-    "independent_pins",
   ], "independent runtime configuration inputs");
-  const pins = inputs.independent_pins;
+  assertExactKeys(payload.production_authority_pins, [
+    "origin_inventory_sha256",
+    "target_approval_artifact_sha256",
+    "security_registry_set_sha256",
+  ], "signed Production authority pins");
+  const pins = payload.result_registry_pins;
   assertExactKeys(pins, [
-    "worker_reference_sha256",
-    "production_authority_pins",
     "result_registry_sha256",
     "result_registry_envelope_sha256",
     "result_registry_root_key_id",
     "result_registry_root_public_key_spki",
-  ], "independent runtime configuration pins");
-  assertExactKeys(pins.production_authority_pins, [
-    "origin_inventory_sha256",
-    "target_approval_artifact_sha256",
-    "security_registry_set_sha256",
-  ], "independently approved Production authority pins");
+  ], "signed Result registry pins");
 
   for (const [name, digest] of [
-    ["Worker reference", pins.worker_reference_sha256],
-    ["Origin Inventory", pins.production_authority_pins.origin_inventory_sha256],
-    ["Target Approval", pins.production_authority_pins.target_approval_artifact_sha256],
-    ["security registry set", pins.production_authority_pins.security_registry_set_sha256],
+    ["Worker reference", payload.source.worker_reference_sha256],
+    ["Origin Inventory", payload.production_authority_pins.origin_inventory_sha256],
+    ["Target Approval", payload.production_authority_pins.target_approval_artifact_sha256],
+    ["security registry set", payload.production_authority_pins.security_registry_set_sha256],
     ["Result signer registry", pins.result_registry_sha256],
     ["Result registry envelope", pins.result_registry_envelope_sha256],
   ]) {
@@ -251,24 +264,24 @@ export function verifyTlsnRuntimeConfigIndependentInputs(payload, inputs, valida
   const workerReferenceDigest = verifyWorkerReference(
     payload,
     workerReferenceRaw,
-    pins.worker_reference_sha256,
+    payload.source.worker_reference_sha256,
+    resultRegistryEnvelopeRaw,
   );
   const authorityDigests = verifyAuthorityArtifacts(
     payload,
     originInventoryRaw,
     targetApprovalRaw,
     securityRegistrySetRaw,
-    pins.production_authority_pins,
+    payload.production_authority_pins,
   );
   const registryBinding = verifyResultRegistry(
     payload,
     resultRegistryEnvelopeRaw,
-    pins,
     validationTime,
   );
 
   return Object.freeze({
-    state: "MATCHED_SUPPLIED_EXTERNAL_PINS",
+    state: "MATCHED_SIGNED_MANIFEST_PINS",
     worker_reference_sha256: workerReferenceDigest,
     ...authorityDigests,
     ...registryBinding,

@@ -3,18 +3,21 @@ use std::collections::{BTreeMap, BTreeSet};
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
 use chrono::{DateTime, SecondsFormat, Utc};
+#[cfg(feature = "tlsn-production")]
+use futures::StreamExt;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-#[cfg(feature = "tlsn-production")]
 use sha2::{Digest, Sha256};
+#[cfg(feature = "tlsn-production")]
+use std::time::Duration;
 use url::{Host, Url};
 
-const MANIFEST_SCHEMA_VERSION: u32 = 1;
-const MANIFEST_SCOPE: &str = "fusou-tlsn-runtime-config-manifest-v1";
-const ENVELOPE_SCOPE: &str = "fusou-tlsn-runtime-config-envelope-v1";
-const TRUST_SCOPE: &str = "fusou-tlsn-runtime-config-signing-root-v1";
+const MANIFEST_SCHEMA_VERSION: u32 = 2;
+const MANIFEST_SCOPE: &str = "fusou-tlsn-runtime-config-manifest-v2";
+const ENVELOPE_SCOPE: &str = "fusou-tlsn-runtime-config-envelope-v2";
+const TRUST_SCOPE: &str = "fusou-tlsn-runtime-config-signing-root-v2";
 const SIGNATURE_ALGORITHM: &str = "Ed25519";
-const SIGNATURE_DOMAIN: &[u8] = b"FUSOU-TLSN-RUNTIME-CONFIG-MANIFEST-V1\0";
+const SIGNATURE_DOMAIN: &[u8] = b"FUSOU-TLSN-RUNTIME-CONFIG-MANIFEST-V2\0";
 const ED25519_SPKI_PREFIX: &[u8] = b"\x30\x2a\x30\x05\x06\x03\x2b\x65\x70\x03\x21\x00";
 const RESULT_REGISTRY_SCOPE: &str = "tlsn-result-signing-key-registry";
 #[cfg(feature = "tlsn-production")]
@@ -47,6 +50,7 @@ pub enum RuntimeConfigManifestError {
     Invalid(&'static str),
     InvalidSignature,
     InvalidResultRegistrySignature,
+    Transport(&'static str),
 }
 
 impl std::fmt::Display for RuntimeConfigManifestError {
@@ -63,6 +67,12 @@ impl std::fmt::Display for RuntimeConfigManifestError {
             }
             Self::InvalidResultRegistrySignature => {
                 formatter.write_str("Result registry signature verification failed")
+            }
+            Self::Transport(reason) => {
+                write!(
+                    formatter,
+                    "runtime configuration transport failed: {reason}"
+                )
             }
         }
     }
@@ -94,6 +104,15 @@ pub struct ProductionAuthorityPins {
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
+pub struct ResultRegistryPins {
+    pub result_registry_sha256: String,
+    pub result_registry_envelope_sha256: String,
+    pub result_registry_root_key_id: String,
+    pub result_registry_root_public_key_spki: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
 pub struct RuntimeConfigManifestPayload {
     pub schema_version: u32,
     pub scope: String,
@@ -105,6 +124,7 @@ pub struct RuntimeConfigManifestPayload {
     pub source: RuntimeConfigManifestSource,
     pub compile_inputs: BTreeMap<String, String>,
     pub production_authority_pins: ProductionAuthorityPins,
+    pub result_registry_pins: ResultRegistryPins,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -126,6 +146,43 @@ pub struct RuntimeConfigTrustedSigner {
     pub public_key_spki: String,
 }
 
+const RUNTIME_CONFIG_MANIFEST_URL_PATH: &str = "/tlsn/runtime-config/v2/manifest.json";
+#[cfg(feature = "tlsn-production")]
+const MAX_RUNTIME_CONFIG_ARTIFACT_BYTES: usize = 1_048_576;
+const EMBEDDED_RUNTIME_CONFIG_MANIFEST_URL: Option<&str> = None;
+const EMBEDDED_RUNTIME_CONFIG_SIGNER_KEY_ID: Option<&str> = None;
+const EMBEDDED_RUNTIME_CONFIG_SIGNER_PUBLIC_KEY_SPKI: Option<&str> = None;
+
+#[derive(Clone, Debug)]
+pub struct RuntimeConfigBootstrap {
+    manifest_url: Url,
+    trusted_signer: RuntimeConfigTrustedSigner,
+}
+
+impl RuntimeConfigBootstrap {
+    pub fn from_embedded() -> Result<Self, RuntimeConfigManifestError> {
+        let (Some(manifest_url), Some(key_id), Some(public_key_spki)) = (
+            EMBEDDED_RUNTIME_CONFIG_MANIFEST_URL,
+            EMBEDDED_RUNTIME_CONFIG_SIGNER_KEY_ID,
+            EMBEDDED_RUNTIME_CONFIG_SIGNER_PUBLIC_KEY_SPKI,
+        ) else {
+            return Err(RuntimeConfigManifestError::Invalid(
+                "Production Runtime Config bootstrap is not registered",
+            ));
+        };
+        let bootstrap = Self {
+            manifest_url: validate_runtime_config_manifest_url(manifest_url)?,
+            trusted_signer: RuntimeConfigTrustedSigner {
+                scope: TRUST_SCOPE.to_owned(),
+                key_id: key_id.to_owned(),
+                public_key_spki: public_key_spki.to_owned(),
+            },
+        };
+        validate_trusted_signer(&bootstrap.trusted_signer)?;
+        Ok(bootstrap)
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct RuntimeConfigVerificationPolicy {
     pub now: DateTime<Utc>,
@@ -136,26 +193,8 @@ pub struct RuntimeConfigVerificationPolicy {
     pub max_envelope_bytes: usize,
 }
 
-#[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
-pub struct IndependentlyExpectedProductionAuthorityPins {
-    pub origin_inventory_sha256: String,
-    pub target_approval_artifact_sha256: String,
-    pub security_registry_set_sha256: String,
-}
-
-#[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
-pub struct RuntimeConfigIndependentPins {
-    pub worker_reference_sha256: String,
-    pub production_authority_pins: IndependentlyExpectedProductionAuthorityPins,
-    pub result_registry_sha256: String,
-    pub result_registry_envelope_sha256: String,
-    pub result_registry_root_key_id: String,
-    pub result_registry_root_public_key_spki: String,
-}
-
 #[derive(Clone, Copy, Debug, Default)]
 pub struct RuntimeConfigIndependentVerificationInputs<'a> {
-    pub independent_pins: Option<&'a RuntimeConfigIndependentPins>,
     pub worker_reference_raw: Option<&'a [u8]>,
     pub origin_inventory_raw: Option<&'a [u8]>,
     pub target_approval_raw: Option<&'a [u8]>,
@@ -218,6 +257,194 @@ pub fn verify_runtime_config_manifest(
             independent_verification,
         })
     }
+}
+
+#[cfg(feature = "tlsn-production")]
+pub async fn fetch_and_verify_runtime_config_manifest(
+    bootstrap: &RuntimeConfigBootstrap,
+    policy: &RuntimeConfigVerificationPolicy,
+) -> Result<VerifiedRuntimeConfigManifest, RuntimeConfigManifestError> {
+    validate_trusted_signer(&bootstrap.trusted_signer)?;
+    validate_runtime_config_manifest_url(bootstrap.manifest_url.as_str())?;
+    validate_policy(policy)?;
+    let client = reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .connect_timeout(Duration::from_secs(5))
+        .timeout(Duration::from_secs(15))
+        .build()
+        .map_err(|_| RuntimeConfigManifestError::Transport("HTTP client initialization failed"))?;
+    let manifest_raw = fetch_bounded(
+        &client,
+        bootstrap.manifest_url.clone(),
+        policy.max_envelope_bytes,
+    )
+    .await?;
+    let payload =
+        verify_signed_runtime_config_manifest(&manifest_raw, &bootstrap.trusted_signer, policy)?;
+
+    let worker_reference = fetch_artifact(
+        &client,
+        &bootstrap.manifest_url,
+        "worker-reference",
+        &payload.source.worker_reference_sha256,
+    )
+    .await?;
+    let origin_inventory = fetch_artifact(
+        &client,
+        &bootstrap.manifest_url,
+        "origin-inventory",
+        &payload.production_authority_pins.origin_inventory_sha256,
+    )
+    .await?;
+    let target_approval = fetch_artifact(
+        &client,
+        &bootstrap.manifest_url,
+        "target-approval",
+        &payload
+            .production_authority_pins
+            .target_approval_artifact_sha256,
+    )
+    .await?;
+    let security_registry_set = fetch_artifact(
+        &client,
+        &bootstrap.manifest_url,
+        "security-registry-set",
+        &payload
+            .production_authority_pins
+            .security_registry_set_sha256,
+    )
+    .await?;
+    let result_registry_envelope = fetch_artifact(
+        &client,
+        &bootstrap.manifest_url,
+        "result-registry-envelope",
+        &payload.result_registry_pins.result_registry_envelope_sha256,
+    )
+    .await?;
+    let independent_inputs = RuntimeConfigIndependentVerificationInputs {
+        worker_reference_raw: Some(&worker_reference),
+        origin_inventory_raw: Some(&origin_inventory),
+        target_approval_raw: Some(&target_approval),
+        security_registry_set_raw: Some(&security_registry_set),
+        result_registry_envelope_raw: Some(&result_registry_envelope),
+    };
+    verify_runtime_config_manifest(
+        &manifest_raw,
+        &bootstrap.trusted_signer,
+        policy,
+        Some(&independent_inputs),
+    )
+}
+
+fn validate_runtime_config_manifest_url(raw: &str) -> Result<Url, RuntimeConfigManifestError> {
+    let url = Url::parse(raw).map_err(|_| {
+        RuntimeConfigManifestError::Invalid("Runtime Config manifest URL is invalid")
+    })?;
+    if url.scheme() != "https"
+        || !matches!(url.host(), Some(Host::Domain(host)) if is_dns_hostname(host))
+        || !url.username().is_empty()
+        || url.password().is_some()
+        || url.port().is_some()
+        || url.query().is_some()
+        || url.fragment().is_some()
+        || url.path() != RUNTIME_CONFIG_MANIFEST_URL_PATH
+        || url.as_str() != raw
+    {
+        return Err(RuntimeConfigManifestError::Invalid(
+            "Runtime Config manifest URL must be a canonical HTTPS DNS URL",
+        ));
+    }
+    Ok(url)
+}
+
+#[cfg(feature = "tlsn-production")]
+fn runtime_config_artifact_url(
+    manifest_url: &Url,
+    kind: &str,
+    digest: &str,
+) -> Result<Url, RuntimeConfigManifestError> {
+    validate_digest(digest)?;
+    let mut url = manifest_url.clone();
+    let mut segments = url.path_segments_mut().map_err(|_| {
+        RuntimeConfigManifestError::Invalid("Runtime Config artifact URL cannot be constructed")
+    })?;
+    segments.pop().push("artifacts").push(kind).push(digest);
+    drop(segments);
+    Ok(url)
+}
+
+#[cfg(feature = "tlsn-production")]
+async fn fetch_artifact(
+    client: &reqwest::Client,
+    manifest_url: &Url,
+    kind: &str,
+    digest: &str,
+) -> Result<Vec<u8>, RuntimeConfigManifestError> {
+    let url = runtime_config_artifact_url(manifest_url, kind, digest)?;
+    fetch_bounded(client, url, MAX_RUNTIME_CONFIG_ARTIFACT_BYTES).await
+}
+
+#[cfg(feature = "tlsn-production")]
+async fn fetch_bounded(
+    client: &reqwest::Client,
+    url: Url,
+    max_bytes: usize,
+) -> Result<Vec<u8>, RuntimeConfigManifestError> {
+    let response = client
+        .get(url.clone())
+        .header(
+            reqwest::header::ACCEPT,
+            "application/json, application/octet-stream",
+        )
+        .send()
+        .await
+        .map_err(|_| RuntimeConfigManifestError::Transport("request failed"))?;
+    if response.status() != reqwest::StatusCode::OK || response.url() != &url {
+        return Err(RuntimeConfigManifestError::Transport(
+            "endpoint returned an unexpected status or URL",
+        ));
+    }
+    if response
+        .content_length()
+        .is_some_and(|length| length > max_bytes as u64)
+    {
+        return Err(RuntimeConfigManifestError::Transport(
+            "response exceeds the byte limit",
+        ));
+    }
+    let mut body = Vec::new();
+    let mut stream = response.bytes_stream();
+    while let Some(chunk) = stream.next().await {
+        let chunk =
+            chunk.map_err(|_| RuntimeConfigManifestError::Transport("response body failed"))?;
+        append_bounded_chunk(&mut body, &chunk, max_bytes)?;
+    }
+    if body.is_empty() {
+        return Err(RuntimeConfigManifestError::Transport(
+            "endpoint returned an empty object",
+        ));
+    }
+    Ok(body)
+}
+
+#[cfg(feature = "tlsn-production")]
+fn append_bounded_chunk(
+    body: &mut Vec<u8>,
+    chunk: &[u8],
+    max_bytes: usize,
+) -> Result<(), RuntimeConfigManifestError> {
+    let Some(size) = body.len().checked_add(chunk.len()) else {
+        return Err(RuntimeConfigManifestError::Transport(
+            "response exceeds the byte limit",
+        ));
+    };
+    if size > max_bytes {
+        return Err(RuntimeConfigManifestError::Transport(
+            "response exceeds the byte limit",
+        ));
+    }
+    body.extend_from_slice(chunk);
+    Ok(())
 }
 
 fn verify_signed_runtime_config_manifest(
@@ -340,11 +567,6 @@ fn verify_independent_runtime_config_inputs(
     policy: &RuntimeConfigVerificationPolicy,
     inputs: &RuntimeConfigIndependentVerificationInputs<'_>,
 ) -> Result<RuntimeConfigIndependentVerificationSummary, RuntimeConfigManifestError> {
-    let pins = inputs
-        .independent_pins
-        .ok_or(RuntimeConfigManifestError::Invalid(
-            "independent Production digest pins are missing",
-        ))?;
     let worker_reference_raw =
         inputs
             .worker_reference_raw
@@ -376,15 +598,19 @@ fn verify_independent_runtime_config_inputs(
                 "raw Result registry envelope bytes are missing",
             ))?;
 
+    let pins = &payload.result_registry_pins;
     for digest in [
-        pins.worker_reference_sha256.as_str(),
-        pins.production_authority_pins
+        payload.source.worker_reference_sha256.as_str(),
+        payload
+            .production_authority_pins
             .origin_inventory_sha256
             .as_str(),
-        pins.production_authority_pins
+        payload
+            .production_authority_pins
             .target_approval_artifact_sha256
             .as_str(),
-        pins.production_authority_pins
+        payload
+            .production_authority_pins
             .security_registry_set_sha256
             .as_str(),
         pins.result_registry_sha256.as_str(),
@@ -397,14 +623,13 @@ fn verify_independent_runtime_config_inputs(
 
     let worker_reference_sha256 = sha256_base64url(worker_reference_raw);
     if worker_reference_raw.is_empty()
-        || worker_reference_sha256 != pins.worker_reference_sha256
         || worker_reference_sha256 != payload.source.worker_reference_sha256
     {
         return Err(RuntimeConfigManifestError::Invalid(
-            "Worker reference bytes do not match the independent expected digest",
+            "Worker reference bytes do not match the signed manifest digest",
         ));
     }
-    validate_worker_reference_binding(payload, worker_reference_raw)?;
+    validate_worker_reference_binding(payload, worker_reference_raw, result_registry_envelope_raw)?;
 
     let origin_inventory_sha256 = sha256_base64url(origin_inventory_raw);
     let target_approval_artifact_sha256 = sha256_base64url(target_approval_raw);
@@ -412,28 +637,18 @@ fn verify_independent_runtime_config_inputs(
     if origin_inventory_raw.is_empty()
         || target_approval_raw.is_empty()
         || security_registry_set_raw.is_empty()
-        || origin_inventory_sha256 != pins.production_authority_pins.origin_inventory_sha256
+        || origin_inventory_sha256 != payload.production_authority_pins.origin_inventory_sha256
         || target_approval_artifact_sha256
-            != pins
+            != payload
                 .production_authority_pins
                 .target_approval_artifact_sha256
         || security_registry_set_sha256
-            != pins.production_authority_pins.security_registry_set_sha256
-        || payload.production_authority_pins.origin_inventory_sha256
-            != pins.production_authority_pins.origin_inventory_sha256
-        || payload
-            .production_authority_pins
-            .target_approval_artifact_sha256
-            != pins
+            != payload
                 .production_authority_pins
-                .target_approval_artifact_sha256
-        || payload
-            .production_authority_pins
-            .security_registry_set_sha256
-            != pins.production_authority_pins.security_registry_set_sha256
+                .security_registry_set_sha256
     {
         return Err(RuntimeConfigManifestError::Invalid(
-            "Production authority artifact bytes do not match independent expected digests",
+            "Production authority artifact bytes do not match signed manifest digests",
         ));
     }
     validate_authority_artifacts(
@@ -458,7 +673,7 @@ fn verify_independent_runtime_config_inputs(
         || result_registry_envelope_sha256 != pins.result_registry_envelope_sha256
     {
         return Err(RuntimeConfigManifestError::Invalid(
-            "Result registry bytes do not match independent expected digests",
+            "Result registry bytes do not match signed manifest digests",
         ));
     }
     verify_result_registry_envelope(
@@ -487,6 +702,7 @@ fn verify_independent_runtime_config_inputs(
 fn validate_worker_reference_binding(
     payload: &RuntimeConfigManifestPayload,
     raw_reference: &[u8],
+    result_registry_envelope_raw: &[u8],
 ) -> Result<(), RuntimeConfigManifestError> {
     let reference: Value = serde_json::from_slice(raw_reference)
         .map_err(|_| RuntimeConfigManifestError::Invalid("Worker reference JSON is invalid"))?;
@@ -495,6 +711,17 @@ fn validate_worker_reference_binding(
         .ok_or(RuntimeConfigManifestError::Invalid(
             "Worker reference Cloudflare identity is missing",
         ))?;
+    let checked_public_bindings =
+        cloudflare
+            .get("checked_public_bindings")
+            .ok_or(RuntimeConfigManifestError::Invalid(
+                "Worker reference public bindings are missing",
+            ))?;
+    let result_pins = &payload.result_registry_pins;
+    let result_registry_envelope =
+        std::str::from_utf8(result_registry_envelope_raw).map_err(|_| {
+            RuntimeConfigManifestError::Invalid("Result registry envelope is not UTF-8")
+        })?;
     let release_context =
         reference
             .get("release_context")
@@ -532,6 +759,39 @@ fn validate_worker_reference_binding(
             .get("git_commit_sha")
             .and_then(Value::as_str)
             != Some(payload.source.worker_git_commit_sha.as_str())
+        || checked_public_bindings
+            .get("TLSN_PRODUCTION_RESULT_PUBLIC_KEY_SPKI")
+            .and_then(Value::as_str)
+            != payload
+                .compile_inputs
+                .get("FUSOU_TLSN_RESULT_PUBLIC_KEY_SPKI")
+                .map(String::as_str)
+        || checked_public_bindings
+            .get("TLSN_PRODUCTION_RESULT_SIGNER_KEY_ID")
+            .and_then(Value::as_str)
+            != payload
+                .compile_inputs
+                .get("FUSOU_TLSN_RESULT_SIGNER_KEY_ID")
+                .map(String::as_str)
+        || checked_public_bindings
+            .get("TLSN_PRODUCTION_RESULT_SIGNING_KEY_REGISTRY")
+            .and_then(Value::as_str)
+            != payload
+                .compile_inputs
+                .get("FUSOU_TLSN_RESULT_SIGNING_KEY_REGISTRY")
+                .map(String::as_str)
+        || checked_public_bindings
+            .get("TLSN_PRODUCTION_RESULT_SIGNING_KEY_REGISTRY_ENVELOPE")
+            .and_then(Value::as_str)
+            != Some(result_registry_envelope)
+        || checked_public_bindings
+            .get("TLSN_PRODUCTION_RESULT_REGISTRY_ROOT_KEY_ID")
+            .and_then(Value::as_str)
+            != Some(result_pins.result_registry_root_key_id.as_str())
+        || checked_public_bindings
+            .get("TLSN_PRODUCTION_RESULT_REGISTRY_ROOT_PUBLIC_KEY_SPKI")
+            .and_then(Value::as_str)
+            != Some(result_pins.result_registry_root_public_key_spki.as_str())
     {
         return Err(RuntimeConfigManifestError::Invalid(
             "Worker reference identity does not match the signed manifest",
@@ -707,7 +967,7 @@ fn verify_result_registry_envelope(
     payload: &RuntimeConfigManifestPayload,
     validation_time: DateTime<Utc>,
     raw_envelope: &[u8],
-    pins: &RuntimeConfigIndependentPins,
+    pins: &ResultRegistryPins,
     result_registry_sha256: &str,
 ) -> Result<(), RuntimeConfigManifestError> {
     let envelope: SignedResultRegistryEnvelope =
@@ -726,7 +986,7 @@ fn verify_result_registry_envelope(
         || envelope.root_public_key_spki != pins.result_registry_root_public_key_spki
     {
         return Err(RuntimeConfigManifestError::Invalid(
-            "Result registry root does not match the independent trust pin",
+            "Result registry root does not match the signed manifest pin",
         ));
     }
     validate_digest(&envelope.registry_sha256)?;
@@ -772,7 +1032,6 @@ fn verify_result_registry_envelope(
     Ok(())
 }
 
-#[cfg(feature = "tlsn-production")]
 fn sha256_base64url(raw: &[u8]) -> String {
     URL_SAFE_NO_PAD.encode(Sha256::digest(raw))
 }
@@ -1007,6 +1266,25 @@ fn validate_payload(
             .production_authority_pins
             .security_registry_set_sha256,
     )?;
+    validate_digest(&payload.result_registry_pins.result_registry_sha256)?;
+    validate_digest(&payload.result_registry_pins.result_registry_envelope_sha256)?;
+    validate_key_id(&payload.result_registry_pins.result_registry_root_key_id)?;
+    decode_ed25519_spki(
+        &payload
+            .result_registry_pins
+            .result_registry_root_public_key_spki,
+    )?;
+    let result_registry_sha256 = sha256_base64url(
+        inputs
+            .get("FUSOU_TLSN_RESULT_SIGNING_KEY_REGISTRY")
+            .expect("complete input inventory checked")
+            .as_bytes(),
+    );
+    if result_registry_sha256 != payload.result_registry_pins.result_registry_sha256 {
+        return Err(RuntimeConfigManifestError::Invalid(
+            "Result registry digest does not match the signed compile input",
+        ));
+    }
     Ok(())
 }
 
@@ -1468,6 +1746,8 @@ mod tests {
     use super::*;
     use flate2::read::GzDecoder;
     use std::io::Read;
+    #[cfg(feature = "tlsn-production")]
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
     #[derive(Deserialize)]
     struct TestVector {
@@ -1495,7 +1775,6 @@ mod tests {
         test_only: bool,
         trusted_signer: RuntimeConfigTrustedSigner,
         policy: IndependentVerificationPolicyVector,
-        independent_pins: RuntimeConfigIndependentPins,
         manifest_envelope_utf8: String,
         inputs_base64url: BTreeMap<String, String>,
     }
@@ -1512,12 +1791,8 @@ mod tests {
 
     #[cfg(feature = "tlsn-production")]
     impl IndependentVerificationRawInputs {
-        fn verification_inputs<'a>(
-            &'a self,
-            pins: Option<&'a RuntimeConfigIndependentPins>,
-        ) -> RuntimeConfigIndependentVerificationInputs<'a> {
+        fn verification_inputs(&self) -> RuntimeConfigIndependentVerificationInputs<'_> {
             RuntimeConfigIndependentVerificationInputs {
-                independent_pins: pins,
                 worker_reference_raw: Some(&self.worker_reference),
                 origin_inventory_raw: Some(&self.origin_inventory),
                 target_approval_raw: Some(&self.target_approval),
@@ -1534,10 +1809,10 @@ mod tests {
         RuntimeConfigVerificationPolicy,
     ) {
         let fixture: IndependentVerificationVector = serde_json::from_str(include_str!(
-            "../../../FUSOU-TLSN-VERIFICATION-WORKER/scripts/fixtures/tlsn-runtime-config-independent-v1-vector.json"
+            "../../../FUSOU-TLSN-VERIFICATION-WORKER/scripts/fixtures/tlsn-runtime-config-independent-v2-vector.json"
         ))
         .unwrap();
-        assert_eq!(fixture.schema_version, 1);
+        assert_eq!(fixture.schema_version, 2);
         assert!(fixture.test_only);
         let bytes = |name: &str| {
             URL_SAFE_NO_PAD
@@ -1564,7 +1839,7 @@ mod tests {
 
     fn load_test_vector() -> (Vec<u8>, TestVector, RuntimeConfigManifestPayload) {
         let fixture: TestVector = serde_json::from_str(include_str!(
-            "../../../FUSOU-TLSN-VERIFICATION-WORKER/scripts/fixtures/tlsn-runtime-config-manifest-v1-vector.json"
+            "../../../FUSOU-TLSN-VERIFICATION-WORKER/scripts/fixtures/tlsn-runtime-config-manifest-v2-vector.json"
         ))
         .unwrap();
         assert!(fixture.test_only);
@@ -1595,12 +1870,163 @@ mod tests {
         }
     }
 
+    #[cfg(feature = "tlsn-production")]
+    async fn serve_http_response(
+        response: Vec<u8>,
+        delay: Duration,
+    ) -> (Url, tokio::task::JoinHandle<()>) {
+        let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
+            .await
+            .unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            let mut request = [0_u8; 2048];
+            let _ = stream.read(&mut request).await;
+            tokio::time::sleep(delay).await;
+            let _ = stream.write_all(&response).await;
+        });
+        (
+            Url::parse(&format!("http://{address}/object")).unwrap(),
+            server,
+        )
+    }
+
+    #[cfg(feature = "tlsn-production")]
+    fn test_http_client(timeout: Duration) -> reqwest::Client {
+        reqwest::Client::builder()
+            .redirect(reqwest::redirect::Policy::none())
+            .timeout(timeout)
+            .build()
+            .unwrap()
+    }
+
     fn trusted_signer(fixture: TestVector) -> RuntimeConfigTrustedSigner {
         RuntimeConfigTrustedSigner {
             scope: fixture.trusted_signer.scope,
             key_id: fixture.trusted_signer.key_id,
             public_key_spki: fixture.trusted_signer.public_key_spki,
         }
+    }
+
+    #[test]
+    fn production_bootstrap_remains_blocked_until_endpoint_and_root_are_registered() {
+        assert_eq!(
+            RuntimeConfigBootstrap::from_embedded().unwrap_err(),
+            RuntimeConfigManifestError::Invalid(
+                "Production Runtime Config bootstrap is not registered"
+            )
+        );
+    }
+
+    #[test]
+    fn bootstrap_endpoint_requires_the_canonical_https_dns_path() {
+        let valid = "https://runtime-config.example.org/tlsn/runtime-config/v2/manifest.json";
+        assert_eq!(
+            validate_runtime_config_manifest_url(valid)
+                .unwrap()
+                .as_str(),
+            valid
+        );
+        for invalid in [
+            "http://runtime-config.example.org/tlsn/runtime-config/v2/manifest.json",
+            "https://user@runtime-config.example.org/tlsn/runtime-config/v2/manifest.json",
+            "https://127.0.0.1/tlsn/runtime-config/v2/manifest.json",
+            "https://runtime-config.example.org:443/tlsn/runtime-config/v2/manifest.json",
+            "https://runtime-config.example.org/tlsn/runtime-config/v2/manifest.json?latest",
+            "https://runtime-config.example.org/health",
+        ] {
+            assert!(
+                validate_runtime_config_manifest_url(invalid).is_err(),
+                "{invalid}"
+            );
+        }
+    }
+
+    #[cfg(feature = "tlsn-production")]
+    #[test]
+    fn artifact_locations_are_deterministic_and_chunk_assembly_is_bounded() {
+        let manifest_url = validate_runtime_config_manifest_url(
+            "https://runtime-config.example.org/tlsn/runtime-config/v2/manifest.json",
+        )
+        .unwrap();
+        let digest = URL_SAFE_NO_PAD.encode([0_u8; 32]);
+        assert_eq!(
+            runtime_config_artifact_url(&manifest_url, "worker-reference", &digest)
+                .unwrap()
+                .as_str(),
+            format!(
+                "https://runtime-config.example.org/tlsn/runtime-config/v2/artifacts/worker-reference/{digest}"
+            )
+        );
+
+        let mut body = Vec::new();
+        append_bounded_chunk(&mut body, b"123", 4).unwrap();
+        assert_eq!(
+            append_bounded_chunk(&mut body, b"45", 4),
+            Err(RuntimeConfigManifestError::Transport(
+                "response exceeds the byte limit"
+            ))
+        );
+        assert_eq!(body, b"123");
+    }
+
+    #[cfg(feature = "tlsn-production")]
+    #[tokio::test]
+    async fn fetch_transport_rejects_redirects_and_declared_oversize_bodies() {
+        let (redirect_url, redirect_server) = serve_http_response(
+            b"HTTP/1.1 302 Found\r\nLocation: https://other.example.org/object\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".to_vec(),
+            Duration::ZERO,
+        )
+        .await;
+        assert_eq!(
+            fetch_bounded(&test_http_client(Duration::from_secs(1)), redirect_url, 16,).await,
+            Err(RuntimeConfigManifestError::Transport(
+                "endpoint returned an unexpected status or URL"
+            ))
+        );
+        redirect_server.await.unwrap();
+
+        let (oversized_url, oversized_server) = serve_http_response(
+            b"HTTP/1.1 200 OK\r\nContent-Length: 5\r\nConnection: close\r\n\r\n12345".to_vec(),
+            Duration::ZERO,
+        )
+        .await;
+        assert_eq!(
+            fetch_bounded(&test_http_client(Duration::from_secs(1)), oversized_url, 4,).await,
+            Err(RuntimeConfigManifestError::Transport(
+                "response exceeds the byte limit"
+            ))
+        );
+        oversized_server.await.unwrap();
+    }
+
+    #[cfg(feature = "tlsn-production")]
+    #[tokio::test]
+    async fn fetch_transport_caps_streamed_bodies_and_enforces_request_timeout() {
+        let (oversized_url, oversized_server) = serve_http_response(
+            b"HTTP/1.1 200 OK\r\nConnection: close\r\n\r\n12345".to_vec(),
+            Duration::ZERO,
+        )
+        .await;
+        assert_eq!(
+            fetch_bounded(&test_http_client(Duration::from_secs(1)), oversized_url, 4,).await,
+            Err(RuntimeConfigManifestError::Transport(
+                "response exceeds the byte limit"
+            ))
+        );
+        oversized_server.await.unwrap();
+
+        let (slow_url, slow_server) = serve_http_response(
+            b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok".to_vec(),
+            Duration::from_millis(50),
+        )
+        .await;
+        assert_eq!(
+            fetch_bounded(&test_http_client(Duration::from_millis(5)), slow_url, 16,).await,
+            Err(RuntimeConfigManifestError::Transport("request failed"))
+        );
+        slow_server.await.unwrap();
     }
 
     #[cfg(feature = "tlsn-production")]
@@ -2217,25 +2643,25 @@ mod tests {
 
     #[cfg(feature = "tlsn-production")]
     #[test]
-    fn verifies_the_shared_independent_input_vector_and_returns_only_matched_bindings() {
+    fn verifies_the_shared_signed_pin_vector_and_returns_only_matched_bindings() {
         let (fixture, raw_inputs, policy) = load_independent_verification_vector();
         let verified = verify_runtime_config_manifest(
             fixture.manifest_envelope_utf8.as_bytes(),
             &fixture.trusted_signer,
             &policy,
-            Some(&raw_inputs.verification_inputs(Some(&fixture.independent_pins))),
+            Some(&raw_inputs.verification_inputs()),
         )
         .unwrap();
 
         assert_eq!(verified.payload().epoch, "1");
         assert_eq!(
             verified.independent_verification().worker_reference_sha256,
-            fixture.independent_pins.worker_reference_sha256
+            verified.payload().source.worker_reference_sha256
         );
         assert_eq!(
             verified.independent_verification().origin_inventory_sha256,
-            fixture
-                .independent_pins
+            verified
+                .payload()
                 .production_authority_pins
                 .origin_inventory_sha256
         );
@@ -2243,8 +2669,8 @@ mod tests {
             verified
                 .independent_verification()
                 .target_approval_artifact_sha256,
-            fixture
-                .independent_pins
+            verified
+                .payload()
                 .production_authority_pins
                 .target_approval_artifact_sha256
         );
@@ -2252,7 +2678,10 @@ mod tests {
             verified
                 .independent_verification()
                 .result_registry_root_key_id,
-            fixture.independent_pins.result_registry_root_key_id
+            verified
+                .payload()
+                .result_registry_pins
+                .result_registry_root_key_id
         );
     }
 
@@ -2280,10 +2709,10 @@ mod tests {
                 )
                 .unwrap(),
                 &policy,
-                &raw_inputs.verification_inputs(None),
+                &RuntimeConfigIndependentVerificationInputs::default(),
             ),
             Err(RuntimeConfigManifestError::Invalid(
-                "independent Production digest pins are missing"
+                "raw approved Worker reference bytes are missing"
             ))
         );
 
@@ -2300,31 +2729,27 @@ mod tests {
                 fixture.manifest_envelope_utf8.as_bytes(),
                 &fixture.trusted_signer,
                 &policy,
-                Some(&changed_reference.verification_inputs(Some(&fixture.independent_pins))),
+                Some(&changed_reference.verification_inputs()),
             ),
             Err(RuntimeConfigManifestError::Invalid(
-                "Worker reference bytes do not match the independent expected digest"
+                "Worker reference bytes do not match the signed manifest digest"
             ))
         );
 
-        let mut swapped_pins = fixture.independent_pins.clone();
+        let mut swapped_authority_artifacts = raw_inputs.clone();
         std::mem::swap(
-            &mut swapped_pins
-                .production_authority_pins
-                .origin_inventory_sha256,
-            &mut swapped_pins
-                .production_authority_pins
-                .target_approval_artifact_sha256,
+            &mut swapped_authority_artifacts.origin_inventory,
+            &mut swapped_authority_artifacts.target_approval,
         );
         assert_eq!(
             verify_runtime_config_manifest(
                 fixture.manifest_envelope_utf8.as_bytes(),
                 &fixture.trusted_signer,
                 &policy,
-                Some(&raw_inputs.verification_inputs(Some(&swapped_pins))),
+                Some(&swapped_authority_artifacts.verification_inputs()),
             ),
             Err(RuntimeConfigManifestError::Invalid(
-                "Production authority artifact bytes do not match independent expected digests"
+                "Production authority artifact bytes do not match signed manifest digests"
             ))
         );
 
@@ -2335,10 +2760,10 @@ mod tests {
                 fixture.manifest_envelope_utf8.as_bytes(),
                 &fixture.trusted_signer,
                 &policy,
-                Some(&changed_approval.verification_inputs(Some(&fixture.independent_pins))),
+                Some(&changed_approval.verification_inputs()),
             ),
             Err(RuntimeConfigManifestError::Invalid(
-                "Production authority artifact bytes do not match independent expected digests"
+                "Production authority artifact bytes do not match signed manifest digests"
             ))
         );
 
@@ -2355,84 +2780,105 @@ mod tests {
             verify_independent_runtime_config_inputs(
                 &changed_manifest,
                 &policy,
-                &raw_inputs.verification_inputs(Some(&fixture.independent_pins)),
+                &raw_inputs.verification_inputs(),
             ),
             Err(RuntimeConfigManifestError::Invalid(
-                "Production authority artifact bytes do not match independent expected digests"
+                "Production authority artifact bytes do not match signed manifest digests"
             ))
         );
     }
 
     #[cfg(feature = "tlsn-production")]
     #[test]
-    fn requires_pinned_result_registry_root_and_valid_signature_over_matching_registry() {
+    fn requires_signed_result_registry_root_and_valid_signature_over_matching_registry() {
         let (fixture, raw_inputs, policy) = load_independent_verification_vector();
-        let mut wrong_root = fixture.independent_pins.clone();
+        let payload = verify_signed_runtime_config_manifest(
+            fixture.manifest_envelope_utf8.as_bytes(),
+            &fixture.trusted_signer,
+            &policy,
+        )
+        .unwrap();
+        let mut wrong_root = payload.result_registry_pins.clone();
         wrong_root.result_registry_root_key_id = "untrusted-root".to_owned();
+        assert_eq!(
+            verify_result_registry_envelope(
+                &payload,
+                policy.now,
+                &raw_inputs.result_registry_envelope,
+                &wrong_root,
+                &payload.result_registry_pins.result_registry_sha256,
+            ),
+            Err(RuntimeConfigManifestError::Invalid(
+                "Result registry root does not match the signed manifest pin"
+            ))
+        );
+
+        let mut changed_envelope_bytes = serde_json::to_vec(
+            &serde_json::from_slice::<Value>(&raw_inputs.result_registry_envelope).unwrap(),
+        )
+        .unwrap();
+        changed_envelope_bytes.insert(0, b' ');
+        let mut changed_raw_inputs = raw_inputs.clone();
+        changed_raw_inputs.result_registry_envelope = changed_envelope_bytes;
         assert_eq!(
             verify_runtime_config_manifest(
                 fixture.manifest_envelope_utf8.as_bytes(),
                 &fixture.trusted_signer,
                 &policy,
-                Some(&raw_inputs.verification_inputs(Some(&wrong_root))),
+                Some(&changed_raw_inputs.verification_inputs()),
             ),
             Err(RuntimeConfigManifestError::Invalid(
-                "Result registry root does not match the independent trust pin"
+                "Worker reference identity does not match the signed manifest"
             ))
         );
 
-        let reordered_envelope = IndependentVerificationRawInputs {
-            worker_reference: raw_inputs.worker_reference.clone(),
-            origin_inventory: raw_inputs.origin_inventory.clone(),
-            target_approval: raw_inputs.target_approval.clone(),
-            security_registry_set: raw_inputs.security_registry_set.clone(),
-            result_registry_envelope: serde_json::to_vec(
-                &serde_json::from_slice::<Value>(&raw_inputs.result_registry_envelope).unwrap(),
-            )
-            .unwrap(),
-        };
-        let mut reordered_pins = fixture.independent_pins.clone();
-        reordered_pins.result_registry_envelope_sha256 =
-            sha256_base64url(&reordered_envelope.result_registry_envelope);
-        assert!(verify_runtime_config_manifest(
-            fixture.manifest_envelope_utf8.as_bytes(),
-            &fixture.trusted_signer,
-            &policy,
-            Some(&reordered_envelope.verification_inputs(Some(&reordered_pins))),
-        )
-        .is_ok());
-
-        let mut changed_signature = IndependentVerificationRawInputs {
-            worker_reference: raw_inputs.worker_reference.clone(),
-            origin_inventory: raw_inputs.origin_inventory.clone(),
-            target_approval: raw_inputs.target_approval.clone(),
-            security_registry_set: raw_inputs.security_registry_set.clone(),
-            result_registry_envelope: raw_inputs.result_registry_envelope.clone(),
-        };
+        let mut changed_signature = raw_inputs.result_registry_envelope.clone();
         let marker = b"\"signature_base64url\":\"";
         let signature_offset = changed_signature
-            .result_registry_envelope
             .windows(marker.len())
             .position(|window| window == marker)
             .unwrap()
             + marker.len();
-        changed_signature.result_registry_envelope[signature_offset] =
-            if changed_signature.result_registry_envelope[signature_offset] == b'A' {
-                b'B'
-            } else {
-                b'A'
-            };
-        let mut updated_envelope_pin = fixture.independent_pins.clone();
-        updated_envelope_pin.result_registry_envelope_sha256 =
-            sha256_base64url(&changed_signature.result_registry_envelope);
+        changed_signature[signature_offset] = if changed_signature[signature_offset] == b'A' {
+            b'B'
+        } else {
+            b'A'
+        };
         assert_eq!(
-            verify_runtime_config_manifest(
-                fixture.manifest_envelope_utf8.as_bytes(),
-                &fixture.trusted_signer,
-                &policy,
-                Some(&changed_signature.verification_inputs(Some(&updated_envelope_pin))),
+            verify_result_registry_envelope(
+                &payload,
+                policy.now,
+                &changed_signature,
+                &payload.result_registry_pins,
+                &payload.result_registry_pins.result_registry_sha256,
             ),
             Err(RuntimeConfigManifestError::InvalidResultRegistrySignature)
+        );
+    }
+
+    #[cfg(feature = "tlsn-production")]
+    #[test]
+    fn signed_pin_mutation_fails_outer_manifest_signature_verification() {
+        let (fixture, raw_inputs, policy) = load_independent_verification_vector();
+        let mut envelope: RuntimeConfigManifestEnvelope =
+            serde_json::from_str(&fixture.manifest_envelope_utf8).unwrap();
+        let payload_bytes =
+            decode_canonical_base64url(&envelope.payload_base64url, "payload").unwrap();
+        let mut payload: RuntimeConfigManifestPayload =
+            serde_json::from_slice(&payload_bytes).unwrap();
+        payload.result_registry_pins.result_registry_root_key_id =
+            "attacker-controlled-root".to_owned();
+        envelope.payload_base64url =
+            URL_SAFE_NO_PAD.encode(canonical_json_bytes(&payload).unwrap());
+        let tampered_envelope = canonical_json_bytes(&envelope).unwrap();
+        assert_eq!(
+            verify_runtime_config_manifest(
+                &tampered_envelope,
+                &fixture.trusted_signer,
+                &policy,
+                Some(&raw_inputs.verification_inputs()),
+            ),
+            Err(RuntimeConfigManifestError::InvalidSignature)
         );
     }
 
