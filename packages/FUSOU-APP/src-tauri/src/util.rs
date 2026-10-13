@@ -269,13 +269,12 @@ pub async fn try_anonymous_auth(app: &tauri::AppHandle) {
 
     tracing::info!("Starting background anonymous authentication");
 
-    if member_id_changed {
-        if get_user_member_id().await != api_member_id {
+    if member_id_changed
+        && get_user_member_id().await != api_member_id {
             ANONYMOUS_AUTH_ATTEMPTED.store(false, Ordering::SeqCst);
             save_auth_attempt_flag(false, &None);
             return;
         }
-    }
 
     let mut device_key = match load_or_create_device_key().await {
         Ok(k) => k,

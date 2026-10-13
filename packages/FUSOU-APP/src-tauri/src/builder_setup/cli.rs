@@ -55,10 +55,7 @@ enum CliCommand {
 
 pub fn parse_invocation() -> CliInvocation {
     let cli = CliArgs::parse();
-    let app_info = match cli.command {
-        Some(CliCommand::Info { json }) => Some(AppInfoRequest { as_json: json }),
-        None => None,
-    };
+    let app_info = cli.command.map(|CliCommand::Info { json }| AppInfoRequest { as_json: json });
 
     CliInvocation {
         show_version: cli.version,

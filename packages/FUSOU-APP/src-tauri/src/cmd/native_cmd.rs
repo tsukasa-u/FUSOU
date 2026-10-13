@@ -1,7 +1,7 @@
 // use tauri::api::process::Command;
 // use std::process::Command;
 use tauri_plugin_shell::ShellExt;
-use tracing_unwrap::{OptionExt, ResultExt};
+use tracing_unwrap::OptionExt;
 use std::path::PathBuf;
 
 use crate::notify;
@@ -229,6 +229,7 @@ where
     tracing::info!("unregister AutoConfigURL");
 }
 
+#[allow(dead_code)]
 pub fn add_store<R>(app: &tauri::AppHandle<R>)
 where
     R: tauri::Runtime,

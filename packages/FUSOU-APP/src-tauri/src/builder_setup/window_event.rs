@@ -22,7 +22,8 @@ static EXTERNAL_WINDOW_SIZE_BEFORE: LazyLock<Mutex<tauri::PhysicalSize<u32>>> =
         })
     });
 
-static LAST_RESIZE_CONTEXT: LazyLock<Mutex<Option<(tauri::Window, tauri::PhysicalSize<u32>)>>> =
+type ResizeContext = Option<(tauri::Window, tauri::PhysicalSize<u32>)>;
+static LAST_RESIZE_CONTEXT: LazyLock<Mutex<ResizeContext>> =
     LazyLock::new(|| Mutex::new(None));
 
 #[cfg(target_os = "linux")]

@@ -431,7 +431,7 @@ impl ShipGrowthSender {
             }
             Err(e) => {
                 self.retry_service.trigger_retry().await;
-                Err(std::io::Error::new(std::io::ErrorKind::Other, e).into())
+                Err(std::io::Error::other(e).into())
             }
         }
     }

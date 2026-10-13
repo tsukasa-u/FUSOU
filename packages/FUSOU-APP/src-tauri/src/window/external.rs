@@ -792,13 +792,11 @@ pub fn create_external_window(app: &AppHandle, browser: Option<Browser>, browse_
         external_result
             .show()
             .expect_or_log("can not show external window");
-    } else {
-        if let Some(browser) = browser {
-            if let Err(e) = open_browser(browser, &get_game_url()) {
-                tracing::error!("Failed to open external browser: {}", e);
-            }
-        } else {
-            tracing::error!("browse_webview=false but no browser was provided");
+    } else if let Some(browser) = browser {
+        if let Err(e) = open_browser(browser, &get_game_url()) {
+            tracing::error!("Failed to open external browser: {}", e);
         }
+    } else {
+        tracing::error!("browse_webview=false but no browser was provided");
     }
 }

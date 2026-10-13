@@ -21,7 +21,7 @@ pub mod service {
     pub use fusou_storage::service::*;
 }
 
-pub use fusou_storage::{set_auth_page_launcher, set_dataset_id_resolver};
+pub use fusou_storage::set_dataset_id_resolver;
 
 pub mod snapshot;
 

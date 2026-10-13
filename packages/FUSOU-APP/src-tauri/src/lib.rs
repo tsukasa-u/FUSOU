@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use kc_api::interface;
-use tauri::{Emitter, Manager};
+use tauri::Manager;
 // use crate::notify; // access via module path since we declare below
 mod json_parser;
 
@@ -37,7 +37,7 @@ static RESOURCES_DIR: OnceCell<Mutex<PathBuf>> = OnceCell::new();
 static ROAMING_DIR: OnceCell<Mutex<PathBuf>> = OnceCell::new();
 
 async fn bootstrap_tokens_on_startup(
-    app_handle: AppHandle,
+    _app_handle: AppHandle,
     _app_handle_for_notification: AppHandle,
     storage: Arc<FileStorage>,
     auth_manager: AuthManager<FileStorage>,
@@ -48,11 +48,11 @@ async fn bootstrap_tokens_on_startup(
         // Verify token validity by attempting to get a valid access token
         // This will automatically refresh if needed, or fail if refresh token is invalid
         match auth_manager.get_access_token().await {
-            Ok(access_token) => {
+            Ok(_access_token) => {
                 tracing::info!("startup: found existing session and token is valid (or refreshed), emitting tokens to frontend");
 
                 // Load the potentially refreshed session
-                let updated_session = storage
+                let _updated_session = storage
                     .load_session()
                     .await
                     .ok()

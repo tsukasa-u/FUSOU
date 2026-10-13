@@ -6,6 +6,13 @@ use tauri::Emitter;
 
 #[cfg(dev)]
 use regex::Regex;
+#[cfg(dev)]
+use std::sync::LazyLock;
+
+#[cfg(dev)]
+static RE_METADATA: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"---\r?\n.*\r?\n.*\r?\n.*\r?\n.*\s*---\r?\n").unwrap()
+});
 
 use crate::storage::submit_data;
 
@@ -184,9 +191,8 @@ pub fn struct_selector_response(
 
     #[cfg(dev)]
     {
-        let re_metadata = Regex::new(r"---\r?\n.*\r?\n.*\r?\n.*\r?\n.*\s*---\r?\n").unwrap();
         let data_removed_metadata: String =
-            re_metadata.replace(&data_removed_svdata, "").to_string();
+            RE_METADATA.replace(&data_removed_svdata, "").to_string();
         return response_parser(name, data_removed_metadata);
     }
 
@@ -202,11 +208,9 @@ pub fn struct_selector_resquest(
 
     #[cfg(dev)]
     {
-        let re_svdata = Regex::new(r"svdata=").unwrap();
-        let data_removed_svdata: String = re_svdata.replace(&data_removed_bom, "").to_string();
-        let re_metadata = Regex::new(r"---\r?\n.*\r?\n.*\r?\n.*\r?\n.*\s*---\r?\n").unwrap();
+        let data_removed_svdata: String = data_removed_bom.replace("svdata=", "");
         let data_removed_metadata: String =
-            re_metadata.replace(&data_removed_svdata, "").to_string();
+            RE_METADATA.replace(&data_removed_svdata, "").to_string();
         let repalced_data = data_removed_metadata
             .replace("%5B", "[")
             .replace("%5D", "]");
