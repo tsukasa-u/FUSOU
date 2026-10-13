@@ -19,6 +19,7 @@ import {
   publishTlsnRuntimeConfig,
   signTlsnRuntimeConfigManifest,
 } from "./tlsn-runtime-config-release.mjs";
+import { RuntimeConfigPointerConflictError } from "./tlsn-runtime-config-r2-store.mjs";
 import { verifyTlsnRuntimeConfigIndependentInputs } from "./tlsn-runtime-config-independent-verification.mjs";
 import {
   account,
@@ -155,18 +156,29 @@ function workerReferenceRevalidation() {
 }
 
 class FakeRuntimeConfigObjectStore {
-  constructor({ corruptArtifactReadback = false, raceManifestPointer = false } = {}) {
+  constructor({
+    corruptArtifactReadback = false,
+    corruptManifestReadback = false,
+    raceManifestPointer = false,
+  } = {}) {
     this.objects = new Map();
     this.manifestETag = null;
     this.manifestBody = null;
     this.corruptArtifactReadback = corruptArtifactReadback;
+    this.corruptManifestReadback = corruptManifestReadback;
     this.raceManifestPointer = raceManifestPointer;
     this.events = [];
   }
 
-  async getManifestETag() {
-    this.events.push("read-manifest-etag");
-    return this.manifestETag;
+  async getManifestState() {
+    this.events.push("read-manifest-state");
+    if (this.manifestBody === null) return null;
+    const body = Buffer.from(this.manifestBody);
+    if (this.corruptManifestReadback) {
+      this.corruptManifestReadback = false;
+      body[0] ^= 1;
+    }
+    return { body, etag: this.manifestETag };
   }
 
   async putImmutable(object) {
@@ -183,7 +195,7 @@ class FakeRuntimeConfigObjectStore {
     const body = key === "tlsn/runtime-config/v2/manifest.json"
       ? this.manifestBody
       : this.objects.get(key);
-    if (!body) return Buffer.alloc(0);
+    if (!body) return null;
     const readback = Buffer.from(body);
     if (this.corruptArtifactReadback && key !== "tlsn/runtime-config/v2/manifest.json") {
       this.corruptArtifactReadback = false;
@@ -197,9 +209,14 @@ class FakeRuntimeConfigObjectStore {
     if (this.raceManifestPointer) {
       this.manifestETag = "concurrent-update";
       this.manifestBody = Buffer.from("concurrent manifest");
+      throw new RuntimeConfigPointerConflictError(
+        "Runtime Config manifest pointer changed during publication",
+      );
     }
     if (this.manifestETag !== expectedETag) {
-      throw new Error("Runtime Config manifest pointer changed during publication");
+      throw new RuntimeConfigPointerConflictError(
+        "Runtime Config manifest pointer changed during publication",
+      );
     }
     this.manifestETag = `etag-${this.events.length}`;
     this.manifestBody = Buffer.from(object.body);
@@ -810,8 +827,7 @@ test("Runtime Config publisher reads back immutable artifacts before atomic mani
 
   assert.equal(result.state, "PUBLISHED_TO_OBJECT_STORE");
   const casIndex = store.events.indexOf("manifest-cas");
-  assert.equal(store.events[casIndex + 1], "read:tlsn/runtime-config/v2/manifest.json");
-  assert.equal(store.events[casIndex + 2], "read-manifest-etag");
+  assert.equal(store.events[casIndex + 1], "read-manifest-state");
   assert.equal(result.object_keys.at(-1), "tlsn/runtime-config/v2/manifest.json");
   assert.equal(
     createHash("sha256").update(store.manifestBody).digest("base64url"),
@@ -846,7 +862,7 @@ test("Runtime Config publisher refuses a bad artifact readback or a raced manife
   const racedStore = new FakeRuntimeConfigObjectStore({ raceManifestPointer: true });
   await assert.rejects(
     () => publishTlsnRuntimeConfig({ ...options, objectStore: racedStore }),
-    /manifest pointer changed during publication/,
+    /not valid under the configured signer and policy/,
   );
   assert.equal(racedStore.manifestBody.toString(), "concurrent manifest");
 
@@ -866,6 +882,47 @@ test("Runtime Config publisher refuses a bad artifact readback or a raced manife
   );
   assert.equal(rotatedStore.manifestETag, null);
   assert.equal(rotatedStore.events.includes("manifest-cas"), false);
+});
+
+test("Runtime Config publication distinguishes a verified competing release from a damaged pointer", async () => {
+  const inputs = currentIndependentInputs();
+  const preparedOne = preparedOptions(inputs.worker_reference_raw, release, "1");
+  const preparedTwo = preparedOptions(inputs.worker_reference_raw, release, "2");
+  const store = new FakeRuntimeConfigObjectStore();
+  const publish = (prepared) => publishTlsnRuntimeConfig({
+    prepared,
+    signerProvider: testSignerProvider(),
+    trustedSigner,
+    policy: policy(prepared),
+    independentInputs: inputs,
+    workerReferenceRevalidation: workerReferenceRevalidation(),
+    objectStore: store,
+  });
+  const outcomes = await Promise.allSettled([publish(preparedOne), publish(preparedTwo)]);
+
+  assert.equal(outcomes.filter(({ status }) => status === "fulfilled").length, 1);
+  const rejected = outcomes.find(({ status }) => status === "rejected");
+  assert(rejected.reason instanceof RuntimeConfigPointerConflictError);
+  assert.match(rejected.reason.message, /fully verified Runtime Config release/);
+  assert.equal(
+    createHash("sha256").update(store.manifestBody).digest("base64url"),
+    outcomes.find(({ status }) => status === "fulfilled").value.manifest_sha256,
+  );
+
+  const damagedStore = new FakeRuntimeConfigObjectStore({ corruptManifestReadback: true });
+  const prepared = preparedOptions(inputs.worker_reference_raw, release, "3");
+  await assert.rejects(
+    () => publishTlsnRuntimeConfig({
+      prepared,
+      signerProvider: testSignerProvider(),
+      trustedSigner,
+      policy: policy(prepared),
+      independentInputs: inputs,
+      workerReferenceRevalidation: workerReferenceRevalidation(),
+      objectStore: damagedStore,
+    }),
+    /not valid under the configured signer and policy/,
+  );
 });
 
 test("Production verification fails closed for missing, changed, swapped, or self-asserted inputs", async () => {

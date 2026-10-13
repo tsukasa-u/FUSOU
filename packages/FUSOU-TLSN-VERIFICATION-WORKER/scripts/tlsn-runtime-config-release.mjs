@@ -4,10 +4,15 @@ import {
   createTlsnRuntimeConfigEnvelopeRaw,
   createTlsnRuntimeConfigPublicationObjects,
   tlsnRuntimeConfigSigningBytes,
+  verifyTlsnRuntimeConfigEnvelope,
   verifyTlsnRuntimeConfigProductionEnvelope,
 } from "./tlsn-runtime-config-manifest.mjs";
 import { canonicalJson } from "./production-trust-contract.mjs";
 import { acquireAppWorkerReference } from "./app-worker-deployment-reference.mjs";
+import {
+  RuntimeConfigPointerConflictError,
+  RuntimeConfigPointerIntegrityError,
+} from "./tlsn-runtime-config-r2-store.mjs";
 
 function assertSignerProvider(signerProvider, trustedSigner) {
   if (
@@ -24,12 +29,12 @@ function assertSignerProvider(signerProvider, trustedSigner) {
 function assertObjectStore(objectStore) {
   if (
     !objectStore ||
-    typeof objectStore.getManifestETag !== "function" ||
+    typeof objectStore.getManifestState !== "function" ||
     typeof objectStore.putImmutable !== "function" ||
     typeof objectStore.getObject !== "function" ||
     typeof objectStore.compareAndSwapManifest !== "function"
   ) {
-    throw new Error("Runtime Config object store must implement immutable writes, readback, and atomic manifest CAS");
+    throw new Error("Runtime Config object store must implement immutable writes, manifest snapshots, readback, and conditional pointer writes");
   }
 }
 
@@ -58,6 +63,65 @@ function stableWorkerReference(raw, label) {
   const identity = { ...reference };
   delete identity.observed_at;
   return canonicalJson(identity);
+}
+
+async function verifyCompetingManifestState(objectStore, state, {
+  expectedManifestBytes,
+  trustedSigner,
+  policy,
+}) {
+  if (typeof state.etag !== "string" || state.etag.length === 0) {
+    throw new RuntimeConfigPointerIntegrityError(
+      "Runtime Config manifest pointer readback has no ETag",
+    );
+  }
+  const rawManifest = asBytes(state.body, "Runtime Config manifest pointer");
+  if (rawManifest.equals(expectedManifestBytes)) {
+    return state.etag;
+  }
+
+  let payload;
+  try {
+    payload = verifyTlsnRuntimeConfigEnvelope(rawManifest, { trustedSigner, policy });
+  } catch (cause) {
+    throw new RuntimeConfigPointerIntegrityError(
+      "Runtime Config manifest pointer changed to an envelope that is not valid under the configured signer and policy",
+      { cause },
+    );
+  }
+
+  const artifacts = [
+    ["worker_reference_raw", "worker-reference", payload.source.worker_reference_sha256],
+    ["origin_inventory_raw", "origin-inventory", payload.production_authority_pins.origin_inventory_sha256],
+    ["target_approval_raw", "target-approval", payload.production_authority_pins.target_approval_artifact_sha256],
+    ["security_registry_set_raw", "security-registry-set", payload.production_authority_pins.security_registry_set_sha256],
+    ["result_registry_envelope_raw", "result-registry-envelope", payload.result_registry_pins.result_registry_envelope_sha256],
+  ];
+  const independentInputs = {};
+  for (const [inputName, artifactName, digest] of artifacts) {
+    const key = `tlsn/runtime-config/v2/artifacts/${artifactName}/${digest}`;
+    const value = await objectStore.getObject(key);
+    if (!(value instanceof Uint8Array)) {
+      throw new RuntimeConfigPointerIntegrityError(
+        `competing Runtime Config manifest references a missing ${artifactName} artifact`,
+      );
+    }
+    independentInputs[inputName] = Buffer.from(value);
+  }
+
+  try {
+    verifyTlsnRuntimeConfigProductionEnvelope(rawManifest, {
+      trustedSigner,
+      policy,
+      independentInputs,
+    });
+  } catch (cause) {
+    throw new RuntimeConfigPointerIntegrityError(
+      "competing Runtime Config manifest or referenced artifacts failed verification",
+      { cause },
+    );
+  }
+  return null;
 }
 
 export async function signTlsnRuntimeConfigManifest({
@@ -106,8 +170,7 @@ export async function publishTlsnRuntimeConfig({
   objectStore,
 }) {
   assertObjectStore(objectStore);
-  const { raw_envelope: rawEnvelope, verification } =
-    await signTlsnRuntimeConfigManifest({
+  const { raw_envelope: rawEnvelope } = await signTlsnRuntimeConfigManifest({
       prepared,
       signerProvider,
       trustedSigner,
@@ -121,7 +184,14 @@ export async function publishTlsnRuntimeConfig({
   });
   const manifest = objects.at(-1);
   const expectedManifestBytes = Buffer.from(manifest.body);
-  const expectedETag = await objectStore.getManifestETag();
+  const initialPointer = await objectStore.getManifestState();
+  if (initialPointer !== null) {
+    asBytes(initialPointer?.body, "current Runtime Config manifest");
+    if (typeof initialPointer.etag !== "string" || !initialPointer.etag) {
+      throw new Error("current Runtime Config manifest pointer ETag is invalid");
+    }
+  }
+  const expectedETag = initialPointer?.etag ?? null;
   if (expectedETag !== null && (typeof expectedETag !== "string" || !expectedETag)) {
     throw new Error("Runtime Config manifest pointer ETag is invalid");
   }
@@ -159,28 +229,64 @@ export async function publishTlsnRuntimeConfig({
     throw new Error("active Worker deployment or endpoint mapping changed before manifest publication");
   }
 
-  const committedETag = await objectStore.compareAndSwapManifest(expectedETag, {
-    ...manifest,
-    body: Buffer.from(expectedManifestBytes),
-  });
+  let committedETag;
+  try {
+    committedETag = await objectStore.compareAndSwapManifest(expectedETag, {
+      ...manifest,
+      body: Buffer.from(expectedManifestBytes),
+    });
+  } catch (error) {
+    if (!(error instanceof RuntimeConfigPointerConflictError)) throw error;
+    const currentPointer = await objectStore.getManifestState();
+    if (!currentPointer) throw error;
+    const reconciledETag = await verifyCompetingManifestState(objectStore, currentPointer, {
+      expectedManifestBytes,
+      trustedSigner,
+      policy,
+    });
+    if (!reconciledETag) {
+      throw new RuntimeConfigPointerConflictError(
+        "a different fully verified Runtime Config release won the manifest pointer race",
+        { cause: error },
+      );
+    }
+    committedETag = reconciledETag;
+  }
   if (typeof committedETag !== "string" || !committedETag) {
     throw new Error("Runtime Config manifest CAS did not return the committed ETag");
   }
-  const publishedManifest = asBytes(
-    await objectStore.getObject(manifest.key),
-    "Runtime Config manifest",
-  );
-  if (!publishedManifest.equals(expectedManifestBytes)) {
-    throw new Error("Runtime Config manifest pointer readback mismatch after CAS");
+  const finalPointer = await objectStore.getManifestState();
+  if (!finalPointer) {
+    throw new RuntimeConfigPointerConflictError(
+      "Runtime Config manifest pointer disappeared after conditional publication",
+    );
   }
-  if (await objectStore.getManifestETag() !== committedETag) {
-    throw new Error("Runtime Config manifest pointer changed after CAS readback");
+  const publishedManifest = asBytes(finalPointer.body, "Runtime Config manifest");
+  if (
+    finalPointer.etag !== committedETag ||
+    !publishedManifest.equals(expectedManifestBytes)
+  ) {
+    const reconciledETag = await verifyCompetingManifestState(objectStore, finalPointer, {
+      expectedManifestBytes,
+      trustedSigner,
+      policy,
+    });
+    if (!reconciledETag || reconciledETag !== committedETag) {
+      throw new RuntimeConfigPointerConflictError(
+        "Runtime Config manifest pointer changed after conditional publication",
+      );
+    }
   }
+  const readbackVerification = verifyTlsnRuntimeConfigProductionEnvelope(publishedManifest, {
+    trustedSigner,
+    policy,
+    independentInputs,
+  });
 
   return Object.freeze({
     state: "PUBLISHED_TO_OBJECT_STORE",
     manifest_sha256: createHash("sha256").update(expectedManifestBytes).digest("base64url"),
     object_keys: Object.freeze(objects.map(({ key }) => key)),
-    verification,
+    verification: readbackVerification,
   });
 }
