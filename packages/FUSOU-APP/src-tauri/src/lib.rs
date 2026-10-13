@@ -28,6 +28,7 @@ mod window;
 mod wrap_proxy;
 pub mod tlsn_preflight;
 pub mod tlsn_build_handoff;
+pub mod tlsn_runtime_config_manifest;
 #[cfg(feature = "tlsn-production")]
 mod tlsn_runtime;
 mod tlsn_worker_identity;

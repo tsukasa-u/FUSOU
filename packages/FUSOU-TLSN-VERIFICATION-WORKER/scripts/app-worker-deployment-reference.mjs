@@ -128,6 +128,11 @@ export function approvedProductionRelease(environment, provenance, publicManifes
   };
   return {
     context, publicBindings, disclosureMode,
+    production_authority_pins: {
+      origin_inventory_sha256: publicManifest.origin_inventory.sha256,
+      target_approval_artifact_sha256: publicManifest.target_approval.approval_artifact_sha256,
+      security_registry_set_sha256: publicManifest.security_registry_set_sha256,
+    },
     compile_inputs: {
       FUSOU_TLSN_EXPECTED_DEPLOYMENT_ID: deploymentId,
       FUSOU_TLSN_EXPECTED_WORKER_NAME: workerName,

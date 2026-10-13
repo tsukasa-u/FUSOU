@@ -1136,7 +1136,7 @@ fn check_notary_verifying_key(checks: &mut Vec<PreflightCheck>, value: Option<&s
 }
 
 #[cfg(feature = "tlsn-production")]
-fn validate_notary_key_bytes(bytes: &[u8]) -> Result<(), &'static str> {
+pub(crate) fn validate_notary_key_bytes(bytes: &[u8]) -> Result<(), &'static str> {
     let key: tlsn_attestation::signing::VerifyingKey =
         bincode::deserialize(bytes).map_err(|_| "decoded key is not an alpha.15 VerifyingKey")?;
     let canonical =
@@ -1148,7 +1148,7 @@ fn validate_notary_key_bytes(bytes: &[u8]) -> Result<(), &'static str> {
 }
 
 #[cfg(not(feature = "tlsn-production"))]
-fn validate_notary_key_bytes(_bytes: &[u8]) -> Result<(), &'static str> {
+pub(crate) fn validate_notary_key_bytes(_bytes: &[u8]) -> Result<(), &'static str> {
     Err("cannot validate alpha.15 Notary key format because tlsn-production is disabled")
 }
 

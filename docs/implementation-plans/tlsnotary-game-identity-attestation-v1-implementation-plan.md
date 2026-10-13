@@ -8,6 +8,8 @@
 
 **計画の範囲:** この同期作業では Final Specification とこの文書だけを変更する。実行時コードは変更しない。
 
+**オフライン設定マニフェスト注記:** 別途追加された Node/Rust の設定マニフェスト契約は、独立に与えられる trust pin と freshness/rollback policy を使うオフライン準備・検証インターフェースに限る。実行時取得、署名鍵の発行・登録、公開、APP startup/proxy 接続、Auth/device binding は実装されていない。この契約は Phase 0 の証拠または合格を意味せず、Phase 0 の `NO-GO (0/17 PASS)` を維持する。既存の compile-time TLSN inputs と Production acceptance 要件を変更しない。
+
 **情報源の優先順位:** Final Specification、攻撃者視点の監査、リポジトリ構成、古い計画の順とする。古い計画との競合は Final Specification を優先して解決する。
 
 **監査結果:** `P0 = 0 remaining`、`P1 = 0 remaining`、`P2 = 0 remaining`（初期監査項目はすべて disposition 済み）。Proof Copy 攻撃 = `PASS`、主要セキュリティ目標 = `PASS`、設計凍結 = `MAINTAIN`、実装 = `NO-GO`。
