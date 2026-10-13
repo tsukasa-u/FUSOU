@@ -60,6 +60,18 @@ mod tests {
 
     #[test]
     fn rejects_invalid_public_key_and_signature_lengths() {
+        let invalid_public_key = (0_u8..=u8::MAX)
+            .map(|first_byte| {
+                let mut key = [0_u8; 32];
+                key[0] = first_byte;
+                key
+            })
+            .find(|key| VerifyingKey::from_bytes(key).is_err())
+            .expect("at least one 32-byte value must not encode an Ed25519 point");
+        assert_eq!(
+            verify_ed25519_signature(&invalid_public_key, b"message", &[0; 64]),
+            Err(Ed25519SignatureError::InvalidPublicKey)
+        );
         assert_eq!(
             verify_ed25519_signature(&[0; 31], b"message", &[0; 64]),
             Err(Ed25519SignatureError::InvalidPublicKeyLength)

@@ -17,8 +17,10 @@ const BASE64URL_PATTERN = /^[A-Za-z0-9_-]+$/;
 const DIGEST_PATTERN = /^[A-Za-z0-9_-]{43}$/;
 const SHA_PATTERN = /^[0-9a-f]{40}$/;
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+const NIL_UUID = "00000000-0000-0000-0000-000000000000";
 const WORKER_NAME_PATTERN = /^[a-z][a-z0-9-]{1,62}[a-z0-9]$/;
 const MAX_U64 = 18446744073709551615n;
+const MAX_SAFE_POLICY_SECONDS = Math.floor(Number.MAX_SAFE_INTEGER / 1000);
 const SOURCE_FIELDS = [
   "worker_reference_sha256",
   "observed_at",
@@ -73,6 +75,31 @@ function assertExactKeys(value, expected, label) {
     canonicalJson(Object.keys(value).sort()) !== canonicalJson([...expected].sort())
   ) {
     throw new Error(`${label} field inventory is invalid`);
+  }
+}
+
+function assertWellFormedJsonStrings(value, label) {
+  const pending = [value];
+  while (pending.length > 0) {
+    const current = pending.pop();
+    if (typeof current === "string") {
+      for (let index = 0; index < current.length; index += 1) {
+        const code = current.charCodeAt(index);
+        if (code >= 0xd800 && code <= 0xdbff) {
+          const next = current.charCodeAt(index + 1);
+          if (!(next >= 0xdc00 && next <= 0xdfff)) {
+            throw new Error(`${label} contains an invalid Unicode string`);
+          }
+          index += 1;
+        } else if (code >= 0xdc00 && code <= 0xdfff) {
+          throw new Error(`${label} contains an invalid Unicode string`);
+        }
+      }
+    } else if (Array.isArray(current)) {
+      for (const item of current) pending.push(item);
+    } else if (current && typeof current === "object") {
+      for (const [key, item] of Object.entries(current)) pending.push(key, item);
+    }
   }
 }
 
@@ -187,12 +214,20 @@ function assertNotaryEndpoint(value) {
     host = value.slice(0, separator);
     port = value.slice(separator + 1);
   }
-  if (!host || !/^\d+$/.test(port) || Number(port) < 1 || Number(port) > 65535) {
+  if (
+    !host ||
+    host.includes("[") ||
+    host.includes("]") ||
+    !/^\d+$/.test(port) ||
+    Number(port) < 1 ||
+    Number(port) > 65535
+  ) {
     throw new Error("Notary endpoint must contain a valid port");
   }
 }
 
-function assertManifestPayload(payload) {
+function assertManifestPayload(payload, validationTime = new Date()) {
+  assertWellFormedJsonStrings(payload, "runtime configuration manifest");
   assertExactKeys(payload, MANIFEST_FIELDS, "runtime configuration manifest");
   if (
     payload.schema_version !== TLSN_RUNTIME_CONFIG_MANIFEST_SCHEMA_VERSION ||
@@ -218,8 +253,10 @@ function assertManifestPayload(payload) {
     !payload.source.logical_deployment_id.trim() ||
     typeof payload.source.cloudflare_deployment_id !== "string" ||
     !UUID_PATTERN.test(payload.source.cloudflare_deployment_id) ||
+    payload.source.cloudflare_deployment_id === NIL_UUID ||
     typeof payload.source.active_version_id !== "string" ||
     !UUID_PATTERN.test(payload.source.active_version_id) ||
+    payload.source.active_version_id === NIL_UUID ||
     typeof payload.source.worker_git_commit_sha !== "string" ||
     !SHA_PATTERN.test(payload.source.worker_git_commit_sha) ||
     !["complete", "sparse"].includes(payload.source.disclosure_mode)
@@ -250,11 +287,19 @@ function assertManifestPayload(payload) {
     inputs.FUSOU_TLSN_NOTARY_VERIFYING_KEY,
     "manifest Notary verifying key",
   );
-  assertResultSigningIdentity({
+  const resultIdentity = assertResultSigningIdentity({
     registry: inputs.FUSOU_TLSN_RESULT_SIGNING_KEY_REGISTRY,
     keyId: inputs.FUSOU_TLSN_RESULT_SIGNER_KEY_ID,
     publicKeySpki: inputs.FUSOU_TLSN_RESULT_PUBLIC_KEY_SPKI,
+    now: validationTime,
   });
+  assertWellFormedJsonStrings(resultIdentity.key_registry, "Result signing registry");
+  for (const [index, key] of resultIdentity.key_registry.keys.entries()) {
+    assertCanonicalUtc(key.not_before, `Result registry key ${index}.not_before`);
+    if (key.not_after !== null) {
+      assertCanonicalUtc(key.not_after, `Result registry key ${index}.not_after`);
+    }
+  }
   const health = assertCleanHttpsEndpoint(
     inputs.FUSOU_TLSN_RUNTIME_ATTESTATION_ENDPOINT,
     "/health",
@@ -299,7 +344,9 @@ function assertTrustedSigner(trustedSigner) {
 
 function assertPolicy(policy) {
   assertExactKeys(policy, POLICY_FIELDS, "runtime configuration verification policy");
-  if (!Number.isSafeInteger(policy.now_ms)) throw new Error("verification time is invalid");
+  if (!Number.isSafeInteger(policy.now_ms) || !Number.isFinite(new Date(policy.now_ms).getTime())) {
+    throw new Error("verification time is invalid");
+  }
   assertEpoch(policy.last_accepted_epoch, "last accepted epoch", true);
   for (const field of [
     "max_lifetime_seconds",
@@ -309,6 +356,9 @@ function assertPolicy(policy) {
   ]) {
     if (!Number.isSafeInteger(policy[field]) || policy[field] < 1) {
       throw new Error(`verification policy ${field} must be an explicit positive safe integer`);
+    }
+    if (field !== "max_envelope_bytes" && policy[field] > MAX_SAFE_POLICY_SECONDS) {
+      throw new Error(`verification policy ${field} exceeds the interoperable millisecond range`);
     }
   }
 }
@@ -464,17 +514,6 @@ export function verifyTlsnRuntimeConfigEnvelope(rawEnvelope, { trustedSigner, po
   }
 
   const payloadBytes = decodeBase64Url(envelope.payload_base64url, "manifest payload");
-  let payload;
-  try {
-    payload = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(payloadBytes));
-  } catch {
-    throw new Error("runtime configuration payload is malformed JSON");
-  }
-  assertManifestPayload(payload);
-  if (canonicalJson(payload) !== payloadBytes.toString("utf8")) {
-    throw new Error("runtime configuration payload is not canonical JSON");
-  }
-
   const signature = decodeBase64Url(envelope.signature_base64url, "manifest signature", 64);
   const key = createPublicKey({
     key: decodeBase64Url(trustedSigner.public_key_spki, "trusted signer public key"),
@@ -484,6 +523,18 @@ export function verifyTlsnRuntimeConfigEnvelope(rawEnvelope, { trustedSigner, po
   if (!verify(null, signingBytes(envelope.signer_key_id, payloadBytes), key, signature)) {
     throw new Error("runtime configuration signature verification failed");
   }
+
+  let payload;
+  try {
+    payload = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(payloadBytes));
+  } catch {
+    throw new Error("runtime configuration payload is malformed JSON");
+  }
+  assertWellFormedJsonStrings(payload, "runtime configuration payload");
+  if (canonicalJson(payload) !== payloadBytes.toString("utf8")) {
+    throw new Error("runtime configuration payload is not canonical JSON");
+  }
+  assertManifestPayload(payload, new Date(policy.now_ms));
 
   const epoch = assertEpoch(payload.epoch, "manifest epoch");
   if (epoch <= assertEpoch(policy.last_accepted_epoch, "last accepted epoch", true)) {

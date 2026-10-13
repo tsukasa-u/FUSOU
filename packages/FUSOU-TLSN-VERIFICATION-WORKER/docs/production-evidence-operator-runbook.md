@@ -226,9 +226,98 @@ Keep the following distinct: Git commit SHA; FUSOU logical deployment ID; Cloudf
 
 The runtime configuration manifest code is an offline contract and verification interface only; it does not change APP startup or the TLSN proxy path. The attestation implementation plan remains `NO-GO (0/17 PASS)`. APP TLSN inputs remain compile-time inputs, and this work is not Phase 0 evidence or authorization to begin runtime migration.
 
-The Node preparer in [`tlsn-runtime-config-manifest.mjs`](../scripts/tlsn-runtime-config-manifest.mjs) consumes the exact raw bytes of an independently validated Worker reference, carries the approved Production Origin Inventory and Target Approval digest pair, and returns canonical payload/signing bytes. It does not hold a signing key or sign, fetch, publish, or install a manifest. The APP-side verifier in [`tlsn_runtime_config_manifest.rs`](../../FUSOU-APP/src-tauri/src/tlsn_runtime_config_manifest.rs) requires the caller to supply a trust pin and explicit time, freshness, size, and epoch policy. It validates the Production authority digest pair, exact compile-input inventory, active Result signer registry, endpoint mapping, and alpha.15 Notary key format. Verification fails closed if `tlsn-production` is disabled. The envelope signs canonical payload bytes under a versioned domain-separated format; it contains no public key or implicit trust anchor. The verifier does not fetch configuration, persist the epoch high-water mark, provision a trust root, or start a TLSN session.
+The Node preparer in [`tlsn-runtime-config-manifest.mjs`](../scripts/tlsn-runtime-config-manifest.mjs) consumes the exact raw bytes of an independently validated Worker reference, computes its SHA-256 digest, carries the approved Production authority digest fields, and returns canonical payload/signing bytes. It does not hold a signing key or sign, fetch, publish, or install a manifest. The APP-side verifier in [`tlsn_runtime_config_manifest.rs`](../../FUSOU-APP/src-tauri/src/tlsn_runtime_config_manifest.rs) requires the caller to supply a trust pin and explicit time, freshness, size, and epoch policy. It enforces the exact compile-input inventory, the Result registry's structure/current signer/status/time checks, endpoint mapping, and alpha.15 Notary key format. Verification fails closed if `tlsn-production` is disabled. The envelope signs canonical payload bytes under a versioned domain-separated format; it contains no public key or implicit trust anchor.
+
+The three `ProductionAuthorityPins` fields are required and checked as canonical 32-byte base64url digests, but the APP verifier receives neither the Origin Inventory/Target Approval/security-registry bytes nor independent expected digest values. It therefore cannot recompute or compare those digests; they remain signed claims, not APP-verified authority bindings. Similarly, the Node preparer hashes the exact Worker reference bytes, but the APP verifier receives no reference bytes against which to recompute `worker_reference_sha256`. The APP verifier parses and structurally checks the Result signer registry but does not receive its signed registry envelope/root inputs, so it does not independently verify that registry's signature. `approvedProductionRelease` checks those upstream inputs while preparing a release; that producer-side path does not add the missing checks to the APP verifier.
 
 There is no Production runtime-config signing root, signer, publication service, APP fetcher, trust-root enrollment, or durable rollback-state store implemented by this contract. Those remain external prerequisites and must be designed and approved before any runtime wiring. Do not reuse the Result Registry signing root as the runtime-config trust root. The cross-language fixture in [`tlsn-runtime-config-manifest-v1-vector.json`](../scripts/fixtures/tlsn-runtime-config-manifest-v1-vector.json) is `test_only`; it is not a trust anchor or Production input.
+
+`now` and `last_accepted_epoch` are caller-supplied policy values. Local freshness/rollback tests establish rejection when those supplied values indicate expiry or rollback; they do not establish a trusted clock or durable high-water state. Searches of the APP and Worker packages found no production call site for `verify_runtime_config_manifest`, `verifyTlsnRuntimeConfigEnvelope`, or `prepareTlsnRuntimeConfigManifest`; these are offline interfaces/tests, not runtime fetch wiring.
+
+#### Pre-commit “test gap” audit
+
+The local `.git/hooks/pre-commit` invokes `code-review-graph update` and `code-review-graph detect-changes --brief`, both with `|| true`. The hook is non-blocking and its “test gap” count is a static symbol-to-`TESTED_BY` graph heuristic, not executed-test coverage or branch coverage. The original report was reproduced with `code-review-graph` v2.3.6 and base `1a0c627405d6e6998a3b22ffb9729f1f1d858eac`: 13 changed files, 62 changed symbols, 58 symbol gaps, risk score 0.60. After the focused test additions, the same-base rerun reported 16 changed files, 75 changed symbols, 65 symbol gaps, risk score 0.60. The seven additional entries are four Rust test helpers, one Node test helper, and two production helpers; they are not seven newly discovered vulnerabilities.
+
+Reproduce the current report from the repository root with:
+
+```sh
+code-review-graph update --base 1a0c627405d6e6998a3b22ffb9729f1f1d858eac --repo .
+code-review-graph detect-changes --base 1a0c627405d6e6998a3b22ffb9729f1f1d858eac --repo .
+```
+
+Local validation for this audit was: the Node manifest/reference/build-handoff/endpoint suites, 33/33 passed; Rust manifest tests, 5/5 without `tlsn-production` and 6/6 with it; Rust TLSN preflight, 17 passed and 1 existing ignored test; `fusou-auth` Ed25519 tests, 2/2 passed; changed-file `rustfmt --check` and `git diff --check` passed. No Hosted CI or Production operation was run.
+
+The hook does not persist its report. The table classifies every symbol in the current 65-entry report: `COVERED_DIRECTLY` means a test directly invokes/asserts the symbol or type behavior; `COVERED_INDIRECTLY` means a named end-to-end test traverses the path and the stated property is observed; `NOT_APPLICABLE` means the symbol is test-only fixture/helper code; `IMPLEMENTATION_GAP` records behavior the current verifier cannot enforce. `COVERED_INDIRECTLY` is not a claim that every branch is exhaustively tested.
+
+| # | Symbol | Status | Test path or disposition |
+|---:|---|---|---|
+| 1 | `validate_notary_key_bytes` | `COVERED_DIRECTLY` | Preflight accepts the fixture alpha.15 K256 key and rejects empty, truncated, trailing, P256, unbounded-length, and out-of-field encodings. |
+| 2 | `RuntimeConfigManifestError` | `COVERED_DIRECTLY` | Unit test checks both `Invalid` and `InvalidSignature` variants. |
+| 3 | `RuntimeConfigManifestError::fmt` | `COVERED_DIRECTLY` | Unit test checks exact static display strings; errors do not interpolate input values. |
+| 4 | `RuntimeConfigManifestSource` | `COVERED_DIRECTLY` | Serde tests reject missing/unknown fields; verifier tests exercise valid metadata, nil IDs, malformed digest, and invalid source fields. |
+| 5 | `ProductionAuthorityPins` | `IMPLEMENTATION_GAP` | Required-field/unknown-field and digest-shape checks exist, but APP has no independent expected digest pair or authority artifact bytes to compare. |
+| 6 | `RuntimeConfigManifestPayload` | `COVERED_INDIRECTLY` | Shared signed golden vector and payload mutation tests exercise deserialization and validation. |
+| 7 | `RuntimeConfigManifestEnvelope` | `COVERED_INDIRECTLY` | Golden envelope, canonical-byte rejection, signature mutation, and unauthenticated payload mutation traverse envelope parsing and verification. |
+| 8 | `RuntimeConfigTrustedSigner` | `COVERED_INDIRECTLY` | Verifier tests cover the valid external pin, wrong scope, invalid key ID, and missing/invalid public key. |
+| 9 | `RuntimeConfigVerificationPolicy` | `COVERED_DIRECTLY` | Policy values are constructed and malformed epoch, zero/oversized limits, expiry, staleness, and rollback are tested. |
+| 10 | `verify_runtime_config_manifest` | `COVERED_DIRECTLY` | Rust tests invoke the public verifier for the shared vector, signature, canonical envelope, trust-scope, byte-limit, and rollback cases. |
+| 11 | `validate_trusted_signer` | `COVERED_INDIRECTLY` | Public-verifier tests reject wrong scope, invalid key ID, and invalid public-key encoding before envelope acceptance. |
+| 12 | `validate_policy` | `COVERED_DIRECTLY` | Unit tests invoke policy validation and check canonical epoch and interoperable numeric bounds. |
+| 13 | `validate_payload` | `COVERED_DIRECTLY` | Rust unit tests directly exercise source identity, endpoint mapping, authority digest shape, and registry mutations. |
+| 14 | `validate_freshness` | `COVERED_INDIRECTLY` | Public verifier tests cover supplied high-water rollback, expiry/future issuance, stale reference, and configured lifetime. |
+| 15 | `validate_result_registry` | `COVERED_DIRECTLY` | Rust matrix tests invalid JSON/schema/scope/keys/IDs/duplicates/SPKI/status/timestamps/current identity and validity windows. |
+| 16 | `validate_https_endpoint` | `COVERED_INDIRECTLY` | Node/Rust manifest tests cover HTTPS, DNS-only hosts, route, origin, credentials, port, query, fragment, casing, and IP rejection. |
+| 17 | `validate_notary_endpoint` | `COVERED_INDIRECTLY` | Node/Rust tests cover absent/invalid port, signed port, unbracketed IPv6, and malformed brackets. |
+| 18 | `is_dns_hostname` | `COVERED_INDIRECTLY` | Endpoint validation accepts the DNS fixture and rejects IP literals and noncanonical host casing. |
+| 19 | `is_worker_name` | `COVERED_INDIRECTLY` | Valid fixture name succeeds; uppercase name is rejected by manifest validation. |
+| 20 | `is_uuid` | `COVERED_INDIRECTLY` | Valid deployment/version IDs pass; nil UUIDs fail on both implementations. |
+| 21 | `is_lower_hex` | `COVERED_INDIRECTLY` | Valid account/commit values pass; malformed account identity fails. |
+| 22 | `validate_digest` | `COVERED_INDIRECTLY` | Valid golden digests pass; malformed reference and authority digests fail. |
+| 23 | `validate_key_id` | `COVERED_INDIRECTLY` | Trust-pin and Result-registry tests reject spaces/invalid IDs and accept fixture IDs. |
+| 24 | `validate_ed25519_spki` | `COVERED_INDIRECTLY` | Golden signer keys pass; malformed registry SPKI fails. |
+| 25 | `decode_ed25519_spki` | `COVERED_INDIRECTLY` | Trusted signer and Result-registry paths decode valid SPKI and reject empty/malformed input. |
+| 26 | `decode_canonical_base64url` | `COVERED_INDIRECTLY` | Signed envelope and signer parsing exercise canonical decode; malformed and noncanonical inputs fail. |
+| 27 | `parse_epoch` | `COVERED_DIRECTLY` | Unit tests cover zero policy epoch, canonical decimal, leading zeros, signs, overflow, and `u64::MAX`. |
+| 28 | `parse_canonical_utc` | `COVERED_DIRECTLY` | Unit tests cover canonical UTC milliseconds and reject offsets/omitted milliseconds. |
+| 29 | `seconds_to_millis` | `COVERED_DIRECTLY` | Unit tests cover the largest interoperable value and overflow. |
+| 30 | `signature_message` | `COVERED_INDIRECTLY` | Node/Rust golden signature and a Node-signed raw payload traverse the same domain, length-prefix, key ID, and payload-byte contract. |
+| 31 | `canonical_json_bytes` | `COVERED_INDIRECTLY` | Shared vector plus whitespace and duplicate-key rejection exercise canonical reserialization. |
+| 32 | `write_canonical_json` | `COVERED_INDIRECTLY` | Same canonical-vector and mutation paths traverse the writer for envelope and payload. |
+| 33 | `TestVector` | `NOT_APPLICABLE` | Test-only deserialization DTO for the `test_only` cross-language fixture, not production logic. |
+| 34 | `load_test_vector` | `NOT_APPLICABLE` | Test-only fixture decompression/loader. |
+| 35 | `policy_for` | `NOT_APPLICABLE` | Test-only policy builder; policy behavior is tested separately. |
+| 36 | `trusted_signer` | `NOT_APPLICABLE` | Test-only trusted-pin builder; pin acceptance/rejection is tested through the verifier. |
+| 37 | `assert_registry_rejected` | `NOT_APPLICABLE` | Test-only table helper; the table directly invokes `validate_result_registry`. |
+| 38 | `approvedProductionRelease` | `COVERED_INDIRECTLY` | APP Worker deployment-reference/handoff suite traverses provenance, public-manifest, and Result authority agreement. |
+| 39 | `assertResultSigningIdentity` | `COVERED_INDIRECTLY` | Manifest tests traverse registry/current-key checks with the policy time, including inactive and expired signers. |
+| 40 | `referenceRaw` | `NOT_APPLICABLE` | Node test-only canonical Worker-reference fixture builder. |
+| 41 | `preparedOptions` | `NOT_APPLICABLE` | Node test-only manifest fixture builder. |
+| 42 | `policy` | `NOT_APPLICABLE` | Node test-only policy builder; policy fields are exercised by verifier tests. |
+| 43 | `signedRaw` | `NOT_APPLICABLE` | Node test-only signer helper; signature contract is separately exercised end to end. |
+| 44 | `signedRawPayloadBytes` | `NOT_APPLICABLE` | Node test-only raw-byte signer used to construct malformed-but-authenticated payloads. |
+| 45 | `assertExactKeys` | `COVERED_INDIRECTLY` | Missing/unknown payload, source, trust-pin, envelope, and authority-pin fields are rejected. |
+| 46 | `assertWellFormedJsonStrings` | `COVERED_INDIRECTLY` | Authenticated payload with a lone surrogate is rejected; valid strings traverse the same verifier path. |
+| 47 | `assertKeyId` | `COVERED_INDIRECTLY` | Invalid external signer IDs and registry IDs are rejected through signing/verification entry points. |
+| 48 | `assertDigest` | `COVERED_INDIRECTLY` | Reference and each Production pin reject malformed base64url digest values. |
+| 49 | `decodeBase64Url` | `COVERED_INDIRECTLY` | Envelope creation/verification and external signer parsing reject malformed/noncanonical base64url. |
+| 50 | `assertEd25519Spki` | `COVERED_INDIRECTLY` | Golden keys pass; malformed trusted and registry keys fail. |
+| 51 | `assertCanonicalUtc` | `COVERED_INDIRECTLY` | Manifest and registry timestamps reject noncanonical UTC forms and invalid windows. |
+| 52 | `assertEpoch` | `COVERED_INDIRECTLY` | Manifest and supplied high-water epochs traverse canonical/overflow and rollback checks. |
+| 53 | `assertCleanHttpsEndpoint` | `COVERED_INDIRECTLY` | Endpoint matrix checks scheme, host, credentials, port, query, fragment, path, origin, and sparse/complete route selection. |
+| 54 | `assertNotaryEndpoint` | `COVERED_INDIRECTLY` | Notary endpoint boundary matrix exercises format and port rejects. |
+| 55 | `assertManifestPayload` | `COVERED_INDIRECTLY` | Preparation and signing/verification tests traverse exact schema, source, compile-input, registry, endpoint, Notary, and pin checks. |
+| 56 | `assertTrustedSigner` | `COVERED_INDIRECTLY` | External signer scope, key ID, and SPKI checks are exercised through verification. |
+| 57 | `assertPolicy` | `COVERED_INDIRECTLY` | Policy limits and freshness behavior are exercised via Node verifier; Rust has direct boundary tests. |
+| 58 | `signingBytes` | `COVERED_INDIRECTLY` | Test-signed golden envelope and authenticated malformed payload traverse the domain-separated bytes. |
+| 59 | `tlsnRuntimeConfigSigningBytes` | `COVERED_DIRECTLY` | Node tests call the exported function for valid payloads and schema/source/authority/endpoint failures. |
+| 60 | `prepareTlsnRuntimeConfigManifest` | `COVERED_INDIRECTLY` | Preparation tests verify exact raw Worker-reference hashing, release agreement, required pair, and canonical signing bytes. |
+| 61 | `signing_bytes` | `COVERED_DIRECTLY` | Preparation test compares its returned signing bytes against the exported signing function. |
+| 62 | `createTlsnRuntimeConfigEnvelopeRaw` | `COVERED_INDIRECTLY` | Test signer helpers create valid envelopes; malformed signature base64 is rejected. |
+| 63 | `verifyTlsnRuntimeConfigEnvelope` | `COVERED_DIRECTLY` | Node tests invoke it for golden verification, trust/policy failures, signature ordering, canonical JSON, Unicode, freshness, endpoint, registry, and pin cases. |
+| 64 | `Ed25519SignatureError` | `COVERED_DIRECTLY` | Auth unit tests assert all four error variants, including invalid point encoding. |
+| 65 | `verify_ed25519_signature` | `COVERED_DIRECTLY` | Auth unit tests verify a matching signature and reject changed message, invalid key/ signature lengths, and invalid public-key encoding. |
+
+The symbol-level classification does not erase the `IMPLEMENTATION_GAP` above or promote local tests into runtime guarantees. In particular, authority artifact matching, APP-side Worker-reference hash recomputation, independently signed Result-registry verification, trusted time, durable rollback state, and runtime fetch remain unimplemented.
 
 The manifest carries no Game Server identity. Before a real Presentation is independently verified, identity remains `NOT_YET_OBSERVED`; neither candidate configuration, Worker health, manifest contents, nor Result claims can supply it. Keep the existing human-gameplay preflight, Presentation validation, Origin Inventory, Target Approval, Result signature, and archive byte-binding requirements unchanged. Authenticated APP session handoff, device-possession binding, and a TLSN Session Authority flow are not implemented by this offline contract.
 

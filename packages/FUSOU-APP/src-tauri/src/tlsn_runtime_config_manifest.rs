@@ -14,6 +14,8 @@ const TRUST_SCOPE: &str = "fusou-tlsn-runtime-config-signing-root-v1";
 const SIGNATURE_ALGORITHM: &str = "Ed25519";
 const SIGNATURE_DOMAIN: &[u8] = b"FUSOU-TLSN-RUNTIME-CONFIG-MANIFEST-V1\0";
 const ED25519_SPKI_PREFIX: &[u8] = b"\x30\x2a\x30\x05\x06\x03\x2b\x65\x70\x03\x21\x00";
+const MAX_SAFE_JS_INTEGER: u64 = 9_007_199_254_740_991;
+const MAX_SAFE_POLICY_SECONDS: u64 = MAX_SAFE_JS_INTEGER / 1_000;
 const COMPILE_INPUT_NAMES: [&str; 15] = [
     "FUSOU_TLSN_EXPECTED_ACTIVE_VERSION_ID",
     "FUSOU_TLSN_EXPECTED_BINDING_MODE",
@@ -157,15 +159,6 @@ pub fn verify_runtime_config_manifest(
     }
 
     let payload_bytes = decode_canonical_base64url(&envelope.payload_base64url, "payload")?;
-    let payload: RuntimeConfigManifestPayload = serde_json::from_slice(&payload_bytes)
-        .map_err(|_| RuntimeConfigManifestError::Invalid("payload JSON is invalid"))?;
-    if canonical_json_bytes(&payload)? != payload_bytes {
-        return Err(RuntimeConfigManifestError::Invalid(
-            "payload is not canonical JSON",
-        ));
-    }
-    validate_payload(&payload, policy.now)?;
-
     let signature = decode_canonical_base64url(&envelope.signature_base64url, "signature")?;
     if signature.len() != 64 {
         return Err(RuntimeConfigManifestError::Invalid(
@@ -177,6 +170,14 @@ pub fn verify_runtime_config_manifest(
     fusou_auth::verify_ed25519_signature(&public_key, &message, &signature)
         .map_err(|_| RuntimeConfigManifestError::InvalidSignature)?;
 
+    let payload: RuntimeConfigManifestPayload = serde_json::from_slice(&payload_bytes)
+        .map_err(|_| RuntimeConfigManifestError::Invalid("payload JSON is invalid"))?;
+    if canonical_json_bytes(&payload)? != payload_bytes {
+        return Err(RuntimeConfigManifestError::Invalid(
+            "payload is not canonical JSON",
+        ));
+    }
+    validate_payload(&payload, policy.now)?;
     validate_freshness(&payload, policy)?;
     Ok(payload)
 }
@@ -197,6 +198,11 @@ fn validate_trusted_signer(
 fn validate_policy(
     policy: &RuntimeConfigVerificationPolicy,
 ) -> Result<(), RuntimeConfigManifestError> {
+    if policy.now.timestamp_millis().unsigned_abs() > MAX_SAFE_JS_INTEGER {
+        return Err(RuntimeConfigManifestError::Invalid(
+            "verification time is outside the interoperable range",
+        ));
+    }
     parse_epoch(&policy.last_accepted_epoch, true)?;
     for value in [
         policy.max_lifetime_seconds,
@@ -213,6 +219,16 @@ fn validate_policy(
     if policy.max_envelope_bytes == 0 {
         return Err(RuntimeConfigManifestError::Invalid(
             "maximum envelope size must be positive",
+        ));
+    }
+    let max_envelope_bytes = u64::try_from(policy.max_envelope_bytes).map_err(|_| {
+        RuntimeConfigManifestError::Invalid(
+            "maximum envelope size is outside the interoperable range",
+        )
+    })?;
+    if max_envelope_bytes > MAX_SAFE_JS_INTEGER {
+        return Err(RuntimeConfigManifestError::Invalid(
+            "maximum envelope size is outside the interoperable range",
         ));
     }
     Ok(())
@@ -311,11 +327,8 @@ fn validate_payload(
             .expect("complete input inventory checked"),
         "Notary verifying key",
     )?;
-    crate::tlsn_preflight::validate_notary_key_bytes(&notary_key_bytes).map_err(|_| {
-        RuntimeConfigManifestError::Invalid(
-            "Notary verifying key is not a canonical alpha.15 key or tlsn-production is disabled",
-        )
-    })?;
+    crate::tlsn_preflight::validate_notary_key_bytes(&notary_key_bytes)
+        .map_err(RuntimeConfigManifestError::Invalid)?;
     validate_ed25519_spki(
         inputs
             .get("FUSOU_TLSN_RESULT_PUBLIC_KEY_SPKI")
@@ -494,20 +507,18 @@ fn validate_result_registry(
         let not_before = entry.get("not_before").and_then(Value::as_str).ok_or(
             RuntimeConfigManifestError::Invalid("Result registry not_before is missing"),
         )?;
-        let not_before = DateTime::parse_from_rfc3339(not_before)
-            .map_err(|_| {
-                RuntimeConfigManifestError::Invalid("Result registry not_before is invalid")
-            })?
-            .with_timezone(&Utc);
+        let not_before = parse_canonical_utc(not_before).map_err(|_| {
+            RuntimeConfigManifestError::Invalid(
+                "Result registry not_before is not canonical UTC RFC3339",
+            )
+        })?;
         let not_after = match entry.get("not_after") {
             Some(Value::Null) => None,
-            Some(Value::String(value)) => Some(
-                DateTime::parse_from_rfc3339(value)
-                    .map_err(|_| {
-                        RuntimeConfigManifestError::Invalid("Result registry not_after is invalid")
-                    })?
-                    .with_timezone(&Utc),
-            ),
+            Some(Value::String(value)) => Some(parse_canonical_utc(value).map_err(|_| {
+                RuntimeConfigManifestError::Invalid(
+                    "Result registry not_after is not canonical UTC RFC3339",
+                )
+            })?),
             _ => {
                 return Err(RuntimeConfigManifestError::Invalid(
                     "Result registry not_after is invalid",
@@ -602,6 +613,11 @@ fn validate_notary_endpoint(value: &str) -> Result<(), RuntimeConfigManifestErro
         }
         (host, port)
     };
+    if port.is_empty() || !port.bytes().all(|byte| byte.is_ascii_digit()) {
+        return Err(RuntimeConfigManifestError::Invalid(
+            "Notary port is invalid",
+        ));
+    }
     let port = port
         .parse::<u16>()
         .map_err(|_| RuntimeConfigManifestError::Invalid("Notary port is invalid"))?;
@@ -754,6 +770,11 @@ fn parse_canonical_utc(value: &str) -> Result<DateTime<Utc>, RuntimeConfigManife
 }
 
 fn seconds_to_millis(value: u64) -> Result<i64, RuntimeConfigManifestError> {
+    if value > MAX_SAFE_POLICY_SECONDS {
+        return Err(RuntimeConfigManifestError::Invalid(
+            "verification policy seconds overflow",
+        ));
+    }
     i64::try_from(value)
         .ok()
         .and_then(|seconds| seconds.checked_mul(1000))
@@ -831,18 +852,78 @@ fn write_canonical_json(
 #[cfg(test)]
 mod tests {
     use super::*;
-    #[cfg(feature = "tlsn-production")]
     use flate2::read::GzDecoder;
-    #[cfg(feature = "tlsn-production")]
     use std::io::Read;
 
-    #[cfg(feature = "tlsn-production")]
     #[derive(Deserialize)]
     struct TestVector {
         test_only: bool,
         trusted_signer: RuntimeConfigTrustedSigner,
         envelope_uncompressed_bytes: usize,
         envelope_gzip_base64url: String,
+    }
+
+    fn load_test_vector() -> (Vec<u8>, TestVector, RuntimeConfigManifestPayload) {
+        let fixture: TestVector = serde_json::from_str(include_str!(
+            "../../../FUSOU-TLSN-VERIFICATION-WORKER/scripts/fixtures/tlsn-runtime-config-manifest-v1-vector.json"
+        ))
+        .unwrap();
+        assert!(fixture.test_only);
+        let compressed = URL_SAFE_NO_PAD
+            .decode(&fixture.envelope_gzip_base64url)
+            .unwrap();
+        let mut decoder = GzDecoder::new(compressed.as_slice());
+        let mut raw = Vec::new();
+        decoder.read_to_end(&mut raw).unwrap();
+        assert_eq!(raw.len(), fixture.envelope_uncompressed_bytes);
+
+        let envelope: RuntimeConfigManifestEnvelope = serde_json::from_slice(&raw).unwrap();
+        let payload_bytes =
+            decode_canonical_base64url(&envelope.payload_base64url, "payload").unwrap();
+        let payload: RuntimeConfigManifestPayload = serde_json::from_slice(&payload_bytes).unwrap();
+        (raw, fixture, payload)
+    }
+
+    fn policy_for(payload: &RuntimeConfigManifestPayload) -> RuntimeConfigVerificationPolicy {
+        let observed_at = parse_canonical_utc(&payload.source.observed_at).unwrap();
+        RuntimeConfigVerificationPolicy {
+            now: observed_at + chrono::Duration::seconds(1),
+            last_accepted_epoch: "0".to_owned(),
+            max_lifetime_seconds: 3600,
+            max_clock_skew_seconds: 30,
+            max_reference_age_seconds: 600,
+            max_envelope_bytes: 4096,
+        }
+    }
+
+    fn trusted_signer(fixture: TestVector) -> RuntimeConfigTrustedSigner {
+        RuntimeConfigTrustedSigner {
+            scope: fixture.trusted_signer.scope,
+            key_id: fixture.trusted_signer.key_id,
+            public_key_spki: fixture.trusted_signer.public_key_spki,
+        }
+    }
+
+    #[cfg(feature = "tlsn-production")]
+    fn assert_registry_rejected(
+        payload: &RuntimeConfigManifestPayload,
+        validation_time: DateTime<Utc>,
+        mutate: impl FnOnce(&mut BTreeMap<String, String>, &mut Value),
+        expected: &'static str,
+    ) {
+        let mut inputs = payload.compile_inputs.clone();
+        let registry_input = "FUSOU_TLSN_RESULT_SIGNING_KEY_REGISTRY";
+        let mut registry: Value =
+            serde_json::from_str(inputs.get(registry_input).unwrap()).unwrap();
+        mutate(&mut inputs, &mut registry);
+        inputs.insert(
+            registry_input.to_owned(),
+            serde_json::to_string(&registry).unwrap(),
+        );
+        assert_eq!(
+            validate_result_registry(&inputs, validation_time),
+            Err(RuntimeConfigManifestError::Invalid(expected))
+        );
     }
 
     #[test]
@@ -868,6 +949,23 @@ mod tests {
                 "trusted signer is not scoped to runtime configuration"
             ))
         );
+        let (_, fixture, payload) = load_test_vector();
+        let policy = policy_for(&payload);
+        let mut missing_key = trusted_signer(fixture);
+        missing_key.public_key_spki.clear();
+        assert_eq!(
+            verify_runtime_config_manifest(b"{}", &missing_key, &policy),
+            Err(RuntimeConfigManifestError::Invalid("Ed25519 SPKI key"))
+        );
+
+        let (_, fixture, payload) = load_test_vector();
+        let mut invalid_key_id = trusted_signer(fixture);
+        invalid_key_id.key_id = "invalid key ID".to_owned();
+        assert_eq!(
+            verify_runtime_config_manifest(b"{}", &invalid_key_id, &policy_for(&payload)),
+            Err(RuntimeConfigManifestError::Invalid("key ID is invalid"))
+        );
+
         assert!(validate_policy(&RuntimeConfigVerificationPolicy {
             now: Utc::now(),
             last_accepted_epoch: "00".to_owned(),
@@ -879,40 +977,294 @@ mod tests {
         .is_err());
     }
 
+    #[test]
+    fn manifest_errors_are_static_and_distinguish_invalid_input_from_bad_signature() {
+        let invalid = RuntimeConfigManifestError::Invalid("expected error");
+        assert_eq!(
+            invalid.to_string(),
+            "runtime configuration manifest is invalid: expected error"
+        );
+        assert_eq!(
+            RuntimeConfigManifestError::InvalidSignature.to_string(),
+            "runtime configuration signature verification failed"
+        );
+    }
+
+    #[test]
+    fn source_and_authority_pin_types_require_all_fields_and_reject_unknown_fields() {
+        let (_, _, payload) = load_test_vector();
+
+        let mut source = serde_json::to_value(&payload.source).unwrap();
+        source
+            .as_object_mut()
+            .unwrap()
+            .remove("worker_reference_sha256");
+        assert!(serde_json::from_value::<RuntimeConfigManifestSource>(source).is_err());
+
+        let mut source = serde_json::to_value(&payload.source).unwrap();
+        source.as_object_mut().unwrap().insert(
+            "unverified_source".to_owned(),
+            Value::String("fixture".to_owned()),
+        );
+        assert!(serde_json::from_value::<RuntimeConfigManifestSource>(source).is_err());
+
+        let mut pins = serde_json::to_value(&payload.production_authority_pins).unwrap();
+        pins.as_object_mut()
+            .unwrap()
+            .remove("target_approval_artifact_sha256");
+        assert!(serde_json::from_value::<ProductionAuthorityPins>(pins).is_err());
+
+        let mut pins = serde_json::to_value(&payload.production_authority_pins).unwrap();
+        pins.as_object_mut().unwrap().insert(
+            "fixture_authority".to_owned(),
+            Value::String("test".to_owned()),
+        );
+        assert!(serde_json::from_value::<ProductionAuthorityPins>(pins).is_err());
+    }
+
+    #[test]
+    fn policy_and_canonical_helper_boundaries_are_explicit() {
+        let (_, _, payload) = load_test_vector();
+        let mut policy = policy_for(&payload);
+        assert!(validate_policy(&policy).is_ok());
+
+        for invalid_epoch in ["", "00", "01", "+1", "18446744073709551616"] {
+            assert!(parse_epoch(invalid_epoch, true).is_err(), "{invalid_epoch}");
+        }
+        assert_eq!(parse_epoch("18446744073709551615", false), Ok(u64::MAX));
+        assert_eq!(
+            seconds_to_millis(MAX_SAFE_POLICY_SECONDS),
+            Ok((MAX_SAFE_POLICY_SECONDS * 1000) as i64)
+        );
+        assert!(seconds_to_millis(MAX_SAFE_POLICY_SECONDS + 1).is_err());
+        assert!(parse_canonical_utc("2030-01-01T00:00:00Z").is_err());
+        assert!(parse_canonical_utc("2030-01-01T01:00:00.000+01:00").is_err());
+
+        policy.max_lifetime_seconds = 0;
+        assert!(validate_policy(&policy).is_err());
+        policy = policy_for(&payload);
+        policy.max_clock_skew_seconds = MAX_SAFE_POLICY_SECONDS + 1;
+        assert!(validate_policy(&policy).is_err());
+        policy = policy_for(&payload);
+        if let Ok(oversized) = usize::try_from(MAX_SAFE_JS_INTEGER + 1) {
+            policy.max_envelope_bytes = oversized;
+            assert!(validate_policy(&policy).is_err());
+        }
+    }
+
+    #[cfg(feature = "tlsn-production")]
+    #[test]
+    fn result_registry_rejects_invalid_schema_keys_and_validity_windows() {
+        let (_, _, payload) = load_test_vector();
+        let validation_time = policy_for(&payload).now;
+        let registry_input = "FUSOU_TLSN_RESULT_SIGNING_KEY_REGISTRY";
+
+        let mut invalid_json = payload.compile_inputs.clone();
+        invalid_json.insert(registry_input.to_owned(), "{".to_owned());
+        assert_eq!(
+            validate_result_registry(&invalid_json, validation_time),
+            Err(RuntimeConfigManifestError::Invalid(
+                "Result key registry JSON is invalid"
+            ))
+        );
+
+        let cases: Vec<(
+            &str,
+            Box<dyn FnOnce(&mut BTreeMap<String, String>, &mut Value)>,
+        )> = vec![
+            (
+                "Result key registry schema or scope is invalid",
+                Box::new(|_, registry| registry["schema_version"] = Value::from(2)),
+            ),
+            (
+                "Result key registry schema or scope is invalid",
+                Box::new(|_, registry| registry["scope"] = Value::String("wrong-scope".to_owned())),
+            ),
+            (
+                "Result key registry keys are missing",
+                Box::new(|_, registry| {
+                    registry.as_object_mut().unwrap().remove("keys");
+                }),
+            ),
+            (
+                "Result key registry is empty",
+                Box::new(|_, registry| registry["keys"] = Value::Array(Vec::new())),
+            ),
+            (
+                "Result registry key ID is missing",
+                Box::new(|_, registry| {
+                    registry["keys"][0]
+                        .as_object_mut()
+                        .unwrap()
+                        .remove("key_id");
+                }),
+            ),
+            (
+                "key ID is invalid",
+                Box::new(|_, registry| {
+                    registry["keys"][0]["key_id"] = Value::String("not a key id".to_owned())
+                }),
+            ),
+            (
+                "Result key registry contains a duplicate key ID",
+                Box::new(|_, registry| {
+                    let key = registry["keys"][0].clone();
+                    registry["keys"].as_array_mut().unwrap().push(key);
+                }),
+            ),
+            (
+                "Result registry public key is missing",
+                Box::new(|_, registry| {
+                    registry["keys"][0]
+                        .as_object_mut()
+                        .unwrap()
+                        .remove("public_key_spki");
+                }),
+            ),
+            (
+                "Ed25519 SPKI key",
+                Box::new(|_, registry| {
+                    registry["keys"][0]["public_key_spki"] = Value::String("A".to_owned())
+                }),
+            ),
+            (
+                "Result registry key status is missing",
+                Box::new(|_, registry| {
+                    registry["keys"][0]
+                        .as_object_mut()
+                        .unwrap()
+                        .remove("status");
+                }),
+            ),
+            (
+                "Result key registry status is invalid",
+                Box::new(|_, registry| {
+                    registry["keys"][0]["status"] = Value::String("UNKNOWN".to_owned())
+                }),
+            ),
+            (
+                "Result registry not_before is missing",
+                Box::new(|_, registry| {
+                    registry["keys"][0]
+                        .as_object_mut()
+                        .unwrap()
+                        .remove("not_before");
+                }),
+            ),
+            (
+                "Result registry not_before is not canonical UTC RFC3339",
+                Box::new(|_, registry| {
+                    registry["keys"][0]["not_before"] =
+                        Value::String("2020-01-01T00:00:00Z".to_owned())
+                }),
+            ),
+            (
+                "Result registry not_after is not canonical UTC RFC3339",
+                Box::new(|_, registry| {
+                    registry["keys"][0]["not_after"] =
+                        Value::String("2099-01-01T00:00:00Z".to_owned())
+                }),
+            ),
+            (
+                "Result registry not_after is invalid",
+                Box::new(|_, registry| {
+                    registry["keys"][0]
+                        .as_object_mut()
+                        .unwrap()
+                        .remove("not_after");
+                }),
+            ),
+            (
+                "Result registry not_after is invalid",
+                Box::new(|_, registry| registry["keys"][0]["not_after"] = Value::from(1)),
+            ),
+            (
+                "Result registry key validity window is invalid",
+                Box::new(|_, registry| {
+                    registry["keys"][0]["not_after"] =
+                        Value::String("2019-01-01T00:00:00.000Z".to_owned())
+                }),
+            ),
+            (
+                "Result signer is not in the published registry",
+                Box::new(|inputs, _| {
+                    inputs.insert(
+                        "FUSOU_TLSN_RESULT_SIGNER_KEY_ID".to_owned(),
+                        "unknown-result-key".to_owned(),
+                    );
+                }),
+            ),
+            (
+                "Result signer public key does not match the registry",
+                Box::new(|inputs, _| {
+                    let other_key = inputs
+                        .get("FUSOU_TLSN_SESSION_AUTHORITY_PUBLIC_KEY")
+                        .unwrap()
+                        .clone();
+                    inputs.insert("FUSOU_TLSN_RESULT_PUBLIC_KEY_SPKI".to_owned(), other_key);
+                }),
+            ),
+            (
+                "Result signer is not ACTIVE and valid at verification time",
+                Box::new(|_, registry| {
+                    registry["keys"][0]["status"] = Value::String("VERIFY_ONLY".to_owned())
+                }),
+            ),
+            (
+                "Result signer is not ACTIVE and valid at verification time",
+                Box::new(|_, registry| {
+                    registry["keys"][0]["not_before"] =
+                        Value::String("2099-01-01T00:00:00.000Z".to_owned())
+                }),
+            ),
+        ];
+
+        for (expected, mutate) in cases {
+            assert_registry_rejected(&payload, validation_time, mutate, expected);
+        }
+
+        let mut expired_inputs = payload.compile_inputs.clone();
+        let mut expired_registry: Value =
+            serde_json::from_str(expired_inputs.get(registry_input).unwrap()).unwrap();
+        let expired_at = validation_time - chrono::Duration::seconds(1);
+        let not_before = expired_at - chrono::Duration::seconds(1);
+        expired_registry["keys"][0]["not_before"] =
+            Value::String(not_before.to_rfc3339_opts(SecondsFormat::Millis, true));
+        expired_registry["keys"][0]["not_after"] =
+            Value::String(expired_at.to_rfc3339_opts(SecondsFormat::Millis, true));
+        expired_inputs.insert(
+            registry_input.to_owned(),
+            serde_json::to_string(&expired_registry).unwrap(),
+        );
+        assert_eq!(
+            validate_result_registry(&expired_inputs, validation_time),
+            Err(RuntimeConfigManifestError::Invalid(
+                "Result signer is not ACTIVE and valid at verification time"
+            ))
+        );
+    }
+
+    #[cfg(not(feature = "tlsn-production"))]
+    #[test]
+    fn valid_test_signed_manifest_is_rejected_when_production_feature_is_disabled() {
+        let (raw, fixture, payload) = load_test_vector();
+        let error =
+            verify_runtime_config_manifest(&raw, &trusted_signer(fixture), &policy_for(&payload))
+                .unwrap_err();
+        assert_eq!(
+            error,
+            RuntimeConfigManifestError::Invalid(
+                "cannot validate alpha.15 Notary key format because tlsn-production is disabled"
+            )
+        );
+    }
+
     #[cfg(feature = "tlsn-production")]
     #[test]
     fn verifies_the_shared_node_golden_vector_and_rejects_mutations() {
-        let fixture: TestVector = serde_json::from_str(include_str!(
-            "../../../FUSOU-TLSN-VERIFICATION-WORKER/scripts/fixtures/tlsn-runtime-config-manifest-v1-vector.json"
-        ))
-        .unwrap();
-        assert!(fixture.test_only);
-        let compressed = URL_SAFE_NO_PAD
-            .decode(fixture.envelope_gzip_base64url)
-            .unwrap();
-        let mut decoder = GzDecoder::new(compressed.as_slice());
-        let mut raw = Vec::new();
-        decoder.read_to_end(&mut raw).unwrap();
-        assert_eq!(raw.len(), fixture.envelope_uncompressed_bytes);
-
-        let envelope: RuntimeConfigManifestEnvelope = serde_json::from_slice(&raw).unwrap();
-        let payload_bytes =
-            decode_canonical_base64url(&envelope.payload_base64url, "payload").unwrap();
-        let payload: RuntimeConfigManifestPayload = serde_json::from_slice(&payload_bytes).unwrap();
-        let observed_at = parse_canonical_utc(&payload.source.observed_at).unwrap();
-        let policy = RuntimeConfigVerificationPolicy {
-            now: observed_at + chrono::Duration::seconds(1),
-            last_accepted_epoch: "0".to_owned(),
-            max_lifetime_seconds: 3600,
-            max_clock_skew_seconds: 30,
-            max_reference_age_seconds: 600,
-            max_envelope_bytes: 4096,
-        };
-        let trusted_signer = RuntimeConfigTrustedSigner {
-            scope: fixture.trusted_signer.scope,
-            key_id: fixture.trusted_signer.key_id,
-            public_key_spki: fixture.trusted_signer.public_key_spki,
-        };
+        let (raw, fixture, payload) = load_test_vector();
+        let policy = policy_for(&payload);
+        let trusted_signer = trusted_signer(fixture);
         let verified = verify_runtime_config_manifest(&raw, &trusted_signer, &policy).unwrap();
         assert_eq!(verified.epoch, "1");
         assert_eq!(
@@ -1003,12 +1355,156 @@ mod tests {
             Err(RuntimeConfigManifestError::InvalidSignature)
         );
 
+        let mut unauthenticated_payload: Value = serde_json::from_slice(&raw).unwrap();
+        unauthenticated_payload["payload_base64url"] = Value::String(URL_SAFE_NO_PAD.encode(b"{"));
+        let unauthenticated_payload = canonical_json_bytes(&unauthenticated_payload).unwrap();
+        assert_eq!(
+            verify_runtime_config_manifest(&unauthenticated_payload, &trusted_signer, &policy),
+            Err(RuntimeConfigManifestError::InvalidSignature)
+        );
+
+        let mut malformed_payload = payload.clone();
+        malformed_payload.source.active_version_id =
+            "00000000-0000-0000-0000-000000000000".to_owned();
+        assert_eq!(
+            validate_payload(&malformed_payload, policy.now),
+            Err(RuntimeConfigManifestError::Invalid(
+                "Worker source identity is invalid"
+            ))
+        );
+
+        let mut malformed_payload = payload.clone();
+        malformed_payload.source.worker_reference_sha256 = "A".to_owned();
+        assert!(validate_payload(&malformed_payload, policy.now).is_err());
+
+        let mut malformed_payload = payload.clone();
+        malformed_payload.source.account_id = "Z".repeat(32);
+        assert_eq!(
+            validate_payload(&malformed_payload, policy.now),
+            Err(RuntimeConfigManifestError::Invalid(
+                "Worker source identity is invalid"
+            ))
+        );
+
+        let mut malformed_payload = payload.clone();
+        malformed_payload.source.script_name = "Uppercase-Worker".to_owned();
+        assert_eq!(
+            validate_payload(&malformed_payload, policy.now),
+            Err(RuntimeConfigManifestError::Invalid(
+                "Worker source identity is invalid"
+            ))
+        );
+
+        let mut sparse_payload = payload.clone();
+        sparse_payload.source.disclosure_mode = "sparse".to_owned();
+        sparse_payload.compile_inputs.insert(
+            "FUSOU_TLSN_VERIFICATION_ENDPOINT".to_owned(),
+            payload.compile_inputs["FUSOU_TLSN_VERIFICATION_ENDPOINT"]
+                .replace("/verify/tlsn", "/verify/tlsn/sparse"),
+        );
+        assert_eq!(validate_payload(&sparse_payload, policy.now), Ok(()));
+
+        for endpoint in [
+            "https://user@worker.example.test/health",
+            "https://worker.example.test:443/health",
+            "https://worker.example.test/health?x=1",
+            "https://worker.example.test/health#fragment",
+            "https://WORKER.example.test/health",
+        ] {
+            let mut malformed_payload = payload.clone();
+            malformed_payload.compile_inputs.insert(
+                "FUSOU_TLSN_RUNTIME_ATTESTATION_ENDPOINT".to_owned(),
+                endpoint.to_owned(),
+            );
+            assert!(
+                validate_payload(&malformed_payload, policy.now).is_err(),
+                "{endpoint}"
+            );
+        }
+
+        let mut malformed_payload = payload.clone();
+        malformed_payload.compile_inputs.insert(
+            "FUSOU_TLSN_NOTARY_ENDPOINT".to_owned(),
+            "notary.example.test".to_owned(),
+        );
+        assert_eq!(
+            validate_payload(&malformed_payload, policy.now),
+            Err(RuntimeConfigManifestError::Invalid(
+                "Notary endpoint must use host:port syntax"
+            ))
+        );
+
+        let mut malformed_payload = payload.clone();
+        malformed_payload.compile_inputs.insert(
+            "FUSOU_TLSN_NOTARY_ENDPOINT".to_owned(),
+            "notary.example.test:+7047".to_owned(),
+        );
+        assert_eq!(
+            validate_payload(&malformed_payload, policy.now),
+            Err(RuntimeConfigManifestError::Invalid(
+                "Notary port is invalid"
+            ))
+        );
+
+        let mut malformed_payload = payload.clone();
+        malformed_payload.compile_inputs.insert(
+            "FUSOU_TLSN_NOTARY_ENDPOINT".to_owned(),
+            "[[::1]]:7047".to_owned(),
+        );
+        assert_eq!(
+            validate_payload(&malformed_payload, policy.now),
+            Err(RuntimeConfigManifestError::Invalid(
+                "Notary endpoint host is invalid"
+            ))
+        );
+
+        let mut malformed_payload = payload.clone();
+        malformed_payload.compile_inputs.insert(
+            "FUSOU_TLSN_RUNTIME_ATTESTATION_ENDPOINT".to_owned(),
+            "https://worker.example.test/not-health".to_owned(),
+        );
+        assert!(validate_payload(&malformed_payload, policy.now).is_err());
+
+        let mut malformed_payload = payload.clone();
+        malformed_payload.compile_inputs.insert(
+            "FUSOU_TLSN_RUNTIME_ATTESTATION_ENDPOINT".to_owned(),
+            "https://127.0.0.1/health".to_owned(),
+        );
+        assert!(validate_payload(&malformed_payload, policy.now).is_err());
+
+        let mut malformed_payload = payload.clone();
+        malformed_payload.compile_inputs.insert(
+            "FUSOU_TLSN_VERIFICATION_ENDPOINT".to_owned(),
+            "https://other.example.test/verify/tlsn".to_owned(),
+        );
+        assert_eq!(
+            validate_payload(&malformed_payload, policy.now),
+            Err(RuntimeConfigManifestError::Invalid(
+                "Worker endpoint origins disagree"
+            ))
+        );
+
+        let mut malformed_payload = payload.clone();
+        let registry_input = "FUSOU_TLSN_RESULT_SIGNING_KEY_REGISTRY";
+        let mut registry: Value = serde_json::from_str(
+            malformed_payload
+                .compile_inputs
+                .get(registry_input)
+                .unwrap(),
+        )
+        .unwrap();
+        registry["keys"][0]["not_before"] = Value::String("2020-01-01T00:00:00Z".to_owned());
+        malformed_payload.compile_inputs.insert(
+            registry_input.to_owned(),
+            serde_json::to_string(&registry).unwrap(),
+        );
+        assert!(validate_payload(&malformed_payload, policy.now).is_err());
+
         let mut malformed_payload = payload;
-        let observed_at = parse_canonical_utc(&malformed_payload.source.observed_at).unwrap();
         malformed_payload
             .production_authority_pins
             .target_approval_artifact_sha256
             .clear();
-        assert!(validate_payload(&malformed_payload, observed_at).is_err());
+        assert!(validate_payload(&malformed_payload, policy.now).is_err());
     }
 }

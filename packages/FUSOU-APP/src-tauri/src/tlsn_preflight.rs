@@ -1137,13 +1137,27 @@ fn check_notary_verifying_key(checks: &mut Vec<PreflightCheck>, value: Option<&s
 
 #[cfg(feature = "tlsn-production")]
 pub(crate) fn validate_notary_key_bytes(bytes: &[u8]) -> Result<(), &'static str> {
+    const KEY_DATA_LENGTH: usize = 33;
+    const SERIALIZED_KEY_LENGTH: usize = 1 + std::mem::size_of::<u64>() + KEY_DATA_LENGTH;
+    let serialized_data_length = (KEY_DATA_LENGTH as u64).to_le_bytes();
+    if bytes.len() != SERIALIZED_KEY_LENGTH
+        || bytes.first().copied() != Some(tlsn_attestation::signing::KeyAlgId::K256.as_u8())
+        || bytes.get(1..9) != Some(serialized_data_length.as_slice())
+    {
+        return Err("Notary key is not the canonical alpha.15 K256 key encoding");
+    }
     let key: tlsn_attestation::signing::VerifyingKey =
         bincode::deserialize(bytes).map_err(|_| "decoded key is not an alpha.15 VerifyingKey")?;
+    if key.alg != tlsn_attestation::signing::KeyAlgId::K256 {
+        return Err("Notary key algorithm is not alpha.15 K256");
+    }
     let canonical =
         bincode::serialize(&key).map_err(|_| "alpha.15 VerifyingKey serialization failed")?;
     if canonical != bytes {
         return Err("decoded key is not canonical alpha.15 VerifyingKey serialization");
     }
+    k256::ecdsa::VerifyingKey::from_sec1_bytes(&key.data)
+        .map_err(|_| "Notary key is not a valid compressed secp256k1 public point")?;
     Ok(())
 }
 
@@ -1424,6 +1438,54 @@ mod tests {
                 .candidate_binding_status,
             "UNBOUND"
         );
+    }
+
+    #[test]
+    fn alpha15_notary_key_validation_rejects_malformed_and_non_k256_points() {
+        let fixture = fixture();
+        let encoded = fixture.config.notary_verifying_key.as_deref().unwrap();
+        let valid = decode_unpadded_base64(encoded).unwrap();
+        assert_eq!(validate_notary_key_bytes(&valid), Ok(()));
+
+        let mut invalid_cases = Vec::new();
+        invalid_cases.push(("empty", Vec::new()));
+        invalid_cases.push(("truncated", valid[..valid.len() - 1].to_vec()));
+        let mut trailing = valid.clone();
+        trailing.push(0);
+        invalid_cases.push(("trailing byte", trailing));
+
+        let mut unsupported_algorithm = valid.clone();
+        unsupported_algorithm[0] = tlsn_attestation::signing::KeyAlgId::P256.as_u8();
+        invalid_cases.push(("P256 algorithm", unsupported_algorithm));
+
+        let mut invalid_length_prefix = valid.clone();
+        invalid_length_prefix[1..9].copy_from_slice(&u64::MAX.to_le_bytes());
+        invalid_cases.push(("unbounded bincode length", invalid_length_prefix));
+
+        let mut point_outside_field = valid.clone();
+        point_outside_field[10..].copy_from_slice(
+            &hex::decode("FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEFFFFFC2F")
+                .unwrap(),
+        );
+        invalid_cases.push(("x coordinate outside secp256k1 field", point_outside_field));
+
+        for (label, bytes) in invalid_cases {
+            assert!(
+                validate_notary_key_bytes(&bytes).is_err(),
+                "{label} must be rejected"
+            );
+        }
+
+        let mut checks = Vec::new();
+        check_notary_verifying_key(&mut checks, Some("A"));
+        assert_eq!(checks[0].status, PreflightStatus::Error);
+
+        let mut rejected_fixture = fixture;
+        rejected_fixture.config.notary_verifying_key =
+            Some(URL_SAFE_NO_PAD.encode(&valid[..valid.len() - 1]));
+        let report = run_preflight(&rejected_fixture.config, &rejected_fixture.config_path);
+        assert_error(&report, "tlsn_notary_verifying_key");
+        assert!(!report.ready);
     }
 
     #[test]

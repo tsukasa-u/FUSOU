@@ -171,6 +171,7 @@ export function assertResultSigningIdentity({
   registryRaw,
   registryRootKeyId,
   registryRootPublicKeySpki,
+  now = new Date(),
   label = "Result signing",
 } = {}) {
   const parsedRegistry = typeof registry === "string"
@@ -179,6 +180,7 @@ export function assertResultSigningIdentity({
   assertSigningKeyRegistry(parsedRegistry, {
     currentKeyId: keyId,
     currentPublicKeySpki: publicKeySpki,
+    now,
     label,
   });
   const identity = {

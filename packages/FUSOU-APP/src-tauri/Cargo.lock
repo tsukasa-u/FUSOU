@@ -281,6 +281,7 @@ dependencies = [
  "gtk",
  "hex",
  "http-body-util",
+ "k256",
  "kc-api",
  "libc",
  "once_cell",

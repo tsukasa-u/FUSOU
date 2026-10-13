@@ -83,6 +83,27 @@ function signedRaw(prepared, overrides = {}) {
   });
 }
 
+function signedRawPayloadBytes(payloadBytes) {
+  const keyIdBytes = Buffer.from(signerKeyId, "utf8");
+  const keyIdLength = Buffer.alloc(2);
+  keyIdLength.writeUInt16BE(keyIdBytes.length);
+  const signatureBase64Url = sign(
+    null,
+    Buffer.concat([
+      Buffer.from("FUSOU-TLSN-RUNTIME-CONFIG-MANIFEST-V1\0", "ascii"),
+      keyIdLength,
+      keyIdBytes,
+      payloadBytes,
+    ]),
+    keyPair.privateKey,
+  ).toString("base64url");
+  return createTlsnRuntimeConfigEnvelopeRaw({
+    signerKeyId,
+    payloadBase64Url: payloadBytes.toString("base64url"),
+    signatureBase64Url,
+  });
+}
+
 test("manifest preparation binds the exact approved Worker reference and mandatory Production authority pair", () => {
   const rawReference = referenceRaw();
   const prepared = preparedOptions(rawReference);
@@ -102,6 +123,18 @@ test("manifest preparation binds the exact approved Worker reference and mandato
     release.production_authority_pins.target_approval_artifact_sha256,
   );
   assert.equal(prepared.payload.source.active_version_id, version1);
+  assert.equal(
+    prepared.signing_bytes(signerKeyId),
+    tlsnRuntimeConfigSigningBytes(signerKeyId, prepared.payload).toString("base64url"),
+  );
+  assert.throws(
+    () => createTlsnRuntimeConfigEnvelopeRaw({
+      signerKeyId,
+      payloadBase64Url: prepared.payload_base64url,
+      signatureBase64Url: "A",
+    }),
+    /canonical unpadded base64url/,
+  );
   assert.deepEqual(
     Object.keys(prepared.payload.compile_inputs).sort(),
     Object.keys(JSON.parse(rawReference.toString()).compile_inputs).sort(),
@@ -122,6 +155,20 @@ test("signed envelope verifies only with an explicit scoped external trust pin a
   assert.equal(verified.epoch, "1");
   assert.equal(verified.compile_inputs.FUSOU_TLSN_EXPECTED_ACTIVE_VERSION_ID, version1);
   assert.throws(() => verifyTlsnRuntimeConfigEnvelope(raw), /trusted configuration signer field inventory/);
+  assert.throws(
+    () => verifyTlsnRuntimeConfigEnvelope(raw, {
+      trustedSigner: { ...trustedSigner, key_id: "invalid key id" },
+      policy: policy(prepared),
+    }),
+    /key ID is invalid/,
+  );
+  assert.throws(
+    () => verifyTlsnRuntimeConfigEnvelope(raw, {
+      trustedSigner: { ...trustedSigner, public_key_spki: "A" },
+      policy: policy(prepared),
+    }),
+    /canonical unpadded base64url/,
+  );
   assert.throws(
     () => verifyTlsnRuntimeConfigEnvelope(raw, {
       trustedSigner: { ...trustedSigner, scope: "fusou-result-signing-key-registry-envelope" },
@@ -157,7 +204,51 @@ test("signer identity, signature, envelope bytes and payload bytes are strict", 
   envelope.payload_base64url = changedPayload.toString("base64url");
   assert.throws(
     () => verifyTlsnRuntimeConfigEnvelope(canonicalJson(envelope), { trustedSigner, policy: policy(prepared) }),
-    /payload is malformed JSON|signature verification failed/,
+    /signature verification failed/,
+  );
+});
+
+test("payload parsing follows signature authentication and rejects duplicate keys and lone surrogates", () => {
+  const prepared = preparedOptions();
+  const semanticMutation = structuredClone(prepared.payload);
+  semanticMutation.source.logical_deployment_id = "";
+  assert.throws(
+    () => verifyTlsnRuntimeConfigEnvelope(
+      signedRawPayloadBytes(Buffer.from(canonicalJson(semanticMutation), "utf8")),
+      { trustedSigner, policy: policy(prepared) },
+    ),
+    /Worker source identity is invalid/,
+  );
+
+  const canonicalPayload = canonicalJson(prepared.payload);
+  const duplicateKeyPayload = Buffer.from(
+    canonicalPayload.replace('"schema_version":1,', '"schema_version":1,"schema_version":1,'),
+    "utf8",
+  );
+  assert.throws(
+    () => verifyTlsnRuntimeConfigEnvelope(
+      signedRawPayloadBytes(duplicateKeyPayload),
+      { trustedSigner, policy: policy(prepared) },
+    ),
+    /payload is not canonical JSON/,
+  );
+
+  const invalidUnicode = structuredClone(prepared.payload);
+  invalidUnicode.source.logical_deployment_id = "\ud800";
+  assert.throws(
+    () => verifyTlsnRuntimeConfigEnvelope(
+      signedRawPayloadBytes(Buffer.from(canonicalJson(invalidUnicode), "utf8")),
+      { trustedSigner, policy: policy(prepared) },
+    ),
+    /invalid Unicode string/,
+  );
+
+  assert.throws(
+    () => verifyTlsnRuntimeConfigEnvelope(
+      signedRawPayloadBytes(Buffer.from("{", "utf8")),
+      { trustedSigner, policy: policy(prepared) },
+    ),
+    /payload is malformed JSON/,
   );
 });
 
@@ -280,6 +371,101 @@ test("the complete Production compile-input set is required and unknown fields a
       () => tlsnRuntimeConfigSigningBytes(signerKeyId, payload),
       /field inventory is invalid/,
     );
+  }
+});
+
+test("Notary key and Production authority pin boundaries fail closed", () => {
+  const prepared = preparedOptions();
+  const cases = [
+    ["nil deployment UUID", (payload) => { payload.source.cloudflare_deployment_id = "00000000-0000-0000-0000-000000000000"; }, /Worker source identity is invalid/],
+    ["nil active version UUID", (payload) => { payload.source.active_version_id = "00000000-0000-0000-0000-000000000000"; }, /Worker source identity is invalid/],
+    ["invalid Worker account ID", (payload) => { payload.source.account_id = "Z".repeat(32); }, /Worker source identity is invalid/],
+    ["invalid Worker name", (payload) => { payload.source.script_name = "Uppercase-Worker"; }, /Worker source identity is invalid/],
+    ["malformed Worker reference digest", (payload) => { payload.source.worker_reference_sha256 = "A"; }, /SHA-256/],
+    ["missing Origin Inventory pin", (payload) => { payload.production_authority_pins.origin_inventory_sha256 = ""; }, /SHA-256/],
+    ["missing Target Approval pin", (payload) => { payload.production_authority_pins.target_approval_artifact_sha256 = ""; }, /SHA-256/],
+    ["malformed security registry pin", (payload) => { payload.production_authority_pins.security_registry_set_sha256 = "A"; }, /SHA-256/],
+    ["unsupported Notary algorithm", (payload) => {
+      const bytes = Buffer.from(payload.compile_inputs.FUSOU_TLSN_NOTARY_VERIFYING_KEY, "base64url");
+      bytes[0] = 0;
+      payload.compile_inputs.FUSOU_TLSN_NOTARY_VERIFYING_KEY = bytes.toString("base64url");
+    }, /alpha\.15 K256/],
+    ["malformed Notary base64url", (payload) => { payload.compile_inputs.FUSOU_TLSN_NOTARY_VERIFYING_KEY = "A"; }, /canonical base64url/],
+    ["out-of-field Notary point", (payload) => {
+      const bytes = Buffer.from(payload.compile_inputs.FUSOU_TLSN_NOTARY_VERIFYING_KEY, "base64url");
+      bytes.fill(0xff, 9);
+      payload.compile_inputs.FUSOU_TLSN_NOTARY_VERIFYING_KEY = bytes.toString("base64url");
+    }, /canonical TLSNotary alpha\.15 K256/],
+  ];
+
+  for (const [label, mutate, expected] of cases) {
+    const payload = structuredClone(prepared.payload);
+    mutate(payload);
+    assert.throws(() => tlsnRuntimeConfigSigningBytes(signerKeyId, payload), expected, label);
+  }
+});
+
+test("Worker endpoint mapping and Result registry failures reject malformed signed inputs", () => {
+  const prepared = preparedOptions();
+  const sparse = structuredClone(prepared.payload);
+  sparse.source.disclosure_mode = "sparse";
+  const workerOrigin = new URL(
+    sparse.compile_inputs.FUSOU_TLSN_RUNTIME_ATTESTATION_ENDPOINT,
+  ).origin;
+  sparse.compile_inputs.FUSOU_TLSN_VERIFICATION_ENDPOINT = `${workerOrigin}/verify/tlsn/sparse`;
+  assert.doesNotThrow(() => tlsnRuntimeConfigSigningBytes(signerKeyId, sparse));
+
+  const cases = [
+    ["Notary endpoint without port", (payload) => { payload.compile_inputs.FUSOU_TLSN_NOTARY_ENDPOINT = "notary.example.test"; }, /Notary endpoint/],
+    ["Notary endpoint invalid port", (payload) => { payload.compile_inputs.FUSOU_TLSN_NOTARY_ENDPOINT = "notary.example.test:65536"; }, /valid port/],
+    ["Notary endpoint signed port", (payload) => { payload.compile_inputs.FUSOU_TLSN_NOTARY_ENDPOINT = "notary.example.test:+7047"; }, /valid port/],
+    ["unbracketed IPv6 Notary endpoint", (payload) => { payload.compile_inputs.FUSOU_TLSN_NOTARY_ENDPOINT = "2001:db8::1:7047"; }, /host:port syntax/],
+    ["malformed bracketed Notary host", (payload) => { payload.compile_inputs.FUSOU_TLSN_NOTARY_ENDPOINT = "[[::1]]:7047"; }, /valid port/],
+    ["HTTP health endpoint", (payload) => { payload.compile_inputs.FUSOU_TLSN_RUNTIME_ATTESTATION_ENDPOINT = "http://worker.example.test/health"; }, /clean HTTPS DNS URL/],
+    ["credential-bearing health endpoint", (payload) => { payload.compile_inputs.FUSOU_TLSN_RUNTIME_ATTESTATION_ENDPOINT = "https://user@worker.example.test/health"; }, /clean HTTPS DNS URL/],
+    ["explicit default HTTPS port", (payload) => { payload.compile_inputs.FUSOU_TLSN_RUNTIME_ATTESTATION_ENDPOINT = "https://worker.example.test:443/health"; }, /clean HTTPS DNS URL/],
+    ["health endpoint query", (payload) => { payload.compile_inputs.FUSOU_TLSN_RUNTIME_ATTESTATION_ENDPOINT = "https://worker.example.test/health?x=1"; }, /clean HTTPS DNS URL/],
+    ["health endpoint fragment", (payload) => { payload.compile_inputs.FUSOU_TLSN_RUNTIME_ATTESTATION_ENDPOINT = "https://worker.example.test/health#fragment"; }, /clean HTTPS DNS URL/],
+    ["noncanonical host casing", (payload) => { payload.compile_inputs.FUSOU_TLSN_RUNTIME_ATTESTATION_ENDPOINT = "https://WORKER.example.test/health"; }, /clean HTTPS DNS URL/],
+    ["IP health endpoint", (payload) => { payload.compile_inputs.FUSOU_TLSN_RUNTIME_ATTESTATION_ENDPOINT = "https://127.0.0.1/health"; }, /clean HTTPS DNS URL/],
+    ["health endpoint with wrong path", (payload) => { payload.compile_inputs.FUSOU_TLSN_RUNTIME_ATTESTATION_ENDPOINT = "https://worker.example.test/not-health"; }, /clean HTTPS DNS URL/],
+    ["unsupported disclosure mode", (payload) => { payload.source.disclosure_mode = "mixed"; }, /Worker source identity is invalid/],
+    ["sparse disclosure with complete endpoint", (payload) => {
+      payload.source.disclosure_mode = "sparse";
+    }, /clean HTTPS DNS URL/],
+    ["verification endpoint on a different origin", (payload) => { payload.compile_inputs.FUSOU_TLSN_VERIFICATION_ENDPOINT = "https://other.example.test/verify/tlsn"; }, /origins disagree/],
+    ["session endpoint with wrong path", (payload) => { payload.compile_inputs.FUSOU_TLSN_SESSION_AUTHORITY_ENDPOINT = "https://worker.example.test/attestation/other"; }, /clean HTTPS DNS URL/],
+    ["Result registry with noncanonical timestamp", (payload) => {
+      const registry = JSON.parse(payload.compile_inputs.FUSOU_TLSN_RESULT_SIGNING_KEY_REGISTRY);
+      registry.keys[0].not_before = "2020-01-01T00:00:00Z";
+      payload.compile_inputs.FUSOU_TLSN_RESULT_SIGNING_KEY_REGISTRY = JSON.stringify(registry);
+    }, /canonical UTC RFC3339/],
+    ["Result registry with noncanonical expiry", (payload) => {
+      const registry = JSON.parse(payload.compile_inputs.FUSOU_TLSN_RESULT_SIGNING_KEY_REGISTRY);
+      registry.keys[0].not_after = "2099-01-01T00:00:00Z";
+      payload.compile_inputs.FUSOU_TLSN_RESULT_SIGNING_KEY_REGISTRY = JSON.stringify(registry);
+    }, /canonical UTC RFC3339/],
+    ["Result signer missing from registry", (payload) => {
+      payload.compile_inputs.FUSOU_TLSN_RESULT_SIGNER_KEY_ID = "unknown-result-key";
+    }, /not .*published registry|does not match/],
+    ["inactive Result signer", (payload) => {
+      const registry = JSON.parse(payload.compile_inputs.FUSOU_TLSN_RESULT_SIGNING_KEY_REGISTRY);
+      registry.keys[0].status = "VERIFY_ONLY";
+      payload.compile_inputs.FUSOU_TLSN_RESULT_SIGNING_KEY_REGISTRY = JSON.stringify(registry);
+    }, /ACTIVE/],
+    ["expired Result signer", (payload) => {
+      const registry = JSON.parse(payload.compile_inputs.FUSOU_TLSN_RESULT_SIGNING_KEY_REGISTRY);
+      const expiresAt = Date.parse(payload.source.observed_at) - 1000;
+      registry.keys[0].not_before = new Date(expiresAt - 1000).toISOString();
+      registry.keys[0].not_after = new Date(expiresAt).toISOString();
+      payload.compile_inputs.FUSOU_TLSN_RESULT_SIGNING_KEY_REGISTRY = JSON.stringify(registry);
+    }, /validity window/],
+  ];
+
+  for (const [label, mutate, expected] of cases) {
+    const payload = structuredClone(prepared.payload);
+    mutate(payload);
+    assert.throws(() => tlsnRuntimeConfigSigningBytes(signerKeyId, payload), expected, label);
   }
 });
 

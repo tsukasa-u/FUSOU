@@ -8,7 +8,7 @@
 
 **計画の範囲:** この同期作業では Final Specification とこの文書だけを変更する。実行時コードは変更しない。
 
-**オフライン設定マニフェスト注記:** 別途追加された Node/Rust の設定マニフェスト契約は、独立に与えられる trust pin と freshness/rollback policy を使うオフライン準備・検証インターフェースに限る。実行時取得、署名鍵の発行・登録、公開、APP startup/proxy 接続、Auth/device binding は実装されていない。この契約は Phase 0 の証拠または合格を意味せず、Phase 0 の `NO-GO (0/17 PASS)` を維持する。既存の compile-time TLSN inputs と Production acceptance 要件を変更しない。
+**オフライン設定マニフェスト注記:** Node/Rust の設定マニフェスト契約は、独立に与えられる trust pin と caller-supplied freshness/rollback policy を使うオフライン準備・検証インターフェースに限る。commit hook の `code-review-graph` が出した当初の58件は symbol-to-test-edge のヒューリスティックで、test coverage数ではない。同じbaseでの追加テスト後の再実行は65 symbol gap（うち test helper を含む）であり、分類と証拠は [operator runbook](../../packages/FUSOU-TLSN-VERIFICATION-WORKER/docs/production-evidence-operator-runbook.md) に記録した。ローカルテストでは Node/Rust のalpha.15 Notary key、署名順序、canonicalization、registry time、endpoint契約の代表的な拒否経路を確認した。一方、APPはOrigin Inventory/Target Approvalのartifact bytesまたは期待digest pairを受け取らず、Worker reference hashをraw bytesから再計算せず、Result registry envelope/rootを独立検証しない。信頼できる時刻とepochの永続化もない。実行時取得、署名鍵の発行・登録、公開、APP startup/proxy接続、Auth/device bindingは実装されていない。この契約とローカルテストはPhase 0の証拠または合格を意味せず、Phase 0の `NO-GO (0/17 PASS)` を維持する。既存のcompile-time TLSN inputsとProduction acceptance要件を変更しない。
 
 **情報源の優先順位:** Final Specification、攻撃者視点の監査、リポジトリ構成、古い計画の順とする。古い計画との競合は Final Specification を優先して解決する。
 
