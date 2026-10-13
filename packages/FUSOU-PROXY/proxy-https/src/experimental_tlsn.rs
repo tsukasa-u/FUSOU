@@ -407,6 +407,8 @@ pub struct TlsnOriginExchange {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TlsnTransportError {
     Unavailable,
+    RuntimeConfigUnavailable,
+    RuntimeConfigChanged,
     AlreadySent,
     RequestTooLarge,
     OriginConnectionFailed,
@@ -509,6 +511,10 @@ impl std::fmt::Display for TlsnTransportError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let message = match self {
             Self::Unavailable => "TLSN origin transport is unavailable",
+            Self::RuntimeConfigUnavailable => {
+                "TLSN Runtime Config verification is unavailable before origin transport"
+            }
+            Self::RuntimeConfigChanged => "TLSN Runtime Config changed before origin transport",
             Self::AlreadySent => "TLSN origin transport rejected a duplicate send",
             Self::RequestTooLarge => "TLSN origin request exceeds the configured capacity",
             Self::OriginConnectionFailed => "TLSN origin connection failed",

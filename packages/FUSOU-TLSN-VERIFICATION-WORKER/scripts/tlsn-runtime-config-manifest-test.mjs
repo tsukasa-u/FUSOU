@@ -2,6 +2,7 @@
 
 import assert from "node:assert/strict";
 import { createHash, generateKeyPairSync, sign } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { test } from "node:test";
 import { gunzipSync } from "node:zlib";
@@ -14,16 +15,26 @@ import {
   verifyTlsnRuntimeConfigEnvelope,
   verifyTlsnRuntimeConfigProductionEnvelope,
 } from "./tlsn-runtime-config-manifest.mjs";
+import {
+  publishTlsnRuntimeConfig,
+  signTlsnRuntimeConfigManifest,
+} from "./tlsn-runtime-config-release.mjs";
 import { verifyTlsnRuntimeConfigIndependentInputs } from "./tlsn-runtime-config-independent-verification.mjs";
 import {
   account,
   controls,
   customMapping,
+  controlPlaneResponse,
+  environment,
+  manifest,
   now,
+  provenance,
   release,
   version1,
+  version2,
 } from "./app-worker-reference-fixture.mjs";
 import { createAppWorkerReference } from "./app-worker-deployment-reference.mjs";
+import { productionSecurityRegistrySetHash } from "./security-registry-set-contract.mjs";
 
 const signerKeyId = "runtime-config-test";
 const keyPair = generateKeyPairSync("ed25519");
@@ -93,6 +104,107 @@ function independentInputsFrom(vector) {
 function vectorPayload(vector) {
   const envelope = JSON.parse(vector.manifest_envelope_utf8);
   return JSON.parse(Buffer.from(envelope.payload_base64url, "base64url").toString("utf8"));
+}
+
+function currentIndependentInputs(workerReferenceRaw = referenceRaw()) {
+  const originInventoryRaw = readFileSync(
+    new URL("../../configs/tlsn-origin-inventory.json", import.meta.url),
+  );
+  const targetApprovalRaw = readFileSync(
+    new URL("../../configs/tlsn-target-approval.json", import.meta.url),
+  );
+  const securityRegistrySetRaw = Buffer.from(
+    productionSecurityRegistrySetHash({
+      notaryKeyId: release.publicBindings.TLSN_CANDIDATE_NOTARY_KEY_ID,
+      notaryRegistryRaw: release.publicBindings.TLSN_PRODUCTION_NOTARY_REGISTRY,
+      targetApprovalArtifactSha256: createHash("sha256")
+        .update(targetApprovalRaw)
+        .digest("base64url"),
+    }).canonical,
+    "utf8",
+  );
+  return {
+    worker_reference_raw: workerReferenceRaw,
+    origin_inventory_raw: originInventoryRaw,
+    target_approval_raw: targetApprovalRaw,
+    security_registry_set_raw: securityRegistrySetRaw,
+    result_registry_envelope_raw: Buffer.from(
+      release.publicBindings.TLSN_PRODUCTION_RESULT_SIGNING_KEY_REGISTRY_ENVELOPE,
+      "utf8",
+    ),
+  };
+}
+
+function testSignerProvider() {
+  return {
+    key_id: signerKeyId,
+    public_key_spki: trustedSigner.public_key_spki,
+    sign(bytes) {
+      return sign(null, bytes, keyPair.privateKey);
+    },
+  };
+}
+
+function workerReferenceRevalidation() {
+  return {
+    environment,
+    provenance,
+    publicManifest: manifest,
+    fetchImpl: async (url) => new Response(JSON.stringify(controlPlaneResponse(url))),
+  };
+}
+
+class FakeRuntimeConfigObjectStore {
+  constructor({ corruptArtifactReadback = false, raceManifestPointer = false } = {}) {
+    this.objects = new Map();
+    this.manifestETag = null;
+    this.manifestBody = null;
+    this.corruptArtifactReadback = corruptArtifactReadback;
+    this.raceManifestPointer = raceManifestPointer;
+    this.events = [];
+  }
+
+  async getManifestETag() {
+    this.events.push("read-manifest-etag");
+    return this.manifestETag;
+  }
+
+  async putImmutable(object) {
+    this.events.push(`put:${object.key}`);
+    const existing = this.objects.get(object.key);
+    if (existing && !existing.equals(object.body)) {
+      throw new Error("content-addressed object already contains different bytes");
+    }
+    this.objects.set(object.key, Buffer.from(object.body));
+  }
+
+  async getObject(key) {
+    this.events.push(`read:${key}`);
+    const body = key === "tlsn/runtime-config/v2/manifest.json"
+      ? this.manifestBody
+      : this.objects.get(key);
+    if (!body) return Buffer.alloc(0);
+    const readback = Buffer.from(body);
+    if (this.corruptArtifactReadback && key !== "tlsn/runtime-config/v2/manifest.json") {
+      this.corruptArtifactReadback = false;
+      readback[0] ^= 1;
+    }
+    return readback;
+  }
+
+  async compareAndSwapManifest(expectedETag, object) {
+    this.events.push("manifest-cas");
+    if (this.raceManifestPointer) {
+      this.manifestETag = "concurrent-update";
+      this.manifestBody = Buffer.from("concurrent manifest");
+    }
+    if (this.manifestETag !== expectedETag) {
+      throw new Error("Runtime Config manifest pointer changed during publication");
+    }
+    this.manifestETag = `etag-${this.events.length}`;
+    this.manifestBody = Buffer.from(object.body);
+    return this.manifestETag;
+  }
 }
 
 function signedRaw(prepared, overrides = {}) {
@@ -608,6 +720,130 @@ test("publication objects use signed content-addressed keys and publish the muta
     assert.equal(artifact.key.endsWith(`/${digest}`), true);
     assert.equal(artifact.cache_control, "public, max-age=31536000, immutable");
   }
+});
+
+test("Runtime Config release signs against the external pin and verifies before publication", async () => {
+  const inputs = currentIndependentInputs();
+  const prepared = preparedOptions(inputs.worker_reference_raw, release, "1");
+  let signerCalls = 0;
+  const signerProvider = {
+    ...testSignerProvider(),
+    sign(bytes) {
+      signerCalls += 1;
+      return sign(null, bytes, keyPair.privateKey);
+    },
+  };
+
+  const signed = await signTlsnRuntimeConfigManifest({
+    prepared,
+    signerProvider,
+    trustedSigner,
+    policy: policy(prepared),
+    independentInputs: inputs,
+  });
+  assert.equal(signerCalls, 1);
+  assert.equal(signed.verification.state, "MANIFEST_AND_SIGNED_PINS_VERIFIED");
+  assert.equal(JSON.parse(signed.raw_envelope).signer_key_id, trustedSigner.key_id);
+  assert.doesNotThrow(() => verifyTlsnRuntimeConfigEnvelope(signed.raw_envelope, {
+      trustedSigner,
+    policy: policy(prepared),
+    }));
+
+  await assert.rejects(
+    () => signTlsnRuntimeConfigManifest({
+      prepared,
+      signerProvider: { ...signerProvider, key_id: "untrusted-signer" },
+      trustedSigner,
+      policy: policy(prepared),
+      independentInputs: inputs,
+    }),
+    /does not match the independent signer pin/,
+  );
+  await assert.rejects(
+    () => signTlsnRuntimeConfigManifest({
+      prepared,
+      signerProvider: { ...testSignerProvider(), sign: async () => Buffer.alloc(64) },
+      trustedSigner,
+      policy: policy(prepared),
+      independentInputs: inputs,
+    }),
+    /runtime configuration signature verification failed/,
+  );
+  assert.equal(signerCalls, 1);
+});
+
+test("Runtime Config publisher reads back immutable artifacts before atomic manifest CAS", async () => {
+  const inputs = currentIndependentInputs();
+  const prepared = preparedOptions(inputs.worker_reference_raw, release, "1");
+  const store = new FakeRuntimeConfigObjectStore();
+  const result = await publishTlsnRuntimeConfig({
+    prepared,
+    signerProvider: testSignerProvider(),
+    trustedSigner,
+    policy: policy(prepared),
+    independentInputs: inputs,
+    workerReferenceRevalidation: workerReferenceRevalidation(),
+    objectStore: store,
+  });
+
+  assert.equal(result.state, "PUBLISHED_TO_OBJECT_STORE");
+  const casIndex = store.events.indexOf("manifest-cas");
+  assert.equal(store.events[casIndex + 1], "read:tlsn/runtime-config/v2/manifest.json");
+  assert.equal(store.events[casIndex + 2], "read-manifest-etag");
+  assert.equal(result.object_keys.at(-1), "tlsn/runtime-config/v2/manifest.json");
+  assert.equal(
+    createHash("sha256").update(store.manifestBody).digest("base64url"),
+    result.manifest_sha256,
+  );
+  assert(
+    store.events
+      .filter((event) => event.startsWith("read:") && !event.endsWith("/manifest.json"))
+      .every((event) => store.events.indexOf(event) < casIndex),
+  );
+});
+
+test("Runtime Config publisher refuses a bad artifact readback or a raced manifest pointer", async () => {
+  const inputs = currentIndependentInputs();
+  const prepared = preparedOptions(inputs.worker_reference_raw, release, "1");
+  const options = {
+    prepared,
+    signerProvider: testSignerProvider(),
+    trustedSigner,
+    policy: policy(prepared),
+    independentInputs: inputs,
+    workerReferenceRevalidation: workerReferenceRevalidation(),
+  };
+  const corruptStore = new FakeRuntimeConfigObjectStore({ corruptArtifactReadback: true });
+  await assert.rejects(
+    () => publishTlsnRuntimeConfig({ ...options, objectStore: corruptStore }),
+    /immutable Runtime Config artifact readback mismatch/,
+  );
+  assert.equal(corruptStore.manifestETag, null);
+  assert.equal(corruptStore.events.includes("manifest-cas"), false);
+
+  const racedStore = new FakeRuntimeConfigObjectStore({ raceManifestPointer: true });
+  await assert.rejects(
+    () => publishTlsnRuntimeConfig({ ...options, objectStore: racedStore }),
+    /manifest pointer changed during publication/,
+  );
+  assert.equal(racedStore.manifestBody.toString(), "concurrent manifest");
+
+  const rotatedStore = new FakeRuntimeConfigObjectStore();
+  await assert.rejects(
+    () => publishTlsnRuntimeConfig({
+      ...options,
+      workerReferenceRevalidation: {
+        ...workerReferenceRevalidation(),
+        fetchImpl: async (url) => new Response(JSON.stringify(
+          controlPlaneResponse(url, release, version2),
+        )),
+      },
+      objectStore: rotatedStore,
+    }),
+    /deployment or endpoint mapping changed before manifest publication/,
+  );
+  assert.equal(rotatedStore.manifestETag, null);
+  assert.equal(rotatedStore.events.includes("manifest-cas"), false);
 });
 
 test("Production verification fails closed for missing, changed, swapped, or self-asserted inputs", async () => {

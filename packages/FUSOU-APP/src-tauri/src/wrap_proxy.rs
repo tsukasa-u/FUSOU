@@ -1,7 +1,7 @@
 // use proxy::bidirectional_channel::{Master, Slave, StatusInfo};
 #[cfg(feature = "tlsn-production")]
 use crate::tlsn_runtime_config_manifest::{
-    RuntimeConfigWorkerInput, VerifiedRuntimeConfigManifest,
+    RuntimeConfigManifestError, RuntimeConfigWorkerInput, VerifiedRuntimeConfigManifest,
 };
 #[cfg(feature = "tlsn-production")]
 use crate::tlsn_runtime_config_runtime::RuntimeConfigManager;
@@ -15,12 +15,13 @@ use proxy_https::{
 use proxy_https::{
     experimental_tlsn::{
         AttestationBindingProvider, BindingError, BindingFuture, BindingRequestContext,
+        SerializedOriginRequest, TlsnTransportError, TlsnTransportFuture,
     },
     production_tlsn::{
-        AppPublicConfigurationFingerprints, FilesystemPresentationArtifactSink,
-        HandoffPresentationProvider, OriginTarget, OriginTlsConfig, OriginTransportConfig,
-        ProductionTlsnDependencies, RuntimeIdentifiers, ServerIdentityPolicy,
-        WorkerHealthObservation,
+        Alpha15OriginTransportFactory, AppPublicConfigurationFingerprints,
+        FilesystemPresentationArtifactSink, HandoffPresentationProvider, OriginTarget,
+        OriginTlsConfig, OriginTransportConfig, ProductionTlsnDependencies, RuntimeIdentifiers,
+        ServerIdentityPolicy, WorkerHealthObservation,
     },
     real_tlsn::{
         FilesystemResultDelivery, RealAlpha15OriginTransportFactory, RemoteSessionBindingProvider,
@@ -28,6 +29,8 @@ use proxy_https::{
         ResultSignatureVerifier,
     },
 };
+#[cfg(feature = "tlsn-production")]
+use std::{future::Future, pin::Pin};
 #[cfg(feature = "tlsn-production")]
 use tauri::Manager;
 use tauri::Url;
@@ -116,8 +119,52 @@ fn production_configuration_error(error: impl std::fmt::Display) -> Box<dyn std:
 }
 
 #[cfg(feature = "tlsn-production")]
+type RuntimeConfigRefreshFuture<'a> =
+    Pin<Box<dyn Future<Output = Result<String, RuntimeConfigManifestError>> + Send + 'a>>;
+
+#[cfg(feature = "tlsn-production")]
+trait RuntimeConfigRevalidator: Send + Sync {
+    fn refresh_manifest_sha256(&self) -> RuntimeConfigRefreshFuture<'_>;
+}
+
+#[cfg(feature = "tlsn-production")]
+impl RuntimeConfigRevalidator for RuntimeConfigManager {
+    fn refresh_manifest_sha256(&self) -> RuntimeConfigRefreshFuture<'_> {
+        Box::pin(async move { Ok(self.refresh().await?.manifest_sha256().to_owned()) })
+    }
+}
+
+#[cfg(feature = "tlsn-production")]
+#[derive(Debug, Clone, Copy)]
+enum RuntimeConfigGateFailure {
+    Unavailable,
+    Changed,
+}
+
+#[cfg(feature = "tlsn-production")]
+async fn verify_runtime_config_unchanged(
+    manager: &dyn RuntimeConfigRevalidator,
+    expected_manifest_sha256: &str,
+) -> Result<(), RuntimeConfigGateFailure> {
+    let current_digest = manager.refresh_manifest_sha256().await.map_err(|error| {
+        tracing::warn!(
+            error = %error,
+            "Runtime Config revalidation failed before TLSN processing"
+        );
+        RuntimeConfigGateFailure::Unavailable
+    })?;
+    if current_digest != expected_manifest_sha256 {
+        tracing::warn!(
+            "Runtime Config changed after proxy initialization; refusing TLSN processing"
+        );
+        return Err(RuntimeConfigGateFailure::Changed);
+    }
+    Ok(())
+}
+
+#[cfg(feature = "tlsn-production")]
 struct RuntimeConfigGuardedBindingProvider {
-    manager: RuntimeConfigManager,
+    manager: Arc<dyn RuntimeConfigRevalidator>,
     expected_manifest_sha256: String,
     inner: Arc<dyn AttestationBindingProvider>,
 }
@@ -125,24 +172,48 @@ struct RuntimeConfigGuardedBindingProvider {
 #[cfg(feature = "tlsn-production")]
 impl AttestationBindingProvider for RuntimeConfigGuardedBindingProvider {
     fn issue_binding(&self, context: BindingRequestContext) -> BindingFuture {
-        let manager = self.manager.clone();
+        let manager = Arc::clone(&self.manager);
         let expected_manifest_sha256 = self.expected_manifest_sha256.clone();
         let inner = Arc::clone(&self.inner);
         Box::pin(async move {
-            let current = manager.refresh().await.map_err(|error| {
-                tracing::warn!(
-                    error = %error,
-                    "Runtime Config revalidation failed before TLSN transport"
-                );
-                BindingError::RuntimeConfigUnavailable
-            })?;
-            if current.manifest_sha256() != expected_manifest_sha256 {
-                tracing::warn!(
-                    "Runtime Config changed after proxy initialization; refusing TLSN transport"
-                );
-                return Err(BindingError::RuntimeConfigChanged);
-            }
+            verify_runtime_config_unchanged(manager.as_ref(), &expected_manifest_sha256)
+                .await
+                .map_err(|failure| match failure {
+                    RuntimeConfigGateFailure::Unavailable => BindingError::RuntimeConfigUnavailable,
+                    RuntimeConfigGateFailure::Changed => BindingError::RuntimeConfigChanged,
+                })?;
             inner.issue_binding(context).await
+        })
+    }
+}
+
+#[cfg(feature = "tlsn-production")]
+struct RuntimeConfigGuardedOriginTransportFactory {
+    manager: Arc<dyn RuntimeConfigRevalidator>,
+    expected_manifest_sha256: String,
+    inner: Arc<dyn Alpha15OriginTransportFactory>,
+}
+
+#[cfg(feature = "tlsn-production")]
+impl Alpha15OriginTransportFactory for RuntimeConfigGuardedOriginTransportFactory {
+    fn send_once(
+        &self,
+        config: OriginTransportConfig,
+        request: SerializedOriginRequest,
+    ) -> TlsnTransportFuture {
+        let manager = Arc::clone(&self.manager);
+        let expected_manifest_sha256 = self.expected_manifest_sha256.clone();
+        let inner = Arc::clone(&self.inner);
+        Box::pin(async move {
+            verify_runtime_config_unchanged(manager.as_ref(), &expected_manifest_sha256)
+                .await
+                .map_err(|failure| match failure {
+                    RuntimeConfigGateFailure::Unavailable => {
+                        TlsnTransportError::RuntimeConfigUnavailable
+                    }
+                    RuntimeConfigGateFailure::Changed => TlsnTransportError::RuntimeConfigChanged,
+                })?;
+            inner.send_once(config, request).await
         })
     }
 }
@@ -153,7 +224,7 @@ fn build_production_tlsn_dependencies(
     artifact_root: &str,
     auth_manager: &AuthManager<FileStorage>,
     runtime_config: &VerifiedRuntimeConfigManifest,
-    runtime_config_manager: RuntimeConfigManager,
+    runtime_config_manager: Arc<dyn RuntimeConfigRevalidator>,
     worker_health_observation: WorkerHealthObservation,
     public_configuration_fingerprints: AppPublicConfigurationFingerprints,
 ) -> Result<ProductionTlsnDependencies, Box<dyn std::error::Error>> {
@@ -216,14 +287,20 @@ fn build_production_tlsn_dependencies(
     let binding_state = remote_binding_provider.state();
     let binding_provider: Arc<dyn AttestationBindingProvider> =
         Arc::new(RuntimeConfigGuardedBindingProvider {
-            manager: runtime_config_manager,
+            manager: Arc::clone(&runtime_config_manager),
             expected_manifest_sha256: runtime_config.manifest_sha256().to_owned(),
             inner: remote_binding_provider,
         });
-    let transport_factory = std::sync::Arc::new(
+    let real_transport_factory = std::sync::Arc::new(
         RealAlpha15OriginTransportFactory::new(notary_endpoint, std::sync::Arc::clone(&handoff))
             .map_err(production_configuration_error)?,
     );
+    let transport_factory: Arc<dyn Alpha15OriginTransportFactory> =
+        Arc::new(RuntimeConfigGuardedOriginTransportFactory {
+            manager: runtime_config_manager,
+            expected_manifest_sha256: runtime_config.manifest_sha256().to_owned(),
+            inner: real_transport_factory,
+        });
     let worker_results = RemoteWorkerResultStore::new();
     let result_verifier = std::sync::Arc::new(
         if disclosure_mode == "sparse" {
@@ -419,7 +496,7 @@ where
                 &artifact_root,
                 &auth_manager_for_proxy,
                 runtime_config,
-                manager,
+                Arc::new(manager),
                 runtime_identity.ok_or("production Worker health observation is required")?,
                 {
                     let fingerprints = public_configuration_fingerprints
@@ -505,4 +582,141 @@ where
     let proxy_url = Url::parse(&format!("http://{proxy_addr_string}"))
         .map_err(|_| "Failed to parse proxy URL")?;
     return Ok(proxy_url);
+}
+
+#[cfg(all(test, feature = "tlsn-production"))]
+mod runtime_config_transport_gate_tests {
+    use super::*;
+    use std::{
+        collections::VecDeque,
+        sync::{
+            atomic::{AtomicUsize, Ordering},
+            Mutex as StdMutex,
+        },
+    };
+
+    struct FakeRevalidator {
+        results: StdMutex<VecDeque<Result<String, RuntimeConfigManifestError>>>,
+    }
+
+    impl RuntimeConfigRevalidator for FakeRevalidator {
+        fn refresh_manifest_sha256(&self) -> RuntimeConfigRefreshFuture<'_> {
+            let result = self.results.lock().unwrap().pop_front().unwrap();
+            Box::pin(async move { result })
+        }
+    }
+
+    struct CountingOriginFactory {
+        calls: Arc<AtomicUsize>,
+    }
+
+    impl Alpha15OriginTransportFactory for CountingOriginFactory {
+        fn send_once(
+            &self,
+            _config: OriginTransportConfig,
+            _request: SerializedOriginRequest,
+        ) -> TlsnTransportFuture {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            Box::pin(async { Err(TlsnTransportError::Unavailable) })
+        }
+    }
+
+    fn origin_config() -> OriginTransportConfig {
+        let target = OriginTarget::new(
+            "game.example.test".to_owned(),
+            443,
+            "game.example.test".to_owned(),
+        )
+        .unwrap();
+        let tls = OriginTlsConfig::new().expect("test host must provide the platform trust store");
+        let identity_policy =
+            ServerIdentityPolicy::new(vec!["game.example.test".to_owned()]).unwrap();
+        OriginTransportConfig::new(target, tls, identity_policy, true)
+    }
+
+    fn test_factory(
+        results: Vec<Result<String, RuntimeConfigManifestError>>,
+        calls: Arc<AtomicUsize>,
+    ) -> RuntimeConfigGuardedOriginTransportFactory {
+        RuntimeConfigGuardedOriginTransportFactory {
+            manager: Arc::new(FakeRevalidator {
+                results: StdMutex::new(results.into()),
+            }),
+            expected_manifest_sha256: "A".repeat(43),
+            inner: Arc::new(CountingOriginFactory { calls }),
+        }
+    }
+
+    #[tokio::test]
+    async fn final_transport_gate_rejects_changed_or_unavailable_config_before_origin_call() {
+        for (revalidation, expected) in [
+            (Ok("B".repeat(43)), TlsnTransportError::RuntimeConfigChanged),
+            (
+                Err(RuntimeConfigManifestError::Invalid("test fetch failure")),
+                TlsnTransportError::RuntimeConfigUnavailable,
+            ),
+        ] {
+            let calls = Arc::new(AtomicUsize::new(0));
+            let factory = test_factory(vec![revalidation], Arc::clone(&calls));
+            let error = match factory
+                .send_once(
+                    origin_config(),
+                    SerializedOriginRequest::new(b"GET / HTTP/1.1\r\n\r\n".as_slice().into())
+                        .unwrap(),
+                )
+                .await
+            {
+                Ok(_) => panic!("revalidation failure must prevent origin transport"),
+                Err(error) => error,
+            };
+            assert_eq!(error, expected);
+            assert_eq!(calls.load(Ordering::SeqCst), 0);
+        }
+    }
+
+    #[tokio::test]
+    async fn unchanged_runtime_config_calls_origin_factory_once() {
+        let calls = Arc::new(AtomicUsize::new(0));
+        let factory = test_factory(vec![Ok("A".repeat(43))], Arc::clone(&calls));
+        let result = factory
+            .send_once(
+                origin_config(),
+                SerializedOriginRequest::new(b"GET / HTTP/1.1\r\n\r\n".as_slice().into()).unwrap(),
+            )
+            .await;
+
+        assert!(matches!(result, Err(TlsnTransportError::Unavailable)));
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn manifest_change_after_binding_check_still_blocks_game_server_transport() {
+        let calls = Arc::new(AtomicUsize::new(0));
+        let manager = Arc::new(FakeRevalidator {
+            results: StdMutex::new(vec![Ok("A".repeat(43)), Ok("B".repeat(43))].into()),
+        });
+        verify_runtime_config_unchanged(manager.as_ref(), &"A".repeat(43))
+            .await
+            .expect("initial binding-time revalidation should pass");
+        let factory = RuntimeConfigGuardedOriginTransportFactory {
+            manager,
+            expected_manifest_sha256: "A".repeat(43),
+            inner: Arc::new(CountingOriginFactory {
+                calls: Arc::clone(&calls),
+            }),
+        };
+
+        let error = match factory
+            .send_once(
+                origin_config(),
+                SerializedOriginRequest::new(b"GET / HTTP/1.1\r\n\r\n".as_slice().into()).unwrap(),
+            )
+            .await
+        {
+            Ok(_) => panic!("changed Runtime Config must prevent origin transport"),
+            Err(error) => error,
+        };
+        assert_eq!(error, TlsnTransportError::RuntimeConfigChanged);
+        assert_eq!(calls.load(Ordering::SeqCst), 0);
+    }
 }
