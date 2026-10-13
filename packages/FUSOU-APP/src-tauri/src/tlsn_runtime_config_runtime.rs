@@ -44,6 +44,17 @@ impl RuntimeConfigManager {
             .await
     }
 
+    pub(crate) async fn preflight(
+        &self,
+        proxy_target: &str,
+    ) -> Result<crate::tlsn_preflight::TlsnPreflightReport, RuntimeConfigManifestError> {
+        let verified = self.refresh().await?;
+        Ok(crate::tlsn_preflight::run_verified_runtime_preflight(
+            &verified,
+            proxy_target,
+        ))
+    }
+
     async fn refresh_with_fetcher_at(
         &self,
         bootstrap: &RuntimeConfigBootstrap,
@@ -65,6 +76,19 @@ impl RuntimeConfigManager {
         self.epoch_state.accept(&verified)?;
         Ok(verified)
     }
+}
+
+pub(crate) fn register_runtime_config_manager(
+    state_path: PathBuf,
+    register: impl FnOnce(RuntimeConfigManager) -> bool,
+) -> Result<RuntimeConfigManager, RuntimeConfigManifestError> {
+    let manager = RuntimeConfigManager::new(state_path);
+    if !register(manager.clone()) {
+        return Err(RuntimeConfigManifestError::State(
+            "Runtime Config manager is already registered",
+        ));
+    }
+    Ok(manager)
 }
 
 #[derive(Clone)]
@@ -271,7 +295,9 @@ fn replace_state_file(source: &Path, destination: &Path) -> Result<(), std::io::
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tlsn_runtime_config_manifest::RuntimeConfigManifestError;
+    use crate::tlsn_runtime_config_manifest::{
+        RuntimeConfigManifestError, RuntimeConfigWorkerInput,
+    };
     use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
     use serde::Deserialize;
     use std::{collections::BTreeMap, future::Future, pin::Pin, sync::Mutex as StdMutex};
@@ -525,6 +551,118 @@ mod tests {
             .unwrap();
         assert_eq!(repeated.manifest_sha256(), verified.manifest_sha256());
         assert_eq!(manager.epoch_state.read().unwrap().last_accepted_epoch, "1");
+
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[tokio::test]
+    async fn startup_registration_and_preflight_fail_closed_without_embedded_bootstrap() {
+        let (directory, path) = test_store();
+        let mut registered_manager = None;
+        let manager = register_runtime_config_manager(path.clone(), |registered| {
+            registered_manager = Some(registered);
+            true
+        })
+        .unwrap();
+
+        assert!(registered_manager.is_some());
+        assert_eq!(
+            manager.preflight("game.example.test").await.unwrap_err(),
+            RuntimeConfigManifestError::Invalid(
+                "Production Runtime Config bootstrap is not registered"
+            )
+        );
+        assert!(!path.exists());
+
+        let error = match register_runtime_config_manager(path, |_| false) {
+            Ok(_) => panic!("duplicate Runtime Config manager registration must fail"),
+            Err(error) => error,
+        };
+        assert_eq!(
+            error,
+            RuntimeConfigManifestError::State("Runtime Config manager is already registered")
+        );
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[tokio::test]
+    async fn fully_verified_runtime_config_is_the_source_for_worker_identity_and_preflight() {
+        let (bootstrap, fetcher, now) = test_fixture();
+        let (directory, path) = test_store();
+        let manager = RuntimeConfigManager::new(path);
+        let verified = manager
+            .refresh_with_fetcher_at(&bootstrap, &fetcher, now)
+            .await
+            .unwrap();
+
+        let proxy = configs::get_user_configs_for_proxy();
+        let mut preflight_config =
+            crate::tlsn_preflight::TlsnPreflightConfig::from_verified_runtime_config(
+                &proxy, &verified,
+            );
+        assert_eq!(
+            preflight_config.notary_endpoint.as_deref(),
+            Some(verified.worker_input(RuntimeConfigWorkerInput::NotaryEndpoint))
+        );
+        assert_eq!(
+            preflight_config.result_signing_key_registry.as_deref(),
+            Some(verified.worker_input(RuntimeConfigWorkerInput::ResultSigningKeyRegistry))
+        );
+
+        let expected_identity =
+            crate::tlsn_runtime::ExpectedWorkerIdentity::from_verified_runtime_config(&verified);
+        assert_eq!(
+            expected_identity.health_endpoint,
+            verified.worker_input(RuntimeConfigWorkerInput::RuntimeAttestationEndpoint)
+        );
+        assert_eq!(
+            expected_identity.result_signer_key_id,
+            verified.worker_input(RuntimeConfigWorkerInput::ResultSignerKeyId)
+        );
+
+        let config_path = directory.join("configs.toml");
+        fs::write(&config_path, "[proxy]\n").unwrap();
+        let artifact_path = directory.join("artifacts");
+        fs::create_dir(&artifact_path).unwrap();
+        preflight_config.experiment_enabled = true;
+        preflight_config.response_mode = "async".to_owned();
+        preflight_config.artifact_output_path = Some(artifact_path.to_string_lossy().into_owned());
+
+        let approved_identity = verified
+            .approved_targets()
+            .first()
+            .expect("fixture includes an approved target")
+            .server_identity()
+            .to_owned();
+        let report = crate::tlsn_preflight::run_verified_runtime_preflight_with_config(
+            &verified,
+            &approved_identity,
+            &preflight_config,
+            &config_path,
+        );
+        assert_eq!(
+            report
+                .checks
+                .iter()
+                .find(|check| check.name == "runtime_config_target_approval")
+                .map(|check| check.status),
+            Some(crate::tlsn_preflight::PreflightStatus::Pass)
+        );
+
+        let rejected_report = crate::tlsn_preflight::run_verified_runtime_preflight_with_config(
+            &verified,
+            "unapproved.example.test",
+            &preflight_config,
+            &config_path,
+        );
+        assert_eq!(
+            rejected_report
+                .checks
+                .iter()
+                .find(|check| check.name == "runtime_config_target_approval")
+                .map(|check| check.status),
+            Some(crate::tlsn_preflight::PreflightStatus::Error)
+        );
 
         fs::remove_dir_all(directory).unwrap();
     }

@@ -772,6 +772,28 @@ test("Runtime Config release signs against the external pin and verifies before 
   assert.equal(signerCalls, 1);
 });
 
+test("Runtime Config publication refuses an unset signer before accessing the object store", async () => {
+  const inputs = currentIndependentInputs();
+  const prepared = preparedOptions(inputs.worker_reference_raw, release, "1");
+  const store = new FakeRuntimeConfigObjectStore();
+
+  await assert.rejects(
+    () => publishTlsnRuntimeConfig({
+      prepared,
+      signerProvider: undefined,
+      trustedSigner,
+      policy: policy(prepared),
+      independentInputs: inputs,
+      workerReferenceRevalidation: workerReferenceRevalidation(),
+      objectStore: store,
+    }),
+    /manifest signer provider does not match the independent signer pin/,
+  );
+  assert.deepEqual(store.events, []);
+  assert.equal(store.objects.size, 0);
+  assert.equal(store.manifestBody, null);
+});
+
 test("Runtime Config publisher reads back immutable artifacts before atomic manifest CAS", async () => {
   const inputs = currentIndependentInputs();
   const prepared = preparedOptions(inputs.worker_reference_raw, release, "1");

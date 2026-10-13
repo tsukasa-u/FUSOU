@@ -120,7 +120,7 @@ pub struct BindingRequestContext {
 }
 
 impl BindingRequestContext {
-    pub(crate) fn new(connection_id: u64, target: &str) -> Self {
+    pub fn new(connection_id: u64, target: &str) -> Self {
         Self {
             connection_id,
             target: target.to_owned(),

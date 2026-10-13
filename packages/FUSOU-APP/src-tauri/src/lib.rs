@@ -310,12 +310,12 @@ pub async fn run() {
 
             #[cfg(feature = "tlsn-production")]
             {
-                let runtime_config_manager = tlsn_runtime_config_runtime::RuntimeConfigManager::new(
-                    util::get_ROAMING_DIR().join("tlsn-runtime-config-epoch-state.json"),
-                );
-                if !app.manage(runtime_config_manager.clone()) {
-                    return Err("Runtime Config manager is already registered".into());
-                }
+                let runtime_config_manager =
+                    tlsn_runtime_config_runtime::register_runtime_config_manager(
+                        util::get_ROAMING_DIR().join("tlsn-runtime-config-epoch-state.json"),
+                        |manager| app.manage(manager),
+                    )
+                    .map_err(|_| "Runtime Config manager is already registered")?;
                 if configs::get_user_configs_for_proxy().get_tlsn_experiment_enabled() {
                     tokio::spawn(async move {
                         if let Err(error) = runtime_config_manager.refresh().await {

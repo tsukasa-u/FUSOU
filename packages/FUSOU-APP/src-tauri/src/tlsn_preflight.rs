@@ -242,7 +242,16 @@ pub fn run_verified_runtime_preflight(
     });
     let proxy = configs::get_user_configs_for_proxy();
     let config = TlsnPreflightConfig::from_verified_runtime_config(&proxy, verified);
-    let mut report = run_preflight(&config, &config_path);
+    run_verified_runtime_preflight_with_config(verified, proxy_target, &config, &config_path)
+}
+
+pub(crate) fn run_verified_runtime_preflight_with_config(
+    verified: &VerifiedRuntimeConfigManifest,
+    proxy_target: &str,
+    config: &TlsnPreflightConfig,
+    config_path: &Path,
+) -> TlsnPreflightReport {
+    let mut report = run_preflight(config, config_path);
     let approved = verified.approved_target(proxy_target).is_some();
     push_check(
         &mut report.checks,

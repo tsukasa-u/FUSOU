@@ -587,6 +587,7 @@ where
 #[cfg(all(test, feature = "tlsn-production"))]
 mod runtime_config_transport_gate_tests {
     use super::*;
+    use proxy_https::experimental_tlsn::AttestationBinding;
     use std::{
         collections::VecDeque,
         sync::{
@@ -610,6 +611,17 @@ mod runtime_config_transport_gate_tests {
         calls: Arc<AtomicUsize>,
     }
 
+    struct CountingBindingProvider {
+        calls: Arc<AtomicUsize>,
+    }
+
+    impl AttestationBindingProvider for CountingBindingProvider {
+        fn issue_binding(&self, _context: BindingRequestContext) -> BindingFuture {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            Box::pin(async { AttestationBinding::new("test-binding".to_owned()) })
+        }
+    }
+
     impl Alpha15OriginTransportFactory for CountingOriginFactory {
         fn send_once(
             &self,
@@ -618,6 +630,19 @@ mod runtime_config_transport_gate_tests {
         ) -> TlsnTransportFuture {
             self.calls.fetch_add(1, Ordering::SeqCst);
             Box::pin(async { Err(TlsnTransportError::Unavailable) })
+        }
+    }
+
+    fn test_binding_provider(
+        results: Vec<Result<String, RuntimeConfigManifestError>>,
+        calls: Arc<AtomicUsize>,
+    ) -> RuntimeConfigGuardedBindingProvider {
+        RuntimeConfigGuardedBindingProvider {
+            manager: Arc::new(FakeRevalidator {
+                results: StdMutex::new(results.into()),
+            }),
+            expected_manifest_sha256: "A".repeat(43),
+            inner: Arc::new(CountingBindingProvider { calls }),
         }
     }
 
@@ -686,6 +711,39 @@ mod runtime_config_transport_gate_tests {
             .await;
 
         assert!(matches!(result, Err(TlsnTransportError::Unavailable)));
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn binding_gate_rejects_changed_or_unavailable_config_before_issuing_binding() {
+        for (revalidation, expected) in [
+            (Ok("B".repeat(43)), BindingError::RuntimeConfigChanged),
+            (
+                Err(RuntimeConfigManifestError::Invalid("test fetch failure")),
+                BindingError::RuntimeConfigUnavailable,
+            ),
+        ] {
+            let calls = Arc::new(AtomicUsize::new(0));
+            let provider = test_binding_provider(vec![revalidation], Arc::clone(&calls));
+            let error = provider
+                .issue_binding(BindingRequestContext::new(1, "game.example.test"))
+                .await
+                .unwrap_err();
+            assert_eq!(error, expected);
+            assert_eq!(calls.load(Ordering::SeqCst), 0);
+        }
+    }
+
+    #[tokio::test]
+    async fn unchanged_runtime_config_allows_binding_provider_once() {
+        let calls = Arc::new(AtomicUsize::new(0));
+        let provider = test_binding_provider(vec![Ok("A".repeat(43))], Arc::clone(&calls));
+        let binding = provider
+            .issue_binding(BindingRequestContext::new(1, "game.example.test"))
+            .await
+            .expect("unchanged Runtime Config should reach the binding provider");
+
+        assert_eq!(binding.value(), "test-binding");
         assert_eq!(calls.load(Ordering::SeqCst), 1);
     }
 

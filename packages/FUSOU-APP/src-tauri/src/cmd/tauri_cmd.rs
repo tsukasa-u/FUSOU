@@ -650,6 +650,22 @@ pub fn get_all_logs() -> Vec<MessageVisitor> {
     crate::builder_setup::logger::get_all_logs_internal()
 }
 
+#[cfg(feature = "tlsn-production")]
+#[tauri::command]
+pub async fn run_tlsn_production_preflight(
+    runtime_config_manager: tauri::State<
+        '_,
+        crate::tlsn_runtime_config_runtime::RuntimeConfigManager,
+    >,
+    proxy_target: String,
+) -> Result<crate::tlsn_preflight::TlsnPreflightReport, String> {
+    runtime_config_manager
+        .preflight(&proxy_target)
+        .await
+        .map_err(|error| format!("TLSN Runtime Config verification failed: {error}"))
+}
+
+#[cfg(not(feature = "tlsn-production"))]
 #[tauri::command]
 pub fn run_tlsn_production_preflight() -> crate::tlsn_preflight::TlsnPreflightReport {
     crate::tlsn_preflight::run_current_config_preflight()
@@ -712,4 +728,3 @@ pub async fn close_debug_window(window: tauri::Window) {
         tracing::warn!("no window labeled 'debug' found");
     }
 }
-
