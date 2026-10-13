@@ -10,6 +10,8 @@ use serde_json::Value;
 use sha2::{Digest, Sha256};
 #[cfg(feature = "tlsn-production")]
 use std::time::Duration;
+#[cfg(feature = "tlsn-production")]
+use std::{future::Future, pin::Pin};
 use url::{Host, Url};
 
 const MANIFEST_SCHEMA_VERSION: u32 = 2;
@@ -51,6 +53,7 @@ pub enum RuntimeConfigManifestError {
     InvalidSignature,
     InvalidResultRegistrySignature,
     Transport(&'static str),
+    State(&'static str),
 }
 
 impl std::fmt::Display for RuntimeConfigManifestError {
@@ -73,6 +76,9 @@ impl std::fmt::Display for RuntimeConfigManifestError {
                     formatter,
                     "runtime configuration transport failed: {reason}"
                 )
+            }
+            Self::State(reason) => {
+                write!(formatter, "runtime configuration state failed: {reason}")
             }
         }
     }
@@ -181,12 +187,35 @@ impl RuntimeConfigBootstrap {
         validate_trusted_signer(&bootstrap.trusted_signer)?;
         Ok(bootstrap)
     }
+
+    #[cfg(test)]
+    pub(crate) fn for_test(
+        manifest_url: &str,
+        trusted_signer: RuntimeConfigTrustedSigner,
+    ) -> Result<Self, RuntimeConfigManifestError> {
+        let bootstrap = Self {
+            manifest_url: validate_runtime_config_manifest_url(manifest_url)?,
+            trusted_signer,
+        };
+        validate_trusted_signer(&bootstrap.trusted_signer)?;
+        Ok(bootstrap)
+    }
+}
+
+#[cfg(feature = "tlsn-production")]
+pub(crate) trait RuntimeConfigObjectFetcher: Send + Sync {
+    fn fetch<'a>(
+        &'a self,
+        url: Url,
+        max_bytes: usize,
+    ) -> Pin<Box<dyn Future<Output = Result<Vec<u8>, RuntimeConfigManifestError>> + Send + 'a>>;
 }
 
 #[derive(Clone, Debug)]
 pub struct RuntimeConfigVerificationPolicy {
     pub now: DateTime<Utc>,
     pub last_accepted_epoch: String,
+    pub last_accepted_manifest_sha256: Option<String>,
     pub max_lifetime_seconds: u64,
     pub max_clock_skew_seconds: u64,
     pub max_reference_age_seconds: u64,
@@ -213,12 +242,76 @@ pub struct RuntimeConfigIndependentVerificationSummary {
     pub result_registry_root_key_id: String,
     pub result_signer_key_id: String,
     pub result_signer_public_key_spki: String,
+    pub approved_targets: Vec<RuntimeConfigApprovedTarget>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RuntimeConfigApprovedTarget {
+    server_index: u32,
+    server_identity: String,
+    port: u16,
+}
+
+impl RuntimeConfigApprovedTarget {
+    pub fn server_index(&self) -> u32 {
+        self.server_index
+    }
+
+    pub fn server_identity(&self) -> &str {
+        &self.server_identity
+    }
+
+    pub fn port(&self) -> u16 {
+        self.port
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RuntimeConfigWorkerInput {
+    ExpectedActiveVersionId,
+    ExpectedBindingMode,
+    ExpectedDeploymentId,
+    ExpectedGitCommitSha,
+    ExpectedWorkerName,
+    NotaryEndpoint,
+    NotaryVerifyingKey,
+    ResultPublicKeySpki,
+    ResultSignerKeyId,
+    ResultSigningKeyRegistry,
+    RuntimeAttestationEndpoint,
+    SessionAuthorityEndpoint,
+    SessionAuthorityKeyId,
+    SessionAuthorityPublicKey,
+    VerificationEndpoint,
+}
+
+impl RuntimeConfigWorkerInput {
+    fn key(self) -> &'static str {
+        match self {
+            Self::ExpectedActiveVersionId => "FUSOU_TLSN_EXPECTED_ACTIVE_VERSION_ID",
+            Self::ExpectedBindingMode => "FUSOU_TLSN_EXPECTED_BINDING_MODE",
+            Self::ExpectedDeploymentId => "FUSOU_TLSN_EXPECTED_DEPLOYMENT_ID",
+            Self::ExpectedGitCommitSha => "FUSOU_TLSN_EXPECTED_GIT_COMMIT_SHA",
+            Self::ExpectedWorkerName => "FUSOU_TLSN_EXPECTED_WORKER_NAME",
+            Self::NotaryEndpoint => "FUSOU_TLSN_NOTARY_ENDPOINT",
+            Self::NotaryVerifyingKey => "FUSOU_TLSN_NOTARY_VERIFYING_KEY",
+            Self::ResultPublicKeySpki => "FUSOU_TLSN_RESULT_PUBLIC_KEY_SPKI",
+            Self::ResultSignerKeyId => "FUSOU_TLSN_RESULT_SIGNER_KEY_ID",
+            Self::ResultSigningKeyRegistry => "FUSOU_TLSN_RESULT_SIGNING_KEY_REGISTRY",
+            Self::RuntimeAttestationEndpoint => "FUSOU_TLSN_RUNTIME_ATTESTATION_ENDPOINT",
+            Self::SessionAuthorityEndpoint => "FUSOU_TLSN_SESSION_AUTHORITY_ENDPOINT",
+            Self::SessionAuthorityKeyId => "FUSOU_TLSN_SESSION_AUTHORITY_KEY_ID",
+            Self::SessionAuthorityPublicKey => "FUSOU_TLSN_SESSION_AUTHORITY_PUBLIC_KEY",
+            Self::VerificationEndpoint => "FUSOU_TLSN_VERIFICATION_ENDPOINT",
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct VerifiedRuntimeConfigManifest {
     payload: RuntimeConfigManifestPayload,
     independent_verification: RuntimeConfigIndependentVerificationSummary,
+    manifest_sha256: String,
 }
 
 impl VerifiedRuntimeConfigManifest {
@@ -228,6 +321,37 @@ impl VerifiedRuntimeConfigManifest {
 
     pub fn independent_verification(&self) -> &RuntimeConfigIndependentVerificationSummary {
         &self.independent_verification
+    }
+
+    pub fn worker_input(&self, input: RuntimeConfigWorkerInput) -> &str {
+        self.payload
+            .compile_inputs
+            .get(input.key())
+            .map(String::as_str)
+            .expect("verified manifest contains the complete Worker input inventory")
+    }
+
+    pub fn approved_targets(&self) -> &[RuntimeConfigApprovedTarget] {
+        &self.independent_verification.approved_targets
+    }
+
+    pub fn approved_target(&self, server_identity: &str) -> Option<&RuntimeConfigApprovedTarget> {
+        if !is_dns_hostname(server_identity)
+            || server_identity != server_identity.to_ascii_lowercase()
+        {
+            return None;
+        }
+        self.approved_targets()
+            .iter()
+            .find(|target| target.server_identity == server_identity)
+    }
+
+    pub fn manifest_sha256(&self) -> &str {
+        &self.manifest_sha256
+    }
+
+    pub fn epoch(&self) -> &str {
+        &self.payload.epoch
     }
 }
 
@@ -255,72 +379,112 @@ pub fn verify_runtime_config_manifest(
         Ok(VerifiedRuntimeConfigManifest {
             payload,
             independent_verification,
+            manifest_sha256: sha256_base64url(raw_envelope),
         })
     }
 }
 
 #[cfg(feature = "tlsn-production")]
-pub async fn fetch_and_verify_runtime_config_manifest(
+pub(crate) struct HttpRuntimeConfigObjectFetcher {
+    client: reqwest::Client,
+}
+
+#[cfg(feature = "tlsn-production")]
+impl HttpRuntimeConfigObjectFetcher {
+    pub(crate) fn new() -> Result<Self, RuntimeConfigManifestError> {
+        let client = reqwest::Client::builder()
+            .redirect(reqwest::redirect::Policy::none())
+            .connect_timeout(Duration::from_secs(5))
+            .timeout(Duration::from_secs(15))
+            .build()
+            .map_err(|_| {
+                RuntimeConfigManifestError::Transport("HTTP client initialization failed")
+            })?;
+        Ok(Self { client })
+    }
+}
+
+#[cfg(feature = "tlsn-production")]
+impl RuntimeConfigObjectFetcher for HttpRuntimeConfigObjectFetcher {
+    fn fetch<'a>(
+        &'a self,
+        url: Url,
+        max_bytes: usize,
+    ) -> Pin<Box<dyn Future<Output = Result<Vec<u8>, RuntimeConfigManifestError>> + Send + 'a>>
+    {
+        Box::pin(async move { fetch_bounded(&self.client, url, max_bytes).await })
+    }
+}
+
+#[cfg(feature = "tlsn-production")]
+pub(crate) async fn fetch_and_verify_with_fetcher(
     bootstrap: &RuntimeConfigBootstrap,
     policy: &RuntimeConfigVerificationPolicy,
+    fetcher: &dyn RuntimeConfigObjectFetcher,
 ) -> Result<VerifiedRuntimeConfigManifest, RuntimeConfigManifestError> {
     validate_trusted_signer(&bootstrap.trusted_signer)?;
     validate_runtime_config_manifest_url(bootstrap.manifest_url.as_str())?;
     validate_policy(policy)?;
-    let client = reqwest::Client::builder()
-        .redirect(reqwest::redirect::Policy::none())
-        .connect_timeout(Duration::from_secs(5))
-        .timeout(Duration::from_secs(15))
-        .build()
-        .map_err(|_| RuntimeConfigManifestError::Transport("HTTP client initialization failed"))?;
-    let manifest_raw = fetch_bounded(
-        &client,
-        bootstrap.manifest_url.clone(),
-        policy.max_envelope_bytes,
-    )
-    .await?;
+    let manifest_raw = fetcher
+        .fetch(bootstrap.manifest_url.clone(), policy.max_envelope_bytes)
+        .await?;
     let payload =
         verify_signed_runtime_config_manifest(&manifest_raw, &bootstrap.trusted_signer, policy)?;
 
-    let worker_reference = fetch_artifact(
-        &client,
-        &bootstrap.manifest_url,
-        "worker-reference",
-        &payload.source.worker_reference_sha256,
-    )
-    .await?;
-    let origin_inventory = fetch_artifact(
-        &client,
-        &bootstrap.manifest_url,
-        "origin-inventory",
-        &payload.production_authority_pins.origin_inventory_sha256,
-    )
-    .await?;
-    let target_approval = fetch_artifact(
-        &client,
-        &bootstrap.manifest_url,
-        "target-approval",
-        &payload
-            .production_authority_pins
-            .target_approval_artifact_sha256,
-    )
-    .await?;
-    let security_registry_set = fetch_artifact(
-        &client,
-        &bootstrap.manifest_url,
-        "security-registry-set",
-        &payload
-            .production_authority_pins
-            .security_registry_set_sha256,
-    )
-    .await?;
-    let result_registry_envelope = fetch_artifact(
-        &client,
-        &bootstrap.manifest_url,
-        "result-registry-envelope",
-        &payload.result_registry_pins.result_registry_envelope_sha256,
-    )
-    .await?;
+    let worker_reference = fetcher
+        .fetch(
+            runtime_config_artifact_url(
+                &bootstrap.manifest_url,
+                "worker-reference",
+                &payload.source.worker_reference_sha256,
+            )?,
+            MAX_RUNTIME_CONFIG_ARTIFACT_BYTES,
+        )
+        .await?;
+    let origin_inventory = fetcher
+        .fetch(
+            runtime_config_artifact_url(
+                &bootstrap.manifest_url,
+                "origin-inventory",
+                &payload.production_authority_pins.origin_inventory_sha256,
+            )?,
+            MAX_RUNTIME_CONFIG_ARTIFACT_BYTES,
+        )
+        .await?;
+    let target_approval = fetcher
+        .fetch(
+            runtime_config_artifact_url(
+                &bootstrap.manifest_url,
+                "target-approval",
+                &payload
+                    .production_authority_pins
+                    .target_approval_artifact_sha256,
+            )?,
+            MAX_RUNTIME_CONFIG_ARTIFACT_BYTES,
+        )
+        .await?;
+    let security_registry_set = fetcher
+        .fetch(
+            runtime_config_artifact_url(
+                &bootstrap.manifest_url,
+                "security-registry-set",
+                &payload
+                    .production_authority_pins
+                    .security_registry_set_sha256,
+            )?,
+            MAX_RUNTIME_CONFIG_ARTIFACT_BYTES,
+        )
+        .await?;
+    let result_registry_envelope = fetcher
+        .fetch(
+            runtime_config_artifact_url(
+                &bootstrap.manifest_url,
+                "result-registry-envelope",
+                &payload.result_registry_pins.result_registry_envelope_sha256,
+            )?,
+            MAX_RUNTIME_CONFIG_ARTIFACT_BYTES,
+        )
+        .await?;
     let independent_inputs = RuntimeConfigIndependentVerificationInputs {
         worker_reference_raw: Some(&worker_reference),
         origin_inventory_raw: Some(&origin_inventory),
@@ -328,12 +492,13 @@ pub async fn fetch_and_verify_runtime_config_manifest(
         security_registry_set_raw: Some(&security_registry_set),
         result_registry_envelope_raw: Some(&result_registry_envelope),
     };
-    verify_runtime_config_manifest(
-        &manifest_raw,
-        &bootstrap.trusted_signer,
-        policy,
-        Some(&independent_inputs),
-    )
+    let independent_verification =
+        verify_independent_runtime_config_inputs(&payload, policy, &independent_inputs)?;
+    Ok(VerifiedRuntimeConfigManifest {
+        payload,
+        independent_verification,
+        manifest_sha256: sha256_base64url(&manifest_raw),
+    })
 }
 
 fn validate_runtime_config_manifest_url(raw: &str) -> Result<Url, RuntimeConfigManifestError> {
@@ -371,17 +536,6 @@ fn runtime_config_artifact_url(
     segments.pop().push("artifacts").push(kind).push(digest);
     drop(segments);
     Ok(url)
-}
-
-#[cfg(feature = "tlsn-production")]
-async fn fetch_artifact(
-    client: &reqwest::Client,
-    manifest_url: &Url,
-    kind: &str,
-    digest: &str,
-) -> Result<Vec<u8>, RuntimeConfigManifestError> {
-    let url = runtime_config_artifact_url(manifest_url, kind, digest)?;
-    fetch_bounded(client, url, MAX_RUNTIME_CONFIG_ARTIFACT_BYTES).await
 }
 
 #[cfg(feature = "tlsn-production")]
@@ -501,7 +655,7 @@ fn verify_signed_runtime_config_manifest(
         ));
     }
     validate_payload(&payload, policy.now)?;
-    validate_freshness(&payload, policy)?;
+    validate_freshness(&payload, policy, &sha256_base64url(raw_envelope))?;
     Ok(payload)
 }
 
@@ -651,7 +805,7 @@ fn verify_independent_runtime_config_inputs(
             "Production authority artifact bytes do not match signed manifest digests",
         ));
     }
-    validate_authority_artifacts(
+    let approved_targets = validate_authority_artifacts(
         payload,
         origin_inventory_raw,
         target_approval_raw,
@@ -695,6 +849,7 @@ fn verify_independent_runtime_config_inputs(
         result_signer_key_id: payload.compile_inputs["FUSOU_TLSN_RESULT_SIGNER_KEY_ID"].clone(),
         result_signer_public_key_spki: payload.compile_inputs["FUSOU_TLSN_RESULT_PUBLIC_KEY_SPKI"]
             .clone(),
+        approved_targets,
     })
 }
 
@@ -808,7 +963,7 @@ fn validate_authority_artifacts(
     raw_security_registry_set: &[u8],
     inventory_sha256: &str,
     approval_sha256: &str,
-) -> Result<(), RuntimeConfigManifestError> {
+) -> Result<Vec<RuntimeConfigApprovedTarget>, RuntimeConfigManifestError> {
     let inventory_text = std::str::from_utf8(raw_inventory)
         .map_err(|_| RuntimeConfigManifestError::Invalid("Origin Inventory is not UTF-8"))?;
     let inventory: OriginInventoryArtifact = serde_json::from_str(inventory_text)
@@ -959,7 +1114,19 @@ fn validate_authority_artifacts(
                 "security registry set profile policy digest is missing",
             ))?,
     )?;
-    Ok(())
+    Ok(approval
+        .targets
+        .iter()
+        .map(|identity| {
+            let position = inventory_positions[identity.as_str()];
+            let target = &inventory.targets[position];
+            RuntimeConfigApprovedTarget {
+                server_index: target.server_index,
+                server_identity: target.server_identity.clone(),
+                port: target.port,
+            }
+        })
+        .collect())
 }
 
 #[cfg(feature = "tlsn-production")]
@@ -1076,7 +1243,19 @@ fn validate_policy(
             "verification time is outside the interoperable range",
         ));
     }
-    parse_epoch(&policy.last_accepted_epoch, true)?;
+    let last_accepted_epoch = parse_epoch(&policy.last_accepted_epoch, true)?;
+    match (
+        last_accepted_epoch,
+        policy.last_accepted_manifest_sha256.as_deref(),
+    ) {
+        (0, None) => {}
+        (0, Some(_)) | (_, None) => {
+            return Err(RuntimeConfigManifestError::Invalid(
+                "persisted epoch and manifest digest are inconsistent",
+            ));
+        }
+        (_, Some(digest)) => validate_digest(digest)?,
+    }
     for value in [
         policy.max_lifetime_seconds,
         policy.max_clock_skew_seconds,
@@ -1291,12 +1470,20 @@ fn validate_payload(
 fn validate_freshness(
     payload: &RuntimeConfigManifestPayload,
     policy: &RuntimeConfigVerificationPolicy,
+    manifest_sha256: &str,
 ) -> Result<(), RuntimeConfigManifestError> {
     let epoch = parse_epoch(&payload.epoch, false)?;
     let high_water = parse_epoch(&policy.last_accepted_epoch, true)?;
-    if epoch <= high_water {
+    if epoch < high_water {
         return Err(RuntimeConfigManifestError::Invalid(
-            "epoch is not newer than the persisted high-water mark",
+            "epoch is older than the persisted high-water mark",
+        ));
+    }
+    if epoch == high_water
+        && policy.last_accepted_manifest_sha256.as_deref() != Some(manifest_sha256)
+    {
+        return Err(RuntimeConfigManifestError::Invalid(
+            "epoch was already accepted with different manifest bytes",
         ));
     }
 
@@ -1576,7 +1763,7 @@ fn is_lower_hex(value: &str, length: usize) -> bool {
             .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
 }
 
-fn validate_digest(value: &str) -> Result<(), RuntimeConfigManifestError> {
+pub(crate) fn validate_digest(value: &str) -> Result<(), RuntimeConfigManifestError> {
     let bytes = decode_canonical_base64url(value, "SHA-256 digest")?;
     if bytes.len() != 32 {
         return Err(RuntimeConfigManifestError::Invalid(
@@ -1628,7 +1815,10 @@ fn decode_canonical_base64url(
     Ok(bytes)
 }
 
-fn parse_epoch(value: &str, allow_zero: bool) -> Result<u64, RuntimeConfigManifestError> {
+pub(crate) fn parse_epoch(
+    value: &str,
+    allow_zero: bool,
+) -> Result<u64, RuntimeConfigManifestError> {
     let is_canonical = if allow_zero && value == "0" {
         true
     } else {
@@ -1762,6 +1952,7 @@ mod tests {
     struct IndependentVerificationPolicyVector {
         now_ms: i64,
         last_accepted_epoch: String,
+        last_accepted_manifest_sha256: Option<String>,
         max_lifetime_seconds: u64,
         max_clock_skew_seconds: u64,
         max_reference_age_seconds: u64,
@@ -1829,6 +2020,7 @@ mod tests {
         let policy = RuntimeConfigVerificationPolicy {
             now: DateTime::from_timestamp_millis(fixture.policy.now_ms).unwrap(),
             last_accepted_epoch: fixture.policy.last_accepted_epoch.clone(),
+            last_accepted_manifest_sha256: fixture.policy.last_accepted_manifest_sha256.clone(),
             max_lifetime_seconds: fixture.policy.max_lifetime_seconds,
             max_clock_skew_seconds: fixture.policy.max_clock_skew_seconds,
             max_reference_age_seconds: fixture.policy.max_reference_age_seconds,
@@ -1863,6 +2055,7 @@ mod tests {
         RuntimeConfigVerificationPolicy {
             now: observed_at + chrono::Duration::seconds(1),
             last_accepted_epoch: "0".to_owned(),
+            last_accepted_manifest_sha256: None,
             max_lifetime_seconds: 3600,
             max_clock_skew_seconds: 30,
             max_reference_age_seconds: 600,
@@ -2064,6 +2257,7 @@ mod tests {
                 &RuntimeConfigVerificationPolicy {
                     now: Utc::now(),
                     last_accepted_epoch: "0".to_owned(),
+                    last_accepted_manifest_sha256: None,
                     max_lifetime_seconds: 3600,
                     max_clock_skew_seconds: 30,
                     max_reference_age_seconds: 600,
@@ -2094,6 +2288,7 @@ mod tests {
         assert!(validate_policy(&RuntimeConfigVerificationPolicy {
             now: Utc::now(),
             last_accepted_epoch: "00".to_owned(),
+            last_accepted_manifest_sha256: None,
             max_lifetime_seconds: 3600,
             max_clock_skew_seconds: 30,
             max_reference_age_seconds: 600,
@@ -2440,12 +2635,35 @@ mod tests {
             ))
         );
 
+        let manifest_sha256 = sha256_base64url(&raw);
+        let mut exact_epoch_policy = policy.clone();
+        exact_epoch_policy.last_accepted_epoch = "1".to_owned();
+        exact_epoch_policy.last_accepted_manifest_sha256 = Some(manifest_sha256.clone());
+        assert!(
+            verify_signed_runtime_config_manifest(&raw, &trusted_signer, &exact_epoch_policy)
+                .is_ok()
+        );
+
+        let mut same_epoch_mutation_policy = exact_epoch_policy.clone();
+        same_epoch_mutation_policy.last_accepted_manifest_sha256 = Some("A".repeat(43));
+        assert_eq!(
+            verify_signed_runtime_config_manifest(
+                &raw,
+                &trusted_signer,
+                &same_epoch_mutation_policy
+            ),
+            Err(RuntimeConfigManifestError::Invalid(
+                "epoch was already accepted with different manifest bytes"
+            ))
+        );
+
         let mut rollback_policy = policy.clone();
-        rollback_policy.last_accepted_epoch = "1".to_owned();
+        rollback_policy.last_accepted_epoch = "2".to_owned();
+        rollback_policy.last_accepted_manifest_sha256 = Some("A".repeat(43));
         assert_eq!(
             verify_signed_runtime_config_manifest(&raw, &trusted_signer, &rollback_policy),
             Err(RuntimeConfigManifestError::Invalid(
-                "epoch is not newer than the persisted high-water mark"
+                "epoch is older than the persisted high-water mark"
             ))
         );
 

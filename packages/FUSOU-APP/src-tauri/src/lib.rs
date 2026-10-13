@@ -31,6 +31,8 @@ pub mod tlsn_build_handoff;
 pub mod tlsn_runtime_config_manifest;
 #[cfg(feature = "tlsn-production")]
 mod tlsn_runtime;
+#[cfg(feature = "tlsn-production")]
+mod tlsn_runtime_config_runtime;
 mod tlsn_worker_identity;
 use senders::{quest_tree_sender, remodel_sender, ship_growth_sender, soku_speed_sender};
 
@@ -305,6 +307,26 @@ pub async fn run() {
             // Run remaining setup (logger, tray, schedulers, etc.) so that logging is available
             // before we perform token fetch below.
             builder_setup::setup::setup_init(app)?;
+
+            #[cfg(feature = "tlsn-production")]
+            {
+                let runtime_config_manager = tlsn_runtime_config_runtime::RuntimeConfigManager::new(
+                    util::get_ROAMING_DIR().join("tlsn-runtime-config-epoch-state.json"),
+                );
+                if !app.manage(runtime_config_manager.clone()) {
+                    return Err("Runtime Config manager is already registered".into());
+                }
+                if configs::get_user_configs_for_proxy().get_tlsn_experiment_enabled() {
+                    tokio::spawn(async move {
+                        if let Err(error) = runtime_config_manager.refresh().await {
+                            tracing::warn!(
+                                error = %error,
+                                "Runtime Config startup verification failed; TLSN remains blocked"
+                            );
+                        }
+                    });
+                }
+            }
 
             // Fetch tokens and emit to frontend (after logger is initialized inside setup_init)
             let app_handle = app.handle().clone();

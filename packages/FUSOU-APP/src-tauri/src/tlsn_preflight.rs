@@ -11,6 +11,10 @@ use std::{
 };
 use url::Url;
 
+use crate::tlsn_runtime_config_manifest::{
+    RuntimeConfigWorkerInput, VerifiedRuntimeConfigManifest,
+};
+
 #[cfg(feature = "tlsn-production")]
 use proxy_https::real_tlsn::ResultSignatureVerifier;
 
@@ -96,6 +100,39 @@ impl TlsnPreflightConfig {
             disclosure_mode: proxy.get_tlsn_disclosure_mode(),
             response_mode: proxy.get_tlsn_response_mode(),
             notary_verifying_key: proxy.get_tlsn_notary_verifying_key(),
+            artifact_output_path: proxy.get_tlsn_artifact_output_path(),
+        }
+    }
+
+    pub fn from_verified_runtime_config(
+        proxy: &configs::ConfigsProxy,
+        verified: &VerifiedRuntimeConfigManifest,
+    ) -> Self {
+        let input = |name| Some(verified.worker_input(name).to_owned());
+        Self {
+            experiment_enabled: proxy.get_tlsn_experiment_enabled(),
+            candidate_capture_enabled: proxy.get_tlsn_candidate_capture_enabled(),
+            notary_endpoint: input(RuntimeConfigWorkerInput::NotaryEndpoint),
+            session_authority_endpoint: input(RuntimeConfigWorkerInput::SessionAuthorityEndpoint),
+            session_authority_key_id: input(RuntimeConfigWorkerInput::SessionAuthorityKeyId),
+            session_authority_public_key: input(
+                RuntimeConfigWorkerInput::SessionAuthorityPublicKey,
+            ),
+            result_public_key_spki: input(RuntimeConfigWorkerInput::ResultPublicKeySpki),
+            result_signer_key_id: input(RuntimeConfigWorkerInput::ResultSignerKeyId),
+            result_signing_key_registry: input(RuntimeConfigWorkerInput::ResultSigningKeyRegistry),
+            verification_endpoint: input(RuntimeConfigWorkerInput::VerificationEndpoint),
+            worker_health_endpoint: input(RuntimeConfigWorkerInput::RuntimeAttestationEndpoint),
+            expected_deployment_id: input(RuntimeConfigWorkerInput::ExpectedDeploymentId),
+            expected_worker_name: input(RuntimeConfigWorkerInput::ExpectedWorkerName),
+            expected_git_commit_sha: input(RuntimeConfigWorkerInput::ExpectedGitCommitSha),
+            expected_binding_mode: verified
+                .worker_input(RuntimeConfigWorkerInput::ExpectedBindingMode)
+                .to_owned(),
+            expected_active_version_id: input(RuntimeConfigWorkerInput::ExpectedActiveVersionId),
+            disclosure_mode: verified.payload().source.disclosure_mode.clone(),
+            response_mode: proxy.get_tlsn_response_mode(),
+            notary_verifying_key: input(RuntimeConfigWorkerInput::NotaryVerifyingKey),
             artifact_output_path: proxy.get_tlsn_artifact_output_path(),
         }
     }
@@ -192,6 +229,40 @@ pub fn run_current_config_preflight() -> TlsnPreflightReport {
             .join("configs.toml")
     });
     run_loaded_config_preflight(&config_path)
+}
+
+pub fn run_verified_runtime_preflight(
+    verified: &VerifiedRuntimeConfigManifest,
+    proxy_target: &str,
+) -> TlsnPreflightReport {
+    let config_path = candidate_config_path_override().unwrap_or_else(|| {
+        crate::util::get_ROAMING_DIR()
+            .join("user")
+            .join("configs.toml")
+    });
+    let proxy = configs::get_user_configs_for_proxy();
+    let config = TlsnPreflightConfig::from_verified_runtime_config(&proxy, verified);
+    let mut report = run_preflight(&config, &config_path);
+    let approved = verified.approved_target(proxy_target).is_some();
+    push_check(
+        &mut report.checks,
+        "runtime_config_target_approval",
+        if approved {
+            PreflightStatus::Pass
+        } else {
+            PreflightStatus::Error
+        },
+        if approved {
+            "selected server identity is in the verified Target Approval artifact"
+        } else {
+            "selected server identity is absent from the verified Target Approval artifact"
+        },
+    );
+    report.ready = report
+        .checks
+        .iter()
+        .all(|check| check.status != PreflightStatus::Error);
+    report
 }
 
 pub fn set_candidate_config_path(path: PathBuf) -> Result<(), String> {

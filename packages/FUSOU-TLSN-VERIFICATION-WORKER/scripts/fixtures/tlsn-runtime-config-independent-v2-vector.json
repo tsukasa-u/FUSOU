@@ -9,6 +9,7 @@
   "policy": {
     "now_ms": 1791874149010,
     "last_accepted_epoch": "0",
+    "last_accepted_manifest_sha256": null,
     "max_lifetime_seconds": 3600,
     "max_clock_skew_seconds": 30,
     "max_reference_age_seconds": 600,

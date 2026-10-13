@@ -1,3 +1,6 @@
+use crate::tlsn_runtime_config_manifest::{
+    RuntimeConfigWorkerInput, VerifiedRuntimeConfigManifest,
+};
 use crate::tlsn_worker_identity::{
     health_http_client, validate_active_version_pin, validate_worker_endpoints, WorkerRole,
 };
@@ -65,6 +68,28 @@ pub struct ExpectedWorkerIdentity<'a> {
 }
 
 impl ExpectedWorkerIdentity<'_> {
+    pub fn from_verified_runtime_config(
+        config: &VerifiedRuntimeConfigManifest,
+    ) -> ExpectedWorkerIdentity<'_> {
+        ExpectedWorkerIdentity {
+            health_endpoint: config
+                .worker_input(RuntimeConfigWorkerInput::RuntimeAttestationEndpoint),
+            verification_endpoint: config
+                .worker_input(RuntimeConfigWorkerInput::VerificationEndpoint),
+            deployment_id: config.worker_input(RuntimeConfigWorkerInput::ExpectedDeploymentId),
+            worker_name: config.worker_input(RuntimeConfigWorkerInput::ExpectedWorkerName),
+            git_commit_sha: config.worker_input(RuntimeConfigWorkerInput::ExpectedGitCommitSha),
+            binding_mode: config.worker_input(RuntimeConfigWorkerInput::ExpectedBindingMode),
+            active_version_id: config
+                .worker_input(RuntimeConfigWorkerInput::ExpectedActiveVersionId),
+            result_public_key_spki: config
+                .worker_input(RuntimeConfigWorkerInput::ResultPublicKeySpki),
+            result_signer_key_id: config.worker_input(RuntimeConfigWorkerInput::ResultSignerKeyId),
+            result_key_registry: config
+                .worker_input(RuntimeConfigWorkerInput::ResultSigningKeyRegistry),
+        }
+    }
+
     fn validate(&self) -> Result<WorkerRole, String> {
         for value in [
             self.deployment_id,

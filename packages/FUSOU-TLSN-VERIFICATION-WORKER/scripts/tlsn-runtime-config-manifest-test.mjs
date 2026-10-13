@@ -63,6 +63,7 @@ function policy(prepared, overrides = {}) {
   return {
     now_ms: observedAt + 1000,
     last_accepted_epoch: "0",
+    last_accepted_manifest_sha256: null,
     max_lifetime_seconds: 3600,
     max_clock_skew_seconds: 30,
     max_reference_age_seconds: 600,
@@ -278,15 +279,51 @@ test("payload parsing follows signature authentication and rejects duplicate key
   );
 });
 
-test("rollback, expiry, future issuance, stale reference and explicit byte limits fail closed", () => {
+test("rollback, exact same-epoch revalidation, expiry, stale references and byte limits fail closed", () => {
   const prepared = preparedOptions();
   const raw = signedRaw(prepared);
+  const rawSha256 = createHash("sha256").update(raw).digest("base64url");
+  assert.doesNotThrow(() => verifyTlsnRuntimeConfigEnvelope(raw, {
+    trustedSigner,
+    policy: policy(prepared, {
+      last_accepted_epoch: "1",
+      last_accepted_manifest_sha256: rawSha256,
+    }),
+  }));
   assert.throws(
     () => verifyTlsnRuntimeConfigEnvelope(raw, {
       trustedSigner,
-      policy: policy(prepared, { last_accepted_epoch: "1" }),
+      policy: policy(prepared, {
+        last_accepted_epoch: "1",
+        last_accepted_manifest_sha256: createHash("sha256")
+          .update("different accepted envelope")
+          .digest("base64url"),
+      }),
     }),
-    /not newer than the persisted high-water mark/,
+    /already accepted with different manifest bytes/,
+  );
+  const changedSameEpoch = signedRaw(prepared, {
+    not_before: new Date(Date.parse(prepared.payload.not_before) + 1).toISOString(),
+  });
+  assert.throws(
+    () => verifyTlsnRuntimeConfigEnvelope(changedSameEpoch, {
+      trustedSigner,
+      policy: policy(prepared, {
+        last_accepted_epoch: "1",
+        last_accepted_manifest_sha256: rawSha256,
+      }),
+    }),
+    /already accepted with different manifest bytes/,
+  );
+  assert.throws(
+    () => verifyTlsnRuntimeConfigEnvelope(raw, {
+      trustedSigner,
+      policy: policy(prepared, {
+        last_accepted_epoch: "2",
+        last_accepted_manifest_sha256: rawSha256,
+      }),
+    }),
+    /older than the persisted high-water mark/,
   );
   assert.throws(
     () => verifyTlsnRuntimeConfigEnvelope(raw, {
@@ -512,6 +549,7 @@ test("the Node-produced cross-language golden vector verifies without a producti
     policy: {
       now_ms: observedAt + 1000,
       last_accepted_epoch: "0",
+      last_accepted_manifest_sha256: null,
       max_lifetime_seconds: 3600,
       max_clock_skew_seconds: 30,
       max_reference_age_seconds: 600,

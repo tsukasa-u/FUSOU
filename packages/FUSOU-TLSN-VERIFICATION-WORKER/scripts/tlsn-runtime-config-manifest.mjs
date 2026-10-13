@@ -63,6 +63,7 @@ const TRUSTED_SIGNER_FIELDS = ["scope", "key_id", "public_key_spki"];
 const POLICY_FIELDS = [
   "now_ms",
   "last_accepted_epoch",
+  "last_accepted_manifest_sha256",
   "max_lifetime_seconds",
   "max_clock_skew_seconds",
   "max_reference_age_seconds",
@@ -378,7 +379,13 @@ function assertPolicy(policy) {
   if (!Number.isSafeInteger(policy.now_ms) || !Number.isFinite(new Date(policy.now_ms).getTime())) {
     throw new Error("verification time is invalid");
   }
-  assertEpoch(policy.last_accepted_epoch, "last accepted epoch", true);
+  const lastAcceptedEpoch = assertEpoch(policy.last_accepted_epoch, "last accepted epoch", true);
+  if (lastAcceptedEpoch === 0n && policy.last_accepted_manifest_sha256 !== null) {
+    throw new Error("persisted epoch and manifest digest are inconsistent");
+  }
+  if (lastAcceptedEpoch > 0n) {
+    assertDigest(policy.last_accepted_manifest_sha256, "last accepted manifest digest");
+  }
   for (const field of [
     "max_lifetime_seconds",
     "max_clock_skew_seconds",
@@ -604,8 +611,16 @@ export function verifyTlsnRuntimeConfigEnvelope(rawEnvelope, { trustedSigner, po
   assertManifestPayload(payload, new Date(policy.now_ms));
 
   const epoch = assertEpoch(payload.epoch, "manifest epoch");
-  if (epoch <= assertEpoch(policy.last_accepted_epoch, "last accepted epoch", true)) {
-    throw new Error("runtime configuration epoch is not newer than the persisted high-water mark");
+  const lastAcceptedEpoch = assertEpoch(policy.last_accepted_epoch, "last accepted epoch", true);
+  const manifestSha256 = createHash("sha256").update(envelopeBytes).digest("base64url");
+  if (epoch < lastAcceptedEpoch) {
+    throw new Error("runtime configuration epoch is older than the persisted high-water mark");
+  }
+  if (
+    epoch === lastAcceptedEpoch &&
+    policy.last_accepted_manifest_sha256 !== manifestSha256
+  ) {
+    throw new Error("runtime configuration epoch was already accepted with different manifest bytes");
   }
   const issuedAt = assertCanonicalUtc(payload.issued_at, "manifest issued_at");
   const notBefore = assertCanonicalUtc(payload.not_before, "manifest not_before");

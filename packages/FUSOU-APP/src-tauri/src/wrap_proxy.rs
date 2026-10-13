@@ -1,26 +1,39 @@
 // use proxy::bidirectional_channel::{Master, Slave, StatusInfo};
+#[cfg(feature = "tlsn-production")]
+use crate::tlsn_runtime_config_manifest::{
+    RuntimeConfigWorkerInput, VerifiedRuntimeConfigManifest,
+};
+#[cfg(feature = "tlsn-production")]
+use crate::tlsn_runtime_config_runtime::RuntimeConfigManager;
+#[cfg(feature = "tlsn-production")]
+use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use proxy_https::{
     bidirectional_channel::{Master, Slave, StatusInfo},
     edit_pac::edit_pac,
 };
 #[cfg(feature = "tlsn-production")]
 use proxy_https::{
+    experimental_tlsn::{
+        AttestationBindingProvider, BindingError, BindingFuture, BindingRequestContext,
+    },
     production_tlsn::{
-        FilesystemPresentationArtifactSink, HandoffPresentationProvider, OriginTarget,
-        OriginTlsConfig, OriginTransportConfig, ProductionTlsnDependencies,
-        AppPublicConfigurationFingerprints, RuntimeIdentifiers, ServerIdentityPolicy,
+        AppPublicConfigurationFingerprints, FilesystemPresentationArtifactSink,
+        HandoffPresentationProvider, OriginTarget, OriginTlsConfig, OriginTransportConfig,
+        ProductionTlsnDependencies, RuntimeIdentifiers, ServerIdentityPolicy,
         WorkerHealthObservation,
     },
     real_tlsn::{
-        FilesystemResultDelivery, RealAlpha15OriginTransportFactory,
-        RemoteSessionBindingProvider, RemoteWorkerResultSigner,
-        RemoteWorkerResultStore, RemoteWorkerVerificationBackend, ResultSignatureVerifier,
+        FilesystemResultDelivery, RealAlpha15OriginTransportFactory, RemoteSessionBindingProvider,
+        RemoteWorkerResultSigner, RemoteWorkerResultStore, RemoteWorkerVerificationBackend,
+        ResultSignatureVerifier,
     },
 };
 #[cfg(feature = "tlsn-production")]
-use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
+use tauri::Manager;
 use tauri::Url;
 
+#[cfg(feature = "tlsn-production")]
+use crate::util::get_ROAMING_DIR;
 use crate::{
     builder_setup::bidirectional_channel::{
         get_pac_bidirectional_channel, get_proxy_bidirectional_channel,
@@ -28,8 +41,6 @@ use crate::{
     },
     cmd::native_cmd::{self, add_store_sync},
 };
-#[cfg(feature = "tlsn-production")]
-use crate::util::get_ROAMING_DIR;
 
 use fusou_auth::{AuthManager, FileStorage};
 use std::path::Path;
@@ -105,61 +116,73 @@ fn production_configuration_error(error: impl std::fmt::Display) -> Box<dyn std:
 }
 
 #[cfg(feature = "tlsn-production")]
+struct RuntimeConfigGuardedBindingProvider {
+    manager: RuntimeConfigManager,
+    expected_manifest_sha256: String,
+    inner: Arc<dyn AttestationBindingProvider>,
+}
+
+#[cfg(feature = "tlsn-production")]
+impl AttestationBindingProvider for RuntimeConfigGuardedBindingProvider {
+    fn issue_binding(&self, context: BindingRequestContext) -> BindingFuture {
+        let manager = self.manager.clone();
+        let expected_manifest_sha256 = self.expected_manifest_sha256.clone();
+        let inner = Arc::clone(&self.inner);
+        Box::pin(async move {
+            let current = manager.refresh().await.map_err(|error| {
+                tracing::warn!(
+                    error = %error,
+                    "Runtime Config revalidation failed before TLSN transport"
+                );
+                BindingError::RuntimeConfigUnavailable
+            })?;
+            if current.manifest_sha256() != expected_manifest_sha256 {
+                tracing::warn!(
+                    "Runtime Config changed after proxy initialization; refusing TLSN transport"
+                );
+                return Err(BindingError::RuntimeConfigChanged);
+            }
+            inner.issue_binding(context).await
+        })
+    }
+}
+
+#[cfg(feature = "tlsn-production")]
 fn build_production_tlsn_dependencies(
     proxy_target: &str,
     artifact_root: &str,
     auth_manager: &AuthManager<FileStorage>,
+    runtime_config: &VerifiedRuntimeConfigManifest,
+    runtime_config_manager: RuntimeConfigManager,
     worker_health_observation: WorkerHealthObservation,
     public_configuration_fingerprints: AppPublicConfigurationFingerprints,
 ) -> Result<ProductionTlsnDependencies, Box<dyn std::error::Error>> {
     let proxy_configs = configs::get_user_configs_for_proxy();
-    let origin_inventory = configs::get_tlsn_origin_inventory();
-    let selected_target = origin_inventory
-        .targets
-        .iter()
-        .find(|target| target.server_identity.eq_ignore_ascii_case(proxy_target))
-        .ok_or_else(|| production_configuration_error("selected TLSN Origin is not in the shipped target inventory"))?;
-    let server_identity = selected_target.server_identity.clone();
-    let notary_endpoint = proxy_configs
-        .get_tlsn_notary_endpoint()
-        .ok_or_else(|| production_configuration_error("tlsn_notary_endpoint is required for the TLSN experiment"))?;
-    let session_endpoint = proxy_configs
-        .get_tlsn_session_authority_endpoint()
-        .ok_or_else(|| production_configuration_error("tlsn_session_authority_endpoint is required for the TLSN experiment"))?;
-    let verification_endpoint = proxy_configs
-        .get_tlsn_verification_endpoint()
-        .ok_or_else(|| production_configuration_error("tlsn_verification_endpoint is required for the TLSN experiment"))?;
-    let session_authority_key_id = proxy_configs
-        .get_tlsn_session_authority_key_id()
-        .ok_or_else(|| production_configuration_error("tlsn_session_authority_key_id is required for the TLSN experiment"))?;
-    let session_authority_public_key = URL_SAFE_NO_PAD
-        .decode(proxy_configs.get_tlsn_session_authority_public_key().ok_or_else(|| {
+    let selected_target = runtime_config
+        .approved_target(proxy_target)
+        .ok_or_else(|| {
             production_configuration_error(
-                "tlsn_session_authority_public_key is required for the TLSN experiment",
+                "selected TLSN Origin is not in the verified Target Approval",
             )
-        })?)?;
-    let result_public_key_spki = URL_SAFE_NO_PAD.decode(
-        proxy_configs
-            .get_tlsn_result_public_key_spki()
-            .ok_or_else(|| production_configuration_error("tlsn_result_public_key_spki is required for the TLSN experiment"))?,
-    )?;
-    let result_signer_key_id = proxy_configs
-        .get_tlsn_result_signer_key_id()
-        .ok_or_else(|| production_configuration_error("tlsn_result_signer_key_id is required for the TLSN experiment"))?;
-    let result_signing_key_registry = proxy_configs
-        .get_tlsn_result_signing_key_registry()
-        .ok_or_else(|| production_configuration_error("tlsn_result_signing_key_registry is required for the TLSN experiment"))?;
-    let disclosure_mode = proxy_configs.get_tlsn_disclosure_mode();
+        })?;
+    let server_identity = selected_target.server_identity().to_owned();
+    let input = |name| runtime_config.worker_input(name).to_owned();
+    let notary_endpoint = input(RuntimeConfigWorkerInput::NotaryEndpoint);
+    let session_endpoint = input(RuntimeConfigWorkerInput::SessionAuthorityEndpoint);
+    let verification_endpoint = input(RuntimeConfigWorkerInput::VerificationEndpoint);
+    let session_authority_key_id = input(RuntimeConfigWorkerInput::SessionAuthorityKeyId);
+    let session_authority_public_key =
+        URL_SAFE_NO_PAD.decode(input(RuntimeConfigWorkerInput::SessionAuthorityPublicKey))?;
+    let result_public_key_spki =
+        URL_SAFE_NO_PAD.decode(input(RuntimeConfigWorkerInput::ResultPublicKeySpki))?;
+    let result_signer_key_id = input(RuntimeConfigWorkerInput::ResultSignerKeyId);
+    let result_signing_key_registry = input(RuntimeConfigWorkerInput::ResultSigningKeyRegistry);
+    let disclosure_mode = runtime_config.payload().source.disclosure_mode.clone();
     if !matches!(disclosure_mode.as_str(), "complete" | "sparse") {
         return Err(production_configuration_error(
-            "tlsn_disclosure_mode must be complete or sparse",
+            "verified disclosure mode must be complete or sparse",
         ));
     }
-    let notary_key = URL_SAFE_NO_PAD.decode(
-        proxy_configs
-            .get_tlsn_notary_verifying_key()
-            .ok_or_else(|| production_configuration_error("tlsn_notary_verifying_key is required for the TLSN experiment"))?,
-    )?;
     let artifact_root = std::path::PathBuf::from(artifact_root);
     let candidate_capture_enabled = proxy_configs.get_tlsn_candidate_capture_enabled();
     if artifact_root.as_os_str().is_empty() {
@@ -169,31 +192,38 @@ fn build_production_tlsn_dependencies(
     }
     let target = OriginTarget::new(
         server_identity.clone(),
-        selected_target.port,
+        selected_target.port(),
         server_identity.clone(),
     )
     .map_err(production_configuration_error)?;
     let origin = OriginTransportConfig::new(
         target.clone(),
         OriginTlsConfig::new().map_err(production_configuration_error)?,
-        ServerIdentityPolicy::from_shipped_inventory()
-            .map_err(production_configuration_error)?,
+        ServerIdentityPolicy::from_shipped_inventory().map_err(production_configuration_error)?,
         true,
     );
     let handoff = proxy_https::production_tlsn::PresentationHandoff::new();
-    let binding_provider = std::sync::Arc::new(RemoteSessionBindingProvider::new(
-        session_endpoint,
-        auth_manager.clone(),
-        get_ROAMING_DIR().join("fusou-auth-device-key.json"),
-        session_authority_public_key,
-        session_authority_key_id,
-    )
-    .map_err(production_configuration_error)?);
-    let transport_factory = std::sync::Arc::new(RealAlpha15OriginTransportFactory::new(
-        notary_endpoint,
-        std::sync::Arc::clone(&handoff),
-    )
-    .map_err(production_configuration_error)?);
+    let remote_binding_provider = std::sync::Arc::new(
+        RemoteSessionBindingProvider::new(
+            session_endpoint,
+            auth_manager.clone(),
+            get_ROAMING_DIR().join("fusou-auth-device-key.json"),
+            session_authority_public_key,
+            session_authority_key_id,
+        )
+        .map_err(production_configuration_error)?,
+    );
+    let binding_state = remote_binding_provider.state();
+    let binding_provider: Arc<dyn AttestationBindingProvider> =
+        Arc::new(RuntimeConfigGuardedBindingProvider {
+            manager: runtime_config_manager,
+            expected_manifest_sha256: runtime_config.manifest_sha256().to_owned(),
+            inner: remote_binding_provider,
+        });
+    let transport_factory = std::sync::Arc::new(
+        RealAlpha15OriginTransportFactory::new(notary_endpoint, std::sync::Arc::clone(&handoff))
+            .map_err(production_configuration_error)?,
+    );
     let worker_results = RemoteWorkerResultStore::new();
     let result_verifier = std::sync::Arc::new(
         if disclosure_mode == "sparse" {
@@ -216,7 +246,7 @@ fn build_production_tlsn_dependencies(
             verification_endpoint,
             auth_manager.clone(),
             get_ROAMING_DIR().join("fusou-auth-device-key.json"),
-            binding_provider.state(),
+            binding_state,
             std::sync::Arc::clone(&worker_results),
             result_verifier,
             proxy_configs.get_tlsn_response_mode(),
@@ -231,9 +261,9 @@ fn build_production_tlsn_dependencies(
         origin,
         binding_provider,
         transport_factory,
-        std::sync::Arc::new(HandoffPresentationProvider::new(
-            std::sync::Arc::clone(&handoff),
-        )),
+        std::sync::Arc::new(HandoffPresentationProvider::new(std::sync::Arc::clone(
+            &handoff,
+        ))),
         verification_backend,
         result_signer,
         std::sync::Arc::new(FilesystemResultDelivery::new(artifact_root.join("results"))),
@@ -274,36 +304,47 @@ where
     let use_generated_certs = proxy_configs.certificates.get_use_generated_certs();
     #[cfg(feature = "tlsn-production")]
     let mut public_configuration_fingerprints = None;
+    #[cfg(feature = "tlsn-production")]
+    let mut verified_runtime_config = None;
+    #[cfg(feature = "tlsn-production")]
+    let mut runtime_config_manager = None;
 
     if proxy_configs.get_tlsn_experiment_enabled() {
-        let report = crate::tlsn_preflight::run_current_config_preflight();
-        if !report.ready {
-            return Err(report.failure_summary().into());
-        }
         #[cfg(feature = "tlsn-production")]
         {
+            let manager = app
+                .try_state::<RuntimeConfigManager>()
+                .ok_or("Runtime Config manager is not registered")?
+                .inner()
+                .clone();
+            let verified = manager
+                .refresh()
+                .await
+                .map_err(|error| format!("TLSN Runtime Config verification failed: {error}"))?;
+            let report =
+                crate::tlsn_preflight::run_verified_runtime_preflight(&verified, &proxy_target);
+            if !report.ready {
+                return Err(report.failure_summary().into());
+            }
             public_configuration_fingerprints = Some(report.public_configuration_fingerprints);
+            verified_runtime_config = Some(verified);
+            runtime_config_manager = Some(manager);
+        }
+        #[cfg(not(feature = "tlsn-production"))]
+        {
+            return Err(
+                "TLSN experiment is enabled but the application was built without the tlsn-production feature"
+                    .into(),
+            );
         }
     }
 
     #[cfg(feature = "tlsn-production")]
-    let runtime_identity = if proxy_configs.get_tlsn_experiment_enabled() {
-        let config = proxy_configs.get_tlsn_config();
-        let binding_mode = proxy_configs.get_tlsn_expected_binding_mode();
-        let expected = crate::tlsn_runtime::ExpectedWorkerIdentity {
-            health_endpoint: config.worker_health_endpoint.as_deref().ok_or("tlsn_worker_health_endpoint is required for the TLSN experiment")?,
-            verification_endpoint: config.verification_endpoint.as_deref().ok_or("tlsn_verification_endpoint is required for the TLSN experiment")?,
-            deployment_id: config.expected_deployment_id.as_deref().ok_or("tlsn_expected_deployment_id is required for the TLSN experiment")?,
-            worker_name: config.expected_worker_name.as_deref().ok_or("tlsn_expected_worker_name is required for the TLSN experiment")?,
-            git_commit_sha: config.expected_git_commit_sha.as_deref().ok_or("tlsn_expected_git_commit_sha is required for the TLSN experiment")?,
-            binding_mode: &binding_mode,
-            active_version_id: config.expected_active_version_id.as_deref().ok_or("tlsn_expected_active_version_id is required from the approved deployment reference")?,
-            result_public_key_spki: config.result_public_key_spki.as_deref().ok_or("tlsn_result_public_key_spki is required for the TLSN experiment")?,
-            result_signer_key_id: config.result_signer_key_id.as_deref().ok_or("tlsn_result_signer_key_id is required for the TLSN experiment")?,
-            result_key_registry: config.result_signing_key_registry.as_deref().ok_or("tlsn_result_signing_key_registry is required for the TLSN experiment")?,
-        };
+    let runtime_identity = if let Some(config) = verified_runtime_config.as_ref() {
+        let expected =
+            crate::tlsn_runtime::ExpectedWorkerIdentity::from_verified_runtime_config(config);
         crate::tlsn_worker_identity::validate_disclosure_endpoint(
-            &proxy_configs.get_tlsn_disclosure_mode(),
+            &config.payload().source.disclosure_mode,
             expected.verification_endpoint,
         )?;
         Some(
@@ -331,7 +372,9 @@ where
             }
             #[cfg(target_os = "linux")]
             if !check_ca_installed(app).await {
-                return Err("Generated CA certificate verification failed after regeneration".into());
+                return Err(
+                    "Generated CA certificate verification failed after regeneration".into(),
+                );
             }
         }
     } else {
@@ -365,11 +408,19 @@ where
             let artifact_root = proxy_configs
                 .get_tlsn_artifact_output_path()
                 .ok_or("tlsn_artifact_output_path is required for the TLSN experiment")?;
+            let runtime_config = verified_runtime_config
+                .as_ref()
+                .ok_or("verified Runtime Config is required for the TLSN experiment")?;
+            let manager = runtime_config_manager
+                .clone()
+                .ok_or("Runtime Config manager is required for the TLSN experiment")?;
             let dependencies = build_production_tlsn_dependencies(
                 &proxy_target,
                 &artifact_root,
                 &auth_manager_for_proxy,
-                runtime_identity.expect("production Worker health observation is required"),
+                runtime_config,
+                manager,
+                runtime_identity.ok_or("production Worker health observation is required")?,
                 {
                     let fingerprints = public_configuration_fingerprints
                         .expect("TLSN preflight fingerprints are required");

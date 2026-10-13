@@ -86,6 +86,8 @@ pub enum BindingError {
     NoBindingAuthority,
     CandidateAuthUnavailable,
     CandidateDeviceUnavailable,
+    RuntimeConfigUnavailable,
+    RuntimeConfigChanged,
     AlreadyIssued,
     InvalidBinding,
 }
@@ -99,6 +101,10 @@ impl std::fmt::Display for BindingError {
             }
             Self::CandidateDeviceUnavailable => {
                 "candidate capture unavailable: registered device required"
+            }
+            Self::RuntimeConfigUnavailable => "TLSN Runtime Config verification is unavailable",
+            Self::RuntimeConfigChanged => {
+                "TLSN Runtime Config changed; restart the proxy before retrying"
             }
             Self::AlreadyIssued => "binding provider already issued its single-use binding",
             Self::InvalidBinding => "binding value is not a valid opaque header value",
@@ -506,9 +512,14 @@ impl std::fmt::Display for TlsnTransportError {
             Self::AlreadySent => "TLSN origin transport rejected a duplicate send",
             Self::RequestTooLarge => "TLSN origin request exceeds the configured capacity",
             Self::OriginConnectionFailed => "TLSN origin connection failed",
-            Self::SystemTrustStoreUnavailable => "platform TLS trust store is unavailable or invalid",
+            Self::SystemTrustStoreUnavailable => {
+                "platform TLS trust store is unavailable or invalid"
+            }
             Self::TlsHandshakeFailed { server_identity } => {
-                return write!(formatter, "TLSN TLS validation or handshake failed for {server_identity}");
+                return write!(
+                    formatter,
+                    "TLSN TLS validation or handshake failed for {server_identity}"
+                );
             }
             Self::ResponseReadFailed => "TLSN origin response read failed",
         };
@@ -1143,6 +1154,19 @@ mod tests {
         }
     }
 
+    struct FailingBindingProvider {
+        calls: Arc<AtomicUsize>,
+        error: BindingError,
+    }
+
+    impl AttestationBindingProvider for FailingBindingProvider {
+        fn issue_binding(&self, _context: BindingRequestContext) -> BindingFuture {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            let error = self.error.clone();
+            Box::pin(async move { Err(error) })
+        }
+    }
+
     struct MockTransport {
         calls: Arc<AtomicUsize>,
         request_bytes: Arc<Mutex<Vec<Vec<u8>>>>,
@@ -1537,6 +1561,43 @@ mod tests {
             forwarder.state().unwrap(),
             ExperimentalTlsnRuntimeState::Selected
         );
+    }
+
+    #[tokio::test]
+    async fn runtime_config_binding_errors_stop_before_origin_transport() {
+        for binding_error in [
+            BindingError::RuntimeConfigUnavailable,
+            BindingError::RuntimeConfigChanged,
+        ] {
+            let binding_calls = Arc::new(AtomicUsize::new(0));
+            let transport_calls = Arc::new(AtomicUsize::new(0));
+            let transport = Arc::new(MockTransport {
+                calls: Arc::clone(&transport_calls),
+                request_bytes: Arc::new(Mutex::new(Vec::new())),
+                response: exchange(),
+                retained_response: Mutex::new(None),
+                proof_release: Mutex::new(None),
+            });
+            let forwarder = ExperimentalTlsnForwarder::new(
+                Arc::new(FailingBindingProvider {
+                    calls: Arc::clone(&binding_calls),
+                    error: binding_error.clone(),
+                }),
+                Arc::new(Http1OriginRequestSerializer),
+                Arc::clone(&transport) as Arc<dyn TlsnOriginTransport>,
+                Arc::new(UnconfiguredVerifier),
+                Arc::new(UnconfiguredResultBoundary),
+            );
+
+            let error = forwarder.forward(7, request(None)).await.unwrap_err();
+            assert!(error.contains(&binding_error.to_string()));
+            assert_eq!(binding_calls.load(Ordering::SeqCst), 1);
+            assert_eq!(transport_calls.load(Ordering::SeqCst), 0);
+            assert_eq!(
+                forwarder.state().unwrap(),
+                ExperimentalTlsnRuntimeState::Selected
+            );
+        }
     }
 
     #[tokio::test]
