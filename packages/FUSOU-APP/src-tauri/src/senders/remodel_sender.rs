@@ -8,8 +8,8 @@ use kc_api::interface::remodel::{RemodelDetail, RemodelSlotList};
 use once_cell::sync::OnceCell;
 use sha2::{Digest, Sha256};
 use std::path::PathBuf;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::sync::Notify;
 use uuid::Uuid;
@@ -51,8 +51,9 @@ impl RemodelSender {
             request_cache: {
                 // remodel data is cross-period; use a long TTL so the same payload is not
                 // re-sent every 10 minutes within the same session.
-                let cache =
-                    Arc::new(LocalRequestSuppressionCache::new(Duration::from_secs(7 * 24 * 60 * 60)));
+                let cache = Arc::new(LocalRequestSuppressionCache::new(Duration::from_secs(
+                    7 * 24 * 60 * 60,
+                )));
                 if let Err(e) = cache.enable_persistence(cache_file) {
                     tracing::warn!(
                         error = %e,
@@ -125,17 +126,15 @@ impl RemodelSender {
         None
     }
 
-    async fn send_if_new(
-        &self,
-        packet: &RemodelPacket,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    async fn send_if_new(&self, packet: &RemodelPacket) -> Result<(), Box<dyn std::error::Error>> {
         let p_key = Self::payload_key(packet);
         let p_hash = Self::payload_hash(packet);
         let evt = Self::event_type(packet);
 
         let period_tag = crate::auth::supabase::get_period_tag().await;
         // remodel data is cross-period: only invalidate on table version change
-        self.request_cache.rotate_scope(Some(kc_api::database::DATABASE_TABLE_VERSION));
+        self.request_cache
+            .rotate_scope(Some(kc_api::database::DATABASE_TABLE_VERSION));
 
         if self.request_cache.should_skip(&p_key, &p_hash) {
             return Ok(());

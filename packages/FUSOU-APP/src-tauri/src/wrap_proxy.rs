@@ -121,7 +121,9 @@ where
             }
             #[cfg(target_os = "linux")]
             if !check_ca_installed(app).await {
-                return Err("Generated CA certificate verification failed after regeneration".into());
+                return Err(
+                    "Generated CA certificate verification failed after regeneration".into(),
+                );
             }
         }
     } else {
@@ -194,5 +196,5 @@ where
 
     let proxy_url = Url::parse(&format!("http://{proxy_addr_string}"))
         .map_err(|_| "Failed to parse proxy URL")?;
-    return Ok(proxy_url);
+    Ok(proxy_url)
 }

@@ -1,32 +1,31 @@
 use crate::builder_setup::bidirectional_channel::get_scheduler_integrate_bidirectional_channel;
 use crate::storage::integrate;
 use crate::storage::service::StorageService;
-use proxy_https::{bidirectional_channel, proxy_server_https::setup_default_crypto_provider};
-use tokio_cron_scheduler::{JobBuilder, JobScheduler};
 use fusou_upload::{PendingStore, UploadRetryService};
+use proxy_https::{bidirectional_channel, proxy_server_https::setup_default_crypto_provider};
 use std::sync::Arc;
+use tokio_cron_scheduler::{JobBuilder, JobScheduler};
 
-pub fn start_scheduler(
-    pending_store: Arc<PendingStore>,
-    retry_service: Arc<UploadRetryService>
-) {
+pub fn start_scheduler(pending_store: Arc<PendingStore>, retry_service: Arc<UploadRetryService>) {
     let configs = configs::get_user_configs_for_app();
     let db_config = configs.database;
 
     let scheduler_cron = db_config.get_integration_schedule_cron();
-    
+
     let pending_store_clone = pending_store.clone();
     let retry_service_clone = retry_service.clone();
 
     tokio::spawn(async move {
         // Initialize storage service and check if any provider supports integration.
-        match StorageService::get_instance(pending_store_clone.clone(), retry_service_clone.clone()).await {
+        match StorageService::get_instance(pending_store_clone.clone(), retry_service_clone.clone())
+            .await
+        {
             Some(service) => {
                 if !service.any_provider_supports_integration() {
                     tracing::info!("No providers support integration; scheduler will not start");
                     return;
                 }
-            },
+            }
             None => {
                 tracing::info!("No storage providers initialized; scheduler will not start");
                 return;
@@ -53,7 +52,9 @@ pub fn start_scheduler(
                                 integrate::integrate_port_table(pending_store, retry_service);
                             }
                             _ => {
-                                tracing::warn!("Could not get next tick for storage integration job")
+                                tracing::warn!(
+                                    "Could not get next tick for storage integration job"
+                                )
                             }
                         }
                     })

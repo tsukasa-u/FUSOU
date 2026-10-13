@@ -53,7 +53,10 @@ fn setup_deep_link(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error
     app.deep_link().register_all()?;
 
     app.deep_link().on_open_url(|event| {
-        tracing::info!("deep-link event received (url_count={})", event.urls().len());
+        tracing::info!(
+            "deep-link event received (url_count={})",
+            event.urls().len()
+        );
     });
     Ok(())
 }
@@ -843,8 +846,7 @@ fn register_external_window_shortcuts(app: &mut tauri::App) {
     let register_force_refresh = |accelerator: &str| {
         let accelerator_label = accelerator.to_string();
 
-        if let Err(e) =
-            shortcut_manager.on_shortcut(accelerator, move |app, _shortcut, event| {
+        if let Err(e) = shortcut_manager.on_shortcut(accelerator, move |app, _shortcut, event| {
             if event.state != ShortcutState::Pressed {
                 return;
             }
@@ -855,8 +857,7 @@ fn register_external_window_shortcuts(app: &mut tauri::App) {
             );
 
             external::force_refresh_focused_external_window(app);
-        })
-        {
+        }) {
             tracing::warn!(
                 "failed to register global shortcut {} for forced render refresh: {}",
                 accelerator,
@@ -871,20 +872,18 @@ fn register_external_window_shortcuts(app: &mut tauri::App) {
     let register_external_screenshot = |accelerator: &str| {
         let accelerator_label = accelerator.to_string();
 
-        if let Err(e) =
-            shortcut_manager.on_shortcut(accelerator, move |app, _shortcut, event| {
-                if event.state != ShortcutState::Pressed {
-                    return;
-                }
+        if let Err(e) = shortcut_manager.on_shortcut(accelerator, move |app, _shortcut, event| {
+            if event.state != ShortcutState::Pressed {
+                return;
+            }
 
-                tracing::warn!(
-                    "global shortcut pressed: {} (external screenshot)",
-                    accelerator_label
-                );
+            tracing::warn!(
+                "global shortcut pressed: {} (external screenshot)",
+                accelerator_label
+            );
 
-                let _ = external::capture_focused_external_window_screenshot(app);
-            })
-        {
+            let _ = external::capture_focused_external_window_screenshot(app);
+        }) {
             tracing::warn!(
                 "failed to register global shortcut {} for external screenshot: {}",
                 accelerator,
@@ -989,5 +988,5 @@ pub fn setup_init(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>
     //     }
     // });
 
-    return Ok(());
+    Ok(())
 }

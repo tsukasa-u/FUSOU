@@ -29,17 +29,12 @@ mod tests {
 
         // Uniqueness check
         let unique_tables: HashSet<_> = tables.iter().collect();
-        assert_eq!(
-            unique_tables.len(),
-            13,
-            "All table names must be unique"
-        );
+        assert_eq!(unique_tables.len(), 13, "All table names must be unique");
 
         // Order check (first and last)
         assert_eq!(tables[0], "mst_ship", "First table must be mst_ship");
         assert_eq!(
-            tables[12],
-            "mst_ship_upgrade",
+            tables[12], "mst_ship_upgrade",
             "Last table must be mst_ship_upgrade"
         );
 
@@ -89,10 +84,7 @@ mod tests {
         assert_eq!(parsed[1].start, 100);
         assert_eq!(parsed[1].end, 200);
 
-        println!(
-            "✓ Table offsets JSON format verified: {}",
-            json_string
-        );
+        println!("✓ Table offsets JSON format verified: {}", json_string);
     }
 
     /// Test: Empty tables (zero-length slices)
@@ -142,17 +134,13 @@ mod tests {
     /// Test: Offset contiguity (no gaps, no overlaps)
     #[test]
     fn test_offset_contiguity() {
-        let offsets = vec![
-            (0, 100),
-            (100, 200),
-            (200, 300),
-            (300, 500),
-        ];
+        let offsets = vec![(0, 100), (100, 200), (200, 300), (300, 500)];
 
         // Verify contiguity
         for i in 1..offsets.len() {
             assert_eq!(
-                offsets[i].0, offsets[i - 1].1,
+                offsets[i].0,
+                offsets[i - 1].1,
                 "Offset gap detected at position {}: {} != {}",
                 i,
                 offsets[i].0,
@@ -224,17 +212,17 @@ mod tests {
 
         let tables = vec![
             ("mst_ship", vec![1u8; 100]),
-            ("mst_shipgraph", vec![2u8; 0]),      // Empty
+            ("mst_shipgraph", vec![2u8; 0]), // Empty
             ("mst_slotitem", vec![3u8; 50]),
             ("mst_slotitem_equiptype", vec![4u8; 0]), // Empty
             ("mst_payitem", vec![5u8; 75]),
-            ("mst_equip_exslot", vec![6u8; 0]),   // Empty
+            ("mst_equip_exslot", vec![6u8; 0]), // Empty
             ("mst_equip_exslot_ship", vec![7u8; 25]),
             ("mst_equip_limit_exslot", vec![8u8; 0]), // Empty
             ("mst_equip_ship", vec![9u8; 30]),
-            ("mst_stype", vec![10u8; 0]),          // Empty
+            ("mst_stype", vec![10u8; 0]), // Empty
             ("mst_map_area", vec![11u8; 40]),
-            ("mst_map_info", vec![12u8; 0]),       // Empty
+            ("mst_map_info", vec![12u8; 0]), // Empty
             ("mst_ship_upgrade", vec![13u8; 10]),
         ];
 
@@ -257,12 +245,22 @@ mod tests {
         // Verify results
         assert_eq!(tables.len(), 13, "Must have 13 tables");
         assert_eq!(offsets.len(), 13, "Must have 13 offsets");
-        assert_eq!(concatenated.len(), 330, "Total size: 100+0+50+0+75+0+25+0+30+0+40+0+10");
+        assert_eq!(
+            concatenated.len(),
+            330,
+            "Total size: 100+0+50+0+75+0+25+0+30+0+40+0+10"
+        );
 
         // Verify offsets are in JSON format
         let json_string = serde_json::to_string(&offsets).expect("Serialization failed");
-        assert!(json_string.contains("mst_ship"), "JSON must contain first table");
-        assert!(json_string.contains("mst_ship_upgrade"), "JSON must contain last table");
+        assert!(
+            json_string.contains("mst_ship"),
+            "JSON must contain first table"
+        );
+        assert!(
+            json_string.contains("mst_ship_upgrade"),
+            "JSON must contain last table"
+        );
 
         println!("✓ All 13 tables concatenated correctly");
         println!("  Total size: {} bytes", concatenated.len());
@@ -281,12 +279,12 @@ mod tests {
         ];
 
         let invalid_cases = vec![
-            ("", false),                    // Empty
-            (".hidden", false),            // Starts with .
-            ("/path", false),              // Starts with /
-            ("path/../escape", false),     // Contains ..
-            ("path with space", false),    // Contains space
-            ("name@special", false),       // Special char
+            ("", false),                // Empty
+            (".hidden", false),         // Starts with .
+            ("/path", false),           // Starts with /
+            ("path/../escape", false),  // Contains ..
+            ("path with space", false), // Contains space
+            ("name@special", false),    // Special char
         ];
 
         for (tag, should_be_valid) in valid_cases.iter().chain(invalid_cases.iter()) {
@@ -295,7 +293,9 @@ mod tests {
                 && !tag.starts_with('.')
                 && !tag.starts_with('/')
                 && !tag.contains("..")
-                && tag.chars().all(|c| c.is_alphanumeric() || c == '_' || c == '-');
+                && tag
+                    .chars()
+                    .all(|c| c.is_alphanumeric() || c == '_' || c == '-');
 
             assert_eq!(
                 is_valid, *should_be_valid,
@@ -313,12 +313,12 @@ mod tests {
         const MAX_UPLOAD_BYTES: i64 = 500 * 1024 * 1024; // 500 MB
 
         let test_cases = vec![
-            (0, true),                          // ✓ Empty file (after fix)
-            (1, true),                          // ✓ Minimal
-            (1000, true),                       // ✓ Normal
-            (MAX_UPLOAD_BYTES, true),           // ✓ Max allowed
-            (-1, false),                        // ✗ Negative
-            (MAX_UPLOAD_BYTES + 1, false),      // ✗ Over limit
+            (0, true),                     // ✓ Empty file (after fix)
+            (1, true),                     // ✓ Minimal
+            (1000, true),                  // ✓ Normal
+            (MAX_UPLOAD_BYTES, true),      // ✓ Max allowed
+            (-1, false),                   // ✗ Negative
+            (MAX_UPLOAD_BYTES + 1, false), // ✗ Over limit
         ];
 
         for (size, should_pass) in test_cases {
@@ -409,11 +409,11 @@ mod tests {
         let execution_url = format!("{}?token={}", base_endpoint, token);
 
         // Verify format
-        assert!(execution_url.contains("?token="), "Must have token parameter");
         assert!(
-            execution_url.starts_with("https://"),
-            "Must use HTTPS"
+            execution_url.contains("?token="),
+            "Must have token parameter"
         );
+        assert!(execution_url.starts_with("https://"), "Must use HTTPS");
         assert!(
             !execution_url.contains(".json"),
             "URL should not have .json suffix"

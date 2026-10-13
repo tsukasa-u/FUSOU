@@ -18,7 +18,7 @@ static GUARD_WORKER: once_cell::sync::OnceCell<WorkerGuard> = once_cell::sync::O
 static LOG_FILE_NAME: once_cell::sync::OnceCell<String> = once_cell::sync::OnceCell::new();
 
 // Global log storage
-static LOG_STORAGE: once_cell::sync::OnceCell<Arc<Mutex<Vec<MessageVisitor>>>> = 
+static LOG_STORAGE: once_cell::sync::OnceCell<Arc<Mutex<Vec<MessageVisitor>>>> =
     once_cell::sync::OnceCell::new();
 
 const MAX_LOGS: usize = 10000; // Maximum number of logs to keep in memory

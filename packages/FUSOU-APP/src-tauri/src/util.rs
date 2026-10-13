@@ -1,3 +1,5 @@
+use fusou_auth::DeviceKey;
+use kc_api::interface::deck_port::Basic;
 use std::fs;
 use std::io::Read;
 use std::io::Write;
@@ -5,12 +7,10 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::LazyLock;
 use std::sync::Mutex;
+use tauri::Manager;
 use tokio::sync::OnceCell;
 use tracing_unwrap::{OptionExt, ResultExt};
 use uuid::Uuid;
-use kc_api::interface::deck_port::Basic;
-use tauri::Manager;
-use fusou_auth::DeviceKey;
 
 use crate::RESOURCES_DIR;
 use crate::ROAMING_DIR;
@@ -20,7 +20,10 @@ use crate::ROAMING_DIR;
 ///
 /// Use [`get_user_member_id()`] instead for the game-provided `api_member_id`.
 #[allow(deprecated)]
-#[deprecated(since = "0.4.0", note = "Environment-scoped ID cache. Do not use for user identification. Use get_user_member_id() instead.")]
+#[deprecated(
+    since = "0.4.0",
+    note = "Environment-scoped ID cache. Do not use for user identification. Use get_user_member_id() instead."
+)]
 static KC_USER_ENV_UNIQUE_ID: OnceCell<String> = OnceCell::const_new();
 
 /// Flag to track if anonymous auth has been attempted (to avoid redundant attempts)
@@ -38,8 +41,14 @@ fn load_auth_attempt_flag() -> (bool, Option<String>) {
     let flag_path = get_ROAMING_DIR().join("fusou-auth-attempt.json");
     if let Ok(content) = std::fs::read_to_string(&flag_path) {
         if let Ok(data) = serde_json::from_str::<serde_json::Value>(&content) {
-            let attempted = data.get("attempted").and_then(|v| v.as_bool()).unwrap_or(false);
-            let member_id = data.get("last_member_id").and_then(|v| v.as_str()).map(|s| s.to_string());
+            let attempted = data
+                .get("attempted")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+            let member_id = data
+                .get("last_member_id")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
             return (attempted, member_id);
         }
     }
@@ -90,7 +99,10 @@ pub fn get_RESOURCES_DIR() -> PathBuf {
 /// Tracking issue: <https://github.com/tsukasa-u/FUSOU/issues/TBD>
 #[allow(dead_code)]
 #[allow(deprecated)]
-#[deprecated(since = "0.4.0", note = "Environment-scoped ID. Do not use for user identification. Use get_user_member_id() instead. See tracking issue: https://github.com/tsukasa-u/FUSOU/issues/TBD")]
+#[deprecated(
+    since = "0.4.0",
+    note = "Environment-scoped ID. Do not use for user identification. Use get_user_member_id() instead. See tracking issue: https://github.com/tsukasa-u/FUSOU/issues/TBD"
+)]
 pub async fn get_user_env_id() -> String {
     KC_USER_ENV_UNIQUE_ID
         .get_or_init(|| async {
@@ -163,15 +175,16 @@ async fn check_session_usable(app: &tauri::AppHandle) -> bool {
     let Some(auth_manager_state) = auth_manager_state else {
         return false;
     };
-    let auth_manager = {
-        auth_manager_state.lock().unwrap().clone()
-    };
+    let auth_manager = { auth_manager_state.lock().unwrap().clone() };
 
     let Some(dataset_id) = resolve_dataset_id_for_current_member(&auth_manager).await else {
         return false;
     };
 
-    match auth_manager.load_dataset_token_for_dataset(&dataset_id).await {
+    match auth_manager
+        .load_dataset_token_for_dataset(&dataset_id)
+        .await
+    {
         Ok(Some(token)) => {
             let one_day = chrono::Duration::days(1);
             token.expires_at > chrono::Utc::now() + one_day
@@ -269,12 +282,11 @@ pub async fn try_anonymous_auth(app: &tauri::AppHandle) {
 
     tracing::info!("Starting background anonymous authentication");
 
-    if member_id_changed
-        && get_user_member_id().await != api_member_id {
-            ANONYMOUS_AUTH_ATTEMPTED.store(false, Ordering::SeqCst);
-            save_auth_attempt_flag(false, &None);
-            return;
-        }
+    if member_id_changed && get_user_member_id().await != api_member_id {
+        ANONYMOUS_AUTH_ATTEMPTED.store(false, Ordering::SeqCst);
+        save_auth_attempt_flag(false, &None);
+        return;
+    }
 
     let mut device_key = match load_or_create_device_key().await {
         Ok(k) => k,
@@ -376,16 +388,16 @@ pub async fn try_anonymous_auth(app: &tauri::AppHandle) {
         }
         Err(e) => {
             tracing::error!("Anonymous authentication failed: {}", e);
-            
+
             // Reset flag on failure to allow future attempts (e.g., when network becomes available)
             ANONYMOUS_AUTH_ATTEMPTED.store(false, Ordering::SeqCst);
             save_auth_attempt_flag(false, &None);
-            
+
             // Notify user that they can manually trigger social auth
             crate::notify::show(
                 app,
                 "Background Authentication Failed",
-                "Some features may be limited. Background anonymous sign-in failed."
+                "Some features may be limited. Background anonymous sign-in failed.",
             );
         }
     }

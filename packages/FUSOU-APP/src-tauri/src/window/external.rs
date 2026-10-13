@@ -27,8 +27,7 @@ use std::collections::HashSet;
 
 #[cfg(windows)]
 use webview2_com::{
-    AcceleratorKeyPressedEventHandler, CallDevToolsProtocolMethodCompletedHandler,
-    CoTaskMemPWSTR,
+    AcceleratorKeyPressedEventHandler, CallDevToolsProtocolMethodCompletedHandler, CoTaskMemPWSTR,
     Microsoft::Web::WebView2::Win32::{
         COREWEBVIEW2_KEY_EVENT_KIND, COREWEBVIEW2_KEY_EVENT_KIND_KEY_DOWN,
         COREWEBVIEW2_KEY_EVENT_KIND_KEY_UP, COREWEBVIEW2_KEY_EVENT_KIND_SYSTEM_KEY_DOWN,
@@ -123,9 +122,7 @@ static WINDOWS_KEY_FALLBACK_INSTALLED: LazyLock<Mutex<HashSet<String>>> =
 pub fn unregister_webview_key_fallback(window_label: &str) {
     #[cfg(target_os = "linux")]
     {
-        let mut installed = LINUX_KEY_FALLBACK_INSTALLED
-            .lock()
-            .expect("mutex poisoned");
+        let mut installed = LINUX_KEY_FALLBACK_INSTALLED.lock().expect("mutex poisoned");
         installed.remove(window_label);
     }
 
@@ -183,9 +180,8 @@ fn get_external_screenshot_dir() -> PathBuf {
         return PathBuf::from(configured_dir);
     }
 
-    let mut dir = dirs::picture_dir().unwrap_or_else(|| {
-        std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
-    });
+    let mut dir = dirs::picture_dir()
+        .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
 
     dir.push("FUSOU");
     dir.push("screenshots");
@@ -197,7 +193,7 @@ fn get_visible_external_window(app: &AppHandle) -> Option<tauri::WebviewWindow> 
 
     match external.is_visible() {
         Ok(true) => Some(external),
-        Ok(false) => return None,
+        Ok(false) => None,
         Err(e) => {
             tracing::warn!("failed to determine external window visibility: {}", e);
             None
@@ -213,29 +209,28 @@ fn eval_external_script_with_callback(
 ) {
     let callback_action_name = action_name.to_string();
 
-    let eval_result = external.with_webview(move |webview| {
-        let webview = webview.inner();
-        #[allow(deprecated)]
-        webview.run_javascript(
-            script,
-            None::<&gio::Cancellable>,
-            move |run_result| match run_result {
-                Ok(_) => {
-                    tracing::warn!(
-                        "external {} callback received (run_javascript: ok)",
-                        callback_action_name
-                    );
+    let eval_result =
+        external.with_webview(move |webview| {
+            let webview = webview.inner();
+            #[allow(deprecated)]
+            webview.run_javascript(script, None::<&gio::Cancellable>, move |run_result| {
+                match run_result {
+                    Ok(_) => {
+                        tracing::warn!(
+                            "external {} callback received (run_javascript: ok)",
+                            callback_action_name
+                        );
+                    }
+                    Err(error) => {
+                        tracing::warn!(
+                            "external {} callback received (run_javascript: error): {}",
+                            callback_action_name,
+                            error
+                        );
+                    }
                 }
-                Err(error) => {
-                    tracing::warn!(
-                        "external {} callback received (run_javascript: error): {}",
-                        callback_action_name,
-                        error
-                    );
-                }
-            },
-        );
-    });
+            });
+        });
 
     if let Err(error) = eval_result {
         tracing::warn!(
@@ -261,39 +256,41 @@ fn install_linux_webview_key_fallback(external: &tauri::WebviewWindow) {
     let install_result = external.with_webview(move |webview| {
         let app_handle = app_handle.clone();
 
-        webview.inner().connect_key_press_event(move |_view, event| {
-            let key = event.keyval();
-            let modifiers = event.state();
-            let has_ctrl = modifiers.contains(gdk::ModifierType::CONTROL_MASK);
-            let has_meta = modifiers.contains(gdk::ModifierType::META_MASK)
-                || modifiers.contains(gdk::ModifierType::SUPER_MASK);
+        webview
+            .inner()
+            .connect_key_press_event(move |_view, event| {
+                let key = event.keyval();
+                let modifiers = event.state();
+                let has_ctrl = modifiers.contains(gdk::ModifierType::CONTROL_MASK);
+                let has_meta = modifiers.contains(gdk::ModifierType::META_MASK)
+                    || modifiers.contains(gdk::ModifierType::SUPER_MASK);
 
-            if key == gdk::keys::constants::F5 {
-                tracing::warn!("linux webview key fallback pressed: F5 (external reload)");
-                reload_focused_external_window(&app_handle);
-                return webkit2gtk::glib::Propagation::Stop;
-            }
+                if key == gdk::keys::constants::F5 {
+                    tracing::warn!("linux webview key fallback pressed: F5 (external reload)");
+                    reload_focused_external_window(&app_handle);
+                    return webkit2gtk::glib::Propagation::Stop;
+                }
 
-            let is_r = key == gdk::keys::constants::r || key == gdk::keys::constants::R;
-            if is_r && (has_ctrl || has_meta) {
-                tracing::warn!(
-                    "linux webview key fallback pressed: Ctrl/Super+R (external force refresh)"
-                );
-                force_refresh_focused_external_window(&app_handle);
-                return webkit2gtk::glib::Propagation::Stop;
-            }
+                let is_r = key == gdk::keys::constants::r || key == gdk::keys::constants::R;
+                if is_r && (has_ctrl || has_meta) {
+                    tracing::warn!(
+                        "linux webview key fallback pressed: Ctrl/Super+R (external force refresh)"
+                    );
+                    force_refresh_focused_external_window(&app_handle);
+                    return webkit2gtk::glib::Propagation::Stop;
+                }
 
-            let is_s = key == gdk::keys::constants::s || key == gdk::keys::constants::S;
-            if is_s && (has_ctrl || has_meta) {
-                tracing::warn!(
-                    "linux webview key fallback pressed: Ctrl/Super+S (external screenshot)"
-                );
-                capture_focused_external_window_screenshot(&app_handle);
-                return webkit2gtk::glib::Propagation::Stop;
-            }
+                let is_s = key == gdk::keys::constants::s || key == gdk::keys::constants::S;
+                if is_s && (has_ctrl || has_meta) {
+                    tracing::warn!(
+                        "linux webview key fallback pressed: Ctrl/Super+S (external screenshot)"
+                    );
+                    capture_focused_external_window_screenshot(&app_handle);
+                    return webkit2gtk::glib::Propagation::Stop;
+                }
 
-            webkit2gtk::glib::Propagation::Proceed
-        });
+                webkit2gtk::glib::Propagation::Proceed
+            });
     });
 
     if let Err(error) = install_result {
@@ -321,8 +318,7 @@ fn is_windows_key_down(kind: COREWEBVIEW2_KEY_EVENT_KIND) -> bool {
 
 #[cfg(windows)]
 fn is_windows_key_up(kind: COREWEBVIEW2_KEY_EVENT_KIND) -> bool {
-    kind == COREWEBVIEW2_KEY_EVENT_KIND_KEY_UP
-        || kind == COREWEBVIEW2_KEY_EVENT_KIND_SYSTEM_KEY_UP
+    kind == COREWEBVIEW2_KEY_EVENT_KIND_KEY_UP || kind == COREWEBVIEW2_KEY_EVENT_KIND_SYSTEM_KEY_UP
 }
 
 #[cfg(windows)]
@@ -481,9 +477,7 @@ fn nudge_external_window_size(external: &tauri::WebviewWindow) {
 
 pub fn reload_focused_external_window(app: &AppHandle) {
     let Some(external) = get_visible_external_window(app) else {
-        tracing::debug!(
-            "skip external reload: external window not found or not visible"
-        );
+        tracing::debug!("skip external reload: external window not found or not visible");
         return;
     };
 
@@ -496,9 +490,7 @@ pub fn reload_focused_external_window(app: &AppHandle) {
 
 pub fn force_refresh_focused_external_window(app: &AppHandle) {
     let Some(external) = get_visible_external_window(app) else {
-        tracing::debug!(
-            "skip external force refresh: external window not found or not visible"
-        );
+        tracing::debug!("skip external force refresh: external window not found or not visible");
         return;
     };
 
@@ -518,9 +510,7 @@ pub fn force_refresh_focused_external_window(app: &AppHandle) {
 
 pub fn capture_focused_external_window_screenshot(app: &AppHandle) -> Option<PathBuf> {
     let Some(external) = get_visible_external_window(app) else {
-        tracing::debug!(
-            "skip external screenshot: external window not found or not visible"
-        );
+        tracing::debug!("skip external screenshot: external window not found or not visible");
         return None;
     };
 
@@ -534,9 +524,7 @@ pub fn capture_focused_external_window_screenshot(app: &AppHandle) -> Option<Pat
         return None;
     }
 
-    let window_title = external
-        .title()
-        .unwrap_or_else(|_| "external".to_string());
+    let window_title = external.title().unwrap_or_else(|_| "external".to_string());
     let normalized_title = sanitize_filename_fragment(&window_title);
     let title_suffix = if normalized_title.is_empty() {
         "external".to_string()
@@ -657,17 +645,17 @@ pub fn capture_focused_external_window_screenshot(app: &AppHandle) -> Option<Pat
                         }
                     };
 
-                    let image_bytes = match base64::engine::general_purpose::STANDARD.decode(encoded)
-                    {
-                        Ok(bytes) => bytes,
-                        Err(error) => {
-                            tracing::warn!(
-                                "failed to decode windows screenshot base64 payload: {}",
-                                error
-                            );
-                            return Ok(());
-                        }
-                    };
+                    let image_bytes =
+                        match base64::engine::general_purpose::STANDARD.decode(encoded) {
+                            Ok(bytes) => bytes,
+                            Err(error) => {
+                                tracing::warn!(
+                                    "failed to decode windows screenshot base64 payload: {}",
+                                    error
+                                );
+                                return Ok(());
+                            }
+                        };
 
                     if let Err(error) = fs::write(&output_path_for_callback, &image_bytes) {
                         tracing::warn!(
@@ -751,7 +739,10 @@ pub fn create_external_window(app: &AppHandle, browser: Option<Browser>, browse_
         let game_url = match get_game_url().parse() {
             Ok(url) => url,
             Err(e) => {
-                tracing::error!("Invalid game URL in config, cannot open external window: {}", e);
+                tracing::error!(
+                    "Invalid game URL in config, cannot open external window: {}",
+                    e
+                );
                 return;
             }
         };

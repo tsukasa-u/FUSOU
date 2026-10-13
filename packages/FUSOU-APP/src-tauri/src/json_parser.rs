@@ -10,9 +10,8 @@ use regex::Regex;
 use std::sync::LazyLock;
 
 #[cfg(dev)]
-static RE_METADATA: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"---\r?\n.*\r?\n.*\r?\n.*\r?\n.*\s*---\r?\n").unwrap()
-});
+static RE_METADATA: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"---\r?\n.*\r?\n.*\r?\n.*\r?\n.*\s*---\r?\n").unwrap());
 
 use crate::storage::submit_data;
 
@@ -35,11 +34,7 @@ pub fn emit_data(handle: &tauri::AppHandle, emit_data: EmitData) {
             Add::Battle(data) => {
                 let cell_id = data.cell_id;
                 data.add_or();
-                let merged_battle = Cells::load()
-                    .battles
-                    .get(&cell_id)
-                    .cloned()
-                    .unwrap_or(data);
+                let merged_battle = Cells::load().battles.get(&cell_id).cloned().unwrap_or(data);
                 let _ = handle.emit_to("main", "add-kcs-battle", merged_battle);
             }
             Add::Cell(data) => {
@@ -193,7 +188,7 @@ pub fn struct_selector_response(
     {
         let data_removed_metadata: String =
             RE_METADATA.replace(&data_removed_svdata, "").to_string();
-        return response_parser(name, data_removed_metadata);
+        response_parser(name, data_removed_metadata)
     }
 
     #[cfg(any(not(dev), check_release))]
@@ -214,7 +209,7 @@ pub fn struct_selector_resquest(
         let repalced_data = data_removed_metadata
             .replace("%5B", "[")
             .replace("%5D", "]");
-        return request_parser(name, repalced_data);
+        request_parser(name, repalced_data)
     }
 
     #[cfg(any(not(dev), check_release))]

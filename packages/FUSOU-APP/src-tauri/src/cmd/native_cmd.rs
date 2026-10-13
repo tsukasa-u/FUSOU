@@ -1,8 +1,8 @@
 // use tauri::api::process::Command;
 // use std::process::Command;
+use std::path::PathBuf;
 use tauri_plugin_shell::ShellExt;
 use tracing_unwrap::OptionExt;
-use std::path::PathBuf;
 
 use crate::notify;
 
@@ -187,11 +187,7 @@ where
             .await;
 
         #[cfg(target_os = "linux")]
-        let output_result = app_handle
-            .shell()
-            .command(cmd_path)
-            .output()
-            .await;
+        let output_result = app_handle.shell().command(cmd_path).output().await;
 
         match output_result {
             Ok(output) => {
@@ -294,12 +290,7 @@ where
         .await;
 
     #[cfg(target_os = "linux")]
-    let output_result = app
-        .shell()
-        .command(cmd_path)
-        .args([ca_path])
-        .output()
-        .await;
+    let output_result = app.shell().command(cmd_path).args([ca_path]).output().await;
 
     match output_result {
         Ok(output) => {

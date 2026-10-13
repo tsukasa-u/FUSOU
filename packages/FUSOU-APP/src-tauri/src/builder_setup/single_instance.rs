@@ -64,7 +64,6 @@ fn goto_restore_window(app: &tauri::AppHandle) {
             );
         }
     }
-
 }
 
 /// Handle fusou://sync?token=xxx
@@ -91,9 +90,7 @@ fn handle_public_id_sync(url: &Url, app: &tauri::AppHandle) {
         }
     };
     let token = match Uuid::parse_str(&token) {
-        Ok(parsed)
-            if parsed.get_version_num() == 4 && parsed.get_variant() == Variant::RFC4122 =>
-        {
+        Ok(parsed) if parsed.get_version_num() == 4 && parsed.get_variant() == Variant::RFC4122 => {
             parsed.to_string()
         }
         _ => {
@@ -145,13 +142,7 @@ async fn handle_public_id_sync_async(
     let mut last_error: Option<String> = None;
 
     for attempt in 0..max_retries {
-        match send_supabase_update(
-            app_instance_id,
-            &complete_endpoint,
-            &dataset_token,
-        )
-        .await
-        {
+        match send_supabase_update(app_instance_id, &complete_endpoint, &dataset_token).await {
             Ok(_) => {
                 tracing::info!("[Public ID Sync] Sync handoff completed successfully");
                 return Ok(());
@@ -236,9 +227,7 @@ async fn send_supabase_update(
         "dataset_token": dataset_token
     });
 
-    tracing::debug!(
-        "[Public ID Sync] Sending sync completion request (token/public_id redacted)"
-    );
+    tracing::debug!("[Public ID Sync] Sending sync completion request (token/public_id redacted)");
 
     let response = client
         .post(complete_endpoint)
