@@ -34,7 +34,9 @@ export const ErrorFallback: Component<ErrorFallbackProps> = (props) => {
         </p>
 
         <div class="rounded-md p-4 mb-4 border-base-300 border-1">
-          <p class="text-sm font-mono break-words">{props.error.message}</p>
+          <p class="text-sm font-mono break-words">
+            {props.error?.message ?? String(props.error ?? "Unknown error")}
+          </p>
         </div>
 
         <button
