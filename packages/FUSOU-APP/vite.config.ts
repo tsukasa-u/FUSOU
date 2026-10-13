@@ -20,7 +20,7 @@ export default defineConfig(async () => ({
     jsxImportSource: "solid-js",
   },
   test: {
-    workspace: [
+    projects: [
       {
         extends: true,
         plugins: [
