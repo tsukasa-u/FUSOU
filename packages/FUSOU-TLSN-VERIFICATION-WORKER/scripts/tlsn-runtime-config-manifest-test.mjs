@@ -11,7 +11,9 @@ import {
   prepareTlsnRuntimeConfigManifest,
   tlsnRuntimeConfigSigningBytes,
   verifyTlsnRuntimeConfigEnvelope,
+  verifyTlsnRuntimeConfigProductionEnvelope,
 } from "./tlsn-runtime-config-manifest.mjs";
+import { verifyTlsnRuntimeConfigIndependentInputs } from "./tlsn-runtime-config-independent-verification.mjs";
 import {
   account,
   controls,
@@ -66,6 +68,30 @@ function policy(prepared, overrides = {}) {
     max_envelope_bytes: 1024 * 1024,
     ...overrides,
   };
+}
+
+async function loadIndependentVerificationVector() {
+  return JSON.parse(await readFile(
+    new URL("./fixtures/tlsn-runtime-config-independent-v1-vector.json", import.meta.url),
+    "utf8",
+  ));
+}
+
+function independentInputsFrom(vector) {
+  return {
+    ...Object.fromEntries(
+      Object.entries(vector.inputs_base64url).map(([name, value]) => [
+        name,
+        Buffer.from(value, "base64url"),
+      ]),
+    ),
+    independent_pins: structuredClone(vector.independent_pins),
+  };
+}
+
+function vectorPayload(vector) {
+  const envelope = JSON.parse(vector.manifest_envelope_utf8);
+  return JSON.parse(Buffer.from(envelope.payload_base64url, "base64url").toString("utf8"));
 }
 
 function signedRaw(prepared, overrides = {}) {
@@ -493,4 +519,204 @@ test("the Node-produced cross-language golden vector verifies without a producti
     },
   });
   assert.equal(verified.epoch, "1");
+});
+
+test("Production verification binds raw artifacts and registries to supplied external pins", async () => {
+  const vector = await loadIndependentVerificationVector();
+  assert.equal(vector.test_only, true);
+  const verified = verifyTlsnRuntimeConfigProductionEnvelope(vector.manifest_envelope_utf8, {
+    trustedSigner: vector.trusted_signer,
+    policy: vector.policy,
+    independentInputs: independentInputsFrom(vector),
+  });
+
+  assert.equal(verified.state, "MANIFEST_AND_SUPPLIED_EXTERNAL_PINS_VERIFIED");
+  assert.equal(verified.matched_inputs.state, "MATCHED_SUPPLIED_EXTERNAL_PINS");
+  assert.equal(
+    verified.matched_inputs.worker_reference_sha256,
+    vector.independent_pins.worker_reference_sha256,
+  );
+  assert.equal(
+    verified.matched_inputs.origin_inventory_sha256,
+    vector.independent_pins.production_authority_pins.origin_inventory_sha256,
+  );
+  assert.equal(
+    verified.matched_inputs.target_approval_artifact_sha256,
+    vector.independent_pins.production_authority_pins.target_approval_artifact_sha256,
+  );
+  assert.equal(Object.isFrozen(verified.payload), true);
+  assert.equal(Object.isFrozen(verified.matched_inputs), true);
+});
+
+test("Production verification fails closed when independent inputs or raw bytes are missing or changed", async () => {
+  const vector = await loadIndependentVerificationVector();
+  const verify = (inputs) => verifyTlsnRuntimeConfigProductionEnvelope(
+    vector.manifest_envelope_utf8,
+    {
+      trustedSigner: vector.trusted_signer,
+      policy: vector.policy,
+      independentInputs: inputs,
+    },
+  );
+  const inputs = independentInputsFrom(vector);
+
+  assert.throws(
+    () => verify(undefined),
+    /independent Production verification inputs are required/,
+  );
+  assert.throws(
+    () => verify({ ...inputs, independent_pins: undefined }),
+    /independent runtime configuration pins field inventory is invalid/,
+  );
+
+  const missingReference = independentInputsFrom(vector);
+  missingReference.worker_reference_raw = undefined;
+  assert.throws(() => verify(missingReference), /Worker reference raw bytes are required/);
+
+  const mutatedReference = independentInputsFrom(vector);
+  mutatedReference.worker_reference_raw[0] ^= 1;
+  assert.throws(
+    () => verify(mutatedReference),
+    /Worker reference bytes do not match the independently approved digest/,
+  );
+
+  const mismatchedButWellFormedPin = independentInputsFrom(vector);
+  mismatchedButWellFormedPin.independent_pins.worker_reference_sha256 = "A".repeat(43);
+  assert.throws(
+    () => verify(mismatchedButWellFormedPin),
+    /Worker reference bytes do not match the independently approved digest/,
+  );
+
+  const swappedAuthorityPair = independentInputsFrom(vector);
+  [
+    swappedAuthorityPair.independent_pins.production_authority_pins.origin_inventory_sha256,
+    swappedAuthorityPair.independent_pins.production_authority_pins.target_approval_artifact_sha256,
+  ] = [
+    swappedAuthorityPair.independent_pins.production_authority_pins.target_approval_artifact_sha256,
+    swappedAuthorityPair.independent_pins.production_authority_pins.origin_inventory_sha256,
+  ];
+  assert.throws(
+    () => verify(swappedAuthorityPair),
+    /Production authority artifact bytes do not match the independently approved digest set/,
+  );
+
+  const mutatedApproval = independentInputsFrom(vector);
+  mutatedApproval.target_approval_raw[0] ^= 1;
+  assert.throws(
+    () => verify(mutatedApproval),
+    /Production authority artifact bytes do not match the independently approved digest set/,
+  );
+
+  const manifestClaimMismatch = independentInputsFrom(vector);
+  const payloadWithChangedAuthorityClaim = vectorPayload(vector);
+  payloadWithChangedAuthorityClaim.production_authority_pins.target_approval_artifact_sha256 =
+    "A".repeat(43);
+  assert.throws(
+    () => verifyTlsnRuntimeConfigIndependentInputs(
+      payloadWithChangedAuthorityClaim,
+      manifestClaimMismatch,
+      vector.policy.now_ms,
+    ),
+    /Production authority artifact bytes do not match the independently approved digest set/,
+  );
+
+  const missingApproval = independentInputsFrom(vector);
+  missingApproval.target_approval_raw = undefined;
+  assert.throws(() => verify(missingApproval), /Target Approval raw bytes are required/);
+});
+
+test("Result registry envelope requires the pinned root signature and matching registry contents", async () => {
+  const vector = await loadIndependentVerificationVector();
+  const verify = (inputs) => verifyTlsnRuntimeConfigProductionEnvelope(
+    vector.manifest_envelope_utf8,
+    {
+      trustedSigner: vector.trusted_signer,
+      policy: vector.policy,
+      independentInputs: inputs,
+    },
+  );
+
+  const reorderedEnvelope = independentInputsFrom(vector);
+  const envelopeObject = JSON.parse(reorderedEnvelope.result_registry_envelope_raw.toString("utf8"));
+  reorderedEnvelope.result_registry_envelope_raw = Buffer.from(
+    JSON.stringify(Object.fromEntries(Object.entries(envelopeObject).reverse())),
+    "utf8",
+  );
+  reorderedEnvelope.independent_pins.result_registry_envelope_sha256 = createHash("sha256")
+    .update(reorderedEnvelope.result_registry_envelope_raw)
+    .digest("base64url");
+  assert.equal(
+    verify(reorderedEnvelope).matched_inputs.result_registry_root_key_id,
+    vector.independent_pins.result_registry_root_key_id,
+  );
+
+  const wrongRoot = independentInputsFrom(vector);
+  wrongRoot.independent_pins.result_registry_root_key_id = "untrusted-root";
+  assert.throws(() => verify(wrongRoot), /root identity does not match the trusted pin/);
+
+  const changedSignature = independentInputsFrom(vector);
+  const envelope = JSON.parse(changedSignature.result_registry_envelope_raw.toString("utf8"));
+  const signatureBytes = Buffer.from(envelope.signature_base64url, "base64url");
+  signatureBytes[0] ^= 1;
+  envelope.signature_base64url = signatureBytes.toString("base64url");
+  changedSignature.result_registry_envelope_raw = Buffer.from(JSON.stringify(envelope), "utf8");
+  changedSignature.independent_pins.result_registry_envelope_sha256 = createHash("sha256")
+    .update(changedSignature.result_registry_envelope_raw)
+    .digest("base64url");
+  assert.throws(() => verify(changedSignature), /result registry envelope signature is invalid/);
+
+  const mismatchedRegistry = independentInputsFrom(vector);
+  const payload = vectorPayload(vector);
+  const registry = JSON.parse(payload.compile_inputs.FUSOU_TLSN_RESULT_SIGNING_KEY_REGISTRY);
+  registry.keys[0].not_after = "2099-01-01T00:00:00.000Z";
+  payload.compile_inputs.FUSOU_TLSN_RESULT_SIGNING_KEY_REGISTRY = JSON.stringify(registry);
+  const changedRegistryRaw = Buffer.from(
+    payload.compile_inputs.FUSOU_TLSN_RESULT_SIGNING_KEY_REGISTRY,
+    "utf8",
+  );
+  const workerReference = JSON.parse(mismatchedRegistry.worker_reference_raw.toString("utf8"));
+  workerReference.compile_inputs = payload.compile_inputs;
+  mismatchedRegistry.worker_reference_raw = Buffer.from(
+    `${JSON.stringify(workerReference, null, 2)}\n`,
+    "utf8",
+  );
+  payload.source.worker_reference_sha256 = createHash("sha256")
+    .update(mismatchedRegistry.worker_reference_raw)
+    .digest("base64url");
+  mismatchedRegistry.independent_pins.worker_reference_sha256 =
+    payload.source.worker_reference_sha256;
+  mismatchedRegistry.independent_pins.result_registry_sha256 = createHash("sha256")
+    .update(changedRegistryRaw)
+    .digest("base64url");
+  assert.throws(
+    () => verifyTlsnRuntimeConfigIndependentInputs(
+      payload,
+      mismatchedRegistry,
+      vector.policy.now_ms,
+    ),
+    /result registry envelope payload does not match the captured registry/,
+  );
+
+  const unknownSigner = independentInputsFrom(vector);
+  const payloadWithUnknownSigner = vectorPayload(vector);
+  payloadWithUnknownSigner.compile_inputs.FUSOU_TLSN_RESULT_SIGNER_KEY_ID = "unknown-signer";
+  const unknownSignerReference = JSON.parse(unknownSigner.worker_reference_raw.toString("utf8"));
+  unknownSignerReference.compile_inputs = payloadWithUnknownSigner.compile_inputs;
+  unknownSigner.worker_reference_raw = Buffer.from(
+    `${JSON.stringify(unknownSignerReference, null, 2)}\n`,
+    "utf8",
+  );
+  payloadWithUnknownSigner.source.worker_reference_sha256 = createHash("sha256")
+    .update(unknownSigner.worker_reference_raw)
+    .digest("base64url");
+  unknownSigner.independent_pins.worker_reference_sha256 =
+    payloadWithUnknownSigner.source.worker_reference_sha256;
+  assert.throws(
+    () => verifyTlsnRuntimeConfigIndependentInputs(
+      payloadWithUnknownSigner,
+      unknownSigner,
+      vector.policy.now_ms,
+    ),
+    /not the published registry key/,
+  );
 });

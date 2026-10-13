@@ -5,6 +5,8 @@ use base64::Engine;
 use chrono::{DateTime, SecondsFormat, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+#[cfg(feature = "tlsn-production")]
+use sha2::{Digest, Sha256};
 use url::{Host, Url};
 
 const MANIFEST_SCHEMA_VERSION: u32 = 1;
@@ -14,6 +16,12 @@ const TRUST_SCOPE: &str = "fusou-tlsn-runtime-config-signing-root-v1";
 const SIGNATURE_ALGORITHM: &str = "Ed25519";
 const SIGNATURE_DOMAIN: &[u8] = b"FUSOU-TLSN-RUNTIME-CONFIG-MANIFEST-V1\0";
 const ED25519_SPKI_PREFIX: &[u8] = b"\x30\x2a\x30\x05\x06\x03\x2b\x65\x70\x03\x21\x00";
+const RESULT_REGISTRY_SCOPE: &str = "tlsn-result-signing-key-registry";
+#[cfg(feature = "tlsn-production")]
+const RESULT_REGISTRY_ENVELOPE_SCOPE: &str = "fusou-result-signing-key-registry-envelope";
+#[cfg(feature = "tlsn-production")]
+const ORIGIN_INVENTORY_SOURCE: &str =
+    "packages/configs/configs.toml:[app.connect_kc_server.server_list]";
 const MAX_SAFE_JS_INTEGER: u64 = 9_007_199_254_740_991;
 const MAX_SAFE_POLICY_SECONDS: u64 = MAX_SAFE_JS_INTEGER / 1_000;
 const COMPILE_INPUT_NAMES: [&str; 15] = [
@@ -38,6 +46,7 @@ const COMPILE_INPUT_NAMES: [&str; 15] = [
 pub enum RuntimeConfigManifestError {
     Invalid(&'static str),
     InvalidSignature,
+    InvalidResultRegistrySignature,
 }
 
 impl std::fmt::Display for RuntimeConfigManifestError {
@@ -51,6 +60,9 @@ impl std::fmt::Display for RuntimeConfigManifestError {
             }
             Self::InvalidSignature => {
                 formatter.write_str("runtime configuration signature verification failed")
+            }
+            Self::InvalidResultRegistrySignature => {
+                formatter.write_str("Result registry signature verification failed")
             }
         }
     }
@@ -124,7 +136,91 @@ pub struct RuntimeConfigVerificationPolicy {
     pub max_envelope_bytes: usize,
 }
 
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
+pub struct IndependentlyExpectedProductionAuthorityPins {
+    pub origin_inventory_sha256: String,
+    pub target_approval_artifact_sha256: String,
+    pub security_registry_set_sha256: String,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
+pub struct RuntimeConfigIndependentPins {
+    pub worker_reference_sha256: String,
+    pub production_authority_pins: IndependentlyExpectedProductionAuthorityPins,
+    pub result_registry_sha256: String,
+    pub result_registry_envelope_sha256: String,
+    pub result_registry_root_key_id: String,
+    pub result_registry_root_public_key_spki: String,
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+pub struct RuntimeConfigIndependentVerificationInputs<'a> {
+    pub independent_pins: Option<&'a RuntimeConfigIndependentPins>,
+    pub worker_reference_raw: Option<&'a [u8]>,
+    pub origin_inventory_raw: Option<&'a [u8]>,
+    pub target_approval_raw: Option<&'a [u8]>,
+    pub security_registry_set_raw: Option<&'a [u8]>,
+    pub result_registry_envelope_raw: Option<&'a [u8]>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RuntimeConfigIndependentVerificationSummary {
+    pub worker_reference_sha256: String,
+    pub origin_inventory_sha256: String,
+    pub target_approval_artifact_sha256: String,
+    pub security_registry_set_sha256: String,
+    pub result_registry_sha256: String,
+    pub result_registry_envelope_sha256: String,
+    pub result_registry_root_key_id: String,
+    pub result_signer_key_id: String,
+    pub result_signer_public_key_spki: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct VerifiedRuntimeConfigManifest {
+    payload: RuntimeConfigManifestPayload,
+    independent_verification: RuntimeConfigIndependentVerificationSummary,
+}
+
+impl VerifiedRuntimeConfigManifest {
+    pub fn payload(&self) -> &RuntimeConfigManifestPayload {
+        &self.payload
+    }
+
+    pub fn independent_verification(&self) -> &RuntimeConfigIndependentVerificationSummary {
+        &self.independent_verification
+    }
+}
+
 pub fn verify_runtime_config_manifest(
+    raw_envelope: &[u8],
+    trusted_signer: &RuntimeConfigTrustedSigner,
+    policy: &RuntimeConfigVerificationPolicy,
+    independent_inputs: Option<&RuntimeConfigIndependentVerificationInputs<'_>>,
+) -> Result<VerifiedRuntimeConfigManifest, RuntimeConfigManifestError> {
+    #[cfg(not(feature = "tlsn-production"))]
+    {
+        let _ = (raw_envelope, trusted_signer, policy, independent_inputs);
+        return Err(RuntimeConfigManifestError::Invalid(
+            "independent Production verification requires tlsn-production",
+        ));
+    }
+    #[cfg(feature = "tlsn-production")]
+    {
+        let payload = verify_signed_runtime_config_manifest(raw_envelope, trusted_signer, policy)?;
+        let inputs = independent_inputs.ok_or(RuntimeConfigManifestError::Invalid(
+            "independent Production verification inputs are missing",
+        ))?;
+        let independent_verification =
+            verify_independent_runtime_config_inputs(&payload, policy, inputs)?;
+        Ok(VerifiedRuntimeConfigManifest {
+            payload,
+            independent_verification,
+        })
+    }
+}
+
+fn verify_signed_runtime_config_manifest(
     raw_envelope: &[u8],
     trusted_signer: &RuntimeConfigTrustedSigner,
     policy: &RuntimeConfigVerificationPolicy,
@@ -180,6 +276,524 @@ pub fn verify_runtime_config_manifest(
     validate_payload(&payload, policy.now)?;
     validate_freshness(&payload, policy)?;
     Ok(payload)
+}
+
+#[cfg(feature = "tlsn-production")]
+#[derive(Debug, Deserialize)]
+struct OriginInventoryArtifact {
+    schema_version: u32,
+    source: String,
+    targets: Vec<OriginInventoryTarget>,
+}
+
+#[cfg(feature = "tlsn-production")]
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct OriginInventoryTarget {
+    server_index: u32,
+    server_identity: String,
+    port: u16,
+}
+
+#[cfg(feature = "tlsn-production")]
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct TargetApprovalArtifact {
+    schema_version: u32,
+    authority_model: String,
+    environment: String,
+    status: String,
+    inventory_sha256: String,
+    targets: Vec<String>,
+    approved_at: String,
+}
+
+#[cfg(feature = "tlsn-production")]
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SignedResultRegistryEnvelope {
+    schema_version: u32,
+    scope: String,
+    signature_algorithm: String,
+    root_key_id: String,
+    root_public_key_spki: String,
+    registry_sha256: String,
+    registry: Value,
+    signature_base64url: String,
+}
+
+#[cfg(feature = "tlsn-production")]
+#[derive(Serialize)]
+struct SignedResultRegistryPayload {
+    schema_version: u32,
+    scope: String,
+    signature_algorithm: String,
+    root_key_id: String,
+    root_public_key_spki: String,
+    registry_sha256: String,
+    registry: Value,
+}
+
+#[cfg(feature = "tlsn-production")]
+fn verify_independent_runtime_config_inputs(
+    payload: &RuntimeConfigManifestPayload,
+    policy: &RuntimeConfigVerificationPolicy,
+    inputs: &RuntimeConfigIndependentVerificationInputs<'_>,
+) -> Result<RuntimeConfigIndependentVerificationSummary, RuntimeConfigManifestError> {
+    let pins = inputs
+        .independent_pins
+        .ok_or(RuntimeConfigManifestError::Invalid(
+            "independent Production digest pins are missing",
+        ))?;
+    let worker_reference_raw =
+        inputs
+            .worker_reference_raw
+            .ok_or(RuntimeConfigManifestError::Invalid(
+                "raw approved Worker reference bytes are missing",
+            ))?;
+    let origin_inventory_raw =
+        inputs
+            .origin_inventory_raw
+            .ok_or(RuntimeConfigManifestError::Invalid(
+                "raw Origin Inventory bytes are missing",
+            ))?;
+    let target_approval_raw =
+        inputs
+            .target_approval_raw
+            .ok_or(RuntimeConfigManifestError::Invalid(
+                "raw Target Approval bytes are missing",
+            ))?;
+    let security_registry_set_raw =
+        inputs
+            .security_registry_set_raw
+            .ok_or(RuntimeConfigManifestError::Invalid(
+                "raw Production security registry set bytes are missing",
+            ))?;
+    let result_registry_envelope_raw =
+        inputs
+            .result_registry_envelope_raw
+            .ok_or(RuntimeConfigManifestError::Invalid(
+                "raw Result registry envelope bytes are missing",
+            ))?;
+
+    for digest in [
+        pins.worker_reference_sha256.as_str(),
+        pins.production_authority_pins
+            .origin_inventory_sha256
+            .as_str(),
+        pins.production_authority_pins
+            .target_approval_artifact_sha256
+            .as_str(),
+        pins.production_authority_pins
+            .security_registry_set_sha256
+            .as_str(),
+        pins.result_registry_sha256.as_str(),
+        pins.result_registry_envelope_sha256.as_str(),
+    ] {
+        validate_digest(digest)?;
+    }
+    validate_key_id(&pins.result_registry_root_key_id)?;
+    decode_ed25519_spki(&pins.result_registry_root_public_key_spki)?;
+
+    let worker_reference_sha256 = sha256_base64url(worker_reference_raw);
+    if worker_reference_raw.is_empty()
+        || worker_reference_sha256 != pins.worker_reference_sha256
+        || worker_reference_sha256 != payload.source.worker_reference_sha256
+    {
+        return Err(RuntimeConfigManifestError::Invalid(
+            "Worker reference bytes do not match the independent expected digest",
+        ));
+    }
+    validate_worker_reference_binding(payload, worker_reference_raw)?;
+
+    let origin_inventory_sha256 = sha256_base64url(origin_inventory_raw);
+    let target_approval_artifact_sha256 = sha256_base64url(target_approval_raw);
+    let security_registry_set_sha256 = sha256_base64url(security_registry_set_raw);
+    if origin_inventory_raw.is_empty()
+        || target_approval_raw.is_empty()
+        || security_registry_set_raw.is_empty()
+        || origin_inventory_sha256 != pins.production_authority_pins.origin_inventory_sha256
+        || target_approval_artifact_sha256
+            != pins
+                .production_authority_pins
+                .target_approval_artifact_sha256
+        || security_registry_set_sha256
+            != pins.production_authority_pins.security_registry_set_sha256
+        || payload.production_authority_pins.origin_inventory_sha256
+            != pins.production_authority_pins.origin_inventory_sha256
+        || payload
+            .production_authority_pins
+            .target_approval_artifact_sha256
+            != pins
+                .production_authority_pins
+                .target_approval_artifact_sha256
+        || payload
+            .production_authority_pins
+            .security_registry_set_sha256
+            != pins.production_authority_pins.security_registry_set_sha256
+    {
+        return Err(RuntimeConfigManifestError::Invalid(
+            "Production authority artifact bytes do not match independent expected digests",
+        ));
+    }
+    validate_authority_artifacts(
+        payload,
+        origin_inventory_raw,
+        target_approval_raw,
+        security_registry_set_raw,
+        &origin_inventory_sha256,
+        &target_approval_artifact_sha256,
+    )?;
+
+    let result_registry_sha256 = sha256_base64url(
+        payload
+            .compile_inputs
+            .get("FUSOU_TLSN_RESULT_SIGNING_KEY_REGISTRY")
+            .expect("complete input inventory checked")
+            .as_bytes(),
+    );
+    let result_registry_envelope_sha256 = sha256_base64url(result_registry_envelope_raw);
+    if result_registry_envelope_raw.is_empty()
+        || result_registry_sha256 != pins.result_registry_sha256
+        || result_registry_envelope_sha256 != pins.result_registry_envelope_sha256
+    {
+        return Err(RuntimeConfigManifestError::Invalid(
+            "Result registry bytes do not match independent expected digests",
+        ));
+    }
+    verify_result_registry_envelope(
+        payload,
+        policy.now,
+        result_registry_envelope_raw,
+        pins,
+        &result_registry_sha256,
+    )?;
+
+    Ok(RuntimeConfigIndependentVerificationSummary {
+        worker_reference_sha256,
+        origin_inventory_sha256,
+        target_approval_artifact_sha256,
+        security_registry_set_sha256,
+        result_registry_sha256,
+        result_registry_envelope_sha256,
+        result_registry_root_key_id: pins.result_registry_root_key_id.clone(),
+        result_signer_key_id: payload.compile_inputs["FUSOU_TLSN_RESULT_SIGNER_KEY_ID"].clone(),
+        result_signer_public_key_spki: payload.compile_inputs["FUSOU_TLSN_RESULT_PUBLIC_KEY_SPKI"]
+            .clone(),
+    })
+}
+
+#[cfg(feature = "tlsn-production")]
+fn validate_worker_reference_binding(
+    payload: &RuntimeConfigManifestPayload,
+    raw_reference: &[u8],
+) -> Result<(), RuntimeConfigManifestError> {
+    let reference: Value = serde_json::from_slice(raw_reference)
+        .map_err(|_| RuntimeConfigManifestError::Invalid("Worker reference JSON is invalid"))?;
+    let cloudflare = reference
+        .get("cloudflare")
+        .ok_or(RuntimeConfigManifestError::Invalid(
+            "Worker reference Cloudflare identity is missing",
+        ))?;
+    let release_context =
+        reference
+            .get("release_context")
+            .ok_or(RuntimeConfigManifestError::Invalid(
+                "Worker reference release context is missing",
+            ))?;
+    let expected_inputs = serde_json::to_value(&payload.compile_inputs)
+        .map_err(|_| RuntimeConfigManifestError::Invalid("compile input serialization failed"))?;
+    if reference.get("schema_version").and_then(Value::as_u64) != Some(2)
+        || reference.get("scope").and_then(Value::as_str)
+            != Some("tlsn-app-approved-worker-deployment-reference")
+        || reference.get("authority").and_then(Value::as_str)
+            != Some(
+                "operator-controlled-approved-release-and-authenticated-cloudflare-control-plane",
+            )
+        || reference.get("observed_at").and_then(Value::as_str)
+            != Some(payload.source.observed_at.as_str())
+        || reference.get("disclosure_mode").and_then(Value::as_str)
+            != Some(payload.source.disclosure_mode.as_str())
+        || cloudflare.get("account_id").and_then(Value::as_str)
+            != Some(payload.source.account_id.as_str())
+        || cloudflare.get("script_name").and_then(Value::as_str)
+            != Some(payload.source.script_name.as_str())
+        || cloudflare.get("deployment_id").and_then(Value::as_str)
+            != Some(payload.source.cloudflare_deployment_id.as_str())
+        || cloudflare.get("version_id").and_then(Value::as_str)
+            != Some(payload.source.active_version_id.as_str())
+        || cloudflare.get("percentage").and_then(Value::as_u64) != Some(100)
+        || reference.get("compile_inputs") != Some(&expected_inputs)
+        || release_context
+            .get("deployment_role")
+            .and_then(Value::as_str)
+            != Some("production")
+        || release_context
+            .get("git_commit_sha")
+            .and_then(Value::as_str)
+            != Some(payload.source.worker_git_commit_sha.as_str())
+    {
+        return Err(RuntimeConfigManifestError::Invalid(
+            "Worker reference identity does not match the signed manifest",
+        ));
+    }
+    Ok(())
+}
+
+#[cfg(feature = "tlsn-production")]
+fn validate_authority_artifacts(
+    payload: &RuntimeConfigManifestPayload,
+    raw_inventory: &[u8],
+    raw_approval: &[u8],
+    raw_security_registry_set: &[u8],
+    inventory_sha256: &str,
+    approval_sha256: &str,
+) -> Result<(), RuntimeConfigManifestError> {
+    let inventory_text = std::str::from_utf8(raw_inventory)
+        .map_err(|_| RuntimeConfigManifestError::Invalid("Origin Inventory is not UTF-8"))?;
+    let inventory: OriginInventoryArtifact = serde_json::from_str(inventory_text)
+        .map_err(|_| RuntimeConfigManifestError::Invalid("Origin Inventory JSON is invalid"))?;
+    if inventory.schema_version != 1
+        || inventory.source != ORIGIN_INVENTORY_SOURCE
+        || inventory.targets.len() != 20
+    {
+        return Err(RuntimeConfigManifestError::Invalid(
+            "Origin Inventory schema or target count is invalid",
+        ));
+    }
+    let mut inventory_positions = BTreeMap::new();
+    for (index, target) in inventory.targets.iter().enumerate() {
+        if target.server_index != index as u32 + 1
+            || target.port != 443
+            || !is_dns_hostname(&target.server_identity)
+            || inventory_positions
+                .insert(target.server_identity.as_str(), index)
+                .is_some()
+        {
+            return Err(RuntimeConfigManifestError::Invalid(
+                "Origin Inventory targets are invalid, unordered, or duplicated",
+            ));
+        }
+    }
+
+    let approval_text = std::str::from_utf8(raw_approval)
+        .map_err(|_| RuntimeConfigManifestError::Invalid("Target Approval is not UTF-8"))?;
+    let approval: TargetApprovalArtifact = serde_json::from_str(approval_text)
+        .map_err(|_| RuntimeConfigManifestError::Invalid("Target Approval JSON is invalid"))?;
+    let canonical_approval = serde_json::to_string_pretty(&approval)
+        .map_err(|_| RuntimeConfigManifestError::Invalid("Target Approval serialization failed"))?;
+    if canonical_approval.as_bytes() != raw_approval
+        || approval.schema_version != 1
+        || approval.authority_model != "FUSOU_DEPLOYMENT_OPERATOR"
+        || approval.environment != "production"
+        || approval.status != "APPROVED"
+        || approval.inventory_sha256 != inventory_sha256
+        || approval.targets.is_empty()
+        || DateTime::parse_from_rfc3339(&approval.approved_at).is_err()
+    {
+        return Err(RuntimeConfigManifestError::Invalid(
+            "Target Approval does not match the canonical Production inventory",
+        ));
+    }
+    let mut previous_position = None;
+    let mut seen = BTreeSet::new();
+    for identity in &approval.targets {
+        if !is_dns_hostname(identity)
+            || is_fixture_or_synthetic_server_identity(identity)
+            || !seen.insert(identity.as_str())
+        {
+            return Err(RuntimeConfigManifestError::Invalid(
+                "Target Approval contains an invalid or duplicate server identity",
+            ));
+        }
+        let position = inventory_positions.get(identity.as_str()).ok_or(
+            RuntimeConfigManifestError::Invalid(
+                "Target Approval identity is absent from the Origin Inventory",
+            ),
+        )?;
+        if previous_position.is_some_and(|previous| *position <= previous) {
+            return Err(RuntimeConfigManifestError::Invalid(
+                "Target Approval identities are not in Origin Inventory order",
+            ));
+        }
+        previous_position = Some(*position);
+    }
+
+    let security_set: Value = serde_json::from_slice(raw_security_registry_set).map_err(|_| {
+        RuntimeConfigManifestError::Invalid("security registry set JSON is invalid")
+    })?;
+    if canonical_json_bytes(&security_set)?.as_slice() != raw_security_registry_set {
+        return Err(RuntimeConfigManifestError::Invalid(
+            "security registry set is not canonical JSON",
+        ));
+    }
+    let expected_fields = BTreeSet::from([
+        "notary_key_id",
+        "notary_registry",
+        "origin_inventory_sha256",
+        "target_approval_artifact_sha256",
+        "profile_policy_sha256",
+    ]);
+    let fields: BTreeSet<&str> = security_set
+        .as_object()
+        .ok_or(RuntimeConfigManifestError::Invalid(
+            "security registry set must be an object",
+        ))?
+        .keys()
+        .map(String::as_str)
+        .collect();
+    if fields != expected_fields
+        || security_set
+            .get("origin_inventory_sha256")
+            .and_then(Value::as_str)
+            != Some(inventory_sha256)
+        || security_set
+            .get("target_approval_artifact_sha256")
+            .and_then(Value::as_str)
+            != Some(approval_sha256)
+    {
+        return Err(RuntimeConfigManifestError::Invalid(
+            "security registry set does not bind the verified authority artifacts",
+        ));
+    }
+    let notary_key_id = security_set
+        .get("notary_key_id")
+        .and_then(Value::as_str)
+        .ok_or(RuntimeConfigManifestError::Invalid(
+            "security registry set Notary key ID is missing",
+        ))?;
+    validate_key_id(notary_key_id)?;
+    let notary_registry = security_set
+        .get("notary_registry")
+        .and_then(Value::as_object)
+        .ok_or(RuntimeConfigManifestError::Invalid(
+            "security registry set Notary registry is missing",
+        ))?;
+    let compile_notary_key = payload
+        .compile_inputs
+        .get("FUSOU_TLSN_NOTARY_VERIFYING_KEY")
+        .expect("complete input inventory checked");
+    if notary_registry.is_empty()
+        || notary_registry.get(notary_key_id).and_then(Value::as_str) != Some(compile_notary_key)
+    {
+        return Err(RuntimeConfigManifestError::Invalid(
+            "security registry set Notary key does not match the signed compile input",
+        ));
+    }
+    for (key_id, verifying_key) in notary_registry {
+        validate_key_id(key_id)?;
+        let verifying_key = verifying_key
+            .as_str()
+            .ok_or(RuntimeConfigManifestError::Invalid(
+                "security registry set contains an invalid Notary key",
+            ))?;
+        let verifying_key = decode_canonical_base64url(verifying_key, "Notary verifying key")?;
+        crate::tlsn_preflight::validate_notary_key_bytes(&verifying_key)
+            .map_err(RuntimeConfigManifestError::Invalid)?;
+    }
+    validate_digest(
+        security_set
+            .get("profile_policy_sha256")
+            .and_then(Value::as_str)
+            .ok_or(RuntimeConfigManifestError::Invalid(
+                "security registry set profile policy digest is missing",
+            ))?,
+    )?;
+    Ok(())
+}
+
+#[cfg(feature = "tlsn-production")]
+fn verify_result_registry_envelope(
+    payload: &RuntimeConfigManifestPayload,
+    validation_time: DateTime<Utc>,
+    raw_envelope: &[u8],
+    pins: &RuntimeConfigIndependentPins,
+    result_registry_sha256: &str,
+) -> Result<(), RuntimeConfigManifestError> {
+    let envelope: SignedResultRegistryEnvelope =
+        serde_json::from_slice(raw_envelope).map_err(|_| {
+            RuntimeConfigManifestError::Invalid("Result registry envelope JSON is invalid")
+        })?;
+    if envelope.schema_version != 1
+        || envelope.scope != RESULT_REGISTRY_ENVELOPE_SCOPE
+        || envelope.signature_algorithm != SIGNATURE_ALGORITHM
+    {
+        return Err(RuntimeConfigManifestError::Invalid(
+            "Result registry envelope schema or algorithm is invalid",
+        ));
+    }
+    if envelope.root_key_id != pins.result_registry_root_key_id
+        || envelope.root_public_key_spki != pins.result_registry_root_public_key_spki
+    {
+        return Err(RuntimeConfigManifestError::Invalid(
+            "Result registry root does not match the independent trust pin",
+        ));
+    }
+    validate_digest(&envelope.registry_sha256)?;
+    if envelope.registry_sha256 != result_registry_sha256 {
+        return Err(RuntimeConfigManifestError::Invalid(
+            "Result registry envelope digest does not match the registry bytes",
+        ));
+    }
+    let registry_raw = payload
+        .compile_inputs
+        .get("FUSOU_TLSN_RESULT_SIGNING_KEY_REGISTRY")
+        .expect("complete input inventory checked");
+    let registry: Value = serde_json::from_str(registry_raw)
+        .map_err(|_| RuntimeConfigManifestError::Invalid("Result key registry JSON is invalid"))?;
+    if canonical_json_bytes(&envelope.registry)? != canonical_json_bytes(&registry)? {
+        return Err(RuntimeConfigManifestError::Invalid(
+            "Result registry envelope content does not match the signed manifest registry",
+        ));
+    }
+    let signature = decode_canonical_base64url(
+        &envelope.signature_base64url,
+        "Result registry envelope signature",
+    )?;
+    if signature.len() != 64 {
+        return Err(RuntimeConfigManifestError::Invalid(
+            "Result registry envelope signature must be 64 bytes",
+        ));
+    }
+    let public_key = decode_ed25519_spki(&pins.result_registry_root_public_key_spki)?;
+    let signed_payload = SignedResultRegistryPayload {
+        schema_version: envelope.schema_version,
+        scope: envelope.scope,
+        signature_algorithm: envelope.signature_algorithm,
+        root_key_id: envelope.root_key_id,
+        root_public_key_spki: envelope.root_public_key_spki,
+        registry_sha256: envelope.registry_sha256,
+        registry: envelope.registry,
+    };
+    let signing_bytes = canonical_json_bytes(&signed_payload)?;
+    fusou_auth::verify_ed25519_signature(&public_key, &signing_bytes, &signature)
+        .map_err(|_| RuntimeConfigManifestError::InvalidResultRegistrySignature)?;
+    validate_result_registry(&payload.compile_inputs, validation_time)?;
+    Ok(())
+}
+
+#[cfg(feature = "tlsn-production")]
+fn sha256_base64url(raw: &[u8]) -> String {
+    URL_SAFE_NO_PAD.encode(Sha256::digest(raw))
+}
+
+#[cfg(feature = "tlsn-production")]
+fn is_fixture_or_synthetic_server_identity(value: &str) -> bool {
+    value.split(['.', '-', '_', '/']).any(|part| {
+        matches!(
+            part,
+            "test"
+                | "synthetic"
+                | "fixture"
+                | "local"
+                | "localhost"
+                | "staging"
+                | "historical"
+                | "remote"
+                | "example"
+                | "invalid"
+        )
+    })
 }
 
 fn validate_trusted_signer(
@@ -460,7 +1074,7 @@ fn validate_result_registry(
     let registry: Value = serde_json::from_str(registry_raw)
         .map_err(|_| RuntimeConfigManifestError::Invalid("Result key registry JSON is invalid"))?;
     if registry.get("schema_version").and_then(Value::as_u64) != Some(1)
-        || registry.get("scope").and_then(Value::as_str) != Some("tlsn-result-signing-key-registry")
+        || registry.get("scope").and_then(Value::as_str) != Some(RESULT_REGISTRY_SCOPE)
     {
         return Err(RuntimeConfigManifestError::Invalid(
             "Result key registry schema or scope is invalid",
@@ -863,6 +1477,91 @@ mod tests {
         envelope_gzip_base64url: String,
     }
 
+    #[cfg(feature = "tlsn-production")]
+    #[derive(Deserialize)]
+    struct IndependentVerificationPolicyVector {
+        now_ms: i64,
+        last_accepted_epoch: String,
+        max_lifetime_seconds: u64,
+        max_clock_skew_seconds: u64,
+        max_reference_age_seconds: u64,
+        max_envelope_bytes: usize,
+    }
+
+    #[cfg(feature = "tlsn-production")]
+    #[derive(Deserialize)]
+    struct IndependentVerificationVector {
+        schema_version: u32,
+        test_only: bool,
+        trusted_signer: RuntimeConfigTrustedSigner,
+        policy: IndependentVerificationPolicyVector,
+        independent_pins: RuntimeConfigIndependentPins,
+        manifest_envelope_utf8: String,
+        inputs_base64url: BTreeMap<String, String>,
+    }
+
+    #[cfg(feature = "tlsn-production")]
+    #[derive(Clone)]
+    struct IndependentVerificationRawInputs {
+        worker_reference: Vec<u8>,
+        origin_inventory: Vec<u8>,
+        target_approval: Vec<u8>,
+        security_registry_set: Vec<u8>,
+        result_registry_envelope: Vec<u8>,
+    }
+
+    #[cfg(feature = "tlsn-production")]
+    impl IndependentVerificationRawInputs {
+        fn verification_inputs<'a>(
+            &'a self,
+            pins: Option<&'a RuntimeConfigIndependentPins>,
+        ) -> RuntimeConfigIndependentVerificationInputs<'a> {
+            RuntimeConfigIndependentVerificationInputs {
+                independent_pins: pins,
+                worker_reference_raw: Some(&self.worker_reference),
+                origin_inventory_raw: Some(&self.origin_inventory),
+                target_approval_raw: Some(&self.target_approval),
+                security_registry_set_raw: Some(&self.security_registry_set),
+                result_registry_envelope_raw: Some(&self.result_registry_envelope),
+            }
+        }
+    }
+
+    #[cfg(feature = "tlsn-production")]
+    fn load_independent_verification_vector() -> (
+        IndependentVerificationVector,
+        IndependentVerificationRawInputs,
+        RuntimeConfigVerificationPolicy,
+    ) {
+        let fixture: IndependentVerificationVector = serde_json::from_str(include_str!(
+            "../../../FUSOU-TLSN-VERIFICATION-WORKER/scripts/fixtures/tlsn-runtime-config-independent-v1-vector.json"
+        ))
+        .unwrap();
+        assert_eq!(fixture.schema_version, 1);
+        assert!(fixture.test_only);
+        let bytes = |name: &str| {
+            URL_SAFE_NO_PAD
+                .decode(fixture.inputs_base64url.get(name).unwrap())
+                .unwrap()
+        };
+        let raw_inputs = IndependentVerificationRawInputs {
+            worker_reference: bytes("worker_reference_raw"),
+            origin_inventory: bytes("origin_inventory_raw"),
+            target_approval: bytes("target_approval_raw"),
+            security_registry_set: bytes("security_registry_set_raw"),
+            result_registry_envelope: bytes("result_registry_envelope_raw"),
+        };
+        let policy = RuntimeConfigVerificationPolicy {
+            now: DateTime::from_timestamp_millis(fixture.policy.now_ms).unwrap(),
+            last_accepted_epoch: fixture.policy.last_accepted_epoch.clone(),
+            max_lifetime_seconds: fixture.policy.max_lifetime_seconds,
+            max_clock_skew_seconds: fixture.policy.max_clock_skew_seconds,
+            max_reference_age_seconds: fixture.policy.max_reference_age_seconds,
+            max_envelope_bytes: fixture.policy.max_envelope_bytes,
+        };
+        (fixture, raw_inputs, policy)
+    }
+
     fn load_test_vector() -> (Vec<u8>, TestVector, RuntimeConfigManifestPayload) {
         let fixture: TestVector = serde_json::from_str(include_str!(
             "../../../FUSOU-TLSN-VERIFICATION-WORKER/scripts/fixtures/tlsn-runtime-config-manifest-v1-vector.json"
@@ -929,7 +1628,7 @@ mod tests {
     #[test]
     fn rejects_missing_external_trust_anchor_and_malformed_policy() {
         assert_eq!(
-            verify_runtime_config_manifest(
+            verify_signed_runtime_config_manifest(
                 b"{}",
                 &RuntimeConfigTrustedSigner {
                     scope: "fusou-result-signing-key-registry-envelope".to_owned(),
@@ -954,7 +1653,7 @@ mod tests {
         let mut missing_key = trusted_signer(fixture);
         missing_key.public_key_spki.clear();
         assert_eq!(
-            verify_runtime_config_manifest(b"{}", &missing_key, &policy),
+            verify_signed_runtime_config_manifest(b"{}", &missing_key, &policy),
             Err(RuntimeConfigManifestError::Invalid("Ed25519 SPKI key"))
         );
 
@@ -962,7 +1661,7 @@ mod tests {
         let mut invalid_key_id = trusted_signer(fixture);
         invalid_key_id.key_id = "invalid key ID".to_owned();
         assert_eq!(
-            verify_runtime_config_manifest(b"{}", &invalid_key_id, &policy_for(&payload)),
+            verify_signed_runtime_config_manifest(b"{}", &invalid_key_id, &policy_for(&payload)),
             Err(RuntimeConfigManifestError::Invalid("key ID is invalid"))
         );
 
@@ -1248,9 +1947,12 @@ mod tests {
     #[test]
     fn valid_test_signed_manifest_is_rejected_when_production_feature_is_disabled() {
         let (raw, fixture, payload) = load_test_vector();
-        let error =
-            verify_runtime_config_manifest(&raw, &trusted_signer(fixture), &policy_for(&payload))
-                .unwrap_err();
+        let error = verify_signed_runtime_config_manifest(
+            &raw,
+            &trusted_signer(fixture),
+            &policy_for(&payload),
+        )
+        .unwrap_err();
         assert_eq!(
             error,
             RuntimeConfigManifestError::Invalid(
@@ -1265,7 +1967,8 @@ mod tests {
         let (raw, fixture, payload) = load_test_vector();
         let policy = policy_for(&payload);
         let trusted_signer = trusted_signer(fixture);
-        let verified = verify_runtime_config_manifest(&raw, &trusted_signer, &policy).unwrap();
+        let verified =
+            verify_signed_runtime_config_manifest(&raw, &trusted_signer, &policy).unwrap();
         assert_eq!(verified.epoch, "1");
         assert_eq!(
             verified
@@ -1305,7 +2008,7 @@ mod tests {
         let mut wrong_scope = trusted_signer.clone();
         wrong_scope.scope = "fusou-result-signing-key-registry-envelope".to_owned();
         assert_eq!(
-            verify_runtime_config_manifest(&raw, &wrong_scope, &policy),
+            verify_signed_runtime_config_manifest(&raw, &wrong_scope, &policy),
             Err(RuntimeConfigManifestError::Invalid(
                 "trusted signer is not scoped to runtime configuration"
             ))
@@ -1314,7 +2017,7 @@ mod tests {
         let mut rollback_policy = policy.clone();
         rollback_policy.last_accepted_epoch = "1".to_owned();
         assert_eq!(
-            verify_runtime_config_manifest(&raw, &trusted_signer, &rollback_policy),
+            verify_signed_runtime_config_manifest(&raw, &trusted_signer, &rollback_policy),
             Err(RuntimeConfigManifestError::Invalid(
                 "epoch is not newer than the persisted high-water mark"
             ))
@@ -1323,7 +2026,7 @@ mod tests {
         let mut size_policy = policy.clone();
         size_policy.max_envelope_bytes = raw.len() - 1;
         assert_eq!(
-            verify_runtime_config_manifest(&raw, &trusted_signer, &size_policy),
+            verify_signed_runtime_config_manifest(&raw, &trusted_signer, &size_policy),
             Err(RuntimeConfigManifestError::Invalid(
                 "envelope exceeds the supplied byte limit"
             ))
@@ -1332,7 +2035,7 @@ mod tests {
         let mut whitespace_mutation = raw.clone();
         whitespace_mutation.push(b' ');
         assert_eq!(
-            verify_runtime_config_manifest(&whitespace_mutation, &trusted_signer, &policy),
+            verify_signed_runtime_config_manifest(&whitespace_mutation, &trusted_signer, &policy),
             Err(RuntimeConfigManifestError::Invalid(
                 "envelope is not canonical JSON"
             ))
@@ -1351,7 +2054,7 @@ mod tests {
             b'A'
         };
         assert_eq!(
-            verify_runtime_config_manifest(&signature_mutation, &trusted_signer, &policy),
+            verify_signed_runtime_config_manifest(&signature_mutation, &trusted_signer, &policy),
             Err(RuntimeConfigManifestError::InvalidSignature)
         );
 
@@ -1359,7 +2062,11 @@ mod tests {
         unauthenticated_payload["payload_base64url"] = Value::String(URL_SAFE_NO_PAD.encode(b"{"));
         let unauthenticated_payload = canonical_json_bytes(&unauthenticated_payload).unwrap();
         assert_eq!(
-            verify_runtime_config_manifest(&unauthenticated_payload, &trusted_signer, &policy),
+            verify_signed_runtime_config_manifest(
+                &unauthenticated_payload,
+                &trusted_signer,
+                &policy
+            ),
             Err(RuntimeConfigManifestError::InvalidSignature)
         );
 
@@ -1506,5 +2213,239 @@ mod tests {
             .target_approval_artifact_sha256
             .clear();
         assert!(validate_payload(&malformed_payload, policy.now).is_err());
+    }
+
+    #[cfg(feature = "tlsn-production")]
+    #[test]
+    fn verifies_the_shared_independent_input_vector_and_returns_only_matched_bindings() {
+        let (fixture, raw_inputs, policy) = load_independent_verification_vector();
+        let verified = verify_runtime_config_manifest(
+            fixture.manifest_envelope_utf8.as_bytes(),
+            &fixture.trusted_signer,
+            &policy,
+            Some(&raw_inputs.verification_inputs(Some(&fixture.independent_pins))),
+        )
+        .unwrap();
+
+        assert_eq!(verified.payload().epoch, "1");
+        assert_eq!(
+            verified.independent_verification().worker_reference_sha256,
+            fixture.independent_pins.worker_reference_sha256
+        );
+        assert_eq!(
+            verified.independent_verification().origin_inventory_sha256,
+            fixture
+                .independent_pins
+                .production_authority_pins
+                .origin_inventory_sha256
+        );
+        assert_eq!(
+            verified
+                .independent_verification()
+                .target_approval_artifact_sha256,
+            fixture
+                .independent_pins
+                .production_authority_pins
+                .target_approval_artifact_sha256
+        );
+        assert_eq!(
+            verified
+                .independent_verification()
+                .result_registry_root_key_id,
+            fixture.independent_pins.result_registry_root_key_id
+        );
+    }
+
+    #[cfg(feature = "tlsn-production")]
+    #[test]
+    fn rejects_missing_or_mismatched_independent_production_inputs() {
+        let (fixture, raw_inputs, policy) = load_independent_verification_vector();
+        assert_eq!(
+            verify_runtime_config_manifest(
+                fixture.manifest_envelope_utf8.as_bytes(),
+                &fixture.trusted_signer,
+                &policy,
+                None,
+            ),
+            Err(RuntimeConfigManifestError::Invalid(
+                "independent Production verification inputs are missing"
+            ))
+        );
+        assert_eq!(
+            verify_independent_runtime_config_inputs(
+                &verify_signed_runtime_config_manifest(
+                    fixture.manifest_envelope_utf8.as_bytes(),
+                    &fixture.trusted_signer,
+                    &policy,
+                )
+                .unwrap(),
+                &policy,
+                &raw_inputs.verification_inputs(None),
+            ),
+            Err(RuntimeConfigManifestError::Invalid(
+                "independent Production digest pins are missing"
+            ))
+        );
+
+        let mut changed_reference = IndependentVerificationRawInputs {
+            worker_reference: raw_inputs.worker_reference.clone(),
+            origin_inventory: raw_inputs.origin_inventory.clone(),
+            target_approval: raw_inputs.target_approval.clone(),
+            security_registry_set: raw_inputs.security_registry_set.clone(),
+            result_registry_envelope: raw_inputs.result_registry_envelope.clone(),
+        };
+        changed_reference.worker_reference[0] ^= 1;
+        assert_eq!(
+            verify_runtime_config_manifest(
+                fixture.manifest_envelope_utf8.as_bytes(),
+                &fixture.trusted_signer,
+                &policy,
+                Some(&changed_reference.verification_inputs(Some(&fixture.independent_pins))),
+            ),
+            Err(RuntimeConfigManifestError::Invalid(
+                "Worker reference bytes do not match the independent expected digest"
+            ))
+        );
+
+        let mut swapped_pins = fixture.independent_pins.clone();
+        std::mem::swap(
+            &mut swapped_pins
+                .production_authority_pins
+                .origin_inventory_sha256,
+            &mut swapped_pins
+                .production_authority_pins
+                .target_approval_artifact_sha256,
+        );
+        assert_eq!(
+            verify_runtime_config_manifest(
+                fixture.manifest_envelope_utf8.as_bytes(),
+                &fixture.trusted_signer,
+                &policy,
+                Some(&raw_inputs.verification_inputs(Some(&swapped_pins))),
+            ),
+            Err(RuntimeConfigManifestError::Invalid(
+                "Production authority artifact bytes do not match independent expected digests"
+            ))
+        );
+
+        let mut changed_approval = raw_inputs.clone();
+        changed_approval.target_approval[0] ^= 1;
+        assert_eq!(
+            verify_runtime_config_manifest(
+                fixture.manifest_envelope_utf8.as_bytes(),
+                &fixture.trusted_signer,
+                &policy,
+                Some(&changed_approval.verification_inputs(Some(&fixture.independent_pins))),
+            ),
+            Err(RuntimeConfigManifestError::Invalid(
+                "Production authority artifact bytes do not match independent expected digests"
+            ))
+        );
+
+        let mut changed_manifest = verify_signed_runtime_config_manifest(
+            fixture.manifest_envelope_utf8.as_bytes(),
+            &fixture.trusted_signer,
+            &policy,
+        )
+        .unwrap();
+        changed_manifest
+            .production_authority_pins
+            .target_approval_artifact_sha256 = "A".repeat(43);
+        assert_eq!(
+            verify_independent_runtime_config_inputs(
+                &changed_manifest,
+                &policy,
+                &raw_inputs.verification_inputs(Some(&fixture.independent_pins)),
+            ),
+            Err(RuntimeConfigManifestError::Invalid(
+                "Production authority artifact bytes do not match independent expected digests"
+            ))
+        );
+    }
+
+    #[cfg(feature = "tlsn-production")]
+    #[test]
+    fn requires_pinned_result_registry_root_and_valid_signature_over_matching_registry() {
+        let (fixture, raw_inputs, policy) = load_independent_verification_vector();
+        let mut wrong_root = fixture.independent_pins.clone();
+        wrong_root.result_registry_root_key_id = "untrusted-root".to_owned();
+        assert_eq!(
+            verify_runtime_config_manifest(
+                fixture.manifest_envelope_utf8.as_bytes(),
+                &fixture.trusted_signer,
+                &policy,
+                Some(&raw_inputs.verification_inputs(Some(&wrong_root))),
+            ),
+            Err(RuntimeConfigManifestError::Invalid(
+                "Result registry root does not match the independent trust pin"
+            ))
+        );
+
+        let reordered_envelope = IndependentVerificationRawInputs {
+            worker_reference: raw_inputs.worker_reference.clone(),
+            origin_inventory: raw_inputs.origin_inventory.clone(),
+            target_approval: raw_inputs.target_approval.clone(),
+            security_registry_set: raw_inputs.security_registry_set.clone(),
+            result_registry_envelope: serde_json::to_vec(
+                &serde_json::from_slice::<Value>(&raw_inputs.result_registry_envelope).unwrap(),
+            )
+            .unwrap(),
+        };
+        let mut reordered_pins = fixture.independent_pins.clone();
+        reordered_pins.result_registry_envelope_sha256 =
+            sha256_base64url(&reordered_envelope.result_registry_envelope);
+        assert!(verify_runtime_config_manifest(
+            fixture.manifest_envelope_utf8.as_bytes(),
+            &fixture.trusted_signer,
+            &policy,
+            Some(&reordered_envelope.verification_inputs(Some(&reordered_pins))),
+        )
+        .is_ok());
+
+        let mut changed_signature = IndependentVerificationRawInputs {
+            worker_reference: raw_inputs.worker_reference.clone(),
+            origin_inventory: raw_inputs.origin_inventory.clone(),
+            target_approval: raw_inputs.target_approval.clone(),
+            security_registry_set: raw_inputs.security_registry_set.clone(),
+            result_registry_envelope: raw_inputs.result_registry_envelope.clone(),
+        };
+        let marker = b"\"signature_base64url\":\"";
+        let signature_offset = changed_signature
+            .result_registry_envelope
+            .windows(marker.len())
+            .position(|window| window == marker)
+            .unwrap()
+            + marker.len();
+        changed_signature.result_registry_envelope[signature_offset] =
+            if changed_signature.result_registry_envelope[signature_offset] == b'A' {
+                b'B'
+            } else {
+                b'A'
+            };
+        let mut updated_envelope_pin = fixture.independent_pins.clone();
+        updated_envelope_pin.result_registry_envelope_sha256 =
+            sha256_base64url(&changed_signature.result_registry_envelope);
+        assert_eq!(
+            verify_runtime_config_manifest(
+                fixture.manifest_envelope_utf8.as_bytes(),
+                &fixture.trusted_signer,
+                &policy,
+                Some(&changed_signature.verification_inputs(Some(&updated_envelope_pin))),
+            ),
+            Err(RuntimeConfigManifestError::InvalidResultRegistrySignature)
+        );
+    }
+
+    #[cfg(not(feature = "tlsn-production"))]
+    #[test]
+    fn independent_production_verifier_fails_closed_without_production_feature() {
+        let (raw, fixture, payload) = load_test_vector();
+        let policy = policy_for(&payload);
+        assert_eq!(
+            verify_runtime_config_manifest(&raw, &trusted_signer(fixture), &policy, None,),
+            Err(RuntimeConfigManifestError::Invalid(
+                "independent Production verification requires tlsn-production"
+            ))
+        );
     }
 }

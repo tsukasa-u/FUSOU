@@ -3,6 +3,7 @@ import { TextDecoder } from "node:util";
 import { ENTRY_INPUT_CONTRACT, assertBuildReference } from "./app-build-handoff.mjs";
 import { canonicalJson } from "./production-trust-contract.mjs";
 import { assertResultSigningIdentity } from "./production-trust-contract.mjs";
+import { verifyTlsnRuntimeConfigIndependentInputs } from "./tlsn-runtime-config-independent-verification.mjs";
 import { assertAlpha15NotaryVerifyingKey } from "../src/origin-trust-contract.mjs";
 
 export const TLSN_RUNTIME_CONFIG_MANIFEST_SCHEMA_VERSION = 1;
@@ -563,4 +564,33 @@ export function verifyTlsnRuntimeConfigEnvelope(rawEnvelope, { trustedSigner, po
     throw new Error("runtime configuration Worker reference is not fresh");
   }
   return payload;
+}
+
+function deepFreeze(value) {
+  if (value && typeof value === "object" && !Object.isFrozen(value)) {
+    for (const nested of Object.values(value)) deepFreeze(nested);
+    Object.freeze(value);
+  }
+  return value;
+}
+
+export function verifyTlsnRuntimeConfigProductionEnvelope(rawEnvelope, {
+  trustedSigner,
+  policy,
+  independentInputs,
+} = {}) {
+  if (!independentInputs) {
+    throw new Error("independent Production verification inputs are required");
+  }
+  const payload = verifyTlsnRuntimeConfigEnvelope(rawEnvelope, { trustedSigner, policy });
+  const matchedInputs = verifyTlsnRuntimeConfigIndependentInputs(
+    payload,
+    independentInputs,
+    policy.now_ms,
+  );
+  return Object.freeze({
+    state: "MANIFEST_AND_SUPPLIED_EXTERNAL_PINS_VERIFIED",
+    payload: deepFreeze(payload),
+    matched_inputs: matchedInputs,
+  });
 }

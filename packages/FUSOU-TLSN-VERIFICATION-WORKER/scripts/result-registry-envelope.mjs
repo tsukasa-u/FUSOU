@@ -16,6 +16,7 @@ const ENVELOPE_PAYLOAD_FIELDS = [
   "registry_sha256",
   "registry",
 ];
+const ENVELOPE_FIELDS = [...ENVELOPE_PAYLOAD_FIELDS, "signature_base64url"];
 
 function decodeBase64Url(value, label, expectedLength) {
   if (typeof value !== "string" || !BASE64URL_PATTERN.test(value) || value.length % 4 === 1) {
@@ -93,6 +94,14 @@ export function assertSignedResultRegistryEnvelope(
     trustedRootPublicKeySpki,
   } = {},
 ) {
+  if (
+    !envelope ||
+    typeof envelope !== "object" ||
+    Array.isArray(envelope) ||
+    JSON.stringify(Object.keys(envelope).sort()) !== JSON.stringify([...ENVELOPE_FIELDS].sort())
+  ) {
+    throw new Error("result registry envelope field inventory is invalid");
+  }
   if (
     envelope?.schema_version !== RESULT_REGISTRY_ENVELOPE_SCHEMA_VERSION ||
     envelope?.scope !== RESULT_REGISTRY_ENVELOPE_SCOPE ||
