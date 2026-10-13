@@ -1,15 +1,8 @@
 import type { JSX } from "solid-js";
-import {
-  createContext,
-  useContext,
-  createEffect,
-  onCleanup,
-  createSignal,
-} from "solid-js";
+import { createContext, useContext, createEffect, onCleanup } from "solid-js";
 import type { Part, SetStoreFunction } from "solid-js/store";
-import { createStore } from "solid-js/store";
-import type { UnlistenFn } from "@tauri-apps/api/event";
-import { listen } from "@tauri-apps/api/event";
+import { createStore, reconcile } from "solid-js/store";
+import { safeTauriListen } from "./tauri";
 
 import type { DeckPorts, Materials, Ship, Ships } from "@ipc-bindings/port";
 import type { Quest, Quests } from "@ipc-bindings/quest";
@@ -49,56 +42,17 @@ import { default_air_bases } from "@ipc-bindings/default_state/map_info";
 
 import type { Battle } from "@ipc-bindings/battle";
 
-function safeTauriListen<T>(
-  event: string,
-  handler: (event: { payload: T }) => void,
-): () => void {
-  let disposed = false;
-  let unlisten: UnlistenFn | undefined;
-  listen<T>(event, (e) => {
-    if (!disposed) handler(e);
-  }).then((fn) => {
-    if (disposed) {
-      fn();
-    } else {
-      unlisten = fn;
-    }
-  });
-  return () => {
-    disposed = true;
-    unlisten?.();
-  };
-}
-
-function createVersionedStore<T extends object>(
-  initial: T,
-): [T, SetStoreFunction<T>, () => void] {
-  const [data, setData] = createStore<T>(initial);
-  const [version, setVersion] = createSignal(0);
-  const proxy = new Proxy(data, {
-    get(target, prop) {
-      version();
-      return target[prop as keyof T];
-    },
-  });
-  const notify = () => setVersion((v) => v + 1);
-  return [proxy, setData, notify];
-}
-
 export const ShipsContext =
   createContext<(Ships | SetStoreFunction<Ships>)[]>();
 
 export function ShipsProvider(props: { children: JSX.Element }) {
-  const [data, setData, notify] = createVersionedStore<Ships>(
-    JSON.parse(JSON.stringify(default_ships)),
-  );
+  const [data, setData] = createStore<Ships>(default_ships);
   const setter = [data, setData];
 
   createEffect(() => {
     const unlisten_set = safeTauriListen<Ships>("set-kcs-ships", (event) => {
       if (import.meta.env.DEV) console.log("set-kcs-ships");
-      setData(event.payload);
-      notify();
+      setData(reconcile(event.payload));
     });
     const unlisten_add = safeTauriListen<Ships>("add-kcs-ships", (event) => {
       if (import.meta.env.DEV) console.log("add-kcs-ships");
@@ -116,9 +70,7 @@ export function ShipsProvider(props: { children: JSX.Element }) {
           });
         }
       });
-      notify();
     });
-
     onCleanup(() => {
       unlisten_set();
       unlisten_add();
@@ -144,16 +96,13 @@ export const MstShipsContext =
   createContext<(MstShips | SetStoreFunction<MstShips>)[]>();
 
 export function MstShipsProvider(props: { children: JSX.Element }) {
-  const [data, setData, notify] = createVersionedStore<MstShips>(
-    JSON.parse(JSON.stringify(default_mst_ships)),
-  );
+  const [data, setData] = createStore<MstShips>(default_mst_ships);
   const setter = [data, setData];
 
   createEffect(() => {
     const unlisten = safeTauriListen<MstShips>("set-kcs-mst-ships", (event) => {
       if (import.meta.env.DEV) console.log("set-kcs-mst-ships");
-      setData(event.payload);
-      notify();
+      setData(reconcile(event.payload));
     });
     onCleanup(unlisten);
   });
@@ -177,9 +126,7 @@ export const SlotItemsContext =
   createContext<(SlotItems | SetStoreFunction<SlotItems>)[]>();
 
 export function SlotItemsProvider(props: { children: JSX.Element }) {
-  const [data, setData, notify] = createVersionedStore<SlotItems>(
-    JSON.parse(JSON.stringify(default_slotitems)),
-  );
+  const [data, setData] = createStore<SlotItems>(default_slotitems);
   const setter = [data, setData];
 
   createEffect(() => {
@@ -187,8 +134,7 @@ export function SlotItemsProvider(props: { children: JSX.Element }) {
       "set-kcs-slot-items",
       (event) => {
         if (import.meta.env.DEV) console.log("set-kcs-slot-items");
-        setData(event.payload);
-        notify();
+        setData(reconcile(event.payload));
       },
     );
     onCleanup(unlisten);
@@ -213,9 +159,7 @@ export const MstSlotItemsContext =
   createContext<(MstSlotItems | SetStoreFunction<MstSlotItems>)[]>();
 
 export function MstSlotItemsProvider(props: { children: JSX.Element }) {
-  const [data, setData, notify] = createVersionedStore<MstSlotItems>(
-    JSON.parse(JSON.stringify(default_mst_slot_items)),
-  );
+  const [data, setData] = createStore<MstSlotItems>(default_mst_slot_items);
   const setter = [data, setData];
 
   createEffect(() => {
@@ -223,8 +167,7 @@ export function MstSlotItemsProvider(props: { children: JSX.Element }) {
       "set-kcs-mst-slot-items",
       (event) => {
         if (import.meta.env.DEV) console.log("set-kcs-mst-slot-items");
-        setData(event.payload);
-        notify();
+        setData(reconcile(event.payload));
       },
     );
     onCleanup(unlisten);
@@ -251,8 +194,8 @@ const MstEquipExslotShipsContext =
   >();
 
 export function MstEquipExslotShipsProvider(props: { children: JSX.Element }) {
-  const [data, setData, notify] = createVersionedStore<MstEquipExslotShips>(
-    JSON.parse(JSON.stringify(default_mst_equip_exslot_ships)),
+  const [data, setData] = createStore<MstEquipExslotShips>(
+    default_mst_equip_exslot_ships,
   );
   const setter = [data, setData];
 
@@ -261,8 +204,7 @@ export function MstEquipExslotShipsProvider(props: { children: JSX.Element }) {
       "set-kcs-mst-equip-exslot-ships",
       (event) => {
         if (import.meta.env.DEV) console.log("set-kcs-mst-equip-exslot-ships");
-        setData(event.payload);
-        notify();
+        setData(reconcile(event.payload));
       },
     );
     onCleanup(unlisten);
@@ -296,8 +238,8 @@ export const MstSlotItemEquipTypesContext =
 export function MstSlotItemEquipTypesProvider(props: {
   children: JSX.Element;
 }) {
-  const [data, setData, notify] = createVersionedStore<MstSlotItemEquipTypes>(
-    JSON.parse(JSON.stringify(default_mst_slotitem_equip_types)),
+  const [data, setData] = createStore<MstSlotItemEquipTypes>(
+    default_mst_slotitem_equip_types,
   );
   const setter = [data, setData];
 
@@ -307,8 +249,7 @@ export function MstSlotItemEquipTypesProvider(props: {
       (event) => {
         if (import.meta.env.DEV)
           console.log("set-kcs-mst-slot-item-equip-types");
-        setData(event.payload);
-        notify();
+        setData(reconcile(event.payload));
       },
     );
     onCleanup(unlisten);
@@ -339,9 +280,7 @@ const MstEquipShipsContext =
   createContext<(MstEquipShips | SetStoreFunction<MstEquipShips>)[]>();
 
 export function MstEquipShipsProvider(props: { children: JSX.Element }) {
-  const [data, setData, notify] = createVersionedStore<MstEquipShips>(
-    JSON.parse(JSON.stringify(default_mst_equip_ships)),
-  );
+  const [data, setData] = createStore<MstEquipShips>(default_mst_equip_ships);
   const setter = [data, setData];
 
   createEffect(() => {
@@ -349,8 +288,7 @@ export function MstEquipShipsProvider(props: { children: JSX.Element }) {
       "set-kcs-mst-equip-ships",
       (event) => {
         if (import.meta.env.DEV) console.log("set-kcs-mst-equip-ships");
-        setData(event.payload);
-        notify();
+        setData(reconcile(event.payload));
       },
     );
     onCleanup(unlisten);
@@ -375,9 +313,7 @@ export const MstStypesContext =
   createContext<(MstStypes | SetStoreFunction<MstStypes>)[]>();
 
 export function MstStypesProvider(props: { children: JSX.Element }) {
-  const [data, setData, notify] = createVersionedStore<MstStypes>(
-    JSON.parse(JSON.stringify(default_mst_stypes)),
-  );
+  const [data, setData] = createStore<MstStypes>(default_mst_stypes);
   const setter = [data, setData];
 
   createEffect(() => {
@@ -385,8 +321,7 @@ export function MstStypesProvider(props: { children: JSX.Element }) {
       "set-kcs-mst-stypes",
       (event) => {
         if (import.meta.env.DEV) console.log("set-kcs-mst-stypes");
-        setData(event.payload);
-        notify();
+        setData(reconcile(event.payload));
       },
     );
     onCleanup(unlisten);
@@ -411,9 +346,7 @@ const MstUseItemsContext =
   createContext<(MstUseItems | SetStoreFunction<MstUseItems>)[]>();
 
 export function MstUseItemsProvider(props: { children: JSX.Element }) {
-  const [data, setData, notify] = createVersionedStore<MstUseItems>(
-    JSON.parse(JSON.stringify(default_mst_useitems)),
-  );
+  const [data, setData] = createStore<MstUseItems>(default_mst_useitems);
   const setter = [data, setData];
 
   createEffect(() => {
@@ -421,8 +354,7 @@ export function MstUseItemsProvider(props: { children: JSX.Element }) {
       "set-kcs-mst-use-items",
       (event) => {
         if (import.meta.env.DEV) console.log("set-kcs-mst-use-items");
-        setData(event.payload);
-        notify();
+        setData(reconcile(event.payload));
       },
     );
     onCleanup(unlisten);
@@ -451,32 +383,28 @@ export function MaterialsProvider(props: { children: JSX.Element }) {
   const setter = [data, setData];
 
   createEffect(() => {
-    let unlisten_data_set: UnlistenFn;
-    let unlisten_data_add: UnlistenFn;
-    (async () => {
-      unlisten_data_set = await listen<Materials>(
-        "set-kcs-materials",
-        (event) => {
-          if (import.meta.env.DEV) console.log("set-kcs-materials");
-          setData(event.payload);
-        },
-      );
-      unlisten_data_add = await listen<Materials>(
-        "add-kcs-materials",
-        (event) => {
-          if (import.meta.env.DEV) console.log("add-kcs-materials");
-          Object.entries(event.payload).forEach(([key, value]) => {
-            if (value !== null) {
-              setData(key as Part<Materials, keyof Materials>, value);
-            }
-          });
-        },
-      );
-    })();
+    const unlisten_data_set = safeTauriListen<Materials>(
+      "set-kcs-materials",
+      (event) => {
+        if (import.meta.env.DEV) console.log("set-kcs-materials");
+        setData(reconcile(event.payload));
+      },
+    );
+    const unlisten_data_add = safeTauriListen<Materials>(
+      "add-kcs-materials",
+      (event) => {
+        if (import.meta.env.DEV) console.log("add-kcs-materials");
+        Object.entries(event.payload).forEach(([key, value]) => {
+          if (value !== null) {
+            setData(key as Part<Materials, keyof Materials>, value);
+          }
+        });
+      },
+    );
 
     onCleanup(() => {
-      if (unlisten_data_set) unlisten_data_set();
-      if (unlisten_data_add) unlisten_data_add();
+      unlisten_data_set();
+      unlisten_data_add();
     });
   });
 
@@ -548,9 +476,7 @@ export const DeckPortsContext =
   createContext<(DeckPorts | SetStoreFunction<DeckPorts>)[]>();
 
 export function DeckPortsProvider(props: { children: JSX.Element }) {
-  const [data, setData, notify] = createVersionedStore<DeckPorts>(
-    JSON.parse(JSON.stringify(default_deck_ports)),
-  );
+  const [data, setData] = createStore<DeckPorts>(default_deck_ports);
   const setter = [data, setData];
 
   createEffect(() => {
@@ -558,8 +484,7 @@ export function DeckPortsProvider(props: { children: JSX.Element }) {
       "set-kcs-deck-ports",
       (event) => {
         if (import.meta.env.DEV) console.log("set-kcs-deck-ports");
-        setData(event.payload);
-        notify();
+        setData(reconcile(event.payload));
       },
     );
     onCleanup(unlisten);
@@ -630,6 +555,7 @@ export function CellsContextProvider(props: { children: JSX.Element }) {
       if (import.meta.env.DEV) console.log("set-kcs-cells");
       setData(event.payload);
     });
+    // eslint-disable-next-line solid/reactivity
     const unlisten_add_cell = safeTauriListen<Cell>("add-kcs-cell", (event) => {
       if (import.meta.env.DEV) console.log("add-kcs-cell");
       setData("cells", event.payload.no, event.payload);
@@ -669,9 +595,7 @@ export const AirBasesPortsContext =
   createContext<(AirBases | SetStoreFunction<AirBases>)[]>();
 
 export function AirBasesPortsProvider(props: { children: JSX.Element }) {
-  const [data, setData, notify] = createVersionedStore<AirBases>(
-    JSON.parse(JSON.stringify(default_air_bases)),
-  );
+  const [data, setData] = createStore<AirBases>(default_air_bases);
   const setter = [data, setData];
 
   createEffect(() => {
@@ -679,8 +603,7 @@ export function AirBasesPortsProvider(props: { children: JSX.Element }) {
       "set-kcs-air-bases-ports",
       (event) => {
         if (import.meta.env.DEV) console.log("set-kcs-air-bases-ports");
-        setData(event.payload);
-        notify();
+        setData(reconcile(event.payload));
       },
     );
     onCleanup(unlisten);

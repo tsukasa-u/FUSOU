@@ -36,7 +36,7 @@ export const IconError: Component<IconErrorProps> = (props) => {
         class_size[size()],
       ].join(" ")}
     >
-      <g style={`transform: translateX(${(ratio() - 1.0) * 48}px);`}>
+      <g style={{ transform: `translateX(${(ratio() - 1.0) * 48}px)` }}>
         <path
           d="M43.5001 76.0001C43.5001 73.5148 45.7386 71.5001 48.5001 71.5001 51.2615 71.5001 53.5001 73.5148 53.5001 76.0001 53.5001 78.4853 51.2615 80.5001 48.5001 80.5001 45.7386 80.5001 43.5001 78.4853 43.5001 76.0001Z"
           stroke-width="3"

@@ -7,8 +7,7 @@ import {
   onMount,
 } from "solid-js";
 import "../../css/divider.css";
-import type { UnlistenFn } from "@tauri-apps/api/event";
-import { listen } from "@tauri-apps/api/event";
+import { safeTauriListen } from "../../utility/tauri";
 import { invoke } from "@tauri-apps/api/core";
 import { VList } from "virtua/solid";
 import { createStore } from "solid-js/store";
@@ -319,17 +318,15 @@ export function LogViewerComponent() {
   });
 
   createEffect(() => {
-    let unlisten_data: UnlistenFn;
-    (async () => {
-      // eslint-disable-next-line solid/reactivity
-      unlisten_data = await listen<MessageVisitor>("log-event", (event) => {
+    // eslint-disable-next-line solid/reactivity
+    const unlisten_data = safeTauriListen<MessageVisitor>(
+      "log-event",
+      (event) => {
         addLogEntry(event.payload);
-      });
-    })();
+      },
+    );
 
-    onCleanup(() => {
-      if (unlisten_data) unlisten_data();
-    });
+    onCleanup(unlisten_data);
   });
 
   return (
