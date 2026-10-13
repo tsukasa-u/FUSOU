@@ -135,13 +135,15 @@ test(
     const createdArtifactKeys = new Map();
     const pointerKeys = new Set();
     const lastWrittenPointerETags = new Map();
-    const client = new S3Client({
+    const createClient = () => new S3Client({
       endpoint,
       region: "auto",
       forcePathStyle: true,
       maxAttempts: 1,
       credentials: { accessKeyId, secretAccessKey },
     });
+    const client = createClient();
+    const competingClient = createClient();
 
     async function send(command, selectedClient = client) {
       return selectedClient.send(command, {
@@ -166,6 +168,14 @@ test(
       } catch (error) {
         if (isNotFound(error)) return null;
         throw error;
+      }
+    }
+
+    async function cleanupReadback(key, operation) {
+      try {
+        return await getObject(key);
+      } catch (cause) {
+        throw new Error(`${operation} failed for exact R2 key ${key}`, { cause });
       }
     }
 
@@ -232,7 +242,7 @@ test(
       });
     }
 
-    function withWriteFailure(key, timing) {
+    function withWriteFailure(key, timing, selectedClient = client) {
       let fired = false;
       return {
         async send(command, options) {
@@ -247,7 +257,7 @@ test(
               code: "ETIMEDOUT",
             });
           }
-          const output = await client.send(command, options);
+          const output = await selectedClient.send(command, options);
           if (
             !fired &&
             command instanceof PutObjectCommand &&
@@ -267,17 +277,24 @@ test(
     t.after(async () => {
       try {
         for (const [key, expectedBytes] of createdArtifactKeys) {
-          const current = await getObject(key);
+          const current = await cleanupReadback(key, "artifact cleanup readback");
           if (!current) continue;
           if (!current.body.equals(expectedBytes)) {
             t.diagnostic(`artifact retained because exact readback differs: ${key}`);
             continue;
           }
-          await send(new DeleteObjectCommand({ Bucket: bucket, Key: key }));
-          assert.equal(await getObject(key), null, `artifact cleanup readback failed: ${key}`);
+          try {
+            await send(new DeleteObjectCommand({ Bucket: bucket, Key: key }));
+          } catch (cause) {
+            throw new Error(`artifact cleanup DELETE failed for exact R2 key ${key}`, { cause });
+          }
+          const remaining = await cleanupReadback(key, "artifact cleanup verification");
+          if (remaining) {
+            throw new Error(`artifact cleanup left the exact R2 key in place: ${key}`);
+          }
         }
         for (const key of pointerKeys) {
-          const current = await getObject(key);
+          const current = await cleanupReadback(key, "pointer cleanup readback");
           if (!current) continue;
           const writtenETag = lastWrittenPointerETags.get(key);
           if (!writtenETag || current.etag !== writtenETag) {
@@ -290,6 +307,7 @@ test(
         }
       } finally {
         client.destroy();
+        competingClient.destroy();
       }
     });
 
@@ -333,8 +351,13 @@ test(
       signedRelease("first-create-left"),
       signedRelease("first-create-right"),
     ];
-    const firstCreateOutcomes = await Promise.all(firstCreateBodies.map((body) =>
-      conditionalPut(racePointer, body, { IfNoneMatch: "*" })));
+    const firstCreateOutcomes = await Promise.all(firstCreateBodies.map((body, index) =>
+      conditionalPut(
+        racePointer,
+        body,
+        { IfNoneMatch: "*" },
+        index === 0 ? client : competingClient,
+      )));
     assert.equal(firstCreateOutcomes.filter(({ state }) => state === "CREATED").length, 1);
     assert.equal(
       firstCreateOutcomes.filter(({ state }) => state === "CONDITIONAL_CONFLICT").length,
@@ -363,6 +386,7 @@ test(
       racePointer,
       signedRelease("stale-etag"),
       { IfMatch: oldETag },
+      competingClient,
     );
     assert.equal(staleUpdate.state, "CONDITIONAL_CONFLICT");
     assert.deepEqual((await getObject(racePointer)).body, correctUpdate);
@@ -372,8 +396,13 @@ test(
       signedRelease("same-etag-left"),
       signedRelease("same-etag-right"),
     ];
-    const competingOutcomes = await Promise.all(competingBodies.map((body) =>
-      conditionalPut(racePointer, body, { IfMatch: sharedETag })));
+    const competingOutcomes = await Promise.all(competingBodies.map((body, index) =>
+      conditionalPut(
+        racePointer,
+        body,
+        { IfMatch: sharedETag },
+        index === 0 ? client : competingClient,
+      )));
     assert.equal(competingOutcomes.filter(({ state }) => state === "CREATED").length, 1);
     assert.equal(
       competingOutcomes.filter(({ state }) => state === "CONDITIONAL_CONFLICT").length,
@@ -441,6 +470,7 @@ test(
     const competitorLostAckClient = withWriteFailure(
       competingTimeoutPointer,
       "after-commit",
+      competingClient,
     );
     await assert.rejects(
       () => conditionalPut(
