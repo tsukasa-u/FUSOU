@@ -698,7 +698,7 @@ export function ShipListComponent() {
       ])
       .filter(([, flag]) => flag as boolean);
     return (
-      <table class={`table table-xs max-w-[${table_width}]`}>
+      <table class={`table table-xs max-w-[1200px]`}>
         <tbody>
           {/* <VList
             data={ship_ids}
@@ -738,7 +738,7 @@ export function ShipListComponent() {
       ])
       .filter(([, flag]) => flag as boolean);
     return (
-      <table class={`table table-xs max-w-[${table_width}]`}>
+      <table class={`table table-xs max-w-[1200px]`}>
         <tbody>
           {/* <VList
             data={ship_ids}
@@ -837,7 +837,7 @@ export function ShipListComponent() {
       <Switch>
         <Match when={set_categorize()}>
           <div
-            class={`overflow-x-auto max-w-[${table_width}]`}
+            class={`overflow-x-auto max-w-[1200px]`}
             ref={(el) => {
               scroll_fn(el, ship_spec_modal);
               drag_scroll_fn(el, ship_spec_modal);
@@ -864,7 +864,7 @@ export function ShipListComponent() {
             </div>
           </div>
           <div
-            class={`overflow-x-auto max-w-[${table_width}] border-t-1 border-base-300`}
+            class={`overflow-x-auto max-w-[1200px] border-t-1 border-base-300`}
             style={{
               "scrollbar-gutter": "stable",
               "overflow-x": "scroll",
@@ -878,7 +878,7 @@ export function ShipListComponent() {
                 drag_scroll_fn(parentScrollElement, ship_spec_modal);
               }}
             >
-              <table class={`table table-xs max-w-[${table_width}]`}>
+              <table class={`table table-xs max-w-[1200px]`}>
                 {table_header()}
               </table>
             </div>
@@ -887,7 +887,7 @@ export function ShipListComponent() {
         </Match>
         <Match when={!set_categorize()}>
           <div
-            class={`overflow-x-auto max-w-[${table_width}]`}
+            class={`overflow-x-auto max-w-[1200px]`}
             style={{
               "scrollbar-gutter": "stable",
               "overflow-x": "scroll",
@@ -901,7 +901,7 @@ export function ShipListComponent() {
                 drag_scroll_fn(parentScrollElement, ship_spec_modal);
               }}
             >
-              <table class={`table table-xs max-w-[${table_width}]`}>
+              <table class={`table table-xs max-w-[1200px]`}>
                 {table_header()}
               </table>
             </div>

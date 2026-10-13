@@ -685,7 +685,7 @@ export function EquipmentListComponent() {
       ])
       .filter(([, flag]) => flag as boolean);
     return (
-      <table class={`table table-xs max-w-[${table_width}]`}>
+      <table class={`table table-xs max-w-[1240px]`}>
         <tbody>
           {/* <VList
             data={equip_ids}
@@ -727,7 +727,7 @@ export function EquipmentListComponent() {
       ])
       .filter(([, flag]) => flag as boolean);
     return (
-      <table class={`table table-xs max-w-[${table_width}]`}>
+      <table class={`table table-xs max-w-[1240px]`}>
         <tbody>
           {/* <VList
             data={equip_ids}
@@ -827,7 +827,7 @@ export function EquipmentListComponent() {
       <Switch>
         <Match when={set_categorize()}>
           <div
-            class={`overflow-x-auto max-w-[${table_width}]`}
+            class={`overflow-x-auto max-w-[1240px]`}
             ref={(el) => {
               scroll_fn(el, equip_spec_modal);
               drag_scroll_fn(el, equip_spec_modal);
@@ -859,7 +859,7 @@ export function EquipmentListComponent() {
           </div>
 
           <div
-            class={`overflow-x-auto max-w-[${table_width}] border-t-1 border-base-300`}
+            class={`overflow-x-auto max-w-[1240px] border-t-1 border-base-300`}
             style={{
               "scrollbar-gutter": "stable",
               "overflow-x": "scroll",
@@ -873,7 +873,7 @@ export function EquipmentListComponent() {
                 drag_scroll_fn(parentScrollElement, equip_spec_modal);
               }}
             >
-              <table class={`table table-xs max-w-[${table_width}]`}>
+              <table class={`table table-xs max-w-[1240px]`}>
                 {table_header()}
               </table>
             </div>
@@ -884,7 +884,7 @@ export function EquipmentListComponent() {
         </Match>
         <Match when={!set_categorize()}>
           <div
-            class={`overflow-x-auto max-w-[${table_width}]`}
+            class={`overflow-x-auto max-w-[1240px]`}
             style={{
               "scrollbar-gutter": "stable",
               "overflow-x": "scroll",
@@ -898,7 +898,7 @@ export function EquipmentListComponent() {
                 drag_scroll_fn(parentScrollElement, equip_spec_modal);
               }}
             >
-              <table class={`table table-xs max-w-[${table_width}]`}>
+              <table class={`table table-xs max-w-[1240px]`}>
                 {table_header()}
               </table>
             </div>
