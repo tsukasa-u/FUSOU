@@ -84,7 +84,9 @@ const speed_list = [
 
 const range_list = ["", "Short", "Medium", "Long", "Very Long"];
 
-export const ComponentShipTable: Component<ComponentShipTableProps> = (props) => {
+export const ComponentShipTable: Component<ComponentShipTableProps> = (
+  props,
+) => {
   const size = () => props.size ?? "sm";
 
   const equipmentTemplete = (slot: number, index: number) => {
@@ -110,12 +112,7 @@ export const ComponentShipTable: Component<ComponentShipTableProps> = (props) =>
         />
       );
     } else {
-      return (
-        <ComponentEquipmentModal
-          empty_flag={true}
-          size={size()}
-        />
-      );
+      return <ComponentEquipmentModal empty_flag={true} size={size()} />;
     }
   };
 
@@ -153,7 +150,7 @@ export const ComponentShipTable: Component<ComponentShipTableProps> = (props) =>
         <td class="flex-none w-12 ml-4 py-1 w-full">
           {equipmentTemplete(
             props.ship && props.ship.slot_ex ? props.ship.slot_ex : 0,
-            -1
+            -1,
           )}
         </td>
       </tr>
@@ -215,18 +212,16 @@ export const ComponentShipTable: Component<ComponentShipTableProps> = (props) =>
             {props.mst_ship!.name ?? "Unknown"}
           </h3>
           <div
-            class={[
-              "place-self-end pl-4",
-              class_size[size()].level_text,
-            ].join(" ")}
+            class={["place-self-end pl-4", class_size[size()].level_text].join(
+              " ",
+            )}
           >
             Lv. {props.ship!.lv ?? ""}
           </div>
           <div
-            class={[
-              "place-self-end pl-2",
-              class_size[size()].level_text,
-            ].join(" ")}
+            class={["place-self-end pl-2", class_size[size()].level_text].join(
+              " ",
+            )}
           >
             next {props.ship!.exp ? (props.ship!.exp[1] ?? 0) : ""}
           </div>

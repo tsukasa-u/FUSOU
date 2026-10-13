@@ -39,8 +39,8 @@ export function DebugApi() {
     for (let i = 0; i < filecheackSignals.length; i++) {
       signals.push(
         fileApi().findIndex(
-          (v) => v == debug_api[1][i + (pageCounter() - 1) * 10]
-        ) < 0
+          (v) => v == debug_api[1][i + (pageCounter() - 1) * 10],
+        ) < 0,
       );
     }
     return signals;
@@ -93,8 +93,8 @@ export function DebugApi() {
                   setCheckBoxSignals(!checkBoxSignals());
                   setFilecheackSignals(
                     fileExistSignals().map((v) =>
-                      v ? checkBoxSignals() : false
-                    )
+                      v ? checkBoxSignals() : false,
+                    ),
                   );
                 }}
               >

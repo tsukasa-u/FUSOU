@@ -1,16 +1,19 @@
-import { ComponentShipMstModalProps, ComponentShipMstModal } from "ui";
+import type { ComponentShipMstModalProps } from "ui";
+import { ComponentShipMstModal } from "ui";
 import type { Meta, StoryObj } from "storybook-solidjs-vite";
 
 const size_list = ["xs", "sm", "md", "lg", "xl"];
 
 const ComponentShipMstModalBasic = (args: ComponentShipMstModalProps) => {
-  return (<ComponentShipMstModal
-    mst_ship={args.mst_ship}
-    color={args.color}
-    size={args.size}
-    name_flag={args.name_flag}
-    empty_flag={args.empty_flag}
-  ></ComponentShipMstModal>);
+  return (
+    <ComponentShipMstModal
+      mst_ship={args.mst_ship}
+      color={args.color}
+      size={args.size}
+      name_flag={args.name_flag}
+      empty_flag={args.empty_flag}
+    />
+  );
 };
 
 const meta = {
@@ -22,7 +25,8 @@ export default meta;
 type Story = StoryObj<ComponentShipMstModalProps>;
 
 export const basic: Story = {
-  render: (args: ComponentShipMstModalProps) => ComponentShipMstModalBasic(args),
+  render: (args: ComponentShipMstModalProps) =>
+    ComponentShipMstModalBasic(args),
   name: "Basic",
   argTypes: {
     size: {

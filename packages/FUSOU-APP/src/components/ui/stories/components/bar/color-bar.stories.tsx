@@ -1,48 +1,52 @@
-import { ComponentColorBarProps, ComponentColorBar } from "ui";
+import { For } from "solid-js";
+import type { ComponentColorBarProps } from "ui";
+import { ComponentColorBar } from "ui";
 import type { Meta, StoryObj } from "storybook-solidjs-vite";
-
-
 
 const size_list = ["none", "xs", "sm", "md", "lg", "xl"];
 
 const ComponentColorBarBasic = (args: ComponentColorBarProps) => {
-  return (<ComponentColorBar
-    v_now={args.v_now}
-    v_max={args.v_max}
-    size={args.size}
-    quantize={args.quantize}
-  ></ComponentColorBar>);
+  return (
+    <ComponentColorBar
+      v_now={args.v_now}
+      v_max={args.v_max}
+      size={args.size}
+      quantize={args.quantize}
+    />
+  );
 };
 
 const ComponentColorBarCatalog = () => {
   const value_map = [0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100];
 
-  return (<div class="grid gap-4">
-    {value_map.map(
-      (v_now) =>
-        (<div class="grid">
-          <div class="flex">
-            <div class="w-30">${v_now}%</div>
-            <ComponentColorBar
-              class="w-full"
-              v_now={v_now}
-              v_max={100}
-              size={"xs"}
-            ></ComponentColorBar>
+  return (
+    <div class="grid gap-4">
+      <For each={value_map}>
+        {(v_now) => (
+          <div class="grid">
+            <div class="flex">
+              <div class="w-30">${v_now}%</div>
+              <ComponentColorBar
+                class="w-full"
+                v_now={v_now}
+                v_max={100}
+                size={"xs"}
+              />
+            </div>
+            <div class="flex">
+              <div class="w-30">5-quantized</div>
+              <ComponentColorBar
+                class="w-full"
+                v_now={v_now}
+                v_max={100}
+                size={"xs"}
+                quantize={5}
+              />
+            </div>
           </div>
-          <div class="flex">
-            <div class="w-30">5-quantized</div>
-            <ComponentColorBar
-              class="w-full"
-              v_now={v_now}
-              v_max={100}
-              size={"xs"}
-              quantize={5}
-            ></ComponentColorBar>
-          </div>
-        </div>)
-    )}
-  </div>
+        )}
+      </For>
+    </div>
   );
 };
 

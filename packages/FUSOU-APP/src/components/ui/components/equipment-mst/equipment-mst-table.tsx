@@ -1,4 +1,5 @@
-import { Component, Show } from "solid-js";
+import type { Component } from "solid-js";
+import { Show } from "solid-js";
 
 import type { MstSlotItem } from "@ipc-bindings/get_data";
 
@@ -49,7 +50,9 @@ const class_size = {
 const signed_number = (number: number): string =>
   number != 0 ? (number >= 0 ? "+" + String(number) : String(number)) : "";
 
-export const ComponentEquipmentMstTable: Component<ComponentEquipmentMstTableProps> = (props) => {
+export const ComponentEquipmentMstTable: Component<
+  ComponentEquipmentMstTableProps
+> = (props) => {
   const size = () => props.size ?? "sm";
 
   return (
@@ -63,21 +66,19 @@ export const ComponentEquipmentMstTable: Component<ComponentEquipmentMstTablePro
     >
       <div class="flex justify-start cursor-default">
         <h3
-          class={[
-            "font-bold pl-3 truncate",
-            class_size[size()].name_text,
-          ].join(" ")}
+          class={["font-bold pl-3 truncate", class_size[size()].name_text].join(
+            " ",
+          )}
         >
-          {props.show_name ? (props.mst_slot_item!.name ?? "Unknown") : "Unknown"}
+          {props.show_name
+            ? (props.mst_slot_item!.name ?? "Unknown")
+            : "Unknown"}
         </h3>
       </div>
       <div class="pt-2 cursor-default">
         <table class={["table", class_size[size()].table].join(" ")}>
           <caption
-            class={[
-              "truncate pb-2",
-              class_size[size()].caption_text,
-            ].join(" ")}
+            class={["truncate pb-2", class_size[size()].caption_text].join(" ")}
           >
             Equipment Status
           </caption>

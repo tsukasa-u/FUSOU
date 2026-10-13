@@ -1,4 +1,4 @@
-import { Component } from "solid-js";
+import type { Component } from "solid-js";
 
 export interface IconErrorProps {
   size?: "full" | "none" | "xs" | "sm" | "md" | "lg" | "xl";

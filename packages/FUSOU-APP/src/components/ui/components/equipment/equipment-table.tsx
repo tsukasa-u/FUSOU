@@ -1,4 +1,5 @@
-import { Component, Show } from "solid-js";
+import type { Component } from "solid-js";
+import { Show } from "solid-js";
 
 import type { SlotItem } from "@ipc-bindings/require_info";
 import type { MstSlotItem } from "@ipc-bindings/get_data";
@@ -49,7 +50,9 @@ const class_size = {
 const signed_number = (number: number): string =>
   number != 0 ? (number >= 0 ? "+" + String(number) : String(number)) : "";
 
-export const ComponentEquipmentTable: Component<ComponentEquipmentTableProps> = (props) => {
+export const ComponentEquipmentTable: Component<
+  ComponentEquipmentTableProps
+> = (props) => {
   const size = () => props.size ?? "sm";
 
   return (
@@ -63,10 +66,9 @@ export const ComponentEquipmentTable: Component<ComponentEquipmentTableProps> = 
     >
       <div class="flex justify-start cursor-default">
         <h3
-          class={[
-            "font-bold pl-3 truncate",
-            class_size[size()].name_text,
-          ].join(" ")}
+          class={["font-bold pl-3 truncate", class_size[size()].name_text].join(
+            " ",
+          )}
         >
           {props.mst_slot_item!.name ?? "Unknown"}
         </h3>

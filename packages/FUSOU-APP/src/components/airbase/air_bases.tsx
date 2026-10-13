@@ -5,7 +5,7 @@ import type { JSX } from "solid-js";
 import { createMemo, For } from "solid-js";
 import IconChevronRightS from "../../icons/chevron_right_s.tsx";
 
-import { ComponentEquipmentModal, IconCautionFill } from "ui";;
+import { ComponentEquipmentModal, IconCautionFill } from "ui";
 import { get_data_set_equip } from "../../utility/get_data_set.tsx";
 
 export function AirBasesComponent() {
@@ -101,7 +101,7 @@ export function AirBasesComponent() {
                       <ul class="pl-0">
                         <For
                           each={base?.plane_info.filter(
-                            (plane) => plane.slotid != 0
+                            (plane) => plane.slotid != 0,
                           )}
                           fallback={
                             <li class="h-auto">

@@ -95,7 +95,7 @@ export const ComponentEquipment: Component<ComponentEquipmentProps> = (
       if (props.compact) {
         return null;
       } else if (props.empty_flag) {
-        return <div class="w-4"></div>;
+        return <div class="w-4" />;
       } else {
         return (
           <>
@@ -124,7 +124,7 @@ export const ComponentEquipment: Component<ComponentEquipmentProps> = (
         );
       }
     } else {
-      if (!props.compact) return <div class="w-4"></div>;
+      if (!props.compact) return <div class="w-4" />;
       else return null;
     }
   };

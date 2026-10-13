@@ -16,7 +16,7 @@ import {
 import { createStore } from "solid-js/store";
 
 import "../../css/divider.css";
-import { ComponentShipModal } from "ui";;
+import { ComponentShipModal } from "ui";
 
 import { VList } from "virtua/solid";
 import { get_data_set_ship } from "../../utility/get_data_set.tsx";
@@ -116,7 +116,7 @@ export function ShipListComponent() {
   });
 
   const [check_name, set_check_name] = createStore<{ [key: number]: boolean }>(
-    {}
+    {},
   );
   createEffect(() => {
     const check_name: { [key: number]: boolean } = {};
@@ -138,7 +138,7 @@ export function ShipListComponent() {
         check_ship_property[property] = true;
       });
       return check_ship_property;
-    })()
+    })(),
   );
 
   const [set_order, set_set_order] = createSignal(false);
@@ -149,7 +149,7 @@ export function ShipListComponent() {
     (() => {
       const stype_name = Object.values(mst_stypes.mst_stypes)[0]?.name;
       return stype_name ? stype_name : "海防艦";
-    })()
+    })(),
   );
 
   const additional_sort_fn = (a: number, b: number, _a: number, _b: number) => {
@@ -171,70 +171,70 @@ export function ShipListComponent() {
           a_ship.lv ?? 0,
           b_ship.lv ?? 0,
           a_ship_id,
-          b_ship_id
+          b_ship_id,
         );
       } else if (set_sort() == "Durability") {
         return additional_sort_fn(
           a_ship.maxhp ?? 0,
           b_ship.maxhp ?? 0,
           a_ship_id,
-          b_ship_id
+          b_ship_id,
         );
       } else if (set_sort() == "Firepower") {
         return additional_sort_fn(
           a_ship.karyoku?.[0] ?? 0,
           b_ship.karyoku?.[0] ?? 0,
           a_ship_id,
-          b_ship_id
+          b_ship_id,
         );
       } else if (set_sort() == "Torpedo") {
         return additional_sort_fn(
           a_ship.raisou?.[0] ?? 0,
           b_ship.raisou?.[0] ?? 0,
           a_ship_id,
-          b_ship_id
+          b_ship_id,
         );
       } else if (set_sort() == "Anti-Air") {
         return additional_sort_fn(
           a_ship.taiku?.[0] ?? 0,
           b_ship.taiku?.[0] ?? 0,
           a_ship_id,
-          b_ship_id
+          b_ship_id,
         );
       } else if (set_sort() == "Speed") {
         return additional_sort_fn(
           a_ship.soku ?? 0,
           b_ship.soku ?? 0,
           a_ship_id,
-          b_ship_id
+          b_ship_id,
         );
       } else if (set_sort() == "Armor") {
         return additional_sort_fn(
           a_ship.soukou?.[0] ?? 0,
           b_ship.soukou?.[0] ?? 0,
           a_ship_id,
-          b_ship_id
+          b_ship_id,
         );
       } else if (set_sort() == "Evasion") {
         return additional_sort_fn(
           a_ship.kaihi?.[0] ?? 0,
           b_ship.kaihi?.[0] ?? 0,
           a_ship_id,
-          b_ship_id
+          b_ship_id,
         );
       } else if (set_sort() == "Anti-Submarine") {
         return additional_sort_fn(
           a_ship.taisen?.[0] ?? 0,
           b_ship.taisen?.[0] ?? 0,
           a_ship_id,
-          b_ship_id
+          b_ship_id,
         );
       } else if (set_sort() == "Luck") {
         return additional_sort_fn(
           a_ship.lucky?.[0] ?? 0,
           b_ship.lucky?.[0] ?? 0,
           a_ship_id,
-          b_ship_id
+          b_ship_id,
         );
       } else if (set_sort() == "Aircraft installed") {
         if (a_ship.ship_id && b_ship.ship_id) {
@@ -244,7 +244,7 @@ export function ShipListComponent() {
             a_mst_ship?.maxeq?.reduce((a, b) => a + b, 0) ?? 0,
             b_mst_ship?.maxeq?.reduce((a, b) => a + b, 0) ?? 0,
             a_ship_id,
-            b_ship_id
+            b_ship_id,
           );
         }
       } else if (set_sort() == "Reconnaissance") {
@@ -252,14 +252,14 @@ export function ShipListComponent() {
           a_ship.sakuteki?.[0] ?? 0,
           b_ship.sakuteki?.[0] ?? 0,
           a_ship_id,
-          b_ship_id
+          b_ship_id,
         );
       } else if (set_sort() == "Range") {
         return additional_sort_fn(
           a_ship.leng ?? 0,
           b_ship.leng ?? 0,
           a_ship_id,
-          b_ship_id
+          b_ship_id,
         );
       }
     }
@@ -299,7 +299,7 @@ export function ShipListComponent() {
   });
 
   const [range_props, set_range_props] = createStore<RangeProps>(
-    init_range_props(ship_properties, ship_properties_abbreviation)
+    init_range_props(ship_properties, ship_properties_abbreviation),
   );
 
   const filtered_ships = createMemo<{ [key: number]: boolean }>(() => {
@@ -385,7 +385,7 @@ export function ShipListComponent() {
       params,
       range_props,
       set_range_props,
-      set_ship_spec_modal
+      set_ship_spec_modal,
     );
   };
 
@@ -429,7 +429,7 @@ export function ShipListComponent() {
       param_converter,
       range_props,
       set_range_props,
-      set_ship_spec_modal
+      set_ship_spec_modal,
     );
   };
 
@@ -581,7 +581,7 @@ export function ShipListComponent() {
       set_set_order,
       set_sort,
       set_set_sort,
-      set_ship_spec_modal
+      set_ship_spec_modal,
     );
     const search_name_window_element = search_name_window(
       "Ship Name",
@@ -590,7 +590,7 @@ export function ShipListComponent() {
       search_name,
       set_search_name,
       cal_search_name,
-      set_ship_spec_modal
+      set_ship_spec_modal,
     );
     const set_ship_type_window_element = set_type_window(
       "Ship Type",
@@ -599,7 +599,7 @@ export function ShipListComponent() {
       set_check_stype,
       set_stype,
       set_categorize,
-      set_ship_spec_modal
+      set_ship_spec_modal,
     );
     const set_range_window_elements = set_range_window(modal_prefix);
     const set_discrete_range_window_elements =
@@ -801,7 +801,7 @@ export function ShipListComponent() {
       "ship_spec_modal",
       check_ship_property,
       set_check_ship_property,
-      set_ship_spec_modal
+      set_ship_spec_modal,
     );
 
   let parentScrollElement!: HTMLDivElement;

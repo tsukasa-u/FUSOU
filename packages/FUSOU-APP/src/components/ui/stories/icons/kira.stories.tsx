@@ -1,33 +1,29 @@
-import { IconKiraProps } from "ui";
+import type { IconKiraProps } from "ui";
 import { IconKira } from "ui";
 import type { Meta, StoryObj } from "storybook-solidjs-vite";
-
-
 
 const size_list = ["full", "none", "xs", "sm", "md", "lg", "xl"];
 
 const IconKiraBasic = (args: IconKiraProps) => {
-  return (<IconKira
-    kira_type={args.kira_type}
-    size={args.size}
-  ></IconKira>);
+  return <IconKira kira_type={args.kira_type} size={args.size} />;
 };
 
 const IconKiraCatalog = () => {
-  return (<div class="grid gap-4">
-    <div class="flex">
-      <h1 class="w-20">kira_type:1</h1>
-      <IconKira kira_type={1} size={"sm"}></IconKira>
+  return (
+    <div class="grid gap-4">
+      <div class="flex">
+        <h1 class="w-20">kira_type:1</h1>
+        <IconKira kira_type={1} size={"sm"} />
+      </div>
+      <div class="flex">
+        <h1 class="w-20">kira_type:2</h1>
+        <IconKira kira_type={2} size={"sm"} />
+      </div>
+      <div class="flex">
+        <h1 class="w-20">kira_type:3</h1>
+        <IconKira kira_type={3} size={"sm"} />
+      </div>
     </div>
-    <div class="flex">
-      <h1 class="w-20">kira_type:2</h1>
-      <IconKira kira_type={2} size={"sm"}></IconKira>
-    </div>
-    <div class="flex">
-      <h1 class="w-20">kira_type:3</h1>
-      <IconKira kira_type={3} size={"sm"}></IconKira>
-    </div>
-  </div>
   );
 };
 

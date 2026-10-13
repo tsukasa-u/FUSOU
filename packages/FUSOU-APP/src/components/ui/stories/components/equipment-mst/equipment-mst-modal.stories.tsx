@@ -7,17 +7,19 @@ import { default_mst_slot_item } from "@ipc-bindings/default_state/get_data";
 const size_list = ["xs", "sm", "md", "lg", "xl"];
 
 const ComponentEquipmentMstModalBasic = (
-  args: ComponentEquipmentMstModalProps
+  args: ComponentEquipmentMstModalProps,
 ) => {
-  return (<ComponentEquipmentMstModal
-    mst_slot_item={args.mst_slot_item}
-    name_flag={args.name_flag}
-    show_name={args.show_name}
-    show_param={args.show_param}
-    compact={args.compact}
-    size={args.size}
-    empty_flag={args.empty_flag}
-   />);
+  return (
+    <ComponentEquipmentMstModal
+      mst_slot_item={args.mst_slot_item}
+      name_flag={args.name_flag}
+      show_name={args.show_name}
+      show_param={args.show_param}
+      compact={args.compact}
+      size={args.size}
+      empty_flag={args.empty_flag}
+    />
+  );
 };
 
 const meta = {

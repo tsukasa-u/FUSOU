@@ -1,4 +1,5 @@
-import { Component, Match, Switch } from "solid-js";
+import type { Component } from "solid-js";
+import { Match, Switch } from "solid-js";
 
 export interface IconPlaneProficiencyProps {
   level: number;

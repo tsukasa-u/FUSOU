@@ -1,19 +1,20 @@
-import { ComponentShipMaskedTableProps } from "ui";
+import type { ComponentShipMaskedTableProps } from "ui";
 import { ComponentShipMaskedTable } from "ui";
 import type { Meta, StoryObj } from "storybook-solidjs-vite";
-
 
 const size_list = ["xs", "sm", "md", "lg", "xl"];
 
 const ComponentShipMaskedTableBasic = (args: ComponentShipMaskedTableProps) => {
-  return (<ComponentShipMaskedTable
-    ship_max_hp={args.ship_max_hp}
-    ship_param={args.ship_param}
-    ship_slot={args.ship_slot}
-    mst_slot_items={args.mst_slot_items}
-    mst_ship={args.mst_ship}
-    size={args.size}
-  ></ComponentShipMaskedTable>);
+  return (
+    <ComponentShipMaskedTable
+      ship_max_hp={args.ship_max_hp}
+      ship_param={args.ship_param}
+      ship_slot={args.ship_slot}
+      mst_slot_items={args.mst_slot_items}
+      mst_ship={args.mst_ship}
+      size={args.size}
+    />
+  );
 };
 
 const meta = {

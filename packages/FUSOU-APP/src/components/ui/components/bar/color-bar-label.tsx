@@ -1,4 +1,4 @@
-import { Component } from "solid-js";
+import type { Component } from "solid-js";
 import { ComponentColorBar } from "./color-bar";
 
 export interface ComponentColorBarLabelProps {
@@ -48,7 +48,9 @@ const class_size = {
   },
 };
 
-export const ComponentColorBarLabel: Component<ComponentColorBarLabelProps> = (props) => {
+export const ComponentColorBarLabel: Component<ComponentColorBarLabelProps> = (
+  props,
+) => {
   const size = () => props.size ?? "xs";
   return (
     <div
@@ -66,8 +68,7 @@ export const ComponentColorBarLabel: Component<ComponentColorBarLabelProps> = (p
         ].join(" ")}
       >
         <div class=" flex flex-nowrap">
-          <div class="w-[2em] text-center">{props.v_now}</div>
-          /
+          <div class="w-[2em] text-center">{props.v_now}</div>/
           <div class="w-[2em] text-center">{props.v_max}</div>
         </div>
       </div>

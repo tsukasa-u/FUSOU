@@ -1,34 +1,30 @@
-import { IconCautionFillProps } from "ui";
+import type { IconCautionFillProps } from "ui";
 import { IconCautionFill } from "ui";
 import type { Meta, StoryObj } from "storybook-solidjs-vite";
-
-
 
 const size_list = ["full", "none", "xs", "sm", "md", "lg", "xl"];
 const caution_level = ["low", "middle", "high"];
 
 const IconCautionFillBasic = (args: IconCautionFillProps) => {
-  return (<IconCautionFill
-    level={args.level}
-    size={args.size}
-  ></IconCautionFill>);
+  return <IconCautionFill level={args.level} size={args.size} />;
 };
 
 const IconCautionFillCatalog = () => {
-  return (<div class="grid gap-4">
-    <div class="flex">
-      <h1 class="w-20">high</h1>
-      <IconCautionFill level={"high"} size={"sm"}></IconCautionFill>
+  return (
+    <div class="grid gap-4">
+      <div class="flex">
+        <h1 class="w-20">high</h1>
+        <IconCautionFill level={"high"} size={"sm"} />
+      </div>
+      <div class="flex">
+        <h1 class="w-20">middle</h1>
+        <IconCautionFill level={"middle"} size={"sm"} />
+      </div>
+      <div class="flex">
+        <h1 class="w-20">low</h1>
+        <IconCautionFill level={"low"} size={"sm"} />
+      </div>
     </div>
-    <div class="flex">
-      <h1 class="w-20">middle</h1>
-      <IconCautionFill level={"middle"} size={"sm"}></IconCautionFill>
-    </div>
-    <div class="flex">
-      <h1 class="w-20">low</h1>
-      <IconCautionFill level={"low"} size={"sm"}></IconCautionFill>
-    </div>
-  </div>
   );
 };
 

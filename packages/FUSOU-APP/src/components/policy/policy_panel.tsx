@@ -9,8 +9,19 @@ export function PolicyPanelComponent(props: PolicyPanelProps) {
         {props.showBackLink && (
           <div class="mb-6">
             <a href="/app" class="btn btn-ghost btn-sm gap-1.5">
-              <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                class="h-4 w-4"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+              >
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="2"
+                  d="M15 19l-7-7 7-7"
+                />
               </svg>
               アプリに戻る
             </a>
@@ -18,7 +29,9 @@ export function PolicyPanelComponent(props: PolicyPanelProps) {
         )}
 
         <h1 class="text-xl font-bold mb-1">通信保全基準</h1>
-        <p class="text-sm text-base-content/50 mb-6">Communication Integrity Policy</p>
+        <p class="text-sm text-base-content/50 mb-6">
+          Communication Integrity Policy
+        </p>
 
         <div class="bg-base-100 rounded-xl border border-base-300/60 p-6 mb-4">
           <p class="text-sm text-base-content/70 leading-relaxed mb-5">
@@ -28,42 +41,68 @@ export function PolicyPanelComponent(props: PolicyPanelProps) {
 
           <div class="space-y-3">
             <div class="flex items-start gap-3 p-3 bg-success/8 rounded-lg border border-success/20">
-              <span class="text-success font-bold text-base mt-0.5 shrink-0">✓</span>
+              <span class="text-success font-bold text-base mt-0.5 shrink-0">
+                ✓
+              </span>
               <div>
                 <p class="text-sm font-medium">通信を観測専用で扱う設計です</p>
-                <p class="text-xs text-base-content/50 mt-0.5">Read-only observation of in-game traffic</p>
+                <p class="text-xs text-base-content/50 mt-0.5">
+                  Read-only observation of in-game traffic
+                </p>
               </div>
             </div>
 
             <div class="flex items-start gap-3 p-3 bg-success/8 rounded-lg border border-success/20">
-              <span class="text-success font-bold text-base mt-0.5 shrink-0">✓</span>
+              <span class="text-success font-bold text-base mt-0.5 shrink-0">
+                ✓
+              </span>
               <div>
                 <p class="text-sm font-medium">通信内容を改変しない設計です</p>
-                <p class="text-xs text-base-content/50 mt-0.5">No packet modification; pass-through only</p>
+                <p class="text-xs text-base-content/50 mt-0.5">
+                  No packet modification; pass-through only
+                </p>
               </div>
             </div>
 
             <div class="flex items-start gap-3 p-3 bg-success/8 rounded-lg border border-success/20">
-              <span class="text-success font-bold text-base mt-0.5 shrink-0">✓</span>
+              <span class="text-success font-bold text-base mt-0.5 shrink-0">
+                ✓
+              </span>
               <div>
-                <p class="text-sm font-medium">ゲームサーバーへ追加通信を行わない設計です</p>
-                <p class="text-xs text-base-content/50 mt-0.5">No extra requests sent to game servers</p>
+                <p class="text-sm font-medium">
+                  ゲームサーバーへ追加通信を行わない設計です
+                </p>
+                <p class="text-xs text-base-content/50 mt-0.5">
+                  No extra requests sent to game servers
+                </p>
               </div>
             </div>
 
             <div class="flex items-start gap-3 p-3 bg-success/8 rounded-lg border border-success/20">
-              <span class="text-success font-bold text-base mt-0.5 shrink-0">✓</span>
+              <span class="text-success font-bold text-base mt-0.5 shrink-0">
+                ✓
+              </span>
               <div>
-                <p class="text-sm font-medium">チート・マクロ機能を含まない設計です</p>
-                <p class="text-xs text-base-content/50 mt-0.5">No cheat or macro automation functionality</p>
+                <p class="text-sm font-medium">
+                  チート・マクロ機能を含まない設計です
+                </p>
+                <p class="text-xs text-base-content/50 mt-0.5">
+                  No cheat or macro automation functionality
+                </p>
               </div>
             </div>
 
             <div class="flex items-start gap-3 p-3 bg-success/8 rounded-lg border border-success/20">
-              <span class="text-success font-bold text-base mt-0.5 shrink-0">✓</span>
+              <span class="text-success font-bold text-base mt-0.5 shrink-0">
+                ✓
+              </span>
               <div>
-                <p class="text-sm font-medium">パケット改変・スプーフィングを行わない設計です</p>
-                <p class="text-xs text-base-content/50 mt-0.5">No packet spoofing or identity falsification</p>
+                <p class="text-sm font-medium">
+                  パケット改変・スプーフィングを行わない設計です
+                </p>
+                <p class="text-xs text-base-content/50 mt-0.5">
+                  No packet spoofing or identity falsification
+                </p>
               </div>
             </div>
           </div>

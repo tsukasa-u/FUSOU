@@ -2,20 +2,21 @@ import type { ComponentShipModalProps } from "ui";
 import { ComponentShipModal } from "ui";
 import type { Meta, StoryObj } from "storybook-solidjs-vite";
 
-
 const size_list = ["xs", "sm", "md", "lg", "xl"];
 
 const ComponentShipModalBasic = (args: ComponentShipModalProps) => {
-  return (<ComponentShipModal
-    slot_items={args.slot_items}
-    mst_slot_items={args.mst_slot_items}
-    ship={args.ship}
-    mst_ship={args.mst_ship}
-    size={args.size}
-    color={args.color}
-    empty_flag={args.empty_flag}
-    name_flag={args.name_flag}
-   />);
+  return (
+    <ComponentShipModal
+      slot_items={args.slot_items}
+      mst_slot_items={args.mst_slot_items}
+      ship={args.ship}
+      mst_ship={args.mst_ship}
+      size={args.size}
+      color={args.color}
+      empty_flag={args.empty_flag}
+      name_flag={args.name_flag}
+    />
+  );
 };
 
 const meta = {

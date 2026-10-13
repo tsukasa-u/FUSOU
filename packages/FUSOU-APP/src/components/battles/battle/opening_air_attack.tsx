@@ -176,7 +176,11 @@ export function OpeningAirAttackComponent(props: AirDamageProps) {
     return (
       <td>
         <div class="flex flex-col">
-          <For each={airattack()?.f_damage?.plane_from?.filter((ship_idx) => ship_idx >= 0)}>
+          <For
+            each={airattack()?.f_damage?.plane_from?.filter(
+              (ship_idx) => ship_idx >= 0,
+            )}
+          >
             {(ship_idx, idx) => (
               <>
                 <Show when={idx() > 0}>
@@ -202,7 +206,11 @@ export function OpeningAirAttackComponent(props: AirDamageProps) {
     return (
       <td>
         <div class="flex flex-col">
-          <For each={airattack()?.f_damage?.plane_from?.filter((ship_idx) => ship_idx >= 0)}>
+          <For
+            each={airattack()?.f_damage?.plane_from?.filter(
+              (ship_idx) => ship_idx >= 0,
+            )}
+          >
             {(ship_idx, idx) => (
               <>
                 <Show when={idx() > 0}>
@@ -242,7 +250,7 @@ export function OpeningAirAttackComponent(props: AirDamageProps) {
                   <Show
                     when={
                       airattack()?.e_damage.protect_flag?.some(
-                        (flag) => flag
+                        (flag) => flag,
                       ) ?? false
                     }
                   >
@@ -306,7 +314,11 @@ export function OpeningAirAttackComponent(props: AirDamageProps) {
     return (
       <td>
         <div class="flex flex-col">
-          <For each={airattack()?.e_damage?.plane_from?.filter((ship_idx) => ship_idx >= 0)}>
+          <For
+            each={airattack()?.e_damage?.plane_from?.filter(
+              (ship_idx) => ship_idx >= 0,
+            )}
+          >
             {(ship_idx, idx) => (
               <>
                 <Show when={idx() > 0}>
@@ -331,7 +343,11 @@ export function OpeningAirAttackComponent(props: AirDamageProps) {
     return (
       <td>
         <div class="flex flex-col">
-          <For each={airattack()?.e_damage?.plane_from?.filter((ship_idx) => ship_idx >= 0)}>
+          <For
+            each={airattack()?.e_damage?.plane_from?.filter(
+              (ship_idx) => ship_idx >= 0,
+            )}
+          >
             {(ship_idx, idx) => (
               <>
                 <Show when={idx() > 0}>
@@ -370,7 +386,7 @@ export function OpeningAirAttackComponent(props: AirDamageProps) {
                   <Show
                     when={
                       airattack()?.f_damage.protect_flag?.some(
-                        (flag) => flag
+                        (flag) => flag,
                       ) ?? false
                     }
                   >

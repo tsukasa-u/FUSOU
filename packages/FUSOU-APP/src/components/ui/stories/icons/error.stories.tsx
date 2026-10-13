@@ -5,10 +5,7 @@ import type { Meta, StoryObj } from "storybook-solidjs-vite";
 const size_list = ["full", "none", "xs", "sm", "md", "lg", "xl"];
 
 const IconErrorBasic = (args: IconErrorProps) => {
-  return (<IconError
-    size={args.size}
-    ratio={args.ratio}
-   />);
+  return <IconError size={args.size} ratio={args.ratio} />;
 };
 
 const meta = {

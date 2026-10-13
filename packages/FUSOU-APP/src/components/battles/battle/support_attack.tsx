@@ -155,7 +155,7 @@ export function SupportAttackComponent(props: SupportAttackProps) {
                     props
                       .battle_selected()
                       ?.support_attack?.support_hourai?.protect_flag.some(
-                        (flag) => flag
+                        (flag) => flag,
                       ) ?? false
                   }
                 >
@@ -202,7 +202,7 @@ export function SupportAttackComponent(props: SupportAttackProps) {
               .battle_selected()
               ?.support_attack?.support_hourai?.damage.slice(
                 0,
-                props.battle_selected()?.enemy_ship_id?.length
+                props.battle_selected()?.enemy_ship_id?.length,
               )}
           >
             {(dmg, dmg_index) => (
@@ -251,7 +251,7 @@ export function SupportAttackComponent(props: SupportAttackProps) {
                       props
                         .battle_selected()
                         ?.support_attack?.support_airatack?.e_damage?.protect_flag?.some(
-                          (flag) => flag
+                          (flag) => flag,
                         ) ?? false
                     }
                   >
@@ -304,7 +304,7 @@ export function SupportAttackComponent(props: SupportAttackProps) {
             .battle_selected()
             ?.support_attack?.support_airatack?.e_damage.damages?.slice(
               0,
-              props.battle_selected()?.enemy_ship_id?.length
+              props.battle_selected()?.enemy_ship_id?.length,
             )}
         >
           {(dmg, dmg_index) => (
@@ -329,7 +329,8 @@ export function SupportAttackComponent(props: SupportAttackProps) {
   };
 
   const display_air_sprite_counts = () => {
-    const support_airatack = props.battle_selected()?.support_attack?.support_airatack;
+    const support_airatack =
+      props.battle_selected()?.support_attack?.support_airatack;
     if (!support_airatack) return null;
 
     return (
@@ -338,11 +339,11 @@ export function SupportAttackComponent(props: SupportAttackProps) {
           <SpriteMotionCounts counts={support_airatack} />
         </div>
         <div>
-          Loss Plane (S1+S2):
-          {" "}
-          {support_airatack.f_damage.loss_plane1}+{support_airatack.f_damage.loss_plane2}
+          Loss Plane (S1+S2): {support_airatack.f_damage.loss_plane1}+
+          {support_airatack.f_damage.loss_plane2}
           {" / "}
-          {support_airatack.e_damage.loss_plane1}+{support_airatack.e_damage.loss_plane2}
+          {support_airatack.e_damage.loss_plane1}+
+          {support_airatack.e_damage.loss_plane2}
         </div>
       </div>
     );

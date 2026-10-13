@@ -24,7 +24,7 @@ import {
 } from "../../utility/scroll.tsx";
 
 import "../../css/divider.css";
-import { ComponentEquipmentModal, IconPlaneProficiency } from "ui";;
+import { ComponentEquipmentModal, IconPlaneProficiency } from "ui";
 import type {
   CheckName,
   CheckProps,
@@ -82,12 +82,12 @@ export function EquipmentListComponent() {
 
   const store_equip_data_set = createMemo(() => {
     return get_data_set_equip(
-      Object.keys(slot_items.slot_items).map((id) => Number(id))
+      Object.keys(slot_items.slot_items).map((id) => Number(id)),
     );
   });
 
   const [check_equip_types, set_check_equip_types] = createStore<CheckTypes>(
-    {}
+    {},
   );
   createEffect(() => {
     if (
@@ -100,7 +100,7 @@ export function EquipmentListComponent() {
       (mst_slotitem_equip_types) => {
         if (mst_slotitem_equip_types)
           _check_equip_types[mst_slotitem_equip_types.name] = true;
-      }
+      },
     );
     set_check_equip_types(_check_equip_types);
   });
@@ -125,7 +125,7 @@ export function EquipmentListComponent() {
           check_equip_property[property] = true;
         });
         return check_equip_property;
-      })()
+      })(),
     );
 
   const [set_order, set_set_order] = createSignal(false);
@@ -135,10 +135,10 @@ export function EquipmentListComponent() {
   const [set_equip_type, set_set_equip_type] = createSignal(
     (() => {
       const equip_type_name = Object.values(
-        mst_slot_items_equip_types.mst_slotitem_equip_types
+        mst_slot_items_equip_types.mst_slotitem_equip_types,
       )[0]?.name;
       return equip_type_name ? equip_type_name : "小口径主砲";
-    })()
+    })(),
   );
 
   const additional_sort_fn = (a: number, b: number, _a: number, _b: number) => {
@@ -159,98 +159,98 @@ export function EquipmentListComponent() {
         a_mst_equip.sortno,
         b_mst_equip.sortno,
         a_mst_equip.sortno,
-        b_mst_equip.sortno
+        b_mst_equip.sortno,
       );
     if (set_sort() == "Level")
       return additional_sort_fn(
         a_equip.level,
         b_equip.level,
         a_mst_equip.sortno,
-        b_mst_equip.sortno
+        b_mst_equip.sortno,
       );
     if (set_sort() == "Firepower")
       return additional_sort_fn(
         a_mst_equip.houg,
         b_mst_equip.houg,
         a_mst_equip.sortno,
-        b_mst_equip.sortno
+        b_mst_equip.sortno,
       );
     if (set_sort() == "Torpedo")
       return additional_sort_fn(
         a_mst_equip.raig,
         b_mst_equip.raig,
         a_mst_equip.sortno,
-        b_mst_equip.sortno
+        b_mst_equip.sortno,
       );
     if (set_sort() == "Anti-Air")
       return additional_sort_fn(
         a_mst_equip.tyku,
         b_mst_equip.tyku,
         a_mst_equip.sortno,
-        b_mst_equip.sortno
+        b_mst_equip.sortno,
       );
     if (set_sort() == "Armor")
       return additional_sort_fn(
         a_mst_equip.souk,
         b_mst_equip.souk,
         a_mst_equip.sortno,
-        b_mst_equip.sortno
+        b_mst_equip.sortno,
       );
     if (set_sort() == "Evasion")
       return additional_sort_fn(
         a_mst_equip.houm,
         b_mst_equip.houm,
         a_mst_equip.sortno,
-        b_mst_equip.sortno
+        b_mst_equip.sortno,
       );
     if (set_sort() == "Anti-Submarine")
       return additional_sort_fn(
         a_mst_equip.tais,
         b_mst_equip.tais,
         a_mst_equip.sortno,
-        b_mst_equip.sortno
+        b_mst_equip.sortno,
       );
     if (set_sort() == "Reconnaissance")
       return additional_sort_fn(
         a_mst_equip.saku,
         b_mst_equip.saku,
         a_mst_equip.sortno,
-        b_mst_equip.sortno
+        b_mst_equip.sortno,
       );
     if (set_sort() == "Proficiency")
       return additional_sort_fn(
         a_equip.alv ?? 0,
         b_equip.alv ?? 0,
         a_mst_equip.sortno,
-        b_mst_equip.sortno
+        b_mst_equip.sortno,
       );
     if (set_sort() == "Bomb")
       return additional_sort_fn(
         a_mst_equip.baku,
         b_mst_equip.baku,
         a_mst_equip.sortno,
-        b_mst_equip.sortno
+        b_mst_equip.sortno,
       );
     if (set_sort() == "Anti-Bomber")
       return additional_sort_fn(
         a_mst_equip.taibaku,
         b_mst_equip.taibaku,
         a_mst_equip.sortno,
-        b_mst_equip.sortno
+        b_mst_equip.sortno,
       );
     if (set_sort() == "Interception")
       return additional_sort_fn(
         a_mst_equip.geigeki,
         b_mst_equip.geigeki,
         a_mst_equip.sortno,
-        b_mst_equip.sortno
+        b_mst_equip.sortno,
       );
     if (set_sort() == "Distance")
       return additional_sort_fn(
         a_mst_equip.distance ?? 0,
         b_mst_equip.distance ?? 0,
         a_mst_equip.sortno,
-        b_mst_equip.sortno
+        b_mst_equip.sortno,
       );
     return 0;
   };
@@ -275,7 +275,7 @@ export function EquipmentListComponent() {
     Object.values(mst_slot_items_equip_types.mst_slotitem_equip_types).forEach(
       (equip_types) => {
         if (equip_types) categorized_equips_keys[equip_types.name] = [];
-      }
+      },
     );
     Object.entries(slot_items.slot_items).forEach(([equip_id, slot_item]) => {
       if (slot_item) {
@@ -303,14 +303,14 @@ export function EquipmentListComponent() {
             categorized_equips_keys[equip_types.name] =
               categorized_equips_keys[equip_types.name].reverse();
         }
-      }
+      },
     );
 
     return categorized_equips_keys;
   });
 
   const [range_props, set_range_props] = createStore<RangeProps>(
-    init_range_props(equip_properties, equip_properties_abbreviation)
+    init_range_props(equip_properties, equip_properties_abbreviation),
   );
 
   const filtered_equips = createMemo<{ [key: number]: boolean }>(() => {
@@ -407,7 +407,7 @@ export function EquipmentListComponent() {
       params,
       range_props,
       set_range_props,
-      set_equip_spec_modal
+      set_equip_spec_modal,
     );
   };
 
@@ -562,7 +562,7 @@ export function EquipmentListComponent() {
       set_set_order,
       set_sort,
       set_set_sort,
-      set_equip_spec_modal
+      set_equip_spec_modal,
     );
     const search_name_window_element = search_name_window(
       "Equip Name",
@@ -571,7 +571,7 @@ export function EquipmentListComponent() {
       search_name,
       set_search_name,
       cal_search_name,
-      set_equip_spec_modal
+      set_equip_spec_modal,
     );
     const set_equip_type_window_element = set_type_window(
       "Equip Type",
@@ -580,7 +580,7 @@ export function EquipmentListComponent() {
       set_check_equip_types,
       set_equip_type,
       set_categorize,
-      set_equip_spec_modal
+      set_equip_spec_modal,
     );
     const set_range_window_elements = set_range_window(modal_prefix);
 
@@ -782,7 +782,7 @@ export function EquipmentListComponent() {
             }
           }
         })();
-      }
+      },
     );
   };
 
@@ -791,7 +791,7 @@ export function EquipmentListComponent() {
       "equip_spec_modal",
       check_equip_property,
       set_check_equip_property,
-      set_equip_spec_modal
+      set_equip_spec_modal,
     );
 
   let parentScrollElement!: HTMLDivElement;
@@ -878,7 +878,7 @@ export function EquipmentListComponent() {
               </table>
             </div>
             {table_element_categorized(
-              categorized_equips_keys()[set_equip_type()]
+              categorized_equips_keys()[set_equip_type()],
             )}
           </div>
         </Match>

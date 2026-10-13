@@ -65,17 +65,17 @@ function Start() {
   createEffect(location_route);
 
   const [runProxyServer, setRunProxyServer] = createSignal<boolean>(
-    Boolean(launch_options["run_proxy_server"])
+    Boolean(launch_options["run_proxy_server"]),
   );
   const [openApp, setOpenApp] = createSignal<boolean>(
-    Boolean(launch_options["open_app"])
+    Boolean(launch_options["open_app"]),
   );
   const [openKancolle, setOpenKancolle] = createSignal<boolean>(
-    Boolean(launch_options["open_kancolle"])
+    Boolean(launch_options["open_kancolle"]),
   );
   const [openKancolleWithWebView, setOpenKancolleWithWebView] =
     createSignal<boolean>(
-      Boolean(launch_options["open_kancolle_with_webview"])
+      Boolean(launch_options["open_kancolle_with_webview"]),
     );
   const [server, setServer] = createSignal<number>(launch_options["server"]);
 
@@ -83,7 +83,7 @@ function Start() {
   const [proxyServerHealth, setProxyServerHealth] = createSignal<number>(-1);
 
   const [sessionHealth, setSessionHealth] = createSignal<SessionHealth | null>(
-    null
+    null,
   );
   const [sessionHealthLoading, setSessionHealthLoading] =
     createSignal<boolean>(false);
@@ -95,7 +95,7 @@ function Start() {
     try {
       setSessionHealthLoading(true);
       const health = await invoke<SessionHealth>(
-        "check_supabase_session_health"
+        "check_supabase_session_health",
       );
       setSessionHealth(health);
       return health;

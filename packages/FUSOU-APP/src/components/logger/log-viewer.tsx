@@ -174,11 +174,11 @@ export function LogViewerComponent() {
   const handleScroll = () => {
     const scrollElement = vlistScrollElement || findScrollElement();
     if (!scrollElement) return;
-    
+
     const { scrollTop, scrollHeight, clientHeight } = scrollElement;
     const maxScroll = scrollHeight - clientHeight;
     const remaining = maxScroll - scrollTop;
-    
+
     // If remaining scroll is within margin, we're at bottom
     const isAtBottom = remaining <= SCROLL_BOTTOM_MARGIN_PX;
     setShowScrollButton(!isAtBottom);
@@ -187,36 +187,38 @@ export function LogViewerComponent() {
   // Find the actual scrollable element
   const findScrollElement = (): HTMLElement | null => {
     if (!listContainer) return null;
-    
+
     // VList creates a scrollable div inside - find it by checking all children
     const walkElements = (el: Element): HTMLElement | null => {
       if (el instanceof HTMLElement) {
         const style = window.getComputedStyle(el);
-        const isScrollable = 
-          (style.overflow === 'auto' || style.overflow === 'scroll' ||
-           style.overflowY === 'auto' || style.overflowY === 'scroll') &&
+        const isScrollable =
+          (style.overflow === "auto" ||
+            style.overflow === "scroll" ||
+            style.overflowY === "auto" ||
+            style.overflowY === "scroll") &&
           el.scrollHeight > el.clientHeight;
-        
+
         if (isScrollable) {
-          el.removeEventListener('scroll', handleScroll);
-          el.addEventListener('scroll', handleScroll, { passive: true });
+          el.removeEventListener("scroll", handleScroll);
+          el.addEventListener("scroll", handleScroll, { passive: true });
           return el;
         }
       }
-      
+
       for (const child of Array.from(el.children)) {
         const found = walkElements(child);
         if (found) return found;
       }
       return null;
     };
-    
+
     const found = walkElements(listContainer);
     if (found) {
       vlistScrollElement = found;
       return found;
     }
-    
+
     return listContainer;
   };
 
@@ -228,41 +230,39 @@ export function LogViewerComponent() {
   // Scroll to bottom function - handles virtualized list by scrolling in stages
   const scrollToBottom = () => {
     if (!listContainer) return;
-    
+
     const scrollElement = findScrollElement();
     if (!scrollElement) {
       return;
     }
 
-    
     // Function to scroll and check if we need to continue
     const scrollStep = (iteration: number) => {
       const { scrollTop, scrollHeight, clientHeight } = scrollElement;
       const maxScroll = scrollHeight - clientHeight;
       const remaining = maxScroll - scrollTop;
-    
-      
+
       // If we're within threshold of bottom, we're done
       if (remaining <= SCROLL_BOTTOM_MARGIN_PX) {
         setTimeout(() => checkScrollPosition(), 100);
         return;
       }
-      
+
       if (iteration > MAX_ITERATIONS) {
         setTimeout(() => checkScrollPosition(), 100);
         return;
       }
-      
+
       // Scroll to current max
       scrollElement.scrollTo({
         top: maxScroll + EXTRA_SCROLL_PADDING_PX,
-        behavior: iteration === 1 ? 'smooth' : 'auto', // Smooth only first time
+        behavior: iteration === 1 ? "smooth" : "auto", // Smooth only first time
       });
-      
+
       // Wait for layout update and continue
       setTimeout(() => scrollStep(iteration + 1), 150);
     };
-    
+
     scrollStep(1);
   };
 
@@ -272,19 +272,22 @@ export function LogViewerComponent() {
 
     const logs = filteredLogs();
     const text = logs
-      .map((entry) => `${entry.datetime} [${entry.level}] [${entry.target}] ${entry.message}`)
-      .join('\n');
-    
+      .map(
+        (entry) =>
+          `${entry.datetime} [${entry.level}] [${entry.target}] ${entry.message}`,
+      )
+      .join("\n");
+
     try {
       await navigator.clipboard.writeText(text);
       // Show transient copied feedback
       setCopyStatus("Copied");
       setTimeout(() => setCopyStatus(""), 1400);
-      console.log('Logs copied to clipboard');
+      console.log("Logs copied to clipboard");
     } catch (error) {
       setCopyStatus("Failed");
       setTimeout(() => setCopyStatus(""), 2000);
-      console.error('Failed to copy logs:', error);
+      console.error("Failed to copy logs:", error);
     }
   };
 
@@ -298,15 +301,17 @@ export function LogViewerComponent() {
         if (scrollElement) {
           // Check if already at bottom before auto-scrolling
           const { scrollTop, scrollHeight, clientHeight } = scrollElement;
-          const isNearBottom = scrollHeight - scrollTop - clientHeight < NEAR_BOTTOM_THRESHOLD_PX;
+          const isNearBottom =
+            scrollHeight - scrollTop - clientHeight < NEAR_BOTTOM_THRESHOLD_PX;
           if (isNearBottom) {
             // Add extra padding to ensure we reach the absolute bottom
-            scrollElement.scrollTop = scrollElement.scrollHeight + EXTRA_SCROLL_PADDING_PX;
+            scrollElement.scrollTop =
+              scrollElement.scrollHeight + EXTRA_SCROLL_PADDING_PX;
           }
           // Re-evaluate button visibility shortly after content settles
           setTimeout(checkScrollPosition, SCROLL_BOTTOM_MARGIN_PX * 25);
         }
-      } catch (e) {
+      } catch (_e) {
         // ignore
       }
     }, 0);
@@ -364,10 +369,7 @@ export function LogViewerComponent() {
               {(t) => <option value={t}>{t}</option>}
             </For>
           </select>
-          <button
-            class="btn btn-ghost btn-sm shrink-0"
-            onClick={clearFilters}
-          >
+          <button class="btn btn-ghost btn-sm shrink-0" onClick={clearFilters}>
             Clear
           </button>
           <button
@@ -386,8 +388,10 @@ export function LogViewerComponent() {
               listContainer = el as HTMLDivElement;
               // Attach scroll listener to the outer container and do initial check
               setTimeout(() => {
-                listContainer?.removeEventListener('scroll', handleScroll);
-                listContainer?.addEventListener('scroll', handleScroll, { passive: true });
+                listContainer?.removeEventListener("scroll", handleScroll);
+                listContainer?.addEventListener("scroll", handleScroll, {
+                  passive: true,
+                });
                 checkScrollPosition();
               }, 100);
             }}
@@ -400,69 +404,120 @@ export function LogViewerComponent() {
                 height: "100%",
               }}
             >
-            {(d) => (
-              <div
-                data-log-entry
-                class="p-1 text-xs flex items-start gap-2 min-w-0"
-              >
-                <div class="px-2 shrink-0 text-nowrap text-[11px]">
-                  {d.datetime}
+              {(d) => (
+                <div
+                  data-log-entry
+                  class="p-1 text-xs flex items-start gap-2 min-w-0"
+                >
+                  <div class="px-2 shrink-0 text-nowrap text-[11px]">
+                    {d.datetime}
+                  </div>
+                  <div class="px-2 shrink-0 w-16">
+                    <span
+                      class={`px-2 py-0.5 rounded-md text-[10px] whitespace-nowrap inline-block text-center w-full ${levelBadgeClass(d.level)}`}
+                    >
+                      {d.level}
+                    </span>
+                  </div>
+                  <div class="px-2 flex-1 min-w-0 wrap-break-word">
+                    <span
+                      class={`px-2 py-0.5 rounded-full text-[11px] mr-2 whitespace-nowrap ${targetBadgeClass(d.target)}`}
+                    >
+                      {d.target}
+                    </span>
+                    <span class="break-all">{d.message}</span>
+                  </div>
                 </div>
-                <div class="px-2 shrink-0 w-16">
-                  <span
-                    class={`px-2 py-0.5 rounded-md text-[10px] whitespace-nowrap inline-block text-center w-full ${levelBadgeClass(d.level)}`}
-                  >
-                    {d.level}
-                  </span>
-                </div>
-                <div class="px-2 flex-1 min-w-0 wrap-break-word">
-                  <span
-                    class={`px-2 py-0.5 rounded-full text-[11px] mr-2 whitespace-nowrap ${targetBadgeClass(d.target)}`}
-                  >
-                    {d.target}
-                  </span>
-                  <span class="break-all">{d.message}</span>
-                </div>
-              </div>
-            )}
+              )}
             </VList>
           </div>
-        
+
           {/* Floating buttons */}
           <div class="absolute bottom-4 right-4 flex flex-col gap-2">
-          {showScrollButton() && (
-            <button
-              class="btn btn-circle btn-primary shadow-lg"
-              onClick={scrollToBottom}
-              title="Scroll to bottom"
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 14l-7 7m0 0l-7-7m7 7V3" />
-              </svg>
-            </button>
-          )}
-          <button
-            class={`btn btn-circle shadow-lg btn-secondary`}
-            onClick={copyLogsToClipboard}
-            title={copyStatus() === 'Copied' ? 'Copied' : copyStatus() === 'Failed' ? 'Copy failed' : 'Copy logs to clipboard'}
-            // disabled={copyStatus() === 'Copied'}
-            aria-live="polite"
-          >
-            {copyStatus() === 'Copied' ? (
-              <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
-              </svg>
-            ) : copyStatus() === 'Failed' ? (
-              <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            ) : (
-              <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
-              </svg>
+            {showScrollButton() && (
+              <button
+                class="btn btn-circle btn-primary shadow-lg"
+                onClick={scrollToBottom}
+                title="Scroll to bottom"
+              >
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  class="h-6 w-6"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                >
+                  <path
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    stroke-width="2"
+                    d="M19 14l-7 7m0 0l-7-7m7 7V3"
+                  />
+                </svg>
+              </button>
             )}
-          </button>
-        </div>
+            <button
+              class={`btn btn-circle shadow-lg btn-secondary`}
+              onClick={copyLogsToClipboard}
+              title={
+                copyStatus() === "Copied"
+                  ? "Copied"
+                  : copyStatus() === "Failed"
+                    ? "Copy failed"
+                    : "Copy logs to clipboard"
+              }
+              // disabled={copyStatus() === 'Copied'}
+              aria-live="polite"
+            >
+              {copyStatus() === "Copied" ? (
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  class="h-6 w-6"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                  aria-hidden="true"
+                >
+                  <path
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    stroke-width="2"
+                    d="M5 13l4 4L19 7"
+                  />
+                </svg>
+              ) : copyStatus() === "Failed" ? (
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  class="h-6 w-6"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                >
+                  <path
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    stroke-width="2"
+                    d="M6 18L18 6M6 6l12 12"
+                  />
+                </svg>
+              ) : (
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  class="h-6 w-6"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                >
+                  <path
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    stroke-width="2"
+                    d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"
+                  />
+                </svg>
+              )}
+            </button>
+          </div>
         </div>
       </div>
     </>

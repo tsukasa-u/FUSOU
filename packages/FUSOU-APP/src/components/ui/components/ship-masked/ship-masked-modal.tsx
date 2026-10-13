@@ -1,4 +1,5 @@
-import { Component, createSignal, Show } from "solid-js";
+import type { Component } from "solid-js";
+import { createSignal, Show } from "solid-js";
 
 import type { MstShip, MstSlotItems } from "@ipc-bindings/get_data";
 import {
@@ -23,7 +24,9 @@ export interface ComponentShipMaskedModalProps {
   classList?: any;
 }
 
-export const ComponentShipMaskedModal: Component<ComponentShipMaskedModalProps> = (props) => {
+export const ComponentShipMaskedModal: Component<
+  ComponentShipMaskedModalProps
+> = (props) => {
   let dialogRef: HTMLDialogElement | undefined;
   const [showDialog, setShowDialog] = createSignal(false);
 
@@ -89,9 +92,7 @@ export const ComponentShipMaskedModal: Component<ComponentShipMaskedModalProps> 
           name_flag={props.name_flag}
         />
       </div>
-      <Show when={showDialog()}>
-        {dialogTemplete()}
-      </Show>
+      <Show when={showDialog()}>{dialogTemplete()}</Show>
     </Show>
   );
 };

@@ -69,7 +69,8 @@ export const get_data_set_param_ship = (
         .map((slot) => mst_slot_itmes.mst_slot_items[slot])
         .reduce(
           (dict, slot_item) => (
-            slot_item ? (dict[slot_item.id] = slot_item) : dict, dict
+            slot_item ? (dict[slot_item.id] = slot_item) : dict,
+            dict
           ),
           {} as { [x: number]: MstSlotItem | undefined },
         ),
@@ -92,7 +93,8 @@ export const get_data_set_param_ship = (
         .map((slot) => mst_slot_itmes.mst_slot_items[slot])
         .reduce(
           (dict, slot_item) => (
-            slot_item ? (dict[slot_item.id] = slot_item) : dict, dict
+            slot_item ? (dict[slot_item.id] = slot_item) : dict,
+            dict
           ),
           {} as { [x: number]: MstSlotItem | undefined },
         ),
@@ -122,7 +124,8 @@ export const get_data_set_param_ship = (
         .map((slot) => mst_slot_itmes.mst_slot_items[slot])
         .reduce(
           (dict, slot_item) => (
-            slot_item ? (dict[slot_item.id] = slot_item) : dict, dict
+            slot_item ? (dict[slot_item.id] = slot_item) : dict,
+            dict
           ),
           {} as { [x: number]: MstSlotItem | undefined },
         ),
@@ -149,7 +152,8 @@ export const get_data_set_param_ship = (
         .map((slot) => mst_slot_itmes.mst_slot_items[slot])
         .reduce(
           (dict, slot_item) => (
-            slot_item ? (dict[slot_item.id] = slot_item) : dict, dict
+            slot_item ? (dict[slot_item.id] = slot_item) : dict,
+            dict
           ),
           {} as { [x: number]: MstSlotItem | undefined },
         ),
@@ -260,7 +264,8 @@ export const get_data_set_ship = (ship_ids: number[]) => {
     );
     const slot_item_map = slot_item_list?.reduce(
       (dict, slot_item) => (
-        slot_item ? (dict[slot_item.id] = slot_item) : dict, dict
+        slot_item ? (dict[slot_item.id] = slot_item) : dict,
+        dict
       ),
       {} as { [x: number]: SlotItem | undefined },
     );
@@ -275,7 +280,8 @@ export const get_data_set_ship = (ship_ids: number[]) => {
       .map((slot_item) => slot_item!);
     const mst_slot_item_map = mst_slot_item_list?.reduce(
       (dict, slot_item) => (
-        slot_item ? (dict[slot_item.id] = slot_item) : dict, dict
+        slot_item ? (dict[slot_item.id] = slot_item) : dict,
+        dict
       ),
       {} as { [x: number]: MstSlotItem | undefined },
     );

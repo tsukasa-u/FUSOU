@@ -88,7 +88,11 @@ export function CarrierBaseAssaultComponent(props: AirDamageProps) {
     return (
       <td>
         <div class="flex flex-col">
-          <For each={carrier_base_assault?.f_damage.plane_from?.filter((ship_idx) => ship_idx >= 0)}>
+          <For
+            each={carrier_base_assault?.f_damage.plane_from?.filter(
+              (ship_idx) => ship_idx >= 0,
+            )}
+          >
             {(ship_idx, idx) => (
               <>
                 <Show when={idx() > 0}>
@@ -156,7 +160,7 @@ export function CarrierBaseAssaultComponent(props: AirDamageProps) {
                   <Show
                     when={
                       carrier_base_assault?.e_damage.protect_flag?.some(
-                        (flag) => flag
+                        (flag) => flag,
                       ) ?? false
                     }
                   >
@@ -222,7 +226,11 @@ export function CarrierBaseAssaultComponent(props: AirDamageProps) {
     return (
       <td>
         <div class="flex flex-col">
-          <For each={carrier_base_assault?.e_damage.plane_from?.filter((ship_idx) => ship_idx >= 0)}>
+          <For
+            each={carrier_base_assault?.e_damage.plane_from?.filter(
+              (ship_idx) => ship_idx >= 0,
+            )}
+          >
             {(ship_idx, idx) => (
               <>
                 <Show when={idx() > 0}>
@@ -290,7 +298,7 @@ export function CarrierBaseAssaultComponent(props: AirDamageProps) {
                   <Show
                     when={
                       carrier_base_assault?.f_damage.protect_flag?.some(
-                        (flag) => flag
+                        (flag) => flag,
                       ) ?? false
                     }
                   >

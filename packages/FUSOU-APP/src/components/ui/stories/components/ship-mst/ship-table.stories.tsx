@@ -1,13 +1,11 @@
-import { ComponentShipMstTableProps, ComponentShipMstTable } from "ui";
+import type { ComponentShipMstTableProps } from "ui";
+import { ComponentShipMstTable } from "ui";
 import type { Meta, StoryObj } from "storybook-solidjs-vite";
 
 const size_list = ["xs", "sm", "md", "lg", "xl"];
 
 const ComponentShipMstTableBasic = (args: ComponentShipMstTableProps) => {
-  return (<ComponentShipMstTable
-    mst_ship={args.mst_ship}
-    size={args.size}
-  ></ComponentShipMstTable>);
+  return <ComponentShipMstTable mst_ship={args.mst_ship} size={args.size} />;
 };
 
 const meta = {
@@ -19,7 +17,8 @@ export default meta;
 type Story = StoryObj<ComponentShipMstTableProps>;
 
 export const basic: Story = {
-  render: (args: ComponentShipMstTableProps) => ComponentShipMstTableBasic(args),
+  render: (args: ComponentShipMstTableProps) =>
+    ComponentShipMstTableBasic(args),
   name: "Basic",
   argTypes: {
     size: {

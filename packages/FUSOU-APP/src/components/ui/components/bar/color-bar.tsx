@@ -1,4 +1,4 @@
-import { Component } from "solid-js";
+import type { Component } from "solid-js";
 
 export interface ComponentColorBarProps {
   v_now: number;
@@ -60,7 +60,7 @@ export const ComponentColorBar: Component<ComponentColorBarProps> = (props) => {
         ].join(" ")}
         max="100"
         value={calc_value(props.v_now, props.v_max, props.quantize)}
-      ></progress>
+      />
     </div>
   );
 };

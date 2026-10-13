@@ -42,18 +42,18 @@ export function AirBaseAirAttackComponent(props: AirDamageProps) {
     const show_damage: boolean[][] = [];
     if (!show_air_attack()) return show_damage;
     air_base_attacks().forEach((attack, attack_idx) => {
-        show_damage.push(new Array(12).fill(false));
-        if (attack.e_damage.bak_flag) {
-          attack.e_damage.bak_flag.forEach((flag, idx) => {
-            show_damage[attack_idx][idx] ||= flag == 1;
-          });
-        }
-        if (attack.e_damage.rai_flag) {
-          attack.e_damage.rai_flag.forEach((flag, idx) => {
-            show_damage[attack_idx][idx] ||= flag == 1;
-          });
-        }
-      });
+      show_damage.push(new Array(12).fill(false));
+      if (attack.e_damage.bak_flag) {
+        attack.e_damage.bak_flag.forEach((flag, idx) => {
+          show_damage[attack_idx][idx] ||= flag == 1;
+        });
+      }
+      if (attack.e_damage.rai_flag) {
+        attack.e_damage.rai_flag.forEach((flag, idx) => {
+          show_damage[attack_idx][idx] ||= flag == 1;
+        });
+      }
+    });
     return show_damage;
   });
 
@@ -111,7 +111,7 @@ export function AirBaseAirAttackComponent(props: AirDamageProps) {
 
   const defenser_ships = (
     attack: AirBaseAirAttack,
-    attack_idx: () => number
+    attack_idx: () => number,
   ) => {
     return (
       <td>
@@ -176,7 +176,7 @@ export function AirBaseAirAttackComponent(props: AirDamageProps) {
 
   const defenser_damages = (
     attack: AirBaseAirAttack,
-    attack_idx: () => number
+    attack_idx: () => number,
   ) => {
     return (
       <td>

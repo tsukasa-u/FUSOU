@@ -146,7 +146,8 @@ export function DataCollectionStatusComponent() {
   const [deletingItemId, setDeletingItemId] = createSignal<string | null>(null);
   const [confirmModalState, setConfirmModalState] =
     createSignal<ConfirmModalState | null>(null);
-  const [confirmSubmitting, setConfirmSubmitting] = createSignal<boolean>(false);
+  const [confirmSubmitting, setConfirmSubmitting] =
+    createSignal<boolean>(false);
   const [activeAction, setActiveAction] = createSignal<string | null>(null);
 
   const [shipGrowthStatus, setShipGrowthStatus] =
@@ -172,7 +173,10 @@ export function DataCollectionStatusComponent() {
 
   const isUiLocked = () => hasRunningOperation() || confirmSubmitting();
 
-  const runExclusive = async (actionKey: string, action: () => Promise<void>) => {
+  const runExclusive = async (
+    actionKey: string,
+    action: () => Promise<void>,
+  ) => {
     if (hasRunningOperation()) return;
     try {
       setActiveAction(actionKey);
@@ -272,7 +276,10 @@ export function DataCollectionStatusComponent() {
       try {
         setRetryingPendingUploads(true);
         await invoke("retry_pending_uploads_now");
-        showFadeToast("data_collection_toast", "Pending upload retry triggered");
+        showFadeToast(
+          "data_collection_toast",
+          "Pending upload retry triggered",
+        );
         await refreshAllStatuses();
       } catch (e: any) {
         console.error("Failed to trigger pending upload retry:", e);
@@ -355,7 +362,9 @@ export function DataCollectionStatusComponent() {
             class="btn btn-secondary border-secondary-content"
             onClick={refreshPendingRetryStatus}
             disabled={
-              loadingPendingRetryStatus() || !!confirmModalState() || isUiLocked()
+              loadingPendingRetryStatus() ||
+              !!confirmModalState() ||
+              isUiLocked()
             }
           >
             {loadingPendingRetryStatus() ? "Refreshing..." : "Refresh status"}
@@ -372,7 +381,9 @@ export function DataCollectionStatusComponent() {
                 action: handleRetryPendingUploadsNow,
               })
             }
-            disabled={retryingPendingUploads() || confirmSubmitting() || isUiLocked()}
+            disabled={
+              retryingPendingUploads() || confirmSubmitting() || isUiLocked()
+            }
           >
             {retryingPendingUploads()
               ? "Retrying pending uploads..."
@@ -521,7 +532,9 @@ export function DataCollectionStatusComponent() {
                   }}
                   disabled={confirmSubmitting() || hasRunningOperation()}
                 >
-                  {confirmSubmitting() ? "Processing..." : modalState().confirmLabel}
+                  {confirmSubmitting()
+                    ? "Processing..."
+                    : modalState().confirmLabel}
                 </button>
               </div>
             </div>

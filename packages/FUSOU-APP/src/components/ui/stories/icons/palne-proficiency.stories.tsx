@@ -1,32 +1,27 @@
-import { IconPlaneProficiencyProps } from "ui";
+import { For } from "solid-js";
+import type { IconPlaneProficiencyProps } from "ui";
 import { IconPlaneProficiency } from "ui";
 import type { Meta, StoryObj } from "storybook-solidjs-vite";
-
-
 
 const size_list = ["full", "none", "xs", "sm", "md", "lg", "xl"];
 
 const IconPlaneProficiencyBasic = (args: IconPlaneProficiencyProps) => {
-  return (<IconPlaneProficiency
-    level={args.level}
-    size={args.size}
-  ></IconPlaneProficiency>);
+  return <IconPlaneProficiency level={args.level} size={args.size} />;
 };
 
 const IconPlaneProficiencyCatalog = () => {
   const level_list = [1, 2, 3, 4, 5, 6, 7];
-  return (<div class="grid gap-4">
-    {level_list.map(
-      (level) =>
-        ( <div class="flex">
-          <h1 class="w-20">${level}</h1>
-          <IconPlaneProficiency
-            level={level}
-            size={"sm"}
-          ></IconPlaneProficiency>
-        </div>)
-    )}
-  </div>
+  return (
+    <div class="grid gap-4">
+      <For each={level_list}>
+        {(level) => (
+          <div class="flex">
+            <h1 class="w-20">${level}</h1>
+            <IconPlaneProficiency level={level} size={"sm"} />
+          </div>
+        )}
+      </For>
+    </div>
   );
 };
 

@@ -2,7 +2,7 @@ import type { Accessor } from "solid-js/types/server/reactive.js";
 
 export const drag_scroll_fn = (
   el: HTMLDivElement,
-  spec_modal: Accessor<boolean>
+  spec_modal: Accessor<boolean>,
 ) => {
   let isDragging = false;
   let startX = 0;
@@ -73,7 +73,7 @@ export const drag_scroll_fn = (
 export const scroll_parent_fn = (
   el: HTMLDivElement,
   pa: HTMLDivElement,
-  spec_modal: Accessor<boolean>
+  spec_modal: Accessor<boolean>,
 ) => {
   el.addEventListener("wheel", (e) => {
     if (spec_modal()) return;
@@ -101,7 +101,7 @@ export const scroll_parent_fn = (
 
 export const scroll_fn = (
   el: HTMLDivElement,
-  spec_modal: Accessor<boolean>
+  spec_modal: Accessor<boolean>,
 ) => {
   el.addEventListener("wheel", (e) => {
     if (spec_modal()) return;

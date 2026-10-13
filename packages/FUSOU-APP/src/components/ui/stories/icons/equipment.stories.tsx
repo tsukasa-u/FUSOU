@@ -1,8 +1,7 @@
-import { IconEquipmentProps } from "ui";
+import { For } from "solid-js";
+import type { IconEquipmentProps } from "ui";
 import { IconEquipment } from "ui";
 import type { Meta, StoryObj } from "storybook-solidjs-vite";
-
-
 
 import get_data from "@fusou-testdata-shared-ui/data/S@api_start2@getData.json";
 // import require_info from "@fusou-testdata-shared-ui/data/S@api_get_member@require_info.json";
@@ -14,32 +13,36 @@ import album_slot2_png from "@fusou-testdata-shared-ui/data/album_slot2.png";
 const size_list = ["full", "none", "xs", "sm", "md", "lg", "xl"];
 
 const IconEquipmentBasic = (args: IconEquipmentProps) => {
-  return (<IconEquipment
-    icon_number={args.icon_number}
-    category_number={args.category_number}
-    size={args.size}
-    empty_flag={args.empty_flag}
-  ></IconEquipment>);
+  return (
+    <IconEquipment
+      icon_number={args.icon_number}
+      category_number={args.category_number}
+      size={args.size}
+      empty_flag={args.empty_flag}
+    />
+  );
 };
 
 const IconEquipmentCatalog = () => {
   const category_icon_number = [
     ...new Set(
       get_data.api_data.api_mst_slotitem.map((x) =>
-        String([x.api_type[1], x.api_type[3]])
-      )
+        String([x.api_type[1], x.api_type[3]]),
+      ),
     ),
   ].map((s) => s.split(",").map((x) => Number(x)));
 
   return (
     <div class="grid grid-cols-10 w-100 gap-4">
-      {category_icon_number.map(([category_number, icon_number]) => (
-        <IconEquipment
-          icon_number={icon_number}
-          category_number={category_number}
-          size={"xs"}
-        />
-      ))}
+      <For each={category_icon_number}>
+        {([category_number, icon_number]) => (
+          <IconEquipment
+            icon_number={icon_number}
+            category_number={category_number}
+            size={"xs"}
+          />
+        )}
+      </For>
     </div>
   );
 };
@@ -48,8 +51,8 @@ const IconEquipmentCatalogDetail = () => {
   const category_icon_number = [
     ...new Set(
       get_data.api_data.api_mst_slotitem.map((x) =>
-        String([x.api_type[1], x.api_type[2], x.api_type[3]])
-      )
+        String([x.api_type[1], x.api_type[2], x.api_type[3]]),
+      ),
     ),
   ].map((s) => s.split(",").map((x) => Number(x)));
 
@@ -62,8 +65,8 @@ const IconEquipmentCatalogDetail = () => {
 
   return (
     <div class="grid gap-4">
-      {category_icon_number.map(
-        ([album_slot_number, category_number, icon_number]) => {
+      <For each={category_icon_number}>
+        {([album_slot_number, category_number, icon_number]) => {
           try {
             const icon_frame = (icon_frames as any)[
               `common_icon_weapon_id_${icon_number}`
@@ -84,14 +87,14 @@ const IconEquipmentCatalogDetail = () => {
                   <div
                     class="h-full"
                     style={{
-                      "overflow": "hidden",
+                      overflow: "hidden",
                       "background-repeat": "no-repeat",
-                      "width": `${icon_frame.w}px`,
-                      "height": `${icon_frame.h}px`,
+                      width: `${icon_frame.w}px`,
+                      height: `${icon_frame.h}px`,
                       "background-position": `top -${icon_frame.y}px left -${icon_frame.x}px`,
-                      "background-image": `url('${common_icon_weapon_png}')`
+                      "background-image": `url('${common_icon_weapon_png}')`,
                     }}
-                  ></div>
+                  />
                 </div>
                 <div class="w-40">
                   {category.find((element) => element.api_id == category_number)
@@ -101,27 +104,30 @@ const IconEquipmentCatalogDetail = () => {
                   {get_data.api_data.api_mst_slotitem.find(
                     (element) =>
                       element.api_type[2] == category_number &&
-                      element.api_type[3] == icon_number
+                      element.api_type[3] == icon_number,
                   )?.api_name ?? "Unknown"}
                 </div>
-                <div class="w-60 h-full" style="transform: translateY(-36px);">
+                <div
+                  class="w-60 h-full"
+                  style={{ transform: "translateY(-36px)" }}
+                >
                   <div
                     class="h-32"
                     style={{
-                      "transform": "scale(2) rotateZ(-90deg)",
+                      transform: "scale(2) rotateZ(-90deg)",
                       "background-size": `${3199 * bg_scale}px ${2595 * bg_scale}px`,
-                      "width": `${album_slot2_frame.w * bg_scale}px`,
-                      "height": `${album_slot2_frame.h * bg_scale}px`,
+                      width: `${album_slot2_frame.w * bg_scale}px`,
+                      height: `${album_slot2_frame.h * bg_scale}px`,
                       "background-position": `top -${
                         album_slot2_frame.y * bg_scale
                       }px left -${album_slot2_frame.x * bg_scale}px`,
-                      "background-image": `url('${album_slot2_png}')`
+                      "background-image": `url('${album_slot2_png}')`,
                     }}
-                  ></div>
+                  />
                 </div>
               </div>
             );
-          } catch (e) {
+          } catch (_e) {
             return (
               <div class="flex h-12 items-center">
                 <IconEquipment
@@ -139,14 +145,14 @@ const IconEquipmentCatalogDetail = () => {
                   {get_data.api_data.api_mst_slotitem.find(
                     (element) =>
                       element.api_type[2] == category_number &&
-                      element.api_type[3] == icon_number
+                      element.api_type[3] == icon_number,
                   )?.api_name ?? "Unknown"}
                 </div>
               </div>
             );
           }
-        }
-      )}
+        }}
+      </For>
     </div>
   );
 };

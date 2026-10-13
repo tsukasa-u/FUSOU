@@ -1,19 +1,21 @@
-import { IconShipProps, IconShip } from "ui";
+import { For } from "solid-js";
+import type { IconShipProps } from "ui";
+import { IconShip } from "ui";
 import type { Meta, StoryObj } from "storybook-solidjs-vite";
-
-
 
 import get_data from "@fusou-testdata-shared-ui/data/S@api_start2@getData.json";
 
 const size_list = ["full", "none", "xs", "sm", "md", "lg", "xl"];
 
 const IconShipBasic = (args: IconShipProps) => {
-  return (<IconShip
-    ship_stype={args.ship_stype}
-    color={args.color}
-    size={args.size}
-    empty_flag={args.empty_flag}
-  ></IconShip>);
+  return (
+    <IconShip
+      ship_stype={args.ship_stype}
+      color={args.color}
+      size={args.size}
+      empty_flag={args.empty_flag}
+    />
+  );
 };
 
 const IconShipCatalog = () => {
@@ -21,29 +23,23 @@ const IconShipCatalog = () => {
   const category_type_number = [
     ...new Set(
       get_data.api_data.api_mst_ship.map((x) =>
-        String([x.api_stype, x.apt_ctype])
-      )
+        String([x.api_stype, x.apt_ctype]),
+      ),
     ),
   ].map((s) => s.split(",").map((x) => Number(x)));
 
-  return (<div class="grid grid-cols-6 w-100 gap-4">
-    {category_type_number.map(
-      ([stype, _ctype]) =>
-        (<div class="grid gap-4">
-        <IconShip ship_stype={stype} color={""} size={"xs"} />
-          <IconShip
-            ship_stype={stype}
-            color={"elite"}
-            size={"xs"}
-          ></IconShip>
-          <IconShip
-            ship_stype={stype}
-            color={"flagship"}
-            size={"xs"}
-          ></IconShip>
-        </div>)
-    )}
-  </div>
+  return (
+    <div class="grid grid-cols-6 w-100 gap-4">
+      <For each={category_type_number}>
+        {([stype, _ctype]) => (
+          <div class="grid gap-4">
+            <IconShip ship_stype={stype} color={""} size={"xs"} />
+            <IconShip ship_stype={stype} color={"elite"} size={"xs"} />
+            <IconShip ship_stype={stype} color={"flagship"} size={"xs"} />
+          </div>
+        )}
+      </For>
+    </div>
   );
 };
 

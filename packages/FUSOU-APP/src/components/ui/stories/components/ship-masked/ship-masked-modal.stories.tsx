@@ -1,22 +1,23 @@
-import { ComponentShipMaskedModalProps } from "ui";
+import type { ComponentShipMaskedModalProps } from "ui";
 import { ComponentShipMaskedModal } from "ui";
 import type { Meta, StoryObj } from "storybook-solidjs-vite";
-
 
 const size_list = ["xs", "sm", "md", "lg", "xl"];
 
 const ComponentShipMaskedModalBasic = (args: ComponentShipMaskedModalProps) => {
-  return (<ComponentShipMaskedModal
-    mst_slot_items={args.mst_slot_items}
-    mst_ship={args.mst_ship}
-    size={args.size}
-    color={args.color}
-    empty_flag={args.empty_flag}
-    name_flag={args.name_flag}
-    ship_max_hp={args.ship_max_hp}
-    ship_param={args.ship_param}
-    ship_slot={args.ship_slot}
-  ></ComponentShipMaskedModal>);
+  return (
+    <ComponentShipMaskedModal
+      mst_slot_items={args.mst_slot_items}
+      mst_ship={args.mst_ship}
+      size={args.size}
+      color={args.color}
+      empty_flag={args.empty_flag}
+      name_flag={args.name_flag}
+      ship_max_hp={args.ship_max_hp}
+      ship_param={args.ship_param}
+      ship_slot={args.ship_slot}
+    />
+  );
 };
 
 const meta = {

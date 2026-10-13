@@ -1,7 +1,7 @@
 import { useMaterials } from "../../utility/provider.tsx";
 
 import { For, Show } from "solid-js";
-import { IconMaterial } from "ui";;
+import { IconMaterial } from "ui";
 import "../../css/divider.css";
 
 export function MaterialsComponent() {
@@ -41,9 +41,7 @@ export function MaterialsComponent() {
                   <div class="w-[24px]" />
                   <a class="justify-start gap-0 flex flex-wrap gap-y-1">
                     <div class="justify-start gap-0 flex flex-nowrap">
-                      <For
-                        each={Object.values(materials.materials)}
-                      >
+                      <For each={Object.values(materials.materials)}>
                         {(material, index) => (
                           <>
                             <div class="h-5 w-5">
