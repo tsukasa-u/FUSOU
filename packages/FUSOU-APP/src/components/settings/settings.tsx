@@ -18,6 +18,7 @@ export function SettingsComponent() {
   );
   const [checkingHealth, setCheckingHealth] = createSignal<boolean>(false);
   const [signingOut, setSigningOut] = createSignal<boolean>(false);
+  const [confirmSignOut, setConfirmSignOut] = createSignal<boolean>(false);
 
   const handleCheckSessionHealth = async () => {
     try {
@@ -36,6 +37,11 @@ export function SettingsComponent() {
   };
 
   const handleForceLocalSignOut = async () => {
+    if (!confirmSignOut()) {
+      setConfirmSignOut(true);
+      return;
+    }
+    setConfirmSignOut(false);
     try {
       setSigningOut(true);
       await invoke("force_local_sign_out");
@@ -66,7 +72,7 @@ export function SettingsComponent() {
 
       <h1 class="mx-6 pt-6 pb-2 text-3xl font-semibold">Settings</h1>
       <div class="mx-6">
-        <div class="divider divider-horizonal py-0 mt-4 mb-8" />
+        <div class="divider py-0 mt-4 mb-8" />
 
         <p class="py-2 text-xl font-semibold">Manual Snapshot Sync</p>
         <p class="px-px leading-5">
@@ -88,7 +94,7 @@ export function SettingsComponent() {
           </button>
         </div>
 
-        <div class="divider divider-horizonal py-0 mt-4 mb-8" />
+        <div class="divider py-0 mt-4 mb-8" />
 
         <p class="py-2 text-xl font-semibold">Supabase Session</p>
         <p class="px-px leading-5">
@@ -131,7 +137,7 @@ export function SettingsComponent() {
           )}
         </Show>
 
-        <div class="divider divider-horizonal py-0 mt-4 mb-8" />
+        <div class="divider py-0 mt-4 mb-8" />
 
         <p class="py-2 text-xl font-semibold">Clear Supabase Session</p>
         <p class="px-px leading-5">
@@ -139,15 +145,19 @@ export function SettingsComponent() {
         </p>
         <div class="mt-4 flex items-center justify-end">
           <button
-            class="btn btn-secondary border-secondary-content btn-wide"
+            class={`btn btn-wide ${confirmSignOut() ? "btn-error" : "btn-secondary border-secondary-content"}`}
             onClick={handleForceLocalSignOut}
             disabled={signingOut()}
           >
-            {signingOut() ? "Signing out..." : "Force Local Sign Out"}
+            {signingOut()
+              ? "Signing out..."
+              : confirmSignOut()
+                ? "Click again to confirm Sign Out"
+                : "Force Local Sign Out"}
           </button>
         </div>
 
-        <div class="divider divider-horizonal py-0 mt-4 mb-8" />
+        <div class="divider py-0 mt-4 mb-8" />
 
         <p class="py-2 text-xl font-semibold">Reload App Pages</p>
         <p class="px-px leading-5">
@@ -164,7 +174,7 @@ export function SettingsComponent() {
           </button>
         </div>
 
-        <div class="divider divider-horizonal py-0 mt-4 mb-8" />
+        <div class="divider py-0 mt-4 mb-8" />
 
         <p class="py-2 text-xl font-semibold">Load Data</p>
         <p class="px-px leading-5">
@@ -192,7 +202,7 @@ export function SettingsComponent() {
             Load all data
           </button>
         </div>
-        {/* <div class="divider divider-horizonal py-0 mt-4 mb-8" /> */}
+        {/* <div class="divider py-0 mt-4 mb-8" /> */}
 
         <div class="grid py-6">
           <div id="load_mst_ships" class="py-2">
@@ -350,7 +360,7 @@ export function SettingsComponent() {
           </div>
         </div>
 
-        {/* <div class="divider divider-horizonal py-0 mt-4 mb-8" />
+        {/* <div class="divider py-0 mt-4 mb-8" />
 
         <div class="grid py-6">
                     <div class="py-2">
@@ -366,7 +376,7 @@ export function SettingsComponent() {
                     </div>
                 </div> */}
 
-        <div class="divider divider-horizonal py-0 mt-4 mb-8" />
+        <div class="divider py-0 mt-4 mb-8" />
 
         <div class="grid">
           <div>

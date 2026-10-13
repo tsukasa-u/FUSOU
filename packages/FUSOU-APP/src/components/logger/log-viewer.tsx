@@ -37,6 +37,18 @@ export function LogViewerComponent() {
 
   // UI state for search and filters
   const [search, setSearch] = createSignal("");
+  let searchTimer: ReturnType<typeof setTimeout> | undefined;
+
+  const handleSearchInput = (value: string) => {
+    if (searchTimer) clearTimeout(searchTimer);
+    searchTimer = setTimeout(() => {
+      setSearch(value);
+    }, 250);
+  };
+
+  onCleanup(() => {
+    if (searchTimer) clearTimeout(searchTimer);
+  });
   const [levelFilter, setLevelFilter] = createSignal<string>("ALL");
   const [targetFilter, setTargetFilter] = createSignal<string>("ALL");
   const [showScrollButton, setShowScrollButton] = createSignal(true);
@@ -318,9 +330,9 @@ export function LogViewerComponent() {
   });
 
   createEffect(() => {
-    // eslint-disable-next-line solid/reactivity
     const unlisten_data = safeTauriListen<MessageVisitor>(
       "log-event",
+      // eslint-disable-next-line solid/reactivity
       (event) => {
         addLogEntry(event.payload);
       },
@@ -337,8 +349,9 @@ export function LogViewerComponent() {
           <input
             class="input input-sm flex-1 min-w-[200px] max-w-md"
             placeholder="Search messages, target, datetime..."
-            value={search()}
-            onInput={(e) => setSearch((e.target as HTMLInputElement).value)}
+            onInput={(e) =>
+              handleSearchInput((e.target as HTMLInputElement).value)
+            }
           />
           <select
             class="select select-sm min-w-[120px]"

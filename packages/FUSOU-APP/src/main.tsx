@@ -20,10 +20,16 @@ import { ErrorFallback } from "./utility/ErrorFallback.tsx";
 render(
   () => {
     onMount(async () => {
+      const cachedTheme = localStorage.getItem("fusou-app-theme");
+      if (cachedTheme) {
+        document.documentElement.setAttribute("data-theme", cachedTheme);
+      }
+
       invoke<string>("get_app_theme", {})
         .then((theme) => {
           if (theme == "") return;
           localStorage.setItem("fusou-app-theme", theme);
+          document.documentElement.setAttribute("data-theme", theme);
         })
         .catch((error) => {
           console.error("Error fetching app theme:", error);

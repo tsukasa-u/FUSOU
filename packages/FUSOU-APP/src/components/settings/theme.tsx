@@ -1,8 +1,28 @@
-import { For } from "solid-js";
+import { createSignal, For, onMount } from "solid-js";
 
 const themes = ["light", "dark"];
 
 export function ThemeControllerComponent() {
+  const [currentTheme, setCurrentTheme] = createSignal<string>(
+    typeof localStorage !== "undefined"
+      ? (localStorage.getItem("fusou-app-theme") ?? "light")
+      : "light",
+  );
+
+  onMount(() => {
+    const saved = localStorage.getItem("fusou-app-theme");
+    if (saved) {
+      setCurrentTheme(saved);
+      document.documentElement.setAttribute("data-theme", saved);
+    }
+  });
+
+  const selectTheme = (theme: string) => {
+    setCurrentTheme(theme);
+    localStorage.setItem("fusou-app-theme", theme);
+    document.documentElement.setAttribute("data-theme", theme);
+  };
+
   return (
     <div class="dropdown mb-20 w-64">
       <div
@@ -10,11 +30,11 @@ export function ThemeControllerComponent() {
         role="button"
         class="btn btn-primary border-primary-content btn-wide"
       >
-        Theme
+        Theme ({currentTheme()})
         <svg
           width="12px"
           height="12px"
-          class="inline-block h-2 w-2 fill-current opacity-60"
+          class="inline-block h-2 w-2 fill-current opacity-60 ml-2"
           xmlns="http://www.w3.org/2000/svg"
           viewBox="0 0 2048 2048"
         >
@@ -35,10 +55,8 @@ export function ThemeControllerComponent() {
                 class="theme-controller btn btn-sm btn-block border-0 justify-start"
                 aria-label={theme}
                 value={theme}
-                checked={theme == localStorage.getItem("fusou-app-theme")}
-                onClick={() => {
-                  localStorage.setItem("fusou-app-theme", theme);
-                }}
+                checked={currentTheme() === theme}
+                onChange={() => selectTheme(theme)}
               />
             </li>
           )}
