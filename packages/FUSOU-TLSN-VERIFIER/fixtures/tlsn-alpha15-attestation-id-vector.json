@@ -1,0 +1,32 @@
+{
+  "schema_version": 1,
+  "vector_id": "tlsn-alpha15-upstream-presentation-attestation-id-001",
+  "format": "tlsn-alpha15-attestation-id-v1",
+  "source": {
+    "repository": "https://github.com/tlsnotary/tlsn",
+    "revision": "47aee45b53e06648c1b2ad3689b367b8c923fdec",
+    "tag": "v0.1.0-alpha.15",
+    "path": "crates/attestation/tests/fixtures/presentation.bin",
+    "git_blob_sha1": "7de6e4c96785f2efbef44e84bcbd76ac2eff09d2",
+    "presentation_bytes": 5394,
+    "presentation_sha256_hex": "cb9b3befb43df5157a4d5ac52080ba19d842f191fa346bfda1dfc4927b37e5b6",
+    "presentation_sha256_base64url": "y5s777Q99RV6TVrFIIC6GdhC8ZH6NGv9od_Ekns35bY"
+  },
+  "contract": {
+    "uid_type": "tlsn_attestation::Uid([u8; 16])",
+    "uid_bytes": 16,
+    "extraction": "Presentation::verify(&CryptoProvider::default())?.attestation.header.id.0",
+    "binary_representation": "raw 16-byte Uid; no hash or byte-order conversion",
+    "json_representation": "canonical unpadded base64url"
+  },
+  "expected": {
+    "attestation_id_hex": "effe1a316b1c91b41f6284f78409c6c2",
+    "attestation_id_base64url": "7_4aMWsckbQfYoT3hAnGwg",
+    "server_identity": "tlsnotary.org"
+  },
+  "verification": {
+    "rust": "cargo test --manifest-path packages/FUSOU-TLSN-VERIFIER/Cargo.toml --locked real_alpha15_fixture_verifies_with_pinned_backend",
+    "node": "node --test packages/FUSOU-TLSN-VERIFICATION-WORKER/scripts/production-evidence-attestation-id-test.mjs",
+    "expected_source": "The binary is the upstream alpha.15 fixture at the pinned revision; expected ID bytes are asserted by the existing Rust Presentation::verify path, not generated from a local synthetic Presentation."
+  }
+}

@@ -10,6 +10,8 @@
 
 **オフライン設定マニフェスト注記:** Runtime Config manifest schema 2では、Worker reference、Production authority digest pair、Result registry/envelope digest、Result registry root identityを、共通V2 Ed25519署名対象のpayloadへ含め、Node/Rustが署名を検証してからexact raw bytesと照合する。共有test-only vectorでcross-language契約を検証する。Rustの制限付きHTTPS fetch interfaceはAPP起動時のbest-effort refresh、`serve_proxy`開始時の必須gate、TLSN binding発行直前とorigin transport factory呼出し直前の再検証へ接続した。検証済みmanifest/artifactからWorker endpoints、Result verification inputs、Notary endpoint/key、Worker identity、disclosure mode、approved targetsを構成し、TLSN有効化中は従来のcompile-time Worker値へfallbackしない。高いepochとmanifest raw-envelope digestをローカルファイルへ原子保存し、完全検証後にのみ更新するが、OS時計は独立trusted timeではなく、ユーザー所有ファイルは改変・削除可能なため、これはadversary-resistantなrollback防止ではない。起動時またはbinding/transport直前のfetch失敗はfail-closedし、稼働中proxyと異なるmanifestが受理された場合はproxy再起動までbinding発行とorigin接続を拒否する。ただしtransport直前確認は外部manifest pointerと原子的ではない。Node release orchestrationは独立pin済みのsigner providerによる署名、独立raw artifact検証、content-addressed upload後のbyte-for-byte readback、Cloudflare active deployment/mappingの再取得、atomic ETag CASによるmanifest pointer更新、最終readbackを抽象interfaceとして実装し、fake signer/storeでテストした。実Production signing provider、Cloudflare/R2 adapter、atomic CAS/readbackの実環境保証はいずれも未実装である。Production bootstrap URLとRuntime Config signer public keyはコード上で未登録 (`None`) のため、実際のProduction gateは引き続き `BLOCKED_EXTERNAL_INPUTS` で、TLSN transportへ到達できない。初期信頼登録には別管理のEd25519署名鍵を承認し、public keyと固定endpointをreviewed APP releaseへ埋め込む必要がある。Tauri updater、Result registry、Canary、Notaryの各鍵を代用してはならない。専用public R2 bucket/custom domain、鍵custody、root rotation、署名・公開運用の承認と構築は未完了。信頼できる時刻、adversary-resistantな永続rollback state、runtime cache、Auth/device bindingも未実装である。commit hookの `code-review-graph` は非ブロッキングのsymbol-to-test-edge heuristicであり、hook briefはRuntime Config follow-upで98 gaps/14 files/111 symbols/risk 0.60を出したが個別listは出力しなかった。fresh full graphではbaseにより71 gapsまたは122 gapsとなり、元の98項目/現行122項目は個別未分類でgap auditは `UNRESOLVED`。分類と証拠は [operator runbook](../../packages/FUSOU-TLSN-VERIFICATION-WORKER/docs/production-evidence-operator-runbook.md) に記録する。これらの契約・テストはPhase 0の証拠または合格を意味せず、Phase 0の `NO-GO (0/17 PASS)` とProduction acceptance blockerを維持する。
 
+**P0 audit status update:** The offline-manifest note above predates the TLSNotary revision/Attestation ID audit. P0-02 now has `PASS_LOCAL_TESTS` evidence; the Production runtime gate remains `NO-GO`, and the earlier `0/17 PASS` is not a current count of local contract checks. See the Phase 0 reassessment and [alpha.15 audit](tlsnotary-alpha15-revision-attestation-id-interoperability-audit.md).
+
 **Runtime Config release-adapter / APP wiring follow-up:** At the start of this follow-up, branch HEAD was `a3d8259cff01cccecd39075ef14fb20db8b7fa71`. APP startup registers a `RuntimeConfigManager` and attempts a best-effort refresh; `serve_proxy`, binding issuance, and origin transport remain fail-closed on missing, invalid, or changed verified configuration. The Production preflight command now requires a manager refresh and an explicit target. Tests exercise manager registration, verified-manifest-to-preflight mapping, approved-target rejection, and binding/transport guards. Node signing/publication remains injected orchestration with fake signer/store coverage only. The Production Runtime Config signer root, fixed endpoint, dedicated store, concrete R2 CAS adapter, credentials, publication service, trusted time, and adversary-resistant rollback state remain absent; the embedded signer/endpoint are still `None`, so Production remains `BLOCKED_EXTERNAL_INPUTS`. The latest `code-review-graph` v2.3.6 worktree snapshot (base `f1525fb1bac80d99444f427807a00b0698a6148c`) reported 15 changed files, 123 changed functions/classes, 105 static gap candidates, and risk 0.85. Its candidates were classified separately in the [operator runbook](../../packages/FUSOU-TLSN-VERIFICATION-WORKER/docs/production-evidence-operator-runbook.md); the earlier hook's complete 98-entry report remains unrecoverable. Local tests do not change Phase 0 `NO-GO`, Production `BLOCKED`, or the requirement for real Worker/Notary/Presentation/Result validation.
 
 **Runtime Config R2 adapter follow-up:** A Node S3-compatible adapter now writes only the dedicated versioned Runtime Config namespace. Immutable artifacts use digest-checked create-only `If-None-Match`; the manifest pointer uses conditional `PutObject` with the observed ETag (or create-if-absent), one-attempt writes, timeout reconciliation, and exact body/ETag readback followed by Production verification. A no-network readiness command reports configuration presence without values and never declares Production readiness. Local fake-transport tests cover condition headers, concurrent writers, conflicts, corrupt readback, and timeout outcomes. Cloudflare's API compatibility docs list conditional `PutObject`, but no real R2 bucket/credentials were used; service-side conditional-write races, permission scope, and readback remain `NOT_CHECKED`. Production signer/root enrollment, dedicated bucket/domain, live publisher operation, APP bootstrap root/endpoint, trusted time, and adversary-resistant rollback state remain external blockers. No object was published, no Cloudflare control-plane/storage operation occurred, and Production remains `BLOCKED_EXTERNAL_INPUTS`.
@@ -246,7 +248,7 @@ BEFORE_APPLICATION_SEND -> SEND_COMMITTED -> RESPONSE_AVAILABLE -> COMPLETE
 
 ### 4.4 Phase 0 の未知項目
 
-TLSNotary API、固定リビジョン、Attestation ID の抽出、transcript のオフセット意味論、認証済み時刻、proof のシリアライズを推測してはならない。これらは Phase 0 の証拠ゲートである。固定リビジョンの下で binding を認証済み TLS transcript のバイト列にできない場合の結果は次のとおりである。
+upstream TLSNotary alpha.15 の固定 tag/commit と Attestation ID の抽出契約は、ローカルテストで確認した。ただし実際のVerifierはローカルpath patchの `tlsn-core` を使用し、その transcript/proof 実装は upstream と異なるため、P0-01 の承認および完全なwire互換性は未解決である。transcript のオフセット意味論、認証済み時刻、proof のシリアライズとその他の Phase 0 要件を推測してはならない。根拠と残件は [alpha.15 audit](tlsnotary-alpha15-revision-attestation-id-interoperability-audit.md) に記録する。固定リビジョンの下で binding を認証済み TLS transcript のバイト列にできない場合の結果は次のとおりである。
 
 ```text
 IMPLEMENTATION = NO-GO
@@ -273,7 +275,7 @@ Verifier は FUSOU のユーザー、device、ownership、public-ID authority �
 
 ### 5.2 制限と拒否
 
-Final Specification 第5.1節の固定されたプロファイル上限を適用する。対象には Result、リクエスト/レスポンス transcript、ヘッダー、body、JSON depth/string、request range count `3`、response range count `1` が含まれる。リテラルの Attestation ID length `N` は P0-02 まで未知のままであり、レビュー済みの 1 つのリビジョンで全箇所に置換しなければならない。
+Final Specification 第5.1節の固定されたプロファイル上限を適用する。対象には Result、リクエスト/レスポンス transcript、ヘッダー、body、JSON depth/string、request range count `3`、response range count `1` が含まれる。alpha.15 の `tlsn_attestation::Uid([u8; 16])` に基づき Attestation ID length `N` は `16` である。Rustでは共通定数 `MAX_ATTESTATION_ID_BYTES` を使い、Nodeでは同じ共有vectorに照らして16-byte canonical base64urlを検証する。TLSNotary revisionを更新する際はこの契約とgolden vectorを再確認しなければならない。
 
 重複または未知のフィールド、非正規 JSON、非正規 decimal/base64url エンコーディング、範囲の重複/順序エラー、ダイジェスト不一致、誤った Host、誤ったリクエストターゲット、欠落/重複/移動した binding ヘッダー、末尾バイト、無効な証明書識別情報、失効/欠落したレジストリ鍵、未対応のプロファイルは拒否する。
 
@@ -768,7 +770,7 @@ mapping の並行性、Session uniqueness、Challenge のライフサイクル�
 
 ## 17. Phase 0 ゲート
 
-Phase 0 は実装上の事実を検証する。Proof Copy を弱めたり、セキュリティモデルを再設計したりしない。本番トラフィックを有効化する前に 17 個のゲートすべてが PASS でなければならず、現在のステータスは `0/17 PASS` である。
+Phase 0 は実装上の事実を検証する。Proof Copy を弱めたり、セキュリティモデルを再設計したりしない。本番トラフィックを有効化する前に 17 個のゲートすべてが PASS でなければならない。今回の再監査では P0-02 の抽出契約だけが `PASS_LOCAL_TESTS` となり、P0-01承認とP0-10は未解決である。Production Runtime Gateは引き続き `NO-GO` である。
 
 | ゲート | 必須証拠 | 失敗時の処置 |
 | --- | --- | --- |
@@ -790,6 +792,8 @@ Phase 0 は実装上の事実を検証する。Proof Copy を弱めたり、セ�
 | P0-15 プライバシー | 完全なレスポンスの開示、non-persistence、redaction approval | NO-GO。silent privacy tradeoff なし |
 | P0-16 JWT/鍵ライフサイクル | Registry rotation、tombstones、preactivation、future-skew、revoke rehearsal | NO-GO。fail closed |
 | P0-17 ストレージ epoch | Exact manifest、13 transitions、24 aliases、2 consumers、SESSION、fingerprints、backup/restore、drain、forward recovery | NO-GO。partial cutover なし |
+
+**P0-01/P0-02/P0-10 再監査結果:** P0-01 の upstream revision/source map は作成したが、ローカル `tlsn-core`/`tlsn-mux` path patchのソース同一性・wire互換性と独立security/license承認が未完了のため、ゲートは `BLOCKED_EXTERNAL_INPUTS`。P0-02 は固定alpha.15の公式 `Uid([u8; 16])`、verified Presentationからのfield extraction、upstream binary fixture、raw ID bytes、base64url表現を共有Rust/Node vectorと関連テストで確認し `PASS_LOCAL_TESTS`。P0-10 はAttestation ID boundary以外のJSON/binary、Session、Result、Claim、signing bytesのcorpusが不足し `UNRESOLVED`。P0-03〜P0-09、P0-11〜P0-17の状態は変更しない。詳細は [alpha.15 audit](tlsnotary-alpha15-revision-attestation-id-interoperability-audit.md) を参照する。
 
 未知の API/provider 値は、期待する証拠と失敗時の処置を添えて `UNKNOWN` として記録する。mock、直感、既存のファイル名によって PASS に変換しては決してならない。
 
@@ -1476,7 +1480,7 @@ Notary、Verifier、Dataset key が compromise された場合は、独立した
 | テレメトリへの識別情報注入 | PASS | 予約フィールドの拒否と IdentityEnvelope tests |
 | Legacy の権威 | カットオーバーゲートとして PASS | 完全な削除一覧、manifest、no-backfill rule、P0-17 |
 | TLSNotary binding の実現可能性 | UNKNOWN | P0-01〜P0-06。不可能な binding は NO-GO/REVISE を意味する |
-| Attestation ID length と API revision | UNKNOWN | P0-01/P0-02。推測した `N` はない |
+| Attestation ID length と API revision | P0-02: PASS_LOCAL_TESTS。P0-01 approval: BLOCKED | alpha.15 `Uid([u8; 16])` と upstream fixture vectorを検証。local path-patched sourceの独立reviewは未完了 |
 
 ### 自己監査の結論
 
@@ -1519,10 +1523,10 @@ Cross-Specification Consistency:
 PASS
 
 Phase 0:
-NO-GO (0/17 PASS)
+NO-GO (P0-02 PASS_LOCAL_TESTS only; P0-01 approval and P0-10 unresolved)
 
 Implementation:
 NO-GO
 ```
 
-P2-01、P2-02、P2-03 は `RESOLVED` である。P2-01のReference Baseline/Specification Revision metadataはFinal Specificationとこの計画で分離し、P2-02のIdentity Authorization Rootは4 tablesとして正規化し、P2-03の同一非REVOKED device key retry policyはterminal Sessionを再利用しない新規Session issuanceとしてFinal Specificationとこの計画へ反映した。Proof CopyのMUST-REJECT条件、Phase 0 `NO-GO (0/17 PASS)`、およびruntime implementation `NO-GO`は変更しない。
+P2-01、P2-02、P2-03 は `RESOLVED` である。P2-01のReference Baseline/Specification Revision metadataはFinal Specificationとこの計画で分離し、P2-02のIdentity Authorization Rootは4 tablesとして正規化し、P2-03の同一非REVOKED device key retry policyはterminal Sessionを再利用しない新規Session issuanceとしてFinal Specificationとこの計画へ反映した。Proof CopyのMUST-REJECT条件、P0-02を除く未解決Phase 0 gates、およびruntime implementation `NO-GO`は変更しない。

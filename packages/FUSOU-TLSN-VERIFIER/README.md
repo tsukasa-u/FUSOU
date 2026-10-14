@@ -55,7 +55,13 @@ tag: refs/tags/v0.1.0-alpha.15
 commit: 47aee45b53e06648c1b2ad3689b367b8c923fdec
 ```
 
-`tlsn`, `tlsn-attestation`, and `tlsn-core` are linked at that exact revision.
+The dependency declarations name that exact revision, but this is not the
+complete runtime source identity: Cargo patches `tlsn`, `tlsn-attestation`,
+and `tlsn-core` to local paths under `packages/tlsn-alpha15-sparse`. In
+particular, the local `tlsn-core` transcript/proof implementation differs
+from upstream alpha.15. Independent compatibility, security, and license
+approval is still pending; see
+[`tlsnotary-alpha15-revision-attestation-id-interoperability-audit.md`](../../docs/implementation-plans/tlsnotary-alpha15-revision-attestation-id-interoperability-audit.md).
 The runtime dependency is currently used by the local transport skeleton and
 offline tests. It is not wired into a production FUSOU-App origin transport, a
 production Verifier service, or a Notary service.
@@ -81,8 +87,9 @@ range. This is a generated integration fixture, not production evidence.
 
 ## Selective disclosure status
 
-The local alpha.15 fork is pinned to commit
-`47aee45b53e06648c1b2ad3689b367b8c923fdec`. `ProveConfig::reveal_sent` and
+The local alpha.15 fork is based on upstream commit
+`47aee45b53e06648c1b2ad3689b367b8c923fdec`, with FUSOU-local changes.
+`ProveConfig::reveal_sent` and
 `reveal_recv` now produce a packed sparse `PartialTranscript`; proof
 verification reads only the requested authenticated ranges. The live verifier
 also assigns disclosed ranges directly and keeps undisclosed committed ranges
@@ -120,6 +127,14 @@ alpha.15 fixture (`5394` bytes, SHA-256
 verification is classified as `REAL_ALPHA15_VERIFICATION`, not
 `REAL_FUSOU_AUTHENTICATED_EVIDENCE`: it is not a FUSOU `require_info`
 request/response and cannot unblock P0-05.
+
+The fixture's Attestation ID contract is recorded in
+`fixtures/tlsn-alpha15-attestation-id-vector.json`: upstream `Uid` is exactly
+16 raw bytes, extracted from the verified Presentation's
+`attestation.header.id.0`, with no hash or byte-order conversion. Result JSON
+uses canonical unpadded base64url. The shared Rust/Node fixture tests cover
+this ID boundary only; complete Result/Session/Claim cross-language
+determinism remains unresolved.
 
 The production server-identity allowlist registry is also not linked. Its
 constructor therefore rejects every identity until that trusted registry is

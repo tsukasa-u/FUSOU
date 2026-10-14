@@ -8,7 +8,7 @@
 
 use crate::{
     tlsn_alpha15::{AuthenticatedRequireInfo, AuthenticatedTranscript},
-    BINDING_PREFIX,
+    BINDING_PREFIX, MAX_ATTESTATION_ID_BYTES,
 };
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use std::collections::{HashMap, HashSet};
@@ -127,7 +127,7 @@ impl ExperimentalBindingAuthority {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CorrelatedAuthenticatedProof {
     pub session_id: Uuid,
-    pub attestation_id: [u8; 16],
+    pub attestation_id: [u8; MAX_ATTESTATION_ID_BYTES],
     pub verified_member_id: String,
     pub request_transcript_sha256: [u8; 32],
     pub response_transcript_sha256: [u8; 32],
@@ -142,7 +142,7 @@ pub struct HeaderlessCorrelationContext {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HeaderlessAuthenticatedProof {
-    pub attestation_id: [u8; 16],
+    pub attestation_id: [u8; MAX_ATTESTATION_ID_BYTES],
     pub request_transcript_sha256: [u8; 32],
     pub response_transcript_sha256: [u8; 32],
     pub verified_member_id: Option<String>,
@@ -237,7 +237,7 @@ mod tests {
             verified_member_id: "16189463".to_owned(),
             binding,
             server_identity: "game.example.test".to_owned(),
-            attestation_id: [0x11; 16],
+            attestation_id: [0x11; MAX_ATTESTATION_ID_BYTES],
             request_transcript_sha256: Some([0x21; 32]),
             response_transcript_sha256: Some([0x22; 32]),
             request_transcript_size: 128,
@@ -326,7 +326,7 @@ mod tests {
         let session_a = session("123e4567-e89b-42d3-a456-426614174000");
         let session_b = session("123e4567-e89b-42d3-a456-426614174001");
         let proof_a = HeaderlessAuthenticatedProof {
-            attestation_id: [0x11; 16],
+            attestation_id: [0x11; MAX_ATTESTATION_ID_BYTES],
             request_transcript_sha256: [0x31; 32],
             response_transcript_sha256: [0x32; 32],
             verified_member_id: Some("16189463".to_owned()),
@@ -359,7 +359,7 @@ mod tests {
             challenge_nonce: [0x42; 32],
         };
         let proof = HeaderlessAuthenticatedProof {
-            attestation_id: [0x11; 16],
+            attestation_id: [0x11; MAX_ATTESTATION_ID_BYTES],
             request_transcript_sha256: [0x31; 32],
             response_transcript_sha256: [0x32; 32],
             verified_member_id: Some("16189463".to_owned()),

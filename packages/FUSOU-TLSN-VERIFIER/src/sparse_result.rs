@@ -4,7 +4,7 @@ use crate::{
     parse_fixed_base64, parse_range_array, parse_result_string, parse_result_uint64,
     push_len_prefixed, push_ranges, push_u16, push_u64, sha256, validate_key_id, validate_ranges,
     validate_server_identity, ParserLimits, Result as VerifierResultType, RevealedRange,
-    VerifierError, ISSUER, PROOF_PURPOSE,
+    VerifierError, ISSUER, MAX_ATTESTATION_ID_BYTES, PROOF_PURPOSE,
 };
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use uuid::Uuid;
@@ -149,7 +149,7 @@ impl SparseVerifierResult {
         }
         validate_key_id(&self.verifier_key_id)?;
         validate_key_id(&self.notary_key_id)?;
-        if self.tlsn_attestation_id.len() != 16 {
+        if self.tlsn_attestation_id.len() != MAX_ATTESTATION_ID_BYTES {
             return Err(VerifierError::InvalidResult(
                 "attestation ID is not 16 bytes",
             ));
@@ -441,7 +441,7 @@ mod tests {
                 },
             },
             server_identity: "game.example.test".to_owned(),
-            attestation_id: [0x11; 16],
+            attestation_id: [0x11; MAX_ATTESTATION_ID_BYTES],
             request_transcript_sha256: None,
             response_transcript_sha256: Some([0x22; 32]),
             request_transcript_size: 128,

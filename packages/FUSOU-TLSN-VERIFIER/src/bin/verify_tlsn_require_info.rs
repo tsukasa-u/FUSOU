@@ -9,6 +9,7 @@ use fusou_tlsn_verifier::{
     ParserLimits,
 };
 use serde_json::json;
+use sha2::{Digest, Sha256};
 use std::{env, fs, process};
 
 struct Arguments {
@@ -110,6 +111,7 @@ fn run() -> Result<(), String> {
     let arguments = parse_arguments()?;
     let presentation = fs::read(&arguments.presentation_path)
         .map_err(|error| format!("read Presentation: {error}"))?;
+    let presentation_sha256: [u8; 32] = Sha256::digest(&presentation).into();
     let transcript = if let Some(path) = arguments.trust_anchor_path.as_deref() {
         let trust_anchor = fs::read(path).map_err(|error| format!("read trust anchor: {error}"))?;
         verify_alpha15_presentation_with_trusted_notary_key_and_trust_anchor(
@@ -135,6 +137,9 @@ fn run() -> Result<(), String> {
             arguments.canonical_user_id,
             arguments.canonical_device_id,
             arguments.device_challenge,
+            presentation_sha256,
+            None,
+            None,
             [0; 64],
         )
         .map_err(|error| error.to_string())?;

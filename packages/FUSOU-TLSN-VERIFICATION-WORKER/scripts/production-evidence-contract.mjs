@@ -1,10 +1,32 @@
+import { Buffer } from "node:buffer";
 import { createHash, randomUUID } from "node:crypto";
 
 export const PRODUCTION_EVIDENCE_SCOPE = "tlsn-production-evidence";
 export const PRODUCTION_EVIDENCE_SCHEMA_VERSION = 1;
+export const TLSN_ATTESTATION_ID_BYTES = 16;
 export const PRODUCTION_EVIDENCE_ITEM_STATUSES = ["PASS", "UNVERIFIED", "BLOCKED", "FAIL"];
 export const PRODUCTION_EVIDENCE_CAPTURE_STATUSES = ["PASS", "FAILED", "UNAVAILABLE"];
 export const PRODUCTION_EVIDENCE_VERIFICATION_STATUSES = ["VERIFIED", "UNVERIFIED", "FAILED"];
+
+export function assertCanonicalTlsnAttestationId(value) {
+  if (typeof value !== "string") {
+    throw new Error("TLSNotary Attestation ID must be a base64url string");
+  }
+  const bytes = Buffer.from(value, "base64url");
+  if (bytes.length !== TLSN_ATTESTATION_ID_BYTES || bytes.toString("base64url") !== value) {
+    throw new Error("TLSNotary Attestation ID must be canonical unpadded base64url for 16 bytes");
+  }
+  return bytes;
+}
+
+export function assertTlsnAttestationIdBinding(presentationId, resultId) {
+  const verifiedPresentationId = assertCanonicalTlsnAttestationId(presentationId);
+  const resultAttestationId = assertCanonicalTlsnAttestationId(resultId);
+  if (!verifiedPresentationId.equals(resultAttestationId)) {
+    throw new Error("verified Presentation and Result Attestation IDs do not match");
+  }
+  return presentationId;
+}
 export const AUTHORITY_COMPROMISE_DEFINITIONS = Object.freeze([
   {
     authority: "device-authority",
@@ -613,6 +635,10 @@ export function deriveProductionTrustGraph({
   if (!captureId || !authenticatedUserId || !deviceId || !devicePublicKeySha256 || !deviceAuthentication || !session || !presentationBytes || !verifiedPresentation || !semanticResult || !result || !resultBytes || !resultSignerKeyId || !resultRegistrySha256 || !resultRegistryEnvelopeSha256 || !resultRegistryRootKeyId || !resultRegistryRootPublicKeySpki || !proxyProvenance) {
     throw new Error("production trust graph derivation inputs are incomplete");
   }
+  const attestationId = assertTlsnAttestationIdBinding(
+    verifiedPresentation.tlsn_attestation_id,
+    semanticResult.tlsn_attestation_id,
+  );
   assertProductionProxyProvenanceShape(proxyProvenance);
   const sparse = semanticResult.disclosure_mode === "sparse";
   const edgeDefinitions = sparse
@@ -624,7 +650,7 @@ export function deriveProductionTrustGraph({
     "device-authentication": { device_id: deviceAuthentication.request.device_id, nonce: deviceAuthentication.request.nonce },
     session: { session_id: session.session_id, key_id: session.session_receipt.signer_key_id, binding_sha256: sha256Base64Url(session.binding) },
     binding: { binding_sha256: sha256Base64Url(session.binding), nonce_sha256: sha256Base64Url(session.challenge) },
-    presentation: { presentation_sha256: sha256Base64Url(presentationBytes), attestation_id: verifiedPresentation.tlsn_attestation_id, binding_sha256: sha256Base64Url(semanticResult.binding_value) },
+    presentation: { presentation_sha256: sha256Base64Url(presentationBytes), attestation_id: attestationId, binding_sha256: sha256Base64Url(semanticResult.binding_value) },
     "member-id": sparse
       ? { verified_member_id: semanticResult.verified_member_id, revealed_response_ranges: semanticResult.revealed_response_ranges }
       : { verified_member_id: semanticResult.verified_member_id, response_transcript_sha256: semanticResult.response_transcript_sha256 },

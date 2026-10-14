@@ -2919,7 +2919,7 @@ mod tests {
             binding_value: binding(),
             verifier_key_id: "verifier-test".to_owned(),
             notary_key_id: "notary-test".to_owned(),
-            tlsn_attestation_id: vec![2_u8; 16],
+            tlsn_attestation_id: vec![2_u8; MAX_ATTESTATION_ID_BYTES],
             presentation_sha256: [7_u8; 32],
             server_identity: "game.example.test".to_owned(),
             origin_inventory_sha256: None,

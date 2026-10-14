@@ -722,18 +722,51 @@ mod tests {
 
     #[test]
     fn real_alpha15_fixture_verifies_with_pinned_backend() {
-        let transcript = verify_alpha15_presentation(include_bytes!(
-            "../fixtures/tlsn-alpha15-upstream-presentation.bin"
+        let fixture = include_bytes!("../fixtures/tlsn-alpha15-upstream-presentation.bin");
+        let vector: serde_json::Value = serde_json::from_str(include_str!(
+            "../fixtures/tlsn-alpha15-attestation-id-vector.json"
         ))
         .unwrap();
+        let expected_id = vector["expected"]["attestation_id_base64url"]
+            .as_str()
+            .unwrap();
+        let expected_id_bytes = URL_SAFE_NO_PAD.decode(expected_id).unwrap();
+        let transcript = verify_alpha15_presentation(fixture).unwrap();
+
         assert_eq!(
-            transcript.attestation_id(),
-            &[
-                0xef, 0xfe, 0x1a, 0x31, 0x6b, 0x1c, 0x91, 0xb4, 0x1f, 0x62, 0x84, 0xf7, 0x84, 0x09,
-                0xc6, 0xc2,
-            ]
+            fixture.len(),
+            vector["source"]["presentation_bytes"].as_u64().unwrap() as usize
         );
-        assert_eq!(transcript.server_identity(), "tlsnotary.org");
+        assert_eq!(
+            URL_SAFE_NO_PAD.encode(sha256(fixture)),
+            vector["source"]["presentation_sha256_base64url"]
+                .as_str()
+                .unwrap()
+        );
+        assert_eq!(
+            expected_id_bytes.len(),
+            vector["contract"]["uid_bytes"].as_u64().unwrap() as usize
+        );
+        assert_eq!(
+            transcript.attestation_id().as_slice(),
+            expected_id_bytes.as_slice()
+        );
+        assert_eq!(
+            URL_SAFE_NO_PAD.encode(transcript.attestation_id()),
+            expected_id
+        );
+        assert_eq!(
+            transcript
+                .attestation_id()
+                .iter()
+                .map(|byte| format!("{byte:02x}"))
+                .collect::<String>(),
+            vector["expected"]["attestation_id_hex"].as_str().unwrap()
+        );
+        assert_eq!(
+            transcript.server_identity(),
+            vector["expected"]["server_identity"].as_str().unwrap()
+        );
         assert_eq!(
             transcript.request_transcript_sha256(),
             Some(&[
@@ -1066,7 +1099,10 @@ mod tests {
             result.request_transcript_size,
             mock_output().sent_transcript.len() as u64
         );
-        assert_eq!(result.tlsn_attestation_id, vec![0x11_u8; 16]);
+        assert_eq!(
+            result.tlsn_attestation_id,
+            vec![0x11_u8; MAX_ATTESTATION_ID_BYTES]
+        );
         assert_eq!(result.binding_nonce, [0x42_u8; 32]);
         assert!(result.canonical_json().is_ok());
     }
