@@ -132,11 +132,21 @@ The fixture's Attestation ID contract is recorded in
 `fixtures/tlsn-alpha15-attestation-id-vector.json`: upstream `Uid` is exactly
 16 raw bytes, extracted from the verified Presentation's
 `attestation.header.id.0`, with no hash or byte-order conversion. Result JSON
-uses canonical unpadded base64url. The shared Rust/Node fixture tests cover
-this ID boundary only; complete Result/Session/Claim cross-language
-determinism remains unresolved. The expected fixture ID was separately
-extracted with the official pinned alpha.15 source outside the FUSOU Cargo
-patches and matched the vector; see the audit dossier.
+uses canonical unpadded base64url. The Node fixture test invokes the packaged
+Rust/WASM verifier with the exact Presentation bytes and vector Notary key,
+then checks its server identity and Attestation ID output; it also rejects
+mutated Presentation bytes and a mutated trusted key. The expected fixture ID
+was separately extracted with the official pinned alpha.15 source outside the
+FUSOU Cargo patches and matched the vector; see the audit dossier.
+
+This is direct Node-to-packaged-Rust/WASM fixture coverage, not an independent
+JavaScript implementation of TLSNotary verification. Complete Result v2 /
+Sparse Result v3 signing bytes, Session and consume receipts, Claim binding,
+and transcript-range cross-language determinism remain unresolved. The
+checked-in WASM provenance currently names a source commit and input hashes
+that do not match the audited checkout; the packaged-binary test does not
+establish that the binary is reproducible from current source. No generated
+WASM artifact was replaced during this audit.
 
 The production server-identity allowlist registry is also not linked. Its
 constructor therefore rejects every identity until that trusted registry is
@@ -246,6 +256,20 @@ The command never contacts Worker, FUSOU-WEB, Supabase, Trigger.dev, a Game
 Server, or a Notary. On rejection it exits non-zero and prints a JSON object
 with the failing `trust_edge`, artifact, and when available the expected and
 actual values.
+
+The verifier crate's offline CLI integration tests cover rejection of a
+cryptographically valid upstream Presentation when its authenticated identity
+does not match the requested identity, rejection of trailing Presentation
+bytes, and Evidence Bundle CLI rejection when external Evidence Root inputs
+are missing. These negative-path tests do not provide a successful FUSOU
+`require_info` Presentation or a Production-shaped Evidence Bundle.
+
+Run the local verifier tests with:
+
+```sh
+cargo test --manifest-path packages/FUSOU-TLSN-VERIFIER/Cargo.toml --locked
+node --test packages/FUSOU-TLSN-VERIFICATION-WORKER/scripts/production-evidence-attestation-id-test.mjs
+```
 
 Example invocation:
 

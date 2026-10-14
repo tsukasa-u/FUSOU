@@ -524,10 +524,7 @@ mod tests {
         production_result.server_identity = "other.example.test".to_owned();
         assert_ne!(original, production_result.signing_bytes().unwrap());
         production_result.server_identity = result.server_identity.clone();
-        production_result
-            .origin_inventory_sha256
-            .as_mut()
-            .unwrap()[0] ^= 1;
+        production_result.origin_inventory_sha256.as_mut().unwrap()[0] ^= 1;
         assert_ne!(original, production_result.signing_bytes().unwrap());
         production_result.origin_inventory_sha256 = Some([0x31; 32]);
         production_result
@@ -561,5 +558,82 @@ mod tests {
             ),
             Err(VerifierError::InvalidResult(_))
         ));
+    }
+
+    #[test]
+    fn sparse_result_parser_rejects_noncanonical_or_ambiguous_json() {
+        let result = SparseVerifierResult::from_authenticated(
+            &evidence(),
+            [1; 32],
+            "verifier-test".to_owned(),
+            "notary-test".to_owned(),
+            [2; 32],
+            [3; 32],
+            None,
+            None,
+            "11111111-1111-4111-8111-111111111111".to_owned(),
+            "22222222-2222-4222-8222-222222222222".to_owned(),
+            [4; 32],
+            [5; 64],
+        )
+        .unwrap();
+        let json = result.canonical_json().unwrap();
+        let profile_sha256 = URL_SAFE_NO_PAD.encode([1; 32]);
+        let noncanonical = [
+            json.replacen("\"version\":3,", "\"version\":3,\"unknown\":true,", 1),
+            json.replacen("\"version\":3,", "\"version\":3,\"version\":3,", 1),
+            json.replacen(
+                "\"profile_id\":\"fusou-require-info-v2-sparse\",\"disclosure_mode\":\"sparse\"",
+                "\"disclosure_mode\":\"sparse\",\"profile_id\":\"fusou-require-info-v2-sparse\"",
+                1,
+            ),
+            json.replacen("{\"version\":3", "{ \"version\":3", 1),
+            json.replacen(&profile_sha256, &format!("{profile_sha256}="), 1),
+            format!("{json}x"),
+        ];
+        for input in noncanonical {
+            assert!(
+                parse_sparse_verifier_result(input.as_bytes(), &ParserLimits::default()).is_err()
+            );
+        }
+    }
+
+    #[test]
+    fn sparse_result_rejects_invalid_attestation_id_and_range_lengths() {
+        let mut result = SparseVerifierResult::from_authenticated(
+            &evidence(),
+            [1; 32],
+            "verifier-test".to_owned(),
+            "notary-test".to_owned(),
+            [2; 32],
+            [3; 32],
+            None,
+            None,
+            "11111111-1111-4111-8111-111111111111".to_owned(),
+            "22222222-2222-4222-8222-222222222222".to_owned(),
+            [4; 32],
+            [5; 64],
+        )
+        .unwrap();
+        result.tlsn_attestation_id.pop();
+        assert!(result.validate().is_err());
+
+        let mut result = SparseVerifierResult::from_authenticated(
+            &evidence(),
+            [1; 32],
+            "verifier-test".to_owned(),
+            "notary-test".to_owned(),
+            [2; 32],
+            [3; 32],
+            None,
+            None,
+            "11111111-1111-4111-8111-111111111111".to_owned(),
+            "22222222-2222-4222-8222-222222222222".to_owned(),
+            [4; 32],
+            [5; 64],
+        )
+        .unwrap();
+        result.revealed_request_ranges[0].length += 1;
+        assert!(result.validate().is_err());
     }
 }

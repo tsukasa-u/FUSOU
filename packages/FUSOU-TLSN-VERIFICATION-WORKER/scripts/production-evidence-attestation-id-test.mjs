@@ -10,6 +10,10 @@ import {
   assertCanonicalTlsnAttestationId,
   assertTlsnAttestationIdBinding,
 } from "./production-evidence-contract.mjs";
+import {
+  initSync,
+  inspect_alpha15_presentation,
+} from "../src/wasm/fusou_tlsn_verifier.js";
 
 const vector = JSON.parse(readFileSync(
   new URL("../../FUSOU-TLSN-VERIFIER/fixtures/tlsn-alpha15-attestation-id-vector.json", import.meta.url),
@@ -19,6 +23,13 @@ const presentation = readFileSync(fileURLToPath(new URL(
   "../../FUSOU-TLSN-VERIFIER/fixtures/tlsn-alpha15-upstream-presentation.bin",
   import.meta.url,
 )));
+const notaryKey = Buffer.from(
+  vector.source.serialized_notary_verifying_key_base64url,
+  "base64url",
+);
+initSync({
+  module: readFileSync(new URL("../src/wasm/fusou_tlsn_verifier_bg.wasm", import.meta.url)),
+});
 
 function gitBlobSha1(bytes) {
   return createHash("sha1")
@@ -71,4 +82,32 @@ test("Node rejects malformed or mismatched Attestation IDs", () => {
     assert.throws(() => assertTlsnAttestationIdBinding(malformed, id));
   }
   assert.throws(() => assertTlsnAttestationIdBinding(id, changedId.toString("base64url")));
+});
+
+test("Node consumes the verified Attestation ID from the packaged Rust/WASM verifier", () => {
+  const serializedKey = vector.source.serialized_notary_verifying_key_base64url;
+  assert.equal(notaryKey.toString("base64url"), serializedKey);
+  const verified = JSON.parse(
+    inspect_alpha15_presentation(new Uint8Array(presentation), notaryKey),
+  );
+
+  assert.equal(verified.server_identity, vector.expected.server_identity);
+  assert.equal(verified.tlsn_attestation_id, vector.expected.attestation_id_base64url);
+  assert.equal(
+    assertTlsnAttestationIdBinding(
+      verified.tlsn_attestation_id,
+      vector.expected.attestation_id_base64url,
+    ),
+    vector.expected.attestation_id_base64url,
+  );
+});
+
+test("Rust/WASM rejects Presentation-byte and trusted-Notary-key mutation", () => {
+  const changedPresentation = Buffer.from(presentation);
+  changedPresentation[0] ^= 1;
+  assert.throws(() => inspect_alpha15_presentation(changedPresentation, notaryKey));
+
+  const changedNotaryKey = Buffer.from(notaryKey);
+  changedNotaryKey[0] ^= 1;
+  assert.throws(() => inspect_alpha15_presentation(presentation, changedNotaryKey));
 });

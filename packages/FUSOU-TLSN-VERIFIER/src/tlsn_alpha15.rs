@@ -727,6 +727,13 @@ mod tests {
             "../fixtures/tlsn-alpha15-attestation-id-vector.json"
         ))
         .unwrap();
+        let presentation: Presentation = bincode::deserialize(fixture).unwrap();
+        let serialized_notary_key =
+            URL_SAFE_NO_PAD.encode(bincode::serialize(presentation.verifying_key()).unwrap());
+        assert_eq!(
+            vector["source"]["serialized_notary_verifying_key_base64url"].as_str(),
+            Some(serialized_notary_key.as_str())
+        );
         let expected_id = vector["expected"]["attestation_id_base64url"]
             .as_str()
             .unwrap();

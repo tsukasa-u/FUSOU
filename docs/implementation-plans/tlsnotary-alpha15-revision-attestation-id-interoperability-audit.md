@@ -5,8 +5,8 @@
 | Item | Status | Evidence and remaining condition |
 | --- | --- | --- |
 | P0-01 technical revision mapping | `PASS` for the factual source map; `P0-01` remains `BLOCKED_EXTERNAL_INPUTS` | The upstream tag/commit and dependency graph are identified below. The verifier executes local path-patched TLSN sources that diverge from upstream; independent compatibility, security, and license approval is still required. |
-| P0-02 Attestation ID contract | `PASS_LOCAL_TESTS` | The exact upstream type/API, 16-byte length, upstream binary fixture, independently extracted ID, and canonical JSON encoding are captured by the shared Rust/Node vector. |
-| P0-10 cross-language determinism | `UNRESOLVED` | Only the Attestation ID byte/string boundary is covered here. Rust/Node Result, Session, Claim, transcript range, canonical JSON, and signing-byte corpus is incomplete. |
+| P0-02 Attestation ID contract | `PASS_LOCAL_TESTS` | The exact upstream type/API, 16-byte length, upstream binary fixture, independently extracted ID, canonical JSON encoding, and Node invocation of the packaged Rust/WASM verifier are covered locally. |
+| P0-10 cross-language determinism | `UNRESOLVED` | The upstream Presentation/Attestation ID boundary now has a direct Node-to-packaged-Rust/WASM test. Result, Session, Claim, receipt, transcript-range, canonical JSON, and signing-byte interoperability corpus remains incomplete. |
 | Phase 0 runtime gate | `BLOCKED` | The P0-02 local contract evidence does not approve the locally patched TLSN revision or satisfy the other Phase 0 gates. Production acceptance remains `NO-GO`. |
 
 The earlier `0/17 PASS` assessment described the state before this audit. P0-02 now has local test evidence; it does not change the Production runtime gate, for which no Phase 0 acceptance is claimed.
@@ -111,10 +111,16 @@ records:
 - the verified raw ID hex/base64url values and observed server name.
 
 The Rust test deserializes and verifies the checked-in upstream binary and
-checks the source digest, raw ID, ID length, encoding, and server name. The
-Node test independently checks the source file identity, canonical encoding,
-and malformed/mismatched ID rejection. The expected ID is a vector for this
-specific upstream fixture, not a universal fixed Attestation ID.
+checks the source digest, raw ID, ID length, encoding, server name, and
+serialized Notary verifying key. The Node test independently checks the source
+file identity, canonical encoding, and malformed/mismatched ID rejection. It
+also passes the exact Presentation bytes and vector Notary key to the checked-in
+Rust/WASM verifier and checks the returned server identity and Attestation ID;
+mutated Presentation bytes and a mutated trusted Notary key are rejected. This
+is direct Node-to-packaged-Rust/WASM fixture coverage, not an independent
+JavaScript implementation of TLSNotary verification. The expected ID is a
+vector for this specific upstream fixture, not a universal fixed Attestation
+ID.
 
 The ID value was also independently extracted during this audit by a temporary
 Cargo package outside the FUSOU workspace. It depended directly on
@@ -135,38 +141,89 @@ a new source review and vectors rather than silently inheriting this contract.
 
 ## P0-10: cross-language determinism boundary
 
-The new shared static vector exercises Rust extraction against upstream
-Presentation bytes and Node validation/binding of the corresponding ID
-representation. It is not a live Rust/WASM-to-Node process handoff and does
-not demonstrate Node-generated protocol bytes consumed by Rust. It does not
-claim that Node can produce or verify TLSNotary Presentations; no Node
-Presentation writer is part of this protocol path.
+### Evidence exercised in this audit
+
+| Vector or path | Expected-data source | Rust path | Node path | Result and limit |
+| --- | --- | --- | --- | --- |
+| `tlsn-alpha15-attestation-id-vector.json` | Exact upstream alpha.15 Presentation bytes identified by Git blob SHA-1 and SHA-256; expected ID was separately extracted using the pinned upstream source without FUSOU Cargo patches. | `tlsn_alpha15.rs::real_alpha15_fixture_verifies_with_pinned_backend` verifies the Presentation, server identity, ID bytes, encoding, and serialized Notary key. | `production-evidence-attestation-id-test.mjs` checks the fixture digests and ID contract, invokes the packaged Rust/WASM verifier, compares its identity/ID output, and rejects Presentation/key mutations. | Local fixture and Node/WASM boundary pass. The packaged artifact's correspondence to the current Rust source is not established; see below. |
+| Sparse Result v3 parser rejection cases | Negative inputs are mutations of a Rust-constructed canonical Sparse Result v3; they are not independently sourced wire-format goldens. | `sparse_result.rs::sparse_result_parser_rejects_noncanonical_or_ambiguous_json` and `sparse_result_rejects_invalid_attestation_id_and_range_lengths` reject unknown/duplicate/reordered fields, whitespace changes, padded base64url, trailing bytes, wrong ID length, and inconsistent range lengths. | No independent Node Sparse Result parser or matching shared corpus was found in the audited Worker path. | Rust-only rejection coverage; not cross-language determinism evidence. |
+| Offline `require_info` CLI rejection | The checked-in upstream Presentation and its serialized verifying key; the test supplies a wrong expected identity or appends trailing bytes. | `tests/offline_verifier_cli.rs` runs the actual `verify_tlsn_require_info` binary and requires nonzero rejection with the expected diagnostic and no success-shaped stdout. | None. | Local fail-closed CLI cases pass. They do not constitute a positive FUSOU `require_info` evidence run. |
+| Offline Evidence Bundle CLI precondition | No Evidence Bundle is fabricated; the test deliberately omits external authority inputs. | `tests/offline_verifier_cli.rs` runs `verify_fusou_tlsn_evidence` and checks machine-readable rejection for missing Evidence Root inputs. | None. | Local missing-authority rejection passes; no positive Production-shaped bundle was verified. |
+
+The verifier's Complete Result v2 and Sparse Result v3 have Rust canonical
+serialization and signing-byte implementations. The audited Node
+`production-evidence-contract.mjs` enforces semantic evidence bindings, but
+does not independently implement those Result signing bytes or verify the
+inner Result signature. The Result and receipt trust edges are therefore not
+cross-language merely because Node checks a Presentation digest or Attestation
+ID.
+
+Session Authority and consume receipt framing is implemented in Rust
+`evidence_bundle.rs` under the
+`FUSOU-ATTESTATION-SESSION-V1\0` and
+`FUSOU-ATTESTATION-CONSUME-V1\0` domains. No corresponding JavaScript receipt
+producer/validator or shared receipt vectors were found in the audited
+verifier/Worker paths. `ClaimBindingBytes` is described in documentation, but
+an executable Rust/Node implementation and shared Claim vector were not found.
+Packed sparse transcript bytes and authenticated range verification are also
+Rust-side; the audited Node path does not independently parse and validate
+those ranges.
+
+The packaged WASM test has an additional provenance limit. The checked-in
+`wasm-provenance.json` names source commit
+`95923de519fd6d382b596b92c06cff0cebc90987`, which is not an ancestor of the
+audited checkout, and its recorded hashes for verifier source files do not
+match the checkout. Its referenced build/provenance scripts are absent from
+the current tracked paths. An offline rebuild with Rust 1.95.0 and wasm-pack
+0.13.1 produced matching generated JavaScript and declarations but a different
+WASM binary size (checked-in: 752,473 bytes; rebuilt: 755,685 bytes). No
+generated artifact was replaced. The Node test proves behavior of the
+packaged binary for the fixture; it does not prove that binary was reproduced
+from current source.
 
 Still missing before P0-10 can pass:
 
 - independent shared vectors for Complete Result v2 and Sparse Result v3,
-  including Rust signing bytes and Node consumption;
-- Session receipt, consume receipt, and Claim bytes/field binding vectors;
-- canonical JSON and binary/range vectors with independently sourced expected
-  bytes, including boundary values and rejection cases;
-- live Rust/WASM output consumed by Node and Node-produced protocol vectors
-  consumed by Rust where those producers actually exist;
-- shared corpus coverage for invalid UTF-8, missing/unknown/duplicate fields,
-  noncanonical numbers/encoding, malformed ranges, and byte/order mutations.
+  including canonical bytes, signing bytes, and Node consumption/verification;
+- Session receipt, consume receipt, and Claim bytes/field-binding vectors;
+- shared canonical JSON, binary transcript/range, and cross-reference vectors
+  with independently sourced expected bytes;
+- Node-produced protocol vectors consumed by Rust for any protocol producer
+  that actually exists, rather than adding a fictitious Node Presentation
+  writer;
+- matching Rust/Node rejection vectors for invalid UTF-8, missing/unknown/
+  duplicate fields, noncanonical numbers/encoding, malformed ranges, and
+  byte/order mutations.
 
-Existing local tests that call one implementation twice, Runtime Config
-vectors, and fake signer/store tests do not satisfy these missing TLSN
-protocol vectors.
+Result vectors must not be created by copying current Rust output into Node
+expectations and calling that independent evidence. Existing local tests that
+call one implementation twice, Runtime Config vectors, and fake signer/store
+tests do not satisfy the missing TLSN protocol corpus.
 
 ## Commands and interpretation
 
 ```sh
-cargo test --manifest-path packages/FUSOU-TLSN-VERIFIER/Cargo.toml --locked
+cargo test --manifest-path packages/FUSOU-TLSN-VERIFIER/Cargo.toml --locked --quiet
 node --test packages/FUSOU-TLSN-VERIFICATION-WORKER/scripts/production-evidence-attestation-id-test.mjs
+rustfmt --edition 2021 --check \
+  packages/FUSOU-TLSN-VERIFIER/src/sparse_result.rs \
+  packages/FUSOU-TLSN-VERIFIER/src/tlsn_alpha15.rs \
+  packages/FUSOU-TLSN-VERIFIER/tests/offline_verifier_cli.rs
+cargo clippy --manifest-path packages/FUSOU-TLSN-VERIFIER/Cargo.toml \
+  --all-targets --locked -- -D warnings
+git diff --check
 ```
 
-These are local source/test checks only. No Hosted CI, Production operation,
-R2 service access, Notary service, or real Game Server testplay is evidence
-for this audit; none was performed here. P0-03 through P0-09 and P0-11 through
-P0-17 are unchanged. P0-01 approval, the remaining P0-10 corpus, real TLSN
-testplay, and Production acceptance remain blocked.
+The Rust suite completed with 83 unit tests and 3 offline CLI integration
+tests passing; the Node test completed with 5 tests passing. Targeted rustfmt
+and scoped `git diff --check` passed. Package-wide `cargo fmt -- --check`
+reported formatting drift in untouched verifier files (`src/lib.rs` and
+`src/wasm.rs`); all files changed for this audit pass targeted rustfmt, and
+unrelated formatting was not rewritten. Strict Clippy exited nonzero on
+existing lints across verifier code, including pre-existing argument-count,
+borrow, default-initialization, and range-helper diagnostics; it did not
+report the new CLI integration tests. These are local source/test checks
+only. Hosted CI, Production operation, R2 service access, Notary service, and
+real Game Server testplay were not performed. P0-03 through P0-09 and P0-11
+through P0-17 are unchanged. P0-01 independent approval, the remaining P0-10
+corpus, real TLSN testplay, and Production acceptance remain blocked.

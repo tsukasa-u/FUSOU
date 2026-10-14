@@ -10,7 +10,8 @@
     "git_blob_sha1": "7de6e4c96785f2efbef44e84bcbd76ac2eff09d2",
     "presentation_bytes": 5394,
     "presentation_sha256_hex": "cb9b3befb43df5157a4d5ac52080ba19d842f191fa346bfda1dfc4927b37e5b6",
-    "presentation_sha256_base64url": "y5s777Q99RV6TVrFIIC6GdhC8ZH6NGv9od_Ekns35bY"
+    "presentation_sha256_base64url": "y5s777Q99RV6TVrFIIC6GdhC8ZH6NGv9od_Ekns35bY",
+    "serialized_notary_verifying_key_base64url": "ASEAAAAAAAAAA1vl6UeCCWdKluYPHwN_YXZUD9AB-h1kaUdwxWp3CcQs"
   },
   "contract": {
     "uid_type": "tlsn_attestation::Uid([u8; 16])",
