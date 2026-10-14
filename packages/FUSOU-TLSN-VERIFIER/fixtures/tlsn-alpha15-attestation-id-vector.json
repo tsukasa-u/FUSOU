@@ -27,6 +27,7 @@
   "verification": {
     "rust": "cargo test --manifest-path packages/FUSOU-TLSN-VERIFIER/Cargo.toml --locked real_alpha15_fixture_verifies_with_pinned_backend",
     "node": "node --test packages/FUSOU-TLSN-VERIFICATION-WORKER/scripts/production-evidence-attestation-id-test.mjs",
-    "expected_source": "The binary is the upstream alpha.15 fixture at the pinned revision; expected ID bytes are asserted by the existing Rust Presentation::verify path, not generated from a local synthetic Presentation."
+    "upstream_independent": "An isolated Cargo scratch package with a direct tlsn-attestation git dependency at the exact revision, no FUSOU [patch] entries, deserialized this fixture and called Presentation::verify(&CryptoProvider::default()). It independently emitted the expected ID hex. Scratch source and target were temporary and removed after verification.",
+    "upstream_observed_attestation_id_hex": "effe1a316b1c91b41f6284f78409c6c2"
   }
 }

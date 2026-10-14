@@ -134,7 +134,9 @@ The fixture's Attestation ID contract is recorded in
 `attestation.header.id.0`, with no hash or byte-order conversion. Result JSON
 uses canonical unpadded base64url. The shared Rust/Node fixture tests cover
 this ID boundary only; complete Result/Session/Claim cross-language
-determinism remains unresolved.
+determinism remains unresolved. The expected fixture ID was separately
+extracted with the official pinned alpha.15 source outside the FUSOU Cargo
+patches and matched the vector; see the audit dossier.
 
 The production server-identity allowlist registry is also not linked. Its
 constructor therefore rejects every identity until that trusted registry is

@@ -46,6 +46,10 @@ test("Node accepts the Rust-verified Attestation ID only in canonical 16-byte fo
 
   assert.equal(bytes.length, vector.contract.uid_bytes);
   assert.equal(bytes.toString("hex"), vector.expected.attestation_id_hex);
+  assert.equal(
+    vector.verification.upstream_observed_attestation_id_hex,
+    vector.expected.attestation_id_hex,
+  );
   assert.equal(assertTlsnAttestationIdBinding(id, id), id);
 });
 

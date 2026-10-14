@@ -5,7 +5,7 @@
 | Item | Status | Evidence and remaining condition |
 | --- | --- | --- |
 | P0-01 technical revision mapping | `PASS` for the factual source map; `P0-01` remains `BLOCKED_EXTERNAL_INPUTS` | The upstream tag/commit and dependency graph are identified below. The verifier executes local path-patched TLSN sources that diverge from upstream; independent compatibility, security, and license approval is still required. |
-| P0-02 Attestation ID contract | `PASS_LOCAL_TESTS` | The exact upstream type/API, 16-byte length, upstream binary fixture, extraction result, and canonical JSON encoding are captured by the shared Rust/Node vector. |
+| P0-02 Attestation ID contract | `PASS_LOCAL_TESTS` | The exact upstream type/API, 16-byte length, upstream binary fixture, independently extracted ID, and canonical JSON encoding are captured by the shared Rust/Node vector. |
 | P0-10 cross-language determinism | `UNRESOLVED` | Only the Attestation ID byte/string boundary is covered here. Rust/Node Result, Session, Claim, transcript range, canonical JSON, and signing-byte corpus is incomplete. |
 | Phase 0 runtime gate | `BLOCKED` | The P0-02 local contract evidence does not approve the locally patched TLSN revision or satisfy the other Phase 0 gates. Production acceptance remains `NO-GO`. |
 
@@ -115,6 +115,17 @@ checks the source digest, raw ID, ID length, encoding, and server name. The
 Node test independently checks the source file identity, canonical encoding,
 and malformed/mismatched ID rejection. The expected ID is a vector for this
 specific upstream fixture, not a universal fixed Attestation ID.
+
+The ID value was also independently extracted during this audit by a temporary
+Cargo package outside the FUSOU workspace. It depended directly on
+`tlsn-attestation` from commit
+`47aee45b53e06648c1b2ad3689b367b8c923fdec`, with no FUSOU `[patch]` entries,
+deserialized the same upstream fixture, called
+`Presentation::verify(&CryptoProvider::default())`, and read
+`output.attestation.header.id.0`. The upstream-only executable output
+`effe1a316b1c91b41f6284f78409c6c2`, independently matching the vector. The
+scratch project and its temporary lock/target files were removed; no repository
+lockfile was changed.
 
 Invalid Presentation encoding, truncation, trailing bytes, or failed
 Presentation verification is rejected before the ID can be used. The
