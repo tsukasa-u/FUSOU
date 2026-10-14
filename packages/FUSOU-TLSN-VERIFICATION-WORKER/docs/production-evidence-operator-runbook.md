@@ -396,6 +396,33 @@ Supply these inputs through an approved local secret manager or equivalent envir
 | `TLSN_RUNTIME_CONFIG_R2_TEST_SECRET_ACCESS_KEY` | Secret key from the bucket-scoped test token. |
 | `TLSN_RUNTIME_CONFIG_R2_TEST_BUCKET_CONFIRMATION=I_CONFIRM_THIS_IS_DISPOSABLE_NON_PRODUCTION` | Explicit operator confirmation of the dedicated disposable bucket. |
 
+#### Operator execution sequence
+
+1. In the Cloudflare dashboard, create a new disposable, non-Production bucket named `fusou-tlsn-r2-test-<lowercase-alphanumeric-suffix>`. Confirm the account and bucket identity, and confirm that it has no jurisdictional restriction; this harness uses only the account-level endpoint. Do not reuse or rename a Production bucket.
+2. Create a separate R2 S3 API token with **Object Read & Write** permission scoped only to that bucket. This permission group also permits object listing, although this harness does not list objects. Do not use Admin or account-wide scope, Production credentials, or the Runtime Config signer. Cloudflare's current [R2 authentication documentation](https://developers.cloudflare.com/r2/api/tokens/) describes bucket scoping.
+3. Inject the six inputs above only through a local secret manager or an appropriately protected process environment. Do not put credentials in repository files, command history, shell transcripts, or reports.
+4. Check presence without printing values:
+
+   ```sh
+   node --input-type=module -e 'const names=["TLSN_RUNTIME_CONFIG_R2_INTEGRATION_OPT_IN","TLSN_RUNTIME_CONFIG_R2_TEST_ACCOUNT_ID","TLSN_RUNTIME_CONFIG_R2_TEST_BUCKET","TLSN_RUNTIME_CONFIG_R2_TEST_ACCESS_KEY_ID","TLSN_RUNTIME_CONFIG_R2_TEST_SECRET_ACCESS_KEY","TLSN_RUNTIME_CONFIG_R2_TEST_BUCKET_CONFIRMATION"]; console.log(JSON.stringify(Object.fromEntries(names.map((name)=>[name,Boolean(process.env[name]?.trim())]))));'
+   ```
+
+5. Run `pnpm run tlsn:runtime-config:publisher-readiness` as the separate, no-network Production publisher diagnostic. Then run this no-network R2 integration configuration check; it prints only state/reason and deliberately omits the resolved configuration and credentials:
+
+   ```sh
+   node --input-type=module -e 'import { inspectRuntimeConfigR2IntegrationConfiguration } from "./packages/FUSOU-TLSN-VERIFICATION-WORKER/scripts/tlsn-runtime-config-r2-integration-config.mjs"; const {state,reason}=inspectRuntimeConfigR2IntegrationConfiguration(); console.log(JSON.stringify({state,reason})); if(state!=="READY") process.exitCode=1;'
+   ```
+
+   `READY` verifies only local input shape and separation checks. It does not prove that the account/bucket pair exists, that the operator's classification is correct, or that credentials work or have the claimed scope. Confirm the bucket and token scope independently in the Cloudflare dashboard. Publisher readiness is a separate Production gate; its blocked result must not be turned into a test-bucket readiness claim or vice versa.
+6. Run the live harness **only** if all six presence checks are true, the integration configuration check returns `READY`, and the dashboard check confirms the dedicated disposable bucket and token scope. Otherwise stop with `NOT_RUN` or `BLOCKED_EXTERNAL_INPUTS`; do not invoke the live command. When permitted, run:
+
+   ```sh
+   pnpm run tlsn:runtime-config:r2-integration
+   ```
+
+7. Record the test run ID, per-case outcome, exact test-prefix object keys, readback body digests, ETags, and any error class. Never record access keys, secret keys, or tokens. A passing local preflight is not a service result.
+8. If a write, readback, signature/digest check, or cleanup is inconsistent or indeterminate, stop publication and follow **Timeout triage and recovery** below. Do not blindly retry or delete the pointer. Retain mutable pointers for review; retire the disposable bucket manually only after reviewing the run prefix.
+
 The harness derives `https://<account-id>.r2.cloudflarestorage.com`; it accepts no endpoint override and supplies explicit credentials to SDK clients configured for one attempt. Use a bucket without a jurisdictional restriction; jurisdiction-specific endpoints are not configurable in this harness. Automatic data placement is a location choice, not a jurisdiction. The script rejects malformed account IDs, buckets outside the dedicated naming pattern, a bucket equal to the configured publisher bucket, reused publisher credentials, missing confirmation, or any missing required input before constructing a client. These checks reduce accidental mis-targeting but cannot prove the operator's account/bucket classification; use a newly created disposable bucket and verify its identity and location in the Cloudflare dashboard before opt-in.
 
 Create the bucket in the Cloudflare dashboard before running the harness. It sends only object GET, PUT, and DELETE operations; it does not issue `CreateBucket` or list requests and does not set the [`cf-create-bucket-if-missing`](https://developers.cloudflare.com/r2/api/s3/extensions/) header. A missing bucket is an error, not a request to create one.
