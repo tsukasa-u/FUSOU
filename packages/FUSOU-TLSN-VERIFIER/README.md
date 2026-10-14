@@ -140,13 +140,15 @@ was separately extracted with the official pinned alpha.15 source outside the
 FUSOU Cargo patches and matched the vector; see the audit dossier.
 
 This is direct Node-to-packaged-Rust/WASM fixture coverage, not an independent
-JavaScript implementation of TLSNotary verification. Complete Result v2 /
-Sparse Result v3 signing bytes, Session and consume receipts, Claim binding,
-and transcript-range cross-language determinism remain unresolved. The
-checked-in WASM provenance currently names a source commit and input hashes
-that do not match the audited checkout; the packaged-binary test does not
-establish that the binary is reproducible from current source. No generated
-WASM artifact was replaced during this audit.
+JavaScript implementation of TLSNotary verification. At the checkpoint below,
+Complete Result v2 / Sparse Result v3 signing bytes, Session and consume
+receipts, Claim binding, and transcript-range cross-language determinism were
+unresolved; the later shared-corpus continuation adds local Result/receipt
+reference tests but does not resolve Claim, packed Presentation bytes, or
+protocol-owner approval. The local, Git-ignored WASM provenance names a source
+commit and input hashes that do not match the audited checkout; the packaged
+binary test does not establish that the binary is reproducible from current
+source. No generated WASM artifact was replaced during this audit.
 
 ### P0-10 cross-language audit checkpoint
 
@@ -171,12 +173,13 @@ The audit record lists the exact Result v2/v3 domains and byte framing,
 WASM/Rust/Node responsibilities, receipt domains, packed-range encoding, and
 the unresolved conflicting Claim layouts in
 [`tlsnotary-alpha15-revision-attestation-id-interoperability-audit.md`](../../docs/implementation-plans/tlsnotary-alpha15-revision-attestation-id-interoperability-audit.md).
-It also records the current-source offline `--no-opt` rebuild: generated JS
-and declarations match the checked-in files byte-for-byte, but the 912,726
-byte unoptimized WASM differs from the 752,473 byte checked-in optimized
-artifact. `wasm-opt` was unavailable, and the provenance-declared source
-commit/input hashes still do not map to this checkout. Artifact provenance
-therefore remains unresolved.
+It also records the prior current-source offline `--no-opt` rebuild: generated
+JS and declarations matched the then-present local generated files
+byte-for-byte, but the 912,726-byte unoptimized WASM differed from the
+752,473-byte local optimized artifact recorded at that time. `wasm-opt` was
+unavailable for that rebuild, and the provenance-declared source commit/input
+hashes still do not map to this checkout. Artifact provenance therefore
+remains unresolved.
 
 Local checks for this checkpoint: Rust verifier suite **84 unit + 3 CLI
 integration tests passed**; Node Runtime Config manifest suite **21 passed**;
@@ -186,6 +189,52 @@ packed transcript ranges still lack the required independent shared corpus.
 P0-10 remains `UNRESOLVED`; Hosted CI, Production runtime verification, and
 real Game Server testplay were not run, and Production acceptance remains
 blocked.
+
+### P0-10 shared corpus continuation
+
+The follow-up started from `96545076bc4e53083e4536a4159b3d2cb8dce0c3` on
+`tlsn-first-testplay-candidate`, with upstream equal to HEAD. It adds
+[`p010-cross-language-corpus-v1.json`](./fixtures/p010-cross-language-corpus-v1.json)
+and [`generate_p010_corpus.py`](./tools/generate_p010_corpus.py), a test-only
+reference corpus for Complete Result v2, Sparse Result v3, Session receipt,
+and consume receipt. The four positive vectors fix exact canonical JSON,
+signing bytes, Result range-wire bytes, hashes, signatures, public keys,
+test-only registry bytes, and Result/Session/consume cross-references. The
+corpus also contains 34 Result rejection vectors and five receipt binding or
+signature mutation cases.
+
+The generator uses Python 3.12.3 standard-library encoding and OpenSSL 3.5.6
+for Ed25519 signatures. Rust tests consume the fixture through the production
+Result parser, canonical serializer, inner signature verifier, and receipt
+verifiers. The separate Node test uses built-in crypto and a test-only
+reference encoder; it does not call Rust/WASM or Worker serialization code.
+The corpus's Result key is the public RFC 8032 test key and its receipt keys
+are deterministic test-only keys. These direct pins are not Production trust
+roots. The byte layouts were independently encoded from the audited source
+contract, but no protocol owner approved that contract and no independently
+published FUSOU Result/receipt vectors were found.
+
+Local verification from the repository root: Rust verifier suite **90 unit
+tests + 3 offline CLI integration tests passed**; the new Node corpus suite
+**8 passed**; Runtime Config manifest tests **21 passed**; Node/WASM
+Attestation ID tests **5 passed**; corpus regeneration `--check`,
+`rustfmt --check`, and `git diff --check` passed. Hosted CI was not run. The
+Node/WASM Attestation ID test is a separate integration path and does not
+establish the provenance of the local ignored WASM. Its binary SHA-256 remains
+`57ea4e30f684f15c6f22fc26eb0995b9d8b961ba7de6edd82faaaf21dd62ab66`
+(752,473 bytes), matching the prior audit record; Git tracks neither that
+binary nor its provenance JSON. No WASM artifact was changed.
+
+P0-10 remains `UNRESOLVED`: ClaimBindingBytes still has conflicting
+eight-field/eleven-field descriptions; receipt JSON canonicalization is not
+specified; the corpus covers Result range framing, not the FUSOU-local packed
+TLSN sparse Presentation format; and WASM provenance remains unresolved.
+There is no independently sourced positive FUSOU `require_info` Presentation
+or Production-shaped Evidence Bundle in the corpus. The existing synthetic
+in-memory flow is not Production acceptance evidence. P0-01 remains
+`BLOCKED_EXTERNAL_INPUTS`; Phase 0 runtime gate, real testplay, Hosted CI,
+Production runtime verification, and Production acceptance were not run or
+promoted.
 
 The production server-identity allowlist registry is also not linked. Its
 constructor therefore rejects every identity until that trusted registry is

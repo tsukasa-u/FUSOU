@@ -6,7 +6,7 @@
 | --- | --- | --- |
 | P0-01 technical revision mapping | `PASS` for the factual source map; `P0-01` remains `BLOCKED_EXTERNAL_INPUTS` | The upstream tag/commit and dependency graph are identified below. The verifier executes local path-patched TLSN sources that diverge from upstream; independent compatibility, security, and license approval is still required. |
 | P0-02 Attestation ID contract | `PASS_LOCAL_TESTS` | The exact upstream type/API, 16-byte length, upstream binary fixture, independently extracted ID, canonical JSON encoding, and Node invocation of the packaged Rust/WASM verifier are covered locally. |
-| P0-10 cross-language determinism | `UNRESOLVED` | The upstream Presentation/Attestation ID boundary and a Node-produced, test-only Result registry envelope now have Node-to-packaged-Rust/WASM/Rust verifier coverage. The latter is only the outer registry envelope; it is not an inner Result signature golden. Result v2/v3, Session, Claim, receipt, transcript-range, canonical JSON, and signing-byte corpus remains incomplete. |
+| P0-10 cross-language determinism | `UNRESOLVED` | A shared local corpus now covers Complete Result v2, Sparse Result v3, Session/consume receipts, Result range bytes, and contract-required rejection cases in separate Rust and Node reference tests. The corpus is generated independently of production serializers but is source-derived, test-only, and not an owner-approved normative oracle. Claim, receipt JSON canonicalization, TLSN sparse Presentation bytes, WASM provenance, and Production-shaped evidence remain unresolved. |
 | Phase 0 runtime gate | `BLOCKED` | The P0-02 local contract evidence does not approve the locally patched TLSN revision or satisfy the other Phase 0 gates. Production acceptance remains `NO-GO`. |
 
 The earlier `0/17 PASS` assessment described the state before this audit. P0-02 now has local test evidence; it does not change the Production runtime gate, for which no Phase 0 acceptance is claimed.
@@ -189,32 +189,91 @@ has an independent expected byte vector.
 
 | Contract | Canonical input/output and exact-byte construction in source | Rust/WASM path | Node/Worker path | Executed evidence and unresolved boundary |
 | --- | --- | --- | --- | --- |
-| Complete Result v2 | `VerifierResult` uses manually ordered canonical JSON. `signing_bytes()` is `FUSOU-VERIFIER-RESULT-V2\0`, big-endian `u16` version, then these fields in source order: profile ID, profile digest, issuer, purpose, user ID, device ID, device challenge, verified member ID, Session ID, binding nonce/value, verifier/Notary key IDs, Attestation ID, Presentation digest, server identity, optional Origin Inventory and Target Approval digests, request size/digest/ranges, response size/digest/ranges. Variable values use `u16`-length prefixes; sizes use big-endian `u64`; each ranges vector uses big-endian `u32` count and each range's big-endian start, length, byte length, then raw bytes. The signature is excluded. | `lib.rs` canonicalizes and produces signing bytes; `wasm.rs` exposes Rust-derived bytes and signature attachment. `evidence_bundle.rs::verify_result_signature` recomputes them and verifies against the authenticated Result registry. The offline `verify_tlsn_require_info` emits an unsigned Result and bytes; `verify_fusou_tlsn_evidence` verifies an Evidence Bundle Result signature. | Packaged WASM JS glue exposes Rust byte/attach APIs. `production-evidence-contract.mjs` validates semantic bindings but does not independently derive bytes or verify the inner signature. `deployment-contract.mjs` contains `signResult` capability metadata, not an executable signer. | Rust-local stability and signed-field mutation tests exist. No independent Result v2 bytes/public-key/signature vector or Node/WASM Result-signature verification test was found. |
-| Sparse Result v3 | `SparseVerifierResult` uses manually ordered canonical JSON. `signing_bytes()` starts with `FUSOU-VERIFIER-SPARSE-RESULT-V2\0` and version `3`, then ordered fields: profile ID, disclosure mode, profile digest, issuer, purpose, user/device IDs, device challenge, verified member ID, Session ID, binding nonce/value, verifier/Notary key IDs and Notary digest, Attestation ID, Presentation digest, server identity, optional Origin Inventory/Target Approval digests, request size/ranges, response size/ranges. It uses the same integer/length-prefix/range framing as the Complete Result, with raw disclosed range bytes. The signature is excluded. | `sparse_result.rs` parses, validates, canonicalizes, and constructs bytes. `wasm.rs` exposes Rust-derived signing-byte and signature-attachment APIs; Evidence Bundle verification uses the Rust `EvidenceResultView` path. | No executable Node Sparse Result byte serializer or inner-signature verifier was found in the audited Worker scripts. | Rust parser rejection and signing-byte mutation tests exist; there is no independent cross-language canonical-byte/signature vector. |
+| Complete Result v2 | `VerifierResult` uses manually ordered canonical JSON. `signing_bytes()` is `FUSOU-VERIFIER-RESULT-V2\0`, big-endian `u16` version, then these fields in source order: profile ID, profile digest, issuer, purpose, user ID, device ID, device challenge, verified member ID, Session ID, binding nonce/value, verifier/Notary key IDs, Attestation ID, Presentation digest, server identity, optional Origin Inventory and Target Approval digests, request size/digest/ranges, response size/digest/ranges. Variable values use `u16`-length prefixes; sizes use big-endian `u64`; each ranges vector uses big-endian `u32` count and each range's big-endian start, length, byte length, then raw bytes. The signature is excluded. | `lib.rs` canonicalizes and produces signing bytes; `wasm.rs` exposes Rust-derived bytes and signature attachment. `evidence_bundle.rs::verify_result_signature` recomputes them and verifies against the authenticated Result registry. The offline `verify_tlsn_require_info` emits an unsigned Result and bytes; `verify_fusou_tlsn_evidence` verifies an Evidence Bundle Result signature. | Packaged WASM JS glue exposes Rust byte/attach APIs. `production-evidence-contract.mjs` validates semantic bindings but does not independently derive bytes or verify the inner signature. `deployment-contract.mjs` contains `signResult` capability metadata, not an executable signer. | The shared v1 corpus fixes the exact JSON, signing bytes, range wire bytes, digest, and OpenSSL-generated test signature. Rust parses and verifies via the actual inner Result signature verifier; the separate Node reference independently encodes and verifies the same bytes. This is local implementation evidence, not protocol-owner approval or a Production key/root test. |
+| Sparse Result v3 | `SparseVerifierResult` uses manually ordered canonical JSON. `signing_bytes()` starts with `FUSOU-VERIFIER-SPARSE-RESULT-V2\0` and version `3`, then ordered fields: profile ID, disclosure mode, profile digest, issuer, purpose, user/device IDs, device challenge, verified member ID, Session ID, binding nonce/value, verifier/Notary key IDs and Notary digest, Attestation ID, Presentation digest, server identity, optional Origin Inventory/Target Approval digests, request size/ranges, response size/ranges. It uses the same integer/length-prefix/range framing as the Complete Result, with raw disclosed range bytes. The signature is excluded. | `sparse_result.rs` parses, validates, canonicalizes, and constructs bytes. `wasm.rs` exposes Rust-derived signing-byte and signature-attachment APIs; Evidence Bundle verification uses the Rust `EvidenceResultView` path. | No production Node Sparse Result serializer or inner-signature verifier was found. A test-only Node reference consumes the shared corpus without importing Rust/WASM or Worker serializers. | The same local corpus independently fixes canonical JSON, signing/range bytes, digest, and signature expectations; Rust parser, verifier and Node reference tests pass. It does not cover TLSN's packed sparse Presentation encoding or prove the packaged WASM's source provenance. |
 | Outer Result registry envelope | Node signs `canonicalJson` of seven fields (schema, scope, algorithm, root ID, root SPKI, digest of exact raw registry bytes, registry object) with Ed25519. The signature is outside the signed payload. Rust selects the same fields, recursively canonicalizes JSON, checks root ID/SPKI against caller-supplied trust pins, and verifies the registry and envelope raw-byte digests. | `evidence_bundle.rs::verify_result_registry_root` verifies this envelope. The added test consumes the fixed vector and rejects signature-byte mutation; its pin values come from the vector rather than an independent root authority. | `result-registry-envelope.mjs` implements Node creation/verification; the Runtime Config manifest test exercises the fixed Node-produced vector and mutation cases. | Node-to-Rust interoperability passes locally for the outer envelope only. The vector is test-only and Node-produced, so it is neither an external normative golden nor evidence for inner Result v2/v3 signatures. |
-| Session and consume receipts | Rust frames ordered UTF-8 string fields after `FUSOU-ATTESTATION-SESSION-V1\0` or `FUSOU-ATTESTATION-CONSUME-V1\0`, a `0x0001` version marker, and big-endian `u16` length prefixes. Session field order is signer key ID, Session ID, user ID, device ID, device-auth nonce, nonce, device challenge, binding value, creation time, expiry time. Consume field order is signer key ID, Session ID, user ID, device ID, nonce, binding value, Presentation ID, used time. | `evidence_bundle.rs` constructs the bytes and verifies both receipt signatures. | No executable Node producer/verifier or shared receipt corpus was found. | Rust verification alone is not cross-language evidence; independent byte/signature vectors are absent. |
+| Session and consume receipts | Rust frames ordered UTF-8 string fields after `FUSOU-ATTESTATION-SESSION-V1\0` or `FUSOU-ATTESTATION-CONSUME-V1\0`, a `0x0001` version marker, and big-endian `u16` length prefixes. Session field order is signer key ID, Session ID, user ID, device ID, device-auth nonce, nonce, device challenge, binding value, creation time, expiry time. Consume field order is signer key ID, Session ID, user ID, device ID, nonce, binding value, Presentation ID, used time. | `evidence_bundle.rs` constructs the bytes and verifies both receipt signatures against the supplied test registry/pin in the corpus tests. | A test-only Node reference independently constructs and verifies both preimages; no Production Node receipt implementation is claimed. | The corpus fixes both receipt preimages, hashes, signatures, key IDs, registry bytes, and binding mutations. Its direct test keys are not Production trust roots. Receipt JSON canonicalization and unknown-field policy remain unspecified and unresolved. |
 | Claim | The older `trusted-battle-and-telemetry-ingestion.md` layout has eight inputs (domain, purpose, Attestation ID, member ID, device ID, expected public ID, Challenge ID, Challenge nonce). `member-id-preemptive-attack-and-recovery.md` adds Session ID, binding nonce, and binding value. | No executable ClaimBindingBytes serializer/verifier was found in the verifier crate. | No executable matching Node serializer/verifier or shared Claim vector was found. | Normative field layout, encoding, and expected bytes remain unresolved; neither document is promoted to the executable contract by this audit. |
-| Transcript ranges | Result JSON represents ranges using decimal-string start/length plus base64url bytes. Result signatures include a big-endian `u32` range count and each range's big-endian start, length, byte length, and raw bytes. The TLSN sparse Presentation uses the local Rust packed transcript/proof representation and authenticated range reads. | Rust validates ordering, bounds, and non-overlap and verifies sparse proof openings. | No independent Node parser/verifier for packed Presentation ranges was found. | Rust rejection tests exist, but there are no shared expected range bytes or Node↔Rust sparse Presentation vectors. |
+| Transcript ranges | Result JSON represents ranges using decimal-string start/length plus base64url bytes. Result signatures include a big-endian `u32` range count and each range's big-endian start, length, byte length, and raw bytes. The TLSN sparse Presentation uses the local Rust packed transcript/proof representation and authenticated range reads. | Rust validates ordering, bounds, and non-overlap and verifies sparse proof openings. The shared corpus fixes and compares the distinct Result range-wire bytes. | The Node reference validates Result range ordering/bounds and compares the same Result range-wire bytes. No independent Node parser/verifier for packed TLSN Presentation ranges was found. | Result range framing and selected invalid boundaries are covered locally. Full TLSN sparse Presentation binary encoding, proof openings, and Rust↔Node Presentation vectors remain unresolved. |
+
+### Shared implementation corpus v1
+
+The current continuation started from `96545076bc4e53083e4536a4159b3d2cb8dce0c3`
+on `tlsn-first-testplay-candidate`; upstream was equal to that HEAD. The
+pre-existing user-owned `configs.toml` remained untouched and unstaged.
+
+`packages/FUSOU-TLSN-VERIFIER/fixtures/p010-cross-language-corpus-v1.json`
+contains four positive, explicitly test-only vectors: Complete Result v2,
+Sparse Result v3, Session receipt v1, and consume receipt v1. It also contains
+34 Result rejection vectors and five receipt binding/signature mutation cases.
+The result vectors include exact input/canonical JSON bytes, signing bytes,
+range-wire bytes, SHA-256 values, signature bytes, key IDs, public keys, and a
+direct test-only registry; the receipt vectors include exact receipt/session
+inputs, authority registry bytes, preimages, digests, signatures, and direct
+test-only key pins. The Result, Session, device, binding nonce, and Presentation
+digest cross-references are asserted by both languages.
+
+The independent generator is
+`packages/FUSOU-TLSN-VERIFIER/tools/generate_p010_corpus.py`. It uses Python
+3.12.3 standard-library JSON/struct encoding and OpenSSL 3.5.6 Ed25519
+signatures; Result and receipt preimages are assembled manually and do not
+call Rust/WASM/Worker serializers. The RFC 8032 §7.1 Test Vector 1 public key
+and empty-message signature are also verified by Rust and Node. The Result key
+is that published test key, and the receipt keys are deterministic public
+test-only seeds. None is a Production key or trust root. Regenerate or verify
+the fixture from the repository root with:
+
+```sh
+/bin/python3 packages/FUSOU-TLSN-VERIFIER/tools/generate_p010_corpus.py
+/bin/python3 packages/FUSOU-TLSN-VERIFIER/tools/generate_p010_corpus.py --check
+```
+
+Rust consumes the corpus through the actual Result parser, canonical JSON and
+`signing_bytes()` methods, `verify_result_signature`,
+`verify_session_receipt`, and `verify_consume_receipt`. Node consumes the same
+fixture with a test-only JavaScript reference implementation and Node crypto;
+it imports neither Rust/WASM nor production Worker signing helpers. The
+outer Result Registry envelope remains a separate test and is not covered by
+these inner signature vectors. Node-to-WASM Attestation ID tests are another
+separate integration boundary.
+
+These are independent implementation outputs, not an approved normative
+specification: the field layouts were audited from the source at the baseline
+commit, then independently encoded and signed outside the tested Rust/Node
+paths. No external protocol-owner approval or independently published
+Complete/Sparse Result or receipt vector was found. The corpus therefore
+establishes local cross-implementation agreement for the represented
+source-derived contract, not final protocol authority or Production
+acceptance.
+
+Not covered by this corpus: the conflicting eight-field and eleven-field
+ClaimBindingBytes descriptions; receipt JSON canonicalization/unknown-field
+rules; complete TLSN sparse Presentation packed bytes and proof openings; a
+Production-shaped positive Evidence Bundle with a verified trust chain; or
+packaged WASM provenance. Existing synthetic in-memory require_info tests are
+not an independently sourced Presentation fixture or a Production bundle.
 
 The WASM `derive_*_verifier_result_signing_bytes` exports call the Rust
 implementations. `attach_*_verifier_result_signature` checks signature length
 and returns canonical Result JSON; it does not verify the signature. The
-checked-in JavaScript glue is not an independent Result implementation, and
-Node-to-WASM calls do not establish the source provenance of the checked-in
-WASM binary.
+locally present generated JavaScript glue is not an independent Result
+implementation, and Node-to-WASM calls do not establish the source provenance
+of the local WASM binary.
 
-The packaged WASM test has an additional provenance limit. The checked-in
-`wasm-provenance.json` names source commit
+The packaged WASM test has an additional provenance limit. The local,
+Git-ignored `packages/FUSOU-TLSN-VERIFICATION-WORKER/src/wasm/wasm-provenance.json`
+names source commit
 `95923de519fd6d382b596b92c06cff0cebc90987`, which is not an ancestor of the
 audited checkout. Its 554 listed source inputs include 177 paths whose
 recorded hashes differ from the checkout or which are absent; the recorded
 `build-wasm.mjs`, `wasm-provenance.mjs`, and `Cargo.lock` paths are absent.
 The provenance input list does not include `configs.toml`. An earlier offline
 optimized rebuild record using Rust 1.95.0 and wasm-pack 0.13.1 reports
-755,685 bytes versus the checked-in 752,473 bytes, but the rebuilt binary SHA
-was not retained. In this audit, a current-source offline `--no-opt` rebuild
-using Rust 1.95.0 and wasm-pack 0.13.1 completed in an external `/dev/shm`
-target/output directory. The checked-in WASM is 752,473 bytes with SHA-256
+755,685 bytes versus the locally present 752,473-byte artifact, but the rebuilt
+binary SHA was not retained. In this audit, a current-source offline `--no-opt`
+rebuild using Rust 1.95.0 and wasm-pack 0.13.1 completed in an external
+`/dev/shm` target/output directory. The pre-existing local WASM is 752,473
+bytes with SHA-256
 `57ea4e30f684f15c6f22fc26eb0995b9d8b961ba7de6edd82faaaf21dd62ab66`; the
 unoptimized rebuilt WASM is 912,726 bytes with SHA-256
 `8a0a8d6430a3290c05ec4bb2e7420e463ba0b791efbaeed61569053dcc7090a3`.
@@ -222,47 +281,53 @@ Generated JavaScript matched byte-for-byte (SHA-256
 `47c8c02beba71dab4eed1c1dbd29e8a0a874c18dd913bd76a513b38070e1d986`) and
 declarations matched byte-for-byte (SHA-256
 `3a5345bf41c1f8712e2e3e921e8d1809af4d35b163f978abd3fd28580794004f`).
-Because the current environment lacks `wasm-opt`, the new unoptimized output
-is not a comparable reproduction of the optimized artifact. The optimized
-rebuild's hash remains unavailable; the cause of the optimized binary
-difference and artifact/source provenance remain `UNRESOLVED`. No checked-in
-artifact was replaced.
+The current checkout confirms that `src/wasm/.gitignore` ignores the generated
+WASM, JavaScript, declarations, and provenance file; `git ls-files` contains no
+WASM or provenance artifact. The local `src/wasm/fusou_tlsn_verifier_bg.wasm`
+still has the previously recorded 752,473-byte size and SHA-256 above. This
+continuation did not rebuild or modify it. Because the current environment
+lacks `wasm-opt`, the unoptimized output is not a comparable reproduction of
+the optimized artifact. The optimized rebuild's hash remains unavailable;
+the cause of the optimized binary difference and artifact/source provenance
+remain `UNRESOLVED`. The Node/WASM test exercised this pre-existing ignored
+local artifact, not a tracked artifact.
 
 Still missing before P0-10 can pass:
 
-- independent shared vectors for Complete Result v2 and Sparse Result v3,
-  including canonical bytes, signing bytes, and Node consumption/verification;
-- Session receipt, consume receipt, and Claim bytes/field-binding vectors;
-- shared canonical JSON, binary transcript/range, and cross-reference vectors
-  with independently sourced expected bytes;
-- independent Result signer public-key/signature expectations and a verified
-  Production Result generation path; the added Node-to-Rust vector covers only
-  the outer Result registry envelope;
-- matching Rust/Node rejection vectors for invalid UTF-8, missing/unknown/
-  duplicate fields, noncanonical numbers/encoding, malformed ranges, and
-  byte/order mutations.
+- an owner-approved normative Result/receipt field and encoding contract, or
+  externally published golden vectors that resolve any source/spec divergence;
+- the authoritative ClaimBindingBytes layout and independent Claim vectors;
+- an explicit canonical JSON/field-inventory contract for receipt envelopes;
+- a shared, valid TLSN sparse Presentation fixture and independent Node
+  decoding/proof-opening path for the FUSOU-local packed representation;
+- a Production-shaped positive Evidence Bundle and a verified independent
+  trust chain; the corpus registries are direct test-only pins;
+- verified packaged WASM provenance and source/artifact correspondence.
 
-Result vectors must not be created by copying current Rust output into Node
-expectations and calling that independent evidence. Existing local tests that
-call one implementation twice, Runtime Config vectors, and fake signer/store
-tests do not satisfy the missing TLSN protocol corpus.
+The new generator is independent of the tested serializers, but its Result
+and receipt layouts are source-derived rather than owner-approved. Therefore,
+local Rust/Node agreement does not promote P0-10 to PASS.
 
 ## Commands and interpretation
 
 ```sh
-cargo test --manifest-path packages/FUSOU-TLSN-VERIFIER/Cargo.toml --locked --quiet
+cargo test --locked --offline --manifest-path packages/FUSOU-TLSN-VERIFIER/Cargo.toml
+node --test packages/FUSOU-TLSN-VERIFIER/tests/p010-corpus.test.mjs
+/bin/python3 packages/FUSOU-TLSN-VERIFIER/tools/generate_p010_corpus.py --check
 node --test packages/FUSOU-TLSN-VERIFICATION-WORKER/scripts/tlsn-runtime-config-manifest-test.mjs
 node --test packages/FUSOU-TLSN-VERIFICATION-WORKER/scripts/production-evidence-attestation-id-test.mjs
 rustfmt --edition 2021 --check packages/FUSOU-TLSN-VERIFIER/src/evidence_bundle.rs
 git diff --check
 ```
 
-From the repository root, the Rust suite completed with 84 unit tests and 3
-offline CLI integration tests passing; `tlsn-runtime-config-manifest-test.mjs`
+From the repository root, the current Rust suite completed with 90 unit tests
+and 3 offline CLI integration tests passing; the shared Node corpus suite
+completed with 8 tests passing; `tlsn-runtime-config-manifest-test.mjs`
 completed with 21 tests passing, and
-`production-evidence-attestation-id-test.mjs` completed with 5 passing.
-Changed-file rustfmt and `git diff --check` pass. The WASM no-opt build also
-completed but is not an optimized artifact reproduction. Earlier package-wide
+`production-evidence-attestation-id-test.mjs` completed with 5 passing. The
+independent generator's `--check`, changed-file rustfmt, and `git diff --check`
+pass. The WASM no-opt build also completed in the prior audit but is not an
+optimized artifact reproduction. Earlier package-wide
 `cargo fmt -- --check` reported formatting drift in untouched verifier files
 (`src/lib.rs` and `src/wasm.rs`); unrelated formatting was not rewritten.
 Earlier strict Clippy reported existing verifier lints (argument-count,
@@ -270,8 +335,9 @@ borrow, default-initialization, and range-helper diagnostics); Clippy was not
 rerun in this continuation. The first test command attempts in this
 continuation used paths relative to the VS Code package working directory and
 failed to locate repository files; rerunning from the repository root produced
-the results above. These are local source/test checks only. Hosted CI,
-Production operation, R2 service access, Notary service, and real Game Server
-testplay were not performed. P0-03 through P0-09 and P0-11 through P0-17 are
-unchanged. P0-01 independent approval, the remaining P0-10 corpus, real TLSN
-testplay, and Production acceptance remain blocked.
+the results above. These are local source/test checks only. Hosted CI, Production operation, R2 service
+access, Notary service, and real Game Server testplay were not performed.
+P0-03 through P0-09 and P0-11 through P0-17 are unchanged. P0-01 independent
+approval remains `BLOCKED_EXTERNAL_INPUTS`; P0-10 remains `UNRESOLVED` for the
+specific items above; the Phase 0 runtime gate, real TLSN testplay, and
+Production acceptance remain blocked.

@@ -4458,6 +4458,646 @@ mod tests {
     use super::*;
     use k256::elliptic_curve::sec1::ToEncodedPoint;
 
+    fn p010_corpus() -> Value {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("fixtures/p010-cross-language-corpus-v1.json");
+        serde_json::from_slice(&fs::read(path).unwrap()).unwrap()
+    }
+
+    fn p010_hex_bytes(value: &str) -> Vec<u8> {
+        assert_eq!(value.len() % 2, 0);
+        value
+            .as_bytes()
+            .chunks_exact(2)
+            .map(|pair| u8::from_str_radix(std::str::from_utf8(pair).unwrap(), 16).unwrap())
+            .collect()
+    }
+
+    fn p010_range_wire(ranges: &[crate::RevealedRange]) -> Vec<u8> {
+        let mut output = (ranges.len() as u32).to_be_bytes().to_vec();
+        for range in ranges {
+            output.extend_from_slice(&range.start.to_be_bytes());
+            output.extend_from_slice(&range.length.to_be_bytes());
+            output.extend_from_slice(&(range.bytes.len() as u64).to_be_bytes());
+            output.extend_from_slice(&range.bytes);
+        }
+        output
+    }
+
+    fn p010_registry_and_manifest(
+        corpus: &Value,
+    ) -> (Value, Vec<RegistryKey>, Value, String, i128) {
+        let signer = &corpus["result_signer"];
+        let registry_raw = signer["registry_json_utf8"].as_str().unwrap().as_bytes();
+        let registry: Value = serde_json::from_slice(registry_raw).unwrap();
+        let registry_hash = sha256_base64url(registry_raw);
+        assert_eq!(
+            registry_hash,
+            signer["registry_sha256_base64url"].as_str().unwrap()
+        );
+        assert_eq!(
+            hex_digest(registry_raw),
+            signer["registry_sha256_hex"].as_str().unwrap()
+        );
+        let keys = validate_result_registry(&registry).unwrap();
+        let manifest = serde_json::json!({
+            "result_identity": {
+                "result_key_registry_sha256": registry_hash,
+                "result_signer_key_id": signer["key_id"],
+                "result_public_key_spki": signer["public_key_spki_hex"]
+                    .as_str()
+                    .map(|hex| URL_SAFE_NO_PAD.encode(p010_hex_bytes(hex)))
+                    .unwrap(),
+            }
+        });
+        let capture_time = parse_timestamp(corpus["capture_time"].as_str().unwrap()).unwrap();
+        (registry, keys, manifest, registry_hash, capture_time)
+    }
+
+    fn p010_verify_result_signature(
+        manifest: &Value,
+        result: &ParsedVerifierResult,
+        keys: &[RegistryKey],
+        registry_hash: &str,
+        capture_time: i128,
+    ) -> Result<ResolvedResultKey> {
+        match result {
+            ParsedVerifierResult::Complete(result) => {
+                verify_result_signature(manifest, result, keys, registry_hash, capture_time)
+            }
+            ParsedVerifierResult::Sparse(result) => {
+                verify_result_signature(manifest, result, keys, registry_hash, capture_time)
+            }
+        }
+    }
+
+    #[test]
+    fn shared_result_vectors_match_rust_bytes_and_verify_inner_signatures() {
+        let corpus = p010_corpus();
+        let primitive = &corpus["primitive_reference"];
+        UnparsedPublicKey::new(
+            &ED25519,
+            p010_hex_bytes(primitive["public_key_raw_hex"].as_str().unwrap()),
+        )
+        .verify(
+            &p010_hex_bytes(primitive["message_hex"].as_str().unwrap()),
+            &p010_hex_bytes(primitive["signature_hex"].as_str().unwrap()),
+        )
+        .unwrap();
+        let (_registry, keys, manifest, registry_hash, capture_time) =
+            p010_registry_and_manifest(&corpus);
+        let vectors = corpus["vectors"].as_array().unwrap();
+        let result_vectors = vectors
+            .iter()
+            .filter(|vector| {
+                vector["contract"].as_str().unwrap().ends_with("-v2")
+                    || vector["contract"].as_str().unwrap().ends_with("-v3")
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            result_vectors.len(),
+            2,
+            "corpus must contain Complete v2 and Sparse v3 vectors"
+        );
+
+        for vector in result_vectors {
+            assert_eq!(vector["test_only"].as_bool(), Some(true));
+            let raw = vector["input"]["result_json_utf8"]
+                .as_str()
+                .unwrap()
+                .as_bytes();
+            let parsed = parse_result_profile(raw).unwrap();
+            let (contract, canonical_json, signing_bytes, signature) = match &parsed {
+                ParsedVerifierResult::Complete(result) => (
+                    "complete-result-v2",
+                    result.canonical_json().unwrap(),
+                    result.signing_bytes().unwrap(),
+                    result.signature.to_vec(),
+                ),
+                ParsedVerifierResult::Sparse(result) => (
+                    "sparse-result-v3",
+                    result.canonical_json().unwrap(),
+                    result.signing_bytes().unwrap(),
+                    result.signature.to_vec(),
+                ),
+            };
+            assert_eq!(contract, vector["contract"].as_str().unwrap());
+            assert_eq!(
+                canonical_json,
+                vector["expected"]["canonical_json_utf8"].as_str().unwrap()
+            );
+            assert_eq!(canonical_json.as_bytes(), raw);
+            assert_eq!(
+                hex_digest(canonical_json.as_bytes()),
+                vector["expected"]["canonical_json_sha256_hex"]
+                    .as_str()
+                    .unwrap()
+            );
+            assert_eq!(
+                hex_digest(&signing_bytes),
+                vector["expected"]["signing_bytes_sha256_hex"]
+                    .as_str()
+                    .unwrap()
+            );
+            assert_eq!(
+                signing_bytes,
+                p010_hex_bytes(vector["expected"]["signing_bytes_hex"].as_str().unwrap())
+            );
+            assert_eq!(
+                signature,
+                p010_hex_bytes(vector["expected"]["signature_hex"].as_str().unwrap())
+            );
+            assert_eq!(
+                URL_SAFE_NO_PAD.encode(&signature),
+                vector["expected"]["signature_base64url"].as_str().unwrap()
+            );
+            let (request_ranges, response_ranges) = match &parsed {
+                ParsedVerifierResult::Complete(result) => (
+                    result.revealed_request_ranges.as_slice(),
+                    result.revealed_response_ranges.as_slice(),
+                ),
+                ParsedVerifierResult::Sparse(result) => (
+                    result.revealed_request_ranges.as_slice(),
+                    result.revealed_response_ranges.as_slice(),
+                ),
+            };
+            assert_eq!(
+                p010_range_wire(request_ranges),
+                p010_hex_bytes(
+                    vector["expected"]["request_ranges_wire_hex"]
+                        .as_str()
+                        .unwrap()
+                )
+            );
+            assert_eq!(
+                p010_range_wire(response_ranges),
+                p010_hex_bytes(
+                    vector["expected"]["response_ranges_wire_hex"]
+                        .as_str()
+                        .unwrap()
+                )
+            );
+            let resolved = p010_verify_result_signature(
+                &manifest,
+                &parsed,
+                &keys,
+                &registry_hash,
+                capture_time,
+            )
+            .unwrap();
+            assert_eq!(
+                resolved.key_id,
+                corpus["result_signer"]["key_id"].as_str().unwrap()
+            );
+
+            if let ParsedVerifierResult::Complete(result) = &parsed {
+                let request = URL_SAFE_NO_PAD
+                    .decode(
+                        vector["input"]["request_transcript_base64url"]
+                            .as_str()
+                            .unwrap(),
+                    )
+                    .unwrap();
+                let response = URL_SAFE_NO_PAD
+                    .decode(
+                        vector["input"]["response_transcript_base64url"]
+                            .as_str()
+                            .unwrap(),
+                    )
+                    .unwrap();
+                crate::verify_transcript_digest(
+                    &request,
+                    result.request_transcript_size,
+                    &result.request_transcript_sha256,
+                    &result.revealed_request_ranges,
+                )
+                .unwrap();
+                crate::verify_transcript_digest(
+                    &response,
+                    result.response_transcript_size,
+                    &result.response_transcript_sha256,
+                    &result.revealed_response_ranges,
+                )
+                .unwrap();
+            }
+        }
+    }
+
+    #[test]
+    fn shared_result_and_receipt_vectors_preserve_cross_references() {
+        let corpus = p010_corpus();
+        let vectors = corpus["vectors"].as_array().unwrap();
+        let complete = vectors
+            .iter()
+            .find(|vector| vector["contract"] == "complete-result-v2")
+            .unwrap();
+        let sparse = vectors
+            .iter()
+            .find(|vector| vector["contract"] == "sparse-result-v3")
+            .unwrap();
+        let session: Value = serde_json::from_str(
+            vectors
+                .iter()
+                .find(|vector| vector["contract"] == "session-receipt-v1")
+                .unwrap()["input"]["receipt_json_utf8"]
+                .as_str()
+                .unwrap(),
+        )
+        .unwrap();
+        let consume: Value = serde_json::from_str(
+            vectors
+                .iter()
+                .find(|vector| vector["contract"] == "consume-receipt-v1")
+                .unwrap()["input"]["receipt_json_utf8"]
+                .as_str()
+                .unwrap(),
+        )
+        .unwrap();
+
+        for vector in [complete, sparse] {
+            let result: Value =
+                serde_json::from_str(vector["input"]["result_json_utf8"].as_str().unwrap())
+                    .unwrap();
+            for (result_field, receipt_field) in [
+                ("attestation_session_id", "session_id"),
+                ("canonical_user_id", "canonical_user_id"),
+                ("device_id", "device_id"),
+                ("binding_nonce", "nonce"),
+                ("device_challenge", "device_challenge"),
+                ("binding_value", "binding_value"),
+            ] {
+                assert_eq!(
+                    result[result_field], session[receipt_field],
+                    "cross-reference mismatch: {result_field}"
+                );
+            }
+            assert_eq!(result["presentation_sha256"], consume["presentation_id"]);
+        }
+    }
+
+    #[test]
+    fn shared_result_rejection_corpus_rejects_noncanonical_and_invalid_inputs() {
+        let corpus = p010_corpus();
+        assert_eq!(
+            corpus["result_rejection_vectors_count"].as_u64().unwrap() as usize,
+            corpus["result_rejection_vectors"].as_array().unwrap().len()
+        );
+        for vector in corpus["result_rejection_vectors"].as_array().unwrap() {
+            let raw = p010_hex_bytes(vector["raw_json_hex"].as_str().unwrap());
+            assert!(
+                parse_result_profile(&raw).is_err(),
+                "{}",
+                vector["case_id"].as_str().unwrap()
+            );
+        }
+    }
+
+    #[test]
+    fn result_signature_rejects_payload_signature_key_and_manifest_mutations() {
+        let corpus = p010_corpus();
+        let (_registry, keys, manifest, registry_hash, capture_time) =
+            p010_registry_and_manifest(&corpus);
+        let vector = corpus["vectors"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|vector| vector["contract"] == "complete-result-v2")
+            .unwrap();
+        let raw = vector["input"]["result_json_utf8"]
+            .as_str()
+            .unwrap()
+            .as_bytes();
+        let parsed = parse_result_profile(raw).unwrap();
+        assert!(p010_verify_result_signature(
+            &manifest,
+            &parsed,
+            &keys,
+            &registry_hash,
+            capture_time
+        )
+        .is_ok());
+
+        let mut changed_payload = parse_result_profile(raw).unwrap();
+        match &mut changed_payload {
+            ParsedVerifierResult::Complete(result) => {
+                result.server_identity = "other.example.test".to_owned()
+            }
+            ParsedVerifierResult::Sparse(result) => {
+                result.server_identity = "other.example.test".to_owned()
+            }
+        }
+        assert!(p010_verify_result_signature(
+            &manifest,
+            &changed_payload,
+            &keys,
+            &registry_hash,
+            capture_time
+        )
+        .is_err());
+
+        let mut changed_signed_key_id = parse_result_profile(raw).unwrap();
+        match &mut changed_signed_key_id {
+            ParsedVerifierResult::Complete(result) => {
+                result.verifier_key_id = "p010-result-other-test-v1".to_owned()
+            }
+            ParsedVerifierResult::Sparse(result) => {
+                result.verifier_key_id = "p010-result-other-test-v1".to_owned()
+            }
+        }
+        assert!(p010_verify_result_signature(
+            &manifest,
+            &changed_signed_key_id,
+            &keys,
+            &registry_hash,
+            capture_time
+        )
+        .is_err());
+
+        let mut changed_signature = parse_result_profile(raw).unwrap();
+        match &mut changed_signature {
+            ParsedVerifierResult::Complete(result) => result.signature[0] ^= 1,
+            ParsedVerifierResult::Sparse(result) => result.signature[0] ^= 1,
+        }
+        assert!(p010_verify_result_signature(
+            &manifest,
+            &changed_signature,
+            &keys,
+            &registry_hash,
+            capture_time
+        )
+        .is_err());
+
+        let mut wrong_registry_hash = manifest.clone();
+        wrong_registry_hash["result_identity"]["result_key_registry_sha256"] =
+            Value::String("wrong-registry-hash".to_owned());
+        assert!(p010_verify_result_signature(
+            &manifest,
+            &parsed,
+            &keys,
+            "wrong-registry-hash",
+            capture_time
+        )
+        .is_err());
+        assert!(p010_verify_result_signature(
+            &wrong_registry_hash,
+            &parsed,
+            &keys,
+            &registry_hash,
+            capture_time
+        )
+        .is_err());
+
+        let mut wrong_key_id_manifest = manifest.clone();
+        wrong_key_id_manifest["result_identity"]["result_signer_key_id"] =
+            Value::String("p010-wrong-key-id-test-v1".to_owned());
+        assert!(p010_verify_result_signature(
+            &wrong_key_id_manifest,
+            &parsed,
+            &keys,
+            &registry_hash,
+            capture_time
+        )
+        .is_err());
+
+        let mut wrong_public_key_manifest = manifest.clone();
+        let session_vector = corpus["vectors"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|vector| vector["contract"] == "session-receipt-v1")
+            .unwrap();
+        wrong_public_key_manifest["result_identity"]["result_public_key_spki"] = Value::String(
+            URL_SAFE_NO_PAD.encode(p010_hex_bytes(
+                session_vector["signer"]["public_key_spki_hex"]
+                    .as_str()
+                    .unwrap(),
+            )),
+        );
+        assert!(p010_verify_result_signature(
+            &wrong_public_key_manifest,
+            &parsed,
+            &keys,
+            &registry_hash,
+            capture_time
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn shared_receipt_vectors_match_rust_preimages_and_verify() {
+        let corpus = p010_corpus();
+        for vector in corpus["vectors"].as_array().unwrap() {
+            let contract = vector["contract"].as_str().unwrap();
+            if contract != "session-receipt-v1" && contract != "consume-receipt-v1" {
+                continue;
+            }
+            assert_eq!(vector["test_only"].as_bool(), Some(true));
+            let receipt_raw = vector["input"]["receipt_json_utf8"].as_str().unwrap();
+            let session_raw = vector["input"]["session_json_utf8"].as_str().unwrap();
+            let registry_raw = vector["signer"]["registry_json_utf8"].as_str().unwrap();
+            let receipt: Value = serde_json::from_str(receipt_raw).unwrap();
+            let session: Value = serde_json::from_str(session_raw).unwrap();
+            let registry: Value = serde_json::from_str(registry_raw).unwrap();
+            assert_eq!(
+                hex_digest(receipt_raw.as_bytes()),
+                vector["expected"]["receipt_json_sha256_hex"]
+                    .as_str()
+                    .unwrap()
+            );
+            assert_eq!(
+                hex_digest(session_raw.as_bytes()),
+                vector["expected"]["session_json_sha256_hex"]
+                    .as_str()
+                    .unwrap()
+            );
+            assert_eq!(
+                hex_digest(registry_raw.as_bytes()),
+                vector["signer"]["registry_sha256_hex"].as_str().unwrap()
+            );
+            let signer = &vector["signer"];
+            let key_id = signer["key_id"].as_str().unwrap();
+            let public_key_spki = URL_SAFE_NO_PAD.encode(p010_hex_bytes(
+                signer["public_key_spki_hex"].as_str().unwrap(),
+            ));
+            let scope = signer["registry_scope"].as_str().unwrap();
+            validate_authority_registry(&registry, scope, key_id, &public_key_spki, "P0-10 test")
+                .unwrap();
+
+            let (signing_bytes, signature) = if contract == "session-receipt-v1" {
+                let bytes = session_receipt_signing_bytes(&receipt).unwrap();
+                verify_session_receipt(
+                    &receipt,
+                    &session,
+                    vector["input"]["canonical_user_id"].as_str().unwrap(),
+                    vector["input"]["device_auth_nonce"].as_str().unwrap(),
+                    &registry,
+                    key_id,
+                    &public_key_spki,
+                )
+                .unwrap();
+                (
+                    bytes,
+                    URL_SAFE_NO_PAD
+                        .decode(receipt["signature"].as_str().unwrap())
+                        .unwrap(),
+                )
+            } else {
+                let bytes = consume_receipt_signing_bytes(&receipt).unwrap();
+                let presentation_raw =
+                    p010_hex_bytes(vector["input"]["presentation_raw_hex"].as_str().unwrap());
+                let presentation_id = sha256_base64url(&presentation_raw);
+                assert_eq!(
+                    presentation_id,
+                    vector["input"]["presentation_id"].as_str().unwrap()
+                );
+                verify_consume_receipt(
+                    &receipt,
+                    &session,
+                    vector["input"]["canonical_user_id"].as_str().unwrap(),
+                    presentation_id,
+                    &registry,
+                    key_id,
+                    &public_key_spki,
+                )
+                .unwrap();
+                (
+                    bytes,
+                    URL_SAFE_NO_PAD
+                        .decode(receipt["signature"].as_str().unwrap())
+                        .unwrap(),
+                )
+            };
+            assert_eq!(
+                hex_digest(&signing_bytes),
+                vector["expected"]["signing_bytes_sha256_hex"]
+                    .as_str()
+                    .unwrap()
+            );
+            assert_eq!(
+                signing_bytes,
+                p010_hex_bytes(vector["expected"]["signing_bytes_hex"].as_str().unwrap())
+            );
+            assert_eq!(
+                signature,
+                p010_hex_bytes(vector["expected"]["signature_hex"].as_str().unwrap())
+            );
+            assert_eq!(
+                URL_SAFE_NO_PAD.encode(signature),
+                vector["expected"]["signature_base64url"].as_str().unwrap()
+            );
+
+            let mut invalid_signature = URL_SAFE_NO_PAD
+                .decode(receipt["signature"].as_str().unwrap())
+                .unwrap();
+            invalid_signature[0] ^= 1;
+            let mut invalid_receipt = receipt.clone();
+            invalid_receipt["signature"] = Value::String(URL_SAFE_NO_PAD.encode(invalid_signature));
+            let invalid_signature_result = if contract == "session-receipt-v1" {
+                verify_session_receipt(
+                    &invalid_receipt,
+                    &session,
+                    vector["input"]["canonical_user_id"].as_str().unwrap(),
+                    vector["input"]["device_auth_nonce"].as_str().unwrap(),
+                    &registry,
+                    key_id,
+                    &public_key_spki,
+                )
+            } else {
+                let presentation_raw =
+                    p010_hex_bytes(vector["input"]["presentation_raw_hex"].as_str().unwrap());
+                verify_consume_receipt(
+                    &invalid_receipt,
+                    &session,
+                    vector["input"]["canonical_user_id"].as_str().unwrap(),
+                    sha256_base64url(&presentation_raw),
+                    &registry,
+                    key_id,
+                    &public_key_spki,
+                )
+            };
+            assert!(invalid_signature_result.is_err());
+
+            let result_signer_spki = URL_SAFE_NO_PAD.encode(p010_hex_bytes(
+                corpus["result_signer"]["public_key_spki_hex"]
+                    .as_str()
+                    .unwrap(),
+            ));
+            assert!(validate_authority_registry(
+                &registry,
+                scope,
+                key_id,
+                &result_signer_spki,
+                "P0-10 mutated authority pin"
+            )
+            .is_err());
+            assert!(validate_authority_registry(
+                &registry,
+                scope,
+                "p010-mutated-authority-key-v1",
+                &public_key_spki,
+                "P0-10 mutated authority key ID"
+            )
+            .is_err());
+        }
+    }
+
+    #[test]
+    fn shared_receipt_rejection_cases_reject_identity_timestamp_and_signature_mutations() {
+        let corpus = p010_corpus();
+        let vectors = corpus["vectors"].as_array().unwrap();
+        for mutation in corpus["receipt_rejection_cases"].as_array().unwrap() {
+            let vector = vectors
+                .iter()
+                .find(|vector| vector["vector_id"] == mutation["vector_id"])
+                .unwrap();
+            let contract = vector["contract"].as_str().unwrap();
+            let mut receipt: Value =
+                serde_json::from_str(vector["input"]["receipt_json_utf8"].as_str().unwrap())
+                    .unwrap();
+            let mut session: Value =
+                serde_json::from_str(vector["input"]["session_json_utf8"].as_str().unwrap())
+                    .unwrap();
+            let target = if mutation["target"] == "receipt" {
+                &mut receipt
+            } else {
+                &mut session
+            };
+            target[mutation["field"].as_str().unwrap()] =
+                Value::String(mutation["replacement"].as_str().unwrap().to_owned());
+            let signer = &vector["signer"];
+            let registry: Value =
+                serde_json::from_str(signer["registry_json_utf8"].as_str().unwrap()).unwrap();
+            let key_id = signer["key_id"].as_str().unwrap();
+            let public_key_spki = URL_SAFE_NO_PAD.encode(p010_hex_bytes(
+                signer["public_key_spki_hex"].as_str().unwrap(),
+            ));
+            let result = if contract == "session-receipt-v1" {
+                verify_session_receipt(
+                    &receipt,
+                    &session,
+                    vector["input"]["canonical_user_id"].as_str().unwrap(),
+                    vector["input"]["device_auth_nonce"].as_str().unwrap(),
+                    &registry,
+                    key_id,
+                    &public_key_spki,
+                )
+            } else {
+                let presentation_raw =
+                    p010_hex_bytes(vector["input"]["presentation_raw_hex"].as_str().unwrap());
+                verify_consume_receipt(
+                    &receipt,
+                    &session,
+                    vector["input"]["canonical_user_id"].as_str().unwrap(),
+                    sha256_base64url(&presentation_raw),
+                    &registry,
+                    key_id,
+                    &public_key_spki,
+                )
+            };
+            assert!(result.is_err(), "{}", mutation["case_id"].as_str().unwrap());
+        }
+    }
+
     #[test]
     fn canonical_json_sorts_nested_object_keys() {
         let value = serde_json::json!({"z": 1, "a": {"y": true, "b": ["x", 2]}});
