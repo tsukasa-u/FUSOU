@@ -14,7 +14,7 @@
  *   node scripts/seed-local-ship-growth-data.mjs --db <database_name> --no-r2
  */
 
-import { execFileSync, execSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, writeFileSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 
