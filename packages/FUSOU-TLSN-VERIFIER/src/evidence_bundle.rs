@@ -4468,6 +4468,90 @@ mod tests {
     }
 
     #[test]
+    fn node_produced_result_registry_envelope_vector_verifies_in_rust() {
+        let vector_path = Path::new(env!("CARGO_MANIFEST_DIR")).join(
+            "../FUSOU-TLSN-VERIFICATION-WORKER/scripts/fixtures/tlsn-runtime-config-independent-v2-vector.json",
+        );
+        let vector: Value = serde_json::from_slice(&fs::read(vector_path).unwrap()).unwrap();
+        assert_eq!(vector["test_only"].as_bool(), Some(true));
+
+        let runtime_envelope: Value =
+            serde_json::from_str(vector["manifest_envelope_utf8"].as_str().unwrap()).unwrap();
+        let runtime_payload_bytes = URL_SAFE_NO_PAD
+            .decode(runtime_envelope["payload_base64url"].as_str().unwrap())
+            .unwrap();
+        let runtime_payload: Value = serde_json::from_slice(&runtime_payload_bytes).unwrap();
+        let pins = &runtime_payload["result_registry_pins"];
+
+        let envelope_raw = URL_SAFE_NO_PAD
+            .decode(
+                vector["inputs_base64url"]["result_registry_envelope_raw"]
+                    .as_str()
+                    .unwrap(),
+            )
+            .unwrap();
+        let envelope: Value = serde_json::from_slice(&envelope_raw).unwrap();
+        let registry_raw = runtime_payload["compile_inputs"]
+            ["FUSOU_TLSN_RESULT_SIGNING_KEY_REGISTRY"]
+            .as_str()
+            .unwrap()
+            .as_bytes()
+            .to_vec();
+        let registry: Value = serde_json::from_slice(&registry_raw).unwrap();
+        let root_key_id = pins["result_registry_root_key_id"].as_str().unwrap();
+        let root_public_key_spki = pins["result_registry_root_public_key_spki"]
+            .as_str()
+            .unwrap();
+        let envelope_sha256 = pins["result_registry_envelope_sha256"].as_str().unwrap();
+        let manifest = serde_json::json!({
+            "artifacts": {
+                "result_registry_envelope": {
+                    "artifact_sha256": envelope_sha256,
+                }
+            },
+            "result_identity": {
+                "result_key_registry_sha256": pins["result_registry_sha256"],
+                "result_key_registry_envelope_sha256": envelope_sha256,
+                "result_registry_root_key_id": root_key_id,
+                "result_registry_root_public_key_spki": root_public_key_spki,
+            }
+        });
+
+        let registry_sha256 = verify_result_registry_root(
+            &manifest,
+            &registry,
+            &registry_raw,
+            &envelope,
+            &envelope_raw,
+            root_key_id,
+            root_public_key_spki,
+        )
+        .unwrap();
+        assert_eq!(
+            registry_sha256,
+            pins["result_registry_sha256"].as_str().unwrap()
+        );
+
+        let mut tampered_envelope = envelope.clone();
+        let mut tampered_signature = URL_SAFE_NO_PAD
+            .decode(tampered_envelope["signature_base64url"].as_str().unwrap())
+            .unwrap();
+        tampered_signature[0] ^= 1;
+        tampered_envelope["signature_base64url"] =
+            Value::String(URL_SAFE_NO_PAD.encode(tampered_signature));
+        assert!(verify_result_registry_root(
+            &manifest,
+            &registry,
+            &registry_raw,
+            &tampered_envelope,
+            &envelope_raw,
+            root_key_id,
+            root_public_key_spki,
+        )
+        .is_err());
+    }
+
+    #[test]
     fn timestamp_order_is_independent_of_current_time() {
         assert!(
             parse_timestamp("2026-09-01T00:00:00.000Z").unwrap()

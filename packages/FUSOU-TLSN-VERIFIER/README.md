@@ -148,6 +148,45 @@ that do not match the audited checkout; the packaged-binary test does not
 establish that the binary is reproducible from current source. No generated
 WASM artifact was replaced during this audit.
 
+### P0-10 cross-language audit checkpoint
+
+This audit started on `tlsn-first-testplay-candidate` at
+`ef8bb412bd591cef84a1159e0f5edc2efe9c305b`; the local upstream ref matched
+that HEAD. The only pre-existing worktree change was the user-owned
+`packages/FUSOU-APP/src-tauri/roaming/user/configs.toml`. Its contents were not
+read, and it was not modified, staged, or committed.
+
+Rust now consumes the Node-produced, `test_only` outer Result registry
+envelope from `tlsn-runtime-config-independent-v2-vector.json`, verifies it
+against the test-vector-supplied root pins, and rejects a mutated signature
+byte. The Node Runtime Config manifest test exercises the same envelope. This
+is outer-envelope interoperability only: the Rust test does not independently
+authenticate the Runtime Config envelope supplying its pins, and this vector
+does not cover Complete Result v2/Sparse Result v3 signing bytes or their
+inner signatures. The Node `production-evidence-contract.mjs` remains a
+semantic binding checker; deployment metadata mentioning `signResult` is not
+an executable Result signer.
+
+The audit record lists the exact Result v2/v3 domains and byte framing,
+WASM/Rust/Node responsibilities, receipt domains, packed-range encoding, and
+the unresolved conflicting Claim layouts in
+[`tlsnotary-alpha15-revision-attestation-id-interoperability-audit.md`](../../docs/implementation-plans/tlsnotary-alpha15-revision-attestation-id-interoperability-audit.md).
+It also records the current-source offline `--no-opt` rebuild: generated JS
+and declarations match the checked-in files byte-for-byte, but the 912,726
+byte unoptimized WASM differs from the 752,473 byte checked-in optimized
+artifact. `wasm-opt` was unavailable, and the provenance-declared source
+commit/input hashes still do not map to this checkout. Artifact provenance
+therefore remains unresolved.
+
+Local checks for this checkpoint: Rust verifier suite **84 unit + 3 CLI
+integration tests passed**; Node Runtime Config manifest suite **21 passed**;
+Node/WASM Attestation ID suite **5 passed**. These do not make P0-10 pass:
+Complete/Sparse Result, Session/consume receipts, Claim, canonical JSON, and
+packed transcript ranges still lack the required independent shared corpus.
+P0-10 remains `UNRESOLVED`; Hosted CI, Production runtime verification, and
+real Game Server testplay were not run, and Production acceptance remains
+blocked.
+
 The production server-identity allowlist registry is also not linked. Its
 constructor therefore rejects every identity until that trusted registry is
 provided. Only test-only mock plumbing can create a profile for local parser
